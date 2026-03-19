@@ -148,12 +148,13 @@ export class Viewport {
     return result;
   }
 
-  addImage(src: string, position: { x: number; y: number }, size = { w: 300, h: 200 }): void {
+  addImage(src: string, position: { x: number; y: number }, size = { w: 300, h: 200 }): string {
     const image = createImage({ position, size, src });
     this.historyRecorder.begin();
     this.store.add(image);
     this.historyRecorder.commit();
     this.requestRender();
+    return image.id;
   }
 
   addHtmlElement(
