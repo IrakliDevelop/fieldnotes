@@ -5,3 +5,4 @@ coverage/
 .turbo/
 .DS_Store
 *.local
+.worktrees/
