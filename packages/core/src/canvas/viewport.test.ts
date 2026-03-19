@@ -67,4 +67,26 @@ describe('Viewport', () => {
     expect(viewport.domLayer.style.transform).toContain('translate3d');
     viewport.destroy();
   });
+
+  it('addImage returns the element ID', () => {
+    const viewport = new Viewport(container);
+    const id = viewport.addImage('data:image/png;base64,abc', { x: 0, y: 0 });
+    expect(typeof id).toBe('string');
+    expect(id.length).toBeGreaterThan(0);
+    const el = viewport.store.getById(id);
+    expect(el).toBeDefined();
+    expect(el?.type).toBe('image');
+    viewport.destroy();
+  });
+
+  it('addHtmlElement returns the element ID', () => {
+    const viewport = new Viewport(container);
+    const dom = document.createElement('div');
+    const id = viewport.addHtmlElement(dom, { x: 0, y: 0 });
+    expect(typeof id).toBe('string');
+    const el = viewport.store.getById(id);
+    expect(el).toBeDefined();
+    expect(el?.type).toBe('html');
+    viewport.destroy();
+  });
 });
