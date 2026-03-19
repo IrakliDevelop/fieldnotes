@@ -10,7 +10,7 @@ export interface BackgroundOptions {
   lineWidth?: number;
 }
 
-const MIN_PATTERN_SPACING = 8;
+const MIN_PATTERN_SPACING = 16;
 
 const DEFAULTS = {
   pattern: 'dots' as BackgroundPattern,
@@ -53,16 +53,21 @@ export class Background {
     ctx.restore();
   }
 
+  private adaptSpacing(baseSpacing: number, zoom: number): number {
+    let spacing = baseSpacing * zoom;
+    while (spacing < MIN_PATTERN_SPACING) {
+      spacing *= 2;
+    }
+    return spacing;
+  }
+
   private renderDots(
     ctx: CanvasRenderingContext2D,
     camera: Camera,
     width: number,
     height: number,
   ): void {
-    const spacing = this.spacing * camera.zoom;
-
-    if (spacing < MIN_PATTERN_SPACING) return;
-
+    const spacing = this.adaptSpacing(this.spacing, camera.zoom);
     const offsetX = camera.position.x % spacing;
     const offsetY = camera.position.y % spacing;
     const radius = this.dotRadius * Math.min(camera.zoom, 2);
@@ -86,10 +91,7 @@ export class Background {
     width: number,
     height: number,
   ): void {
-    const spacing = this.spacing * camera.zoom;
-
-    if (spacing < MIN_PATTERN_SPACING) return;
-
+    const spacing = this.adaptSpacing(this.spacing, camera.zoom);
     const offsetX = camera.position.x % spacing;
     const offsetY = camera.position.y % spacing;
     const lineW = this.lineWidth * Math.min(camera.zoom, 2);
