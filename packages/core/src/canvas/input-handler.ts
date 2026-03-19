@@ -66,9 +66,13 @@ export class InputHandler {
 
   private onWheel = (e: WheelEvent): void => {
     e.preventDefault();
+    const rect = this.element.getBoundingClientRect();
     const zoomFactor = 1 - e.deltaY * ZOOM_SENSITIVITY;
     const newZoom = this.camera.zoom * zoomFactor;
-    this.camera.zoomAt(newZoom, { x: e.clientX, y: e.clientY });
+    this.camera.zoomAt(newZoom, {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+    });
   };
 
   private isInteractiveHtmlContent(e: PointerEvent): boolean {
@@ -230,7 +234,12 @@ export class InputHandler {
   }
 
   private toPointerState(e: PointerEvent): PointerState {
-    return { x: e.clientX, y: e.clientY, pressure: e.pressure };
+    const rect = this.element.getBoundingClientRect();
+    return {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+      pressure: e.pressure,
+    };
   }
 
   private dispatchToolDown(e: PointerEvent): void {
