@@ -14,10 +14,10 @@ Field Notes fills the gap: an open-source, zero-dependency canvas SDK that treat
 
 ## Packages
 
-| Package                             | Description                                            |
-| ----------------------------------- | ------------------------------------------------------ |
-| [`@fieldnotes/core`](packages/core) | Vanilla TypeScript canvas engine — zero framework deps |
-| `@fieldnotes/react`                 | React wrapper (coming soon)                            |
+| Package                               | Description                                            |
+| ------------------------------------- | ------------------------------------------------------ |
+| [`@fieldnotes/core`](packages/core)   | Vanilla TypeScript canvas engine — zero framework deps |
+| [`@fieldnotes/react`](packages/react) | React bindings — components, hooks, portal embedding   |
 
 ## Quick Start
 
@@ -53,6 +53,43 @@ viewport.addHtmlElement(widget, { x: 100, y: 200 });
 ```
 
 See [`@fieldnotes/core` README](packages/core/README.md) for the full API documentation.
+
+### React
+
+```bash
+npm install @fieldnotes/core @fieldnotes/react
+```
+
+```tsx
+import { FieldNotesCanvas, CanvasElement, useCamera } from '@fieldnotes/react';
+import { SelectTool, PencilTool, HandTool } from '@fieldnotes/core';
+
+function App() {
+  return (
+    <FieldNotesCanvas
+      tools={[new SelectTool(), new PencilTool(), new HandTool()]}
+      defaultTool="select"
+      style={{ width: '100vw', height: '100vh' }}
+    >
+      <CanvasElement position={{ x: 100, y: 200 }} size={{ w: 300, h: 200 }}>
+        <MyReactComponent />
+      </CanvasElement>
+      <CameraInfo />
+    </FieldNotesCanvas>
+  );
+}
+
+function CameraInfo() {
+  const { x, y, zoom } = useCamera();
+  return (
+    <div>
+      {zoom.toFixed(2)}x at ({x.toFixed(0)}, {y.toFixed(0)})
+    </div>
+  );
+}
+```
+
+Embedded React components are fully interactive and pan/zoom with the canvas. See [`@fieldnotes/react` README](packages/react/README.md) for the full API.
 
 ## Features
 
