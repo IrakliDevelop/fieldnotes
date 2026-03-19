@@ -4,12 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Parchment Canvas — a lightweight, framework-agnostic infinite canvas SDK for the web with first-class HTML element embedding. See `PROJECT.md` for full architecture, data model, API surface, and roadmap.
+Field Notes — a lightweight, framework-agnostic infinite canvas SDK for the web with first-class HTML element embedding. See `PROJECT.md` for full architecture, data model, API surface, and roadmap.
 
 ## Monorepo Layout
 
-- `packages/core/` — `@parchment-canvas/core`, vanilla TypeScript engine (zero framework deps)
-- `packages/react/` — `@parchment-canvas/react`, thin React wrapper
+- `packages/core/` — `@fieldnotes/core`, vanilla TypeScript engine (zero framework deps)
+- `packages/react/` — `@fieldnotes/react`, thin React wrapper
 - `demo/` — plain HTML dev playground
 - pnpm workspaces for package management
 
@@ -23,13 +23,13 @@ pnpm lint                                       # lint all packages
 pnpm format                                     # format all files
 
 # per-package
-pnpm --filter @parchment-canvas/core build      # build core
-pnpm --filter @parchment-canvas/core test       # test core
-pnpm --filter @parchment-canvas/core test:watch # test core in watch mode
-pnpm --filter @parchment-canvas/react build     # build react wrapper
+pnpm --filter @fieldnotes/core build      # build core
+pnpm --filter @fieldnotes/core test       # test core
+pnpm --filter @fieldnotes/core test:watch # test core in watch mode
+pnpm --filter @fieldnotes/react build     # build react wrapper
 
 # single test file
-pnpm --filter @parchment-canvas/core test -- src/path/to/file.test.ts
+pnpm --filter @fieldnotes/core test -- src/path/to/file.test.ts
 ```
 
 ## Architecture
@@ -70,7 +70,7 @@ This SDK targets desktop (mouse), iPad (touch + Apple Pencil), Android tablets, 
 
 - Vitest with jsdom where DOM is needed (`// @vitest-environment jsdom` at top of test file)
 - Tests co-located: `foo.ts` → `foo.test.ts`
-- Run single test: `pnpm --filter @parchment-canvas/core vitest run src/tools/select-tool.test.ts`
+- Run single test: `pnpm --filter @fieldnotes/core vitest run src/tools/select-tool.test.ts`
 
 ## Code Standards
 
@@ -84,4 +84,4 @@ This SDK targets desktop (mouse), iPad (touch + Apple Pencil), Android tablets, 
 
 **TypeScript strict mode** — no `any`, no type assertions unless absolutely necessary. Leverage discriminated unions for element types.
 
-**No framework deps in core** — `@parchment-canvas/core` must never import React, Vue, or any framework.
+**No framework deps in core** — `@fieldnotes/core` must never import React, Vue, or any framework.

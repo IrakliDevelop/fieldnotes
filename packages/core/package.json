@@ -1,5 +1,5 @@
 {
-  "name": "@parchment-canvas/core",
+  "name": "@fieldnotes/core",
   "version": "0.1.0",
   "description": "Vanilla TypeScript infinite canvas engine",
   "type": "module",

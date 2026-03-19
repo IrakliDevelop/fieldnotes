@@ -34,7 +34,7 @@ importers:
 
   demo:
     dependencies:
-      '@parchment-canvas/core':
+      '@fieldnotes/core':
         specifier: workspace:*
         version: link:../packages/core
     devDependencies:
@@ -62,7 +62,7 @@ importers:
 
   packages/react:
     dependencies:
-      '@parchment-canvas/core':
+      '@fieldnotes/core':
         specifier: workspace:*
         version: link:../core
     devDependencies:

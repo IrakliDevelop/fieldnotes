@@ -1,4 +1,4 @@
-# @parchment-canvas/core
+# @fieldnotes/core
 
 A lightweight, framework-agnostic infinite canvas SDK for the web — with first-class support for embedding interactive HTML elements.
 
@@ -20,7 +20,7 @@ A lightweight, framework-agnostic infinite canvas SDK for the web — with first
 ## Install
 
 ```bash
-npm install @parchment-canvas/core
+npm install @fieldnotes/core
 ```
 
 ## Quick Start
@@ -34,7 +34,7 @@ import {
   EraserTool,
   ArrowTool,
   NoteTool,
-} from '@parchment-canvas/core';
+} from '@fieldnotes/core';
 
 // Mount on any container element
 const viewport = new Viewport(document.getElementById('canvas'), {
@@ -164,7 +164,7 @@ viewport.toolManager.onChange((toolName) => {
 Implement the `Tool` interface to create your own tools:
 
 ```typescript
-import type { Tool, ToolContext, PointerState } from '@parchment-canvas/core';
+import type { Tool, ToolContext, PointerState } from '@fieldnotes/core';
 
 const myTool: Tool = {
   name: 'my-tool',

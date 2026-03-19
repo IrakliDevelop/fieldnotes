@@ -1,5 +1,5 @@
 {
-  "name": "parchment-canvas-demo",
+  "name": "fieldnotes-demo",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -8,7 +8,7 @@
     "build": "vite build"
   },
   "dependencies": {
-    "@parchment-canvas/core": "workspace:*"
+    "@fieldnotes/core": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.9.3",

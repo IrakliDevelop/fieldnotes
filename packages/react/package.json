@@ -1,7 +1,7 @@
 {
-  "name": "@parchment-canvas/react",
+  "name": "@fieldnotes/react",
   "version": "0.1.0",
-  "description": "React wrapper for parchment-canvas",
+  "description": "React wrapper for Field Notes canvas SDK",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -23,7 +23,7 @@
   },
   "license": "MIT",
   "dependencies": {
-    "@parchment-canvas/core": "workspace:*"
+    "@fieldnotes/core": "workspace:*"
   },
   "peerDependencies": {
     "react": ">=18",

@@ -7,9 +7,9 @@ import {
   SelectTool,
   ArrowTool,
   NoteTool,
-} from '@parchment-canvas/core';
+} from '@fieldnotes/core';
 
-console.log(`Parchment Canvas v${VERSION}`);
+console.log(`Field Notes v${VERSION}`);
 
 const container = document.getElementById('canvas');
 if (!container) throw new Error('Missing #canvas element');
@@ -157,7 +157,7 @@ redoBtn?.addEventListener('click', () => {
   viewport.redo();
 });
 
-const STORAGE_KEY = 'parchment-canvas-state';
+const STORAGE_KEY = 'fieldnotes-canvas-state';
 
 document.getElementById('save')?.addEventListener('click', () => {
   const json = viewport.exportJSON();

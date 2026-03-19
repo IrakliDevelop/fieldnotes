@@ -6,5 +6,5 @@ export default defineConfig({
   dts: true,
   sourcemap: true,
   clean: true,
-  external: ['react', 'react-dom', '@parchment-canvas/core'],
+  external: ['react', 'react-dom', '@fieldnotes/core'],
 });

@@ -1,4 +1,4 @@
-# Parchment Canvas
+# Field Notes
 
 > A lightweight, framework-agnostic infinite canvas SDK for the web — with first-class support for embedding arbitrary HTML elements.
 
@@ -70,11 +70,11 @@ Target devices: desktop (mouse), iPad (touch + Apple Pencil), Android tablets, S
 ### Package Structure
 
 ```
-parchment-canvas/
+fieldnotes/
 ├── packages/
-│   ├── core/                  # @parchment-canvas/core — vanilla TS engine
+│   ├── core/                  # @fieldnotes/core — vanilla TS engine
 │   │   ├── src/
-│   │   │   ├── core/          # Parchment class, event bus, state management
+│   │   │   ├── core/          # Core classes, event bus, state management
 │   │   │   ├── canvas/        # Canvas rendering, camera/viewport system
 │   │   │   ├── elements/      # Element types (stroke, note, arrow, image, html)
 │   │   │   ├── tools/         # Tool system (select, pencil, eraser, arrow, note)
@@ -83,9 +83,9 @@ parchment-canvas/
 │   │   ├── package.json
 │   │   └── tsconfig.json
 │   │
-│   └── react/                 # @parchment-canvas/react — thin React wrapper
+│   └── react/                 # @fieldnotes/react — thin React wrapper
 │       ├── src/
-│       │   ├── ParchmentCanvas.tsx
+│       │   ├── FieldNotesCanvas.tsx
 │       │   └── index.ts
 │       ├── package.json
 │       └── tsconfig.json
@@ -153,51 +153,41 @@ type CanvasElement = StrokeElement | NoteElement | ArrowElement | ImageElement |
 
 ```typescript
 // Instantiation
-const parchment = new Parchment(containerElement, {
-  width: '100%',
-  height: '100vh',
-  tools: ['select', 'pencil', 'eraser', 'arrow', 'note'],
-  background: 'dots', // 'dots' | 'grid' | 'lines' | 'none'
+const canvas = new Viewport(containerElement, {
+  background: { pattern: 'dots' },
 });
 
 // Element manipulation
-parchment.addElement(element);
-parchment.removeElement(id);
-parchment.updateElement(id, partialUpdate);
-parchment.getElements();
+canvas.store.add(element);
+canvas.store.remove(id);
+canvas.store.update(id, partialUpdate);
+canvas.store.getAll();
 
 // HTML embedding — the differentiator
-parchment.addHTMLElement({
-  position: { x: 300, y: 100 },
-  size: { w: 250, h: 150 },
-  dom: myCardElement,
-});
+canvas.addHtmlElement(myCardElement, { x: 300, y: 100 }, { w: 250, h: 150 });
 
 // Tool control
-parchment.setTool('pencil');
-parchment.setToolOptions({ color: '#ff0000', width: 3 });
+canvas.toolManager.setTool('pencil', canvas.toolContext);
 
 // Viewport
-parchment.panTo(x, y);
-parchment.zoomTo(level);
-parchment.fitToContent();
+canvas.camera.panTo(x, y);
+canvas.camera.setZoom(level);
 
 // History
-parchment.undo();
-parchment.redo();
-parchment.clearHistory();
+canvas.undo();
+canvas.redo();
 
 // Serialization
-const state = parchment.exportState(); // JSON-serializable
-parchment.loadState(state);
+const state = canvas.exportState(); // JSON-serializable
+canvas.loadState(state);
 
 // Events
-parchment.on('change', callback);
-parchment.on('select', callback);
-parchment.on('tool:change', callback);
+canvas.store.on('add', callback);
+canvas.store.on('update', callback);
+canvas.toolManager.onChange(callback);
 
 // Cleanup
-parchment.destroy();
+canvas.destroy();
 ```
 
 ---
@@ -227,7 +217,7 @@ parchment.destroy();
 
 ### v0.2 — React Wrapper & Polish
 
-- [ ] `@parchment-canvas/react` wrapper component
+- [ ] `@fieldnotes/react` wrapper component
 - [ ] Resize handles on elements
 - [ ] Basic keyboard shortcuts (Ctrl+Z, Delete, etc.)
 - [ ] Color picker for tools
@@ -250,7 +240,7 @@ parchment.destroy();
 - [ ] Theming (dark/light, custom colors)
 - [ ] Configurable keyboard shortcut system
 - [ ] Accessibility (keyboard navigation, screen reader basics)
-- [ ] npm publish: `@parchment-canvas/core`, `@parchment-canvas/react`
+- [ ] npm publish: `@fieldnotes/core`, `@fieldnotes/react`
 - [ ] Documentation site
 
 ### Future (post v1.0)

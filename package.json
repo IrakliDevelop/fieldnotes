@@ -1,5 +1,5 @@
 {
-  "name": "parchment-canvas",
+  "name": "fieldnotes",
   "private": true,
   "description": "A lightweight, framework-agnostic infinite canvas SDK for the web",
   "license": "MIT",
@@ -10,7 +10,7 @@
     "lint:fix": "eslint --fix 'packages/*/src/**/*.{ts,tsx}'",
     "format": "prettier --write 'packages/*/src/**/*.{ts,tsx}'",
     "format:check": "prettier --check 'packages/*/src/**/*.{ts,tsx}'",
-    "dev": "pnpm --filter parchment-canvas-demo dev",
+    "dev": "pnpm --filter fieldnotes-demo dev",
     "prepare": "husky"
   },
   "lint-staged": {
