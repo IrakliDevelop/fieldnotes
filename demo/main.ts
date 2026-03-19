@@ -7,6 +7,7 @@ import {
   SelectTool,
   ArrowTool,
   NoteTool,
+  AutoSave,
 } from '@fieldnotes/core';
 
 console.log(`Field Notes v${VERSION}`);
@@ -31,6 +32,14 @@ viewport.toolManager.register(eraser);
 viewport.toolManager.register(select);
 viewport.toolManager.register(arrow);
 viewport.toolManager.register(note);
+
+const autoSave = new AutoSave(viewport.store, viewport.camera);
+const savedState = autoSave.load();
+if (savedState) {
+  viewport.loadState(savedState);
+  console.log('Restored auto-saved state');
+}
+autoSave.start();
 
 viewport.toolManager.setTool('select', viewport.toolContext);
 
@@ -157,23 +166,19 @@ redoBtn?.addEventListener('click', () => {
   viewport.redo();
 });
 
-const STORAGE_KEY = 'fieldnotes-canvas-state';
-
 document.getElementById('save')?.addEventListener('click', () => {
   const json = viewport.exportJSON();
-  localStorage.setItem(STORAGE_KEY, json);
-  console.log(`State saved (${json.length} bytes)`);
+  console.log(`State snapshot (${json.length} bytes)`);
 });
 
 document.getElementById('load')?.addEventListener('click', () => {
-  const json = localStorage.getItem(STORAGE_KEY);
-  if (!json) {
+  const saved = autoSave.load();
+  if (!saved) {
     console.warn('No saved state found');
     return;
   }
-  const t0 = performance.now();
-  viewport.loadJSON(json);
-  console.log(`State loaded in ${(performance.now() - t0).toFixed(1)}ms`);
+  viewport.loadState(saved);
+  console.log('State restored from auto-save');
 });
 
 const info = document.getElementById('info');
