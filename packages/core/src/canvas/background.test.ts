@@ -99,4 +99,43 @@ describe('Background', () => {
     bg.render(ctx, camera);
     expect(ctx.fillStyle).toBe('#ff0000');
   });
+
+  it('doubles spacing at low zoom to reduce dot count', () => {
+    const bg = new Background({ spacing: 24 });
+    const ctx = mockCtx();
+    const normalCamera = mockCamera({ zoom: 1 });
+    bg.render(ctx, normalCamera);
+    const normalDotCount = (ctx.arc as ReturnType<typeof vi.fn>).mock.calls.length;
+
+    const ctx2 = mockCtx();
+    const lowZoomCamera = mockCamera({ zoom: 0.5 });
+    bg.render(ctx2, lowZoomCamera);
+    const lowZoomDotCount = (ctx2.arc as ReturnType<typeof vi.fn>).mock.calls.length;
+
+    expect(lowZoomDotCount).toBeLessThan(normalDotCount * 2);
+  });
+
+  it('still renders dots at very low zoom instead of hiding them', () => {
+    const bg = new Background({ spacing: 24 });
+    const ctx = mockCtx();
+    const camera = mockCamera({ zoom: 0.2 });
+    bg.render(ctx, camera);
+    expect(ctx.arc).toHaveBeenCalled();
+  });
+
+  it('doubles grid spacing at low zoom', () => {
+    const bg = new Background({ pattern: 'grid', spacing: 24 });
+    const ctx = mockCtx();
+    const normalCamera = mockCamera({ zoom: 1 });
+    bg.render(ctx, normalCamera);
+    const normalLineCount = (ctx.fillRect as ReturnType<typeof vi.fn>).mock.calls.length;
+
+    const ctx2 = mockCtx();
+    const lowZoomCamera = mockCamera({ zoom: 0.3 });
+    bg.render(ctx2, lowZoomCamera);
+    const lowZoomLineCount = (ctx2.fillRect as ReturnType<typeof vi.fn>).mock.calls.length;
+
+    expect(lowZoomLineCount).toBeLessThan(normalLineCount);
+    expect(lowZoomLineCount).toBeGreaterThan(0);
+  });
 });
