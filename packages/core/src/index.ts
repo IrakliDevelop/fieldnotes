@@ -4,6 +4,8 @@ export { EventBus } from './core/event-bus';
 export type { Point, Size, Bounds } from './core/types';
 export { exportState, parseState } from './core/state-serializer';
 export type { CanvasState } from './core/state-serializer';
+export { AutoSave } from './core/auto-save';
+export type { AutoSaveOptions } from './core/auto-save';
 
 export { Camera } from './canvas/camera';
 export type { CameraOptions } from './canvas/camera';
