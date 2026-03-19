@@ -1,0 +1,129 @@
+import { describe, it, expect } from 'vitest';
+import { exportState, parseState } from './state-serializer';
+import type { CanvasState } from './state-serializer';
+import { createStroke, createNote, createArrow } from '../elements/element-factory';
+
+function makeCamera(x = 0, y = 0, zoom = 1) {
+  return { position: { x, y }, zoom };
+}
+
+describe('exportState', () => {
+  it('exports version, camera, and elements', () => {
+    const stroke = createStroke({ points: [{ x: 0, y: 0 }] });
+    const note = createNote({ position: { x: 10, y: 20 } });
+    const state = exportState([stroke, note], makeCamera(100, 200, 1.5));
+
+    expect(state.version).toBe(1);
+    expect(state.camera).toEqual({ position: { x: 100, y: 200 }, zoom: 1.5 });
+    expect(state.elements).toHaveLength(2);
+    expect(state.elements[0]?.type).toBe('stroke');
+    expect(state.elements[1]?.type).toBe('note');
+  });
+
+  it('deep-copies elements so mutations do not affect exported state', () => {
+    const stroke = createStroke({ points: [{ x: 1, y: 2 }] });
+    const state = exportState([stroke], makeCamera());
+
+    stroke.points.push({ x: 5, y: 5 });
+
+    const exported = state.elements[0];
+    expect(exported?.type === 'stroke' && exported.points).toHaveLength(1);
+  });
+
+  it('exports empty elements array', () => {
+    const state = exportState([], makeCamera());
+    expect(state.elements).toEqual([]);
+  });
+});
+
+describe('parseState', () => {
+  function validState(): CanvasState {
+    return {
+      version: 1,
+      camera: { position: { x: 0, y: 0 }, zoom: 1 },
+      elements: [createStroke({ points: [{ x: 0, y: 0 }] })],
+    };
+  }
+
+  it('parses valid JSON state', () => {
+    const json = JSON.stringify(validState());
+    const state = parseState(json);
+
+    expect(state.version).toBe(1);
+    expect(state.camera.zoom).toBe(1);
+    expect(state.elements).toHaveLength(1);
+  });
+
+  it('round-trips through export and parse', () => {
+    const stroke = createStroke({
+      points: [
+        { x: 1, y: 2 },
+        { x: 3, y: 4 },
+      ],
+    });
+    const note = createNote({ position: { x: 10, y: 20 }, text: 'hello' });
+    const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 50, y: 50 } });
+
+    const original = exportState([stroke, note, arrow], makeCamera(100, -50, 2));
+    const json = JSON.stringify(original);
+    const restored = parseState(json);
+
+    expect(restored).toEqual(original);
+  });
+
+  it('throws on invalid JSON', () => {
+    expect(() => parseState('not json')).toThrow();
+  });
+
+  it('throws on missing version', () => {
+    const data = { camera: { position: { x: 0, y: 0 }, zoom: 1 }, elements: [] };
+    expect(() => parseState(JSON.stringify(data))).toThrow('version');
+  });
+
+  it('throws on missing camera', () => {
+    const data = { version: 1, elements: [] };
+    expect(() => parseState(JSON.stringify(data))).toThrow('camera');
+  });
+
+  it('throws on missing camera.position', () => {
+    const data = { version: 1, camera: { zoom: 1 }, elements: [] };
+    expect(() => parseState(JSON.stringify(data))).toThrow('position');
+  });
+
+  it('throws on invalid camera.zoom', () => {
+    const data = { version: 1, camera: { position: { x: 0, y: 0 } }, elements: [] };
+    expect(() => parseState(JSON.stringify(data))).toThrow('zoom');
+  });
+
+  it('throws on non-array elements', () => {
+    const data = { version: 1, camera: { position: { x: 0, y: 0 }, zoom: 1 }, elements: 'bad' };
+    expect(() => parseState(JSON.stringify(data))).toThrow('array');
+  });
+
+  it('throws on element with unknown type', () => {
+    const data = {
+      version: 1,
+      camera: { position: { x: 0, y: 0 }, zoom: 1 },
+      elements: [{ id: '1', type: 'unknown', position: { x: 0, y: 0 }, zIndex: 0, locked: false }],
+    };
+    expect(() => parseState(JSON.stringify(data))).toThrow('unknown type');
+  });
+
+  it('throws on element missing id', () => {
+    const data = {
+      version: 1,
+      camera: { position: { x: 0, y: 0 }, zoom: 1 },
+      elements: [{ type: 'stroke', position: { x: 0, y: 0 }, zIndex: 0, locked: false }],
+    };
+    expect(() => parseState(JSON.stringify(data))).toThrow('id');
+  });
+
+  it('throws on element missing zIndex', () => {
+    const data = {
+      version: 1,
+      camera: { position: { x: 0, y: 0 }, zoom: 1 },
+      elements: [{ id: '1', type: 'stroke', position: { x: 0, y: 0 }, locked: false }],
+    };
+    expect(() => parseState(JSON.stringify(data))).toThrow('zIndex');
+  });
+});

@@ -36,7 +36,41 @@ pnpm --filter @parchment-canvas/core test -- src/path/to/file.test.ts
 
 Hybrid rendering: HTML5 Canvas layer for strokes/shapes/arrows, DOM layer for notes/images/HTML embeds. A shared camera/viewport system keeps both layers in sync via CSS `translate3d` + `scale` transforms. Pointer Events API for unified input handling (mouse/touch/stylus).
 
-Core is structured around: state management, canvas renderer, element types, tool system (strategy pattern), and command-based undo/redo history.
+**Key patterns**:
+
+- **Strategy** for tools — `Tool` interface (`onPointerDown/Move/Up`, optional `renderOverlay`), swapped via `ToolManager`
+- **Command** for undo/redo — `HistoryRecorder` auto-records `ElementStore` mutations; `InputHandler` wraps tool pointer lifecycles in `begin()`/`commit()` transactions so a full drag = one undo step
+- **Observer** for events — typed `EventBus`; `ElementStore` emits `add`/`remove`/`update`
+- **Discriminated unions** for element types and tool mode state machines
+
+**Integration hub**: `Viewport` (`canvas/viewport.ts`) orchestrates everything — creates canvas + DOM layers, Camera, InputHandler, ElementStore, NoteEditor, HistoryStack, HistoryRecorder, and the render loop.
+
+## Touch & Tablet Support
+
+This SDK targets desktop (mouse), iPad (touch + Apple Pencil), Android tablets, and Surface devices. Touch/tablet is a core requirement, not an afterthought. Key rules:
+
+- Always use Pointer Events API, never mouse-only APIs (`mousedown`, `mousemove`, etc.)
+- Single pointer = active tool, two pointers = pan/zoom — always
+- `touch-action: none` must be set on the interactive surface
+- Tool input must handle cancellation when a second finger is added mid-stroke
+- Pointer capture must be used during active tool input
+- Pressure data (`PointerEvent.pressure`) must be passed through to tools
+- Test pinch-to-zoom, two-finger pan, and stylus input in any input-related changes
+
+## TypeScript / Lint Rules
+
+- **Strict mode** with `noUncheckedIndexedAccess` — array access returns `T | undefined`, always guard before use
+- **No non-null assertions** (`@typescript-eslint/no-non-null-assertion: error`) — use conditional checks instead of `!`
+- **Consistent type imports** (`@typescript-eslint/consistent-type-imports: error`) — use `import type` for type-only imports
+- **Consistent type definitions** — prefer `interface` over `type` for object shapes
+- **Unused vars** — prefix with `_` to suppress (`argsIgnorePattern: '^_'`)
+- Pre-commit hook (husky + lint-staged) runs eslint + prettier on staged files
+
+## Testing
+
+- Vitest with jsdom where DOM is needed (`// @vitest-environment jsdom` at top of test file)
+- Tests co-located: `foo.ts` → `foo.test.ts`
+- Run single test: `pnpm --filter @parchment-canvas/core vitest run src/tools/select-tool.test.ts`
 
 ## Code Standards
 

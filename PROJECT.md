@@ -31,17 +31,17 @@ This project started from a need in a D&D companion app where players use an iPa
 
 ## Tech Stack
 
-| Layer           | Technology                                   | Rationale                                          |
-| --------------- | -------------------------------------------- | -------------------------------------------------- |
-| Language        | TypeScript (strict)                          | Type safety, better DX, self-documenting API       |
-| Core rendering  | HTML5 Canvas API                             | High-performance drawing, GPU-friendly             |
-| HTML elements   | DOM nodes with CSS transforms                | Native interaction, no foreignObject quirks        |
-| Viewport/camera | CSS `translate3d` + `scale`                  | GPU-composited transforms for smooth pan/zoom      |
-| Pointer input   | Pointer Events API                           | Unified mouse/touch/stylus handling (iPad support) |
-| Build tool      | tsup or Vite library mode                    | Fast builds, tree-shakeable ESM output             |
-| Monorepo        | pnpm workspaces                              | Simple, fast, no extra tooling needed              |
-| Testing         | Vitest                                       | Fast, TypeScript-native                            |
-| Demo            | Plain HTML (dev), Next.js (integration test) | Minimal overhead during development                |
+| Layer           | Technology                                   | Rationale                                                 |
+| --------------- | -------------------------------------------- | --------------------------------------------------------- |
+| Language        | TypeScript (strict)                          | Type safety, better DX, self-documenting API              |
+| Core rendering  | HTML5 Canvas API                             | High-performance drawing, GPU-friendly                    |
+| HTML elements   | DOM nodes with CSS transforms                | Native interaction, no foreignObject quirks               |
+| Viewport/camera | CSS `translate3d` + `scale`                  | GPU-composited transforms for smooth pan/zoom             |
+| Pointer input   | Pointer Events API                           | Unified mouse/touch/stylus handling (iPad/tablet support) |
+| Build tool      | tsup or Vite library mode                    | Fast builds, tree-shakeable ESM output                    |
+| Monorepo        | pnpm workspaces                              | Simple, fast, no extra tooling needed                     |
+| Testing         | Vitest                                       | Fast, TypeScript-native                                   |
+| Demo            | Plain HTML (dev), Next.js (integration test) | Minimal overhead during development                       |
 
 ## Architecture
 
@@ -52,6 +52,20 @@ This project started from a need in a D&D companion app where players use an iPa
 - **Shared camera system**: Both layers transform in sync via a single viewport state
 
 This hybrid approach gives us the performance of canvas for drawing-heavy operations while preserving full DOM interactivity for HTML elements.
+
+### Input & Touch/Tablet Strategy
+
+The input system is built around the Pointer Events API, which provides unified handling for mouse, touch, and stylus (Apple Pencil, Surface Pen, etc.) through a single event model. Key design decisions:
+
+- **`touch-action: none`** on the canvas — prevents browser default gestures from interfering
+- **`user-scalable=no`** on viewport meta — prevents double-tap zoom on tablets
+- **Single pointer = tool** — one finger/pencil triggers the active tool (draw, erase, select, etc.)
+- **Two pointers = viewport** — two-finger pinch-to-zoom and pan, regardless of active tool
+- **Tool cancellation** — if a second finger is added mid-stroke, the stroke is cancelled and input switches to pan/zoom
+- **Pointer capture** — active strokes capture the pointer to prevent losing input when finger drifts outside the canvas
+- **Pressure data** — `PointerEvent.pressure` is passed through to tools for stylus-aware features (variable stroke width, etc.)
+
+Target devices: desktop (mouse), iPad (touch + Apple Pencil), Android tablets, Surface devices. Not targeting smartphones (screen too small for canvas work).
 
 ### Package Structure
 
@@ -193,19 +207,23 @@ parchment.destroy();
 ### MVP (v0.1) — Core Canvas Experience
 
 - [x] Project setup (monorepo, build, TypeScript)
-- [ ] Infinite canvas with pan (drag) and zoom (scroll wheel / pinch)
-- [ ] Background pattern (dots grid)
-- [ ] Freehand pencil drawing with pressure sensitivity (if available)
-- [ ] Stroke-level eraser
-- [ ] Sticky notes (rectangle with editable text)
-- [ ] Arrows (point-to-point)
-- [ ] Image support (drag & drop onto canvas)
-- [ ] HTML element embedding (add arbitrary DOM nodes as canvas elements)
-- [ ] Select tool (click to select, drag to move)
-- [ ] Multi-select (drag box)
-- [ ] Undo / Redo
-- [ ] State serialization (export/import JSON)
-- [ ] Plain HTML demo page
+- [x] Infinite canvas with pan (drag) and zoom (scroll wheel / pinch)
+- [x] Background pattern (dots, grid, none)
+- [x] Freehand pencil drawing (pressure data available for stylus)
+- [x] Stroke-level eraser
+- [x] Sticky notes (rectangle with text)
+- [x] Arrows (point-to-point with arrowhead)
+- [x] Select tool (click to select, drag to move, z-index aware)
+- [x] Tool system (Strategy pattern: select, pencil, eraser, arrow, note)
+- [x] Element store (CRUD, z-index ordering, type queries, snapshot/load)
+- [x] Touch/tablet support (pinch-to-zoom, two-finger pan, tool cancellation)
+- [x] Pointer capture and touch-action handling
+- [x] Plain HTML demo page with toolbar and keyboard shortcuts
+- [x] Image support (drag & drop onto canvas)
+- [x] HTML element embedding (add arbitrary DOM nodes as canvas elements)
+- [x] Multi-select (drag box)
+- [x] Undo / Redo
+- [x] State serialization (export/import JSON)
 
 ### v0.2 — React Wrapper & Polish
 
@@ -214,7 +232,7 @@ parchment.destroy();
 - [ ] Basic keyboard shortcuts (Ctrl+Z, Delete, etc.)
 - [ ] Color picker for tools
 - [ ] Stroke smoothing (point simplification)
-- [ ] Touch gesture support (two-finger pan/zoom)
+- [ ] Pressure-sensitive stroke width (Apple Pencil / stylus)
 - [ ] Test in Next.js D&D app
 
 ### v0.3 — Enhanced Elements
@@ -252,4 +270,5 @@ parchment.destroy();
 3. **HTML is a first-class citizen** — Embedding DOM elements should feel native, not bolted on.
 4. **Predictable state** — Single source of truth, serializable, inspectable.
 5. **Progressive complexity** — Simple things are simple, complex things are possible.
-6. **Pointer-first** — Built for mouse, touch, and stylus from day one.
+6. **Pointer-first** — Built for mouse, touch, and stylus from day one. Every input path must work with Pointer Events, never mouse-only APIs.
+7. **Tablet-native** — iPad and tablet support is not an afterthought. Pinch-to-zoom, two-finger pan, stylus pressure, and touch disambiguation are core requirements, not polish items.

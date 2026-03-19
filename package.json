@@ -10,6 +10,7 @@
     "lint:fix": "eslint --fix 'packages/*/src/**/*.{ts,tsx}'",
     "format": "prettier --write 'packages/*/src/**/*.{ts,tsx}'",
     "format:check": "prettier --check 'packages/*/src/**/*.{ts,tsx}'",
+    "dev": "pnpm --filter parchment-canvas-demo dev",
     "prepare": "husky"
   },
   "lint-staged": {

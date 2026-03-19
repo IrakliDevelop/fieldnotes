@@ -1,0 +1,85 @@
+import type { Point } from '../core/types';
+import type { Tool, ToolContext, PointerState } from './types';
+import { createArrow } from '../elements/element-factory';
+
+export interface ArrowToolOptions {
+  color?: string;
+  width?: number;
+}
+
+export class ArrowTool implements Tool {
+  readonly name = 'arrow';
+  private drawing = false;
+  private start: Point = { x: 0, y: 0 };
+  private end: Point = { x: 0, y: 0 };
+  private color: string;
+  private width: number;
+
+  constructor(options: ArrowToolOptions = {}) {
+    this.color = options.color ?? '#000000';
+    this.width = options.width ?? 2;
+  }
+
+  onPointerDown(state: PointerState, ctx: ToolContext): void {
+    this.drawing = true;
+    this.start = ctx.camera.screenToWorld({ x: state.x, y: state.y });
+    this.end = { ...this.start };
+  }
+
+  onPointerMove(state: PointerState, ctx: ToolContext): void {
+    if (!this.drawing) return;
+    this.end = ctx.camera.screenToWorld({ x: state.x, y: state.y });
+    ctx.requestRender();
+  }
+
+  onPointerUp(_state: PointerState, ctx: ToolContext): void {
+    if (!this.drawing) return;
+    this.drawing = false;
+
+    if (this.start.x === this.end.x && this.start.y === this.end.y) return;
+
+    const arrow = createArrow({
+      from: this.start,
+      to: this.end,
+      color: this.color,
+      width: this.width,
+    });
+    ctx.store.add(arrow);
+    ctx.requestRender();
+  }
+
+  renderOverlay(ctx: CanvasRenderingContext2D): void {
+    if (!this.drawing) return;
+    if (this.start.x === this.end.x && this.start.y === this.end.y) return;
+
+    ctx.save();
+    ctx.strokeStyle = this.color;
+    ctx.lineWidth = this.width;
+    ctx.lineCap = 'round';
+    ctx.globalAlpha = 0.6;
+
+    ctx.beginPath();
+    ctx.moveTo(this.start.x, this.start.y);
+    ctx.lineTo(this.end.x, this.end.y);
+    ctx.stroke();
+
+    const angle = Math.atan2(this.end.y - this.start.y, this.end.x - this.start.x);
+    const headLen = 12;
+    const headAngle = Math.PI / 6;
+
+    ctx.fillStyle = this.color;
+    ctx.beginPath();
+    ctx.moveTo(this.end.x, this.end.y);
+    ctx.lineTo(
+      this.end.x - headLen * Math.cos(angle - headAngle),
+      this.end.y - headLen * Math.sin(angle - headAngle),
+    );
+    ctx.lineTo(
+      this.end.x - headLen * Math.cos(angle + headAngle),
+      this.end.y - headLen * Math.sin(angle + headAngle),
+    );
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+}
