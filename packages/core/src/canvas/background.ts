@@ -10,6 +10,8 @@ export interface BackgroundOptions {
   lineWidth?: number;
 }
 
+const MIN_PATTERN_SPACING = 8;
+
 const DEFAULTS = {
   pattern: 'dots' as BackgroundPattern,
   spacing: 24,
@@ -58,6 +60,9 @@ export class Background {
     height: number,
   ): void {
     const spacing = this.spacing * camera.zoom;
+
+    if (spacing < MIN_PATTERN_SPACING) return;
+
     const offsetX = camera.position.x % spacing;
     const offsetY = camera.position.y % spacing;
     const radius = this.dotRadius * Math.min(camera.zoom, 2);
@@ -82,6 +87,9 @@ export class Background {
     height: number,
   ): void {
     const spacing = this.spacing * camera.zoom;
+
+    if (spacing < MIN_PATTERN_SPACING) return;
+
     const offsetX = camera.position.x % spacing;
     const offsetY = camera.position.y % spacing;
     const lineW = this.lineWidth * Math.min(camera.zoom, 2);
