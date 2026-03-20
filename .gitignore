@@ -7,3 +7,5 @@ coverage/
 *.local
 .worktrees/
 .claude/
+
+test_data/
