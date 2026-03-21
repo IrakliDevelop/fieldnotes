@@ -2,9 +2,9 @@ import { describe, it, expect, vi } from 'vitest';
 import { SelectTool } from './select-tool';
 import { ElementStore } from '../elements/element-store';
 import { Camera } from '../canvas/camera';
-import { createNote, createArrow, createStroke } from '../elements/element-factory';
+import { createNote, createArrow, createStroke, createImage } from '../elements/element-factory';
 import type { ToolContext, PointerState } from './types';
-import type { NoteElement } from '../elements/types';
+import type { NoteElement, ImageElement } from '../elements/types';
 
 function makeCtx(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
@@ -368,6 +368,93 @@ describe('SelectTool', () => {
       const updated = ctx.store.getById(note.id) as NoteElement;
       expect(updated.size.w).toBeGreaterThanOrEqual(20);
       expect(updated.size.h).toBeGreaterThanOrEqual(20);
+    });
+
+    it('resizes a note from the NE handle', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const note = createNote({ position: { x: 100, y: 100 }, size: { w: 200, h: 100 } });
+      ctx.store.add(note);
+
+      tool.onPointerDown(pt(150, 130), ctx);
+      tool.onPointerUp(pt(150, 130), ctx);
+
+      // Drag the NE corner (300, 100) by (+15, -10)
+      tool.onPointerDown(pt(300, 100), ctx);
+      tool.onPointerMove(pt(315, 90), ctx);
+      tool.onPointerUp(pt(315, 90), ctx);
+
+      const updated = ctx.store.getById(note.id) as NoteElement;
+      expect(updated.size.w).toBe(215);
+      expect(updated.size.h).toBe(110);
+      expect(updated.position.x).toBe(100);
+      expect(updated.position.y).toBe(90);
+    });
+
+    it('resizes a note from the SW handle', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const note = createNote({ position: { x: 100, y: 100 }, size: { w: 200, h: 100 } });
+      ctx.store.add(note);
+
+      tool.onPointerDown(pt(150, 130), ctx);
+      tool.onPointerUp(pt(150, 130), ctx);
+
+      // Drag the SW corner (100, 200) by (-10, +20)
+      tool.onPointerDown(pt(100, 200), ctx);
+      tool.onPointerMove(pt(90, 220), ctx);
+      tool.onPointerUp(pt(90, 220), ctx);
+
+      const updated = ctx.store.getById(note.id) as NoteElement;
+      expect(updated.size.w).toBe(210);
+      expect(updated.size.h).toBe(120);
+      expect(updated.position.x).toBe(90);
+      expect(updated.position.y).toBe(100);
+    });
+
+    it('resizes an image element', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const img = createImage({
+        position: { x: 50, y: 50 },
+        size: { w: 100, h: 80 },
+        src: 'data:image/png;base64,abc',
+      });
+      ctx.store.add(img);
+
+      tool.onPointerDown(pt(80, 70), ctx);
+      tool.onPointerUp(pt(80, 70), ctx);
+
+      // Drag SE corner (150, 130) by (+30, +20)
+      tool.onPointerDown(pt(150, 130), ctx);
+      tool.onPointerMove(pt(180, 150), ctx);
+      tool.onPointerUp(pt(180, 150), ctx);
+
+      const updated = ctx.store.getById(img.id) as ImageElement;
+      expect(updated.size.w).toBe(130);
+      expect(updated.size.h).toBe(100);
+    });
+
+    it('does not resize locked elements', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const note = createNote({
+        position: { x: 100, y: 100 },
+        size: { w: 200, h: 100 },
+        locked: true,
+      });
+      ctx.store.add(note);
+
+      tool.onPointerDown(pt(150, 130), ctx);
+      tool.onPointerUp(pt(150, 130), ctx);
+
+      tool.onPointerDown(pt(300, 200), ctx);
+      tool.onPointerMove(pt(320, 230), ctx);
+      tool.onPointerUp(pt(320, 230), ctx);
+
+      const updated = ctx.store.getById(note.id) as NoteElement;
+      expect(updated.size.w).toBe(200);
+      expect(updated.size.h).toBe(100);
     });
 
     it('does not show resize handles for strokes', () => {

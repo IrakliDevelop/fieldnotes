@@ -204,7 +204,7 @@ export class SelectTool implements Tool {
     if (this.mode.type !== 'resizing') return;
 
     const el = ctx.store.getById(this.mode.elementId);
-    if (!el || !('size' in el)) return;
+    if (!el || !('size' in el) || el.locked) return;
 
     const { handle } = this.mode;
     const dx = world.x - this.lastWorld.x;
