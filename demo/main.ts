@@ -127,14 +127,20 @@ document.getElementById('embed-btn')?.addEventListener('click', () => {
   viewport.addHtmlElement(widget, { x: center.x - 100, y: center.y - 75 });
 });
 
-document.getElementById('brush-sizes')?.addEventListener('click', (e) => {
-  const btn = (e.target as HTMLElement).closest('.brush-size') as HTMLButtonElement | null;
-  if (!btn?.dataset['width']) return;
-  const width = Number(btn.dataset['width']);
+const brushSlider = document.getElementById('brush-size') as HTMLInputElement | null;
+const brushPreview = document.getElementById('brush-preview');
+const brushLabel = document.getElementById('brush-label');
+
+brushSlider?.addEventListener('input', () => {
+  const width = Number(brushSlider.value);
   pencil.setOptions({ width });
   arrow.setOptions({ width });
-  document.querySelectorAll('.brush-size').forEach((b) => b.classList.remove('active'));
-  btn.classList.add('active');
+  if (brushPreview) {
+    const size = Math.max(4, width + 4);
+    brushPreview.style.width = `${size}px`;
+    brushPreview.style.height = `${size}px`;
+  }
+  if (brushLabel) brushLabel.textContent = `${width}px`;
 });
 
 const colorInput = document.getElementById('tool-color') as HTMLInputElement | null;

@@ -42,13 +42,6 @@
       cursor: default;
     }
     #toolbar button:disabled:hover { background: white; }
-    #toolbar .brush-size {
-      width: 34px;
-      height: 34px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
     #toolbar button .shortcut {
       font-size: 10px;
       opacity: 0.5;
@@ -81,11 +74,10 @@
     <button id="embed-btn">Embed</button>
     <div style="width: 1px; background: #ddd; margin: 2px 4px;"></div>
     <input type="color" id="tool-color" value="#1a1a1a" title="Tool color" style="width: 34px; height: 34px; padding: 2px; border: 1px solid #ddd; border-radius: 6px; cursor: pointer; background: white;">
-    <div id="brush-sizes" style="display: flex; gap: 4px; align-items: center;">
-      <button class="brush-size" data-width="1" title="Thin"><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#1a1a1a;"></span></button>
-      <button class="brush-size active" data-width="2" title="Small"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#1a1a1a;"></span></button>
-      <button class="brush-size" data-width="4" title="Medium"><span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#1a1a1a;"></span></button>
-      <button class="brush-size" data-width="8" title="Large"><span style="display:inline-block;width:16px;height:16px;border-radius:50%;background:#1a1a1a;"></span></button>
+    <div style="display: flex; align-items: center; gap: 6px;">
+      <span id="brush-preview" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#1a1a1a;flex-shrink:0;"></span>
+      <input type="range" id="brush-size" min="1" max="20" value="2" title="Brush size" style="width: 80px; cursor: pointer;">
+      <span id="brush-label" style="font-size: 11px; color: #999; min-width: 20px;">2px</span>
     </div>
     <div style="width: 1px; background: #ddd; margin: 2px 4px;"></div>
     <button id="undo" disabled>Undo<span class="shortcut">⌘Z</span></button>
