@@ -36,7 +36,7 @@ describe('PencilTool', () => {
     expect(ctx.store.count).toBe(1);
     const stroke = ctx.store.getAll()[0] as StrokeElement;
     expect(stroke.type).toBe('stroke');
-    expect(stroke.points.length).toBeGreaterThanOrEqual(3);
+    expect(stroke.points.length).toBeGreaterThanOrEqual(2);
   });
 
   it('does not create a stroke if no movement', () => {
@@ -86,6 +86,49 @@ describe('PencilTool', () => {
     expect(stroke.width).toBe(5);
   });
 
+  it('captures pressure data in stroke points', () => {
+    const tool = new PencilTool();
+    const ctx = makeCtx();
+
+    tool.onPointerDown(pt(0, 0, 0.3), ctx);
+    tool.onPointerMove(pt(10, 10, 0.7), ctx);
+    tool.onPointerMove(pt(20, 20, 1.0), ctx);
+    tool.onPointerUp(pt(20, 20, 1.0), ctx);
+
+    const stroke = ctx.store.getAll()[0] as StrokeElement;
+    for (const p of stroke.points) {
+      expect(p.pressure).toBeGreaterThan(0);
+    }
+  });
+
+  it('defaults pressure to 0.5 when reported as 0', () => {
+    const tool = new PencilTool();
+    const ctx = makeCtx();
+
+    tool.onPointerDown(pt(0, 0, 0), ctx);
+    tool.onPointerMove(pt(10, 10, 0), ctx);
+    tool.onPointerUp(pt(10, 10, 0), ctx);
+
+    const stroke = ctx.store.getAll()[0] as StrokeElement;
+    for (const p of stroke.points) {
+      expect(p.pressure).toBe(0.5);
+    }
+  });
+
+  it('simplifies points on commit', () => {
+    const tool = new PencilTool();
+    const ctx = makeCtx();
+
+    tool.onPointerDown(pt(0, 0), ctx);
+    for (let i = 1; i <= 20; i++) {
+      tool.onPointerMove(pt(i, i), ctx);
+    }
+    tool.onPointerUp(pt(20, 20), ctx);
+
+    const stroke = ctx.store.getAll()[0] as StrokeElement;
+    expect(stroke.points.length).toBeLessThan(21);
+  });
+
   it('ignores pointer move when not drawing', () => {
     const tool = new PencilTool();
     const ctx = makeCtx();
@@ -102,6 +145,7 @@ describe('PencilTool', () => {
         beginPath: vi.fn(),
         moveTo: vi.fn(),
         lineTo: vi.fn(),
+        bezierCurveTo: vi.fn(),
         stroke: vi.fn(),
         strokeStyle: '',
         lineWidth: 0,

@@ -1,4 +1,4 @@
-import type { Point, Size } from '../core/types';
+import type { Point, Size, StrokePoint } from '../core/types';
 
 interface BaseElement {
   id: string;
@@ -10,7 +10,7 @@ interface BaseElement {
 
 export interface StrokeElement extends BaseElement {
   type: 'stroke';
-  points: Point[];
+  points: StrokePoint[];
   color: string;
   width: number;
   opacity: number;

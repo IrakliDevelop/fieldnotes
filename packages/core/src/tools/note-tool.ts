@@ -17,6 +17,11 @@ export class NoteTool implements Tool {
     this.size = options.size ?? { w: 200, h: 100 };
   }
 
+  setOptions(options: NoteToolOptions): void {
+    if (options.backgroundColor !== undefined) this.backgroundColor = options.backgroundColor;
+    if (options.size !== undefined) this.size = options.size;
+  }
+
   onPointerDown(_state: PointerState, _ctx: ToolContext): void {
     // Note is placed on pointer up
   }

@@ -75,31 +75,8 @@ export class InputHandler {
     });
   };
 
-  private isInteractiveHtmlContent(e: PointerEvent): boolean {
-    const target = e.target as HTMLElement | null;
-    if (!target) return false;
-
-    const node = target.closest<HTMLDivElement>('[data-element-id]');
-    if (!node) return false;
-
-    const elementId = node.dataset['elementId'];
-    if (!elementId) return false;
-
-    const store = this.toolContext?.store;
-    if (!store) return false;
-
-    const element = store.getById(elementId);
-    if (!element || element.type !== 'html') return false;
-
-    return true;
-  }
-
   private onPointerDown = (e: PointerEvent): void => {
     this.activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-
-    if (this.isInteractiveHtmlContent(e)) {
-      return;
-    }
 
     this.element.setPointerCapture?.(e.pointerId);
 

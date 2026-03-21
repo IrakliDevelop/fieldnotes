@@ -56,7 +56,7 @@ function App() {
 }
 ```
 
-Embedded React components are fully interactive — clicks, inputs, forms all work normally.
+Embedded components use a **two-mode interaction model**: by default they can be selected, dragged, and resized. **Double-click** to enter interact mode (clicks, inputs, forms work). **Escape** or click outside to exit.
 
 ## Hooks
 
@@ -113,6 +113,25 @@ function CameraInfo() {
       {zoom.toFixed(2)}x at ({x.toFixed(0)}, {y.toFixed(0)})
     </span>
   );
+}
+```
+
+### Changing Tool Options
+
+Use `useViewport()` to access tool instances and change options at runtime:
+
+```tsx
+import { useViewport } from '@fieldnotes/react';
+import type { PencilTool } from '@fieldnotes/core';
+
+function ColorPicker() {
+  const viewport = useViewport();
+
+  const setColor = (color: string) => {
+    viewport.toolManager.getTool<PencilTool>('pencil')?.setOptions({ color });
+  };
+
+  return <input type="color" onChange={(e) => setColor(e.target.value)} />;
 }
 ```
 

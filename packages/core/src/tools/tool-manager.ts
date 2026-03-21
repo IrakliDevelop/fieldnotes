@@ -17,6 +17,10 @@ export class ToolManager {
     this.tools.set(tool.name, tool);
   }
 
+  getTool<T extends Tool = Tool>(name: string): T | undefined {
+    return this.tools.get(name) as T | undefined;
+  }
+
   setTool(name: string, ctx: ToolContext): void {
     const tool = this.tools.get(name);
     if (!tool) return;

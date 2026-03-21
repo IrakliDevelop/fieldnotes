@@ -217,13 +217,12 @@ canvas.destroy();
 
 ### v0.2 — React Wrapper & Polish
 
-- [ ] `@fieldnotes/react` wrapper component
-- [ ] Resize handles on elements
-- [ ] Basic keyboard shortcuts (Ctrl+Z, Delete, etc.)
-- [ ] Color picker for tools
-- [ ] Stroke smoothing (point simplification)
-- [ ] Pressure-sensitive stroke width (Apple Pencil / stylus)
-- [ ] Test in Next.js D&D app
+- [x] `@fieldnotes/react` wrapper component
+- [x] Resize handles on elements
+- [x] Basic keyboard shortcuts (Ctrl+Z, Delete, etc.)
+- [x] Color picker for tools
+- [x] Stroke smoothing (point simplification)
+- [x] Pressure-sensitive stroke width (Apple Pencil / stylus)
 
 ### v0.3 — Enhanced Elements
 

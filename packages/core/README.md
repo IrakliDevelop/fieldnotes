@@ -5,7 +5,7 @@ A lightweight, framework-agnostic infinite canvas SDK for the web — with first
 ## Features
 
 - **Infinite canvas** — pan, zoom, pinch-to-zoom
-- **Freehand drawing** — pencil tool with pressure support (Apple Pencil, Surface Pen)
+- **Freehand drawing** — pencil tool with stroke smoothing and pressure-sensitive width
 - **Sticky notes** — editable text notes with customizable colors
 - **Arrows** — curved bezier arrows with draggable control points
 - **Images** — drag & drop or programmatic placement
@@ -74,7 +74,17 @@ card.querySelector('button').addEventListener('click', () => {
 const elementId = viewport.addHtmlElement(card, { x: 100, y: 200 }, { w: 250, h: 150 });
 ```
 
-HTML elements pan, zoom, and resize with the canvas while remaining fully interactive.
+HTML elements pan, zoom, and resize with the canvas. They use a **two-mode interaction model**:
+
+- **Default** — the element can be selected, dragged, and resized like any other element
+- **Double-click** — enters interact mode, making buttons, inputs, and links work
+- **Escape** or **click outside** — exits interact mode
+
+You can also exit interact mode programmatically:
+
+```typescript
+viewport.stopInteracting();
+```
 
 ## Adding Images
 
@@ -159,6 +169,53 @@ viewport.toolManager.onChange((toolName) => {
 });
 ```
 
+## Changing Tool Options at Runtime
+
+All drawing tools support `setOptions()` for changing color, width, and other settings without re-creating the tool:
+
+```typescript
+// Get a tool by name (type-safe with generics)
+const pencil = viewport.toolManager.getTool<PencilTool>('pencil');
+const arrow = viewport.toolManager.getTool<ArrowTool>('arrow');
+const note = viewport.toolManager.getTool<NoteTool>('note');
+
+// Change colors
+pencil?.setOptions({ color: '#ff0000' });
+arrow?.setOptions({ color: '#ff0000' });
+note?.setOptions({ backgroundColor: '#e8f5e9' });
+
+// Change stroke width
+pencil?.setOptions({ width: 5 });
+arrow?.setOptions({ width: 3 });
+```
+
+### Stroke Smoothing
+
+The pencil tool automatically smooths freehand strokes using Ramer-Douglas-Peucker point simplification and Catmull-Rom curve fitting. You can control the smoothing tolerance:
+
+```typescript
+new PencilTool({
+  smoothing: 1.5, // default — higher = smoother, lower = more detail
+});
+
+// Or at runtime
+pencil?.setOptions({ smoothing: 3 });
+```
+
+### Pressure-Sensitive Width
+
+When using a stylus (Apple Pencil, Surface Pen), stroke width varies based on pressure automatically. The `width` option sets the **maximum** width at full pressure. Mouse input uses a default pressure of 0.5 for consistent-width strokes.
+
+Stroke points include pressure data in the `StrokePoint` type:
+
+```typescript
+interface StrokePoint {
+  x: number;
+  y: number;
+  pressure: number; // 0-1
+}
+```
+
 ## Custom Tools
 
 Implement the `Tool` interface to create your own tools:
@@ -221,7 +278,7 @@ new Viewport(container, {
 ### Tool Options
 
 ```typescript
-new PencilTool({ color: '#ff0000', width: 3 });
+new PencilTool({ color: '#ff0000', width: 3, smoothing: 1.5 });
 new EraserTool({ radius: 30 });
 new ArrowTool({ color: '#333', width: 2 });
 new NoteTool({ backgroundColor: '#fff9c4', size: { w: 200, h: 150 } });
@@ -242,27 +299,29 @@ interface BaseElement {
 }
 ```
 
-| Type     | Key Fields                             |
-| -------- | -------------------------------------- |
-| `stroke` | `points`, `color`, `width`, `opacity`  |
-| `note`   | `size`, `text`, `backgroundColor`      |
-| `arrow`  | `from`, `to`, `bend`, `color`, `width` |
-| `image`  | `size`, `src`                          |
-| `html`   | `size`                                 |
+| Type     | Key Fields                                           |
+| -------- | ---------------------------------------------------- |
+| `stroke` | `points: StrokePoint[]`, `color`, `width`, `opacity` |
+| `note`   | `size`, `text`, `backgroundColor`                    |
+| `arrow`  | `from`, `to`, `bend`, `color`, `width`               |
+| `image`  | `size`, `src`                                        |
+| `html`   | `size`                                               |
 
 ## Built-in Interactions
 
-| Input                | Action          |
-| -------------------- | --------------- |
-| Scroll wheel         | Zoom            |
-| Middle-click drag    | Pan             |
-| Space + drag         | Pan             |
-| Two-finger pinch     | Zoom            |
-| Two-finger drag      | Pan             |
-| Delete / Backspace   | Remove selected |
-| Ctrl+Z / Cmd+Z       | Undo            |
-| Ctrl+Shift+Z / Cmd+Y | Redo            |
-| Double-click note    | Edit text       |
+| Input                | Action              |
+| -------------------- | ------------------- |
+| Scroll wheel         | Zoom                |
+| Middle-click drag    | Pan                 |
+| Space + drag         | Pan                 |
+| Two-finger pinch     | Zoom                |
+| Two-finger drag      | Pan                 |
+| Delete / Backspace   | Remove selected     |
+| Ctrl+Z / Cmd+Z       | Undo                |
+| Ctrl+Shift+Z / Cmd+Y | Redo                |
+| Double-click note    | Edit text           |
+| Double-click HTML    | Enter interact mode |
+| Escape               | Exit interact mode  |
 
 ## Browser Support
 

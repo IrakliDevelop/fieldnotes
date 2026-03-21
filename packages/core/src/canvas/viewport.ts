@@ -41,6 +41,7 @@ export class Viewport {
   private needsRender = true;
   private domNodes = new Map<string, HTMLDivElement>();
   private htmlContent = new Map<string, HTMLElement>();
+  private interactingElementId: string | null = null;
 
   constructor(
     private readonly container: HTMLElement,
@@ -173,6 +174,7 @@ export class Viewport {
 
   destroy(): void {
     cancelAnimationFrame(this.animFrameId);
+    this.stopInteracting();
     this.noteEditor.destroy(this.store);
     this.historyRecorder.destroy();
     this.wrapper.removeEventListener('dblclick', this.onDblClick);
@@ -242,13 +244,81 @@ export class Viewport {
 
   private onDblClick = (e: MouseEvent): void => {
     const el = document.elementFromPoint(e.clientX, e.clientY);
-    if (!el) return;
 
-    const nodeEl = (el as HTMLElement).closest<HTMLDivElement>('[data-element-id]');
-    if (!nodeEl) return;
+    const nodeEl = (el as HTMLElement | null)?.closest<HTMLDivElement>('[data-element-id]');
+    if (nodeEl) {
+      const elementId = nodeEl.dataset['elementId'];
+      if (elementId) {
+        const element = this.store.getById(elementId);
+        if (element?.type === 'note') {
+          this.startEditingNote(elementId);
+          return;
+        }
+      }
+    }
 
-    const elementId = nodeEl.dataset['elementId'];
-    if (elementId) this.startEditingNote(elementId);
+    const rect = this.wrapper.getBoundingClientRect();
+    const screen = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    const world = this.camera.screenToWorld(screen);
+    const hit = this.hitTestWorld(world);
+    if (hit?.type === 'html') {
+      this.startInteracting(hit.id);
+    }
+  };
+
+  private hitTestWorld(world: { x: number; y: number }): CanvasElement | null {
+    const elements = this.store.getAll().reverse();
+    for (const el of elements) {
+      if (!('size' in el)) continue;
+      const { x, y } = el.position;
+      const { w, h } = el.size;
+      if (world.x >= x && world.x <= x + w && world.y >= y && world.y <= y + h) {
+        return el;
+      }
+    }
+    return null;
+  }
+
+  private startInteracting(id: string): void {
+    this.stopInteracting();
+    const node = this.domNodes.get(id);
+    if (!node) return;
+
+    this.interactingElementId = id;
+    node.style.pointerEvents = 'auto';
+
+    window.addEventListener('keydown', this.onInteractKeyDown);
+    window.addEventListener('pointerdown', this.onInteractPointerDown);
+  }
+
+  stopInteracting(): void {
+    if (!this.interactingElementId) return;
+
+    const node = this.domNodes.get(this.interactingElementId);
+    if (node) {
+      node.style.pointerEvents = 'none';
+    }
+
+    this.interactingElementId = null;
+    window.removeEventListener('keydown', this.onInteractKeyDown);
+    window.removeEventListener('pointerdown', this.onInteractPointerDown);
+  }
+
+  private onInteractKeyDown = (e: KeyboardEvent): void => {
+    if (e.key === 'Escape') {
+      this.stopInteracting();
+    }
+  };
+
+  private onInteractPointerDown = (e: PointerEvent): void => {
+    if (!this.interactingElementId) return;
+    const target = e.target as HTMLElement | null;
+    if (!target) return;
+
+    const node = this.domNodes.get(this.interactingElementId);
+    if (node && !node.contains(target)) {
+      this.stopInteracting();
+    }
   };
 
   private onDragOver = (e: DragEvent): void => {
@@ -361,6 +431,7 @@ export class Viewport {
         node.dataset['initialized'] = 'true';
         Object.assign(node.style, {
           overflow: 'hidden',
+          pointerEvents: 'none',
         });
         node.appendChild(content);
       }

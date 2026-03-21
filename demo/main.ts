@@ -127,6 +127,31 @@ document.getElementById('embed-btn')?.addEventListener('click', () => {
   viewport.addHtmlElement(widget, { x: center.x - 100, y: center.y - 75 });
 });
 
+const brushSlider = document.getElementById('brush-size') as HTMLInputElement | null;
+const brushPreview = document.getElementById('brush-preview');
+const brushLabel = document.getElementById('brush-label');
+
+brushSlider?.addEventListener('input', () => {
+  const width = Number(brushSlider.value);
+  pencil.setOptions({ width });
+  arrow.setOptions({ width });
+  if (brushPreview) {
+    const size = Math.max(4, width + 4);
+    brushPreview.style.width = `${size}px`;
+    brushPreview.style.height = `${size}px`;
+  }
+  if (brushLabel) brushLabel.textContent = `${width}px`;
+});
+
+const colorInput = document.getElementById('tool-color') as HTMLInputElement | null;
+
+colorInput?.addEventListener('input', (e) => {
+  const color = (e.target as HTMLInputElement).value;
+  pencil.setOptions({ color });
+  arrow.setOptions({ color });
+  note.setOptions({ backgroundColor: color });
+});
+
 document.addEventListener('keydown', (e) => {
   if ((e.target as HTMLElement).isContentEditable) return;
   if (e.target instanceof HTMLInputElement) return;

@@ -97,4 +97,12 @@ function migrateElement(obj: Record<string, unknown>): void {
   if (obj['type'] === 'arrow' && typeof obj['bend'] !== 'number') {
     obj['bend'] = 0;
   }
+
+  if (obj['type'] === 'stroke' && Array.isArray(obj['points'])) {
+    for (const pt of obj['points'] as Record<string, unknown>[]) {
+      if (typeof pt['pressure'] !== 'number') {
+        pt['pressure'] = 0.5;
+      }
+    }
+  }
 }

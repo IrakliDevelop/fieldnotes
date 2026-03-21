@@ -113,7 +113,7 @@ describe('BatchCommand', () => {
     const store = new ElementStore();
     const existing = createNote({ position: { x: 0, y: 0 } });
     store.add(existing);
-    const newEl = createStroke({ points: [{ x: 0, y: 0 }] });
+    const newEl = createStroke({ points: [{ x: 0, y: 0, pressure: 0.5 }] });
     const batch = new BatchCommand([
       new RemoveElementCommand(existing),
       new AddElementCommand(newEl),
