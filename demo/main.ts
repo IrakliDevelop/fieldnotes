@@ -127,6 +127,15 @@ document.getElementById('embed-btn')?.addEventListener('click', () => {
   viewport.addHtmlElement(widget, { x: center.x - 100, y: center.y - 75 });
 });
 
+const colorInput = document.getElementById('tool-color') as HTMLInputElement | null;
+
+colorInput?.addEventListener('input', (e) => {
+  const color = (e.target as HTMLInputElement).value;
+  pencil.setOptions({ color });
+  arrow.setOptions({ color });
+  note.setOptions({ backgroundColor: color });
+});
+
 document.addEventListener('keydown', (e) => {
   if ((e.target as HTMLElement).isContentEditable) return;
   if (e.target instanceof HTMLInputElement) return;

@@ -107,6 +107,19 @@ describe('ToolManager', () => {
     expect(listener).toHaveBeenCalledWith('pencil');
   });
 
+  it('retrieves a registered tool by name', () => {
+    const manager = new ToolManager();
+    const pencil = stubTool('pencil');
+    manager.register(pencil);
+
+    expect(manager.getTool('pencil')).toBe(pencil);
+  });
+
+  it('returns undefined for unregistered tool name', () => {
+    const manager = new ToolManager();
+    expect(manager.getTool('nonexistent')).toBeUndefined();
+  });
+
   it('lists registered tool names', () => {
     const manager = new ToolManager();
     manager.register(stubTool('pencil'));

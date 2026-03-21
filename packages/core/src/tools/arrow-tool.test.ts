@@ -61,6 +61,21 @@ describe('ArrowTool', () => {
     expect(arrow.width).toBe(4);
   });
 
+  it('updates color and width via setOptions', () => {
+    const tool = new ArrowTool({ color: '#000000', width: 2 });
+    const ctx = makeCtx();
+
+    tool.setOptions({ color: '#ff0000', width: 5 });
+
+    tool.onPointerDown(pt(0, 0), ctx);
+    tool.onPointerMove(pt(100, 100), ctx);
+    tool.onPointerUp(pt(100, 100), ctx);
+
+    const arrow = ctx.store.getAll()[0] as ArrowElement;
+    expect(arrow.color).toBe('#ff0000');
+    expect(arrow.width).toBe(5);
+  });
+
   it('requests render during drag', () => {
     const tool = new ArrowTool();
     const ctx = makeCtx();

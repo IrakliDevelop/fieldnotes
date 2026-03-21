@@ -20,6 +20,11 @@ export class ArrowTool implements Tool {
     this.width = options.width ?? 2;
   }
 
+  setOptions(options: ArrowToolOptions): void {
+    if (options.color !== undefined) this.color = options.color;
+    if (options.width !== undefined) this.width = options.width;
+  }
+
   onPointerDown(state: PointerState, ctx: ToolContext): void {
     this.drawing = true;
     this.start = ctx.camera.screenToWorld({ x: state.x, y: state.y });
