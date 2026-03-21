@@ -244,23 +244,40 @@ export class Viewport {
 
   private onDblClick = (e: MouseEvent): void => {
     const el = document.elementFromPoint(e.clientX, e.clientY);
-    if (!el) return;
 
-    const nodeEl = (el as HTMLElement).closest<HTMLDivElement>('[data-element-id]');
-    if (!nodeEl) return;
+    const nodeEl = (el as HTMLElement | null)?.closest<HTMLDivElement>('[data-element-id]');
+    if (nodeEl) {
+      const elementId = nodeEl.dataset['elementId'];
+      if (elementId) {
+        const element = this.store.getById(elementId);
+        if (element?.type === 'note') {
+          this.startEditingNote(elementId);
+          return;
+        }
+      }
+    }
 
-    const elementId = nodeEl.dataset['elementId'];
-    if (!elementId) return;
-
-    const element = this.store.getById(elementId);
-    if (!element) return;
-
-    if (element.type === 'note') {
-      this.startEditingNote(elementId);
-    } else if (element.type === 'html') {
-      this.startInteracting(elementId);
+    const rect = this.wrapper.getBoundingClientRect();
+    const screen = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    const world = this.camera.screenToWorld(screen);
+    const hit = this.hitTestWorld(world);
+    if (hit?.type === 'html') {
+      this.startInteracting(hit.id);
     }
   };
+
+  private hitTestWorld(world: { x: number; y: number }): CanvasElement | null {
+    const elements = this.store.getAll().reverse();
+    for (const el of elements) {
+      if (!('size' in el)) continue;
+      const { x, y } = el.position;
+      const { w, h } = el.size;
+      if (world.x >= x && world.x <= x + w && world.y >= y && world.y <= y + h) {
+        return el;
+      }
+    }
+    return null;
+  }
 
   private startInteracting(id: string): void {
     this.stopInteracting();
