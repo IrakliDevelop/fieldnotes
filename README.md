@@ -94,10 +94,11 @@ Embedded React components are fully interactive and pan/zoom with the canvas. Se
 ## Features
 
 - Infinite canvas with pan & zoom (scroll, pinch, two-finger drag)
-- Freehand drawing with pressure support (Apple Pencil, Surface Pen)
+- Freehand drawing with stroke smoothing and pressure-sensitive width
 - Sticky notes, curved arrows, images
-- Interactive HTML element embedding
+- Interactive HTML element embedding (double-click to interact)
 - Select, multi-select, move, resize
+- Runtime tool configuration (color, width, smoothing)
 - Undo / redo
 - State serialization (JSON export/import)
 - Custom tool API
