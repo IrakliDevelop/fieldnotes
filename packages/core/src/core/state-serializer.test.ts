@@ -9,7 +9,7 @@ function makeCamera(x = 0, y = 0, zoom = 1) {
 
 describe('exportState', () => {
   it('exports version, camera, and elements', () => {
-    const stroke = createStroke({ points: [{ x: 0, y: 0 }] });
+    const stroke = createStroke({ points: [{ x: 0, y: 0, pressure: 0.5 }] });
     const note = createNote({ position: { x: 10, y: 20 } });
     const state = exportState([stroke, note], makeCamera(100, 200, 1.5));
 
@@ -21,10 +21,10 @@ describe('exportState', () => {
   });
 
   it('deep-copies elements so mutations do not affect exported state', () => {
-    const stroke = createStroke({ points: [{ x: 1, y: 2 }] });
+    const stroke = createStroke({ points: [{ x: 1, y: 2, pressure: 0.5 }] });
     const state = exportState([stroke], makeCamera());
 
-    stroke.points.push({ x: 5, y: 5 });
+    stroke.points.push({ x: 5, y: 5, pressure: 0.5 });
 
     const exported = state.elements[0];
     expect(exported?.type === 'stroke' && exported.points).toHaveLength(1);
@@ -41,7 +41,7 @@ describe('parseState', () => {
     return {
       version: 1,
       camera: { position: { x: 0, y: 0 }, zoom: 1 },
-      elements: [createStroke({ points: [{ x: 0, y: 0 }] })],
+      elements: [createStroke({ points: [{ x: 0, y: 0, pressure: 0.5 }] })],
     };
   }
 
@@ -57,8 +57,8 @@ describe('parseState', () => {
   it('round-trips through export and parse', () => {
     const stroke = createStroke({
       points: [
-        { x: 1, y: 2 },
-        { x: 3, y: 4 },
+        { x: 1, y: 2, pressure: 0.5 },
+        { x: 3, y: 4, pressure: 0.8 },
       ],
     });
     const note = createNote({ position: { x: 10, y: 20 }, text: 'hello' });
@@ -69,6 +69,35 @@ describe('parseState', () => {
     const restored = parseState(json);
 
     expect(restored).toEqual(original);
+  });
+
+  it('migrates legacy stroke points without pressure', () => {
+    const data = {
+      version: 1,
+      camera: { position: { x: 0, y: 0 }, zoom: 1 },
+      elements: [
+        {
+          id: 'stroke_1',
+          type: 'stroke',
+          position: { x: 0, y: 0 },
+          zIndex: 0,
+          locked: false,
+          points: [
+            { x: 1, y: 2 },
+            { x: 3, y: 4 },
+          ],
+          color: '#000',
+          width: 2,
+          opacity: 1,
+        },
+      ],
+    };
+    const state = parseState(JSON.stringify(data));
+    const stroke = state.elements[0];
+    if (stroke?.type === 'stroke') {
+      expect(stroke.points[0]?.pressure).toBe(0.5);
+      expect(stroke.points[1]?.pressure).toBe(0.5);
+    }
   });
 
   it('throws on invalid JSON', () => {

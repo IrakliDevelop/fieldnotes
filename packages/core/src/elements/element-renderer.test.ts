@@ -14,6 +14,7 @@ function mockCtx(): CanvasRenderingContext2D {
     closePath: vi.fn(),
     arc: vi.fn(),
     quadraticCurveTo: vi.fn(),
+    bezierCurveTo: vi.fn(),
     translate: vi.fn(),
     scale: vi.fn(),
     strokeStyle: '',
@@ -31,9 +32,9 @@ function makeStroke(overrides: Partial<StrokeElement> = {}): StrokeElement {
     type: 'stroke',
     position: { x: 0, y: 0 },
     points: [
-      { x: 0, y: 0 },
-      { x: 10, y: 10 },
-      { x: 20, y: 5 },
+      { x: 0, y: 0, pressure: 0.5 },
+      { x: 10, y: 10, pressure: 0.5 },
+      { x: 20, y: 5, pressure: 0.5 },
     ],
     color: '#000',
     width: 2,
@@ -62,14 +63,14 @@ function makeArrow(overrides: Partial<ArrowElement> = {}): ArrowElement {
 
 describe('ElementRenderer', () => {
   describe('renderStroke', () => {
-    it('draws a path through all points', () => {
+    it('draws curved segments through points', () => {
       const renderer = new ElementRenderer();
       const ctx = mockCtx();
       renderer.renderCanvasElement(ctx, makeStroke());
 
       expect(ctx.beginPath).toHaveBeenCalled();
-      expect(ctx.moveTo).toHaveBeenCalledWith(0, 0);
-      expect(ctx.lineTo).toHaveBeenCalledTimes(2);
+      expect(ctx.moveTo).toHaveBeenCalled();
+      expect(ctx.bezierCurveTo).toHaveBeenCalled();
       expect(ctx.stroke).toHaveBeenCalled();
     });
 
@@ -79,14 +80,14 @@ describe('ElementRenderer', () => {
       renderer.renderCanvasElement(ctx, makeStroke({ color: '#ff0000', width: 5, opacity: 0.5 }));
 
       expect(ctx.strokeStyle).toBe('#ff0000');
-      expect(ctx.lineWidth).toBe(5);
       expect(ctx.globalAlpha).toBe(0.5);
+      expect(ctx.lineWidth).toBeGreaterThan(0);
     });
 
     it('skips strokes with fewer than 2 points', () => {
       const renderer = new ElementRenderer();
       const ctx = mockCtx();
-      renderer.renderCanvasElement(ctx, makeStroke({ points: [{ x: 0, y: 0 }] }));
+      renderer.renderCanvasElement(ctx, makeStroke({ points: [{ x: 0, y: 0, pressure: 0.5 }] }));
 
       expect(ctx.beginPath).not.toHaveBeenCalled();
     });

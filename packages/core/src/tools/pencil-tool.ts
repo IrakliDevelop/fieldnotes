@@ -1,24 +1,30 @@
-import type { Point } from '../core/types';
+import type { StrokePoint } from '../core/types';
 import type { Tool, ToolContext, PointerState } from './types';
 import { createStroke } from '../elements/element-factory';
+import { simplifyPoints, smoothToSegments, pressureToWidth } from '../elements/stroke-smoothing';
 
 export interface PencilToolOptions {
   color?: string;
   width?: number;
+  smoothing?: number;
 }
 
 const MIN_POINTS_FOR_STROKE = 2;
+const DEFAULT_SMOOTHING = 1.5;
+const DEFAULT_PRESSURE = 0.5;
 
 export class PencilTool implements Tool {
   readonly name = 'pencil';
   private drawing = false;
-  private points: Point[] = [];
+  private points: StrokePoint[] = [];
   private color: string;
   private width: number;
+  private smoothing: number;
 
   constructor(options: PencilToolOptions = {}) {
     this.color = options.color ?? '#000000';
     this.width = options.width ?? 2;
+    this.smoothing = options.smoothing ?? DEFAULT_SMOOTHING;
   }
 
   onActivate(ctx: ToolContext): void {
@@ -32,18 +38,21 @@ export class PencilTool implements Tool {
   setOptions(options: PencilToolOptions): void {
     if (options.color !== undefined) this.color = options.color;
     if (options.width !== undefined) this.width = options.width;
+    if (options.smoothing !== undefined) this.smoothing = options.smoothing;
   }
 
   onPointerDown(state: PointerState, ctx: ToolContext): void {
     this.drawing = true;
     const world = ctx.camera.screenToWorld({ x: state.x, y: state.y });
-    this.points = [world];
+    const pressure = state.pressure === 0 ? DEFAULT_PRESSURE : state.pressure;
+    this.points = [{ x: world.x, y: world.y, pressure }];
   }
 
   onPointerMove(state: PointerState, ctx: ToolContext): void {
     if (!this.drawing) return;
     const world = ctx.camera.screenToWorld({ x: state.x, y: state.y });
-    this.points.push(world);
+    const pressure = state.pressure === 0 ? DEFAULT_PRESSURE : state.pressure;
+    this.points.push({ x: world.x, y: world.y, pressure });
     ctx.requestRender();
   }
 
@@ -56,8 +65,9 @@ export class PencilTool implements Tool {
       return;
     }
 
+    const simplified = simplifyPoints(this.points, this.smoothing);
     const stroke = createStroke({
-      points: this.points,
+      points: simplified,
       color: this.color,
       width: this.width,
     });
@@ -71,20 +81,23 @@ export class PencilTool implements Tool {
 
     ctx.save();
     ctx.strokeStyle = this.color;
-    ctx.lineWidth = this.width;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.globalAlpha = 0.8;
 
-    ctx.beginPath();
-    const first = this.points[0];
-    if (!first) return;
-    ctx.moveTo(first.x, first.y);
-    for (let i = 1; i < this.points.length; i++) {
-      const p = this.points[i];
-      if (p) ctx.lineTo(p.x, p.y);
+    const segments = smoothToSegments(this.points);
+    for (const seg of segments) {
+      const w =
+        (pressureToWidth(seg.start.pressure, this.width) +
+          pressureToWidth(seg.end.pressure, this.width)) /
+        2;
+      ctx.lineWidth = w;
+      ctx.beginPath();
+      ctx.moveTo(seg.start.x, seg.start.y);
+      ctx.bezierCurveTo(seg.cp1.x, seg.cp1.y, seg.cp2.x, seg.cp2.y, seg.end.x, seg.end.y);
+      ctx.stroke();
     }
-    ctx.stroke();
+
     ctx.restore();
   }
 }

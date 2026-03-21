@@ -1,5 +1,6 @@
 import type { CanvasElement, StrokeElement, ArrowElement } from './types';
 import { getArrowControlPoint, getArrowTangentAngle } from './arrow-geometry';
+import { smoothToSegments, pressureToWidth } from './stroke-smoothing';
 
 const DOM_ELEMENT_TYPES = new Set(['note', 'image', 'html']);
 const ARROWHEAD_LENGTH = 12;
@@ -27,23 +28,23 @@ export class ElementRenderer {
     ctx.save();
     ctx.translate(stroke.position.x, stroke.position.y);
     ctx.strokeStyle = stroke.color;
-    ctx.lineWidth = stroke.width;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.globalAlpha = stroke.opacity;
 
-    ctx.beginPath();
-    const first = stroke.points[0];
-    if (first) {
-      ctx.moveTo(first.x, first.y);
+    const segments = smoothToSegments(stroke.points);
+    for (const seg of segments) {
+      const w =
+        (pressureToWidth(seg.start.pressure, stroke.width) +
+          pressureToWidth(seg.end.pressure, stroke.width)) /
+        2;
+      ctx.lineWidth = w;
+      ctx.beginPath();
+      ctx.moveTo(seg.start.x, seg.start.y);
+      ctx.bezierCurveTo(seg.cp1.x, seg.cp1.y, seg.cp2.x, seg.cp2.y, seg.end.x, seg.end.y);
+      ctx.stroke();
     }
-    for (let i = 1; i < stroke.points.length; i++) {
-      const pt = stroke.points[i];
-      if (pt) {
-        ctx.lineTo(pt.x, pt.y);
-      }
-    }
-    ctx.stroke();
+
     ctx.restore();
   }
 

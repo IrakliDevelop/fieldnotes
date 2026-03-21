@@ -3,6 +3,12 @@ export interface Point {
   y: number;
 }
 
+export interface StrokePoint {
+  x: number;
+  y: number;
+  pressure: number;
+}
+
 export interface Size {
   w: number;
   h: number;

@@ -27,8 +27,8 @@ describe('EraserTool', () => {
     const ctx = makeCtx();
     const stroke = createStroke({
       points: [
-        { x: 10, y: 10 },
-        { x: 20, y: 20 },
+        { x: 10, y: 10, pressure: 0.5 },
+        { x: 20, y: 20, pressure: 0.5 },
       ],
     });
     ctx.store.add(stroke);
@@ -45,8 +45,8 @@ describe('EraserTool', () => {
     const ctx = makeCtx();
     const stroke = createStroke({
       points: [
-        { x: 500, y: 500 },
-        { x: 510, y: 510 },
+        { x: 500, y: 500, pressure: 0.5 },
+        { x: 510, y: 510, pressure: 0.5 },
       ],
     });
     ctx.store.add(stroke);
@@ -77,8 +77,8 @@ describe('EraserTool', () => {
     ctx.store.add(
       createStroke({
         points: [
-          { x: 10, y: 10 },
-          { x: 20, y: 20 },
+          { x: 10, y: 10, pressure: 0.5 },
+          { x: 20, y: 20, pressure: 0.5 },
         ],
       }),
     );
@@ -95,8 +95,8 @@ describe('EraserTool', () => {
     ctx.store.add(
       createStroke({
         points: [
-          { x: 50, y: 50 },
-          { x: 60, y: 60 },
+          { x: 50, y: 50, pressure: 0.5 },
+          { x: 60, y: 60, pressure: 0.5 },
         ],
       }),
     );

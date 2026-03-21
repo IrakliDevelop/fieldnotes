@@ -1,4 +1,4 @@
-import type { Point, Size } from '../core/types';
+import type { Point, Size, StrokePoint } from '../core/types';
 import type { StrokeElement, NoteElement, ArrowElement, ImageElement, HtmlElement } from './types';
 import { createId } from './create-id';
 
@@ -9,7 +9,7 @@ interface BaseDefaults {
 }
 
 interface StrokeInput extends BaseDefaults {
-  points: Point[];
+  points: StrokePoint[];
   color?: string;
   width?: number;
   opacity?: number;

@@ -10,7 +10,7 @@ import {
 describe('element factories', () => {
   describe('createStroke', () => {
     it('creates a stroke with defaults', () => {
-      const stroke = createStroke({ points: [{ x: 0, y: 0 }] });
+      const stroke = createStroke({ points: [{ x: 0, y: 0, pressure: 0.5 }] });
       expect(stroke.type).toBe('stroke');
       expect(stroke.id).toMatch(/^stroke_/);
       expect(stroke.color).toBe('#000000');
@@ -20,7 +20,7 @@ describe('element factories', () => {
     });
 
     it('accepts overrides', () => {
-      const stroke = createStroke({ points: [], color: '#ff0000', width: 5 });
+      const stroke = createStroke({ points: [] as never[], color: '#ff0000', width: 5 });
       expect(stroke.color).toBe('#ff0000');
       expect(stroke.width).toBe(5);
     });

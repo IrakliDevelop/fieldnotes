@@ -260,8 +260,8 @@ describe('SelectTool', () => {
       const ctx = makeCtx();
       const stroke = createStroke({
         points: [
-          { x: 10, y: 10 },
-          { x: 50, y: 50 },
+          { x: 10, y: 10, pressure: 0.5 },
+          { x: 50, y: 50, pressure: 0.5 },
         ],
       });
       ctx.store.add(stroke);
@@ -375,8 +375,8 @@ describe('SelectTool', () => {
       const ctx = makeCtx();
       const stroke = createStroke({
         points: [
-          { x: 10, y: 10 },
-          { x: 50, y: 50 },
+          { x: 10, y: 10, pressure: 0.5 },
+          { x: 50, y: 50, pressure: 0.5 },
         ],
       });
       ctx.store.add(stroke);

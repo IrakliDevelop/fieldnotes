@@ -217,9 +217,9 @@ canvas.destroy();
 
 ### v0.2 — React Wrapper & Polish
 
-- [ ] `@fieldnotes/react` wrapper component
+- [x] `@fieldnotes/react` wrapper component
 - [ ] Resize handles on elements
-- [ ] Basic keyboard shortcuts (Ctrl+Z, Delete, etc.)
+- [x] Basic keyboard shortcuts (Ctrl+Z, Delete, etc.)
 - [ ] Color picker for tools
 - [ ] Stroke smoothing (point simplification)
 - [ ] Pressure-sensitive stroke width (Apple Pencil / stylus)
