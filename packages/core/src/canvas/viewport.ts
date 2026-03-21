@@ -41,6 +41,7 @@ export class Viewport {
   private needsRender = true;
   private domNodes = new Map<string, HTMLDivElement>();
   private htmlContent = new Map<string, HTMLElement>();
+  private interactingElementId: string | null = null;
 
   constructor(
     private readonly container: HTMLElement,
@@ -173,6 +174,7 @@ export class Viewport {
 
   destroy(): void {
     cancelAnimationFrame(this.animFrameId);
+    this.stopInteracting();
     this.noteEditor.destroy(this.store);
     this.historyRecorder.destroy();
     this.wrapper.removeEventListener('dblclick', this.onDblClick);
@@ -248,7 +250,58 @@ export class Viewport {
     if (!nodeEl) return;
 
     const elementId = nodeEl.dataset['elementId'];
-    if (elementId) this.startEditingNote(elementId);
+    if (!elementId) return;
+
+    const element = this.store.getById(elementId);
+    if (!element) return;
+
+    if (element.type === 'note') {
+      this.startEditingNote(elementId);
+    } else if (element.type === 'html') {
+      this.startInteracting(elementId);
+    }
+  };
+
+  private startInteracting(id: string): void {
+    this.stopInteracting();
+    const node = this.domNodes.get(id);
+    if (!node) return;
+
+    this.interactingElementId = id;
+    node.style.pointerEvents = 'auto';
+
+    window.addEventListener('keydown', this.onInteractKeyDown);
+    window.addEventListener('pointerdown', this.onInteractPointerDown);
+  }
+
+  stopInteracting(): void {
+    if (!this.interactingElementId) return;
+
+    const node = this.domNodes.get(this.interactingElementId);
+    if (node) {
+      node.style.pointerEvents = 'none';
+    }
+
+    this.interactingElementId = null;
+    window.removeEventListener('keydown', this.onInteractKeyDown);
+    window.removeEventListener('pointerdown', this.onInteractPointerDown);
+  }
+
+  private onInteractKeyDown = (e: KeyboardEvent): void => {
+    if (e.key === 'Escape') {
+      this.stopInteracting();
+    }
+  };
+
+  private onInteractPointerDown = (e: PointerEvent): void => {
+    if (!this.interactingElementId) return;
+    const target = e.target as HTMLElement | null;
+    if (!target) return;
+
+    const node = this.domNodes.get(this.interactingElementId);
+    if (node && !node.contains(target)) {
+      this.stopInteracting();
+    }
   };
 
   private onDragOver = (e: DragEvent): void => {
@@ -361,6 +414,7 @@ export class Viewport {
         node.dataset['initialized'] = 'true';
         Object.assign(node.style, {
           overflow: 'hidden',
+          pointerEvents: 'none',
         });
         node.appendChild(content);
       }

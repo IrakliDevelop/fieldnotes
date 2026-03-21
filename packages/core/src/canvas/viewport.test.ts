@@ -89,4 +89,20 @@ describe('Viewport', () => {
     expect(el?.type).toBe('html');
     viewport.destroy();
   });
+
+  describe('HTML element interact mode', () => {
+    it('stopInteracting is safe to call when not interacting', () => {
+      const viewport = new Viewport(container);
+      expect(() => viewport.stopInteracting()).not.toThrow();
+      viewport.destroy();
+    });
+
+    it('addHtmlElement stores the element for later interaction', () => {
+      const viewport = new Viewport(container);
+      const dom = document.createElement('div');
+      const id = viewport.addHtmlElement(dom, { x: 0, y: 0 });
+      expect(viewport.store.getById(id)?.type).toBe('html');
+      viewport.destroy();
+    });
+  });
 });
