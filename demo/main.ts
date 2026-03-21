@@ -127,6 +127,16 @@ document.getElementById('embed-btn')?.addEventListener('click', () => {
   viewport.addHtmlElement(widget, { x: center.x - 100, y: center.y - 75 });
 });
 
+document.getElementById('brush-sizes')?.addEventListener('click', (e) => {
+  const btn = (e.target as HTMLElement).closest('.brush-size') as HTMLButtonElement | null;
+  if (!btn?.dataset['width']) return;
+  const width = Number(btn.dataset['width']);
+  pencil.setOptions({ width });
+  arrow.setOptions({ width });
+  document.querySelectorAll('.brush-size').forEach((b) => b.classList.remove('active'));
+  btn.classList.add('active');
+});
+
 const colorInput = document.getElementById('tool-color') as HTMLInputElement | null;
 
 colorInput?.addEventListener('input', (e) => {
