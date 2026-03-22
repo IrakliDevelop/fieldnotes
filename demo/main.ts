@@ -7,6 +7,7 @@ import {
   SelectTool,
   ArrowTool,
   NoteTool,
+  TextTool,
   AutoSave,
 } from '@fieldnotes/core';
 
@@ -25,6 +26,7 @@ const eraser = new EraserTool();
 const select = new SelectTool();
 const arrow = new ArrowTool({ color: '#1a1a1a', width: 2 });
 const note = new NoteTool();
+const text = new TextTool();
 
 viewport.toolManager.register(hand);
 viewport.toolManager.register(pencil);
@@ -32,6 +34,7 @@ viewport.toolManager.register(eraser);
 viewport.toolManager.register(select);
 viewport.toolManager.register(arrow);
 viewport.toolManager.register(note);
+viewport.toolManager.register(text);
 
 const autoSave = new AutoSave(viewport.store, viewport.camera);
 const savedState = autoSave.load();
@@ -150,6 +153,7 @@ colorInput?.addEventListener('input', (e) => {
   pencil.setOptions({ color });
   arrow.setOptions({ color });
   note.setOptions({ backgroundColor: color });
+  text.setOptions({ color });
 });
 
 document.addEventListener('keydown', (e) => {
@@ -163,6 +167,7 @@ document.addEventListener('keydown', (e) => {
     e: 'eraser',
     a: 'arrow',
     n: 'note',
+    t: 'text',
   };
   const tool = map[e.key];
   if (tool) {
