@@ -8,6 +8,7 @@ import {
   applyArrowHandleDrag,
   renderArrowHandles,
   getArrowHandleCursor,
+  getArrowHandleDragTarget,
 } from './arrow-handles';
 
 interface Rect {
@@ -181,6 +182,23 @@ export class SelectTool implements Tool {
   renderOverlay(canvasCtx: CanvasRenderingContext2D): void {
     this.renderMarquee(canvasCtx);
     this.renderSelectionBoxes(canvasCtx);
+
+    if (this.mode.type === 'arrow-handle' && this.ctx) {
+      const target = getArrowHandleDragTarget(
+        this.mode.handle,
+        this.mode.elementId,
+        this.currentWorld,
+        this.ctx,
+      );
+      if (target) {
+        canvasCtx.save();
+        canvasCtx.strokeStyle = '#2196F3';
+        canvasCtx.lineWidth = 2 / this.ctx.camera.zoom;
+        canvasCtx.setLineDash([]);
+        canvasCtx.strokeRect(target.x, target.y, target.w, target.h);
+        canvasCtx.restore();
+      }
+    }
   }
 
   private updateHoverCursor(world: Point, ctx: ToolContext): void {
