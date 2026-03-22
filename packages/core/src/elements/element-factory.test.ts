@@ -48,6 +48,23 @@ describe('element factories', () => {
       expect(arrow.from).toEqual({ x: 0, y: 0 });
       expect(arrow.to).toEqual({ x: 100, y: 100 });
     });
+
+    it('creates arrow without bindings by default', () => {
+      const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 100 } });
+      expect(arrow.fromBinding).toBeUndefined();
+      expect(arrow.toBinding).toBeUndefined();
+    });
+
+    it('creates arrow with bindings when provided', () => {
+      const arrow = createArrow({
+        from: { x: 0, y: 0 },
+        to: { x: 100, y: 100 },
+        fromBinding: { elementId: 'note-1' },
+        toBinding: { elementId: 'note-2' },
+      });
+      expect(arrow.fromBinding).toEqual({ elementId: 'note-1' });
+      expect(arrow.toBinding).toEqual({ elementId: 'note-2' });
+    });
   });
 
   describe('createImage', () => {

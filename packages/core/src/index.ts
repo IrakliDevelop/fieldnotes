@@ -37,6 +37,7 @@ export {
   getArrowBounds,
 } from './elements/arrow-geometry';
 export type {
+  Binding,
   CanvasElement,
   ElementType,
   StrokeElement,
