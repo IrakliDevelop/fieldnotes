@@ -86,7 +86,7 @@ export class ShapeTool implements Tool {
     if (!this.drawing) return;
 
     const { position, size } = this.computeRect();
-    if (size.w === 0 && size.h === 0) return;
+    if (size.w === 0 || size.h === 0) return;
 
     ctx.save();
     ctx.globalAlpha = 0.5;

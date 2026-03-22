@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, it, expect, vi } from 'vitest';
 import { ShapeTool } from './shape-tool';
 import { ElementStore } from '../elements/element-store';
@@ -115,5 +116,25 @@ describe('ShapeTool', () => {
 
     const shapes = ctx.store.getElementsByType('shape');
     expect(shapes[0]?.shape).toBe('ellipse');
+  });
+
+  it('constrains to square when Shift is held', () => {
+    const tool = new ShapeTool();
+    const ctx = makeCtx();
+
+    tool.onActivate(ctx);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Shift' }));
+
+    tool.onPointerDown(pt(0, 0), ctx);
+    tool.onPointerMove(pt(200, 100), ctx);
+    tool.onPointerUp(pt(200, 100), ctx);
+
+    const shapes = ctx.store.getElementsByType('shape');
+    expect(shapes).toHaveLength(1);
+    expect(shapes[0]?.size.w).toBe(shapes[0]?.size.h);
+    expect(shapes[0]?.size.w).toBe(200);
+
+    window.dispatchEvent(new KeyboardEvent('keyup', { key: 'Shift' }));
+    tool.onDeactivate(ctx);
   });
 });
