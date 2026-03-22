@@ -2,6 +2,7 @@ import type { Point } from '../core/types';
 import type { Tool, ToolContext, PointerState } from './types';
 import type { CanvasElement } from '../elements/types';
 import { isNearBezier, getArrowBounds } from '../elements/arrow-geometry';
+import { findBoundArrows, updateBoundArrow } from '../elements/arrow-binding';
 import {
   type ArrowHandle,
   hitTestArrowHandles,
@@ -137,17 +138,51 @@ export class SelectTool implements Tool {
         if (!el || el.locked) continue;
 
         if (el.type === 'arrow') {
-          ctx.store.update(id, {
+          const fromBound = el.fromBinding && this._selectedIds.includes(el.fromBinding.elementId);
+          const toBound = el.toBinding && this._selectedIds.includes(el.toBinding.elementId);
+
+          if (fromBound || toBound) {
+            // Bound elements are in selection — skip manual drag delta,
+            // updateBoundArrow will reposition this arrow after the elements move
+            continue;
+          }
+
+          // Bound elements are NOT in selection — clear bindings, drag freely
+          const updates: Record<string, unknown> = {
             position: { x: el.position.x + dx, y: el.position.y + dy },
             from: { x: el.from.x + dx, y: el.from.y + dy },
             to: { x: el.to.x + dx, y: el.to.y + dy },
-          });
+          };
+          if (el.fromBinding) updates['fromBinding'] = undefined;
+          if (el.toBinding) updates['toBinding'] = undefined;
+          ctx.store.update(id, updates);
         } else {
           ctx.store.update(id, {
             position: { x: el.position.x + dx, y: el.position.y + dy },
           });
         }
       }
+
+      // Update any arrows bound to moved elements
+      const movedNonArrowIds = new Set<string>();
+      for (const id of this._selectedIds) {
+        const el = ctx.store.getById(id);
+        if (el && el.type !== 'arrow') movedNonArrowIds.add(id);
+      }
+
+      if (movedNonArrowIds.size > 0) {
+        const updatedArrows = new Set<string>();
+        for (const id of movedNonArrowIds) {
+          const boundArrows = findBoundArrows(id, ctx.store);
+          for (const ba of boundArrows) {
+            if (updatedArrows.has(ba.id)) continue;
+            updatedArrows.add(ba.id);
+            const updates = updateBoundArrow(ba, ctx.store);
+            if (updates) ctx.store.update(ba.id, updates);
+          }
+        }
+      }
+
       ctx.requestRender();
       return;
     }
@@ -267,6 +302,14 @@ export class SelectTool implements Tool {
       position: { x, y },
       size: { w, h },
     });
+
+    // Update arrows bound to the resized element
+    const boundArrows = findBoundArrows(this.mode.elementId, ctx.store);
+    for (const ba of boundArrows) {
+      const updates = updateBoundArrow(ba, ctx.store);
+      if (updates) ctx.store.update(ba.id, updates);
+    }
+
     ctx.requestRender();
   }
 
