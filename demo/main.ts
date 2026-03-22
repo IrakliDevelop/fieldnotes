@@ -146,16 +146,47 @@ brushSlider?.addEventListener('input', () => {
   if (brushLabel) brushLabel.textContent = `${width}px`;
 });
 
-const textOptions = document.getElementById('text-options');
+const textPanel = document.getElementById('text-panel');
 const fontSizeSelect = document.getElementById('font-size') as HTMLSelectElement | null;
-const alignButtons = document.querySelectorAll<HTMLButtonElement>('[data-align]');
+const textColorInput = document.getElementById('text-color') as HTMLInputElement | null;
+const alignButtons = document.querySelectorAll<HTMLButtonElement>('#text-panel [data-align]');
 
-viewport.toolManager.onChange((name) => {
-  if (textOptions) textOptions.style.display = name === 'text' ? 'flex' : 'none';
-});
+function getSelectedTextElement() {
+  const ids = select.selectedIds;
+  if (ids.length !== 1) return null;
+  const el = viewport.store.getAll().find((e) => e.id === ids[0]);
+  if (el && el.type === 'text') return el;
+  return null;
+}
+
+function updateTextPanel() {
+  const activeTool = viewport.toolManager.activeTool?.name;
+  const selectedText = getSelectedTextElement();
+  const show = activeTool === 'text' || selectedText !== null;
+  if (textPanel) textPanel.style.display = show ? 'flex' : 'none';
+
+  if (selectedText && fontSizeSelect) {
+    fontSizeSelect.value = String(selectedText.fontSize);
+  }
+  if (selectedText && textColorInput) {
+    textColorInput.value = selectedText.color;
+  }
+  if (selectedText) {
+    alignButtons.forEach((b) =>
+      b.classList.toggle('active', b.dataset['align'] === selectedText.textAlign),
+    );
+  }
+}
+
+viewport.toolManager.onChange(updateTextPanel);
+container.addEventListener('pointerup', () => requestAnimationFrame(updateTextPanel));
+viewport.store.on('update', updateTextPanel);
 
 fontSizeSelect?.addEventListener('change', () => {
-  text.setOptions({ fontSize: Number(fontSizeSelect.value) });
+  const fontSize = Number(fontSizeSelect.value);
+  text.setOptions({ fontSize });
+  const sel = getSelectedTextElement();
+  if (sel) viewport.store.update(sel.id, { fontSize });
 });
 
 alignButtons.forEach((btn) => {
@@ -163,7 +194,16 @@ alignButtons.forEach((btn) => {
     const align = btn.dataset['align'] as 'left' | 'center' | 'right';
     text.setOptions({ textAlign: align });
     alignButtons.forEach((b) => b.classList.toggle('active', b === btn));
+    const sel = getSelectedTextElement();
+    if (sel) viewport.store.update(sel.id, { textAlign: align });
   });
+});
+
+textColorInput?.addEventListener('input', () => {
+  const color = textColorInput.value;
+  text.setOptions({ color });
+  const sel = getSelectedTextElement();
+  if (sel) viewport.store.update(sel.id, { color });
 });
 
 const colorInput = document.getElementById('tool-color') as HTMLInputElement | null;

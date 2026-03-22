@@ -240,6 +240,7 @@ canvas.destroy();
 - [ ] Configurable keyboard shortcut system
 - [ ] Accessibility (keyboard navigation, screen reader basics)
 - [x] npm publish: `@fieldnotes/core`, `@fieldnotes/react`
+- [ ] `@fieldnotes/ui` — pre-built, customizable UI components (toolbar, text format panel, color picker, layers panel) as a separate package; `@fieldnotes/react` stays a thin binding layer
 - [ ] Documentation site
 
 ### v0.5 — Import / Export

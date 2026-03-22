@@ -59,6 +59,37 @@
       pointer-events: none;
       z-index: 10;
     }
+    #text-panel {
+      display: none;
+      position: fixed;
+      top: 70px;
+      left: 50%;
+      transform: translateX(-50%);
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+      z-index: 10;
+      font-size: 13px;
+      font-family: inherit;
+    }
+    #text-panel select, #text-panel button {
+      padding: 4px 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      background: white;
+      cursor: pointer;
+      font-size: 13px;
+      font-family: inherit;
+    }
+    #text-panel button:hover { background: #f0f0f0; }
+    #text-panel button.active {
+      background: #1a1a1a;
+      color: white;
+      border-color: #1a1a1a;
+    }
   </style>
 </head>
 <body>
@@ -80,29 +111,28 @@
       <input type="range" id="brush-size" min="1" max="20" value="2" title="Brush size" style="width: 80px; cursor: pointer;">
       <span id="brush-label" style="font-size: 11px; color: #999; min-width: 20px;">2px</span>
     </div>
-    <div id="text-options" style="display: none; align-items: center; gap: 6px;">
-      <div style="width: 1px; background: #ddd; margin: 2px 4px;"></div>
-      <select id="font-size" title="Font size" style="padding: 4px 6px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; cursor: pointer; font-family: inherit;">
-        <option value="12">12</option>
-        <option value="14">14</option>
-        <option value="16" selected>16</option>
-        <option value="20">20</option>
-        <option value="24">24</option>
-        <option value="32">32</option>
-        <option value="48">48</option>
-      </select>
-      <div style="display: flex; gap: 2px;">
-        <button data-align="left" class="active" title="Align left" style="padding: 4px 8px; border: 1px solid #ddd; border-radius: 4px; background: white; cursor: pointer; font-size: 13px;">L</button>
-        <button data-align="center" title="Align center" style="padding: 4px 8px; border: 1px solid #ddd; border-radius: 4px; background: white; cursor: pointer; font-size: 13px;">C</button>
-        <button data-align="right" title="Align right" style="padding: 4px 8px; border: 1px solid #ddd; border-radius: 4px; background: white; cursor: pointer; font-size: 13px;">R</button>
-      </div>
-    </div>
     <div style="width: 1px; background: #ddd; margin: 2px 4px;"></div>
     <button id="undo" disabled>Undo<span class="shortcut">⌘Z</span></button>
     <button id="redo" disabled>Redo<span class="shortcut">⌘⇧Z</span></button>
     <div style="width: 1px; background: #ddd; margin: 2px 4px;"></div>
     <button id="save">Save</button>
     <button id="load">Load</button>
+  </div>
+  <div id="text-panel">
+    <span style="color: #999; font-size: 11px;">Text:</span>
+    <input type="color" id="text-color" value="#1a1a1a" title="Text color" style="width: 28px; height: 28px; padding: 2px; border: 1px solid #ddd; border-radius: 4px; cursor: pointer; background: white;">
+    <select id="font-size">
+      <option value="12">12px</option>
+      <option value="14">14px</option>
+      <option value="16" selected>16px</option>
+      <option value="20">20px</option>
+      <option value="24">24px</option>
+      <option value="32">32px</option>
+      <option value="48">48px</option>
+    </select>
+    <button data-align="left" class="active">Left</button>
+    <button data-align="center">Center</button>
+    <button data-align="right">Right</button>
   </div>
   <input type="file" id="image-file" accept="image/*" style="display: none">
   <div id="info"></div>
