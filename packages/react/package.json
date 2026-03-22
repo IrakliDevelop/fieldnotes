@@ -1,6 +1,6 @@
 {
   "name": "@fieldnotes/react",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "React wrapper for Field Notes canvas SDK",
   "type": "module",
   "main": "./dist/index.cjs",
