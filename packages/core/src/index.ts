@@ -1,4 +1,4 @@
-export const VERSION = '0.3.0';
+export const VERSION = '0.3.1';
 
 export { EventBus } from './core/event-bus';
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
@@ -36,6 +36,17 @@ export {
   isNearBezier,
   getArrowBounds,
 } from './elements/arrow-geometry';
+export {
+  isBindable,
+  getElementCenter,
+  getElementBounds,
+  getEdgeIntersection,
+  findBindTarget,
+  findBoundArrows,
+  updateBoundArrow,
+  clearStaleBindings,
+  unbindArrow,
+} from './elements/arrow-binding';
 export type {
   Binding,
   CanvasElement,
