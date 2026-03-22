@@ -1,5 +1,6 @@
 import type { Point, Size, StrokePoint } from '../core/types';
 import type {
+  Binding,
   StrokeElement,
   NoteElement,
   ArrowElement,
@@ -35,6 +36,8 @@ interface ArrowInput extends BaseDefaults {
   bend?: number;
   color?: string;
   width?: number;
+  fromBinding?: Binding;
+  toBinding?: Binding;
 }
 
 interface ImageInput extends BaseDefaults {
@@ -85,7 +88,7 @@ export function createNote(input: NoteInput): NoteElement {
 }
 
 export function createArrow(input: ArrowInput): ArrowElement {
-  return {
+  const result: ArrowElement = {
     id: createId('arrow'),
     type: 'arrow',
     position: input.position ?? { x: 0, y: 0 },
@@ -97,6 +100,9 @@ export function createArrow(input: ArrowInput): ArrowElement {
     color: input.color ?? '#000000',
     width: input.width ?? 2,
   };
+  if (input.fromBinding) result.fromBinding = input.fromBinding;
+  if (input.toBinding) result.toBinding = input.toBinding;
+  return result;
 }
 
 export function createImage(input: ImageInput): ImageElement {

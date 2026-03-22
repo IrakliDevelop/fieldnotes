@@ -23,6 +23,10 @@ export interface NoteElement extends BaseElement {
   backgroundColor: string;
 }
 
+export interface Binding {
+  elementId: string;
+}
+
 export interface ArrowElement extends BaseElement {
   type: 'arrow';
   from: Point;
@@ -30,6 +34,8 @@ export interface ArrowElement extends BaseElement {
   bend: number;
   color: string;
   width: number;
+  fromBinding?: Binding;
+  toBinding?: Binding;
 }
 
 export interface ImageElement extends BaseElement {

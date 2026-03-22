@@ -1,21 +1,18 @@
 import type { Point } from '../core/types';
 import type { Tool, ToolContext, PointerState } from './types';
-import type { CanvasElement } from '../elements/types';
+import type { CanvasElement, ArrowElement } from '../elements/types';
 import { isNearBezier, getArrowBounds } from '../elements/arrow-geometry';
+import type { Rect } from '../elements/arrow-geometry';
+import { findBoundArrows, updateBoundArrow, getElementBounds } from '../elements/arrow-binding';
 import {
   type ArrowHandle,
   hitTestArrowHandles,
   applyArrowHandleDrag,
   renderArrowHandles,
   getArrowHandleCursor,
+  getArrowHandleDragTarget,
 } from './arrow-handles';
 
-interface Rect {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
 type HandlePosition = 'nw' | 'ne' | 'sw' | 'se';
 
 const HANDLE_SIZE = 8;
@@ -136,6 +133,12 @@ export class SelectTool implements Tool {
         if (!el || el.locked) continue;
 
         if (el.type === 'arrow') {
+          if (el.fromBinding || el.toBinding) {
+            // Arrow has bindings — don't allow independent dragging.
+            // Use handle drag to detach individual endpoints.
+            continue;
+          }
+
           ctx.store.update(id, {
             position: { x: el.position.x + dx, y: el.position.y + dy },
             from: { x: el.from.x + dx, y: el.from.y + dy },
@@ -147,6 +150,27 @@ export class SelectTool implements Tool {
           });
         }
       }
+
+      // Update any arrows bound to moved elements
+      const movedNonArrowIds = new Set<string>();
+      for (const id of this._selectedIds) {
+        const el = ctx.store.getById(id);
+        if (el && el.type !== 'arrow') movedNonArrowIds.add(id);
+      }
+
+      if (movedNonArrowIds.size > 0) {
+        const updatedArrows = new Set<string>();
+        for (const id of movedNonArrowIds) {
+          const boundArrows = findBoundArrows(id, ctx.store);
+          for (const ba of boundArrows) {
+            if (updatedArrows.has(ba.id)) continue;
+            updatedArrows.add(ba.id);
+            const updates = updateBoundArrow(ba, ctx.store);
+            if (updates) ctx.store.update(ba.id, updates);
+          }
+        }
+      }
+
       ctx.requestRender();
       return;
     }
@@ -181,6 +205,23 @@ export class SelectTool implements Tool {
   renderOverlay(canvasCtx: CanvasRenderingContext2D): void {
     this.renderMarquee(canvasCtx);
     this.renderSelectionBoxes(canvasCtx);
+
+    if (this.mode.type === 'arrow-handle' && this.ctx) {
+      const target = getArrowHandleDragTarget(
+        this.mode.handle,
+        this.mode.elementId,
+        this.currentWorld,
+        this.ctx,
+      );
+      if (target) {
+        canvasCtx.save();
+        canvasCtx.strokeStyle = '#2196F3';
+        canvasCtx.lineWidth = 2 / this.ctx.camera.zoom;
+        canvasCtx.setLineDash([]);
+        canvasCtx.strokeRect(target.x, target.y, target.w, target.h);
+        canvasCtx.restore();
+      }
+    }
   }
 
   private updateHoverCursor(world: Point, ctx: ToolContext): void {
@@ -249,6 +290,14 @@ export class SelectTool implements Tool {
       position: { x, y },
       size: { w, h },
     });
+
+    // Update arrows bound to the resized element
+    const boundArrows = findBoundArrows(this.mode.elementId, ctx.store);
+    for (const ba of boundArrows) {
+      const updates = updateBoundArrow(ba, ctx.store);
+      if (updates) ctx.store.update(ba.id, updates);
+    }
+
     ctx.requestRender();
   }
 
@@ -321,6 +370,7 @@ export class SelectTool implements Tool {
 
       if (el.type === 'arrow') {
         renderArrowHandles(canvasCtx, el, zoom);
+        this.renderBindingHighlights(canvasCtx, el, zoom);
         continue;
       }
 
@@ -350,6 +400,38 @@ export class SelectTool implements Tool {
         }
         canvasCtx.setLineDash([4 / zoom, 4 / zoom]);
       }
+    }
+
+    canvasCtx.restore();
+  }
+
+  private renderBindingHighlights(
+    canvasCtx: CanvasRenderingContext2D,
+    arrow: ArrowElement,
+    zoom: number,
+  ): void {
+    if (!this.ctx) return;
+    if (!arrow.fromBinding && !arrow.toBinding) return;
+
+    const pad = SELECTION_PAD / zoom;
+
+    canvasCtx.save();
+    canvasCtx.strokeStyle = '#2196F3';
+    canvasCtx.lineWidth = 2 / zoom;
+    canvasCtx.setLineDash([]);
+
+    const drawn = new Set<string>();
+    for (const binding of [arrow.fromBinding, arrow.toBinding]) {
+      if (!binding || drawn.has(binding.elementId)) continue;
+      drawn.add(binding.elementId);
+
+      const target = this.ctx.store.getById(binding.elementId);
+      if (!target) continue;
+
+      const bounds = getElementBounds(target);
+      if (!bounds) continue;
+
+      canvasCtx.strokeRect(bounds.x - pad, bounds.y - pad, bounds.w + pad * 2, bounds.h + pad * 2);
     }
 
     canvasCtx.restore();

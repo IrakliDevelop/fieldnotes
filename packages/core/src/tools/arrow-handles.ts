@@ -2,6 +2,9 @@ import type { Point } from '../core/types';
 import type { ArrowElement } from '../elements/types';
 import type { ToolContext } from './types';
 import { getArrowMidpoint, getBendFromPoint } from '../elements/arrow-geometry';
+import { findBindTarget, getElementCenter, getElementBounds } from '../elements/arrow-binding';
+
+const BIND_THRESHOLD = 20;
 
 export type ArrowHandle = 'start' | 'mid' | 'end';
 
@@ -64,18 +67,45 @@ export function applyArrowHandleDrag(
   const el = ctx.store.getById(elementId);
   if (!el || el.type !== 'arrow') return;
 
+  const threshold = BIND_THRESHOLD / ctx.camera.zoom;
+
   switch (handle) {
-    case 'start':
-      ctx.store.update(elementId, {
-        from: { x: world.x, y: world.y },
-        position: { x: world.x, y: world.y },
-      });
+    case 'start': {
+      const excludeId = el.toBinding?.elementId;
+      const target = findBindTarget(world, ctx.store, threshold, excludeId);
+      if (target) {
+        const center = getElementCenter(target);
+        ctx.store.update(elementId, {
+          from: center,
+          position: center,
+          fromBinding: { elementId: target.id },
+        });
+      } else {
+        ctx.store.update(elementId, {
+          from: { x: world.x, y: world.y },
+          position: { x: world.x, y: world.y },
+          fromBinding: undefined,
+        });
+      }
       break;
-    case 'end':
-      ctx.store.update(elementId, {
-        to: { x: world.x, y: world.y },
-      });
+    }
+    case 'end': {
+      const excludeId = el.fromBinding?.elementId;
+      const target = findBindTarget(world, ctx.store, threshold, excludeId);
+      if (target) {
+        const center = getElementCenter(target);
+        ctx.store.update(elementId, {
+          to: center,
+          toBinding: { elementId: target.id },
+        });
+      } else {
+        ctx.store.update(elementId, {
+          to: { x: world.x, y: world.y },
+          toBinding: undefined,
+        });
+      }
       break;
+    }
     case 'mid': {
       const bend = getBendFromPoint(el.from, el.to, world);
       ctx.store.update(elementId, { bend });
@@ -84,6 +114,25 @@ export function applyArrowHandleDrag(
   }
 
   ctx.requestRender();
+}
+
+export function getArrowHandleDragTarget(
+  handle: ArrowHandle,
+  elementId: string,
+  world: Point,
+  ctx: ToolContext,
+): { x: number; y: number; w: number; h: number } | null {
+  if (handle === 'mid') return null;
+
+  const el = ctx.store.getById(elementId);
+  if (!el || el.type !== 'arrow') return null;
+
+  const threshold = BIND_THRESHOLD / ctx.camera.zoom;
+  const excludeId = handle === 'start' ? el.toBinding?.elementId : el.fromBinding?.elementId;
+  const target = findBindTarget(world, ctx.store, threshold, excludeId);
+  if (!target) return null;
+
+  return getElementBounds(target);
 }
 
 export function renderArrowHandles(

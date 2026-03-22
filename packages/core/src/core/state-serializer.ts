@@ -69,6 +69,8 @@ function validateState(data: unknown): asserts data is CanvasState {
     validateElement(el);
     migrateElement(el as unknown as Record<string, unknown>);
   }
+
+  cleanBindings(obj['elements'] as Record<string, unknown>[]);
 }
 
 const VALID_TYPES = new Set(['stroke', 'note', 'arrow', 'image', 'html', 'text']);
@@ -90,6 +92,24 @@ function validateElement(el: unknown): asserts el is CanvasElement {
 
   if (typeof obj['zIndex'] !== 'number') {
     throw new Error('Invalid element: missing zIndex');
+  }
+}
+
+function cleanBindings(elements: Record<string, unknown>[]): void {
+  const ids = new Set(elements.map((el) => el['id'] as string));
+
+  for (const el of elements) {
+    if (el['type'] !== 'arrow') continue;
+
+    const fromBinding = el['fromBinding'] as Record<string, unknown> | undefined;
+    if (fromBinding && !ids.has(fromBinding['elementId'] as string)) {
+      el['fromBinding'] = undefined;
+    }
+
+    const toBinding = el['toBinding'] as Record<string, unknown> | undefined;
+    if (toBinding && !ids.has(toBinding['elementId'] as string)) {
+      el['toBinding'] = undefined;
+    }
   }
 }
 

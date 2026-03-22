@@ -482,6 +482,83 @@ describe('SelectTool', () => {
     });
   });
 
+  describe('arrow binding', () => {
+    it('updates bound arrow when dragging a note', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
+      const arrow = createArrow({
+        from: { x: 50, y: 50 },
+        to: { x: 300, y: 300 },
+        fromBinding: { elementId: note.id },
+      });
+      ctx.store.add(arrow);
+      ctx.store.add(note);
+
+      // Select the note
+      tool.onPointerDown(pt(50, 50), ctx);
+      // Drag it 100px right
+      tool.onPointerMove(pt(150, 50), ctx);
+      tool.onPointerUp(pt(150, 50), ctx);
+
+      const updatedArrow = ctx.store.getById(arrow.id);
+      // Note moved from (0,0) to (100,0), center was (50,50) now (150,50)
+      expect(updatedArrow?.type === 'arrow' && updatedArrow.from.x).toBe(150);
+      expect(updatedArrow?.type === 'arrow' && updatedArrow.from.y).toBe(50);
+    });
+
+    it('does not move a bound arrow when dragged independently', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
+      const arrow = createArrow({
+        from: { x: 50, y: 50 },
+        to: { x: 300, y: 300 },
+        fromBinding: { elementId: note.id },
+      });
+      ctx.store.add(arrow);
+      ctx.store.add(note);
+
+      // Select the arrow by clicking on its line
+      tool.onPointerDown(pt(175, 175), ctx);
+      // Try to drag it
+      tool.onPointerMove(pt(200, 200), ctx);
+      tool.onPointerUp(pt(200, 200), ctx);
+
+      const updatedArrow = ctx.store.getById(arrow.id);
+      // Arrow should stay in place and keep its binding
+      expect(updatedArrow?.type === 'arrow' && updatedArrow.fromBinding?.elementId).toBe(note.id);
+      expect(updatedArrow?.type === 'arrow' && updatedArrow.from.x).toBe(50);
+    });
+
+    it('updates bound arrows when resizing an element', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const note = createNote({ position: { x: 100, y: 100 }, size: { w: 200, h: 100 } });
+      const arrow = createArrow({
+        from: { x: 200, y: 150 },
+        to: { x: 400, y: 400 },
+        fromBinding: { elementId: note.id },
+      });
+      ctx.store.add(arrow);
+      ctx.store.add(note);
+
+      // Select the note
+      tool.onPointerDown(pt(200, 150), ctx);
+      tool.onPointerUp(pt(200, 150), ctx);
+
+      // Resize from SE corner (300, 200) by (+50, 0) — width goes to 250
+      tool.onPointerDown(pt(300, 200), ctx);
+      tool.onPointerMove(pt(350, 200), ctx);
+      tool.onPointerUp(pt(350, 200), ctx);
+
+      // Center was (200, 150), after resize to width 250 -> center is (225, 150)
+      const updatedArrow = ctx.store.getById(arrow.id);
+      expect(updatedArrow?.type === 'arrow' && updatedArrow.from.x).toBe(225);
+      expect(updatedArrow?.type === 'arrow' && updatedArrow.from.y).toBe(150);
+    });
+  });
+
   describe('cursors', () => {
     it('shows resize cursor when hovering over a handle', () => {
       const tool = new SelectTool();

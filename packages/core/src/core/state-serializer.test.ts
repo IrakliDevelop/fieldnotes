@@ -155,4 +155,34 @@ describe('parseState', () => {
     };
     expect(() => parseState(JSON.stringify(data))).toThrow('zIndex');
   });
+
+  it('cleans stale arrow bindings on parse', () => {
+    const state = {
+      version: 1,
+      camera: { position: { x: 0, y: 0 }, zoom: 1 },
+      elements: [
+        {
+          id: 'arrow-1',
+          type: 'arrow',
+          position: { x: 0, y: 0 },
+          zIndex: 0,
+          locked: false,
+          from: { x: 0, y: 0 },
+          to: { x: 100, y: 100 },
+          bend: 0,
+          color: '#000',
+          width: 2,
+          fromBinding: { elementId: 'nonexistent' },
+          toBinding: { elementId: 'also-nonexistent' },
+        },
+      ],
+    };
+    const parsed = parseState(JSON.stringify(state));
+    const arrow = parsed.elements[0];
+    expect(arrow).toBeDefined();
+    if (arrow && arrow.type === 'arrow') {
+      expect(arrow.fromBinding).toBeUndefined();
+      expect(arrow.toBinding).toBeUndefined();
+    }
+  });
 });

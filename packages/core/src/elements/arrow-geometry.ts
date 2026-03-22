@@ -1,6 +1,6 @@
 import type { Point } from '../core/types';
 
-interface Rect {
+export interface Rect {
   x: number;
   y: number;
   w: number;
