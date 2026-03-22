@@ -1,4 +1,4 @@
-export const VERSION = '0.3.1';
+export const VERSION = '0.4.0';
 
 export { EventBus } from './core/event-bus';
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
@@ -27,6 +27,7 @@ export {
   createImage,
   createHtmlElement,
   createText,
+  createShape,
 } from './elements/element-factory';
 export {
   getArrowControlPoint,
@@ -57,6 +58,8 @@ export type {
   ImageElement,
   HtmlElement,
   TextElement,
+  ShapeElement,
+  ShapeKind,
 } from './elements/types';
 
 export type { Command } from './history/types';
@@ -85,4 +88,6 @@ export { TextTool } from './tools/text-tool';
 export type { TextToolOptions } from './tools/text-tool';
 export { ImageTool } from './tools/image-tool';
 export type { ImageToolOptions } from './tools/image-tool';
+export { ShapeTool } from './tools/shape-tool';
+export type { ShapeToolOptions } from './tools/shape-tool';
 export type { Tool, ToolContext, PointerState, ToolName } from './tools/types';
