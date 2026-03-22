@@ -171,4 +171,60 @@ describe('NoteEditor', () => {
     document.body.removeEventListener('pointerdown', parentSpy);
     node.remove();
   });
+
+  describe('setOnStop callback', () => {
+    it('calls onStop with element id when editing stops', async () => {
+      const editor = new NoteEditor();
+      const store = new ElementStore();
+      const note = createNote({ position: { x: 0, y: 0 } });
+      store.add(note);
+
+      const onStop = vi.fn();
+      editor.setOnStop(onStop);
+
+      const node = document.createElement('div');
+      node.textContent = 'hello';
+      editor.startEditing(node, note.id, store);
+
+      await flushRAF();
+
+      editor.stopEditing(store);
+      expect(onStop).toHaveBeenCalledWith(note.id);
+    });
+
+    it('does not call onStop if no callback is set', async () => {
+      const editor = new NoteEditor();
+      const store = new ElementStore();
+      const note = createNote({ position: { x: 0, y: 0 } });
+      store.add(note);
+
+      const node = document.createElement('div');
+      editor.startEditing(node, note.id, store);
+
+      await flushRAF();
+
+      // Should not throw
+      expect(() => editor.stopEditing(store)).not.toThrow();
+    });
+
+    it('calls onStop before clearing internal state', async () => {
+      const editor = new NoteEditor();
+      const store = new ElementStore();
+      const note = createNote({ position: { x: 0, y: 0 } });
+      store.add(note);
+
+      let wasEditingDuringCallback = false;
+      editor.setOnStop(() => {
+        wasEditingDuringCallback = editor.isEditing;
+      });
+
+      const node = document.createElement('div');
+      editor.startEditing(node, note.id, store);
+
+      await flushRAF();
+
+      editor.stopEditing(store);
+      expect(wasEditingDuringCallback).toBe(true);
+    });
+  });
 });
