@@ -1,6 +1,6 @@
 {
   "name": "@fieldnotes/react",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "React wrapper for Field Notes canvas SDK",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -38,14 +38,13 @@
     "html-embedding",
     "fieldnotes"
   ],
-  "dependencies": {
-    "@fieldnotes/core": "workspace:*"
-  },
   "peerDependencies": {
+    "@fieldnotes/core": ">=0.2.0",
     "react": ">=18",
     "react-dom": ">=18"
   },
   "devDependencies": {
+    "@fieldnotes/core": "workspace:*",
     "@testing-library/react": "^16.3.2",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
