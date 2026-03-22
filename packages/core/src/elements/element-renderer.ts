@@ -64,6 +64,10 @@ export class ElementRenderer {
     ctx.lineWidth = arrow.width;
     ctx.lineCap = 'round';
 
+    if (arrow.fromBinding || arrow.toBinding) {
+      ctx.setLineDash([8, 4]);
+    }
+
     ctx.beginPath();
     ctx.moveTo(visualFrom.x, visualFrom.y);
 
