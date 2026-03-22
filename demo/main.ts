@@ -146,6 +146,26 @@ brushSlider?.addEventListener('input', () => {
   if (brushLabel) brushLabel.textContent = `${width}px`;
 });
 
+const textOptions = document.getElementById('text-options');
+const fontSizeSelect = document.getElementById('font-size') as HTMLSelectElement | null;
+const alignButtons = document.querySelectorAll<HTMLButtonElement>('[data-align]');
+
+viewport.toolManager.onChange((name) => {
+  if (textOptions) textOptions.style.display = name === 'text' ? 'flex' : 'none';
+});
+
+fontSizeSelect?.addEventListener('change', () => {
+  text.setOptions({ fontSize: Number(fontSizeSelect.value) });
+});
+
+alignButtons.forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const align = btn.dataset['align'] as 'left' | 'center' | 'right';
+    text.setOptions({ textAlign: align });
+    alignButtons.forEach((b) => b.classList.toggle('active', b === btn));
+  });
+});
+
 const colorInput = document.getElementById('tool-color') as HTMLInputElement | null;
 
 colorInput?.addEventListener('input', (e) => {

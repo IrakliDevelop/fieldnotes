@@ -80,6 +80,23 @@
       <input type="range" id="brush-size" min="1" max="20" value="2" title="Brush size" style="width: 80px; cursor: pointer;">
       <span id="brush-label" style="font-size: 11px; color: #999; min-width: 20px;">2px</span>
     </div>
+    <div id="text-options" style="display: none; align-items: center; gap: 6px;">
+      <div style="width: 1px; background: #ddd; margin: 2px 4px;"></div>
+      <select id="font-size" title="Font size" style="padding: 4px 6px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; cursor: pointer; font-family: inherit;">
+        <option value="12">12</option>
+        <option value="14">14</option>
+        <option value="16" selected>16</option>
+        <option value="20">20</option>
+        <option value="24">24</option>
+        <option value="32">32</option>
+        <option value="48">48</option>
+      </select>
+      <div style="display: flex; gap: 2px;">
+        <button data-align="left" class="active" title="Align left" style="padding: 4px 8px; border: 1px solid #ddd; border-radius: 4px; background: white; cursor: pointer; font-size: 13px;">L</button>
+        <button data-align="center" title="Align center" style="padding: 4px 8px; border: 1px solid #ddd; border-radius: 4px; background: white; cursor: pointer; font-size: 13px;">C</button>
+        <button data-align="right" title="Align right" style="padding: 4px 8px; border: 1px solid #ddd; border-radius: 4px; background: white; cursor: pointer; font-size: 13px;">R</button>
+      </div>
+    </div>
     <div style="width: 1px; background: #ddd; margin: 2px 4px;"></div>
     <button id="undo" disabled>Undo<span class="shortcut">⌘Z</span></button>
     <button id="redo" disabled>Redo<span class="shortcut">⌘⇧Z</span></button>
