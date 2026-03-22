@@ -1,5 +1,12 @@
 import type { Point, Size, StrokePoint } from '../core/types';
-import type { StrokeElement, NoteElement, ArrowElement, ImageElement, HtmlElement } from './types';
+import type {
+  StrokeElement,
+  NoteElement,
+  ArrowElement,
+  ImageElement,
+  HtmlElement,
+  TextElement,
+} from './types';
 import { createId } from './create-id';
 
 interface BaseDefaults {
@@ -39,6 +46,15 @@ interface ImageInput extends BaseDefaults {
 interface HtmlInput extends BaseDefaults {
   position: Point;
   size: Size;
+}
+
+interface TextInput extends BaseDefaults {
+  position: Point;
+  size?: Size;
+  text?: string;
+  fontSize?: number;
+  color?: string;
+  textAlign?: 'left' | 'center' | 'right';
 }
 
 export function createStroke(input: StrokeInput): StrokeElement {
@@ -103,5 +119,20 @@ export function createHtmlElement(input: HtmlInput): HtmlElement {
     zIndex: input.zIndex ?? 0,
     locked: input.locked ?? false,
     size: input.size,
+  };
+}
+
+export function createText(input: TextInput): TextElement {
+  return {
+    id: createId('text'),
+    type: 'text',
+    position: input.position,
+    zIndex: input.zIndex ?? 0,
+    locked: input.locked ?? false,
+    size: input.size ?? { w: 200, h: 28 },
+    text: input.text ?? '',
+    fontSize: input.fontSize ?? 16,
+    color: input.color ?? '#1a1a1a',
+    textAlign: input.textAlign ?? 'left',
   };
 }
