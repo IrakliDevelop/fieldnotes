@@ -133,24 +133,17 @@ export class SelectTool implements Tool {
         if (!el || el.locked) continue;
 
         if (el.type === 'arrow') {
-          const fromBound = el.fromBinding && this._selectedIds.includes(el.fromBinding.elementId);
-          const toBound = el.toBinding && this._selectedIds.includes(el.toBinding.elementId);
-
-          if (fromBound || toBound) {
-            // Bound elements are in selection — skip manual drag delta,
-            // updateBoundArrow will reposition this arrow after the elements move
+          if (el.fromBinding || el.toBinding) {
+            // Arrow has bindings — don't allow independent dragging.
+            // Use handle drag to detach individual endpoints.
             continue;
           }
 
-          // Bound elements are NOT in selection — clear bindings, drag freely
-          const updates: Partial<ArrowElement> = {
+          ctx.store.update(id, {
             position: { x: el.position.x + dx, y: el.position.y + dy },
             from: { x: el.from.x + dx, y: el.from.y + dy },
             to: { x: el.to.x + dx, y: el.to.y + dy },
-          };
-          if (el.fromBinding) updates.fromBinding = undefined;
-          if (el.toBinding) updates.toBinding = undefined;
-          ctx.store.update(id, updates);
+          });
         } else {
           ctx.store.update(id, {
             position: { x: el.position.x + dx, y: el.position.y + dy },

@@ -507,7 +507,7 @@ describe('SelectTool', () => {
       expect(updatedArrow?.type === 'arrow' && updatedArrow.from.y).toBe(50);
     });
 
-    it('clears bindings when dragging a bound arrow as a whole', () => {
+    it('does not move a bound arrow when dragged independently', () => {
       const tool = new SelectTool();
       const ctx = makeCtx();
       const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
@@ -521,12 +521,14 @@ describe('SelectTool', () => {
 
       // Select the arrow by clicking on its line
       tool.onPointerDown(pt(175, 175), ctx);
-      // Drag it
+      // Try to drag it
       tool.onPointerMove(pt(200, 200), ctx);
       tool.onPointerUp(pt(200, 200), ctx);
 
       const updatedArrow = ctx.store.getById(arrow.id);
-      expect(updatedArrow?.type === 'arrow' && updatedArrow.fromBinding).toBeUndefined();
+      // Arrow should stay in place and keep its binding
+      expect(updatedArrow?.type === 'arrow' && updatedArrow.fromBinding?.elementId).toBe(note.id);
+      expect(updatedArrow?.type === 'arrow' && updatedArrow.from.x).toBe(50);
     });
 
     it('updates bound arrows when resizing an element', () => {
