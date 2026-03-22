@@ -1,4 +1,4 @@
-export const VERSION = '0.2.1';
+export const VERSION = '0.2.2';
 
 export { EventBus } from './core/event-bus';
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
