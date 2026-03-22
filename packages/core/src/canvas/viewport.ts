@@ -53,6 +53,7 @@ export class Viewport {
     this.toolManager = new ToolManager();
     this.renderer = new ElementRenderer();
     this.noteEditor = new NoteEditor();
+    this.noteEditor.setOnStop((id) => this.onTextEditStop(id));
     this.history = new HistoryStack();
     this.historyRecorder = new HistoryRecorder(this.store, this.history);
 
@@ -69,7 +70,7 @@ export class Viewport {
       store: this.store,
       requestRender: () => this.requestRender(),
       switchTool: (name: string) => this.toolManager.setTool(name, this.toolContext),
-      editElement: (id: string) => this.startEditingNote(id),
+      editElement: (id: string) => this.startEditingElement(id),
       setCursor: (cursor: string) => {
         this.wrapper.style.cursor = cursor;
       },
@@ -230,15 +231,37 @@ export class Viewport {
     ctx.restore();
   }
 
-  private startEditingNote(id: string): void {
+  private startEditingElement(id: string): void {
     const element = this.store.getById(id);
-    if (!element || element.type !== 'note') return;
+    if (!element || (element.type !== 'note' && element.type !== 'text')) return;
 
     this.render();
 
     const node = this.domNodes.get(id);
     if (node) {
       this.noteEditor.startEditing(node, id, this.store);
+    }
+  }
+
+  private onTextEditStop(elementId: string): void {
+    const element = this.store.getById(elementId);
+    if (!element || element.type !== 'text') return;
+
+    if (!element.text || element.text.trim() === '') {
+      this.historyRecorder.begin();
+      this.store.remove(elementId);
+      this.historyRecorder.commit();
+      return;
+    }
+
+    const node = this.domNodes.get(elementId);
+    if (node && 'size' in element) {
+      const measuredHeight = node.scrollHeight;
+      if (measuredHeight !== element.size.h) {
+        this.store.update(elementId, {
+          size: { w: element.size.w, h: measuredHeight },
+        });
+      }
     }
   }
 
@@ -250,8 +273,8 @@ export class Viewport {
       const elementId = nodeEl.dataset['elementId'];
       if (elementId) {
         const element = this.store.getById(elementId);
-        if (element?.type === 'note') {
-          this.startEditingNote(elementId);
+        if (element?.type === 'note' || element?.type === 'text') {
+          this.startEditingElement(elementId);
           return;
         }
       }
@@ -398,7 +421,7 @@ export class Viewport {
         node.addEventListener('dblclick', (e) => {
           e.stopPropagation();
           const id = node.dataset['elementId'];
-          if (id) this.startEditingNote(id);
+          if (id) this.startEditingElement(id);
         });
       }
 
@@ -440,6 +463,45 @@ export class Viewport {
           pointerEvents: 'none',
         });
         node.appendChild(content);
+      }
+    }
+
+    if (element.type === 'text') {
+      if (!node.dataset['initialized']) {
+        node.dataset['initialized'] = 'true';
+        Object.assign(node.style, {
+          padding: '2px',
+          fontSize: `${element.fontSize}px`,
+          color: element.color,
+          textAlign: element.textAlign,
+          background: 'none',
+          border: 'none',
+          boxShadow: 'none',
+          overflow: 'visible',
+          cursor: 'default',
+          userSelect: 'none',
+          wordWrap: 'break-word',
+          whiteSpace: 'pre-wrap',
+          lineHeight: '1.4',
+        });
+        node.textContent = element.text || '';
+
+        node.addEventListener('dblclick', (e) => {
+          e.stopPropagation();
+          const id = node.dataset['elementId'];
+          if (id) this.startEditingElement(id);
+        });
+      }
+
+      if (!this.noteEditor.isEditing || this.noteEditor.editingElementId !== element.id) {
+        if (node.textContent !== element.text) {
+          node.textContent = element.text || '';
+        }
+        Object.assign(node.style, {
+          fontSize: `${element.fontSize}px`,
+          color: element.color,
+          textAlign: element.textAlign,
+        });
       }
     }
   }
