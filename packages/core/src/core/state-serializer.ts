@@ -71,7 +71,7 @@ function validateState(data: unknown): asserts data is CanvasState {
   }
 }
 
-const VALID_TYPES = new Set(['stroke', 'note', 'arrow', 'image', 'html']);
+const VALID_TYPES = new Set(['stroke', 'note', 'arrow', 'image', 'html', 'text']);
 
 function validateElement(el: unknown): asserts el is CanvasElement {
   if (!el || typeof el !== 'object') {
