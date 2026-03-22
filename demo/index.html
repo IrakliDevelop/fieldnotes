@@ -91,6 +91,22 @@
       font-size: 13px;
       font-family: inherit;
     }
+    #note-panel {
+      display: none;
+      position: fixed;
+      top: 70px;
+      left: 50%;
+      transform: translateX(-50%);
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+      z-index: 10;
+      font-size: 13px;
+      font-family: inherit;
+    }
     #shape-panel select, #shape-panel button {
       padding: 4px 8px;
       border: 1px solid #ddd;
@@ -159,6 +175,13 @@
     <button data-align="left" class="active">Left</button>
     <button data-align="center">Center</button>
     <button data-align="right">Right</button>
+  </div>
+  <div id="note-panel">
+    <span style="color: #999; font-size: 11px;">Note:</span>
+    <span style="color: #999; font-size: 11px;">Bg:</span>
+    <input type="color" id="note-bg" value="#ffeb3b" title="Note background" style="width: 28px; height: 28px; padding: 2px; border: 1px solid #ddd; border-radius: 4px; cursor: pointer; background: white;">
+    <span style="color: #999; font-size: 11px;">Text:</span>
+    <input type="color" id="note-text-color" value="#000000" title="Note text color" style="width: 28px; height: 28px; padding: 2px; border: 1px solid #ddd; border-radius: 4px; cursor: pointer; background: white;">
   </div>
   <div id="shape-panel">
     <span style="color: #999; font-size: 11px;">Shape:</span>

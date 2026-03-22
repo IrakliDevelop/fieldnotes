@@ -36,6 +36,18 @@ describe('element factories', () => {
       expect(note.text).toBe('');
       expect(note.size).toEqual({ w: 200, h: 100 });
       expect(note.position).toEqual({ x: 10, y: 20 });
+      expect(note.backgroundColor).toBe('#ffeb3b');
+      expect(note.textColor).toBe('#000000');
+    });
+
+    it('creates a note with custom colors', () => {
+      const note = createNote({
+        position: { x: 0, y: 0 },
+        backgroundColor: '#ff0000',
+        textColor: '#ffffff',
+      });
+      expect(note.backgroundColor).toBe('#ff0000');
+      expect(note.textColor).toBe('#ffffff');
     });
   });
 

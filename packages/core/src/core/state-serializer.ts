@@ -129,4 +129,8 @@ function migrateElement(obj: Record<string, unknown>): void {
   if (obj['type'] === 'shape' && typeof obj['shape'] !== 'string') {
     obj['shape'] = 'rectangle';
   }
+
+  if (obj['type'] === 'note' && typeof obj['textColor'] !== 'string') {
+    obj['textColor'] = '#000000';
+  }
 }

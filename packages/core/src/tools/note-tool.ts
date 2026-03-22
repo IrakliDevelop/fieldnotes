@@ -4,21 +4,25 @@ import { createNote } from '../elements/element-factory';
 
 export interface NoteToolOptions {
   backgroundColor?: string;
+  textColor?: string;
   size?: Size;
 }
 
 export class NoteTool implements Tool {
   readonly name = 'note';
   private backgroundColor: string;
+  private textColor: string;
   private size: Size;
 
   constructor(options: NoteToolOptions = {}) {
     this.backgroundColor = options.backgroundColor ?? '#ffeb3b';
+    this.textColor = options.textColor ?? '#000000';
     this.size = options.size ?? { w: 200, h: 100 };
   }
 
   setOptions(options: NoteToolOptions): void {
     if (options.backgroundColor !== undefined) this.backgroundColor = options.backgroundColor;
+    if (options.textColor !== undefined) this.textColor = options.textColor;
     if (options.size !== undefined) this.size = options.size;
   }
 
@@ -36,6 +40,7 @@ export class NoteTool implements Tool {
       position: world,
       size: { ...this.size },
       backgroundColor: this.backgroundColor,
+      textColor: this.textColor,
     });
     ctx.store.add(note);
     ctx.requestRender();

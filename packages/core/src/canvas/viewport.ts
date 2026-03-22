@@ -413,6 +413,7 @@ export class Viewport {
         node.dataset['initialized'] = 'true';
         Object.assign(node.style, {
           backgroundColor: element.backgroundColor,
+          color: element.textColor,
           padding: '8px',
           borderRadius: '4px',
           boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
@@ -436,6 +437,7 @@ export class Viewport {
           node.textContent = element.text || '';
         }
         node.style.backgroundColor = element.backgroundColor;
+        node.style.color = element.textColor;
       }
     }
 

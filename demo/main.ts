@@ -150,6 +150,50 @@ brushSlider?.addEventListener('input', () => {
   if (brushLabel) brushLabel.textContent = `${width}px`;
 });
 
+const notePanel = document.getElementById('note-panel');
+const noteBgInput = document.getElementById('note-bg') as HTMLInputElement | null;
+const noteTextColorInput = document.getElementById('note-text-color') as HTMLInputElement | null;
+
+function getSelectedNoteElement() {
+  const ids = select.selectedIds;
+  if (ids.length !== 1) return null;
+  const el = viewport.store.getAll().find((e) => e.id === ids[0]);
+  if (el && el.type === 'note') return el;
+  return null;
+}
+
+function updateNotePanel() {
+  const activeTool = viewport.toolManager.activeTool?.name;
+  const selectedNote = getSelectedNoteElement();
+  const show = activeTool === 'note' || selectedNote !== null;
+  if (notePanel) notePanel.style.display = show ? 'flex' : 'none';
+
+  if (selectedNote && noteBgInput) {
+    noteBgInput.value = selectedNote.backgroundColor;
+  }
+  if (selectedNote && noteTextColorInput) {
+    noteTextColorInput.value = selectedNote.textColor;
+  }
+}
+
+viewport.toolManager.onChange(updateNotePanel);
+container.addEventListener('pointerup', () => requestAnimationFrame(updateNotePanel));
+viewport.store.on('update', updateNotePanel);
+
+noteBgInput?.addEventListener('input', () => {
+  const color = noteBgInput.value;
+  note.setOptions({ backgroundColor: color });
+  const sel = getSelectedNoteElement();
+  if (sel) viewport.store.update(sel.id, { backgroundColor: color });
+});
+
+noteTextColorInput?.addEventListener('input', () => {
+  const color = noteTextColorInput.value;
+  note.setOptions({ textColor: color });
+  const sel = getSelectedNoteElement();
+  if (sel) viewport.store.update(sel.id, { textColor: color });
+});
+
 const textPanel = document.getElementById('text-panel');
 const fontSizeSelect = document.getElementById('font-size') as HTMLSelectElement | null;
 const textColorInput = document.getElementById('text-color') as HTMLInputElement | null;
