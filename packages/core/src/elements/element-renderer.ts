@@ -1,4 +1,4 @@
-import type { CanvasElement, StrokeElement, ArrowElement } from './types';
+import type { CanvasElement, StrokeElement, ArrowElement, ShapeElement } from './types';
 import { getArrowControlPoint, getArrowTangentAngle } from './arrow-geometry';
 import { getElementBounds, getEdgeIntersection } from './arrow-binding';
 import { smoothToSegments, pressureToWidth } from './stroke-smoothing';
@@ -26,6 +26,9 @@ export class ElementRenderer {
         break;
       case 'arrow':
         this.renderArrow(ctx, element);
+        break;
+      case 'shape':
+        this.renderShape(ctx, element);
         break;
     }
   }
@@ -147,5 +150,54 @@ export class ElementRenderer {
     }
 
     return { visualFrom, visualTo };
+  }
+
+  private renderShape(ctx: CanvasRenderingContext2D, shape: ShapeElement): void {
+    ctx.save();
+
+    if (shape.fillColor !== 'none') {
+      ctx.fillStyle = shape.fillColor;
+      this.fillShapePath(ctx, shape);
+    }
+
+    if (shape.strokeWidth > 0) {
+      ctx.strokeStyle = shape.strokeColor;
+      ctx.lineWidth = shape.strokeWidth;
+      this.strokeShapePath(ctx, shape);
+    }
+
+    ctx.restore();
+  }
+
+  private fillShapePath(ctx: CanvasRenderingContext2D, shape: ShapeElement): void {
+    switch (shape.shape) {
+      case 'rectangle':
+        ctx.fillRect(shape.position.x, shape.position.y, shape.size.w, shape.size.h);
+        break;
+      case 'ellipse': {
+        const cx = shape.position.x + shape.size.w / 2;
+        const cy = shape.position.y + shape.size.h / 2;
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, shape.size.w / 2, shape.size.h / 2, 0, 0, Math.PI * 2);
+        ctx.fill();
+        break;
+      }
+    }
+  }
+
+  private strokeShapePath(ctx: CanvasRenderingContext2D, shape: ShapeElement): void {
+    switch (shape.shape) {
+      case 'rectangle':
+        ctx.strokeRect(shape.position.x, shape.position.y, shape.size.w, shape.size.h);
+        break;
+      case 'ellipse': {
+        const cx = shape.position.x + shape.size.w / 2;
+        const cy = shape.position.y + shape.size.h / 2;
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, shape.size.w / 2, shape.size.h / 2, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        break;
+      }
+    }
   }
 }
