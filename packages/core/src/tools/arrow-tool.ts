@@ -19,6 +19,7 @@ export class ArrowTool implements Tool {
   private color: string;
   private width: number;
   private fromBinding: Binding | undefined;
+  private fromTarget: CanvasElement | null = null;
   private toTarget: CanvasElement | null = null;
 
   constructor(options: ArrowToolOptions = {}) {
@@ -40,9 +41,11 @@ export class ArrowTool implements Tool {
     if (target) {
       this.start = getElementCenter(target);
       this.fromBinding = { elementId: target.id };
+      this.fromTarget = target;
     } else {
       this.start = world;
       this.fromBinding = undefined;
+      this.fromTarget = null;
     }
     this.end = { ...this.start };
     this.toTarget = null;
@@ -81,8 +84,10 @@ export class ArrowTool implements Tool {
       toBinding: this.toTarget ? { elementId: this.toTarget.id } : undefined,
     });
     ctx.store.add(arrow);
+    this.fromTarget = null;
     this.toTarget = null;
     ctx.requestRender();
+    ctx.switchTool?.('select');
   }
 
   renderOverlay(ctx: CanvasRenderingContext2D): void {
@@ -90,6 +95,16 @@ export class ArrowTool implements Tool {
     if (this.start.x === this.end.x && this.start.y === this.end.y) return;
 
     ctx.save();
+
+    if (this.fromTarget) {
+      const bounds = getElementBounds(this.fromTarget);
+      if (bounds) {
+        ctx.strokeStyle = '#2196F3';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([]);
+        ctx.strokeRect(bounds.x, bounds.y, bounds.w, bounds.h);
+      }
+    }
 
     if (this.toTarget) {
       const bounds = getElementBounds(this.toTarget);

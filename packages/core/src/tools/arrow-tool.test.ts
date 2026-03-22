@@ -11,6 +11,7 @@ function makeCtx(overrides: Partial<ToolContext> = {}): ToolContext {
     camera: new Camera(),
     store: new ElementStore(),
     requestRender: vi.fn(),
+    switchTool: vi.fn(),
     ...overrides,
   };
 }
