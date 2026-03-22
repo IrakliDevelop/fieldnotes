@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { ArrowTool } from './arrow-tool';
 import { ElementStore } from '../elements/element-store';
 import { Camera } from '../canvas/camera';
+import { createNote } from '../elements/element-factory';
 import type { ToolContext, PointerState } from './types';
 import type { ArrowElement } from '../elements/types';
 
@@ -128,5 +129,72 @@ describe('ArrowTool', () => {
 
       expect(canvas.beginPath).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('ArrowTool binding', () => {
+  function makeBindCtx(store: ElementStore): ToolContext {
+    return {
+      camera: new Camera(),
+      store,
+      requestRender: vi.fn(),
+      switchTool: vi.fn(),
+      editElement: vi.fn(),
+      setCursor: vi.fn(),
+    };
+  }
+
+  it('creates arrow with fromBinding when starting near an element', () => {
+    const store = new ElementStore();
+    const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
+    store.add(note);
+
+    const tool = new ArrowTool();
+    const ctx = makeBindCtx(store);
+
+    tool.onPointerDown({ x: 55, y: 55, pressure: 0.5 }, ctx);
+    tool.onPointerMove({ x: 300, y: 300, pressure: 0.5 }, ctx);
+    tool.onPointerUp({ x: 300, y: 300, pressure: 0.5 }, ctx);
+
+    const arrows = store.getElementsByType('arrow');
+    expect(arrows).toHaveLength(1);
+    expect(arrows[0]?.fromBinding?.elementId).toBe(note.id);
+    expect(arrows[0]?.toBinding).toBeUndefined();
+  });
+
+  it('creates arrow with toBinding when ending near an element', () => {
+    const store = new ElementStore();
+    const note = createNote({ position: { x: 200, y: 200 }, size: { w: 100, h: 100 } });
+    store.add(note);
+
+    const tool = new ArrowTool();
+    const ctx = makeBindCtx(store);
+
+    tool.onPointerDown({ x: 0, y: 0, pressure: 0.5 }, ctx);
+    tool.onPointerMove({ x: 255, y: 255, pressure: 0.5 }, ctx);
+    tool.onPointerUp({ x: 255, y: 255, pressure: 0.5 }, ctx);
+
+    const arrows = store.getElementsByType('arrow');
+    expect(arrows).toHaveLength(1);
+    expect(arrows[0]?.toBinding?.elementId).toBe(note.id);
+    expect(arrows[0]?.from).toEqual({ x: 0, y: 0 });
+  });
+
+  it('prevents self-binding (same element at both ends)', () => {
+    const store = new ElementStore();
+    const note = createNote({ position: { x: 0, y: 0 }, size: { w: 200, h: 200 } });
+    store.add(note);
+
+    const tool = new ArrowTool();
+    const ctx = makeBindCtx(store);
+
+    tool.onPointerDown({ x: 50, y: 50, pressure: 0.5 }, ctx);
+    tool.onPointerMove({ x: 150, y: 150, pressure: 0.5 }, ctx);
+    tool.onPointerUp({ x: 150, y: 150, pressure: 0.5 }, ctx);
+
+    const arrows = store.getElementsByType('arrow');
+    expect(arrows).toHaveLength(1);
+    expect(arrows[0]?.fromBinding?.elementId).toBe(note.id);
+    expect(arrows[0]?.toBinding).toBeUndefined();
   });
 });

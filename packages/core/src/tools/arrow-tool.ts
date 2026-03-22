@@ -1,6 +1,10 @@
 import type { Point } from '../core/types';
+import type { Binding, CanvasElement } from '../elements/types';
 import type { Tool, ToolContext, PointerState } from './types';
 import { createArrow } from '../elements/element-factory';
+import { findBindTarget, getElementCenter, getElementBounds } from '../elements/arrow-binding';
+
+const BIND_THRESHOLD = 20;
 
 export interface ArrowToolOptions {
   color?: string;
@@ -14,6 +18,8 @@ export class ArrowTool implements Tool {
   private end: Point = { x: 0, y: 0 };
   private color: string;
   private width: number;
+  private fromBinding: Binding | undefined;
+  private toTarget: CanvasElement | null = null;
 
   constructor(options: ArrowToolOptions = {}) {
     this.color = options.color ?? '#000000';
@@ -27,13 +33,35 @@ export class ArrowTool implements Tool {
 
   onPointerDown(state: PointerState, ctx: ToolContext): void {
     this.drawing = true;
-    this.start = ctx.camera.screenToWorld({ x: state.x, y: state.y });
+    const world = ctx.camera.screenToWorld({ x: state.x, y: state.y });
+    const threshold = BIND_THRESHOLD / ctx.camera.zoom;
+
+    const target = findBindTarget(world, ctx.store, threshold);
+    if (target) {
+      this.start = getElementCenter(target);
+      this.fromBinding = { elementId: target.id };
+    } else {
+      this.start = world;
+      this.fromBinding = undefined;
+    }
     this.end = { ...this.start };
+    this.toTarget = null;
   }
 
   onPointerMove(state: PointerState, ctx: ToolContext): void {
     if (!this.drawing) return;
-    this.end = ctx.camera.screenToWorld({ x: state.x, y: state.y });
+    const world = ctx.camera.screenToWorld({ x: state.x, y: state.y });
+    const threshold = BIND_THRESHOLD / ctx.camera.zoom;
+    const excludeId = this.fromBinding?.elementId;
+
+    const target = findBindTarget(world, ctx.store, threshold, excludeId);
+    if (target) {
+      this.end = getElementCenter(target);
+      this.toTarget = target;
+    } else {
+      this.end = world;
+      this.toTarget = null;
+    }
     ctx.requestRender();
   }
 
@@ -48,8 +76,11 @@ export class ArrowTool implements Tool {
       to: this.end,
       color: this.color,
       width: this.width,
+      fromBinding: this.fromBinding,
+      toBinding: this.toTarget ? { elementId: this.toTarget.id } : undefined,
     });
     ctx.store.add(arrow);
+    this.toTarget = null;
     ctx.requestRender();
   }
 
@@ -58,6 +89,17 @@ export class ArrowTool implements Tool {
     if (this.start.x === this.end.x && this.start.y === this.end.y) return;
 
     ctx.save();
+
+    if (this.toTarget) {
+      const bounds = getElementBounds(this.toTarget);
+      if (bounds) {
+        ctx.strokeStyle = '#2196F3';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([]);
+        ctx.strokeRect(bounds.x, bounds.y, bounds.w, bounds.h);
+      }
+    }
+
     ctx.strokeStyle = this.color;
     ctx.lineWidth = this.width;
     ctx.lineCap = 'round';
