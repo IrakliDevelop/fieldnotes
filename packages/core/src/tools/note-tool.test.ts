@@ -51,17 +51,29 @@ describe('NoteTool', () => {
     expect(note.size).toEqual({ w: 300, h: 200 });
   });
 
+  it('uses configured textColor', () => {
+    const tool = new NoteTool({ textColor: '#ffffff' });
+    const ctx = makeCtx();
+
+    tool.onPointerDown(pt(0, 0), ctx);
+    tool.onPointerUp(pt(0, 0), ctx);
+
+    const note = ctx.store.getAll()[0] as NoteElement;
+    expect(note.textColor).toBe('#ffffff');
+  });
+
   it('updates options via setOptions', () => {
     const tool = new NoteTool();
     const ctx = makeCtx();
 
-    tool.setOptions({ backgroundColor: '#ff5722' });
+    tool.setOptions({ backgroundColor: '#ff5722', textColor: '#ffffff' });
 
     tool.onPointerDown(pt(0, 0), ctx);
     tool.onPointerUp(pt(0, 0), ctx);
 
     const note = ctx.store.getAll()[0] as NoteElement;
     expect(note.backgroundColor).toBe('#ff5722');
+    expect(note.textColor).toBe('#ffffff');
   });
 
   it('converts screen to world coords', () => {

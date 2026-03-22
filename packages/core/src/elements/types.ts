@@ -21,6 +21,7 @@ export interface NoteElement extends BaseElement {
   size: Size;
   text: string;
   backgroundColor: string;
+  textColor: string;
 }
 
 export interface Binding {
