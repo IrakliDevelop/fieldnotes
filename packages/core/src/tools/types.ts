@@ -35,4 +35,5 @@ export type ToolName =
   | 'arrow'
   | 'note'
   | 'image'
-  | 'text';
+  | 'text'
+  | 'shape';

@@ -8,6 +8,7 @@ import {
   ArrowTool,
   NoteTool,
   TextTool,
+  ShapeTool,
   AutoSave,
 } from '@fieldnotes/core';
 
@@ -27,6 +28,7 @@ const select = new SelectTool();
 const arrow = new ArrowTool({ color: '#1a1a1a', width: 2 });
 const note = new NoteTool();
 const text = new TextTool();
+const shape = new ShapeTool({ strokeColor: '#1a1a1a' });
 
 viewport.toolManager.register(hand);
 viewport.toolManager.register(pencil);
@@ -35,6 +37,7 @@ viewport.toolManager.register(select);
 viewport.toolManager.register(arrow);
 viewport.toolManager.register(note);
 viewport.toolManager.register(text);
+viewport.toolManager.register(shape);
 
 const autoSave = new AutoSave(viewport.store, viewport.camera);
 const savedState = autoSave.load();
@@ -138,6 +141,7 @@ brushSlider?.addEventListener('input', () => {
   const width = Number(brushSlider.value);
   pencil.setOptions({ width });
   arrow.setOptions({ width });
+  shape.setOptions({ strokeWidth: width });
   if (brushPreview) {
     const size = Math.max(4, width + 4);
     brushPreview.style.width = `${size}px`;
@@ -214,6 +218,31 @@ colorInput?.addEventListener('input', (e) => {
   arrow.setOptions({ color });
   note.setOptions({ backgroundColor: color });
   text.setOptions({ color });
+  shape.setOptions({ strokeColor: color });
+});
+
+const shapePanel = document.getElementById('shape-panel');
+const shapeKindSelect = document.getElementById('shape-kind') as HTMLSelectElement | null;
+const shapeFillInput = document.getElementById('shape-fill') as HTMLInputElement | null;
+const shapeNoFillBtn = document.getElementById('shape-no-fill') as HTMLButtonElement | null;
+
+function updateShapePanel() {
+  const activeTool = viewport.toolManager.activeTool?.name;
+  if (shapePanel) shapePanel.style.display = activeTool === 'shape' ? 'flex' : 'none';
+}
+
+viewport.toolManager.onChange(updateShapePanel);
+
+shapeKindSelect?.addEventListener('change', () => {
+  shape.setOptions({ shape: shapeKindSelect.value as 'rectangle' | 'ellipse' });
+});
+
+shapeFillInput?.addEventListener('input', () => {
+  shape.setOptions({ fillColor: shapeFillInput.value });
+});
+
+shapeNoFillBtn?.addEventListener('click', () => {
+  shape.setOptions({ fillColor: 'none' });
 });
 
 document.addEventListener('keydown', (e) => {
@@ -228,6 +257,7 @@ document.addEventListener('keydown', (e) => {
     a: 'arrow',
     n: 'note',
     t: 'text',
+    s: 'shape',
   };
   const tool = map[e.key];
   if (tool) {

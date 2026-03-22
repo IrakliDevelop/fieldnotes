@@ -6,6 +6,7 @@ import {
   createImage,
   createHtmlElement,
   createText,
+  createShape,
 } from './element-factory';
 
 describe('element factories', () => {
@@ -87,6 +88,34 @@ describe('element factories', () => {
       });
       expect(el.type).toBe('html');
       expect(el.size).toEqual({ w: 250, h: 150 });
+    });
+  });
+
+  describe('createShape', () => {
+    it('creates a rectangle with defaults', () => {
+      const shape = createShape({ position: { x: 10, y: 20 }, size: { w: 100, h: 50 } });
+      expect(shape.type).toBe('shape');
+      expect(shape.shape).toBe('rectangle');
+      expect(shape.position).toEqual({ x: 10, y: 20 });
+      expect(shape.size).toEqual({ w: 100, h: 50 });
+      expect(shape.strokeColor).toBe('#000000');
+      expect(shape.strokeWidth).toBe(2);
+      expect(shape.fillColor).toBe('none');
+    });
+
+    it('creates an ellipse with custom styles', () => {
+      const shape = createShape({
+        position: { x: 0, y: 0 },
+        size: { w: 200, h: 100 },
+        shape: 'ellipse',
+        strokeColor: '#ff0000',
+        strokeWidth: 3,
+        fillColor: '#00ff00',
+      });
+      expect(shape.shape).toBe('ellipse');
+      expect(shape.strokeColor).toBe('#ff0000');
+      expect(shape.strokeWidth).toBe(3);
+      expect(shape.fillColor).toBe('#00ff00');
     });
   });
 

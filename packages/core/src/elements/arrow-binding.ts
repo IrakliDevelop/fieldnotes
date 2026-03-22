@@ -4,7 +4,7 @@ import type { ElementStore } from './element-store';
 import { getArrowTangentAngle } from './arrow-geometry';
 import type { Rect } from './arrow-geometry';
 
-const BINDABLE_TYPES = new Set(['note', 'text', 'image', 'html']);
+const BINDABLE_TYPES = new Set(['note', 'text', 'image', 'html', 'shape']);
 
 export function isBindable(element: CanvasElement): boolean {
   return BINDABLE_TYPES.has(element.type);
