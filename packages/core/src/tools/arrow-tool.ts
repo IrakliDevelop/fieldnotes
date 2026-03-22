@@ -74,6 +74,7 @@ export class ArrowTool implements Tool {
     const arrow = createArrow({
       from: this.start,
       to: this.end,
+      position: this.start,
       color: this.color,
       width: this.width,
       fromBinding: this.fromBinding,

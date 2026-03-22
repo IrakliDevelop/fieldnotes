@@ -1,7 +1,8 @@
 import type { Point } from '../core/types';
 import type { Tool, ToolContext, PointerState } from './types';
-import type { CanvasElement } from '../elements/types';
+import type { CanvasElement, ArrowElement } from '../elements/types';
 import { isNearBezier, getArrowBounds } from '../elements/arrow-geometry';
+import type { Rect } from '../elements/arrow-geometry';
 import { findBoundArrows, updateBoundArrow } from '../elements/arrow-binding';
 import {
   type ArrowHandle,
@@ -12,12 +13,6 @@ import {
   getArrowHandleDragTarget,
 } from './arrow-handles';
 
-interface Rect {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
 type HandlePosition = 'nw' | 'ne' | 'sw' | 'se';
 
 const HANDLE_SIZE = 8;
@@ -148,13 +143,13 @@ export class SelectTool implements Tool {
           }
 
           // Bound elements are NOT in selection — clear bindings, drag freely
-          const updates: Record<string, unknown> = {
+          const updates: Partial<ArrowElement> = {
             position: { x: el.position.x + dx, y: el.position.y + dy },
             from: { x: el.from.x + dx, y: el.from.y + dy },
             to: { x: el.to.x + dx, y: el.to.y + dy },
           };
-          if (el.fromBinding) updates['fromBinding'] = undefined;
-          if (el.toBinding) updates['toBinding'] = undefined;
+          if (el.fromBinding) updates.fromBinding = undefined;
+          if (el.toBinding) updates.toBinding = undefined;
           ctx.store.update(id, updates);
         } else {
           ctx.store.update(id, {
