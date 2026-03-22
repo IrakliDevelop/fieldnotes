@@ -58,12 +58,24 @@ export interface TextElement extends BaseElement {
   textAlign: 'left' | 'center' | 'right';
 }
 
+export type ShapeKind = 'rectangle' | 'ellipse';
+
+export interface ShapeElement extends BaseElement {
+  type: 'shape';
+  shape: ShapeKind;
+  size: Size;
+  strokeColor: string;
+  strokeWidth: number;
+  fillColor: string;
+}
+
 export type CanvasElement =
   | StrokeElement
   | NoteElement
   | ArrowElement
   | ImageElement
   | HtmlElement
-  | TextElement;
+  | TextElement
+  | ShapeElement;
 
 export type ElementType = CanvasElement['type'];

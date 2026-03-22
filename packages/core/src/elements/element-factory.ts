@@ -7,6 +7,8 @@ import type {
   ImageElement,
   HtmlElement,
   TextElement,
+  ShapeElement,
+  ShapeKind,
 } from './types';
 import { createId } from './create-id';
 
@@ -125,6 +127,30 @@ export function createHtmlElement(input: HtmlInput): HtmlElement {
     zIndex: input.zIndex ?? 0,
     locked: input.locked ?? false,
     size: input.size,
+  };
+}
+
+interface ShapeInput extends BaseDefaults {
+  position: Point;
+  size: Size;
+  shape?: ShapeKind;
+  strokeColor?: string;
+  strokeWidth?: number;
+  fillColor?: string;
+}
+
+export function createShape(input: ShapeInput): ShapeElement {
+  return {
+    id: createId('shape'),
+    type: 'shape',
+    position: input.position,
+    zIndex: input.zIndex ?? 0,
+    locked: input.locked ?? false,
+    shape: input.shape ?? 'rectangle',
+    size: input.size,
+    strokeColor: input.strokeColor ?? '#000000',
+    strokeWidth: input.strokeWidth ?? 2,
+    fillColor: input.fillColor ?? 'none',
   };
 }
 
