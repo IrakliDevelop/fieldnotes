@@ -286,6 +286,7 @@ export class Viewport {
 
     this.interactingElementId = id;
     node.style.pointerEvents = 'auto';
+    node.addEventListener('pointerdown', this.onInteractNodePointerDown);
 
     window.addEventListener('keydown', this.onInteractKeyDown);
     window.addEventListener('pointerdown', this.onInteractPointerDown);
@@ -297,12 +298,17 @@ export class Viewport {
     const node = this.domNodes.get(this.interactingElementId);
     if (node) {
       node.style.pointerEvents = 'none';
+      node.removeEventListener('pointerdown', this.onInteractNodePointerDown);
     }
 
     this.interactingElementId = null;
     window.removeEventListener('keydown', this.onInteractKeyDown);
     window.removeEventListener('pointerdown', this.onInteractPointerDown);
   }
+
+  private onInteractNodePointerDown = (e: PointerEvent): void => {
+    e.stopPropagation();
+  };
 
   private onInteractKeyDown = (e: KeyboardEvent): void => {
     if (e.key === 'Escape') {
