@@ -7,6 +7,7 @@ export class NoteEditor {
   private keyHandler: ((e: KeyboardEvent) => void) | null = null;
   private pointerHandler: ((e: PointerEvent) => void) | null = null;
   private pendingEditId: string | null = null;
+  private onStopCallback: ((elementId: string) => void) | null = null;
 
   get isEditing(): boolean {
     return this.editingId !== null;
@@ -14,6 +15,10 @@ export class NoteEditor {
 
   get editingElementId(): string | null {
     return this.editingId;
+  }
+
+  setOnStop(callback: (elementId: string) => void): void {
+    this.onStopCallback = callback;
   }
 
   startEditing(node: HTMLDivElement, elementId: string, store: ElementStore): void {
@@ -54,6 +59,10 @@ export class NoteEditor {
     }
     if (this.pointerHandler) {
       this.editingNode.removeEventListener('pointerdown', this.pointerHandler);
+    }
+
+    if (this.editingId && this.onStopCallback) {
+      this.onStopCallback(this.editingId);
     }
 
     this.editingId = null;

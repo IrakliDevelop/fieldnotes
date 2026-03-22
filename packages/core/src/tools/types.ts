@@ -27,4 +27,12 @@ export interface Tool {
   renderOverlay?(ctx: CanvasRenderingContext2D): void;
 }
 
-export type ToolName = 'hand' | 'select' | 'pencil' | 'eraser' | 'arrow' | 'note' | 'image';
+export type ToolName =
+  | 'hand'
+  | 'select'
+  | 'pencil'
+  | 'eraser'
+  | 'arrow'
+  | 'note'
+  | 'image'
+  | 'text';

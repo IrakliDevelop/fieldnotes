@@ -2,7 +2,7 @@ import type { CanvasElement, StrokeElement, ArrowElement } from './types';
 import { getArrowControlPoint, getArrowTangentAngle } from './arrow-geometry';
 import { smoothToSegments, pressureToWidth } from './stroke-smoothing';
 
-const DOM_ELEMENT_TYPES = new Set(['note', 'image', 'html']);
+const DOM_ELEMENT_TYPES = new Set(['note', 'image', 'html', 'text']);
 const ARROWHEAD_LENGTH = 12;
 const ARROWHEAD_ANGLE = Math.PI / 6;
 

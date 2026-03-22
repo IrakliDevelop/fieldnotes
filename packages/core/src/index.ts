@@ -1,4 +1,4 @@
-export const VERSION = '0.2.3';
+export const VERSION = '0.3.0';
 
 export { EventBus } from './core/event-bus';
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
@@ -26,6 +26,7 @@ export {
   createArrow,
   createImage,
   createHtmlElement,
+  createText,
 } from './elements/element-factory';
 export {
   getArrowControlPoint,
@@ -43,6 +44,7 @@ export type {
   ArrowElement,
   ImageElement,
   HtmlElement,
+  TextElement,
 } from './elements/types';
 
 export type { Command } from './history/types';
@@ -67,6 +69,8 @@ export { ArrowTool } from './tools/arrow-tool';
 export type { ArrowToolOptions } from './tools/arrow-tool';
 export { NoteTool } from './tools/note-tool';
 export type { NoteToolOptions } from './tools/note-tool';
+export { TextTool } from './tools/text-tool';
+export type { TextToolOptions } from './tools/text-tool';
 export { ImageTool } from './tools/image-tool';
 export type { ImageToolOptions } from './tools/image-tool';
 export type { Tool, ToolContext, PointerState, ToolName } from './tools/types';

@@ -226,9 +226,9 @@ canvas.destroy();
 
 ### v0.3 — Enhanced Elements
 
+- [ ] **Text tool** — standalone text boxes on canvas (editable, styled, resizable)
 - [ ] Arrow binding (snap arrows to elements)
 - [ ] Shape tools (rectangle, ellipse)
-- [ ] Text tool (standalone text on canvas)
 - [ ] Snap-to-grid / alignment guides
 - [ ] Minimap
 - [ ] Layers panel
@@ -239,16 +239,44 @@ canvas.destroy();
 - [ ] Theming (dark/light, custom colors)
 - [ ] Configurable keyboard shortcut system
 - [ ] Accessibility (keyboard navigation, screen reader basics)
-- [ ] npm publish: `@fieldnotes/core`, `@fieldnotes/react`
+- [x] npm publish: `@fieldnotes/core`, `@fieldnotes/react`
+- [ ] `@fieldnotes/ui` — pre-built, customizable UI components (toolbar, text format panel, color picker, layers panel) as a separate package; `@fieldnotes/react` stays a thin binding layer
 - [ ] Documentation site
 
-### Future (post v1.0)
+### v0.5 — Import / Export
 
-- [ ] Real-time collaboration (CRDT-based)
-- [ ] Presentation mode
-- [ ] Export to PNG/SVG/PDF
-- [ ] Connectors (arrows that route around elements)
-- [ ] Handwriting recognition (optional)
+- [ ] Export to PNG (rasterize canvas region)
+- [ ] Export to SVG (vector export of strokes, shapes, arrows)
+- [ ] Export to PDF
+- [ ] **FreeForm PDF import — Phase 1: Images** — extract embedded images with positions/sizes from Apple FreeForm PDF exports
+- [ ] **FreeForm PDF import — Phase 2: Text** — extract text items with fonts, sizes, positions
+- [ ] **FreeForm PDF import — Phase 3: Sticky notes** — detect colored rectangles as note elements
+- [ ] JSON import/export improvements (versioned schema, migration support)
+
+### v0.6 — Collaboration & Polish
+
+- [ ] Real-time collaboration (CRDT-based, e.g. Yjs or Automerge)
+- [ ] Presence indicators (cursors, selections)
+- [ ] Presentation mode (slide-like navigation between canvas regions)
+- [ ] Connectors (arrows that auto-route around elements)
+- [ ] Grid/frame layout containers
+
+### Future — Cross-Tool Compatibility
+
+Enable migration from other canvas tools by importing their export formats:
+
+- [ ] **FreeForm migration tool** — bulk import existing Apple FreeForm boards (images, text, sticky notes, pencil strokes)
+- [ ] **FreeForm PDF import — Phase 4: Pencil strokes** — reconstruct center-line strokes from FreeForm's filled vector outlines (complex: requires skeleton extraction or visual approximation)
+- [ ] **Miro / FigJam import** — investigate JSON or API-based import from other popular whiteboard tools
+- [ ] **Generic PDF import** — import annotated PDFs as canvas elements (images, text overlays)
+
+### Future — Advanced SDK Features
+
+- [ ] Handwriting recognition (optional, via ML model)
+- [ ] Infinite zoom with level-of-detail rendering
+- [ ] Canvas-to-canvas linking (nested infinite canvases)
+- [ ] Offline-first with sync (IndexedDB + conflict resolution)
+- [ ] Mobile app wrapper (Capacitor / React Native WebView)
 
 ---
 

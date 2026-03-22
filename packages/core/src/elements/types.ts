@@ -43,6 +43,21 @@ export interface HtmlElement extends BaseElement {
   size: Size;
 }
 
-export type CanvasElement = StrokeElement | NoteElement | ArrowElement | ImageElement | HtmlElement;
+export interface TextElement extends BaseElement {
+  type: 'text';
+  size: Size;
+  text: string;
+  fontSize: number;
+  color: string;
+  textAlign: 'left' | 'center' | 'right';
+}
+
+export type CanvasElement =
+  | StrokeElement
+  | NoteElement
+  | ArrowElement
+  | ImageElement
+  | HtmlElement
+  | TextElement;
 
 export type ElementType = CanvasElement['type'];

@@ -59,6 +59,37 @@
       pointer-events: none;
       z-index: 10;
     }
+    #text-panel {
+      display: none;
+      position: fixed;
+      top: 70px;
+      left: 50%;
+      transform: translateX(-50%);
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+      z-index: 10;
+      font-size: 13px;
+      font-family: inherit;
+    }
+    #text-panel select, #text-panel button {
+      padding: 4px 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      background: white;
+      cursor: pointer;
+      font-size: 13px;
+      font-family: inherit;
+    }
+    #text-panel button:hover { background: #f0f0f0; }
+    #text-panel button.active {
+      background: #1a1a1a;
+      color: white;
+      border-color: #1a1a1a;
+    }
   </style>
 </head>
 <body>
@@ -70,6 +101,7 @@
     <button data-tool="eraser">Eraser<span class="shortcut">E</span></button>
     <button data-tool="arrow">Arrow<span class="shortcut">A</span></button>
     <button data-tool="note">Note<span class="shortcut">N</span></button>
+    <button data-tool="text">Text<span class="shortcut">T</span></button>
     <button id="image-btn">Image<span class="shortcut">I</span></button>
     <button id="embed-btn">Embed</button>
     <div style="width: 1px; background: #ddd; margin: 2px 4px;"></div>
@@ -85,6 +117,22 @@
     <div style="width: 1px; background: #ddd; margin: 2px 4px;"></div>
     <button id="save">Save</button>
     <button id="load">Load</button>
+  </div>
+  <div id="text-panel">
+    <span style="color: #999; font-size: 11px;">Text:</span>
+    <input type="color" id="text-color" value="#1a1a1a" title="Text color" style="width: 28px; height: 28px; padding: 2px; border: 1px solid #ddd; border-radius: 4px; cursor: pointer; background: white;">
+    <select id="font-size">
+      <option value="12">12px</option>
+      <option value="14">14px</option>
+      <option value="16" selected>16px</option>
+      <option value="20">20px</option>
+      <option value="24">24px</option>
+      <option value="32">32px</option>
+      <option value="48">48px</option>
+    </select>
+    <button data-align="left" class="active">Left</button>
+    <button data-align="center">Center</button>
+    <button data-align="right">Right</button>
   </div>
   <input type="file" id="image-file" accept="image/*" style="display: none">
   <div id="info"></div>

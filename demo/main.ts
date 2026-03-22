@@ -7,6 +7,7 @@ import {
   SelectTool,
   ArrowTool,
   NoteTool,
+  TextTool,
   AutoSave,
 } from '@fieldnotes/core';
 
@@ -25,6 +26,7 @@ const eraser = new EraserTool();
 const select = new SelectTool();
 const arrow = new ArrowTool({ color: '#1a1a1a', width: 2 });
 const note = new NoteTool();
+const text = new TextTool();
 
 viewport.toolManager.register(hand);
 viewport.toolManager.register(pencil);
@@ -32,6 +34,7 @@ viewport.toolManager.register(eraser);
 viewport.toolManager.register(select);
 viewport.toolManager.register(arrow);
 viewport.toolManager.register(note);
+viewport.toolManager.register(text);
 
 const autoSave = new AutoSave(viewport.store, viewport.camera);
 const savedState = autoSave.load();
@@ -143,6 +146,66 @@ brushSlider?.addEventListener('input', () => {
   if (brushLabel) brushLabel.textContent = `${width}px`;
 });
 
+const textPanel = document.getElementById('text-panel');
+const fontSizeSelect = document.getElementById('font-size') as HTMLSelectElement | null;
+const textColorInput = document.getElementById('text-color') as HTMLInputElement | null;
+const alignButtons = document.querySelectorAll<HTMLButtonElement>('#text-panel [data-align]');
+
+function getSelectedTextElement() {
+  const ids = select.selectedIds;
+  if (ids.length !== 1) return null;
+  const el = viewport.store.getAll().find((e) => e.id === ids[0]);
+  if (el && el.type === 'text') return el;
+  return null;
+}
+
+function updateTextPanel() {
+  const activeTool = viewport.toolManager.activeTool?.name;
+  const selectedText = getSelectedTextElement();
+  const show = activeTool === 'text' || selectedText !== null;
+  if (textPanel) textPanel.style.display = show ? 'flex' : 'none';
+
+  if (selectedText && fontSizeSelect) {
+    fontSizeSelect.value = String(selectedText.fontSize);
+  }
+  if (selectedText && textColorInput) {
+    textColorInput.value = selectedText.color;
+  }
+  if (selectedText) {
+    alignButtons.forEach((b) =>
+      b.classList.toggle('active', b.dataset['align'] === selectedText.textAlign),
+    );
+  }
+}
+
+viewport.toolManager.onChange(updateTextPanel);
+container.addEventListener('pointerup', () => requestAnimationFrame(updateTextPanel));
+viewport.store.on('update', updateTextPanel);
+
+fontSizeSelect?.addEventListener('change', () => {
+  const fontSize = Number(fontSizeSelect.value);
+  text.setOptions({ fontSize });
+  const sel = getSelectedTextElement();
+  if (sel) viewport.store.update(sel.id, { fontSize });
+});
+
+alignButtons.forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const align = btn.dataset['align'] as 'left' | 'center' | 'right';
+    text.setOptions({ textAlign: align });
+    alignButtons.forEach((b) => b.classList.toggle('active', b === btn));
+    const sel = getSelectedTextElement();
+    if (sel) viewport.store.update(sel.id, { textAlign: align });
+  });
+});
+
+textColorInput?.addEventListener('input', () => {
+  const color = textColorInput.value;
+  text.setOptions({ color });
+  const sel = getSelectedTextElement();
+  if (sel) viewport.store.update(sel.id, { color });
+});
+
 const colorInput = document.getElementById('tool-color') as HTMLInputElement | null;
 
 colorInput?.addEventListener('input', (e) => {
@@ -150,6 +213,7 @@ colorInput?.addEventListener('input', (e) => {
   pencil.setOptions({ color });
   arrow.setOptions({ color });
   note.setOptions({ backgroundColor: color });
+  text.setOptions({ color });
 });
 
 document.addEventListener('keydown', (e) => {
@@ -163,6 +227,7 @@ document.addEventListener('keydown', (e) => {
     e: 'eraser',
     a: 'arrow',
     n: 'note',
+    t: 'text',
   };
   const tool = map[e.key];
   if (tool) {
