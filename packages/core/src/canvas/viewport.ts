@@ -6,7 +6,9 @@ import type { BackgroundOptions } from './background';
 import { ElementStore } from '../elements/element-store';
 import { ElementRenderer } from '../elements/element-renderer';
 import { NoteEditor } from '../elements/note-editor';
-import type { CanvasElement } from '../elements/types';
+import type { CanvasElement, ArrowElement } from '../elements/types';
+import { findBoundArrows, getElementBounds, getEdgeIntersection } from '../elements/arrow-binding';
+import { getArrowTangentAngle } from '../elements/arrow-geometry';
 import { ToolManager } from '../tools/tool-manager';
 import type { ToolContext } from '../tools/types';
 import { HistoryStack } from '../history/history-stack';
@@ -91,7 +93,10 @@ export class Viewport {
 
     this.unsubStore = [
       this.store.on('add', () => this.requestRender()),
-      this.store.on('remove', (el) => this.removeDomNode(el.id)),
+      this.store.on('remove', (el) => {
+        this.unbindArrowsFrom(el);
+        this.removeDomNode(el.id);
+      }),
       this.store.on('update', () => this.requestRender()),
       this.store.on('clear', () => this.clearDomNodes()),
     ];
@@ -503,6 +508,45 @@ export class Viewport {
           color: element.color,
           textAlign: element.textAlign,
         });
+      }
+    }
+  }
+
+  private unbindArrowsFrom(removedElement: CanvasElement): void {
+    const boundArrows = findBoundArrows(removedElement.id, this.store);
+    const bounds = getElementBounds(removedElement);
+
+    for (const arrow of boundArrows) {
+      const updates: Partial<ArrowElement> = {};
+
+      if (arrow.fromBinding?.elementId === removedElement.id) {
+        updates.fromBinding = undefined;
+        if (bounds) {
+          const angle = getArrowTangentAngle(arrow.from, arrow.to, arrow.bend, 0);
+          const rayTarget = {
+            x: arrow.from.x + Math.cos(angle) * 1000,
+            y: arrow.from.y + Math.sin(angle) * 1000,
+          };
+          const edge = getEdgeIntersection(bounds, rayTarget);
+          updates.from = edge;
+          updates.position = edge;
+        }
+      }
+
+      if (arrow.toBinding?.elementId === removedElement.id) {
+        updates.toBinding = undefined;
+        if (bounds) {
+          const angle = getArrowTangentAngle(arrow.from, arrow.to, arrow.bend, 1);
+          const rayTarget = {
+            x: arrow.to.x - Math.cos(angle) * 1000,
+            y: arrow.to.y - Math.sin(angle) * 1000,
+          };
+          updates.to = getEdgeIntersection(bounds, rayTarget);
+        }
+      }
+
+      if (Object.keys(updates).length > 0) {
+        this.store.update(arrow.id, updates);
       }
     }
   }
