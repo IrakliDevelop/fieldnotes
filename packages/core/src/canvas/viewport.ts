@@ -52,6 +52,7 @@ export class Viewport {
     this.store = new ElementStore();
     this.toolManager = new ToolManager();
     this.renderer = new ElementRenderer();
+    this.renderer.setStore(this.store);
     this.noteEditor = new NoteEditor();
     this.noteEditor.setOnStop((id) => this.onTextEditStop(id));
     this.history = new HistoryStack();
