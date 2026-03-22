@@ -3,7 +3,7 @@ import type { Tool, ToolContext, PointerState } from './types';
 import type { CanvasElement, ArrowElement } from '../elements/types';
 import { isNearBezier, getArrowBounds } from '../elements/arrow-geometry';
 import type { Rect } from '../elements/arrow-geometry';
-import { findBoundArrows, updateBoundArrow } from '../elements/arrow-binding';
+import { findBoundArrows, updateBoundArrow, getElementBounds } from '../elements/arrow-binding';
 import {
   type ArrowHandle,
   hitTestArrowHandles,
@@ -377,6 +377,7 @@ export class SelectTool implements Tool {
 
       if (el.type === 'arrow') {
         renderArrowHandles(canvasCtx, el, zoom);
+        this.renderBindingHighlights(canvasCtx, el, zoom);
         continue;
       }
 
@@ -406,6 +407,38 @@ export class SelectTool implements Tool {
         }
         canvasCtx.setLineDash([4 / zoom, 4 / zoom]);
       }
+    }
+
+    canvasCtx.restore();
+  }
+
+  private renderBindingHighlights(
+    canvasCtx: CanvasRenderingContext2D,
+    arrow: ArrowElement,
+    zoom: number,
+  ): void {
+    if (!this.ctx) return;
+    if (!arrow.fromBinding && !arrow.toBinding) return;
+
+    const pad = SELECTION_PAD / zoom;
+
+    canvasCtx.save();
+    canvasCtx.strokeStyle = '#2196F3';
+    canvasCtx.lineWidth = 2 / zoom;
+    canvasCtx.setLineDash([]);
+
+    const drawn = new Set<string>();
+    for (const binding of [arrow.fromBinding, arrow.toBinding]) {
+      if (!binding || drawn.has(binding.elementId)) continue;
+      drawn.add(binding.elementId);
+
+      const target = this.ctx.store.getById(binding.elementId);
+      if (!target) continue;
+
+      const bounds = getElementBounds(target);
+      if (!bounds) continue;
+
+      canvasCtx.strokeRect(bounds.x - pad, bounds.y - pad, bounds.w + pad * 2, bounds.h + pad * 2);
     }
 
     canvasCtx.restore();
