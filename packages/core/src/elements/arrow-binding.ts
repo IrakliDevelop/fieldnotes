@@ -56,6 +56,7 @@ export function findBindTarget(
   store: ElementStore,
   threshold: number,
   excludeId?: string,
+  filter?: (el: CanvasElement) => boolean,
 ): CanvasElement | null {
   let closest: CanvasElement | null = null;
   let closestDist = Infinity;
@@ -63,6 +64,7 @@ export function findBindTarget(
   for (const el of store.getAll()) {
     if (!isBindable(el)) continue;
     if (excludeId && el.id === excludeId) continue;
+    if (filter && !filter(el)) continue;
 
     const bounds = getElementBounds(el);
     if (!bounds) continue;
