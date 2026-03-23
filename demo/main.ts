@@ -363,6 +363,7 @@ document.getElementById('load')?.addEventListener('click', () => {
     return;
   }
   viewport.loadState(saved);
+  syncGridPanelFromStore();
   console.log('State restored from auto-save');
 });
 
@@ -517,6 +518,26 @@ gridColorInput?.addEventListener('input', () => {
     viewport.updateGrid({ strokeColor: gridColorInput.value });
   }
 });
+
+function syncGridPanelFromStore() {
+  const grid = viewport.store.getElementsByType('grid')[0];
+  gridActive = !!grid;
+  if (gridToggleBtn) {
+    gridToggleBtn.textContent = gridActive ? 'Grid: On' : 'Grid: Off';
+    if (gridActive) gridToggleBtn.classList.add('active');
+    else gridToggleBtn.classList.remove('active');
+  }
+  if (grid && grid.type === 'grid') {
+    if (gridTypeSelect) gridTypeSelect.value = grid.gridType;
+    if (hexOrientationSelect) hexOrientationSelect.value = grid.hexOrientation;
+    if (gridCellSizeInput) gridCellSizeInput.value = String(grid.cellSize);
+    if (gridCellSizeLabel) gridCellSizeLabel.textContent = String(grid.cellSize);
+    if (gridColorInput) gridColorInput.value = grid.strokeColor;
+    updateHexOrientationVisibility();
+  }
+}
+
+syncGridPanelFromStore();
 
 const info = document.getElementById('info');
 if (info) {
