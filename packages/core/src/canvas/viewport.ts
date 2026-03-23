@@ -61,6 +61,7 @@ export class Viewport {
     this.toolManager = new ToolManager();
     this.renderer = new ElementRenderer();
     this.renderer.setStore(this.store);
+    this.renderer.setOnImageLoad(() => this.requestRender());
     this.noteEditor = new NoteEditor();
     this.noteEditor.setOnStop((id) => this.onTextEditStop(id));
     this.history = new HistoryStack();
@@ -476,27 +477,6 @@ export class Viewport {
         }
         node.style.backgroundColor = element.backgroundColor;
         node.style.color = element.textColor;
-      }
-    }
-
-    if (element.type === 'image') {
-      if (!node.dataset['initialized']) {
-        node.dataset['initialized'] = 'true';
-        const img = document.createElement('img');
-        img.src = element.src;
-        Object.assign(img.style, {
-          width: '100%',
-          height: '100%',
-          objectFit: 'contain',
-          pointerEvents: 'none',
-        });
-        img.draggable = false;
-        node.appendChild(img);
-      } else {
-        const img = node.querySelector('img');
-        if (img && img.src !== element.src) {
-          img.src = element.src;
-        }
       }
     }
 
