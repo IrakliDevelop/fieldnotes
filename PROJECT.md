@@ -177,6 +177,9 @@ canvas.camera.setZoom(level);
 canvas.undo();
 canvas.redo();
 
+// Images
+canvas.addImage('https://example.com/map.png', { x: 0, y: 0 }, { w: 800, h: 600 });
+
 // Serialization
 const state = canvas.exportState(); // JSON-serializable
 canvas.loadState(state);
@@ -189,6 +192,31 @@ canvas.toolManager.onChange(callback);
 // Cleanup
 canvas.destroy();
 ```
+
+### Images & Storage
+
+Images are stored in the canvas state as their `src` value. **Use URLs, not base64 data URLs**, for any non-trivial use case:
+
+```typescript
+// Good — lightweight, shareable, no storage bloat
+canvas.addImage('https://cdn.example.com/maps/tavern.png', pos, size);
+canvas.addImage('/assets/map.png', pos, size);
+
+// Avoid — a single photo can be 2-5MB as base64, bloating serialized state
+canvas.addImage('data:image/png;base64,iVBOR...', pos, size);
+```
+
+**Why this matters:**
+
+- `exportState()` / `exportJSON()` includes image `src` values inline. Base64 data URLs make the serialized state enormous.
+- `AutoSave` uses `localStorage` by default, which has a **~5MB limit** across all keys. One base64 image can exceed this.
+- Sharing state (e.g., syncing canvas between users via JSON) becomes impractical with multi-MB payloads.
+
+**Recommended approach for user-uploaded images:**
+
+1. Upload the image to your server or a storage service (S3, Cloudflare R2, etc.)
+2. Use the returned URL with `addImage()`
+3. For offline/local-first apps, store image blobs in IndexedDB and reference them by object URL or a custom scheme
 
 ---
 
@@ -261,6 +289,25 @@ canvas.destroy();
 - [ ] Connectors (arrows that auto-route around elements)
 - [ ] Grid/frame layout containers
 
+### Future — `@fieldnotes/presets`
+
+Domain-specific preset bundles that sit on top of the generic SDK, making it instantly useful for specific use cases.
+
+**D&D / TTRPG preset (priority):**
+
+- [ ] Map layer — auto-locked background image on Layer 1
+- [ ] Grid overlay layer — hex or square grid with transparent background
+- [ ] Token system — player tokens as HTML/React elements (avatar + name badge)
+- [ ] DM annotations layer — notes, arrows, area markers
+- [ ] Pre-built token component — avatar, name, health bar, status indicators
+- [ ] Fog of war — hide/reveal areas of the map
+
+**Other preset ideas:**
+
+- [ ] Whiteboard / brainstorming — sticky notes, connectors, frames
+- [ ] Mood board — image-heavy, freeform layout
+- [ ] Wireframing — UI component stencils, grids, alignment guides
+
 ### Future — Cross-Tool Compatibility
 
 Enable migration from other canvas tools by importing their export formats:
@@ -275,6 +322,7 @@ Enable migration from other canvas tools by importing their export formats:
 - [ ] Handwriting recognition (optional, via ML model)
 - [ ] Infinite zoom with level-of-detail rendering
 - [ ] Canvas-to-canvas linking (nested infinite canvases)
+- [ ] `diffAndApply(json)` — diff-based state update to avoid full rebuild flicker on polled sync
 - [ ] Offline-first with sync (IndexedDB + conflict resolution)
 - [ ] Mobile app wrapper (Capacitor / React Native WebView)
 

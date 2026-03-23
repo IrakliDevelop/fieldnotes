@@ -7,12 +7,15 @@ A lightweight, framework-agnostic infinite canvas SDK for the web — with first
 - **Infinite canvas** — pan, zoom, pinch-to-zoom
 - **Freehand drawing** — pencil tool with stroke smoothing and pressure-sensitive width
 - **Sticky notes** — editable text notes with customizable colors
-- **Arrows** — curved bezier arrows with draggable control points
-- **Images** — drag & drop or programmatic placement
+- **Arrows** — curved bezier arrows with element binding
+- **Shapes** — rectangles, ellipses with fill and stroke
+- **Text** — standalone text elements with font size and alignment
+- **Images** — drag & drop or programmatic placement (canvas-rendered for proper layer ordering)
 - **HTML embedding** — add any DOM element as a fully interactive canvas citizen
-- **Select & multi-select** — click, drag box, move, resize
+- **Layers** — named layers with visibility, locking, and absolute ordering
+- **Select & multi-select** — click, drag box, move, resize (layer-aware)
 - **Undo / redo** — full history stack with configurable depth
-- **State serialization** — export/import JSON snapshots
+- **State serialization** — export/import JSON snapshots with automatic migration
 - **Touch & tablet** — Pointer Events API, pinch-to-zoom, two-finger pan, stylus pressure
 - **Zero dependencies** — vanilla TypeScript, no framework required
 - **Tree-shakeable** — ESM + CJS output
@@ -91,9 +94,12 @@ viewport.stopInteracting();
 ```typescript
 // Programmatic
 viewport.addImage('https://example.com/photo.jpg', { x: 0, y: 0 });
+viewport.addImage('/assets/map.png', { x: 0, y: 0 }, { w: 800, h: 600 });
 
 // Drag & drop is handled automatically — drop images onto the canvas
 ```
+
+> **Important: Use URLs, not base64 data URLs.** Images are stored inline in the serialized state. A single base64-encoded photo can be 2-5MB, which will blow past the `localStorage` ~5MB quota and make JSON exports impractical. Upload images to your server or CDN and use the URL. For offline/local-first apps, store blobs in IndexedDB and reference them by URL.
 
 ## Camera Control
 
@@ -147,6 +153,45 @@ viewport.history.onChange(() => {
 });
 ```
 
+## Layers
+
+Organize elements into named layers with visibility, lock, and ordering controls. All elements on a higher layer render above all elements on a lower layer, regardless of individual z-index.
+
+```typescript
+const { layerManager } = viewport;
+
+// Create layers
+const background = layerManager.activeLayer; // "Layer 1" exists by default
+layerManager.renameLayer(background.id, 'Map');
+const tokens = layerManager.createLayer('Tokens');
+const notes = layerManager.createLayer('Notes');
+
+// Set active layer — new elements are created on the active layer
+layerManager.setActiveLayer(tokens.id);
+
+// Visibility and locking
+layerManager.setLayerVisible(background.id, false); // hide
+layerManager.setLayerLocked(background.id, true); // prevent selection/editing
+
+// Move elements between layers
+layerManager.moveElementToLayer(elementId, notes.id);
+
+// Reorder layers
+layerManager.reorderLayer(tokens.id, 5); // higher order = renders on top
+
+// Query
+layerManager.getLayers(); // sorted by order
+layerManager.isLayerVisible(id);
+layerManager.isLayerLocked(id);
+
+// Listen for changes
+layerManager.on('change', () => {
+  /* update UI */
+});
+```
+
+Locked layers prevent selection, erasing, and arrow binding on their elements. Hidden layers are invisible and non-interactive. The active layer cannot be hidden or locked — if you try, it automatically switches to the next available layer.
+
 ## State Serialization
 
 ```typescript
@@ -157,6 +202,8 @@ localStorage.setItem('canvas', json);
 // Load
 viewport.loadJSON(localStorage.getItem('canvas'));
 ```
+
+> **Note:** Serialized state includes all layers and element `layerId` assignments. States saved before layers were introduced are automatically migrated — elements are placed on a default "Layer 1".
 
 ## Tool Switching
 
@@ -296,16 +343,19 @@ interface BaseElement {
   position: { x: number; y: number };
   zIndex: number;
   locked: boolean;
+  layerId: string;
 }
 ```
 
-| Type     | Key Fields                                           |
-| -------- | ---------------------------------------------------- |
-| `stroke` | `points: StrokePoint[]`, `color`, `width`, `opacity` |
-| `note`   | `size`, `text`, `backgroundColor`                    |
-| `arrow`  | `from`, `to`, `bend`, `color`, `width`               |
-| `image`  | `size`, `src`                                        |
-| `html`   | `size`                                               |
+| Type     | Key Fields                                                             |
+| -------- | ---------------------------------------------------------------------- |
+| `stroke` | `points: StrokePoint[]`, `color`, `width`, `opacity`                   |
+| `note`   | `size`, `text`, `backgroundColor`, `textColor`                         |
+| `arrow`  | `from`, `to`, `bend`, `color`, `width`, `fromBinding`, `toBinding`     |
+| `image`  | `size`, `src`                                                          |
+| `shape`  | `size`, `shape` (`rectangle` \| `ellipse`), `strokeColor`, `fillColor` |
+| `text`   | `size`, `text`, `fontSize`, `color`, `textAlign`                       |
+| `html`   | `size`                                                                 |
 
 ## Built-in Interactions
 
