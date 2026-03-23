@@ -91,11 +91,8 @@ export class LayerManager {
   }
 
   reorderLayer(id: string, newOrder: number): void {
-    const layer = this.layers.get(id);
-    if (!layer) return;
-    layer.order = newOrder;
-    this.syncLayerOrder();
-    this.bus.emit('change', null);
+    if (!this.layers.has(id)) return;
+    this.updateLayerDirect(id, { order: newOrder });
   }
 
   setLayerVisible(id: string, visible: boolean): boolean {
@@ -161,7 +158,7 @@ export class LayerManager {
     this.bus.emit('change', null);
   }
 
-  updateLayerDirect(id: string, props: Partial<Layer>): void {
+  updateLayerDirect(id: string, props: Omit<Partial<Layer>, 'id'>): void {
     const layer = this.layers.get(id);
     if (!layer) return;
     Object.assign(layer, props);
