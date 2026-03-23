@@ -39,7 +39,9 @@ viewport.toolManager.register(note);
 viewport.toolManager.register(text);
 viewport.toolManager.register(shape);
 
-const autoSave = new AutoSave(viewport.store, viewport.camera);
+const autoSave = new AutoSave(viewport.store, viewport.camera, {
+  layerManager: viewport.layerManager,
+});
 const savedState = autoSave.load();
 if (savedState) {
   viewport.loadState(savedState);
