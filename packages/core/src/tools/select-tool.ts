@@ -460,6 +460,8 @@ export class SelectTool implements Tool {
   private findElementsInRect(marquee: Rect, ctx: ToolContext): string[] {
     const ids: string[] = [];
     for (const el of ctx.store.getAll()) {
+      if (ctx.isLayerVisible && !ctx.isLayerVisible(el.layerId)) continue;
+      if (ctx.isLayerLocked && ctx.isLayerLocked(el.layerId)) continue;
       const bounds = this.getElementBounds(el);
       if (bounds && this.rectsOverlap(marquee, bounds)) {
         ids.push(el.id);
@@ -500,6 +502,8 @@ export class SelectTool implements Tool {
   private hitTest(world: Point, ctx: ToolContext): CanvasElement | null {
     const elements = ctx.store.getAll().reverse();
     for (const el of elements) {
+      if (ctx.isLayerVisible && !ctx.isLayerVisible(el.layerId)) continue;
+      if (ctx.isLayerLocked && ctx.isLayerLocked(el.layerId)) continue;
       if (this.isInsideBounds(world, el)) return el;
     }
     return null;

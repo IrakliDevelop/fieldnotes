@@ -14,8 +14,9 @@ import type { ToolContext } from '../tools/types';
 import { HistoryStack } from '../history/history-stack';
 import { HistoryRecorder } from '../history/history-recorder';
 import { createImage, createHtmlElement } from '../elements/element-factory';
-import { exportState, parseState } from '../core/state-serializer';
+import { exportState as exportCanvasState, parseState } from '../core/state-serializer';
 import type { CanvasState } from '../core/state-serializer';
+import { LayerManager } from '../layers/layer-manager';
 
 export interface ViewportOptions {
   camera?: CameraOptions;
@@ -25,6 +26,7 @@ export interface ViewportOptions {
 export class Viewport {
   readonly camera: Camera;
   readonly store: ElementStore;
+  readonly layerManager: LayerManager;
   readonly toolManager: ToolManager;
   readonly history: HistoryStack;
   readonly domLayer: HTMLDivElement;
@@ -55,9 +57,11 @@ export class Viewport {
     this.background = new Background(options.background);
     this._gridSize = options.background?.spacing ?? 24;
     this.store = new ElementStore();
+    this.layerManager = new LayerManager(this.store);
     this.toolManager = new ToolManager();
     this.renderer = new ElementRenderer();
     this.renderer.setStore(this.store);
+    this.renderer.setOnImageLoad(() => this.requestRender());
     this.noteEditor = new NoteEditor();
     this.noteEditor.setOnStop((id) => this.onTextEditStop(id));
     this.history = new HistoryStack();
@@ -82,6 +86,9 @@ export class Viewport {
       },
       snapToGrid: false,
       gridSize: this._gridSize,
+      activeLayerId: this.layerManager.activeLayerId,
+      isLayerVisible: (id: string) => this.layerManager.isLayerVisible(id),
+      isLayerLocked: (id: string) => this.layerManager.isLayerLocked(id),
     };
 
     this.inputHandler = new InputHandler(this.wrapper, this.camera, {
@@ -105,6 +112,11 @@ export class Viewport {
       this.store.on('update', () => this.requestRender()),
       this.store.on('clear', () => this.clearDomNodes()),
     ];
+
+    this.layerManager.on('change', () => {
+      this.toolContext.activeLayerId = this.layerManager.activeLayerId;
+      this.requestRender();
+    });
 
     this.wrapper.addEventListener('dblclick', this.onDblClick);
     this.wrapper.addEventListener('dragover', this.onDragOver);
@@ -132,7 +144,7 @@ export class Viewport {
   }
 
   exportState(): CanvasState {
-    return exportState(this.store.snapshot(), this.camera);
+    return exportCanvasState(this.store.snapshot(), this.camera, this.layerManager.snapshot());
   }
 
   exportJSON(): string {
@@ -144,6 +156,9 @@ export class Viewport {
     this.noteEditor.destroy(this.store);
     this.clearDomNodes();
     this.store.loadSnapshot(state.elements);
+    if (state.layers && state.layers.length > 0) {
+      this.layerManager.loadSnapshot(state.layers);
+    }
     this.history.clear();
     this.historyRecorder.resume();
     this.camera.moveTo(state.camera.position.x, state.camera.position.y);
@@ -171,7 +186,7 @@ export class Viewport {
   }
 
   addImage(src: string, position: { x: number; y: number }, size = { w: 300, h: 200 }): string {
-    const image = createImage({ position, size, src });
+    const image = createImage({ position, size, src, layerId: this.layerManager.activeLayerId });
     this.historyRecorder.begin();
     this.store.add(image);
     this.historyRecorder.commit();
@@ -184,7 +199,7 @@ export class Viewport {
     position: { x: number; y: number },
     size = { w: 200, h: 150 },
   ): string {
-    const el = createHtmlElement({ position, size });
+    const el = createHtmlElement({ position, size, layerId: this.layerManager.activeLayerId });
     this.htmlContent.set(el.id, dom);
     this.historyRecorder.begin();
     this.store.add(el);
@@ -234,9 +249,17 @@ export class Viewport {
     ctx.translate(this.camera.position.x, this.camera.position.y);
     ctx.scale(this.camera.zoom, this.camera.zoom);
 
-    for (const element of this.store.getAll()) {
+    const allElements = this.store.getAll();
+    let domZIndex = 0;
+    for (const element of allElements) {
+      if (!this.layerManager.isLayerVisible(element.layerId)) {
+        if (this.renderer.isDomElement(element)) {
+          this.hideDomNode(element.id);
+        }
+        continue;
+      }
       if (this.renderer.isDomElement(element)) {
-        this.syncDomNode(element);
+        this.syncDomNode(element, domZIndex++);
       } else {
         this.renderer.renderCanvasElement(ctx, element);
       }
@@ -397,7 +420,7 @@ export class Viewport {
     }
   };
 
-  private syncDomNode(element: CanvasElement): void {
+  private syncDomNode(element: CanvasElement, zIndex = 0): void {
     let node = this.domNodes.get(element.id);
     if (!node) {
       node = document.createElement('div');
@@ -412,10 +435,12 @@ export class Viewport {
 
     const size = 'size' in element ? element.size : null;
     Object.assign(node.style, {
+      display: 'block',
       left: `${element.position.x}px`,
       top: `${element.position.y}px`,
       width: size ? `${size.w}px` : 'auto',
       height: size ? `${size.h}px` : 'auto',
+      zIndex: String(zIndex),
     });
 
     this.renderDomContent(node, element);
@@ -452,27 +477,6 @@ export class Viewport {
         }
         node.style.backgroundColor = element.backgroundColor;
         node.style.color = element.textColor;
-      }
-    }
-
-    if (element.type === 'image') {
-      if (!node.dataset['initialized']) {
-        node.dataset['initialized'] = 'true';
-        const img = document.createElement('img');
-        img.src = element.src;
-        Object.assign(img.style, {
-          width: '100%',
-          height: '100%',
-          objectFit: 'contain',
-          pointerEvents: 'none',
-        });
-        img.draggable = false;
-        node.appendChild(img);
-      } else {
-        const img = node.querySelector('img');
-        if (img && img.src !== element.src) {
-          img.src = element.src;
-        }
       }
     }
 
@@ -565,6 +569,11 @@ export class Viewport {
         this.store.update(arrow.id, updates);
       }
     }
+  }
+
+  private hideDomNode(id: string): void {
+    const node = this.domNodes.get(id);
+    if (node) node.style.display = 'none';
   }
 
   private removeDomNode(id: string): void {

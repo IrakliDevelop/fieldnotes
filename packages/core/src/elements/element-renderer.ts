@@ -1,18 +1,30 @@
-import type { CanvasElement, StrokeElement, ArrowElement, ShapeElement } from './types';
+import type {
+  CanvasElement,
+  StrokeElement,
+  ArrowElement,
+  ShapeElement,
+  ImageElement,
+} from './types';
 import { getArrowControlPoint, getArrowTangentAngle } from './arrow-geometry';
 import { getElementBounds, getEdgeIntersection } from './arrow-binding';
 import { smoothToSegments, pressureToWidth } from './stroke-smoothing';
 import type { ElementStore } from './element-store';
 
-const DOM_ELEMENT_TYPES = new Set(['note', 'image', 'html', 'text']);
+const DOM_ELEMENT_TYPES = new Set(['note', 'html', 'text']);
 const ARROWHEAD_LENGTH = 12;
 const ARROWHEAD_ANGLE = Math.PI / 6;
 
 export class ElementRenderer {
   private store: ElementStore | null = null;
+  private imageCache = new Map<string, HTMLImageElement>();
+  private onImageLoad: (() => void) | null = null;
 
   setStore(store: ElementStore): void {
     this.store = store;
+  }
+
+  setOnImageLoad(callback: () => void): void {
+    this.onImageLoad = callback;
   }
 
   isDomElement(element: CanvasElement): boolean {
@@ -29,6 +41,9 @@ export class ElementRenderer {
         break;
       case 'shape':
         this.renderShape(ctx, element);
+        break;
+      case 'image':
+        this.renderImage(ctx, element);
         break;
     }
   }
@@ -199,5 +214,22 @@ export class ElementRenderer {
         break;
       }
     }
+  }
+
+  private renderImage(ctx: CanvasRenderingContext2D, image: ImageElement): void {
+    const img = this.getImage(image.src);
+    if (!img) return;
+    ctx.drawImage(img, image.position.x, image.position.y, image.size.w, image.size.h);
+  }
+
+  private getImage(src: string): HTMLImageElement | null {
+    const cached = this.imageCache.get(src);
+    if (cached) return cached.complete ? cached : null;
+
+    const img = new Image();
+    img.src = src;
+    this.imageCache.set(src, img);
+    img.onload = () => this.onImageLoad?.();
+    return null;
   }
 }

@@ -1,5 +1,6 @@
 import type { CanvasElement } from '../elements/types';
 import type { Point } from './types';
+import type { Layer } from '../layers/types';
 
 export interface CanvasState {
   version: number;
@@ -8,13 +9,15 @@ export interface CanvasState {
     zoom: number;
   };
   elements: CanvasElement[];
+  layers?: Layer[];
 }
 
-const CURRENT_VERSION = 1;
+const CURRENT_VERSION = 2;
 
 export function exportState(
   elements: CanvasElement[],
   camera: { position: Point; zoom: number },
+  layers: Layer[] = [],
 ): CanvasState {
   return {
     version: CURRENT_VERSION,
@@ -23,6 +26,7 @@ export function exportState(
       zoom: camera.zoom,
     },
     elements: elements.map((el) => structuredClone(el)),
+    layers: layers.map((l) => ({ ...l })),
   };
 }
 
@@ -71,6 +75,20 @@ function validateState(data: unknown): asserts data is CanvasState {
   }
 
   cleanBindings(obj['elements'] as Record<string, unknown>[]);
+
+  const layers = obj['layers'];
+  if (!Array.isArray(layers) || layers.length === 0) {
+    obj['layers'] = [
+      {
+        id: 'default-layer',
+        name: 'Layer 1',
+        visible: true,
+        locked: false,
+        order: 0,
+        opacity: 1.0,
+      },
+    ];
+  }
 }
 
 const VALID_TYPES = new Set(['stroke', 'note', 'arrow', 'image', 'html', 'text', 'shape']);
@@ -114,6 +132,10 @@ function cleanBindings(elements: Record<string, unknown>[]): void {
 }
 
 function migrateElement(obj: Record<string, unknown>): void {
+  if (typeof obj['layerId'] !== 'string') {
+    obj['layerId'] = 'default-layer';
+  }
+
   if (obj['type'] === 'arrow' && typeof obj['bend'] !== 'number') {
     obj['bend'] = 0;
   }

@@ -598,6 +598,88 @@ describe('SelectTool', () => {
     });
   });
 
+  describe('layer-aware hit testing', () => {
+    it('skips elements on hidden layers', () => {
+      const tool = new SelectTool();
+      const store = new ElementStore();
+      const note = createNote({ position: { x: 50, y: 50 }, layerId: 'hidden-layer' });
+      store.add(note);
+
+      const ctx: ToolContext = {
+        camera: new Camera(),
+        store,
+        requestRender: vi.fn(),
+        isLayerVisible: (id: string) => id !== 'hidden-layer',
+        isLayerLocked: () => false,
+        activeLayerId: 'visible-layer',
+      };
+
+      tool.onPointerDown(pt(55, 55), ctx);
+      tool.onPointerUp(pt(55, 55), ctx);
+      expect(tool.selectedIds).toEqual([]);
+    });
+
+    it('skips elements on locked layers', () => {
+      const tool = new SelectTool();
+      const store = new ElementStore();
+      const note = createNote({ position: { x: 50, y: 50 }, layerId: 'locked-layer' });
+      store.add(note);
+
+      const ctx: ToolContext = {
+        camera: new Camera(),
+        store,
+        requestRender: vi.fn(),
+        isLayerVisible: () => true,
+        isLayerLocked: (id: string) => id === 'locked-layer',
+        activeLayerId: 'other-layer',
+      };
+
+      tool.onPointerDown(pt(55, 55), ctx);
+      tool.onPointerUp(pt(55, 55), ctx);
+      expect(tool.selectedIds).toEqual([]);
+    });
+  });
+
+  describe('layer-aware marquee selection', () => {
+    it('skips elements on hidden layers during marquee', () => {
+      const tool = new SelectTool();
+      const store = new ElementStore();
+      const note = createNote({ position: { x: 50, y: 50 }, layerId: 'hidden-layer' });
+      store.add(note);
+
+      const ctx = makeCtx({
+        store,
+        isLayerVisible: (id: string) => id !== 'hidden-layer',
+        isLayerLocked: () => false,
+        activeLayerId: 'visible-layer',
+      });
+
+      tool.onPointerDown(pt(0, 0), ctx);
+      tool.onPointerMove(pt(500, 500), ctx);
+      tool.onPointerUp(pt(500, 500), ctx);
+      expect(tool.selectedIds).toEqual([]);
+    });
+
+    it('skips elements on locked layers during marquee', () => {
+      const tool = new SelectTool();
+      const store = new ElementStore();
+      const note = createNote({ position: { x: 50, y: 50 }, layerId: 'locked-layer' });
+      store.add(note);
+
+      const ctx = makeCtx({
+        store,
+        isLayerVisible: () => true,
+        isLayerLocked: (id: string) => id === 'locked-layer',
+        activeLayerId: 'other-layer',
+      });
+
+      tool.onPointerDown(pt(0, 0), ctx);
+      tool.onPointerMove(pt(500, 500), ctx);
+      tool.onPointerUp(pt(500, 500), ctx);
+      expect(tool.selectedIds).toEqual([]);
+    });
+  });
+
   describe('cursors', () => {
     it('shows resize cursor when hovering over a handle', () => {
       const tool = new SelectTool();

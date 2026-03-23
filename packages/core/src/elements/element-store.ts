@@ -16,13 +16,23 @@ interface ElementStoreEvents {
 export class ElementStore {
   private elements = new Map<string, CanvasElement>();
   private bus = new EventBus<ElementStoreEvents>();
+  private layerOrderMap = new Map<string, number>();
 
   get count(): number {
     return this.elements.size;
   }
 
+  setLayerOrder(order: Map<string, number>): void {
+    this.layerOrderMap = new Map(order);
+  }
+
   getAll(): CanvasElement[] {
-    return [...this.elements.values()].sort((a, b) => a.zIndex - b.zIndex);
+    return [...this.elements.values()].sort((a, b) => {
+      const layerA = this.layerOrderMap.get(a.layerId) ?? 0;
+      const layerB = this.layerOrderMap.get(b.layerId) ?? 0;
+      if (layerA !== layerB) return layerA - layerB;
+      return a.zIndex - b.zIndex;
+    });
   }
 
   getById(id: string): CanvasElement | undefined {

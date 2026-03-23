@@ -53,6 +53,8 @@ export class EraserTool implements Tool {
     let erased = false;
 
     for (const stroke of strokes) {
+      if (ctx.isLayerVisible && !ctx.isLayerVisible(stroke.layerId)) continue;
+      if (ctx.isLayerLocked && ctx.isLayerLocked(stroke.layerId)) continue;
       if (this.strokeIntersects(stroke, world)) {
         ctx.store.remove(stroke.id);
         erased = true;

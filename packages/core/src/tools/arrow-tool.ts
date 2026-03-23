@@ -33,12 +33,22 @@ export class ArrowTool implements Tool {
     if (options.width !== undefined) this.width = options.width;
   }
 
+  private layerFilter(ctx: ToolContext): ((el: CanvasElement) => boolean) | undefined {
+    if (!ctx.isLayerVisible && !ctx.isLayerLocked) return undefined;
+    return (el: CanvasElement) => {
+      if (ctx.isLayerVisible && !ctx.isLayerVisible(el.layerId)) return false;
+      if (ctx.isLayerLocked && ctx.isLayerLocked(el.layerId)) return false;
+      return true;
+    };
+  }
+
   onPointerDown(state: PointerState, ctx: ToolContext): void {
     this.drawing = true;
     const world = ctx.camera.screenToWorld({ x: state.x, y: state.y });
     const threshold = BIND_THRESHOLD / ctx.camera.zoom;
+    const filter = this.layerFilter(ctx);
 
-    const target = findBindTarget(world, ctx.store, threshold);
+    const target = findBindTarget(world, ctx.store, threshold, undefined, filter);
     if (target) {
       this.start = getElementCenter(target);
       this.fromBinding = { elementId: target.id };
@@ -57,8 +67,9 @@ export class ArrowTool implements Tool {
     const world = ctx.camera.screenToWorld({ x: state.x, y: state.y });
     const threshold = BIND_THRESHOLD / ctx.camera.zoom;
     const excludeId = this.fromBinding?.elementId;
+    const filter = this.layerFilter(ctx);
 
-    const target = findBindTarget(world, ctx.store, threshold, excludeId);
+    const target = findBindTarget(world, ctx.store, threshold, excludeId, filter);
     if (target) {
       this.end = getElementCenter(target);
       this.toTarget = target;
@@ -83,6 +94,7 @@ export class ArrowTool implements Tool {
       width: this.width,
       fromBinding: this.fromBinding,
       toBinding: this.toTarget ? { elementId: this.toTarget.id } : undefined,
+      layerId: ctx.activeLayerId ?? '',
     });
     ctx.store.add(arrow);
     this.fromTarget = null;

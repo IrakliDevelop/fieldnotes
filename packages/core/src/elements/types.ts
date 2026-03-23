@@ -6,6 +6,7 @@ interface BaseElement {
   position: Point;
   zIndex: number;
   locked: boolean;
+  layerId: string;
 }
 
 export interface StrokeElement extends BaseElement {

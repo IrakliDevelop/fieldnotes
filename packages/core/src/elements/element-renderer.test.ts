@@ -41,6 +41,7 @@ function makeStroke(overrides: Partial<StrokeElement> = {}): StrokeElement {
     opacity: 1,
     zIndex: 0,
     locked: false,
+    layerId: '',
     ...overrides,
   };
 }
@@ -57,6 +58,7 @@ function makeArrow(overrides: Partial<ArrowElement> = {}): ArrowElement {
     width: 2,
     zIndex: 0,
     locked: false,
+    layerId: '',
     ...overrides,
   };
 }
@@ -134,6 +136,7 @@ describe('ElementRenderer', () => {
         backgroundColor: '#ffeb3b',
         zIndex: 0,
         locked: false,
+        layerId: '',
       };
       expect(renderer.isDomElement(note)).toBe(true);
     });

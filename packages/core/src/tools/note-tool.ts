@@ -45,6 +45,7 @@ export class NoteTool implements Tool {
       size: { ...this.size },
       backgroundColor: this.backgroundColor,
       textColor: this.textColor,
+      layerId: ctx.activeLayerId ?? '',
     });
     ctx.store.add(note);
     ctx.requestRender();
