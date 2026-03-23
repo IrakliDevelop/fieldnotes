@@ -16,6 +16,7 @@ interface BaseDefaults {
   position?: Point;
   zIndex?: number;
   locked?: boolean;
+  layerId?: string;
 }
 
 interface StrokeInput extends BaseDefaults {
@@ -70,6 +71,7 @@ export function createStroke(input: StrokeInput): StrokeElement {
     position: input.position ?? { x: 0, y: 0 },
     zIndex: input.zIndex ?? 0,
     locked: input.locked ?? false,
+    layerId: input.layerId ?? '',
     points: input.points,
     color: input.color ?? '#000000',
     width: input.width ?? 2,
@@ -84,6 +86,7 @@ export function createNote(input: NoteInput): NoteElement {
     position: input.position,
     zIndex: input.zIndex ?? 0,
     locked: input.locked ?? false,
+    layerId: input.layerId ?? '',
     size: input.size ?? { w: 200, h: 100 },
     text: input.text ?? '',
     backgroundColor: input.backgroundColor ?? '#ffeb3b',
@@ -98,6 +101,7 @@ export function createArrow(input: ArrowInput): ArrowElement {
     position: input.position ?? { x: 0, y: 0 },
     zIndex: input.zIndex ?? 0,
     locked: input.locked ?? false,
+    layerId: input.layerId ?? '',
     from: input.from,
     to: input.to,
     bend: input.bend ?? 0,
@@ -116,6 +120,7 @@ export function createImage(input: ImageInput): ImageElement {
     position: input.position,
     zIndex: input.zIndex ?? 0,
     locked: input.locked ?? false,
+    layerId: input.layerId ?? '',
     size: input.size,
     src: input.src,
   };
@@ -128,6 +133,7 @@ export function createHtmlElement(input: HtmlInput): HtmlElement {
     position: input.position,
     zIndex: input.zIndex ?? 0,
     locked: input.locked ?? false,
+    layerId: input.layerId ?? '',
     size: input.size,
   };
 }
@@ -148,6 +154,7 @@ export function createShape(input: ShapeInput): ShapeElement {
     position: input.position,
     zIndex: input.zIndex ?? 0,
     locked: input.locked ?? false,
+    layerId: input.layerId ?? '',
     shape: input.shape ?? 'rectangle',
     size: input.size,
     strokeColor: input.strokeColor ?? '#000000',
@@ -163,6 +170,7 @@ export function createText(input: TextInput): TextElement {
     position: input.position,
     zIndex: input.zIndex ?? 0,
     locked: input.locked ?? false,
+    layerId: input.layerId ?? '',
     size: input.size ?? { w: 200, h: 28 },
     text: input.text ?? '',
     fontSize: input.fontSize ?? 16,

@@ -12,6 +12,7 @@ function makeNote(overrides: Partial<NoteElement> = {}): NoteElement {
     backgroundColor: '#ffeb3b',
     zIndex: 0,
     locked: false,
+    layerId: '',
     ...overrides,
   };
 }
@@ -30,6 +31,7 @@ function makeStroke(overrides: Partial<StrokeElement> = {}): StrokeElement {
     opacity: 1,
     zIndex: 0,
     locked: false,
+    layerId: '',
     ...overrides,
   };
 }
