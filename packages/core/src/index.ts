@@ -1,8 +1,9 @@
-export const VERSION = '0.4.1';
+export const VERSION = '0.5.0';
 
 export { EventBus } from './core/event-bus';
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
 export { exportState, parseState } from './core/state-serializer';
+export { snapPoint } from './core/snap';
 export type { CanvasState } from './core/state-serializer';
 export { AutoSave } from './core/auto-save';
 export type { AutoSaveOptions } from './core/auto-save';
