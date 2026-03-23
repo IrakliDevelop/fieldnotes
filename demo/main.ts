@@ -316,6 +316,10 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'i') {
     fileInput?.click();
   }
+  if (e.key === 'l') {
+    const panel = document.getElementById('layers-panel');
+    if (panel) panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+  }
 });
 
 const undoBtn = document.getElementById('undo') as HTMLButtonElement | null;
@@ -358,6 +362,94 @@ document.getElementById('load')?.addEventListener('click', () => {
   }
   viewport.loadState(saved);
   console.log('State restored from auto-save');
+});
+
+const layersList = document.getElementById('layers-list');
+
+function renderLayersPanel() {
+  if (!layersList) return;
+  const layers = viewport.layerManager.getLayers().reverse();
+  const activeId = viewport.layerManager.activeLayerId;
+
+  layersList.innerHTML = '';
+  for (const layer of layers) {
+    const li = document.createElement('li');
+    li.className = layer.id === activeId ? 'active' : '';
+
+    const visBtn = document.createElement('button');
+    visBtn.textContent = layer.visible ? '👁' : '🚫';
+    visBtn.className = layer.visible ? 'on' : '';
+    visBtn.title = layer.visible ? 'Hide layer' : 'Show layer';
+    visBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      viewport.layerManager.setLayerVisible(layer.id, !layer.visible);
+    });
+
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'layer-name';
+    nameSpan.textContent = layer.name;
+    nameSpan.addEventListener('dblclick', (e) => {
+      e.stopPropagation();
+      const input = document.createElement('input');
+      input.value = layer.name;
+      input.style.cssText =
+        'width:100%;font-size:13px;border:1px solid #4a9eff;border-radius:3px;padding:1px 4px;';
+      nameSpan.replaceWith(input);
+      input.focus();
+      input.select();
+      const finish = () => {
+        const newName = input.value.trim() || layer.name;
+        viewport.layerManager.renameLayer(layer.id, newName);
+      };
+      input.addEventListener('blur', finish);
+      input.addEventListener('keydown', (ke) => {
+        if (ke.key === 'Enter') input.blur();
+        if (ke.key === 'Escape') {
+          input.value = layer.name;
+          input.blur();
+        }
+      });
+    });
+
+    const lockBtn = document.createElement('button');
+    lockBtn.textContent = layer.locked ? '🔒' : '🔓';
+    lockBtn.className = layer.locked ? 'on' : '';
+    lockBtn.title = layer.locked ? 'Unlock layer' : 'Lock layer';
+    lockBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      viewport.layerManager.setLayerLocked(layer.id, !layer.locked);
+    });
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.textContent = '✕';
+    deleteBtn.title = 'Delete layer';
+    deleteBtn.style.fontSize = '12px';
+    deleteBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      try {
+        viewport.layerManager.removeLayer(layer.id);
+      } catch {
+        // Can't remove last layer
+      }
+    });
+
+    li.addEventListener('click', () => {
+      viewport.layerManager.setActiveLayer(layer.id);
+    });
+
+    li.appendChild(visBtn);
+    li.appendChild(nameSpan);
+    li.appendChild(lockBtn);
+    li.appendChild(deleteBtn);
+    layersList.appendChild(li);
+  }
+}
+
+viewport.layerManager.on('change', renderLayersPanel);
+renderLayersPanel();
+
+document.getElementById('add-layer')?.addEventListener('click', () => {
+  viewport.layerManager.createLayer();
 });
 
 const info = document.getElementById('info');
