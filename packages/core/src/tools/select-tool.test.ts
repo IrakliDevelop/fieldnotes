@@ -482,6 +482,45 @@ describe('SelectTool', () => {
     });
   });
 
+  describe('snap-to-grid dragging', () => {
+    it('snaps element position when dragging with snap enabled', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      ctx.snapToGrid = true;
+      ctx.gridSize = 24;
+
+      const note = createNote({ position: { x: 10, y: 10 }, size: { w: 200, h: 100 } });
+      ctx.store.add(note);
+
+      // Select the note by clicking on it, then drag
+      tool.onPointerDown(pt(10, 10), ctx);
+      tool.onPointerMove(pt(60, 60), ctx);
+      tool.onPointerUp(pt(60, 60), ctx);
+
+      const moved = ctx.store.getById(note.id);
+      // lastWorld snaps (10,10) → snapPoint(10,10,24) = (0,0) [Math.round(10/24)=0]
+      // world snaps (60,60) → snapPoint(60,60,24) = (72,72) [Math.round(60/24)=Math.round(2.5)=3, 3*24=72]
+      // delta = (72, 72), new position = (10+72, 10+72) = (82, 82)
+      expect(moved?.position).toEqual({ x: 82, y: 82 });
+    });
+
+    it('does not snap when snap is disabled', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      ctx.snapToGrid = false;
+
+      const note = createNote({ position: { x: 10, y: 10 }, size: { w: 200, h: 100 } });
+      ctx.store.add(note);
+
+      tool.onPointerDown(pt(10, 10), ctx);
+      tool.onPointerMove(pt(55, 55), ctx);
+      tool.onPointerUp(pt(55, 55), ctx);
+
+      const moved = ctx.store.getById(note.id);
+      expect(moved?.position).toEqual({ x: 55, y: 55 });
+    });
+  });
+
   describe('arrow binding', () => {
     it('updates bound arrow when dragging a note', () => {
       const tool = new SelectTool();

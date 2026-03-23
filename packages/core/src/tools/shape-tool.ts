@@ -2,6 +2,7 @@ import type { Point } from '../core/types';
 import type { ShapeKind } from '../elements/types';
 import type { Tool, ToolContext, PointerState } from './types';
 import { createShape } from '../elements/element-factory';
+import { snapPoint } from '../core/snap';
 
 export interface ShapeToolOptions {
   shape?: ShapeKind;
@@ -52,13 +53,13 @@ export class ShapeTool implements Tool {
 
   onPointerDown(state: PointerState, ctx: ToolContext): void {
     this.drawing = true;
-    this.start = ctx.camera.screenToWorld({ x: state.x, y: state.y });
+    this.start = this.snap(ctx.camera.screenToWorld({ x: state.x, y: state.y }), ctx);
     this.end = { ...this.start };
   }
 
   onPointerMove(state: PointerState, ctx: ToolContext): void {
     if (!this.drawing) return;
-    this.end = ctx.camera.screenToWorld({ x: state.x, y: state.y });
+    this.end = this.snap(ctx.camera.screenToWorld({ x: state.x, y: state.y }), ctx);
     ctx.requestRender();
   }
 
@@ -133,6 +134,10 @@ export class ShapeTool implements Tool {
     }
 
     return { position: { x, y }, size: { w, h } };
+  }
+
+  private snap(point: Point, ctx: ToolContext): Point {
+    return ctx.snapToGrid && ctx.gridSize ? snapPoint(point, ctx.gridSize) : point;
   }
 
   private onKeyDown = (e: KeyboardEvent): void => {

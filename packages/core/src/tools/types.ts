@@ -8,6 +8,8 @@ export interface ToolContext {
   switchTool?: (name: string) => void;
   editElement?: (id: string) => void;
   setCursor?: (cursor: string) => void;
+  snapToGrid?: boolean;
+  gridSize?: number;
 }
 
 export interface PointerState {

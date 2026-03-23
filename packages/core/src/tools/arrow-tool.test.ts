@@ -78,6 +78,23 @@ describe('ArrowTool', () => {
     expect(arrow.width).toBe(5);
   });
 
+  it('snaps start and end to grid when not binding', () => {
+    const tool = new ArrowTool();
+    const ctx = makeCtx();
+    ctx.snapToGrid = true;
+    ctx.gridSize = 24;
+
+    tool.onPointerDown(pt(10, 10), ctx);
+    tool.onPointerMove(pt(110, 85), ctx);
+    tool.onPointerUp(pt(110, 85), ctx);
+
+    const arrows = ctx.store.getElementsByType('arrow');
+    expect(arrows).toHaveLength(1);
+    // snapPoint(10,24)=0, snapPoint(110,24)=120, snapPoint(85,24)=96
+    expect(arrows[0]?.from).toEqual({ x: 0, y: 0 });
+    expect(arrows[0]?.to).toEqual({ x: 120, y: 96 });
+  });
+
   it('requests render during drag', () => {
     const tool = new ArrowTool();
     const ctx = makeCtx();

@@ -96,6 +96,20 @@ describe('TextTool', () => {
     expect(editElement).toHaveBeenCalledWith(id);
   });
 
+  it('snaps placement position to grid', () => {
+    const tool = new TextTool();
+    const ctx = makeCtx();
+    ctx.snapToGrid = true;
+    ctx.gridSize = 24;
+
+    tool.onPointerDown(pt(37, 55), ctx);
+    tool.onPointerUp(pt(37, 55), ctx);
+
+    const el = ctx.store.getAll()[0] as TextElement;
+    // snapPoint(37,24)=48, snapPoint(55,24)=48
+    expect(el.position).toEqual({ x: 48, y: 48 });
+  });
+
   it('sets text cursor on activate', () => {
     const tool = new TextTool();
     const setCursor = vi.fn();

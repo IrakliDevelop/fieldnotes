@@ -1,5 +1,6 @@
 import type { Point } from '../core/types';
 import type { Tool, ToolContext, PointerState } from './types';
+import { snapPoint } from '../core/snap';
 import type { CanvasElement, ArrowElement } from '../elements/types';
 import { isNearBezier, getArrowBounds } from '../elements/arrow-geometry';
 import type { Rect } from '../elements/arrow-geometry';
@@ -60,10 +61,14 @@ export class SelectTool implements Tool {
     ctx.setCursor?.('default');
   }
 
+  private snap(point: Point, ctx: ToolContext): Point {
+    return ctx.snapToGrid && ctx.gridSize ? snapPoint(point, ctx.gridSize) : point;
+  }
+
   onPointerDown(state: PointerState, ctx: ToolContext): void {
     this.ctx = ctx;
     const world = ctx.camera.screenToWorld({ x: state.x, y: state.y });
-    this.lastWorld = world;
+    this.lastWorld = this.snap(world, ctx);
     this.currentWorld = world;
 
     const arrowHit = hitTestArrowHandles(world, this._selectedIds, ctx);
@@ -124,9 +129,10 @@ export class SelectTool implements Tool {
 
     if (this.mode.type === 'dragging' && this._selectedIds.length > 0) {
       ctx.setCursor?.('move');
-      const dx = world.x - this.lastWorld.x;
-      const dy = world.y - this.lastWorld.y;
-      this.lastWorld = world;
+      const snapped = this.snap(world, ctx);
+      const dx = snapped.x - this.lastWorld.x;
+      const dy = snapped.y - this.lastWorld.y;
+      this.lastWorld = snapped;
 
       for (const id of this._selectedIds) {
         const el = ctx.store.getById(id);

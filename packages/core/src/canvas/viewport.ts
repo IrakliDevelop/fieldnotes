@@ -40,6 +40,8 @@ export class Viewport {
   readonly toolContext: ToolContext;
   private resizeObserver: ResizeObserver | null = null;
   private animFrameId = 0;
+  private _snapToGrid = false;
+  private readonly _gridSize: number;
   private needsRender = true;
   private domNodes = new Map<string, HTMLDivElement>();
   private htmlContent = new Map<string, HTMLElement>();
@@ -51,6 +53,7 @@ export class Viewport {
   ) {
     this.camera = new Camera(options.camera);
     this.background = new Background(options.background);
+    this._gridSize = options.background?.spacing ?? 24;
     this.store = new ElementStore();
     this.toolManager = new ToolManager();
     this.renderer = new ElementRenderer();
@@ -77,6 +80,8 @@ export class Viewport {
       setCursor: (cursor: string) => {
         this.wrapper.style.cursor = cursor;
       },
+      snapToGrid: false,
+      gridSize: this._gridSize,
     };
 
     this.inputHandler = new InputHandler(this.wrapper, this.camera, {
@@ -111,6 +116,15 @@ export class Viewport {
 
   get ctx(): CanvasRenderingContext2D | null {
     return this.canvasEl.getContext('2d');
+  }
+
+  get snapToGrid(): boolean {
+    return this._snapToGrid;
+  }
+
+  setSnapToGrid(enabled: boolean): void {
+    this._snapToGrid = enabled;
+    this.toolContext.snapToGrid = enabled;
   }
 
   requestRender(): void {

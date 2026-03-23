@@ -3,6 +3,7 @@ import type { Binding, CanvasElement } from '../elements/types';
 import type { Tool, ToolContext, PointerState } from './types';
 import { createArrow } from '../elements/element-factory';
 import { findBindTarget, getElementCenter, getElementBounds } from '../elements/arrow-binding';
+import { snapPoint } from '../core/snap';
 
 const BIND_THRESHOLD = 20;
 
@@ -43,7 +44,7 @@ export class ArrowTool implements Tool {
       this.fromBinding = { elementId: target.id };
       this.fromTarget = target;
     } else {
-      this.start = world;
+      this.start = ctx.snapToGrid && ctx.gridSize ? snapPoint(world, ctx.gridSize) : world;
       this.fromBinding = undefined;
       this.fromTarget = null;
     }
@@ -62,7 +63,7 @@ export class ArrowTool implements Tool {
       this.end = getElementCenter(target);
       this.toTarget = target;
     } else {
-      this.end = world;
+      this.end = ctx.snapToGrid && ctx.gridSize ? snapPoint(world, ctx.gridSize) : world;
       this.toTarget = null;
     }
     ctx.requestRender();
