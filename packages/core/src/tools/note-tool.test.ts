@@ -111,6 +111,20 @@ describe('NoteTool', () => {
     expect(switchTool).toHaveBeenCalledWith('select');
   });
 
+  it('snaps placement position to grid', () => {
+    const tool = new NoteTool();
+    const ctx = makeCtx();
+    ctx.snapToGrid = true;
+    ctx.gridSize = 24;
+
+    tool.onPointerDown(pt(37, 55), ctx);
+    tool.onPointerUp(pt(37, 55), ctx);
+
+    const note = ctx.store.getAll()[0] as NoteElement;
+    // snapPoint(37,24)=48, snapPoint(55,24)=48
+    expect(note.position).toEqual({ x: 48, y: 48 });
+  });
+
   it('calls editElement with the new note id', () => {
     const tool = new NoteTool();
     const editElement = vi.fn();

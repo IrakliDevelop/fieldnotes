@@ -118,6 +118,23 @@ describe('ShapeTool', () => {
     expect(shapes[0]?.shape).toBe('ellipse');
   });
 
+  it('snaps start and end points to grid', () => {
+    const tool = new ShapeTool();
+    const ctx = makeCtx();
+    ctx.snapToGrid = true;
+    ctx.gridSize = 24;
+
+    tool.onPointerDown(pt(10, 10), ctx);
+    tool.onPointerMove(pt(110, 85), ctx);
+    tool.onPointerUp(pt(110, 85), ctx);
+
+    const shapes = ctx.store.getElementsByType('shape');
+    expect(shapes).toHaveLength(1);
+    // snapPoint(10,24)=0, snapPoint(110,24)=120, snapPoint(85,24)=96
+    expect(shapes[0]?.position).toEqual({ x: 0, y: 0 });
+    expect(shapes[0]?.size).toEqual({ w: 120, h: 96 });
+  });
+
   it('constrains to square when Shift is held', () => {
     const tool = new ShapeTool();
     const ctx = makeCtx();
