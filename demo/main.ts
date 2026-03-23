@@ -309,7 +309,9 @@ document.addEventListener('keydown', (e) => {
   }
   if (e.key === 'g') {
     viewport.setSnapToGrid(!viewport.snapToGrid);
-    if (snapBtn) snapBtn.textContent = viewport.snapToGrid ? 'Snap: On' : 'Snap: Off';
+    if (snapBtn)
+      snapBtn.innerHTML =
+        (viewport.snapToGrid ? 'Snap: On' : 'Snap: Off') + '<span class="shortcut">G</span>';
   }
   if (e.key === 'i') {
     fileInput?.click();
@@ -338,7 +340,9 @@ const snapBtn = document.getElementById('snap-toggle') as HTMLButtonElement | nu
 
 snapBtn?.addEventListener('click', () => {
   viewport.setSnapToGrid(!viewport.snapToGrid);
-  if (snapBtn) snapBtn.textContent = viewport.snapToGrid ? 'Snap: On' : 'Snap: Off';
+  if (snapBtn)
+    snapBtn.innerHTML =
+      (viewport.snapToGrid ? 'Snap: On' : 'Snap: Off') + '<span class="shortcut">G</span>';
 });
 
 document.getElementById('save')?.addEventListener('click', () => {
