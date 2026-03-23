@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { exportState, parseState } from './state-serializer';
 import type { CanvasState } from './state-serializer';
 import { createStroke, createNote, createArrow } from '../elements/element-factory';
+import type { Layer } from '../layers/types';
 
 function makeCamera(x = 0, y = 0, zoom = 1) {
   return { position: { x, y }, zoom };
@@ -13,7 +14,7 @@ describe('exportState', () => {
     const note = createNote({ position: { x: 10, y: 20 } });
     const state = exportState([stroke, note], makeCamera(100, 200, 1.5));
 
-    expect(state.version).toBe(1);
+    expect(state.version).toBe(2);
     expect(state.camera).toEqual({ position: { x: 100, y: 200 }, zoom: 1.5 });
     expect(state.elements).toHaveLength(2);
     expect(state.elements[0]?.type).toBe('stroke');
@@ -34,14 +35,34 @@ describe('exportState', () => {
     const state = exportState([], makeCamera());
     expect(state.elements).toEqual([]);
   });
+
+  it('exports layers in state', () => {
+    const layers: Layer[] = [
+      { id: 'L1', name: 'Layer 1', visible: true, locked: false, order: 0, opacity: 1 },
+    ];
+    const state = exportState([], makeCamera(), layers);
+    expect(state.layers).toEqual(layers);
+  });
 });
 
 describe('parseState', () => {
   function validState(): CanvasState {
     return {
-      version: 1,
+      version: 2,
       camera: { position: { x: 0, y: 0 }, zoom: 1 },
-      elements: [createStroke({ points: [{ x: 0, y: 0, pressure: 0.5 }] })],
+      elements: [
+        createStroke({ points: [{ x: 0, y: 0, pressure: 0.5 }], layerId: 'default-layer' }),
+      ],
+      layers: [
+        {
+          id: 'default-layer',
+          name: 'Layer 1',
+          visible: true,
+          locked: false,
+          order: 0,
+          opacity: 1,
+        },
+      ],
     };
   }
 
@@ -49,22 +70,39 @@ describe('parseState', () => {
     const json = JSON.stringify(validState());
     const state = parseState(json);
 
-    expect(state.version).toBe(1);
+    expect(state.version).toBe(2);
     expect(state.camera.zoom).toBe(1);
     expect(state.elements).toHaveLength(1);
   });
 
   it('round-trips through export and parse', () => {
+    const layer = {
+      id: 'default-layer',
+      name: 'Layer 1',
+      visible: true,
+      locked: false,
+      order: 0,
+      opacity: 1,
+    };
     const stroke = createStroke({
       points: [
         { x: 1, y: 2, pressure: 0.5 },
         { x: 3, y: 4, pressure: 0.8 },
       ],
+      layerId: 'default-layer',
     });
-    const note = createNote({ position: { x: 10, y: 20 }, text: 'hello' });
-    const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 50, y: 50 } });
+    const note = createNote({
+      position: { x: 10, y: 20 },
+      text: 'hello',
+      layerId: 'default-layer',
+    });
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 50, y: 50 },
+      layerId: 'default-layer',
+    });
 
-    const original = exportState([stroke, note, arrow], makeCamera(100, -50, 2));
+    const original = exportState([stroke, note, arrow], makeCamera(100, -50, 2), [layer]);
     const json = JSON.stringify(original);
     const restored = parseState(json);
 
@@ -184,5 +222,48 @@ describe('parseState', () => {
       expect(arrow.fromBinding).toBeUndefined();
       expect(arrow.toBinding).toBeUndefined();
     }
+  });
+
+  describe('layer migration', () => {
+    it('adds default layer when layers array is missing', () => {
+      const state = validState();
+      const raw = state as Record<string, unknown>;
+      delete raw['layers'];
+      const json = JSON.stringify(raw);
+      const parsed = parseState(json);
+      expect(parsed.layers).toHaveLength(1);
+      const first = parsed.layers?.[0];
+      expect(first?.id).toBe('default-layer');
+      expect(first?.name).toBe('Layer 1');
+    });
+
+    it('adds layerId to elements missing it', () => {
+      const state = validState();
+      const raw = state as Record<string, unknown>;
+      delete raw['layers'];
+      for (const el of state.elements) {
+        const elRaw = el as Record<string, unknown>;
+        delete elRaw['layerId'];
+      }
+      const json = JSON.stringify(raw);
+      const parsed = parseState(json);
+      for (const el of parsed.elements) {
+        expect(el.layerId).toBe('default-layer');
+      }
+    });
+
+    it('preserves existing layers array', () => {
+      const state = validState();
+      const raw = state as Record<string, unknown>;
+      raw['layers'] = [
+        { id: 'L1', name: 'Background', visible: true, locked: true, order: 0, opacity: 1 },
+        { id: 'L2', name: 'Foreground', visible: true, locked: false, order: 1, opacity: 1 },
+      ];
+      const json = JSON.stringify(raw);
+      const parsed = parseState(json);
+      expect(parsed.layers).toHaveLength(2);
+      const first = parsed.layers?.[0];
+      expect(first?.name).toBe('Background');
+    });
   });
 });
