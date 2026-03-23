@@ -1,4 +1,4 @@
-export const VERSION = '0.5.0';
+export const VERSION = '0.6.0';
 
 export { EventBus } from './core/event-bus';
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
@@ -92,3 +92,11 @@ export type { ImageToolOptions } from './tools/image-tool';
 export { ShapeTool } from './tools/shape-tool';
 export type { ShapeToolOptions } from './tools/shape-tool';
 export type { Tool, ToolContext, PointerState, ToolName } from './tools/types';
+
+export { LayerManager } from './layers/layer-manager';
+export type { Layer } from './layers/types';
+export {
+  CreateLayerCommand,
+  RemoveLayerCommand,
+  UpdateLayerCommand,
+} from './history/layer-commands';
