@@ -29,6 +29,7 @@ export {
   createHtmlElement,
   createText,
   createShape,
+  createGrid,
 } from './elements/element-factory';
 export {
   getArrowControlPoint,
@@ -61,6 +62,8 @@ export type {
   TextElement,
   ShapeElement,
   ShapeKind,
+  GridElement,
+  HexOrientation,
 } from './elements/types';
 
 export type { Command } from './history/types';
