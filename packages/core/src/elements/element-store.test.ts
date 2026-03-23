@@ -113,6 +113,33 @@ describe('ElementStore', () => {
     });
   });
 
+  describe('layer-aware sorting', () => {
+    it('sorts by layer order then zIndex', () => {
+      const store = new ElementStore();
+      store.setLayerOrder(
+        new Map([
+          ['bg', 0],
+          ['fg', 1],
+        ]),
+      );
+
+      store.add(makeNote({ id: 'fg-z0', zIndex: 0, layerId: 'fg' }));
+      store.add(makeNote({ id: 'bg-z1', zIndex: 1, layerId: 'bg' }));
+      store.add(makeNote({ id: 'bg-z0', zIndex: 0, layerId: 'bg' }));
+
+      const ids = store.getAll().map((e) => e.id);
+      expect(ids).toEqual(['bg-z0', 'bg-z1', 'fg-z0']);
+    });
+
+    it('falls back to zIndex-only when no layer order set', () => {
+      const store = new ElementStore();
+      store.add(makeNote({ id: 'a', zIndex: 2, layerId: 'x' }));
+      store.add(makeNote({ id: 'b', zIndex: 1, layerId: 'y' }));
+      const ids = store.getAll().map((e) => e.id);
+      expect(ids).toEqual(['b', 'a']);
+    });
+  });
+
   describe('querying', () => {
     it('gets elements by type', () => {
       const store = new ElementStore();
