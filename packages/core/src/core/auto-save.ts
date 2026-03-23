@@ -85,6 +85,10 @@ export class AutoSave {
 
     const layers = this.layerManager?.snapshot() ?? [];
     const state = exportState(this.store.snapshot(), this.camera, layers);
-    localStorage.setItem(this.key, JSON.stringify(state));
+    try {
+      localStorage.setItem(this.key, JSON.stringify(state));
+    } catch {
+      console.warn('Auto-save failed: storage quota exceeded. State too large for localStorage.');
+    }
   }
 }
