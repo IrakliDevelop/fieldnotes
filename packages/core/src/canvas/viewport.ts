@@ -6,14 +6,14 @@ import type { BackgroundOptions } from './background';
 import { ElementStore } from '../elements/element-store';
 import { ElementRenderer } from '../elements/element-renderer';
 import { NoteEditor } from '../elements/note-editor';
-import type { CanvasElement, ArrowElement } from '../elements/types';
+import type { CanvasElement, ArrowElement, GridElement } from '../elements/types';
 import { findBoundArrows, getElementBounds, getEdgeIntersection } from '../elements/arrow-binding';
 import { getArrowTangentAngle } from '../elements/arrow-geometry';
 import { ToolManager } from '../tools/tool-manager';
 import type { ToolContext } from '../tools/types';
 import { HistoryStack } from '../history/history-stack';
 import { HistoryRecorder } from '../history/history-recorder';
-import { createImage, createHtmlElement } from '../elements/element-factory';
+import { createImage, createHtmlElement, createGrid } from '../elements/element-factory';
 import { exportState as exportCanvasState, parseState } from '../core/state-serializer';
 import type { CanvasState } from '../core/state-serializer';
 import { LayerManager } from '../layers/layer-manager';
@@ -207,6 +207,51 @@ export class Viewport {
     this.historyRecorder.commit();
     this.requestRender();
     return el.id;
+  }
+
+  addGrid(input: {
+    gridType?: 'square' | 'hex';
+    hexOrientation?: 'pointy' | 'flat';
+    cellSize?: number;
+    strokeColor?: string;
+    strokeWidth?: number;
+    opacity?: number;
+  }): string {
+    const existing = this.store.getElementsByType('grid')[0];
+    this.historyRecorder.begin();
+    if (existing) {
+      this.store.remove(existing.id);
+    }
+    const grid = createGrid({ ...input, layerId: this.layerManager.activeLayerId });
+    this.store.add(grid);
+    this.historyRecorder.commit();
+    this.requestRender();
+    return grid.id;
+  }
+
+  updateGrid(
+    updates: Partial<
+      Pick<
+        GridElement,
+        'gridType' | 'hexOrientation' | 'cellSize' | 'strokeColor' | 'strokeWidth' | 'opacity'
+      >
+    >,
+  ): void {
+    const grid = this.store.getElementsByType('grid')[0];
+    if (!grid) return;
+    this.historyRecorder.begin();
+    this.store.update(grid.id, updates);
+    this.historyRecorder.commit();
+    this.requestRender();
+  }
+
+  removeGrid(): void {
+    const grid = this.store.getElementsByType('grid')[0];
+    if (!grid) return;
+    this.historyRecorder.begin();
+    this.store.remove(grid.id);
+    this.historyRecorder.commit();
+    this.requestRender();
   }
 
   destroy(): void {
