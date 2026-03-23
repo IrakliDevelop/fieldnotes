@@ -4,11 +4,14 @@ import type {
   ArrowElement,
   ShapeElement,
   ImageElement,
+  GridElement,
 } from './types';
 import { getArrowControlPoint, getArrowTangentAngle } from './arrow-geometry';
 import { getElementBounds, getEdgeIntersection } from './arrow-binding';
 import { smoothToSegments, pressureToWidth } from './stroke-smoothing';
 import type { ElementStore } from './element-store';
+import { renderSquareGrid, renderHexGrid } from './grid-renderer';
+import type { Camera } from '../canvas/camera';
 
 const DOM_ELEMENT_TYPES = new Set(['note', 'html', 'text']);
 const ARROWHEAD_LENGTH = 12;
@@ -18,6 +21,8 @@ export class ElementRenderer {
   private store: ElementStore | null = null;
   private imageCache = new Map<string, HTMLImageElement>();
   private onImageLoad: (() => void) | null = null;
+  private camera: Camera | null = null;
+  private canvasSize: { w: number; h: number } | null = null;
 
   setStore(store: ElementStore): void {
     this.store = store;
@@ -25,6 +30,14 @@ export class ElementRenderer {
 
   setOnImageLoad(callback: () => void): void {
     this.onImageLoad = callback;
+  }
+
+  setCamera(camera: Camera): void {
+    this.camera = camera;
+  }
+
+  setCanvasSize(w: number, h: number): void {
+    this.canvasSize = { w, h };
   }
 
   isDomElement(element: CanvasElement): boolean {
@@ -44,6 +57,9 @@ export class ElementRenderer {
         break;
       case 'image':
         this.renderImage(ctx, element);
+        break;
+      case 'grid':
+        this.renderGrid(ctx, element);
         break;
     }
   }
@@ -213,6 +229,46 @@ export class ElementRenderer {
         ctx.stroke();
         break;
       }
+    }
+  }
+
+  private renderGrid(ctx: CanvasRenderingContext2D, grid: GridElement): void {
+    if (!this.canvasSize) return;
+
+    const cam = this.camera;
+    if (!cam) return;
+
+    const topLeft = cam.screenToWorld({ x: 0, y: 0 });
+    const bottomRight = cam.screenToWorld({
+      x: this.canvasSize.w,
+      y: this.canvasSize.h,
+    });
+    const bounds = {
+      minX: topLeft.x,
+      minY: topLeft.y,
+      maxX: bottomRight.x,
+      maxY: bottomRight.y,
+    };
+
+    if (grid.gridType === 'hex') {
+      renderHexGrid(
+        ctx,
+        bounds,
+        grid.cellSize,
+        grid.hexOrientation,
+        grid.strokeColor,
+        grid.strokeWidth,
+        grid.opacity,
+      );
+    } else {
+      renderSquareGrid(
+        ctx,
+        bounds,
+        grid.cellSize,
+        grid.strokeColor,
+        grid.strokeWidth,
+        grid.opacity,
+      );
     }
   }
 

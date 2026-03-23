@@ -61,6 +61,7 @@ export class Viewport {
     this.toolManager = new ToolManager();
     this.renderer = new ElementRenderer();
     this.renderer.setStore(this.store);
+    this.renderer.setCamera(this.camera);
     this.renderer.setOnImageLoad(() => this.requestRender());
     this.noteEditor = new NoteEditor();
     this.noteEditor.setOnStop((id) => this.onTextEditStop(id));
@@ -243,6 +244,7 @@ export class Viewport {
     ctx.save();
     ctx.scale(dpr, dpr);
 
+    this.renderer.setCanvasSize(this.canvasEl.clientWidth, this.canvasEl.clientHeight);
     this.background.render(ctx, this.camera);
 
     ctx.save();
