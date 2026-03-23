@@ -71,6 +71,18 @@ export interface ShapeElement extends BaseElement {
   fillColor: string;
 }
 
+export type HexOrientation = 'pointy' | 'flat';
+
+export interface GridElement extends BaseElement {
+  type: 'grid';
+  gridType: 'square' | 'hex';
+  hexOrientation: HexOrientation;
+  cellSize: number;
+  strokeColor: string;
+  strokeWidth: number;
+  opacity: number;
+}
+
 export type CanvasElement =
   | StrokeElement
   | NoteElement
@@ -78,6 +90,7 @@ export type CanvasElement =
   | ImageElement
   | HtmlElement
   | TextElement
-  | ShapeElement;
+  | ShapeElement
+  | GridElement;
 
 export type ElementType = CanvasElement['type'];

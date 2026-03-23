@@ -9,6 +9,8 @@ import type {
   TextElement,
   ShapeElement,
   ShapeKind,
+  GridElement,
+  HexOrientation,
 } from './types';
 import { createId } from './create-id';
 
@@ -160,6 +162,32 @@ export function createShape(input: ShapeInput): ShapeElement {
     strokeColor: input.strokeColor ?? '#000000',
     strokeWidth: input.strokeWidth ?? 2,
     fillColor: input.fillColor ?? 'none',
+  };
+}
+
+interface GridInput extends BaseDefaults {
+  gridType?: 'square' | 'hex';
+  hexOrientation?: HexOrientation;
+  cellSize?: number;
+  strokeColor?: string;
+  strokeWidth?: number;
+  opacity?: number;
+}
+
+export function createGrid(input: GridInput): GridElement {
+  return {
+    id: createId('grid'),
+    type: 'grid',
+    position: input.position ?? { x: 0, y: 0 },
+    zIndex: input.zIndex ?? 0,
+    locked: input.locked ?? false,
+    layerId: input.layerId ?? '',
+    gridType: input.gridType ?? 'square',
+    hexOrientation: input.hexOrientation ?? 'pointy',
+    cellSize: input.cellSize ?? 40,
+    strokeColor: input.strokeColor ?? '#000000',
+    strokeWidth: input.strokeWidth ?? 1,
+    opacity: input.opacity ?? 1,
   };
 }
 

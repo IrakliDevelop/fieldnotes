@@ -7,6 +7,7 @@ import {
   createHtmlElement,
   createText,
   createShape,
+  createGrid,
 } from './element-factory';
 
 describe('element factories', () => {
@@ -128,6 +129,40 @@ describe('element factories', () => {
       expect(shape.strokeColor).toBe('#ff0000');
       expect(shape.strokeWidth).toBe(3);
       expect(shape.fillColor).toBe('#00ff00');
+    });
+  });
+
+  describe('createGrid', () => {
+    it('creates a grid with defaults', () => {
+      const grid = createGrid({});
+      expect(grid.type).toBe('grid');
+      expect(grid.id).toMatch(/^grid_/);
+      expect(grid.gridType).toBe('square');
+      expect(grid.hexOrientation).toBe('pointy');
+      expect(grid.cellSize).toBe(40);
+      expect(grid.strokeColor).toBe('#000000');
+      expect(grid.strokeWidth).toBe(1);
+      expect(grid.opacity).toBe(1);
+      expect(grid.position).toEqual({ x: 0, y: 0 });
+      expect(grid.zIndex).toBe(0);
+      expect(grid.locked).toBe(false);
+    });
+
+    it('accepts overrides', () => {
+      const grid = createGrid({
+        gridType: 'hex',
+        hexOrientation: 'flat',
+        cellSize: 60,
+        strokeColor: '#ff0000',
+        strokeWidth: 2,
+        opacity: 0.5,
+      });
+      expect(grid.gridType).toBe('hex');
+      expect(grid.hexOrientation).toBe('flat');
+      expect(grid.cellSize).toBe(60);
+      expect(grid.strokeColor).toBe('#ff0000');
+      expect(grid.strokeWidth).toBe(2);
+      expect(grid.opacity).toBe(0.5);
     });
   });
 
