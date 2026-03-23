@@ -248,7 +248,9 @@ export class Viewport {
     ctx.translate(this.camera.position.x, this.camera.position.y);
     ctx.scale(this.camera.zoom, this.camera.zoom);
 
-    for (const element of this.store.getAll()) {
+    const allElements = this.store.getAll();
+    let domZIndex = 0;
+    for (const element of allElements) {
       if (!this.layerManager.isLayerVisible(element.layerId)) {
         if (this.renderer.isDomElement(element)) {
           this.hideDomNode(element.id);
@@ -256,7 +258,7 @@ export class Viewport {
         continue;
       }
       if (this.renderer.isDomElement(element)) {
-        this.syncDomNode(element);
+        this.syncDomNode(element, domZIndex++);
       } else {
         this.renderer.renderCanvasElement(ctx, element);
       }
@@ -417,7 +419,7 @@ export class Viewport {
     }
   };
 
-  private syncDomNode(element: CanvasElement): void {
+  private syncDomNode(element: CanvasElement, zIndex = 0): void {
     let node = this.domNodes.get(element.id);
     if (!node) {
       node = document.createElement('div');
@@ -437,6 +439,7 @@ export class Viewport {
       top: `${element.position.y}px`,
       width: size ? `${size.w}px` : 'auto',
       height: size ? `${size.h}px` : 'auto',
+      zIndex: String(zIndex),
     });
 
     this.renderDomContent(node, element);
