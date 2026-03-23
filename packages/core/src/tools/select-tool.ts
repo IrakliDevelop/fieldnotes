@@ -500,6 +500,8 @@ export class SelectTool implements Tool {
   private hitTest(world: Point, ctx: ToolContext): CanvasElement | null {
     const elements = ctx.store.getAll().reverse();
     for (const el of elements) {
+      if (ctx.isLayerVisible && !ctx.isLayerVisible(el.layerId)) continue;
+      if (ctx.isLayerLocked && ctx.isLayerLocked(el.layerId)) continue;
       if (this.isInsideBounds(world, el)) return el;
     }
     return null;

@@ -10,6 +10,9 @@ export interface ToolContext {
   setCursor?: (cursor: string) => void;
   snapToGrid?: boolean;
   gridSize?: number;
+  activeLayerId?: string;
+  isLayerVisible?: (layerId: string) => boolean;
+  isLayerLocked?: (layerId: string) => boolean;
 }
 
 export interface PointerState {

@@ -83,6 +83,7 @@ export class ArrowTool implements Tool {
       width: this.width,
       fromBinding: this.fromBinding,
       toBinding: this.toTarget ? { elementId: this.toTarget.id } : undefined,
+      layerId: ctx.activeLayerId ?? '',
     });
     ctx.store.add(arrow);
     this.fromTarget = null;

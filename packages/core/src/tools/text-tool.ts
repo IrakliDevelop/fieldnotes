@@ -52,6 +52,7 @@ export class TextTool implements Tool {
       fontSize: this.fontSize,
       color: this.color,
       textAlign: this.textAlign,
+      layerId: ctx.activeLayerId ?? '',
     });
     ctx.store.add(textEl);
     ctx.requestRender();

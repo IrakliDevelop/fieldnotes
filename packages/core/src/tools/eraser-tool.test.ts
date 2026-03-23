@@ -90,6 +90,48 @@ describe('EraserTool', () => {
     expect(ctx.requestRender).toHaveBeenCalled();
   });
 
+  it('does not erase strokes on hidden layers', () => {
+    const store = new ElementStore();
+    const stroke = createStroke({
+      points: [{ x: 50, y: 50, pressure: 0.5 }],
+      layerId: 'hidden-layer',
+    });
+    store.add(stroke);
+
+    const ctx: ToolContext = {
+      camera: new Camera(),
+      store,
+      requestRender: vi.fn(),
+      isLayerVisible: (id: string) => id !== 'hidden-layer',
+      isLayerLocked: () => false,
+    };
+
+    const tool = new EraserTool();
+    tool.onPointerDown(pt(50, 50), ctx);
+    expect(store.count).toBe(1);
+  });
+
+  it('does not erase strokes on locked layers', () => {
+    const store = new ElementStore();
+    const stroke = createStroke({
+      points: [{ x: 50, y: 50, pressure: 0.5 }],
+      layerId: 'locked-layer',
+    });
+    store.add(stroke);
+
+    const ctx: ToolContext = {
+      camera: new Camera(),
+      store,
+      requestRender: vi.fn(),
+      isLayerVisible: () => true,
+      isLayerLocked: (id: string) => id === 'locked-layer',
+    };
+
+    const tool = new EraserTool();
+    tool.onPointerDown(pt(50, 50), ctx);
+    expect(store.count).toBe(1);
+  });
+
   it('accepts custom eraser radius', () => {
     const ctx = makeCtx();
     ctx.store.add(

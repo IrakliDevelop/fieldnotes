@@ -70,6 +70,7 @@ export class PencilTool implements Tool {
       points: simplified,
       color: this.color,
       width: this.width,
+      layerId: ctx.activeLayerId ?? '',
     });
     ctx.store.add(stroke);
     this.points = [];

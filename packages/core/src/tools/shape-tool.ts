@@ -77,6 +77,7 @@ export class ShapeTool implements Tool {
       strokeColor: this.strokeColor,
       strokeWidth: this.strokeWidth,
       fillColor: this.fillColor,
+      layerId: ctx.activeLayerId ?? '',
     });
     ctx.store.add(shape);
     ctx.requestRender();
