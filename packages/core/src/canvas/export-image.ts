@@ -240,6 +240,7 @@ function loadImages(elements: CanvasElement[]): Promise<Map<string, HTMLImageEle
 
     for (const el of imageElements) {
       const img = new Image();
+      img.crossOrigin = 'anonymous';
       img.onload = () => {
         cache.set(el.id, img);
         done();
