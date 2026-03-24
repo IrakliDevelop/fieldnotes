@@ -390,6 +390,20 @@ document.getElementById('load')?.addEventListener('click', () => {
   console.log('State restored from auto-save');
 });
 
+document.getElementById('export-png')?.addEventListener('click', async () => {
+  const blob = await viewport.exportImage({ scale: 2 });
+  if (!blob) {
+    console.warn('Nothing to export');
+    return;
+  }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'canvas-export.png';
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
 const layersList = document.getElementById('layers-list');
 
 function renderLayersPanel() {

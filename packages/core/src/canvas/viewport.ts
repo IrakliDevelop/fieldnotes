@@ -15,6 +15,8 @@ import { HistoryStack } from '../history/history-stack';
 import { HistoryRecorder } from '../history/history-recorder';
 import { createImage, createHtmlElement, createGrid } from '../elements/element-factory';
 import { exportState as exportCanvasState, parseState } from '../core/state-serializer';
+import { exportImage } from './export-image';
+import type { ExportImageOptions } from './export-image';
 import type { CanvasState } from '../core/state-serializer';
 import { LayerManager } from '../layers/layer-manager';
 
@@ -150,6 +152,10 @@ export class Viewport {
 
   exportJSON(): string {
     return JSON.stringify(this.exportState());
+  }
+
+  async exportImage(options?: ExportImageOptions): Promise<Blob | null> {
+    return exportImage(this.store, options, this.layerManager);
   }
 
   loadState(state: CanvasState): void {

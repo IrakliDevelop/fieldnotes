@@ -15,6 +15,8 @@ export type { BackgroundOptions, BackgroundPattern } from './canvas/background';
 export { InputHandler } from './canvas/input-handler';
 export { Viewport } from './canvas/viewport';
 export type { ViewportOptions } from './canvas/viewport';
+export { exportImage } from './canvas/export-image';
+export type { ExportImageOptions } from './canvas/export-image';
 
 export { ElementStore } from './elements/element-store';
 export type { ElementUpdateEvent } from './elements/element-store';
