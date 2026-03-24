@@ -222,25 +222,29 @@ function renderGridForBounds(
   }
 }
 
-function waitForImages(elements: CanvasElement[]): Promise<void> {
-  const imageSrcs = elements
-    .filter((el): el is CanvasElement & { src: string } => el.type === 'image' && 'src' in el)
-    .map((el) => el.src);
+function loadImages(elements: CanvasElement[]): Promise<Map<string, HTMLImageElement>> {
+  const imageElements = elements.filter(
+    (el): el is CanvasElement & { src: string } => el.type === 'image' && 'src' in el,
+  );
 
-  if (imageSrcs.length === 0) return Promise.resolve();
+  const cache = new Map<string, HTMLImageElement>();
+  if (imageElements.length === 0) return Promise.resolve(cache);
 
   return new Promise((resolve) => {
-    let remaining = imageSrcs.length;
+    let remaining = imageElements.length;
     const done = () => {
       remaining--;
-      if (remaining <= 0) resolve();
+      if (remaining <= 0) resolve(cache);
     };
 
-    for (const src of imageSrcs) {
+    for (const el of imageElements) {
       const img = new Image();
-      img.onload = done;
+      img.onload = () => {
+        cache.set(el.id, img);
+        done();
+      };
       img.onerror = done;
-      img.src = src;
+      img.src = el.src;
     }
   });
 }
@@ -262,7 +266,7 @@ export async function exportImage(
   const bounds = computeBounds(visibleElements, padding);
   if (!bounds) return null;
 
-  await waitForImages(visibleElements);
+  const imageCache = await loadImages(visibleElements);
 
   const canvas = document.createElement('canvas');
   canvas.width = Math.ceil(bounds.w * scale);
@@ -299,6 +303,14 @@ export async function exportImage(
     }
 
     if (el.type === 'html') {
+      continue;
+    }
+
+    if (el.type === 'image') {
+      const img = imageCache.get(el.id);
+      if (img) {
+        ctx.drawImage(img, el.position.x, el.position.y, el.size.w, el.size.h);
+      }
       continue;
     }
 
