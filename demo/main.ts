@@ -390,8 +390,11 @@ document.getElementById('load')?.addEventListener('click', () => {
   console.log('State restored from auto-save');
 });
 
+const exportPaddingCheckbox = document.getElementById('export-padding') as HTMLInputElement | null;
+
 document.getElementById('export-png')?.addEventListener('click', async () => {
-  const blob = await viewport.exportImage({ scale: 2 });
+  const padding = exportPaddingCheckbox?.checked ? 20 : 0;
+  const blob = await viewport.exportImage({ scale: 2, padding });
   if (!blob) {
     console.warn('Nothing to export');
     return;

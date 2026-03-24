@@ -9,6 +9,7 @@ export interface ExportImageOptions {
   scale?: number;
   padding?: number;
   background?: string;
+  filter?: (element: CanvasElement) => boolean;
 }
 
 interface Rect {
@@ -255,13 +256,18 @@ export async function exportImage(
   layerManager?: LayerManager,
 ): Promise<Blob | null> {
   const scale = options.scale ?? 2;
-  const padding = options.padding ?? 20;
+  const padding = options.padding ?? 0;
   const background = options.background ?? '#ffffff';
+  const filter = options.filter;
 
   const allElements = store.getAll();
-  const visibleElements = layerManager
+  let visibleElements = layerManager
     ? allElements.filter((el) => layerManager.isLayerVisible(el.layerId))
     : allElements;
+
+  if (filter) {
+    visibleElements = visibleElements.filter(filter);
+  }
 
   const bounds = computeBounds(visibleElements, padding);
   if (!bounds) return null;
