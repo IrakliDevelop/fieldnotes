@@ -55,6 +55,7 @@ interface ImageInput extends BaseDefaults {
 interface HtmlInput extends BaseDefaults {
   position: Point;
   size: Size;
+  domId?: string;
 }
 
 interface TextInput extends BaseDefaults {
@@ -129,7 +130,7 @@ export function createImage(input: ImageInput): ImageElement {
 }
 
 export function createHtmlElement(input: HtmlInput): HtmlElement {
-  return {
+  const el: HtmlElement = {
     id: createId('html'),
     type: 'html',
     position: input.position,
@@ -138,6 +139,8 @@ export function createHtmlElement(input: HtmlInput): HtmlElement {
     layerId: input.layerId ?? '',
     size: input.size,
   };
+  if (input.domId) el.domId = input.domId;
+  return el;
 }
 
 interface ShapeInput extends BaseDefaults {
