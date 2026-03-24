@@ -246,7 +246,8 @@ function loadImages(elements: CanvasElement[]): Promise<Map<string, HTMLImageEle
         done();
       };
       img.onerror = done;
-      img.src = el.src;
+      const sep = el.src.includes('?') ? '&' : '?';
+      img.src = `${el.src}${sep}_cors=1`;
     }
   });
 }
