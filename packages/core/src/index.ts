@@ -1,4 +1,4 @@
-export const VERSION = '0.7.1';
+export const VERSION = '0.8.0';
 
 export { EventBus } from './core/event-bus';
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
@@ -15,6 +15,8 @@ export type { BackgroundOptions, BackgroundPattern } from './canvas/background';
 export { InputHandler } from './canvas/input-handler';
 export { Viewport } from './canvas/viewport';
 export type { ViewportOptions } from './canvas/viewport';
+export { exportImage } from './canvas/export-image';
+export type { ExportImageOptions } from './canvas/export-image';
 
 export { ElementStore } from './elements/element-store';
 export type { ElementUpdateEvent } from './elements/element-store';

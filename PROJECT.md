@@ -48,7 +48,7 @@ This project started from a need in a D&D companion app where players use an iPa
 ### Rendering Strategy: Hybrid Canvas + DOM
 
 - **Canvas layer**: Freehand strokes, shapes, arrows, grid/background
-- **DOM layer**: Sticky notes, images, embedded HTML components
+- **DOM layer**: Sticky notes, text elements, images, embedded HTML components
 - **Shared camera system**: Both layers transform in sync via a single viewport state
 
 This hybrid approach gives us the performance of canvas for drawing-heavy operations while preserving full DOM interactivity for HTML elements.
@@ -74,10 +74,11 @@ fieldnotes/
 ├── packages/
 │   ├── core/                  # @fieldnotes/core — vanilla TS engine
 │   │   ├── src/
-│   │   │   ├── core/          # Core classes, event bus, state management
-│   │   │   ├── canvas/        # Canvas rendering, camera/viewport system
-│   │   │   ├── elements/      # Element types (stroke, note, arrow, image, html)
-│   │   │   ├── tools/         # Tool system (select, pencil, eraser, arrow, note)
+│   │   │   ├── core/          # Core classes, event bus, state management, auto-save
+│   │   │   ├── canvas/        # Canvas rendering, camera/viewport system, export
+│   │   │   ├── elements/      # Element types, factory, renderer, arrow binding
+│   │   │   ├── layers/        # LayerManager, Layer type
+│   │   │   ├── tools/         # Tool system (select, pencil, eraser, arrow, note, text, shape)
 │   │   │   ├── history/       # Undo/redo command stack
 │   │   │   └── index.ts       # Public API entry point
 │   │   ├── package.json
@@ -104,50 +105,114 @@ fieldnotes/
 type Point = { x: number; y: number };
 type Size = { w: number; h: number };
 
-type BaseElement = {
+interface BaseElement {
   id: string;
   position: Point;
   zIndex: number;
   locked: boolean;
-};
+  layerId: string;
+}
 
-type StrokeElement = BaseElement & {
+interface StrokeElement extends BaseElement {
   type: 'stroke';
-  points: Point[]; // Relative to position
+  points: StrokePoint[]; // Relative to position; includes pressure
   color: string;
   width: number;
   opacity: number;
-};
+}
 
-type NoteElement = BaseElement & {
+interface NoteElement extends BaseElement {
   type: 'note';
   size: Size;
   text: string;
   backgroundColor: string;
-};
+  textColor: string;
+}
 
-type ArrowElement = BaseElement & {
+interface Binding {
+  elementId: string;
+}
+
+interface ArrowElement extends BaseElement {
   type: 'arrow';
   from: Point;
   to: Point;
+  bend: number; // Quadratic bezier control offset
   color: string;
   width: number;
-};
+  fromBinding?: Binding; // Snap tail to another element
+  toBinding?: Binding; // Snap head to another element
+}
 
-type ImageElement = BaseElement & {
+interface ImageElement extends BaseElement {
   type: 'image';
   size: Size;
   src: string; // URL or data URI
-};
+}
 
-type HTMLElement = BaseElement & {
+interface HtmlElement extends BaseElement {
   type: 'html';
   size: Size;
-  domNode: HTMLElement; // Consumer provides the actual DOM node
-};
+  domId?: string; // DOM node id for re-attaching across reloads
+}
 
-type CanvasElement = StrokeElement | NoteElement | ArrowElement | ImageElement | HTMLElement;
+interface TextElement extends BaseElement {
+  type: 'text';
+  size: Size;
+  text: string;
+  fontSize: number;
+  color: string;
+  textAlign: 'left' | 'center' | 'right';
+}
+
+type ShapeKind = 'rectangle' | 'ellipse';
+
+interface ShapeElement extends BaseElement {
+  type: 'shape';
+  shape: ShapeKind;
+  size: Size;
+  strokeColor: string;
+  strokeWidth: number;
+  fillColor: string;
+}
+
+type HexOrientation = 'pointy' | 'flat';
+
+interface GridElement extends BaseElement {
+  type: 'grid';
+  gridType: 'square' | 'hex';
+  hexOrientation: HexOrientation;
+  cellSize: number;
+  strokeColor: string;
+  strokeWidth: number;
+  opacity: number;
+}
+
+type CanvasElement =
+  | StrokeElement
+  | NoteElement
+  | ArrowElement
+  | ImageElement
+  | HtmlElement
+  | TextElement
+  | ShapeElement
+  | GridElement;
 ```
+
+### Layer Model
+
+```typescript
+interface Layer {
+  id: string;
+  name: string;
+  visible: boolean;
+  locked: boolean;
+  order: number;
+  opacity: number;
+}
+```
+
+Every `CanvasElement` carries a `layerId` tying it to a `Layer`. Layers control visibility and locking for the elements they own. Arrow binding only connects arrows to elements on the same layer.
 
 ### Core API Surface
 
@@ -164,10 +229,22 @@ canvas.store.update(id, partialUpdate);
 canvas.store.getAll();
 
 // HTML embedding — the differentiator
+// Captures dom.id as domId on the element for persistence across reloads
 canvas.addHtmlElement(myCardElement, { x: 300, y: 100 }, { w: 250, h: 150 });
+
+// Images
+canvas.addImage('https://example.com/map.png', { x: 0, y: 0 }, { w: 800, h: 600 });
+
+// Grid element (square or hex, for D&D maps etc.)
+canvas.addGrid({ gridType: 'hex', hexOrientation: 'pointy', cellSize: 40 });
+canvas.updateGrid({ cellSize: 50, strokeColor: '#aaaaaa' });
+canvas.removeGrid();
 
 // Tool control
 canvas.toolManager.setTool('pencil', canvas.toolContext);
+
+// Snap-to-grid
+canvas.setSnapToGrid(true);
 
 // Viewport
 canvas.camera.panTo(x, y);
@@ -177,12 +254,42 @@ canvas.camera.setZoom(level);
 canvas.undo();
 canvas.redo();
 
-// Images
-canvas.addImage('https://example.com/map.png', { x: 0, y: 0 }, { w: 800, h: 600 });
+// Layers
+canvas.layerManager.getLayers(); // Layer[]
+canvas.layerManager.createLayer('Background'); // Layer
+canvas.layerManager.removeLayer(id);
+canvas.layerManager.setLayerVisible(id, false);
+canvas.layerManager.setLayerLocked(id, true);
+canvas.layerManager.setActiveLayer(id);
+canvas.layerManager.renameLayer(id, 'New name');
+canvas.layerManager.reorderLayer(id, newOrder);
+canvas.layerManager.moveElementToLayer(elementId, layerId);
+canvas.layerManager.on('change', callback);
 
 // Serialization
-const state = canvas.exportState(); // JSON-serializable
+const state = canvas.exportState(); // CanvasState (JSON-serializable, includes layers)
+const json = canvas.exportJSON(); // string
 canvas.loadState(state);
+canvas.loadJSON(json);
+
+// Image export — returns PNG as Blob, respects layer visibility
+const blob = await canvas.exportImage({
+  scale: 2, // pixel density multiplier (default 2)
+  padding: 20, // world-space padding around content (default 0)
+  background: '#fff', // fill color (default '#ffffff')
+  filter: (el) => el.type !== 'html', // optional per-element filter
+});
+
+// AutoSave — debounced localStorage persistence
+const autoSave = new AutoSave(canvas.store, canvas.camera, {
+  key: 'my-canvas', // localStorage key (default 'fieldnotes-autosave')
+  debounceMs: 1000, // save delay in ms (default 1000)
+  layerManager: canvas.layerManager,
+});
+autoSave.start();
+const saved = autoSave.load(); // CanvasState | null
+autoSave.stop();
+autoSave.clear();
 
 // Events
 canvas.store.on('add', callback);
@@ -192,6 +299,29 @@ canvas.toolManager.onChange(callback);
 // Cleanup
 canvas.destroy();
 ```
+
+### Standalone `exportImage` function
+
+For use outside of a `Viewport` instance:
+
+```typescript
+import { exportImage } from '@fieldnotes/core';
+
+const blob = await exportImage(store, options, layerManager);
+```
+
+`ExportImageOptions`:
+
+```typescript
+interface ExportImageOptions {
+  scale?: number; // default 2
+  padding?: number; // world-space padding, default 0
+  background?: string; // CSS color, default '#ffffff'
+  filter?: (element: CanvasElement) => boolean;
+}
+```
+
+HTML elements are excluded from image exports (DOM cannot be rasterized to canvas). Grid elements render across the full export bounds regardless of position.
 
 ### Images & Storage
 
@@ -254,12 +384,16 @@ canvas.addImage('data:image/png;base64,iVBOR...', pos, size);
 
 ### v0.3 — Enhanced Elements
 
-- [ ] **Text tool** — standalone text boxes on canvas (editable, styled, resizable)
-- [ ] Arrow binding (snap arrows to elements)
-- [ ] Shape tools (rectangle, ellipse)
-- [ ] Snap-to-grid / alignment guides
+- [x] **Text tool** — standalone text boxes on canvas (editable, styled, resizable)
+- [x] Arrow binding — snap arrows to elements (same-layer only)
+- [x] Shape tools — rectangle and ellipse
+- [x] Snap-to-grid — `snapPoint()` utility, toggleable via `viewport.setSnapToGrid()`
+- [x] Layers — `LayerManager` with visibility, locking, ordering, per-layer opacity
+- [x] Note text color — `textColor` field on `NoteElement`
+- [x] Grid element — square and hex grids for D&D maps (`GridElement`)
+- [x] HTML element persistence — `domId` field on `HtmlElement` for re-attaching DOM nodes across reloads
+- [x] AutoSave — debounced localStorage persistence with configurable interval
 - [ ] Minimap
-- [ ] Layers panel
 
 ### v0.4 — SDK Maturity
 
@@ -273,7 +407,7 @@ canvas.addImage('data:image/png;base64,iVBOR...', pos, size);
 
 ### v0.5 — Import / Export
 
-- [ ] Export to PNG (rasterize canvas region)
+- [x] Export to PNG — `exportImage()` returns a PNG `Blob`, with scale, padding, background, and filter options
 - [ ] Export to SVG (vector export of strokes, shapes, arrows)
 - [ ] Export to PDF
 - [ ] **FreeForm PDF import — Phase 1: Images** — extract embedded images with positions/sizes from Apple FreeForm PDF exports
