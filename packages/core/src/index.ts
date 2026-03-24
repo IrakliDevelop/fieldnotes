@@ -1,4 +1,4 @@
-export const VERSION = '0.6.1';
+export const VERSION = '0.7.0';
 
 export { EventBus } from './core/event-bus';
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
@@ -29,6 +29,7 @@ export {
   createHtmlElement,
   createText,
   createShape,
+  createGrid,
 } from './elements/element-factory';
 export {
   getArrowControlPoint,
@@ -61,6 +62,8 @@ export type {
   TextElement,
   ShapeElement,
   ShapeKind,
+  GridElement,
+  HexOrientation,
 } from './elements/types';
 
 export type { Command } from './history/types';

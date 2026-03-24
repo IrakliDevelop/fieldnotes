@@ -116,6 +116,20 @@
       font-size: 13px;
       font-family: inherit;
     }
+    #grid-panel select, #grid-panel button {
+      padding: 4px 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      background: white;
+      cursor: pointer;
+      font-size: 13px;
+      font-family: inherit;
+    }
+    #grid-panel button.active {
+      background: #1a1a1a;
+      color: white;
+      border-color: #1a1a1a;
+    }
     #text-panel select, #text-panel button {
       padding: 4px 8px;
       border: 1px solid #ddd;
@@ -257,6 +271,22 @@
     <span style="color: #999; font-size: 11px;">Fill:</span>
     <input type="color" id="shape-fill" value="#ffffff" title="Fill color" style="width: 28px; height: 28px; padding: 2px; border: 1px solid #ddd; border-radius: 4px; cursor: pointer; background: white;">
     <button id="shape-no-fill">No Fill</button>
+  </div>
+  <div id="grid-panel" style="position:fixed;top:70px;left:50%;transform:translateX(-50%);background:white;border:1px solid #ddd;border-radius:8px;padding:8px 12px;display:flex;gap:8px;align-items:center;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,0.08);z-index:10;">
+    <button id="grid-toggle" title="Add/remove grid">Grid: Off</button>
+    <select id="grid-type" style="padding:4px 8px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
+      <option value="square">Square</option>
+      <option value="hex" selected>Hex</option>
+    </select>
+    <select id="hex-orientation" style="padding:4px 8px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
+      <option value="pointy" selected>Pointy</option>
+      <option value="flat">Flat</option>
+    </select>
+    <label style="display:flex;align-items:center;gap:4px;">
+      Size: <input type="range" id="grid-cell-size" min="20" max="100" value="40" style="width:80px;">
+      <span id="grid-cell-size-label">40</span>
+    </label>
+    <input type="color" id="grid-color" value="#000000" title="Grid color" style="width:28px;height:28px;padding:2px;border:1px solid #ddd;border-radius:4px;cursor:pointer;">
   </div>
   <input type="file" id="image-file" accept="image/*" style="display: none">
   <div id="layers-panel">

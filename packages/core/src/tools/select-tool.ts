@@ -462,6 +462,7 @@ export class SelectTool implements Tool {
     for (const el of ctx.store.getAll()) {
       if (ctx.isLayerVisible && !ctx.isLayerVisible(el.layerId)) continue;
       if (ctx.isLayerLocked && ctx.isLayerLocked(el.layerId)) continue;
+      if (el.type === 'grid') continue;
       const bounds = this.getElementBounds(el);
       if (bounds && this.rectsOverlap(marquee, bounds)) {
         ids.push(el.id);
@@ -504,12 +505,14 @@ export class SelectTool implements Tool {
     for (const el of elements) {
       if (ctx.isLayerVisible && !ctx.isLayerVisible(el.layerId)) continue;
       if (ctx.isLayerLocked && ctx.isLayerLocked(el.layerId)) continue;
+      if (el.type === 'grid') continue;
       if (this.isInsideBounds(world, el)) return el;
     }
     return null;
   }
 
   private isInsideBounds(point: Point, el: CanvasElement): boolean {
+    if (el.type === 'grid') return false;
     if ('size' in el) {
       const s = el.size;
       return (

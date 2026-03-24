@@ -91,7 +91,7 @@ function validateState(data: unknown): asserts data is CanvasState {
   }
 }
 
-const VALID_TYPES = new Set(['stroke', 'note', 'arrow', 'image', 'html', 'text', 'shape']);
+const VALID_TYPES = new Set(['stroke', 'note', 'arrow', 'image', 'html', 'text', 'shape', 'grid']);
 
 function validateElement(el: unknown): asserts el is CanvasElement {
   if (!el || typeof el !== 'object') {

@@ -363,6 +363,7 @@ document.getElementById('load')?.addEventListener('click', () => {
     return;
   }
   viewport.loadState(saved);
+  syncGridPanelFromStore();
   console.log('State restored from auto-save');
 });
 
@@ -453,6 +454,90 @@ renderLayersPanel();
 document.getElementById('add-layer')?.addEventListener('click', () => {
   viewport.layerManager.createLayer();
 });
+
+const gridToggleBtn = document.getElementById('grid-toggle') as HTMLButtonElement | null;
+const gridTypeSelect = document.getElementById('grid-type') as HTMLSelectElement | null;
+const hexOrientationSelect = document.getElementById('hex-orientation') as HTMLSelectElement | null;
+const gridCellSizeInput = document.getElementById('grid-cell-size') as HTMLInputElement | null;
+const gridCellSizeLabel = document.getElementById('grid-cell-size-label');
+const gridColorInput = document.getElementById('grid-color') as HTMLInputElement | null;
+
+let gridActive = false;
+
+function updateHexOrientationVisibility() {
+  if (hexOrientationSelect) {
+    hexOrientationSelect.style.display = gridTypeSelect?.value === 'hex' ? '' : 'none';
+  }
+}
+
+updateHexOrientationVisibility();
+
+function addOrUpdateGrid() {
+  if (!gridActive) return;
+  viewport.addGrid({
+    gridType: (gridTypeSelect?.value as 'square' | 'hex') ?? 'hex',
+    hexOrientation: (hexOrientationSelect?.value as 'pointy' | 'flat') ?? 'pointy',
+    cellSize: Number(gridCellSizeInput?.value ?? 40),
+    strokeColor: gridColorInput?.value ?? '#000000',
+    strokeWidth: 1,
+    opacity: 0.3,
+  });
+}
+
+gridToggleBtn?.addEventListener('click', () => {
+  gridActive = !gridActive;
+  if (gridActive) {
+    addOrUpdateGrid();
+    gridToggleBtn.textContent = 'Grid: On';
+    gridToggleBtn.classList.add('active');
+  } else {
+    viewport.removeGrid();
+    gridToggleBtn.textContent = 'Grid: Off';
+    gridToggleBtn.classList.remove('active');
+  }
+});
+
+gridTypeSelect?.addEventListener('change', () => {
+  updateHexOrientationVisibility();
+  if (gridActive) addOrUpdateGrid();
+});
+
+hexOrientationSelect?.addEventListener('change', () => {
+  if (gridActive) addOrUpdateGrid();
+});
+
+gridCellSizeInput?.addEventListener('input', () => {
+  if (gridCellSizeLabel) gridCellSizeLabel.textContent = gridCellSizeInput.value;
+  if (gridActive) {
+    viewport.updateGrid({ cellSize: Number(gridCellSizeInput.value) });
+  }
+});
+
+gridColorInput?.addEventListener('input', () => {
+  if (gridActive) {
+    viewport.updateGrid({ strokeColor: gridColorInput.value });
+  }
+});
+
+function syncGridPanelFromStore() {
+  const grid = viewport.store.getElementsByType('grid')[0];
+  gridActive = !!grid;
+  if (gridToggleBtn) {
+    gridToggleBtn.textContent = gridActive ? 'Grid: On' : 'Grid: Off';
+    if (gridActive) gridToggleBtn.classList.add('active');
+    else gridToggleBtn.classList.remove('active');
+  }
+  if (grid && grid.type === 'grid') {
+    if (gridTypeSelect) gridTypeSelect.value = grid.gridType;
+    if (hexOrientationSelect) hexOrientationSelect.value = grid.hexOrientation;
+    if (gridCellSizeInput) gridCellSizeInput.value = String(grid.cellSize);
+    if (gridCellSizeLabel) gridCellSizeLabel.textContent = String(grid.cellSize);
+    if (gridColorInput) gridColorInput.value = grid.strokeColor;
+    updateHexOrientationVisibility();
+  }
+}
+
+syncGridPanelFromStore();
 
 const info = document.getElementById('info');
 if (info) {
