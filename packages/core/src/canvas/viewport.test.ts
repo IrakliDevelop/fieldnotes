@@ -90,6 +90,42 @@ describe('Viewport', () => {
     viewport.destroy();
   });
 
+  it('addHtmlElement captures domId from DOM element id', () => {
+    const viewport = new Viewport(container);
+    const dom = document.createElement('div');
+    dom.id = 'my-chart';
+    const id = viewport.addHtmlElement(dom, { x: 0, y: 0 });
+    const el = viewport.store.getById(id);
+    expect(el?.type).toBe('html');
+    if (el?.type === 'html') {
+      expect(el.domId).toBe('my-chart');
+    }
+    viewport.destroy();
+  });
+
+  it('loadState reattaches HTML elements by domId', () => {
+    const viewport = new Viewport(container);
+    const dom = document.createElement('div');
+    dom.id = 'persistent-widget';
+    dom.textContent = 'Hello';
+    document.body.appendChild(dom);
+
+    const id = viewport.addHtmlElement(dom, { x: 10, y: 20 });
+    const state = viewport.exportState();
+
+    const viewport2 = new Viewport(container);
+    viewport2.loadState(state);
+
+    const el = viewport2.store.getById(id);
+    expect(el?.type).toBe('html');
+    if (el?.type === 'html') {
+      expect(el.domId).toBe('persistent-widget');
+    }
+    viewport2.destroy();
+    viewport.destroy();
+    dom.remove();
+  });
+
   describe('HTML element interact mode', () => {
     it('stopInteracting is safe to call when not interacting', () => {
       const viewport = new Viewport(container);

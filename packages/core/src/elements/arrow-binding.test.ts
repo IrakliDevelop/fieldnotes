@@ -19,6 +19,7 @@ import {
   createStroke,
 } from './element-factory';
 import { ElementStore } from './element-store';
+import type { CanvasElement } from './types';
 
 describe('getElementCenter', () => {
   it('returns center of a note', () => {
@@ -130,6 +131,32 @@ describe('findBindTarget', () => {
     const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
     store.add(note);
     const result = findBindTarget({ x: 50, y: 50 }, store, 20);
+    expect(result?.id).toBe(note.id);
+  });
+
+  it('excludes elements on different layer when filter is provided', () => {
+    const store = new ElementStore();
+    const note = createNote({
+      position: { x: 0, y: 0 },
+      size: { w: 100, h: 100 },
+      layerId: 'layer-1',
+    });
+    store.add(note);
+    const filter = (el: CanvasElement) => el.layerId === 'layer-2';
+    const result = findBindTarget({ x: 50, y: 50 }, store, 20, undefined, filter);
+    expect(result).toBeNull();
+  });
+
+  it('finds elements on same layer when filter matches', () => {
+    const store = new ElementStore();
+    const note = createNote({
+      position: { x: 0, y: 0 },
+      size: { w: 100, h: 100 },
+      layerId: 'layer-1',
+    });
+    store.add(note);
+    const filter = (el: CanvasElement) => el.layerId === 'layer-1';
+    const result = findBindTarget({ x: 50, y: 50 }, store, 20, undefined, filter);
     expect(result?.id).toBe(note.id);
   });
 });

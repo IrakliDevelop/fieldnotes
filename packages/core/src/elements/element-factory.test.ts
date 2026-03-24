@@ -101,6 +101,16 @@ describe('element factories', () => {
       });
       expect(el.type).toBe('html');
       expect(el.size).toEqual({ w: 250, h: 150 });
+      expect(el.domId).toBeUndefined();
+    });
+
+    it('stores domId when provided', () => {
+      const el = createHtmlElement({
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 100 },
+        domId: 'my-widget',
+      });
+      expect(el.domId).toBe('my-widget');
     });
   });
 

@@ -1,5 +1,5 @@
 import type { Point } from '../core/types';
-import type { ArrowElement } from '../elements/types';
+import type { ArrowElement, CanvasElement } from '../elements/types';
 import type { ToolContext } from './types';
 import { getArrowMidpoint, getBendFromPoint } from '../elements/arrow-geometry';
 import { findBindTarget, getElementCenter, getElementBounds } from '../elements/arrow-binding';
@@ -69,10 +69,12 @@ export function applyArrowHandleDrag(
 
   const threshold = BIND_THRESHOLD / ctx.camera.zoom;
 
+  const layerFilter = (candidate: CanvasElement) => candidate.layerId === el.layerId;
+
   switch (handle) {
     case 'start': {
       const excludeId = el.toBinding?.elementId;
-      const target = findBindTarget(world, ctx.store, threshold, excludeId);
+      const target = findBindTarget(world, ctx.store, threshold, excludeId, layerFilter);
       if (target) {
         const center = getElementCenter(target);
         ctx.store.update(elementId, {
@@ -91,7 +93,7 @@ export function applyArrowHandleDrag(
     }
     case 'end': {
       const excludeId = el.fromBinding?.elementId;
-      const target = findBindTarget(world, ctx.store, threshold, excludeId);
+      const target = findBindTarget(world, ctx.store, threshold, excludeId, layerFilter);
       if (target) {
         const center = getElementCenter(target);
         ctx.store.update(elementId, {
@@ -129,7 +131,8 @@ export function getArrowHandleDragTarget(
 
   const threshold = BIND_THRESHOLD / ctx.camera.zoom;
   const excludeId = handle === 'start' ? el.toBinding?.elementId : el.fromBinding?.elementId;
-  const target = findBindTarget(world, ctx.store, threshold, excludeId);
+  const layerFilter = (candidate: CanvasElement) => candidate.layerId === el.layerId;
+  const target = findBindTarget(world, ctx.store, threshold, excludeId, layerFilter);
   if (!target) return null;
 
   return getElementBounds(target);

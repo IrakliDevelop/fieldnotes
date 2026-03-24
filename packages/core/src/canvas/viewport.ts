@@ -160,6 +160,7 @@ export class Viewport {
     if (state.layers && state.layers.length > 0) {
       this.layerManager.loadSnapshot(state.layers);
     }
+    this.reattachHtmlContent();
     this.history.clear();
     this.historyRecorder.resume();
     this.camera.moveTo(state.camera.position.x, state.camera.position.y);
@@ -200,7 +201,13 @@ export class Viewport {
     position: { x: number; y: number },
     size = { w: 200, h: 150 },
   ): string {
-    const el = createHtmlElement({ position, size, layerId: this.layerManager.activeLayerId });
+    const domId = dom.id || undefined;
+    const el = createHtmlElement({
+      position,
+      size,
+      domId,
+      layerId: this.layerManager.activeLayerId,
+    });
     this.htmlContent.set(el.id, dom);
     this.historyRecorder.begin();
     this.store.add(el);
@@ -638,6 +645,17 @@ export class Viewport {
     this.domNodes.clear();
     this.htmlContent.clear();
     this.requestRender();
+  }
+
+  private reattachHtmlContent(): void {
+    for (const el of this.store.getElementsByType('html')) {
+      if (el.domId) {
+        const dom = document.getElementById(el.domId);
+        if (dom) {
+          this.htmlContent.set(el.id, dom);
+        }
+      }
+    }
   }
 
   private createWrapper(): HTMLDivElement {

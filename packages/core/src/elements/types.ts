@@ -49,6 +49,7 @@ export interface ImageElement extends BaseElement {
 export interface HtmlElement extends BaseElement {
   type: 'html';
   size: Size;
+  domId?: string;
 }
 
 export interface TextElement extends BaseElement {

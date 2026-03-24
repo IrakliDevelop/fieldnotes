@@ -44,6 +44,13 @@ const autoSave = new AutoSave(viewport.store, viewport.camera, {
 });
 const savedState = autoSave.load();
 if (savedState) {
+  for (const el of savedState.elements) {
+    if (el.type === 'html' && 'domId' in el && typeof el.domId === 'string') {
+      if (!document.getElementById(el.domId)) {
+        document.body.appendChild(createDemoWidget(el.domId));
+      }
+    }
+  }
   viewport.loadState(savedState);
   console.log('Restored auto-saved state');
 }
@@ -94,8 +101,11 @@ document.getElementById('image-btn')?.addEventListener('click', () => {
   fileInput?.click();
 });
 
-document.getElementById('embed-btn')?.addEventListener('click', () => {
+let widgetCounter = 0;
+
+function createDemoWidget(id: string): HTMLElement {
   const widget = document.createElement('div');
+  widget.id = id;
   Object.assign(widget.style, {
     padding: '12px',
     background: 'white',
@@ -127,6 +137,12 @@ document.getElementById('embed-btn')?.addEventListener('click', () => {
   widget.appendChild(title);
   widget.appendChild(desc);
   widget.appendChild(btn);
+  return widget;
+}
+
+document.getElementById('embed-btn')?.addEventListener('click', () => {
+  const id = `demo-widget-${widgetCounter++}`;
+  const widget = createDemoWidget(id);
   const rect = container.getBoundingClientRect();
   const center = viewport.camera.screenToWorld({
     x: rect.width / 2,
@@ -361,6 +377,13 @@ document.getElementById('load')?.addEventListener('click', () => {
   if (!saved) {
     console.warn('No saved state found');
     return;
+  }
+  for (const el of saved.elements) {
+    if (el.type === 'html' && 'domId' in el && typeof el.domId === 'string') {
+      if (!document.getElementById(el.domId)) {
+        document.body.appendChild(createDemoWidget(el.domId));
+      }
+    }
   }
   viewport.loadState(saved);
   syncGridPanelFromStore();
