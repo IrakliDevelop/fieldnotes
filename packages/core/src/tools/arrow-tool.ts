@@ -34,8 +34,10 @@ export class ArrowTool implements Tool {
   }
 
   private layerFilter(ctx: ToolContext): ((el: CanvasElement) => boolean) | undefined {
-    if (!ctx.isLayerVisible && !ctx.isLayerLocked) return undefined;
+    const activeLayerId = ctx.activeLayerId;
+    if (!activeLayerId && !ctx.isLayerVisible && !ctx.isLayerLocked) return undefined;
     return (el: CanvasElement) => {
+      if (activeLayerId && el.layerId !== activeLayerId) return false;
       if (ctx.isLayerVisible && !ctx.isLayerVisible(el.layerId)) return false;
       if (ctx.isLayerLocked && ctx.isLayerLocked(el.layerId)) return false;
       return true;
