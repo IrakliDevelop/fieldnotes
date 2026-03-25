@@ -1,6 +1,6 @@
 {
   "name": "@fieldnotes/core",
-  "version": "0.8.4",
+  "version": "0.8.5",
   "description": "Vanilla TypeScript infinite canvas engine",
   "type": "module",
   "main": "./dist/index.cjs",
