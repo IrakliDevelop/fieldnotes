@@ -60,43 +60,159 @@ Embedded components use a **two-mode interaction model**: by default they can be
 
 ## Hooks
 
-### `useViewport()`
-
-Access the core `Viewport` instance for imperative operations:
-
-```tsx
-import { useViewport } from '@fieldnotes/react';
-
-function Toolbar() {
-  const viewport = useViewport();
-
-  return <button onClick={() => viewport.undo()}>Undo</button>;
-}
-```
-
-Must be used inside `<FieldNotesCanvas>`.
+All hooks must be used inside `<FieldNotesCanvas>`.
 
 ### `useActiveTool()`
 
-Reactive current tool name — re-renders when the tool changes:
+Reactive tool name + setter — re-renders when the active tool changes:
 
 ```tsx
-import { useActiveTool, useViewport } from '@fieldnotes/react';
+import { useActiveTool } from '@fieldnotes/react';
 
-function ToolIndicator() {
-  const tool = useActiveTool();
-  const viewport = useViewport();
+function Toolbar() {
+  const [tool, setTool] = useActiveTool();
 
   return (
     <div>
       <span>Current: {tool}</span>
-      <button onClick={() => viewport.toolManager.setTool('pencil', viewport.toolContext)}>
-        Pencil
+      <button onClick={() => setTool('pencil')}>Pencil</button>
+      <button onClick={() => setTool('select')}>Select</button>
+    </div>
+  );
+}
+```
+
+### `useToolOptions(toolName)`
+
+Reactive tool options with two-way sync — read and write tool configuration:
+
+```tsx
+import { useActiveTool, useToolOptions } from '@fieldnotes/react';
+import type { PencilToolOptions } from '@fieldnotes/core';
+
+function PencilSettings() {
+  const [tool, setTool] = useActiveTool();
+  const [opts, setOpts] = useToolOptions<PencilToolOptions>('pencil');
+
+  return (
+    <div>
+      <button onClick={() => setTool('pencil')}>Pencil</button>
+      {tool === 'pencil' && opts && (
+        <>
+          <input
+            type="color"
+            value={opts.color}
+            onChange={(e) => setOpts({ color: e.target.value })}
+          />
+          <input
+            type="range"
+            min={1}
+            max={20}
+            value={opts.width}
+            onChange={(e) => setOpts({ width: Number(e.target.value) })}
+          />
+        </>
+      )}
+    </div>
+  );
+}
+```
+
+Returns `[null, noop]` for tools that don't support options (e.g., `HandTool`).
+
+### `useLayers()`
+
+Full layer management — reactive layer list with action callbacks:
+
+```tsx
+import { useLayers } from '@fieldnotes/react';
+
+function LayersPanel() {
+  const {
+    layers,
+    activeLayerId,
+    createLayer,
+    removeLayer,
+    setVisible,
+    setLocked,
+    setOpacity,
+    setActiveLayer,
+  } = useLayers();
+
+  return (
+    <div>
+      <button onClick={() => createLayer()}>Add Layer</button>
+      {layers.map((layer) => (
+        <div key={layer.id} onClick={() => setActiveLayer(layer.id)}>
+          <span>
+            {layer.name} {layer.id === activeLayerId ? '(active)' : ''}
+          </span>
+          <button onClick={() => setVisible(layer.id, !layer.visible)}>
+            {layer.visible ? 'Hide' : 'Show'}
+          </button>
+          <button onClick={() => setLocked(layer.id, !layer.locked)}>
+            {layer.locked ? 'Unlock' : 'Lock'}
+          </button>
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.1}
+            value={layer.opacity}
+            onChange={(e) => setOpacity(layer.id, Number(e.target.value))}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+```
+
+Also exposes: `renameLayer`, `reorderLayer`, `moveElement`.
+
+### `useHistory()`
+
+Reactive undo/redo state:
+
+```tsx
+import { useHistory } from '@fieldnotes/react';
+
+function UndoRedo() {
+  const { canUndo, canRedo, undo, redo } = useHistory();
+
+  return (
+    <div>
+      <button onClick={undo} disabled={!canUndo}>
+        Undo
+      </button>
+      <button onClick={redo} disabled={!canRedo}>
+        Redo
       </button>
     </div>
   );
 }
 ```
+
+### `useElements(type?)`
+
+Reactive element list — re-renders when elements are added, removed, or updated:
+
+```tsx
+import { useElements } from '@fieldnotes/react';
+
+function ElementCount() {
+  const elements = useElements();
+  const notes = useElements('note');
+
+  return (
+    <span>
+      {notes.length} notes / {elements.length} total
+    </span>
+  );
+}
+```
+
+Pass an element type (`'note'`, `'stroke'`, `'arrow'`, etc.) to filter.
 
 ### `useCamera()`
 
@@ -116,22 +232,17 @@ function CameraInfo() {
 }
 ```
 
-### Changing Tool Options
+### `useViewport()`
 
-Use `useViewport()` to access tool instances and change options at runtime:
+Access the core `Viewport` instance for imperative operations not covered by the hooks above:
 
 ```tsx
 import { useViewport } from '@fieldnotes/react';
-import type { PencilTool } from '@fieldnotes/core';
 
-function ColorPicker() {
+function ExportButton() {
   const viewport = useViewport();
 
-  const setColor = (color: string) => {
-    viewport.toolManager.getTool<PencilTool>('pencil')?.setOptions({ color });
-  };
-
-  return <input type="color" onChange={(e) => setColor(e.target.value)} />;
+  return <button onClick={() => viewport.exportImage()}>Export PNG</button>;
 }
 ```
 
