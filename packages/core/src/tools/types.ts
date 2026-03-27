@@ -30,8 +30,8 @@ export interface Tool {
   onActivate?(ctx: ToolContext): void;
   onDeactivate?(ctx: ToolContext): void;
   renderOverlay?(ctx: CanvasRenderingContext2D): void;
-  getOptions?(): Record<string, unknown>;
-  setOptions?(options: Record<string, unknown>): void;
+  getOptions?(): object;
+  setOptions?(options: object): void;
   onOptionsChange?(listener: () => void): () => void;
 }
 
