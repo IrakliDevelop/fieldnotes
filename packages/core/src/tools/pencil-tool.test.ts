@@ -137,6 +137,38 @@ describe('PencilTool', () => {
     expect(ctx.requestRender).not.toHaveBeenCalled();
   });
 
+  describe('getOptions', () => {
+    it('returns current options', () => {
+      const tool = new PencilTool({ color: '#ff0000', width: 5, smoothing: 2 });
+      expect(tool.getOptions()).toEqual({ color: '#ff0000', width: 5, smoothing: 2 });
+    });
+
+    it('reflects changes from setOptions', () => {
+      const tool = new PencilTool();
+      tool.setOptions({ color: '#00ff00' });
+      expect(tool.getOptions()).toEqual({ color: '#00ff00', width: 2, smoothing: 1.5 });
+    });
+  });
+
+  describe('onOptionsChange', () => {
+    it('fires listener when setOptions is called', () => {
+      const tool = new PencilTool();
+      const listener = vi.fn();
+      tool.onOptionsChange(listener);
+      tool.setOptions({ color: '#ff0000' });
+      expect(listener).toHaveBeenCalledOnce();
+    });
+
+    it('returns unsubscribe function', () => {
+      const tool = new PencilTool();
+      const listener = vi.fn();
+      const unsub = tool.onOptionsChange(listener);
+      unsub();
+      tool.setOptions({ color: '#ff0000' });
+      expect(listener).not.toHaveBeenCalled();
+    });
+  });
+
   describe('renderOverlay', () => {
     function mockCanvas(): CanvasRenderingContext2D {
       return {

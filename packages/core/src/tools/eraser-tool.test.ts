@@ -150,4 +150,16 @@ describe('EraserTool', () => {
 
     expect(ctx.store.count).toBe(1);
   });
+
+  describe('getOptions', () => {
+    it('returns current options', () => {
+      const tool = new EraserTool({ radius: 30 });
+      expect(tool.getOptions()).toEqual({ radius: 30 });
+    });
+
+    it('returns default options', () => {
+      const tool = new EraserTool();
+      expect(tool.getOptions()).toEqual({ radius: 20 });
+    });
+  });
 });

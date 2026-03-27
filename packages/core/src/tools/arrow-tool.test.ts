@@ -150,6 +150,30 @@ describe('ArrowTool', () => {
   });
 });
 
+describe('ArrowTool getOptions/onOptionsChange', () => {
+  it('returns current options', () => {
+    const tool = new ArrowTool({ color: '#ff0000', width: 4 });
+    expect(tool.getOptions()).toEqual({ color: '#ff0000', width: 4 });
+  });
+
+  it('fires listener when setOptions is called', () => {
+    const tool = new ArrowTool();
+    const listener = vi.fn();
+    tool.onOptionsChange(listener);
+    tool.setOptions({ color: '#ff0000' });
+    expect(listener).toHaveBeenCalledOnce();
+  });
+
+  it('returns unsubscribe function', () => {
+    const tool = new ArrowTool();
+    const listener = vi.fn();
+    const unsub = tool.onOptionsChange(listener);
+    unsub();
+    tool.setOptions({ color: '#ff0000' });
+    expect(listener).not.toHaveBeenCalled();
+  });
+});
+
 describe('ArrowTool binding', () => {
   function makeBindCtx(store: ElementStore): ToolContext {
     return {

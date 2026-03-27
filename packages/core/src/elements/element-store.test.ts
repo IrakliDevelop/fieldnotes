@@ -210,6 +210,54 @@ describe('ElementStore', () => {
     });
   });
 
+  describe('onChange', () => {
+    it('fires on add', () => {
+      const store = new ElementStore();
+      const listener = vi.fn();
+      store.onChange(listener);
+      store.add(makeStroke());
+      expect(listener).toHaveBeenCalledOnce();
+    });
+
+    it('fires on remove', () => {
+      const store = new ElementStore();
+      const el = makeStroke();
+      store.add(el);
+      const listener = vi.fn();
+      store.onChange(listener);
+      store.remove(el.id);
+      expect(listener).toHaveBeenCalledOnce();
+    });
+
+    it('fires on update', () => {
+      const store = new ElementStore();
+      const el = makeStroke();
+      store.add(el);
+      const listener = vi.fn();
+      store.onChange(listener);
+      store.update(el.id, { position: { x: 10, y: 10 } });
+      expect(listener).toHaveBeenCalledOnce();
+    });
+
+    it('fires on clear', () => {
+      const store = new ElementStore();
+      store.add(makeStroke());
+      const listener = vi.fn();
+      store.onChange(listener);
+      store.clear();
+      expect(listener).toHaveBeenCalledOnce();
+    });
+
+    it('returns unsubscribe function', () => {
+      const store = new ElementStore();
+      const listener = vi.fn();
+      const unsub = store.onChange(listener);
+      unsub();
+      store.add(makeStroke());
+      expect(listener).not.toHaveBeenCalled();
+    });
+  });
+
   describe('snapshot', () => {
     it('exports a serializable snapshot', () => {
       const store = new ElementStore();

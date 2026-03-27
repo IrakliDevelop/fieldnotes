@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { useViewport } from './use-viewport';
+import { useViewport } from './hooks/use-viewport';
 
 export interface CanvasElementProps {
   position: { x: number; y: number };

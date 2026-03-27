@@ -20,6 +20,7 @@ export class PencilTool implements Tool {
   private color: string;
   private width: number;
   private smoothing: number;
+  private optionListeners = new Set<() => void>();
 
   constructor(options: PencilToolOptions = {}) {
     this.color = options.color ?? '#000000';
@@ -35,10 +36,20 @@ export class PencilTool implements Tool {
     ctx.setCursor?.('default');
   }
 
+  getOptions(): PencilToolOptions {
+    return { color: this.color, width: this.width, smoothing: this.smoothing };
+  }
+
+  onOptionsChange(listener: () => void): () => void {
+    this.optionListeners.add(listener);
+    return () => this.optionListeners.delete(listener);
+  }
+
   setOptions(options: PencilToolOptions): void {
     if (options.color !== undefined) this.color = options.color;
     if (options.width !== undefined) this.width = options.width;
     if (options.smoothing !== undefined) this.smoothing = options.smoothing;
+    this.notifyOptionsChange();
   }
 
   onPointerDown(state: PointerState, ctx: ToolContext): void {
@@ -75,6 +86,10 @@ export class PencilTool implements Tool {
     ctx.store.add(stroke);
     this.points = [];
     ctx.requestRender();
+  }
+
+  private notifyOptionsChange(): void {
+    for (const listener of this.optionListeners) listener();
   }
 
   renderOverlay(ctx: CanvasRenderingContext2D): void {

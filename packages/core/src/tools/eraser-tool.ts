@@ -25,6 +25,10 @@ export class EraserTool implements Tool {
     this.cursor = makeEraserCursor(this.radius);
   }
 
+  getOptions(): EraserToolOptions {
+    return { radius: this.radius };
+  }
+
   onActivate(ctx: ToolContext): void {
     ctx.setCursor?.(this.cursor);
   }

@@ -21,6 +21,7 @@ export class ShapeTool implements Tool {
   private strokeColor: string;
   private strokeWidth: number;
   private fillColor: string;
+  private optionListeners = new Set<() => void>();
 
   constructor(options: ShapeToolOptions = {}) {
     this.shape = options.shape ?? 'rectangle';
@@ -29,11 +30,26 @@ export class ShapeTool implements Tool {
     this.fillColor = options.fillColor ?? 'none';
   }
 
+  getOptions(): ShapeToolOptions {
+    return {
+      shape: this.shape,
+      strokeColor: this.strokeColor,
+      strokeWidth: this.strokeWidth,
+      fillColor: this.fillColor,
+    };
+  }
+
+  onOptionsChange(listener: () => void): () => void {
+    this.optionListeners.add(listener);
+    return () => this.optionListeners.delete(listener);
+  }
+
   setOptions(options: ShapeToolOptions): void {
     if (options.shape !== undefined) this.shape = options.shape;
     if (options.strokeColor !== undefined) this.strokeColor = options.strokeColor;
     if (options.strokeWidth !== undefined) this.strokeWidth = options.strokeWidth;
     if (options.fillColor !== undefined) this.fillColor = options.fillColor;
+    this.notifyOptionsChange();
   }
 
   onActivate(_ctx: ToolContext): void {
@@ -135,6 +151,10 @@ export class ShapeTool implements Tool {
     }
 
     return { position: { x, y }, size: { w, h } };
+  }
+
+  private notifyOptionsChange(): void {
+    for (const listener of this.optionListeners) listener();
   }
 
   private snap(point: Point, ctx: ToolContext): Point {

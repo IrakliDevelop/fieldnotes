@@ -177,6 +177,48 @@ describe('LayerManager', () => {
     });
   });
 
+  describe('setLayerOpacity', () => {
+    it('sets opacity on a layer', () => {
+      const store = new ElementStore();
+      const mgr = new LayerManager(store);
+      const layer = mgr.getLayers()[0];
+      if (!layer) throw new Error('Expected a layer');
+      mgr.setLayerOpacity(layer.id, 0.5);
+      expect(mgr.getLayer(layer.id)?.opacity).toBe(0.5);
+    });
+
+    it('clamps opacity to 0-1 range', () => {
+      const store = new ElementStore();
+      const mgr = new LayerManager(store);
+      const layer = mgr.getLayers()[0];
+      if (!layer) throw new Error('Expected a layer');
+      mgr.setLayerOpacity(layer.id, 1.5);
+      expect(mgr.getLayer(layer.id)?.opacity).toBe(1);
+      mgr.setLayerOpacity(layer.id, -0.5);
+      expect(mgr.getLayer(layer.id)?.opacity).toBe(0);
+    });
+
+    it('emits change event', () => {
+      const store = new ElementStore();
+      const mgr = new LayerManager(store);
+      const layer = mgr.getLayers()[0];
+      if (!layer) throw new Error('Expected a layer');
+      const listener = vi.fn();
+      mgr.on('change', listener);
+      mgr.setLayerOpacity(layer.id, 0.7);
+      expect(listener).toHaveBeenCalledOnce();
+    });
+
+    it('ignores non-existent layer', () => {
+      const store = new ElementStore();
+      const mgr = new LayerManager(store);
+      const listener = vi.fn();
+      mgr.on('change', listener);
+      mgr.setLayerOpacity('nonexistent', 0.5);
+      expect(listener).not.toHaveBeenCalled();
+    });
+  });
+
   describe('serialization', () => {
     it('round-trips via snapshot/loadSnapshot', () => {
       const { manager } = setup();
