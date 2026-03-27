@@ -19,6 +19,7 @@ import { exportImage } from './export-image';
 import type { ExportImageOptions } from './export-image';
 import type { CanvasState } from '../core/state-serializer';
 import { LayerManager } from '../layers/layer-manager';
+import { InteractMode } from './interact-mode';
 
 export interface ViewportOptions {
   camera?: CameraOptions;
@@ -49,7 +50,7 @@ export class Viewport {
   private needsRender = true;
   private domNodes = new Map<string, HTMLDivElement>();
   private htmlContent = new Map<string, HTMLElement>();
-  private interactingElementId: string | null = null;
+  private readonly interactMode: InteractMode;
 
   constructor(
     private readonly container: HTMLElement,
@@ -99,6 +100,10 @@ export class Viewport {
       toolContext: this.toolContext,
       historyRecorder: this.historyRecorder,
       historyStack: this.history,
+    });
+
+    this.interactMode = new InteractMode({
+      getNode: (id) => this.domNodes.get(id),
     });
 
     this.unsubCamera = this.camera.onChange(() => {
@@ -269,7 +274,7 @@ export class Viewport {
 
   destroy(): void {
     cancelAnimationFrame(this.animFrameId);
-    this.stopInteracting();
+    this.interactMode.destroy();
     this.noteEditor.destroy(this.store);
     this.historyRecorder.destroy();
     this.wrapper.removeEventListener('dblclick', this.onDblClick);
@@ -388,7 +393,7 @@ export class Viewport {
     const world = this.camera.screenToWorld(screen);
     const hit = this.hitTestWorld(world);
     if (hit?.type === 'html') {
-      this.startInteracting(hit.id);
+      this.interactMode.startInteracting(hit.id);
     }
   };
 
@@ -405,53 +410,9 @@ export class Viewport {
     return null;
   }
 
-  private startInteracting(id: string): void {
-    this.stopInteracting();
-    const node = this.domNodes.get(id);
-    if (!node) return;
-
-    this.interactingElementId = id;
-    node.style.pointerEvents = 'auto';
-    node.addEventListener('pointerdown', this.onInteractNodePointerDown);
-
-    window.addEventListener('keydown', this.onInteractKeyDown);
-    window.addEventListener('pointerdown', this.onInteractPointerDown);
-  }
-
   stopInteracting(): void {
-    if (!this.interactingElementId) return;
-
-    const node = this.domNodes.get(this.interactingElementId);
-    if (node) {
-      node.style.pointerEvents = 'none';
-      node.removeEventListener('pointerdown', this.onInteractNodePointerDown);
-    }
-
-    this.interactingElementId = null;
-    window.removeEventListener('keydown', this.onInteractKeyDown);
-    window.removeEventListener('pointerdown', this.onInteractPointerDown);
+    this.interactMode.stopInteracting();
   }
-
-  private onInteractNodePointerDown = (e: PointerEvent): void => {
-    e.stopPropagation();
-  };
-
-  private onInteractKeyDown = (e: KeyboardEvent): void => {
-    if (e.key === 'Escape') {
-      this.stopInteracting();
-    }
-  };
-
-  private onInteractPointerDown = (e: PointerEvent): void => {
-    if (!this.interactingElementId) return;
-    const target = e.target as HTMLElement | null;
-    if (!target) return;
-
-    const node = this.domNodes.get(this.interactingElementId);
-    if (node && !node.contains(target)) {
-      this.stopInteracting();
-    }
-  };
 
   private onDragOver = (e: DragEvent): void => {
     e.preventDefault();
