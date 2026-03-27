@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { render, cleanup, act } from '@testing-library/react';
-import { FieldNotesCanvas } from './field-notes-canvas';
+import { FieldNotesCanvas } from '../field-notes-canvas';
 import { useCamera } from './use-camera';
 import type { Viewport } from '@fieldnotes/core';
 
