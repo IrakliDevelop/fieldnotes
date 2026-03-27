@@ -137,4 +137,34 @@ describe('NoteTool', () => {
     const noteId = ctx.store.getAll()[0]?.id;
     expect(editElement).toHaveBeenCalledWith(noteId);
   });
+
+  describe('getOptions', () => {
+    it('returns current options', () => {
+      const tool = new NoteTool({ backgroundColor: '#ff0000', textColor: '#00ff00' });
+      expect(tool.getOptions()).toEqual({
+        backgroundColor: '#ff0000',
+        textColor: '#00ff00',
+        size: { w: 200, h: 100 },
+      });
+    });
+  });
+
+  describe('onOptionsChange', () => {
+    it('fires listener when setOptions is called', () => {
+      const tool = new NoteTool();
+      const listener = vi.fn();
+      tool.onOptionsChange(listener);
+      tool.setOptions({ backgroundColor: '#0000ff' });
+      expect(listener).toHaveBeenCalledOnce();
+    });
+
+    it('returns unsubscribe function', () => {
+      const tool = new NoteTool();
+      const listener = vi.fn();
+      const unsub = tool.onOptionsChange(listener);
+      unsub();
+      tool.setOptions({ backgroundColor: '#0000ff' });
+      expect(listener).not.toHaveBeenCalled();
+    });
+  });
 });

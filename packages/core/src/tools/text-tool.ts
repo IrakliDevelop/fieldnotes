@@ -13,6 +13,7 @@ export class TextTool implements Tool {
   private fontSize: number;
   private color: string;
   private textAlign: 'left' | 'center' | 'right';
+  private optionListeners = new Set<() => void>();
 
   constructor(options: TextToolOptions = {}) {
     this.fontSize = options.fontSize ?? 16;
@@ -20,10 +21,24 @@ export class TextTool implements Tool {
     this.textAlign = options.textAlign ?? 'left';
   }
 
+  getOptions(): TextToolOptions {
+    return { fontSize: this.fontSize, color: this.color, textAlign: this.textAlign };
+  }
+
+  onOptionsChange(listener: () => void): () => void {
+    this.optionListeners.add(listener);
+    return () => this.optionListeners.delete(listener);
+  }
+
   setOptions(options: TextToolOptions): void {
     if (options.fontSize !== undefined) this.fontSize = options.fontSize;
     if (options.color !== undefined) this.color = options.color;
     if (options.textAlign !== undefined) this.textAlign = options.textAlign;
+    this.notifyOptionsChange();
+  }
+
+  private notifyOptionsChange(): void {
+    for (const listener of this.optionListeners) listener();
   }
 
   onActivate(ctx: ToolContext): void {

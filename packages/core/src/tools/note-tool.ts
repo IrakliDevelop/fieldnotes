@@ -14,6 +14,7 @@ export class NoteTool implements Tool {
   private backgroundColor: string;
   private textColor: string;
   private size: Size;
+  private optionListeners = new Set<() => void>();
 
   constructor(options: NoteToolOptions = {}) {
     this.backgroundColor = options.backgroundColor ?? '#ffeb3b';
@@ -21,10 +22,28 @@ export class NoteTool implements Tool {
     this.size = options.size ?? { w: 200, h: 100 };
   }
 
+  getOptions(): NoteToolOptions {
+    return {
+      backgroundColor: this.backgroundColor,
+      textColor: this.textColor,
+      size: { ...this.size },
+    };
+  }
+
+  onOptionsChange(listener: () => void): () => void {
+    this.optionListeners.add(listener);
+    return () => this.optionListeners.delete(listener);
+  }
+
   setOptions(options: NoteToolOptions): void {
     if (options.backgroundColor !== undefined) this.backgroundColor = options.backgroundColor;
     if (options.textColor !== undefined) this.textColor = options.textColor;
     if (options.size !== undefined) this.size = options.size;
+    this.notifyOptionsChange();
+  }
+
+  private notifyOptionsChange(): void {
+    for (const listener of this.optionListeners) listener();
   }
 
   onPointerDown(_state: PointerState, _ctx: ToolContext): void {

@@ -22,15 +22,30 @@ export class ArrowTool implements Tool {
   private fromBinding: Binding | undefined;
   private fromTarget: CanvasElement | null = null;
   private toTarget: CanvasElement | null = null;
+  private optionListeners = new Set<() => void>();
 
   constructor(options: ArrowToolOptions = {}) {
     this.color = options.color ?? '#000000';
     this.width = options.width ?? 2;
   }
 
+  getOptions(): ArrowToolOptions {
+    return { color: this.color, width: this.width };
+  }
+
+  onOptionsChange(listener: () => void): () => void {
+    this.optionListeners.add(listener);
+    return () => this.optionListeners.delete(listener);
+  }
+
   setOptions(options: ArrowToolOptions): void {
     if (options.color !== undefined) this.color = options.color;
     if (options.width !== undefined) this.width = options.width;
+    this.notifyOptionsChange();
+  }
+
+  private notifyOptionsChange(): void {
+    for (const listener of this.optionListeners) listener();
   }
 
   private layerFilter(ctx: ToolContext): ((el: CanvasElement) => boolean) | undefined {

@@ -154,4 +154,40 @@ describe('ShapeTool', () => {
     window.dispatchEvent(new KeyboardEvent('keyup', { key: 'Shift' }));
     tool.onDeactivate(ctx);
   });
+
+  describe('getOptions', () => {
+    it('returns current options', () => {
+      const tool = new ShapeTool({
+        shape: 'ellipse',
+        strokeColor: '#ff0000',
+        strokeWidth: 3,
+        fillColor: '#00ff00',
+      });
+      expect(tool.getOptions()).toEqual({
+        shape: 'ellipse',
+        strokeColor: '#ff0000',
+        strokeWidth: 3,
+        fillColor: '#00ff00',
+      });
+    });
+  });
+
+  describe('onOptionsChange', () => {
+    it('fires listener when setOptions is called', () => {
+      const tool = new ShapeTool();
+      const listener = vi.fn();
+      tool.onOptionsChange(listener);
+      tool.setOptions({ fillColor: '#0000ff' });
+      expect(listener).toHaveBeenCalledOnce();
+    });
+
+    it('returns unsubscribe function', () => {
+      const tool = new ShapeTool();
+      const listener = vi.fn();
+      const unsub = tool.onOptionsChange(listener);
+      unsub();
+      tool.setOptions({ fillColor: '#0000ff' });
+      expect(listener).not.toHaveBeenCalled();
+    });
+  });
 });

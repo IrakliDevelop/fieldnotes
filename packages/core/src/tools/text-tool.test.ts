@@ -125,4 +125,30 @@ describe('TextTool', () => {
     tool.onDeactivate?.(ctx);
     expect(setCursor).toHaveBeenCalledWith('default');
   });
+
+  describe('getOptions', () => {
+    it('returns current options', () => {
+      const tool = new TextTool({ fontSize: 24, color: '#ff0000', textAlign: 'center' });
+      expect(tool.getOptions()).toEqual({ fontSize: 24, color: '#ff0000', textAlign: 'center' });
+    });
+  });
+
+  describe('onOptionsChange', () => {
+    it('fires listener when setOptions is called', () => {
+      const tool = new TextTool();
+      const listener = vi.fn();
+      tool.onOptionsChange(listener);
+      tool.setOptions({ fontSize: 32 });
+      expect(listener).toHaveBeenCalledOnce();
+    });
+
+    it('returns unsubscribe function', () => {
+      const tool = new TextTool();
+      const listener = vi.fn();
+      const unsub = tool.onOptionsChange(listener);
+      unsub();
+      tool.setOptions({ fontSize: 32 });
+      expect(listener).not.toHaveBeenCalled();
+    });
+  });
 });
