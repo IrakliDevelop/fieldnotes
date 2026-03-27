@@ -7,3 +7,4 @@ export { useLayers } from './use-layers';
 export type { UseLayersResult } from './use-layers';
 export { useHistory } from './use-history';
 export type { UseHistoryResult } from './use-history';
+export { useElements } from './use-elements';

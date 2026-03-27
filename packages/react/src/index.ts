@@ -9,6 +9,7 @@ export {
   useToolOptions,
   useLayers,
   useHistory,
+  useElements,
 } from './hooks';
 export type { CameraState, UseLayersResult, UseHistoryResult } from './hooks';
 export { ViewportContext } from './context';
