@@ -89,4 +89,14 @@ export class ElementStore {
   ): () => void {
     return this.bus.on(event, listener);
   }
+
+  onChange(listener: () => void): () => void {
+    const unsubs = [
+      this.bus.on('add', listener),
+      this.bus.on('remove', listener),
+      this.bus.on('update', listener),
+      this.bus.on('clear', listener),
+    ];
+    return () => unsubs.forEach((fn) => fn());
+  }
 }

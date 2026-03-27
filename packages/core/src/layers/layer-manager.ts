@@ -115,6 +115,11 @@ export class LayerManager {
     return true;
   }
 
+  setLayerOpacity(id: string, opacity: number): void {
+    if (!this.layers.has(id)) return;
+    this.updateLayerDirect(id, { opacity: Math.max(0, Math.min(1, opacity)) });
+  }
+
   setActiveLayer(id: string): void {
     if (!this.layers.has(id)) return;
     this._activeLayerId = id;
