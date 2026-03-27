@@ -20,6 +20,7 @@ import type { ExportImageOptions } from './export-image';
 import type { CanvasState } from '../core/state-serializer';
 import { LayerManager } from '../layers/layer-manager';
 import { InteractMode } from './interact-mode';
+import { DomNodeManager } from './dom-node-manager';
 
 export interface ViewportOptions {
   camera?: CameraOptions;
@@ -48,8 +49,7 @@ export class Viewport {
   private _snapToGrid = false;
   private readonly _gridSize: number;
   private needsRender = true;
-  private domNodes = new Map<string, HTMLDivElement>();
-  private htmlContent = new Map<string, HTMLElement>();
+  private readonly domNodeManager: DomNodeManager;
   private readonly interactMode: InteractMode;
 
   constructor(
@@ -102,8 +102,15 @@ export class Viewport {
       historyStack: this.history,
     });
 
+    this.domNodeManager = new DomNodeManager({
+      domLayer: this.domLayer,
+      onEditRequest: (id) => this.startEditingElement(id),
+      isEditingElement: (id) =>
+        this.noteEditor.isEditing && this.noteEditor.editingElementId === id,
+    });
+
     this.interactMode = new InteractMode({
-      getNode: (id) => this.domNodes.get(id),
+      getNode: (id) => this.domNodeManager.getNode(id),
     });
 
     this.unsubCamera = this.camera.onChange(() => {
@@ -115,10 +122,14 @@ export class Viewport {
       this.store.on('add', () => this.requestRender()),
       this.store.on('remove', (el) => {
         this.unbindArrowsFrom(el);
-        this.removeDomNode(el.id);
+        this.domNodeManager.removeDomNode(el.id);
+        this.requestRender();
       }),
       this.store.on('update', () => this.requestRender()),
-      this.store.on('clear', () => this.clearDomNodes()),
+      this.store.on('clear', () => {
+        this.domNodeManager.clearDomNodes();
+        this.requestRender();
+      }),
     ];
 
     this.layerManager.on('change', () => {
@@ -166,12 +177,12 @@ export class Viewport {
   loadState(state: CanvasState): void {
     this.historyRecorder.pause();
     this.noteEditor.destroy(this.store);
-    this.clearDomNodes();
+    this.domNodeManager.clearDomNodes();
     this.store.loadSnapshot(state.elements);
     if (state.layers && state.layers.length > 0) {
       this.layerManager.loadSnapshot(state.layers);
     }
-    this.reattachHtmlContent();
+    this.domNodeManager.reattachHtmlContent(this.store);
     this.history.clear();
     this.historyRecorder.resume();
     this.camera.moveTo(state.camera.position.x, state.camera.position.y);
@@ -219,7 +230,7 @@ export class Viewport {
       domId,
       layerId: this.layerManager.activeLayerId,
     });
-    this.htmlContent.set(el.id, dom);
+    this.domNodeManager.storeHtmlContent(el.id, dom);
     this.historyRecorder.begin();
     this.store.add(el);
     this.historyRecorder.commit();
@@ -319,12 +330,12 @@ export class Viewport {
     for (const element of allElements) {
       if (!this.layerManager.isLayerVisible(element.layerId)) {
         if (this.renderer.isDomElement(element)) {
-          this.hideDomNode(element.id);
+          this.domNodeManager.hideDomNode(element.id);
         }
         continue;
       }
       if (this.renderer.isDomElement(element)) {
-        this.syncDomNode(element, domZIndex++);
+        this.domNodeManager.syncDomNode(element, domZIndex++);
       } else {
         this.renderer.renderCanvasElement(ctx, element);
       }
@@ -345,7 +356,7 @@ export class Viewport {
 
     this.render();
 
-    const node = this.domNodes.get(id);
+    const node = this.domNodeManager.getNode(id);
     if (node) {
       this.noteEditor.startEditing(node, id, this.store);
     }
@@ -362,7 +373,7 @@ export class Viewport {
       return;
     }
 
-    const node = this.domNodes.get(elementId);
+    const node = this.domNodeManager.getNode(elementId);
     if (node && 'size' in element) {
       const measuredHeight = node.scrollHeight;
       if (measuredHeight !== element.size.h) {
@@ -441,118 +452,6 @@ export class Viewport {
     }
   };
 
-  private syncDomNode(element: CanvasElement, zIndex = 0): void {
-    let node = this.domNodes.get(element.id);
-    if (!node) {
-      node = document.createElement('div');
-      node.dataset['elementId'] = element.id;
-      Object.assign(node.style, {
-        position: 'absolute',
-        pointerEvents: 'auto',
-      });
-      this.domLayer.appendChild(node);
-      this.domNodes.set(element.id, node);
-    }
-
-    const size = 'size' in element ? element.size : null;
-    Object.assign(node.style, {
-      display: 'block',
-      left: `${element.position.x}px`,
-      top: `${element.position.y}px`,
-      width: size ? `${size.w}px` : 'auto',
-      height: size ? `${size.h}px` : 'auto',
-      zIndex: String(zIndex),
-    });
-
-    this.renderDomContent(node, element);
-  }
-
-  private renderDomContent(node: HTMLDivElement, element: CanvasElement): void {
-    if (element.type === 'note') {
-      if (!node.dataset['initialized']) {
-        node.dataset['initialized'] = 'true';
-        Object.assign(node.style, {
-          backgroundColor: element.backgroundColor,
-          color: element.textColor,
-          padding: '8px',
-          borderRadius: '4px',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-          fontSize: '14px',
-          overflow: 'hidden',
-          cursor: 'default',
-          userSelect: 'none',
-          wordWrap: 'break-word',
-        });
-        node.textContent = element.text || '';
-
-        node.addEventListener('dblclick', (e) => {
-          e.stopPropagation();
-          const id = node.dataset['elementId'];
-          if (id) this.startEditingElement(id);
-        });
-      }
-
-      if (!this.noteEditor.isEditing || this.noteEditor.editingElementId !== element.id) {
-        if (node.textContent !== element.text) {
-          node.textContent = element.text || '';
-        }
-        node.style.backgroundColor = element.backgroundColor;
-        node.style.color = element.textColor;
-      }
-    }
-
-    if (element.type === 'html' && !node.dataset['initialized']) {
-      const content = this.htmlContent.get(element.id);
-      if (content) {
-        node.dataset['initialized'] = 'true';
-        Object.assign(node.style, {
-          overflow: 'hidden',
-          pointerEvents: 'none',
-        });
-        node.appendChild(content);
-      }
-    }
-
-    if (element.type === 'text') {
-      if (!node.dataset['initialized']) {
-        node.dataset['initialized'] = 'true';
-        Object.assign(node.style, {
-          padding: '2px',
-          fontSize: `${element.fontSize}px`,
-          color: element.color,
-          textAlign: element.textAlign,
-          background: 'none',
-          border: 'none',
-          boxShadow: 'none',
-          overflow: 'visible',
-          cursor: 'default',
-          userSelect: 'none',
-          wordWrap: 'break-word',
-          whiteSpace: 'pre-wrap',
-          lineHeight: '1.4',
-        });
-        node.textContent = element.text || '';
-
-        node.addEventListener('dblclick', (e) => {
-          e.stopPropagation();
-          const id = node.dataset['elementId'];
-          if (id) this.startEditingElement(id);
-        });
-      }
-
-      if (!this.noteEditor.isEditing || this.noteEditor.editingElementId !== element.id) {
-        if (node.textContent !== element.text) {
-          node.textContent = element.text || '';
-        }
-        Object.assign(node.style, {
-          fontSize: `${element.fontSize}px`,
-          color: element.color,
-          textAlign: element.textAlign,
-        });
-      }
-    }
-  }
-
   private unbindArrowsFrom(removedElement: CanvasElement): void {
     const boundArrows = findBoundArrows(removedElement.id, this.store);
     const bounds = getElementBounds(removedElement);
@@ -588,39 +487,6 @@ export class Viewport {
 
       if (Object.keys(updates).length > 0) {
         this.store.update(arrow.id, updates);
-      }
-    }
-  }
-
-  private hideDomNode(id: string): void {
-    const node = this.domNodes.get(id);
-    if (node) node.style.display = 'none';
-  }
-
-  private removeDomNode(id: string): void {
-    this.htmlContent.delete(id);
-    const node = this.domNodes.get(id);
-    if (node) {
-      node.remove();
-      this.domNodes.delete(id);
-    }
-    this.requestRender();
-  }
-
-  private clearDomNodes(): void {
-    this.domNodes.forEach((node) => node.remove());
-    this.domNodes.clear();
-    this.htmlContent.clear();
-    this.requestRender();
-  }
-
-  private reattachHtmlContent(): void {
-    for (const el of this.store.getElementsByType('html')) {
-      if (el.domId) {
-        const dom = document.getElementById(el.domId);
-        if (dom) {
-          this.htmlContent.set(el.id, dom);
-        }
       }
     }
   }
