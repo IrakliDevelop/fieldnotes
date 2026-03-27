@@ -21,6 +21,7 @@ import type { CanvasState } from '../core/state-serializer';
 import { LayerManager } from '../layers/layer-manager';
 import { InteractMode } from './interact-mode';
 import { DomNodeManager } from './dom-node-manager';
+import { RenderLoop } from './render-loop';
 
 export interface ViewportOptions {
   camera?: CameraOptions;
@@ -45,10 +46,9 @@ export class Viewport {
   private readonly historyRecorder: HistoryRecorder;
   readonly toolContext: ToolContext;
   private resizeObserver: ResizeObserver | null = null;
-  private animFrameId = 0;
   private _snapToGrid = false;
   private readonly _gridSize: number;
-  private needsRender = true;
+  private readonly renderLoop: RenderLoop;
   private readonly domNodeManager: DomNodeManager;
   private readonly interactMode: InteractMode;
 
@@ -113,6 +113,17 @@ export class Viewport {
       getNode: (id) => this.domNodeManager.getNode(id),
     });
 
+    this.renderLoop = new RenderLoop({
+      canvasEl: this.canvasEl,
+      camera: this.camera,
+      background: this.background,
+      store: this.store,
+      renderer: this.renderer,
+      toolManager: this.toolManager,
+      layerManager: this.layerManager,
+      domNodeManager: this.domNodeManager,
+    });
+
     this.unsubCamera = this.camera.onChange(() => {
       this.applyCameraTransform();
       this.requestRender();
@@ -142,7 +153,7 @@ export class Viewport {
     this.wrapper.addEventListener('drop', this.onDrop);
     this.observeResize();
     this.syncCanvasSize();
-    this.startRenderLoop();
+    this.renderLoop.start();
   }
 
   get ctx(): CanvasRenderingContext2D | null {
@@ -159,7 +170,7 @@ export class Viewport {
   }
 
   requestRender(): void {
-    this.needsRender = true;
+    this.renderLoop.requestRender();
   }
 
   exportState(): CanvasState {
@@ -284,7 +295,7 @@ export class Viewport {
   }
 
   destroy(): void {
-    cancelAnimationFrame(this.animFrameId);
+    this.renderLoop.stop();
     this.interactMode.destroy();
     this.noteEditor.destroy(this.store);
     this.historyRecorder.destroy();
@@ -299,62 +310,11 @@ export class Viewport {
     this.wrapper.remove();
   }
 
-  private startRenderLoop(): void {
-    const loop = (): void => {
-      if (this.needsRender) {
-        this.render();
-        this.needsRender = false;
-      }
-      this.animFrameId = requestAnimationFrame(loop);
-    };
-    this.animFrameId = requestAnimationFrame(loop);
-  }
-
-  private render(): void {
-    const ctx = this.ctx;
-    if (!ctx) return;
-
-    const dpr = typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1;
-    ctx.save();
-    ctx.scale(dpr, dpr);
-
-    this.renderer.setCanvasSize(this.canvasEl.clientWidth, this.canvasEl.clientHeight);
-    this.background.render(ctx, this.camera);
-
-    ctx.save();
-    ctx.translate(this.camera.position.x, this.camera.position.y);
-    ctx.scale(this.camera.zoom, this.camera.zoom);
-
-    const allElements = this.store.getAll();
-    let domZIndex = 0;
-    for (const element of allElements) {
-      if (!this.layerManager.isLayerVisible(element.layerId)) {
-        if (this.renderer.isDomElement(element)) {
-          this.domNodeManager.hideDomNode(element.id);
-        }
-        continue;
-      }
-      if (this.renderer.isDomElement(element)) {
-        this.domNodeManager.syncDomNode(element, domZIndex++);
-      } else {
-        this.renderer.renderCanvasElement(ctx, element);
-      }
-    }
-
-    const activeTool = this.toolManager.activeTool;
-    if (activeTool?.renderOverlay) {
-      activeTool.renderOverlay(ctx);
-    }
-
-    ctx.restore();
-    ctx.restore();
-  }
-
   private startEditingElement(id: string): void {
     const element = this.store.getById(id);
     if (!element || (element.type !== 'note' && element.type !== 'text')) return;
 
-    this.render();
+    this.renderLoop.flush();
 
     const node = this.domNodeManager.getNode(id);
     if (node) {
@@ -535,8 +495,7 @@ export class Viewport {
   private syncCanvasSize(): void {
     const rect = this.container.getBoundingClientRect();
     const dpr = typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1;
-    this.canvasEl.width = rect.width * dpr;
-    this.canvasEl.height = rect.height * dpr;
+    this.renderLoop.setCanvasSize(rect.width * dpr, rect.height * dpr);
     this.requestRender();
   }
 
