@@ -1,7 +1,7 @@
 import { useCallback, useSyncExternalStore } from 'react';
 import { useViewport } from './use-viewport';
 
-export function useActiveTool(): string {
+export function useActiveTool(): [toolName: string, setTool: (name: string) => void] {
   const viewport = useViewport();
 
   const subscribe = useCallback(
@@ -11,5 +11,12 @@ export function useActiveTool(): string {
 
   const getSnapshot = useCallback(() => viewport.toolManager.activeTool?.name ?? '', [viewport]);
 
-  return useSyncExternalStore(subscribe, getSnapshot);
+  const toolName = useSyncExternalStore(subscribe, getSnapshot);
+
+  const setTool = useCallback(
+    (name: string) => viewport.toolManager.setTool(name, viewport.toolContext),
+    [viewport],
+  );
+
+  return [toolName, setTool];
 }

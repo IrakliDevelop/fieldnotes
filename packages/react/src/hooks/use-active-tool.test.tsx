@@ -8,10 +8,11 @@ import type { Viewport } from '@fieldnotes/core';
 describe('useActiveTool', () => {
   afterEach(cleanup);
 
-  it('returns the current tool name', () => {
+  it('returns the current tool name as first element', () => {
     let toolName = '';
     function Consumer() {
-      toolName = useActiveTool();
+      const [name] = useActiveTool();
+      toolName = name;
       return null;
     }
 
@@ -23,11 +24,36 @@ describe('useActiveTool', () => {
     expect(toolName).toBe('select');
   });
 
-  it('updates when tool changes', () => {
+  it('returns a setTool function as second element', () => {
+    let setTool: ((name: string) => void) | null = null;
+    let toolName = '';
+    function Consumer() {
+      const result = useActiveTool();
+      toolName = result[0];
+      setTool = result[1];
+      return null;
+    }
+
+    render(
+      <FieldNotesCanvas tools={[new HandTool(), new SelectTool()]} defaultTool="select">
+        <Consumer />
+      </FieldNotesCanvas>,
+    );
+    expect(toolName).toBe('select');
+    expect(typeof setTool).toBe('function');
+
+    act(() => {
+      setTool?.('hand');
+    });
+    expect(toolName).toBe('hand');
+  });
+
+  it('updates when tool changes externally', () => {
     let toolName = '';
     let vp: Viewport | null = null;
     function Consumer() {
-      toolName = useActiveTool();
+      const [name] = useActiveTool();
+      toolName = name;
       return null;
     }
 
