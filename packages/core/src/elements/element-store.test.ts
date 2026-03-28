@@ -258,6 +258,82 @@ describe('ElementStore', () => {
     });
   });
 
+  describe('queryPoint', () => {
+    it('returns elements whose bounds contain the point', () => {
+      const store = new ElementStore();
+      store.add(makeNote({ id: 'n1', position: { x: 0, y: 0 }, size: { w: 100, h: 100 } }));
+      store.add(makeNote({ id: 'n2', position: { x: 200, y: 200 }, size: { w: 100, h: 100 } }));
+      const results = store.queryPoint({ x: 50, y: 50 });
+      expect(results.map((e) => e.id)).toEqual(['n1']);
+    });
+  });
+
+  describe('queryRect', () => {
+    it('returns elements whose bounds intersect the rect', () => {
+      const store = new ElementStore();
+      store.add(makeNote({ id: 'n1', position: { x: 0, y: 0 }, size: { w: 50, h: 50 } }));
+      store.add(makeNote({ id: 'n2', position: { x: 500, y: 500 }, size: { w: 50, h: 50 } }));
+      const results = store.queryRect({ x: 0, y: 0, w: 100, h: 100 });
+      expect(results.map((e) => e.id)).toEqual(['n1']);
+    });
+
+    it('returns results sorted by z-order', () => {
+      const store = new ElementStore();
+      store.add(
+        makeNote({ id: 'low', position: { x: 0, y: 0 }, size: { w: 50, h: 50 }, zIndex: 1 }),
+      );
+      store.add(
+        makeNote({ id: 'high', position: { x: 0, y: 0 }, size: { w: 50, h: 50 }, zIndex: 10 }),
+      );
+      const results = store.queryRect({ x: 0, y: 0, w: 100, h: 100 });
+      expect(results.map((e) => e.id)).toEqual(['low', 'high']);
+    });
+
+    it('reflects element removal', () => {
+      const store = new ElementStore();
+      store.add(makeNote({ id: 'n1', position: { x: 0, y: 0 }, size: { w: 50, h: 50 } }));
+      store.remove('n1');
+      expect(store.queryPoint({ x: 25, y: 25 })).toEqual([]);
+    });
+
+    it('reflects element update (moved position)', () => {
+      const store = new ElementStore();
+      store.add(makeNote({ id: 'n1', position: { x: 0, y: 0 }, size: { w: 50, h: 50 } }));
+      store.update('n1', { position: { x: 500, y: 500 } });
+      expect(store.queryPoint({ x: 25, y: 25 })).toEqual([]);
+      expect(store.queryPoint({ x: 525, y: 525 }).map((e) => e.id)).toEqual(['n1']);
+    });
+
+    it('rebuilds index on loadSnapshot', () => {
+      const store = new ElementStore();
+      store.add(makeNote({ id: 'n1', position: { x: 0, y: 0 }, size: { w: 50, h: 50 } }));
+      store.loadSnapshot([
+        makeNote({ id: 'n2', position: { x: 200, y: 200 }, size: { w: 50, h: 50 } }),
+      ]);
+      expect(store.queryPoint({ x: 25, y: 25 })).toEqual([]);
+      expect(store.queryPoint({ x: 225, y: 225 }).map((e) => e.id)).toEqual(['n2']);
+    });
+
+    it('does not index grid elements', () => {
+      const store = new ElementStore();
+      store.add({
+        id: 'g',
+        type: 'grid',
+        position: { x: 0, y: 0 },
+        gridType: 'square',
+        hexOrientation: 'pointy',
+        cellSize: 50,
+        strokeColor: '#ccc',
+        strokeWidth: 1,
+        opacity: 0.5,
+        zIndex: 0,
+        locked: false,
+        layerId: 'default',
+      } as CanvasElement);
+      expect(store.queryPoint({ x: 0, y: 0 })).toEqual([]);
+    });
+  });
+
   describe('snapshot', () => {
     it('exports a serializable snapshot', () => {
       const store = new ElementStore();
