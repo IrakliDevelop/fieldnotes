@@ -233,7 +233,42 @@ export class RenderLoop {
       group.push(element);
     }
 
-    // Render grids with offscreen canvas cache
+    for (const [layerId, elements] of layerElements) {
+      const isActiveDrawingLayer = layerId === this.activeDrawingLayerId;
+
+      if (!this.layerCache.isDirty(layerId)) {
+        this.compositeLayerCache(ctx, layerId, dpr);
+        continue;
+      }
+
+      if (isActiveDrawingLayer) {
+        this.compositeLayerCache(ctx, layerId, dpr);
+        continue;
+      }
+
+      const offCtx = this.layerCache.getContext(layerId);
+      if (offCtx) {
+        const offCanvas = this.layerCache.getCanvas(layerId);
+        offCtx.clearRect(0, 0, offCanvas.width, offCanvas.height);
+        offCtx.save();
+        offCtx.scale(dpr, dpr);
+        offCtx.translate(this.camera.position.x, this.camera.position.y);
+        offCtx.scale(this.camera.zoom, this.camera.zoom);
+
+        for (const element of elements) {
+          const elBounds = getElementBounds(element);
+          if (elBounds && !boundsIntersect(elBounds, cullingRect)) continue;
+          this.renderer.renderCanvasElement(offCtx as CanvasRenderingContext2D, element);
+        }
+
+        offCtx.restore();
+        this.layerCache.markClean(layerId);
+
+        this.compositeLayerCache(ctx, layerId, dpr);
+      }
+    }
+
+    // Render grids on top of layer elements
     if (gridElements.length > 0) {
       const gridT0 = performance.now();
       const gridRef = gridElements[0];
@@ -283,41 +318,6 @@ export class RenderLoop {
         this.lastGridRef = gridRef;
       }
       this.lastGridMs = performance.now() - gridT0;
-    }
-
-    for (const [layerId, elements] of layerElements) {
-      const isActiveDrawingLayer = layerId === this.activeDrawingLayerId;
-
-      if (!this.layerCache.isDirty(layerId)) {
-        this.compositeLayerCache(ctx, layerId, dpr);
-        continue;
-      }
-
-      if (isActiveDrawingLayer) {
-        this.compositeLayerCache(ctx, layerId, dpr);
-        continue;
-      }
-
-      const offCtx = this.layerCache.getContext(layerId);
-      if (offCtx) {
-        const offCanvas = this.layerCache.getCanvas(layerId);
-        offCtx.clearRect(0, 0, offCanvas.width, offCanvas.height);
-        offCtx.save();
-        offCtx.scale(dpr, dpr);
-        offCtx.translate(this.camera.position.x, this.camera.position.y);
-        offCtx.scale(this.camera.zoom, this.camera.zoom);
-
-        for (const element of elements) {
-          const elBounds = getElementBounds(element);
-          if (elBounds && !boundsIntersect(elBounds, cullingRect)) continue;
-          this.renderer.renderCanvasElement(offCtx as CanvasRenderingContext2D, element);
-        }
-
-        offCtx.restore();
-        this.layerCache.markClean(layerId);
-
-        this.compositeLayerCache(ctx, layerId, dpr);
-      }
     }
 
     const activeTool = this.toolManager.activeTool;
