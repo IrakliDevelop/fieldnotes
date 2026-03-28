@@ -458,8 +458,9 @@ export class SelectTool implements Tool {
   }
 
   private findElementsInRect(marquee: Bounds, ctx: ToolContext): string[] {
+    const candidates = ctx.store.queryRect(marquee);
     const ids: string[] = [];
-    for (const el of ctx.store.getAll()) {
+    for (const el of candidates) {
       if (ctx.isLayerVisible && !ctx.isLayerVisible(el.layerId)) continue;
       if (ctx.isLayerLocked && ctx.isLayerLocked(el.layerId)) continue;
       if (el.type === 'grid') continue;
@@ -476,8 +477,8 @@ export class SelectTool implements Tool {
   }
 
   private hitTest(world: Point, ctx: ToolContext): CanvasElement | null {
-    const elements = ctx.store.getAll().reverse();
-    for (const el of elements) {
+    const candidates = ctx.store.queryPoint(world).reverse();
+    for (const el of candidates) {
       if (ctx.isLayerVisible && !ctx.isLayerVisible(el.layerId)) continue;
       if (ctx.isLayerLocked && ctx.isLayerLocked(el.layerId)) continue;
       if (el.type === 'grid') continue;

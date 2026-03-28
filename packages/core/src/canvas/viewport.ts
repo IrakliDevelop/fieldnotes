@@ -370,8 +370,8 @@ export class Viewport {
   };
 
   private hitTestWorld(world: { x: number; y: number }): CanvasElement | null {
-    const elements = this.store.getAll().reverse();
-    for (const el of elements) {
+    const candidates = this.store.queryPoint(world).reverse();
+    for (const el of candidates) {
       if (!('size' in el)) continue;
       const { x, y } = el.position;
       const { w, h } = el.size;

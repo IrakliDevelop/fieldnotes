@@ -1,6 +1,7 @@
 export const VERSION = '0.8.6';
 
 export { EventBus } from './core/event-bus';
+export { Quadtree } from './core/quadtree';
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
 export { exportState, parseState } from './core/state-serializer';
 export { snapPoint } from './core/snap';

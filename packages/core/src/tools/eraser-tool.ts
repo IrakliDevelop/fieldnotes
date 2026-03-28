@@ -1,4 +1,4 @@
-import type { Point } from '../core/types';
+import type { Bounds, Point } from '../core/types';
 import type { Tool, ToolContext, PointerState } from './types';
 import type { StrokeElement } from '../elements/types';
 
@@ -53,14 +53,21 @@ export class EraserTool implements Tool {
 
   private eraseAt(state: PointerState, ctx: ToolContext): void {
     const world = ctx.camera.screenToWorld({ x: state.x, y: state.y });
-    const strokes = ctx.store.getElementsByType('stroke');
+    const queryBounds: Bounds = {
+      x: world.x - this.radius,
+      y: world.y - this.radius,
+      w: this.radius * 2,
+      h: this.radius * 2,
+    };
+    const candidates = ctx.store.queryRect(queryBounds);
     let erased = false;
 
-    for (const stroke of strokes) {
-      if (ctx.isLayerVisible && !ctx.isLayerVisible(stroke.layerId)) continue;
-      if (ctx.isLayerLocked && ctx.isLayerLocked(stroke.layerId)) continue;
-      if (this.strokeIntersects(stroke, world)) {
-        ctx.store.remove(stroke.id);
+    for (const el of candidates) {
+      if (el.type !== 'stroke') continue;
+      if (ctx.isLayerVisible && !ctx.isLayerVisible(el.layerId)) continue;
+      if (ctx.isLayerLocked && ctx.isLayerLocked(el.layerId)) continue;
+      if (this.strokeIntersects(el, world)) {
+        ctx.store.remove(el.id);
         erased = true;
       }
     }
