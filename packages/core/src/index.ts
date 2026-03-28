@@ -1,4 +1,4 @@
-export const VERSION = '0.8.8';
+export const VERSION = '0.8.10';
 
 export { EventBus } from './core/event-bus';
 export { Quadtree } from './core/quadtree';
