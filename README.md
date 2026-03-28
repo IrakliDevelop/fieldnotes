@@ -95,13 +95,18 @@ Embedded React components are fully interactive and pan/zoom with the canvas. Se
 
 - Infinite canvas with pan & zoom (scroll, pinch, two-finger drag)
 - Freehand drawing with stroke smoothing and pressure-sensitive width
-- Sticky notes, curved arrows, images
+- Sticky notes, curved arrows, images, shapes (rectangle, ellipse)
+- Square and hex grid overlays (D&D combat maps, alignment)
 - Interactive HTML element embedding (double-click to interact)
+- Layers with visibility, locking, ordering, and per-layer opacity
 - Select, multi-select, move, resize
 - Runtime tool configuration (color, width, smoothing)
 - Undo / redo
 - State serialization (JSON export/import)
+- PNG export with scale, padding, and background options
+- AutoSave (debounced localStorage persistence)
 - Custom tool API
+- Performance instrumentation (`getRenderStats()`, `logPerformance()`)
 - Touch & tablet native (Pointer Events API)
 - Zero dependencies, tree-shakeable ESM + CJS
 

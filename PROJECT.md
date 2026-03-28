@@ -53,6 +53,20 @@ This project started from a need in a D&D companion app where players use an iPa
 
 This hybrid approach gives us the performance of canvas for drawing-heavy operations while preserving full DOM interactivity for HTML elements.
 
+### Rendering Performance
+
+The render loop uses several layers of caching to minimize per-frame work:
+
+- **Per-layer offscreen canvas caching** — each layer renders to an offscreen canvas; unchanged layers are re-composited without re-rendering. Camera movement invalidates all layer caches.
+- **Grid offscreen canvas cache** — rendered grid is cached to a separate offscreen canvas, invalidated on camera change. Static-camera frames are served from a single `drawImage` (sub-0.1ms).
+- **Tiled hex grid rendering** — hex grids render a small repeating tile once, then fill the viewport via `drawImage` tiling (~250x faster than per-hex rendering on large grids).
+- **Stroke segment caching** — Catmull-Rom to Bezier segments and pressure widths are cached at commit time (onPointerUp) via WeakMap; strokes are immutable after commit.
+- **Arrow control point caching** — `cachedControlPoint` is computed once in `createArrow()` and recomputed on update; eliminates per-frame trig.
+- **Background pattern caching** — dot/grid background patterns are cached to an offscreen canvas, invalidated on camera change.
+- **ImageBitmap pre-decoding** — async upgrade from HTMLImageElement to GPU-ready ImageBitmap after load.
+- **Quadtree spatial index** — O(log n) element queries for hit-testing and viewport culling.
+- **Viewport culling** — off-screen elements are skipped in the render loop.
+
 ### Input & Touch/Tablet Strategy
 
 The input system is built around the Pointer Events API, which provides unified handling for mouse, touch, and stylus (Apple Pencil, Surface Pen, etc.) through a single event model. Key design decisions:
@@ -292,6 +306,10 @@ const saved = autoSave.load(); // CanvasState | null
 autoSave.stop();
 autoSave.clear();
 
+// Performance monitoring
+const stats = canvas.getRenderStats(); // { fps, avgFrameMs, p95FrameMs, lastGridMs, frameCount }
+const stop = canvas.logPerformance(2000); // periodic console logging, returns stop fn
+
 // Events
 canvas.store.on('add', callback);
 canvas.store.on('update', callback);
@@ -392,7 +410,7 @@ canvas.addImage('data:image/png;base64,iVBOR...', pos, size);
 - [x] Layers — `LayerManager` with visibility, locking, ordering, per-layer opacity
 - [x] Note text color — `textColor` field on `NoteElement`
 - [x] Grid element — square and hex grids for D&D maps (`GridElement`)
-- [x] HTML element persistence — `domId` field on `HtmlElement` for re-attaching DOM nodes across reloads
+- [x] HTML element persistence — `domId` field on `HtmlElement` for re-attaching DOM nodes across reloads (note: `loadJSON`/`loadState` restores metadata but the app must re-attach DOM nodes via `domId` matching — no automatic DOM reconstruction)
 - [x] AutoSave — debounced localStorage persistence with configurable interval
 - [ ] Minimap
 
@@ -401,8 +419,10 @@ canvas.addImage('data:image/png;base64,iVBOR...', pos, size);
 - [ ] Plugin system for custom tools and elements
 - [ ] Theming (dark/light, custom colors)
 - [ ] Configurable keyboard shortcut system
+- [ ] Copy/paste (elements within canvas, and between browser tabs)
 - [ ] Accessibility (keyboard navigation, screen reader basics)
 - [x] npm publish: `@fieldnotes/core`, `@fieldnotes/react`
+- [ ] Live demo / playground (hosted, linkable — critical for adoption)
 - [ ] `@fieldnotes/ui` — pre-built, customizable UI components (toolbar, text format panel, color picker, layers panel) as a separate package; `@fieldnotes/react` stays a thin binding layer
 - [ ] Documentation site
 
@@ -462,6 +482,14 @@ Enable migration from other canvas tools by importing their export formats:
 - [ ] Mobile app wrapper (Capacitor / React Native WebView)
 
 ---
+
+## Known Limitations / Open Gaps
+
+- **No live demo** — no hosted playground for potential adopters to try before installing
+- **No copy/paste** — no clipboard support for elements within or between canvases
+- **No keyboard shortcut system** — shortcuts are hardcoded in the input handler, not configurable
+- **HTML element restore** — `loadJSON`/`loadState` restores element metadata but the app must re-create and re-attach DOM nodes; there is no automatic DOM reconstruction from serialized state
+- **Cross-origin images** — export uses `crossOrigin='anonymous'` with a cache-buster query param; this works when the image server sends CORS headers but will silently fail (skip image) if it doesn't
 
 ## Design Principles
 
