@@ -44,7 +44,6 @@ export {
 export {
   isBindable,
   getElementCenter,
-  getElementBounds,
   getEdgeIntersection,
   findBindTarget,
   findBoundArrows,
@@ -52,6 +51,7 @@ export {
   clearStaleBindings,
   unbindArrow,
 } from './elements/arrow-binding';
+export { getElementBounds, boundsIntersect } from './elements/element-bounds';
 export type {
   Binding,
   CanvasElement,

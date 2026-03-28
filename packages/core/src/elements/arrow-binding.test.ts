@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
   getElementCenter,
-  getElementBounds,
   getEdgeIntersection,
   findBindTarget,
   findBoundArrows,
@@ -10,6 +9,7 @@ import {
   isBindable,
   unbindArrow,
 } from './arrow-binding';
+import { getElementBounds } from './element-bounds';
 import {
   createNote,
   createText,
@@ -53,9 +53,19 @@ describe('getElementBounds', () => {
     expect(getElementBounds(note)).toEqual({ x: 10, y: 20, w: 100, h: 50 });
   });
 
-  it('returns null for stroke (no size)', () => {
-    const stroke = createStroke({ points: [{ x: 0, y: 0, pressure: 0.5 }] });
-    expect(getElementBounds(stroke)).toBeNull();
+  it('returns bounds for stroke with points', () => {
+    const stroke = createStroke({
+      points: [
+        { x: 0, y: 0, pressure: 0.5 },
+        { x: 10, y: 20, pressure: 0.5 },
+      ],
+    });
+    const bounds = getElementBounds(stroke);
+    if (!bounds) throw new Error('expected bounds');
+    expect(bounds.x).toBe(0);
+    expect(bounds.y).toBe(0);
+    expect(bounds.w).toBe(10);
+    expect(bounds.h).toBe(20);
   });
 });
 

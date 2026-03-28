@@ -1,8 +1,8 @@
-import type { Point } from '../core/types';
+import type { Bounds, Point } from '../core/types';
 import type { ArrowElement, CanvasElement } from './types';
 import type { ElementStore } from './element-store';
 import { getArrowTangentAngle } from './arrow-geometry';
-import type { Rect } from './arrow-geometry';
+import { getElementBounds } from './element-bounds';
 
 const BINDABLE_TYPES = new Set(['note', 'text', 'image', 'html', 'shape']);
 
@@ -20,17 +20,7 @@ export function getElementCenter(element: CanvasElement): Point {
   };
 }
 
-export function getElementBounds(element: CanvasElement): Rect | null {
-  if (!('size' in element)) return null;
-  return {
-    x: element.position.x,
-    y: element.position.y,
-    w: element.size.w,
-    h: element.size.h,
-  };
-}
-
-export function getEdgeIntersection(bounds: Rect, outsidePoint: Point): Point {
+export function getEdgeIntersection(bounds: Bounds, outsidePoint: Point): Point {
   const cx = bounds.x + bounds.w / 2;
   const cy = bounds.y + bounds.h / 2;
   const dx = outsidePoint.x - cx;
@@ -79,7 +69,7 @@ export function findBindTarget(
   return closest;
 }
 
-function distToBounds(point: Point, bounds: Rect): number {
+function distToBounds(point: Point, bounds: Bounds): number {
   const clampedX = Math.max(bounds.x, Math.min(point.x, bounds.x + bounds.w));
   const clampedY = Math.max(bounds.y, Math.min(point.y, bounds.y + bounds.h));
   return Math.hypot(point.x - clampedX, point.y - clampedY);
