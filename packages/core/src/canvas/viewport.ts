@@ -68,7 +68,10 @@ export class Viewport {
     this.renderer = new ElementRenderer();
     this.renderer.setStore(this.store);
     this.renderer.setCamera(this.camera);
-    this.renderer.setOnImageLoad(() => this.requestRender());
+    this.renderer.setOnImageLoad(() => {
+      this.renderLoop.markAllLayersDirty();
+      this.requestRender();
+    });
     this.noteEditor = new NoteEditor();
     this.noteEditor.setOnStop((id) => this.onTextEditStop(id));
     this.history = new HistoryStack();
