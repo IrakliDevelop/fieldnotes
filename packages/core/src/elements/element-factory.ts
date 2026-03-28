@@ -13,6 +13,7 @@ import type {
   HexOrientation,
 } from './types';
 import { createId } from './create-id';
+import { getArrowControlPoint } from './arrow-geometry';
 
 interface BaseDefaults {
   position?: Point;
@@ -98,6 +99,7 @@ export function createNote(input: NoteInput): NoteElement {
 }
 
 export function createArrow(input: ArrowInput): ArrowElement {
+  const bend = input.bend ?? 0;
   const result: ArrowElement = {
     id: createId('arrow'),
     type: 'arrow',
@@ -107,9 +109,10 @@ export function createArrow(input: ArrowInput): ArrowElement {
     layerId: input.layerId ?? '',
     from: input.from,
     to: input.to,
-    bend: input.bend ?? 0,
+    bend,
     color: input.color ?? '#000000',
     width: input.width ?? 2,
+    cachedControlPoint: getArrowControlPoint(input.from, input.to, bend),
   };
   if (input.fromBinding) result.fromBinding = input.fromBinding;
   if (input.toBinding) result.toBinding = input.toBinding;

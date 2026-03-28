@@ -38,6 +38,8 @@ export interface ArrowElement extends BaseElement {
   width: number;
   fromBinding?: Binding;
   toBinding?: Binding;
+  /** Derived from from/to/bend. Redundant in serialized state — safe to omit. */
+  cachedControlPoint?: Point;
 }
 
 export interface ImageElement extends BaseElement {
