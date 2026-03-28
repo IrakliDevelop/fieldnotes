@@ -2,6 +2,7 @@ import type { StrokePoint } from '../core/types';
 import type { Tool, ToolContext, PointerState } from './types';
 import { createStroke } from '../elements/element-factory';
 import { simplifyPoints, smoothToSegments, pressureToWidth } from '../elements/stroke-smoothing';
+import { computeStrokeSegments } from '../elements/stroke-cache';
 
 export interface PencilToolOptions {
   color?: string;
@@ -125,6 +126,7 @@ export class PencilTool implements Tool {
       layerId: ctx.activeLayerId ?? '',
     });
     ctx.store.add(stroke);
+    computeStrokeSegments(stroke);
     this.points = [];
     ctx.requestRender();
   }

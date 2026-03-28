@@ -2,7 +2,8 @@ import { EventBus } from '../core/event-bus';
 import type { Bounds, Point } from '../core/types';
 import { Quadtree } from '../core/quadtree';
 import { getElementBounds } from './element-bounds';
-import type { CanvasElement, ElementType } from './types';
+import { getArrowControlPoint } from './arrow-geometry';
+import type { ArrowElement, CanvasElement, ElementType } from './types';
 
 export interface ElementUpdateEvent {
   previous: CanvasElement;
@@ -61,6 +62,12 @@ export class ElementStore {
     if (!existing) return;
 
     const updated = { ...existing, ...partial, id: existing.id, type: existing.type };
+
+    if (updated.type === 'arrow') {
+      const arrow = updated as ArrowElement;
+      arrow.cachedControlPoint = getArrowControlPoint(arrow.from, arrow.to, arrow.bend);
+    }
+
     this.elements.set(id, updated as CanvasElement);
 
     const newBounds = getElementBounds(updated as CanvasElement);

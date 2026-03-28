@@ -9,7 +9,7 @@ import type {
 import { getArrowControlPoint, getArrowTangentAngle } from './arrow-geometry';
 import { getEdgeIntersection } from './arrow-binding';
 import { getElementBounds } from './element-bounds';
-import { smoothToSegments, pressureToWidth } from './stroke-smoothing';
+import { getStrokeRenderData } from './stroke-cache';
 import type { ElementStore } from './element-store';
 import { renderSquareGrid, renderHexGrid } from './grid-renderer';
 import type { Camera } from '../canvas/camera';
@@ -20,7 +20,7 @@ const ARROWHEAD_ANGLE = Math.PI / 6;
 
 export class ElementRenderer {
   private store: ElementStore | null = null;
-  private imageCache = new Map<string, HTMLImageElement>();
+  private imageCache = new Map<string, ImageBitmap | HTMLImageElement>();
   private onImageLoad: (() => void) | null = null;
   private camera: Camera | null = null;
   private canvasSize: { w: number; h: number } | null = null;
@@ -75,12 +75,11 @@ export class ElementRenderer {
     ctx.lineJoin = 'round';
     ctx.globalAlpha = stroke.opacity;
 
-    const segments = smoothToSegments(stroke.points);
-    for (const seg of segments) {
-      const w =
-        (pressureToWidth(seg.start.pressure, stroke.width) +
-          pressureToWidth(seg.end.pressure, stroke.width)) /
-        2;
+    const { segments, widths } = getStrokeRenderData(stroke);
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i];
+      const w = widths[i];
+      if (!seg || w === undefined) continue;
       ctx.lineWidth = w;
       ctx.beginPath();
       ctx.moveTo(seg.start.x, seg.start.y);
@@ -107,7 +106,7 @@ export class ElementRenderer {
     ctx.moveTo(visualFrom.x, visualFrom.y);
 
     if (arrow.bend !== 0) {
-      const cp = getArrowControlPoint(arrow.from, arrow.to, arrow.bend);
+      const cp = arrow.cachedControlPoint ?? getArrowControlPoint(arrow.from, arrow.to, arrow.bend);
       ctx.quadraticCurveTo(cp.x, cp.y, visualTo.x, visualTo.y);
     } else {
       ctx.lineTo(visualTo.x, visualTo.y);
@@ -276,17 +275,39 @@ export class ElementRenderer {
   private renderImage(ctx: CanvasRenderingContext2D, image: ImageElement): void {
     const img = this.getImage(image.src);
     if (!img) return;
-    ctx.drawImage(img, image.position.x, image.position.y, image.size.w, image.size.h);
+    ctx.drawImage(
+      img as CanvasImageSource,
+      image.position.x,
+      image.position.y,
+      image.size.w,
+      image.size.h,
+    );
   }
 
-  private getImage(src: string): HTMLImageElement | null {
+  private getImage(src: string): ImageBitmap | HTMLImageElement | null {
     const cached = this.imageCache.get(src);
-    if (cached) return cached.complete ? cached : null;
+    if (cached) {
+      if (cached instanceof HTMLImageElement) return cached.complete ? cached : null;
+      return cached;
+    }
 
     const img = new Image();
     img.src = src;
     this.imageCache.set(src, img);
-    img.onload = () => this.onImageLoad?.();
+    img.onload = () => {
+      this.onImageLoad?.();
+      // Decode from already-loaded image in memory, not a re-fetch
+      if (typeof createImageBitmap !== 'undefined') {
+        createImageBitmap(img)
+          .then((bitmap) => {
+            this.imageCache.set(src, bitmap);
+            this.onImageLoad?.();
+          })
+          .catch(() => {
+            /* keep HTMLImageElement fallback — handles CORS rejection */
+          });
+      }
+    };
     return null;
   }
 }
