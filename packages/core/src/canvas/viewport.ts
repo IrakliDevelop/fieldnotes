@@ -19,6 +19,9 @@ import { exportImage } from './export-image';
 import type { ExportImageOptions } from './export-image';
 import type { CanvasState } from '../core/state-serializer';
 import { LayerManager } from '../layers/layer-manager';
+import { InteractMode } from './interact-mode';
+import { DomNodeManager } from './dom-node-manager';
+import { RenderLoop } from './render-loop';
 
 export interface ViewportOptions {
   camera?: CameraOptions;
@@ -43,13 +46,11 @@ export class Viewport {
   private readonly historyRecorder: HistoryRecorder;
   readonly toolContext: ToolContext;
   private resizeObserver: ResizeObserver | null = null;
-  private animFrameId = 0;
   private _snapToGrid = false;
   private readonly _gridSize: number;
-  private needsRender = true;
-  private domNodes = new Map<string, HTMLDivElement>();
-  private htmlContent = new Map<string, HTMLElement>();
-  private interactingElementId: string | null = null;
+  private readonly renderLoop: RenderLoop;
+  private readonly domNodeManager: DomNodeManager;
+  private readonly interactMode: InteractMode;
 
   constructor(
     private readonly container: HTMLElement,
@@ -101,6 +102,28 @@ export class Viewport {
       historyStack: this.history,
     });
 
+    this.domNodeManager = new DomNodeManager({
+      domLayer: this.domLayer,
+      onEditRequest: (id) => this.startEditingElement(id),
+      isEditingElement: (id) =>
+        this.noteEditor.isEditing && this.noteEditor.editingElementId === id,
+    });
+
+    this.interactMode = new InteractMode({
+      getNode: (id) => this.domNodeManager.getNode(id),
+    });
+
+    this.renderLoop = new RenderLoop({
+      canvasEl: this.canvasEl,
+      camera: this.camera,
+      background: this.background,
+      store: this.store,
+      renderer: this.renderer,
+      toolManager: this.toolManager,
+      layerManager: this.layerManager,
+      domNodeManager: this.domNodeManager,
+    });
+
     this.unsubCamera = this.camera.onChange(() => {
       this.applyCameraTransform();
       this.requestRender();
@@ -110,10 +133,14 @@ export class Viewport {
       this.store.on('add', () => this.requestRender()),
       this.store.on('remove', (el) => {
         this.unbindArrowsFrom(el);
-        this.removeDomNode(el.id);
+        this.domNodeManager.removeDomNode(el.id);
+        this.requestRender();
       }),
       this.store.on('update', () => this.requestRender()),
-      this.store.on('clear', () => this.clearDomNodes()),
+      this.store.on('clear', () => {
+        this.domNodeManager.clearDomNodes();
+        this.requestRender();
+      }),
     ];
 
     this.layerManager.on('change', () => {
@@ -126,7 +153,7 @@ export class Viewport {
     this.wrapper.addEventListener('drop', this.onDrop);
     this.observeResize();
     this.syncCanvasSize();
-    this.startRenderLoop();
+    this.renderLoop.start();
   }
 
   get ctx(): CanvasRenderingContext2D | null {
@@ -143,7 +170,7 @@ export class Viewport {
   }
 
   requestRender(): void {
-    this.needsRender = true;
+    this.renderLoop.requestRender();
   }
 
   exportState(): CanvasState {
@@ -161,12 +188,12 @@ export class Viewport {
   loadState(state: CanvasState): void {
     this.historyRecorder.pause();
     this.noteEditor.destroy(this.store);
-    this.clearDomNodes();
+    this.domNodeManager.clearDomNodes();
     this.store.loadSnapshot(state.elements);
     if (state.layers && state.layers.length > 0) {
       this.layerManager.loadSnapshot(state.layers);
     }
-    this.reattachHtmlContent();
+    this.domNodeManager.reattachHtmlContent(this.store);
     this.history.clear();
     this.historyRecorder.resume();
     this.camera.moveTo(state.camera.position.x, state.camera.position.y);
@@ -214,7 +241,7 @@ export class Viewport {
       domId,
       layerId: this.layerManager.activeLayerId,
     });
-    this.htmlContent.set(el.id, dom);
+    this.domNodeManager.storeHtmlContent(el.id, dom);
     this.historyRecorder.begin();
     this.store.add(el);
     this.historyRecorder.commit();
@@ -268,8 +295,8 @@ export class Viewport {
   }
 
   destroy(): void {
-    cancelAnimationFrame(this.animFrameId);
-    this.stopInteracting();
+    this.renderLoop.stop();
+    this.interactMode.destroy();
     this.noteEditor.destroy(this.store);
     this.historyRecorder.destroy();
     this.wrapper.removeEventListener('dblclick', this.onDblClick);
@@ -283,64 +310,13 @@ export class Viewport {
     this.wrapper.remove();
   }
 
-  private startRenderLoop(): void {
-    const loop = (): void => {
-      if (this.needsRender) {
-        this.render();
-        this.needsRender = false;
-      }
-      this.animFrameId = requestAnimationFrame(loop);
-    };
-    this.animFrameId = requestAnimationFrame(loop);
-  }
-
-  private render(): void {
-    const ctx = this.ctx;
-    if (!ctx) return;
-
-    const dpr = typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1;
-    ctx.save();
-    ctx.scale(dpr, dpr);
-
-    this.renderer.setCanvasSize(this.canvasEl.clientWidth, this.canvasEl.clientHeight);
-    this.background.render(ctx, this.camera);
-
-    ctx.save();
-    ctx.translate(this.camera.position.x, this.camera.position.y);
-    ctx.scale(this.camera.zoom, this.camera.zoom);
-
-    const allElements = this.store.getAll();
-    let domZIndex = 0;
-    for (const element of allElements) {
-      if (!this.layerManager.isLayerVisible(element.layerId)) {
-        if (this.renderer.isDomElement(element)) {
-          this.hideDomNode(element.id);
-        }
-        continue;
-      }
-      if (this.renderer.isDomElement(element)) {
-        this.syncDomNode(element, domZIndex++);
-      } else {
-        this.renderer.renderCanvasElement(ctx, element);
-      }
-    }
-
-    const activeTool = this.toolManager.activeTool;
-    if (activeTool?.renderOverlay) {
-      activeTool.renderOverlay(ctx);
-    }
-
-    ctx.restore();
-    ctx.restore();
-  }
-
   private startEditingElement(id: string): void {
     const element = this.store.getById(id);
     if (!element || (element.type !== 'note' && element.type !== 'text')) return;
 
-    this.render();
+    this.renderLoop.flush();
 
-    const node = this.domNodes.get(id);
+    const node = this.domNodeManager.getNode(id);
     if (node) {
       this.noteEditor.startEditing(node, id, this.store);
     }
@@ -357,7 +333,7 @@ export class Viewport {
       return;
     }
 
-    const node = this.domNodes.get(elementId);
+    const node = this.domNodeManager.getNode(elementId);
     if (node && 'size' in element) {
       const measuredHeight = node.scrollHeight;
       if (measuredHeight !== element.size.h) {
@@ -388,7 +364,7 @@ export class Viewport {
     const world = this.camera.screenToWorld(screen);
     const hit = this.hitTestWorld(world);
     if (hit?.type === 'html') {
-      this.startInteracting(hit.id);
+      this.interactMode.startInteracting(hit.id);
     }
   };
 
@@ -405,53 +381,9 @@ export class Viewport {
     return null;
   }
 
-  private startInteracting(id: string): void {
-    this.stopInteracting();
-    const node = this.domNodes.get(id);
-    if (!node) return;
-
-    this.interactingElementId = id;
-    node.style.pointerEvents = 'auto';
-    node.addEventListener('pointerdown', this.onInteractNodePointerDown);
-
-    window.addEventListener('keydown', this.onInteractKeyDown);
-    window.addEventListener('pointerdown', this.onInteractPointerDown);
-  }
-
   stopInteracting(): void {
-    if (!this.interactingElementId) return;
-
-    const node = this.domNodes.get(this.interactingElementId);
-    if (node) {
-      node.style.pointerEvents = 'none';
-      node.removeEventListener('pointerdown', this.onInteractNodePointerDown);
-    }
-
-    this.interactingElementId = null;
-    window.removeEventListener('keydown', this.onInteractKeyDown);
-    window.removeEventListener('pointerdown', this.onInteractPointerDown);
+    this.interactMode.stopInteracting();
   }
-
-  private onInteractNodePointerDown = (e: PointerEvent): void => {
-    e.stopPropagation();
-  };
-
-  private onInteractKeyDown = (e: KeyboardEvent): void => {
-    if (e.key === 'Escape') {
-      this.stopInteracting();
-    }
-  };
-
-  private onInteractPointerDown = (e: PointerEvent): void => {
-    if (!this.interactingElementId) return;
-    const target = e.target as HTMLElement | null;
-    if (!target) return;
-
-    const node = this.domNodes.get(this.interactingElementId);
-    if (node && !node.contains(target)) {
-      this.stopInteracting();
-    }
-  };
 
   private onDragOver = (e: DragEvent): void => {
     e.preventDefault();
@@ -479,118 +411,6 @@ export class Viewport {
       reader.readAsDataURL(file);
     }
   };
-
-  private syncDomNode(element: CanvasElement, zIndex = 0): void {
-    let node = this.domNodes.get(element.id);
-    if (!node) {
-      node = document.createElement('div');
-      node.dataset['elementId'] = element.id;
-      Object.assign(node.style, {
-        position: 'absolute',
-        pointerEvents: 'auto',
-      });
-      this.domLayer.appendChild(node);
-      this.domNodes.set(element.id, node);
-    }
-
-    const size = 'size' in element ? element.size : null;
-    Object.assign(node.style, {
-      display: 'block',
-      left: `${element.position.x}px`,
-      top: `${element.position.y}px`,
-      width: size ? `${size.w}px` : 'auto',
-      height: size ? `${size.h}px` : 'auto',
-      zIndex: String(zIndex),
-    });
-
-    this.renderDomContent(node, element);
-  }
-
-  private renderDomContent(node: HTMLDivElement, element: CanvasElement): void {
-    if (element.type === 'note') {
-      if (!node.dataset['initialized']) {
-        node.dataset['initialized'] = 'true';
-        Object.assign(node.style, {
-          backgroundColor: element.backgroundColor,
-          color: element.textColor,
-          padding: '8px',
-          borderRadius: '4px',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-          fontSize: '14px',
-          overflow: 'hidden',
-          cursor: 'default',
-          userSelect: 'none',
-          wordWrap: 'break-word',
-        });
-        node.textContent = element.text || '';
-
-        node.addEventListener('dblclick', (e) => {
-          e.stopPropagation();
-          const id = node.dataset['elementId'];
-          if (id) this.startEditingElement(id);
-        });
-      }
-
-      if (!this.noteEditor.isEditing || this.noteEditor.editingElementId !== element.id) {
-        if (node.textContent !== element.text) {
-          node.textContent = element.text || '';
-        }
-        node.style.backgroundColor = element.backgroundColor;
-        node.style.color = element.textColor;
-      }
-    }
-
-    if (element.type === 'html' && !node.dataset['initialized']) {
-      const content = this.htmlContent.get(element.id);
-      if (content) {
-        node.dataset['initialized'] = 'true';
-        Object.assign(node.style, {
-          overflow: 'hidden',
-          pointerEvents: 'none',
-        });
-        node.appendChild(content);
-      }
-    }
-
-    if (element.type === 'text') {
-      if (!node.dataset['initialized']) {
-        node.dataset['initialized'] = 'true';
-        Object.assign(node.style, {
-          padding: '2px',
-          fontSize: `${element.fontSize}px`,
-          color: element.color,
-          textAlign: element.textAlign,
-          background: 'none',
-          border: 'none',
-          boxShadow: 'none',
-          overflow: 'visible',
-          cursor: 'default',
-          userSelect: 'none',
-          wordWrap: 'break-word',
-          whiteSpace: 'pre-wrap',
-          lineHeight: '1.4',
-        });
-        node.textContent = element.text || '';
-
-        node.addEventListener('dblclick', (e) => {
-          e.stopPropagation();
-          const id = node.dataset['elementId'];
-          if (id) this.startEditingElement(id);
-        });
-      }
-
-      if (!this.noteEditor.isEditing || this.noteEditor.editingElementId !== element.id) {
-        if (node.textContent !== element.text) {
-          node.textContent = element.text || '';
-        }
-        Object.assign(node.style, {
-          fontSize: `${element.fontSize}px`,
-          color: element.color,
-          textAlign: element.textAlign,
-        });
-      }
-    }
-  }
 
   private unbindArrowsFrom(removedElement: CanvasElement): void {
     const boundArrows = findBoundArrows(removedElement.id, this.store);
@@ -627,39 +447,6 @@ export class Viewport {
 
       if (Object.keys(updates).length > 0) {
         this.store.update(arrow.id, updates);
-      }
-    }
-  }
-
-  private hideDomNode(id: string): void {
-    const node = this.domNodes.get(id);
-    if (node) node.style.display = 'none';
-  }
-
-  private removeDomNode(id: string): void {
-    this.htmlContent.delete(id);
-    const node = this.domNodes.get(id);
-    if (node) {
-      node.remove();
-      this.domNodes.delete(id);
-    }
-    this.requestRender();
-  }
-
-  private clearDomNodes(): void {
-    this.domNodes.forEach((node) => node.remove());
-    this.domNodes.clear();
-    this.htmlContent.clear();
-    this.requestRender();
-  }
-
-  private reattachHtmlContent(): void {
-    for (const el of this.store.getElementsByType('html')) {
-      if (el.domId) {
-        const dom = document.getElementById(el.domId);
-        if (dom) {
-          this.htmlContent.set(el.id, dom);
-        }
       }
     }
   }
@@ -708,8 +495,7 @@ export class Viewport {
   private syncCanvasSize(): void {
     const rect = this.container.getBoundingClientRect();
     const dpr = typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1;
-    this.canvasEl.width = rect.width * dpr;
-    this.canvasEl.height = rect.height * dpr;
+    this.renderLoop.setCanvasSize(rect.width * dpr, rect.height * dpr);
     this.requestRender();
   }
 
