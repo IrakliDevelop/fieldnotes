@@ -23,7 +23,13 @@ describe('useToolOptions', () => {
         <Consumer />
       </FieldNotesCanvas>,
     );
-    expect(options).toEqual({ color: '#ff0000', width: 5, smoothing: 1.5 });
+    expect(options).toEqual({
+      color: '#ff0000',
+      width: 5,
+      smoothing: 1.5,
+      minPointDistance: 3,
+      progressiveSimplifyThreshold: 200,
+    });
   });
 
   it('returns null for tools without getOptions', () => {

@@ -1,8 +1,13 @@
-import type { Point } from '../core/types';
+import type { Bounds, Point } from '../core/types';
 
 export interface CameraOptions {
   minZoom?: number;
   maxZoom?: number;
+}
+
+export interface CameraChangeInfo {
+  panned: boolean;
+  zoomed: boolean;
 }
 
 const DEFAULT_MIN_ZOOM = 0.1;
@@ -14,7 +19,7 @@ export class Camera {
   private z = 1;
   private readonly minZoom: number;
   private readonly maxZoom: number;
-  private changeListeners = new Set<() => void>();
+  private changeListeners = new Set<(info: CameraChangeInfo) => void>();
 
   constructor(options: CameraOptions = {}) {
     this.minZoom = options.minZoom ?? DEFAULT_MIN_ZOOM;
@@ -32,18 +37,18 @@ export class Camera {
   pan(dx: number, dy: number): void {
     this.x += dx;
     this.y += dy;
-    this.notifyChange();
+    this.notifyPan();
   }
 
   moveTo(x: number, y: number): void {
     this.x = x;
     this.y = y;
-    this.notifyChange();
+    this.notifyPan();
   }
 
   setZoom(level: number): void {
     this.z = Math.min(this.maxZoom, Math.max(this.minZoom, level));
-    this.notifyChange();
+    this.notifyZoom();
   }
 
   zoomAt(level: number, screenPoint: Point): void {
@@ -52,7 +57,7 @@ export class Camera {
     const after = this.screenToWorld(screenPoint);
     this.x += (after.x - before.x) * this.z;
     this.y += (after.y - before.y) * this.z;
-    this.notifyChange();
+    this.notifyPanAndZoom();
   }
 
   screenToWorld(screen: Point): Point {
@@ -69,16 +74,35 @@ export class Camera {
     };
   }
 
+  getVisibleRect(canvasWidth: number, canvasHeight: number): Bounds {
+    const topLeft = this.screenToWorld({ x: 0, y: 0 });
+    const bottomRight = this.screenToWorld({ x: canvasWidth, y: canvasHeight });
+    return {
+      x: topLeft.x,
+      y: topLeft.y,
+      w: bottomRight.x - topLeft.x,
+      h: bottomRight.y - topLeft.y,
+    };
+  }
+
   toCSSTransform(): string {
     return `translate3d(${this.x}px, ${this.y}px, 0) scale(${this.z})`;
   }
 
-  onChange(listener: () => void): () => void {
+  onChange(listener: (info: CameraChangeInfo) => void): () => void {
     this.changeListeners.add(listener);
     return () => this.changeListeners.delete(listener);
   }
 
-  private notifyChange(): void {
-    this.changeListeners.forEach((fn) => fn());
+  private notifyPan(): void {
+    this.changeListeners.forEach((fn) => fn({ panned: true, zoomed: false }));
+  }
+
+  private notifyZoom(): void {
+    this.changeListeners.forEach((fn) => fn({ panned: false, zoomed: true }));
+  }
+
+  private notifyPanAndZoom(): void {
+    this.changeListeners.forEach((fn) => fn({ panned: true, zoomed: true }));
   }
 }

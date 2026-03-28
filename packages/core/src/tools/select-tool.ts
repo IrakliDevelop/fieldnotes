@@ -1,10 +1,10 @@
-import type { Point } from '../core/types';
+import type { Bounds, Point } from '../core/types';
 import type { Tool, ToolContext, PointerState } from './types';
 import { snapPoint } from '../core/snap';
 import type { CanvasElement, ArrowElement } from '../elements/types';
-import { isNearBezier, getArrowBounds } from '../elements/arrow-geometry';
-import type { Rect } from '../elements/arrow-geometry';
-import { findBoundArrows, updateBoundArrow, getElementBounds } from '../elements/arrow-binding';
+import { isNearBezier } from '../elements/arrow-geometry';
+import { findBoundArrows, updateBoundArrow } from '../elements/arrow-binding';
+import { getElementBounds } from '../elements/element-bounds';
 import {
   type ArrowHandle,
   hitTestArrowHandles,
@@ -320,7 +320,7 @@ export class SelectTool implements Tool {
       const el = ctx.store.getById(id);
       if (!el || !('size' in el)) continue;
 
-      const bounds = this.getElementBounds(el);
+      const bounds = getElementBounds(el);
       if (!bounds) continue;
 
       const corners = this.getHandlePositions(bounds);
@@ -334,7 +334,7 @@ export class SelectTool implements Tool {
     return null;
   }
 
-  private getHandlePositions(bounds: Rect): [HandlePosition, Point][] {
+  private getHandlePositions(bounds: Bounds): [HandlePosition, Point][] {
     return [
       ['nw', { x: bounds.x, y: bounds.y }],
       ['ne', { x: bounds.x + bounds.w, y: bounds.y }],
@@ -380,7 +380,7 @@ export class SelectTool implements Tool {
         continue;
       }
 
-      const bounds = this.getElementBounds(el);
+      const bounds = getElementBounds(el);
       if (!bounds) continue;
 
       const pad = SELECTION_PAD / zoom;
@@ -443,7 +443,7 @@ export class SelectTool implements Tool {
     canvasCtx.restore();
   }
 
-  private getMarqueeRect(): Rect | null {
+  private getMarqueeRect(): Bounds | null {
     if (this.mode.type !== 'marquee') return null;
 
     const { start } = this.mode;
@@ -457,13 +457,14 @@ export class SelectTool implements Tool {
     return { x, y, w, h };
   }
 
-  private findElementsInRect(marquee: Rect, ctx: ToolContext): string[] {
+  private findElementsInRect(marquee: Bounds, ctx: ToolContext): string[] {
+    const candidates = ctx.store.queryRect(marquee);
     const ids: string[] = [];
-    for (const el of ctx.store.getAll()) {
+    for (const el of candidates) {
       if (ctx.isLayerVisible && !ctx.isLayerVisible(el.layerId)) continue;
       if (ctx.isLayerLocked && ctx.isLayerLocked(el.layerId)) continue;
       if (el.type === 'grid') continue;
-      const bounds = this.getElementBounds(el);
+      const bounds = getElementBounds(el);
       if (bounds && this.rectsOverlap(marquee, bounds)) {
         ids.push(el.id);
       }
@@ -471,38 +472,17 @@ export class SelectTool implements Tool {
     return ids;
   }
 
-  private rectsOverlap(a: Rect, b: Rect): boolean {
+  private rectsOverlap(a: Bounds, b: Bounds): boolean {
     return a.x <= b.x + b.w && a.x + a.w >= b.x && a.y <= b.y + b.h && a.y + a.h >= b.y;
   }
 
-  private getElementBounds(el: CanvasElement): Rect | null {
-    if ('size' in el) {
-      return { x: el.position.x, y: el.position.y, w: el.size.w, h: el.size.h };
-    }
-    if (el.type === 'stroke' && el.points.length > 0) {
-      let minX = Infinity,
-        minY = Infinity,
-        maxX = -Infinity,
-        maxY = -Infinity;
-      for (const p of el.points) {
-        const px = p.x + el.position.x;
-        const py = p.y + el.position.y;
-        if (px < minX) minX = px;
-        if (py < minY) minY = py;
-        if (px > maxX) maxX = px;
-        if (py > maxY) maxY = py;
-      }
-      return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
-    }
-    if (el.type === 'arrow') {
-      return getArrowBounds(el.from, el.to, el.bend);
-    }
-    return null;
-  }
-
   private hitTest(world: Point, ctx: ToolContext): CanvasElement | null {
-    const elements = ctx.store.getAll().reverse();
-    for (const el of elements) {
+    // Inflate query by hit radius so strokes/arrows near the point are included
+    const r = 10;
+    const candidates = ctx.store
+      .queryRect({ x: world.x - r, y: world.y - r, w: r * 2, h: r * 2 })
+      .reverse();
+    for (const el of candidates) {
       if (ctx.isLayerVisible && !ctx.isLayerVisible(el.layerId)) continue;
       if (ctx.isLayerLocked && ctx.isLayerLocked(el.layerId)) continue;
       if (el.type === 'grid') continue;

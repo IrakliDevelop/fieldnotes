@@ -88,22 +88,68 @@ describe('Camera', () => {
     expect(back.y).toBeCloseTo(original.y);
   });
 
-  it('emits change event on pan', () => {
+  it('emits change event with panned=true on pan', () => {
     const camera = new Camera();
     const listener = vi.fn();
     camera.onChange(listener);
 
     camera.pan(10, 10);
     expect(listener).toHaveBeenCalledOnce();
+    expect(listener).toHaveBeenCalledWith({ panned: true, zoomed: false });
   });
 
-  it('emits change event on zoom', () => {
+  it('emits change event with zoomed=true on setZoom', () => {
     const camera = new Camera();
     const listener = vi.fn();
     camera.onChange(listener);
 
     camera.setZoom(2);
     expect(listener).toHaveBeenCalledOnce();
+    expect(listener).toHaveBeenCalledWith({ panned: false, zoomed: true });
+  });
+
+  it('emits change event with panned=true on moveTo', () => {
+    const camera = new Camera();
+    const listener = vi.fn();
+    camera.onChange(listener);
+
+    camera.moveTo(50, 50);
+    expect(listener).toHaveBeenCalledWith({ panned: true, zoomed: false });
+  });
+
+  it('emits change event with panned and zoomed on zoomAt', () => {
+    const camera = new Camera();
+    const listener = vi.fn();
+    camera.onChange(listener);
+
+    camera.zoomAt(2, { x: 100, y: 100 });
+    expect(listener).toHaveBeenCalledWith({ panned: true, zoomed: true });
+  });
+
+  it('returns visible rect at default camera state', () => {
+    const camera = new Camera();
+    const rect = camera.getVisibleRect(800, 600);
+    expect(rect).toEqual({ x: 0, y: 0, w: 800, h: 600 });
+  });
+
+  it('returns visible rect after panning', () => {
+    const camera = new Camera();
+    camera.pan(-100, -50);
+    const rect = camera.getVisibleRect(800, 600);
+    expect(rect.x).toBeCloseTo(100);
+    expect(rect.y).toBeCloseTo(50);
+    expect(rect.w).toBeCloseTo(800);
+    expect(rect.h).toBeCloseTo(600);
+  });
+
+  it('returns visible rect after zooming', () => {
+    const camera = new Camera();
+    camera.setZoom(2);
+    const rect = camera.getVisibleRect(800, 600);
+    expect(rect.x).toBeCloseTo(0);
+    expect(rect.y).toBeCloseTo(0);
+    expect(rect.w).toBeCloseTo(400);
+    expect(rect.h).toBeCloseTo(300);
   });
 
   it('provides a CSS transform string', () => {

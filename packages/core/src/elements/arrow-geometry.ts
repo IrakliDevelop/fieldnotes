@@ -1,11 +1,4 @@
-import type { Point } from '../core/types';
-
-export interface Rect {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
+import type { Bounds, Point } from '../core/types';
 
 export function getArrowControlPoint(from: Point, to: Point, bend: number): Point {
   const midX = (from.x + to.x) / 2;
@@ -84,7 +77,7 @@ export function isNearBezier(
   return false;
 }
 
-export function getArrowBounds(from: Point, to: Point, bend: number): Rect {
+export function getArrowBounds(from: Point, to: Point, bend: number): Bounds {
   if (bend === 0) {
     const minX = Math.min(from.x, to.x);
     const minY = Math.min(from.y, to.y);

@@ -7,7 +7,8 @@ import { ElementStore } from '../elements/element-store';
 import { ElementRenderer } from '../elements/element-renderer';
 import { NoteEditor } from '../elements/note-editor';
 import type { CanvasElement, ArrowElement, GridElement } from '../elements/types';
-import { findBoundArrows, getElementBounds, getEdgeIntersection } from '../elements/arrow-binding';
+import { findBoundArrows, getEdgeIntersection } from '../elements/arrow-binding';
+import { getElementBounds } from '../elements/element-bounds';
 import { getArrowTangentAngle } from '../elements/arrow-geometry';
 import { ToolManager } from '../tools/tool-manager';
 import type { ToolContext } from '../tools/types';
@@ -22,6 +23,7 @@ import { LayerManager } from '../layers/layer-manager';
 import { InteractMode } from './interact-mode';
 import { DomNodeManager } from './dom-node-manager';
 import { RenderLoop } from './render-loop';
+import { LayerCache } from './layer-cache';
 
 export interface ViewportOptions {
   camera?: CameraOptions;
@@ -113,6 +115,11 @@ export class Viewport {
       getNode: (id) => this.domNodeManager.getNode(id),
     });
 
+    const layerCache = new LayerCache(
+      this.canvasEl.clientWidth || 800,
+      this.canvasEl.clientHeight || 600,
+    );
+
     this.renderLoop = new RenderLoop({
       canvasEl: this.canvasEl,
       camera: this.camera,
@@ -122,6 +129,7 @@ export class Viewport {
       toolManager: this.toolManager,
       layerManager: this.layerManager,
       domNodeManager: this.domNodeManager,
+      layerCache,
     });
 
     this.unsubCamera = this.camera.onChange(() => {
@@ -130,15 +138,26 @@ export class Viewport {
     });
 
     this.unsubStore = [
-      this.store.on('add', () => this.requestRender()),
+      this.store.on('add', (el) => {
+        this.renderLoop.markLayerDirty(el.layerId);
+        this.requestRender();
+      }),
       this.store.on('remove', (el) => {
         this.unbindArrowsFrom(el);
         this.domNodeManager.removeDomNode(el.id);
+        this.renderLoop.markLayerDirty(el.layerId);
         this.requestRender();
       }),
-      this.store.on('update', () => this.requestRender()),
+      this.store.on('update', ({ previous, current }) => {
+        this.renderLoop.markLayerDirty(current.layerId);
+        if (previous.layerId !== current.layerId) {
+          this.renderLoop.markLayerDirty(previous.layerId);
+        }
+        this.requestRender();
+      }),
       this.store.on('clear', () => {
         this.domNodeManager.clearDomNodes();
+        this.renderLoop.markAllLayersDirty();
         this.requestRender();
       }),
     ];
@@ -369,8 +388,8 @@ export class Viewport {
   };
 
   private hitTestWorld(world: { x: number; y: number }): CanvasElement | null {
-    const elements = this.store.getAll().reverse();
-    for (const el of elements) {
+    const candidates = this.store.queryPoint(world).reverse();
+    for (const el of candidates) {
       if (!('size' in el)) continue;
       const { x, y } = el.position;
       const { w, h } = el.size;

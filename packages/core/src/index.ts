@@ -1,6 +1,7 @@
-export const VERSION = '0.8.6';
+export const VERSION = '0.8.7';
 
 export { EventBus } from './core/event-bus';
+export { Quadtree } from './core/quadtree';
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
 export { exportState, parseState } from './core/state-serializer';
 export { snapPoint } from './core/snap';
@@ -9,7 +10,7 @@ export { AutoSave } from './core/auto-save';
 export type { AutoSaveOptions } from './core/auto-save';
 
 export { Camera } from './canvas/camera';
-export type { CameraOptions } from './canvas/camera';
+export type { CameraOptions, CameraChangeInfo } from './canvas/camera';
 export { Background } from './canvas/background';
 export type { BackgroundOptions, BackgroundPattern } from './canvas/background';
 export { InputHandler } from './canvas/input-handler';
@@ -17,6 +18,7 @@ export { Viewport } from './canvas/viewport';
 export type { ViewportOptions } from './canvas/viewport';
 export { exportImage } from './canvas/export-image';
 export type { ExportImageOptions } from './canvas/export-image';
+export type { RenderStatsSnapshot } from './canvas/render-stats';
 
 export { ElementStore } from './elements/element-store';
 export type { ElementUpdateEvent } from './elements/element-store';
@@ -44,7 +46,6 @@ export {
 export {
   isBindable,
   getElementCenter,
-  getElementBounds,
   getEdgeIntersection,
   findBindTarget,
   findBoundArrows,
@@ -52,6 +53,7 @@ export {
   clearStaleBindings,
   unbindArrow,
 } from './elements/arrow-binding';
+export { getElementBounds, boundsIntersect } from './elements/element-bounds';
 export type {
   Binding,
   CanvasElement,

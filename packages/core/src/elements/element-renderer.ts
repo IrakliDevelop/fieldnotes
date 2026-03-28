@@ -7,7 +7,8 @@ import type {
   GridElement,
 } from './types';
 import { getArrowControlPoint, getArrowTangentAngle } from './arrow-geometry';
-import { getElementBounds, getEdgeIntersection } from './arrow-binding';
+import { getEdgeIntersection } from './arrow-binding';
+import { getElementBounds } from './element-bounds';
 import { smoothToSegments, pressureToWidth } from './stroke-smoothing';
 import type { ElementStore } from './element-store';
 import { renderSquareGrid, renderHexGrid } from './grid-renderer';

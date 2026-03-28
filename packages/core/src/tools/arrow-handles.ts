@@ -2,7 +2,8 @@ import type { Point } from '../core/types';
 import type { ArrowElement, CanvasElement } from '../elements/types';
 import type { ToolContext } from './types';
 import { getArrowMidpoint, getBendFromPoint } from '../elements/arrow-geometry';
-import { findBindTarget, getElementCenter, getElementBounds } from '../elements/arrow-binding';
+import { findBindTarget, getElementCenter } from '../elements/arrow-binding';
+import { getElementBounds } from '../elements/element-bounds';
 
 const BIND_THRESHOLD = 20;
 
