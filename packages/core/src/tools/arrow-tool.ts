@@ -2,7 +2,8 @@ import type { Point } from '../core/types';
 import type { Binding, CanvasElement } from '../elements/types';
 import type { Tool, ToolContext, PointerState } from './types';
 import { createArrow } from '../elements/element-factory';
-import { findBindTarget, getElementCenter, getElementBounds } from '../elements/arrow-binding';
+import { findBindTarget, getElementCenter } from '../elements/arrow-binding';
+import { getElementBounds } from '../elements/element-bounds';
 import { snapPoint } from '../core/snap';
 
 const BIND_THRESHOLD = 20;

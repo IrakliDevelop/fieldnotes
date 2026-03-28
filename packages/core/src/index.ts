@@ -9,7 +9,7 @@ export { AutoSave } from './core/auto-save';
 export type { AutoSaveOptions } from './core/auto-save';
 
 export { Camera } from './canvas/camera';
-export type { CameraOptions } from './canvas/camera';
+export type { CameraOptions, CameraChangeInfo } from './canvas/camera';
 export { Background } from './canvas/background';
 export type { BackgroundOptions, BackgroundPattern } from './canvas/background';
 export { InputHandler } from './canvas/input-handler';
