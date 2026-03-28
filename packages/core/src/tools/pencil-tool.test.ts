@@ -140,13 +140,65 @@ describe('PencilTool', () => {
   describe('getOptions', () => {
     it('returns current options', () => {
       const tool = new PencilTool({ color: '#ff0000', width: 5, smoothing: 2 });
-      expect(tool.getOptions()).toEqual({ color: '#ff0000', width: 5, smoothing: 2 });
+      const opts = tool.getOptions();
+      expect(opts.color).toBe('#ff0000');
+      expect(opts.width).toBe(5);
+      expect(opts.smoothing).toBe(2);
     });
 
     it('reflects changes from setOptions', () => {
       const tool = new PencilTool();
       tool.setOptions({ color: '#00ff00' });
-      expect(tool.getOptions()).toEqual({ color: '#00ff00', width: 2, smoothing: 1.5 });
+      const opts = tool.getOptions();
+      expect(opts.color).toBe('#00ff00');
+      expect(opts.width).toBe(2);
+      expect(opts.smoothing).toBe(1.5);
+    });
+  });
+
+  describe('point subsampling', () => {
+    it('skips points closer than minPointDistance', () => {
+      const tool = new PencilTool({ minPointDistance: 5 });
+      const ctx = makeCtx();
+
+      tool.onPointerDown(pt(0, 0), ctx);
+      // Move only 1 pixel — should be skipped
+      tool.onPointerMove(pt(1, 0), ctx);
+      // Move 10 pixels — should be added
+      tool.onPointerMove(pt(10, 0), ctx);
+      tool.onPointerUp(pt(10, 0), ctx);
+
+      // Should have 2 points (start + the 10px move), not 3
+      const added = ctx.store.getAll();
+      expect(added.length).toBe(1);
+      const stroke = added[0];
+      expect(stroke?.type).toBe('stroke');
+      if (stroke?.type === 'stroke') {
+        expect(stroke.points.length).toBe(2);
+      }
+    });
+
+    it('always accepts the first point', () => {
+      const tool = new PencilTool({ minPointDistance: 100 });
+      const ctx = makeCtx();
+
+      tool.onPointerDown(pt(0, 0), ctx);
+      tool.onPointerUp(pt(0, 0), ctx);
+      // Too few points for a stroke — nothing added, but no error
+      expect(ctx.store.count).toBe(0);
+    });
+
+    it('exposes minPointDistance and progressiveSimplifyThreshold via getOptions', () => {
+      const tool = new PencilTool({ minPointDistance: 10, progressiveSimplifyThreshold: 500 });
+      const opts = tool.getOptions();
+      expect(opts.minPointDistance).toBe(10);
+      expect(opts.progressiveSimplifyThreshold).toBe(500);
+    });
+
+    it('updates minPointDistance via setOptions', () => {
+      const tool = new PencilTool();
+      tool.setOptions({ minPointDistance: 20 });
+      expect(tool.getOptions().minPointDistance).toBe(20);
     });
   });
 

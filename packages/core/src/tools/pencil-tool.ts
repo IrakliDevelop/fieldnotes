@@ -7,11 +7,16 @@ export interface PencilToolOptions {
   color?: string;
   width?: number;
   smoothing?: number;
+  minPointDistance?: number;
+  progressiveSimplifyThreshold?: number;
 }
 
 const MIN_POINTS_FOR_STROKE = 2;
 const DEFAULT_SMOOTHING = 1.5;
 const DEFAULT_PRESSURE = 0.5;
+const DEFAULT_MIN_POINT_DISTANCE = 3;
+const DEFAULT_PROGRESSIVE_THRESHOLD = 200;
+const PROGRESSIVE_HOT_ZONE = 30;
 
 export class PencilTool implements Tool {
   readonly name = 'pencil';
@@ -20,12 +25,17 @@ export class PencilTool implements Tool {
   private color: string;
   private width: number;
   private smoothing: number;
+  private minPointDistance: number;
+  private progressiveThreshold: number;
   private optionListeners = new Set<() => void>();
 
   constructor(options: PencilToolOptions = {}) {
     this.color = options.color ?? '#000000';
     this.width = options.width ?? 2;
     this.smoothing = options.smoothing ?? DEFAULT_SMOOTHING;
+    this.minPointDistance = options.minPointDistance ?? DEFAULT_MIN_POINT_DISTANCE;
+    this.progressiveThreshold =
+      options.progressiveSimplifyThreshold ?? DEFAULT_PROGRESSIVE_THRESHOLD;
   }
 
   onActivate(ctx: ToolContext): void {
@@ -37,7 +47,13 @@ export class PencilTool implements Tool {
   }
 
   getOptions(): PencilToolOptions {
-    return { color: this.color, width: this.width, smoothing: this.smoothing };
+    return {
+      color: this.color,
+      width: this.width,
+      smoothing: this.smoothing,
+      minPointDistance: this.minPointDistance,
+      progressiveSimplifyThreshold: this.progressiveThreshold,
+    };
   }
 
   onOptionsChange(listener: () => void): () => void {
@@ -49,6 +65,9 @@ export class PencilTool implements Tool {
     if (options.color !== undefined) this.color = options.color;
     if (options.width !== undefined) this.width = options.width;
     if (options.smoothing !== undefined) this.smoothing = options.smoothing;
+    if (options.minPointDistance !== undefined) this.minPointDistance = options.minPointDistance;
+    if (options.progressiveSimplifyThreshold !== undefined)
+      this.progressiveThreshold = options.progressiveSimplifyThreshold;
     this.notifyOptionsChange();
   }
 
@@ -63,7 +82,24 @@ export class PencilTool implements Tool {
     if (!this.drawing) return;
     const world = ctx.camera.screenToWorld({ x: state.x, y: state.y });
     const pressure = state.pressure === 0 ? DEFAULT_PRESSURE : state.pressure;
+
+    const last = this.points[this.points.length - 1];
+    if (last) {
+      const dx = world.x - last.x;
+      const dy = world.y - last.y;
+      if (dx * dx + dy * dy < this.minPointDistance * this.minPointDistance) return;
+    }
+
     this.points.push({ x: world.x, y: world.y, pressure });
+
+    // Progressively simplify the cold zone to bound memory on very long strokes
+    if (this.points.length > this.progressiveThreshold) {
+      const hotZone = this.points.slice(-PROGRESSIVE_HOT_ZONE);
+      const coldZone = this.points.slice(0, -PROGRESSIVE_HOT_ZONE);
+      const simplified = simplifyPoints(coldZone, this.smoothing * 2);
+      this.points = [...simplified, ...hotZone];
+    }
+
     ctx.requestRender();
   }
 
