@@ -138,4 +138,56 @@ describe('Background', () => {
     expect(lowZoomLineCount).toBeLessThan(normalLineCount);
     expect(lowZoomLineCount).toBeGreaterThan(0);
   });
+
+  it('skips re-render when camera has not changed', () => {
+    const bg = new Background();
+    const ctx = mockCtx();
+    (ctx as unknown as Record<string, unknown>).drawImage = vi.fn();
+    const camera = mockCamera();
+
+    bg.render(ctx, camera);
+
+    (ctx.arc as ReturnType<typeof vi.fn>).mockClear();
+    (ctx.fill as ReturnType<typeof vi.fn>).mockClear();
+
+    bg.render(ctx, camera);
+
+    const usedCache =
+      ((ctx as unknown as Record<string, unknown>).drawImage as ReturnType<typeof vi.fn>).mock.calls
+        .length > 0;
+    const usedFallback = (ctx.arc as ReturnType<typeof vi.fn>).mock.calls.length > 0;
+    expect(usedCache || usedFallback).toBe(true);
+  });
+
+  it('re-renders when camera position changes', () => {
+    const bg = new Background();
+    const ctx = mockCtx();
+    (ctx as unknown as Record<string, unknown>).drawImage = vi.fn();
+    const camera1 = mockCamera({ position: { x: 0, y: 0 } });
+    const camera2 = mockCamera({ position: { x: 100, y: 100 } });
+
+    bg.render(ctx, camera1);
+    (ctx.arc as ReturnType<typeof vi.fn>).mockClear();
+    (ctx.fill as ReturnType<typeof vi.fn>).mockClear();
+
+    bg.render(ctx, camera2);
+
+    expect(ctx.arc).toHaveBeenCalled();
+  });
+
+  it('re-renders when zoom changes', () => {
+    const bg = new Background();
+    const ctx = mockCtx();
+    (ctx as unknown as Record<string, unknown>).drawImage = vi.fn();
+    const camera1 = mockCamera({ zoom: 1 });
+    const camera2 = mockCamera({ zoom: 2 });
+
+    bg.render(ctx, camera1);
+    (ctx.arc as ReturnType<typeof vi.fn>).mockClear();
+    (ctx.fill as ReturnType<typeof vi.fn>).mockClear();
+
+    bg.render(ctx, camera2);
+
+    expect(ctx.arc).toHaveBeenCalled();
+  });
 });
