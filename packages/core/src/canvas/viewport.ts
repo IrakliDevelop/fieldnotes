@@ -23,6 +23,7 @@ import { LayerManager } from '../layers/layer-manager';
 import { InteractMode } from './interact-mode';
 import { DomNodeManager } from './dom-node-manager';
 import { RenderLoop } from './render-loop';
+import { LayerCache } from './layer-cache';
 
 export interface ViewportOptions {
   camera?: CameraOptions;
@@ -114,6 +115,11 @@ export class Viewport {
       getNode: (id) => this.domNodeManager.getNode(id),
     });
 
+    const layerCache = new LayerCache(
+      this.canvasEl.clientWidth || 800,
+      this.canvasEl.clientHeight || 600,
+    );
+
     this.renderLoop = new RenderLoop({
       canvasEl: this.canvasEl,
       camera: this.camera,
@@ -123,6 +129,7 @@ export class Viewport {
       toolManager: this.toolManager,
       layerManager: this.layerManager,
       domNodeManager: this.domNodeManager,
+      layerCache,
     });
 
     this.unsubCamera = this.camera.onChange(() => {
@@ -131,15 +138,23 @@ export class Viewport {
     });
 
     this.unsubStore = [
-      this.store.on('add', () => this.requestRender()),
+      this.store.on('add', (el) => {
+        this.renderLoop.markLayerDirty(el.layerId);
+        this.requestRender();
+      }),
       this.store.on('remove', (el) => {
         this.unbindArrowsFrom(el);
         this.domNodeManager.removeDomNode(el.id);
+        this.renderLoop.markLayerDirty(el.layerId);
         this.requestRender();
       }),
-      this.store.on('update', () => this.requestRender()),
+      this.store.on('update', ({ current }) => {
+        this.renderLoop.markLayerDirty(current.layerId);
+        this.requestRender();
+      }),
       this.store.on('clear', () => {
         this.domNodeManager.clearDomNodes();
+        this.renderLoop.markAllLayersDirty();
         this.requestRender();
       }),
     ];
