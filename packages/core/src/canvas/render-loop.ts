@@ -139,6 +139,7 @@ export class RenderLoop {
 
     const allElements = this.store.getAll();
     const layerElements = new Map<string, typeof allElements>();
+    const gridElements: typeof allElements = [];
     let domZIndex = 0;
 
     for (const element of allElements) {
@@ -159,12 +160,23 @@ export class RenderLoop {
         continue;
       }
 
+      // Grids are viewport-filling and recompute on every pan — skip caching
+      if (element.type === 'grid') {
+        gridElements.push(element);
+        continue;
+      }
+
       let group = layerElements.get(element.layerId);
       if (!group) {
         group = [];
         layerElements.set(element.layerId, group);
       }
       group.push(element);
+    }
+
+    // Render grids directly to main canvas (they fill the viewport every frame)
+    for (const grid of gridElements) {
+      this.renderer.renderCanvasElement(ctx, grid);
     }
 
     for (const [layerId, elements] of layerElements) {

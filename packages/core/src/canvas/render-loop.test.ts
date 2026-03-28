@@ -346,5 +346,23 @@ describe('RenderLoop', () => {
       renderLoop.markAllLayersDirty();
       expect(deps.layerCache.markAllDirty).toHaveBeenCalled();
     });
+
+    it('renders grid elements directly to main canvas, not through layer cache', () => {
+      vi.mocked(deps.layerCache.isDirty).mockReturnValue(true);
+      const gridElement = {
+        id: 'grid-1',
+        type: 'grid',
+        layerId: 'default',
+        position: { x: 0, y: 0 },
+      };
+      vi.mocked(deps.store.getAll).mockReturnValue([gridElement] as never);
+
+      renderLoop.requestRender();
+      renderLoop.flush();
+
+      // Grid should be rendered directly, not sent to the offscreen layer cache
+      expect(deps.renderer.renderCanvasElement).toHaveBeenCalled();
+      expect(deps.layerCache.getContext).not.toHaveBeenCalled();
+    });
   });
 });
