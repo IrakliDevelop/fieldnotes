@@ -11,7 +11,14 @@ import { getEdgeIntersection } from './arrow-binding';
 import { getElementBounds } from './element-bounds';
 import { getStrokeRenderData } from './stroke-cache';
 import type { ElementStore } from './element-store';
-import { renderSquareGrid, renderHexGrid } from './grid-renderer';
+import {
+  renderSquareGrid,
+  renderHexGrid,
+  createHexGridTile,
+  renderHexGridTiled,
+} from './grid-renderer';
+import type { HexGridTile } from './grid-renderer';
+import type { HexOrientation } from './types';
 import type { Camera } from '../canvas/camera';
 
 const DOM_ELEMENT_TYPES = new Set(['note', 'html', 'text']);
@@ -24,6 +31,8 @@ export class ElementRenderer {
   private onImageLoad: (() => void) | null = null;
   private camera: Camera | null = null;
   private canvasSize: { w: number; h: number } | null = null;
+  private hexTileCache: HexGridTile | null = null;
+  private hexTileCacheKey = '';
 
   setStore(store: ElementStore): void {
     this.store = store;
@@ -251,15 +260,29 @@ export class ElementRenderer {
     };
 
     if (grid.gridType === 'hex') {
-      renderHexGrid(
-        ctx,
-        bounds,
+      const dpr = typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1;
+      const scale = cam.zoom * dpr;
+      const tile = this.getHexTile(
         grid.cellSize,
         grid.hexOrientation,
         grid.strokeColor,
         grid.strokeWidth,
         grid.opacity,
+        scale,
       );
+      if (tile) {
+        renderHexGridTiled(ctx, bounds, grid.cellSize, tile, scale);
+      } else {
+        renderHexGrid(
+          ctx,
+          bounds,
+          grid.cellSize,
+          grid.hexOrientation,
+          grid.strokeColor,
+          grid.strokeWidth,
+          grid.opacity,
+        );
+      }
     } else {
       renderSquareGrid(
         ctx,
@@ -282,6 +305,26 @@ export class ElementRenderer {
       image.size.w,
       image.size.h,
     );
+  }
+
+  private getHexTile(
+    cellSize: number,
+    orientation: HexOrientation,
+    strokeColor: string,
+    strokeWidth: number,
+    opacity: number,
+    scale: number,
+  ): HexGridTile | null {
+    const key = `${cellSize}:${orientation}:${strokeColor}:${strokeWidth}:${opacity}:${scale}`;
+    if (this.hexTileCacheKey === key && this.hexTileCache) {
+      return this.hexTileCache;
+    }
+    const tile = createHexGridTile(cellSize, orientation, strokeColor, strokeWidth, opacity, scale);
+    if (tile) {
+      this.hexTileCache = tile;
+      this.hexTileCacheKey = key;
+    }
+    return tile;
   }
 
   private getImage(src: string): ImageBitmap | HTMLImageElement | null {

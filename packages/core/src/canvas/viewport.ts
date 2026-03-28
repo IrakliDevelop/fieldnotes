@@ -23,6 +23,7 @@ import { LayerManager } from '../layers/layer-manager';
 import { InteractMode } from './interact-mode';
 import { DomNodeManager } from './dom-node-manager';
 import { RenderLoop } from './render-loop';
+import type { RenderStatsSnapshot } from './render-stats';
 import { LayerCache } from './layer-cache';
 
 export interface ViewportOptions {
@@ -311,6 +312,20 @@ export class Viewport {
     this.store.remove(grid.id);
     this.historyRecorder.commit();
     this.requestRender();
+  }
+
+  getRenderStats(): RenderStatsSnapshot {
+    return this.renderLoop.getStats();
+  }
+
+  logPerformance(intervalMs = 2000): () => void {
+    const id = setInterval(() => {
+      const s = this.getRenderStats();
+      console.log(
+        `[FieldNotes] fps=${s.fps} frame=${s.avgFrameMs}ms p95=${s.p95FrameMs}ms grid=${s.lastGridMs}ms`,
+      );
+    }, intervalMs);
+    return () => clearInterval(id);
   }
 
   destroy(): void {

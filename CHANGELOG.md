@@ -6,6 +6,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ---
 
+## [0.8.9] — 2026-03-28
+
+### Performance
+
+- **Pattern-tiled hex grid rendering** — render a small repeating hex tile once, fill the viewport with `createPattern` + `fillRect`. Reduces hex grid from O(rows×cols) to O(1) regardless of zoom level (~250x faster on large grids: 4 fps → 1000+ fps)
+- **Precomputed trig offsets** for hex grid — eliminate per-hex cos/sin calls and array allocations
+- **Grid offscreen canvas cache** — static-camera frames served from a cached `drawImage` (sub-0.1ms)
+
+### Added
+
+- `viewport.getRenderStats()` — returns `RenderStatsSnapshot` with fps, avgFrameMs, p95FrameMs, lastGridMs, frameCount
+- `viewport.logPerformance(intervalMs?)` — starts periodic console logging of render stats, returns stop function
+
+### Fixed
+
+- Grid now renders on top of images and other layer elements (was behind them)
+
+---
+
 ## [0.8.8] — 2026-03-28
 
 ### Performance

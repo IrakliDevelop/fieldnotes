@@ -40,6 +40,15 @@ export class RenderLoop {
   private lastCamX: number;
   private lastCamY: number;
   private readonly stats = new RenderStats();
+  private lastGridMs = 0;
+  private gridCacheCanvas: HTMLCanvasElement | null = null;
+  private gridCacheCtx: CanvasRenderingContext2D | null = null;
+  private gridCacheZoom = -1;
+  private gridCacheCamX = -Infinity;
+  private gridCacheCamY = -Infinity;
+  private gridCacheWidth = 0;
+  private gridCacheHeight = 0;
+  private lastGridRef: unknown = null;
 
   constructor(deps: RenderLoopDeps) {
     this.canvasEl = deps.canvasEl;
@@ -112,6 +121,37 @@ export class RenderLoop {
     ctx.scale(1 / dpr, 1 / dpr);
     ctx.drawImage(cached as CanvasImageSource, 0, 0);
     ctx.restore();
+  }
+
+  private ensureGridCache(cssWidth: number, cssHeight: number, dpr: number): void {
+    if (
+      this.gridCacheCanvas !== null &&
+      this.gridCacheWidth === cssWidth &&
+      this.gridCacheHeight === cssHeight
+    ) {
+      return;
+    }
+
+    const physWidth = Math.round(cssWidth * dpr);
+    const physHeight = Math.round(cssHeight * dpr);
+
+    if (typeof OffscreenCanvas !== 'undefined') {
+      this.gridCacheCanvas = new OffscreenCanvas(
+        physWidth,
+        physHeight,
+      ) as unknown as HTMLCanvasElement;
+    } else if (typeof document !== 'undefined') {
+      const el = document.createElement('canvas');
+      el.width = physWidth;
+      el.height = physHeight;
+      this.gridCacheCanvas = el;
+    } else {
+      this.gridCacheCanvas = null;
+      this.gridCacheCtx = null;
+      return;
+    }
+
+    this.gridCacheCtx = this.gridCacheCanvas.getContext('2d') as CanvasRenderingContext2D | null;
   }
 
   private render(): void {
@@ -193,11 +233,6 @@ export class RenderLoop {
       group.push(element);
     }
 
-    // Render grids directly to main canvas (they fill the viewport every frame)
-    for (const grid of gridElements) {
-      this.renderer.renderCanvasElement(ctx, grid);
-    }
-
     for (const [layerId, elements] of layerElements) {
       const isActiveDrawingLayer = layerId === this.activeDrawingLayerId;
 
@@ -233,6 +268,58 @@ export class RenderLoop {
       }
     }
 
+    // Render grids on top of layer elements
+    if (gridElements.length > 0) {
+      const gridT0 = performance.now();
+      const gridRef = gridElements[0];
+      const gridCacheHit =
+        this.gridCacheCanvas !== null &&
+        currentZoom === this.gridCacheZoom &&
+        currentCamX === this.gridCacheCamX &&
+        currentCamY === this.gridCacheCamY &&
+        cssWidth === this.gridCacheWidth &&
+        cssHeight === this.gridCacheHeight &&
+        gridRef === this.lastGridRef;
+
+      if (gridCacheHit) {
+        ctx.save();
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.drawImage(this.gridCacheCanvas as CanvasImageSource, 0, 0);
+        ctx.restore();
+      } else {
+        this.ensureGridCache(cssWidth, cssHeight, dpr);
+        if (this.gridCacheCtx && this.gridCacheCanvas) {
+          const gc = this.gridCacheCtx;
+          gc.clearRect(0, 0, this.gridCacheCanvas.width, this.gridCacheCanvas.height);
+          gc.save();
+          gc.scale(dpr, dpr);
+          gc.translate(currentCamX, currentCamY);
+          gc.scale(currentZoom, currentZoom);
+          for (const grid of gridElements) {
+            this.renderer.renderCanvasElement(gc as CanvasRenderingContext2D, grid);
+          }
+          gc.restore();
+
+          ctx.save();
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+          ctx.drawImage(this.gridCacheCanvas as CanvasImageSource, 0, 0);
+          ctx.restore();
+        } else {
+          for (const grid of gridElements) {
+            this.renderer.renderCanvasElement(ctx, grid);
+          }
+        }
+
+        this.gridCacheZoom = currentZoom;
+        this.gridCacheCamX = currentCamX;
+        this.gridCacheCamY = currentCamY;
+        this.gridCacheWidth = cssWidth;
+        this.gridCacheHeight = cssHeight;
+        this.lastGridRef = gridRef;
+      }
+      this.lastGridMs = performance.now() - gridT0;
+    }
+
     const activeTool = this.toolManager.activeTool;
     if (activeTool?.renderOverlay) {
       activeTool.renderOverlay(ctx);
@@ -241,6 +328,6 @@ export class RenderLoop {
     ctx.restore();
     ctx.restore();
 
-    this.stats.recordFrame(performance.now() - t0);
+    this.stats.recordFrame(performance.now() - t0, this.lastGridMs);
   }
 }

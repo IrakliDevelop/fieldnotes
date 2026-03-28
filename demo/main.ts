@@ -579,6 +579,8 @@ function syncGridPanelFromStore() {
 
 syncGridPanelFromStore();
 
+viewport.logPerformance(2000);
+
 const info = document.getElementById('info');
 if (info) {
   const updateInfo = () => {
