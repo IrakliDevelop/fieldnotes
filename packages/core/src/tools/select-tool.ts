@@ -477,7 +477,11 @@ export class SelectTool implements Tool {
   }
 
   private hitTest(world: Point, ctx: ToolContext): CanvasElement | null {
-    const candidates = ctx.store.queryPoint(world).reverse();
+    // Inflate query by hit radius so strokes/arrows near the point are included
+    const r = 10;
+    const candidates = ctx.store
+      .queryRect({ x: world.x - r, y: world.y - r, w: r * 2, h: r * 2 })
+      .reverse();
     for (const el of candidates) {
       if (ctx.isLayerVisible && !ctx.isLayerVisible(el.layerId)) continue;
       if (ctx.isLayerLocked && ctx.isLayerLocked(el.layerId)) continue;
