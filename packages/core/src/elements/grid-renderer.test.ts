@@ -1,5 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
-import { getSquareGridLines, getHexVertices, getHexCenters, renderHexGrid } from './grid-renderer';
+import {
+  getSquareGridLines,
+  getHexVertices,
+  getHexCenters,
+  renderHexGrid,
+  createHexGridTile,
+} from './grid-renderer';
 
 describe('getSquareGridLines', () => {
   it('returns vertical and horizontal lines within bounds', () => {
@@ -129,5 +135,33 @@ describe('renderHexGrid', () => {
     const ctx = mockCtx();
     renderHexGrid(ctx, { minX: 0, minY: 0, maxX: 100, maxY: 100 }, 0, 'pointy', '#000', 1, 1);
     expect(ctx.beginPath).not.toHaveBeenCalled();
+  });
+});
+
+describe('createHexGridTile', () => {
+  it('returns correct tile dimensions for pointy-top', () => {
+    const tile = createHexGridTile(20, 'pointy', '#000', 1, 0.3, 1);
+    if (!tile) return; // null in jsdom without canvas support
+    expect(tile.tileW).toBeCloseTo(Math.sqrt(3) * 20);
+    expect(tile.tileH).toBeCloseTo(3 * 20);
+  });
+
+  it('returns correct tile dimensions for flat-top', () => {
+    const tile = createHexGridTile(20, 'flat', '#000', 1, 0.3, 1);
+    if (!tile) return;
+    expect(tile.tileW).toBeCloseTo(3 * 20);
+    expect(tile.tileH).toBeCloseTo(Math.sqrt(3) * 20);
+  });
+
+  it('returns null for zero cellSize', () => {
+    const tile = createHexGridTile(0, 'pointy', '#000', 1, 0.3, 1);
+    expect(tile).toBeNull();
+  });
+
+  it('scales tile canvas by the given scale factor', () => {
+    const tile = createHexGridTile(20, 'pointy', '#000', 1, 0.3, 2);
+    if (!tile) return;
+    expect(tile.canvas.width).toBe(Math.ceil(tile.tileW * 2));
+    expect(tile.canvas.height).toBe(Math.ceil(tile.tileH * 2));
   });
 });

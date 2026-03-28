@@ -222,3 +222,136 @@ export function renderHexGrid(
   ctx.stroke();
   ctx.restore();
 }
+
+export interface HexGridTile {
+  canvas: HTMLCanvasElement | OffscreenCanvas;
+  tileW: number;
+  tileH: number;
+}
+
+export function createHexGridTile(
+  cellSize: number,
+  orientation: HexOrientation,
+  strokeColor: string,
+  strokeWidth: number,
+  opacity: number,
+  scale: number,
+): HexGridTile | null {
+  let tileW: number;
+  let tileH: number;
+  if (orientation === 'pointy') {
+    tileW = Math.sqrt(3) * cellSize;
+    tileH = 3 * cellSize;
+  } else {
+    tileW = 3 * cellSize;
+    tileH = Math.sqrt(3) * cellSize;
+  }
+
+  const pxW = Math.ceil(tileW * scale);
+  const pxH = Math.ceil(tileH * scale);
+  if (pxW <= 0 || pxH <= 0) return null;
+
+  let canvas: HTMLCanvasElement | OffscreenCanvas;
+  if (typeof OffscreenCanvas !== 'undefined') {
+    canvas = new OffscreenCanvas(pxW, pxH);
+  } else if (typeof document !== 'undefined') {
+    const el = document.createElement('canvas');
+    el.width = pxW;
+    el.height = pxH;
+    canvas = el;
+  } else {
+    return null;
+  }
+
+  const tc = canvas.getContext('2d') as CanvasRenderingContext2D | null;
+  if (!tc) return null;
+
+  tc.scale(scale, scale);
+  tc.beginPath();
+  tc.rect(0, 0, tileW, tileH);
+  tc.clip();
+
+  const angleOffset = orientation === 'pointy' ? -Math.PI / 2 : 0;
+  const ox0 = cellSize * Math.cos(angleOffset);
+  const oy0 = cellSize * Math.sin(angleOffset);
+  const ox1 = cellSize * Math.cos(Math.PI / 3 + angleOffset);
+  const oy1 = cellSize * Math.sin(Math.PI / 3 + angleOffset);
+  const ox2 = cellSize * Math.cos((2 * Math.PI) / 3 + angleOffset);
+  const oy2 = cellSize * Math.sin((2 * Math.PI) / 3 + angleOffset);
+  const ox3 = cellSize * Math.cos(Math.PI + angleOffset);
+  const oy3 = cellSize * Math.sin(Math.PI + angleOffset);
+  const ox4 = cellSize * Math.cos((4 * Math.PI) / 3 + angleOffset);
+  const oy4 = cellSize * Math.sin((4 * Math.PI) / 3 + angleOffset);
+  const ox5 = cellSize * Math.cos((5 * Math.PI) / 3 + angleOffset);
+  const oy5 = cellSize * Math.sin((5 * Math.PI) / 3 + angleOffset);
+
+  tc.strokeStyle = strokeColor;
+  tc.lineWidth = strokeWidth;
+  tc.globalAlpha = opacity;
+  tc.beginPath();
+
+  if (orientation === 'pointy') {
+    const hexW = tileW;
+    const rowH = 1.5 * cellSize;
+    for (let row = -1; row <= 3; row++) {
+      const offX = row % 2 !== 0 ? hexW / 2 : 0;
+      for (let col = -1; col <= 1; col++) {
+        const cx = col * hexW + offX;
+        const cy = row * rowH;
+        tc.moveTo(cx + ox0, cy + oy0);
+        tc.lineTo(cx + ox1, cy + oy1);
+        tc.lineTo(cx + ox2, cy + oy2);
+        tc.lineTo(cx + ox3, cy + oy3);
+        tc.lineTo(cx + ox4, cy + oy4);
+        tc.lineTo(cx + ox5, cy + oy5);
+        tc.closePath();
+      }
+    }
+  } else {
+    const hexH = tileH;
+    const colW = 1.5 * cellSize;
+    for (let col = -1; col <= 3; col++) {
+      const offY = col % 2 !== 0 ? hexH / 2 : 0;
+      for (let row = -1; row <= 1; row++) {
+        const cx = col * colW;
+        const cy = row * hexH + offY;
+        tc.moveTo(cx + ox0, cy + oy0);
+        tc.lineTo(cx + ox1, cy + oy1);
+        tc.lineTo(cx + ox2, cy + oy2);
+        tc.lineTo(cx + ox3, cy + oy3);
+        tc.lineTo(cx + ox4, cy + oy4);
+        tc.lineTo(cx + ox5, cy + oy5);
+        tc.closePath();
+      }
+    }
+  }
+
+  tc.stroke();
+  return { canvas, tileW, tileH };
+}
+
+export function renderHexGridTiled(
+  ctx: CanvasRenderingContext2D,
+  bounds: VisibleBounds,
+  cellSize: number,
+  tile: HexGridTile,
+  scale: number,
+): void {
+  const pattern = ctx.createPattern(tile.canvas as CanvasImageSource, 'repeat');
+  if (!pattern) return;
+
+  const mat = new DOMMatrix();
+  mat.scaleSelf(1 / scale, 1 / scale);
+  pattern.setTransform(mat);
+
+  ctx.save();
+  ctx.fillStyle = pattern;
+  const pad = cellSize * 2;
+  ctx.fillRect(
+    bounds.minX - pad,
+    bounds.minY - pad,
+    bounds.maxX - bounds.minX + pad * 2,
+    bounds.maxY - bounds.minY + pad * 2,
+  );
+  ctx.restore();
+}
