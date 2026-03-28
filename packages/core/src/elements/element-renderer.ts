@@ -9,7 +9,7 @@ import type {
 import { getArrowControlPoint, getArrowTangentAngle } from './arrow-geometry';
 import { getEdgeIntersection } from './arrow-binding';
 import { getElementBounds } from './element-bounds';
-import { smoothToSegments, pressureToWidth } from './stroke-smoothing';
+import { getStrokeRenderData } from './stroke-cache';
 import type { ElementStore } from './element-store';
 import { renderSquareGrid, renderHexGrid } from './grid-renderer';
 import type { Camera } from '../canvas/camera';
@@ -75,12 +75,11 @@ export class ElementRenderer {
     ctx.lineJoin = 'round';
     ctx.globalAlpha = stroke.opacity;
 
-    const segments = smoothToSegments(stroke.points);
-    for (const seg of segments) {
-      const w =
-        (pressureToWidth(seg.start.pressure, stroke.width) +
-          pressureToWidth(seg.end.pressure, stroke.width)) /
-        2;
+    const { segments, widths } = getStrokeRenderData(stroke);
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i];
+      const w = widths[i];
+      if (!seg || w === undefined) continue;
       ctx.lineWidth = w;
       ctx.beginPath();
       ctx.moveTo(seg.start.x, seg.start.y);
