@@ -148,8 +148,11 @@ export class Viewport {
         this.renderLoop.markLayerDirty(el.layerId);
         this.requestRender();
       }),
-      this.store.on('update', ({ current }) => {
+      this.store.on('update', ({ previous, current }) => {
         this.renderLoop.markLayerDirty(current.layerId);
+        if (previous.layerId !== current.layerId) {
+          this.renderLoop.markLayerDirty(previous.layerId);
+        }
         this.requestRender();
       }),
       this.store.on('clear', () => {
