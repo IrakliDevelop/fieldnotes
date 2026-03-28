@@ -142,6 +142,7 @@ interface ArrowElement extends BaseElement {
   width: number;
   fromBinding?: Binding; // Snap tail to another element
   toBinding?: Binding; // Snap head to another element
+  cachedControlPoint?: Point; // Derived from from/to/bend, safe to omit in serialized state
 }
 
 interface ImageElement extends BaseElement {
