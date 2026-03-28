@@ -54,7 +54,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ### Performance
 
-- **Per-layer offscreen canvas caching** with "pan-is-free" optimization — each layer renders to an offscreen canvas, re-composited without re-rendering when only the camera moves
+- **Per-layer offscreen canvas caching** — each layer renders to an offscreen canvas; unchanged layers are re-composited without re-rendering
 - **Quadtree spatial index** — O(log n) element queries for hit-testing and viewport culling, replacing full-array scans
 - **Viewport culling** — skip off-screen elements in the render loop
 - **Pencil tool optimization** — distance-based point subsampling and progressive simplification to reduce stroke complexity
@@ -68,7 +68,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ### Fixed
 
-- Layer cache clipping for elements far from world origin (camera translation in offscreen rendering)
+- Layer cache clipping for elements far from world origin (camera translation in offscreen rendering). Note: initial "pan-is-free" optimization (reuse cached layer on pan without re-rendering) was removed as part of this fix — panning now invalidates all layer caches. Multi-layer caching still applies (unchanged layers skip re-rendering).
 - Grid elements render directly to main canvas, bypassing layer cache
 - Compounding progressive simplification on pencil strokes
 - Source layer marked dirty when element moves between layers
@@ -100,7 +100,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ### Fixed
 
-- Cross-origin image URLs cache-busted to avoid tainted canvas on export
+- Cross-origin image URLs cache-busted to avoid tainted canvas on export (completes the fix started in 0.8.1 — that initial fix set `crossOrigin='anonymous'` but the browser cache could still serve the tainted pre-CORS response; this adds a `_cors=1` cache-buster to force a fresh CORS request)
 
 ---
 
@@ -108,7 +108,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ### Fixed
 
-- Cross-origin image export tainted canvas error
+- Cross-origin image export tainted canvas error (partial — see 0.8.4 for the complete fix)
 
 ---
 

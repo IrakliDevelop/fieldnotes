@@ -16,6 +16,9 @@ A lightweight, framework-agnostic infinite canvas SDK for the web — with first
 - **Select & multi-select** — click, drag box, move, resize (layer-aware)
 - **Undo / redo** — full history stack with configurable depth
 - **State serialization** — export/import JSON snapshots with automatic migration
+- **Grids** — square and hex grid overlays for D&D maps and alignment
+- **Export** — PNG export with scale, padding, background, and element filter options
+- **Performance instrumentation** — `getRenderStats()` and `logPerformance()` for frame timing
 - **Touch & tablet** — Pointer Events API, pinch-to-zoom, two-finger pan, stylus pressure
 - **Zero dependencies** — vanilla TypeScript, no framework required
 - **Tree-shakeable** — ESM + CJS output
@@ -100,6 +103,56 @@ viewport.addImage('/assets/map.png', { x: 0, y: 0 }, { w: 800, h: 600 });
 ```
 
 > **Important: Use URLs, not base64 data URLs.** Images are stored inline in the serialized state. A single base64-encoded photo can be 2-5MB, which will blow past the `localStorage` ~5MB quota and make JSON exports impractical. Upload images to your server or CDN and use the URL. For offline/local-first apps, store blobs in IndexedDB and reference them by URL.
+
+## Grids
+
+Add square or hex grid overlays — useful for D&D combat maps, alignment, or graph paper backgrounds. Grids always render on top of images and other layer elements.
+
+```typescript
+// Add a hex grid
+viewport.addGrid({
+  gridType: 'hex',
+  hexOrientation: 'pointy', // 'pointy' | 'flat'
+  cellSize: 40,
+  strokeColor: '#cccccc',
+  strokeWidth: 1,
+  opacity: 0.5,
+});
+
+// Update grid properties
+viewport.updateGrid({ cellSize: 50, strokeColor: '#aaaaaa' });
+
+// Remove grid
+viewport.removeGrid();
+```
+
+## Image Export
+
+Export the canvas as a PNG image:
+
+```typescript
+const blob = await viewport.exportImage({
+  scale: 2, // pixel density (default 2)
+  padding: 20, // world-space padding around content (default 0)
+  background: '#fff', // fill color (default '#ffffff')
+  filter: (el) => el.type !== 'html', // optional per-element filter
+});
+```
+
+HTML elements are excluded from image exports (DOM cannot be rasterized to canvas). Cross-origin images are handled automatically via CORS cache-busting.
+
+## Performance Monitoring
+
+```typescript
+// Get a snapshot of render stats
+const stats = viewport.getRenderStats();
+// { fps, avgFrameMs, p95FrameMs, lastGridMs, frameCount }
+
+// Log stats to console every 2 seconds (returns stop function)
+const stop = viewport.logPerformance(2000);
+// [FieldNotes] fps=60 frame=1.2ms p95=2.1ms grid=0.1ms
+stop(); // stop logging
+```
 
 ## Camera Control
 
@@ -347,15 +400,16 @@ interface BaseElement {
 }
 ```
 
-| Type     | Key Fields                                                             |
-| -------- | ---------------------------------------------------------------------- |
-| `stroke` | `points: StrokePoint[]`, `color`, `width`, `opacity`                   |
-| `note`   | `size`, `text`, `backgroundColor`, `textColor`                         |
-| `arrow`  | `from`, `to`, `bend`, `color`, `width`, `fromBinding`, `toBinding`     |
-| `image`  | `size`, `src`                                                          |
-| `shape`  | `size`, `shape` (`rectangle` \| `ellipse`), `strokeColor`, `fillColor` |
-| `text`   | `size`, `text`, `fontSize`, `color`, `textAlign`                       |
-| `html`   | `size`                                                                 |
+| Type     | Key Fields                                                                             |
+| -------- | -------------------------------------------------------------------------------------- |
+| `stroke` | `points: StrokePoint[]`, `color`, `width`, `opacity`                                   |
+| `note`   | `size`, `text`, `backgroundColor`, `textColor`                                         |
+| `arrow`  | `from`, `to`, `bend`, `color`, `width`, `fromBinding`, `toBinding`                     |
+| `image`  | `size`, `src`                                                                          |
+| `shape`  | `size`, `shape` (`rectangle` \| `ellipse`), `strokeColor`, `fillColor`                 |
+| `text`   | `size`, `text`, `fontSize`, `color`, `textAlign`                                       |
+| `grid`   | `gridType` (`square` \| `hex`), `hexOrientation`, `cellSize`, `strokeColor`, `opacity` |
+| `html`   | `size`                                                                                 |
 
 ## Built-in Interactions
 
