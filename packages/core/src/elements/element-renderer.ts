@@ -20,7 +20,7 @@ const ARROWHEAD_ANGLE = Math.PI / 6;
 
 export class ElementRenderer {
   private store: ElementStore | null = null;
-  private imageCache = new Map<string, HTMLImageElement>();
+  private imageCache = new Map<string, ImageBitmap | HTMLImageElement>();
   private onImageLoad: (() => void) | null = null;
   private camera: Camera | null = null;
   private canvasSize: { w: number; h: number } | null = null;
@@ -275,17 +275,39 @@ export class ElementRenderer {
   private renderImage(ctx: CanvasRenderingContext2D, image: ImageElement): void {
     const img = this.getImage(image.src);
     if (!img) return;
-    ctx.drawImage(img, image.position.x, image.position.y, image.size.w, image.size.h);
+    ctx.drawImage(
+      img as CanvasImageSource,
+      image.position.x,
+      image.position.y,
+      image.size.w,
+      image.size.h,
+    );
   }
 
-  private getImage(src: string): HTMLImageElement | null {
+  private getImage(src: string): ImageBitmap | HTMLImageElement | null {
     const cached = this.imageCache.get(src);
-    if (cached) return cached.complete ? cached : null;
+    if (cached) {
+      if (cached instanceof HTMLImageElement) return cached.complete ? cached : null;
+      return cached;
+    }
 
     const img = new Image();
     img.src = src;
     this.imageCache.set(src, img);
-    img.onload = () => this.onImageLoad?.();
+    img.onload = () => {
+      this.onImageLoad?.();
+      // Decode from already-loaded image in memory, not a re-fetch
+      if (typeof createImageBitmap !== 'undefined') {
+        createImageBitmap(img)
+          .then((bitmap) => {
+            this.imageCache.set(src, bitmap);
+            this.onImageLoad?.();
+          })
+          .catch(() => {
+            /* keep HTMLImageElement fallback — handles CORS rejection */
+          });
+      }
+    };
     return null;
   }
 }
