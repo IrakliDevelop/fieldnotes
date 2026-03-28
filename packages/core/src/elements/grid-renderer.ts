@@ -336,13 +336,16 @@ export function renderHexGridTiled(
   cellSize: number,
   tile: HexGridTile,
   scale: number,
+  camX: number,
+  camY: number,
+  dpr: number,
 ): void {
   const pattern = ctx.createPattern(tile.canvas as CanvasImageSource, 'repeat');
   if (!pattern) return;
 
   const mat = new DOMMatrix();
+  mat.translateSelf(camX * dpr, camY * dpr);
   mat.scaleSelf(1 / scale, 1 / scale);
-  pattern.setTransform(mat);
 
   ctx.save();
   ctx.fillStyle = pattern;

@@ -271,7 +271,16 @@ export class ElementRenderer {
         scale,
       );
       if (tile) {
-        renderHexGridTiled(ctx, bounds, grid.cellSize, tile, scale);
+        renderHexGridTiled(
+          ctx,
+          bounds,
+          grid.cellSize,
+          tile,
+          scale,
+          cam.position.x,
+          cam.position.y,
+          dpr,
+        );
       } else {
         renderHexGrid(
           ctx,
