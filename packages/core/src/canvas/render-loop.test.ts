@@ -112,6 +112,7 @@ function mockCtx(): CanvasRenderingContext2D {
     translate: vi.fn(),
     clearRect: vi.fn(),
     drawImage: vi.fn(),
+    setTransform: vi.fn(),
   } as unknown as CanvasRenderingContext2D;
 }
 
