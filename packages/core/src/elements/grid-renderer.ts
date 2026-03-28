@@ -149,7 +149,20 @@ export function renderHexGrid(
 ): void {
   if (cellSize <= 0) return;
 
-  const centers = getHexCenters(bounds, cellSize, orientation);
+  // Precompute 6 vertex offsets once (12 trig calls total, not 12 per hex)
+  const angleOffset = orientation === 'pointy' ? -Math.PI / 2 : 0;
+  const ox0 = cellSize * Math.cos(angleOffset);
+  const oy0 = cellSize * Math.sin(angleOffset);
+  const ox1 = cellSize * Math.cos(Math.PI / 3 + angleOffset);
+  const oy1 = cellSize * Math.sin(Math.PI / 3 + angleOffset);
+  const ox2 = cellSize * Math.cos((2 * Math.PI) / 3 + angleOffset);
+  const oy2 = cellSize * Math.sin((2 * Math.PI) / 3 + angleOffset);
+  const ox3 = cellSize * Math.cos(Math.PI + angleOffset);
+  const oy3 = cellSize * Math.sin(Math.PI + angleOffset);
+  const ox4 = cellSize * Math.cos((4 * Math.PI) / 3 + angleOffset);
+  const oy4 = cellSize * Math.sin((4 * Math.PI) / 3 + angleOffset);
+  const ox5 = cellSize * Math.cos((5 * Math.PI) / 3 + angleOffset);
+  const oy5 = cellSize * Math.sin((5 * Math.PI) / 3 + angleOffset);
 
   ctx.save();
   ctx.strokeStyle = strokeColor;
@@ -157,17 +170,53 @@ export function renderHexGrid(
   ctx.globalAlpha = opacity;
   ctx.beginPath();
 
-  for (const center of centers) {
-    const verts = getHexVertices(center.x, center.y, cellSize, orientation);
-    const first = verts[0];
-    if (!first) continue;
-    ctx.moveTo(first.x, first.y);
-    for (let i = 1; i < verts.length; i++) {
-      const v = verts[i];
-      if (!v) continue;
-      ctx.lineTo(v.x, v.y);
+  // Inline center iteration — zero allocations per hex
+  if (orientation === 'pointy') {
+    const hexW = Math.sqrt(3) * cellSize;
+    const rowH = 1.5 * cellSize;
+
+    const startRow = Math.floor((bounds.minY - cellSize) / rowH);
+    const endRow = Math.ceil((bounds.maxY + cellSize) / rowH);
+    const startCol = Math.floor((bounds.minX - hexW) / hexW);
+    const endCol = Math.ceil((bounds.maxX + hexW) / hexW);
+
+    for (let row = startRow; row <= endRow; row++) {
+      const offX = row % 2 !== 0 ? hexW / 2 : 0;
+      for (let col = startCol; col <= endCol; col++) {
+        const cx = col * hexW + offX;
+        const cy = row * rowH;
+        ctx.moveTo(cx + ox0, cy + oy0);
+        ctx.lineTo(cx + ox1, cy + oy1);
+        ctx.lineTo(cx + ox2, cy + oy2);
+        ctx.lineTo(cx + ox3, cy + oy3);
+        ctx.lineTo(cx + ox4, cy + oy4);
+        ctx.lineTo(cx + ox5, cy + oy5);
+        ctx.closePath();
+      }
     }
-    ctx.closePath();
+  } else {
+    const hexH = Math.sqrt(3) * cellSize;
+    const colW = 1.5 * cellSize;
+
+    const startCol = Math.floor((bounds.minX - cellSize) / colW);
+    const endCol = Math.ceil((bounds.maxX + cellSize) / colW);
+    const startRow = Math.floor((bounds.minY - hexH) / hexH);
+    const endRow = Math.ceil((bounds.maxY + hexH) / hexH);
+
+    for (let col = startCol; col <= endCol; col++) {
+      const offY = col % 2 !== 0 ? hexH / 2 : 0;
+      for (let row = startRow; row <= endRow; row++) {
+        const cx = col * colW;
+        const cy = row * hexH + offY;
+        ctx.moveTo(cx + ox0, cy + oy0);
+        ctx.lineTo(cx + ox1, cy + oy1);
+        ctx.lineTo(cx + ox2, cy + oy2);
+        ctx.lineTo(cx + ox3, cy + oy3);
+        ctx.lineTo(cx + ox4, cy + oy4);
+        ctx.lineTo(cx + ox5, cy + oy5);
+        ctx.closePath();
+      }
+    }
   }
 
   ctx.stroke();
