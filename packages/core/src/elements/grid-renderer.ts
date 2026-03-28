@@ -343,18 +343,21 @@ export function renderHexGridTiled(
   const pattern = ctx.createPattern(tile.canvas as CanvasImageSource, 'repeat');
   if (!pattern) return;
 
+  // Work in physical pixel space to avoid canvas transform / pattern interaction
   const mat = new DOMMatrix();
   mat.translateSelf(camX * dpr, camY * dpr);
-  mat.scaleSelf(1 / scale, 1 / scale);
+  pattern.setTransform(mat);
 
   ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.fillStyle = pattern;
+
+  const zoom = scale / dpr;
   const pad = cellSize * 2;
-  ctx.fillRect(
-    bounds.minX - pad,
-    bounds.minY - pad,
-    bounds.maxX - bounds.minX + pad * 2,
-    bounds.maxY - bounds.minY + pad * 2,
-  );
+  const left = ((bounds.minX - pad) * zoom + camX) * dpr;
+  const top = ((bounds.minY - pad) * zoom + camY) * dpr;
+  const width = (bounds.maxX - bounds.minX + pad * 2) * zoom * dpr;
+  const height = (bounds.maxY - bounds.minY + pad * 2) * zoom * dpr;
+  ctx.fillRect(left, top, width, height);
   ctx.restore();
 }
