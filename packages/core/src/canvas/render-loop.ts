@@ -283,7 +283,7 @@ export class RenderLoop {
 
       if (gridCacheHit) {
         ctx.save();
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.drawImage(this.gridCacheCanvas as CanvasImageSource, 0, 0);
         ctx.restore();
       } else {
@@ -301,7 +301,7 @@ export class RenderLoop {
           gc.restore();
 
           ctx.save();
-          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+          ctx.setTransform(1, 0, 0, 1, 0, 0);
           ctx.drawImage(this.gridCacheCanvas as CanvasImageSource, 0, 0);
           ctx.restore();
         } else {

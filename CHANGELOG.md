@@ -6,11 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ---
 
+## [0.8.10] — 2026-03-28
+
+### Fixed
+
+- **Hex grid swimming during pan/zoom** — grid offscreen cache was composited at `scale(dpr)` instead of identity, causing the grid to drift relative to elements on high-DPI displays
+
+---
+
 ## [0.8.9] — 2026-03-28
 
 ### Performance
 
-- **Pattern-tiled hex grid rendering** — render a small repeating hex tile once, fill the viewport with `createPattern` + `fillRect`. Reduces hex grid from O(rows×cols) to O(1) regardless of zoom level (~250x faster on large grids: 4 fps → 1000+ fps)
+- **Tiled hex grid rendering** — render a small repeating hex tile once, fill the viewport via `drawImage` tiling. Reduces hex grid from O(rows×cols) to near-constant regardless of zoom level (~250x faster on large grids: 4 fps → 1000+ fps)
 - **Precomputed trig offsets** for hex grid — eliminate per-hex cos/sin calls and array allocations
 - **Grid offscreen canvas cache** — static-camera frames served from a cached `drawImage` (sub-0.1ms)
 

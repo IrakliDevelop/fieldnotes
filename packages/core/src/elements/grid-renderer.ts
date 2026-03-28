@@ -335,29 +335,17 @@ export function renderHexGridTiled(
   bounds: VisibleBounds,
   cellSize: number,
   tile: HexGridTile,
-  scale: number,
-  camX: number,
-  camY: number,
-  dpr: number,
 ): void {
-  const pattern = ctx.createPattern(tile.canvas as CanvasImageSource, 'repeat');
-  if (!pattern) return;
+  const { tileW, tileH } = tile;
 
-  // Work in physical pixel space to avoid canvas transform / pattern interaction
-  const mat = new DOMMatrix();
-  mat.translateSelf(camX * dpr, camY * dpr);
-  pattern.setTransform(mat);
+  const startCol = Math.floor(bounds.minX / tileW) - 1;
+  const endCol = Math.ceil(bounds.maxX / tileW) + 1;
+  const startRow = Math.floor(bounds.minY / tileH) - 1;
+  const endRow = Math.ceil(bounds.maxY / tileH) + 1;
 
-  ctx.save();
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.fillStyle = pattern;
-
-  const zoom = scale / dpr;
-  const pad = cellSize * 2;
-  const left = ((bounds.minX - pad) * zoom + camX) * dpr;
-  const top = ((bounds.minY - pad) * zoom + camY) * dpr;
-  const width = (bounds.maxX - bounds.minX + pad * 2) * zoom * dpr;
-  const height = (bounds.maxY - bounds.minY + pad * 2) * zoom * dpr;
-  ctx.fillRect(left, top, width, height);
-  ctx.restore();
+  for (let row = startRow; row <= endRow; row++) {
+    for (let col = startCol; col <= endCol; col++) {
+      ctx.drawImage(tile.canvas as CanvasImageSource, col * tileW, row * tileH, tileW, tileH);
+    }
+  }
 }
