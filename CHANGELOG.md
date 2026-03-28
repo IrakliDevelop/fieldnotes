@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ---
 
+## [0.8.11] — 2026-03-28
+
+### Fixed
+
+- **Images not visible until pan/zoom** — async image loads called `requestRender()` but didn't invalidate the layer cache, so the stale (empty) cached layer was reused until the camera moved
+
+---
+
 ## [0.8.10] — 2026-03-28
 
 ### Fixed
