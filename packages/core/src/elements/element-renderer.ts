@@ -106,7 +106,7 @@ export class ElementRenderer {
     ctx.moveTo(visualFrom.x, visualFrom.y);
 
     if (arrow.bend !== 0) {
-      const cp = getArrowControlPoint(arrow.from, arrow.to, arrow.bend);
+      const cp = arrow.cachedControlPoint ?? getArrowControlPoint(arrow.from, arrow.to, arrow.bend);
       ctx.quadraticCurveTo(cp.x, cp.y, visualTo.x, visualTo.y);
     } else {
       ctx.lineTo(visualTo.x, visualTo.y);
