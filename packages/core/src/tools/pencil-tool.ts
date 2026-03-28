@@ -27,6 +27,7 @@ export class PencilTool implements Tool {
   private smoothing: number;
   private minPointDistance: number;
   private progressiveThreshold: number;
+  private nextSimplifyAt: number;
   private optionListeners = new Set<() => void>();
 
   constructor(options: PencilToolOptions = {}) {
@@ -36,6 +37,7 @@ export class PencilTool implements Tool {
     this.minPointDistance = options.minPointDistance ?? DEFAULT_MIN_POINT_DISTANCE;
     this.progressiveThreshold =
       options.progressiveSimplifyThreshold ?? DEFAULT_PROGRESSIVE_THRESHOLD;
+    this.nextSimplifyAt = this.progressiveThreshold;
   }
 
   onActivate(ctx: ToolContext): void {
@@ -76,6 +78,7 @@ export class PencilTool implements Tool {
     const world = ctx.camera.screenToWorld({ x: state.x, y: state.y });
     const pressure = state.pressure === 0 ? DEFAULT_PRESSURE : state.pressure;
     this.points = [{ x: world.x, y: world.y, pressure }];
+    this.nextSimplifyAt = this.progressiveThreshold;
   }
 
   onPointerMove(state: PointerState, ctx: ToolContext): void {
@@ -92,12 +95,14 @@ export class PencilTool implements Tool {
 
     this.points.push({ x: world.x, y: world.y, pressure });
 
-    // Progressively simplify the cold zone to bound memory on very long strokes
-    if (this.points.length > this.progressiveThreshold) {
+    // Progressively simplify the cold zone to bound memory on very long strokes.
+    // nextSimplifyAt doubles after each pass to avoid compounding data loss.
+    if (this.points.length > this.nextSimplifyAt) {
       const hotZone = this.points.slice(-PROGRESSIVE_HOT_ZONE);
       const coldZone = this.points.slice(0, -PROGRESSIVE_HOT_ZONE);
       const simplified = simplifyPoints(coldZone, this.smoothing * 2);
       this.points = [...simplified, ...hotZone];
+      this.nextSimplifyAt = this.points.length + this.progressiveThreshold;
     }
 
     ctx.requestRender();

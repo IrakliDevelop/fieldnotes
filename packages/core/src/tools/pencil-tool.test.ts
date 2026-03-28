@@ -172,10 +172,8 @@ describe('PencilTool', () => {
       const added = ctx.store.getAll();
       expect(added.length).toBe(1);
       const stroke = added[0];
-      expect(stroke?.type).toBe('stroke');
-      if (stroke?.type === 'stroke') {
-        expect(stroke.points.length).toBe(2);
-      }
+      if (!stroke || stroke.type !== 'stroke') throw new Error('expected stroke');
+      expect(stroke.points.length).toBe(2);
     });
 
     it('always accepts the first point', () => {
@@ -199,6 +197,26 @@ describe('PencilTool', () => {
       const tool = new PencilTool();
       tool.setOptions({ minPointDistance: 20 });
       expect(tool.getOptions().minPointDistance).toBe(20);
+    });
+
+    it('progressively simplifies long strokes to stay bounded', () => {
+      const tool = new PencilTool({
+        minPointDistance: 0,
+        progressiveSimplifyThreshold: 20,
+      });
+      const ctx = makeCtx();
+
+      tool.onPointerDown(pt(0, 0), ctx);
+      for (let i = 1; i <= 50; i++) {
+        tool.onPointerMove(pt(i * 10, i % 5), ctx);
+      }
+      tool.onPointerUp(pt(500, 0), ctx);
+
+      const stroke = ctx.store.getAll()[0];
+      if (!stroke || stroke.type !== 'stroke') throw new Error('expected stroke');
+      // With threshold 20 and 51 raw points, simplification should have reduced the count
+      expect(stroke.points.length).toBeLessThan(51);
+      expect(stroke.points.length).toBeGreaterThan(2);
     });
   });
 
