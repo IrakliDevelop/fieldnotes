@@ -1,4 +1,4 @@
-export const VERSION = '0.8.6';
+export const VERSION = '0.8.7';
 
 export { EventBus } from './core/event-bus';
 export { Quadtree } from './core/quadtree';
@@ -18,6 +18,7 @@ export { Viewport } from './canvas/viewport';
 export type { ViewportOptions } from './canvas/viewport';
 export { exportImage } from './canvas/export-image';
 export type { ExportImageOptions } from './canvas/export-image';
+export type { RenderStatsSnapshot } from './canvas/render-stats';
 
 export { ElementStore } from './elements/element-store';
 export type { ElementUpdateEvent } from './elements/element-store';

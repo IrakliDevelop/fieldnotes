@@ -8,6 +8,8 @@ import type { DomNodeManager } from './dom-node-manager';
 import type { LayerCache } from './layer-cache';
 import type { Bounds } from '../core/types';
 import { getElementBounds, boundsIntersect } from '../elements/element-bounds';
+import { RenderStats } from './render-stats';
+import type { RenderStatsSnapshot } from './render-stats';
 
 export interface RenderLoopDeps {
   canvasEl: HTMLCanvasElement;
@@ -35,6 +37,9 @@ export class RenderLoop {
   private readonly layerCache: LayerCache;
   private activeDrawingLayerId: string | null = null;
   private lastZoom: number;
+  private lastCamX: number;
+  private lastCamY: number;
+  private readonly stats = new RenderStats();
 
   constructor(deps: RenderLoopDeps) {
     this.canvasEl = deps.canvasEl;
@@ -47,6 +52,8 @@ export class RenderLoop {
     this.domNodeManager = deps.domNodeManager;
     this.layerCache = deps.layerCache;
     this.lastZoom = deps.camera.zoom;
+    this.lastCamX = deps.camera.position.x;
+    this.lastCamY = deps.camera.position.y;
   }
 
   requestRender(): void {
@@ -93,18 +100,22 @@ export class RenderLoop {
     this.layerCache.markAllDirty();
   }
 
+  getStats(): RenderStatsSnapshot {
+    return this.stats.getSnapshot();
+  }
+
   private compositeLayerCache(ctx: CanvasRenderingContext2D, layerId: string, dpr: number): void {
     const cached = this.layerCache.getCanvas(layerId);
     ctx.save();
     ctx.scale(1 / this.camera.zoom, 1 / this.camera.zoom);
     ctx.translate(-this.camera.position.x, -this.camera.position.y);
     ctx.scale(1 / dpr, 1 / dpr);
-    ctx.translate(this.camera.position.x * dpr, this.camera.position.y * dpr);
     ctx.drawImage(cached as CanvasImageSource, 0, 0);
     ctx.restore();
   }
 
   private render(): void {
+    const t0 = performance.now();
     const ctx = this.canvasEl.getContext('2d');
     if (!ctx) return;
 
@@ -113,9 +124,17 @@ export class RenderLoop {
     const cssHeight = this.canvasEl.clientHeight;
 
     const currentZoom = this.camera.zoom;
-    if (currentZoom !== this.lastZoom) {
+    const currentCamX = this.camera.position.x;
+    const currentCamY = this.camera.position.y;
+    if (
+      currentZoom !== this.lastZoom ||
+      currentCamX !== this.lastCamX ||
+      currentCamY !== this.lastCamY
+    ) {
       this.layerCache.markAllDirty();
       this.lastZoom = currentZoom;
+      this.lastCamX = currentCamX;
+      this.lastCamY = currentCamY;
     }
 
     ctx.save();
@@ -198,6 +217,7 @@ export class RenderLoop {
         offCtx.clearRect(0, 0, offCanvas.width, offCanvas.height);
         offCtx.save();
         offCtx.scale(dpr, dpr);
+        offCtx.translate(this.camera.position.x, this.camera.position.y);
         offCtx.scale(this.camera.zoom, this.camera.zoom);
 
         for (const element of elements) {
@@ -220,5 +240,7 @@ export class RenderLoop {
 
     ctx.restore();
     ctx.restore();
+
+    this.stats.recordFrame(performance.now() - t0);
   }
 }
