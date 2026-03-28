@@ -5,6 +5,8 @@ import type { ElementRenderer } from '../elements/element-renderer';
 import type { ToolManager } from '../tools/tool-manager';
 import type { LayerManager } from '../layers/layer-manager';
 import type { DomNodeManager } from './dom-node-manager';
+import type { Bounds } from '../core/types';
+import { getElementBounds, boundsIntersect } from '../elements/element-bounds';
 
 export interface RenderLoopDeps {
   canvasEl: HTMLCanvasElement;
@@ -86,6 +88,18 @@ export class RenderLoop {
     ctx.translate(this.camera.position.x, this.camera.position.y);
     ctx.scale(this.camera.zoom, this.camera.zoom);
 
+    const visibleRect = this.camera.getVisibleRect(
+      this.canvasEl.clientWidth,
+      this.canvasEl.clientHeight,
+    );
+    const margin = Math.max(visibleRect.w, visibleRect.h) * 0.1;
+    const cullingRect: Bounds = {
+      x: visibleRect.x - margin,
+      y: visibleRect.y - margin,
+      w: visibleRect.w + margin * 2,
+      h: visibleRect.h + margin * 2,
+    };
+
     const allElements = this.store.getAll();
     let domZIndex = 0;
     for (const element of allElements) {
@@ -95,6 +109,15 @@ export class RenderLoop {
         }
         continue;
       }
+
+      const elBounds = getElementBounds(element);
+      if (elBounds && !boundsIntersect(elBounds, cullingRect)) {
+        if (this.renderer.isDomElement(element)) {
+          this.domNodeManager.hideDomNode(element.id);
+        }
+        continue;
+      }
+
       if (this.renderer.isDomElement(element)) {
         this.domNodeManager.syncDomNode(element, domZIndex++);
       } else {

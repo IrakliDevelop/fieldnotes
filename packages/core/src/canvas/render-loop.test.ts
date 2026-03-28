@@ -17,14 +17,22 @@ function createMockDeps() {
   const camera = {
     position: { x: 0, y: 0 },
     zoom: 1,
-  } as Camera;
+    getVisibleRect: vi.fn().mockReturnValue({ x: 0, y: 0, w: 800, h: 600 }),
+    screenToWorld: vi.fn().mockReturnValue({ x: 0, y: 0 }),
+  } as unknown as Camera;
 
   const background = {
     render: vi.fn(),
   } as unknown as Background;
 
   const elements = [
-    { id: 'el-1', type: 'stroke', layerId: 'default', position: { x: 0, y: 0 } },
+    {
+      id: 'el-1',
+      type: 'stroke',
+      layerId: 'default',
+      position: { x: 0, y: 0 },
+      points: [{ x: 0, y: 0, pressure: 1 }],
+    },
     {
       id: 'el-2',
       type: 'note',
@@ -153,5 +161,76 @@ describe('RenderLoop', () => {
     expect(cafSpy).toHaveBeenCalled();
     rafSpy.mockRestore();
     cafSpy.mockRestore();
+  });
+
+  describe('viewport culling', () => {
+    beforeEach(() => {
+      Object.defineProperty(deps.canvasEl, 'clientWidth', { value: 800, configurable: true });
+      Object.defineProperty(deps.canvasEl, 'clientHeight', { value: 600, configurable: true });
+    });
+
+    it('skips canvas elements outside the visible viewport', () => {
+      const offScreenStroke = {
+        id: 'off-1',
+        type: 'stroke',
+        layerId: 'default',
+        position: { x: 5000, y: 5000 },
+        points: [{ x: 0, y: 0, pressure: 1 }],
+      };
+      vi.mocked(deps.store.getAll).mockReturnValue([offScreenStroke] as never);
+
+      renderLoop.requestRender();
+      renderLoop.flush();
+
+      expect(deps.renderer.renderCanvasElement).not.toHaveBeenCalled();
+    });
+
+    it('renders canvas elements inside the visible viewport', () => {
+      const onScreenRect = {
+        id: 'on-1',
+        type: 'rectangle',
+        layerId: 'default',
+        position: { x: 50, y: 50 },
+        size: { w: 100, h: 100 },
+      };
+      vi.mocked(deps.store.getAll).mockReturnValue([onScreenRect] as never);
+
+      renderLoop.requestRender();
+      renderLoop.flush();
+
+      expect(deps.renderer.renderCanvasElement).toHaveBeenCalled();
+    });
+
+    it('hides DOM elements outside the visible viewport', () => {
+      const offScreenNote = {
+        id: 'off-note',
+        type: 'note',
+        layerId: 'default',
+        position: { x: 5000, y: 5000 },
+        size: { w: 200, h: 200 },
+      };
+      vi.mocked(deps.store.getAll).mockReturnValue([offScreenNote] as never);
+
+      renderLoop.requestRender();
+      renderLoop.flush();
+
+      expect(deps.domNodeManager.hideDomNode).toHaveBeenCalledWith('off-note');
+      expect(deps.domNodeManager.syncDomNode).not.toHaveBeenCalled();
+    });
+
+    it('always renders grid elements regardless of position', () => {
+      const gridElement = {
+        id: 'grid-1',
+        type: 'grid',
+        layerId: 'default',
+        position: { x: 0, y: 0 },
+      };
+      vi.mocked(deps.store.getAll).mockReturnValue([gridElement] as never);
+
+      renderLoop.requestRender();
+      renderLoop.flush();
+
+      expect(deps.renderer.renderCanvasElement).toHaveBeenCalled();
+    });
   });
 });
