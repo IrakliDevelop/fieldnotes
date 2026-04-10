@@ -4,7 +4,7 @@ export { EventBus } from './core/event-bus';
 export { Quadtree } from './core/quadtree';
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
 export { exportState, parseState } from './core/state-serializer';
-export { snapPoint } from './core/snap';
+export { snapPoint, smartSnap, snapToHexCenter } from './core/snap';
 export type { CanvasState } from './core/state-serializer';
 export { AutoSave } from './core/auto-save';
 export type { AutoSaveOptions } from './core/auto-save';
@@ -98,6 +98,8 @@ export { ImageTool } from './tools/image-tool';
 export type { ImageToolOptions } from './tools/image-tool';
 export { ShapeTool } from './tools/shape-tool';
 export type { ShapeToolOptions } from './tools/shape-tool';
+export { MeasureTool } from './tools/measure-tool';
+export type { MeasureToolOptions, Measurement } from './tools/measure-tool';
 export type { Tool, ToolContext, PointerState, ToolName } from './tools/types';
 
 export { LayerManager } from './layers/layer-manager';

@@ -47,4 +47,5 @@ export type ToolName =
   | 'note'
   | 'image'
   | 'text'
-  | 'shape';
+  | 'shape'
+  | 'measure';
