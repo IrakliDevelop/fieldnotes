@@ -86,6 +86,19 @@ export interface GridElement extends BaseElement {
   opacity: number;
 }
 
+export type TemplateShape = 'circle' | 'cone' | 'line' | 'square';
+
+export interface TemplateElement extends BaseElement {
+  type: 'template';
+  templateShape: TemplateShape;
+  radius: number;
+  angle: number;
+  fillColor: string;
+  strokeColor: string;
+  strokeWidth: number;
+  opacity: number;
+}
+
 export type CanvasElement =
   | StrokeElement
   | NoteElement
@@ -94,6 +107,7 @@ export type CanvasElement =
   | HtmlElement
   | TextElement
   | ShapeElement
-  | GridElement;
+  | GridElement
+  | TemplateElement;
 
 export type ElementType = CanvasElement['type'];
