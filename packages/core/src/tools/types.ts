@@ -1,5 +1,6 @@
 import type { Camera } from '../canvas/camera';
 import type { ElementStore } from '../elements/element-store';
+import type { HexOrientation } from '../elements/types';
 
 export interface ToolContext {
   camera: Camera;
@@ -10,6 +11,8 @@ export interface ToolContext {
   setCursor?: (cursor: string) => void;
   snapToGrid?: boolean;
   gridSize?: number;
+  gridType?: 'square' | 'hex';
+  hexOrientation?: HexOrientation;
   activeLayerId?: string;
   isLayerVisible?: (layerId: string) => boolean;
   isLayerLocked?: (layerId: string) => boolean;
