@@ -143,16 +143,19 @@ export class Viewport {
 
     this.unsubStore = [
       this.store.on('add', (el) => {
+        if (el.type === 'grid') this.syncGridContext();
         this.renderLoop.markLayerDirty(el.layerId);
         this.requestRender();
       }),
       this.store.on('remove', (el) => {
+        if (el.type === 'grid') this.syncGridContext();
         this.unbindArrowsFrom(el);
         this.domNodeManager.removeDomNode(el.id);
         this.renderLoop.markLayerDirty(el.layerId);
         this.requestRender();
       }),
       this.store.on('update', ({ previous, current }) => {
+        if (current.type === 'grid') this.syncGridContext();
         this.renderLoop.markLayerDirty(current.layerId);
         if (previous.layerId !== current.layerId) {
           this.renderLoop.markLayerDirty(previous.layerId);
@@ -177,6 +180,7 @@ export class Viewport {
     this.observeResize();
     this.syncCanvasSize();
     this.renderLoop.start();
+    this.syncGridContext();
   }
 
   get ctx(): CanvasRenderingContext2D | null {
@@ -534,6 +538,19 @@ export class Viewport {
     const dpr = typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1;
     this.renderLoop.setCanvasSize(rect.width * dpr, rect.height * dpr);
     this.requestRender();
+  }
+
+  private syncGridContext(): void {
+    const grid = this.store.getElementsByType('grid')[0];
+    if (grid) {
+      this.toolContext.gridSize = grid.cellSize;
+      this.toolContext.gridType = grid.gridType;
+      this.toolContext.hexOrientation = grid.hexOrientation;
+    } else {
+      this.toolContext.gridSize = this._gridSize;
+      this.toolContext.gridType = undefined;
+      this.toolContext.hexOrientation = undefined;
+    }
   }
 
   private observeResize(): void {
