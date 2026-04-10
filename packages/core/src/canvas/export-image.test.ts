@@ -8,6 +8,7 @@ import {
   createText,
   createShape,
   createGrid,
+  createTemplate,
 } from '../elements/element-factory';
 
 describe('getElementRect', () => {
@@ -60,6 +61,12 @@ describe('getElementRect', () => {
       expect(rect.x).toBeLessThan(0);
       expect(rect.w).toBeGreaterThan(100);
     }
+  });
+
+  it('returns bounds for a template element', () => {
+    const t = createTemplate({ position: { x: 100, y: 100 }, templateShape: 'circle', radius: 30 });
+    const rect = getElementRect(t);
+    expect(rect).toEqual({ x: 70, y: 70, w: 60, h: 60 });
   });
 
   it('returns null for grid elements', () => {
