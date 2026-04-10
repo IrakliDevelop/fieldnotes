@@ -2,6 +2,7 @@ import type { CanvasElement, NoteElement, TextElement, GridElement } from '../el
 import type { ElementStore } from '../elements/element-store';
 import { ElementRenderer } from '../elements/element-renderer';
 import { getArrowBounds } from '../elements/arrow-geometry';
+import { getElementBounds } from '../elements/element-bounds';
 import { renderSquareGrid, renderHexGrid } from '../elements/grid-renderer';
 import type { LayerManager } from '../layers/layer-manager';
 
@@ -57,6 +58,11 @@ function getElementRect(el: CanvasElement): Rect | null {
     }
     case 'grid':
       return null;
+    case 'template': {
+      const bounds = getElementBounds(el);
+      if (!bounds) return null;
+      return bounds;
+    }
     case 'note':
     case 'image':
     case 'html':
