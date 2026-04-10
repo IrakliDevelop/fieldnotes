@@ -97,6 +97,8 @@ export interface TemplateElement extends BaseElement {
   strokeColor: string;
   strokeWidth: number;
   opacity: number;
+  feetPerCell?: number;
+  radiusFeet?: number;
 }
 
 export type CanvasElement =

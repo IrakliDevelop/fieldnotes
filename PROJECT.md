@@ -92,7 +92,7 @@ fieldnotes/
 │   │   │   ├── canvas/        # Canvas rendering, camera/viewport system, export
 │   │   │   ├── elements/      # Element types, factory, renderer, arrow binding
 │   │   │   ├── layers/        # LayerManager, Layer type
-│   │   │   ├── tools/         # Tool system (select, pencil, eraser, arrow, note, text, shape)
+│   │   │   ├── tools/         # Tool system (select, pencil, eraser, arrow, note, text, shape, measure, template)
 │   │   │   ├── history/       # Undo/redo command stack
 │   │   │   └── index.ts       # Public API entry point
 │   │   ├── package.json
@@ -203,6 +203,21 @@ interface GridElement extends BaseElement {
   opacity: number;
 }
 
+type TemplateShape = 'circle' | 'cone' | 'line' | 'square';
+
+interface TemplateElement extends BaseElement {
+  type: 'template';
+  templateShape: TemplateShape;
+  radius: number;
+  angle: number;
+  fillColor: string;
+  strokeColor: string;
+  strokeWidth: number;
+  opacity: number;
+  feetPerCell?: number; // Feet per grid cell (default 5)
+  radiusFeet?: number; // Computed radius in feet
+}
+
 type CanvasElement =
   | StrokeElement
   | NoteElement
@@ -211,7 +226,8 @@ type CanvasElement =
   | HtmlElement
   | TextElement
   | ShapeElement
-  | GridElement;
+  | GridElement
+  | TemplateElement;
 ```
 
 ### Layer Model
@@ -257,6 +273,28 @@ canvas.removeGrid();
 
 // Tool control
 canvas.toolManager.setTool('pencil', canvas.toolContext);
+
+// D&D VTT tools — measure distances and place spell templates
+// MeasureTool: drag to measure in feet, snaps to hex/square grid
+canvas.toolManager.setTool('measure', canvas.toolContext);
+const measure = canvas.toolManager.getTool('measure') as MeasureTool;
+measure.setOptions({ feetPerCell: 5 });
+
+// TemplateTool: place area-of-effect templates (circle, cone, line, square)
+// On hex grids, templates fill actual hex cells (D&D PHB-style)
+canvas.toolManager.setTool('template', canvas.toolContext);
+const template = canvas.toolManager.getTool('template') as TemplateTool;
+template.setOptions({
+  templateShape: 'cone',
+  fillColor: 'rgba(255, 87, 34, 0.2)',
+  strokeColor: '#FF5722',
+  feetPerCell: 5,
+});
+
+// Hex fill utilities (for custom hex-based features)
+import { getHexCellsInRadius, getHexDistance, drawHexPath } from '@fieldnotes/core';
+const cells = getHexCellsInRadius(center, radiusCells, cellSize, 'pointy');
+const steps = getHexDistance(pointA, pointB, cellSize, 'pointy'); // integer hex steps
 
 // Snap-to-grid
 canvas.setSnapToGrid(true);

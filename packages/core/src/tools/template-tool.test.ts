@@ -191,6 +191,20 @@ describe('TemplateTool', () => {
     expect(el.position).toEqual({ x: 0, y: 50 });
   });
 
+  it('snaps radius to hex cell spacing on hex grid', () => {
+    const tool = new TemplateTool();
+    const cellSize = 40;
+    const hexSpacing = Math.sqrt(3) * cellSize;
+    const ctx = makeCtx({ snapToGrid: true, gridSize: cellSize, gridType: 'hex' });
+
+    tool.onPointerDown(pt(0, 0), ctx);
+    tool.onPointerMove(pt(Math.round(hexSpacing * 1.4), 0), ctx);
+    tool.onPointerUp(pt(Math.round(hexSpacing * 1.4), 0), ctx);
+
+    const el = ctx.store.getAll()[0] as TemplateElement;
+    expect(el.radius).toBeCloseTo(hexSpacing);
+  });
+
   it('does not snap current point during move (raw world coords)', () => {
     const tool = new TemplateTool();
     const ctx = makeCtx({ snapToGrid: true, gridSize: 50 });
@@ -241,6 +255,49 @@ describe('TemplateTool', () => {
     tool.onPointerMove(pt(50, 50), ctx);
 
     expect(ctx.requestRender).not.toHaveBeenCalled();
+  });
+
+  it('computes radiusFeet from grid size and feetPerCell', () => {
+    const tool = new TemplateTool({ feetPerCell: 5 });
+    const ctx = makeCtx({ gridSize: 40 });
+
+    tool.onPointerDown(pt(0, 0), ctx);
+    tool.onPointerMove(pt(80, 0), ctx);
+    tool.onPointerUp(pt(80, 0), ctx);
+
+    const el = ctx.store.getAll()[0] as TemplateElement;
+    expect(el.radiusFeet).toBe(10);
+    expect(el.feetPerCell).toBe(5);
+  });
+
+  it('sets radiusFeet undefined when grid size is missing', () => {
+    const tool = new TemplateTool({ feetPerCell: 5 });
+    const ctx = makeCtx();
+
+    tool.onPointerDown(pt(0, 0), ctx);
+    tool.onPointerMove(pt(80, 0), ctx);
+    tool.onPointerUp(pt(80, 0), ctx);
+
+    const el = ctx.store.getAll()[0] as TemplateElement;
+    expect(el.radiusFeet).toBeUndefined();
+  });
+
+  it('setOptions updates feetPerCell', () => {
+    const tool = new TemplateTool({ feetPerCell: 5 });
+    tool.setOptions({ feetPerCell: 10 });
+
+    const ctx = makeCtx({ gridSize: 40 });
+    tool.onPointerDown(pt(0, 0), ctx);
+    tool.onPointerMove(pt(80, 0), ctx);
+    tool.onPointerUp(pt(80, 0), ctx);
+
+    const el = ctx.store.getAll()[0] as TemplateElement;
+    expect(el.radiusFeet).toBe(20);
+  });
+
+  it('getOptions includes feetPerCell', () => {
+    const tool = new TemplateTool({ feetPerCell: 10 });
+    expect(tool.getOptions().feetPerCell).toBe(10);
   });
 
   it('defaults activeLayerId to empty string when not provided', () => {

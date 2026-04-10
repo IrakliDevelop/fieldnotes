@@ -181,7 +181,15 @@ export class RenderLoop {
     ctx.scale(dpr, dpr);
 
     this.renderer.setCanvasSize(cssWidth, cssHeight);
-    this.background.render(ctx, this.camera);
+    const hasGridElement = this.store.getElementsByType('grid').length > 0;
+    if (hasGridElement) {
+      ctx.save();
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, cssWidth, cssHeight);
+      ctx.restore();
+    } else {
+      this.background.render(ctx, this.camera);
+    }
 
     ctx.save();
     ctx.translate(this.camera.position.x, this.camera.position.y);

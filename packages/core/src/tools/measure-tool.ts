@@ -1,6 +1,8 @@
 import type { Point } from '../core/types';
+import type { HexOrientation } from '../elements/types';
 import type { Tool, ToolContext, PointerState } from './types';
-import { smartSnap } from '../core/snap';
+import { snapPoint, snapToHexCenter } from '../core/snap';
+import { getHexDistance } from '../elements/hex-fill';
 
 export interface MeasureToolOptions {
   feetPerCell?: number;
@@ -19,6 +21,8 @@ export class MeasureTool implements Tool {
   private start: Point | null = null;
   private end: Point | null = null;
   private gridSize = 1;
+  private gridType: 'square' | 'hex' | undefined;
+  private hexOrientation: HexOrientation | undefined;
   private feetPerCell: number;
   private optionListeners = new Set<() => void>();
 
@@ -42,15 +46,17 @@ export class MeasureTool implements Tool {
 
   onPointerDown(state: PointerState, ctx: ToolContext): void {
     this.gridSize = ctx.gridSize ?? 1;
+    this.gridType = ctx.gridType;
+    this.hexOrientation = ctx.hexOrientation;
     const world = ctx.camera.screenToWorld({ x: state.x, y: state.y });
-    this.start = smartSnap(world, ctx);
+    this.start = this.snapToGrid(world, ctx);
     this.end = { ...this.start };
   }
 
   onPointerMove(state: PointerState, ctx: ToolContext): void {
     if (!this.start) return;
     const world = ctx.camera.screenToWorld({ x: state.x, y: state.y });
-    this.end = smartSnap(world, ctx);
+    this.end = this.snapToGrid(world, ctx);
     ctx.requestRender();
   }
 
@@ -71,7 +77,15 @@ export class MeasureTool implements Tool {
     const dx = this.end.x - this.start.x;
     const dy = this.end.y - this.start.y;
     const worldDistance = Math.sqrt(dx * dx + dy * dy);
-    const cells = worldDistance / this.gridSize;
+
+    let cells: number;
+    if (this.gridType === 'hex' && this.hexOrientation) {
+      cells = getHexDistance(this.start, this.end, this.gridSize, this.hexOrientation);
+    } else {
+      const snapUnit = this.gridSize;
+      cells = worldDistance / snapUnit;
+    }
+
     const feet = cells * this.feetPerCell;
     return {
       start: { ...this.start },
@@ -119,7 +133,7 @@ export class MeasureTool implements Tool {
     ctx.beginPath();
     ctx.roundRect(
       midX - metrics.width / 2 - padX,
-      midY - textH - padY * 2,
+      midY - textH / 2 - padY,
       metrics.width + padX * 2,
       textH + padY * 2,
       4,
@@ -132,6 +146,20 @@ export class MeasureTool implements Tool {
     ctx.fillText(label, midX, midY);
 
     ctx.restore();
+  }
+
+  private snapToGrid(point: Point, ctx: ToolContext): Point {
+    if (!ctx.gridSize) return point;
+    if (ctx.gridType === 'hex' && ctx.hexOrientation) {
+      return snapToHexCenter(point, ctx.gridSize, ctx.hexOrientation);
+    }
+    if (ctx.gridType === 'square') {
+      return snapPoint(point, ctx.gridSize);
+    }
+    if (ctx.snapToGrid) {
+      return snapPoint(point, ctx.gridSize);
+    }
+    return point;
   }
 
   private notifyOptionsChange(): void {

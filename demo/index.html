@@ -284,6 +284,11 @@
       <option value="line">Line</option>
       <option value="square">Square</option>
     </select>
+    <span style="color: #999; font-size: 11px;">Fill:</span>
+    <input type="color" id="template-fill" value="#ff5722" title="Fill color" style="width:28px;height:28px;padding:2px;border:1px solid #ddd;border-radius:4px;cursor:pointer;">
+    <button id="template-no-fill" style="padding:4px 8px;border:1px solid #ddd;border-radius:4px;background:white;cursor:pointer;font-size:13px;">No Fill</button>
+    <span style="color: #999; font-size: 11px;">Stroke:</span>
+    <input type="color" id="template-stroke" value="#ff5722" title="Stroke color" style="width:28px;height:28px;padding:2px;border:1px solid #ddd;border-radius:4px;cursor:pointer;">
     <span style="color: #999; font-size: 11px;">Ft/cell:</span>
     <input type="number" id="template-feet" value="5" min="1" max="100" style="width:48px;padding:4px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
   </div>
@@ -292,21 +297,25 @@
     <span style="color: #999; font-size: 11px;">Ft/cell:</span>
     <input type="number" id="measure-feet" value="5" min="1" max="100" style="width:48px;padding:4px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
   </div>
-  <div id="grid-panel" style="position:fixed;top:70px;left:50%;transform:translateX(-50%);background:white;border:1px solid #ddd;border-radius:8px;padding:8px 12px;display:flex;gap:8px;align-items:center;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,0.08);z-index:10;">
-    <button id="grid-toggle" title="Add/remove grid">Grid: Off</button>
-    <select id="grid-type" style="padding:4px 8px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
-      <option value="square">Square</option>
-      <option value="hex" selected>Hex</option>
-    </select>
-    <select id="hex-orientation" style="padding:4px 8px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
-      <option value="pointy" selected>Pointy</option>
-      <option value="flat">Flat</option>
-    </select>
-    <label style="display:flex;align-items:center;gap:4px;">
-      Size: <input type="range" id="grid-cell-size" min="20" max="100" value="40" style="width:80px;">
-      <span id="grid-cell-size-label">40</span>
-    </label>
-    <input type="color" id="grid-color" value="#000000" title="Grid color" style="width:28px;height:28px;padding:2px;border:1px solid #ddd;border-radius:4px;cursor:pointer;">
+  <div id="grid-panel" style="position:fixed;top:70px;left:16px;background:white;border:1px solid #ddd;border-radius:8px;padding:8px 12px;display:flex;flex-direction:column;gap:8px;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,0.08);z-index:10;">
+    <div style="display:flex;gap:6px;align-items:center;">
+      <button id="grid-toggle" title="Add/remove grid">Grid: Off</button>
+      <select id="grid-type" style="padding:4px 8px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
+        <option value="square">Square</option>
+        <option value="hex" selected>Hex</option>
+      </select>
+      <select id="hex-orientation" style="padding:4px 8px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
+        <option value="pointy" selected>Pointy</option>
+        <option value="flat">Flat</option>
+      </select>
+    </div>
+    <div style="display:flex;gap:6px;align-items:center;">
+      <label style="display:flex;align-items:center;gap:4px;">
+        Size: <input type="range" id="grid-cell-size" min="20" max="100" value="40" style="width:80px;">
+        <span id="grid-cell-size-label">40</span>
+      </label>
+      <input type="color" id="grid-color" value="#000000" title="Grid color" style="width:28px;height:28px;padding:2px;border:1px solid #ddd;border-radius:4px;cursor:pointer;">
+    </div>
   </div>
   <input type="file" id="image-file" accept="image/*" style="display: none">
   <div id="layers-panel">

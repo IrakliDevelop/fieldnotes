@@ -507,6 +507,9 @@ document.getElementById('add-layer')?.addEventListener('click', () => {
 const templatePanel = document.getElementById('template-panel');
 const templateShapeSelect = document.getElementById('template-shape') as HTMLSelectElement | null;
 const templateFeetInput = document.getElementById('template-feet') as HTMLInputElement | null;
+const templateFillInput = document.getElementById('template-fill') as HTMLInputElement | null;
+const templateNoFillBtn = document.getElementById('template-no-fill') as HTMLButtonElement | null;
+const templateStrokeInput = document.getElementById('template-stroke') as HTMLInputElement | null;
 
 function updateTemplatePanel() {
   const activeTool = viewport.toolManager.activeTool?.name;
@@ -521,9 +524,22 @@ templateShapeSelect?.addEventListener('change', () => {
   });
 });
 
+templateFillInput?.addEventListener('input', () => {
+  const hex = templateFillInput.value;
+  template.setOptions({ fillColor: hex + '33' });
+});
+
+templateNoFillBtn?.addEventListener('click', () => {
+  template.setOptions({ fillColor: 'transparent' });
+});
+
+templateStrokeInput?.addEventListener('input', () => {
+  template.setOptions({ strokeColor: templateStrokeInput.value });
+});
+
 templateFeetInput?.addEventListener('input', () => {
   const feet = Number(templateFeetInput.value);
-  if (feet > 0) measure.setOptions({ feetPerCell: feet });
+  if (feet > 0) template.setOptions({ feetPerCell: feet });
 });
 
 // Measure panel

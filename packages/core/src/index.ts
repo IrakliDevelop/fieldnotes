@@ -55,6 +55,14 @@ export {
   unbindArrow,
 } from './elements/arrow-binding';
 export { getElementBounds, boundsIntersect } from './elements/element-bounds';
+export {
+  getHexDistance,
+  getHexCellsInRadius,
+  getHexCellsInCone,
+  getHexCellsInLine,
+  getHexCellsInSquare,
+  drawHexPath,
+} from './elements/hex-fill';
 export type {
   Binding,
   CanvasElement,

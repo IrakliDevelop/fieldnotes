@@ -198,4 +198,18 @@ describe('MeasureTool', () => {
     tool.onPointerUp(pt(100, 0), ctx);
     expect(ctx.requestRender).toHaveBeenCalled();
   });
+
+  it('uses hex center-to-center spacing for cell count on hex grids', () => {
+    const tool = new MeasureTool();
+    const cellSize = 40;
+    const hexSpacing = Math.sqrt(3) * cellSize;
+    const ctx = makeCtx({ gridSize: cellSize, gridType: 'hex', hexOrientation: 'pointy' });
+
+    tool.onPointerDown(pt(0, 0), ctx);
+    tool.onPointerMove(pt(Math.round(hexSpacing), 0), ctx);
+
+    const m = tool.getMeasurement();
+    expect(m?.cells).toBe(1);
+    expect(m?.feet).toBe(5);
+  });
 });

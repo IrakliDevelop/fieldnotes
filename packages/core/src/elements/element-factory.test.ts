@@ -247,5 +247,27 @@ describe('element factories', () => {
       });
       expect(t.layerId).toBe('layer-1');
     });
+
+    it('stores feetPerCell and radiusFeet when provided', () => {
+      const t = createTemplate({
+        position: { x: 0, y: 0 },
+        templateShape: 'circle',
+        radius: 80,
+        feetPerCell: 5,
+        radiusFeet: 10,
+      });
+      expect(t.feetPerCell).toBe(5);
+      expect(t.radiusFeet).toBe(10);
+    });
+
+    it('leaves feetPerCell and radiusFeet undefined when not provided', () => {
+      const t = createTemplate({
+        position: { x: 0, y: 0 },
+        templateShape: 'circle',
+        radius: 80,
+      });
+      expect(t.feetPerCell).toBeUndefined();
+      expect(t.radiusFeet).toBeUndefined();
+    });
   });
 });

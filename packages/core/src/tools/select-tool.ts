@@ -33,6 +33,7 @@ type Mode =
   | { type: 'dragging' }
   | { type: 'marquee'; start: Point }
   | { type: 'resizing'; elementId: string; handle: HandlePosition }
+  | { type: 'resizing-template'; elementId: string }
   | { type: 'arrow-handle'; elementId: string; handle: ArrowHandle };
 
 export class SelectTool implements Tool {
@@ -82,6 +83,13 @@ export class SelectTool implements Tool {
       return;
     }
 
+    const templateResizeHit = this.hitTestTemplateResizeHandle(world, ctx);
+    if (templateResizeHit) {
+      this.mode = { type: 'resizing-template', elementId: templateResizeHit };
+      ctx.requestRender();
+      return;
+    }
+
     const resizeHit = this.hitTestResizeHandle(world, ctx);
     if (resizeHit) {
       const el = ctx.store.getById(resizeHit.elementId);
@@ -121,6 +129,12 @@ export class SelectTool implements Tool {
       return;
     }
 
+    if (this.mode.type === 'resizing-template') {
+      ctx.setCursor?.('nwse-resize');
+      this.handleTemplateResize(world, ctx);
+      return;
+    }
+
     if (this.mode.type === 'resizing') {
       ctx.setCursor?.(HANDLE_CURSORS[this.mode.handle]);
       this.handleResize(world, ctx);
@@ -140,8 +154,6 @@ export class SelectTool implements Tool {
 
         if (el.type === 'arrow') {
           if (el.fromBinding || el.toBinding) {
-            // Arrow has bindings — don't allow independent dragging.
-            // Use handle drag to detach individual endpoints.
             continue;
           }
 
@@ -149,6 +161,16 @@ export class SelectTool implements Tool {
             position: { x: el.position.x + dx, y: el.position.y + dy },
             from: { x: el.from.x + dx, y: el.from.y + dy },
             to: { x: el.to.x + dx, y: el.to.y + dy },
+          });
+        } else if (ctx.gridType && 'size' in el) {
+          const centerX = el.position.x + el.size.w / 2 + dx;
+          const centerY = el.position.y + el.size.h / 2 + dy;
+          const snappedCenter = this.snap({ x: centerX, y: centerY }, ctx);
+          ctx.store.update(id, {
+            position: {
+              x: snappedCenter.x - el.size.w / 2,
+              y: snappedCenter.y - el.size.h / 2,
+            },
           });
         } else {
           ctx.store.update(id, {
@@ -234,6 +256,12 @@ export class SelectTool implements Tool {
     const arrowHit = hitTestArrowHandles(world, this._selectedIds, ctx);
     if (arrowHit) {
       ctx.setCursor?.(getArrowHandleCursor(arrowHit.handle, false));
+      return;
+    }
+
+    const templateResizeHit = this.hitTestTemplateResizeHandle(world, ctx);
+    if (templateResizeHit) {
+      ctx.setCursor?.('nwse-resize');
       return;
     }
 
@@ -405,6 +433,24 @@ export class SelectTool implements Tool {
           );
         }
         canvasCtx.setLineDash([4 / zoom, 4 / zoom]);
+      } else if (el.type === 'template') {
+        canvasCtx.setLineDash([]);
+        canvasCtx.fillStyle = '#ffffff';
+        const hx = bounds.x + bounds.w;
+        const hy = bounds.y + bounds.h;
+        canvasCtx.fillRect(
+          hx - handleWorldSize / 2,
+          hy - handleWorldSize / 2,
+          handleWorldSize,
+          handleWorldSize,
+        );
+        canvasCtx.strokeRect(
+          hx - handleWorldSize / 2,
+          hy - handleWorldSize / 2,
+          handleWorldSize,
+          handleWorldSize,
+        );
+        canvasCtx.setLineDash([4 / zoom, 4 / zoom]);
       }
     }
 
@@ -441,6 +487,55 @@ export class SelectTool implements Tool {
     }
 
     canvasCtx.restore();
+  }
+
+  private hitTestTemplateResizeHandle(world: Point, ctx: ToolContext): string | null {
+    if (this._selectedIds.length === 0) return null;
+
+    const zoom = ctx.camera.zoom;
+    const handleHalf = (HANDLE_SIZE / 2 + HANDLE_HIT_PADDING) / zoom;
+
+    for (const id of this._selectedIds) {
+      const el = ctx.store.getById(id);
+      if (!el || el.type !== 'template') continue;
+
+      const bounds = getElementBounds(el);
+      if (!bounds) continue;
+
+      const hx = bounds.x + bounds.w;
+      const hy = bounds.y + bounds.h;
+      if (Math.abs(world.x - hx) <= handleHalf && Math.abs(world.y - hy) <= handleHalf) {
+        return id;
+      }
+    }
+
+    return null;
+  }
+
+  private handleTemplateResize(world: Point, ctx: ToolContext): void {
+    if (this.mode.type !== 'resizing-template') return;
+
+    const el = ctx.store.getById(this.mode.elementId);
+    if (!el || el.type !== 'template' || el.locked) return;
+
+    const dx = world.x - el.position.x;
+    const dy = world.y - el.position.y;
+    let newRadius = Math.sqrt(dx * dx + dy * dy);
+
+    if (ctx.snapToGrid && ctx.gridSize && ctx.gridSize > 0) {
+      const snapUnit = ctx.gridType === 'hex' ? Math.sqrt(3) * ctx.gridSize : ctx.gridSize;
+      newRadius = Math.max(snapUnit, Math.round(newRadius / snapUnit) * snapUnit);
+    }
+    newRadius = Math.max(MIN_ELEMENT_SIZE, newRadius);
+
+    const updates: Record<string, unknown> = { radius: newRadius };
+    if (el.feetPerCell != null && ctx.gridSize && ctx.gridSize > 0) {
+      const snapUnit = ctx.gridType === 'hex' ? Math.sqrt(3) * ctx.gridSize : ctx.gridSize;
+      updates.radiusFeet = (newRadius / snapUnit) * el.feetPerCell;
+    }
+
+    ctx.store.update(this.mode.elementId, updates);
+    ctx.requestRender();
   }
 
   private getMarqueeRect(): Bounds | null {
@@ -514,6 +609,17 @@ export class SelectTool implements Tool {
 
     if (el.type === 'arrow') {
       return isNearBezier(point, el.from, el.to, el.bend, 10);
+    }
+
+    if (el.type === 'template') {
+      const bounds = getElementBounds(el);
+      if (!bounds) return false;
+      return (
+        point.x >= bounds.x &&
+        point.x <= bounds.x + bounds.w &&
+        point.y >= bounds.y &&
+        point.y <= bounds.y + bounds.h
+      );
     }
 
     return false;
