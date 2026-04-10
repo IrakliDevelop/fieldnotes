@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { snapPoint } from './snap';
+import { snapPoint, snapToHexCenter } from './snap';
 
 describe('snapPoint', () => {
   it('snaps to nearest grid intersection', () => {
@@ -20,5 +20,67 @@ describe('snapPoint', () => {
 
   it('works with different grid sizes', () => {
     expect(snapPoint({ x: 17, y: 33 }, 10)).toEqual({ x: 20, y: 30 });
+  });
+});
+
+describe('snapToHexCenter', () => {
+  const cellSize = 24;
+
+  describe('pointy-top', () => {
+    const hexW = Math.sqrt(3) * cellSize;
+    const rowH = 1.5 * cellSize;
+
+    it('snaps to nearest hex center at origin', () => {
+      const result = snapToHexCenter({ x: 2, y: 3 }, cellSize, 'pointy');
+      expect(result.x).toBeCloseTo(0);
+      expect(result.y).toBeCloseTo(0);
+    });
+
+    it('snaps to center of row 0, col 1', () => {
+      const result = snapToHexCenter({ x: hexW + 1, y: 2 }, cellSize, 'pointy');
+      expect(result.x).toBeCloseTo(hexW);
+      expect(result.y).toBeCloseTo(0);
+    });
+
+    it('snaps to offset row center', () => {
+      const result = snapToHexCenter({ x: hexW / 2 + 1, y: rowH + 1 }, cellSize, 'pointy');
+      expect(result.x).toBeCloseTo(hexW / 2);
+      expect(result.y).toBeCloseTo(rowH);
+    });
+
+    it('snaps negative coordinates', () => {
+      const result = snapToHexCenter({ x: -hexW + 1, y: -rowH * 2 + 1 }, cellSize, 'pointy');
+      expect(result.x).toBeCloseTo(-hexW);
+      expect(result.y).toBeCloseTo(-rowH * 2);
+    });
+  });
+
+  describe('flat-top', () => {
+    const hexH = Math.sqrt(3) * cellSize;
+    const colW = 1.5 * cellSize;
+
+    it('snaps to nearest hex center at origin', () => {
+      const result = snapToHexCenter({ x: 2, y: 3 }, cellSize, 'flat');
+      expect(result.x).toBeCloseTo(0);
+      expect(result.y).toBeCloseTo(0);
+    });
+
+    it('snaps to center of col 1 (offset column)', () => {
+      const result = snapToHexCenter({ x: colW + 1, y: hexH / 2 + 1 }, cellSize, 'flat');
+      expect(result.x).toBeCloseTo(colW);
+      expect(result.y).toBeCloseTo(hexH / 2);
+    });
+
+    it('snaps to even column center', () => {
+      const result = snapToHexCenter({ x: colW * 2 + 1, y: 2 }, cellSize, 'flat');
+      expect(result.x).toBeCloseTo(colW * 2);
+      expect(result.y).toBeCloseTo(0);
+    });
+
+    it('snaps negative coordinates', () => {
+      const result = snapToHexCenter({ x: -colW * 2 + 1, y: -hexH + 1 }, cellSize, 'flat');
+      expect(result.x).toBeCloseTo(-colW * 2);
+      expect(result.y).toBeCloseTo(-hexH);
+    });
   });
 });
