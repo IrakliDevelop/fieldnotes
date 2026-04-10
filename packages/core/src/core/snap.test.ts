@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { snapPoint, snapToHexCenter } from './snap';
+import { snapPoint, snapToHexCenter, smartSnap } from './snap';
+import type { ToolContext } from '../tools/types';
 
 describe('snapPoint', () => {
   it('snaps to nearest grid intersection', () => {
@@ -82,5 +83,46 @@ describe('snapToHexCenter', () => {
       expect(result.x).toBeCloseTo(-colW * 2);
       expect(result.y).toBeCloseTo(-hexH);
     });
+  });
+});
+
+describe('smartSnap', () => {
+  const baseCtx = {
+    camera: {} as ToolContext['camera'],
+    store: {} as ToolContext['store'],
+    requestRender: () => undefined,
+  };
+
+  it('returns unchanged point when snapToGrid is false', () => {
+    const ctx: ToolContext = { ...baseCtx, snapToGrid: false, gridSize: 24 };
+    expect(smartSnap({ x: 37, y: 55 }, ctx)).toEqual({ x: 37, y: 55 });
+  });
+
+  it('returns unchanged point when gridSize is undefined', () => {
+    const ctx: ToolContext = { ...baseCtx, snapToGrid: true };
+    expect(smartSnap({ x: 37, y: 55 }, ctx)).toEqual({ x: 37, y: 55 });
+  });
+
+  it('snaps to square grid when gridType is square', () => {
+    const ctx: ToolContext = { ...baseCtx, snapToGrid: true, gridSize: 24, gridType: 'square' };
+    expect(smartSnap({ x: 37, y: 55 }, ctx)).toEqual({ x: 48, y: 48 });
+  });
+
+  it('snaps to hex grid when gridType is hex', () => {
+    const ctx: ToolContext = {
+      ...baseCtx,
+      snapToGrid: true,
+      gridSize: 24,
+      gridType: 'hex',
+      hexOrientation: 'pointy',
+    };
+    const result = smartSnap({ x: 2, y: 3 }, ctx);
+    expect(result.x).toBeCloseTo(0);
+    expect(result.y).toBeCloseTo(0);
+  });
+
+  it('falls back to square grid when gridType is undefined', () => {
+    const ctx: ToolContext = { ...baseCtx, snapToGrid: true, gridSize: 24 };
+    expect(smartSnap({ x: 37, y: 55 }, ctx)).toEqual({ x: 48, y: 48 });
   });
 });

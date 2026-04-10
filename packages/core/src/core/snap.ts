@@ -1,5 +1,6 @@
 import type { Point } from './types';
 import type { HexOrientation } from '../elements/types';
+import type { ToolContext } from '../tools/types';
 
 export function snapPoint(point: Point, gridSize: number): Point {
   return {
@@ -28,4 +29,12 @@ export function snapToHexCenter(
     const row = Math.round((point.y - offsetY) / hexH);
     return { x: col * colW, y: row * hexH + offsetY };
   }
+}
+
+export function smartSnap(point: Point, ctx: ToolContext): Point {
+  if (!ctx.snapToGrid || !ctx.gridSize) return point;
+  if (ctx.gridType === 'hex' && ctx.hexOrientation) {
+    return snapToHexCenter(point, ctx.gridSize, ctx.hexOrientation);
+  }
+  return snapPoint(point, ctx.gridSize);
 }

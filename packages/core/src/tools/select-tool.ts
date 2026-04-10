@@ -1,6 +1,6 @@
 import type { Bounds, Point } from '../core/types';
 import type { Tool, ToolContext, PointerState } from './types';
-import { snapPoint } from '../core/snap';
+import { smartSnap } from '../core/snap';
 import type { CanvasElement, ArrowElement } from '../elements/types';
 import { isNearBezier } from '../elements/arrow-geometry';
 import { findBoundArrows, updateBoundArrow } from '../elements/arrow-binding';
@@ -62,7 +62,7 @@ export class SelectTool implements Tool {
   }
 
   private snap(point: Point, ctx: ToolContext): Point {
-    return ctx.snapToGrid && ctx.gridSize ? snapPoint(point, ctx.gridSize) : point;
+    return smartSnap(point, ctx);
   }
 
   onPointerDown(state: PointerState, ctx: ToolContext): void {
