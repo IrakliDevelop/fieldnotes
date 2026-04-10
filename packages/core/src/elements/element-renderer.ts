@@ -5,6 +5,7 @@ import type {
   ShapeElement,
   ImageElement,
   GridElement,
+  TemplateElement,
 } from './types';
 import { getArrowControlPoint, getArrowTangentAngle } from './arrow-geometry';
 import { getEdgeIntersection } from './arrow-binding';
@@ -70,6 +71,9 @@ export class ElementRenderer {
         break;
       case 'grid':
         this.renderGrid(ctx, element);
+        break;
+      case 'template':
+        this.renderTemplate(ctx, element);
         break;
     }
   }
@@ -293,6 +297,62 @@ export class ElementRenderer {
         grid.opacity,
       );
     }
+  }
+
+  private renderTemplate(ctx: CanvasRenderingContext2D, template: TemplateElement): void {
+    const { x: cx, y: cy } = template.position;
+    const r = template.radius;
+
+    ctx.save();
+    ctx.globalAlpha = template.opacity;
+    ctx.fillStyle = template.fillColor;
+    ctx.strokeStyle = template.strokeColor;
+    ctx.lineWidth = template.strokeWidth;
+
+    switch (template.templateShape) {
+      case 'circle':
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        break;
+
+      case 'square':
+        ctx.fillRect(cx - r / 2, cy - r / 2, r, r);
+        ctx.strokeRect(cx - r / 2, cy - r / 2, r, r);
+        break;
+
+      case 'cone': {
+        const halfAngle = Math.atan(0.5);
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.arc(cx, cy, r, template.angle - halfAngle, template.angle + halfAngle);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        break;
+      }
+
+      case 'line': {
+        const halfW = r / 12;
+        const cos = Math.cos(template.angle);
+        const sin = Math.sin(template.angle);
+        const perpX = -sin * halfW;
+        const perpY = cos * halfW;
+
+        ctx.beginPath();
+        ctx.moveTo(cx + perpX, cy + perpY);
+        ctx.lineTo(cx + r * cos + perpX, cy + r * sin + perpY);
+        ctx.lineTo(cx + r * cos - perpX, cy + r * sin - perpY);
+        ctx.lineTo(cx - perpX, cy - perpY);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        break;
+      }
+    }
+
+    ctx.restore();
   }
 
   private renderImage(ctx: CanvasRenderingContext2D, image: ImageElement): void {
