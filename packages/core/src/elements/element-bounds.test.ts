@@ -9,6 +9,7 @@ import {
   createStroke,
   createArrow,
   createGrid,
+  createTemplate,
 } from './element-factory';
 
 describe('getElementBounds', () => {
@@ -112,6 +113,61 @@ describe('getElementBounds', () => {
   it('returns null for a grid', () => {
     const grid = createGrid({});
     expect(getElementBounds(grid)).toBeNull();
+  });
+
+  it('returns centered bounds for a circle template', () => {
+    const t = createTemplate({
+      position: { x: 100, y: 100 },
+      templateShape: 'circle',
+      radius: 30,
+    });
+    const bounds = getElementBounds(t);
+    if (!bounds) throw new Error('expected bounds');
+    expect(bounds).toEqual({ x: 70, y: 70, w: 60, h: 60 });
+  });
+
+  it('returns centered bounds for a square template', () => {
+    const t = createTemplate({
+      position: { x: 50, y: 50 },
+      templateShape: 'square',
+      radius: 20,
+    });
+    const bounds = getElementBounds(t);
+    if (!bounds) throw new Error('expected bounds');
+    expect(bounds).toEqual({ x: 40, y: 40, w: 20, h: 20 });
+  });
+
+  it('returns AABB for a cone template pointing right', () => {
+    const t = createTemplate({
+      position: { x: 0, y: 0 },
+      templateShape: 'cone',
+      radius: 100,
+      angle: 0,
+    });
+    const bounds = getElementBounds(t);
+    if (!bounds) throw new Error('expected bounds');
+    expect(bounds.x).toBeCloseTo(0);
+    expect(bounds.w).toBeCloseTo(100);
+    // Cone half-angle = atan(0.5) ~ 26.57deg, so y extends by sin(atan(0.5)) * 100
+    const halfAngle = Math.atan(0.5);
+    expect(bounds.y).toBeCloseTo(-Math.sin(halfAngle) * 100);
+    expect(bounds.h).toBeCloseTo(Math.sin(halfAngle) * 100 * 2);
+  });
+
+  it('returns AABB for a line template', () => {
+    const t = createTemplate({
+      position: { x: 0, y: 0 },
+      templateShape: 'line',
+      radius: 60,
+      angle: 0,
+    });
+    const bounds = getElementBounds(t);
+    if (!bounds) throw new Error('expected bounds');
+    // Line pointing right: length = 60, width = 60/6 = 10, halfW = 5
+    expect(bounds.x).toBeCloseTo(0);
+    expect(bounds.w).toBeCloseTo(60);
+    expect(bounds.y).toBeCloseTo(-5);
+    expect(bounds.h).toBeCloseTo(10);
   });
 });
 
