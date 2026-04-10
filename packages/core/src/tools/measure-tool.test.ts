@@ -175,6 +175,18 @@ describe('MeasureTool', () => {
     expect(m?.feet).toBe(500);
   });
 
+  it('clears measurement on deactivate (mid-drag tool switch)', () => {
+    const tool = new MeasureTool();
+    const ctx = makeCtx({ gridSize: 40 });
+
+    tool.onPointerDown(pt(0, 0), ctx);
+    tool.onPointerMove(pt(80, 0), ctx);
+    expect(tool.getMeasurement()).not.toBeNull();
+
+    tool.onDeactivate(ctx);
+    expect(tool.getMeasurement()).toBeNull();
+  });
+
   it('requests render on pointer up to clear overlay', () => {
     const tool = new MeasureTool();
     const ctx = makeCtx({ gridSize: 50 });

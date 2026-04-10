@@ -16,7 +16,6 @@ export interface Measurement {
 
 export class MeasureTool implements Tool {
   readonly name = 'measure';
-  private measuring = false;
   private start: Point | null = null;
   private end: Point | null = null;
   private gridSize = 1;
@@ -42,7 +41,6 @@ export class MeasureTool implements Tool {
   }
 
   onPointerDown(state: PointerState, ctx: ToolContext): void {
-    this.measuring = true;
     this.gridSize = ctx.gridSize ?? 1;
     const world = ctx.camera.screenToWorld({ x: state.x, y: state.y });
     this.start = smartSnap(world, ctx);
@@ -50,18 +48,22 @@ export class MeasureTool implements Tool {
   }
 
   onPointerMove(state: PointerState, ctx: ToolContext): void {
-    if (!this.measuring) return;
+    if (!this.start) return;
     const world = ctx.camera.screenToWorld({ x: state.x, y: state.y });
     this.end = smartSnap(world, ctx);
     ctx.requestRender();
   }
 
   onPointerUp(_state: PointerState, ctx: ToolContext): void {
-    if (!this.measuring) return;
-    this.measuring = false;
+    if (!this.start) return;
     this.start = null;
     this.end = null;
     ctx.requestRender();
+  }
+
+  onDeactivate(_ctx: ToolContext): void {
+    this.start = null;
+    this.end = null;
   }
 
   getMeasurement(): Measurement | null {
@@ -111,22 +113,17 @@ export class MeasureTool implements Tool {
     const metrics = ctx.measureText(label);
     const padX = 6;
     const padY = 4;
-    const pillW = metrics.width + padX * 2;
-    const pillH = 14 + padY * 2;
+    const textH = 14;
 
     ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
-    const pillX = midX - pillW / 2;
-    const pillY = midY - pillH / 2;
-    const r = pillH / 2;
     ctx.beginPath();
-    ctx.moveTo(pillX + r, pillY);
-    ctx.lineTo(pillX + pillW - r, pillY);
-    ctx.arcTo(pillX + pillW, pillY, pillX + pillW, pillY + r, r);
-    ctx.arcTo(pillX + pillW, pillY + pillH, pillX + pillW - r, pillY + pillH, r);
-    ctx.lineTo(pillX + r, pillY + pillH);
-    ctx.arcTo(pillX, pillY + pillH, pillX, pillY + pillH - r, r);
-    ctx.arcTo(pillX, pillY, pillX + r, pillY, r);
-    ctx.closePath();
+    ctx.roundRect(
+      midX - metrics.width / 2 - padX,
+      midY - textH - padY * 2,
+      metrics.width + padX * 2,
+      textH + padY * 2,
+      4,
+    );
     ctx.fill();
 
     ctx.fillStyle = '#FFFFFF';
