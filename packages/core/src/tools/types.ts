@@ -48,4 +48,5 @@ export type ToolName =
   | 'image'
   | 'text'
   | 'shape'
-  | 'measure';
+  | 'measure'
+  | 'template';

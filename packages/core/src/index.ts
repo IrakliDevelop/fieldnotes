@@ -103,6 +103,8 @@ export { ShapeTool } from './tools/shape-tool';
 export type { ShapeToolOptions } from './tools/shape-tool';
 export { MeasureTool } from './tools/measure-tool';
 export type { MeasureToolOptions, Measurement } from './tools/measure-tool';
+export { TemplateTool } from './tools/template-tool';
+export type { TemplateToolOptions } from './tools/template-tool';
 export type { Tool, ToolContext, PointerState, ToolName } from './tools/types';
 
 export { LayerManager } from './layers/layer-manager';
