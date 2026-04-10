@@ -20,14 +20,14 @@ export function snapToHexCenter(
     const row = Math.round(point.y / rowH);
     const offsetX = row % 2 !== 0 ? hexW / 2 : 0;
     const col = Math.round((point.x - offsetX) / hexW);
-    return { x: col * hexW + offsetX, y: row * rowH };
+    return { x: col * hexW + offsetX || 0, y: row * rowH || 0 };
   } else {
     const hexH = Math.sqrt(3) * cellSize;
     const colW = 1.5 * cellSize;
     const col = Math.round(point.x / colW);
     const offsetY = col % 2 !== 0 ? hexH / 2 : 0;
     const row = Math.round((point.y - offsetY) / hexH);
-    return { x: col * colW, y: row * hexH + offsetY };
+    return { x: col * colW || 0, y: row * hexH + offsetY || 0 };
   }
 }
 

@@ -125,4 +125,9 @@ describe('smartSnap', () => {
     const ctx: ToolContext = { ...baseCtx, snapToGrid: true, gridSize: 24 };
     expect(smartSnap({ x: 37, y: 55 }, ctx)).toEqual({ x: 48, y: 48 });
   });
+
+  it('falls back to square snap when gridType is hex but hexOrientation is absent', () => {
+    const ctx: ToolContext = { ...baseCtx, snapToGrid: true, gridSize: 24, gridType: 'hex' };
+    expect(smartSnap({ x: 37, y: 55 }, ctx)).toEqual({ x: 48, y: 48 });
+  });
 });

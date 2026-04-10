@@ -165,6 +165,7 @@ export class Viewport {
       this.store.on('clear', () => {
         this.domNodeManager.clearDomNodes();
         this.renderLoop.markAllLayersDirty();
+        this.syncGridContext();
         this.requestRender();
       }),
     ];
