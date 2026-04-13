@@ -6,6 +6,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ---
 
+## [0.9.0] — 2026-04-10
+
+### Added
+
+- **MeasureTool** — drag to measure distances in feet on the canvas. Snaps to hex/square grid centers when a grid element is present. Configurable `feetPerCell` (default 5)
+- **TemplateTool** — place area-of-effect templates for D&D spells. Four shapes: circle, cone, line, square. Configurable fill/stroke color, opacity, and feet-per-cell
+- **D&D hex-filled templates** — on hex grids, templates fill actual hex cells (PHB-style) instead of drawing geometric shapes. Cone follows the 1-2-3 triangular D&D pattern; line alternates 1-2-1-2 symmetrically
+- **Hex distance measurement** — `getHexDistance()` computes cube coordinate distance (integer hex steps) for accurate diagonal measurement on hex grids
+- **Hex fill utilities** — `getHexCellsInRadius`, `getHexCellsInCone`, `getHexCellsInLine`, `getHexCellsInSquare`, `drawHexPath` for enumerating and rendering hex cell patterns
+- **Template element** — `TemplateElement` type with `templateShape`, `radius`, `angle`, `fillColor`, `strokeColor`, `opacity`, `feetPerCell`, `radiusFeet`
+- **Template resize** — drag SE handle on selected templates to resize; radius snaps to hex/square cell spacing
+- **Origin marker** — all template shapes highlight the origin hex with the stroke color for clear positioning
+- **Image center-snapping** — images placed on hex/square grids snap their center to the nearest cell center
+
+### Fixed
+
+- **Canvas not clearing between frames** — skipping background render for grid elements also skipped its `clearRect`, causing frame stacking
+- **Measure/template snapping to dot grid** — tools now always snap to hex/square grid centers when a grid element exists, independent of the global snap toggle
+
+---
+
 ## [0.8.11] — 2026-03-28
 
 ### Fixed

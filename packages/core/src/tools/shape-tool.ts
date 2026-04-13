@@ -2,7 +2,7 @@ import type { Point } from '../core/types';
 import type { ShapeKind } from '../elements/types';
 import type { Tool, ToolContext, PointerState } from './types';
 import { createShape } from '../elements/element-factory';
-import { snapPoint } from '../core/snap';
+import { smartSnap } from '../core/snap';
 
 export interface ShapeToolOptions {
   shape?: ShapeKind;
@@ -158,7 +158,7 @@ export class ShapeTool implements Tool {
   }
 
   private snap(point: Point, ctx: ToolContext): Point {
-    return ctx.snapToGrid && ctx.gridSize ? snapPoint(point, ctx.gridSize) : point;
+    return smartSnap(point, ctx);
   }
 
   private onKeyDown = (e: KeyboardEvent): void => {

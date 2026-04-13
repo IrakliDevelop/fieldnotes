@@ -44,7 +44,7 @@ describe('ImageTool', () => {
     expect(ctx.store.count).toBe(1);
     const img = ctx.store.getAll()[0] as ImageElement;
     expect(img.type).toBe('image');
-    expect(img.position).toEqual({ x: 100, y: 200 });
+    expect(img.position).toEqual({ x: 100 - 150, y: 200 - 100 });
     expect(img.src).toBe('data:image/png;base64,abc');
   });
 
@@ -71,8 +71,8 @@ describe('ImageTool', () => {
     tool.onPointerUp(pt(50, 50), ctx);
 
     const img = ctx.store.getAll()[0] as ImageElement;
-    expect(img.position.x).toBe(150);
-    expect(img.position.y).toBe(150);
+    expect(img.position.x).toBe(0);
+    expect(img.position.y).toBe(50);
   });
 
   it('requests render after placing image', () => {

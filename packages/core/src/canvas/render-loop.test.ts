@@ -45,6 +45,7 @@ function createMockDeps() {
 
   const store = {
     getAll: vi.fn().mockReturnValue(elements),
+    getElementsByType: vi.fn().mockReturnValue([]),
   } as unknown as ElementStore;
 
   const renderer = {

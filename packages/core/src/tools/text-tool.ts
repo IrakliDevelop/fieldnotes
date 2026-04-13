@@ -1,6 +1,6 @@
 import type { Tool, ToolContext, PointerState } from './types';
 import { createText } from '../elements/element-factory';
-import { snapPoint } from '../core/snap';
+import { smartSnap } from '../core/snap';
 
 export interface TextToolOptions {
   fontSize?: number;
@@ -59,9 +59,7 @@ export class TextTool implements Tool {
 
   onPointerUp(state: PointerState, ctx: ToolContext): void {
     let world = ctx.camera.screenToWorld({ x: state.x, y: state.y });
-    if (ctx.snapToGrid && ctx.gridSize) {
-      world = snapPoint(world, ctx.gridSize);
-    }
+    world = smartSnap(world, ctx);
     const textEl = createText({
       position: world,
       fontSize: this.fontSize,

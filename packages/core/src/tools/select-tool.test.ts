@@ -2,9 +2,15 @@ import { describe, it, expect, vi } from 'vitest';
 import { SelectTool } from './select-tool';
 import { ElementStore } from '../elements/element-store';
 import { Camera } from '../canvas/camera';
-import { createNote, createArrow, createStroke, createImage } from '../elements/element-factory';
+import {
+  createNote,
+  createArrow,
+  createStroke,
+  createImage,
+  createTemplate,
+} from '../elements/element-factory';
 import type { ToolContext, PointerState } from './types';
-import type { NoteElement, ImageElement } from '../elements/types';
+import type { NoteElement, ImageElement, TemplateElement } from '../elements/types';
 
 function makeCtx(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
@@ -840,6 +846,68 @@ describe('SelectTool', () => {
 
       expect(canvas.strokeRect).toHaveBeenCalled();
       expect(canvas.fillRect).toHaveBeenCalled();
+    });
+  });
+
+  describe('template interaction', () => {
+    it('selects a template when clicking inside its bounds', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const tmpl = createTemplate({
+        position: { x: 100, y: 100 },
+        templateShape: 'circle',
+        radius: 50,
+      });
+      ctx.store.add(tmpl);
+
+      tool.onPointerDown(pt(120, 120), ctx);
+      tool.onPointerUp(pt(120, 120), ctx);
+
+      expect(tool.selectedIds).toEqual([tmpl.id]);
+    });
+
+    it('drags a template to move it', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const tmpl = createTemplate({
+        position: { x: 100, y: 100 },
+        templateShape: 'circle',
+        radius: 50,
+      });
+      ctx.store.add(tmpl);
+
+      tool.onPointerDown(pt(100, 100), ctx);
+      tool.onPointerMove(pt(120, 130), ctx);
+      tool.onPointerUp(pt(120, 130), ctx);
+
+      const moved = ctx.store.getById(tmpl.id) as TemplateElement;
+      expect(moved.position.x).toBe(120);
+      expect(moved.position.y).toBe(130);
+    });
+
+    it('resizes a template via SE handle', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const tmpl = createTemplate({
+        position: { x: 100, y: 100 },
+        templateShape: 'circle',
+        radius: 50,
+      });
+      ctx.store.add(tmpl);
+
+      // Select first
+      tool.onPointerDown(pt(100, 100), ctx);
+      tool.onPointerUp(pt(100, 100), ctx);
+      expect(tool.selectedIds).toEqual([tmpl.id]);
+
+      // Drag the SE handle (bottom-right of bounds: 100+50=150, 100+50=150)
+      tool.onPointerDown(pt(150, 150), ctx);
+      tool.onPointerMove(pt(200, 200), ctx);
+      tool.onPointerUp(pt(200, 200), ctx);
+
+      const resized = ctx.store.getById(tmpl.id) as TemplateElement;
+      const expectedRadius = Math.sqrt(100 * 100 + 100 * 100);
+      expect(resized.radius).toBeCloseTo(expectedRadius);
     });
   });
 });

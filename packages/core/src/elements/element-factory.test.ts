@@ -8,6 +8,7 @@ import {
   createText,
   createShape,
   createGrid,
+  createTemplate,
 } from './element-factory';
 
 describe('element factories', () => {
@@ -201,6 +202,72 @@ describe('element factories', () => {
       expect(el.color).toBe('#ff0000');
       expect(el.textAlign).toBe('center');
       expect(el.size).toEqual({ w: 300, h: 40 });
+    });
+  });
+
+  describe('createTemplate', () => {
+    it('creates a template with defaults', () => {
+      const t = createTemplate({
+        position: { x: 100, y: 200 },
+        templateShape: 'circle',
+        radius: 30,
+      });
+      expect(t.type).toBe('template');
+      expect(t.id).toMatch(/^template_/);
+      expect(t.position).toEqual({ x: 100, y: 200 });
+      expect(t.templateShape).toBe('circle');
+      expect(t.radius).toBe(30);
+      expect(t.angle).toBe(0);
+      expect(t.fillColor).toBe('rgba(255, 87, 34, 0.2)');
+      expect(t.strokeColor).toBe('#FF5722');
+      expect(t.strokeWidth).toBe(2);
+      expect(t.opacity).toBe(0.6);
+      expect(t.locked).toBe(false);
+      expect(t.zIndex).toBe(0);
+    });
+
+    it('creates a cone with angle', () => {
+      const t = createTemplate({
+        position: { x: 50, y: 50 },
+        templateShape: 'cone',
+        radius: 60,
+        angle: Math.PI / 4,
+      });
+      expect(t.templateShape).toBe('cone');
+      expect(t.angle).toBe(Math.PI / 4);
+      expect(t.radius).toBe(60);
+    });
+
+    it('assigns layerId', () => {
+      const t = createTemplate({
+        position: { x: 0, y: 0 },
+        templateShape: 'square',
+        radius: 20,
+        layerId: 'layer-1',
+      });
+      expect(t.layerId).toBe('layer-1');
+    });
+
+    it('stores feetPerCell and radiusFeet when provided', () => {
+      const t = createTemplate({
+        position: { x: 0, y: 0 },
+        templateShape: 'circle',
+        radius: 80,
+        feetPerCell: 5,
+        radiusFeet: 10,
+      });
+      expect(t.feetPerCell).toBe(5);
+      expect(t.radiusFeet).toBe(10);
+    });
+
+    it('leaves feetPerCell and radiusFeet undefined when not provided', () => {
+      const t = createTemplate({
+        position: { x: 0, y: 0 },
+        templateShape: 'circle',
+        radius: 80,
+      });
+      expect(t.feetPerCell).toBeUndefined();
+      expect(t.radiusFeet).toBeUndefined();
     });
   });
 });

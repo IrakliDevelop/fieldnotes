@@ -1,10 +1,10 @@
-export const VERSION = '0.8.11';
+export const VERSION = '0.9.0';
 
 export { EventBus } from './core/event-bus';
 export { Quadtree } from './core/quadtree';
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
 export { exportState, parseState } from './core/state-serializer';
-export { snapPoint } from './core/snap';
+export { snapPoint, smartSnap, snapToHexCenter } from './core/snap';
 export type { CanvasState } from './core/state-serializer';
 export { AutoSave } from './core/auto-save';
 export type { AutoSaveOptions } from './core/auto-save';
@@ -34,6 +34,7 @@ export {
   createText,
   createShape,
   createGrid,
+  createTemplate,
 } from './elements/element-factory';
 export {
   getArrowControlPoint,
@@ -54,6 +55,14 @@ export {
   unbindArrow,
 } from './elements/arrow-binding';
 export { getElementBounds, boundsIntersect } from './elements/element-bounds';
+export {
+  getHexDistance,
+  getHexCellsInRadius,
+  getHexCellsInCone,
+  getHexCellsInLine,
+  getHexCellsInSquare,
+  drawHexPath,
+} from './elements/hex-fill';
 export type {
   Binding,
   CanvasElement,
@@ -68,6 +77,8 @@ export type {
   ShapeKind,
   GridElement,
   HexOrientation,
+  TemplateElement,
+  TemplateShape,
 } from './elements/types';
 
 export type { Command } from './history/types';
@@ -98,6 +109,10 @@ export { ImageTool } from './tools/image-tool';
 export type { ImageToolOptions } from './tools/image-tool';
 export { ShapeTool } from './tools/shape-tool';
 export type { ShapeToolOptions } from './tools/shape-tool';
+export { MeasureTool } from './tools/measure-tool';
+export type { MeasureToolOptions, Measurement } from './tools/measure-tool';
+export { TemplateTool } from './tools/template-tool';
+export type { TemplateToolOptions } from './tools/template-tool';
 export type { Tool, ToolContext, PointerState, ToolName } from './tools/types';
 
 export { LayerManager } from './layers/layer-manager';

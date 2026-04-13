@@ -9,6 +9,8 @@ import {
   NoteTool,
   TextTool,
   ShapeTool,
+  MeasureTool,
+  TemplateTool,
   AutoSave,
 } from '@fieldnotes/core';
 
@@ -29,6 +31,8 @@ const arrow = new ArrowTool({ color: '#1a1a1a', width: 2 });
 const note = new NoteTool();
 const text = new TextTool();
 const shape = new ShapeTool({ strokeColor: '#1a1a1a' });
+const measure = new MeasureTool();
+const template = new TemplateTool();
 
 viewport.toolManager.register(hand);
 viewport.toolManager.register(pencil);
@@ -38,6 +42,8 @@ viewport.toolManager.register(arrow);
 viewport.toolManager.register(note);
 viewport.toolManager.register(text);
 viewport.toolManager.register(shape);
+viewport.toolManager.register(measure);
+viewport.toolManager.register(template);
 
 const autoSave = new AutoSave(viewport.store, viewport.camera, {
   layerManager: viewport.layerManager,
@@ -320,6 +326,8 @@ document.addEventListener('keydown', (e) => {
     n: 'note',
     t: 'text',
     s: 'shape',
+    m: 'measure',
+    r: 'template',
   };
   const tool = map[e.key];
   if (tool) {
@@ -493,6 +501,61 @@ renderLayersPanel();
 
 document.getElementById('add-layer')?.addEventListener('click', () => {
   viewport.layerManager.createLayer();
+});
+
+// Template panel
+const templatePanel = document.getElementById('template-panel');
+const templateShapeSelect = document.getElementById('template-shape') as HTMLSelectElement | null;
+const templateFeetInput = document.getElementById('template-feet') as HTMLInputElement | null;
+const templateFillInput = document.getElementById('template-fill') as HTMLInputElement | null;
+const templateNoFillBtn = document.getElementById('template-no-fill') as HTMLButtonElement | null;
+const templateStrokeInput = document.getElementById('template-stroke') as HTMLInputElement | null;
+
+function updateTemplatePanel() {
+  const activeTool = viewport.toolManager.activeTool?.name;
+  if (templatePanel) templatePanel.style.display = activeTool === 'template' ? 'flex' : 'none';
+}
+
+viewport.toolManager.onChange(updateTemplatePanel);
+
+templateShapeSelect?.addEventListener('change', () => {
+  template.setOptions({
+    templateShape: templateShapeSelect.value as 'circle' | 'cone' | 'line' | 'square',
+  });
+});
+
+templateFillInput?.addEventListener('input', () => {
+  const hex = templateFillInput.value;
+  template.setOptions({ fillColor: hex + '33' });
+});
+
+templateNoFillBtn?.addEventListener('click', () => {
+  template.setOptions({ fillColor: 'transparent' });
+});
+
+templateStrokeInput?.addEventListener('input', () => {
+  template.setOptions({ strokeColor: templateStrokeInput.value });
+});
+
+templateFeetInput?.addEventListener('input', () => {
+  const feet = Number(templateFeetInput.value);
+  if (feet > 0) template.setOptions({ feetPerCell: feet });
+});
+
+// Measure panel
+const measurePanel = document.getElementById('measure-panel');
+const measureFeetInput = document.getElementById('measure-feet') as HTMLInputElement | null;
+
+function updateMeasurePanel() {
+  const activeTool = viewport.toolManager.activeTool?.name;
+  if (measurePanel) measurePanel.style.display = activeTool === 'measure' ? 'flex' : 'none';
+}
+
+viewport.toolManager.onChange(updateMeasurePanel);
+
+measureFeetInput?.addEventListener('input', () => {
+  const feet = Number(measureFeetInput.value);
+  if (feet > 0) measure.setOptions({ feetPerCell: feet });
 });
 
 const gridToggleBtn = document.getElementById('grid-toggle') as HTMLButtonElement | null;

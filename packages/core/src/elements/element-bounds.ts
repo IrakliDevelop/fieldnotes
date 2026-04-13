@@ -1,5 +1,5 @@
 import type { Bounds } from '../core/types';
-import type { CanvasElement } from './types';
+import type { CanvasElement, TemplateElement } from './types';
 import { getArrowControlPoint } from './arrow-geometry';
 
 // Cache stroke bounds via WeakMap.
@@ -46,6 +46,10 @@ export function getElementBounds(element: CanvasElement): Bounds | null {
 
   if (element.type === 'arrow') {
     return getArrowBoundsAnalytical(element.from, element.to, element.bend);
+  }
+
+  if (element.type === 'template') {
+    return getTemplateBounds(element);
   }
 
   return null;
@@ -98,6 +102,74 @@ function getArrowBoundsAnalytical(
   }
 
   return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+}
+
+function getTemplateBounds(el: TemplateElement): Bounds {
+  const { x: cx, y: cy } = el.position;
+  const r = el.radius;
+
+  switch (el.templateShape) {
+    case 'circle':
+      return { x: cx - r, y: cy - r, w: 2 * r, h: 2 * r };
+
+    case 'square':
+      return { x: cx - r / 2, y: cy - r / 2, w: r, h: r };
+
+    case 'cone': {
+      const halfAngle = Math.atan(0.5);
+      const tipX = cx;
+      const tipY = cy;
+      const leftX = cx + r * Math.cos(el.angle - halfAngle);
+      const leftY = cy + r * Math.sin(el.angle - halfAngle);
+      const rightX = cx + r * Math.cos(el.angle + halfAngle);
+      const rightY = cy + r * Math.sin(el.angle + halfAngle);
+      const farX = cx + r * Math.cos(el.angle);
+      const farY = cy + r * Math.sin(el.angle);
+
+      const xs = [tipX, leftX, rightX, farX];
+      const ys = [tipY, leftY, rightY, farY];
+
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+
+      for (let i = 0; i < xs.length; i++) {
+        const px = xs[i];
+        const py = ys[i];
+        if (px !== undefined && px < minX) minX = px;
+        if (px !== undefined && px > maxX) maxX = px;
+        if (py !== undefined && py < minY) minY = py;
+        if (py !== undefined && py > maxY) maxY = py;
+      }
+
+      return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+    }
+
+    case 'line': {
+      const halfW = r / 12;
+      const cos = Math.cos(el.angle);
+      const sin = Math.sin(el.angle);
+      const perpX = -sin * halfW;
+      const perpY = cos * halfW;
+
+      const x0 = cx + perpX;
+      const y0 = cy + perpY;
+      const x1 = cx + r * cos + perpX;
+      const y1 = cy + r * sin + perpY;
+      const x2 = cx + r * cos - perpX;
+      const y2 = cy + r * sin - perpY;
+      const x3 = cx - perpX;
+      const y3 = cy - perpY;
+
+      const minX = Math.min(x0, x1, x2, x3);
+      const minY = Math.min(y0, y1, y2, y3);
+      const maxX = Math.max(x0, x1, x2, x3);
+      const maxY = Math.max(y0, y1, y2, y3);
+
+      return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+    }
+  }
 }
 
 export function boundsIntersect(a: Bounds, b: Bounds): boolean {
