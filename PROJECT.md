@@ -138,9 +138,10 @@ interface StrokeElement extends BaseElement {
 interface NoteElement extends BaseElement {
   type: 'note';
   size: Size;
-  text: string;
+  text: string; // Stores HTML (bold, italic, underline, strikethrough, font size spans)
   backgroundColor: string;
   textColor: string;
+  fontSize?: number; // Base font size in px (default 18)
 }
 
 interface Binding {
@@ -348,6 +349,31 @@ autoSave.clear();
 const stats = canvas.getRenderStats(); // { fps, avgFrameMs, p95FrameMs, lastGridMs, frameCount }
 const stop = canvas.logPerformance(2000); // periodic console logging, returns stop fn
 
+// Rich text formatting — headless API for custom toolbar UI
+import {
+  toggleBold,
+  toggleItalic,
+  toggleUnderline,
+  toggleStrikethrough,
+  setFontSize,
+  getActiveFormats,
+} from '@fieldnotes/core';
+
+toggleBold(); // while note is being edited (contentEditable focused)
+const formats = getActiveFormats(); // { bold, italic, underline, strikethrough }
+setFontSize(24); // wraps selection in a <span> with font-size
+
+// Disable built-in toolbar (use formatting API with your own UI)
+const canvas = new Viewport(container, { toolbar: false });
+
+// Custom font size presets
+const canvas2 = new Viewport(container, {
+  fontSizePresets: [
+    { label: 'Body', size: 16 },
+    { label: 'Title', size: 36 },
+  ],
+});
+
 // Events
 canvas.store.on('add', callback);
 canvas.store.on('update', callback);
@@ -409,7 +435,9 @@ canvas.addImage('data:image/png;base64,iVBOR...', pos, size);
 
 ## Scope
 
-### MVP (v0.1) — Core Canvas Experience
+### Shipped
+
+#### 0.1.0 — Core Canvas Experience
 
 - [x] Project setup (monorepo, build, TypeScript)
 - [x] Infinite canvas with pan (drag) and zoom (scroll wheel / pinch)
@@ -429,58 +457,95 @@ canvas.addImage('data:image/png;base64,iVBOR...', pos, size);
 - [x] Multi-select (drag box)
 - [x] Undo / Redo
 - [x] State serialization (export/import JSON)
-
-### v0.2 — React Wrapper & Polish
-
 - [x] `@fieldnotes/react` wrapper component
 - [x] Resize handles on elements
 - [x] Basic keyboard shortcuts (Ctrl+Z, Delete, etc.)
 - [x] Color picker for tools
-- [x] Stroke smoothing (point simplification)
-- [x] Pressure-sensitive stroke width (Apple Pencil / stylus)
 
-### v0.3 — Enhanced Elements
+#### 0.2.0–0.3.0 — AutoSave & Drawing Polish
+
+- [x] AutoSave — debounced localStorage persistence with configurable interval
+- [x] Stroke smoothing (Catmull-Rom to cubic Bezier)
+- [x] Pressure-sensitive stroke width (Apple Pencil / stylus)
+- [x] Runtime color configuration for tools
+
+#### 0.4.0 — React DX Overhaul
+
+- [x] React hooks — `useElements`, `useHistory`, `useLayers`, `useToolOptions`, `useActiveTool`, `useCamera`
+- [x] `ElementStore.onChange` and `LayerManager.setLayerOpacity`
+- [x] Tool options API — `getOptions()` / `onOptionsChange()` on Tool interface
+
+#### 0.5.0–0.6.0 — Enhanced Elements & Layers
 
 - [x] **Text tool** — standalone text boxes on canvas (editable, styled, resizable)
 - [x] Arrow binding — snap arrows to elements (same-layer only)
 - [x] Shape tools — rectangle and ellipse
-- [x] Snap-to-grid — `snapPoint()` utility, toggleable via `viewport.setSnapToGrid()`
 - [x] Layers — `LayerManager` with visibility, locking, ordering, per-layer opacity
+- [x] Snap-to-grid — `snapPoint()` utility, toggleable via `viewport.setSnapToGrid()`
 - [x] Note text color — `textColor` field on `NoteElement`
+
+#### 0.7.0 — Grid Element
+
 - [x] Grid element — square and hex grids for D&D maps (`GridElement`)
 - [x] HTML element persistence — `domId` field on `HtmlElement` for re-attaching DOM nodes across reloads (note: `loadJSON`/`loadState` restores metadata but the app must re-attach DOM nodes via `domId` matching — no automatic DOM reconstruction)
-- [x] AutoSave — debounced localStorage persistence with configurable interval
-- [ ] Minimap
 
-### v0.4 — SDK Maturity
-
-- [ ] Plugin system for custom tools and elements
-- [ ] Theming (dark/light, custom colors)
-- [ ] Configurable keyboard shortcut system
-- [ ] Copy/paste (elements within canvas, and between browser tabs)
-- [ ] Accessibility (keyboard navigation, screen reader basics)
-- [x] npm publish: `@fieldnotes/core`, `@fieldnotes/react`
-- [ ] Live demo / playground (hosted, linkable — critical for adoption)
-- [ ] `@fieldnotes/ui` — pre-built, customizable UI components (toolbar, text format panel, color picker, layers panel) as a separate package; `@fieldnotes/react` stays a thin binding layer
-- [ ] Documentation site
-
-### v0.5 — Import / Export
+#### 0.8.x — Export & Performance
 
 - [x] Export to PNG — `exportImage()` returns a PNG `Blob`, with scale, padding, background, and filter options
+- [x] Per-layer offscreen canvas caching — unchanged layers re-composited without re-rendering
+- [x] Quadtree spatial index — O(log n) hit-testing and viewport culling
+- [x] Tiled hex grid rendering (~250x faster on large grids)
+- [x] Stroke segment caching (WeakMap, computed at commit time)
+- [x] Arrow control point caching (`cachedControlPoint`)
+- [x] Background pattern caching (offscreen canvas)
+- [x] ImageBitmap pre-decoding for GPU-ready image rendering
+- [x] Viewport decomposition — extracted `RenderLoop`, `DomNodeManager`, `InteractMode` from monolithic Viewport
+- [x] `RenderStats` instrumentation (fps, avgFrameMs, p95FrameMs, lastGridMs)
+- [x] npm publish: `@fieldnotes/core`, `@fieldnotes/react`
+
+#### 0.9.0 — D&D VTT Tools
+
+- [x] **MeasureTool** — drag to measure distances in feet, snaps to hex/square grid centers
+- [x] **TemplateTool** — place area-of-effect templates (circle, cone, line, square) with hex-fill on hex grids
+- [x] **Hex fill utilities** — `getHexCellsInRadius`, `getHexCellsInCone`, `getHexCellsInLine`, `getHexCellsInSquare`, `drawHexPath`
+- [x] `getHexDistance()` — cube coordinate distance for accurate hex measurement
+- [x] Template resize with grid-snapped radius
+- [x] Image center-snapping to hex/square grid cells
+
+#### 0.10.0 — Rich Text Formatting
+
+- [x] **Note rich text** — inline bold, italic, underline, strikethrough via `contentEditable` + `execCommand`
+- [x] **Floating toolbar** — B/I/U/S buttons + font size dropdown, positioned above note during editing
+- [x] **Font size presets** — Small (14), Normal (18), Large (24), Heading (32); configurable via SDK
+- [x] **Keyboard shortcuts** — Ctrl/Cmd+B/I/U while editing notes
+- [x] **HTML sanitizer** — `sanitizeNoteHtml()` strips disallowed tags/attributes (XSS prevention)
+- [x] **Canvas export rich text** — `renderNoteOnCanvas` handles styled runs with word wrapping
+- [x] **Headless formatting API** — `toggleBold()`, `toggleItalic()`, etc. for custom toolbar UI
+- [x] **`toolbar: false` option** — disable built-in toolbar, use formatting API with custom UI
+
+---
+
+### Next Up
+
+#### SDK Maturity
+
+- [ ] Copy/paste (elements within canvas, and between browser tabs)
+- [ ] Configurable keyboard shortcut system
+- [ ] Minimap
+- [ ] `@fieldnotes/ui` — pre-built, customizable UI components (toolbar, text format panel, color picker, layers panel) as a separate package; `@fieldnotes/react` stays a thin binding layer
+- [ ] Live demo / playground (hosted, linkable — critical for adoption)
+- [ ] Documentation site
+- [ ] JSON import/export improvements (versioned schema, migration support)
+
+#### Import / Export
+
 - [ ] Export to SVG (vector export of strokes, shapes, arrows)
 - [ ] Export to PDF
 - [ ] **FreeForm PDF import — Phase 1: Images** — extract embedded images with positions/sizes from Apple FreeForm PDF exports
 - [ ] **FreeForm PDF import — Phase 2: Text** — extract text items with fonts, sizes, positions
 - [ ] **FreeForm PDF import — Phase 3: Sticky notes** — detect colored rectangles as note elements
-- [ ] JSON import/export improvements (versioned schema, migration support)
 
-### v0.6 — Collaboration & Polish
-
-- [ ] Real-time collaboration (CRDT-based, e.g. Yjs or Automerge)
-- [ ] Presence indicators (cursors, selections)
-- [ ] Presentation mode (slide-like navigation between canvas regions)
-- [ ] Connectors (arrows that auto-route around elements)
-- [ ] Grid/frame layout containers
+---
 
 ### Future — `@fieldnotes/presets`
 
@@ -510,8 +575,19 @@ Enable migration from other canvas tools by importing their export formats:
 - [ ] **Miro / FigJam import** — investigate JSON or API-based import from other popular whiteboard tools
 - [ ] **Generic PDF import** — import annotated PDFs as canvas elements (images, text overlays)
 
+### Future — Collaboration
+
+- [ ] Real-time collaboration (CRDT-based, e.g. Yjs or Automerge)
+- [ ] Presence indicators (cursors, selections)
+- [ ] Presentation mode (slide-like navigation between canvas regions)
+- [ ] Connectors (arrows that auto-route around elements)
+- [ ] Grid/frame layout containers
+
 ### Future — Advanced SDK Features
 
+- [ ] Plugin system for custom tools and elements
+- [ ] Theming (dark/light, custom colors)
+- [ ] Accessibility (keyboard navigation, screen reader basics)
 - [ ] Handwriting recognition (optional, via ML model)
 - [ ] Infinite zoom with level-of-detail rendering
 - [ ] Canvas-to-canvas linking (nested infinite canvases)
@@ -528,6 +604,7 @@ Enable migration from other canvas tools by importing their export formats:
 - **No keyboard shortcut system** — shortcuts are hardcoded in the input handler, not configurable
 - **HTML element restore** — `loadJSON`/`loadState` restores element metadata but the app must re-create and re-attach DOM nodes; there is no automatic DOM reconstruction from serialized state
 - **Cross-origin images** — export uses `crossOrigin='anonymous'` with a cache-buster query param; this works when the image server sends CORS headers but will silently fail (skip image) if it doesn't
+- **Rich text uses `execCommand`** — deprecated but universally supported; no modern replacement exists for `contentEditable` formatting commands
 
 ## Design Principles
 
