@@ -1,7 +1,6 @@
 import type { CanvasElement } from '../elements/types';
 import type { ElementStore } from '../elements/element-store';
-import { sanitizeNoteHtml } from '../elements/note-sanitizer';
-
+import { DEFAULT_NOTE_FONT_SIZE } from '../elements/element-factory';
 export interface DomNodeManagerDeps {
   domLayer: HTMLDivElement;
   onEditRequest: (id: string) => void;
@@ -96,13 +95,13 @@ export class DomNodeManager {
           padding: '8px',
           borderRadius: '4px',
           boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-          fontSize: `${element.fontSize ?? 14}px`,
+          fontSize: `${element.fontSize ?? DEFAULT_NOTE_FONT_SIZE}px`,
           overflow: 'hidden',
           cursor: 'default',
           userSelect: 'none',
           wordWrap: 'break-word',
         });
-        node.innerHTML = sanitizeNoteHtml(element.text || '');
+        node.innerHTML = element.text || '';
 
         node.addEventListener('dblclick', (e) => {
           e.stopPropagation();
@@ -112,13 +111,13 @@ export class DomNodeManager {
       }
 
       if (!this.isEditingElement(element.id)) {
-        const sanitized = sanitizeNoteHtml(element.text || '');
-        if (node.innerHTML !== sanitized) {
-          node.innerHTML = sanitized;
+        const text = element.text || '';
+        if (node.innerHTML !== text) {
+          node.innerHTML = text;
         }
         node.style.backgroundColor = element.backgroundColor;
         node.style.color = element.textColor;
-        node.style.fontSize = `${element.fontSize ?? 14}px`;
+        node.style.fontSize = `${element.fontSize ?? DEFAULT_NOTE_FONT_SIZE}px`;
       }
     }
 

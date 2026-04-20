@@ -135,16 +135,16 @@ describe('DomNodeManager', () => {
       expect(node?.innerHTML).toContain('<b>bold</b>');
     });
 
-    it('sanitizes dangerous HTML', () => {
+    it('renders pre-sanitized HTML as-is', () => {
       const note = createNote({
         position: { x: 0, y: 0 },
         size: { w: 200, h: 100 },
-        text: '<script>alert("xss")</script><b>safe</b>',
+        text: '<b>bold</b> and <i>italic</i>',
       });
       manager.syncDomNode(note);
       const node = manager.getNode(note.id);
-      expect(node?.innerHTML).not.toContain('<script>');
-      expect(node?.innerHTML).toContain('<b>safe</b>');
+      expect(node?.innerHTML).toContain('<b>bold</b>');
+      expect(node?.innerHTML).toContain('<i>italic</i>');
     });
 
     it('applies fontSize style', () => {

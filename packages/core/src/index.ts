@@ -38,6 +38,7 @@ export {
   createShape,
   createGrid,
   createTemplate,
+  DEFAULT_NOTE_FONT_SIZE,
 } from './elements/element-factory';
 export {
   getArrowControlPoint,

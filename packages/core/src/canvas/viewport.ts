@@ -138,6 +138,7 @@ export class Viewport {
 
     this.unsubCamera = this.camera.onChange(() => {
       this.applyCameraTransform();
+      this.noteEditor.updateToolbarPosition();
       this.requestRender();
     });
 

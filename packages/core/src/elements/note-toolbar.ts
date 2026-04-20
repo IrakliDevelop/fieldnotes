@@ -1,3 +1,5 @@
+import { DEFAULT_NOTE_FONT_SIZE } from './element-factory';
+
 const TOOLBAR_HEIGHT = 32;
 const TOOLBAR_GAP = 4;
 
@@ -135,7 +137,7 @@ export class NoteToolbar {
       select.appendChild(option);
     }
 
-    select.value = '14';
+    select.value = String(DEFAULT_NOTE_FONT_SIZE);
 
     select.addEventListener('pointerdown', (e) => {
       e.stopPropagation();
@@ -151,7 +153,12 @@ export class NoteToolbar {
 
       const span = document.createElement('span');
       span.style.fontSize = `${size}px`;
-      range.surroundContents(span);
+      try {
+        range.surroundContents(span);
+      } catch {
+        span.appendChild(range.extractContents());
+        range.insertNode(span);
+      }
 
       this.updateActiveStates();
     });

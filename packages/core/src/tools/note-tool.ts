@@ -1,6 +1,6 @@
 import type { Size } from '../core/types';
 import type { Tool, ToolContext, PointerState } from './types';
-import { createNote } from '../elements/element-factory';
+import { createNote, DEFAULT_NOTE_FONT_SIZE } from '../elements/element-factory';
 import { smartSnap } from '../core/snap';
 
 export interface NoteToolOptions {
@@ -22,7 +22,7 @@ export class NoteTool implements Tool {
     this.backgroundColor = options.backgroundColor ?? '#ffeb3b';
     this.textColor = options.textColor ?? '#000000';
     this.size = options.size ?? { w: 200, h: 100 };
-    this.fontSize = options.fontSize ?? 14;
+    this.fontSize = options.fontSize ?? DEFAULT_NOTE_FONT_SIZE;
   }
 
   getOptions(): NoteToolOptions {
