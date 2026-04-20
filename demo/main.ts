@@ -177,6 +177,7 @@ brushSlider?.addEventListener('input', () => {
 const notePanel = document.getElementById('note-panel');
 const noteBgInput = document.getElementById('note-bg') as HTMLInputElement | null;
 const noteTextColorInput = document.getElementById('note-text-color') as HTMLInputElement | null;
+const noteFontSizeSelect = document.getElementById('note-font-size') as HTMLSelectElement | null;
 
 function getSelectedNoteElement() {
   const ids = select.selectedIds;
@@ -198,6 +199,9 @@ function updateNotePanel() {
   if (selectedNote && noteTextColorInput) {
     noteTextColorInput.value = selectedNote.textColor;
   }
+  if (selectedNote && noteFontSizeSelect) {
+    noteFontSizeSelect.value = String(selectedNote.fontSize ?? 14);
+  }
 }
 
 viewport.toolManager.onChange(updateNotePanel);
@@ -216,6 +220,13 @@ noteTextColorInput?.addEventListener('input', () => {
   note.setOptions({ textColor: color });
   const sel = getSelectedNoteElement();
   if (sel) viewport.store.update(sel.id, { textColor: color });
+});
+
+noteFontSizeSelect?.addEventListener('change', () => {
+  const fontSize = Number(noteFontSizeSelect.value);
+  note.setOptions({ fontSize });
+  const sel = getSelectedNoteElement();
+  if (sel) viewport.store.update(sel.id, { fontSize });
 });
 
 const textPanel = document.getElementById('text-panel');
