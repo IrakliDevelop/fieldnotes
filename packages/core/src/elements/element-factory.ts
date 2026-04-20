@@ -17,7 +17,7 @@ import type {
 import { createId } from './create-id';
 import { getArrowControlPoint } from './arrow-geometry';
 
-export const DEFAULT_NOTE_FONT_SIZE = 14;
+export const DEFAULT_NOTE_FONT_SIZE = 18;
 
 interface BaseDefaults {
   position?: Point;

@@ -160,14 +160,14 @@ describe('DomNodeManager', () => {
       expect(node?.style.fontSize).toBe('18px');
     });
 
-    it('defaults fontSize to 14px', () => {
+    it('defaults fontSize to 18px', () => {
       const note = createNote({
         position: { x: 0, y: 0 },
         size: { w: 200, h: 100 },
       });
       manager.syncDomNode(note);
       const node = manager.getNode(note.id);
-      expect(node?.style.fontSize).toBe('14px');
+      expect(node?.style.fontSize).toBe('18px');
     });
 
     it('updates innerHTML when not editing', () => {

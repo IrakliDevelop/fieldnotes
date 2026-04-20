@@ -16,17 +16,27 @@ const FORMAT_BUTTONS: FormatButton[] = [
   { label: 'S', format: 'strikethrough', command: 'strikeThrough' },
 ];
 
-const FONT_SIZE_PRESETS = [
-  { label: 'Small', value: '12' },
-  { label: 'Normal', value: '14' },
-  { label: 'Large', value: '18' },
-  { label: 'Heading', value: '24' },
+export interface FontSizePreset {
+  label: string;
+  size: number;
+}
+
+export const DEFAULT_FONT_SIZE_PRESETS: FontSizePreset[] = [
+  { label: 'Small', size: 14 },
+  { label: 'Normal', size: 18 },
+  { label: 'Large', size: 24 },
+  { label: 'Heading', size: 32 },
 ];
 
 export class NoteToolbar {
   private el: HTMLDivElement | null = null;
   private anchor: HTMLElement | null = null;
   private selectionListener: (() => void) | null = null;
+  private readonly fontSizePresets: FontSizePreset[];
+
+  constructor(fontSizePresets?: FontSizePreset[]) {
+    this.fontSizePresets = fontSizePresets ?? DEFAULT_FONT_SIZE_PRESETS;
+  }
 
   show(anchor: HTMLElement): void {
     this.hide();
@@ -133,9 +143,9 @@ export class NoteToolbar {
       marginLeft: '4px',
     });
 
-    for (const preset of FONT_SIZE_PRESETS) {
+    for (const preset of this.fontSizePresets) {
       const option = document.createElement('option');
-      option.value = preset.value;
+      option.value = String(preset.size);
       option.textContent = preset.label;
       select.appendChild(option);
     }

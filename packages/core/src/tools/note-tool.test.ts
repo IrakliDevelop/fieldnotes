@@ -149,7 +149,7 @@ describe('NoteTool', () => {
     expect(note.fontSize).toBe(18);
   });
 
-  it('defaults fontSize to 14', () => {
+  it('defaults fontSize to 18', () => {
     const tool = new NoteTool();
     const ctx = makeCtx();
 
@@ -157,7 +157,7 @@ describe('NoteTool', () => {
     tool.onPointerUp(pt(0, 0), ctx);
 
     const note = ctx.store.getAll()[0] as NoteElement;
-    expect(note.fontSize).toBe(14);
+    expect(note.fontSize).toBe(18);
   });
 
   describe('getOptions', () => {
@@ -167,7 +167,7 @@ describe('NoteTool', () => {
         backgroundColor: '#ff0000',
         textColor: '#00ff00',
         size: { w: 200, h: 100 },
-        fontSize: 14,
+        fontSize: 18,
       });
     });
   });

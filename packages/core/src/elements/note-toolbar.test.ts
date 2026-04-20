@@ -76,7 +76,7 @@ describe('NoteToolbar', () => {
     toolbar.show(container);
     const select = toolbar.getElement()?.querySelector('select') as HTMLSelectElement | null;
     const values = Array.from(select?.options ?? []).map((o) => o.value);
-    expect(values).toEqual(['12', '14', '18', '24']);
+    expect(values).toEqual(['14', '18', '24', '32']);
     toolbar.hide();
   });
 
@@ -120,6 +120,20 @@ describe('NoteToolbar', () => {
     toolbar.updatePosition(container);
     const el = toolbar.getElement();
     expect(el?.style.position).toBe('fixed');
+    toolbar.hide();
+  });
+
+  it('accepts custom font size presets', () => {
+    const toolbar = new NoteToolbar([
+      { label: 'Tiny', size: 10 },
+      { label: 'Huge', size: 48 },
+    ]);
+    toolbar.show(container);
+    const select = toolbar.getElement()?.querySelector('select') as HTMLSelectElement | null;
+    const values = Array.from(select?.options ?? []).map((o) => o.value);
+    expect(values).toEqual(['10', '48']);
+    const labels = Array.from(select?.options ?? []).map((o) => o.textContent);
+    expect(labels).toEqual(['Tiny', 'Huge']);
     toolbar.hide();
   });
 });

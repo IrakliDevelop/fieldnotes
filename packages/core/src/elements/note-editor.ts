@@ -1,8 +1,13 @@
 import type { ElementStore } from './element-store';
 import { NoteToolbar } from './note-toolbar';
+import type { FontSizePreset } from './note-toolbar';
 import { sanitizeNoteHtml } from './note-sanitizer';
 
 const FORMAT_SHORTCUTS: Record<string, string> = { b: 'bold', i: 'italic', u: 'underline' };
+
+export interface NoteEditorOptions {
+  fontSizePresets?: FontSizePreset[];
+}
 
 export class NoteEditor {
   private editingId: string | null = null;
@@ -12,7 +17,11 @@ export class NoteEditor {
   private pointerHandler: ((e: PointerEvent) => void) | null = null;
   private pendingEditId: string | null = null;
   private onStopCallback: ((elementId: string) => void) | null = null;
-  private toolbar = new NoteToolbar();
+  private toolbar: NoteToolbar;
+
+  constructor(options?: NoteEditorOptions) {
+    this.toolbar = new NoteToolbar(options?.fontSizePresets);
+  }
 
   get isEditing(): boolean {
     return this.editingId !== null;

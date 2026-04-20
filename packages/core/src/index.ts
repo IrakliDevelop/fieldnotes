@@ -24,9 +24,11 @@ export { ElementStore } from './elements/element-store';
 export type { ElementUpdateEvent } from './elements/element-store';
 export { ElementRenderer } from './elements/element-renderer';
 export { NoteEditor } from './elements/note-editor';
+export type { NoteEditorOptions } from './elements/note-editor';
 export { sanitizeNoteHtml } from './elements/note-sanitizer';
 export type { StyledRun } from './elements/note-sanitizer';
-export { NoteToolbar } from './elements/note-toolbar';
+export { NoteToolbar, DEFAULT_FONT_SIZE_PRESETS } from './elements/note-toolbar';
+export type { FontSizePreset } from './elements/note-toolbar';
 export { createId } from './elements/create-id';
 export {
   createStroke,
