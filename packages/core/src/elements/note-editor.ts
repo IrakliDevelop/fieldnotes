@@ -7,7 +7,7 @@ const FORMAT_SHORTCUTS: Record<string, string> = { b: 'bold', i: 'italic', u: 'u
 export class NoteEditor {
   private editingId: string | null = null;
   private editingNode: HTMLDivElement | null = null;
-  private blurHandler: (() => void) | null = null;
+  private blurHandler: ((e: FocusEvent) => void) | null = null;
   private keyHandler: ((e: KeyboardEvent) => void) | null = null;
   private pointerHandler: ((e: PointerEvent) => void) | null = null;
   private pendingEditId: string | null = null;
@@ -115,7 +115,11 @@ export class NoteEditor {
 
     this.toolbar.show(node);
 
-    this.blurHandler = () => this.stopEditing(store);
+    this.blurHandler = (e: FocusEvent) => {
+      const related = e.relatedTarget as Node | null;
+      if (related && this.toolbar.getElement()?.contains(related)) return;
+      this.stopEditing(store);
+    };
     this.keyHandler = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
         const command = FORMAT_SHORTCUTS[e.key.toLowerCase()];

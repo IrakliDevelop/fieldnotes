@@ -313,6 +313,29 @@ describe('NoteEditor', () => {
     node.remove();
   });
 
+  it('does not stop editing when focus moves to toolbar', async () => {
+    const editor = new NoteEditor();
+    const store = new ElementStore();
+    const note = createNote({ position: { x: 0, y: 0 } });
+    store.add(note);
+    const node = makeNode('text');
+    document.body.appendChild(node);
+
+    editor.startEditing(node, note.id, store);
+    await flushRAF();
+
+    const toolbar = document.querySelector('[data-note-toolbar]');
+    expect(toolbar).not.toBeNull();
+
+    const select = toolbar?.querySelector('select');
+    node.dispatchEvent(new FocusEvent('blur', { relatedTarget: select }));
+
+    expect(editor.isEditing).toBe(true);
+
+    editor.stopEditing(store);
+    node.remove();
+  });
+
   describe('setOnStop callback', () => {
     it('calls onStop with element id when editing stops', async () => {
       const editor = new NoteEditor();

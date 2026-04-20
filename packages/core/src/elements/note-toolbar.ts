@@ -25,10 +25,12 @@ const FONT_SIZE_PRESETS = [
 
 export class NoteToolbar {
   private el: HTMLDivElement | null = null;
+  private anchor: HTMLElement | null = null;
   private selectionListener: (() => void) | null = null;
 
   show(anchor: HTMLElement): void {
     this.hide();
+    this.anchor = anchor;
     this.el = this.createToolbarElement();
     document.body.appendChild(this.el);
     this.positionToolbar(anchor);
@@ -45,6 +47,7 @@ export class NoteToolbar {
       this.el.remove();
       this.el = null;
     }
+    this.anchor = null;
   }
 
   getElement(): HTMLDivElement | null {
@@ -161,6 +164,7 @@ export class NoteToolbar {
       }
 
       this.updateActiveStates();
+      this.anchor?.focus();
     });
 
     return select;
