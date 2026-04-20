@@ -1,13 +1,33 @@
 import type { ElementStore } from './element-store';
+import { NoteToolbar } from './note-toolbar';
+import type { FontSizePreset } from './note-toolbar';
+import { sanitizeNoteHtml } from './note-sanitizer';
+import { toggleBold, toggleItalic, toggleUnderline } from './note-formatting';
+
+const FORMAT_SHORTCUTS: Record<string, () => void> = {
+  b: toggleBold,
+  i: toggleItalic,
+  u: toggleUnderline,
+};
+
+export interface NoteEditorOptions {
+  fontSizePresets?: FontSizePreset[];
+  toolbar?: boolean;
+}
 
 export class NoteEditor {
   private editingId: string | null = null;
   private editingNode: HTMLDivElement | null = null;
-  private blurHandler: (() => void) | null = null;
+  private blurHandler: ((e: FocusEvent) => void) | null = null;
   private keyHandler: ((e: KeyboardEvent) => void) | null = null;
   private pointerHandler: ((e: PointerEvent) => void) | null = null;
   private pendingEditId: string | null = null;
   private onStopCallback: ((elementId: string) => void) | null = null;
+  private toolbar: NoteToolbar | null;
+
+  constructor(options?: NoteEditorOptions) {
+    this.toolbar = options?.toolbar === false ? null : new NoteToolbar(options?.fontSizePresets);
+  }
 
   get isEditing(): boolean {
     return this.editingId !== null;
@@ -42,15 +62,6 @@ export class NoteEditor {
 
     if (!this.editingId || !this.editingNode) return;
 
-    const text = this.editingNode.textContent ?? '';
-    store.update(this.editingId, { text });
-
-    this.editingNode.contentEditable = 'false';
-    Object.assign(this.editingNode.style, {
-      userSelect: 'none',
-      cursor: 'default',
-    });
-
     if (this.blurHandler) {
       this.editingNode.removeEventListener('blur', this.blurHandler);
     }
@@ -60,6 +71,17 @@ export class NoteEditor {
     if (this.pointerHandler) {
       this.editingNode.removeEventListener('pointerdown', this.pointerHandler);
     }
+
+    const text = sanitizeNoteHtml(this.editingNode.innerHTML);
+    store.update(this.editingId, { text });
+
+    this.editingNode.contentEditable = 'false';
+    Object.assign(this.editingNode.style, {
+      userSelect: 'none',
+      cursor: 'default',
+    });
+
+    this.toolbar?.hide();
 
     if (this.editingId && this.onStopCallback) {
       this.onStopCallback(this.editingId);
@@ -76,6 +98,12 @@ export class NoteEditor {
     this.pendingEditId = null;
     if (this.isEditing) {
       this.stopEditing(store);
+    }
+  }
+
+  updateToolbarPosition(): void {
+    if (this.editingNode) {
+      this.toolbar?.updatePosition(this.editingNode);
     }
   }
 
@@ -100,8 +128,22 @@ export class NoteEditor {
       selection.addRange(range);
     }
 
-    this.blurHandler = () => this.stopEditing(store);
+    this.toolbar?.show(node);
+
+    this.blurHandler = (e: FocusEvent) => {
+      const related = e.relatedTarget as Node | null;
+      if (related && this.toolbar?.getElement()?.contains(related)) return;
+      this.stopEditing(store);
+    };
     this.keyHandler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
+        const action = FORMAT_SHORTCUTS[e.key.toLowerCase()];
+        if (action) {
+          e.preventDefault();
+          action();
+          return;
+        }
+      }
       if (e.key === 'Escape') {
         node.blur();
       }

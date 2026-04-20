@@ -138,6 +138,28 @@ describe('NoteTool', () => {
     expect(editElement).toHaveBeenCalledWith(noteId);
   });
 
+  it('uses configured fontSize', () => {
+    const tool = new NoteTool({ fontSize: 18 });
+    const ctx = makeCtx();
+
+    tool.onPointerDown(pt(0, 0), ctx);
+    tool.onPointerUp(pt(0, 0), ctx);
+
+    const note = ctx.store.getAll()[0] as NoteElement;
+    expect(note.fontSize).toBe(18);
+  });
+
+  it('defaults fontSize to 18', () => {
+    const tool = new NoteTool();
+    const ctx = makeCtx();
+
+    tool.onPointerDown(pt(0, 0), ctx);
+    tool.onPointerUp(pt(0, 0), ctx);
+
+    const note = ctx.store.getAll()[0] as NoteElement;
+    expect(note.fontSize).toBe(18);
+  });
+
   describe('getOptions', () => {
     it('returns current options', () => {
       const tool = new NoteTool({ backgroundColor: '#ff0000', textColor: '#00ff00' });
@@ -145,6 +167,7 @@ describe('NoteTool', () => {
         backgroundColor: '#ff0000',
         textColor: '#00ff00',
         size: { w: 200, h: 100 },
+        fontSize: 18,
       });
     });
   });

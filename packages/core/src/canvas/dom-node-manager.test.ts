@@ -123,6 +123,66 @@ describe('DomNodeManager', () => {
     });
   });
 
+  describe('renderDomContent — note with HTML', () => {
+    it('renders HTML content in note', () => {
+      const note = createNote({
+        position: { x: 0, y: 0 },
+        size: { w: 200, h: 100 },
+        text: '<b>bold</b> text',
+      });
+      manager.syncDomNode(note);
+      const node = manager.getNode(note.id);
+      expect(node?.innerHTML).toContain('<b>bold</b>');
+    });
+
+    it('renders pre-sanitized HTML as-is', () => {
+      const note = createNote({
+        position: { x: 0, y: 0 },
+        size: { w: 200, h: 100 },
+        text: '<b>bold</b> and <i>italic</i>',
+      });
+      manager.syncDomNode(note);
+      const node = manager.getNode(note.id);
+      expect(node?.innerHTML).toContain('<b>bold</b>');
+      expect(node?.innerHTML).toContain('<i>italic</i>');
+    });
+
+    it('applies fontSize style', () => {
+      const note = {
+        ...createNote({
+          position: { x: 0, y: 0 },
+          size: { w: 200, h: 100 },
+          fontSize: 18,
+        }),
+      };
+      manager.syncDomNode(note);
+      const node = manager.getNode(note.id);
+      expect(node?.style.fontSize).toBe('18px');
+    });
+
+    it('defaults fontSize to 18px', () => {
+      const note = createNote({
+        position: { x: 0, y: 0 },
+        size: { w: 200, h: 100 },
+      });
+      manager.syncDomNode(note);
+      const node = manager.getNode(note.id);
+      expect(node?.style.fontSize).toBe('18px');
+    });
+
+    it('updates innerHTML when not editing', () => {
+      const note = createNote({
+        position: { x: 0, y: 0 },
+        size: { w: 200, h: 100 },
+        text: 'plain',
+      });
+      manager.syncDomNode(note);
+      manager.syncDomNode({ ...note, text: '<i>updated</i>' });
+      const node = manager.getNode(note.id);
+      expect(node?.innerHTML).toContain('<i>updated</i>');
+    });
+  });
+
   describe('renderDomContent — text', () => {
     it('applies text styling on first render', () => {
       const text = createText({

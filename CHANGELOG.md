@@ -6,6 +6,40 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ---
 
+## [0.10.0] — 2026-04-20
+
+### Added
+
+- **Note rich text formatting** — inline bold, italic, underline, and strikethrough in sticky notes via `contentEditable` + `document.execCommand`
+- **Floating formatting toolbar** — appears above the note during editing with B/I/U/S buttons and a font size dropdown. Uses `pointerdown` + `preventDefault` to avoid stealing focus — works on iPad/stylus
+- **Font size presets** — Small (14px), Normal (18px), Large (24px), Heading (32px) with named dropdown. Configurable via `ViewportOptions.fontSizePresets` or `NoteToolbar` constructor
+- **Keyboard shortcuts** — Ctrl/Cmd+B (bold), Ctrl/Cmd+I (italic), Ctrl/Cmd+U (underline) while editing notes
+- **HTML sanitizer** — `sanitizeNoteHtml()` strips disallowed tags/attributes using DOMParser allowlist. Runs on save and deserialization to prevent XSS
+- **Styled run parser** — `parseStyledRuns()` converts HTML to flat `StyledRun[]` array for canvas export rendering with mixed formatting
+- **Canvas export rich text** — `renderNoteOnCanvas` handles bold/italic/underline/strikethrough with word wrapping across styled runs
+- **Smart toolbar positioning** — toolbar positioned above note by default, flips below when insufficient space
+- **`DEFAULT_NOTE_FONT_SIZE`** constant (18px) — shared across factory, tools, renderer, and export
+- **`FontSizePreset`** type and **`DEFAULT_FONT_SIZE_PRESETS`** — SDK users can customize the toolbar dropdown presets
+- **`NoteEditorOptions`** — configure font size presets via `NoteEditor` constructor
+- **Headless formatting API** — `toggleBold()`, `toggleItalic()`, `toggleUnderline()`, `toggleStrikethrough()`, `setFontSize(size)`, `getActiveFormats()` for SDK users building custom toolbar UI
+- **`toolbar` option** — set `toolbar: false` on `ViewportOptions` or `NoteEditorOptions` to disable the built-in toolbar and use the formatting API with custom UI
+- Font size control in demo note panel
+
+### Changed
+
+- `NoteElement.text` field now stores HTML (was plain text). Plain text without tags renders identically — fully backward compatible, no migration needed
+- Default note base font size increased from 14px to 18px
+- `DomNodeManager` renders notes via `innerHTML` instead of `textContent`
+
+### Fixed
+
+- Toolbar font size dropdown closing the editing session (blur handler now checks `FocusEvent.relatedTarget`)
+- `range.surroundContents()` crash on partial element selections (fallback to `extractContents` + `insertNode`)
+- Toolbar not following note during pan/zoom (wired `updateToolbarPosition` to camera change handler)
+- Redundant per-frame HTML sanitization in render path removed (data pre-sanitized at write time)
+
+---
+
 ## [0.9.0] — 2026-04-10
 
 ### Added

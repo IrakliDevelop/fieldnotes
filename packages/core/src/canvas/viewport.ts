@@ -6,6 +6,7 @@ import type { BackgroundOptions } from './background';
 import { ElementStore } from '../elements/element-store';
 import { ElementRenderer } from '../elements/element-renderer';
 import { NoteEditor } from '../elements/note-editor';
+import type { FontSizePreset } from '../elements/note-toolbar';
 import type { CanvasElement, ArrowElement, GridElement } from '../elements/types';
 import { findBoundArrows, getEdgeIntersection } from '../elements/arrow-binding';
 import { getElementBounds } from '../elements/element-bounds';
@@ -29,6 +30,8 @@ import { LayerCache } from './layer-cache';
 export interface ViewportOptions {
   camera?: CameraOptions;
   background?: BackgroundOptions;
+  fontSizePresets?: FontSizePreset[];
+  toolbar?: boolean;
 }
 
 export class Viewport {
@@ -72,7 +75,10 @@ export class Viewport {
       this.renderLoop.markAllLayersDirty();
       this.requestRender();
     });
-    this.noteEditor = new NoteEditor();
+    this.noteEditor = new NoteEditor({
+      fontSizePresets: options.fontSizePresets,
+      toolbar: options.toolbar,
+    });
     this.noteEditor.setOnStop((id) => this.onTextEditStop(id));
     this.history = new HistoryStack();
     this.historyRecorder = new HistoryRecorder(this.store, this.history);
@@ -138,6 +144,7 @@ export class Viewport {
 
     this.unsubCamera = this.camera.onChange(() => {
       this.applyCameraTransform();
+      this.noteEditor.updateToolbarPosition();
       this.requestRender();
     });
 

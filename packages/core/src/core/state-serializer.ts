@@ -1,6 +1,7 @@
 import type { CanvasElement } from '../elements/types';
 import type { Point } from './types';
 import type { Layer } from '../layers/types';
+import { sanitizeNoteHtml } from '../elements/note-sanitizer';
 
 export interface CanvasState {
   version: number;
@@ -91,7 +92,17 @@ function validateState(data: unknown): asserts data is CanvasState {
   }
 }
 
-const VALID_TYPES = new Set(['stroke', 'note', 'arrow', 'image', 'html', 'text', 'shape', 'grid']);
+const VALID_TYPES = new Set([
+  'stroke',
+  'note',
+  'arrow',
+  'image',
+  'html',
+  'text',
+  'shape',
+  'grid',
+  'template',
+]);
 
 function validateElement(el: unknown): asserts el is CanvasElement {
   if (!el || typeof el !== 'object') {
@@ -154,5 +165,9 @@ function migrateElement(obj: Record<string, unknown>): void {
 
   if (obj['type'] === 'note' && typeof obj['textColor'] !== 'string') {
     obj['textColor'] = '#000000';
+  }
+
+  if (obj['type'] === 'note' && typeof obj['text'] === 'string') {
+    obj['text'] = sanitizeNoteHtml(obj['text']);
   }
 }

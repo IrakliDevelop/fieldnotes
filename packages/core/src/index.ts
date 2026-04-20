@@ -1,4 +1,4 @@
-export const VERSION = '0.9.0';
+export const VERSION = '0.10.0';
 
 export { EventBus } from './core/event-bus';
 export { Quadtree } from './core/quadtree';
@@ -24,6 +24,20 @@ export { ElementStore } from './elements/element-store';
 export type { ElementUpdateEvent } from './elements/element-store';
 export { ElementRenderer } from './elements/element-renderer';
 export { NoteEditor } from './elements/note-editor';
+export type { NoteEditorOptions } from './elements/note-editor';
+export { sanitizeNoteHtml } from './elements/note-sanitizer';
+export type { StyledRun } from './elements/note-sanitizer';
+export { NoteToolbar, DEFAULT_FONT_SIZE_PRESETS } from './elements/note-toolbar';
+export type { FontSizePreset } from './elements/note-toolbar';
+export {
+  toggleBold,
+  toggleItalic,
+  toggleUnderline,
+  toggleStrikethrough,
+  setFontSize,
+  getActiveFormats,
+} from './elements/note-formatting';
+export type { ActiveFormats } from './elements/note-formatting';
 export { createId } from './elements/create-id';
 export {
   createStroke,
@@ -35,6 +49,7 @@ export {
   createShape,
   createGrid,
   createTemplate,
+  DEFAULT_NOTE_FONT_SIZE,
 } from './elements/element-factory';
 export {
   getArrowControlPoint,

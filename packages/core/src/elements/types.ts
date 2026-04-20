@@ -23,6 +23,7 @@ export interface NoteElement extends BaseElement {
   text: string;
   backgroundColor: string;
   textColor: string;
+  fontSize?: number;
 }
 
 export interface Binding {

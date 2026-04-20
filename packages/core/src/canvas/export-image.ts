@@ -1,10 +1,11 @@
-import type { CanvasElement, NoteElement, TextElement, GridElement } from '../elements/types';
+import type { CanvasElement, TextElement, GridElement } from '../elements/types';
 import type { ElementStore } from '../elements/element-store';
 import { ElementRenderer } from '../elements/element-renderer';
 import { getArrowBounds } from '../elements/arrow-geometry';
 import { getElementBounds } from '../elements/element-bounds';
 import { renderSquareGrid, renderHexGrid } from '../elements/grid-renderer';
 import type { LayerManager } from '../layers/layer-manager';
+import { renderNoteOnCanvas } from './note-canvas-renderer';
 
 export interface ExportImageOptions {
   scale?: number;
@@ -107,37 +108,6 @@ function computeBounds(
   };
 }
 
-function renderNoteOnCanvas(ctx: CanvasRenderingContext2D, note: NoteElement): void {
-  const { x, y } = note.position;
-  const { w, h } = note.size;
-  const r = 4;
-  const pad = 8;
-
-  ctx.save();
-  ctx.fillStyle = note.backgroundColor;
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.lineTo(x + w - r, y);
-  ctx.arcTo(x + w, y, x + w, y + r, r);
-  ctx.lineTo(x + w, y + h - r);
-  ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
-  ctx.lineTo(x + r, y + h);
-  ctx.arcTo(x, y + h, x, y + h - r, r);
-  ctx.lineTo(x, y + r);
-  ctx.arcTo(x, y, x + r, y, r);
-  ctx.closePath();
-  ctx.fill();
-
-  if (note.text) {
-    ctx.fillStyle = note.textColor;
-    ctx.font = '14px system-ui, sans-serif';
-    ctx.textBaseline = 'top';
-    wrapText(ctx, note.text, x + pad, y + pad, w - pad * 2, 18);
-  }
-
-  ctx.restore();
-}
-
 function renderTextOnCanvas(ctx: CanvasRenderingContext2D, text: TextElement): void {
   if (!text.text) return;
 
@@ -165,34 +135,6 @@ function renderTextOnCanvas(ctx: CanvasRenderingContext2D, text: TextElement): v
   }
 
   ctx.restore();
-}
-
-function wrapText(
-  ctx: CanvasRenderingContext2D,
-  text: string,
-  x: number,
-  y: number,
-  maxWidth: number,
-  lineHeight: number,
-): void {
-  const words = text.split(' ');
-  let line = '';
-  let offsetY = 0;
-
-  for (const word of words) {
-    const testLine = line ? `${line} ${word}` : word;
-    const metrics = ctx.measureText(testLine);
-    if (metrics.width > maxWidth && line) {
-      ctx.fillText(line, x, y + offsetY);
-      line = word;
-      offsetY += lineHeight;
-    } else {
-      line = testLine;
-    }
-  }
-  if (line) {
-    ctx.fillText(line, x, y + offsetY);
-  }
 }
 
 function renderGridForBounds(
