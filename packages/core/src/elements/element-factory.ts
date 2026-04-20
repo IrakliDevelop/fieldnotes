@@ -37,6 +37,7 @@ interface NoteInput extends BaseDefaults {
   text?: string;
   backgroundColor?: string;
   textColor?: string;
+  fontSize?: number;
 }
 
 interface ArrowInput extends BaseDefaults {
@@ -97,6 +98,7 @@ export function createNote(input: NoteInput): NoteElement {
     text: input.text ?? '',
     backgroundColor: input.backgroundColor ?? '#ffeb3b',
     textColor: input.textColor ?? '#000000',
+    fontSize: input.fontSize,
   };
 }
 

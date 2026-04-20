@@ -7,6 +7,7 @@ export interface NoteToolOptions {
   backgroundColor?: string;
   textColor?: string;
   size?: Size;
+  fontSize?: number;
 }
 
 export class NoteTool implements Tool {
@@ -14,12 +15,14 @@ export class NoteTool implements Tool {
   private backgroundColor: string;
   private textColor: string;
   private size: Size;
+  private fontSize: number;
   private optionListeners = new Set<() => void>();
 
   constructor(options: NoteToolOptions = {}) {
     this.backgroundColor = options.backgroundColor ?? '#ffeb3b';
     this.textColor = options.textColor ?? '#000000';
     this.size = options.size ?? { w: 200, h: 100 };
+    this.fontSize = options.fontSize ?? 14;
   }
 
   getOptions(): NoteToolOptions {
@@ -27,6 +30,7 @@ export class NoteTool implements Tool {
       backgroundColor: this.backgroundColor,
       textColor: this.textColor,
       size: { ...this.size },
+      fontSize: this.fontSize,
     };
   }
 
@@ -39,6 +43,7 @@ export class NoteTool implements Tool {
     if (options.backgroundColor !== undefined) this.backgroundColor = options.backgroundColor;
     if (options.textColor !== undefined) this.textColor = options.textColor;
     if (options.size !== undefined) this.size = options.size;
+    if (options.fontSize !== undefined) this.fontSize = options.fontSize;
     this.notifyOptionsChange();
   }
 
@@ -62,6 +67,7 @@ export class NoteTool implements Tool {
       size: { ...this.size },
       backgroundColor: this.backgroundColor,
       textColor: this.textColor,
+      fontSize: this.fontSize,
       layerId: ctx.activeLayerId ?? '',
     });
     ctx.store.add(note);
