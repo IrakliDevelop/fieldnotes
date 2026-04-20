@@ -21,6 +21,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 - **`DEFAULT_NOTE_FONT_SIZE`** constant (18px) — shared across factory, tools, renderer, and export
 - **`FontSizePreset`** type and **`DEFAULT_FONT_SIZE_PRESETS`** — SDK users can customize the toolbar dropdown presets
 - **`NoteEditorOptions`** — configure font size presets via `NoteEditor` constructor
+- **Headless formatting API** — `toggleBold()`, `toggleItalic()`, `toggleUnderline()`, `toggleStrikethrough()`, `setFontSize(size)`, `getActiveFormats()` for SDK users building custom toolbar UI
+- **`toolbar` option** — set `toolbar: false` on `ViewportOptions` or `NoteEditorOptions` to disable the built-in toolbar and use the formatting API with custom UI
 - Font size control in demo note panel
 
 ### Changed
