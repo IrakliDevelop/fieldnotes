@@ -336,6 +336,24 @@ describe('NoteEditor', () => {
     node.remove();
   });
 
+  it('does not show toolbar when toolbar option is false', async () => {
+    const editor = new NoteEditor({ toolbar: false });
+    const store = new ElementStore();
+    const note = createNote({ position: { x: 0, y: 0 } });
+    store.add(note);
+    const node = makeNode('text');
+    document.body.appendChild(node);
+
+    editor.startEditing(node, note.id, store);
+    await flushRAF();
+
+    expect(document.querySelector('[data-note-toolbar]')).toBeNull();
+    expect(editor.isEditing).toBe(true);
+
+    editor.stopEditing(store);
+    node.remove();
+  });
+
   describe('setOnStop callback', () => {
     it('calls onStop with element id when editing stops', async () => {
       const editor = new NoteEditor();

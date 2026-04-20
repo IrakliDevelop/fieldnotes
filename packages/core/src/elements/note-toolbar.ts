@@ -1,4 +1,5 @@
 import { DEFAULT_NOTE_FONT_SIZE } from './element-factory';
+import { setFontSize, getActiveFormats } from './note-formatting';
 
 const TOOLBAR_HEIGHT = 32;
 const TOOLBAR_GAP = 4;
@@ -157,22 +158,7 @@ export class NoteToolbar {
     });
 
     select.addEventListener('change', () => {
-      const size = select.value;
-      const sel = window.getSelection();
-      if (!sel || sel.rangeCount === 0) return;
-
-      const range = sel.getRangeAt(0);
-      if (range.collapsed) return;
-
-      const span = document.createElement('span');
-      span.style.fontSize = `${size}px`;
-      try {
-        range.surroundContents(span);
-      } catch {
-        span.appendChild(range.extractContents());
-        range.insertNode(span);
-      }
-
+      setFontSize(Number(select.value));
       this.updateActiveStates();
       this.anchor?.focus();
     });
@@ -203,18 +189,14 @@ export class NoteToolbar {
   private updateActiveStates(): void {
     if (!this.el) return;
 
+    const active = getActiveFormats();
     for (const config of FORMAT_BUTTONS) {
       const btn = this.el.querySelector(`[data-format="${config.format}"]`) as HTMLElement | null;
       if (!btn) continue;
 
-      let active = false;
-      try {
-        active = document.queryCommandState(config.command);
-      } catch {
-        // queryCommandState can throw for unsupported commands
-      }
-      btn.style.background = active ? '#e0e0e0' : 'none';
-      btn.style.borderColor = active ? '#bbb' : 'transparent';
+      const isActive = active[config.format as keyof typeof active] ?? false;
+      btn.style.background = isActive ? '#e0e0e0' : 'none';
+      btn.style.borderColor = isActive ? '#bbb' : 'transparent';
     }
   }
 }

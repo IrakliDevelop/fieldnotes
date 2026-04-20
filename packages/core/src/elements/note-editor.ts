@@ -2,11 +2,17 @@ import type { ElementStore } from './element-store';
 import { NoteToolbar } from './note-toolbar';
 import type { FontSizePreset } from './note-toolbar';
 import { sanitizeNoteHtml } from './note-sanitizer';
+import { toggleBold, toggleItalic, toggleUnderline } from './note-formatting';
 
-const FORMAT_SHORTCUTS: Record<string, string> = { b: 'bold', i: 'italic', u: 'underline' };
+const FORMAT_SHORTCUTS: Record<string, () => void> = {
+  b: toggleBold,
+  i: toggleItalic,
+  u: toggleUnderline,
+};
 
 export interface NoteEditorOptions {
   fontSizePresets?: FontSizePreset[];
+  toolbar?: boolean;
 }
 
 export class NoteEditor {
@@ -17,10 +23,10 @@ export class NoteEditor {
   private pointerHandler: ((e: PointerEvent) => void) | null = null;
   private pendingEditId: string | null = null;
   private onStopCallback: ((elementId: string) => void) | null = null;
-  private toolbar: NoteToolbar;
+  private toolbar: NoteToolbar | null;
 
   constructor(options?: NoteEditorOptions) {
-    this.toolbar = new NoteToolbar(options?.fontSizePresets);
+    this.toolbar = options?.toolbar === false ? null : new NoteToolbar(options?.fontSizePresets);
   }
 
   get isEditing(): boolean {
@@ -75,7 +81,7 @@ export class NoteEditor {
       cursor: 'default',
     });
 
-    this.toolbar.hide();
+    this.toolbar?.hide();
 
     if (this.editingId && this.onStopCallback) {
       this.onStopCallback(this.editingId);
@@ -97,7 +103,7 @@ export class NoteEditor {
 
   updateToolbarPosition(): void {
     if (this.editingNode) {
-      this.toolbar.updatePosition(this.editingNode);
+      this.toolbar?.updatePosition(this.editingNode);
     }
   }
 
@@ -122,19 +128,19 @@ export class NoteEditor {
       selection.addRange(range);
     }
 
-    this.toolbar.show(node);
+    this.toolbar?.show(node);
 
     this.blurHandler = (e: FocusEvent) => {
       const related = e.relatedTarget as Node | null;
-      if (related && this.toolbar.getElement()?.contains(related)) return;
+      if (related && this.toolbar?.getElement()?.contains(related)) return;
       this.stopEditing(store);
     };
     this.keyHandler = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
-        const command = FORMAT_SHORTCUTS[e.key.toLowerCase()];
-        if (command) {
+        const action = FORMAT_SHORTCUTS[e.key.toLowerCase()];
+        if (action) {
           e.preventDefault();
-          document.execCommand(command);
+          action();
           return;
         }
       }

@@ -31,6 +31,7 @@ export interface ViewportOptions {
   camera?: CameraOptions;
   background?: BackgroundOptions;
   fontSizePresets?: FontSizePreset[];
+  toolbar?: boolean;
 }
 
 export class Viewport {
@@ -74,7 +75,10 @@ export class Viewport {
       this.renderLoop.markAllLayersDirty();
       this.requestRender();
     });
-    this.noteEditor = new NoteEditor({ fontSizePresets: options.fontSizePresets });
+    this.noteEditor = new NoteEditor({
+      fontSizePresets: options.fontSizePresets,
+      toolbar: options.toolbar,
+    });
     this.noteEditor.setOnStop((id) => this.onTextEditStop(id));
     this.history = new HistoryStack();
     this.historyRecorder = new HistoryRecorder(this.store, this.history);

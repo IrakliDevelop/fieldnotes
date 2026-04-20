@@ -29,6 +29,15 @@ export { sanitizeNoteHtml } from './elements/note-sanitizer';
 export type { StyledRun } from './elements/note-sanitizer';
 export { NoteToolbar, DEFAULT_FONT_SIZE_PRESETS } from './elements/note-toolbar';
 export type { FontSizePreset } from './elements/note-toolbar';
+export {
+  toggleBold,
+  toggleItalic,
+  toggleUnderline,
+  toggleStrikethrough,
+  setFontSize,
+  getActiveFormats,
+} from './elements/note-formatting';
+export type { ActiveFormats } from './elements/note-formatting';
 export { createId } from './elements/create-id';
 export {
   createStroke,
