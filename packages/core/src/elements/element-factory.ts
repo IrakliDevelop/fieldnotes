@@ -98,7 +98,7 @@ export function createNote(input: NoteInput): NoteElement {
     text: input.text ?? '',
     backgroundColor: input.backgroundColor ?? '#ffeb3b',
     textColor: input.textColor ?? '#000000',
-    fontSize: input.fontSize,
+    fontSize: input.fontSize ?? 14,
   };
 }
 
