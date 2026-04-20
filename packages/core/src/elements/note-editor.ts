@@ -1,4 +1,8 @@
 import type { ElementStore } from './element-store';
+import { NoteToolbar } from './note-toolbar';
+import { sanitizeNoteHtml } from './note-sanitizer';
+
+const FORMAT_SHORTCUTS: Record<string, string> = { b: 'bold', i: 'italic', u: 'underline' };
 
 export class NoteEditor {
   private editingId: string | null = null;
@@ -8,6 +12,7 @@ export class NoteEditor {
   private pointerHandler: ((e: PointerEvent) => void) | null = null;
   private pendingEditId: string | null = null;
   private onStopCallback: ((elementId: string) => void) | null = null;
+  private toolbar = new NoteToolbar();
 
   get isEditing(): boolean {
     return this.editingId !== null;
@@ -42,15 +47,6 @@ export class NoteEditor {
 
     if (!this.editingId || !this.editingNode) return;
 
-    const text = this.editingNode.textContent ?? '';
-    store.update(this.editingId, { text });
-
-    this.editingNode.contentEditable = 'false';
-    Object.assign(this.editingNode.style, {
-      userSelect: 'none',
-      cursor: 'default',
-    });
-
     if (this.blurHandler) {
       this.editingNode.removeEventListener('blur', this.blurHandler);
     }
@@ -60,6 +56,17 @@ export class NoteEditor {
     if (this.pointerHandler) {
       this.editingNode.removeEventListener('pointerdown', this.pointerHandler);
     }
+
+    const text = sanitizeNoteHtml(this.editingNode.innerHTML);
+    store.update(this.editingId, { text });
+
+    this.editingNode.contentEditable = 'false';
+    Object.assign(this.editingNode.style, {
+      userSelect: 'none',
+      cursor: 'default',
+    });
+
+    this.toolbar.hide();
 
     if (this.editingId && this.onStopCallback) {
       this.onStopCallback(this.editingId);
@@ -76,6 +83,12 @@ export class NoteEditor {
     this.pendingEditId = null;
     if (this.isEditing) {
       this.stopEditing(store);
+    }
+  }
+
+  updateToolbarPosition(): void {
+    if (this.editingNode) {
+      this.toolbar.updatePosition(this.editingNode);
     }
   }
 
@@ -100,8 +113,18 @@ export class NoteEditor {
       selection.addRange(range);
     }
 
+    this.toolbar.show(node);
+
     this.blurHandler = () => this.stopEditing(store);
     this.keyHandler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
+        const command = FORMAT_SHORTCUTS[e.key.toLowerCase()];
+        if (command) {
+          e.preventDefault();
+          document.execCommand(command);
+          return;
+        }
+      }
       if (e.key === 'Escape') {
         node.blur();
       }

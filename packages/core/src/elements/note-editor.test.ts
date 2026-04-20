@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { NoteEditor } from './note-editor';
 import { ElementStore } from './element-store';
 import { createNote } from './element-factory';
@@ -15,6 +15,10 @@ function flushRAF(): Promise<void> {
 }
 
 describe('NoteEditor', () => {
+  afterEach(() => {
+    document.querySelectorAll('[data-note-toolbar]').forEach((el) => el.remove());
+  });
+
   it('starts in non-editing state', () => {
     const editor = new NoteEditor();
     expect(editor.isEditing).toBe(false);
@@ -91,6 +95,7 @@ describe('NoteEditor', () => {
     expect(editor.editingElementId).toBe(n2.id);
     const updated = store.getById(n1.id);
     expect(updated && 'text' in updated ? updated.text : '').toBe('edited first');
+    editor.stopEditing(store);
   });
 
   it('cleans up on destroy', async () => {
@@ -169,6 +174,142 @@ describe('NoteEditor', () => {
     expect(parentSpy).not.toHaveBeenCalled();
 
     document.body.removeEventListener('pointerdown', parentSpy);
+    editor.stopEditing(store);
+    node.remove();
+  });
+
+  it('saves innerHTML (not textContent) on stopEditing', async () => {
+    const editor = new NoteEditor();
+    const store = new ElementStore();
+    const note = createNote({ position: { x: 0, y: 0 }, text: 'old' });
+    store.add(note);
+    const node = makeNode('old');
+
+    editor.startEditing(node, note.id, store);
+    await flushRAF();
+
+    node.innerHTML = '<b>bold text</b>';
+    editor.stopEditing(store);
+
+    const updated = store.getById(note.id);
+    expect(updated && 'text' in updated ? updated.text : '').toBe('<b>bold text</b>');
+  });
+
+  it('sanitizes HTML on stopEditing', async () => {
+    const editor = new NoteEditor();
+    const store = new ElementStore();
+    const note = createNote({ position: { x: 0, y: 0 } });
+    store.add(note);
+    const node = makeNode('');
+
+    editor.startEditing(node, note.id, store);
+    await flushRAF();
+
+    node.innerHTML = '<script>alert("xss")</script><b>safe</b>';
+    editor.stopEditing(store);
+
+    const updated = store.getById(note.id);
+    const text = updated && 'text' in updated ? updated.text : '';
+    expect(text).not.toContain('<script>');
+    expect(text).toContain('<b>safe</b>');
+  });
+
+  it('shows toolbar on startEditing', async () => {
+    const editor = new NoteEditor();
+    const store = new ElementStore();
+    const note = createNote({ position: { x: 0, y: 0 } });
+    store.add(note);
+    const node = makeNode('');
+    document.body.appendChild(node);
+
+    editor.startEditing(node, note.id, store);
+    await flushRAF();
+
+    expect(document.querySelector('[data-note-toolbar]')).not.toBeNull();
+
+    editor.stopEditing(store);
+    node.remove();
+  });
+
+  it('hides toolbar on stopEditing', async () => {
+    const editor = new NoteEditor();
+    const store = new ElementStore();
+    const note = createNote({ position: { x: 0, y: 0 } });
+    store.add(note);
+    const node = makeNode('');
+    document.body.appendChild(node);
+
+    editor.startEditing(node, note.id, store);
+    await flushRAF();
+
+    editor.stopEditing(store);
+    expect(document.querySelector('[data-note-toolbar]')).toBeNull();
+    node.remove();
+  });
+
+  it('applies bold with Ctrl+B shortcut', async () => {
+    const editor = new NoteEditor();
+    const store = new ElementStore();
+    const note = createNote({ position: { x: 0, y: 0 } });
+    store.add(note);
+    const node = makeNode('text');
+    document.body.appendChild(node);
+
+    editor.startEditing(node, note.id, store);
+    await flushRAF();
+
+    const execSpy = vi.spyOn(document, 'execCommand').mockReturnValue(true);
+    const event = new KeyboardEvent('keydown', { key: 'b', ctrlKey: true, bubbles: true });
+    node.dispatchEvent(event);
+
+    expect(execSpy).toHaveBeenCalledWith('bold');
+    execSpy.mockRestore();
+
+    editor.stopEditing(store);
+    node.remove();
+  });
+
+  it('applies italic with Ctrl+I shortcut', async () => {
+    const editor = new NoteEditor();
+    const store = new ElementStore();
+    const note = createNote({ position: { x: 0, y: 0 } });
+    store.add(note);
+    const node = makeNode('text');
+    document.body.appendChild(node);
+
+    editor.startEditing(node, note.id, store);
+    await flushRAF();
+
+    const execSpy = vi.spyOn(document, 'execCommand').mockReturnValue(true);
+    const event = new KeyboardEvent('keydown', { key: 'i', ctrlKey: true, bubbles: true });
+    node.dispatchEvent(event);
+
+    expect(execSpy).toHaveBeenCalledWith('italic');
+    execSpy.mockRestore();
+
+    editor.stopEditing(store);
+    node.remove();
+  });
+
+  it('applies underline with Ctrl+U shortcut', async () => {
+    const editor = new NoteEditor();
+    const store = new ElementStore();
+    const note = createNote({ position: { x: 0, y: 0 } });
+    store.add(note);
+    const node = makeNode('text');
+    document.body.appendChild(node);
+
+    editor.startEditing(node, note.id, store);
+    await flushRAF();
+
+    const execSpy = vi.spyOn(document, 'execCommand').mockReturnValue(true);
+    const event = new KeyboardEvent('keydown', { key: 'u', ctrlKey: true, bubbles: true });
+    node.dispatchEvent(event);
+
+    expect(execSpy).toHaveBeenCalledWith('underline');
+    execSpy.mockRestore();
+
+    editor.stopEditing(store);
     node.remove();
   });
 
