@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, it, expect } from 'vitest';
 import { exportState, parseState } from './state-serializer';
 import type { CanvasState } from './state-serializer';
