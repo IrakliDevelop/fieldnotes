@@ -27,6 +27,13 @@ import { RenderLoop } from './render-loop';
 import type { RenderStatsSnapshot } from './render-stats';
 import { LayerCache } from './layer-cache';
 
+export interface GridInfo {
+  gridType: 'square' | 'hex';
+  hexOrientation: 'pointy' | 'flat';
+  cellSize: number;
+  cellRadius: number;
+}
+
 export interface ViewportOptions {
   camera?: CameraOptions;
   background?: BackgroundOptions;
@@ -57,6 +64,7 @@ export class Viewport {
   private readonly renderLoop: RenderLoop;
   private readonly domNodeManager: DomNodeManager;
   private readonly interactMode: InteractMode;
+  private readonly gridChangeListeners = new Set<(info: GridInfo | null) => void>();
 
   constructor(
     private readonly container: HTMLElement,
@@ -329,6 +337,24 @@ export class Viewport {
     this.requestRender();
   }
 
+  getGridInfo(): GridInfo | null {
+    const grid = this.store.getElementsByType('grid')[0];
+    if (!grid) return null;
+    return {
+      gridType: grid.gridType,
+      hexOrientation: grid.hexOrientation,
+      cellSize: grid.cellSize,
+      cellRadius: grid.gridType === 'hex' ? grid.cellSize : grid.cellSize / 2,
+    };
+  }
+
+  onGridChange(listener: (info: GridInfo | null) => void): () => void {
+    this.gridChangeListeners.add(listener);
+    return () => {
+      this.gridChangeListeners.delete(listener);
+    };
+  }
+
   getRenderStats(): RenderStatsSnapshot {
     return this.renderLoop.getStats();
   }
@@ -558,6 +584,14 @@ export class Viewport {
       this.toolContext.gridSize = this._gridSize;
       this.toolContext.gridType = undefined;
       this.toolContext.hexOrientation = undefined;
+    }
+    this.notifyGridChangeListeners();
+  }
+
+  private notifyGridChangeListeners(): void {
+    const info = this.getGridInfo();
+    for (const listener of this.gridChangeListeners) {
+      listener(info);
     }
   }
 

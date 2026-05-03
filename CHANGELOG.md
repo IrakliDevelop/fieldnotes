@@ -6,6 +6,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ---
 
+## [0.11.0] — 2026-05-03
+
+### Added
+
+- **`viewport.getGridInfo()`** — query current grid dimensions: returns `GridInfo` with `gridType`, `hexOrientation`, `cellSize`, and `cellRadius` (inscribed radius for fitting tokens). Returns `null` when no grid is present
+- **`viewport.onGridChange(cb)`** — subscribe to grid changes (add, update, remove, clear). Callback receives `GridInfo | null`. Returns an unsubscribe function
+- **`GridInfo` type** — exported from `@fieldnotes/core` for SDK consumers building grid-aware features (e.g. D&D token sizing)
+
+---
+
 ## [0.10.0] — 2026-04-20
 
 ### Added
