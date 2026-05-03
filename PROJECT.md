@@ -272,6 +272,18 @@ canvas.addGrid({ gridType: 'hex', hexOrientation: 'pointy', cellSize: 40 });
 canvas.updateGrid({ cellSize: 50, strokeColor: '#aaaaaa' });
 canvas.removeGrid();
 
+// Grid info — query cell dimensions for token sizing, etc.
+const info = canvas.getGridInfo(); // GridInfo | null
+// info.cellSize — raw cell dimension
+// info.cellRadius — inscribed radius (hex: circumradius, square: half side)
+// info.gridType — 'square' | 'hex'
+// info.hexOrientation — 'pointy' | 'flat'
+
+// Subscribe to grid changes (returns unsubscribe function)
+const unsub = canvas.onGridChange((info) => {
+  if (info) resizeToken(info.cellRadius * 2);
+});
+
 // Tool control
 canvas.toolManager.setTool('pencil', canvas.toolContext);
 
@@ -522,6 +534,12 @@ canvas.addImage('data:image/png;base64,iVBOR...', pos, size);
 - [x] **Canvas export rich text** — `renderNoteOnCanvas` handles styled runs with word wrapping
 - [x] **Headless formatting API** — `toggleBold()`, `toggleItalic()`, etc. for custom toolbar UI
 - [x] **`toolbar: false` option** — disable built-in toolbar, use formatting API with custom UI
+
+#### 0.11.0 — Grid Info API
+
+- [x] **`viewport.getGridInfo()`** — query current grid cell dimensions (`GridInfo` with `cellSize`, `cellRadius`, `gridType`, `hexOrientation`)
+- [x] **`viewport.onGridChange(cb)`** — subscribe to grid add/update/remove/clear events, returns unsubscribe function
+- [x] **`GridInfo` type** — exported for SDK consumers building grid-aware features (e.g. D&D token sizing)
 
 ---
 
