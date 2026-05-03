@@ -1,0 +1,825 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="paper" data-accent="cyan" data-density="comfortable">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fieldnotes — an infinite canvas SDK for the web</title>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="/styles/variables.css">
+  <link rel="stylesheet" href="/styles/base.css">
+  <link rel="stylesheet" href="/styles/components.css">
+</head>
+<body>
+
+<!-- ============ TOPBAR ============ -->
+<header class="topbar">
+  <div class="topbar-inner">
+    <a href="#" class="brand">
+      <span class="brand-mark"></span>
+      Fieldnotes
+    </a>
+
+    <nav class="nav">
+      <a href="#features">Features</a>
+      <a href="#embed">HTML Embed</a>
+      <a href="#code">Code</a>
+      <a href="#dnd">D&amp;D</a>
+      <a href="#roadmap">Roadmap</a>
+      <a href="#changelog">Changelog</a>
+      <a href="https://github.com/AmbushDM/fieldnotes">GitHub</a>
+    </nav>
+
+    <div class="topbar-right">
+      <span class="ver">v0.10.0</span>
+      <a class="btn small" href="https://github.com/AmbushDM/fieldnotes" target="_blank" rel="noopener">
+        <!-- github icon -->
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 .5C5.65.5.5 5.65.5 12a11.5 11.5 0 007.86 10.92c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.36-3.88-1.36-.52-1.33-1.28-1.69-1.28-1.69-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.71 1.26 3.37.96.1-.75.4-1.26.73-1.55-2.56-.29-5.25-1.28-5.25-5.7 0-1.26.45-2.29 1.19-3.1-.12-.3-.52-1.47.11-3.06 0 0 .97-.31 3.18 1.18a11 11 0 015.8 0c2.21-1.5 3.18-1.18 3.18-1.18.63 1.59.23 2.76.11 3.06.74.81 1.19 1.84 1.19 3.1 0 4.43-2.69 5.41-5.26 5.69.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0023.5 12C23.5 5.65 18.35.5 12 .5z"/>
+        </svg>
+        Star
+      </a>
+    </div>
+  </div>
+</header>
+
+<!-- ============ FOLD STRIP ============ -->
+<div class="fold">
+  <span>field-notes/landing.canvas</span>
+  <span>↕ 1.00x · <span id="page-coord">0, 0</span></span>
+</div>
+
+<!-- ============ HERO ============ -->
+<section class="hero">
+  <div class="wrap">
+    <div class="hero-grid">
+
+      <!-- left column — copy -->
+      <div>
+        <span class="eyebrow">
+          <span class="dot"></span>
+          v0.10.0 · zero deps · MIT
+        </span>
+
+        <h1>
+          An <span class="accent">infinite canvas</span> SDK where
+          <span class="under">HTML elements</span> are first-class citizens.
+        </h1>
+
+        <p class="lede">
+          Fieldnotes is a lightweight, framework-agnostic canvas engine for the web.
+          Freehand drawing, shapes, sticky notes, arrows, layers — and any DOM node
+          you want to drop on top, fully interactive.
+        </p>
+
+        <div class="cta-row">
+          <div class="install" id="install" title="Click to copy">
+            <span class="prompt">$</span>
+            <span>npm install <b>@fieldnotes/core</b></span>
+            <span class="copy-hint" id="copy-hint">copy</span>
+          </div>
+
+          <a class="btn primary" href="https://github.com/AmbushDM/fieldnotes" target="_blank" rel="noopener">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 .5C5.65.5.5 5.65.5 12a11.5 11.5 0 007.86 10.92c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.36-3.88-1.36-.52-1.33-1.28-1.69-1.28-1.69-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.71 1.26 3.37.96.1-.75.4-1.26.73-1.55-2.56-.29-5.25-1.28-5.25-5.7 0-1.26.45-2.29 1.19-3.1-.12-.3-.52-1.47.11-3.06 0 0 .97-.31 3.18 1.18a11 11 0 015.8 0c2.21-1.5 3.18-1.18 3.18-1.18.63 1.59.23 2.76.11 3.06.74.81 1.19 1.84 1.19 3.1 0 4.43-2.69 5.41-5.26 5.69.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0023.5 12C23.5 5.65 18.35.5 12 .5z"/>
+            </svg>
+            View on GitHub
+          </a>
+        </div>
+      </div>
+
+      <!-- right column — mini canvas -->
+      <div class="canvas-frame">
+        <div class="canvas-chrome">
+          <div class="dots"><span></span><span></span><span></span></div>
+          <span>scratchpad.fieldnotes · try me →</span>
+        </div>
+
+        <div class="canvas-stage" id="stage" data-tool="pencil">
+          <canvas id="c"></canvas>
+
+          <div class="canvas-toolbar">
+            <button class="tool-btn active" data-tool="pencil" title="Pencil (P)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 19l7-7 3 3-7 7-3-3z"/>
+                <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/>
+                <path d="M2 2l7.586 7.586"/>
+                <circle cx="11" cy="11" r="2"/>
+              </svg>
+            </button>
+            <button class="tool-btn" data-tool="hand" title="Hand / pan (H)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M18 11V6a2 2 0 10-4 0v5"/>
+                <path d="M14 10V4a2 2 0 10-4 0v6"/>
+                <path d="M10 10.5V6a2 2 0 10-4 0v8"/>
+                <path d="M18 8a2 2 0 114 0v6a8 8 0 01-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 012.83-2.82L7 15"/>
+              </svg>
+            </button>
+            <button class="tool-btn" data-tool="eraser" title="Eraser (E)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M20 20H7L3 16c-1-1-1-3 0-4l9-9a2 2 0 013 0l6 6a2 2 0 010 3l-8 8"/>
+                <path d="M18 13l-6-6"/>
+              </svg>
+            </button>
+            <div class="color-strip">
+              <div class="color-swatch active" style="background: oklch(0.2 0.01 60)" data-color="#2a2824"></div>
+              <div class="color-swatch" style="background: oklch(0.62 0.14 220)" data-color="#2d8bc3"></div>
+              <div class="color-swatch" style="background: oklch(0.62 0.2 25)" data-color="#cc4040"></div>
+            </div>
+          </div>
+
+          <div class="canvas-hud">
+            <span id="hud-coord">0, 0</span>
+            <span class="sep">·</span>
+            <span id="hud-zoom">100%</span>
+            <span class="sep">·</span>
+            <button id="btn-clear">clear</button>
+          </div>
+
+          <div class="canvas-html-layer" id="html-layer">
+            <div class="embed-card" style="right: 40px; top: 40px;">
+              <h4>HTML widget ✶</h4>
+              <p>Fully interactive. Pan &amp; zoom with the canvas.</p>
+              <button class="tiny-btn" id="embed-counter-btn">click me</button>
+              <div class="embed-counter" id="embed-count">0 clicks</div>
+            </div>
+            <div class="embed-sticky" style="left: 40px; top: 170px;">
+              Scribble anywhere — it's persistent until you clear.
+            </div>
+          </div>
+
+          <div class="canvas-hint">scroll = zoom · space = pan · shift = both</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ============ COMPARISON ============ -->
+<section id="why">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="section-label">why fieldnotes</div>
+      <h2>The canvas SDK you could actually ship with.</h2>
+      <p>
+        Every existing option makes a trade-off. Tldraw is excellent but needs a commercial license.
+        Excalidraw won't let you embed real components. React Flow is purpose-built for node graphs.
+        Fieldnotes fills the gap.
+      </p>
+    </div>
+
+    <div class="compare">
+      <div class="compare-row head">
+        <div class="cell"></div>
+        <div class="cell us">Fieldnotes</div>
+        <div class="cell">Tldraw</div>
+        <div class="cell">Excalidraw</div>
+        <div class="cell">React Flow</div>
+      </div>
+      <div class="compare-row">
+        <div class="cell label">License</div>
+        <div class="cell us"><span class="mark yes">●</span> MIT</div>
+        <div class="cell"><span class="mark warn">●</span> Commercial</div>
+        <div class="cell"><span class="mark yes">●</span> MIT</div>
+        <div class="cell"><span class="mark yes">●</span> MIT</div>
+      </div>
+      <div class="compare-row">
+        <div class="cell label">Embed arbitrary HTML</div>
+        <div class="cell us"><span class="mark yes">✓</span> First-class</div>
+        <div class="cell"><span class="mark yes">✓</span> Yes</div>
+        <div class="cell"><span class="mark no">✕</span> No</div>
+        <div class="cell"><span class="mark warn">~</span> Node-only</div>
+      </div>
+      <div class="compare-row">
+        <div class="cell label">Framework-free core</div>
+        <div class="cell us"><span class="mark yes">✓</span> Vanilla TS</div>
+        <div class="cell"><span class="mark no">✕</span> React</div>
+        <div class="cell"><span class="mark no">✕</span> React</div>
+        <div class="cell"><span class="mark no">✕</span> React</div>
+      </div>
+      <div class="compare-row">
+        <div class="cell label">Freehand + pressure</div>
+        <div class="cell us"><span class="mark yes">✓</span></div>
+        <div class="cell"><span class="mark yes">✓</span></div>
+        <div class="cell"><span class="mark yes">✓</span></div>
+        <div class="cell"><span class="mark no">✕</span></div>
+      </div>
+      <div class="compare-row">
+        <div class="cell label">Dependencies</div>
+        <div class="cell us"><span class="fine">0</span></div>
+        <div class="cell"><span class="fine">many</span></div>
+        <div class="cell"><span class="fine">several</span></div>
+        <div class="cell"><span class="fine">a few</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FEATURES ============ -->
+<section id="features">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="section-label">what's in the box</div>
+      <h2>Enough canvas to build something real.</h2>
+      <p>
+        Everything you'd expect from an infinite-canvas tool, with a vanilla TypeScript core
+        you can drop into any stack. Tree-shakeable ESM &amp; CJS.
+      </p>
+    </div>
+
+    <div class="features">
+
+      <!-- 01 — HTML elements (wide) -->
+      <div class="feat wide">
+        <div class="feat-num">01 · signature</div>
+        <h3>HTML elements as canvas elements</h3>
+        <p>
+          Drop any DOM node on the canvas and it moves, scales and stays fully interactive.
+          React components work out of the box via <code>&lt;CanvasElement&gt;</code>.
+        </p>
+        <div class="viz" style="display: flex; gap: 10px; padding: 14px; align-items: center; justify-content: center;">
+          <div class="embed-card" style="transform: scale(0.78) translateY(-4px); width: 150px;">
+            <h4>Token · Elyndra</h4>
+            <p>HP 28/42</p>
+            <button class="tiny-btn">roll</button>
+          </div>
+          <div class="embed-sticky" style="transform: scale(0.82) rotate(3deg); width: 120px;">
+            also works ✎
+          </div>
+        </div>
+      </div>
+
+      <!-- 02 — tablet -->
+      <div class="feat">
+        <div class="feat-num">02 · input</div>
+        <h3>Tablet &amp; stylus native</h3>
+        <p>
+          Built on Pointer Events. Pinch-to-zoom, two-finger pan, pressure-sensitive strokes.
+          Apple Pencil &amp; Surface pen ready.
+        </p>
+        <div class="viz viz-stroke">
+          <svg viewBox="0 0 200 120" preserveAspectRatio="none">
+            <path d="M 10 80 Q 40 20, 80 60 T 160 50 T 190 40"
+                  stroke="var(--ink)" fill="none" stroke-width="3" stroke-linecap="round"/>
+            <path d="M 10 82 Q 50 30, 90 70 T 160 60"
+                  stroke="var(--ink)" fill="none" stroke-width="5" stroke-linecap="round" opacity="0.3"/>
+          </svg>
+        </div>
+      </div>
+
+      <!-- 03 — layers -->
+      <div class="feat">
+        <div class="feat-num">03 · layers</div>
+        <h3>Layers with locking &amp; opacity</h3>
+        <p>
+          Ordered layers with visibility, locking, ordering, per-layer opacity.
+          Arrow binding respects layer boundaries.
+        </p>
+        <div class="viz viz-stack">
+          <div class="layer">▣ DM annotations <span>100%</span></div>
+          <div class="layer active">● Tokens <span>100%</span></div>
+          <div class="layer">▣ Grid overlay <span>60%</span></div>
+          <div class="layer">⊘ Map (locked) <span>100%</span></div>
+        </div>
+      </div>
+
+      <!-- 04 — shapes -->
+      <div class="feat">
+        <div class="feat-num">04 · shapes</div>
+        <h3>Shapes, arrows, sticky notes</h3>
+        <p>
+          Rectangle &amp; ellipse primitives, curved arrows with endpoint binding,
+          sticky notes, text boxes, images.
+        </p>
+        <div class="viz">
+          <svg viewBox="0 0 200 120" style="width:100%; height:100%; display:block;">
+            <rect x="20" y="20" width="50" height="32"
+                  fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <ellipse cx="150" cy="40" rx="28" ry="18"
+                     fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M 70 45 Q 110 65, 125 48"
+                  stroke="currentColor" stroke-width="1.5" fill="none"/>
+            <polygon points="120,45 128,50 123,52" fill="currentColor"/>
+            <rect x="30" y="75" width="60" height="28"
+                  fill="oklch(0.95 0.06 95)" stroke="oklch(0.85 0.08 90)" stroke-width="1"/>
+            <text x="40" y="93" font-family="var(--mono)" font-size="9"
+                  fill="oklch(0.3 0.05 80)">sticky</text>
+          </svg>
+        </div>
+      </div>
+
+      <!-- 05 — persistence -->
+      <div class="feat">
+        <div class="feat-num">05 · persistence</div>
+        <h3>AutoSave &amp; JSON export</h3>
+        <p>
+          Debounced <code>localStorage</code> persistence out of the box.
+          Full state serializes to JSON, including layers.
+        </p>
+        <div class="viz" style="display: flex; flex-direction: column; padding: 12px; gap: 4px; font-family: var(--mono); font-size: 10px; color: var(--ink-muted);">
+          <span>// canvas.exportJSON()</span>
+          <span style="color: var(--ink);">{</span>
+          <span style="padding-left: 14px;">"elements": [<span style="color: var(--ink-faint);">42 items</span>],</span>
+          <span style="padding-left: 14px;">"layers": [<span style="color: var(--ink-faint);">3 layers</span>],</span>
+          <span style="padding-left: 14px;">"camera": { <span style="color: var(--ink-faint);">x, y, zoom</span> }</span>
+          <span style="color: var(--ink);">}</span>
+          <span style="color: var(--good);">✓ saved 2s ago</span>
+        </div>
+      </div>
+
+      <!-- 06 — performance -->
+      <div class="feat">
+        <div class="feat-num">06 · performance</div>
+        <h3>Built for hundreds of elements</h3>
+        <p>
+          Quadtree spatial index, viewport culling, per-layer offscreen caching, tiled hex grids.
+          Sub-0.1ms grid redraw on static camera.
+        </p>
+        <div class="viz" style="display: flex; flex-direction: column; padding: 12px; gap: 6px; font-family: var(--mono); font-size: 10px; justify-content: center;">
+          <div style="display: flex; justify-content: space-between;"><span>fps</span><b>60</b></div>
+          <div style="height: 18px; background: var(--bg-raised); border: 1px solid var(--rule); position: relative; overflow: hidden;">
+            <div style="position: absolute; inset: 0; width: 98%; background: linear-gradient(to right, var(--accent-wash), var(--accent)); opacity: 0.7;"></div>
+          </div>
+          <div style="display: flex; justify-content: space-between; color: var(--ink-muted);"><span>p95 frame</span><span>1.2ms</span></div>
+          <div style="display: flex; justify-content: space-between; color: var(--ink-muted);"><span>elements</span><span>1,284</span></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ============ HTML EMBED SHOWCASE ============ -->
+<section id="embed">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="section-label">the differentiator</div>
+      <h2>Your components, on an infinite canvas.</h2>
+      <p>
+        Every other canvas tool either locks you into its shape vocabulary or bolts on DOM support
+        as an afterthought. Fieldnotes embeds real HTML elements with real event handlers.
+        Build whatever you want.
+      </p>
+    </div>
+
+    <div class="showcase">
+      <div class="showcase-canvas">
+        <div class="embed-card one">
+          <h4>Encounter · The Crypt</h4>
+          <p>3 zombies · CR 1/4 each. Roll initiative?</p>
+          <button class="tiny-btn">start</button>
+        </div>
+        <div class="embed-card two">
+          <h4>Spell: Fireball</h4>
+          <p>20ft radius sphere, 8d6 fire.</p>
+          <button class="tiny-btn">place template</button>
+        </div>
+        <div class="embed-sticky one">Need to remember the secret door behind the bookshelf!</div>
+        <div class="embed-sticky two">Player idea: negotiate first?</div>
+
+        <svg class="arrow-svg" style="position: absolute; inset: 0;" width="100%" height="100%">
+          <defs>
+            <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5"
+                    markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent-ink)"/>
+            </marker>
+          </defs>
+          <path d="M 200 160 Q 240 220, 300 220"
+                stroke="var(--accent-ink)" stroke-width="1.5" fill="none"
+                marker-end="url(#arrow)" stroke-dasharray="3 3"/>
+        </svg>
+      </div>
+
+      <div>
+        <h3 style="margin: 0 0 14px; font-size: 22px; letter-spacing: -0.02em;">Real components, real events.</h3>
+        <p style="margin: 0 0 20px; color: var(--ink-muted); line-height: 1.6;">
+          A React form, a Tiptap editor, a Stripe checkout, a chart from your favorite library —
+          any of it works. Fieldnotes doesn't intermediate your render tree, it just positions it
+          in infinite space.
+        </p>
+
+        <div class="code-block">
+          <div class="code-body"><pre><span class="tok-com">// add any DOM node to the canvas</span>
+<span class="tok-kw">const</span> widget = document.<span class="tok-fn">createElement</span>(<span class="tok-str">'div'</span>);
+widget.innerHTML = <span class="tok-str">'&lt;my-token-card&gt;...&lt;/my-token-card&gt;'</span>;
+
+viewport.<span class="tok-fn">addHtmlElement</span>(widget, { x: <span class="tok-num">100</span>, y: <span class="tok-num">200</span> });
+
+<span class="tok-com">// or in React</span>
+&lt;<span class="tok-kw">CanvasElement</span> position={{ x: <span class="tok-num">100</span>, y: <span class="tok-num">200</span> }}&gt;
+  &lt;<span class="tok-kw">TokenCard</span> hp={<span class="tok-num">28</span>} /&gt;
+&lt;/<span class="tok-kw">CanvasElement</span>&gt;</pre></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ CODE ============ -->
+<section id="code">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="section-label">get started</div>
+      <h2>Six lines to a working canvas.</h2>
+      <p>Core is a single class. Register the tools you want. Everything else is optional.</p>
+    </div>
+
+    <div class="code-section">
+      <div class="code-block">
+        <div class="code-tabs">
+          <button class="code-tab active" data-codetab="vanilla">vanilla.ts</button>
+          <button class="code-tab" data-codetab="react">react.tsx</button>
+        </div>
+
+        <div class="code-body" data-code="vanilla"><pre><span class="tok-kw">import</span> {
+  Viewport, SelectTool,
+  PencilTool, HandTool
+} <span class="tok-kw">from</span> <span class="tok-str">'@fieldnotes/core'</span>;
+
+<span class="tok-kw">const</span> viewport = <span class="tok-kw">new</span> <span class="tok-fn">Viewport</span>(
+  document.<span class="tok-fn">getElementById</span>(<span class="tok-str">'canvas'</span>),
+  { background: { pattern: <span class="tok-str">'dots'</span> } }
+);
+
+viewport.toolManager.<span class="tok-fn">register</span>(<span class="tok-kw">new</span> <span class="tok-fn">SelectTool</span>());
+viewport.toolManager.<span class="tok-fn">register</span>(<span class="tok-kw">new</span> <span class="tok-fn">PencilTool</span>({ color: <span class="tok-str">'#1a1a1a'</span> }));
+viewport.toolManager.<span class="tok-fn">register</span>(<span class="tok-kw">new</span> <span class="tok-fn">HandTool</span>());
+
+<span class="tok-com">// drop a DOM node on the canvas</span>
+viewport.<span class="tok-fn">addHtmlElement</span>(myCard, { x: <span class="tok-num">100</span>, y: <span class="tok-num">200</span> });</pre></div>
+
+        <div class="code-body" data-code="react" style="display: none;"><pre><span class="tok-kw">import</span> {
+  FieldNotesCanvas, CanvasElement, useCamera
+} <span class="tok-kw">from</span> <span class="tok-str">'@fieldnotes/react'</span>;
+<span class="tok-kw">import</span> { SelectTool, PencilTool } <span class="tok-kw">from</span> <span class="tok-str">'@fieldnotes/core'</span>;
+
+<span class="tok-kw">function</span> <span class="tok-fn">App</span>() {
+  <span class="tok-kw">return</span> (
+    &lt;<span class="tok-kw">FieldNotesCanvas</span>
+      tools={[<span class="tok-kw">new</span> <span class="tok-fn">SelectTool</span>(), <span class="tok-kw">new</span> <span class="tok-fn">PencilTool</span>()]}
+      defaultTool=<span class="tok-str">"select"</span>
+      style={{ width: <span class="tok-str">'100vw'</span>, height: <span class="tok-str">'100vh'</span> }}
+    &gt;
+      &lt;<span class="tok-kw">CanvasElement</span> position={{ x: <span class="tok-num">100</span>, y: <span class="tok-num">200</span> }}&gt;
+        &lt;<span class="tok-kw">TokenCard</span> hp={<span class="tok-num">42</span>} /&gt;
+      &lt;/<span class="tok-kw">CanvasElement</span>&gt;
+    &lt;/<span class="tok-kw">FieldNotesCanvas</span>&gt;
+  );
+}</pre></div>
+      </div>
+
+      <div>
+        <h3 style="margin: 0 0 12px; font-size: 22px; letter-spacing: -0.02em;">Bring your own tools.</h3>
+        <p style="margin: 0 0 16px; color: var(--ink-muted); line-height: 1.6;">
+          Tools are a strategy pattern. Want a ruler, a lasso, a hex-aware measuring tape?
+          Register your own — the SDK doesn't care.
+        </p>
+        <ul style="margin: 0; padding-left: 20px; color: var(--ink-muted); line-height: 1.8; font-size: 14px;">
+          <li>Store: <code>add</code>, <code>remove</code>, <code>update</code>, event bus</li>
+          <li>Camera: <code>panTo</code>, <code>setZoom</code>, <code>screenToWorld</code></li>
+          <li>History: <code>undo</code>, <code>redo</code> via command stack</li>
+          <li>Layers: visibility, locking, ordering, opacity</li>
+          <li>Export: PNG <code>Blob</code> with scale &amp; padding</li>
+          <li>Perf: <code>getRenderStats()</code>, <code>logPerformance()</code></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ D&D ============ -->
+<section id="dnd">
+  <div class="wrap">
+    <div class="dnd">
+      <div>
+        <div class="section-label" style="margin-bottom: 18px;">built for tabletops, too</div>
+        <h3>Hex grids, spell templates, tokens.</h3>
+        <p>
+          Fieldnotes started as a canvas for a D&amp;D companion app, so VTT tools are first-class.
+          Hex and square grids, measure tool that snaps in feet, cone/circle/line/square
+          area-of-effect templates that fill actual hex cells — PHB-accurate.
+        </p>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+          <span class="ver">hex grids</span>
+          <span class="ver">measure tool</span>
+          <span class="ver">AoE templates</span>
+          <span class="ver">snap-to-grid</span>
+          <span class="ver">fog of war (roadmap)</span>
+        </div>
+      </div>
+
+      <div class="dnd-viz">
+        <svg viewBox="0 0 320 240" style="width:100%; height:100%; display:block;">
+          <defs>
+            <pattern id="hex" width="30" height="26" patternUnits="userSpaceOnUse">
+              <path d="M 15 1 L 28 8 L 28 22 L 15 29 L 2 22 L 2 8 Z"
+                    fill="none" stroke="var(--rule-strong)" stroke-width="0.8"/>
+            </pattern>
+          </defs>
+          <rect width="320" height="240" fill="url(#hex)"/>
+          <!-- cone template -->
+          <path d="M 100 130 L 180 90 L 210 140 L 180 170 Z"
+                fill="color-mix(in oklch, var(--accent) 20%, transparent)"
+                stroke="var(--accent)" stroke-width="1.5"/>
+          <!-- tokens -->
+          <circle cx="100" cy="130" r="9"
+                  fill="var(--accent-ink)" stroke="var(--bg-raised)" stroke-width="2"/>
+          <circle cx="195" cy="130" r="9"
+                  fill="oklch(0.55 0.18 25)" stroke="var(--bg-raised)" stroke-width="2"/>
+          <circle cx="210" cy="155" r="9"
+                  fill="oklch(0.55 0.18 25)" stroke="var(--bg-raised)" stroke-width="2"/>
+          <!-- measure line -->
+          <line x1="100" y1="130" x2="195" y2="130"
+                stroke="var(--ink-muted)" stroke-width="1" stroke-dasharray="4 3"/>
+          <text x="140" y="123" font-family="var(--mono)" font-size="10"
+                fill="var(--ink-muted)">30 ft · 6 hex</text>
+        </svg>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ ROADMAP ============ -->
+<section id="roadmap">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="section-label">roadmap</div>
+      <h2>Shipped, shipping, soon.</h2>
+      <p>
+        Fieldnotes is a pet project, but it's a real one — and it's moving fast.
+        Ten minor versions in six weeks. Here's what landed and what's next.
+      </p>
+    </div>
+
+    <div class="roadmap">
+      <div class="road-row">
+        <div class="road-version">v0.1</div>
+        <div class="road-items">Infinite canvas · pan &amp; zoom · pencil · eraser · sticky notes · arrows · select &amp; multi-select · undo/redo · HTML embedding · state serialization · touch &amp; tablet</div>
+        <div class="road-status shipped">✓ shipped</div>
+      </div>
+      <div class="road-row">
+        <div class="road-version">v0.2–0.3</div>
+        <div class="road-items">AutoSave · stroke smoothing (Catmull-Rom → cubic Bezier) · pressure-sensitive stroke width · runtime color config</div>
+        <div class="road-status shipped">✓ shipped</div>
+      </div>
+      <div class="road-row">
+        <div class="road-version">v0.4</div>
+        <div class="road-items">React hooks overhaul — <code>useElements</code>, <code>useHistory</code>, <code>useLayers</code>, <code>useToolOptions</code> · tool options API</div>
+        <div class="road-status shipped">✓ shipped</div>
+      </div>
+      <div class="road-row">
+        <div class="road-version">v0.5–0.6</div>
+        <div class="road-items">Text tool · arrow binding · rectangle &amp; ellipse shapes · layer system (visibility, locking, ordering, per-layer opacity) · snap-to-grid · note text color</div>
+        <div class="road-status shipped">✓ shipped</div>
+      </div>
+      <div class="road-row">
+        <div class="road-version">v0.7</div>
+        <div class="road-items">Grid elements — square &amp; hex grids for D&amp;D combat maps · HTML element persistence (<code>domId</code>) · layer-aware arrow binding</div>
+        <div class="road-status shipped">✓ shipped</div>
+      </div>
+      <div class="road-row">
+        <div class="road-version">v0.8</div>
+        <div class="road-items">PNG export · viewport decomposition · quadtree spatial index · per-layer offscreen caching · stroke &amp; arrow geometry caching · tiled hex rendering (~250× faster) · <code>getRenderStats()</code> perf instrumentation</div>
+        <div class="road-status shipped">✓ shipped</div>
+      </div>
+      <div class="road-row">
+        <div class="road-version">v0.9</div>
+        <div class="road-items">MeasureTool (snaps to hex/square grid centers) · TemplateTool for D&amp;D AoE (circle, cone, line, square) · PHB-accurate hex-filled templates · cube-coord hex distance · template resize · image center-snapping to grid</div>
+        <div class="road-status shipped">✓ shipped</div>
+      </div>
+      <div class="road-row">
+        <div class="road-version">v0.10</div>
+        <div class="road-items">Rich text formatting (bold, italic, underline, strikethrough) · floating toolbar with font size presets · headless formatting API for custom UI · <code>toolbar: false</code> option · HTML sanitizer · canvas export with styled text</div>
+        <div class="road-status now">◉ current · 0.10.0</div>
+      </div>
+      <div class="road-row">
+        <div class="road-version">v1.0</div>
+        <div class="road-items">Copy/paste across canvases · configurable keyboard shortcuts · minimap · live hosted playground · docs site with searchable API reference · stable API guarantee</div>
+        <div class="road-status">… next</div>
+      </div>
+      <div class="road-row">
+        <div class="road-version">v1.1</div>
+        <div class="road-items">SVG &amp; PDF export · Apple Freeform import · <code>@fieldnotes/ui</code> (pre-built panels) · fog of war · token-aware layers</div>
+        <div class="road-status">… planned</div>
+      </div>
+      <div class="road-row">
+        <div class="road-version">v1.2+</div>
+        <div class="road-items">Real-time collaboration (CRDT · presence cursors) · presentation mode · auto-routing connectors · domain presets (TTRPG, whiteboard, wireframing)</div>
+        <div class="road-status">… future</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ CHANGELOG ============ -->
+<section id="changelog">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="section-label">changelog</div>
+      <h2>Every commit, in public.</h2>
+      <p>
+        Ten releases in six weeks. The 0.8.x line was a performance sweep;
+        0.9 added D&amp;D VTT tools; 0.10 brought rich text formatting.
+      </p>
+    </div>
+
+    <div class="changelog">
+
+      <article class="cl-entry">
+        <header>
+          <h3>0.10.0</h3>
+          <span class="cl-date">2026-04-20</span>
+          <span class="cl-tag add">added</span>
+          <span class="cl-tag change">changed</span>
+          <span class="cl-tag fix">fixed</span>
+        </header>
+        <ul>
+          <li><b>Note rich text formatting</b> — inline bold, italic, underline, and strikethrough via <code>contentEditable</code> + <code>execCommand</code>.</li>
+          <li><b>Floating formatting toolbar</b> — B/I/U/S buttons and font size dropdown. Uses <code>pointerdown</code> + <code>preventDefault</code> to keep focus on the note.</li>
+          <li><b>Font size presets</b> — Small (14px), Normal (18px), Large (24px), Heading (32px). Configurable via <code>ViewportOptions.fontSizePresets</code>.</li>
+          <li><b>Headless formatting API</b> — <code>toggleBold()</code>, <code>toggleItalic()</code>, <code>setFontSize()</code>, <code>getActiveFormats()</code> for custom toolbar UI.</li>
+          <li><b><code>toolbar: false</code></b> — disable built-in toolbar and use the formatting API with your own UI.</li>
+          <li><b>HTML sanitizer</b> — <code>sanitizeNoteHtml()</code> strips disallowed tags/attributes (XSS prevention).</li>
+          <li><b>Canvas export rich text</b> — <code>renderNoteOnCanvas</code> handles styled runs with word wrapping.</li>
+          <li>Keyboard shortcuts: Ctrl/Cmd+B (bold), Ctrl/Cmd+I (italic), Ctrl/Cmd+U (underline).</li>
+        </ul>
+      </article>
+
+      <article class="cl-entry">
+        <header>
+          <h3>0.9.0</h3>
+          <span class="cl-date">2026-04-10</span>
+          <span class="cl-tag add">added</span>
+          <span class="cl-tag fix">fixed</span>
+        </header>
+        <ul>
+          <li><b>MeasureTool</b> — drag to measure distances in feet. Snaps to hex/square grid centers. Configurable <code>feetPerCell</code>.</li>
+          <li><b>TemplateTool</b> — D&amp;D area-of-effect templates. Four shapes: circle, cone, line, square.</li>
+          <li><b>PHB-accurate hex-filled templates</b> — on hex grids, templates fill actual hex cells.</li>
+          <li><b>Hex distance</b> — <code>getHexDistance()</code> computes cube-coordinate distance.</li>
+          <li>Template resize via SE handle. Origin marker highlights the origin hex.</li>
+          <li>Image center-snapping to hex/square grid cells on placement.</li>
+        </ul>
+      </article>
+
+      <article class="cl-entry">
+        <header>
+          <h3>0.8.x</h3>
+          <span class="cl-date">2026-03-22 → 03-28</span>
+          <span class="cl-tag perf">performance</span>
+          <span class="cl-tag add">added</span>
+          <span class="cl-tag fix">fixed</span>
+        </header>
+        <ul>
+          <li><b>PNG export</b> — <code>exportImage()</code> returns a PNG <code>Blob</code> with scale, padding, background &amp; filter options.</li>
+          <li><b>Per-layer offscreen caching</b> — unchanged layers re-composited without re-rendering.</li>
+          <li><b>Quadtree spatial index</b> — O(log n) hit-testing &amp; viewport culling.</li>
+          <li><b>Tiled hex grid rendering</b> — ~250× faster on large grids (4 fps → 1000+ fps).</li>
+          <li><b>Stroke &amp; arrow geometry caching</b> — computed once at commit time.</li>
+          <li><b>ImageBitmap pre-decoding</b> — async upgrade to GPU-ready bitmaps.</li>
+          <li>Viewport decomposition: extracted <code>RenderLoop</code>, <code>DomNodeManager</code>, <code>InteractMode</code>.</li>
+          <li><code>getRenderStats()</code> and <code>logPerformance()</code> instrumentation.</li>
+        </ul>
+      </article>
+
+      <article class="cl-entry">
+        <header>
+          <h3>0.5.0 → 0.7.0</h3>
+          <span class="cl-date">2026-03-18 → 03-21</span>
+          <span class="cl-tag add">added</span>
+        </header>
+        <ul>
+          <li><b>0.7.0</b> — Grid element (square &amp; hex) for D&amp;D maps. HTML element persistence via <code>domId</code>.</li>
+          <li><b>0.6.0</b> — Layer system (visibility, locking, ordering, per-layer opacity), snap-to-grid, note text color.</li>
+          <li><b>0.5.0</b> — Text tool, arrow binding, shapes. React hooks (<code>useSyncExternalStore</code>).</li>
+        </ul>
+      </article>
+
+      <article class="cl-entry">
+        <header>
+          <h3>0.1.0 → 0.4.0</h3>
+          <span class="cl-date">2026-03-08 → 03-15</span>
+          <span class="cl-tag add">added</span>
+        </header>
+        <ul>
+          <li><b>0.4.0</b> — React hooks overhaul. Tool options API.</li>
+          <li><b>0.3.0</b> — Stroke smoothing. Pressure-sensitive stroke width.</li>
+          <li><b>0.2.0</b> — AutoSave (debounced localStorage).</li>
+          <li><b>0.1.0</b> — Initial release. Infinite canvas · pan &amp; zoom · pencil · eraser · notes · arrows · images · undo/redo · HTML embedding.</li>
+        </ul>
+      </article>
+
+    </div>
+
+    <div class="changelog-foot">
+      <a href="https://github.com/AmbushDM/fieldnotes/blob/master/CHANGELOG.md" target="_blank" rel="noopener">
+        Read the full CHANGELOG.md →
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- ============ ORIGIN ============ -->
+<section id="origin" style="padding-top: 40px;">
+  <div class="wrap">
+    <div class="origin">
+      <p>
+        <b>Origin.</b> Fieldnotes started as the canvas layer for a D&amp;D companion app
+        I was building — players kept using Apple Freeform on an iPad for session notes,
+        and I wanted to give them something that could host the rich card components our
+        app already had.
+      </p>
+      <p>
+        Every existing option forced a trade-off: Tldraw wanted a commercial license,
+        Excalidraw couldn't embed our components, React Flow wasn't meant for general drawing.
+        So I wrote this instead. It's a pet project — but it's shipping, the core is at
+        zero dependencies, and I'd love for you to poke at it.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FOOTER ============ -->
+<footer>
+  <div class="wrap">
+    <div class="foot-grid">
+      <div class="foot-col">
+        <div class="brand" style="margin-bottom: 10px;">
+          <span class="brand-mark"></span>
+          Fieldnotes
+        </div>
+        <div style="color: var(--ink-faint); font-size: 12px; max-width: 36ch; line-height: 1.6;">
+          A lightweight, framework-agnostic infinite canvas SDK.
+          MIT licensed. Built by <a href="https://github.com/AmbushDM" style="color: var(--ink-muted);">@AmbushDM</a>.
+        </div>
+      </div>
+      <div class="foot-col">
+        <h5>Packages</h5>
+        <a href="#">@fieldnotes/core</a>
+        <a href="#">@fieldnotes/react</a>
+        <a href="#">@fieldnotes/ui <span style="color: var(--ink-faint);">(soon)</span></a>
+      </div>
+      <div class="foot-col">
+        <h5>Links</h5>
+        <a href="https://github.com/AmbushDM/fieldnotes">GitHub</a>
+        <a href="#">npm</a>
+        <a href="#changelog">Changelog</a>
+        <a href="#">Discord</a>
+      </div>
+      <div class="foot-col">
+        <h5>Learn</h5>
+        <a href="#">Quickstart</a>
+        <a href="#">API reference</a>
+        <a href="#">Examples</a>
+        <a href="#">Architecture</a>
+      </div>
+    </div>
+    <div class="foot-base">
+      <span>MIT · © 2026</span>
+      <span>field-notes/v0.10.0</span>
+    </div>
+  </div>
+</footer>
+
+<!-- ============ TWEAKS PANEL ============ -->
+<div class="tweaks-panel" id="tweaks">
+  <h6>Tweaks</h6>
+  <div class="tweak-row">
+    <label class="tweak-label">theme</label>
+    <div class="tweak-options" data-key="theme">
+      <button class="tweak-opt" data-val="paper">paper</button>
+      <button class="tweak-opt" data-val="light">light</button>
+      <button class="tweak-opt" data-val="dark">dark</button>
+    </div>
+  </div>
+  <div class="tweak-row">
+    <label class="tweak-label">accent</label>
+    <div class="tweak-options" data-key="accent">
+      <button class="tweak-opt" data-val="cyan">cyan</button>
+      <button class="tweak-opt" data-val="amber">amber</button>
+      <button class="tweak-opt" data-val="violet">violet</button>
+      <button class="tweak-opt" data-val="green">green</button>
+      <button class="tweak-opt" data-val="red">red</button>
+    </div>
+  </div>
+  <div class="tweak-row">
+    <label class="tweak-label">density</label>
+    <div class="tweak-options" data-key="density">
+      <button class="tweak-opt" data-val="compact">compact</button>
+      <button class="tweak-opt" data-val="comfortable">comfortable</button>
+      <button class="tweak-opt" data-val="spacious">spacious</button>
+    </div>
+  </div>
+</div>
+
+<!-- App entry point -->
+<script type="module" src="/src/main.ts"></script>
+
+</body>
+</html>

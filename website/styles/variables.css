@@ -1,0 +1,82 @@
+/* ============================================================
+   Design tokens — themes, accents, density, typography
+   ============================================================ */
+
+:root {
+  /* --- palette (paper theme — default) --- */
+  --bg: oklch(0.985 0.004 85);
+  --bg-sunken: oklch(0.965 0.006 85);
+  --bg-raised: oklch(1 0 0);
+  --ink: oklch(0.18 0.01 60);
+  --ink-muted: oklch(0.45 0.01 60);
+  --ink-faint: oklch(0.65 0.008 60);
+  --rule: oklch(0.88 0.006 70);
+  --rule-strong: oklch(0.78 0.008 70);
+  --dot: oklch(0.82 0.008 70);
+  --accent: oklch(0.62 0.14 220);
+  --accent-ink: oklch(0.28 0.12 220);
+  --accent-wash: oklch(0.94 0.03 220);
+  --warn: oklch(0.68 0.13 55);
+  --good: oklch(0.62 0.14 150);
+  --paper-stain: oklch(0.97 0.01 85);
+
+  /* --- typography --- */
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --sans: "Inter", -apple-system, system-ui, sans-serif;
+
+  /* --- borders / shadows --- */
+  --radius: 4px;
+  --radius-lg: 8px;
+  --shadow-card: 0 1px 0 0 oklch(0.88 0.006 70), 0 4px 12px -4px oklch(0.5 0.02 60 / 0.08);
+  --shadow-float: 0 1px 0 0 oklch(0.88 0.006 70), 0 12px 32px -12px oklch(0.3 0.02 60 / 0.18);
+}
+
+/* --- dark theme --- */
+[data-theme="dark"] {
+  --bg: oklch(0.18 0.008 250);
+  --bg-sunken: oklch(0.14 0.008 250);
+  --bg-raised: oklch(0.22 0.008 250);
+  --ink: oklch(0.94 0.005 85);
+  --ink-muted: oklch(0.68 0.008 85);
+  --ink-faint: oklch(0.45 0.008 85);
+  --rule: oklch(0.3 0.01 250);
+  --rule-strong: oklch(0.4 0.01 250);
+  --dot: oklch(0.32 0.01 250);
+  --accent-wash: oklch(0.25 0.05 220);
+  --paper-stain: oklch(0.2 0.008 250);
+  --shadow-card: 0 1px 0 0 oklch(0.3 0.01 250), 0 4px 12px -4px #000a;
+  --shadow-float: 0 1px 0 0 oklch(0.3 0.01 250), 0 12px 32px -12px #000c;
+}
+
+/* --- light theme (no warm tint) --- */
+[data-theme="light"] {
+  --bg: #ffffff;
+  --bg-sunken: oklch(0.98 0 0);
+  --bg-raised: #ffffff;
+  --paper-stain: #fff;
+}
+
+/* --- accent variants --- */
+[data-accent="cyan"]   { --accent: oklch(0.62 0.14 220); --accent-ink: oklch(0.3 0.13 220); --accent-wash: oklch(0.94 0.03 220); }
+[data-accent="amber"]  { --accent: oklch(0.7 0.15 70);   --accent-ink: oklch(0.38 0.14 60);  --accent-wash: oklch(0.95 0.04 70); }
+[data-accent="violet"] { --accent: oklch(0.6 0.18 300);  --accent-ink: oklch(0.3 0.16 300);  --accent-wash: oklch(0.95 0.03 300); }
+[data-accent="green"]  { --accent: oklch(0.62 0.14 150); --accent-ink: oklch(0.32 0.12 150); --accent-wash: oklch(0.94 0.03 150); }
+[data-accent="red"]    { --accent: oklch(0.62 0.2 25);   --accent-ink: oklch(0.32 0.18 25);  --accent-wash: oklch(0.95 0.04 25); }
+
+/* --- density --- */
+[data-density="compact"]     { --pad-y: 56px; }
+[data-density="comfortable"] { --pad-y: 96px; }
+[data-density="spacious"]    { --pad-y: 144px; }
+
+/* --- syntax highlighting tokens --- */
+.tok-kw  { color: var(--accent-ink); }
+.tok-str { color: oklch(0.45 0.13 150); }
+.tok-com { color: var(--ink-faint); font-style: italic; }
+.tok-fn  { color: oklch(0.42 0.16 290); }
+.tok-num { color: oklch(0.5 0.14 30); }
+
+[data-theme="dark"] .tok-kw  { color: oklch(0.76 0.14 220); }
+[data-theme="dark"] .tok-str { color: oklch(0.78 0.14 150); }
+[data-theme="dark"] .tok-com { color: var(--ink-faint); }
+[data-theme="dark"] .tok-fn  { color: oklch(0.74 0.14 290); }
+[data-theme="dark"] .tok-num { color: oklch(0.78 0.14 30); }

@@ -1,0 +1,177 @@
+/* ============================================================
+   Reset, typography, layout primitives
+   ============================================================ */
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+
+body {
+  font-family: var(--sans);
+  color: var(--ink);
+  background: var(--bg);
+  background-image: radial-gradient(var(--dot) 1px, transparent 1px);
+  background-size: 24px 24px;
+  background-position: -1px -1px;
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "ss01", "cv11";
+  overflow-x: hidden;
+}
+
+a { color: inherit; }
+button { font-family: inherit; cursor: pointer; }
+code, kbd, .mono { font-family: var(--mono); }
+
+/* --- layout --- */
+
+.wrap {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 32px;
+  position: relative;
+}
+
+section {
+  padding-top: var(--pad-y);
+  padding-bottom: var(--pad-y);
+  position: relative;
+}
+
+/* --- section headers --- */
+
+.section-head {
+  margin-bottom: 48px;
+  max-width: 64ch;
+}
+
+.section-label {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-faint);
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.section-label::before {
+  content: "";
+  width: 14px;
+  height: 1px;
+  background: var(--rule-strong);
+}
+
+h1 {
+  font-size: clamp(44px, 5.2vw, 72px);
+  line-height: 1.0;
+  letter-spacing: -0.035em;
+  font-weight: 600;
+  margin: 0 0 24px;
+  text-wrap: balance;
+}
+
+h1 .accent {
+  color: var(--accent-ink);
+  font-style: italic;
+  font-weight: 500;
+}
+
+h1 .under {
+  background-image: linear-gradient(transparent 70%, var(--accent-wash) 70%);
+  background-repeat: no-repeat;
+}
+
+h2 {
+  font-size: clamp(32px, 3.6vw, 44px);
+  line-height: 1.05;
+  letter-spacing: -0.028em;
+  font-weight: 600;
+  margin: 0 0 14px;
+  text-wrap: balance;
+}
+
+.section-head p {
+  font-size: 17px;
+  line-height: 1.55;
+  color: var(--ink-muted);
+  margin: 0;
+  text-wrap: pretty;
+}
+
+/* --- buttons --- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  border-radius: var(--radius);
+  border: 1px solid var(--rule-strong);
+  background: var(--bg-raised);
+  color: var(--ink);
+  text-decoration: none;
+  transition: all 120ms;
+  font-family: inherit;
+}
+
+.btn:hover {
+  border-color: var(--ink);
+  transform: translateY(-1px);
+}
+
+.btn.primary {
+  background: var(--ink);
+  color: var(--bg);
+  border-color: var(--ink);
+}
+
+.btn.primary:hover {
+  background: oklch(from var(--ink) calc(l + 0.1) c h);
+}
+
+.btn.small {
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+/* --- version badge --- */
+
+.ver {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-faint);
+  padding: 4px 8px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+}
+
+/* --- hairline rule --- */
+
+.rule {
+  border: none;
+  border-top: 1px solid var(--rule);
+  margin: 0;
+}
+
+/* --- fold strip --- */
+
+.fold {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-faint);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 32px;
+  max-width: 1200px;
+  margin: 0 auto;
+  height: 32px;
+  border-bottom: 1px solid var(--rule);
+}
+
+/* --- responsive --- */
+
+@media (max-width: 720px) {
+  .wrap { padding: 0 20px; }
+}
