@@ -26,7 +26,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "test:all": "vitest run --coverage"
+    "test:all": "vitest run --coverage",
+    "e2e": "playwright test --config e2e/playwright.config.ts",
+    "e2e:update": "playwright test --config e2e/playwright.config.ts --update-snapshots"
   },
   "license": "MIT",
   "repository": {
@@ -47,6 +49,7 @@
     "sdk"
   ],
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@vitest/coverage-v8": "^4.1.0",
     "jsdom": "^29.0.0",
     "tsup": "^8.5.1",
