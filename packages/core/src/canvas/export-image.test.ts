@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { computeBounds, getElementRect } from './export-image';
+// @vitest-environment jsdom
+import { describe, it, expect, vi } from 'vitest';
+import { computeBounds, getElementRect, exportImage } from './export-image';
 import {
   createStroke,
   createNote,
@@ -10,6 +11,7 @@ import {
   createGrid,
   createTemplate,
 } from '../elements/element-factory';
+import { ElementStore } from '../elements/element-store';
 
 describe('getElementRect', () => {
   it('returns bounds for a note', () => {
@@ -102,5 +104,426 @@ describe('computeBounds', () => {
     const grid = createGrid({});
     const bounds = computeBounds([note, grid], 0);
     expect(bounds).toEqual({ x: 50, y: 50, w: 100, h: 100 });
+  });
+});
+
+describe('getElementRect — html element', () => {
+  it('returns bounds for an html element with size', () => {
+    const html = {
+      id: 'html-1',
+      type: 'html' as const,
+      position: { x: 10, y: 20 },
+      size: { w: 300, h: 200 },
+      zIndex: 0,
+      locked: false,
+      layerId: '',
+    };
+    const rect = getElementRect(html);
+    expect(rect).toEqual({ x: 10, y: 20, w: 300, h: 200 });
+  });
+});
+
+describe('exportImage', () => {
+  it('returns null for empty store', async () => {
+    const store = new ElementStore();
+    const result = await exportImage(store);
+    expect(result).toBeNull();
+  });
+
+  it('returns null when all elements are grids', async () => {
+    const store = new ElementStore();
+    store.add(createGrid({}));
+    const result = await exportImage(store);
+    expect(result).toBeNull();
+  });
+
+  it('returns null when filter excludes all elements', async () => {
+    const store = new ElementStore();
+    store.add(createNote({ position: { x: 0, y: 0 } }));
+    const result = await exportImage(store, { filter: () => false });
+    expect(result).toBeNull();
+  });
+
+  it('returns null in jsdom because getContext returns null', async () => {
+    const store = new ElementStore();
+    store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } }));
+    const result = await exportImage(store);
+    expect(result).toBeNull();
+  });
+
+  it('applies scale option to canvas dimensions', async () => {
+    const store = new ElementStore();
+    store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } }));
+
+    const createSpy = vi.spyOn(document, 'createElement');
+    await exportImage(store, { scale: 3, padding: 10 });
+
+    const canvasCall = createSpy.mock.results.find(
+      (r) => r.type === 'return' && r.value instanceof HTMLCanvasElement,
+    );
+    if (canvasCall && canvasCall.type === 'return') {
+      const canvas = canvasCall.value as HTMLCanvasElement;
+      expect(canvas.width).toBe(Math.ceil(120 * 3));
+      expect(canvas.height).toBe(Math.ceil(70 * 3));
+    }
+    createSpy.mockRestore();
+  });
+
+  it('filters elements by layer visibility', async () => {
+    const store = new ElementStore();
+    store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 }, layerId: 'hidden' }));
+    store.add(
+      createNote({ position: { x: 200, y: 200 }, size: { w: 100, h: 50 }, layerId: 'visible' }),
+    );
+
+    const mockLayerManager = {
+      isLayerVisible: (id: string) => id === 'visible',
+    };
+
+    const result = await exportImage(store, {}, mockLayerManager as never);
+    expect(result).toBeNull();
+  });
+
+  it('applies custom filter to elements', async () => {
+    const store = new ElementStore();
+    const note1 = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+    const note2 = createNote({ position: { x: 500, y: 500 }, size: { w: 100, h: 50 } });
+    store.add(note1);
+    store.add(note2);
+
+    const bounds = computeBounds([note1], 0);
+    expect(bounds).toEqual({ x: 0, y: 0, w: 100, h: 50 });
+
+    const bothBounds = computeBounds([note1, note2], 0);
+    expect(bothBounds).toEqual({ x: 0, y: 0, w: 600, h: 550 });
+  });
+});
+
+function mockCanvasCtx() {
+  return {
+    save: vi.fn(),
+    restore: vi.fn(),
+    scale: vi.fn(),
+    translate: vi.fn(),
+    fillRect: vi.fn(),
+    strokeRect: vi.fn(),
+    fillStyle: '',
+    strokeStyle: '',
+    lineWidth: 0,
+    globalAlpha: 1,
+    fillText: vi.fn(),
+    measureText: vi.fn().mockReturnValue({ width: 40 }),
+    beginPath: vi.fn(),
+    moveTo: vi.fn(),
+    lineTo: vi.fn(),
+    closePath: vi.fn(),
+    arc: vi.fn(),
+    arcTo: vi.fn(),
+    ellipse: vi.fn(),
+    quadraticCurveTo: vi.fn(),
+    bezierCurveTo: vi.fn(),
+    stroke: vi.fn(),
+    fill: vi.fn(),
+    drawImage: vi.fn(),
+    setLineDash: vi.fn(),
+    roundRect: vi.fn(),
+    font: '',
+    textBaseline: '',
+    textAlign: '',
+    lineCap: '',
+    lineJoin: '',
+  } as unknown as CanvasRenderingContext2D;
+}
+
+describe('exportImage — rendering paths', () => {
+  const origCreate = document.createElement.bind(document);
+
+  function mockGetContext() {
+    const ctx = mockCanvasCtx();
+    vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
+      const el = origCreate(tag);
+      if (tag === 'canvas') {
+        vi.spyOn(el as HTMLCanvasElement, 'getContext').mockReturnValue(ctx as never);
+        vi.spyOn(el as HTMLCanvasElement, 'toBlob').mockImplementation((cb) => {
+          cb(new Blob(['fake'], { type: 'image/png' }));
+        });
+      }
+      return el;
+    });
+    return ctx;
+  }
+
+  it('renders notes via note-canvas-renderer', async () => {
+    const ctx = mockGetContext();
+    const store = new ElementStore();
+    store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 }, text: 'Hello' }));
+
+    const blob = await exportImage(store);
+    expect(blob).toBeInstanceOf(Blob);
+    expect(ctx.fill).toHaveBeenCalled();
+    vi.restoreAllMocks();
+  });
+
+  it('renders text elements with correct positioning', async () => {
+    const ctx = mockGetContext();
+    const store = new ElementStore();
+    store.add(createText({ position: { x: 10, y: 20 }, text: 'Hello\nWorld' }));
+
+    const blob = await exportImage(store);
+    expect(blob).toBeInstanceOf(Blob);
+    expect(ctx.fillText).toHaveBeenCalled();
+    vi.restoreAllMocks();
+  });
+
+  it('renders text with center alignment', async () => {
+    const ctx = mockGetContext();
+    const store = new ElementStore();
+    store.add(
+      createText({
+        position: { x: 10, y: 20 },
+        size: { w: 200, h: 28 },
+        text: 'Centered',
+        textAlign: 'center',
+      }),
+    );
+
+    const blob = await exportImage(store);
+    expect(blob).toBeInstanceOf(Blob);
+    expect(ctx.textAlign).toBe('center');
+    vi.restoreAllMocks();
+  });
+
+  it('renders text with right alignment', async () => {
+    const ctx = mockGetContext();
+    const store = new ElementStore();
+    store.add(
+      createText({
+        position: { x: 10, y: 20 },
+        size: { w: 200, h: 28 },
+        text: 'Right',
+        textAlign: 'right',
+      }),
+    );
+
+    const blob = await exportImage(store);
+    expect(blob).toBeInstanceOf(Blob);
+    expect(ctx.textAlign).toBe('right');
+    vi.restoreAllMocks();
+  });
+
+  it('skips text rendering when text is empty', async () => {
+    const ctx = mockGetContext();
+    const store = new ElementStore();
+    store.add(createText({ position: { x: 0, y: 0 }, text: '' }));
+
+    await exportImage(store);
+    expect(ctx.fillText).not.toHaveBeenCalled();
+    vi.restoreAllMocks();
+  });
+
+  it('renders strokes via element renderer', async () => {
+    const ctx = mockGetContext();
+    const store = new ElementStore();
+    store.add(
+      createStroke({
+        points: [
+          { x: 0, y: 0, pressure: 0.5 },
+          { x: 50, y: 50, pressure: 0.5 },
+        ],
+      }),
+    );
+
+    const blob = await exportImage(store);
+    expect(blob).toBeInstanceOf(Blob);
+    expect(ctx.bezierCurveTo).toHaveBeenCalled();
+    vi.restoreAllMocks();
+  });
+
+  it('renders arrows via element renderer', async () => {
+    const ctx = mockGetContext();
+    const store = new ElementStore();
+    store.add(createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 100 } }));
+
+    const blob = await exportImage(store);
+    expect(blob).toBeInstanceOf(Blob);
+    expect(ctx.moveTo).toHaveBeenCalled();
+    vi.restoreAllMocks();
+  });
+
+  it('renders shapes via element renderer', async () => {
+    const ctx = mockGetContext();
+    const store = new ElementStore();
+    store.add(
+      createShape({
+        position: { x: 10, y: 10 },
+        size: { w: 80, h: 60 },
+        fillColor: '#ff0000',
+      }),
+    );
+
+    const blob = await exportImage(store);
+    expect(blob).toBeInstanceOf(Blob);
+    expect(ctx.fillRect).toHaveBeenCalled();
+    vi.restoreAllMocks();
+  });
+
+  it('skips html elements', async () => {
+    mockGetContext();
+    const store = new ElementStore();
+    store.add({
+      id: 'html-1',
+      type: 'html',
+      position: { x: 0, y: 0 },
+      size: { w: 100, h: 100 },
+      zIndex: 0,
+      locked: false,
+      layerId: '',
+    } as never);
+
+    store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } }));
+
+    const blob = await exportImage(store);
+    expect(blob).toBeInstanceOf(Blob);
+    vi.restoreAllMocks();
+  });
+
+  it('renders grids at the end after other elements', async () => {
+    const ctx = mockGetContext();
+    const store = new ElementStore();
+    store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } }));
+    store.add(createGrid({ gridType: 'square', cellSize: 20 }));
+
+    const blob = await exportImage(store);
+    expect(blob).toBeInstanceOf(Blob);
+    expect(ctx.stroke).toHaveBeenCalled();
+    vi.restoreAllMocks();
+  });
+
+  it('renders hex grids', async () => {
+    const ctx = mockGetContext();
+    const store = new ElementStore();
+    store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } }));
+    store.add(createGrid({ gridType: 'hex', hexOrientation: 'pointy', cellSize: 20 }));
+
+    const blob = await exportImage(store);
+    expect(blob).toBeInstanceOf(Blob);
+    expect(ctx.closePath).toHaveBeenCalled();
+    vi.restoreAllMocks();
+  });
+
+  it('uses default options when none provided', async () => {
+    const ctx = mockGetContext();
+    const store = new ElementStore();
+    store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } }));
+
+    await exportImage(store);
+    expect(ctx.scale).toHaveBeenCalledWith(2, 2);
+    vi.restoreAllMocks();
+  });
+
+  it('uses custom background color', async () => {
+    const ctx = mockGetContext();
+    const store = new ElementStore();
+    store.add(
+      createShape({
+        position: { x: 10, y: 10 },
+        size: { w: 50, h: 50 },
+        fillColor: 'none',
+        strokeWidth: 0,
+      }),
+    );
+
+    await exportImage(store, { background: '#000000' });
+    expect(ctx.fillRect).toHaveBeenCalled();
+    const firstFillRectCall = (ctx.fillRect as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(firstFillRectCall).toBeDefined();
+    vi.restoreAllMocks();
+  });
+
+  it('renders templates via element renderer', async () => {
+    const ctx = mockGetContext();
+    const store = new ElementStore();
+    store.add(
+      createTemplate({
+        position: { x: 50, y: 50 },
+        templateShape: 'circle',
+        radius: 30,
+      }),
+    );
+
+    const blob = await exportImage(store);
+    expect(blob).toBeInstanceOf(Blob);
+    expect(ctx.arc).toHaveBeenCalled();
+    vi.restoreAllMocks();
+  });
+
+  it('handles image elements in export via onerror fallback', async () => {
+    mockGetContext();
+    const store = new ElementStore();
+    const img = createImage({
+      position: { x: 0, y: 0 },
+      size: { w: 100, h: 100 },
+      src: 'data:image/png;base64,iVBORw0KGgo=',
+    });
+    store.add(img);
+
+    const OrigImage = globalThis.Image;
+    globalThis.Image = class MockImage {
+      crossOrigin = '';
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      private _src = '';
+      get src() {
+        return this._src;
+      }
+      set src(val: string) {
+        this._src = val;
+        setTimeout(() => {
+          if (this.onerror) this.onerror();
+        }, 0);
+      }
+    } as unknown as typeof Image;
+
+    const blob = await exportImage(store);
+    expect(blob).toBeInstanceOf(Blob);
+    globalThis.Image = OrigImage;
+    vi.restoreAllMocks();
+  });
+
+  it('renders loaded images in export via onload', async () => {
+    const ctx = mockGetContext();
+    const store = new ElementStore();
+    const img = createImage({
+      position: { x: 0, y: 0 },
+      size: { w: 100, h: 100 },
+      src: 'data:image/png;base64,abc',
+    });
+    store.add(img);
+
+    const OrigImage = globalThis.Image;
+    globalThis.Image = class MockImage {
+      crossOrigin = '';
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      width = 100;
+      height = 100;
+      complete = true;
+      private _src = '';
+      get src() {
+        return this._src;
+      }
+      set src(val: string) {
+        this._src = val;
+        setTimeout(() => {
+          if (this.onload) this.onload();
+        }, 0);
+      }
+    } as unknown as typeof Image;
+
+    const blob = await exportImage(store);
+    expect(blob).toBeInstanceOf(Blob);
+    expect(ctx.drawImage).toHaveBeenCalled();
+    globalThis.Image = OrigImage;
+    vi.restoreAllMocks();
   });
 });

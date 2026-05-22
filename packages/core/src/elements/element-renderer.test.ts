@@ -1,6 +1,19 @@
+// @vitest-environment jsdom
 import { describe, it, expect, vi } from 'vitest';
 import { ElementRenderer } from './element-renderer';
-import type { StrokeElement, ArrowElement, NoteElement } from './types';
+import type {
+  StrokeElement,
+  ArrowElement,
+  NoteElement,
+  ShapeElement,
+  ImageElement,
+  GridElement,
+  TemplateElement,
+  HtmlElement,
+  TextElement,
+} from './types';
+import { ElementStore } from './element-store';
+import { Camera } from '../canvas/camera';
 
 function mockCtx(): CanvasRenderingContext2D {
   return {
@@ -17,12 +30,23 @@ function mockCtx(): CanvasRenderingContext2D {
     bezierCurveTo: vi.fn(),
     translate: vi.fn(),
     scale: vi.fn(),
+    fillRect: vi.fn(),
+    strokeRect: vi.fn(),
+    ellipse: vi.fn(),
+    drawImage: vi.fn(),
+    setLineDash: vi.fn(),
+    measureText: vi.fn().mockReturnValue({ width: 40 }),
+    roundRect: vi.fn(),
+    fillText: vi.fn(),
     strokeStyle: '',
     fillStyle: '',
     lineWidth: 0,
     lineCap: '',
     lineJoin: '',
     globalAlpha: 1,
+    font: '',
+    textAlign: '',
+    textBaseline: '',
   } as unknown as CanvasRenderingContext2D;
 }
 
@@ -137,6 +161,7 @@ describe('ElementRenderer', () => {
         zIndex: 0,
         locked: false,
         layerId: '',
+        textColor: '',
       };
       expect(renderer.isDomElement(note)).toBe(true);
     });
@@ -144,6 +169,601 @@ describe('ElementRenderer', () => {
     it('identifies stroke as a canvas element', () => {
       const renderer = new ElementRenderer();
       expect(renderer.isDomElement(makeStroke())).toBe(false);
+    });
+
+    it('identifies html as a DOM element', () => {
+      const renderer = new ElementRenderer();
+      const html: HtmlElement = {
+        id: 'html-1',
+        type: 'html',
+        position: { x: 0, y: 0 },
+        size: { w: 200, h: 100 },
+        zIndex: 0,
+        locked: false,
+        layerId: '',
+      };
+      expect(renderer.isDomElement(html)).toBe(true);
+    });
+
+    it('identifies text as a DOM element', () => {
+      const renderer = new ElementRenderer();
+      const text: TextElement = {
+        id: 'text-1',
+        type: 'text',
+        position: { x: 0, y: 0 },
+        size: { w: 200, h: 28 },
+        text: 'Hello',
+        fontSize: 16,
+        color: '#000',
+        textAlign: 'left',
+        zIndex: 0,
+        locked: false,
+        layerId: '',
+      };
+      expect(renderer.isDomElement(text)).toBe(true);
+    });
+  });
+
+  describe('renderArrow — bend', () => {
+    it('uses quadraticCurveTo when bend is non-zero', () => {
+      const renderer = new ElementRenderer();
+      const ctx = mockCtx();
+      renderer.renderCanvasElement(ctx, makeArrow({ bend: 0.5 }));
+
+      expect(ctx.quadraticCurveTo).toHaveBeenCalled();
+    });
+
+    it('uses cached control point when available', () => {
+      const renderer = new ElementRenderer();
+      const ctx = mockCtx();
+      renderer.renderCanvasElement(
+        ctx,
+        makeArrow({
+          bend: 0.5,
+          cachedControlPoint: { x: 50, y: -20 },
+        }),
+      );
+
+      expect(ctx.quadraticCurveTo).toHaveBeenCalledWith(50, -20, 100, 100);
+    });
+
+    it('applies dashed line when fromBinding is set', () => {
+      const store = new ElementStore();
+      const note: NoteElement = {
+        id: 'note-bound',
+        type: 'note',
+        position: { x: -50, y: -50 },
+        size: { w: 100, h: 100 },
+        text: '',
+        backgroundColor: '#fff',
+        textColor: '#000',
+        zIndex: 0,
+        locked: false,
+        layerId: '',
+      };
+      store.add(note);
+
+      const renderer = new ElementRenderer();
+      renderer.setStore(store);
+      const ctx = mockCtx();
+      renderer.renderCanvasElement(
+        ctx,
+        makeArrow({
+          fromBinding: { elementId: 'note-bound' },
+        }),
+      );
+
+      expect(ctx.setLineDash).toHaveBeenCalledWith([8, 4]);
+    });
+
+    it('applies dashed line when toBinding is set', () => {
+      const store = new ElementStore();
+      const note: NoteElement = {
+        id: 'note-bound',
+        type: 'note',
+        position: { x: 80, y: 80 },
+        size: { w: 40, h: 40 },
+        text: '',
+        backgroundColor: '#fff',
+        textColor: '#000',
+        zIndex: 0,
+        locked: false,
+        layerId: '',
+      };
+      store.add(note);
+
+      const renderer = new ElementRenderer();
+      renderer.setStore(store);
+      const ctx = mockCtx();
+      renderer.renderCanvasElement(
+        ctx,
+        makeArrow({
+          toBinding: { elementId: 'note-bound' },
+        }),
+      );
+
+      expect(ctx.setLineDash).toHaveBeenCalledWith([8, 4]);
+    });
+
+    it('computes visual endpoints from bound elements', () => {
+      const store = new ElementStore();
+      const note: NoteElement = {
+        id: 'note-from',
+        type: 'note',
+        position: { x: -50, y: -50 },
+        size: { w: 100, h: 100 },
+        text: '',
+        backgroundColor: '#fff',
+        textColor: '#000',
+        zIndex: 0,
+        locked: false,
+        layerId: '',
+      };
+      store.add(note);
+
+      const renderer = new ElementRenderer();
+      renderer.setStore(store);
+      const ctx = mockCtx();
+      renderer.renderCanvasElement(
+        ctx,
+        makeArrow({
+          fromBinding: { elementId: 'note-from' },
+        }),
+      );
+
+      expect(ctx.moveTo).toHaveBeenCalled();
+      const moveCall = (ctx.moveTo as ReturnType<typeof vi.fn>).mock.calls[0] as [number, number];
+      expect(moveCall[0]).not.toBe(0);
+    });
+
+    it('ignores binding when bound element not found', () => {
+      const store = new ElementStore();
+      const renderer = new ElementRenderer();
+      renderer.setStore(store);
+      const ctx = mockCtx();
+      renderer.renderCanvasElement(
+        ctx,
+        makeArrow({
+          fromBinding: { elementId: 'nonexistent' },
+          toBinding: { elementId: 'nonexistent' },
+        }),
+      );
+
+      expect(ctx.moveTo).toHaveBeenCalledWith(0, 0);
+    });
+  });
+
+  describe('renderShape', () => {
+    function makeShape(overrides: Partial<ShapeElement> = {}): ShapeElement {
+      return {
+        id: 'shape-1',
+        type: 'shape',
+        position: { x: 10, y: 20 },
+        size: { w: 100, h: 50 },
+        shape: 'rectangle',
+        strokeColor: '#000',
+        strokeWidth: 2,
+        fillColor: '#ff0000',
+        zIndex: 0,
+        locked: false,
+        layerId: '',
+        ...overrides,
+      };
+    }
+
+    it('fills rectangle with fillColor', () => {
+      const renderer = new ElementRenderer();
+      const ctx = mockCtx();
+      renderer.renderCanvasElement(ctx, makeShape());
+
+      expect(ctx.fillRect).toHaveBeenCalledWith(10, 20, 100, 50);
+      expect(ctx.fillStyle).toBe('#ff0000');
+    });
+
+    it('strokes rectangle with strokeColor and strokeWidth', () => {
+      const renderer = new ElementRenderer();
+      const ctx = mockCtx();
+      renderer.renderCanvasElement(ctx, makeShape());
+
+      expect(ctx.strokeRect).toHaveBeenCalledWith(10, 20, 100, 50);
+      expect(ctx.strokeStyle).toBe('#000');
+    });
+
+    it('skips fill when fillColor is none', () => {
+      const renderer = new ElementRenderer();
+      const ctx = mockCtx();
+      renderer.renderCanvasElement(ctx, makeShape({ fillColor: 'none' }));
+
+      expect(ctx.fillRect).not.toHaveBeenCalled();
+    });
+
+    it('skips stroke when strokeWidth is 0', () => {
+      const renderer = new ElementRenderer();
+      const ctx = mockCtx();
+      renderer.renderCanvasElement(ctx, makeShape({ strokeWidth: 0 }));
+
+      expect(ctx.strokeRect).not.toHaveBeenCalled();
+    });
+
+    it('fills ellipse', () => {
+      const renderer = new ElementRenderer();
+      const ctx = mockCtx();
+      renderer.renderCanvasElement(ctx, makeShape({ shape: 'ellipse' }));
+
+      expect(ctx.ellipse).toHaveBeenCalledWith(60, 45, 50, 25, 0, 0, Math.PI * 2);
+      expect(ctx.fill).toHaveBeenCalled();
+    });
+
+    it('strokes ellipse', () => {
+      const renderer = new ElementRenderer();
+      const ctx = mockCtx();
+      renderer.renderCanvasElement(ctx, makeShape({ shape: 'ellipse' }));
+
+      expect(ctx.ellipse).toHaveBeenCalled();
+      expect(ctx.stroke).toHaveBeenCalled();
+    });
+  });
+
+  describe('renderImage', () => {
+    function makeImage(overrides: Partial<ImageElement> = {}): ImageElement {
+      return {
+        id: 'img-1',
+        type: 'image',
+        position: { x: 10, y: 20 },
+        size: { w: 200, h: 150 },
+        src: 'test.png',
+        zIndex: 0,
+        locked: false,
+        layerId: '',
+        ...overrides,
+      };
+    }
+
+    it('does not draw before image is loaded', () => {
+      const renderer = new ElementRenderer();
+      const ctx = mockCtx();
+      renderer.renderCanvasElement(ctx, makeImage());
+
+      expect(ctx.drawImage).not.toHaveBeenCalled();
+    });
+
+    it('calls onImageLoad callback', () => {
+      const renderer = new ElementRenderer();
+      const cb = vi.fn();
+      renderer.setOnImageLoad(cb);
+      const ctx = mockCtx();
+      renderer.renderCanvasElement(ctx, makeImage());
+
+      expect(ctx.drawImage).not.toHaveBeenCalled();
+    });
+
+    it('returns null on second call before image loads', () => {
+      const renderer = new ElementRenderer();
+      const ctx = mockCtx();
+      renderer.renderCanvasElement(ctx, makeImage());
+      renderer.renderCanvasElement(ctx, makeImage());
+
+      expect(ctx.drawImage).not.toHaveBeenCalled();
+    });
+
+    it('draws image when pre-cached and complete', () => {
+      const renderer = new ElementRenderer();
+      const ctx = mockCtx();
+
+      renderer.renderCanvasElement(ctx, makeImage({ src: 'cached.png' }));
+
+      const img = new Image();
+      img.src = 'cached.png';
+      Object.defineProperty(img, 'complete', { value: true });
+
+      (renderer as unknown as { imageCache: Map<string, HTMLImageElement> }).imageCache.set(
+        'cached.png',
+        img,
+      );
+
+      renderer.renderCanvasElement(ctx, makeImage({ src: 'cached.png' }));
+      expect(ctx.drawImage).toHaveBeenCalled();
+    });
+  });
+
+  describe('renderGrid', () => {
+    function makeGrid(overrides: Partial<GridElement> = {}): GridElement {
+      return {
+        id: 'grid-1',
+        type: 'grid',
+        position: { x: 0, y: 0 },
+        gridType: 'square',
+        hexOrientation: 'pointy',
+        cellSize: 40,
+        strokeColor: '#ccc',
+        strokeWidth: 1,
+        opacity: 0.5,
+        zIndex: 0,
+        locked: false,
+        layerId: '',
+        ...overrides,
+      };
+    }
+
+    it('does nothing without canvas size', () => {
+      const renderer = new ElementRenderer();
+      const ctx = mockCtx();
+      renderer.renderCanvasElement(ctx, makeGrid());
+
+      expect(ctx.save).not.toHaveBeenCalled();
+    });
+
+    it('does nothing without camera', () => {
+      const renderer = new ElementRenderer();
+      renderer.setCanvasSize(800, 600);
+      const ctx = mockCtx();
+      renderer.renderCanvasElement(ctx, makeGrid());
+
+      expect(ctx.save).not.toHaveBeenCalled();
+    });
+
+    it('renders square grid with camera and canvas size set', () => {
+      const renderer = new ElementRenderer();
+      const camera = new Camera();
+      renderer.setCamera(camera);
+      renderer.setCanvasSize(800, 600);
+      const ctx = mockCtx();
+      renderer.renderCanvasElement(ctx, makeGrid({ gridType: 'square' }));
+
+      expect(ctx.save).toHaveBeenCalled();
+      expect(ctx.restore).toHaveBeenCalled();
+      expect(ctx.stroke).toHaveBeenCalled();
+    });
+
+    it('renders hex grid with fallback when tile creation fails', () => {
+      const renderer = new ElementRenderer();
+      const camera = new Camera();
+      renderer.setCamera(camera);
+      renderer.setCanvasSize(800, 600);
+      const ctx = mockCtx();
+      renderer.renderCanvasElement(ctx, makeGrid({ gridType: 'hex', hexOrientation: 'pointy' }));
+
+      expect(ctx.save).toHaveBeenCalled();
+      expect(ctx.closePath).toHaveBeenCalled();
+    });
+  });
+
+  describe('renderTemplate', () => {
+    function makeTemplate(overrides: Partial<TemplateElement> = {}): TemplateElement {
+      return {
+        id: 'tpl-1',
+        type: 'template',
+        position: { x: 100, y: 100 },
+        templateShape: 'circle',
+        radius: 50,
+        angle: 0,
+        fillColor: 'rgba(255, 0, 0, 0.3)',
+        strokeColor: '#ff0000',
+        strokeWidth: 2,
+        opacity: 0.6,
+        zIndex: 0,
+        locked: false,
+        layerId: '',
+        ...overrides,
+      };
+    }
+
+    it('renders geometric circle template', () => {
+      const renderer = new ElementRenderer();
+      const ctx = mockCtx();
+      renderer.renderCanvasElement(ctx, makeTemplate());
+
+      expect(ctx.arc).toHaveBeenCalledWith(100, 100, 50, 0, Math.PI * 2);
+      expect(ctx.fill).toHaveBeenCalled();
+      expect(ctx.stroke).toHaveBeenCalled();
+    });
+
+    it('renders circle template with radius marker', () => {
+      const renderer = new ElementRenderer();
+      const ctx = mockCtx();
+      renderer.renderCanvasElement(ctx, makeTemplate({ radiusFeet: 30 }));
+
+      expect(ctx.setLineDash).toHaveBeenCalledWith([4, 4]);
+      expect(ctx.fillText).toHaveBeenCalled();
+    });
+
+    it('renders square template', () => {
+      const renderer = new ElementRenderer();
+      const ctx = mockCtx();
+      renderer.renderCanvasElement(ctx, makeTemplate({ templateShape: 'square' }));
+
+      expect(ctx.fillRect).toHaveBeenCalled();
+      expect(ctx.strokeRect).toHaveBeenCalled();
+    });
+
+    it('renders cone template', () => {
+      const renderer = new ElementRenderer();
+      const ctx = mockCtx();
+      renderer.renderCanvasElement(
+        ctx,
+        makeTemplate({ templateShape: 'cone', angle: Math.PI / 4 }),
+      );
+
+      expect(ctx.arc).toHaveBeenCalled();
+      expect(ctx.closePath).toHaveBeenCalled();
+      expect(ctx.fill).toHaveBeenCalled();
+    });
+
+    it('renders line template', () => {
+      const renderer = new ElementRenderer();
+      const ctx = mockCtx();
+      renderer.renderCanvasElement(
+        ctx,
+        makeTemplate({ templateShape: 'line', angle: 0, radius: 60 }),
+      );
+
+      expect(ctx.moveTo).toHaveBeenCalled();
+      expect(ctx.closePath).toHaveBeenCalled();
+      expect(ctx.fill).toHaveBeenCalled();
+    });
+
+    it('renders hex template when grid exists', () => {
+      const store = new ElementStore();
+      const grid: GridElement = {
+        id: 'grid-1',
+        type: 'grid',
+        position: { x: 0, y: 0 },
+        gridType: 'hex',
+        hexOrientation: 'pointy',
+        cellSize: 30,
+        strokeColor: '#000',
+        strokeWidth: 1,
+        opacity: 1,
+        zIndex: 0,
+        locked: false,
+        layerId: '',
+      };
+      store.add(grid);
+
+      const renderer = new ElementRenderer();
+      renderer.setStore(store);
+      const ctx = mockCtx();
+      renderer.renderCanvasElement(ctx, makeTemplate());
+
+      expect(ctx.fill).toHaveBeenCalled();
+      expect(ctx.stroke).toHaveBeenCalled();
+    });
+
+    it('renders hex cone template', () => {
+      const store = new ElementStore();
+      const grid: GridElement = {
+        id: 'grid-1',
+        type: 'grid',
+        position: { x: 0, y: 0 },
+        gridType: 'hex',
+        hexOrientation: 'pointy',
+        cellSize: 30,
+        strokeColor: '#000',
+        strokeWidth: 1,
+        opacity: 1,
+        zIndex: 0,
+        locked: false,
+        layerId: '',
+      };
+      store.add(grid);
+
+      const renderer = new ElementRenderer();
+      renderer.setStore(store);
+      const ctx = mockCtx();
+      renderer.renderCanvasElement(ctx, makeTemplate({ templateShape: 'cone', angle: 0 }));
+
+      expect(ctx.fill).toHaveBeenCalled();
+    });
+
+    it('renders hex line template', () => {
+      const store = new ElementStore();
+      const grid: GridElement = {
+        id: 'grid-1',
+        type: 'grid',
+        position: { x: 0, y: 0 },
+        gridType: 'hex',
+        hexOrientation: 'pointy',
+        cellSize: 30,
+        strokeColor: '#000',
+        strokeWidth: 1,
+        opacity: 1,
+        zIndex: 0,
+        locked: false,
+        layerId: '',
+      };
+      store.add(grid);
+
+      const renderer = new ElementRenderer();
+      renderer.setStore(store);
+      const ctx = mockCtx();
+      renderer.renderCanvasElement(ctx, makeTemplate({ templateShape: 'line', angle: 0 }));
+
+      expect(ctx.fill).toHaveBeenCalled();
+    });
+
+    it('renders hex square template', () => {
+      const store = new ElementStore();
+      const grid: GridElement = {
+        id: 'grid-1',
+        type: 'grid',
+        position: { x: 0, y: 0 },
+        gridType: 'hex',
+        hexOrientation: 'pointy',
+        cellSize: 30,
+        strokeColor: '#000',
+        strokeWidth: 1,
+        opacity: 1,
+        zIndex: 0,
+        locked: false,
+        layerId: '',
+      };
+      store.add(grid);
+
+      const renderer = new ElementRenderer();
+      renderer.setStore(store);
+      const ctx = mockCtx();
+      renderer.renderCanvasElement(ctx, makeTemplate({ templateShape: 'square' }));
+
+      expect(ctx.fill).toHaveBeenCalled();
+    });
+
+    it('renders hex circle template with radius marker', () => {
+      const store = new ElementStore();
+      const grid: GridElement = {
+        id: 'grid-1',
+        type: 'grid',
+        position: { x: 0, y: 0 },
+        gridType: 'hex',
+        hexOrientation: 'pointy',
+        cellSize: 30,
+        strokeColor: '#000',
+        strokeWidth: 1,
+        opacity: 1,
+        zIndex: 0,
+        locked: false,
+        layerId: '',
+      };
+      store.add(grid);
+
+      const renderer = new ElementRenderer();
+      renderer.setStore(store);
+      const ctx = mockCtx();
+      renderer.renderCanvasElement(ctx, makeTemplate({ radiusFeet: 20 }));
+
+      expect(ctx.setLineDash).toHaveBeenCalled();
+      expect(ctx.fillText).toHaveBeenCalled();
+    });
+
+    it('sets globalAlpha from template opacity', () => {
+      const renderer = new ElementRenderer();
+      const ctx = mockCtx();
+      renderer.renderCanvasElement(ctx, makeTemplate({ opacity: 0.3 }));
+
+      expect(ctx.globalAlpha).toBe(0.3);
+    });
+  });
+
+  describe('setters', () => {
+    it('setCanvasSize stores dimensions', () => {
+      const renderer = new ElementRenderer();
+      renderer.setCanvasSize(800, 600);
+      const ctx = mockCtx();
+      const grid: GridElement = {
+        id: 'grid-1',
+        type: 'grid',
+        position: { x: 0, y: 0 },
+        gridType: 'square',
+        hexOrientation: 'pointy',
+        cellSize: 40,
+        strokeColor: '#ccc',
+        strokeWidth: 1,
+        opacity: 1,
+        zIndex: 0,
+        locked: false,
+        layerId: '',
+      };
+      renderer.renderCanvasElement(ctx, grid);
+      expect(ctx.save).not.toHaveBeenCalled();
     });
   });
 });
