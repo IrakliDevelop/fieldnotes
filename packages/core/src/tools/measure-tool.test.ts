@@ -212,4 +212,157 @@ describe('MeasureTool', () => {
     expect(m?.cells).toBe(1);
     expect(m?.feet).toBe(5);
   });
+
+  describe('renderOverlay', () => {
+    function mockCanvasCtx(): CanvasRenderingContext2D {
+      return {
+        save: vi.fn(),
+        restore: vi.fn(),
+        beginPath: vi.fn(),
+        arc: vi.fn(),
+        fill: vi.fn(),
+        stroke: vi.fn(),
+        moveTo: vi.fn(),
+        lineTo: vi.fn(),
+        fillText: vi.fn(),
+        measureText: vi.fn(() => ({ width: 30 })),
+        roundRect: vi.fn(),
+        globalAlpha: 1,
+        fillStyle: '',
+        strokeStyle: '',
+        lineWidth: 0,
+        font: '',
+        textAlign: '',
+        textBaseline: '',
+        setLineDash: vi.fn(),
+      } as unknown as CanvasRenderingContext2D;
+    }
+
+    it('does not render when no measurement is active', () => {
+      const tool = new MeasureTool();
+      const canvas = mockCanvasCtx();
+      tool.renderOverlay(canvas);
+      expect(canvas.save).not.toHaveBeenCalled();
+    });
+
+    it('renders measurement line and dots during drag', () => {
+      const tool = new MeasureTool();
+      const ctx = makeCtx({ gridSize: 50 });
+
+      tool.onPointerDown(pt(0, 0), ctx);
+      tool.onPointerMove(pt(100, 0), ctx);
+
+      const canvas = mockCanvasCtx();
+      tool.renderOverlay(canvas);
+
+      expect(canvas.save).toHaveBeenCalled();
+      expect(canvas.setLineDash).toHaveBeenCalledWith([8, 4]);
+      expect(canvas.moveTo).toHaveBeenCalled();
+      expect(canvas.lineTo).toHaveBeenCalled();
+      expect(canvas.stroke).toHaveBeenCalled();
+    });
+
+    it('renders start and end dots', () => {
+      const tool = new MeasureTool();
+      const ctx = makeCtx({ gridSize: 50 });
+
+      tool.onPointerDown(pt(0, 0), ctx);
+      tool.onPointerMove(pt(100, 0), ctx);
+
+      const canvas = mockCanvasCtx();
+      tool.renderOverlay(canvas);
+
+      const arcCalls = (canvas.arc as ReturnType<typeof vi.fn>).mock.calls;
+      expect(arcCalls.length).toBe(2);
+    });
+
+    it('renders distance label with background pill', () => {
+      const tool = new MeasureTool();
+      const ctx = makeCtx({ gridSize: 50 });
+
+      tool.onPointerDown(pt(0, 0), ctx);
+      tool.onPointerMove(pt(100, 0), ctx);
+
+      const canvas = mockCanvasCtx();
+      tool.renderOverlay(canvas);
+
+      expect(canvas.measureText).toHaveBeenCalled();
+      expect(canvas.roundRect).toHaveBeenCalled();
+      expect(canvas.fillText).toHaveBeenCalled();
+      expect(canvas.restore).toHaveBeenCalled();
+    });
+
+    it('renders correct feet label text', () => {
+      const tool = new MeasureTool({ feetPerCell: 5 });
+      const ctx = makeCtx({ gridSize: 50 });
+
+      tool.onPointerDown(pt(0, 0), ctx);
+      tool.onPointerMove(pt(100, 0), ctx);
+
+      const canvas = mockCanvasCtx();
+      tool.renderOverlay(canvas);
+
+      const fillTextCalls = (canvas.fillText as ReturnType<typeof vi.fn>).mock.calls;
+      expect(fillTextCalls.length).toBe(1);
+      expect(fillTextCalls[0][0]).toBe('10 ft');
+    });
+
+    it('clears line dash after drawing the line', () => {
+      const tool = new MeasureTool();
+      const ctx = makeCtx({ gridSize: 50 });
+
+      tool.onPointerDown(pt(0, 0), ctx);
+      tool.onPointerMove(pt(100, 0), ctx);
+
+      const canvas = mockCanvasCtx();
+      tool.renderOverlay(canvas);
+
+      const setLineDashCalls = (canvas.setLineDash as ReturnType<typeof vi.fn>).mock.calls;
+      expect(setLineDashCalls).toContainEqual([[8, 4]]);
+      expect(setLineDashCalls).toContainEqual([[]]);
+    });
+  });
+
+  describe('snapToGrid', () => {
+    it('snaps to square grid centers on square grid type', () => {
+      const tool = new MeasureTool();
+      const ctx = makeCtx({
+        gridSize: 50,
+        gridType: 'square',
+      });
+
+      tool.onPointerDown(pt(23, 27), ctx);
+      tool.onPointerMove(pt(110, 10), ctx);
+
+      const m = tool.getMeasurement();
+      expect(m?.start).toEqual({ x: 0, y: 50 });
+      expect(m?.end).toEqual({ x: 100, y: 0 });
+    });
+
+    it('snaps to hex centers on hex grid type', () => {
+      const tool = new MeasureTool();
+      const ctx = makeCtx({
+        gridSize: 40,
+        gridType: 'hex',
+        hexOrientation: 'pointy',
+      });
+
+      tool.onPointerDown(pt(10, 10), ctx);
+
+      const m = tool.getMeasurement();
+      expect(m?.start.x).not.toBe(10);
+      expect(m?.start.y).not.toBe(10);
+    });
+
+    it('does not snap when gridSize is zero', () => {
+      const tool = new MeasureTool();
+      const ctx = makeCtx({ gridSize: 0 });
+
+      tool.onPointerDown(pt(13, 17), ctx);
+      tool.onPointerMove(pt(113, 117), ctx);
+
+      const m = tool.getMeasurement();
+      expect(m?.start).toEqual({ x: 13, y: 17 });
+    });
+  });
 });

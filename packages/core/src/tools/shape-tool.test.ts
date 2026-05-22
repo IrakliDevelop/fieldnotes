@@ -190,4 +190,132 @@ describe('ShapeTool', () => {
       expect(listener).not.toHaveBeenCalled();
     });
   });
+
+  describe('renderOverlay', () => {
+    function mockCanvasCtx(): CanvasRenderingContext2D {
+      return {
+        save: vi.fn(),
+        restore: vi.fn(),
+        beginPath: vi.fn(),
+        ellipse: vi.fn(),
+        fill: vi.fn(),
+        stroke: vi.fn(),
+        fillRect: vi.fn(),
+        strokeRect: vi.fn(),
+        globalAlpha: 1,
+        fillStyle: '',
+        strokeStyle: '',
+        lineWidth: 0,
+      } as unknown as CanvasRenderingContext2D;
+    }
+
+    it('does not render when not drawing', () => {
+      const tool = new ShapeTool();
+      const canvas = mockCanvasCtx();
+      tool.renderOverlay(canvas);
+      expect(canvas.save).not.toHaveBeenCalled();
+    });
+
+    it('does not render when size is zero', () => {
+      const tool = new ShapeTool();
+      const ctx = makeCtx();
+      tool.onPointerDown(pt(50, 50), ctx);
+      const canvas = mockCanvasCtx();
+      tool.renderOverlay(canvas);
+      expect(canvas.save).not.toHaveBeenCalled();
+    });
+
+    it('renders rectangle preview during drag', () => {
+      const tool = new ShapeTool({ shape: 'rectangle' });
+      const ctx = makeCtx();
+      tool.onPointerDown(pt(0, 0), ctx);
+      tool.onPointerMove(pt(100, 80), ctx);
+
+      const canvas = mockCanvasCtx();
+      tool.renderOverlay(canvas);
+
+      expect(canvas.save).toHaveBeenCalled();
+      expect(canvas.strokeRect).toHaveBeenCalled();
+      expect(canvas.restore).toHaveBeenCalled();
+    });
+
+    it('renders filled rectangle when fillColor is set', () => {
+      const tool = new ShapeTool({ shape: 'rectangle', fillColor: '#ff0000' });
+      const ctx = makeCtx();
+      tool.onPointerDown(pt(0, 0), ctx);
+      tool.onPointerMove(pt(100, 80), ctx);
+
+      const canvas = mockCanvasCtx();
+      tool.renderOverlay(canvas);
+
+      expect(canvas.fillRect).toHaveBeenCalled();
+      expect(canvas.strokeRect).toHaveBeenCalled();
+    });
+
+    it('does not fill rectangle when fillColor is "none"', () => {
+      const tool = new ShapeTool({ shape: 'rectangle', fillColor: 'none' });
+      const ctx = makeCtx();
+      tool.onPointerDown(pt(0, 0), ctx);
+      tool.onPointerMove(pt(100, 80), ctx);
+
+      const canvas = mockCanvasCtx();
+      tool.renderOverlay(canvas);
+
+      expect(canvas.fillRect).not.toHaveBeenCalled();
+      expect(canvas.strokeRect).toHaveBeenCalled();
+    });
+
+    it('renders ellipse preview during drag', () => {
+      const tool = new ShapeTool({ shape: 'ellipse' });
+      const ctx = makeCtx();
+      tool.onPointerDown(pt(0, 0), ctx);
+      tool.onPointerMove(pt(200, 100), ctx);
+
+      const canvas = mockCanvasCtx();
+      tool.renderOverlay(canvas);
+
+      expect(canvas.save).toHaveBeenCalled();
+      expect(canvas.ellipse).toHaveBeenCalled();
+      expect(canvas.stroke).toHaveBeenCalled();
+      expect(canvas.restore).toHaveBeenCalled();
+    });
+
+    it('renders filled ellipse when fillColor is set', () => {
+      const tool = new ShapeTool({ shape: 'ellipse', fillColor: '#0000ff' });
+      const ctx = makeCtx();
+      tool.onPointerDown(pt(0, 0), ctx);
+      tool.onPointerMove(pt(200, 100), ctx);
+
+      const canvas = mockCanvasCtx();
+      tool.renderOverlay(canvas);
+
+      expect(canvas.fill).toHaveBeenCalled();
+      expect(canvas.stroke).toHaveBeenCalled();
+    });
+
+    it('does not fill ellipse when fillColor is "none"', () => {
+      const tool = new ShapeTool({ shape: 'ellipse', fillColor: 'none' });
+      const ctx = makeCtx();
+      tool.onPointerDown(pt(0, 0), ctx);
+      tool.onPointerMove(pt(200, 100), ctx);
+
+      const canvas = mockCanvasCtx();
+      tool.renderOverlay(canvas);
+
+      expect(canvas.fill).not.toHaveBeenCalled();
+      expect(canvas.stroke).toHaveBeenCalled();
+    });
+
+    it('sets globalAlpha and style properties', () => {
+      const tool = new ShapeTool({ strokeColor: '#ff0000', strokeWidth: 4 });
+      const ctx = makeCtx();
+      tool.onPointerDown(pt(0, 0), ctx);
+      tool.onPointerMove(pt(100, 100), ctx);
+
+      const canvas = mockCanvasCtx();
+      tool.renderOverlay(canvas);
+
+      expect(canvas.globalAlpha).toBe(0.5);
+    });
+  });
 });
