@@ -112,6 +112,14 @@ describe('LayerManager', () => {
       const layers = manager.getLayers();
       expect(layers[0]?.id).toBe(layer2.id);
     });
+
+    it('reorder to same position does not crash', () => {
+      const { manager } = setup();
+      const id = manager.activeLayerId;
+      const orderBefore = manager.getLayer(id)?.order;
+      manager.reorderLayer(id, orderBefore ?? 0);
+      expect(manager.getLayer(id)?.order).toBe(orderBefore);
+    });
   });
 
   describe('visibility', () => {
@@ -216,6 +224,21 @@ describe('LayerManager', () => {
       mgr.on('change', listener);
       mgr.setLayerOpacity('nonexistent', 0.5);
       expect(listener).not.toHaveBeenCalled();
+    });
+
+    it('clamps negative values to 0', () => {
+      const { manager } = setup();
+      const id = manager.activeLayerId;
+      manager.setLayerOpacity(id, -5);
+      expect(manager.getLayer(id)?.opacity).toBe(0);
+    });
+
+    it('clamps values greater than 1 to 1', () => {
+      const { manager } = setup();
+      const id = manager.activeLayerId;
+      manager.setLayerOpacity(id, 0.5);
+      manager.setLayerOpacity(id, 99);
+      expect(manager.getLayer(id)?.opacity).toBe(1);
     });
   });
 

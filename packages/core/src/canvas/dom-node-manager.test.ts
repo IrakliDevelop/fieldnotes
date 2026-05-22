@@ -271,6 +271,17 @@ describe('DomNodeManager', () => {
       expect(manager.getNode(note.id)).toBeUndefined();
       expect(domLayer.children.length).toBe(0);
     });
+
+    it('is a no-op for non-existent ID', () => {
+      expect(() => manager.removeDomNode('does-not-exist')).not.toThrow();
+      expect(domLayer.children.length).toBe(0);
+    });
+  });
+
+  describe('getNode', () => {
+    it('returns undefined for missing ID', () => {
+      expect(manager.getNode('missing-id')).toBeUndefined();
+    });
   });
 
   describe('clearDomNodes', () => {
