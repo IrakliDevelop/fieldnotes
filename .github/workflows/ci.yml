@@ -27,3 +27,50 @@ jobs:
       - run: pnpm test
 
       - run: pnpm build
+
+  e2e:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm build
+
+      - name: Get Playwright version
+        id: pw-version
+        run: echo "version=$(pnpm --filter @fieldnotes/core exec playwright --version)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        id: pw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ steps.pw-version.outputs.version }}
+
+      - name: Install Playwright Chromium
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        run: pnpm --filter @fieldnotes/core exec playwright install chromium --with-deps
+
+      - name: Install Playwright system deps
+        if: steps.pw-cache.outputs.cache-hit == 'true'
+        run: pnpm --filter @fieldnotes/core exec playwright install-deps chromium
+
+      - name: Run E2E tests
+        run: pnpm --filter @fieldnotes/core e2e
+
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-test-results
+          path: packages/core/test-results/
+          retention-days: 7

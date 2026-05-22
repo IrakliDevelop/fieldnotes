@@ -667,3 +667,5 @@ if (info) {
   viewport.toolManager.onChange(updateInfo);
   updateInfo();
 }
+
+(window as unknown as Record<string, unknown>).__fieldnotes_viewport = viewport;

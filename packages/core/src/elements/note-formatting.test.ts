@@ -53,6 +53,65 @@ describe('note-formatting', () => {
       vi.spyOn(window, 'getSelection').mockReturnValue(sel);
       expect(() => setFontSize(24)).not.toThrow();
     });
+
+    it('does nothing when rangeCount is 0', () => {
+      const sel = { rangeCount: 0, getRangeAt: vi.fn() } as unknown as Selection;
+      vi.spyOn(window, 'getSelection').mockReturnValue(sel);
+      expect(() => setFontSize(24)).not.toThrow();
+      expect(sel.getRangeAt).not.toHaveBeenCalled();
+    });
+
+    it('wraps selected text in a span with fontSize via surroundContents', () => {
+      const container = document.createElement('div');
+      container.textContent = 'Hello World';
+      document.body.appendChild(container);
+
+      const range = document.createRange();
+      const textNode = container.firstChild;
+      if (textNode) {
+        range.setStart(textNode, 0);
+        range.setEnd(textNode, 5);
+      }
+
+      vi.spyOn(window, 'getSelection').mockReturnValue({
+        rangeCount: 1,
+        getRangeAt: () => range,
+      } as unknown as Selection);
+
+      setFontSize(24);
+
+      const span = container.querySelector('span');
+      expect(span).not.toBeNull();
+      expect(span?.style.fontSize).toBe('24px');
+      expect(span?.textContent).toBe('Hello');
+
+      document.body.removeChild(container);
+    });
+
+    it('uses extractContents fallback when surroundContents throws', () => {
+      const range = {
+        collapsed: false,
+        surroundContents: vi.fn().mockImplementation(() => {
+          throw new Error('Cannot surroundContents');
+        }),
+        extractContents: vi.fn().mockReturnValue(document.createTextNode('extracted')),
+        insertNode: vi.fn(),
+      } as unknown as Range;
+
+      vi.spyOn(window, 'getSelection').mockReturnValue({
+        rangeCount: 1,
+        getRangeAt: () => range,
+      } as unknown as Selection);
+
+      setFontSize(18);
+
+      expect(range.extractContents).toHaveBeenCalled();
+      expect(range.insertNode).toHaveBeenCalled();
+      const insertedSpan = (range.insertNode as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as
+        | HTMLSpanElement
+        | undefined;
+      expect(insertedSpan?.style.fontSize).toBe('18px');
+    });
   });
 
   describe('getActiveFormats', () => {

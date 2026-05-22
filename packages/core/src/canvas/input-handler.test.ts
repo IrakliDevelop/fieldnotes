@@ -6,6 +6,8 @@ import { Camera } from './camera';
 import { InputHandler } from './input-handler';
 import type { ToolManager } from '../tools/tool-manager';
 import type { ToolContext } from '../tools/types';
+import type { HistoryRecorder } from '../history/history-recorder';
+import type { HistoryStack } from '../history/history-stack';
 
 function wheel(
   el: HTMLElement,
@@ -184,6 +186,22 @@ describe('InputHandler', () => {
       expect(camera.position.x).not.toBe(0);
     });
 
+    it('three simultaneous pointers do not crash', () => {
+      pointerDown(element, { pointerId: 1, clientX: 50, clientY: 50 });
+      pointerDown(element, { pointerId: 2, clientX: 150, clientY: 150 });
+      pointerDown(element, { pointerId: 3, clientX: 250, clientY: 250 });
+
+      pointerMove(element, { pointerId: 1, clientX: 60, clientY: 60 });
+      pointerMove(element, { pointerId: 2, clientX: 160, clientY: 160 });
+      pointerMove(element, { pointerId: 3, clientX: 260, clientY: 260 });
+
+      pointerUp(element, { pointerId: 3 });
+      pointerUp(element, { pointerId: 2 });
+      pointerUp(element, { pointerId: 1 });
+
+      expect(camera.zoom).toBeDefined();
+    });
+
     it('cancels tool when second finger is added', () => {
       const tm = stubToolManager();
       const tc = stubToolContext();
@@ -194,6 +212,247 @@ describe('InputHandler', () => {
 
       pointerDown(element, { pointerId: 2, button: 0, clientX: 150, clientY: 150 });
       expect(tm.handlePointerUp).toHaveBeenCalledOnce();
+    });
+  });
+
+  describe('keyboard shortcuts', () => {
+    it('ignores keydown when target is contentEditable', () => {
+      const tm = stubToolManager();
+      const tc = stubToolContext();
+      handler.setToolManager(tm, tc);
+
+      const editableDiv = document.createElement('div');
+      editableDiv.contentEditable = 'true';
+      element.appendChild(editableDiv);
+
+      const keyEvent = new KeyboardEvent('keydown', {
+        key: 'Delete',
+        bubbles: true,
+      });
+      Object.defineProperty(keyEvent, 'target', { value: editableDiv });
+      window.dispatchEvent(keyEvent);
+
+      expect(tc.requestRender).not.toHaveBeenCalled();
+      element.removeChild(editableDiv);
+    });
+
+    it('handles Delete key when select tool has selections', () => {
+      const tm = {
+        ...stubToolManager(),
+        activeTool: {
+          name: 'select',
+          selectedIds: ['el-1'],
+        },
+      } as unknown as ToolManager;
+      const store = {
+        remove: vi.fn(),
+      };
+      const tc = {
+        ...stubToolContext(),
+        store,
+      } as unknown as ToolContext;
+      const hr = { begin: vi.fn(), commit: vi.fn() };
+
+      handler = new InputHandler(element, camera, {
+        toolManager: tm,
+        toolContext: tc,
+        historyRecorder: hr as unknown as HistoryRecorder,
+      });
+
+      keyDown('Delete');
+
+      expect(store.remove).toHaveBeenCalledWith('el-1');
+      expect(hr.begin).toHaveBeenCalled();
+      expect(hr.commit).toHaveBeenCalled();
+    });
+
+    it('handles Backspace key for delete', () => {
+      const tm = {
+        ...stubToolManager(),
+        activeTool: {
+          name: 'select',
+          selectedIds: ['el-2'],
+        },
+      } as unknown as ToolManager;
+      const store = { remove: vi.fn() };
+      const tc = {
+        ...stubToolContext(),
+        store,
+      } as unknown as ToolContext;
+      const hr = { begin: vi.fn(), commit: vi.fn() };
+
+      handler = new InputHandler(element, camera, {
+        toolManager: tm,
+        toolContext: tc,
+        historyRecorder: hr as unknown as HistoryRecorder,
+      });
+
+      keyDown('Backspace');
+      expect(store.remove).toHaveBeenCalledWith('el-2');
+    });
+
+    it('does not delete when no items selected', () => {
+      const tm = {
+        ...stubToolManager(),
+        activeTool: {
+          name: 'select',
+          selectedIds: [],
+        },
+      } as unknown as ToolManager;
+      const tc = stubToolContext();
+      handler.setToolManager(tm, tc);
+
+      keyDown('Delete');
+      expect(tc.requestRender).not.toHaveBeenCalled();
+    });
+
+    it('does not delete when tool is not select', () => {
+      const tm = {
+        ...stubToolManager(),
+        activeTool: {
+          name: 'pencil',
+        },
+      } as unknown as ToolManager;
+      const tc = stubToolContext();
+      handler.setToolManager(tm, tc);
+
+      keyDown('Delete');
+      expect(tc.requestRender).not.toHaveBeenCalled();
+    });
+
+    it('handles Ctrl+Z for undo', () => {
+      const hs = { undo: vi.fn(), redo: vi.fn() };
+      const hr = { pause: vi.fn(), resume: vi.fn() };
+      const tc = stubToolContext();
+
+      handler = new InputHandler(element, camera, {
+        toolContext: tc,
+        historyStack: hs as unknown as HistoryStack,
+        historyRecorder: hr as unknown as HistoryRecorder,
+      });
+
+      const event = new KeyboardEvent('keydown', {
+        key: 'z',
+        ctrlKey: true,
+        bubbles: true,
+      });
+      window.dispatchEvent(event);
+
+      expect(hs.undo).toHaveBeenCalled();
+      expect(hr.pause).toHaveBeenCalled();
+      expect(hr.resume).toHaveBeenCalled();
+    });
+
+    it('handles Ctrl+Shift+Z for redo', () => {
+      const hs = { undo: vi.fn(), redo: vi.fn() };
+      const hr = { pause: vi.fn(), resume: vi.fn() };
+      const tc = stubToolContext();
+
+      handler = new InputHandler(element, camera, {
+        toolContext: tc,
+        historyStack: hs as unknown as HistoryStack,
+        historyRecorder: hr as unknown as HistoryRecorder,
+      });
+
+      const event = new KeyboardEvent('keydown', {
+        key: 'z',
+        ctrlKey: true,
+        shiftKey: true,
+        bubbles: true,
+      });
+      window.dispatchEvent(event);
+
+      expect(hs.redo).toHaveBeenCalled();
+    });
+
+    it('handles Ctrl+Y for redo', () => {
+      const hs = { undo: vi.fn(), redo: vi.fn() };
+      const hr = { pause: vi.fn(), resume: vi.fn() };
+      const tc = stubToolContext();
+
+      handler = new InputHandler(element, camera, {
+        toolContext: tc,
+        historyStack: hs as unknown as HistoryStack,
+        historyRecorder: hr as unknown as HistoryRecorder,
+      });
+
+      const event = new KeyboardEvent('keydown', {
+        key: 'y',
+        ctrlKey: true,
+        bubbles: true,
+      });
+      window.dispatchEvent(event);
+
+      expect(hs.redo).toHaveBeenCalled();
+    });
+
+    it('undo/redo no-op without historyStack', () => {
+      const tc = stubToolContext();
+      handler.setToolManager(stubToolManager(), tc);
+
+      const undoEvent = new KeyboardEvent('keydown', {
+        key: 'z',
+        ctrlKey: true,
+        bubbles: true,
+      });
+      expect(() => window.dispatchEvent(undoEvent)).not.toThrow();
+    });
+  });
+
+  describe('tool hover', () => {
+    it('dispatches hover when no pointers active', () => {
+      const onHover = vi.fn();
+      const tm = {
+        ...stubToolManager(),
+        activeTool: { onHover },
+      } as unknown as ToolManager;
+      const tc = stubToolContext();
+      handler.setToolManager(tm, tc);
+
+      pointerMove(element, { clientX: 100, clientY: 100 });
+      expect(onHover).toHaveBeenCalled();
+    });
+
+    it('does not dispatch hover when tool has no onHover', () => {
+      const tm = {
+        ...stubToolManager(),
+        activeTool: {},
+      } as unknown as ToolManager;
+      const tc = stubToolContext();
+      handler.setToolManager(tm, tc);
+
+      expect(() => pointerMove(element, { clientX: 100, clientY: 100 })).not.toThrow();
+    });
+
+    it('does not dispatch hover when no active tool', () => {
+      const tm = {
+        ...stubToolManager(),
+        activeTool: null,
+      } as unknown as ToolManager;
+      const tc = stubToolContext();
+      handler.setToolManager(tm, tc);
+
+      expect(() => pointerMove(element, { clientX: 100, clientY: 100 })).not.toThrow();
+    });
+  });
+
+  describe('tool dispatch without toolManager', () => {
+    it('handles pointer events gracefully without tool manager', () => {
+      pointerDown(element, { button: 0, clientX: 50, clientY: 50 });
+      pointerMove(element, { clientX: 60, clientY: 60 });
+      pointerUp(element, { clientX: 60, clientY: 60 });
+      expect(camera.position).toEqual({ x: 0, y: 0 });
+    });
+  });
+
+  describe('pointer capture', () => {
+    it('calls setPointerCapture on pointer down', () => {
+      const spy = vi.fn();
+      element.setPointerCapture = spy;
+
+      pointerDown(element, { pointerId: 1, button: 0, clientX: 50, clientY: 50 });
+      expect(spy).toHaveBeenCalledWith(1);
+      pointerUp(element, { pointerId: 1 });
     });
   });
 

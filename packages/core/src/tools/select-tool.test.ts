@@ -8,6 +8,7 @@ import {
   createStroke,
   createImage,
   createTemplate,
+  createGrid,
 } from '../elements/element-factory';
 import type { ToolContext, PointerState } from './types';
 import type { NoteElement, ImageElement, TemplateElement } from '../elements/types';
@@ -292,6 +293,17 @@ describe('SelectTool', () => {
       expect(tool.selectedIds).toEqual([note.id]);
     });
 
+    it('marquee on empty canvas results in empty selection', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+
+      tool.onPointerDown(pt(0, 0), ctx);
+      tool.onPointerMove(pt(500, 500), ctx);
+      tool.onPointerUp(pt(500, 500), ctx);
+
+      expect(tool.selectedIds).toEqual([]);
+    });
+
     it('requests render during marquee drag', () => {
       const tool = new SelectTool();
       const ctx = makeCtx();
@@ -508,6 +520,24 @@ describe('SelectTool', () => {
       // world snaps (60,60) → snapPoint(60,60,24) = (72,72) [Math.round(60/24)=Math.round(2.5)=3, 3*24=72]
       // delta = (72, 72), new position = (10+72, 10+72) = (82, 82)
       expect(moved?.position).toEqual({ x: 82, y: 82 });
+    });
+
+    it('snaps element center to grid when gridType is set', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      ctx.snapToGrid = true;
+      ctx.gridSize = 50;
+      ctx.gridType = 'square';
+
+      const note = createNote({ position: { x: 10, y: 10 }, size: { w: 100, h: 80 } });
+      ctx.store.add(note);
+
+      tool.onPointerDown(pt(50, 40), ctx);
+      tool.onPointerMove(pt(80, 70), ctx);
+      tool.onPointerUp(pt(80, 70), ctx);
+
+      const moved = ctx.store.getById(note.id);
+      expect(moved).toBeDefined();
     });
 
     it('does not snap when snap is disabled', () => {
@@ -775,6 +805,46 @@ describe('SelectTool', () => {
 
       expect(setCursor).toHaveBeenCalledWith('default');
     });
+
+    it('shows arrow handle cursor when hovering over arrow handle', () => {
+      const tool = new SelectTool();
+      const setCursor = vi.fn();
+      const ctx = makeCtx({ setCursor });
+      const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 200, y: 0 } });
+      ctx.store.add(arrow);
+
+      tool.onActivate(ctx);
+      tool.onPointerDown(pt(100, 0), ctx);
+      tool.onPointerUp(pt(100, 0), ctx);
+      expect(tool.selectedIds).toEqual([arrow.id]);
+      setCursor.mockClear();
+
+      tool.onHover?.(pt(0, 0), ctx);
+
+      expect(setCursor).toHaveBeenCalledWith('crosshair');
+    });
+
+    it('shows resize cursor when hovering over template resize handle', () => {
+      const tool = new SelectTool();
+      const setCursor = vi.fn();
+      const ctx = makeCtx({ setCursor });
+      const tmpl = createTemplate({
+        position: { x: 100, y: 100 },
+        templateShape: 'circle',
+        radius: 50,
+      });
+      ctx.store.add(tmpl);
+
+      tool.onActivate(ctx);
+      tool.onPointerDown(pt(100, 100), ctx);
+      tool.onPointerUp(pt(100, 100), ctx);
+      expect(tool.selectedIds).toEqual([tmpl.id]);
+      setCursor.mockClear();
+
+      tool.onHover?.(pt(150, 150), ctx);
+
+      expect(setCursor).toHaveBeenCalledWith('nwse-resize');
+    });
   });
 
   describe('renderOverlay', () => {
@@ -846,6 +916,169 @@ describe('SelectTool', () => {
 
       expect(canvas.strokeRect).toHaveBeenCalled();
       expect(canvas.fillRect).toHaveBeenCalled();
+    });
+
+    it('draws template resize handle for selected template', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const tmpl = createTemplate({
+        position: { x: 100, y: 100 },
+        templateShape: 'circle',
+        radius: 50,
+      });
+      ctx.store.add(tmpl);
+
+      tool.onPointerDown(pt(100, 100), ctx);
+      tool.onPointerUp(pt(100, 100), ctx);
+      expect(tool.selectedIds).toEqual([tmpl.id]);
+
+      const canvas = mockCanvas();
+      tool.renderOverlay?.(canvas);
+
+      expect(canvas.strokeRect).toHaveBeenCalled();
+      expect(canvas.fillRect).toHaveBeenCalled();
+    });
+
+    it('draws arrow drag target highlight when dragging arrow handle near element', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const note = createNote({ position: { x: 200, y: 200 }, size: { w: 100, h: 100 } });
+      const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 400, y: 400 } });
+      ctx.store.add(note);
+      ctx.store.add(arrow);
+
+      tool.onActivate(ctx);
+
+      tool.onPointerDown(pt(200, 200), ctx);
+      tool.onPointerUp(pt(200, 200), ctx);
+
+      tool.onPointerDown(pt(0, 0), ctx);
+      tool.onPointerUp(pt(0, 0), ctx);
+      expect(tool.selectedIds).toEqual([arrow.id]);
+
+      tool.onPointerDown(pt(0, 0), ctx);
+      tool.onPointerMove(pt(210, 210), ctx);
+
+      const canvas = {
+        save: vi.fn(),
+        restore: vi.fn(),
+        strokeRect: vi.fn(),
+        fillRect: vi.fn(),
+        beginPath: vi.fn(),
+        arc: vi.fn(),
+        fill: vi.fn(),
+        stroke: vi.fn(),
+        strokeStyle: '',
+        fillStyle: '',
+        lineWidth: 0,
+        globalAlpha: 1,
+        setLineDash: vi.fn(),
+      } as unknown as CanvasRenderingContext2D;
+      tool.renderOverlay?.(canvas);
+
+      const strokeRectCalls = (canvas.strokeRect as ReturnType<typeof vi.fn>).mock.calls.length;
+      expect(strokeRectCalls).toBeGreaterThanOrEqual(1);
+    });
+
+    it('renders binding highlights for selected bound arrow', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
+      const arrow = createArrow({
+        from: { x: 50, y: 50 },
+        to: { x: 300, y: 300 },
+        fromBinding: { elementId: note.id },
+      });
+      ctx.store.add(note);
+      ctx.store.add(arrow);
+
+      tool.onActivate(ctx);
+
+      tool.onPointerDown(pt(175, 175), ctx);
+      tool.onPointerUp(pt(175, 175), ctx);
+      expect(tool.selectedIds).toEqual([arrow.id]);
+
+      const canvas = {
+        save: vi.fn(),
+        restore: vi.fn(),
+        strokeRect: vi.fn(),
+        fillRect: vi.fn(),
+        beginPath: vi.fn(),
+        arc: vi.fn(),
+        fill: vi.fn(),
+        stroke: vi.fn(),
+        strokeStyle: '',
+        fillStyle: '',
+        lineWidth: 0,
+        globalAlpha: 1,
+        setLineDash: vi.fn(),
+      } as unknown as CanvasRenderingContext2D;
+      tool.renderOverlay?.(canvas);
+
+      const strokeRectCalls = (canvas.strokeRect as ReturnType<typeof vi.fn>).mock.calls.length;
+      expect(strokeRectCalls).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  describe('template resize with feetPerCell', () => {
+    it('updates radiusFeet when template has feetPerCell and grid is set', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx({ gridSize: 40 });
+      const tmpl = createTemplate({
+        position: { x: 100, y: 100 },
+        templateShape: 'circle',
+        radius: 50,
+        feetPerCell: 5,
+      });
+      ctx.store.add(tmpl);
+
+      tool.onPointerDown(pt(100, 100), ctx);
+      tool.onPointerUp(pt(100, 100), ctx);
+      expect(tool.selectedIds).toEqual([tmpl.id]);
+
+      tool.onPointerDown(pt(150, 150), ctx);
+      tool.onPointerMove(pt(200, 200), ctx);
+      tool.onPointerUp(pt(200, 200), ctx);
+
+      const resized = ctx.store.getById(tmpl.id) as TemplateElement;
+      expect(resized.radiusFeet).toBeDefined();
+      expect(resized.radiusFeet).toBeGreaterThan(0);
+    });
+
+    it('snaps template radius to grid when snap is enabled', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx({ gridSize: 50, snapToGrid: true });
+      const tmpl = createTemplate({
+        position: { x: 100, y: 100 },
+        templateShape: 'circle',
+        radius: 50,
+        feetPerCell: 5,
+      });
+      ctx.store.add(tmpl);
+
+      tool.onPointerDown(pt(100, 100), ctx);
+      tool.onPointerUp(pt(100, 100), ctx);
+
+      tool.onPointerDown(pt(150, 150), ctx);
+      tool.onPointerMove(pt(170, 170), ctx);
+      tool.onPointerUp(pt(170, 170), ctx);
+
+      const resized = ctx.store.getById(tmpl.id) as TemplateElement;
+      expect(resized.radius % 50).toBe(0);
+    });
+  });
+
+  describe('grid element exclusion', () => {
+    it('does not select grid elements by click', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const grid = createGrid({ position: { x: 0, y: 0 } });
+      ctx.store.add(grid);
+
+      tool.onPointerDown(pt(10, 10), ctx);
+      tool.onPointerUp(pt(10, 10), ctx);
+
+      expect(tool.selectedIds).toEqual([]);
     });
   });
 

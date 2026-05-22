@@ -20,6 +20,17 @@
       border-radius: 10px;
       box-shadow: 0 2px 12px rgba(0,0,0,0.15);
       z-index: 10;
+      max-width: calc(100vw - 16px);
+      overflow-x: auto;
+      overscroll-behavior-x: contain;
+      -webkit-overflow-scrolling: touch;
+    }
+    @media (max-width: 1024px) {
+      #toolbar {
+        left: 8px;
+        right: 8px;
+        transform: none;
+      }
     }
     #toolbar button {
       padding: 8px 14px;

@@ -267,4 +267,28 @@ describe('parseState', () => {
       expect(first?.name).toBe('Background');
     });
   });
+
+  describe('edge cases', () => {
+    it('parseState handles empty elements array', () => {
+      const data = {
+        version: 2,
+        camera: { position: { x: 0, y: 0 }, zoom: 1 },
+        elements: [],
+      };
+      const state = parseState(JSON.stringify(data));
+      expect(state.elements).toEqual([]);
+      expect(state.layers).toHaveLength(1);
+    });
+
+    it('exportState with empty store produces valid state', () => {
+      const state = exportState([], makeCamera());
+      expect(state.version).toBe(2);
+      expect(state.elements).toEqual([]);
+      expect(state.camera).toEqual({ position: { x: 0, y: 0 }, zoom: 1 });
+
+      const json = JSON.stringify(state);
+      const parsed = parseState(json);
+      expect(parsed.elements).toEqual([]);
+    });
+  });
 });

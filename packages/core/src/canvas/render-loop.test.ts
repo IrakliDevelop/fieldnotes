@@ -362,9 +362,178 @@ describe('RenderLoop', () => {
       renderLoop.requestRender();
       renderLoop.flush();
 
-      // Grid should be rendered directly, not sent to the offscreen layer cache
       expect(deps.renderer.renderCanvasElement).toHaveBeenCalled();
       expect(deps.layerCache.getContext).not.toHaveBeenCalled();
+    });
+
+    it('uses grid cache on second render with same params', () => {
+      Object.defineProperty(deps.canvasEl, 'clientWidth', { value: 800, configurable: true });
+      Object.defineProperty(deps.canvasEl, 'clientHeight', { value: 600, configurable: true });
+
+      const gridElement = {
+        id: 'grid-1',
+        type: 'grid',
+        layerId: 'default',
+        position: { x: 0, y: 0 },
+      };
+      vi.mocked(deps.store.getAll).mockReturnValue([gridElement] as never);
+
+      renderLoop.requestRender();
+      renderLoop.flush();
+
+      vi.mocked(deps.renderer.renderCanvasElement).mockClear();
+
+      renderLoop.requestRender();
+      renderLoop.flush();
+
+      expect(deps.renderer.renderCanvasElement).not.toHaveBeenCalled();
+    });
+
+    it('re-renders grid when camera moves', () => {
+      Object.defineProperty(deps.canvasEl, 'clientWidth', { value: 800, configurable: true });
+      Object.defineProperty(deps.canvasEl, 'clientHeight', { value: 600, configurable: true });
+
+      const gridElement = {
+        id: 'grid-1',
+        type: 'grid',
+        layerId: 'default',
+        position: { x: 0, y: 0 },
+      };
+      vi.mocked(deps.store.getAll).mockReturnValue([gridElement] as never);
+
+      renderLoop.requestRender();
+      renderLoop.flush();
+
+      vi.mocked(deps.renderer.renderCanvasElement).mockClear();
+      (deps.camera as { position: { x: number; y: number } }).position = { x: 50, y: 50 };
+
+      renderLoop.requestRender();
+      renderLoop.flush();
+
+      expect(deps.renderer.renderCanvasElement).toHaveBeenCalled();
+    });
+
+    it('skips grid cache when grid element reference changes', () => {
+      Object.defineProperty(deps.canvasEl, 'clientWidth', { value: 800, configurable: true });
+      Object.defineProperty(deps.canvasEl, 'clientHeight', { value: 600, configurable: true });
+
+      const grid1 = {
+        id: 'grid-1',
+        type: 'grid',
+        layerId: 'default',
+        position: { x: 0, y: 0 },
+      };
+      vi.mocked(deps.store.getAll).mockReturnValue([grid1] as never);
+
+      renderLoop.requestRender();
+      renderLoop.flush();
+      vi.mocked(deps.renderer.renderCanvasElement).mockClear();
+
+      const grid2 = { ...grid1 };
+      vi.mocked(deps.store.getAll).mockReturnValue([grid2] as never);
+      renderLoop.requestRender();
+      renderLoop.flush();
+
+      expect(deps.renderer.renderCanvasElement).toHaveBeenCalled();
+    });
+
+    it('falls back to direct render when grid cache context is unavailable', () => {
+      Object.defineProperty(deps.canvasEl, 'clientWidth', { value: 800, configurable: true });
+      Object.defineProperty(deps.canvasEl, 'clientHeight', { value: 600, configurable: true });
+
+      const gridElement = {
+        id: 'grid-1',
+        type: 'grid',
+        layerId: 'default',
+        position: { x: 0, y: 0 },
+      };
+      vi.mocked(deps.store.getAll).mockReturnValue([gridElement] as never);
+
+      renderLoop.requestRender();
+      renderLoop.flush();
+
+      expect(deps.renderer.renderCanvasElement).toHaveBeenCalled();
+    });
+
+    it('handles null context from getContext gracefully', () => {
+      Object.defineProperty(deps.canvasEl, 'clientWidth', { value: 800, configurable: true });
+      Object.defineProperty(deps.canvasEl, 'clientHeight', { value: 600, configurable: true });
+
+      vi.mocked(deps.layerCache.isDirty).mockReturnValue(true);
+      vi.mocked(deps.layerCache.getContext).mockReturnValue(null);
+
+      const stroke = {
+        id: 'stroke-1',
+        type: 'stroke',
+        layerId: 'default',
+        position: { x: 0, y: 0 },
+        points: [{ x: 0, y: 0, pressure: 1 }],
+      };
+      vi.mocked(deps.store.getAll).mockReturnValue([stroke] as never);
+
+      renderLoop.requestRender();
+      renderLoop.flush();
+
+      expect(deps.renderer.renderCanvasElement).not.toHaveBeenCalled();
+    });
+
+    it('hides DOM elements on invisible layers', () => {
+      Object.defineProperty(deps.canvasEl, 'clientWidth', { value: 800, configurable: true });
+      Object.defineProperty(deps.canvasEl, 'clientHeight', { value: 600, configurable: true });
+
+      vi.mocked(deps.layerManager.isLayerVisible).mockReturnValue(false);
+
+      const stroke = {
+        id: 'stroke-1',
+        type: 'stroke',
+        layerId: 'default',
+        position: { x: 0, y: 0 },
+        points: [{ x: 0, y: 0, pressure: 1 }],
+      };
+      vi.mocked(deps.store.getAll).mockReturnValue([stroke] as never);
+
+      renderLoop.requestRender();
+      renderLoop.flush();
+
+      expect(deps.renderer.renderCanvasElement).not.toHaveBeenCalled();
+    });
+
+    it('renders elements on multiple layers into separate caches', () => {
+      Object.defineProperty(deps.canvasEl, 'clientWidth', { value: 800, configurable: true });
+      Object.defineProperty(deps.canvasEl, 'clientHeight', { value: 600, configurable: true });
+
+      vi.mocked(deps.layerCache.isDirty).mockReturnValue(true);
+      vi.mocked(deps.layerManager.isLayerVisible).mockReturnValue(true);
+
+      const el1 = {
+        id: 'el-1',
+        type: 'stroke',
+        layerId: 'default',
+        position: { x: 0, y: 0 },
+        points: [{ x: 0, y: 0, pressure: 1 }],
+      };
+      const el2 = {
+        id: 'el-2',
+        type: 'stroke',
+        layerId: 'layer-b',
+        position: { x: 10, y: 10 },
+        points: [{ x: 0, y: 0, pressure: 1 }],
+      };
+      vi.mocked(deps.store.getAll).mockReturnValue([el1, el2] as never);
+
+      renderLoop.requestRender();
+      renderLoop.flush();
+
+      expect(deps.layerCache.getContext).toHaveBeenCalledWith('default');
+      expect(deps.layerCache.getContext).toHaveBeenCalledWith('layer-b');
+    });
+  });
+
+  describe('render stats', () => {
+    it('getStats returns a snapshot', () => {
+      const stats = renderLoop.getStats();
+      expect(stats).toHaveProperty('fps');
+      expect(stats).toHaveProperty('avgFrameMs');
     });
   });
 });

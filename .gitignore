@@ -11,3 +11,7 @@ docs/superpowers/
 .superpowers/
 
 test_data/
+
+# Playwright
+packages/core/e2e/screenshots/
+test-results/

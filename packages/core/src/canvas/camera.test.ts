@@ -160,4 +160,32 @@ describe('Camera', () => {
     const transform = camera.toCSSTransform();
     expect(transform).toBe('translate3d(50px, -30px, 0) scale(1.5)');
   });
+
+  describe('edge cases', () => {
+    it('clamps zoom to maxZoom when given very large value', () => {
+      const camera = new Camera({ maxZoom: 5 });
+      camera.setZoom(1e10);
+      expect(camera.zoom).toBe(5);
+    });
+
+    it('clamps zoom to minZoom when given very small value', () => {
+      const camera = new Camera({ minZoom: 0.2 });
+      camera.setZoom(1e-10);
+      expect(camera.zoom).toBe(0.2);
+    });
+
+    it('handles pan with very large values without crashing', () => {
+      const camera = new Camera();
+      camera.pan(1e10, 1e10);
+      expect(camera.position).toEqual({ x: 1e10, y: 1e10 });
+      expect(Number.isFinite(camera.position.x)).toBe(true);
+      expect(Number.isFinite(camera.position.y)).toBe(true);
+    });
+
+    it('does not allow zoom below minZoom with negative value', () => {
+      const camera = new Camera({ minZoom: 0.1 });
+      camera.setZoom(-5);
+      expect(camera.zoom).toBe(0.1);
+    });
+  });
 });

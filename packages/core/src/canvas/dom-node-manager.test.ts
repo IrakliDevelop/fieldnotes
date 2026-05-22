@@ -271,6 +271,17 @@ describe('DomNodeManager', () => {
       expect(manager.getNode(note.id)).toBeUndefined();
       expect(domLayer.children.length).toBe(0);
     });
+
+    it('is a no-op for non-existent ID', () => {
+      expect(() => manager.removeDomNode('does-not-exist')).not.toThrow();
+      expect(domLayer.children.length).toBe(0);
+    });
+  });
+
+  describe('getNode', () => {
+    it('returns undefined for missing ID', () => {
+      expect(manager.getNode('missing-id')).toBeUndefined();
+    });
   });
 
   describe('clearDomNodes', () => {
@@ -327,6 +338,121 @@ describe('DomNodeManager', () => {
       manager.storeHtmlContent(el.id, content);
       manager.syncDomNode(el);
       expect(manager.getNode(el.id)?.contains(content)).toBe(true);
+    });
+  });
+
+  describe('renderDomContent — text edge cases', () => {
+    it('calls onEditRequest on text element dblclick', () => {
+      const text = createText({
+        position: { x: 0, y: 0 },
+        size: { w: 200, h: 50 },
+        text: 'Hello',
+        fontSize: 16,
+        color: '#000',
+        textAlign: 'left',
+      });
+      manager.syncDomNode(text);
+      const node = manager.getNode(text.id);
+      node?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+      expect(onEditRequest).toHaveBeenCalledWith(text.id);
+    });
+
+    it('skips text update when editing', () => {
+      const text = createText({
+        position: { x: 0, y: 0 },
+        size: { w: 200, h: 50 },
+        text: 'Original',
+        fontSize: 16,
+        color: '#000',
+        textAlign: 'left',
+      });
+      manager.syncDomNode(text);
+      isEditingElement.mockReturnValue(true);
+      manager.syncDomNode({ ...text, text: 'Changed' });
+      expect(manager.getNode(text.id)?.textContent).toBe('Original');
+    });
+
+    it('uses empty string when text is undefined', () => {
+      const text = createText({
+        position: { x: 0, y: 0 },
+        size: { w: 200, h: 50 },
+        text: '',
+        fontSize: 16,
+        color: '#000',
+        textAlign: 'left',
+      });
+      manager.syncDomNode(text);
+      expect(manager.getNode(text.id)?.textContent).toBe('');
+    });
+  });
+
+  describe('syncDomNode — element without size', () => {
+    it('sets width/height to auto for elements without size', () => {
+      const stroke = createStroke({
+        position: { x: 10, y: 20 },
+        points: [{ x: 0, y: 0, pressure: 0.5 }],
+      });
+      manager.syncDomNode(stroke);
+      const node = manager.getNode(stroke.id);
+      expect(node?.style.width).toBe('auto');
+      expect(node?.style.height).toBe('auto');
+    });
+  });
+
+  describe('renderDomContent — html without stored content', () => {
+    it('does not initialize html element when no content stored', () => {
+      const el = createHtmlElement({
+        position: { x: 0, y: 0 },
+        size: { w: 200, h: 100 },
+      });
+      manager.syncDomNode(el);
+      const node = manager.getNode(el.id);
+      expect(node?.dataset['initialized']).toBeUndefined();
+    });
+  });
+
+  describe('hideDomNode — non-existent', () => {
+    it('is a no-op for unknown ID', () => {
+      expect(() => manager.hideDomNode('does-not-exist')).not.toThrow();
+    });
+  });
+
+  describe('reattachHtmlContent — missing DOM element', () => {
+    it('skips html elements without domId', () => {
+      const store = new ElementStore();
+      const el = createHtmlElement({
+        position: { x: 0, y: 0 },
+        size: { w: 200, h: 100 },
+      });
+      store.add(el);
+      expect(() => manager.reattachHtmlContent(store)).not.toThrow();
+    });
+
+    it('skips when DOM element not found by id', () => {
+      const store = new ElementStore();
+      const el = createHtmlElement({
+        position: { x: 0, y: 0 },
+        size: { w: 200, h: 100 },
+        domId: 'does-not-exist-in-dom',
+      });
+      store.add(el);
+      expect(() => manager.reattachHtmlContent(store)).not.toThrow();
+    });
+  });
+
+  describe('renderDomContent — note text unchanged', () => {
+    it('does not update innerHTML when text has not changed', () => {
+      const note = createNote({
+        position: { x: 0, y: 0 },
+        size: { w: 200, h: 100 },
+        text: 'Same',
+      });
+      manager.syncDomNode(note);
+      const node = manager.getNode(note.id);
+      const spy = vi.spyOn(node as HTMLDivElement, 'innerHTML', 'set');
+
+      manager.syncDomNode({ ...note });
+      expect(spy).not.toHaveBeenCalled();
     });
   });
 });

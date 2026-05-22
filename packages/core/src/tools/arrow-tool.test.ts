@@ -95,6 +95,48 @@ describe('ArrowTool', () => {
     expect(arrows[0]?.to).toEqual({ x: 120, y: 96 });
   });
 
+  it('does not bind to elements on locked layers', () => {
+    const store = new ElementStore();
+    const note = createNote({
+      position: { x: 0, y: 0 },
+      size: { w: 100, h: 100 },
+      layerId: 'locked-layer',
+    });
+    store.add(note);
+
+    const tool = new ArrowTool();
+    const ctx = makeCtx({
+      store,
+      activeLayerId: 'drawing-layer',
+      isLayerLocked: (id: string) => id === 'locked-layer',
+      isLayerVisible: () => true,
+    });
+
+    tool.onPointerDown(pt(55, 55), ctx);
+    tool.onPointerMove(pt(300, 300), ctx);
+    tool.onPointerUp(pt(300, 300), ctx);
+
+    const arrows = store.getElementsByType('arrow');
+    expect(arrows).toHaveLength(1);
+    expect(arrows[0]?.fromBinding).toBeUndefined();
+  });
+
+  it('arrow with zero bend has control point at midpoint', () => {
+    const tool = new ArrowTool();
+    const ctx = makeCtx();
+
+    tool.onPointerDown(pt(0, 0), ctx);
+    tool.onPointerMove(pt(200, 100), ctx);
+    tool.onPointerUp(pt(200, 100), ctx);
+
+    const arrow = ctx.store.getAll()[0] as ArrowElement;
+    expect(arrow.bend).toBe(0);
+    expect(arrow.cachedControlPoint).toEqual({
+      x: (arrow.from.x + arrow.to.x) / 2,
+      y: (arrow.from.y + arrow.to.y) / 2,
+    });
+  });
+
   it('requests render during drag', () => {
     const tool = new ArrowTool();
     const ctx = makeCtx();
