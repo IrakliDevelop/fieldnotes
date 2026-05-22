@@ -16,7 +16,8 @@ export default defineConfig({
     },
     {
       name: 'ipad',
-      use: { ...devices['iPad Pro 11'] },
+      // Keep iPad viewport/touch emulation while using Chromium so CDP-based touch helpers work.
+      use: { ...devices['iPad Pro 11'], browserName: 'chromium' },
     },
   ],
   webServer: {

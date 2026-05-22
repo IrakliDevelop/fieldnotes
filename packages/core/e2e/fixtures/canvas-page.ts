@@ -15,7 +15,9 @@ export class CanvasPage {
   }
 
   async selectTool(name: string) {
-    await this.page.click(`#toolbar button[data-tool="${name}"]`);
+    const button = this.page.locator(`#toolbar button[data-tool="${name}"]`);
+    await button.scrollIntoViewIfNeeded();
+    await button.click();
   }
 
   async getElementCount(): Promise<number> {
