@@ -256,4 +256,83 @@ describe('LayerManager', () => {
       expect(manager2.getLayers().map((l) => l.name)).toEqual(['Layer 1', 'Top']);
     });
   });
+
+  describe('setActiveLayer', () => {
+    it('ignores non-existent layer id', () => {
+      const { manager } = setup();
+      const before = manager.activeLayerId;
+      manager.setActiveLayer('nonexistent');
+      expect(manager.activeLayerId).toBe(before);
+    });
+  });
+
+  describe('moveElementToLayer', () => {
+    it('ignores non-existent layer', () => {
+      const { store, manager } = setup();
+      store.add(makeNote({ layerId: manager.activeLayerId }));
+      const changeSpy = vi.fn();
+      manager.on('change', changeSpy);
+      manager.moveElementToLayer('el-1', 'nonexistent');
+      expect(changeSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('reorderLayer', () => {
+    it('ignores non-existent layer id', () => {
+      const { manager } = setup();
+      const changeSpy = vi.fn();
+      manager.on('change', changeSpy);
+      manager.reorderLayer('nonexistent', 5);
+      expect(changeSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('isLayerVisible/isLayerLocked for unknown id', () => {
+    it('returns true for unknown layer visibility', () => {
+      const { manager } = setup();
+      expect(manager.isLayerVisible('unknown-id')).toBe(true);
+    });
+
+    it('returns false for unknown layer lock state', () => {
+      const { manager } = setup();
+      expect(manager.isLayerLocked('unknown-id')).toBe(false);
+    });
+  });
+
+  describe('getLayer', () => {
+    it('returns undefined for non-existent layer', () => {
+      const { manager } = setup();
+      expect(manager.getLayer('nonexistent')).toBeUndefined();
+    });
+  });
+
+  describe('removeLayer — fallback layer selection', () => {
+    it('uses fallback when active layer is removed', () => {
+      const { manager } = setup();
+      const layer2 = manager.createLayer('Layer 2');
+      manager.setActiveLayer(layer2.id);
+      manager.removeLayer(layer2.id);
+      expect(manager.getLayers()).toHaveLength(1);
+    });
+  });
+
+  describe('setLayerLocked — switches active on lock', () => {
+    it('switches active layer when locking the current active', () => {
+      const { manager } = setup();
+      const layer2 = manager.createLayer();
+      const firstId = manager.getLayers()[0]?.id;
+      if (!firstId) throw new Error('Expected a layer');
+      manager.setActiveLayer(firstId);
+      const result = manager.setLayerLocked(firstId, true);
+      expect(result).toBe(true);
+      expect(manager.activeLayerId).toBe(layer2.id);
+    });
+  });
+
+  describe('updateLayerDirect — non-existent layer', () => {
+    it('ignores updates to non-existent layers', () => {
+      const { manager } = setup();
+      expect(() => manager.updateLayerDirect('nonexistent', { name: 'test' })).not.toThrow();
+    });
+  });
 });

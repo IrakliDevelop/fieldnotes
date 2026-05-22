@@ -190,4 +190,58 @@ describe('Background', () => {
 
     expect(ctx.arc).toHaveBeenCalled();
   });
+
+  it('re-renders when canvas size changes', () => {
+    const bg = new Background();
+    const ctx1 = mockCtx();
+    (ctx1 as unknown as Record<string, unknown>).drawImage = vi.fn();
+    bg.render(ctx1, mockCamera());
+
+    const ctx2 = {
+      ...mockCtx(),
+      canvas: { width: 1200, height: 900 },
+    } as unknown as CanvasRenderingContext2D;
+    (ctx2 as unknown as Record<string, unknown>).drawImage = vi.fn();
+    bg.render(ctx2, mockCamera());
+    expect(ctx2.fill).toHaveBeenCalled();
+  });
+
+  it('uses fallback or cache on repeat render with same params', () => {
+    const bg = new Background();
+    const ctx = mockCtx();
+    (ctx as unknown as Record<string, unknown>).drawImage = vi.fn();
+    const camera = mockCamera();
+
+    bg.render(ctx, camera);
+    (ctx.arc as ReturnType<typeof vi.fn>).mockClear();
+
+    bg.render(ctx, camera);
+
+    const drawImageMock = (ctx as unknown as Record<string, ReturnType<typeof vi.fn>>)['drawImage'];
+    const usedCache = drawImageMock.mock.calls.length > 0;
+    const usedFallback = (ctx.arc as ReturnType<typeof vi.fn>).mock.calls.length > 0;
+    expect(usedCache || usedFallback).toBe(true);
+  });
+
+  it('grid pattern re-renders when position changes offset', () => {
+    const bg = new Background({ pattern: 'grid' });
+    const ctx = mockCtx();
+    (ctx as unknown as Record<string, unknown>).drawImage = vi.fn();
+    const camera1 = mockCamera({ position: { x: 0, y: 0 } });
+    bg.render(ctx, camera1);
+    (ctx.fillRect as ReturnType<typeof vi.fn>).mockClear();
+
+    const camera2 = mockCamera({ position: { x: 25, y: 25 } });
+    bg.render(ctx, camera2);
+    expect(ctx.fillRect).toHaveBeenCalled();
+  });
+
+  it('adapts spacing multiple times for very low zoom', () => {
+    const bg = new Background({ spacing: 24 });
+    const ctx = mockCtx();
+    (ctx as unknown as Record<string, unknown>).drawImage = vi.fn();
+    const camera = mockCamera({ zoom: 0.1 });
+    bg.render(ctx, camera);
+    expect(ctx.arc).toHaveBeenCalled();
+  });
 });
