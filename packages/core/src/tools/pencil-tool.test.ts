@@ -220,6 +220,38 @@ describe('PencilTool', () => {
     });
   });
 
+  it('succeeds with many intermediate points (20+)', () => {
+    const tool = new PencilTool({ minPointDistance: 0 });
+    const ctx = makeCtx();
+
+    tool.onPointerDown(pt(0, 0), ctx);
+    for (let i = 1; i <= 25; i++) {
+      tool.onPointerMove(pt(i * 10, i * 5), ctx);
+    }
+    tool.onPointerUp(pt(250, 125), ctx);
+
+    expect(ctx.store.count).toBe(1);
+    const stroke = ctx.store.getAll()[0] as StrokeElement;
+    expect(stroke.type).toBe('stroke');
+    expect(stroke.points.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('stores distinct pressure values on stroke points', () => {
+    const tool = new PencilTool({ minPointDistance: 0 });
+    const ctx = makeCtx();
+
+    tool.onPointerDown(pt(0, 0, 0.2), ctx);
+    tool.onPointerMove(pt(10, 10, 0.4), ctx);
+    tool.onPointerMove(pt(20, 20, 0.6), ctx);
+    tool.onPointerMove(pt(30, 30, 0.8), ctx);
+    tool.onPointerUp(pt(40, 40, 1.0), ctx);
+
+    const stroke = ctx.store.getAll()[0] as StrokeElement;
+    const pressures = stroke.points.map((p) => p.pressure);
+    const uniquePressures = new Set(pressures);
+    expect(uniquePressures.size).toBeGreaterThan(1);
+  });
+
   describe('onOptionsChange', () => {
     it('fires listener when setOptions is called', () => {
       const tool = new PencilTool();

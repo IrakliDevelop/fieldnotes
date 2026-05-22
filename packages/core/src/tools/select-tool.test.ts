@@ -292,6 +292,17 @@ describe('SelectTool', () => {
       expect(tool.selectedIds).toEqual([note.id]);
     });
 
+    it('marquee on empty canvas results in empty selection', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+
+      tool.onPointerDown(pt(0, 0), ctx);
+      tool.onPointerMove(pt(500, 500), ctx);
+      tool.onPointerUp(pt(500, 500), ctx);
+
+      expect(tool.selectedIds).toEqual([]);
+    });
+
     it('requests render during marquee drag', () => {
       const tool = new SelectTool();
       const ctx = makeCtx();

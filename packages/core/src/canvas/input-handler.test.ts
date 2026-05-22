@@ -184,6 +184,22 @@ describe('InputHandler', () => {
       expect(camera.position.x).not.toBe(0);
     });
 
+    it('three simultaneous pointers do not crash', () => {
+      pointerDown(element, { pointerId: 1, clientX: 50, clientY: 50 });
+      pointerDown(element, { pointerId: 2, clientX: 150, clientY: 150 });
+      pointerDown(element, { pointerId: 3, clientX: 250, clientY: 250 });
+
+      pointerMove(element, { pointerId: 1, clientX: 60, clientY: 60 });
+      pointerMove(element, { pointerId: 2, clientX: 160, clientY: 160 });
+      pointerMove(element, { pointerId: 3, clientX: 260, clientY: 260 });
+
+      pointerUp(element, { pointerId: 3 });
+      pointerUp(element, { pointerId: 2 });
+      pointerUp(element, { pointerId: 1 });
+
+      expect(camera.zoom).toBeDefined();
+    });
+
     it('cancels tool when second finger is added', () => {
       const tm = stubToolManager();
       const tc = stubToolContext();

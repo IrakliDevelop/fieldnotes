@@ -132,6 +132,18 @@ describe('EraserTool', () => {
     expect(store.count).toBe(1);
   });
 
+  it('erasing with no strokes in store is a no-op', () => {
+    const ctx = makeCtx();
+    expect(ctx.store.count).toBe(0);
+
+    const tool = new EraserTool();
+    tool.onPointerDown(pt(10, 10), ctx);
+    tool.onPointerMove(pt(20, 20), ctx);
+    tool.onPointerUp(pt(20, 20), ctx);
+
+    expect(ctx.store.count).toBe(0);
+  });
+
   it('accepts custom eraser radius', () => {
     const ctx = makeCtx();
     ctx.store.add(
