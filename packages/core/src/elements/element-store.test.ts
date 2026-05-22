@@ -364,4 +364,41 @@ describe('ElementStore', () => {
       expect(store.getById('old')).toBeUndefined();
     });
   });
+
+  describe('edge cases', () => {
+    it('update on non-existent ID is a no-op and does not emit event', () => {
+      const store = new ElementStore();
+      const listener = vi.fn();
+      store.on('update', listener);
+
+      store.update('nonexistent', { text: 'Hello' } as Partial<CanvasElement>);
+
+      expect(listener).not.toHaveBeenCalled();
+      expect(store.count).toBe(0);
+    });
+
+    it('remove on non-existent ID is a no-op and does not emit event', () => {
+      const store = new ElementStore();
+      const listener = vi.fn();
+      store.on('remove', listener);
+
+      store.remove('nonexistent');
+
+      expect(listener).not.toHaveBeenCalled();
+      expect(store.count).toBe(0);
+    });
+
+    it('getById returns undefined for missing ID', () => {
+      const store = new ElementStore();
+      store.add(makeNote({ id: 'exists' }));
+      expect(store.getById('missing')).toBeUndefined();
+    });
+
+    it('queryPoint returns empty array for point with no elements', () => {
+      const store = new ElementStore();
+      store.add(makeNote({ id: 'n1', position: { x: 0, y: 0 }, size: { w: 50, h: 50 } }));
+      const results = store.queryPoint({ x: 9999, y: 9999 });
+      expect(results).toEqual([]);
+    });
+  });
 });
