@@ -264,6 +264,7 @@ export class InputHandler {
       y: e.clientY - rect.top,
       pressure: e.pressure,
       pointerType: e.pointerType === 'touch' || e.pointerType === 'pen' ? e.pointerType : 'mouse',
+      shiftKey: e.shiftKey,
     };
   }
 
