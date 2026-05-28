@@ -27,6 +27,7 @@ export class InputHandler {
   private historyRecorder: HistoryRecorder | null;
   private historyStack: HistoryStack | null;
   private isToolActive = false;
+  private lastPointerEvent: PointerEvent | null = null;
   private readonly abortController = new AbortController();
 
   constructor(
@@ -98,6 +99,8 @@ export class InputHandler {
   };
 
   private onPointerMove = (e: PointerEvent): void => {
+    this.lastPointerEvent = e;
+
     if (this.activePointers.has(e.pointerId)) {
       this.activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     }
@@ -166,6 +169,13 @@ export class InputHandler {
   private onKeyUp = (e: KeyboardEvent): void => {
     if (e.key === ' ') {
       this.spaceHeld = false;
+      if (this.activePointers.size === 0) {
+        if (this.lastPointerEvent) {
+          this.dispatchToolHover(this.lastPointerEvent);
+        } else {
+          this.toolContext?.setCursor?.('default');
+        }
+      }
     }
   };
 

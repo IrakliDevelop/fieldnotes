@@ -497,4 +497,36 @@ describe('InputHandler', () => {
       expect(camera.zoom).toBe(1);
     });
   });
+
+  describe('cursor restore on space release', () => {
+    it('dispatches tool hover after space release to restore cursor', () => {
+      const onHover = vi.fn();
+      const tm = {
+        ...stubToolManager(),
+        activeTool: { onHover },
+      } as unknown as ToolManager;
+      const tc = stubToolContext();
+      handler.setToolManager(tm, tc);
+
+      pointerMove(element, { clientX: 100, clientY: 100 });
+      expect(onHover).toHaveBeenCalledTimes(1);
+
+      keyDown(' ');
+      keyUp(' ');
+
+      expect(onHover).toHaveBeenCalledTimes(2);
+    });
+
+    it('resets cursor to default on space release when no prior move event', () => {
+      const setCursor = vi.fn();
+      const tm = stubToolManager();
+      const tc = { ...stubToolContext(), setCursor } as unknown as ToolContext;
+      handler.setToolManager(tm, tc);
+
+      keyDown(' ');
+      keyUp(' ');
+
+      expect(setCursor).toHaveBeenCalledWith('default');
+    });
+  });
 });
