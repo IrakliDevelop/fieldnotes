@@ -4,6 +4,7 @@ import type { ToolContext, PointerState } from '../tools/types';
 import type { SelectTool } from '../tools/select-tool';
 import type { HistoryRecorder } from '../history/history-recorder';
 import type { HistoryStack } from '../history/history-stack';
+import { InputFilter } from './input-filter';
 
 const ZOOM_SENSITIVITY = 0.001;
 const MIDDLE_BUTTON = 1;
@@ -28,6 +29,8 @@ export class InputHandler {
   private historyStack: HistoryStack | null;
   private isToolActive = false;
   private lastPointerEvent: PointerEvent | null = null;
+  private readonly inputFilter = new InputFilter();
+  private deferredDown: PointerEvent | null = null;
   private readonly abortController = new AbortController();
 
   constructor(
@@ -50,6 +53,8 @@ export class InputHandler {
 
   destroy(): void {
     this.abortController.abort();
+    this.inputFilter.reset();
+    this.deferredDown = null;
     this.lastPointerEvent = null;
   }
 
@@ -98,6 +103,12 @@ export class InputHandler {
       this.activePointers.size === 1 &&
       (e.button === 0 || e.pointerType === 'touch' || e.pointerType === 'pen')
     ) {
+      const result = this.inputFilter.filterDown(e);
+      if (result.action === 'suppress') return;
+      if (result.action === 'defer') {
+        this.deferredDown = e;
+        return;
+      }
       this.dispatchToolDown(e);
     }
   };
@@ -124,6 +135,13 @@ export class InputHandler {
 
     if (this.isToolActive) {
       this.dispatchToolMove(e);
+    } else if (this.deferredDown) {
+      const result = this.inputFilter.filterMove(e);
+      if (result.action === 'dispatch') {
+        this.dispatchToolDown(this.deferredDown);
+        this.deferredDown = null;
+        this.dispatchToolMove(e);
+      }
     } else if (this.activePointers.size === 0) {
       this.dispatchToolHover(e);
     }
@@ -145,9 +163,17 @@ export class InputHandler {
       this.isPanning = false;
     }
 
+    const upResult = this.inputFilter.filterUp(e);
+
     if (this.isToolActive) {
       this.dispatchToolUp(e);
       this.isToolActive = false;
+    } else if (this.deferredDown && upResult.pendingTap) {
+      this.dispatchToolDown(this.deferredDown);
+      this.dispatchToolUp(e);
+      this.deferredDown = null;
+    } else {
+      this.deferredDown = null;
     }
   };
 
@@ -184,6 +210,8 @@ export class InputHandler {
   };
 
   private startPinch(): void {
+    this.inputFilter.reset();
+    this.deferredDown = null;
     this.isPanning = true;
     const [a, b] = this.getPinchPoints();
     this.lastPinchDistance = this.distance(a, b);
@@ -235,6 +263,7 @@ export class InputHandler {
       x: e.clientX - rect.left,
       y: e.clientY - rect.top,
       pressure: e.pressure,
+      pointerType: e.pointerType === 'touch' || e.pointerType === 'pen' ? e.pointerType : 'mouse',
     };
   }
 
@@ -300,5 +329,6 @@ export class InputHandler {
       this.dispatchToolUp(e);
       this.isToolActive = false;
     }
+    this.deferredDown = null;
   }
 }

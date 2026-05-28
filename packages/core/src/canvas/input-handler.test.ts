@@ -226,8 +226,8 @@ describe('InputHandler', () => {
         clientX: 50,
         clientY: 50,
       });
+      pointerUp(element, { pointerId: 1, pointerType: 'touch' });
       expect(tm.handlePointerDown).toHaveBeenCalledOnce();
-      pointerUp(element, { pointerId: 1 });
     });
 
     it('dispatches tool for pen events even when button is not 0', () => {
@@ -511,6 +511,212 @@ describe('InputHandler', () => {
       handler.destroy();
       wheel(element, { deltaY: -100, clientX: 0, clientY: 0 });
       expect(camera.zoom).toBe(1);
+    });
+  });
+
+  describe('pointerType forwarding', () => {
+    it('includes pointerType in PointerState passed to tools', () => {
+      const tm = stubToolManager();
+      const tc = stubToolContext();
+      handler.setToolManager(tm, tc);
+
+      pointerDown(element, { button: 0, clientX: 50, clientY: 50, pointerType: 'pen' });
+      expect(tm.handlePointerDown).toHaveBeenCalledWith(
+        expect.objectContaining({ pointerType: 'pen' }),
+        tc,
+      );
+      pointerUp(element, { pointerType: 'pen' });
+    });
+
+    it('defaults pointerType to mouse for standard clicks', () => {
+      const tm = stubToolManager();
+      const tc = stubToolContext();
+      handler.setToolManager(tm, tc);
+
+      pointerDown(element, { button: 0, clientX: 50, clientY: 50 });
+      expect(tm.handlePointerDown).toHaveBeenCalledWith(
+        expect.objectContaining({ pointerType: 'mouse' }),
+        tc,
+      );
+      pointerUp(element);
+    });
+  });
+
+  describe('input filtering', () => {
+    it('dispatches pen pointerdown to tool immediately', () => {
+      const tm = stubToolManager();
+      const tc = stubToolContext();
+      handler.setToolManager(tm, tc);
+
+      pointerDown(element, {
+        pointerId: 10,
+        button: 0,
+        pointerType: 'pen',
+        clientX: 50,
+        clientY: 50,
+      });
+      expect(tm.handlePointerDown).toHaveBeenCalledOnce();
+      pointerUp(element, { pointerId: 10, pointerType: 'pen' });
+    });
+
+    it('dispatches mouse pointerdown to tool immediately', () => {
+      const tm = stubToolManager();
+      const tc = stubToolContext();
+      handler.setToolManager(tm, tc);
+
+      pointerDown(element, { button: 0, clientX: 50, clientY: 50, pointerType: 'mouse' });
+      expect(tm.handlePointerDown).toHaveBeenCalledOnce();
+      pointerUp(element, { pointerType: 'mouse' });
+    });
+
+    it('does NOT dispatch touch pointerdown to tool (deferred)', () => {
+      const tm = stubToolManager();
+      const tc = stubToolContext();
+      handler.setToolManager(tm, tc);
+
+      pointerDown(element, {
+        pointerId: 5,
+        button: 0,
+        pointerType: 'touch',
+        clientX: 50,
+        clientY: 50,
+      });
+      expect(tm.handlePointerDown).not.toHaveBeenCalled();
+      pointerUp(element, { pointerId: 5, pointerType: 'touch' });
+    });
+
+    it('dispatches deferred touch as drag when move exceeds threshold', () => {
+      const tm = stubToolManager();
+      const tc = stubToolContext();
+      handler.setToolManager(tm, tc);
+
+      pointerDown(element, {
+        pointerId: 5,
+        button: 0,
+        pointerType: 'touch',
+        clientX: 50,
+        clientY: 50,
+      });
+      expect(tm.handlePointerDown).not.toHaveBeenCalled();
+
+      pointerMove(element, {
+        pointerId: 5,
+        pointerType: 'touch',
+        clientX: 60,
+        clientY: 60,
+      });
+      expect(tm.handlePointerDown).toHaveBeenCalledOnce();
+      expect(tm.handlePointerMove).toHaveBeenCalledOnce();
+
+      pointerUp(element, { pointerId: 5, pointerType: 'touch' });
+      expect(tm.handlePointerUp).toHaveBeenCalledOnce();
+    });
+
+    it('dispatches confirmed tap on touch up while deferred', () => {
+      const tm = stubToolManager();
+      const tc = stubToolContext();
+      handler.setToolManager(tm, tc);
+
+      pointerDown(element, {
+        pointerId: 5,
+        button: 0,
+        pointerType: 'touch',
+        clientX: 50,
+        clientY: 50,
+      });
+      pointerUp(element, {
+        pointerId: 5,
+        pointerType: 'touch',
+        clientX: 50,
+        clientY: 50,
+      });
+
+      expect(tm.handlePointerDown).toHaveBeenCalledOnce();
+      expect(tm.handlePointerUp).toHaveBeenCalledOnce();
+    });
+
+    it('suppresses touch events while pen is active', () => {
+      const tm = stubToolManager();
+      const tc = stubToolContext();
+      handler.setToolManager(tm, tc);
+
+      pointerDown(element, {
+        pointerId: 10,
+        button: 0,
+        pointerType: 'pen',
+        clientX: 50,
+        clientY: 50,
+      });
+      expect(tm.handlePointerDown).toHaveBeenCalledOnce();
+
+      pointerDown(element, {
+        pointerId: 20,
+        button: 0,
+        pointerType: 'touch',
+        clientX: 100,
+        clientY: 100,
+      });
+      expect(tm.handlePointerDown).toHaveBeenCalledOnce();
+
+      pointerUp(element, { pointerId: 20, pointerType: 'touch' });
+      pointerUp(element, { pointerId: 10, pointerType: 'pen' });
+    });
+
+    it('clears deferred state on pinch', () => {
+      const tm = stubToolManager();
+      const tc = stubToolContext();
+      handler.setToolManager(tm, tc);
+
+      pointerDown(element, {
+        pointerId: 1,
+        button: 0,
+        pointerType: 'touch',
+        clientX: 50,
+        clientY: 50,
+      });
+      expect(tm.handlePointerDown).not.toHaveBeenCalled();
+
+      pointerDown(element, {
+        pointerId: 2,
+        button: 0,
+        pointerType: 'touch',
+        clientX: 150,
+        clientY: 150,
+      });
+
+      pointerUp(element, { pointerId: 2, pointerType: 'touch' });
+      pointerUp(element, { pointerId: 1, pointerType: 'touch' });
+
+      expect(tm.handlePointerDown).not.toHaveBeenCalled();
+    });
+
+    it('wraps confirmed tap in history begin/commit', () => {
+      const tm = stubToolManager();
+      const tc = stubToolContext();
+      const hr = { begin: vi.fn(), commit: vi.fn() } as unknown as HistoryRecorder;
+
+      handler = new InputHandler(element, camera, {
+        toolManager: tm,
+        toolContext: tc,
+        historyRecorder: hr,
+      });
+
+      pointerDown(element, {
+        pointerId: 5,
+        button: 0,
+        pointerType: 'touch',
+        clientX: 50,
+        clientY: 50,
+      });
+      pointerUp(element, {
+        pointerId: 5,
+        pointerType: 'touch',
+        clientX: 50,
+        clientY: 50,
+      });
+
+      expect(hr.begin).toHaveBeenCalledOnce();
+      expect(hr.commit).toHaveBeenCalledOnce();
     });
   });
 

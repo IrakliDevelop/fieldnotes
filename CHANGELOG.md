@@ -6,6 +6,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ---
 
+## [0.11.2] — 2026-05-28
+
+### Added
+
+- **`InputFilter` middleware** — new class sits between raw PointerEvents and tool dispatch, classifying events as `dispatch`, `suppress`, or `defer`
+- **Palm rejection** — when a pen (Apple Pencil, Surface Pen) is active, all touch events are suppressed. Clears automatically on pen lift
+- **Touch debounce** — touch `pointerdown` is deferred until the pointer moves beyond a 3px threshold (drag) or `pointerup` fires (confirmed tap). Prevents accidental element creation from palm contact
+- **`pointerType` in `PointerState`** — tools now receive `'mouse' | 'touch' | 'pen'` via the `pointerType` field, enabling input-type-aware behavior
+- **Exported** `InputFilter`, `FilteredEvent`, `FilteredUpEvent`, `FilterAction` from `@fieldnotes/core`
+
+---
+
+## [0.11.1] — 2026-05-28
+
+### Fixed
+
+- **`releasePointerCapture` on pointer up** — wrapped in try/catch to prevent `InvalidStateError` when `pointercancel` fires first
+- **Touch/pen button validation** — tool dispatch now accepts `pointerType === 'touch'` and `pointerType === 'pen'` regardless of `e.button` value (Apple Pencil and touch report non-zero button)
+- **`overscroll-behavior: none`** on viewport wrapper — prevents browser pull-to-refresh and elastic scroll on touch devices
+- **`-webkit-user-select: none`** on viewport wrapper — prevents text selection on iOS Safari during canvas interactions
+- **Cached arrow geometry stripped from exports** — `exportState()` now removes `cachedControlPoint` from serialized arrow elements
+- **Cursor restore on space release** — dispatches tool hover or resets cursor to `default` when spacebar is released
+
+---
+
 ## [0.11.0] — 2026-05-03
 
 ### Added
