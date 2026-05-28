@@ -23,6 +23,7 @@ export interface PointerState {
   y: number;
   pressure: number;
   pointerType: 'mouse' | 'touch' | 'pen';
+  shiftKey: boolean;
 }
 
 export interface Tool {

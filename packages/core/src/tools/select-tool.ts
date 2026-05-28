@@ -43,9 +43,16 @@ export class SelectTool implements Tool {
   private lastWorld: Point = { x: 0, y: 0 };
   private currentWorld: Point = { x: 0, y: 0 };
   private ctx: ToolContext | null = null;
+  private pendingSingleSelectId: string | null = null;
+  private hasDragged = false;
 
   get selectedIds(): string[] {
     return [...this._selectedIds];
+  }
+
+  setSelection(ids: string[]): void {
+    this._selectedIds = ids;
+    this.ctx?.requestRender();
   }
 
   get isMarqueeActive(): boolean {
@@ -104,13 +111,27 @@ export class SelectTool implements Tool {
       }
     }
 
+    this.pendingSingleSelectId = null;
+    this.hasDragged = false;
     const hit = this.hitTest(world, ctx);
     if (hit) {
       const alreadySelected = this._selectedIds.includes(hit.id);
-      if (!alreadySelected) {
-        this._selectedIds = [hit.id];
+      if (state.shiftKey) {
+        if (alreadySelected) {
+          this._selectedIds = this._selectedIds.filter((id) => id !== hit.id);
+          this.mode = { type: 'idle' };
+        } else {
+          this._selectedIds = [...this._selectedIds, hit.id];
+          this.mode = hit.locked ? { type: 'idle' } : { type: 'dragging' };
+        }
+      } else {
+        if (!alreadySelected) {
+          this._selectedIds = [hit.id];
+        } else if (this._selectedIds.length > 1) {
+          this.pendingSingleSelectId = hit.id;
+        }
+        this.mode = hit.locked ? { type: 'idle' } : { type: 'dragging' };
       }
-      this.mode = hit.locked ? { type: 'idle' } : { type: 'dragging' };
     } else {
       this._selectedIds = [];
       this.mode = { type: 'marquee', start: world };
@@ -142,6 +163,7 @@ export class SelectTool implements Tool {
     }
 
     if (this.mode.type === 'dragging' && this._selectedIds.length > 0) {
+      this.hasDragged = true;
       ctx.setCursor?.('move');
       const snapped = this.snap(world, ctx);
       const dx = snapped.x - this.lastWorld.x;
@@ -220,6 +242,12 @@ export class SelectTool implements Tool {
       }
       ctx.requestRender();
     }
+
+    if (!this.hasDragged && this.pendingSingleSelectId !== null) {
+      this._selectedIds = [this.pendingSingleSelectId];
+    }
+    this.pendingSingleSelectId = null;
+    this.hasDragged = false;
 
     this.mode = { type: 'idle' };
     ctx.setCursor?.('default');

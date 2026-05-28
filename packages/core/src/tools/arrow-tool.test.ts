@@ -17,7 +17,7 @@ function makeCtx(overrides: Partial<ToolContext> = {}): ToolContext {
 }
 
 function pt(x: number, y: number): PointerState {
-  return { x, y, pressure: 0.5, pointerType: 'mouse' };
+  return { x, y, pressure: 0.5, pointerType: 'mouse', shiftKey: false };
 }
 
 describe('ArrowTool', () => {
@@ -236,9 +236,12 @@ describe('ArrowTool binding', () => {
     const tool = new ArrowTool();
     const ctx = makeBindCtx(store);
 
-    tool.onPointerDown({ x: 55, y: 55, pressure: 0.5, pointerType: 'mouse' }, ctx);
-    tool.onPointerMove({ x: 300, y: 300, pressure: 0.5, pointerType: 'mouse' }, ctx);
-    tool.onPointerUp({ x: 300, y: 300, pressure: 0.5, pointerType: 'mouse' }, ctx);
+    tool.onPointerDown({ x: 55, y: 55, pressure: 0.5, pointerType: 'mouse', shiftKey: false }, ctx);
+    tool.onPointerMove(
+      { x: 300, y: 300, pressure: 0.5, pointerType: 'mouse', shiftKey: false },
+      ctx,
+    );
+    tool.onPointerUp({ x: 300, y: 300, pressure: 0.5, pointerType: 'mouse', shiftKey: false }, ctx);
 
     const arrows = store.getElementsByType('arrow');
     expect(arrows).toHaveLength(1);
@@ -254,9 +257,12 @@ describe('ArrowTool binding', () => {
     const tool = new ArrowTool();
     const ctx = makeBindCtx(store);
 
-    tool.onPointerDown({ x: 0, y: 0, pressure: 0.5, pointerType: 'mouse' }, ctx);
-    tool.onPointerMove({ x: 255, y: 255, pressure: 0.5, pointerType: 'mouse' }, ctx);
-    tool.onPointerUp({ x: 255, y: 255, pressure: 0.5, pointerType: 'mouse' }, ctx);
+    tool.onPointerDown({ x: 0, y: 0, pressure: 0.5, pointerType: 'mouse', shiftKey: false }, ctx);
+    tool.onPointerMove(
+      { x: 255, y: 255, pressure: 0.5, pointerType: 'mouse', shiftKey: false },
+      ctx,
+    );
+    tool.onPointerUp({ x: 255, y: 255, pressure: 0.5, pointerType: 'mouse', shiftKey: false }, ctx);
 
     const arrows = store.getElementsByType('arrow');
     expect(arrows).toHaveLength(1);
@@ -272,9 +278,12 @@ describe('ArrowTool binding', () => {
     const tool = new ArrowTool();
     const ctx = makeBindCtx(store);
 
-    tool.onPointerDown({ x: 50, y: 50, pressure: 0.5, pointerType: 'mouse' }, ctx);
-    tool.onPointerMove({ x: 150, y: 150, pressure: 0.5, pointerType: 'mouse' }, ctx);
-    tool.onPointerUp({ x: 150, y: 150, pressure: 0.5, pointerType: 'mouse' }, ctx);
+    tool.onPointerDown({ x: 50, y: 50, pressure: 0.5, pointerType: 'mouse', shiftKey: false }, ctx);
+    tool.onPointerMove(
+      { x: 150, y: 150, pressure: 0.5, pointerType: 'mouse', shiftKey: false },
+      ctx,
+    );
+    tool.onPointerUp({ x: 150, y: 150, pressure: 0.5, pointerType: 'mouse', shiftKey: false }, ctx);
 
     const arrows = store.getElementsByType('arrow');
     expect(arrows).toHaveLength(1);

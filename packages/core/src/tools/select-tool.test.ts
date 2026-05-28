@@ -23,7 +23,11 @@ function makeCtx(overrides: Partial<ToolContext> = {}): ToolContext {
 }
 
 function pt(x: number, y: number): PointerState {
-  return { x, y, pressure: 0.5, pointerType: 'mouse' };
+  return { x, y, pressure: 0.5, pointerType: 'mouse', shiftKey: false };
+}
+
+function shiftPt(x: number, y: number): PointerState {
+  return { x, y, pressure: 0.5, pointerType: 'mouse', shiftKey: true };
 }
 
 describe('SelectTool', () => {
@@ -1068,6 +1072,95 @@ describe('SelectTool', () => {
     });
   });
 
+  describe('Shift+click multi-select', () => {
+    it('adds element to selection with Shift+click', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const note1 = createNote({ position: { x: 100, y: 100 }, size: { w: 200, h: 100 } });
+      const note2 = createNote({ position: { x: 400, y: 100 }, size: { w: 200, h: 100 } });
+      ctx.store.add(note1);
+      ctx.store.add(note2);
+
+      tool.onPointerDown(pt(150, 130), ctx);
+      tool.onPointerUp(pt(150, 130), ctx);
+      expect(tool.selectedIds).toEqual([note1.id]);
+
+      tool.onPointerDown(shiftPt(450, 130), ctx);
+      tool.onPointerUp(shiftPt(450, 130), ctx);
+      expect(tool.selectedIds).toContain(note1.id);
+      expect(tool.selectedIds).toContain(note2.id);
+      expect(tool.selectedIds).toHaveLength(2);
+    });
+
+    it('removes element from selection with Shift+click', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const note1 = createNote({ position: { x: 100, y: 100 }, size: { w: 200, h: 100 } });
+      const note2 = createNote({ position: { x: 400, y: 100 }, size: { w: 200, h: 100 } });
+      ctx.store.add(note1);
+      ctx.store.add(note2);
+
+      tool.onPointerDown(pt(150, 130), ctx);
+      tool.onPointerUp(pt(150, 130), ctx);
+      tool.onPointerDown(shiftPt(450, 130), ctx);
+      tool.onPointerUp(shiftPt(450, 130), ctx);
+      expect(tool.selectedIds).toHaveLength(2);
+
+      tool.onPointerDown(shiftPt(150, 130), ctx);
+      tool.onPointerUp(shiftPt(150, 130), ctx);
+      expect(tool.selectedIds).toEqual([note2.id]);
+    });
+
+    it('removes the only selected element with Shift+click', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const note = createNote({ position: { x: 100, y: 100 }, size: { w: 200, h: 100 } });
+      ctx.store.add(note);
+
+      tool.onPointerDown(pt(150, 130), ctx);
+      tool.onPointerUp(pt(150, 130), ctx);
+      expect(tool.selectedIds).toEqual([note.id]);
+
+      tool.onPointerDown(shiftPt(150, 130), ctx);
+      tool.onPointerUp(shiftPt(150, 130), ctx);
+      expect(tool.selectedIds).toHaveLength(0);
+    });
+
+    it('clears selection when Shift+clicking empty area', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const note = createNote({ position: { x: 100, y: 100 }, size: { w: 200, h: 100 } });
+      ctx.store.add(note);
+
+      tool.onPointerDown(pt(150, 130), ctx);
+      tool.onPointerUp(pt(150, 130), ctx);
+      expect(tool.selectedIds).toHaveLength(1);
+
+      tool.onPointerDown(shiftPt(0, 0), ctx);
+      tool.onPointerUp(shiftPt(0, 0), ctx);
+      expect(tool.selectedIds).toHaveLength(0);
+    });
+
+    it('non-shift click replaces multi-selection', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const note1 = createNote({ position: { x: 100, y: 100 }, size: { w: 200, h: 100 } });
+      const note2 = createNote({ position: { x: 400, y: 100 }, size: { w: 200, h: 100 } });
+      ctx.store.add(note1);
+      ctx.store.add(note2);
+
+      tool.onPointerDown(pt(150, 130), ctx);
+      tool.onPointerUp(pt(150, 130), ctx);
+      tool.onPointerDown(shiftPt(450, 130), ctx);
+      tool.onPointerUp(shiftPt(450, 130), ctx);
+      expect(tool.selectedIds).toHaveLength(2);
+
+      tool.onPointerDown(pt(150, 130), ctx);
+      tool.onPointerUp(pt(150, 130), ctx);
+      expect(tool.selectedIds).toEqual([note1.id]);
+    });
+  });
+
   describe('grid element exclusion', () => {
     it('does not select grid elements by click', () => {
       const tool = new SelectTool();
@@ -1141,6 +1234,23 @@ describe('SelectTool', () => {
       const resized = ctx.store.getById(tmpl.id) as TemplateElement;
       const expectedRadius = Math.sqrt(100 * 100 + 100 * 100);
       expect(resized.radius).toBeCloseTo(expectedRadius);
+    });
+  });
+
+  describe('setSelection', () => {
+    it('sets selected IDs and requests render', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const note1 = createNote({ position: { x: 100, y: 100 } });
+      const note2 = createNote({ position: { x: 200, y: 200 } });
+      ctx.store.add(note1);
+      ctx.store.add(note2);
+
+      tool.onActivate(ctx);
+      tool.setSelection([note1.id, note2.id]);
+
+      expect(tool.selectedIds).toEqual([note1.id, note2.id]);
+      expect(ctx.requestRender).toHaveBeenCalled();
     });
   });
 });
