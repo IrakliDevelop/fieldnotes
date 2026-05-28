@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, it, expect } from 'vitest';
 import {
   createStroke,
@@ -50,6 +51,35 @@ describe('element factories', () => {
       });
       expect(note.backgroundColor).toBe('#ff0000');
       expect(note.textColor).toBe('#ffffff');
+    });
+
+    it('sanitizes script tags from text', () => {
+      const note = createNote({
+        position: { x: 0, y: 0 },
+        text: '<script>alert(1)</script>Hello',
+      });
+      expect(note.text).toBe('Hello');
+    });
+
+    it('preserves allowed HTML formatting', () => {
+      const note = createNote({
+        position: { x: 0, y: 0 },
+        text: '<b>bold</b> and <i>italic</i>',
+      });
+      expect(note.text).toBe('<b>bold</b> and <i>italic</i>');
+    });
+
+    it('strips event handler attributes', () => {
+      const note = createNote({
+        position: { x: 0, y: 0 },
+        text: '<b onclick="alert(1)">bold</b>',
+      });
+      expect(note.text).toBe('<b>bold</b>');
+    });
+
+    it('handles empty text without sanitization errors', () => {
+      const note = createNote({ position: { x: 0, y: 0 } });
+      expect(note.text).toBe('');
     });
   });
 

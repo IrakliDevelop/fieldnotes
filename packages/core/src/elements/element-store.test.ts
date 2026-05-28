@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, it, expect, vi } from 'vitest';
 import { ElementStore } from './element-store';
 import type { CanvasElement, NoteElement, StrokeElement } from './types';
@@ -399,6 +400,29 @@ describe('ElementStore', () => {
       store.add(makeNote({ id: 'n1', position: { x: 0, y: 0 }, size: { w: 50, h: 50 } }));
       const results = store.queryPoint({ x: 9999, y: 9999 });
       expect(results).toEqual([]);
+    });
+  });
+
+  describe('note sanitization on update', () => {
+    it('sanitizes HTML in note text on update', () => {
+      const store = new ElementStore();
+      store.add(makeNote());
+      store.update('note-1', { text: '<script>alert(1)</script>Safe' });
+      expect((store.getById('note-1') as NoteElement).text).toBe('Safe');
+    });
+
+    it('does not sanitize text on non-note elements', () => {
+      const store = new ElementStore();
+      store.add(makeStroke());
+      store.update('stroke-1', { color: '#ff0000' } as Partial<CanvasElement>);
+      expect(store.getById('stroke-1')?.color).toBe('#ff0000');
+    });
+
+    it('preserves allowed HTML on note update', () => {
+      const store = new ElementStore();
+      store.add(makeNote());
+      store.update('note-1', { text: '<b>bold</b>' });
+      expect((store.getById('note-1') as NoteElement).text).toBe('<b>bold</b>');
     });
   });
 });

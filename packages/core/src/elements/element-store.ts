@@ -3,7 +3,8 @@ import type { Bounds, Point } from '../core/types';
 import { Quadtree } from '../core/quadtree';
 import { getElementBounds } from './element-bounds';
 import { getArrowControlPoint } from './arrow-geometry';
-import type { ArrowElement, CanvasElement, ElementType } from './types';
+import { sanitizeNoteHtml } from './note-sanitizer';
+import type { ArrowElement, CanvasElement, ElementType, NoteElement } from './types';
 
 export interface ElementUpdateEvent {
   previous: CanvasElement;
@@ -66,6 +67,10 @@ export class ElementStore {
     if (updated.type === 'arrow') {
       const arrow = updated as ArrowElement;
       arrow.cachedControlPoint = getArrowControlPoint(arrow.from, arrow.to, arrow.bend);
+    }
+
+    if (updated.type === 'note' && 'text' in partial) {
+      (updated as NoteElement).text = sanitizeNoteHtml((updated as NoteElement).text);
     }
 
     this.elements.set(id, updated as CanvasElement);
