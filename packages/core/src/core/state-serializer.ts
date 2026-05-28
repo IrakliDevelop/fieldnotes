@@ -26,7 +26,13 @@ export function exportState(
       position: { ...camera.position },
       zoom: camera.zoom,
     },
-    elements: elements.map((el) => structuredClone(el)),
+    elements: elements.map((el) => {
+      const clone = structuredClone(el);
+      if (clone.type === 'arrow') {
+        delete clone.cachedControlPoint;
+      }
+      return clone;
+    }),
     layers: layers.map((l) => ({ ...l })),
   };
 }

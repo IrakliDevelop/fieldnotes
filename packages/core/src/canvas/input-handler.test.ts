@@ -213,6 +213,38 @@ describe('InputHandler', () => {
       pointerDown(element, { pointerId: 2, button: 0, clientX: 150, clientY: 150 });
       expect(tm.handlePointerUp).toHaveBeenCalledOnce();
     });
+
+    it('dispatches tool for touch events even when button is not 0', () => {
+      const tm = stubToolManager();
+      const tc = stubToolContext();
+      handler.setToolManager(tm, tc);
+
+      pointerDown(element, {
+        pointerId: 1,
+        button: -1,
+        pointerType: 'touch',
+        clientX: 50,
+        clientY: 50,
+      });
+      expect(tm.handlePointerDown).toHaveBeenCalledOnce();
+      pointerUp(element, { pointerId: 1 });
+    });
+
+    it('dispatches tool for pen events even when button is not 0', () => {
+      const tm = stubToolManager();
+      const tc = stubToolContext();
+      handler.setToolManager(tm, tc);
+
+      pointerDown(element, {
+        pointerId: 1,
+        button: -1,
+        pointerType: 'pen',
+        clientX: 50,
+        clientY: 50,
+      });
+      expect(tm.handlePointerDown).toHaveBeenCalledOnce();
+      pointerUp(element, { pointerId: 1 });
+    });
   });
 
   describe('keyboard shortcuts', () => {
@@ -454,6 +486,24 @@ describe('InputHandler', () => {
       expect(spy).toHaveBeenCalledWith(1);
       pointerUp(element, { pointerId: 1 });
     });
+
+    it('calls releasePointerCapture on pointer up', () => {
+      const releaseSpy = vi.fn();
+      element.releasePointerCapture = releaseSpy;
+
+      pointerDown(element, { pointerId: 5, button: 0, clientX: 50, clientY: 50 });
+      pointerUp(element, { pointerId: 5 });
+      expect(releaseSpy).toHaveBeenCalledWith(5);
+    });
+
+    it('does not throw if releasePointerCapture fails', () => {
+      element.releasePointerCapture = () => {
+        throw new DOMException('InvalidStateError');
+      };
+
+      pointerDown(element, { pointerId: 7, button: 0, clientX: 50, clientY: 50 });
+      expect(() => pointerUp(element, { pointerId: 7 })).not.toThrow();
+    });
   });
 
   describe('lifecycle', () => {
@@ -461,6 +511,38 @@ describe('InputHandler', () => {
       handler.destroy();
       wheel(element, { deltaY: -100, clientX: 0, clientY: 0 });
       expect(camera.zoom).toBe(1);
+    });
+  });
+
+  describe('cursor restore on space release', () => {
+    it('dispatches tool hover after space release to restore cursor', () => {
+      const onHover = vi.fn();
+      const tm = {
+        ...stubToolManager(),
+        activeTool: { onHover },
+      } as unknown as ToolManager;
+      const tc = stubToolContext();
+      handler.setToolManager(tm, tc);
+
+      pointerMove(element, { clientX: 100, clientY: 100 });
+      expect(onHover).toHaveBeenCalledTimes(1);
+
+      keyDown(' ');
+      keyUp(' ');
+
+      expect(onHover).toHaveBeenCalledTimes(2);
+    });
+
+    it('resets cursor to default on space release when no prior move event', () => {
+      const setCursor = vi.fn();
+      const tm = stubToolManager();
+      const tc = { ...stubToolContext(), setCursor } as unknown as ToolContext;
+      handler.setToolManager(tm, tc);
+
+      keyDown(' ');
+      keyUp(' ');
+
+      expect(setCursor).toHaveBeenCalledWith('default');
     });
   });
 });

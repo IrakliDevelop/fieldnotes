@@ -27,6 +27,7 @@ export class InputHandler {
   private historyRecorder: HistoryRecorder | null;
   private historyStack: HistoryStack | null;
   private isToolActive = false;
+  private lastPointerEvent: PointerEvent | null = null;
   private readonly abortController = new AbortController();
 
   constructor(
@@ -49,6 +50,7 @@ export class InputHandler {
 
   destroy(): void {
     this.abortController.abort();
+    this.lastPointerEvent = null;
   }
 
   private bind(): void {
@@ -92,12 +94,17 @@ export class InputHandler {
       return;
     }
 
-    if (this.activePointers.size === 1 && e.button === 0) {
+    if (
+      this.activePointers.size === 1 &&
+      (e.button === 0 || e.pointerType === 'touch' || e.pointerType === 'pen')
+    ) {
       this.dispatchToolDown(e);
     }
   };
 
   private onPointerMove = (e: PointerEvent): void => {
+    this.lastPointerEvent = e;
+
     if (this.activePointers.has(e.pointerId)) {
       this.activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     }
@@ -123,6 +130,11 @@ export class InputHandler {
   };
 
   private onPointerUp = (e: PointerEvent): void => {
+    try {
+      this.element.releasePointerCapture(e.pointerId);
+    } catch {
+      // Already released (e.g., pointercancel fired first)
+    }
     this.activePointers.delete(e.pointerId);
 
     if (this.activePointers.size < 2) {
@@ -161,6 +173,13 @@ export class InputHandler {
   private onKeyUp = (e: KeyboardEvent): void => {
     if (e.key === ' ') {
       this.spaceHeld = false;
+      if (this.activePointers.size === 0) {
+        if (this.lastPointerEvent) {
+          this.dispatchToolHover(this.lastPointerEvent);
+        } else {
+          this.toolContext?.setCursor?.('default');
+        }
+      }
     }
   };
 
