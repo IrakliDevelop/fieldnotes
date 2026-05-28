@@ -92,7 +92,7 @@ export class InputHandler {
       return;
     }
 
-    if (this.activePointers.size === 1 && e.button === 0) {
+    if (this.activePointers.size === 1 && (e.button === 0 || e.pointerType === 'touch')) {
       this.dispatchToolDown(e);
     }
   };

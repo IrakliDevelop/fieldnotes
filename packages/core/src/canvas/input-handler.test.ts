@@ -213,6 +213,22 @@ describe('InputHandler', () => {
       pointerDown(element, { pointerId: 2, button: 0, clientX: 150, clientY: 150 });
       expect(tm.handlePointerUp).toHaveBeenCalledOnce();
     });
+
+    it('dispatches tool for touch events even when button is not 0', () => {
+      const tm = stubToolManager();
+      const tc = stubToolContext();
+      handler.setToolManager(tm, tc);
+
+      pointerDown(element, {
+        pointerId: 1,
+        button: -1,
+        pointerType: 'touch',
+        clientX: 50,
+        clientY: 50,
+      });
+      expect(tm.handlePointerDown).toHaveBeenCalledOnce();
+      pointerUp(element, { pointerId: 1 });
+    });
   });
 
   describe('keyboard shortcuts', () => {
