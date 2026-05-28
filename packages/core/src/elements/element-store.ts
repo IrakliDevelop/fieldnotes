@@ -119,6 +119,10 @@ export class ElementStore {
       const bounds = getElementBounds(el);
       if (bounds) this.spatialIndex.insert(el.id, bounds);
     }
+    this.bus.emit('clear', null);
+    for (const el of elements) {
+      this.bus.emit('add', el);
+    }
   }
 
   queryRect(rect: Bounds): CanvasElement[] {

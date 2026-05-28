@@ -469,6 +469,62 @@ describe('ElementStore', () => {
     });
   });
 
+  describe('loadSnapshot events', () => {
+    it('emits clear event', () => {
+      const store = new ElementStore();
+      store.add(makeNote({ id: 'old' }));
+      const listener = vi.fn();
+      store.on('clear', listener);
+
+      store.loadSnapshot([makeStroke({ id: 'new' })]);
+      expect(listener).toHaveBeenCalledOnce();
+    });
+
+    it('emits add event for each loaded element', () => {
+      const store = new ElementStore();
+      const listener = vi.fn();
+      store.on('add', listener);
+
+      const note = makeNote({ id: 'n1' });
+      const stroke = makeStroke({ id: 's1' });
+      store.loadSnapshot([note, stroke]);
+
+      expect(listener).toHaveBeenCalledTimes(2);
+      expect(listener).toHaveBeenCalledWith(note);
+      expect(listener).toHaveBeenCalledWith(stroke);
+    });
+
+    it('fires onChange during loadSnapshot', () => {
+      const store = new ElementStore();
+      const listener = vi.fn();
+      store.onChange(listener);
+
+      store.loadSnapshot([makeNote({ id: 'n1' })]);
+      expect(listener).toHaveBeenCalled();
+    });
+
+    it('emits clear before add events', () => {
+      const store = new ElementStore();
+      const order: string[] = [];
+      store.on('clear', () => order.push('clear'));
+      store.on('add', () => order.push('add'));
+
+      store.loadSnapshot([makeNote({ id: 'n1' }), makeStroke({ id: 's1' })]);
+      expect(order).toEqual(['clear', 'add', 'add']);
+    });
+
+    it('listeners see new elements when responding to events', () => {
+      const store = new ElementStore();
+      let countDuringClear = -1;
+      store.on('clear', () => {
+        countDuringClear = store.count;
+      });
+
+      store.loadSnapshot([makeNote({ id: 'n1' }), makeStroke({ id: 's1' })]);
+      expect(countDuringClear).toBe(2);
+    });
+  });
+
   describe('note sanitization on update', () => {
     it('sanitizes HTML in note text on update', () => {
       const store = new ElementStore();
