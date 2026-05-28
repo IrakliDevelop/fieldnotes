@@ -8,6 +8,8 @@ import type { ToolManager } from '../tools/tool-manager';
 import type { ToolContext } from '../tools/types';
 import type { HistoryRecorder } from '../history/history-recorder';
 import type { HistoryStack } from '../history/history-stack';
+import { ElementStore } from '../elements/element-store';
+import { createNote, createArrow } from '../elements/element-factory';
 
 function wheel(
   el: HTMLElement,
@@ -717,6 +719,233 @@ describe('InputHandler', () => {
 
       expect(hr.begin).toHaveBeenCalledOnce();
       expect(hr.commit).toHaveBeenCalledOnce();
+    });
+  });
+
+  describe('copy/paste', () => {
+    function setupCopyPaste() {
+      const store = new ElementStore();
+      const note = createNote({ position: { x: 100, y: 100 }, size: { w: 200, h: 100 } });
+      store.add(note);
+
+      const setSelection = vi.fn();
+      const tm = {
+        ...stubToolManager(),
+        activeTool: {
+          name: 'select',
+          selectedIds: [note.id],
+          setSelection,
+        },
+      } as unknown as ToolManager;
+      const tc = {
+        ...stubToolContext(),
+        store,
+        activeLayerId: 'layer-1',
+      } as unknown as ToolContext;
+      const hr = { begin: vi.fn(), commit: vi.fn(), pause: vi.fn(), resume: vi.fn() };
+
+      const h = new InputHandler(element, camera, {
+        toolManager: tm,
+        toolContext: tc,
+        historyRecorder: hr as unknown as HistoryRecorder,
+      });
+
+      return { store, note, tm, tc, hr, h, setSelection };
+    }
+
+    function ctrlKey(key: string) {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key, ctrlKey: true, bubbles: true }));
+    }
+
+    it('Ctrl+V pastes elements with new IDs and offset', () => {
+      const { store, note, h } = setupCopyPaste();
+      ctrlKey('c');
+      ctrlKey('v');
+
+      expect(store.count).toBe(2);
+      const all = store.getAll();
+      const pasted = all.find((el) => el.id !== note.id);
+      expect(pasted).toBeDefined();
+      if (!pasted) return;
+      expect(pasted.id).not.toBe(note.id);
+      expect(pasted.position.x).toBe(note.position.x + 20);
+      expect(pasted.position.y).toBe(note.position.y + 20);
+
+      h.destroy();
+    });
+
+    it('successive Ctrl+V cascades offset', () => {
+      const { store, note, h } = setupCopyPaste();
+      ctrlKey('c');
+      ctrlKey('v');
+      ctrlKey('v');
+
+      expect(store.count).toBe(3);
+      const all = store.getAll();
+      const pasted = all.filter((el) => el.id !== note.id);
+      expect(pasted).toHaveLength(2);
+      const offsets = pasted.map((el) => el.position.x - note.position.x);
+      expect(offsets).toContain(20);
+      expect(offsets).toContain(40);
+
+      h.destroy();
+    });
+
+    it('Ctrl+C resets paste offset', () => {
+      const { store, note, h } = setupCopyPaste();
+      ctrlKey('c');
+      ctrlKey('v');
+      ctrlKey('c');
+      ctrlKey('v');
+
+      const all = store.getAll();
+      const pasted = all.filter((el) => el.id !== note.id);
+      const offsets = pasted.map((el) => el.position.x - note.position.x);
+      expect(offsets).toContain(20);
+      expect(offsets).toContain(20);
+
+      h.destroy();
+    });
+
+    it('Ctrl+V with empty clipboard is a no-op', () => {
+      const { store, h } = setupCopyPaste();
+      ctrlKey('v');
+      expect(store.count).toBe(1);
+
+      h.destroy();
+    });
+
+    it('wraps paste in history transaction', () => {
+      const { hr, h } = setupCopyPaste();
+      ctrlKey('c');
+      ctrlKey('v');
+
+      expect(hr.begin).toHaveBeenCalled();
+      expect(hr.commit).toHaveBeenCalled();
+
+      h.destroy();
+    });
+
+    it('selects pasted elements', () => {
+      const { setSelection, h } = setupCopyPaste();
+      ctrlKey('c');
+      ctrlKey('v');
+
+      expect(setSelection).toHaveBeenCalledOnce();
+      const ids = setSelection.mock.calls[0]?.[0] as string[];
+      expect(ids).toHaveLength(1);
+
+      h.destroy();
+    });
+
+    it('remaps arrow bindings when target is also copied', () => {
+      const store = new ElementStore();
+      const note = createNote({ position: { x: 100, y: 100 }, size: { w: 200, h: 100 } });
+      store.add(note);
+      const arrow = createArrow({
+        from: { x: 100, y: 150 },
+        to: { x: 300, y: 150 },
+        fromBinding: { elementId: note.id },
+      });
+      store.add(arrow);
+
+      const setSelection = vi.fn();
+      const tm = {
+        ...stubToolManager(),
+        activeTool: {
+          name: 'select',
+          selectedIds: [note.id, arrow.id],
+          setSelection,
+        },
+      } as unknown as ToolManager;
+      const tc = {
+        ...stubToolContext(),
+        store,
+      } as unknown as ToolContext;
+      const hr = { begin: vi.fn(), commit: vi.fn(), pause: vi.fn(), resume: vi.fn() };
+
+      const h = new InputHandler(element, camera, {
+        toolManager: tm,
+        toolContext: tc,
+        historyRecorder: hr as unknown as HistoryRecorder,
+      });
+
+      ctrlKey('c');
+      ctrlKey('v');
+
+      const all = store.getAll();
+      const pastedArrows = all.filter((el) => el.type === 'arrow' && el.id !== arrow.id);
+      expect(pastedArrows).toHaveLength(1);
+      const pastedArrow = pastedArrows[0];
+      if (!pastedArrow) return;
+      expect(pastedArrow.fromBinding).toBeDefined();
+      const fromBinding = pastedArrow.fromBinding;
+      if (!fromBinding) return;
+      expect(fromBinding.elementId).not.toBe(note.id);
+
+      const pastedNotes = all.filter((el) => el.type === 'note' && el.id !== note.id);
+      expect(pastedNotes).toHaveLength(1);
+      const pastedNote = pastedNotes[0];
+      if (!pastedNote) return;
+      expect(fromBinding.elementId).toBe(pastedNote.id);
+
+      h.destroy();
+    });
+
+    it('strips arrow binding when target was not copied', () => {
+      const store = new ElementStore();
+      const note = createNote({ position: { x: 100, y: 100 }, size: { w: 200, h: 100 } });
+      store.add(note);
+      const arrow = createArrow({
+        from: { x: 100, y: 150 },
+        to: { x: 300, y: 150 },
+        fromBinding: { elementId: note.id },
+      });
+      store.add(arrow);
+
+      const setSelection = vi.fn();
+      const tm = {
+        ...stubToolManager(),
+        activeTool: {
+          name: 'select',
+          selectedIds: [arrow.id],
+          setSelection,
+        },
+      } as unknown as ToolManager;
+      const tc = {
+        ...stubToolContext(),
+        store,
+      } as unknown as ToolContext;
+      const hr = { begin: vi.fn(), commit: vi.fn(), pause: vi.fn(), resume: vi.fn() };
+
+      const h = new InputHandler(element, camera, {
+        toolManager: tm,
+        toolContext: tc,
+        historyRecorder: hr as unknown as HistoryRecorder,
+      });
+
+      ctrlKey('c');
+      ctrlKey('v');
+
+      const all = store.getAll();
+      const pastedArrows = all.filter((el) => el.type === 'arrow' && el.id !== arrow.id);
+      expect(pastedArrows).toHaveLength(1);
+      const strippedArrow = pastedArrows[0];
+      if (!strippedArrow) return;
+      expect(strippedArrow.fromBinding).toBeUndefined();
+
+      h.destroy();
+    });
+
+    it('pastes into active layer', () => {
+      const { store, note, h } = setupCopyPaste();
+      ctrlKey('c');
+      ctrlKey('v');
+
+      const pasted = store.getAll().find((el) => el.id !== note.id);
+      expect(pasted?.layerId).toBe('layer-1');
+
+      h.destroy();
     });
   });
 

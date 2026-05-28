@@ -4,7 +4,9 @@ import type { ToolContext, PointerState } from '../tools/types';
 import type { SelectTool } from '../tools/select-tool';
 import type { HistoryRecorder } from '../history/history-recorder';
 import type { HistoryStack } from '../history/history-stack';
+import type { CanvasElement, ArrowElement } from '../elements/types';
 import { InputFilter } from './input-filter';
+import { createId } from '../elements/create-id';
 
 const ZOOM_SENSITIVITY = 0.001;
 const MIDDLE_BUTTON = 1;
@@ -32,6 +34,8 @@ export class InputHandler {
   private readonly inputFilter = new InputFilter();
   private deferredDown: PointerEvent | null = null;
   private readonly abortController = new AbortController();
+  private clipboard: CanvasElement[] = [];
+  private pasteCount = 0;
 
   constructor(
     private readonly element: HTMLElement,
@@ -194,6 +198,14 @@ export class InputHandler {
       e.preventDefault();
       this.handleRedo();
     }
+    if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
+      e.preventDefault();
+      this.handleCopy();
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
+      e.preventDefault();
+      this.handlePaste();
+    }
   };
 
   private onKeyUp = (e: KeyboardEvent): void => {
@@ -322,6 +334,83 @@ export class InputHandler {
     this.historyRecorder?.pause();
     this.historyStack.redo(this.toolContext.store);
     this.historyRecorder?.resume();
+    this.toolContext.requestRender();
+  }
+
+  private handleCopy(): void {
+    if (!this.toolManager || !this.toolContext) return;
+    const tool = this.toolManager.activeTool;
+    if (tool?.name !== 'select') return;
+    const selectTool = tool as SelectTool;
+    const ids = selectTool.selectedIds;
+    if (ids.length === 0) return;
+
+    this.clipboard = [];
+    for (const id of ids) {
+      const el = this.toolContext.store.getById(id);
+      if (el) this.clipboard.push(structuredClone(el));
+    }
+    this.pasteCount = 0;
+  }
+
+  private handlePaste(): void {
+    if (!this.toolManager || !this.toolContext || this.clipboard.length === 0) return;
+    const tool = this.toolManager.activeTool;
+    if (tool?.name !== 'select') return;
+    const selectTool = tool as SelectTool;
+
+    this.pasteCount++;
+    const offset = this.pasteCount * 20;
+
+    const idMap = new Map<string, string>();
+    for (const el of this.clipboard) {
+      idMap.set(el.id, createId(el.type));
+    }
+
+    const newIds: string[] = [];
+    this.historyRecorder?.begin();
+
+    for (const el of this.clipboard) {
+      const clone = structuredClone(el);
+      const newId = idMap.get(el.id);
+      if (!newId) continue;
+      clone.id = newId;
+      clone.position = { x: clone.position.x + offset, y: clone.position.y + offset };
+
+      if (clone.type === 'arrow') {
+        const arrow = clone as ArrowElement;
+        arrow.from = { x: arrow.from.x + offset, y: arrow.from.y + offset };
+        arrow.to = { x: arrow.to.x + offset, y: arrow.to.y + offset };
+        delete arrow.cachedControlPoint;
+
+        if (arrow.fromBinding) {
+          const newTarget = idMap.get(arrow.fromBinding.elementId);
+          if (newTarget) {
+            arrow.fromBinding = { elementId: newTarget };
+          } else {
+            delete arrow.fromBinding;
+          }
+        }
+        if (arrow.toBinding) {
+          const newTarget = idMap.get(arrow.toBinding.elementId);
+          if (newTarget) {
+            arrow.toBinding = { elementId: newTarget };
+          } else {
+            delete arrow.toBinding;
+          }
+        }
+      }
+
+      if (this.toolContext.activeLayerId) {
+        clone.layerId = this.toolContext.activeLayerId;
+      }
+
+      this.toolContext.store.add(clone);
+      newIds.push(clone.id);
+    }
+
+    this.historyRecorder?.commit();
+    selectTool.setSelection(newIds);
     this.toolContext.requestRender();
   }
 
