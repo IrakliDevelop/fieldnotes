@@ -1236,4 +1236,21 @@ describe('SelectTool', () => {
       expect(resized.radius).toBeCloseTo(expectedRadius);
     });
   });
+
+  describe('setSelection', () => {
+    it('sets selected IDs and requests render', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const note1 = createNote({ position: { x: 100, y: 100 } });
+      const note2 = createNote({ position: { x: 200, y: 200 } });
+      ctx.store.add(note1);
+      ctx.store.add(note2);
+
+      tool.onActivate(ctx);
+      tool.setSelection([note1.id, note2.id]);
+
+      expect(tool.selectedIds).toEqual([note1.id, note2.id]);
+      expect(ctx.requestRender).toHaveBeenCalled();
+    });
+  });
 });

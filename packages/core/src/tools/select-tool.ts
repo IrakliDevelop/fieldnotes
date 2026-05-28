@@ -50,6 +50,11 @@ export class SelectTool implements Tool {
     return [...this._selectedIds];
   }
 
+  setSelection(ids: string[]): void {
+    this._selectedIds = ids;
+    this.ctx?.requestRender();
+  }
+
   get isMarqueeActive(): boolean {
     return this.mode.type === 'marquee';
   }
