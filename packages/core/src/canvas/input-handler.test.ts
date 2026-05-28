@@ -800,9 +800,8 @@ describe('InputHandler', () => {
 
       const all = store.getAll();
       const pasted = all.filter((el) => el.id !== note.id);
-      const offsets = pasted.map((el) => el.position.x - note.position.x);
-      expect(offsets).toContain(20);
-      expect(offsets).toContain(20);
+      const offsets = pasted.map((el) => el.position.x - note.position.x).sort();
+      expect(offsets).toEqual([20, 20]);
 
       h.destroy();
     });

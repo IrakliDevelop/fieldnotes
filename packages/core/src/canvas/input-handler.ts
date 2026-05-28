@@ -338,7 +338,7 @@ export class InputHandler {
   }
 
   private handleCopy(): void {
-    if (!this.toolManager || !this.toolContext) return;
+    if (!this.toolManager || !this.toolContext || this.isToolActive) return;
     const tool = this.toolManager.activeTool;
     if (tool?.name !== 'select') return;
     const selectTool = tool as SelectTool;
@@ -354,7 +354,8 @@ export class InputHandler {
   }
 
   private handlePaste(): void {
-    if (!this.toolManager || !this.toolContext || this.clipboard.length === 0) return;
+    if (!this.toolManager || !this.toolContext || this.clipboard.length === 0 || this.isToolActive)
+      return;
     const tool = this.toolManager.activeTool;
     if (tool?.name !== 'select') return;
     const selectTool = tool as SelectTool;
