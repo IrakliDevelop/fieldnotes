@@ -15,7 +15,7 @@ function makeCtx(overrides: Partial<ToolContext> = {}): ToolContext {
 }
 
 function pt(x: number, y: number): PointerState {
-  return { x, y, pressure: 0.5 };
+  return { x, y, pressure: 0.5, pointerType: 'mouse' };
 }
 
 describe('TextTool', () => {

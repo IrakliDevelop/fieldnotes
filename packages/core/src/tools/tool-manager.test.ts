@@ -21,7 +21,7 @@ function stubContext(): ToolContext {
   };
 }
 
-const point: PointerState = { x: 10, y: 20, pressure: 0.5 };
+const point: PointerState = { x: 10, y: 20, pressure: 0.5, pointerType: 'mouse' };
 
 describe('ToolManager', () => {
   it('starts with no active tool', () => {
