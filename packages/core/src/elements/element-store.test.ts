@@ -403,6 +403,72 @@ describe('ElementStore', () => {
     });
   });
 
+  describe('getAll caching', () => {
+    it('returns same array reference on consecutive calls', () => {
+      const store = new ElementStore();
+      store.add(makeNote({ id: 'a', zIndex: 1 }));
+      store.add(makeStroke({ id: 'b', zIndex: 0 }));
+
+      const first = store.getAll();
+      const second = store.getAll();
+      expect(first).toBe(second);
+    });
+
+    it('invalidates cache after add', () => {
+      const store = new ElementStore();
+      store.add(makeNote({ id: 'a' }));
+      const before = store.getAll();
+      store.add(makeStroke({ id: 'b' }));
+      const after = store.getAll();
+      expect(before).not.toBe(after);
+    });
+
+    it('invalidates cache after remove', () => {
+      const store = new ElementStore();
+      store.add(makeNote({ id: 'a' }));
+      const before = store.getAll();
+      store.remove('a');
+      const after = store.getAll();
+      expect(before).not.toBe(after);
+    });
+
+    it('invalidates cache after update', () => {
+      const store = new ElementStore();
+      store.add(makeNote({ id: 'a' }));
+      const before = store.getAll();
+      store.update('a', { zIndex: 5 });
+      const after = store.getAll();
+      expect(before).not.toBe(after);
+    });
+
+    it('invalidates cache after clear', () => {
+      const store = new ElementStore();
+      store.add(makeNote({ id: 'a' }));
+      const before = store.getAll();
+      store.clear();
+      const after = store.getAll();
+      expect(before).not.toBe(after);
+    });
+
+    it('invalidates cache after loadSnapshot', () => {
+      const store = new ElementStore();
+      store.add(makeNote({ id: 'a' }));
+      const before = store.getAll();
+      store.loadSnapshot([makeStroke({ id: 'b' })]);
+      const after = store.getAll();
+      expect(before).not.toBe(after);
+    });
+
+    it('invalidates cache after setLayerOrder', () => {
+      const store = new ElementStore();
+      store.add(makeNote({ id: 'a', layerId: 'L1' }));
+      const before = store.getAll();
+      store.setLayerOrder(new Map([['L1', 1]]));
+      const after = store.getAll();
+      expect(before).not.toBe(after);
+    });
+  });
+
   describe('note sanitization on update', () => {
     it('sanitizes HTML in note text on update', () => {
       const store = new ElementStore();

@@ -23,6 +23,7 @@ export class ElementStore {
   private bus = new EventBus<ElementStoreEvents>();
   private layerOrderMap = new Map<string, number>();
   private spatialIndex = new Quadtree({ x: -100000, y: -100000, w: 200000, h: 200000 });
+  private sortedCache: CanvasElement[] | null = null;
 
   get count(): number {
     return this.elements.size;
@@ -30,15 +31,18 @@ export class ElementStore {
 
   setLayerOrder(order: Map<string, number>): void {
     this.layerOrderMap = new Map(order);
+    this.sortedCache = null;
   }
 
   getAll(): CanvasElement[] {
-    return [...this.elements.values()].sort((a, b) => {
+    if (this.sortedCache) return this.sortedCache;
+    this.sortedCache = [...this.elements.values()].sort((a, b) => {
       const layerA = this.layerOrderMap.get(a.layerId) ?? 0;
       const layerB = this.layerOrderMap.get(b.layerId) ?? 0;
       if (layerA !== layerB) return layerA - layerB;
       return a.zIndex - b.zIndex;
     });
+    return this.sortedCache;
   }
 
   getById(id: string): CanvasElement | undefined {
@@ -52,6 +56,7 @@ export class ElementStore {
   }
 
   add(element: CanvasElement): void {
+    this.sortedCache = null;
     this.elements.set(element.id, element);
     const bounds = getElementBounds(element);
     if (bounds) this.spatialIndex.insert(element.id, bounds);
@@ -61,6 +66,7 @@ export class ElementStore {
   update(id: string, partial: Partial<CanvasElement>): void {
     const existing = this.elements.get(id);
     if (!existing) return;
+    this.sortedCache = null;
 
     const updated = { ...existing, ...partial, id: existing.id, type: existing.type };
 
@@ -86,6 +92,7 @@ export class ElementStore {
   remove(id: string): void {
     const element = this.elements.get(id);
     if (!element) return;
+    this.sortedCache = null;
 
     this.elements.delete(id);
     this.spatialIndex.remove(id);
@@ -93,6 +100,7 @@ export class ElementStore {
   }
 
   clear(): void {
+    this.sortedCache = null;
     this.elements.clear();
     this.spatialIndex.clear();
     this.bus.emit('clear', null);
@@ -103,6 +111,7 @@ export class ElementStore {
   }
 
   loadSnapshot(elements: CanvasElement[]): void {
+    this.sortedCache = null;
     this.elements.clear();
     this.spatialIndex.clear();
     for (const el of elements) {
