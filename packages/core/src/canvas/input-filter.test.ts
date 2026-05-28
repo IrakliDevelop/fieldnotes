@@ -129,4 +129,143 @@ describe('InputFilter', () => {
       expect(filter.filterDown(touchDown).action).not.toBe('suppress');
     });
   });
+
+  describe('touch debounce', () => {
+    it('defers touch down (no pen active)', () => {
+      const e = makePointerEvent('pointerdown', { pointerType: 'touch', pointerId: 5 });
+      expect(filter.filterDown(e).action).toBe('defer');
+    });
+
+    it('suppresses touch move under threshold', () => {
+      filter.filterDown(
+        makePointerEvent('pointerdown', {
+          pointerType: 'touch',
+          pointerId: 5,
+          clientX: 100,
+          clientY: 100,
+        }),
+      );
+
+      const move = makePointerEvent('pointermove', {
+        pointerType: 'touch',
+        pointerId: 5,
+        clientX: 101,
+        clientY: 101,
+      });
+      expect(filter.filterMove(move).action).toBe('suppress');
+    });
+
+    it('dispatches touch move over threshold', () => {
+      filter.filterDown(
+        makePointerEvent('pointerdown', {
+          pointerType: 'touch',
+          pointerId: 5,
+          clientX: 100,
+          clientY: 100,
+        }),
+      );
+
+      const move = makePointerEvent('pointermove', {
+        pointerType: 'touch',
+        pointerId: 5,
+        clientX: 110,
+        clientY: 110,
+      });
+      expect(filter.filterMove(move).action).toBe('dispatch');
+    });
+
+    it('returns pendingTap on touch up while deferred', () => {
+      filter.filterDown(
+        makePointerEvent('pointerdown', {
+          pointerType: 'touch',
+          pointerId: 5,
+          clientX: 100,
+          clientY: 200,
+        }),
+      );
+
+      const up = makePointerEvent('pointerup', {
+        pointerType: 'touch',
+        pointerId: 5,
+        clientX: 100,
+        clientY: 200,
+      });
+      const result = filter.filterUp(up);
+      expect(result.action).toBe('dispatch');
+      expect(result.pendingTap).toEqual({ x: 100, y: 200 });
+    });
+
+    it('does not return pendingTap after threshold exceeded', () => {
+      filter.filterDown(
+        makePointerEvent('pointerdown', {
+          pointerType: 'touch',
+          pointerId: 5,
+          clientX: 100,
+          clientY: 100,
+        }),
+      );
+
+      filter.filterMove(
+        makePointerEvent('pointermove', {
+          pointerType: 'touch',
+          pointerId: 5,
+          clientX: 120,
+          clientY: 120,
+        }),
+      );
+
+      const up = makePointerEvent('pointerup', {
+        pointerType: 'touch',
+        pointerId: 5,
+      });
+      const result = filter.filterUp(up);
+      expect(result.action).toBe('dispatch');
+      expect(result.pendingTap).toBeUndefined();
+    });
+
+    it('does not defer pen events', () => {
+      const e = makePointerEvent('pointerdown', { pointerType: 'pen', pointerId: 10 });
+      expect(filter.filterDown(e).action).toBe('dispatch');
+    });
+
+    it('does not defer mouse events', () => {
+      const e = makePointerEvent('pointerdown', { pointerType: 'mouse' });
+      expect(filter.filterDown(e).action).toBe('dispatch');
+    });
+
+    it('clears pending tap on reset', () => {
+      filter.filterDown(
+        makePointerEvent('pointerdown', {
+          pointerType: 'touch',
+          pointerId: 5,
+          clientX: 100,
+          clientY: 100,
+        }),
+      );
+      filter.reset();
+
+      const up = makePointerEvent('pointerup', { pointerType: 'touch', pointerId: 5 });
+      const result = filter.filterUp(up);
+      expect(result.pendingTap).toBeUndefined();
+    });
+
+    it('ignores move from different pointer than pending tap', () => {
+      filter.filterDown(
+        makePointerEvent('pointerdown', {
+          pointerType: 'touch',
+          pointerId: 5,
+          clientX: 100,
+          clientY: 100,
+        }),
+      );
+
+      const move = makePointerEvent('pointermove', {
+        pointerType: 'touch',
+        pointerId: 99,
+        clientX: 200,
+        clientY: 200,
+      });
+      expect(filter.filterMove(move).action).toBe('dispatch');
+    });
+  });
 });
