@@ -44,6 +44,23 @@ describe('exportState', () => {
     const state = exportState([], makeCamera(), layers);
     expect(state.layers).toEqual(layers);
   });
+
+  it('strips cachedControlPoint from arrow elements', () => {
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 100 },
+      layerId: 'default-layer',
+    });
+    arrow.cachedControlPoint = { x: 50, y: 50 };
+
+    const state = exportState([arrow], makeCamera());
+    const exported = state.elements[0];
+    expect(exported).toBeDefined();
+    if (exported) {
+      expect(exported.type).toBe('arrow');
+      expect('cachedControlPoint' in exported).toBe(false);
+    }
+  });
 });
 
 describe('parseState', () => {
