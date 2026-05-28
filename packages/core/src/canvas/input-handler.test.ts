@@ -454,6 +454,24 @@ describe('InputHandler', () => {
       expect(spy).toHaveBeenCalledWith(1);
       pointerUp(element, { pointerId: 1 });
     });
+
+    it('calls releasePointerCapture on pointer up', () => {
+      const releaseSpy = vi.fn();
+      element.releasePointerCapture = releaseSpy;
+
+      pointerDown(element, { pointerId: 5, button: 0, clientX: 50, clientY: 50 });
+      pointerUp(element, { pointerId: 5 });
+      expect(releaseSpy).toHaveBeenCalledWith(5);
+    });
+
+    it('does not throw if releasePointerCapture fails', () => {
+      element.releasePointerCapture = () => {
+        throw new DOMException('InvalidStateError');
+      };
+
+      pointerDown(element, { pointerId: 7, button: 0, clientX: 50, clientY: 50 });
+      expect(() => pointerUp(element, { pointerId: 7 })).not.toThrow();
+    });
   });
 
   describe('lifecycle', () => {

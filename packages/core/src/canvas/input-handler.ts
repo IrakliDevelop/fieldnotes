@@ -123,6 +123,11 @@ export class InputHandler {
   };
 
   private onPointerUp = (e: PointerEvent): void => {
+    try {
+      this.element.releasePointerCapture(e.pointerId);
+    } catch {
+      // Already released (e.g., pointercancel fired first)
+    }
     this.activePointers.delete(e.pointerId);
 
     if (this.activePointers.size < 2) {
