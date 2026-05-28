@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, it, expect, vi } from 'vitest';
 import { ElementStore } from './element-store';
 import type { CanvasElement, NoteElement, StrokeElement } from './types';
@@ -399,6 +400,151 @@ describe('ElementStore', () => {
       store.add(makeNote({ id: 'n1', position: { x: 0, y: 0 }, size: { w: 50, h: 50 } }));
       const results = store.queryPoint({ x: 9999, y: 9999 });
       expect(results).toEqual([]);
+    });
+  });
+
+  describe('getAll caching', () => {
+    it('returns same array reference on consecutive calls', () => {
+      const store = new ElementStore();
+      store.add(makeNote({ id: 'a', zIndex: 1 }));
+      store.add(makeStroke({ id: 'b', zIndex: 0 }));
+
+      const first = store.getAll();
+      const second = store.getAll();
+      expect(first).toBe(second);
+    });
+
+    it('invalidates cache after add', () => {
+      const store = new ElementStore();
+      store.add(makeNote({ id: 'a' }));
+      const before = store.getAll();
+      store.add(makeStroke({ id: 'b' }));
+      const after = store.getAll();
+      expect(before).not.toBe(after);
+    });
+
+    it('invalidates cache after remove', () => {
+      const store = new ElementStore();
+      store.add(makeNote({ id: 'a' }));
+      const before = store.getAll();
+      store.remove('a');
+      const after = store.getAll();
+      expect(before).not.toBe(after);
+    });
+
+    it('invalidates cache after update', () => {
+      const store = new ElementStore();
+      store.add(makeNote({ id: 'a' }));
+      const before = store.getAll();
+      store.update('a', { zIndex: 5 });
+      const after = store.getAll();
+      expect(before).not.toBe(after);
+    });
+
+    it('invalidates cache after clear', () => {
+      const store = new ElementStore();
+      store.add(makeNote({ id: 'a' }));
+      const before = store.getAll();
+      store.clear();
+      const after = store.getAll();
+      expect(before).not.toBe(after);
+    });
+
+    it('invalidates cache after loadSnapshot', () => {
+      const store = new ElementStore();
+      store.add(makeNote({ id: 'a' }));
+      const before = store.getAll();
+      store.loadSnapshot([makeStroke({ id: 'b' })]);
+      const after = store.getAll();
+      expect(before).not.toBe(after);
+    });
+
+    it('invalidates cache after setLayerOrder', () => {
+      const store = new ElementStore();
+      store.add(makeNote({ id: 'a', layerId: 'L1' }));
+      const before = store.getAll();
+      store.setLayerOrder(new Map([['L1', 1]]));
+      const after = store.getAll();
+      expect(before).not.toBe(after);
+    });
+  });
+
+  describe('loadSnapshot events', () => {
+    it('emits clear event', () => {
+      const store = new ElementStore();
+      store.add(makeNote({ id: 'old' }));
+      const listener = vi.fn();
+      store.on('clear', listener);
+
+      store.loadSnapshot([makeStroke({ id: 'new' })]);
+      expect(listener).toHaveBeenCalledOnce();
+    });
+
+    it('emits add event for each loaded element', () => {
+      const store = new ElementStore();
+      const listener = vi.fn();
+      store.on('add', listener);
+
+      const note = makeNote({ id: 'n1' });
+      const stroke = makeStroke({ id: 's1' });
+      store.loadSnapshot([note, stroke]);
+
+      expect(listener).toHaveBeenCalledTimes(2);
+      expect(listener).toHaveBeenCalledWith(note);
+      expect(listener).toHaveBeenCalledWith(stroke);
+    });
+
+    it('fires onChange during loadSnapshot', () => {
+      const store = new ElementStore();
+      const listener = vi.fn();
+      store.onChange(listener);
+
+      store.loadSnapshot([makeNote({ id: 'n1' })]);
+      expect(listener).toHaveBeenCalled();
+    });
+
+    it('emits clear before add events', () => {
+      const store = new ElementStore();
+      const order: string[] = [];
+      store.on('clear', () => order.push('clear'));
+      store.on('add', () => order.push('add'));
+
+      store.loadSnapshot([makeNote({ id: 'n1' }), makeStroke({ id: 's1' })]);
+      expect(order).toEqual(['clear', 'add', 'add']);
+    });
+
+    it('listeners see new elements when responding to events', () => {
+      const store = new ElementStore();
+      let countDuringClear = -1;
+      store.on('clear', () => {
+        countDuringClear = store.count;
+      });
+
+      store.loadSnapshot([makeNote({ id: 'n1' }), makeStroke({ id: 's1' })]);
+      expect(countDuringClear).toBe(2);
+    });
+  });
+
+  describe('note sanitization on update', () => {
+    it('sanitizes HTML in note text on update', () => {
+      const store = new ElementStore();
+      store.add(makeNote());
+      store.update('note-1', { text: '<script>alert(1)</script>Safe' });
+      expect((store.getById('note-1') as NoteElement).text).toBe('Safe');
+    });
+
+    it('does not sanitize text on non-note elements', () => {
+      const store = new ElementStore();
+      store.add(makeStroke());
+      store.update('stroke-1', { color: '#ff0000' } as Partial<CanvasElement>);
+      expect(store.getById('stroke-1')?.color).toBe('#ff0000');
+    });
+
+    it('preserves allowed HTML on note update', () => {
+      const store = new ElementStore();
+      store.add(makeNote());
+      store.update('note-1', { text: '<b>bold</b>' });
+      expect((store.getById('note-1') as NoteElement).text).toBe('<b>bold</b>');
     });
   });
 });

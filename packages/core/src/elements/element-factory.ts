@@ -16,6 +16,7 @@ import type {
 } from './types';
 import { createId } from './create-id';
 import { getArrowControlPoint } from './arrow-geometry';
+import { sanitizeNoteHtml } from './note-sanitizer';
 
 export const DEFAULT_NOTE_FONT_SIZE = 18;
 
@@ -97,7 +98,7 @@ export function createNote(input: NoteInput): NoteElement {
     locked: input.locked ?? false,
     layerId: input.layerId ?? '',
     size: input.size ?? { w: 200, h: 100 },
-    text: input.text ?? '',
+    text: sanitizeNoteHtml(input.text ?? ''),
     backgroundColor: input.backgroundColor ?? '#ffeb3b',
     textColor: input.textColor ?? '#000000',
     fontSize: input.fontSize ?? DEFAULT_NOTE_FONT_SIZE,

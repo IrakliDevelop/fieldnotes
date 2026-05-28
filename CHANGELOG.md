@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ---
 
+## [0.11.3] — 2026-05-28
+
+### Fixed
+
+- **Note HTML sanitized on creation and update** — `sanitizeNoteHtml()` now runs in `createNote()` and `store.update()`, not just during deserialization. Prevents XSS via `innerHTML` when consumers pass unsanitized text
+- **`loadSnapshot` emits events** — `loadSnapshot()` now emits `clear` followed by per-element `add` events. Listeners (history recorder, auto-save, React hooks via `onChange`) are notified of state changes
+
+### Changed
+
+- **`getAll()` caches sorted array** — `ElementStore.getAll()` now caches the sorted result and invalidates on mutation, eliminating O(n log n) sort per frame
+
+---
+
 ## [0.11.2] — 2026-05-28
 
 ### Added
