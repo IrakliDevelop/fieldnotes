@@ -6,6 +6,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ---
 
+## [0.12.0] — 2026-05-28
+
+### Added
+
+- **Shift+click multi-select** — hold Shift and click to add/remove elements from the selection. Works with all element types. Shift+click then drag moves the entire multi-selection
+- **Copy/paste (Ctrl+C / Ctrl+V)** — copies selected elements to an in-memory clipboard and pastes with new IDs. Successive pastes cascade position offset (+20px each). Arrow bindings are remapped when both arrow and target are copied. Entire paste is one undo step
+- **`shiftKey` in `PointerState`** — tools now receive `shiftKey: boolean` for keyboard-modifier-aware input handling
+- **`SelectTool.setSelection(ids)`** — programmatically set the selection from application code
+
+---
+
 ## [0.11.3] — 2026-05-28
 
 ### Fixed
