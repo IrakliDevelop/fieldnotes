@@ -229,6 +229,22 @@ describe('InputHandler', () => {
       expect(tm.handlePointerDown).toHaveBeenCalledOnce();
       pointerUp(element, { pointerId: 1 });
     });
+
+    it('dispatches tool for pen events even when button is not 0', () => {
+      const tm = stubToolManager();
+      const tc = stubToolContext();
+      handler.setToolManager(tm, tc);
+
+      pointerDown(element, {
+        pointerId: 1,
+        button: -1,
+        pointerType: 'pen',
+        clientX: 50,
+        clientY: 50,
+      });
+      expect(tm.handlePointerDown).toHaveBeenCalledOnce();
+      pointerUp(element, { pointerId: 1 });
+    });
   });
 
   describe('keyboard shortcuts', () => {

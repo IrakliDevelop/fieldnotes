@@ -50,6 +50,7 @@ export class InputHandler {
 
   destroy(): void {
     this.abortController.abort();
+    this.lastPointerEvent = null;
   }
 
   private bind(): void {
@@ -93,7 +94,10 @@ export class InputHandler {
       return;
     }
 
-    if (this.activePointers.size === 1 && (e.button === 0 || e.pointerType === 'touch')) {
+    if (
+      this.activePointers.size === 1 &&
+      (e.button === 0 || e.pointerType === 'touch' || e.pointerType === 'pen')
+    ) {
       this.dispatchToolDown(e);
     }
   };
