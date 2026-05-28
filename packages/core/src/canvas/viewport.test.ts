@@ -20,6 +20,20 @@ describe('Viewport', () => {
     document.body.removeChild(container);
   });
 
+  it('sets overscroll-behavior: none on wrapper', () => {
+    const viewport = new Viewport(container);
+    const wrapper = container.firstElementChild as HTMLDivElement;
+    expect(wrapper.style.overscrollBehavior).toBe('none');
+    viewport.destroy();
+  });
+
+  it('sets user-select: none on wrapper', () => {
+    const viewport = new Viewport(container);
+    const wrapper = container.firstElementChild as HTMLDivElement;
+    expect(wrapper.style.userSelect).toBe('none');
+    viewport.destroy();
+  });
+
   it('creates a wrapper with canvas and DOM layers inside container', () => {
     const viewport = new Viewport(container);
     const wrapper = container.firstElementChild as HTMLDivElement;
