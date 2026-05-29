@@ -72,6 +72,7 @@ export {
   unbindArrow,
 } from './elements/arrow-binding';
 export { getElementBounds, boundsIntersect } from './elements/element-bounds';
+export { getElementsBoundingBox } from './elements/bounds';
 export {
   getHexDistance,
   getHexCellsInRadius,
