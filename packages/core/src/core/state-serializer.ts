@@ -11,6 +11,7 @@ export interface CanvasState {
   };
   elements: CanvasElement[];
   layers?: Layer[];
+  activeLayerId?: string;
 }
 
 const CURRENT_VERSION = 2;
@@ -19,8 +20,9 @@ export function exportState(
   elements: CanvasElement[],
   camera: { position: Point; zoom: number },
   layers: Layer[] = [],
+  activeLayerId?: string,
 ): CanvasState {
-  return {
+  const state: CanvasState = {
     version: CURRENT_VERSION,
     camera: {
       position: { ...camera.position },
@@ -35,6 +37,8 @@ export function exportState(
     }),
     layers: layers.map((l) => ({ ...l })),
   };
+  if (activeLayerId) state.activeLayerId = activeLayerId;
+  return state;
 }
 
 export function parseState(json: string): CanvasState {

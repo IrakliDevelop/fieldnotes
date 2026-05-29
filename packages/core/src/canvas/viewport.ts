@@ -217,7 +217,12 @@ export class Viewport {
   }
 
   exportState(): CanvasState {
-    return exportCanvasState(this.store.snapshot(), this.camera, this.layerManager.snapshot());
+    return exportCanvasState(
+      this.store.snapshot(),
+      this.camera,
+      this.layerManager.snapshot(),
+      this.layerManager.activeLayerId,
+    );
   }
 
   exportJSON(): string {
@@ -235,6 +240,9 @@ export class Viewport {
     this.store.loadSnapshot(state.elements);
     if (state.layers && state.layers.length > 0) {
       this.layerManager.loadSnapshot(state.layers);
+    }
+    if (state.activeLayerId) {
+      this.layerManager.setActiveLayer(state.activeLayerId);
     }
     this.domNodeManager.reattachHtmlContent(this.store);
     this.history.clear();
