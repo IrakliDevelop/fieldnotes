@@ -137,7 +137,9 @@ export class InputHandler {
       return;
     }
 
-    if (this.isToolActive) {
+    if (e.pointerType === 'pen' && !this.activePointers.has(e.pointerId)) {
+      this.dispatchToolHover(e);
+    } else if (this.isToolActive) {
       this.dispatchToolMove(e);
     } else if (this.deferredDown) {
       const result = this.inputFilter.filterMove(e);
