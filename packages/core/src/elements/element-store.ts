@@ -136,6 +136,62 @@ export class ElementStore {
     }
   }
 
+  bringToFront(id: string): void {
+    const el = this.elements.get(id);
+    if (!el) return;
+    const siblings = [...this.elements.values()].filter(
+      (e) => e.layerId === el.layerId && e.id !== id,
+    );
+    if (siblings.length === 0) return;
+    const maxZ = Math.max(...siblings.map((e) => e.zIndex));
+    if (el.zIndex >= maxZ) return;
+    this.update(id, { zIndex: maxZ + 1 });
+  }
+
+  sendToBack(id: string): void {
+    const el = this.elements.get(id);
+    if (!el) return;
+    const siblings = [...this.elements.values()].filter(
+      (e) => e.layerId === el.layerId && e.id !== id,
+    );
+    if (siblings.length === 0) return;
+    const minZ = Math.min(...siblings.map((e) => e.zIndex));
+    if (el.zIndex <= minZ) return;
+    this.update(id, { zIndex: minZ - 1 });
+  }
+
+  bringForward(id: string): void {
+    const el = this.elements.get(id);
+    if (!el) return;
+    const sorted = [...this.elements.values()]
+      .filter((e) => e.layerId === el.layerId)
+      .sort((a, b) => a.zIndex - b.zIndex);
+    const idx = sorted.findIndex((e) => e.id === id);
+    if (idx < 0 || idx >= sorted.length - 1) return;
+    const next = sorted[idx + 1];
+    if (!next) return;
+    const myZ = el.zIndex;
+    const nextZ = next.zIndex;
+    this.update(id, { zIndex: nextZ });
+    this.update(next.id, { zIndex: myZ });
+  }
+
+  sendBackward(id: string): void {
+    const el = this.elements.get(id);
+    if (!el) return;
+    const sorted = [...this.elements.values()]
+      .filter((e) => e.layerId === el.layerId)
+      .sort((a, b) => a.zIndex - b.zIndex);
+    const idx = sorted.findIndex((e) => e.id === id);
+    if (idx <= 0) return;
+    const prev = sorted[idx - 1];
+    if (!prev) return;
+    const myZ = el.zIndex;
+    const prevZ = prev.zIndex;
+    this.update(id, { zIndex: prevZ });
+    this.update(prev.id, { zIndex: myZ });
+  }
+
   queryRect(rect: Bounds): CanvasElement[] {
     const ids = this.spatialIndex.query(rect);
     const elements: CanvasElement[] = [];

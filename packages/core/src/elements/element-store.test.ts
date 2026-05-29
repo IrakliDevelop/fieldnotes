@@ -600,4 +600,131 @@ describe('ElementStore', () => {
       expect(store.getVersion('n2')).toBe(0);
     });
   });
+
+  describe('z-order', () => {
+    describe('bringToFront', () => {
+      it('sets zIndex to max + 1 within layer', () => {
+        const store = new ElementStore();
+        store.add(makeNote({ id: 'a', zIndex: 0, layerId: 'L1' }));
+        store.add(makeNote({ id: 'b', zIndex: 5, layerId: 'L1' }));
+        store.add(makeNote({ id: 'c', zIndex: 2, layerId: 'L1' }));
+        store.bringToFront('a');
+        expect(store.getById('a')?.zIndex).toBe(6);
+      });
+
+      it('no-ops when element is already at front', () => {
+        const store = new ElementStore();
+        store.add(makeNote({ id: 'a', zIndex: 10, layerId: 'L1' }));
+        store.add(makeNote({ id: 'b', zIndex: 5, layerId: 'L1' }));
+        store.bringToFront('a');
+        expect(store.getById('a')?.zIndex).toBe(10);
+      });
+
+      it('no-ops for unknown id', () => {
+        const store = new ElementStore();
+        store.bringToFront('nonexistent');
+        expect(store.count).toBe(0);
+      });
+
+      it('no-ops for only element in layer', () => {
+        const store = new ElementStore();
+        store.add(makeNote({ id: 'a', zIndex: 0, layerId: 'L1' }));
+        store.bringToFront('a');
+        expect(store.getById('a')?.zIndex).toBe(0);
+      });
+
+      it('only considers elements in same layer', () => {
+        const store = new ElementStore();
+        store.add(makeNote({ id: 'a', zIndex: 0, layerId: 'L1' }));
+        store.add(makeNote({ id: 'b', zIndex: 100, layerId: 'L2' }));
+        store.bringToFront('a');
+        expect(store.getById('a')?.zIndex).toBe(0);
+      });
+    });
+
+    describe('sendToBack', () => {
+      it('sets zIndex to min - 1 within layer', () => {
+        const store = new ElementStore();
+        store.add(makeNote({ id: 'a', zIndex: 5, layerId: 'L1' }));
+        store.add(makeNote({ id: 'b', zIndex: 0, layerId: 'L1' }));
+        store.add(makeNote({ id: 'c', zIndex: 2, layerId: 'L1' }));
+        store.sendToBack('a');
+        expect(store.getById('a')?.zIndex).toBe(-1);
+      });
+
+      it('no-ops when element is already at back', () => {
+        const store = new ElementStore();
+        store.add(makeNote({ id: 'a', zIndex: 0, layerId: 'L1' }));
+        store.add(makeNote({ id: 'b', zIndex: 5, layerId: 'L1' }));
+        store.sendToBack('a');
+        expect(store.getById('a')?.zIndex).toBe(0);
+      });
+
+      it('no-ops for unknown id', () => {
+        const store = new ElementStore();
+        store.sendToBack('nonexistent');
+        expect(store.count).toBe(0);
+      });
+    });
+
+    describe('bringForward', () => {
+      it('swaps zIndex with next higher element in same layer', () => {
+        const store = new ElementStore();
+        store.add(makeNote({ id: 'a', zIndex: 0, layerId: 'L1' }));
+        store.add(makeNote({ id: 'b', zIndex: 1, layerId: 'L1' }));
+        store.add(makeNote({ id: 'c', zIndex: 2, layerId: 'L1' }));
+        store.bringForward('a');
+        expect(store.getById('a')?.zIndex).toBe(1);
+        expect(store.getById('b')?.zIndex).toBe(0);
+      });
+
+      it('no-ops when element is already at front', () => {
+        const store = new ElementStore();
+        store.add(makeNote({ id: 'a', zIndex: 0, layerId: 'L1' }));
+        store.add(makeNote({ id: 'b', zIndex: 5, layerId: 'L1' }));
+        store.bringForward('b');
+        expect(store.getById('b')?.zIndex).toBe(5);
+      });
+
+      it('no-ops for unknown id', () => {
+        const store = new ElementStore();
+        store.bringForward('nonexistent');
+        expect(store.count).toBe(0);
+      });
+
+      it('only considers elements in same layer', () => {
+        const store = new ElementStore();
+        store.add(makeNote({ id: 'a', zIndex: 0, layerId: 'L1' }));
+        store.add(makeNote({ id: 'b', zIndex: 1, layerId: 'L2' }));
+        store.bringForward('a');
+        expect(store.getById('a')?.zIndex).toBe(0);
+      });
+    });
+
+    describe('sendBackward', () => {
+      it('swaps zIndex with next lower element in same layer', () => {
+        const store = new ElementStore();
+        store.add(makeNote({ id: 'a', zIndex: 0, layerId: 'L1' }));
+        store.add(makeNote({ id: 'b', zIndex: 1, layerId: 'L1' }));
+        store.add(makeNote({ id: 'c', zIndex: 2, layerId: 'L1' }));
+        store.sendBackward('c');
+        expect(store.getById('c')?.zIndex).toBe(1);
+        expect(store.getById('b')?.zIndex).toBe(2);
+      });
+
+      it('no-ops when element is already at back', () => {
+        const store = new ElementStore();
+        store.add(makeNote({ id: 'a', zIndex: 0, layerId: 'L1' }));
+        store.add(makeNote({ id: 'b', zIndex: 5, layerId: 'L1' }));
+        store.sendBackward('a');
+        expect(store.getById('a')?.zIndex).toBe(0);
+      });
+
+      it('no-ops for unknown id', () => {
+        const store = new ElementStore();
+        store.sendBackward('nonexistent');
+        expect(store.count).toBe(0);
+      });
+    });
+  });
 });
