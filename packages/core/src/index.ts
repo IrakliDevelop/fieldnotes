@@ -1,4 +1,4 @@
-export const VERSION = '0.13.0';
+export const VERSION = '0.14.0';
 
 export { EventBus } from './core/event-bus';
 export { Quadtree } from './core/quadtree';
@@ -16,6 +16,8 @@ export type { BackgroundOptions, BackgroundPattern } from './canvas/background';
 export { InputHandler } from './canvas/input-handler';
 export { InputFilter } from './canvas/input-filter';
 export type { FilteredEvent, FilteredUpEvent, FilterAction } from './canvas/input-filter';
+export { DoubleTapDetector } from './canvas/double-tap-detector';
+export type { DoubleTapDetectorOptions } from './canvas/double-tap-detector';
 export { Viewport } from './canvas/viewport';
 export type { ViewportOptions, GridInfo } from './canvas/viewport';
 export { exportImage } from './canvas/export-image';
