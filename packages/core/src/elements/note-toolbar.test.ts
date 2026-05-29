@@ -136,4 +136,32 @@ describe('NoteToolbar', () => {
     expect(labels).toEqual(['Tiny', 'Huge']);
     toolbar.hide();
   });
+
+  it('format buttons have 44px minimum touch target', () => {
+    const toolbar = new NoteToolbar();
+    toolbar.show(container);
+    const buttons = toolbar.getElement()?.querySelectorAll('button');
+    if (!buttons) return;
+    for (const btn of buttons) {
+      expect(btn.style.minWidth).toBe('44px');
+      expect(btn.style.height).toBe('44px');
+    }
+    toolbar.hide();
+  });
+
+  it('font size select has 44px height', () => {
+    const toolbar = new NoteToolbar();
+    toolbar.show(container);
+    const select = toolbar.getElement()?.querySelector('select') as HTMLSelectElement | null;
+    expect(select?.style.height).toBe('44px');
+    toolbar.hide();
+  });
+
+  it('toolbar height is 52px', () => {
+    const toolbar = new NoteToolbar();
+    toolbar.show(container);
+    const el = toolbar.getElement();
+    expect(el?.style.height).toBe('52px');
+    toolbar.hide();
+  });
 });

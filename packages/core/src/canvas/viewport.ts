@@ -23,6 +23,7 @@ import type { CanvasState } from '../core/state-serializer';
 import { LayerManager } from '../layers/layer-manager';
 import { InteractMode } from './interact-mode';
 import { DomNodeManager } from './dom-node-manager';
+import { DoubleTapDetector } from './double-tap-detector';
 import { RenderLoop } from './render-loop';
 import type { RenderStatsSnapshot } from './render-stats';
 import { LayerCache } from './layer-cache';
@@ -65,6 +66,9 @@ export class Viewport {
   private readonly domNodeManager: DomNodeManager;
   private readonly interactMode: InteractMode;
   private readonly gridChangeListeners = new Set<(info: GridInfo | null) => void>();
+  private readonly doubleTapDetector = new DoubleTapDetector();
+  private tapDownX = 0;
+  private tapDownY = 0;
 
   constructor(
     private readonly container: HTMLElement,
@@ -190,7 +194,8 @@ export class Viewport {
       this.requestRender();
     });
 
-    this.wrapper.addEventListener('dblclick', this.onDblClick);
+    this.wrapper.addEventListener('pointerdown', this.onTapDown);
+    this.wrapper.addEventListener('pointerup', this.onDoubleTap);
     this.wrapper.addEventListener('dragover', this.onDragOver);
     this.wrapper.addEventListener('drop', this.onDrop);
     this.observeResize();
@@ -382,7 +387,8 @@ export class Viewport {
     this.interactMode.destroy();
     this.noteEditor.destroy(this.store);
     this.historyRecorder.destroy();
-    this.wrapper.removeEventListener('dblclick', this.onDblClick);
+    this.wrapper.removeEventListener('pointerdown', this.onTapDown);
+    this.wrapper.removeEventListener('pointerup', this.onDoubleTap);
     this.wrapper.removeEventListener('dragover', this.onDragOver);
     this.wrapper.removeEventListener('drop', this.onDrop);
     this.inputHandler.destroy();
@@ -427,7 +433,20 @@ export class Viewport {
     }
   }
 
-  private onDblClick = (e: MouseEvent): void => {
+  private onTapDown = (e: PointerEvent): void => {
+    this.tapDownX = e.clientX;
+    this.tapDownY = e.clientY;
+  };
+
+  private onDoubleTap = (e: PointerEvent): void => {
+    const dx = e.clientX - this.tapDownX;
+    const dy = e.clientY - this.tapDownY;
+    const moved = Math.sqrt(dx * dx + dy * dy);
+    if (moved > 10) return;
+
+    if (!this.doubleTapDetector.feed(e)) return;
+    if (typeof document.elementFromPoint !== 'function') return;
+
     const el = document.elementFromPoint(e.clientX, e.clientY);
 
     const nodeEl = (el as HTMLElement | null)?.closest<HTMLDivElement>('[data-element-id]');

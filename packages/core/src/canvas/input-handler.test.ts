@@ -468,6 +468,62 @@ describe('InputHandler', () => {
 
       expect(() => pointerMove(element, { clientX: 100, clientY: 100 })).not.toThrow();
     });
+
+    it('dispatches pen hover even when touch pointer is active', () => {
+      const onHover = vi.fn();
+      const tm = {
+        ...stubToolManager(),
+        activeTool: { onHover },
+      } as unknown as ToolManager;
+      const tc = stubToolContext();
+      handler.setToolManager(tm, tc);
+
+      pointerDown(element, {
+        pointerId: 1,
+        button: 0,
+        pointerType: 'touch',
+        clientX: 200,
+        clientY: 200,
+      });
+
+      pointerMove(element, {
+        pointerId: 2,
+        pointerType: 'pen',
+        clientX: 100,
+        clientY: 100,
+      });
+      expect(onHover).toHaveBeenCalledOnce();
+
+      pointerUp(element, { pointerId: 1, pointerType: 'touch' });
+    });
+
+    it('does not dispatch finger hover when touch pointer is active', () => {
+      const onHover = vi.fn();
+      const tm = {
+        ...stubToolManager(),
+        activeTool: { onHover },
+      } as unknown as ToolManager;
+      const tc = stubToolContext();
+      handler.setToolManager(tm, tc);
+
+      pointerDown(element, {
+        pointerId: 1,
+        button: 0,
+        pointerType: 'touch',
+        clientX: 200,
+        clientY: 200,
+      });
+
+      pointerMove(element, {
+        pointerId: 3,
+        pointerType: 'touch',
+        clientX: 100,
+        clientY: 100,
+      });
+      expect(onHover).not.toHaveBeenCalled();
+
+      pointerUp(element, { pointerId: 1, pointerType: 'touch' });
+    });
   });
 
   describe('tool dispatch without toolManager', () => {

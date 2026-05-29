@@ -6,6 +6,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ---
 
+## [0.14.0] — 2026-05-29
+
+### Fixed
+
+- **Pen hover during touch contact** — Apple Pencil hover preview now works even when a finger is touching the screen. Only pen-type pointers get the hover exemption; finger hover remains suppressed during multi-touch
+- **Toolbar button touch targets** — format buttons and font size selector increased from 24px to 44px minimum, meeting Apple HIG touch target requirements. Toolbar height increased from 32px to 52px
+- **Double-tap to edit on touch devices** — replaced unreliable `dblclick` DOM events with pointer-event-based `DoubleTapDetector` for notes, text elements, and HTML interaction toggle. Consistent behavior across iPad Safari, Android, and desktop
+
+### Added
+
+- **`DoubleTapDetector`** — reusable utility class for detecting double-tap gestures via pointer events. Configurable timeout (default 300ms) and distance threshold (default 20px). Exported from `@fieldnotes/core`
+
+---
+
 ## [0.13.0] — 2026-05-29
 
 ### Added
