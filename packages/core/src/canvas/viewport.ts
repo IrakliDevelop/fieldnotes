@@ -131,6 +131,7 @@ export class Viewport {
       onEditRequest: (id) => this.startEditingElement(id),
       isEditingElement: (id) =>
         this.noteEditor.isEditing && this.noteEditor.editingElementId === id,
+      getVersion: (id) => this.store.getVersion(id),
     });
 
     this.interactMode = new InteractMode({

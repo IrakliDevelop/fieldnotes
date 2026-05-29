@@ -523,4 +523,154 @@ describe('DomNodeManager', () => {
       expect(spy).not.toHaveBeenCalled();
     });
   });
+
+  describe('dirty tracking', () => {
+    it('skips DOM updates when element version and zIndex unchanged', () => {
+      const version = 0;
+      const trackedManager = new DomNodeManager({
+        domLayer,
+        onEditRequest,
+        isEditingElement,
+        getVersion: () => version,
+      });
+
+      const note = createNote({
+        position: { x: 100, y: 200 },
+        size: { w: 300, h: 150 },
+      });
+
+      trackedManager.syncDomNode(note, 0);
+      const node = trackedManager.getNode(note.id);
+      expect(node).toBeDefined();
+      expect(node?.style.left).toBe('100px');
+
+      const modified = { ...note, position: { x: 999, y: 999 } };
+      trackedManager.syncDomNode(modified, 0);
+      expect(node?.style.left).toBe('100px');
+    });
+
+    it('updates DOM when element version changes', () => {
+      let version = 0;
+      const trackedManager = new DomNodeManager({
+        domLayer,
+        onEditRequest,
+        isEditingElement,
+        getVersion: () => version,
+      });
+
+      const note = createNote({
+        position: { x: 100, y: 200 },
+        size: { w: 300, h: 150 },
+      });
+
+      trackedManager.syncDomNode(note, 0);
+      const node = trackedManager.getNode(note.id);
+      expect(node?.style.left).toBe('100px');
+
+      version = 1;
+      const moved = { ...note, position: { x: 500, y: 500 } };
+      trackedManager.syncDomNode(moved, 0);
+      expect(node?.style.left).toBe('500px');
+    });
+
+    it('updates DOM when zIndex changes even if version unchanged', () => {
+      const version = 0;
+      const trackedManager = new DomNodeManager({
+        domLayer,
+        onEditRequest,
+        isEditingElement,
+        getVersion: () => version,
+      });
+
+      const note = createNote({
+        position: { x: 100, y: 200 },
+        size: { w: 300, h: 150 },
+      });
+
+      trackedManager.syncDomNode(note, 0);
+      const node = trackedManager.getNode(note.id);
+      expect(node?.style.zIndex).toBe('0');
+
+      trackedManager.syncDomNode(note, 5);
+      expect(node?.style.zIndex).toBe('5');
+    });
+
+    it('always syncs first time (no cached version)', () => {
+      const trackedManager = new DomNodeManager({
+        domLayer,
+        onEditRequest,
+        isEditingElement,
+        getVersion: () => 0,
+      });
+
+      const note = createNote({
+        position: { x: 42, y: 99 },
+        size: { w: 300, h: 150 },
+      });
+
+      trackedManager.syncDomNode(note, 3);
+      const node = trackedManager.getNode(note.id);
+      expect(node?.style.left).toBe('42px');
+      expect(node?.style.zIndex).toBe('3');
+    });
+
+    it('clears tracking on removeDomNode', () => {
+      const version = 0;
+      const trackedManager = new DomNodeManager({
+        domLayer,
+        onEditRequest,
+        isEditingElement,
+        getVersion: () => version,
+      });
+
+      const note = createNote({
+        position: { x: 100, y: 200 },
+        size: { w: 300, h: 150 },
+      });
+
+      trackedManager.syncDomNode(note, 0);
+      trackedManager.removeDomNode(note.id);
+
+      trackedManager.syncDomNode(note, 0);
+      const node = trackedManager.getNode(note.id);
+      expect(node?.style.left).toBe('100px');
+    });
+
+    it('clears tracking on clearDomNodes', () => {
+      const version = 0;
+      const trackedManager = new DomNodeManager({
+        domLayer,
+        onEditRequest,
+        isEditingElement,
+        getVersion: () => version,
+      });
+
+      const note = createNote({
+        position: { x: 100, y: 200 },
+        size: { w: 300, h: 150 },
+      });
+
+      trackedManager.syncDomNode(note, 0);
+      trackedManager.clearDomNodes();
+
+      trackedManager.syncDomNode(note, 0);
+      const node = trackedManager.getNode(note.id);
+      expect(node?.style.left).toBe('100px');
+    });
+
+    it('works without getVersion (no dirty tracking)', () => {
+      const note = createNote({
+        position: { x: 100, y: 200 },
+        size: { w: 300, h: 150 },
+      });
+
+      manager.syncDomNode(note, 0);
+      const node = manager.getNode(note.id);
+      expect(node?.style.left).toBe('100px');
+
+      const moved = { ...note, position: { x: 999, y: 999 } };
+      manager.syncDomNode(moved, 0);
+      expect(node?.style.left).toBe('999px');
+    });
+  });
 });

@@ -24,9 +24,14 @@ export class ElementStore {
   private layerOrderMap = new Map<string, number>();
   private spatialIndex = new Quadtree({ x: -100000, y: -100000, w: 200000, h: 200000 });
   private sortedCache: CanvasElement[] | null = null;
+  private _versions = new Map<string, number>();
 
   get count(): number {
     return this.elements.size;
+  }
+
+  getVersion(id: string): number {
+    return this._versions.get(id) ?? -1;
   }
 
   setLayerOrder(order: Map<string, number>): void {
@@ -57,6 +62,7 @@ export class ElementStore {
 
   add(element: CanvasElement): void {
     this.sortedCache = null;
+    this._versions.set(element.id, 0);
     this.elements.set(element.id, element);
     const bounds = getElementBounds(element);
     if (bounds) this.spatialIndex.insert(element.id, bounds);
@@ -67,6 +73,7 @@ export class ElementStore {
     const existing = this.elements.get(id);
     if (!existing) return;
     this.sortedCache = null;
+    this._versions.set(id, (this._versions.get(id) ?? 0) + 1);
 
     const updated = { ...existing, ...partial, id: existing.id, type: existing.type };
 
@@ -93,6 +100,7 @@ export class ElementStore {
     const element = this.elements.get(id);
     if (!element) return;
     this.sortedCache = null;
+    this._versions.delete(id);
 
     this.elements.delete(id);
     this.spatialIndex.remove(id);
@@ -101,6 +109,7 @@ export class ElementStore {
 
   clear(): void {
     this.sortedCache = null;
+    this._versions.clear();
     this.elements.clear();
     this.spatialIndex.clear();
     this.bus.emit('clear', null);
@@ -112,10 +121,12 @@ export class ElementStore {
 
   loadSnapshot(elements: CanvasElement[]): void {
     this.sortedCache = null;
+    this._versions.clear();
     this.elements.clear();
     this.spatialIndex.clear();
     for (const el of elements) {
       this.elements.set(el.id, el);
+      this._versions.set(el.id, 0);
       const bounds = getElementBounds(el);
       if (bounds) this.spatialIndex.insert(el.id, bounds);
     }
@@ -123,6 +134,62 @@ export class ElementStore {
     for (const el of elements) {
       this.bus.emit('add', el);
     }
+  }
+
+  bringToFront(id: string): void {
+    const el = this.elements.get(id);
+    if (!el) return;
+    const siblings = [...this.elements.values()].filter(
+      (e) => e.layerId === el.layerId && e.id !== id,
+    );
+    if (siblings.length === 0) return;
+    const maxZ = Math.max(...siblings.map((e) => e.zIndex));
+    if (el.zIndex >= maxZ) return;
+    this.update(id, { zIndex: maxZ + 1 });
+  }
+
+  sendToBack(id: string): void {
+    const el = this.elements.get(id);
+    if (!el) return;
+    const siblings = [...this.elements.values()].filter(
+      (e) => e.layerId === el.layerId && e.id !== id,
+    );
+    if (siblings.length === 0) return;
+    const minZ = Math.min(...siblings.map((e) => e.zIndex));
+    if (el.zIndex <= minZ) return;
+    this.update(id, { zIndex: minZ - 1 });
+  }
+
+  bringForward(id: string): void {
+    const el = this.elements.get(id);
+    if (!el) return;
+    const sorted = [...this.elements.values()]
+      .filter((e) => e.layerId === el.layerId)
+      .sort((a, b) => a.zIndex - b.zIndex);
+    const idx = sorted.findIndex((e) => e.id === id);
+    if (idx < 0 || idx >= sorted.length - 1) return;
+    const next = sorted[idx + 1];
+    if (!next) return;
+    const myZ = el.zIndex;
+    const nextZ = next.zIndex;
+    this.update(id, { zIndex: nextZ });
+    this.update(next.id, { zIndex: myZ });
+  }
+
+  sendBackward(id: string): void {
+    const el = this.elements.get(id);
+    if (!el) return;
+    const sorted = [...this.elements.values()]
+      .filter((e) => e.layerId === el.layerId)
+      .sort((a, b) => a.zIndex - b.zIndex);
+    const idx = sorted.findIndex((e) => e.id === id);
+    if (idx <= 0) return;
+    const prev = sorted[idx - 1];
+    if (!prev) return;
+    const myZ = el.zIndex;
+    const prevZ = prev.zIndex;
+    this.update(id, { zIndex: prevZ });
+    this.update(prev.id, { zIndex: myZ });
   }
 
   queryRect(rect: Bounds): CanvasElement[] {

@@ -6,6 +6,7 @@ export interface DomNodeManagerDeps {
   domLayer: HTMLDivElement;
   onEditRequest: (id: string) => void;
   isEditingElement: (id: string) => boolean;
+  getVersion?: (id: string) => number;
 }
 
 export class DomNodeManager {
@@ -14,11 +15,15 @@ export class DomNodeManager {
   private readonly domLayer: HTMLDivElement;
   private readonly onEditRequest: (id: string) => void;
   private readonly isEditingElement: (id: string) => boolean;
+  private readonly getVersion: ((id: string) => number) | null;
+  private lastSyncedVersion = new Map<string, number>();
+  private lastSyncedZIndex = new Map<string, number>();
 
   constructor(deps: DomNodeManagerDeps) {
     this.domLayer = deps.domLayer;
     this.onEditRequest = deps.onEditRequest;
     this.isEditingElement = deps.isEditingElement;
+    this.getVersion = deps.getVersion ?? null;
   }
 
   getNode(id: string): HTMLDivElement | undefined {
@@ -40,6 +45,18 @@ export class DomNodeManager {
       });
       this.domLayer.appendChild(node);
       this.domNodes.set(element.id, node);
+    } else if (this.getVersion) {
+      const currentVersion = this.getVersion(element.id);
+      const lastVersion = this.lastSyncedVersion.get(element.id);
+      const lastZ = this.lastSyncedZIndex.get(element.id);
+      if (lastVersion === currentVersion && lastZ === zIndex) {
+        return;
+      }
+    }
+
+    if (this.getVersion) {
+      this.lastSyncedVersion.set(element.id, this.getVersion(element.id));
+      this.lastSyncedZIndex.set(element.id, zIndex);
     }
 
     const size = 'size' in element ? element.size : null;
@@ -62,6 +79,8 @@ export class DomNodeManager {
 
   removeDomNode(id: string): void {
     this.htmlContent.delete(id);
+    this.lastSyncedVersion.delete(id);
+    this.lastSyncedZIndex.delete(id);
     const node = this.domNodes.get(id);
     if (node) {
       node.remove();
@@ -73,6 +92,8 @@ export class DomNodeManager {
     this.domNodes.forEach((node) => node.remove());
     this.domNodes.clear();
     this.htmlContent.clear();
+    this.lastSyncedVersion.clear();
+    this.lastSyncedZIndex.clear();
   }
 
   reattachHtmlContent(store: ElementStore): void {

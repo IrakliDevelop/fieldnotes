@@ -502,6 +502,107 @@ describe('SelectTool', () => {
       tool.onPointerUp(pt(10, 10), ctx);
       expect(tool.selectedIds).toEqual([stroke.id]);
     });
+
+    describe('shift-constrain resize', () => {
+      it('maintains aspect ratio when shift is held during SE resize', () => {
+        const tool = new SelectTool();
+        const ctx = makeCtx();
+        const note = createNote({ position: { x: 100, y: 100 }, size: { w: 200, h: 100 } });
+        ctx.store.add(note);
+
+        tool.onPointerDown(pt(150, 130), ctx);
+        tool.onPointerUp(pt(150, 130), ctx);
+
+        // Drag SE corner with shift — width dominant
+        tool.onPointerDown(pt(300, 200), ctx);
+        tool.onPointerMove(shiftPt(350, 210), ctx);
+        tool.onPointerUp(shiftPt(350, 210), ctx);
+
+        const updated = ctx.store.getById(note.id) as NoteElement;
+        // Original aspect ratio is 2:1 (200/100)
+        // Width grew by 50, so w=250, h should be 250/2 = 125
+        expect(updated.size.w).toBe(250);
+        expect(updated.size.h).toBe(125);
+        expect(updated.position).toEqual({ x: 100, y: 100 });
+      });
+
+      it('maintains aspect ratio when height is the dominant axis', () => {
+        const tool = new SelectTool();
+        const ctx = makeCtx();
+        const note = createNote({ position: { x: 100, y: 100 }, size: { w: 100, h: 200 } });
+        ctx.store.add(note);
+
+        tool.onPointerDown(pt(120, 180), ctx);
+        tool.onPointerUp(pt(120, 180), ctx);
+
+        // Drag SE corner with shift — height dominant
+        tool.onPointerDown(pt(200, 300), ctx);
+        tool.onPointerMove(shiftPt(210, 400), ctx);
+        tool.onPointerUp(shiftPt(400, 400), ctx);
+
+        const updated = ctx.store.getById(note.id) as NoteElement;
+        // Original ratio 0.5 (100/200). Height grew by 100, h=300, w = 300 * 0.5 = 150
+        expect(updated.size.h).toBe(300);
+        expect(updated.size.w).toBe(150);
+      });
+
+      it('maintains aspect ratio from NW handle', () => {
+        const tool = new SelectTool();
+        const ctx = makeCtx();
+        const note = createNote({ position: { x: 100, y: 100 }, size: { w: 200, h: 100 } });
+        ctx.store.add(note);
+
+        tool.onPointerDown(pt(150, 130), ctx);
+        tool.onPointerUp(pt(150, 130), ctx);
+
+        // Drag NW corner with shift
+        tool.onPointerDown(pt(100, 100), ctx);
+        tool.onPointerMove(shiftPt(60, 90), ctx);
+        tool.onPointerUp(shiftPt(60, 90), ctx);
+
+        const updated = ctx.store.getById(note.id) as NoteElement;
+        // Width grew by 40 (dx=-40, nw: w -= dx → w=240), h should be 240/2 = 120
+        expect(updated.size.w).toBe(240);
+        expect(updated.size.h).toBe(120);
+      });
+
+      it('does not constrain when shift is not held', () => {
+        const tool = new SelectTool();
+        const ctx = makeCtx();
+        const note = createNote({ position: { x: 100, y: 100 }, size: { w: 200, h: 100 } });
+        ctx.store.add(note);
+
+        tool.onPointerDown(pt(150, 130), ctx);
+        tool.onPointerUp(pt(150, 130), ctx);
+
+        tool.onPointerDown(pt(300, 200), ctx);
+        tool.onPointerMove(pt(350, 210), ctx);
+        tool.onPointerUp(pt(350, 210), ctx);
+
+        const updated = ctx.store.getById(note.id) as NoteElement;
+        expect(updated.size.w).toBe(250);
+        expect(updated.size.h).toBe(110);
+      });
+
+      it('still enforces minimum size after constraint', () => {
+        const tool = new SelectTool();
+        const ctx = makeCtx();
+        const note = createNote({ position: { x: 100, y: 100 }, size: { w: 200, h: 100 } });
+        ctx.store.add(note);
+
+        tool.onPointerDown(pt(150, 130), ctx);
+        tool.onPointerUp(pt(150, 130), ctx);
+
+        // Drag SE corner hugely negative with shift
+        tool.onPointerDown(pt(300, 200), ctx);
+        tool.onPointerMove(shiftPt(50, 50), ctx);
+        tool.onPointerUp(shiftPt(50, 50), ctx);
+
+        const updated = ctx.store.getById(note.id) as NoteElement;
+        expect(updated.size.w).toBeGreaterThanOrEqual(20);
+        expect(updated.size.h).toBeGreaterThanOrEqual(20);
+      });
+    });
   });
 
   describe('snap-to-grid dragging', () => {

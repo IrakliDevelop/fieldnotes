@@ -6,6 +6,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ---
 
+## [0.15.0] — 2026-05-29
+
+### Added
+
+- **Shift-constrain resize** — hold Shift while dragging a resize handle to lock the element's aspect ratio. Works with all four corner handles (NW, NE, SW, SE). Aspect ratio captured at resize start
+- **Z-order controls** — `ElementStore.bringToFront()`, `.sendToBack()`, `.bringForward()`, `.sendBackward()` for reordering elements within a layer. Keyboard shortcuts: `]` (forward), `[` (backward), `Ctrl+]` / `Cmd+]` (to front), `Ctrl+[` / `Cmd+[` (to back)
+- **`ElementStore.getVersion(id)`** — returns a monotonically increasing version number for an element, useful for dirty-checking optimizations
+
+### Performance
+
+- **syncDomNode dirty tracking** — DOM element style updates now skip unchanged elements using a generation counter. Reduces unnecessary DOM writes from 1200+/sec to near-zero for static scenes with 20+ notes
+
+### Added (Testing)
+
+- **Viewport roundtrip integration test** — full save/load cycle covering all element types, camera state, arrow bindings, multi-layer configurations, and grid elements
+
+---
+
 ## [0.14.0] — 2026-05-29
 
 ### Fixed

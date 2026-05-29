@@ -45,6 +45,7 @@ export class SelectTool implements Tool {
   private ctx: ToolContext | null = null;
   private pendingSingleSelectId: string | null = null;
   private hasDragged = false;
+  private resizeAspectRatio = 0;
 
   get selectedIds(): string[] {
     return [...this._selectedIds];
@@ -100,7 +101,8 @@ export class SelectTool implements Tool {
     const resizeHit = this.hitTestResizeHandle(world, ctx);
     if (resizeHit) {
       const el = ctx.store.getById(resizeHit.elementId);
-      if (el) {
+      if (el && 'size' in el) {
+        this.resizeAspectRatio = el.size.h > 0 ? el.size.w / el.size.h : 0;
         this.mode = {
           type: 'resizing',
           elementId: resizeHit.elementId,
@@ -158,7 +160,7 @@ export class SelectTool implements Tool {
 
     if (this.mode.type === 'resizing') {
       ctx.setCursor?.(HANDLE_CURSORS[this.mode.handle]);
-      this.handleResize(world, ctx);
+      this.handleResize(world, ctx, state.shiftKey);
       return;
     }
 
@@ -303,7 +305,7 @@ export class SelectTool implements Tool {
     ctx.setCursor?.(hit ? 'move' : 'default');
   }
 
-  private handleResize(world: Point, ctx: ToolContext): void {
+  private handleResize(world: Point, ctx: ToolContext, shiftKey = false): void {
     if (this.mode.type !== 'resizing') return;
 
     const el = ctx.store.getById(this.mode.elementId);
@@ -339,6 +341,22 @@ export class SelectTool implements Tool {
         break;
     }
 
+    if (shiftKey && this.resizeAspectRatio > 0) {
+      const absDw = Math.abs(w - el.size.w);
+      const absDh = Math.abs(h - el.size.h);
+      if (absDw >= absDh) {
+        h = w / this.resizeAspectRatio;
+      } else {
+        w = h * this.resizeAspectRatio;
+      }
+      if (handle === 'nw' || handle === 'sw') {
+        x = el.position.x + el.size.w - w;
+      }
+      if (handle === 'nw' || handle === 'ne') {
+        y = el.position.y + el.size.h - h;
+      }
+    }
+
     if (w < MIN_ELEMENT_SIZE) {
       if (handle === 'nw' || handle === 'sw') x = el.position.x + el.size.w - MIN_ELEMENT_SIZE;
       w = MIN_ELEMENT_SIZE;
@@ -353,7 +371,6 @@ export class SelectTool implements Tool {
       size: { w, h },
     });
 
-    // Update arrows bound to the resized element
     const boundArrows = findBoundArrows(this.mode.elementId, ctx.store);
     for (const ba of boundArrows) {
       const updates = updateBoundArrow(ba, ctx.store);

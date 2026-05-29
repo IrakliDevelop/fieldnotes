@@ -208,6 +208,14 @@ export class InputHandler {
       e.preventDefault();
       this.handlePaste();
     }
+    if (e.key === ']') {
+      e.preventDefault();
+      this.handleZOrder(e.ctrlKey || e.metaKey ? 'front' : 'forward');
+    }
+    if (e.key === '[') {
+      e.preventDefault();
+      this.handleZOrder(e.ctrlKey || e.metaKey ? 'back' : 'backward');
+    }
   };
 
   private onKeyUp = (e: KeyboardEvent): void => {
@@ -414,6 +422,35 @@ export class InputHandler {
 
     this.historyRecorder?.commit();
     selectTool.setSelection(newIds);
+    this.toolContext.requestRender();
+  }
+
+  private handleZOrder(operation: 'forward' | 'backward' | 'front' | 'back'): void {
+    if (!this.toolManager || !this.toolContext) return;
+    const tool = this.toolManager.activeTool;
+    if (tool?.name !== 'select') return;
+    const selectTool = tool as SelectTool;
+    const ids = selectTool.selectedIds;
+    if (ids.length === 0) return;
+
+    this.historyRecorder?.begin();
+    for (const id of ids) {
+      switch (operation) {
+        case 'forward':
+          this.toolContext.store.bringForward(id);
+          break;
+        case 'backward':
+          this.toolContext.store.sendBackward(id);
+          break;
+        case 'front':
+          this.toolContext.store.bringToFront(id);
+          break;
+        case 'back':
+          this.toolContext.store.sendToBack(id);
+          break;
+      }
+    }
+    this.historyRecorder?.commit();
     this.toolContext.requestRender();
   }
 
