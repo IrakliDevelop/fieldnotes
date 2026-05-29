@@ -63,6 +63,7 @@ interface HtmlInput extends BaseDefaults {
   position: Point;
   size: Size;
   domId?: string;
+  interactive?: boolean;
 }
 
 interface TextInput extends BaseDefaults {
@@ -150,6 +151,7 @@ export function createHtmlElement(input: HtmlInput): HtmlElement {
     size: input.size,
   };
   if (input.domId) el.domId = input.domId;
+  if (input.interactive) el.interactive = input.interactive;
   return el;
 }
 

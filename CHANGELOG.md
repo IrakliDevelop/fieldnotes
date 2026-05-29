@@ -6,6 +6,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ---
 
+## [0.13.0] — 2026-05-29
+
+### Added
+
+- **`Camera.fitToContent()`** — frame all elements in the viewport by computing optimal zoom and pan. Accepts a `Bounds` (bounding box), canvas dimensions, and optional padding (default 40). Clamps zoom to camera min/max. No-op for empty/zero-size content
+- **`getElementsBoundingBox()`** — utility that computes the union bounding box of an array of elements. Returns `null` for empty arrays. Exported from `@fieldnotes/core`
+- **`activeLayerId` persistence** — `CanvasState` now includes an optional `activeLayerId` field. `exportState()` accepts it; `Viewport.loadState()` restores the active layer selection. Falls back to first layer for old states or invalid IDs
+- **`AutoSave.onError` callback** — `AutoSaveOptions.onError` fires when a save fails (e.g. localStorage quota exceeded). Receives the `Error` object. `console.warn` still fires alongside for dev-tools visibility
+- **`HtmlElement.interactive` flag** — set `interactive: true` on HTML elements to enable pointer events (`pointerEvents: 'auto'`). Non-interactive elements (default) keep `pointerEvents: 'none'`. Opt-in — interactive elements capture pointer events, blocking canvas pan/select over that area
+
+---
+
 ## [0.12.0] — 2026-05-28
 
 ### Added

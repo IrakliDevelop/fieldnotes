@@ -45,6 +45,16 @@ describe('exportState', () => {
     expect(state.layers).toEqual(layers);
   });
 
+  it('includes activeLayerId when provided', () => {
+    const state = exportState([], makeCamera(), [], 'layer-42');
+    expect(state.activeLayerId).toBe('layer-42');
+  });
+
+  it('omits activeLayerId when not provided', () => {
+    const state = exportState([], makeCamera());
+    expect(state.activeLayerId).toBeUndefined();
+  });
+
   it('strips cachedControlPoint from arrow elements', () => {
     const arrow = createArrow({
       from: { x: 0, y: 0 },
@@ -91,6 +101,21 @@ describe('parseState', () => {
     expect(state.version).toBe(2);
     expect(state.camera.zoom).toBe(1);
     expect(state.elements).toHaveLength(1);
+  });
+
+  it('returns activeLayerId when present in state', () => {
+    const state = validState();
+    (state as Record<string, unknown>).activeLayerId = 'my-layer';
+    const json = JSON.stringify(state);
+    const parsed = parseState(json);
+    expect(parsed.activeLayerId).toBe('my-layer');
+  });
+
+  it('returns undefined activeLayerId for old state format', () => {
+    const state = validState();
+    const json = JSON.stringify(state);
+    const parsed = parseState(json);
+    expect(parsed.activeLayerId).toBeUndefined();
   });
 
   it('round-trips through export and parse', () => {

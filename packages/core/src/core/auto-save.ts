@@ -8,6 +8,7 @@ export interface AutoSaveOptions {
   key?: string;
   debounceMs?: number;
   layerManager?: LayerManager;
+  onError?: (error: Error) => void;
 }
 
 const DEFAULT_KEY = 'fieldnotes-autosave';
@@ -19,6 +20,7 @@ export class AutoSave {
   private readonly layerManager?: LayerManager;
   private timerId: ReturnType<typeof setTimeout> | null = null;
   private unsubscribers: (() => void)[] = [];
+  private readonly onError?: (error: Error) => void;
 
   constructor(
     private readonly store: ElementStore,
@@ -28,6 +30,7 @@ export class AutoSave {
     this.key = options.key ?? DEFAULT_KEY;
     this.debounceMs = options.debounceMs ?? DEFAULT_DEBOUNCE_MS;
     this.layerManager = options.layerManager;
+    this.onError = options.onError;
   }
 
   start(): void {
@@ -87,8 +90,9 @@ export class AutoSave {
     const state = exportState(this.store.snapshot(), this.camera, layers);
     try {
       localStorage.setItem(this.key, JSON.stringify(state));
-    } catch {
+    } catch (e) {
       console.warn('Auto-save failed: storage quota exceeded. State too large for localStorage.');
+      this.onError?.(e instanceof Error ? e : new Error(String(e)));
     }
   }
 }

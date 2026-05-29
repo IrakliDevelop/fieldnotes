@@ -440,6 +440,51 @@ describe('DomNodeManager', () => {
     });
   });
 
+  describe('renderDomContent — html interactive', () => {
+    it('sets pointerEvents to none for non-interactive html element', () => {
+      const el = createHtmlElement({
+        position: { x: 0, y: 0 },
+        size: { w: 200, h: 100 },
+      });
+      const content = document.createElement('div');
+      manager.storeHtmlContent(el.id, content);
+      manager.syncDomNode(el);
+      const node = manager.getNode(el.id);
+      expect(node?.style.pointerEvents).toBe('none');
+    });
+
+    it('sets pointerEvents to auto for interactive html element', () => {
+      const el = createHtmlElement({
+        position: { x: 0, y: 0 },
+        size: { w: 200, h: 100 },
+        interactive: true,
+      });
+      const content = document.createElement('div');
+      manager.storeHtmlContent(el.id, content);
+      manager.syncDomNode(el);
+      const node = manager.getNode(el.id);
+      expect(node?.style.pointerEvents).toBe('auto');
+    });
+
+    it('updates pointerEvents when interactive flag is toggled via re-sync', () => {
+      const el = createHtmlElement({
+        position: { x: 0, y: 0 },
+        size: { w: 200, h: 100 },
+      });
+      const content = document.createElement('div');
+      manager.storeHtmlContent(el.id, content);
+      manager.syncDomNode(el);
+      const node = manager.getNode(el.id);
+      expect(node?.style.pointerEvents).toBe('none');
+
+      manager.syncDomNode({ ...el, interactive: true });
+      expect(node?.style.pointerEvents).toBe('auto');
+
+      manager.syncDomNode({ ...el, interactive: false });
+      expect(node?.style.pointerEvents).toBe('none');
+    });
+  });
+
   describe('renderDomContent — note text unchanged', () => {
     it('does not update innerHTML when text has not changed', () => {
       const note = createNote({

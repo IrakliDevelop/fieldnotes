@@ -177,4 +177,56 @@ describe('AutoSave', () => {
 
     expect(localStorage.getItem('fieldnotes-autosave')).not.toBeNull();
   });
+
+  it('calls onError when localStorage.setItem throws', () => {
+    const onError = vi.fn();
+    autoSave = new AutoSave(store, camera, { key: 'test-save', onError });
+    autoSave.start();
+
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('QuotaExceededError');
+    });
+
+    store.add(makeNote());
+    vi.advanceTimersByTime(1000);
+
+    expect(onError).toHaveBeenCalledOnce();
+    expect(onError.mock.calls[0]?.[0]).toBeInstanceOf(Error);
+
+    vi.restoreAllMocks();
+  });
+
+  it('still console.warns when onError is provided', () => {
+    const onError = vi.fn();
+    autoSave = new AutoSave(store, camera, { key: 'test-save', onError });
+    autoSave.start();
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('QuotaExceededError');
+    });
+
+    store.add(makeNote());
+    vi.advanceTimersByTime(1000);
+
+    expect(warnSpy).toHaveBeenCalledOnce();
+    expect(onError).toHaveBeenCalledOnce();
+
+    vi.restoreAllMocks();
+  });
+
+  it('does not throw when onError is not provided and save fails', () => {
+    autoSave = new AutoSave(store, camera, { key: 'test-save' });
+    autoSave.start();
+
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('QuotaExceededError');
+    });
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    store.add(makeNote());
+    expect(() => vi.advanceTimersByTime(1000)).not.toThrow();
+
+    vi.restoreAllMocks();
+  });
 });
