@@ -24,9 +24,14 @@ export class ElementStore {
   private layerOrderMap = new Map<string, number>();
   private spatialIndex = new Quadtree({ x: -100000, y: -100000, w: 200000, h: 200000 });
   private sortedCache: CanvasElement[] | null = null;
+  private _versions = new Map<string, number>();
 
   get count(): number {
     return this.elements.size;
+  }
+
+  getVersion(id: string): number {
+    return this._versions.get(id) ?? -1;
   }
 
   setLayerOrder(order: Map<string, number>): void {
@@ -57,6 +62,7 @@ export class ElementStore {
 
   add(element: CanvasElement): void {
     this.sortedCache = null;
+    this._versions.set(element.id, 0);
     this.elements.set(element.id, element);
     const bounds = getElementBounds(element);
     if (bounds) this.spatialIndex.insert(element.id, bounds);
@@ -67,6 +73,7 @@ export class ElementStore {
     const existing = this.elements.get(id);
     if (!existing) return;
     this.sortedCache = null;
+    this._versions.set(id, (this._versions.get(id) ?? 0) + 1);
 
     const updated = { ...existing, ...partial, id: existing.id, type: existing.type };
 
@@ -93,6 +100,7 @@ export class ElementStore {
     const element = this.elements.get(id);
     if (!element) return;
     this.sortedCache = null;
+    this._versions.delete(id);
 
     this.elements.delete(id);
     this.spatialIndex.remove(id);
@@ -101,6 +109,7 @@ export class ElementStore {
 
   clear(): void {
     this.sortedCache = null;
+    this._versions.clear();
     this.elements.clear();
     this.spatialIndex.clear();
     this.bus.emit('clear', null);
@@ -112,10 +121,12 @@ export class ElementStore {
 
   loadSnapshot(elements: CanvasElement[]): void {
     this.sortedCache = null;
+    this._versions.clear();
     this.elements.clear();
     this.spatialIndex.clear();
     for (const el of elements) {
       this.elements.set(el.id, el);
+      this._versions.set(el.id, 0);
       const bounds = getElementBounds(el);
       if (bounds) this.spatialIndex.insert(el.id, bounds);
     }

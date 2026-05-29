@@ -547,4 +547,57 @@ describe('ElementStore', () => {
       expect((store.getById('note-1') as NoteElement).text).toBe('<b>bold</b>');
     });
   });
+
+  describe('version tracking', () => {
+    it('returns 0 for a newly added element', () => {
+      const store = new ElementStore();
+      const note = makeNote({ id: 'n1' });
+      store.add(note);
+      expect(store.getVersion('n1')).toBe(0);
+    });
+
+    it('increments version on update', () => {
+      const store = new ElementStore();
+      store.add(makeNote({ id: 'n1' }));
+      store.update('n1', { text: 'Changed' });
+      expect(store.getVersion('n1')).toBe(1);
+    });
+
+    it('increments version on each update', () => {
+      const store = new ElementStore();
+      store.add(makeNote({ id: 'n1' }));
+      store.update('n1', { text: 'A' });
+      store.update('n1', { text: 'B' });
+      expect(store.getVersion('n1')).toBe(2);
+    });
+
+    it('returns -1 for unknown id', () => {
+      const store = new ElementStore();
+      expect(store.getVersion('nonexistent')).toBe(-1);
+    });
+
+    it('removes version on element removal', () => {
+      const store = new ElementStore();
+      store.add(makeNote({ id: 'n1' }));
+      store.remove('n1');
+      expect(store.getVersion('n1')).toBe(-1);
+    });
+
+    it('resets versions on clear', () => {
+      const store = new ElementStore();
+      store.add(makeNote({ id: 'n1' }));
+      store.update('n1', { text: 'X' });
+      store.clear();
+      expect(store.getVersion('n1')).toBe(-1);
+    });
+
+    it('resets versions on loadSnapshot', () => {
+      const store = new ElementStore();
+      store.add(makeNote({ id: 'n1' }));
+      store.update('n1', { text: 'X' });
+      store.loadSnapshot([makeNote({ id: 'n2' })]);
+      expect(store.getVersion('n1')).toBe(-1);
+      expect(store.getVersion('n2')).toBe(0);
+    });
+  });
 });
