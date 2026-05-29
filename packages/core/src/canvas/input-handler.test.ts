@@ -1004,6 +1004,109 @@ describe('InputHandler', () => {
     });
   });
 
+  describe('z-order shortcuts', () => {
+    function setupZOrder() {
+      const store = new ElementStore();
+      const note1 = createNote({
+        position: { x: 100, y: 100 },
+        size: { w: 200, h: 100 },
+        zIndex: 0,
+        layerId: 'L1',
+      });
+      const note2 = createNote({
+        position: { x: 200, y: 200 },
+        size: { w: 200, h: 100 },
+        zIndex: 1,
+        layerId: 'L1',
+      });
+      store.add(note1);
+      store.add(note2);
+
+      const tm = {
+        ...stubToolManager(),
+        activeTool: {
+          name: 'select',
+          selectedIds: [note1.id],
+        },
+      } as unknown as ToolManager;
+      const tc = {
+        ...stubToolContext(),
+        store,
+      } as unknown as ToolContext;
+      const hr = { begin: vi.fn(), commit: vi.fn() };
+
+      const h = new InputHandler(element, camera, {
+        toolManager: tm,
+        toolContext: tc,
+        historyRecorder: hr as unknown as HistoryRecorder,
+      });
+
+      return { store, note1, note2, tm, tc, hr, h };
+    }
+
+    it('] brings selected element forward', () => {
+      const { store, note1, note2, h } = setupZOrder();
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: ']', bubbles: true }));
+      expect(store.getById(note1.id)?.zIndex).toBe(1);
+      expect(store.getById(note2.id)?.zIndex).toBe(0);
+      h.destroy();
+    });
+
+    it('[ sends selected element backward', () => {
+      const { store, note1, note2, tm, h } = setupZOrder();
+      (tm.activeTool as unknown as { selectedIds: string[] }).selectedIds = [note2.id];
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: '[', bubbles: true }));
+      expect(store.getById(note2.id)?.zIndex).toBe(0);
+      expect(store.getById(note1.id)?.zIndex).toBe(1);
+      h.destroy();
+    });
+
+    it('Ctrl+] brings selected element to front', () => {
+      const { store, note1, h } = setupZOrder();
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { key: ']', ctrlKey: true, bubbles: true }),
+      );
+      expect(store.getById(note1.id)?.zIndex).toBe(2);
+      h.destroy();
+    });
+
+    it('Ctrl+[ sends selected element to back', () => {
+      const { store, note2, tm, h } = setupZOrder();
+      (tm.activeTool as unknown as { selectedIds: string[] }).selectedIds = [note2.id];
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { key: '[', ctrlKey: true, bubbles: true }),
+      );
+      expect(store.getById(note2.id)?.zIndex).toBe(-1);
+      h.destroy();
+    });
+
+    it('wraps z-order operation in history transaction', () => {
+      const { hr, h } = setupZOrder();
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: ']', bubbles: true }));
+      expect(hr.begin).toHaveBeenCalled();
+      expect(hr.commit).toHaveBeenCalled();
+      h.destroy();
+    });
+
+    it('no-ops when tool is not select', () => {
+      const { store, note1, h, tm } = setupZOrder();
+      const originalZ = store.getById(note1.id)?.zIndex;
+      (tm as unknown as { activeTool: { name: string } }).activeTool.name = 'pencil';
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: ']', bubbles: true }));
+      expect(store.getById(note1.id)?.zIndex).toBe(originalZ);
+      h.destroy();
+    });
+
+    it('no-ops when selection is empty', () => {
+      const { store, note1, tm, h } = setupZOrder();
+      const originalZ = store.getById(note1.id)?.zIndex;
+      (tm.activeTool as unknown as { selectedIds: string[] }).selectedIds = [];
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: ']', bubbles: true }));
+      expect(store.getById(note1.id)?.zIndex).toBe(originalZ);
+      h.destroy();
+    });
+  });
+
   describe('cursor restore on space release', () => {
     it('dispatches tool hover after space release to restore cursor', () => {
       const onHover = vi.fn();
