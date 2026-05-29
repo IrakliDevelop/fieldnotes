@@ -1,7 +1,7 @@
 import { DEFAULT_NOTE_FONT_SIZE } from './element-factory';
 import { setFontSize, getActiveFormats } from './note-formatting';
 
-const TOOLBAR_HEIGHT = 32;
+const TOOLBAR_HEIGHT = 52;
 const TOOLBAR_GAP = 4;
 
 interface FormatButton {
@@ -117,9 +117,9 @@ export class NoteToolbar {
           : config.format === 'strikethrough'
             ? 'line-through'
             : 'none',
-      minWidth: '24px',
-      height: '24px',
-      lineHeight: '24px',
+      minWidth: '44px',
+      height: '44px',
+      lineHeight: '44px',
     });
 
     btn.addEventListener('pointerdown', (e) => {
@@ -140,7 +140,7 @@ export class NoteToolbar {
       cursor: 'pointer',
       padding: '2px',
       fontSize: '12px',
-      height: '24px',
+      height: '44px',
       marginLeft: '4px',
     });
 
