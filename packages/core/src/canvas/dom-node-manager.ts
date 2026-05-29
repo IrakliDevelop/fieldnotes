@@ -1,6 +1,7 @@
 import type { CanvasElement } from '../elements/types';
 import type { ElementStore } from '../elements/element-store';
 import { DEFAULT_NOTE_FONT_SIZE } from '../elements/element-factory';
+import { DoubleTapDetector } from './double-tap-detector';
 export interface DomNodeManagerDeps {
   domLayer: HTMLDivElement;
   onEditRequest: (id: string) => void;
@@ -103,10 +104,13 @@ export class DomNodeManager {
         });
         node.innerHTML = element.text || '';
 
-        node.addEventListener('dblclick', (e) => {
-          e.stopPropagation();
-          const id = node.dataset['elementId'];
-          if (id) this.onEditRequest(id);
+        const detector = new DoubleTapDetector();
+        node.addEventListener('pointerup', (e) => {
+          if (detector.feed(e)) {
+            e.stopPropagation();
+            const id = node.dataset['elementId'];
+            if (id) this.onEditRequest(id);
+          }
         });
       }
 
@@ -157,10 +161,13 @@ export class DomNodeManager {
         });
         node.textContent = element.text || '';
 
-        node.addEventListener('dblclick', (e) => {
-          e.stopPropagation();
-          const id = node.dataset['elementId'];
-          if (id) this.onEditRequest(id);
+        const detector = new DoubleTapDetector();
+        node.addEventListener('pointerup', (e) => {
+          if (detector.feed(e)) {
+            e.stopPropagation();
+            const id = node.dataset['elementId'];
+            if (id) this.onEditRequest(id);
+          }
         });
       }
 

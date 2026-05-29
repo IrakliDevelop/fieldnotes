@@ -111,15 +111,33 @@ describe('DomNodeManager', () => {
       expect(manager.getNode(note.id)?.textContent).toBe('Original');
     });
 
-    it('calls onEditRequest on dblclick', () => {
+    it('calls onEditRequest on double-tap (two pointerup events)', () => {
       const note = createNote({
         position: { x: 0, y: 0 },
         size: { w: 200, h: 100 },
       });
       manager.syncDomNode(note);
       const node = manager.getNode(note.id);
-      node?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+      node?.dispatchEvent(
+        new PointerEvent('pointerup', { bubbles: true, clientX: 10, clientY: 10 }),
+      );
+      node?.dispatchEvent(
+        new PointerEvent('pointerup', { bubbles: true, clientX: 10, clientY: 10 }),
+      );
       expect(onEditRequest).toHaveBeenCalledWith(note.id);
+    });
+
+    it('does not call onEditRequest on single tap', () => {
+      const note = createNote({
+        position: { x: 0, y: 0 },
+        size: { w: 200, h: 100 },
+      });
+      manager.syncDomNode(note);
+      const node = manager.getNode(note.id);
+      node?.dispatchEvent(
+        new PointerEvent('pointerup', { bubbles: true, clientX: 10, clientY: 10 }),
+      );
+      expect(onEditRequest).not.toHaveBeenCalled();
     });
   });
 
@@ -342,7 +360,7 @@ describe('DomNodeManager', () => {
   });
 
   describe('renderDomContent — text edge cases', () => {
-    it('calls onEditRequest on text element dblclick', () => {
+    it('calls onEditRequest on text element double-tap', () => {
       const text = createText({
         position: { x: 0, y: 0 },
         size: { w: 200, h: 50 },
@@ -353,7 +371,12 @@ describe('DomNodeManager', () => {
       });
       manager.syncDomNode(text);
       const node = manager.getNode(text.id);
-      node?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+      node?.dispatchEvent(
+        new PointerEvent('pointerup', { bubbles: true, clientX: 10, clientY: 10 }),
+      );
+      node?.dispatchEvent(
+        new PointerEvent('pointerup', { bubbles: true, clientX: 10, clientY: 10 }),
+      );
       expect(onEditRequest).toHaveBeenCalledWith(text.id);
     });
 
