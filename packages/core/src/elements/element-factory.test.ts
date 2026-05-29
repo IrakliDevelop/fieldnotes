@@ -143,6 +143,23 @@ describe('element factories', () => {
       });
       expect(el.domId).toBe('my-widget');
     });
+
+    it('sets interactive when provided', () => {
+      const el = createHtmlElement({
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 100 },
+        interactive: true,
+      });
+      expect(el.interactive).toBe(true);
+    });
+
+    it('defaults interactive to undefined', () => {
+      const el = createHtmlElement({
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 100 },
+      });
+      expect(el.interactive).toBeUndefined();
+    });
   });
 
   describe('createShape', () => {

@@ -121,15 +121,19 @@ export class DomNodeManager {
       }
     }
 
-    if (element.type === 'html' && !node.dataset['initialized']) {
-      const content = this.htmlContent.get(element.id);
-      if (content) {
-        node.dataset['initialized'] = 'true';
-        Object.assign(node.style, {
-          overflow: 'hidden',
-          pointerEvents: 'none',
-        });
-        node.appendChild(content);
+    if (element.type === 'html') {
+      if (!node.dataset['initialized']) {
+        const content = this.htmlContent.get(element.id);
+        if (content) {
+          node.dataset['initialized'] = 'true';
+          Object.assign(node.style, {
+            overflow: 'hidden',
+            pointerEvents: element.interactive ? 'auto' : 'none',
+          });
+          node.appendChild(content);
+        }
+      } else {
+        node.style.pointerEvents = element.interactive ? 'auto' : 'none';
       }
     }
 

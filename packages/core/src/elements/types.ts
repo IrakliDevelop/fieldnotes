@@ -53,6 +53,7 @@ export interface HtmlElement extends BaseElement {
   type: 'html';
   size: Size;
   domId?: string;
+  interactive?: boolean;
 }
 
 export interface TextElement extends BaseElement {
