@@ -161,6 +161,57 @@ describe('Camera', () => {
     expect(transform).toBe('translate3d(50px, -30px, 0) scale(1.5)');
   });
 
+  describe('fitToContent', () => {
+    it('centers a bounding box in the viewport', () => {
+      const camera = new Camera();
+      camera.fitToContent({ x: 100, y: 100, w: 200, h: 100 }, 800, 600);
+
+      const zoom = camera.zoom;
+      expect(zoom).toBeCloseTo(800 / 280);
+
+      const expectedX = (800 - 200 * zoom) / 2 - 100 * zoom;
+      const expectedY = (600 - 100 * zoom) / 2 - 100 * zoom;
+      expect(camera.position.x).toBeCloseTo(expectedX);
+      expect(camera.position.y).toBeCloseTo(expectedY);
+    });
+
+    it('respects custom padding', () => {
+      const camera = new Camera();
+      camera.fitToContent({ x: 0, y: 0, w: 400, h: 300 }, 800, 600, 100);
+
+      expect(camera.zoom).toBeCloseTo(1.2);
+    });
+
+    it('clamps zoom to maxZoom', () => {
+      const camera = new Camera({ maxZoom: 2 });
+      camera.fitToContent({ x: 0, y: 0, w: 10, h: 10 }, 800, 600);
+      expect(camera.zoom).toBe(2);
+    });
+
+    it('clamps zoom to minZoom', () => {
+      const camera = new Camera({ minZoom: 0.5 });
+      camera.fitToContent({ x: 0, y: 0, w: 10000, h: 10000 }, 800, 600);
+      expect(camera.zoom).toBe(0.5);
+    });
+
+    it('is a no-op for zero-size bounding box', () => {
+      const camera = new Camera();
+      camera.pan(50, 50);
+      camera.setZoom(2);
+      camera.fitToContent({ x: 100, y: 100, w: 0, h: 0 }, 800, 600);
+      expect(camera.position).toEqual({ x: 50, y: 50 });
+      expect(camera.zoom).toBe(2);
+    });
+
+    it('notifies listeners with panned and zoomed', () => {
+      const camera = new Camera();
+      const listener = vi.fn();
+      camera.onChange(listener);
+      camera.fitToContent({ x: 0, y: 0, w: 200, h: 100 }, 800, 600);
+      expect(listener).toHaveBeenCalledWith({ panned: true, zoomed: true });
+    });
+  });
+
   describe('edge cases', () => {
     it('clamps zoom to maxZoom when given very large value', () => {
       const camera = new Camera({ maxZoom: 5 });

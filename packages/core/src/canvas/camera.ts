@@ -85,6 +85,17 @@ export class Camera {
     };
   }
 
+  fitToContent(boundingBox: Bounds, canvasWidth: number, canvasHeight: number, padding = 40): void {
+    if (boundingBox.w === 0 && boundingBox.h === 0) return;
+
+    const scaleX = canvasWidth / (boundingBox.w + 2 * padding);
+    const scaleY = canvasHeight / (boundingBox.h + 2 * padding);
+    this.z = Math.min(this.maxZoom, Math.max(this.minZoom, Math.min(scaleX, scaleY)));
+    this.x = (canvasWidth - boundingBox.w * this.z) / 2 - boundingBox.x * this.z;
+    this.y = (canvasHeight - boundingBox.h * this.z) / 2 - boundingBox.y * this.z;
+    this.notifyPanAndZoom();
+  }
+
   toCSSTransform(): string {
     return `translate3d(${this.x}px, ${this.y}px, 0) scale(${this.z})`;
   }
