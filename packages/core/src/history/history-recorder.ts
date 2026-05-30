@@ -2,12 +2,15 @@ import type { ElementStore } from '../elements/element-store';
 import type { CanvasElement } from '../elements/types';
 import type { Command } from './types';
 import type { HistoryStack } from './history-stack';
+import type { LayerManager } from '../layers/layer-manager';
+import type { Layer } from '../layers/types';
 import {
   AddElementCommand,
   RemoveElementCommand,
   UpdateElementCommand,
   BatchCommand,
 } from './commands';
+import { CreateLayerCommand, RemoveLayerCommand, UpdateLayerCommand } from './layer-commands';
 
 export class HistoryRecorder {
   private recording = true;
@@ -18,12 +21,21 @@ export class HistoryRecorder {
   constructor(
     private readonly store: ElementStore,
     private readonly stack: HistoryStack,
+    private readonly layerManager?: LayerManager,
   ) {
     this.unsubscribers = [
       store.on('add', (el) => this.onAdd(el)),
       store.on('remove', (el) => this.onRemove(el)),
       store.on('update', ({ previous, current }) => this.onUpdate(previous, current)),
     ];
+
+    if (layerManager) {
+      this.unsubscribers.push(
+        layerManager.on('create', (layer) => this.onLayerCreate(layer)),
+        layerManager.on('remove', (layer) => this.onLayerRemove(layer)),
+        layerManager.on('update', ({ previous, current }) => this.onLayerUpdate(previous, current)),
+      );
+    }
   }
 
   pause(): void {
@@ -94,6 +106,24 @@ export class HistoryRecorder {
     } else {
       this.stack.push(new UpdateElementCommand(current.id, previous, current));
     }
+  }
+
+  private onLayerCreate(layer: Layer): void {
+    if (!this.recording) return;
+    if (!this.layerManager) return;
+    this.record(new CreateLayerCommand(this.layerManager, layer));
+  }
+
+  private onLayerRemove(layer: Layer): void {
+    if (!this.recording) return;
+    if (!this.layerManager) return;
+    this.record(new RemoveLayerCommand(this.layerManager, layer));
+  }
+
+  private onLayerUpdate(previous: Layer, current: Layer): void {
+    if (!this.recording) return;
+    if (!this.layerManager) return;
+    this.record(new UpdateLayerCommand(this.layerManager, current.id, previous, current));
   }
 
   private flushUpdateSnapshots(): Command[] {

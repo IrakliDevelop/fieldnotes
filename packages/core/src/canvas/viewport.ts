@@ -110,7 +110,7 @@ export class Viewport {
     this.onHtmlElementMount = options.onHtmlElementMount;
     this.dropHandler = options.onDrop;
     this.history = new HistoryStack();
-    this.historyRecorder = new HistoryRecorder(this.store, this.history);
+    this.historyRecorder = new HistoryRecorder(this.store, this.history, this.layerManager);
 
     this.wrapper = this.createWrapper();
     this.canvasEl = this.createCanvas();
