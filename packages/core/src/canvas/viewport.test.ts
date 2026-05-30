@@ -774,10 +774,6 @@ describe('Viewport', () => {
       newContent.textContent = 'new';
       vp.updateHtmlElement(id, newContent);
 
-      // Force a sync so DOM is updated
-      const el = vp.store.getById(id);
-      if (el) vp.store.update(id, { position: el.position });
-
       vp.destroy();
     });
 
