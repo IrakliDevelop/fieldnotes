@@ -3,7 +3,13 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Viewport } from './viewport';
-import { createNote, createText, createStroke, createArrow } from '../elements/element-factory';
+import {
+  createNote,
+  createText,
+  createStroke,
+  createArrow,
+  createHtmlElement,
+} from '../elements/element-factory';
 
 describe('Viewport', () => {
   let container: HTMLDivElement;
@@ -692,6 +698,68 @@ describe('Viewport', () => {
       expect(images.length).toBe(1);
       viewport2.destroy();
       viewport.destroy();
+    });
+  });
+
+  describe('onHtmlElementMount', () => {
+    it('calls callback for HTML elements with no content after loadState', () => {
+      const mountSpy = vi.fn();
+      const vp = new Viewport(container, { onHtmlElementMount: mountSpy });
+
+      const el = createHtmlElement({
+        position: { x: 10, y: 20 },
+        size: { w: 200, h: 150 },
+        layerId: vp.layerManager.activeLayerId,
+      });
+      vp.store.add(el);
+      const state = vp.exportState();
+
+      const vp2 = new Viewport(container, { onHtmlElementMount: mountSpy });
+      vp2.loadState(state);
+
+      expect(mountSpy).toHaveBeenCalledOnce();
+      expect(mountSpy).toHaveBeenCalledWith(el.id, undefined, expect.any(HTMLDivElement));
+
+      vp.destroy();
+      vp2.destroy();
+    });
+
+    it('does not call callback for HTML elements that have content', () => {
+      const mountSpy = vi.fn();
+      const vp = new Viewport(container, { onHtmlElementMount: mountSpy });
+
+      const dom = document.createElement('div');
+      dom.id = 'my-widget';
+      document.body.appendChild(dom);
+
+      vp.addHtmlElement(dom, { x: 0, y: 0 });
+      const state = vp.exportState();
+
+      const vp2 = new Viewport(container, { onHtmlElementMount: mountSpy });
+      vp2.loadState(state);
+
+      expect(mountSpy).not.toHaveBeenCalled();
+
+      dom.remove();
+      vp.destroy();
+      vp2.destroy();
+    });
+
+    it('does not fire when no callback is provided (backward compat)', () => {
+      const vp = new Viewport(container);
+      const el = createHtmlElement({
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 100 },
+        layerId: vp.layerManager.activeLayerId,
+      });
+      vp.store.add(el);
+      const state = vp.exportState();
+
+      const vp2 = new Viewport(container);
+      expect(() => vp2.loadState(state)).not.toThrow();
+
+      vp.destroy();
+      vp2.destroy();
     });
   });
 

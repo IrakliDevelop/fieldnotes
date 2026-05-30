@@ -40,6 +40,11 @@ export interface ViewportOptions {
   background?: BackgroundOptions;
   fontSizePresets?: FontSizePreset[];
   toolbar?: boolean;
+  onHtmlElementMount?: (
+    elementId: string,
+    domId: string | undefined,
+    container: HTMLDivElement,
+  ) => void;
 }
 
 export class Viewport {
@@ -65,6 +70,11 @@ export class Viewport {
   private readonly renderLoop: RenderLoop;
   private readonly domNodeManager: DomNodeManager;
   private readonly interactMode: InteractMode;
+  private readonly onHtmlElementMount?: (
+    elementId: string,
+    domId: string | undefined,
+    container: HTMLDivElement,
+  ) => void;
   private readonly gridChangeListeners = new Set<(info: GridInfo | null) => void>();
   private readonly doubleTapDetector = new DoubleTapDetector();
   private tapDownX = 0;
@@ -92,6 +102,7 @@ export class Viewport {
       toolbar: options.toolbar,
     });
     this.noteEditor.setOnStop((id) => this.onTextEditStop(id));
+    this.onHtmlElementMount = options.onHtmlElementMount;
     this.history = new HistoryStack();
     this.historyRecorder = new HistoryRecorder(this.store, this.history);
 
@@ -251,6 +262,17 @@ export class Viewport {
       this.layerManager.setActiveLayer(state.activeLayerId);
     }
     this.domNodeManager.reattachHtmlContent(this.store);
+    if (this.onHtmlElementMount) {
+      for (const el of this.store.getElementsByType('html')) {
+        if (!this.domNodeManager.hasContent(el.id)) {
+          this.domNodeManager.syncDomNode(el);
+          const node = this.domNodeManager.getNode(el.id);
+          if (node) {
+            this.onHtmlElementMount(el.id, el.domId, node);
+          }
+        }
+      }
+    }
     this.history.clear();
     this.historyRecorder.resume();
     this.camera.moveTo(state.camera.position.x, state.camera.position.y);
