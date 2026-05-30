@@ -45,6 +45,7 @@ export interface ViewportOptions {
     domId: string | undefined,
     container: HTMLDivElement,
   ) => void;
+  onDrop?: (event: DragEvent, worldPosition: { x: number; y: number }) => void;
 }
 
 export class Viewport {
@@ -75,6 +76,10 @@ export class Viewport {
     domId: string | undefined,
     container: HTMLDivElement,
   ) => void;
+  private readonly dropHandler?: (
+    event: DragEvent,
+    worldPosition: { x: number; y: number },
+  ) => void;
   private readonly gridChangeListeners = new Set<(info: GridInfo | null) => void>();
   private readonly doubleTapDetector = new DoubleTapDetector();
   private tapDownX = 0;
@@ -103,6 +108,7 @@ export class Viewport {
     });
     this.noteEditor.setOnStop((id) => this.onTextEditStop(id));
     this.onHtmlElementMount = options.onHtmlElementMount;
+    this.dropHandler = options.onDrop;
     this.history = new HistoryStack();
     this.historyRecorder = new HistoryRecorder(this.store, this.history);
 
@@ -525,10 +531,17 @@ export class Viewport {
 
   private onDrop = (e: DragEvent): void => {
     e.preventDefault();
+    const rect = this.wrapper.getBoundingClientRect();
+    const screenPos = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    const worldPos = this.camera.screenToWorld(screenPos);
+
+    if (this.dropHandler) {
+      this.dropHandler(e, worldPos);
+      return;
+    }
+
     const files = e.dataTransfer?.files;
     if (!files) return;
-
-    const rect = this.wrapper.getBoundingClientRect();
 
     for (const file of files) {
       if (!file.type.startsWith('image/')) continue;
@@ -537,9 +550,6 @@ export class Viewport {
       reader.onload = () => {
         const src = reader.result;
         if (typeof src !== 'string') return;
-
-        const screenPos = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-        const worldPos = this.camera.screenToWorld(screenPos);
         this.addImage(src, worldPos);
       };
       reader.readAsDataURL(file);

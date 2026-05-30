@@ -793,6 +793,47 @@ describe('Viewport', () => {
     });
   });
 
+  describe('onDrop callback', () => {
+    it('calls onDrop callback with world position when provided', () => {
+      const dropSpy = vi.fn();
+      const vp = new Viewport(container, { onDrop: dropSpy });
+
+      const event = new Event('drop', { bubbles: true }) as DragEvent;
+      Object.defineProperty(event, 'clientX', { value: 100 });
+      Object.defineProperty(event, 'clientY', { value: 200 });
+      Object.defineProperty(event, 'preventDefault', { value: vi.fn() });
+      Object.defineProperty(event, 'dataTransfer', {
+        value: { files: [] },
+      });
+
+      vp.domLayer.parentElement?.dispatchEvent(event);
+
+      expect(dropSpy).toHaveBeenCalledOnce();
+      expect(dropSpy).toHaveBeenCalledWith(
+        event,
+        expect.objectContaining({ x: expect.any(Number), y: expect.any(Number) }),
+      );
+
+      vp.destroy();
+    });
+
+    it('falls through to default image handling when no callback', () => {
+      const vp = new Viewport(container);
+
+      const event = new Event('drop', { bubbles: true }) as DragEvent;
+      Object.defineProperty(event, 'clientX', { value: 100 });
+      Object.defineProperty(event, 'clientY', { value: 200 });
+      Object.defineProperty(event, 'preventDefault', { value: vi.fn() });
+      Object.defineProperty(event, 'dataTransfer', {
+        value: { files: [] },
+      });
+
+      expect(() => vp.domLayer.parentElement?.dispatchEvent(event)).not.toThrow();
+
+      vp.destroy();
+    });
+  });
+
   describe('store events trigger re-render', () => {
     it('update event on different layer marks both layers dirty', () => {
       const viewport = new Viewport(container);
