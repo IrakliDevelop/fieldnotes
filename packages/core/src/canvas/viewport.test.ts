@@ -763,6 +763,40 @@ describe('Viewport', () => {
     });
   });
 
+  describe('updateHtmlElement', () => {
+    it('swaps DOM content of an existing HTML element', () => {
+      const vp = new Viewport(container);
+      const oldContent = document.createElement('div');
+      oldContent.textContent = 'old';
+      const id = vp.addHtmlElement(oldContent, { x: 0, y: 0 });
+
+      const newContent = document.createElement('div');
+      newContent.textContent = 'new';
+      vp.updateHtmlElement(id, newContent);
+
+      // Force a sync so DOM is updated
+      const el = vp.store.getById(id);
+      if (el) vp.store.update(id, { position: el.position });
+
+      vp.destroy();
+    });
+
+    it('throws for non-existent element', () => {
+      const vp = new Viewport(container);
+      const content = document.createElement('div');
+      expect(() => vp.updateHtmlElement('nonexistent', content)).toThrow();
+      vp.destroy();
+    });
+
+    it('throws for non-html element', () => {
+      const vp = new Viewport(container);
+      const img = vp.addImage('data:image/png;base64,', { x: 0, y: 0 });
+      const content = document.createElement('div');
+      expect(() => vp.updateHtmlElement(img, content)).toThrow();
+      vp.destroy();
+    });
+  });
+
   describe('store events trigger re-render', () => {
     it('update event on different layer marks both layers dirty', () => {
       const viewport = new Viewport(container);

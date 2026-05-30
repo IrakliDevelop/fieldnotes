@@ -328,6 +328,15 @@ export class Viewport {
     return el.id;
   }
 
+  updateHtmlElement(id: string, newContent: HTMLElement): void {
+    const el = this.store.getById(id);
+    if (!el) throw new Error(`Element not found: ${id}`);
+    if (el.type !== 'html') throw new Error(`Element ${id} is not an HTML element`);
+    this.domNodeManager.resetHtmlContent(id);
+    this.domNodeManager.storeHtmlContent(id, newContent);
+    this.requestRender();
+  }
+
   addGrid(input: {
     gridType?: 'square' | 'hex';
     hexOrientation?: 'pointy' | 'flat';
