@@ -335,4 +335,108 @@ describe('LayerManager', () => {
       expect(() => manager.updateLayerDirect('nonexistent', { name: 'test' })).not.toThrow();
     });
   });
+
+  describe('typed events', () => {
+    it('emits create event when a layer is created', () => {
+      const { manager } = setup();
+      const spy = vi.fn();
+      manager.on('create', spy);
+      const layer = manager.createLayer('New');
+      expect(spy).toHaveBeenCalledOnce();
+      expect(spy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: layer.id,
+          name: 'New',
+        }),
+      );
+    });
+
+    it('emits remove event when a layer is removed', () => {
+      const { manager } = setup();
+      const layer = manager.createLayer('Removable');
+      const spy = vi.fn();
+      manager.on('remove', spy);
+      manager.removeLayer(layer.id);
+      expect(spy).toHaveBeenCalledOnce();
+      expect(spy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: layer.id,
+          name: 'Removable',
+        }),
+      );
+    });
+
+    it('emits update event with previous and current on rename', () => {
+      const { manager } = setup();
+      const id = manager.activeLayerId;
+      const spy = vi.fn();
+      manager.on('update', spy);
+      manager.renameLayer(id, 'Renamed');
+      expect(spy).toHaveBeenCalledOnce();
+      const call = spy.mock.calls[0]?.[0];
+      expect(call.previous.name).toBe('Layer 1');
+      expect(call.current.name).toBe('Renamed');
+    });
+
+    it('emits update event on visibility change', () => {
+      const { manager } = setup();
+      manager.createLayer();
+      const id = manager.getLayers()[0]?.id;
+      if (!id) throw new Error('Expected a layer');
+      const spy = vi.fn();
+      manager.on('update', spy);
+      manager.setLayerVisible(id, false);
+      expect(spy).toHaveBeenCalledOnce();
+      const call = spy.mock.calls[0]?.[0];
+      expect(call.previous.visible).toBe(true);
+      expect(call.current.visible).toBe(false);
+    });
+
+    it('emits update event on opacity change', () => {
+      const { manager } = setup();
+      const id = manager.activeLayerId;
+      const spy = vi.fn();
+      manager.on('update', spy);
+      manager.setLayerOpacity(id, 0.5);
+      expect(spy).toHaveBeenCalledOnce();
+      const call = spy.mock.calls[0]?.[0];
+      expect(call.previous.opacity).toBe(1.0);
+      expect(call.current.opacity).toBe(0.5);
+    });
+
+    it('does not emit create/remove/update during loadSnapshot', () => {
+      const { manager } = setup();
+      manager.createLayer('Extra');
+      const snap = manager.snapshot();
+
+      const store2 = new ElementStore();
+      const manager2 = new LayerManager(store2);
+      const createSpy = vi.fn();
+      const removeSpy = vi.fn();
+      const updateSpy = vi.fn();
+      manager2.on('create', createSpy);
+      manager2.on('remove', removeSpy);
+      manager2.on('update', updateSpy);
+
+      manager2.loadSnapshot(snap);
+
+      expect(createSpy).not.toHaveBeenCalled();
+      expect(removeSpy).not.toHaveBeenCalled();
+      expect(updateSpy).not.toHaveBeenCalled();
+    });
+
+    it('still emits change during loadSnapshot', () => {
+      const { manager } = setup();
+      const snap = manager.snapshot();
+
+      const store2 = new ElementStore();
+      const manager2 = new LayerManager(store2);
+      const changeSpy = vi.fn();
+      manager2.on('change', changeSpy);
+
+      manager2.loadSnapshot(snap);
+
+      expect(changeSpy).toHaveBeenCalled();
+    });
+  });
 });

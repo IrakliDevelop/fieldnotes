@@ -5,6 +5,9 @@ import { createId } from '../elements/create-id';
 
 interface LayerManagerEvents {
   change: null;
+  create: Layer;
+  remove: Layer;
+  update: { previous: Layer; current: Layer };
 }
 
 export class LayerManager {
@@ -147,27 +150,35 @@ export class LayerManager {
     this.bus.emit('change', null);
   }
 
-  on(event: 'change', callback: () => void): () => void {
+  on<K extends keyof LayerManagerEvents>(
+    event: K,
+    callback: (data: LayerManagerEvents[K]) => void,
+  ): () => void {
     return this.bus.on(event, callback);
   }
 
   addLayerDirect(layer: Layer): void {
     this.layers.set(layer.id, { ...layer });
     this.syncLayerOrder();
+    this.bus.emit('create', { ...layer });
     this.bus.emit('change', null);
   }
 
   removeLayerDirect(id: string): void {
+    const layer = this.layers.get(id);
     this.layers.delete(id);
     this.syncLayerOrder();
+    if (layer) this.bus.emit('remove', { ...layer });
     this.bus.emit('change', null);
   }
 
   updateLayerDirect(id: string, props: Omit<Partial<Layer>, 'id'>): void {
     const layer = this.layers.get(id);
     if (!layer) return;
+    const previous = { ...layer };
     Object.assign(layer, props);
     if ('order' in props) this.syncLayerOrder();
+    this.bus.emit('update', { previous, current: { ...layer } });
     this.bus.emit('change', null);
   }
 
