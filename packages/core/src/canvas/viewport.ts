@@ -40,6 +40,12 @@ export interface ViewportOptions {
   background?: BackgroundOptions;
   fontSizePresets?: FontSizePreset[];
   toolbar?: boolean;
+  onHtmlElementMount?: (
+    elementId: string,
+    domId: string | undefined,
+    container: HTMLDivElement,
+  ) => void;
+  onDrop?: (event: DragEvent, worldPosition: { x: number; y: number }) => void;
 }
 
 export class Viewport {
@@ -65,6 +71,15 @@ export class Viewport {
   private readonly renderLoop: RenderLoop;
   private readonly domNodeManager: DomNodeManager;
   private readonly interactMode: InteractMode;
+  private readonly onHtmlElementMount?: (
+    elementId: string,
+    domId: string | undefined,
+    container: HTMLDivElement,
+  ) => void;
+  private readonly dropHandler?: (
+    event: DragEvent,
+    worldPosition: { x: number; y: number },
+  ) => void;
   private readonly gridChangeListeners = new Set<(info: GridInfo | null) => void>();
   private readonly doubleTapDetector = new DoubleTapDetector();
   private tapDownX = 0;
@@ -92,8 +107,10 @@ export class Viewport {
       toolbar: options.toolbar,
     });
     this.noteEditor.setOnStop((id) => this.onTextEditStop(id));
+    this.onHtmlElementMount = options.onHtmlElementMount;
+    this.dropHandler = options.onDrop;
     this.history = new HistoryStack();
-    this.historyRecorder = new HistoryRecorder(this.store, this.history);
+    this.historyRecorder = new HistoryRecorder(this.store, this.history, this.layerManager);
 
     this.wrapper = this.createWrapper();
     this.canvasEl = this.createCanvas();
@@ -251,6 +268,22 @@ export class Viewport {
       this.layerManager.setActiveLayer(state.activeLayerId);
     }
     this.domNodeManager.reattachHtmlContent(this.store);
+    if (this.onHtmlElementMount) {
+      for (const el of this.store.getElementsByType('html')) {
+        if (!this.domNodeManager.hasContent(el.id)) {
+          this.domNodeManager.syncDomNode(el);
+          const node = this.domNodeManager.getNode(el.id);
+          if (node) {
+            this.onHtmlElementMount(el.id, el.domId, node);
+            node.dataset['initialized'] = 'true';
+            Object.assign(node.style, {
+              overflow: 'hidden',
+              pointerEvents: el.interactive ? 'auto' : 'none',
+            });
+          }
+        }
+      }
+    }
     this.history.clear();
     this.historyRecorder.resume();
     this.camera.moveTo(state.camera.position.x, state.camera.position.y);
@@ -304,6 +337,21 @@ export class Viewport {
     this.historyRecorder.commit();
     this.requestRender();
     return el.id;
+  }
+
+  removeLayer(id: string): void {
+    this.historyRecorder.begin();
+    this.layerManager.removeLayer(id);
+    this.historyRecorder.commit();
+  }
+
+  updateHtmlElement(id: string, newContent: HTMLElement): void {
+    const el = this.store.getById(id);
+    if (!el) throw new Error(`Element not found: ${id}`);
+    if (el.type !== 'html') throw new Error(`Element ${id} is not an HTML element`);
+    this.domNodeManager.resetHtmlContent(id);
+    this.domNodeManager.storeHtmlContent(id, newContent);
+    this.requestRender();
   }
 
   addGrid(input: {
@@ -494,10 +542,17 @@ export class Viewport {
 
   private onDrop = (e: DragEvent): void => {
     e.preventDefault();
+    const rect = this.wrapper.getBoundingClientRect();
+    const screenPos = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    const worldPos = this.camera.screenToWorld(screenPos);
+
+    if (this.dropHandler) {
+      this.dropHandler(e, worldPos);
+      return;
+    }
+
     const files = e.dataTransfer?.files;
     if (!files) return;
-
-    const rect = this.wrapper.getBoundingClientRect();
 
     for (const file of files) {
       if (!file.type.startsWith('image/')) continue;
@@ -506,9 +561,6 @@ export class Viewport {
       reader.onload = () => {
         const src = reader.result;
         if (typeof src !== 'string') return;
-
-        const screenPos = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-        const worldPos = this.camera.screenToWorld(screenPos);
         this.addImage(src, worldPos);
       };
       reader.readAsDataURL(file);

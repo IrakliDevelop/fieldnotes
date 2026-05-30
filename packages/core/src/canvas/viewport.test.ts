@@ -3,7 +3,13 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Viewport } from './viewport';
-import { createNote, createText, createStroke, createArrow } from '../elements/element-factory';
+import {
+  createNote,
+  createText,
+  createStroke,
+  createArrow,
+  createHtmlElement,
+} from '../elements/element-factory';
 
 describe('Viewport', () => {
   let container: HTMLDivElement;
@@ -692,6 +698,160 @@ describe('Viewport', () => {
       expect(images.length).toBe(1);
       viewport2.destroy();
       viewport.destroy();
+    });
+  });
+
+  describe('onHtmlElementMount', () => {
+    it('calls callback for HTML elements with no content after loadState', () => {
+      const mountSpy = vi.fn();
+      const vp = new Viewport(container, { onHtmlElementMount: mountSpy });
+
+      const el = createHtmlElement({
+        position: { x: 10, y: 20 },
+        size: { w: 200, h: 150 },
+        layerId: vp.layerManager.activeLayerId,
+      });
+      vp.store.add(el);
+      const state = vp.exportState();
+
+      const vp2 = new Viewport(container, { onHtmlElementMount: mountSpy });
+      vp2.loadState(state);
+
+      expect(mountSpy).toHaveBeenCalledOnce();
+      expect(mountSpy).toHaveBeenCalledWith(el.id, undefined, expect.any(HTMLDivElement));
+
+      vp.destroy();
+      vp2.destroy();
+    });
+
+    it('does not call callback for HTML elements that have content', () => {
+      const mountSpy = vi.fn();
+      const vp = new Viewport(container, { onHtmlElementMount: mountSpy });
+
+      const dom = document.createElement('div');
+      dom.id = 'my-widget';
+      document.body.appendChild(dom);
+
+      vp.addHtmlElement(dom, { x: 0, y: 0 });
+      const state = vp.exportState();
+
+      const vp2 = new Viewport(container, { onHtmlElementMount: mountSpy });
+      vp2.loadState(state);
+
+      expect(mountSpy).not.toHaveBeenCalled();
+
+      dom.remove();
+      vp.destroy();
+      vp2.destroy();
+    });
+
+    it('does not fire when no callback is provided (backward compat)', () => {
+      const vp = new Viewport(container);
+      const el = createHtmlElement({
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 100 },
+        layerId: vp.layerManager.activeLayerId,
+      });
+      vp.store.add(el);
+      const state = vp.exportState();
+
+      const vp2 = new Viewport(container);
+      expect(() => vp2.loadState(state)).not.toThrow();
+
+      vp.destroy();
+      vp2.destroy();
+    });
+  });
+
+  describe('updateHtmlElement', () => {
+    it('swaps DOM content of an existing HTML element', () => {
+      const vp = new Viewport(container);
+      const oldContent = document.createElement('div');
+      oldContent.textContent = 'old';
+      const id = vp.addHtmlElement(oldContent, { x: 0, y: 0 });
+
+      const newContent = document.createElement('div');
+      newContent.textContent = 'new';
+      vp.updateHtmlElement(id, newContent);
+
+      vp.destroy();
+    });
+
+    it('throws for non-existent element', () => {
+      const vp = new Viewport(container);
+      const content = document.createElement('div');
+      expect(() => vp.updateHtmlElement('nonexistent', content)).toThrow();
+      vp.destroy();
+    });
+
+    it('throws for non-html element', () => {
+      const vp = new Viewport(container);
+      const img = vp.addImage('data:image/png;base64,', { x: 0, y: 0 });
+      const content = document.createElement('div');
+      expect(() => vp.updateHtmlElement(img, content)).toThrow();
+      vp.destroy();
+    });
+  });
+
+  describe('onDrop callback', () => {
+    it('calls onDrop callback with world position when provided', () => {
+      const dropSpy = vi.fn();
+      const vp = new Viewport(container, { onDrop: dropSpy });
+
+      const event = new Event('drop', { bubbles: true }) as DragEvent;
+      Object.defineProperty(event, 'clientX', { value: 100 });
+      Object.defineProperty(event, 'clientY', { value: 200 });
+      Object.defineProperty(event, 'preventDefault', { value: vi.fn() });
+      Object.defineProperty(event, 'dataTransfer', {
+        value: { files: [] },
+      });
+
+      vp.domLayer.parentElement?.dispatchEvent(event);
+
+      expect(dropSpy).toHaveBeenCalledOnce();
+      expect(dropSpy).toHaveBeenCalledWith(
+        event,
+        expect.objectContaining({ x: expect.any(Number), y: expect.any(Number) }),
+      );
+
+      vp.destroy();
+    });
+
+    it('falls through to default image handling when no callback', () => {
+      const vp = new Viewport(container);
+
+      const event = new Event('drop', { bubbles: true }) as DragEvent;
+      Object.defineProperty(event, 'clientX', { value: 100 });
+      Object.defineProperty(event, 'clientY', { value: 200 });
+      Object.defineProperty(event, 'preventDefault', { value: vi.fn() });
+      Object.defineProperty(event, 'dataTransfer', {
+        value: { files: [] },
+      });
+
+      expect(() => vp.domLayer.parentElement?.dispatchEvent(event)).not.toThrow();
+
+      vp.destroy();
+    });
+  });
+
+  describe('removeLayer', () => {
+    it('wraps removeLayer in a transaction for atomic undo', () => {
+      const vp = new Viewport(container);
+      const layer = vp.layerManager.createLayer('Extra');
+
+      const img = vp.addImage('data:image/png;base64,', { x: 0, y: 0 }, { w: 100, h: 100 });
+      vp.store.update(img, { layerId: layer.id });
+
+      vp.history.clear();
+
+      vp.removeLayer(layer.id);
+      expect(vp.history.undoCount).toBe(1);
+
+      vp.undo();
+      expect(vp.layerManager.getLayer(layer.id)).toBeDefined();
+      expect(vp.store.getById(img)?.layerId).toBe(layer.id);
+
+      vp.destroy();
     });
   });
 

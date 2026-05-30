@@ -4,6 +4,15 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.16.0] — 2026-05-30
+
+### Added
+
+- **`onHtmlElementMount` callback** — fires during `loadState()` for HTML elements whose content couldn't be restored via `domId` lookup. Lets host apps dynamically provide content (React components, iframes) after save/load
+- **`updateHtmlElement(id, newContent)`** — swaps the DOM content of an existing HTML element without changing its position, size, or store data
+- **`onDrop` callback** — external drop zone API. When provided in `ViewportOptions`, replaces default image-drop behavior. Receives the raw `DragEvent` and computed world-space coordinates for custom drop handling (D&D tokens, text, HTML snippets)
+- **Layer undo** — all layer operations (create, remove, rename, reorder, visibility, lock, opacity) now participate in undo history. Layer commands batch with element commands in transactions. `removeLayer` undo restores both the layer and its element assignments
+
 ---
 
 ## [0.15.0] — 2026-05-29

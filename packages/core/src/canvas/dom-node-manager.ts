@@ -34,6 +34,22 @@ export class DomNodeManager {
     this.htmlContent.set(elementId, dom);
   }
 
+  hasContent(elementId: string): boolean {
+    return this.htmlContent.has(elementId);
+  }
+
+  resetHtmlContent(elementId: string): void {
+    this.htmlContent.delete(elementId);
+    this.lastSyncedVersion.delete(elementId);
+    this.lastSyncedZIndex.delete(elementId);
+    const node = this.domNodes.get(elementId);
+    if (!node) return;
+    while (node.firstChild) {
+      node.removeChild(node.firstChild);
+    }
+    delete node.dataset['initialized'];
+  }
+
   syncDomNode(element: CanvasElement, zIndex = 0): void {
     let node = this.domNodes.get(element.id);
     if (!node) {
