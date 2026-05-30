@@ -834,6 +834,27 @@ describe('Viewport', () => {
     });
   });
 
+  describe('removeLayer', () => {
+    it('wraps removeLayer in a transaction for atomic undo', () => {
+      const vp = new Viewport(container);
+      const layer = vp.layerManager.createLayer('Extra');
+
+      const img = vp.addImage('data:image/png;base64,', { x: 0, y: 0 }, { w: 100, h: 100 });
+      vp.store.update(img, { layerId: layer.id });
+
+      vp.history.clear();
+
+      vp.removeLayer(layer.id);
+      expect(vp.history.undoCount).toBe(1);
+
+      vp.undo();
+      expect(vp.layerManager.getLayer(layer.id)).toBeDefined();
+      expect(vp.store.getById(img)?.layerId).toBe(layer.id);
+
+      vp.destroy();
+    });
+  });
+
   describe('store events trigger re-render', () => {
     it('update event on different layer marks both layers dirty', () => {
       const viewport = new Viewport(container);

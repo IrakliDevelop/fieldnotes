@@ -275,6 +275,11 @@ export class Viewport {
           const node = this.domNodeManager.getNode(el.id);
           if (node) {
             this.onHtmlElementMount(el.id, el.domId, node);
+            node.dataset['initialized'] = 'true';
+            Object.assign(node.style, {
+              overflow: 'hidden',
+              pointerEvents: el.interactive ? 'auto' : 'none',
+            });
           }
         }
       }
@@ -332,6 +337,12 @@ export class Viewport {
     this.historyRecorder.commit();
     this.requestRender();
     return el.id;
+  }
+
+  removeLayer(id: string): void {
+    this.historyRecorder.begin();
+    this.layerManager.removeLayer(id);
+    this.historyRecorder.commit();
   }
 
   updateHtmlElement(id: string, newContent: HTMLElement): void {

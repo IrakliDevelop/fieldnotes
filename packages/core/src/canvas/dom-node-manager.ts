@@ -41,6 +41,7 @@ export class DomNodeManager {
   resetHtmlContent(elementId: string): void {
     this.htmlContent.delete(elementId);
     this.lastSyncedVersion.delete(elementId);
+    this.lastSyncedZIndex.delete(elementId);
     const node = this.domNodes.get(elementId);
     if (!node) return;
     while (node.firstChild) {
