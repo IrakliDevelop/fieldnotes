@@ -508,6 +508,58 @@ describe('DomNodeManager', () => {
     });
   });
 
+  describe('hasContent', () => {
+    it('returns false when no content is stored', () => {
+      expect(manager.hasContent('nonexistent')).toBe(false);
+    });
+
+    it('returns true after storeHtmlContent', () => {
+      const content = document.createElement('div');
+      manager.storeHtmlContent('html-1', content);
+      expect(manager.hasContent('html-1')).toBe(true);
+    });
+
+    it('returns false after removeDomNode clears stored content', () => {
+      const content = document.createElement('div');
+      manager.storeHtmlContent('html-1', content);
+      manager.removeDomNode('html-1');
+      expect(manager.hasContent('html-1')).toBe(false);
+    });
+  });
+
+  describe('resetHtmlContent', () => {
+    it('clears container children and resets initialized flag', () => {
+      const el = createHtmlElement({
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 100 },
+      });
+      const content = document.createElement('span');
+      content.textContent = 'old';
+      manager.storeHtmlContent(el.id, content);
+      manager.syncDomNode(el);
+
+      const node = manager.getNode(el.id);
+      expect(node?.children.length).toBeGreaterThan(0);
+      expect(node?.dataset['initialized']).toBe('true');
+
+      manager.resetHtmlContent(el.id);
+
+      expect(node?.children.length).toBe(0);
+      expect(node?.dataset['initialized']).toBeUndefined();
+    });
+
+    it('does nothing for non-existent element', () => {
+      expect(() => manager.resetHtmlContent('nonexistent')).not.toThrow();
+    });
+
+    it('clears stored html content', () => {
+      const content = document.createElement('div');
+      manager.storeHtmlContent('html-1', content);
+      manager.resetHtmlContent('html-1');
+      expect(manager.hasContent('html-1')).toBe(false);
+    });
+  });
+
   describe('renderDomContent — note text unchanged', () => {
     it('does not update innerHTML when text has not changed', () => {
       const note = createNote({
