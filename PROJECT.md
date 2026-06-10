@@ -541,13 +541,23 @@ canvas.addImage('data:image/png;base64,iVBOR...', pos, size);
 - [x] **`viewport.onGridChange(cb)`** — subscribe to grid add/update/remove/clear events, returns unsubscribe function
 - [x] **`GridInfo` type** — exported for SDK consumers building grid-aware features (e.g. D&D token sizing)
 
+#### 0.17.0 — Keyboard & Selection Quick Wins
+
+- [x] Escape deselects the current selection
+- [x] Ctrl/Cmd+A select all (visible, unlocked layers; skips locked elements)
+- [x] Ctrl/Cmd+D duplicate selection
+- [x] Arrow-key nudge (1 unit; Shift = one grid cell), coalesced into one undo step
+- [x] `viewport.fitToContent(padding?)` + Shift+1 zoom-to-fit
+- [x] Keyboard shortcuts ignore form fields inside HTML embeds
+- [x] `KeyboardActions` extraction — groundwork for a configurable shortcut map
+
 ---
 
 ### Next Up
 
 #### SDK Maturity
 
-- [ ] Copy/paste (elements within canvas, and between browser tabs)
+- [ ] Copy/paste between browser tabs (in-canvas copy/paste shipped)
 - [ ] Configurable keyboard shortcut system
 - [ ] Minimap
 - [ ] `@fieldnotes/ui` — pre-built, customizable UI components (toolbar, text format panel, color picker, layers panel) as a separate package; `@fieldnotes/react` stays a thin binding layer
