@@ -120,6 +120,20 @@ describe('KeyboardActions.selectAll', () => {
     expect(tool.selectedIds).toEqual([ok.id]);
   });
 
+  it('is a no-op (selection unchanged) when isToolActive returns true', () => {
+    const ctx = makeCtx();
+    const switchTool = vi.fn();
+    ctx.switchTool = switchTool;
+    const { actions, tool } = makeActions({ ctx, isToolActive: () => true });
+    const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+    ctx.store.add(note);
+
+    actions.selectAll();
+
+    expect(tool.selectedIds).toEqual([]);
+    expect(switchTool).not.toHaveBeenCalled();
+  });
+
   it('switches to the select tool first when another tool is active', () => {
     const ctx = makeCtx();
     const selectTool = new SelectTool();

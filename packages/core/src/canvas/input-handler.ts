@@ -191,7 +191,10 @@ export class InputHandler {
   };
 
   private onKeyDown = (e: KeyboardEvent): void => {
-    if ((e.target as HTMLElement)?.isContentEditable) return;
+    const target = e.target as HTMLElement | null;
+    if (target?.isContentEditable) return;
+    const tag = target?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 
     if (e.key === ' ') {
       this.spaceHeld = true;

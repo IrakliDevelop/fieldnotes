@@ -450,6 +450,75 @@ describe('InputHandler', () => {
       expect(store.getById(note.id)).toBeDefined();
     });
 
+    it('ignores keydown when target is an input element', () => {
+      const store = new ElementStore();
+      const note = createNote({ position: { x: 100, y: 100 }, size: { w: 200, h: 100 } });
+      store.add(note);
+
+      const tm = {
+        ...stubToolManager(),
+        activeTool: {
+          name: 'select',
+          selectedIds: [note.id],
+          setSelection: vi.fn(),
+        },
+      } as unknown as ToolManager;
+      const tc = {
+        ...stubToolContext(),
+        store,
+      } as unknown as ToolContext;
+
+      handler = new InputHandler(element, camera, {
+        toolManager: tm,
+        toolContext: tc,
+      });
+
+      const inputEl = document.createElement('input');
+      element.appendChild(inputEl);
+
+      const keyEvent = new KeyboardEvent('keydown', { key: 'Delete', bubbles: true });
+      Object.defineProperty(keyEvent, 'target', { value: inputEl });
+      window.dispatchEvent(keyEvent);
+
+      expect(store.getById(note.id)).toBeDefined();
+      element.removeChild(inputEl);
+    });
+
+    it('Ctrl+A calls selectAll and selects all element ids', () => {
+      const store = new ElementStore();
+      const noteA = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+      const noteB = createNote({ position: { x: 200, y: 0 }, size: { w: 100, h: 50 } });
+      store.add(noteA);
+      store.add(noteB);
+
+      const setSelection = vi.fn();
+      const tm = {
+        ...stubToolManager(),
+        activeTool: {
+          name: 'select',
+          selectedIds: [],
+          setSelection,
+        },
+      } as unknown as ToolManager;
+      const tc = {
+        ...stubToolContext(),
+        store,
+      } as unknown as ToolContext;
+
+      handler = new InputHandler(element, camera, {
+        toolManager: tm,
+        toolContext: tc,
+      });
+
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'a', ctrlKey: true, bubbles: true }),
+      );
+
+      expect(setSelection).toHaveBeenCalledOnce();
+      const ids = setSelection.mock.calls[0]?.[0] as string[];
+      expect(ids.sort()).toEqual([noteA.id, noteB.id].sort());
+    });
+
     it('undo/redo no-op without historyStack', () => {
       const tc = stubToolContext();
       handler.setToolManager(stubToolManager(), tc);

@@ -102,6 +102,7 @@ export class KeyboardActions {
   }
 
   selectAll(): void {
+    if (this.deps.isToolActive()) return;
     const tm = this.deps.getToolManager();
     const ctx = this.deps.getToolContext();
     if (!tm || !ctx) return;
