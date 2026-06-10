@@ -990,6 +990,63 @@ describe('Viewport', () => {
       expect(viewport.camera.position).toEqual(posBefore);
       viewport.destroy();
     });
+
+    it('is a no-op when the wrapper has zero size', () => {
+      const viewport = new Viewport(container);
+      const wrapper = container.firstElementChild as HTMLElement;
+      Object.defineProperty(wrapper, 'clientWidth', { value: 0, configurable: true });
+      Object.defineProperty(wrapper, 'clientHeight', { value: 0, configurable: true });
+      viewport.store.add(
+        createNote({
+          position: { x: 100, y: 100 },
+          size: { w: 200, h: 100 },
+          layerId: viewport.layerManager.activeLayerId,
+        }),
+      );
+      const zoomBefore = viewport.camera.zoom;
+      const posBefore = { ...viewport.camera.position };
+
+      viewport.fitToContent();
+
+      expect(viewport.camera.zoom).toBe(zoomBefore);
+      expect(viewport.camera.position).toEqual(posBefore);
+      viewport.destroy();
+    });
+
+    it('ignores elements on hidden layers', () => {
+      const viewport = new Viewport(container);
+      const wrapper = container.firstElementChild as HTMLElement;
+      Object.defineProperty(wrapper, 'clientWidth', { value: 800, configurable: true });
+      Object.defineProperty(wrapper, 'clientHeight', { value: 600, configurable: true });
+
+      const layer2 = viewport.layerManager.createLayer('Layer 2');
+      viewport.layerManager.setLayerVisible(layer2.id, false);
+
+      // element on visible layer
+      viewport.store.add(
+        createNote({
+          position: { x: 1000, y: 1000 },
+          size: { w: 200, h: 100 },
+          layerId: viewport.layerManager.activeLayerId,
+        }),
+      );
+      // element on hidden layer — should be excluded from bbox
+      viewport.store.add(
+        createNote({
+          position: { x: 9000, y: 9000 },
+          size: { w: 200, h: 100 },
+          layerId: layer2.id,
+        }),
+      );
+
+      viewport.fitToContent();
+
+      const cam = viewport.camera;
+      // bbox center of visible element only: (1100, 1050) must map to canvas center (400, 300)
+      expect(cam.position.x + 1100 * cam.zoom).toBeCloseTo(400, 0);
+      expect(cam.position.y + 1050 * cam.zoom).toBeCloseTo(300, 0);
+      viewport.destroy();
+    });
   });
 
   describe('store events trigger re-render', () => {

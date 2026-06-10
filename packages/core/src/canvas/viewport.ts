@@ -238,7 +238,11 @@ export class Viewport {
   }
 
   fitToContent(padding = 40): void {
-    const bbox = getElementsBoundingBox(this.store.getAll());
+    if (this.wrapper.clientWidth === 0 || this.wrapper.clientHeight === 0) return;
+    const visibleElements = this.store
+      .getAll()
+      .filter((el) => this.layerManager.isLayerVisible(el.layerId));
+    const bbox = getElementsBoundingBox(visibleElements);
     if (!bbox) return;
     this.camera.fitToContent(bbox, this.wrapper.clientWidth, this.wrapper.clientHeight, padding);
   }
