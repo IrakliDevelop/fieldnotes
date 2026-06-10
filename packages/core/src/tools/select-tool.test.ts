@@ -1262,6 +1262,79 @@ describe('SelectTool', () => {
     });
   });
 
+  describe('nudgeSelection', () => {
+    it('moves selected elements by the given delta', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const note = createNote({ position: { x: 100, y: 100 }, size: { w: 100, h: 50 } });
+      ctx.store.add(note);
+      tool.onActivate(ctx);
+      tool.setSelection([note.id]);
+
+      const moved = tool.nudgeSelection(1, 0, ctx);
+
+      expect(moved).toBe(true);
+      expect(ctx.store.getById(note.id)?.position).toEqual({ x: 101, y: 100 });
+    });
+
+    it('skips locked elements and returns false when nothing moved', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const note = createNote({ position: { x: 100, y: 100 }, size: { w: 100, h: 50 } });
+      note.locked = true;
+      ctx.store.add(note);
+      tool.onActivate(ctx);
+      tool.setSelection([note.id]);
+
+      const moved = tool.nudgeSelection(0, -1, ctx);
+
+      expect(moved).toBe(false);
+      expect(ctx.store.getById(note.id)?.position).toEqual({ x: 100, y: 100 });
+    });
+
+    it('moves unbound arrows including their endpoints', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 100 } });
+      ctx.store.add(arrow);
+      tool.onActivate(ctx);
+      tool.setSelection([arrow.id]);
+
+      tool.nudgeSelection(5, 5, ctx);
+
+      const moved = ctx.store.getById(arrow.id);
+      if (moved?.type === 'arrow') {
+        expect(moved.from).toEqual({ x: 5, y: 5 });
+        expect(moved.to).toEqual({ x: 105, y: 105 });
+      } else {
+        expect.fail('arrow missing');
+      }
+    });
+
+    it('updates arrows bound to a nudged element', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+      const arrow = createArrow({ from: { x: 300, y: 300 }, to: { x: 50, y: 25 } });
+      arrow.toBinding = { elementId: note.id };
+      ctx.store.add(note);
+      ctx.store.add(arrow);
+      tool.onActivate(ctx);
+      tool.setSelection([note.id]);
+      const before = ctx.store.getById(arrow.id);
+      const beforeTo = before?.type === 'arrow' ? { ...before.to } : { x: 0, y: 0 };
+
+      tool.nudgeSelection(10, 0, ctx);
+
+      const after = ctx.store.getById(arrow.id);
+      if (after?.type === 'arrow') {
+        expect(after.to).not.toEqual(beforeTo);
+      } else {
+        expect.fail('arrow missing');
+      }
+    });
+  });
+
   describe('grid element exclusion', () => {
     it('does not select grid elements by click', () => {
       const tool = new SelectTool();
