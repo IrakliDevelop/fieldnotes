@@ -27,6 +27,7 @@ function makeActions(
     tool?: SelectTool;
     recorder?: HistoryRecorder;
     fitToContent?: () => void;
+    isToolActive?: () => boolean;
   } = {},
 ): { actions: KeyboardActions; ctx: ToolContext; tool: SelectTool } {
   const ctx = opts.ctx ?? makeCtx();
@@ -38,7 +39,7 @@ function makeActions(
     getToolContext: () => ctx,
     getHistoryRecorder: () => opts.recorder ?? null,
     getHistoryStack: () => null,
-    isToolActive: () => false,
+    isToolActive: opts.isToolActive ?? (() => false),
     fitToContent: opts.fitToContent,
   };
   return { actions: new KeyboardActions(deps), ctx, tool };
@@ -61,5 +62,86 @@ describe('KeyboardActions.deselect', () => {
     vi.mocked(ctx.requestRender).mockClear();
     actions.deselect();
     expect(ctx.requestRender).not.toHaveBeenCalled();
+  });
+
+  it('is a no-op (selection unchanged) when isToolActive returns true', () => {
+    const { actions, ctx, tool } = makeActions({ isToolActive: () => true });
+    const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+    ctx.store.add(note);
+    tool.setSelection([note.id]);
+    vi.mocked(ctx.requestRender).mockClear();
+
+    actions.deselect();
+
+    expect(tool.selectedIds).toEqual([note.id]);
+    expect(ctx.requestRender).not.toHaveBeenCalled();
+  });
+});
+
+describe('KeyboardActions.selectAll', () => {
+  it('selects all selectable elements', () => {
+    const { actions, ctx, tool } = makeActions();
+    const a = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+    const b = createNote({ position: { x: 200, y: 0 }, size: { w: 100, h: 50 } });
+    ctx.store.add(a);
+    ctx.store.add(b);
+
+    actions.selectAll();
+
+    expect([...tool.selectedIds].sort()).toEqual([a.id, b.id].sort());
+  });
+
+  it('excludes locked elements, hidden layers, and locked layers', () => {
+    const ctx = makeCtx({
+      isLayerVisible: (layerId: string) => layerId !== 'hidden-layer',
+      isLayerLocked: (layerId: string) => layerId === 'locked-layer',
+    });
+    const { actions, tool } = makeActions({ ctx });
+    const ok = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+    const locked = createNote({
+      position: { x: 0, y: 100 },
+      size: { w: 100, h: 50 },
+      locked: true,
+    });
+    const onHidden = createNote({
+      position: { x: 0, y: 200 },
+      size: { w: 100, h: 50 },
+      layerId: 'hidden-layer',
+    });
+    const onLocked = createNote({
+      position: { x: 0, y: 300 },
+      size: { w: 100, h: 50 },
+      layerId: 'locked-layer',
+    });
+    for (const el of [ok, locked, onHidden, onLocked]) ctx.store.add(el);
+
+    actions.selectAll();
+
+    expect(tool.selectedIds).toEqual([ok.id]);
+  });
+
+  it('switches to the select tool first when another tool is active', () => {
+    const ctx = makeCtx();
+    const selectTool = new SelectTool();
+    selectTool.onActivate(ctx);
+    const tm = { activeTool: { name: 'pencil' } } as unknown as ToolManager;
+    ctx.switchTool = vi.fn(() => {
+      (tm as { activeTool: unknown }).activeTool = selectTool;
+    });
+    const deps: KeyboardActionsDeps = {
+      getToolManager: () => tm,
+      getToolContext: () => ctx,
+      getHistoryRecorder: () => null,
+      getHistoryStack: () => null,
+      isToolActive: () => false,
+    };
+    const actions = new KeyboardActions(deps);
+    const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+    ctx.store.add(note);
+
+    actions.selectAll();
+
+    expect(ctx.switchTool).toHaveBeenCalledWith('select');
+    expect(selectTool.selectedIds).toEqual([note.id]);
   });
 });

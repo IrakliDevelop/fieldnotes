@@ -210,6 +210,10 @@ export class InputHandler {
       e.preventDefault();
       this.actions.redo();
     }
+    if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+      e.preventDefault();
+      this.actions.selectAll();
+    }
     if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
       e.preventDefault();
       this.actions.copy();

@@ -93,10 +93,33 @@ export class KeyboardActions {
   }
 
   deselect(): void {
+    if (this.deps.isToolActive()) return;
     const sel = this.selectTool();
     if (!sel) return;
     if (sel.tool.selectedIds.length === 0) return;
     sel.tool.setSelection([]);
+    sel.ctx.requestRender();
+  }
+
+  selectAll(): void {
+    const tm = this.deps.getToolManager();
+    const ctx = this.deps.getToolContext();
+    if (!tm || !ctx) return;
+    if (tm.activeTool?.name !== 'select') {
+      ctx.switchTool?.('select');
+    }
+    const sel = this.selectTool();
+    if (!sel) return;
+    const ids = sel.ctx.store
+      .getAll()
+      .filter(
+        (el) =>
+          !el.locked &&
+          (sel.ctx.isLayerVisible?.(el.layerId) ?? true) &&
+          !(sel.ctx.isLayerLocked?.(el.layerId) ?? false),
+      )
+      .map((el) => el.id);
+    sel.tool.setSelection(ids);
     sel.ctx.requestRender();
   }
 
