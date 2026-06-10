@@ -1,12 +1,10 @@
 import type { Camera } from './camera';
 import type { ToolManager } from '../tools/tool-manager';
 import type { ToolContext, PointerState } from '../tools/types';
-import type { SelectTool } from '../tools/select-tool';
 import type { HistoryRecorder } from '../history/history-recorder';
 import type { HistoryStack } from '../history/history-stack';
-import type { CanvasElement, ArrowElement } from '../elements/types';
 import { InputFilter } from './input-filter';
-import { createId } from '../elements/create-id';
+import { KeyboardActions } from './keyboard-actions';
 
 const ZOOM_SENSITIVITY = 0.001;
 const MIDDLE_BUTTON = 1;
@@ -16,6 +14,7 @@ export interface InputHandlerOptions {
   toolContext?: ToolContext;
   historyRecorder?: HistoryRecorder;
   historyStack?: HistoryStack;
+  fitToContent?: () => void;
 }
 
 export class InputHandler {
@@ -34,8 +33,7 @@ export class InputHandler {
   private readonly inputFilter = new InputFilter();
   private deferredDown: PointerEvent | null = null;
   private readonly abortController = new AbortController();
-  private clipboard: CanvasElement[] = [];
-  private pasteCount = 0;
+  private readonly actions: KeyboardActions;
 
   constructor(
     private readonly element: HTMLElement,
@@ -46,6 +44,14 @@ export class InputHandler {
     this.toolContext = options.toolContext ?? null;
     this.historyRecorder = options.historyRecorder ?? null;
     this.historyStack = options.historyStack ?? null;
+    this.actions = new KeyboardActions({
+      getToolManager: () => this.toolManager,
+      getToolContext: () => this.toolContext,
+      getHistoryRecorder: () => this.historyRecorder,
+      getHistoryStack: () => this.historyStack,
+      isToolActive: () => this.isToolActive,
+      fitToContent: options.fitToContent,
+    });
     this.element.style.touchAction = 'none';
     this.bind();
   }
@@ -56,6 +62,7 @@ export class InputHandler {
   }
 
   destroy(): void {
+    this.actions.dispose();
     this.abortController.abort();
     this.inputFilter.reset();
     this.deferredDown = null;
@@ -190,31 +197,31 @@ export class InputHandler {
       this.spaceHeld = true;
     }
     if (e.key === 'Delete' || e.key === 'Backspace') {
-      this.deleteSelected();
+      this.actions.deleteSelected();
     }
     if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
       e.preventDefault();
-      this.handleUndo();
+      this.actions.undo();
     }
     if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
       e.preventDefault();
-      this.handleRedo();
+      this.actions.redo();
     }
     if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
       e.preventDefault();
-      this.handleCopy();
+      this.actions.copy();
     }
     if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
       e.preventDefault();
-      this.handlePaste();
+      this.actions.paste();
     }
     if (e.key === ']') {
       e.preventDefault();
-      this.handleZOrder(e.ctrlKey || e.metaKey ? 'front' : 'forward');
+      this.actions.zOrder(e.ctrlKey || e.metaKey ? 'front' : 'forward');
     }
     if (e.key === '[') {
       e.preventDefault();
-      this.handleZOrder(e.ctrlKey || e.metaKey ? 'back' : 'backward');
+      this.actions.zOrder(e.ctrlKey || e.metaKey ? 'back' : 'backward');
     }
   };
 
@@ -314,144 +321,6 @@ export class InputHandler {
     if (!this.toolManager || !this.toolContext) return;
     this.toolManager.handlePointerUp(this.toPointerState(e), this.toolContext);
     this.historyRecorder?.commit();
-  }
-
-  private deleteSelected(): void {
-    if (!this.toolManager || !this.toolContext) return;
-    const tool = this.toolManager.activeTool;
-    if (tool?.name !== 'select') return;
-    const selectTool = tool as SelectTool;
-    const ids = selectTool.selectedIds;
-    if (ids.length === 0) return;
-    this.historyRecorder?.begin();
-    for (const id of ids) {
-      this.toolContext.store.remove(id);
-    }
-    this.historyRecorder?.commit();
-    this.toolContext.requestRender();
-  }
-
-  private handleUndo(): void {
-    if (!this.historyStack || !this.toolContext) return;
-    this.historyRecorder?.pause();
-    this.historyStack.undo(this.toolContext.store);
-    this.historyRecorder?.resume();
-    this.toolContext.requestRender();
-  }
-
-  private handleRedo(): void {
-    if (!this.historyStack || !this.toolContext) return;
-    this.historyRecorder?.pause();
-    this.historyStack.redo(this.toolContext.store);
-    this.historyRecorder?.resume();
-    this.toolContext.requestRender();
-  }
-
-  private handleCopy(): void {
-    if (!this.toolManager || !this.toolContext || this.isToolActive) return;
-    const tool = this.toolManager.activeTool;
-    if (tool?.name !== 'select') return;
-    const selectTool = tool as SelectTool;
-    const ids = selectTool.selectedIds;
-    if (ids.length === 0) return;
-
-    this.clipboard = [];
-    for (const id of ids) {
-      const el = this.toolContext.store.getById(id);
-      if (el) this.clipboard.push(structuredClone(el));
-    }
-    this.pasteCount = 0;
-  }
-
-  private handlePaste(): void {
-    if (!this.toolManager || !this.toolContext || this.clipboard.length === 0 || this.isToolActive)
-      return;
-    const tool = this.toolManager.activeTool;
-    if (tool?.name !== 'select') return;
-    const selectTool = tool as SelectTool;
-
-    this.pasteCount++;
-    const offset = this.pasteCount * 20;
-
-    const idMap = new Map<string, string>();
-    for (const el of this.clipboard) {
-      idMap.set(el.id, createId(el.type));
-    }
-
-    const newIds: string[] = [];
-    this.historyRecorder?.begin();
-
-    for (const el of this.clipboard) {
-      const clone = structuredClone(el);
-      const newId = idMap.get(el.id);
-      if (!newId) continue;
-      clone.id = newId;
-      clone.position = { x: clone.position.x + offset, y: clone.position.y + offset };
-
-      if (clone.type === 'arrow') {
-        const arrow = clone as ArrowElement;
-        arrow.from = { x: arrow.from.x + offset, y: arrow.from.y + offset };
-        arrow.to = { x: arrow.to.x + offset, y: arrow.to.y + offset };
-        delete arrow.cachedControlPoint;
-
-        if (arrow.fromBinding) {
-          const newTarget = idMap.get(arrow.fromBinding.elementId);
-          if (newTarget) {
-            arrow.fromBinding = { elementId: newTarget };
-          } else {
-            delete arrow.fromBinding;
-          }
-        }
-        if (arrow.toBinding) {
-          const newTarget = idMap.get(arrow.toBinding.elementId);
-          if (newTarget) {
-            arrow.toBinding = { elementId: newTarget };
-          } else {
-            delete arrow.toBinding;
-          }
-        }
-      }
-
-      if (this.toolContext.activeLayerId) {
-        clone.layerId = this.toolContext.activeLayerId;
-      }
-
-      this.toolContext.store.add(clone);
-      newIds.push(clone.id);
-    }
-
-    this.historyRecorder?.commit();
-    selectTool.setSelection(newIds);
-    this.toolContext.requestRender();
-  }
-
-  private handleZOrder(operation: 'forward' | 'backward' | 'front' | 'back'): void {
-    if (!this.toolManager || !this.toolContext) return;
-    const tool = this.toolManager.activeTool;
-    if (tool?.name !== 'select') return;
-    const selectTool = tool as SelectTool;
-    const ids = selectTool.selectedIds;
-    if (ids.length === 0) return;
-
-    this.historyRecorder?.begin();
-    for (const id of ids) {
-      switch (operation) {
-        case 'forward':
-          this.toolContext.store.bringForward(id);
-          break;
-        case 'backward':
-          this.toolContext.store.sendBackward(id);
-          break;
-        case 'front':
-          this.toolContext.store.bringToFront(id);
-          break;
-        case 'back':
-          this.toolContext.store.sendToBack(id);
-          break;
-      }
-    }
-    this.historyRecorder?.commit();
-    this.toolContext.requestRender();
   }
 
   private cancelToolIfActive(e: PointerEvent): void {
