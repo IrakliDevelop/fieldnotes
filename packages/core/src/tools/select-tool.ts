@@ -400,11 +400,7 @@ export class SelectTool implements Tool {
       size: { w, h },
     });
 
-    const boundArrows = findBoundArrows(this.mode.elementId, ctx.store);
-    for (const ba of boundArrows) {
-      const updates = updateBoundArrow(ba, ctx.store);
-      if (updates) ctx.store.update(ba.id, updates);
-    }
+    this.updateArrowsBoundTo([this.mode.elementId], ctx);
 
     ctx.requestRender();
   }

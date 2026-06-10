@@ -565,6 +565,70 @@ describe('InputHandler', () => {
       });
       expect(() => window.dispatchEvent(undoEvent)).not.toThrow();
     });
+
+    it('ArrowRight moves a selected element and calls preventDefault', () => {
+      const store = new ElementStore();
+      const note = createNote({ position: { x: 100, y: 100 }, size: { w: 100, h: 50 } });
+      store.add(note);
+
+      const setSelection = vi.fn();
+      const selectTool = {
+        name: 'select',
+        selectedIds: [note.id],
+        setSelection,
+        nudgeSelection: (dx: number, dy: number) => {
+          const el = store.getById(note.id);
+          if (el) {
+            store.update(note.id, { position: { x: el.position.x + dx, y: el.position.y + dy } });
+          }
+          return true;
+        },
+      };
+      const tm = {
+        ...stubToolManager(),
+        activeTool: selectTool,
+      } as unknown as ToolManager;
+      const tc = {
+        ...stubToolContext(),
+        store,
+      } as unknown as ToolContext;
+
+      handler = new InputHandler(element, camera, { toolManager: tm, toolContext: tc });
+
+      const event = new KeyboardEvent('keydown', {
+        key: 'ArrowRight',
+        bubbles: true,
+        cancelable: true,
+      });
+      window.dispatchEvent(event);
+
+      expect(store.getById(note.id)?.position.x).toBe(101);
+      expect(event.defaultPrevented).toBe(true);
+    });
+
+    it('ArrowRight with no selection does not preventDefault', () => {
+      const store = new ElementStore();
+
+      const tm = {
+        ...stubToolManager(),
+        activeTool: {
+          name: 'select',
+          selectedIds: [],
+          nudgeSelection: () => false,
+        },
+      } as unknown as ToolManager;
+      const tc = {
+        ...stubToolContext(),
+        store,
+      } as unknown as ToolContext;
+
+      handler = new InputHandler(element, camera, { toolManager: tm, toolContext: tc });
+
+      const event = new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true });
+      window.dispatchEvent(event);
+
+      expect(event.defaultPrevented).toBe(false);
+    });
   });
 
   describe('tool hover', () => {

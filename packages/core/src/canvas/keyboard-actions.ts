@@ -18,11 +18,12 @@ export interface KeyboardActionsDeps {
 export class KeyboardActions {
   private clipboard: CanvasElement[] = [];
   private pasteCount = 0;
+  private nudgeTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private readonly deps: KeyboardActionsDeps) {}
 
   dispose(): void {
-    // reserved for future cleanup
+    this.flushNudge();
   }
 
   private selectTool(): { tool: SelectTool; ctx: ToolContext } | null {
@@ -34,7 +35,32 @@ export class KeyboardActions {
     return { tool: tool as SelectTool, ctx };
   }
 
+  nudge(dx: number, dy: number, byCell: boolean): boolean {
+    if (this.deps.isToolActive()) return false;
+    const sel = this.selectTool();
+    if (!sel) return false;
+    if (sel.tool.selectedIds.length === 0) return false;
+
+    const step = byCell ? (sel.ctx.gridSize ?? 10) : 1;
+    if (this.nudgeTimer === null) {
+      this.deps.getHistoryRecorder()?.begin();
+    } else {
+      clearTimeout(this.nudgeTimer);
+    }
+    const moved = sel.tool.nudgeSelection(dx * step, dy * step, sel.ctx);
+    this.nudgeTimer = setTimeout(() => this.flushNudge(), 400);
+    return moved;
+  }
+
+  private flushNudge(): void {
+    if (this.nudgeTimer === null) return;
+    clearTimeout(this.nudgeTimer);
+    this.nudgeTimer = null;
+    this.deps.getHistoryRecorder()?.commit();
+  }
+
   deleteSelected(): void {
+    this.flushNudge();
     const sel = this.selectTool();
     if (!sel) return;
     const ids = sel.tool.selectedIds;
@@ -49,6 +75,7 @@ export class KeyboardActions {
   }
 
   undo(): void {
+    this.flushNudge();
     const ctx = this.deps.getToolContext();
     const stack = this.deps.getHistoryStack();
     if (!stack || !ctx) return;
@@ -60,6 +87,7 @@ export class KeyboardActions {
   }
 
   redo(): void {
+    this.flushNudge();
     const ctx = this.deps.getToolContext();
     const stack = this.deps.getHistoryStack();
     if (!stack || !ctx) return;
@@ -85,6 +113,7 @@ export class KeyboardActions {
   }
 
   paste(): void {
+    this.flushNudge();
     if (this.clipboard.length === 0 || this.deps.isToolActive()) return;
     const sel = this.selectTool();
     if (!sel) return;
@@ -93,13 +122,14 @@ export class KeyboardActions {
   }
 
   duplicate(): void {
+    this.flushNudge();
     if (this.deps.isToolActive()) return;
     const sel = this.selectTool();
     if (!sel) return;
     const source: CanvasElement[] = [];
     for (const id of sel.tool.selectedIds) {
       const el = sel.ctx.store.getById(id);
-      if (el) source.push(structuredClone(el));
+      if (el) source.push(el);
     }
     if (source.length === 0) return;
     this.insertClones(source, 20, sel);
@@ -138,6 +168,7 @@ export class KeyboardActions {
   }
 
   zOrder(operation: 'forward' | 'backward' | 'front' | 'back'): void {
+    this.flushNudge();
     const sel = this.selectTool();
     if (!sel) return;
     const ids = sel.tool.selectedIds;

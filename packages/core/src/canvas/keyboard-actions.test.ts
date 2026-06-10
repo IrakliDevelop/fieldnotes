@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { KeyboardActions } from './keyboard-actions';
 import type { KeyboardActionsDeps } from './keyboard-actions';
 import { Camera } from './camera';
@@ -225,5 +225,145 @@ describe('KeyboardActions.duplicate', () => {
     actions.duplicate();
 
     expect(ctx.store.getAll()).toHaveLength(1);
+  });
+
+  it('duplicating an arrow without its bound target drops the binding on the clone', () => {
+    const { actions, ctx, tool } = makeActions();
+    const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+    const arrow = createArrow({ from: { x: 200, y: 200 }, to: { x: 50, y: 25 } });
+    arrow.toBinding = { elementId: note.id };
+    ctx.store.add(note);
+    ctx.store.add(arrow);
+    tool.setSelection([arrow.id]);
+
+    actions.duplicate();
+
+    const clonedArrow = ctx.store.getAll().find((el) => el.type === 'arrow' && el.id !== arrow.id);
+    expect(clonedArrow).toBeDefined();
+    if (clonedArrow?.type === 'arrow') {
+      expect(clonedArrow.toBinding).toBeUndefined();
+      expect(clonedArrow.to.x).toBe(50 + 20);
+      expect(clonedArrow.to.y).toBe(25 + 20);
+    }
+  });
+
+  it('duplicate with recorder is exactly one begin + one commit', () => {
+    const recorder: HistoryRecorder = {
+      begin: vi.fn(),
+      commit: vi.fn(),
+      pause: vi.fn(),
+      resume: vi.fn(),
+    } as unknown as HistoryRecorder;
+    const { actions, ctx, tool } = makeActions({ recorder });
+    const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+    ctx.store.add(note);
+    tool.setSelection([note.id]);
+
+    actions.duplicate();
+
+    expect(recorder.begin).toHaveBeenCalledTimes(1);
+    expect(recorder.commit).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('KeyboardActions.nudge', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function makeRecorder(): HistoryRecorder {
+    return {
+      begin: vi.fn(),
+      commit: vi.fn(),
+      pause: vi.fn(),
+      resume: vi.fn(),
+    } as unknown as HistoryRecorder;
+  }
+
+  it('moves selection 1 unit, or one grid cell with the cell multiplier', () => {
+    const ctx = makeCtx({ gridSize: 40 });
+    const { actions, tool } = makeActions({ ctx });
+    const note = createNote({ position: { x: 100, y: 100 }, size: { w: 100, h: 50 } });
+    ctx.store.add(note);
+    tool.setSelection([note.id]);
+
+    expect(actions.nudge(1, 0, false)).toBe(true);
+    expect(ctx.store.getById(note.id)?.position.x).toBe(101);
+
+    expect(actions.nudge(0, 1, true)).toBe(true);
+    expect(ctx.store.getById(note.id)?.position.y).toBe(140);
+  });
+
+  it('falls back to 10 units for cell nudge without a grid', () => {
+    const { actions, ctx, tool } = makeActions();
+    const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+    ctx.store.add(note);
+    tool.setSelection([note.id]);
+
+    actions.nudge(1, 0, true);
+
+    expect(ctx.store.getById(note.id)?.position.x).toBe(10);
+  });
+
+  it('returns false when nothing is selected', () => {
+    const { actions } = makeActions();
+    expect(actions.nudge(1, 0, false)).toBe(false);
+  });
+
+  it('is a no-op during active pointer input', () => {
+    const { actions, ctx, tool } = makeActions({ isToolActive: () => true });
+    const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+    ctx.store.add(note);
+    tool.setSelection([note.id]);
+
+    expect(actions.nudge(1, 0, false)).toBe(false);
+    expect(ctx.store.getById(note.id)?.position.x).toBe(0);
+  });
+
+  it('coalesces a burst of nudges into one history transaction', () => {
+    const recorder = makeRecorder();
+    const { actions, ctx, tool } = makeActions({ recorder });
+    const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+    ctx.store.add(note);
+    tool.setSelection([note.id]);
+
+    actions.nudge(1, 0, false);
+    actions.nudge(1, 0, false);
+    actions.nudge(1, 0, false);
+    expect(recorder.begin).toHaveBeenCalledTimes(1);
+    expect(recorder.commit).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(400);
+    expect(recorder.commit).toHaveBeenCalledTimes(1);
+  });
+
+  it('flushes a pending nudge transaction before another history action runs', () => {
+    const recorder = makeRecorder();
+    const { actions, ctx, tool } = makeActions({ recorder });
+    const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+    ctx.store.add(note);
+    tool.setSelection([note.id]);
+
+    actions.nudge(1, 0, false);
+    actions.deleteSelected();
+
+    expect(recorder.begin).toHaveBeenCalledTimes(2);
+    expect(recorder.commit).toHaveBeenCalledTimes(2);
+  });
+
+  it('flushes a pending nudge on dispose', () => {
+    const recorder = makeRecorder();
+    const { actions, ctx, tool } = makeActions({ recorder });
+    const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+    ctx.store.add(note);
+    tool.setSelection([note.id]);
+
+    actions.nudge(1, 0, false);
+    actions.dispose();
+
+    expect(recorder.commit).toHaveBeenCalledTimes(1);
   });
 });

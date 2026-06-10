@@ -9,6 +9,13 @@ import { KeyboardActions } from './keyboard-actions';
 const ZOOM_SENSITIVITY = 0.001;
 const MIDDLE_BUTTON = 1;
 
+const NUDGE_KEYS: Record<string, readonly [number, number]> = {
+  ArrowLeft: [-1, 0],
+  ArrowRight: [1, 0],
+  ArrowUp: [0, -1],
+  ArrowDown: [0, 1],
+};
+
 export interface InputHandlerOptions {
   toolManager?: ToolManager;
   toolContext?: ToolContext;
@@ -236,6 +243,13 @@ export class InputHandler {
     if (e.key === '[') {
       e.preventDefault();
       this.actions.zOrder(e.ctrlKey || e.metaKey ? 'back' : 'backward');
+    }
+    const nudgeDelta = NUDGE_KEYS[e.key];
+    if (nudgeDelta) {
+      const [dx, dy] = nudgeDelta;
+      if (this.actions.nudge(dx, dy, e.shiftKey)) {
+        e.preventDefault();
+      }
     }
   };
 

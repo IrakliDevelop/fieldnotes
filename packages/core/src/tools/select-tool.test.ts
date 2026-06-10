@@ -1321,14 +1321,39 @@ describe('SelectTool', () => {
       ctx.store.add(arrow);
       tool.onActivate(ctx);
       tool.setSelection([note.id]);
-      const before = ctx.store.getById(arrow.id);
-      const beforeTo = before?.type === 'arrow' ? { ...before.to } : { x: 0, y: 0 };
 
       tool.nudgeSelection(10, 0, ctx);
 
+      // note moved to x=10, center = { x: 10 + 100/2, y: 0 + 50/2 } = { x: 60, y: 25 }
       const after = ctx.store.getById(arrow.id);
       if (after?.type === 'arrow') {
-        expect(after.to).not.toEqual(beforeTo);
+        expect(after.to).toEqual({ x: 60, y: 25 });
+      } else {
+        expect.fail('arrow missing');
+      }
+    });
+
+    it('selection containing both a bound arrow and its target nudges arrow endpoint exactly once', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+      const arrow = createArrow({ from: { x: 300, y: 300 }, to: { x: 50, y: 25 } });
+      arrow.toBinding = { elementId: note.id };
+      ctx.store.add(note);
+      ctx.store.add(arrow);
+      tool.onActivate(ctx);
+      // Select both the note and the bound arrow
+      tool.setSelection([note.id, arrow.id]);
+
+      tool.nudgeSelection(10, 0, ctx);
+
+      // note moved to x=10, center = { x: 60, y: 25 }
+      // arrow is bound so it is skipped in the move loop, but updateArrowsBoundTo runs for the note
+      const after = ctx.store.getById(arrow.id);
+      if (after?.type === 'arrow') {
+        expect(after.to).toEqual({ x: 60, y: 25 });
+        // from should be unchanged (arrow itself was not moved independently)
+        expect(after.from).toEqual({ x: 300, y: 300 });
       } else {
         expect.fail('arrow missing');
       }
