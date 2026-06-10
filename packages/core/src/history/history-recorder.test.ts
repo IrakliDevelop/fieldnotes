@@ -144,6 +144,24 @@ describe('HistoryRecorder', () => {
     expect(stack.undoCount).toBe(0);
   });
 
+  it('begin auto-commits an open non-empty transaction instead of discarding it', () => {
+    const { store, stack, recorder } = setup();
+    const note = createNote({ position: { x: 0, y: 0 } });
+
+    // Open a transaction, add an element — then call begin() again WITHOUT commit()
+    recorder.begin();
+    store.add(note);
+    recorder.begin(); // second begin must commit the first
+
+    // Now commit the second (empty) transaction
+    recorder.commit();
+
+    // The first transaction (the add) must be on the stack and undoable
+    expect(stack.undoCount).toBe(1);
+    stack.undo(store);
+    expect(store.count).toBe(0);
+  });
+
   describe('layer undo', () => {
     function setupWithLayers() {
       const store = new ElementStore();

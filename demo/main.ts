@@ -377,6 +377,8 @@ redoBtn?.addEventListener('click', () => {
   viewport.redo();
 });
 
+document.getElementById('fit-btn')?.addEventListener('click', () => viewport.fitToContent());
+
 const snapBtn = document.getElementById('snap-toggle') as HTMLButtonElement | null;
 
 snapBtn?.addEventListener('click', () => {
@@ -661,7 +663,7 @@ if (info) {
     const { x, y } = viewport.camera.position;
     const z = viewport.camera.zoom;
     const tool = viewport.toolManager.activeTool?.name ?? 'none';
-    info.textContent = `${tool} · ${z.toFixed(2)}x · (${x.toFixed(0)}, ${y.toFixed(0)}) · Scroll=zoom · Middle/Space+drag=pan · Pinch=zoom`;
+    info.textContent = `${tool} · ${z.toFixed(2)}x · (${x.toFixed(0)}, ${y.toFixed(0)}) · Scroll=zoom · Middle/Space+drag=pan · Pinch=zoom · Shift+1=fit`;
   };
   viewport.camera.onChange(updateInfo);
   viewport.toolManager.onChange(updateInfo);

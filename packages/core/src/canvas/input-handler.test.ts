@@ -420,6 +420,140 @@ describe('InputHandler', () => {
       expect(hs.redo).toHaveBeenCalled();
     });
 
+    it('handles Escape key to deselect', () => {
+      const store = new ElementStore();
+      const note = createNote({ position: { x: 100, y: 100 }, size: { w: 200, h: 100 } });
+      store.add(note);
+
+      const setSelection = vi.fn();
+      const tm = {
+        ...stubToolManager(),
+        activeTool: {
+          name: 'select',
+          selectedIds: [note.id],
+          setSelection,
+        },
+      } as unknown as ToolManager;
+      const tc = {
+        ...stubToolContext(),
+        store,
+      } as unknown as ToolContext;
+
+      handler = new InputHandler(element, camera, {
+        toolManager: tm,
+        toolContext: tc,
+      });
+
+      keyDown('Escape');
+
+      expect(setSelection).toHaveBeenCalledWith([]);
+      expect(store.getById(note.id)).toBeDefined();
+    });
+
+    it('ignores keydown when target is an input element', () => {
+      const store = new ElementStore();
+      const note = createNote({ position: { x: 100, y: 100 }, size: { w: 200, h: 100 } });
+      store.add(note);
+
+      const tm = {
+        ...stubToolManager(),
+        activeTool: {
+          name: 'select',
+          selectedIds: [note.id],
+          setSelection: vi.fn(),
+        },
+      } as unknown as ToolManager;
+      const tc = {
+        ...stubToolContext(),
+        store,
+      } as unknown as ToolContext;
+
+      handler = new InputHandler(element, camera, {
+        toolManager: tm,
+        toolContext: tc,
+      });
+
+      const inputEl = document.createElement('input');
+      element.appendChild(inputEl);
+
+      const keyEvent = new KeyboardEvent('keydown', { key: 'Delete', bubbles: true });
+      Object.defineProperty(keyEvent, 'target', { value: inputEl });
+      window.dispatchEvent(keyEvent);
+
+      expect(store.getById(note.id)).toBeDefined();
+      element.removeChild(inputEl);
+    });
+
+    it('Ctrl+D duplicates the selected element', () => {
+      const store = new ElementStore();
+      const note = createNote({ position: { x: 100, y: 100 }, size: { w: 100, h: 50 } });
+      store.add(note);
+
+      const setSelection = vi.fn();
+      const tm = {
+        ...stubToolManager(),
+        activeTool: {
+          name: 'select',
+          selectedIds: [note.id],
+          setSelection,
+        },
+      } as unknown as ToolManager;
+      const tc = {
+        ...stubToolContext(),
+        store,
+      } as unknown as ToolContext;
+
+      handler = new InputHandler(element, camera, {
+        toolManager: tm,
+        toolContext: tc,
+      });
+
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'd', ctrlKey: true, bubbles: true }),
+      );
+
+      expect(store.count).toBe(2);
+      expect(setSelection).toHaveBeenCalledOnce();
+      const ids = setSelection.mock.calls[0]?.[0] as string[];
+      expect(ids).toHaveLength(1);
+      expect(ids[0]).not.toBe(note.id);
+    });
+
+    it('Ctrl+A calls selectAll and selects all element ids', () => {
+      const store = new ElementStore();
+      const noteA = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+      const noteB = createNote({ position: { x: 200, y: 0 }, size: { w: 100, h: 50 } });
+      store.add(noteA);
+      store.add(noteB);
+
+      const setSelection = vi.fn();
+      const tm = {
+        ...stubToolManager(),
+        activeTool: {
+          name: 'select',
+          selectedIds: [],
+          setSelection,
+        },
+      } as unknown as ToolManager;
+      const tc = {
+        ...stubToolContext(),
+        store,
+      } as unknown as ToolContext;
+
+      handler = new InputHandler(element, camera, {
+        toolManager: tm,
+        toolContext: tc,
+      });
+
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'a', ctrlKey: true, bubbles: true }),
+      );
+
+      expect(setSelection).toHaveBeenCalledOnce();
+      const ids = setSelection.mock.calls[0]?.[0] as string[];
+      expect(ids.sort()).toEqual([noteA.id, noteB.id].sort());
+    });
+
     it('undo/redo no-op without historyStack', () => {
       const tc = stubToolContext();
       handler.setToolManager(stubToolManager(), tc);
@@ -430,6 +564,70 @@ describe('InputHandler', () => {
         bubbles: true,
       });
       expect(() => window.dispatchEvent(undoEvent)).not.toThrow();
+    });
+
+    it('ArrowRight moves a selected element and calls preventDefault', () => {
+      const store = new ElementStore();
+      const note = createNote({ position: { x: 100, y: 100 }, size: { w: 100, h: 50 } });
+      store.add(note);
+
+      const setSelection = vi.fn();
+      const selectTool = {
+        name: 'select',
+        selectedIds: [note.id],
+        setSelection,
+        nudgeSelection: (dx: number, dy: number) => {
+          const el = store.getById(note.id);
+          if (el) {
+            store.update(note.id, { position: { x: el.position.x + dx, y: el.position.y + dy } });
+          }
+          return true;
+        },
+      };
+      const tm = {
+        ...stubToolManager(),
+        activeTool: selectTool,
+      } as unknown as ToolManager;
+      const tc = {
+        ...stubToolContext(),
+        store,
+      } as unknown as ToolContext;
+
+      handler = new InputHandler(element, camera, { toolManager: tm, toolContext: tc });
+
+      const event = new KeyboardEvent('keydown', {
+        key: 'ArrowRight',
+        bubbles: true,
+        cancelable: true,
+      });
+      window.dispatchEvent(event);
+
+      expect(store.getById(note.id)?.position.x).toBe(101);
+      expect(event.defaultPrevented).toBe(true);
+    });
+
+    it('ArrowRight with no selection does not preventDefault', () => {
+      const store = new ElementStore();
+
+      const tm = {
+        ...stubToolManager(),
+        activeTool: {
+          name: 'select',
+          selectedIds: [],
+          nudgeSelection: () => false,
+        },
+      } as unknown as ToolManager;
+      const tc = {
+        ...stubToolContext(),
+        store,
+      } as unknown as ToolContext;
+
+      handler = new InputHandler(element, camera, { toolManager: tm, toolContext: tc });
+
+      const event = new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true });
+      window.dispatchEvent(event);
+
+      expect(event.defaultPrevented).toBe(false);
     });
   });
 
@@ -1104,6 +1302,108 @@ describe('InputHandler', () => {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: ']', bubbles: true }));
       expect(store.getById(note1.id)?.zIndex).toBe(originalZ);
       h.destroy();
+    });
+  });
+
+  describe('Shift+1 zoom-to-fit shortcut', () => {
+    it('calls the injected fitToContent option on Shift+1', () => {
+      const fit = vi.fn();
+      const h = new InputHandler(element, camera, { fitToContent: fit });
+
+      const event = new KeyboardEvent('keydown', {
+        code: 'Digit1',
+        shiftKey: true,
+        bubbles: true,
+        cancelable: true,
+      });
+      window.dispatchEvent(event);
+
+      expect(fit).toHaveBeenCalledTimes(1);
+      expect(event.defaultPrevented).toBe(true);
+      h.destroy();
+    });
+
+    it('does not call fitToContent when Ctrl+Shift+1 is pressed', () => {
+      const fit = vi.fn();
+      const h = new InputHandler(element, camera, { fitToContent: fit });
+
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          code: 'Digit1',
+          shiftKey: true,
+          ctrlKey: true,
+          bubbles: true,
+        }),
+      );
+
+      expect(fit).not.toHaveBeenCalled();
+      h.destroy();
+    });
+
+    it('does not call fitToContent when only 1 is pressed (no Shift)', () => {
+      const fit = vi.fn();
+      const h = new InputHandler(element, camera, { fitToContent: fit });
+
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { code: 'Digit1', shiftKey: false, bubbles: true }),
+      );
+
+      expect(fit).not.toHaveBeenCalled();
+      h.destroy();
+    });
+  });
+
+  describe('nudge + pointer-down race condition', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('flushes pending nudge transaction before pointer-down begins a new one', () => {
+      const store = new ElementStore();
+      const note = createNote({ position: { x: 100, y: 100 }, size: { w: 100, h: 50 } });
+      store.add(note);
+
+      const selectTool = {
+        name: 'select',
+        selectedIds: [note.id],
+        setSelection: vi.fn(),
+        nudgeSelection: (dx: number, dy: number) => {
+          const el = store.getById(note.id);
+          if (el) {
+            store.update(note.id, { position: { x: el.position.x + dx, y: el.position.y + dy } });
+          }
+          return true;
+        },
+      };
+      const tm = {
+        ...stubToolManager(),
+        activeTool: selectTool,
+      } as unknown as ToolManager;
+      const tc = {
+        ...stubToolContext(),
+        store,
+      } as unknown as ToolContext;
+      const hr = { begin: vi.fn(), commit: vi.fn() } as unknown as HistoryRecorder;
+
+      handler = new InputHandler(element, camera, {
+        toolManager: tm,
+        toolContext: tc,
+        historyRecorder: hr,
+      });
+
+      // ArrowRight nudge: opens a transaction (begin #1), 400ms timer pending
+      keyDown('ArrowRight');
+      expect(hr.begin).toHaveBeenCalledTimes(1);
+      expect(hr.commit).toHaveBeenCalledTimes(0);
+
+      // Pointer-down within 400ms: must flush the nudge (commit #1) then begin a new transaction (begin #2)
+      pointerDown(element, { button: 0, clientX: 50, clientY: 50 });
+
+      expect(hr.commit).toHaveBeenCalledTimes(1);
+      expect(hr.begin).toHaveBeenCalledTimes(2);
     });
   });
 

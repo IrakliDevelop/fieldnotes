@@ -10,6 +10,7 @@ import {
   createArrow,
   createHtmlElement,
 } from '../elements/element-factory';
+import { SelectTool } from '../tools/select-tool';
 
 describe('Viewport', () => {
   let container: HTMLDivElement;
@@ -631,6 +632,71 @@ describe('Viewport', () => {
       expect(viewport.store.getById(id)).toBeDefined();
       viewport.destroy();
     });
+
+    it('undo flushes a pending nudge transaction before popping the history stack', () => {
+      vi.useFakeTimers();
+      const viewport = new Viewport(container);
+
+      const selectTool = new SelectTool();
+      viewport.toolManager.register(selectTool);
+      viewport.toolManager.setTool('select', viewport.toolContext);
+
+      const note = createNote({
+        position: { x: 100, y: 100 },
+        size: { w: 100, h: 50 },
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(note);
+      viewport.history.clear();
+
+      selectTool.setSelection([note.id]);
+
+      // ArrowRight nudge: opens a 400ms-coalesced transaction, does NOT fire the timer yet
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+
+      const nudgedX = viewport.store.getById(note.id)?.position.x;
+      expect(nudgedX).toBe(101);
+
+      // undo() within 400ms must flush the nudge FIRST, then undo it
+      // Without the fix, undo() would pop the add-note entry (history is empty for nudge),
+      // leaving the note at x=101. With the fix, nudge is committed then undone → x=100.
+      viewport.undo();
+
+      expect(viewport.store.getById(note.id)?.position.x).toBe(100);
+
+      vi.useRealTimers();
+      viewport.destroy();
+    });
+
+    it('redo flushes a pending nudge transaction before re-applying history', () => {
+      vi.useFakeTimers();
+      const viewport = new Viewport(container);
+
+      const selectTool = new SelectTool();
+      viewport.toolManager.register(selectTool);
+      viewport.toolManager.setTool('select', viewport.toolContext);
+
+      const note = createNote({
+        position: { x: 100, y: 100 },
+        size: { w: 100, h: 50 },
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(note);
+      viewport.history.clear();
+
+      selectTool.setSelection([note.id]);
+
+      // Nudge once, then immediately redo (timer not fired)
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+      // redo must flush the pending nudge (commit it) rather than discard it
+      viewport.redo(); // nothing to redo, but flush must not break anything
+
+      // The nudge is committed (flushed), position should be 101
+      expect(viewport.store.getById(note.id)?.position.x).toBe(101);
+
+      vi.useRealTimers();
+      viewport.destroy();
+    });
   });
 
   describe('loadState', () => {
@@ -652,6 +718,41 @@ describe('Viewport', () => {
       const state = viewport.exportState();
       viewport.loadState(state);
       expect(viewport.undo()).toBe(false);
+      viewport.destroy();
+    });
+
+    it('flushes a pending nudge before clearing history so stale nudge cannot corrupt the fresh stack', () => {
+      vi.useFakeTimers();
+      const viewport = new Viewport(container);
+
+      const selectTool = new SelectTool();
+      viewport.toolManager.register(selectTool);
+      viewport.toolManager.setTool('select', viewport.toolContext);
+
+      const note = createNote({
+        position: { x: 100, y: 100 },
+        size: { w: 100, h: 50 },
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(note);
+      viewport.history.clear();
+      selectTool.setSelection([note.id]);
+
+      // Start a pending nudge (timer not fired)
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+      expect(viewport.store.getById(note.id)?.position.x).toBe(101);
+
+      // Take a snapshot of current state (note at x=101) and loadState
+      const snapshot = viewport.exportState();
+      viewport.loadState(snapshot);
+
+      // Advance timers — the nudge timer must be gone (flushed by loadState)
+      vi.advanceTimersByTime(400);
+
+      // History was cleared by loadState; undo should be a no-op
+      expect(viewport.undo()).toBe(false);
+
+      vi.useRealTimers();
       viewport.destroy();
     });
   });
@@ -852,6 +953,99 @@ describe('Viewport', () => {
       expect(vp.store.getById(img)?.layerId).toBe(layer.id);
 
       vp.destroy();
+    });
+  });
+
+  describe('fitToContent', () => {
+    it('frames all elements (content center maps to canvas center)', () => {
+      const viewport = new Viewport(container);
+      const wrapper = container.firstElementChild as HTMLElement;
+      Object.defineProperty(wrapper, 'clientWidth', { value: 800, configurable: true });
+      Object.defineProperty(wrapper, 'clientHeight', { value: 600, configurable: true });
+      viewport.store.add(
+        createNote({
+          position: { x: 1000, y: 1000 },
+          size: { w: 200, h: 100 },
+          layerId: viewport.layerManager.activeLayerId,
+        }),
+      );
+
+      viewport.fitToContent();
+
+      const cam = viewport.camera;
+      // bbox center (1100, 1050) must map to canvas center (400, 300)
+      expect(cam.position.x + 1100 * cam.zoom).toBeCloseTo(400, 0);
+      expect(cam.position.y + 1050 * cam.zoom).toBeCloseTo(300, 0);
+      viewport.destroy();
+    });
+
+    it('is a no-op on an empty canvas', () => {
+      const viewport = new Viewport(container);
+      const zoomBefore = viewport.camera.zoom;
+      const posBefore = { ...viewport.camera.position };
+
+      viewport.fitToContent();
+
+      expect(viewport.camera.zoom).toBe(zoomBefore);
+      expect(viewport.camera.position).toEqual(posBefore);
+      viewport.destroy();
+    });
+
+    it('is a no-op when the wrapper has zero size', () => {
+      const viewport = new Viewport(container);
+      const wrapper = container.firstElementChild as HTMLElement;
+      Object.defineProperty(wrapper, 'clientWidth', { value: 0, configurable: true });
+      Object.defineProperty(wrapper, 'clientHeight', { value: 0, configurable: true });
+      viewport.store.add(
+        createNote({
+          position: { x: 100, y: 100 },
+          size: { w: 200, h: 100 },
+          layerId: viewport.layerManager.activeLayerId,
+        }),
+      );
+      const zoomBefore = viewport.camera.zoom;
+      const posBefore = { ...viewport.camera.position };
+
+      viewport.fitToContent();
+
+      expect(viewport.camera.zoom).toBe(zoomBefore);
+      expect(viewport.camera.position).toEqual(posBefore);
+      viewport.destroy();
+    });
+
+    it('ignores elements on hidden layers', () => {
+      const viewport = new Viewport(container);
+      const wrapper = container.firstElementChild as HTMLElement;
+      Object.defineProperty(wrapper, 'clientWidth', { value: 800, configurable: true });
+      Object.defineProperty(wrapper, 'clientHeight', { value: 600, configurable: true });
+
+      const layer2 = viewport.layerManager.createLayer('Layer 2');
+      viewport.layerManager.setLayerVisible(layer2.id, false);
+
+      // element on visible layer
+      viewport.store.add(
+        createNote({
+          position: { x: 1000, y: 1000 },
+          size: { w: 200, h: 100 },
+          layerId: viewport.layerManager.activeLayerId,
+        }),
+      );
+      // element on hidden layer — should be excluded from bbox
+      viewport.store.add(
+        createNote({
+          position: { x: 9000, y: 9000 },
+          size: { w: 200, h: 100 },
+          layerId: layer2.id,
+        }),
+      );
+
+      viewport.fitToContent();
+
+      const cam = viewport.camera;
+      // bbox center of visible element only: (1100, 1050) must map to canvas center (400, 300)
+      expect(cam.position.x + 1100 * cam.zoom).toBeCloseTo(400, 0);
+      expect(cam.position.y + 1050 * cam.zoom).toBeCloseTo(300, 0);
+      viewport.destroy();
     });
   });
 

@@ -203,25 +203,7 @@ export class SelectTool implements Tool {
         }
       }
 
-      // Update any arrows bound to moved elements
-      const movedNonArrowIds = new Set<string>();
-      for (const id of this._selectedIds) {
-        const el = ctx.store.getById(id);
-        if (el && el.type !== 'arrow') movedNonArrowIds.add(id);
-      }
-
-      if (movedNonArrowIds.size > 0) {
-        const updatedArrows = new Set<string>();
-        for (const id of movedNonArrowIds) {
-          const boundArrows = findBoundArrows(id, ctx.store);
-          for (const ba of boundArrows) {
-            if (updatedArrows.has(ba.id)) continue;
-            updatedArrows.add(ba.id);
-            const updates = updateBoundArrow(ba, ctx.store);
-            if (updates) ctx.store.update(ba.id, updates);
-          }
-        }
-      }
+      this.updateArrowsBoundTo(this._selectedIds, ctx);
 
       ctx.requestRender();
       return;
@@ -280,6 +262,53 @@ export class SelectTool implements Tool {
         canvasCtx.restore();
       }
     }
+  }
+
+  private updateArrowsBoundTo(ids: Iterable<string>, ctx: ToolContext): void {
+    const movedNonArrowIds = new Set<string>();
+    for (const id of ids) {
+      const el = ctx.store.getById(id);
+      if (el && el.type !== 'arrow') movedNonArrowIds.add(id);
+    }
+    if (movedNonArrowIds.size === 0) return;
+    const updatedArrows = new Set<string>();
+    for (const id of movedNonArrowIds) {
+      const boundArrows = findBoundArrows(id, ctx.store);
+      for (const ba of boundArrows) {
+        if (updatedArrows.has(ba.id)) continue;
+        updatedArrows.add(ba.id);
+        const updates = updateBoundArrow(ba, ctx.store);
+        if (updates) ctx.store.update(ba.id, updates);
+      }
+    }
+  }
+
+  nudgeSelection(dx: number, dy: number, ctx: ToolContext): boolean {
+    let moved = false;
+    for (const id of this._selectedIds) {
+      const el = ctx.store.getById(id);
+      if (!el || el.locked) continue;
+
+      if (el.type === 'arrow') {
+        if (el.fromBinding || el.toBinding) continue;
+        ctx.store.update(id, {
+          position: { x: el.position.x + dx, y: el.position.y + dy },
+          from: { x: el.from.x + dx, y: el.from.y + dy },
+          to: { x: el.to.x + dx, y: el.to.y + dy },
+        });
+      } else {
+        ctx.store.update(id, {
+          position: { x: el.position.x + dx, y: el.position.y + dy },
+        });
+      }
+      moved = true;
+    }
+
+    if (moved) {
+      this.updateArrowsBoundTo(this._selectedIds, ctx);
+      ctx.requestRender();
+    }
+    return moved;
   }
 
   private updateHoverCursor(world: Point, ctx: ToolContext): void {
@@ -371,11 +400,7 @@ export class SelectTool implements Tool {
       size: { w, h },
     });
 
-    const boundArrows = findBoundArrows(this.mode.elementId, ctx.store);
-    for (const ba of boundArrows) {
-      const updates = updateBoundArrow(ba, ctx.store);
-      if (updates) ctx.store.update(ba.id, updates);
-    }
+    this.updateArrowsBoundTo([this.mode.elementId], ctx);
 
     ctx.requestRender();
   }
