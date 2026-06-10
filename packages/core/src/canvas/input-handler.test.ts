@@ -484,6 +484,41 @@ describe('InputHandler', () => {
       element.removeChild(inputEl);
     });
 
+    it('Ctrl+D duplicates the selected element', () => {
+      const store = new ElementStore();
+      const note = createNote({ position: { x: 100, y: 100 }, size: { w: 100, h: 50 } });
+      store.add(note);
+
+      const setSelection = vi.fn();
+      const tm = {
+        ...stubToolManager(),
+        activeTool: {
+          name: 'select',
+          selectedIds: [note.id],
+          setSelection,
+        },
+      } as unknown as ToolManager;
+      const tc = {
+        ...stubToolContext(),
+        store,
+      } as unknown as ToolContext;
+
+      handler = new InputHandler(element, camera, {
+        toolManager: tm,
+        toolContext: tc,
+      });
+
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'd', ctrlKey: true, bubbles: true }),
+      );
+
+      expect(store.count).toBe(2);
+      expect(setSelection).toHaveBeenCalledOnce();
+      const ids = setSelection.mock.calls[0]?.[0] as string[];
+      expect(ids).toHaveLength(1);
+      expect(ids[0]).not.toBe(note.id);
+    });
+
     it('Ctrl+A calls selectAll and selects all element ids', () => {
       const store = new ElementStore();
       const noteA = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });

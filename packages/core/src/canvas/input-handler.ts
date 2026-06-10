@@ -225,6 +225,10 @@ export class InputHandler {
       e.preventDefault();
       this.actions.paste();
     }
+    if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
+      e.preventDefault();
+      this.actions.duplicate();
+    }
     if (e.key === ']') {
       e.preventDefault();
       this.actions.zOrder(e.ctrlKey || e.metaKey ? 'front' : 'forward');

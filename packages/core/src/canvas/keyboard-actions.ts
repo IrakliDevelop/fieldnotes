@@ -92,6 +92,19 @@ export class KeyboardActions {
     this.insertClones(this.clipboard, this.pasteCount * 20, sel);
   }
 
+  duplicate(): void {
+    if (this.deps.isToolActive()) return;
+    const sel = this.selectTool();
+    if (!sel) return;
+    const source: CanvasElement[] = [];
+    for (const id of sel.tool.selectedIds) {
+      const el = sel.ctx.store.getById(id);
+      if (el) source.push(structuredClone(el));
+    }
+    if (source.length === 0) return;
+    this.insertClones(source, 20, sel);
+  }
+
   deselect(): void {
     if (this.deps.isToolActive()) return;
     const sel = this.selectTool();

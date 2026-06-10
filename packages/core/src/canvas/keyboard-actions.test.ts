@@ -7,7 +7,7 @@ import type { KeyboardActionsDeps } from './keyboard-actions';
 import { Camera } from './camera';
 import { ElementStore } from '../elements/element-store';
 import { SelectTool } from '../tools/select-tool';
-import { createNote } from '../elements/element-factory';
+import { createNote, createArrow } from '../elements/element-factory';
 import type { ToolManager } from '../tools/tool-manager';
 import type { ToolContext } from '../tools/types';
 import type { HistoryRecorder } from '../history/history-recorder';
@@ -157,5 +157,73 @@ describe('KeyboardActions.selectAll', () => {
 
     expect(ctx.switchTool).toHaveBeenCalledWith('select');
     expect(selectTool.selectedIds).toEqual([note.id]);
+  });
+});
+
+describe('KeyboardActions.duplicate', () => {
+  it('clones the selection at +20px and selects the clones', () => {
+    const { actions, ctx, tool } = makeActions();
+    const note = createNote({ position: { x: 100, y: 100 }, size: { w: 100, h: 50 } });
+    ctx.store.add(note);
+    tool.setSelection([note.id]);
+
+    actions.duplicate();
+
+    expect(ctx.store.getAll()).toHaveLength(2);
+    const cloneId = tool.selectedIds[0];
+    expect(cloneId).toBeDefined();
+    expect(cloneId).not.toBe(note.id);
+    const clone = cloneId ? ctx.store.getById(cloneId) : undefined;
+    expect(clone?.position).toEqual({ x: 120, y: 120 });
+  });
+
+  it('remaps arrow bindings when both ends are duplicated together', () => {
+    const { actions, ctx, tool } = makeActions();
+    const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+    const arrow = createArrow({ from: { x: 200, y: 200 }, to: { x: 50, y: 25 } });
+    arrow.toBinding = { elementId: note.id };
+    ctx.store.add(note);
+    ctx.store.add(arrow);
+    tool.setSelection([note.id, arrow.id]);
+
+    actions.duplicate();
+
+    const clonedArrow = ctx.store.getAll().find((el) => el.type === 'arrow' && el.id !== arrow.id);
+    expect(clonedArrow).toBeDefined();
+    if (clonedArrow?.type === 'arrow') {
+      expect(clonedArrow.toBinding).toBeDefined();
+      expect(clonedArrow.toBinding?.elementId).not.toBe(note.id);
+      expect(ctx.store.getById(clonedArrow.toBinding?.elementId ?? '')).toBeDefined();
+    }
+  });
+
+  it('does not touch the copy/paste clipboard', () => {
+    const { actions, ctx, tool } = makeActions();
+    const a = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+    const b = createNote({ position: { x: 300, y: 300 }, size: { w: 100, h: 50 } });
+    ctx.store.add(a);
+    ctx.store.add(b);
+    tool.setSelection([a.id]);
+    actions.copy();
+    tool.setSelection([b.id]);
+
+    actions.duplicate();
+    actions.paste();
+
+    const notes = ctx.store.getAll().filter((el) => el.type === 'note');
+    expect(notes).toHaveLength(4); // a, b, duplicate-of-b, paste-of-a
+    const pasted = notes.find((el) => el.position.x === 20 && el.position.y === 20);
+    expect(pasted).toBeDefined();
+  });
+
+  it('is a no-op during active pointer input', () => {
+    const { actions, ctx, tool } = makeActions({ isToolActive: () => true });
+    const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+    ctx.store.add(note);
+    tool.setSelection([note.id]);
+
+    actions.duplicate();
+
+    expect(ctx.store.getAll()).toHaveLength(1);
   });
 });
