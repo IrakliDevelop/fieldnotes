@@ -199,6 +199,9 @@ export class InputHandler {
     if (e.key === 'Delete' || e.key === 'Backspace') {
       this.actions.deleteSelected();
     }
+    if (e.key === 'Escape') {
+      this.actions.deselect();
+    }
     if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
       e.preventDefault();
       this.actions.undo();

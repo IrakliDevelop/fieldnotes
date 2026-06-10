@@ -420,6 +420,36 @@ describe('InputHandler', () => {
       expect(hs.redo).toHaveBeenCalled();
     });
 
+    it('handles Escape key to deselect', () => {
+      const store = new ElementStore();
+      const note = createNote({ position: { x: 100, y: 100 }, size: { w: 200, h: 100 } });
+      store.add(note);
+
+      const setSelection = vi.fn();
+      const tm = {
+        ...stubToolManager(),
+        activeTool: {
+          name: 'select',
+          selectedIds: [note.id],
+          setSelection,
+        },
+      } as unknown as ToolManager;
+      const tc = {
+        ...stubToolContext(),
+        store,
+      } as unknown as ToolContext;
+
+      handler = new InputHandler(element, camera, {
+        toolManager: tm,
+        toolContext: tc,
+      });
+
+      keyDown('Escape');
+
+      expect(setSelection).toHaveBeenCalledWith([]);
+      expect(store.getById(note.id)).toBeDefined();
+    });
+
     it('undo/redo no-op without historyStack', () => {
       const tc = stubToolContext();
       handler.setToolManager(stubToolManager(), tc);

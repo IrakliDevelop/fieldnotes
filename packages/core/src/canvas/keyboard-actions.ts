@@ -92,6 +92,14 @@ export class KeyboardActions {
     this.insertClones(this.clipboard, this.pasteCount * 20, sel);
   }
 
+  deselect(): void {
+    const sel = this.selectTool();
+    if (!sel) return;
+    if (sel.tool.selectedIds.length === 0) return;
+    sel.tool.setSelection([]);
+    sel.ctx.requestRender();
+  }
+
   zOrder(operation: 'forward' | 'backward' | 'front' | 'back'): void {
     const sel = this.selectTool();
     if (!sel) return;
@@ -119,9 +127,6 @@ export class KeyboardActions {
     sel.ctx.requestRender();
   }
 
-  // Clones elements with fresh ids, remaps intra-set arrow bindings, drops
-  // dangling ones, offsets positions, places clones on the active layer,
-  // adds them to the store in one history transaction, and selects them.
   private insertClones(
     source: CanvasElement[],
     offset: number,
