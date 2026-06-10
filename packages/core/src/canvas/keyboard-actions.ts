@@ -167,6 +167,10 @@ export class KeyboardActions {
     sel.ctx.requestRender();
   }
 
+  zoomToFit(): void {
+    this.deps.fitToContent?.();
+  }
+
   zOrder(operation: 'forward' | 'backward' | 'front' | 'back'): void {
     this.flushPendingNudge();
     const sel = this.selectTool();

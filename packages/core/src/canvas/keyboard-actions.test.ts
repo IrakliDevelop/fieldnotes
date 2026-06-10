@@ -266,6 +266,20 @@ describe('KeyboardActions.duplicate', () => {
   });
 });
 
+describe('KeyboardActions.zoomToFit', () => {
+  it('invokes the injected fitToContent callback', () => {
+    const fit = vi.fn();
+    const { actions } = makeActions({ fitToContent: fit });
+    actions.zoomToFit();
+    expect(fit).toHaveBeenCalledTimes(1);
+  });
+
+  it('is a no-op when no fitToContent callback is provided', () => {
+    const { actions } = makeActions();
+    expect(() => actions.zoomToFit()).not.toThrow();
+  });
+});
+
 describe('KeyboardActions.nudge', () => {
   beforeEach(() => {
     vi.useFakeTimers();

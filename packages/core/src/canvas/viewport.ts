@@ -10,6 +10,7 @@ import type { FontSizePreset } from '../elements/note-toolbar';
 import type { CanvasElement, ArrowElement, GridElement } from '../elements/types';
 import { findBoundArrows, getEdgeIntersection } from '../elements/arrow-binding';
 import { getElementBounds } from '../elements/element-bounds';
+import { getElementsBoundingBox } from '../elements/bounds';
 import { getArrowTangentAngle } from '../elements/arrow-geometry';
 import { ToolManager } from '../tools/tool-manager';
 import type { ToolContext } from '../tools/types';
@@ -141,6 +142,7 @@ export class Viewport {
       toolContext: this.toolContext,
       historyRecorder: this.historyRecorder,
       historyStack: this.history,
+      fitToContent: () => this.fitToContent(),
     });
 
     this.domNodeManager = new DomNodeManager({
@@ -235,6 +237,12 @@ export class Viewport {
     this.toolContext.snapToGrid = enabled;
   }
 
+  fitToContent(padding = 40): void {
+    const bbox = getElementsBoundingBox(this.store.getAll());
+    if (!bbox) return;
+    this.camera.fitToContent(bbox, this.wrapper.clientWidth, this.wrapper.clientHeight, padding);
+  }
+
   requestRender(): void {
     this.renderLoop.requestRender();
   }
@@ -257,6 +265,7 @@ export class Viewport {
   }
 
   loadState(state: CanvasState): void {
+    this.inputHandler.flushPendingHistory();
     this.historyRecorder.pause();
     this.noteEditor.destroy(this.store);
     this.domNodeManager.clearDomNodes();

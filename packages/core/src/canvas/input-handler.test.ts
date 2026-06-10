@@ -1305,6 +1305,54 @@ describe('InputHandler', () => {
     });
   });
 
+  describe('Shift+1 zoom-to-fit shortcut', () => {
+    it('calls the injected fitToContent option on Shift+1', () => {
+      const fit = vi.fn();
+      const h = new InputHandler(element, camera, { fitToContent: fit });
+
+      const event = new KeyboardEvent('keydown', {
+        code: 'Digit1',
+        shiftKey: true,
+        bubbles: true,
+        cancelable: true,
+      });
+      window.dispatchEvent(event);
+
+      expect(fit).toHaveBeenCalledTimes(1);
+      expect(event.defaultPrevented).toBe(true);
+      h.destroy();
+    });
+
+    it('does not call fitToContent when Ctrl+Shift+1 is pressed', () => {
+      const fit = vi.fn();
+      const h = new InputHandler(element, camera, { fitToContent: fit });
+
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          code: 'Digit1',
+          shiftKey: true,
+          ctrlKey: true,
+          bubbles: true,
+        }),
+      );
+
+      expect(fit).not.toHaveBeenCalled();
+      h.destroy();
+    });
+
+    it('does not call fitToContent when only 1 is pressed (no Shift)', () => {
+      const fit = vi.fn();
+      const h = new InputHandler(element, camera, { fitToContent: fit });
+
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { code: 'Digit1', shiftKey: false, bubbles: true }),
+      );
+
+      expect(fit).not.toHaveBeenCalled();
+      h.destroy();
+    });
+  });
+
   describe('nudge + pointer-down race condition', () => {
     beforeEach(() => {
       vi.useFakeTimers();

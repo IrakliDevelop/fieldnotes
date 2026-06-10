@@ -720,6 +720,41 @@ describe('Viewport', () => {
       expect(viewport.undo()).toBe(false);
       viewport.destroy();
     });
+
+    it('flushes a pending nudge before clearing history so stale nudge cannot corrupt the fresh stack', () => {
+      vi.useFakeTimers();
+      const viewport = new Viewport(container);
+
+      const selectTool = new SelectTool();
+      viewport.toolManager.register(selectTool);
+      viewport.toolManager.setTool('select', viewport.toolContext);
+
+      const note = createNote({
+        position: { x: 100, y: 100 },
+        size: { w: 100, h: 50 },
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(note);
+      viewport.history.clear();
+      selectTool.setSelection([note.id]);
+
+      // Start a pending nudge (timer not fired)
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+      expect(viewport.store.getById(note.id)?.position.x).toBe(101);
+
+      // Take a snapshot of current state (note at x=101) and loadState
+      const snapshot = viewport.exportState();
+      viewport.loadState(snapshot);
+
+      // Advance timers — the nudge timer must be gone (flushed by loadState)
+      vi.advanceTimersByTime(400);
+
+      // History was cleared by loadState; undo should be a no-op
+      expect(viewport.undo()).toBe(false);
+
+      vi.useRealTimers();
+      viewport.destroy();
+    });
   });
 
   describe('addGrid', () => {
@@ -918,6 +953,42 @@ describe('Viewport', () => {
       expect(vp.store.getById(img)?.layerId).toBe(layer.id);
 
       vp.destroy();
+    });
+  });
+
+  describe('fitToContent', () => {
+    it('frames all elements (content center maps to canvas center)', () => {
+      const viewport = new Viewport(container);
+      const wrapper = container.firstElementChild as HTMLElement;
+      Object.defineProperty(wrapper, 'clientWidth', { value: 800, configurable: true });
+      Object.defineProperty(wrapper, 'clientHeight', { value: 600, configurable: true });
+      viewport.store.add(
+        createNote({
+          position: { x: 1000, y: 1000 },
+          size: { w: 200, h: 100 },
+          layerId: viewport.layerManager.activeLayerId,
+        }),
+      );
+
+      viewport.fitToContent();
+
+      const cam = viewport.camera;
+      // bbox center (1100, 1050) must map to canvas center (400, 300)
+      expect(cam.position.x + 1100 * cam.zoom).toBeCloseTo(400, 0);
+      expect(cam.position.y + 1050 * cam.zoom).toBeCloseTo(300, 0);
+      viewport.destroy();
+    });
+
+    it('is a no-op on an empty canvas', () => {
+      const viewport = new Viewport(container);
+      const zoomBefore = viewport.camera.zoom;
+      const posBefore = { ...viewport.camera.position };
+
+      viewport.fitToContent();
+
+      expect(viewport.camera.zoom).toBe(zoomBefore);
+      expect(viewport.camera.position).toEqual(posBefore);
+      viewport.destroy();
     });
   });
 

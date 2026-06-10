@@ -248,6 +248,10 @@ export class InputHandler {
       e.preventDefault();
       this.actions.zOrder(e.ctrlKey || e.metaKey ? 'back' : 'backward');
     }
+    if (e.shiftKey && e.code === 'Digit1' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      this.actions.zoomToFit();
+    }
     const nudgeDelta = NUDGE_KEYS[e.key];
     if (nudgeDelta) {
       const [dx, dy] = nudgeDelta;
