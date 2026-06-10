@@ -1305,6 +1305,60 @@ describe('InputHandler', () => {
     });
   });
 
+  describe('nudge + pointer-down race condition', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('flushes pending nudge transaction before pointer-down begins a new one', () => {
+      const store = new ElementStore();
+      const note = createNote({ position: { x: 100, y: 100 }, size: { w: 100, h: 50 } });
+      store.add(note);
+
+      const selectTool = {
+        name: 'select',
+        selectedIds: [note.id],
+        setSelection: vi.fn(),
+        nudgeSelection: (dx: number, dy: number) => {
+          const el = store.getById(note.id);
+          if (el) {
+            store.update(note.id, { position: { x: el.position.x + dx, y: el.position.y + dy } });
+          }
+          return true;
+        },
+      };
+      const tm = {
+        ...stubToolManager(),
+        activeTool: selectTool,
+      } as unknown as ToolManager;
+      const tc = {
+        ...stubToolContext(),
+        store,
+      } as unknown as ToolContext;
+      const hr = { begin: vi.fn(), commit: vi.fn() } as unknown as HistoryRecorder;
+
+      handler = new InputHandler(element, camera, {
+        toolManager: tm,
+        toolContext: tc,
+        historyRecorder: hr,
+      });
+
+      // ArrowRight nudge: opens a transaction (begin #1), 400ms timer pending
+      keyDown('ArrowRight');
+      expect(hr.begin).toHaveBeenCalledTimes(1);
+      expect(hr.commit).toHaveBeenCalledTimes(0);
+
+      // Pointer-down within 400ms: must flush the nudge (commit #1) then begin a new transaction (begin #2)
+      pointerDown(element, { button: 0, clientX: 50, clientY: 50 });
+
+      expect(hr.commit).toHaveBeenCalledTimes(1);
+      expect(hr.begin).toHaveBeenCalledTimes(2);
+    });
+  });
+
   describe('cursor restore on space release', () => {
     it('dispatches tool hover after space release to restore cursor', () => {
       const onHover = vi.fn();

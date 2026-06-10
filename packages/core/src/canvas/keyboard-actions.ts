@@ -23,7 +23,7 @@ export class KeyboardActions {
   constructor(private readonly deps: KeyboardActionsDeps) {}
 
   dispose(): void {
-    this.flushNudge();
+    this.flushPendingNudge();
   }
 
   private selectTool(): { tool: SelectTool; ctx: ToolContext } | null {
@@ -48,11 +48,11 @@ export class KeyboardActions {
       clearTimeout(this.nudgeTimer);
     }
     const moved = sel.tool.nudgeSelection(dx * step, dy * step, sel.ctx);
-    this.nudgeTimer = setTimeout(() => this.flushNudge(), 400);
+    this.nudgeTimer = setTimeout(() => this.flushPendingNudge(), 400);
     return moved;
   }
 
-  private flushNudge(): void {
+  flushPendingNudge(): void {
     if (this.nudgeTimer === null) return;
     clearTimeout(this.nudgeTimer);
     this.nudgeTimer = null;
@@ -60,7 +60,7 @@ export class KeyboardActions {
   }
 
   deleteSelected(): void {
-    this.flushNudge();
+    this.flushPendingNudge();
     const sel = this.selectTool();
     if (!sel) return;
     const ids = sel.tool.selectedIds;
@@ -75,7 +75,7 @@ export class KeyboardActions {
   }
 
   undo(): void {
-    this.flushNudge();
+    this.flushPendingNudge();
     const ctx = this.deps.getToolContext();
     const stack = this.deps.getHistoryStack();
     if (!stack || !ctx) return;
@@ -87,7 +87,7 @@ export class KeyboardActions {
   }
 
   redo(): void {
-    this.flushNudge();
+    this.flushPendingNudge();
     const ctx = this.deps.getToolContext();
     const stack = this.deps.getHistoryStack();
     if (!stack || !ctx) return;
@@ -113,7 +113,7 @@ export class KeyboardActions {
   }
 
   paste(): void {
-    this.flushNudge();
+    this.flushPendingNudge();
     if (this.clipboard.length === 0 || this.deps.isToolActive()) return;
     const sel = this.selectTool();
     if (!sel) return;
@@ -122,7 +122,7 @@ export class KeyboardActions {
   }
 
   duplicate(): void {
-    this.flushNudge();
+    this.flushPendingNudge();
     if (this.deps.isToolActive()) return;
     const sel = this.selectTool();
     if (!sel) return;
@@ -168,7 +168,7 @@ export class KeyboardActions {
   }
 
   zOrder(operation: 'forward' | 'backward' | 'front' | 'back'): void {
-    this.flushNudge();
+    this.flushPendingNudge();
     const sel = this.selectTool();
     if (!sel) return;
     const ids = sel.tool.selectedIds;

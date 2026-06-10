@@ -327,6 +327,7 @@ export class InputHandler {
 
   private dispatchToolDown(e: PointerEvent): void {
     if (!this.toolManager || !this.toolContext) return;
+    this.actions.flushPendingNudge();
     this.historyRecorder?.begin();
     this.isToolActive = true;
     this.toolManager.handlePointerDown(this.toPointerState(e), this.toolContext);
