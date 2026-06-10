@@ -68,6 +68,10 @@ export class InputHandler {
     this.toolContext = toolContext;
   }
 
+  flushPendingHistory(): void {
+    this.actions.flushPendingNudge();
+  }
+
   destroy(): void {
     this.actions.dispose();
     this.abortController.abort();

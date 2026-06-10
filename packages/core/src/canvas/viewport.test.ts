@@ -10,6 +10,7 @@ import {
   createArrow,
   createHtmlElement,
 } from '../elements/element-factory';
+import { SelectTool } from '../tools/select-tool';
 
 describe('Viewport', () => {
   let container: HTMLDivElement;
@@ -629,6 +630,71 @@ describe('Viewport', () => {
       expect(viewport.store.getById(id)).toBeUndefined();
       viewport.redo();
       expect(viewport.store.getById(id)).toBeDefined();
+      viewport.destroy();
+    });
+
+    it('undo flushes a pending nudge transaction before popping the history stack', () => {
+      vi.useFakeTimers();
+      const viewport = new Viewport(container);
+
+      const selectTool = new SelectTool();
+      viewport.toolManager.register(selectTool);
+      viewport.toolManager.setTool('select', viewport.toolContext);
+
+      const note = createNote({
+        position: { x: 100, y: 100 },
+        size: { w: 100, h: 50 },
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(note);
+      viewport.history.clear();
+
+      selectTool.setSelection([note.id]);
+
+      // ArrowRight nudge: opens a 400ms-coalesced transaction, does NOT fire the timer yet
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+
+      const nudgedX = viewport.store.getById(note.id)?.position.x;
+      expect(nudgedX).toBe(101);
+
+      // undo() within 400ms must flush the nudge FIRST, then undo it
+      // Without the fix, undo() would pop the add-note entry (history is empty for nudge),
+      // leaving the note at x=101. With the fix, nudge is committed then undone → x=100.
+      viewport.undo();
+
+      expect(viewport.store.getById(note.id)?.position.x).toBe(100);
+
+      vi.useRealTimers();
+      viewport.destroy();
+    });
+
+    it('redo flushes a pending nudge transaction before re-applying history', () => {
+      vi.useFakeTimers();
+      const viewport = new Viewport(container);
+
+      const selectTool = new SelectTool();
+      viewport.toolManager.register(selectTool);
+      viewport.toolManager.setTool('select', viewport.toolContext);
+
+      const note = createNote({
+        position: { x: 100, y: 100 },
+        size: { w: 100, h: 50 },
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(note);
+      viewport.history.clear();
+
+      selectTool.setSelection([note.id]);
+
+      // Nudge once, then immediately redo (timer not fired)
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+      // redo must flush the pending nudge (commit it) rather than discard it
+      viewport.redo(); // nothing to redo, but flush must not break anything
+
+      // The nudge is committed (flushed), position should be 101
+      expect(viewport.store.getById(note.id)?.position.x).toBe(101);
+
+      vi.useRealTimers();
       viewport.destroy();
     });
   });

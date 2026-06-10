@@ -295,6 +295,7 @@ export class Viewport {
   }
 
   undo(): boolean {
+    this.inputHandler.flushPendingHistory();
     this.historyRecorder.pause();
     const result = this.history.undo(this.store);
     this.historyRecorder.resume();
@@ -303,6 +304,7 @@ export class Viewport {
   }
 
   redo(): boolean {
+    this.inputHandler.flushPendingHistory();
     this.historyRecorder.pause();
     const result = this.history.redo(this.store);
     this.historyRecorder.resume();

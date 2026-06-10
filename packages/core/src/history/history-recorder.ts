@@ -47,6 +47,9 @@ export class HistoryRecorder {
   }
 
   begin(): void {
+    if (this.transaction !== null) {
+      this.commit();
+    }
     this.transaction = [];
     this.updateSnapshots.clear();
   }
