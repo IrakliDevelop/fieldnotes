@@ -168,6 +168,7 @@ export class KeyboardActions {
   }
 
   zoomToFit(): void {
+    if (this.deps.isToolActive()) return;
     this.deps.fitToContent?.();
   }
 

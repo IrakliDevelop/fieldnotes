@@ -278,6 +278,13 @@ describe('KeyboardActions.zoomToFit', () => {
     const { actions } = makeActions();
     expect(() => actions.zoomToFit()).not.toThrow();
   });
+
+  it('does not invoke fitToContent when isToolActive returns true', () => {
+    const fit = vi.fn();
+    const { actions } = makeActions({ fitToContent: fit, isToolActive: () => true });
+    actions.zoomToFit();
+    expect(fit).not.toHaveBeenCalled();
+  });
 });
 
 describe('KeyboardActions.nudge', () => {
