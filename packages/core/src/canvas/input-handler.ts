@@ -45,6 +45,7 @@ export class InputHandler {
   private readonly abortController = new AbortController();
   private readonly actions: KeyboardActions;
   private readonly shortcutMap: ShortcutMap;
+  private readonly scope: 'focus' | 'window';
 
   constructor(
     private readonly element: HTMLElement,
@@ -64,7 +65,12 @@ export class InputHandler {
       fitToContent: options.fitToContent,
     });
     this.shortcutMap = new ShortcutMap(options.shortcuts?.bindings);
+    this.scope = options.shortcuts?.scope ?? 'focus';
     this.element.style.touchAction = 'none';
+    if (this.scope === 'focus') {
+      this.element.tabIndex = 0;
+      this.element.style.outline = 'none';
+    }
     this.bind();
   }
 
@@ -114,6 +120,7 @@ export class InputHandler {
   };
 
   private onPointerDown = (e: PointerEvent): void => {
+    this.focusSelf();
     this.activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
     this.element.setPointerCapture?.(e.pointerId);
@@ -215,6 +222,7 @@ export class InputHandler {
     if (target?.isContentEditable) return;
     const tag = target?.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    if (!this.isInScope()) return;
 
     if (e.key === ' ') {
       this.spaceHeld = true;
@@ -396,6 +404,17 @@ export class InputHandler {
     if (!this.toolManager || !this.toolContext) return;
     this.toolManager.handlePointerUp(this.toPointerState(e), this.toolContext);
     this.historyRecorder?.commit();
+  }
+
+  private isInScope(): boolean {
+    if (this.scope === 'window') return true;
+    const active = document.activeElement;
+    return active === this.element || this.element.contains(active);
+  }
+
+  private focusSelf(): void {
+    if (this.scope !== 'focus' || this.isInScope()) return;
+    this.element.focus({ preventScroll: true });
   }
 
   private cancelToolIfActive(e: PointerEvent): void {

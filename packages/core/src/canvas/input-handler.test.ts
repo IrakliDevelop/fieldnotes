@@ -64,6 +64,7 @@ describe('InputHandler', () => {
     document.body.appendChild(element);
     camera = new Camera();
     handler = new InputHandler(element, camera);
+    element.focus();
   });
 
   afterEach(() => {
@@ -1504,6 +1505,74 @@ describe('InputHandler', () => {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k' }));
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('my-typo-action'));
       warnSpy.mockRestore();
+    });
+  });
+
+  describe('focus scoping', () => {
+    it('shortcuts are ignored when focus is outside the canvas (default scope)', () => {
+      const tm = stubToolManager();
+      const switchTool = vi.fn();
+      handler.destroy();
+      handler = new InputHandler(element, camera, {
+        toolManager: tm,
+        toolContext: { ...stubToolContext(), switchTool },
+      });
+      const outside = document.createElement('button');
+      document.body.appendChild(outside);
+      outside.focus();
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'p' }));
+      expect(switchTool).not.toHaveBeenCalled();
+
+      element.focus();
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'p' }));
+      expect(switchTool).toHaveBeenCalledWith('pencil');
+      document.body.removeChild(outside);
+    });
+
+    it("scope: 'window' restores page-wide handling", () => {
+      const tm = stubToolManager();
+      const switchTool = vi.fn();
+      handler.destroy();
+      handler = new InputHandler(element, camera, {
+        toolManager: tm,
+        toolContext: { ...stubToolContext(), switchTool },
+        shortcuts: { scope: 'window' },
+      });
+      const outside = document.createElement('button');
+      document.body.appendChild(outside);
+      outside.focus();
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'p' }));
+      expect(switchTool).toHaveBeenCalledWith('pencil');
+      document.body.removeChild(outside);
+    });
+
+    it('makes the element focusable and focuses it on pointer down', () => {
+      expect(element.tabIndex).toBe(0);
+      expect(element.style.outline).toBe('none');
+      const outside = document.createElement('button');
+      document.body.appendChild(outside);
+      outside.focus();
+      expect(document.activeElement).toBe(outside);
+
+      pointerDown(element, { button: 0, clientX: 5, clientY: 5, pointerType: 'mouse' });
+      expect(document.activeElement).toBe(element);
+      pointerUp(element, { button: 0 });
+      document.body.removeChild(outside);
+    });
+
+    it('space-pan is scope-gated but space release outside still clears pan mode', () => {
+      const outside = document.createElement('button');
+      document.body.appendChild(outside);
+      outside.focus();
+      keyDown(' ');
+      pointerDown(element, { button: 0, clientX: 100, clientY: 100 });
+      pointerMove(element, { button: 0, clientX: 160, clientY: 140 });
+      pointerUp(element, { button: 0 });
+      expect(camera.position).toEqual({ x: 0, y: 0 });
+      keyUp(' ');
+      document.body.removeChild(outside);
     });
   });
 });

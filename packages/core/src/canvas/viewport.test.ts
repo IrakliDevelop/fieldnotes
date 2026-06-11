@@ -652,6 +652,8 @@ describe('Viewport', () => {
 
       selectTool.setSelection([note.id]);
 
+      (container.firstElementChild as HTMLDivElement).focus();
+
       // ArrowRight nudge: opens a 400ms-coalesced transaction, does NOT fire the timer yet
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
 
@@ -686,6 +688,8 @@ describe('Viewport', () => {
       viewport.history.clear();
 
       selectTool.setSelection([note.id]);
+
+      (container.firstElementChild as HTMLDivElement).focus();
 
       // Nudge once, then immediately redo (timer not fired)
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
@@ -738,6 +742,8 @@ describe('Viewport', () => {
       viewport.store.add(note);
       viewport.history.clear();
       selectTool.setSelection([note.id]);
+
+      (container.firstElementChild as HTMLDivElement).focus();
 
       // Start a pending nudge (timer not fired)
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
