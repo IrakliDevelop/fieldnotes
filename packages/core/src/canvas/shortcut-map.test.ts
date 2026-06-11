@@ -141,4 +141,10 @@ describe('ShortcutMap runtime API', () => {
     const map = new ShortcutMap();
     expect(() => map.rebind('undo', 'mod+ctrl+')).toThrow();
   });
+
+  it("supports the 'space' named key", () => {
+    const map = new ShortcutMap();
+    map.rebind('tool:hand', 'space');
+    expect(map.match(kbd({ key: ' ' }))).toBe('tool:hand');
+  });
 });

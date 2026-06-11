@@ -61,14 +61,15 @@ function parseBinding(binding: string): ParsedBinding {
   if (key === undefined || key.length === 0 || MODIFIERS.has(key)) {
     throw new Error(`Invalid shortcut binding "${binding}": missing key`);
   }
+  const normalizedKey = key === 'space' ? ' ' : key;
   const parsed: ParsedBinding = {
     mod: false,
     ctrl: false,
     meta: false,
     shift: false,
     alt: false,
-    key,
-    digit: /^[0-9]$/.test(key),
+    key: normalizedKey,
+    digit: /^[0-9]$/.test(normalizedKey),
   };
   for (const part of parts) {
     switch (part) {
