@@ -82,4 +82,33 @@ describe('EventBus', () => {
     expect(a).not.toHaveBeenCalled();
     expect(b).not.toHaveBeenCalled();
   });
+
+  it('continues to later listeners when one throws', () => {
+    const bus = new EventBus<TestEvents>();
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(vi.fn());
+    const second = vi.fn();
+
+    bus.on('click', () => {
+      throw new Error('listener boom');
+    });
+    bus.on('click', second);
+
+    expect(() => bus.emit('click', { x: 1, y: 2 })).not.toThrow();
+    expect(second).toHaveBeenCalledWith({ x: 1, y: 2 });
+    errorSpy.mockRestore();
+  });
+
+  it('logs the event name and error when a listener throws', () => {
+    const bus = new EventBus<TestEvents>();
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(vi.fn());
+    const boom = new Error('listener boom');
+
+    bus.on('resize', () => {
+      throw boom;
+    });
+    bus.emit('resize', { width: 100 });
+
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('resize'), boom);
+    errorSpy.mockRestore();
+  });
 });

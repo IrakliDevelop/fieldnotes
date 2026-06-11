@@ -19,7 +19,13 @@ export class EventBus<TEvents extends { [K in keyof TEvents]: TEvents[K] }> {
   }
 
   emit<K extends keyof TEvents>(event: K, data: TEvents[K]): void {
-    this.listeners.get(event)?.forEach((listener) => listener(data as never));
+    this.listeners.get(event)?.forEach((listener) => {
+      try {
+        listener(data as never);
+      } catch (err) {
+        console.error(`[fieldnotes] listener error for "${String(event)}"`, err);
+      }
+    });
   }
 
   clear(): void {
