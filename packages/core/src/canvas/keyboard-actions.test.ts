@@ -10,7 +10,8 @@ import { SelectTool } from '../tools/select-tool';
 import { createNote, createArrow } from '../elements/element-factory';
 import type { ToolManager } from '../tools/tool-manager';
 import type { ToolContext } from '../tools/types';
-import type { HistoryRecorder } from '../history/history-recorder';
+import { HistoryRecorder } from '../history/history-recorder';
+import { HistoryStack } from '../history/history-stack';
 
 function makeCtx(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
@@ -386,5 +387,56 @@ describe('KeyboardActions.nudge', () => {
     actions.dispose();
 
     expect(recorder.commit).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('KeyboardActions nudge transaction ownership', () => {
+  it('stale nudge timer does not commit a foreign transaction', () => {
+    vi.useFakeTimers();
+    const ctx = makeCtx();
+    const stack = new HistoryStack();
+    const recorder = new HistoryRecorder(ctx.store, stack);
+    const { actions, tool } = makeActions({ ctx, recorder });
+    const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+    ctx.store.add(note);
+    stack.clear();
+    tool.setSelection([note.id]);
+
+    actions.nudge(1, 0, false);
+
+    // external transaction takes over mid-window (auto-commits the nudge tx)
+    recorder.begin();
+    const foreignId = recorder.currentTransactionId;
+    ctx.store.add(createNote({ position: { x: 50, y: 50 }, size: { w: 10, h: 10 } }));
+
+    vi.advanceTimersByTime(500); // stale nudge timer fires
+
+    expect(recorder.currentTransactionId).toBe(foreignId); // still open, not committed
+    recorder.commit();
+    vi.useRealTimers();
+  });
+
+  it('nudge still commits its own transaction after the quiet window', () => {
+    vi.useFakeTimers();
+    const ctx = makeCtx();
+    const stack = new HistoryStack();
+    const recorder = new HistoryRecorder(ctx.store, stack);
+    const { actions, tool } = makeActions({ ctx, recorder });
+    const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+    ctx.store.add(note);
+    stack.clear();
+    tool.setSelection([note.id]);
+
+    actions.nudge(1, 0, false);
+    actions.nudge(1, 0, false);
+    vi.advanceTimersByTime(500);
+
+    expect(stack.canUndo).toBe(true);
+    recorder.pause();
+    stack.undo(ctx.store);
+    recorder.resume();
+    const after = ctx.store.getById(note.id);
+    expect(after?.position.x).toBe(0); // burst = one undo step
+    vi.useRealTimers();
   });
 });

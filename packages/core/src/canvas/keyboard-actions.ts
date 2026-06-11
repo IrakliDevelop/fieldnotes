@@ -19,6 +19,7 @@ export class KeyboardActions {
   private clipboard: CanvasElement[] = [];
   private pasteCount = 0;
   private nudgeTimer: ReturnType<typeof setTimeout> | null = null;
+  private nudgeTxId: number | null = null;
 
   constructor(private readonly deps: KeyboardActionsDeps) {}
 
@@ -43,7 +44,9 @@ export class KeyboardActions {
 
     const step = byCell ? (sel.ctx.gridSize ?? 10) : 1;
     if (this.nudgeTimer === null) {
-      this.deps.getHistoryRecorder()?.begin();
+      const recorder = this.deps.getHistoryRecorder();
+      recorder?.begin();
+      this.nudgeTxId = recorder?.currentTransactionId ?? null;
     } else {
       clearTimeout(this.nudgeTimer);
     }
@@ -56,7 +59,11 @@ export class KeyboardActions {
     if (this.nudgeTimer === null) return;
     clearTimeout(this.nudgeTimer);
     this.nudgeTimer = null;
-    this.deps.getHistoryRecorder()?.commit();
+    const recorder = this.deps.getHistoryRecorder();
+    if (this.nudgeTxId === null || recorder?.currentTransactionId === this.nudgeTxId) {
+      recorder?.commit();
+    }
+    this.nudgeTxId = null;
   }
 
   deleteSelected(): void {
