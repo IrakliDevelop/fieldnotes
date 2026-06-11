@@ -300,7 +300,8 @@ function App() {
 
 `@fieldnotes/core` and `@fieldnotes/react` are versioned independently. The react
 package's `peerDependencies` declare the compatible core range. Pre-1.0, minor
-versions may contain breaking changes.
+versions may contain breaking changes. The core peer range is bounded at the next major rather than per-minor; if a core minor
+ever breaks the wrapper, a coordinated react release raises the lower bound.
 
 ## License
 

@@ -64,6 +64,7 @@ describe('InputHandler', () => {
     document.body.appendChild(element);
     camera = new Camera();
     handler = new InputHandler(element, camera);
+    element.focus();
   });
 
   afterEach(() => {
@@ -1436,6 +1437,154 @@ describe('InputHandler', () => {
       keyUp(' ');
 
       expect(setCursor).toHaveBeenCalledWith('default');
+    });
+  });
+
+  describe('configurable shortcuts', () => {
+    function setupWithTools(shortcuts?: { bindings?: Record<string, string | string[] | null> }): {
+      switchTool: ReturnType<typeof vi.fn>;
+    } {
+      const tm = stubToolManager();
+      const switchTool = vi.fn();
+      const ctx: ToolContext = { ...stubToolContext(), switchTool };
+      handler.destroy();
+      handler = new InputHandler(element, camera, {
+        toolManager: tm,
+        toolContext: ctx,
+        shortcuts,
+      });
+      return { switchTool };
+    }
+
+    it('tool key dispatches switchTool', () => {
+      const { switchTool } = setupWithTools();
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'p' }));
+      expect(switchTool).toHaveBeenCalledWith('pencil');
+    });
+
+    it('tool key is ignored mid-gesture', () => {
+      const { switchTool } = setupWithTools();
+      pointerDown(element, { button: 0, clientX: 10, clientY: 10, pointerType: 'mouse' });
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'p' }));
+      expect(switchTool).not.toHaveBeenCalled();
+      pointerUp(element, { button: 0 });
+    });
+
+    it('custom binding from options takes effect and default is replaced', () => {
+      const { switchTool } = setupWithTools({ bindings: { 'tool:pencil': 'b' } });
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'p' }));
+      expect(switchTool).not.toHaveBeenCalled();
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'b' }));
+      expect(switchTool).toHaveBeenCalledWith('pencil');
+    });
+
+    it('runtime rebind takes effect', () => {
+      const { switchTool } = setupWithTools();
+      handler.shortcuts.rebind('tool:pencil', 'b');
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'b' }));
+      expect(switchTool).toHaveBeenCalledWith('pencil');
+    });
+
+    it('disabled action is dead', () => {
+      const { switchTool } = setupWithTools({ bindings: { 'tool:pencil': null } });
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'p' }));
+      expect(switchTool).not.toHaveBeenCalled();
+    });
+
+    it('delete shortcut prevents default (Backspace back-nav)', () => {
+      setupWithTools();
+      const e = new KeyboardEvent('keydown', { key: 'Backspace', cancelable: true });
+      window.dispatchEvent(e);
+      expect(e.defaultPrevented).toBe(true);
+    });
+
+    it('warns on unknown non-tool action ids', () => {
+      setupWithTools();
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(vi.fn());
+      handler.shortcuts.rebind('my-typo-action', 'k');
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k' }));
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('my-typo-action'));
+      warnSpy.mockRestore();
+    });
+  });
+
+  describe('focus scoping', () => {
+    it('shortcuts are ignored when focus is outside the canvas (default scope)', () => {
+      const tm = stubToolManager();
+      const switchTool = vi.fn();
+      handler.destroy();
+      handler = new InputHandler(element, camera, {
+        toolManager: tm,
+        toolContext: { ...stubToolContext(), switchTool },
+      });
+      const outside = document.createElement('button');
+      document.body.appendChild(outside);
+      outside.focus();
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'p' }));
+      expect(switchTool).not.toHaveBeenCalled();
+
+      element.focus();
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'p' }));
+      expect(switchTool).toHaveBeenCalledWith('pencil');
+      document.body.removeChild(outside);
+    });
+
+    it("scope: 'window' restores page-wide handling", () => {
+      const tm = stubToolManager();
+      const switchTool = vi.fn();
+      handler.destroy();
+      handler = new InputHandler(element, camera, {
+        toolManager: tm,
+        toolContext: { ...stubToolContext(), switchTool },
+        shortcuts: { scope: 'window' },
+      });
+      const outside = document.createElement('button');
+      document.body.appendChild(outside);
+      outside.focus();
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'p' }));
+      expect(switchTool).toHaveBeenCalledWith('pencil');
+      document.body.removeChild(outside);
+    });
+
+    it('makes the element focusable and focuses it on pointer down', () => {
+      expect(element.tabIndex).toBe(0);
+      expect(element.style.outline).toBe('none');
+      const outside = document.createElement('button');
+      document.body.appendChild(outside);
+      outside.focus();
+      expect(document.activeElement).toBe(outside);
+
+      pointerDown(element, { button: 0, clientX: 5, clientY: 5, pointerType: 'mouse' });
+      expect(document.activeElement).toBe(element);
+      pointerUp(element, { button: 0 });
+      document.body.removeChild(outside);
+    });
+
+    it('space-pan is scope-gated but space release outside still clears pan mode', () => {
+      const outside = document.createElement('button');
+      document.body.appendChild(outside);
+      outside.focus();
+      keyDown(' ');
+      pointerDown(element, { button: 0, clientX: 100, clientY: 100 });
+      pointerMove(element, { button: 0, clientX: 160, clientY: 140 });
+      pointerUp(element, { button: 0 });
+      expect(camera.position).toEqual({ x: 0, y: 0 });
+      keyUp(' ');
+      document.body.removeChild(outside);
+    });
+
+    it('pointer down does not steal focus from a focused child inside the element', () => {
+      const child = document.createElement('input');
+      element.appendChild(child);
+      child.focus();
+      expect(document.activeElement).toBe(child);
+
+      pointerDown(element, { button: 0, clientX: 5, clientY: 5, pointerType: 'mouse' });
+      expect(document.activeElement).toBe(child);
+      pointerUp(element, { button: 0 });
+      element.removeChild(child);
     });
   });
 });

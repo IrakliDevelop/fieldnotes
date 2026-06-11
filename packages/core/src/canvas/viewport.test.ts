@@ -652,6 +652,8 @@ describe('Viewport', () => {
 
       selectTool.setSelection([note.id]);
 
+      (container.firstElementChild as HTMLDivElement).focus();
+
       // ArrowRight nudge: opens a 400ms-coalesced transaction, does NOT fire the timer yet
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
 
@@ -686,6 +688,8 @@ describe('Viewport', () => {
       viewport.history.clear();
 
       selectTool.setSelection([note.id]);
+
+      (container.firstElementChild as HTMLDivElement).focus();
 
       // Nudge once, then immediately redo (timer not fired)
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
@@ -738,6 +742,8 @@ describe('Viewport', () => {
       viewport.store.add(note);
       viewport.history.clear();
       selectTool.setSelection([note.id]);
+
+      (container.firstElementChild as HTMLDivElement).focus();
 
       // Start a pending nudge (timer not fired)
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
@@ -1059,6 +1065,51 @@ describe('Viewport', () => {
       expect(viewport.toolManager.activeTool?.name).toBe('pencil');
       viewport.setTool('select');
       expect(viewport.toolManager.activeTool?.name).toBe('select');
+      viewport.destroy();
+    });
+  });
+
+  describe('shortcuts API', () => {
+    it('exposes rebind/getBindings and options seed the table', () => {
+      const viewport = new Viewport(container, {
+        shortcuts: { bindings: { duplicate: 'mod+shift+d' } },
+      });
+      expect(viewport.shortcuts.getBindings()['duplicate']).toEqual(['mod+shift+d']);
+      viewport.shortcuts.rebind('undo', 'mod+u');
+      expect(viewport.shortcuts.getBindings()['undo']).toEqual(['mod+u']);
+      viewport.shortcuts.disable('copy');
+      expect(viewport.shortcuts.getBindings()['copy']).toEqual([]);
+      viewport.shortcuts.reset();
+      expect(viewport.shortcuts.getBindings()['undo']).toEqual(['mod+z']);
+      viewport.destroy();
+    });
+
+    it('keyboard tool key switches the registered tool when wrapper focused', () => {
+      const viewport = new Viewport(container);
+      viewport.toolManager.register(new SelectTool());
+      viewport.toolManager.register(new PencilTool());
+      viewport.setTool('select');
+      const wrapper = container.firstElementChild as HTMLDivElement;
+      wrapper.focus();
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'p' }));
+      expect(viewport.toolManager.activeTool?.name).toBe('pencil');
+      viewport.destroy();
+    });
+
+    it('a rebound tool key dispatches end-to-end', () => {
+      const viewport = new Viewport(container);
+      viewport.toolManager.register(new SelectTool());
+      viewport.toolManager.register(new PencilTool());
+      viewport.setTool('select');
+      viewport.shortcuts.rebind('tool:pencil', 'b');
+      const wrapper = container.firstElementChild as HTMLDivElement;
+      wrapper.focus();
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'p' }));
+      expect(viewport.toolManager.activeTool?.name).toBe('select');
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'b' }));
+      expect(viewport.toolManager.activeTool?.name).toBe('pencil');
       viewport.destroy();
     });
   });

@@ -541,6 +541,13 @@ canvas.addImage('data:image/png;base64,iVBOR...', pos, size);
 - [x] **`viewport.onGridChange(cb)`** — subscribe to grid add/update/remove/clear events, returns unsubscribe function
 - [x] **`GridInfo` type** — exported for SDK consumers building grid-aware features (e.g. D&D token sizing)
 
+#### 0.19.0 — Configurable Shortcuts (core) / 0.4.2 (react)
+
+- [x] `ShortcutMap` — remappable bindings, `viewport.shortcuts` runtime API, `ViewportOptions.shortcuts`
+- [x] Default tool-switch keys (V/H/P/E/A/N/T/S/M/G) via generic `tool:<name>` action ids
+- [x] Focus-scoped shortcut handling (`scope: 'focus'` default, `'window'` opt-out)
+- [x] CHANGELOG backfill (0.17.0, 0.18.0); react peer range widened to `<1.0.0`
+
 #### 0.18.0 — Release Hygiene & Robustness (core) / 0.4.1 (react)
 
 - [x] `viewport.setTool(name)` — tool switching without the `toolContext` incantation
@@ -566,7 +573,6 @@ canvas.addImage('data:image/png;base64,iVBOR...', pos, size);
 #### SDK Maturity
 
 - [ ] Copy/paste between browser tabs (in-canvas copy/paste shipped)
-- [ ] Configurable keyboard shortcut system
 - [ ] Minimap
 - [ ] `@fieldnotes/ui` — pre-built, customizable UI components (toolbar, text format panel, color picker, layers panel) as a separate package; `@fieldnotes/react` stays a thin binding layer
 - [ ] Live demo / playground (hosted, linkable — critical for adoption)

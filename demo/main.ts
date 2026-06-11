@@ -338,17 +338,16 @@ document.addEventListener('keydown', (e) => {
     t: 'text',
     s: 'shape',
     m: 'measure',
-    r: 'template',
   };
   const tool = map[e.key];
   if (tool) {
     setActiveTool(tool);
   }
-  if (e.key === 'g') {
+  if (e.key === 'x') {
     viewport.setSnapToGrid(!viewport.snapToGrid);
     if (snapBtn)
       snapBtn.innerHTML =
-        (viewport.snapToGrid ? 'Snap: On' : 'Snap: Off') + '<span class="shortcut">G</span>';
+        (viewport.snapToGrid ? 'Snap: On' : 'Snap: Off') + '<span class="shortcut">X</span>';
   }
   if (e.key === 'i') {
     fileInput?.click();
@@ -385,7 +384,7 @@ snapBtn?.addEventListener('click', () => {
   viewport.setSnapToGrid(!viewport.snapToGrid);
   if (snapBtn)
     snapBtn.innerHTML =
-      (viewport.snapToGrid ? 'Snap: On' : 'Snap: Off') + '<span class="shortcut">G</span>';
+      (viewport.snapToGrid ? 'Snap: On' : 'Snap: Off') + '<span class="shortcut">X</span>';
 });
 
 document.getElementById('save')?.addEventListener('click', () => {
@@ -663,7 +662,7 @@ if (info) {
     const { x, y } = viewport.camera.position;
     const z = viewport.camera.zoom;
     const tool = viewport.toolManager.activeTool?.name ?? 'none';
-    info.textContent = `${tool} · ${z.toFixed(2)}x · (${x.toFixed(0)}, ${y.toFixed(0)}) · Scroll=zoom · Middle/Space+drag=pan · Pinch=zoom · Shift+1=fit`;
+    info.textContent = `${tool} · ${z.toFixed(2)}x · (${x.toFixed(0)}, ${y.toFixed(0)}) · Scroll=zoom · Middle/Space+drag=pan · Pinch=zoom · Shift+1=fit · V/H/P/E=tools`;
   };
   viewport.camera.onChange(updateInfo);
   viewport.toolManager.onChange(updateInfo);
