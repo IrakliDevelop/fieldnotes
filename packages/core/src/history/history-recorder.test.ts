@@ -199,6 +199,17 @@ describe('HistoryRecorder', () => {
       recorder.rollback();
       expect(recorder.currentTransactionId).toBeNull();
     });
+
+    it('issues a fresh id after rollback then begin', () => {
+      const store = new ElementStore();
+      const recorder = new HistoryRecorder(store, new HistoryStack());
+      recorder.begin();
+      const before = recorder.currentTransactionId;
+      recorder.rollback();
+      recorder.begin();
+      expect(recorder.currentTransactionId).not.toBe(before);
+      expect(recorder.currentTransactionId).not.toBeNull();
+    });
   });
 
   describe('layer undo', () => {
