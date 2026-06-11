@@ -35,7 +35,7 @@ const viewport = new Viewport(document.getElementById('canvas'), {
 viewport.toolManager.register(new SelectTool());
 viewport.toolManager.register(new PencilTool({ color: '#1a1a1a', width: 2 }));
 viewport.toolManager.register(new HandTool());
-viewport.toolManager.setTool('select', viewport.toolContext);
+viewport.setTool('select');
 ```
 
 ### Embed Interactive HTML

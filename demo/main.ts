@@ -62,10 +62,10 @@ if (savedState) {
 }
 autoSave.start();
 
-viewport.toolManager.setTool('select', viewport.toolContext);
+viewport.setTool('select');
 
 function setActiveTool(name: string) {
-  viewport.toolManager.setTool(name, viewport.toolContext);
+  viewport.setTool(name);
   document.querySelectorAll<HTMLButtonElement>('#toolbar button').forEach((btn) => {
     btn.classList.toggle('active', btn.dataset['tool'] === name);
   });

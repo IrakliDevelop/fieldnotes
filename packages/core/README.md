@@ -56,7 +56,7 @@ viewport.toolManager.register(new ArrowTool({ color: '#1a1a1a', width: 2 }));
 viewport.toolManager.register(new NoteTool());
 
 // Activate a tool
-viewport.toolManager.setTool('select', viewport.toolContext);
+viewport.setTool('select');
 
 // Clean up when done
 viewport.destroy();
@@ -261,8 +261,8 @@ viewport.loadJSON(localStorage.getItem('canvas'));
 ## Tool Switching
 
 ```typescript
-viewport.toolManager.setTool('pencil', viewport.toolContext);
-viewport.toolManager.setTool('hand', viewport.toolContext);
+viewport.setTool('pencil');
+viewport.setTool('hand');
 
 viewport.toolManager.onChange((toolName) => {
   console.log('switched to', toolName);
@@ -354,7 +354,7 @@ const myTool: Tool = {
 };
 
 viewport.toolManager.register(myTool);
-viewport.toolManager.setTool('my-tool', viewport.toolContext);
+viewport.setTool('my-tool');
 ```
 
 ## Configuration
@@ -430,6 +430,12 @@ interface BaseElement {
 ## Browser Support
 
 Works in all modern browsers supporting Pointer Events API and HTML5 Canvas.
+
+## Versioning
+
+`@fieldnotes/core` and `@fieldnotes/react` are versioned independently. The react
+package's `peerDependencies` declare the compatible core range. Pre-1.0, minor
+versions may contain breaking changes; patch versions never do.
 
 ## License
 

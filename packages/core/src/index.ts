@@ -14,6 +14,7 @@ export type { CameraOptions, CameraChangeInfo } from './canvas/camera';
 export { Background } from './canvas/background';
 export type { BackgroundOptions, BackgroundPattern } from './canvas/background';
 export { InputHandler } from './canvas/input-handler';
+export type { InputHandlerOptions } from './canvas/input-handler';
 export { InputFilter } from './canvas/input-filter';
 export type { FilteredEvent, FilteredUpEvent, FilterAction } from './canvas/input-filter';
 export { DoubleTapDetector } from './canvas/double-tap-detector';
