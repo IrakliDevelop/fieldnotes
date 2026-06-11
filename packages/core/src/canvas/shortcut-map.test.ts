@@ -142,6 +142,21 @@ describe('ShortcutMap runtime API', () => {
     expect(() => map.rebind('undo', 'mod+ctrl+')).toThrow();
   });
 
+  it('matches alt-modifier bindings', () => {
+    const map = new ShortcutMap();
+    map.rebind('tool:hand', 'alt+k');
+    expect(map.match(kbd({ key: 'k', altKey: true }))).toBe('tool:hand');
+    expect(map.match(kbd({ key: 'k' }))).toBeNull();
+  });
+
+  it('reset(action) after rebind restores the default binding', () => {
+    const map = new ShortcutMap();
+    map.rebind('undo', 'mod+u');
+    map.reset('undo');
+    expect(map.match(kbd({ key: 'z', ctrlKey: true }))).toBe('undo');
+    expect(map.match(kbd({ key: 'u', ctrlKey: true }))).toBeNull();
+  });
+
   it("supports the 'space' named key", () => {
     const map = new ShortcutMap();
     map.rebind('tool:hand', 'space');

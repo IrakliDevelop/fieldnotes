@@ -124,6 +124,7 @@ export class ShortcutMap implements ShortcutsApi {
     }
   }
 
+  /** First matching action in registration order wins when bindings conflict. */
   match(e: KeyboardEvent): string | null {
     for (const [action, parsedList] of this.parsed) {
       const allowShift = ALLOW_SHIFT.has(action);
