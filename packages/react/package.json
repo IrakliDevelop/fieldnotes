@@ -1,6 +1,6 @@
 {
   "name": "@fieldnotes/react",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "React wrapper for Field Notes canvas SDK",
   "type": "module",
   "sideEffects": false,
@@ -41,7 +41,7 @@
     "fieldnotes"
   ],
   "peerDependencies": {
-    "@fieldnotes/core": ">=0.18.0 <0.19.0",
+    "@fieldnotes/core": ">=0.18.0 <1.0.0",
     "react": ">=18 <20",
     "react-dom": ">=18 <20"
   },
