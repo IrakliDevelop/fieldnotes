@@ -15,6 +15,7 @@ import { CreateLayerCommand, RemoveLayerCommand, UpdateLayerCommand } from './la
 export class HistoryRecorder {
   private recording = true;
   private transaction: Command[] | null = null;
+  private generation = 0;
   private updateSnapshots = new Map<string, CanvasElement>();
   private unsubscribers: (() => void)[];
 
@@ -52,6 +53,11 @@ export class HistoryRecorder {
     }
     this.transaction = [];
     this.updateSnapshots.clear();
+    this.generation += 1;
+  }
+
+  get currentTransactionId(): number | null {
+    return this.transaction !== null ? this.generation : null;
   }
 
   commit(): void {
