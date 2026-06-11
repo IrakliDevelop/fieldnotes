@@ -108,7 +108,10 @@ describe('EventBus', () => {
     });
     bus.emit('resize', { width: 100 });
 
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('resize'), boom);
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('[fieldnotes] listener error for "resize"'),
+      boom,
+    );
     errorSpy.mockRestore();
   });
 });
