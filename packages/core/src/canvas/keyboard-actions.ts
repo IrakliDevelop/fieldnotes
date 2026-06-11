@@ -67,6 +67,7 @@ export class KeyboardActions {
   }
 
   deleteSelected(): void {
+    if (this.deps.isToolActive()) return;
     this.flushPendingNudge();
     const sel = this.selectTool();
     if (!sel) return;
@@ -82,6 +83,7 @@ export class KeyboardActions {
   }
 
   undo(): void {
+    if (this.deps.isToolActive()) return;
     this.flushPendingNudge();
     const ctx = this.deps.getToolContext();
     const stack = this.deps.getHistoryStack();
@@ -94,6 +96,7 @@ export class KeyboardActions {
   }
 
   redo(): void {
+    if (this.deps.isToolActive()) return;
     this.flushPendingNudge();
     const ctx = this.deps.getToolContext();
     const stack = this.deps.getHistoryStack();
@@ -180,6 +183,7 @@ export class KeyboardActions {
   }
 
   zOrder(operation: 'forward' | 'backward' | 'front' | 'back'): void {
+    if (this.deps.isToolActive()) return;
     this.flushPendingNudge();
     const sel = this.selectTool();
     if (!sel) return;

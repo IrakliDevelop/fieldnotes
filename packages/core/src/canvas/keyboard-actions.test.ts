@@ -27,6 +27,7 @@ function makeActions(
     ctx?: ToolContext;
     tool?: SelectTool;
     recorder?: HistoryRecorder;
+    stack?: HistoryStack;
     fitToContent?: () => void;
     isToolActive?: () => boolean;
   } = {},
@@ -39,7 +40,7 @@ function makeActions(
     getToolManager: () => tm,
     getToolContext: () => ctx,
     getHistoryRecorder: () => opts.recorder ?? null,
-    getHistoryStack: () => null,
+    getHistoryStack: () => opts.stack ?? null,
     isToolActive: opts.isToolActive ?? (() => false),
     fitToContent: opts.fitToContent,
   };
@@ -438,5 +439,57 @@ describe('KeyboardActions nudge transaction ownership', () => {
     const after = ctx.store.getById(note.id);
     expect(after?.position.x).toBe(0); // burst = one undo step
     vi.useRealTimers();
+  });
+});
+
+describe('KeyboardActions guards during active tool input', () => {
+  function activeSetup() {
+    const ctx = makeCtx();
+    const stack = new HistoryStack();
+    const recorder = new HistoryRecorder(ctx.store, stack);
+    const made = makeActions({ ctx, recorder, stack, isToolActive: () => true });
+    const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+    ctx.store.add(note);
+    made.tool.setSelection([note.id]);
+    return { ...made, stack, note };
+  }
+
+  it('deleteSelected is a no-op mid-gesture', () => {
+    const { actions, ctx, note } = activeSetup();
+    actions.deleteSelected();
+    expect(ctx.store.getById(note.id)).toBeDefined();
+  });
+
+  it('undo is a no-op mid-gesture', () => {
+    const { actions, ctx, stack, note } = activeSetup();
+    expect(stack.canUndo).toBe(true);
+    actions.undo();
+    expect(ctx.store.getById(note.id)).toBeDefined();
+  });
+
+  it('redo is a no-op mid-gesture', () => {
+    const ctx = makeCtx();
+    const stack = new HistoryStack();
+    const recorder = new HistoryRecorder(ctx.store, stack);
+    const made = makeActions({ ctx, recorder, stack, isToolActive: () => true });
+    const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+    ctx.store.add(note);
+    made.tool.setSelection([note.id]);
+    // Undo the add while paused so it lands as a redoable step without opening a new transaction
+    recorder.pause();
+    stack.undo(ctx.store);
+    recorder.resume();
+    expect(ctx.store.getById(note.id)).toBeUndefined();
+    made.actions.redo();
+    expect(ctx.store.getById(note.id)).toBeUndefined();
+  });
+
+  it('zOrder is a no-op mid-gesture', () => {
+    const { actions, ctx } = activeSetup();
+    const second = createNote({ position: { x: 10, y: 10 }, size: { w: 100, h: 50 } });
+    ctx.store.add(second);
+    const before = ctx.store.getAll().map((el) => el.zIndex);
+    actions.zOrder('front');
+    expect(ctx.store.getAll().map((el) => el.zIndex)).toEqual(before);
   });
 });
