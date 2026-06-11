@@ -1095,6 +1095,23 @@ describe('Viewport', () => {
       expect(viewport.toolManager.activeTool?.name).toBe('pencil');
       viewport.destroy();
     });
+
+    it('a rebound tool key dispatches end-to-end', () => {
+      const viewport = new Viewport(container);
+      viewport.toolManager.register(new SelectTool());
+      viewport.toolManager.register(new PencilTool());
+      viewport.setTool('select');
+      viewport.shortcuts.rebind('tool:pencil', 'b');
+      const wrapper = container.firstElementChild as HTMLDivElement;
+      wrapper.focus();
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'p' }));
+      expect(viewport.toolManager.activeTool?.name).toBe('select');
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'b' }));
+      expect(viewport.toolManager.activeTool?.name).toBe('pencil');
+      viewport.destroy();
+    });
   });
 
   describe('store events trigger re-render', () => {
