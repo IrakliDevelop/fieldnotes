@@ -449,9 +449,11 @@ describe('KeyboardActions guards during active tool input', () => {
     const recorder = new HistoryRecorder(ctx.store, stack);
     const made = makeActions({ ctx, recorder, stack, isToolActive: () => true });
     const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+    recorder.begin();
     ctx.store.add(note);
+    recorder.commit();
     made.tool.setSelection([note.id]);
-    return { ...made, stack, note };
+    return { ...made, stack, recorder, note };
   }
 
   it('deleteSelected is a no-op mid-gesture', () => {
@@ -468,19 +470,12 @@ describe('KeyboardActions guards during active tool input', () => {
   });
 
   it('redo is a no-op mid-gesture', () => {
-    const ctx = makeCtx();
-    const stack = new HistoryStack();
-    const recorder = new HistoryRecorder(ctx.store, stack);
-    const made = makeActions({ ctx, recorder, stack, isToolActive: () => true });
-    const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
-    ctx.store.add(note);
-    made.tool.setSelection([note.id]);
-    // Undo the add while paused so it lands as a redoable step without opening a new transaction
+    const { actions, ctx, stack, recorder, note } = activeSetup();
     recorder.pause();
     stack.undo(ctx.store);
     recorder.resume();
     expect(ctx.store.getById(note.id)).toBeUndefined();
-    made.actions.redo();
+    actions.redo();
     expect(ctx.store.getById(note.id)).toBeUndefined();
   });
 
