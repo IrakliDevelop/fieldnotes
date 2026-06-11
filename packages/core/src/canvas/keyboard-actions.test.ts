@@ -485,11 +485,10 @@ describe('KeyboardActions guards during active tool input', () => {
   });
 
   it('zOrder is a no-op mid-gesture', () => {
-    const { actions, ctx } = activeSetup();
-    const second = createNote({ position: { x: 10, y: 10 }, size: { w: 100, h: 50 } });
+    const { actions, ctx, note } = activeSetup();
+    const second = createNote({ position: { x: 10, y: 10 }, size: { w: 100, h: 50 }, zIndex: 1 });
     ctx.store.add(second);
-    const before = ctx.store.getAll().map((el) => el.zIndex);
     actions.zOrder('front');
-    expect(ctx.store.getAll().map((el) => el.zIndex)).toEqual(before);
+    expect(ctx.store.getById(note.id)?.zIndex).toBe(0);
   });
 });
