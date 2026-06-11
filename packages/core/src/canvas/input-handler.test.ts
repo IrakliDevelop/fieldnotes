@@ -1438,4 +1438,56 @@ describe('InputHandler', () => {
       expect(setCursor).toHaveBeenCalledWith('default');
     });
   });
+
+  describe('configurable shortcuts', () => {
+    function setupWithTools(shortcuts?: { bindings?: Record<string, string | string[] | null> }): {
+      switchTool: ReturnType<typeof vi.fn>;
+    } {
+      const tm = stubToolManager();
+      const switchTool = vi.fn();
+      const ctx: ToolContext = { ...stubToolContext(), switchTool };
+      handler.destroy();
+      handler = new InputHandler(element, camera, {
+        toolManager: tm,
+        toolContext: ctx,
+        shortcuts,
+      });
+      return { switchTool };
+    }
+
+    it('tool key dispatches switchTool', () => {
+      const { switchTool } = setupWithTools();
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'p' }));
+      expect(switchTool).toHaveBeenCalledWith('pencil');
+    });
+
+    it('tool key is ignored mid-gesture', () => {
+      const { switchTool } = setupWithTools();
+      pointerDown(element, { button: 0, clientX: 10, clientY: 10, pointerType: 'mouse' });
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'p' }));
+      expect(switchTool).not.toHaveBeenCalled();
+      pointerUp(element, { button: 0 });
+    });
+
+    it('custom binding from options takes effect and default is replaced', () => {
+      const { switchTool } = setupWithTools({ bindings: { 'tool:pencil': 'b' } });
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'p' }));
+      expect(switchTool).not.toHaveBeenCalled();
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'b' }));
+      expect(switchTool).toHaveBeenCalledWith('pencil');
+    });
+
+    it('runtime rebind takes effect', () => {
+      const { switchTool } = setupWithTools();
+      handler.shortcuts.rebind('tool:pencil', 'b');
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'b' }));
+      expect(switchTool).toHaveBeenCalledWith('pencil');
+    });
+
+    it('disabled action is dead', () => {
+      const { switchTool } = setupWithTools({ bindings: { 'tool:pencil': null } });
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'p' }));
+      expect(switchTool).not.toHaveBeenCalled();
+    });
+  });
 });

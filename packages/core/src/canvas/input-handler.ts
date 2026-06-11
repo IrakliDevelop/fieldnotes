@@ -3,17 +3,19 @@ import type { ToolManager } from '../tools/tool-manager';
 import type { ToolContext, PointerState } from '../tools/types';
 import type { HistoryRecorder } from '../history/history-recorder';
 import type { HistoryStack } from '../history/history-stack';
+import type { ShortcutOptions, ShortcutsApi } from './shortcut-map';
 import { InputFilter } from './input-filter';
 import { KeyboardActions } from './keyboard-actions';
+import { ShortcutMap } from './shortcut-map';
 
 const ZOOM_SENSITIVITY = 0.001;
 const MIDDLE_BUTTON = 1;
 
-const NUDGE_KEYS: Record<string, readonly [number, number]> = {
-  ArrowLeft: [-1, 0],
-  ArrowRight: [1, 0],
-  ArrowUp: [0, -1],
-  ArrowDown: [0, 1],
+const NUDGE_DELTAS: Record<string, readonly [number, number]> = {
+  'nudge-left': [-1, 0],
+  'nudge-right': [1, 0],
+  'nudge-up': [0, -1],
+  'nudge-down': [0, 1],
 };
 
 export interface InputHandlerOptions {
@@ -22,6 +24,7 @@ export interface InputHandlerOptions {
   historyRecorder?: HistoryRecorder;
   historyStack?: HistoryStack;
   fitToContent?: () => void;
+  shortcuts?: ShortcutOptions;
 }
 
 export class InputHandler {
@@ -41,6 +44,7 @@ export class InputHandler {
   private deferredDown: PointerEvent | null = null;
   private readonly abortController = new AbortController();
   private readonly actions: KeyboardActions;
+  private readonly shortcutMap: ShortcutMap;
 
   constructor(
     private readonly element: HTMLElement,
@@ -59,6 +63,7 @@ export class InputHandler {
       isToolActive: () => this.isToolActive,
       fitToContent: options.fitToContent,
     });
+    this.shortcutMap = new ShortcutMap(options.shortcuts?.bindings);
     this.element.style.touchAction = 'none';
     this.bind();
   }
@@ -70,6 +75,10 @@ export class InputHandler {
 
   flushPendingHistory(): void {
     this.actions.flushPendingNudge();
+  }
+
+  get shortcuts(): ShortcutsApi {
+    return this.shortcutMap;
   }
 
   destroy(): void {
@@ -210,54 +219,9 @@ export class InputHandler {
     if (e.key === ' ') {
       this.spaceHeld = true;
     }
-    if (e.key === 'Delete' || e.key === 'Backspace') {
-      this.actions.deleteSelected();
-    }
-    if (e.key === 'Escape') {
-      this.actions.deselect();
-    }
-    if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
-      e.preventDefault();
-      this.actions.undo();
-    }
-    if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
-      e.preventDefault();
-      this.actions.redo();
-    }
-    if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
-      e.preventDefault();
-      this.actions.selectAll();
-    }
-    if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
-      e.preventDefault();
-      this.actions.copy();
-    }
-    if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
-      e.preventDefault();
-      this.actions.paste();
-    }
-    if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
-      e.preventDefault();
-      this.actions.duplicate();
-    }
-    if (e.key === ']') {
-      e.preventDefault();
-      this.actions.zOrder(e.ctrlKey || e.metaKey ? 'front' : 'forward');
-    }
-    if (e.key === '[') {
-      e.preventDefault();
-      this.actions.zOrder(e.ctrlKey || e.metaKey ? 'back' : 'backward');
-    }
-    if (e.shiftKey && e.code === 'Digit1' && !e.ctrlKey && !e.metaKey && !e.altKey) {
-      e.preventDefault();
-      this.actions.zoomToFit();
-    }
-    const nudgeDelta = NUDGE_KEYS[e.key];
-    if (nudgeDelta) {
-      const [dx, dy] = nudgeDelta;
-      if (this.actions.nudge(dx, dy, e.shiftKey)) {
-        e.preventDefault();
-      }
+    const action = this.shortcutMap.match(e);
+    if (action !== null) {
+      this.runAction(action, e);
     }
   };
 
@@ -273,6 +237,77 @@ export class InputHandler {
       }
     }
   };
+
+  private runAction(action: string, e: KeyboardEvent): void {
+    switch (action) {
+      case 'delete':
+        this.actions.deleteSelected();
+        return;
+      case 'deselect':
+        this.actions.deselect();
+        return;
+      case 'undo':
+        e.preventDefault();
+        this.actions.undo();
+        return;
+      case 'redo':
+        e.preventDefault();
+        this.actions.redo();
+        return;
+      case 'select-all':
+        e.preventDefault();
+        this.actions.selectAll();
+        return;
+      case 'copy':
+        e.preventDefault();
+        this.actions.copy();
+        return;
+      case 'paste':
+        e.preventDefault();
+        this.actions.paste();
+        return;
+      case 'duplicate':
+        e.preventDefault();
+        this.actions.duplicate();
+        return;
+      case 'z-forward':
+        e.preventDefault();
+        this.actions.zOrder('forward');
+        return;
+      case 'z-backward':
+        e.preventDefault();
+        this.actions.zOrder('backward');
+        return;
+      case 'z-front':
+        e.preventDefault();
+        this.actions.zOrder('front');
+        return;
+      case 'z-back':
+        e.preventDefault();
+        this.actions.zOrder('back');
+        return;
+      case 'zoom-fit':
+        e.preventDefault();
+        this.actions.zoomToFit();
+        return;
+      case 'nudge-left':
+      case 'nudge-right':
+      case 'nudge-up':
+      case 'nudge-down': {
+        const delta = NUDGE_DELTAS[action];
+        if (delta && this.actions.nudge(delta[0], delta[1], e.shiftKey)) {
+          e.preventDefault();
+        }
+        return;
+      }
+      default:
+        if (action.startsWith('tool:')) {
+          if (this.isToolActive) return;
+          e.preventDefault();
+          this.toolContext?.switchTool?.(action.slice('tool:'.length));
+        }
+    }
+  }
 
   private startPinch(): void {
     this.inputFilter.reset();
