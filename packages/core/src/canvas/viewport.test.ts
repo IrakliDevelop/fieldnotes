@@ -11,6 +11,7 @@ import {
   createHtmlElement,
 } from '../elements/element-factory';
 import { SelectTool } from '../tools/select-tool';
+import { PencilTool } from '../tools/pencil-tool';
 
 describe('Viewport', () => {
   let container: HTMLDivElement;
@@ -1045,6 +1046,19 @@ describe('Viewport', () => {
       // bbox center of visible element only: (1100, 1050) must map to canvas center (400, 300)
       expect(cam.position.x + 1100 * cam.zoom).toBeCloseTo(400, 0);
       expect(cam.position.y + 1050 * cam.zoom).toBeCloseTo(300, 0);
+      viewport.destroy();
+    });
+  });
+
+  describe('setTool', () => {
+    it('activates the named tool without passing toolContext', () => {
+      const viewport = new Viewport(container);
+      viewport.toolManager.register(new PencilTool());
+      viewport.toolManager.register(new SelectTool());
+      viewport.setTool('pencil');
+      expect(viewport.toolManager.activeTool?.name).toBe('pencil');
+      viewport.setTool('select');
+      expect(viewport.toolManager.activeTool?.name).toBe('select');
       viewport.destroy();
     });
   });
