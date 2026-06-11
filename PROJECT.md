@@ -573,7 +573,6 @@ canvas.addImage('data:image/png;base64,iVBOR...', pos, size);
 #### SDK Maturity
 
 - [ ] Copy/paste between browser tabs (in-canvas copy/paste shipped)
-- [ ] Configurable keyboard shortcut system
 - [ ] Minimap
 - [ ] `@fieldnotes/ui` — pre-built, customizable UI components (toolbar, text format panel, color picker, layers panel) as a separate package; `@fieldnotes/react` stays a thin binding layer
 - [ ] Live demo / playground (hosted, linkable — critical for adoption)
