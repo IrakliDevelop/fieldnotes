@@ -663,7 +663,7 @@ if (info) {
     const { x, y } = viewport.camera.position;
     const z = viewport.camera.zoom;
     const tool = viewport.toolManager.activeTool?.name ?? 'none';
-    info.textContent = `${tool} · ${z.toFixed(2)}x · (${x.toFixed(0)}, ${y.toFixed(0)}) · Scroll=zoom · Middle/Space+drag=pan · Pinch=zoom · Shift+1=fit`;
+    info.textContent = `${tool} · ${z.toFixed(2)}x · (${x.toFixed(0)}, ${y.toFixed(0)}) · Scroll=zoom · Middle/Space+drag=pan · Pinch=zoom · Shift+1=fit · V/H/P/E=tools`;
   };
   viewport.camera.onChange(updateInfo);
   viewport.toolManager.onChange(updateInfo);

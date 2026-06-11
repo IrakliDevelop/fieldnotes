@@ -269,6 +269,35 @@ viewport.toolManager.onChange((toolName) => {
 });
 ```
 
+## Keyboard shortcuts
+
+Defaults (remappable): `Delete`/`Backspace` delete · `Escape` deselect · `mod+Z` undo ·
+`mod+Y`/`mod+Shift+Z` redo · `mod+A` select all · `mod+C/V/D` copy/paste/duplicate ·
+`[`/`]` z-order (with `mod` = to back/front) · `Shift+1` zoom-to-fit · arrows nudge
+(`Shift` = one grid cell) · tool keys `V` select, `H` hand, `P` pencil, `E` eraser,
+`A` arrow, `N` note, `T` text, `S` shape, `M` measure, `G` template.
+
+`mod` = Ctrl or Cmd. Shortcuts fire only while the canvas has focus (click it once);
+pass `shortcuts: { scope: 'window' }` for page-wide handling.
+
+```ts
+const viewport = new Viewport(el, {
+  shortcuts: {
+    bindings: {
+      duplicate: 'mod+shift+d', // remap
+      'tool:pencil': ['p', 'b'], // multiple bindings
+      copy: null, // disable
+      'tool:my-custom-tool': 'f', // any registered tool works
+    },
+  },
+});
+
+viewport.shortcuts.rebind('undo', 'mod+u');
+viewport.shortcuts.disable('select-all');
+viewport.shortcuts.reset(); // back to defaults
+viewport.shortcuts.getBindings(); // current table — render a settings UI
+```
+
 ## Changing Tool Options at Runtime
 
 All drawing tools support `setOptions()` for changing color, width, and other settings without re-creating the tool:
@@ -435,7 +464,8 @@ Works in all modern browsers supporting Pointer Events API and HTML5 Canvas.
 
 `@fieldnotes/core` and `@fieldnotes/react` are versioned independently. The react
 package's `peerDependencies` declare the compatible core range. Pre-1.0, minor
-versions may contain breaking changes.
+versions may contain breaking changes. The core peer range is bounded at the next major rather than per-minor; if a core minor
+ever breaks the wrapper, a coordinated react release raises the lower bound.
 
 ## License
 
