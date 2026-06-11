@@ -1489,5 +1489,21 @@ describe('InputHandler', () => {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'p' }));
       expect(switchTool).not.toHaveBeenCalled();
     });
+
+    it('delete shortcut prevents default (Backspace back-nav)', () => {
+      setupWithTools();
+      const e = new KeyboardEvent('keydown', { key: 'Backspace', cancelable: true });
+      window.dispatchEvent(e);
+      expect(e.defaultPrevented).toBe(true);
+    });
+
+    it('warns on unknown non-tool action ids', () => {
+      setupWithTools();
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(vi.fn());
+      handler.shortcuts.rebind('my-typo-action', 'k');
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k' }));
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('my-typo-action'));
+      warnSpy.mockRestore();
+    });
   });
 });

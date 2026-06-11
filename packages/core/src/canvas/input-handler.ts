@@ -241,6 +241,7 @@ export class InputHandler {
   private runAction(action: string, e: KeyboardEvent): void {
     switch (action) {
       case 'delete':
+        e.preventDefault();
         this.actions.deleteSelected();
         return;
       case 'deselect':
@@ -305,7 +306,9 @@ export class InputHandler {
           if (this.isToolActive) return;
           e.preventDefault();
           this.toolContext?.switchTool?.(action.slice('tool:'.length));
+          return;
         }
+        console.warn(`[fieldnotes] unknown shortcut action "${action}"`);
     }
   }
 
