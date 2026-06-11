@@ -1574,5 +1574,17 @@ describe('InputHandler', () => {
       keyUp(' ');
       document.body.removeChild(outside);
     });
+
+    it('pointer down does not steal focus from a focused child inside the element', () => {
+      const child = document.createElement('input');
+      element.appendChild(child);
+      child.focus();
+      expect(document.activeElement).toBe(child);
+
+      pointerDown(element, { button: 0, clientX: 5, clientY: 5, pointerType: 'mouse' });
+      expect(document.activeElement).toBe(child);
+      pointerUp(element, { button: 0 });
+      element.removeChild(child);
+    });
   });
 });

@@ -69,6 +69,7 @@ export class InputHandler {
     this.element.style.touchAction = 'none';
     if (this.scope === 'focus') {
       this.element.tabIndex = 0;
+      // Suppressed like other canvas SDKs; consumers needing a focus ring style their container.
       this.element.style.outline = 'none';
     }
     this.bind();
