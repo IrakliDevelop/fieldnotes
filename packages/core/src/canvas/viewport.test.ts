@@ -1069,6 +1069,34 @@ describe('Viewport', () => {
     });
   });
 
+  describe('shortcuts API', () => {
+    it('exposes rebind/getBindings and options seed the table', () => {
+      const viewport = new Viewport(container, {
+        shortcuts: { bindings: { duplicate: 'mod+shift+d' } },
+      });
+      expect(viewport.shortcuts.getBindings()['duplicate']).toEqual(['mod+shift+d']);
+      viewport.shortcuts.rebind('undo', 'mod+u');
+      expect(viewport.shortcuts.getBindings()['undo']).toEqual(['mod+u']);
+      viewport.shortcuts.disable('copy');
+      expect(viewport.shortcuts.getBindings()['copy']).toEqual([]);
+      viewport.shortcuts.reset();
+      expect(viewport.shortcuts.getBindings()['undo']).toEqual(['mod+z']);
+      viewport.destroy();
+    });
+
+    it('keyboard tool key switches the registered tool when wrapper focused', () => {
+      const viewport = new Viewport(container);
+      viewport.toolManager.register(new SelectTool());
+      viewport.toolManager.register(new PencilTool());
+      viewport.setTool('select');
+      const wrapper = container.firstElementChild as HTMLDivElement;
+      wrapper.focus();
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'p' }));
+      expect(viewport.toolManager.activeTool?.name).toBe('pencil');
+      viewport.destroy();
+    });
+  });
+
   describe('store events trigger re-render', () => {
     it('update event on different layer marks both layers dirty', () => {
       const viewport = new Viewport(container);

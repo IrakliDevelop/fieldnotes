@@ -1,6 +1,7 @@
 import { Camera } from './camera';
 import type { CameraOptions } from './camera';
 import { InputHandler } from './input-handler';
+import type { ShortcutOptions, ShortcutsApi } from './shortcut-map';
 import { Background } from './background';
 import type { BackgroundOptions } from './background';
 import { ElementStore } from '../elements/element-store';
@@ -41,6 +42,7 @@ export interface ViewportOptions {
   background?: BackgroundOptions;
   fontSizePresets?: FontSizePreset[];
   toolbar?: boolean;
+  shortcuts?: ShortcutOptions;
   onHtmlElementMount?: (
     elementId: string,
     domId: string | undefined,
@@ -143,6 +145,7 @@ export class Viewport {
       historyRecorder: this.historyRecorder,
       historyStack: this.history,
       fitToContent: () => this.fitToContent(),
+      shortcuts: options.shortcuts,
     });
 
     this.domNodeManager = new DomNodeManager({
@@ -309,6 +312,10 @@ export class Viewport {
 
   setTool(name: string): void {
     this.toolManager.setTool(name, this.toolContext);
+  }
+
+  get shortcuts(): ShortcutsApi {
+    return this.inputHandler.shortcuts;
   }
 
   undo(): boolean {
