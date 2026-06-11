@@ -307,6 +307,10 @@ export class Viewport {
     this.loadState(parseState(json));
   }
 
+  setTool(name: string): void {
+    this.toolManager.setTool(name, this.toolContext);
+  }
+
   undo(): boolean {
     this.inputHandler.flushPendingHistory();
     this.historyRecorder.pause();

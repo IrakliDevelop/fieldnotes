@@ -162,6 +162,56 @@ describe('HistoryRecorder', () => {
     expect(store.count).toBe(0);
   });
 
+  describe('currentTransactionId', () => {
+    it('is null outside a transaction', () => {
+      const store = new ElementStore();
+      const recorder = new HistoryRecorder(store, new HistoryStack());
+      expect(recorder.currentTransactionId).toBeNull();
+    });
+
+    it('is a stable number within one transaction and null after commit', () => {
+      const store = new ElementStore();
+      const recorder = new HistoryRecorder(store, new HistoryStack());
+      recorder.begin();
+      const id = recorder.currentTransactionId;
+      expect(id).not.toBeNull();
+      store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } }));
+      expect(recorder.currentTransactionId).toBe(id);
+      recorder.commit();
+      expect(recorder.currentTransactionId).toBeNull();
+    });
+
+    it('changes on every begin(), including auto-commit takeover', () => {
+      const store = new ElementStore();
+      const recorder = new HistoryRecorder(store, new HistoryStack());
+      recorder.begin();
+      const first = recorder.currentTransactionId;
+      recorder.begin();
+      const second = recorder.currentTransactionId;
+      expect(second).not.toBeNull();
+      expect(second).not.toBe(first);
+    });
+
+    it('is null after rollback', () => {
+      const store = new ElementStore();
+      const recorder = new HistoryRecorder(store, new HistoryStack());
+      recorder.begin();
+      recorder.rollback();
+      expect(recorder.currentTransactionId).toBeNull();
+    });
+
+    it('issues a fresh id after rollback then begin', () => {
+      const store = new ElementStore();
+      const recorder = new HistoryRecorder(store, new HistoryStack());
+      recorder.begin();
+      const before = recorder.currentTransactionId;
+      recorder.rollback();
+      recorder.begin();
+      expect(recorder.currentTransactionId).not.toBe(before);
+      expect(recorder.currentTransactionId).not.toBeNull();
+    });
+  });
+
   describe('layer undo', () => {
     function setupWithLayers() {
       const store = new ElementStore();

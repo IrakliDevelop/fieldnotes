@@ -541,6 +541,14 @@ canvas.addImage('data:image/png;base64,iVBOR...', pos, size);
 - [x] **`viewport.onGridChange(cb)`** — subscribe to grid add/update/remove/clear events, returns unsubscribe function
 - [x] **`GridInfo` type** — exported for SDK consumers building grid-aware features (e.g. D&D token sizing)
 
+#### 0.18.0 — Release Hygiene & Robustness (core) / 0.4.1 (react)
+
+- [x] `viewport.setTool(name)` — tool switching without the `toolContext` incantation
+- [x] EventBus isolates throwing listeners (one bad consumer callback can no longer halt events)
+- [x] Keyboard shortcuts uniformly blocked during active tool input (delete/undo/redo/z-order)
+- [x] Nudge history flush commits only its own transaction (`HistoryRecorder.currentTransactionId`)
+- [x] Packaging: LICENSE files shipped, `sideEffects: false`, react peer ranges tightened, core sourcemaps, `InputHandlerOptions` exported, documented versioning policy
+
 #### 0.17.0 — Keyboard & Selection Quick Wins
 
 - [x] Escape deselects the current selection
