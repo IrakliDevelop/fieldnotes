@@ -4,6 +4,50 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.19.0] — 2026-06-11
+
+### Added
+
+- **Configurable keyboard shortcuts** — new `ShortcutMap` with remappable bindings: `ViewportOptions.shortcuts.bindings` seeds the table, `viewport.shortcuts.rebind/disable/reset/getBindings` mutate it at runtime. Binding grammar: `"mod+d"`, `"shift+1"`, `"["`, `"v"` (`mod` = Ctrl or Cmd)
+- **Tool-switch keys** — `V` select, `H` hand, `P` pencil, `E` eraser, `A` arrow, `N` note, `T` text, `S` shape, `M` measure, `G` template. Generic `tool:<name>` action ids work for custom tools
+- **Focus-scoped shortcuts** — the canvas only handles keys while focused (click it once); `shortcuts: { scope: 'window' }` restores page-wide handling. Fixes the SDK swallowing Ctrl+D/Ctrl+A across the host page
+
+### Changed
+
+- Shortcut matching now requires exact modifiers: `Ctrl+Escape`, `Ctrl+Delete`, and `Ctrl/Alt+Arrow` no longer trigger deselect/delete/nudge; `Backspace` on the focused canvas now calls `preventDefault` (no browser back-navigation)
+- react 0.4.2: core peer range widened to `>=0.18.0 <1.0.0` (bounded at major, not per-minor)
+
+---
+
+## [0.18.0] — 2026-06-11
+
+### Added
+
+- **`viewport.setTool(name)`** — tool switching without passing `toolContext` back in
+- **`HistoryRecorder.currentTransactionId`** — transaction-ownership token; nudge coalescing now commits only its own transaction
+- **`InputHandlerOptions` export**
+
+### Fixed
+
+- **EventBus listener isolation** — a throwing consumer listener no longer halts the emit chain (logged via `console.error`, remaining listeners still run)
+- **Mid-gesture shortcuts** — delete/undo/redo/z-order are ignored while a pointer gesture is in flight
+
+### Packaging (react 0.4.1)
+
+- LICENSE files shipped in both npm tarballs; `sideEffects: false` for tree-shaking; react peer ranges tightened; core sourcemaps enabled; versioning policy documented
+
+---
+
+## [0.17.0] — 2026-06-10
+
+### Added
+
+- **Keyboard & selection quick wins** — `Escape` deselect, `mod+A` select all (visible/unlocked layers only), `mod+D` duplicate (+20px offset, arrow bindings remapped), arrow-key nudge (1 unit; `Shift` = one grid cell, coalesced into a single undo step), `Shift+1` zoom-to-fit
+- **`viewport.fitToContent(padding?)`** — frame all content on visible layers; demo toolbar ⛶ button
+- **`KeyboardActions`** — keyboard action logic extracted from `InputHandler` (groundwork for 0.19.0's ShortcutMap)
+
+---
+
 ## [0.16.0] — 2026-05-30
 
 ### Added
