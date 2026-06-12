@@ -177,6 +177,7 @@ describe('useElements', () => {
   // Selectors hoisted to module scope to ensure referential stability across renders.
   const selectLength = (els: CanvasElement[]) => els.length;
   const selectXPositions = (els: CanvasElement[]) => els.map((e) => e.position.x);
+  const selectXs = (els: CanvasElement[]) => els.map((e) => e.position.x);
   const sameLengthEqual = (a: number[], b: number[]) => a.length === b.length;
 
   it('selector overload returns the selected value', () => {
@@ -284,5 +285,45 @@ describe('useElements', () => {
     });
     // same length -> treated equal -> stale value retained (documented trade-off)
     expect(value).toEqual([0]);
+  });
+
+  it('object-returning selectors are stable with the default comparator', () => {
+    let renders = 0;
+    let value: number[] = [];
+    let vp: Viewport | null = null;
+    function Consumer() {
+      renders++;
+      value = useElements(selectXs);
+      return null;
+    }
+    render(
+      <FieldNotesCanvas
+        onReady={(v) => {
+          vp = v;
+        }}
+      >
+        <Consumer />
+      </FieldNotesCanvas>,
+    );
+    let noteId = '';
+    act(() => {
+      const note = createNote({ position: { x: 5, y: 0 } });
+      vp?.store.add(note);
+      noteId = note.id;
+    });
+    expect(value).toEqual([5]);
+    const rendersAfterAdd = renders;
+
+    // y-only move: selected xs unchanged -> no re-render
+    act(() => {
+      vp?.store.update(noteId, { position: { x: 5, y: 50 } });
+    });
+    expect(renders).toBe(rendersAfterAdd);
+
+    // x move: selected xs changed -> re-render with new value
+    act(() => {
+      vp?.store.update(noteId, { position: { x: 9, y: 50 } });
+    });
+    expect(value).toEqual([9]);
   });
 });
