@@ -549,12 +549,48 @@ describe('Viewport', () => {
       viewport.destroy();
     });
 
-    it('ignores non-text elements', () => {
+    it('removes a note emptied during editing', () => {
+      const viewport = new Viewport(container);
+      const note = createNote({
+        position: { x: 0, y: 0 },
+        size: { w: 200, h: 50 },
+        text: '<div><br></div>',
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(note);
+
+      const priv = viewport as unknown as { onTextEditStop: (id: string) => void };
+      priv.onTextEditStop(note.id);
+
+      expect(viewport.store.getById(note.id)).toBeUndefined();
+      viewport.destroy();
+    });
+
+    it('empty-note removal is one undo step', () => {
       const viewport = new Viewport(container);
       const note = createNote({
         position: { x: 0, y: 0 },
         size: { w: 200, h: 50 },
         text: '',
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(note);
+
+      const priv = viewport as unknown as { onTextEditStop: (id: string) => void };
+      priv.onTextEditStop(note.id);
+      expect(viewport.store.getById(note.id)).toBeUndefined();
+
+      expect(viewport.undo()).toBe(true);
+      expect(viewport.store.getById(note.id)).toBeDefined();
+      viewport.destroy();
+    });
+
+    it('keeps a note with real content', () => {
+      const viewport = new Viewport(container);
+      const note = createNote({
+        position: { x: 0, y: 0 },
+        size: { w: 200, h: 50 },
+        text: '<b>hi</b>',
         layerId: viewport.layerManager.activeLayerId,
       });
       viewport.store.add(note);
