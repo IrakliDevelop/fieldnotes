@@ -31,7 +31,7 @@ function ensureEditorStyles(): void {
 
 function isNodeEmpty(node: HTMLElement): boolean {
   const text = node.textContent ?? '';
-  return text.replace(/ /g, ' ').trim().length === 0;
+  return text.replace(/\u00a0/g, ' ').trim().length === 0;
 }
 
 export class NoteEditor {
