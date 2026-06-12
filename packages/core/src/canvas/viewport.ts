@@ -43,6 +43,7 @@ export interface ViewportOptions {
   background?: BackgroundOptions;
   fontSizePresets?: FontSizePreset[];
   toolbar?: boolean;
+  placeholder?: string;
   shortcuts?: ShortcutOptions;
   onHtmlElementMount?: (
     elementId: string,
@@ -109,6 +110,7 @@ export class Viewport {
     this.noteEditor = new NoteEditor({
       fontSizePresets: options.fontSizePresets,
       toolbar: options.toolbar,
+      placeholder: options.placeholder,
     });
     this.noteEditor.setOnStop((id) => this.onTextEditStop(id));
     this.onHtmlElementMount = options.onHtmlElementMount;
