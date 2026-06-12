@@ -3,6 +3,8 @@ import type { StrokeElement } from './types';
 import { getElementBounds } from './element-bounds';
 import { getStrokeRenderData } from './stroke-cache';
 
+// Same clamped-projection math as arrow-geometry's private isNearLine; consolidate
+// into a shared geometry util when next touched.
 function distSqToSegment(p: Point, a: Point, b: Point): number {
   const abx = b.x - a.x;
   const aby = b.y - a.y;

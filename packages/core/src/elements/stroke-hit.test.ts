@@ -57,6 +57,15 @@ describe('hitTestStroke', () => {
     expect(hitTestStroke(s, { x: 50, y: 100 }, 5)).toBe(false);
   });
 
+  it('handles coincident consecutive points (zero-length segment)', () => {
+    const s = stroke([
+      { x: 10, y: 10 },
+      { x: 10, y: 10 },
+    ]);
+    expect(hitTestStroke(s, { x: 12, y: 12 }, 5)).toBe(true);
+    expect(hitTestStroke(s, { x: 20, y: 20 }, 5)).toBe(false);
+  });
+
   it('bounds early-out skips segment computation for far probes', () => {
     const spy = vi.spyOn(strokeCache, 'getStrokeRenderData');
     const s = stroke([
