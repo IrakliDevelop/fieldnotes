@@ -13,6 +13,7 @@ export interface UseHistoryResult {
   redo: () => void;
 }
 
+/** `{ canUndo, canRedo, undo, redo }` — re-renders when undo/redo availability changes. */
 export function useHistory(): UseHistoryResult {
   const viewport = useViewport();
   const cachedRef = useRef<HistorySnapshot>({ canUndo: false, canRedo: false });

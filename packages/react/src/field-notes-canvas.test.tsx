@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, cleanup, act } from '@testing-library/react';
-import { useContext, useState } from 'react';
+import { useContext, useState, StrictMode } from 'react';
 import { FieldNotesCanvas } from './field-notes-canvas';
 import { ViewportContext } from './context';
 import { HandTool, SelectTool, PencilTool } from '@fieldnotes/core';
@@ -155,5 +155,17 @@ describe('FieldNotesCanvas', () => {
 
     rerender(<FieldNotesCanvas tools={[new HandTool(), new PencilTool()]} onReady={onReady} />);
     expect(viewport.toolManager.toolNames).toContain('pencil');
+  });
+
+  it('survives StrictMode double-mount with a usable viewport', () => {
+    const onReady = vi.fn();
+    const { container } = render(
+      <StrictMode>
+        <FieldNotesCanvas tools={[new SelectTool()]} defaultTool="select" onReady={onReady} />
+      </StrictMode>,
+    );
+    expect(container.querySelectorAll('canvas').length).toBe(1);
+    const viewport = onReady.mock.calls[onReady.mock.calls.length - 1][0];
+    expect(viewport.toolManager.activeTool?.name).toBe('select');
   });
 });

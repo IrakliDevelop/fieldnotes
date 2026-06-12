@@ -5,6 +5,10 @@ function noop() {
   /* unsubscribe placeholder */
 }
 
+/**
+ * `[options, setOptions]` for the named tool — re-renders when the tool's options change.
+ * Returns `null` for options if the tool is not registered or does not expose options.
+ */
 export function useToolOptions<T extends Record<string, unknown>>(
   toolName: string,
 ): [options: T | null, setOptions: (partial: Partial<T>) => void] {

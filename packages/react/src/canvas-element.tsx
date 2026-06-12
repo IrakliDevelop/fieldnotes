@@ -2,12 +2,19 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useViewport } from './hooks/use-viewport';
 
+/** Props for {@link CanvasElement}. */
 export interface CanvasElementProps {
+  /** Canvas-space position of the element's top-left corner. */
   position: { x: number; y: number };
+  /** Optional fixed size; omit to let the element size to its content. */
   size?: { w: number; h: number };
   children: ReactNode;
 }
 
+/**
+ * Renders a React subtree as an HTML element embedded in the canvas coordinate space.
+ * Must be used inside a `<FieldNotesCanvas>`.
+ */
 export function CanvasElement({ position, size, children }: CanvasElementProps) {
   const viewport = useViewport();
   const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);

@@ -21,6 +21,10 @@ export interface UseLayersResult {
   moveElement: (elementId: string, layerId: string) => void;
 }
 
+/**
+ * Current layer list and mutation helpers — re-renders whenever a layer is added, removed,
+ * reordered, renamed, or its visibility/lock/opacity/active state changes.
+ */
 export function useLayers(): UseLayersResult {
   const viewport = useViewport();
   const cachedRef = useRef<LayersSnapshot>({ layers: [], activeLayerId: '' });
