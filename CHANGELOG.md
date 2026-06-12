@@ -4,6 +4,22 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [react 0.5.0] — 2026-06-12
+
+### Added
+
+- **Controlled tool prop** — `<FieldNotesCanvas tool={tool} onToolChange={setTool}>`; `defaultTool` remains for uncontrolled use
+- **Reactive props** — `snapToGrid` toggles live; `tools` registers newly added tools (append-only); `options` documented as mount-only
+- **`useElements(selector, isEqual?)`** — derived values re-render only when the selected value changes (shallow-equal default; fixes sidebars re-rendering on every drag frame)
+- **`examples/react-app`** — runnable reference app (toolbar, undo/redo, selector sidebar, save/load, custom tool)
+
+### Changed
+
+- `useActiveTool` and `defaultTool` use the `viewport.setTool` facade internally
+- README rewritten around recipes with a prop-reactivity table; TSDoc on the full public surface
+
+---
+
 ## [0.21.0] — 2026-06-12
 
 ### Added
