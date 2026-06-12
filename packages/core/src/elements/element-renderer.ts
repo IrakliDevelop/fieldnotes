@@ -100,16 +100,23 @@ export class ElementRenderer {
     ctx.lineJoin = 'round';
     ctx.globalAlpha = stroke.opacity;
 
-    const { segments, widths } = getStrokeRenderData(stroke);
-    for (let i = 0; i < segments.length; i++) {
-      const seg = segments[i];
-      const w = widths[i];
-      if (!seg || w === undefined) continue;
-      ctx.lineWidth = w;
-      ctx.beginPath();
-      ctx.moveTo(seg.start.x, seg.start.y);
-      ctx.bezierCurveTo(seg.cp1.x, seg.cp1.y, seg.cp2.x, seg.cp2.y, seg.end.x, seg.end.y);
-      ctx.stroke();
+    const data = getStrokeRenderData(stroke);
+    if (data.buckets) {
+      for (const bucket of data.buckets) {
+        ctx.lineWidth = bucket.width;
+        ctx.stroke(bucket.path);
+      }
+    } else {
+      for (let i = 0; i < data.segments.length; i++) {
+        const seg = data.segments[i];
+        const w = data.widths[i];
+        if (!seg || w === undefined) continue;
+        ctx.lineWidth = w;
+        ctx.beginPath();
+        ctx.moveTo(seg.start.x, seg.start.y);
+        ctx.bezierCurveTo(seg.cp1.x, seg.cp1.y, seg.cp2.x, seg.cp2.y, seg.end.x, seg.end.y);
+        ctx.stroke();
+      }
     }
 
     ctx.restore();
