@@ -51,6 +51,7 @@ export interface ViewportOptions {
     container: HTMLDivElement,
   ) => void;
   onDrop?: (event: DragEvent, worldPosition: { x: number; y: number }) => void;
+  onImageError?: (info: { src: string; elementIds: string[] }) => void;
 }
 
 export class Viewport {
@@ -106,6 +107,17 @@ export class Viewport {
     this.renderer.setOnImageLoad(() => {
       this.renderLoop.markAllLayersDirty();
       this.requestRender();
+    });
+    this.renderer.setOnImageError((src) => {
+      const elementIds: string[] = [];
+      for (const el of this.store.getAll()) {
+        if (el.type === 'image' && el.src === src) elementIds.push(el.id);
+      }
+      if (options.onImageError) {
+        options.onImageError({ src, elementIds });
+      } else {
+        console.warn(`[fieldnotes] image failed to load: ${src}`);
+      }
     });
     this.noteEditor = new NoteEditor({
       fontSizePresets: options.fontSizePresets,

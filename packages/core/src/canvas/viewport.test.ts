@@ -1150,6 +1150,49 @@ describe('Viewport', () => {
     });
   });
 
+  describe('onImageError', () => {
+    function triggerImageError(viewport: Viewport, src: string): void {
+      const renderer = (
+        viewport as unknown as {
+          renderer: { getImage?: unknown; imageCache?: unknown };
+        }
+      ).renderer;
+      // force the load attempt directly (render path may be inert in jsdom)
+      (renderer as unknown as { getImage: (s: string) => unknown }).getImage(src);
+      const cache = (renderer as unknown as { imageCache: Map<string, HTMLImageElement> })
+        .imageCache;
+      const img = cache.get(src);
+      if (img && img instanceof HTMLImageElement) {
+        img.onerror?.(new Event('error') as never);
+      }
+    }
+
+    it('reports src and matching element ids to the option callback', () => {
+      const onImageError = vi.fn();
+      const viewport = new Viewport(container, { onImageError });
+      const src = 'https://broken.example/a.png';
+      const id = viewport.addImage(src, { x: 0, y: 0 });
+
+      triggerImageError(viewport, src);
+
+      expect(onImageError).toHaveBeenCalledWith({ src, elementIds: [id] });
+      viewport.destroy();
+    });
+
+    it('console.warns when the option is unset', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(vi.fn());
+      const viewport = new Viewport(container);
+      const src = 'https://broken.example/b.png';
+      viewport.addImage(src, { x: 0, y: 0 });
+
+      triggerImageError(viewport, src);
+
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining(src));
+      warnSpy.mockRestore();
+      viewport.destroy();
+    });
+  });
+
   describe('store events trigger re-render', () => {
     it('update event on different layer marks both layers dirty', () => {
       const viewport = new Viewport(container);
