@@ -16,6 +16,11 @@ test.describe('visual regression', () => {
 
     await canvasPage.page.waitForTimeout(300);
 
+    await canvasPage.page.addStyleTag({
+      content:
+        '#toolbar, #info, #layers-panel, #empty-hint, #toast-container, #shape-panel, #text-panel, #note-panel, #grid-panel, #template-panel, #measure-panel { visibility: hidden !important; }',
+    });
+
     await expect(wrapper).toHaveScreenshot('canvas-with-shape.png', {
       maxDiffPixelRatio: 0.01,
     });
