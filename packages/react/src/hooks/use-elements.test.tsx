@@ -173,4 +173,186 @@ describe('useElements', () => {
     });
     expect(elements[0]?.position).toEqual({ x: 50, y: 50 });
   });
+
+  // Selectors hoisted to module scope to ensure referential stability across renders.
+  const selectLength = (els: CanvasElement[]) => els.length;
+  const selectXPositions = (els: CanvasElement[]) => els.map((e) => e.position.x);
+  const selectXs = (els: CanvasElement[]) => els.map((e) => e.position.x);
+  const sameLengthEqual = (a: number[], b: number[]) => a.length === b.length;
+
+  it('selector overload returns the selected value', () => {
+    let count = -1;
+    let vp: Viewport | null = null;
+    function Consumer() {
+      count = useElements(selectLength);
+      return null;
+    }
+    render(
+      <FieldNotesCanvas
+        onReady={(v) => {
+          vp = v;
+        }}
+      >
+        <Consumer />
+      </FieldNotesCanvas>,
+    );
+    expect(count).toBe(0);
+    act(() => {
+      vp?.store.add(
+        createNote({
+          position: { x: 0, y: 0 },
+          size: { w: 100, h: 100 },
+          backgroundColor: '#ffeb3b',
+          textColor: '#000',
+          layerId: vp?.layerManager.activeLayerId ?? '',
+        }),
+      );
+    });
+    expect(count).toBe(1);
+  });
+
+  it('selector consumers do not re-render when the selected value is unchanged', () => {
+    let renders = 0;
+    let vp: Viewport | null = null;
+    let noteId = '';
+    function Consumer() {
+      renders++;
+      useElements(selectLength);
+      return null;
+    }
+    render(
+      <FieldNotesCanvas
+        onReady={(v) => {
+          vp = v;
+        }}
+      >
+        <Consumer />
+      </FieldNotesCanvas>,
+    );
+    act(() => {
+      const note = createNote({
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 100 },
+        backgroundColor: '#ffeb3b',
+        textColor: '#000',
+        layerId: vp?.layerManager.activeLayerId ?? '',
+      });
+      vp?.store.add(note);
+      noteId = note.id;
+    });
+    const rendersAfterAdd = renders;
+
+    act(() => {
+      vp?.store.update(noteId, { position: { x: 10, y: 10 } });
+    });
+    act(() => {
+      vp?.store.update(noteId, { position: { x: 20, y: 20 } });
+    });
+    expect(renders).toBe(rendersAfterAdd);
+  });
+
+  it('custom isEqual is respected', () => {
+    let value: number[] = [];
+    let vp: Viewport | null = null;
+    let noteId = '';
+    function Consumer() {
+      value = useElements(selectXPositions, sameLengthEqual);
+      return null;
+    }
+    render(
+      <FieldNotesCanvas
+        onReady={(v) => {
+          vp = v;
+        }}
+      >
+        <Consumer />
+      </FieldNotesCanvas>,
+    );
+    act(() => {
+      const note = createNote({
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 100 },
+        backgroundColor: '#ffeb3b',
+        textColor: '#000',
+        layerId: vp?.layerManager.activeLayerId ?? '',
+      });
+      vp?.store.add(note);
+      noteId = note.id;
+    });
+    expect(value).toEqual([0]);
+    act(() => {
+      vp?.store.update(noteId, { position: { x: 99, y: 0 } });
+    });
+    // same length -> treated equal -> stale value retained (documented trade-off)
+    expect(value).toEqual([0]);
+  });
+
+  it('object-returning selectors are stable with the default comparator', () => {
+    let renders = 0;
+    let value: number[] = [];
+    let vp: Viewport | null = null;
+    function Consumer() {
+      renders++;
+      value = useElements(selectXs);
+      return null;
+    }
+    render(
+      <FieldNotesCanvas
+        onReady={(v) => {
+          vp = v;
+        }}
+      >
+        <Consumer />
+      </FieldNotesCanvas>,
+    );
+    let noteId = '';
+    act(() => {
+      const note = createNote({ position: { x: 5, y: 0 } });
+      vp?.store.add(note);
+      noteId = note.id;
+    });
+    expect(value).toEqual([5]);
+    const rendersAfterAdd = renders;
+
+    // y-only move: selected xs unchanged -> no re-render
+    act(() => {
+      vp?.store.update(noteId, { position: { x: 5, y: 50 } });
+    });
+    expect(renders).toBe(rendersAfterAdd);
+
+    // x move: selected xs changed -> re-render with new value
+    act(() => {
+      vp?.store.update(noteId, { position: { x: 9, y: 50 } });
+    });
+    expect(value).toEqual([9]);
+  });
+
+  it('record selectors detect key changes (key-presence hardening)', () => {
+    let value: Record<string, number | undefined> = {};
+    let vp: Viewport | null = null;
+    const selectRecord = (els: CanvasElement[]): Record<string, number | undefined> => {
+      const first = els[0];
+      return first ? { [first.id]: undefined } : { none: undefined };
+    };
+    function Consumer() {
+      value = useElements(selectRecord);
+      return null;
+    }
+    render(
+      <FieldNotesCanvas
+        onReady={(v) => {
+          vp = v;
+        }}
+      >
+        <Consumer />
+      </FieldNotesCanvas>,
+    );
+    expect(value).toEqual({ none: undefined });
+    act(() => {
+      vp?.store.add(createNote({ position: { x: 0, y: 0 } }));
+    });
+    // key changed from 'none' to the element id; values are both undefined —
+    // without the k-in-b check these compare equal and the stale value sticks
+    expect(Object.keys(value)[0]).not.toBe('none');
+  });
 });

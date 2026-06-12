@@ -7,6 +7,7 @@ export interface CameraState {
   zoom: number;
 }
 
+/** Current camera position and zoom level — re-renders whenever the camera moves or zoom changes. */
 export function useCamera(): CameraState {
   const viewport = useViewport();
   const cachedRef = useRef<CameraState>({ x: 0, y: 0, zoom: 1 });

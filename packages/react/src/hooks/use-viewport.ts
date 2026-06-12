@@ -2,6 +2,7 @@ import { useContext } from 'react';
 import type { Viewport } from '@fieldnotes/core';
 import { ViewportContext } from '../context';
 
+/** The Viewport from the nearest `<FieldNotesCanvas>`. Throws outside one. */
 export function useViewport(): Viewport {
   const viewport = useContext(ViewportContext);
   if (!viewport) {

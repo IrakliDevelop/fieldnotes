@@ -12,26 +12,88 @@ Requires React 18+.
 
 ## Quick Start
 
-```tsx
-import { FieldNotesCanvas } from '@fieldnotes/react';
-import { HandTool, SelectTool, PencilTool } from '@fieldnotes/core';
+Full runnable example: `examples/react-app` — `pnpm --filter fieldnotes-react-example dev`
 
-function App() {
+The canvas needs a container with a defined size — it fills whatever it's given:
+
+```tsx
+import { useState } from 'react';
+import { FieldNotesCanvas } from '@fieldnotes/react';
+import {
+  HandTool,
+  SelectTool,
+  PencilTool,
+  EraserTool,
+  NoteTool,
+  ShapeTool,
+} from '@fieldnotes/core';
+
+const TOOLS = [
+  new HandTool(),
+  new SelectTool(),
+  new PencilTool(),
+  new EraserTool(),
+  new NoteTool(),
+  new ShapeTool(),
+];
+
+export function App() {
+  const [tool, setTool] = useState('select');
+
   return (
-    <FieldNotesCanvas
-      tools={[new HandTool(), new SelectTool(), new PencilTool()]}
-      defaultTool="select"
-      style={{ width: '100vw', height: '100vh' }}
-    />
+    <div style={{ width: '100vw', height: '100vh' }}>
+      <FieldNotesCanvas
+        tools={TOOLS}
+        tool={tool}
+        onToolChange={setTool}
+        style={{ width: '100%', height: '100%' }}
+      >
+        <Toolbar tool={tool} onSelect={setTool} />
+      </FieldNotesCanvas>
+    </div>
+  );
+}
+
+function Toolbar({ tool, onSelect }: { tool: string; onSelect: (name: string) => void }) {
+  const TOOL_LABELS: readonly (readonly [string, string])[] = [
+    ['select', 'Select'],
+    ['hand', 'Hand'],
+    ['pencil', 'Pencil'],
+    ['eraser', 'Eraser'],
+    ['note', 'Note'],
+    ['shape', 'Shape'],
+  ];
+
+  return (
+    <div className="toolbar">
+      {TOOL_LABELS.map(([name, label]) => (
+        <button key={name} className={tool === name ? 'active' : ''} onClick={() => onSelect(name)}>
+          {label}
+        </button>
+      ))}
+    </div>
   );
 }
 ```
 
-Your container needs a defined size — the canvas fills it.
+## Prop Reactivity
+
+Not all props are reactive — the canvas is stateful. Changing a mount-only prop after mount has no effect:
+
+| Prop                               | Reactivity                                                                          |
+| ---------------------------------- | ----------------------------------------------------------------------------------- |
+| `options`                          | Mount-only — the canvas is stateful; construct with the right options               |
+| `tools`                            | Reactive, append-only (tools cannot be unregistered). Hoist the array out of render |
+| `tool` / `onToolChange`            | Reactive (controlled). Memoize the callback                                         |
+| `defaultTool`                      | Mount-only (uncontrolled initial tool)                                              |
+| `snapToGrid`                       | Reactive                                                                            |
+| `className` / `style` / `children` | Reactive (plain React)                                                              |
+
+Runtime changes beyond these go through the viewport — access it via `useViewport()` or the ref: `viewport.setSnapToGrid(...)`, `viewport.shortcuts.rebind(...)`, `viewport.fitToContent()`. The background pattern is constructor-only (`options.background`).
 
 ## Embedding React Components
 
-The main feature — render any React component as a canvas element that pans, zooms, and resizes with the canvas:
+The headline feature — render any React subtree as a canvas element that pans, zooms, and resizes with the canvas:
 
 ```tsx
 import { FieldNotesCanvas, CanvasElement } from '@fieldnotes/react';
@@ -58,121 +120,11 @@ function App() {
 
 Embedded components use a **two-mode interaction model**: by default they can be selected, dragged, and resized. **Double-click** to enter interact mode (clicks, inputs, forms work). **Escape** or click outside to exit.
 
-## Hooks
+`position` is required; `size` is optional — omit it to let the element size to its content. Both props are reactive: updating them moves or resizes the element on the canvas.
 
-All hooks must be used inside `<FieldNotesCanvas>`.
+## Undo / Redo
 
-### `useActiveTool()`
-
-Reactive tool name + setter — re-renders when the active tool changes:
-
-```tsx
-import { useActiveTool } from '@fieldnotes/react';
-
-function Toolbar() {
-  const [tool, setTool] = useActiveTool();
-
-  return (
-    <div>
-      <span>Current: {tool}</span>
-      <button onClick={() => setTool('pencil')}>Pencil</button>
-      <button onClick={() => setTool('select')}>Select</button>
-    </div>
-  );
-}
-```
-
-### `useToolOptions(toolName)`
-
-Reactive tool options with two-way sync — read and write tool configuration:
-
-```tsx
-import { useActiveTool, useToolOptions } from '@fieldnotes/react';
-import type { PencilToolOptions } from '@fieldnotes/core';
-
-function PencilSettings() {
-  const [tool, setTool] = useActiveTool();
-  const [opts, setOpts] = useToolOptions<PencilToolOptions>('pencil');
-
-  return (
-    <div>
-      <button onClick={() => setTool('pencil')}>Pencil</button>
-      {tool === 'pencil' && opts && (
-        <>
-          <input
-            type="color"
-            value={opts.color}
-            onChange={(e) => setOpts({ color: e.target.value })}
-          />
-          <input
-            type="range"
-            min={1}
-            max={20}
-            value={opts.width}
-            onChange={(e) => setOpts({ width: Number(e.target.value) })}
-          />
-        </>
-      )}
-    </div>
-  );
-}
-```
-
-Returns `[null, noop]` for tools that don't support options (e.g., `HandTool`).
-
-### `useLayers()`
-
-Full layer management — reactive layer list with action callbacks:
-
-```tsx
-import { useLayers } from '@fieldnotes/react';
-
-function LayersPanel() {
-  const {
-    layers,
-    activeLayerId,
-    createLayer,
-    removeLayer,
-    setVisible,
-    setLocked,
-    setOpacity,
-    setActiveLayer,
-  } = useLayers();
-
-  return (
-    <div>
-      <button onClick={() => createLayer()}>Add Layer</button>
-      {layers.map((layer) => (
-        <div key={layer.id} onClick={() => setActiveLayer(layer.id)}>
-          <span>
-            {layer.name} {layer.id === activeLayerId ? '(active)' : ''}
-          </span>
-          <button onClick={() => setVisible(layer.id, !layer.visible)}>
-            {layer.visible ? 'Hide' : 'Show'}
-          </button>
-          <button onClick={() => setLocked(layer.id, !layer.locked)}>
-            {layer.locked ? 'Unlock' : 'Lock'}
-          </button>
-          <input
-            type="range"
-            min={0}
-            max={1}
-            step={0.1}
-            value={layer.opacity}
-            onChange={(e) => setOpacity(layer.id, Number(e.target.value))}
-          />
-        </div>
-      ))}
-    </div>
-  );
-}
-```
-
-Also exposes: `renameLayer`, `reorderLayer`, `moveElement`.
-
-### `useHistory()`
-
-Reactive undo/redo state:
+`useHistory` returns reactive undo/redo state and action callbacks:
 
 ```tsx
 import { useHistory } from '@fieldnotes/react';
@@ -193,87 +145,200 @@ function UndoRedo() {
 }
 ```
 
-### `useElements(type?)`
+## Why Is My Sidebar Re-rendering 60×/s?
 
-Reactive element list — re-renders when elements are added, removed, or updated:
+`useElements()` with no arguments re-renders on every store mutation. For derived values, pass a selector — the hook only re-renders when the selected value changes:
 
 ```tsx
+import { useCallback } from 'react';
 import { useElements } from '@fieldnotes/react';
+import type { CanvasElement } from '@fieldnotes/core';
 
-function ElementCount() {
-  const elements = useElements();
+export function Sidebar() {
+  // Stable selector: useCallback with [] dependency or module-scope function
+  const count = useElements(useCallback((els: CanvasElement[]) => els.length, []));
   const notes = useElements('note');
 
   return (
-    <span>
-      {notes.length} notes / {elements.length} total
-    </span>
+    <div className="sidebar">
+      <p>{count} elements</p>
+      <ul>
+        {notes.map((n) => (
+          <li key={n.id}>{n.text ? n.text.replace(/<[^>]+>/g, '').slice(0, 30) : '(empty)'}</li>
+        ))}
+      </ul>
+    </div>
   );
 }
 ```
 
-Pass an element type (`'note'`, `'stroke'`, `'arrow'`, etc.) to filter.
+Alternatively, hoist expensive rendering into a memoized child and pass elements as props — React's `memo` then does the comparison.
 
-### `useCamera()`
-
-Reactive camera state (position + zoom) — re-renders on pan/zoom:
+**Default comparator is one-level shallow**: arrays are compared by index, plain objects by key, primitives by `Object.is`. Selectors returning nested fresh objects (e.g. `els => els.map(e => ({ ...e.position }))`) still cause re-renders with the default comparator — pass a custom `isEqual` as the second argument:
 
 ```tsx
-import { useCamera } from '@fieldnotes/react';
-
-function CameraInfo() {
-  const { x, y, zoom } = useCamera();
-
-  return (
-    <span>
-      {zoom.toFixed(2)}x at ({x.toFixed(0)}, {y.toFixed(0)})
-    </span>
-  );
-}
+const positions = useElements(
+  useCallback((els: CanvasElement[]) => els.map((e) => e.position), []),
+  (a, b) => a.length === b.length && a.every((p, i) => p.x === b[i]?.x && p.y === b[i]?.y),
+);
 ```
 
-### `useViewport()`
+## Save / Load
 
-Access the core `Viewport` instance for imperative operations not covered by the hooks above:
+Access the viewport imperatively for export and import:
 
 ```tsx
 import { useViewport } from '@fieldnotes/react';
 
-function ExportButton() {
+export function SaveControls() {
   const viewport = useViewport();
 
-  return <button onClick={() => viewport.exportImage()}>Export PNG</button>;
+  const save = () => {
+    localStorage.setItem('fieldnotes-example', viewport.exportJSON());
+  };
+  const load = () => {
+    const json = localStorage.getItem('fieldnotes-example');
+    if (json) viewport.loadJSON(json);
+  };
+
+  return (
+    <div>
+      <button onClick={save}>Save</button>
+      <button onClick={load}>Load</button>
+    </div>
+  );
 }
 ```
 
-## Component API
+For periodic auto-saving, use `AutoSave` from `@fieldnotes/core` — it debounces writes to `localStorage` and subscribes to the store and camera automatically:
 
-### `<FieldNotesCanvas>`
+```tsx
+import { AutoSave } from '@fieldnotes/core';
 
-| Prop          | Type                           | Description                             |
-| ------------- | ------------------------------ | --------------------------------------- |
-| `options`     | `ViewportOptions`              | Camera and background config            |
-| `tools`       | `Tool[]`                       | Tools to register on mount              |
-| `defaultTool` | `string`                       | Tool to activate on mount               |
-| `className`   | `string`                       | CSS class for the container div         |
-| `style`       | `CSSProperties`                | Inline styles for the container div     |
-| `onReady`     | `(viewport: Viewport) => void` | Called after Viewport is created        |
-| `children`    | `ReactNode`                    | Child components (have access to hooks) |
-| `ref`         | `Ref<FieldNotesCanvasRef>`     | Exposes `{ viewport }`                  |
+// in onReady or a useEffect after useViewport():
+const autoSave = new AutoSave(viewport.store, viewport.camera, {
+  key: 'my-board',
+  layerManager: viewport.layerManager,
+});
+autoSave.start();
+// call autoSave.stop() on cleanup
+```
 
-### `<CanvasElement>`
+Pass `layerManager` — without it, saved boards lose their layer structure.
 
-| Prop       | Type                       | Default              | Description                        |
-| ---------- | -------------------------- | -------------------- | ---------------------------------- |
-| `position` | `{ x: number; y: number }` | required             | World-space position               |
-| `size`     | `{ w: number; h: number }` | `{ w: 200, h: 150 }` | Element size in world-space pixels |
-| `children` | `ReactNode`                | required             | React content to render on canvas  |
+## Custom Tools
 
-Position and size updates are reactive — change the props and the element moves/resizes on the canvas.
+Implement the `Tool` interface from `@fieldnotes/core` and register it via the `tools` prop. Hoist the array so instances are not recreated on every render:
 
-## Accessing the Viewport Directly
+```tsx
+import type { Tool, ToolContext, PointerState } from '@fieldnotes/core';
+import { createNote } from '@fieldnotes/core';
 
-For advanced use cases, use a ref:
+export class StampTool implements Tool {
+  readonly name = 'stamp';
+
+  onPointerDown(state: PointerState, ctx: ToolContext): void {
+    const world = ctx.camera.screenToWorld({ x: state.x, y: state.y });
+    ctx.store.add(
+      createNote({
+        position: { x: world.x - 50, y: world.y - 25 },
+        size: { w: 100, h: 50 },
+        text: 'stamp',
+        layerId: ctx.activeLayerId ?? '',
+      }),
+    );
+    ctx.requestRender();
+  }
+
+  onPointerMove(_state: PointerState, _ctx: ToolContext): void {}
+  onPointerUp(_state: PointerState, _ctx: ToolContext): void {}
+}
+```
+
+Register alongside the built-in tools:
+
+```tsx
+import { HandTool, SelectTool } from '@fieldnotes/core';
+import { StampTool } from './StampTool';
+
+// Hoisted — stable reference across renders
+const TOOLS = [new HandTool(), new SelectTool(), new StampTool()];
+
+function App() {
+  const [tool, setTool] = useState('select');
+  return (
+    <FieldNotesCanvas tools={TOOLS} tool={tool} onToolChange={setTool} style={...}>
+      <Toolbar tool={tool} onSelect={setTool} />
+    </FieldNotesCanvas>
+  );
+}
+```
+
+## Events
+
+### `onReady`
+
+Fires once after the `Viewport` is created and tools are registered. Use it for imperative setup that can't wait for a child hook:
+
+```tsx
+<FieldNotesCanvas
+  tools={TOOLS}
+  onReady={(viewport) => {
+    const saved = localStorage.getItem('board');
+    if (saved) viewport.loadJSON(saved);
+  }}
+  style={{ width: '100%', height: '100%' }}
+/>
+```
+
+### `onToolChange`
+
+Fires whenever the active tool changes — from the keyboard, the API, or the controlled `tool` prop. Pair with `useState` and memoize with `useCallback` when the function body is non-trivial:
+
+```tsx
+const [tool, setTool] = useState('select');
+
+<FieldNotesCanvas tool={tool} onToolChange={setTool} tools={TOOLS} style={...} />
+```
+
+### `options.onImageError`
+
+Called when an image element fails to load. Receives `{ src: string; elementIds: string[] }` — the source URL and all element IDs that reference it:
+
+```tsx
+<FieldNotesCanvas
+  tools={TOOLS}
+  options={{
+    onImageError: ({ src, elementIds }) => {
+      console.warn(`Image failed: ${src}`, elementIds);
+    },
+  }}
+  style={{ width: '100%', height: '100%' }}
+/>
+```
+
+### `options.onDrop`
+
+Fires for **every** drop event on the canvas surface. Providing this callback replaces the built-in image-drop handling entirely — if you want images to work, handle them yourself. Receives the original `DragEvent` and the world-space drop position:
+
+```tsx
+<FieldNotesCanvas
+  tools={TOOLS}
+  options={{
+    onDrop: (event, worldPosition) => {
+      const url = event.dataTransfer?.getData('text/uri-list');
+      if (url) {
+        // add your own image element at worldPosition
+      }
+    },
+  }}
+  style={{ width: '100%', height: '100%' }}
+/>
+```
+
+## Escape Hatch
+
+`useViewport()` returns the raw `Viewport` instance for anything not covered by the hooks above. A `ref` on `<FieldNotesCanvas>` gives the same access outside of child components:
 
 ```tsx
 import { useRef } from 'react';
@@ -282,19 +347,16 @@ import { FieldNotesCanvas, type FieldNotesCanvasRef } from '@fieldnotes/react';
 function App() {
   const canvasRef = useRef<FieldNotesCanvasRef>(null);
 
-  const exportState = () => {
-    const json = canvasRef.current?.viewport?.exportJSON();
-    console.log(json);
-  };
-
   return (
     <>
       <FieldNotesCanvas ref={canvasRef} style={{ width: '100vw', height: '100vh' }} />
-      <button onClick={exportState}>Export</button>
+      <button onClick={() => canvasRef.current?.viewport?.fitToContent()}>Fit to content</button>
     </>
   );
 }
 ```
+
+See the [core README](../core/README.md) for the full `Viewport` API — `exportJSON`/`loadJSON`, `fitToContent`, `shortcuts.rebind`, `setSnapToGrid`, and more.
 
 ## Versioning
 

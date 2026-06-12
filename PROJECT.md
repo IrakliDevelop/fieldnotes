@@ -541,6 +541,13 @@ canvas.addImage('data:image/png;base64,iVBOR...', pos, size);
 - [x] **`viewport.onGridChange(cb)`** — subscribe to grid add/update/remove/clear events, returns unsubscribe function
 - [x] **`GridInfo` type** — exported for SDK consumers building grid-aware features (e.g. D&D token sizing)
 
+#### react 0.5.0 — React DX Overhaul
+
+- [x] Controlled `tool` prop + `onToolChange`; reactive `snapToGrid` and append-only `tools`
+- [x] `useElements(selector, isEqual?)` — re-render only on selected-value change (shallow-equal default)
+- [x] StrictMode pin, modernized hook internals, TSDoc on the public surface
+- [x] Recipe-driven README + runnable `examples/react-app` workspace app
+
 #### 0.21.0 — Perf & Error Visibility
 
 - [x] Stroke hit-testing on cached segments with bounds early-out (select + eraser share one helper; sparse strokes now hittable between sample points)
