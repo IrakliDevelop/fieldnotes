@@ -128,6 +128,13 @@ function sanitizeNode(node: Node): void {
   }
 }
 
+export function isNoteContentEmpty(html: string): boolean {
+  if (!html) return true;
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const text = doc.body.textContent ?? '';
+  return text.replace(/\u00a0/g, ' ').trim().length === 0;
+}
+
 function sanitizeAttributes(el: Element, tag: string): void {
   const attrs = Array.from(el.attributes);
   for (const attr of attrs) {
