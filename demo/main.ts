@@ -62,7 +62,7 @@ function showToast(id: string, message: string): void {
   close.textContent = '✕';
   close.addEventListener('click', () => toast.remove());
   toast.append(text, close);
-  document.body.appendChild(toast);
+  (document.getElementById('toast-container') ?? document.body).appendChild(toast);
 }
 
 const autoSave = new AutoSave(viewport.store, viewport.camera, {

@@ -231,11 +231,18 @@
       user-select: none;
     }
     #empty-hint b { color: #8a8a8a; }
-    .demo-toast {
+    #toast-container {
       position: fixed;
       bottom: 24px;
       left: 50%;
       transform: translateX(-50%);
+      display: flex;
+      flex-direction: column-reverse;
+      gap: 8px;
+      z-index: 1000;
+      align-items: center;
+    }
+    .demo-toast {
       background: #d32f2f;
       color: white;
       padding: 10px 14px;
@@ -244,7 +251,6 @@
       display: flex;
       gap: 12px;
       align-items: center;
-      z-index: 1000;
     }
     .demo-toast button {
       background: none;
@@ -259,6 +265,7 @@
 <body>
   <div id="canvas"></div>
   <div id="empty-hint">Draw with <b>P</b> · Pan with <b>Space</b> · Add a note with <b>N</b></div>
+  <div id="toast-container"></div>
   <div id="toolbar">
     <button data-tool="hand">Hand<span class="shortcut">H</span></button>
     <button data-tool="select" class="active">Select<span class="shortcut">V</span></button>
