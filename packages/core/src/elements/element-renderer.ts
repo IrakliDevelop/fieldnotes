@@ -35,8 +35,9 @@ const ARROWHEAD_ANGLE = Math.PI / 6;
 
 export class ElementRenderer {
   private store: ElementStore | null = null;
-  private imageCache = new Map<string, ImageBitmap | HTMLImageElement>();
+  private imageCache = new Map<string, ImageBitmap | HTMLImageElement | 'failed'>();
   private onImageLoad: (() => void) | null = null;
+  private onImageError: ((src: string) => void) | null = null;
   private camera: Camera | null = null;
   private canvasSize: { w: number; h: number } | null = null;
   private hexTileCache: HexGridTile | null = null;
@@ -48,6 +49,10 @@ export class ElementRenderer {
 
   setOnImageLoad(callback: () => void): void {
     this.onImageLoad = callback;
+  }
+
+  setOnImageError(callback: (src: string) => void): void {
+    this.onImageError = callback;
   }
 
   setCamera(camera: Camera): void {
@@ -489,6 +494,10 @@ export class ElementRenderer {
   }
 
   private renderImage(ctx: CanvasRenderingContext2D, image: ImageElement): void {
+    if (this.imageCache.get(image.src) === 'failed') {
+      this.renderImagePlaceholder(ctx, image);
+      return;
+    }
     const img = this.getImage(image.src);
     if (!img) return;
     ctx.drawImage(
@@ -498,6 +507,29 @@ export class ElementRenderer {
       image.size.w,
       image.size.h,
     );
+  }
+
+  private renderImagePlaceholder(ctx: CanvasRenderingContext2D, image: ImageElement): void {
+    const { x, y } = image.position;
+    const { w, h } = image.size;
+    ctx.save();
+    ctx.fillStyle = '#eeeeee';
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = '#bdbdbd';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x, y, w, h);
+
+    const glyph = Math.min(24, w / 2, h / 2);
+    const cx = x + w / 2;
+    const cy = y + h / 2;
+    ctx.strokeStyle = '#9e9e9e';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(cx, cy, glyph / 2, 0, Math.PI * 2);
+    ctx.moveTo(cx - glyph / 2, cy + glyph / 2);
+    ctx.lineTo(cx + glyph / 2, cy - glyph / 2);
+    ctx.stroke();
+    ctx.restore();
   }
 
   private getHexTile(
@@ -523,6 +555,7 @@ export class ElementRenderer {
   private getImage(src: string): ImageBitmap | HTMLImageElement | null {
     const cached = this.imageCache.get(src);
     if (cached) {
+      if (cached === 'failed') return null;
       if (cached instanceof HTMLImageElement) return cached.complete ? cached : null;
       return cached;
     }
@@ -543,6 +576,12 @@ export class ElementRenderer {
             /* keep HTMLImageElement fallback — handles CORS rejection */
           });
       }
+    };
+    img.onerror = () => {
+      // failed srcs stay failed for the session; pointing the element at a new src loads fresh
+      this.imageCache.set(src, 'failed');
+      this.onImageError?.(src);
+      this.onImageLoad?.();
     };
     return null;
   }
