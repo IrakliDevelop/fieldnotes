@@ -541,6 +541,12 @@ canvas.addImage('data:image/png;base64,iVBOR...', pos, size);
 - [x] **`viewport.onGridChange(cb)`** — subscribe to grid add/update/remove/clear events, returns unsubscribe function
 - [x] **`GridInfo` type** — exported for SDK consumers building grid-aware features (e.g. D&D token sizing)
 
+#### 0.21.0 — Perf & Error Visibility
+
+- [x] Stroke hit-testing on cached segments with bounds early-out (select + eraser share one helper; sparse strokes now hittable between sample points)
+- [x] Image load failures render a placeholder and surface via `ViewportOptions.onImageError` (console.warn fallback)
+- [x] Visual-regression e2e compares only canvas pixels (demo chrome hidden during screenshot)
+
 #### 0.20.0 — Notes Polish
 
 - [x] Empty notes auto-removed on edit exit (one undo step), matching text-element behavior

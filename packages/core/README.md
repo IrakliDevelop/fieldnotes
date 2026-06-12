@@ -401,6 +401,15 @@ new Viewport(container, {
     spacing: 24, // grid spacing in px (default: 24)
     color: '#d0d0d0', // dot/line color (default: '#d0d0d0')
   },
+  // Called for every drop; replaces the built-in image-drop handling
+  onDrop: (event, worldPosition) => {
+    /* handle drop */
+  },
+  // Called when an image element fails to load; failed images render a gray
+  // placeholder. Falls back to console.warn when unset.
+  onImageError: ({ src, elementIds }) => {
+    /* handle broken image */
+  },
 });
 ```
 

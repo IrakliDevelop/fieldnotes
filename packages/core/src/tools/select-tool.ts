@@ -5,6 +5,7 @@ import type { CanvasElement, ArrowElement } from '../elements/types';
 import { isNearBezier } from '../elements/arrow-geometry';
 import { findBoundArrows, updateBoundArrow } from '../elements/arrow-binding';
 import { getElementBounds } from '../elements/element-bounds';
+import { hitTestStroke } from '../elements/stroke-hit';
 import {
   type ArrowHandle,
   hitTestArrowHandles,
@@ -698,12 +699,7 @@ export class SelectTool implements Tool {
     }
 
     if (el.type === 'stroke') {
-      const HIT_RADIUS = 10;
-      return el.points.some((p) => {
-        const dx = p.x + el.position.x - point.x;
-        const dy = p.y + el.position.y - point.y;
-        return dx * dx + dy * dy <= HIT_RADIUS * HIT_RADIUS;
-      });
+      return hitTestStroke(el, point, 10);
     }
 
     if (el.type === 'arrow') {

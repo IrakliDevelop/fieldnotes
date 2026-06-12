@@ -464,6 +464,60 @@ describe('ElementRenderer', () => {
       renderer.renderCanvasElement(ctx, makeImage({ src: 'cached.png' }));
       expect(ctx.drawImage).toHaveBeenCalled();
     });
+
+    function failImage(renderer: ElementRenderer, src: string): void {
+      const cache = (renderer as unknown as { imageCache: Map<string, unknown> }).imageCache;
+      const img = cache.get(src);
+      if (img instanceof HTMLImageElement) {
+        img.onerror?.(new Event('error') as never);
+      }
+    }
+
+    it('fires onImageError and renders a placeholder after a failed load', () => {
+      const onError = vi.fn();
+      const renderer = new ElementRenderer();
+      renderer.setOnImageError(onError);
+      const ctx = mockCtx();
+      const image = makeImage({ src: 'https://broken.example/x.png' });
+
+      renderer.renderCanvasElement(ctx, image);
+      failImage(renderer, image.src);
+      expect(onError).toHaveBeenCalledTimes(1);
+      expect(onError).toHaveBeenCalledWith(image.src);
+
+      renderer.renderCanvasElement(ctx, image);
+      expect(ctx.drawImage).not.toHaveBeenCalled();
+      expect(ctx.fillRect).toHaveBeenCalled();
+      expect(ctx.strokeRect).toHaveBeenCalled();
+      expect(ctx.arc).toHaveBeenCalled();
+    });
+
+    it('does not refire the error on subsequent renders of a failed src', () => {
+      const onError = vi.fn();
+      const renderer = new ElementRenderer();
+      renderer.setOnImageError(onError);
+      const ctx = mockCtx();
+      const image = makeImage({ src: 'https://broken.example/y.png' });
+
+      renderer.renderCanvasElement(ctx, image);
+      failImage(renderer, image.src);
+      renderer.renderCanvasElement(ctx, image);
+      renderer.renderCanvasElement(ctx, image);
+
+      expect(onError).toHaveBeenCalledTimes(1);
+    });
+
+    it('triggers a re-render via onImageLoad when the load fails', () => {
+      const onLoad = vi.fn();
+      const renderer = new ElementRenderer();
+      renderer.setOnImageLoad(onLoad);
+      const ctx = mockCtx();
+      const image = makeImage({ src: 'https://broken.example/z.png' });
+
+      renderer.renderCanvasElement(ctx, image);
+      failImage(renderer, image.src);
+      expect(onLoad).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('renderGrid', () => {

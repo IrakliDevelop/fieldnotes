@@ -4,6 +4,22 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.21.0] — 2026-06-12
+
+### Added
+
+- **`onImageError`** — `ViewportOptions.onImageError?: ({ src, elementIds }) => void` fires when an image fails to load; failed images render a gray placeholder instead of disappearing. `console.warn` fallback when unset
+
+### Performance
+
+- **Segment-based stroke hit-testing** — select and eraser now test against cached smoothed segments with a bounding-box early-out instead of scanning every raw point; drag-erasing across a board of long strokes no longer does per-point distance math for off-stroke moves
+
+### Fixed
+
+- Fast/sparse strokes are now reliably selectable and erasable between their sample points (raw-point scanning missed the gaps)
+
+---
+
 ## [0.20.0] — 2026-06-12
 
 ### Added
