@@ -216,10 +216,15 @@ For periodic auto-saving, use `AutoSave` from `@fieldnotes/core` — it debounce
 import { AutoSave } from '@fieldnotes/core';
 
 // in onReady or a useEffect after useViewport():
-const autoSave = new AutoSave(viewport.store, viewport.camera, { key: 'my-board' });
+const autoSave = new AutoSave(viewport.store, viewport.camera, {
+  key: 'my-board',
+  layerManager: viewport.layerManager,
+});
 autoSave.start();
 // call autoSave.stop() on cleanup
 ```
+
+Pass `layerManager` — without it, saved boards lose their layer structure.
 
 ## Custom Tools
 
