@@ -4,6 +4,21 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.20.0] — 2026-06-12
+
+### Added
+
+- **Editing placeholder** — ghost "Type…" while a note/text is empty during editing; configurable via `ViewportOptions.placeholder` / `NoteEditorOptions.placeholder`
+- **Hover outline** — faint highlight on the hovered selectable element while the select tool is active
+- **`isNoteContentEmpty(html)`** — exported markup-aware emptiness helper
+
+### Changed
+
+- Notes emptied during editing are now auto-removed on edit exit (one undo step) — same behavior text elements already had
+- Demo: first-run empty-canvas hint; auto-save failures now surface as a dismissible toast
+
+---
+
 ## [0.19.0] — 2026-06-11
 
 ### Added

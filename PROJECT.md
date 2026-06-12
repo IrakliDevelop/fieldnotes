@@ -541,6 +541,13 @@ canvas.addImage('data:image/png;base64,iVBOR...', pos, size);
 - [x] **`viewport.onGridChange(cb)`** — subscribe to grid add/update/remove/clear events, returns unsubscribe function
 - [x] **`GridInfo` type** — exported for SDK consumers building grid-aware features (e.g. D&D token sizing)
 
+#### 0.20.0 — Notes Polish
+
+- [x] Empty notes auto-removed on edit exit (one undo step), matching text-element behavior
+- [x] Editing placeholder ("Type…", configurable via `ViewportOptions.placeholder`)
+- [x] Hover outline on selectable elements (select tool)
+- [x] Demo: empty-canvas onboarding hint, AutoSave failure toast
+
 #### 0.19.0 — Configurable Shortcuts (core) / 0.4.2 (react)
 
 - [x] `ShortcutMap` — remappable bindings, `viewport.shortcuts` runtime API, `ViewportOptions.shortcuts`

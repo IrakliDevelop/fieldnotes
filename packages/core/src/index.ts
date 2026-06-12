@@ -1,4 +1,4 @@
-export const VERSION = '0.19.0';
+export const VERSION = '0.20.0';
 
 export { EventBus } from './core/event-bus';
 export { Quadtree } from './core/quadtree';
@@ -31,7 +31,7 @@ export type { ElementUpdateEvent } from './elements/element-store';
 export { ElementRenderer } from './elements/element-renderer';
 export { NoteEditor } from './elements/note-editor';
 export type { NoteEditorOptions } from './elements/note-editor';
-export { sanitizeNoteHtml } from './elements/note-sanitizer';
+export { sanitizeNoteHtml, isNoteContentEmpty } from './elements/note-sanitizer';
 export type { StyledRun } from './elements/note-sanitizer';
 export { NoteToolbar, DEFAULT_FONT_SIZE_PRESETS } from './elements/note-toolbar';
 export type { FontSizePreset } from './elements/note-toolbar';

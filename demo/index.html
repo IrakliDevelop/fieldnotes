@@ -220,10 +220,45 @@
     }
     #layers-list li button:hover { opacity: 1; }
     #layers-list li button.on { opacity: 1; }
+    #empty-hint {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: #b0b0b0;
+      font: 18px/1.4 system-ui, sans-serif;
+      pointer-events: none;
+      user-select: none;
+    }
+    #empty-hint b { color: #8a8a8a; }
+    #autosave-toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #d32f2f;
+      color: white;
+      padding: 10px 14px;
+      border-radius: 6px;
+      font: 14px system-ui, sans-serif;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      z-index: 1000;
+    }
+    #autosave-toast button {
+      background: none;
+      border: none;
+      color: white;
+      font-size: 16px;
+      cursor: pointer;
+      padding: 0;
+    }
   </style>
 </head>
 <body>
   <div id="canvas"></div>
+  <div id="empty-hint">Draw with <b>P</b> · Pan with <b>Space</b> · Add a note with <b>N</b></div>
   <div id="toolbar">
     <button data-tool="hand">Hand<span class="shortcut">H</span></button>
     <button data-tool="select" class="active">Select<span class="shortcut">V</span></button>

@@ -354,6 +354,98 @@ describe('NoteEditor', () => {
     node.remove();
   });
 
+  describe('editing placeholder', () => {
+    afterEach(() => {
+      document.querySelectorAll('style[data-fieldnotes-editor]').forEach((el) => el.remove());
+    });
+
+    it('sets placeholder attributes on start and removes them on stop', async () => {
+      const editor = new NoteEditor();
+      const store = new ElementStore();
+      const note = createNote({ position: { x: 0, y: 0 }, text: '' });
+      store.add(note);
+      const node = makeNode('');
+
+      editor.startEditing(node, note.id, store);
+      await flushRAF();
+
+      expect(node.getAttribute('data-fn-placeholder')).toBe('Type…');
+      expect(node.getAttribute('data-fn-empty')).toBe('true');
+
+      editor.stopEditing(store);
+      expect(node.hasAttribute('data-fn-placeholder')).toBe(false);
+      expect(node.hasAttribute('data-fn-empty')).toBe(false);
+    });
+
+    it('uses a custom placeholder string', async () => {
+      const editor = new NoteEditor({ placeholder: 'Schreib…' });
+      const store = new ElementStore();
+      const note = createNote({ position: { x: 0, y: 0 }, text: '' });
+      store.add(note);
+      const node = makeNode('');
+
+      editor.startEditing(node, note.id, store);
+      await flushRAF();
+      expect(node.getAttribute('data-fn-placeholder')).toBe('Schreib…');
+      editor.stopEditing(store);
+    });
+
+    it('toggles data-fn-empty on input in both directions', async () => {
+      const editor = new NoteEditor();
+      const store = new ElementStore();
+      const note = createNote({ position: { x: 0, y: 0 }, text: '' });
+      store.add(note);
+      const node = makeNode('');
+
+      editor.startEditing(node, note.id, store);
+      await flushRAF();
+      expect(node.getAttribute('data-fn-empty')).toBe('true');
+
+      node.textContent = 'x';
+      node.dispatchEvent(new Event('input'));
+      expect(node.getAttribute('data-fn-empty')).toBe('false');
+
+      node.textContent = '';
+      node.dispatchEvent(new Event('input'));
+      expect(node.getAttribute('data-fn-empty')).toBe('true');
+      editor.stopEditing(store);
+    });
+
+    it('starts non-empty for a node with content', async () => {
+      const editor = new NoteEditor();
+      const store = new ElementStore();
+      const note = createNote({ position: { x: 0, y: 0 }, text: 'hello' });
+      store.add(note);
+      const node = makeNode('hello');
+
+      editor.startEditing(node, note.id, store);
+      await flushRAF();
+      expect(node.getAttribute('data-fn-empty')).toBe('false');
+      editor.stopEditing(store);
+    });
+
+    it('injects the editor stylesheet exactly once', async () => {
+      const a = new NoteEditor();
+      const b = new NoteEditor();
+      const store = new ElementStore();
+      const n1 = createNote({ position: { x: 0, y: 0 }, text: '' });
+      const n2 = createNote({ position: { x: 10, y: 10 }, text: '' });
+      store.add(n1);
+      store.add(n2);
+      const node1 = makeNode('');
+      const node2 = makeNode('');
+
+      a.startEditing(node1, n1.id, store);
+      await flushRAF();
+      a.stopEditing(store);
+      b.startEditing(node2, n2.id, store);
+      await flushRAF();
+      b.stopEditing(store);
+
+      expect(document.querySelectorAll('style[data-fieldnotes-editor]').length).toBe(1);
+    });
+  });
+
   describe('setOnStop callback', () => {
     it('calls onStop with element id when editing stops', async () => {
       const editor = new NoteEditor();

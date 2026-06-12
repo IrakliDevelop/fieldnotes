@@ -29,6 +29,7 @@ import { DoubleTapDetector } from './double-tap-detector';
 import { RenderLoop } from './render-loop';
 import type { RenderStatsSnapshot } from './render-stats';
 import { LayerCache } from './layer-cache';
+import { isNoteContentEmpty } from '../elements/note-sanitizer';
 
 export interface GridInfo {
   gridType: 'square' | 'hex';
@@ -42,6 +43,7 @@ export interface ViewportOptions {
   background?: BackgroundOptions;
   fontSizePresets?: FontSizePreset[];
   toolbar?: boolean;
+  placeholder?: string;
   shortcuts?: ShortcutOptions;
   onHtmlElementMount?: (
     elementId: string,
@@ -108,6 +110,7 @@ export class Viewport {
     this.noteEditor = new NoteEditor({
       fontSizePresets: options.fontSizePresets,
       toolbar: options.toolbar,
+      placeholder: options.placeholder,
     });
     this.noteEditor.setOnStop((id) => this.onTextEditStop(id));
     this.onHtmlElementMount = options.onHtmlElementMount;
@@ -488,7 +491,18 @@ export class Viewport {
 
   private onTextEditStop(elementId: string): void {
     const element = this.store.getById(elementId);
-    if (!element || element.type !== 'text') return;
+    if (!element) return;
+
+    if (element.type === 'note') {
+      if (isNoteContentEmpty(element.text)) {
+        this.historyRecorder.begin();
+        this.store.remove(elementId);
+        this.historyRecorder.commit();
+      }
+      return;
+    }
+
+    if (element.type !== 'text') return;
 
     if (!element.text || element.text.trim() === '') {
       this.historyRecorder.begin();

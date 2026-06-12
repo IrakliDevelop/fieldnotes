@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from 'vitest';
-import { sanitizeNoteHtml, parseStyledRuns } from './note-sanitizer';
+import { sanitizeNoteHtml, parseStyledRuns, isNoteContentEmpty } from './note-sanitizer';
 
 describe('sanitizeNoteHtml', () => {
   it('passes plain text through unchanged', () => {
@@ -193,5 +193,25 @@ describe('parseStyledRuns', () => {
 
   it('returns empty array for empty input', () => {
     expect(parseStyledRuns('', 14)).toEqual([]);
+  });
+});
+
+describe('isNoteContentEmpty', () => {
+  it('treats empty and whitespace-only strings as empty', () => {
+    expect(isNoteContentEmpty('')).toBe(true);
+    expect(isNoteContentEmpty('   ')).toBe(true);
+  });
+
+  it('treats markup-only content as empty', () => {
+    expect(isNoteContentEmpty('<br>')).toBe(true);
+    expect(isNoteContentEmpty('<div><br></div>')).toBe(true);
+    expect(isNoteContentEmpty('&nbsp;')).toBe(true);
+    expect(isNoteContentEmpty('<b> </b>')).toBe(true);
+  });
+
+  it('treats real text as non-empty', () => {
+    expect(isNoteContentEmpty('<div>x</div>')).toBe(false);
+    expect(isNoteContentEmpty('hello')).toBe(false);
+    expect(isNoteContentEmpty('<b>bold</b>')).toBe(false);
   });
 });

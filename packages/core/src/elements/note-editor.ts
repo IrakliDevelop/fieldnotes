@@ -13,6 +13,25 @@ const FORMAT_SHORTCUTS: Record<string, () => void> = {
 export interface NoteEditorOptions {
   fontSizePresets?: FontSizePreset[];
   toolbar?: boolean;
+  placeholder?: string;
+}
+
+function ensureEditorStyles(): void {
+  if (document.querySelector('style[data-fieldnotes-editor]')) return;
+  const style = document.createElement('style');
+  style.setAttribute('data-fieldnotes-editor', '');
+  style.textContent = `[data-fn-placeholder][data-fn-empty='true']::before {
+  content: attr(data-fn-placeholder);
+  color: #9e9e9e;
+  position: absolute;
+  pointer-events: none;
+}`;
+  document.head.appendChild(style);
+}
+
+function isNodeEmpty(node: HTMLElement): boolean {
+  const text = node.textContent ?? '';
+  return text.replace(/\u00a0/g, ' ').trim().length === 0;
 }
 
 export class NoteEditor {
@@ -21,12 +40,15 @@ export class NoteEditor {
   private blurHandler: ((e: FocusEvent) => void) | null = null;
   private keyHandler: ((e: KeyboardEvent) => void) | null = null;
   private pointerHandler: ((e: PointerEvent) => void) | null = null;
+  private inputHandler: (() => void) | null = null;
   private pendingEditId: string | null = null;
   private onStopCallback: ((elementId: string) => void) | null = null;
   private toolbar: NoteToolbar | null;
+  private readonly placeholder: string;
 
   constructor(options?: NoteEditorOptions) {
     this.toolbar = options?.toolbar === false ? null : new NoteToolbar(options?.fontSizePresets);
+    this.placeholder = options?.placeholder ?? 'Type…';
   }
 
   get isEditing(): boolean {
@@ -71,6 +93,11 @@ export class NoteEditor {
     if (this.pointerHandler) {
       this.editingNode.removeEventListener('pointerdown', this.pointerHandler);
     }
+    if (this.inputHandler) {
+      this.editingNode.removeEventListener('input', this.inputHandler);
+    }
+    this.editingNode.removeAttribute('data-fn-placeholder');
+    this.editingNode.removeAttribute('data-fn-empty');
 
     const text = sanitizeNoteHtml(this.editingNode.innerHTML);
     store.update(this.editingId, { text });
@@ -92,6 +119,7 @@ export class NoteEditor {
     this.blurHandler = null;
     this.keyHandler = null;
     this.pointerHandler = null;
+    this.inputHandler = null;
   }
 
   destroy(store: ElementStore): void {
@@ -127,6 +155,14 @@ export class NoteEditor {
       selection.removeAllRanges();
       selection.addRange(range);
     }
+
+    ensureEditorStyles();
+    node.setAttribute('data-fn-placeholder', this.placeholder);
+    node.setAttribute('data-fn-empty', String(isNodeEmpty(node)));
+    this.inputHandler = () => {
+      node.setAttribute('data-fn-empty', String(isNodeEmpty(node)));
+    };
+    node.addEventListener('input', this.inputHandler);
 
     this.toolbar?.show(node);
 

@@ -45,8 +45,30 @@ viewport.toolManager.register(shape);
 viewport.toolManager.register(measure);
 viewport.toolManager.register(template);
 
+let autoSaveToastShown = false;
+
+function showAutoSaveToast(): void {
+  if (document.getElementById('autosave-toast')) return;
+  const toast = document.createElement('div');
+  toast.id = 'autosave-toast';
+  const text = document.createElement('span');
+  text.textContent = 'Auto-save failed — storage may be full';
+  const close = document.createElement('button');
+  close.textContent = '✕';
+  close.addEventListener('click', () => toast.remove());
+  toast.append(text, close);
+  document.body.appendChild(toast);
+}
+
 const autoSave = new AutoSave(viewport.store, viewport.camera, {
   layerManager: viewport.layerManager,
+  onError: (error) => {
+    console.error('Auto-save failed', error);
+    // toast shows once per page load; AutoSave has no success callback to reset on
+    if (autoSaveToastShown) return;
+    autoSaveToastShown = true;
+    showAutoSaveToast();
+  },
 });
 const savedState = autoSave.load();
 if (savedState) {
@@ -61,6 +83,17 @@ if (savedState) {
   console.log('Restored auto-saved state');
 }
 autoSave.start();
+
+const emptyHint = document.getElementById('empty-hint');
+
+function updateEmptyHint(): void {
+  if (!emptyHint) return;
+  emptyHint.style.display = viewport.store.getAll().length === 0 ? '' : 'none';
+}
+
+viewport.store.on('add', updateEmptyHint);
+viewport.store.on('remove', updateEmptyHint);
+updateEmptyHint();
 
 viewport.setTool('select');
 
