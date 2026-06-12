@@ -16,7 +16,7 @@ test.describe('visual regression', () => {
 
     await canvasPage.page.waitForTimeout(300);
 
-    await expect(canvasPage.page).toHaveScreenshot('canvas-with-shape.png', {
+    await expect(wrapper).toHaveScreenshot('canvas-with-shape.png', {
       maxDiffPixelRatio: 0.01,
     });
   });
