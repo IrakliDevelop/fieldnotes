@@ -326,4 +326,33 @@ describe('useElements', () => {
     });
     expect(value).toEqual([9]);
   });
+
+  it('record selectors detect key changes (key-presence hardening)', () => {
+    let value: Record<string, number | undefined> = {};
+    let vp: Viewport | null = null;
+    const selectRecord = (els: CanvasElement[]): Record<string, number | undefined> => {
+      const first = els[0];
+      return first ? { [first.id]: undefined } : { none: undefined };
+    };
+    function Consumer() {
+      value = useElements(selectRecord);
+      return null;
+    }
+    render(
+      <FieldNotesCanvas
+        onReady={(v) => {
+          vp = v;
+        }}
+      >
+        <Consumer />
+      </FieldNotesCanvas>,
+    );
+    expect(value).toEqual({ none: undefined });
+    act(() => {
+      vp?.store.add(createNote({ position: { x: 0, y: 0 } }));
+    });
+    // key changed from 'none' to the element id; values are both undefined —
+    // without the k-in-b check these compare equal and the stale value sticks
+    expect(Object.keys(value)[0]).not.toBe('none');
+  });
 });

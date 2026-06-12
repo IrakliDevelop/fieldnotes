@@ -19,8 +19,10 @@ function shallowEqual(a: unknown, b: unknown): boolean {
     const kb = Object.keys(b);
     return (
       ka.length === kb.length &&
-      ka.every((k) =>
-        Object.is((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]),
+      ka.every(
+        (k) =>
+          k in (b as Record<string, unknown>) &&
+          Object.is((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]),
       )
     );
   }
