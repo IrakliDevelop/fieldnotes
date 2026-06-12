@@ -173,4 +173,116 @@ describe('useElements', () => {
     });
     expect(elements[0]?.position).toEqual({ x: 50, y: 50 });
   });
+
+  // Selectors hoisted to module scope to ensure referential stability across renders.
+  const selectLength = (els: CanvasElement[]) => els.length;
+  const selectXPositions = (els: CanvasElement[]) => els.map((e) => e.position.x);
+  const sameLengthEqual = (a: number[], b: number[]) => a.length === b.length;
+
+  it('selector overload returns the selected value', () => {
+    let count = -1;
+    let vp: Viewport | null = null;
+    function Consumer() {
+      count = useElements(selectLength);
+      return null;
+    }
+    render(
+      <FieldNotesCanvas
+        onReady={(v) => {
+          vp = v;
+        }}
+      >
+        <Consumer />
+      </FieldNotesCanvas>,
+    );
+    expect(count).toBe(0);
+    act(() => {
+      vp?.store.add(
+        createNote({
+          position: { x: 0, y: 0 },
+          size: { w: 100, h: 100 },
+          backgroundColor: '#ffeb3b',
+          textColor: '#000',
+          layerId: vp?.layerManager.activeLayerId ?? '',
+        }),
+      );
+    });
+    expect(count).toBe(1);
+  });
+
+  it('selector consumers do not re-render when the selected value is unchanged', () => {
+    let renders = 0;
+    let vp: Viewport | null = null;
+    let noteId = '';
+    function Consumer() {
+      renders++;
+      useElements(selectLength);
+      return null;
+    }
+    render(
+      <FieldNotesCanvas
+        onReady={(v) => {
+          vp = v;
+        }}
+      >
+        <Consumer />
+      </FieldNotesCanvas>,
+    );
+    act(() => {
+      const note = createNote({
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 100 },
+        backgroundColor: '#ffeb3b',
+        textColor: '#000',
+        layerId: vp?.layerManager.activeLayerId ?? '',
+      });
+      vp?.store.add(note);
+      noteId = note.id;
+    });
+    const rendersAfterAdd = renders;
+
+    act(() => {
+      vp?.store.update(noteId, { position: { x: 10, y: 10 } });
+    });
+    act(() => {
+      vp?.store.update(noteId, { position: { x: 20, y: 20 } });
+    });
+    expect(renders).toBe(rendersAfterAdd);
+  });
+
+  it('custom isEqual is respected', () => {
+    let value: number[] = [];
+    let vp: Viewport | null = null;
+    let noteId = '';
+    function Consumer() {
+      value = useElements(selectXPositions, sameLengthEqual);
+      return null;
+    }
+    render(
+      <FieldNotesCanvas
+        onReady={(v) => {
+          vp = v;
+        }}
+      >
+        <Consumer />
+      </FieldNotesCanvas>,
+    );
+    act(() => {
+      const note = createNote({
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 100 },
+        backgroundColor: '#ffeb3b',
+        textColor: '#000',
+        layerId: vp?.layerManager.activeLayerId ?? '',
+      });
+      vp?.store.add(note);
+      noteId = note.id;
+    });
+    expect(value).toEqual([0]);
+    act(() => {
+      vp?.store.update(noteId, { position: { x: 99, y: 0 } });
+    });
+    // same length -> treated equal -> stale value retained (documented trade-off)
+    expect(value).toEqual([0]);
+  });
 });
