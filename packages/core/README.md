@@ -401,7 +401,7 @@ new Viewport(container, {
     spacing: 24, // grid spacing in px (default: 24)
     color: '#d0d0d0', // dot/line color (default: '#d0d0d0')
   },
-  // Called when a file is dropped onto the canvas (non-image drops)
+  // Called for every drop; replaces the built-in image-drop handling
   onDrop: (event, worldPosition) => {
     /* handle drop */
   },
