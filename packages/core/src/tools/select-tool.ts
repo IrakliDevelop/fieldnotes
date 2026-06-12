@@ -46,6 +46,7 @@ export class SelectTool implements Tool {
   private pendingSingleSelectId: string | null = null;
   private hasDragged = false;
   private resizeAspectRatio = 0;
+  private hoveredId: string | null = null;
 
   get selectedIds(): string[] {
     return [...this._selectedIds];
@@ -67,6 +68,7 @@ export class SelectTool implements Tool {
   onDeactivate(ctx: ToolContext): void {
     this._selectedIds = [];
     this.mode = { type: 'idle' };
+    this.hoveredId = null;
     ctx.setCursor?.('default');
   }
 
@@ -76,6 +78,7 @@ export class SelectTool implements Tool {
 
   onPointerDown(state: PointerState, ctx: ToolContext): void {
     this.ctx = ctx;
+    this.setHovered(null, ctx);
     const world = ctx.camera.screenToWorld({ x: state.x, y: state.y });
     this.lastWorld = this.snap(world, ctx);
     this.currentWorld = world;
@@ -239,7 +242,8 @@ export class SelectTool implements Tool {
 
   onHover(state: PointerState, ctx: ToolContext): void {
     const world = ctx.camera.screenToWorld({ x: state.x, y: state.y });
-    this.updateHoverCursor(world, ctx);
+    const hoverId = this.updateHoverCursor(world, ctx);
+    this.setHovered(hoverId, ctx);
   }
 
   renderOverlay(canvasCtx: CanvasRenderingContext2D): void {
@@ -260,6 +264,24 @@ export class SelectTool implements Tool {
         canvasCtx.setLineDash([]);
         canvasCtx.strokeRect(target.x, target.y, target.w, target.h);
         canvasCtx.restore();
+      }
+    }
+
+    if (this.hoveredId && this.ctx && this.mode.type === 'idle') {
+      if (!this._selectedIds.includes(this.hoveredId)) {
+        const el = this.ctx.store.getById(this.hoveredId);
+        if (el) {
+          const b = getElementBounds(el);
+          if (b) {
+            canvasCtx.save();
+            canvasCtx.strokeStyle = '#2196F3';
+            canvasCtx.globalAlpha = 0.35;
+            canvasCtx.lineWidth = 1.5 / this.ctx.camera.zoom;
+            canvasCtx.setLineDash([]);
+            canvasCtx.strokeRect(b.x, b.y, b.w, b.h);
+            canvasCtx.restore();
+          }
+        }
       }
     }
   }
@@ -311,27 +333,34 @@ export class SelectTool implements Tool {
     return moved;
   }
 
-  private updateHoverCursor(world: Point, ctx: ToolContext): void {
+  private updateHoverCursor(world: Point, ctx: ToolContext): string | null {
     const arrowHit = hitTestArrowHandles(world, this._selectedIds, ctx);
     if (arrowHit) {
       ctx.setCursor?.(getArrowHandleCursor(arrowHit.handle, false));
-      return;
+      return null;
     }
 
     const templateResizeHit = this.hitTestTemplateResizeHandle(world, ctx);
     if (templateResizeHit) {
       ctx.setCursor?.('nwse-resize');
-      return;
+      return null;
     }
 
     const resizeHit = this.hitTestResizeHandle(world, ctx);
     if (resizeHit) {
       ctx.setCursor?.(HANDLE_CURSORS[resizeHit.handle]);
-      return;
+      return null;
     }
 
     const hit = this.hitTest(world, ctx);
     ctx.setCursor?.(hit ? 'move' : 'default');
+    return hit ? hit.id : null;
+  }
+
+  private setHovered(id: string | null, ctx: ToolContext): void {
+    if (this.hoveredId === id) return;
+    this.hoveredId = id;
+    ctx.requestRender();
   }
 
   private handleResize(world: Point, ctx: ToolContext, shiftKey = false): void {

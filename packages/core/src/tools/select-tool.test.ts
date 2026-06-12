@@ -1436,6 +1436,89 @@ describe('SelectTool', () => {
     });
   });
 
+  describe('hover outline', () => {
+    function mockCanvas(): CanvasRenderingContext2D {
+      return {
+        save: vi.fn(),
+        restore: vi.fn(),
+        strokeRect: vi.fn(),
+        fillRect: vi.fn(),
+        strokeStyle: '',
+        fillStyle: '',
+        lineWidth: 0,
+        globalAlpha: 1,
+        setLineDash: vi.fn(),
+      } as unknown as CanvasRenderingContext2D;
+    }
+
+    function hoverSetup() {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const note = createNote({ position: { x: 100, y: 100 }, size: { w: 200, h: 100 } });
+      ctx.store.add(note);
+      tool.onActivate(ctx);
+      return { tool, ctx, note };
+    }
+
+    it('requests a render when hover enters an element and strokes its bounds', () => {
+      const { tool, ctx, note } = hoverSetup();
+      tool.onHover?.(pt(150, 130), ctx);
+      expect(ctx.requestRender).toHaveBeenCalledTimes(1);
+
+      const canvas = mockCanvas();
+      tool.renderOverlay?.(canvas);
+      expect(canvas.strokeRect).toHaveBeenCalledWith(note.position.x, note.position.y, 200, 100);
+    });
+
+    it('does not re-request render while hovering the same element', () => {
+      const { tool, ctx } = hoverSetup();
+      tool.onHover?.(pt(150, 130), ctx);
+      tool.onHover?.(pt(160, 140), ctx);
+      expect(ctx.requestRender).toHaveBeenCalledTimes(1);
+    });
+
+    it('requests a render when hover leaves the element', () => {
+      const { tool, ctx } = hoverSetup();
+      tool.onHover?.(pt(150, 130), ctx);
+      tool.onHover?.(pt(500, 500), ctx);
+      expect(ctx.requestRender).toHaveBeenCalledTimes(2);
+      const canvas = mockCanvas();
+      tool.renderOverlay?.(canvas);
+      expect(canvas.strokeRect).not.toHaveBeenCalled();
+    });
+
+    it('clears the outline on pointer down', () => {
+      const { tool, ctx } = hoverSetup();
+      tool.onHover?.(pt(150, 130), ctx);
+      tool.onPointerDown(pt(500, 500), ctx);
+      tool.onPointerUp(pt(500, 500), ctx);
+      const canvas = mockCanvas();
+      tool.renderOverlay?.(canvas);
+      expect(canvas.strokeRect).not.toHaveBeenCalled();
+    });
+
+    it('does not stroke hover bounds for a selected element', () => {
+      const { tool, ctx, note } = hoverSetup();
+      tool.setSelection([note.id]);
+      tool.onHover?.(pt(150, 130), ctx);
+      const canvas = mockCanvas();
+      tool.renderOverlay?.(canvas);
+      const callsWithHover = (canvas.strokeRect as ReturnType<typeof vi.fn>).mock.calls.length;
+
+      const tool2 = new SelectTool();
+      const ctx2 = makeCtx();
+      const note2 = createNote({ position: { x: 100, y: 100 }, size: { w: 200, h: 100 } });
+      ctx2.store.add(note2);
+      tool2.onActivate(ctx2);
+      tool2.setSelection([note2.id]);
+      const canvas2 = mockCanvas();
+      tool2.renderOverlay?.(canvas2);
+      const callsSelectionOnly = (canvas2.strokeRect as ReturnType<typeof vi.fn>).mock.calls.length;
+
+      expect(callsWithHover).toBe(callsSelectionOnly);
+    });
+  });
+
   describe('setSelection', () => {
     it('sets selected IDs and requests render', () => {
       const tool = new SelectTool();
