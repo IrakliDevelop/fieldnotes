@@ -21,6 +21,10 @@ if (!container) throw new Error('Missing #canvas element');
 
 const viewport = new Viewport(container, {
   background: { pattern: 'dots', spacing: 24, color: '#c0c0c0' },
+  onImageError: ({ src }) => {
+    console.warn('Image failed to load:', src);
+    showToast('image-error-toast', 'Image failed to load');
+  },
 });
 
 const hand = new HandTool();
@@ -47,12 +51,13 @@ viewport.toolManager.register(template);
 
 let autoSaveToastShown = false;
 
-function showAutoSaveToast(): void {
-  if (document.getElementById('autosave-toast')) return;
+function showToast(id: string, message: string): void {
+  if (document.getElementById(id)) return;
   const toast = document.createElement('div');
-  toast.id = 'autosave-toast';
+  toast.id = id;
+  toast.className = 'demo-toast';
   const text = document.createElement('span');
-  text.textContent = 'Auto-save failed — storage may be full';
+  text.textContent = message;
   const close = document.createElement('button');
   close.textContent = '✕';
   close.addEventListener('click', () => toast.remove());
@@ -67,7 +72,7 @@ const autoSave = new AutoSave(viewport.store, viewport.camera, {
     // toast shows once per page load; AutoSave has no success callback to reset on
     if (autoSaveToastShown) return;
     autoSaveToastShown = true;
-    showAutoSaveToast();
+    showToast('autosave-toast', 'Auto-save failed — storage may be full');
   },
 });
 const savedState = autoSave.load();
