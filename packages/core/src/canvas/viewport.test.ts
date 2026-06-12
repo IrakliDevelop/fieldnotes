@@ -1159,10 +1159,9 @@ describe('Viewport', () => {
       ).renderer;
       // force the load attempt directly (render path may be inert in jsdom)
       (renderer as unknown as { getImage: (s: string) => unknown }).getImage(src);
-      const cache = (renderer as unknown as { imageCache: Map<string, HTMLImageElement> })
-        .imageCache;
+      const cache = (renderer as unknown as { imageCache: Map<string, unknown> }).imageCache;
       const img = cache.get(src);
-      if (img && img instanceof HTMLImageElement) {
+      if (img instanceof HTMLImageElement) {
         img.onerror?.(new Event('error') as never);
       }
     }

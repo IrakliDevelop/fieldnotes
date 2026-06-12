@@ -466,10 +466,9 @@ describe('ElementRenderer', () => {
     });
 
     function failImage(renderer: ElementRenderer, src: string): void {
-      const cache = (renderer as unknown as { imageCache: Map<string, HTMLImageElement> })
-        .imageCache;
+      const cache = (renderer as unknown as { imageCache: Map<string, unknown> }).imageCache;
       const img = cache.get(src);
-      if (img && img instanceof HTMLImageElement) {
+      if (img instanceof HTMLImageElement) {
         img.onerror?.(new Event('error') as never);
       }
     }
