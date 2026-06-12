@@ -14,13 +14,20 @@ import { ViewportContext } from './context';
 export interface FieldNotesCanvasProps {
   /** Constructor-only: changes after mount are ignored (the canvas is stateful). */
   options?: ViewportOptions;
-  /** Reactive (append-only): tools present here are registered; removal is not supported. */
+  /**
+   * Reactive (append-only): tools present here are registered; removal is not supported.
+   * Hoist the array out of render — inline arrays reconstruct Tool instances and re-run
+   * registration on every render.
+   */
   tools?: Tool[];
   /** Uncontrolled initial tool. Ignored when `tool` is set. */
   defaultTool?: string;
   /** Controlled active tool. Pair with `onToolChange`. */
   tool?: string;
-  /** Fires whenever the active tool changes (keyboard, API, or `tool` prop). */
+  /**
+   * Fires whenever the active tool changes (keyboard, API, or `tool` prop).
+   * Memoize with useCallback to avoid re-subscribing each render.
+   */
   onToolChange?: (name: string) => void;
   /** Reactive: toggles grid snapping. */
   snapToGrid?: boolean;
