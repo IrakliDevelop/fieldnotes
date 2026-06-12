@@ -98,6 +98,24 @@ describe('SelectTool', () => {
       tool.onDeactivate(ctx);
       expect(tool.selectedIds).toHaveLength(0);
     });
+
+    it('selects a sparse stroke when clicking between its sample points', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const sparse = createStroke({
+        position: { x: 100, y: 100 },
+        points: [
+          { x: 0, y: 0, pressure: 0.5 },
+          { x: 100, y: 0, pressure: 0.5 },
+        ],
+      });
+      ctx.store.add(sparse);
+
+      tool.onPointerDown(pt(150, 105), ctx);
+      tool.onPointerUp(pt(150, 105), ctx);
+
+      expect(tool.selectedIds).toEqual([sparse.id]);
+    });
   });
 
   describe('drag to move', () => {

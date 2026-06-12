@@ -163,6 +163,23 @@ describe('EraserTool', () => {
     expect(ctx.store.count).toBe(1);
   });
 
+  it('erases a sparse stroke at the midpoint between its sample points', () => {
+    const ctx = makeCtx();
+    const sparse = createStroke({
+      points: [
+        { x: 0, y: 0, pressure: 0.5 },
+        { x: 100, y: 0, pressure: 0.5 },
+      ],
+    });
+    ctx.store.add(sparse);
+
+    const tool = new EraserTool();
+    tool.onPointerDown(pt(50, 2), ctx);
+    tool.onPointerUp(pt(50, 2), ctx);
+
+    expect(ctx.store.count).toBe(0);
+  });
+
   describe('getOptions', () => {
     it('returns current options', () => {
       const tool = new EraserTool({ radius: 30 });

@@ -1,6 +1,7 @@
 import type { Bounds, Point } from '../core/types';
 import type { Tool, ToolContext, PointerState } from './types';
 import type { StrokeElement } from '../elements/types';
+import { hitTestStroke } from '../elements/stroke-hit';
 
 export interface EraserToolOptions {
   radius?: number;
@@ -76,11 +77,6 @@ export class EraserTool implements Tool {
   }
 
   private strokeIntersects(stroke: StrokeElement, point: Point): boolean {
-    const radiusSq = this.radius * this.radius;
-    return stroke.points.some((p) => {
-      const dx = p.x + stroke.position.x - point.x;
-      const dy = p.y + stroke.position.y - point.y;
-      return dx * dx + dy * dy <= radiusSq;
-    });
+    return hitTestStroke(stroke, point, this.radius);
   }
 }
