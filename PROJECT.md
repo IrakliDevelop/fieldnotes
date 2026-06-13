@@ -548,6 +548,13 @@ canvas.addImage('data:image/png;base64,iVBOR...', pos, size);
 - [x] StrictMode pin, modernized hook internals, TSDoc on the public surface
 - [x] Recipe-driven README + runnable `examples/react-app` workspace app
 
+#### 0.23.0 — Perf Pass 2B: Pan-Time Cache Reuse
+
+- [x] `MarginViewport` — shared anchor + transform math for oversized screen-space caches (math verified pixel-identical)
+- [x] Layer caches and grid cache reuse on within-margin pans (offset-blit, no re-raster/re-tile)
+- [x] `ViewportOptions.panBufferMargin` (default 256, 0 to disable)
+- [x] Measured: continuous-pan average frame time down ~78-83% on the bench board
+
 #### 0.22.0 — Perf Pass 2A: Geometry & Caches
 
 - [x] Width-bucketed Path2D stroke rendering (0.25px quantization); ~10% p95 improvement on dense boards

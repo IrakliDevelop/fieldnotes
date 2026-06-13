@@ -3,6 +3,7 @@
  */
 import { describe, it, expect, beforeEach, beforeAll, vi } from 'vitest';
 import { RenderLoop } from './render-loop';
+import { MarginViewport } from './margin-viewport';
 import type { Camera } from './camera';
 import type { Background } from './background';
 import type { ElementStore } from '../elements/element-store';
@@ -18,7 +19,6 @@ function createMockDeps() {
   const camera = {
     position: { x: 0, y: 0 },
     zoom: 1,
-    getVisibleRect: vi.fn().mockReturnValue({ x: 0, y: 0, w: 800, h: 600 }),
     screenToWorld: vi.fn().mockReturnValue({ x: 0, y: 0 }),
   } as unknown as Camera;
 
@@ -54,6 +54,7 @@ function createMockDeps() {
       (el: { type: string }) => el.type === 'note' || el.type === 'html' || el.type === 'text',
     ),
     renderCanvasElement: vi.fn(),
+    setGridBoundsOverride: vi.fn(),
   } as unknown as ElementRenderer;
 
   const toolManager = {
@@ -92,6 +93,9 @@ function createMockDeps() {
     clear: vi.fn(),
   } as unknown as LayerCache;
 
+  const marginViewport = new MarginViewport(256);
+  marginViewport.setViewport(800, 600, 1);
+
   return {
     canvasEl,
     camera,
@@ -102,6 +106,7 @@ function createMockDeps() {
     layerManager,
     domNodeManager,
     layerCache,
+    marginViewport,
   };
 }
 
@@ -175,9 +180,11 @@ describe('RenderLoop', () => {
   });
 
   it('setCanvasSize updates canvas buffer dimensions', () => {
+    const setViewportSpy = vi.spyOn(deps.marginViewport, 'setViewport');
     renderLoop.setCanvasSize(1600, 1200);
     expect(deps.canvasEl.width).toBe(1600);
     expect(deps.canvasEl.height).toBe(1200);
+    expect(setViewportSpy).toHaveBeenCalledWith(1600, 1200, 1);
   });
 
   it('start and stop control the rAF loop', () => {
@@ -389,7 +396,7 @@ describe('RenderLoop', () => {
       expect(deps.renderer.renderCanvasElement).not.toHaveBeenCalled();
     });
 
-    it('re-renders grid when camera moves', () => {
+    it('does not re-render the grid on a within-margin pan (cache reused)', () => {
       Object.defineProperty(deps.canvasEl, 'clientWidth', { value: 800, configurable: true });
       Object.defineProperty(deps.canvasEl, 'clientHeight', { value: 600, configurable: true });
 
@@ -400,17 +407,51 @@ describe('RenderLoop', () => {
         position: { x: 0, y: 0 },
       };
       vi.mocked(deps.store.getAll).mockReturnValue([gridElement] as never);
+      vi.mocked(deps.store.getElementsByType).mockReturnValue([gridElement] as never);
 
       renderLoop.requestRender();
       renderLoop.flush();
 
-      vi.mocked(deps.renderer.renderCanvasElement).mockClear();
-      (deps.camera as { position: { x: number; y: number } }).position = { x: 50, y: 50 };
+      const gridRenders = (): number =>
+        (deps.renderer.renderCanvasElement as ReturnType<typeof vi.fn>).mock.calls.filter(
+          (c: unknown[]) => (c[1] as { type: string } | undefined)?.type === 'grid',
+        ).length;
+      const before = gridRenders();
+      (deps.camera as { position: { x: number; y: number } }).position = { x: 80, y: 0 }; // < 256
 
       renderLoop.requestRender();
       renderLoop.flush();
 
-      expect(deps.renderer.renderCanvasElement).toHaveBeenCalled();
+      expect(gridRenders()).toBe(before); // grid composited from cache, not re-rendered
+    });
+
+    it('re-renders the grid on a pan beyond the margin (recenter)', () => {
+      Object.defineProperty(deps.canvasEl, 'clientWidth', { value: 800, configurable: true });
+      Object.defineProperty(deps.canvasEl, 'clientHeight', { value: 600, configurable: true });
+
+      const gridElement = {
+        id: 'grid-1',
+        type: 'grid',
+        layerId: 'default',
+        position: { x: 0, y: 0 },
+      };
+      vi.mocked(deps.store.getAll).mockReturnValue([gridElement] as never);
+      vi.mocked(deps.store.getElementsByType).mockReturnValue([gridElement] as never);
+
+      renderLoop.requestRender();
+      renderLoop.flush();
+
+      const gridRenders = (): number =>
+        (deps.renderer.renderCanvasElement as ReturnType<typeof vi.fn>).mock.calls.filter(
+          (c: unknown[]) => (c[1] as { type: string } | undefined)?.type === 'grid',
+        ).length;
+      const before = gridRenders();
+      (deps.camera as { position: { x: number; y: number } }).position = { x: 400, y: 0 }; // > 256
+
+      renderLoop.requestRender();
+      renderLoop.flush();
+
+      expect(gridRenders()).toBeGreaterThan(before);
     });
 
     it('skips grid cache when grid element reference changes', () => {
@@ -435,6 +476,38 @@ describe('RenderLoop', () => {
       renderLoop.flush();
 
       expect(deps.renderer.renderCanvasElement).toHaveBeenCalled();
+    });
+
+    it('sets gridBoundsOverride to margin-inflated world bounds before rendering grid into cache, then clears it', () => {
+      Object.defineProperty(deps.canvasEl, 'clientWidth', { value: 800, configurable: true });
+      Object.defineProperty(deps.canvasEl, 'clientHeight', { value: 600, configurable: true });
+
+      const gridElement = {
+        id: 'grid-1',
+        type: 'grid',
+        layerId: 'default',
+        position: { x: 0, y: 0 },
+      };
+      vi.mocked(deps.store.getAll).mockReturnValue([gridElement] as never);
+
+      // First flush causes a recenter (anchor at cam 0,0 zoom 1);
+      // gridCacheDirty = true so the override must be set before rendering
+      renderLoop.requestRender();
+      renderLoop.flush();
+
+      const setOverrideMock = deps.renderer.setGridBoundsOverride as ReturnType<typeof vi.fn>;
+      // With anchor cam (0,0) zoom 1 and margin 256:
+      // cachedWorldBounds.x = (-256 - 0) / 1 = -256
+      const overrideCalls = setOverrideMock.mock.calls;
+      const nonNullCall = overrideCalls.find((c: unknown[]) => c[0] !== null) as
+        | [{ minX: number; minY: number; maxX: number; maxY: number }]
+        | undefined;
+      expect(nonNullCall).toBeDefined();
+      expect(nonNullCall?.[0].minX).toBeLessThanOrEqual(-256);
+
+      // After rendering into cache, override is cleared
+      const lastCall = overrideCalls[overrideCalls.length - 1] as [unknown];
+      expect(lastCall[0]).toBeNull();
     });
 
     it('falls back to direct render when grid cache context is unavailable', () => {
@@ -526,6 +599,43 @@ describe('RenderLoop', () => {
 
       expect(deps.layerCache.getContext).toHaveBeenCalledWith('default');
       expect(deps.layerCache.getContext).toHaveBeenCalledWith('layer-b');
+    });
+
+    it('does NOT mark all layers dirty for a pan within the margin', () => {
+      Object.defineProperty(deps.canvasEl, 'clientWidth', { value: 800, configurable: true });
+      Object.defineProperty(deps.canvasEl, 'clientHeight', { value: 600, configurable: true });
+      renderLoop.requestRender();
+      renderLoop.flush(); // first frame recenters (sets anchor)
+      (deps.layerCache.markAllDirty as ReturnType<typeof vi.fn>).mockClear();
+      (deps.camera as { position: { x: number; y: number } }).position = { x: 100, y: 0 }; // < 256
+      renderLoop.requestRender();
+      renderLoop.flush();
+      expect(deps.layerCache.markAllDirty).not.toHaveBeenCalled();
+    });
+
+    it('marks all layers dirty for a pan beyond the margin', () => {
+      Object.defineProperty(deps.canvasEl, 'clientWidth', { value: 800, configurable: true });
+      Object.defineProperty(deps.canvasEl, 'clientHeight', { value: 600, configurable: true });
+      renderLoop.requestRender();
+      renderLoop.flush();
+      (deps.layerCache.markAllDirty as ReturnType<typeof vi.fn>).mockClear();
+      (deps.camera as { position: { x: number; y: number } }).position = { x: 300, y: 0 }; // > 256
+      renderLoop.requestRender();
+      renderLoop.flush();
+      expect(deps.layerCache.markAllDirty).toHaveBeenCalled();
+    });
+
+    it('does NOT re-render a clean layer on a within-margin pan (cache reused)', () => {
+      Object.defineProperty(deps.canvasEl, 'clientWidth', { value: 800, configurable: true });
+      Object.defineProperty(deps.canvasEl, 'clientHeight', { value: 600, configurable: true });
+      (deps.layerCache.isDirty as ReturnType<typeof vi.fn>).mockReturnValue(false); // layer already cached/clean
+      renderLoop.requestRender();
+      renderLoop.flush(); // recenter frame
+      (deps.layerCache.getContext as ReturnType<typeof vi.fn>).mockClear();
+      (deps.camera as { position: { x: number; y: number } }).position = { x: 100, y: 0 }; // < 256
+      renderLoop.requestRender();
+      renderLoop.flush();
+      expect(deps.layerCache.getContext).not.toHaveBeenCalled(); // composited from cache, no re-raster
     });
   });
 

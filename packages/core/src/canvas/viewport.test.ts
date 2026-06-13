@@ -800,6 +800,26 @@ describe('Viewport', () => {
     });
   });
 
+  describe('panBufferMargin option', () => {
+    it('respects panBufferMargin: 0 (exact-viewport caches, no margin)', () => {
+      const viewport = new Viewport(container, { panBufferMargin: 0 });
+      const mv = (viewport as unknown as { marginViewport: { physicalWidth: () => number } })
+        .marginViewport;
+      // cssW = 800 (clientWidth is 0 in jsdom, fallback is 800), dpr = 1, margin = 0
+      expect(mv.physicalWidth()).toBe(800);
+      viewport.destroy();
+    });
+
+    it('defaults panBufferMargin to 256', () => {
+      const viewport = new Viewport(container);
+      const mv = (viewport as unknown as { marginViewport: { physicalWidth: () => number } })
+        .marginViewport;
+      // cssW = 800, dpr = 1, margin = 256 → 800 + 2*256 = 1312
+      expect(mv.physicalWidth()).toBe(1312);
+      viewport.destroy();
+    });
+  });
+
   describe('addGrid', () => {
     it('replaces existing grid when adding a new one', () => {
       const viewport = new Viewport(container);

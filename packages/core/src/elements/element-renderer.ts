@@ -42,6 +42,8 @@ export class ElementRenderer {
   private canvasSize: { w: number; h: number } | null = null;
   private hexTileCache: HexGridTile | null = null;
   private hexTileCacheKey = '';
+  private gridBoundsOverride: { minX: number; minY: number; maxX: number; maxY: number } | null =
+    null;
 
   setStore(store: ElementStore): void {
     this.store = store;
@@ -61,6 +63,12 @@ export class ElementRenderer {
 
   setCanvasSize(w: number, h: number): void {
     this.canvasSize = { w, h };
+  }
+
+  setGridBoundsOverride(
+    bounds: { minX: number; minY: number; maxX: number; maxY: number } | null,
+  ): void {
+    this.gridBoundsOverride = bounds;
   }
 
   isDomElement(element: CanvasElement): boolean {
@@ -270,22 +278,24 @@ export class ElementRenderer {
   }
 
   private renderGrid(ctx: CanvasRenderingContext2D, grid: GridElement): void {
-    if (!this.canvasSize) return;
+    const canvasSize = this.canvasSize;
+    if (!canvasSize) return;
 
     const cam = this.camera;
     if (!cam) return;
 
-    const topLeft = cam.screenToWorld({ x: 0, y: 0 });
-    const bottomRight = cam.screenToWorld({
-      x: this.canvasSize.w,
-      y: this.canvasSize.h,
-    });
-    const bounds = {
-      minX: topLeft.x,
-      minY: topLeft.y,
-      maxX: bottomRight.x,
-      maxY: bottomRight.y,
-    };
+    const bounds =
+      this.gridBoundsOverride ??
+      (() => {
+        const topLeft = cam.screenToWorld({ x: 0, y: 0 });
+        const bottomRight = cam.screenToWorld({ x: canvasSize.w, y: canvasSize.h });
+        return {
+          minX: topLeft.x,
+          minY: topLeft.y,
+          maxX: bottomRight.x,
+          maxY: bottomRight.y,
+        };
+      })();
 
     if (grid.gridType === 'hex') {
       const dpr = typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1;

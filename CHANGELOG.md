@@ -4,6 +4,14 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.23.0] — 2026-06-13
+
+### Performance
+
+- **Pan-time cache reuse** — layer caches and the grid cache now render a 256px margin beyond the viewport (configurable via `ViewportOptions.panBufferMargin`; `0` opts out). A pan within the margin re-composites the cached bitmaps at an offset instead of re-rasterizing every layer and re-tiling the grid each frame. On the bench board (strokes + a hex grid), continuous panning dropped average frame time ~78% at 500 strokes (15.0ms → 3.3ms) and ~83% at 2000 strokes (29.8ms → 5.1ms); per-frame grid re-tile and layer re-raster cost fall to ~0 on the reuse frames, with the full cost paid only on the periodic recenter when the pan exceeds the margin. Zoom still re-rasterizes (content scale changes)
+
+---
+
 ## [0.22.0] — 2026-06-13
 
 ### Performance

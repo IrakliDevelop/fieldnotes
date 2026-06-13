@@ -29,6 +29,7 @@ import { DoubleTapDetector } from './double-tap-detector';
 import { RenderLoop } from './render-loop';
 import type { RenderStatsSnapshot } from './render-stats';
 import { LayerCache } from './layer-cache';
+import { MarginViewport } from './margin-viewport';
 import { isNoteContentEmpty } from '../elements/note-sanitizer';
 
 export interface GridInfo {
@@ -52,6 +53,8 @@ export interface ViewportOptions {
   ) => void;
   onDrop?: (event: DragEvent, worldPosition: { x: number; y: number }) => void;
   onImageError?: (info: { src: string; elementIds: string[] }) => void;
+  /** CSS-pixel margin cached beyond the viewport. Default `256`. Set `0` to disable. */
+  panBufferMargin?: number;
 }
 
 export class Viewport {
@@ -71,6 +74,7 @@ export class Viewport {
   private readonly noteEditor: NoteEditor;
   private readonly historyRecorder: HistoryRecorder;
   readonly toolContext: ToolContext;
+  private readonly marginViewport: MarginViewport;
   private resizeObserver: ResizeObserver | null = null;
   private _snapToGrid = false;
   private readonly _gridSize: number;
@@ -175,10 +179,13 @@ export class Viewport {
       getNode: (id) => this.domNodeManager.getNode(id),
     });
 
-    const layerCache = new LayerCache(
+    this.marginViewport = new MarginViewport(options.panBufferMargin ?? 256);
+    this.marginViewport.setViewport(
       this.canvasEl.clientWidth || 800,
       this.canvasEl.clientHeight || 600,
+      typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1,
     );
+    const layerCache = new LayerCache(this.marginViewport);
 
     this.renderLoop = new RenderLoop({
       canvasEl: this.canvasEl,
@@ -190,6 +197,7 @@ export class Viewport {
       layerManager: this.layerManager,
       domNodeManager: this.domNodeManager,
       layerCache,
+      marginViewport: this.marginViewport,
     });
 
     this.unsubCamera = this.camera.onChange(() => {
