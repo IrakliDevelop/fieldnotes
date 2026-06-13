@@ -299,11 +299,14 @@ export class RenderLoop {
           gc.clearRect(0, 0, this.gridCacheCanvas.width, this.gridCacheCanvas.height);
           gc.save();
           this.marginViewport.applyRenderTransform(gc);
-          for (const grid of gridElements) {
-            this.renderer.renderCanvasElement(gc as CanvasRenderingContext2D, grid);
+          try {
+            for (const grid of gridElements) {
+              this.renderer.renderCanvasElement(gc as CanvasRenderingContext2D, grid);
+            }
+          } finally {
+            gc.restore();
+            this.renderer.setGridBoundsOverride(null);
           }
-          gc.restore();
-          this.renderer.setGridBoundsOverride(null);
         }
         this.gridCacheDirty = false;
         this.lastGridRef = gridRef;

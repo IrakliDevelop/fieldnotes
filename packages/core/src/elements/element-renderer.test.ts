@@ -702,6 +702,33 @@ describe('ElementRenderer', () => {
         expect(bounds.maxY).toBe(888);
       });
 
+      it('passes override bounds to renderHexGridTiled (tiled path)', () => {
+        vi.spyOn(GridRenderer, 'createHexGridTile').mockReturnValue({
+          canvas: document.createElement('canvas'),
+          tileW: 40,
+          tileH: 40,
+        });
+        const tiledSpy = vi.spyOn(GridRenderer, 'renderHexGridTiled').mockReturnValue(undefined);
+        const renderer = new ElementRenderer();
+        const camera = new Camera();
+        renderer.setCamera(camera);
+        renderer.setCanvasSize(800, 600);
+        renderer.setGridBoundsOverride({ minX: -999, minY: -888, maxX: 999, maxY: 888 });
+        const ctx = mockCtx();
+        renderer.renderCanvasElement(ctx, makeGrid({ gridType: 'hex' }));
+
+        expect(tiledSpy).toHaveBeenCalled();
+        const boundsArg = (
+          tiledSpy.mock.calls[0] as [
+            CanvasRenderingContext2D,
+            GridRenderer.VisibleBounds,
+            ...unknown[],
+          ]
+        )[1];
+        expect(boundsArg).toEqual({ minX: -999, minY: -888, maxX: 999, maxY: 888 });
+        vi.restoreAllMocks();
+      });
+
       it('clears override after setGridBoundsOverride(null) and uses camera bounds', () => {
         const spy = vi.spyOn(GridRenderer, 'renderSquareGrid');
         const renderer = new ElementRenderer();
