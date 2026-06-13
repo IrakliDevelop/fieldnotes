@@ -54,6 +54,7 @@ function createMockDeps() {
       (el: { type: string }) => el.type === 'note' || el.type === 'html' || el.type === 'text',
     ),
     renderCanvasElement: vi.fn(),
+    setGridBoundsOverride: vi.fn(),
   } as unknown as ElementRenderer;
 
   const toolManager = {
@@ -475,6 +476,38 @@ describe('RenderLoop', () => {
       renderLoop.flush();
 
       expect(deps.renderer.renderCanvasElement).toHaveBeenCalled();
+    });
+
+    it('sets gridBoundsOverride to margin-inflated world bounds before rendering grid into cache, then clears it', () => {
+      Object.defineProperty(deps.canvasEl, 'clientWidth', { value: 800, configurable: true });
+      Object.defineProperty(deps.canvasEl, 'clientHeight', { value: 600, configurable: true });
+
+      const gridElement = {
+        id: 'grid-1',
+        type: 'grid',
+        layerId: 'default',
+        position: { x: 0, y: 0 },
+      };
+      vi.mocked(deps.store.getAll).mockReturnValue([gridElement] as never);
+
+      // First flush causes a recenter (anchor at cam 0,0 zoom 1);
+      // gridCacheDirty = true so the override must be set before rendering
+      renderLoop.requestRender();
+      renderLoop.flush();
+
+      const setOverrideMock = deps.renderer.setGridBoundsOverride as ReturnType<typeof vi.fn>;
+      // With anchor cam (0,0) zoom 1 and margin 256:
+      // cachedWorldBounds.x = (-256 - 0) / 1 = -256
+      const overrideCalls = setOverrideMock.mock.calls;
+      const nonNullCall = overrideCalls.find((c: unknown[]) => c[0] !== null) as
+        | [{ minX: number; minY: number; maxX: number; maxY: number }]
+        | undefined;
+      expect(nonNullCall).toBeDefined();
+      expect(nonNullCall?.[0].minX).toBeLessThanOrEqual(-256);
+
+      // After rendering into cache, override is cleared
+      const lastCall = overrideCalls[overrideCalls.length - 1] as [unknown];
+      expect(lastCall[0]).toBeNull();
     });
 
     it('falls back to direct render when grid cache context is unavailable', () => {

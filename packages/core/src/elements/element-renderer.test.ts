@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ElementRenderer } from './element-renderer';
 import { computeStrokeSegments } from './stroke-cache';
+import * as GridRenderer from './grid-renderer';
 import type {
   StrokeElement,
   ArrowElement,
@@ -629,6 +630,99 @@ describe('ElementRenderer', () => {
 
       expect(ctx.save).toHaveBeenCalled();
       expect(ctx.closePath).toHaveBeenCalled();
+    });
+
+    describe('gridBoundsOverride', () => {
+      beforeEach(() => {
+        vi.restoreAllMocks();
+      });
+
+      it('passes camera-derived bounds to renderSquareGrid when no override is set', () => {
+        const spy = vi.spyOn(GridRenderer, 'renderSquareGrid');
+        const renderer = new ElementRenderer();
+        const camera = new Camera();
+        camera.moveTo(-100, -50);
+        camera.setZoom(2);
+        renderer.setCamera(camera);
+        renderer.setCanvasSize(800, 600);
+        const ctx = mockCtx();
+        renderer.renderCanvasElement(ctx, makeGrid({ gridType: 'square' }));
+
+        expect(spy).toHaveBeenCalledTimes(1);
+        const bounds = (
+          spy.mock.calls[0] as [CanvasRenderingContext2D, GridRenderer.VisibleBounds, ...unknown[]]
+        )[1];
+        // camera-derived: screenToWorld(0,0) and screenToWorld(800,600)
+        // screenToWorld: (screen.x - camX) / zoom
+        expect(bounds.minX).toBeCloseTo(50); // (0 - (-100)) / 2 = 50
+        expect(bounds.minY).toBeCloseTo(25); // (0 - (-50)) / 2 = 25
+        expect(bounds.maxX).toBeCloseTo(450); // (800 - (-100)) / 2 = 450
+        expect(bounds.maxY).toBeCloseTo(325); // (600 - (-50)) / 2 = 325
+      });
+
+      it('passes override bounds to renderSquareGrid when setGridBoundsOverride is called', () => {
+        const spy = vi.spyOn(GridRenderer, 'renderSquareGrid');
+        const renderer = new ElementRenderer();
+        const camera = new Camera();
+        renderer.setCamera(camera);
+        renderer.setCanvasSize(800, 600);
+        renderer.setGridBoundsOverride({ minX: -999, minY: -888, maxX: 999, maxY: 888 });
+        const ctx = mockCtx();
+        renderer.renderCanvasElement(ctx, makeGrid({ gridType: 'square' }));
+
+        expect(spy).toHaveBeenCalledTimes(1);
+        const bounds = (
+          spy.mock.calls[0] as [CanvasRenderingContext2D, GridRenderer.VisibleBounds, ...unknown[]]
+        )[1];
+        expect(bounds.minX).toBe(-999);
+        expect(bounds.minY).toBe(-888);
+        expect(bounds.maxX).toBe(999);
+        expect(bounds.maxY).toBe(888);
+      });
+
+      it('passes override bounds to renderHexGrid fallback when setGridBoundsOverride is called', () => {
+        const spy = vi.spyOn(GridRenderer, 'renderHexGrid');
+        // Force tile creation to fail by ensuring createHexGridTile returns null
+        vi.spyOn(GridRenderer, 'createHexGridTile').mockReturnValue(null);
+        const renderer = new ElementRenderer();
+        const camera = new Camera();
+        renderer.setCamera(camera);
+        renderer.setCanvasSize(800, 600);
+        renderer.setGridBoundsOverride({ minX: -999, minY: -888, maxX: 999, maxY: 888 });
+        const ctx = mockCtx();
+        renderer.renderCanvasElement(ctx, makeGrid({ gridType: 'hex' }));
+
+        expect(spy).toHaveBeenCalledTimes(1);
+        const bounds = (
+          spy.mock.calls[0] as [CanvasRenderingContext2D, GridRenderer.VisibleBounds, ...unknown[]]
+        )[1];
+        expect(bounds.minX).toBe(-999);
+        expect(bounds.minY).toBe(-888);
+        expect(bounds.maxX).toBe(999);
+        expect(bounds.maxY).toBe(888);
+      });
+
+      it('clears override after setGridBoundsOverride(null) and uses camera bounds', () => {
+        const spy = vi.spyOn(GridRenderer, 'renderSquareGrid');
+        const renderer = new ElementRenderer();
+        const camera = new Camera();
+        renderer.setCamera(camera);
+        renderer.setCanvasSize(800, 600);
+        renderer.setGridBoundsOverride({ minX: -999, minY: -888, maxX: 999, maxY: 888 });
+        renderer.setGridBoundsOverride(null);
+        const ctx = mockCtx();
+        renderer.renderCanvasElement(ctx, makeGrid({ gridType: 'square' }));
+
+        expect(spy).toHaveBeenCalledTimes(1);
+        const bounds = (
+          spy.mock.calls[0] as [CanvasRenderingContext2D, GridRenderer.VisibleBounds, ...unknown[]]
+        )[1];
+        // After clearing, should use camera-derived bounds (camera at origin, zoom 1)
+        expect(bounds.minX).toBeCloseTo(0);
+        expect(bounds.minY).toBeCloseTo(0);
+        expect(bounds.maxX).toBeCloseTo(800);
+        expect(bounds.maxY).toBeCloseTo(600);
+      });
     });
   });
 

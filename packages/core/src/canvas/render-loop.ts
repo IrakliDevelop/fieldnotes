@@ -288,6 +288,13 @@ export class RenderLoop {
       if (gridDirty) {
         this.ensureGridCache();
         if (this.gridCacheCtx && this.gridCacheCanvas) {
+          const cb = this.marginViewport.cachedWorldBounds();
+          this.renderer.setGridBoundsOverride({
+            minX: cb.x,
+            minY: cb.y,
+            maxX: cb.x + cb.w,
+            maxY: cb.y + cb.h,
+          });
           const gc = this.gridCacheCtx;
           gc.clearRect(0, 0, this.gridCacheCanvas.width, this.gridCacheCanvas.height);
           gc.save();
@@ -296,6 +303,7 @@ export class RenderLoop {
             this.renderer.renderCanvasElement(gc as CanvasRenderingContext2D, grid);
           }
           gc.restore();
+          this.renderer.setGridBoundsOverride(null);
         }
         this.gridCacheDirty = false;
         this.lastGridRef = gridRef;
