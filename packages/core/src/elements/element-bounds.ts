@@ -172,6 +172,14 @@ function getTemplateBounds(el: TemplateElement): Bounds {
   }
 }
 
+export function transferStrokeBounds(prev: CanvasElement, next: CanvasElement): void {
+  if (prev.type !== 'stroke' || next.type !== 'stroke') return;
+  if (prev.points !== next.points) return;
+  if (prev.position.x !== next.position.x || prev.position.y !== next.position.y) return;
+  const bounds = strokeBoundsCache.get(prev);
+  if (bounds) strokeBoundsCache.set(next, bounds);
+}
+
 export function boundsIntersect(a: Bounds, b: Bounds): boolean {
   return a.x <= b.x + b.w && a.x + a.w >= b.x && a.y <= b.y + b.h && a.y + a.h >= b.y;
 }

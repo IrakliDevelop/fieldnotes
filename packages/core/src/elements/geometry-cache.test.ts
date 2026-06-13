@@ -58,8 +58,8 @@ describe('geometry cache invalidation', () => {
     });
   });
 
-  describe('stroke cache invalidates on store.update()', () => {
-    it('returns different reference after update (new object from spread)', () => {
+  describe('stroke cache transfers on safe store.update()', () => {
+    it('returns same reference after color-only update (cache transferred via points identity)', () => {
       const store = new ElementStore();
       const stroke = createStroke({
         points: [
@@ -75,6 +75,30 @@ describe('geometry cache invalidation', () => {
       const updated = store.getById(stroke.id);
       expect(updated).not.toBe(stroke);
 
+      if (!updated || updated.type !== 'stroke') throw new Error('expected stroke');
+      const data2 = getStrokeRenderData(updated);
+      expect(data2).toBe(data1);
+    });
+
+    it('returns different reference after points update (new points array)', () => {
+      const store = new ElementStore();
+      const stroke = createStroke({
+        points: [
+          { x: 0, y: 0, pressure: 0.5 },
+          { x: 10, y: 10, pressure: 0.5 },
+        ],
+      });
+      store.add(stroke);
+      const data1 = getStrokeRenderData(stroke);
+
+      store.update(stroke.id, {
+        points: [
+          { x: 0, y: 0, pressure: 0.5 },
+          { x: 20, y: 20, pressure: 0.5 },
+          { x: 40, y: 0, pressure: 0.5 },
+        ],
+      });
+      const updated = store.getById(stroke.id);
       if (!updated || updated.type !== 'stroke') throw new Error('expected stroke');
       const data2 = getStrokeRenderData(updated);
       expect(data2).not.toBe(data1);

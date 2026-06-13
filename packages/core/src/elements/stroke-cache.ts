@@ -61,3 +61,9 @@ export function getStrokeRenderData(stroke: StrokeElement): StrokeRenderData {
   if (cached) return cached;
   return computeStrokeSegments(stroke);
 }
+
+export function transferStrokeRenderData(prev: StrokeElement, next: StrokeElement): void {
+  if (prev.points !== next.points) return;
+  const data = cache.get(prev);
+  if (data) cache.set(next, data);
+}

@@ -1,10 +1,11 @@
 import { EventBus } from '../core/event-bus';
 import type { Bounds, Point } from '../core/types';
 import { Quadtree } from '../core/quadtree';
-import { getElementBounds } from './element-bounds';
+import { getElementBounds, transferStrokeBounds } from './element-bounds';
 import { getArrowControlPoint } from './arrow-geometry';
 import { sanitizeNoteHtml } from './note-sanitizer';
-import type { ArrowElement, CanvasElement, ElementType, NoteElement } from './types';
+import { computeStrokeSegments, transferStrokeRenderData } from './stroke-cache';
+import type { ArrowElement, CanvasElement, ElementType, NoteElement, StrokeElement } from './types';
 
 export interface ElementUpdateEvent {
   previous: CanvasElement;
@@ -77,6 +78,11 @@ export class ElementStore {
 
     const updated = { ...existing, ...partial, id: existing.id, type: existing.type };
 
+    if (updated.type === 'stroke' && existing.type === 'stroke') {
+      transferStrokeRenderData(existing as StrokeElement, updated as StrokeElement);
+      transferStrokeBounds(existing, updated as CanvasElement);
+    }
+
     if (updated.type === 'arrow') {
       const arrow = updated as ArrowElement;
       arrow.cachedControlPoint = getArrowControlPoint(arrow.from, arrow.to, arrow.bend);
@@ -129,6 +135,12 @@ export class ElementStore {
       this._versions.set(el.id, 0);
       const bounds = getElementBounds(el);
       if (bounds) this.spatialIndex.insert(el.id, bounds);
+      if (el.type === 'stroke') {
+        computeStrokeSegments(el);
+      }
+      if (el.type === 'arrow' && el.bend !== 0 && !el.cachedControlPoint) {
+        el.cachedControlPoint = getArrowControlPoint(el.from, el.to, el.bend);
+      }
     }
     this.bus.emit('clear', null);
     for (const el of elements) {
