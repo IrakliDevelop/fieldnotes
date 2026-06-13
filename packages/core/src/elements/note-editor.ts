@@ -100,7 +100,10 @@ export class NoteEditor {
     this.editingNode.removeAttribute('data-fn-empty');
 
     const text = sanitizeNoteHtml(this.editingNode.innerHTML);
-    store.update(this.editingId, { text });
+    const current = store.getById(this.editingId);
+    if (current && (current.type === 'note' || current.type === 'text') && current.text !== text) {
+      store.update(this.editingId, { text });
+    }
 
     this.editingNode.contentEditable = 'false';
     Object.assign(this.editingNode.style, {
