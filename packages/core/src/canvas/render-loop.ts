@@ -100,7 +100,7 @@ export class RenderLoop {
     this.canvasEl.width = width;
     this.canvasEl.height = height;
     const dpr = typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1;
-    this.marginViewport.setViewport(this.canvasEl.clientWidth, this.canvasEl.clientHeight, dpr);
+    this.marginViewport.setViewport(width / dpr, height / dpr, dpr);
     this.layerCache.resize();
   }
 

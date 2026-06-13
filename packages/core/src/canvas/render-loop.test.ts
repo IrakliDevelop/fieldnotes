@@ -186,6 +186,7 @@ describe('RenderLoop', () => {
     renderLoop.setCanvasSize(1600, 1200);
     expect(deps.canvasEl.width).toBe(1600);
     expect(deps.canvasEl.height).toBe(1200);
+    expect(deps.marginViewport.setViewport).toHaveBeenCalledWith(1600, 1200, 1);
   });
 
   it('start and stop control the rAF loop', () => {
