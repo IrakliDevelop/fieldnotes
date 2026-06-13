@@ -548,6 +548,13 @@ canvas.addImage('data:image/png;base64,iVBOR...', pos, size);
 - [x] StrictMode pin, modernized hook internals, TSDoc on the public surface
 - [x] Recipe-driven README + runnable `examples/react-app` workspace app
 
+#### 0.22.0 — Perf Pass 2A: Geometry & Caches
+
+- [x] Width-bucketed Path2D stroke rendering (0.25px quantization); ~10% p95 improvement on dense boards
+- [x] Intrinsic arrow render-geometry cache; loadSnapshot warms stroke + arrow caches
+- [x] Stroke cache transfer across color/position-only updates
+- [x] Per-subsystem render timings + deterministic demo bench board (`?bench=N`) — surfaced grid/composite as the dominant pan cost (PR B target)
+
 #### 0.21.0 — Perf & Error Visibility
 
 - [x] Stroke hit-testing on cached segments with bounds early-out (select + eraser share one helper; sparse strokes now hittable between sample points)

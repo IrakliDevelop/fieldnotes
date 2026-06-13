@@ -4,6 +4,17 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.22.0] — 2026-06-13
+
+### Performance
+
+- **Width-bucketed Path2D stroke rendering** — strokes render as a few cached `Path2D` objects grouped by 0.25px-quantized width instead of rebuilding bezier paths per segment each frame. Opaque strokes are pixel-identical; the win shows mainly in tail latency on dense boards (≈10% p95 frame-time improvement panning a 2,000-stroke board). Note: semi-transparent strokes (`opacity < 1`) now composite once per width bucket rather than once per segment, which removes cap double-blending at segment joints (slightly lighter joints; opaque strokes unaffected)
+- **Intrinsic arrow geometry cache** — control point and tangent angles are computed once per arrow object instead of up to 3× per frame. Arrows loaded from JSON no longer recompute their control point on every frame
+- **Cache warming & coherence** — `loadSnapshot` pre-computes stroke geometry and restores arrow control points at load time (matching the draw-commit caching policy); color- and position-only updates transfer stroke geometry caches instead of discarding them
+- **Per-subsystem render stats** — `getRenderStats()` now reports `layersMs` / `backgroundMs` / `compositeMs` / `overlayMs` alongside the existing timers; the demo gains a deterministic `?bench=N` board. (These revealed that grid re-tiling and layer compositing dominate the pan frame — the target of a follow-up pass.)
+
+---
+
 ## [react 0.5.0] — 2026-06-12
 
 ### Added
