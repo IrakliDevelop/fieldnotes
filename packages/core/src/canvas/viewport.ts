@@ -334,6 +334,10 @@ export class Viewport {
   }
 
   setTool(name: string): void {
+    if (!this.toolManager.getTool(name)) {
+      console.warn(`[fieldnotes] setTool: no tool registered as "${name}"`);
+      return;
+    }
     this.toolManager.setTool(name, this.toolContext);
   }
 
