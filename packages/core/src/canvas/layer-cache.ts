@@ -1,3 +1,5 @@
+import type { MarginViewport } from './margin-viewport';
+
 function createOffscreenCanvas(width: number, height: number): HTMLCanvasElement | OffscreenCanvas {
   if (typeof OffscreenCanvas !== 'undefined') {
     return new OffscreenCanvas(width, height);
@@ -11,14 +13,8 @@ function createOffscreenCanvas(width: number, height: number): HTMLCanvasElement
 export class LayerCache {
   private canvases = new Map<string, HTMLCanvasElement | OffscreenCanvas>();
   private dirtyFlags = new Map<string, boolean>();
-  private width: number;
-  private height: number;
 
-  constructor(width: number, height: number) {
-    const dpr = typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1;
-    this.width = Math.round(width * dpr);
-    this.height = Math.round(height * dpr);
-  }
+  constructor(private readonly viewport: MarginViewport) {}
 
   isDirty(layerId: string): boolean {
     return this.dirtyFlags.get(layerId) !== false;
@@ -41,7 +37,7 @@ export class LayerCache {
   getCanvas(layerId: string): HTMLCanvasElement | OffscreenCanvas {
     let canvas = this.canvases.get(layerId);
     if (!canvas) {
-      canvas = createOffscreenCanvas(this.width, this.height);
+      canvas = createOffscreenCanvas(this.viewport.physicalWidth(), this.viewport.physicalHeight());
       this.canvases.set(layerId, canvas);
       this.dirtyFlags.set(layerId, true);
     }
@@ -56,14 +52,12 @@ export class LayerCache {
       | null;
   }
 
-  resize(width: number, height: number): void {
-    const dpr = typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1;
-    this.width = Math.round(width * dpr);
-    this.height = Math.round(height * dpr);
-
+  resize(): void {
+    const w = this.viewport.physicalWidth();
+    const h = this.viewport.physicalHeight();
     for (const [id, canvas] of this.canvases) {
-      canvas.width = this.width;
-      canvas.height = this.height;
+      canvas.width = w;
+      canvas.height = h;
       this.dirtyFlags.set(id, true);
     }
   }

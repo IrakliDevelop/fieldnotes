@@ -6,6 +6,7 @@ import type { ToolManager } from '../tools/tool-manager';
 import type { LayerManager } from '../layers/layer-manager';
 import type { DomNodeManager } from './dom-node-manager';
 import type { LayerCache } from './layer-cache';
+import type { MarginViewport } from './margin-viewport';
 import type { Bounds } from '../core/types';
 import type { CanvasElement } from '../elements/types';
 import { getElementBounds, boundsIntersect } from '../elements/element-bounds';
@@ -22,6 +23,7 @@ export interface RenderLoopDeps {
   layerManager: LayerManager;
   domNodeManager: DomNodeManager;
   layerCache: LayerCache;
+  marginViewport: MarginViewport;
 }
 
 export class RenderLoop {
@@ -36,6 +38,7 @@ export class RenderLoop {
   private readonly layerManager: LayerManager;
   private readonly domNodeManager: DomNodeManager;
   private readonly layerCache: LayerCache;
+  private readonly marginViewport: MarginViewport;
   private activeDrawingLayerId: string | null = null;
   private lastZoom: number;
   private lastCamX: number;
@@ -61,6 +64,7 @@ export class RenderLoop {
     this.layerManager = deps.layerManager;
     this.domNodeManager = deps.domNodeManager;
     this.layerCache = deps.layerCache;
+    this.marginViewport = deps.marginViewport;
     this.lastZoom = deps.camera.zoom;
     this.lastCamX = deps.camera.position.x;
     this.lastCamY = deps.camera.position.y;
@@ -95,7 +99,9 @@ export class RenderLoop {
   setCanvasSize(width: number, height: number): void {
     this.canvasEl.width = width;
     this.canvasEl.height = height;
-    this.layerCache.resize(this.canvasEl.clientWidth, this.canvasEl.clientHeight);
+    const dpr = typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1;
+    this.marginViewport.setViewport(this.canvasEl.clientWidth, this.canvasEl.clientHeight, dpr);
+    this.layerCache.resize();
   }
 
   setActiveDrawingLayer(layerId: string | null): void {

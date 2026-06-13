@@ -11,6 +11,7 @@ import type { ToolManager } from '../tools/tool-manager';
 import type { LayerManager } from '../layers/layer-manager';
 import type { DomNodeManager } from './dom-node-manager';
 import type { LayerCache } from './layer-cache';
+import type { MarginViewport } from './margin-viewport';
 
 function createMockDeps() {
   const canvasEl = document.createElement('canvas');
@@ -92,6 +93,12 @@ function createMockDeps() {
     clear: vi.fn(),
   } as unknown as LayerCache;
 
+  const marginViewport = {
+    setViewport: vi.fn(),
+    physicalWidth: vi.fn().mockReturnValue(1312),
+    physicalHeight: vi.fn().mockReturnValue(1112),
+  } as unknown as MarginViewport;
+
   return {
     canvasEl,
     camera,
@@ -102,6 +109,7 @@ function createMockDeps() {
     layerManager,
     domNodeManager,
     layerCache,
+    marginViewport,
   };
 }
 

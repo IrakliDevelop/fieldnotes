@@ -3,12 +3,16 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { LayerCache } from './layer-cache';
+import { MarginViewport } from './margin-viewport';
 
 describe('LayerCache', () => {
   let cache: LayerCache;
+  let mv: MarginViewport;
 
   beforeEach(() => {
-    cache = new LayerCache(800, 600);
+    mv = new MarginViewport(256);
+    mv.setViewport(800, 600, 1);
+    cache = new LayerCache(mv);
   });
 
   it('marks a specific layer dirty', () => {
@@ -42,7 +46,8 @@ describe('LayerCache', () => {
 
   it('resizes all canvases', () => {
     cache.getCanvas('layer1');
-    cache.resize(1024, 768);
+    mv.setViewport(1024, 768, 1);
+    cache.resize();
     const canvas = cache.getCanvas('layer1');
     expect(canvas.width).toBeGreaterThan(0);
   });
@@ -68,7 +73,17 @@ describe('LayerCache', () => {
     cache.getCanvas('layer1');
     cache.markClean('layer1');
     expect(cache.isDirty('layer1')).toBe(false);
-    cache.resize(1024, 768);
+    mv.setViewport(1024, 768, 1);
+    cache.resize();
     expect(cache.isDirty('layer1')).toBe(true);
+  });
+
+  it('allocates canvases at the MarginViewport physical size', () => {
+    const testMv = new MarginViewport(256);
+    testMv.setViewport(800, 600, 1);
+    const testCache = new LayerCache(testMv);
+    const canvas = testCache.getCanvas('layer1');
+    expect(canvas.width).toBe(testMv.physicalWidth()); // 1312
+    expect(canvas.height).toBe(testMv.physicalHeight()); // 1112
   });
 });
