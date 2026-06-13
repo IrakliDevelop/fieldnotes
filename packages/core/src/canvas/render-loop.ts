@@ -40,9 +40,7 @@ export class RenderLoop {
   private readonly layerCache: LayerCache;
   private readonly marginViewport: MarginViewport;
   private activeDrawingLayerId: string | null = null;
-  private lastZoom: number;
-  private lastCamX: number;
-  private lastCamY: number;
+  private gridCacheDirty = true;
   private readonly stats = new RenderStats();
   private layerGroups = new Map<string, CanvasElement[]>();
   private gridCacheCanvas: HTMLCanvasElement | null = null;
@@ -65,9 +63,6 @@ export class RenderLoop {
     this.domNodeManager = deps.domNodeManager;
     this.layerCache = deps.layerCache;
     this.marginViewport = deps.marginViewport;
-    this.lastZoom = deps.camera.zoom;
-    this.lastCamX = deps.camera.position.x;
-    this.lastCamY = deps.camera.position.y;
   }
 
   requestRender(): void {
@@ -120,13 +115,15 @@ export class RenderLoop {
     return this.stats.getSnapshot();
   }
 
-  private compositeLayerCache(ctx: CanvasRenderingContext2D, layerId: string, dpr: number): void {
+  private compositeLayerCache(ctx: CanvasRenderingContext2D, layerId: string): void {
     const cached = this.layerCache.getCanvas(layerId);
+    const offset = this.marginViewport.compositeOffset(
+      this.camera.position.x,
+      this.camera.position.y,
+    );
     ctx.save();
-    ctx.scale(1 / this.camera.zoom, 1 / this.camera.zoom);
-    ctx.translate(-this.camera.position.x, -this.camera.position.y);
-    ctx.scale(1 / dpr, 1 / dpr);
-    ctx.drawImage(cached as CanvasImageSource, 0, 0);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(cached as CanvasImageSource, offset.x, offset.y);
     ctx.restore();
   }
 
@@ -174,18 +171,15 @@ export class RenderLoop {
     const cssWidth = this.canvasEl.clientWidth;
     const cssHeight = this.canvasEl.clientHeight;
 
+    this.marginViewport.setViewport(cssWidth, cssHeight, dpr);
+
     const currentZoom = this.camera.zoom;
     const currentCamX = this.camera.position.x;
     const currentCamY = this.camera.position.y;
-    if (
-      currentZoom !== this.lastZoom ||
-      currentCamX !== this.lastCamX ||
-      currentCamY !== this.lastCamY
-    ) {
+    if (this.marginViewport.needsRecenter(currentCamX, currentCamY, currentZoom)) {
+      this.marginViewport.recenter(currentCamX, currentCamY, currentZoom);
       this.layerCache.markAllDirty();
-      this.lastZoom = currentZoom;
-      this.lastCamX = currentCamX;
-      this.lastCamY = currentCamY;
+      this.gridCacheDirty = true;
     }
 
     ctx.save();
@@ -208,13 +202,13 @@ export class RenderLoop {
     ctx.translate(this.camera.position.x, this.camera.position.y);
     ctx.scale(this.camera.zoom, this.camera.zoom);
 
-    const visibleRect = this.camera.getVisibleRect(cssWidth, cssHeight);
-    const margin = Math.max(visibleRect.w, visibleRect.h) * 0.1;
+    const cullBounds = this.marginViewport.cachedWorldBounds();
+    const cullPad = Math.max(cullBounds.w, cullBounds.h) * 0.05;
     const cullingRect: Bounds = {
-      x: visibleRect.x - margin,
-      y: visibleRect.y - margin,
-      w: visibleRect.w + margin * 2,
-      h: visibleRect.h + margin * 2,
+      x: cullBounds.x - cullPad,
+      y: cullBounds.y - cullPad,
+      w: cullBounds.w + cullPad * 2,
+      h: cullBounds.h + cullPad * 2,
     };
 
     const allElements = this.store.getAll();
@@ -259,14 +253,14 @@ export class RenderLoop {
 
       if (!this.layerCache.isDirty(layerId)) {
         const compT0 = performance.now();
-        this.compositeLayerCache(ctx, layerId, dpr);
+        this.compositeLayerCache(ctx, layerId);
         compositeMs += performance.now() - compT0;
         continue;
       }
 
       if (isActiveDrawingLayer) {
         const compT0 = performance.now();
-        this.compositeLayerCache(ctx, layerId, dpr);
+        this.compositeLayerCache(ctx, layerId);
         compositeMs += performance.now() - compT0;
         continue;
       }
@@ -277,22 +271,18 @@ export class RenderLoop {
         const offCanvas = this.layerCache.getCanvas(layerId);
         offCtx.clearRect(0, 0, offCanvas.width, offCanvas.height);
         offCtx.save();
-        offCtx.scale(dpr, dpr);
-        offCtx.translate(this.camera.position.x, this.camera.position.y);
-        offCtx.scale(this.camera.zoom, this.camera.zoom);
-
+        this.marginViewport.applyRenderTransform(offCtx);
         for (const element of elements) {
           const elBounds = getElementBounds(element);
           if (elBounds && !boundsIntersect(elBounds, cullingRect)) continue;
           this.renderer.renderCanvasElement(offCtx as CanvasRenderingContext2D, element);
         }
-
         offCtx.restore();
         this.layerCache.markClean(layerId);
         layersMs += performance.now() - layerT0;
 
         const compT0 = performance.now();
-        this.compositeLayerCache(ctx, layerId, dpr);
+        this.compositeLayerCache(ctx, layerId);
         compositeMs += performance.now() - compT0;
       }
     }

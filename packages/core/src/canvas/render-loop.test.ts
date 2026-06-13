@@ -3,6 +3,7 @@
  */
 import { describe, it, expect, beforeEach, beforeAll, vi } from 'vitest';
 import { RenderLoop } from './render-loop';
+import { MarginViewport } from './margin-viewport';
 import type { Camera } from './camera';
 import type { Background } from './background';
 import type { ElementStore } from '../elements/element-store';
@@ -11,7 +12,6 @@ import type { ToolManager } from '../tools/tool-manager';
 import type { LayerManager } from '../layers/layer-manager';
 import type { DomNodeManager } from './dom-node-manager';
 import type { LayerCache } from './layer-cache';
-import type { MarginViewport } from './margin-viewport';
 
 function createMockDeps() {
   const canvasEl = document.createElement('canvas');
@@ -93,11 +93,8 @@ function createMockDeps() {
     clear: vi.fn(),
   } as unknown as LayerCache;
 
-  const marginViewport = {
-    setViewport: vi.fn(),
-    physicalWidth: vi.fn().mockReturnValue(1312),
-    physicalHeight: vi.fn().mockReturnValue(1112),
-  } as unknown as MarginViewport;
+  const marginViewport = new MarginViewport(256);
+  marginViewport.setViewport(800, 600, 1);
 
   return {
     canvasEl,
@@ -183,10 +180,11 @@ describe('RenderLoop', () => {
   });
 
   it('setCanvasSize updates canvas buffer dimensions', () => {
+    const setViewportSpy = vi.spyOn(deps.marginViewport, 'setViewport');
     renderLoop.setCanvasSize(1600, 1200);
     expect(deps.canvasEl.width).toBe(1600);
     expect(deps.canvasEl.height).toBe(1200);
-    expect(deps.marginViewport.setViewport).toHaveBeenCalledWith(1600, 1200, 1);
+    expect(setViewportSpy).toHaveBeenCalledWith(1600, 1200, 1);
   });
 
   it('start and stop control the rAF loop', () => {
@@ -535,6 +533,30 @@ describe('RenderLoop', () => {
 
       expect(deps.layerCache.getContext).toHaveBeenCalledWith('default');
       expect(deps.layerCache.getContext).toHaveBeenCalledWith('layer-b');
+    });
+
+    it('does NOT mark all layers dirty for a pan within the margin', () => {
+      Object.defineProperty(deps.canvasEl, 'clientWidth', { value: 800, configurable: true });
+      Object.defineProperty(deps.canvasEl, 'clientHeight', { value: 600, configurable: true });
+      renderLoop.requestRender();
+      renderLoop.flush(); // first frame recenters (sets anchor)
+      (deps.layerCache.markAllDirty as ReturnType<typeof vi.fn>).mockClear();
+      (deps.camera as { position: { x: number; y: number } }).position = { x: 100, y: 0 }; // < 256
+      renderLoop.requestRender();
+      renderLoop.flush();
+      expect(deps.layerCache.markAllDirty).not.toHaveBeenCalled();
+    });
+
+    it('marks all layers dirty for a pan beyond the margin', () => {
+      Object.defineProperty(deps.canvasEl, 'clientWidth', { value: 800, configurable: true });
+      Object.defineProperty(deps.canvasEl, 'clientHeight', { value: 600, configurable: true });
+      renderLoop.requestRender();
+      renderLoop.flush();
+      (deps.layerCache.markAllDirty as ReturnType<typeof vi.fn>).mockClear();
+      (deps.camera as { position: { x: number; y: number } }).position = { x: 300, y: 0 }; // > 256
+      renderLoop.requestRender();
+      renderLoop.flush();
+      expect(deps.layerCache.markAllDirty).toHaveBeenCalled();
     });
   });
 
