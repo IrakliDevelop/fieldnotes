@@ -395,7 +395,7 @@ describe('RenderLoop', () => {
       expect(deps.renderer.renderCanvasElement).not.toHaveBeenCalled();
     });
 
-    it('re-renders grid when camera moves', () => {
+    it('does not re-render the grid on a within-margin pan (cache reused)', () => {
       Object.defineProperty(deps.canvasEl, 'clientWidth', { value: 800, configurable: true });
       Object.defineProperty(deps.canvasEl, 'clientHeight', { value: 600, configurable: true });
 
@@ -406,17 +406,51 @@ describe('RenderLoop', () => {
         position: { x: 0, y: 0 },
       };
       vi.mocked(deps.store.getAll).mockReturnValue([gridElement] as never);
+      vi.mocked(deps.store.getElementsByType).mockReturnValue([gridElement] as never);
 
       renderLoop.requestRender();
       renderLoop.flush();
 
-      vi.mocked(deps.renderer.renderCanvasElement).mockClear();
-      (deps.camera as { position: { x: number; y: number } }).position = { x: 50, y: 50 };
+      const gridRenders = (): number =>
+        (deps.renderer.renderCanvasElement as ReturnType<typeof vi.fn>).mock.calls.filter(
+          (c: unknown[]) => (c[1] as { type: string } | undefined)?.type === 'grid',
+        ).length;
+      const before = gridRenders();
+      (deps.camera as { position: { x: number; y: number } }).position = { x: 80, y: 0 }; // < 256
 
       renderLoop.requestRender();
       renderLoop.flush();
 
-      expect(deps.renderer.renderCanvasElement).toHaveBeenCalled();
+      expect(gridRenders()).toBe(before); // grid composited from cache, not re-rendered
+    });
+
+    it('re-renders the grid on a pan beyond the margin (recenter)', () => {
+      Object.defineProperty(deps.canvasEl, 'clientWidth', { value: 800, configurable: true });
+      Object.defineProperty(deps.canvasEl, 'clientHeight', { value: 600, configurable: true });
+
+      const gridElement = {
+        id: 'grid-1',
+        type: 'grid',
+        layerId: 'default',
+        position: { x: 0, y: 0 },
+      };
+      vi.mocked(deps.store.getAll).mockReturnValue([gridElement] as never);
+      vi.mocked(deps.store.getElementsByType).mockReturnValue([gridElement] as never);
+
+      renderLoop.requestRender();
+      renderLoop.flush();
+
+      const gridRenders = (): number =>
+        (deps.renderer.renderCanvasElement as ReturnType<typeof vi.fn>).mock.calls.filter(
+          (c: unknown[]) => (c[1] as { type: string } | undefined)?.type === 'grid',
+        ).length;
+      const before = gridRenders();
+      (deps.camera as { position: { x: number; y: number } }).position = { x: 400, y: 0 }; // > 256
+
+      renderLoop.requestRender();
+      renderLoop.flush();
+
+      expect(gridRenders()).toBeGreaterThan(before);
     });
 
     it('skips grid cache when grid element reference changes', () => {

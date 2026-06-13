@@ -45,11 +45,6 @@ export class RenderLoop {
   private layerGroups = new Map<string, CanvasElement[]>();
   private gridCacheCanvas: HTMLCanvasElement | null = null;
   private gridCacheCtx: CanvasRenderingContext2D | null = null;
-  private gridCacheZoom = -1;
-  private gridCacheCamX = -Infinity;
-  private gridCacheCamY = -Infinity;
-  private gridCacheWidth = 0;
-  private gridCacheHeight = 0;
   private lastGridRef: unknown = null;
 
   constructor(deps: RenderLoopDeps) {
@@ -127,27 +122,23 @@ export class RenderLoop {
     ctx.restore();
   }
 
-  private ensureGridCache(cssWidth: number, cssHeight: number, dpr: number): void {
+  private ensureGridCache(): void {
+    const w = this.marginViewport.physicalWidth();
+    const h = this.marginViewport.physicalHeight();
     if (
       this.gridCacheCanvas !== null &&
-      this.gridCacheWidth === cssWidth &&
-      this.gridCacheHeight === cssHeight
+      this.gridCacheCanvas.width === w &&
+      this.gridCacheCanvas.height === h
     ) {
       return;
     }
 
-    const physWidth = Math.round(cssWidth * dpr);
-    const physHeight = Math.round(cssHeight * dpr);
-
     if (typeof OffscreenCanvas !== 'undefined') {
-      this.gridCacheCanvas = new OffscreenCanvas(
-        physWidth,
-        physHeight,
-      ) as unknown as HTMLCanvasElement;
+      this.gridCacheCanvas = new OffscreenCanvas(w, h) as unknown as HTMLCanvasElement;
     } else if (typeof document !== 'undefined') {
       const el = document.createElement('canvas');
-      el.width = physWidth;
-      el.height = physHeight;
+      el.width = w;
+      el.height = h;
       this.gridCacheCanvas = el;
     } else {
       this.gridCacheCanvas = null;
@@ -235,7 +226,7 @@ export class RenderLoop {
         continue;
       }
 
-      // Grids are viewport-filling and recompute on every pan — skip caching
+      // Grids are viewport-filling; handled via anchored cache below
       if (element.type === 'grid') {
         gridElements.push(element);
         continue;
@@ -292,50 +283,37 @@ export class RenderLoop {
     if (gridElements.length > 0) {
       const gridT0 = performance.now();
       const gridRef = gridElements[0];
-      const gridCacheHit =
-        this.gridCacheCanvas !== null &&
-        currentZoom === this.gridCacheZoom &&
-        currentCamX === this.gridCacheCamX &&
-        currentCamY === this.gridCacheCamY &&
-        cssWidth === this.gridCacheWidth &&
-        cssHeight === this.gridCacheHeight &&
-        gridRef === this.lastGridRef;
+      const gridDirty = this.gridCacheDirty || gridRef !== this.lastGridRef;
 
-      if (gridCacheHit) {
-        ctx.save();
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
-        ctx.drawImage(this.gridCacheCanvas as CanvasImageSource, 0, 0);
-        ctx.restore();
-      } else {
-        this.ensureGridCache(cssWidth, cssHeight, dpr);
+      if (gridDirty) {
+        this.ensureGridCache();
         if (this.gridCacheCtx && this.gridCacheCanvas) {
           const gc = this.gridCacheCtx;
           gc.clearRect(0, 0, this.gridCacheCanvas.width, this.gridCacheCanvas.height);
           gc.save();
-          gc.scale(dpr, dpr);
-          gc.translate(currentCamX, currentCamY);
-          gc.scale(currentZoom, currentZoom);
+          this.marginViewport.applyRenderTransform(gc);
           for (const grid of gridElements) {
             this.renderer.renderCanvasElement(gc as CanvasRenderingContext2D, grid);
           }
           gc.restore();
-
-          ctx.save();
-          ctx.setTransform(1, 0, 0, 1, 0, 0);
-          ctx.drawImage(this.gridCacheCanvas as CanvasImageSource, 0, 0);
-          ctx.restore();
-        } else {
-          for (const grid of gridElements) {
-            this.renderer.renderCanvasElement(ctx, grid);
-          }
         }
-
-        this.gridCacheZoom = currentZoom;
-        this.gridCacheCamX = currentCamX;
-        this.gridCacheCamY = currentCamY;
-        this.gridCacheWidth = cssWidth;
-        this.gridCacheHeight = cssHeight;
+        this.gridCacheDirty = false;
         this.lastGridRef = gridRef;
+      }
+
+      if (this.gridCacheCanvas) {
+        const offset = this.marginViewport.compositeOffset(
+          this.camera.position.x,
+          this.camera.position.y,
+        );
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.drawImage(this.gridCacheCanvas as CanvasImageSource, offset.x, offset.y);
+        ctx.restore();
+      } else {
+        for (const grid of gridElements) {
+          this.renderer.renderCanvasElement(ctx, grid);
+        }
       }
       gridMs = performance.now() - gridT0;
     }
