@@ -7,7 +7,7 @@ import type {
   GridElement,
   TemplateElement,
 } from './types';
-import { getArrowControlPoint, getArrowTangentAngle } from './arrow-geometry';
+import { getArrowRenderGeometry } from './arrow-render-cache';
 import { getEdgeIntersection } from './arrow-binding';
 import { getElementBounds } from './element-bounds';
 import { getStrokeRenderData } from './stroke-cache';
@@ -100,23 +100,31 @@ export class ElementRenderer {
     ctx.lineJoin = 'round';
     ctx.globalAlpha = stroke.opacity;
 
-    const { segments, widths } = getStrokeRenderData(stroke);
-    for (let i = 0; i < segments.length; i++) {
-      const seg = segments[i];
-      const w = widths[i];
-      if (!seg || w === undefined) continue;
-      ctx.lineWidth = w;
-      ctx.beginPath();
-      ctx.moveTo(seg.start.x, seg.start.y);
-      ctx.bezierCurveTo(seg.cp1.x, seg.cp1.y, seg.cp2.x, seg.cp2.y, seg.end.x, seg.end.y);
-      ctx.stroke();
+    const data = getStrokeRenderData(stroke);
+    if (data.buckets) {
+      for (const bucket of data.buckets) {
+        ctx.lineWidth = bucket.width;
+        ctx.stroke(bucket.path);
+      }
+    } else {
+      for (let i = 0; i < data.segments.length; i++) {
+        const seg = data.segments[i];
+        const w = data.widths[i];
+        if (!seg || w === undefined) continue;
+        ctx.lineWidth = w;
+        ctx.beginPath();
+        ctx.moveTo(seg.start.x, seg.start.y);
+        ctx.bezierCurveTo(seg.cp1.x, seg.cp1.y, seg.cp2.x, seg.cp2.y, seg.end.x, seg.end.y);
+        ctx.stroke();
+      }
     }
 
     ctx.restore();
   }
 
   private renderArrow(ctx: CanvasRenderingContext2D, arrow: ArrowElement): void {
-    const { visualFrom, visualTo } = this.getVisualEndpoints(arrow);
+    const geometry = getArrowRenderGeometry(arrow);
+    const { visualFrom, visualTo } = this.getVisualEndpoints(arrow, geometry);
 
     ctx.save();
     ctx.strokeStyle = arrow.color;
@@ -131,14 +139,16 @@ export class ElementRenderer {
     ctx.moveTo(visualFrom.x, visualFrom.y);
 
     if (arrow.bend !== 0) {
-      const cp = arrow.cachedControlPoint ?? getArrowControlPoint(arrow.from, arrow.to, arrow.bend);
-      ctx.quadraticCurveTo(cp.x, cp.y, visualTo.x, visualTo.y);
+      const cp = geometry.controlPoint;
+      if (cp) {
+        ctx.quadraticCurveTo(cp.x, cp.y, visualTo.x, visualTo.y);
+      }
     } else {
       ctx.lineTo(visualTo.x, visualTo.y);
     }
     ctx.stroke();
 
-    this.renderArrowhead(ctx, arrow, visualTo);
+    this.renderArrowhead(ctx, arrow, visualTo, geometry.tangentEnd);
     ctx.restore();
   }
 
@@ -146,9 +156,8 @@ export class ElementRenderer {
     ctx: CanvasRenderingContext2D,
     arrow: ArrowElement,
     tip: { x: number; y: number },
+    angle: number,
   ): void {
-    const angle = getArrowTangentAngle(arrow.from, arrow.to, arrow.bend, 1);
-
     ctx.beginPath();
     ctx.moveTo(tip.x, tip.y);
     ctx.lineTo(
@@ -164,7 +173,10 @@ export class ElementRenderer {
     ctx.fill();
   }
 
-  private getVisualEndpoints(arrow: ArrowElement): {
+  private getVisualEndpoints(
+    arrow: ArrowElement,
+    geometry: ReturnType<typeof getArrowRenderGeometry>,
+  ): {
     visualFrom: { x: number; y: number };
     visualTo: { x: number; y: number };
   } {
@@ -178,7 +190,7 @@ export class ElementRenderer {
       if (el) {
         const bounds = getElementBounds(el);
         if (bounds) {
-          const tangentAngle = getArrowTangentAngle(arrow.from, arrow.to, arrow.bend, 0);
+          const tangentAngle = geometry.tangentStart;
           const rayTarget = {
             x: arrow.from.x + Math.cos(tangentAngle) * 1000,
             y: arrow.from.y + Math.sin(tangentAngle) * 1000,
@@ -193,7 +205,7 @@ export class ElementRenderer {
       if (el) {
         const bounds = getElementBounds(el);
         if (bounds) {
-          const tangentAngle = getArrowTangentAngle(arrow.from, arrow.to, arrow.bend, 1);
+          const tangentAngle = geometry.tangentEnd;
           // Reverse tangent — at t=1 tangent points away from curve body,
           // but we need the ray from center back toward the curve
           const rayTarget = {

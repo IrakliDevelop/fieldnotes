@@ -7,6 +7,7 @@ import type { LayerManager } from '../layers/layer-manager';
 import type { DomNodeManager } from './dom-node-manager';
 import type { LayerCache } from './layer-cache';
 import type { Bounds } from '../core/types';
+import type { CanvasElement } from '../elements/types';
 import { getElementBounds, boundsIntersect } from '../elements/element-bounds';
 import { RenderStats } from './render-stats';
 import type { RenderStatsSnapshot } from './render-stats';
@@ -40,7 +41,7 @@ export class RenderLoop {
   private lastCamX: number;
   private lastCamY: number;
   private readonly stats = new RenderStats();
-  private lastGridMs = 0;
+  private layerGroups = new Map<string, CanvasElement[]>();
   private gridCacheCanvas: HTMLCanvasElement | null = null;
   private gridCacheCtx: CanvasRenderingContext2D | null = null;
   private gridCacheZoom = -1;
@@ -159,6 +160,10 @@ export class RenderLoop {
     const ctx = this.canvasEl.getContext('2d');
     if (!ctx) return;
 
+    let layersMs = 0;
+    let compositeMs = 0;
+    let gridMs = 0;
+
     const dpr = typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1;
     const cssWidth = this.canvasEl.clientWidth;
     const cssHeight = this.canvasEl.clientHeight;
@@ -182,6 +187,7 @@ export class RenderLoop {
 
     this.renderer.setCanvasSize(cssWidth, cssHeight);
     const hasGridElement = this.store.getElementsByType('grid').length > 0;
+    const bgT0 = performance.now();
     if (hasGridElement) {
       ctx.save();
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -190,6 +196,7 @@ export class RenderLoop {
     } else {
       this.background.render(ctx, this.camera);
     }
+    const backgroundMs = performance.now() - bgT0;
 
     ctx.save();
     ctx.translate(this.camera.position.x, this.camera.position.y);
@@ -205,8 +212,8 @@ export class RenderLoop {
     };
 
     const allElements = this.store.getAll();
-    const layerElements = new Map<string, typeof allElements>();
-    const gridElements: typeof allElements = [];
+    this.layerGroups.clear();
+    const gridElements: CanvasElement[] = [];
     let domZIndex = 0;
 
     for (const element of allElements) {
@@ -233,29 +240,34 @@ export class RenderLoop {
         continue;
       }
 
-      let group = layerElements.get(element.layerId);
+      let group = this.layerGroups.get(element.layerId);
       if (!group) {
         group = [];
-        layerElements.set(element.layerId, group);
+        this.layerGroups.set(element.layerId, group);
       }
       group.push(element);
     }
 
-    for (const [layerId, elements] of layerElements) {
+    for (const [layerId, elements] of this.layerGroups) {
       const isActiveDrawingLayer = layerId === this.activeDrawingLayerId;
 
       if (!this.layerCache.isDirty(layerId)) {
+        const compT0 = performance.now();
         this.compositeLayerCache(ctx, layerId, dpr);
+        compositeMs += performance.now() - compT0;
         continue;
       }
 
       if (isActiveDrawingLayer) {
+        const compT0 = performance.now();
         this.compositeLayerCache(ctx, layerId, dpr);
+        compositeMs += performance.now() - compT0;
         continue;
       }
 
       const offCtx = this.layerCache.getContext(layerId);
       if (offCtx) {
+        const layerT0 = performance.now();
         const offCanvas = this.layerCache.getCanvas(layerId);
         offCtx.clearRect(0, 0, offCanvas.width, offCanvas.height);
         offCtx.save();
@@ -271,8 +283,11 @@ export class RenderLoop {
 
         offCtx.restore();
         this.layerCache.markClean(layerId);
+        layersMs += performance.now() - layerT0;
 
+        const compT0 = performance.now();
         this.compositeLayerCache(ctx, layerId, dpr);
+        compositeMs += performance.now() - compT0;
       }
     }
 
@@ -325,17 +340,25 @@ export class RenderLoop {
         this.gridCacheHeight = cssHeight;
         this.lastGridRef = gridRef;
       }
-      this.lastGridMs = performance.now() - gridT0;
+      gridMs = performance.now() - gridT0;
     }
 
+    const overlayT0 = performance.now();
     const activeTool = this.toolManager.activeTool;
     if (activeTool?.renderOverlay) {
       activeTool.renderOverlay(ctx);
     }
+    const overlayMs = performance.now() - overlayT0;
 
     ctx.restore();
     ctx.restore();
 
-    this.stats.recordFrame(performance.now() - t0, this.lastGridMs);
+    this.stats.recordFrame(performance.now() - t0, {
+      gridMs,
+      layersMs,
+      backgroundMs,
+      compositeMs,
+      overlayMs,
+    });
   }
 }

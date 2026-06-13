@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi } from 'vitest';
 import { ElementStore } from './element-store';
+import * as strokeCache from './stroke-cache';
+import { getElementBounds } from './element-bounds';
+import { createStroke, createArrow } from './element-factory';
 import type { CanvasElement, NoteElement, StrokeElement } from './types';
 
 function makeNote(overrides: Partial<NoteElement> = {}): NoteElement {
@@ -725,6 +728,111 @@ describe('ElementStore', () => {
         store.sendBackward('nonexistent');
         expect(store.count).toBe(0);
       });
+    });
+  });
+
+  describe('cache warming and transfer', () => {
+    it('loadSnapshot warms stroke segments', () => {
+      const spy = vi.spyOn(strokeCache, 'computeStrokeSegments');
+      const store = new ElementStore();
+      const s1 = createStroke({
+        points: [
+          { x: 0, y: 0, pressure: 0.5 },
+          { x: 10, y: 0, pressure: 0.5 },
+        ],
+      });
+      store.loadSnapshot([s1]);
+      expect(spy).toHaveBeenCalledTimes(1);
+      spy.mockRestore();
+    });
+
+    it('loadSnapshot restores cachedControlPoint for bent arrows', () => {
+      const store = new ElementStore();
+      const arrow = createArrow({
+        position: { x: 0, y: 0 },
+        from: { x: 0, y: 0 },
+        to: { x: 100, y: 0 },
+        bend: 0.5,
+      });
+      delete (arrow as { cachedControlPoint?: unknown }).cachedControlPoint;
+      store.loadSnapshot([arrow]);
+      const loaded = store.getById(arrow.id);
+      expect(loaded && loaded.type === 'arrow' && loaded.cachedControlPoint).toBeTruthy();
+    });
+
+    it('loadSnapshot does NOT set cachedControlPoint for straight arrows', () => {
+      const store = new ElementStore();
+      const arrow = createArrow({
+        position: { x: 0, y: 0 },
+        from: { x: 0, y: 0 },
+        to: { x: 100, y: 0 },
+        bend: 0,
+      });
+      delete (arrow as { cachedControlPoint?: unknown }).cachedControlPoint;
+      store.loadSnapshot([arrow]);
+      const loaded = store.getById(arrow.id);
+      expect(loaded && loaded.type === 'arrow' && loaded.cachedControlPoint).toBeFalsy();
+    });
+
+    it('color-only update keeps the stroke render-data cache', () => {
+      const store = new ElementStore();
+      const s = createStroke({
+        points: [
+          { x: 0, y: 0, pressure: 0.5 },
+          { x: 10, y: 0, pressure: 0.5 },
+        ],
+      });
+      store.add(s);
+      const before = strokeCache.getStrokeRenderData(s);
+      store.update(s.id, { color: '#ff0000' });
+      const after = store.getById(s.id);
+      expect(after).not.toBe(s);
+      if (after && after.type === 'stroke') {
+        expect(strokeCache.getStrokeRenderData(after)).toBe(before);
+      }
+    });
+
+    it('position-only update keeps segments but recomputes bounds', () => {
+      const store = new ElementStore();
+      const s = createStroke({
+        points: [
+          { x: 0, y: 0, pressure: 0.5 },
+          { x: 10, y: 0, pressure: 0.5 },
+        ],
+      });
+      store.add(s);
+      const segsBefore = strokeCache.getStrokeRenderData(s);
+      const boundsBefore = getElementBounds(s);
+      store.update(s.id, { position: { x: 50, y: 50 } });
+      const after = store.getById(s.id);
+      if (after && after.type === 'stroke') {
+        expect(strokeCache.getStrokeRenderData(after)).toBe(segsBefore);
+        const boundsAfter = getElementBounds(after);
+        expect(boundsAfter).not.toEqual(boundsBefore);
+      }
+    });
+
+    it('points update drops both caches', () => {
+      const store = new ElementStore();
+      const s = createStroke({
+        points: [
+          { x: 0, y: 0, pressure: 0.5 },
+          { x: 10, y: 0, pressure: 0.5 },
+        ],
+      });
+      store.add(s);
+      const segsBefore = strokeCache.getStrokeRenderData(s);
+      store.update(s.id, {
+        points: [
+          { x: 0, y: 0, pressure: 0.5 },
+          { x: 20, y: 20, pressure: 0.5 },
+          { x: 40, y: 0, pressure: 0.5 },
+        ],
+      });
+      const after = store.getById(s.id);
+      if (after && after.type === 'stroke') {
+        expect(strokeCache.getStrokeRenderData(after)).not.toBe(segsBefore);
+      }
     });
   });
 });

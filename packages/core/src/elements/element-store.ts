@@ -1,9 +1,10 @@
 import { EventBus } from '../core/event-bus';
 import type { Bounds, Point } from '../core/types';
 import { Quadtree } from '../core/quadtree';
-import { getElementBounds } from './element-bounds';
+import { getElementBounds, transferStrokeBounds } from './element-bounds';
 import { getArrowControlPoint } from './arrow-geometry';
 import { sanitizeNoteHtml } from './note-sanitizer';
+import { computeStrokeSegments, transferStrokeRenderData } from './stroke-cache';
 import type { ArrowElement, CanvasElement, ElementType, NoteElement } from './types';
 
 export interface ElementUpdateEvent {
@@ -75,7 +76,14 @@ export class ElementStore {
     this.sortedCache = null;
     this._versions.set(id, (this._versions.get(id) ?? 0) + 1);
 
+    // Shallow spread preserves the points array identity when `partial` omits points;
+    // transferStrokeRenderData/transferStrokeBounds rely on that reference equality.
     const updated = { ...existing, ...partial, id: existing.id, type: existing.type };
+
+    if (updated.type === 'stroke' && existing.type === 'stroke') {
+      transferStrokeRenderData(existing, updated as CanvasElement);
+      transferStrokeBounds(existing, updated as CanvasElement);
+    }
 
     if (updated.type === 'arrow') {
       const arrow = updated as ArrowElement;
@@ -129,6 +137,12 @@ export class ElementStore {
       this._versions.set(el.id, 0);
       const bounds = getElementBounds(el);
       if (bounds) this.spatialIndex.insert(el.id, bounds);
+      if (el.type === 'stroke') {
+        computeStrokeSegments(el);
+      }
+      if (el.type === 'arrow' && el.bend !== 0 && !el.cachedControlPoint) {
+        el.cachedControlPoint = getArrowControlPoint(el.from, el.to, el.bend);
+      }
     }
     this.bus.emit('clear', null);
     for (const el of elements) {

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { computeStrokeSegments, getStrokeRenderData } from './stroke-cache';
 import { createStroke } from './element-factory';
 
@@ -32,6 +32,65 @@ describe('stroke-cache', () => {
       const data = computeStrokeSegments(stroke);
       expect(data.segments).toEqual([]);
       expect(data.widths).toEqual([]);
+    });
+  });
+
+  describe('width buckets', () => {
+    class FakePath2D {
+      ops: string[] = [];
+      moveTo(x: number, y: number): void {
+        this.ops.push(`M${x},${y}`);
+      }
+      bezierCurveTo(): void {
+        this.ops.push('C');
+      }
+    }
+
+    beforeEach(() => {
+      (globalThis as Record<string, unknown>).Path2D = FakePath2D;
+    });
+    afterEach(() => {
+      delete (globalThis as Record<string, unknown>).Path2D;
+    });
+
+    function variedStroke() {
+      return createStroke({
+        points: [
+          { x: 0, y: 0, pressure: 0.2 },
+          { x: 10, y: 5, pressure: 0.5 },
+          { x: 20, y: 0, pressure: 0.9 },
+          { x: 30, y: 5, pressure: 0.4 },
+          { x: 40, y: 0, pressure: 0.7 },
+        ],
+        width: 4,
+      });
+    }
+
+    it('groups segments into quantized width buckets covering all segments', () => {
+      const data = computeStrokeSegments(variedStroke());
+      expect(data.buckets).not.toBeNull();
+      const totalCurves = (data.buckets ?? []).reduce(
+        (sum, b) => sum + (b.path as unknown as FakePath2D).ops.filter((o) => o === 'C').length,
+        0,
+      );
+      expect(totalCurves).toBe(data.segments.length);
+      for (const b of data.buckets ?? []) {
+        expect((b.width * 4) % 1).toBeCloseTo(0); // multiples of 0.25
+      }
+    });
+
+    it('every segment width quantizes to an existing bucket within half a quantum', () => {
+      const data = computeStrokeSegments(variedStroke());
+      for (const w of data.widths) {
+        const q = Math.max(0.25, Math.round(w / 0.25) * 0.25);
+        expect(Math.abs(q - w)).toBeLessThanOrEqual(0.125 + 1e-9);
+        expect((data.buckets ?? []).some((b) => Math.abs(b.width - q) < 1e-9)).toBe(true);
+      }
+    });
+
+    it('buckets is null when Path2D is unavailable', () => {
+      delete (globalThis as Record<string, unknown>).Path2D;
+      expect(computeStrokeSegments(variedStroke()).buckets).toBeNull();
     });
   });
 

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ElementRenderer } from './element-renderer';
+import { computeStrokeSegments } from './stroke-cache';
 import type {
   StrokeElement,
   ArrowElement,
@@ -125,6 +126,55 @@ describe('ElementRenderer', () => {
 
       expect(ctx.save).toHaveBeenCalled();
       expect(ctx.restore).toHaveBeenCalled();
+    });
+  });
+
+  describe('bucketed stroke rendering', () => {
+    class FakePath2D {
+      moveTo(_x: number, _y: number): void {
+        // no-op stub
+      }
+      bezierCurveTo(
+        _cp1x: number,
+        _cp1y: number,
+        _cp2x: number,
+        _cp2y: number,
+        _x: number,
+        _y: number,
+      ): void {
+        // no-op stub
+      }
+    }
+
+    beforeEach(() => {
+      (globalThis as Record<string, unknown>).Path2D = FakePath2D;
+    });
+    afterEach(() => {
+      delete (globalThis as Record<string, unknown>).Path2D;
+    });
+
+    it('renders bucketed strokes via ctx.stroke(path) per bucket, no per-segment paths', () => {
+      const stroke = makeStroke({
+        points: [
+          { x: 0, y: 0, pressure: 0.2 },
+          { x: 10, y: 5, pressure: 0.5 },
+          { x: 20, y: 0, pressure: 0.9 },
+          { x: 30, y: 5, pressure: 0.4 },
+        ],
+        width: 4,
+      });
+      const renderer = new ElementRenderer();
+      const data = computeStrokeSegments(stroke);
+      const bucketCount = (data.buckets ?? []).length;
+      expect(bucketCount).toBeGreaterThan(0);
+
+      const ctx = mockCtx();
+      renderer.renderCanvasElement(ctx, stroke);
+
+      const strokeCalls = (ctx.stroke as ReturnType<typeof vi.fn>).mock.calls;
+      const pathCalls = strokeCalls.filter((c) => c[0] instanceof FakePath2D);
+      expect(pathCalls.length).toBe(bucketCount);
+      expect(ctx.beginPath).not.toHaveBeenCalled();
     });
   });
 
