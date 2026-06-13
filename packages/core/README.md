@@ -413,6 +413,21 @@ new Viewport(container, {
 });
 ```
 
+### ViewportOptions reference
+
+- `camera?: CameraOptions` — `minZoom` / `maxZoom` (defaults `0.1` / `10`).
+- `background?: BackgroundOptions` — `pattern`, `spacing`, `color`.
+- `fontSizePresets?: FontSizePreset[]` — custom font-size steps for the note toolbar.
+- `toolbar?: boolean` — show/hide the note formatting toolbar (default `true`).
+- `placeholder?: string` — placeholder text shown in empty notes.
+- `shortcuts?: ShortcutOptions` — seed the keyboard shortcut table with custom bindings.
+- `onHtmlElementMount?` — called after `loadState` for HTML elements that need content injected.
+- `onDrop?` — called for every drop event; replaces the built-in image-drop handling.
+- `onImageError?` — called when an image element fails to load.
+- `panBufferMargin?: number` (default `256`) — CSS-pixel margin cached beyond the viewport so
+  small pans re-composite instead of re-rasterizing the layers and grid. Larger = more pan
+  reuse, more memory per layer. Set `0` to disable (exact-viewport caches) on memory-tight hosts.
+
 ### Tool Options
 
 ```typescript

@@ -53,6 +53,8 @@ export interface ViewportOptions {
   ) => void;
   onDrop?: (event: DragEvent, worldPosition: { x: number; y: number }) => void;
   onImageError?: (info: { src: string; elementIds: string[] }) => void;
+  /** CSS-pixel margin cached beyond the viewport. Default `256`. Set `0` to disable. */
+  panBufferMargin?: number;
 }
 
 export class Viewport {
@@ -177,7 +179,7 @@ export class Viewport {
       getNode: (id) => this.domNodeManager.getNode(id),
     });
 
-    this.marginViewport = new MarginViewport(256);
+    this.marginViewport = new MarginViewport(options.panBufferMargin ?? 256);
     this.marginViewport.setViewport(
       this.canvasEl.clientWidth || 800,
       this.canvasEl.clientHeight || 600,
