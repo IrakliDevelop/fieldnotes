@@ -19,7 +19,6 @@ function createMockDeps() {
   const camera = {
     position: { x: 0, y: 0 },
     zoom: 1,
-    getVisibleRect: vi.fn().mockReturnValue({ x: 0, y: 0, w: 800, h: 600 }),
     screenToWorld: vi.fn().mockReturnValue({ x: 0, y: 0 }),
   } as unknown as Camera;
 
@@ -557,6 +556,19 @@ describe('RenderLoop', () => {
       renderLoop.requestRender();
       renderLoop.flush();
       expect(deps.layerCache.markAllDirty).toHaveBeenCalled();
+    });
+
+    it('does NOT re-render a clean layer on a within-margin pan (cache reused)', () => {
+      Object.defineProperty(deps.canvasEl, 'clientWidth', { value: 800, configurable: true });
+      Object.defineProperty(deps.canvasEl, 'clientHeight', { value: 600, configurable: true });
+      (deps.layerCache.isDirty as ReturnType<typeof vi.fn>).mockReturnValue(false); // layer already cached/clean
+      renderLoop.requestRender();
+      renderLoop.flush(); // recenter frame
+      (deps.layerCache.getContext as ReturnType<typeof vi.fn>).mockClear();
+      (deps.camera as { position: { x: number; y: number } }).position = { x: 100, y: 0 }; // < 256
+      renderLoop.requestRender();
+      renderLoop.flush();
+      expect(deps.layerCache.getContext).not.toHaveBeenCalled(); // composited from cache, no re-raster
     });
   });
 

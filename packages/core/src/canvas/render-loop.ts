@@ -40,7 +40,7 @@ export class RenderLoop {
   private readonly layerCache: LayerCache;
   private readonly marginViewport: MarginViewport;
   private activeDrawingLayerId: string | null = null;
-  private gridCacheDirty = true;
+  private gridCacheDirty = true; // set on recenter/viewport-change; consumed by the grid block
   private readonly stats = new RenderStats();
   private layerGroups = new Map<string, CanvasElement[]>();
   private gridCacheCanvas: HTMLCanvasElement | null = null;
@@ -171,6 +171,7 @@ export class RenderLoop {
     const cssWidth = this.canvasEl.clientWidth;
     const cssHeight = this.canvasEl.clientHeight;
 
+    // idempotent; catches resizes that bypass setCanvasSize
     this.marginViewport.setViewport(cssWidth, cssHeight, dpr);
 
     const currentZoom = this.camera.zoom;
