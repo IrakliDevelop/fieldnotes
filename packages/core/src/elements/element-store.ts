@@ -5,7 +5,7 @@ import { getElementBounds, transferStrokeBounds } from './element-bounds';
 import { getArrowControlPoint } from './arrow-geometry';
 import { sanitizeNoteHtml } from './note-sanitizer';
 import { computeStrokeSegments, transferStrokeRenderData } from './stroke-cache';
-import type { ArrowElement, CanvasElement, ElementType, NoteElement, StrokeElement } from './types';
+import type { ArrowElement, CanvasElement, ElementType, NoteElement } from './types';
 
 export interface ElementUpdateEvent {
   previous: CanvasElement;
@@ -76,10 +76,12 @@ export class ElementStore {
     this.sortedCache = null;
     this._versions.set(id, (this._versions.get(id) ?? 0) + 1);
 
+    // Shallow spread preserves the points array identity when `partial` omits points;
+    // transferStrokeRenderData/transferStrokeBounds rely on that reference equality.
     const updated = { ...existing, ...partial, id: existing.id, type: existing.type };
 
     if (updated.type === 'stroke' && existing.type === 'stroke') {
-      transferStrokeRenderData(existing as StrokeElement, updated as StrokeElement);
+      transferStrokeRenderData(existing, updated as CanvasElement);
       transferStrokeBounds(existing, updated as CanvasElement);
     }
 

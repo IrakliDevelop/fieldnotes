@@ -1,4 +1,4 @@
-import type { StrokeElement } from './types';
+import type { CanvasElement, StrokeElement } from './types';
 import type { CurveSegment } from './stroke-smoothing';
 import { smoothToSegments, pressureToWidth } from './stroke-smoothing';
 
@@ -62,7 +62,8 @@ export function getStrokeRenderData(stroke: StrokeElement): StrokeRenderData {
   return computeStrokeSegments(stroke);
 }
 
-export function transferStrokeRenderData(prev: StrokeElement, next: StrokeElement): void {
+export function transferStrokeRenderData(prev: CanvasElement, next: CanvasElement): void {
+  if (prev.type !== 'stroke' || next.type !== 'stroke') return;
   if (prev.points !== next.points) return;
   const data = cache.get(prev);
   if (data) cache.set(next, data);
