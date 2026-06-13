@@ -55,6 +55,13 @@ describe('MarginViewport.needsRecenter', () => {
     mv.recenter(10, 20, 1);
     expect(mv.needsRecenter(10, 20, 1)).toBe(false);
   });
+  it('is true after setMargin changes the margin', () => {
+    const mv = setup(256);
+    mv.recenter(0, 0, 1);
+    expect(mv.needsRecenter(0, 0, 1)).toBe(false);
+    mv.setMargin(128);
+    expect(mv.needsRecenter(0, 0, 1)).toBe(true);
+  });
 });
 
 describe('MarginViewport.compositeOffset', () => {

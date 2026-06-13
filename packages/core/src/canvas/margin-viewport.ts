@@ -4,6 +4,8 @@ import type { Bounds } from '../core/types';
  * Owns the cache anchor (the camera state the screen-space caches were last rendered at)
  * and the margin geometry. Pure — holds no canvas. Caches render a region inflated by
  * `marginPx` on every side, so a pan within the margin is an offset-blit, not a re-raster.
+ *
+ * Call setViewport(cssW, cssH, dpr) before physicalWidth/Height, applyRenderTransform, or compositeOffset — they read the stored dpr.
  */
 export class MarginViewport {
   private cssW = 0;
@@ -56,6 +58,7 @@ export class MarginViewport {
     this.viewportDirty = false;
   }
 
+  /** Applies dpr scale + anchor-relative world transform. setViewport must have been called first. */
   applyRenderTransform(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D): void {
     ctx.scale(this.dpr, this.dpr);
     ctx.translate(this.marginPx + this.anchorCamX, this.marginPx + this.anchorCamY);
