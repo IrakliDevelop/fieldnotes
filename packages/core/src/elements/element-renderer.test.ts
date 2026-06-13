@@ -534,7 +534,7 @@ describe('ElementRenderer', () => {
       renderer.renderCanvasElement(ctx, image);
       failImage(renderer, image.src);
       expect(onError).toHaveBeenCalledTimes(1);
-      expect(onError).toHaveBeenCalledWith(image.src);
+      expect(onError).toHaveBeenCalledWith(image.src, expect.any(Event));
 
       renderer.renderCanvasElement(ctx, image);
       expect(ctx.drawImage).not.toHaveBeenCalled();
@@ -568,6 +568,20 @@ describe('ElementRenderer', () => {
       renderer.renderCanvasElement(ctx, image);
       failImage(renderer, image.src);
       expect(onLoad).toHaveBeenCalledTimes(1);
+    });
+
+    it('forwards the error event as cause to onImageError', () => {
+      const onError = vi.fn();
+      const renderer = new ElementRenderer();
+      renderer.setOnImageError(onError);
+      const ctx = mockCtx();
+      const image = makeImage({ src: 'https://broken.example/c.png' });
+      renderer.renderCanvasElement(ctx, image);
+      const cache = (renderer as unknown as { imageCache: Map<string, unknown> }).imageCache;
+      const img = cache.get(image.src);
+      const event = new Event('error');
+      if (img instanceof HTMLImageElement) img.onerror?.(event as never);
+      expect(onError).toHaveBeenCalledWith(image.src, event);
     });
   });
 

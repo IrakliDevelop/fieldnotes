@@ -52,7 +52,7 @@ export interface ViewportOptions {
     container: HTMLDivElement,
   ) => void;
   onDrop?: (event: DragEvent, worldPosition: { x: number; y: number }) => void;
-  onImageError?: (info: { src: string; elementIds: string[] }) => void;
+  onImageError?: (info: { src: string; elementIds: string[]; cause?: unknown }) => void;
   /** CSS-pixel margin cached beyond the viewport. Default `256`. Set `0` to disable. */
   panBufferMargin?: number;
 }
@@ -112,13 +112,13 @@ export class Viewport {
       this.renderLoop.markAllLayersDirty();
       this.requestRender();
     });
-    this.renderer.setOnImageError((src) => {
+    this.renderer.setOnImageError((src, cause) => {
       const elementIds: string[] = [];
       for (const el of this.store.getAll()) {
         if (el.type === 'image' && el.src === src) elementIds.push(el.id);
       }
       if (options.onImageError) {
-        options.onImageError({ src, elementIds });
+        options.onImageError({ src, elementIds, cause });
       } else {
         console.warn(`[fieldnotes] image failed to load: ${src}`);
       }

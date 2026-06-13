@@ -1221,7 +1221,7 @@ describe('Viewport', () => {
 
       triggerImageError(viewport, src);
 
-      expect(onImageError).toHaveBeenCalledWith({ src, elementIds: [id] });
+      expect(onImageError).toHaveBeenCalledWith(expect.objectContaining({ src, elementIds: [id] }));
       viewport.destroy();
     });
 
@@ -1235,6 +1235,22 @@ describe('Viewport', () => {
 
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining(src));
       warnSpy.mockRestore();
+      viewport.destroy();
+    });
+
+    it('forwards cause in the onImageError payload', () => {
+      const onImageError = vi.fn();
+      const viewport = new Viewport(container, { onImageError });
+      const src = 'https://broken.example/d.png';
+      viewport.addImage(src, { x: 0, y: 0 });
+      const renderer = (viewport as unknown as { renderer: { getImage: (s: string) => unknown } })
+        .renderer;
+      renderer.getImage(src);
+      const cache = (renderer as unknown as { imageCache: Map<string, unknown> }).imageCache;
+      const img = cache.get(src);
+      const event = new Event('error');
+      if (img instanceof HTMLImageElement) img.onerror?.(event as never);
+      expect(onImageError).toHaveBeenCalledWith(expect.objectContaining({ src, cause: event }));
       viewport.destroy();
     });
   });

@@ -37,7 +37,7 @@ export class ElementRenderer {
   private store: ElementStore | null = null;
   private imageCache = new Map<string, ImageBitmap | HTMLImageElement | 'failed'>();
   private onImageLoad: (() => void) | null = null;
-  private onImageError: ((src: string) => void) | null = null;
+  private onImageError: ((src: string, cause?: unknown) => void) | null = null;
   private camera: Camera | null = null;
   private canvasSize: { w: number; h: number } | null = null;
   private hexTileCache: HexGridTile | null = null;
@@ -53,7 +53,7 @@ export class ElementRenderer {
     this.onImageLoad = callback;
   }
 
-  setOnImageError(callback: (src: string) => void): void {
+  setOnImageError(callback: (src: string, cause?: unknown) => void): void {
     this.onImageError = callback;
   }
 
@@ -599,10 +599,10 @@ export class ElementRenderer {
           });
       }
     };
-    img.onerror = () => {
+    img.onerror = (event) => {
       // failed srcs stay failed for the session; pointing the element at a new src loads fresh
       this.imageCache.set(src, 'failed');
-      this.onImageError?.(src);
+      this.onImageError?.(src, event);
       this.onImageLoad?.();
     };
     return null;
