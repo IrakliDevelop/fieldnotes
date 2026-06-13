@@ -8,9 +8,9 @@ export interface StrokeWidthBucket {
 }
 
 export interface StrokeRenderData {
-  segments: CurveSegment[];
+  segments: CurveSegment[]; // always populated; used by hit-testing and the no-Path2D fallback
   widths: number[];
-  buckets: StrokeWidthBucket[] | null;
+  buckets: StrokeWidthBucket[] | null; // null when Path2D is unavailable (jsdom / old browsers)
 }
 
 // Strokes are immutable after commit. If points ever become mutable,
@@ -32,6 +32,7 @@ function buildWidthBuckets(segments: CurveSegment[], widths: number[]): StrokeWi
       path = new Path2D();
       byWidth.set(q, path);
     }
+    // Each segment is an independent open sub-path; moveTo resets the pen between them.
     path.moveTo(seg.start.x, seg.start.y);
     path.bezierCurveTo(seg.cp1.x, seg.cp1.y, seg.cp2.x, seg.cp2.y, seg.end.x, seg.end.y);
   }
