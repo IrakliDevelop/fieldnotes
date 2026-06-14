@@ -1383,8 +1383,13 @@ describe('InputHandler', () => {
     });
 
     it('keeps the viewport center fixed when zooming in', () => {
-      const rect = element.getBoundingClientRect();
-      const center = { x: rect.width / 2, y: rect.height / 2 };
+      // jsdom returns a zero rect and the camera starts at the origin, which would
+      // make this assertion pass trivially — give the surface a real size and pan the
+      // camera so the center is a genuinely non-trivial world point.
+      element.getBoundingClientRect = () =>
+        ({ width: 800, height: 600, left: 0, top: 0, right: 800, bottom: 600 }) as DOMRect;
+      camera.moveTo(120, -40);
+      const center = { x: 400, y: 300 };
       const before = camera.screenToWorld(center);
       element.focus();
       window.dispatchEvent(

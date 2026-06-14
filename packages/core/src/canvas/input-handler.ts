@@ -319,15 +319,15 @@ export class InputHandler {
         e.preventDefault();
         this.actions.zoomToFit();
         return;
-      case 'zoom:in':
+      case 'zoom-in':
         e.preventDefault();
         this.zoomByFactor(ZOOM_STEP);
         return;
-      case 'zoom:out':
+      case 'zoom-out':
         e.preventDefault();
         this.zoomByFactor(1 / ZOOM_STEP);
         return;
-      case 'zoom:reset':
+      case 'zoom-reset':
         e.preventDefault();
         this.zoomToLevel(1);
         return;
