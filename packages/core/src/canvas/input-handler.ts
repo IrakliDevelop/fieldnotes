@@ -9,6 +9,7 @@ import { KeyboardActions } from './keyboard-actions';
 import { ShortcutMap } from './shortcut-map';
 
 const ZOOM_SENSITIVITY = 0.001;
+const ZOOM_STEP = 1.2;
 const MIDDLE_BUTTON = 1;
 
 const NUDGE_DELTAS: Record<string, readonly [number, number]> = {
@@ -112,6 +113,19 @@ export class InputHandler {
     this.element.addEventListener('pointercancel', this.onPointerUp, opts);
     window.addEventListener('keydown', this.onKeyDown, opts);
     window.addEventListener('keyup', this.onKeyUp, opts);
+  }
+
+  private viewportCenter(): { x: number; y: number } {
+    const rect = this.element.getBoundingClientRect();
+    return { x: rect.width / 2, y: rect.height / 2 };
+  }
+
+  private zoomByFactor(factor: number): void {
+    this.camera.zoomAt(this.camera.zoom * factor, this.viewportCenter());
+  }
+
+  private zoomToLevel(level: number): void {
+    this.camera.zoomAt(level, this.viewportCenter());
   }
 
   private onWheel = (e: WheelEvent): void => {
@@ -304,6 +318,18 @@ export class InputHandler {
       case 'zoom-fit':
         e.preventDefault();
         this.actions.zoomToFit();
+        return;
+      case 'zoom:in':
+        e.preventDefault();
+        this.zoomByFactor(ZOOM_STEP);
+        return;
+      case 'zoom:out':
+        e.preventDefault();
+        this.zoomByFactor(1 / ZOOM_STEP);
+        return;
+      case 'zoom:reset':
+        e.preventDefault();
+        this.zoomToLevel(1);
         return;
       case 'nudge-left':
       case 'nudge-right':
