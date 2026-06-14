@@ -4,6 +4,23 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.26.0] — 2026-06-14
+
+### Added
+
+- **Zoom presets** — `Ctrl/Cmd` `=` zooms in, `Ctrl/Cmd` `-` zooms out (1.2× steps), `Ctrl/Cmd` `0` resets to 100%. All zoom about the viewport center and respect the camera's min/max clamp. New rebindable shortcut actions `zoom-in` / `zoom-out` / `zoom-reset` (via `ViewportOptions.shortcuts`). The demo's zoom readout is now clickable to reset to 100%.
+
+### Changed
+
+- **Paste at cursor** — when the pointer is over the canvas, paste positions the clipboard so its bounding-box center lands at the cursor. Pasting without a recent pointer position (e.g. the pointer has left the canvas) keeps the previous diagonal +20px cascade.
+
+### Fixed
+
+- **Notes no longer clip text** — a note's height auto-grows to fit its content at edit-stop and after a resize. You can still drag a note taller than its content, but narrowing it (or adding text) grows the height instead of silently hiding the overflow.
+- **One undo step per text edit** — finishing a note or text edit (text change plus any height auto-fit) now records a single history entry, so one Ctrl+Z fully reverts the edit. Previously the text and height changes could land as two separate undo steps.
+
+---
+
 ## [0.25.0] — 2026-06-14
 
 ### Removed (breaking)

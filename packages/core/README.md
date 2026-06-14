@@ -279,7 +279,8 @@ viewport.toolManager.onChange((toolName) => {
 
 Defaults (remappable): `Delete`/`Backspace` delete · `Escape` deselect · `mod+Z` undo ·
 `mod+Y`/`mod+Shift+Z` redo · `mod+A` select all · `mod+C/V/D` copy/paste/duplicate ·
-`[`/`]` z-order (with `mod` = to back/front) · `Shift+1` zoom-to-fit · arrows nudge
+`[`/`]` z-order (with `mod` = to back/front) · `Shift+1` zoom-to-fit · `mod+=` zoom in ·
+`mod+-` zoom out · `mod+0` reset zoom to 100% · arrows nudge
 (`Shift` = one grid cell) · tool keys `V` select, `H` hand, `P` pencil, `E` eraser,
 `A` arrow, `N` note, `T` text, `S` shape, `M` measure, `G` template.
 
