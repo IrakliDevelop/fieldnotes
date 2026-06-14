@@ -4,7 +4,9 @@ import type { SelectTool } from '../tools/select-tool';
 import type { HistoryRecorder } from '../history/history-recorder';
 import type { HistoryStack } from '../history/history-stack';
 import type { CanvasElement, ArrowElement } from '../elements/types';
+import type { Point } from '../core/types';
 import { createId } from '../elements/create-id';
+import { getElementsBoundingBox } from '../elements/bounds';
 
 export interface KeyboardActionsDeps {
   getToolManager: () => ToolManager | null;
@@ -13,6 +15,7 @@ export interface KeyboardActionsDeps {
   getHistoryStack: () => HistoryStack | null;
   isToolActive: () => boolean;
   fitToContent?: () => void;
+  getLastPointerWorld?: () => Point | null;
 }
 
 export class KeyboardActions {
@@ -128,8 +131,20 @@ export class KeyboardActions {
     if (this.clipboard.length === 0) return;
     const sel = this.selectTool();
     if (!sel) return;
+
+    const cursor = this.deps.getLastPointerWorld?.() ?? null;
+    if (cursor) {
+      const bbox = getElementsBoundingBox(this.clipboard);
+      if (bbox) {
+        const centerX = bbox.x + bbox.w / 2;
+        const centerY = bbox.y + bbox.h / 2;
+        this.insertClones(this.clipboard, { x: cursor.x - centerX, y: cursor.y - centerY }, sel);
+        return;
+      }
+    }
+
     this.pasteCount++;
-    this.insertClones(this.clipboard, this.pasteCount * 20, sel);
+    this.insertClones(this.clipboard, { x: this.pasteCount * 20, y: this.pasteCount * 20 }, sel);
   }
 
   duplicate(): void {
@@ -143,7 +158,7 @@ export class KeyboardActions {
       if (el) source.push(el);
     }
     if (source.length === 0) return;
-    this.insertClones(source, 20, sel);
+    this.insertClones(source, { x: 20, y: 20 }, sel);
   }
 
   deselect(): void {
@@ -214,7 +229,7 @@ export class KeyboardActions {
 
   private insertClones(
     source: CanvasElement[],
-    offset: number,
+    offset: Point,
     sel: { tool: SelectTool; ctx: ToolContext },
   ): void {
     const idMap = new Map<string, string>();
@@ -231,12 +246,12 @@ export class KeyboardActions {
       const newId = idMap.get(el.id);
       if (!newId) continue;
       clone.id = newId;
-      clone.position = { x: clone.position.x + offset, y: clone.position.y + offset };
+      clone.position = { x: clone.position.x + offset.x, y: clone.position.y + offset.y };
 
       if (clone.type === 'arrow') {
         const arrow = clone as ArrowElement;
-        arrow.from = { x: arrow.from.x + offset, y: arrow.from.y + offset };
-        arrow.to = { x: arrow.to.x + offset, y: arrow.to.y + offset };
+        arrow.from = { x: arrow.from.x + offset.x, y: arrow.from.y + offset.y };
+        arrow.to = { x: arrow.to.x + offset.x, y: arrow.to.y + offset.y };
         delete arrow.cachedControlPoint;
 
         if (arrow.fromBinding) {

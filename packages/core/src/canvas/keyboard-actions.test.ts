@@ -442,6 +442,35 @@ describe('KeyboardActions nudge transaction ownership', () => {
   });
 });
 
+describe('KeyboardActions.paste cursor-centering', () => {
+  it('pastes centered on the cursor when a pointer position is available', () => {
+    const { actions, ctx, tool } = makeActions();
+    const note = createNote({ position: { x: 100, y: 100 }, size: { w: 40, h: 40 } });
+    ctx.store.add(note);
+    tool.setSelection([note.id]);
+    actions.copy();
+    (
+      actions as unknown as { deps: { getLastPointerWorld: () => { x: number; y: number } } }
+    ).deps.getLastPointerWorld = () => ({ x: 500, y: 500 });
+    actions.paste();
+    const pasted = ctx.store.getAll().find((el) => el.id !== note.id && el.type === 'note');
+    expect(pasted?.position).toEqual({ x: 480, y: 480 }); // 40x40 bbox center on (500,500)
+  });
+
+  it('falls back to the +20 cascade when no pointer position is available', () => {
+    const { actions, ctx, tool } = makeActions();
+    const note = createNote({ position: { x: 100, y: 100 }, size: { w: 40, h: 40 } });
+    ctx.store.add(note);
+    tool.setSelection([note.id]);
+    actions.copy();
+    (actions as unknown as { deps: { getLastPointerWorld: () => null } }).deps.getLastPointerWorld =
+      () => null;
+    actions.paste();
+    const pasted = ctx.store.getAll().find((el) => el.id !== note.id && el.type === 'note');
+    expect(pasted?.position).toEqual({ x: 120, y: 120 });
+  });
+});
+
 describe('KeyboardActions guards during active tool input', () => {
   function activeSetup() {
     const ctx = makeCtx();

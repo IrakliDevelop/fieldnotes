@@ -63,6 +63,7 @@ export class InputHandler {
       getHistoryStack: () => this.historyStack,
       isToolActive: () => this.isToolActive,
       fitToContent: options.fitToContent,
+      getLastPointerWorld: () => this.lastPointerWorld(),
     });
     this.shortcutMap = new ShortcutMap(options.shortcuts?.bindings);
     this.scope = options.shortcuts?.scope ?? 'focus';
@@ -107,7 +108,7 @@ export class InputHandler {
     this.element.addEventListener('pointerdown', this.onPointerDown, opts);
     this.element.addEventListener('pointermove', this.onPointerMove, opts);
     this.element.addEventListener('pointerup', this.onPointerUp, opts);
-    this.element.addEventListener('pointerleave', this.onPointerUp, opts);
+    this.element.addEventListener('pointerleave', this.onPointerLeave, opts);
     this.element.addEventListener('pointercancel', this.onPointerUp, opts);
     window.addEventListener('keydown', this.onKeyDown, opts);
     window.addEventListener('keyup', this.onKeyUp, opts);
@@ -372,6 +373,18 @@ export class InputHandler {
   ): { x: number; y: number } {
     return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
   }
+
+  private lastPointerWorld(): { x: number; y: number } | null {
+    const e = this.lastPointerEvent;
+    if (!e) return null;
+    const rect = this.element.getBoundingClientRect();
+    return this.camera.screenToWorld({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+  }
+
+  private onPointerLeave = (e: PointerEvent): void => {
+    this.lastPointerEvent = null;
+    this.onPointerUp(e);
+  };
 
   private toPointerState(e: PointerEvent): PointerState {
     const rect = this.element.getBoundingClientRect();
