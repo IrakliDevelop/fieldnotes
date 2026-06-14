@@ -1282,4 +1282,58 @@ describe('Viewport', () => {
       viewport.destroy();
     });
   });
+
+  describe('fitNoteHeight (auto-grow)', () => {
+    it('grows a note height to fit content height', () => {
+      const viewport = new Viewport(container);
+      const note = createNote({
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 20 },
+        text: 'multi\nline\ntext',
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(note);
+      const priv = viewport as unknown as {
+        fitNoteHeight: (id: string) => void;
+        domNodeManager: {
+          syncDomNode: (el: unknown) => void;
+          getNode: (id: string) => HTMLElement | undefined;
+        };
+      };
+      priv.domNodeManager.syncDomNode(note);
+      const node = priv.domNodeManager.getNode(note.id);
+      expect(node).not.toBeUndefined();
+      Object.defineProperty(node, 'scrollHeight', { value: 80, configurable: true });
+      priv.fitNoteHeight(note.id);
+      const updated = viewport.store.getById(note.id);
+      expect(updated?.type === 'note' && updated.size.h).toBe(80);
+      viewport.destroy();
+    });
+
+    it('does not shrink a note below its dragged height', () => {
+      const viewport = new Viewport(container);
+      const note = createNote({
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 200 },
+        text: 'real content here',
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(note);
+      const priv = viewport as unknown as {
+        fitNoteHeight: (id: string) => void;
+        domNodeManager: {
+          syncDomNode: (el: unknown) => void;
+          getNode: (id: string) => HTMLElement | undefined;
+        };
+      };
+      priv.domNodeManager.syncDomNode(note);
+      const node = priv.domNodeManager.getNode(note.id);
+      expect(node).not.toBeUndefined();
+      Object.defineProperty(node, 'scrollHeight', { value: 30, configurable: true });
+      priv.fitNoteHeight(note.id);
+      const updated = viewport.store.getById(note.id);
+      expect(updated?.type === 'note' && updated.size.h).toBe(200);
+      viewport.destroy();
+    });
+  });
 });

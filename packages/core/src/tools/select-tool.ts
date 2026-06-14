@@ -237,8 +237,15 @@ export class SelectTool implements Tool {
     this.pendingSingleSelectId = null;
     this.hasDragged = false;
 
+    const resizedNoteId = this.mode.type === 'resizing' ? this.mode.elementId : null;
+
     this.mode = { type: 'idle' };
     ctx.setCursor?.('default');
+
+    if (resizedNoteId !== null) {
+      const el = ctx.store.getById(resizedNoteId);
+      if (el?.type === 'note') ctx.fitNoteHeight?.(resizedNoteId);
+    }
   }
 
   onHover(state: PointerState, ctx: ToolContext): void {

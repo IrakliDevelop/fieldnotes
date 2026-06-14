@@ -148,6 +148,7 @@ export class Viewport {
       requestRender: () => this.requestRender(),
       switchTool: (name: string) => this.toolManager.setTool(name, this.toolContext),
       editElement: (id: string) => this.startEditingElement(id),
+      fitNoteHeight: (id: string) => this.fitNoteHeight(id),
       setCursor: (cursor: string) => {
         this.wrapper.style.cursor = cursor;
       },
@@ -513,6 +514,18 @@ export class Viewport {
     }
   }
 
+  private fitNoteHeight(elementId: string): void {
+    const element = this.store.getById(elementId);
+    if (!element || element.type !== 'note') return;
+    if (isNoteContentEmpty(element.text)) return;
+    const node = this.domNodeManager.getNode(elementId);
+    if (!node) return;
+    const measured = node.scrollHeight;
+    if (measured > element.size.h) {
+      this.store.update(elementId, { size: { w: element.size.w, h: measured } });
+    }
+  }
+
   private onTextEditStop(elementId: string): void {
     const element = this.store.getById(elementId);
     if (!element) return;
@@ -522,7 +535,9 @@ export class Viewport {
         this.historyRecorder.begin();
         this.store.remove(elementId);
         this.historyRecorder.commit();
+        return;
       }
+      this.fitNoteHeight(elementId);
       return;
     }
 
