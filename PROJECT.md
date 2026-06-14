@@ -548,6 +548,12 @@ canvas.addImage('data:image/png;base64,iVBOR...', pos, size);
 - [x] StrictMode pin, modernized hook internals, TSDoc on the public surface
 - [x] Recipe-driven README + runnable `examples/react-app` workspace app
 
+#### 0.24.0 — Cleanup (review follow-ups)
+
+- [x] Phantom-undo fix (no-op edit-exit), `viewport.setTool` unknown-name warning, `mod+ctrl` binding throw
+- [x] `onImageError` optional `cause`; `InputHandler.destroy` DOM reset; paste/duplicate guard-first
+- [x] `distSqToSegment` consolidated into `core/geometry` (de-dup)
+
 #### 0.23.0 — Perf Pass 2B: Pan-Time Cache Reuse
 
 - [x] `MarginViewport` — shared anchor + transform math for oversized screen-space caches (math verified pixel-identical)
