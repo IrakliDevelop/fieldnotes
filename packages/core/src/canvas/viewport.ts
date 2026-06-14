@@ -129,6 +129,10 @@ export class Viewport {
       placeholder: options.placeholder,
     });
     this.noteEditor.setOnStop((id) => this.onTextEditStop(id));
+    this.noteEditor.setHistoryHooks(
+      () => this.historyRecorder.begin(),
+      () => this.historyRecorder.commit(),
+    );
     this.onHtmlElementMount = options.onHtmlElementMount;
     this.dropHandler = options.onDrop;
     this.history = new HistoryStack();
@@ -532,9 +536,7 @@ export class Viewport {
 
     if (element.type === 'note') {
       if (isNoteContentEmpty(element.text)) {
-        this.historyRecorder.begin();
         this.store.remove(elementId);
-        this.historyRecorder.commit();
         return;
       }
       this.fitNoteHeight(elementId);
@@ -544,19 +546,15 @@ export class Viewport {
     if (element.type !== 'text') return;
 
     if (!element.text || element.text.trim() === '') {
-      this.historyRecorder.begin();
       this.store.remove(elementId);
-      this.historyRecorder.commit();
       return;
     }
 
     const node = this.domNodeManager.getNode(elementId);
     if (node && 'size' in element) {
-      const measuredHeight = node.scrollHeight;
-      if (measuredHeight !== element.size.h) {
-        this.store.update(elementId, {
-          size: { w: element.size.w, h: measuredHeight },
-        });
+      const measured = node.scrollHeight;
+      if (measured !== element.size.h) {
+        this.store.update(elementId, { size: { w: element.size.w, h: measured } });
       }
     }
   }

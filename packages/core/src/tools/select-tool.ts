@@ -244,6 +244,8 @@ export class SelectTool implements Tool {
 
     if (resizedNoteId !== null) {
       const el = ctx.store.getById(resizedNoteId);
+      // Runs during tool pointer-up, inside the InputHandler resize transaction, so the
+      // height fit coalesces into the same undo step as the resize.
       if (el?.type === 'note') ctx.fitNoteHeight?.(resizedNoteId);
     }
   }
