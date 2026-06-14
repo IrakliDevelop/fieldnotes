@@ -1,9 +1,6 @@
-export const VERSION = '0.24.0';
+export const VERSION = '0.25.0';
 
-export { EventBus } from './core/event-bus';
-export { Quadtree } from './core/quadtree';
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
-export { exportState, parseState } from './core/state-serializer';
 export { snapPoint, smartSnap, snapToHexCenter } from './core/snap';
 export type { CanvasState } from './core/state-serializer';
 export { AutoSave } from './core/auto-save';
@@ -11,15 +8,8 @@ export type { AutoSaveOptions } from './core/auto-save';
 
 export { Camera } from './canvas/camera';
 export type { CameraOptions, CameraChangeInfo } from './canvas/camera';
-export { Background } from './canvas/background';
 export type { BackgroundOptions, BackgroundPattern } from './canvas/background';
-export { InputHandler } from './canvas/input-handler';
-export type { InputHandlerOptions } from './canvas/input-handler';
 export type { ShortcutOptions, ShortcutBindings, ShortcutsApi } from './canvas/shortcut-map';
-export { InputFilter } from './canvas/input-filter';
-export type { FilteredEvent, FilteredUpEvent, FilterAction } from './canvas/input-filter';
-export { DoubleTapDetector } from './canvas/double-tap-detector';
-export type { DoubleTapDetectorOptions } from './canvas/double-tap-detector';
 export { Viewport } from './canvas/viewport';
 export type { ViewportOptions, GridInfo } from './canvas/viewport';
 export { exportImage } from './canvas/export-image';
@@ -28,12 +18,6 @@ export type { RenderStatsSnapshot } from './canvas/render-stats';
 
 export { ElementStore } from './elements/element-store';
 export type { ElementUpdateEvent } from './elements/element-store';
-export { ElementRenderer } from './elements/element-renderer';
-export { NoteEditor } from './elements/note-editor';
-export type { NoteEditorOptions } from './elements/note-editor';
-export { sanitizeNoteHtml, isNoteContentEmpty } from './elements/note-sanitizer';
-export type { StyledRun } from './elements/note-sanitizer';
-export { NoteToolbar, DEFAULT_FONT_SIZE_PRESETS } from './elements/note-toolbar';
 export type { FontSizePreset } from './elements/note-toolbar';
 export {
   toggleBold,
@@ -44,7 +28,6 @@ export {
   getActiveFormats,
 } from './elements/note-formatting';
 export type { ActiveFormats } from './elements/note-formatting';
-export { createId } from './elements/create-id';
 export {
   createStroke,
   createNote,
@@ -65,16 +48,6 @@ export {
   isNearBezier,
   getArrowBounds,
 } from './elements/arrow-geometry';
-export {
-  isBindable,
-  getElementCenter,
-  getEdgeIntersection,
-  findBindTarget,
-  findBoundArrows,
-  updateBoundArrow,
-  clearStaleBindings,
-  unbindArrow,
-} from './elements/arrow-binding';
 export { getElementBounds, boundsIntersect } from './elements/element-bounds';
 export { getElementsBoundingBox } from './elements/bounds';
 export {
@@ -104,15 +77,8 @@ export type {
 } from './elements/types';
 
 export type { Command } from './history/types';
-export {
-  AddElementCommand,
-  RemoveElementCommand,
-  UpdateElementCommand,
-  BatchCommand,
-} from './history/commands';
 export { HistoryStack } from './history/history-stack';
 export type { HistoryStackOptions } from './history/history-stack';
-export { HistoryRecorder } from './history/history-recorder';
 
 export { ToolManager } from './tools/tool-manager';
 export { HandTool } from './tools/hand-tool';
@@ -139,8 +105,3 @@ export type { Tool, ToolContext, PointerState, ToolName } from './tools/types';
 
 export { LayerManager } from './layers/layer-manager';
 export type { Layer } from './layers/types';
-export {
-  CreateLayerCommand,
-  RemoveLayerCommand,
-  UpdateLayerCommand,
-} from './history/layer-commands';
