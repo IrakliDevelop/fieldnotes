@@ -92,6 +92,17 @@ describe('ShortcutMap constructor overrides', () => {
     expect(() => new ShortcutMap({ undo: 'mod+' })).toThrow(/binding/i);
     expect(() => new ShortcutMap({ undo: 'bogus+z' })).toThrow(/bogus/i);
   });
+
+  it('throws when mod is combined with ctrl or meta', () => {
+    expect(() => new ShortcutMap({ undo: 'mod+ctrl+z' })).toThrow(/mod/i);
+    expect(() => new ShortcutMap({ undo: 'mod+meta+z' })).toThrow(/mod/i);
+  });
+
+  it('still accepts mod with shift/alt and bare ctrl/meta', () => {
+    expect(
+      () => new ShortcutMap({ a: 'mod+shift+z', b: 'mod+alt+z', c: 'ctrl+z', d: 'meta+z' }),
+    ).not.toThrow();
+  });
 });
 
 describe('ShortcutMap runtime API', () => {

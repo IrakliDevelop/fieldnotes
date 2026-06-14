@@ -123,8 +123,9 @@ export class KeyboardActions {
   }
 
   paste(): void {
+    if (this.deps.isToolActive()) return;
     this.flushPendingNudge();
-    if (this.clipboard.length === 0 || this.deps.isToolActive()) return;
+    if (this.clipboard.length === 0) return;
     const sel = this.selectTool();
     if (!sel) return;
     this.pasteCount++;
@@ -132,8 +133,8 @@ export class KeyboardActions {
   }
 
   duplicate(): void {
-    this.flushPendingNudge();
     if (this.deps.isToolActive()) return;
+    this.flushPendingNudge();
     const sel = this.selectTool();
     if (!sel) return;
     const source: CanvasElement[] = [];

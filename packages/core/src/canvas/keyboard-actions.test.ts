@@ -486,4 +486,33 @@ describe('KeyboardActions guards during active tool input', () => {
     actions.zOrder('front');
     expect(ctx.store.getById(note.id)?.zIndex).toBe(0);
   });
+
+  it('duplicate is a no-op mid-gesture', () => {
+    const ctx = makeCtx();
+    const tool = new SelectTool();
+    tool.onActivate(ctx);
+    const note = createNote({ position: { x: 0, y: 0 }, size: { w: 50, h: 50 } });
+    ctx.store.add(note);
+    tool.setSelection([note.id]);
+    const { actions } = makeActions({ ctx, tool, isToolActive: () => true });
+    const before = ctx.store.getAll().length;
+    actions.duplicate();
+    expect(ctx.store.getAll().length).toBe(before);
+  });
+
+  it('paste is a no-op mid-gesture', () => {
+    const ctx = makeCtx();
+    const tool = new SelectTool();
+    tool.onActivate(ctx);
+    const note = createNote({ position: { x: 0, y: 0 }, size: { w: 50, h: 50 } });
+    ctx.store.add(note);
+    tool.setSelection([note.id]);
+    let active = false;
+    const { actions } = makeActions({ ctx, tool, isToolActive: () => active });
+    actions.copy();
+    active = true;
+    const before = ctx.store.getAll().length;
+    actions.paste();
+    expect(ctx.store.getAll().length).toBe(before);
+  });
 });

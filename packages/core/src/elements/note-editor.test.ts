@@ -446,6 +446,41 @@ describe('NoteEditor', () => {
     });
   });
 
+  describe('phantom-undo avoidance', () => {
+    it('does not call store.update when the note text is unchanged on stop', async () => {
+      const editor = new NoteEditor();
+      const store = new ElementStore();
+      const note = createNote({ position: { x: 0, y: 0 }, text: '<b>hi</b>' });
+      store.add(note);
+      const node = makeNode('');
+      node.innerHTML = '<b>hi</b>';
+
+      editor.startEditing(node, note.id, store);
+      await flushRAF();
+      const spy = vi.spyOn(store, 'update');
+      editor.stopEditing(store);
+      expect(spy).not.toHaveBeenCalled();
+      spy.mockRestore();
+    });
+
+    it('calls store.update when the note text changed on stop', async () => {
+      const editor = new NoteEditor();
+      const store = new ElementStore();
+      const note = createNote({ position: { x: 0, y: 0 }, text: '<b>hi</b>' });
+      store.add(note);
+      const node = makeNode('');
+      node.innerHTML = '<b>hi</b>';
+
+      editor.startEditing(node, note.id, store);
+      await flushRAF();
+      node.innerHTML = '<b>changed</b>';
+      const spy = vi.spyOn(store, 'update');
+      editor.stopEditing(store);
+      expect(spy).toHaveBeenCalledWith(note.id, { text: expect.stringContaining('changed') });
+      spy.mockRestore();
+    });
+  });
+
   describe('setOnStop callback', () => {
     it('calls onStop with element id when editing stops', async () => {
       const editor = new NoteEditor();

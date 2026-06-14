@@ -4,6 +4,22 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.24.0] — 2026-06-13
+
+### Fixed
+
+- **No phantom undo step** — exiting a note/text edit without changing the content no longer records an empty history entry (a wasted Ctrl+Z)
+- **`mod+ctrl` / `mod+meta` shortcut bindings now throw at parse** instead of silently ignoring the redundant modifier (`mod` already means Ctrl or Cmd)
+- **`InputHandler.destroy()`** restores the `tabindex`/`outline` it set in focus scope, leaving a host-supplied element clean
+
+### Changed
+
+- **`viewport.setTool(name)`** warns when no tool is registered under that name (was a silent no-op)
+- **`onImageError`** payload gains an optional `cause` — the raw error `Event` from the failed image load
+- Internal: `paste`/`duplicate` guard active-tool input first (consistent with the other shortcuts); `distSqToSegment` consolidated into `core/geometry` (shared by stroke hit-testing and arrow geometry)
+
+---
+
 ## [0.23.0] — 2026-06-13
 
 ### Performance

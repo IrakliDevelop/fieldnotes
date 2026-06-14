@@ -94,6 +94,10 @@ export class InputHandler {
     this.inputFilter.reset();
     this.deferredDown = null;
     this.lastPointerEvent = null;
+    if (this.scope === 'focus') {
+      this.element.removeAttribute('tabindex');
+      this.element.style.outline = '';
+    }
   }
 
   private bind(): void {

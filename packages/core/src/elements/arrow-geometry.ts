@@ -1,4 +1,5 @@
 import type { Bounds, Point } from '../core/types';
+import { distSqToSegment } from '../core/geometry';
 
 export function getArrowControlPoint(from: Point, to: Point, bend: number): Point {
   const midX = (from.x + to.x) / 2;
@@ -117,16 +118,5 @@ function bezierPoint(from: Point, cp: Point, to: Point, t: number): Point {
 }
 
 function isNearLine(point: Point, a: Point, b: Point, threshold: number): boolean {
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-  const lenSq = dx * dx + dy * dy;
-
-  if (lenSq === 0) {
-    return Math.hypot(point.x - a.x, point.y - a.y) <= threshold;
-  }
-
-  const t = Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / lenSq));
-  const projX = a.x + t * dx;
-  const projY = a.y + t * dy;
-  return Math.hypot(point.x - projX, point.y - projY) <= threshold;
+  return distSqToSegment(point, a, b) <= threshold * threshold;
 }

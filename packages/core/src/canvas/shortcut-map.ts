@@ -92,6 +92,11 @@ function parseBinding(binding: string): ParsedBinding {
         throw new Error(`Invalid shortcut binding "${binding}": unknown modifier "${part}"`);
     }
   }
+  if (parsed.mod && (parsed.ctrl || parsed.meta)) {
+    throw new Error(
+      `Invalid shortcut binding "${binding}": "mod" already means Ctrl or Cmd; don't combine it with ctrl/meta`,
+    );
+  }
   return parsed;
 }
 

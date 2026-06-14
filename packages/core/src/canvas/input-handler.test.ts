@@ -1587,4 +1587,27 @@ describe('InputHandler', () => {
       element.removeChild(child);
     });
   });
+
+  describe('destroy DOM cleanup', () => {
+    it('removes the tabindex and outline it set in focus scope', () => {
+      const el = document.createElement('div');
+      document.body.appendChild(el);
+      const h = new InputHandler(el, new Camera());
+      expect(el.tabIndex).toBe(0);
+      h.destroy();
+      expect(el.hasAttribute('tabindex')).toBe(false);
+      expect(el.style.outline).toBe('');
+      document.body.removeChild(el);
+    });
+
+    it('leaves the element untouched in window scope', () => {
+      const el = document.createElement('div');
+      document.body.appendChild(el);
+      const h = new InputHandler(el, new Camera(), { shortcuts: { scope: 'window' } });
+      expect(el.hasAttribute('tabindex')).toBe(false);
+      h.destroy();
+      expect(el.hasAttribute('tabindex')).toBe(false);
+      document.body.removeChild(el);
+    });
+  });
 });
