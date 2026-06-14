@@ -258,6 +258,12 @@ viewport.loadJSON(localStorage.getItem('canvas'));
 
 > **Note:** Serialized state includes all layers and element `layerId` assignments. States saved before layers were introduced are automatically migrated — elements are placed on a default "Layer 1".
 
+> **Two equivalent pairs:** `exportJSON()` / `loadJSON()` work with strings and are the
+> canonical choice for persistence. `exportState()` / `loadState()` work with in-memory
+> `CanvasState` objects, skipping the JSON round-trip — this is what `AutoSave` uses. The
+> module-level `exportState` / `parseState` functions are no longer exported; use the
+> `Viewport` methods.
+
 ## Tool Switching
 
 ```typescript

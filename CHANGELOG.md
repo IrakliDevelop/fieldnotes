@@ -4,6 +4,23 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.25.0] — 2026-06-14
+
+### Removed (breaking)
+
+- **Public surface trimmed before 1.0.** Internal machinery is no longer exported from `@fieldnotes/core` — none of it was supported API; all in-repo usage flows through `Viewport` and the documented helpers. Removed classes: `ElementRenderer`, `InputHandler`, `InputFilter`, `DoubleTapDetector`, `NoteEditor`, `NoteToolbar`, `Background`, `EventBus`, `Quadtree`, `HistoryRecorder`, and the concrete history command classes (`AddElementCommand`, `RemoveElementCommand`, `UpdateElementCommand`, `BatchCommand`, `CreateLayerCommand`, `RemoveLayerCommand`, `UpdateLayerCommand` — the `Command` interface is retained for custom undo). Removed functions: the arrow-binding engine (`isBindable`, `getElementCenter`, `getEdgeIntersection`, `findBindTarget`, `findBoundArrows`, `updateBoundArrow`, `clearStaleBindings`, `unbindArrow`), plus `createId`, `sanitizeNoteHtml`, `isNoteContentEmpty`, `DEFAULT_FONT_SIZE_PRESETS`. Removed types: `InputHandlerOptions`, `DoubleTapDetectorOptions`, `FilteredEvent`, `FilteredUpEvent`, `FilterAction`, `NoteEditorOptions`, `StyledRun`.
+- **Module-level `exportState` / `parseState` are no longer exported.** Use the `Viewport` methods instead.
+
+### Changed (breaking)
+
+- **State serialization is now Viewport-only.** Persist with `viewport.exportJSON()` / `viewport.loadJSON()` (strings — canonical), or `viewport.exportState()` / `viewport.loadState()` (in-memory `CanvasState` objects, no JSON round-trip).
+
+### Retained
+
+- Reusable helpers stay public for custom tools and presets: hex-fill (`getHexCellsInRadius`, `drawHexPath`, …), arrow geometry (`getArrowControlPoint`, `getArrowBounds`, …), `snapPoint` / `smartSnap` / `snapToHexCenter`, note formatting (`toggleBold`, …), and bounds helpers (`getElementBounds`, `getElementsBoundingBox`, …). The `Viewport` subsystem accessors (`camera`, `store`, `layerManager`, `toolManager`, `history`) and their classes are unchanged.
+
+---
+
 ## [0.24.0] — 2026-06-13
 
 ### Fixed
