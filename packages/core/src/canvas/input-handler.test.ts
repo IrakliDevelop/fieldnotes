@@ -1354,6 +1354,53 @@ describe('InputHandler', () => {
     });
   });
 
+  describe('zoom shortcuts', () => {
+    it('zooms in by 1.2x on mod+=', () => {
+      const before = camera.zoom;
+      element.focus();
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { key: '=', ctrlKey: true, bubbles: true }),
+      );
+      expect(camera.zoom).toBeCloseTo(before * 1.2, 5);
+    });
+
+    it('zooms out by 1/1.2 on mod+-', () => {
+      const before = camera.zoom;
+      element.focus();
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { key: '-', ctrlKey: true, bubbles: true }),
+      );
+      expect(camera.zoom).toBeCloseTo(before / 1.2, 5);
+    });
+
+    it('resets to 100% on mod+0', () => {
+      camera.setZoom(3);
+      element.focus();
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { key: '0', ctrlKey: true, code: 'Digit0', bubbles: true }),
+      );
+      expect(camera.zoom).toBe(1);
+    });
+
+    it('keeps the viewport center fixed when zooming in', () => {
+      // jsdom returns a zero rect and the camera starts at the origin, which would
+      // make this assertion pass trivially — give the surface a real size and pan the
+      // camera so the center is a genuinely non-trivial world point.
+      element.getBoundingClientRect = () =>
+        ({ width: 800, height: 600, left: 0, top: 0, right: 800, bottom: 600 }) as DOMRect;
+      camera.moveTo(120, -40);
+      const center = { x: 400, y: 300 };
+      const before = camera.screenToWorld(center);
+      element.focus();
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { key: '=', ctrlKey: true, bubbles: true }),
+      );
+      const after = camera.screenToWorld(center);
+      expect(after.x).toBeCloseTo(before.x, 5);
+      expect(after.y).toBeCloseTo(before.y, 5);
+    });
+  });
+
   describe('nudge + pointer-down race condition', () => {
     beforeEach(() => {
       vi.useFakeTimers();

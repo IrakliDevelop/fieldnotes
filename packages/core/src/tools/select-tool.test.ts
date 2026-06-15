@@ -1378,6 +1378,40 @@ describe('SelectTool', () => {
     });
   });
 
+  describe('fitNoteHeight on resize commit', () => {
+    const PS = { x: 0, y: 0, pressure: 0, pointerType: 'mouse' as const, shiftKey: false };
+
+    it('calls fitNoteHeight when a note resize finishes', () => {
+      const fitNoteHeight = vi.fn();
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      ctx.fitNoteHeight = fitNoteHeight;
+      const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
+      ctx.store.add(note);
+      tool.setSelection([note.id]);
+      (tool as unknown as { mode: { type: string; elementId: string; handle: string } }).mode = {
+        type: 'resizing',
+        elementId: note.id,
+        handle: 'se',
+      };
+      tool.onPointerUp(PS, ctx);
+      expect(fitNoteHeight).toHaveBeenCalledWith(note.id);
+    });
+
+    it('does not call fitNoteHeight after a drag (only after resize)', () => {
+      const fitNoteHeight = vi.fn();
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      ctx.fitNoteHeight = fitNoteHeight;
+      const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
+      ctx.store.add(note);
+      tool.setSelection([note.id]);
+      (tool as unknown as { mode: { type: string } }).mode = { type: 'dragging' };
+      tool.onPointerUp(PS, ctx);
+      expect(fitNoteHeight).not.toHaveBeenCalled();
+    });
+  });
+
   describe('grid element exclusion', () => {
     it('does not select grid elements by click', () => {
       const tool = new SelectTool();

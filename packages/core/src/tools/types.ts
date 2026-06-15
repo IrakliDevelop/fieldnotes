@@ -8,6 +8,7 @@ export interface ToolContext {
   requestRender: () => void;
   switchTool?: (name: string) => void;
   editElement?: (id: string) => void;
+  fitNoteHeight?: (id: string) => void;
   setCursor?: (cursor: string) => void;
   snapToGrid?: boolean;
   gridSize?: number;

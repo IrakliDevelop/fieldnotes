@@ -713,6 +713,11 @@ if (info) {
   viewport.camera.onChange(updateInfo);
   viewport.toolManager.onChange(updateInfo);
   updateInfo();
+  info.title = 'Click to reset zoom to 100%';
+  info.addEventListener('click', () => {
+    const rect = viewport.domLayer.getBoundingClientRect();
+    viewport.camera.zoomAt(1, { x: rect.width / 2, y: rect.height / 2 });
+  });
 }
 
 (window as unknown as Record<string, unknown>).__fieldnotes_viewport = viewport;

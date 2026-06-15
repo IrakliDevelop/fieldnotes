@@ -43,6 +43,8 @@ export class NoteEditor {
   private inputHandler: (() => void) | null = null;
   private pendingEditId: string | null = null;
   private onStopCallback: ((elementId: string) => void) | null = null;
+  private beginHistory: (() => void) | null = null;
+  private commitHistory: (() => void) | null = null;
   private toolbar: NoteToolbar | null;
   private readonly placeholder: string;
 
@@ -61,6 +63,11 @@ export class NoteEditor {
 
   setOnStop(callback: (elementId: string) => void): void {
     this.onStopCallback = callback;
+  }
+
+  setHistoryHooks(begin: () => void, commit: () => void): void {
+    this.beginHistory = begin;
+    this.commitHistory = commit;
   }
 
   startEditing(node: HTMLDivElement, elementId: string, store: ElementStore): void {
@@ -101,9 +108,8 @@ export class NoteEditor {
 
     const text = sanitizeNoteHtml(this.editingNode.innerHTML);
     const current = store.getById(this.editingId);
-    if (current && (current.type === 'note' || current.type === 'text') && current.text !== text) {
-      store.update(this.editingId, { text });
-    }
+    const textChanged =
+      !!current && (current.type === 'note' || current.type === 'text') && current.text !== text;
 
     this.editingNode.contentEditable = 'false';
     Object.assign(this.editingNode.style, {
@@ -113,9 +119,16 @@ export class NoteEditor {
 
     this.toolbar?.hide();
 
+    // One history transaction spans the text write and the onStop height-fit/cleanup,
+    // so a single note/text edit collapses to one undo step (both touch the same element).
+    this.beginHistory?.();
+    if (textChanged) {
+      store.update(this.editingId, { text });
+    }
     if (this.editingId && this.onStopCallback) {
       this.onStopCallback(this.editingId);
     }
+    this.commitHistory?.();
 
     this.editingId = null;
     this.editingNode = null;

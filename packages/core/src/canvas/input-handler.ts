@@ -9,6 +9,7 @@ import { KeyboardActions } from './keyboard-actions';
 import { ShortcutMap } from './shortcut-map';
 
 const ZOOM_SENSITIVITY = 0.001;
+const ZOOM_STEP = 1.2;
 const MIDDLE_BUTTON = 1;
 
 const NUDGE_DELTAS: Record<string, readonly [number, number]> = {
@@ -63,6 +64,7 @@ export class InputHandler {
       getHistoryStack: () => this.historyStack,
       isToolActive: () => this.isToolActive,
       fitToContent: options.fitToContent,
+      getLastPointerWorld: () => this.lastPointerWorld(),
     });
     this.shortcutMap = new ShortcutMap(options.shortcuts?.bindings);
     this.scope = options.shortcuts?.scope ?? 'focus';
@@ -107,10 +109,23 @@ export class InputHandler {
     this.element.addEventListener('pointerdown', this.onPointerDown, opts);
     this.element.addEventListener('pointermove', this.onPointerMove, opts);
     this.element.addEventListener('pointerup', this.onPointerUp, opts);
-    this.element.addEventListener('pointerleave', this.onPointerUp, opts);
+    this.element.addEventListener('pointerleave', this.onPointerLeave, opts);
     this.element.addEventListener('pointercancel', this.onPointerUp, opts);
     window.addEventListener('keydown', this.onKeyDown, opts);
     window.addEventListener('keyup', this.onKeyUp, opts);
+  }
+
+  private viewportCenter(): { x: number; y: number } {
+    const rect = this.element.getBoundingClientRect();
+    return { x: rect.width / 2, y: rect.height / 2 };
+  }
+
+  private zoomByFactor(factor: number): void {
+    this.camera.zoomAt(this.camera.zoom * factor, this.viewportCenter());
+  }
+
+  private zoomToLevel(level: number): void {
+    this.camera.zoomAt(level, this.viewportCenter());
   }
 
   private onWheel = (e: WheelEvent): void => {
@@ -304,6 +319,18 @@ export class InputHandler {
         e.preventDefault();
         this.actions.zoomToFit();
         return;
+      case 'zoom-in':
+        e.preventDefault();
+        this.zoomByFactor(ZOOM_STEP);
+        return;
+      case 'zoom-out':
+        e.preventDefault();
+        this.zoomByFactor(1 / ZOOM_STEP);
+        return;
+      case 'zoom-reset':
+        e.preventDefault();
+        this.zoomToLevel(1);
+        return;
       case 'nudge-left':
       case 'nudge-right':
       case 'nudge-up':
@@ -372,6 +399,18 @@ export class InputHandler {
   ): { x: number; y: number } {
     return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
   }
+
+  private lastPointerWorld(): { x: number; y: number } | null {
+    const e = this.lastPointerEvent;
+    if (!e) return null;
+    const rect = this.element.getBoundingClientRect();
+    return this.camera.screenToWorld({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+  }
+
+  private onPointerLeave = (e: PointerEvent): void => {
+    this.lastPointerEvent = null;
+    this.onPointerUp(e);
+  };
 
   private toPointerState(e: PointerEvent): PointerState {
     const rect = this.element.getBoundingClientRect();

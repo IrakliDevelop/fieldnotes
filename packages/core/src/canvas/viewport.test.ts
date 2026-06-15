@@ -1282,4 +1282,114 @@ describe('Viewport', () => {
       viewport.destroy();
     });
   });
+
+  describe('note text-edit undo coalescing', () => {
+    it('a note text-edit that grows the note is a single undo step', () => {
+      const viewport = new Viewport(container);
+
+      const note = createNote({
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 20 },
+        text: 'a',
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(note);
+      viewport.history.clear();
+
+      // Sync the DOM node then directly activate editing to bypass the rAF in startEditing.
+      // The RenderLoop's own rAF makes vi.runAllTimers() infinite, so we go through the
+      // private activateEditing path that startEditing calls after the frame fires.
+      const priv = viewport as unknown as {
+        domNodeManager: {
+          syncDomNode: (el: unknown) => void;
+          getNode: (id: string) => HTMLElement | undefined;
+        };
+        noteEditor: {
+          stopEditing: (store: typeof viewport.store) => void;
+          activateEditing: (node: HTMLDivElement, id: string, store: typeof viewport.store) => void;
+        };
+      };
+      priv.domNodeManager.syncDomNode(note);
+      const node = priv.domNodeManager.getNode(note.id) as HTMLDivElement;
+      expect(node).not.toBeUndefined();
+
+      // Activate editing synchronously (same logic startEditing's rAF would call)
+      priv.noteEditor.activateEditing(node, note.id, viewport.store);
+
+      // Simulate user typing a longer text
+      node.innerHTML = 'a much longer note body that overflows';
+      Object.defineProperty(node, 'scrollHeight', { value: 80, configurable: true });
+
+      const undosBefore = viewport.history.undoCount;
+
+      // Stop editing through the real path
+      priv.noteEditor.stopEditing(viewport.store);
+
+      const after = viewport.store.getById(note.id);
+      expect(after?.type === 'note' && after.text).toContain('longer');
+      expect(after?.type === 'note' && after.size.h).toBe(80);
+      expect(viewport.history.undoCount).toBe(undosBefore + 1); // ONE step, not two
+
+      viewport.history.undo(viewport.store);
+      const reverted = viewport.store.getById(note.id);
+      expect(reverted?.type === 'note' && reverted.text).toBe('a');
+      expect(reverted?.type === 'note' && reverted.size.h).toBe(20);
+
+      viewport.destroy();
+    });
+  });
+
+  describe('fitNoteHeight (auto-grow)', () => {
+    it('grows a note height to fit content height', () => {
+      const viewport = new Viewport(container);
+      const note = createNote({
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 20 },
+        text: 'multi\nline\ntext',
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(note);
+      const priv = viewport as unknown as {
+        fitNoteHeight: (id: string) => void;
+        domNodeManager: {
+          syncDomNode: (el: unknown) => void;
+          getNode: (id: string) => HTMLElement | undefined;
+        };
+      };
+      priv.domNodeManager.syncDomNode(note);
+      const node = priv.domNodeManager.getNode(note.id);
+      expect(node).not.toBeUndefined();
+      Object.defineProperty(node, 'scrollHeight', { value: 80, configurable: true });
+      priv.fitNoteHeight(note.id);
+      const updated = viewport.store.getById(note.id);
+      expect(updated?.type === 'note' && updated.size.h).toBe(80);
+      viewport.destroy();
+    });
+
+    it('does not shrink a note below its dragged height', () => {
+      const viewport = new Viewport(container);
+      const note = createNote({
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 200 },
+        text: 'real content here',
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(note);
+      const priv = viewport as unknown as {
+        fitNoteHeight: (id: string) => void;
+        domNodeManager: {
+          syncDomNode: (el: unknown) => void;
+          getNode: (id: string) => HTMLElement | undefined;
+        };
+      };
+      priv.domNodeManager.syncDomNode(note);
+      const node = priv.domNodeManager.getNode(note.id);
+      expect(node).not.toBeUndefined();
+      Object.defineProperty(node, 'scrollHeight', { value: 30, configurable: true });
+      priv.fitNoteHeight(note.id);
+      const updated = viewport.store.getById(note.id);
+      expect(updated?.type === 'note' && updated.size.h).toBe(200);
+      viewport.destroy();
+    });
+  });
 });

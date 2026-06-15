@@ -68,6 +68,13 @@ describe('ShortcutMap defaults', () => {
     const map = new ShortcutMap();
     expect(map.match(kbd({ key: 'q' }))).toBeNull();
   });
+
+  it('maps mod+= / mod+- / mod+0 to the zoom actions', () => {
+    const map = new ShortcutMap();
+    expect(map.match(kbd({ key: '=', ctrlKey: true }))).toBe('zoom-in');
+    expect(map.match(kbd({ key: '-', ctrlKey: true }))).toBe('zoom-out');
+    expect(map.match(kbd({ key: '0', ctrlKey: true, code: 'Digit0' }))).toBe('zoom-reset');
+  });
 });
 
 describe('ShortcutMap constructor overrides', () => {
