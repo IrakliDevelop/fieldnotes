@@ -38,7 +38,7 @@ import type { ElementStyle } from '../elements/element-style';
 const EMPTY_IDS: string[] = [];
 
 function noop(): void {
-  // intentional no-op for unsubscribe handles when no tool is registered
+  // Stable unsubscribe handle returned when no select tool is registered.
 }
 
 function sharedValue<T>(values: (T | undefined)[]): T | undefined {
