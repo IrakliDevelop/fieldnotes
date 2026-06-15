@@ -1412,6 +1412,58 @@ describe('SelectTool', () => {
     });
   });
 
+  describe('selection-change event', () => {
+    it('fires onSelectionChange when setSelection changes the set', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const a = createNote({ position: { x: 0, y: 0 } });
+      ctx.store.add(a);
+      tool.onActivate(ctx);
+      const fn = vi.fn();
+      tool.onSelectionChange(fn);
+      tool.setSelection([a.id]);
+      expect(fn).toHaveBeenCalledTimes(1);
+    });
+
+    it('does NOT fire when the selection set is unchanged', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const a = createNote({ position: { x: 0, y: 0 } });
+      ctx.store.add(a);
+      tool.onActivate(ctx);
+      tool.setSelection([a.id]);
+      const fn = vi.fn();
+      tool.onSelectionChange(fn);
+      tool.setSelection([a.id]);
+      expect(fn).not.toHaveBeenCalled();
+    });
+
+    it('selectedIds returns a stable reference across no-op sets', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const a = createNote({ position: { x: 0, y: 0 } });
+      ctx.store.add(a);
+      tool.onActivate(ctx);
+      tool.setSelection([a.id]);
+      const first = tool.selectedIds;
+      tool.setSelection([a.id]);
+      expect(tool.selectedIds).toBe(first);
+    });
+
+    it('unsubscribe stops notifications', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const a = createNote({ position: { x: 0, y: 0 } });
+      ctx.store.add(a);
+      tool.onActivate(ctx);
+      const fn = vi.fn();
+      const off = tool.onSelectionChange(fn);
+      off();
+      tool.setSelection([a.id]);
+      expect(fn).not.toHaveBeenCalled();
+    });
+  });
+
   describe('grid element exclusion', () => {
     it('does not select grid elements by click', () => {
       const tool = new SelectTool();
