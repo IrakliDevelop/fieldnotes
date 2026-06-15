@@ -49,6 +49,8 @@ export {
   getArrowBounds,
 } from './elements/arrow-geometry';
 export { getElementBounds, boundsIntersect } from './elements/element-bounds';
+export { styleToPatch, getElementStyle } from './elements/element-style';
+export type { ElementStyle } from './elements/element-style';
 export { getElementsBoundingBox } from './elements/bounds';
 export {
   getHexDistance,
