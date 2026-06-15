@@ -41,7 +41,7 @@
     "fieldnotes"
   ],
   "peerDependencies": {
-    "@fieldnotes/core": ">=0.18.0 <1.0.0",
+    "@fieldnotes/core": ">=0.27.0 <1.0.0",
     "react": ">=18 <20",
     "react-dom": ">=18 <20"
   },
