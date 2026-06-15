@@ -15,6 +15,7 @@ import { getElementsBoundingBox } from '../elements/bounds';
 import { getArrowTangentAngle } from '../elements/arrow-geometry';
 import { ToolManager } from '../tools/tool-manager';
 import type { ToolContext } from '../tools/types';
+import type { SelectTool } from '../tools/select-tool';
 import { HistoryStack } from '../history/history-stack';
 import { HistoryRecorder } from '../history/history-recorder';
 import { createImage, createHtmlElement, createGrid } from '../elements/element-factory';
@@ -31,6 +32,21 @@ import type { RenderStatsSnapshot } from './render-stats';
 import { LayerCache } from './layer-cache';
 import { MarginViewport } from './margin-viewport';
 import { isNoteContentEmpty } from '../elements/note-sanitizer';
+import { styleToPatch, getElementStyle } from '../elements/element-style';
+import type { ElementStyle } from '../elements/element-style';
+
+const EMPTY_IDS: string[] = [];
+
+function noop(): void {
+  // intentional no-op for unsubscribe handles when no tool is registered
+}
+
+function sharedValue<T>(values: (T | undefined)[]): T | undefined {
+  const present = values.filter((v): v is T => v !== undefined);
+  if (present.length === 0) return undefined;
+  const first = present[0];
+  return present.every((v) => v === first) ? first : undefined;
+}
 
 export interface GridInfo {
   gridType: 'square' | 'hex';
@@ -473,6 +489,57 @@ export class Viewport {
     return () => {
       this.gridChangeListeners.delete(listener);
     };
+  }
+
+  private getSelectTool(): SelectTool | undefined {
+    return this.toolManager.getTool<SelectTool>('select');
+  }
+
+  getSelectedIds(): string[] {
+    return this.getSelectTool()?.selectedIds ?? EMPTY_IDS;
+  }
+
+  onSelectionChange(listener: () => void): () => void {
+    const tool = this.getSelectTool();
+    return tool ? tool.onSelectionChange(listener) : noop;
+  }
+
+  getSelectionStyle(): ElementStyle | null {
+    const ids = this.getSelectedIds();
+    if (ids.length === 0) return null;
+    const styles: ElementStyle[] = [];
+    for (const id of ids) {
+      const el = this.store.getById(id);
+      if (el) styles.push(getElementStyle(el));
+    }
+    if (styles.length === 0) return null;
+    const result: ElementStyle = {};
+    const color = sharedValue(styles.map((s) => s.color));
+    if (color !== undefined) result.color = color;
+    const fillColor = sharedValue(styles.map((s) => s.fillColor));
+    if (fillColor !== undefined) result.fillColor = fillColor;
+    const strokeWidth = sharedValue(styles.map((s) => s.strokeWidth));
+    if (strokeWidth !== undefined) result.strokeWidth = strokeWidth;
+    const opacity = sharedValue(styles.map((s) => s.opacity));
+    if (opacity !== undefined) result.opacity = opacity;
+    const fontSize = sharedValue(styles.map((s) => s.fontSize));
+    if (fontSize !== undefined) result.fontSize = fontSize;
+    return result;
+  }
+
+  applyStyleToSelection(style: ElementStyle): void {
+    const ids = this.getSelectedIds();
+    if (ids.length === 0) return;
+    this.historyRecorder.begin();
+    for (const id of ids) {
+      const el = this.store.getById(id);
+      if (!el) continue;
+      const patch = styleToPatch(el, style);
+      if (Object.keys(patch).length > 0) {
+        this.store.update(id, patch);
+      }
+    }
+    this.historyRecorder.commit();
   }
 
   getRenderStats(): RenderStatsSnapshot {

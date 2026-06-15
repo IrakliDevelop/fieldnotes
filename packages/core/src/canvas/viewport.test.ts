@@ -7,6 +7,7 @@ import {
   createNote,
   createText,
   createStroke,
+  createShape,
   createArrow,
   createHtmlElement,
 } from '../elements/element-factory';
@@ -1336,6 +1337,75 @@ describe('Viewport', () => {
       expect(reverted?.type === 'note' && reverted.size.h).toBe(20);
 
       viewport.destroy();
+    });
+  });
+
+  describe('selection styling API', () => {
+    let viewport: Viewport;
+
+    beforeEach(() => {
+      viewport = new Viewport(container);
+      const sel = new SelectTool();
+      viewport.toolManager.register(sel);
+      viewport.toolManager.setTool('select', viewport.toolContext);
+    });
+
+    afterEach(() => {
+      viewport.destroy();
+    });
+
+    function select(ids: string[]): void {
+      const sel = viewport.toolManager.getTool('select');
+      (sel as unknown as { setSelection: (ids: string[]) => void }).setSelection(ids);
+    }
+
+    it('applyStyleToSelection sets correct per-type fields in ONE undo step', () => {
+      const stroke = createStroke({
+        points: [{ x: 0, y: 0, pressure: 1 }],
+        color: '#000',
+        width: 2,
+      });
+      const shape = createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } });
+      const note = createNote({ position: { x: 0, y: 0 }, text: 'hi' });
+      viewport.store.add(stroke);
+      viewport.store.add(shape);
+      viewport.store.add(note);
+      select([stroke.id, shape.id, note.id]);
+
+      const before = viewport.history.undoCount;
+      viewport.applyStyleToSelection({ color: '#f00', strokeWidth: 5 });
+
+      expect((viewport.store.getById(stroke.id) as { color: string }).color).toBe('#f00');
+      expect((viewport.store.getById(shape.id) as { strokeColor: string }).strokeColor).toBe(
+        '#f00',
+      );
+      expect((viewport.store.getById(note.id) as { textColor: string }).textColor).toBe('#f00');
+      expect((viewport.store.getById(stroke.id) as { width: number }).width).toBe(5);
+      expect(viewport.history.undoCount).toBe(before + 1);
+
+      viewport.history.undo(viewport.store);
+      expect((viewport.store.getById(stroke.id) as { color: string }).color).toBe('#000');
+    });
+
+    it('getSelectionStyle returns shared values and omits mixed ones', () => {
+      const a = createStroke({ points: [{ x: 0, y: 0, pressure: 1 }], color: '#111', width: 3 });
+      const b = createStroke({ points: [{ x: 1, y: 1, pressure: 1 }], color: '#111', width: 9 });
+      viewport.store.add(a);
+      viewport.store.add(b);
+      select([a.id, b.id]);
+      const style = viewport.getSelectionStyle();
+      expect(style?.color).toBe('#111');
+      expect(style?.strokeWidth).toBeUndefined();
+    });
+
+    it('getSelectionStyle returns null for empty selection', () => {
+      select([]);
+      expect(viewport.getSelectionStyle()).toBeNull();
+    });
+
+    it('getSelectedIds returns a stable empty array when nothing selected', () => {
+      select([]);
+      expect(viewport.getSelectedIds()).toBe(viewport.getSelectedIds());
     });
   });
 
