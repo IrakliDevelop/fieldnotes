@@ -419,20 +419,22 @@ shapeNoFillBtn?.addEventListener('click', () => {
 
 function syncStyleControls() {
   const style = viewport.getSelectionStyle();
-  if (style === null) return;
-  if (colorInput && style.color !== undefined) colorInput.value = style.color;
-  if (brushSlider && style.strokeWidth !== undefined) {
-    brushSlider.value = String(style.strokeWidth);
-    if (brushLabel) brushLabel.textContent = `${style.strokeWidth}px`;
-    if (brushPreview) {
-      const size = Math.max(4, style.strokeWidth + 4);
-      brushPreview.style.width = `${size}px`;
-      brushPreview.style.height = `${size}px`;
+  if (style !== null) {
+    if (colorInput && style.color !== undefined) colorInput.value = style.color;
+    if (brushSlider && style.strokeWidth !== undefined) {
+      brushSlider.value = String(style.strokeWidth);
+      if (brushLabel) brushLabel.textContent = `${style.strokeWidth}px`;
+      if (brushPreview) {
+        const size = Math.max(4, style.strokeWidth + 4);
+        brushPreview.style.width = `${size}px`;
+        brushPreview.style.height = `${size}px`;
+      }
+    }
+    if (fontSizeSelect && style.fontSize !== undefined) {
+      fontSizeSelect.value = String(style.fontSize);
     }
   }
-  if (fontSizeSelect && style.fontSize !== undefined) {
-    fontSizeSelect.value = String(style.fontSize);
-  }
+  // Panel visibility must update on every selection change, including deselect (style null).
   updateNotePanel();
   updateTextPanel();
   updateShapePanel();
