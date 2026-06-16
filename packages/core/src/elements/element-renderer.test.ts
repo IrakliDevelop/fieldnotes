@@ -14,6 +14,7 @@ import type {
   HtmlElement,
   TextElement,
 } from './types';
+import { createArrow } from './element-factory';
 import { ElementStore } from './element-store';
 import { Camera } from '../canvas/camera';
 
@@ -381,6 +382,33 @@ describe('ElementRenderer', () => {
       );
 
       expect(ctx.moveTo).toHaveBeenCalledWith(0, 0);
+    });
+  });
+
+  describe('renderArrow — label', () => {
+    it('draws the arrow label at the midpoint when present', () => {
+      const renderer = new ElementRenderer();
+      const ctx = mockCtx();
+      const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 }, label: 'hi' });
+      renderer.renderCanvasElement(ctx, arrow);
+      expect(ctx.fillText).toHaveBeenCalledWith('hi', expect.any(Number), expect.any(Number));
+    });
+
+    it('does not draw a label when the arrow has none', () => {
+      const renderer = new ElementRenderer();
+      const ctx = mockCtx();
+      const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 } });
+      renderer.renderCanvasElement(ctx, arrow);
+      expect(ctx.fillText).not.toHaveBeenCalled();
+    });
+
+    it('suppresses the label for the arrow being edited', () => {
+      const renderer = new ElementRenderer();
+      const ctx = mockCtx();
+      const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 }, label: 'hi' });
+      renderer.setLabelEditingId(arrow.id);
+      renderer.renderCanvasElement(ctx, arrow);
+      expect(ctx.fillText).not.toHaveBeenCalled();
     });
   });
 
