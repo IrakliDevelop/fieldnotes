@@ -110,6 +110,16 @@ describe('element factories', () => {
       expect(arrow.fromBinding).toEqual({ elementId: 'note-1' });
       expect(arrow.toBinding).toEqual({ elementId: 'note-2' });
     });
+
+    it('createArrow sets an optional label', () => {
+      const a = createArrow({ from: { x: 0, y: 0 }, to: { x: 10, y: 0 }, label: 'cause' });
+      expect(a.label).toBe('cause');
+    });
+
+    it('createArrow omits label when not given', () => {
+      const a = createArrow({ from: { x: 0, y: 0 }, to: { x: 10, y: 0 } });
+      expect('label' in a).toBe(false);
+    });
   });
 
   describe('createImage', () => {

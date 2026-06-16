@@ -41,6 +41,8 @@ export interface ArrowElement extends BaseElement {
   toBinding?: Binding;
   /** Derived from from/to/bend. Redundant in serialized state — safe to omit. */
   cachedControlPoint?: Point;
+  /** Optional text rendered at the curve midpoint. */
+  label?: string;
 }
 
 export interface ImageElement extends BaseElement {
