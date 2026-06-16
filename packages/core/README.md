@@ -471,6 +471,78 @@ interface BaseElement {
 | `grid`   | `gridType` (`square` \| `hex`), `hexOrientation`, `cellSize`, `strokeColor`, `opacity` |
 | `html`   | `size`                                                                                 |
 
+## Styling the Selection
+
+A normalized `ElementStyle` interface lets you read and apply visual properties across all element types through a single, consistent shape. The `SelectTool` emits a selection-change event; `Viewport` exposes four methods that together cover reactive UIs.
+
+### `ElementStyle` interface
+
+```typescript
+interface ElementStyle {
+  color?: string; // stroke color / text color
+  fillColor?: string; // fill / background color
+  strokeWidth?: number; // line width in world-space units
+  opacity?: number; // 0–1
+  fontSize?: number; // px
+}
+```
+
+#### Mapping across element types
+
+| `ElementStyle` field | `stroke`  | `arrow` | `shape`       | `note`            | `text`     |
+| -------------------- | --------- | ------- | ------------- | ----------------- | ---------- |
+| `color`              | `color`   | `color` | `strokeColor` | `textColor`       | `color`    |
+| `fillColor`          | —         | —       | `fillColor`   | `backgroundColor` | —          |
+| `strokeWidth`        | `width`   | `width` | `strokeWidth` | —                 | —          |
+| `opacity`            | `opacity` | —       | —             | —                 | —          |
+| `fontSize`           | —         | —       | —             | (via toolbar)     | `fontSize` |
+
+### Conversion helpers
+
+```typescript
+import { styleToPatch, getElementStyle } from '@fieldnotes/core';
+
+// ElementStyle → element-specific patch object
+const patch = styleToPatch(element, { color: '#e00', strokeWidth: 3 });
+store.update(element.id, patch);
+
+// element → normalized ElementStyle
+const style = getElementStyle(element);
+```
+
+### Viewport methods
+
+- **`viewport.getSelectedIds()`** — returns the current selection as a referentially-stable array (the same array reference is reused across calls when the selection has not changed — safe for `useSyncExternalStore` equality checks).
+- **`viewport.onSelectionChange(listener)`** — subscribes to selection changes; returns an unsubscribe function. The listener receives the new stable id array.
+- **`viewport.getSelectionStyle()`** — returns an `ElementStyle` containing only the properties that are identical across every selected element. Properties that differ are omitted.
+- **`viewport.applyStyleToSelection(style)`** — applies the given `ElementStyle` to all selected elements in a single undo step.
+
+### `SelectTool.onSelectionChange`
+
+```typescript
+const selectTool = viewport.toolManager.getTool<SelectTool>('select');
+selectTool?.onSelectionChange((ids) => {
+  console.log('selected:', ids);
+});
+```
+
+### Example
+
+```typescript
+// Apply a red stroke to everything currently selected — one undo step
+viewport.applyStyleToSelection({ color: '#ff0000' });
+
+// Read back the shared style for a UI color picker
+const style = viewport.getSelectionStyle();
+// style.color is defined only if all selected elements share the same color
+
+// React to selection changes
+const unsub = viewport.onSelectionChange((ids) => {
+  setSelectedIds(ids); // ids is referentially stable — safe for deps arrays
+});
+// call unsub() to unsubscribe
+```
+
 ## Built-in Interactions
 
 | Input                | Action              |
