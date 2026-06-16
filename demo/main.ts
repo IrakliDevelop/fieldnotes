@@ -209,15 +209,19 @@ const brushLabel = document.getElementById('brush-label');
 
 brushSlider?.addEventListener('input', () => {
   const width = Number(brushSlider.value);
-  pencil.setOptions({ width });
-  arrow.setOptions({ width });
-  shape.setOptions({ strokeWidth: width });
   if (brushPreview) {
     const size = Math.max(4, width + 4);
     brushPreview.style.width = `${size}px`;
     brushPreview.style.height = `${size}px`;
   }
   if (brushLabel) brushLabel.textContent = `${width}px`;
+  if (viewport.getSelectionStyle() !== null) {
+    viewport.applyStyleToSelection({ strokeWidth: width });
+  } else {
+    pencil.setOptions({ width });
+    arrow.setOptions({ width });
+    shape.setOptions({ strokeWidth: width });
+  }
 });
 
 const notePanel = document.getElementById('note-panel');
@@ -251,28 +255,30 @@ function updateNotePanel() {
 }
 
 viewport.toolManager.onChange(updateNotePanel);
-container.addEventListener('pointerup', () => requestAnimationFrame(updateNotePanel));
 viewport.store.on('update', updateNotePanel);
 
 noteBgInput?.addEventListener('input', () => {
   const color = noteBgInput.value;
   note.setOptions({ backgroundColor: color });
-  const sel = getSelectedNoteElement();
-  if (sel) viewport.store.update(sel.id, { backgroundColor: color });
+  if (viewport.getSelectionStyle() !== null) {
+    viewport.applyStyleToSelection({ fillColor: color });
+  }
 });
 
 noteTextColorInput?.addEventListener('input', () => {
   const color = noteTextColorInput.value;
   note.setOptions({ textColor: color });
-  const sel = getSelectedNoteElement();
-  if (sel) viewport.store.update(sel.id, { textColor: color });
+  if (viewport.getSelectionStyle() !== null) {
+    viewport.applyStyleToSelection({ color });
+  }
 });
 
 noteFontSizeSelect?.addEventListener('change', () => {
   const fontSize = Number(noteFontSizeSelect.value);
   note.setOptions({ fontSize });
-  const sel = getSelectedNoteElement();
-  if (sel) viewport.store.update(sel.id, { fontSize });
+  if (viewport.getSelectionStyle() !== null) {
+    viewport.applyStyleToSelection({ fontSize });
+  }
 });
 
 const textPanel = document.getElementById('text-panel');
@@ -308,14 +314,14 @@ function updateTextPanel() {
 }
 
 viewport.toolManager.onChange(updateTextPanel);
-container.addEventListener('pointerup', () => requestAnimationFrame(updateTextPanel));
 viewport.store.on('update', updateTextPanel);
 
 fontSizeSelect?.addEventListener('change', () => {
   const fontSize = Number(fontSizeSelect.value);
   text.setOptions({ fontSize });
-  const sel = getSelectedTextElement();
-  if (sel) viewport.store.update(sel.id, { fontSize });
+  if (viewport.getSelectionStyle() !== null) {
+    viewport.applyStyleToSelection({ fontSize });
+  }
 });
 
 alignButtons.forEach((btn) => {
@@ -331,44 +337,111 @@ alignButtons.forEach((btn) => {
 textColorInput?.addEventListener('input', () => {
   const color = textColorInput.value;
   text.setOptions({ color });
-  const sel = getSelectedTextElement();
-  if (sel) viewport.store.update(sel.id, { color });
+  if (viewport.getSelectionStyle() !== null) {
+    viewport.applyStyleToSelection({ color });
+  }
 });
 
 const colorInput = document.getElementById('tool-color') as HTMLInputElement | null;
 
 colorInput?.addEventListener('input', (e) => {
   const color = (e.target as HTMLInputElement).value;
-  pencil.setOptions({ color });
-  arrow.setOptions({ color });
-  note.setOptions({ backgroundColor: color });
-  text.setOptions({ color });
-  shape.setOptions({ strokeColor: color });
+  if (viewport.getSelectionStyle() !== null) {
+    viewport.applyStyleToSelection({ color });
+  } else {
+    pencil.setOptions({ color });
+    arrow.setOptions({ color });
+    note.setOptions({ backgroundColor: color });
+    text.setOptions({ color });
+    shape.setOptions({ strokeColor: color });
+  }
 });
 
 const shapePanel = document.getElementById('shape-panel');
 const shapeKindSelect = document.getElementById('shape-kind') as HTMLSelectElement | null;
+const shapeStrokeColorInput = document.getElementById(
+  'shape-stroke-color',
+) as HTMLInputElement | null;
 const shapeFillInput = document.getElementById('shape-fill') as HTMLInputElement | null;
 const shapeNoFillBtn = document.getElementById('shape-no-fill') as HTMLButtonElement | null;
 
+function getSelectedShapeElement() {
+  const ids = viewport.getSelectedIds();
+  if (ids.length !== 1) return null;
+  const el = viewport.store.getAll().find((e) => e.id === ids[0]);
+  if (el && el.type === 'shape') return el;
+  return null;
+}
+
 function updateShapePanel() {
   const activeTool = viewport.toolManager.activeTool?.name;
-  if (shapePanel) shapePanel.style.display = activeTool === 'shape' ? 'flex' : 'none';
+  const selectedShape = getSelectedShapeElement();
+  const show = activeTool === 'shape' || selectedShape !== null;
+  if (shapePanel) shapePanel.style.display = show ? 'flex' : 'none';
+
+  if (selectedShape && shapeStrokeColorInput) {
+    shapeStrokeColorInput.value = selectedShape.strokeColor;
+  }
+  if (selectedShape && shapeFillInput) {
+    shapeFillInput.value = selectedShape.fillColor === 'none' ? '#ffffff' : selectedShape.fillColor;
+  }
 }
 
 viewport.toolManager.onChange(updateShapePanel);
+viewport.store.on('update', updateShapePanel);
 
 shapeKindSelect?.addEventListener('change', () => {
   shape.setOptions({ shape: shapeKindSelect.value as 'rectangle' | 'ellipse' });
 });
 
+shapeStrokeColorInput?.addEventListener('input', () => {
+  const color = shapeStrokeColorInput.value;
+  shape.setOptions({ strokeColor: color });
+  if (viewport.getSelectionStyle() !== null) {
+    viewport.applyStyleToSelection({ color });
+  }
+});
+
 shapeFillInput?.addEventListener('input', () => {
-  shape.setOptions({ fillColor: shapeFillInput.value });
+  const fillColor = shapeFillInput.value;
+  shape.setOptions({ fillColor });
+  if (viewport.getSelectionStyle() !== null) {
+    viewport.applyStyleToSelection({ fillColor });
+  }
 });
 
 shapeNoFillBtn?.addEventListener('click', () => {
   shape.setOptions({ fillColor: 'none' });
+  if (viewport.getSelectionStyle() !== null) {
+    viewport.applyStyleToSelection({ fillColor: 'none' });
+  }
 });
+
+function syncStyleControls() {
+  const style = viewport.getSelectionStyle();
+  if (style !== null) {
+    if (colorInput && style.color !== undefined) colorInput.value = style.color;
+    if (brushSlider && style.strokeWidth !== undefined) {
+      brushSlider.value = String(style.strokeWidth);
+      if (brushLabel) brushLabel.textContent = `${style.strokeWidth}px`;
+      if (brushPreview) {
+        const size = Math.max(4, style.strokeWidth + 4);
+        brushPreview.style.width = `${size}px`;
+        brushPreview.style.height = `${size}px`;
+      }
+    }
+    if (fontSizeSelect && style.fontSize !== undefined) {
+      fontSizeSelect.value = String(style.fontSize);
+    }
+  }
+  // Panel visibility must update on every selection change, including deselect (style null).
+  updateNotePanel();
+  updateTextPanel();
+  updateShapePanel();
+}
+
+viewport.onSelectionChange(syncStyleControls);
+viewport.store.on('update', syncStyleControls);
 
 document.addEventListener('keydown', (e) => {
   if ((e.target as HTMLElement).isContentEditable) return;

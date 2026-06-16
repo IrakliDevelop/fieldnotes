@@ -10,6 +10,9 @@ export {
   useLayers,
   useHistory,
   useElements,
+  useSelection,
+  useSelectionStyle,
 } from './hooks';
 export type { CameraState, UseLayersResult, UseHistoryResult } from './hooks';
+export type { ElementStyle } from '@fieldnotes/core';
 export { ViewportContext } from './context';

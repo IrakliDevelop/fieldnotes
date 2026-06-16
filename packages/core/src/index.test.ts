@@ -3,7 +3,7 @@ import * as FN from './index';
 
 describe('core public surface', () => {
   it('exports the current version', () => {
-    expect(FN.VERSION).toBe('0.26.0');
+    expect(FN.VERSION).toBe('0.27.0');
   });
 
   it('does not export internal machinery (trimmed before 1.0)', () => {
@@ -82,6 +82,8 @@ describe('core public surface', () => {
       'getElementsBoundingBox',
       'toggleBold',
       'getActiveFormats',
+      'styleToPatch',
+      'getElementStyle',
     ];
     for (const name of kept) {
       expect(name in FN, `${name} should be exported`).toBe(true);

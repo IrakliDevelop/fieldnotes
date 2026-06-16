@@ -1,4 +1,4 @@
-export const VERSION = '0.26.0';
+export const VERSION = '0.27.0';
 
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
 export { snapPoint, smartSnap, snapToHexCenter } from './core/snap';
@@ -49,6 +49,8 @@ export {
   getArrowBounds,
 } from './elements/arrow-geometry';
 export { getElementBounds, boundsIntersect } from './elements/element-bounds';
+export { styleToPatch, getElementStyle } from './elements/element-style';
+export type { ElementStyle } from './elements/element-style';
 export { getElementsBoundingBox } from './elements/bounds';
 export {
   getHexDistance,

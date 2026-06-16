@@ -4,6 +4,19 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.27.0] — 2026-06-16
+
+### Added
+
+- **Selection-aware styling.** A normalized `ElementStyle` (`{ color, fillColor, strokeWidth, opacity, fontSize }`) maps across element types; `styleToPatch` / `getElementStyle` convert to and from each type's real fields (e.g. a note's `color` is its text color, `fillColor` its background). `Viewport` gains `applyStyleToSelection(style)` (applies to the current selection in one undo step), `getSelectionStyle()` (shared values across the selection, omitting properties that differ), `getSelectedIds()` (a referentially-stable array), and `onSelectionChange(listener)`. `SelectTool` now emits a selection-change event.
+- **@fieldnotes/react 0.6.0** — `useSelection()` (reactive selected ids) and `useSelectionStyle()` (`[style, applyStyle]`). Requires core `>=0.27.0`.
+
+### Changed
+
+- **Demo:** the color / stroke-width / font-size / fill controls now apply to the current selection when one exists (and reflect its style), falling back to setting new-element defaults when nothing is selected — fixing the previous behavior where the color picker changed every tool globally. Adds shape-selection styling.
+
+---
+
 ## [0.26.0] — 2026-06-14
 
 ### Added

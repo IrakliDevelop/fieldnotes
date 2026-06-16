@@ -183,6 +183,57 @@ const positions = useElements(
 );
 ```
 
+## Selection & Styling
+
+### `useSelection`
+
+Returns the current selection as a reactive, referentially-stable `string[]` of element IDs. Re-renders only when the selection changes.
+
+```tsx
+import { useSelection } from '@fieldnotes/react';
+
+function SelectionBadge() {
+  const ids = useSelection();
+  return <span>{ids.length} selected</span>;
+}
+```
+
+### `useSelectionStyle`
+
+Returns `[style, applyStyle]` — the shared style of the current selection and a stable callback to apply a style patch to it.
+
+- `style` is an `ElementStyle` (`{ color?, fillColor?, strokeWidth?, opacity?, fontSize? }`) containing only properties that are identical across all selected elements. Properties that differ are omitted. `style` is `null` when nothing is selected.
+- `applyStyle(patch)` applies the patch to the current selection in a single undo step.
+
+```tsx
+import { useSelectionStyle } from '@fieldnotes/react';
+
+function StyleToolbar() {
+  const [style, applyStyle] = useSelectionStyle();
+
+  return (
+    <div>
+      <input
+        type="color"
+        value={style?.color ?? '#000000'}
+        disabled={!style}
+        onChange={(e) => applyStyle({ color: e.target.value })}
+      />
+      <input
+        type="range"
+        min={1}
+        max={20}
+        value={style?.strokeWidth ?? 2}
+        disabled={!style}
+        onChange={(e) => applyStyle({ strokeWidth: Number(e.target.value) })}
+      />
+    </div>
+  );
+}
+```
+
+See [core README](../core/README.md#styling-the-selection) for the full `ElementStyle` mapping table and the underlying `Viewport` methods.
+
 ## Save / Load
 
 Access the viewport imperatively for export and import:

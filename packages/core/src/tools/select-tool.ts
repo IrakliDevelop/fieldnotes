@@ -40,6 +40,7 @@ type Mode =
 export class SelectTool implements Tool {
   readonly name = 'select';
   private _selectedIds: string[] = [];
+  private selectionListeners = new Set<() => void>();
   private mode: Mode = { type: 'idle' };
   private lastWorld: Point = { x: 0, y: 0 };
   private currentWorld: Point = { x: 0, y: 0 };
@@ -50,11 +51,25 @@ export class SelectTool implements Tool {
   private hoveredId: string | null = null;
 
   get selectedIds(): string[] {
-    return [...this._selectedIds];
+    return this._selectedIds;
+  }
+
+  onSelectionChange(listener: () => void): () => void {
+    this.selectionListeners.add(listener);
+    return () => {
+      this.selectionListeners.delete(listener);
+    };
+  }
+
+  private setSelectedIds(ids: string[]): void {
+    const prev = this._selectedIds;
+    if (prev.length === ids.length && prev.every((id, i) => id === ids[i])) return;
+    this._selectedIds = ids;
+    for (const listener of this.selectionListeners) listener();
   }
 
   setSelection(ids: string[]): void {
-    this._selectedIds = ids;
+    this.setSelectedIds(ids);
     this.ctx?.requestRender();
   }
 
@@ -67,7 +82,7 @@ export class SelectTool implements Tool {
   }
 
   onDeactivate(ctx: ToolContext): void {
-    this._selectedIds = [];
+    this.setSelectedIds([]);
     this.mode = { type: 'idle' };
     this.hoveredId = null;
     ctx.setCursor?.('default');
@@ -124,22 +139,22 @@ export class SelectTool implements Tool {
       const alreadySelected = this._selectedIds.includes(hit.id);
       if (state.shiftKey) {
         if (alreadySelected) {
-          this._selectedIds = this._selectedIds.filter((id) => id !== hit.id);
+          this.setSelectedIds(this._selectedIds.filter((id) => id !== hit.id));
           this.mode = { type: 'idle' };
         } else {
-          this._selectedIds = [...this._selectedIds, hit.id];
+          this.setSelectedIds([...this._selectedIds, hit.id]);
           this.mode = hit.locked ? { type: 'idle' } : { type: 'dragging' };
         }
       } else {
         if (!alreadySelected) {
-          this._selectedIds = [hit.id];
+          this.setSelectedIds([hit.id]);
         } else if (this._selectedIds.length > 1) {
           this.pendingSingleSelectId = hit.id;
         }
         this.mode = hit.locked ? { type: 'idle' } : { type: 'dragging' };
       }
     } else {
-      this._selectedIds = [];
+      this.setSelectedIds([]);
       this.mode = { type: 'marquee', start: world };
     }
 
@@ -226,13 +241,13 @@ export class SelectTool implements Tool {
     if (this.mode.type === 'marquee') {
       const rect = this.getMarqueeRect();
       if (rect) {
-        this._selectedIds = this.findElementsInRect(rect, ctx);
+        this.setSelectedIds(this.findElementsInRect(rect, ctx));
       }
       ctx.requestRender();
     }
 
     if (!this.hasDragged && this.pendingSingleSelectId !== null) {
-      this._selectedIds = [this.pendingSingleSelectId];
+      this.setSelectedIds([this.pendingSingleSelectId]);
     }
     this.pendingSingleSelectId = null;
     this.hasDragged = false;
