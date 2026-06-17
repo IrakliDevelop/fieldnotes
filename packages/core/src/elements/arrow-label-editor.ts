@@ -84,6 +84,12 @@ export class ArrowLabelEditor {
     input.select();
   }
 
+  /** Abort any in-progress edit without committing (e.g. on viewport teardown). */
+  cancel(): void {
+    this.done = true;
+    this.cleanup();
+  }
+
   private cleanup(): void {
     if (this.input) {
       this.input.remove();

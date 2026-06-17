@@ -564,6 +564,7 @@ export class Viewport {
     this.renderLoop.stop();
     this.interactMode.destroy();
     this.noteEditor.destroy(this.store);
+    this.arrowLabelEditor.cancel();
     this.historyRecorder.destroy();
     this.wrapper.removeEventListener('pointerdown', this.onTapDown);
     this.wrapper.removeEventListener('pointerup', this.onDoubleTap);
@@ -662,15 +663,17 @@ export class Viewport {
     const screen = { x: e.clientX - rect.left, y: e.clientY - rect.top };
     const world = this.camera.screenToWorld(screen);
 
-    const arrow = this.findArrowAt(world);
-    if (arrow) {
-      this.startArrowLabelEdit(arrow);
-      return;
-    }
-
+    // HTML embeds keep double-tap priority: you double-tapped inside the embed even if an
+    // arrow's curve passes nearby. Arrow-label editing only when no embed is hit.
     const hit = this.hitTestWorld(world);
     if (hit?.type === 'html') {
       this.interactMode.startInteracting(hit.id);
+      return;
+    }
+
+    const arrow = this.findArrowAt(world);
+    if (arrow) {
+      this.startArrowLabelEdit(arrow);
     }
   };
 
@@ -688,7 +691,6 @@ export class Viewport {
   }
 
   private startArrowLabelEdit(arrow: ArrowElement): void {
-    this.renderer.setLabelEditingId(arrow.id);
     this.arrowLabelEditor.startEditing({
       arrow,
       layer: this.domLayer,
@@ -699,6 +701,9 @@ export class Viewport {
         this.requestRender();
       },
     });
+    // Set AFTER startEditing: starting a new edit cleans up any prior session, whose onDone
+    // synchronously clears the editing id — so claim suppression for this arrow last.
+    this.renderer.setLabelEditingId(arrow.id);
   }
 
   private hitTestWorld(world: { x: number; y: number }): CanvasElement | null {
