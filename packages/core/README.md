@@ -441,6 +441,14 @@ new Viewport(container, {
 new PencilTool({ color: '#ff0000', width: 3, smoothing: 1.5 });
 new EraserTool({ radius: 30 });
 new ArrowTool({ color: '#333', width: 2 });
+```
+
+### Arrow Labels
+
+Arrows support an optional `label` string, rendered as a pill at the curve midpoint. Pass it at creation or double-click an arrow on the canvas to add or edit the label inline.
+
+```typescript
+createArrow({ from: { x: 0, y: 0 }, to: { x: 200, y: 0 }, label: 'depends on' });
 new NoteTool({ backgroundColor: '#fff9c4', size: { w: 200, h: 150 } });
 new ImageTool({ size: { w: 400, h: 300 } });
 ```
