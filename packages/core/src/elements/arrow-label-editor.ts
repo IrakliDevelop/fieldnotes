@@ -32,6 +32,8 @@ export class ArrowLabelEditor {
       left: `${mid.x}px`,
       top: `${mid.y}px`,
       transform: 'translate(-50%, -50%)',
+      // domLayer is pointer-events:none; the input must opt back in to receive taps/clicks.
+      pointerEvents: 'auto',
       font: '14px system-ui, sans-serif',
       padding: '2px 6px',
       border: '1px solid #2196F3',

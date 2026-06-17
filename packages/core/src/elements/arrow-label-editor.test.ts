@@ -93,4 +93,15 @@ describe('ArrowLabelEditor', () => {
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
     expect(env.stack.undoCount).toBe(0);
   });
+
+  it('does not double-commit when Enter is followed by blur', () => {
+    const { arrow, input } = start(env);
+    if (!input) throw new Error('input not rendered');
+    input.value = 'once';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    // Enter removes the input, which fires blur → commit must short-circuit on `done`.
+    input.dispatchEvent(new Event('blur'));
+    expect(getLabel(env, arrow.id)).toBe('once');
+    expect(env.stack.undoCount).toBe(1);
+  });
 });
