@@ -12,7 +12,8 @@ import type { CanvasElement, ArrowElement, GridElement } from '../elements/types
 import { findBoundArrows, getEdgeIntersection } from '../elements/arrow-binding';
 import { getElementBounds } from '../elements/element-bounds';
 import { getElementsBoundingBox } from '../elements/bounds';
-import { getArrowTangentAngle } from '../elements/arrow-geometry';
+import { getArrowTangentAngle, isNearBezier } from '../elements/arrow-geometry';
+import { ArrowLabelEditor } from '../elements/arrow-label-editor';
 import { ToolManager } from '../tools/tool-manager';
 import type { ToolContext } from '../tools/types';
 import type { SelectTool } from '../tools/select-tool';
@@ -36,6 +37,7 @@ import { styleToPatch, getElementStyle } from '../elements/element-style';
 import type { ElementStyle } from '../elements/element-style';
 
 const EMPTY_IDS: string[] = [];
+const ARROW_HIT_THRESHOLD = 10;
 
 function noop(): void {
   // Stable unsubscribe handle returned when no select tool is registered.
@@ -88,6 +90,7 @@ export class Viewport {
   private readonly background: Background;
   private readonly renderer: ElementRenderer;
   private readonly noteEditor: NoteEditor;
+  private readonly arrowLabelEditor: ArrowLabelEditor;
   private readonly historyRecorder: HistoryRecorder;
   readonly toolContext: ToolContext;
   private readonly marginViewport: MarginViewport;
@@ -145,6 +148,7 @@ export class Viewport {
       placeholder: options.placeholder,
     });
     this.noteEditor.setOnStop((id) => this.onTextEditStop(id));
+    this.arrowLabelEditor = new ArrowLabelEditor();
     this.noteEditor.setHistoryHooks(
       () => this.historyRecorder.begin(),
       () => this.historyRecorder.commit(),
@@ -657,11 +661,45 @@ export class Viewport {
     const rect = this.wrapper.getBoundingClientRect();
     const screen = { x: e.clientX - rect.left, y: e.clientY - rect.top };
     const world = this.camera.screenToWorld(screen);
+
+    const arrow = this.findArrowAt(world);
+    if (arrow) {
+      this.startArrowLabelEdit(arrow);
+      return;
+    }
+
     const hit = this.hitTestWorld(world);
     if (hit?.type === 'html') {
       this.interactMode.startInteracting(hit.id);
     }
   };
+
+  private findArrowAt(world: { x: number; y: number }): ArrowElement | undefined {
+    const candidates = this.store.queryPoint(world).reverse();
+    for (const el of candidates) {
+      if (
+        el.type === 'arrow' &&
+        isNearBezier(world, el.from, el.to, el.bend, ARROW_HIT_THRESHOLD)
+      ) {
+        return el;
+      }
+    }
+    return undefined;
+  }
+
+  private startArrowLabelEdit(arrow: ArrowElement): void {
+    this.renderer.setLabelEditingId(arrow.id);
+    this.arrowLabelEditor.startEditing({
+      arrow,
+      layer: this.domLayer,
+      store: this.store,
+      recorder: this.historyRecorder,
+      onDone: () => {
+        this.renderer.setLabelEditingId(null);
+        this.requestRender();
+      },
+    });
+  }
 
   private hitTestWorld(world: { x: number; y: number }): CanvasElement | null {
     const candidates = this.store.queryPoint(world).reverse();
