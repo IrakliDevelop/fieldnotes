@@ -4,6 +4,14 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.29.0] — 2026-06-18
+
+### Changed
+
+- **Partial eraser.** The eraser now splits a stroke at the erased span instead of deleting it whole — dragging across a stroke removes only the touched portion and leaves the surviving segments as new strokes (one undo step per drag). Set `EraserToolOptions.mode: 'stroke'` to restore whole-stroke deletion. Eraser size is still `EraserToolOptions.radius` (default 20). Non-stroke elements are untouched, as before.
+
+---
+
 ## [0.28.0] — 2026-06-17
 
 ### Added
