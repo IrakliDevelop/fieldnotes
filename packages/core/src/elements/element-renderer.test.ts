@@ -14,7 +14,7 @@ import type {
   HtmlElement,
   TextElement,
 } from './types';
-import { createArrow } from './element-factory';
+import { createArrow, createShape } from './element-factory';
 import { ElementStore } from './element-store';
 import { Camera } from '../canvas/camera';
 
@@ -480,6 +480,24 @@ describe('ElementRenderer', () => {
 
       expect(ctx.ellipse).toHaveBeenCalled();
       expect(ctx.stroke).toHaveBeenCalled();
+    });
+
+    it('strokes a line shape as a segment and does not fill it', () => {
+      const ctx = mockCtx();
+      const renderer = new ElementRenderer();
+      const shape = createShape({
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 50 },
+        shape: 'line',
+        strokeColor: '#000',
+        strokeWidth: 3,
+        fillColor: '#f00',
+      });
+      renderer.renderCanvasElement(ctx, shape);
+      expect(ctx.stroke).toHaveBeenCalled();
+      expect(ctx.fillRect).not.toHaveBeenCalled();
+      expect(ctx.moveTo).toHaveBeenCalledWith(0, 0);
+      expect(ctx.lineTo).toHaveBeenCalledWith(100, 50);
     });
   });
 

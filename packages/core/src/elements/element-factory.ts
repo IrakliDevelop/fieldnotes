@@ -164,10 +164,11 @@ interface ShapeInput extends BaseDefaults {
   strokeColor?: string;
   strokeWidth?: number;
   fillColor?: string;
+  flip?: boolean;
 }
 
 export function createShape(input: ShapeInput): ShapeElement {
-  return {
+  const result: ShapeElement = {
     id: createId('shape'),
     type: 'shape',
     position: input.position,
@@ -180,6 +181,8 @@ export function createShape(input: ShapeInput): ShapeElement {
     strokeWidth: input.strokeWidth ?? 2,
     fillColor: input.fillColor ?? 'none',
   };
+  if (input.flip) result.flip = input.flip;
+  return result;
 }
 
 interface GridInput extends BaseDefaults {
