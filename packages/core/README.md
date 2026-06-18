@@ -439,7 +439,7 @@ new Viewport(container, {
 
 ```typescript
 new PencilTool({ color: '#ff0000', width: 3, smoothing: 1.5 });
-new EraserTool({ radius: 30 });
+new EraserTool({ radius: 30 }); // mode: 'partial' (default) splits strokes at the erased span; mode: 'stroke' deletes the whole stroke
 new ArrowTool({ color: '#333', width: 2 });
 ```
 
