@@ -689,6 +689,21 @@ measureFeetInput?.addEventListener('input', () => {
   if (feet > 0) measure.setOptions({ feetPerCell: feet });
 });
 
+// Eraser panel
+const eraserPanel = document.getElementById('eraser-panel');
+const eraserModeSelect = document.getElementById('eraser-mode') as HTMLSelectElement | null;
+
+function updateEraserPanel() {
+  const activeTool = viewport.toolManager.activeTool?.name;
+  if (eraserPanel) eraserPanel.style.display = activeTool === 'eraser' ? 'flex' : 'none';
+}
+
+viewport.toolManager.onChange(updateEraserPanel);
+
+eraserModeSelect?.addEventListener('change', () => {
+  eraser.setOptions({ mode: eraserModeSelect.value as 'partial' | 'stroke' });
+});
+
 const gridToggleBtn = document.getElementById('grid-toggle') as HTMLButtonElement | null;
 const gridTypeSelect = document.getElementById('grid-type') as HTMLSelectElement | null;
 const hexOrientationSelect = document.getElementById('hex-orientation') as HTMLSelectElement | null;

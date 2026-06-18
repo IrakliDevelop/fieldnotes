@@ -361,6 +361,13 @@
     <span style="color: #999; font-size: 11px;">Ft/cell:</span>
     <input type="number" id="measure-feet" value="5" min="1" max="100" style="width:48px;padding:4px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
   </div>
+  <div id="eraser-panel" style="display:none;position:fixed;top:70px;left:50%;transform:translateX(-50%);align-items:center;gap:6px;padding:6px 10px;background:white;border-radius:8px;box-shadow:0 2px 12px rgba(0,0,0,0.15);z-index:10;font-size:13px;">
+    <span style="color: #999; font-size: 11px;">Eraser:</span>
+    <select id="eraser-mode" style="padding:4px 8px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
+      <option value="partial" selected>Partial</option>
+      <option value="stroke">Whole Stroke</option>
+    </select>
+  </div>
   <div id="grid-panel" style="position:fixed;top:70px;left:16px;background:white;border:1px solid #ddd;border-radius:8px;padding:8px 12px;display:flex;flex-direction:column;gap:8px;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,0.08);z-index:10;">
     <div style="display:flex;gap:6px;align-items:center;">
       <button id="grid-toggle" title="Add/remove grid">Grid: Off</button>
