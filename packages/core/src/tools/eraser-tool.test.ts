@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { EraserTool } from './eraser-tool';
+import type { EraserToolOptions } from './eraser-tool';
 import { ElementStore } from '../elements/element-store';
 import { Camera } from '../canvas/camera';
 import { createStroke, createNote } from '../elements/element-factory';
@@ -12,6 +13,23 @@ function makeCtx(overrides: Partial<ToolContext> = {}): ToolContext {
     requestRender: vi.fn(),
     ...overrides,
   };
+}
+
+function makeEraser(options: EraserToolOptions): {
+  tool: EraserTool;
+  ctx: ToolContext;
+  store: ElementStore;
+} {
+  const store = new ElementStore();
+  const ctx: ToolContext = {
+    camera: new Camera(),
+    store,
+    requestRender: vi.fn(),
+    isLayerVisible: () => true,
+    isLayerLocked: () => false,
+  };
+  const tool = new EraserTool(options);
+  return { tool, ctx, store };
 }
 
 function pt(x: number, y: number): PointerState {
@@ -173,7 +191,7 @@ describe('EraserTool', () => {
     });
     ctx.store.add(sparse);
 
-    const tool = new EraserTool();
+    const tool = new EraserTool({ mode: 'stroke' });
     tool.onPointerDown(pt(50, 2), ctx);
     tool.onPointerUp(pt(50, 2), ctx);
 
@@ -183,12 +201,81 @@ describe('EraserTool', () => {
   describe('getOptions', () => {
     it('returns current options', () => {
       const tool = new EraserTool({ radius: 30 });
-      expect(tool.getOptions()).toEqual({ radius: 30 });
+      expect(tool.getOptions()).toMatchObject({ radius: 30 });
     });
 
     it('returns default options', () => {
       const tool = new EraserTool();
-      expect(tool.getOptions()).toEqual({ radius: 20 });
+      expect(tool.getOptions()).toMatchObject({ radius: 20 });
+    });
+  });
+
+  describe('partial mode', () => {
+    it('partial mode splits a stroke into surviving fragments (one drag)', () => {
+      const { tool, ctx, store } = makeEraser({ mode: 'partial', radius: 3 });
+      const stroke = createStroke({
+        points: [
+          { x: 0, y: 0, pressure: 1 },
+          { x: 10, y: 0, pressure: 1 },
+          { x: 20, y: 0, pressure: 1 },
+          { x: 30, y: 0, pressure: 1 },
+        ],
+        color: '#abc',
+        width: 4,
+        opacity: 0.5,
+        layerId: 'L1',
+        zIndex: 7,
+      });
+      store.add(stroke);
+      tool.onPointerDown({ x: 15, y: 0, pressure: 1, pointerType: 'mouse', shiftKey: false }, ctx);
+      tool.onPointerUp({ x: 15, y: 0, pressure: 1, pointerType: 'mouse', shiftKey: false }, ctx);
+      const strokes = store.getAll().filter((e) => e.type === 'stroke');
+      expect(store.getById(stroke.id)).toBeUndefined();
+      expect(strokes).toHaveLength(2);
+      for (const s of strokes) {
+        expect(s).toMatchObject({
+          color: '#abc',
+          width: 4,
+          opacity: 0.5,
+          layerId: 'L1',
+          zIndex: 7,
+        });
+        expect(s.id).not.toBe(stroke.id);
+      }
+    });
+
+    it('stroke mode removes the whole stroke', () => {
+      const { tool, ctx, store } = makeEraser({ mode: 'stroke', radius: 3 });
+      const stroke = createStroke({
+        points: [
+          { x: 0, y: 0, pressure: 1 },
+          { x: 30, y: 0, pressure: 1 },
+        ],
+      });
+      store.add(stroke);
+      tool.onPointerDown({ x: 15, y: 0, pressure: 1, pointerType: 'mouse', shiftKey: false }, ctx);
+      expect(store.getById(stroke.id)).toBeUndefined();
+      expect(store.getAll().filter((e) => e.type === 'stroke')).toHaveLength(0);
+    });
+
+    it('leaves non-stroke elements untouched in partial mode', () => {
+      const { tool, ctx, store } = makeEraser({ mode: 'partial', radius: 50 });
+      const note = createNote({ position: { x: 0, y: 0 } });
+      store.add(note);
+      tool.onPointerDown({ x: 0, y: 0, pressure: 1, pointerType: 'mouse', shiftKey: false }, ctx);
+      expect(store.getById(note.id)).toBeDefined();
+    });
+
+    it('round-trips the mode option', () => {
+      const { tool } = makeEraser({ mode: 'stroke' });
+      expect(tool.getOptions().mode).toBe('stroke');
+      tool.setOptions({ mode: 'partial' });
+      expect(tool.getOptions().mode).toBe('partial');
+    });
+
+    it('defaults to partial mode', () => {
+      const { tool } = makeEraser({});
+      expect(tool.getOptions().mode).toBe('partial');
     });
   });
 });

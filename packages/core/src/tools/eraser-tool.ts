@@ -2,9 +2,12 @@ import type { Bounds, Point } from '../core/types';
 import type { Tool, ToolContext, PointerState } from './types';
 import type { StrokeElement } from '../elements/types';
 import { hitTestStroke } from '../elements/stroke-hit';
+import { createStroke } from '../elements/element-factory';
+import { erasePoints } from '../elements/stroke-erase';
 
 export interface EraserToolOptions {
   radius?: number;
+  mode?: 'partial' | 'stroke';
 }
 
 const DEFAULT_RADIUS = 20;
@@ -20,14 +23,20 @@ export class EraserTool implements Tool {
   private erasing = false;
   private readonly radius: number;
   private readonly cursor: string;
+  private mode: 'partial' | 'stroke';
 
   constructor(options: EraserToolOptions = {}) {
     this.radius = options.radius ?? DEFAULT_RADIUS;
     this.cursor = makeEraserCursor(this.radius);
+    this.mode = options.mode ?? 'partial';
   }
 
   getOptions(): EraserToolOptions {
-    return { radius: this.radius };
+    return { radius: this.radius, mode: this.mode };
+  }
+
+  setOptions(options: EraserToolOptions): void {
+    if (options.mode !== undefined) this.mode = options.mode;
   }
 
   onActivate(ctx: ToolContext): void {
@@ -67,10 +76,30 @@ export class EraserTool implements Tool {
       if (el.type !== 'stroke') continue;
       if (ctx.isLayerVisible && !ctx.isLayerVisible(el.layerId)) continue;
       if (ctx.isLayerLocked && ctx.isLayerLocked(el.layerId)) continue;
-      if (this.strokeIntersects(el, world)) {
+      if (!this.strokeIntersects(el, world)) continue;
+      if (this.mode === 'stroke') {
         ctx.store.remove(el.id);
         erased = true;
+        continue;
       }
+      const localEraser = { x: world.x - el.position.x, y: world.y - el.position.y };
+      const runs = erasePoints(el.points, localEraser, this.radius);
+      if (runs === null) continue;
+      ctx.store.remove(el.id);
+      for (const run of runs) {
+        ctx.store.add(
+          createStroke({
+            points: run,
+            color: el.color,
+            width: el.width,
+            opacity: el.opacity,
+            layerId: el.layerId,
+            zIndex: el.zIndex,
+            position: el.position,
+          }),
+        );
+      }
+      erased = true;
     }
 
     if (erased) ctx.requestRender();
