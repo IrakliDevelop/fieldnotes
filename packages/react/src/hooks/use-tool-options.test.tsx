@@ -29,6 +29,7 @@ describe('useToolOptions', () => {
       smoothing: 1.5,
       minPointDistance: 3,
       progressiveSimplifyThreshold: 200,
+      opacity: 1,
     });
   });
 
