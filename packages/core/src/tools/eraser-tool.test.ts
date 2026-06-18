@@ -200,13 +200,19 @@ describe('EraserTool', () => {
 
   describe('getOptions', () => {
     it('returns current options', () => {
-      const tool = new EraserTool({ radius: 30 });
-      expect(tool.getOptions()).toMatchObject({ radius: 30 });
+      const tool = new EraserTool({ radius: 30, mode: 'stroke' });
+      expect(tool.getOptions()).toEqual({ radius: 30, mode: 'stroke' });
     });
 
     it('returns default options', () => {
       const tool = new EraserTool();
-      expect(tool.getOptions()).toMatchObject({ radius: 20 });
+      expect(tool.getOptions()).toEqual({ radius: 20, mode: 'partial' });
+    });
+
+    it('setOptions updates radius (and round-trips)', () => {
+      const tool = new EraserTool();
+      tool.setOptions({ radius: 8 });
+      expect(tool.getOptions()).toEqual({ radius: 8, mode: 'partial' });
     });
   });
 

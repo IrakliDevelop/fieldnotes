@@ -21,8 +21,8 @@ function makeEraserCursor(radius: number): string {
 export class EraserTool implements Tool {
   readonly name = 'eraser';
   private erasing = false;
-  private readonly radius: number;
-  private readonly cursor: string;
+  private radius: number;
+  private cursor: string;
   private mode: 'partial' | 'stroke';
 
   constructor(options: EraserToolOptions = {}) {
@@ -37,6 +37,10 @@ export class EraserTool implements Tool {
 
   setOptions(options: EraserToolOptions): void {
     if (options.mode !== undefined) this.mode = options.mode;
+    if (options.radius !== undefined) {
+      this.radius = options.radius;
+      this.cursor = makeEraserCursor(this.radius); // applied on next activate
+    }
   }
 
   onActivate(ctx: ToolContext): void {
