@@ -315,6 +315,7 @@ describe('PencilTool', () => {
         lineCap: '',
         lineJoin: '',
         globalAlpha: 1,
+        globalCompositeOperation: 'source-over',
       } as unknown as CanvasRenderingContext2D;
     }
 
@@ -338,6 +339,32 @@ describe('PencilTool', () => {
       tool.renderOverlay?.(canvas);
 
       expect(canvas.beginPath).not.toHaveBeenCalled();
+    });
+
+    it('previews a highlighter with its blend + opacity (no commit snap)', () => {
+      const tool = new PencilTool({ blendMode: 'multiply', opacity: 0.4 });
+      const ctx = makeCtx();
+      const canvas = mockCanvas();
+
+      tool.onPointerDown(pt(0, 0), ctx);
+      tool.onPointerMove(pt(10, 10), ctx);
+      tool.renderOverlay?.(canvas);
+
+      expect(canvas.globalCompositeOperation).toBe('multiply');
+      expect(canvas.globalAlpha).toBe(0.4);
+    });
+
+    it('previews a normal pencil at the 0.8 affordance, no blend', () => {
+      const tool = new PencilTool();
+      const ctx = makeCtx();
+      const canvas = mockCanvas();
+
+      tool.onPointerDown(pt(0, 0), ctx);
+      tool.onPointerMove(pt(10, 10), ctx);
+      tool.renderOverlay?.(canvas);
+
+      expect(canvas.globalAlpha).toBe(0.8);
+      expect(canvas.globalCompositeOperation).toBe('source-over');
     });
   });
 });

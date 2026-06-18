@@ -156,7 +156,10 @@ export class PencilTool implements Tool {
     ctx.strokeStyle = this.color;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
-    ctx.globalAlpha = 0.8;
+    // Preview a highlighter at its real opacity + blend so it doesn't snap on commit;
+    // a normal pencil keeps the lighter 0.8 in-progress affordance.
+    ctx.globalAlpha = this.blendMode ? this.opacity : 0.8;
+    if (this.blendMode) ctx.globalCompositeOperation = this.blendMode;
 
     const segments = smoothToSegments(this.points);
     for (const seg of segments) {
