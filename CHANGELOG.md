@@ -4,6 +4,14 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.28.0] — 2026-06-17
+
+### Added
+
+- **Arrow labels.** Arrows take an optional `label` (`createArrow({ label })`), rendered as a pill at the curve midpoint. Double-click an arrow to add or edit its label inline — Enter or click-away commits (one undo step), Escape cancels, and an empty value clears it.
+
+---
+
 ## [0.27.0] — 2026-06-16
 
 ### Added

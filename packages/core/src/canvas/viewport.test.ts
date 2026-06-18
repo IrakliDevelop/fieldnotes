@@ -1409,6 +1409,28 @@ describe('Viewport', () => {
     });
   });
 
+  describe('arrow label editing', () => {
+    it('findArrowAt returns an arrow under the world point, undefined off it', () => {
+      const viewport = new Viewport(container);
+      const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 } });
+      viewport.store.add(arrow);
+      const priv = viewport as unknown as { findArrowAt: (w: { x: number; y: number }) => unknown };
+      expect(priv.findArrowAt({ x: 50, y: 0 })).toBeTruthy();
+      expect(priv.findArrowAt({ x: 50, y: 80 })).toBeUndefined();
+      viewport.destroy();
+    });
+
+    it('startArrowLabelEdit opens an input in the dom layer and sets the renderer editing id', () => {
+      const viewport = new Viewport(container);
+      const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 } });
+      viewport.store.add(arrow);
+      const priv = viewport as unknown as { startArrowLabelEdit: (a: typeof arrow) => void };
+      priv.startArrowLabelEdit(arrow);
+      expect(viewport.domLayer.querySelector('input')).not.toBeNull();
+      viewport.destroy();
+    });
+  });
+
   describe('fitNoteHeight (auto-grow)', () => {
     it('grows a note height to fit content height', () => {
       const viewport = new Viewport(container);

@@ -237,6 +237,14 @@ describe('parseState', () => {
     expect(() => parseState(JSON.stringify(data))).toThrow('zIndex');
   });
 
+  it('preserves an arrow label across an export → parse round-trip', () => {
+    const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 20, y: 5 }, label: 'flows to' });
+    const json = JSON.stringify(exportState([arrow], makeCamera()));
+    const restored = parseState(json);
+    const a = restored.elements.find((e) => e.type === 'arrow');
+    expect((a as { label?: string }).label).toBe('flows to');
+  });
+
   it('cleans stale arrow bindings on parse', () => {
     const state = {
       version: 1,

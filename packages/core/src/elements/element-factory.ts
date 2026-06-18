@@ -51,6 +51,7 @@ interface ArrowInput extends BaseDefaults {
   width?: number;
   fromBinding?: Binding;
   toBinding?: Binding;
+  label?: string;
 }
 
 interface ImageInput extends BaseDefaults {
@@ -124,6 +125,7 @@ export function createArrow(input: ArrowInput): ArrowElement {
   };
   if (input.fromBinding) result.fromBinding = input.fromBinding;
   if (input.toBinding) result.toBinding = input.toBinding;
+  if (input.label !== undefined) result.label = input.label;
   return result;
 }
 

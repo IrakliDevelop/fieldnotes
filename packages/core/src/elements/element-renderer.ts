@@ -8,6 +8,7 @@ import type {
   TemplateElement,
 } from './types';
 import { getArrowRenderGeometry } from './arrow-render-cache';
+import { getArrowMidpoint } from './arrow-geometry';
 import { getEdgeIntersection } from './arrow-binding';
 import { getElementBounds } from './element-bounds';
 import { getStrokeRenderData } from './stroke-cache';
@@ -32,6 +33,7 @@ import {
 const DOM_ELEMENT_TYPES = new Set(['note', 'html', 'text']);
 const ARROWHEAD_LENGTH = 12;
 const ARROWHEAD_ANGLE = Math.PI / 6;
+const ARROW_LABEL_FONT_SIZE = 14;
 
 export class ElementRenderer {
   private store: ElementStore | null = null;
@@ -44,6 +46,7 @@ export class ElementRenderer {
   private hexTileCacheKey = '';
   private gridBoundsOverride: { minX: number; minY: number; maxX: number; maxY: number } | null =
     null;
+  private labelEditingId: string | null = null;
 
   setStore(store: ElementStore): void {
     this.store = store;
@@ -69,6 +72,10 @@ export class ElementRenderer {
     bounds: { minX: number; minY: number; maxX: number; maxY: number } | null,
   ): void {
     this.gridBoundsOverride = bounds;
+  }
+
+  setLabelEditingId(id: string | null): void {
+    this.labelEditingId = id;
   }
 
   isDomElement(element: CanvasElement): boolean {
@@ -157,6 +164,29 @@ export class ElementRenderer {
     ctx.stroke();
 
     this.renderArrowhead(ctx, arrow, visualTo, geometry.tangentEnd);
+    ctx.restore();
+    this.renderArrowLabel(ctx, arrow);
+  }
+
+  private renderArrowLabel(ctx: CanvasRenderingContext2D, arrow: ArrowElement): void {
+    if (!arrow.label || arrow.label.length === 0) return;
+    if (arrow.id === this.labelEditingId) return;
+    const mid = getArrowMidpoint(arrow.from, arrow.to, arrow.bend);
+    ctx.save();
+    ctx.font = `${ARROW_LABEL_FONT_SIZE}px system-ui, sans-serif`;
+    const metrics = ctx.measureText(arrow.label);
+    const padX = 6;
+    const padY = 4;
+    const w = metrics.width + padX * 2;
+    const h = ARROW_LABEL_FONT_SIZE + padY * 2;
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+    ctx.beginPath();
+    ctx.roundRect(mid.x - w / 2, mid.y - h / 2, w, h, 4);
+    ctx.fill();
+    ctx.fillStyle = '#1a1a1a';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(arrow.label, mid.x, mid.y);
     ctx.restore();
   }
 
