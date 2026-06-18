@@ -61,7 +61,9 @@ export function erasePoints(
         const sq = Math.sqrt(disc);
         const lo = Math.max(0, (-B - sq) / (2 * A));
         const hi = Math.min(1, (-B + sq) / (2 * A));
-        if (lo <= hi) {
+        // Strict `<`: a tangent graze (lo === hi, zero-width overlap) is not an erase —
+        // it would otherwise split a stroke in two at a single duplicated point.
+        if (lo < hi) {
           tLo = lo;
           tHi = hi;
         }

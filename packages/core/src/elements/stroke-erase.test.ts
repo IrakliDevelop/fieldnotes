@@ -9,6 +9,11 @@ describe('erasePoints', () => {
     expect(erasePoints([P(0, 0), P(10, 0), P(20, 0)], { x: 50, y: 50 }, 5)).toBeNull();
   });
 
+  it('returns null on a tangent graze (no zero-width split)', () => {
+    // circle centered at (5,3) r=3 just touches the y=0 segment at (5,0): tangent, not a cut
+    expect(erasePoints([P(0, 0), P(10, 0)], { x: 5, y: 3 }, 3)).toBeNull();
+  });
+
   it('splits a stroke into two runs when erased in the middle', () => {
     const runs = erasePoints([P(0, 0), P(10, 0), P(20, 0), P(30, 0)], { x: 15, y: 0 }, 3);
     expect(runs).not.toBeNull();
