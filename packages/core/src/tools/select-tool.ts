@@ -1,11 +1,13 @@
 import type { Bounds, Point } from '../core/types';
 import type { Tool, ToolContext, PointerState } from './types';
 import { smartSnap } from '../core/snap';
+import { distSqToSegment } from '../core/geometry';
 import type { CanvasElement, ArrowElement } from '../elements/types';
 import { isNearBezier } from '../elements/arrow-geometry';
 import { findBoundArrows, updateBoundArrow } from '../elements/arrow-binding';
 import { getElementBounds } from '../elements/element-bounds';
 import { hitTestStroke } from '../elements/stroke-hit';
+import { lineEndpoints } from '../elements/shape-geometry';
 import {
   type ArrowHandle,
   hitTestArrowHandles,
@@ -712,6 +714,11 @@ export class SelectTool implements Tool {
 
   private isInsideBounds(point: Point, el: CanvasElement): boolean {
     if (el.type === 'grid') return false;
+    if (el.type === 'shape' && el.shape === 'line') {
+      const [a, b] = lineEndpoints(el);
+      const threshold = Math.max(el.strokeWidth / 2, 6);
+      return distSqToSegment(point, a, b) <= threshold * threshold;
+    }
     if ('size' in el) {
       const s = el.size;
       return (
