@@ -245,6 +245,18 @@ describe('parseState', () => {
     expect((a as { label?: string }).label).toBe('flows to');
   });
 
+  it('preserves stroke blendMode across an export → parse round-trip', () => {
+    const stroke = createStroke({
+      points: [{ x: 0, y: 0, pressure: 1 }, { x: 10, y: 0, pressure: 1 }],
+      blendMode: 'multiply',
+      layerId: 'default-layer',
+    });
+    const json = JSON.stringify(exportState([stroke], makeCamera()));
+    const restored = parseState(json);
+    const s = restored.elements.find((e) => e.type === 'stroke');
+    expect((s as { blendMode?: string }).blendMode).toBe('multiply');
+  });
+
   it('cleans stale arrow bindings on parse', () => {
     const state = {
       version: 1,

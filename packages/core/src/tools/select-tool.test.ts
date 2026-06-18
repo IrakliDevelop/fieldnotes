@@ -9,6 +9,7 @@ import {
   createImage,
   createTemplate,
   createGrid,
+  createShape,
 } from '../elements/element-factory';
 import type { ToolContext, PointerState } from './types';
 import type { NoteElement, ImageElement, TemplateElement } from '../elements/types';
@@ -1461,6 +1462,36 @@ describe('SelectTool', () => {
       off();
       tool.setSelection([a.id]);
       expect(fn).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('line shape hit testing', () => {
+    it('selects a line by proximity to its segment, not its bbox', () => {
+      const tool = new SelectTool();
+      const line = createShape({
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 100 },
+        shape: 'line',
+        strokeWidth: 2,
+      });
+      const priv = tool as unknown as {
+        isInsideBounds: (p: { x: number; y: number }, el: typeof line) => boolean;
+      };
+      expect(priv.isInsideBounds({ x: 50, y: 50 }, line)).toBe(true);
+      expect(priv.isInsideBounds({ x: 90, y: 10 }, line)).toBe(false);
+    });
+
+    it('still hit-tests a rectangle by its bbox', () => {
+      const tool = new SelectTool();
+      const rect = createShape({
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 100 },
+        shape: 'rectangle',
+      });
+      const priv = tool as unknown as {
+        isInsideBounds: (p: { x: number; y: number }, el: typeof rect) => boolean;
+      };
+      expect(priv.isInsideBounds({ x: 90, y: 10 }, rect)).toBe(true);
     });
   });
 

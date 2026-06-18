@@ -443,6 +443,18 @@ new EraserTool({ radius: 30 }); // mode: 'partial' (default) splits strokes at t
 new ArrowTool({ color: '#333', width: 2 });
 ```
 
+`PencilTool` also accepts `opacity` (0–1), `blendMode` (`'source-over'` | `'multiply'`), and `name` — so a highlighter tool is just a named pencil variant with multiply blending:
+
+```typescript
+// Register a highlighter alongside the standard pencil
+viewport.toolManager.register(
+  new PencilTool({ name: 'highlighter', color: '#facc15', width: 12, opacity: 0.4, blendMode: 'multiply' }),
+);
+viewport.setTool('highlighter');
+```
+
+`ShapeTool` supports a `'line'` shape kind that draws a straight segment between two points. Hold **Shift** while drawing to snap to 45° increments. Lines are hit-tested by proximity to the segment, and `ShapeElement.flip` records which diagonal of the bounding box the line runs along.
+
 ### Arrow Labels
 
 Arrows support an optional `label` string, rendered as a pill at the curve midpoint. Pass it at creation or double-click an arrow on the canvas to add or edit the label inline.
@@ -474,7 +486,7 @@ interface BaseElement {
 | `note`   | `size`, `text`, `backgroundColor`, `textColor`                                         |
 | `arrow`  | `from`, `to`, `bend`, `color`, `width`, `fromBinding`, `toBinding`                     |
 | `image`  | `size`, `src`                                                                          |
-| `shape`  | `size`, `shape` (`rectangle` \| `ellipse`), `strokeColor`, `fillColor`                 |
+| `shape`  | `size`, `shape` (`rectangle` \| `ellipse` \| `line`), `strokeColor`, `fillColor`, `flip` (`boolean` — which bbox diagonal a line runs along) |
 | `text`   | `size`, `text`, `fontSize`, `color`, `textAlign`                                       |
 | `grid`   | `gridType` (`square` \| `hex`), `hexOrientation`, `cellSize`, `strokeColor`, `opacity` |
 | `html`   | `size`                                                                                 |

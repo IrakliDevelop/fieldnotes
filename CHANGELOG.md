@@ -4,6 +4,15 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.30.0] — 2026-06-18
+
+### Added
+
+- **Line tool.** A new `'line'` shape kind draws a straight segment (hold Shift to snap to 45°). Lines are styled and selected like other shapes (selected by proximity to the segment); `ShapeElement.flip` records which bbox diagonal the line runs along.
+- **Highlighter.** `StrokeElement.blendMode: 'multiply'` renders strokes with a multiply blend so overlaps darken. `PencilTool` gains `opacity`, `blendMode`, and a configurable `name`, so a highlighter is just `new PencilTool({ name: 'highlighter', width: 12, opacity: 0.4, blendMode: 'multiply' })`.
+
+---
+
 ## [0.29.0] — 2026-06-18
 
 ### Changed

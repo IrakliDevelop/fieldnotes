@@ -4,6 +4,16 @@ import type { Tool, ToolContext, PointerState } from './types';
 import { createShape } from '../elements/element-factory';
 import { smartSnap } from '../core/snap';
 
+function snapTo45(start: Point, end: Point): Point {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const len = Math.hypot(dx, dy);
+  if (len === 0) return { ...end };
+  const step = Math.PI / 4;
+  const angle = Math.round(Math.atan2(dy, dx) / step) * step;
+  return { x: start.x + Math.cos(angle) * len, y: start.y + Math.sin(angle) * len };
+}
+
 export interface ShapeToolOptions {
   shape?: ShapeKind;
   strokeColor?: string;
@@ -76,6 +86,9 @@ export class ShapeTool implements Tool {
   onPointerMove(state: PointerState, ctx: ToolContext): void {
     if (!this.drawing) return;
     this.end = this.snap(ctx.camera.screenToWorld({ x: state.x, y: state.y }), ctx);
+    if (this.shape === 'line' && this.shiftHeld) {
+      this.end = snapTo45(this.start, this.end);
+    }
     ctx.requestRender();
   }
 
@@ -84,7 +97,8 @@ export class ShapeTool implements Tool {
     this.drawing = false;
 
     const { position, size } = this.computeRect();
-    if (size.w === 0 || size.h === 0) return;
+    const isLine = this.shape === 'line';
+    if (isLine ? size.w === 0 && size.h === 0 : size.w === 0 || size.h === 0) return;
 
     const shape = createShape({
       position,
@@ -93,6 +107,7 @@ export class ShapeTool implements Tool {
       strokeColor: this.strokeColor,
       strokeWidth: this.strokeWidth,
       fillColor: this.fillColor,
+      ...(isLine ? { flip: this.end.x > this.start.x !== this.end.y > this.start.y } : {}),
       layerId: ctx.activeLayerId ?? '',
     });
     ctx.store.add(shape);
@@ -131,6 +146,13 @@ export class ShapeTool implements Tool {
         ctx.stroke();
         break;
       }
+      case 'line':
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(this.start.x, this.start.y);
+        ctx.lineTo(this.end.x, this.end.y);
+        ctx.stroke();
+        break;
     }
 
     ctx.restore();
@@ -142,7 +164,7 @@ export class ShapeTool implements Tool {
     let w = Math.abs(this.end.x - this.start.x);
     let h = Math.abs(this.end.y - this.start.y);
 
-    if (this.shiftHeld) {
+    if (this.shiftHeld && this.shape !== 'line') {
       const side = Math.max(w, h);
       w = side;
       h = side;

@@ -15,6 +15,8 @@ export interface StrokeElement extends BaseElement {
   color: string;
   width: number;
   opacity: number;
+  /** Optional canvas blend mode (e.g. highlighter uses 'multiply'). */
+  blendMode?: 'multiply';
 }
 
 export interface NoteElement extends BaseElement {
@@ -67,7 +69,7 @@ export interface TextElement extends BaseElement {
   textAlign: 'left' | 'center' | 'right';
 }
 
-export type ShapeKind = 'rectangle' | 'ellipse';
+export type ShapeKind = 'rectangle' | 'ellipse' | 'line';
 
 export interface ShapeElement extends BaseElement {
   type: 'shape';
@@ -76,6 +78,8 @@ export interface ShapeElement extends BaseElement {
   strokeColor: string;
   strokeWidth: number;
   fillColor: string;
+  /** Line-only: which bbox diagonal the segment runs along. Absent/false = main diagonal. */
+  flip?: boolean;
 }
 
 export type HexOrientation = 'pointy' | 'flat';

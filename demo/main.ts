@@ -35,6 +35,7 @@ const benchCount = benchParam ? Math.max(1, parseInt(benchParam, 10) || 500) : 0
 
 const hand = new HandTool();
 const pencil = new PencilTool({ color: '#1a1a1a', width: 2 });
+const highlighter = new PencilTool({ name: 'highlighter', width: 12, opacity: 0.4, blendMode: 'multiply', color: '#ffeb3b' });
 const eraser = new EraserTool();
 const select = new SelectTool();
 const arrow = new ArrowTool({ color: '#1a1a1a', width: 2 });
@@ -46,6 +47,7 @@ const template = new TemplateTool();
 
 viewport.toolManager.register(hand);
 viewport.toolManager.register(pencil);
+viewport.toolManager.register(highlighter);
 viewport.toolManager.register(eraser);
 viewport.toolManager.register(select);
 viewport.toolManager.register(arrow);
@@ -391,7 +393,7 @@ viewport.toolManager.onChange(updateShapePanel);
 viewport.store.on('update', updateShapePanel);
 
 shapeKindSelect?.addEventListener('change', () => {
-  shape.setOptions({ shape: shapeKindSelect.value as 'rectangle' | 'ellipse' });
+  shape.setOptions({ shape: shapeKindSelect.value as 'rectangle' | 'ellipse' | 'line' });
 });
 
 shapeStrokeColorInput?.addEventListener('input', () => {

@@ -14,7 +14,7 @@ import type {
   HtmlElement,
   TextElement,
 } from './types';
-import { createArrow } from './element-factory';
+import { createArrow, createShape, createStroke } from './element-factory';
 import { ElementStore } from './element-store';
 import { Camera } from '../canvas/camera';
 
@@ -47,6 +47,7 @@ function mockCtx(): CanvasRenderingContext2D {
     lineCap: '',
     lineJoin: '',
     globalAlpha: 1,
+    globalCompositeOperation: 'source-over',
     font: '',
     textAlign: '',
     textBaseline: '',
@@ -128,6 +129,24 @@ describe('ElementRenderer', () => {
 
       expect(ctx.save).toHaveBeenCalled();
       expect(ctx.restore).toHaveBeenCalled();
+    });
+  });
+
+  describe('renderStroke — blendMode', () => {
+    it('renderStroke applies blendMode when set', () => {
+      const ctx = mockCtx();
+      const renderer = new ElementRenderer();
+      const stroke = createStroke({ points: [{ x: 0, y: 0, pressure: 1 }, { x: 10, y: 0, pressure: 1 }], blendMode: 'multiply' });
+      renderer.renderCanvasElement(ctx, stroke);
+      expect(ctx.globalCompositeOperation).toBe('multiply');
+    });
+
+    it('renderStroke leaves blend default when unset', () => {
+      const ctx = mockCtx();
+      const renderer = new ElementRenderer();
+      const stroke = createStroke({ points: [{ x: 0, y: 0, pressure: 1 }, { x: 10, y: 0, pressure: 1 }] });
+      renderer.renderCanvasElement(ctx, stroke);
+      expect(ctx.globalCompositeOperation).toBe('source-over');
     });
   });
 
@@ -480,6 +499,24 @@ describe('ElementRenderer', () => {
 
       expect(ctx.ellipse).toHaveBeenCalled();
       expect(ctx.stroke).toHaveBeenCalled();
+    });
+
+    it('strokes a line shape as a segment and does not fill it', () => {
+      const ctx = mockCtx();
+      const renderer = new ElementRenderer();
+      const shape = createShape({
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 50 },
+        shape: 'line',
+        strokeColor: '#000',
+        strokeWidth: 3,
+        fillColor: '#f00',
+      });
+      renderer.renderCanvasElement(ctx, shape);
+      expect(ctx.stroke).toHaveBeenCalled();
+      expect(ctx.fillRect).not.toHaveBeenCalled();
+      expect(ctx.moveTo).toHaveBeenCalledWith(0, 0);
+      expect(ctx.lineTo).toHaveBeenCalledWith(100, 50);
     });
   });
 

@@ -202,10 +202,13 @@ describe('ShapeTool', () => {
         stroke: vi.fn(),
         fillRect: vi.fn(),
         strokeRect: vi.fn(),
+        moveTo: vi.fn(),
+        lineTo: vi.fn(),
         globalAlpha: 1,
         fillStyle: '',
         strokeStyle: '',
         lineWidth: 0,
+        lineCap: 'butt',
       } as unknown as CanvasRenderingContext2D;
     }
 
@@ -306,6 +309,21 @@ describe('ShapeTool', () => {
       expect(canvas.stroke).toHaveBeenCalled();
     });
 
+    it('renders line preview during drag', () => {
+      const tool = new ShapeTool({ shape: 'line' });
+      const ctx = makeCtx();
+      tool.onPointerDown(pt(0, 50), ctx);
+      tool.onPointerMove(pt(50, 0), ctx);
+
+      const canvas = mockCanvasCtx();
+      tool.renderOverlay(canvas);
+
+      expect(canvas.save).toHaveBeenCalled();
+      expect(canvas.beginPath).toHaveBeenCalled();
+      expect(canvas.stroke).toHaveBeenCalled();
+      expect(canvas.restore).toHaveBeenCalled();
+    });
+
     it('sets globalAlpha and style properties', () => {
       const tool = new ShapeTool({ strokeColor: '#ff0000', strokeWidth: 4 });
       const ctx = makeCtx();
@@ -316,6 +334,53 @@ describe('ShapeTool', () => {
       tool.renderOverlay(canvas);
 
       expect(canvas.globalAlpha).toBe(0.5);
+    });
+  });
+
+  describe('line shape', () => {
+    it('records flip from drag direction for a line', () => {
+      const tool = new ShapeTool({ shape: 'line' });
+      const ctx = makeCtx();
+      // bottom-left → top-right (anti-diagonal): start (0,50) → end (50,0)
+      tool.onPointerDown({ x: 0, y: 50, pressure: 1, pointerType: 'mouse', shiftKey: false }, ctx);
+      tool.onPointerMove({ x: 50, y: 0, pressure: 1, pointerType: 'mouse', shiftKey: false }, ctx);
+      tool.onPointerUp({ x: 50, y: 0, pressure: 1, pointerType: 'mouse', shiftKey: false }, ctx);
+      const line = ctx.store.getAll().find((e) => e.type === 'shape');
+      expect(line).toMatchObject({
+        shape: 'line',
+        flip: true,
+        position: { x: 0, y: 0 },
+        size: { w: 50, h: 50 },
+      });
+    });
+
+    it('keeps a horizontal line (relaxed zero-area guard)', () => {
+      const tool = new ShapeTool({ shape: 'line' });
+      const ctx = makeCtx();
+      tool.onPointerDown({ x: 0, y: 0, pressure: 1, pointerType: 'mouse', shiftKey: false }, ctx);
+      tool.onPointerMove({ x: 80, y: 0, pressure: 1, pointerType: 'mouse', shiftKey: false }, ctx);
+      tool.onPointerUp({ x: 80, y: 0, pressure: 1, pointerType: 'mouse', shiftKey: false }, ctx);
+      expect(ctx.store.getAll().filter((e) => e.type === 'shape')).toHaveLength(1);
+    });
+
+    it('drops a zero-length line', () => {
+      const tool = new ShapeTool({ shape: 'line' });
+      const ctx = makeCtx();
+      tool.onPointerDown({ x: 5, y: 5, pressure: 1, pointerType: 'mouse', shiftKey: false }, ctx);
+      tool.onPointerUp({ x: 5, y: 5, pressure: 1, pointerType: 'mouse', shiftKey: false }, ctx);
+      expect(ctx.store.getAll().filter((e) => e.type === 'shape')).toHaveLength(0);
+    });
+
+    it('snaps a line to 45° when Shift is held', () => {
+      const tool = new ShapeTool({ shape: 'line' });
+      const ctx = makeCtx();
+      (tool as unknown as { shiftHeld: boolean }).shiftHeld = true;
+      tool.onPointerDown({ x: 0, y: 0, pressure: 1, pointerType: 'mouse', shiftKey: true }, ctx);
+      // drag to (100, 10): nearest 45° is 0° → end snaps horizontal → h ≈ 0
+      tool.onPointerMove({ x: 100, y: 10, pressure: 1, pointerType: 'mouse', shiftKey: true }, ctx);
+      tool.onPointerUp({ x: 100, y: 10, pressure: 1, pointerType: 'mouse', shiftKey: true }, ctx);
+      const line = ctx.store.getAll().find((e) => e.type === 'shape');
+      expect((line as { size: { h: number } }).size.h).toBeCloseTo(0, 4);
     });
   });
 });

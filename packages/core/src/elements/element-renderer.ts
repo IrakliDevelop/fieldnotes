@@ -8,6 +8,7 @@ import type {
   TemplateElement,
 } from './types';
 import { getArrowRenderGeometry } from './arrow-render-cache';
+import { lineEndpoints } from './shape-geometry';
 import { getArrowMidpoint } from './arrow-geometry';
 import { getEdgeIntersection } from './arrow-binding';
 import { getElementBounds } from './element-bounds';
@@ -109,6 +110,7 @@ export class ElementRenderer {
     if (stroke.points.length < 2) return;
 
     ctx.save();
+    if (stroke.blendMode) ctx.globalCompositeOperation = stroke.blendMode;
     ctx.translate(stroke.position.x, stroke.position.y);
     ctx.strokeStyle = stroke.color;
     ctx.lineCap = 'round';
@@ -261,7 +263,7 @@ export class ElementRenderer {
   private renderShape(ctx: CanvasRenderingContext2D, shape: ShapeElement): void {
     ctx.save();
 
-    if (shape.fillColor !== 'none') {
+    if (shape.fillColor !== 'none' && shape.shape !== 'line') {
       ctx.fillStyle = shape.fillColor;
       this.fillShapePath(ctx, shape);
     }
@@ -301,6 +303,15 @@ export class ElementRenderer {
         const cy = shape.position.y + shape.size.h / 2;
         ctx.beginPath();
         ctx.ellipse(cx, cy, shape.size.w / 2, shape.size.h / 2, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        break;
+      }
+      case 'line': {
+        const [a, b] = lineEndpoints(shape);
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
         ctx.stroke();
         break;
       }

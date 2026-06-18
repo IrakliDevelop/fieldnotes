@@ -29,6 +29,16 @@ describe('element factories', () => {
       expect(stroke.color).toBe('#ff0000');
       expect(stroke.width).toBe(5);
     });
+
+    it('createStroke sets blendMode when provided', () => {
+      const s = createStroke({ points: [{ x: 0, y: 0, pressure: 1 }, { x: 1, y: 1, pressure: 1 }], blendMode: 'multiply' });
+      expect(s.blendMode).toBe('multiply');
+    });
+
+    it('createStroke omits blendMode when not provided', () => {
+      const s = createStroke({ points: [{ x: 0, y: 0, pressure: 1 }, { x: 1, y: 1, pressure: 1 }] });
+      expect('blendMode' in s).toBe(false);
+    });
   });
 
   describe('createNote', () => {
