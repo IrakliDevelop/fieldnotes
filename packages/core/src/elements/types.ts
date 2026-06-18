@@ -15,6 +15,8 @@ export interface StrokeElement extends BaseElement {
   color: string;
   width: number;
   opacity: number;
+  /** Optional canvas blend mode (e.g. highlighter uses 'multiply'). */
+  blendMode?: 'multiply';
 }
 
 export interface NoteElement extends BaseElement {

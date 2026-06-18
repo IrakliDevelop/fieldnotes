@@ -24,6 +24,35 @@ describe('PencilTool', () => {
     expect(tool.name).toBe('pencil');
   });
 
+  it('uses a configurable name', () => {
+    expect(new PencilTool({ name: 'highlighter' }).name).toBe('highlighter');
+    expect(new PencilTool().name).toBe('pencil');
+  });
+
+  it('creates strokes with configured opacity and blendMode', () => {
+    const tool = new PencilTool({ name: 'highlighter', width: 12, opacity: 0.4, blendMode: 'multiply' });
+    const ctx = makeCtx();
+    tool.onPointerDown(pt(0, 0), ctx);
+    tool.onPointerMove(pt(10, 10), ctx);
+    tool.onPointerMove(pt(20, 20), ctx);
+    tool.onPointerUp(pt(20, 20), ctx);
+    const stroke = ctx.store.getAll()[0] as StrokeElement;
+    expect(stroke.opacity).toBe(0.4);
+    expect(stroke.blendMode).toBe('multiply');
+  });
+
+  it('default pencil strokes have opacity 1 and no blendMode', () => {
+    const tool = new PencilTool();
+    const ctx = makeCtx();
+    tool.onPointerDown(pt(0, 0), ctx);
+    tool.onPointerMove(pt(10, 10), ctx);
+    tool.onPointerMove(pt(20, 20), ctx);
+    tool.onPointerUp(pt(20, 20), ctx);
+    const stroke = ctx.store.getAll()[0] as StrokeElement;
+    expect(stroke.opacity).toBe(1);
+    expect(stroke.blendMode).toBeUndefined();
+  });
+
   it('creates a stroke element on pointer down + move + up', () => {
     const tool = new PencilTool();
     const ctx = makeCtx();

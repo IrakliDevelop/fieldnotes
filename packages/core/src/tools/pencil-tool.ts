@@ -5,11 +5,14 @@ import { simplifyPoints, smoothToSegments, pressureToWidth } from '../elements/s
 import { computeStrokeSegments } from '../elements/stroke-cache';
 
 export interface PencilToolOptions {
+  name?: string;
   color?: string;
   width?: number;
   smoothing?: number;
   minPointDistance?: number;
   progressiveSimplifyThreshold?: number;
+  opacity?: number;
+  blendMode?: 'multiply';
 }
 
 const MIN_POINTS_FOR_STROKE = 2;
@@ -20,7 +23,7 @@ const DEFAULT_PROGRESSIVE_THRESHOLD = 200;
 const PROGRESSIVE_HOT_ZONE = 30;
 
 export class PencilTool implements Tool {
-  readonly name = 'pencil';
+  readonly name: string;
   private drawing = false;
   private points: StrokePoint[] = [];
   private color: string;
@@ -29,9 +32,12 @@ export class PencilTool implements Tool {
   private minPointDistance: number;
   private progressiveThreshold: number;
   private nextSimplifyAt: number;
+  private opacity: number;
+  private blendMode: 'multiply' | undefined;
   private optionListeners = new Set<() => void>();
 
   constructor(options: PencilToolOptions = {}) {
+    this.name = options.name ?? 'pencil';
     this.color = options.color ?? '#000000';
     this.width = options.width ?? 2;
     this.smoothing = options.smoothing ?? DEFAULT_SMOOTHING;
@@ -39,6 +45,8 @@ export class PencilTool implements Tool {
     this.progressiveThreshold =
       options.progressiveSimplifyThreshold ?? DEFAULT_PROGRESSIVE_THRESHOLD;
     this.nextSimplifyAt = this.progressiveThreshold;
+    this.opacity = options.opacity ?? 1;
+    this.blendMode = options.blendMode;
   }
 
   onActivate(ctx: ToolContext): void {
@@ -56,6 +64,8 @@ export class PencilTool implements Tool {
       smoothing: this.smoothing,
       minPointDistance: this.minPointDistance,
       progressiveSimplifyThreshold: this.progressiveThreshold,
+      opacity: this.opacity,
+      blendMode: this.blendMode,
     };
   }
 
@@ -71,6 +81,8 @@ export class PencilTool implements Tool {
     if (options.minPointDistance !== undefined) this.minPointDistance = options.minPointDistance;
     if (options.progressiveSimplifyThreshold !== undefined)
       this.progressiveThreshold = options.progressiveSimplifyThreshold;
+    if (options.opacity !== undefined) this.opacity = options.opacity;
+    if (options.blendMode !== undefined) this.blendMode = options.blendMode;
     this.notifyOptionsChange();
   }
 
@@ -124,6 +136,8 @@ export class PencilTool implements Tool {
       color: this.color,
       width: this.width,
       layerId: ctx.activeLayerId ?? '',
+      opacity: this.opacity,
+      blendMode: this.blendMode,
     });
     ctx.store.add(stroke);
     computeStrokeSegments(stroke);

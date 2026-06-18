@@ -32,6 +32,7 @@ interface StrokeInput extends BaseDefaults {
   color?: string;
   width?: number;
   opacity?: number;
+  blendMode?: 'multiply';
 }
 
 interface NoteInput extends BaseDefaults {
@@ -77,7 +78,7 @@ interface TextInput extends BaseDefaults {
 }
 
 export function createStroke(input: StrokeInput): StrokeElement {
-  return {
+  const result: StrokeElement = {
     id: createId('stroke'),
     type: 'stroke',
     position: input.position ?? { x: 0, y: 0 },
@@ -89,6 +90,8 @@ export function createStroke(input: StrokeInput): StrokeElement {
     width: input.width ?? 2,
     opacity: input.opacity ?? 1,
   };
+  if (input.blendMode) result.blendMode = input.blendMode;
+  return result;
 }
 
 export function createNote(input: NoteInput): NoteElement {

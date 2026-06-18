@@ -110,6 +110,7 @@ export class ElementRenderer {
     if (stroke.points.length < 2) return;
 
     ctx.save();
+    if (stroke.blendMode) ctx.globalCompositeOperation = stroke.blendMode;
     ctx.translate(stroke.position.x, stroke.position.y);
     ctx.strokeStyle = stroke.color;
     ctx.lineCap = 'round';
