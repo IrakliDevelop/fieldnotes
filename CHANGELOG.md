@@ -4,6 +4,14 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.31.0] — 2026-06-19
+
+### Changed
+
+- **Line endpoint handles.** A selected line now shows two drag-handles at its endpoints — drag one to reshape the line, and the other stays anchored — instead of bounding-box resize handles.
+
+---
+
 ## [0.30.0] — 2026-06-18
 
 ### Added
