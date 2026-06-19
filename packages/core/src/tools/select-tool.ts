@@ -7,7 +7,7 @@ import { isNearBezier } from '../elements/arrow-geometry';
 import { findBoundArrows, updateBoundArrow } from '../elements/arrow-binding';
 import { getElementBounds } from '../elements/element-bounds';
 import { hitTestStroke } from '../elements/stroke-hit';
-import { lineEndpoints } from '../elements/shape-geometry';
+import { lineEndpoints, lineFromEndpoints } from '../elements/shape-geometry';
 import {
   type ArrowHandle,
   hitTestArrowHandles,
@@ -37,7 +37,8 @@ type Mode =
   | { type: 'marquee'; start: Point }
   | { type: 'resizing'; elementId: string; handle: HandlePosition }
   | { type: 'resizing-template'; elementId: string }
-  | { type: 'arrow-handle'; elementId: string; handle: ArrowHandle };
+  | { type: 'arrow-handle'; elementId: string; handle: ArrowHandle }
+  | { type: 'line-handle'; elementId: string; fixed: Point };
 
 export class SelectTool implements Tool {
   readonly name = 'select';
@@ -112,6 +113,13 @@ export class SelectTool implements Tool {
       return;
     }
 
+    const lineHit = this.hitTestLineHandles(world, ctx);
+    if (lineHit) {
+      this.mode = { type: 'line-handle', elementId: lineHit.elementId, fixed: lineHit.fixed };
+      ctx.requestRender();
+      return;
+    }
+
     const templateResizeHit = this.hitTestTemplateResizeHandle(world, ctx);
     if (templateResizeHit) {
       this.mode = { type: 'resizing-template', elementId: templateResizeHit };
@@ -170,6 +178,15 @@ export class SelectTool implements Tool {
     if (this.mode.type === 'arrow-handle') {
       ctx.setCursor?.(getArrowHandleCursor(this.mode.handle, true));
       applyArrowHandleDrag(this.mode.handle, this.mode.elementId, world, ctx);
+      return;
+    }
+
+    if (this.mode.type === 'line-handle') {
+      const el = ctx.store.getById(this.mode.elementId);
+      if (el && el.type === 'shape') {
+        ctx.store.update(el.id, lineFromEndpoints(this.mode.fixed, world));
+      }
+      ctx.requestRender();
       return;
     }
 
@@ -473,6 +490,7 @@ export class SelectTool implements Tool {
     for (const id of this._selectedIds) {
       const el = ctx.store.getById(id);
       if (!el || !('size' in el)) continue;
+      if (el.type === 'shape' && el.shape === 'line') continue;
 
       const bounds = getElementBounds(el);
       if (!bounds) continue;
@@ -485,6 +503,21 @@ export class SelectTool implements Tool {
       }
     }
 
+    return null;
+  }
+
+  private hitTestLineHandles(world: Point, ctx: ToolContext): { elementId: string; fixed: Point } | null {
+    if (this._selectedIds.length === 0) return null;
+    const zoom = ctx.camera.zoom;
+    const r = (HANDLE_SIZE / 2 + HANDLE_HIT_PADDING) / zoom;
+    const r2 = r * r;
+    for (const id of this._selectedIds) {
+      const el = ctx.store.getById(id);
+      if (!el || el.type !== 'shape' || el.shape !== 'line') continue;
+      const [a, b] = lineEndpoints(el);
+      if ((world.x - a.x) ** 2 + (world.y - a.y) ** 2 <= r2) return { elementId: id, fixed: b };
+      if ((world.x - b.x) ** 2 + (world.y - b.y) ** 2 <= r2) return { elementId: id, fixed: a };
+    }
     return null;
   }
 
@@ -531,6 +564,19 @@ export class SelectTool implements Tool {
       if (el.type === 'arrow') {
         renderArrowHandles(canvasCtx, el, zoom);
         this.renderBindingHighlights(canvasCtx, el, zoom);
+        continue;
+      }
+
+      if (el.type === 'shape' && el.shape === 'line') {
+        canvasCtx.setLineDash([]);
+        canvasCtx.fillStyle = '#ffffff';
+        const r = handleWorldSize / 2;
+        for (const p of lineEndpoints(el)) {
+          canvasCtx.beginPath();
+          canvasCtx.arc(p.x, p.y, r, 0, Math.PI * 2);
+          canvasCtx.fill();
+          canvasCtx.stroke();
+        }
         continue;
       }
 

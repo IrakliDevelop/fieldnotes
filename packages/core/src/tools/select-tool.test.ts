@@ -11,6 +11,7 @@ import {
   createGrid,
   createShape,
 } from '../elements/element-factory';
+import { lineEndpoints } from '../elements/shape-geometry';
 import type { ToolContext, PointerState } from './types';
 import type { NoteElement, ImageElement, TemplateElement } from '../elements/types';
 
@@ -1029,6 +1030,65 @@ describe('SelectTool', () => {
       expect(canvas.strokeRect).not.toHaveBeenCalled();
     });
 
+    it('a selected line draws 2 endpoint circles (arc x2) and no fillRect corner handles', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const line = createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 }, shape: 'line' });
+      ctx.store.add(line);
+      tool.onActivate(ctx);
+      tool.setSelection([line.id]);
+
+      const canvas = {
+        save: vi.fn(),
+        restore: vi.fn(),
+        strokeRect: vi.fn(),
+        fillRect: vi.fn(),
+        beginPath: vi.fn(),
+        arc: vi.fn(),
+        fill: vi.fn(),
+        stroke: vi.fn(),
+        strokeStyle: '',
+        fillStyle: '',
+        lineWidth: 0,
+        globalAlpha: 1,
+        setLineDash: vi.fn(),
+      } as unknown as CanvasRenderingContext2D;
+      tool.renderOverlay?.(canvas);
+
+      expect((canvas.arc as ReturnType<typeof vi.fn>).mock.calls.length).toBe(2);
+      expect(canvas.fillRect).not.toHaveBeenCalled();
+    });
+
+    it('a selected rectangle draws 4 corner handles (fillRect x4) and no arc', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const rect = createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 }, shape: 'rectangle' });
+      ctx.store.add(rect);
+      tool.onActivate(ctx);
+      tool.setSelection([rect.id]);
+
+      const canvas = {
+        save: vi.fn(),
+        restore: vi.fn(),
+        strokeRect: vi.fn(),
+        fillRect: vi.fn(),
+        beginPath: vi.fn(),
+        arc: vi.fn(),
+        fill: vi.fn(),
+        stroke: vi.fn(),
+        strokeStyle: '',
+        fillStyle: '',
+        lineWidth: 0,
+        globalAlpha: 1,
+        setLineDash: vi.fn(),
+      } as unknown as CanvasRenderingContext2D;
+      tool.renderOverlay?.(canvas);
+
+      const fillCalls = (canvas.fillRect as ReturnType<typeof vi.fn>).mock.calls.length;
+      expect(fillCalls).toBe(4);
+      expect(canvas.arc).not.toHaveBeenCalled();
+    });
+
     it('draws marquee rectangle while dragging on empty space', () => {
       const tool = new SelectTool();
       const ctx = makeCtx();
@@ -1668,6 +1728,77 @@ describe('SelectTool', () => {
 
       expect(tool.selectedIds).toEqual([note1.id, note2.id]);
       expect(ctx.requestRender).toHaveBeenCalled();
+    });
+  });
+
+  describe('line endpoint drag-handles', () => {
+    const PS = (x: number, y: number, shiftKey = false): PointerState => ({
+      x,
+      y,
+      pressure: 1,
+      pointerType: 'mouse',
+      shiftKey,
+    });
+
+    function makeSelectTool() {
+      const store = new ElementStore();
+      const ctx = makeCtx({ store });
+      const tool = new SelectTool();
+      tool.onActivate(ctx);
+      return { tool, ctx, store };
+    }
+
+    it('hitTestLineHandles returns the opposite endpoint as fixed', () => {
+      const { tool, ctx, store } = makeSelectTool();
+      const line = createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 }, shape: 'line' });
+      store.add(line);
+      tool.setSelection([line.id]);
+      const priv = tool as unknown as {
+        hitTestLineHandles: (
+          w: { x: number; y: number },
+          c: typeof ctx,
+        ) => { elementId: string; fixed: { x: number; y: number } } | null;
+      };
+      expect(priv.hitTestLineHandles({ x: 0, y: 0 }, ctx)).toEqual({ elementId: line.id, fixed: { x: 100, y: 100 } });
+      expect(priv.hitTestLineHandles({ x: 100, y: 100 }, ctx)).toEqual({ elementId: line.id, fixed: { x: 0, y: 0 } });
+      expect(priv.hitTestLineHandles({ x: 50, y: 0 }, ctx)).toBeNull();
+    });
+
+    it('dragging an endpoint moves it and keeps the fixed end anchored', () => {
+      const { tool, ctx, store } = makeSelectTool();
+      const line = createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 }, shape: 'line' });
+      store.add(line);
+      tool.setSelection([line.id]);
+      (tool as unknown as { mode: unknown }).mode = { type: 'line-handle', elementId: line.id, fixed: { x: 100, y: 100 } };
+      tool.onPointerMove(PS(20, 80), ctx);
+      const u = store.getById(line.id) as { position: { x: number; y: number }; size: { w: number; h: number } };
+      expect(u.position).toEqual({ x: 20, y: 80 });
+      expect(u.size).toEqual({ w: 80, h: 20 });
+      const ends = lineEndpoints(store.getById(line.id) as never);
+      expect(ends.some((p) => p.x === 100 && p.y === 100)).toBe(true);
+    });
+
+    it('a flip-crossing drag keeps the fixed end put', () => {
+      const { tool, ctx, store } = makeSelectTool();
+      const line = createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 }, shape: 'line' });
+      store.add(line);
+      tool.setSelection([line.id]);
+      (tool as unknown as { mode: unknown }).mode = { type: 'line-handle', elementId: line.id, fixed: { x: 100, y: 100 } };
+      tool.onPointerMove(PS(200, 100), ctx);
+      const ends = lineEndpoints(store.getById(line.id) as never);
+      expect(ends.some((p) => p.x === 100 && p.y === 100)).toBe(true);
+      expect(ends.some((p) => p.x === 200 && p.y === 100)).toBe(true);
+    });
+
+    it('does not offer bbox resize handles for a line', () => {
+      const { tool, ctx, store } = makeSelectTool();
+      const line = createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 }, shape: 'line' });
+      store.add(line);
+      tool.setSelection([line.id]);
+      const priv = tool as unknown as {
+        hitTestResizeHandle: (w: { x: number; y: number }, c: typeof ctx) => unknown;
+      };
+      expect(priv.hitTestResizeHandle({ x: 100, y: 100 }, ctx)).toBeNull();
     });
   });
 });
