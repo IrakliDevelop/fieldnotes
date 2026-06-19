@@ -182,6 +182,7 @@ export class SelectTool implements Tool {
     }
 
     if (this.mode.type === 'line-handle') {
+      ctx.setCursor?.('grabbing');
       const el = ctx.store.getById(this.mode.elementId);
       if (el && el.type === 'shape') {
         ctx.store.update(el.id, lineFromEndpoints(this.mode.fixed, world));
@@ -381,6 +382,11 @@ export class SelectTool implements Tool {
     const arrowHit = hitTestArrowHandles(world, this._selectedIds, ctx);
     if (arrowHit) {
       ctx.setCursor?.(getArrowHandleCursor(arrowHit.handle, false));
+      return null;
+    }
+
+    if (this.hitTestLineHandles(world, ctx)) {
+      ctx.setCursor?.('grab');
       return null;
     }
 
