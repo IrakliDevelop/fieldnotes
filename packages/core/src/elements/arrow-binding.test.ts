@@ -5,6 +5,7 @@ import {
   findBindTarget,
   findBoundArrows,
   updateBoundArrow,
+  updateArrowsBoundToElements,
   clearStaleBindings,
   isBindable,
   unbindArrow,
@@ -298,5 +299,33 @@ describe('unbindArrow', () => {
     expect(updates.toBinding).toBeUndefined();
     expect(updates.to).toBeDefined();
     expect(updates.to?.x).toBeCloseTo(200); // left edge
+  });
+});
+
+describe('updateArrowsBoundToElements', () => {
+  it('re-anchors arrows bound to a moved element and ignores arrow ids', () => {
+    const store = new ElementStore();
+    const note = createNote({ position: { x: 100, y: 100 }, size: { w: 100, h: 100 } });
+    store.add(note);
+    const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 150, y: 150 } });
+    arrow.toBinding = { elementId: note.id };
+    store.add(arrow);
+
+    // move the note, then re-anchor bound arrows
+    store.update(note.id, { position: { x: 400, y: 400 } });
+    updateArrowsBoundToElements([note.id], store);
+
+    const updated = store.getById(arrow.id) as { to: { x: number; y: number } };
+    // the bound 'to' endpoint should now point toward the moved note's new edge (x grew)
+    expect(updated.to.x).toBeGreaterThan(150);
+  });
+
+  it('is a no-op when no moved non-arrow elements are given', () => {
+    const store = new ElementStore();
+    const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 10, y: 10 } });
+    store.add(arrow);
+    expect(() => updateArrowsBoundToElements([arrow.id], store)).not.toThrow();
+    const after = store.getById(arrow.id) as { to: { x: number; y: number } };
+    expect(after.to).toEqual({ x: 10, y: 10 }); // unchanged
   });
 });

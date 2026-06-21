@@ -10,7 +10,7 @@ import { NoteEditor } from '../elements/note-editor';
 import type { FontSizePreset } from '../elements/note-toolbar';
 import type { CanvasElement, ArrowElement, GridElement } from '../elements/types';
 import type { Bounds } from '../core/types';
-import { findBoundArrows, getEdgeIntersection, updateBoundArrow } from '../elements/arrow-binding';
+import { findBoundArrows, getEdgeIntersection, updateArrowsBoundToElements } from '../elements/arrow-binding';
 import { translateElementPatch } from '../elements/translate';
 import { getElementBounds } from '../elements/element-bounds';
 import { getElementsBoundingBox } from '../elements/bounds';
@@ -584,7 +584,7 @@ export class Viewport {
       this.store.update(id, translateElementPatch(el, dx, dy));
       moved.push(id);
     }
-    this.updateBoundArrowsFor(moved);
+    updateArrowsBoundToElements(moved, this.store);
     this.historyRecorder.commit();
     this.requestRender();
   }
@@ -612,7 +612,7 @@ export class Viewport {
       this.store.update(item.id, translateElementPatch(item.el, dx, dy));
       moved.push(item.id);
     }
-    this.updateBoundArrowsFor(moved);
+    updateArrowsBoundToElements(moved, this.store);
     this.historyRecorder.commit();
     this.requestRender();
   }
@@ -634,23 +634,6 @@ export class Viewport {
     return true;
   }
 
-  private updateBoundArrowsFor(movedIds: Iterable<string>): void {
-    const nonArrow = new Set<string>();
-    for (const id of movedIds) {
-      const el = this.store.getById(id);
-      if (el && el.type !== 'arrow') nonArrow.add(id);
-    }
-    if (nonArrow.size === 0) return;
-    const done = new Set<string>();
-    for (const id of nonArrow) {
-      for (const ba of findBoundArrows(id, this.store)) {
-        if (done.has(ba.id)) continue;
-        done.add(ba.id);
-        const upd = updateBoundArrow(ba, this.store);
-        if (upd) this.store.update(ba.id, upd);
-      }
-    }
-  }
 
   getRenderStats(): RenderStatsSnapshot {
     return this.renderLoop.getStats();
