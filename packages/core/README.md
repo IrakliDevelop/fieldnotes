@@ -563,6 +563,22 @@ const unsub = viewport.onSelectionChange((ids) => {
 // call unsub() to unsubscribe
 ```
 
+## Aligning the Selection
+
+Two methods on `Viewport` let you snap or space selected elements in one undo step.
+
+- **`viewport.alignSelection(edge)`** — `edge`: `AlignEdge` = `'left' | 'center-x' | 'right' | 'top' | 'middle' | 'bottom'`; aligns every selected element to the corresponding edge or center of the selection's bounding box. Needs 2+ selected elements. Locked elements anchor the bounding box without moving.
+- **`viewport.distributeSelection(axis)`** — `axis`: `DistributeAxis` = `'horizontal' | 'vertical'`; evenly spaces selected elements' centers along the axis. Needs 3+ selected elements. Locked elements anchor the span without moving.
+
+```typescript
+viewport.alignSelection('left');       // flush left edges
+viewport.alignSelection('center-x');   // center on vertical axis
+viewport.alignSelection('middle');     // center on horizontal axis
+viewport.distributeSelection('horizontal'); // equal horizontal spacing
+```
+
+Grids are ignored by both operations.
+
 ## Built-in Interactions
 
 | Input                | Action              |

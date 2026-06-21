@@ -4,6 +4,14 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.32.0] — 2026-06-21
+
+### Added
+
+- **Align & distribute.** `viewport.alignSelection(edge)` aligns the selected elements to the selection's bounding box (`'left' | 'center-x' | 'right' | 'top' | 'middle' | 'bottom'`); `viewport.distributeSelection(axis)` spaces their centers evenly (`'horizontal' | 'vertical'`). Each is one undo step. Align needs 2+ elements, distribute 3+. Locked elements anchor the bounding box without moving; grids are ignored.
+
+---
+
 ## [0.31.1] — 2026-06-21
 
 ### Fixed
