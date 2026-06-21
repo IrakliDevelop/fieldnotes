@@ -6,6 +6,7 @@ import type { CanvasElement, ArrowElement } from '../elements/types';
 import { isNearBezier } from '../elements/arrow-geometry';
 import { updateArrowsBoundToElements } from '../elements/arrow-binding';
 import { getElementBounds } from '../elements/element-bounds';
+import { getElementsBoundingBox } from '../elements/bounds';
 import { hitTestStroke } from '../elements/stroke-hit';
 import { lineEndpoints, lineFromEndpoints } from '../elements/shape-geometry';
 import { translateElementPatch } from '../elements/translate';
@@ -17,10 +18,13 @@ import {
   getArrowHandleCursor,
   getArrowHandleDragTarget,
 } from './arrow-handles';
+import { computeSnapGuides } from '../elements/snap-guides';
+import type { SnapGuide } from '../elements/snap-guides';
 
 type HandlePosition = 'nw' | 'ne' | 'sw' | 'se';
 
 const HANDLE_SIZE = 8;
+const SNAP_PX = 6;
 const HANDLE_HIT_PADDING = 4;
 const SELECTION_PAD = 4;
 const MIN_ELEMENT_SIZE = 20;
@@ -51,6 +55,7 @@ export class SelectTool implements Tool {
   private ctx: ToolContext | null = null;
   private pendingSingleSelectId: string | null = null;
   private hasDragged = false;
+  private activeGuides: SnapGuide[] = [];
   private resizeAspectRatio = 0;
   private hoveredId: string | null = null;
 
@@ -212,6 +217,33 @@ export class SelectTool implements Tool {
       const dy = snapped.y - this.lastWorld.y;
       this.lastWorld = snapped;
 
+      let adjDx = dx;
+      let adjDy = dy;
+      this.activeGuides = [];
+      if (ctx.smartGuides) {
+        const selectedEls = this._selectedIds
+          .map((id) => ctx.store.getById(id))
+          .filter((el): el is CanvasElement => !!el && !el.locked);
+        const base = getElementsBoundingBox(selectedEls);
+        if (base) {
+          const moving: Bounds = { x: base.x + dx, y: base.y + dy, w: base.w, h: base.h };
+          const selSet = new Set(this._selectedIds);
+          const rect = ctx.getVisibleRect?.();
+          const candidates = (rect ? ctx.store.queryRect(rect) : ctx.store.getAll()).filter(
+            (el) => !selSet.has(el.id) && el.type !== 'grid',
+          );
+          const targets: Bounds[] = [];
+          for (const el of candidates) {
+            const b = getElementBounds(el);
+            if (b) targets.push(b);
+          }
+          const res = computeSnapGuides(moving, targets, SNAP_PX / ctx.camera.zoom);
+          adjDx = dx + res.dx;
+          adjDy = dy + res.dy;
+          this.activeGuides = res.guides;
+        }
+      }
+
       for (const id of this._selectedIds) {
         const el = ctx.store.getById(id);
         if (!el || el.locked) continue;
@@ -222,13 +254,13 @@ export class SelectTool implements Tool {
           }
 
           ctx.store.update(id, {
-            position: { x: el.position.x + dx, y: el.position.y + dy },
-            from: { x: el.from.x + dx, y: el.from.y + dy },
-            to: { x: el.to.x + dx, y: el.to.y + dy },
+            position: { x: el.position.x + adjDx, y: el.position.y + adjDy },
+            from: { x: el.from.x + adjDx, y: el.from.y + adjDy },
+            to: { x: el.to.x + adjDx, y: el.to.y + adjDy },
           });
-        } else if (ctx.gridType && 'size' in el) {
-          const centerX = el.position.x + el.size.w / 2 + dx;
-          const centerY = el.position.y + el.size.h / 2 + dy;
+        } else if (!ctx.smartGuides && ctx.gridType && 'size' in el) {
+          const centerX = el.position.x + el.size.w / 2 + adjDx;
+          const centerY = el.position.y + el.size.h / 2 + adjDy;
           const snappedCenter = this.snap({ x: centerX, y: centerY }, ctx);
           ctx.store.update(id, {
             position: {
@@ -238,7 +270,7 @@ export class SelectTool implements Tool {
           });
         } else {
           ctx.store.update(id, {
-            position: { x: el.position.x + dx, y: el.position.y + dy },
+            position: { x: el.position.x + adjDx, y: el.position.y + adjDy },
           });
         }
       }
@@ -276,6 +308,8 @@ export class SelectTool implements Tool {
     const resizedNoteId = this.mode.type === 'resizing' ? this.mode.elementId : null;
 
     this.mode = { type: 'idle' };
+    this.activeGuides = [];
+    ctx.requestRender();
     ctx.setCursor?.('default');
 
     if (resizedNoteId !== null) {
@@ -330,6 +364,34 @@ export class SelectTool implements Tool {
         }
       }
     }
+
+    this.renderGuideLines(canvasCtx);
+  }
+
+  private renderGuideLines(canvasCtx: CanvasRenderingContext2D): void {
+    if (this.mode.type !== 'dragging' || !this.ctx || this.activeGuides.length === 0) return;
+    const zoom = this.ctx.camera.zoom;
+    const rect = this.ctx.getVisibleRect?.();
+    canvasCtx.save();
+    canvasCtx.strokeStyle = '#FF4081';
+    canvasCtx.lineWidth = 1 / zoom;
+    canvasCtx.setLineDash([]);
+    for (const g of this.activeGuides) {
+      canvasCtx.beginPath();
+      if (g.axis === 'x') {
+        const y0 = rect ? rect.y : this.currentWorld.y - 1e5;
+        const y1 = rect ? rect.y + rect.h : this.currentWorld.y + 1e5;
+        canvasCtx.moveTo(g.position, y0);
+        canvasCtx.lineTo(g.position, y1);
+      } else {
+        const x0 = rect ? rect.x : this.currentWorld.x - 1e5;
+        const x1 = rect ? rect.x + rect.w : this.currentWorld.x + 1e5;
+        canvasCtx.moveTo(x0, g.position);
+        canvasCtx.lineTo(x1, g.position);
+      }
+      canvasCtx.stroke();
+    }
+    canvasCtx.restore();
   }
 
   private updateArrowsBoundTo(ids: Iterable<string>, ctx: ToolContext): void {

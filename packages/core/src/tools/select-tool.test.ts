@@ -1562,6 +1562,50 @@ describe('SelectTool', () => {
     });
   });
 
+  describe('smart guides', () => {
+    it('snaps the dragged selection to a nearby element edge when enabled', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      ctx.smartGuides = true;
+      const stationary = createNote({ position: { x: 200, y: 100 }, size: { w: 50, h: 50 } });
+      const drag = createNote({ position: { x: 100, y: 0 }, size: { w: 50, h: 50 } });
+      ctx.store.add(stationary); ctx.store.add(drag);
+      tool.onActivate?.(ctx);
+      tool.onPointerDown({ x: 125, y: 25, pressure: 1, pointerType: 'mouse', shiftKey: false }, ctx);
+      tool.onPointerMove({ x: 222, y: 25, pressure: 1, pointerType: 'mouse', shiftKey: false }, ctx);
+      // drag left would be 197 (100 + dx 97); within 6 of stationary left 200 → snaps to 200
+      expect((ctx.store.getById(drag.id) as { position: { x: number } }).position.x).toBe(200);
+      const guides = (tool as unknown as { activeGuides: { axis: string; position: number }[] }).activeGuides;
+      expect(guides).toEqual([{ axis: 'x', position: 200 }]);
+    });
+
+    it('does not snap when smart guides are disabled', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx(); // smartGuides falsy
+      const stationary = createNote({ position: { x: 200, y: 100 }, size: { w: 50, h: 50 } });
+      const drag = createNote({ position: { x: 100, y: 0 }, size: { w: 50, h: 50 } });
+      ctx.store.add(stationary); ctx.store.add(drag);
+      tool.onActivate?.(ctx);
+      tool.onPointerDown({ x: 125, y: 25, pressure: 1, pointerType: 'mouse', shiftKey: false }, ctx);
+      tool.onPointerMove({ x: 222, y: 25, pressure: 1, pointerType: 'mouse', shiftKey: false }, ctx);
+      expect((ctx.store.getById(drag.id) as { position: { x: number } }).position.x).toBe(197);
+    });
+
+    it('clears active guides on pointer up', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      ctx.smartGuides = true;
+      const stationary = createNote({ position: { x: 200, y: 100 }, size: { w: 50, h: 50 } });
+      const drag = createNote({ position: { x: 100, y: 0 }, size: { w: 50, h: 50 } });
+      ctx.store.add(stationary); ctx.store.add(drag);
+      tool.onActivate?.(ctx);
+      tool.onPointerDown({ x: 125, y: 25, pressure: 1, pointerType: 'mouse', shiftKey: false }, ctx);
+      tool.onPointerMove({ x: 222, y: 25, pressure: 1, pointerType: 'mouse', shiftKey: false }, ctx);
+      tool.onPointerUp({ x: 222, y: 25, pressure: 1, pointerType: 'mouse', shiftKey: false }, ctx);
+      expect((tool as unknown as { activeGuides: unknown[] }).activeGuides).toEqual([]);
+    });
+  });
+
   describe('line shape hit testing', () => {
     it('selects a line by proximity to its segment, not its bbox', () => {
       const tool = new SelectTool();
