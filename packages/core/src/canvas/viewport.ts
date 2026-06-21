@@ -112,6 +112,7 @@ export class Viewport {
   private readonly marginViewport: MarginViewport;
   private resizeObserver: ResizeObserver | null = null;
   private _snapToGrid = false;
+  private _smartGuides = false;
   private readonly _gridSize: number;
   private readonly renderLoop: RenderLoop;
   private readonly domNodeManager: DomNodeManager;
@@ -197,6 +198,9 @@ export class Viewport {
       activeLayerId: this.layerManager.activeLayerId,
       isLayerVisible: (id: string) => this.layerManager.isLayerVisible(id),
       isLayerLocked: (id: string) => this.layerManager.isLayerLocked(id),
+      smartGuides: false,
+      getVisibleRect: () =>
+        this.camera.getVisibleRect(this.canvasEl.clientWidth, this.canvasEl.clientHeight),
     };
 
     this.inputHandler = new InputHandler(this.wrapper, this.camera, {
@@ -302,6 +306,15 @@ export class Viewport {
   setSnapToGrid(enabled: boolean): void {
     this._snapToGrid = enabled;
     this.toolContext.snapToGrid = enabled;
+  }
+
+  get smartGuides(): boolean {
+    return this._smartGuides;
+  }
+
+  setSmartGuides(enabled: boolean): void {
+    this._smartGuides = enabled;
+    this.toolContext.smartGuides = enabled;
   }
 
   fitToContent(padding = 40): void {

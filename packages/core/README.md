@@ -579,6 +579,15 @@ viewport.distributeSelection('horizontal'); // equal horizontal spacing
 
 Grids are ignored by both operations.
 
+## Smart Alignment Guides
+
+Call `viewport.setSmartGuides(true)` to enable drag-time alignment snapping. While dragging a selection, its edges and centers snap to the edges and centers of nearby visible elements (within 6 screen pixels), and guide lines are drawn at each matched alignment. Smart guides replace grid snapping for the duration of the drag; the result is still committed as a single undo step.
+
+```typescript
+viewport.setSmartGuides(true);  // enable
+viewport.setSmartGuides(false); // disable (default)
+```
+
 ## Built-in Interactions
 
 | Input                | Action              |

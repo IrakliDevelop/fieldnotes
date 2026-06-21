@@ -532,6 +532,13 @@ snapBtn?.addEventListener('click', () => {
       (viewport.snapToGrid ? 'Snap: On' : 'Snap: Off') + '<span class="shortcut">X</span>';
 });
 
+const guideBtn = document.getElementById('guide-toggle') as HTMLButtonElement | null;
+
+guideBtn?.addEventListener('click', () => {
+  viewport.setSmartGuides(!viewport.smartGuides);
+  if (guideBtn) guideBtn.textContent = viewport.smartGuides ? 'Guides: On' : 'Guides: Off';
+});
+
 document.getElementById('save')?.addEventListener('click', () => {
   const json = viewport.exportJSON();
   console.log(`State snapshot (${json.length} bytes)`);
