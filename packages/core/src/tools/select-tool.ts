@@ -94,6 +94,7 @@ export class SelectTool implements Tool {
     this.setSelectedIds([]);
     this.mode = { type: 'idle' };
     this.hoveredId = null;
+    this.activeGuides = [];
     ctx.setCursor?.('default');
   }
 
