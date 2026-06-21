@@ -1,5 +1,14 @@
-import type { Point } from '../core/types';
+import type { Point, Size } from '../core/types';
 import type { ShapeElement } from './types';
+
+/** Inverse of lineEndpoints: two endpoints → a line shape's bbox + flip. */
+export function lineFromEndpoints(a: Point, b: Point): { position: Point; size: Size; flip: boolean } {
+  return {
+    position: { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y) },
+    size: { w: Math.abs(b.x - a.x), h: Math.abs(b.y - a.y) },
+    flip: (b.x > a.x) !== (b.y > a.y),
+  };
+}
 
 /** The two segment endpoints of a 'line' shape, from its bbox + flip. */
 export function lineEndpoints(shape: ShapeElement): [Point, Point] {

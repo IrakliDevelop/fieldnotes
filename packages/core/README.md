@@ -453,7 +453,7 @@ viewport.toolManager.register(
 viewport.setTool('highlighter');
 ```
 
-`ShapeTool` supports a `'line'` shape kind that draws a straight segment between two points. Hold **Shift** while drawing to snap to 45° increments. Lines are hit-tested by proximity to the segment, and `ShapeElement.flip` records which diagonal of the bounding box the line runs along.
+`ShapeTool` supports a `'line'` shape kind that draws a straight segment between two points. Hold **Shift** while drawing to snap to 45° increments. Lines are hit-tested by proximity to the segment, and `ShapeElement.flip` records which diagonal of the bounding box the line runs along. When a line is selected, it shows two endpoint drag-handles instead of bounding-box resize handles — drag one endpoint to reshape the line while the other stays anchored.
 
 ### Arrow Labels
 
