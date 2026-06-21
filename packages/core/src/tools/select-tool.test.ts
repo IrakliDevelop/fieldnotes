@@ -1089,6 +1089,43 @@ describe('SelectTool', () => {
       expect(canvas.arc).not.toHaveBeenCalled();
     });
 
+    it('does not leak solid line-dash onto a co-selected element (line before rect)', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const line = createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 }, shape: 'line' });
+      const rect = createShape({ position: { x: 200, y: 0 }, size: { w: 50, h: 50 }, shape: 'rectangle' });
+      ctx.store.add(line);
+      ctx.store.add(rect);
+      tool.onActivate(ctx);
+      tool.setSelection([line.id, rect.id]);
+
+      // Track the active line-dash at the moment strokeRect (the dashed selection box) is called.
+      let currentDash: number[] = [];
+      const dashAtStrokeRect: number[][] = [];
+      const canvas = {
+        save: vi.fn(),
+        restore: vi.fn(),
+        strokeRect: vi.fn(() => dashAtStrokeRect.push([...currentDash])),
+        fillRect: vi.fn(),
+        beginPath: vi.fn(),
+        arc: vi.fn(),
+        fill: vi.fn(),
+        stroke: vi.fn(),
+        strokeStyle: '',
+        fillStyle: '',
+        lineWidth: 0,
+        globalAlpha: 1,
+        setLineDash: vi.fn((d: number[]) => {
+          currentDash = d;
+        }),
+      } as unknown as CanvasRenderingContext2D;
+      tool.renderOverlay?.(canvas);
+
+      // The rect's selection box (first strokeRect, drawn before its solid corner handles)
+      // must be dashed, not solid — i.e. the line branch's setLineDash([]) didn't leak.
+      expect(dashAtStrokeRect[0]?.length).toBeGreaterThan(0);
+    });
+
     it('draws marquee rectangle while dragging on empty space', () => {
       const tool = new SelectTool();
       const ctx = makeCtx();

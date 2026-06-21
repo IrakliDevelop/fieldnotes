@@ -583,6 +583,7 @@ export class SelectTool implements Tool {
           canvasCtx.fill();
           canvasCtx.stroke();
         }
+        canvasCtx.setLineDash([4 / zoom, 4 / zoom]);
         continue;
       }
 
