@@ -647,6 +647,20 @@ describe('Viewport', () => {
     });
   });
 
+  describe('smartGuides', () => {
+    it('setSmartGuides toggles the tool context flag and exposes getVisibleRect', () => {
+      const viewport = new Viewport(container);
+      expect(viewport.smartGuides).toBe(false);
+      viewport.setSmartGuides(true);
+      expect(viewport.smartGuides).toBe(true);
+      expect(viewport.toolContext.smartGuides).toBe(true);
+      const rect = viewport.toolContext.getVisibleRect?.();
+      expect(rect).toBeDefined();
+      expect(typeof rect?.w).toBe('number');
+      viewport.destroy();
+    });
+  });
+
   describe('undo/redo', () => {
     it('undo returns false when nothing to undo', () => {
       const viewport = new Viewport(container);
