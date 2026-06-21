@@ -16,6 +16,7 @@ import {
   createNote,
   createGrid,
 } from '@fieldnotes/core';
+import type { AlignEdge, DistributeAxis } from '@fieldnotes/core';
 
 console.log(`Field Notes v${VERSION}`);
 
@@ -444,6 +445,29 @@ function syncStyleControls() {
 
 viewport.onSelectionChange(syncStyleControls);
 viewport.store.on('update', syncStyleControls);
+
+const alignPanel = document.getElementById('align-panel');
+const distributeButtons = alignPanel?.querySelectorAll<HTMLButtonElement>('[data-distribute]');
+
+function updateAlignPanel(): void {
+  const n = viewport.getSelectedIds().length;
+  if (alignPanel) alignPanel.style.display = n >= 2 ? 'flex' : 'none';
+  distributeButtons?.forEach((btn) => {
+    btn.disabled = n < 3;
+  });
+}
+
+viewport.onSelectionChange(updateAlignPanel);
+updateAlignPanel();
+
+alignPanel?.addEventListener('click', (e) => {
+  const btn = (e.target as HTMLElement).closest('button');
+  if (!btn) return;
+  const align = btn.dataset['align'];
+  const distribute = btn.dataset['distribute'];
+  if (align) viewport.alignSelection(align as AlignEdge);
+  else if (distribute) viewport.distributeSelection(distribute as DistributeAxis);
+});
 
 document.addEventListener('keydown', (e) => {
   if ((e.target as HTMLElement).isContentEditable) return;

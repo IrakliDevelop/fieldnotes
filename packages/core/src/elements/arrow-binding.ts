@@ -81,6 +81,25 @@ export function findBoundArrows(elementId: string, store: ElementStore): ArrowEl
     .filter((a) => a.fromBinding?.elementId === elementId || a.toBinding?.elementId === elementId);
 }
 
+/** Re-anchor every arrow bound to any of the moved non-arrow elements (each updated once). */
+export function updateArrowsBoundToElements(movedIds: Iterable<string>, store: ElementStore): void {
+  const movedNonArrowIds = new Set<string>();
+  for (const id of movedIds) {
+    const el = store.getById(id);
+    if (el && el.type !== 'arrow') movedNonArrowIds.add(id);
+  }
+  if (movedNonArrowIds.size === 0) return;
+  const updated = new Set<string>();
+  for (const id of movedNonArrowIds) {
+    for (const ba of findBoundArrows(id, store)) {
+      if (updated.has(ba.id)) continue;
+      updated.add(ba.id);
+      const updates = updateBoundArrow(ba, store);
+      if (updates) store.update(ba.id, updates);
+    }
+  }
+}
+
 export function updateBoundArrow(
   arrow: ArrowElement,
   store: ElementStore,

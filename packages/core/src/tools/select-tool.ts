@@ -4,10 +4,11 @@ import { smartSnap } from '../core/snap';
 import { distSqToSegment } from '../core/geometry';
 import type { CanvasElement, ArrowElement } from '../elements/types';
 import { isNearBezier } from '../elements/arrow-geometry';
-import { findBoundArrows, updateBoundArrow } from '../elements/arrow-binding';
+import { updateArrowsBoundToElements } from '../elements/arrow-binding';
 import { getElementBounds } from '../elements/element-bounds';
 import { hitTestStroke } from '../elements/stroke-hit';
 import { lineEndpoints, lineFromEndpoints } from '../elements/shape-geometry';
+import { translateElementPatch } from '../elements/translate';
 import {
   type ArrowHandle,
   hitTestArrowHandles,
@@ -332,22 +333,7 @@ export class SelectTool implements Tool {
   }
 
   private updateArrowsBoundTo(ids: Iterable<string>, ctx: ToolContext): void {
-    const movedNonArrowIds = new Set<string>();
-    for (const id of ids) {
-      const el = ctx.store.getById(id);
-      if (el && el.type !== 'arrow') movedNonArrowIds.add(id);
-    }
-    if (movedNonArrowIds.size === 0) return;
-    const updatedArrows = new Set<string>();
-    for (const id of movedNonArrowIds) {
-      const boundArrows = findBoundArrows(id, ctx.store);
-      for (const ba of boundArrows) {
-        if (updatedArrows.has(ba.id)) continue;
-        updatedArrows.add(ba.id);
-        const updates = updateBoundArrow(ba, ctx.store);
-        if (updates) ctx.store.update(ba.id, updates);
-      }
-    }
+    updateArrowsBoundToElements(ids, ctx.store);
   }
 
   nudgeSelection(dx: number, dy: number, ctx: ToolContext): boolean {
@@ -355,19 +341,8 @@ export class SelectTool implements Tool {
     for (const id of this._selectedIds) {
       const el = ctx.store.getById(id);
       if (!el || el.locked) continue;
-
-      if (el.type === 'arrow') {
-        if (el.fromBinding || el.toBinding) continue;
-        ctx.store.update(id, {
-          position: { x: el.position.x + dx, y: el.position.y + dy },
-          from: { x: el.from.x + dx, y: el.from.y + dy },
-          to: { x: el.to.x + dx, y: el.to.y + dy },
-        });
-      } else {
-        ctx.store.update(id, {
-          position: { x: el.position.x + dx, y: el.position.y + dy },
-        });
-      }
+      if (el.type === 'arrow' && (el.fromBinding || el.toBinding)) continue;
+      ctx.store.update(id, translateElementPatch(el, dx, dy));
       moved = true;
     }
 
