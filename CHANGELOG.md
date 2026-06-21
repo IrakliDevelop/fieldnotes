@@ -4,6 +4,14 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.31.1] — 2026-06-21
+
+### Fixed
+
+- **Eraser radius now matches the cursor at all zoom levels.** `EraserToolOptions.radius` is screen pixels (it sizes the eraser cursor); it was previously applied uncorrected as a world-space radius, so the erased region was larger than the visible cursor when zoomed in and smaller when zoomed out. The radius is now converted to world units per the camera zoom.
+
+---
+
 ## [0.31.0] — 2026-06-19
 
 ### Changed

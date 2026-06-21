@@ -284,4 +284,51 @@ describe('EraserTool', () => {
       expect(tool.getOptions().mode).toBe('partial');
     });
   });
+
+  describe('zoom-aware eraser radius', () => {
+    it('erases within radius/zoom in world units when zoomed in (z=2)', () => {
+      const { tool, ctx, store } = makeEraser({ mode: 'partial', radius: 10 });
+      ctx.camera.setZoom(2); // 10 screen px = 5 world units
+      const stroke = createStroke({ points: [{ x: 0, y: 0, pressure: 1 }, { x: 100, y: 0, pressure: 1 }] });
+      store.add(stroke);
+      // erase at WORLD (50,0) → SCREEN (100,0)
+      tool.onPointerDown({ x: 100, y: 0, pressure: 1, pointerType: 'mouse', shiftKey: false }, ctx);
+      tool.onPointerUp({ x: 100, y: 0, pressure: 1, pointerType: 'mouse', shiftKey: false }, ctx);
+      const frags = store.getAll().filter((e) => e.type === 'stroke') as { points: { x: number }[] }[];
+      expect(frags).toHaveLength(2);
+      // worldRadius=5 → gap exactly [45,55]; WITHOUT the fix it would be [40,60]
+      const left = frags.find((f) => f.points.some((p) => p.x === 0));
+      const right = frags.find((f) => f.points.some((p) => p.x === 100));
+      if (!left || !right) throw new Error('expected a left and right fragment');
+      expect(Math.max(...left.points.map((p) => p.x))).toBeCloseTo(45, 5);
+      expect(Math.min(...right.points.map((p) => p.x))).toBeCloseTo(55, 5);
+    });
+
+    it('does not erase a stroke beyond radius/zoom in world space (z=2)', () => {
+      const { tool, ctx, store } = makeEraser({ mode: 'stroke', radius: 10 }); // 5 world units at z=2
+      ctx.camera.setZoom(2);
+      const stroke = createStroke({ points: [{ x: 48, y: 8, pressure: 1 }, { x: 52, y: 8, pressure: 1 }] }); // 8 world units from eraser, > 5
+      store.add(stroke);
+      tool.onPointerDown({ x: 100, y: 0, pressure: 1, pointerType: 'mouse', shiftKey: false }, ctx);
+      expect(store.getById(stroke.id)).toBeDefined(); // untouched
+    });
+
+    it('erases a larger world region when zoomed out (z=0.5)', () => {
+      const { tool, ctx, store } = makeEraser({ mode: 'stroke', radius: 10 }); // 20 world units at z=0.5
+      ctx.camera.setZoom(0.5);
+      const stroke = createStroke({ points: [{ x: 48, y: 15, pressure: 1 }, { x: 52, y: 15, pressure: 1 }] }); // 15 world units, < 20
+      store.add(stroke);
+      // world (50,0) at z=0.5 → screen (25,0)
+      tool.onPointerDown({ x: 25, y: 0, pressure: 1, pointerType: 'mouse', shiftKey: false }, ctx);
+      expect(store.getById(stroke.id)).toBeUndefined(); // erased
+    });
+
+    it('is unchanged at zoom 1 (regression)', () => {
+      const { tool, ctx, store } = makeEraser({ mode: 'stroke', radius: 10 });
+      const stroke = createStroke({ points: [{ x: 48, y: 5, pressure: 1 }, { x: 52, y: 5, pressure: 1 }] });
+      store.add(stroke);
+      tool.onPointerDown({ x: 50, y: 0, pressure: 1, pointerType: 'mouse', shiftKey: false }, ctx);
+      expect(store.getById(stroke.id)).toBeUndefined();
+    });
+  });
 });
