@@ -6,6 +6,7 @@ import { createStroke } from '../elements/element-factory';
 import { erasePoints } from '../elements/stroke-erase';
 
 export interface EraserToolOptions {
+  /** Eraser radius in SCREEN pixels (matches the cursor circle; converted to world units per zoom). */
   radius?: number;
   mode?: 'partial' | 'stroke';
 }
@@ -67,11 +68,12 @@ export class EraserTool implements Tool {
 
   private eraseAt(state: PointerState, ctx: ToolContext): void {
     const world = ctx.camera.screenToWorld({ x: state.x, y: state.y });
+    const worldRadius = this.radius / ctx.camera.zoom;
     const queryBounds: Bounds = {
-      x: world.x - this.radius,
-      y: world.y - this.radius,
-      w: this.radius * 2,
-      h: this.radius * 2,
+      x: world.x - worldRadius,
+      y: world.y - worldRadius,
+      w: worldRadius * 2,
+      h: worldRadius * 2,
     };
     const candidates = ctx.store.queryRect(queryBounds);
     let erased = false;
@@ -80,14 +82,14 @@ export class EraserTool implements Tool {
       if (el.type !== 'stroke') continue;
       if (ctx.isLayerVisible && !ctx.isLayerVisible(el.layerId)) continue;
       if (ctx.isLayerLocked && ctx.isLayerLocked(el.layerId)) continue;
-      if (!this.strokeIntersects(el, world)) continue;
+      if (!this.strokeIntersects(el, world, worldRadius)) continue;
       if (this.mode === 'stroke') {
         ctx.store.remove(el.id);
         erased = true;
         continue;
       }
       const localEraser = { x: world.x - el.position.x, y: world.y - el.position.y };
-      const runs = erasePoints(el.points, localEraser, this.radius);
+      const runs = erasePoints(el.points, localEraser, worldRadius);
       if (runs === null) continue;
       ctx.store.remove(el.id);
       for (const run of runs) {
@@ -109,7 +111,7 @@ export class EraserTool implements Tool {
     if (erased) ctx.requestRender();
   }
 
-  private strokeIntersects(stroke: StrokeElement, point: Point): boolean {
-    return hitTestStroke(stroke, point, this.radius);
+  private strokeIntersects(stroke: StrokeElement, point: Point, worldRadius: number): boolean {
+    return hitTestStroke(stroke, point, worldRadius);
   }
 }
