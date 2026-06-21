@@ -47,10 +47,18 @@ describe('computeSnapGuides', () => {
   });
 
   it('snaps at exactly the threshold (inclusive)', () => {
-    // target far on y (different y) → isolates the x-axis threshold-boundary snap
-    const res = computeSnapGuides(B(0, 0, 10, 10), [B(6, 1000, 10, 10)], 6);
+    // wide boxes (w=20) so the abutment pair (right→left, |14|) is far and the
+    // left-left colinear pair at exactly the threshold wins; target far on y.
+    const res = computeSnapGuides(B(0, 0, 20, 10), [B(6, 1000, 20, 10)], 6);
     expect(res.dx).toBe(6);
     expect(res.guides).toEqual([{ axis: 'x', position: 6 }]);
+  });
+
+  it('snaps the moving box flush against a target edge (abutment)', () => {
+    // moving right edge (10) is 3 from target left edge (13) → snaps flush (dx +3)
+    const res = computeSnapGuides(B(0, 0, 10, 10), [B(13, 500, 10, 10)], 6);
+    expect(res.dx).toBe(3);
+    expect(res.guides).toEqual([{ axis: 'x', position: 13 }]);
   });
 
   it('returns no snap for empty targets', () => {

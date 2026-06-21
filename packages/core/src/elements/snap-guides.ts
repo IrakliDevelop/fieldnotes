@@ -35,9 +35,13 @@ function bestAxisSnap(
   for (const t of targets) {
     const ta = anchorsFn(t);
     const pairs: [number, number][] = [
+      // colinear alignment: same-type edges/centers line up
       [ta.lo - moving.lo, ta.lo],
       [ta.mid - moving.mid, ta.mid],
       [ta.hi - moving.hi, ta.hi],
+      // abutment: the moving box sits flush against the target's opposite edge
+      [ta.lo - moving.hi, ta.lo],
+      [ta.hi - moving.lo, ta.hi],
     ];
 
     for (const [delta, position] of pairs) {

@@ -8,7 +8,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ### Added
 
-- **Smart alignment guides.** With `viewport.setSmartGuides(true)`, dragging a selection snaps its edges and centers to nearby visible elements (within 6 screen px) and draws guide lines at the matched alignments during the drag. When enabled, this replaces grid snapping for the drag; one undo step per drag as before.
+- **Smart alignment guides.** With `viewport.setSmartGuides(true)`, dragging a selection snaps its edges and centers to nearby visible elements — either aligned (edges/centers line up) or abutting (flush against an opposite edge) — within 6 screen px, and draws guide lines at the matched alignments during the drag. When enabled, this replaces grid snapping for the drag; one undo step per drag as before.
 
 ---
 

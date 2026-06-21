@@ -39,6 +39,9 @@ describe('core public surface', () => {
       'DEFAULT_FONT_SIZE_PRESETS',
       'exportState',
       'parseState',
+      // internal helpers that must stay off the public surface
+      'translateElementPatch',
+      'computeSnapGuides',
     ];
     for (const name of removed) {
       expect(name in FN, `${name} should not be exported`).toBe(false);

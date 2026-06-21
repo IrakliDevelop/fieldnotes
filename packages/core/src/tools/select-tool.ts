@@ -56,6 +56,8 @@ export class SelectTool implements Tool {
   private pendingSingleSelectId: string | null = null;
   private hasDragged = false;
   private activeGuides: SnapGuide[] = [];
+  private dragSnapTargets: Bounds[] | null = null;
+  private dragVisibleRect: Bounds | null = null;
   private resizeAspectRatio = 0;
   private hoveredId: string | null = null;
 
@@ -95,6 +97,8 @@ export class SelectTool implements Tool {
     this.mode = { type: 'idle' };
     this.hoveredId = null;
     this.activeGuides = [];
+    this.dragSnapTargets = null;
+    this.dragVisibleRect = null;
     ctx.setCursor?.('default');
   }
 
@@ -105,6 +109,8 @@ export class SelectTool implements Tool {
   onPointerDown(state: PointerState, ctx: ToolContext): void {
     this.ctx = ctx;
     this.setHovered(null, ctx);
+    this.dragSnapTargets = null;
+    this.dragVisibleRect = null;
     const world = ctx.camera.screenToWorld({ x: state.x, y: state.y });
     this.lastWorld = this.snap(world, ctx);
     this.currentWorld = world;
@@ -222,23 +228,28 @@ export class SelectTool implements Tool {
       let adjDy = dy;
       this.activeGuides = [];
       if (ctx.smartGuides) {
+        // Candidates (non-selected visible elements) and the viewport rect don't change
+        // during a single-pointer drag, so compute them once per drag and reuse each frame.
+        if (this.dragSnapTargets === null) {
+          const selSet = new Set(this._selectedIds);
+          this.dragVisibleRect = ctx.getVisibleRect?.() ?? null;
+          const candidates = (
+            this.dragVisibleRect ? ctx.store.queryRect(this.dragVisibleRect) : ctx.store.getAll()
+          ).filter((el) => !selSet.has(el.id) && el.type !== 'grid');
+          const targets: Bounds[] = [];
+          for (const el of candidates) {
+            const b = getElementBounds(el);
+            if (b) targets.push(b);
+          }
+          this.dragSnapTargets = targets;
+        }
         const selectedEls = this._selectedIds
           .map((id) => ctx.store.getById(id))
           .filter((el): el is CanvasElement => !!el && !el.locked);
         const base = getElementsBoundingBox(selectedEls);
         if (base) {
           const moving: Bounds = { x: base.x + dx, y: base.y + dy, w: base.w, h: base.h };
-          const selSet = new Set(this._selectedIds);
-          const rect = ctx.getVisibleRect?.();
-          const candidates = (rect ? ctx.store.queryRect(rect) : ctx.store.getAll()).filter(
-            (el) => !selSet.has(el.id) && el.type !== 'grid',
-          );
-          const targets: Bounds[] = [];
-          for (const el of candidates) {
-            const b = getElementBounds(el);
-            if (b) targets.push(b);
-          }
-          const res = computeSnapGuides(moving, targets, SNAP_PX / ctx.camera.zoom);
+          const res = computeSnapGuides(moving, this.dragSnapTargets, SNAP_PX / ctx.camera.zoom);
           adjDx = dx + res.dx;
           adjDy = dy + res.dy;
           this.activeGuides = res.guides;
@@ -310,6 +321,8 @@ export class SelectTool implements Tool {
 
     this.mode = { type: 'idle' };
     this.activeGuides = [];
+    this.dragSnapTargets = null;
+    this.dragVisibleRect = null;
     ctx.requestRender();
     ctx.setCursor?.('default');
 
@@ -372,7 +385,7 @@ export class SelectTool implements Tool {
   private renderGuideLines(canvasCtx: CanvasRenderingContext2D): void {
     if (this.mode.type !== 'dragging' || !this.ctx || this.activeGuides.length === 0) return;
     const zoom = this.ctx.camera.zoom;
-    const rect = this.ctx.getVisibleRect?.();
+    const rect = this.dragVisibleRect; // cached at drag start (same source as the candidate query)
     canvasCtx.save();
     canvasCtx.strokeStyle = '#FF4081';
     canvasCtx.lineWidth = 1 / zoom;
