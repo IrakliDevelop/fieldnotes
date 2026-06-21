@@ -363,6 +363,19 @@
     <span style="color: #999; font-size: 11px;">Ft/cell:</span>
     <input type="number" id="measure-feet" value="5" min="1" max="100" style="width:48px;padding:4px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
   </div>
+  <div id="align-panel" style="display:none;position:fixed;top:70px;left:50%;transform:translateX(-50%);align-items:center;gap:6px;padding:6px 10px;background:white;border-radius:8px;box-shadow:0 2px 12px rgba(0,0,0,0.15);z-index:10;font-size:13px;">
+    <span style="color: #999; font-size: 11px;">Align:</span>
+    <button data-align="left" title="Align left" style="padding:4px 8px;border:1px solid #ddd;border-radius:4px;background:white;cursor:pointer;font-size:13px;">&#8676;</button>
+    <button data-align="center-x" title="Align center (horizontal)" style="padding:4px 8px;border:1px solid #ddd;border-radius:4px;background:white;cursor:pointer;font-size:13px;">&#8660;</button>
+    <button data-align="right" title="Align right" style="padding:4px 8px;border:1px solid #ddd;border-radius:4px;background:white;cursor:pointer;font-size:13px;">&#8677;</button>
+    <button data-align="top" title="Align top" style="padding:4px 8px;border:1px solid #ddd;border-radius:4px;background:white;cursor:pointer;font-size:13px;">&#10514;</button>
+    <button data-align="middle" title="Align middle (vertical)" style="padding:4px 8px;border:1px solid #ddd;border-radius:4px;background:white;cursor:pointer;font-size:13px;">&#8691;</button>
+    <button data-align="bottom" title="Align bottom" style="padding:4px 8px;border:1px solid #ddd;border-radius:4px;background:white;cursor:pointer;font-size:13px;">&#10515;</button>
+    <div style="width:1px;background:#ddd;margin:2px 4px;align-self:stretch;"></div>
+    <span style="color: #999; font-size: 11px;">Distribute:</span>
+    <button data-distribute="horizontal" title="Distribute horizontally" style="padding:4px 8px;border:1px solid #ddd;border-radius:4px;background:white;cursor:pointer;font-size:13px;">&#8596;</button>
+    <button data-distribute="vertical" title="Distribute vertically" style="padding:4px 8px;border:1px solid #ddd;border-radius:4px;background:white;cursor:pointer;font-size:13px;">&#8597;</button>
+  </div>
   <div id="eraser-panel" style="display:none;position:fixed;top:70px;left:50%;transform:translateX(-50%);align-items:center;gap:6px;padding:6px 10px;background:white;border-radius:8px;box-shadow:0 2px 12px rgba(0,0,0,0.15);z-index:10;font-size:13px;">
     <span style="color: #999; font-size: 11px;">Eraser:</span>
     <select id="eraser-mode" style="padding:4px 8px;border:1px solid #ddd;border-radius:4px;font-size:13px;">

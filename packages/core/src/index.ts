@@ -11,7 +11,7 @@ export type { CameraOptions, CameraChangeInfo } from './canvas/camera';
 export type { BackgroundOptions, BackgroundPattern } from './canvas/background';
 export type { ShortcutOptions, ShortcutBindings, ShortcutsApi } from './canvas/shortcut-map';
 export { Viewport } from './canvas/viewport';
-export type { ViewportOptions, GridInfo } from './canvas/viewport';
+export type { ViewportOptions, GridInfo, AlignEdge, DistributeAxis } from './canvas/viewport';
 export { exportImage } from './canvas/export-image';
 export type { ExportImageOptions } from './canvas/export-image';
 export type { RenderStatsSnapshot } from './canvas/render-stats';
