@@ -15,6 +15,8 @@ export interface KeyboardActionsDeps {
   getHistoryStack: () => HistoryStack | null;
   isToolActive: () => boolean;
   fitToContent?: () => void;
+  group?: () => void;
+  ungroup?: () => void;
   getLastPointerWorld?: () => Point | null;
 }
 
@@ -196,6 +198,16 @@ export class KeyboardActions {
   zoomToFit(): void {
     if (this.deps.isToolActive()) return;
     this.deps.fitToContent?.();
+  }
+
+  group(): void {
+    if (this.deps.isToolActive()) return;
+    this.deps.group?.();
+  }
+
+  ungroup(): void {
+    if (this.deps.isToolActive()) return;
+    this.deps.ungroup?.();
   }
 
   zOrder(operation: 'forward' | 'backward' | 'front' | 'back'): void {

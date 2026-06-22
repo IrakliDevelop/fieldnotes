@@ -29,6 +29,8 @@ function makeActions(
     recorder?: HistoryRecorder;
     stack?: HistoryStack;
     fitToContent?: () => void;
+    group?: () => void;
+    ungroup?: () => void;
     isToolActive?: () => boolean;
   } = {},
 ): { actions: KeyboardActions; ctx: ToolContext; tool: SelectTool } {
@@ -43,6 +45,8 @@ function makeActions(
     getHistoryStack: () => opts.stack ?? null,
     isToolActive: opts.isToolActive ?? (() => false),
     fitToContent: opts.fitToContent,
+    group: opts.group,
+    ungroup: opts.ungroup,
   };
   return { actions: new KeyboardActions(deps), ctx, tool };
 }
@@ -286,6 +290,32 @@ describe('KeyboardActions.zoomToFit', () => {
     const { actions } = makeActions({ fitToContent: fit, isToolActive: () => true });
     actions.zoomToFit();
     expect(fit).not.toHaveBeenCalled();
+  });
+});
+
+describe('KeyboardActions.group / ungroup', () => {
+  it('invokes the injected group and ungroup callbacks when no tool is active', () => {
+    const group = vi.fn();
+    const ungroup = vi.fn();
+    const { actions } = makeActions({ group, ungroup });
+
+    actions.group();
+    actions.ungroup();
+
+    expect(group).toHaveBeenCalledTimes(1);
+    expect(ungroup).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not invoke the callbacks when isToolActive returns true', () => {
+    const group = vi.fn();
+    const ungroup = vi.fn();
+    const { actions } = makeActions({ group, ungroup, isToolActive: () => true });
+
+    actions.group();
+    actions.ungroup();
+
+    expect(group).not.toHaveBeenCalled();
+    expect(ungroup).not.toHaveBeenCalled();
   });
 });
 

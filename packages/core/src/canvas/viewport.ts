@@ -217,6 +217,8 @@ export class Viewport {
       historyRecorder: this.historyRecorder,
       historyStack: this.history,
       fitToContent: () => this.fitToContent(),
+      group: () => this.groupSelection(),
+      ungroup: () => this.ungroupSelection(),
       shortcuts: options.shortcuts,
     });
 

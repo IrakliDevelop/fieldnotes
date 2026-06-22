@@ -25,6 +25,8 @@ export interface InputHandlerOptions {
   historyRecorder?: HistoryRecorder;
   historyStack?: HistoryStack;
   fitToContent?: () => void;
+  group?: () => void;
+  ungroup?: () => void;
   shortcuts?: ShortcutOptions;
 }
 
@@ -64,6 +66,8 @@ export class InputHandler {
       getHistoryStack: () => this.historyStack,
       isToolActive: () => this.isToolActive,
       fitToContent: options.fitToContent,
+      group: options.group,
+      ungroup: options.ungroup,
       getLastPointerWorld: () => this.lastPointerWorld(),
     });
     this.shortcutMap = new ShortcutMap(options.shortcuts?.bindings);
@@ -318,6 +322,14 @@ export class InputHandler {
       case 'zoom-fit':
         e.preventDefault();
         this.actions.zoomToFit();
+        return;
+      case 'group':
+        e.preventDefault();
+        this.actions.group();
+        return;
+      case 'ungroup':
+        e.preventDefault();
+        this.actions.ungroup();
         return;
       case 'zoom-in':
         e.preventDefault();
