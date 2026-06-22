@@ -247,7 +247,10 @@ describe('parseState', () => {
 
   it('preserves stroke blendMode across an export → parse round-trip', () => {
     const stroke = createStroke({
-      points: [{ x: 0, y: 0, pressure: 1 }, { x: 10, y: 0, pressure: 1 }],
+      points: [
+        { x: 0, y: 0, pressure: 1 },
+        { x: 10, y: 0, pressure: 1 },
+      ],
       blendMode: 'multiply',
       layerId: 'default-layer',
     });
@@ -255,6 +258,14 @@ describe('parseState', () => {
     const restored = parseState(json);
     const s = restored.elements.find((e) => e.type === 'stroke');
     expect((s as { blendMode?: string }).blendMode).toBe('multiply');
+  });
+
+  it('round-trips groupId on elements', () => {
+    const note = createNote({ position: { x: 10, y: 20 }, layerId: 'default-layer' });
+    note.groupId = 'group_abc';
+    const json = JSON.stringify(exportState([note], makeCamera()));
+    const restored = parseState(json);
+    expect(restored.elements[0]?.groupId).toBe('group_abc');
   });
 
   it('cleans stale arrow bindings on parse', () => {
