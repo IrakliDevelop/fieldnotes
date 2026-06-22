@@ -9,6 +9,9 @@ interface BaseElement {
   layerId: string;
   /** Optional flat group membership. Elements sharing a groupId select/move/delete as a unit. */
   groupId?: string;
+  /** Rotation in radians (clockwise) about the element's center. Absent = 0 (unrotated).
+   * Applied to note/text/image/html/shape/stroke; ignored for arrow/grid/template. */
+  rotation?: number;
 }
 
 export interface StrokeElement extends BaseElement {
