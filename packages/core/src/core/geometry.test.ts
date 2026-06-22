@@ -46,4 +46,8 @@ describe('normalizeAngle', () => {
     expect(normalizeAngle(Math.PI * 1.5)).toBeCloseTo(-Math.PI / 2);
     expect(normalizeAngle(-Math.PI * 1.5)).toBeCloseTo(Math.PI / 2);
   });
+  it('keeps the closed upper bound: -π maps to π, π stays π', () => {
+    expect(normalizeAngle(-Math.PI)).toBeCloseTo(Math.PI);
+    expect(normalizeAngle(Math.PI)).toBeCloseTo(Math.PI);
+  });
 });
