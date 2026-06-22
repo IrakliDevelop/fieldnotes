@@ -249,6 +249,11 @@ export class KeyboardActions {
       idMap.set(el.id, createId(el.type));
     }
 
+    const groupIdMap = new Map<string, string>();
+    for (const el of source) {
+      if (el.groupId && !groupIdMap.has(el.groupId)) groupIdMap.set(el.groupId, createId('group'));
+    }
+
     const newIds: string[] = [];
     const recorder = this.deps.getHistoryRecorder();
     recorder?.begin();
@@ -258,6 +263,7 @@ export class KeyboardActions {
       const newId = idMap.get(el.id);
       if (!newId) continue;
       clone.id = newId;
+      if (clone.groupId) clone.groupId = groupIdMap.get(clone.groupId) ?? clone.groupId;
       clone.position = { x: clone.position.x + offset.x, y: clone.position.y + offset.y };
 
       if (clone.type === 'arrow') {
