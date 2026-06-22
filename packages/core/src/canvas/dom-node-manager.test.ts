@@ -576,6 +576,24 @@ describe('DomNodeManager', () => {
     });
   });
 
+  describe('rotation', () => {
+    it('applies a CSS rotate transform to a rotated node', () => {
+      const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+      note.rotation = Math.PI / 4;
+      manager.syncDomNode(note, 0);
+      const node = manager.getNode(note.id);
+      expect(node?.style.transform).toBe(`rotate(${Math.PI / 4}rad)`);
+      expect(node?.style.transformOrigin).toBe('50% 50%');
+    });
+
+    it('clears the transform when rotation is unset', () => {
+      const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+      manager.syncDomNode(note, 0);
+      const node = manager.getNode(note.id);
+      expect(node?.style.transform).toBe('');
+    });
+  });
+
   describe('dirty tracking', () => {
     it('skips DOM updates when element version and zIndex unchanged', () => {
       const version = 0;

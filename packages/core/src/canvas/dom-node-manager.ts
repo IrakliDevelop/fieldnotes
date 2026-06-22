@@ -83,6 +83,8 @@ export class DomNodeManager {
       width: size ? `${size.w}px` : 'auto',
       height: size ? `${size.h}px` : 'auto',
       zIndex: String(zIndex),
+      transform: element.rotation ? `rotate(${element.rotation}rad)` : '',
+      transformOrigin: '50% 50%',
     });
 
     this.renderDomContent(node, element);
