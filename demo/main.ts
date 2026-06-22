@@ -448,14 +448,24 @@ viewport.store.on('update', syncStyleControls);
 
 const alignPanel = document.getElementById('align-panel');
 const distributeButtons = alignPanel?.querySelectorAll<HTMLButtonElement>('[data-distribute]');
+const groupBtn = document.getElementById('group-btn') as HTMLButtonElement | null;
+const ungroupBtn = document.getElementById('ungroup-btn') as HTMLButtonElement | null;
 
 function updateAlignPanel(): void {
-  const n = viewport.getSelectedIds().length;
+  const ids = viewport.getSelectedIds();
+  const n = ids.length;
   if (alignPanel) alignPanel.style.display = n >= 2 ? 'flex' : 'none';
   distributeButtons?.forEach((btn) => {
     btn.disabled = n < 3;
   });
+  if (groupBtn) groupBtn.hidden = n < 2;
+  if (ungroupBtn) {
+    ungroupBtn.hidden = !ids.some((id) => viewport.store.getById(id)?.groupId);
+  }
 }
+
+groupBtn?.addEventListener('click', () => viewport.groupSelection());
+ungroupBtn?.addEventListener('click', () => viewport.ungroupSelection());
 
 viewport.onSelectionChange(updateAlignPanel);
 updateAlignPanel();
