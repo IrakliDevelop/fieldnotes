@@ -15,6 +15,8 @@ export interface KeyboardActionsDeps {
   getHistoryStack: () => HistoryStack | null;
   isToolActive: () => boolean;
   fitToContent?: () => void;
+  group?: () => void;
+  ungroup?: () => void;
   getLastPointerWorld?: () => Point | null;
 }
 
@@ -198,6 +200,16 @@ export class KeyboardActions {
     this.deps.fitToContent?.();
   }
 
+  group(): void {
+    if (this.deps.isToolActive()) return;
+    this.deps.group?.();
+  }
+
+  ungroup(): void {
+    if (this.deps.isToolActive()) return;
+    this.deps.ungroup?.();
+  }
+
   zOrder(operation: 'forward' | 'backward' | 'front' | 'back'): void {
     if (this.deps.isToolActive()) return;
     this.flushPendingNudge();
@@ -237,6 +249,11 @@ export class KeyboardActions {
       idMap.set(el.id, createId(el.type));
     }
 
+    const groupIdMap = new Map<string, string>();
+    for (const el of source) {
+      if (el.groupId && !groupIdMap.has(el.groupId)) groupIdMap.set(el.groupId, createId('group'));
+    }
+
     const newIds: string[] = [];
     const recorder = this.deps.getHistoryRecorder();
     recorder?.begin();
@@ -246,6 +263,7 @@ export class KeyboardActions {
       const newId = idMap.get(el.id);
       if (!newId) continue;
       clone.id = newId;
+      if (clone.groupId) clone.groupId = groupIdMap.get(clone.groupId) ?? clone.groupId;
       clone.position = { x: clone.position.x + offset.x, y: clone.position.y + offset.y };
 
       if (clone.type === 'arrow') {

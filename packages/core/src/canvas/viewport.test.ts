@@ -1443,9 +1443,12 @@ describe('Viewport', () => {
     }
 
     it('aligns left edges to the selection bbox', () => {
-      const a = createNote({ position: { x: 10, y: 0 }, text: 'a' }); a.size = { w: 20, h: 20 };
-      const b = createNote({ position: { x: 50, y: 0 }, text: 'b' }); b.size = { w: 20, h: 20 };
-      viewport.store.add(a); viewport.store.add(b);
+      const a = createNote({ position: { x: 10, y: 0 }, text: 'a' });
+      a.size = { w: 20, h: 20 };
+      const b = createNote({ position: { x: 50, y: 0 }, text: 'b' });
+      b.size = { w: 20, h: 20 };
+      viewport.store.add(a);
+      viewport.store.add(b);
       selectAll([a.id, b.id]);
       const before = viewport.history.undoCount;
       viewport.alignSelection('left');
@@ -1457,9 +1460,12 @@ describe('Viewport', () => {
     });
 
     it('aligns center-x to the bbox center', () => {
-      const a = createNote({ position: { x: 0, y: 0 }, text: 'a' }); a.size = { w: 20, h: 10 };
-      const b = createNote({ position: { x: 80, y: 0 }, text: 'b' }); b.size = { w: 40, h: 10 };
-      viewport.store.add(a); viewport.store.add(b);
+      const a = createNote({ position: { x: 0, y: 0 }, text: 'a' });
+      a.size = { w: 20, h: 10 };
+      const b = createNote({ position: { x: 80, y: 0 }, text: 'b' });
+      b.size = { w: 40, h: 10 };
+      viewport.store.add(a);
+      viewport.store.add(b);
       selectAll([a.id, b.id]);
       viewport.alignSelection('center-x'); // bbox 0..120 center 60 → a.x=50, b.x=40
       expect((viewport.store.getById(a.id) as { position: { x: number } }).position.x).toBe(50);
@@ -1467,9 +1473,11 @@ describe('Viewport', () => {
     });
 
     it("translates an arrow's from/to when aligning, not just position", () => {
-      const note = createNote({ position: { x: 0, y: 0 }, text: 'n' }); note.size = { w: 20, h: 20 };
+      const note = createNote({ position: { x: 0, y: 0 }, text: 'n' });
+      note.size = { w: 20, h: 20 };
       const arrow = createArrow({ from: { x: 100, y: 100 }, to: { x: 140, y: 120 } });
-      viewport.store.add(note); viewport.store.add(arrow);
+      viewport.store.add(note);
+      viewport.store.add(arrow);
       selectAll([note.id, arrow.id]);
       viewport.alignSelection('top'); // bbox top 0; arrow top edge 100 → moves up 100
       const a = viewport.store.getById(arrow.id) as { from: { y: number }; to: { y: number } };
@@ -1478,9 +1486,17 @@ describe('Viewport', () => {
     });
 
     it('distributes horizontal centers evenly (extremes fixed)', () => {
-      const mk = (x: number): ReturnType<typeof createNote> => { const n = createNote({ position: { x, y: 0 }, text: 't' }); n.size = { w: 10, h: 10 }; return n; };
-      const a = mk(0), b = mk(30), c = mk(100); // centers 5,35,105
-      viewport.store.add(a); viewport.store.add(b); viewport.store.add(c);
+      const mk = (x: number): ReturnType<typeof createNote> => {
+        const n = createNote({ position: { x, y: 0 }, text: 't' });
+        n.size = { w: 10, h: 10 };
+        return n;
+      };
+      const a = mk(0),
+        b = mk(30),
+        c = mk(100); // centers 5,35,105
+      viewport.store.add(a);
+      viewport.store.add(b);
+      viewport.store.add(c);
       selectAll([a.id, b.id, c.id]);
       viewport.distributeSelection('horizontal'); // c1 target 55 → b.x 50; extremes fixed
       expect((viewport.store.getById(a.id) as { position: { x: number } }).position.x).toBe(0);
@@ -1489,25 +1505,129 @@ describe('Viewport', () => {
     });
 
     it('no-ops align with < 2 bounded and distribute with < 3', () => {
-      const a = createNote({ position: { x: 0, y: 0 }, text: 'a' }); a.size = { w: 10, h: 10 };
-      const b = createNote({ position: { x: 40, y: 0 }, text: 'b' }); b.size = { w: 10, h: 10 };
-      viewport.store.add(a); viewport.store.add(b);
+      const a = createNote({ position: { x: 0, y: 0 }, text: 'a' });
+      a.size = { w: 10, h: 10 };
+      const b = createNote({ position: { x: 40, y: 0 }, text: 'b' });
+      b.size = { w: 10, h: 10 };
+      viewport.store.add(a);
+      viewport.store.add(b);
       const before = viewport.history.undoCount; // AFTER adds
       selectAll([a.id]);
-      viewport.alignSelection('left');            // 1 bounded → no-op
+      viewport.alignSelection('left'); // 1 bounded → no-op
       selectAll([a.id, b.id]);
       viewport.distributeSelection('horizontal'); // 2 bounded → no-op
       expect(viewport.history.undoCount).toBe(before);
     });
 
     it('a locked element anchors the bbox but does not move', () => {
-      const a = createNote({ position: { x: 0, y: 0 }, text: 'a' }); a.size = { w: 10, h: 10 }; a.locked = true;
-      const b = createNote({ position: { x: 50, y: 0 }, text: 'b' }); b.size = { w: 10, h: 10 };
-      viewport.store.add(a); viewport.store.add(b);
+      const a = createNote({ position: { x: 0, y: 0 }, text: 'a' });
+      a.size = { w: 10, h: 10 };
+      a.locked = true;
+      const b = createNote({ position: { x: 50, y: 0 }, text: 'b' });
+      b.size = { w: 10, h: 10 };
+      viewport.store.add(a);
+      viewport.store.add(b);
       selectAll([a.id, b.id]);
       viewport.alignSelection('left');
       expect((viewport.store.getById(a.id) as { position: { x: number } }).position.x).toBe(0);
       expect((viewport.store.getById(b.id) as { position: { x: number } }).position.x).toBe(0);
+    });
+  });
+
+  describe('groupSelection / ungroupSelection', () => {
+    let viewport: Viewport;
+
+    beforeEach(() => {
+      viewport = new Viewport(container);
+      const sel = new SelectTool();
+      viewport.toolManager.register(sel);
+      viewport.toolManager.setTool('select', viewport.toolContext);
+    });
+
+    afterEach(() => {
+      viewport.destroy();
+    });
+
+    function selectAll(ids: string[]): void {
+      const sel = viewport.toolManager.getTool('select');
+      (sel as unknown as { setSelection: (ids: string[]) => void }).setSelection(ids);
+    }
+
+    it('groupSelection sets one shared groupId on all selected (>= 2), one undo step', () => {
+      const a = createNote({
+        position: { x: 0, y: 0 },
+        text: 'a',
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      const b = createNote({
+        position: { x: 50, y: 0 },
+        text: 'b',
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(a);
+      viewport.store.add(b);
+      selectAll([a.id, b.id]);
+      const before = viewport.history.undoCount;
+      viewport.groupSelection();
+      const ga = (viewport.store.getById(a.id) as { groupId?: string }).groupId;
+      const gb = (viewport.store.getById(b.id) as { groupId?: string }).groupId;
+      expect(ga).toBeDefined();
+      expect(gb).toBeDefined();
+      expect(ga).toBe(gb);
+      expect(viewport.history.undoCount).toBe(before + 1);
+      viewport.history.undo(viewport.store);
+      expect((viewport.store.getById(a.id) as { groupId?: string }).groupId).toBeUndefined();
+      expect((viewport.store.getById(b.id) as { groupId?: string }).groupId).toBeUndefined();
+    });
+
+    it('groupSelection is a no-op below 2 selected', () => {
+      const a = createNote({
+        position: { x: 0, y: 0 },
+        text: 'a',
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(a);
+      selectAll([a.id]);
+      const before = viewport.history.undoCount;
+      viewport.groupSelection();
+      expect((viewport.store.getById(a.id) as { groupId?: string }).groupId).toBeUndefined();
+      expect(viewport.history.undoCount).toBe(before);
+    });
+
+    it('ungroupSelection clears groupId on all selected in one undo step', () => {
+      const a = createNote({
+        position: { x: 0, y: 0 },
+        text: 'a',
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      const b = createNote({
+        position: { x: 50, y: 0 },
+        text: 'b',
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      a.groupId = 'g1';
+      b.groupId = 'g1';
+      viewport.store.add(a);
+      viewport.store.add(b);
+      selectAll([a.id, b.id]);
+      const before = viewport.history.undoCount;
+      viewport.ungroupSelection();
+      expect((viewport.store.getById(a.id) as { groupId?: string }).groupId).toBeUndefined();
+      expect((viewport.store.getById(b.id) as { groupId?: string }).groupId).toBeUndefined();
+      expect(viewport.history.undoCount).toBe(before + 1);
+    });
+
+    it('ungroupSelection is a no-op when nothing selected is grouped', () => {
+      const a = createNote({
+        position: { x: 0, y: 0 },
+        text: 'a',
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(a);
+      selectAll([a.id]);
+      const before = viewport.history.undoCount;
+      viewport.ungroupSelection();
+      expect(viewport.history.undoCount).toBe(before);
     });
   });
 

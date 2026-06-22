@@ -10,7 +10,11 @@ import { NoteEditor } from '../elements/note-editor';
 import type { FontSizePreset } from '../elements/note-toolbar';
 import type { CanvasElement, ArrowElement, GridElement } from '../elements/types';
 import type { Bounds } from '../core/types';
-import { findBoundArrows, getEdgeIntersection, updateArrowsBoundToElements } from '../elements/arrow-binding';
+import {
+  findBoundArrows,
+  getEdgeIntersection,
+  updateArrowsBoundToElements,
+} from '../elements/arrow-binding';
 import { translateElementPatch } from '../elements/translate';
 import { getElementBounds } from '../elements/element-bounds';
 import { getElementsBoundingBox } from '../elements/bounds';
@@ -22,6 +26,7 @@ import type { SelectTool } from '../tools/select-tool';
 import { HistoryStack } from '../history/history-stack';
 import { HistoryRecorder } from '../history/history-recorder';
 import { createImage, createHtmlElement, createGrid } from '../elements/element-factory';
+import { createId } from '../elements/create-id';
 import { exportState as exportCanvasState, parseState } from '../core/state-serializer';
 import { exportImage } from './export-image';
 import type { ExportImageOptions } from './export-image';
@@ -42,7 +47,10 @@ export type AlignEdge = 'left' | 'center-x' | 'right' | 'top' | 'middle' | 'bott
 export type DistributeAxis = 'horizontal' | 'vertical';
 
 function unionBounds(list: Bounds[]): Bounds {
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  let minX = Infinity,
+    minY = Infinity,
+    maxX = -Infinity,
+    maxY = -Infinity;
   for (const b of list) {
     minX = Math.min(minX, b.x);
     minY = Math.min(minY, b.y);
@@ -209,6 +217,8 @@ export class Viewport {
       historyRecorder: this.historyRecorder,
       historyStack: this.history,
       fitToContent: () => this.fitToContent(),
+      group: () => this.groupSelection(),
+      ungroup: () => this.ungroupSelection(),
       shortcuts: options.shortcuts,
     });
 
@@ -575,6 +585,28 @@ export class Viewport {
     this.historyRecorder.commit();
   }
 
+  groupSelection(): void {
+    const ids = this.getSelectedIds();
+    if (ids.length < 2) return;
+    const groupId = createId('group');
+    this.historyRecorder.begin();
+    for (const id of ids) {
+      if (this.store.getById(id)) this.store.update(id, { groupId });
+    }
+    this.historyRecorder.commit();
+  }
+
+  ungroupSelection(): void {
+    const ids = this.getSelectedIds();
+    if (ids.length === 0) return;
+    this.historyRecorder.begin();
+    for (const id of ids) {
+      const el = this.store.getById(id);
+      if (el && el.groupId !== undefined) this.store.update(id, { groupId: undefined });
+    }
+    this.historyRecorder.commit();
+  }
+
   alignSelection(edge: AlignEdge): void {
     const bounded = this.boundedSelection();
     if (bounded.length < 2) return;
@@ -586,12 +618,24 @@ export class Viewport {
       let dx = 0;
       let dy = 0;
       switch (edge) {
-        case 'left': dx = B.x - b.x; break;
-        case 'right': dx = B.x + B.w - (b.x + b.w); break;
-        case 'center-x': dx = B.x + B.w / 2 - (b.x + b.w / 2); break;
-        case 'top': dy = B.y - b.y; break;
-        case 'bottom': dy = B.y + B.h - (b.y + b.h); break;
-        case 'middle': dy = B.y + B.h / 2 - (b.y + b.h / 2); break;
+        case 'left':
+          dx = B.x - b.x;
+          break;
+        case 'right':
+          dx = B.x + B.w - (b.x + b.w);
+          break;
+        case 'center-x':
+          dx = B.x + B.w / 2 - (b.x + b.w / 2);
+          break;
+        case 'top':
+          dy = B.y - b.y;
+          break;
+        case 'bottom':
+          dy = B.y + B.h - (b.y + b.h);
+          break;
+        case 'middle':
+          dy = B.y + B.h / 2 - (b.y + b.h / 2);
+          break;
       }
       if (dx === 0 && dy === 0) continue;
       this.store.update(id, translateElementPatch(el, dx, dy));
@@ -646,7 +690,6 @@ export class Viewport {
     if (el.type === 'arrow' && (el.fromBinding ?? el.toBinding)) return false;
     return true;
   }
-
 
   getRenderStats(): RenderStatsSnapshot {
     return this.renderLoop.getStats();

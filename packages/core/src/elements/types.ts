@@ -7,6 +7,8 @@ interface BaseElement {
   zIndex: number;
   locked: boolean;
   layerId: string;
+  /** Optional flat group membership. Elements sharing a groupId select/move/delete as a unit. */
+  groupId?: string;
 }
 
 export interface StrokeElement extends BaseElement {

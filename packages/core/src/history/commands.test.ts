@@ -83,6 +83,20 @@ describe('UpdateElementCommand', () => {
 
     expect(store.getById(note.id)?.position).toEqual({ x: 0, y: 0 });
   });
+
+  it('undo clears a key that the update newly added', () => {
+    const store = new ElementStore();
+    const note = createNote({ position: { x: 0, y: 0 } });
+    store.add(note);
+    const updated = { ...note, groupId: 'g1' };
+    const cmd = new UpdateElementCommand(note.id, note, updated);
+
+    cmd.execute(store);
+    expect(store.getById(note.id)?.groupId).toBe('g1');
+
+    cmd.undo(store);
+    expect(store.getById(note.id)?.groupId).toBeUndefined();
+  });
 });
 
 describe('BatchCommand', () => {

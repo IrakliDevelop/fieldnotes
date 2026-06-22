@@ -29,6 +29,8 @@ function makeActions(
     recorder?: HistoryRecorder;
     stack?: HistoryStack;
     fitToContent?: () => void;
+    group?: () => void;
+    ungroup?: () => void;
     isToolActive?: () => boolean;
   } = {},
 ): { actions: KeyboardActions; ctx: ToolContext; tool: SelectTool } {
@@ -43,6 +45,8 @@ function makeActions(
     getHistoryStack: () => opts.stack ?? null,
     isToolActive: opts.isToolActive ?? (() => false),
     fitToContent: opts.fitToContent,
+    group: opts.group,
+    ungroup: opts.ungroup,
   };
   return { actions: new KeyboardActions(deps), ctx, tool };
 }
@@ -249,6 +253,26 @@ describe('KeyboardActions.duplicate', () => {
     }
   });
 
+  it('remaps groupId on clones so a duplicated group is a fresh cohesive group', () => {
+    const { actions, ctx, tool } = makeActions();
+    const a = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+    const b = createNote({ position: { x: 200, y: 0 }, size: { w: 100, h: 50 } });
+    a.groupId = 'g1';
+    b.groupId = 'g1';
+    ctx.store.add(a);
+    ctx.store.add(b);
+    tool.setSelection([a.id, b.id]);
+
+    actions.duplicate();
+
+    const clones = ctx.store.getAll().filter((el) => el.id !== a.id && el.id !== b.id);
+    expect(clones).toHaveLength(2);
+    expect(clones[0]?.groupId).toBeDefined();
+    expect(clones[1]?.groupId).toBeDefined();
+    expect(clones[0]?.groupId).toBe(clones[1]?.groupId);
+    expect(clones[0]?.groupId).not.toBe('g1');
+  });
+
   it('duplicate with recorder is exactly one begin + one commit', () => {
     const recorder: HistoryRecorder = {
       begin: vi.fn(),
@@ -286,6 +310,32 @@ describe('KeyboardActions.zoomToFit', () => {
     const { actions } = makeActions({ fitToContent: fit, isToolActive: () => true });
     actions.zoomToFit();
     expect(fit).not.toHaveBeenCalled();
+  });
+});
+
+describe('KeyboardActions.group / ungroup', () => {
+  it('invokes the injected group and ungroup callbacks when no tool is active', () => {
+    const group = vi.fn();
+    const ungroup = vi.fn();
+    const { actions } = makeActions({ group, ungroup });
+
+    actions.group();
+    actions.ungroup();
+
+    expect(group).toHaveBeenCalledTimes(1);
+    expect(ungroup).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not invoke the callbacks when isToolActive returns true', () => {
+    const group = vi.fn();
+    const ungroup = vi.fn();
+    const { actions } = makeActions({ group, ungroup, isToolActive: () => true });
+
+    actions.group();
+    actions.ungroup();
+
+    expect(group).not.toHaveBeenCalled();
+    expect(ungroup).not.toHaveBeenCalled();
   });
 });
 
