@@ -1033,7 +1033,11 @@ describe('SelectTool', () => {
     it('a selected line draws 2 endpoint circles (arc x2) and no fillRect corner handles', () => {
       const tool = new SelectTool();
       const ctx = makeCtx();
-      const line = createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 }, shape: 'line' });
+      const line = createShape({
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 100 },
+        shape: 'line',
+      });
       ctx.store.add(line);
       tool.onActivate(ctx);
       tool.setSelection([line.id]);
@@ -1062,7 +1066,11 @@ describe('SelectTool', () => {
     it('a selected rectangle draws 4 corner handles (fillRect x4) and no arc', () => {
       const tool = new SelectTool();
       const ctx = makeCtx();
-      const rect = createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 }, shape: 'rectangle' });
+      const rect = createShape({
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 100 },
+        shape: 'rectangle',
+      });
       ctx.store.add(rect);
       tool.onActivate(ctx);
       tool.setSelection([rect.id]);
@@ -1092,8 +1100,16 @@ describe('SelectTool', () => {
     it('does not leak solid line-dash onto a co-selected element (line before rect)', () => {
       const tool = new SelectTool();
       const ctx = makeCtx();
-      const line = createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 }, shape: 'line' });
-      const rect = createShape({ position: { x: 200, y: 0 }, size: { w: 50, h: 50 }, shape: 'rectangle' });
+      const line = createShape({
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 100 },
+        shape: 'line',
+      });
+      const rect = createShape({
+        position: { x: 200, y: 0 },
+        size: { w: 50, h: 50 },
+        shape: 'rectangle',
+      });
       ctx.store.add(line);
       ctx.store.add(rect);
       tool.onActivate(ctx);
@@ -1569,13 +1585,21 @@ describe('SelectTool', () => {
       ctx.smartGuides = true;
       const stationary = createNote({ position: { x: 200, y: 100 }, size: { w: 50, h: 50 } });
       const drag = createNote({ position: { x: 100, y: 0 }, size: { w: 50, h: 50 } });
-      ctx.store.add(stationary); ctx.store.add(drag);
+      ctx.store.add(stationary);
+      ctx.store.add(drag);
       tool.onActivate?.(ctx);
-      tool.onPointerDown({ x: 125, y: 25, pressure: 1, pointerType: 'mouse', shiftKey: false }, ctx);
-      tool.onPointerMove({ x: 222, y: 25, pressure: 1, pointerType: 'mouse', shiftKey: false }, ctx);
+      tool.onPointerDown(
+        { x: 125, y: 25, pressure: 1, pointerType: 'mouse', shiftKey: false },
+        ctx,
+      );
+      tool.onPointerMove(
+        { x: 222, y: 25, pressure: 1, pointerType: 'mouse', shiftKey: false },
+        ctx,
+      );
       // drag left would be 197 (100 + dx 97); within 6 of stationary left 200 → snaps to 200
       expect((ctx.store.getById(drag.id) as { position: { x: number } }).position.x).toBe(200);
-      const guides = (tool as unknown as { activeGuides: { axis: string; position: number }[] }).activeGuides;
+      const guides = (tool as unknown as { activeGuides: { axis: string; position: number }[] })
+        .activeGuides;
       expect(guides).toEqual([{ axis: 'x', position: 200 }]);
     });
 
@@ -1584,10 +1608,17 @@ describe('SelectTool', () => {
       const ctx = makeCtx(); // smartGuides falsy
       const stationary = createNote({ position: { x: 200, y: 100 }, size: { w: 50, h: 50 } });
       const drag = createNote({ position: { x: 100, y: 0 }, size: { w: 50, h: 50 } });
-      ctx.store.add(stationary); ctx.store.add(drag);
+      ctx.store.add(stationary);
+      ctx.store.add(drag);
       tool.onActivate?.(ctx);
-      tool.onPointerDown({ x: 125, y: 25, pressure: 1, pointerType: 'mouse', shiftKey: false }, ctx);
-      tool.onPointerMove({ x: 222, y: 25, pressure: 1, pointerType: 'mouse', shiftKey: false }, ctx);
+      tool.onPointerDown(
+        { x: 125, y: 25, pressure: 1, pointerType: 'mouse', shiftKey: false },
+        ctx,
+      );
+      tool.onPointerMove(
+        { x: 222, y: 25, pressure: 1, pointerType: 'mouse', shiftKey: false },
+        ctx,
+      );
       expect((ctx.store.getById(drag.id) as { position: { x: number } }).position.x).toBe(197);
     });
 
@@ -1597,10 +1628,17 @@ describe('SelectTool', () => {
       ctx.smartGuides = true;
       const stationary = createNote({ position: { x: 200, y: 100 }, size: { w: 50, h: 50 } });
       const drag = createNote({ position: { x: 100, y: 0 }, size: { w: 50, h: 50 } });
-      ctx.store.add(stationary); ctx.store.add(drag);
+      ctx.store.add(stationary);
+      ctx.store.add(drag);
       tool.onActivate?.(ctx);
-      tool.onPointerDown({ x: 125, y: 25, pressure: 1, pointerType: 'mouse', shiftKey: false }, ctx);
-      tool.onPointerMove({ x: 222, y: 25, pressure: 1, pointerType: 'mouse', shiftKey: false }, ctx);
+      tool.onPointerDown(
+        { x: 125, y: 25, pressure: 1, pointerType: 'mouse', shiftKey: false },
+        ctx,
+      );
+      tool.onPointerMove(
+        { x: 222, y: 25, pressure: 1, pointerType: 'mouse', shiftKey: false },
+        ctx,
+      );
       tool.onPointerUp({ x: 222, y: 25, pressure: 1, pointerType: 'mouse', shiftKey: false }, ctx);
       expect((tool as unknown as { activeGuides: unknown[] }).activeGuides).toEqual([]);
     });
@@ -1810,6 +1848,126 @@ describe('SelectTool', () => {
       expect(tool.selectedIds).toEqual([note1.id, note2.id]);
       expect(ctx.requestRender).toHaveBeenCalled();
     });
+
+    it('setSelection stays literal and does not expand to groups', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const a = createNote({ position: { x: 100, y: 100 }, size: { w: 100, h: 100 } });
+      const b = createNote({ position: { x: 400, y: 100 }, size: { w: 100, h: 100 } });
+      a.groupId = 'g1';
+      b.groupId = 'g1';
+      ctx.store.add(a);
+      ctx.store.add(b);
+
+      tool.onActivate(ctx);
+      tool.setSelection([a.id]);
+
+      expect(tool.selectedIds).toEqual([a.id]);
+    });
+  });
+
+  describe('group-aware selection', () => {
+    it('clicking one member of a group selects all co-members', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const a = createNote({ position: { x: 100, y: 100 }, size: { w: 100, h: 100 } });
+      const b = createNote({ position: { x: 400, y: 100 }, size: { w: 100, h: 100 } });
+      const c = createNote({ position: { x: 700, y: 100 }, size: { w: 100, h: 100 } });
+      a.groupId = 'g1';
+      b.groupId = 'g1';
+      ctx.store.add(a);
+      ctx.store.add(b);
+      ctx.store.add(c);
+
+      tool.onPointerDown(pt(150, 150), ctx);
+      tool.onPointerUp(pt(150, 150), ctx);
+
+      expect(tool.selectedIds).toHaveLength(2);
+      expect(tool.selectedIds).toContain(a.id);
+      expect(tool.selectedIds).toContain(b.id);
+    });
+
+    it('shift-clicking an already-selected grouped member toggles the whole group off', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const a = createNote({ position: { x: 100, y: 100 }, size: { w: 100, h: 100 } });
+      const b = createNote({ position: { x: 400, y: 100 }, size: { w: 100, h: 100 } });
+      a.groupId = 'g1';
+      b.groupId = 'g1';
+      ctx.store.add(a);
+      ctx.store.add(b);
+
+      tool.onPointerDown(pt(150, 150), ctx);
+      tool.onPointerUp(pt(150, 150), ctx);
+      expect(tool.selectedIds).toHaveLength(2);
+
+      tool.onPointerDown(shiftPt(150, 150), ctx);
+      tool.onPointerUp(shiftPt(150, 150), ctx);
+
+      expect(tool.selectedIds).toEqual([]);
+    });
+
+    it('shift-clicking a grouped member adds the whole group to the selection', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const solo = createNote({ position: { x: 100, y: 100 }, size: { w: 100, h: 100 } });
+      const a = createNote({ position: { x: 400, y: 100 }, size: { w: 100, h: 100 } });
+      const b = createNote({ position: { x: 700, y: 100 }, size: { w: 100, h: 100 } });
+      a.groupId = 'g1';
+      b.groupId = 'g1';
+      ctx.store.add(solo);
+      ctx.store.add(a);
+      ctx.store.add(b);
+
+      tool.onPointerDown(pt(150, 150), ctx);
+      tool.onPointerUp(pt(150, 150), ctx);
+      expect(tool.selectedIds).toEqual([solo.id]);
+
+      tool.onPointerDown(shiftPt(450, 150), ctx);
+      tool.onPointerUp(shiftPt(450, 150), ctx);
+
+      expect(tool.selectedIds).toHaveLength(3);
+      expect(tool.selectedIds).toContain(solo.id);
+      expect(tool.selectedIds).toContain(a.id);
+      expect(tool.selectedIds).toContain(b.id);
+    });
+
+    it('marquee overlapping only one member selects the whole group', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const a = createNote({ position: { x: 50, y: 50 }, size: { w: 40, h: 40 } });
+      const b = createNote({ position: { x: 500, y: 500 }, size: { w: 40, h: 40 } });
+      a.groupId = 'g1';
+      b.groupId = 'g1';
+      ctx.store.add(a);
+      ctx.store.add(b);
+
+      tool.onPointerDown(pt(0, 0), ctx);
+      tool.onPointerMove(pt(100, 100), ctx);
+      tool.onPointerUp(pt(100, 100), ctx);
+
+      expect(tool.selectedIds).toHaveLength(2);
+      expect(tool.selectedIds).toContain(a.id);
+      expect(tool.selectedIds).toContain(b.id);
+    });
+
+    it('ungrouped click is unaffected (selection stays literal)', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const a = createNote({ position: { x: 100, y: 100 }, size: { w: 100, h: 100 } });
+      const b = createNote({ position: { x: 400, y: 100 }, size: { w: 100, h: 100 } });
+      a.groupId = 'g1';
+      b.groupId = 'g1';
+      const c = createNote({ position: { x: 700, y: 100 }, size: { w: 100, h: 100 } });
+      ctx.store.add(a);
+      ctx.store.add(b);
+      ctx.store.add(c);
+
+      tool.onPointerDown(pt(750, 150), ctx);
+      tool.onPointerUp(pt(750, 150), ctx);
+
+      expect(tool.selectedIds).toEqual([c.id]);
+    });
   });
 
   describe('line endpoint drag-handles', () => {
@@ -1831,7 +1989,11 @@ describe('SelectTool', () => {
 
     it('hitTestLineHandles returns the opposite endpoint as fixed', () => {
       const { tool, ctx, store } = makeSelectTool();
-      const line = createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 }, shape: 'line' });
+      const line = createShape({
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 100 },
+        shape: 'line',
+      });
       store.add(line);
       tool.setSelection([line.id]);
       const priv = tool as unknown as {
@@ -1840,19 +2002,36 @@ describe('SelectTool', () => {
           c: typeof ctx,
         ) => { elementId: string; fixed: { x: number; y: number } } | null;
       };
-      expect(priv.hitTestLineHandles({ x: 0, y: 0 }, ctx)).toEqual({ elementId: line.id, fixed: { x: 100, y: 100 } });
-      expect(priv.hitTestLineHandles({ x: 100, y: 100 }, ctx)).toEqual({ elementId: line.id, fixed: { x: 0, y: 0 } });
+      expect(priv.hitTestLineHandles({ x: 0, y: 0 }, ctx)).toEqual({
+        elementId: line.id,
+        fixed: { x: 100, y: 100 },
+      });
+      expect(priv.hitTestLineHandles({ x: 100, y: 100 }, ctx)).toEqual({
+        elementId: line.id,
+        fixed: { x: 0, y: 0 },
+      });
       expect(priv.hitTestLineHandles({ x: 50, y: 0 }, ctx)).toBeNull();
     });
 
     it('dragging an endpoint moves it and keeps the fixed end anchored', () => {
       const { tool, ctx, store } = makeSelectTool();
-      const line = createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 }, shape: 'line' });
+      const line = createShape({
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 100 },
+        shape: 'line',
+      });
       store.add(line);
       tool.setSelection([line.id]);
-      (tool as unknown as { mode: unknown }).mode = { type: 'line-handle', elementId: line.id, fixed: { x: 100, y: 100 } };
+      (tool as unknown as { mode: unknown }).mode = {
+        type: 'line-handle',
+        elementId: line.id,
+        fixed: { x: 100, y: 100 },
+      };
       tool.onPointerMove(PS(20, 80), ctx);
-      const u = store.getById(line.id) as { position: { x: number; y: number }; size: { w: number; h: number } };
+      const u = store.getById(line.id) as {
+        position: { x: number; y: number };
+        size: { w: number; h: number };
+      };
       expect(u.position).toEqual({ x: 20, y: 80 });
       expect(u.size).toEqual({ w: 80, h: 20 });
       const ends = lineEndpoints(store.getById(line.id) as never);
@@ -1861,10 +2040,18 @@ describe('SelectTool', () => {
 
     it('a flip-crossing drag keeps the fixed end put', () => {
       const { tool, ctx, store } = makeSelectTool();
-      const line = createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 }, shape: 'line' });
+      const line = createShape({
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 100 },
+        shape: 'line',
+      });
       store.add(line);
       tool.setSelection([line.id]);
-      (tool as unknown as { mode: unknown }).mode = { type: 'line-handle', elementId: line.id, fixed: { x: 100, y: 100 } };
+      (tool as unknown as { mode: unknown }).mode = {
+        type: 'line-handle',
+        elementId: line.id,
+        fixed: { x: 100, y: 100 },
+      };
       tool.onPointerMove(PS(200, 100), ctx);
       const ends = lineEndpoints(store.getById(line.id) as never);
       expect(ends.some((p) => p.x === 100 && p.y === 100)).toBe(true);
@@ -1873,7 +2060,11 @@ describe('SelectTool', () => {
 
     it('does not offer bbox resize handles for a line', () => {
       const { tool, ctx, store } = makeSelectTool();
-      const line = createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 }, shape: 'line' });
+      const line = createShape({
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 100 },
+        shape: 'line',
+      });
       store.add(line);
       tool.setSelection([line.id]);
       const priv = tool as unknown as {

@@ -6,6 +6,7 @@ import type { CanvasElement, ArrowElement } from '../elements/types';
 import { isNearBezier } from '../elements/arrow-geometry';
 import { updateArrowsBoundToElements } from '../elements/arrow-binding';
 import { getElementBounds } from '../elements/element-bounds';
+import { expandToGroups } from '../elements/group';
 import { getElementsBoundingBox } from '../elements/bounds';
 import { hitTestStroke } from '../elements/stroke-hit';
 import { lineEndpoints, lineFromEndpoints } from '../elements/shape-geometry';
@@ -159,18 +160,20 @@ export class SelectTool implements Tool {
     this.hasDragged = false;
     const hit = this.hitTest(world, ctx);
     if (hit) {
+      const all = ctx.store.getAll();
       const alreadySelected = this._selectedIds.includes(hit.id);
       if (state.shiftKey) {
         if (alreadySelected) {
-          this.setSelectedIds(this._selectedIds.filter((id) => id !== hit.id));
+          const grp = new Set(expandToGroups([hit.id], all));
+          this.setSelectedIds(this._selectedIds.filter((id) => !grp.has(id)));
           this.mode = { type: 'idle' };
         } else {
-          this.setSelectedIds([...this._selectedIds, hit.id]);
+          this.setSelectedIds(expandToGroups([...this._selectedIds, hit.id], all));
           this.mode = hit.locked ? { type: 'idle' } : { type: 'dragging' };
         }
       } else {
         if (!alreadySelected) {
-          this.setSelectedIds([hit.id]);
+          this.setSelectedIds(expandToGroups([hit.id], all));
         } else if (this._selectedIds.length > 1) {
           this.pendingSingleSelectId = hit.id;
         }
@@ -306,13 +309,13 @@ export class SelectTool implements Tool {
     if (this.mode.type === 'marquee') {
       const rect = this.getMarqueeRect();
       if (rect) {
-        this.setSelectedIds(this.findElementsInRect(rect, ctx));
+        this.setSelectedIds(expandToGroups(this.findElementsInRect(rect, ctx), ctx.store.getAll()));
       }
       ctx.requestRender();
     }
 
     if (!this.hasDragged && this.pendingSingleSelectId !== null) {
-      this.setSelectedIds([this.pendingSingleSelectId]);
+      this.setSelectedIds(expandToGroups([this.pendingSingleSelectId], ctx.store.getAll()));
     }
     this.pendingSingleSelectId = null;
     this.hasDragged = false;
@@ -563,7 +566,10 @@ export class SelectTool implements Tool {
     return null;
   }
 
-  private hitTestLineHandles(world: Point, ctx: ToolContext): { elementId: string; fixed: Point } | null {
+  private hitTestLineHandles(
+    world: Point,
+    ctx: ToolContext,
+  ): { elementId: string; fixed: Point } | null {
     if (this._selectedIds.length === 0) return null;
     const zoom = ctx.camera.zoom;
     const r = (HANDLE_SIZE / 2 + HANDLE_HIT_PADDING) / zoom;
