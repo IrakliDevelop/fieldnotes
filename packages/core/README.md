@@ -588,6 +588,22 @@ viewport.setSmartGuides(true);  // enable
 viewport.setSmartGuides(false); // disable (default)
 ```
 
+## Grouping
+
+Group elements so they select, move, delete, z-order, and align as a single unit.
+
+- **`viewport.groupSelection()`** — groups the current selection under a new id.
+- **`viewport.ungroupSelection()`** — dissolves any groups in the current selection.
+
+Each is one undo step. Selecting any member selects its whole group, so to edit a single member individually, ungroup first. Pasting or duplicating a group keeps the copies grouped under a fresh id.
+
+```typescript
+viewport.groupSelection();   // Ctrl/Cmd+G
+viewport.ungroupSelection(); // Ctrl/Cmd+Shift+G
+```
+
+The shortcuts are rebindable as `group` and `ungroup`.
+
 ## Built-in Interactions
 
 | Input                | Action              |

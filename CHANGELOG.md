@@ -4,6 +4,14 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.34.0] — 2026-06-22
+
+### Added
+
+- **Grouping.** Group and ungroup elements so they select, move, delete, z-order, and align as a unit. `viewport.groupSelection()` groups the current selection and `viewport.ungroupSelection()` dissolves any groups in it — one undo step each. Bound to `Ctrl/Cmd+G` (group) and `Ctrl/Cmd+Shift+G` (ungroup), rebindable as `group` / `ungroup`. Selecting any member selects its whole group; pasting or duplicating a group keeps the copies grouped under a fresh id. Elements gain an additive optional `groupId` that round-trips through serialization with no migration.
+
+---
+
 ## [0.33.0] — 2026-06-21
 
 ### Added
