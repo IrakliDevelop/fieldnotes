@@ -42,12 +42,22 @@ export class UpdateElementCommand implements Command {
   ) {}
 
   execute(store: ElementStore): void {
-    store.update(this.id, { ...this.current });
+    store.update(this.id, diffPatch(this.previous, this.current));
   }
 
   undo(store: ElementStore): void {
-    store.update(this.id, { ...this.previous });
+    store.update(this.id, diffPatch(this.current, this.previous));
   }
+}
+
+// Patch turning `from` into `to`, explicitly setting keys that exist on `from`
+// but not `to` to `undefined` so a merge-based `update` clears them.
+function diffPatch(from: CanvasElement, to: CanvasElement): Partial<CanvasElement> {
+  const patch: Record<string, unknown> = { ...to };
+  for (const key of Object.keys(from)) {
+    if (!(key in to)) patch[key] = undefined;
+  }
+  return patch as Partial<CanvasElement>;
 }
 
 export class BatchCommand implements Command {

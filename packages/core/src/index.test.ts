@@ -42,6 +42,7 @@ describe('core public surface', () => {
       // internal helpers that must stay off the public surface
       'translateElementPatch',
       'computeSnapGuides',
+      'expandToGroups',
     ];
     for (const name of removed) {
       expect(name in FN, `${name} should not be exported`).toBe(false);
