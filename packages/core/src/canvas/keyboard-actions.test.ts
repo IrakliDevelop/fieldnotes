@@ -31,6 +31,7 @@ function makeActions(
     fitToContent?: () => void;
     group?: () => void;
     ungroup?: () => void;
+    toggleLock?: () => void;
     isToolActive?: () => boolean;
   } = {},
 ): { actions: KeyboardActions; ctx: ToolContext; tool: SelectTool } {
@@ -47,6 +48,7 @@ function makeActions(
     fitToContent: opts.fitToContent,
     group: opts.group,
     ungroup: opts.ungroup,
+    toggleLock: opts.toggleLock,
   };
   return { actions: new KeyboardActions(deps), ctx, tool };
 }
@@ -336,6 +338,52 @@ describe('KeyboardActions.group / ungroup', () => {
 
     expect(group).not.toHaveBeenCalled();
     expect(ungroup).not.toHaveBeenCalled();
+  });
+});
+
+describe('KeyboardActions.cut', () => {
+  it('copies the selection then removes it from the store', () => {
+    const { actions, ctx, tool } = makeActions();
+    const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+    ctx.store.add(note);
+    tool.setSelection([note.id]);
+
+    actions.cut();
+
+    expect(actions.hasClipboard()).toBe(true);
+    expect(ctx.store.getById(note.id)).toBeUndefined();
+  });
+
+  it('is a no-op when isToolActive returns true', () => {
+    const { actions, ctx, tool } = makeActions({ isToolActive: () => true });
+    const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+    ctx.store.add(note);
+    tool.setSelection([note.id]);
+
+    actions.cut();
+
+    expect(actions.hasClipboard()).toBe(false);
+    expect(ctx.store.getById(note.id)).toBeDefined();
+  });
+});
+
+describe('KeyboardActions.toggleLock', () => {
+  it('invokes the injected toggleLock callback when no tool is active', () => {
+    const toggleLock = vi.fn();
+    const { actions } = makeActions({ toggleLock });
+
+    actions.toggleLock();
+
+    expect(toggleLock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not invoke the callback when isToolActive returns true', () => {
+    const toggleLock = vi.fn();
+    const { actions } = makeActions({ toggleLock, isToolActive: () => true });
+
+    actions.toggleLock();
+
+    expect(toggleLock).not.toHaveBeenCalled();
   });
 });
 

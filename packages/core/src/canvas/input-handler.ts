@@ -27,6 +27,7 @@ export interface InputHandlerOptions {
   fitToContent?: () => void;
   group?: () => void;
   ungroup?: () => void;
+  toggleLock?: () => void;
   shortcuts?: ShortcutOptions;
 }
 
@@ -68,6 +69,7 @@ export class InputHandler {
       fitToContent: options.fitToContent,
       group: options.group,
       ungroup: options.ungroup,
+      toggleLock: options.toggleLock,
       getLastPointerWorld: () => this.lastPointerWorld(),
     });
     this.shortcutMap = new ShortcutMap(options.shortcuts?.bindings);
@@ -330,6 +332,14 @@ export class InputHandler {
       case 'ungroup':
         e.preventDefault();
         this.actions.ungroup();
+        return;
+      case 'cut':
+        e.preventDefault();
+        this.actions.cut();
+        return;
+      case 'toggle-lock':
+        e.preventDefault();
+        this.actions.toggleLock();
         return;
       case 'zoom-in':
         e.preventDefault();

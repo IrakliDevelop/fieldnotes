@@ -219,6 +219,7 @@ export class Viewport {
       fitToContent: () => this.fitToContent(),
       group: () => this.groupSelection(),
       ungroup: () => this.ungroupSelection(),
+      toggleLock: () => this.toggleLockSelection(),
       shortcuts: options.shortcuts,
     });
 

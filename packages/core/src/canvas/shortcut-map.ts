@@ -41,6 +41,8 @@ const DEFAULT_BINDINGS: readonly (readonly [string, readonly string[]])[] = [
   ['zoom-reset', ['mod+0']],
   ['group', ['mod+g']],
   ['ungroup', ['mod+shift+g']],
+  ['cut', ['mod+x']],
+  ['toggle-lock', ['mod+shift+l']],
   ['nudge-left', ['arrowleft']],
   ['nudge-right', ['arrowright']],
   ['nudge-up', ['arrowup']],
