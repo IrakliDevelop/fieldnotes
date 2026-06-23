@@ -36,7 +36,13 @@ const benchCount = benchParam ? Math.max(1, parseInt(benchParam, 10) || 500) : 0
 
 const hand = new HandTool();
 const pencil = new PencilTool({ color: '#1a1a1a', width: 2 });
-const highlighter = new PencilTool({ name: 'highlighter', width: 12, opacity: 0.4, blendMode: 'multiply', color: '#ffeb3b' });
+const highlighter = new PencilTool({
+  name: 'highlighter',
+  width: 12,
+  opacity: 0.4,
+  blendMode: 'multiply',
+  color: '#ffeb3b',
+});
 const eraser = new EraserTool();
 const select = new SelectTool();
 const arrow = new ArrowTool({ color: '#1a1a1a', width: 2 });
@@ -450,6 +456,7 @@ const alignPanel = document.getElementById('align-panel');
 const distributeButtons = alignPanel?.querySelectorAll<HTMLButtonElement>('[data-distribute]');
 const groupBtn = document.getElementById('group-btn') as HTMLButtonElement | null;
 const ungroupBtn = document.getElementById('ungroup-btn') as HTMLButtonElement | null;
+const lockBtn = document.getElementById('lock-btn') as HTMLButtonElement | null;
 
 function updateAlignPanel(): void {
   const ids = viewport.getSelectedIds();
@@ -462,10 +469,16 @@ function updateAlignPanel(): void {
   if (ungroupBtn) {
     ungroupBtn.hidden = !ids.some((id) => viewport.store.getById(id)?.groupId);
   }
+  if (lockBtn) {
+    lockBtn.hidden = ids.length === 0;
+    const allLocked = ids.length > 0 && ids.every((id) => viewport.store.getById(id)?.locked);
+    lockBtn.textContent = allLocked ? 'Unlock' : 'Lock';
+  }
 }
 
 groupBtn?.addEventListener('click', () => viewport.groupSelection());
 ungroupBtn?.addEventListener('click', () => viewport.ungroupSelection());
+lockBtn?.addEventListener('click', () => viewport.toggleLockSelection());
 
 viewport.onSelectionChange(updateAlignPanel);
 updateAlignPanel();
