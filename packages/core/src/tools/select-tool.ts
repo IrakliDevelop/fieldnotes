@@ -1,7 +1,7 @@
 import type { Bounds, Point } from '../core/types';
 import type { Tool, ToolContext, PointerState } from './types';
 import { smartSnap } from '../core/snap';
-import { distSqToSegment, rotatePoint } from '../core/geometry';
+import { distSqToSegment, rotatePoint, rotatedAABB } from '../core/geometry';
 import type { CanvasElement, ArrowElement } from '../elements/types';
 import { isNearBezier } from '../elements/arrow-geometry';
 import { updateArrowsBoundToElements } from '../elements/arrow-binding';
@@ -796,7 +796,7 @@ export class SelectTool implements Tool {
       if (ctx.isLayerLocked && ctx.isLayerLocked(el.layerId)) continue;
       if (el.type === 'grid') continue;
       const bounds = getElementBounds(el);
-      if (bounds && this.rectsOverlap(marquee, bounds)) {
+      if (bounds && this.rectsOverlap(marquee, rotatedAABB(bounds, el.rotation ?? 0))) {
         ids.push(el.id);
       }
     }

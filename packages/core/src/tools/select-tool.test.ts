@@ -241,6 +241,24 @@ describe('SelectTool', () => {
       expect(tool.selectedIds).toEqual([note.id]);
     });
 
+    it('marquee selects a rotated element by its visible footprint', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 20 } });
+      note.rotation = Math.PI / 2;
+      ctx.store.add(note);
+      // Visible footprint of the 90°-rotated note: x∈[40,60], y∈[-40,60].
+      // Start the marquee below the footprint (45,-100) so it begins on empty
+      // space (not a click-select), then drag to (55,-10): the marquee rect
+      // x∈[45,55], y∈[-100,-10] overlaps the rotated footprint but is fully
+      // above the unrotated AABB (y∈[0,20]).
+      tool.onPointerDown(pt(45, -100), ctx);
+      tool.onPointerMove(pt(55, -10), ctx);
+      tool.onPointerUp(pt(55, -10), ctx);
+
+      expect(tool.selectedIds).toEqual([note.id]);
+    });
+
     it('selects multiple elements within marquee', () => {
       const tool = new SelectTool();
       const ctx = makeCtx();
