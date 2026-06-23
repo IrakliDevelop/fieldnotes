@@ -4,6 +4,19 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.35.0] — 2026-06-23
+
+### Added
+
+- **Element rotation** — rotate note/text/image/html/shape/stroke about their center via a rotate
+  handle above the selection (single-element). Hold **Shift** to snap to 15°.
+  - Rotation-aware hit-testing, marquee selection, and local-frame resize (the opposite corner
+    stays fixed while resizing a rotated element).
+  - Rotation is reflected in PNG export and round-trips in serialization (`rotation?` on elements,
+    radians, additive — no migration).
+
+---
+
 ## [0.34.0] — 2026-06-22
 
 ### Added
