@@ -2222,5 +2222,23 @@ describe('SelectTool', () => {
       ).hitTestRotateHandle({ x: 50, y: -100 }, ctx);
       expect(hit).toBeNull();
     });
+
+    it('shows a grab cursor when hovering the rotate handle', () => {
+      const tool = new SelectTool();
+      const setCursor = vi.fn();
+      const ctx = makeCtx({ setCursor });
+      const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
+      ctx.store.add(note);
+      (tool as unknown as { setSelection: (ids: string[]) => void }).setSelection([note.id]);
+      const layout = (
+        tool as unknown as {
+          getOverlayLayout: (el: unknown, z: number) => { rotateHandle: Point };
+        }
+      ).getOverlayLayout(note, 1);
+
+      tool.onHover?.(pt(layout.rotateHandle.x, layout.rotateHandle.y), ctx);
+
+      expect(setCursor).toHaveBeenCalledWith('grab');
+    });
   });
 });

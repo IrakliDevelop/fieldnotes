@@ -487,6 +487,11 @@ export class SelectTool implements Tool {
       return null;
     }
 
+    if (this.hitTestRotateHandle(world, ctx)) {
+      ctx.setCursor?.('grab');
+      return null;
+    }
+
     const resizeHit = this.hitTestResizeHandle(world, ctx);
     if (resizeHit) {
       ctx.setCursor?.(HANDLE_CURSORS[resizeHit.handle]);
