@@ -4,6 +4,8 @@ import { ElementRenderer } from '../elements/element-renderer';
 import { getArrowBounds } from '../elements/arrow-geometry';
 import { getElementBounds } from '../elements/element-bounds';
 import { renderSquareGrid, renderHexGrid } from '../elements/grid-renderer';
+import { withRotation } from '../elements/rotate-canvas';
+import { rotatedAABB } from '../core/geometry';
 import type { LayerManager } from '../layers/layer-manager';
 import { renderNoteOnCanvas } from './note-canvas-renderer';
 
@@ -20,6 +22,8 @@ interface Rect {
   w: number;
   h: number;
 }
+
+const center = (b: Rect): { x: number; y: number } => ({ x: b.x + b.w / 2, y: b.y + b.h / 2 });
 
 function getStrokeBounds(el: CanvasElement): Rect | null {
   if (el.type !== 'stroke') return null;
@@ -50,8 +54,10 @@ function getStrokeBounds(el: CanvasElement): Rect | null {
 
 function getElementRect(el: CanvasElement): Rect | null {
   switch (el.type) {
-    case 'stroke':
-      return getStrokeBounds(el);
+    case 'stroke': {
+      const r = getStrokeBounds(el);
+      return r ? rotatedAABB(r, el.rotation ?? 0) : r;
+    }
     case 'arrow': {
       const b = getArrowBounds(el.from, el.to, el.bend);
       const pad = el.width / 2 + 14;
@@ -70,7 +76,10 @@ function getElementRect(el: CanvasElement): Rect | null {
     case 'text':
     case 'shape':
       if ('size' in el) {
-        return { x: el.position.x, y: el.position.y, w: el.size.w, h: el.size.h };
+        return rotatedAABB(
+          { x: el.position.x, y: el.position.y, w: el.size.w, h: el.size.h },
+          el.rotation ?? 0,
+        );
       }
       return null;
     default:
@@ -249,12 +258,14 @@ export async function exportImage(
     }
 
     if (el.type === 'note') {
-      renderNoteOnCanvas(ctx, el);
+      const b = getElementBounds(el);
+      withRotation(ctx, el, b ? center(b) : el.position, () => renderNoteOnCanvas(ctx, el));
       continue;
     }
 
     if (el.type === 'text') {
-      renderTextOnCanvas(ctx, el);
+      const b = getElementBounds(el);
+      withRotation(ctx, el, b ? center(b) : el.position, () => renderTextOnCanvas(ctx, el));
       continue;
     }
 
@@ -265,7 +276,10 @@ export async function exportImage(
     if (el.type === 'image') {
       const img = imageCache.get(el.id);
       if (img) {
-        ctx.drawImage(img, el.position.x, el.position.y, el.size.w, el.size.h);
+        const b = getElementBounds(el);
+        withRotation(ctx, el, b ? center(b) : el.position, () =>
+          ctx.drawImage(img, el.position.x, el.position.y, el.size.w, el.size.h),
+        );
       }
       continue;
     }

@@ -26,6 +26,38 @@ describe('getElementRect', () => {
     expect(rect).toEqual({ x: 5, y: 5, w: 50, h: 50 });
   });
 
+  it('expands bounds to rotated AABB for a rotated note', () => {
+    const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
+    note.rotation = Math.PI / 4;
+    const rect = getElementRect(note);
+    expect(rect).not.toBeNull();
+    if (rect) {
+      const diag = 100 * Math.SQRT2;
+      expect(rect.w).toBeCloseTo(diag, 5);
+      expect(rect.h).toBeCloseTo(diag, 5);
+      expect(rect.x).toBeCloseTo(50 - diag / 2, 5);
+      expect(rect.y).toBeCloseTo(50 - diag / 2, 5);
+    }
+  });
+
+  it('expands bounds to rotated AABB for a rotated stroke', () => {
+    const stroke = createStroke({
+      points: [
+        { x: 0, y: 0, pressure: 0.5 },
+        { x: 100, y: 0, pressure: 0.5 },
+      ],
+      position: { x: 0, y: 0 },
+      width: 0,
+    });
+    stroke.rotation = Math.PI / 2;
+    const rect = getElementRect(stroke);
+    expect(rect).not.toBeNull();
+    if (rect) {
+      expect(rect.h).toBeCloseTo(100, 5);
+      expect(rect.w).toBeCloseTo(0, 5);
+    }
+  });
+
   it('returns bounds for a text element', () => {
     const text = createText({ position: { x: 0, y: 0 }, size: { w: 200, h: 28 } });
     const rect = getElementRect(text);
