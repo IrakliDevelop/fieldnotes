@@ -2242,56 +2242,70 @@ describe('SelectTool', () => {
       expect(setCursor).toHaveBeenCalledWith('grab');
     });
 
-    it('resizing a rotated element keeps the opposite corner fixed in world space', () => {
-      const tool = new SelectTool();
-      const ctx = makeCtx();
-      const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
-      note.rotation = Math.PI / 6; // 30°
-      ctx.store.add(note);
-      (tool as unknown as { setSelection: (ids: string[]) => void }).setSelection([note.id]);
+    for (const handle of ['nw', 'ne', 'sw', 'se'] as const) {
+      it(`resizing a rotated element keeps the opposite corner fixed in world space (${handle})`, () => {
+        const tool = new SelectTool();
+        const ctx = makeCtx();
+        const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
+        note.rotation = Math.PI / 6; // 30°
+        ctx.store.add(note);
+        (tool as unknown as { setSelection: (ids: string[]) => void }).setSelection([note.id]);
 
-      const before = ctx.store.getById(note.id) as {
-        position: Point;
-        size: { w: number; h: number };
-        rotation: number;
-      };
-      const center0 = {
-        x: before.position.x + before.size.w / 2,
-        y: before.position.y + before.size.h / 2,
-      };
-      // grabbing 'se' → the fixed anchor is the 'nw' element corner (note position), rotated about center
-      const anchorWorld = rotatePoint(
-        { x: before.position.x, y: before.position.y },
-        center0,
-        before.rotation,
-      );
+        const before = ctx.store.getById(note.id) as {
+          position: Point;
+          size: { w: number; h: number };
+          rotation: number;
+        };
+        const center0 = {
+          x: before.position.x + before.size.w / 2,
+          y: before.position.y + before.size.h / 2,
+        };
+        // the fixed anchor is the element corner OPPOSITE the dragged handle, rotated about center
+        const { x, y } = before.position;
+        const { w, h } = before.size;
+        const fixedCornerLocal: Record<typeof handle, Point> = {
+          se: { x, y },
+          sw: { x: x + w, y },
+          nw: { x: x + w, y: y + h },
+          ne: { x, y: y + h },
+        };
+        const anchorWorld = rotatePoint(fixedCornerLocal[handle], center0, before.rotation);
 
-      const layout = (
-        tool as unknown as {
-          getOverlayLayout: (el: unknown, z: number) => { corners: [string, Point][] };
-        }
-      ).getOverlayLayout(before, 1);
-      const se = layout.corners.find(([h]) => h === 'se')?.[1] as Point;
-      tool.onPointerDown(pt(se.x, se.y), ctx); // grab se handle
-      tool.onPointerMove(pt(se.x + 30, se.y + 20), ctx); // drag outward
+        const layout = (
+          tool as unknown as {
+            getOverlayLayout: (el: unknown, z: number) => { corners: [string, Point][] };
+          }
+        ).getOverlayLayout(before, 1);
+        const grab = layout.corners.find(([hh]) => hh === handle)?.[1] as Point;
+        // drag the corner radially outward from center — always increases size for that handle
+        const outward = {
+          x: grab.x + (grab.x - center0.x) * 0.3,
+          y: grab.y + (grab.y - center0.y) * 0.3,
+        };
+        tool.onPointerDown(pt(grab.x, grab.y), ctx); // grab handle
+        tool.onPointerMove(pt(outward.x, outward.y), ctx); // drag outward
 
-      const after = ctx.store.getById(note.id) as {
-        position: Point;
-        size: { w: number; h: number };
-        rotation: number;
-      };
-      const center1 = {
-        x: after.position.x + after.size.w / 2,
-        y: after.position.y + after.size.h / 2,
-      };
-      const nwAfter = rotatePoint(
-        { x: after.position.x, y: after.position.y },
-        center1,
-        after.rotation,
-      );
-      expect(nwAfter.x).toBeCloseTo(anchorWorld.x, 4);
-      expect(nwAfter.y).toBeCloseTo(anchorWorld.y, 4);
-      expect(after.size.w).toBeGreaterThan(before.size.w);
-    });
+        const after = ctx.store.getById(note.id) as {
+          position: Point;
+          size: { w: number; h: number };
+          rotation: number;
+        };
+        const center1 = {
+          x: after.position.x + after.size.w / 2,
+          y: after.position.y + after.size.h / 2,
+        };
+        const fixedCornerLocalAfter: Record<typeof handle, Point> = {
+          se: { x: after.position.x, y: after.position.y },
+          sw: { x: after.position.x + after.size.w, y: after.position.y },
+          nw: { x: after.position.x + after.size.w, y: after.position.y + after.size.h },
+          ne: { x: after.position.x, y: after.position.y + after.size.h },
+        };
+        const anchorAfter = rotatePoint(fixedCornerLocalAfter[handle], center1, after.rotation);
+        expect(anchorAfter.x).toBeCloseTo(anchorWorld.x, 4);
+        expect(anchorAfter.y).toBeCloseTo(anchorWorld.y, 4);
+        expect(after.size.w).toBeGreaterThan(before.size.w);
+        expect(after.size.h).toBeGreaterThan(before.size.h);
+      });
+    }
   });
 });
