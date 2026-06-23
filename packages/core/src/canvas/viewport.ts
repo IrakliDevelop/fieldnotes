@@ -607,6 +607,21 @@ export class Viewport {
     this.historyRecorder.commit();
   }
 
+  toggleLockSelection(): void {
+    const ids = this.getSelectedIds();
+    if (ids.length === 0) return;
+    const anyUnlocked = ids.some((id) => {
+      const el = this.store.getById(id);
+      return el ? !el.locked : false;
+    });
+    this.historyRecorder.begin();
+    for (const id of ids) {
+      const el = this.store.getById(id);
+      if (el && el.locked !== anyUnlocked) this.store.update(id, { locked: anyUnlocked });
+    }
+    this.historyRecorder.commit();
+  }
+
   alignSelection(edge: AlignEdge): void {
     const bounded = this.boundedSelection();
     if (bounded.length < 2) return;

@@ -1631,6 +1631,70 @@ describe('Viewport', () => {
     });
   });
 
+  describe('toggleLockSelection', () => {
+    let viewport: Viewport;
+
+    beforeEach(() => {
+      viewport = new Viewport(container);
+      const sel = new SelectTool();
+      viewport.toolManager.register(sel);
+      viewport.toolManager.setTool('select', viewport.toolContext);
+    });
+
+    afterEach(() => {
+      viewport.destroy();
+    });
+
+    function selectAll(ids: string[]): void {
+      const sel = viewport.toolManager.getTool('select');
+      (sel as unknown as { setSelection: (ids: string[]) => void }).setSelection(ids);
+    }
+
+    it('locks all when any selected is unlocked, in one undo step', () => {
+      const a = createNote({
+        position: { x: 0, y: 0 },
+        text: 'a',
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      const b = createNote({
+        position: { x: 50, y: 0 },
+        text: 'b',
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      b.locked = true;
+      viewport.store.add(a);
+      viewport.store.add(b);
+      selectAll([a.id, b.id]);
+      const before = viewport.history.undoCount;
+      viewport.toggleLockSelection();
+      expect(viewport.store.getById(a.id)?.locked).toBe(true);
+      expect(viewport.store.getById(b.id)?.locked).toBe(true);
+      expect(viewport.history.undoCount).toBe(before + 1);
+      viewport.history.undo(viewport.store);
+      expect(viewport.store.getById(a.id)?.locked).toBe(false);
+    });
+
+    it('unlocks all when every selected is locked', () => {
+      const a = createNote({
+        position: { x: 0, y: 0 },
+        text: 'a',
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      a.locked = true;
+      viewport.store.add(a);
+      selectAll([a.id]);
+      viewport.toggleLockSelection();
+      expect(viewport.store.getById(a.id)?.locked).toBe(false);
+    });
+
+    it('is a no-op on empty selection', () => {
+      selectAll([]);
+      const before = viewport.history.undoCount;
+      viewport.toggleLockSelection();
+      expect(viewport.history.undoCount).toBe(before);
+    });
+  });
+
   describe('arrow label editing', () => {
     it('findArrowAt returns an arrow under the world point, undefined off it', () => {
       const viewport = new Viewport(container);
