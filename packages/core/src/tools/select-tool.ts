@@ -29,6 +29,8 @@ const SNAP_PX = 6;
 const HANDLE_HIT_PADDING = 4;
 const SELECTION_PAD = 4;
 const MIN_ELEMENT_SIZE = 20;
+const ROTATE_HANDLE_OFFSET = 24;
+const ROTATABLE_TYPES = new Set(['note', 'text', 'image', 'html', 'shape', 'stroke']);
 
 const HANDLE_CURSORS: Record<HandlePosition, string> = {
   nw: 'nwse-resize',
@@ -593,6 +595,40 @@ export class SelectTool implements Tool {
     ];
   }
 
+  private getOverlayLayout(
+    el: CanvasElement,
+    zoom: number,
+  ): {
+    center: Point;
+    corners: [HandlePosition, Point][];
+    rotateHandle: Point;
+    angle: number;
+  } | null {
+    const bounds = getElementBounds(el);
+    if (!bounds) return null;
+    const angle = el.rotation ?? 0;
+    const pad = SELECTION_PAD / zoom;
+    const center = { x: bounds.x + bounds.w / 2, y: bounds.y + bounds.h / 2 };
+    const raw: [HandlePosition, Point][] = [
+      ['nw', { x: bounds.x - pad, y: bounds.y - pad }],
+      ['ne', { x: bounds.x + bounds.w + pad, y: bounds.y - pad }],
+      ['sw', { x: bounds.x - pad, y: bounds.y + bounds.h + pad }],
+      ['se', { x: bounds.x + bounds.w + pad, y: bounds.y + bounds.h + pad }],
+    ];
+    const corners = raw.map(
+      ([h, p]) => [h, rotatePoint(p, center, angle)] as [HandlePosition, Point],
+    );
+    const topMid = { x: center.x, y: bounds.y - pad - ROTATE_HANDLE_OFFSET / zoom };
+    const rotateHandle = rotatePoint(topMid, center, angle);
+    return { center, corners, rotateHandle, angle };
+  }
+
+  private topMidpoint(layout: { corners: [HandlePosition, Point][] }): Point {
+    const nw = layout.corners.find(([h]) => h === 'nw')?.[1] ?? { x: 0, y: 0 };
+    const ne = layout.corners.find(([h]) => h === 'ne')?.[1] ?? { x: 0, y: 0 };
+    return { x: (nw.x + ne.x) / 2, y: (nw.y + ne.y) / 2 };
+  }
+
   private renderMarquee(canvasCtx: CanvasRenderingContext2D): void {
     if (this.mode.type !== 'marquee') return;
 
@@ -647,13 +683,35 @@ export class SelectTool implements Tool {
       const bounds = getElementBounds(el);
       if (!bounds) continue;
 
+      const layout = this.getOverlayLayout(el, zoom);
+      if (!layout) continue;
+
       const pad = SELECTION_PAD / zoom;
-      canvasCtx.strokeRect(bounds.x - pad, bounds.y - pad, bounds.w + pad * 2, bounds.h + pad * 2);
+      if (layout.angle === 0) {
+        canvasCtx.strokeRect(
+          bounds.x - pad,
+          bounds.y - pad,
+          bounds.w + pad * 2,
+          bounds.h + pad * 2,
+        );
+      } else {
+        const ordered = (['nw', 'ne', 'se', 'sw'] as HandlePosition[])
+          .map((h) => layout.corners.find(([c]) => c === h)?.[1])
+          .filter((p): p is Point => !!p);
+        const [p0, ...others] = ordered;
+        if (p0) {
+          canvasCtx.beginPath();
+          canvasCtx.moveTo(p0.x, p0.y);
+          for (const p of others) canvasCtx.lineTo(p.x, p.y);
+          canvasCtx.closePath();
+          canvasCtx.stroke();
+        }
+      }
 
       if ('size' in el) {
         canvasCtx.setLineDash([]);
         canvasCtx.fillStyle = '#ffffff';
-        const corners = this.getHandlePositions(bounds);
+        const corners = layout.angle === 0 ? this.getHandlePositions(bounds) : layout.corners;
         for (const [, pos] of corners) {
           canvasCtx.fillRect(
             pos.x - handleWorldSize / 2,
@@ -686,6 +744,23 @@ export class SelectTool implements Tool {
           handleWorldSize,
           handleWorldSize,
         );
+        canvasCtx.setLineDash([4 / zoom, 4 / zoom]);
+      }
+
+      if (this._selectedIds.length === 1 && ROTATABLE_TYPES.has(el.type)) {
+        const stemStart = this.topMidpoint(layout);
+        const stemEnd = layout.rotateHandle;
+        canvasCtx.beginPath();
+        canvasCtx.moveTo(stemStart.x, stemStart.y);
+        canvasCtx.lineTo(stemEnd.x, stemEnd.y);
+        canvasCtx.stroke();
+
+        canvasCtx.setLineDash([]);
+        canvasCtx.fillStyle = '#ffffff';
+        canvasCtx.beginPath();
+        canvasCtx.arc(stemEnd.x, stemEnd.y, handleWorldSize / 2, 0, Math.PI * 2);
+        canvasCtx.fill();
+        canvasCtx.stroke();
         canvasCtx.setLineDash([4 / zoom, 4 / zoom]);
       }
     }

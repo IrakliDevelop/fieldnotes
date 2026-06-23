@@ -14,6 +14,7 @@ import {
 import { lineEndpoints } from '../elements/shape-geometry';
 import type { ToolContext, PointerState } from './types';
 import type { NoteElement, ImageElement, TemplateElement } from '../elements/types';
+import type { Point } from '../core/types';
 
 function makeCtx(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
@@ -997,6 +998,13 @@ describe('SelectTool', () => {
         restore: vi.fn(),
         strokeRect: vi.fn(),
         fillRect: vi.fn(),
+        beginPath: vi.fn(),
+        moveTo: vi.fn(),
+        lineTo: vi.fn(),
+        closePath: vi.fn(),
+        arc: vi.fn(),
+        fill: vi.fn(),
+        stroke: vi.fn(),
         strokeStyle: '',
         fillStyle: '',
         lineWidth: 0,
@@ -1066,6 +1074,9 @@ describe('SelectTool', () => {
         strokeRect: vi.fn(),
         fillRect: vi.fn(),
         beginPath: vi.fn(),
+        moveTo: vi.fn(),
+        lineTo: vi.fn(),
+        closePath: vi.fn(),
         arc: vi.fn(),
         fill: vi.fn(),
         stroke: vi.fn(),
@@ -1099,6 +1110,9 @@ describe('SelectTool', () => {
         strokeRect: vi.fn(),
         fillRect: vi.fn(),
         beginPath: vi.fn(),
+        moveTo: vi.fn(),
+        lineTo: vi.fn(),
+        closePath: vi.fn(),
         arc: vi.fn(),
         fill: vi.fn(),
         stroke: vi.fn(),
@@ -1110,9 +1124,10 @@ describe('SelectTool', () => {
       } as unknown as CanvasRenderingContext2D;
       tool.renderOverlay?.(canvas);
 
+      // 4 square corner handles (fillRect); the lone rotate handle is a circle (arc, not fillRect)
       const fillCalls = (canvas.fillRect as ReturnType<typeof vi.fn>).mock.calls.length;
       expect(fillCalls).toBe(4);
-      expect(canvas.arc).not.toHaveBeenCalled();
+      expect((canvas.arc as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
     });
 
     it('does not leak solid line-dash onto a co-selected element (line before rect)', () => {
@@ -1142,6 +1157,9 @@ describe('SelectTool', () => {
         strokeRect: vi.fn(() => dashAtStrokeRect.push([...currentDash])),
         fillRect: vi.fn(),
         beginPath: vi.fn(),
+        moveTo: vi.fn(),
+        lineTo: vi.fn(),
+        closePath: vi.fn(),
         arc: vi.fn(),
         fill: vi.fn(),
         stroke: vi.fn(),
@@ -1220,6 +1238,9 @@ describe('SelectTool', () => {
         strokeRect: vi.fn(),
         fillRect: vi.fn(),
         beginPath: vi.fn(),
+        moveTo: vi.fn(),
+        lineTo: vi.fn(),
+        closePath: vi.fn(),
         arc: vi.fn(),
         fill: vi.fn(),
         stroke: vi.fn(),
@@ -1259,6 +1280,9 @@ describe('SelectTool', () => {
         strokeRect: vi.fn(),
         fillRect: vi.fn(),
         beginPath: vi.fn(),
+        moveTo: vi.fn(),
+        lineTo: vi.fn(),
+        closePath: vi.fn(),
         arc: vi.fn(),
         fill: vi.fn(),
         stroke: vi.fn(),
@@ -1775,6 +1799,13 @@ describe('SelectTool', () => {
         restore: vi.fn(),
         strokeRect: vi.fn(),
         fillRect: vi.fn(),
+        beginPath: vi.fn(),
+        moveTo: vi.fn(),
+        lineTo: vi.fn(),
+        closePath: vi.fn(),
+        arc: vi.fn(),
+        fill: vi.fn(),
+        stroke: vi.fn(),
         strokeStyle: '',
         fillStyle: '',
         lineWidth: 0,
@@ -2113,6 +2144,33 @@ describe('SelectTool', () => {
       tool.onPointerDown(pt(95, 10), ctx); // x=95 inside unrotated AABB (w=100) but outside rotated box (x∈[40,60])
       tool.onPointerUp(pt(95, 10), ctx);
       expect(tool.selectedIds).toEqual([]);
+    });
+  });
+
+  describe('oriented selection overlay', () => {
+    it('getOverlayLayout centers and rotates the corners', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
+      note.rotation = Math.PI / 2;
+      ctx.store.add(note);
+      const layout = (
+        tool as unknown as {
+          getOverlayLayout: (
+            el: unknown,
+            zoom: number,
+          ) => {
+            center: Point;
+            corners: [string, Point][];
+            rotateHandle: Point;
+          } | null;
+        }
+      ).getOverlayLayout(note, 1);
+      expect(layout?.center.x).toBeCloseTo(50);
+      expect(layout?.center.y).toBeCloseTo(50);
+      const nw = layout?.corners.find(([h]) => h === 'nw')?.[1];
+      // unrotated nw is top-left (x = -4 from the padded box); after 90° it swings off that axis
+      expect(nw && Math.abs(nw.x - -4) > 1).toBe(true);
     });
   });
 });
