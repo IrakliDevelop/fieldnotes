@@ -1,7 +1,7 @@
 import type { Bounds, Point } from '../core/types';
 import type { Tool, ToolContext, PointerState } from './types';
 import { smartSnap } from '../core/snap';
-import { distSqToSegment, rotatePoint, rotatedAABB } from '../core/geometry';
+import { distSqToSegment, rotatePoint, rotatedAABB, normalizeAngle } from '../core/geometry';
 import type { CanvasElement, ArrowElement } from '../elements/types';
 import { isNearBezier } from '../elements/arrow-geometry';
 import { updateArrowsBoundToElements } from '../elements/arrow-binding';
@@ -30,6 +30,7 @@ const HANDLE_HIT_PADDING = 4;
 const SELECTION_PAD = 4;
 const MIN_ELEMENT_SIZE = 20;
 const ROTATE_HANDLE_OFFSET = 24;
+const ROTATE_SNAP = Math.PI / 12; // 15°
 const ROTATABLE_TYPES = new Set(['note', 'text', 'image', 'html', 'shape', 'stroke']);
 
 const HANDLE_CURSORS: Record<HandlePosition, string> = {
@@ -46,7 +47,14 @@ type Mode =
   | { type: 'resizing'; elementId: string; handle: HandlePosition }
   | { type: 'resizing-template'; elementId: string }
   | { type: 'arrow-handle'; elementId: string; handle: ArrowHandle }
-  | { type: 'line-handle'; elementId: string; fixed: Point };
+  | { type: 'line-handle'; elementId: string; fixed: Point }
+  | {
+      type: 'rotating';
+      elementId: string;
+      center: Point;
+      startPointerAngle: number;
+      startRotation: number;
+    };
 
 export class SelectTool implements Tool {
   readonly name = 'select';
@@ -143,6 +151,23 @@ export class SelectTool implements Tool {
       return;
     }
 
+    const rotateHit = this.hitTestRotateHandle(world, ctx);
+    if (rotateHit) {
+      const el = ctx.store.getById(rotateHit.elementId);
+      const layout = el ? this.getOverlayLayout(el, ctx.camera.zoom) : null;
+      if (el && layout) {
+        this.mode = {
+          type: 'rotating',
+          elementId: rotateHit.elementId,
+          center: layout.center,
+          startPointerAngle: Math.atan2(world.y - layout.center.y, world.x - layout.center.x),
+          startRotation: el.rotation ?? 0,
+        };
+        ctx.requestRender();
+        return;
+      }
+    }
+
     const resizeHit = this.hitTestResizeHandle(world, ctx);
     if (resizeHit) {
       const el = ctx.store.getById(resizeHit.elementId);
@@ -212,6 +237,16 @@ export class SelectTool implements Tool {
     if (this.mode.type === 'resizing-template') {
       ctx.setCursor?.('nwse-resize');
       this.handleTemplateResize(world, ctx);
+      return;
+    }
+
+    if (this.mode.type === 'rotating') {
+      const { elementId, center, startPointerAngle, startRotation } = this.mode;
+      const a = Math.atan2(world.y - center.y, world.x - center.x);
+      let next = startRotation + (a - startPointerAngle);
+      if (state.shiftKey) next = Math.round(next / ROTATE_SNAP) * ROTATE_SNAP;
+      ctx.store.update(elementId, { rotation: normalizeAngle(next) });
+      ctx.requestRender();
       return;
     }
 
@@ -566,6 +601,20 @@ export class SelectTool implements Tool {
     }
 
     return null;
+  }
+
+  private hitTestRotateHandle(world: Point, ctx: ToolContext): { elementId: string } | null {
+    if (this._selectedIds.length !== 1) return null;
+    const id = this._selectedIds[0];
+    if (!id) return null;
+    const el = ctx.store.getById(id);
+    if (!el || el.locked || !ROTATABLE_TYPES.has(el.type)) return null;
+    const layout = this.getOverlayLayout(el, ctx.camera.zoom);
+    if (!layout) return null;
+    const r = (HANDLE_SIZE / 2 + HANDLE_HIT_PADDING) / ctx.camera.zoom;
+    const dx = world.x - layout.rotateHandle.x;
+    const dy = world.y - layout.rotateHandle.y;
+    return dx * dx + dy * dy <= r * r ? { elementId: id } : null;
   }
 
   private hitTestLineHandles(

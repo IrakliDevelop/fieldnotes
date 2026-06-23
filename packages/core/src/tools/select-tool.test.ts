@@ -2173,4 +2173,54 @@ describe('SelectTool', () => {
       expect(nw && Math.abs(nw.x - -4) > 1).toBe(true);
     });
   });
+
+  describe('rotate handle drag', () => {
+    it('drags the rotate handle to set rotation (90°)', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } }); // center (50,50)
+      ctx.store.add(note);
+      (tool as unknown as { setSelection: (ids: string[]) => void }).setSelection([note.id]);
+      const layout = (
+        tool as unknown as {
+          getOverlayLayout: (el: unknown, z: number) => { rotateHandle: Point };
+        }
+      ).getOverlayLayout(note, 1);
+      tool.onPointerDown(pt(layout.rotateHandle.x, layout.rotateHandle.y), ctx); // handle starts straight up (angle -90°)
+      tool.onPointerMove(pt(100, 50), ctx); // pointer due right of center → +90° from start
+      const r = ctx.store.getById(note.id)?.rotation ?? 0;
+      expect(r).toBeCloseTo(Math.PI / 2);
+    });
+
+    it('snaps rotation to 15° with shift', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
+      ctx.store.add(note);
+      (tool as unknown as { setSelection: (ids: string[]) => void }).setSelection([note.id]);
+      const layout = (
+        tool as unknown as {
+          getOverlayLayout: (el: unknown, z: number) => { rotateHandle: Point };
+        }
+      ).getOverlayLayout(note, 1);
+      tool.onPointerDown(pt(layout.rotateHandle.x, layout.rotateHandle.y), ctx);
+      tool.onPointerMove(shiftPt(105, 47), ctx); // shift held → snap to nearest 15°
+      const r = ctx.store.getById(note.id)?.rotation ?? 0;
+      const deg = (r * 180) / Math.PI;
+      expect(Math.abs(deg - Math.round(deg / 15) * 15)).toBeLessThan(1e-6);
+    });
+
+    it('does not grab a rotate handle on a locked element', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
+      note.locked = true;
+      ctx.store.add(note);
+      (tool as unknown as { setSelection: (ids: string[]) => void }).setSelection([note.id]);
+      const hit = (
+        tool as unknown as { hitTestRotateHandle: (w: Point, c: unknown) => unknown }
+      ).hitTestRotateHandle({ x: 50, y: -100 }, ctx);
+      expect(hit).toBeNull();
+    });
+  });
 });
