@@ -616,6 +616,14 @@ Select a single element and a rotate handle appears above the selection box. Dra
 
 Hit-testing, marquee selection, and resize are all rotation-aware: resizing a rotated element keeps the opposite corner fixed in the element's local frame. Rotation is reflected in PNG export and round-trips through serialization (`rotation?` on elements, stored in radians).
 
+## Context menu & lock
+
+Right-click (desktop) or touch long-press (tablet) opens a context menu over the canvas with Cut/Copy/Paste/Duplicate/Delete, z-order (to front / forward / backward / to back), and Lock/Unlock. The menu is core-provided (plain DOM) and selects the element under the pointer if it isn't already selected. Opt out with `new Viewport(el, { contextMenu: false })`.
+
+Lock with **`viewport.toggleLockSelection()`** or **Ctrl/Cmd+Shift+L**; a lock badge appears on the selection. Locked elements stay selectable but can't be moved, resized, or rotated. **Ctrl/Cmd+X** cuts the selection. The shortcuts are rebindable as `toggle-lock` and `cut`.
+
+You can drive any menu action programmatically with **`viewport.runAction(name)`** (e.g. `'cut'`, `'paste'`, `'toggle-lock'`), and **`viewport.canPaste()`** reports whether the clipboard has content.
+
 ## Built-in Interactions
 
 | Input                | Action              |

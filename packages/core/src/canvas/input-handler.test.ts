@@ -1635,6 +1635,54 @@ describe('InputHandler', () => {
     });
   });
 
+  describe('contextmenu (desktop right-click)', () => {
+    function contextmenu(el: HTMLElement, opts: Partial<MouseEventInit> = {}) {
+      const e = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, ...opts });
+      el.dispatchEvent(e);
+      return e;
+    }
+
+    it('contextmenu preventDefaults and calls openContextMenu when select tool active', () => {
+      const openContextMenu = vi.fn();
+      const tm = {
+        ...stubToolManager(),
+        activeTool: { name: 'select' },
+      } as unknown as ToolManager;
+      const tc = stubToolContext();
+      handler.destroy();
+      handler = new InputHandler(element, camera, {
+        toolManager: tm,
+        toolContext: tc,
+        openContextMenu,
+      });
+
+      const e = contextmenu(element, { clientX: 30, clientY: 40 });
+
+      expect(e.defaultPrevented).toBe(true);
+      expect(openContextMenu).toHaveBeenCalled();
+    });
+
+    it('always preventDefaults but does not open when tool is not select', () => {
+      const openContextMenu = vi.fn();
+      const tm = {
+        ...stubToolManager(),
+        activeTool: { name: 'pencil' },
+      } as unknown as ToolManager;
+      const tc = stubToolContext();
+      handler.destroy();
+      handler = new InputHandler(element, camera, {
+        toolManager: tm,
+        toolContext: tc,
+        openContextMenu,
+      });
+
+      const e = contextmenu(element, { clientX: 30, clientY: 40 });
+
+      expect(e.defaultPrevented).toBe(true);
+      expect(openContextMenu).not.toHaveBeenCalled();
+    });
+  });
+
   describe('destroy DOM cleanup', () => {
     it('removes the tabindex and outline it set in focus scope', () => {
       const el = document.createElement('div');
@@ -1655,6 +1703,73 @@ describe('InputHandler', () => {
       h.destroy();
       expect(el.hasAttribute('tabindex')).toBe(false);
       document.body.removeChild(el);
+    });
+  });
+
+  describe('long-press (touch context menu)', () => {
+    function makeSelectHandler(openContextMenu: ReturnType<typeof vi.fn>) {
+      const tm = {
+        ...stubToolManager(),
+        activeTool: { name: 'select' },
+      } as unknown as ToolManager;
+      const tc = stubToolContext();
+      handler.destroy();
+      handler = new InputHandler(element, camera, {
+        toolManager: tm,
+        toolContext: tc,
+        openContextMenu,
+      });
+    }
+
+    it('long-press on a still touch opens the menu after 500ms', () => {
+      vi.useFakeTimers();
+      const openContextMenu = vi.fn();
+      makeSelectHandler(openContextMenu);
+
+      pointerDown(element, { pointerId: 1, pointerType: 'touch', clientX: 50, clientY: 60 });
+      vi.advanceTimersByTime(500);
+
+      expect(openContextMenu).toHaveBeenCalled();
+      vi.useRealTimers();
+    });
+
+    it('cancelled by a move past threshold', () => {
+      vi.useFakeTimers();
+      const openContextMenu = vi.fn();
+      makeSelectHandler(openContextMenu);
+
+      pointerDown(element, { pointerId: 1, pointerType: 'touch', clientX: 50, clientY: 60 });
+      pointerMove(element, { pointerId: 1, pointerType: 'touch', clientX: 70, clientY: 80 });
+      vi.advanceTimersByTime(500);
+
+      expect(openContextMenu).not.toHaveBeenCalled();
+      vi.useRealTimers();
+    });
+
+    it('cancelled by a second pointer', () => {
+      vi.useFakeTimers();
+      const openContextMenu = vi.fn();
+      makeSelectHandler(openContextMenu);
+
+      pointerDown(element, { pointerId: 1, pointerType: 'touch', clientX: 50, clientY: 60 });
+      pointerDown(element, { pointerId: 2, pointerType: 'touch', clientX: 150, clientY: 160 });
+      vi.advanceTimersByTime(500);
+
+      expect(openContextMenu).not.toHaveBeenCalled();
+      vi.useRealTimers();
+    });
+
+    it('cancelled by release before timeout', () => {
+      vi.useFakeTimers();
+      const openContextMenu = vi.fn();
+      makeSelectHandler(openContextMenu);
+
+      pointerDown(element, { pointerId: 1, pointerType: 'touch', clientX: 50, clientY: 60 });
+      pointerUp(element, { pointerId: 1, pointerType: 'touch', clientX: 50, clientY: 60 });
+      vi.advanceTimersByTime(500);
+
+      expect(openContextMenu).not.toHaveBeenCalled();
+      vi.useRealTimers();
     });
   });
 });

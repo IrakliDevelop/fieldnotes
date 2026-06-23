@@ -1,3 +1,4 @@
+import type { Point } from '../core/types';
 import type { Camera } from './camera';
 import type { ToolManager } from '../tools/tool-manager';
 import type { ToolContext, PointerState } from '../tools/types';
@@ -11,6 +12,7 @@ import { ShortcutMap } from './shortcut-map';
 const ZOOM_SENSITIVITY = 0.001;
 const ZOOM_STEP = 1.2;
 const MIDDLE_BUTTON = 1;
+const LONG_PRESS_MS = 500;
 
 const NUDGE_DELTAS: Record<string, readonly [number, number]> = {
   'nudge-left': [-1, 0],
@@ -27,6 +29,8 @@ export interface InputHandlerOptions {
   fitToContent?: () => void;
   group?: () => void;
   ungroup?: () => void;
+  toggleLock?: () => void;
+  openContextMenu?: (screenPos: Point, world: Point) => void;
   shortcuts?: ShortcutOptions;
 }
 
@@ -45,10 +49,13 @@ export class InputHandler {
   private lastPointerEvent: PointerEvent | null = null;
   private readonly inputFilter = new InputFilter();
   private deferredDown: PointerEvent | null = null;
+  private longPressTimer: ReturnType<typeof setTimeout> | null = null;
+  private longPressStart: { x: number; y: number } | null = null;
   private readonly abortController = new AbortController();
   private readonly actions: KeyboardActions;
   private readonly shortcutMap: ShortcutMap;
   private readonly scope: 'focus' | 'window';
+  private readonly openContextMenu?: (screenPos: Point, world: Point) => void;
 
   constructor(
     private readonly element: HTMLElement,
@@ -68,8 +75,10 @@ export class InputHandler {
       fitToContent: options.fitToContent,
       group: options.group,
       ungroup: options.ungroup,
+      toggleLock: options.toggleLock,
       getLastPointerWorld: () => this.lastPointerWorld(),
     });
+    this.openContextMenu = options.openContextMenu;
     this.shortcutMap = new ShortcutMap(options.shortcuts?.bindings);
     this.scope = options.shortcuts?.scope ?? 'focus';
     this.element.style.touchAction = 'none';
@@ -98,6 +107,7 @@ export class InputHandler {
     this.actions.dispose();
     this.abortController.abort();
     this.inputFilter.reset();
+    this.cancelLongPress();
     this.deferredDown = null;
     this.lastPointerEvent = null;
     if (this.scope === 'focus') {
@@ -115,6 +125,7 @@ export class InputHandler {
     this.element.addEventListener('pointerup', this.onPointerUp, opts);
     this.element.addEventListener('pointerleave', this.onPointerLeave, opts);
     this.element.addEventListener('pointercancel', this.onPointerUp, opts);
+    this.element.addEventListener('contextmenu', this.onContextMenu, opts);
     window.addEventListener('keydown', this.onKeyDown, opts);
     window.addEventListener('keyup', this.onKeyUp, opts);
   }
@@ -150,12 +161,14 @@ export class InputHandler {
     this.element.setPointerCapture?.(e.pointerId);
 
     if (this.activePointers.size === 2) {
+      this.cancelLongPress();
       this.startPinch();
       this.cancelToolIfActive(e);
       return;
     }
 
     if (e.button === MIDDLE_BUTTON || (e.button === 0 && this.spaceHeld)) {
+      this.cancelLongPress();
       this.isPanning = true;
       this.lastPointer = { x: e.clientX, y: e.clientY };
       return;
@@ -169,6 +182,7 @@ export class InputHandler {
       if (result.action === 'suppress') return;
       if (result.action === 'defer') {
         this.deferredDown = e;
+        this.startLongPress(e);
         return;
       }
       this.dispatchToolDown(e);
@@ -202,6 +216,7 @@ export class InputHandler {
     } else if (this.deferredDown) {
       const result = this.inputFilter.filterMove(e);
       if (result.action === 'dispatch') {
+        this.cancelLongPress();
         this.dispatchToolDown(this.deferredDown);
         this.deferredDown = null;
         this.dispatchToolMove(e);
@@ -212,6 +227,7 @@ export class InputHandler {
   };
 
   private onPointerUp = (e: PointerEvent): void => {
+    this.cancelLongPress();
     try {
       this.element.releasePointerCapture(e.pointerId);
     } catch {
@@ -270,77 +286,85 @@ export class InputHandler {
     }
   };
 
-  private runAction(action: string, e: KeyboardEvent): void {
+  runAction(action: string, e?: KeyboardEvent): void {
     switch (action) {
       case 'delete':
-        e.preventDefault();
+        e?.preventDefault();
         this.actions.deleteSelected();
         return;
       case 'deselect':
         this.actions.deselect();
         return;
       case 'undo':
-        e.preventDefault();
+        e?.preventDefault();
         this.actions.undo();
         return;
       case 'redo':
-        e.preventDefault();
+        e?.preventDefault();
         this.actions.redo();
         return;
       case 'select-all':
-        e.preventDefault();
+        e?.preventDefault();
         this.actions.selectAll();
         return;
       case 'copy':
-        e.preventDefault();
+        e?.preventDefault();
         this.actions.copy();
         return;
       case 'paste':
-        e.preventDefault();
+        e?.preventDefault();
         this.actions.paste();
         return;
       case 'duplicate':
-        e.preventDefault();
+        e?.preventDefault();
         this.actions.duplicate();
         return;
       case 'z-forward':
-        e.preventDefault();
+        e?.preventDefault();
         this.actions.zOrder('forward');
         return;
       case 'z-backward':
-        e.preventDefault();
+        e?.preventDefault();
         this.actions.zOrder('backward');
         return;
       case 'z-front':
-        e.preventDefault();
+        e?.preventDefault();
         this.actions.zOrder('front');
         return;
       case 'z-back':
-        e.preventDefault();
+        e?.preventDefault();
         this.actions.zOrder('back');
         return;
       case 'zoom-fit':
-        e.preventDefault();
+        e?.preventDefault();
         this.actions.zoomToFit();
         return;
       case 'group':
-        e.preventDefault();
+        e?.preventDefault();
         this.actions.group();
         return;
       case 'ungroup':
-        e.preventDefault();
+        e?.preventDefault();
         this.actions.ungroup();
         return;
+      case 'cut':
+        e?.preventDefault();
+        this.actions.cut();
+        return;
+      case 'toggle-lock':
+        e?.preventDefault();
+        this.actions.toggleLock();
+        return;
       case 'zoom-in':
-        e.preventDefault();
+        e?.preventDefault();
         this.zoomByFactor(ZOOM_STEP);
         return;
       case 'zoom-out':
-        e.preventDefault();
+        e?.preventDefault();
         this.zoomByFactor(1 / ZOOM_STEP);
         return;
       case 'zoom-reset':
-        e.preventDefault();
+        e?.preventDefault();
         this.zoomToLevel(1);
         return;
       case 'nudge-left':
@@ -348,15 +372,15 @@ export class InputHandler {
       case 'nudge-up':
       case 'nudge-down': {
         const delta = NUDGE_DELTAS[action];
-        if (delta && this.actions.nudge(delta[0], delta[1], e.shiftKey)) {
-          e.preventDefault();
+        if (delta && this.actions.nudge(delta[0], delta[1], e?.shiftKey ?? false)) {
+          e?.preventDefault();
         }
         return;
       }
       default:
         if (action.startsWith('tool:')) {
           if (this.isToolActive) return;
-          e.preventDefault();
+          e?.preventDefault();
           this.toolContext?.switchTool?.(action.slice('tool:'.length));
           return;
         }
@@ -364,7 +388,12 @@ export class InputHandler {
     }
   }
 
+  hasClipboard(): boolean {
+    return this.actions.hasClipboard();
+  }
+
   private startPinch(): void {
+    this.cancelLongPress();
     this.inputFilter.reset();
     this.deferredDown = null;
     this.isPanning = true;
@@ -418,6 +447,14 @@ export class InputHandler {
     const rect = this.element.getBoundingClientRect();
     return this.camera.screenToWorld({ x: e.clientX - rect.left, y: e.clientY - rect.top });
   }
+
+  private onContextMenu = (e: MouseEvent): void => {
+    e.preventDefault();
+    if (this.toolManager?.activeTool?.name !== 'select') return;
+    const rect = this.element.getBoundingClientRect();
+    const world = this.camera.screenToWorld({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+    this.openContextMenu?.({ x: e.clientX, y: e.clientY }, world);
+  };
 
   private onPointerLeave = (e: PointerEvent): void => {
     this.lastPointerEvent = null;
@@ -474,10 +511,37 @@ export class InputHandler {
   }
 
   private cancelToolIfActive(e: PointerEvent): void {
+    this.cancelLongPress();
     if (this.isToolActive) {
       this.dispatchToolUp(e);
       this.isToolActive = false;
     }
     this.deferredDown = null;
+  }
+
+  private startLongPress(e: PointerEvent): void {
+    if (e.pointerType !== 'touch') return;
+    if (this.toolManager?.activeTool?.name !== 'select') return;
+    this.longPressStart = { x: e.clientX, y: e.clientY };
+    this.longPressTimer = setTimeout(() => this.fireLongPress(), LONG_PRESS_MS);
+  }
+
+  private cancelLongPress(): void {
+    if (this.longPressTimer !== null) {
+      clearTimeout(this.longPressTimer);
+      this.longPressTimer = null;
+    }
+    this.longPressStart = null;
+  }
+
+  private fireLongPress(): void {
+    this.longPressTimer = null;
+    if (!this.deferredDown || this.activePointers.size !== 1 || this.isPanning) return;
+    const start = this.longPressStart;
+    if (!start) return;
+    const rect = this.element.getBoundingClientRect();
+    const world = this.camera.screenToWorld({ x: start.x - rect.left, y: start.y - rect.top });
+    this.deferredDown = null;
+    this.openContextMenu?.({ x: start.x, y: start.y }, world);
   }
 }

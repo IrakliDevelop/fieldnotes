@@ -1631,6 +1631,70 @@ describe('Viewport', () => {
     });
   });
 
+  describe('toggleLockSelection', () => {
+    let viewport: Viewport;
+
+    beforeEach(() => {
+      viewport = new Viewport(container);
+      const sel = new SelectTool();
+      viewport.toolManager.register(sel);
+      viewport.toolManager.setTool('select', viewport.toolContext);
+    });
+
+    afterEach(() => {
+      viewport.destroy();
+    });
+
+    function selectAll(ids: string[]): void {
+      const sel = viewport.toolManager.getTool('select');
+      (sel as unknown as { setSelection: (ids: string[]) => void }).setSelection(ids);
+    }
+
+    it('locks all when any selected is unlocked, in one undo step', () => {
+      const a = createNote({
+        position: { x: 0, y: 0 },
+        text: 'a',
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      const b = createNote({
+        position: { x: 50, y: 0 },
+        text: 'b',
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      b.locked = true;
+      viewport.store.add(a);
+      viewport.store.add(b);
+      selectAll([a.id, b.id]);
+      const before = viewport.history.undoCount;
+      viewport.toggleLockSelection();
+      expect(viewport.store.getById(a.id)?.locked).toBe(true);
+      expect(viewport.store.getById(b.id)?.locked).toBe(true);
+      expect(viewport.history.undoCount).toBe(before + 1);
+      viewport.history.undo(viewport.store);
+      expect(viewport.store.getById(a.id)?.locked).toBe(false);
+    });
+
+    it('unlocks all when every selected is locked', () => {
+      const a = createNote({
+        position: { x: 0, y: 0 },
+        text: 'a',
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      a.locked = true;
+      viewport.store.add(a);
+      selectAll([a.id]);
+      viewport.toggleLockSelection();
+      expect(viewport.store.getById(a.id)?.locked).toBe(false);
+    });
+
+    it('is a no-op on empty selection', () => {
+      selectAll([]);
+      const before = viewport.history.undoCount;
+      viewport.toggleLockSelection();
+      expect(viewport.history.undoCount).toBe(before);
+    });
+  });
+
   describe('arrow label editing', () => {
     it('findArrowAt returns an arrow under the world point, undefined off it', () => {
       const viewport = new Viewport(container);
@@ -1703,6 +1767,115 @@ describe('Viewport', () => {
       priv.fitNoteHeight(note.id);
       const updated = viewport.store.getById(note.id);
       expect(updated?.type === 'note' && updated.size.h).toBe(200);
+      viewport.destroy();
+    });
+  });
+
+  describe('programmatic runAction + canPaste', () => {
+    function setupSelect(viewport: Viewport): (ids: string[]) => void {
+      const sel = new SelectTool();
+      viewport.toolManager.register(sel);
+      viewport.toolManager.setTool('select', viewport.toolContext);
+      return (ids: string[]) =>
+        (sel as unknown as { setSelection: (ids: string[]) => void }).setSelection(ids);
+    }
+
+    it('runAction dispatches a named action programmatically', () => {
+      const viewport = new Viewport(container);
+      const select = setupSelect(viewport);
+      const a = createNote({
+        position: { x: 0, y: 0 },
+        text: 'a',
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(a);
+      select([a.id]);
+      viewport.runAction('delete');
+      expect(viewport.store.getById(a.id)).toBeUndefined();
+      viewport.destroy();
+    });
+
+    it('canPaste reflects clipboard state', () => {
+      const viewport = new Viewport(container);
+      const select = setupSelect(viewport);
+      expect(viewport.canPaste()).toBe(false);
+      const a = createNote({
+        position: { x: 0, y: 0 },
+        text: 'a',
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(a);
+      select([a.id]);
+      viewport.runAction('copy');
+      expect(viewport.canPaste()).toBe(true);
+      viewport.destroy();
+    });
+
+    function menuLabels(): string[] {
+      return Array.from(document.querySelectorAll('.fieldnotes-context-menu-item')).map(
+        (el) => el.textContent ?? '',
+      );
+    }
+
+    it('openContextMenu builds the full item set for a selection', () => {
+      const viewport = new Viewport(container);
+      const select = setupSelect(viewport);
+      const a = createNote({
+        position: { x: 0, y: 0 },
+        text: 'a',
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(a);
+      select([a.id]);
+      viewport.openContextMenu({ x: 5, y: 5 });
+      const labels = menuLabels();
+      expect(labels).toContain('Cut');
+      expect(labels).toContain('Copy');
+      expect(labels).toContain('Duplicate');
+      expect(labels).toContain('Delete');
+      expect(labels).toContain('Bring to Front');
+      expect(labels).toContain('Lock');
+      viewport.destroy();
+    });
+
+    it('shows Unlock when all selected are locked', () => {
+      const viewport = new Viewport(container);
+      const select = setupSelect(viewport);
+      const a = createNote({
+        position: { x: 0, y: 0 },
+        text: 'a',
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      a.locked = true;
+      viewport.store.add(a);
+      select([a.id]);
+      viewport.openContextMenu({ x: 5, y: 5 });
+      const labels = menuLabels();
+      expect(labels).toContain('Unlock');
+      expect(labels).not.toContain('Lock');
+      viewport.destroy();
+    });
+
+    it('empty selection + empty clipboard yields no menu', () => {
+      const viewport = new Viewport(container);
+      setupSelect(viewport);
+      viewport.openContextMenu({ x: 5, y: 5 });
+      expect(document.querySelector('.fieldnotes-context-menu')).toBeNull();
+      viewport.destroy();
+    });
+
+    it('contextMenu: false yields no menu', () => {
+      const viewport = new Viewport(container, { contextMenu: false });
+      const select = setupSelect(viewport);
+      const a = createNote({
+        position: { x: 0, y: 0 },
+        text: 'a',
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(a);
+      select([a.id]);
+      viewport.openContextMenu({ x: 5, y: 5 });
+      expect(document.querySelector('.fieldnotes-context-menu')).toBeNull();
       viewport.destroy();
     });
   });

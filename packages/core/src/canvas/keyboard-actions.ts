@@ -17,6 +17,7 @@ export interface KeyboardActionsDeps {
   fitToContent?: () => void;
   group?: () => void;
   ungroup?: () => void;
+  toggleLock?: () => void;
   getLastPointerWorld?: () => Point | null;
 }
 
@@ -127,6 +128,16 @@ export class KeyboardActions {
     this.pasteCount = 0;
   }
 
+  cut(): void {
+    if (this.deps.isToolActive()) return;
+    this.copy();
+    this.deleteSelected();
+  }
+
+  hasClipboard(): boolean {
+    return this.clipboard.length > 0;
+  }
+
   paste(): void {
     if (this.deps.isToolActive()) return;
     this.flushPendingNudge();
@@ -208,6 +219,11 @@ export class KeyboardActions {
   ungroup(): void {
     if (this.deps.isToolActive()) return;
     this.deps.ungroup?.();
+  }
+
+  toggleLock(): void {
+    if (this.deps.isToolActive()) return;
+    this.deps.toggleLock?.();
   }
 
   zOrder(operation: 'forward' | 'backward' | 'front' | 'back'): void {

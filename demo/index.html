@@ -261,6 +261,36 @@
       cursor: pointer;
       padding: 0;
     }
+    .fieldnotes-context-menu {
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+      padding: 4px;
+      min-width: 160px;
+      font: 13px system-ui, sans-serif;
+    }
+    .fieldnotes-context-menu-item {
+      display: block;
+      width: 100%;
+      text-align: left;
+      background: none;
+      border: 0;
+      border-radius: 5px;
+      padding: 7px 12px;
+      cursor: pointer;
+      color: #222;
+    }
+    .fieldnotes-context-menu-item:hover {
+      background: #f0f3f7;
+    }
+    .fieldnotes-context-menu-item--disabled {
+      color: #aaa;
+      cursor: default;
+    }
+    .fieldnotes-context-menu-item--disabled:hover {
+      background: none;
+    }
   </style>
 </head>
 <body>
@@ -380,6 +410,7 @@
     <button id="group-btn" title="Group (Ctrl/Cmd+G)" style="padding:4px 8px;border:1px solid #ddd;border-radius:4px;background:white;cursor:pointer;font-size:13px;">Group</button>
     <button id="ungroup-btn" title="Ungroup (Ctrl/Cmd+Shift+G)" style="padding:4px 8px;border:1px solid #ddd;border-radius:4px;background:white;cursor:pointer;font-size:13px;">Ungroup</button>
   </div>
+  <button id="lock-btn" hidden title="Lock selection" style="position:fixed;top:70px;right:16px;padding:4px 8px;border:1px solid #ddd;border-radius:8px;background:white;box-shadow:0 2px 12px rgba(0,0,0,0.15);cursor:pointer;font-size:13px;z-index:10;">Lock</button>
   <div id="eraser-panel" style="display:none;position:fixed;top:70px;left:50%;transform:translateX(-50%);align-items:center;gap:6px;padding:6px 10px;background:white;border-radius:8px;box-shadow:0 2px 12px rgba(0,0,0,0.15);z-index:10;font-size:13px;">
     <span style="color: #999; font-size: 11px;">Eraser:</span>
     <select id="eraser-mode" style="padding:4px 8px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
