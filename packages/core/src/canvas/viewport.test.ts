@@ -1810,5 +1810,73 @@ describe('Viewport', () => {
       expect(viewport.canPaste()).toBe(true);
       viewport.destroy();
     });
+
+    function menuLabels(): string[] {
+      return Array.from(document.querySelectorAll('.fieldnotes-context-menu-item')).map(
+        (el) => el.textContent ?? '',
+      );
+    }
+
+    it('openContextMenu builds the full item set for a selection', () => {
+      const viewport = new Viewport(container);
+      const select = setupSelect(viewport);
+      const a = createNote({
+        position: { x: 0, y: 0 },
+        text: 'a',
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(a);
+      select([a.id]);
+      viewport.openContextMenu({ x: 5, y: 5 });
+      const labels = menuLabels();
+      expect(labels).toContain('Cut');
+      expect(labels).toContain('Copy');
+      expect(labels).toContain('Duplicate');
+      expect(labels).toContain('Delete');
+      expect(labels).toContain('Bring to Front');
+      expect(labels).toContain('Lock');
+      viewport.destroy();
+    });
+
+    it('shows Unlock when all selected are locked', () => {
+      const viewport = new Viewport(container);
+      const select = setupSelect(viewport);
+      const a = createNote({
+        position: { x: 0, y: 0 },
+        text: 'a',
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      a.locked = true;
+      viewport.store.add(a);
+      select([a.id]);
+      viewport.openContextMenu({ x: 5, y: 5 });
+      const labels = menuLabels();
+      expect(labels).toContain('Unlock');
+      expect(labels).not.toContain('Lock');
+      viewport.destroy();
+    });
+
+    it('empty selection + empty clipboard yields no menu', () => {
+      const viewport = new Viewport(container);
+      setupSelect(viewport);
+      viewport.openContextMenu({ x: 5, y: 5 });
+      expect(document.querySelector('.fieldnotes-context-menu')).toBeNull();
+      viewport.destroy();
+    });
+
+    it('contextMenu: false yields no menu', () => {
+      const viewport = new Viewport(container, { contextMenu: false });
+      const select = setupSelect(viewport);
+      const a = createNote({
+        position: { x: 0, y: 0 },
+        text: 'a',
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(a);
+      select([a.id]);
+      viewport.openContextMenu({ x: 5, y: 5 });
+      expect(document.querySelector('.fieldnotes-context-menu')).toBeNull();
+      viewport.destroy();
+    });
   });
 });

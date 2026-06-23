@@ -9,7 +9,9 @@ import { ElementRenderer } from '../elements/element-renderer';
 import { NoteEditor } from '../elements/note-editor';
 import type { FontSizePreset } from '../elements/note-toolbar';
 import type { CanvasElement, ArrowElement, GridElement } from '../elements/types';
-import type { Bounds } from '../core/types';
+import type { Bounds, Point } from '../core/types';
+import { ContextMenu } from './context-menu';
+import type { ContextMenuItem } from './context-menu';
 import {
   findBoundArrows,
   getEdgeIntersection,
@@ -97,6 +99,8 @@ export interface ViewportOptions {
   onImageError?: (info: { src: string; elementIds: string[]; cause?: unknown }) => void;
   /** CSS-pixel margin cached beyond the viewport. Default `256`. Set `0` to disable. */
   panBufferMargin?: number;
+  /** Enable the built-in context menu. Default `true`. */
+  contextMenu?: boolean;
 }
 
 export class Viewport {
@@ -138,6 +142,7 @@ export class Viewport {
   private readonly doubleTapDetector = new DoubleTapDetector();
   private tapDownX = 0;
   private tapDownY = 0;
+  private contextMenu: ContextMenu | null = null;
 
   constructor(
     private readonly container: HTMLElement,
@@ -223,6 +228,14 @@ export class Viewport {
       shortcuts: options.shortcuts,
     });
 
+    if (options.contextMenu !== false) {
+      this.contextMenu = new ContextMenu({
+        onCommand: (action) => this.runAction(action),
+        onClose: noop,
+      });
+    }
+    this.toolManager.onChange(() => this.contextMenu?.close());
+
     this.domNodeManager = new DomNodeManager({
       domLayer: this.domLayer,
       onEditRequest: (id) => this.startEditingElement(id),
@@ -259,6 +272,7 @@ export class Viewport {
     this.unsubCamera = this.camera.onChange(() => {
       this.applyCameraTransform();
       this.noteEditor.updateToolbarPosition();
+      this.contextMenu?.close();
       this.requestRender();
     });
 
@@ -551,6 +565,29 @@ export class Viewport {
     return this.inputHandler.hasClipboard();
   }
 
+  openContextMenu(screenPos: Point): void {
+    if (!this.contextMenu) return;
+    const ids = this.getSelectedIds();
+    const items: ContextMenuItem[] = [];
+    if (ids.length > 0) {
+      items.push({ label: 'Cut', action: 'cut' });
+      items.push({ label: 'Copy', action: 'copy' });
+      if (this.canPaste()) items.push({ label: 'Paste', action: 'paste' });
+      items.push({ label: 'Duplicate', action: 'duplicate' });
+      items.push({ label: 'Delete', action: 'delete' });
+      items.push({ label: 'Bring to Front', action: 'z-front' });
+      items.push({ label: 'Bring Forward', action: 'z-forward' });
+      items.push({ label: 'Send Backward', action: 'z-backward' });
+      items.push({ label: 'Send to Back', action: 'z-back' });
+      const allLocked = ids.every((id) => this.store.getById(id)?.locked);
+      items.push({ label: allLocked ? 'Unlock' : 'Lock', action: 'toggle-lock' });
+    } else if (this.canPaste()) {
+      items.push({ label: 'Paste', action: 'paste' });
+    }
+    if (items.length === 0) return;
+    this.contextMenu.open(items, screenPos);
+  }
+
   onSelectionChange(listener: () => void): () => void {
     const tool = this.getSelectTool();
     return tool ? tool.onSelectionChange(listener) : noop;
@@ -735,6 +772,7 @@ export class Viewport {
     this.noteEditor.destroy(this.store);
     this.arrowLabelEditor.cancel();
     this.historyRecorder.destroy();
+    this.contextMenu?.dispose();
     this.wrapper.removeEventListener('pointerdown', this.onTapDown);
     this.wrapper.removeEventListener('pointerup', this.onDoubleTap);
     this.wrapper.removeEventListener('dragover', this.onDragOver);
