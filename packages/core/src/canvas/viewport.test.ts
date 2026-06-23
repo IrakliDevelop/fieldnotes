@@ -1770,4 +1770,45 @@ describe('Viewport', () => {
       viewport.destroy();
     });
   });
+
+  describe('programmatic runAction + canPaste', () => {
+    function setupSelect(viewport: Viewport): (ids: string[]) => void {
+      const sel = new SelectTool();
+      viewport.toolManager.register(sel);
+      viewport.toolManager.setTool('select', viewport.toolContext);
+      return (ids: string[]) =>
+        (sel as unknown as { setSelection: (ids: string[]) => void }).setSelection(ids);
+    }
+
+    it('runAction dispatches a named action programmatically', () => {
+      const viewport = new Viewport(container);
+      const select = setupSelect(viewport);
+      const a = createNote({
+        position: { x: 0, y: 0 },
+        text: 'a',
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(a);
+      select([a.id]);
+      viewport.runAction('delete');
+      expect(viewport.store.getById(a.id)).toBeUndefined();
+      viewport.destroy();
+    });
+
+    it('canPaste reflects clipboard state', () => {
+      const viewport = new Viewport(container);
+      const select = setupSelect(viewport);
+      expect(viewport.canPaste()).toBe(false);
+      const a = createNote({
+        position: { x: 0, y: 0 },
+        text: 'a',
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(a);
+      select([a.id]);
+      viewport.runAction('copy');
+      expect(viewport.canPaste()).toBe(true);
+      viewport.destroy();
+    });
+  });
 });

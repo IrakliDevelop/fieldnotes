@@ -543,6 +543,14 @@ export class Viewport {
     return this.getSelectTool()?.selectedIds ?? EMPTY_IDS;
   }
 
+  runAction(action: string): void {
+    this.inputHandler.runAction(action);
+  }
+
+  canPaste(): boolean {
+    return this.inputHandler.hasClipboard();
+  }
+
   onSelectionChange(listener: () => void): () => void {
     const tool = this.getSelectTool();
     return tool ? tool.onSelectionChange(listener) : noop;

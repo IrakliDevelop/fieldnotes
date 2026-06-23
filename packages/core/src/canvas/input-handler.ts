@@ -272,85 +272,85 @@ export class InputHandler {
     }
   };
 
-  private runAction(action: string, e: KeyboardEvent): void {
+  runAction(action: string, e?: KeyboardEvent): void {
     switch (action) {
       case 'delete':
-        e.preventDefault();
+        e?.preventDefault();
         this.actions.deleteSelected();
         return;
       case 'deselect':
         this.actions.deselect();
         return;
       case 'undo':
-        e.preventDefault();
+        e?.preventDefault();
         this.actions.undo();
         return;
       case 'redo':
-        e.preventDefault();
+        e?.preventDefault();
         this.actions.redo();
         return;
       case 'select-all':
-        e.preventDefault();
+        e?.preventDefault();
         this.actions.selectAll();
         return;
       case 'copy':
-        e.preventDefault();
+        e?.preventDefault();
         this.actions.copy();
         return;
       case 'paste':
-        e.preventDefault();
+        e?.preventDefault();
         this.actions.paste();
         return;
       case 'duplicate':
-        e.preventDefault();
+        e?.preventDefault();
         this.actions.duplicate();
         return;
       case 'z-forward':
-        e.preventDefault();
+        e?.preventDefault();
         this.actions.zOrder('forward');
         return;
       case 'z-backward':
-        e.preventDefault();
+        e?.preventDefault();
         this.actions.zOrder('backward');
         return;
       case 'z-front':
-        e.preventDefault();
+        e?.preventDefault();
         this.actions.zOrder('front');
         return;
       case 'z-back':
-        e.preventDefault();
+        e?.preventDefault();
         this.actions.zOrder('back');
         return;
       case 'zoom-fit':
-        e.preventDefault();
+        e?.preventDefault();
         this.actions.zoomToFit();
         return;
       case 'group':
-        e.preventDefault();
+        e?.preventDefault();
         this.actions.group();
         return;
       case 'ungroup':
-        e.preventDefault();
+        e?.preventDefault();
         this.actions.ungroup();
         return;
       case 'cut':
-        e.preventDefault();
+        e?.preventDefault();
         this.actions.cut();
         return;
       case 'toggle-lock':
-        e.preventDefault();
+        e?.preventDefault();
         this.actions.toggleLock();
         return;
       case 'zoom-in':
-        e.preventDefault();
+        e?.preventDefault();
         this.zoomByFactor(ZOOM_STEP);
         return;
       case 'zoom-out':
-        e.preventDefault();
+        e?.preventDefault();
         this.zoomByFactor(1 / ZOOM_STEP);
         return;
       case 'zoom-reset':
-        e.preventDefault();
+        e?.preventDefault();
         this.zoomToLevel(1);
         return;
       case 'nudge-left':
@@ -358,20 +358,24 @@ export class InputHandler {
       case 'nudge-up':
       case 'nudge-down': {
         const delta = NUDGE_DELTAS[action];
-        if (delta && this.actions.nudge(delta[0], delta[1], e.shiftKey)) {
-          e.preventDefault();
+        if (delta && this.actions.nudge(delta[0], delta[1], e?.shiftKey ?? false)) {
+          e?.preventDefault();
         }
         return;
       }
       default:
         if (action.startsWith('tool:')) {
           if (this.isToolActive) return;
-          e.preventDefault();
+          e?.preventDefault();
           this.toolContext?.switchTool?.(action.slice('tool:'.length));
           return;
         }
         console.warn(`[fieldnotes] unknown shortcut action "${action}"`);
     }
+  }
+
+  hasClipboard(): boolean {
+    return this.actions.hasClipboard();
   }
 
   private startPinch(): void {
