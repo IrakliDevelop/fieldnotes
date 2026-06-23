@@ -12,6 +12,7 @@ import { ShortcutMap } from './shortcut-map';
 const ZOOM_SENSITIVITY = 0.001;
 const ZOOM_STEP = 1.2;
 const MIDDLE_BUTTON = 1;
+const LONG_PRESS_MS = 500;
 
 const NUDGE_DELTAS: Record<string, readonly [number, number]> = {
   'nudge-left': [-1, 0],
@@ -48,6 +49,8 @@ export class InputHandler {
   private lastPointerEvent: PointerEvent | null = null;
   private readonly inputFilter = new InputFilter();
   private deferredDown: PointerEvent | null = null;
+  private longPressTimer: ReturnType<typeof setTimeout> | null = null;
+  private longPressStart: { x: number; y: number } | null = null;
   private readonly abortController = new AbortController();
   private readonly actions: KeyboardActions;
   private readonly shortcutMap: ShortcutMap;
@@ -104,6 +107,7 @@ export class InputHandler {
     this.actions.dispose();
     this.abortController.abort();
     this.inputFilter.reset();
+    this.cancelLongPress();
     this.deferredDown = null;
     this.lastPointerEvent = null;
     if (this.scope === 'focus') {
@@ -157,12 +161,14 @@ export class InputHandler {
     this.element.setPointerCapture?.(e.pointerId);
 
     if (this.activePointers.size === 2) {
+      this.cancelLongPress();
       this.startPinch();
       this.cancelToolIfActive(e);
       return;
     }
 
     if (e.button === MIDDLE_BUTTON || (e.button === 0 && this.spaceHeld)) {
+      this.cancelLongPress();
       this.isPanning = true;
       this.lastPointer = { x: e.clientX, y: e.clientY };
       return;
@@ -176,6 +182,7 @@ export class InputHandler {
       if (result.action === 'suppress') return;
       if (result.action === 'defer') {
         this.deferredDown = e;
+        this.startLongPress(e);
         return;
       }
       this.dispatchToolDown(e);
@@ -209,6 +216,7 @@ export class InputHandler {
     } else if (this.deferredDown) {
       const result = this.inputFilter.filterMove(e);
       if (result.action === 'dispatch') {
+        this.cancelLongPress();
         this.dispatchToolDown(this.deferredDown);
         this.deferredDown = null;
         this.dispatchToolMove(e);
@@ -219,6 +227,7 @@ export class InputHandler {
   };
 
   private onPointerUp = (e: PointerEvent): void => {
+    this.cancelLongPress();
     try {
       this.element.releasePointerCapture(e.pointerId);
     } catch {
@@ -384,6 +393,7 @@ export class InputHandler {
   }
 
   private startPinch(): void {
+    this.cancelLongPress();
     this.inputFilter.reset();
     this.deferredDown = null;
     this.isPanning = true;
@@ -501,10 +511,37 @@ export class InputHandler {
   }
 
   private cancelToolIfActive(e: PointerEvent): void {
+    this.cancelLongPress();
     if (this.isToolActive) {
       this.dispatchToolUp(e);
       this.isToolActive = false;
     }
     this.deferredDown = null;
+  }
+
+  private startLongPress(e: PointerEvent): void {
+    if (e.pointerType !== 'touch') return;
+    if (this.toolManager?.activeTool?.name !== 'select') return;
+    this.longPressStart = { x: e.clientX, y: e.clientY };
+    this.longPressTimer = setTimeout(() => this.fireLongPress(), LONG_PRESS_MS);
+  }
+
+  private cancelLongPress(): void {
+    if (this.longPressTimer !== null) {
+      clearTimeout(this.longPressTimer);
+      this.longPressTimer = null;
+    }
+    this.longPressStart = null;
+  }
+
+  private fireLongPress(): void {
+    this.longPressTimer = null;
+    if (!this.deferredDown || this.activePointers.size !== 1 || this.isPanning) return;
+    const start = this.longPressStart;
+    if (!start) return;
+    const rect = this.element.getBoundingClientRect();
+    const world = this.camera.screenToWorld({ x: start.x - rect.left, y: start.y - rect.top });
+    this.deferredDown = null;
+    this.openContextMenu?.({ x: start.x, y: start.y }, world);
   }
 }
