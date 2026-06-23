@@ -113,6 +113,7 @@ export class Viewport {
   private readonly canvasEl: HTMLCanvasElement;
   private readonly wrapper: HTMLDivElement;
   private readonly unsubCamera: () => void;
+  private readonly unsubToolChange: () => void;
   private readonly unsubStore: (() => void)[];
   private readonly inputHandler: InputHandler;
   private readonly background: Background;
@@ -234,7 +235,7 @@ export class Viewport {
         onClose: noop,
       });
     }
-    this.toolManager.onChange(() => this.contextMenu?.close());
+    this.unsubToolChange = this.toolManager.onChange(() => this.contextMenu?.close());
 
     this.domNodeManager = new DomNodeManager({
       domLayer: this.domLayer,
@@ -779,6 +780,7 @@ export class Viewport {
     this.wrapper.removeEventListener('drop', this.onDrop);
     this.inputHandler.destroy();
     this.unsubCamera();
+    this.unsubToolChange();
     this.unsubStore.forEach((fn) => fn());
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
