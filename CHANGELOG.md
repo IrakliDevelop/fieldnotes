@@ -4,6 +4,19 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.36.0] — 2026-06-23
+
+### Added
+
+- **Context menu** — right-click and touch long-press open a menu with Cut/Copy/Paste/Duplicate/
+  Delete, z-order (to front / forward / backward / to back), and Lock/Unlock. Core-provided
+  (plain DOM); disable with `new Viewport(el, { contextMenu: false })`.
+- **Element lock** — `viewport.toggleLockSelection()`, `Ctrl/Cmd+Shift+L`, and a lock badge on the
+  selection. Locked elements stay selectable but can't be moved, resized, or rotated.
+- **Cut** (`Ctrl/Cmd+X`) and programmatic `viewport.runAction(name)` / `viewport.canPaste()`.
+
+---
+
 ## [0.35.0] — 2026-06-23
 
 ### Added
