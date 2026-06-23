@@ -515,6 +515,12 @@ export class SelectTool implements Tool {
     const el = ctx.store.getById(this.mode.elementId);
     if (!el || !('size' in el) || el.locked) return;
 
+    const angle = el.rotation ?? 0;
+    if (angle !== 0) {
+      this.handleRotatedResize(world, el, angle, ctx, shiftKey);
+      return;
+    }
+
     const { handle } = this.mode;
     const dx = world.x - this.lastWorld.x;
     const dy = world.y - this.lastWorld.y;
@@ -580,6 +586,96 @@ export class SelectTool implements Tool {
     ctx.requestRender();
   }
 
+  private anchorOffset(handle: HandlePosition, w: number, h: number): Point {
+    switch (handle) {
+      case 'se':
+        return { x: -w / 2, y: -h / 2 };
+      case 'sw':
+        return { x: w / 2, y: -h / 2 };
+      case 'ne':
+        return { x: -w / 2, y: h / 2 };
+      case 'nw':
+        return { x: w / 2, y: h / 2 };
+      default:
+        return { x: 0, y: 0 };
+    }
+  }
+
+  private handleRotatedResize(
+    world: Point,
+    el: CanvasElement & { size: { w: number; h: number } },
+    angle: number,
+    ctx: ToolContext,
+    shiftKey: boolean,
+  ): void {
+    if (this.mode.type !== 'resizing') return;
+    const { handle } = this.mode;
+
+    const wdx = world.x - this.lastWorld.x;
+    const wdy = world.y - this.lastWorld.y;
+    this.lastWorld = world;
+
+    // world delta → element local frame (inverse rotation of the vector)
+    const cosN = Math.cos(-angle);
+    const sinN = Math.sin(-angle);
+    const ldx = wdx * cosN - wdy * sinN;
+    const ldy = wdx * sinN + wdy * cosN;
+
+    let w = el.size.w;
+    let h = el.size.h;
+    switch (handle) {
+      case 'se':
+        w += ldx;
+        h += ldy;
+        break;
+      case 'sw':
+        w -= ldx;
+        h += ldy;
+        break;
+      case 'ne':
+        w += ldx;
+        h -= ldy;
+        break;
+      case 'nw':
+        w -= ldx;
+        h -= ldy;
+        break;
+    }
+
+    if (shiftKey && this.resizeAspectRatio > 0) {
+      const absDw = Math.abs(w - el.size.w);
+      const absDh = Math.abs(h - el.size.h);
+      if (absDw >= absDh) h = w / this.resizeAspectRatio;
+      else w = h * this.resizeAspectRatio;
+    }
+    w = Math.max(w, MIN_ELEMENT_SIZE);
+    h = Math.max(h, MIN_ELEMENT_SIZE);
+
+    // anchor (opposite corner) fixed in world space, computed from OLD geometry
+    const oldCenter = { x: el.position.x + el.size.w / 2, y: el.position.y + el.size.h / 2 };
+    const oldAnchorLocal = this.anchorOffset(handle, el.size.w, el.size.h);
+    const anchorWorld = rotatePoint(
+      { x: oldCenter.x + oldAnchorLocal.x, y: oldCenter.y + oldAnchorLocal.y },
+      oldCenter,
+      angle,
+    );
+
+    // new center so the anchor stays put: anchorWorld = newCenter + R(angle)·newAnchorLocal
+    const newAnchorLocal = this.anchorOffset(handle, w, h);
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    const rotatedAnchor = {
+      x: newAnchorLocal.x * cos - newAnchorLocal.y * sin,
+      y: newAnchorLocal.x * sin + newAnchorLocal.y * cos,
+    };
+    const newCenter = { x: anchorWorld.x - rotatedAnchor.x, y: anchorWorld.y - rotatedAnchor.y };
+    const position = { x: newCenter.x - w / 2, y: newCenter.y - h / 2 };
+
+    ctx.store.update(this.mode.elementId, { position, size: { w, h } });
+    this.updateArrowsBoundTo([this.mode.elementId], ctx);
+    ctx.requestRender();
+  }
+
   private hitTestResizeHandle(
     world: Point,
     ctx: ToolContext,
@@ -594,11 +690,9 @@ export class SelectTool implements Tool {
       if (!el || !('size' in el)) continue;
       if (el.type === 'shape' && el.shape === 'line') continue;
 
-      const bounds = getElementBounds(el);
-      if (!bounds) continue;
-
-      const corners = this.getHandlePositions(bounds);
-      for (const [handle, pos] of corners) {
+      const layout = this.getOverlayLayout(el, zoom);
+      if (!layout) continue;
+      for (const [handle, pos] of layout.corners) {
         if (Math.abs(world.x - pos.x) <= handleHalf && Math.abs(world.y - pos.y) <= handleHalf) {
           return { elementId: id, handle };
         }

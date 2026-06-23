@@ -12,6 +12,7 @@ import {
   createShape,
 } from '../elements/element-factory';
 import { lineEndpoints } from '../elements/shape-geometry';
+import { rotatePoint } from '../core/geometry';
 import type { ToolContext, PointerState } from './types';
 import type { NoteElement, ImageElement, TemplateElement } from '../elements/types';
 import type { Point } from '../core/types';
@@ -2239,6 +2240,58 @@ describe('SelectTool', () => {
       tool.onHover?.(pt(layout.rotateHandle.x, layout.rotateHandle.y), ctx);
 
       expect(setCursor).toHaveBeenCalledWith('grab');
+    });
+
+    it('resizing a rotated element keeps the opposite corner fixed in world space', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
+      note.rotation = Math.PI / 6; // 30°
+      ctx.store.add(note);
+      (tool as unknown as { setSelection: (ids: string[]) => void }).setSelection([note.id]);
+
+      const before = ctx.store.getById(note.id) as {
+        position: Point;
+        size: { w: number; h: number };
+        rotation: number;
+      };
+      const center0 = {
+        x: before.position.x + before.size.w / 2,
+        y: before.position.y + before.size.h / 2,
+      };
+      // grabbing 'se' → the fixed anchor is the 'nw' element corner (note position), rotated about center
+      const anchorWorld = rotatePoint(
+        { x: before.position.x, y: before.position.y },
+        center0,
+        before.rotation,
+      );
+
+      const layout = (
+        tool as unknown as {
+          getOverlayLayout: (el: unknown, z: number) => { corners: [string, Point][] };
+        }
+      ).getOverlayLayout(before, 1);
+      const se = layout.corners.find(([h]) => h === 'se')?.[1] as Point;
+      tool.onPointerDown(pt(se.x, se.y), ctx); // grab se handle
+      tool.onPointerMove(pt(se.x + 30, se.y + 20), ctx); // drag outward
+
+      const after = ctx.store.getById(note.id) as {
+        position: Point;
+        size: { w: number; h: number };
+        rotation: number;
+      };
+      const center1 = {
+        x: after.position.x + after.size.w / 2,
+        y: after.position.y + after.size.h / 2,
+      };
+      const nwAfter = rotatePoint(
+        { x: after.position.x, y: after.position.y },
+        center1,
+        after.rotation,
+      );
+      expect(nwAfter.x).toBeCloseTo(anchorWorld.x, 4);
+      expect(nwAfter.y).toBeCloseTo(anchorWorld.y, 4);
+      expect(after.size.w).toBeGreaterThan(before.size.w);
     });
   });
 });
