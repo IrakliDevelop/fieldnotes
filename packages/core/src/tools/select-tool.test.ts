@@ -2073,4 +2073,28 @@ describe('SelectTool', () => {
       expect(priv.hitTestResizeHandle({ x: 100, y: 100 }, ctx)).toBeNull();
     });
   });
+
+  describe('rotation-aware hit-testing', () => {
+    it('hits a point inside a 90°-rotated note footprint (outside its unrotated AABB)', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 20 } }); // wide & short
+      note.rotation = Math.PI / 2; // becomes tall & narrow: center (50,10); world box x∈[40,60], y∈[-40,60]
+      ctx.store.add(note);
+      tool.onPointerDown(pt(50, 50), ctx); // inside rotated footprint, but y=50 is OUTSIDE the unrotated AABB (h=20)
+      tool.onPointerUp(pt(50, 50), ctx);
+      expect(tool.selectedIds).toEqual([note.id]);
+    });
+
+    it('misses a point inside the unrotated AABB but outside the rotated footprint', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 20 } });
+      note.rotation = Math.PI / 2;
+      ctx.store.add(note);
+      tool.onPointerDown(pt(95, 10), ctx); // x=95 inside unrotated AABB (w=100) but outside rotated box (x∈[40,60])
+      tool.onPointerUp(pt(95, 10), ctx);
+      expect(tool.selectedIds).toEqual([]);
+    });
+  });
 });

@@ -1,7 +1,7 @@
 import type { Bounds, Point } from '../core/types';
 import type { Tool, ToolContext, PointerState } from './types';
 import { smartSnap } from '../core/snap';
-import { distSqToSegment } from '../core/geometry';
+import { distSqToSegment, rotatePoint } from '../core/geometry';
 import type { CanvasElement, ArrowElement } from '../elements/types';
 import { isNearBezier } from '../elements/arrow-geometry';
 import { updateArrowsBoundToElements } from '../elements/arrow-binding';
@@ -824,6 +824,13 @@ export class SelectTool implements Tool {
 
   private isInsideBounds(point: Point, el: CanvasElement): boolean {
     if (el.type === 'grid') return false;
+    const angle = el.rotation ?? 0;
+    if (angle !== 0) {
+      const b = getElementBounds(el);
+      if (b) {
+        point = rotatePoint(point, { x: b.x + b.w / 2, y: b.y + b.h / 2 }, -angle);
+      }
+    }
     if (el.type === 'shape' && el.shape === 'line') {
       const [a, b] = lineEndpoints(el);
       const threshold = Math.max(el.strokeWidth / 2, 6);
