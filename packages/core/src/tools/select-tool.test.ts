@@ -2333,4 +2333,34 @@ describe('SelectTool', () => {
       expect(tool.selectedIds.slice().sort()).toEqual([a.id, b.id].sort());
     });
   });
+
+  describe('locked element handles', () => {
+    it('a locked element exposes no resize or rotate handles', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
+      note.locked = true;
+      ctx.store.add(note);
+      (tool as unknown as { setSelection: (ids: string[]) => void }).setSelection([note.id]);
+      const layout = (
+        tool as unknown as {
+          getOverlayLayout: (
+            el: unknown,
+            z: number,
+          ) => { corners: [string, Point][]; rotateHandle: Point };
+        }
+      ).getOverlayLayout(note, 1);
+      const se = layout.corners.find(([h]) => h === 'se')?.[1] as Point;
+      expect(
+        (
+          tool as unknown as { hitTestResizeHandle: (w: Point, c: unknown) => unknown }
+        ).hitTestResizeHandle(se, ctx),
+      ).toBeNull();
+      expect(
+        (
+          tool as unknown as { hitTestRotateHandle: (w: Point, c: unknown) => unknown }
+        ).hitTestRotateHandle(layout.rotateHandle, ctx),
+      ).toBeNull();
+    });
+  });
 });

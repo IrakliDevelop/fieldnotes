@@ -698,6 +698,7 @@ export class SelectTool implements Tool {
     for (const id of this._selectedIds) {
       const el = ctx.store.getById(id);
       if (!el || !('size' in el)) continue;
+      if (el.locked) continue;
       if (el.type === 'shape' && el.shape === 'line') continue;
 
       const layout = this.getOverlayLayout(el, zoom);
@@ -866,64 +867,93 @@ export class SelectTool implements Tool {
         }
       }
 
-      if ('size' in el) {
-        canvasCtx.setLineDash([]);
-        canvasCtx.fillStyle = '#ffffff';
-        const corners = layout.angle === 0 ? this.getHandlePositions(bounds) : layout.corners;
-        for (const [, pos] of corners) {
+      if (!el.locked) {
+        if ('size' in el) {
+          canvasCtx.setLineDash([]);
+          canvasCtx.fillStyle = '#ffffff';
+          const corners = layout.angle === 0 ? this.getHandlePositions(bounds) : layout.corners;
+          for (const [, pos] of corners) {
+            canvasCtx.fillRect(
+              pos.x - handleWorldSize / 2,
+              pos.y - handleWorldSize / 2,
+              handleWorldSize,
+              handleWorldSize,
+            );
+            canvasCtx.strokeRect(
+              pos.x - handleWorldSize / 2,
+              pos.y - handleWorldSize / 2,
+              handleWorldSize,
+              handleWorldSize,
+            );
+          }
+          canvasCtx.setLineDash([4 / zoom, 4 / zoom]);
+        } else if (el.type === 'template') {
+          canvasCtx.setLineDash([]);
+          canvasCtx.fillStyle = '#ffffff';
+          const hx = bounds.x + bounds.w;
+          const hy = bounds.y + bounds.h;
           canvasCtx.fillRect(
-            pos.x - handleWorldSize / 2,
-            pos.y - handleWorldSize / 2,
+            hx - handleWorldSize / 2,
+            hy - handleWorldSize / 2,
             handleWorldSize,
             handleWorldSize,
           );
           canvasCtx.strokeRect(
-            pos.x - handleWorldSize / 2,
-            pos.y - handleWorldSize / 2,
+            hx - handleWorldSize / 2,
+            hy - handleWorldSize / 2,
             handleWorldSize,
             handleWorldSize,
           );
+          canvasCtx.setLineDash([4 / zoom, 4 / zoom]);
         }
-        canvasCtx.setLineDash([4 / zoom, 4 / zoom]);
-      } else if (el.type === 'template') {
-        canvasCtx.setLineDash([]);
-        canvasCtx.fillStyle = '#ffffff';
-        const hx = bounds.x + bounds.w;
-        const hy = bounds.y + bounds.h;
-        canvasCtx.fillRect(
-          hx - handleWorldSize / 2,
-          hy - handleWorldSize / 2,
-          handleWorldSize,
-          handleWorldSize,
-        );
-        canvasCtx.strokeRect(
-          hx - handleWorldSize / 2,
-          hy - handleWorldSize / 2,
-          handleWorldSize,
-          handleWorldSize,
-        );
-        canvasCtx.setLineDash([4 / zoom, 4 / zoom]);
+
+        if (this._selectedIds.length === 1 && ROTATABLE_TYPES.has(el.type)) {
+          const stemStart = this.topMidpoint(layout);
+          const stemEnd = layout.rotateHandle;
+          canvasCtx.beginPath();
+          canvasCtx.moveTo(stemStart.x, stemStart.y);
+          canvasCtx.lineTo(stemEnd.x, stemEnd.y);
+          canvasCtx.stroke();
+
+          canvasCtx.setLineDash([]);
+          canvasCtx.fillStyle = '#ffffff';
+          canvasCtx.beginPath();
+          canvasCtx.arc(stemEnd.x, stemEnd.y, handleWorldSize / 2, 0, Math.PI * 2);
+          canvasCtx.fill();
+          canvasCtx.stroke();
+          canvasCtx.setLineDash([4 / zoom, 4 / zoom]);
+        }
       }
 
-      if (this._selectedIds.length === 1 && ROTATABLE_TYPES.has(el.type)) {
-        const stemStart = this.topMidpoint(layout);
-        const stemEnd = layout.rotateHandle;
-        canvasCtx.beginPath();
-        canvasCtx.moveTo(stemStart.x, stemStart.y);
-        canvasCtx.lineTo(stemEnd.x, stemEnd.y);
-        canvasCtx.stroke();
-
-        canvasCtx.setLineDash([]);
-        canvasCtx.fillStyle = '#ffffff';
-        canvasCtx.beginPath();
-        canvasCtx.arc(stemEnd.x, stemEnd.y, handleWorldSize / 2, 0, Math.PI * 2);
-        canvasCtx.fill();
-        canvasCtx.stroke();
-        canvasCtx.setLineDash([4 / zoom, 4 / zoom]);
+      if (el.locked) {
+        const ne = layout.corners.find(([h]) => h === 'ne')?.[1];
+        if (ne) this.drawLockBadge(canvasCtx, ne, zoom);
       }
     }
 
     canvasCtx.restore();
+  }
+
+  private drawLockBadge(ctx: CanvasRenderingContext2D, at: Point, zoom: number): void {
+    const r = 9 / zoom;
+    ctx.save();
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.arc(at.x, at.y, r, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+    ctx.strokeStyle = '#2196F3';
+    ctx.lineWidth = 1.5 / zoom;
+    ctx.stroke();
+    const bw = 8 / zoom;
+    const bh = 6 / zoom;
+    ctx.fillStyle = '#2196F3';
+    ctx.fillRect(at.x - bw / 2, at.y - bh / 2 + 1 / zoom, bw, bh);
+    ctx.beginPath();
+    ctx.arc(at.x, at.y - bh / 2 + 1 / zoom, 2.5 / zoom, Math.PI, 0);
+    ctx.lineWidth = 1.4 / zoom;
+    ctx.stroke();
+    ctx.restore();
   }
 
   private renderBindingHighlights(
