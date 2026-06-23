@@ -1635,6 +1635,54 @@ describe('InputHandler', () => {
     });
   });
 
+  describe('contextmenu (desktop right-click)', () => {
+    function contextmenu(el: HTMLElement, opts: Partial<MouseEventInit> = {}) {
+      const e = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, ...opts });
+      el.dispatchEvent(e);
+      return e;
+    }
+
+    it('contextmenu preventDefaults and calls openContextMenu when select tool active', () => {
+      const openContextMenu = vi.fn();
+      const tm = {
+        ...stubToolManager(),
+        activeTool: { name: 'select' },
+      } as unknown as ToolManager;
+      const tc = stubToolContext();
+      handler.destroy();
+      handler = new InputHandler(element, camera, {
+        toolManager: tm,
+        toolContext: tc,
+        openContextMenu,
+      });
+
+      const e = contextmenu(element, { clientX: 30, clientY: 40 });
+
+      expect(e.defaultPrevented).toBe(true);
+      expect(openContextMenu).toHaveBeenCalled();
+    });
+
+    it('always preventDefaults but does not open when tool is not select', () => {
+      const openContextMenu = vi.fn();
+      const tm = {
+        ...stubToolManager(),
+        activeTool: { name: 'pencil' },
+      } as unknown as ToolManager;
+      const tc = stubToolContext();
+      handler.destroy();
+      handler = new InputHandler(element, camera, {
+        toolManager: tm,
+        toolContext: tc,
+        openContextMenu,
+      });
+
+      const e = contextmenu(element, { clientX: 30, clientY: 40 });
+
+      expect(e.defaultPrevented).toBe(true);
+      expect(openContextMenu).not.toHaveBeenCalled();
+    });
+  });
+
   describe('destroy DOM cleanup', () => {
     it('removes the tabindex and outline it set in focus scope', () => {
       const el = document.createElement('div');

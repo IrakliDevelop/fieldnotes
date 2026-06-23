@@ -95,6 +95,16 @@ export class SelectTool implements Tool {
     this.ctx?.requestRender();
   }
 
+  selectAtPoint(world: Point, ctx: ToolContext): void {
+    const hit = this.hitTest(world, ctx);
+    if (!hit) {
+      this.setSelectedIds([]);
+      return;
+    }
+    if (this._selectedIds.includes(hit.id)) return;
+    this.setSelectedIds(expandToGroups([hit.id], ctx.store.getAll()));
+  }
+
   get isMarqueeActive(): boolean {
     return this.mode.type === 'marquee';
   }

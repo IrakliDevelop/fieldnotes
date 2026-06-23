@@ -226,6 +226,10 @@ export class Viewport {
       group: () => this.groupSelection(),
       ungroup: () => this.ungroupSelection(),
       toggleLock: () => this.toggleLockSelection(),
+      openContextMenu: (screenPos, world) => {
+        this.getSelectTool()?.selectAtPoint(world, this.toolContext);
+        this.openContextMenu(screenPos);
+      },
       shortcuts: options.shortcuts,
     });
 

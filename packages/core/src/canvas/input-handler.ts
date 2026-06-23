@@ -1,3 +1,4 @@
+import type { Point } from '../core/types';
 import type { Camera } from './camera';
 import type { ToolManager } from '../tools/tool-manager';
 import type { ToolContext, PointerState } from '../tools/types';
@@ -28,6 +29,7 @@ export interface InputHandlerOptions {
   group?: () => void;
   ungroup?: () => void;
   toggleLock?: () => void;
+  openContextMenu?: (screenPos: Point, world: Point) => void;
   shortcuts?: ShortcutOptions;
 }
 
@@ -50,6 +52,7 @@ export class InputHandler {
   private readonly actions: KeyboardActions;
   private readonly shortcutMap: ShortcutMap;
   private readonly scope: 'focus' | 'window';
+  private readonly openContextMenu?: (screenPos: Point, world: Point) => void;
 
   constructor(
     private readonly element: HTMLElement,
@@ -72,6 +75,7 @@ export class InputHandler {
       toggleLock: options.toggleLock,
       getLastPointerWorld: () => this.lastPointerWorld(),
     });
+    this.openContextMenu = options.openContextMenu;
     this.shortcutMap = new ShortcutMap(options.shortcuts?.bindings);
     this.scope = options.shortcuts?.scope ?? 'focus';
     this.element.style.touchAction = 'none';
@@ -117,6 +121,7 @@ export class InputHandler {
     this.element.addEventListener('pointerup', this.onPointerUp, opts);
     this.element.addEventListener('pointerleave', this.onPointerLeave, opts);
     this.element.addEventListener('pointercancel', this.onPointerUp, opts);
+    this.element.addEventListener('contextmenu', this.onContextMenu, opts);
     window.addEventListener('keydown', this.onKeyDown, opts);
     window.addEventListener('keyup', this.onKeyUp, opts);
   }
@@ -432,6 +437,14 @@ export class InputHandler {
     const rect = this.element.getBoundingClientRect();
     return this.camera.screenToWorld({ x: e.clientX - rect.left, y: e.clientY - rect.top });
   }
+
+  private onContextMenu = (e: MouseEvent): void => {
+    e.preventDefault();
+    if (this.toolManager?.activeTool?.name !== 'select') return;
+    const rect = this.element.getBoundingClientRect();
+    const world = this.camera.screenToWorld({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+    this.openContextMenu?.({ x: e.clientX, y: e.clientY }, world);
+  };
 
   private onPointerLeave = (e: PointerEvent): void => {
     this.lastPointerEvent = null;

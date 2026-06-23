@@ -2308,4 +2308,29 @@ describe('SelectTool', () => {
       });
     }
   });
+
+  describe('selectAtPoint', () => {
+    it('selectAtPoint selects the element under the point, clears on miss', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const a = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
+      ctx.store.add(a);
+      tool.selectAtPoint({ x: 50, y: 50 }, ctx);
+      expect(tool.selectedIds).toEqual([a.id]);
+      tool.selectAtPoint({ x: 500, y: 500 }, ctx);
+      expect(tool.selectedIds).toEqual([]);
+    });
+
+    it('selectAtPoint keeps a multi-selection when the point is inside it', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const a = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
+      const b = createNote({ position: { x: 200, y: 0 }, size: { w: 100, h: 100 } });
+      ctx.store.add(a);
+      ctx.store.add(b);
+      (tool as unknown as { setSelection: (ids: string[]) => void }).setSelection([a.id, b.id]);
+      tool.selectAtPoint({ x: 50, y: 50 }, ctx);
+      expect(tool.selectedIds.slice().sort()).toEqual([a.id, b.id].sort());
+    });
+  });
 });
