@@ -32,6 +32,7 @@ function mockCtx(): CanvasRenderingContext2D {
     quadraticCurveTo: vi.fn(),
     bezierCurveTo: vi.fn(),
     translate: vi.fn(),
+    rotate: vi.fn(),
     scale: vi.fn(),
     fillRect: vi.fn(),
     strokeRect: vi.fn(),
@@ -136,7 +137,13 @@ describe('ElementRenderer', () => {
     it('renderStroke applies blendMode when set', () => {
       const ctx = mockCtx();
       const renderer = new ElementRenderer();
-      const stroke = createStroke({ points: [{ x: 0, y: 0, pressure: 1 }, { x: 10, y: 0, pressure: 1 }], blendMode: 'multiply' });
+      const stroke = createStroke({
+        points: [
+          { x: 0, y: 0, pressure: 1 },
+          { x: 10, y: 0, pressure: 1 },
+        ],
+        blendMode: 'multiply',
+      });
       renderer.renderCanvasElement(ctx, stroke);
       expect(ctx.globalCompositeOperation).toBe('multiply');
     });
@@ -144,7 +151,12 @@ describe('ElementRenderer', () => {
     it('renderStroke leaves blend default when unset', () => {
       const ctx = mockCtx();
       const renderer = new ElementRenderer();
-      const stroke = createStroke({ points: [{ x: 0, y: 0, pressure: 1 }, { x: 10, y: 0, pressure: 1 }] });
+      const stroke = createStroke({
+        points: [
+          { x: 0, y: 0, pressure: 1 },
+          { x: 10, y: 0, pressure: 1 },
+        ],
+      });
       renderer.renderCanvasElement(ctx, stroke);
       expect(ctx.globalCompositeOperation).toBe('source-over');
     });
@@ -1044,6 +1056,36 @@ describe('ElementRenderer', () => {
       renderer.renderCanvasElement(ctx, makeTemplate({ opacity: 0.3 }));
 
       expect(ctx.globalAlpha).toBe(0.3);
+    });
+  });
+
+  describe('rotation', () => {
+    it('rotates a rotated stroke about its center', () => {
+      const renderer = new ElementRenderer();
+      const ctx = mockCtx();
+      const stroke = createStroke({
+        points: [
+          { x: 0, y: 0, pressure: 1 },
+          { x: 10, y: 10, pressure: 1 },
+        ],
+        color: '#000',
+        width: 2,
+      });
+      stroke.rotation = Math.PI / 2;
+      renderer.renderCanvasElement(ctx, stroke);
+      expect(ctx.rotate).toHaveBeenCalledWith(Math.PI / 2);
+    });
+
+    it('does not call rotate for an unrotated stroke', () => {
+      const renderer = new ElementRenderer();
+      const ctx = mockCtx();
+      const stroke = createStroke({
+        points: [{ x: 0, y: 0, pressure: 1 }],
+        color: '#000',
+        width: 2,
+      });
+      renderer.renderCanvasElement(ctx, stroke);
+      expect(ctx.rotate).not.toHaveBeenCalled();
     });
   });
 

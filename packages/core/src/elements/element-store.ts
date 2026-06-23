@@ -1,6 +1,7 @@
 import { EventBus } from '../core/event-bus';
 import type { Bounds, Point } from '../core/types';
 import { Quadtree } from '../core/quadtree';
+import { rotatedAABB } from '../core/geometry';
 import { getElementBounds, transferStrokeBounds } from './element-bounds';
 import { getArrowControlPoint } from './arrow-geometry';
 import { sanitizeNoteHtml } from './note-sanitizer';
@@ -61,11 +62,20 @@ export class ElementStore {
     );
   }
 
+  // Spatial index stores the rotation-expanded AABB so rotated elements remain
+  // broad-phase hit-test/marquee candidates; precise tests run against local bounds.
+  private indexBounds(element: CanvasElement): Bounds | null {
+    const bounds = getElementBounds(element);
+    if (!bounds) return null;
+    const angle = element.rotation ?? 0;
+    return angle === 0 ? bounds : rotatedAABB(bounds, angle);
+  }
+
   add(element: CanvasElement): void {
     this.sortedCache = null;
     this._versions.set(element.id, 0);
     this.elements.set(element.id, element);
-    const bounds = getElementBounds(element);
+    const bounds = this.indexBounds(element);
     if (bounds) this.spatialIndex.insert(element.id, bounds);
     this.bus.emit('add', element);
   }
@@ -96,7 +106,7 @@ export class ElementStore {
 
     this.elements.set(id, updated as CanvasElement);
 
-    const newBounds = getElementBounds(updated as CanvasElement);
+    const newBounds = this.indexBounds(updated as CanvasElement);
     if (newBounds) {
       this.spatialIndex.update(id, newBounds);
     }
@@ -135,7 +145,7 @@ export class ElementStore {
     for (const el of elements) {
       this.elements.set(el.id, el);
       this._versions.set(el.id, 0);
-      const bounds = getElementBounds(el);
+      const bounds = this.indexBounds(el);
       if (bounds) this.spatialIndex.insert(el.id, bounds);
       if (el.type === 'stroke') {
         computeStrokeSegments(el);

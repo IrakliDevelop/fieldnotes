@@ -448,7 +448,13 @@ new ArrowTool({ color: '#333', width: 2 });
 ```typescript
 // Register a highlighter alongside the standard pencil
 viewport.toolManager.register(
-  new PencilTool({ name: 'highlighter', color: '#facc15', width: 12, opacity: 0.4, blendMode: 'multiply' }),
+  new PencilTool({
+    name: 'highlighter',
+    color: '#facc15',
+    width: 12,
+    opacity: 0.4,
+    blendMode: 'multiply',
+  }),
 );
 viewport.setTool('highlighter');
 ```
@@ -480,16 +486,16 @@ interface BaseElement {
 }
 ```
 
-| Type     | Key Fields                                                                             |
-| -------- | -------------------------------------------------------------------------------------- |
-| `stroke` | `points: StrokePoint[]`, `color`, `width`, `opacity`                                   |
-| `note`   | `size`, `text`, `backgroundColor`, `textColor`                                         |
-| `arrow`  | `from`, `to`, `bend`, `color`, `width`, `fromBinding`, `toBinding`                     |
-| `image`  | `size`, `src`                                                                          |
+| Type     | Key Fields                                                                                                                                   |
+| -------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `stroke` | `points: StrokePoint[]`, `color`, `width`, `opacity`                                                                                         |
+| `note`   | `size`, `text`, `backgroundColor`, `textColor`                                                                                               |
+| `arrow`  | `from`, `to`, `bend`, `color`, `width`, `fromBinding`, `toBinding`                                                                           |
+| `image`  | `size`, `src`                                                                                                                                |
 | `shape`  | `size`, `shape` (`rectangle` \| `ellipse` \| `line`), `strokeColor`, `fillColor`, `flip` (`boolean` — which bbox diagonal a line runs along) |
-| `text`   | `size`, `text`, `fontSize`, `color`, `textAlign`                                       |
-| `grid`   | `gridType` (`square` \| `hex`), `hexOrientation`, `cellSize`, `strokeColor`, `opacity` |
-| `html`   | `size`                                                                                 |
+| `text`   | `size`, `text`, `fontSize`, `color`, `textAlign`                                                                                             |
+| `grid`   | `gridType` (`square` \| `hex`), `hexOrientation`, `cellSize`, `strokeColor`, `opacity`                                                       |
+| `html`   | `size`                                                                                                                                       |
 
 ## Styling the Selection
 
@@ -571,9 +577,9 @@ Two methods on `Viewport` let you snap or space selected elements in one undo st
 - **`viewport.distributeSelection(axis)`** — `axis`: `DistributeAxis` = `'horizontal' | 'vertical'`; evenly spaces selected elements' centers along the axis. Needs 3+ selected elements. Locked elements anchor the span without moving.
 
 ```typescript
-viewport.alignSelection('left');       // flush left edges
-viewport.alignSelection('center-x');   // center on vertical axis
-viewport.alignSelection('middle');     // center on horizontal axis
+viewport.alignSelection('left'); // flush left edges
+viewport.alignSelection('center-x'); // center on vertical axis
+viewport.alignSelection('middle'); // center on horizontal axis
 viewport.distributeSelection('horizontal'); // equal horizontal spacing
 ```
 
@@ -584,7 +590,7 @@ Grids are ignored by both operations.
 Call `viewport.setSmartGuides(true)` to enable drag-time alignment snapping. While dragging a selection, its edges and centers snap to the edges and centers of nearby visible elements (within 6 screen pixels), and guide lines are drawn at each matched alignment. Smart guides replace grid snapping for the duration of the drag; the result is still committed as a single undo step.
 
 ```typescript
-viewport.setSmartGuides(true);  // enable
+viewport.setSmartGuides(true); // enable
 viewport.setSmartGuides(false); // disable (default)
 ```
 
@@ -598,11 +604,17 @@ Group elements so they select, move, delete, z-order, and align as a single unit
 Each is one undo step. Selecting any member selects its whole group, so to edit a single member individually, ungroup first. Pasting or duplicating a group keeps the copies grouped under a fresh id.
 
 ```typescript
-viewport.groupSelection();   // Ctrl/Cmd+G
+viewport.groupSelection(); // Ctrl/Cmd+G
 viewport.ungroupSelection(); // Ctrl/Cmd+Shift+G
 ```
 
 The shortcuts are rebindable as `group` and `ungroup`.
+
+## Rotation
+
+Select a single element and a rotate handle appears above the selection box. Drag it to rotate the element about its center; hold **Shift** to snap to 15° increments. Notes, text, images, HTML embeds, shapes, and strokes can all be rotated.
+
+Hit-testing, marquee selection, and resize are all rotation-aware: resizing a rotated element keeps the opposite corner fixed in the element's local frame. Rotation is reflected in PNG export and round-trips through serialization (`rotation?` on elements, stored in radians).
 
 ## Built-in Interactions
 

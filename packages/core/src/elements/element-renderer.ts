@@ -12,6 +12,7 @@ import { lineEndpoints } from './shape-geometry';
 import { getArrowMidpoint } from './arrow-geometry';
 import { getEdgeIntersection } from './arrow-binding';
 import { getElementBounds } from './element-bounds';
+import { withRotation } from './rotate-canvas';
 import { getStrokeRenderData } from './stroke-cache';
 import type { ElementStore } from './element-store';
 import {
@@ -85,18 +86,27 @@ export class ElementRenderer {
 
   renderCanvasElement(ctx: CanvasRenderingContext2D, element: CanvasElement): void {
     switch (element.type) {
-      case 'stroke':
-        this.renderStroke(ctx, element);
+      case 'stroke': {
+        const b = getElementBounds(element);
+        const c = b ? { x: b.x + b.w / 2, y: b.y + b.h / 2 } : element.position;
+        withRotation(ctx, element, c, () => this.renderStroke(ctx, element));
         break;
+      }
       case 'arrow':
         this.renderArrow(ctx, element);
         break;
-      case 'shape':
-        this.renderShape(ctx, element);
+      case 'shape': {
+        const b = getElementBounds(element);
+        const c = b ? { x: b.x + b.w / 2, y: b.y + b.h / 2 } : element.position;
+        withRotation(ctx, element, c, () => this.renderShape(ctx, element));
         break;
-      case 'image':
-        this.renderImage(ctx, element);
+      }
+      case 'image': {
+        const b = getElementBounds(element);
+        const c = b ? { x: b.x + b.w / 2, y: b.y + b.h / 2 } : element.position;
+        withRotation(ctx, element, c, () => this.renderImage(ctx, element));
         break;
+      }
       case 'grid':
         this.renderGrid(ctx, element);
         break;

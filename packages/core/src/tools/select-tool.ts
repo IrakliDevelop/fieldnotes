@@ -1,7 +1,7 @@
 import type { Bounds, Point } from '../core/types';
 import type { Tool, ToolContext, PointerState } from './types';
 import { smartSnap } from '../core/snap';
-import { distSqToSegment } from '../core/geometry';
+import { distSqToSegment, rotatePoint, rotatedAABB, normalizeAngle } from '../core/geometry';
 import type { CanvasElement, ArrowElement } from '../elements/types';
 import { isNearBezier } from '../elements/arrow-geometry';
 import { updateArrowsBoundToElements } from '../elements/arrow-binding';
@@ -29,6 +29,9 @@ const SNAP_PX = 6;
 const HANDLE_HIT_PADDING = 4;
 const SELECTION_PAD = 4;
 const MIN_ELEMENT_SIZE = 20;
+const ROTATE_HANDLE_OFFSET = 24;
+const ROTATE_SNAP = Math.PI / 12; // 15°
+const ROTATABLE_TYPES = new Set(['note', 'text', 'image', 'html', 'shape', 'stroke']);
 
 const HANDLE_CURSORS: Record<HandlePosition, string> = {
   nw: 'nwse-resize',
@@ -44,7 +47,14 @@ type Mode =
   | { type: 'resizing'; elementId: string; handle: HandlePosition }
   | { type: 'resizing-template'; elementId: string }
   | { type: 'arrow-handle'; elementId: string; handle: ArrowHandle }
-  | { type: 'line-handle'; elementId: string; fixed: Point };
+  | { type: 'line-handle'; elementId: string; fixed: Point }
+  | {
+      type: 'rotating';
+      elementId: string;
+      center: Point;
+      startPointerAngle: number;
+      startRotation: number;
+    };
 
 export class SelectTool implements Tool {
   readonly name = 'select';
@@ -141,6 +151,23 @@ export class SelectTool implements Tool {
       return;
     }
 
+    const rotateHit = this.hitTestRotateHandle(world, ctx);
+    if (rotateHit) {
+      const el = ctx.store.getById(rotateHit.elementId);
+      const layout = el ? this.getOverlayLayout(el, ctx.camera.zoom) : null;
+      if (el && layout) {
+        this.mode = {
+          type: 'rotating',
+          elementId: rotateHit.elementId,
+          center: layout.center,
+          startPointerAngle: Math.atan2(world.y - layout.center.y, world.x - layout.center.x),
+          startRotation: el.rotation ?? 0,
+        };
+        ctx.requestRender();
+        return;
+      }
+    }
+
     const resizeHit = this.hitTestResizeHandle(world, ctx);
     if (resizeHit) {
       const el = ctx.store.getById(resizeHit.elementId);
@@ -210,6 +237,16 @@ export class SelectTool implements Tool {
     if (this.mode.type === 'resizing-template') {
       ctx.setCursor?.('nwse-resize');
       this.handleTemplateResize(world, ctx);
+      return;
+    }
+
+    if (this.mode.type === 'rotating') {
+      const { elementId, center, startPointerAngle, startRotation } = this.mode;
+      const a = Math.atan2(world.y - center.y, world.x - center.x);
+      let next = startRotation + (a - startPointerAngle);
+      if (state.shiftKey) next = Math.round(next / ROTATE_SNAP) * ROTATE_SNAP;
+      ctx.store.update(elementId, { rotation: normalizeAngle(next) });
+      ctx.requestRender();
       return;
     }
 
@@ -450,6 +487,11 @@ export class SelectTool implements Tool {
       return null;
     }
 
+    if (this.hitTestRotateHandle(world, ctx)) {
+      ctx.setCursor?.('grab');
+      return null;
+    }
+
     const resizeHit = this.hitTestResizeHandle(world, ctx);
     if (resizeHit) {
       ctx.setCursor?.(HANDLE_CURSORS[resizeHit.handle]);
@@ -472,6 +514,12 @@ export class SelectTool implements Tool {
 
     const el = ctx.store.getById(this.mode.elementId);
     if (!el || !('size' in el) || el.locked) return;
+
+    const angle = el.rotation ?? 0;
+    if (angle !== 0) {
+      this.handleRotatedResize(world, el, angle, ctx, shiftKey);
+      return;
+    }
 
     const { handle } = this.mode;
     const dx = world.x - this.lastWorld.x;
@@ -538,6 +586,96 @@ export class SelectTool implements Tool {
     ctx.requestRender();
   }
 
+  private anchorOffset(handle: HandlePosition, w: number, h: number): Point {
+    switch (handle) {
+      case 'se':
+        return { x: -w / 2, y: -h / 2 };
+      case 'sw':
+        return { x: w / 2, y: -h / 2 };
+      case 'ne':
+        return { x: -w / 2, y: h / 2 };
+      case 'nw':
+        return { x: w / 2, y: h / 2 };
+      default:
+        return { x: 0, y: 0 };
+    }
+  }
+
+  private handleRotatedResize(
+    world: Point,
+    el: CanvasElement & { size: { w: number; h: number } },
+    angle: number,
+    ctx: ToolContext,
+    shiftKey: boolean,
+  ): void {
+    if (this.mode.type !== 'resizing') return;
+    const { handle } = this.mode;
+
+    const wdx = world.x - this.lastWorld.x;
+    const wdy = world.y - this.lastWorld.y;
+    this.lastWorld = world;
+
+    // world delta → element local frame (inverse rotation of the vector)
+    const cosN = Math.cos(-angle);
+    const sinN = Math.sin(-angle);
+    const ldx = wdx * cosN - wdy * sinN;
+    const ldy = wdx * sinN + wdy * cosN;
+
+    let w = el.size.w;
+    let h = el.size.h;
+    switch (handle) {
+      case 'se':
+        w += ldx;
+        h += ldy;
+        break;
+      case 'sw':
+        w -= ldx;
+        h += ldy;
+        break;
+      case 'ne':
+        w += ldx;
+        h -= ldy;
+        break;
+      case 'nw':
+        w -= ldx;
+        h -= ldy;
+        break;
+    }
+
+    if (shiftKey && this.resizeAspectRatio > 0) {
+      const absDw = Math.abs(w - el.size.w);
+      const absDh = Math.abs(h - el.size.h);
+      if (absDw >= absDh) h = w / this.resizeAspectRatio;
+      else w = h * this.resizeAspectRatio;
+    }
+    w = Math.max(w, MIN_ELEMENT_SIZE);
+    h = Math.max(h, MIN_ELEMENT_SIZE);
+
+    // anchor (opposite corner) fixed in world space, computed from OLD geometry
+    const oldCenter = { x: el.position.x + el.size.w / 2, y: el.position.y + el.size.h / 2 };
+    const oldAnchorLocal = this.anchorOffset(handle, el.size.w, el.size.h);
+    const anchorWorld = rotatePoint(
+      { x: oldCenter.x + oldAnchorLocal.x, y: oldCenter.y + oldAnchorLocal.y },
+      oldCenter,
+      angle,
+    );
+
+    // new center so the anchor stays put: anchorWorld = newCenter + R(angle)·newAnchorLocal
+    const newAnchorLocal = this.anchorOffset(handle, w, h);
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    const rotatedAnchor = {
+      x: newAnchorLocal.x * cos - newAnchorLocal.y * sin,
+      y: newAnchorLocal.x * sin + newAnchorLocal.y * cos,
+    };
+    const newCenter = { x: anchorWorld.x - rotatedAnchor.x, y: anchorWorld.y - rotatedAnchor.y };
+    const position = { x: newCenter.x - w / 2, y: newCenter.y - h / 2 };
+
+    ctx.store.update(this.mode.elementId, { position, size: { w, h } });
+    this.updateArrowsBoundTo([this.mode.elementId], ctx);
+    ctx.requestRender();
+  }
+
   private hitTestResizeHandle(
     world: Point,
     ctx: ToolContext,
@@ -552,11 +690,9 @@ export class SelectTool implements Tool {
       if (!el || !('size' in el)) continue;
       if (el.type === 'shape' && el.shape === 'line') continue;
 
-      const bounds = getElementBounds(el);
-      if (!bounds) continue;
-
-      const corners = this.getHandlePositions(bounds);
-      for (const [handle, pos] of corners) {
+      const layout = this.getOverlayLayout(el, zoom);
+      if (!layout) continue;
+      for (const [handle, pos] of layout.corners) {
         if (Math.abs(world.x - pos.x) <= handleHalf && Math.abs(world.y - pos.y) <= handleHalf) {
           return { elementId: id, handle };
         }
@@ -564,6 +700,20 @@ export class SelectTool implements Tool {
     }
 
     return null;
+  }
+
+  private hitTestRotateHandle(world: Point, ctx: ToolContext): { elementId: string } | null {
+    if (this._selectedIds.length !== 1) return null;
+    const id = this._selectedIds[0];
+    if (!id) return null;
+    const el = ctx.store.getById(id);
+    if (!el || el.locked || !ROTATABLE_TYPES.has(el.type)) return null;
+    const layout = this.getOverlayLayout(el, ctx.camera.zoom);
+    if (!layout) return null;
+    const r = (HANDLE_SIZE / 2 + HANDLE_HIT_PADDING) / ctx.camera.zoom;
+    const dx = world.x - layout.rotateHandle.x;
+    const dy = world.y - layout.rotateHandle.y;
+    return dx * dx + dy * dy <= r * r ? { elementId: id } : null;
   }
 
   private hitTestLineHandles(
@@ -591,6 +741,40 @@ export class SelectTool implements Tool {
       ['sw', { x: bounds.x, y: bounds.y + bounds.h }],
       ['se', { x: bounds.x + bounds.w, y: bounds.y + bounds.h }],
     ];
+  }
+
+  private getOverlayLayout(
+    el: CanvasElement,
+    zoom: number,
+  ): {
+    center: Point;
+    corners: [HandlePosition, Point][];
+    rotateHandle: Point;
+    angle: number;
+  } | null {
+    const bounds = getElementBounds(el);
+    if (!bounds) return null;
+    const angle = el.rotation ?? 0;
+    const pad = SELECTION_PAD / zoom;
+    const center = { x: bounds.x + bounds.w / 2, y: bounds.y + bounds.h / 2 };
+    const raw: [HandlePosition, Point][] = [
+      ['nw', { x: bounds.x - pad, y: bounds.y - pad }],
+      ['ne', { x: bounds.x + bounds.w + pad, y: bounds.y - pad }],
+      ['sw', { x: bounds.x - pad, y: bounds.y + bounds.h + pad }],
+      ['se', { x: bounds.x + bounds.w + pad, y: bounds.y + bounds.h + pad }],
+    ];
+    const corners = raw.map(
+      ([h, p]) => [h, rotatePoint(p, center, angle)] as [HandlePosition, Point],
+    );
+    const topMid = { x: center.x, y: bounds.y - pad - ROTATE_HANDLE_OFFSET / zoom };
+    const rotateHandle = rotatePoint(topMid, center, angle);
+    return { center, corners, rotateHandle, angle };
+  }
+
+  private topMidpoint(layout: { corners: [HandlePosition, Point][] }): Point {
+    const nw = layout.corners.find(([h]) => h === 'nw')?.[1] ?? { x: 0, y: 0 };
+    const ne = layout.corners.find(([h]) => h === 'ne')?.[1] ?? { x: 0, y: 0 };
+    return { x: (nw.x + ne.x) / 2, y: (nw.y + ne.y) / 2 };
   }
 
   private renderMarquee(canvasCtx: CanvasRenderingContext2D): void {
@@ -647,13 +831,35 @@ export class SelectTool implements Tool {
       const bounds = getElementBounds(el);
       if (!bounds) continue;
 
+      const layout = this.getOverlayLayout(el, zoom);
+      if (!layout) continue;
+
       const pad = SELECTION_PAD / zoom;
-      canvasCtx.strokeRect(bounds.x - pad, bounds.y - pad, bounds.w + pad * 2, bounds.h + pad * 2);
+      if (layout.angle === 0) {
+        canvasCtx.strokeRect(
+          bounds.x - pad,
+          bounds.y - pad,
+          bounds.w + pad * 2,
+          bounds.h + pad * 2,
+        );
+      } else {
+        const ordered = (['nw', 'ne', 'se', 'sw'] as HandlePosition[])
+          .map((h) => layout.corners.find(([c]) => c === h)?.[1])
+          .filter((p): p is Point => !!p);
+        const [p0, ...others] = ordered;
+        if (p0) {
+          canvasCtx.beginPath();
+          canvasCtx.moveTo(p0.x, p0.y);
+          for (const p of others) canvasCtx.lineTo(p.x, p.y);
+          canvasCtx.closePath();
+          canvasCtx.stroke();
+        }
+      }
 
       if ('size' in el) {
         canvasCtx.setLineDash([]);
         canvasCtx.fillStyle = '#ffffff';
-        const corners = this.getHandlePositions(bounds);
+        const corners = layout.angle === 0 ? this.getHandlePositions(bounds) : layout.corners;
         for (const [, pos] of corners) {
           canvasCtx.fillRect(
             pos.x - handleWorldSize / 2,
@@ -686,6 +892,23 @@ export class SelectTool implements Tool {
           handleWorldSize,
           handleWorldSize,
         );
+        canvasCtx.setLineDash([4 / zoom, 4 / zoom]);
+      }
+
+      if (this._selectedIds.length === 1 && ROTATABLE_TYPES.has(el.type)) {
+        const stemStart = this.topMidpoint(layout);
+        const stemEnd = layout.rotateHandle;
+        canvasCtx.beginPath();
+        canvasCtx.moveTo(stemStart.x, stemStart.y);
+        canvasCtx.lineTo(stemEnd.x, stemEnd.y);
+        canvasCtx.stroke();
+
+        canvasCtx.setLineDash([]);
+        canvasCtx.fillStyle = '#ffffff';
+        canvasCtx.beginPath();
+        canvasCtx.arc(stemEnd.x, stemEnd.y, handleWorldSize / 2, 0, Math.PI * 2);
+        canvasCtx.fill();
+        canvasCtx.stroke();
         canvasCtx.setLineDash([4 / zoom, 4 / zoom]);
       }
     }
@@ -796,7 +1019,7 @@ export class SelectTool implements Tool {
       if (ctx.isLayerLocked && ctx.isLayerLocked(el.layerId)) continue;
       if (el.type === 'grid') continue;
       const bounds = getElementBounds(el);
-      if (bounds && this.rectsOverlap(marquee, bounds)) {
+      if (bounds && this.rectsOverlap(marquee, rotatedAABB(bounds, el.rotation ?? 0))) {
         ids.push(el.id);
       }
     }
@@ -824,6 +1047,13 @@ export class SelectTool implements Tool {
 
   private isInsideBounds(point: Point, el: CanvasElement): boolean {
     if (el.type === 'grid') return false;
+    const angle = el.rotation ?? 0;
+    if (angle !== 0) {
+      const b = getElementBounds(el);
+      if (b) {
+        point = rotatePoint(point, { x: b.x + b.w / 2, y: b.y + b.h / 2 }, -angle);
+      }
+    }
     if (el.type === 'shape' && el.shape === 'line') {
       const [a, b] = lineEndpoints(el);
       const threshold = Math.max(el.strokeWidth / 2, 6);

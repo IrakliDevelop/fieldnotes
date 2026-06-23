@@ -268,6 +268,14 @@ describe('parseState', () => {
     expect(restored.elements[0]?.groupId).toBe('group_abc');
   });
 
+  it('round-trips rotation on elements', () => {
+    const note = createNote({ position: { x: 10, y: 20 }, layerId: 'default-layer' });
+    note.rotation = Math.PI / 4;
+    const json = JSON.stringify(exportState([note], makeCamera()));
+    const restored = parseState(json);
+    expect(restored.elements[0]?.rotation).toBeCloseTo(Math.PI / 4);
+  });
+
   it('cleans stale arrow bindings on parse', () => {
     const state = {
       version: 1,

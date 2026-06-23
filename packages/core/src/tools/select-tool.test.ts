@@ -12,8 +12,10 @@ import {
   createShape,
 } from '../elements/element-factory';
 import { lineEndpoints } from '../elements/shape-geometry';
+import { rotatePoint } from '../core/geometry';
 import type { ToolContext, PointerState } from './types';
 import type { NoteElement, ImageElement, TemplateElement } from '../elements/types';
+import type { Point } from '../core/types';
 
 function makeCtx(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
@@ -237,6 +239,24 @@ describe('SelectTool', () => {
       tool.onPointerDown(pt(0, 0), ctx);
       tool.onPointerMove(pt(200, 200), ctx);
       tool.onPointerUp(pt(200, 200), ctx);
+
+      expect(tool.selectedIds).toEqual([note.id]);
+    });
+
+    it('marquee selects a rotated element by its visible footprint', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 20 } });
+      note.rotation = Math.PI / 2;
+      ctx.store.add(note);
+      // Visible footprint of the 90°-rotated note: x∈[40,60], y∈[-40,60].
+      // Start the marquee below the footprint (45,-100) so it begins on empty
+      // space (not a click-select), then drag to (55,-10): the marquee rect
+      // x∈[45,55], y∈[-100,-10] overlaps the rotated footprint but is fully
+      // above the unrotated AABB (y∈[0,20]).
+      tool.onPointerDown(pt(45, -100), ctx);
+      tool.onPointerMove(pt(55, -10), ctx);
+      tool.onPointerUp(pt(55, -10), ctx);
 
       expect(tool.selectedIds).toEqual([note.id]);
     });
@@ -979,6 +999,13 @@ describe('SelectTool', () => {
         restore: vi.fn(),
         strokeRect: vi.fn(),
         fillRect: vi.fn(),
+        beginPath: vi.fn(),
+        moveTo: vi.fn(),
+        lineTo: vi.fn(),
+        closePath: vi.fn(),
+        arc: vi.fn(),
+        fill: vi.fn(),
+        stroke: vi.fn(),
         strokeStyle: '',
         fillStyle: '',
         lineWidth: 0,
@@ -1048,6 +1075,9 @@ describe('SelectTool', () => {
         strokeRect: vi.fn(),
         fillRect: vi.fn(),
         beginPath: vi.fn(),
+        moveTo: vi.fn(),
+        lineTo: vi.fn(),
+        closePath: vi.fn(),
         arc: vi.fn(),
         fill: vi.fn(),
         stroke: vi.fn(),
@@ -1081,6 +1111,9 @@ describe('SelectTool', () => {
         strokeRect: vi.fn(),
         fillRect: vi.fn(),
         beginPath: vi.fn(),
+        moveTo: vi.fn(),
+        lineTo: vi.fn(),
+        closePath: vi.fn(),
         arc: vi.fn(),
         fill: vi.fn(),
         stroke: vi.fn(),
@@ -1092,9 +1125,10 @@ describe('SelectTool', () => {
       } as unknown as CanvasRenderingContext2D;
       tool.renderOverlay?.(canvas);
 
+      // 4 square corner handles (fillRect); the lone rotate handle is a circle (arc, not fillRect)
       const fillCalls = (canvas.fillRect as ReturnType<typeof vi.fn>).mock.calls.length;
       expect(fillCalls).toBe(4);
-      expect(canvas.arc).not.toHaveBeenCalled();
+      expect((canvas.arc as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
     });
 
     it('does not leak solid line-dash onto a co-selected element (line before rect)', () => {
@@ -1124,6 +1158,9 @@ describe('SelectTool', () => {
         strokeRect: vi.fn(() => dashAtStrokeRect.push([...currentDash])),
         fillRect: vi.fn(),
         beginPath: vi.fn(),
+        moveTo: vi.fn(),
+        lineTo: vi.fn(),
+        closePath: vi.fn(),
         arc: vi.fn(),
         fill: vi.fn(),
         stroke: vi.fn(),
@@ -1202,6 +1239,9 @@ describe('SelectTool', () => {
         strokeRect: vi.fn(),
         fillRect: vi.fn(),
         beginPath: vi.fn(),
+        moveTo: vi.fn(),
+        lineTo: vi.fn(),
+        closePath: vi.fn(),
         arc: vi.fn(),
         fill: vi.fn(),
         stroke: vi.fn(),
@@ -1241,6 +1281,9 @@ describe('SelectTool', () => {
         strokeRect: vi.fn(),
         fillRect: vi.fn(),
         beginPath: vi.fn(),
+        moveTo: vi.fn(),
+        lineTo: vi.fn(),
+        closePath: vi.fn(),
         arc: vi.fn(),
         fill: vi.fn(),
         stroke: vi.fn(),
@@ -1757,6 +1800,13 @@ describe('SelectTool', () => {
         restore: vi.fn(),
         strokeRect: vi.fn(),
         fillRect: vi.fn(),
+        beginPath: vi.fn(),
+        moveTo: vi.fn(),
+        lineTo: vi.fn(),
+        closePath: vi.fn(),
+        arc: vi.fn(),
+        fill: vi.fn(),
+        stroke: vi.fn(),
         strokeStyle: '',
         fillStyle: '',
         lineWidth: 0,
@@ -2072,5 +2122,190 @@ describe('SelectTool', () => {
       };
       expect(priv.hitTestResizeHandle({ x: 100, y: 100 }, ctx)).toBeNull();
     });
+  });
+
+  describe('rotation-aware hit-testing', () => {
+    it('hits a point inside a 90°-rotated note footprint (outside its unrotated AABB)', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 20 } }); // wide & short
+      note.rotation = Math.PI / 2; // becomes tall & narrow: center (50,10); world box x∈[40,60], y∈[-40,60]
+      ctx.store.add(note);
+      tool.onPointerDown(pt(50, 50), ctx); // inside rotated footprint, but y=50 is OUTSIDE the unrotated AABB (h=20)
+      tool.onPointerUp(pt(50, 50), ctx);
+      expect(tool.selectedIds).toEqual([note.id]);
+    });
+
+    it('misses a point inside the unrotated AABB but outside the rotated footprint', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 20 } });
+      note.rotation = Math.PI / 2;
+      ctx.store.add(note);
+      tool.onPointerDown(pt(95, 10), ctx); // x=95 inside unrotated AABB (w=100) but outside rotated box (x∈[40,60])
+      tool.onPointerUp(pt(95, 10), ctx);
+      expect(tool.selectedIds).toEqual([]);
+    });
+  });
+
+  describe('oriented selection overlay', () => {
+    it('getOverlayLayout centers and rotates the corners', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
+      note.rotation = Math.PI / 2;
+      ctx.store.add(note);
+      const layout = (
+        tool as unknown as {
+          getOverlayLayout: (
+            el: unknown,
+            zoom: number,
+          ) => {
+            center: Point;
+            corners: [string, Point][];
+            rotateHandle: Point;
+          } | null;
+        }
+      ).getOverlayLayout(note, 1);
+      expect(layout?.center.x).toBeCloseTo(50);
+      expect(layout?.center.y).toBeCloseTo(50);
+      const nw = layout?.corners.find(([h]) => h === 'nw')?.[1];
+      // unrotated nw is top-left (x = -4 from the padded box); after 90° it swings off that axis
+      expect(nw && Math.abs(nw.x - -4) > 1).toBe(true);
+    });
+  });
+
+  describe('rotate handle drag', () => {
+    it('drags the rotate handle to set rotation (90°)', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } }); // center (50,50)
+      ctx.store.add(note);
+      (tool as unknown as { setSelection: (ids: string[]) => void }).setSelection([note.id]);
+      const layout = (
+        tool as unknown as {
+          getOverlayLayout: (el: unknown, z: number) => { rotateHandle: Point };
+        }
+      ).getOverlayLayout(note, 1);
+      tool.onPointerDown(pt(layout.rotateHandle.x, layout.rotateHandle.y), ctx); // handle starts straight up (angle -90°)
+      tool.onPointerMove(pt(100, 50), ctx); // pointer due right of center → +90° from start
+      const r = ctx.store.getById(note.id)?.rotation ?? 0;
+      expect(r).toBeCloseTo(Math.PI / 2);
+    });
+
+    it('snaps rotation to 15° with shift', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
+      ctx.store.add(note);
+      (tool as unknown as { setSelection: (ids: string[]) => void }).setSelection([note.id]);
+      const layout = (
+        tool as unknown as {
+          getOverlayLayout: (el: unknown, z: number) => { rotateHandle: Point };
+        }
+      ).getOverlayLayout(note, 1);
+      tool.onPointerDown(pt(layout.rotateHandle.x, layout.rotateHandle.y), ctx);
+      tool.onPointerMove(shiftPt(105, 47), ctx); // shift held → snap to nearest 15°
+      const r = ctx.store.getById(note.id)?.rotation ?? 0;
+      const deg = (r * 180) / Math.PI;
+      expect(Math.abs(deg - Math.round(deg / 15) * 15)).toBeLessThan(1e-6);
+    });
+
+    it('does not grab a rotate handle on a locked element', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
+      note.locked = true;
+      ctx.store.add(note);
+      (tool as unknown as { setSelection: (ids: string[]) => void }).setSelection([note.id]);
+      const hit = (
+        tool as unknown as { hitTestRotateHandle: (w: Point, c: unknown) => unknown }
+      ).hitTestRotateHandle({ x: 50, y: -100 }, ctx);
+      expect(hit).toBeNull();
+    });
+
+    it('shows a grab cursor when hovering the rotate handle', () => {
+      const tool = new SelectTool();
+      const setCursor = vi.fn();
+      const ctx = makeCtx({ setCursor });
+      const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
+      ctx.store.add(note);
+      (tool as unknown as { setSelection: (ids: string[]) => void }).setSelection([note.id]);
+      const layout = (
+        tool as unknown as {
+          getOverlayLayout: (el: unknown, z: number) => { rotateHandle: Point };
+        }
+      ).getOverlayLayout(note, 1);
+
+      tool.onHover?.(pt(layout.rotateHandle.x, layout.rotateHandle.y), ctx);
+
+      expect(setCursor).toHaveBeenCalledWith('grab');
+    });
+
+    for (const handle of ['nw', 'ne', 'sw', 'se'] as const) {
+      it(`resizing a rotated element keeps the opposite corner fixed in world space (${handle})`, () => {
+        const tool = new SelectTool();
+        const ctx = makeCtx();
+        const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
+        note.rotation = Math.PI / 6; // 30°
+        ctx.store.add(note);
+        (tool as unknown as { setSelection: (ids: string[]) => void }).setSelection([note.id]);
+
+        const before = ctx.store.getById(note.id) as {
+          position: Point;
+          size: { w: number; h: number };
+          rotation: number;
+        };
+        const center0 = {
+          x: before.position.x + before.size.w / 2,
+          y: before.position.y + before.size.h / 2,
+        };
+        // the fixed anchor is the element corner OPPOSITE the dragged handle, rotated about center
+        const { x, y } = before.position;
+        const { w, h } = before.size;
+        const fixedCornerLocal: Record<typeof handle, Point> = {
+          se: { x, y },
+          sw: { x: x + w, y },
+          nw: { x: x + w, y: y + h },
+          ne: { x, y: y + h },
+        };
+        const anchorWorld = rotatePoint(fixedCornerLocal[handle], center0, before.rotation);
+
+        const layout = (
+          tool as unknown as {
+            getOverlayLayout: (el: unknown, z: number) => { corners: [string, Point][] };
+          }
+        ).getOverlayLayout(before, 1);
+        const grab = layout.corners.find(([hh]) => hh === handle)?.[1] as Point;
+        // drag the corner radially outward from center — always increases size for that handle
+        const outward = {
+          x: grab.x + (grab.x - center0.x) * 0.3,
+          y: grab.y + (grab.y - center0.y) * 0.3,
+        };
+        tool.onPointerDown(pt(grab.x, grab.y), ctx); // grab handle
+        tool.onPointerMove(pt(outward.x, outward.y), ctx); // drag outward
+
+        const after = ctx.store.getById(note.id) as {
+          position: Point;
+          size: { w: number; h: number };
+          rotation: number;
+        };
+        const center1 = {
+          x: after.position.x + after.size.w / 2,
+          y: after.position.y + after.size.h / 2,
+        };
+        const fixedCornerLocalAfter: Record<typeof handle, Point> = {
+          se: { x: after.position.x, y: after.position.y },
+          sw: { x: after.position.x + after.size.w, y: after.position.y },
+          nw: { x: after.position.x + after.size.w, y: after.position.y + after.size.h },
+          ne: { x: after.position.x, y: after.position.y + after.size.h },
+        };
+        const anchorAfter = rotatePoint(fixedCornerLocalAfter[handle], center1, after.rotation);
+        expect(anchorAfter.x).toBeCloseTo(anchorWorld.x, 4);
+        expect(anchorAfter.y).toBeCloseTo(anchorWorld.y, 4);
+        expect(after.size.w).toBeGreaterThan(before.size.w);
+        expect(after.size.h).toBeGreaterThan(before.size.h);
+      });
+    }
   });
 });
