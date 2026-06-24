@@ -187,7 +187,9 @@ describe('Viewport', () => {
       });
       viewport.store.add(note);
 
-      const priv = viewport as unknown as { startEditingElement: (id: string) => void };
+      const priv = (
+        viewport as unknown as { interactions: { startEditingElement: (id: string) => void } }
+      ).interactions;
       priv.startEditingElement(note.id);
 
       viewport.destroy();
@@ -240,7 +242,9 @@ describe('Viewport', () => {
       });
       viewport.store.add(text);
 
-      const priv = viewport as unknown as { startEditingElement: (id: string) => void };
+      const priv = (
+        viewport as unknown as { interactions: { startEditingElement: (id: string) => void } }
+      ).interactions;
       priv.startEditingElement(text.id);
 
       viewport.destroy();
@@ -258,7 +262,9 @@ describe('Viewport', () => {
       document.elementFromPoint = vi.fn().mockReturnValue(null);
 
       expect(() => {
-        const priv = viewport as unknown as { startEditingElement: (id: string) => void };
+        const priv = (
+          viewport as unknown as { interactions: { startEditingElement: (id: string) => void } }
+        ).interactions;
         priv.startEditingElement(stroke.id);
       }).not.toThrow();
       viewport.destroy();
@@ -269,7 +275,9 @@ describe('Viewport', () => {
       document.elementFromPoint = vi.fn().mockReturnValue(null);
 
       expect(() => {
-        const priv = viewport as unknown as { startEditingElement: (id: string) => void };
+        const priv = (
+          viewport as unknown as { interactions: { startEditingElement: (id: string) => void } }
+        ).interactions;
         priv.startEditingElement('nonexistent');
       }).not.toThrow();
       viewport.destroy();
@@ -335,9 +343,13 @@ describe('Viewport', () => {
   describe('onDrop', () => {
     it('handles drop with no dataTransfer files', () => {
       const viewport = new Viewport(container);
-      const priv = viewport as unknown as {
-        onDrop: (e: { preventDefault: () => void; dataTransfer?: null }) => void;
-      };
+      const priv = (
+        viewport as unknown as {
+          interactions: {
+            onDrop: (e: { preventDefault: () => void; dataTransfer?: null }) => void;
+          };
+        }
+      ).interactions;
       const mockEvent = { preventDefault: vi.fn(), dataTransfer: null };
       expect(() => priv.onDrop(mockEvent)).not.toThrow();
       expect(mockEvent.preventDefault).toHaveBeenCalled();
@@ -346,7 +358,8 @@ describe('Viewport', () => {
 
     it('skips non-image files', () => {
       const viewport = new Viewport(container);
-      const priv = viewport as unknown as { onDrop: (e: unknown) => void };
+      const priv = (viewport as unknown as { interactions: { onDrop: (e: unknown) => void } })
+        .interactions;
       const mockFile = { type: 'text/plain' };
       const mockEvent = {
         preventDefault: vi.fn(),
@@ -361,7 +374,8 @@ describe('Viewport', () => {
 
     it('processes image files via FileReader', () => {
       const viewport = new Viewport(container);
-      const priv = viewport as unknown as { onDrop: (e: unknown) => void };
+      const priv = (viewport as unknown as { interactions: { onDrop: (e: unknown) => void } })
+        .interactions;
       const mockFile = { type: 'image/png' };
       let capturedOnload: (() => void) | null = null;
       const OrigFileReader = globalThis.FileReader;
@@ -392,7 +406,8 @@ describe('Viewport', () => {
 
     it('skips non-string FileReader results', () => {
       const viewport = new Viewport(container);
-      const priv = viewport as unknown as { onDrop: (e: unknown) => void };
+      const priv = (viewport as unknown as { interactions: { onDrop: (e: unknown) => void } })
+        .interactions;
       const mockFile = { type: 'image/png' };
       let capturedOnload: (() => void) | null = null;
       const OrigFileReader = globalThis.FileReader;
@@ -526,7 +541,9 @@ describe('Viewport', () => {
       });
       viewport.store.add(text);
 
-      const priv = viewport as unknown as { onTextEditStop: (id: string) => void };
+      const priv = (
+        viewport as unknown as { interactions: { onTextEditStop: (id: string) => void } }
+      ).interactions;
       priv.onTextEditStop(text.id);
 
       expect(viewport.store.getById(text.id)).toBeUndefined();
@@ -543,7 +560,9 @@ describe('Viewport', () => {
       });
       viewport.store.add(text);
 
-      const priv = viewport as unknown as { onTextEditStop: (id: string) => void };
+      const priv = (
+        viewport as unknown as { interactions: { onTextEditStop: (id: string) => void } }
+      ).interactions;
       priv.onTextEditStop(text.id);
 
       expect(viewport.store.getById(text.id)).toBeUndefined();
@@ -560,7 +579,9 @@ describe('Viewport', () => {
       });
       viewport.store.add(note);
 
-      const priv = viewport as unknown as { onTextEditStop: (id: string) => void };
+      const priv = (
+        viewport as unknown as { interactions: { onTextEditStop: (id: string) => void } }
+      ).interactions;
       priv.onTextEditStop(note.id);
 
       expect(viewport.store.getById(note.id)).toBeUndefined();
@@ -577,7 +598,9 @@ describe('Viewport', () => {
       });
       viewport.store.add(note);
 
-      const priv = viewport as unknown as { onTextEditStop: (id: string) => void };
+      const priv = (
+        viewport as unknown as { interactions: { onTextEditStop: (id: string) => void } }
+      ).interactions;
       priv.onTextEditStop(note.id);
       expect(viewport.store.getById(note.id)).toBeUndefined();
 
@@ -596,7 +619,9 @@ describe('Viewport', () => {
       });
       viewport.store.add(note);
 
-      const priv = viewport as unknown as { onTextEditStop: (id: string) => void };
+      const priv = (
+        viewport as unknown as { interactions: { onTextEditStop: (id: string) => void } }
+      ).interactions;
       priv.onTextEditStop(note.id);
 
       expect(viewport.store.getById(note.id)).toBeDefined();
@@ -605,7 +630,9 @@ describe('Viewport', () => {
 
     it('ignores nonexistent element IDs', () => {
       const viewport = new Viewport(container);
-      const priv = viewport as unknown as { onTextEditStop: (id: string) => void };
+      const priv = (
+        viewport as unknown as { interactions: { onTextEditStop: (id: string) => void } }
+      ).interactions;
       expect(() => priv.onTextEditStop('nonexistent')).not.toThrow();
       viewport.destroy();
     });
@@ -622,7 +649,9 @@ describe('Viewport', () => {
 
       viewport.requestRender();
 
-      const priv = viewport as unknown as { onTextEditStop: (id: string) => void };
+      const priv = (
+        viewport as unknown as { interactions: { onTextEditStop: (id: string) => void } }
+      ).interactions;
       priv.onTextEditStop(text.id);
 
       expect(viewport.store.getById(text.id)).toBeDefined();
@@ -1700,7 +1729,11 @@ describe('Viewport', () => {
       const viewport = new Viewport(container);
       const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 } });
       viewport.store.add(arrow);
-      const priv = viewport as unknown as { findArrowAt: (w: { x: number; y: number }) => unknown };
+      const priv = (
+        viewport as unknown as {
+          interactions: { findArrowAt: (w: { x: number; y: number }) => unknown };
+        }
+      ).interactions;
       expect(priv.findArrowAt({ x: 50, y: 0 })).toBeTruthy();
       expect(priv.findArrowAt({ x: 50, y: 80 })).toBeUndefined();
       viewport.destroy();
@@ -1710,7 +1743,9 @@ describe('Viewport', () => {
       const viewport = new Viewport(container);
       const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 } });
       viewport.store.add(arrow);
-      const priv = viewport as unknown as { startArrowLabelEdit: (a: typeof arrow) => void };
+      const priv = (
+        viewport as unknown as { interactions: { startArrowLabelEdit: (a: typeof arrow) => void } }
+      ).interactions;
       priv.startArrowLabelEdit(arrow);
       expect(viewport.domLayer.querySelector('input')).not.toBeNull();
       viewport.destroy();
@@ -1728,7 +1763,7 @@ describe('Viewport', () => {
       });
       viewport.store.add(note);
       const priv = viewport as unknown as {
-        fitNoteHeight: (id: string) => void;
+        interactions: { fitNoteHeight: (id: string) => void };
         domNodeManager: {
           syncDomNode: (el: unknown) => void;
           getNode: (id: string) => HTMLElement | undefined;
@@ -1738,7 +1773,7 @@ describe('Viewport', () => {
       const node = priv.domNodeManager.getNode(note.id);
       expect(node).not.toBeUndefined();
       Object.defineProperty(node, 'scrollHeight', { value: 80, configurable: true });
-      priv.fitNoteHeight(note.id);
+      priv.interactions.fitNoteHeight(note.id);
       const updated = viewport.store.getById(note.id);
       expect(updated?.type === 'note' && updated.size.h).toBe(80);
       viewport.destroy();
@@ -1754,7 +1789,7 @@ describe('Viewport', () => {
       });
       viewport.store.add(note);
       const priv = viewport as unknown as {
-        fitNoteHeight: (id: string) => void;
+        interactions: { fitNoteHeight: (id: string) => void };
         domNodeManager: {
           syncDomNode: (el: unknown) => void;
           getNode: (id: string) => HTMLElement | undefined;
@@ -1764,7 +1799,7 @@ describe('Viewport', () => {
       const node = priv.domNodeManager.getNode(note.id);
       expect(node).not.toBeUndefined();
       Object.defineProperty(node, 'scrollHeight', { value: 30, configurable: true });
-      priv.fitNoteHeight(note.id);
+      priv.interactions.fitNoteHeight(note.id);
       const updated = viewport.store.getById(note.id);
       expect(updated?.type === 'note' && updated.size.h).toBe(200);
       viewport.destroy();

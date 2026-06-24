@@ -671,30 +671,6 @@ export class Viewport {
     this.interactMode.stopInteracting();
   }
 
-  startEditingElement(id: string): void {
-    this.interactions.startEditingElement(id);
-  }
-
-  fitNoteHeight(elementId: string): void {
-    this.interactions.fitNoteHeight(elementId);
-  }
-
-  onTextEditStop(elementId: string): void {
-    this.interactions.onTextEditStop(elementId);
-  }
-
-  findArrowAt(world: { x: number; y: number }): ArrowElement | undefined {
-    return this.interactions.findArrowAt(world);
-  }
-
-  startArrowLabelEdit(arrow: ArrowElement): void {
-    this.interactions.startArrowLabelEdit(arrow);
-  }
-
-  onDrop = (e: DragEvent): void => {
-    this.interactions.onDrop(e);
-  };
-
   private unbindArrowsFrom(removedElement: CanvasElement): void {
     const boundArrows = findBoundArrows(removedElement.id, this.store);
     const bounds = getElementBounds(removedElement);
