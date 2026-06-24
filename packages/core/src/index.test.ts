@@ -48,6 +48,10 @@ describe('core public surface', () => {
       'rotatedAABB',
       'normalizeAngle',
       'withRotation',
+      // select-tool decomposition internals
+      'getOverlayLayout',
+      'hitTestResizeHandle',
+      'computeRotatedResize',
     ];
     for (const name of removed) {
       expect(name in FN, `${name} should not be exported`).toBe(false);
