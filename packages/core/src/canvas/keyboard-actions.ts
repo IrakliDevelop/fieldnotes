@@ -3,7 +3,7 @@ import type { ToolContext } from '../tools/types';
 import type { SelectTool } from '../tools/select-tool';
 import type { HistoryRecorder } from '../history/history-recorder';
 import type { HistoryStack } from '../history/history-stack';
-import type { CanvasElement, ArrowElement } from '../elements/types';
+import type { CanvasElement } from '../elements/types';
 import type { Point } from '../core/types';
 import { createId } from '../elements/create-id';
 import { getElementsBoundingBox } from '../elements/bounds';
@@ -283,7 +283,7 @@ export class KeyboardActions {
       clone.position = { x: clone.position.x + offset.x, y: clone.position.y + offset.y };
 
       if (clone.type === 'arrow') {
-        const arrow = clone as ArrowElement;
+        const arrow = clone;
         arrow.from = { x: arrow.from.x + offset.x, y: arrow.from.y + offset.y };
         arrow.to = { x: arrow.to.x + offset.x, y: arrow.to.y + offset.y };
         delete arrow.cachedControlPoint;

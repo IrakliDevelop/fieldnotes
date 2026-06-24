@@ -6,7 +6,7 @@ import { getElementBounds, transferStrokeBounds } from './element-bounds';
 import { getArrowControlPoint } from './arrow-geometry';
 import { sanitizeNoteHtml } from './note-sanitizer';
 import { computeStrokeSegments, transferStrokeRenderData } from './stroke-cache';
-import type { ArrowElement, CanvasElement, ElementType, NoteElement } from './types';
+import type { CanvasElement, ElementType } from './types';
 
 export interface ElementUpdateEvent {
   previous: CanvasElement;
@@ -88,30 +88,35 @@ export class ElementStore {
 
     // Shallow spread preserves the points array identity when `partial` omits points;
     // transferStrokeRenderData/transferStrokeBounds rely on that reference equality.
-    const updated = { ...existing, ...partial, id: existing.id, type: existing.type };
+    const updated = {
+      ...existing,
+      ...partial,
+      id: existing.id,
+      type: existing.type,
+    } as CanvasElement;
 
     if (updated.type === 'stroke' && existing.type === 'stroke') {
-      transferStrokeRenderData(existing, updated as CanvasElement);
-      transferStrokeBounds(existing, updated as CanvasElement);
+      transferStrokeRenderData(existing, updated);
+      transferStrokeBounds(existing, updated);
     }
 
     if (updated.type === 'arrow') {
-      const arrow = updated as ArrowElement;
+      const arrow = updated;
       arrow.cachedControlPoint = getArrowControlPoint(arrow.from, arrow.to, arrow.bend);
     }
 
     if (updated.type === 'note' && 'text' in partial) {
-      (updated as NoteElement).text = sanitizeNoteHtml((updated as NoteElement).text);
+      updated.text = sanitizeNoteHtml(updated.text);
     }
 
-    this.elements.set(id, updated as CanvasElement);
+    this.elements.set(id, updated);
 
-    const newBounds = this.indexBounds(updated as CanvasElement);
+    const newBounds = this.indexBounds(updated);
     if (newBounds) {
       this.spatialIndex.update(id, newBounds);
     }
 
-    this.bus.emit('update', { previous: existing, current: updated as CanvasElement });
+    this.bus.emit('update', { previous: existing, current: updated });
   }
 
   remove(id: string): void {
