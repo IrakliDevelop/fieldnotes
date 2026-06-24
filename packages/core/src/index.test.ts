@@ -3,7 +3,7 @@ import * as FN from './index';
 
 describe('core public surface', () => {
   it('exports the current version', () => {
-    expect(FN.VERSION).toBe('0.38.1');
+    expect(FN.VERSION).toBe('0.38.2');
   });
 
   it('does not export internal machinery (trimmed before 1.0)', () => {
@@ -52,6 +52,10 @@ describe('core public surface', () => {
       'getOverlayLayout',
       'hitTestResizeHandle',
       'computeRotatedResize',
+      // viewport decomposition internals
+      'SelectionOps',
+      'GridController',
+      'createWrapper',
     ];
     for (const name of removed) {
       expect(name in FN, `${name} should not be exported`).toBe(false);

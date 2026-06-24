@@ -4,6 +4,13 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.38.2] — 2026-06-24
+
+### Changed
+
+- Internal: extracted viewport selection-ops, grid, and DOM-setup into focused modules
+  (`SelectionOps`, `GridController`, `viewport-dom`). No public API or behavior change.
+
 ## [0.38.1] — 2026-06-24
 
 ### Changed
