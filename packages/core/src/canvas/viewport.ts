@@ -12,6 +12,7 @@ import type { CanvasElement, ArrowElement, GridElement, ShapeKind } from '../ele
 import type { Point } from '../core/types';
 import { ContextMenu } from './context-menu';
 import type { ContextMenuItem } from './context-menu';
+import { createWrapper, createCanvas, createDomLayer } from './viewport-dom';
 import { findBoundArrows, getEdgeIntersection } from '../elements/arrow-binding';
 import { getElementBounds } from '../elements/element-bounds';
 import { getElementsBoundingBox } from '../elements/bounds';
@@ -165,9 +166,9 @@ export class Viewport {
       requestRender: () => this.requestRender(),
     });
 
-    this.wrapper = this.createWrapper();
-    this.canvasEl = this.createCanvas();
-    this.domLayer = this.createDomLayer();
+    this.wrapper = createWrapper();
+    this.canvasEl = createCanvas();
+    this.domLayer = createDomLayer();
 
     this.wrapper.appendChild(this.canvasEl);
     this.wrapper.appendChild(this.domLayer);
@@ -866,46 +867,6 @@ export class Viewport {
         this.store.update(arrow.id, updates);
       }
     }
-  }
-
-  private createWrapper(): HTMLDivElement {
-    const el = document.createElement('div');
-    Object.assign(el.style, {
-      position: 'relative',
-      width: '100%',
-      height: '100%',
-      overflow: 'hidden',
-      overscrollBehavior: 'none',
-      userSelect: 'none',
-      webkitUserSelect: 'none',
-    });
-    return el;
-  }
-
-  private createCanvas(): HTMLCanvasElement {
-    const el = document.createElement('canvas');
-    Object.assign(el.style, {
-      position: 'absolute',
-      top: '0',
-      left: '0',
-      width: '100%',
-      height: '100%',
-    });
-    return el;
-  }
-
-  private createDomLayer(): HTMLDivElement {
-    const el = document.createElement('div');
-    Object.assign(el.style, {
-      position: 'absolute',
-      top: '0',
-      left: '0',
-      width: '100%',
-      height: '100%',
-      pointerEvents: 'none',
-      transformOrigin: '0 0',
-    });
-    return el;
   }
 
   private applyCameraTransform(): void {
