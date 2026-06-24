@@ -1,44 +1,43 @@
 import type { Bounds, Point } from '../core/types';
 import type { Tool, ToolContext, PointerState } from './types';
 import { smartSnap } from '../core/snap';
-import { distSqToSegment, rotatePoint, rotatedAABB, normalizeAngle } from '../core/geometry';
-import type { CanvasElement, ArrowElement } from '../elements/types';
-import { isNearBezier } from '../elements/arrow-geometry';
+import { normalizeAngle } from '../core/geometry';
+import type { CanvasElement } from '../elements/types';
 import { updateArrowsBoundToElements } from '../elements/arrow-binding';
 import { getElementBounds } from '../elements/element-bounds';
 import { expandToGroups } from '../elements/group';
 import { getElementsBoundingBox } from '../elements/bounds';
-import { hitTestStroke } from '../elements/stroke-hit';
-import { lineEndpoints, lineFromEndpoints } from '../elements/shape-geometry';
+import { lineFromEndpoints } from '../elements/shape-geometry';
 import { translateElementPatch } from '../elements/translate';
 import {
   type ArrowHandle,
   hitTestArrowHandles,
   applyArrowHandleDrag,
-  renderArrowHandles,
   getArrowHandleCursor,
   getArrowHandleDragTarget,
 } from './arrow-handles';
 import { computeSnapGuides } from '../elements/snap-guides';
 import type { SnapGuide } from '../elements/snap-guides';
+import {
+  hitTest,
+  hitTestResizeHandle,
+  hitTestRotateHandle,
+  hitTestLineHandles,
+  hitTestTemplateResizeHandle,
+  findElementsInRect,
+} from './select-hit';
+import type { HandlePosition, OverlayLayout } from './select-overlay';
+import {
+  HANDLE_CURSORS,
+  getOverlayLayout,
+  renderMarquee,
+  renderSelectionBoxes,
+  renderGuideLines,
+} from './select-overlay';
+import { computeResize, computeRotatedResize, computeTemplateResize } from './select-resize';
 
-type HandlePosition = 'nw' | 'ne' | 'sw' | 'se';
-
-const HANDLE_SIZE = 8;
 const SNAP_PX = 6;
-const HANDLE_HIT_PADDING = 4;
-const SELECTION_PAD = 4;
-const MIN_ELEMENT_SIZE = 20;
-const ROTATE_HANDLE_OFFSET = 24;
 const ROTATE_SNAP = Math.PI / 12; // 15°
-const ROTATABLE_TYPES = new Set(['note', 'text', 'image', 'html', 'shape', 'stroke']);
-
-const HANDLE_CURSORS: Record<HandlePosition, string> = {
-  nw: 'nwse-resize',
-  se: 'nwse-resize',
-  ne: 'nesw-resize',
-  sw: 'nesw-resize',
-};
 
 type Mode =
   | { type: 'idle' }
@@ -96,7 +95,7 @@ export class SelectTool implements Tool {
   }
 
   selectAtPoint(world: Point, ctx: ToolContext): void {
-    const hit = this.hitTest(world, ctx);
+    const hit = hitTest(world, ctx);
     if (!hit) {
       this.setSelectedIds([]);
       return;
@@ -147,21 +146,21 @@ export class SelectTool implements Tool {
       return;
     }
 
-    const lineHit = this.hitTestLineHandles(world, ctx);
+    const lineHit = hitTestLineHandles(world, ctx, this._selectedIds);
     if (lineHit) {
       this.mode = { type: 'line-handle', elementId: lineHit.elementId, fixed: lineHit.fixed };
       ctx.requestRender();
       return;
     }
 
-    const templateResizeHit = this.hitTestTemplateResizeHandle(world, ctx);
+    const templateResizeHit = hitTestTemplateResizeHandle(world, ctx, this._selectedIds);
     if (templateResizeHit) {
       this.mode = { type: 'resizing-template', elementId: templateResizeHit };
       ctx.requestRender();
       return;
     }
 
-    const rotateHit = this.hitTestRotateHandle(world, ctx);
+    const rotateHit = hitTestRotateHandle(world, ctx, this._selectedIds);
     if (rotateHit) {
       const el = ctx.store.getById(rotateHit.elementId);
       const layout = el ? this.getOverlayLayout(el, ctx.camera.zoom) : null;
@@ -178,7 +177,7 @@ export class SelectTool implements Tool {
       }
     }
 
-    const resizeHit = this.hitTestResizeHandle(world, ctx);
+    const resizeHit = hitTestResizeHandle(world, ctx, this._selectedIds);
     if (resizeHit) {
       const el = ctx.store.getById(resizeHit.elementId);
       if (el && 'size' in el) {
@@ -195,7 +194,7 @@ export class SelectTool implements Tool {
 
     this.pendingSingleSelectId = null;
     this.hasDragged = false;
-    const hit = this.hitTest(world, ctx);
+    const hit = hitTest(world, ctx);
     if (hit) {
       const all = ctx.store.getAll();
       const alreadySelected = this._selectedIds.includes(hit.id);
@@ -356,7 +355,7 @@ export class SelectTool implements Tool {
     if (this.mode.type === 'marquee') {
       const rect = this.getMarqueeRect();
       if (rect) {
-        this.setSelectedIds(expandToGroups(this.findElementsInRect(rect, ctx), ctx.store.getAll()));
+        this.setSelectedIds(expandToGroups(findElementsInRect(rect, ctx), ctx.store.getAll()));
       }
       ctx.requestRender();
     }
@@ -391,8 +390,16 @@ export class SelectTool implements Tool {
   }
 
   renderOverlay(canvasCtx: CanvasRenderingContext2D): void {
-    this.renderMarquee(canvasCtx);
-    this.renderSelectionBoxes(canvasCtx);
+    if (this.mode.type === 'marquee') {
+      const rect = this.getMarqueeRect();
+      if (rect) renderMarquee(canvasCtx, rect);
+    }
+    if (this.ctx)
+      renderSelectionBoxes(canvasCtx, {
+        selectedIds: this._selectedIds,
+        store: this.ctx.store,
+        zoom: this.ctx.camera.zoom,
+      });
 
     if (this.mode.type === 'arrow-handle' && this.ctx) {
       const target = getArrowHandleDragTarget(
@@ -429,33 +436,13 @@ export class SelectTool implements Tool {
       }
     }
 
-    this.renderGuideLines(canvasCtx);
-  }
-
-  private renderGuideLines(canvasCtx: CanvasRenderingContext2D): void {
-    if (this.mode.type !== 'dragging' || !this.ctx || this.activeGuides.length === 0) return;
-    const zoom = this.ctx.camera.zoom;
-    const rect = this.dragVisibleRect; // cached at drag start (same source as the candidate query)
-    canvasCtx.save();
-    canvasCtx.strokeStyle = '#FF4081';
-    canvasCtx.lineWidth = 1 / zoom;
-    canvasCtx.setLineDash([]);
-    for (const g of this.activeGuides) {
-      canvasCtx.beginPath();
-      if (g.axis === 'x') {
-        const y0 = rect ? rect.y : this.currentWorld.y - 1e5;
-        const y1 = rect ? rect.y + rect.h : this.currentWorld.y + 1e5;
-        canvasCtx.moveTo(g.position, y0);
-        canvasCtx.lineTo(g.position, y1);
-      } else {
-        const x0 = rect ? rect.x : this.currentWorld.x - 1e5;
-        const x1 = rect ? rect.x + rect.w : this.currentWorld.x + 1e5;
-        canvasCtx.moveTo(x0, g.position);
-        canvasCtx.lineTo(x1, g.position);
-      }
-      canvasCtx.stroke();
-    }
-    canvasCtx.restore();
+    if (this.mode.type === 'dragging' && this.ctx && this.activeGuides.length)
+      renderGuideLines(canvasCtx, {
+        guides: this.activeGuides,
+        rect: this.dragVisibleRect,
+        currentWorld: this.currentWorld,
+        zoom: this.ctx.camera.zoom,
+      });
   }
 
   private updateArrowsBoundTo(ids: Iterable<string>, ctx: ToolContext): void {
@@ -486,29 +473,29 @@ export class SelectTool implements Tool {
       return null;
     }
 
-    if (this.hitTestLineHandles(world, ctx)) {
+    if (hitTestLineHandles(world, ctx, this._selectedIds)) {
       ctx.setCursor?.('grab');
       return null;
     }
 
-    const templateResizeHit = this.hitTestTemplateResizeHandle(world, ctx);
+    const templateResizeHit = hitTestTemplateResizeHandle(world, ctx, this._selectedIds);
     if (templateResizeHit) {
       ctx.setCursor?.('nwse-resize');
       return null;
     }
 
-    if (this.hitTestRotateHandle(world, ctx)) {
+    if (hitTestRotateHandle(world, ctx, this._selectedIds)) {
       ctx.setCursor?.('grab');
       return null;
     }
 
-    const resizeHit = this.hitTestResizeHandle(world, ctx);
+    const resizeHit = hitTestResizeHandle(world, ctx, this._selectedIds);
     if (resizeHit) {
       ctx.setCursor?.(HANDLE_CURSORS[resizeHit.handle]);
       return null;
     }
 
-    const hit = this.hitTest(world, ctx);
+    const hit = hitTest(world, ctx);
     ctx.setCursor?.(hit ? 'move' : 'default');
     return hit ? hit.id : null;
   }
@@ -526,489 +513,34 @@ export class SelectTool implements Tool {
     if (!el || !('size' in el) || el.locked) return;
 
     const angle = el.rotation ?? 0;
-    if (angle !== 0) {
-      this.handleRotatedResize(world, el, angle, ctx, shiftKey);
-      return;
-    }
+    const patch =
+      angle !== 0
+        ? computeRotatedResize(
+            el,
+            this.mode.handle,
+            angle,
+            world,
+            this.lastWorld,
+            this.resizeAspectRatio,
+            shiftKey,
+          )
+        : computeResize(
+            el,
+            this.mode.handle,
+            world,
+            this.lastWorld,
+            this.resizeAspectRatio,
+            shiftKey,
+          );
 
-    const { handle } = this.mode;
-    const dx = world.x - this.lastWorld.x;
-    const dy = world.y - this.lastWorld.y;
     this.lastWorld = world;
-
-    let { x, y, w, h } = { x: el.position.x, y: el.position.y, w: el.size.w, h: el.size.h };
-
-    switch (handle) {
-      case 'se':
-        w += dx;
-        h += dy;
-        break;
-      case 'sw':
-        x += dx;
-        w -= dx;
-        h += dy;
-        break;
-      case 'ne':
-        y += dy;
-        w += dx;
-        h -= dy;
-        break;
-      case 'nw':
-        x += dx;
-        y += dy;
-        w -= dx;
-        h -= dy;
-        break;
-    }
-
-    if (shiftKey && this.resizeAspectRatio > 0) {
-      const absDw = Math.abs(w - el.size.w);
-      const absDh = Math.abs(h - el.size.h);
-      if (absDw >= absDh) {
-        h = w / this.resizeAspectRatio;
-      } else {
-        w = h * this.resizeAspectRatio;
-      }
-      if (handle === 'nw' || handle === 'sw') {
-        x = el.position.x + el.size.w - w;
-      }
-      if (handle === 'nw' || handle === 'ne') {
-        y = el.position.y + el.size.h - h;
-      }
-    }
-
-    if (w < MIN_ELEMENT_SIZE) {
-      if (handle === 'nw' || handle === 'sw') x = el.position.x + el.size.w - MIN_ELEMENT_SIZE;
-      w = MIN_ELEMENT_SIZE;
-    }
-    if (h < MIN_ELEMENT_SIZE) {
-      if (handle === 'nw' || handle === 'ne') y = el.position.y + el.size.h - MIN_ELEMENT_SIZE;
-      h = MIN_ELEMENT_SIZE;
-    }
-
-    ctx.store.update(this.mode.elementId, {
-      position: { x, y },
-      size: { w, h },
-    });
-
-    this.updateArrowsBoundTo([this.mode.elementId], ctx);
-
-    ctx.requestRender();
-  }
-
-  private anchorOffset(handle: HandlePosition, w: number, h: number): Point {
-    switch (handle) {
-      case 'se':
-        return { x: -w / 2, y: -h / 2 };
-      case 'sw':
-        return { x: w / 2, y: -h / 2 };
-      case 'ne':
-        return { x: -w / 2, y: h / 2 };
-      case 'nw':
-        return { x: w / 2, y: h / 2 };
-      default:
-        return { x: 0, y: 0 };
-    }
-  }
-
-  private handleRotatedResize(
-    world: Point,
-    el: CanvasElement & { size: { w: number; h: number } },
-    angle: number,
-    ctx: ToolContext,
-    shiftKey: boolean,
-  ): void {
-    if (this.mode.type !== 'resizing') return;
-    const { handle } = this.mode;
-
-    const wdx = world.x - this.lastWorld.x;
-    const wdy = world.y - this.lastWorld.y;
-    this.lastWorld = world;
-
-    // world delta → element local frame (inverse rotation of the vector)
-    const cosN = Math.cos(-angle);
-    const sinN = Math.sin(-angle);
-    const ldx = wdx * cosN - wdy * sinN;
-    const ldy = wdx * sinN + wdy * cosN;
-
-    let w = el.size.w;
-    let h = el.size.h;
-    switch (handle) {
-      case 'se':
-        w += ldx;
-        h += ldy;
-        break;
-      case 'sw':
-        w -= ldx;
-        h += ldy;
-        break;
-      case 'ne':
-        w += ldx;
-        h -= ldy;
-        break;
-      case 'nw':
-        w -= ldx;
-        h -= ldy;
-        break;
-    }
-
-    if (shiftKey && this.resizeAspectRatio > 0) {
-      const absDw = Math.abs(w - el.size.w);
-      const absDh = Math.abs(h - el.size.h);
-      if (absDw >= absDh) h = w / this.resizeAspectRatio;
-      else w = h * this.resizeAspectRatio;
-    }
-    w = Math.max(w, MIN_ELEMENT_SIZE);
-    h = Math.max(h, MIN_ELEMENT_SIZE);
-
-    // anchor (opposite corner) fixed in world space, computed from OLD geometry
-    const oldCenter = { x: el.position.x + el.size.w / 2, y: el.position.y + el.size.h / 2 };
-    const oldAnchorLocal = this.anchorOffset(handle, el.size.w, el.size.h);
-    const anchorWorld = rotatePoint(
-      { x: oldCenter.x + oldAnchorLocal.x, y: oldCenter.y + oldAnchorLocal.y },
-      oldCenter,
-      angle,
-    );
-
-    // new center so the anchor stays put: anchorWorld = newCenter + R(angle)·newAnchorLocal
-    const newAnchorLocal = this.anchorOffset(handle, w, h);
-    const cos = Math.cos(angle);
-    const sin = Math.sin(angle);
-    const rotatedAnchor = {
-      x: newAnchorLocal.x * cos - newAnchorLocal.y * sin,
-      y: newAnchorLocal.x * sin + newAnchorLocal.y * cos,
-    };
-    const newCenter = { x: anchorWorld.x - rotatedAnchor.x, y: anchorWorld.y - rotatedAnchor.y };
-    const position = { x: newCenter.x - w / 2, y: newCenter.y - h / 2 };
-
-    ctx.store.update(this.mode.elementId, { position, size: { w, h } });
+    ctx.store.update(this.mode.elementId, patch);
     this.updateArrowsBoundTo([this.mode.elementId], ctx);
     ctx.requestRender();
   }
 
-  private hitTestResizeHandle(
-    world: Point,
-    ctx: ToolContext,
-  ): { elementId: string; handle: HandlePosition } | null {
-    if (this._selectedIds.length === 0) return null;
-
-    const zoom = ctx.camera.zoom;
-    const handleHalf = (HANDLE_SIZE / 2 + HANDLE_HIT_PADDING) / zoom;
-
-    for (const id of this._selectedIds) {
-      const el = ctx.store.getById(id);
-      if (!el || !('size' in el)) continue;
-      if (el.locked) continue;
-      if (el.type === 'shape' && el.shape === 'line') continue;
-
-      const layout = this.getOverlayLayout(el, zoom);
-      if (!layout) continue;
-      for (const [handle, pos] of layout.corners) {
-        if (Math.abs(world.x - pos.x) <= handleHalf && Math.abs(world.y - pos.y) <= handleHalf) {
-          return { elementId: id, handle };
-        }
-      }
-    }
-
-    return null;
-  }
-
-  private hitTestRotateHandle(world: Point, ctx: ToolContext): { elementId: string } | null {
-    if (this._selectedIds.length !== 1) return null;
-    const id = this._selectedIds[0];
-    if (!id) return null;
-    const el = ctx.store.getById(id);
-    if (!el || el.locked || !ROTATABLE_TYPES.has(el.type)) return null;
-    const layout = this.getOverlayLayout(el, ctx.camera.zoom);
-    if (!layout) return null;
-    const r = (HANDLE_SIZE / 2 + HANDLE_HIT_PADDING) / ctx.camera.zoom;
-    const dx = world.x - layout.rotateHandle.x;
-    const dy = world.y - layout.rotateHandle.y;
-    return dx * dx + dy * dy <= r * r ? { elementId: id } : null;
-  }
-
-  private hitTestLineHandles(
-    world: Point,
-    ctx: ToolContext,
-  ): { elementId: string; fixed: Point } | null {
-    if (this._selectedIds.length === 0) return null;
-    const zoom = ctx.camera.zoom;
-    const r = (HANDLE_SIZE / 2 + HANDLE_HIT_PADDING) / zoom;
-    const r2 = r * r;
-    for (const id of this._selectedIds) {
-      const el = ctx.store.getById(id);
-      if (!el || el.type !== 'shape' || el.shape !== 'line') continue;
-      const [a, b] = lineEndpoints(el);
-      if ((world.x - a.x) ** 2 + (world.y - a.y) ** 2 <= r2) return { elementId: id, fixed: b };
-      if ((world.x - b.x) ** 2 + (world.y - b.y) ** 2 <= r2) return { elementId: id, fixed: a };
-    }
-    return null;
-  }
-
-  private getHandlePositions(bounds: Bounds): [HandlePosition, Point][] {
-    return [
-      ['nw', { x: bounds.x, y: bounds.y }],
-      ['ne', { x: bounds.x + bounds.w, y: bounds.y }],
-      ['sw', { x: bounds.x, y: bounds.y + bounds.h }],
-      ['se', { x: bounds.x + bounds.w, y: bounds.y + bounds.h }],
-    ];
-  }
-
-  private getOverlayLayout(
-    el: CanvasElement,
-    zoom: number,
-  ): {
-    center: Point;
-    corners: [HandlePosition, Point][];
-    rotateHandle: Point;
-    angle: number;
-  } | null {
-    const bounds = getElementBounds(el);
-    if (!bounds) return null;
-    const angle = el.rotation ?? 0;
-    const pad = SELECTION_PAD / zoom;
-    const center = { x: bounds.x + bounds.w / 2, y: bounds.y + bounds.h / 2 };
-    const raw: [HandlePosition, Point][] = [
-      ['nw', { x: bounds.x - pad, y: bounds.y - pad }],
-      ['ne', { x: bounds.x + bounds.w + pad, y: bounds.y - pad }],
-      ['sw', { x: bounds.x - pad, y: bounds.y + bounds.h + pad }],
-      ['se', { x: bounds.x + bounds.w + pad, y: bounds.y + bounds.h + pad }],
-    ];
-    const corners = raw.map(
-      ([h, p]) => [h, rotatePoint(p, center, angle)] as [HandlePosition, Point],
-    );
-    const topMid = { x: center.x, y: bounds.y - pad - ROTATE_HANDLE_OFFSET / zoom };
-    const rotateHandle = rotatePoint(topMid, center, angle);
-    return { center, corners, rotateHandle, angle };
-  }
-
-  private topMidpoint(layout: { corners: [HandlePosition, Point][] }): Point {
-    const nw = layout.corners.find(([h]) => h === 'nw')?.[1] ?? { x: 0, y: 0 };
-    const ne = layout.corners.find(([h]) => h === 'ne')?.[1] ?? { x: 0, y: 0 };
-    return { x: (nw.x + ne.x) / 2, y: (nw.y + ne.y) / 2 };
-  }
-
-  private renderMarquee(canvasCtx: CanvasRenderingContext2D): void {
-    if (this.mode.type !== 'marquee') return;
-
-    const rect = this.getMarqueeRect();
-    if (!rect) return;
-
-    canvasCtx.save();
-    canvasCtx.strokeStyle = '#2196F3';
-    canvasCtx.fillStyle = 'rgba(33, 150, 243, 0.08)';
-    canvasCtx.lineWidth = 1;
-    canvasCtx.setLineDash([4, 4]);
-    canvasCtx.strokeRect(rect.x, rect.y, rect.w, rect.h);
-    canvasCtx.fillRect(rect.x, rect.y, rect.w, rect.h);
-    canvasCtx.restore();
-  }
-
-  private renderSelectionBoxes(canvasCtx: CanvasRenderingContext2D): void {
-    if (this._selectedIds.length === 0 || !this.ctx) return;
-
-    const zoom = this.ctx.camera.zoom;
-    const handleWorldSize = HANDLE_SIZE / zoom;
-
-    canvasCtx.save();
-    canvasCtx.strokeStyle = '#2196F3';
-    canvasCtx.lineWidth = 1.5 / zoom;
-    canvasCtx.setLineDash([4 / zoom, 4 / zoom]);
-
-    for (const id of this._selectedIds) {
-      const el = this.ctx.store.getById(id);
-      if (!el) continue;
-
-      if (el.type === 'arrow') {
-        renderArrowHandles(canvasCtx, el, zoom);
-        this.renderBindingHighlights(canvasCtx, el, zoom);
-        continue;
-      }
-
-      if (el.type === 'shape' && el.shape === 'line') {
-        canvasCtx.setLineDash([]);
-        canvasCtx.fillStyle = '#ffffff';
-        const r = handleWorldSize / 2;
-        for (const p of lineEndpoints(el)) {
-          canvasCtx.beginPath();
-          canvasCtx.arc(p.x, p.y, r, 0, Math.PI * 2);
-          canvasCtx.fill();
-          canvasCtx.stroke();
-        }
-        canvasCtx.setLineDash([4 / zoom, 4 / zoom]);
-        continue;
-      }
-
-      const bounds = getElementBounds(el);
-      if (!bounds) continue;
-
-      const layout = this.getOverlayLayout(el, zoom);
-      if (!layout) continue;
-
-      const pad = SELECTION_PAD / zoom;
-      if (layout.angle === 0) {
-        canvasCtx.strokeRect(
-          bounds.x - pad,
-          bounds.y - pad,
-          bounds.w + pad * 2,
-          bounds.h + pad * 2,
-        );
-      } else {
-        const ordered = (['nw', 'ne', 'se', 'sw'] as HandlePosition[])
-          .map((h) => layout.corners.find(([c]) => c === h)?.[1])
-          .filter((p): p is Point => !!p);
-        const [p0, ...others] = ordered;
-        if (p0) {
-          canvasCtx.beginPath();
-          canvasCtx.moveTo(p0.x, p0.y);
-          for (const p of others) canvasCtx.lineTo(p.x, p.y);
-          canvasCtx.closePath();
-          canvasCtx.stroke();
-        }
-      }
-
-      if (!el.locked) {
-        if ('size' in el) {
-          canvasCtx.setLineDash([]);
-          canvasCtx.fillStyle = '#ffffff';
-          const corners = layout.angle === 0 ? this.getHandlePositions(bounds) : layout.corners;
-          for (const [, pos] of corners) {
-            canvasCtx.fillRect(
-              pos.x - handleWorldSize / 2,
-              pos.y - handleWorldSize / 2,
-              handleWorldSize,
-              handleWorldSize,
-            );
-            canvasCtx.strokeRect(
-              pos.x - handleWorldSize / 2,
-              pos.y - handleWorldSize / 2,
-              handleWorldSize,
-              handleWorldSize,
-            );
-          }
-          canvasCtx.setLineDash([4 / zoom, 4 / zoom]);
-        } else if (el.type === 'template') {
-          canvasCtx.setLineDash([]);
-          canvasCtx.fillStyle = '#ffffff';
-          const hx = bounds.x + bounds.w;
-          const hy = bounds.y + bounds.h;
-          canvasCtx.fillRect(
-            hx - handleWorldSize / 2,
-            hy - handleWorldSize / 2,
-            handleWorldSize,
-            handleWorldSize,
-          );
-          canvasCtx.strokeRect(
-            hx - handleWorldSize / 2,
-            hy - handleWorldSize / 2,
-            handleWorldSize,
-            handleWorldSize,
-          );
-          canvasCtx.setLineDash([4 / zoom, 4 / zoom]);
-        }
-
-        if (this._selectedIds.length === 1 && ROTATABLE_TYPES.has(el.type)) {
-          const stemStart = this.topMidpoint(layout);
-          const stemEnd = layout.rotateHandle;
-          canvasCtx.beginPath();
-          canvasCtx.moveTo(stemStart.x, stemStart.y);
-          canvasCtx.lineTo(stemEnd.x, stemEnd.y);
-          canvasCtx.stroke();
-
-          canvasCtx.setLineDash([]);
-          canvasCtx.fillStyle = '#ffffff';
-          canvasCtx.beginPath();
-          canvasCtx.arc(stemEnd.x, stemEnd.y, handleWorldSize / 2, 0, Math.PI * 2);
-          canvasCtx.fill();
-          canvasCtx.stroke();
-          canvasCtx.setLineDash([4 / zoom, 4 / zoom]);
-        }
-      }
-
-      if (el.locked) {
-        const ne = layout.corners.find(([h]) => h === 'ne')?.[1];
-        if (ne) this.drawLockBadge(canvasCtx, ne, zoom);
-      }
-    }
-
-    canvasCtx.restore();
-  }
-
-  private drawLockBadge(ctx: CanvasRenderingContext2D, at: Point, zoom: number): void {
-    const r = 9 / zoom;
-    ctx.save();
-    ctx.setLineDash([]);
-    ctx.beginPath();
-    ctx.arc(at.x, at.y, r, 0, Math.PI * 2);
-    ctx.fillStyle = '#ffffff';
-    ctx.fill();
-    ctx.strokeStyle = '#2196F3';
-    ctx.lineWidth = 1.5 / zoom;
-    ctx.stroke();
-    const bw = 8 / zoom;
-    const bh = 6 / zoom;
-    ctx.fillStyle = '#2196F3';
-    ctx.fillRect(at.x - bw / 2, at.y - bh / 2 + 1 / zoom, bw, bh);
-    ctx.beginPath();
-    ctx.arc(at.x, at.y - bh / 2 + 1 / zoom, 2.5 / zoom, Math.PI, 0);
-    ctx.lineWidth = 1.4 / zoom;
-    ctx.stroke();
-    ctx.restore();
-  }
-
-  private renderBindingHighlights(
-    canvasCtx: CanvasRenderingContext2D,
-    arrow: ArrowElement,
-    zoom: number,
-  ): void {
-    if (!this.ctx) return;
-    if (!arrow.fromBinding && !arrow.toBinding) return;
-
-    const pad = SELECTION_PAD / zoom;
-
-    canvasCtx.save();
-    canvasCtx.strokeStyle = '#2196F3';
-    canvasCtx.lineWidth = 2 / zoom;
-    canvasCtx.setLineDash([]);
-
-    const drawn = new Set<string>();
-    for (const binding of [arrow.fromBinding, arrow.toBinding]) {
-      if (!binding || drawn.has(binding.elementId)) continue;
-      drawn.add(binding.elementId);
-
-      const target = this.ctx.store.getById(binding.elementId);
-      if (!target) continue;
-
-      const bounds = getElementBounds(target);
-      if (!bounds) continue;
-
-      canvasCtx.strokeRect(bounds.x - pad, bounds.y - pad, bounds.w + pad * 2, bounds.h + pad * 2);
-    }
-
-    canvasCtx.restore();
-  }
-
-  private hitTestTemplateResizeHandle(world: Point, ctx: ToolContext): string | null {
-    if (this._selectedIds.length === 0) return null;
-
-    const zoom = ctx.camera.zoom;
-    const handleHalf = (HANDLE_SIZE / 2 + HANDLE_HIT_PADDING) / zoom;
-
-    for (const id of this._selectedIds) {
-      const el = ctx.store.getById(id);
-      if (!el || el.type !== 'template') continue;
-
-      const bounds = getElementBounds(el);
-      if (!bounds) continue;
-
-      const hx = bounds.x + bounds.w;
-      const hy = bounds.y + bounds.h;
-      if (Math.abs(world.x - hx) <= handleHalf && Math.abs(world.y - hy) <= handleHalf) {
-        return id;
-      }
-    }
-
-    return null;
+  private getOverlayLayout(el: CanvasElement, zoom: number): OverlayLayout | null {
+    return getOverlayLayout(el, zoom);
   }
 
   private handleTemplateResize(world: Point, ctx: ToolContext): void {
@@ -1017,24 +549,15 @@ export class SelectTool implements Tool {
     const el = ctx.store.getById(this.mode.elementId);
     if (!el || el.type !== 'template' || el.locked) return;
 
-    const dx = world.x - el.position.x;
-    const dy = world.y - el.position.y;
-    let newRadius = Math.sqrt(dx * dx + dy * dy);
-
-    if (ctx.snapToGrid && ctx.gridSize && ctx.gridSize > 0) {
-      const snapUnit = ctx.gridType === 'hex' ? Math.sqrt(3) * ctx.gridSize : ctx.gridSize;
-      newRadius = Math.max(snapUnit, Math.round(newRadius / snapUnit) * snapUnit);
+    const patch = computeTemplateResize(el, world, {
+      snapToGrid: ctx.snapToGrid,
+      gridSize: ctx.gridSize,
+      gridType: ctx.gridType,
+    });
+    if (patch) {
+      ctx.store.update(this.mode.elementId, patch);
+      ctx.requestRender();
     }
-    newRadius = Math.max(MIN_ELEMENT_SIZE, newRadius);
-
-    const updates: Record<string, unknown> = { radius: newRadius };
-    if (el.feetPerCell != null && ctx.gridSize && ctx.gridSize > 0) {
-      const snapUnit = ctx.gridType === 'hex' ? Math.sqrt(3) * ctx.gridSize : ctx.gridSize;
-      updates.radiusFeet = (newRadius / snapUnit) * el.feetPerCell;
-    }
-
-    ctx.store.update(this.mode.elementId, updates);
-    ctx.requestRender();
   }
 
   private getMarqueeRect(): Bounds | null {
@@ -1049,85 +572,5 @@ export class SelectTool implements Tool {
 
     if (w === 0 && h === 0) return null;
     return { x, y, w, h };
-  }
-
-  private findElementsInRect(marquee: Bounds, ctx: ToolContext): string[] {
-    const candidates = ctx.store.queryRect(marquee);
-    const ids: string[] = [];
-    for (const el of candidates) {
-      if (ctx.isLayerVisible && !ctx.isLayerVisible(el.layerId)) continue;
-      if (ctx.isLayerLocked && ctx.isLayerLocked(el.layerId)) continue;
-      if (el.type === 'grid') continue;
-      const bounds = getElementBounds(el);
-      if (bounds && this.rectsOverlap(marquee, rotatedAABB(bounds, el.rotation ?? 0))) {
-        ids.push(el.id);
-      }
-    }
-    return ids;
-  }
-
-  private rectsOverlap(a: Bounds, b: Bounds): boolean {
-    return a.x <= b.x + b.w && a.x + a.w >= b.x && a.y <= b.y + b.h && a.y + a.h >= b.y;
-  }
-
-  private hitTest(world: Point, ctx: ToolContext): CanvasElement | null {
-    // Inflate query by hit radius so strokes/arrows near the point are included
-    const r = 10;
-    const candidates = ctx.store
-      .queryRect({ x: world.x - r, y: world.y - r, w: r * 2, h: r * 2 })
-      .reverse();
-    for (const el of candidates) {
-      if (ctx.isLayerVisible && !ctx.isLayerVisible(el.layerId)) continue;
-      if (ctx.isLayerLocked && ctx.isLayerLocked(el.layerId)) continue;
-      if (el.type === 'grid') continue;
-      if (this.isInsideBounds(world, el)) return el;
-    }
-    return null;
-  }
-
-  private isInsideBounds(point: Point, el: CanvasElement): boolean {
-    if (el.type === 'grid') return false;
-    const angle = el.rotation ?? 0;
-    if (angle !== 0) {
-      const b = getElementBounds(el);
-      if (b) {
-        point = rotatePoint(point, { x: b.x + b.w / 2, y: b.y + b.h / 2 }, -angle);
-      }
-    }
-    if (el.type === 'shape' && el.shape === 'line') {
-      const [a, b] = lineEndpoints(el);
-      const threshold = Math.max(el.strokeWidth / 2, 6);
-      return distSqToSegment(point, a, b) <= threshold * threshold;
-    }
-    if ('size' in el) {
-      const s = el.size;
-      return (
-        point.x >= el.position.x &&
-        point.x <= el.position.x + s.w &&
-        point.y >= el.position.y &&
-        point.y <= el.position.y + s.h
-      );
-    }
-
-    if (el.type === 'stroke') {
-      return hitTestStroke(el, point, 10);
-    }
-
-    if (el.type === 'arrow') {
-      return isNearBezier(point, el.from, el.to, el.bend, 10);
-    }
-
-    if (el.type === 'template') {
-      const bounds = getElementBounds(el);
-      if (!bounds) return false;
-      return (
-        point.x >= bounds.x &&
-        point.x <= bounds.x + bounds.w &&
-        point.y >= bounds.y &&
-        point.y <= bounds.y + bounds.h
-      );
-    }
-
-    return false;
   }
 }

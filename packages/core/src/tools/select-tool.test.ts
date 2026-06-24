@@ -1,5 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
 import { SelectTool } from './select-tool';
+import {
+  hitTestResizeHandle,
+  hitTestRotateHandle,
+  hitTestLineHandles,
+  isInsideBounds,
+} from './select-hit';
 import { ElementStore } from '../elements/element-store';
 import { Camera } from '../canvas/camera';
 import {
@@ -1689,31 +1695,23 @@ describe('SelectTool', () => {
 
   describe('line shape hit testing', () => {
     it('selects a line by proximity to its segment, not its bbox', () => {
-      const tool = new SelectTool();
       const line = createShape({
         position: { x: 0, y: 0 },
         size: { w: 100, h: 100 },
         shape: 'line',
         strokeWidth: 2,
       });
-      const priv = tool as unknown as {
-        isInsideBounds: (p: { x: number; y: number }, el: typeof line) => boolean;
-      };
-      expect(priv.isInsideBounds({ x: 50, y: 50 }, line)).toBe(true);
-      expect(priv.isInsideBounds({ x: 90, y: 10 }, line)).toBe(false);
+      expect(isInsideBounds({ x: 50, y: 50 }, line)).toBe(true);
+      expect(isInsideBounds({ x: 90, y: 10 }, line)).toBe(false);
     });
 
     it('still hit-tests a rectangle by its bbox', () => {
-      const tool = new SelectTool();
       const rect = createShape({
         position: { x: 0, y: 0 },
         size: { w: 100, h: 100 },
         shape: 'rectangle',
       });
-      const priv = tool as unknown as {
-        isInsideBounds: (p: { x: number; y: number }, el: typeof rect) => boolean;
-      };
-      expect(priv.isInsideBounds({ x: 90, y: 10 }, rect)).toBe(true);
+      expect(isInsideBounds({ x: 90, y: 10 }, rect)).toBe(true);
     });
   });
 
@@ -2046,21 +2044,15 @@ describe('SelectTool', () => {
       });
       store.add(line);
       tool.setSelection([line.id]);
-      const priv = tool as unknown as {
-        hitTestLineHandles: (
-          w: { x: number; y: number },
-          c: typeof ctx,
-        ) => { elementId: string; fixed: { x: number; y: number } } | null;
-      };
-      expect(priv.hitTestLineHandles({ x: 0, y: 0 }, ctx)).toEqual({
+      expect(hitTestLineHandles({ x: 0, y: 0 }, ctx, tool.selectedIds)).toEqual({
         elementId: line.id,
         fixed: { x: 100, y: 100 },
       });
-      expect(priv.hitTestLineHandles({ x: 100, y: 100 }, ctx)).toEqual({
+      expect(hitTestLineHandles({ x: 100, y: 100 }, ctx, tool.selectedIds)).toEqual({
         elementId: line.id,
         fixed: { x: 0, y: 0 },
       });
-      expect(priv.hitTestLineHandles({ x: 50, y: 0 }, ctx)).toBeNull();
+      expect(hitTestLineHandles({ x: 50, y: 0 }, ctx, tool.selectedIds)).toBeNull();
     });
 
     it('dragging an endpoint moves it and keeps the fixed end anchored', () => {
@@ -2117,10 +2109,7 @@ describe('SelectTool', () => {
       });
       store.add(line);
       tool.setSelection([line.id]);
-      const priv = tool as unknown as {
-        hitTestResizeHandle: (w: { x: number; y: number }, c: typeof ctx) => unknown;
-      };
-      expect(priv.hitTestResizeHandle({ x: 100, y: 100 }, ctx)).toBeNull();
+      expect(hitTestResizeHandle({ x: 100, y: 100 }, ctx, tool.selectedIds)).toBeNull();
     });
   });
 
@@ -2218,9 +2207,7 @@ describe('SelectTool', () => {
       note.locked = true;
       ctx.store.add(note);
       (tool as unknown as { setSelection: (ids: string[]) => void }).setSelection([note.id]);
-      const hit = (
-        tool as unknown as { hitTestRotateHandle: (w: Point, c: unknown) => unknown }
-      ).hitTestRotateHandle({ x: 50, y: -100 }, ctx);
+      const hit = hitTestRotateHandle({ x: 50, y: -100 }, ctx, tool.selectedIds);
       expect(hit).toBeNull();
     });
 
@@ -2351,16 +2338,8 @@ describe('SelectTool', () => {
         }
       ).getOverlayLayout(note, 1);
       const se = layout.corners.find(([h]) => h === 'se')?.[1] as Point;
-      expect(
-        (
-          tool as unknown as { hitTestResizeHandle: (w: Point, c: unknown) => unknown }
-        ).hitTestResizeHandle(se, ctx),
-      ).toBeNull();
-      expect(
-        (
-          tool as unknown as { hitTestRotateHandle: (w: Point, c: unknown) => unknown }
-        ).hitTestRotateHandle(layout.rotateHandle, ctx),
-      ).toBeNull();
+      expect(hitTestResizeHandle(se, ctx, tool.selectedIds)).toBeNull();
+      expect(hitTestRotateHandle(layout.rotateHandle, ctx, tool.selectedIds)).toBeNull();
     });
   });
 });

@@ -4,6 +4,13 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.38.1] — 2026-06-24
+
+### Changed
+
+- Internal: decomposed `select-tool` into focused modules (`select-overlay`, `select-hit`,
+  `select-resize`). No public API or behavior change.
+
 ## [0.38.0] — 2026-06-24
 
 ### Added
