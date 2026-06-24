@@ -9,15 +9,10 @@ import { ElementRenderer } from '../elements/element-renderer';
 import { NoteEditor } from '../elements/note-editor';
 import type { FontSizePreset } from '../elements/note-toolbar';
 import type { CanvasElement, ArrowElement, GridElement, ShapeKind } from '../elements/types';
-import type { Bounds, Point } from '../core/types';
+import type { Point } from '../core/types';
 import { ContextMenu } from './context-menu';
 import type { ContextMenuItem } from './context-menu';
-import {
-  findBoundArrows,
-  getEdgeIntersection,
-  updateArrowsBoundToElements,
-} from '../elements/arrow-binding';
-import { translateElementPatch } from '../elements/translate';
+import { findBoundArrows, getEdgeIntersection } from '../elements/arrow-binding';
 import { getElementBounds } from '../elements/element-bounds';
 import { getElementsBoundingBox } from '../elements/bounds';
 import { getArrowTangentAngle, isNearBezier } from '../elements/arrow-geometry';
@@ -33,7 +28,6 @@ import {
   createGrid,
   createShape,
 } from '../elements/element-factory';
-import { createId } from '../elements/create-id';
 import { exportState as exportCanvasState, parseState } from '../core/state-serializer';
 import { exportImage } from './export-image';
 import type { ExportImageOptions } from './export-image';
@@ -47,38 +41,17 @@ import type { RenderStatsSnapshot } from './render-stats';
 import { LayerCache } from './layer-cache';
 import { MarginViewport } from './margin-viewport';
 import { isNoteContentEmpty } from '../elements/note-sanitizer';
-import { styleToPatch, getElementStyle } from '../elements/element-style';
 import type { ElementStyle } from '../elements/element-style';
+import { SelectionOps } from './selection-ops';
+import type { AlignEdge, DistributeAxis } from './selection-ops';
 
-export type AlignEdge = 'left' | 'center-x' | 'right' | 'top' | 'middle' | 'bottom';
-export type DistributeAxis = 'horizontal' | 'vertical';
-
-function unionBounds(list: Bounds[]): Bounds {
-  let minX = Infinity,
-    minY = Infinity,
-    maxX = -Infinity,
-    maxY = -Infinity;
-  for (const b of list) {
-    minX = Math.min(minX, b.x);
-    minY = Math.min(minY, b.y);
-    maxX = Math.max(maxX, b.x + b.w);
-    maxY = Math.max(maxY, b.y + b.h);
-  }
-  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
-}
+export type { AlignEdge, DistributeAxis } from './selection-ops';
 
 const EMPTY_IDS: string[] = [];
 const ARROW_HIT_THRESHOLD = 10;
 
 function noop(): void {
   // Stable unsubscribe handle returned when no select tool is registered.
-}
-
-function sharedValue<T>(values: (T | undefined)[]): T | undefined {
-  const present = values.filter((v): v is T => v !== undefined);
-  if (present.length === 0) return undefined;
-  const first = present[0];
-  return present.every((v) => v === first) ? first : undefined;
 }
 
 export interface GridInfo {
@@ -126,6 +99,7 @@ export class Viewport {
   private readonly noteEditor: NoteEditor;
   private readonly arrowLabelEditor: ArrowLabelEditor;
   private readonly historyRecorder: HistoryRecorder;
+  private readonly selectionOps: SelectionOps;
   readonly toolContext: ToolContext;
   private readonly marginViewport: MarginViewport;
   private resizeObserver: ResizeObserver | null = null;
@@ -193,6 +167,12 @@ export class Viewport {
     this.dropHandler = options.onDrop;
     this.history = new HistoryStack();
     this.historyRecorder = new HistoryRecorder(this.store, this.history, this.layerManager);
+    this.selectionOps = new SelectionOps({
+      store: this.store,
+      recorder: this.historyRecorder,
+      getSelectedIds: () => this.getSelectedIds(),
+      requestRender: () => this.requestRender(),
+    });
 
     this.wrapper = this.createWrapper();
     this.canvasEl = this.createCanvas();
@@ -641,162 +621,31 @@ export class Viewport {
   }
 
   getSelectionStyle(): ElementStyle | null {
-    const ids = this.getSelectedIds();
-    if (ids.length === 0) return null;
-    const styles: ElementStyle[] = [];
-    for (const id of ids) {
-      const el = this.store.getById(id);
-      if (el) styles.push(getElementStyle(el));
-    }
-    if (styles.length === 0) return null;
-    const result: ElementStyle = {};
-    const color = sharedValue(styles.map((s) => s.color));
-    if (color !== undefined) result.color = color;
-    const fillColor = sharedValue(styles.map((s) => s.fillColor));
-    if (fillColor !== undefined) result.fillColor = fillColor;
-    const strokeWidth = sharedValue(styles.map((s) => s.strokeWidth));
-    if (strokeWidth !== undefined) result.strokeWidth = strokeWidth;
-    const opacity = sharedValue(styles.map((s) => s.opacity));
-    if (opacity !== undefined) result.opacity = opacity;
-    const fontSize = sharedValue(styles.map((s) => s.fontSize));
-    if (fontSize !== undefined) result.fontSize = fontSize;
-    return result;
+    return this.selectionOps.getStyle();
   }
 
   applyStyleToSelection(style: ElementStyle): void {
-    const ids = this.getSelectedIds();
-    if (ids.length === 0) return;
-    this.historyRecorder.begin();
-    for (const id of ids) {
-      const el = this.store.getById(id);
-      if (!el) continue;
-      const patch = styleToPatch(el, style);
-      if (Object.keys(patch).length > 0) {
-        this.store.update(id, patch);
-      }
-    }
-    this.historyRecorder.commit();
+    this.selectionOps.applyStyle(style);
   }
 
   groupSelection(): void {
-    const ids = this.getSelectedIds();
-    if (ids.length < 2) return;
-    const groupId = createId('group');
-    this.historyRecorder.begin();
-    for (const id of ids) {
-      if (this.store.getById(id)) this.store.update(id, { groupId });
-    }
-    this.historyRecorder.commit();
+    this.selectionOps.group();
   }
 
   ungroupSelection(): void {
-    const ids = this.getSelectedIds();
-    if (ids.length === 0) return;
-    this.historyRecorder.begin();
-    for (const id of ids) {
-      const el = this.store.getById(id);
-      if (el && el.groupId !== undefined) this.store.update(id, { groupId: undefined });
-    }
-    this.historyRecorder.commit();
+    this.selectionOps.ungroup();
   }
 
   toggleLockSelection(): void {
-    const ids = this.getSelectedIds();
-    if (ids.length === 0) return;
-    const anyUnlocked = ids.some((id) => {
-      const el = this.store.getById(id);
-      return el ? !el.locked : false;
-    });
-    this.historyRecorder.begin();
-    for (const id of ids) {
-      const el = this.store.getById(id);
-      if (el && el.locked !== anyUnlocked) this.store.update(id, { locked: anyUnlocked });
-    }
-    this.historyRecorder.commit();
+    this.selectionOps.toggleLock();
   }
 
   alignSelection(edge: AlignEdge): void {
-    const bounded = this.boundedSelection();
-    if (bounded.length < 2) return;
-    const B = unionBounds(bounded.map((e) => e.bounds));
-    this.historyRecorder.begin();
-    const moved: string[] = [];
-    for (const { id, el, bounds: b } of bounded) {
-      if (!this.isMovable(el)) continue;
-      let dx = 0;
-      let dy = 0;
-      switch (edge) {
-        case 'left':
-          dx = B.x - b.x;
-          break;
-        case 'right':
-          dx = B.x + B.w - (b.x + b.w);
-          break;
-        case 'center-x':
-          dx = B.x + B.w / 2 - (b.x + b.w / 2);
-          break;
-        case 'top':
-          dy = B.y - b.y;
-          break;
-        case 'bottom':
-          dy = B.y + B.h - (b.y + b.h);
-          break;
-        case 'middle':
-          dy = B.y + B.h / 2 - (b.y + b.h / 2);
-          break;
-      }
-      if (dx === 0 && dy === 0) continue;
-      this.store.update(id, translateElementPatch(el, dx, dy));
-      moved.push(id);
-    }
-    updateArrowsBoundToElements(moved, this.store);
-    this.historyRecorder.commit();
-    this.requestRender();
+    this.selectionOps.align(edge);
   }
 
   distributeSelection(axis: DistributeAxis): void {
-    const bounded = this.boundedSelection();
-    if (bounded.length < 3) return;
-    const center = (b: Bounds) => (axis === 'horizontal' ? b.x + b.w / 2 : b.y + b.h / 2);
-    const sorted = [...bounded].sort((p, q) => center(p.bounds) - center(q.bounds));
-    const first = sorted[0];
-    const last = sorted[sorted.length - 1];
-    if (!first || !last) return;
-    const c0 = center(first.bounds);
-    const cN = center(last.bounds);
-    const n = sorted.length;
-    this.historyRecorder.begin();
-    const moved: string[] = [];
-    for (let i = 1; i < n - 1; i++) {
-      const item = sorted[i];
-      if (!item || !this.isMovable(item.el)) continue;
-      const target = c0 + (i * (cN - c0)) / (n - 1);
-      const delta = target - center(item.bounds);
-      if (delta === 0) continue;
-      const [dx, dy] = axis === 'horizontal' ? [delta, 0] : [0, delta];
-      this.store.update(item.id, translateElementPatch(item.el, dx, dy));
-      moved.push(item.id);
-    }
-    updateArrowsBoundToElements(moved, this.store);
-    this.historyRecorder.commit();
-    this.requestRender();
-  }
-
-  private boundedSelection(): { id: string; el: CanvasElement; bounds: Bounds }[] {
-    const out: { id: string; el: CanvasElement; bounds: Bounds }[] = [];
-    for (const id of this.getSelectedIds()) {
-      const el = this.store.getById(id);
-      if (!el) continue;
-      const bounds = getElementBounds(el);
-      if (bounds) out.push({ id, el, bounds });
-    }
-    return out;
-  }
-
-  private isMovable(el: CanvasElement): boolean {
-    if (el.locked) return false;
-    if (el.type === 'arrow' && (el.fromBinding ?? el.toBinding)) return false;
-    return true;
+    this.selectionOps.distribute(axis);
   }
 
   getRenderStats(): RenderStatsSnapshot {
