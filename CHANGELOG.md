@@ -4,6 +4,18 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.37.0] — 2026-06-24
+
+### Changed
+
+- **Stylus pressure** — strokes now use a wider pressure→width range (heavy presses go thicker than
+  the base width, light presses thinner), so pressure variation is clearly visible at the default
+  width.
+- **Note font-size** — choosing a font size with no text selected now applies it to the whole note
+  instead of doing nothing.
+
+---
+
 ## [0.36.0] — 2026-06-23
 
 ### Added

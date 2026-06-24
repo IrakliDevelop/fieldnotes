@@ -164,4 +164,23 @@ describe('NoteToolbar', () => {
     expect(el?.style.height).toBe('52px');
     toolbar.hide();
   });
+
+  it('applies font-size to the whole note when there is no text selection', () => {
+    const toolbar = new NoteToolbar();
+    const node = document.createElement('div');
+    node.contentEditable = 'true';
+    node.innerHTML = 'hello world';
+    document.body.appendChild(node);
+    window.getSelection()?.removeAllRanges();
+
+    toolbar.show(node);
+    const select = toolbar.getElement()?.querySelector('select') as HTMLSelectElement;
+    select.value = '32';
+    select.dispatchEvent(new Event('change'));
+
+    expect(node.innerHTML).toContain('font-size: 32px');
+    expect(node.textContent).toBe('hello world');
+    toolbar.hide();
+    node.remove();
+  });
 });

@@ -329,6 +329,12 @@
     <button id="load">Load</button>
     <button id="export-png">Export PNG</button>
     <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:#666;"><input type="checkbox" id="export-padding"> Padding</label>
+    <input type="color" id="export-bg" value="#ffffff" title="Export background" style="width:28px;height:24px;border:1px solid #ddd;border-radius:4px;cursor:pointer;">
+    <select id="export-scale" title="Export scale" style="font-size:12px;border:1px solid #ddd;border-radius:4px;padding:2px;">
+      <option value="1">1×</option>
+      <option value="2" selected>2×</option>
+      <option value="3">3×</option>
+    </select>
   </div>
   <div id="text-panel">
     <span style="color: #999; font-size: 11px;">Text:</span>
@@ -411,6 +417,12 @@
     <button id="ungroup-btn" title="Ungroup (Ctrl/Cmd+Shift+G)" style="padding:4px 8px;border:1px solid #ddd;border-radius:4px;background:white;cursor:pointer;font-size:13px;">Ungroup</button>
   </div>
   <button id="lock-btn" hidden title="Lock selection" style="position:fixed;top:70px;right:16px;padding:4px 8px;border:1px solid #ddd;border-radius:8px;background:white;box-shadow:0 2px 12px rgba(0,0,0,0.15);cursor:pointer;font-size:13px;z-index:10;">Lock</button>
+  <div id="zorder-panel" hidden style="position:fixed;top:70px;left:16px;display:flex;gap:4px;padding:6px 8px;background:white;border-radius:8px;box-shadow:0 2px 12px rgba(0,0,0,0.15);z-index:10;">
+    <button id="z-front-btn" title="Bring to Front (Ctrl/Cmd+])" style="padding:4px 8px;border:1px solid #ddd;border-radius:4px;background:white;cursor:pointer;font-size:13px;">Front</button>
+    <button id="z-forward-btn" title="Bring Forward (])" style="padding:4px 8px;border:1px solid #ddd;border-radius:4px;background:white;cursor:pointer;font-size:13px;">Forward</button>
+    <button id="z-backward-btn" title="Send Backward ([)" style="padding:4px 8px;border:1px solid #ddd;border-radius:4px;background:white;cursor:pointer;font-size:13px;">Backward</button>
+    <button id="z-back-btn" title="Send to Back (Ctrl/Cmd+[)" style="padding:4px 8px;border:1px solid #ddd;border-radius:4px;background:white;cursor:pointer;font-size:13px;">Back</button>
+  </div>
   <div id="eraser-panel" style="display:none;position:fixed;top:70px;left:50%;transform:translateX(-50%);align-items:center;gap:6px;padding:6px 10px;background:white;border-radius:8px;box-shadow:0 2px 12px rgba(0,0,0,0.15);z-index:10;font-size:13px;">
     <span style="color: #999; font-size: 11px;">Eraser:</span>
     <select id="eraser-mode" style="padding:4px 8px;border:1px solid #ddd;border-radius:4px;font-size:13px;">

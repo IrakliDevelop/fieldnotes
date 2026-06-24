@@ -7,10 +7,11 @@ export interface CurveSegment {
   end: StrokePoint;
 }
 
-const MIN_PRESSURE_SCALE = 0.2;
+const MIN_PRESSURE_SCALE = 0.4;
+const MAX_PRESSURE_SCALE = 1.8;
 
 export function pressureToWidth(pressure: number, baseWidth: number): number {
-  return baseWidth * (MIN_PRESSURE_SCALE + (1 - MIN_PRESSURE_SCALE) * pressure);
+  return baseWidth * (MIN_PRESSURE_SCALE + (MAX_PRESSURE_SCALE - MIN_PRESSURE_SCALE) * pressure);
 }
 
 export function simplifyPoints(points: StrokePoint[], tolerance: number): StrokePoint[] {

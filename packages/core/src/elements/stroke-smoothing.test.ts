@@ -93,23 +93,25 @@ describe('smoothToSegments (Catmull-Rom)', () => {
 });
 
 describe('pressureToWidth', () => {
-  it('returns base width at full pressure', () => {
-    expect(pressureToWidth(1.0, 4)).toBe(4);
+  it('exceeds base width at full pressure (heavy press)', () => {
+    expect(pressureToWidth(1.0, 4)).toBeCloseTo(7.2);
   });
 
   it('returns minimum width at zero pressure', () => {
-    expect(pressureToWidth(0, 4)).toBeCloseTo(0.8);
+    expect(pressureToWidth(0, 4)).toBeCloseTo(1.6);
   });
 
-  it('returns intermediate width at 0.5 pressure', () => {
-    const w = pressureToWidth(0.5, 4);
-    expect(w).toBeGreaterThan(0.8);
-    expect(w).toBeLessThan(4);
+  it('returns a wider intermediate width at 0.5 pressure', () => {
+    expect(pressureToWidth(0.5, 4)).toBeCloseTo(4.4);
   });
 
   it('scales linearly with base width', () => {
     const w1 = pressureToWidth(0.5, 2);
     const w2 = pressureToWidth(0.5, 4);
     expect(w2).toBeCloseTo(w1 * 2);
+  });
+
+  it('heavy pressure exceeds the base width', () => {
+    expect(pressureToWidth(1, 2)).toBeGreaterThan(2);
   });
 });

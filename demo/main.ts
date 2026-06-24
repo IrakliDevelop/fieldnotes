@@ -458,6 +458,17 @@ const groupBtn = document.getElementById('group-btn') as HTMLButtonElement | nul
 const ungroupBtn = document.getElementById('ungroup-btn') as HTMLButtonElement | null;
 const lockBtn = document.getElementById('lock-btn') as HTMLButtonElement | null;
 
+const zorderPanel = document.getElementById('zorder-panel');
+const zMap: Record<string, string> = {
+  'z-front-btn': 'z-front',
+  'z-forward-btn': 'z-forward',
+  'z-backward-btn': 'z-backward',
+  'z-back-btn': 'z-back',
+};
+for (const [btnId, action] of Object.entries(zMap)) {
+  document.getElementById(btnId)?.addEventListener('click', () => viewport.runAction(action));
+}
+
 function updateAlignPanel(): void {
   const ids = viewport.getSelectedIds();
   const n = ids.length;
@@ -474,6 +485,7 @@ function updateAlignPanel(): void {
     const allLocked = ids.length > 0 && ids.every((id) => viewport.store.getById(id)?.locked);
     lockBtn.textContent = allLocked ? 'Unlock' : 'Lock';
   }
+  if (zorderPanel) zorderPanel.hidden = ids.length === 0;
 }
 
 groupBtn?.addEventListener('click', () => viewport.groupSelection());
@@ -589,7 +601,11 @@ const exportPaddingCheckbox = document.getElementById('export-padding') as HTMLI
 
 document.getElementById('export-png')?.addEventListener('click', async () => {
   const padding = exportPaddingCheckbox?.checked ? 20 : 0;
-  const blob = await viewport.exportImage({ scale: 2, padding });
+  const bg = (document.getElementById('export-bg') as HTMLInputElement | null)?.value ?? '#ffffff';
+  const scale = Number(
+    (document.getElementById('export-scale') as HTMLSelectElement | null)?.value ?? 2,
+  );
+  const blob = await viewport.exportImage({ scale, padding, background: bg });
   if (!blob) {
     console.warn('Nothing to export');
     return;
