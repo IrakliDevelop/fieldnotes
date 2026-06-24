@@ -22,12 +22,7 @@ import type { ToolContext } from '../tools/types';
 import type { SelectTool } from '../tools/select-tool';
 import { HistoryStack } from '../history/history-stack';
 import { HistoryRecorder } from '../history/history-recorder';
-import {
-  createImage,
-  createHtmlElement,
-  createGrid,
-  createShape,
-} from '../elements/element-factory';
+import { createImage, createHtmlElement, createShape } from '../elements/element-factory';
 import { exportState as exportCanvasState, parseState } from '../core/state-serializer';
 import { exportImage } from './export-image';
 import type { ExportImageOptions } from './export-image';
@@ -44,6 +39,7 @@ import { isNoteContentEmpty } from '../elements/note-sanitizer';
 import type { ElementStyle } from '../elements/element-style';
 import { SelectionOps } from './selection-ops';
 import type { AlignEdge, DistributeAxis } from './selection-ops';
+import { GridController } from './grid-controller';
 
 export type { AlignEdge, DistributeAxis } from './selection-ops';
 
@@ -118,7 +114,7 @@ export class Viewport {
     event: DragEvent,
     worldPosition: { x: number; y: number },
   ) => void;
-  private readonly gridChangeListeners = new Set<(info: GridInfo | null) => void>();
+  private readonly gridController: GridController;
   private readonly doubleTapDetector = new DoubleTapDetector();
   private tapDownX = 0;
   private tapDownY = 0;
@@ -266,21 +262,30 @@ export class Viewport {
       this.requestRender();
     });
 
+    this.gridController = new GridController({
+      store: this.store,
+      recorder: this.historyRecorder,
+      requestRender: () => this.requestRender(),
+      getActiveLayerId: () => this.layerManager.activeLayerId,
+      toolContext: this.toolContext,
+      defaultGridSize: this._gridSize,
+    });
+
     this.unsubStore = [
       this.store.on('add', (el) => {
-        if (el.type === 'grid') this.syncGridContext();
+        if (el.type === 'grid') this.gridController.syncContext();
         this.renderLoop.markLayerDirty(el.layerId);
         this.requestRender();
       }),
       this.store.on('remove', (el) => {
-        if (el.type === 'grid') this.syncGridContext();
+        if (el.type === 'grid') this.gridController.syncContext();
         this.unbindArrowsFrom(el);
         this.domNodeManager.removeDomNode(el.id);
         this.renderLoop.markLayerDirty(el.layerId);
         this.requestRender();
       }),
       this.store.on('update', ({ previous, current }) => {
-        if (current.type === 'grid') this.syncGridContext();
+        if (current.type === 'grid') this.gridController.syncContext();
         this.renderLoop.markLayerDirty(current.layerId);
         if (previous.layerId !== current.layerId) {
           this.renderLoop.markLayerDirty(previous.layerId);
@@ -290,7 +295,7 @@ export class Viewport {
       this.store.on('clear', () => {
         this.domNodeManager.clearDomNodes();
         this.renderLoop.markAllLayersDirty();
-        this.syncGridContext();
+        this.gridController.syncContext();
         this.requestRender();
       }),
     ];
@@ -307,7 +312,7 @@ export class Viewport {
     this.observeResize();
     this.syncCanvasSize();
     this.renderLoop.start();
-    this.syncGridContext();
+    this.gridController.syncContext();
   }
 
   get ctx(): CanvasRenderingContext2D | null {
@@ -521,16 +526,7 @@ export class Viewport {
     strokeWidth?: number;
     opacity?: number;
   }): string {
-    const existing = this.store.getElementsByType('grid')[0];
-    this.historyRecorder.begin();
-    if (existing) {
-      this.store.remove(existing.id);
-    }
-    const grid = createGrid({ ...input, layerId: this.layerManager.activeLayerId });
-    this.store.add(grid);
-    this.historyRecorder.commit();
-    this.requestRender();
-    return grid.id;
+    return this.gridController.add(input);
   }
 
   updateGrid(
@@ -541,39 +537,19 @@ export class Viewport {
       >
     >,
   ): void {
-    const grid = this.store.getElementsByType('grid')[0];
-    if (!grid) return;
-    this.historyRecorder.begin();
-    this.store.update(grid.id, updates);
-    this.historyRecorder.commit();
-    this.requestRender();
+    this.gridController.update(updates);
   }
 
   removeGrid(): void {
-    const grid = this.store.getElementsByType('grid')[0];
-    if (!grid) return;
-    this.historyRecorder.begin();
-    this.store.remove(grid.id);
-    this.historyRecorder.commit();
-    this.requestRender();
+    this.gridController.remove();
   }
 
   getGridInfo(): GridInfo | null {
-    const grid = this.store.getElementsByType('grid')[0];
-    if (!grid) return null;
-    return {
-      gridType: grid.gridType,
-      hexOrientation: grid.hexOrientation,
-      cellSize: grid.cellSize,
-      cellRadius: grid.gridType === 'hex' ? grid.cellSize : grid.cellSize / 2,
-    };
+    return this.gridController.getInfo();
   }
 
   onGridChange(listener: (info: GridInfo | null) => void): () => void {
-    this.gridChangeListeners.add(listener);
-    return () => {
-      this.gridChangeListeners.delete(listener);
-    };
+    return this.gridController.onChange(listener);
   }
 
   private getSelectTool(): SelectTool | undefined {
@@ -946,27 +922,6 @@ export class Viewport {
     const dpr = typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1;
     this.renderLoop.setCanvasSize(rect.width * dpr, rect.height * dpr);
     this.requestRender();
-  }
-
-  private syncGridContext(): void {
-    const grid = this.store.getElementsByType('grid')[0];
-    if (grid) {
-      this.toolContext.gridSize = grid.cellSize;
-      this.toolContext.gridType = grid.gridType;
-      this.toolContext.hexOrientation = grid.hexOrientation;
-    } else {
-      this.toolContext.gridSize = this._gridSize;
-      this.toolContext.gridType = undefined;
-      this.toolContext.hexOrientation = undefined;
-    }
-    this.notifyGridChangeListeners();
-  }
-
-  private notifyGridChangeListeners(): void {
-    const info = this.getGridInfo();
-    for (const listener of this.gridChangeListeners) {
-      listener(info);
-    }
   }
 
   private observeResize(): void {
