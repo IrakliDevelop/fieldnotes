@@ -104,6 +104,25 @@ viewport.addImage('/assets/map.png', { x: 0, y: 0 }, { w: 800, h: 600 });
 
 > **Important: Use URLs, not base64 data URLs.** Images are stored inline in the serialized state. A single base64-encoded photo can be 2-5MB, which will blow past the `localStorage` ~5MB quota and make JSON exports impractical. Upload images to your server or CDN and use the URL. For offline/local-first apps, store blobs in IndexedDB and reference them by URL.
 
+## Adding Shapes
+
+```typescript
+// Default: a centered 100×100 rectangle
+const id = viewport.addShape();
+
+// Override shape, size, position, and colors
+viewport.addShape({
+  shape: 'ellipse',
+  size: { w: 200, h: 120 },
+  position: { x: 0, y: 0 },
+  strokeColor: '#1d4ed8',
+  fillColor: '#dbeafe',
+  strokeWidth: 2,
+});
+```
+
+`addShape(opts?): string` creates a shape in a single undo step, selects the new shape, and returns its id. With no options it places a 100×100 rectangle centered in the current viewport — a keyboard-friendly path to shape creation.
+
 ## Grids
 
 Add square or hex grid overlays — useful for D&D combat maps, alignment, or graph paper backgrounds. Grids always render on top of images and other layer elements.

@@ -1879,4 +1879,50 @@ describe('Viewport', () => {
       viewport.destroy();
     });
   });
+
+  describe('addShape', () => {
+    it('adds a default 100x100 rectangle, one undo step, and selects it', () => {
+      const viewport = new Viewport(container);
+      const sel = new SelectTool();
+      viewport.toolManager.register(sel);
+      viewport.toolManager.setTool('select', viewport.toolContext);
+      const before = viewport.history.undoCount;
+
+      const id = viewport.addShape();
+
+      const el = viewport.store.getById(id);
+      expect(el?.type).toBe('shape');
+      expect((el as { shape: string }).shape).toBe('rectangle');
+      expect((el as { size: { w: number; h: number } }).size).toEqual({ w: 100, h: 100 });
+      expect(viewport.history.undoCount).toBe(before + 1);
+      expect(viewport.getSelectedIds()).toContain(id);
+
+      viewport.history.undo(viewport.store);
+      expect(viewport.store.getById(id)).toBeUndefined();
+      viewport.destroy();
+    });
+
+    it('honors opts (shape, size, position)', () => {
+      const viewport = new Viewport(container);
+      const sel = new SelectTool();
+      viewport.toolManager.register(sel);
+      viewport.toolManager.setTool('select', viewport.toolContext);
+
+      const id = viewport.addShape({
+        shape: 'ellipse',
+        size: { w: 40, h: 40 },
+        position: { x: 5, y: 6 },
+      });
+
+      const el = viewport.store.getById(id) as {
+        shape: string;
+        size: { w: number; h: number };
+        position: { x: number; y: number };
+      };
+      expect(el.shape).toBe('ellipse');
+      expect(el.size).toEqual({ w: 40, h: 40 });
+      expect(el.position).toEqual({ x: 5, y: 6 });
+      viewport.destroy();
+    });
+  });
 });

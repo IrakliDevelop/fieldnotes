@@ -119,17 +119,23 @@ updateEmptyHint();
 
 viewport.setTool('select');
 
-function setActiveTool(name: string) {
-  viewport.setTool(name);
+function syncToolButtons(name: string) {
   document.querySelectorAll<HTMLButtonElement>('#toolbar button').forEach((btn) => {
-    btn.classList.toggle('active', btn.dataset['tool'] === name);
+    const tool = btn.dataset['tool'];
+    if (!tool) return;
+    const isActive = tool === name;
+    btn.classList.toggle('active', isActive);
+    btn.setAttribute('aria-pressed', String(isActive));
   });
 }
 
+function setActiveTool(name: string) {
+  viewport.setTool(name);
+  syncToolButtons(name);
+}
+
 viewport.toolManager.onChange((name) => {
-  document.querySelectorAll<HTMLButtonElement>('#toolbar button').forEach((btn) => {
-    btn.classList.toggle('active', btn.dataset['tool'] === name);
-  });
+  syncToolButtons(name);
 });
 
 document.getElementById('toolbar')?.addEventListener('click', (e) => {
@@ -210,6 +216,11 @@ document.getElementById('embed-btn')?.addEventListener('click', () => {
     y: rect.height / 2,
   });
   viewport.addHtmlElement(widget, { x: center.x - 100, y: center.y - 75 });
+});
+
+document.getElementById('insert-shape-btn')?.addEventListener('click', () => {
+  viewport.addShape();
+  setActiveTool('select');
 });
 
 const brushSlider = document.getElementById('brush-size') as HTMLInputElement | null;

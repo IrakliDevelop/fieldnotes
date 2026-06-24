@@ -291,26 +291,44 @@
     .fieldnotes-context-menu-item--disabled:hover {
       background: none;
     }
+    #toolbar button:focus-visible,
+    #insert-shape-btn:focus-visible,
+    #lock-btn:focus-visible,
+    #zorder-panel button:focus-visible,
+    #align-panel button:focus-visible,
+    #grid-panel button:focus-visible,
+    #layers-panel button:focus-visible {
+      outline: 2px solid #1a1a1a;
+      outline-offset: 2px;
+    }
+    #canvas:has(:focus-visible) {
+      outline: 2px solid #1a1a1a;
+      outline-offset: -2px;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { transition: none !important; animation: none !important; }
+    }
   </style>
 </head>
 <body>
   <div id="canvas"></div>
   <div id="empty-hint">Draw with <b>P</b> · Pan with <b>Space</b> · Add a note with <b>N</b> · Label an arrow by <b>double-click</b></div>
   <div id="toast-container"></div>
-  <div id="toolbar">
-    <button data-tool="hand">Hand<span class="shortcut">H</span></button>
-    <button data-tool="select" class="active">Select<span class="shortcut">V</span></button>
-    <button data-tool="pencil">Pencil<span class="shortcut">P</span></button>
-    <button data-tool="highlighter">Highlighter</button>
-    <button data-tool="eraser">Eraser<span class="shortcut">E</span></button>
-    <button data-tool="arrow">Arrow<span class="shortcut">A</span></button>
-    <button data-tool="note">Note<span class="shortcut">N</span></button>
-    <button data-tool="text">Text<span class="shortcut">T</span></button>
-    <button data-tool="shape">Shape<span class="shortcut">S</span></button>
-    <button data-tool="measure">Measure<span class="shortcut">M</span></button>
-    <button data-tool="template">Template<span class="shortcut">G</span></button>
+  <div id="toolbar" role="toolbar" aria-label="Tools">
+    <button data-tool="hand" aria-label="Hand tool (H)" aria-pressed="false">Hand<span class="shortcut">H</span></button>
+    <button data-tool="select" class="active" aria-label="Select tool (V)" aria-pressed="true">Select<span class="shortcut">V</span></button>
+    <button data-tool="pencil" aria-label="Pencil tool (P)" aria-pressed="false">Pencil<span class="shortcut">P</span></button>
+    <button data-tool="highlighter" aria-label="Highlighter tool" aria-pressed="false">Highlighter</button>
+    <button data-tool="eraser" aria-label="Eraser tool (E)" aria-pressed="false">Eraser<span class="shortcut">E</span></button>
+    <button data-tool="arrow" aria-label="Arrow tool (A)" aria-pressed="false">Arrow<span class="shortcut">A</span></button>
+    <button data-tool="note" aria-label="Note tool (N)" aria-pressed="false">Note<span class="shortcut">N</span></button>
+    <button data-tool="text" aria-label="Text tool (T)" aria-pressed="false">Text<span class="shortcut">T</span></button>
+    <button data-tool="shape" aria-label="Shape tool (S)" aria-pressed="false">Shape<span class="shortcut">S</span></button>
+    <button data-tool="measure" aria-label="Measure tool (M)" aria-pressed="false">Measure<span class="shortcut">M</span></button>
+    <button data-tool="template" aria-label="Template tool (G)" aria-pressed="false">Template<span class="shortcut">G</span></button>
     <button id="image-btn">Image<span class="shortcut">I</span></button>
     <button id="embed-btn">Embed</button>
+    <button id="insert-shape-btn" aria-label="Insert shape at center">Insert Shape</button>
     <div style="width: 1px; background: #ddd; margin: 2px 4px;"></div>
     <input type="color" id="tool-color" value="#1a1a1a" title="Tool color" style="width: 34px; height: 34px; padding: 2px; border: 1px solid #ddd; border-radius: 6px; cursor: pointer; background: white;">
     <div style="display: flex; align-items: center; gap: 6px;">
@@ -321,7 +339,7 @@
     <div style="width: 1px; background: #ddd; margin: 2px 4px;"></div>
     <button id="undo" disabled>Undo<span class="shortcut">⌘Z</span></button>
     <button id="redo" disabled>Redo<span class="shortcut">⌘⇧Z</span></button>
-    <button id="fit-btn" title="Zoom to fit (Shift+1)">⛶</button>
+    <button id="fit-btn" aria-label="Zoom to fit" title="Zoom to fit (Shift+1)">⛶</button>
     <div style="width: 1px; background: #ddd; margin: 2px 4px;"></div>
     <button id="snap-toggle">Snap: Off<span class="shortcut">X</span></button>
     <button id="guide-toggle">Guides: Off</button>
