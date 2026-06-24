@@ -158,12 +158,34 @@ export class NoteToolbar {
     });
 
     select.addEventListener('change', () => {
-      setFontSize(Number(select.value));
+      this.applyFontSize(Number(select.value));
       this.updateActiveStates();
       this.anchor?.focus();
     });
 
     return select;
+  }
+
+  private applyFontSize(size: number): void {
+    const sel = window.getSelection();
+    const collapsed = !sel || sel.rangeCount === 0 || sel.getRangeAt(0).collapsed;
+    if (collapsed && this.anchor) {
+      const range = document.createRange();
+      range.selectNodeContents(this.anchor);
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+      setFontSize(size);
+      const after = window.getSelection();
+      if (after) {
+        const caret = document.createRange();
+        caret.selectNodeContents(this.anchor);
+        caret.collapse(false);
+        after.removeAllRanges();
+        after.addRange(caret);
+      }
+      return;
+    }
+    setFontSize(size);
   }
 
   private positionToolbar(anchor: HTMLElement): void {
