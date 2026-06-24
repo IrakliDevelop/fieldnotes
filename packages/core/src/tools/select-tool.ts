@@ -1,7 +1,7 @@
 import type { Bounds, Point } from '../core/types';
 import type { Tool, ToolContext, PointerState } from './types';
 import { smartSnap } from '../core/snap';
-import { rotatePoint, normalizeAngle } from '../core/geometry';
+import { normalizeAngle } from '../core/geometry';
 import type { CanvasElement } from '../elements/types';
 import { updateArrowsBoundToElements } from '../elements/arrow-binding';
 import { getElementBounds } from '../elements/element-bounds';
@@ -34,9 +34,9 @@ import {
   renderSelectionBoxes,
   renderGuideLines,
 } from './select-overlay';
+import { computeResize, computeRotatedResize, computeTemplateResize } from './select-resize';
 
 const SNAP_PX = 6;
-const MIN_ELEMENT_SIZE = 20;
 const ROTATE_SNAP = Math.PI / 12; // 15°
 
 type Mode =
@@ -513,162 +513,28 @@ export class SelectTool implements Tool {
     if (!el || !('size' in el) || el.locked) return;
 
     const angle = el.rotation ?? 0;
-    if (angle !== 0) {
-      this.handleRotatedResize(world, el, angle, ctx, shiftKey);
-      return;
-    }
+    const patch =
+      angle !== 0
+        ? computeRotatedResize(
+            el,
+            this.mode.handle,
+            angle,
+            world,
+            this.lastWorld,
+            this.resizeAspectRatio,
+            shiftKey,
+          )
+        : computeResize(
+            el,
+            this.mode.handle,
+            world,
+            this.lastWorld,
+            this.resizeAspectRatio,
+            shiftKey,
+          );
 
-    const { handle } = this.mode;
-    const dx = world.x - this.lastWorld.x;
-    const dy = world.y - this.lastWorld.y;
     this.lastWorld = world;
-
-    let { x, y, w, h } = { x: el.position.x, y: el.position.y, w: el.size.w, h: el.size.h };
-
-    switch (handle) {
-      case 'se':
-        w += dx;
-        h += dy;
-        break;
-      case 'sw':
-        x += dx;
-        w -= dx;
-        h += dy;
-        break;
-      case 'ne':
-        y += dy;
-        w += dx;
-        h -= dy;
-        break;
-      case 'nw':
-        x += dx;
-        y += dy;
-        w -= dx;
-        h -= dy;
-        break;
-    }
-
-    if (shiftKey && this.resizeAspectRatio > 0) {
-      const absDw = Math.abs(w - el.size.w);
-      const absDh = Math.abs(h - el.size.h);
-      if (absDw >= absDh) {
-        h = w / this.resizeAspectRatio;
-      } else {
-        w = h * this.resizeAspectRatio;
-      }
-      if (handle === 'nw' || handle === 'sw') {
-        x = el.position.x + el.size.w - w;
-      }
-      if (handle === 'nw' || handle === 'ne') {
-        y = el.position.y + el.size.h - h;
-      }
-    }
-
-    if (w < MIN_ELEMENT_SIZE) {
-      if (handle === 'nw' || handle === 'sw') x = el.position.x + el.size.w - MIN_ELEMENT_SIZE;
-      w = MIN_ELEMENT_SIZE;
-    }
-    if (h < MIN_ELEMENT_SIZE) {
-      if (handle === 'nw' || handle === 'ne') y = el.position.y + el.size.h - MIN_ELEMENT_SIZE;
-      h = MIN_ELEMENT_SIZE;
-    }
-
-    ctx.store.update(this.mode.elementId, {
-      position: { x, y },
-      size: { w, h },
-    });
-
-    this.updateArrowsBoundTo([this.mode.elementId], ctx);
-
-    ctx.requestRender();
-  }
-
-  private anchorOffset(handle: HandlePosition, w: number, h: number): Point {
-    switch (handle) {
-      case 'se':
-        return { x: -w / 2, y: -h / 2 };
-      case 'sw':
-        return { x: w / 2, y: -h / 2 };
-      case 'ne':
-        return { x: -w / 2, y: h / 2 };
-      case 'nw':
-        return { x: w / 2, y: h / 2 };
-      default:
-        return { x: 0, y: 0 };
-    }
-  }
-
-  private handleRotatedResize(
-    world: Point,
-    el: CanvasElement & { size: { w: number; h: number } },
-    angle: number,
-    ctx: ToolContext,
-    shiftKey: boolean,
-  ): void {
-    if (this.mode.type !== 'resizing') return;
-    const { handle } = this.mode;
-
-    const wdx = world.x - this.lastWorld.x;
-    const wdy = world.y - this.lastWorld.y;
-    this.lastWorld = world;
-
-    // world delta → element local frame (inverse rotation of the vector)
-    const cosN = Math.cos(-angle);
-    const sinN = Math.sin(-angle);
-    const ldx = wdx * cosN - wdy * sinN;
-    const ldy = wdx * sinN + wdy * cosN;
-
-    let w = el.size.w;
-    let h = el.size.h;
-    switch (handle) {
-      case 'se':
-        w += ldx;
-        h += ldy;
-        break;
-      case 'sw':
-        w -= ldx;
-        h += ldy;
-        break;
-      case 'ne':
-        w += ldx;
-        h -= ldy;
-        break;
-      case 'nw':
-        w -= ldx;
-        h -= ldy;
-        break;
-    }
-
-    if (shiftKey && this.resizeAspectRatio > 0) {
-      const absDw = Math.abs(w - el.size.w);
-      const absDh = Math.abs(h - el.size.h);
-      if (absDw >= absDh) h = w / this.resizeAspectRatio;
-      else w = h * this.resizeAspectRatio;
-    }
-    w = Math.max(w, MIN_ELEMENT_SIZE);
-    h = Math.max(h, MIN_ELEMENT_SIZE);
-
-    // anchor (opposite corner) fixed in world space, computed from OLD geometry
-    const oldCenter = { x: el.position.x + el.size.w / 2, y: el.position.y + el.size.h / 2 };
-    const oldAnchorLocal = this.anchorOffset(handle, el.size.w, el.size.h);
-    const anchorWorld = rotatePoint(
-      { x: oldCenter.x + oldAnchorLocal.x, y: oldCenter.y + oldAnchorLocal.y },
-      oldCenter,
-      angle,
-    );
-
-    // new center so the anchor stays put: anchorWorld = newCenter + R(angle)·newAnchorLocal
-    const newAnchorLocal = this.anchorOffset(handle, w, h);
-    const cos = Math.cos(angle);
-    const sin = Math.sin(angle);
-    const rotatedAnchor = {
-      x: newAnchorLocal.x * cos - newAnchorLocal.y * sin,
-      y: newAnchorLocal.x * sin + newAnchorLocal.y * cos,
-    };
-    const newCenter = { x: anchorWorld.x - rotatedAnchor.x, y: anchorWorld.y - rotatedAnchor.y };
-    const position = { x: newCenter.x - w / 2, y: newCenter.y - h / 2 };
-
-    ctx.store.update(this.mode.elementId, { position, size: { w, h } });
+    ctx.store.update(this.mode.elementId, patch);
     this.updateArrowsBoundTo([this.mode.elementId], ctx);
     ctx.requestRender();
   }
@@ -683,24 +549,15 @@ export class SelectTool implements Tool {
     const el = ctx.store.getById(this.mode.elementId);
     if (!el || el.type !== 'template' || el.locked) return;
 
-    const dx = world.x - el.position.x;
-    const dy = world.y - el.position.y;
-    let newRadius = Math.sqrt(dx * dx + dy * dy);
-
-    if (ctx.snapToGrid && ctx.gridSize && ctx.gridSize > 0) {
-      const snapUnit = ctx.gridType === 'hex' ? Math.sqrt(3) * ctx.gridSize : ctx.gridSize;
-      newRadius = Math.max(snapUnit, Math.round(newRadius / snapUnit) * snapUnit);
+    const patch = computeTemplateResize(el, world, {
+      snapToGrid: ctx.snapToGrid,
+      gridSize: ctx.gridSize,
+      gridType: ctx.gridType,
+    });
+    if (patch) {
+      ctx.store.update(this.mode.elementId, patch);
+      ctx.requestRender();
     }
-    newRadius = Math.max(MIN_ELEMENT_SIZE, newRadius);
-
-    const updates: Record<string, unknown> = { radius: newRadius };
-    if (el.feetPerCell != null && ctx.gridSize && ctx.gridSize > 0) {
-      const snapUnit = ctx.gridType === 'hex' ? Math.sqrt(3) * ctx.gridSize : ctx.gridSize;
-      updates.radiusFeet = (newRadius / snapUnit) * el.feetPerCell;
-    }
-
-    ctx.store.update(this.mode.elementId, updates);
-    ctx.requestRender();
   }
 
   private getMarqueeRect(): Bounds | null {
