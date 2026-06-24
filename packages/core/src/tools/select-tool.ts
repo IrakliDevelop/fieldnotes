@@ -20,7 +20,6 @@ import { computeSnapGuides } from '../elements/snap-guides';
 import type { SnapGuide } from '../elements/snap-guides';
 import {
   hitTest,
-  isInsideBounds,
   hitTestResizeHandle,
   hitTestRotateHandle,
   hitTestLineHandles,
@@ -674,30 +673,8 @@ export class SelectTool implements Tool {
     ctx.requestRender();
   }
 
-  private hitTestResizeHandle(
-    world: Point,
-    ctx: ToolContext,
-  ): { elementId: string; handle: HandlePosition } | null {
-    return hitTestResizeHandle(world, ctx, this._selectedIds);
-  }
-
-  private hitTestRotateHandle(world: Point, ctx: ToolContext): { elementId: string } | null {
-    return hitTestRotateHandle(world, ctx, this._selectedIds);
-  }
-
-  private hitTestLineHandles(
-    world: Point,
-    ctx: ToolContext,
-  ): { elementId: string; fixed: Point } | null {
-    return hitTestLineHandles(world, ctx, this._selectedIds);
-  }
-
   private getOverlayLayout(el: CanvasElement, zoom: number): OverlayLayout | null {
     return getOverlayLayout(el, zoom);
-  }
-
-  private isInsideBounds(point: Point, el: CanvasElement): boolean {
-    return isInsideBounds(point, el);
   }
 
   private handleTemplateResize(world: Point, ctx: ToolContext): void {
