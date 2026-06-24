@@ -8,7 +8,7 @@ import { ElementStore } from '../elements/element-store';
 import { ElementRenderer } from '../elements/element-renderer';
 import { NoteEditor } from '../elements/note-editor';
 import type { FontSizePreset } from '../elements/note-toolbar';
-import type { CanvasElement, ArrowElement, GridElement } from '../elements/types';
+import type { CanvasElement, ArrowElement, GridElement, ShapeKind } from '../elements/types';
 import type { Bounds, Point } from '../core/types';
 import { ContextMenu } from './context-menu';
 import type { ContextMenuItem } from './context-menu';
@@ -27,7 +27,12 @@ import type { ToolContext } from '../tools/types';
 import type { SelectTool } from '../tools/select-tool';
 import { HistoryStack } from '../history/history-stack';
 import { HistoryRecorder } from '../history/history-recorder';
-import { createImage, createHtmlElement, createGrid } from '../elements/element-factory';
+import {
+  createImage,
+  createHtmlElement,
+  createGrid,
+  createShape,
+} from '../elements/element-factory';
 import { createId } from '../elements/create-id';
 import { exportState as exportCanvasState, parseState } from '../core/state-serializer';
 import { exportImage } from './export-image';
@@ -474,6 +479,43 @@ export class Viewport {
     this.historyRecorder.commit();
     this.requestRender();
     return el.id;
+  }
+
+  addShape(
+    opts: {
+      shape?: ShapeKind;
+      size?: { w: number; h: number };
+      position?: { x: number; y: number };
+      strokeColor?: string;
+      fillColor?: string;
+      strokeWidth?: number;
+    } = {},
+  ): string {
+    const size = opts.size ?? { w: 100, h: 100 };
+    const position = opts.position ?? this.centeredPosition(size);
+    const shape = createShape({
+      position,
+      size,
+      shape: opts.shape,
+      strokeColor: opts.strokeColor,
+      strokeWidth: opts.strokeWidth,
+      fillColor: opts.fillColor,
+      layerId: this.layerManager.activeLayerId,
+    });
+    this.historyRecorder.begin();
+    this.store.add(shape);
+    this.historyRecorder.commit();
+    this.getSelectTool()?.setSelection([shape.id]);
+    this.requestRender();
+    return shape.id;
+  }
+
+  private centeredPosition(size: { w: number; h: number }): { x: number; y: number } {
+    const c = this.camera.screenToWorld({
+      x: this.wrapper.clientWidth / 2,
+      y: this.wrapper.clientHeight / 2,
+    });
+    return { x: c.x - size.w / 2, y: c.y - size.h / 2 };
   }
 
   removeLayer(id: string): void {
