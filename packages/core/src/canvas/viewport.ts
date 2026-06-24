@@ -40,21 +40,16 @@ import type { ElementStyle } from '../elements/element-style';
 import { SelectionOps } from './selection-ops';
 import type { AlignEdge, DistributeAxis } from './selection-ops';
 import { GridController } from './grid-controller';
+import type { GridInfo } from './grid-controller';
 
 export type { AlignEdge, DistributeAxis } from './selection-ops';
+export type { GridInfo } from './grid-controller';
 
 const EMPTY_IDS: string[] = [];
 const ARROW_HIT_THRESHOLD = 10;
 
 function noop(): void {
   // Stable unsubscribe handle returned when no select tool is registered.
-}
-
-export interface GridInfo {
-  gridType: 'square' | 'hex';
-  hexOrientation: 'pointy' | 'flat';
-  cellSize: number;
-  cellRadius: number;
 }
 
 export interface ViewportOptions {
