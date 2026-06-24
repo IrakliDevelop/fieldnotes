@@ -4,6 +4,13 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.38.3] — 2026-06-24
+
+### Changed
+
+- Internal: extracted viewport pointer-interaction + editing into `ViewportInteractions`. Completes
+  the viewport decomposition. No public API or behavior change.
+
 ## [0.38.2] — 2026-06-24
 
 ### Changed

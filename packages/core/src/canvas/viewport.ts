@@ -16,7 +16,7 @@ import { createWrapper, createCanvas, createDomLayer } from './viewport-dom';
 import { findBoundArrows, getEdgeIntersection } from '../elements/arrow-binding';
 import { getElementBounds } from '../elements/element-bounds';
 import { getElementsBoundingBox } from '../elements/bounds';
-import { getArrowTangentAngle, isNearBezier } from '../elements/arrow-geometry';
+import { getArrowTangentAngle } from '../elements/arrow-geometry';
 import { ArrowLabelEditor } from '../elements/arrow-label-editor';
 import { ToolManager } from '../tools/tool-manager';
 import type { ToolContext } from '../tools/types';
@@ -31,23 +31,21 @@ import type { CanvasState } from '../core/state-serializer';
 import { LayerManager } from '../layers/layer-manager';
 import { InteractMode } from './interact-mode';
 import { DomNodeManager } from './dom-node-manager';
-import { DoubleTapDetector } from './double-tap-detector';
 import { RenderLoop } from './render-loop';
 import type { RenderStatsSnapshot } from './render-stats';
 import { LayerCache } from './layer-cache';
 import { MarginViewport } from './margin-viewport';
-import { isNoteContentEmpty } from '../elements/note-sanitizer';
 import type { ElementStyle } from '../elements/element-style';
 import { SelectionOps } from './selection-ops';
 import type { AlignEdge, DistributeAxis } from './selection-ops';
 import { GridController } from './grid-controller';
 import type { GridInfo } from './grid-controller';
+import { ViewportInteractions } from './viewport-interactions';
 
 export type { AlignEdge, DistributeAxis } from './selection-ops';
 export type { GridInfo } from './grid-controller';
 
 const EMPTY_IDS: string[] = [];
-const ARROW_HIT_THRESHOLD = 10;
 
 function noop(): void {
   // Stable unsubscribe handle returned when no select tool is registered.
@@ -111,9 +109,7 @@ export class Viewport {
     worldPosition: { x: number; y: number },
   ) => void;
   private readonly gridController: GridController;
-  private readonly doubleTapDetector = new DoubleTapDetector();
-  private tapDownX = 0;
-  private tapDownY = 0;
+  private readonly interactions: ViewportInteractions;
   private contextMenu: ContextMenu | null = null;
 
   constructor(
@@ -149,7 +145,7 @@ export class Viewport {
       toolbar: options.toolbar,
       placeholder: options.placeholder,
     });
-    this.noteEditor.setOnStop((id) => this.onTextEditStop(id));
+    this.noteEditor.setOnStop((id) => this.interactions.onTextEditStop(id));
     this.arrowLabelEditor = new ArrowLabelEditor();
     this.noteEditor.setHistoryHooks(
       () => this.historyRecorder.begin(),
@@ -179,8 +175,8 @@ export class Viewport {
       store: this.store,
       requestRender: () => this.requestRender(),
       switchTool: (name: string) => this.toolManager.setTool(name, this.toolContext),
-      editElement: (id: string) => this.startEditingElement(id),
-      fitNoteHeight: (id: string) => this.fitNoteHeight(id),
+      editElement: (id: string) => this.interactions.startEditingElement(id),
+      fitNoteHeight: (id: string) => this.interactions.fitNoteHeight(id),
       setCursor: (cursor: string) => {
         this.wrapper.style.cursor = cursor;
       },
@@ -220,7 +216,7 @@ export class Viewport {
 
     this.domNodeManager = new DomNodeManager({
       domLayer: this.domLayer,
-      onEditRequest: (id) => this.startEditingElement(id),
+      onEditRequest: (id) => this.interactions.startEditingElement(id),
       isEditingElement: (id) =>
         this.noteEditor.isEditing && this.noteEditor.editingElementId === id,
       getVersion: (id) => this.store.getVersion(id),
@@ -301,10 +297,27 @@ export class Viewport {
       this.requestRender();
     });
 
-    this.wrapper.addEventListener('pointerdown', this.onTapDown);
-    this.wrapper.addEventListener('pointerup', this.onDoubleTap);
-    this.wrapper.addEventListener('dragover', this.onDragOver);
-    this.wrapper.addEventListener('drop', this.onDrop);
+    this.interactions = new ViewportInteractions({
+      store: this.store,
+      camera: this.camera,
+      wrapper: this.wrapper,
+      domLayer: this.domLayer,
+      renderLoop: this.renderLoop,
+      domNodeManager: this.domNodeManager,
+      noteEditor: this.noteEditor,
+      arrowLabelEditor: this.arrowLabelEditor,
+      interactMode: this.interactMode,
+      renderer: this.renderer,
+      recorder: this.historyRecorder,
+      requestRender: () => this.requestRender(),
+      addImage: (src, position) => this.addImage(src, position),
+      dropHandler: this.dropHandler,
+    });
+
+    this.wrapper.addEventListener('pointerdown', this.interactions.onTapDown);
+    this.wrapper.addEventListener('pointerup', this.interactions.onDoubleTap);
+    this.wrapper.addEventListener('dragover', this.interactions.onDragOver);
+    this.wrapper.addEventListener('drop', this.interactions.onDrop);
     this.observeResize();
     this.syncCanvasSize();
     this.renderLoop.start();
@@ -641,10 +654,10 @@ export class Viewport {
     this.arrowLabelEditor.cancel();
     this.historyRecorder.destroy();
     this.contextMenu?.dispose();
-    this.wrapper.removeEventListener('pointerdown', this.onTapDown);
-    this.wrapper.removeEventListener('pointerup', this.onDoubleTap);
-    this.wrapper.removeEventListener('dragover', this.onDragOver);
-    this.wrapper.removeEventListener('drop', this.onDrop);
+    this.wrapper.removeEventListener('pointerdown', this.interactions.onTapDown);
+    this.wrapper.removeEventListener('pointerup', this.interactions.onDoubleTap);
+    this.wrapper.removeEventListener('dragover', this.interactions.onDragOver);
+    this.wrapper.removeEventListener('drop', this.interactions.onDrop);
     this.inputHandler.destroy();
     this.unsubCamera();
     this.unsubToolChange();
@@ -654,181 +667,9 @@ export class Viewport {
     this.wrapper.remove();
   }
 
-  private startEditingElement(id: string): void {
-    const element = this.store.getById(id);
-    if (!element || (element.type !== 'note' && element.type !== 'text')) return;
-
-    this.renderLoop.flush();
-
-    const node = this.domNodeManager.getNode(id);
-    if (node) {
-      this.noteEditor.startEditing(node, id, this.store);
-    }
-  }
-
-  private fitNoteHeight(elementId: string): void {
-    const element = this.store.getById(elementId);
-    if (!element || element.type !== 'note') return;
-    if (isNoteContentEmpty(element.text)) return;
-    const node = this.domNodeManager.getNode(elementId);
-    if (!node) return;
-    const measured = node.scrollHeight;
-    if (measured > element.size.h) {
-      this.store.update(elementId, { size: { w: element.size.w, h: measured } });
-    }
-  }
-
-  private onTextEditStop(elementId: string): void {
-    const element = this.store.getById(elementId);
-    if (!element) return;
-
-    if (element.type === 'note') {
-      if (isNoteContentEmpty(element.text)) {
-        this.store.remove(elementId);
-        return;
-      }
-      this.fitNoteHeight(elementId);
-      return;
-    }
-
-    if (element.type !== 'text') return;
-
-    if (!element.text || element.text.trim() === '') {
-      this.store.remove(elementId);
-      return;
-    }
-
-    const node = this.domNodeManager.getNode(elementId);
-    if (node && 'size' in element) {
-      const measured = node.scrollHeight;
-      if (measured !== element.size.h) {
-        this.store.update(elementId, { size: { w: element.size.w, h: measured } });
-      }
-    }
-  }
-
-  private onTapDown = (e: PointerEvent): void => {
-    this.tapDownX = e.clientX;
-    this.tapDownY = e.clientY;
-  };
-
-  private onDoubleTap = (e: PointerEvent): void => {
-    const dx = e.clientX - this.tapDownX;
-    const dy = e.clientY - this.tapDownY;
-    const moved = Math.sqrt(dx * dx + dy * dy);
-    if (moved > 10) return;
-
-    if (!this.doubleTapDetector.feed(e)) return;
-    if (typeof document.elementFromPoint !== 'function') return;
-
-    const el = document.elementFromPoint(e.clientX, e.clientY);
-
-    const nodeEl = (el as HTMLElement | null)?.closest<HTMLDivElement>('[data-element-id]');
-    if (nodeEl) {
-      const elementId = nodeEl.dataset['elementId'];
-      if (elementId) {
-        const element = this.store.getById(elementId);
-        if (element?.type === 'note' || element?.type === 'text') {
-          this.startEditingElement(elementId);
-          return;
-        }
-      }
-    }
-
-    const rect = this.wrapper.getBoundingClientRect();
-    const screen = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-    const world = this.camera.screenToWorld(screen);
-
-    // HTML embeds keep double-tap priority: you double-tapped inside the embed even if an
-    // arrow's curve passes nearby. Arrow-label editing only when no embed is hit.
-    const hit = this.hitTestWorld(world);
-    if (hit?.type === 'html') {
-      this.interactMode.startInteracting(hit.id);
-      return;
-    }
-
-    const arrow = this.findArrowAt(world);
-    if (arrow) {
-      this.startArrowLabelEdit(arrow);
-    }
-  };
-
-  private findArrowAt(world: { x: number; y: number }): ArrowElement | undefined {
-    const candidates = this.store.queryPoint(world).reverse();
-    for (const el of candidates) {
-      if (
-        el.type === 'arrow' &&
-        isNearBezier(world, el.from, el.to, el.bend, ARROW_HIT_THRESHOLD)
-      ) {
-        return el;
-      }
-    }
-    return undefined;
-  }
-
-  private startArrowLabelEdit(arrow: ArrowElement): void {
-    this.arrowLabelEditor.startEditing({
-      arrow,
-      layer: this.domLayer,
-      store: this.store,
-      recorder: this.historyRecorder,
-      onDone: () => {
-        this.renderer.setLabelEditingId(null);
-        this.requestRender();
-      },
-    });
-    // Set AFTER startEditing: starting a new edit cleans up any prior session, whose onDone
-    // synchronously clears the editing id — so claim suppression for this arrow last.
-    this.renderer.setLabelEditingId(arrow.id);
-  }
-
-  private hitTestWorld(world: { x: number; y: number }): CanvasElement | null {
-    const candidates = this.store.queryPoint(world).reverse();
-    for (const el of candidates) {
-      if (!('size' in el)) continue;
-      const { x, y } = el.position;
-      const { w, h } = el.size;
-      if (world.x >= x && world.x <= x + w && world.y >= y && world.y <= y + h) {
-        return el;
-      }
-    }
-    return null;
-  }
-
   stopInteracting(): void {
     this.interactMode.stopInteracting();
   }
-
-  private onDragOver = (e: DragEvent): void => {
-    e.preventDefault();
-  };
-
-  private onDrop = (e: DragEvent): void => {
-    e.preventDefault();
-    const rect = this.wrapper.getBoundingClientRect();
-    const screenPos = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-    const worldPos = this.camera.screenToWorld(screenPos);
-
-    if (this.dropHandler) {
-      this.dropHandler(e, worldPos);
-      return;
-    }
-
-    const files = e.dataTransfer?.files;
-    if (!files) return;
-
-    for (const file of files) {
-      if (!file.type.startsWith('image/')) continue;
-
-      const reader = new FileReader();
-      reader.onload = () => {
-        const src = reader.result;
-        if (typeof src !== 'string') return;
-        this.addImage(src, worldPos);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
 
   private unbindArrowsFrom(removedElement: CanvasElement): void {
     const boundArrows = findBoundArrows(removedElement.id, this.store);
