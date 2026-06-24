@@ -4,6 +4,22 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.38.0] — 2026-06-24
+
+### Added
+
+- **`viewport.addShape(opts?)`** — create a shape programmatically (default: a centered 100×100
+  rectangle), in one undo step, with the new shape selected. Enables keyboard-friendly shape
+  creation.
+
+### Accessibility (demo)
+
+- Toolbar buttons gained `aria-label` + `aria-pressed` (active-tool state) and a `role="toolbar"`
+  group; keyboard focus rings (`:focus-visible`); `prefers-reduced-motion` handling; and an
+  "Insert Shape" button (a keyboard-only path to create a shape).
+
+---
+
 ## [0.37.0] — 2026-06-24
 
 ### Changed
