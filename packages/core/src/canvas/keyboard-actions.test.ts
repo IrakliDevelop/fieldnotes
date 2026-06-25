@@ -539,7 +539,7 @@ describe('KeyboardActions nudge transaction ownership', () => {
     vi.useRealTimers();
   });
 
-  it('continuation nudge after a foreign transaction forms its own undo step', () => {
+  it('continuation nudge BURST after a foreign transaction forms ONE undo step', () => {
     vi.useFakeTimers();
     const ctx = makeCtx();
     const stack = new HistoryStack();
@@ -559,15 +559,23 @@ describe('KeyboardActions nudge transaction ownership', () => {
     recorder.begin();
     ctx.store.add(createNote({ position: { x: 50, y: 50 }, size: { w: 10, h: 10 } }));
     recorder.commit();
-    expect(stack.undoCount).toBe(2); // nudge's move (auto-committed) + foreign add
+    const afterForeign = stack.undoCount;
+    expect(afterForeign).toBe(2); // nudge's move (auto-committed) + foreign add
 
-    // continuation nudge must re-begin its OWN tx, move note to x=2
+    // continuation BURST: two back-to-back nudges with NO timer advance between
+    // them, so they are one burst. The first must re-begin a tx (foreign takeover);
+    // the second must EXTEND that same tx, not record a separate untransacted step.
     actions.nudge(1, 0, false);
-    expect(ctx.store.getById(note.id)?.position.x).toBe(2);
+    actions.nudge(1, 0, false);
+    expect(ctx.store.getById(note.id)?.position.x).toBe(3);
     vi.advanceTimersByTime(400);
-    expect(stack.undoCount).toBe(3); // continuation is its own single undo step
+    // the whole continuation burst is exactly ONE undo step (not two). Against the
+    // pre-fix code each continuation nudge after the foreign commit lands as its own
+    // untransacted step, so this would be afterForeign + 2.
+    expect(stack.undoCount).toBe(afterForeign + 1);
 
-    // undoing once reverts ONLY the continuation delta (x: 2 -> 1)
+    // undoing once reverts the WHOLE continuation burst (x: 3 -> 1), not just the
+    // last nudge (which would leave x: 3 -> 2 under the pre-fix code).
     recorder.pause();
     stack.undo(ctx.store);
     recorder.resume();
