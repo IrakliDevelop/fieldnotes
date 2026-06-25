@@ -4,6 +4,13 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.38.6] — 2026-06-25
+
+### Changed
+
+- Internal: extracted keyboard handling (keydown/keyup + action dispatch) from `input-handler` into
+  `KeyboardHandler`. No public API or behavior change.
+
 ## [0.38.5] — 2026-06-25
 
 ### Changed
