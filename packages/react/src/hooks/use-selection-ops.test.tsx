@@ -133,6 +133,50 @@ describe('useSelectionOps', () => {
     expect(getResult().isLocked).toBe(false);
   });
 
+  it('does not re-render when an unrelated store change leaves the selection unchanged', () => {
+    let renders = 0;
+    let result: UseSelectionOpsResult | null = null;
+    let vp: Viewport | null = null;
+
+    function Consumer() {
+      renders++;
+      result = useSelectionOps();
+      return null;
+    }
+
+    render(
+      <FieldNotesCanvas
+        tools={[new SelectTool()]}
+        defaultTool="select"
+        onReady={(v) => {
+          vp = v;
+        }}
+      >
+        <Consumer />
+      </FieldNotesCanvas>,
+    );
+
+    const ids: string[] = [];
+    act(() => {
+      for (let i = 0; i < 2; i++) {
+        const note = createNote({ position: { x: i * 100, y: 0 } });
+        vp?.store.add(note);
+        ids.push(note.id);
+      }
+    });
+    select(vp, ids);
+    expect(result?.selectedCount).toBe(2);
+
+    const before = renders;
+    act(() => {
+      vp?.store.add(createNote({ position: { x: 999, y: 999 } }));
+    });
+
+    expect(renders - before).toBe(0);
+    expect(result?.selectedCount).toBe(2);
+    expect(result?.selectedIds).toEqual(ids);
+  });
+
   it('align(left) snaps selected elements to the min x', () => {
     const { getResult, getVp } = setup();
     const vp = getVp();
