@@ -1879,6 +1879,76 @@ describe('SelectTool', () => {
 
       expect(callsWithHover).toBe(callsSelectionOnly);
     });
+
+    it('draws the bend dot (arc, not bounds rect) when hovering an unselected arrow', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 200, y: 0 } });
+      ctx.store.add(arrow);
+      tool.onActivate(ctx);
+
+      tool.onHover?.(pt(100, 0), ctx);
+      expect(tool.selectedIds).toEqual([]);
+
+      const canvas = mockCanvas();
+      const arcCalls: number[][] = [];
+      (canvas.arc as ReturnType<typeof vi.fn>).mockImplementation(
+        (...args: number[]) => void arcCalls.push(args),
+      );
+      tool.renderOverlay?.(canvas);
+
+      expect(arcCalls.length).toBe(1);
+      const [cx, cy] = arcCalls[0] ?? [];
+      expect(cx).toBeCloseTo(100);
+      expect(cy).toBeCloseTo(0);
+      expect(canvas.strokeRect).not.toHaveBeenCalled();
+    });
+
+    it('applies the faded hover alpha when drawing the arrow bend dot', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 200, y: 0 } });
+      ctx.store.add(arrow);
+      tool.onActivate(ctx);
+      tool.onHover?.(pt(100, 0), ctx);
+
+      const canvas = mockCanvas();
+      const alphaAtFill: number[] = [];
+      (canvas.fill as ReturnType<typeof vi.fn>).mockImplementation(() =>
+        alphaAtFill.push(canvas.globalAlpha),
+      );
+      tool.renderOverlay?.(canvas);
+
+      expect(alphaAtFill).toContain(0.35);
+    });
+
+    it('does not draw the bend dot for a selected arrow (handled by the full handles path)', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 200, y: 0 } });
+      ctx.store.add(arrow);
+      tool.onActivate(ctx);
+      tool.setSelection([arrow.id]);
+      tool.onHover?.(pt(100, 0), ctx);
+
+      const canvas = mockCanvas();
+      const alphaAtFill: number[] = [];
+      (canvas.fill as ReturnType<typeof vi.fn>).mockImplementation(() =>
+        alphaAtFill.push(canvas.globalAlpha),
+      );
+      tool.renderOverlay?.(canvas);
+
+      expect(alphaAtFill).not.toContain(0.35);
+    });
+
+    it('still strokes bounds for a non-arrow hover (no regression)', () => {
+      const { tool, ctx, note } = hoverSetup();
+      tool.onHover?.(pt(150, 130), ctx);
+      const canvas = mockCanvas();
+      tool.renderOverlay?.(canvas);
+      expect(canvas.strokeRect).toHaveBeenCalledWith(note.position.x, note.position.y, 200, 100);
+      expect(canvas.arc).not.toHaveBeenCalled();
+    });
   });
 
   describe('setSelection', () => {

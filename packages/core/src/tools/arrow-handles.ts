@@ -160,3 +160,19 @@ export function renderArrowHandles(
     canvasCtx.stroke();
   }
 }
+
+export function renderArrowHoverHandle(
+  canvasCtx: CanvasRenderingContext2D,
+  arrow: ArrowElement,
+  zoom: number,
+): void {
+  const mid = getArrowMidpoint(arrow.from, arrow.to, arrow.bend);
+  const radius = HANDLE_RADIUS / zoom;
+  canvasCtx.fillStyle = '#2196F3';
+  canvasCtx.strokeStyle = '#2196F3';
+  canvasCtx.lineWidth = 1.5 / zoom;
+  canvasCtx.beginPath();
+  canvasCtx.arc(mid.x, mid.y, radius, 0, Math.PI * 2);
+  canvasCtx.fill();
+  canvasCtx.stroke();
+}
