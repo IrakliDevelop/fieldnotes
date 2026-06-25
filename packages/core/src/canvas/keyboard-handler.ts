@@ -1,5 +1,4 @@
 import type { Camera } from './camera';
-import type { ToolManager } from '../tools/tool-manager';
 import type { ToolContext } from '../tools/types';
 import type { ShortcutOptions, ShortcutsApi } from './shortcut-map';
 import { ShortcutMap } from './shortcut-map';
@@ -22,10 +21,8 @@ export interface KeyboardHandlerDeps {
   shortcuts?: ShortcutOptions;
   abortSignal: AbortSignal;
   getToolContext: () => ToolContext | null;
-  getToolManager: () => ToolManager | null;
   getIsToolActive: () => boolean;
   getLastPointerEvent: () => PointerEvent | null;
-  getSpaceHeld: () => boolean;
   setSpaceHeld: (v: boolean) => void;
   getActivePointerCount: () => number;
   dispatchToolHover: (e: PointerEvent) => void;

@@ -80,10 +80,8 @@ export class InputHandler {
       shortcuts: options.shortcuts,
       abortSignal: this.abortController.signal,
       getToolContext: () => this.toolContext,
-      getToolManager: () => this.toolManager,
       getIsToolActive: () => this.isToolActive,
       getLastPointerEvent: () => this.lastPointerEvent,
-      getSpaceHeld: () => this.spaceHeld,
       setSpaceHeld: (v) => {
         this.spaceHeld = v;
       },
