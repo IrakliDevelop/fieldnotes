@@ -40,6 +40,28 @@ function keyUp(key: string) {
   window.dispatchEvent(new KeyboardEvent('keyup', { key, bubbles: true }));
 }
 
+function clipboardWith(items: DataTransferItem[], target?: EventTarget): ClipboardEvent {
+  const e = new Event('paste', { bubbles: true, cancelable: true }) as ClipboardEvent;
+  Object.defineProperty(e, 'clipboardData', {
+    value: { items },
+    configurable: true,
+  });
+  if (target) Object.defineProperty(e, 'target', { value: target, configurable: true });
+  return e;
+}
+
+function imageItem(file: File): DataTransferItem {
+  return {
+    kind: 'file',
+    type: file.type,
+    getAsFile: () => file,
+  } as unknown as DataTransferItem;
+}
+
+function pasteEvent(target?: EventTarget) {
+  window.dispatchEvent(clipboardWith([], target));
+}
+
 function stubToolManager() {
   return {
     handlePointerDown: vi.fn(),
@@ -1017,7 +1039,7 @@ describe('InputHandler', () => {
     it('Ctrl+V pastes elements with new IDs and offset', () => {
       const { store, note, h } = setupCopyPaste();
       ctrlKey('c');
-      ctrlKey('v');
+      pasteEvent();
 
       expect(store.count).toBe(2);
       const all = store.getAll();
@@ -1034,8 +1056,8 @@ describe('InputHandler', () => {
     it('successive Ctrl+V cascades offset', () => {
       const { store, note, h } = setupCopyPaste();
       ctrlKey('c');
-      ctrlKey('v');
-      ctrlKey('v');
+      pasteEvent();
+      pasteEvent();
 
       expect(store.count).toBe(3);
       const all = store.getAll();
@@ -1051,9 +1073,9 @@ describe('InputHandler', () => {
     it('Ctrl+C resets paste offset', () => {
       const { store, note, h } = setupCopyPaste();
       ctrlKey('c');
-      ctrlKey('v');
+      pasteEvent();
       ctrlKey('c');
-      ctrlKey('v');
+      pasteEvent();
 
       const all = store.getAll();
       const pasted = all.filter((el) => el.id !== note.id);
@@ -1065,7 +1087,7 @@ describe('InputHandler', () => {
 
     it('Ctrl+V with empty clipboard is a no-op', () => {
       const { store, h } = setupCopyPaste();
-      ctrlKey('v');
+      pasteEvent();
       expect(store.count).toBe(1);
 
       h.destroy();
@@ -1074,7 +1096,7 @@ describe('InputHandler', () => {
     it('wraps paste in history transaction', () => {
       const { hr, h } = setupCopyPaste();
       ctrlKey('c');
-      ctrlKey('v');
+      pasteEvent();
 
       expect(hr.begin).toHaveBeenCalled();
       expect(hr.commit).toHaveBeenCalled();
@@ -1085,7 +1107,7 @@ describe('InputHandler', () => {
     it('selects pasted elements', () => {
       const { setSelection, h } = setupCopyPaste();
       ctrlKey('c');
-      ctrlKey('v');
+      pasteEvent();
 
       expect(setSelection).toHaveBeenCalledOnce();
       const ids = setSelection.mock.calls[0]?.[0] as string[];
@@ -1127,7 +1149,7 @@ describe('InputHandler', () => {
       });
 
       ctrlKey('c');
-      ctrlKey('v');
+      pasteEvent();
 
       const all = store.getAll();
       const pastedArrows = all.filter((el) => el.type === 'arrow' && el.id !== arrow.id);
@@ -1181,7 +1203,7 @@ describe('InputHandler', () => {
       });
 
       ctrlKey('c');
-      ctrlKey('v');
+      pasteEvent();
 
       const all = store.getAll();
       const pastedArrows = all.filter((el) => el.type === 'arrow' && el.id !== arrow.id);
@@ -1196,10 +1218,86 @@ describe('InputHandler', () => {
     it('pastes into active layer', () => {
       const { store, note, h } = setupCopyPaste();
       ctrlKey('c');
-      ctrlKey('v');
+      pasteEvent();
 
       const pasted = store.getAll().find((el) => el.id !== note.id);
       expect(pasted?.layerId).toBe('layer-1');
+
+      h.destroy();
+    });
+
+    it('runAction("paste") still triggers in-memory paste (context-menu path)', () => {
+      const { store, note, h } = setupCopyPaste();
+      ctrlKey('c');
+      h.runAction('paste');
+
+      expect(store.count).toBe(2);
+      const pasted = store.getAll().find((el) => el.id !== note.id);
+      expect(pasted).toBeDefined();
+
+      h.destroy();
+    });
+  });
+
+  describe('OS-clipboard image paste', () => {
+    function setupImagePaste() {
+      const addImage = vi.fn(() => 'img-1');
+      const paste = vi.fn();
+      const actions = { paste };
+      const h = new InputHandler(element, camera, {
+        addImage,
+        getCenteredWorld: () => ({ x: 7, y: 9 }),
+      });
+      // Replace the real actions paste with a spy so the no-image branch is observable.
+      (h as unknown as { actions: { paste: () => void } }).actions.paste = paste;
+      return { h, addImage, paste, actions };
+    }
+
+    it('adds an image to the canvas when the clipboard holds an image file', async () => {
+      const { h, addImage } = setupImagePaste();
+      const file = new File([new Uint8Array([1, 2, 3])], 'pic.png', { type: 'image/png' });
+      window.dispatchEvent(clipboardWith([imageItem(file)]));
+
+      await vi.waitFor(() => expect(addImage).toHaveBeenCalled());
+      const call = addImage.mock.calls[0];
+      expect(call?.[0]).toMatch(/^data:image\/png/);
+      expect(call?.[1]).toEqual({ x: 7, y: 9 });
+
+      h.destroy();
+    });
+
+    it('falls back to in-memory paste when the clipboard has no image', () => {
+      const { h, addImage, paste } = setupImagePaste();
+      window.dispatchEvent(clipboardWith([]));
+
+      expect(paste).toHaveBeenCalledOnce();
+      expect(addImage).not.toHaveBeenCalled();
+
+      h.destroy();
+    });
+
+    it('ignores paste targeted at an INPUT element', () => {
+      const { h, addImage, paste } = setupImagePaste();
+      const input = document.createElement('input');
+      document.body.appendChild(input);
+      const file = new File([new Uint8Array([1])], 'pic.png', { type: 'image/png' });
+      window.dispatchEvent(clipboardWith([imageItem(file)], input));
+
+      expect(addImage).not.toHaveBeenCalled();
+      expect(paste).not.toHaveBeenCalled();
+
+      input.remove();
+      h.destroy();
+    });
+
+    it('ignores paste targeted at a contentEditable element', () => {
+      const { h, addImage, paste } = setupImagePaste();
+      const div = document.createElement('div');
+      Object.defineProperty(div, 'isContentEditable', { value: true, configurable: true });
+      window.dispatchEvent(clipboardWith([], div));
+
+      expect(addImage).not.toHaveBeenCalled();
+      expect(paste).not.toHaveBeenCalled();
 
       h.destroy();
     });

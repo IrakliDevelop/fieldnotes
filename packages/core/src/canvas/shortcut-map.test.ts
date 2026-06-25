@@ -75,6 +75,12 @@ describe('ShortcutMap defaults', () => {
     expect(map.match(kbd({ key: '-', ctrlKey: true }))).toBe('zoom-out');
     expect(map.match(kbd({ key: '0', ctrlKey: true, code: 'Digit0' }))).toBe('zoom-reset');
   });
+
+  it('does NOT bind mod+v (paste is routed through the native paste event)', () => {
+    const map = new ShortcutMap();
+    expect(map.match(kbd({ key: 'v', ctrlKey: true }))).toBeNull();
+    expect(map.match(kbd({ key: 'v', metaKey: true }))).toBeNull();
+  });
 });
 
 describe('ShortcutMap constructor overrides', () => {

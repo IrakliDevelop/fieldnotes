@@ -64,6 +64,7 @@ export interface ViewportOptions {
     container: HTMLDivElement,
   ) => void;
   onDrop?: (event: DragEvent, worldPosition: { x: number; y: number }) => void;
+  onPaste?: (event: ClipboardEvent, worldPosition: { x: number; y: number }) => void;
   onImageError?: (info: { src: string; elementIds: string[]; cause?: unknown }) => void;
   /** CSS-pixel margin cached beyond the viewport. Default `256`. Set `0` to disable. */
   panBufferMargin?: number;
@@ -204,6 +205,9 @@ export class Viewport {
         this.openContextMenu(screenPos);
       },
       shortcuts: options.shortcuts,
+      addImage: (src, world) => this.addImage(src, world),
+      getCenteredWorld: () => this.centeredPosition({ w: 300, h: 200 }),
+      onPaste: options.onPaste,
     });
 
     if (options.contextMenu !== false) {
