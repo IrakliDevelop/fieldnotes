@@ -395,15 +395,6 @@ describe('KeyboardActions.nudge', () => {
     vi.useRealTimers();
   });
 
-  function makeRecorder(): HistoryRecorder {
-    return {
-      begin: vi.fn(),
-      commit: vi.fn(),
-      pause: vi.fn(),
-      resume: vi.fn(),
-    } as unknown as HistoryRecorder;
-  }
-
   it('moves selection 1 unit, or one grid cell with the cell multiplier', () => {
     const ctx = makeCtx({ gridSize: 40 });
     const { actions, tool } = makeActions({ ctx });
@@ -445,47 +436,56 @@ describe('KeyboardActions.nudge', () => {
   });
 
   it('coalesces a burst of nudges into one history transaction', () => {
-    const recorder = makeRecorder();
-    const { actions, ctx, tool } = makeActions({ recorder });
+    const ctx = makeCtx();
+    const stack = new HistoryStack();
+    const recorder = new HistoryRecorder(ctx.store, stack);
+    const { actions, tool } = makeActions({ ctx, recorder, stack });
     const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
     ctx.store.add(note);
+    stack.clear();
     tool.setSelection([note.id]);
 
     actions.nudge(1, 0, false);
     actions.nudge(1, 0, false);
     actions.nudge(1, 0, false);
-    expect(recorder.begin).toHaveBeenCalledTimes(1);
-    expect(recorder.commit).not.toHaveBeenCalled();
+    expect(ctx.store.getById(note.id)?.position.x).toBe(3);
+    expect(stack.undoCount).toBe(0); // burst still open, nothing committed yet
 
     vi.advanceTimersByTime(400);
-    expect(recorder.commit).toHaveBeenCalledTimes(1);
+    expect(stack.undoCount).toBe(1); // whole burst committed as one step
   });
 
   it('flushes a pending nudge transaction before another history action runs', () => {
-    const recorder = makeRecorder();
-    const { actions, ctx, tool } = makeActions({ recorder });
+    const ctx = makeCtx();
+    const stack = new HistoryStack();
+    const recorder = new HistoryRecorder(ctx.store, stack);
+    const { actions, tool } = makeActions({ ctx, recorder, stack });
     const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
     ctx.store.add(note);
+    stack.clear();
     tool.setSelection([note.id]);
 
     actions.nudge(1, 0, false);
     actions.deleteSelected();
 
-    expect(recorder.begin).toHaveBeenCalledTimes(2);
-    expect(recorder.commit).toHaveBeenCalledTimes(2);
+    // nudge tx flushed (1) + delete tx (1) = two distinct undo steps
+    expect(stack.undoCount).toBe(2);
   });
 
   it('flushes a pending nudge on dispose', () => {
-    const recorder = makeRecorder();
-    const { actions, ctx, tool } = makeActions({ recorder });
+    const ctx = makeCtx();
+    const stack = new HistoryStack();
+    const recorder = new HistoryRecorder(ctx.store, stack);
+    const { actions, tool } = makeActions({ ctx, recorder, stack });
     const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
     ctx.store.add(note);
+    stack.clear();
     tool.setSelection([note.id]);
 
     actions.nudge(1, 0, false);
     actions.dispose();
 
-    expect(recorder.commit).toHaveBeenCalledTimes(1);
+    expect(stack.undoCount).toBe(1); // pending nudge tx committed on dispose
   });
 });
 
@@ -536,6 +536,50 @@ describe('KeyboardActions nudge transaction ownership', () => {
     recorder.resume();
     const after = ctx.store.getById(note.id);
     expect(after?.position.x).toBe(0); // burst = one undo step
+    vi.useRealTimers();
+  });
+
+  it('continuation nudge BURST after a foreign transaction forms ONE undo step', () => {
+    vi.useFakeTimers();
+    const ctx = makeCtx();
+    const stack = new HistoryStack();
+    const recorder = new HistoryRecorder(ctx.store, stack);
+    const { actions, tool } = makeActions({ ctx, recorder, stack });
+    const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+    ctx.store.add(note);
+    stack.clear();
+    tool.setSelection([note.id]);
+
+    // first nudge opens its own tx, moves note to x=1
+    actions.nudge(1, 0, false);
+    expect(ctx.store.getById(note.id)?.position.x).toBe(1);
+
+    // a foreign transaction lands mid-burst: begin() auto-commits the nudge tx,
+    // the foreign work commits as its own step
+    recorder.begin();
+    ctx.store.add(createNote({ position: { x: 50, y: 50 }, size: { w: 10, h: 10 } }));
+    recorder.commit();
+    const afterForeign = stack.undoCount;
+    expect(afterForeign).toBe(2); // nudge's move (auto-committed) + foreign add
+
+    // continuation BURST: two back-to-back nudges with NO timer advance between
+    // them, so they are one burst. The first must re-begin a tx (foreign takeover);
+    // the second must EXTEND that same tx, not record a separate untransacted step.
+    actions.nudge(1, 0, false);
+    actions.nudge(1, 0, false);
+    expect(ctx.store.getById(note.id)?.position.x).toBe(3);
+    vi.advanceTimersByTime(400);
+    // the whole continuation burst is exactly ONE undo step (not two). Against the
+    // pre-fix code each continuation nudge after the foreign commit lands as its own
+    // untransacted step, so this would be afterForeign + 2.
+    expect(stack.undoCount).toBe(afterForeign + 1);
+
+    // undoing once reverts the WHOLE continuation burst (x: 3 -> 1), not just the
+    // last nudge (which would leave x: 3 -> 2 under the pre-fix code).
+    recorder.pause();
+    stack.undo(ctx.store);
+    recorder.resume();
+    expect(ctx.store.getById(note.id)?.position.x).toBe(1);
     vi.useRealTimers();
   });
 });

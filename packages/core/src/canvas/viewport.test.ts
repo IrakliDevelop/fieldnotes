@@ -16,6 +16,15 @@ import { PencilTool } from '../tools/pencil-tool';
 import { renderImage } from '../elements/renderers/image-renderer';
 import type { ImageElement } from '../elements/types';
 
+function wrapperOf(container: HTMLElement): HTMLDivElement {
+  const w = container.firstElementChild;
+  if (!(w instanceof HTMLDivElement)) throw new Error('viewport wrapper not found');
+  return w;
+}
+function focusCanvas(container: HTMLElement): void {
+  wrapperOf(container).focus();
+}
+
 describe('Viewport', () => {
   let container: HTMLDivElement;
 
@@ -33,21 +42,21 @@ describe('Viewport', () => {
 
   it('sets overscroll-behavior: none on wrapper', () => {
     const viewport = new Viewport(container);
-    const wrapper = container.firstElementChild as HTMLDivElement;
+    const wrapper = wrapperOf(container);
     expect(wrapper.style.overscrollBehavior).toBe('none');
     viewport.destroy();
   });
 
   it('sets user-select: none on wrapper', () => {
     const viewport = new Viewport(container);
-    const wrapper = container.firstElementChild as HTMLDivElement;
+    const wrapper = wrapperOf(container);
     expect(wrapper.style.userSelect).toBe('none');
     viewport.destroy();
   });
 
   it('creates a wrapper with canvas and DOM layers inside container', () => {
     const viewport = new Viewport(container);
-    const wrapper = container.firstElementChild as HTMLDivElement;
+    const wrapper = wrapperOf(container);
     expect(wrapper).not.toBeNull();
     expect(wrapper.querySelector('canvas')).not.toBeNull();
     expect(wrapper.children.length).toBe(2);
@@ -200,7 +209,7 @@ describe('Viewport', () => {
     it('ignores dblclick on non-note/text elements', () => {
       const viewport = new Viewport(container);
       const imageId = viewport.addImage('data:image/png;base64,abc', { x: 10, y: 10 });
-      const wrapper = container.firstElementChild as HTMLDivElement;
+      const wrapper = wrapperOf(container);
 
       const fakeNode = document.createElement('div');
       fakeNode.dataset['elementId'] = imageId;
@@ -218,7 +227,7 @@ describe('Viewport', () => {
 
     it('ignores dblclick when element id does not exist in store', () => {
       const viewport = new Viewport(container);
-      const wrapper = container.firstElementChild as HTMLDivElement;
+      const wrapper = wrapperOf(container);
       const fakeNode = document.createElement('div');
       fakeNode.dataset['elementId'] = 'nonexistent-id';
       wrapper.appendChild(fakeNode);
@@ -289,7 +298,7 @@ describe('Viewport', () => {
       const viewport = new Viewport(container);
       document.elementFromPoint = vi.fn().mockReturnValue(document.createElement('span'));
 
-      const wrapper = container.firstElementChild as HTMLDivElement;
+      const wrapper = wrapperOf(container);
       expect(() => {
         wrapper.dispatchEvent(
           new MouseEvent('dblclick', { bubbles: true, clientX: 50, clientY: 50 }),
@@ -300,7 +309,7 @@ describe('Viewport', () => {
 
     it('dblclick on note node without elementId dataset is ignored', () => {
       const viewport = new Viewport(container);
-      const wrapper = container.firstElementChild as HTMLDivElement;
+      const wrapper = wrapperOf(container);
       const node = document.createElement('div');
       wrapper.appendChild(node);
       document.elementFromPoint = vi.fn().mockReturnValue(node);
@@ -332,7 +341,7 @@ describe('Viewport', () => {
 
       document.elementFromPoint = vi.fn().mockReturnValue(document.createElement('span'));
 
-      const wrapper = container.firstElementChild as HTMLDivElement;
+      const wrapper = wrapperOf(container);
       wrapper.dispatchEvent(
         new MouseEvent('dblclick', { bubbles: true, clientX: 50, clientY: 50 }),
       );
@@ -734,7 +743,7 @@ describe('Viewport', () => {
 
       selectTool.setSelection([note.id]);
 
-      (container.firstElementChild as HTMLDivElement).focus();
+      focusCanvas(container);
 
       // ArrowRight nudge: opens a 400ms-coalesced transaction, does NOT fire the timer yet
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
@@ -771,7 +780,7 @@ describe('Viewport', () => {
 
       selectTool.setSelection([note.id]);
 
-      (container.firstElementChild as HTMLDivElement).focus();
+      focusCanvas(container);
 
       // Nudge once, then immediately redo (timer not fired)
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
@@ -825,7 +834,7 @@ describe('Viewport', () => {
       viewport.history.clear();
       selectTool.setSelection([note.id]);
 
-      (container.firstElementChild as HTMLDivElement).focus();
+      focusCanvas(container);
 
       // Start a pending nudge (timer not fired)
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
@@ -1068,7 +1077,7 @@ describe('Viewport', () => {
   describe('fitToContent', () => {
     it('frames all elements (content center maps to canvas center)', () => {
       const viewport = new Viewport(container);
-      const wrapper = container.firstElementChild as HTMLElement;
+      const wrapper = wrapperOf(container);
       Object.defineProperty(wrapper, 'clientWidth', { value: 800, configurable: true });
       Object.defineProperty(wrapper, 'clientHeight', { value: 600, configurable: true });
       viewport.store.add(
@@ -1102,7 +1111,7 @@ describe('Viewport', () => {
 
     it('is a no-op when the wrapper has zero size', () => {
       const viewport = new Viewport(container);
-      const wrapper = container.firstElementChild as HTMLElement;
+      const wrapper = wrapperOf(container);
       Object.defineProperty(wrapper, 'clientWidth', { value: 0, configurable: true });
       Object.defineProperty(wrapper, 'clientHeight', { value: 0, configurable: true });
       viewport.store.add(
@@ -1124,7 +1133,7 @@ describe('Viewport', () => {
 
     it('ignores elements on hidden layers', () => {
       const viewport = new Viewport(container);
-      const wrapper = container.firstElementChild as HTMLElement;
+      const wrapper = wrapperOf(container);
       Object.defineProperty(wrapper, 'clientWidth', { value: 800, configurable: true });
       Object.defineProperty(wrapper, 'clientHeight', { value: 600, configurable: true });
 
@@ -1218,7 +1227,7 @@ describe('Viewport', () => {
       viewport.toolManager.register(new SelectTool());
       viewport.toolManager.register(new PencilTool());
       viewport.setTool('select');
-      const wrapper = container.firstElementChild as HTMLDivElement;
+      const wrapper = wrapperOf(container);
       wrapper.focus();
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'p' }));
       expect(viewport.toolManager.activeTool?.name).toBe('pencil');
@@ -1231,7 +1240,7 @@ describe('Viewport', () => {
       viewport.toolManager.register(new PencilTool());
       viewport.setTool('select');
       viewport.shortcuts.rebind('tool:pencil', 'b');
-      const wrapper = container.firstElementChild as HTMLDivElement;
+      const wrapper = wrapperOf(container);
       wrapper.focus();
 
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'p' }));

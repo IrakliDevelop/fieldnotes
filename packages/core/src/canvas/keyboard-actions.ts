@@ -55,6 +55,11 @@ export class KeyboardActions {
       this.nudgeTxId = recorder?.currentTransactionId ?? null;
     } else {
       clearTimeout(this.nudgeTimer);
+      const recorder = this.deps.getHistoryRecorder();
+      if (recorder?.currentTransactionId !== this.nudgeTxId) {
+        recorder?.begin();
+        this.nudgeTxId = recorder?.currentTransactionId ?? null;
+      }
     }
     const moved = sel.tool.nudgeSelection(dx * step, dy * step, sel.ctx);
     this.nudgeTimer = setTimeout(() => this.flushPendingNudge(), 400);
@@ -66,7 +71,7 @@ export class KeyboardActions {
     clearTimeout(this.nudgeTimer);
     this.nudgeTimer = null;
     const recorder = this.deps.getHistoryRecorder();
-    if (this.nudgeTxId === null || recorder?.currentTransactionId === this.nudgeTxId) {
+    if (recorder?.currentTransactionId === this.nudgeTxId) {
       recorder?.commit();
     }
     this.nudgeTxId = null;

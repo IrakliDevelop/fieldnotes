@@ -4,6 +4,19 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.38.7] — 2026-06-25
+
+### Fixed
+
+- Nudge bursts now stay a single undo step even when another history transaction begins mid-burst.
+
+### Changed
+
+- Dev `console.warn` when a keyboard shortcut binding collides with an already-bound action (first
+  registered still wins; `match()` unchanged).
+- Internal: tightened the nudge-commit ownership guard; added layer/element interaction, nudge-
+  ownership, and shortcut-conflict tests.
+
 ## [0.38.6] — 2026-06-25
 
 ### Changed

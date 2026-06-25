@@ -53,6 +53,9 @@ export function CanvasElement({ position, size, children }: CanvasElementProps) 
       viewport.store.update(id, { size });
     }
     viewport.requestRender();
+    // Primitive deps (position.x/y, size?.w/h) are intentional: the effect re-runs on VALUE change,
+    // not object identity — so inline { x, y } literals and memoized-but-unchanged objects both behave
+    // correctly (no over-firing on every parent re-render).
   }, [viewport, position.x, position.y, size?.w, size?.h]);
 
   if (!portalTarget) return null;
