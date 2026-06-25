@@ -4,6 +4,15 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [react 0.7.0] — 2026-06-25
+
+### Added
+
+- `useSelectionOps()` — reactive selection state (`selectedIds`, `selectedCount`, `canGroup`,
+  `canUngroup`, `canAlign`, `canDistribute`, `isLocked`) plus `group`/`ungroup`/`toggleLock`/
+  `align`/`distribute` actions for the core selection operations. (`useSelection` unchanged.)
+  Requires core `>=0.36.0`.
+
 ## [0.38.4] — 2026-06-24
 
 ### Changed

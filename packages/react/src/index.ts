@@ -12,7 +12,14 @@ export {
   useElements,
   useSelection,
   useSelectionStyle,
+  useSelectionOps,
 } from './hooks';
-export type { CameraState, UseLayersResult, UseHistoryResult } from './hooks';
+export type {
+  CameraState,
+  UseLayersResult,
+  UseHistoryResult,
+  UseSelectionOpsResult,
+} from './hooks';
 export type { ElementStyle } from '@fieldnotes/core';
+export type { AlignEdge, DistributeAxis } from '@fieldnotes/core';
 export { ViewportContext } from './context';
