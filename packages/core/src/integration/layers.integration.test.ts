@@ -112,4 +112,80 @@ describe('Integration: layers', () => {
     expect(restored).toHaveLength(1);
     expect(restored[0]?.layerId).toBe(layer2.id);
   });
+
+  it('removing a layer reassigns its elements to the fallback layer and undo restores both', () => {
+    const layer1Id = h.viewport.layerManager.activeLayerId;
+
+    const layer2 = h.viewport.layerManager.createLayer('Layer 2');
+    h.viewport.layerManager.setActiveLayer(layer2.id);
+
+    const elementId = h.viewport.addImage(
+      'data:image/png;base64,abc',
+      { x: 100, y: 100 },
+      { w: 200, h: 150 },
+    );
+    expect(h.viewport.store.getById(elementId)?.layerId).toBe(layer2.id);
+
+    h.viewport.history.clear();
+
+    h.viewport.removeLayer(layer2.id);
+
+    expect(h.viewport.layerManager.getLayer(layer2.id)).toBeUndefined();
+    expect(h.viewport.store.getById(elementId)?.layerId).toBe(layer1Id);
+
+    h.viewport.undo();
+
+    expect(h.viewport.layerManager.getLayer(layer2.id)).toBeDefined();
+    expect(h.viewport.store.getById(elementId)?.layerId).toBe(layer2.id);
+  });
+
+  it('element reference survives a layer delete then undo as one history step', () => {
+    const layer1Id = h.viewport.layerManager.activeLayerId;
+
+    const layer2 = h.viewport.layerManager.createLayer('Layer 2');
+    h.viewport.layerManager.setActiveLayer(layer2.id);
+
+    const elementId = h.viewport.addImage(
+      'data:image/png;base64,abc',
+      { x: 10, y: 10 },
+      { w: 50, h: 50 },
+    );
+
+    h.viewport.history.clear();
+
+    h.viewport.removeLayer(layer2.id);
+    expect(h.viewport.store.getById(elementId)).toBeDefined();
+    expect(h.viewport.store.getById(elementId)?.layerId).toBe(layer1Id);
+
+    expect(h.viewport.undo()).toBe(true);
+
+    const el = h.viewport.store.getById(elementId);
+    expect(el).toBeDefined();
+    expect(el?.layerId).toBe(layer2.id);
+
+    expect(h.viewport.undo()).toBe(false);
+  });
+
+  it('reordering a layer flips cross-layer render order in the store', () => {
+    const layer1Id = h.viewport.layerManager.activeLayerId;
+
+    const idA = h.viewport.addImage('data:image/png;base64,aaa', { x: 0, y: 0 }, { w: 50, h: 50 });
+
+    const layer2 = h.viewport.layerManager.createLayer('Layer 2');
+    h.viewport.layerManager.setActiveLayer(layer2.id);
+
+    const idB = h.viewport.addImage('data:image/png;base64,bbb', { x: 0, y: 0 }, { w: 50, h: 50 });
+
+    const indexOf = (id: string): number =>
+      h.viewport.store.getAll().findIndex((el) => el.id === id);
+
+    expect(indexOf(idA)).toBeLessThan(indexOf(idB));
+
+    const layer1Order = h.viewport.layerManager.getLayer(layer1Id)?.order ?? 0;
+    const layer2Order = h.viewport.layerManager.getLayer(layer2.id)?.order ?? 0;
+    h.viewport.layerManager.reorderLayer(layer1Id, layer2Order + 1);
+    expect(layer2Order).toBeGreaterThanOrEqual(layer1Order);
+
+    expect(indexOf(idA)).toBeGreaterThan(indexOf(idB));
+  });
 });
