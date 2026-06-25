@@ -8,7 +8,13 @@ import { ElementStore } from '../elements/element-store';
 import { ElementRenderer } from '../elements/element-renderer';
 import { NoteEditor } from '../elements/note-editor';
 import type { FontSizePreset } from '../elements/note-toolbar';
-import type { CanvasElement, ArrowElement, GridElement, ShapeKind } from '../elements/types';
+import type {
+  CanvasElement,
+  ArrowElement,
+  GridElement,
+  HtmlElement,
+  ShapeKind,
+} from '../elements/types';
 import type { Point } from '../core/types';
 import { ContextMenu } from './context-menu';
 import type { ContextMenuItem } from './context-menu';
@@ -114,6 +120,7 @@ export class Viewport {
   private readonly gridController: GridController;
   private readonly interactions: ViewportInteractions;
   private contextMenu: ContextMenu | null = null;
+  private readonly htmlRenderers = new Map<string, (el: HtmlElement) => HTMLElement>();
 
   constructor(
     private readonly container: HTMLElement,
@@ -400,19 +407,30 @@ export class Viewport {
       this.layerManager.setActiveLayer(state.activeLayerId);
     }
     this.domNodeManager.reattachHtmlContent(this.store);
-    if (this.onHtmlElementMount) {
-      for (const el of this.store.getElementsByType('html')) {
-        if (!this.domNodeManager.hasContent(el.id)) {
-          this.domNodeManager.syncDomNode(el);
-          const node = this.domNodeManager.getNode(el.id);
-          if (node) {
-            this.onHtmlElementMount(el.id, el.domId, node);
-            node.dataset['initialized'] = 'true';
-            Object.assign(node.style, {
-              overflow: 'hidden',
-              pointerEvents: el.interactive ? 'auto' : 'none',
-            });
-          }
+    for (const el of this.store.getElementsByType('html')) {
+      if (this.domNodeManager.hasContent(el.id)) continue;
+
+      // Registry first: rebuild the embed from serialized data and mount it via the html branch
+      // of renderDomContent. This stores content BEFORE the onHtmlElementMount path's hasContent
+      // check, so a factory-rebuilt element never also gets an empty node from the callback path.
+      const factory = el.htmlType ? this.htmlRenderers.get(el.htmlType) : undefined;
+      const rebuilt = factory ? factory(el) : null;
+      if (rebuilt) {
+        this.domNodeManager.storeHtmlContent(el.id, rebuilt);
+        this.domNodeManager.syncDomNode(el);
+      }
+
+      // Callback still fires for wiring (both fire; registry produces the node, callback wires it).
+      if (this.onHtmlElementMount) {
+        if (!rebuilt) this.domNodeManager.syncDomNode(el);
+        const node = this.domNodeManager.getNode(el.id);
+        if (node) {
+          this.onHtmlElementMount(el.id, el.domId, node);
+          node.dataset['initialized'] = 'true';
+          Object.assign(node.style, {
+            overflow: 'hidden',
+            pointerEvents: el.interactive ? 'auto' : 'none',
+          });
         }
       }
     }
@@ -469,12 +487,15 @@ export class Viewport {
     dom: HTMLElement,
     position: { x: number; y: number },
     size = { w: 200, h: 150 },
+    opts?: { htmlType?: string; data?: Record<string, unknown> },
   ): string {
     const domId = dom.id || undefined;
     const el = createHtmlElement({
       position,
       size,
       domId,
+      htmlType: opts?.htmlType,
+      data: opts?.data,
       layerId: this.layerManager.activeLayerId,
     });
     this.domNodeManager.storeHtmlContent(el.id, dom);
@@ -526,6 +547,10 @@ export class Viewport {
     this.historyRecorder.begin();
     this.layerManager.removeLayer(id);
     this.historyRecorder.commit();
+  }
+
+  registerHtmlRenderer(htmlType: string, factory: (el: HtmlElement) => HTMLElement): void {
+    this.htmlRenderers.set(htmlType, factory);
   }
 
   updateHtmlElement(id: string, newContent: HTMLElement): void {

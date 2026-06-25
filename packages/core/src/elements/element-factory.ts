@@ -66,6 +66,8 @@ interface HtmlInput extends BaseDefaults {
   size: Size;
   domId?: string;
   interactive?: boolean;
+  htmlType?: string;
+  data?: Record<string, unknown>;
 }
 
 interface TextInput extends BaseDefaults {
@@ -157,6 +159,8 @@ export function createHtmlElement(input: HtmlInput): HtmlElement {
   };
   if (input.domId) el.domId = input.domId;
   if (input.interactive) el.interactive = input.interactive;
+  if (input.htmlType) el.htmlType = input.htmlType;
+  if (input.data) el.data = input.data;
   return el;
 }
 

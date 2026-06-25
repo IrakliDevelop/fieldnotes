@@ -63,6 +63,10 @@ export interface HtmlElement extends BaseElement {
   size: Size;
   domId?: string;
   interactive?: boolean;
+  /** Discriminator matching a renderer registered via `viewport.registerHtmlRenderer`. */
+  htmlType?: string;
+  /** Serializable payload passed to the registered renderer to rebuild the embed on load. */
+  data?: Record<string, unknown>;
 }
 
 export interface TextElement extends BaseElement {
