@@ -143,6 +143,12 @@ export class DomNodeManager {
         });
         node.innerHTML = element.text || '';
 
+        // One-time per node: this pointerup/double-tap listener is attached once (guarded by
+        // `initialized`) for note/text nodes and is GC'd with the node — no teardown.
+        // `resetHtmlContent()` (the only path clearing `initialized`) is html-only, and the html
+        // init branch attaches no listener, so re-init is safe. INVARIANT: never call
+        // resetHtmlContent on a note/text node, and if you add a listener to the html init branch,
+        // add matching teardown in resetHtmlContent — else a second listener would stack.
         const detector = new DoubleTapDetector();
         node.addEventListener('pointerup', (e) => {
           if (detector.feed(e)) {
@@ -200,6 +206,7 @@ export class DomNodeManager {
         });
         node.textContent = element.text || '';
 
+        // One-time per node; see the note branch above for the one-listener-per-node invariant.
         const detector = new DoubleTapDetector();
         node.addEventListener('pointerup', (e) => {
           if (detector.feed(e)) {

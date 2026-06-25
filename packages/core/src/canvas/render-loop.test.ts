@@ -637,6 +637,28 @@ describe('RenderLoop', () => {
       renderLoop.flush();
       expect(deps.layerCache.getContext).not.toHaveBeenCalled(); // composited from cache, no re-raster
     });
+
+    it('invalidates all layer caches on a camera change but not on a static frame', () => {
+      Object.defineProperty(deps.canvasEl, 'clientWidth', { value: 800, configurable: true });
+      Object.defineProperty(deps.canvasEl, 'clientHeight', { value: 600, configurable: true });
+
+      // seed last-frame camera state (this first frame recenters)
+      renderLoop.requestRender();
+      renderLoop.flush();
+      (deps.layerCache.markAllDirty as ReturnType<typeof vi.fn>).mockClear();
+
+      // camera changed (zoom) -> caches invalidated
+      (deps.camera as { zoom: number }).zoom = 2;
+      renderLoop.requestRender();
+      renderLoop.flush();
+      expect(deps.layerCache.markAllDirty).toHaveBeenCalled();
+
+      // camera unchanged -> caches survive the static frame
+      (deps.layerCache.markAllDirty as ReturnType<typeof vi.fn>).mockClear();
+      renderLoop.requestRender();
+      renderLoop.flush();
+      expect(deps.layerCache.markAllDirty).not.toHaveBeenCalled();
+    });
   });
 
   describe('render stats', () => {
