@@ -232,6 +232,31 @@ function StyleToolbar() {
 }
 ```
 
+### `useSelectionOps`
+
+Returns reactive selection state plus group/ungroup/lock/align/distribute actions for the core selection operations. Re-renders only when the selection (or its derived predicates) changes.
+
+- State: `selectedIds`, `selectedCount`, `canGroup`, `canUngroup`, `canAlign`, `canDistribute`, and `isLocked` (`true`/`false` when the selection is uniformly locked/unlocked, `null` when empty or mixed).
+- Actions: `group()`, `ungroup()`, `toggleLock()`, `align(edge)`, `distribute(axis)` — each runs in a single undo step. Requires core `>=0.36.0`.
+
+```tsx
+import { useSelectionOps } from '@fieldnotes/react';
+
+function SelectionToolbar() {
+  const { selectedCount, canGroup, canUngroup, isLocked, group, ungroup, toggleLock, align, distribute } = useSelectionOps();
+
+  return (
+    <div>
+      <button disabled={!canGroup} onClick={group}>Group</button>
+      <button disabled={!canUngroup} onClick={ungroup}>Ungroup</button>
+      <button disabled={selectedCount === 0} onClick={toggleLock}>{isLocked ? 'Unlock' : 'Lock'}</button>
+      <button onClick={() => align('left')}>Align left</button>
+      <button onClick={() => distribute('horizontal')}>Distribute</button>
+    </div>
+  );
+}
+```
+
 See [core README](../core/README.md#styling-the-selection) for the full `ElementStyle` mapping table and the underlying `Viewport` methods.
 
 ## Save / Load
