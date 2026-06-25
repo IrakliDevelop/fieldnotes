@@ -133,6 +133,38 @@ describe('exportSvg', () => {
     expect(svg).not.toContain(HTML_MARKER);
   });
 
+  it('snaps a bound arrow endpoint to the target edge, not its raw center', async () => {
+    const store = new ElementStore();
+    // Note spans x:[300..400], y:[180..220]; its center is (350, 200).
+    const note = createNote({ position: { x: 300, y: 180 }, size: { w: 100, h: 40 } });
+    store.add(note);
+    // Arrow comes in horizontally from the left, terminating at the note CENTER.
+    const arrow = createArrow({ from: { x: 100, y: 200 }, to: { x: 350, y: 200 } });
+    arrow.toBinding = { elementId: note.id };
+    store.add(arrow);
+
+    const svg = await exportSvg(store);
+
+    const path = svg.match(/<path d="M[^"]*L([\d.]+) ([\d.]+)"[^>]*stroke-dasharray/);
+    expect(path).not.toBeNull();
+    if (path) {
+      const endX = Number(path[1]);
+      const endY = Number(path[2]);
+      // Snapped to the left edge of the note (x≈300), NOT the raw center (x=350).
+      expect(endX).toBeCloseTo(300, 0);
+      expect(endX).toBeLessThan(350);
+      expect(endY).toBeCloseTo(200, 0);
+    }
+
+    // The arrowhead polygon tip sits at the snapped endpoint too, not the center.
+    const poly = svg.match(/<polygon points="([\d.]+),([\d.]+)/);
+    expect(poly).not.toBeNull();
+    if (poly) {
+      expect(Number(poly[1])).toBeCloseTo(300, 0);
+      expect(Number(poly[1])).toBeLessThan(350);
+    }
+  });
+
   it('emits a grid path', async () => {
     const store = new ElementStore();
     store.add(createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } }));
@@ -176,9 +208,7 @@ describe('exportSvg', () => {
 
   it('skips elements on hidden layers', async () => {
     const store = new ElementStore();
-    store.add(
-      createShape({ position: { x: 0, y: 0 }, size: { w: 50, h: 50 }, layerId: 'hidden' }),
-    );
+    store.add(createShape({ position: { x: 0, y: 0 }, size: { w: 50, h: 50 }, layerId: 'hidden' }));
     store.add(
       createShape({
         position: { x: 200, y: 200 },

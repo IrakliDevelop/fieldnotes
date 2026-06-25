@@ -92,7 +92,7 @@ function renderArrowhead(
   ctx.fill();
 }
 
-function getVisualEndpoints(
+export function getVisualEndpoints(
   arrow: ArrowElement,
   geometry: ReturnType<typeof getArrowRenderGeometry>,
   store: ElementStore | null,

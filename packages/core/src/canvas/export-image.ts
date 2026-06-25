@@ -296,4 +296,4 @@ export async function exportImage(
   });
 }
 
-export { computeBounds, getElementRect, loadImages, renderTextOnCanvas };
+export { computeBounds, getElementRect, loadImages };

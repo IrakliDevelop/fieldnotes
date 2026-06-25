@@ -15,6 +15,7 @@ import { getStrokeRenderData } from '../elements/stroke-cache';
 import { lineEndpoints } from '../elements/shape-geometry';
 import { getArrowControlPoint, getArrowMidpoint } from '../elements/arrow-geometry';
 import { getArrowRenderGeometry } from '../elements/arrow-render-cache';
+import { getVisualEndpoints } from '../elements/renderers/arrow-renderer';
 import { getSquareGridLines, getHexVertices, getHexCenters } from '../elements/grid-renderer';
 import {
   getHexCellsInRadius,
@@ -110,8 +111,7 @@ function emitStroke(stroke: StrokeElement): string {
 function emitShape(shape: ShapeElement): string {
   const { x, y } = shape.position;
   const { w, h } = shape.size;
-  const fill =
-    shape.fillColor !== 'none' && shape.shape !== 'line' ? esc(shape.fillColor) : 'none';
+  const fill = shape.fillColor !== 'none' && shape.shape !== 'line' ? esc(shape.fillColor) : 'none';
   const stroke = shape.strokeWidth > 0 ? esc(shape.strokeColor) : 'none';
   const sw = shape.strokeWidth > 0 ? ` stroke-width="${n(shape.strokeWidth)}"` : '';
 
@@ -127,10 +127,11 @@ function emitShape(shape: ShapeElement): string {
   }
 }
 
-function emitArrow(arrow: ArrowElement): string {
+function emitArrow(arrow: ArrowElement, store: ElementStore): string {
   const geometry = getArrowRenderGeometry(arrow);
-  const from = arrow.from;
-  const to = arrow.to;
+  // Bound arrows store from/to at the bound element's CENTER; the canvas renderer
+  // snaps them to the element EDGE at draw time. Mirror that for PNG/canvas parity.
+  const { visualFrom: from, visualTo: to } = getVisualEndpoints(arrow, geometry, store);
 
   let d: string;
   if (arrow.bend !== 0) {
@@ -143,7 +144,7 @@ function emitArrow(arrow: ArrowElement): string {
   const dash = arrow.fromBinding || arrow.toBinding ? ' stroke-dasharray="8 4"' : '';
   let out = `<path d="${d}" fill="none" stroke="${esc(arrow.color)}" stroke-width="${n(arrow.width)}" stroke-linecap="round"${dash} />`;
 
-  // Arrowhead — mirror arrow-renderer's polygon math.
+  // Arrowhead — mirror arrow-renderer's polygon math (tip at the visual endpoint).
   const angle = geometry.tangentEnd;
   const p1x = to.x - ARROWHEAD_LENGTH * Math.cos(angle - ARROWHEAD_ANGLE);
   const p1y = to.y - ARROWHEAD_LENGTH * Math.sin(angle - ARROWHEAD_ANGLE);
@@ -152,7 +153,8 @@ function emitArrow(arrow: ArrowElement): string {
   out += `<polygon points="${n(to.x)},${n(to.y)} ${n(p1x)},${n(p1y)} ${n(p2x)},${n(p2y)}" fill="${esc(arrow.color)}" />`;
 
   if (arrow.label && arrow.label.length > 0) {
-    const mid = getArrowMidpoint(from, to, arrow.bend);
+    // Canvas renderer places the label at the raw-endpoint midpoint, not the visual one.
+    const mid = getArrowMidpoint(arrow.from, arrow.to, arrow.bend);
     const approxW = arrow.label.length * ARROW_LABEL_FONT_SIZE * 0.6;
     const padX = 6;
     const padY = 4;
@@ -393,7 +395,7 @@ export async function exportSvg(
   }
 
   for (const el of visibleElements) {
-    body += emitElement(el, imageDataUris, rasterScale, firstGrid);
+    body += emitElement(el, imageDataUris, rasterScale, firstGrid, store);
   }
   for (const grid of grids) {
     body += emitGrid(grid, bounds);
@@ -410,6 +412,7 @@ function emitElement(
   imageDataUris: Map<string, string>,
   rasterScale: number,
   firstGrid: GridElement | undefined,
+  store: ElementStore,
 ): string {
   switch (el.type) {
     case 'stroke':
@@ -417,7 +420,7 @@ function emitElement(
     case 'shape':
       return withRotationSvg(el, emitShape(el));
     case 'arrow':
-      return emitArrow(el);
+      return emitArrow(el, store);
     case 'image':
       return withRotationSvg(el, emitImage(el, imageDataUris.get(el.id)));
     case 'text':
