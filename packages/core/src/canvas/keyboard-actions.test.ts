@@ -643,3 +643,41 @@ describe('KeyboardActions guards during active tool input', () => {
     expect(ctx.store.getAll().length).toBe(before);
   });
 });
+
+describe('KeyboardActions.zOrder single-undo', () => {
+  it('bringForward swaps two elements as ONE undo step restoring both', () => {
+    const ctx = makeCtx();
+    const stack = new HistoryStack();
+    const recorder = new HistoryRecorder(ctx.store, stack);
+    const { actions, tool } = makeActions({ ctx, recorder, stack });
+
+    // same layer (default ''), distinct zIndex so bringForward has a neighbour to swap with
+    const a = createNote({ position: { x: 0, y: 0 }, size: { w: 50, h: 50 }, zIndex: 0 });
+    const b = createNote({ position: { x: 10, y: 10 }, size: { w: 50, h: 50 }, zIndex: 1 });
+    ctx.store.add(a);
+    ctx.store.add(b);
+    stack.clear();
+    tool.setSelection([a.id]); // select the bottom element
+
+    const undoCountBefore = stack.undoCount;
+    actions.zOrder('forward');
+
+    // both zIndexes swapped: a moved up, b moved down
+    expect(ctx.store.getById(a.id)?.zIndex).toBe(1);
+    expect(ctx.store.getById(b.id)?.zIndex).toBe(0);
+
+    // the two store.update calls collapsed into exactly ONE undo step
+    expect(stack.undoCount).toBe(undoCountBefore + 1);
+
+    expect(stack.canUndo).toBe(true);
+    recorder.pause();
+    stack.undo(ctx.store);
+    recorder.resume();
+
+    // one undo restores BOTH elements...
+    expect(ctx.store.getById(a.id)?.zIndex).toBe(0);
+    expect(ctx.store.getById(b.id)?.zIndex).toBe(1);
+    // ...and there is nothing left to undo (proving it was a single step)
+    expect(stack.canUndo).toBe(false);
+  });
+});
