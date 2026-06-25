@@ -8,6 +8,8 @@ import type { ToolManager } from '../tools/tool-manager';
 import type { ToolContext } from '../tools/types';
 import type { HistoryRecorder } from '../history/history-recorder';
 import type { HistoryStack } from '../history/history-stack';
+import { HistoryRecorder as RealHistoryRecorder } from '../history/history-recorder';
+import { HistoryStack as RealHistoryStack } from '../history/history-stack';
 import { ElementStore } from '../elements/element-store';
 import { createNote, createArrow } from '../elements/element-factory';
 
@@ -1434,7 +1436,9 @@ describe('InputHandler', () => {
         ...stubToolContext(),
         store,
       } as unknown as ToolContext;
-      const hr = { begin: vi.fn(), commit: vi.fn() } as unknown as HistoryRecorder;
+      const stack = new RealHistoryStack();
+      const hr = new RealHistoryRecorder(store, stack);
+      stack.clear();
 
       handler = new InputHandler(element, camera, {
         toolManager: tm,
@@ -1442,16 +1446,16 @@ describe('InputHandler', () => {
         historyRecorder: hr,
       });
 
-      // ArrowRight nudge: opens a transaction (begin #1), 400ms timer pending
+      // ArrowRight nudge: opens a transaction, moves the note, 400ms timer pending
       keyDown('ArrowRight');
-      expect(hr.begin).toHaveBeenCalledTimes(1);
-      expect(hr.commit).toHaveBeenCalledTimes(0);
+      expect(hr.currentTransactionId).not.toBeNull(); // nudge tx open
+      expect(stack.undoCount).toBe(0); // nothing committed yet
 
-      // Pointer-down within 400ms: must flush the nudge (commit #1) then begin a new transaction (begin #2)
+      // Pointer-down within 400ms: must flush the nudge (commit its tx) then begin a new one
       pointerDown(element, { button: 0, clientX: 50, clientY: 50 });
 
-      expect(hr.commit).toHaveBeenCalledTimes(1);
-      expect(hr.begin).toHaveBeenCalledTimes(2);
+      expect(stack.undoCount).toBe(1); // pending nudge committed as its own step
+      expect(hr.currentTransactionId).not.toBeNull(); // pointer-down opened a fresh tx
     });
   });
 
