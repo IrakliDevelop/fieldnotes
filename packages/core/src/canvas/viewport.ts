@@ -27,6 +27,8 @@ import { createImage, createHtmlElement, createShape } from '../elements/element
 import { exportState as exportCanvasState, parseState } from '../core/state-serializer';
 import { exportImage } from './export-image';
 import type { ExportImageOptions } from './export-image';
+import { exportSvg } from './export-svg';
+import type { ExportSvgOptions } from './export-svg';
 import type { CanvasState } from '../core/state-serializer';
 import { LayerManager } from '../layers/layer-manager';
 import { InteractMode } from './interact-mode';
@@ -379,6 +381,10 @@ export class Viewport {
 
   async exportImage(options?: ExportImageOptions): Promise<Blob | null> {
     return exportImage(this.store, options, this.layerManager);
+  }
+
+  async exportSVG(options?: ExportSvgOptions): Promise<string> {
+    return exportSvg(this.store, options, this.layerManager);
   }
 
   loadState(state: CanvasState): void {
