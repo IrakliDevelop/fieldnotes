@@ -4,6 +4,14 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.38.5] — 2026-06-25
+
+### Changed
+
+- Internal: decomposed `element-renderer` into per-element-type renderer modules
+  (`elements/renderers/` — stroke/shape/arrow/image/template). Grid rendering stays on the class.
+  No public API or behavior change.
+
 ## [react 0.7.0] — 2026-06-25
 
 ### Added

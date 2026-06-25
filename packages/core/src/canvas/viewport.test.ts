@@ -13,6 +13,8 @@ import {
 } from '../elements/element-factory';
 import { SelectTool } from '../tools/select-tool';
 import { PencilTool } from '../tools/pencil-tool';
+import { renderImage } from '../elements/renderers/image-renderer';
+import type { ImageElement } from '../elements/types';
 
 describe('Viewport', () => {
   let container: HTMLDivElement;
@@ -1242,15 +1244,31 @@ describe('Viewport', () => {
   });
 
   describe('onImageError', () => {
-    function triggerImageError(viewport: Viewport, src: string): void {
+    function loadImage(viewport: Viewport, src: string): void {
       const renderer = (
         viewport as unknown as {
-          renderer: { getImage?: unknown; imageCache?: unknown };
+          renderer: {
+            imageCache: Map<string, ImageBitmap | HTMLImageElement | 'failed'>;
+            onImageLoad: (() => void) | null;
+            onImageError: ((src: string, cause?: unknown) => void) | null;
+          };
         }
       ).renderer;
       // force the load attempt directly (render path may be inert in jsdom)
-      (renderer as unknown as { getImage: (s: string) => unknown }).getImage(src);
-      const cache = (renderer as unknown as { imageCache: Map<string, unknown> }).imageCache;
+      const image = { src, position: { x: 0, y: 0 }, size: { w: 0, h: 0 } } as ImageElement;
+      renderImage(
+        {} as CanvasRenderingContext2D,
+        image,
+        renderer.imageCache,
+        renderer.onImageLoad,
+        renderer.onImageError,
+      );
+    }
+
+    function triggerImageError(viewport: Viewport, src: string): void {
+      loadImage(viewport, src);
+      const cache = (viewport as unknown as { renderer: { imageCache: Map<string, unknown> } })
+        .renderer.imageCache;
       const img = cache.get(src);
       if (img instanceof HTMLImageElement) {
         img.onerror?.(new Event('error') as never);
@@ -1287,10 +1305,9 @@ describe('Viewport', () => {
       const viewport = new Viewport(container, { onImageError });
       const src = 'https://broken.example/d.png';
       viewport.addImage(src, { x: 0, y: 0 });
-      const renderer = (viewport as unknown as { renderer: { getImage: (s: string) => unknown } })
-        .renderer;
-      renderer.getImage(src);
-      const cache = (renderer as unknown as { imageCache: Map<string, unknown> }).imageCache;
+      loadImage(viewport, src);
+      const cache = (viewport as unknown as { renderer: { imageCache: Map<string, unknown> } })
+        .renderer.imageCache;
       const img = cache.get(src);
       const event = new Event('error');
       if (img instanceof HTMLImageElement) img.onerror?.(event as never);
