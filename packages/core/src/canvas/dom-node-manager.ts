@@ -206,6 +206,7 @@ export class DomNodeManager {
         });
         node.textContent = element.text || '';
 
+        // One-time per node; see the note branch above for the one-listener-per-node invariant.
         const detector = new DoubleTapDetector();
         node.addEventListener('pointerup', (e) => {
           if (detector.feed(e)) {
