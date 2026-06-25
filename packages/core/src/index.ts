@@ -1,4 +1,4 @@
-export const VERSION = '0.38.7';
+export const VERSION = '0.39.0';
 
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
 export { snapPoint, smartSnap, snapToHexCenter } from './core/snap';
@@ -14,6 +14,8 @@ export { Viewport } from './canvas/viewport';
 export type { ViewportOptions, GridInfo, AlignEdge, DistributeAxis } from './canvas/viewport';
 export { exportImage } from './canvas/export-image';
 export type { ExportImageOptions } from './canvas/export-image';
+export { exportSvg } from './canvas/export-svg';
+export type { ExportSvgOptions } from './canvas/export-svg';
 export type { RenderStatsSnapshot } from './canvas/render-stats';
 
 export { ElementStore } from './elements/element-store';
