@@ -143,6 +143,14 @@ export class KeyboardHandler {
         e?.preventDefault();
         this.deps.actions.selectAll();
         return;
+      case 'cycle-selection':
+        e?.preventDefault();
+        this.deps.actions.cycleSelection(1);
+        return;
+      case 'cycle-selection-reverse':
+        e?.preventDefault();
+        this.deps.actions.cycleSelection(-1);
+        return;
       case 'copy':
         e?.preventDefault();
         this.deps.actions.copy();

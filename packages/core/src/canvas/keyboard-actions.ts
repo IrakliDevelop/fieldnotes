@@ -42,6 +42,17 @@ export class KeyboardActions {
     return { tool: tool as SelectTool, ctx };
   }
 
+  private selectableElements(ctx: ToolContext): CanvasElement[] {
+    return ctx.store
+      .getAll()
+      .filter(
+        (el) =>
+          !el.locked &&
+          (ctx.isLayerVisible?.(el.layerId) ?? true) &&
+          !(ctx.isLayerLocked?.(el.layerId) ?? false),
+      );
+  }
+
   nudge(dx: number, dy: number, byCell: boolean): boolean {
     if (this.deps.isToolActive()) return false;
     const sel = this.selectTool();
@@ -198,16 +209,36 @@ export class KeyboardActions {
     }
     const sel = this.selectTool();
     if (!sel) return;
-    const ids = sel.ctx.store
-      .getAll()
-      .filter(
-        (el) =>
-          !el.locked &&
-          (sel.ctx.isLayerVisible?.(el.layerId) ?? true) &&
-          !(sel.ctx.isLayerLocked?.(el.layerId) ?? false),
-      )
-      .map((el) => el.id);
+    const ids = this.selectableElements(sel.ctx).map((el) => el.id);
     sel.tool.setSelection(ids);
+    sel.ctx.requestRender();
+  }
+
+  cycleSelection(direction: 1 | -1): void {
+    if (this.deps.isToolActive()) return;
+    const tm = this.deps.getToolManager();
+    const ctx = this.deps.getToolContext();
+    if (!tm || !ctx) return;
+    if (tm.activeTool?.name !== 'select') ctx.switchTool?.('select');
+    const sel = this.selectTool();
+    if (!sel) return;
+    const eligible = this.selectableElements(sel.ctx).filter((el) => el.type !== 'grid');
+    if (eligible.length === 0) return;
+    const idxs = sel.tool.selectedIds
+      .map((id) => eligible.findIndex((e) => e.id === id))
+      .filter((i) => i >= 0);
+    const anchor =
+      idxs.length === 0
+        ? direction > 0
+          ? -1
+          : 0
+        : direction > 0
+          ? Math.max(...idxs)
+          : Math.min(...idxs);
+    const next = (anchor + direction + eligible.length) % eligible.length;
+    const target = eligible[next];
+    if (!target) return;
+    sel.tool.setSelection([target.id]);
     sel.ctx.requestRender();
   }
 
