@@ -7,19 +7,11 @@ import type { HistoryStack } from '../history/history-stack';
 import type { ShortcutOptions, ShortcutsApi } from './shortcut-map';
 import { InputFilter } from './input-filter';
 import { KeyboardActions } from './keyboard-actions';
-import { ShortcutMap } from './shortcut-map';
+import { KeyboardHandler } from './keyboard-handler';
 
 const ZOOM_SENSITIVITY = 0.001;
-const ZOOM_STEP = 1.2;
 const MIDDLE_BUTTON = 1;
 const LONG_PRESS_MS = 500;
-
-const NUDGE_DELTAS: Record<string, readonly [number, number]> = {
-  'nudge-left': [-1, 0],
-  'nudge-right': [1, 0],
-  'nudge-up': [0, -1],
-  'nudge-down': [0, 1],
-};
 
 export interface InputHandlerOptions {
   toolManager?: ToolManager;
@@ -53,7 +45,7 @@ export class InputHandler {
   private longPressStart: { x: number; y: number } | null = null;
   private readonly abortController = new AbortController();
   private readonly actions: KeyboardActions;
-  private readonly shortcutMap: ShortcutMap;
+  private readonly keyboard: KeyboardHandler;
   private readonly scope: 'focus' | 'window';
   private readonly openContextMenu?: (screenPos: Point, world: Point) => void;
 
@@ -79,8 +71,23 @@ export class InputHandler {
       getLastPointerWorld: () => this.lastPointerWorld(),
     });
     this.openContextMenu = options.openContextMenu;
-    this.shortcutMap = new ShortcutMap(options.shortcuts?.bindings);
     this.scope = options.shortcuts?.scope ?? 'focus';
+    this.keyboard = new KeyboardHandler({
+      element: this.element,
+      camera: this.camera,
+      actions: this.actions,
+      scope: this.scope,
+      shortcuts: options.shortcuts,
+      abortSignal: this.abortController.signal,
+      getToolContext: () => this.toolContext,
+      getIsToolActive: () => this.isToolActive,
+      getLastPointerEvent: () => this.lastPointerEvent,
+      setSpaceHeld: (v) => {
+        this.spaceHeld = v;
+      },
+      getActivePointerCount: () => this.activePointers.size,
+      dispatchToolHover: (e) => this.dispatchToolHover(e),
+    });
     this.element.style.touchAction = 'none';
     if (this.scope === 'focus') {
       this.element.tabIndex = 0;
@@ -100,7 +107,7 @@ export class InputHandler {
   }
 
   get shortcuts(): ShortcutsApi {
-    return this.shortcutMap;
+    return this.keyboard.shortcuts;
   }
 
   destroy(): void {
@@ -126,21 +133,6 @@ export class InputHandler {
     this.element.addEventListener('pointerleave', this.onPointerLeave, opts);
     this.element.addEventListener('pointercancel', this.onPointerUp, opts);
     this.element.addEventListener('contextmenu', this.onContextMenu, opts);
-    window.addEventListener('keydown', this.onKeyDown, opts);
-    window.addEventListener('keyup', this.onKeyUp, opts);
-  }
-
-  private viewportCenter(): { x: number; y: number } {
-    const rect = this.element.getBoundingClientRect();
-    return { x: rect.width / 2, y: rect.height / 2 };
-  }
-
-  private zoomByFactor(factor: number): void {
-    this.camera.zoomAt(this.camera.zoom * factor, this.viewportCenter());
-  }
-
-  private zoomToLevel(level: number): void {
-    this.camera.zoomAt(level, this.viewportCenter());
   }
 
   private onWheel = (e: WheelEvent): void => {
@@ -257,135 +249,8 @@ export class InputHandler {
     }
   };
 
-  private onKeyDown = (e: KeyboardEvent): void => {
-    const target = e.target as HTMLElement | null;
-    if (target?.isContentEditable) return;
-    const tag = target?.tagName;
-    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-    if (!this.isInScope()) return;
-
-    if (e.key === ' ') {
-      this.spaceHeld = true;
-    }
-    const action = this.shortcutMap.match(e);
-    if (action !== null) {
-      this.runAction(action, e);
-    }
-  };
-
-  private onKeyUp = (e: KeyboardEvent): void => {
-    if (e.key === ' ') {
-      this.spaceHeld = false;
-      if (this.activePointers.size === 0) {
-        if (this.lastPointerEvent) {
-          this.dispatchToolHover(this.lastPointerEvent);
-        } else {
-          this.toolContext?.setCursor?.('default');
-        }
-      }
-    }
-  };
-
   runAction(action: string, e?: KeyboardEvent): void {
-    switch (action) {
-      case 'delete':
-        e?.preventDefault();
-        this.actions.deleteSelected();
-        return;
-      case 'deselect':
-        this.actions.deselect();
-        return;
-      case 'undo':
-        e?.preventDefault();
-        this.actions.undo();
-        return;
-      case 'redo':
-        e?.preventDefault();
-        this.actions.redo();
-        return;
-      case 'select-all':
-        e?.preventDefault();
-        this.actions.selectAll();
-        return;
-      case 'copy':
-        e?.preventDefault();
-        this.actions.copy();
-        return;
-      case 'paste':
-        e?.preventDefault();
-        this.actions.paste();
-        return;
-      case 'duplicate':
-        e?.preventDefault();
-        this.actions.duplicate();
-        return;
-      case 'z-forward':
-        e?.preventDefault();
-        this.actions.zOrder('forward');
-        return;
-      case 'z-backward':
-        e?.preventDefault();
-        this.actions.zOrder('backward');
-        return;
-      case 'z-front':
-        e?.preventDefault();
-        this.actions.zOrder('front');
-        return;
-      case 'z-back':
-        e?.preventDefault();
-        this.actions.zOrder('back');
-        return;
-      case 'zoom-fit':
-        e?.preventDefault();
-        this.actions.zoomToFit();
-        return;
-      case 'group':
-        e?.preventDefault();
-        this.actions.group();
-        return;
-      case 'ungroup':
-        e?.preventDefault();
-        this.actions.ungroup();
-        return;
-      case 'cut':
-        e?.preventDefault();
-        this.actions.cut();
-        return;
-      case 'toggle-lock':
-        e?.preventDefault();
-        this.actions.toggleLock();
-        return;
-      case 'zoom-in':
-        e?.preventDefault();
-        this.zoomByFactor(ZOOM_STEP);
-        return;
-      case 'zoom-out':
-        e?.preventDefault();
-        this.zoomByFactor(1 / ZOOM_STEP);
-        return;
-      case 'zoom-reset':
-        e?.preventDefault();
-        this.zoomToLevel(1);
-        return;
-      case 'nudge-left':
-      case 'nudge-right':
-      case 'nudge-up':
-      case 'nudge-down': {
-        const delta = NUDGE_DELTAS[action];
-        if (delta && this.actions.nudge(delta[0], delta[1], e?.shiftKey ?? false)) {
-          e?.preventDefault();
-        }
-        return;
-      }
-      default:
-        if (action.startsWith('tool:')) {
-          if (this.isToolActive) return;
-          e?.preventDefault();
-          this.toolContext?.switchTool?.(action.slice('tool:'.length));
-          return;
-        }
-        console.warn(`[fieldnotes] unknown shortcut action "${action}"`);
-    }
+    this.keyboard.runAction(action, e);
   }
 
   hasClipboard(): boolean {
