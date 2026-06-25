@@ -3,7 +3,7 @@ import * as FN from './index';
 
 describe('core public surface', () => {
   it('exports the current version', () => {
-    expect(FN.VERSION).toBe('0.38.7');
+    expect(FN.VERSION).toBe('0.39.0');
   });
 
   it('does not export internal machinery (trimmed before 1.0)', () => {
@@ -73,6 +73,7 @@ describe('core public surface', () => {
       'Viewport',
       'AutoSave',
       'exportImage',
+      'exportSvg',
       'Camera',
       'ElementStore',
       'LayerManager',

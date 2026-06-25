@@ -26,6 +26,10 @@ export interface KeyboardHandlerDeps {
   setSpaceHeld: (v: boolean) => void;
   getActivePointerCount: () => number;
   dispatchToolHover: (e: PointerEvent) => void;
+  addImage: (src: string, world: { x: number; y: number }) => string;
+  getLastPointerWorld: () => { x: number; y: number } | null;
+  getCenteredWorld: () => { x: number; y: number };
+  onPaste?: (e: ClipboardEvent, world: { x: number; y: number }) => void;
 }
 
 export class KeyboardHandler {
@@ -35,6 +39,7 @@ export class KeyboardHandler {
     this.shortcutMap = new ShortcutMap(deps.shortcuts?.bindings);
     window.addEventListener('keydown', this.onKeyDown, { signal: deps.abortSignal });
     window.addEventListener('keyup', this.onKeyUp, { signal: deps.abortSignal });
+    window.addEventListener('paste', this.onPaste, { signal: deps.abortSignal });
   }
 
   get shortcuts(): ShortcutsApi {
@@ -54,12 +59,16 @@ export class KeyboardHandler {
     this.deps.camera.zoomAt(level, this.viewportCenter());
   }
 
+  private shouldHandle(target: EventTarget | null): boolean {
+    const el = target as HTMLElement | null;
+    if (el?.isContentEditable) return false;
+    const tag = el?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return false;
+    return this.isInScope();
+  }
+
   onKeyDown = (e: KeyboardEvent): void => {
-    const target = e.target as HTMLElement | null;
-    if (target?.isContentEditable) return;
-    const tag = target?.tagName;
-    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-    if (!this.isInScope()) return;
+    if (!this.shouldHandle(e.target)) return;
 
     if (e.key === ' ') {
       this.deps.setSpaceHeld(true);
@@ -82,6 +91,35 @@ export class KeyboardHandler {
         }
       }
     }
+  };
+
+  onPaste = (e: ClipboardEvent): void => {
+    if (!this.shouldHandle(e.target)) return;
+    const items = e.clipboardData?.items;
+    let file: File | null = null;
+    if (items) {
+      for (const it of items) {
+        if (it.kind === 'file' && it.type.startsWith('image/')) {
+          file = it.getAsFile();
+          break;
+        }
+      }
+    }
+    if (file) {
+      e.preventDefault();
+      const world = this.deps.getLastPointerWorld() ?? this.deps.getCenteredWorld();
+      if (this.deps.onPaste) {
+        this.deps.onPaste(e, world);
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === 'string') this.deps.addImage(reader.result, world);
+      };
+      reader.readAsDataURL(file);
+      return;
+    }
+    this.deps.actions.paste();
   };
 
   runAction(action: string, e?: KeyboardEvent): void {

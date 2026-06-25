@@ -24,6 +24,9 @@ export interface InputHandlerOptions {
   toggleLock?: () => void;
   openContextMenu?: (screenPos: Point, world: Point) => void;
   shortcuts?: ShortcutOptions;
+  addImage?: (src: string, world: { x: number; y: number }) => string;
+  getCenteredWorld?: () => { x: number; y: number };
+  onPaste?: (event: ClipboardEvent, worldPosition: { x: number; y: number }) => void;
 }
 
 export class InputHandler {
@@ -87,6 +90,10 @@ export class InputHandler {
       },
       getActivePointerCount: () => this.activePointers.size,
       dispatchToolHover: (e) => this.dispatchToolHover(e),
+      addImage: options.addImage ?? (() => ''),
+      getLastPointerWorld: () => this.lastPointerWorld(),
+      getCenteredWorld: options.getCenteredWorld ?? (() => ({ x: 0, y: 0 })),
+      onPaste: options.onPaste,
     });
     this.element.style.touchAction = 'none';
     if (this.scope === 'focus') {

@@ -4,6 +4,21 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.39.0] — 2026-06-25
+
+### Added
+
+- Paste images from the OS clipboard with Ctrl+V; `ViewportOptions.onPaste` hook to intercept.
+- SVG export — `viewport.exportSVG()` / `exportSvg()` (vector strokes/shapes/arrows/grid/template,
+  `<text>` for text, rasterized notes, embedded images; HTML embeds excluded, matching PNG).
+- `viewport.registerHtmlRenderer(htmlType, factory)` + optional `HtmlElement.htmlType`/`data` so
+  serialized HTML embeds rehydrate on load.
+
+### Changed
+
+- Ctrl+V now flows through the native paste event (the `mod+v` shortcut binding was removed; the
+  `paste` action remains for the context menu and `runAction`).
+
 ## [0.38.7] — 2026-06-25
 
 ### Fixed

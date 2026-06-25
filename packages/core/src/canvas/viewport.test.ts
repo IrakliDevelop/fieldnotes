@@ -161,6 +161,62 @@ describe('Viewport', () => {
     dom.remove();
   });
 
+  it('rehydrates an html element via a registered renderer on load', () => {
+    const factory = (el: { data?: Record<string, unknown> }): HTMLElement => {
+      const d = document.createElement('div');
+      d.textContent = String(el.data?.['value']);
+      return d;
+    };
+
+    const viewportA = new Viewport(container);
+    viewportA.registerHtmlRenderer('chart', factory);
+    const placeholder = document.createElement('div');
+    const id = viewportA.addHtmlElement(placeholder, { x: 5, y: 5 }, { w: 100, h: 80 }, {
+      htmlType: 'chart',
+      data: { value: 42 },
+    });
+    const json = viewportA.exportJSON();
+
+    const mountSpy = vi.fn();
+    const viewportB = new Viewport(container, { onHtmlElementMount: mountSpy });
+    viewportB.registerHtmlRenderer('chart', factory);
+    viewportB.loadJSON(json);
+
+    const node = (
+      viewportB as unknown as {
+        domNodeManager: { getNode(id: string): HTMLDivElement | undefined };
+      }
+    ).domNodeManager.getNode(id);
+    expect(node?.textContent).toContain('42');
+    expect(mountSpy).toHaveBeenCalledWith(id, undefined, node);
+
+    viewportA.destroy();
+    viewportB.destroy();
+  });
+
+  it('loads an html element with no registered factory without throwing (empty node)', () => {
+    const viewportA = new Viewport(container);
+    const placeholder = document.createElement('div');
+    const id = viewportA.addHtmlElement(placeholder, { x: 0, y: 0 }, { w: 100, h: 80 }, {
+      htmlType: 'chart',
+      data: { value: 7 },
+    });
+    const json = viewportA.exportJSON();
+
+    const viewportB = new Viewport(container);
+    expect(() => viewportB.loadJSON(json)).not.toThrow();
+
+    const node = (
+      viewportB as unknown as {
+        domNodeManager: { getNode(id: string): HTMLDivElement | undefined };
+      }
+    ).domNodeManager.getNode(id);
+    expect(node?.textContent ?? '').not.toContain('7');
+
+    viewportA.destroy();
+    viewportB.destroy();
+  });
+
   describe('HTML element interact mode', () => {
     it('stopInteracting is safe to call when not interacting', () => {
       const viewport = new Viewport(container);
