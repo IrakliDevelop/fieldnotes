@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { ShortcutMap } from './shortcut-map';
 
 function kbd(init: KeyboardEventInit): KeyboardEvent {
@@ -179,5 +179,38 @@ describe('ShortcutMap runtime API', () => {
     const map = new ShortcutMap();
     map.rebind('tool:hand', 'space');
     expect(map.match(kbd({ key: ' ' }))).toBe('tool:hand');
+  });
+});
+
+describe('ShortcutMap conflict warnings', () => {
+  it("warns when an action's binding collides with a different action", () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const map = new ShortcutMap();
+    map.rebind('my-action', 'mod+z'); // mod+z is already bound to undo
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('conflicts with'));
+    warn.mockRestore();
+  });
+
+  it('does not warn when rebinding an action to its own existing combo', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const map = new ShortcutMap();
+    map.rebind('undo', 'mod+z');
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('does not warn during normal default-binding setup', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    new ShortcutMap();
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('match() is unchanged: the first-registered owner still wins the colliding combo', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const map = new ShortcutMap();
+    map.rebind('my-action', 'mod+z');
+    expect(map.match(kbd({ key: 'z', ctrlKey: true }))).toBe('undo');
+    warn.mockRestore();
   });
 });

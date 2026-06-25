@@ -118,6 +118,17 @@ function bindingMatches(p: ParsedBinding, e: KeyboardEvent, allowShift: boolean)
   return p.digit ? e.code === `Digit${p.key}` : e.key.toLowerCase() === p.key;
 }
 
+function sameBinding(a: ParsedBinding, b: ParsedBinding): boolean {
+  return (
+    a.key === b.key &&
+    a.mod === b.mod &&
+    a.ctrl === b.ctrl &&
+    a.meta === b.meta &&
+    a.shift === b.shift &&
+    a.alt === b.alt
+  );
+}
+
 function toArray(bindings: string | string[] | null): string[] {
   if (bindings === null) return [];
   return Array.isArray(bindings) ? [...bindings] : [bindings];
@@ -150,6 +161,16 @@ export class ShortcutMap implements ShortcutsApi {
   rebind(action: string, bindings: string | string[] | null): void {
     const list = toArray(bindings);
     const parsedList = list.map(parseBinding);
+    for (const p of parsedList) {
+      for (const [otherAction, otherList] of this.parsed) {
+        if (otherAction === action) continue;
+        if (otherList.some((q) => sameBinding(p, q))) {
+          console.warn(
+            `[fieldnotes] shortcut binding for "${action}" conflicts with "${otherAction}"; first registered wins`,
+          );
+        }
+      }
+    }
     this.raw.set(action, list);
     this.parsed.set(action, parsedList);
   }
