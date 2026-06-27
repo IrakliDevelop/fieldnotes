@@ -2092,4 +2092,49 @@ describe('Viewport', () => {
       viewport.destroy();
     });
   });
+
+  describe('minimap', () => {
+    function minimapCanvas(wrapper: HTMLDivElement): HTMLCanvasElement | undefined {
+      return Array.from(wrapper.querySelectorAll('canvas')).find(
+        (c) => c.style.position === 'absolute' && c.style.bottom !== '',
+      );
+    }
+
+    it('adds a minimap canvas to the wrapper when minimap: true', () => {
+      const viewport = new Viewport(container, { minimap: true });
+      const wrapper = wrapperOf(container);
+      expect(wrapper.querySelectorAll('canvas').length).toBe(2);
+      expect(minimapCanvas(wrapper)).toBeDefined();
+      viewport.destroy();
+    });
+
+    it('does not add a minimap by default', () => {
+      const viewport = new Viewport(container);
+      const wrapper = wrapperOf(container);
+      expect(wrapper.querySelectorAll('canvas').length).toBe(1);
+      expect(minimapCanvas(wrapper)).toBeUndefined();
+      viewport.destroy();
+    });
+
+    it('survives element add + camera pan (smoke)', () => {
+      const viewport = new Viewport(container, { minimap: true });
+      const wrapper = wrapperOf(container);
+      expect(() => {
+        viewport.store.add(
+          createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 80 }, text: 'hi' }),
+        );
+        viewport.camera.pan(120, 90);
+      }).not.toThrow();
+      expect(minimapCanvas(wrapper)).toBeDefined();
+      viewport.destroy();
+    });
+
+    it('removes the minimap canvas on destroy', () => {
+      const viewport = new Viewport(container, { minimap: true });
+      const wrapper = wrapperOf(container);
+      expect(minimapCanvas(wrapper)).toBeDefined();
+      viewport.destroy();
+      expect(minimapCanvas(wrapper)).toBeUndefined();
+    });
+  });
 });

@@ -26,6 +26,7 @@ if (!container) throw new Error('Missing #canvas element');
 
 const viewport = new Viewport(container, {
   background: { pattern: 'dots', spacing: 24, color: '#c0c0c0' },
+  minimap: true,
   onImageError: ({ src }) => {
     console.warn('Image failed to load:', src);
     showToast('image-error-toast', 'Image failed to load');
