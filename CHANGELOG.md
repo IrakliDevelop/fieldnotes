@@ -4,6 +4,13 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.40.3] — 2026-06-25
+
+### Fixed
+
+- PNG and SVG export of text elements now honors text alignment (center/right) and matches the
+  on-canvas line spacing, instead of always exporting left-aligned with tighter line height.
+
 ## [0.40.2] — 2026-06-25
 
 ### Fixed
