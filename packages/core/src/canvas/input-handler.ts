@@ -8,6 +8,7 @@ import type { ShortcutOptions, ShortcutsApi } from './shortcut-map';
 import { InputFilter } from './input-filter';
 import { KeyboardActions } from './keyboard-actions';
 import { KeyboardHandler } from './keyboard-handler';
+import { PanInertia } from './pan-inertia';
 
 const ZOOM_SENSITIVITY = 0.001;
 const MIDDLE_BUTTON = 1;
@@ -27,6 +28,7 @@ export interface InputHandlerOptions {
   addImage?: (src: string, world: { x: number; y: number }) => string;
   getCenteredWorld?: () => { x: number; y: number };
   onPaste?: (event: ClipboardEvent, worldPosition: { x: number; y: number }) => void;
+  panInertia?: boolean;
 }
 
 export class InputHandler {
@@ -51,6 +53,8 @@ export class InputHandler {
   private readonly keyboard: KeyboardHandler;
   private readonly scope: 'focus' | 'window';
   private readonly openContextMenu?: (screenPos: Point, world: Point) => void;
+  private readonly panInertia: PanInertia;
+  private readonly panInertiaEnabled: boolean;
 
   constructor(
     private readonly element: HTMLElement,
@@ -74,6 +78,17 @@ export class InputHandler {
       getLastPointerWorld: () => this.lastPointerWorld(),
     });
     this.openContextMenu = options.openContextMenu;
+    this.panInertiaEnabled = options.panInertia ?? true;
+    this.panInertia = new PanInertia({
+      pan: (dx, dy) => this.camera.pan(dx, dy),
+      now: () => (typeof performance !== 'undefined' ? performance.now() : Date.now()),
+      requestFrame: (cb) =>
+        typeof requestAnimationFrame !== 'undefined' ? requestAnimationFrame(cb) : 0,
+      cancelFrame: (id) => {
+        if (typeof cancelAnimationFrame !== 'undefined') cancelAnimationFrame(id);
+      },
+      enabled: () => this.panInertiaEnabled,
+    });
     this.scope = options.shortcuts?.scope ?? 'focus';
     this.keyboard = new KeyboardHandler({
       element: this.element,
@@ -118,6 +133,7 @@ export class InputHandler {
   }
 
   destroy(): void {
+    this.panInertia.cancel();
     this.actions.dispose();
     this.abortController.abort();
     this.inputFilter.reset();
@@ -144,6 +160,7 @@ export class InputHandler {
 
   private onWheel = (e: WheelEvent): void => {
     e.preventDefault();
+    this.panInertia.cancel();
     const rect = this.element.getBoundingClientRect();
     const zoomFactor = 1 - e.deltaY * ZOOM_SENSITIVITY;
     const newZoom = this.camera.zoom * zoomFactor;
@@ -154,6 +171,7 @@ export class InputHandler {
   };
 
   private onPointerDown = (e: PointerEvent): void => {
+    this.panInertia.cancel();
     this.focusSelf();
     this.activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
@@ -205,6 +223,7 @@ export class InputHandler {
       const dy = e.clientY - this.lastPointer.y;
       this.lastPointer = { x: e.clientX, y: e.clientY };
       this.camera.pan(dx, dy);
+      this.panInertia.sample(dx, dy);
       return;
     }
 
@@ -240,6 +259,7 @@ export class InputHandler {
 
     if (this.isPanning && this.activePointers.size === 0) {
       this.isPanning = false;
+      this.panInertia.release();
     }
 
     const upResult = this.inputFilter.filterUp(e);
@@ -265,6 +285,7 @@ export class InputHandler {
   }
 
   private startPinch(): void {
+    this.panInertia.cancel();
     this.cancelLongPress();
     this.inputFilter.reset();
     this.deferredDown = null;
@@ -289,6 +310,7 @@ export class InputHandler {
     const dx = center.x - this.lastPointer.x;
     const dy = center.y - this.lastPointer.y;
     this.camera.pan(dx, dy);
+    this.panInertia.sample(dx, dy);
 
     this.lastPinchDistance = dist;
     this.lastPinchCenter = center;

@@ -1874,4 +1874,93 @@ describe('InputHandler', () => {
       vi.useRealTimers();
     });
   });
+
+  describe('pan inertia (coast) wiring', () => {
+    // The PanInertia controller drives its loop via requestAnimationFrame and
+    // early-returns from `step` until `this.rafId` is assigned, so a synchronous
+    // (re-entrant) rAF stub would never coast. Instead we queue frame callbacks
+    // and drain them manually after the gesture — a bounded, deterministic clock.
+    let rafQueue: { id: number; cb: FrameRequestCallback }[];
+    let nextRafId: number;
+    let realRaf: typeof globalThis.requestAnimationFrame;
+    let realCaf: typeof globalThis.cancelAnimationFrame;
+
+    beforeEach(() => {
+      realRaf = globalThis.requestAnimationFrame;
+      realCaf = globalThis.cancelAnimationFrame;
+      rafQueue = [];
+      nextRafId = 0;
+      globalThis.requestAnimationFrame = ((cb: FrameRequestCallback): number => {
+        const id = ++nextRafId;
+        rafQueue.push({ id, cb });
+        return id;
+      }) as typeof globalThis.requestAnimationFrame;
+      globalThis.cancelAnimationFrame = ((id: number): void => {
+        rafQueue = rafQueue.filter((f) => f.id !== id);
+      }) as typeof globalThis.cancelAnimationFrame;
+    });
+
+    afterEach(() => {
+      globalThis.requestAnimationFrame = realRaf;
+      globalThis.cancelAnimationFrame = realCaf;
+      vi.restoreAllMocks();
+    });
+
+    function flushFrames(max = 200): void {
+      let n = 0;
+      while (rafQueue.length > 0 && n < max) {
+        const next = rafQueue.shift();
+        n += 1;
+        next?.cb(0);
+      }
+    }
+
+    function flickMousePan(): void {
+      pointerDown(element, { button: 1, clientX: 100, clientY: 100 });
+      pointerMove(element, { button: 1, clientX: 130, clientY: 100 });
+      pointerMove(element, { button: 1, clientX: 160, clientY: 100 });
+      pointerUp(element, { button: 1 });
+    }
+
+    it('coasts (extra camera.pan calls) after a mouse-pan flick by default', () => {
+      handler.destroy();
+      handler = new InputHandler(element, camera);
+      const panSpy = vi.spyOn(camera, 'pan');
+
+      flickMousePan();
+      const liveCalls = panSpy.mock.calls.length;
+      flushFrames();
+
+      expect(liveCalls).toBe(2);
+      expect(panSpy.mock.calls.length).toBeGreaterThan(liveCalls);
+    });
+
+    it('does not coast when panInertia is disabled', () => {
+      handler.destroy();
+      handler = new InputHandler(element, camera, { panInertia: false });
+      const panSpy = vi.spyOn(camera, 'pan');
+
+      flickMousePan();
+      const liveCalls = panSpy.mock.calls.length;
+      flushFrames();
+
+      expect(panSpy.mock.calls.length).toBe(liveCalls);
+    });
+
+    it('cancels an in-flight coast on the next pointer down', () => {
+      handler.destroy();
+      handler = new InputHandler(element, camera);
+      const panSpy = vi.spyOn(camera, 'pan');
+
+      flickMousePan();
+      flushFrames(1); // one coast frame, leaving a frame queued
+      const afterOneFrame = panSpy.mock.calls.length;
+
+      pointerDown(element, { button: 0, clientX: 0, clientY: 0 });
+      flushFrames();
+
+      expect(afterOneFrame).toBeGreaterThan(2);
+      expect(panSpy.mock.calls.length).toBe(afterOneFrame);
+    });
+  });
 });

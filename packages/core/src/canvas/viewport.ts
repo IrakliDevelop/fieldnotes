@@ -78,6 +78,8 @@ export interface ViewportOptions {
   panBufferMargin?: number;
   /** Enable the built-in context menu. Default `true`. */
   contextMenu?: boolean;
+  /** Coast (inertial glide) after a pan flick. Default `true`. */
+  panInertia?: boolean;
 }
 
 export class Viewport {
@@ -218,6 +220,7 @@ export class Viewport {
       addImage: (src, world) => this.addImage(src, world),
       getCenteredWorld: () => this.centeredPosition({ w: 300, h: 200 }),
       onPaste: options.onPaste,
+      panInertia: options.panInertia,
     });
 
     if (options.contextMenu !== false) {
