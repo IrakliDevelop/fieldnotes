@@ -4,6 +4,13 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.42.0] — 2026-06-27
+
+### Added
+
+- Pan inertia: panning now coasts to a stop after a flick (mouse Space/middle-drag and two-finger
+  touch), with friction. Opt out via the new `panInertia: false` viewport option.
+
 ## [0.41.0] — 2026-06-27
 
 ### Added
