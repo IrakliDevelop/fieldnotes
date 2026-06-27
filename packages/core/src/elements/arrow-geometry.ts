@@ -43,7 +43,9 @@ export function getBendFromPoint(from: Point, to: Point, dragPoint: Point): numb
   const perpX = -dy / len;
   const perpY = dx / len;
 
-  return (dragPoint.x - midX) * perpX + (dragPoint.y - midY) * perpY;
+  // The bend handle sits at the curve midpoint (getArrowMidpoint), which is HALF the control-point
+  // offset. Double the projection so the handle tracks the pointer 1:1 (bend is the control-point offset).
+  return 2 * ((dragPoint.x - midX) * perpX + (dragPoint.y - midY) * perpY);
 }
 
 export function getArrowTangentAngle(from: Point, to: Point, bend: number, t: number): number {

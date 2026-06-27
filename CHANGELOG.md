@@ -4,6 +4,13 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.40.4] — 2026-06-25
+
+### Fixed
+
+- Dragging an arrow's middle (bend) handle now follows the pointer 1:1 instead of lagging at half
+  speed, and no longer jumps toward the line when you re-grab the handle.
+
 ## [0.40.3] — 2026-06-25
 
 ### Fixed
