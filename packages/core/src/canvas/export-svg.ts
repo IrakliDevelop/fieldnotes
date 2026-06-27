@@ -25,6 +25,7 @@ import {
 } from '../elements/hex-fill';
 import { getElementBounds } from '../elements/element-bounds';
 import { renderNoteOnCanvas } from './note-canvas-renderer';
+import { renderTextOnCanvas } from './text-canvas-renderer';
 import { loadImages, computeBounds } from './export-image';
 
 export interface ExportSvgOptions {
@@ -175,29 +176,31 @@ function emitImage(image: ImageElement, dataUri: string | undefined): string {
   return `<image href="${esc(href)}" x="${n(x)}" y="${n(y)}" width="${n(w)}" height="${n(h)}" />`;
 }
 
-function emitText(text: TextElement): string {
+function emitText(text: TextElement, rasterScale: number): string {
   if (!text.text) return '';
-  const pad = 2;
-  let anchor: 'start' | 'middle' | 'end' = 'start';
-  let textX = text.position.x + pad;
-  if (text.textAlign === 'center') {
-    anchor = 'middle';
-    textX = text.position.x + text.size.w / 2;
-  } else if (text.textAlign === 'right') {
-    anchor = 'end';
-    textX = text.position.x + text.size.w - pad;
-  }
+  const { x, y } = text.position;
+  const { w, h } = text.size;
+  if (typeof document === 'undefined') return '';
 
-  const lineHeight = text.fontSize * 1.4;
-  const lines = text.text.split('\n');
-  let out = '';
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (line === undefined) continue;
-    const y = text.position.y + pad + i * lineHeight;
-    out += `<text x="${n(textX)}" y="${n(y)}" font-family="system-ui, sans-serif" font-size="${n(text.fontSize)}" fill="${esc(text.color)}" text-anchor="${anchor}" dominant-baseline="text-before-edge">${esc(line)}</text>`;
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.ceil(w * rasterScale));
+  canvas.height = Math.max(1, Math.ceil(h * rasterScale));
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return '';
+
+  ctx.scale(rasterScale, rasterScale);
+  ctx.translate(-x, -y);
+  renderTextOnCanvas(ctx, text);
+
+  let dataUri: string;
+  try {
+    dataUri = canvas.toDataURL();
+  } catch {
+    return '';
   }
-  return out;
+  if (!dataUri || !dataUri.startsWith('data:')) return '';
+
+  return `<image href="${esc(dataUri)}" x="${n(x)}" y="${n(y)}" width="${n(w)}" height="${n(h)}" />`;
 }
 
 function emitNote(note: NoteElement, rasterScale: number): string {
@@ -424,7 +427,7 @@ function emitElement(
     case 'image':
       return withRotationSvg(el, emitImage(el, imageDataUris.get(el.id)));
     case 'text':
-      return withRotationSvg(el, emitText(el));
+      return withRotationSvg(el, emitText(el, rasterScale));
     case 'note':
       return withRotationSvg(el, emitNote(el, rasterScale));
     case 'template':

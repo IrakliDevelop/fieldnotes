@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { exportSvg } from './export-svg';
 import {
   createStroke,
@@ -111,13 +111,55 @@ describe('exportSvg', () => {
     expect(svg).toMatch(/<rect[^>]*fill="#ff0000"/);
   });
 
-  it('emits text elements per line', async () => {
-    const store = buildStore();
+  it('rasterizes text elements to an <image> and never emits literal HTML tags', async () => {
+    // Text now renders RICH via the shared canvas renderer, rasterized to a data-URI
+    // <image> (like notes). Under a working canvas it is an <image>; under jsdom's
+    // null-context degradation the text is simply skipped — either way no raw <text>
+    // node carrying the literal markup is emitted.
+    const store = new ElementStore();
+    store.add(
+      createText({
+        position: { x: 0, y: 200 },
+        size: { w: 200, h: 60 },
+        text: 'Line 1<b>bold</b>',
+        color: '#123456',
+      }),
+    );
+
+    const origCreate = document.createElement.bind(document);
+    const ctxStub = {
+      save: vi.fn(),
+      restore: vi.fn(),
+      scale: vi.fn(),
+      translate: vi.fn(),
+      fillRect: vi.fn(),
+      fillText: vi.fn(),
+      measureText: vi.fn().mockReturnValue({ width: 40 }),
+      fillStyle: '',
+      font: '',
+      textBaseline: '',
+    } as unknown as CanvasRenderingContext2D;
+
+    vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
+      const el = origCreate(tag);
+      if (tag === 'canvas') {
+        vi.spyOn(el as HTMLCanvasElement, 'getContext').mockReturnValue(ctxStub as never);
+        vi.spyOn(el as HTMLCanvasElement, 'toDataURL').mockReturnValue(
+          'data:image/png;base64,AAAA',
+        );
+      }
+      return el;
+    });
+
     const svg = await exportSvg(store);
-    expect(svg).toContain('<text');
-    expect(svg).toContain('>Hello<');
-    expect(svg).toContain('>World<');
-    expect(svg).toContain('fill="#123456"');
+    vi.restoreAllMocks();
+
+    expect(svg).toContain('<image');
+    expect(svg).toContain('data:image/png;base64,AAAA');
+    // No raw <text> emitter and no literal/escaped markup leaking into the SVG.
+    expect(svg).not.toContain('<text');
+    expect(svg).not.toContain('<b>');
+    expect(svg).not.toContain('&lt;b&gt;');
   });
 
   it('emits an image element (data-uri passthrough)', async () => {
