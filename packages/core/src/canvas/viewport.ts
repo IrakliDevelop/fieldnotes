@@ -18,6 +18,7 @@ import type {
 import type { Point } from '../core/types';
 import { ContextMenu } from './context-menu';
 import type { ContextMenuItem } from './context-menu';
+import { Minimap } from './minimap';
 import { createWrapper, createCanvas, createDomLayer } from './viewport-dom';
 import { findBoundArrows, getEdgeIntersection } from '../elements/arrow-binding';
 import { getElementBounds } from '../elements/element-bounds';
@@ -80,6 +81,8 @@ export interface ViewportOptions {
   contextMenu?: boolean;
   /** Coast (inertial glide) after a pan flick. Default `true`. */
   panInertia?: boolean;
+  /** Show an overview minimap (bottom-right) with tap/drag-to-navigate. Default `false`. */
+  minimap?: boolean;
 }
 
 export class Viewport {
@@ -122,6 +125,7 @@ export class Viewport {
   private readonly gridController: GridController;
   private readonly interactions: ViewportInteractions;
   private contextMenu: ContextMenu | null = null;
+  private minimap: Minimap | null = null;
   private readonly htmlRenderers = new Map<string, (el: HtmlElement) => HTMLElement>();
 
   constructor(
@@ -231,6 +235,31 @@ export class Viewport {
     }
     this.unsubToolChange = this.toolManager.onChange(() => this.contextMenu?.close());
 
+    if (options.minimap) {
+      const visibleEls = () =>
+        this.store.getAll().filter((el) => this.layerManager.isLayerVisible(el.layerId));
+      this.minimap = new Minimap({
+        container: this.wrapper,
+        getElements: visibleEls,
+        getContentBounds: () => getElementsBoundingBox(visibleEls()),
+        getViewportRect: () =>
+          this.camera.getVisibleRect(this.canvasEl.clientWidth, this.canvasEl.clientHeight),
+        navigateTo: (w) => {
+          const z = this.camera.zoom;
+          this.camera.moveTo(
+            this.canvasEl.clientWidth / 2 - w.x * z,
+            this.canvasEl.clientHeight / 2 - w.y * z,
+          );
+        },
+        requestFrame: (cb) =>
+          typeof requestAnimationFrame !== 'undefined' ? requestAnimationFrame(cb) : 0,
+        cancelFrame: (id) => {
+          if (typeof cancelAnimationFrame !== 'undefined') cancelAnimationFrame(id);
+        },
+      });
+      this.minimap.scheduleDraw();
+    }
+
     this.domNodeManager = new DomNodeManager({
       domLayer: this.domLayer,
       onEditRequest: (id) => this.interactions.startEditingElement(id),
@@ -268,6 +297,7 @@ export class Viewport {
       this.applyCameraTransform();
       this.noteEditor.updateToolbarPosition();
       this.contextMenu?.close();
+      this.minimap?.scheduleDraw();
       this.requestRender();
     });
 
@@ -284,6 +314,7 @@ export class Viewport {
       this.store.on('add', (el) => {
         if (el.type === 'grid') this.gridController.syncContext();
         this.renderLoop.markLayerDirty(el.layerId);
+        this.minimap?.scheduleDraw();
         this.requestRender();
       }),
       this.store.on('remove', (el) => {
@@ -291,6 +322,7 @@ export class Viewport {
         this.unbindArrowsFrom(el);
         this.domNodeManager.removeDomNode(el.id);
         this.renderLoop.markLayerDirty(el.layerId);
+        this.minimap?.scheduleDraw();
         this.requestRender();
       }),
       this.store.on('update', ({ previous, current }) => {
@@ -299,18 +331,21 @@ export class Viewport {
         if (previous.layerId !== current.layerId) {
           this.renderLoop.markLayerDirty(previous.layerId);
         }
+        this.minimap?.scheduleDraw();
         this.requestRender();
       }),
       this.store.on('clear', () => {
         this.domNodeManager.clearDomNodes();
         this.renderLoop.markAllLayersDirty();
         this.gridController.syncContext();
+        this.minimap?.scheduleDraw();
         this.requestRender();
       }),
     ];
 
     this.layerManager.on('change', () => {
       this.toolContext.activeLayerId = this.layerManager.activeLayerId;
+      this.minimap?.scheduleDraw();
       this.requestRender();
     });
 
@@ -693,6 +728,7 @@ export class Viewport {
     this.arrowLabelEditor.cancel();
     this.historyRecorder.destroy();
     this.contextMenu?.dispose();
+    this.minimap?.destroy();
     this.wrapper.removeEventListener('pointerdown', this.interactions.onTapDown);
     this.wrapper.removeEventListener('pointerup', this.interactions.onDoubleTap);
     this.wrapper.removeEventListener('dragover', this.interactions.onDragOver);
