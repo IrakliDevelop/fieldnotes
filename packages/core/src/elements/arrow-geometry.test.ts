@@ -58,28 +58,80 @@ describe('getBendFromPoint', () => {
     expect(bend).toBeCloseTo(0);
   });
 
-  it('returns positive bend for point below horizontal line', () => {
+  it('returns 2x the perpendicular projection for point below horizontal line', () => {
+    // The handle is at the curve midpoint (half the control-point offset), so the bend that lands
+    // it at perpendicular distance 40 must be 2*40 = 80.
     const bend = getBendFromPoint({ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 50, y: 40 });
-    expect(bend).toBeCloseTo(40);
+    expect(bend).toBeCloseTo(80);
   });
 
-  it('returns negative bend for point above horizontal line', () => {
+  it('returns 2x the perpendicular projection for point above horizontal line', () => {
     const bend = getBendFromPoint({ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 50, y: -30 });
-    expect(bend).toBeCloseTo(-30);
+    expect(bend).toBeCloseTo(-60);
   });
 
-  it('is inverse of getArrowControlPoint', () => {
-    const from = { x: 10, y: 20 };
-    const to = { x: 150, y: 80 };
-    const originalBend = 42;
-    const cp = getArrowControlPoint(from, to, originalBend);
-    const recovered = getBendFromPoint(from, to, cp);
-    expect(recovered).toBeCloseTo(originalBend);
+  it('returns 2x the perpendicular projection for a diagonal arrow', () => {
+    // from=(0,0) to=(100,100): perp = (-1/√2, 1/√2). Point offset perpendicular by 20
+    // (i.e. (50,50) + 20*perp = (50 - 20/√2, 50 + 20/√2)) → projection 20 → bend 40.
+    const offset = 20 / Math.SQRT2;
+    const P = { x: 50 - offset, y: 50 + offset };
+    const bend = getBendFromPoint({ x: 0, y: 0 }, { x: 100, y: 100 }, P);
+    expect(bend).toBeCloseTo(40);
   });
 
   it('returns 0 for zero-length arrow', () => {
     const bend = getBendFromPoint({ x: 50, y: 50 }, { x: 50, y: 50 }, { x: 60, y: 60 });
     expect(bend).toBe(0);
+  });
+
+  // Round-trip: the curve midpoint (where the handle is drawn) lands on the drag point's
+  // perpendicular projection. This is the exact behavior the user reported as broken — dragging the
+  // handle to a point must put the handle (curve midpoint) at that point, not at half the distance.
+  describe('handle round-trip (curve midpoint lands at drag point)', () => {
+    it('horizontal arrow, positive bend', () => {
+      const from = { x: 0, y: 0 };
+      const to = { x: 100, y: 0 };
+      const P = { x: 50, y: 30 };
+      const bend = getBendFromPoint(from, to, P);
+      expect(bend).toBeCloseTo(60);
+      const mid = getArrowMidpoint(from, to, bend);
+      expect(mid.x).toBeCloseTo(P.x);
+      expect(mid.y).toBeCloseTo(P.y);
+    });
+
+    it('horizontal arrow, negative bend', () => {
+      const from = { x: 0, y: 0 };
+      const to = { x: 100, y: 0 };
+      const P = { x: 50, y: -45 };
+      const bend = getBendFromPoint(from, to, P);
+      const mid = getArrowMidpoint(from, to, bend);
+      expect(mid.x).toBeCloseTo(P.x);
+      expect(mid.y).toBeCloseTo(P.y);
+    });
+
+    it('diagonal arrow: midpoint lands at the perpendicular projection of P', () => {
+      const from = { x: 0, y: 0 };
+      const to = { x: 100, y: 100 };
+      const offset = 35 / Math.SQRT2;
+      // P is exactly on the perpendicular through the chord midpoint, so its projection is itself.
+      const P = { x: 50 - offset, y: 50 + offset };
+      const bend = getBendFromPoint(from, to, P);
+      const mid = getArrowMidpoint(from, to, bend);
+      expect(mid.x).toBeCloseTo(P.x);
+      expect(mid.y).toBeCloseTo(P.y);
+    });
+
+    it('straight arrow (bend starts at 0): dragging the mid handle to distance d lands it at d', () => {
+      const from = { x: 0, y: 0 };
+      const to = { x: 80, y: 0 };
+      const d = 25;
+      const P = { x: 40, y: d };
+      const bend = getBendFromPoint(from, to, P);
+      expect(bend).toBeCloseTo(2 * d);
+      const mid = getArrowMidpoint(from, to, bend);
+      expect(mid.x).toBeCloseTo(40);
+      expect(mid.y).toBeCloseTo(d);
+    });
   });
 });
 

@@ -8,6 +8,7 @@ import {
   getArrowHandleDragTarget,
 } from './arrow-handles';
 import { ElementStore } from '../elements/element-store';
+import { getArrowMidpoint } from '../elements/arrow-geometry';
 import { createNote, createArrow } from '../elements/element-factory';
 import type { ToolContext } from './types';
 import { Camera } from '../canvas/camera';
@@ -94,6 +95,43 @@ describe('applyArrowHandleDrag binding', () => {
     const updated = store.getById(arrow.id);
     expect(updated?.type === 'arrow' && updated.bend).not.toBe(0);
     expect(ctx.requestRender).toHaveBeenCalled();
+  });
+
+  it('mid handle drag lands the curve midpoint (the handle) at the drag point', () => {
+    const store = new ElementStore();
+    const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 200, y: 0 } });
+    store.add(arrow);
+    const ctx = makeCtx(store);
+
+    const dragPoint = { x: 100, y: 50 };
+    applyArrowHandleDrag('mid', arrow.id, dragPoint, ctx);
+    const updated = store.getById(arrow.id);
+    expect(updated?.type).toBe('arrow');
+    if (updated?.type !== 'arrow') return;
+
+    // The handle is drawn at getArrowMidpoint; after the drag it must sit on the pointer 1:1.
+    const handlePos = getArrowMidpoint(updated.from, updated.to, updated.bend);
+    expect(handlePos.x).toBeCloseTo(dragPoint.x);
+    expect(handlePos.y).toBeCloseTo(dragPoint.y);
+  });
+
+  it('re-grabbing the mid handle does not move the curve (idempotent drag)', () => {
+    const store = new ElementStore();
+    const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 200, y: 0 } });
+    store.add(arrow);
+    const ctx = makeCtx(store);
+
+    // First drag.
+    applyArrowHandleDrag('mid', arrow.id, { x: 100, y: 50 }, ctx);
+    const afterFirst = store.getById(arrow.id);
+    if (afterFirst?.type !== 'arrow') throw new Error('expected arrow');
+    const handle = getArrowMidpoint(afterFirst.from, afterFirst.to, afterFirst.bend);
+
+    // Re-grab: drag the handle to where it currently is. Bend must not jump.
+    applyArrowHandleDrag('mid', arrow.id, handle, ctx);
+    const afterSecond = store.getById(arrow.id);
+    if (afterSecond?.type !== 'arrow') throw new Error('expected arrow');
+    expect(afterSecond.bend).toBeCloseTo(afterFirst.bend);
   });
 
   it('does nothing for non-existent element', () => {
