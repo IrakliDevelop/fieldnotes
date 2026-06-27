@@ -4,6 +4,14 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.40.2] — 2026-06-25
+
+### Fixed
+
+- Text and note boxes now resize to fit their content live while editing (grow and shrink), instead
+  of only snapping to size on click-out. The whole edit remains a single undo step. (Manual resize of
+  a note still persists its dragged height.)
+
 ## [0.40.1] — 2026-06-25
 
 ### Fixed

@@ -43,6 +43,7 @@ export class NoteEditor {
   private inputHandler: (() => void) | null = null;
   private pendingEditId: string | null = null;
   private onStopCallback: ((elementId: string) => void) | null = null;
+  private onInputCallback: ((elementId: string) => void) | null = null;
   private beginHistory: (() => void) | null = null;
   private commitHistory: (() => void) | null = null;
   private toolbar: NoteToolbar | null;
@@ -63,6 +64,10 @@ export class NoteEditor {
 
   setOnStop(callback: (elementId: string) => void): void {
     this.onStopCallback = callback;
+  }
+
+  setOnInput(callback: (elementId: string) => void): void {
+    this.onInputCallback = callback;
   }
 
   setHistoryHooks(begin: () => void, commit: () => void): void {
@@ -119,9 +124,9 @@ export class NoteEditor {
 
     this.toolbar?.hide();
 
-    // One history transaction spans the text write and the onStop height-fit/cleanup,
-    // so a single note/text edit collapses to one undo step (both touch the same element).
-    this.beginHistory?.();
+    // The history transaction spans the whole edit session: opened at activate, committed
+    // here at stop. Live height fits during editing plus the final text write all touch the
+    // same element, so the recorder coalesces them into one undo step.
     if (textChanged) {
       store.update(this.editingId, { text });
     }
@@ -154,6 +159,7 @@ export class NoteEditor {
   private activateEditing(node: HTMLDivElement, elementId: string, store: ElementStore): void {
     this.editingId = elementId;
     this.editingNode = node;
+    this.beginHistory?.();
 
     node.contentEditable = 'true';
     Object.assign(node.style, {
@@ -177,6 +183,7 @@ export class NoteEditor {
     node.setAttribute('data-fn-empty', String(isNodeEmpty(node)));
     this.inputHandler = () => {
       node.setAttribute('data-fn-empty', String(isNodeEmpty(node)));
+      this.onInputCallback?.(elementId);
     };
     node.addEventListener('input', this.inputHandler);
 
