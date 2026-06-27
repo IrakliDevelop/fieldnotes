@@ -372,6 +372,16 @@ describe('exportImage — rendering paths', () => {
     vi.restoreAllMocks();
   });
 
+  it('applies a dash pattern for a dashed arrow', async () => {
+    const ctx = mockGetContext();
+    const store = new ElementStore();
+    store.add(createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 100 }, strokeStyle: 'dashed' }));
+
+    await exportImage(store);
+    expect(ctx.setLineDash).toHaveBeenCalledWith([8, 4]);
+    vi.restoreAllMocks();
+  });
+
   it('renders shapes via element renderer', async () => {
     const ctx = mockGetContext();
     const store = new ElementStore();

@@ -37,6 +37,8 @@ export interface Binding {
   elementId: string;
 }
 
+export type ArrowStrokeStyle = 'solid' | 'dashed' | 'dotted';
+
 export interface ArrowElement extends BaseElement {
   type: 'arrow';
   from: Point;
@@ -50,6 +52,8 @@ export interface ArrowElement extends BaseElement {
   cachedControlPoint?: Point;
   /** Optional text rendered at the curve midpoint. */
   label?: string;
+  /** Line dash appearance. Absent = solid. Decoupled from binding. */
+  strokeStyle?: ArrowStrokeStyle;
 }
 
 export interface ImageElement extends BaseElement {

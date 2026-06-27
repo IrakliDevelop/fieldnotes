@@ -69,6 +69,7 @@ export type {
   StrokeElement,
   NoteElement,
   ArrowElement,
+  ArrowStrokeStyle,
   ImageElement,
   HtmlElement,
   TextElement,

@@ -15,7 +15,7 @@ import { getStrokeRenderData } from '../elements/stroke-cache';
 import { lineEndpoints } from '../elements/shape-geometry';
 import { getArrowControlPoint, getArrowMidpoint } from '../elements/arrow-geometry';
 import { getArrowRenderGeometry } from '../elements/arrow-render-cache';
-import { getVisualEndpoints } from '../elements/renderers/arrow-renderer';
+import { getVisualEndpoints, getArrowDashPattern } from '../elements/renderers/arrow-renderer';
 import { getSquareGridLines, getHexVertices, getHexCenters } from '../elements/grid-renderer';
 import {
   getHexCellsInRadius,
@@ -142,7 +142,8 @@ function emitArrow(arrow: ArrowElement, store: ElementStore): string {
     d = `M${n(from.x)} ${n(from.y)} L${n(to.x)} ${n(to.y)}`;
   }
 
-  const dash = arrow.fromBinding || arrow.toBinding ? ' stroke-dasharray="8 4"' : '';
+  const pattern = getArrowDashPattern(arrow.strokeStyle);
+  const dash = pattern.length > 0 ? ` stroke-dasharray="${pattern.join(' ')}"` : '';
   let out = `<path d="${d}" fill="none" stroke="${esc(arrow.color)}" stroke-width="${n(arrow.width)}" stroke-linecap="round"${dash} />`;
 
   // Arrowhead — mirror arrow-renderer's polygon math (tip at the visual endpoint).
