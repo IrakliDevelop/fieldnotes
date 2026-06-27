@@ -141,6 +141,7 @@ describe('Minimap', () => {
     expect(fillArgs[1]).toBeCloseTo(8, 5);
     expect(fillArgs[2]).toBeCloseTo(124, 5);
     expect(fillArgs[3]).toBeCloseTo(124, 5);
+    expect(h.recorder.fillStyle).toBe('#f00');
 
     expect(h.recorder.strokeRect).toHaveBeenCalledTimes(1);
     const strokeArgs = h.recorder.strokeRect.mock.calls[0];
