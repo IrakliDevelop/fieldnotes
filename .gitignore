@@ -6,7 +6,9 @@ coverage/
 .DS_Store
 *.local
 .worktrees/
-.claude/
+# Track instruction docs in .claude/ (project.md, workflow.md); ignore only local settings.
+.claude/settings.json
+.claude/settings.local.json
 docs/superpowers/
 .superpowers/
 
