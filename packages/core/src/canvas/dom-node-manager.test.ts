@@ -219,6 +219,37 @@ describe('DomNodeManager', () => {
       expect(node?.style.textAlign).toBe('center');
     });
 
+    it('renders rich HTML formatting instead of literal tags', () => {
+      const text = createText({
+        position: { x: 0, y: 0 },
+        size: { w: 200, h: 50 },
+        text: 'Line 1<b>bold</b>',
+        fontSize: 16,
+        color: '#000',
+        textAlign: 'left',
+      });
+      manager.syncDomNode(text);
+      const node = manager.getNode(text.id);
+      expect(node?.innerHTML).toContain('<b>');
+      expect(node?.textContent).not.toContain('<b>');
+      expect(node?.textContent).toBe('Line 1bold');
+    });
+
+    it('renders plain text as-is', () => {
+      const text = createText({
+        position: { x: 0, y: 0 },
+        size: { w: 200, h: 50 },
+        text: 'hello',
+        fontSize: 16,
+        color: '#000',
+        textAlign: 'left',
+      });
+      manager.syncDomNode(text);
+      const node = manager.getNode(text.id);
+      expect(node?.textContent).toBe('hello');
+      expect(node?.innerHTML).toBe('hello');
+    });
+
     it('updates text style properties', () => {
       const text = createText({
         position: { x: 0, y: 0 },
