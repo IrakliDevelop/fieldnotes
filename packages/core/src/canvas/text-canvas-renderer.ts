@@ -6,6 +6,9 @@ export function renderTextOnCanvas(ctx: CanvasRenderingContext2D, text: TextElem
   ctx.save();
   ctx.fillStyle = text.color;
   const runs = parseStyledRuns(text.text ?? '', text.fontSize);
-  renderStyledRuns(ctx, runs, text.position.x + pad, text.position.y + pad, text.size.w - pad * 2);
+  renderStyledRuns(ctx, runs, text.position.x + pad, text.position.y + pad, text.size.w - pad * 2, {
+    align: text.textAlign,
+    lineHeight: 1.4,
+  });
   ctx.restore();
 }
