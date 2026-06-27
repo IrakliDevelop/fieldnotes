@@ -1,5 +1,5 @@
 import type { Point } from '../core/types';
-import type { Binding, CanvasElement } from '../elements/types';
+import type { ArrowStrokeStyle, Binding, CanvasElement } from '../elements/types';
 import type { Tool, ToolContext, PointerState } from './types';
 import { createArrow } from '../elements/element-factory';
 import { findBindTarget, getElementCenter } from '../elements/arrow-binding';
@@ -11,6 +11,7 @@ const BIND_THRESHOLD = 20;
 export interface ArrowToolOptions {
   color?: string;
   width?: number;
+  strokeStyle?: ArrowStrokeStyle;
 }
 
 export class ArrowTool implements Tool {
@@ -20,6 +21,7 @@ export class ArrowTool implements Tool {
   private end: Point = { x: 0, y: 0 };
   private color: string;
   private width: number;
+  private strokeStyle: ArrowStrokeStyle;
   private fromBinding: Binding | undefined;
   private fromTarget: CanvasElement | null = null;
   private toTarget: CanvasElement | null = null;
@@ -28,10 +30,11 @@ export class ArrowTool implements Tool {
   constructor(options: ArrowToolOptions = {}) {
     this.color = options.color ?? '#000000';
     this.width = options.width ?? 2;
+    this.strokeStyle = options.strokeStyle ?? 'solid';
   }
 
   getOptions(): ArrowToolOptions {
-    return { color: this.color, width: this.width };
+    return { color: this.color, width: this.width, strokeStyle: this.strokeStyle };
   }
 
   onOptionsChange(listener: () => void): () => void {
@@ -42,6 +45,7 @@ export class ArrowTool implements Tool {
   setOptions(options: ArrowToolOptions): void {
     if (options.color !== undefined) this.color = options.color;
     if (options.width !== undefined) this.width = options.width;
+    if (options.strokeStyle !== undefined) this.strokeStyle = options.strokeStyle;
     this.notifyOptionsChange();
   }
 
@@ -110,6 +114,7 @@ export class ArrowTool implements Tool {
       position: this.start,
       color: this.color,
       width: this.width,
+      strokeStyle: this.strokeStyle,
       fromBinding: this.fromBinding,
       toBinding: this.toTarget ? { elementId: this.toTarget.id } : undefined,
       layerId: ctx.activeLayerId ?? '',

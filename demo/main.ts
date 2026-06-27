@@ -440,6 +440,42 @@ shapeNoFillBtn?.addEventListener('click', () => {
   }
 });
 
+const arrowPanel = document.getElementById('arrow-panel');
+const arrowStrokeStyleSelect = document.getElementById(
+  'arrow-stroke-style',
+) as HTMLSelectElement | null;
+
+function getSelectedArrowElement() {
+  const ids = viewport.getSelectedIds();
+  if (ids.length !== 1) return null;
+  const el = viewport.store.getAll().find((e) => e.id === ids[0]);
+  if (el && el.type === 'arrow') return el;
+  return null;
+}
+
+function updateArrowPanel() {
+  const activeTool = viewport.toolManager.activeTool?.name;
+  const selectedArrow = getSelectedArrowElement();
+  const show = activeTool === 'arrow' || selectedArrow !== null;
+  if (arrowPanel) arrowPanel.style.display = show ? 'flex' : 'none';
+
+  if (arrowStrokeStyleSelect) {
+    arrowStrokeStyleSelect.value =
+      selectedArrow?.strokeStyle ?? arrow.getOptions().strokeStyle ?? 'solid';
+  }
+}
+
+viewport.toolManager.onChange(updateArrowPanel);
+viewport.store.on('update', updateArrowPanel);
+
+arrowStrokeStyleSelect?.addEventListener('change', () => {
+  const strokeStyle = arrowStrokeStyleSelect.value as 'solid' | 'dashed' | 'dotted';
+  arrow.setOptions({ strokeStyle });
+  if (viewport.getSelectionStyle() !== null) {
+    viewport.applyStyleToSelection({ strokeStyle });
+  }
+});
+
 function syncStyleControls() {
   const style = viewport.getSelectionStyle();
   if (style !== null) {
@@ -461,6 +497,7 @@ function syncStyleControls() {
   updateNotePanel();
   updateTextPanel();
   updateShapePanel();
+  updateArrowPanel();
 }
 
 viewport.onSelectionChange(syncStyleControls);

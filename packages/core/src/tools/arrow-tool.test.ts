@@ -78,6 +78,23 @@ describe('ArrowTool', () => {
     expect(arrow.width).toBe(5);
   });
 
+  it('defaults strokeStyle to "solid"', () => {
+    expect(new ArrowTool().getOptions().strokeStyle).toBe('solid');
+  });
+
+  it('applies strokeStyle from setOptions to newly created arrows', () => {
+    const tool = new ArrowTool();
+    const ctx = makeCtx();
+
+    tool.setOptions({ strokeStyle: 'dotted' });
+    tool.onPointerDown(pt(0, 0), ctx);
+    tool.onPointerMove(pt(100, 100), ctx);
+    tool.onPointerUp(pt(100, 100), ctx);
+
+    const arrow = ctx.store.getAll()[0] as ArrowElement;
+    expect(arrow.strokeStyle).toBe('dotted');
+  });
+
   it('snaps start and end to grid when not binding', () => {
     const tool = new ArrowTool();
     const ctx = makeCtx();
@@ -195,7 +212,7 @@ describe('ArrowTool', () => {
 describe('ArrowTool getOptions/onOptionsChange', () => {
   it('returns current options', () => {
     const tool = new ArrowTool({ color: '#ff0000', width: 4 });
-    expect(tool.getOptions()).toEqual({ color: '#ff0000', width: 4 });
+    expect(tool.getOptions()).toEqual({ color: '#ff0000', width: 4, strokeStyle: 'solid' });
   });
 
   it('fires listener when setOptions is called', () => {
