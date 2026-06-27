@@ -1,5 +1,5 @@
 import type { Point } from '../core/types';
-import type { TemplateShape, HexOrientation } from '../elements/types';
+import type { TemplateShape, HexOrientation, TemplateRenderStyle } from '../elements/types';
 import type { Tool, ToolContext, PointerState } from './types';
 import { createTemplate } from '../elements/element-factory';
 import { snapPoint, snapToHexCenter } from '../core/snap';
@@ -18,6 +18,7 @@ export interface TemplateToolOptions {
   strokeWidth?: number;
   opacity?: number;
   feetPerCell?: number;
+  renderStyle?: TemplateRenderStyle;
 }
 
 export class TemplateTool implements Tool {
@@ -35,6 +36,7 @@ export class TemplateTool implements Tool {
   private strokeWidth: number;
   private opacity: number;
   private feetPerCell: number;
+  private renderStyle: TemplateRenderStyle;
   private optionListeners = new Set<() => void>();
 
   constructor(options: TemplateToolOptions = {}) {
@@ -44,6 +46,7 @@ export class TemplateTool implements Tool {
     this.strokeWidth = options.strokeWidth ?? 2;
     this.opacity = options.opacity ?? 0.6;
     this.feetPerCell = options.feetPerCell ?? 5;
+    this.renderStyle = options.renderStyle ?? 'cells';
   }
 
   getOptions(): TemplateToolOptions {
@@ -54,6 +57,7 @@ export class TemplateTool implements Tool {
       strokeWidth: this.strokeWidth,
       opacity: this.opacity,
       feetPerCell: this.feetPerCell,
+      renderStyle: this.renderStyle,
     };
   }
 
@@ -64,6 +68,7 @@ export class TemplateTool implements Tool {
     if (options.strokeWidth !== undefined) this.strokeWidth = options.strokeWidth;
     if (options.opacity !== undefined) this.opacity = options.opacity;
     if (options.feetPerCell !== undefined) this.feetPerCell = options.feetPerCell;
+    if (options.renderStyle !== undefined) this.renderStyle = options.renderStyle;
     this.notifyOptionsChange();
   }
 
@@ -114,6 +119,7 @@ export class TemplateTool implements Tool {
       opacity: this.opacity,
       feetPerCell: this.feetPerCell,
       radiusFeet: radiusFeet > 0 ? radiusFeet : undefined,
+      renderStyle: this.renderStyle,
       layerId: ctx.activeLayerId ?? '',
     });
     ctx.store.add(element);
@@ -133,7 +139,7 @@ export class TemplateTool implements Tool {
     const radius = this.computeRadius();
     if (radius <= 0) return;
 
-    if (this.gridType === 'hex' && this.hexOrientation) {
+    if (this.gridType === 'hex' && this.hexOrientation && this.renderStyle !== 'geometric') {
       this.renderHexOverlay(ctx, radius);
       return;
     }

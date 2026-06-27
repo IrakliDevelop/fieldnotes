@@ -357,5 +357,24 @@ describe('element factories', () => {
       expect(t.feetPerCell).toBeUndefined();
       expect(t.radiusFeet).toBeUndefined();
     });
+
+    it('stores renderStyle when provided', () => {
+      const t = createTemplate({
+        position: { x: 0, y: 0 },
+        templateShape: 'cone',
+        radius: 80,
+        renderStyle: 'geometric',
+      });
+      expect(t.renderStyle).toBe('geometric');
+    });
+
+    it('leaves renderStyle absent when not provided', () => {
+      const t = createTemplate({
+        position: { x: 0, y: 0 },
+        templateShape: 'cone',
+        radius: 80,
+      });
+      expect('renderStyle' in t).toBe(false);
+    });
   });
 });

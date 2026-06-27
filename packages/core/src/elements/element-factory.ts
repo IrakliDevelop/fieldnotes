@@ -14,6 +14,7 @@ import type {
   HexOrientation,
   TemplateElement,
   TemplateShape,
+  TemplateRenderStyle,
 } from './types';
 import { createId } from './create-id';
 import { getArrowControlPoint } from './arrow-geometry';
@@ -248,6 +249,7 @@ interface TemplateInput extends BaseDefaults {
   opacity?: number;
   feetPerCell?: number;
   radiusFeet?: number;
+  renderStyle?: TemplateRenderStyle;
 }
 
 export function createTemplate(input: TemplateInput): TemplateElement {
@@ -267,5 +269,6 @@ export function createTemplate(input: TemplateInput): TemplateElement {
     opacity: input.opacity ?? 0.6,
     feetPerCell: input.feetPerCell,
     radiusFeet: input.radiusFeet,
+    ...(input.renderStyle !== undefined ? { renderStyle: input.renderStyle } : {}),
   };
 }

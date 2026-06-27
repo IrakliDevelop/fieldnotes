@@ -4,6 +4,14 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.44.0] — 2026-06-27
+
+### Added
+
+- Area templates can now render as smooth geometric shapes on hex grids (not just snapped hex cells),
+  so they rotate and move freely. Opt in per template via `renderStyle: 'geometric'` (new
+  `TemplateRenderStyle` type) or the template tool's render-style option; hex-cell fill remains the default.
+
 ## [0.43.0] — 2026-06-27
 
 ### Added

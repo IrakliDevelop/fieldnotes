@@ -300,6 +300,35 @@ describe('TemplateTool', () => {
     expect(tool.getOptions().feetPerCell).toBe(10);
   });
 
+  it('defaults renderStyle to "cells"', () => {
+    expect(new TemplateTool().getOptions().renderStyle).toBe('cells');
+  });
+
+  it('does not set renderStyle on placed template when style is "cells"', () => {
+    const tool = new TemplateTool();
+    const ctx = makeCtx();
+    tool.onPointerDown(pt(0, 0), ctx);
+    tool.onPointerMove(pt(100, 0), ctx);
+    tool.onPointerUp(pt(100, 0), ctx);
+
+    const el = ctx.store.getAll()[0] as TemplateElement;
+    expect(el.renderStyle).toBe('cells');
+  });
+
+  it('setOptions threads renderStyle onto placed template', () => {
+    const tool = new TemplateTool();
+    tool.setOptions({ renderStyle: 'geometric' });
+    expect(tool.getOptions().renderStyle).toBe('geometric');
+
+    const ctx = makeCtx();
+    tool.onPointerDown(pt(0, 0), ctx);
+    tool.onPointerMove(pt(100, 0), ctx);
+    tool.onPointerUp(pt(100, 0), ctx);
+
+    const el = ctx.store.getAll()[0] as TemplateElement;
+    expect(el.renderStyle).toBe('geometric');
+  });
+
   it('defaults activeLayerId to empty string when not provided', () => {
     const tool = new TemplateTool();
     const ctx = makeCtx({ activeLayerId: undefined });
@@ -577,6 +606,45 @@ describe('TemplateTool', () => {
       tool.renderOverlay(canvas);
 
       expect(canvas.globalAlpha).toBe(0.4);
+    });
+
+    it('renders smooth geometric overlay on hex grid when renderStyle is geometric', () => {
+      const tool = new TemplateTool({ templateShape: 'cone', renderStyle: 'geometric' });
+      const cellSize = 40;
+      const hexSpacing = Math.sqrt(3) * cellSize;
+      const ctx = makeCtx({
+        gridSize: cellSize,
+        gridType: 'hex',
+        hexOrientation: 'pointy',
+      });
+
+      tool.onPointerDown(pt(0, 0), ctx);
+      tool.onPointerMove(pt(Math.round(hexSpacing * 2), Math.round(hexSpacing)), ctx);
+
+      const canvas = mockCanvasCtx();
+      tool.renderOverlay(canvas);
+
+      // Geometric cone uses moveTo + arc; the hex-cell path never calls arc.
+      expect(canvas.arc).toHaveBeenCalled();
+    });
+
+    it('does not use geometric arc for hex-cell cone preview on hex grid', () => {
+      const tool = new TemplateTool({ templateShape: 'cone' });
+      const cellSize = 40;
+      const hexSpacing = Math.sqrt(3) * cellSize;
+      const ctx = makeCtx({
+        gridSize: cellSize,
+        gridType: 'hex',
+        hexOrientation: 'pointy',
+      });
+
+      tool.onPointerDown(pt(0, 0), ctx);
+      tool.onPointerMove(pt(Math.round(hexSpacing * 2), Math.round(hexSpacing)), ctx);
+
+      const canvas = mockCanvasCtx();
+      tool.renderOverlay(canvas);
+
+      expect(canvas.arc).not.toHaveBeenCalled();
     });
 
     it('renders hex overlay with flat-top orientation', () => {
