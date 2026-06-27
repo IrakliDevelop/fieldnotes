@@ -3,6 +3,9 @@ import { DEFAULT_NOTE_FONT_SIZE } from '../elements/element-factory';
 import { parseStyledRuns } from '../elements/note-sanitizer';
 import type { StyledRun } from '../elements/note-sanitizer';
 
+export { parseStyledRuns };
+export type { StyledRun };
+
 export function renderNoteOnCanvas(ctx: CanvasRenderingContext2D, note: NoteElement): void {
   const { x, y } = note.position;
   const { w, h } = note.size;
@@ -40,7 +43,7 @@ function buildFontString(run: StyledRun): string {
   return `${style} ${weight} ${run.fontSize}px system-ui, sans-serif`;
 }
 
-function renderStyledRuns(
+export function renderStyledRuns(
   ctx: CanvasRenderingContext2D,
   runs: StyledRun[],
   startX: number,

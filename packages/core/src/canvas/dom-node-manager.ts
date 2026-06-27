@@ -201,10 +201,9 @@ export class DomNodeManager {
           cursor: 'default',
           userSelect: 'none',
           wordWrap: 'break-word',
-          whiteSpace: 'pre-wrap',
           lineHeight: '1.4',
         });
-        node.textContent = element.text || '';
+        node.innerHTML = element.text || '';
 
         // One-time per node; see the note branch above for the one-listener-per-node invariant.
         const detector = new DoubleTapDetector();
@@ -218,8 +217,9 @@ export class DomNodeManager {
       }
 
       if (!this.isEditingElement(element.id)) {
-        if (node.textContent !== element.text) {
-          node.textContent = element.text || '';
+        const text = element.text || '';
+        if (node.innerHTML !== text) {
+          node.innerHTML = text;
         }
         Object.assign(node.style, {
           fontSize: `${element.fontSize}px`,

@@ -307,39 +307,29 @@ describe('exportImage — rendering paths', () => {
     vi.restoreAllMocks();
   });
 
-  it('renders text with center alignment', async () => {
+  it('renders rich text and never draws literal HTML tags', async () => {
+    // Text now renders via the shared run renderer (same as notes): bold/italic runs,
+    // word-wrapped left alignment. The literal markup must never reach fillText.
     const ctx = mockGetContext();
     const store = new ElementStore();
     store.add(
       createText({
         position: { x: 10, y: 20 },
         size: { w: 200, h: 28 },
-        text: 'Centered',
-        textAlign: 'center',
+        text: 'Line 1<b>bold</b>',
       }),
     );
 
     const blob = await exportImage(store);
     expect(blob).toBeInstanceOf(Blob);
-    expect(ctx.textAlign).toBe('center');
-    vi.restoreAllMocks();
-  });
 
-  it('renders text with right alignment', async () => {
-    const ctx = mockGetContext();
-    const store = new ElementStore();
-    store.add(
-      createText({
-        position: { x: 10, y: 20 },
-        size: { w: 200, h: 28 },
-        text: 'Right',
-        textAlign: 'right',
-      }),
-    );
-
-    const blob = await exportImage(store);
-    expect(blob).toBeInstanceOf(Blob);
-    expect(ctx.textAlign).toBe('right');
+    const calls = (ctx.fillText as ReturnType<typeof vi.fn>).mock.calls;
+    const drawn = calls.map((c) => c[0] as string);
+    expect(drawn).toContain('bold');
+    for (const word of drawn) {
+      expect(word).not.toContain('<b>');
+      expect(word).not.toContain('</b>');
+    }
     vi.restoreAllMocks();
   });
 

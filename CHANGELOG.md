@@ -4,6 +4,13 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.40.1] — 2026-06-25
+
+### Fixed
+
+- Text elements now render their formatting (bold/italic/underline) instead of showing literal HTML
+  tags after editing — in the canvas (DOM), PNG export, and SVG export.
+
 ## [0.40.0] — 2026-06-25
 
 ### Added

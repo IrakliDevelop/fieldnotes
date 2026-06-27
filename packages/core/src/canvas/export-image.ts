@@ -1,4 +1,4 @@
-import type { CanvasElement, TextElement, GridElement } from '../elements/types';
+import type { CanvasElement, GridElement } from '../elements/types';
 import type { ElementStore } from '../elements/element-store';
 import { ElementRenderer } from '../elements/element-renderer';
 import { getArrowBounds } from '../elements/arrow-geometry';
@@ -8,6 +8,7 @@ import { withRotation } from '../elements/rotate-canvas';
 import { rotatedAABB } from '../core/geometry';
 import type { LayerManager } from '../layers/layer-manager';
 import { renderNoteOnCanvas } from './note-canvas-renderer';
+import { renderTextOnCanvas } from './text-canvas-renderer';
 
 export interface ExportImageOptions {
   scale?: number;
@@ -115,35 +116,6 @@ function computeBounds(
     w: maxX - minX + padding * 2,
     h: maxY - minY + padding * 2,
   };
-}
-
-function renderTextOnCanvas(ctx: CanvasRenderingContext2D, text: TextElement): void {
-  if (!text.text) return;
-
-  ctx.save();
-  ctx.fillStyle = text.color;
-  ctx.font = `${text.fontSize}px system-ui, sans-serif`;
-  ctx.textBaseline = 'top';
-  ctx.textAlign = text.textAlign;
-
-  const pad = 2;
-  let textX = text.position.x + pad;
-  if (text.textAlign === 'center') {
-    textX = text.position.x + text.size.w / 2;
-  } else if (text.textAlign === 'right') {
-    textX = text.position.x + text.size.w - pad;
-  }
-
-  const lineHeight = text.fontSize * 1.4;
-  const lines = text.text.split('\n');
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (line !== undefined) {
-      ctx.fillText(line, textX, text.position.y + pad + i * lineHeight);
-    }
-  }
-
-  ctx.restore();
 }
 
 function renderGridForBounds(
