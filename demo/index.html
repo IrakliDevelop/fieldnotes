@@ -421,6 +421,11 @@
     <input type="color" id="template-stroke" value="#ff5722" title="Stroke color" style="width:28px;height:28px;padding:2px;border:1px solid #ddd;border-radius:4px;cursor:pointer;">
     <span style="color: #999; font-size: 11px;">Ft/cell:</span>
     <input type="number" id="template-feet" value="5" min="1" max="100" style="width:48px;padding:4px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
+    <span style="color: #999; font-size: 11px;">Style:</span>
+    <select id="template-render-style" title="Render style (hex grids only)" style="padding:4px 8px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
+      <option value="cells" selected>Hex cells</option>
+      <option value="geometric">Smooth</option>
+    </select>
   </div>
   <div id="measure-panel" style="display:none;position:fixed;top:70px;left:50%;transform:translateX(-50%);align-items:center;gap:6px;padding:6px 10px;background:white;border-radius:8px;box-shadow:0 2px 12px rgba(0,0,0,0.15);z-index:10;font-size:13px;">
     <span style="color: #999; font-size: 11px;">Measure:</span>

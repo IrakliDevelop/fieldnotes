@@ -109,6 +109,8 @@ export interface GridElement extends BaseElement {
 
 export type TemplateShape = 'circle' | 'cone' | 'line' | 'square';
 
+export type TemplateRenderStyle = 'cells' | 'geometric';
+
 export interface TemplateElement extends BaseElement {
   type: 'template';
   templateShape: TemplateShape;
@@ -120,6 +122,7 @@ export interface TemplateElement extends BaseElement {
   opacity: number;
   feetPerCell?: number;
   radiusFeet?: number;
+  renderStyle?: TemplateRenderStyle;
 }
 
 export type CanvasElement =

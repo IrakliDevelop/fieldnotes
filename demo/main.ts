@@ -765,6 +765,9 @@ const templateFeetInput = document.getElementById('template-feet') as HTMLInputE
 const templateFillInput = document.getElementById('template-fill') as HTMLInputElement | null;
 const templateNoFillBtn = document.getElementById('template-no-fill') as HTMLButtonElement | null;
 const templateStrokeInput = document.getElementById('template-stroke') as HTMLInputElement | null;
+const templateRenderStyleSelect = document.getElementById(
+  'template-render-style',
+) as HTMLSelectElement | null;
 
 function updateTemplatePanel() {
   const activeTool = viewport.toolManager.activeTool?.name;
@@ -795,6 +798,12 @@ templateStrokeInput?.addEventListener('input', () => {
 templateFeetInput?.addEventListener('input', () => {
   const feet = Number(templateFeetInput.value);
   if (feet > 0) template.setOptions({ feetPerCell: feet });
+});
+
+templateRenderStyleSelect?.addEventListener('change', () => {
+  template.setOptions({
+    renderStyle: templateRenderStyleSelect.value as 'cells' | 'geometric',
+  });
 });
 
 // Measure panel

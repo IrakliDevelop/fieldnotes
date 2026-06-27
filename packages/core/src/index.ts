@@ -79,6 +79,7 @@ export type {
   HexOrientation,
   TemplateElement,
   TemplateShape,
+  TemplateRenderStyle,
 } from './elements/types';
 
 export type { Command } from './history/types';

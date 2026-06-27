@@ -14,7 +14,7 @@ export function renderTemplate(
   store: ElementStore | null,
 ): void {
   const grid = store?.getElementsByType('grid')[0];
-  if (grid && grid.gridType === 'hex') {
+  if (grid && grid.gridType === 'hex' && template.renderStyle !== 'geometric') {
     renderHexTemplate(ctx, template, grid.cellSize, grid.hexOrientation);
     return;
   }
