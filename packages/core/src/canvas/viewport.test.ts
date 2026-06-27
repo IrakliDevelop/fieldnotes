@@ -1871,7 +1871,7 @@ describe('Viewport', () => {
       viewport.destroy();
     });
 
-    it('shrinks a note to fit when content needs less height', () => {
+    it('does not shrink a note below its dragged height', () => {
       const viewport = new Viewport(container);
       const note = createNote({
         position: { x: 0, y: 0 },
@@ -1893,7 +1893,7 @@ describe('Viewport', () => {
       Object.defineProperty(node, 'scrollHeight', { value: 30, configurable: true });
       priv.interactions.fitNoteHeight(note.id);
       const updated = viewport.store.getById(note.id);
-      expect(updated?.type === 'note' && updated.size.h).toBe(30);
+      expect(updated?.type === 'note' && updated.size.h).toBe(200);
       viewport.destroy();
     });
   });

@@ -62,7 +62,15 @@ export class ViewportInteractions {
   }
 
   fitNoteHeight(elementId: string): void {
-    this.liveFitHeight(elementId);
+    const element = this.deps.store.getById(elementId);
+    if (!element || element.type !== 'note') return;
+    if (isNoteContentEmpty(element.text)) return;
+    const node = this.deps.domNodeManager.getNode(elementId);
+    if (!node) return;
+    const measured = node.scrollHeight;
+    if (measured > element.size.h) {
+      this.deps.store.update(elementId, { size: { w: element.size.w, h: measured } });
+    }
   }
 
   onTextEditStop(elementId: string): void {

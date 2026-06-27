@@ -172,6 +172,43 @@ describe('ViewportInteractions', () => {
     });
   });
 
+  describe('fitNoteHeight (manual resize path is grow-only)', () => {
+    it('grows a note to the measured scrollHeight', () => {
+      const store = new ElementStore();
+      const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 40 }, text: 'x' });
+      store.add(note);
+      const { deps, nodes } = makeDeps(store);
+      nodes.set(note.id, nodeWithHeight(120));
+      new ViewportInteractions(deps).fitNoteHeight(note.id);
+      expect(store.getById(note.id)?.size.h).toBe(120);
+    });
+
+    it('does not shrink a note below its dragged height', () => {
+      const store = new ElementStore();
+      const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 200 }, text: 'x' });
+      store.add(note);
+      const { deps, nodes } = makeDeps(store);
+      nodes.set(note.id, nodeWithHeight(30));
+      const spy = vi.spyOn(store, 'update');
+      new ViewportInteractions(deps).fitNoteHeight(note.id);
+      expect(spy).not.toHaveBeenCalled();
+      expect(store.getById(note.id)?.size.h).toBe(200);
+    });
+
+    it('editing a note (liveFitHeight) shrinks it where manual resize would not', () => {
+      const store = new ElementStore();
+      const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 200 }, text: 'x' });
+      store.add(note);
+      const { deps, nodes } = makeDeps(store);
+      nodes.set(note.id, nodeWithHeight(30));
+      const interactions = new ViewportInteractions(deps);
+      interactions.fitNoteHeight(note.id);
+      expect(store.getById(note.id)?.size.h).toBe(200);
+      interactions.liveFitHeight(note.id);
+      expect(store.getById(note.id)?.size.h).toBe(30);
+    });
+  });
+
   describe('one undo step for a live-resized edit session', () => {
     it('collapses live size updates and the text write into a single undo step', () => {
       const store = new ElementStore();
