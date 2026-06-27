@@ -4,6 +4,13 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.43.0] — 2026-06-27
+
+### Added
+
+- Minimap: an opt-in overview (bottom-right) showing all content and the current viewport, with
+  tap/drag to navigate. Enable with the new `minimap: true` viewport option.
+
 ## [0.42.0] — 2026-06-27
 
 ### Added

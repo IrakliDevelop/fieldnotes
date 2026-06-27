@@ -3,7 +3,7 @@ import * as FN from './index';
 
 describe('core public surface', () => {
   it('exports the current version', () => {
-    expect(FN.VERSION).toBe('0.42.0');
+    expect(FN.VERSION).toBe('0.43.0');
   });
 
   it('does not export internal machinery (trimmed before 1.0)', () => {
@@ -64,6 +64,9 @@ describe('core public surface', () => {
       'KeyboardHandler',
       // pan-inertia controller internal
       'PanInertia',
+      // minimap internals
+      'Minimap',
+      'computeMinimapTransform',
     ];
     for (const name of removed) {
       expect(name in FN, `${name} should not be exported`).toBe(false);
