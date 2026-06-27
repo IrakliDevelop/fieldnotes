@@ -7,7 +7,7 @@ import type { KeyboardActionsDeps } from './keyboard-actions';
 import { Camera } from './camera';
 import { ElementStore } from '../elements/element-store';
 import { SelectTool } from '../tools/select-tool';
-import { createNote, createArrow } from '../elements/element-factory';
+import { createNote, createArrow, createGrid } from '../elements/element-factory';
 import type { ToolManager } from '../tools/tool-manager';
 import type { ToolContext } from '../tools/types';
 import { HistoryRecorder } from '../history/history-recorder';
@@ -723,5 +723,183 @@ describe('KeyboardActions.zOrder single-undo', () => {
     expect(ctx.store.getById(b.id)?.zIndex).toBe(1);
     // ...and there is nothing left to undo (proving it was a single step)
     expect(stack.canUndo).toBe(false);
+  });
+});
+
+describe('KeyboardActions.cycleSelection', () => {
+  function makeNote(x: number, zIndex: number, extra: Record<string, unknown> = {}) {
+    return createNote({ position: { x, y: 0 }, size: { w: 50, h: 50 }, zIndex, ...extra });
+  }
+
+  it('selects the first eligible (lowest render order) from an empty selection on +1', () => {
+    const { actions, ctx, tool } = makeActions();
+    const a = makeNote(0, 0);
+    const b = makeNote(100, 1);
+    const c = makeNote(200, 2);
+    for (const el of [c, a, b]) ctx.store.add(el);
+
+    actions.cycleSelection(1);
+
+    expect(tool.selectedIds).toEqual([a.id]);
+  });
+
+  it('selects the last eligible (highest render order) from an empty selection on -1', () => {
+    const { actions, ctx, tool } = makeActions();
+    const a = makeNote(0, 0);
+    const b = makeNote(100, 1);
+    const c = makeNote(200, 2);
+    for (const el of [c, a, b]) ctx.store.add(el);
+
+    actions.cycleSelection(-1);
+
+    expect(tool.selectedIds).toEqual([c.id]);
+  });
+
+  it('moves to the next element in render order on +1', () => {
+    const { actions, ctx, tool } = makeActions();
+    const a = makeNote(0, 0);
+    const b = makeNote(100, 1);
+    const c = makeNote(200, 2);
+    for (const el of [a, b, c]) ctx.store.add(el);
+    tool.setSelection([a.id]);
+
+    actions.cycleSelection(1);
+
+    expect(tool.selectedIds).toEqual([b.id]);
+  });
+
+  it('moves to the previous element in render order on -1', () => {
+    const { actions, ctx, tool } = makeActions();
+    const a = makeNote(0, 0);
+    const b = makeNote(100, 1);
+    const c = makeNote(200, 2);
+    for (const el of [a, b, c]) ctx.store.add(el);
+    tool.setSelection([c.id]);
+
+    actions.cycleSelection(-1);
+
+    expect(tool.selectedIds).toEqual([b.id]);
+  });
+
+  it('wraps from the last to the first on +1', () => {
+    const { actions, ctx, tool } = makeActions();
+    const a = makeNote(0, 0);
+    const b = makeNote(100, 1);
+    const c = makeNote(200, 2);
+    for (const el of [a, b, c]) ctx.store.add(el);
+    tool.setSelection([c.id]);
+
+    actions.cycleSelection(1);
+
+    expect(tool.selectedIds).toEqual([a.id]);
+  });
+
+  it('wraps from the first to the last on -1', () => {
+    const { actions, ctx, tool } = makeActions();
+    const a = makeNote(0, 0);
+    const b = makeNote(100, 1);
+    const c = makeNote(200, 2);
+    for (const el of [a, b, c]) ctx.store.add(el);
+    tool.setSelection([a.id]);
+
+    actions.cycleSelection(-1);
+
+    expect(tool.selectedIds).toEqual([c.id]);
+  });
+
+  it('collapses a multi-selection to the one after the highest-ordered member on +1', () => {
+    const { actions, ctx, tool } = makeActions();
+    const a = makeNote(0, 0);
+    const b = makeNote(100, 1);
+    const c = makeNote(200, 2);
+    const d = makeNote(300, 3);
+    for (const el of [a, b, c, d]) ctx.store.add(el);
+    tool.setSelection([a.id, c.id]);
+
+    actions.cycleSelection(1);
+
+    expect(tool.selectedIds).toEqual([d.id]);
+  });
+
+  it('collapses a multi-selection to the one before the lowest-ordered member on -1', () => {
+    const { actions, ctx, tool } = makeActions();
+    const a = makeNote(0, 0);
+    const b = makeNote(100, 1);
+    const c = makeNote(200, 2);
+    const d = makeNote(300, 3);
+    for (const el of [a, b, c, d]) ctx.store.add(el);
+    tool.setSelection([b.id, d.id]);
+
+    actions.cycleSelection(-1);
+
+    expect(tool.selectedIds).toEqual([a.id]);
+  });
+
+  it('never cycles onto locked, grid, or hidden-layer elements', () => {
+    const ctx = makeCtx({
+      isLayerVisible: (layerId: string) => layerId !== 'hidden-layer',
+    });
+    const { actions, tool } = makeActions({ ctx });
+    const a = makeNote(0, 0);
+    const locked = makeNote(100, 1, { locked: true });
+    const grid = createGrid({ zIndex: 2 });
+    const hidden = makeNote(300, 3, { layerId: 'hidden-layer' });
+    const b = makeNote(400, 4);
+    for (const el of [a, locked, grid, hidden, b]) ctx.store.add(el);
+    tool.setSelection([a.id]);
+
+    actions.cycleSelection(1);
+    expect(tool.selectedIds).toEqual([b.id]);
+
+    actions.cycleSelection(1); // wraps back to a, skipping all the excluded ones
+    expect(tool.selectedIds).toEqual([a.id]);
+  });
+
+  it('is a no-op (selection unchanged) when there are no eligible elements', () => {
+    const { actions, ctx, tool } = makeActions();
+    const grid = createGrid({ zIndex: 0 });
+    const locked = makeNote(100, 1, { locked: true });
+    ctx.store.add(grid);
+    ctx.store.add(locked);
+    tool.setSelection([]);
+
+    actions.cycleSelection(1);
+
+    expect(tool.selectedIds).toEqual([]);
+  });
+
+  it('is a no-op when isToolActive returns true', () => {
+    const { actions, ctx, tool } = makeActions({ isToolActive: () => true });
+    const a = makeNote(0, 0);
+    ctx.store.add(a);
+
+    actions.cycleSelection(1);
+
+    expect(tool.selectedIds).toEqual([]);
+  });
+
+  it('switches to the select tool first when another tool is active', () => {
+    const ctx = makeCtx();
+    const selectTool = new SelectTool();
+    selectTool.onActivate(ctx);
+    const tm = { activeTool: { name: 'pencil' } } as unknown as ToolManager;
+    ctx.switchTool = vi.fn(() => {
+      (tm as { activeTool: unknown }).activeTool = selectTool;
+    });
+    const deps: KeyboardActionsDeps = {
+      getToolManager: () => tm,
+      getToolContext: () => ctx,
+      getHistoryRecorder: () => null,
+      getHistoryStack: () => null,
+      isToolActive: () => false,
+    };
+    const actions = new KeyboardActions(deps);
+    const note = makeNote(0, 0);
+    ctx.store.add(note);
+
+    actions.cycleSelection(1);
+
+    expect(ctx.switchTool).toHaveBeenCalledWith('select');
+    expect(selectTool.selectedIds).toEqual([note.id]);
   });
 });

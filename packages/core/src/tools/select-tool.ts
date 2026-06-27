@@ -15,6 +15,7 @@ import {
   applyArrowHandleDrag,
   getArrowHandleCursor,
   getArrowHandleDragTarget,
+  renderArrowHoverHandle,
 } from './arrow-handles';
 import { computeSnapGuides } from '../elements/snap-guides';
 import type { SnapGuide } from '../elements/snap-guides';
@@ -421,7 +422,13 @@ export class SelectTool implements Tool {
     if (this.hoveredId && this.ctx && this.mode.type === 'idle') {
       if (!this._selectedIds.includes(this.hoveredId)) {
         const el = this.ctx.store.getById(this.hoveredId);
-        if (el) {
+        if (el?.type === 'arrow') {
+          canvasCtx.save();
+          canvasCtx.globalAlpha = 0.35;
+          canvasCtx.setLineDash([]);
+          renderArrowHoverHandle(canvasCtx, el, this.ctx.camera.zoom);
+          canvasCtx.restore();
+        } else if (el) {
           const b = getElementBounds(el);
           if (b) {
             canvasCtx.save();

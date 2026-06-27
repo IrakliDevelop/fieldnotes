@@ -4,6 +4,14 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.40.0] — 2026-06-25
+
+### Added
+
+- `Tab` / `Shift+Tab` cycle the selection through elements (render order, wrap-around).
+- The arrow bend handle now shows on hover, not only when the arrow is selected.
+- `LaserTool` — an ephemeral presentation pointer that leaves a fading trail and is never persisted.
+
 ## [0.39.0] — 2026-06-25
 
 ### Added

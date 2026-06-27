@@ -1,4 +1,4 @@
-export const VERSION = '0.39.0';
+export const VERSION = '0.40.0';
 
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
 export { snapPoint, smartSnap, snapToHexCenter } from './core/snap';
@@ -105,6 +105,8 @@ export { MeasureTool } from './tools/measure-tool';
 export type { MeasureToolOptions, Measurement } from './tools/measure-tool';
 export { TemplateTool } from './tools/template-tool';
 export type { TemplateToolOptions } from './tools/template-tool';
+export { LaserTool } from './tools/laser-tool';
+export type { LaserToolOptions } from './tools/laser-tool';
 export type { Tool, ToolContext, PointerState, ToolName } from './tools/types';
 
 export { LayerManager } from './layers/layer-manager';

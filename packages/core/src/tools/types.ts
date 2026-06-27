@@ -55,4 +55,5 @@ export type ToolName =
   | 'text'
   | 'shape'
   | 'measure'
-  | 'template';
+  | 'template'
+  | 'laser';

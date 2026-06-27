@@ -28,6 +28,8 @@ const DEFAULT_BINDINGS: readonly (readonly [string, readonly string[]])[] = [
   ['undo', ['mod+z']],
   ['redo', ['mod+y', 'mod+shift+z']],
   ['select-all', ['mod+a']],
+  ['cycle-selection', ['tab']],
+  ['cycle-selection-reverse', ['shift+tab']],
   ['copy', ['mod+c']],
   ['duplicate', ['mod+d']],
   ['z-forward', [']']],
