@@ -11,6 +11,7 @@ import {
   ShapeTool,
   MeasureTool,
   TemplateTool,
+  LaserTool,
   AutoSave,
   createStroke,
   createNote,
@@ -51,6 +52,7 @@ const text = new TextTool();
 const shape = new ShapeTool({ strokeColor: '#1a1a1a' });
 const measure = new MeasureTool();
 const template = new TemplateTool();
+const laser = new LaserTool();
 
 viewport.toolManager.register(hand);
 viewport.toolManager.register(pencil);
@@ -63,6 +65,7 @@ viewport.toolManager.register(text);
 viewport.toolManager.register(shape);
 viewport.toolManager.register(measure);
 viewport.toolManager.register(template);
+viewport.toolManager.register(laser);
 
 let autoSaveToastShown = false;
 
