@@ -3,7 +3,7 @@ import * as FN from './index';
 
 describe('core public surface', () => {
   it('exports the current version', () => {
-    expect(FN.VERSION).toBe('0.40.3');
+    expect(FN.VERSION).toBe('0.40.4');
   });
 
   it('does not export internal machinery (trimmed before 1.0)', () => {
