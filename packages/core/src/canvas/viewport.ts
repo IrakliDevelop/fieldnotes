@@ -156,6 +156,7 @@ export class Viewport {
       placeholder: options.placeholder,
     });
     this.noteEditor.setOnStop((id) => this.interactions.onTextEditStop(id));
+    this.noteEditor.setOnInput((id) => this.interactions.liveFitHeight(id));
     this.arrowLabelEditor = new ArrowLabelEditor();
     this.noteEditor.setHistoryHooks(
       () => this.historyRecorder.begin(),

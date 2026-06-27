@@ -171,10 +171,15 @@ describe('Viewport', () => {
     const viewportA = new Viewport(container);
     viewportA.registerHtmlRenderer('chart', factory);
     const placeholder = document.createElement('div');
-    const id = viewportA.addHtmlElement(placeholder, { x: 5, y: 5 }, { w: 100, h: 80 }, {
-      htmlType: 'chart',
-      data: { value: 42 },
-    });
+    const id = viewportA.addHtmlElement(
+      placeholder,
+      { x: 5, y: 5 },
+      { w: 100, h: 80 },
+      {
+        htmlType: 'chart',
+        data: { value: 42 },
+      },
+    );
     const json = viewportA.exportJSON();
 
     const mountSpy = vi.fn();
@@ -197,10 +202,15 @@ describe('Viewport', () => {
   it('loads an html element with no registered factory without throwing (empty node)', () => {
     const viewportA = new Viewport(container);
     const placeholder = document.createElement('div');
-    const id = viewportA.addHtmlElement(placeholder, { x: 0, y: 0 }, { w: 100, h: 80 }, {
-      htmlType: 'chart',
-      data: { value: 7 },
-    });
+    const id = viewportA.addHtmlElement(
+      placeholder,
+      { x: 0, y: 0 },
+      { w: 100, h: 80 },
+      {
+        htmlType: 'chart',
+        data: { value: 7 },
+      },
+    );
     const json = viewportA.exportJSON();
 
     const viewportB = new Viewport(container);
@@ -1861,7 +1871,7 @@ describe('Viewport', () => {
       viewport.destroy();
     });
 
-    it('does not shrink a note below its dragged height', () => {
+    it('shrinks a note to fit when content needs less height', () => {
       const viewport = new Viewport(container);
       const note = createNote({
         position: { x: 0, y: 0 },
@@ -1883,7 +1893,7 @@ describe('Viewport', () => {
       Object.defineProperty(node, 'scrollHeight', { value: 30, configurable: true });
       priv.interactions.fitNoteHeight(note.id);
       const updated = viewport.store.getById(note.id);
-      expect(updated?.type === 'note' && updated.size.h).toBe(200);
+      expect(updated?.type === 'note' && updated.size.h).toBe(30);
       viewport.destroy();
     });
   });

@@ -50,16 +50,19 @@ export class ViewportInteractions {
     }
   }
 
-  fitNoteHeight(elementId: string): void {
+  liveFitHeight(elementId: string): void {
     const element = this.deps.store.getById(elementId);
-    if (!element || element.type !== 'note') return;
-    if (isNoteContentEmpty(element.text)) return;
+    if (!element || (element.type !== 'note' && element.type !== 'text')) return;
     const node = this.deps.domNodeManager.getNode(elementId);
     if (!node) return;
     const measured = node.scrollHeight;
-    if (measured > element.size.h) {
+    if (measured > 0 && measured !== element.size.h) {
       this.deps.store.update(elementId, { size: { w: element.size.w, h: measured } });
     }
+  }
+
+  fitNoteHeight(elementId: string): void {
+    this.liveFitHeight(elementId);
   }
 
   onTextEditStop(elementId: string): void {
@@ -71,7 +74,7 @@ export class ViewportInteractions {
         this.deps.store.remove(elementId);
         return;
       }
-      this.fitNoteHeight(elementId);
+      this.liveFitHeight(elementId);
       return;
     }
 
@@ -82,13 +85,7 @@ export class ViewportInteractions {
       return;
     }
 
-    const node = this.deps.domNodeManager.getNode(elementId);
-    if (node && 'size' in element) {
-      const measured = node.scrollHeight;
-      if (measured !== element.size.h) {
-        this.deps.store.update(elementId, { size: { w: element.size.w, h: measured } });
-      }
-    }
+    this.liveFitHeight(elementId);
   }
 
   onTapDown = (e: PointerEvent): void => {

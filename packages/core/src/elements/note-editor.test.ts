@@ -481,6 +481,51 @@ describe('NoteEditor', () => {
     });
   });
 
+  describe('history transaction spans the edit session', () => {
+    it('begins history at activate and commits once at stop', async () => {
+      const editor = new NoteEditor();
+      const store = new ElementStore();
+      const note = createNote({ position: { x: 0, y: 0 }, text: 'hi' });
+      store.add(note);
+      const node = makeNode('hi');
+
+      const beginSpy = vi.fn();
+      const commitSpy = vi.fn();
+      editor.setHistoryHooks(beginSpy, commitSpy);
+
+      editor.startEditing(node, note.id, store);
+      expect(beginSpy).not.toHaveBeenCalled();
+
+      await flushRAF();
+      expect(beginSpy).toHaveBeenCalledTimes(1);
+      expect(commitSpy).not.toHaveBeenCalled();
+
+      editor.stopEditing(store);
+      expect(commitSpy).toHaveBeenCalledTimes(1);
+      expect(beginSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('calls the onInput callback with the element id on input', async () => {
+      const editor = new NoteEditor();
+      const store = new ElementStore();
+      const note = createNote({ position: { x: 0, y: 0 }, text: '' });
+      store.add(note);
+      const node = makeNode('');
+
+      const inputSpy = vi.fn();
+      editor.setOnInput(inputSpy);
+
+      editor.startEditing(node, note.id, store);
+      await flushRAF();
+
+      node.textContent = 'x';
+      node.dispatchEvent(new Event('input'));
+      expect(inputSpy).toHaveBeenCalledWith(note.id);
+
+      editor.stopEditing(store);
+    });
+  });
+
   describe('setOnStop callback', () => {
     it('calls onStop with element id when editing stops', async () => {
       const editor = new NoteEditor();

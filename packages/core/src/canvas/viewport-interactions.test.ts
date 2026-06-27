@@ -5,8 +5,16 @@ import { describe, it, expect, vi } from 'vitest';
 import { ViewportInteractions } from './viewport-interactions';
 import type { ViewportInteractionsDeps } from './viewport-interactions';
 import { ElementStore } from '../elements/element-store';
-import { createNote, createArrow, createShape } from '../elements/element-factory';
+import { createNote, createArrow, createShape, createText } from '../elements/element-factory';
 import type { ArrowElement, CanvasElement } from '../elements/types';
+import { HistoryRecorder } from '../history/history-recorder';
+import { HistoryStack } from '../history/history-stack';
+
+function nodeWithHeight(h: number): HTMLDivElement {
+  const node = document.createElement('div');
+  Object.defineProperty(node, 'scrollHeight', { value: h, configurable: true });
+  return node;
+}
 
 function makeDeps(store: ElementStore, overrides: Partial<ViewportInteractionsDeps> = {}) {
   const nodes = new Map<string, HTMLElement>();
@@ -72,6 +80,124 @@ describe('ViewportInteractions', () => {
       const { deps } = makeDeps(store);
       const interactions = new ViewportInteractions(deps) as unknown as Priv;
       expect(interactions.findArrowAt({ x: 50, y: 80 })).toBeUndefined();
+    });
+  });
+
+  describe('liveFitHeight', () => {
+    it('grows a note to the measured scrollHeight', () => {
+      const store = new ElementStore();
+      const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 40 }, text: 'x' });
+      store.add(note);
+      const { deps, nodes } = makeDeps(store);
+      nodes.set(note.id, nodeWithHeight(120));
+      new ViewportInteractions(deps).liveFitHeight(note.id);
+      expect(store.getById(note.id)?.size.h).toBe(120);
+    });
+
+    it('shrinks a note to the measured scrollHeight', () => {
+      const store = new ElementStore();
+      const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 40 }, text: 'x' });
+      store.add(note);
+      const { deps, nodes } = makeDeps(store);
+      nodes.set(note.id, nodeWithHeight(20));
+      new ViewportInteractions(deps).liveFitHeight(note.id);
+      expect(store.getById(note.id)?.size.h).toBe(20);
+    });
+
+    it('grows a text element to the measured scrollHeight', () => {
+      const store = new ElementStore();
+      const text = createText({ position: { x: 0, y: 0 }, size: { w: 100, h: 40 }, text: 'x' });
+      store.add(text);
+      const { deps, nodes } = makeDeps(store);
+      nodes.set(text.id, nodeWithHeight(120));
+      new ViewportInteractions(deps).liveFitHeight(text.id);
+      expect(store.getById(text.id)?.size.h).toBe(120);
+    });
+
+    it('shrinks a text element to the measured scrollHeight', () => {
+      const store = new ElementStore();
+      const text = createText({ position: { x: 0, y: 0 }, size: { w: 100, h: 40 }, text: 'x' });
+      store.add(text);
+      const { deps, nodes } = makeDeps(store);
+      nodes.set(text.id, nodeWithHeight(20));
+      new ViewportInteractions(deps).liveFitHeight(text.id);
+      expect(store.getById(text.id)?.size.h).toBe(20);
+    });
+
+    it('is a no-op when scrollHeight equals current height', () => {
+      const store = new ElementStore();
+      const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 40 }, text: 'x' });
+      store.add(note);
+      const { deps, nodes } = makeDeps(store);
+      nodes.set(note.id, nodeWithHeight(40));
+      const spy = vi.spyOn(store, 'update');
+      new ViewportInteractions(deps).liveFitHeight(note.id);
+      expect(spy).not.toHaveBeenCalled();
+      expect(store.getById(note.id)?.size.h).toBe(40);
+    });
+
+    it('is a no-op when scrollHeight is 0', () => {
+      const store = new ElementStore();
+      const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 40 }, text: 'x' });
+      store.add(note);
+      const { deps, nodes } = makeDeps(store);
+      nodes.set(note.id, nodeWithHeight(0));
+      const spy = vi.spyOn(store, 'update');
+      new ViewportInteractions(deps).liveFitHeight(note.id);
+      expect(spy).not.toHaveBeenCalled();
+      expect(store.getById(note.id)?.size.h).toBe(40);
+    });
+
+    it('is a no-op for a non-note/text element', () => {
+      const store = new ElementStore();
+      const shape = createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 40 } });
+      store.add(shape);
+      const { deps, nodes } = makeDeps(store);
+      nodes.set(shape.id, nodeWithHeight(120));
+      const spy = vi.spyOn(store, 'update');
+      new ViewportInteractions(deps).liveFitHeight(shape.id);
+      expect(spy).not.toHaveBeenCalled();
+      expect(store.getById(shape.id)?.size.h).toBe(40);
+    });
+
+    it('is a no-op when there is no DOM node', () => {
+      const store = new ElementStore();
+      const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 40 }, text: 'x' });
+      store.add(note);
+      const { deps } = makeDeps(store);
+      const spy = vi.spyOn(store, 'update');
+      new ViewportInteractions(deps).liveFitHeight(note.id);
+      expect(spy).not.toHaveBeenCalled();
+      expect(store.getById(note.id)?.size.h).toBe(40);
+    });
+  });
+
+  describe('one undo step for a live-resized edit session', () => {
+    it('collapses live size updates and the text write into a single undo step', () => {
+      const store = new ElementStore();
+      const stack = new HistoryStack();
+      const recorder = new HistoryRecorder(store, stack);
+      const note = createNote({
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 40 },
+        text: 'before',
+      });
+      store.add(note);
+      stack.clear();
+      const before = stack.undoCount;
+
+      recorder.begin();
+      store.update(note.id, { size: { w: 100, h: 60 } });
+      store.update(note.id, { size: { w: 100, h: 80 } });
+      store.update(note.id, { text: 'after' });
+      recorder.commit();
+
+      expect(stack.undoCount).toBe(before + 1);
+
+      stack.undo(store);
+      const restored = store.getById(note.id);
+      expect(restored && 'text' in restored ? restored.text : '').toBe('before');
+      expect(restored?.size.h).toBe(40);
     });
   });
 
