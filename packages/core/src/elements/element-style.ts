@@ -1,4 +1,4 @@
-import type { CanvasElement } from './types';
+import type { ArrowStrokeStyle, CanvasElement } from './types';
 
 export interface ElementStyle {
   color?: string;
@@ -6,10 +6,11 @@ export interface ElementStyle {
   strokeWidth?: number;
   opacity?: number;
   fontSize?: number;
+  strokeStyle?: ArrowStrokeStyle;
 }
 
 export function styleToPatch(element: CanvasElement, style: ElementStyle): Partial<CanvasElement> {
-  const { color, fillColor, strokeWidth, opacity, fontSize } = style;
+  const { color, fillColor, strokeWidth, opacity, fontSize, strokeStyle } = style;
   switch (element.type) {
     case 'stroke':
       return {
@@ -21,6 +22,7 @@ export function styleToPatch(element: CanvasElement, style: ElementStyle): Parti
       return {
         ...(color !== undefined ? { color } : {}),
         ...(strokeWidth !== undefined ? { width: strokeWidth } : {}),
+        ...(strokeStyle !== undefined ? { strokeStyle } : {}),
       };
     case 'shape':
       return {
@@ -62,7 +64,11 @@ export function getElementStyle(element: CanvasElement): ElementStyle {
     case 'stroke':
       return { color: element.color, strokeWidth: element.width, opacity: element.opacity };
     case 'arrow':
-      return { color: element.color, strokeWidth: element.width };
+      return {
+        color: element.color,
+        strokeWidth: element.width,
+        ...(element.strokeStyle !== undefined ? { strokeStyle: element.strokeStyle } : {}),
+      };
     case 'shape':
       return {
         color: element.strokeColor,

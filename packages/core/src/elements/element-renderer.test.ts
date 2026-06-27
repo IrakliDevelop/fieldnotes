@@ -310,7 +310,7 @@ describe('ElementRenderer', () => {
       expect(ctx.quadraticCurveTo).toHaveBeenCalledWith(50, -20, 100, 100);
     });
 
-    it('applies dashed line when fromBinding is set', () => {
+    it('renders solid when fromBinding is set (dashing decoupled from binding)', () => {
       const store = new ElementStore();
       const note: NoteElement = {
         id: 'note-bound',
@@ -336,10 +336,10 @@ describe('ElementRenderer', () => {
         }),
       );
 
-      expect(ctx.setLineDash).toHaveBeenCalledWith([8, 4]);
+      expect(ctx.setLineDash).not.toHaveBeenCalled();
     });
 
-    it('applies dashed line when toBinding is set', () => {
+    it('renders solid when toBinding is set (dashing decoupled from binding)', () => {
       const store = new ElementStore();
       const note: NoteElement = {
         id: 'note-bound',
@@ -362,6 +362,36 @@ describe('ElementRenderer', () => {
         ctx,
         makeArrow({
           toBinding: { elementId: 'note-bound' },
+        }),
+      );
+
+      expect(ctx.setLineDash).not.toHaveBeenCalled();
+    });
+
+    it('applies a dash pattern only when strokeStyle requests it, regardless of binding', () => {
+      const store = new ElementStore();
+      const note: NoteElement = {
+        id: 'note-bound',
+        type: 'note',
+        position: { x: 80, y: 80 },
+        size: { w: 40, h: 40 },
+        text: '',
+        backgroundColor: '#fff',
+        textColor: '#000',
+        zIndex: 0,
+        locked: false,
+        layerId: '',
+      };
+      store.add(note);
+
+      const renderer = new ElementRenderer();
+      renderer.setStore(store);
+      const ctx = mockCtx();
+      renderer.renderCanvasElement(
+        ctx,
+        makeArrow({
+          toBinding: { elementId: 'note-bound' },
+          strokeStyle: 'dashed',
         }),
       );
 

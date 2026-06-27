@@ -31,12 +31,23 @@ describe('element factories', () => {
     });
 
     it('createStroke sets blendMode when provided', () => {
-      const s = createStroke({ points: [{ x: 0, y: 0, pressure: 1 }, { x: 1, y: 1, pressure: 1 }], blendMode: 'multiply' });
+      const s = createStroke({
+        points: [
+          { x: 0, y: 0, pressure: 1 },
+          { x: 1, y: 1, pressure: 1 },
+        ],
+        blendMode: 'multiply',
+      });
       expect(s.blendMode).toBe('multiply');
     });
 
     it('createStroke omits blendMode when not provided', () => {
-      const s = createStroke({ points: [{ x: 0, y: 0, pressure: 1 }, { x: 1, y: 1, pressure: 1 }] });
+      const s = createStroke({
+        points: [
+          { x: 0, y: 0, pressure: 1 },
+          { x: 1, y: 1, pressure: 1 },
+        ],
+      });
       expect('blendMode' in s).toBe(false);
     });
   });
@@ -129,6 +140,16 @@ describe('element factories', () => {
     it('createArrow omits label when not given', () => {
       const a = createArrow({ from: { x: 0, y: 0 }, to: { x: 10, y: 0 } });
       expect('label' in a).toBe(false);
+    });
+
+    it('createArrow sets an optional strokeStyle', () => {
+      const a = createArrow({ from: { x: 0, y: 0 }, to: { x: 10, y: 0 }, strokeStyle: 'dotted' });
+      expect(a.strokeStyle).toBe('dotted');
+    });
+
+    it('createArrow omits strokeStyle when not given (no solid default)', () => {
+      const a = createArrow({ from: { x: 0, y: 0 }, to: { x: 10, y: 0 } });
+      expect('strokeStyle' in a).toBe(false);
     });
   });
 

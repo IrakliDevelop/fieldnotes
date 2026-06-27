@@ -1,4 +1,4 @@
-import type { ArrowElement } from '../types';
+import type { ArrowElement, ArrowStrokeStyle } from '../types';
 import type { ElementStore } from '../element-store';
 import { getArrowRenderGeometry } from '../arrow-render-cache';
 import { getArrowMidpoint } from '../arrow-geometry';
@@ -8,6 +8,17 @@ import { getElementBounds } from '../element-bounds';
 const ARROWHEAD_LENGTH = 12;
 const ARROWHEAD_ANGLE = Math.PI / 6;
 const ARROW_LABEL_FONT_SIZE = 14;
+
+export function getArrowDashPattern(strokeStyle: ArrowStrokeStyle | undefined): number[] {
+  switch (strokeStyle) {
+    case 'dashed':
+      return [8, 4];
+    case 'dotted':
+      return [2, 4];
+    default:
+      return [];
+  }
+}
 
 export function renderArrow(
   ctx: CanvasRenderingContext2D,
@@ -23,9 +34,8 @@ export function renderArrow(
   ctx.lineWidth = arrow.width;
   ctx.lineCap = 'round';
 
-  if (arrow.fromBinding || arrow.toBinding) {
-    ctx.setLineDash([8, 4]);
-  }
+  const dash = getArrowDashPattern(arrow.strokeStyle);
+  if (dash.length > 0) ctx.setLineDash(dash);
 
   ctx.beginPath();
   ctx.moveTo(visualFrom.x, visualFrom.y);

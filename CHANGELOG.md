@@ -4,6 +4,18 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.41.0] — 2026-06-27
+
+### Added
+
+- Arrow stroke style: arrows can be solid, dashed, or dotted (`ArrowElement.strokeStyle`, settable via
+  `applyStyleToSelection` and the arrow tool).
+
+### Changed
+
+- Bound arrows are no longer forced to render dashed — appearance is now controlled solely by
+  `strokeStyle` (default solid). Existing bound arrows render solid after upgrade.
+
 ## [0.40.4] — 2026-06-25
 
 ### Fixed

@@ -4,6 +4,7 @@ import type {
   StrokeElement,
   NoteElement,
   ArrowElement,
+  ArrowStrokeStyle,
   ImageElement,
   HtmlElement,
   TextElement,
@@ -53,6 +54,7 @@ interface ArrowInput extends BaseDefaults {
   fromBinding?: Binding;
   toBinding?: Binding;
   label?: string;
+  strokeStyle?: ArrowStrokeStyle;
 }
 
 interface ImageInput extends BaseDefaults {
@@ -131,6 +133,7 @@ export function createArrow(input: ArrowInput): ArrowElement {
   if (input.fromBinding) result.fromBinding = input.fromBinding;
   if (input.toBinding) result.toBinding = input.toBinding;
   if (input.label !== undefined) result.label = input.label;
+  if (input.strokeStyle !== undefined) result.strokeStyle = input.strokeStyle;
   return result;
 }
 

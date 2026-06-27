@@ -187,7 +187,10 @@ describe('exportSvg', () => {
 
     const svg = await exportSvg(store);
 
-    const path = svg.match(/<path d="M[^"]*L([\d.]+) ([\d.]+)"[^>]*stroke-dasharray/);
+    // Binding no longer forces dashing — a bound arrow with no strokeStyle is SOLID.
+    expect(svg).not.toContain('stroke-dasharray');
+
+    const path = svg.match(/<path d="M[^"]*L([\d.]+) ([\d.]+)"/);
     expect(path).not.toBeNull();
     if (path) {
       const endX = Number(path[1]);
@@ -205,6 +208,38 @@ describe('exportSvg', () => {
       expect(Number(poly[1])).toBeCloseTo(300, 0);
       expect(Number(poly[1])).toBeLessThan(350);
     }
+  });
+
+  it('emits stroke-dasharray="8 4" for a dashed arrow', async () => {
+    const store = new ElementStore();
+    store.add(createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 }, strokeStyle: 'dashed' }));
+    const svg = await exportSvg(store);
+    expect(svg).toContain('stroke-dasharray="8 4"');
+  });
+
+  it('emits stroke-dasharray="2 4" for a dotted arrow', async () => {
+    const store = new ElementStore();
+    store.add(createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 }, strokeStyle: 'dotted' }));
+    const svg = await exportSvg(store);
+    expect(svg).toContain('stroke-dasharray="2 4"');
+  });
+
+  it('omits stroke-dasharray for a solid arrow', async () => {
+    const store = new ElementStore();
+    store.add(createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 }, strokeStyle: 'solid' }));
+    const svg = await exportSvg(store);
+    expect(svg).not.toContain('stroke-dasharray');
+  });
+
+  it('renders a bound solid arrow without dasharray (decoupled from binding)', async () => {
+    const store = new ElementStore();
+    const note = createNote({ position: { x: 300, y: 180 }, size: { w: 100, h: 40 } });
+    store.add(note);
+    const arrow = createArrow({ from: { x: 100, y: 200 }, to: { x: 350, y: 200 } });
+    arrow.toBinding = { elementId: note.id };
+    store.add(arrow);
+    const svg = await exportSvg(store);
+    expect(svg).not.toContain('stroke-dasharray');
   });
 
   it('emits a grid path', async () => {

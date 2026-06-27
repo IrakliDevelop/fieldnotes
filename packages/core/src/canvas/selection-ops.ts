@@ -63,6 +63,8 @@ export class SelectionOps {
     if (opacity !== undefined) result.opacity = opacity;
     const fontSize = sharedValue(styles.map((s) => s.fontSize));
     if (fontSize !== undefined) result.fontSize = fontSize;
+    const strokeStyle = sharedValue(styles.map((s) => s.strokeStyle));
+    if (strokeStyle !== undefined) result.strokeStyle = strokeStyle;
     return result;
   }
 

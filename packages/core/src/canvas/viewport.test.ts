@@ -1522,6 +1522,46 @@ describe('Viewport', () => {
       expect((viewport.store.getById(stroke.id) as { color: string }).color).toBe('#000');
     });
 
+    it('applyStyleToSelection sets strokeStyle on arrows only, in ONE undo step', () => {
+      const arrow = createArrow({
+        from: { x: 0, y: 0 },
+        to: { x: 10, y: 10 },
+        position: { x: 0, y: 0 },
+      });
+      const note = createNote({ position: { x: 0, y: 0 }, text: 'hi' });
+      const shape = createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } });
+      viewport.store.add(arrow);
+      viewport.store.add(note);
+      viewport.store.add(shape);
+      select([arrow.id, note.id, shape.id]);
+
+      const before = viewport.history.undoCount;
+      viewport.applyStyleToSelection({ strokeStyle: 'dashed' });
+
+      expect((viewport.store.getById(arrow.id) as { strokeStyle?: string }).strokeStyle).toBe(
+        'dashed',
+      );
+      expect(
+        (viewport.store.getById(note.id) as { strokeStyle?: string }).strokeStyle,
+      ).toBeUndefined();
+      expect(
+        (viewport.store.getById(shape.id) as { strokeStyle?: string }).strokeStyle,
+      ).toBeUndefined();
+      expect(viewport.history.undoCount).toBe(before + 1);
+    });
+
+    it('getSelectionStyle surfaces a selected arrow strokeStyle', () => {
+      const arrow = createArrow({
+        from: { x: 0, y: 0 },
+        to: { x: 10, y: 10 },
+        position: { x: 0, y: 0 },
+        strokeStyle: 'dotted',
+      });
+      viewport.store.add(arrow);
+      select([arrow.id]);
+      expect(viewport.getSelectionStyle()?.strokeStyle).toBe('dotted');
+    });
+
     it('getSelectionStyle returns shared values and omits mixed ones', () => {
       const a = createStroke({ points: [{ x: 0, y: 0, pressure: 1 }], color: '#111', width: 3 });
       const b = createStroke({ points: [{ x: 1, y: 1, pressure: 1 }], color: '#111', width: 9 });
