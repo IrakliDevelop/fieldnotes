@@ -3,11 +3,14 @@ import type { Camera } from '../canvas/camera';
 import type { LayerManager } from '../layers/layer-manager';
 import { exportState, parseState } from './state-serializer';
 import type { CanvasState } from './state-serializer';
+import { LocalStorageAdapter } from './storage/local-storage-adapter';
+import type { StorageAdapter } from './storage/storage-adapter';
 
 export interface AutoSaveOptions {
   key?: string;
   debounceMs?: number;
   layerManager?: LayerManager;
+  adapter?: StorageAdapter;
   onError?: (error: Error) => void;
 }
 
@@ -18,9 +21,12 @@ export class AutoSave {
   private readonly key: string;
   private readonly debounceMs: number;
   private readonly layerManager?: LayerManager;
+  private readonly adapter: StorageAdapter;
   private timerId: ReturnType<typeof setTimeout> | null = null;
   private unsubscribers: (() => void)[] = [];
   private readonly onError?: (error: Error) => void;
+  private saving = false;
+  private pendingSave = false;
 
   constructor(
     private readonly store: ElementStore,
@@ -30,6 +36,7 @@ export class AutoSave {
     this.key = options.key ?? DEFAULT_KEY;
     this.debounceMs = options.debounceMs ?? DEFAULT_DEBOUNCE_MS;
     this.layerManager = options.layerManager;
+    this.adapter = options.adapter ?? new LocalStorageAdapter();
     this.onError = options.onError;
   }
 
@@ -53,10 +60,8 @@ export class AutoSave {
     this.unsubscribers = [];
   }
 
-  load(): CanvasState | null {
-    if (typeof localStorage === 'undefined') return null;
-
-    const json = localStorage.getItem(this.key);
+  async load(): Promise<CanvasState | null> {
+    const json = await this.adapter.load(this.key);
     if (!json) return null;
 
     try {
@@ -66,14 +71,13 @@ export class AutoSave {
     }
   }
 
-  clear(): void {
-    if (typeof localStorage === 'undefined') return;
-    localStorage.removeItem(this.key);
+  async clear(): Promise<void> {
+    await this.adapter.clear(this.key);
   }
 
   private scheduleSave(): void {
     this.cancelPending();
-    this.timerId = setTimeout(() => this.save(), this.debounceMs);
+    this.timerId = setTimeout(() => void this.save(), this.debounceMs);
   }
 
   private cancelPending(): void {
@@ -83,16 +87,24 @@ export class AutoSave {
     }
   }
 
-  private save(): void {
-    if (typeof localStorage === 'undefined') return;
-
-    const layers = this.layerManager?.snapshot() ?? [];
-    const state = exportState(this.store.snapshot(), this.camera, layers);
+  private async save(): Promise<void> {
+    if (this.saving) {
+      this.pendingSave = true;
+      return;
+    }
+    this.saving = true;
     try {
-      localStorage.setItem(this.key, JSON.stringify(state));
+      const layers = this.layerManager?.snapshot() ?? [];
+      const state = exportState(this.store.snapshot(), this.camera, layers);
+      await this.adapter.save(this.key, JSON.stringify(state));
     } catch (e) {
-      console.warn('Auto-save failed: storage quota exceeded. State too large for localStorage.');
       this.onError?.(e instanceof Error ? e : new Error(String(e)));
+    } finally {
+      this.saving = false;
+      if (this.pendingSave) {
+        this.pendingSave = false;
+        void this.save();
+      }
     }
   }
 }

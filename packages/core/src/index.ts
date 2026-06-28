@@ -1,10 +1,15 @@
-export const VERSION = '0.44.0';
+export const VERSION = '0.45.0';
 
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
 export { snapPoint, smartSnap, snapToHexCenter } from './core/snap';
 export type { CanvasState } from './core/state-serializer';
 export { AutoSave } from './core/auto-save';
 export type { AutoSaveOptions } from './core/auto-save';
+export { MemoryAdapter } from './core/storage/memory-adapter';
+export { LocalStorageAdapter } from './core/storage/local-storage-adapter';
+export { IndexedDBAdapter } from './core/storage/indexeddb-adapter';
+export type { StorageAdapter } from './core/storage/storage-adapter';
+export type { IndexedDBAdapterOptions } from './core/storage/indexeddb-adapter';
 
 export { Camera } from './canvas/camera';
 export type { CameraOptions, CameraChangeInfo } from './canvas/camera';

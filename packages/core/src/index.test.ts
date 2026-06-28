@@ -3,7 +3,7 @@ import * as FN from './index';
 
 describe('core public surface', () => {
   it('exports the current version', () => {
-    expect(FN.VERSION).toBe('0.44.0');
+    expect(FN.VERSION).toBe('0.45.0');
   });
 
   it('does not export internal machinery (trimmed before 1.0)', () => {
@@ -77,6 +77,9 @@ describe('core public surface', () => {
     const kept = [
       'Viewport',
       'AutoSave',
+      'MemoryAdapter',
+      'LocalStorageAdapter',
+      'IndexedDBAdapter',
       'exportImage',
       'exportSvg',
       'Camera',

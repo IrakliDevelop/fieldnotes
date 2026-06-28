@@ -13,6 +13,7 @@ import {
   TemplateTool,
   LaserTool,
   AutoSave,
+  IndexedDBAdapter,
   createStroke,
   createNote,
   createGrid,
@@ -86,6 +87,7 @@ function showToast(id: string, message: string): void {
 
 const autoSave = new AutoSave(viewport.store, viewport.camera, {
   layerManager: viewport.layerManager,
+  adapter: new IndexedDBAdapter(),
   onError: (error) => {
     console.error('Auto-save failed', error);
     // toast shows once per page load; AutoSave has no success callback to reset on
@@ -95,19 +97,21 @@ const autoSave = new AutoSave(viewport.store, viewport.camera, {
   },
 });
 if (!benchCount) {
-  const savedState = autoSave.load();
-  if (savedState) {
-    for (const el of savedState.elements) {
-      if (el.type === 'html' && 'domId' in el && typeof el.domId === 'string') {
-        if (!document.getElementById(el.domId)) {
-          document.body.appendChild(createDemoWidget(el.domId));
+  void (async () => {
+    const savedState = await autoSave.load();
+    if (savedState) {
+      for (const el of savedState.elements) {
+        if (el.type === 'html' && 'domId' in el && typeof el.domId === 'string') {
+          if (!document.getElementById(el.domId)) {
+            document.body.appendChild(createDemoWidget(el.domId));
+          }
         }
       }
+      viewport.loadState(savedState);
+      console.log('Restored auto-saved state');
     }
-    viewport.loadState(savedState);
-    console.log('Restored auto-saved state');
-  }
-  autoSave.start();
+    autoSave.start();
+  })();
 }
 
 const emptyHint = document.getElementById('empty-hint');
@@ -631,8 +635,8 @@ document.getElementById('save')?.addEventListener('click', () => {
   console.log(`State snapshot (${json.length} bytes)`);
 });
 
-document.getElementById('load')?.addEventListener('click', () => {
-  const saved = autoSave.load();
+document.getElementById('load')?.addEventListener('click', async () => {
+  const saved = await autoSave.load();
   if (!saved) {
     console.warn('No saved state found');
     return;
