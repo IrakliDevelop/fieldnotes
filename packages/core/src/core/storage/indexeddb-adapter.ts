@@ -72,6 +72,7 @@ export class IndexedDBAdapter implements StorageAdapter {
       tx.objectStore(this.storeName).delete(key);
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error ?? new Error('IndexedDB delete failed'));
+      tx.onabort = () => reject(tx.error ?? new Error('IndexedDB delete aborted'));
     });
   }
 }
