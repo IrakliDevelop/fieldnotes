@@ -4,6 +4,20 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.45.0] — 2026-06-28
+
+### Added
+
+- Pluggable persistence: a `StorageAdapter` interface plus built-in `IndexedDBAdapter`,
+  `LocalStorageAdapter`, and `MemoryAdapter`. `AutoSave` now accepts an `adapter` option — use
+  `IndexedDBAdapter` to store far more than localStorage's ~5 MB cap (works on iPad Safari too).
+
+### Changed
+
+- **Breaking (pre-1.0):** `AutoSave.load()` and `AutoSave.clear()` are now async (return Promises) so
+  they can back asynchronous stores like IndexedDB. `await` them. The default adapter remains
+  localStorage, so existing behavior is otherwise unchanged.
+
 ## [0.44.0] — 2026-06-27
 
 ### Added
