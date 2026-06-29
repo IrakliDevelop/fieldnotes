@@ -1,0 +1,55 @@
+{
+  "name": "@fieldnotes/sync-server",
+  "version": "0.1.0",
+  "description": "Authoritative WebSocket relay server for Field Notes real-time sync",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/IrakliDevelop/fieldnotes.git",
+    "directory": "packages/sync-server"
+  },
+  "bugs": {
+    "url": "https://github.com/IrakliDevelop/fieldnotes/issues"
+  },
+  "homepage": "https://github.com/IrakliDevelop/fieldnotes/tree/master/packages/sync-server#readme",
+  "keywords": [
+    "realtime",
+    "sync",
+    "websocket",
+    "relay",
+    "collaboration",
+    "fieldnotes"
+  ],
+  "dependencies": {
+    "ws": "^8.18.0",
+    "@fieldnotes/sync": "workspace:*"
+  },
+  "devDependencies": {
+    "@fieldnotes/core": "workspace:*",
+    "@types/ws": "^8.5.12",
+    "@vitest/coverage-v8": "^4.1.0",
+    "tsup": "^8.5.1",
+    "vitest": "^4.1.0"
+  }
+}
