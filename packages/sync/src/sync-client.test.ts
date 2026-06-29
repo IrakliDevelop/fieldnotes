@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { ElementStore, createNote, type CanvasElement } from '@fieldnotes/core';
+import { ElementStore, createNote, createShape, type CanvasElement } from '@fieldnotes/core';
 import type { ElementChangeMeta } from '@fieldnotes/core';
 import { SyncClient, type SyncOp } from './sync-client';
 import type { SyncTransport } from './sync-transport';
@@ -77,8 +77,9 @@ describe('SyncClient', () => {
 
     expect(storeB.getById(note.id)).toBeDefined();
     expect(captured?.origin).toBe('remote');
-    // B applied the op as remote, so it must NOT re-broadcast it.
-    expect(transportB.sent).toHaveLength(0);
+    // B applied the op as remote, so it must NOT re-broadcast it — only its
+    // join request-snapshot (sent during start()) appears on B's transport.
+    expect(transportB.sent.map((m) => JSON.parse(m).op.kind)).toEqual(['request-snapshot']);
     // No duplicate on the originating side.
     expect(storeA.count).toBe(1);
   });
@@ -199,5 +200,142 @@ describe('SyncClient', () => {
     expect(() => transportA.send('')).not.toThrow();
 
     expect(storeB.count).toBe(before);
+  });
+});
+
+// createShape needs no DOMParser/jsdom, so these stay pure node.
+function shape(x: number): CanvasElement {
+  return createShape({ position: { x, y: x }, size: { width: 10, height: 10 } });
+}
+
+describe('SyncClient snapshot-on-join', () => {
+  it('pulls a peer snapshot on join, tagged origin remote, without re-broadcasting', () => {
+    const bus = makeBus();
+    const storeA = new ElementStore();
+    const storeB = new ElementStore();
+    const transportA = bus.endpoint();
+    const transportB = bus.endpoint();
+    storeA.add(shape(1));
+    storeA.add(shape(2));
+
+    const clientA = new SyncClient({ store: storeA, transport: transportA, clientId: 'A' });
+    clientA.start();
+
+    const captured: (string | undefined)[] = [];
+    storeB.on('add', (_el, meta) => captured.push(meta.origin));
+
+    // Synchronous bus: the join round-trip (request -> snapshot -> merge) completes
+    // entirely inside this start() call, which implicitly verifies start-ordering.
+    const clientB = new SyncClient({ store: storeB, transport: transportB, clientId: 'B' });
+    clientB.start();
+
+    expect(storeB.count).toBe(2);
+    expect(captured).toEqual(['remote', 'remote']);
+    // B must NOT re-broadcast the merged elements — only its join request goes out.
+    const sentOps = transportB.sent.map((m) => JSON.parse(m).op.kind);
+    expect(sentOps).toEqual(['request-snapshot']);
+  });
+
+  it('applies all snapshot responses idempotently (two responders, no duplicates)', () => {
+    const bus = makeBus();
+    const storeA = new ElementStore();
+    const storeC = new ElementStore();
+    const storeB = new ElementStore();
+    const a = shape(1);
+    const b = shape(2);
+    storeA.add(a);
+    storeA.add(b);
+    storeC.add(a);
+    storeC.add(b);
+
+    new SyncClient({ store: storeA, transport: bus.endpoint(), clientId: 'A' }).start();
+    new SyncClient({ store: storeC, transport: bus.endpoint(), clientId: 'C' }).start();
+
+    const clientB = new SyncClient({ store: storeB, transport: bus.endpoint(), clientId: 'B' });
+    clientB.start();
+
+    expect(storeB.count).toBe(2);
+  });
+
+  it('ignores a snapshot addressed to a different client', () => {
+    const bus = makeBus();
+    const storeB = new ElementStore();
+    const transportB = bus.endpoint();
+    const transportX = bus.endpoint();
+    new SyncClient({ store: storeB, transport: transportB, clientId: 'B' }).start();
+
+    transportX.send(envelope('X', { kind: 'snapshot', to: 'someone-else', elements: [shape(1)] }));
+
+    expect(storeB.count).toBe(0);
+  });
+
+  it('starts cleanly in an empty session and sends only the request', () => {
+    const bus = makeBus();
+    const storeB = new ElementStore();
+    const transportB = bus.endpoint();
+    const clientB = new SyncClient({ store: storeB, transport: transportB, clientId: 'B' });
+
+    expect(() => clientB.start()).not.toThrow();
+
+    expect(storeB.count).toBe(0);
+    expect(transportB.sent.map((m) => JSON.parse(m).op.kind)).toEqual(['request-snapshot']);
+  });
+
+  it('drops malformed snapshots and applies only valid elements within a mixed batch', () => {
+    const bus = makeBus();
+    const storeB = new ElementStore();
+    const transportB = bus.endpoint();
+    const transportX = bus.endpoint();
+    new SyncClient({ store: storeB, transport: transportB, clientId: 'B' }).start();
+    const before = storeB.count;
+
+    // Missing to/elements -> rejected by isValidEnvelope.
+    expect(() =>
+      transportX.send(JSON.stringify({ from: 'X', op: { kind: 'snapshot' } })),
+    ).not.toThrow();
+    // Non-array elements -> rejected by isValidEnvelope.
+    expect(() =>
+      transportX.send(
+        JSON.stringify({ from: 'X', op: { kind: 'snapshot', to: 'B', elements: 'nope' } }),
+      ),
+    ).not.toThrow();
+    // Unknown op kind -> rejected.
+    expect(() =>
+      transportX.send(JSON.stringify({ from: 'X', op: { kind: 'bogus' } })),
+    ).not.toThrow();
+
+    expect(storeB.count).toBe(before);
+
+    // Mixed batch: one valid element + one object with no id -> only the valid one is applied.
+    const valid = shape(7);
+    transportX.send(
+      JSON.stringify({ from: 'X', op: { kind: 'snapshot', to: 'B', elements: [valid, {}] } }),
+    );
+
+    expect(storeB.count).toBe(1);
+    expect(storeB.getById(valid.id)).toBeDefined();
+  });
+
+  it('responds to a request-snapshot with exactly one addressed snapshot envelope', () => {
+    const bus = makeBus();
+    const storeA = new ElementStore();
+    const transportA = bus.endpoint();
+    const transportX = bus.endpoint();
+    storeA.add(shape(1));
+    storeA.add(shape(2));
+    new SyncClient({ store: storeA, transport: transportA, clientId: 'A' }).start();
+
+    const before = transportA.sent.length;
+    transportX.send(envelope('X', { kind: 'request-snapshot' }));
+
+    const responses = transportA.sent
+      .slice(before)
+      .map((m) => JSON.parse(m).op)
+      .filter((op: SyncOp) => op.kind === 'snapshot');
+    expect(responses).toHaveLength(1);
+    const resp = responses[0];
+    expect(resp.to).toBe('X');
+    expect(resp.elements).toHaveLength(2);
+    expect(resp.elements).toEqual(storeA.snapshot());
   });
 });
