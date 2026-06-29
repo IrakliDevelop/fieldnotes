@@ -1,4 +1,10 @@
-type Listener<T> = (data: T) => void;
+export interface EventMeta {
+  origin?: string;
+}
+
+const EMPTY_META: EventMeta = Object.freeze({});
+
+type Listener<T> = (data: T, meta: EventMeta) => void;
 
 export class EventBus<TEvents extends { [K in keyof TEvents]: TEvents[K] }> {
   private listeners = new Map<keyof TEvents, Set<Listener<never>>>();
@@ -18,10 +24,10 @@ export class EventBus<TEvents extends { [K in keyof TEvents]: TEvents[K] }> {
     this.listeners.get(event)?.delete(listener as Listener<never>);
   }
 
-  emit<K extends keyof TEvents>(event: K, data: TEvents[K]): void {
+  emit<K extends keyof TEvents>(event: K, data: TEvents[K], meta: EventMeta = EMPTY_META): void {
     this.listeners.get(event)?.forEach((listener) => {
       try {
-        listener(data as never);
+        listener(data as never, meta);
       } catch (err) {
         console.error(`[fieldnotes] listener error for "${String(event)}"`, err);
       }

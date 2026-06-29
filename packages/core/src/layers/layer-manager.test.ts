@@ -348,6 +348,7 @@ describe('LayerManager', () => {
           id: layer.id,
           name: 'New',
         }),
+        expect.anything(),
       );
     });
 
@@ -363,6 +364,7 @@ describe('LayerManager', () => {
           id: layer.id,
           name: 'Removable',
         }),
+        expect.anything(),
       );
     });
 

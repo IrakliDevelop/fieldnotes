@@ -1,4 +1,5 @@
 import type { ElementStore } from '../elements/element-store';
+import type { EventMeta } from '../core/event-bus';
 import type { CanvasElement } from '../elements/types';
 import type { Command } from './types';
 import type { HistoryStack } from './history-stack';
@@ -11,6 +12,10 @@ import {
   BatchCommand,
 } from './commands';
 import { CreateLayerCommand, RemoveLayerCommand, UpdateLayerCommand } from './layer-commands';
+
+function isExternalChange(meta: EventMeta): boolean {
+  return meta.origin !== undefined && meta.origin !== 'local';
+}
 
 export class HistoryRecorder {
   private recording = true;
@@ -25,9 +30,9 @@ export class HistoryRecorder {
     private readonly layerManager?: LayerManager,
   ) {
     this.unsubscribers = [
-      store.on('add', (el) => this.onAdd(el)),
-      store.on('remove', (el) => this.onRemove(el)),
-      store.on('update', ({ previous, current }) => this.onUpdate(previous, current)),
+      store.on('add', (el, meta) => this.onAdd(el, meta)),
+      store.on('remove', (el, meta) => this.onRemove(el, meta)),
+      store.on('update', ({ previous, current }, meta) => this.onUpdate(previous, current, meta)),
     ];
 
     if (layerManager) {
@@ -90,12 +95,14 @@ export class HistoryRecorder {
     }
   }
 
-  private onAdd(element: CanvasElement): void {
+  private onAdd(element: CanvasElement, meta: EventMeta): void {
+    if (isExternalChange(meta)) return;
     if (!this.recording) return;
     this.record(new AddElementCommand(element));
   }
 
-  private onRemove(element: CanvasElement): void {
+  private onRemove(element: CanvasElement, meta: EventMeta): void {
+    if (isExternalChange(meta)) return;
     if (!this.recording) return;
 
     if (this.transaction && this.updateSnapshots.has(element.id)) {
@@ -105,7 +112,8 @@ export class HistoryRecorder {
     this.record(new RemoveElementCommand(element));
   }
 
-  private onUpdate(previous: CanvasElement, current: CanvasElement): void {
+  private onUpdate(previous: CanvasElement, current: CanvasElement, meta: EventMeta): void {
+    if (isExternalChange(meta)) return;
     if (!this.recording) return;
 
     if (this.transaction) {

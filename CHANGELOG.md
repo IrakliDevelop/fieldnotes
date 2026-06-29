@@ -4,6 +4,16 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.46.0] — 2026-06-29
+
+### Added
+
+- Store changes can carry an optional `origin` (`ElementChangeMeta`): `store.add/update/remove/clear/
+loadSnapshot` accept a trailing `{ origin }`. A change with a non-local origin (e.g. `'remote'`) is
+  excluded from undo history and is surfaced to `store.on(...)` listeners via a second `meta` argument,
+  so external/synced changes don't pollute undo or echo back. Foundation for real-time collaboration;
+  no behavior change for existing callers (default origin is local).
+
 ## [0.45.0] — 2026-06-28
 
 ### Added

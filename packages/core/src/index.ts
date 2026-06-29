@@ -1,4 +1,4 @@
-export const VERSION = '0.45.0';
+export const VERSION = '0.46.0';
 
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
 export { snapPoint, smartSnap, snapToHexCenter } from './core/snap';
@@ -25,6 +25,7 @@ export type { RenderStatsSnapshot } from './canvas/render-stats';
 
 export { ElementStore } from './elements/element-store';
 export type { ElementUpdateEvent } from './elements/element-store';
+export type { ElementChangeMeta } from './elements/element-store';
 export type { FontSizePreset } from './elements/note-toolbar';
 export {
   toggleBold,

@@ -15,7 +15,38 @@ describe('EventBus', () => {
     bus.on('click', listener);
     bus.emit('click', { x: 10, y: 20 });
 
-    expect(listener).toHaveBeenCalledWith({ x: 10, y: 20 });
+    expect(listener).toHaveBeenCalledWith({ x: 10, y: 20 }, expect.anything());
+  });
+
+  it('delivers meta to listeners when provided', () => {
+    const bus = new EventBus<TestEvents>();
+    const listener = vi.fn();
+
+    bus.on('click', listener);
+    bus.emit('click', { x: 1, y: 2 }, { origin: 'remote' });
+
+    expect(listener).toHaveBeenCalledWith({ x: 1, y: 2 }, { origin: 'remote' });
+  });
+
+  it('delivers meta with undefined origin when no meta is provided', () => {
+    const bus = new EventBus<TestEvents>();
+    const listener = vi.fn();
+
+    bus.on('click', listener);
+    bus.emit('click', { x: 1, y: 2 });
+
+    const meta = listener.mock.calls[0]?.[1] as { origin?: string };
+    expect(meta.origin).toBeUndefined();
+  });
+
+  it('still calls a single-arg listener', () => {
+    const bus = new EventBus<TestEvents>();
+    let received: { x: number; y: number } | null = null;
+    bus.on('click', (data) => {
+      received = data;
+    });
+    bus.emit('click', { x: 5, y: 6 }, { origin: 'remote' });
+    expect(received).toEqual({ x: 5, y: 6 });
   });
 
   it('supports multiple listeners for same event', () => {
@@ -94,7 +125,7 @@ describe('EventBus', () => {
     bus.on('click', second);
 
     expect(() => bus.emit('click', { x: 1, y: 2 })).not.toThrow();
-    expect(second).toHaveBeenCalledWith({ x: 1, y: 2 });
+    expect(second).toHaveBeenCalledWith({ x: 1, y: 2 }, expect.anything());
     errorSpy.mockRestore();
   });
 

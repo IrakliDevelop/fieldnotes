@@ -13,6 +13,15 @@ export interface ElementUpdateEvent {
   current: CanvasElement;
 }
 
+export interface ElementChangeMeta {
+  /**
+   * Identifies what caused the change. `undefined` or `'local'` = a local change (recorded to undo
+   * history and observed as local). Any other value (e.g. `'remote'`) marks an externally-applied
+   * change: it is NOT recorded to undo history, and is tagged so observers can avoid re-broadcasting it.
+   */
+  origin?: string;
+}
+
 interface ElementStoreEvents {
   add: CanvasElement;
   remove: CanvasElement;
@@ -71,16 +80,16 @@ export class ElementStore {
     return angle === 0 ? bounds : rotatedAABB(bounds, angle);
   }
 
-  add(element: CanvasElement): void {
+  add(element: CanvasElement, meta?: ElementChangeMeta): void {
     this.sortedCache = null;
     this._versions.set(element.id, 0);
     this.elements.set(element.id, element);
     const bounds = this.indexBounds(element);
     if (bounds) this.spatialIndex.insert(element.id, bounds);
-    this.bus.emit('add', element);
+    this.bus.emit('add', element, meta);
   }
 
-  update(id: string, partial: Partial<CanvasElement>): void {
+  update(id: string, partial: Partial<CanvasElement>, meta?: ElementChangeMeta): void {
     const existing = this.elements.get(id);
     if (!existing) return;
     this.sortedCache = null;
@@ -116,10 +125,10 @@ export class ElementStore {
       this.spatialIndex.update(id, newBounds);
     }
 
-    this.bus.emit('update', { previous: existing, current: updated });
+    this.bus.emit('update', { previous: existing, current: updated }, meta);
   }
 
-  remove(id: string): void {
+  remove(id: string, meta?: ElementChangeMeta): void {
     const element = this.elements.get(id);
     if (!element) return;
     this.sortedCache = null;
@@ -127,22 +136,22 @@ export class ElementStore {
 
     this.elements.delete(id);
     this.spatialIndex.remove(id);
-    this.bus.emit('remove', element);
+    this.bus.emit('remove', element, meta);
   }
 
-  clear(): void {
+  clear(meta?: ElementChangeMeta): void {
     this.sortedCache = null;
     this._versions.clear();
     this.elements.clear();
     this.spatialIndex.clear();
-    this.bus.emit('clear', null);
+    this.bus.emit('clear', null, meta);
   }
 
   snapshot(): CanvasElement[] {
     return this.getAll().map((el) => ({ ...el }));
   }
 
-  loadSnapshot(elements: CanvasElement[]): void {
+  loadSnapshot(elements: CanvasElement[], meta?: ElementChangeMeta): void {
     this.sortedCache = null;
     this._versions.clear();
     this.elements.clear();
@@ -159,9 +168,9 @@ export class ElementStore {
         el.cachedControlPoint = getArrowControlPoint(el.from, el.to, el.bend);
       }
     }
-    this.bus.emit('clear', null);
+    this.bus.emit('clear', null, meta);
     for (const el of elements) {
-      this.bus.emit('add', el);
+      this.bus.emit('add', el, meta);
     }
   }
 
@@ -242,7 +251,7 @@ export class ElementStore {
 
   on<K extends keyof ElementStoreEvents>(
     event: K,
-    listener: (data: ElementStoreEvents[K]) => void,
+    listener: (data: ElementStoreEvents[K], meta: ElementChangeMeta) => void,
   ): () => void {
     return this.bus.on(event, listener);
   }
