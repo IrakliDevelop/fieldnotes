@@ -38,7 +38,18 @@ export class SyncHub {
     const conn = this.conns.get(connId);
     if (!conn) return;
     this.conns.delete(connId);
-    this.rooms.get(conn.room)?.delete(connId);
+    const members = this.rooms.get(conn.room);
+    if (members) {
+      members.delete(connId);
+      if (members.size === 0) {
+        this.rooms.delete(conn.room);
+        this.roomQueues.delete(conn.room);
+      }
+    }
+  }
+
+  roomCount(): number {
+    return this.rooms.size;
   }
 
   handleMessage(connId: string, message: string): Promise<void> {

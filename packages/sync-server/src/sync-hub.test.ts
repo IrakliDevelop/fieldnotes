@@ -107,6 +107,15 @@ describe('SyncHub', () => {
     expect(B.sent).toEqual([]);
   });
 
+  it('drops room state when the last member of a room leaves', async () => {
+    // A + B in room R, C in R2 → two live rooms.
+    expect(hub.roomCount()).toBe(2);
+    hub.removeConnection('A');
+    expect(hub.roomCount()).toBe(2); // B still in R, R2 still has C
+    hub.removeConnection('B');
+    expect(hub.roomCount()).toBe(1); // R emptied and dropped, only R2 remains
+  });
+
   describe('per-room serial queue', () => {
     class DeferredBackend implements HubBackend {
       calls: string[] = [];
