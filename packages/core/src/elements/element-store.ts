@@ -1,4 +1,4 @@
-import { EventBus, type EventMeta } from '../core/event-bus';
+import { EventBus } from '../core/event-bus';
 import type { Bounds, Point } from '../core/types';
 import { Quadtree } from '../core/quadtree';
 import { rotatedAABB } from '../core/geometry';
@@ -251,7 +251,7 @@ export class ElementStore {
 
   on<K extends keyof ElementStoreEvents>(
     event: K,
-    listener: (data: ElementStoreEvents[K], meta: EventMeta) => void,
+    listener: (data: ElementStoreEvents[K], meta: ElementChangeMeta) => void,
   ): () => void {
     return this.bus.on(event, listener);
   }
