@@ -631,9 +631,11 @@ guideBtn?.addEventListener('click', () => {
   if (guideBtn) guideBtn.textContent = viewport.smartGuides ? 'Guides: On' : 'Guides: Off';
 });
 
-// Real-time sync (B1): open this demo in two tabs and toggle Sync in both to see live updates.
+// Real-time sync: open this demo in two tabs and toggle Sync in both to see live updates.
+// Snapshot-on-join now works — a tab that toggles Sync into an in-progress session pulls the
+// current state from a peer and merges it in, so it no longer starts empty.
 // Only toggle AFTER the autosave restore above has run — do NOT loadSnapshot while sync is
-// active; that would broadcast the whole canvas. Snapshot-on-join lands in B2.
+// active; that would broadcast the whole canvas (we use upsert-merge, not loadSnapshot).
 const syncBtn = document.getElementById('sync-toggle') as HTMLButtonElement | null;
 let syncClient: SyncClient | null = null;
 let syncTransport: BroadcastChannelTransport | null = null;

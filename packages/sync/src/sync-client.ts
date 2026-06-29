@@ -4,7 +4,9 @@ import type { SyncTransport } from './sync-transport';
 export type SyncOp =
   | { kind: 'upsert'; element: CanvasElement }
   | { kind: 'remove'; id: string }
-  | { kind: 'clear' };
+  | { kind: 'clear' }
+  | { kind: 'request-snapshot' }
+  | { kind: 'snapshot'; to: string; elements: CanvasElement[] };
 
 interface SyncEnvelope {
   from: string;
@@ -25,9 +27,14 @@ function isExternal(origin: string | undefined): boolean {
 
 function isValidEnvelope(env: unknown): env is SyncEnvelope {
   if (typeof env !== 'object' || env === null) return false;
-  const e = env as { from?: unknown; op?: { kind?: unknown } };
+  const e = env as { from?: unknown; op?: { kind?: unknown; to?: unknown; elements?: unknown } };
   if (typeof e.from !== 'string' || typeof e.op !== 'object' || e.op === null) return false;
-  return e.op.kind === 'upsert' || e.op.kind === 'remove' || e.op.kind === 'clear';
+  const kind = e.op.kind;
+  if (kind === 'upsert' || kind === 'remove' || kind === 'clear' || kind === 'request-snapshot') {
+    return true;
+  }
+  if (kind === 'snapshot') return typeof e.op.to === 'string' && Array.isArray(e.op.elements);
+  return false;
 }
 
 function randomId(): string {
@@ -66,6 +73,9 @@ export class SyncClient {
       this.store.on('clear', (_data, meta) => this.onLocal({ kind: 'clear' }, meta.origin)),
       this.transport.onMessage((msg) => this.onRemote(msg)),
     ];
+    // MUST be last: a synchronous bus delivers the peer's reply reentrantly, so the
+    // onMessage receive handler above must already be wired before we request.
+    this.sendOp({ kind: 'request-snapshot' });
   }
 
   stop(): void {
@@ -75,10 +85,13 @@ export class SyncClient {
     this.unsubscribers = [];
   }
 
+  private sendOp(op: SyncOp): void {
+    this.transport.send(JSON.stringify({ from: this.clientId, op }));
+  }
+
   private onLocal(op: SyncOp, origin: string | undefined): void {
     if (isExternal(origin)) return; // applied remote ops must not re-broadcast
-    const envelope: SyncEnvelope = { from: this.clientId, op };
-    this.transport.send(JSON.stringify(envelope));
+    this.sendOp(op);
   }
 
   private onRemote(message: string): void {
@@ -89,7 +102,17 @@ export class SyncClient {
       return; // malformed (incl. empty string) — ignore
     }
     if (!isValidEnvelope(env) || env.from === this.clientId) return; // ignore invalid + own echo
-    this.applyOp(env.op);
+    const op = env.op;
+    if (op.kind === 'request-snapshot') {
+      this.sendOp({ kind: 'snapshot', to: env.from, elements: this.store.snapshot() });
+    } else if (op.kind === 'snapshot') {
+      if (op.to !== this.clientId) return; // not addressed to us
+      for (const el of op.elements) {
+        if (el && typeof el.id === 'string') this.applyOp({ kind: 'upsert', element: el });
+      }
+    } else {
+      this.applyOp(op); // narrows to upsert | remove | clear
+    }
   }
 
   private applyOp(op: SyncOp): void {
@@ -105,6 +128,8 @@ export class SyncClient {
     } else if (op.kind === 'clear') {
       this.store.clear({ origin: REMOTE_ORIGIN });
     }
-    // exhaustive over SyncOp; unknown kinds are filtered out in onRemote (forward-compat: ignored, never destructive)
+    // applyOp handles the data ops only (upsert/remove/clear). The control ops
+    // (request-snapshot/snapshot) are dispatched in onRemote; unknown kinds are filtered by
+    // isValidEnvelope — so no destructive default here.
   }
 }
