@@ -128,6 +128,8 @@ export class SyncClient {
     } else if (op.kind === 'clear') {
       this.store.clear({ origin: REMOTE_ORIGIN });
     }
-    // exhaustive over SyncOp; unknown kinds are filtered out in onRemote (forward-compat: ignored, never destructive)
+    // applyOp handles the data ops only (upsert/remove/clear). The control ops
+    // (request-snapshot/snapshot) are dispatched in onRemote; unknown kinds are filtered by
+    // isValidEnvelope — so no destructive default here.
   }
 }

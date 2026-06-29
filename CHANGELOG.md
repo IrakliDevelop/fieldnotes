@@ -4,6 +4,15 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [@fieldnotes/sync 0.2.0] — 2026-06-29
+
+### Added
+
+- Snapshot-on-join: a `SyncClient` that joins an in-progress session now pulls the current state from a
+  peer (a `request-snapshot` → `snapshot` round-trip) and merges it in, instead of starting empty. New
+  `SyncOp` control variants (`request-snapshot`, `snapshot`). Still BroadcastChannel-only; a server-held
+  canonical snapshot comes with the relay transport.
+
 ## [@fieldnotes/sync 0.1.0] — 2026-06-29
 
 ### Added
