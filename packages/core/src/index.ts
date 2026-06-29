@@ -25,6 +25,7 @@ export type { RenderStatsSnapshot } from './canvas/render-stats';
 
 export { ElementStore } from './elements/element-store';
 export type { ElementUpdateEvent } from './elements/element-store';
+export type { ElementChangeMeta } from './elements/element-store';
 export type { FontSizePreset } from './elements/note-toolbar';
 export {
   toggleBold,

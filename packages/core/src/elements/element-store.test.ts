@@ -172,7 +172,7 @@ describe('ElementStore', () => {
 
       const note = makeNote();
       store.add(note);
-      expect(listener).toHaveBeenCalledWith(note);
+      expect(listener).toHaveBeenCalledWith(note, expect.anything());
     });
 
     it('emits remove event', () => {
@@ -183,7 +183,7 @@ describe('ElementStore', () => {
       const note = makeNote();
       store.add(note);
       store.remove('note-1');
-      expect(listener).toHaveBeenCalledWith(note);
+      expect(listener).toHaveBeenCalledWith(note, expect.anything());
     });
 
     it('emits update event with previous and current element', () => {
@@ -493,8 +493,8 @@ describe('ElementStore', () => {
       store.loadSnapshot([note, stroke]);
 
       expect(listener).toHaveBeenCalledTimes(2);
-      expect(listener).toHaveBeenCalledWith(note);
-      expect(listener).toHaveBeenCalledWith(stroke);
+      expect(listener).toHaveBeenCalledWith(note, expect.anything());
+      expect(listener).toHaveBeenCalledWith(stroke, expect.anything());
     });
 
     it('fires onChange during loadSnapshot', () => {
@@ -525,6 +525,91 @@ describe('ElementStore', () => {
 
       store.loadSnapshot([makeNote({ id: 'n1' }), makeStroke({ id: 's1' })]);
       expect(countDuringClear).toBe(2);
+    });
+  });
+
+  describe('change origin meta', () => {
+    it('forwards origin to add listeners', () => {
+      const store = new ElementStore();
+      const listener = vi.fn();
+      store.on('add', listener);
+      store.add(makeNote(), { origin: 'remote' });
+      const meta = listener.mock.calls[0]?.[1] as { origin?: string };
+      expect(meta.origin).toBe('remote');
+    });
+
+    it('add with no meta has undefined origin', () => {
+      const store = new ElementStore();
+      const listener = vi.fn();
+      store.on('add', listener);
+      store.add(makeNote());
+      const meta = listener.mock.calls[0]?.[1] as { origin?: string };
+      expect(meta.origin).toBeUndefined();
+    });
+
+    it('forwards origin to update listeners', () => {
+      const store = new ElementStore();
+      store.add(makeNote());
+      const listener = vi.fn();
+      store.on('update', listener);
+      store.update('note-1', { text: 'X' }, { origin: 'remote' });
+      const meta = listener.mock.calls[0]?.[1] as { origin?: string };
+      expect(meta.origin).toBe('remote');
+    });
+
+    it('update with no meta has undefined origin', () => {
+      const store = new ElementStore();
+      store.add(makeNote());
+      const listener = vi.fn();
+      store.on('update', listener);
+      store.update('note-1', { text: 'X' });
+      const meta = listener.mock.calls[0]?.[1] as { origin?: string };
+      expect(meta.origin).toBeUndefined();
+    });
+
+    it('forwards origin to remove listeners', () => {
+      const store = new ElementStore();
+      store.add(makeNote());
+      const listener = vi.fn();
+      store.on('remove', listener);
+      store.remove('note-1', { origin: 'remote' });
+      const meta = listener.mock.calls[0]?.[1] as { origin?: string };
+      expect(meta.origin).toBe('remote');
+    });
+
+    it('forwards origin to clear listeners', () => {
+      const store = new ElementStore();
+      store.add(makeNote());
+      const listener = vi.fn();
+      store.on('clear', listener);
+      store.clear({ origin: 'remote' });
+      const meta = listener.mock.calls[0]?.[1] as { origin?: string };
+      expect(meta.origin).toBe('remote');
+    });
+
+    it('still calls a single-arg listener after a tagged mutation', () => {
+      const store = new ElementStore();
+      let calls = 0;
+      store.on('add', (_data) => {
+        calls += 1;
+      });
+      store.add(makeNote(), { origin: 'remote' });
+      expect(calls).toBe(1);
+    });
+
+    it('forwards origin to both clear and add during loadSnapshot', () => {
+      const store = new ElementStore();
+      const clearListener = vi.fn();
+      const addListener = vi.fn();
+      store.on('clear', clearListener);
+      store.on('add', addListener);
+
+      store.loadSnapshot([makeNote({ id: 'n1' })], { origin: 'remote' });
+
+      const clearMeta = clearListener.mock.calls[0]?.[1] as { origin?: string };
+      const addMeta = addListener.mock.calls[0]?.[1] as { origin?: string };
+      expect(clearMeta.origin).toBe('remote');
+      expect(addMeta.origin).toBe('remote');
     });
   });
 

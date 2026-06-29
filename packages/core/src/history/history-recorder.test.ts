@@ -162,6 +162,78 @@ describe('HistoryRecorder', () => {
     expect(store.count).toBe(0);
   });
 
+  describe('external (origin-tagged) changes', () => {
+    it('does not record a remote update', () => {
+      const { store, stack } = setup();
+      const note = createNote({ position: { x: 0, y: 0 } });
+      store.add(note); // local, records 1
+
+      store.update(note.id, { position: { x: 99, y: 99 } }, { origin: 'remote' });
+
+      // Remote update is NOT recorded — stack length unchanged
+      expect(stack.undoCount).toBe(1);
+      // Undo reverts the LOCAL add, not the remote update
+      stack.undo(store);
+      expect(store.count).toBe(0);
+    });
+
+    it('does not record a remote add', () => {
+      const { store, stack } = setup();
+      store.add(createNote({ position: { x: 0, y: 0 } }), { origin: 'remote' });
+      expect(stack.undoCount).toBe(0);
+    });
+
+    it('does not record a remote remove', () => {
+      const { store, stack } = setup();
+      const note = createNote({ position: { x: 0, y: 0 } });
+      store.add(note); // local, records 1
+      store.remove(note.id, { origin: 'remote' });
+
+      expect(stack.undoCount).toBe(1); // remove not recorded
+      stack.undo(store); // undoes the add
+      expect(store.count).toBe(0);
+    });
+
+    it('still records a local update (no origin)', () => {
+      const { store, stack } = setup();
+      const note = createNote({ position: { x: 0, y: 0 } });
+      store.add(note);
+      store.update(note.id, { position: { x: 50, y: 50 } });
+
+      expect(stack.undoCount).toBe(2);
+      stack.undo(store);
+      expect(store.getById(note.id)?.position).toEqual({ x: 0, y: 0 });
+    });
+
+    it("treats origin 'local' as a local change (recorded)", () => {
+      const { store, stack } = setup();
+      const note = createNote({ position: { x: 0, y: 0 } });
+      store.add(note, { origin: 'local' });
+      expect(stack.undoCount).toBe(1);
+    });
+
+    it('excludes a remote change inside an open transaction', () => {
+      const { store, stack, recorder } = setup();
+      const a = createNote({ position: { x: 0, y: 0 } });
+      const b = createNote({ position: { x: 100, y: 100 } });
+      store.add(a);
+      store.add(b);
+      const aBefore = store.getById(a.id)?.position;
+
+      recorder.begin();
+      store.update(a.id, { position: { x: 10, y: 10 } }); // local
+      store.update(b.id, { position: { x: 200, y: 200 } }, { origin: 'remote' }); // remote
+      recorder.commit();
+
+      // One step pushed (the local A update); commit holds ONLY A's change
+      const undoBefore = stack.undoCount;
+      stack.undo(store);
+      expect(store.getById(a.id)?.position).toEqual(aBefore); // A reverted
+      expect(store.getById(b.id)?.position).toEqual({ x: 200, y: 200 }); // B untouched by undo
+      expect(undoBefore).toBe(3); // add a, add b, the committed local update
+    });
+  });
+
   describe('currentTransactionId', () => {
     it('is null outside a transaction', () => {
       const store = new ElementStore();
