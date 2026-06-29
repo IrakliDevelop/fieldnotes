@@ -151,9 +151,35 @@ describe('SyncClient', () => {
     const client = new SyncClient({ store, transport, clientId: 'A' });
     client.start();
 
+    let ownEchoApplied = false;
+    const markRemote = (_d: unknown, meta: ElementChangeMeta): void => {
+      if (meta.origin === 'remote') ownEchoApplied = true;
+    };
+    store.on('add', markRemote);
+    store.on('update', markRemote);
+
     expect(() => store.add(createNote({ position: { x: 0, y: 0 } }))).not.toThrow();
 
+    // With the from===clientId guard, A never re-applies its own echo as remote.
+    expect(ownEchoApplied).toBe(false);
     expect(store.count).toBe(1);
+  });
+
+  it('ignores valid-JSON envelopes with an unknown op kind or wrong shape (never clears)', () => {
+    const existing = createNote({ position: { x: 0, y: 0 } });
+    storeA.add(existing);
+    expect(storeB.getById(existing.id)).toBeDefined();
+    const before = storeB.count;
+
+    // Unknown op kind must NOT fall through to a destructive clear.
+    expect(() =>
+      transportA.send(JSON.stringify({ from: 'X', op: { kind: 'bogus' } })),
+    ).not.toThrow();
+    // Wrong shape (no op) must not reach applyOp and throw.
+    expect(() => transportA.send(JSON.stringify({ from: 'X' }))).not.toThrow();
+
+    expect(storeB.count).toBe(before);
+    expect(storeB.getById(existing.id)).toBeDefined();
   });
 
   it('stops sending after stop() and tolerates a double stop', () => {

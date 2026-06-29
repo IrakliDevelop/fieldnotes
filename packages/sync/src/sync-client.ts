@@ -23,6 +23,13 @@ function isExternal(origin: string | undefined): boolean {
   return origin !== undefined && origin !== 'local';
 }
 
+function isValidEnvelope(env: unknown): env is SyncEnvelope {
+  if (typeof env !== 'object' || env === null) return false;
+  const e = env as { from?: unknown; op?: { kind?: unknown } };
+  if (typeof e.from !== 'string' || typeof e.op !== 'object' || e.op === null) return false;
+  return e.op.kind === 'upsert' || e.op.kind === 'remove' || e.op.kind === 'clear';
+}
+
 function randomId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
@@ -75,13 +82,13 @@ export class SyncClient {
   }
 
   private onRemote(message: string): void {
-    let env: SyncEnvelope;
+    let env: unknown;
     try {
-      env = JSON.parse(message) as SyncEnvelope;
+      env = JSON.parse(message);
     } catch {
       return; // malformed (incl. empty string) — ignore
     }
-    if (!env || env.from === this.clientId) return; // ignore own echo
+    if (!isValidEnvelope(env) || env.from === this.clientId) return; // ignore invalid + own echo
     this.applyOp(env.op);
   }
 
@@ -95,8 +102,9 @@ export class SyncClient {
       }
     } else if (op.kind === 'remove') {
       this.store.remove(op.id, { origin: REMOTE_ORIGIN });
-    } else {
+    } else if (op.kind === 'clear') {
       this.store.clear({ origin: REMOTE_ORIGIN });
     }
+    // exhaustive over SyncOp; unknown kinds are filtered out in onRemote (forward-compat: ignored, never destructive)
   }
 }
