@@ -4,6 +4,16 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [@fieldnotes/sync 0.1.0] — 2026-06-29
+
+### Added
+
+- New package `@fieldnotes/sync`: real-time element sync. `SyncClient` streams local store changes and
+  applies remote ones — using core 0.46.0's `origin` hook so synced changes don't pollute undo or echo
+  back. `SyncTransport` is a pluggable seam with a zero-infra `BroadcastChannelTransport` (same-browser
+  tabs). The demo has a Sync toggle (open it in two tabs to see live sync). (WebSocket transport + relay,
+  snapshot-on-join, and permissions are upcoming.)
+
 ## [0.46.0] — 2026-06-29
 
 ### Added

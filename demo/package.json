@@ -8,7 +8,8 @@
     "build": "vite build"
   },
   "dependencies": {
-    "@fieldnotes/core": "workspace:*"
+    "@fieldnotes/core": "workspace:*",
+    "@fieldnotes/sync": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.9.3",

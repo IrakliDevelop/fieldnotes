@@ -19,6 +19,7 @@ import {
   createGrid,
 } from '@fieldnotes/core';
 import type { AlignEdge, DistributeAxis } from '@fieldnotes/core';
+import { SyncClient, BroadcastChannelTransport } from '@fieldnotes/sync';
 
 console.log(`Field Notes v${VERSION}`);
 
@@ -628,6 +629,32 @@ const guideBtn = document.getElementById('guide-toggle') as HTMLButtonElement | 
 guideBtn?.addEventListener('click', () => {
   viewport.setSmartGuides(!viewport.smartGuides);
   if (guideBtn) guideBtn.textContent = viewport.smartGuides ? 'Guides: On' : 'Guides: Off';
+});
+
+// Real-time sync (B1): open this demo in two tabs and toggle Sync in both to see live updates.
+// Only toggle AFTER the autosave restore above has run — do NOT loadSnapshot while sync is
+// active; that would broadcast the whole canvas. Snapshot-on-join lands in B2.
+const syncBtn = document.getElementById('sync-toggle') as HTMLButtonElement | null;
+let syncClient: SyncClient | null = null;
+let syncTransport: BroadcastChannelTransport | null = null;
+
+syncBtn?.addEventListener('click', () => {
+  if (syncClient) {
+    syncClient.stop();
+    syncTransport?.close();
+    syncClient = null;
+    syncTransport = null;
+    syncBtn.textContent = 'Sync: Off';
+    syncBtn.setAttribute('aria-pressed', 'false');
+    syncBtn.classList.remove('active');
+  } else {
+    syncTransport = new BroadcastChannelTransport('fieldnotes-demo-sync');
+    syncClient = new SyncClient({ store: viewport.store, transport: syncTransport });
+    syncClient.start();
+    syncBtn.textContent = 'Sync: On';
+    syncBtn.setAttribute('aria-pressed', 'true');
+    syncBtn.classList.add('active');
+  }
 });
 
 document.getElementById('save')?.addEventListener('click', () => {

@@ -37,6 +37,9 @@ importers:
       '@fieldnotes/core':
         specifier: workspace:*
         version: link:../packages/core
+      '@fieldnotes/sync':
+        specifier: workspace:*
+        version: link:../packages/sync
     devDependencies:
       typescript:
         specifier: ^5.9.3
