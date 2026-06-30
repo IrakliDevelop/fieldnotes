@@ -505,4 +505,50 @@ describe('SyncClient resync-on-reconnect', () => {
     expect(store.count).toBe(2);
     expect(store.getById(local.id)).toBeDefined();
   });
+
+  it('shields a local CREATE made during an in-flight resync (snapshot omits it)', () => {
+    const store = new ElementStore();
+    const transport = makeReconnectTransport();
+    const x = shape(1);
+    const client = new SyncClient({ store, transport, clientId: 'B' });
+    client.start();
+    // Establish joined state with X.
+    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'B', elements: [x] }));
+
+    // Reconnect: request goes out, then BEFORE the reply the user creates Q locally.
+    transport.triggerReconnect();
+    const q = shape(42);
+    store.add(q); // origin local -> onLocal records q in the resync window
+
+    // The authoritative snapshot was taken before Q reached the hub, so it omits Q.
+    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'B', elements: [x] }));
+
+    // Q must survive the reconcile (the hub + peers already have it via the local broadcast).
+    expect(store.getById(q.id)).toBeDefined();
+    expect(store.getById(x.id)).toBeDefined();
+    expect(store.count).toBe(2);
+  });
+
+  it('shields a local DELETE made during an in-flight resync (snapshot still contains it)', () => {
+    const store = new ElementStore();
+    const transport = makeReconnectTransport();
+    const x = shape(1);
+    const w = shape(77);
+    const client = new SyncClient({ store, transport, clientId: 'B' });
+    client.start();
+    // Establish joined state with X and W.
+    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'B', elements: [x, w] }));
+
+    // Reconnect: request goes out, then BEFORE the reply the user deletes W locally.
+    transport.triggerReconnect();
+    store.remove(w.id); // origin local -> onLocal records w in the resync window
+
+    // The pre-delete snapshot still contains W.
+    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'B', elements: [x, w] }));
+
+    // W must stay deleted (the shield skips re-upserting it).
+    expect(store.getById(w.id)).toBeUndefined();
+    expect(store.getById(x.id)).toBeDefined();
+    expect(store.count).toBe(1);
+  });
 });

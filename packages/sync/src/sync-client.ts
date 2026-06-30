@@ -28,6 +28,8 @@ export class SyncClient {
   private unsubscribers: (() => void)[] = [];
   private started = false;
   private joined = false;
+  private resyncPending = false;
+  private readonly touchedDuringResync = new Set<string>();
 
   constructor(options: SyncClientOptions) {
     this.store = options.store;
@@ -60,6 +62,8 @@ export class SyncClient {
   }
 
   private onReconnect(): void {
+    this.resyncPending = true;
+    this.touchedDuringResync.clear();
     this.sendOp({ kind: 'request-snapshot' });
   }
 
@@ -76,6 +80,11 @@ export class SyncClient {
 
   private onLocal(op: SyncOp, origin: string | undefined): void {
     if (isExternal(origin)) return; // applied remote ops must not re-broadcast
+    if (this.resyncPending) {
+      if (op.kind === 'upsert') this.touchedDuringResync.add(op.element.id);
+      else if (op.kind === 'remove') this.touchedDuringResync.add(op.id);
+      // 'clear' during a resync window is not shielded (whole-store, rare) — acceptable
+    }
     this.sendOp(op);
   }
 
@@ -125,8 +134,15 @@ export class SyncClient {
     const valid = elements.filter(isValidElement);
     const keep = new Set(valid.map((e) => e.id));
     for (const local of this.store.snapshot()) {
-      if (!keep.has(local.id)) this.store.remove(local.id, { origin: REMOTE_ORIGIN });
+      if (!keep.has(local.id) && !this.touchedDuringResync.has(local.id)) {
+        this.store.remove(local.id, { origin: REMOTE_ORIGIN }); // deleted-while-away (and not re-created locally)
+      }
     }
-    for (const el of valid) this.applyOp({ kind: 'upsert', element: el });
+    for (const el of valid) {
+      if (this.touchedDuringResync.has(el.id)) continue; // local edit is newer + already sent to the hub
+      this.applyOp({ kind: 'upsert', element: el });
+    }
+    this.resyncPending = false;
+    this.touchedDuringResync.clear();
   }
 }
