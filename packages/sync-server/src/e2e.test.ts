@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { WebSocket as WsClient } from 'ws';
 import type { AddressInfo } from 'net';
 import { SyncClient, WebSocketTransport } from '@fieldnotes/sync';
+import type { WebSocketTransportOptions } from '@fieldnotes/sync';
 import { ElementStore, createShape } from '@fieldnotes/core';
 import { MemoryHubBackend } from './memory-hub-backend';
 import { createSyncServer } from './create-sync-server';
@@ -41,9 +42,14 @@ describe('sync-server WebSocket relay (end-to-end)', () => {
     return { server, hub: server.hub, port, backend };
   }
 
-  function connect(port: number, room: string): ConnectedClient {
+  function connect(
+    port: number,
+    room: string,
+    options: Partial<WebSocketTransportOptions> = {},
+  ): ConnectedClient {
     const transport = new WebSocketTransport(`ws://127.0.0.1:${port}?room=${room}`, {
       WebSocket: WsClient as unknown as typeof WebSocket,
+      ...options,
     });
     transports.push(transport);
     const store = new ElementStore();
@@ -124,5 +130,71 @@ describe('sync-server WebSocket relay (end-to-end)', () => {
     expect(c.store.count).toBe(0);
     expect(c.store.getById(seed.id)).toBeUndefined();
     expect(c.store.getById(live.id)).toBeUndefined();
+  }, 10000);
+
+  // Short reconnect delays keep the test fast; deterministic jitter via random: () => 0.5.
+  const RECONNECT_OPTS: Partial<WebSocketTransportOptions> = {
+    reconnectInitialDelayMs: 20,
+    reconnectMaxDelayMs: 50,
+    random: () => 0.5,
+  };
+
+  it('reconnects after an unexpected drop and resumes live sync', async () => {
+    const { server, port } = startServer();
+
+    // Capture server-side sockets in connection order so we can force a real network
+    // drop by closing the server end (transport.close() would suppress reconnect).
+    const sockets: WsClient[] = [];
+    server.wss.on('connection', (ws) => sockets.push(ws));
+
+    const a = connect(port, 'R', RECONNECT_OPTS);
+    await waitFor(() => sockets.length === 1);
+    const b = connect(port, 'R', RECONNECT_OPTS);
+    await waitFor(() => sockets.length === 2);
+
+    const shared = shape();
+    a.store.add(shared);
+    await waitFor(() => b.store.getById(shared.id) !== undefined);
+
+    // Drop BOTH clients by closing their server-side sockets; each transport auto-reconnects.
+    for (const ws of sockets) ws.close();
+    await waitFor(() => sockets.length >= 4);
+
+    // A live op can only reach B if the real sockets re-opened end-to-end after reconnect.
+    const post = shape();
+    a.store.add(post);
+    await waitFor(() => b.store.getById(post.id) !== undefined);
+
+    expect(b.store.getById(post.id)).toBeDefined();
+  }, 10000);
+
+  it('reconciles a deletion missed during the outage on reconnect', async () => {
+    const { server, port, backend } = startServer();
+
+    const sockets: WsClient[] = [];
+    server.wss.on('connection', (ws) => sockets.push(ws));
+
+    // A uses the default transport and stays connected; only B will be dropped.
+    const a = connect(port, 'R');
+    await waitFor(() => sockets.length === 1);
+    const b = connect(port, 'R', RECONNECT_OPTS);
+    await waitFor(() => sockets.length === 2);
+
+    const shared = shape();
+    a.store.add(shared);
+    await waitFor(() => b.store.getById(shared.id) !== undefined);
+
+    // Drop ONLY B (its server-side socket is sockets[1]); A remains live.
+    sockets[1]?.close();
+
+    // While B is away, A deletes the shared element — B never sees the live remove.
+    a.store.remove(shared.id);
+    await waitFor(async () => !(await backend.snapshot('R')).some((e) => e.id === shared.id));
+
+    // B reconnects, resyncs against the authoritative snapshot, and the deletion is
+    // reconciled away. A merge would have KEPT 'shared'; replace-reconcile removes it.
+    await waitFor(() => sockets.length >= 3 && b.store.getById(shared.id) === undefined);
+
+    expect(b.store.getById(shared.id)).toBeUndefined();
   }, 10000);
 });

@@ -4,6 +4,20 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [@fieldnotes/sync 0.4.0] — 2026-06-30
+
+### Added
+
+- `WebSocketTransport` auto-reconnect — on an unexpected drop it reconnects with exponential backoff +
+  jitter (capped, forever until `close()`), buffering outgoing messages during the outage and flushing
+  them in order on reconnect. New `WebSocketTransportOptions`: `reconnect`, `reconnectInitialDelayMs`,
+  `reconnectMaxDelayMs`, `reconnectFactor`, `maxBufferSize`, `random`.
+- `SyncTransport.onReconnect?` (optional) — fired after a successful re-open.
+- `SyncClient` resync-on-reconnect — re-requests a snapshot and reconciles against the authoritative hub
+  state (upserts canonical elements, removes local elements no longer present), recovering changes missed
+  during the outage including deletions. Local edits made during the brief resync window are shielded from
+  the reconcile. The initial-join merge is unchanged.
+
 ## [@fieldnotes/sync 0.3.0] — 2026-06-30
 
 ### Added

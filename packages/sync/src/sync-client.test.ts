@@ -348,3 +348,207 @@ describe('SyncClient snapshot-on-join', () => {
     expect(resp.elements).toEqual(storeA.snapshot());
   });
 });
+
+interface ReconnectTransport extends SyncTransport {
+  sent: string[];
+  deliver(message: string): void;
+  triggerReconnect(): void;
+}
+
+function makeReconnectTransport(): ReconnectTransport {
+  const messageHandlers = new Set<(m: string) => void>();
+  const reconnectHandlers = new Set<() => void>();
+  const sent: string[] = [];
+  return {
+    sent,
+    send(message: string): void {
+      sent.push(message);
+    },
+    onMessage(handler: (m: string) => void): () => void {
+      messageHandlers.add(handler);
+      return () => messageHandlers.delete(handler);
+    },
+    onReconnect(handler: () => void): () => void {
+      reconnectHandlers.add(handler);
+      return () => reconnectHandlers.delete(handler);
+    },
+    close(): void {
+      messageHandlers.clear();
+      reconnectHandlers.clear();
+    },
+    deliver(message: string): void {
+      messageHandlers.forEach((h) => h(message));
+    },
+    triggerReconnect(): void {
+      reconnectHandlers.forEach((h) => h());
+    },
+  };
+}
+
+function sentKinds(sent: string[]): string[] {
+  return sent.map((m) => JSON.parse(m).op.kind);
+}
+
+describe('SyncClient resync-on-reconnect', () => {
+  it('re-sends request-snapshot when the transport reconnects', () => {
+    const store = new ElementStore();
+    const transport = makeReconnectTransport();
+    const client = new SyncClient({ store, transport, clientId: 'B' });
+    client.start();
+
+    expect(sentKinds(transport.sent)).toEqual(['request-snapshot']);
+
+    transport.triggerReconnect();
+
+    expect(sentKinds(transport.sent)).toEqual(['request-snapshot', 'request-snapshot']);
+  });
+
+  it('MERGES the first snapshot into local state (keeps pre-existing local elements)', () => {
+    const store = new ElementStore();
+    const transport = makeReconnectTransport();
+    const local = shape(99); // element Y, present before start()
+    store.add(local);
+
+    const client = new SyncClient({ store, transport, clientId: 'B' });
+    client.start();
+
+    const remote = shape(1); // element X, from the hub
+    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'B', elements: [remote] }));
+
+    // Merge: both the local Y and the remote X survive the first snapshot.
+    expect(store.count).toBe(2);
+    expect(store.getById(local.id)).toBeDefined();
+    expect(store.getById(remote.id)).toBeDefined();
+  });
+
+  it('RECONCILES later snapshots — removes locals absent from the authoritative set, upserts canonical, origin remote, no re-broadcast', () => {
+    const store = new ElementStore();
+    const transport = makeReconnectTransport();
+    const x = shape(1);
+    const y = shape(99); // deleted-while-away
+    const z = shape(2); // added-while-away
+
+    const client = new SyncClient({ store, transport, clientId: 'B' });
+    client.start();
+
+    // First snapshot establishes joined state with X and Y.
+    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'B', elements: [x, y] }));
+    expect(store.count).toBe(2);
+
+    // Capture every store write during the reconcile.
+    const origins: (string | undefined)[] = [];
+    store.on('add', (_el, meta) => origins.push(meta.origin));
+    store.on('remove', (_el, meta) => origins.push(meta.origin));
+    store.on('update', (_el, meta) => origins.push(meta.origin));
+    const sentBefore = transport.sent.length;
+
+    transport.triggerReconnect();
+    // Authoritative set after the gap: Y is gone, Z is new, X still present.
+    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'B', elements: [x, z] }));
+
+    expect(store.getById(y.id)).toBeUndefined(); // removed
+    expect(store.getById(x.id)).toBeDefined(); // kept
+    expect(store.getById(z.id)).toBeDefined(); // added
+    expect(store.count).toBe(2);
+
+    // Every reconcile write is tagged origin remote.
+    expect(origins.length).toBeGreaterThan(0);
+    expect(origins.every((o) => o === 'remote')).toBe(true);
+
+    // The reconnect emits only a request-snapshot — no upsert/remove re-broadcast for X/Y/Z.
+    const newSends = sentKinds(transport.sent.slice(sentBefore));
+    expect(newSends).toEqual(['request-snapshot']);
+  });
+
+  it('the same snapshot payload merges before join but reconciles after (the contrast)', () => {
+    const payload = (elements: CanvasElement[]): string =>
+      envelope('hub', { kind: 'snapshot', to: 'B', elements });
+
+    // Before join: payload [X] merges, so local Y is kept.
+    const mergeStore = new ElementStore();
+    const mergeTransport = makeReconnectTransport();
+    const y = shape(99);
+    mergeStore.add(y);
+    new SyncClient({ store: mergeStore, transport: mergeTransport, clientId: 'B' }).start();
+    mergeTransport.deliver(payload([shape(1)]));
+    expect(mergeStore.getById(y.id)).toBeDefined();
+
+    // After join: the SAME [X] payload reconciles, so local Y is removed.
+    const reStore = new ElementStore();
+    const reTransport = makeReconnectTransport();
+    const y2 = shape(99);
+    const reClient = new SyncClient({ store: reStore, transport: reTransport, clientId: 'B' });
+    reClient.start();
+    // First snapshot seeds joined state with X and Y2.
+    reTransport.deliver(payload([shape(1), y2]));
+    expect(reStore.getById(y2.id)).toBeDefined();
+    // Reconnect + the SAME [X] payload now drops Y2.
+    reTransport.triggerReconnect();
+    reTransport.deliver(payload([shape(1)]));
+    expect(reStore.getById(y2.id)).toBeUndefined();
+  });
+
+  it('starts cleanly when the transport has no onReconnect (B1-like), and merges its snapshot', () => {
+    const bus = makeBus();
+    const store = new ElementStore();
+    const transport = bus.endpoint(); // no onReconnect method
+    const transportX = bus.endpoint();
+    const local = shape(99);
+    store.add(local);
+
+    const client = new SyncClient({ store, transport, clientId: 'B' });
+    expect(() => client.start()).not.toThrow();
+
+    transportX.send(envelope('X', { kind: 'snapshot', to: 'B', elements: [shape(1)] }));
+
+    // Merge path: local Y survives alongside the snapshot element.
+    expect(store.count).toBe(2);
+    expect(store.getById(local.id)).toBeDefined();
+  });
+
+  it('shields a local CREATE made during an in-flight resync (snapshot omits it)', () => {
+    const store = new ElementStore();
+    const transport = makeReconnectTransport();
+    const x = shape(1);
+    const client = new SyncClient({ store, transport, clientId: 'B' });
+    client.start();
+    // Establish joined state with X.
+    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'B', elements: [x] }));
+
+    // Reconnect: request goes out, then BEFORE the reply the user creates Q locally.
+    transport.triggerReconnect();
+    const q = shape(42);
+    store.add(q); // origin local -> onLocal records q in the resync window
+
+    // The authoritative snapshot was taken before Q reached the hub, so it omits Q.
+    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'B', elements: [x] }));
+
+    // Q must survive the reconcile (the hub + peers already have it via the local broadcast).
+    expect(store.getById(q.id)).toBeDefined();
+    expect(store.getById(x.id)).toBeDefined();
+    expect(store.count).toBe(2);
+  });
+
+  it('shields a local DELETE made during an in-flight resync (snapshot still contains it)', () => {
+    const store = new ElementStore();
+    const transport = makeReconnectTransport();
+    const x = shape(1);
+    const w = shape(77);
+    const client = new SyncClient({ store, transport, clientId: 'B' });
+    client.start();
+    // Establish joined state with X and W.
+    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'B', elements: [x, w] }));
+
+    // Reconnect: request goes out, then BEFORE the reply the user deletes W locally.
+    transport.triggerReconnect();
+    store.remove(w.id); // origin local -> onLocal records w in the resync window
+
+    // The pre-delete snapshot still contains W.
+    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'B', elements: [x, w] }));
+
+    // W must stay deleted (the shield skips re-upserting it).
+    expect(store.getById(w.id)).toBeUndefined();
+    expect(store.getById(x.id)).toBeDefined();
+    expect(store.count).toBe(1);
+  });
+});
