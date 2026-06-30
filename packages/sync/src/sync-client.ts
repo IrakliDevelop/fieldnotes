@@ -27,6 +27,7 @@ export class SyncClient {
   private readonly clientId: string;
   private unsubscribers: (() => void)[] = [];
   private started = false;
+  private joined = false;
 
   constructor(options: SyncClientOptions) {
     this.store = options.store;
@@ -50,8 +51,15 @@ export class SyncClient {
       this.store.on('clear', (_data, meta) => this.onLocal({ kind: 'clear' }, meta.origin)),
       this.transport.onMessage((msg) => this.onRemote(msg)),
     ];
+    if (this.transport.onReconnect) {
+      this.unsubscribers.push(this.transport.onReconnect(() => this.onReconnect()));
+    }
     // MUST be last: a synchronous bus delivers the peer's reply reentrantly, so the
     // onMessage receive handler above must already be wired before we request.
+    this.sendOp({ kind: 'request-snapshot' });
+  }
+
+  private onReconnect(): void {
     this.sendOp({ kind: 'request-snapshot' });
   }
 
@@ -73,14 +81,22 @@ export class SyncClient {
 
   private onRemote(message: string): void {
     const env = parseEnvelope(message);
+    // clientId is STABLE across transport reconnects, so this guard also drops our own ops that the
+    // relay echoes back after a reconnect (the reconnected socket is a NEW hub connection, so the hub's
+    // connId echo-suppression does not cover them). Do NOT key this guard off the connection.
     if (!env || env.from === this.clientId) return; // malformed/invalid + own echo
     const op = env.op;
     if (op.kind === 'request-snapshot') {
       this.sendOp({ kind: 'snapshot', to: env.from, elements: this.store.snapshot() });
     } else if (op.kind === 'snapshot') {
       if (op.to !== this.clientId) return; // not addressed to us
-      for (const el of op.elements) {
-        if (isValidElement(el)) this.applyOp({ kind: 'upsert', element: el });
+      if (!this.joined) {
+        for (const el of op.elements) {
+          if (isValidElement(el)) this.applyOp({ kind: 'upsert', element: el });
+        }
+        this.joined = true;
+      } else {
+        this.reconcile(op.elements);
       }
     } else {
       this.applyOp(op); // narrows to upsert | remove | clear
@@ -103,5 +119,14 @@ export class SyncClient {
     // applyOp handles the data ops only (upsert/remove/clear). The control ops
     // (request-snapshot/snapshot) are dispatched in onRemote; unknown kinds are filtered by
     // isValidEnvelope — so no destructive default here.
+  }
+
+  private reconcile(elements: unknown[]): void {
+    const valid = elements.filter(isValidElement);
+    const keep = new Set(valid.map((e) => e.id));
+    for (const local of this.store.snapshot()) {
+      if (!keep.has(local.id)) this.store.remove(local.id, { origin: REMOTE_ORIGIN });
+    }
+    for (const el of valid) this.applyOp({ kind: 'upsert', element: el });
   }
 }
