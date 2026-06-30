@@ -1,0 +1,128 @@
+import { describe, it, expect, afterEach } from 'vitest';
+import { WebSocket as WsClient } from 'ws';
+import type { AddressInfo } from 'net';
+import { SyncClient, WebSocketTransport } from '@fieldnotes/sync';
+import { ElementStore, createShape } from '@fieldnotes/core';
+import { MemoryHubBackend } from './memory-hub-backend';
+import { createSyncServer } from './create-sync-server';
+
+type Server = ReturnType<typeof createSyncServer>;
+
+interface ConnectedClient {
+  store: ElementStore;
+  client: SyncClient;
+  transport: WebSocketTransport;
+}
+
+async function waitFor(cond: () => boolean | Promise<boolean>, timeoutMs = 2000): Promise<void> {
+  const start = Date.now();
+  for (;;) {
+    if (await cond()) return;
+    if (Date.now() - start > timeoutMs) {
+      throw new Error(`waitFor: condition not met within ${timeoutMs}ms`);
+    }
+    await new Promise((r) => setTimeout(r, 10));
+  }
+}
+
+function shape() {
+  return createShape({ position: { x: 0, y: 0 }, size: { width: 10, height: 10 } });
+}
+
+describe('sync-server WebSocket relay (end-to-end)', () => {
+  const servers: Server[] = [];
+  const transports: WebSocketTransport[] = [];
+
+  function startServer() {
+    const backend = new MemoryHubBackend();
+    const server = createSyncServer({ port: 0, backend });
+    servers.push(server);
+    const port = (server.wss.address() as AddressInfo).port;
+    return { server, hub: server.hub, port, backend };
+  }
+
+  function connect(port: number, room: string): ConnectedClient {
+    const transport = new WebSocketTransport(`ws://127.0.0.1:${port}?room=${room}`, {
+      WebSocket: WsClient as unknown as typeof WebSocket,
+    });
+    transports.push(transport);
+    const store = new ElementStore();
+    const client = new SyncClient({ store, transport });
+    client.start();
+    return { store, client, transport };
+  }
+
+  afterEach(async () => {
+    for (const t of transports) t.close();
+    transports.length = 0;
+    for (const s of servers) await s.close();
+    servers.length = 0;
+  });
+
+  it('forwards a live op from one client to another in the same room', async () => {
+    const { port, backend } = startServer();
+    const a = connect(port, 'R');
+
+    // Seed an element from A. Waiting until the hub's canonical room state holds it
+    // proves A's socket is open and its upsert reached the relay (deterministic gate).
+    const seed = shape();
+    a.store.add(seed);
+    await waitFor(async () => (await backend.snapshot('R')).some((e) => e.id === seed.id));
+
+    // B joins and requests a snapshot; receiving the seed proves B's socket is open and
+    // B is a live member of room R — so any subsequent live op will be forwarded to it.
+    const b = connect(port, 'R');
+    await waitFor(() => b.store.getById(seed.id) !== undefined);
+
+    // The real assertion: an op added AFTER B joined can only arrive via live forward.
+    const live = shape();
+    a.store.add(live);
+    await waitFor(() => b.store.getById(live.id) !== undefined);
+
+    expect(b.store.getById(live.id)).toBeDefined();
+    expect(a.store.count).toBe(2); // seed + live, no duplicate echoed back to A
+  }, 10000);
+
+  it('sends the room snapshot to a freshly joined client', async () => {
+    const { port, backend } = startServer();
+    const a = connect(port, 'R');
+
+    const el = shape();
+    a.store.add(el);
+    await waitFor(async () => (await backend.snapshot('R')).some((e) => e.id === el.id));
+
+    // A fresh client joins an already-populated room; the hub answers its
+    // request-snapshot with the canonical state.
+    const b = connect(port, 'R');
+    await waitFor(() => b.store.count >= 1);
+
+    expect(b.store.getById(el.id)).toBeDefined();
+  }, 10000);
+
+  it('does not leak ops across rooms', async () => {
+    const { hub, port, backend } = startServer();
+    const a = connect(port, 'R');
+    const c = connect(port, 'OTHER');
+
+    // Seed R and confirm A + the OTHER-room client are both registered live members
+    // (two distinct rooms exist in the hub → C's OTHER-room connection registered).
+    const seed = shape();
+    a.store.add(seed);
+    await waitFor(async () => (await backend.snapshot('R')).some((e) => e.id === seed.id));
+    await waitFor(() => hub.roomCount() === 2);
+
+    // A co-room witness D anchors the negative: once D receives A's live op, the relay's
+    // forward loop for room R has completed — so if C (room OTHER) were ever going to
+    // receive it, it would have by now.
+    const d = connect(port, 'R');
+    await waitFor(() => d.store.getById(seed.id) !== undefined);
+
+    const live = shape();
+    a.store.add(live);
+    await waitFor(() => d.store.getById(live.id) !== undefined);
+
+    expect(c.store.count).toBe(0);
+    expect(c.store.getById(seed.id)).toBeUndefined();
+    expect(c.store.getById(live.id)).toBeUndefined();
+  }, 10000);
+});

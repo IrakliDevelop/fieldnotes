@@ -4,6 +4,25 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [@fieldnotes/sync 0.3.0] — 2026-06-30
+
+### Added
+
+- `WebSocketTransport` — a `SyncTransport` over WebSocket (buffers sends until the socket opens). The op
+  protocol (`SyncOp`/`SyncEnvelope`/`isValidEnvelope`/`isValidElement`/`parseEnvelope`/`applyOpToMap`) is
+  now an exported `protocol.ts` shared with the server, with hardened element validation at the untrusted
+  boundary (object + string id + a known element type).
+
+## [@fieldnotes/sync-server 0.1.0] — 2026-06-30
+
+### Added
+
+- New package: an authoritative relay for real-time sync. `SyncHub` holds per-room canonical state behind
+  an async `HubBackend` (in-memory default; Redis adapter upcoming), applies + forwards ops to a room's
+  other members, and answers `request-snapshot` with the room snapshot — all processed on a per-room serial
+  queue. `createSyncServer` is a runnable `ws` relay (rooms via `?room=`). Open rooms for now
+  (auth/permissions upcoming). This is cross-device real-time over a real server.
+
 ## [@fieldnotes/sync 0.2.0] — 2026-06-29
 
 ### Added

@@ -1,7 +1,7 @@
 {
-  "name": "@fieldnotes/sync",
-  "version": "0.3.0",
-  "description": "Real-time element sync for Field Notes canvas SDK",
+  "name": "@fieldnotes/sync-server",
+  "version": "0.1.0",
+  "description": "Authoritative WebSocket relay server for Field Notes real-time sync",
   "type": "module",
   "sideEffects": false,
   "main": "./dist/index.cjs",
@@ -27,25 +27,27 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/IrakliDevelop/fieldnotes.git",
-    "directory": "packages/sync"
+    "directory": "packages/sync-server"
   },
   "bugs": {
     "url": "https://github.com/IrakliDevelop/fieldnotes/issues"
   },
-  "homepage": "https://github.com/IrakliDevelop/fieldnotes/tree/master/packages/sync#readme",
+  "homepage": "https://github.com/IrakliDevelop/fieldnotes/tree/master/packages/sync-server#readme",
   "keywords": [
-    "canvas",
-    "infinite-canvas",
     "realtime",
     "sync",
+    "websocket",
+    "relay",
     "collaboration",
     "fieldnotes"
   ],
-  "peerDependencies": {
-    "@fieldnotes/core": ">=0.46.0 <1.0.0"
+  "dependencies": {
+    "ws": "^8.18.0",
+    "@fieldnotes/sync": "workspace:*"
   },
   "devDependencies": {
     "@fieldnotes/core": "workspace:*",
+    "@types/ws": "^8.5.12",
     "@vitest/coverage-v8": "^4.1.0",
     "tsup": "^8.5.1",
     "vitest": "^4.1.0"

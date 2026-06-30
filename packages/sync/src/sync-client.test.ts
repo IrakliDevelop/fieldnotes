@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ElementStore, createNote, createShape, type CanvasElement } from '@fieldnotes/core';
 import type { ElementChangeMeta } from '@fieldnotes/core';
-import { SyncClient, type SyncOp } from './sync-client';
+import { SyncClient } from './sync-client';
+import type { SyncOp } from './protocol';
 import type { SyncTransport } from './sync-transport';
 
 interface BusEndpoint extends SyncTransport {
@@ -181,6 +182,14 @@ describe('SyncClient', () => {
 
     expect(storeB.count).toBe(before);
     expect(storeB.getById(existing.id)).toBeDefined();
+  });
+
+  it('rejects an upsert envelope carrying a malformed element (no id/type)', () => {
+    const before = storeB.count;
+
+    transportA.send(JSON.stringify({ from: 'X', op: { kind: 'upsert', element: {} } }));
+
+    expect(storeB.count).toBe(before);
   });
 
   it('stops sending after stop() and tolerates a double stop', () => {

@@ -1,17 +1,6 @@
-import type { CanvasElement, ElementStore } from '@fieldnotes/core';
+import type { ElementStore } from '@fieldnotes/core';
 import type { SyncTransport } from './sync-transport';
-
-export type SyncOp =
-  | { kind: 'upsert'; element: CanvasElement }
-  | { kind: 'remove'; id: string }
-  | { kind: 'clear' }
-  | { kind: 'request-snapshot' }
-  | { kind: 'snapshot'; to: string; elements: CanvasElement[] };
-
-interface SyncEnvelope {
-  from: string;
-  op: SyncOp;
-}
+import { parseEnvelope, isValidElement, type SyncOp } from './protocol';
 
 export interface SyncClientOptions {
   store: ElementStore;
@@ -23,18 +12,6 @@ const REMOTE_ORIGIN = 'remote';
 
 function isExternal(origin: string | undefined): boolean {
   return origin !== undefined && origin !== 'local';
-}
-
-function isValidEnvelope(env: unknown): env is SyncEnvelope {
-  if (typeof env !== 'object' || env === null) return false;
-  const e = env as { from?: unknown; op?: { kind?: unknown; to?: unknown; elements?: unknown } };
-  if (typeof e.from !== 'string' || typeof e.op !== 'object' || e.op === null) return false;
-  const kind = e.op.kind;
-  if (kind === 'upsert' || kind === 'remove' || kind === 'clear' || kind === 'request-snapshot') {
-    return true;
-  }
-  if (kind === 'snapshot') return typeof e.op.to === 'string' && Array.isArray(e.op.elements);
-  return false;
 }
 
 function randomId(): string {
@@ -95,20 +72,15 @@ export class SyncClient {
   }
 
   private onRemote(message: string): void {
-    let env: unknown;
-    try {
-      env = JSON.parse(message);
-    } catch {
-      return; // malformed (incl. empty string) — ignore
-    }
-    if (!isValidEnvelope(env) || env.from === this.clientId) return; // ignore invalid + own echo
+    const env = parseEnvelope(message);
+    if (!env || env.from === this.clientId) return; // malformed/invalid + own echo
     const op = env.op;
     if (op.kind === 'request-snapshot') {
       this.sendOp({ kind: 'snapshot', to: env.from, elements: this.store.snapshot() });
     } else if (op.kind === 'snapshot') {
       if (op.to !== this.clientId) return; // not addressed to us
       for (const el of op.elements) {
-        if (el && typeof el.id === 'string') this.applyOp({ kind: 'upsert', element: el });
+        if (isValidElement(el)) this.applyOp({ kind: 'upsert', element: el });
       }
     } else {
       this.applyOp(op); // narrows to upsert | remove | clear
