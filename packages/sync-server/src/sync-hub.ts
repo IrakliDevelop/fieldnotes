@@ -1,7 +1,8 @@
-import { parseEnvelope } from '@fieldnotes/sync';
+import { parseEnvelope, type SyncOp } from '@fieldnotes/sync';
 import { MemoryHubBackend } from './memory-hub-backend';
 import { InMemoryHubFanout, type HubFanout } from './hub-fanout';
 import type { HubBackend } from './hub-backend';
+import type { Authorize, OwnedElement } from './authorize';
 
 export interface Connection {
   id: string;
@@ -15,6 +16,7 @@ export interface SyncHubOptions {
   backend?: HubBackend;
   fanout?: HubFanout;
   instanceId?: string;
+  authorize?: Authorize;
 }
 
 const HUB_FROM = 'hub';
@@ -33,11 +35,13 @@ export class SyncHub {
   private readonly instanceId: string;
   private readonly fanout: HubFanout;
   private readonly fanoutUnsub: () => void;
+  private readonly authorize?: Authorize;
 
   constructor(options: SyncHubOptions = {}) {
     this.backend = options.backend ?? new MemoryHubBackend();
     this.instanceId = options.instanceId ?? generateInstanceId();
     this.fanout = options.fanout ?? new InMemoryHubFanout();
+    this.authorize = options.authorize;
     this.fanoutUnsub = this.fanout.subscribe((payload) => this.onFanout(payload));
   }
 
@@ -93,15 +97,38 @@ export class SyncHub {
         JSON.stringify({ from: HUB_FROM, op: { kind: 'snapshot', to: env.from, elements } }),
       );
     } else if (op.kind === 'upsert' || op.kind === 'remove' || op.kind === 'clear') {
-      await this.backend.apply(conn.room, op);
+      let outboundOp: SyncOp = op;
+      let outboundMessage = message;
+      if (this.authorize) {
+        const id = op.kind === 'upsert' ? op.element.id : op.kind === 'remove' ? op.id : undefined;
+        const current: OwnedElement | undefined =
+          id !== undefined ? await this.backend.get(conn.room, id) : undefined;
+        const allowed = await this.authorize({
+          userId: conn.userId,
+          role: conn.role,
+          room: conn.room,
+          op,
+          currentElement: current,
+        });
+        if (!allowed) return;
+        if (op.kind === 'upsert') {
+          const ownerId = current?.ownerId ?? conn.userId;
+          const stampedElement: OwnedElement = { ...op.element, ownerId };
+          outboundOp = { kind: 'upsert', element: stampedElement };
+          outboundMessage = JSON.stringify({ from: env.from, op: outboundOp });
+        }
+      }
+      await this.backend.apply(conn.room, outboundOp);
       const members = this.rooms.get(conn.room);
       if (members) {
         for (const id of members) {
           if (id === conn.id) continue;
-          this.conns.get(id)?.send(message);
+          this.conns.get(id)?.send(outboundMessage);
         }
       }
-      this.fanout.publish(JSON.stringify({ o: this.instanceId, room: conn.room, m: message }));
+      this.fanout.publish(
+        JSON.stringify({ o: this.instanceId, room: conn.room, m: outboundMessage }),
+      );
     }
     // 'snapshot' from a client → ignored
   }

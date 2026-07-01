@@ -5,6 +5,8 @@ import type { SyncOp } from '@fieldnotes/sync';
 import { SyncHub } from './sync-hub';
 import type { Connection } from './sync-hub';
 import type { HubBackend } from './hub-backend';
+import { MemoryHubBackend } from './memory-hub-backend';
+import type { Authorize, OwnedElement } from './authorize';
 import { InMemoryHubFanout } from './hub-fanout';
 
 interface FakeConn extends Connection {
@@ -244,6 +246,198 @@ describe('SyncHub', () => {
       await hubB.handleMessage('b', upsert('cb', 'e2'));
 
       expect(a.sent).toEqual([]); // hubA no longer receives fanout after close
+    });
+  });
+
+  describe('write authorization', () => {
+    const el = (id: string): CanvasElement => ({ ...sampleEl(), id });
+
+    const roleConn = (id: string, room: string, userId: string, role: string): FakeConn => {
+      const sent: string[] = [];
+      return { id, room, userId, role, sent, send: (m) => sent.push(m) };
+    };
+
+    const policy: Authorize = ({ role, op, currentElement, userId }) => {
+      if (role === 'dm') return true;
+      if (role === 'display') return false;
+      if (role === 'player') {
+        if (op.kind === 'clear') return false;
+        if (op.kind === 'upsert') return !currentElement || currentElement.ownerId === userId;
+        if (op.kind === 'remove') return currentElement?.ownerId === userId;
+        return false;
+      }
+      return false;
+    };
+
+    it('default (no authorize) forwards an upsert WITHOUT an ownerId', async () => {
+      const h = new SyncHub();
+      const p = roleConn('p', 'R', 'player1', 'player');
+      const obs = roleConn('obs', 'R', 'dm1', 'dm');
+      h.addConnection(p);
+      h.addConnection(obs);
+      await h.handleMessage('p', envelope('cp', { kind: 'upsert', element: el('e1') }));
+      const fwd = JSON.parse(obs.sent[0] ?? '');
+      expect(fwd.op.element.ownerId).toBeUndefined();
+    });
+
+    it('allows a player upsert of a NEW element and stamps ownerId = userId', async () => {
+      const backend = new MemoryHubBackend();
+      const hub = new SyncHub({ authorize: policy, backend });
+      const p = roleConn('p', 'R', 'player1', 'player');
+      const obs = roleConn('obs', 'R', 'dm1', 'dm');
+      hub.addConnection(p);
+      hub.addConnection(obs);
+
+      await hub.handleMessage('p', envelope('cp', { kind: 'upsert', element: el('e1') }));
+
+      const fwd = JSON.parse(obs.sent[0] ?? '');
+      expect(fwd.op.element.ownerId).toBe('player1');
+      const stored = (await backend.get('R', 'e1')) as OwnedElement | undefined;
+      expect(stored?.ownerId).toBe('player1');
+    });
+
+    it('drops a player upsert of an EXISTING dm-owned element', async () => {
+      const backend = new MemoryHubBackend();
+      const hub = new SyncHub({ authorize: policy, backend });
+      const dm = roleConn('dm', 'R', 'dm1', 'dm');
+      const p = roleConn('p', 'R', 'player1', 'player');
+      const obs = roleConn('obs', 'R', 'o', 'dm');
+      hub.addConnection(dm);
+      hub.addConnection(p);
+      hub.addConnection(obs);
+
+      await hub.handleMessage('dm', envelope('cdm', { kind: 'upsert', element: el('X') }));
+      obs.sent.length = 0;
+
+      await hub.handleMessage('p', envelope('cp', { kind: 'upsert', element: el('X') }));
+
+      const stored = (await backend.get('R', 'X')) as OwnedElement | undefined;
+      expect(stored?.ownerId).toBe('dm1');
+      expect(obs.sent).toEqual([]);
+    });
+
+    it('drops a player remove of a dm-owned element', async () => {
+      const backend = new MemoryHubBackend();
+      const hub = new SyncHub({ authorize: policy, backend });
+      const dm = roleConn('dm', 'R', 'dm1', 'dm');
+      const p = roleConn('p', 'R', 'player1', 'player');
+      const obs = roleConn('obs', 'R', 'o', 'dm');
+      hub.addConnection(dm);
+      hub.addConnection(p);
+      hub.addConnection(obs);
+
+      await hub.handleMessage('dm', envelope('cdm', { kind: 'upsert', element: el('X') }));
+      obs.sent.length = 0;
+
+      await hub.handleMessage('p', envelope('cp', { kind: 'remove', id: 'X' }));
+
+      expect(await backend.get('R', 'X')).toBeDefined();
+      expect(obs.sent).toEqual([]);
+    });
+
+    it('drops a player clear', async () => {
+      const backend = new MemoryHubBackend();
+      const hub = new SyncHub({ authorize: policy, backend });
+      const dm = roleConn('dm', 'R', 'dm1', 'dm');
+      const p = roleConn('p', 'R', 'player1', 'player');
+      const obs = roleConn('obs', 'R', 'o', 'dm');
+      hub.addConnection(dm);
+      hub.addConnection(p);
+      hub.addConnection(obs);
+
+      await hub.handleMessage('dm', envelope('cdm', { kind: 'upsert', element: el('X') }));
+      obs.sent.length = 0;
+
+      await hub.handleMessage('p', envelope('cp', { kind: 'clear' }));
+
+      expect(await backend.get('R', 'X')).toBeDefined();
+      expect(obs.sent).toEqual([]);
+    });
+
+    it('drops a display data op', async () => {
+      const backend = new MemoryHubBackend();
+      const hub = new SyncHub({ authorize: policy, backend });
+      const d = roleConn('d', 'R', 'disp1', 'display');
+      const obs = roleConn('obs', 'R', 'o', 'dm');
+      hub.addConnection(d);
+      hub.addConnection(obs);
+
+      await hub.handleMessage('d', envelope('cd', { kind: 'upsert', element: el('e1') }));
+
+      expect(await backend.get('R', 'e1')).toBeUndefined();
+      expect(obs.sent).toEqual([]);
+    });
+
+    it('allows dm upsert, remove and clear', async () => {
+      const backend = new MemoryHubBackend();
+      const hub = new SyncHub({ authorize: policy, backend });
+      const dm = roleConn('dm', 'R', 'dm1', 'dm');
+      const obs = roleConn('obs', 'R', 'o', 'dm');
+      hub.addConnection(dm);
+      hub.addConnection(obs);
+
+      await hub.handleMessage('dm', envelope('cdm', { kind: 'upsert', element: el('X') }));
+      const fwd = JSON.parse(obs.sent[0] ?? '');
+      expect(fwd.op.element.ownerId).toBe('dm1');
+
+      await hub.handleMessage('dm', envelope('cdm', { kind: 'remove', id: 'X' }));
+      expect(await backend.get('R', 'X')).toBeUndefined();
+
+      await hub.handleMessage('dm', envelope('cdm', { kind: 'upsert', element: el('Y') }));
+      await hub.handleMessage('dm', envelope('cdm', { kind: 'clear' }));
+      expect(await backend.snapshot('R')).toEqual([]);
+    });
+
+    it('is forge-proof: server stamps ownerId, ignoring a client-supplied ownerId', async () => {
+      const backend = new MemoryHubBackend();
+      const hub = new SyncHub({ authorize: policy, backend });
+      const p = roleConn('p', 'R', 'player1', 'player');
+      const obs = roleConn('obs', 'R', 'o', 'dm');
+      hub.addConnection(p);
+      hub.addConnection(obs);
+
+      const forgedNew: OwnedElement = { ...sampleEl(), id: 'f', ownerId: 'dm' };
+      await hub.handleMessage('p', envelope('cp', { kind: 'upsert', element: forgedNew }));
+      const fwdNew = JSON.parse(obs.sent[0] ?? '');
+      expect(fwdNew.op.element.ownerId).toBe('player1');
+      expect(((await backend.get('R', 'f')) as OwnedElement | undefined)?.ownerId).toBe('player1');
+
+      const forgedOwn: OwnedElement = { ...sampleEl(), id: 'f', ownerId: 'zzz' };
+      await hub.handleMessage('p', envelope('cp', { kind: 'upsert', element: forgedOwn }));
+      expect(((await backend.get('R', 'f')) as OwnedElement | undefined)?.ownerId).toBe('player1');
+    });
+
+    it('passes currentElement (undefined for new, stored for existing) to the policy', async () => {
+      const seen: (OwnedElement | undefined)[] = [];
+      const capture: Authorize = ({ currentElement }) => {
+        seen.push(currentElement);
+        return true;
+      };
+      const backend = new MemoryHubBackend();
+      const hub = new SyncHub({ authorize: capture, backend });
+      const p = roleConn('p', 'R', 'u', 'player');
+      hub.addConnection(p);
+
+      await hub.handleMessage('p', envelope('cp', { kind: 'upsert', element: el('e1') }));
+      await hub.handleMessage('p', envelope('cp', { kind: 'upsert', element: el('e1') }));
+
+      expect(seen[0]).toBeUndefined();
+      expect(seen[1]?.id).toBe('e1');
+      expect(seen[1]?.ownerId).toBe('u');
+    });
+
+    it('drops the op when an async policy rejects it', async () => {
+      const backend = new MemoryHubBackend();
+      const hub = new SyncHub({ authorize: async () => false, backend });
+      const p = roleConn('p', 'R', 'u', 'player');
+      const obs = roleConn('obs', 'R', 'o', 'dm');
+      hub.addConnection(p);
+      hub.addConnection(obs);
+
+      await hub.handleMessage('p', envelope('cp', { kind: 'upsert', element: el('e1') }));
+
+      expect(await backend.get('R', 'e1')).toBeUndefined();
+      expect(obs.sent).toEqual([]);
     });
   });
 });

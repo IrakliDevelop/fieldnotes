@@ -18,6 +18,10 @@ export class MemoryHubBackend implements HubBackend {
     return [...this.room(room).values()];
   }
 
+  async get(room: string, id: string): Promise<CanvasElement | undefined> {
+    return this.room(room).get(id);
+  }
+
   async apply(room: string, op: SyncOp): Promise<void> {
     applyOpToMap(this.room(room), op);
   }

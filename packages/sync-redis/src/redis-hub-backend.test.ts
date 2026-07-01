@@ -17,6 +17,9 @@ class FakeRedis implements RedisHashClient {
     const m = this.store.get(key);
     return m ? Object.fromEntries(m) : {};
   }
+  async hGet(key: string, field: string): Promise<string | null> {
+    return this.store.get(key)?.get(field) ?? null;
+  }
   async hSet(key: string, field: string, value: string): Promise<number> {
     this.hash(key).set(field, value);
     return 1;
@@ -85,6 +88,30 @@ describe('RedisHubBackend', () => {
     const b = new RedisHubBackend(fake);
     await b.apply('R', { kind: 'upsert', element: element('e1') });
     expect(await b.snapshot('R2')).toHaveLength(0);
+  });
+
+  describe('get', () => {
+    it('returns the stored element after apply', async () => {
+      const fake = new FakeRedis();
+      const b = new RedisHubBackend(fake);
+      await b.apply('R', { kind: 'upsert', element: element('e1', 5) });
+      const got = await b.get('R', 'e1');
+      expect(got?.id).toBe('e1');
+      expect(got?.position.x).toBe(5);
+    });
+
+    it('returns undefined for an absent element', async () => {
+      const fake = new FakeRedis();
+      const b = new RedisHubBackend(fake);
+      expect(await b.get('R', 'missing')).toBeUndefined();
+    });
+
+    it('returns undefined for a corrupt stored value without throwing', async () => {
+      const fake = new FakeRedis();
+      const b = new RedisHubBackend(fake);
+      await fake.hSet('fieldnotes:room:R', 'bad', 'not json{');
+      expect(await b.get('R', 'bad')).toBeUndefined();
+    });
   });
 
   it('filters malformed stored values without throwing', async () => {
