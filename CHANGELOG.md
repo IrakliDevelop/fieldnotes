@@ -4,6 +4,17 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [@fieldnotes/sync-redis 0.1.0] — 2026-07-01
+
+### Added
+
+- New package: a Redis persistence backend for the sync relay. `RedisHubBackend` implements `HubBackend`,
+  storing each room as a Redis HASH (field = element id, value = JSON) so relay state survives restarts and
+  is shared across instances. Zero external dependencies — you inject your own Redis client via a minimal
+  `RedisHashClient` interface (node-redis v4 works directly; ioredis via a small shim). Wire it with
+  `createSyncServer({ backend: new RedisHubBackend(client) })`. (Cross-instance live fan-out via pub/sub is
+  a planned follow-up; a single relay instance is fully live today.)
+
 ## [@fieldnotes/sync 0.4.0] — 2026-06-30
 
 ### Added
