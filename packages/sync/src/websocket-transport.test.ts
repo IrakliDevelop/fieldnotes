@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WebSocketTransport } from './websocket-transport';
+import type { WebSocketTransportOptions } from './websocket-transport';
 
 const instances: FakeWebSocket[] = [];
 
@@ -12,7 +13,7 @@ class FakeWebSocket {
   readyState = this.CONNECTING;
   onopen: (() => void) | null = null;
   onmessage: ((e: { data: unknown }) => void) | null = null;
-  onclose: (() => void) | null = null;
+  onclose: ((event: { code: number; reason: string }) => void) | null = null;
   sent: string[] = [];
 
   constructor(public readonly url: string) {
@@ -25,7 +26,12 @@ class FakeWebSocket {
 
   close(): void {
     this.readyState = this.CLOSED;
-    this.onclose?.();
+    this.onclose?.({ code: 1006, reason: '' });
+  }
+
+  triggerServerClose(code: number, reason = ''): void {
+    this.readyState = this.CLOSED;
+    this.onclose?.({ code, reason });
   }
 
   triggerOpen(): void {
@@ -321,5 +327,110 @@ describe('WebSocketTransport reconnect', () => {
         globalRef.WebSocket = savedGlobal;
       }
     }
+  });
+});
+
+describe('WebSocketTransport close codes', () => {
+  const makeTransport = (overrides: Partial<WebSocketTransportOptions> = {}): WebSocketTransport =>
+    new WebSocketTransport('ws://x', {
+      WebSocket: Fake,
+      random: () => 0.5,
+      reconnectInitialDelayMs: 100,
+      reconnectMaxDelayMs: 1000,
+      reconnectFactor: 2,
+      ...overrides,
+    });
+
+  it('suppresses reconnect on an app-range (4xxx) close and fires onClose', () => {
+    vi.useFakeTimers();
+    const transport = makeTransport();
+    lastInstance().triggerOpen();
+
+    const spy = vi.fn();
+    transport.onClose(spy);
+
+    const before = instances.length;
+    lastInstance().triggerServerClose(4401, 'unauthorized');
+    expect(spy).toHaveBeenCalledWith(4401, 'unauthorized');
+
+    vi.advanceTimersByTime(10_000);
+    expect(instances.length).toBe(before);
+  });
+
+  it('still reconnects on a transient (1006) close and fires onClose', () => {
+    vi.useFakeTimers();
+    const transport = makeTransport();
+    lastInstance().triggerOpen();
+
+    const spy = vi.fn();
+    transport.onClose(spy);
+
+    const before = instances.length;
+    lastInstance().triggerServerClose(1006);
+    expect(spy).toHaveBeenCalledWith(1006, '');
+
+    vi.advanceTimersByTime(200);
+    expect(instances.length).toBe(before + 1);
+  });
+
+  it('shouldReconnect:()=>false suppresses reconnect even on a transient close', () => {
+    vi.useFakeTimers();
+    new WebSocketTransport('ws://x', {
+      WebSocket: Fake,
+      random: () => 0.5,
+      reconnectInitialDelayMs: 100,
+      shouldReconnect: () => false,
+    });
+    lastInstance().triggerOpen();
+
+    const before = instances.length;
+    lastInstance().triggerServerClose(1006);
+    vi.advanceTimersByTime(10_000);
+    expect(instances.length).toBe(before);
+  });
+
+  it('shouldReconnect:()=>true reconnects even on an app-range (4xxx) close', () => {
+    vi.useFakeTimers();
+    new WebSocketTransport('ws://x', {
+      WebSocket: Fake,
+      random: () => 0.5,
+      reconnectInitialDelayMs: 100,
+      shouldReconnect: () => true,
+    });
+    lastInstance().triggerOpen();
+
+    const before = instances.length;
+    lastInstance().triggerServerClose(4401);
+    vi.advanceTimersByTime(200);
+    expect(instances.length).toBe(before + 1);
+  });
+
+  it('does not fire onClose on an intentional close()', () => {
+    vi.useFakeTimers();
+    const transport = makeTransport();
+    lastInstance().triggerOpen();
+
+    const spy = vi.fn();
+    transport.onClose(spy);
+
+    transport.close();
+    expect(spy).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(10_000);
+    expect(instances.length).toBe(1);
+  });
+
+  it('drops sends after a suppressed close — not buffered, no reconnect flushes them', () => {
+    vi.useFakeTimers();
+    const transport = makeTransport();
+    const fake = lastInstance();
+    fake.triggerOpen();
+
+    fake.triggerServerClose(4401);
+    transport.send('z');
+
+    vi.advanceTimersByTime(10_000);
+    expect(instances.length).toBe(1);
+    expect(fake.sent).not.toContain('z');
   });
 });

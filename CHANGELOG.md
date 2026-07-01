@@ -4,6 +4,18 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [@fieldnotes/sync 0.5.0] — 2026-07-01
+
+### Added
+
+- `WebSocketTransport` no longer auto-reconnects through a deliberate server rejection: by default it stops
+  on app-range close codes (4000–4999) — e.g. `@fieldnotes/sync-server`'s `4401` auth reject — instead of
+  looping forever. A new `shouldReconnect?(code)` option customizes which codes reconnect, and a new
+  `onClose(handler: (code, reason) => void)` subscription lets the app react to a close (e.g. show "access
+  denied" on 4401). Transient closes (network drops, 1006, …) still reconnect. (Only 4xxx codes are
+  suppressed by default; a room-less connection is rejected server-side with the standard code 1008, which an
+  app can add to `shouldReconnect` if desired.)
+
 ## [@fieldnotes/sync-server 0.3.0] — 2026-07-01
 
 ### Added
