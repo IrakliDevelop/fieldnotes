@@ -73,4 +73,69 @@ land in access/proxy logs, so prefer **short-lived / single-use** tokens. Non-br
 clients can instead put the token in `req.headers` (e.g. `Authorization`), which
 `authenticate` reads directly.
 
+## Authorization
+
+Pass an `authorize` hook to gate **writes**. The hub calls it before applying each data
+op (`upsert` / `remove` / `clear`) and **drops denied ops** — a denied op is not applied
+to room state and not forwarded to any other connection:
+
+```ts
+authorize(ctx) => boolean | Promise<boolean>
+```
+
+`ctx` is an `AuthorizeContext`:
+
+```ts
+{
+  userId?: string;          // the connection's authenticated user (from authenticate)
+  role?: string;            // the connection's role (from authenticate)
+  room: string;
+  op: SyncOp;               // the incoming upsert / remove / clear
+  currentElement?: OwnedElement; // the STORED element, if this id already exists
+}
+```
+
+`currentElement` is the element currently in room state for an `upsert`/`remove` of an
+**existing** id (typed `OwnedElement = CanvasElement & { ownerId?: string }`), and
+`undefined` for a new/absent id.
+
+**Ownership is server-stamped and un-forgeable.** A new element's `ownerId` is set to the
+authenticated creator; on edit the stored owner is **preserved**; a client-supplied
+`ownerId` is always **discarded**. A policy can therefore trust `currentElement.ownerId`
+to enforce "own elements only".
+
+With **no hook**, rooms are OPEN (allow-all — every op is accepted).
+
+A copy-paste DM / player / display policy:
+
+```ts
+createSyncServer({
+  port: 8080,
+  authenticate: /* … supplies userId + role … */,
+  authorize: ({ role, op, currentElement, userId }) => {
+    if (role === 'dm') return true;
+    if (role === 'display') return false;              // read-only monitor
+    if (role === 'player') {                            // own elements only, never destructive
+      if (op.kind === 'clear') return false;
+      if (op.kind === 'upsert') return !currentElement || currentElement.ownerId === userId;
+      if (op.kind === 'remove') return currentElement?.ownerId === userId;
+      return false;
+    }
+    return false;
+  },
+});
+```
+
+**Important:**
+
+- Ownership-based authz **requires `authenticate` to supply a STABLE `userId`**. The
+  no-hook anonymous default is `userId = connId`, which changes on every reconnect — a
+  user would lose access to their own elements after reconnecting.
+- The authz path adds one `backend.get` (a Redis `HGET`) per data op — negligible for
+  low-write use.
+- Reads / visibility (a player not **receiving** hidden content) are a separate, upcoming
+  concern (D3). `authorize` gates writes only.
+- Denied ops are dropped **silently** — the client's optimistic local edit self-corrects
+  on its next reconnect/resync.
+
 A Redis `HubBackend` and cross-instance fan-out ship in [`@fieldnotes/sync-redis`](../sync-redis).

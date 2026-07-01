@@ -14,7 +14,7 @@ pnpm add ioredis
 ```
 
 `@fieldnotes/sync-redis` has **no Redis dependency of its own** — you inject a client that satisfies a
-minimal `RedisHashClient` interface (`hGetAll` / `hSet` / `hDel` / `del`).
+minimal `RedisHashClient` interface (`hGetAll` / `hGet` / `hSet` / `hDel` / `del`).
 
 ## node-redis v4 (direct)
 
@@ -41,6 +41,7 @@ import { RedisHubBackend } from '@fieldnotes/sync-redis';
 const io = new Redis(process.env.REDIS_URL);
 const client = {
   hGetAll: (k: string) => io.hgetall(k),
+  hGet: (k: string, f: string) => io.hget(k, f),
   hSet: (k: string, f: string, v: string) => io.hset(k, f, v),
   hDel: (k: string, f: string) => io.hdel(k, f),
   del: (k: string) => io.del(k),
@@ -54,6 +55,9 @@ Each room is stored as a Redis **HASH** at `{keyPrefix}{room}` (default prefix `
 
 - **field** = element id
 - **value** = `JSON.stringify(element)`
+
+node-redis v4 conforms to `RedisHashClient` directly (it has `hGet`); `RedisHubBackend.get(room, id)`
+(via `HGET`) powers the relay's ownership lookups for write authorization (D2).
 
 The prefix is configurable:
 
