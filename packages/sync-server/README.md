@@ -17,6 +17,13 @@ applies and forwards.
   authenticated backends are planned.
 - **`createSyncServer`** — a runnable `ws` reference server. Connect with
   `?room=<id>` in the query string; missing room closes the socket.
+- **`HubFanout`** — cross-instance live fan-out seam. `SyncHub` publishes each live
+  op to the fanout and forwards ops it receives from other instances to its local
+  connections. The default `InMemoryHubFanout` is in-process (a no-op for a single
+  instance). For multiple relay instances to share live ops, pass a shared fanout
+  via `createSyncServer({ fanout })` (e.g. `RedisHubFanout` from
+  [`@fieldnotes/sync-redis`](../sync-redis)) **together with a shared backend** — a
+  shared fanout alone leaves a new joiner's snapshot stale.
 
 ## Usage
 
