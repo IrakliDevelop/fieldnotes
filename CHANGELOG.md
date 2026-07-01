@@ -4,6 +4,25 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [@fieldnotes/sync-server 0.2.0] — 2026-07-01
+
+### Added
+
+- `HubFanout` seam for cross-instance live fan-out. `SyncHub` accepts `fanout` + `instanceId` options (also
+  threaded through `createSyncServer`); the default in-process `InMemoryHubFanout` is a no-op for a single
+  instance. A shared fanout lets two relay instances forward each other's live ops. Publishing is
+  instanceId-tagged so a hub never re-delivers its own ops; receiving instances forward-only (no backend
+  re-apply). Multi-instance requires a shared fanout AND a shared backend.
+
+## [@fieldnotes/sync-redis 0.2.0] — 2026-07-01
+
+### Added
+
+- `RedisHubFanout` — a `HubFanout` over Redis pub/sub, so relay instances share live ops. Zero external
+  deps: you inject a publish connection and a DEDICATED subscriber connection (node-redis `client.duplicate()`;
+  ioredis a second client) via the `RedisPublisher` / `RedisSubscriber` seams. Single channel (default
+  `fieldnotes:fanout`, configurable). Pair with `RedisHubBackend` for full multi-instance real-time sync.
+
 ## [@fieldnotes/sync-redis 0.1.0] — 2026-07-01
 
 ### Added
