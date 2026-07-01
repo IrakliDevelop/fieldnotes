@@ -1,5 +1,6 @@
 import { parseEnvelope } from '@fieldnotes/sync';
 import { MemoryHubBackend } from './memory-hub-backend';
+import { InMemoryHubFanout, type HubFanout } from './hub-fanout';
 import type { HubBackend } from './hub-backend';
 
 export interface Connection {
@@ -10,18 +11,32 @@ export interface Connection {
 
 export interface SyncHubOptions {
   backend?: HubBackend;
+  fanout?: HubFanout;
+  instanceId?: string;
 }
 
 const HUB_FROM = 'hub';
+
+function generateInstanceId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+    return crypto.randomUUID();
+  return `i-${Math.random().toString(36).slice(2)}`;
+}
 
 export class SyncHub {
   private readonly backend: HubBackend;
   private readonly conns = new Map<string, Connection>();
   private readonly rooms = new Map<string, Set<string>>(); // room → connIds
   private readonly roomQueues = new Map<string, Promise<void>>(); // room → serial tail
+  private readonly instanceId: string;
+  private readonly fanout: HubFanout;
+  private readonly fanoutUnsub: () => void;
 
   constructor(options: SyncHubOptions = {}) {
     this.backend = options.backend ?? new MemoryHubBackend();
+    this.instanceId = options.instanceId ?? generateInstanceId();
+    this.fanout = options.fanout ?? new InMemoryHubFanout();
+    this.fanoutUnsub = this.fanout.subscribe((payload) => this.onFanout(payload));
   }
 
   addConnection(conn: Connection): void {
@@ -84,7 +99,36 @@ export class SyncHub {
           this.conns.get(id)?.send(message);
         }
       }
+      this.fanout.publish(JSON.stringify({ o: this.instanceId, room: conn.room, m: message }));
     }
     // 'snapshot' from a client → ignored
+  }
+
+  private onFanout(payload: string): void {
+    // Off the serial queue on purpose: forward-only (no backend re-apply — the origin already applied to the
+    // SHARED backend), and delivery is already ordered. Do not wrap this in roomQueues.
+    let env: { o?: unknown; room?: unknown; m?: unknown };
+    try {
+      env = JSON.parse(payload);
+    } catch {
+      return;
+    }
+    if (typeof env.o !== 'string' || typeof env.room !== 'string' || typeof env.m !== 'string')
+      return;
+    if (env.o === this.instanceId) return; // our own publish — already forwarded locally
+    const members = this.rooms.get(env.room);
+    if (!members) return;
+    const m = env.m;
+    for (const id of members) {
+      try {
+        this.conns.get(id)?.send(m);
+      } catch {
+        /* a throwing socket must not break the fanout loop */
+      }
+    }
+  }
+
+  close(): void {
+    this.fanoutUnsub();
   }
 }

@@ -5,6 +5,7 @@ import type { SyncOp } from '@fieldnotes/sync';
 import { SyncHub } from './sync-hub';
 import type { Connection } from './sync-hub';
 import type { HubBackend } from './hub-backend';
+import { InMemoryHubFanout } from './hub-fanout';
 
 interface FakeConn extends Connection {
   sent: string[];
@@ -161,6 +162,88 @@ describe('SyncHub', () => {
       backend.resolvers[0]?.();
       await flush();
       expect(backend.calls).toContain('apply:R:remove');
+    });
+  });
+
+  describe('cross-instance fanout', () => {
+    const upsert = (clientId: string, id: string): string =>
+      JSON.stringify({
+        from: clientId,
+        op: { kind: 'upsert', element: { ...sampleEl(), id } },
+      });
+
+    it('forwards an origin instance data op to local conns of another instance', async () => {
+      const bus = new InMemoryHubFanout();
+      const hubA = new SyncHub({ instanceId: 'A', fanout: bus });
+      const hubB = new SyncHub({ instanceId: 'B', fanout: bus });
+      const a = makeConn('a', 'R');
+      const b = makeConn('b', 'R');
+      hubA.addConnection(a);
+      hubB.addConnection(b);
+
+      const msg = upsert('ca', 'e1');
+      await hubA.handleMessage('a', msg);
+
+      expect(b.sent).toContain(msg);
+    });
+
+    it('does not double-forward to the origin instance own conns', async () => {
+      const bus = new InMemoryHubFanout();
+      const hubA = new SyncHub({ instanceId: 'A', fanout: bus });
+      new SyncHub({ instanceId: 'B', fanout: bus });
+      const a = makeConn('a', 'R');
+      const a2 = makeConn('a2', 'R');
+      hubA.addConnection(a);
+      hubA.addConnection(a2);
+
+      const msg = upsert('ca', 'e1');
+      await hubA.handleMessage('a', msg);
+
+      expect(a2.sent).toEqual([msg]); // exactly once (local forward only)
+      expect(a.sent).toEqual([]); // never echoed to sender
+    });
+
+    it('does not fan out a request-snapshot', async () => {
+      const bus = new InMemoryHubFanout();
+      const hubA = new SyncHub({ instanceId: 'A', fanout: bus });
+      const hubB = new SyncHub({ instanceId: 'B', fanout: bus });
+      const a = makeConn('a', 'R');
+      const b = makeConn('b', 'R');
+      hubA.addConnection(a);
+      hubB.addConnection(b);
+
+      await hubA.handleMessage('a', envelope('ca', { kind: 'request-snapshot' }));
+
+      expect(b.sent).toEqual([]);
+    });
+
+    it('isolates rooms across instances', async () => {
+      const bus = new InMemoryHubFanout();
+      const hubA = new SyncHub({ instanceId: 'A', fanout: bus });
+      const hubB = new SyncHub({ instanceId: 'B', fanout: bus });
+      const a = makeConn('a', 'R');
+      const b = makeConn('b', 'R2');
+      hubA.addConnection(a);
+      hubB.addConnection(b);
+
+      await hubA.handleMessage('a', upsert('ca', 'e1'));
+
+      expect(b.sent).toEqual([]);
+    });
+
+    it('close() unsubscribes the hub from the shared bus', async () => {
+      const bus = new InMemoryHubFanout();
+      const hubA = new SyncHub({ instanceId: 'A', fanout: bus });
+      const hubB = new SyncHub({ instanceId: 'B', fanout: bus });
+      const a = makeConn('a', 'R');
+      const b = makeConn('b', 'R');
+      hubA.addConnection(a);
+      hubB.addConnection(b);
+
+      hubA.close();
+      await hubB.handleMessage('b', upsert('cb', 'e2'));
+
+      expect(a.sent).toEqual([]); // hubA no longer receives fanout after close
     });
   });
 });

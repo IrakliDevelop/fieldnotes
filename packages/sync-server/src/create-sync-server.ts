@@ -2,11 +2,14 @@ import { WebSocketServer } from 'ws';
 import type { Server } from 'http';
 import { SyncHub } from './sync-hub';
 import type { HubBackend } from './hub-backend';
+import type { HubFanout } from './hub-fanout';
 
 export interface CreateSyncServerOptions {
   port?: number;
   server?: Server;
   backend?: HubBackend;
+  fanout?: HubFanout;
+  instanceId?: string;
 }
 
 export function createSyncServer(options: CreateSyncServerOptions = {}): {
@@ -14,7 +17,11 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
   wss: WebSocketServer;
   close: () => Promise<void>;
 } {
-  const hub = new SyncHub({ backend: options.backend });
+  const hub = new SyncHub({
+    backend: options.backend,
+    fanout: options.fanout,
+    instanceId: options.instanceId,
+  });
   const wss = options.server
     ? new WebSocketServer({ server: options.server })
     : new WebSocketServer({ port: options.port ?? 0 });
@@ -48,6 +55,10 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
   return {
     hub,
     wss,
-    close: () => new Promise<void>((resolve) => wss.close(() => resolve())),
+    close: () =>
+      new Promise<void>((resolve) => {
+        hub.close();
+        wss.close(() => resolve());
+      }),
   };
 }
