@@ -6,6 +6,8 @@ import type { HubBackend } from './hub-backend';
 export interface Connection {
   id: string;
   room: string;
+  userId?: string;
+  role?: string;
   send(message: string): void;
 }
 
