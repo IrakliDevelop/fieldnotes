@@ -6,3 +6,4 @@ export { createSyncServer } from './create-sync-server';
 export type { CreateSyncServerOptions } from './create-sync-server';
 export { InMemoryHubFanout } from './hub-fanout';
 export type { HubFanout } from './hub-fanout';
+export type { AuthInfo, AuthResult, Authenticate } from './authenticate';

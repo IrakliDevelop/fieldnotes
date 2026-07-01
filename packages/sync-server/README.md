@@ -34,4 +34,43 @@ const { close } = createSyncServer({ port: 8080 });
 // ws://localhost:8080?room=my-room
 ```
 
-Auth and a Redis `HubBackend` are upcoming.
+## Authentication
+
+Pass an `authenticate` hook to gate connections:
+
+```ts
+import { createSyncServer } from '@fieldnotes/sync-server';
+
+createSyncServer({
+  port: 8080,
+  authenticate: async ({ req, room }) => {
+    const token = new URL(req.url ?? '', 'http://x').searchParams.get('token');
+    const member = await myCampaign.verify(token, room); // your app's check (Redis/DB/JWT)
+    return member ? { userId: member.id, role: member.isDM ? 'dm' : 'player' } : null;
+  },
+});
+```
+
+`authenticate({ req, room }) → { userId, role? } | null` runs on each connection and
+may be sync or async. Returning `null` (or throwing) **rejects** the connection: the
+socket is closed with WS code `4401` and the connection is never admitted to the room —
+no membership, no snapshot. A resolved result admits the connection carrying its
+`userId` and optional `role`.
+
+With **no hook**, rooms stay open: every connection is admitted anonymously with
+`userId = connId`. `role` is captured now and enforced in an upcoming release
+(role-based authorization and per-viewer visibility filtering).
+
+Messages that arrive during an async auth (notably the client's initial
+`request-snapshot`) are queued and replayed once the connection is admitted, so the
+first snapshot is never lost to the auth round-trip.
+
+### Passing a token
+
+A browser `WebSocket` can't set request headers, so pass the token as a URL query
+param (`ws://relay?room=R&token=…`) and read it from `req.url` in `authenticate`. URLs
+land in access/proxy logs, so prefer **short-lived / single-use** tokens. Non-browser
+clients can instead put the token in `req.headers` (e.g. `Authorization`), which
+`authenticate` reads directly.
+
+A Redis `HubBackend` and cross-instance fan-out ship in [`@fieldnotes/sync-redis`](../sync-redis).

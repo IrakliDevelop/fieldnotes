@@ -4,6 +4,16 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [@fieldnotes/sync-server 0.3.0] — 2026-07-01
+
+### Added
+
+- Injected `authenticate` hook on `createSyncServer` — `authenticate({ req, room }) → { userId, role? } | null`
+  (sync or async). A rejected connection (null/throw) is closed with WS code 4401 and never admitted to a room;
+  an admitted `Connection` carries `userId` + `role`. With no hook, rooms stay open (anonymous). Messages that
+  arrive during an async auth are queued and replayed once admitted, so the client's initial snapshot request
+  is never lost. Role is captured now; role-based authorization and per-viewer visibility filtering come next.
+
 ## [@fieldnotes/sync-server 0.2.0] — 2026-07-01
 
 ### Added
