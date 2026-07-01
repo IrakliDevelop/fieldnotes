@@ -8,6 +8,7 @@ export interface WebSocketTransportOptions {
   reconnectFactor?: number;
   maxBufferSize?: number;
   random?: () => number;
+  shouldReconnect?: (code: number) => boolean;
 }
 
 export class WebSocketTransport implements SyncTransport {
@@ -19,12 +20,15 @@ export class WebSocketTransport implements SyncTransport {
   private readonly factor: number;
   private readonly maxBufferSize: number;
   private readonly random: () => number;
+  private readonly shouldReconnect: (code: number) => boolean;
 
   private ws: WebSocket | null = null;
   private readonly handlers = new Set<(message: string) => void>();
   private readonly reconnectHandlers = new Set<() => void>();
+  private readonly closeHandlers = new Set<(code: number, reason: string) => void>();
   private buffer: string[] = [];
   private closed = false;
+  private terminated = false;
   private attempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private hasConnectedOnce = false;
@@ -38,6 +42,8 @@ export class WebSocketTransport implements SyncTransport {
     this.factor = options.reconnectFactor ?? 2;
     this.maxBufferSize = options.maxBufferSize ?? 1000;
     this.random = options.random ?? Math.random;
+    this.shouldReconnect =
+      options.shouldReconnect ?? ((code: number) => !(code >= 4000 && code <= 4999));
     if (!this.WS) return;
     this.connect();
   }
@@ -59,8 +65,16 @@ export class WebSocketTransport implements SyncTransport {
       const data = e.data;
       this.handlers.forEach((h) => h(data));
     };
-    ws.onclose = () => {
-      if (this.closed || !this.reconnect) return;
+    ws.onclose = (event: CloseEvent) => {
+      if (this.closed) return; // intentional client close() — no onClose, no reconnect
+      const code = event.code;
+      const reason = event.reason ?? '';
+      this.closeHandlers.forEach((h) => h(code, reason));
+      if (!this.reconnect || !this.shouldReconnect(code)) {
+        this.terminated = true; // no reconnect will flush the buffer → send() drops
+        this.buffer = [];
+        return;
+      }
       this.reconnectTimer = setTimeout(() => this.connect(), this.backoff(this.attempt++));
     };
   }
@@ -76,7 +90,7 @@ export class WebSocketTransport implements SyncTransport {
   }
 
   send(message: string): void {
-    if (this.closed) return;
+    if (this.closed || this.terminated) return;
     const ws = this.ws;
     if (!ws) return;
     if (ws.readyState === ws.OPEN) {
@@ -100,6 +114,11 @@ export class WebSocketTransport implements SyncTransport {
     return () => this.reconnectHandlers.delete(handler);
   }
 
+  onClose(handler: (code: number, reason: string) => void): () => void {
+    this.closeHandlers.add(handler);
+    return () => this.closeHandlers.delete(handler);
+  }
+
   close(): void {
     this.closed = true;
     if (this.reconnectTimer !== null) clearTimeout(this.reconnectTimer);
@@ -108,6 +127,7 @@ export class WebSocketTransport implements SyncTransport {
     this.ws = null;
     this.handlers.clear();
     this.reconnectHandlers.clear();
+    this.closeHandlers.clear();
     this.buffer = [];
   }
 }
