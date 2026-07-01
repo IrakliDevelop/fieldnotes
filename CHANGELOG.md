@@ -4,6 +4,33 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [@fieldnotes/sync-server 0.4.0] — 2026-07-01
+
+### Added
+
+- Write authorization. `createSyncServer`/`SyncHub` accept an injected `authorize(ctx) => boolean | Promise<boolean>`
+  hook; the hub calls it before applying each data op and drops denied ops (not applied, not forwarded). `ctx`
+  carries the connection's `userId`/`role` (from auth), the op, and the current stored element. Element ownership
+  is server-stamped (`ownerId` = the authenticated creator, preserved on edit, un-forgeable) so a policy can
+  enforce "own elements only". With no hook, rooms stay open (allow-all). A copy-paste DM/player/display policy
+  is in the README. Ownership requires `authenticate` for a stable `userId`.
+
+### Changed (BREAKING for custom backends)
+
+- `HubBackend` gains a required `get(room, id): Promise<CanvasElement | undefined>` (the built-in
+  `MemoryHubBackend` implements it). A custom `HubBackend` must add `get`.
+
+## [@fieldnotes/sync-redis 0.3.0] — 2026-07-01
+
+### Added
+
+- `RedisHubBackend.get(room, id)` (via `HGET`) — powers the relay's ownership lookups for write authorization.
+
+### Changed (BREAKING for custom clients)
+
+- The injected `RedisHashClient` gains a required `hGet(key, field): Promise<string | null>` (node-redis v4 and
+  ioredis both provide it; the ioredis shim adds `hGet: (k, f) => io.hget(k, f)`).
+
 ## [@fieldnotes/sync 0.5.0] — 2026-07-01
 
 ### Added

@@ -4,6 +4,7 @@ import { SyncHub } from './sync-hub';
 import type { HubBackend } from './hub-backend';
 import type { HubFanout } from './hub-fanout';
 import type { Authenticate } from './authenticate';
+import type { Authorize } from './authorize';
 
 export interface CreateSyncServerOptions {
   port?: number;
@@ -12,6 +13,7 @@ export interface CreateSyncServerOptions {
   fanout?: HubFanout;
   instanceId?: string;
   authenticate?: Authenticate;
+  authorize?: Authorize;
 }
 
 export function createSyncServer(options: CreateSyncServerOptions = {}): {
@@ -23,6 +25,7 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
     backend: options.backend,
     fanout: options.fanout,
     instanceId: options.instanceId,
+    authorize: options.authorize,
   });
   const wss = options.server
     ? new WebSocketServer({ server: options.server })

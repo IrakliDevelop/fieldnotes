@@ -35,6 +35,17 @@ export class RedisHubBackend implements HubBackend {
     return out;
   }
 
+  async get(room: string, id: string): Promise<CanvasElement | undefined> {
+    const value = await this.client.hGet(this.key(room), id);
+    if (value == null) return undefined;
+    try {
+      const parsed: unknown = JSON.parse(value);
+      return isValidElement(parsed) ? parsed : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
   async apply(room: string, op: SyncOp): Promise<void> {
     const key = this.key(room);
     if (op.kind === 'upsert')

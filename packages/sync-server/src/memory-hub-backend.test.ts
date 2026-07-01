@@ -35,4 +35,16 @@ describe('MemoryHubBackend', () => {
     expect(await backend.snapshot('R2')).toEqual([]);
     expect(await backend.snapshot('R')).toEqual([el]);
   });
+
+  it('get returns the stored element after apply', async () => {
+    const backend = new MemoryHubBackend();
+    const el = createShape({ position: { x: 0, y: 0 }, size: { width: 10, height: 10 } });
+    await backend.apply('R', { kind: 'upsert', element: el });
+    expect(await backend.get('R', el.id)).toEqual(el);
+  });
+
+  it('get returns undefined for an absent element', async () => {
+    const backend = new MemoryHubBackend();
+    expect(await backend.get('R', 'missing')).toBeUndefined();
+  });
 });
