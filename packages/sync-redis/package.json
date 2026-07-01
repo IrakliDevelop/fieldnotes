@@ -1,0 +1,53 @@
+{
+  "name": "@fieldnotes/sync-redis",
+  "version": "0.1.0",
+  "description": "Redis-backed HubBackend for Field Notes real-time sync relay",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/IrakliDevelop/fieldnotes.git",
+    "directory": "packages/sync-redis"
+  },
+  "bugs": {
+    "url": "https://github.com/IrakliDevelop/fieldnotes/issues"
+  },
+  "homepage": "https://github.com/IrakliDevelop/fieldnotes/tree/master/packages/sync-redis#readme",
+  "keywords": [
+    "realtime",
+    "sync",
+    "redis",
+    "persistence",
+    "fieldnotes"
+  ],
+  "dependencies": {
+    "@fieldnotes/sync": "workspace:*"
+  },
+  "devDependencies": {
+    "@fieldnotes/sync-server": "workspace:*",
+    "@fieldnotes/core": "workspace:*",
+    "@vitest/coverage-v8": "^4.1.0",
+    "tsup": "^8.5.1",
+    "vitest": "^4.1.0"
+  }
+}
