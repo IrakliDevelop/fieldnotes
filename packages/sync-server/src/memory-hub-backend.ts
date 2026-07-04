@@ -23,6 +23,10 @@ export class MemoryHubBackend implements HubBackend {
   }
 
   async apply(room: string, op: SyncOp): Promise<void> {
+    if (op.kind === 'clear') {
+      this.rooms.delete(room);
+      return;
+    }
     applyOpToMap(this.room(room), op);
   }
 }

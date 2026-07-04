@@ -1,6 +1,6 @@
 {
   "name": "@fieldnotes/sync-server",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Authoritative WebSocket relay server for Field Notes real-time sync",
   "type": "module",
   "sideEffects": false,

@@ -107,6 +107,8 @@ export class SyncClient {
       } else {
         this.reconcile(op.elements);
       }
+      this.resyncPending = false; // TD-1: finalize after ANY snapshot (merge OR reconcile)
+      this.touchedDuringResync.clear();
     } else {
       this.applyOp(op); // narrows to upsert | remove | clear
     }
@@ -142,7 +144,5 @@ export class SyncClient {
       if (this.touchedDuringResync.has(el.id)) continue; // local edit is newer + already sent to the hub
       this.applyOp({ kind: 'upsert', element: el });
     }
-    this.resyncPending = false;
-    this.touchedDuringResync.clear();
   }
 }

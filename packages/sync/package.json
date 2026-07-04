@@ -1,6 +1,6 @@
 {
   "name": "@fieldnotes/sync",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Real-time element sync for Field Notes canvas SDK",
   "type": "module",
   "sideEffects": false,

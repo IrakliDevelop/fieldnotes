@@ -33,6 +33,7 @@ function shape() {
 describe('sync-server WebSocket relay (end-to-end)', () => {
   const servers: Server[] = [];
   const transports: WebSocketTransport[] = [];
+  const rawClients: WsClient[] = [];
 
   function startServer() {
     const backend = new MemoryHubBackend();
@@ -61,8 +62,22 @@ describe('sync-server WebSocket relay (end-to-end)', () => {
   afterEach(async () => {
     for (const t of transports) t.close();
     transports.length = 0;
+    for (const c of rawClients) c.close();
+    rawClients.length = 0;
     for (const s of servers) await s.close();
     servers.length = 0;
+  });
+
+  it('rejects a connection with no ?room using close code 4400', async () => {
+    const { port } = startServer();
+    const c = new WsClient(`ws://127.0.0.1:${port}/`);
+    rawClients.push(c);
+    let code = 0;
+    c.on('close', (cc) => {
+      code = cc;
+    });
+    await waitFor(() => code !== 0);
+    expect(code).toBe(4400);
   });
 
   it('forwards a live op from one client to another in the same room', async () => {

@@ -5,6 +5,7 @@ import type { HubBackend } from './hub-backend';
 import type { HubFanout } from './hub-fanout';
 import type { Authenticate } from './authenticate';
 import type { Authorize } from './authorize';
+import { startHeartbeat } from './heartbeat';
 
 export interface CreateSyncServerOptions {
   port?: number;
@@ -14,6 +15,7 @@ export interface CreateSyncServerOptions {
   instanceId?: string;
   authenticate?: Authenticate;
   authorize?: Authorize;
+  heartbeatIntervalMs?: number;
 }
 
 export function createSyncServer(options: CreateSyncServerOptions = {}): {
@@ -30,12 +32,14 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
   const wss = options.server
     ? new WebSocketServer({ server: options.server })
     : new WebSocketServer({ port: options.port ?? 0 });
+  const heartbeat = startHeartbeat(wss, options.heartbeatIntervalMs ?? 30000);
   let counter = 0;
   wss.on('connection', (ws, req) => {
+    heartbeat.track(ws);
     const url = new URL(req.url ?? '', 'http://localhost');
     const room = url.searchParams.get('room');
     if (!room) {
-      ws.close(1008, 'room required');
+      ws.close(4400, 'room required');
       return;
     }
     const connId = `c${++counter}-${Math.random().toString(36).slice(2, 8)}`;
@@ -94,6 +98,7 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
     wss,
     close: () =>
       new Promise<void>((resolve) => {
+        heartbeat.stop();
         hub.close();
         wss.close(() => resolve());
       }),
