@@ -4,6 +4,16 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [@fieldnotes/sync 0.7.0] — 2026-07-04
+
+### Added
+
+- Ephemeral **presence channel** — `SyncClient.sendPresence(data)` broadcasts a transient, opaque signal
+  (cursor position, laser, AoE-preview) that is never persisted, never in a snapshot, and never applied to
+  the store; `onPresence((from, data) => …)` / `onPresenceLeave((from) => …)` receive peers' signals and a
+  hub-emitted leave when a peer disconnects. New `presence` / `presence-leave` op kinds. **Caveat:** presence
+  is broadcast to everyone in the room (not `canRead`-filtered) — do not put secret bytes in `data`.
+
 ## [@fieldnotes/sync-server 0.7.0] — 2026-07-04
 
 ### Added

@@ -582,6 +582,66 @@ describe('SyncClient resync-on-reconnect', () => {
   });
 });
 
+describe('presence channel', () => {
+  it('sendPresence emits a presence envelope; a not-started client sends nothing', () => {
+    const bus = makeBus();
+    const store = new ElementStore();
+    const transport = bus.endpoint();
+    const client = new SyncClient({ store, transport, clientId: 'A' });
+    client.sendPresence({ x: 1 }); // not started yet → silent
+    expect(transport.sent).toEqual([]);
+    client.start();
+    transport.sent.length = 0;
+    client.sendPresence({ x: 1, y: 2 });
+    expect(transport.sent).toHaveLength(1);
+    expect(JSON.parse(transport.sent[0] as string)).toEqual({
+      from: 'A',
+      op: { kind: 'presence', data: { x: 1, y: 2 } },
+    });
+  });
+
+  it('onPresence fires for a peer and never touches the store', () => {
+    const bus = makeBus();
+    const storeA = new ElementStore();
+    const storeB = new ElementStore();
+    const a = new SyncClient({ store: storeA, transport: bus.endpoint(), clientId: 'A' });
+    const b = new SyncClient({ store: storeB, transport: bus.endpoint(), clientId: 'B' });
+    a.start();
+    b.start();
+    const seen: [string, unknown][] = [];
+    b.onPresence((from, data) => seen.push([from, data]));
+    a.sendPresence({ cursor: 'here' });
+    expect(seen).toEqual([['A', { cursor: 'here' }]]);
+    expect(storeB.snapshot()).toEqual([]); // presence never enters the store
+  });
+
+  it('drops own presence via the echo guard', () => {
+    const bus = makeBus(true); // self-echoing
+    const store = new ElementStore();
+    const a = new SyncClient({ store, transport: bus.endpoint(), clientId: 'A' });
+    a.start();
+    let fired = 0;
+    a.onPresence(() => fired++);
+    a.sendPresence({ x: 1 });
+    expect(fired).toBe(0); // env.from === clientId → dropped
+  });
+
+  it('onPresenceLeave fires; unsubscribe stops delivery', () => {
+    const bus = makeBus();
+    const store = new ElementStore();
+    const injector = bus.endpoint(); // stands in for the hub
+    const b = new SyncClient({ store, transport: bus.endpoint(), clientId: 'B' });
+    b.start();
+    const left: string[] = [];
+    const off = b.onPresenceLeave((from) => left.push(from));
+    injector.send(JSON.stringify({ from: 'ghost', op: { kind: 'presence-leave' } }));
+    expect(left).toEqual(['ghost']);
+    off();
+    injector.send(JSON.stringify({ from: 'ghost2', op: { kind: 'presence-leave' } }));
+    expect(left).toEqual(['ghost']); // unsubscribed
+  });
+});
+
 describe('audience stamping (resolveAudience)', () => {
   function lastUpsert(
     sent: string[],

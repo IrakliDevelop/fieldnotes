@@ -7,7 +7,9 @@ export type SyncOp =
   | { kind: 'remove'; id: string }
   | { kind: 'clear' }
   | { kind: 'request-snapshot' }
-  | { kind: 'snapshot'; to: string; elements: CanvasElement[] };
+  | { kind: 'snapshot'; to: string; elements: CanvasElement[] }
+  | { kind: 'presence'; data: unknown }
+  | { kind: 'presence-leave' };
 
 export interface SyncEnvelope {
   from: string;
@@ -53,6 +55,8 @@ export function isValidEnvelope(env: unknown): env is SyncEnvelope {
       return typeof op.id === 'string';
     case 'clear':
     case 'request-snapshot':
+    case 'presence':
+    case 'presence-leave':
       return true;
     case 'snapshot':
       return typeof op.to === 'string' && Array.isArray(op.elements); // SHAPE only; per-element filtered in the handler
@@ -74,5 +78,5 @@ export function applyOpToMap(map: Map<string, CanvasElement>, op: SyncOp): void 
   if (op.kind === 'upsert') map.set(op.element.id, op.element);
   else if (op.kind === 'remove') map.delete(op.id);
   else if (op.kind === 'clear') map.clear();
-  // control ops (request-snapshot/snapshot) are no-ops here
+  // non-data ops (request-snapshot/snapshot/presence/presence-leave) are no-ops here
 }
