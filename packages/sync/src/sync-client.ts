@@ -32,6 +32,8 @@ export class SyncClient {
   private joined = false;
   private resyncPending = false;
   private readonly touchedDuringResync = new Set<string>();
+  private readonly presenceHandlers = new Set<(from: string, data: unknown) => void>();
+  private readonly presenceLeaveHandlers = new Set<(from: string) => void>();
 
   constructor(options: SyncClientOptions) {
     this.store = options.store;
@@ -75,6 +77,21 @@ export class SyncClient {
     this.started = false;
     this.unsubscribers.forEach((u) => u());
     this.unsubscribers = [];
+  }
+
+  sendPresence(data: unknown): void {
+    if (!this.started) return;
+    this.sendOp({ kind: 'presence', data });
+  }
+
+  onPresence(handler: (from: string, data: unknown) => void): () => void {
+    this.presenceHandlers.add(handler);
+    return () => this.presenceHandlers.delete(handler);
+  }
+
+  onPresenceLeave(handler: (from: string) => void): () => void {
+    this.presenceLeaveHandlers.add(handler);
+    return () => this.presenceLeaveHandlers.delete(handler);
   }
 
   private sendOp(op: SyncOp): void {
@@ -121,6 +138,10 @@ export class SyncClient {
       }
       this.resyncPending = false; // TD-1: finalize after ANY snapshot (merge OR reconcile)
       this.touchedDuringResync.clear();
+    } else if (op.kind === 'presence') {
+      for (const h of this.presenceHandlers) h(env.from, op.data);
+    } else if (op.kind === 'presence-leave') {
+      for (const h of this.presenceLeaveHandlers) h(env.from);
     } else {
       this.applyOp(op); // narrows to upsert | remove | clear
     }

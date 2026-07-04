@@ -4,6 +4,27 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [@fieldnotes/sync-server 0.8.0] — 2026-07-04
+
+### Added
+
+- Ephemeral **presence relay**. The hub forwards `presence` ops to every room member (except the sender)
+  **off the serial queue** — never persisted, never `canRead`-filtered — and fans them across instances.
+  On disconnect it emits a hub-authored `presence-leave` for any connection that sent presence, so a peer's
+  cursor clears reliably (a client-sent `presence-leave` is ignored — only the hub emits leaves). Pairs with
+  `@fieldnotes/sync` 0.7.0's `sendPresence`/`onPresence`. **Internal:** the fanout now also carries
+  presence/leave ops — deploy relay instances together.
+
+## [@fieldnotes/sync 0.7.0] — 2026-07-04
+
+### Added
+
+- Ephemeral **presence channel** — `SyncClient.sendPresence(data)` broadcasts a transient, opaque signal
+  (cursor position, laser, AoE-preview) that is never persisted, never in a snapshot, and never applied to
+  the store; `onPresence((from, data) => …)` / `onPresenceLeave((from) => …)` receive peers' signals and a
+  hub-emitted leave when a peer disconnects. New `presence` / `presence-leave` op kinds. **Caveat:** presence
+  is broadcast to everyone in the room (not `canRead`-filtered) — do not put secret bytes in `data`.
+
 ## [@fieldnotes/sync-server 0.7.0] — 2026-07-04
 
 ### Added

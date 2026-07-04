@@ -771,3 +771,121 @@ describe('read filtering (canRead)', () => {
     expect(JSON.parse(player.sent[0] as string).op).toEqual({ kind: 'clear' });
   });
 });
+
+describe('presence (ephemeral)', () => {
+  const presenceMsg = (from: string, data: unknown): string =>
+    JSON.stringify({ from, op: { kind: 'presence', data } });
+
+  function conn(id: string, room: string, role?: string): FakeConn {
+    return { ...makeConn(id, room), role };
+  }
+
+  it('broadcasts presence to every member except the sender', async () => {
+    const hub = new SyncHub();
+    const a = makeConn('a', 'R');
+    const b = makeConn('b', 'R');
+    hub.addConnection(a);
+    hub.addConnection(b);
+    await hub.handleMessage('a', presenceMsg('ca', { x: 1 }));
+    expect(a.sent).toEqual([]);
+    expect(b.sent).toHaveLength(1);
+    expect(JSON.parse(b.sent[0] as string)).toEqual({
+      from: 'ca',
+      op: { kind: 'presence', data: { x: 1 } },
+    });
+  });
+
+  it('never touches the backend (not persisted, off-queue)', async () => {
+    let calls = 0;
+    const inner = new MemoryHubBackend();
+    const backend: HubBackend = {
+      snapshot: (r) => {
+        calls++;
+        return inner.snapshot(r);
+      },
+      apply: (r, op) => {
+        calls++;
+        return inner.apply(r, op);
+      },
+      get: (r, id) => {
+        calls++;
+        return inner.get(r, id);
+      },
+    };
+    const hub = new SyncHub({ backend });
+    const a = makeConn('a', 'R');
+    const b = makeConn('b', 'R');
+    hub.addConnection(a);
+    hub.addConnection(b);
+    await hub.handleMessage('a', presenceMsg('ca', { x: 1 }));
+    expect(calls).toBe(0);
+    expect(b.sent).toHaveLength(1);
+  });
+
+  it('is not canRead-filtered — a player receives a dm-role peer presence and vice versa', async () => {
+    const canRead = ({
+      role,
+      audience,
+    }: {
+      role?: string;
+      audience: string | undefined;
+    }): boolean => audience !== 'dm' || role === 'dm';
+    const hub = new SyncHub({ canRead });
+    const dm = conn('dm', 'R', 'dm');
+    const player = conn('pl', 'R', 'player');
+    hub.addConnection(dm);
+    hub.addConnection(player);
+    await hub.handleMessage('dm', presenceMsg('cdm', { x: 1 }));
+    await hub.handleMessage('pl', presenceMsg('cpl', { x: 2 }));
+    expect(player.sent).toHaveLength(1);
+    expect(dm.sent).toHaveLength(1);
+  });
+
+  it('does NOT relay a client-sent presence-leave (anti-forgery)', async () => {
+    const hub = new SyncHub();
+    const a = makeConn('a', 'R');
+    const b = makeConn('b', 'R');
+    hub.addConnection(a);
+    hub.addConnection(b);
+    await hub.handleMessage('a', JSON.stringify({ from: 'ca', op: { kind: 'presence-leave' } }));
+    expect(b.sent).toEqual([]);
+  });
+
+  it('emits presence-leave on disconnect for a conn that sent presence; none otherwise', () => {
+    const hub = new SyncHub();
+    const a = makeConn('a', 'R');
+    const b = makeConn('b', 'R');
+    const c = makeConn('c', 'R');
+    hub.addConnection(a);
+    hub.addConnection(b);
+    hub.addConnection(c);
+    void hub.handleMessage('a', presenceMsg('ca', { x: 1 }));
+    b.sent.length = 0;
+    hub.removeConnection('a');
+    expect(b.sent).toHaveLength(1);
+    expect(JSON.parse(b.sent[0] as string)).toEqual({ from: 'ca', op: { kind: 'presence-leave' } });
+    b.sent.length = 0;
+    hub.removeConnection('c');
+    expect(b.sent).toEqual([]);
+  });
+
+  it('relays presence and leave across instances via a shared fanout', async () => {
+    const bus = new InMemoryHubFanout();
+    const hubA = new SyncHub({ instanceId: 'A', fanout: bus });
+    const hubB = new SyncHub({ instanceId: 'B', fanout: bus });
+    const a = makeConn('a', 'R');
+    const b = makeConn('b', 'R');
+    hubA.addConnection(a);
+    hubB.addConnection(b);
+    await hubA.handleMessage('a', presenceMsg('ca', { x: 9 }));
+    expect(b.sent).toHaveLength(1);
+    expect(JSON.parse(b.sent[0] as string)).toEqual({
+      from: 'ca',
+      op: { kind: 'presence', data: { x: 9 } },
+    });
+    b.sent.length = 0;
+    hubA.removeConnection('a');
+    expect(b.sent).toHaveLength(1);
+    expect(JSON.parse(b.sent[0] as string)).toEqual({ from: 'ca', op: { kind: 'presence-leave' } });
+  });
+});

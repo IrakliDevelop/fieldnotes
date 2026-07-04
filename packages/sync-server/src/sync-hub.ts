@@ -1,4 +1,4 @@
-import { parseEnvelope, isValidElement, type SyncOp } from '@fieldnotes/sync';
+import { parseEnvelope, isValidElement, type SyncOp, type SyncEnvelope } from '@fieldnotes/sync';
 import { MemoryHubBackend } from './memory-hub-backend';
 import { InMemoryHubFanout, type HubFanout } from './hub-fanout';
 import type { HubBackend } from './hub-backend';
@@ -36,11 +36,20 @@ function isFanoutOp(op: unknown): op is Extract<SyncOp, { kind: 'upsert' | 'remo
   return o.kind === 'clear';
 }
 
+function isPresenceOp(
+  op: unknown,
+): op is { kind: 'presence'; data: unknown } | { kind: 'presence-leave' } {
+  if (typeof op !== 'object' || op === null) return false;
+  const k = (op as { kind?: unknown }).kind;
+  return k === 'presence' || k === 'presence-leave';
+}
+
 export class SyncHub {
   private readonly backend: HubBackend;
   private readonly conns = new Map<string, Connection>();
   private readonly rooms = new Map<string, Set<string>>(); // room → connIds
   private readonly roomQueues = new Map<string, Promise<void>>(); // room → serial tail
+  private readonly presenceIds = new Map<string, string>(); // connId → last clientId that sent presence
   private readonly instanceId: string;
   private readonly fanout: HubFanout;
   private readonly fanoutUnsub: () => void;
@@ -70,14 +79,18 @@ export class SyncHub {
     const conn = this.conns.get(connId);
     if (!conn) return;
     this.conns.delete(connId);
-    const members = this.rooms.get(conn.room);
+    const room = conn.room;
+    const clientId = this.presenceIds.get(connId);
+    this.presenceIds.delete(connId);
+    const members = this.rooms.get(room);
     if (members) {
       members.delete(connId);
       if (members.size === 0) {
-        this.rooms.delete(conn.room);
-        this.roomQueues.delete(conn.room);
+        this.rooms.delete(room);
+        this.roomQueues.delete(room);
       }
     }
+    if (clientId !== undefined) this.broadcastLeave(room, clientId);
   }
 
   roomCount(): number {
@@ -87,12 +100,18 @@ export class SyncHub {
   handleMessage(connId: string, message: string): Promise<void> {
     const conn = this.conns.get(connId);
     if (!conn) return Promise.resolve();
+    const env = parseEnvelope(message);
+    if (!env) return Promise.resolve();
+    if (env.op.kind === 'presence') {
+      this.broadcastPresence(conn, env.from, env.op.data); // off-queue, synchronous
+      return Promise.resolve();
+    }
     const room = conn.room;
     // The per-room serial queue is the single total-order authority: ops apply in arrival order
     // (arrival-order LWW — no per-element seq; see D3 / TD-12). Different rooms run independently.
     const prev = this.roomQueues.get(room) ?? Promise.resolve();
     const next = prev
-      .then(() => this.process(conn, message))
+      .then(() => this.process(conn, env))
       .catch(() => {
         // swallow so one failed message never wedges the room's serial queue
       });
@@ -100,9 +119,7 @@ export class SyncHub {
     return next;
   }
 
-  private async process(conn: Connection, message: string): Promise<void> {
-    const env = parseEnvelope(message);
-    if (!env) return;
+  private async process(conn: Connection, env: SyncEnvelope): Promise<void> {
     const op = env.op;
     if (op.kind === 'request-snapshot') {
       const all = (await this.backend.snapshot(conn.room)) as OwnedElement[];
@@ -161,6 +178,46 @@ export class SyncHub {
   private mayRead(conn: Connection, audience: string | undefined): boolean {
     if (!this.canRead) return true;
     return this.canRead({ userId: conn.userId, role: conn.role, room: conn.room, audience });
+  }
+
+  private safePublish(payload: string): void {
+    try {
+      this.fanout.publish(payload);
+    } catch {
+      /* a broken fanout publisher must not break the un-queued presence relay */
+    }
+  }
+
+  private relayToRoom(room: string, excludeId: string | undefined, message: string): void {
+    const members = this.rooms.get(room);
+    if (!members) return;
+    for (const cid of members) {
+      if (cid === excludeId) continue;
+      const conn = this.conns.get(cid);
+      if (!conn) continue;
+      try {
+        conn.send(message);
+      } catch {
+        /* a throwing socket must not break the relay loop */
+      }
+    }
+  }
+
+  private broadcastPresence(conn: Connection, from: string, data: unknown): void {
+    this.presenceIds.set(conn.id, from);
+    const message = JSON.stringify({ from, op: { kind: 'presence', data } });
+    this.relayToRoom(conn.room, conn.id, message);
+    this.safePublish(
+      JSON.stringify({ o: this.instanceId, room: conn.room, from, op: { kind: 'presence', data } }),
+    );
+  }
+
+  private broadcastLeave(room: string, from: string): void {
+    const message = JSON.stringify({ from, op: { kind: 'presence-leave' } });
+    this.relayToRoom(room, undefined, message);
+    this.safePublish(
+      JSON.stringify({ o: this.instanceId, room, from, op: { kind: 'presence-leave' } }),
+    );
   }
 
   private deliverToRoom(
@@ -255,6 +312,12 @@ export class SyncHub {
       return;
     if (env.o === this.instanceId) return; // our own publish — already delivered locally
     const op = env.op;
+    if (isPresenceOp(op)) {
+      // presence/leave: raw forward to all local members (the sender lives on the origin instance),
+      // no backend, no canRead filter.
+      this.relayToRoom(env.room, undefined, JSON.stringify({ from: env.from, op }));
+      return;
+    }
     if (!isFanoutOp(op)) return;
     const prevAudience = typeof env.prev === 'string' ? env.prev : undefined;
     const prevExisted = env.existed === true;
