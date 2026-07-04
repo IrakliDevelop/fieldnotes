@@ -4,6 +4,14 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [@fieldnotes/core 0.46.1] — 2026-07-04
+
+### Fixed
+
+- Element ids now include a per-process random component, so two clients creating an element in the same
+  millisecond no longer produce the same id (which, under sync, silently merged the two users' elements via
+  the last-write-wins upsert). Ids remain opaque strings and old saved ids stay valid — no migration.
+
 ## [@fieldnotes/sync-server 0.6.0] — 2026-07-04
 
 ### Added
