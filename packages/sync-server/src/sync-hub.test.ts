@@ -439,5 +439,130 @@ describe('SyncHub', () => {
       expect(await backend.get('R', 'e1')).toBeUndefined();
       expect(obs.sent).toEqual([]);
     });
+
+    describe('denied-op correction', () => {
+      const lastCorrection = (conn: FakeConn): { from: string; op: SyncOp } | undefined => {
+        const raw = conn.sent[conn.sent.length - 1];
+        return raw !== undefined ? JSON.parse(raw) : undefined;
+      };
+
+      it('denied upsert of a NEW element → sends the sender a remove', async () => {
+        const backend = new MemoryHubBackend();
+        const hub = new SyncHub({ authorize: policy, backend });
+        const d = roleConn('d', 'R', 'disp1', 'display');
+        const peer = roleConn('peer', 'R', 'o', 'dm');
+        hub.addConnection(d);
+        hub.addConnection(peer);
+
+        const E = el('E');
+        await hub.handleMessage('d', envelope('cd', { kind: 'upsert', element: E }));
+
+        expect(lastCorrection(d)).toEqual({ from: 'hub', op: { kind: 'remove', id: 'E' } });
+        expect(peer.sent).toEqual([]);
+        expect(await backend.get('R', 'E')).toBeUndefined();
+      });
+
+      it('denied upsert of an EXISTING element → sends the sender the canonical upsert', async () => {
+        const backend = new MemoryHubBackend();
+        const hub = new SyncHub({ authorize: policy, backend });
+        const dm = roleConn('dm', 'R', 'dm1', 'dm');
+        const p = roleConn('p', 'R', 'player1', 'player');
+        const peer = roleConn('peer', 'R', 'o', 'dm');
+        hub.addConnection(dm);
+        hub.addConnection(p);
+        hub.addConnection(peer);
+
+        await hub.handleMessage('dm', envelope('cdm', { kind: 'upsert', element: el('X') }));
+        const canonical = (await backend.get('R', 'X')) as OwnedElement;
+        peer.sent.length = 0;
+
+        const changed = { ...el('X'), position: { x: 999, y: 999 } };
+        await hub.handleMessage('p', envelope('cp', { kind: 'upsert', element: changed }));
+
+        expect(lastCorrection(p)).toEqual({
+          from: 'hub',
+          op: { kind: 'upsert', element: canonical },
+        });
+        expect(canonical.ownerId).toBe('dm1');
+        expect(await backend.get('R', 'X')).toEqual(canonical);
+        expect(peer.sent).toEqual([]);
+      });
+
+      it('denied remove of an EXISTING element → sends the sender the canonical upsert', async () => {
+        const backend = new MemoryHubBackend();
+        const hub = new SyncHub({ authorize: policy, backend });
+        const dm = roleConn('dm', 'R', 'dm1', 'dm');
+        const p = roleConn('p', 'R', 'player1', 'player');
+        hub.addConnection(dm);
+        hub.addConnection(p);
+
+        await hub.handleMessage('dm', envelope('cdm', { kind: 'upsert', element: el('X') }));
+        const canonical = (await backend.get('R', 'X')) as OwnedElement;
+
+        await hub.handleMessage('p', envelope('cp', { kind: 'remove', id: 'X' }));
+
+        expect(lastCorrection(p)).toEqual({
+          from: 'hub',
+          op: { kind: 'upsert', element: canonical },
+        });
+        expect(await backend.get('R', 'X')).toEqual(canonical);
+      });
+
+      it('denied remove of a NON-EXISTENT element → sends nothing', async () => {
+        const backend = new MemoryHubBackend();
+        const hub = new SyncHub({ authorize: policy, backend });
+        const p = roleConn('p', 'R', 'player1', 'player');
+        hub.addConnection(p);
+
+        await hub.handleMessage('p', envelope('cp', { kind: 'remove', id: 'ghost' }));
+
+        expect(p.sent).toEqual([]);
+      });
+
+      it('denied clear → sends the sender a canonical snapshot addressed to it', async () => {
+        const backend = new MemoryHubBackend();
+        const hub = new SyncHub({ authorize: policy, backend });
+        const dm = roleConn('dm', 'R', 'dm1', 'dm');
+        const p = roleConn('p', 'R', 'player1', 'player');
+        hub.addConnection(dm);
+        hub.addConnection(p);
+
+        await hub.handleMessage('dm', envelope('cdm', { kind: 'upsert', element: el('X') }));
+        await hub.handleMessage('dm', envelope('cdm', { kind: 'upsert', element: el('Y') }));
+        const canonical = await backend.snapshot('R');
+
+        await hub.handleMessage('p', envelope('cp-clr', { kind: 'clear' }));
+
+        expect(lastCorrection(p)).toEqual({
+          from: 'hub',
+          op: { kind: 'snapshot', to: 'cp-clr', elements: canonical },
+        });
+        expect(await backend.snapshot('R')).toEqual(canonical);
+      });
+
+      it('an ALLOWED op sends the sender no hub correction', async () => {
+        const backend = new MemoryHubBackend();
+        const hub = new SyncHub({ authorize: policy, backend });
+        const dm = roleConn('dm', 'R', 'dm1', 'dm');
+        const peer = roleConn('peer', 'R', 'o', 'dm');
+        hub.addConnection(dm);
+        hub.addConnection(peer);
+
+        await hub.handleMessage('dm', envelope('cdm', { kind: 'upsert', element: el('X') }));
+
+        expect(dm.sent).toEqual([]);
+      });
+
+      it('a hub with NO authorize never sends a correction on a data op', async () => {
+        const backend = new MemoryHubBackend();
+        const hub = new SyncHub({ backend });
+        const p = roleConn('p', 'R', 'player1', 'player');
+        hub.addConnection(p);
+
+        await hub.handleMessage('p', envelope('cp', { kind: 'remove', id: 'ghost' }));
+
+        expect(p.sent).toEqual([]);
+      });
+    });
   });
 });

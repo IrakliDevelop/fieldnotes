@@ -4,6 +4,16 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [@fieldnotes/sync-server 0.6.0] — 2026-07-04
+
+### Added
+
+- Denied-op correction. When an `authorize` hook denies a write, the hub now sends the offending client a
+  corrective op — remove (a rejected new element), upsert of the canonical element (a rejected edit/remove),
+  or a fresh snapshot (a rejected `clear`) — so its optimistic local edit self-corrects immediately instead
+  of looking accepted until the next reconnect. The correction reuses existing op kinds, so no client change
+  is required; it is sent only to the offending connection.
+
 ## [@fieldnotes/sync-server 0.5.0] — 2026-07-04
 
 ### Added

@@ -152,7 +152,10 @@ createSyncServer({
   low-write use.
 - Reads / visibility (a player not **receiving** hidden content) are a separate, upcoming
   concern (D3). `authorize` gates writes only.
-- Denied ops are dropped **silently** — the client's optimistic local edit self-corrects
-  on its next reconnect/resync.
+- When `authorize` denies an op, the hub sends the offending client a **corrective op** so its
+  optimistic local edit self-corrects immediately — no client change, no waiting for reconnect:
+  a rejected new element is **removed**, a rejected edit/remove is re-**upserted** from the canonical
+  stored element, and a rejected `clear` gets a fresh **snapshot**. The correction reuses existing op
+  kinds and is sent only to the offending connection.
 
 A Redis `HubBackend` and cross-instance fan-out ship in [`@fieldnotes/sync-redis`](../sync-redis).

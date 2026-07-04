@@ -110,7 +110,10 @@ export class SyncHub {
           op,
           currentElement: current,
         });
-        if (!allowed) return;
+        if (!allowed) {
+          await this.sendCorrection(conn, env.from, op, current);
+          return;
+        }
         if (op.kind === 'upsert') {
           const ownerId = current?.ownerId ?? conn.userId;
           const stampedElement: OwnedElement = { ...op.element, ownerId };
@@ -131,6 +134,26 @@ export class SyncHub {
       );
     }
     // 'snapshot' from a client → ignored
+  }
+
+  private async sendCorrection(
+    conn: Connection,
+    from: string,
+    op: SyncOp,
+    current: OwnedElement | undefined,
+  ): Promise<void> {
+    let correction: SyncOp | undefined;
+    if (op.kind === 'upsert') {
+      correction = current
+        ? { kind: 'upsert', element: current }
+        : { kind: 'remove', id: op.element.id };
+    } else if (op.kind === 'remove') {
+      correction = current ? { kind: 'upsert', element: current } : undefined;
+    } else if (op.kind === 'clear') {
+      const elements = await this.backend.snapshot(conn.room);
+      correction = { kind: 'snapshot', to: from, elements };
+    }
+    if (correction) conn.send(JSON.stringify({ from: HUB_FROM, op: correction }));
   }
 
   private onFanout(payload: string): void {
