@@ -7,6 +7,6 @@ export type { CreateSyncServerOptions } from './create-sync-server';
 export { InMemoryHubFanout } from './hub-fanout';
 export type { HubFanout } from './hub-fanout';
 export type { AuthInfo, AuthResult, Authenticate } from './authenticate';
-export type { Authorize, AuthorizeContext, OwnedElement } from './authorize';
+export type { Authorize, AuthorizeContext, OwnedElement, ReadContext, CanRead } from './authorize';
 export { startHeartbeat } from './heartbeat';
 export type { Heartbeat, HeartbeatSocket, HeartbeatServer } from './heartbeat';

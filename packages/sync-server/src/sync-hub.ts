@@ -2,7 +2,7 @@ import { parseEnvelope, type SyncOp } from '@fieldnotes/sync';
 import { MemoryHubBackend } from './memory-hub-backend';
 import { InMemoryHubFanout, type HubFanout } from './hub-fanout';
 import type { HubBackend } from './hub-backend';
-import type { Authorize, OwnedElement } from './authorize';
+import type { Authorize, CanRead, OwnedElement } from './authorize';
 
 export interface Connection {
   id: string;
@@ -17,6 +17,7 @@ export interface SyncHubOptions {
   fanout?: HubFanout;
   instanceId?: string;
   authorize?: Authorize;
+  canRead?: CanRead;
 }
 
 const HUB_FROM = 'hub';
@@ -36,12 +37,14 @@ export class SyncHub {
   private readonly fanout: HubFanout;
   private readonly fanoutUnsub: () => void;
   private readonly authorize?: Authorize;
+  private readonly canRead?: CanRead;
 
   constructor(options: SyncHubOptions = {}) {
     this.backend = options.backend ?? new MemoryHubBackend();
     this.instanceId = options.instanceId ?? generateInstanceId();
     this.fanout = options.fanout ?? new InMemoryHubFanout();
     this.authorize = options.authorize;
+    this.canRead = options.canRead;
     this.fanoutUnsub = this.fanout.subscribe((payload) => this.onFanout(payload));
   }
 
@@ -77,6 +80,8 @@ export class SyncHub {
     const conn = this.conns.get(connId);
     if (!conn) return Promise.resolve();
     const room = conn.room;
+    // The per-room serial queue is the single total-order authority: ops apply in arrival order
+    // (arrival-order LWW — no per-element seq; see D3 / TD-12). Different rooms run independently.
     const prev = this.roomQueues.get(room) ?? Promise.resolve();
     const next = prev
       .then(() => this.process(conn, message))
@@ -92,17 +97,20 @@ export class SyncHub {
     if (!env) return;
     const op = env.op;
     if (op.kind === 'request-snapshot') {
-      const elements = await this.backend.snapshot(conn.room);
+      const all = (await this.backend.snapshot(conn.room)) as OwnedElement[];
+      const elements = this.canRead ? all.filter((el) => this.mayRead(conn, el.audience)) : all;
       conn.send(
         JSON.stringify({ from: HUB_FROM, op: { kind: 'snapshot', to: env.from, elements } }),
       );
     } else if (op.kind === 'upsert' || op.kind === 'remove' || op.kind === 'clear') {
+      const id = op.kind === 'upsert' ? op.element.id : op.kind === 'remove' ? op.id : undefined;
+      const needCurrent = (this.authorize || this.canRead) && id !== undefined;
+      const current: OwnedElement | undefined = needCurrent
+        ? await this.backend.get(conn.room, id)
+        : undefined;
+
       let outboundOp: SyncOp = op;
-      let outboundMessage = message;
       if (this.authorize) {
-        const id = op.kind === 'upsert' ? op.element.id : op.kind === 'remove' ? op.id : undefined;
-        const current: OwnedElement | undefined =
-          id !== undefined ? await this.backend.get(conn.room, id) : undefined;
         const allowed = await this.authorize({
           userId: conn.userId,
           role: conn.role,
@@ -118,22 +126,88 @@ export class SyncHub {
           const ownerId = current?.ownerId ?? conn.userId;
           const stampedElement: OwnedElement = { ...op.element, ownerId };
           outboundOp = { kind: 'upsert', element: stampedElement };
-          outboundMessage = JSON.stringify({ from: env.from, op: outboundOp });
         }
       }
+
       await this.backend.apply(conn.room, outboundOp);
-      const members = this.rooms.get(conn.room);
-      if (members) {
-        for (const id of members) {
-          if (id === conn.id) continue;
-          this.conns.get(id)?.send(outboundMessage);
-        }
-      }
+
+      const prevExisted = current !== undefined;
+      const prevAudience = current?.audience;
+
+      this.deliverToRoom(conn.room, conn.id, env.from, outboundOp, prevAudience, prevExisted);
+
       this.fanout.publish(
-        JSON.stringify({ o: this.instanceId, room: conn.room, m: outboundMessage }),
+        JSON.stringify({
+          o: this.instanceId,
+          room: conn.room,
+          from: env.from,
+          op: outboundOp,
+          prev: prevAudience,
+          existed: prevExisted,
+          // Transitional: the current onFanout still reads `m`. Kept so cross-instance forwarding
+          // (and its tests) stay green until the next task reworks onFanout to consume the fields above.
+          m: JSON.stringify({ from: env.from, op: outboundOp }),
+        }),
       );
     }
     // 'snapshot' from a client → ignored
+  }
+
+  private mayRead(conn: Connection, audience: string | undefined): boolean {
+    if (!this.canRead) return true;
+    return this.canRead({ userId: conn.userId, role: conn.role, room: conn.room, audience });
+  }
+
+  private deliverToRoom(
+    room: string,
+    excludeId: string | undefined,
+    from: string,
+    op: SyncOp,
+    prevAudience: string | undefined,
+    prevExisted: boolean,
+  ): void {
+    const members = this.rooms.get(room);
+    if (!members) return;
+    const send = (conn: Connection, msg: string): void => {
+      try {
+        conn.send(msg);
+      } catch {
+        /* a throwing socket must not break the delivery loop */
+      }
+    };
+    if (op.kind === 'upsert') {
+      const audience = (op.element as OwnedElement).audience;
+      const upsertMsg = JSON.stringify({ from, op });
+      const removeMsg = JSON.stringify({
+        from: HUB_FROM,
+        op: { kind: 'remove', id: op.element.id },
+      });
+      for (const cid of members) {
+        if (cid === excludeId) continue;
+        const conn = this.conns.get(cid);
+        if (!conn) continue;
+        if (this.mayRead(conn, audience)) send(conn, upsertMsg);
+        else if (prevExisted && this.mayRead(conn, prevAudience)) send(conn, removeMsg);
+      }
+    } else if (op.kind === 'remove') {
+      const removeMsg = JSON.stringify({ from, op });
+      for (const cid of members) {
+        if (cid === excludeId) continue;
+        const conn = this.conns.get(cid);
+        if (!conn) continue;
+        // No read filter → forward to all (today's behavior; current/prevExisted aren't fetched without
+        // a hook). With canRead, only recipients who could see the removed element get it.
+        const wasVisible = !this.canRead || (prevExisted && this.mayRead(conn, prevAudience));
+        if (wasVisible) send(conn, removeMsg);
+      }
+    } else if (op.kind === 'clear') {
+      const clearMsg = JSON.stringify({ from, op });
+      for (const cid of members) {
+        if (cid === excludeId) continue;
+        const conn = this.conns.get(cid);
+        if (conn) send(conn, clearMsg);
+      }
+    }
   }
 
   private async sendCorrection(

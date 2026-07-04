@@ -566,3 +566,128 @@ describe('SyncHub', () => {
     });
   });
 });
+
+describe('read filtering (canRead)', () => {
+  const canRead = ({ role, audience }: { role?: string; audience: string | undefined }): boolean =>
+    audience !== 'dm' || role === 'dm';
+
+  const upsertMsg = (from: string, id: string, audience?: string): string =>
+    JSON.stringify({
+      from,
+      op: { kind: 'upsert', element: { ...sampleEl(), id, ...(audience ? { audience } : {}) } },
+    });
+
+  function conn(id: string, room: string, role?: string): FakeConn {
+    return { ...makeConn(id, room), role };
+  }
+
+  it('filters a dm element out of a player snapshot but keeps it for a dm', async () => {
+    const hub = new SyncHub({ canRead });
+    const dm = conn('dm', 'R', 'dm');
+    const player = conn('pl', 'R', 'player');
+    hub.addConnection(dm);
+    hub.addConnection(player);
+    await hub.handleMessage('dm', upsertMsg('cdm', 'shared1', 'shared'));
+    await hub.handleMessage('dm', upsertMsg('cdm', 'secret1', 'dm'));
+    dm.sent.length = 0;
+    player.sent.length = 0;
+
+    await hub.handleMessage('pl', envelope('cpl', { kind: 'request-snapshot' }));
+    await hub.handleMessage('dm', envelope('cdm', { kind: 'request-snapshot' }));
+
+    const playerSnap = JSON.parse(player.sent[0] as string) as {
+      op: { elements: { id: string }[] };
+    };
+    const dmSnap = JSON.parse(dm.sent[0] as string) as { op: { elements: { id: string }[] } };
+    expect(playerSnap.op.elements.map((e) => e.id)).toEqual(['shared1']);
+    expect(dmSnap.op.elements.map((e) => e.id).sort()).toEqual(['secret1', 'shared1']);
+  });
+
+  it('broadcasts a shared upsert to a player', async () => {
+    const hub = new SyncHub({ canRead });
+    const dm = conn('dm', 'R', 'dm');
+    const player = conn('pl', 'R', 'player');
+    hub.addConnection(dm);
+    hub.addConnection(player);
+    await hub.handleMessage('dm', upsertMsg('cdm', 's1', 'shared'));
+    expect(player.sent.length).toBe(1);
+    expect(JSON.parse(player.sent[0] as string).op.element.id).toBe('s1');
+  });
+
+  it('never sends a newly-created dm element to a player — and no spurious remove (P2)', async () => {
+    const hub = new SyncHub({ canRead });
+    const dm = conn('dm', 'R', 'dm');
+    const player = conn('pl', 'R', 'player');
+    hub.addConnection(dm);
+    hub.addConnection(player);
+    await hub.handleMessage('dm', upsertMsg('cdm', 'secret1', 'dm'));
+    expect(player.sent).toEqual([]);
+  });
+
+  it('sends a synthetic remove when an element goes shared → dm', async () => {
+    const hub = new SyncHub({ canRead });
+    const dm = conn('dm', 'R', 'dm');
+    const player = conn('pl', 'R', 'player');
+    hub.addConnection(dm);
+    hub.addConnection(player);
+    await hub.handleMessage('dm', upsertMsg('cdm', 'e1', 'shared'));
+    player.sent.length = 0;
+    await hub.handleMessage('dm', upsertMsg('cdm', 'e1', 'dm'));
+    expect(player.sent.length).toBe(1);
+    const env = JSON.parse(player.sent[0] as string) as {
+      from: string;
+      op: { kind: string; id: string };
+    };
+    expect(env.from).toBe('hub');
+    expect(env.op).toEqual({ kind: 'remove', id: 'e1' });
+  });
+
+  it('sends a normal add when an element goes dm → shared', async () => {
+    const hub = new SyncHub({ canRead });
+    const dm = conn('dm', 'R', 'dm');
+    const player = conn('pl', 'R', 'player');
+    hub.addConnection(dm);
+    hub.addConnection(player);
+    await hub.handleMessage('dm', upsertMsg('cdm', 'e1', 'dm'));
+    expect(player.sent).toEqual([]);
+    await hub.handleMessage('dm', upsertMsg('cdm', 'e1', 'shared'));
+    expect(player.sent.length).toBe(1);
+    expect(JSON.parse(player.sent[0] as string).op.element.id).toBe('e1');
+  });
+
+  it('filters removes: dm-element remove is hidden, shared-element remove is sent, nonexistent sends nothing', async () => {
+    const hub = new SyncHub({ canRead });
+    const dm = conn('dm', 'R', 'dm');
+    const player = conn('pl', 'R', 'player');
+    hub.addConnection(dm);
+    hub.addConnection(player);
+    await hub.handleMessage('dm', upsertMsg('cdm', 'secret', 'dm'));
+    await hub.handleMessage('dm', upsertMsg('cdm', 'open', 'shared'));
+    player.sent.length = 0;
+    await hub.handleMessage('dm', envelope('cdm', { kind: 'remove', id: 'secret' }));
+    await hub.handleMessage('dm', envelope('cdm', { kind: 'remove', id: 'nope' }));
+    expect(player.sent).toEqual([]);
+    await hub.handleMessage('dm', envelope('cdm', { kind: 'remove', id: 'open' }));
+    expect(player.sent.length).toBe(1);
+    expect(JSON.parse(player.sent[0] as string).op).toEqual({ kind: 'remove', id: 'open' });
+  });
+
+  it('without canRead, every recipient receives the op incl. removes (default unchanged)', async () => {
+    const hub = new SyncHub();
+    const a = makeConn('a', 'R');
+    const b = makeConn('b', 'R');
+    hub.addConnection(a);
+    hub.addConnection(b);
+    await hub.handleMessage('a', upsertMsg('ca', 'e1', 'dm'));
+    const env = JSON.parse(b.sent[0] as string) as {
+      from: string;
+      op: { kind: string; element: { id: string } };
+    };
+    expect(env.from).toBe('ca');
+    expect(env.op.element.id).toBe('e1');
+    b.sent.length = 0;
+    await hub.handleMessage('a', envelope('ca', { kind: 'remove', id: 'e1' }));
+    expect(b.sent.length).toBe(1);
+    expect(JSON.parse(b.sent[0] as string).op).toEqual({ kind: 'remove', id: 'e1' });
+  });
+});
