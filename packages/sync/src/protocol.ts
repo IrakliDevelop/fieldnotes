@@ -1,5 +1,7 @@
 import type { CanvasElement, ElementType } from '@fieldnotes/core';
 
+export type SyncElement = CanvasElement & { audience?: string };
+
 export type SyncOp =
   | { kind: 'upsert'; element: CanvasElement }
   | { kind: 'remove'; id: string }

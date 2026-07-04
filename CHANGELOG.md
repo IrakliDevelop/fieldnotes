@@ -4,6 +4,33 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [@fieldnotes/sync-server 0.7.0] — 2026-07-04
+
+### Added
+
+- Per-viewer **read filtering**. New injected `canRead({ userId, role, room, audience }) => boolean` hook
+  (`createSyncServer`/`SyncHub`): the hub filters what each viewer receives on both live broadcast and
+  snapshot-on-join, so a DM can hold elements players never **receive** (not merely can't see). Audience is
+  the opaque tag stamped by `@fieldnotes/sync` 0.6.0's `resolveAudience`. Moving an element between
+  audiences emits a synthetic add/remove per viewer as visibility changes. No hook → unchanged behavior.
+  Exports `CanRead` / `ReadContext`.
+
+### Changed
+
+- The cross-instance fanout payload now carries the structured op (was a pre-serialized message) so each
+  instance re-filters per its own members. **Internal protocol change — deploy relay instances together.**
+  `canRead` must be identical on all instances (it runs on every instance, unlike origin-only `authorize`).
+
+## [@fieldnotes/sync 0.6.0] — 2026-07-04
+
+### Added
+
+- `SyncClientOptions.resolveAudience?(element) => string | undefined` — stamp an opaque `audience` tag on
+  outgoing upserts (e.g. `'dm'` / `'shared'`), derived from the app's own layers. Paired with the relay's
+  new `canRead` hook (`@fieldnotes/sync-server` 0.7.0), this lets the hub filter what each viewer receives
+  so hidden elements never reach unauthorized clients. No resolver → no tag → unchanged behavior. Exports
+  the `SyncElement` type (`CanvasElement & { audience?: string }`).
+
 ## [@fieldnotes/core 0.46.1] — 2026-07-04
 
 ### Fixed

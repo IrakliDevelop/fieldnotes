@@ -581,3 +581,76 @@ describe('SyncClient resync-on-reconnect', () => {
     expect(store.getById('X')).toBeUndefined();
   });
 });
+
+describe('audience stamping (resolveAudience)', () => {
+  function lastUpsert(
+    sent: string[],
+  ): { kind: string; element: CanvasElement & { audience?: string } } | undefined {
+    for (let i = sent.length - 1; i >= 0; i--) {
+      const item = sent[i];
+      if (item === undefined) continue;
+      const env = JSON.parse(item) as {
+        op: { kind: string; element?: CanvasElement & { audience?: string } };
+      };
+      if (env.op.kind === 'upsert' && env.op.element)
+        return { kind: 'upsert', element: env.op.element };
+    }
+    return undefined;
+  }
+
+  it('does not add an audience field when no resolver is configured', () => {
+    const bus = makeBus();
+    const store = new ElementStore();
+    const transport = bus.endpoint();
+    const client = new SyncClient({ store, transport, clientId: 'A' });
+    client.start();
+    store.add(createShape({ position: { x: 0, y: 0 }, size: { width: 1, height: 1 } }));
+    const up = lastUpsert(transport.sent);
+    expect(up).toBeDefined();
+    expect(up && 'audience' in up.element).toBe(false);
+  });
+
+  it('stamps the resolver-returned tag on outgoing upserts', () => {
+    const bus = makeBus();
+    const store = new ElementStore();
+    const transport = bus.endpoint();
+    const client = new SyncClient({ store, transport, clientId: 'A', resolveAudience: () => 'dm' });
+    client.start();
+    store.add(createShape({ position: { x: 0, y: 0 }, size: { width: 1, height: 1 } }));
+    const up = lastUpsert(transport.sent);
+    expect(up?.element.audience).toBe('dm');
+  });
+
+  it('omits the field when the resolver returns undefined', () => {
+    const bus = makeBus();
+    const store = new ElementStore();
+    const transport = bus.endpoint();
+    const client = new SyncClient({
+      store,
+      transport,
+      clientId: 'A',
+      resolveAudience: () => undefined,
+    });
+    client.start();
+    store.add(createShape({ position: { x: 0, y: 0 }, size: { width: 1, height: 1 } }));
+    const up = lastUpsert(transport.sent);
+    expect(up && 'audience' in up.element).toBe(false);
+  });
+
+  it('does not stamp remove ops', () => {
+    const bus = makeBus();
+    const store = new ElementStore();
+    const transport = bus.endpoint();
+    const client = new SyncClient({ store, transport, clientId: 'A', resolveAudience: () => 'dm' });
+    client.start();
+    const el = createShape({ position: { x: 0, y: 0 }, size: { width: 1, height: 1 } });
+    store.add(el);
+    store.remove(el.id);
+    const removeEnv = transport.sent
+      .map((m) => JSON.parse(m) as { op: { kind: string } })
+      .reverse()
+      .find((e) => e.op.kind === 'remove');
+    expect(removeEnv).toBeDefined();
+    expect(JSON.stringify(removeEnv)).not.toContain('audience');
+  });
+});
