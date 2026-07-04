@@ -2,6 +2,7 @@ import { Viewport, SelectTool, HandTool } from '@fieldnotes/core';
 import { SyncClient, WebSocketTransport } from '@fieldnotes/sync';
 import { makeResolveAudience, type Role } from './policies';
 import { TokenTool } from './token-tool';
+import { mountCursors } from './cursors';
 
 const RELAY = 'ws://localhost:8787';
 const COLORS = ['#e11d48', '#2563eb', '#16a34a', '#d97706', '#7c3aed'];
@@ -58,12 +59,31 @@ function start(name: string, role: Role, room: string): void {
   wireLiveFeatures({ viewport, client, name, color, role, dmSecretLayerId });
 }
 
-// Filled in Task 4.
-function wireLiveFeatures(_ctx: {
+function wireLiveFeatures(ctx: {
   viewport: Viewport;
   client: SyncClient;
   name: string;
   color: string;
   role: Role;
   dmSecretLayerId: string | null;
-}): void {}
+}): void {
+  const { viewport, client, name, color, role, dmSecretLayerId } = ctx;
+
+  mountCursors($('host'), $('cursors'), viewport.camera, client, { name, color });
+
+  if (role === 'dm' && dmSecretLayerId !== null) {
+    const toolbar = $('dm-toolbar');
+    toolbar.style.display = 'flex';
+    // Map layer = the default layer (the one that is NOT "DM Secret").
+    const mapLayerId = viewport.layerManager.getLayers().find((l) => l.name !== 'DM Secret')?.id;
+    $('hide').addEventListener('click', () => {
+      for (const id of viewport.getSelectedIds())
+        viewport.layerManager.moveElementToLayer(id, dmSecretLayerId);
+    });
+    $('reveal').addEventListener('click', () => {
+      if (!mapLayerId) return;
+      for (const id of viewport.getSelectedIds())
+        viewport.layerManager.moveElementToLayer(id, mapLayerId);
+    });
+  }
+}
