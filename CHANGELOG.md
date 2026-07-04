@@ -4,6 +4,23 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [@fieldnotes/sync-server 0.5.0] — 2026-07-04
+
+### Added
+
+- Heartbeat / dead-connection reaping. `createSyncServer` now pings clients on an interval and terminates any
+  that miss a pong, so half-open sockets (a backgrounded iPad, dropped WiFi) are reaped instead of leaking
+  room membership. Configurable via `heartbeatIntervalMs` (default 30000; `0` disables). Browsers auto-pong —
+  no client change.
+
+### Changed
+
+- Room-required rejection now closes with WS code `4400` (was `1008`) so a `@fieldnotes/sync` 0.5.0+ client
+  (which suppresses reconnect on app-range 4xxx codes) no longer reconnect-loops through a missing-`?room`
+  config error.
+- `MemoryHubBackend` reclaims a room's memory on `clear` (previously left an empty entry). It still retains
+  state for uncleared/abandoned rooms — use a Redis backend with a TTL for a long-lived process.
+
 ## [@fieldnotes/sync 0.5.1] — 2026-07-04
 
 ### Fixed

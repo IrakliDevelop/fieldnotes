@@ -8,3 +8,5 @@ export { InMemoryHubFanout } from './hub-fanout';
 export type { HubFanout } from './hub-fanout';
 export type { AuthInfo, AuthResult, Authenticate } from './authenticate';
 export type { Authorize, AuthorizeContext, OwnedElement } from './authorize';
+export { startHeartbeat } from './heartbeat';
+export type { Heartbeat, HeartbeatSocket, HeartbeatServer } from './heartbeat';

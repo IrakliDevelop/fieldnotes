@@ -14,9 +14,13 @@ applies and forwards.
   concurrent edits to the same room never race, while different rooms run
   independently.
 - **`MemoryHubBackend`** — in-memory `HubBackend` (the default). Redis-backed and
-  authenticated backends are planned.
+  authenticated backends are planned. It reclaims a room's memory on `clear`, but
+  **retains** state for uncleared / abandoned rooms — fine for dev / single-instance
+  use. For a long-lived production process, use a Redis backend with a key TTL, or
+  `clear` rooms you're done with.
 - **`createSyncServer`** — a runnable `ws` reference server. Connect with
-  `?room=<id>` in the query string; missing room closes the socket.
+  `?room=<id>` in the query string; a missing room closes the socket with WS code
+  `4400`.
 - **`HubFanout`** — cross-instance live fan-out seam. `SyncHub` publishes each live
   op to the fanout and forwards ops it receives from other instances to its local
   connections. The default `InMemoryHubFanout` is in-process (a no-op for a single
@@ -33,6 +37,19 @@ import { createSyncServer } from '@fieldnotes/sync-server';
 const { close } = createSyncServer({ port: 8080 });
 // ws://localhost:8080?room=my-room
 ```
+
+## Heartbeat
+
+The server pings every client on an interval and **terminates** any that miss a pong,
+so half-open sockets (a backgrounded iPad, dropped WiFi) are reaped instead of silently
+leaking room membership. Configure via `heartbeatIntervalMs` (default `30000`; `0`
+disables):
+
+```ts
+createSyncServer({ port: 8080, heartbeatIntervalMs: 30000 });
+```
+
+Browsers auto-pong at the protocol level, so **no client change** is needed.
 
 ## Authentication
 
