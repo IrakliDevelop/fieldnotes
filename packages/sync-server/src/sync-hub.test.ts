@@ -233,6 +233,73 @@ describe('SyncHub', () => {
       expect(b.sent).toEqual([]);
     });
 
+    it('does not leak a dm element to a player on another instance (headline)', async () => {
+      const canRead = ({
+        role,
+        audience,
+      }: {
+        role?: string;
+        audience: string | undefined;
+      }): boolean => audience !== 'dm' || role === 'dm';
+      const bus = new InMemoryHubFanout();
+      const hubA = new SyncHub({ instanceId: 'A', fanout: bus, canRead });
+      const hubB = new SyncHub({ instanceId: 'B', fanout: bus, canRead });
+      const dm: FakeConn = { ...makeConn('dm', 'R'), role: 'dm' };
+      const player: FakeConn = { ...makeConn('pl', 'R'), role: 'player' };
+      hubA.addConnection(dm);
+      hubB.addConnection(player);
+
+      const secret = JSON.stringify({
+        from: 'cdm',
+        op: { kind: 'upsert', element: { ...sampleEl(), id: 'secret', audience: 'dm' } },
+      });
+      const open = JSON.stringify({
+        from: 'cdm',
+        op: { kind: 'upsert', element: { ...sampleEl(), id: 'open', audience: 'shared' } },
+      });
+      await hubA.handleMessage('dm', secret);
+      await hubA.handleMessage('dm', open);
+
+      expect(player.sent.map((m) => JSON.parse(m).op.element?.id)).toEqual(['open']);
+    });
+
+    it('delivers a cross-instance synthetic remove when an element goes shared → dm', async () => {
+      const canRead = ({
+        role,
+        audience,
+      }: {
+        role?: string;
+        audience: string | undefined;
+      }): boolean => audience !== 'dm' || role === 'dm';
+      const bus = new InMemoryHubFanout();
+      const hubA = new SyncHub({ instanceId: 'A', fanout: bus, canRead });
+      const hubB = new SyncHub({ instanceId: 'B', fanout: bus, canRead });
+      const dm: FakeConn = { ...makeConn('dm', 'R'), role: 'dm' };
+      const player: FakeConn = { ...makeConn('pl', 'R'), role: 'player' };
+      hubA.addConnection(dm);
+      hubB.addConnection(player);
+
+      const shared = JSON.stringify({
+        from: 'cdm',
+        op: { kind: 'upsert', element: { ...sampleEl(), id: 'e1', audience: 'shared' } },
+      });
+      const hidden = JSON.stringify({
+        from: 'cdm',
+        op: { kind: 'upsert', element: { ...sampleEl(), id: 'e1', audience: 'dm' } },
+      });
+      await hubA.handleMessage('dm', shared);
+      player.sent.length = 0;
+      await hubA.handleMessage('dm', hidden);
+
+      expect(player.sent.length).toBe(1);
+      const env = JSON.parse(player.sent[0] as string) as {
+        from: string;
+        op: { kind: string; id: string };
+      };
+      expect(env.from).toBe('hub');
+      expect(env.op).toEqual({ kind: 'remove', id: 'e1' });
+    });
+
     it('close() unsubscribes the hub from the shared bus', async () => {
       const bus = new InMemoryHubFanout();
       const hubA = new SyncHub({ instanceId: 'A', fanout: bus });
@@ -689,5 +756,18 @@ describe('read filtering (canRead)', () => {
     await hub.handleMessage('a', envelope('ca', { kind: 'remove', id: 'e1' }));
     expect(b.sent.length).toBe(1);
     expect(JSON.parse(b.sent[0] as string).op).toEqual({ kind: 'remove', id: 'e1' });
+  });
+
+  it('forwards clear to every recipient even with a read filter', async () => {
+    const hub = new SyncHub({ canRead });
+    const dm = conn('dm', 'R', 'dm');
+    const player = conn('pl', 'R', 'player');
+    hub.addConnection(dm);
+    hub.addConnection(player);
+    await hub.handleMessage('dm', upsertMsg('cdm', 's1', 'shared'));
+    player.sent.length = 0;
+    await hub.handleMessage('dm', envelope('cdm', { kind: 'clear' }));
+    expect(player.sent.length).toBe(1);
+    expect(JSON.parse(player.sent[0] as string).op).toEqual({ kind: 'clear' });
   });
 });

@@ -1,4 +1,4 @@
-import { parseEnvelope, type SyncOp } from '@fieldnotes/sync';
+import { parseEnvelope, isValidElement, type SyncOp } from '@fieldnotes/sync';
 import { MemoryHubBackend } from './memory-hub-backend';
 import { InMemoryHubFanout, type HubFanout } from './hub-fanout';
 import type { HubBackend } from './hub-backend';
@@ -26,6 +26,14 @@ function generateInstanceId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
     return crypto.randomUUID();
   return `i-${Math.random().toString(36).slice(2)}`;
+}
+
+function isFanoutOp(op: unknown): op is Extract<SyncOp, { kind: 'upsert' | 'remove' | 'clear' }> {
+  if (typeof op !== 'object' || op === null) return false;
+  const o = op as { kind?: unknown; element?: unknown; id?: unknown };
+  if (o.kind === 'upsert') return isValidElement(o.element);
+  if (o.kind === 'remove') return typeof o.id === 'string';
+  return o.kind === 'clear';
 }
 
 export class SyncHub {
@@ -144,9 +152,6 @@ export class SyncHub {
           op: outboundOp,
           prev: prevAudience,
           existed: prevExisted,
-          // Transitional: the current onFanout still reads `m`. Kept so cross-instance forwarding
-          // (and its tests) stay green until the next task reworks onFanout to consume the fields above.
-          m: JSON.stringify({ from: env.from, op: outboundOp }),
         }),
       );
     }
@@ -231,27 +236,29 @@ export class SyncHub {
   }
 
   private onFanout(payload: string): void {
-    // Off the serial queue on purpose: forward-only (no backend re-apply — the origin already applied to the
-    // SHARED backend), and delivery is already ordered. Do not wrap this in roomQueues.
-    let env: { o?: unknown; room?: unknown; m?: unknown };
+    // Off the serial queue on purpose: forward-only (the origin already applied to the SHARED backend),
+    // and delivery is already ordered. Re-filter per local member (canRead runs on EVERY instance).
+    let env: {
+      o?: unknown;
+      room?: unknown;
+      from?: unknown;
+      op?: unknown;
+      prev?: unknown;
+      existed?: unknown;
+    };
     try {
       env = JSON.parse(payload);
     } catch {
       return;
     }
-    if (typeof env.o !== 'string' || typeof env.room !== 'string' || typeof env.m !== 'string')
+    if (typeof env.o !== 'string' || typeof env.room !== 'string' || typeof env.from !== 'string')
       return;
-    if (env.o === this.instanceId) return; // our own publish — already forwarded locally
-    const members = this.rooms.get(env.room);
-    if (!members) return;
-    const m = env.m;
-    for (const id of members) {
-      try {
-        this.conns.get(id)?.send(m);
-      } catch {
-        /* a throwing socket must not break the fanout loop */
-      }
-    }
+    if (env.o === this.instanceId) return; // our own publish — already delivered locally
+    const op = env.op;
+    if (!isFanoutOp(op)) return;
+    const prevAudience = typeof env.prev === 'string' ? env.prev : undefined;
+    const prevExisted = env.existed === true;
+    this.deliverToRoom(env.room, undefined, env.from, op, prevAudience, prevExisted);
   }
 
   close(): void {
