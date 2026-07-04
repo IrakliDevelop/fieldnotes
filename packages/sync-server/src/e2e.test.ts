@@ -212,4 +212,52 @@ describe('sync-server WebSocket relay (end-to-end)', () => {
 
     expect(b.store.getById(shared.id)).toBeUndefined();
   }, 10000);
+
+  it('reverts a denied optimistic edit to canonical without a reconnect', async () => {
+    const backend = new MemoryHubBackend();
+    const server = createSyncServer({
+      port: 0,
+      backend,
+      authenticate: ({ req }) => {
+        const role = new URL(req.url ?? '', 'http://x').searchParams.get('role') ?? 'player';
+        return { userId: role === 'dm' ? 'dm1' : 'player1', role };
+      },
+      authorize: ({ role, op, currentElement, userId }) => {
+        if (role === 'dm') return true;
+        if (op.kind === 'upsert') return !currentElement || currentElement.ownerId === userId;
+        return false;
+      },
+    });
+    servers.push(server);
+    const port = (server.wss.address() as AddressInfo).port;
+
+    const roleConnect = (role: string): ConnectedClient => {
+      const transport = new WebSocketTransport(`ws://127.0.0.1:${port}?room=R&role=${role}`, {
+        WebSocket: WsClient as unknown as typeof WebSocket,
+      });
+      transports.push(transport);
+      const store = new ElementStore();
+      const client = new SyncClient({ store, transport });
+      client.start();
+      return { store, client, transport };
+    };
+
+    const dm = roleConnect('dm');
+    const player = roleConnect('player');
+
+    dm.store.add({
+      ...createShape({ position: { x: 1, y: 2 }, size: { width: 3, height: 4 } }),
+      id: 'X',
+    });
+    await waitFor(() => player.store.getById('X') !== undefined);
+    const canonical = structuredClone(player.store.getById('X'));
+    expect(canonical?.position).toEqual({ x: 1, y: 2 });
+
+    // Player optimistically moves X (DM-owned) → hub denies → sends upsert(canonical).
+    player.store.update('X', { position: { x: 999, y: 999 } });
+    await waitFor(() => player.store.getById('X')?.position?.x === 1);
+
+    expect(player.store.getById('X')?.position).toEqual({ x: 1, y: 2 });
+    expect(player.store.getById('X')).toEqual(canonical);
+  }, 10000);
 });
