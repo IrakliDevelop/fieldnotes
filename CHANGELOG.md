@@ -4,6 +4,11 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## Examples
+
+- Added `examples/live-play` — a framework-free reference app demonstrating the full real-time-collab stack
+  (role join, ownership, DM hide/reveal, live cursors) against a `createSyncServer` relay.
+
 ## [@fieldnotes/sync-server 0.8.0] — 2026-07-04
 
 ### Added
