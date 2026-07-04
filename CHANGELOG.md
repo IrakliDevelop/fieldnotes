@@ -4,6 +4,16 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [@fieldnotes/sync 0.6.0] — 2026-07-04
+
+### Added
+
+- `SyncClientOptions.resolveAudience?(element) => string | undefined` — stamp an opaque `audience` tag on
+  outgoing upserts (e.g. `'dm'` / `'shared'`), derived from the app's own layers. Paired with the relay's
+  new `canRead` hook (`@fieldnotes/sync-server` 0.7.0), this lets the hub filter what each viewer receives
+  so hidden elements never reach unauthorized clients. No resolver → no tag → unchanged behavior. Exports
+  the `SyncElement` type (`CanvasElement & { audience?: string }`).
+
 ## [@fieldnotes/core 0.46.1] — 2026-07-04
 
 ### Fixed

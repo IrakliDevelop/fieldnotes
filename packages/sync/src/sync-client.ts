@@ -1,11 +1,12 @@
-import type { ElementStore } from '@fieldnotes/core';
+import type { CanvasElement, ElementStore } from '@fieldnotes/core';
 import type { SyncTransport } from './sync-transport';
-import { parseEnvelope, isValidElement, type SyncOp } from './protocol';
+import { parseEnvelope, isValidElement, type SyncOp, type SyncElement } from './protocol';
 
 export interface SyncClientOptions {
   store: ElementStore;
   transport: SyncTransport;
   clientId?: string;
+  resolveAudience?: (element: CanvasElement) => string | undefined;
 }
 
 const REMOTE_ORIGIN = 'remote';
@@ -25,6 +26,7 @@ export class SyncClient {
   private readonly store: ElementStore;
   private readonly transport: SyncTransport;
   private readonly clientId: string;
+  private readonly resolveAudience?: (element: CanvasElement) => string | undefined;
   private unsubscribers: (() => void)[] = [];
   private started = false;
   private joined = false;
@@ -35,6 +37,7 @@ export class SyncClient {
     this.store = options.store;
     this.transport = options.transport;
     this.clientId = options.clientId ?? randomId();
+    this.resolveAudience = options.resolveAudience;
   }
 
   start(): void {
@@ -78,14 +81,23 @@ export class SyncClient {
     this.transport.send(JSON.stringify({ from: this.clientId, op }));
   }
 
+  private stampAudience(op: SyncOp): SyncOp {
+    if (op.kind !== 'upsert' || !this.resolveAudience) return op;
+    const audience = this.resolveAudience(op.element);
+    if (audience === undefined) return op;
+    const element: SyncElement = { ...op.element, audience };
+    return { kind: 'upsert', element };
+  }
+
   private onLocal(op: SyncOp, origin: string | undefined): void {
     if (isExternal(origin)) return; // applied remote ops must not re-broadcast
+    const outgoing = this.stampAudience(op);
     if (this.resyncPending) {
-      if (op.kind === 'upsert') this.touchedDuringResync.add(op.element.id);
-      else if (op.kind === 'remove') this.touchedDuringResync.add(op.id);
+      if (outgoing.kind === 'upsert') this.touchedDuringResync.add(outgoing.element.id);
+      else if (outgoing.kind === 'remove') this.touchedDuringResync.add(outgoing.id);
       // 'clear' during a resync window is not shielded (whole-store, rare) — acceptable
     }
-    this.sendOp(op);
+    this.sendOp(outgoing);
   }
 
   private onRemote(message: string): void {
