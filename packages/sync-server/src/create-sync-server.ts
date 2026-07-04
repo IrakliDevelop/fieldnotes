@@ -4,7 +4,7 @@ import { SyncHub } from './sync-hub';
 import type { HubBackend } from './hub-backend';
 import type { HubFanout } from './hub-fanout';
 import type { Authenticate } from './authenticate';
-import type { Authorize } from './authorize';
+import type { Authorize, CanRead } from './authorize';
 import { startHeartbeat } from './heartbeat';
 
 export interface CreateSyncServerOptions {
@@ -15,6 +15,7 @@ export interface CreateSyncServerOptions {
   instanceId?: string;
   authenticate?: Authenticate;
   authorize?: Authorize;
+  canRead?: CanRead;
   heartbeatIntervalMs?: number;
 }
 
@@ -28,6 +29,7 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
     fanout: options.fanout,
     instanceId: options.instanceId,
     authorize: options.authorize,
+    canRead: options.canRead,
   });
   const wss = options.server
     ? new WebSocketServer({ server: options.server })

@@ -158,4 +158,47 @@ createSyncServer({
   stored element, and a rejected `clear` gets a fresh **snapshot**. The correction reuses existing op
   kinds and is sent only to the offending connection.
 
+## Read filtering
+
+Pass a `canRead` hook to gate **reads** — what each viewer **receives**. Unlike client-side
+hiding, the hub filters ops before they leave the server, so hidden elements never reach an
+unauthorized client on either path: the live broadcast **and** the snapshot a client gets on join.
+
+```ts
+canRead({ userId, role, room, audience }) => boolean
+```
+
+`audience` is the opaque tag the client stamps on its own outgoing upserts via `@fieldnotes/sync`'s
+`resolveAudience` (e.g. `'dm'` / `'shared'`, derived from the app's layers). With **no hook**,
+everyone sees everything.
+
+A two-tier DM / player policy — the relay's `canRead` paired with the client's `resolveAudience`:
+
+```ts
+// relay
+createSyncServer({
+  port: 8080,
+  authenticate: /* … supplies userId + role … */,
+  canRead: ({ role, audience }) => audience !== 'dm' || role === 'dm',
+});
+
+// client (@fieldnotes/sync)
+new SyncClient({ store, transport, resolveAudience: (el) => layerOf(el) }); // → 'dm' | 'shared'
+```
+
+Moving an element between audiences re-evaluates visibility per viewer: a viewer who loses access
+gets a synthetic **remove**, one who gains it gets an **add**.
+
+**Preconditions:**
+
+- **Stable identity.** Meaningful policy needs a stable `userId`/`role` from `authenticate`; the
+  no-hook anonymous default is per-connection (`userId = connId`) and changes on reconnect.
+- **Same `canRead` on every instance.** Unlike `authorize` (which runs on the write's origin
+  instance only), `canRead` runs on **every** instance — each re-filters fanned-out ops for its own
+  local members — so all relay instances must inject the **same** `canRead`, alongside the existing
+  shared-backend + shared-fanout requirement.
+- **Labeling integrity.** `audience` is client-asserted, so read secrecy is only as trustworthy as
+  the `authorize` (write) policy that stops a player from stamping `dm` on content they shouldn't
+  control.
+
 A Redis `HubBackend` and cross-instance fan-out ship in [`@fieldnotes/sync-redis`](../sync-redis).

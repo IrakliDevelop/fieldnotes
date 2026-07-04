@@ -6,6 +6,7 @@ import type { WebSocketTransportOptions } from '@fieldnotes/sync';
 import { ElementStore, createShape } from '@fieldnotes/core';
 import { MemoryHubBackend } from './memory-hub-backend';
 import { createSyncServer } from './create-sync-server';
+import type { CanRead } from './authorize';
 
 type Server = ReturnType<typeof createSyncServer>;
 
@@ -260,4 +261,62 @@ describe('sync-server WebSocket relay (end-to-end)', () => {
     expect(player.store.getById('X')?.position).toEqual({ x: 1, y: 2 });
     expect(player.store.getById('X')).toEqual(canonical);
   }, 10000);
+
+  it('never delivers a dm-audience element to a player, and reveals/hides on retag (D3)', async () => {
+    const canRead: CanRead = ({ role, audience }) => audience !== 'dm' || role === 'dm';
+    const backend = new MemoryHubBackend();
+    const server = createSyncServer({
+      port: 0,
+      backend,
+      canRead,
+      authenticate: ({ req }) => {
+        const role = new URL(req.url ?? '', 'http://x').searchParams.get('role') ?? 'player';
+        return { userId: role, role };
+      },
+    });
+    servers.push(server);
+    const port = (server.wss.address() as AddressInfo).port;
+
+    const openTransport = (role: string, resolveAudience: () => string | undefined) => {
+      const transport = new WebSocketTransport(`ws://127.0.0.1:${port}?room=G&role=${role}`, {
+        WebSocket: WsClient as unknown as typeof WebSocket,
+      });
+      transports.push(transport);
+      const store = new ElementStore();
+      const client = new SyncClient({ store, transport, resolveAudience });
+      client.start();
+      return { store, client, transport };
+    };
+
+    let dmTag = 'dm';
+    const dm = openTransport('dm', () => dmTag);
+    const player = openTransport('player', () => 'shared');
+
+    // create hidden: DM adds a 'dm' element — the hub persists it, the player must never receive it
+    const secret = shape();
+    dm.store.add(secret); // stamped 'dm' (dmTag)
+
+    // Deterministic negative proof (no fixed timeout): a later 'shared' fence from the SAME DM socket
+    // traverses DM → hub → player in order (TCP-ordered, single-threaded per-room hub queue), so once the
+    // player has the fence, the secret's forward decision (drop) has already been made.
+    const fence = shape();
+    dmTag = 'shared';
+    dm.store.add(fence); // stamped 'shared'
+    dmTag = 'dm';
+    await waitFor(() => player.store.getById(fence.id) !== undefined);
+    await waitFor(async () => (await backend.snapshot('G')).some((e) => e.id === secret.id));
+    expect(player.store.getById(secret.id)).toBeUndefined(); // held by the hub, never sent to the player
+
+    // reveal: flip the DM's tag to 'shared' and re-emit (resolveAudience re-reads dmTag) → player gains it
+    dmTag = 'shared';
+    dm.store.update(secret.id, { position: { x: 5, y: 5 } });
+    await waitFor(() => player.store.getById(secret.id) !== undefined);
+    expect(player.store.getById(secret.id)).toBeDefined();
+
+    // hide again: flip back to 'dm' and re-emit → player loses it (synthetic remove)
+    dmTag = 'dm';
+    dm.store.update(secret.id, { position: { x: 6, y: 6 } });
+    await waitFor(() => player.store.getById(secret.id) === undefined);
+    expect(player.store.getById(secret.id)).toBeUndefined();
+  });
 });
