@@ -319,4 +319,47 @@ describe('sync-server WebSocket relay (end-to-end)', () => {
     await waitFor(() => player.store.getById(secret.id) === undefined);
     expect(player.store.getById(secret.id)).toBeUndefined();
   });
+
+  it('relays presence between clients and emits leave on disconnect (D-presence)', async () => {
+    const backend = new MemoryHubBackend();
+    const server = createSyncServer({ port: 0, backend });
+    servers.push(server);
+    const port = (server.wss.address() as AddressInfo).port;
+
+    const open = () => {
+      const transport = new WebSocketTransport(`ws://127.0.0.1:${port}?room=P`, {
+        WebSocket: WsClient as unknown as typeof WebSocket,
+      });
+      transports.push(transport);
+      const store = new ElementStore();
+      const client = new SyncClient({ store, transport });
+      client.start();
+      return { store, client, transport };
+    };
+
+    const a = open();
+    const b = open();
+
+    const seen: { from: string; data: unknown }[] = [];
+    const left: string[] = [];
+    b.client.onPresence((from, data) => seen.push({ from, data }));
+    b.client.onPresenceLeave((from) => left.push(from));
+
+    // Fence: A adds an element and B receives it → proves both sockets are connected + the relay works,
+    // deterministically (no fixed timeout). WebSocketTransport buffers-until-open, so ordering holds.
+    const fence = shape();
+    a.store.add(fence);
+    await waitFor(() => b.store.getById(fence.id) !== undefined);
+
+    a.client.sendPresence({ x: 7, y: 8 });
+    await waitFor(() => seen.length > 0);
+    expect(seen[0]?.data).toEqual({ x: 7, y: 8 });
+    const aId = seen[0]?.from;
+    expect(typeof aId).toBe('string');
+
+    a.transport.close(); // intentional client close → server ws 'close' → hub.removeConnection → leave
+    await waitFor(() => left.length > 0);
+    expect(left[0]).toBe(aId); // hub emitted a leave for A's clientId
+    expect(b.store.snapshot().map((e) => e.id)).toEqual([fence.id]); // presence added NOTHING to the store
+  });
 });
