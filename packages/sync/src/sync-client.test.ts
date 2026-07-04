@@ -551,4 +551,33 @@ describe('SyncClient resync-on-reconnect', () => {
     expect(store.getById(x.id)).toBeDefined();
     expect(store.count).toBe(1);
   });
+
+  it('clears the resync state after a merge-branch snapshot (drop during initial join)', () => {
+    const store = new ElementStore();
+    const transport = makeReconnectTransport();
+    const client = new SyncClient({ store, transport, clientId: 'B' });
+    client.start(); // joined=false; initial request-snapshot sent
+
+    // Socket drops DURING the initial-join handshake, before any snapshot arrives.
+    transport.triggerReconnect(); // onReconnect -> resyncPending=true, still !joined
+
+    // The FIRST snapshot arrives while joined is still false -> the !joined MERGE branch,
+    // which sets joined=true. With the fix it also finalizes the resync (resyncPending=false).
+    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'B', elements: [] }));
+
+    // A local add AFTER the merge. With the fix resyncPending is false, so X is NOT tracked
+    // in the shield set.
+    const local = { ...shape(1), id: 'X' };
+    store.add(local);
+
+    // A later (reconcile-branch, joined=true) snapshot that OMITS X — e.g. a second/late
+    // responder to the still-pending request. No reconnect in between, so onReconnect does
+    // NOT re-clear the shield set.
+    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'B', elements: [] }));
+
+    // X was removed by reconcile — NOT shielded. Without the fix, the merge branch left
+    // resyncPending stuck true, so the local add recorded X in touchedDuringResync and the
+    // reconcile would skip removing it (getById('X') still defined -> failure).
+    expect(store.getById('X')).toBeUndefined();
+  });
 });

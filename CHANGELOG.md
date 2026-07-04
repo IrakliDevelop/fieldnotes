@@ -4,6 +4,14 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [@fieldnotes/sync 0.5.1] — 2026-07-04
+
+### Fixed
+
+- `SyncClient`: a socket drop during the initial-join handshake left the resync state (`resyncPending` +
+  the in-flight-edit shield) stuck until the next reconnect. The resync state is now finalized after any
+  snapshot (merge or reconcile), not only on the reconcile path.
+
 ## [@fieldnotes/sync-server 0.4.0] — 2026-07-01
 
 ### Added
