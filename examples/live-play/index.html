@@ -51,6 +51,10 @@
       #tools button {
         font: inherit;
         padding: 4px 8px;
+        border: 1px solid #cbd5e1;
+        border-radius: 6px;
+        background: #fff;
+        cursor: pointer;
       }
       #tools {
         position: absolute;
@@ -58,6 +62,20 @@
         right: 10px;
         display: flex;
         gap: 6px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        max-width: 72vw;
+      }
+      #tools button.active {
+        background: #111;
+        color: #fff;
+        border-color: #111;
+      }
+      #tools .sep {
+        width: 1px;
+        align-self: stretch;
+        background: #cbd5e1;
+        margin: 2px;
       }
       #join {
         position: fixed;
@@ -84,9 +102,7 @@
     <div id="app">
       <div id="host"></div>
       <div id="cursors"></div>
-      <div id="tools">
-        <button id="place-token">Place token</button><button id="select">Select</button>
-      </div>
+      <div id="tools"></div>
       <div id="dm-toolbar">
         <button id="hide">Hide from players</button><button id="reveal">Reveal</button>
       </div>

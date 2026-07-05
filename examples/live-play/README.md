@@ -17,8 +17,10 @@ your identity). Pick the same room.
 
 ## Try it
 
+- **Canvas tools** — the toolbar has the standard instrumentation (Select, Pan, Draw, Shape, Arrow, Note, Text,
+  Eraser) plus **Undo / Redo**; everything you draw syncs live to the other tab.
 - **Live cursors** — move the pointer in one tab; the other shows your labeled cursor.
-- **Tokens** — click **Place token** then click the canvas to drop your (owner-colored) token; **Select** to drag.
+- **Tokens** — click **Token** then click the canvas to drop your (owner-colored) token; **Select** to drag.
 - **Ownership (D2)** — as the player, drag the DM's token: it **snaps back on release** (the relay denies the edit
   and its correction reverts it). Your own tokens move freely.
 - **DM hide/reveal (D3)** — as the DM, select a token and click **Hide from players** — it vanishes from the
