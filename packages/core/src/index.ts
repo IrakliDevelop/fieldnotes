@@ -66,6 +66,7 @@ export {
   getHexCellsInCone,
   getHexCellsInLine,
   getHexCellsInSquare,
+  getHexCellsInRectangle,
   drawHexPath,
 } from './elements/hex-fill';
 export type {

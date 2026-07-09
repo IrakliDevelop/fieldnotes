@@ -113,6 +113,7 @@ describe('core public surface', () => {
       'smartSnap',
       'snapToHexCenter',
       'getHexCellsInRadius',
+      'getHexCellsInRectangle',
       'drawHexPath',
       'getArrowControlPoint',
       'getArrowBounds',

@@ -5,6 +5,7 @@ import {
   getHexCellsInCone,
   getHexCellsInLine,
   getHexCellsInSquare,
+  getHexCellsInRectangle,
 } from './hex-fill';
 
 const CELL_SIZE = 40;
@@ -103,6 +104,31 @@ describe('hex-fill', () => {
       const cells = getHexCellsInSquare({ x: 0, y: 0 }, 2, CELL_SIZE, 'pointy');
       expect(cells.length).toBeGreaterThan(0);
       expect(cells.length).toBeLessThan(19);
+    });
+  });
+
+  describe('getHexCellsInRectangle', () => {
+    const key = (p: { x: number; y: number }) => `${Math.round(p.x)},${Math.round(p.y)}`;
+    const set = (cells: { x: number; y: number }[]) => new Set(cells.map(key));
+
+    it('with widthCells=1 matches getHexCellsInLine', () => {
+      const line = getHexCellsInLine({ x: 0, y: 0 }, 0, 3, CELL_SIZE, 'pointy');
+      const rect = getHexCellsInRectangle({ x: 0, y: 0 }, 0, 3, 1, CELL_SIZE, 'pointy');
+      expect(set(rect)).toEqual(set(line));
+    });
+
+    it('widthCells=3 is a strict superset of widthCells=1', () => {
+      const w1 = getHexCellsInRectangle({ x: 0, y: 0 }, 0, 4, 1, CELL_SIZE, 'pointy');
+      const w3 = getHexCellsInRectangle({ x: 0, y: 0 }, 0, 4, 3, CELL_SIZE, 'pointy');
+      expect(w3.length).toBeGreaterThan(w1.length);
+      for (const c of w1) expect(set(w3).has(key(c))).toBe(true);
+    });
+
+    it('is symmetric about the aim axis (equal counts on each side)', () => {
+      const cells = getHexCellsInRectangle({ x: 0, y: 0 }, 0, 4, 3, CELL_SIZE, 'pointy');
+      const above = cells.filter((c) => c.y < -1).length;
+      const below = cells.filter((c) => c.y > 1).length;
+      expect(above).toBe(below);
     });
   });
 });
