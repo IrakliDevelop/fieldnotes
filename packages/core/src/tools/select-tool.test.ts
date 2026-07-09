@@ -2412,4 +2412,55 @@ describe('SelectTool', () => {
       expect(hitTestRotateHandle(layout.rotateHandle, ctx, tool.selectedIds)).toBeNull();
     });
   });
+
+  describe('template aim handle', () => {
+    const selectCone = (ctx: ToolContext, angle = 0) => {
+      const cone = createTemplate({
+        position: { x: 100, y: 100 },
+        templateShape: 'cone',
+        radius: 80,
+        angle,
+      });
+      ctx.store.add(cone);
+      const tool = new SelectTool();
+      tool.onPointerDown(pt(100, 100), ctx);
+      tool.onPointerUp(pt(100, 100), ctx);
+      expect(tool.selectedIds).toEqual([cone.id]);
+      return { tool, cone };
+    };
+
+    it('re-aims the cone about its origin (position), not the bbox center', () => {
+      const ctx = makeCtx();
+      const { tool, cone } = selectCone(ctx);
+      // knob at (204,100); drag to straight above the origin → angle = -PI/2
+      tool.onPointerDown(pt(204, 100), ctx);
+      tool.onPointerMove(pt(100, 20), ctx);
+      tool.onPointerUp(pt(100, 20), ctx);
+      const el = ctx.store.getById(cone.id) as TemplateElement;
+      expect(el.angle).toBeCloseTo(-Math.PI / 2, 3);
+      expect(el.position).toEqual({ x: 100, y: 100 });
+    });
+
+    it('shift-snaps to 15° with no hex grid', () => {
+      const ctx = makeCtx();
+      const { tool, cone } = selectCone(ctx);
+      tool.onPointerDown(pt(204, 100), ctx);
+      // dx=40, dy=10 → ~14.04°; shift snaps to 15° = PI/12
+      tool.onPointerMove(shiftPt(140, 110), ctx);
+      tool.onPointerUp(shiftPt(140, 110), ctx);
+      const el = ctx.store.getById(cone.id) as TemplateElement;
+      expect(el.angle).toBeCloseTo(Math.PI / 12, 3);
+    });
+
+    it('shift-snaps to 60° on a hex grid', () => {
+      const ctx = makeCtx({ gridType: 'hex' });
+      const { tool, cone } = selectCone(ctx);
+      tool.onPointerDown(pt(204, 100), ctx);
+      // drag to 45°; hex snaps to 60° = PI/3
+      tool.onPointerMove(shiftPt(150, 150), ctx);
+      tool.onPointerUp(shiftPt(150, 150), ctx);
+      const el = ctx.store.getById(cone.id) as TemplateElement;
+      expect(el.angle).toBeCloseTo(Math.PI / 3, 3);
+    });
+  });
 });
