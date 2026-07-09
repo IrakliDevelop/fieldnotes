@@ -7,6 +7,8 @@ import {
   computeResize,
   computeRotatedResize,
   computeTemplateResize,
+  computeRectangleLengthResize,
+  computeRectangleWidthResize,
   MIN_ELEMENT_SIZE,
 } from './select-resize';
 
@@ -104,5 +106,40 @@ describe('computeTemplateResize', () => {
 
     const small = computeTemplateResize(tpl, { x: 3, y: 4 }, {});
     expect(small?.radius).toBe(MIN_ELEMENT_SIZE);
+  });
+});
+
+describe('computeRectangleLengthResize', () => {
+  const rect = () =>
+    createTemplate({
+      position: { x: 0, y: 0 },
+      templateShape: 'rectangle',
+      radius: 100,
+      angle: 0,
+      width: 40,
+    });
+  it('sets radius to the along-aim projection, leaving width untouched', () => {
+    const patch = computeRectangleLengthResize(rect(), { x: 160, y: 30 }, {});
+    expect(patch?.radius).toBeCloseTo(160, 3);
+    expect('width' in (patch ?? {})).toBe(false);
+  });
+  it('clamps to MIN_ELEMENT_SIZE', () => {
+    const patch = computeRectangleLengthResize(rect(), { x: 5, y: 0 }, {});
+    expect(patch?.radius).toBe(20);
+  });
+});
+describe('computeRectangleWidthResize', () => {
+  const rect = () =>
+    createTemplate({
+      position: { x: 0, y: 0 },
+      templateShape: 'rectangle',
+      radius: 100,
+      angle: 0,
+      width: 40,
+    });
+  it('sets width to twice the perpendicular distance, leaving radius untouched', () => {
+    const patch = computeRectangleWidthResize(rect(), { x: 50, y: 30 }, {});
+    expect(patch?.width).toBeCloseTo(60, 3);
+    expect('radius' in (patch ?? {})).toBe(false);
   });
 });

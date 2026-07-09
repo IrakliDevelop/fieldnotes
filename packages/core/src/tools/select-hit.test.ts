@@ -5,10 +5,14 @@ import {
   isInsideBounds,
   hitTestResizeHandle,
   hitTestTemplateAimHandle,
+  hitTestRectangleLengthHandle,
+  hitTestRectangleWidthHandle,
+  hitTestTemplateResizeHandle,
 } from './select-hit';
 import { ElementStore } from '../elements/element-store';
 import { Camera } from '../canvas/camera';
 import { createNote, createTemplate } from '../elements/element-factory';
+import { getElementBounds } from '../elements/element-bounds';
 import type { ToolContext } from './types';
 
 function makeCtx(overrides: Partial<ToolContext> = {}): ToolContext {
@@ -129,5 +133,48 @@ describe('hitTestTemplateAimHandle', () => {
     expect(hitTestTemplateAimHandle({ x: 204, y: 100 }, ctx, [rect.id])).toEqual({
       elementId: rect.id,
     });
+  });
+});
+
+describe('rectangle resize handles', () => {
+  const withRect = (over = {}) => {
+    const ctx = makeCtx(over);
+    const rect = createTemplate({
+      position: { x: 100, y: 100 },
+      templateShape: 'rectangle',
+      radius: 80,
+      angle: 0,
+      width: 40,
+    });
+    ctx.store.add(rect);
+    return { ctx, rect };
+  };
+  it('length handle fires at the far-edge center', () => {
+    const { ctx, rect } = withRect();
+    expect(hitTestRectangleLengthHandle({ x: 180, y: 100 }, ctx, [rect.id])).toEqual({
+      elementId: rect.id,
+    });
+  });
+  it('width handle fires at the side-edge center', () => {
+    const { ctx, rect } = withRect();
+    // position + (radius/2)*aim + (width/2)*perp = (100+40, 100+20) = (140, 120)
+    expect(hitTestRectangleWidthHandle({ x: 140, y: 120 }, ctx, [rect.id])).toEqual({
+      elementId: rect.id,
+    });
+  });
+  it('both return null for locked, and length returns null for non-rectangle', () => {
+    const { ctx, rect } = withRect();
+    ctx.store.update(rect.id, { locked: true });
+    expect(hitTestRectangleLengthHandle({ x: 180, y: 100 }, ctx, [rect.id])).toBeNull();
+    expect(hitTestRectangleWidthHandle({ x: 140, y: 120 }, ctx, [rect.id])).toBeNull();
+    const cone = withRect();
+    cone.ctx.store.update(cone.rect.id, { templateShape: 'cone', locked: false });
+    expect(hitTestRectangleLengthHandle({ x: 180, y: 100 }, cone.ctx, [cone.rect.id])).toBeNull();
+  });
+  it('isotropic template resize handle skips rectangles', () => {
+    const { ctx, rect } = withRect();
+    const b = getElementBounds(rect);
+    if (!b) throw new Error('no bounds');
+    expect(hitTestTemplateResizeHandle({ x: b.x + b.w, y: b.y + b.h }, ctx, [rect.id])).toBeNull();
   });
 });
