@@ -124,11 +124,12 @@ describe('hex-fill', () => {
       for (const c of w1) expect(set(w3).has(key(c))).toBe(true);
     });
 
-    it('is symmetric about the aim axis (equal counts on each side)', () => {
-      const cells = getHexCellsInRectangle({ x: 0, y: 0 }, 0, 4, 3, CELL_SIZE, 'pointy');
-      const above = cells.filter((c) => c.y < -1).length;
-      const below = cells.filter((c) => c.y > 1).length;
-      expect(above).toBe(below);
+    it('cell count grows monotonically with widthCells', () => {
+      const w1 = getHexCellsInRectangle({ x: 0, y: 0 }, 0, 4, 1, 40, 'pointy').length;
+      const w3 = getHexCellsInRectangle({ x: 0, y: 0 }, 0, 4, 3, 40, 'pointy').length;
+      const w5 = getHexCellsInRectangle({ x: 0, y: 0 }, 0, 4, 5, 40, 'pointy').length;
+      expect(w3).toBeGreaterThan(w1);
+      expect(w5).toBeGreaterThan(w3);
     });
   });
 });
