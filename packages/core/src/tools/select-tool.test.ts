@@ -2463,4 +2463,42 @@ describe('SelectTool', () => {
       expect(el.angle).toBeCloseTo(Math.PI / 3, 3);
     });
   });
+
+  describe('rectangle resize handles', () => {
+    const selectRect = (ctx: ToolContext) => {
+      const rect = createTemplate({
+        position: { x: 100, y: 100 },
+        templateShape: 'rectangle',
+        radius: 80,
+        angle: 0,
+        width: 40,
+      });
+      ctx.store.add(rect);
+      const tool = new SelectTool();
+      tool.onPointerDown(pt(120, 100), ctx); // inside the rectangle body
+      tool.onPointerUp(pt(120, 100), ctx);
+      expect(tool.selectedIds).toEqual([rect.id]);
+      return { tool, rect };
+    };
+    it('dragging the length handle changes radius, not width', () => {
+      const ctx = makeCtx();
+      const { tool, rect } = selectRect(ctx);
+      tool.onPointerDown(pt(180, 100), ctx); // length handle at (180,100)
+      tool.onPointerMove(pt(230, 100), ctx);
+      tool.onPointerUp(pt(230, 100), ctx);
+      const el = ctx.store.getById(rect.id) as TemplateElement;
+      expect(el.radius).toBeCloseTo(130, 3);
+      expect(el.width).toBe(40);
+    });
+    it('dragging the width handle changes width, not radius', () => {
+      const ctx = makeCtx();
+      const { tool, rect } = selectRect(ctx);
+      tool.onPointerDown(pt(140, 120), ctx); // width handle at (140,120)
+      tool.onPointerMove(pt(140, 140), ctx); // perp dist 40 → width 80
+      tool.onPointerUp(pt(140, 140), ctx);
+      const el = ctx.store.getById(rect.id) as TemplateElement;
+      expect(el.width).toBeCloseTo(80, 3);
+      expect(el.radius).toBe(80);
+    });
+  });
 });

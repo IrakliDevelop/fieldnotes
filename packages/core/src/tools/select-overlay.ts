@@ -54,7 +54,12 @@ export function templateAimKnob(
   zoom: number,
 ): { origin: Point; knob: Point } | null {
   if (el.type !== 'template') return null;
-  if (el.templateShape !== 'cone' && el.templateShape !== 'line') return null;
+  if (
+    el.templateShape !== 'cone' &&
+    el.templateShape !== 'line' &&
+    el.templateShape !== 'rectangle'
+  )
+    return null;
   const gap = ROTATE_HANDLE_OFFSET / zoom;
   const dist = el.radius + gap;
   const origin = el.position;
@@ -231,25 +236,56 @@ export function renderSelectionBoxes(
       } else if (el.type === 'template') {
         ctx.setLineDash([]);
         ctx.fillStyle = '#ffffff';
-        const hx = bounds.x + bounds.w;
-        const hy = bounds.y + bounds.h;
-        ctx.fillRect(
-          hx - handleWorldSize / 2,
-          hy - handleWorldSize / 2,
-          handleWorldSize,
-          handleWorldSize,
-        );
-        ctx.strokeRect(
-          hx - handleWorldSize / 2,
-          hy - handleWorldSize / 2,
-          handleWorldSize,
-          handleWorldSize,
-        );
+        if (el.templateShape === 'rectangle') {
+          if (p.selectedIds.length === 1) {
+            const cos = Math.cos(el.angle);
+            const sin = Math.sin(el.angle);
+            const halfW = (el.width ?? 0) / 2;
+            const pts: [number, number][] = [
+              [el.position.x + el.radius * cos, el.position.y + el.radius * sin],
+              [
+                el.position.x + (el.radius / 2) * cos + halfW * -sin,
+                el.position.y + (el.radius / 2) * sin + halfW * cos,
+              ],
+            ];
+            for (const [hx, hy] of pts) {
+              ctx.fillRect(
+                hx - handleWorldSize / 2,
+                hy - handleWorldSize / 2,
+                handleWorldSize,
+                handleWorldSize,
+              );
+              ctx.strokeRect(
+                hx - handleWorldSize / 2,
+                hy - handleWorldSize / 2,
+                handleWorldSize,
+                handleWorldSize,
+              );
+            }
+          }
+        } else {
+          const hx = bounds.x + bounds.w;
+          const hy = bounds.y + bounds.h;
+          ctx.fillRect(
+            hx - handleWorldSize / 2,
+            hy - handleWorldSize / 2,
+            handleWorldSize,
+            handleWorldSize,
+          );
+          ctx.strokeRect(
+            hx - handleWorldSize / 2,
+            hy - handleWorldSize / 2,
+            handleWorldSize,
+            handleWorldSize,
+          );
+        }
         ctx.setLineDash([4 / zoom, 4 / zoom]);
 
         if (
           p.selectedIds.length === 1 &&
-          (el.templateShape === 'cone' || el.templateShape === 'line')
+          (el.templateShape === 'cone' ||
+            el.templateShape === 'line' ||
+            el.templateShape === 'rectangle')
         ) {
           const aim = templateAimKnob(el, zoom);
           if (aim) {

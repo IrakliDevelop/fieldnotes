@@ -78,6 +78,20 @@ describe('aim handle overlay', () => {
     expect(ctx.moveTo).toHaveBeenCalled();
   });
 
+  it('draws an aim knob for a single selected rectangle', () => {
+    const rect = createTemplate({
+      position: { x: 0, y: 0 },
+      templateShape: 'rectangle',
+      radius: 80,
+      angle: 0,
+      width: 40,
+    });
+    const ctx = mockCanvas();
+    renderSelectionBoxes(ctx, { selectedIds: [rect.id], store: storeWith(rect), zoom: 1 });
+    expect(ctx.moveTo).toHaveBeenCalled();
+    expect(ctx.arc).toHaveBeenCalled();
+  });
+
   it('does not draw an aim knob for circle, locked, or multi-selection', () => {
     const circle = createTemplate({
       position: { x: 0, y: 0 },

@@ -22,6 +22,7 @@ import {
   getHexCellsInCone,
   getHexCellsInLine,
   getHexCellsInSquare,
+  getHexCellsInRectangle,
 } from '../elements/hex-fill';
 import { getElementBounds } from '../elements/element-bounds';
 import { renderNoteOnCanvas } from './note-canvas-renderer';
@@ -322,6 +323,22 @@ function emitGeometricTemplate(t: TemplateElement): string {
         .join(' ');
       return `<polygon points="${pts}" ${attrs} />`;
     }
+    case 'rectangle': {
+      const halfW = (t.width ?? 0) / 2;
+      const cos = Math.cos(t.angle);
+      const sin = Math.sin(t.angle);
+      const perpX = -sin * halfW;
+      const perpY = cos * halfW;
+      const pts = [
+        [cx + perpX, cy + perpY],
+        [cx + r * cos + perpX, cy + r * sin + perpY],
+        [cx + r * cos - perpX, cy + r * sin - perpY],
+        [cx - perpX, cy - perpY],
+      ]
+        .map(([px, py]) => `${n(px ?? 0)},${n(py ?? 0)}`)
+        .join(' ');
+      return `<polygon points="${pts}" ${attrs} />`;
+    }
   }
 }
 
@@ -346,6 +363,18 @@ function emitHexTemplate(t: TemplateElement, grid: GridElement): string {
     case 'square':
       cells = getHexCellsInSquare(center, radiusCells, cellSize, orientation);
       break;
+    case 'rectangle': {
+      const widthCells = (t.width ?? 0) / snapUnit;
+      cells = getHexCellsInRectangle(
+        center,
+        t.angle,
+        radiusCells,
+        widthCells,
+        cellSize,
+        orientation,
+      );
+      break;
+    }
   }
 
   let d = '';

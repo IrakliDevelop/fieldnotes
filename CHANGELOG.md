@@ -9,6 +9,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 - Added `examples/live-play` — a framework-free reference app demonstrating the full real-time-collab stack
   (role join, ownership, DM hide/reveal, live cursors) against a `createSyncServer` relay.
 
+## [@fieldnotes/core 0.48.0] — 2026-07-09
+
+### Added
+
+- New `rectangle` template shape — a directional area of effect with independently sizable
+  length and width (a wall / corridor / wide blast). Draw it like a line; drag the far-edge
+  handle to lengthen, the side handle to widen, and the tip knob to re-aim (Shift-snaps like
+  cone/line). Renders as hex-cell fill or the smooth/geometric style, exports to SVG, and shows
+  the live + placed feet readout, consistent with the other templates.
+- `getHexCellsInRectangle` helper exported from `@fieldnotes/core`.
+
 ## [@fieldnotes/core 0.47.0] — 2026-07-09
 
 ### Added

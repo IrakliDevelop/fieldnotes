@@ -107,7 +107,7 @@ export interface GridElement extends BaseElement {
   opacity: number;
 }
 
-export type TemplateShape = 'circle' | 'cone' | 'line' | 'square';
+export type TemplateShape = 'circle' | 'cone' | 'line' | 'square' | 'rectangle';
 
 export type TemplateRenderStyle = 'cells' | 'geometric';
 
@@ -116,6 +116,9 @@ export interface TemplateElement extends BaseElement {
   templateShape: TemplateShape;
   radius: number;
   angle: number;
+  /** Rectangle-only: full perpendicular extent in world units (centered on the aim axis).
+   *  Absent for other shapes. Distinct from strokeWidth. */
+  width?: number;
   fillColor: string;
   strokeColor: string;
   strokeWidth: number;

@@ -270,6 +270,18 @@ describe('TemplateTool', () => {
     expect(el.feetPerCell).toBe(5);
   });
 
+  it('creates a rectangle with a length and a non-zero default width', () => {
+    const tool = new TemplateTool({ templateShape: 'rectangle', feetPerCell: 5 });
+    const ctx = makeCtx({ gridSize: 40 });
+    tool.onPointerDown(pt(0, 0), ctx);
+    tool.onPointerMove(pt(120, 0), ctx);
+    tool.onPointerUp(pt(120, 0), ctx);
+    const el = ctx.store.getAll()[0] as TemplateElement;
+    expect(el.templateShape).toBe('rectangle');
+    expect(el.radius).toBeGreaterThan(0);
+    expect(el.width).toBeGreaterThan(0);
+  });
+
   it('sets radiusFeet undefined when grid size is missing', () => {
     const tool = new TemplateTool({ feetPerCell: 5 });
     const ctx = makeCtx();

@@ -376,5 +376,20 @@ describe('element factories', () => {
       });
       expect('renderStyle' in t).toBe(false);
     });
+
+    it('stores width for a rectangle template when provided', () => {
+      const t = createTemplate({
+        position: { x: 0, y: 0 },
+        templateShape: 'rectangle',
+        radius: 100,
+        width: 40,
+      });
+      expect(t.width).toBe(40);
+    });
+
+    it('omits width when not provided', () => {
+      const t = createTemplate({ position: { x: 0, y: 0 }, templateShape: 'circle', radius: 100 });
+      expect('width' in t).toBe(false);
+    });
   });
 });

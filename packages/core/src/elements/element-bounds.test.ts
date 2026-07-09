@@ -169,6 +169,18 @@ describe('getElementBounds', () => {
     expect(bounds.y).toBeCloseTo(-5);
     expect(bounds.h).toBeCloseTo(10);
   });
+
+  it('bounds a rectangle template (angle 0)', () => {
+    const rect = createTemplate({
+      position: { x: 0, y: 0 },
+      templateShape: 'rectangle',
+      radius: 100,
+      angle: 0,
+      width: 40,
+    });
+    const b = getElementBounds(rect);
+    expect(b).toEqual({ x: 0, y: -20, w: 100, h: 40 });
+  });
 });
 
 describe('boundsIntersect', () => {

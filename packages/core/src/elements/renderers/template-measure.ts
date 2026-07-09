@@ -16,7 +16,8 @@ export function renderTemplateFeetLabel(
 ): void {
   if (p.feet <= 0) return;
 
-  const directional = p.templateShape === 'cone' || p.templateShape === 'line';
+  const directional =
+    p.templateShape === 'cone' || p.templateShape === 'line' || p.templateShape === 'rectangle';
   const dir = directional ? p.angle : 0;
   const length = p.templateShape === 'square' ? p.radius / 2 : p.radius;
   const cos = Math.cos(dir);

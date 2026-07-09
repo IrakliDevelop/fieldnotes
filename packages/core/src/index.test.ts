@@ -3,7 +3,7 @@ import * as FN from './index';
 
 describe('core public surface', () => {
   it('exports the current version', () => {
-    expect(FN.VERSION).toBe('0.47.0');
+    expect(FN.VERSION).toBe('0.48.0');
   });
 
   it('does not export internal machinery (trimmed before 1.0)', () => {
@@ -65,6 +65,12 @@ describe('core public surface', () => {
       'templateAimKnob',
       'hitTestTemplateAimHandle',
       'renderTemplateFeetLabel',
+      // template-tool and select-resize rectangle internals
+      'hitTestRectangleLengthHandle',
+      'hitTestRectangleWidthHandle',
+      'computeRectangleLengthResize',
+      'computeRectangleWidthResize',
+      'defaultRectWidth',
       // input-handler decomposition internals
       'KeyboardHandler',
       // pan-inertia controller internal
@@ -113,6 +119,7 @@ describe('core public surface', () => {
       'smartSnap',
       'snapToHexCenter',
       'getHexCellsInRadius',
+      'getHexCellsInRectangle',
       'drawHexPath',
       'getArrowControlPoint',
       'getArrowBounds',

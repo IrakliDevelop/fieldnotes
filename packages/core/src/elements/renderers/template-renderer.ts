@@ -5,6 +5,7 @@ import {
   getHexCellsInCone,
   getHexCellsInLine,
   getHexCellsInSquare,
+  getHexCellsInRectangle,
   drawHexPath,
 } from '../hex-fill';
 import { renderTemplateFeetLabel } from './template-measure';
@@ -74,6 +75,23 @@ function renderGeometricTemplate(ctx: CanvasRenderingContext2D, template: Templa
       ctx.stroke();
       break;
     }
+
+    case 'rectangle': {
+      const halfW = (template.width ?? 0) / 2;
+      const cos = Math.cos(template.angle);
+      const sin = Math.sin(template.angle);
+      const perpX = -sin * halfW;
+      const perpY = cos * halfW;
+      ctx.beginPath();
+      ctx.moveTo(cx + perpX, cy + perpY);
+      ctx.lineTo(cx + r * cos + perpX, cy + r * sin + perpY);
+      ctx.lineTo(cx + r * cos - perpX, cy + r * sin - perpY);
+      ctx.lineTo(cx - perpX, cy - perpY);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      break;
+    }
   }
 
   if (template.radiusFeet != null && template.radiusFeet > 0) {
@@ -114,6 +132,18 @@ function renderHexTemplate(
     case 'square':
       cells = getHexCellsInSquare(center, radiusCells, cellSize, orientation);
       break;
+    case 'rectangle': {
+      const widthCells = (template.width ?? 0) / snapUnit;
+      cells = getHexCellsInRectangle(
+        center,
+        template.angle,
+        radiusCells,
+        widthCells,
+        cellSize,
+        orientation,
+      );
+      break;
+    }
   }
 
   ctx.save();

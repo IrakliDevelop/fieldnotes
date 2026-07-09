@@ -154,6 +154,7 @@ export function hitTestTemplateResizeHandle(
   for (const id of selectedIds) {
     const el = ctx.store.getById(id);
     if (!el || el.type !== 'template') continue;
+    if (el.templateShape === 'rectangle') continue;
 
     const bounds = getElementBounds(el);
     if (!bounds) continue;
@@ -183,6 +184,47 @@ export function hitTestTemplateAimHandle(
   const r = (HANDLE_SIZE / 2 + HANDLE_HIT_PADDING) / ctx.camera.zoom;
   const dx = world.x - knob.knob.x;
   const dy = world.y - knob.knob.y;
+  return dx * dx + dy * dy <= r * r ? { elementId: id } : null;
+}
+
+export function hitTestRectangleLengthHandle(
+  world: Point,
+  ctx: ToolContext,
+  selectedIds: string[],
+): { elementId: string } | null {
+  if (selectedIds.length !== 1) return null;
+  const id = selectedIds[0];
+  if (!id) return null;
+  const el = ctx.store.getById(id);
+  if (!el || el.locked || el.type !== 'template' || el.templateShape !== 'rectangle') return null;
+  const zoom = ctx.camera.zoom;
+  const r = (HANDLE_SIZE / 2 + HANDLE_HIT_PADDING) / zoom;
+  const hx = el.position.x + el.radius * Math.cos(el.angle);
+  const hy = el.position.y + el.radius * Math.sin(el.angle);
+  const dx = world.x - hx;
+  const dy = world.y - hy;
+  return dx * dx + dy * dy <= r * r ? { elementId: id } : null;
+}
+
+export function hitTestRectangleWidthHandle(
+  world: Point,
+  ctx: ToolContext,
+  selectedIds: string[],
+): { elementId: string } | null {
+  if (selectedIds.length !== 1) return null;
+  const id = selectedIds[0];
+  if (!id) return null;
+  const el = ctx.store.getById(id);
+  if (!el || el.locked || el.type !== 'template' || el.templateShape !== 'rectangle') return null;
+  const zoom = ctx.camera.zoom;
+  const r = (HANDLE_SIZE / 2 + HANDLE_HIT_PADDING) / zoom;
+  const cos = Math.cos(el.angle);
+  const sin = Math.sin(el.angle);
+  const halfW = (el.width ?? 0) / 2;
+  const hx = el.position.x + (el.radius / 2) * cos + halfW * -sin;
+  const hy = el.position.y + (el.radius / 2) * sin + halfW * cos;
+  const dx = world.x - hx;
+  const dy = world.y - hy;
   return dx * dx + dy * dy <= r * r ? { elementId: id } : null;
 }
 

@@ -214,6 +214,58 @@ export function getHexCellsInLine(
   return cells;
 }
 
+export function getHexCellsInRectangle(
+  center: Point,
+  angle: number,
+  lengthCells: number,
+  widthCells: number,
+  cellSize: number,
+  orientation: HexOrientation,
+): Point[] {
+  const nLen = Math.round(lengthCells);
+  const wCells = Math.max(1, Math.round(widthCells));
+  const off = pixelToOffset(center.x, center.y, cellSize, orientation);
+  const cube = offsetToCube(off.col, off.row, orientation);
+  const centerPixel = offsetToPixel(off.col, off.row, cellSize, orientation);
+
+  if (nLen <= 0) return [centerPixel];
+
+  const vertexOffset = orientation === 'pointy' ? Math.PI / 6 : 0;
+  const step = Math.PI / 3;
+  const snappedAngle = Math.round((angle - vertexOffset) / step) * step + vertexOffset;
+
+  const cos = Math.cos(snappedAngle);
+  const sin = Math.sin(snappedAngle);
+  const snapUnit = Math.sqrt(3) * cellSize;
+  const lineLength = nLen * snapUnit;
+  const halfWidth = (wCells * snapUnit) / 2 + 1e-6;
+  const iterM = nLen + Math.ceil(wCells / 2) + 1;
+  const cells: Point[] = [];
+
+  for (let dq = -iterM; dq <= iterM; dq++) {
+    const rMin = Math.max(-iterM, -dq - iterM);
+    const rMax = Math.min(iterM, -dq + iterM);
+    for (let dr = rMin; dr <= rMax; dr++) {
+      const absQ = cube.q + dq;
+      const absR = cube.r + dr;
+      const pixel = offsetToPixel(
+        cubeToOffset(absQ, absR, orientation).col,
+        cubeToOffset(absQ, absR, orientation).row,
+        cellSize,
+        orientation,
+      );
+      const dx = pixel.x - centerPixel.x;
+      const dy = pixel.y - centerPixel.y;
+      const along = dx * cos + dy * sin;
+      const perp = Math.abs(-dx * sin + dy * cos);
+      if (along >= -snapUnit * 0.1 && along <= lineLength + snapUnit * 0.1 && perp <= halfWidth) {
+        cells.push(pixel);
+      }
+    }
+  }
+  return cells;
+}
+
 export function getHexCellsInSquare(
   center: Point,
   radiusCells: number,

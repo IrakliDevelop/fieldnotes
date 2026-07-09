@@ -184,3 +184,41 @@ export function computeTemplateResize(
 
   return updates;
 }
+
+export function computeRectangleLengthResize(
+  el: TemplateElement,
+  world: Point,
+  opts: TemplateResizeOptions,
+): Record<string, unknown> | null {
+  const cos = Math.cos(el.angle);
+  const sin = Math.sin(el.angle);
+  let len = (world.x - el.position.x) * cos + (world.y - el.position.y) * sin;
+  if (opts.snapToGrid && opts.gridSize && opts.gridSize > 0) {
+    const snapUnit = opts.gridType === 'hex' ? Math.sqrt(3) * opts.gridSize : opts.gridSize;
+    len = Math.max(snapUnit, Math.round(len / snapUnit) * snapUnit);
+  }
+  len = Math.max(MIN_ELEMENT_SIZE, len);
+  const updates: Record<string, unknown> = { radius: len };
+  if (el.feetPerCell != null && opts.gridSize && opts.gridSize > 0) {
+    const snapUnit = opts.gridType === 'hex' ? Math.sqrt(3) * opts.gridSize : opts.gridSize;
+    updates.radiusFeet = (len / snapUnit) * el.feetPerCell;
+  }
+  return updates;
+}
+
+export function computeRectangleWidthResize(
+  el: TemplateElement,
+  world: Point,
+  opts: TemplateResizeOptions,
+): Record<string, unknown> | null {
+  const cos = Math.cos(el.angle);
+  const sin = Math.sin(el.angle);
+  const perp = Math.abs(-(world.x - el.position.x) * sin + (world.y - el.position.y) * cos);
+  let width = perp * 2;
+  if (opts.snapToGrid && opts.gridSize && opts.gridSize > 0) {
+    const snapUnit = opts.gridType === 'hex' ? Math.sqrt(3) * opts.gridSize : opts.gridSize;
+    width = Math.max(snapUnit, Math.round(width / snapUnit) * snapUnit);
+  }
+  width = Math.max(MIN_ELEMENT_SIZE, width);
+  return { width };
+}

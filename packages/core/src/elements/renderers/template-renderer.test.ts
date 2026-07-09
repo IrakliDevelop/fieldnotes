@@ -118,3 +118,34 @@ describe('placed template feet readout', () => {
     expect(ctx.fillText).not.toHaveBeenCalled();
   });
 });
+
+describe('rectangle template rendering', () => {
+  it('renders a geometric rectangle as a 4-point quad (no arc)', () => {
+    const ctx = mockCtx();
+    const rect = createTemplate({
+      position: { x: 0, y: 0 },
+      templateShape: 'rectangle',
+      radius: 120,
+      angle: 0,
+      width: 40,
+    });
+    renderTemplate(ctx, rect, storeWith(null));
+    expect(ctx.arc).not.toHaveBeenCalled();
+    expect(ctx.moveTo).toHaveBeenCalled();
+    expect((ctx.lineTo as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('renders a hex-cell rectangle (lineTo, no arc) on a hex grid', () => {
+    const ctx = mockCtx();
+    const rect = createTemplate({
+      position: { x: 0, y: 0 },
+      templateShape: 'rectangle',
+      radius: 120,
+      angle: 0,
+      width: 80,
+    });
+    renderTemplate(ctx, rect, storeWith(hexGrid));
+    expect(ctx.arc).not.toHaveBeenCalled();
+    expect(ctx.lineTo).toHaveBeenCalled();
+  });
+});
