@@ -12,6 +12,7 @@ import {
   HANDLE_HIT_PADDING,
   ROTATABLE_TYPES,
   getOverlayLayout,
+  templateAimKnob,
 } from './select-overlay';
 
 export function hitTest(world: Point, ctx: ToolContext): CanvasElement | null {
@@ -165,6 +166,24 @@ export function hitTestTemplateResizeHandle(
   }
 
   return null;
+}
+
+export function hitTestTemplateAimHandle(
+  world: Point,
+  ctx: ToolContext,
+  selectedIds: string[],
+): { elementId: string } | null {
+  if (selectedIds.length !== 1) return null;
+  const id = selectedIds[0];
+  if (!id) return null;
+  const el = ctx.store.getById(id);
+  if (!el || el.locked) return null;
+  const knob = templateAimKnob(el, ctx.camera.zoom);
+  if (!knob) return null;
+  const r = (HANDLE_SIZE / 2 + HANDLE_HIT_PADDING) / ctx.camera.zoom;
+  const dx = world.x - knob.knob.x;
+  const dy = world.y - knob.knob.y;
+  return dx * dx + dy * dy <= r * r ? { elementId: id } : null;
 }
 
 export function findElementsInRect(marquee: Bounds, ctx: ToolContext): string[] {

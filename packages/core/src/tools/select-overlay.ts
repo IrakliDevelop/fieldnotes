@@ -49,6 +49,24 @@ export function getOverlayLayout(el: CanvasElement, zoom: number): OverlayLayout
   return { center, corners, rotateHandle, angle };
 }
 
+export function templateAimKnob(
+  el: CanvasElement,
+  zoom: number,
+): { origin: Point; knob: Point } | null {
+  if (el.type !== 'template') return null;
+  if (el.templateShape !== 'cone' && el.templateShape !== 'line') return null;
+  const gap = ROTATE_HANDLE_OFFSET / zoom;
+  const dist = el.radius + gap;
+  const origin = el.position;
+  return {
+    origin,
+    knob: {
+      x: origin.x + dist * Math.cos(el.angle),
+      y: origin.y + dist * Math.sin(el.angle),
+    },
+  };
+}
+
 export function getHandlePositions(bounds: Bounds): [HandlePosition, Point][] {
   return [
     ['nw', { x: bounds.x, y: bounds.y }],
