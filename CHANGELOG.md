@@ -9,6 +9,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 - Added `examples/live-play` — a framework-free reference app demonstrating the full real-time-collab stack
   (role join, ownership, DM hide/reveal, live cursors) against a `createSyncServer` relay.
 
+## [@fieldnotes/core 0.47.0] — 2026-07-09
+
+### Added
+
+- Cone and line templates can be re-aimed after placement: select one and drag the round aim
+  handle at its tip to swing its direction about its origin. Hold Shift to snap to 15°
+  (60° on hex grids).
+- Live "N ft" measurement while placing any template (circle, cone, line, square), shown during
+  the drag and kept on the placed element whenever a grid scale is set.
+
 ## [@fieldnotes/sync-server 0.8.0] — 2026-07-04
 
 ### Added

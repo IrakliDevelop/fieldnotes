@@ -4,7 +4,7 @@ import { TemplateTool } from './template-tool';
 import { ElementStore } from '../elements/element-store';
 import { Camera } from '../canvas/camera';
 import type { ToolContext, PointerState } from './types';
-import type { TemplateElement } from '../elements/types';
+import type { TemplateShape, TemplateElement } from '../elements/types';
 
 function makeCtx(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
@@ -721,5 +721,61 @@ describe('TemplateTool', () => {
       const el = ctx.store.getAll()[0] as TemplateElement;
       expect(el.radiusFeet).toBeCloseTo(10);
     });
+  });
+});
+
+function overlayCanvas(): CanvasRenderingContext2D {
+  return {
+    save: vi.fn(),
+    restore: vi.fn(),
+    beginPath: vi.fn(),
+    moveTo: vi.fn(),
+    lineTo: vi.fn(),
+    arc: vi.fn(),
+    fill: vi.fn(),
+    stroke: vi.fn(),
+    closePath: vi.fn(),
+    fillRect: vi.fn(),
+    strokeRect: vi.fn(),
+    fillText: vi.fn(),
+    roundRect: vi.fn(),
+    setLineDash: vi.fn(),
+    measureText: vi.fn(() => ({ width: 30 })),
+    globalAlpha: 1,
+    fillStyle: '',
+    strokeStyle: '',
+    lineWidth: 0,
+    font: '',
+    textAlign: '',
+    textBaseline: '',
+  } as unknown as CanvasRenderingContext2D;
+}
+
+describe('live feet readout while placing', () => {
+  it.each(['circle', 'cone', 'line', 'square'] as TemplateShape[])(
+    'shows a feet label mid-drag for %s when a grid scale exists',
+    (shape) => {
+      const tool = new TemplateTool({ templateShape: shape, feetPerCell: 5 });
+      const ctx = makeCtx({ gridSize: 40 });
+      tool.onPointerDown(pt(0, 0), ctx);
+      tool.onPointerMove(pt(120, 0), ctx);
+      const canvas = overlayCanvas();
+      tool.renderOverlay?.(canvas);
+      expect(canvas.fillText).toHaveBeenCalledWith(
+        expect.stringContaining('ft'),
+        expect.any(Number),
+        expect.any(Number),
+      );
+    },
+  );
+
+  it('shows no feet label when there is no grid scale', () => {
+    const tool = new TemplateTool({ templateShape: 'cone', feetPerCell: 5 });
+    const ctx = makeCtx(); // no gridSize
+    tool.onPointerDown(pt(0, 0), ctx);
+    tool.onPointerMove(pt(120, 0), ctx);
+    const canvas = overlayCanvas();
+    tool.renderOverlay?.(canvas);
+    expect(canvas.fillText).not.toHaveBeenCalled();
   });
 });

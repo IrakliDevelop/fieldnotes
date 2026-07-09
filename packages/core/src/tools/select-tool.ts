@@ -25,6 +25,7 @@ import {
   hitTestRotateHandle,
   hitTestLineHandles,
   hitTestTemplateResizeHandle,
+  hitTestTemplateAimHandle,
   findElementsInRect,
 } from './select-hit';
 import type { HandlePosition, OverlayLayout } from './select-overlay';
@@ -46,6 +47,7 @@ type Mode =
   | { type: 'marquee'; start: Point }
   | { type: 'resizing'; elementId: string; handle: HandlePosition }
   | { type: 'resizing-template'; elementId: string }
+  | { type: 'aiming-template'; elementId: string }
   | { type: 'arrow-handle'; elementId: string; handle: ArrowHandle }
   | { type: 'line-handle'; elementId: string; fixed: Point }
   | {
@@ -161,6 +163,13 @@ export class SelectTool implements Tool {
       return;
     }
 
+    const aimHit = hitTestTemplateAimHandle(world, ctx, this._selectedIds);
+    if (aimHit) {
+      this.mode = { type: 'aiming-template', elementId: aimHit.elementId };
+      ctx.requestRender();
+      return;
+    }
+
     const rotateHit = hitTestRotateHandle(world, ctx, this._selectedIds);
     if (rotateHit) {
       const el = ctx.store.getById(rotateHit.elementId);
@@ -247,6 +256,20 @@ export class SelectTool implements Tool {
     if (this.mode.type === 'resizing-template') {
       ctx.setCursor?.('nwse-resize');
       this.handleTemplateResize(world, ctx);
+      return;
+    }
+
+    if (this.mode.type === 'aiming-template') {
+      const el = ctx.store.getById(this.mode.elementId);
+      if (el && el.type === 'template' && !el.locked) {
+        let a = Math.atan2(world.y - el.position.y, world.x - el.position.x);
+        if (state.shiftKey) {
+          const snap = ctx.gridType === 'hex' ? Math.PI / 3 : ROTATE_SNAP;
+          a = Math.round(a / snap) * snap;
+        }
+        ctx.store.update(this.mode.elementId, { angle: normalizeAngle(a) });
+        ctx.requestRender();
+      }
       return;
     }
 
@@ -488,6 +511,11 @@ export class SelectTool implements Tool {
     const templateResizeHit = hitTestTemplateResizeHandle(world, ctx, this._selectedIds);
     if (templateResizeHit) {
       ctx.setCursor?.('nwse-resize');
+      return null;
+    }
+
+    if (hitTestTemplateAimHandle(world, ctx, this._selectedIds)) {
+      ctx.setCursor?.('grab');
       return null;
     }
 
