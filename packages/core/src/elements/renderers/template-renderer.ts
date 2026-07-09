@@ -7,6 +7,7 @@ import {
   getHexCellsInSquare,
   drawHexPath,
 } from '../hex-fill';
+import { renderTemplateFeetLabel } from './template-measure';
 
 export function renderTemplate(
   ctx: CanvasRenderingContext2D,
@@ -38,9 +39,6 @@ function renderGeometricTemplate(ctx: CanvasRenderingContext2D, template: Templa
       ctx.arc(cx, cy, r, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
-      if (template.radiusFeet != null && template.radiusFeet > 0) {
-        renderRadiusMarker(ctx, cx, cy, r, template.radiusFeet);
-      }
       break;
 
     case 'square':
@@ -76,6 +74,17 @@ function renderGeometricTemplate(ctx: CanvasRenderingContext2D, template: Templa
       ctx.stroke();
       break;
     }
+  }
+
+  if (template.radiusFeet != null && template.radiusFeet > 0) {
+    renderTemplateFeetLabel(ctx, {
+      position: template.position,
+      radius: template.radius,
+      angle: template.angle,
+      templateShape: template.templateShape,
+      feet: template.radiusFeet,
+      color: template.strokeColor,
+    });
   }
 
   ctx.restore();
@@ -136,60 +145,16 @@ function renderHexTemplate(
     ctx.stroke();
   }
 
-  if (
-    template.templateShape === 'circle' &&
-    template.radiusFeet != null &&
-    template.radiusFeet > 0
-  ) {
-    const r = template.radius;
-    renderRadiusMarker(ctx, center.x, center.y, r, template.radiusFeet);
+  if (template.radiusFeet != null && template.radiusFeet > 0) {
+    renderTemplateFeetLabel(ctx, {
+      position: template.position,
+      radius: template.radius,
+      angle: template.angle,
+      templateShape: template.templateShape,
+      feet: template.radiusFeet,
+      color: template.strokeColor,
+    });
   }
-
-  ctx.restore();
-}
-
-function renderRadiusMarker(
-  ctx: CanvasRenderingContext2D,
-  cx: number,
-  cy: number,
-  r: number,
-  feet: number,
-): void {
-  const markerColor = ctx.strokeStyle as string;
-
-  ctx.save();
-  ctx.globalAlpha = 1;
-
-  ctx.beginPath();
-  ctx.setLineDash([4, 4]);
-  ctx.strokeStyle = markerColor;
-  ctx.lineWidth = 1.5;
-  ctx.moveTo(cx, cy);
-  ctx.lineTo(cx + r, cy);
-  ctx.stroke();
-  ctx.setLineDash([]);
-
-  const label = `${Math.round(feet)} ft`;
-  const fontSize = Math.max(10, Math.min(14, r * 0.15));
-  ctx.font = `bold ${fontSize}px system-ui, sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'bottom';
-  const textX = cx + r / 2;
-  const textY = cy - 4;
-
-  const metrics = ctx.measureText(label);
-  const padX = 4;
-  const padY = 2;
-  const textW = metrics.width + padX * 2;
-  const textH = fontSize + padY * 2;
-
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
-  ctx.beginPath();
-  ctx.roundRect(textX - textW / 2, textY - textH, textW, textH, 3);
-  ctx.fill();
-
-  ctx.fillStyle = markerColor;
-  ctx.fillText(label, textX, textY - padY);
 
   ctx.restore();
 }
