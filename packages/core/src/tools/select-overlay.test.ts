@@ -62,7 +62,7 @@ describe('aim handle overlay', () => {
     const store = storeWith(cone);
     const ctx = mockCanvas();
     renderSelectionBoxes(ctx, { selectedIds: [cone.id], store, zoom: 1 });
-    expect(ctx.arc).toHaveBeenCalled();
+    expect(ctx.moveTo).toHaveBeenCalled();
   });
 
   it('draws an aim knob for a single selected line', () => {
@@ -75,7 +75,7 @@ describe('aim handle overlay', () => {
     const store = storeWith(line);
     const ctx = mockCanvas();
     renderSelectionBoxes(ctx, { selectedIds: [line.id], store, zoom: 1 });
-    expect(ctx.arc).toHaveBeenCalled();
+    expect(ctx.moveTo).toHaveBeenCalled();
   });
 
   it('does not draw an aim knob for circle, locked, or multi-selection', () => {
@@ -87,7 +87,7 @@ describe('aim handle overlay', () => {
     });
     const cCtx = mockCanvas();
     renderSelectionBoxes(cCtx, { selectedIds: [circle.id], store: storeWith(circle), zoom: 1 });
-    expect(cCtx.arc).not.toHaveBeenCalled();
+    expect(cCtx.moveTo).not.toHaveBeenCalled();
 
     const locked = createTemplate({
       position: { x: 0, y: 0 },
@@ -98,7 +98,7 @@ describe('aim handle overlay', () => {
     });
     const lCtx = mockCanvas();
     renderSelectionBoxes(lCtx, { selectedIds: [locked.id], store: storeWith(locked), zoom: 1 });
-    expect(lCtx.arc).not.toHaveBeenCalled();
+    expect(lCtx.moveTo).not.toHaveBeenCalled();
 
     const a = createTemplate({
       position: { x: 0, y: 0 },
@@ -114,6 +114,6 @@ describe('aim handle overlay', () => {
     });
     const mCtx = mockCanvas();
     renderSelectionBoxes(mCtx, { selectedIds: [a.id, b.id], store: storeWith(a, b), zoom: 1 });
-    expect(mCtx.arc).not.toHaveBeenCalled();
+    expect(mCtx.moveTo).not.toHaveBeenCalled();
   });
 });

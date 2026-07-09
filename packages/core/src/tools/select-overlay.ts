@@ -287,7 +287,7 @@ export function renderSelectionBoxes(
       }
     }
 
-    if (el.locked && el.type !== 'template') {
+    if (el.locked) {
       const ne = layout.corners.find(([h]) => h === 'ne')?.[1];
       if (ne) drawLockBadge(ctx, ne, zoom);
     }
