@@ -8,9 +8,17 @@ import {
   getHexCellsInCone,
   getHexCellsInLine,
   getHexCellsInSquare,
+  getHexCellsInRectangle,
   drawHexPath,
 } from '../elements/hex-fill';
 import { renderTemplateFeetLabel } from '../elements/renderers/template-measure';
+
+const MIN_RECT_WIDTH = 20;
+
+export function defaultRectWidth(radius: number, scaleUnit: number): number {
+  if (scaleUnit > 0) return scaleUnit; // one grid cell
+  return Math.max(MIN_RECT_WIDTH, radius * 0.25);
+}
 
 export interface TemplateToolOptions {
   templateShape?: TemplateShape;
@@ -115,12 +123,15 @@ export class TemplateTool implements Tool {
       gridSize && gridSize > 0 ? (ctx.gridType === 'hex' ? Math.sqrt(3) * gridSize : gridSize) : 0;
     const cells = snapUnit > 0 ? radius / snapUnit : 0;
     const radiusFeet = cells * this.feetPerCell;
+    const width =
+      this.templateShape === 'rectangle' ? defaultRectWidth(radius, this.feetScaleUnit) : undefined;
 
     const element = createTemplate({
       position: { ...this.origin },
       templateShape: this.templateShape,
       radius,
       angle,
+      width,
       fillColor: this.fillColor,
       strokeColor: this.strokeColor,
       strokeWidth: this.strokeWidth,
@@ -207,6 +218,23 @@ export class TemplateTool implements Tool {
         ctx.stroke();
         break;
       }
+
+      case 'rectangle': {
+        const halfW = defaultRectWidth(radius, this.feetScaleUnit) / 2;
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+        const perpX = -sin * halfW;
+        const perpY = cos * halfW;
+        ctx.beginPath();
+        ctx.moveTo(cx + perpX, cy + perpY);
+        ctx.lineTo(cx + radius * cos + perpX, cy + radius * sin + perpY);
+        ctx.lineTo(cx + radius * cos - perpX, cy + radius * sin - perpY);
+        ctx.lineTo(cx - perpX, cy - perpY);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        break;
+      }
     }
 
     this.drawFeetLabel(ctx, radius);
@@ -236,6 +264,18 @@ export class TemplateTool implements Tool {
       case 'square':
         hexCells = getHexCellsInSquare(center, radiusCells, cellSize, orientation);
         break;
+      case 'rectangle': {
+        const widthCells = defaultRectWidth(radius, this.feetScaleUnit) / snapUnit;
+        hexCells = getHexCellsInRectangle(
+          center,
+          angle,
+          radiusCells,
+          widthCells,
+          cellSize,
+          orientation,
+        );
+        break;
+      }
     }
 
     ctx.save();
@@ -260,7 +300,8 @@ export class TemplateTool implements Tool {
       this.templateShape === 'cone' ||
       this.templateShape === 'line' ||
       this.templateShape === 'circle' ||
-      this.templateShape === 'square'
+      this.templateShape === 'square' ||
+      this.templateShape === 'rectangle'
     ) {
       ctx.globalAlpha = 0.5;
       ctx.beginPath();

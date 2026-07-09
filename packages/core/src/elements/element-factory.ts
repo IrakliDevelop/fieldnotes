@@ -243,6 +243,7 @@ interface TemplateInput extends BaseDefaults {
   templateShape: TemplateShape;
   radius: number;
   angle?: number;
+  width?: number;
   fillColor?: string;
   strokeColor?: string;
   strokeWidth?: number;
@@ -270,5 +271,6 @@ export function createTemplate(input: TemplateInput): TemplateElement {
     feetPerCell: input.feetPerCell,
     radiusFeet: input.radiusFeet,
     ...(input.renderStyle !== undefined ? { renderStyle: input.renderStyle } : {}),
+    ...(input.width !== undefined ? { width: input.width } : {}),
   };
 }

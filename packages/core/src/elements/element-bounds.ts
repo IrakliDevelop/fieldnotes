@@ -169,6 +169,27 @@ function getTemplateBounds(el: TemplateElement): Bounds {
 
       return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
     }
+
+    case 'rectangle': {
+      const halfW = (el.width ?? 0) / 2;
+      const cos = Math.cos(el.angle);
+      const sin = Math.sin(el.angle);
+      const perpX = -sin * halfW;
+      const perpY = cos * halfW;
+      const x0 = cx + perpX;
+      const y0 = cy + perpY;
+      const x1 = cx + r * cos + perpX;
+      const y1 = cy + r * sin + perpY;
+      const x2 = cx + r * cos - perpX;
+      const y2 = cy + r * sin - perpY;
+      const x3 = cx - perpX;
+      const y3 = cy - perpY;
+      const minX = Math.min(x0, x1, x2, x3);
+      const minY = Math.min(y0, y1, y2, y3);
+      const maxX = Math.max(x0, x1, x2, x3);
+      const maxY = Math.max(y0, y1, y2, y3);
+      return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+    }
   }
 }
 
