@@ -54,7 +54,12 @@ export function templateAimKnob(
   zoom: number,
 ): { origin: Point; knob: Point } | null {
   if (el.type !== 'template') return null;
-  if (el.templateShape !== 'cone' && el.templateShape !== 'line') return null;
+  if (
+    el.templateShape !== 'cone' &&
+    el.templateShape !== 'line' &&
+    el.templateShape !== 'rectangle'
+  )
+    return null;
   const gap = ROTATE_HANDLE_OFFSET / zoom;
   const dist = el.radius + gap;
   const origin = el.position;
@@ -249,7 +254,9 @@ export function renderSelectionBoxes(
 
         if (
           p.selectedIds.length === 1 &&
-          (el.templateShape === 'cone' || el.templateShape === 'line')
+          (el.templateShape === 'cone' ||
+            el.templateShape === 'line' ||
+            el.templateShape === 'rectangle')
         ) {
           const aim = templateAimKnob(el, zoom);
           if (aim) {

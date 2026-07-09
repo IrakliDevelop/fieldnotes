@@ -114,4 +114,20 @@ describe('hitTestTemplateAimHandle', () => {
     const { ctx: multiCtx, cone } = makeConeCtx();
     expect(hitTestTemplateAimHandle({ x: 204, y: 100 }, multiCtx, [cone.id, 'other'])).toBeNull();
   });
+
+  it('aim handle fires for a rectangle template', () => {
+    const ctx = makeCtx();
+    const rect = createTemplate({
+      position: { x: 100, y: 100 },
+      templateShape: 'rectangle',
+      radius: 80,
+      angle: 0,
+      width: 40,
+    });
+    ctx.store.add(rect);
+    // knob at (100 + 80 + 24, 100) = (204, 100)
+    expect(hitTestTemplateAimHandle({ x: 204, y: 100 }, ctx, [rect.id])).toEqual({
+      elementId: rect.id,
+    });
+  });
 });
