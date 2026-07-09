@@ -246,6 +246,27 @@ export function renderSelectionBoxes(
           handleWorldSize,
         );
         ctx.setLineDash([4 / zoom, 4 / zoom]);
+
+        if (
+          p.selectedIds.length === 1 &&
+          (el.templateShape === 'cone' || el.templateShape === 'line')
+        ) {
+          const aim = templateAimKnob(el, zoom);
+          if (aim) {
+            ctx.beginPath();
+            ctx.moveTo(aim.origin.x, aim.origin.y);
+            ctx.lineTo(aim.knob.x, aim.knob.y);
+            ctx.stroke();
+
+            ctx.setLineDash([]);
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(aim.knob.x, aim.knob.y, handleWorldSize / 2, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+            ctx.setLineDash([4 / zoom, 4 / zoom]);
+          }
+        }
       }
 
       if (p.selectedIds.length === 1 && ROTATABLE_TYPES.has(el.type)) {
@@ -266,7 +287,7 @@ export function renderSelectionBoxes(
       }
     }
 
-    if (el.locked) {
+    if (el.locked && el.type !== 'template') {
       const ne = layout.corners.find(([h]) => h === 'ne')?.[1];
       if (ne) drawLockBadge(ctx, ne, zoom);
     }
