@@ -26,6 +26,8 @@ import {
   hitTestLineHandles,
   hitTestTemplateResizeHandle,
   hitTestTemplateAimHandle,
+  hitTestRectangleLengthHandle,
+  hitTestRectangleWidthHandle,
   findElementsInRect,
 } from './select-hit';
 import type { HandlePosition, OverlayLayout } from './select-overlay';
@@ -36,7 +38,13 @@ import {
   renderSelectionBoxes,
   renderGuideLines,
 } from './select-overlay';
-import { computeResize, computeRotatedResize, computeTemplateResize } from './select-resize';
+import {
+  computeResize,
+  computeRotatedResize,
+  computeTemplateResize,
+  computeRectangleLengthResize,
+  computeRectangleWidthResize,
+} from './select-resize';
 
 const SNAP_PX = 6;
 const ROTATE_SNAP = Math.PI / 12; // 15°
@@ -48,6 +56,8 @@ type Mode =
   | { type: 'resizing'; elementId: string; handle: HandlePosition }
   | { type: 'resizing-template'; elementId: string }
   | { type: 'aiming-template'; elementId: string }
+  | { type: 'resizing-rect-length'; elementId: string }
+  | { type: 'resizing-rect-width'; elementId: string }
   | { type: 'arrow-handle'; elementId: string; handle: ArrowHandle }
   | { type: 'line-handle'; elementId: string; fixed: Point }
   | {
@@ -163,6 +173,20 @@ export class SelectTool implements Tool {
       return;
     }
 
+    const rectLengthHit = hitTestRectangleLengthHandle(world, ctx, this._selectedIds);
+    if (rectLengthHit) {
+      this.mode = { type: 'resizing-rect-length', elementId: rectLengthHit.elementId };
+      ctx.requestRender();
+      return;
+    }
+
+    const rectWidthHit = hitTestRectangleWidthHandle(world, ctx, this._selectedIds);
+    if (rectWidthHit) {
+      this.mode = { type: 'resizing-rect-width', elementId: rectWidthHit.elementId };
+      ctx.requestRender();
+      return;
+    }
+
     const aimHit = hitTestTemplateAimHandle(world, ctx, this._selectedIds);
     if (aimHit) {
       this.mode = { type: 'aiming-template', elementId: aimHit.elementId };
@@ -269,6 +293,23 @@ export class SelectTool implements Tool {
         }
         ctx.store.update(this.mode.elementId, { angle: normalizeAngle(a) });
         ctx.requestRender();
+      }
+      return;
+    }
+
+    if (this.mode.type === 'resizing-rect-length' || this.mode.type === 'resizing-rect-width') {
+      ctx.setCursor?.(this.mode.type === 'resizing-rect-length' ? 'ew-resize' : 'ns-resize');
+      const el = ctx.store.getById(this.mode.elementId);
+      if (el && el.type === 'template' && !el.locked) {
+        const opts = { snapToGrid: ctx.snapToGrid, gridSize: ctx.gridSize, gridType: ctx.gridType };
+        const patch =
+          this.mode.type === 'resizing-rect-length'
+            ? computeRectangleLengthResize(el, world, opts)
+            : computeRectangleWidthResize(el, world, opts);
+        if (patch) {
+          ctx.store.update(this.mode.elementId, patch);
+          ctx.requestRender();
+        }
       }
       return;
     }
@@ -511,6 +552,15 @@ export class SelectTool implements Tool {
     const templateResizeHit = hitTestTemplateResizeHandle(world, ctx, this._selectedIds);
     if (templateResizeHit) {
       ctx.setCursor?.('nwse-resize');
+      return null;
+    }
+
+    if (hitTestRectangleLengthHandle(world, ctx, this._selectedIds)) {
+      ctx.setCursor?.('ew-resize');
+      return null;
+    }
+    if (hitTestRectangleWidthHandle(world, ctx, this._selectedIds)) {
+      ctx.setCursor?.('ns-resize');
       return null;
     }
 
