@@ -10,6 +10,7 @@ import {
   getHexCellsInSquare,
   drawHexPath,
 } from '../elements/hex-fill';
+import { renderTemplateFeetLabel } from '../elements/renderers/template-measure';
 
 export interface TemplateToolOptions {
   templateShape?: TemplateShape;
@@ -30,6 +31,7 @@ export class TemplateTool implements Tool {
   private gridType: 'square' | 'hex' | undefined;
   private hexOrientation: HexOrientation | undefined;
   private snapEnabled = false;
+  private feetScaleUnit = 0;
   private templateShape: TemplateShape;
   private fillColor: string;
   private strokeColor: string;
@@ -83,6 +85,12 @@ export class TemplateTool implements Tool {
     this.gridType = ctx.gridType;
     this.hexOrientation = ctx.hexOrientation;
     this.snapEnabled = !!ctx.gridType || (ctx.snapToGrid ?? false);
+    this.feetScaleUnit =
+      ctx.gridSize && ctx.gridSize > 0
+        ? ctx.gridType === 'hex'
+          ? Math.sqrt(3) * ctx.gridSize
+          : ctx.gridSize
+        : 0;
     const world = ctx.camera.screenToWorld({ x: state.x, y: state.y });
     this.origin = this.snapToGrid(world, ctx);
     this.current = { ...this.origin };
@@ -201,6 +209,7 @@ export class TemplateTool implements Tool {
       }
     }
 
+    this.drawFeetLabel(ctx, radius);
     ctx.restore();
   }
 
@@ -263,34 +272,7 @@ export class TemplateTool implements Tool {
       ctx.stroke();
     }
 
-    if (this.templateShape === 'circle') {
-      const feet = radiusCells * this.feetPerCell;
-      if (feet > 0) {
-        ctx.globalAlpha = 1;
-        const label = `${Math.round(feet)} ft`;
-        const fontSize = Math.max(10, Math.min(14, radius * 0.15));
-        ctx.font = `bold ${fontSize}px system-ui, sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'bottom';
-        const textX = center.x;
-        const textY = center.y - 4;
-
-        const metrics = ctx.measureText(label);
-        const padX = 4;
-        const padY = 2;
-        const textW = metrics.width + padX * 2;
-        const textH = fontSize + padY * 2;
-
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
-        ctx.beginPath();
-        ctx.roundRect(textX - textW / 2, textY - textH, textW, textH, 3);
-        ctx.fill();
-
-        ctx.fillStyle = this.strokeColor;
-        ctx.fillText(label, textX, textY - padY);
-      }
-    }
-
+    this.drawFeetLabel(ctx, radius);
     ctx.restore();
   }
 
@@ -309,6 +291,18 @@ export class TemplateTool implements Tool {
     const dx = this.current.x - this.origin.x;
     const dy = this.current.y - this.origin.y;
     return Math.atan2(dy, dx);
+  }
+
+  private drawFeetLabel(ctx: CanvasRenderingContext2D, radius: number): void {
+    const feet = this.feetScaleUnit > 0 ? (radius / this.feetScaleUnit) * this.feetPerCell : 0;
+    renderTemplateFeetLabel(ctx, {
+      position: this.origin,
+      radius,
+      angle: this.computeAngle(),
+      templateShape: this.templateShape,
+      feet,
+      color: this.strokeColor,
+    });
   }
 
   private snapToGrid(point: Point, ctx: ToolContext): Point {
