@@ -81,6 +81,21 @@ describe('ShortcutMap defaults', () => {
     expect(map.match(kbd({ key: 'v', ctrlKey: true }))).toBeNull();
     expect(map.match(kbd({ key: 'v', metaKey: true }))).toBeNull();
   });
+
+  it('binds r to rotate-cw and shift+r to rotate-ccw by default', () => {
+    const map = new ShortcutMap();
+    const bindings = map.getBindings();
+    expect(bindings['rotate-cw']).toEqual(['r']);
+    expect(bindings['rotate-ccw']).toEqual(['shift+r']);
+  });
+
+  it('matches r without shift to rotate-cw and with shift to rotate-ccw', () => {
+    const map = new ShortcutMap();
+    const plain = new KeyboardEvent('keydown', { key: 'r' });
+    const shifted = new KeyboardEvent('keydown', { key: 'R', shiftKey: true });
+    expect(map.match(plain)).toBe('rotate-cw');
+    expect(map.match(shifted)).toBe('rotate-ccw');
+  });
 });
 
 describe('ShortcutMap constructor overrides', () => {

@@ -15,6 +15,8 @@ export interface UseSelectionOpsResult {
   toggleLock: () => void;
   align: (edge: AlignEdge) => void;
   distribute: (axis: DistributeAxis) => void;
+  rotateCW: () => void;
+  rotateCCW: () => void;
 }
 
 interface Snapshot {
@@ -96,6 +98,8 @@ export function useSelectionOps(): UseSelectionOpsResult {
     (axis: DistributeAxis) => viewport.distributeSelection(axis),
     [viewport],
   );
+  const rotateCW = useCallback(() => viewport.rotateSelection('cw'), [viewport]);
+  const rotateCCW = useCallback(() => viewport.rotateSelection('ccw'), [viewport]);
 
   return {
     selectedIds: snap.selectedIds,
@@ -110,5 +114,7 @@ export function useSelectionOps(): UseSelectionOpsResult {
     toggleLock,
     align,
     distribute,
+    rotateCW,
+    rotateCCW,
   };
 }
