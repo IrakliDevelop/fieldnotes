@@ -50,9 +50,11 @@ import type { AlignEdge, DistributeAxis } from './selection-ops';
 import { GridController } from './grid-controller';
 import type { GridInfo } from './grid-controller';
 import { ViewportInteractions } from './viewport-interactions';
+import type { RotateDirection } from './selection-rotate';
 
 export type { AlignEdge, DistributeAxis } from './selection-ops';
 export type { GridInfo } from './grid-controller';
+export type { RotateDirection } from './selection-rotate';
 
 const EMPTY_IDS: string[] = [];
 
@@ -216,6 +218,7 @@ export class Viewport {
       group: () => this.groupSelection(),
       ungroup: () => this.ungroupSelection(),
       toggleLock: () => this.toggleLockSelection(),
+      rotate: (direction) => this.rotateSelection(direction),
       openContextMenu: (screenPos, world) => {
         this.getSelectTool()?.selectAtPoint(world, this.toolContext);
         this.openContextMenu(screenPos);
@@ -665,6 +668,8 @@ export class Viewport {
       items.push({ label: 'Bring Forward', action: 'z-forward' });
       items.push({ label: 'Send Backward', action: 'z-backward' });
       items.push({ label: 'Send to Back', action: 'z-back' });
+      items.push({ label: 'Rotate 90° CW', action: 'rotate-cw' });
+      items.push({ label: 'Rotate 90° CCW', action: 'rotate-ccw' });
       const allLocked = ids.every((id) => this.store.getById(id)?.locked);
       items.push({ label: allLocked ? 'Unlock' : 'Lock', action: 'toggle-lock' });
     } else if (this.canPaste()) {
@@ -705,6 +710,10 @@ export class Viewport {
 
   distributeSelection(axis: DistributeAxis): void {
     this.selectionOps.distribute(axis);
+  }
+
+  rotateSelection(direction: RotateDirection): void {
+    this.selectionOps.rotateSelection(direction);
   }
 
   getRenderStats(): RenderStatsSnapshot {

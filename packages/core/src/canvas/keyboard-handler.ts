@@ -199,6 +199,14 @@ export class KeyboardHandler {
         e?.preventDefault();
         this.deps.actions.toggleLock();
         return;
+      case 'rotate-cw':
+        e?.preventDefault();
+        this.deps.actions.rotate('cw');
+        return;
+      case 'rotate-ccw':
+        e?.preventDefault();
+        this.deps.actions.rotate('ccw');
+        return;
       case 'zoom-in':
         e?.preventDefault();
         this.zoomByFactor(ZOOM_STEP);

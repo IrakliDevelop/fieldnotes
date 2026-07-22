@@ -5,6 +5,7 @@ import type { ToolContext, PointerState } from '../tools/types';
 import type { HistoryRecorder } from '../history/history-recorder';
 import type { HistoryStack } from '../history/history-stack';
 import type { ShortcutOptions, ShortcutsApi } from './shortcut-map';
+import type { RotateDirection } from './selection-rotate';
 import { InputFilter } from './input-filter';
 import { KeyboardActions } from './keyboard-actions';
 import { KeyboardHandler } from './keyboard-handler';
@@ -23,6 +24,7 @@ export interface InputHandlerOptions {
   group?: () => void;
   ungroup?: () => void;
   toggleLock?: () => void;
+  rotate?: (direction: RotateDirection) => void;
   openContextMenu?: (screenPos: Point, world: Point) => void;
   shortcuts?: ShortcutOptions;
   addImage?: (src: string, world: { x: number; y: number }) => string;
@@ -75,6 +77,7 @@ export class InputHandler {
       group: options.group,
       ungroup: options.ungroup,
       toggleLock: options.toggleLock,
+      rotate: options.rotate,
       getLastPointerWorld: () => this.lastPointerWorld(),
     });
     this.openContextMenu = options.openContextMenu;

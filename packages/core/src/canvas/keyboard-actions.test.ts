@@ -32,6 +32,7 @@ function makeActions(
     group?: () => void;
     ungroup?: () => void;
     toggleLock?: () => void;
+    rotate?: (direction: 'cw' | 'ccw') => void;
     isToolActive?: () => boolean;
   } = {},
 ): { actions: KeyboardActions; ctx: ToolContext; tool: SelectTool } {
@@ -49,6 +50,7 @@ function makeActions(
     group: opts.group,
     ungroup: opts.ungroup,
     toggleLock: opts.toggleLock,
+    rotate: opts.rotate,
   };
   return { actions: new KeyboardActions(deps), ctx, tool };
 }
@@ -384,6 +386,42 @@ describe('KeyboardActions.toggleLock', () => {
     actions.toggleLock();
 
     expect(toggleLock).not.toHaveBeenCalled();
+  });
+});
+
+describe('KeyboardActions.rotate', () => {
+  it('rotate() delegates to the rotate dep with the direction', () => {
+    const rotate = vi.fn();
+    const { actions, ctx, tool } = makeActions({ rotate });
+    const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+    ctx.store.add(note);
+    tool.setSelection([note.id]);
+
+    actions.rotate('cw');
+
+    expect(rotate).toHaveBeenCalledWith('cw');
+  });
+
+  it('rotate() no-ops while a tool interaction is active', () => {
+    const rotate = vi.fn();
+    const { actions, ctx, tool } = makeActions({ rotate, isToolActive: () => true });
+    const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+    ctx.store.add(note);
+    tool.setSelection([note.id]);
+
+    actions.rotate('cw');
+
+    expect(rotate).not.toHaveBeenCalled();
+  });
+
+  it('rotate() no-ops with empty selection', () => {
+    const rotate = vi.fn();
+    const { actions, tool } = makeActions({ rotate });
+    tool.setSelection([]);
+
+    actions.rotate('ccw');
+
+    expect(rotate).not.toHaveBeenCalled();
   });
 });
 

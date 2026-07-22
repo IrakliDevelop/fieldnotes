@@ -1695,6 +1695,40 @@ describe('Viewport', () => {
     });
   });
 
+  describe('rotateSelection', () => {
+    let viewport: Viewport;
+
+    beforeEach(() => {
+      viewport = new Viewport(container);
+      const sel = new SelectTool();
+      viewport.toolManager.register(sel);
+      viewport.toolManager.setTool('select', viewport.toolContext);
+    });
+
+    afterEach(() => {
+      viewport.destroy();
+    });
+
+    function selectAll(ids: string[]): void {
+      const sel = viewport.toolManager.getTool('select');
+      (sel as unknown as { setSelection: (ids: string[]) => void }).setSelection(ids);
+    }
+
+    it('rotates the selected element 90° clockwise', () => {
+      const a = createShape({
+        position: { x: 0, y: 0 },
+        size: { w: 20, h: 20 },
+        shape: 'rectangle',
+      });
+      viewport.store.add(a);
+      selectAll([a.id]);
+
+      viewport.rotateSelection('cw');
+
+      expect(viewport.store.getById(a.id)?.rotation).toBeCloseTo(Math.PI / 2);
+    });
+  });
+
   describe('groupSelection / ungroupSelection', () => {
     let viewport: Viewport;
 
@@ -2002,6 +2036,23 @@ describe('Viewport', () => {
       expect(labels).toContain('Delete');
       expect(labels).toContain('Bring to Front');
       expect(labels).toContain('Lock');
+      viewport.destroy();
+    });
+
+    it('includes rotate items when selection is non-empty', () => {
+      const viewport = new Viewport(container);
+      const select = setupSelect(viewport);
+      const a = createNote({
+        position: { x: 0, y: 0 },
+        text: 'a',
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(a);
+      select([a.id]);
+      viewport.openContextMenu({ x: 5, y: 5 });
+      const labels = menuLabels();
+      expect(labels).toContain('Rotate 90° CW');
+      expect(labels).toContain('Rotate 90° CCW');
       viewport.destroy();
     });
 

@@ -7,6 +7,7 @@ import type { CanvasElement } from '../elements/types';
 import type { Point } from '../core/types';
 import { createId } from '../elements/create-id';
 import { getElementsBoundingBox } from '../elements/bounds';
+import type { RotateDirection } from './selection-rotate';
 
 export interface KeyboardActionsDeps {
   getToolManager: () => ToolManager | null;
@@ -18,6 +19,7 @@ export interface KeyboardActionsDeps {
   group?: () => void;
   ungroup?: () => void;
   toggleLock?: () => void;
+  rotate?: (direction: RotateDirection) => void;
   getLastPointerWorld?: () => Point | null;
 }
 
@@ -260,6 +262,15 @@ export class KeyboardActions {
   toggleLock(): void {
     if (this.deps.isToolActive()) return;
     this.deps.toggleLock?.();
+  }
+
+  rotate(direction: RotateDirection): void {
+    if (this.deps.isToolActive()) return;
+    this.flushPendingNudge();
+    const sel = this.selectTool();
+    if (!sel) return;
+    if (sel.tool.selectedIds.length === 0) return;
+    this.deps.rotate?.(direction);
   }
 
   zOrder(operation: 'forward' | 'backward' | 'front' | 'back'): void {
