@@ -78,6 +78,11 @@ describe('core public surface', () => {
       // minimap internals
       'Minimap',
       'computeMinimapTransform',
+      // selection-rotate internals
+      'rotationPivot',
+      'rotateElementPatch',
+      'unionBounds',
+      'BoundedElement',
     ];
     for (const name of removed) {
       expect(name in FN, `${name} should not be exported`).toBe(false);

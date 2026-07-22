@@ -8,23 +8,11 @@ import { styleToPatch, getElementStyle } from '../elements/element-style';
 import type { ElementStyle } from '../elements/element-style';
 import type { CanvasElement } from '../elements/types';
 import type { Bounds } from '../core/types';
+import { rotationPivot, rotateElementPatch, unionBounds } from './selection-rotate';
+import type { RotateDirection } from './selection-rotate';
 
 export type AlignEdge = 'left' | 'center-x' | 'right' | 'top' | 'middle' | 'bottom';
 export type DistributeAxis = 'horizontal' | 'vertical';
-
-function unionBounds(list: Bounds[]): Bounds {
-  let minX = Infinity,
-    minY = Infinity,
-    maxX = -Infinity,
-    maxY = -Infinity;
-  for (const b of list) {
-    minX = Math.min(minX, b.x);
-    minY = Math.min(minY, b.y);
-    maxX = Math.max(maxX, b.x + b.w);
-    maxY = Math.max(maxY, b.y + b.h);
-  }
-  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
-}
 
 function sharedValue<T>(values: (T | undefined)[]): T | undefined {
   const present = values.filter((v): v is T => v !== undefined);
@@ -181,6 +169,22 @@ export class SelectionOps {
       const [dx, dy] = axis === 'horizontal' ? [delta, 0] : [0, delta];
       this.deps.store.update(item.id, translateElementPatch(item.el, dx, dy));
       moved.push(item.id);
+    }
+    updateArrowsBoundToElements(moved, this.deps.store);
+    this.deps.recorder.commit();
+    this.deps.requestRender();
+  }
+
+  rotateSelection(direction: RotateDirection): void {
+    const eligible = this.boundedSelection().filter(({ el }) => this.isMovable(el));
+    if (eligible.length === 0) return;
+    const delta = direction === 'cw' ? Math.PI / 2 : -Math.PI / 2;
+    const pivot = rotationPivot(eligible);
+    this.deps.recorder.begin();
+    const moved: string[] = [];
+    for (const { id, el, bounds } of eligible) {
+      this.deps.store.update(id, rotateElementPatch(el, bounds, pivot, delta));
+      moved.push(id);
     }
     updateArrowsBoundToElements(moved, this.deps.store);
     this.deps.recorder.commit();
