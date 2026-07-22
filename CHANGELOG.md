@@ -9,6 +9,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 - Added `examples/live-play` — a framework-free reference app demonstrating the full real-time-collab stack
   (role join, ownership, DM hide/reveal, live cursors) against a `createSyncServer` relay.
 
+## [@fieldnotes/core 0.49.0] — 2026-07-22
+
+### Added
+
+- Rotate the selection 90° with one action: `viewport.rotateSelection('cw' | 'ccw')`, default
+  shortcuts `R` (clockwise) / `Shift+R` (counter-clockwise), and "Rotate 90° CW/CCW" context
+  menu items (long-press menu on touch). Multi-selections turn as a rigid group about the
+  selection center; templates re-aim (`angle`), arrows rotate their endpoints; locked elements
+  and bound arrows are skipped; one undo step.
+
+## [@fieldnotes/react 0.8.0] — 2026-07-22
+
+### Added
+
+- (react) `useSelectionOps` now returns `rotateCW()` / `rotateCCW()`; requires
+  `@fieldnotes/core >= 0.49.0`.
+
 ## [@fieldnotes/core 0.48.0] — 2026-07-09
 
 ### Added
