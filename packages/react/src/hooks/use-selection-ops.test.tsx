@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { render, cleanup, act } from '@testing-library/react';
 import { FieldNotesCanvas } from '../field-notes-canvas';
 import { useSelectionOps } from './use-selection-ops';
@@ -198,5 +198,22 @@ describe('useSelectionOps', () => {
     const xs = ids.map((id) => vp?.store.getById(id)?.position.x);
     expect(xs[0]).toBe(50);
     expect(xs[1]).toBe(50);
+  });
+
+  it('rotateCW / rotateCCW delegate to viewport.rotateSelection', () => {
+    const { getResult, getVp } = setup();
+    const vp = getVp();
+    if (!vp) throw new Error('viewport not captured');
+    const spy = vi.spyOn(vp, 'rotateSelection');
+
+    act(() => {
+      getResult().rotateCW();
+    });
+    expect(spy).toHaveBeenCalledWith('cw');
+
+    act(() => {
+      getResult().rotateCCW();
+    });
+    expect(spy).toHaveBeenCalledWith('ccw');
   });
 });
