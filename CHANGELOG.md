@@ -9,6 +9,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 - Added `examples/live-play` — a framework-free reference app demonstrating the full real-time-collab stack
   (role join, ownership, DM hide/reveal, live cursors) against a `createSyncServer` relay.
 
+## [@fieldnotes/core 0.50.0] — 2026-07-23
+
+### Changed
+
+- Corner-resizing an image now preserves its aspect ratio by default — no more careful diagonal
+  dragging to avoid distortion. Hold Shift for free resize. On touch (no modifier), image resize
+  is always proportional. All other element types keep free resize by default with Shift-to-lock,
+  as before.
+
 ## [@fieldnotes/core 0.49.0] — 2026-07-22
 
 ### Added
