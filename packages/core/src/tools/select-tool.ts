@@ -597,6 +597,8 @@ export class SelectTool implements Tool {
     const el = ctx.store.getById(this.mode.elementId);
     if (!el || !('size' in el) || el.locked) return;
 
+    const lockAspect = shiftKey !== (el.type === 'image');
+
     const angle = el.rotation ?? 0;
     const patch =
       angle !== 0
@@ -607,7 +609,7 @@ export class SelectTool implements Tool {
             world,
             this.lastWorld,
             this.resizeAspectRatio,
-            shiftKey,
+            lockAspect,
           )
         : computeResize(
             el,
@@ -615,7 +617,7 @@ export class SelectTool implements Tool {
             world,
             this.lastWorld,
             this.resizeAspectRatio,
-            shiftKey,
+            lockAspect,
           );
 
     this.lastWorld = world;
