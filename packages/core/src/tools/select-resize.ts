@@ -26,7 +26,7 @@ export function computeResize(
   world: Point,
   lastWorld: Point,
   aspectRatio: number,
-  shiftKey: boolean,
+  lockAspect: boolean,
 ): { position: { x: number; y: number }; size: { w: number; h: number } } {
   const dx = world.x - lastWorld.x;
   const dy = world.y - lastWorld.y;
@@ -56,7 +56,7 @@ export function computeResize(
       break;
   }
 
-  if (shiftKey && aspectRatio > 0) {
+  if (lockAspect && aspectRatio > 0) {
     const absDw = Math.abs(w - el.size.w);
     const absDh = Math.abs(h - el.size.h);
     if (absDw >= absDh) {
@@ -91,7 +91,7 @@ export function computeRotatedResize(
   world: Point,
   lastWorld: Point,
   aspectRatio: number,
-  shiftKey: boolean,
+  lockAspect: boolean,
 ): { position: { x: number; y: number }; size: { w: number; h: number } } {
   const wdx = world.x - lastWorld.x;
   const wdy = world.y - lastWorld.y;
@@ -123,7 +123,7 @@ export function computeRotatedResize(
       break;
   }
 
-  if (shiftKey && aspectRatio > 0) {
+  if (lockAspect && aspectRatio > 0) {
     const absDw = Math.abs(w - el.size.w);
     const absDh = Math.abs(h - el.size.h);
     if (absDw >= absDh) h = w / aspectRatio;

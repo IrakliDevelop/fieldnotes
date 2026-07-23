@@ -20,7 +20,7 @@ import {
 import { lineEndpoints } from '../elements/shape-geometry';
 import { rotatePoint } from '../core/geometry';
 import type { ToolContext, PointerState } from './types';
-import type { NoteElement, ImageElement, TemplateElement } from '../elements/types';
+import type { NoteElement, ImageElement, TemplateElement, ShapeElement } from '../elements/types';
 import type { Point } from '../core/types';
 
 function makeCtx(overrides: Partial<ToolContext> = {}): ToolContext {
@@ -480,7 +480,7 @@ describe('SelectTool', () => {
       expect(updated.position.y).toBe(100);
     });
 
-    it('resizes an image element', () => {
+    it('resizes an image element preserving aspect ratio by default', () => {
       const tool = new SelectTool();
       const ctx = makeCtx();
       const img = createImage({
@@ -499,8 +499,9 @@ describe('SelectTool', () => {
       tool.onPointerUp(pt(180, 150), ctx);
 
       const updated = ctx.store.getById(img.id) as ImageElement;
+      // Original aspect ratio 1.25 (100/80). Width dominant (|30| >= |20|): w=130, h=130/1.25=104
       expect(updated.size.w).toBe(130);
-      expect(updated.size.h).toBe(100);
+      expect(updated.size.h).toBe(104);
     });
 
     it('does not resize locked elements', () => {
@@ -647,6 +648,103 @@ describe('SelectTool', () => {
         const updated = ctx.store.getById(note.id) as NoteElement;
         expect(updated.size.w).toBeGreaterThanOrEqual(20);
         expect(updated.size.h).toBeGreaterThanOrEqual(20);
+      });
+    });
+
+    describe('image aspect-ratio default lock', () => {
+      it('locks ratio from NW handle with the SE corner anchored', () => {
+        const tool = new SelectTool();
+        const ctx = makeCtx();
+        const img = createImage({
+          position: { x: 100, y: 100 },
+          size: { w: 200, h: 100 },
+          src: 'data:image/png;base64,abc',
+        });
+        ctx.store.add(img);
+
+        tool.onPointerDown(pt(150, 130), ctx);
+        tool.onPointerUp(pt(150, 130), ctx);
+
+        // NW corner at (100,100); drag +50/+10 — width dominant: w 200→150, h = 150/2 = 75
+        tool.onPointerDown(pt(100, 100), ctx);
+        tool.onPointerMove(pt(150, 110), ctx);
+        tool.onPointerUp(pt(150, 110), ctx);
+
+        const updated = ctx.store.getById(img.id) as ImageElement;
+        expect(updated.size.w).toBe(150);
+        expect(updated.size.h).toBe(75);
+        // SE corner (300, 200) anchored: position = (300-150, 200-75)
+        expect(updated.position).toEqual({ x: 150, y: 125 });
+      });
+
+      it('shift inverts to free resize for images', () => {
+        const tool = new SelectTool();
+        const ctx = makeCtx();
+        const img = createImage({
+          position: { x: 50, y: 50 },
+          size: { w: 100, h: 80 },
+          src: 'data:image/png;base64,abc',
+        });
+        ctx.store.add(img);
+
+        tool.onPointerDown(pt(80, 70), ctx);
+        tool.onPointerUp(pt(80, 70), ctx);
+
+        tool.onPointerDown(pt(150, 130), ctx);
+        tool.onPointerMove(shiftPt(180, 150), ctx);
+        tool.onPointerUp(shiftPt(180, 150), ctx);
+
+        const updated = ctx.store.getById(img.id) as ImageElement;
+        expect(updated.size.w).toBe(130);
+        expect(updated.size.h).toBe(100);
+      });
+
+      it('locks ratio for a rotated image without shift', () => {
+        const tool = new SelectTool();
+        const ctx = makeCtx();
+        const img = createImage({
+          position: { x: 100, y: 100 },
+          size: { w: 200, h: 100 },
+          src: 'data:image/png;base64,abc',
+        });
+        ctx.store.add(img);
+        ctx.store.update(img.id, { rotation: Math.PI / 4 });
+
+        tool.onPointerDown(pt(150, 130), ctx);
+        tool.onPointerUp(pt(150, 130), ctx);
+
+        // grab SE handle at its rotated world position: center (200,150), local (100,50) → world ≈ (235.36, 256.07)
+        const se = {
+          x: 200 + (100 * Math.SQRT1_2 - 50 * Math.SQRT1_2),
+          y: 150 + (100 * Math.SQRT1_2 + 50 * Math.SQRT1_2),
+        };
+        tool.onPointerDown(pt(se.x, se.y), ctx);
+        // move along local +x by 40 world units: world delta = R(π/4)·(40,0)
+        tool.onPointerMove(pt(se.x + 40 * Math.SQRT1_2, se.y + 40 * Math.SQRT1_2), ctx);
+        tool.onPointerUp(pt(se.x + 40 * Math.SQRT1_2, se.y + 40 * Math.SQRT1_2), ctx);
+
+        const updated = ctx.store.getById(img.id) as ImageElement;
+        // local dw=40 dominant → w=240, h = 240/2 = 120
+        expect(updated.size.w).toBeCloseTo(240);
+        expect(updated.size.h).toBeCloseTo(120);
+      });
+
+      it('keeps free default resize for non-image elements', () => {
+        const tool = new SelectTool();
+        const ctx = makeCtx();
+        const shape = createShape({ position: { x: 100, y: 100 }, size: { w: 200, h: 100 } });
+        ctx.store.add(shape);
+
+        tool.onPointerDown(pt(150, 130), ctx);
+        tool.onPointerUp(pt(150, 130), ctx);
+
+        tool.onPointerDown(pt(300, 200), ctx);
+        tool.onPointerMove(pt(350, 210), ctx);
+        tool.onPointerUp(pt(350, 210), ctx);
+
+        const updated = ctx.store.getById(shape.id) as ShapeElement;
+        expect(updated.size.w).toBe(250);
+        expect(updated.size.h).toBe(110);
       });
     });
   });
