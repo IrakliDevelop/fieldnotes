@@ -296,6 +296,71 @@ describe('RenderLoop', () => {
       expect(deps.renderer.renderCanvasElement).toHaveBeenCalled();
     });
 
+    it('renders a rotated canvas element whose visual bounds enter the viewport', () => {
+      const rotatedShape = {
+        id: 'rotated-canvas-edge',
+        type: 'shape',
+        layerId: 'default',
+        position: { x: 1130, y: 100 },
+        size: { w: 20, h: 200 },
+        rotation: Math.PI / 2,
+      };
+      vi.mocked(deps.store.getAll).mockReturnValue([rotatedShape] as never);
+
+      renderLoop.requestRender();
+      renderLoop.flush();
+
+      expect(deps.renderer.renderCanvasElement).toHaveBeenCalledWith(
+        expect.anything(),
+        rotatedShape,
+      );
+    });
+
+    it('still culls a rotated canvas element whose visual bounds remain offscreen', () => {
+      const rotatedShape = {
+        id: 'rotated-canvas-offscreen',
+        type: 'shape',
+        layerId: 'default',
+        position: { x: 5000, y: 5000 },
+        size: { w: 20, h: 200 },
+        rotation: Math.PI / 4,
+      };
+      vi.mocked(deps.store.getAll).mockReturnValue([rotatedShape] as never);
+
+      renderLoop.requestRender();
+      renderLoop.flush();
+
+      expect(deps.renderer.renderCanvasElement).not.toHaveBeenCalled();
+    });
+
+    it('renders a rotated hybrid canvas stratum whose visual bounds enter the viewport', () => {
+      const note = {
+        id: 'dom-low',
+        type: 'note',
+        layerId: 'default',
+        position: { x: 0, y: 0 },
+        size: { w: 20, h: 20 },
+      };
+      const rotatedShape = {
+        id: 'rotated-hybrid-edge',
+        type: 'shape',
+        layerId: 'default',
+        position: { x: 1130, y: 100 },
+        size: { w: 20, h: 200 },
+        rotation: Math.PI / 2,
+      };
+      vi.mocked(deps.store.getAll).mockReturnValue([note, rotatedShape] as never);
+
+      renderLoop.requestRender();
+      renderLoop.flush();
+
+      expect(deps.hybridSurface.getContext).toHaveBeenCalledWith(2);
+      expect(deps.renderer.renderCanvasElement).toHaveBeenCalledWith(
+        expect.anything(),
+        rotatedShape,
+      );
+    });
+
     it('hides DOM elements outside the visible viewport', () => {
       const offScreenNote = {
         id: 'off-note',
@@ -311,6 +376,24 @@ describe('RenderLoop', () => {
 
       expect(deps.domNodeManager.hideDomNode).toHaveBeenCalledWith('off-note');
       expect(deps.domNodeManager.syncDomNode).not.toHaveBeenCalled();
+    });
+
+    it('syncs a rotated DOM element whose visual bounds enter the viewport', () => {
+      const rotatedNote = {
+        id: 'rotated-dom-edge',
+        type: 'note',
+        layerId: 'default',
+        position: { x: 1130, y: 100 },
+        size: { w: 20, h: 200 },
+        rotation: -Math.PI / 2,
+      };
+      vi.mocked(deps.store.getAll).mockReturnValue([rotatedNote] as never);
+
+      renderLoop.requestRender();
+      renderLoop.flush();
+
+      expect(deps.domNodeManager.syncDomNode).toHaveBeenCalledWith(rotatedNote, 1, 1);
+      expect(deps.domNodeManager.hideDomNode).not.toHaveBeenCalledWith(rotatedNote.id);
     });
 
     it('always renders grid elements regardless of position', () => {

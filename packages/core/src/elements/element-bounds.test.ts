@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getElementBounds, boundsIntersect } from './element-bounds';
+import { getElementBounds, getElementVisualBounds, boundsIntersect } from './element-bounds';
 import {
   createNote,
   createImage,
@@ -180,6 +180,36 @@ describe('getElementBounds', () => {
     });
     const b = getElementBounds(rect);
     expect(b).toEqual({ x: 0, y: -20, w: 100, h: 40 });
+  });
+});
+
+describe('getElementVisualBounds', () => {
+  it('expands bounds around the center for positive rotation', () => {
+    const shape = createShape({ position: { x: 10, y: 20 }, size: { w: 100, h: 20 } });
+    shape.rotation = Math.PI / 2;
+    const bounds = getElementVisualBounds(shape);
+    expect(bounds?.x).toBeCloseTo(50);
+    expect(bounds?.y).toBeCloseTo(-20);
+    expect(bounds?.w).toBeCloseTo(20);
+    expect(bounds?.h).toBeCloseTo(100);
+  });
+
+  it('covers the same footprint for the corresponding negative rotation', () => {
+    const shape = createShape({ position: { x: 10, y: 20 }, size: { w: 100, h: 20 } });
+    shape.rotation = -Math.PI / 2;
+    expect(getElementVisualBounds(shape)).toEqual(
+      expect.objectContaining({
+        x: expect.closeTo(50),
+        y: expect.closeTo(-20),
+        w: expect.closeTo(20),
+        h: expect.closeTo(100),
+      }),
+    );
+  });
+
+  it('preserves unrotated bounds when rotation is zero', () => {
+    const note = createNote({ position: { x: 10, y: 20 }, size: { w: 100, h: 50 } });
+    expect(getElementVisualBounds(note)).toEqual(getElementBounds(note));
   });
 });
 

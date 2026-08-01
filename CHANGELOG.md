@@ -9,6 +9,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 - Added `examples/live-play` — a framework-free reference app demonstrating the full real-time-collab stack
   (role join, ownership, DM hide/reveal, live cursors) against a `createSyncServer` relay.
 
+## [@fieldnotes/core 0.52.2] — 2026-08-01
+
+### Fixed
+
+- Live canvas and DOM culling now uses rotation-expanded visual bounds, preventing rotated elements
+  from disappearing or popping at viewport edges.
+
 ## [@fieldnotes/core 0.52.1] — 2026-08-01
 
 ### Fixed
