@@ -2223,6 +2223,37 @@ describe('SelectTool', () => {
       expect(hitTestLineHandles({ x: 50, y: 0 }, ctx, tool.selectedIds)).toBeNull();
     });
 
+    it.each([
+      ['element lock', { locked: true }, undefined],
+      ['layer lock', { layerId: 'locked-layer' }, (id: string) => id === 'locked-layer'],
+    ])(
+      'does not expose or mutate line endpoints protected by %s',
+      (_name, input, isLayerLocked) => {
+        const { tool, ctx, store } = makeSelectTool();
+        ctx.isLayerLocked = isLayerLocked;
+        const line = createShape({
+          position: { x: 0, y: 0 },
+          size: { w: 100, h: 100 },
+          shape: 'line',
+          ...input,
+        });
+        store.add(line);
+        tool.setSelection([line.id]);
+        vi.mocked(ctx.requestRender).mockClear();
+
+        expect(hitTestLineHandles({ x: 0, y: 0 }, ctx, tool.selectedIds)).toBeNull();
+        (tool as unknown as { mode: unknown }).mode = {
+          type: 'line-handle',
+          elementId: line.id,
+          fixed: { x: 100, y: 100 },
+        };
+        tool.onPointerMove(PS(20, 80), ctx);
+
+        expect(store.getById(line.id)).toEqual(line);
+        expect(ctx.requestRender).not.toHaveBeenCalled();
+      },
+    );
+
     it('dragging an endpoint moves it and keeps the fixed end anchored', () => {
       const { tool, ctx, store } = makeSelectTool();
       const line = createShape({

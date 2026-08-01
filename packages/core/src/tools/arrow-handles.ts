@@ -44,7 +44,8 @@ export function hitTestArrowHandles(
 
   for (const id of selectedIds) {
     const el = ctx.store.getById(id);
-    if (!el || el.type !== 'arrow') continue;
+    if (!el || el.type !== 'arrow' || el.locked || (ctx.isLayerLocked?.(el.layerId) ?? false))
+      continue;
 
     const handles = getArrowHandlePositions(el);
     for (const [handle, pos] of handles) {
@@ -66,7 +67,7 @@ export function applyArrowHandleDrag(
   ctx: ToolContext,
 ): void {
   const el = ctx.store.getById(elementId);
-  if (!el || el.type !== 'arrow') return;
+  if (!el || el.type !== 'arrow' || el.locked || (ctx.isLayerLocked?.(el.layerId) ?? false)) return;
 
   const threshold = BIND_THRESHOLD / ctx.camera.zoom;
 
@@ -128,7 +129,9 @@ export function getArrowHandleDragTarget(
   if (handle === 'mid') return null;
 
   const el = ctx.store.getById(elementId);
-  if (!el || el.type !== 'arrow') return null;
+  if (!el || el.type !== 'arrow' || el.locked || (ctx.isLayerLocked?.(el.layerId) ?? false)) {
+    return null;
+  }
 
   const threshold = BIND_THRESHOLD / ctx.camera.zoom;
   const excludeId = handle === 'start' ? el.toBinding?.elementId : el.fromBinding?.elementId;

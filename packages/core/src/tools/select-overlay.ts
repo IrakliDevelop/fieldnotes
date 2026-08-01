@@ -154,7 +154,12 @@ export function renderBindingHighlights(
 
 export function renderSelectionBoxes(
   ctx: CanvasRenderingContext2D,
-  p: { selectedIds: string[]; store: ElementStore; zoom: number },
+  p: {
+    selectedIds: string[];
+    store: ElementStore;
+    zoom: number;
+    isLayerLocked?: (layerId: string) => boolean;
+  },
 ): void {
   if (p.selectedIds.length === 0) return;
 
@@ -169,24 +174,27 @@ export function renderSelectionBoxes(
   for (const id of p.selectedIds) {
     const el = p.store.getById(id);
     if (!el) continue;
+    const locked = el.locked || (p.isLayerLocked?.(el.layerId) ?? false);
 
     if (el.type === 'arrow') {
-      renderArrowHandles(ctx, el, zoom);
+      if (!locked) renderArrowHandles(ctx, el, zoom);
       renderBindingHighlights(ctx, el, zoom, p.store);
       continue;
     }
 
     if (el.type === 'shape' && el.shape === 'line') {
-      ctx.setLineDash([]);
-      ctx.fillStyle = '#ffffff';
-      const r = handleWorldSize / 2;
-      for (const pt of lineEndpoints(el)) {
-        ctx.beginPath();
-        ctx.arc(pt.x, pt.y, r, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
+      if (!locked) {
+        ctx.setLineDash([]);
+        ctx.fillStyle = '#ffffff';
+        const r = handleWorldSize / 2;
+        for (const pt of lineEndpoints(el)) {
+          ctx.beginPath();
+          ctx.arc(pt.x, pt.y, r, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+        }
+        ctx.setLineDash([4 / zoom, 4 / zoom]);
       }
-      ctx.setLineDash([4 / zoom, 4 / zoom]);
       continue;
     }
 

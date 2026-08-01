@@ -152,6 +152,21 @@ describe('applyArrowHandleDrag binding', () => {
     expect(ctx.requestRender).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['element lock', { locked: true }, undefined],
+    ['layer lock', { layerId: 'locked-layer' }, (id: string) => id === 'locked-layer'],
+  ])('does not mutate an arrow protected by %s', (_name, input, isLayerLocked) => {
+    const store = new ElementStore();
+    const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 200, y: 0 }, ...input });
+    store.add(arrow);
+    const ctx = { ...makeCtx(store), isLayerLocked };
+
+    applyArrowHandleDrag('mid', arrow.id, { x: 100, y: 50 }, ctx);
+
+    expect(store.getById(arrow.id)).toEqual(arrow);
+    expect(ctx.requestRender).not.toHaveBeenCalled();
+  });
+
   it('clears end binding when handle dragged away', () => {
     const store = new ElementStore();
     const note = createNote({ position: { x: 300, y: 300 }, size: { w: 100, h: 100 } });
@@ -220,6 +235,18 @@ describe('hitTestArrowHandles', () => {
 
     const result = hitTestArrowHandles({ x: 500, y: 500 }, [arrow.id], ctx);
     expect(result).toBeNull();
+  });
+
+  it.each([
+    ['element lock', { locked: true }, undefined],
+    ['layer lock', { layerId: 'locked-layer' }, (id: string) => id === 'locked-layer'],
+  ])('returns null for an arrow protected by %s', (_name, input, isLayerLocked) => {
+    const store = new ElementStore();
+    const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 200, y: 0 }, ...input });
+    store.add(arrow);
+    const ctx = { ...makeCtx(store), isLayerLocked };
+
+    expect(hitTestArrowHandles({ x: 0, y: 0 }, [arrow.id], ctx)).toBeNull();
   });
 
   it('hits the start handle', () => {

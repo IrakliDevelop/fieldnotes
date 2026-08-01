@@ -270,10 +270,16 @@ export class SelectTool implements Tool {
     if (this.mode.type === 'line-handle') {
       ctx.setCursor?.('grabbing');
       const el = ctx.store.getById(this.mode.elementId);
-      if (el && el.type === 'shape') {
+      if (
+        el &&
+        el.type === 'shape' &&
+        el.shape === 'line' &&
+        !el.locked &&
+        !(ctx.isLayerLocked?.(el.layerId) ?? false)
+      ) {
         ctx.store.update(el.id, lineFromEndpoints(this.mode.fixed, world));
+        ctx.requestRender();
       }
-      ctx.requestRender();
       return;
     }
 
@@ -464,6 +470,7 @@ export class SelectTool implements Tool {
         selectedIds: this._selectedIds,
         store: this.ctx.store,
         zoom: this.ctx.camera.zoom,
+        isLayerLocked: this.ctx.isLayerLocked,
       });
 
     if (this.mode.type === 'arrow-handle' && this.ctx) {
