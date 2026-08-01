@@ -16,6 +16,7 @@ import {
   DEFAULT_PRESENCE_THROTTLE_MS,
   MessageRateLimiter,
 } from './resource-limits';
+import { DEFAULT_SHUTDOWN_GRACE_MS, drainWebSocketServer } from './shutdown';
 
 export interface CreateSyncServerOptions {
   port?: number;
@@ -34,6 +35,7 @@ export interface CreateSyncServerOptions {
   messagesPerSecond?: number;
   messageBurst?: number;
   presenceThrottleMs?: number;
+  shutdownGraceMs?: number;
 }
 
 function rawDataByteLength(data: RawData): number {
@@ -46,6 +48,10 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
   wss: WebSocketServer;
   close: () => Promise<void>;
 } {
+  const shutdownGraceMs = options.shutdownGraceMs ?? DEFAULT_SHUTDOWN_GRACE_MS;
+  if (!Number.isFinite(shutdownGraceMs) || shutdownGraceMs < 0) {
+    throw new RangeError('shutdownGraceMs must be a non-negative finite number');
+  }
   const hub = new SyncHub({
     backend: options.backend,
     fanout: options.fanout,
@@ -60,8 +66,14 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
     ? new WebSocketServer({ server: options.server, maxPayload: maxMessageBytes })
     : new WebSocketServer({ port: options.port ?? 0, maxPayload: maxMessageBytes });
   const heartbeat = startHeartbeat(wss, options.heartbeatIntervalMs ?? 30000);
+  let shuttingDown = false;
+  let closePromise: Promise<void> | undefined;
   let counter = 0;
   wss.on('connection', (ws, req) => {
+    if (shuttingDown) {
+      ws.close(1001, 'server shutting down');
+      return;
+    }
     heartbeat.track(ws);
     // Protocol/parser failures (including maxPayload) close the peer. Consuming the socket-level
     // error keeps hostile input from becoming an uncaught process error.
@@ -131,7 +143,7 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
 
     Promise.resolve(options.authenticate ? options.authenticate({ req, room }) : { userId: connId })
       .then((result) => {
-        if (closed || state === 'rejected') return;
+        if (closed || state === 'rejected' || shuttingDown) return;
         if (!result) {
           state = 'rejected';
           ws.close(4401, 'unauthorized');
@@ -147,20 +159,25 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
         queuedBytes = 0;
       })
       .catch(() => {
-        if (!closed) {
+        if (!closed && !shuttingDown) {
           state = 'rejected';
           ws.close(4401, 'unauthorized');
         }
       });
   });
+  const close = (): Promise<void> => {
+    if (closePromise) return closePromise;
+    shuttingDown = true;
+    closePromise = drainWebSocketServer(wss, shutdownGraceMs).then(() => {
+      heartbeat.stop();
+      hub.close();
+    });
+    return closePromise;
+  };
+
   return {
     hub,
     wss,
-    close: () =>
-      new Promise<void>((resolve) => {
-        heartbeat.stop();
-        hub.close();
-        wss.close(() => resolve());
-      }),
+    close,
   };
 }

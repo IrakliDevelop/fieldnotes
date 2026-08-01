@@ -69,6 +69,13 @@ describe('sync-server WebSocket relay (end-to-end)', () => {
     servers.length = 0;
   });
 
+  it('rejects an invalid shutdown grace period before allocating a server', () => {
+    expect(() => createSyncServer({ port: 0, shutdownGraceMs: -1 })).toThrow(RangeError);
+    expect(() => createSyncServer({ port: 0, shutdownGraceMs: Number.POSITIVE_INFINITY })).toThrow(
+      RangeError,
+    );
+  });
+
   it('rejects a connection with no ?room using close code 4400', async () => {
     const { port } = startServer();
     const c = new WsClient(`ws://127.0.0.1:${port}/`);
@@ -116,6 +123,27 @@ describe('sync-server WebSocket relay (end-to-end)', () => {
 
     await waitFor(() => code !== 0);
     expect(code).toBe(1009);
+  });
+
+  it('gracefully closes active clients and makes shutdown idempotent', async () => {
+    const server = createSyncServer({ port: 0, shutdownGraceMs: 100 });
+    servers.push(server);
+    const port = (server.wss.address() as AddressInfo).port;
+    const client = new WsClient(`ws://127.0.0.1:${port}?room=R`);
+    rawClients.push(client);
+    let closeCode = 0;
+    client.on('close', (code) => {
+      closeCode = code;
+    });
+    await new Promise<void>((resolve) => client.once('open', () => resolve()));
+
+    const firstClose = server.close();
+    expect(server.close()).toBe(firstClose);
+    await firstClose;
+
+    await waitFor(() => closeCode !== 0);
+    expect(closeCode).toBe(1001);
+    expect(server.hub.roomCount()).toBe(0);
   });
 
   it('forwards a live op from one client to another in the same room', async () => {

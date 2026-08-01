@@ -51,6 +51,17 @@ createSyncServer({ port: 8080, heartbeatIntervalMs: 30000 });
 
 Browsers auto-pong at the protocol level, so **no client change** is needed.
 
+## Graceful shutdown
+
+`close()` stops accepting connections, closes active clients with code `1001`, and waits up to
+`shutdownGraceMs` (default `5000`) before terminating clients that have not completed the close
+handshake. Repeated calls return the same promise, so shutdown hooks can safely converge on it.
+
+```ts
+const server = createSyncServer({ port: 8080, shutdownGraceMs: 5000 });
+await server.close();
+```
+
 ## Resource limits
 
 The reference server bounds work and memory per connection by default. Oversized WebSocket messages
