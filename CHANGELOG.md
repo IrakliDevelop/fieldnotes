@@ -9,6 +9,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 - Added `examples/live-play` — a framework-free reference app demonstrating the full real-time-collab stack
   (role join, ownership, DM hide/reveal, live cursors) against a `createSyncServer` relay.
 
+## [@fieldnotes/core 0.50.5] — 2026-08-01
+
+### Fixed
+
+- Pinch zoom now anchors to the gesture midpoint in canvas-local coordinates, so canvases embedded
+  away from the viewport origin zoom around the fingers instead of an offset point.
+
 ## [@fieldnotes/core 0.50.4] — 2026-08-01
 
 ### Fixed

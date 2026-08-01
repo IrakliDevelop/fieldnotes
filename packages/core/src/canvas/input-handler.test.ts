@@ -213,6 +213,30 @@ describe('InputHandler', () => {
       expect(camera.position.x).not.toBe(0);
     });
 
+    it('zooms around the canvas-local pinch center when the canvas is offset', () => {
+      vi.spyOn(element, 'getBoundingClientRect').mockReturnValue({
+        x: 100,
+        y: 50,
+        left: 100,
+        top: 50,
+        right: 500,
+        bottom: 350,
+        width: 400,
+        height: 300,
+        toJSON: () => ({}),
+      });
+      const zoomAt = vi.spyOn(camera, 'zoomAt');
+
+      pointerDown(element, { pointerId: 1, clientX: 200, clientY: 150 });
+      pointerDown(element, { pointerId: 2, clientX: 300, clientY: 150 });
+      pointerMove(element, { pointerId: 1, clientX: 150, clientY: 150 });
+
+      expect(zoomAt).toHaveBeenCalledWith(1.5, { x: 125, y: 100 });
+
+      pointerUp(element, { pointerId: 1 });
+      pointerUp(element, { pointerId: 2 });
+    });
+
     it('three simultaneous pointers do not crash', () => {
       pointerDown(element, { pointerId: 1, clientX: 50, clientY: 50 });
       pointerDown(element, { pointerId: 2, clientX: 150, clientY: 150 });
