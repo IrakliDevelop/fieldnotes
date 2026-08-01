@@ -307,7 +307,11 @@ export class InputHandler {
     if (this.lastPinchDistance > 0) {
       const scale = dist / this.lastPinchDistance;
       const newZoom = this.camera.zoom * scale;
-      this.camera.zoomAt(newZoom, center);
+      const rect = this.element.getBoundingClientRect();
+      this.camera.zoomAt(newZoom, {
+        x: center.x - rect.left,
+        y: center.y - rect.top,
+      });
     }
 
     const dx = center.x - this.lastPointer.x;
