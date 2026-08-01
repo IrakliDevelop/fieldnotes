@@ -9,6 +9,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 - Added `examples/live-play` — a framework-free reference app demonstrating the full real-time-collab stack
   (role join, ownership, DM hide/reveal, live cursors) against a `createSyncServer` relay.
 
+## [@fieldnotes/core 0.50.7] — 2026-08-01
+
+### Fixed
+
+- Multi-grid rendering now invalidates its cached bitmap when any visible grid is added, removed,
+  reordered, or replaced, preventing changes to later grids from leaving stale pixels.
+
 ## [@fieldnotes/core 0.50.6] — 2026-08-01
 
 ### Fixed
