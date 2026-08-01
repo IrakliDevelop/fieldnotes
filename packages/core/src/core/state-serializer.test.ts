@@ -2,7 +2,17 @@
 import { describe, it, expect } from 'vitest';
 import { exportState, parseState } from './state-serializer';
 import type { CanvasState } from './state-serializer';
-import { createStroke, createNote, createArrow, createText } from '../elements/element-factory';
+import {
+  createArrow,
+  createGrid,
+  createHtmlElement,
+  createImage,
+  createNote,
+  createShape,
+  createStroke,
+  createTemplate,
+  createText,
+} from '../elements/element-factory';
 import type { Layer } from '../layers/types';
 
 function makeCamera(x = 0, y = 0, zoom = 1) {
@@ -105,7 +115,11 @@ describe('parseState', () => {
 
   it('sanitizes text-element HTML during import', () => {
     const state = validState();
-    const text = createText({ position: { x: 0, y: 0 }, text: '<b>placeholder</b>' });
+    const text = createText({
+      position: { x: 0, y: 0 },
+      text: '<b>placeholder</b>',
+      layerId: 'default-layer',
+    });
     text.text = '<img src="x" onerror="alert(1)"><b onclick="alert(2)">safe</b>';
     state.elements = [text];
 
@@ -117,10 +131,10 @@ describe('parseState', () => {
 
   it('returns activeLayerId when present in state', () => {
     const state = validState();
-    (state as Record<string, unknown>).activeLayerId = 'my-layer';
+    (state as Record<string, unknown>).activeLayerId = 'default-layer';
     const json = JSON.stringify(state);
     const parsed = parseState(json);
-    expect(parsed.activeLayerId).toBe('my-layer');
+    expect(parsed.activeLayerId).toBe('default-layer');
   });
 
   it('returns undefined activeLayerId for old state format', () => {
@@ -202,6 +216,18 @@ describe('parseState', () => {
     expect(() => parseState(JSON.stringify(data))).toThrow('version');
   });
 
+  it('rejects unsupported future versions', () => {
+    const data = validState();
+    data.version = 3;
+    expect(() => parseState(JSON.stringify(data))).toThrow('unsupported version 3');
+  });
+
+  it.each([0, -1, 1.5])('rejects invalid version %s', (version) => {
+    const data = validState();
+    data.version = version;
+    expect(() => parseState(JSON.stringify(data))).toThrow('version');
+  });
+
   it('throws on missing camera', () => {
     const data = { version: 1, elements: [] };
     expect(() => parseState(JSON.stringify(data))).toThrow('camera');
@@ -247,6 +273,108 @@ describe('parseState', () => {
       elements: [{ id: '1', type: 'stroke', position: { x: 0, y: 0 }, locked: false }],
     };
     expect(() => parseState(JSON.stringify(data))).toThrow('zIndex');
+  });
+
+  it('rejects duplicate element IDs', () => {
+    const data = validState();
+    const element = data.elements[0];
+    if (!element) throw new Error('Test fixture must contain an element');
+    data.elements.push(structuredClone(element));
+    expect(() => parseState(JSON.stringify(data))).toThrow('duplicate element id');
+  });
+
+  it('rejects non-finite camera and element geometry', () => {
+    const stateWithBadCamera = JSON.stringify(validState()).replace('"x":0', '"x":1e400');
+    expect(() => parseState(stateWithBadCamera)).toThrow('finite');
+
+    const stateWithBadPoint = JSON.stringify(validState()).replace(
+      '"pressure":0.5',
+      '"pressure":1e400',
+    );
+    expect(() => parseState(stateWithBadPoint)).toThrow('malformed stroke data');
+  });
+
+  it('accepts valid data for every element type', () => {
+    const data = validState();
+    data.elements = [
+      createStroke({ points: [{ x: 0, y: 0, pressure: 0.5 }], layerId: 'default-layer' }),
+      createNote({ position: { x: 0, y: 0 }, layerId: 'default-layer' }),
+      createArrow({ from: { x: 0, y: 0 }, to: { x: 1, y: 1 }, layerId: 'default-layer' }),
+      createImage({
+        position: { x: 0, y: 0 },
+        size: { w: 10, h: 10 },
+        src: 'data:image/png;base64,',
+        layerId: 'default-layer',
+      }),
+      createHtmlElement({
+        position: { x: 0, y: 0 },
+        size: { w: 10, h: 10 },
+        layerId: 'default-layer',
+      }),
+      createText({ position: { x: 0, y: 0 }, layerId: 'default-layer' }),
+      createShape({
+        position: { x: 0, y: 0 },
+        size: { w: 10, h: 10 },
+        layerId: 'default-layer',
+      }),
+      createGrid({ layerId: 'default-layer' }),
+      createTemplate({
+        position: { x: 0, y: 0 },
+        templateShape: 'circle',
+        radius: 10,
+        layerId: 'default-layer',
+      }),
+    ];
+
+    expect(parseState(JSON.stringify(data)).elements).toHaveLength(9);
+  });
+
+  it.each([
+    ['stroke', 'points'],
+    ['note', 'size'],
+    ['arrow', 'from'],
+    ['image', 'src'],
+    ['html', 'size'],
+    ['text', 'textAlign'],
+    ['shape', 'strokeWidth'],
+    ['grid', 'cellSize'],
+    ['template', 'radius'],
+  ])('rejects malformed %s-specific data', (type, field) => {
+    const data = validState();
+    const elements = {
+      stroke: createStroke({ points: [{ x: 0, y: 0, pressure: 0.5 }], layerId: 'default-layer' }),
+      note: createNote({ position: { x: 0, y: 0 }, layerId: 'default-layer' }),
+      arrow: createArrow({ from: { x: 0, y: 0 }, to: { x: 1, y: 1 }, layerId: 'default-layer' }),
+      image: createImage({
+        position: { x: 0, y: 0 },
+        size: { w: 10, h: 10 },
+        src: 'image.png',
+        layerId: 'default-layer',
+      }),
+      html: createHtmlElement({
+        position: { x: 0, y: 0 },
+        size: { w: 10, h: 10 },
+        layerId: 'default-layer',
+      }),
+      text: createText({ position: { x: 0, y: 0 }, layerId: 'default-layer' }),
+      shape: createShape({
+        position: { x: 0, y: 0 },
+        size: { w: 10, h: 10 },
+        layerId: 'default-layer',
+      }),
+      grid: createGrid({ layerId: 'default-layer' }),
+      template: createTemplate({
+        position: { x: 0, y: 0 },
+        templateShape: 'circle',
+        radius: 10,
+        layerId: 'default-layer',
+      }),
+    };
+    const element = elements[type as keyof typeof elements] as unknown as Record<string, unknown>;
+    element[field] = null;
+    data.elements = [element as unknown as CanvasState['elements'][number]];
+
+    expect(() => parseState(JSON.stringify(data))).toThrow(`malformed ${type} data`);
   });
 
   it('preserves an arrow label across an export → parse round-trip', () => {
@@ -353,11 +481,45 @@ describe('parseState', () => {
         { id: 'L1', name: 'Background', visible: true, locked: true, order: 0, opacity: 1 },
         { id: 'L2', name: 'Foreground', visible: true, locked: false, order: 1, opacity: 1 },
       ];
+      const element = state.elements[0];
+      if (!element) throw new Error('Test fixture must contain an element');
+      element.layerId = 'L1';
       const json = JSON.stringify(raw);
       const parsed = parseState(json);
       expect(parsed.layers).toHaveLength(2);
       const first = parsed.layers?.[0];
       expect(first?.name).toBe('Background');
+    });
+
+    it('rejects malformed and duplicate layers', () => {
+      const nonArray = validState() as unknown as Record<string, unknown>;
+      nonArray['layers'] = 'bad';
+      expect(() => parseState(JSON.stringify(nonArray))).toThrow('layers must be an array');
+
+      const malformed = validState();
+      const malformedLayer = malformed.layers?.[0];
+      if (!malformedLayer) throw new Error('Test fixture must contain a layer');
+      malformedLayer.opacity = 2;
+      expect(() => parseState(JSON.stringify(malformed))).toThrow('malformed layer');
+
+      const duplicate = validState();
+      const duplicateLayer = duplicate.layers?.[0];
+      if (!duplicateLayer || !duplicate.layers)
+        throw new Error('Test fixture must contain a layer');
+      duplicate.layers.push(structuredClone(duplicateLayer));
+      expect(() => parseState(JSON.stringify(duplicate))).toThrow('duplicate layer id');
+    });
+
+    it('rejects unknown element and active layer references', () => {
+      const badElementLayer = validState();
+      const element = badElementLayer.elements[0];
+      if (!element) throw new Error('Test fixture must contain an element');
+      element.layerId = 'missing';
+      expect(() => parseState(JSON.stringify(badElementLayer))).toThrow('unknown layerId');
+
+      const badActiveLayer = validState();
+      badActiveLayer.activeLayerId = 'missing';
+      expect(() => parseState(JSON.stringify(badActiveLayer))).toThrow('activeLayerId');
     });
   });
 
