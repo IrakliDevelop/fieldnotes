@@ -9,6 +9,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 - Added `examples/live-play` — a framework-free reference app demonstrating the full real-time-collab stack
   (role join, ownership, DM hide/reveal, live cursors) against a `createSyncServer` relay.
 
+## [@fieldnotes/sync 0.7.1, @fieldnotes/sync-server 0.8.1, @fieldnotes/sync-redis 0.3.1] — 2026-08-01
+
+### Fixed
+
+- Sync element validation now checks the complete discriminated element structure, including base
+  fields, finite geometry, variant-specific required fields, optional-field types, and enum values.
+  Malformed upserts are dropped before client application, relay persistence/broadcast, or fanout;
+  corrupt Redis entries are excluded from reads. Extra application metadata remains supported.
+
 ## [@fieldnotes/core 0.50.1] — 2026-08-01
 
 ### Fixed

@@ -23,7 +23,7 @@ function envelope(from: string, op: SyncOp): string {
 }
 
 const sampleEl = (): CanvasElement =>
-  createShape({ position: { x: 1, y: 2 }, size: { width: 10, height: 20 } });
+  createShape({ position: { x: 1, y: 2 }, size: { w: 10, h: 20 } });
 
 describe('SyncHub', () => {
   let hub: SyncHub;
@@ -95,6 +95,18 @@ describe('SyncHub', () => {
     expect(A.sent).toEqual([]);
     expect(B.sent).toEqual([]);
     expect(C.sent).toEqual([]);
+  });
+
+  it('does not persist or broadcast a structurally malformed upsert', async () => {
+    const malformed = { ...sampleEl(), size: { w: 'wide', h: 20 } };
+    await hub.handleMessage(
+      'A',
+      JSON.stringify({ from: 'clientA', op: { kind: 'upsert', element: malformed } }),
+    );
+    await hub.handleMessage('A', envelope('clientA', { kind: 'request-snapshot' }));
+
+    expect(B.sent).toEqual([]);
+    expect(JSON.parse(A.sent[0] ?? '').op.elements).toEqual([]);
   });
 
   it('ignores messages from unknown connections', async () => {

@@ -63,7 +63,7 @@ describe('sync-server authentication (end-to-end)', () => {
     const b = connect(port, 'R');
 
     a.store.add({
-      ...createShape({ position: { x: 1, y: 2 }, size: { width: 3, height: 4 } }),
+      ...createShape({ position: { x: 1, y: 2 }, size: { w: 3, h: 4 } }),
       id: 'e1',
     });
 
@@ -103,7 +103,7 @@ describe('sync-server authentication (end-to-end)', () => {
     const a = connect(port, 'R', '&token=good');
     const b = connect(port, 'R', '&token=good');
     a.store.add({
-      ...createShape({ position: { x: 0, y: 0 }, size: { width: 5, height: 5 } }),
+      ...createShape({ position: { x: 0, y: 0 }, size: { w: 5, h: 5 } }),
       id: 'ok1',
     });
     await waitFor(() => b.store.getById('ok1') !== undefined);
@@ -127,7 +127,7 @@ describe('sync-server authentication (end-to-end)', () => {
 
     const a = connect(port, 'R');
     a.store.add({
-      ...createShape({ position: { x: 7, y: 8 }, size: { width: 9, height: 9 } }),
+      ...createShape({ position: { x: 7, y: 8 }, size: { w: 9, h: 9 } }),
       id: 'e1',
     });
     await waitFor(() => a.store.getById('e1') !== undefined);

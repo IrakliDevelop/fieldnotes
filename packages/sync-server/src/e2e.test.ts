@@ -28,7 +28,7 @@ async function waitFor(cond: () => boolean | Promise<boolean>, timeoutMs = 2000)
 }
 
 function shape() {
-  return createShape({ position: { x: 0, y: 0 }, size: { width: 10, height: 10 } });
+  return createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } });
 }
 
 describe('sync-server WebSocket relay (end-to-end)', () => {
@@ -247,7 +247,7 @@ describe('sync-server WebSocket relay (end-to-end)', () => {
     const player = roleConnect('player');
 
     dm.store.add({
-      ...createShape({ position: { x: 1, y: 2 }, size: { width: 3, height: 4 } }),
+      ...createShape({ position: { x: 1, y: 2 }, size: { w: 3, h: 4 } }),
       id: 'X',
     });
     await waitFor(() => player.store.getById('X') !== undefined);
