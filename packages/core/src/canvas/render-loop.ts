@@ -12,6 +12,7 @@ import type { CanvasElement } from '../elements/types';
 import { getElementBounds, boundsIntersect } from '../elements/element-bounds';
 import { RenderStats } from './render-stats';
 import type { RenderStatsSnapshot } from './render-stats';
+import type { HybridRenderSurface } from './hybrid-render-surface';
 
 export interface RenderLoopDeps {
   canvasEl: HTMLCanvasElement;
@@ -24,6 +25,7 @@ export interface RenderLoopDeps {
   domNodeManager: DomNodeManager;
   layerCache: LayerCache;
   marginViewport: MarginViewport;
+  hybridSurface: HybridRenderSurface;
 }
 
 export class RenderLoop {
@@ -39,6 +41,7 @@ export class RenderLoop {
   private readonly domNodeManager: DomNodeManager;
   private readonly layerCache: LayerCache;
   private readonly marginViewport: MarginViewport;
+  private readonly hybridSurface: HybridRenderSurface;
   private activeDrawingLayerId: string | null = null;
   private gridCacheDirty = true; // set on recenter/viewport-change; consumed by the grid block
   private readonly stats = new RenderStats();
@@ -58,6 +61,7 @@ export class RenderLoop {
     this.domNodeManager = deps.domNodeManager;
     this.layerCache = deps.layerCache;
     this.marginViewport = deps.marginViewport;
+    this.hybridSurface = deps.hybridSurface;
   }
 
   requestRender(): void {
@@ -210,9 +214,23 @@ export class RenderLoop {
     };
 
     const allElements = this.store.getAll();
+    const visibleElements = allElements.filter((element) =>
+      this.layerManager.isLayerVisible(element.layerId),
+    );
+    const firstDomIndex = visibleElements.findIndex((element) =>
+      this.renderer.isDomElement(element),
+    );
+    const hybridActive =
+      firstDomIndex >= 0 &&
+      visibleElements
+        .slice(firstDomIndex + 1)
+        .some((element) => !this.renderer.isDomElement(element));
+    const hybridCanvasRuns = new Map<number, CanvasElement[]>();
+    const hybridOrders = new Set<number>();
+    let activeHybridOrder: number | null = null;
     this.layerGroups.clear();
     const gridElements: CanvasElement[] = [];
-    let domZIndex = 0;
+    let paintOrder = 0;
 
     for (const element of allElements) {
       if (!this.layerManager.isLayerVisible(element.layerId)) {
@@ -222,14 +240,29 @@ export class RenderLoop {
         continue;
       }
 
+      const order = ++paintOrder;
+
       if (this.renderer.isDomElement(element)) {
+        activeHybridOrder = null;
         const layerOpacity = this.layerManager.getLayer?.(element.layerId)?.opacity ?? 1;
         const elBounds = getElementBounds(element);
         if (elBounds && !boundsIntersect(elBounds, cullingRect)) {
           this.domNodeManager.hideDomNode(element.id);
         } else {
-          this.domNodeManager.syncDomNode(element, domZIndex++, layerOpacity);
+          this.domNodeManager.syncDomNode(element, order, layerOpacity);
         }
+        continue;
+      }
+
+      if (hybridActive && paintOrder > firstDomIndex + 1 && element.type !== 'grid') {
+        activeHybridOrder ??= order;
+        let run = hybridCanvasRuns.get(activeHybridOrder);
+        if (!run) {
+          run = [];
+          hybridCanvasRuns.set(activeHybridOrder, run);
+          hybridOrders.add(activeHybridOrder);
+        }
+        run.push(element);
         continue;
       }
 
@@ -246,6 +279,11 @@ export class RenderLoop {
       }
       group.push(element);
     }
+
+    const activeTool = this.toolManager.activeTool;
+    const overlayOrder = visibleElements.length + 1;
+    if (hybridActive && activeTool?.renderOverlay) hybridOrders.add(overlayOrder);
+    this.hybridSurface.beginFrame(hybridOrders, this.canvasEl.width, this.canvasEl.height);
 
     for (const [layerId, elements] of this.layerGroups) {
       const isActiveDrawingLayer = layerId === this.activeDrawingLayerId;
@@ -347,9 +385,38 @@ export class RenderLoop {
       this.lastGridRefs = [];
     }
 
+    for (const [order, elements] of hybridCanvasRuns) {
+      const hybridCtx = this.hybridSurface.getContext(order);
+      if (!hybridCtx) continue;
+      hybridCtx.clearRect(0, 0, this.canvasEl.width, this.canvasEl.height);
+      hybridCtx.save();
+      hybridCtx.scale(dpr, dpr);
+      hybridCtx.translate(this.camera.position.x, this.camera.position.y);
+      hybridCtx.scale(this.camera.zoom, this.camera.zoom);
+      for (const element of elements) {
+        const elBounds = getElementBounds(element);
+        if (elBounds && !boundsIntersect(elBounds, cullingRect)) continue;
+        hybridCtx.save();
+        hybridCtx.globalAlpha = this.layerManager.getLayer?.(element.layerId)?.opacity ?? 1;
+        this.renderer.renderCanvasElement(hybridCtx, element);
+        hybridCtx.restore();
+      }
+      hybridCtx.restore();
+    }
+
     const overlayT0 = performance.now();
-    const activeTool = this.toolManager.activeTool;
-    if (activeTool?.renderOverlay) {
+    if (hybridActive && activeTool?.renderOverlay) {
+      const overlayCtx = this.hybridSurface.getContext(overlayOrder);
+      if (overlayCtx) {
+        overlayCtx.clearRect(0, 0, this.canvasEl.width, this.canvasEl.height);
+        overlayCtx.save();
+        overlayCtx.scale(dpr, dpr);
+        overlayCtx.translate(this.camera.position.x, this.camera.position.y);
+        overlayCtx.scale(this.camera.zoom, this.camera.zoom);
+        activeTool.renderOverlay(overlayCtx);
+        overlayCtx.restore();
+      }
+    } else if (activeTool?.renderOverlay) {
       activeTool.renderOverlay(ctx);
     }
     const overlayMs = performance.now() - overlayT0;

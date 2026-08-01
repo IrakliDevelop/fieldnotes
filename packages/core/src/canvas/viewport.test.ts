@@ -54,12 +54,12 @@ describe('Viewport', () => {
     viewport.destroy();
   });
 
-  it('creates a wrapper with canvas and DOM layers inside container', () => {
+  it('creates a wrapper with canvas, paint-stack, and DOM overlay layers', () => {
     const viewport = new Viewport(container);
     const wrapper = wrapperOf(container);
     expect(wrapper).not.toBeNull();
     expect(wrapper.querySelector('canvas')).not.toBeNull();
-    expect(wrapper.children.length).toBe(2);
+    expect(wrapper.children.length).toBe(3);
     viewport.destroy();
   });
 
@@ -96,7 +96,7 @@ describe('Viewport', () => {
     expect(container.querySelector('canvas')).toBeNull();
   });
 
-  it('applies camera transform to DOM layer on camera change', () => {
+  it('applies camera transform to the public DOM overlay on camera change', () => {
     const viewport = new Viewport(container);
     viewport.camera.pan(50, 100);
     expect(viewport.domLayer.style.transform).toContain('translate3d');

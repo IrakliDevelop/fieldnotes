@@ -11,6 +11,7 @@ export interface DomNodeManagerDeps {
 
 export class DomNodeManager {
   private domNodes = new Map<string, HTMLDivElement>();
+  private strata = new Map<number, HTMLDivElement>();
   private htmlContent = new Map<string, HTMLElement>();
   private readonly domLayer: HTMLDivElement;
   private readonly onEditRequest: (id: string) => void;
@@ -19,6 +20,7 @@ export class DomNodeManager {
   private lastSyncedVersion = new Map<string, number>();
   private lastSyncedZIndex = new Map<string, number>();
   private lastSyncedOpacity = new Map<string, number>();
+  private cameraTransform = '';
 
   constructor(deps: DomNodeManagerDeps) {
     this.domLayer = deps.domLayer;
@@ -29,6 +31,12 @@ export class DomNodeManager {
 
   getNode(id: string): HTMLDivElement | undefined {
     return this.domNodes.get(id);
+  }
+
+  setCameraTransform(transform: string): void {
+    if (transform === this.cameraTransform) return;
+    this.cameraTransform = transform;
+    for (const stratum of this.strata.values()) stratum.style.transform = transform;
   }
 
   storeHtmlContent(elementId: string, dom: HTMLElement): void {
@@ -61,7 +69,7 @@ export class DomNodeManager {
         position: 'absolute',
         pointerEvents: 'auto',
       });
-      this.domLayer.appendChild(node);
+      this.getStratum(zIndex).appendChild(node);
       this.domNodes.set(element.id, node);
     } else if (this.getVersion) {
       const currentVersion = this.getVersion(element.id);
@@ -70,6 +78,16 @@ export class DomNodeManager {
       const lastOpacity = this.lastSyncedOpacity.get(element.id);
       if (lastVersion === currentVersion && lastZ === zIndex && lastOpacity === opacity) {
         return;
+      }
+    }
+
+    if (node.parentElement !== this.getStratum(zIndex)) {
+      const previousStratum = node.parentElement;
+      this.getStratum(zIndex).appendChild(node);
+      if (previousStratum?.childElementCount === 0) {
+        const previousOrder = Number(previousStratum.dataset['paintOrder']);
+        previousStratum.remove();
+        this.strata.delete(previousOrder);
       }
     }
 
@@ -97,7 +115,10 @@ export class DomNodeManager {
 
   hideDomNode(id: string): void {
     const node = this.domNodes.get(id);
-    if (node) node.style.display = 'none';
+    if (node) {
+      node.style.display = 'none';
+      this.lastSyncedVersion.delete(id);
+    }
   }
 
   removeDomNode(id: string): void {
@@ -107,8 +128,14 @@ export class DomNodeManager {
     this.lastSyncedOpacity.delete(id);
     const node = this.domNodes.get(id);
     if (node) {
+      const stratum = node.parentElement;
       node.remove();
       this.domNodes.delete(id);
+      if (stratum?.childElementCount === 0) {
+        const order = Number(stratum.dataset['paintOrder']);
+        stratum.remove();
+        this.strata.delete(order);
+      }
     }
   }
 
@@ -119,6 +146,28 @@ export class DomNodeManager {
     this.lastSyncedVersion.clear();
     this.lastSyncedZIndex.clear();
     this.lastSyncedOpacity.clear();
+    for (const stratum of this.strata.values()) stratum.remove();
+    this.strata.clear();
+  }
+
+  private getStratum(order: number): HTMLDivElement {
+    let stratum = this.strata.get(order);
+    if (stratum) return stratum;
+    stratum = document.createElement('div');
+    stratum.dataset['paintOrder'] = String(order);
+    Object.assign(stratum.style, {
+      position: 'absolute',
+      inset: '0',
+      width: '100%',
+      height: '100%',
+      pointerEvents: 'none',
+      transformOrigin: '0 0',
+      transform: this.cameraTransform,
+      zIndex: String(order),
+    });
+    this.domLayer.appendChild(stratum);
+    this.strata.set(order, stratum);
+    return stratum;
   }
 
   reattachHtmlContent(store: ElementStore): void {

@@ -19,7 +19,8 @@ import type { Point } from '../core/types';
 import { ContextMenu } from './context-menu';
 import type { ContextMenuItem } from './context-menu';
 import { Minimap } from './minimap';
-import { createWrapper, createCanvas, createDomLayer } from './viewport-dom';
+import { createWrapper, createCanvas, createDomLayer, createPaintStack } from './viewport-dom';
+import { HybridRenderSurface } from './hybrid-render-surface';
 import { findBoundArrows, getEdgeIntersection } from '../elements/arrow-binding';
 import { getElementBounds } from '../elements/element-bounds';
 import { getElementsBoundingBox } from '../elements/bounds';
@@ -95,6 +96,7 @@ export class Viewport {
   readonly history: HistoryStack;
   readonly domLayer: HTMLDivElement;
   private readonly canvasEl: HTMLCanvasElement;
+  private readonly paintStack: HTMLDivElement;
   private readonly wrapper: HTMLDivElement;
   private readonly unsubCamera: () => void;
   private readonly unsubToolChange: () => void;
@@ -183,9 +185,12 @@ export class Viewport {
 
     this.wrapper = createWrapper();
     this.canvasEl = createCanvas();
+    this.paintStack = createPaintStack();
     this.domLayer = createDomLayer();
+    this.domLayer.style.zIndex = '2147483647';
 
     this.wrapper.appendChild(this.canvasEl);
+    this.wrapper.appendChild(this.paintStack);
     this.wrapper.appendChild(this.domLayer);
     this.container.appendChild(this.wrapper);
 
@@ -264,12 +269,13 @@ export class Viewport {
     }
 
     this.domNodeManager = new DomNodeManager({
-      domLayer: this.domLayer,
+      domLayer: this.paintStack,
       onEditRequest: (id) => this.interactions.startEditingElement(id),
       isEditingElement: (id) =>
         this.noteEditor.isEditing && this.noteEditor.editingElementId === id,
       getVersion: (id) => this.store.getVersion(id),
     });
+    this.domNodeManager.setCameraTransform(this.camera.toCSSTransform());
 
     this.interactMode = new InteractMode({
       getNode: (id) => this.domNodeManager.getNode(id),
@@ -294,6 +300,7 @@ export class Viewport {
       domNodeManager: this.domNodeManager,
       layerCache,
       marginViewport: this.marginViewport,
+      hybridSurface: new HybridRenderSurface(this.paintStack),
     });
 
     this.unsubCamera = this.camera.onChange(() => {
@@ -796,7 +803,9 @@ export class Viewport {
   }
 
   private applyCameraTransform(): void {
-    this.domLayer.style.transform = this.camera.toCSSTransform();
+    const transform = this.camera.toCSSTransform();
+    this.domLayer.style.transform = transform;
+    this.domNodeManager.setCameraTransform(transform);
   }
 
   private syncCanvasSize(): void {

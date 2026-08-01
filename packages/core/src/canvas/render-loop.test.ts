@@ -12,6 +12,7 @@ import type { ToolManager } from '../tools/tool-manager';
 import type { LayerManager } from '../layers/layer-manager';
 import type { DomNodeManager } from './dom-node-manager';
 import type { LayerCache } from './layer-cache';
+import type { HybridRenderSurface } from './hybrid-render-surface';
 
 function createMockDeps() {
   const canvasEl = document.createElement('canvas');
@@ -97,6 +98,11 @@ function createMockDeps() {
   const marginViewport = new MarginViewport(256);
   marginViewport.setViewport(800, 600, 1);
 
+  const hybridSurface = {
+    beginFrame: vi.fn(),
+    getContext: vi.fn().mockReturnValue(mockCtx()),
+  } as unknown as HybridRenderSurface;
+
   return {
     canvasEl,
     camera,
@@ -108,6 +114,7 @@ function createMockDeps() {
     domNodeManager,
     layerCache,
     marginViewport,
+    hybridSurface,
   };
 }
 
@@ -163,6 +170,58 @@ describe('RenderLoop', () => {
     renderLoop.requestRender();
     renderLoop.flush();
     expect(deps.domNodeManager.syncDomNode).toHaveBeenCalled();
+  });
+
+  it('places canvas content between DOM elements in matching paint strata', () => {
+    vi.mocked(deps.store.getAll).mockReturnValue([
+      {
+        id: 'dom-low',
+        type: 'note',
+        layerId: 'default',
+        position: { x: 0, y: 0 },
+        size: { w: 10, h: 10 },
+      },
+      {
+        id: 'canvas-middle',
+        type: 'shape',
+        layerId: 'default',
+        position: { x: 0, y: 0 },
+        size: { w: 10, h: 10 },
+      },
+      {
+        id: 'canvas-middle-2',
+        type: 'shape',
+        layerId: 'default',
+        position: { x: 0, y: 0 },
+        size: { w: 10, h: 10 },
+      },
+      {
+        id: 'dom-high',
+        type: 'note',
+        layerId: 'default',
+        position: { x: 0, y: 0 },
+        size: { w: 10, h: 10 },
+      },
+    ] as never);
+
+    renderLoop.requestRender();
+    renderLoop.flush();
+
+    expect(deps.domNodeManager.syncDomNode).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ id: 'dom-low' }),
+      1,
+      1,
+    );
+    expect(deps.hybridSurface.beginFrame).toHaveBeenCalledWith(new Set([2]), 300, 150);
+    expect(deps.hybridSurface.getContext).toHaveBeenCalledWith(2);
+    expect(deps.domNodeManager.syncDomNode).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ id: 'dom-high' }),
+      4,
+      1,
+    );
+    expect(deps.hybridSurface.getContext).toHaveBeenCalledTimes(1);
   });
 
   it('calls domNodeManager.hideDomNode for invisible layer DOM elements', () => {
