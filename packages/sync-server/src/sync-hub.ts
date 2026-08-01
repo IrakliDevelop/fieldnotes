@@ -49,7 +49,7 @@ export class SyncHub {
   private readonly conns = new Map<string, Connection>();
   private readonly rooms = new Map<string, Set<string>>(); // room → connIds
   private readonly roomQueues = new Map<string, Promise<void>>(); // room → serial tail
-  private readonly presenceIds = new Map<string, string>(); // connId → last clientId that sent presence
+  private readonly presenceConnections = new Set<string>();
   private readonly instanceId: string;
   private readonly fanout: HubFanout;
   private readonly fanoutUnsub: () => void;
@@ -80,8 +80,7 @@ export class SyncHub {
     if (!conn) return;
     this.conns.delete(connId);
     const room = conn.room;
-    const clientId = this.presenceIds.get(connId);
-    this.presenceIds.delete(connId);
+    const hadPresence = this.presenceConnections.delete(connId);
     const members = this.rooms.get(room);
     if (members) {
       members.delete(connId);
@@ -90,7 +89,7 @@ export class SyncHub {
         this.roomQueues.delete(room);
       }
     }
-    if (clientId !== undefined) this.broadcastLeave(room, clientId);
+    if (hadPresence) this.broadcastLeave(room, conn.id);
   }
 
   roomCount(): number {
@@ -103,7 +102,7 @@ export class SyncHub {
     const env = parseEnvelope(message);
     if (!env) return Promise.resolve();
     if (env.op.kind === 'presence') {
-      this.broadcastPresence(conn, env.from, env.op.data); // off-queue, synchronous
+      this.broadcastPresence(conn, env.op.data); // off-queue, synchronous
       return Promise.resolve();
     }
     const room = conn.room;
@@ -125,6 +124,8 @@ export class SyncHub {
       const all = (await this.backend.snapshot(conn.room)) as OwnedElement[];
       const elements = this.canRead ? all.filter((el) => this.mayRead(conn, el.audience)) : all;
       conn.send(
+        // `to` is a private correlation address for the requesting SyncClient. It is never
+        // broadcast; every public sender identity below comes from the server-owned connection.
         JSON.stringify({ from: HUB_FROM, op: { kind: 'snapshot', to: env.from, elements } }),
       );
     } else if (op.kind === 'upsert' || op.kind === 'remove' || op.kind === 'clear') {
@@ -159,13 +160,13 @@ export class SyncHub {
       const prevExisted = current !== undefined;
       const prevAudience = current?.audience;
 
-      this.deliverToRoom(conn.room, conn.id, env.from, outboundOp, prevAudience, prevExisted);
+      this.deliverToRoom(conn.room, conn.id, conn.id, outboundOp, prevAudience, prevExisted);
 
       this.fanout.publish(
         JSON.stringify({
           o: this.instanceId,
           room: conn.room,
-          from: env.from,
+          from: conn.id,
           op: outboundOp,
           prev: prevAudience,
           existed: prevExisted,
@@ -203,12 +204,17 @@ export class SyncHub {
     }
   }
 
-  private broadcastPresence(conn: Connection, from: string, data: unknown): void {
-    this.presenceIds.set(conn.id, from);
-    const message = JSON.stringify({ from, op: { kind: 'presence', data } });
+  private broadcastPresence(conn: Connection, data: unknown): void {
+    this.presenceConnections.add(conn.id);
+    const message = JSON.stringify({ from: conn.id, op: { kind: 'presence', data } });
     this.relayToRoom(conn.room, conn.id, message);
     this.safePublish(
-      JSON.stringify({ o: this.instanceId, room: conn.room, from, op: { kind: 'presence', data } }),
+      JSON.stringify({
+        o: this.instanceId,
+        room: conn.room,
+        from: conn.id,
+        op: { kind: 'presence', data },
+      }),
     );
   }
 

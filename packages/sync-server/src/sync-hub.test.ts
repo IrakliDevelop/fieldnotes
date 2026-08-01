@@ -46,7 +46,10 @@ describe('SyncHub', () => {
     const msg = envelope('clientA', { kind: 'upsert', element: el });
     await hub.handleMessage('A', msg);
 
-    expect(B.sent).toEqual([msg]); // forwarded raw to same-room peer
+    expect(JSON.parse(B.sent[0] ?? '')).toEqual({
+      from: 'A',
+      op: { kind: 'upsert', element: el },
+    });
     expect(A.sent).toEqual([]); // not echoed to sender
     expect(C.sent).toEqual([]); // cross-room isolated
   });
@@ -58,7 +61,10 @@ describe('SyncHub', () => {
     await hub.handleMessage('B', envelope('clientB', { kind: 'request-snapshot' }));
 
     // B received the forwarded upsert, then its own snapshot reply.
-    expect(B.sent[0]).toBe(upsertMsg);
+    expect(JSON.parse(B.sent[0] ?? '')).toEqual({
+      from: 'A',
+      op: { kind: 'upsert', element: el },
+    });
     const reply = JSON.parse(B.sent[1] ?? '');
     expect(reply).toEqual({ from: 'hub', op: { kind: 'snapshot', to: 'clientB', elements: [el] } });
   });
@@ -77,11 +83,21 @@ describe('SyncHub', () => {
   it('forwards remove and clear to peers', async () => {
     const removeMsg = envelope('clientA', { kind: 'remove', id: 'x' });
     await hub.handleMessage('A', removeMsg);
-    expect(B.sent).toEqual([removeMsg]);
+    expect(JSON.parse(B.sent[0] ?? '')).toEqual({ from: 'A', op: { kind: 'remove', id: 'x' } });
 
     const clearMsg = envelope('clientA', { kind: 'clear' });
     await hub.handleMessage('A', clearMsg);
-    expect(B.sent).toEqual([removeMsg, clearMsg]);
+    expect(JSON.parse(B.sent[1] ?? '')).toEqual({ from: 'A', op: { kind: 'clear' } });
+  });
+
+  it('replaces a forged sender on relayed data operations', async () => {
+    const el = sampleEl();
+    await hub.handleMessage('A', envelope('B', { kind: 'upsert', element: el }));
+
+    expect(JSON.parse(B.sent[0] ?? '')).toEqual({
+      from: 'A',
+      op: { kind: 'upsert', element: el },
+    });
   });
 
   it('drops malformed messages and client-sent snapshots', async () => {
@@ -198,7 +214,7 @@ describe('SyncHub', () => {
       const msg = upsert('ca', 'e1');
       await hubA.handleMessage('a', msg);
 
-      expect(b.sent).toContain(msg);
+      expect(JSON.parse(b.sent[0] ?? '')).toMatchObject({ from: 'a', op: { kind: 'upsert' } });
     });
 
     it('does not double-forward to the origin instance own conns', async () => {
@@ -213,7 +229,8 @@ describe('SyncHub', () => {
       const msg = upsert('ca', 'e1');
       await hubA.handleMessage('a', msg);
 
-      expect(a2.sent).toEqual([msg]); // exactly once (local forward only)
+      expect(a2.sent).toHaveLength(1); // exactly once (local forward only)
+      expect(JSON.parse(a2.sent[0] ?? '')).toMatchObject({ from: 'a', op: { kind: 'upsert' } });
       expect(a.sent).toEqual([]); // never echoed to sender
     });
 
@@ -762,7 +779,7 @@ describe('read filtering (canRead)', () => {
       from: string;
       op: { kind: string; element: { id: string } };
     };
-    expect(env.from).toBe('ca');
+    expect(env.from).toBe('a');
     expect(env.op.element.id).toBe('e1');
     b.sent.length = 0;
     await hub.handleMessage('a', envelope('ca', { kind: 'remove', id: 'e1' }));
@@ -802,8 +819,29 @@ describe('presence (ephemeral)', () => {
     expect(a.sent).toEqual([]);
     expect(b.sent).toHaveLength(1);
     expect(JSON.parse(b.sent[0] as string)).toEqual({
-      from: 'ca',
+      from: 'a',
       op: { kind: 'presence', data: { x: 1 } },
+    });
+  });
+
+  it('uses the connection identity when a client forges another sender', async () => {
+    const hub = new SyncHub();
+    const attacker = makeConn('attacker', 'R');
+    const victim = makeConn('victim', 'R');
+    hub.addConnection(attacker);
+    hub.addConnection(victim);
+
+    await hub.handleMessage('attacker', presenceMsg('victim', { x: 1 }));
+
+    expect(JSON.parse(victim.sent[0] as string)).toEqual({
+      from: 'attacker',
+      op: { kind: 'presence', data: { x: 1 } },
+    });
+    victim.sent.length = 0;
+    hub.removeConnection('attacker');
+    expect(JSON.parse(victim.sent[0] as string)).toEqual({
+      from: 'attacker',
+      op: { kind: 'presence-leave' },
     });
   });
 
@@ -875,7 +913,7 @@ describe('presence (ephemeral)', () => {
     b.sent.length = 0;
     hub.removeConnection('a');
     expect(b.sent).toHaveLength(1);
-    expect(JSON.parse(b.sent[0] as string)).toEqual({ from: 'ca', op: { kind: 'presence-leave' } });
+    expect(JSON.parse(b.sent[0] as string)).toEqual({ from: 'a', op: { kind: 'presence-leave' } });
     b.sent.length = 0;
     hub.removeConnection('c');
     expect(b.sent).toEqual([]);
@@ -892,12 +930,12 @@ describe('presence (ephemeral)', () => {
     await hubA.handleMessage('a', presenceMsg('ca', { x: 9 }));
     expect(b.sent).toHaveLength(1);
     expect(JSON.parse(b.sent[0] as string)).toEqual({
-      from: 'ca',
+      from: 'a',
       op: { kind: 'presence', data: { x: 9 } },
     });
     b.sent.length = 0;
     hubA.removeConnection('a');
     expect(b.sent).toHaveLength(1);
-    expect(JSON.parse(b.sent[0] as string)).toEqual({ from: 'ca', op: { kind: 'presence-leave' } });
+    expect(JSON.parse(b.sent[0] as string)).toEqual({ from: 'a', op: { kind: 'presence-leave' } });
   });
 });
