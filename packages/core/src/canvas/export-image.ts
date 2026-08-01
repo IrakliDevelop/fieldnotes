@@ -1,4 +1,4 @@
-import type { CanvasElement, GridElement } from '../elements/types';
+import type { CanvasElement, GridElement, HtmlElement } from '../elements/types';
 import type { ElementStore } from '../elements/element-store';
 import { ElementRenderer } from '../elements/element-renderer';
 import { getArrowBounds } from '../elements/arrow-geometry';
@@ -9,8 +9,10 @@ import { rotatedAABB } from '../core/geometry';
 import type { LayerManager } from '../layers/layer-manager';
 import { renderNoteOnCanvas } from './note-canvas-renderer';
 import { renderTextOnCanvas } from './text-canvas-renderer';
+import { renderHtmlElements, validateHtmlExportOptions } from './html-export';
+import type { HtmlExportOptions } from './html-export';
 
-export interface ExportImageOptions extends ExportResourceOptions {
+export interface ExportImageOptions extends ExportResourceOptions, HtmlExportOptions {
   scale?: number;
   padding?: number;
   background?: string;
@@ -287,6 +289,7 @@ export async function exportImage(
   const scale = positiveOption(options.scale, 2, 'scale');
   const padding = nonNegativeOption(options.padding, 0, 'padding');
   validateExportResourceOptions(options);
+  validateHtmlExportOptions(options);
   const background = options.background ?? '#ffffff';
   const filter = options.filter;
 
@@ -306,6 +309,8 @@ export async function exportImage(
   const height = Math.ceil(bounds.h * scale);
   assertExportSize(width, height, options);
   const imageCache = await loadImages(visibleElements, options);
+  const htmlElements = visibleElements.filter((el): el is HtmlElement => el.type === 'html');
+  const htmlSources = await renderHtmlElements(htmlElements, options);
 
   const canvas = document.createElement('canvas');
   canvas.width = width;
@@ -338,6 +343,21 @@ export async function exportImage(
     }
 
     if (el.type === 'html') {
+      const source = htmlSources.get(el.id);
+      if (!source) return;
+      const b = getElementBounds(el);
+      try {
+        withRotation(target, el, b ? center(b) : el.position, () =>
+          target.drawImage(source, el.position.x, el.position.y, el.size.w, el.size.h),
+        );
+      } catch (cause) {
+        options.onHtmlError?.({
+          elementId: el.id,
+          htmlType: el.htmlType,
+          reason: 'render',
+          cause,
+        });
+      }
       return;
     }
 
