@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import { exportState, parseState } from './state-serializer';
 import type { CanvasState } from './state-serializer';
-import { createStroke, createNote, createArrow } from '../elements/element-factory';
+import { createStroke, createNote, createArrow, createText } from '../elements/element-factory';
 import type { Layer } from '../layers/types';
 
 function makeCamera(x = 0, y = 0, zoom = 1) {
@@ -101,6 +101,18 @@ describe('parseState', () => {
     expect(state.version).toBe(2);
     expect(state.camera.zoom).toBe(1);
     expect(state.elements).toHaveLength(1);
+  });
+
+  it('sanitizes text-element HTML during import', () => {
+    const state = validState();
+    const text = createText({ position: { x: 0, y: 0 }, text: '<b>placeholder</b>' });
+    text.text = '<img src="x" onerror="alert(1)"><b onclick="alert(2)">safe</b>';
+    state.elements = [text];
+
+    const parsed = parseState(JSON.stringify(state));
+
+    const imported = parsed.elements[0];
+    expect(imported?.type === 'text' && imported.text).toBe('<b>safe</b>');
   });
 
   it('returns activeLayerId when present in state', () => {

@@ -9,6 +9,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 - Added `examples/live-play` — a framework-free reference app demonstrating the full real-time-collab stack
   (role join, ownership, DM hide/reveal, live cursors) against a `createSyncServer` relay.
 
+## [@fieldnotes/core 0.50.1] — 2026-08-01
+
+### Fixed
+
+- Text-element rich HTML is now sanitized at every client-side ingestion boundary: factories,
+  direct store additions and updates, imported JSON, loaded snapshots, and remote sync upserts.
+  Unsupported elements and event-handler attributes can no longer reach the DOM through text
+  elements; supported bold, italic, underline, strikethrough, line break, and font-size formatting
+  is preserved. Notes receive the same store-boundary defense in depth.
+
 ## [@fieldnotes/core 0.50.0] — 2026-07-23
 
 ### Changed

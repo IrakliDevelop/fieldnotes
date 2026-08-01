@@ -291,6 +291,15 @@ describe('element factories', () => {
       expect(el.textAlign).toBe('center');
       expect(el.size).toEqual({ w: 300, h: 40 });
     });
+
+    it('sanitizes active and unsupported HTML while preserving rich-text formatting', () => {
+      const el = createText({
+        position: { x: 0, y: 0 },
+        text: '<img src="x" onerror="alert(1)"><b onclick="alert(2)">safe</b>',
+      });
+
+      expect(el.text).toBe('<b>safe</b>');
+    });
   });
 
   describe('createTemplate', () => {
