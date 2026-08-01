@@ -260,6 +260,33 @@ describe('SyncHub', () => {
       expect(b.sent).toEqual([]);
     });
 
+    it('surfaces publication failure, withholds local delivery, and keeps the room queue usable', async () => {
+      const error = new Error('fanout unavailable');
+      let publishCount = 0;
+      const fanout = {
+        publish: vi.fn(() => {
+          publishCount += 1;
+          if (publishCount === 1) return Promise.reject(error);
+          return Promise.resolve();
+        }),
+        subscribe: () => () => undefined,
+      };
+      const backend = new MemoryHubBackend();
+      const origin = makeConn('a', 'R');
+      const localPeer = makeConn('b', 'R');
+      const h = new SyncHub({ backend, fanout, instanceId: 'A' });
+      h.addConnection(origin);
+      h.addConnection(localPeer);
+
+      await expect(h.handleMessage('a', upsert('ca', 'e1'))).rejects.toBe(error);
+      expect((await backend.snapshot('R')).map((element) => element.id)).toEqual(['e1']);
+      expect(localPeer.sent).toEqual([]);
+
+      await expect(h.handleMessage('a', upsert('ca', 'e2'))).resolves.toBeUndefined();
+      expect(localPeer.sent).toHaveLength(1);
+      expect(JSON.parse(localPeer.sent[0] ?? '').op.element.id).toBe('e2');
+    });
+
     it('isolates rooms across instances', async () => {
       const bus = new InMemoryHubFanout();
       const hubA = new SyncHub({ instanceId: 'A', fanout: bus });

@@ -81,6 +81,10 @@ publishes its live ops to a single channel and every other instance forwards the
 Like the backend, it has **no Redis dependency of its own** — you inject two connections via the
 `RedisPublisher` / `RedisSubscriber` seams.
 
+`publish()` resolves only after Redis acknowledges the command. If Redis rejects it, the fanout
+invokes the optional `onError` observer and rethrows so `SyncHub` can surface the failed durable
+mutation publication. Do not discard the returned promise when publishing directly.
+
 > **The subscriber MUST be a dedicated connection.** Redis forbids any other command on a connection that is
 > in subscribe mode, so publish and subscribe cannot share one connection — that is why `RedisHubFanout`
 > takes two.
