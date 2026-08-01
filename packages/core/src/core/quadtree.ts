@@ -12,6 +12,15 @@ function intersects(a: Bounds, b: Bounds): boolean {
   return a.x <= b.x + b.w && a.x + a.w >= b.x && a.y <= b.y + b.h && a.y + a.h >= b.y;
 }
 
+function contains(outer: Bounds, inner: Bounds): boolean {
+  return (
+    inner.x >= outer.x &&
+    inner.x + inner.w <= outer.x + outer.w &&
+    inner.y >= outer.y &&
+    inner.y + inner.h <= outer.y + outer.h
+  );
+}
+
 class QuadNode {
   items: Entry[] = [];
   children: QuadNode[] | null = null;
@@ -71,6 +80,15 @@ class QuadNode {
     if (this.children) {
       for (const child of this.children) {
         child.query(rect, result);
+      }
+    }
+  }
+
+  collect(result: Entry[]): void {
+    result.push(...this.items);
+    if (this.children) {
+      for (const child of this.children) {
+        child.collect(result);
       }
     }
   }
@@ -151,6 +169,7 @@ export class Quadtree {
   }
 
   insert(id: string, bounds: Bounds): void {
+    this.expandToFit(bounds);
     this.root.insert({ id, bounds });
     this._size++;
   }
@@ -179,5 +198,28 @@ export class Quadtree {
   clear(): void {
     this.root = new QuadNode(this.worldBounds, 0);
     this._size = 0;
+  }
+
+  private expandToFit(bounds: Bounds): void {
+    const current = this.root.bounds;
+    if (contains(current, bounds)) return;
+
+    const currentRight = current.x + current.w;
+    const currentBottom = current.y + current.h;
+    const requiredWidth =
+      Math.max(currentRight, bounds.x + bounds.w) - Math.min(current.x, bounds.x);
+    const requiredHeight =
+      Math.max(currentBottom, bounds.y + bounds.h) - Math.min(current.y, bounds.y);
+    const width = Math.max(current.w * 2, requiredWidth);
+    const height = Math.max(current.h * 2, requiredHeight);
+    const x = bounds.x < current.x ? currentRight - width : current.x;
+    const y = bounds.y < current.y ? currentBottom - height : current.y;
+
+    const entries: Entry[] = [];
+    this.root.collect(entries);
+    this.root = new QuadNode({ x, y, w: width, h: height }, 0);
+    for (const entry of entries) {
+      this.root.insert(entry);
+    }
   }
 }

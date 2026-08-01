@@ -328,6 +328,21 @@ describe('ElementStore', () => {
       const results = store.queryPoint({ x: 50, y: 50 });
       expect(results.map((e) => e.id)).toEqual(['n1']);
     });
+
+    it('returns elements beyond the initial spatial-index bounds', () => {
+      const store = new ElementStore();
+      store.add(
+        makeNote({
+          id: 'far-away',
+          position: { x: 1_000_000, y: -1_000_000 },
+          size: { w: 100, h: 100 },
+        }),
+      );
+
+      expect(store.queryPoint({ x: 1_000_050, y: -999_950 }).map((element) => element.id)).toEqual([
+        'far-away',
+      ]);
+    });
   });
 
   describe('queryRect', () => {
