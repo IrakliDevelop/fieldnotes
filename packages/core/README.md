@@ -155,10 +155,18 @@ const blob = await viewport.exportImage({
   padding: 20, // world-space padding around content (default 0)
   background: '#fff', // fill color (default '#ffffff')
   filter: (el) => el.type !== 'html', // optional per-element filter
+  imageTimeoutMs: 10_000, // maximum wait per image
+  maxDimension: 16_384, // maximum output width or height
+  maxPixels: 67_108_864, // maximum output pixel count
+  onAssetError: ({ elementId, src, reason }) => {
+    console.warn(`Could not export ${elementId} (${reason}): ${src}`);
+  },
 });
 ```
 
-HTML elements are excluded from image exports (DOM cannot be rasterized to canvas). Cross-origin images are handled automatically via CORS cache-busting.
+HTML elements are currently excluded from image exports. Remote images are requested with anonymous
+CORS using their original URLs; failures are omitted from the result and reported through
+`onAssetError` when supplied.
 
 ## Performance Monitoring
 

@@ -9,6 +9,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 - Added `examples/live-play` — a framework-free reference app demonstrating the full real-time-collab stack
   (role join, ownership, DM hide/reveal, live cursors) against a `createSyncServer` relay.
 
+## [@fieldnotes/core 0.51.0] — 2026-08-01
+
+### Added
+
+- PNG and SVG export options now support bounded image-load timeouts, configurable dimension and
+  pixel limits, and an `onAssetError` callback for load, timeout, and encoding failures.
+
+### Fixed
+
+- Export requests image sources exactly as supplied instead of appending a query parameter that can
+  invalidate signed URLs or change cache behavior.
+- PNG and SVG exports reject invalid options and unsafe output sizes before allocating canvases.
+
 ## [@fieldnotes/core 0.50.8] — 2026-08-01
 
 ### Fixed

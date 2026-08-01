@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi } from 'vitest';
-import { computeBounds, getElementRect, exportImage } from './export-image';
+import { computeBounds, getElementRect, exportImage, loadImages } from './export-image';
 import {
   createStroke,
   createNote,
@@ -139,6 +139,99 @@ describe('computeBounds', () => {
   });
 });
 
+describe('loadImages', () => {
+  it('loads the exact source URL without rewriting it', async () => {
+    const originalImage = globalThis.Image;
+    let requestedSrc = '';
+    globalThis.Image = class MockImage {
+      crossOrigin = '';
+      onload: (() => void) | null = null;
+      onerror: ((cause: unknown) => void) | null = null;
+      set src(value: string) {
+        requestedSrc = value;
+        queueMicrotask(() => this.onload?.());
+      }
+    } as unknown as typeof Image;
+
+    try {
+      const image = createImage({
+        position: { x: 0, y: 0 },
+        size: { w: 10, h: 10 },
+        src: 'https://assets.example/map.png?token=signed',
+      });
+      await loadImages([image]);
+      expect(requestedSrc).toBe(image.src);
+    } finally {
+      globalThis.Image = originalImage;
+    }
+  });
+
+  it('reports a load failure with element context', async () => {
+    const originalImage = globalThis.Image;
+    const cause = new Event('error');
+    globalThis.Image = class MockImage {
+      crossOrigin = '';
+      onload: (() => void) | null = null;
+      onerror: ((cause: unknown) => void) | null = null;
+      set src(_value: string) {
+        queueMicrotask(() => this.onerror?.(cause));
+      }
+    } as unknown as typeof Image;
+
+    try {
+      const onAssetError = vi.fn();
+      const image = createImage({
+        position: { x: 0, y: 0 },
+        size: { w: 10, h: 10 },
+        src: 'https://assets.example/missing.png',
+      });
+      const result = await loadImages([image], { onAssetError });
+      expect(result.size).toBe(0);
+      expect(onAssetError).toHaveBeenCalledWith({
+        elementId: image.id,
+        src: image.src,
+        reason: 'load',
+        cause,
+      });
+    } finally {
+      globalThis.Image = originalImage;
+    }
+  });
+
+  it('times out an image that never settles', async () => {
+    vi.useFakeTimers();
+    const originalImage = globalThis.Image;
+    globalThis.Image = class MockImage {
+      crossOrigin = '';
+      onload: (() => void) | null = null;
+      onerror: ((cause: unknown) => void) | null = null;
+      set src(_value: string) {
+        void _value;
+      }
+    } as unknown as typeof Image;
+
+    try {
+      const onAssetError = vi.fn();
+      const image = createImage({
+        position: { x: 0, y: 0 },
+        size: { w: 10, h: 10 },
+        src: 'https://assets.example/hung.png',
+      });
+      const loading = loadImages([image], { imageTimeoutMs: 25, onAssetError });
+      await vi.advanceTimersByTimeAsync(25);
+      await expect(loading).resolves.toEqual(new Map());
+      expect(onAssetError).toHaveBeenCalledWith({
+        elementId: image.id,
+        src: image.src,
+        reason: 'timeout',
+      });
+    } finally {
+      globalThis.Image = originalImage;
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe('getElementRect — html element', () => {
   it('returns bounds for an html element with size', () => {
     const html = {
@@ -156,6 +249,41 @@ describe('getElementRect — html element', () => {
 });
 
 describe('exportImage', () => {
+  it.each([
+    [{ scale: 0 }, 'scale'],
+    [{ scale: Number.NaN }, 'scale'],
+    [{ padding: -1 }, 'padding'],
+    [{ imageTimeoutMs: 0 }, 'imageTimeoutMs'],
+  ])('rejects invalid options %o', async (options, optionName) => {
+    const store = new ElementStore();
+    store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } }));
+    await expect(exportImage(store, options)).rejects.toThrow(optionName);
+  });
+
+  it('rejects an export exceeding the dimension limit before creating a canvas', async () => {
+    const store = new ElementStore();
+    store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 101, h: 10 } }));
+    const createSpy = vi.spyOn(document, 'createElement');
+
+    await expect(exportImage(store, { scale: 1, maxDimension: 100 })).rejects.toThrow(
+      'maximum dimension',
+    );
+    expect(createSpy).not.toHaveBeenCalled();
+    createSpy.mockRestore();
+  });
+
+  it('rejects an export exceeding the pixel limit before creating a canvas', async () => {
+    const store = new ElementStore();
+    store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 20, h: 20 } }));
+    const createSpy = vi.spyOn(document, 'createElement');
+
+    await expect(exportImage(store, { scale: 1, maxPixels: 399 })).rejects.toThrow(
+      'maximum of 399 pixels',
+    );
+    expect(createSpy).not.toHaveBeenCalled();
+    createSpy.mockRestore();
+  });
+
   it('returns null for empty store', async () => {
     const store = new ElementStore();
     const result = await exportImage(store);
