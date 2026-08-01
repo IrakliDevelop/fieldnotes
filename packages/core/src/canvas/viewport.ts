@@ -348,6 +348,7 @@ export class Viewport {
 
     this.layerManager.on('change', () => {
       this.toolContext.activeLayerId = this.layerManager.activeLayerId;
+      this.renderLoop.markAllLayersDirty();
       this.minimap?.scheduleDraw();
       this.requestRender();
     });

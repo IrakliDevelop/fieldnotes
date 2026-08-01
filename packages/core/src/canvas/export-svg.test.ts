@@ -63,6 +63,19 @@ function buildStore() {
 }
 
 describe('exportSvg', () => {
+  it('wraps exported elements in their layer opacity', async () => {
+    const store = new ElementStore();
+    store.add(createShape({ layerId: 'faded', position: { x: 0, y: 0 }, size: { w: 50, h: 50 } }));
+    const layerManager = {
+      isLayerVisible: () => true,
+      getLayer: () => ({ opacity: 0.25 }),
+    };
+
+    const svg = await exportSvg(store, {}, layerManager as never);
+
+    expect(svg).toContain('<g opacity="0.25"><rect');
+  });
+
   it('returns an empty svg for an empty store', async () => {
     const svg = await exportSvg(new ElementStore());
     expect(svg.startsWith('<svg')).toBe(true);

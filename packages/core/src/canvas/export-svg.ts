@@ -427,11 +427,19 @@ export async function exportSvg(
     body += `<rect x="${n(bounds.x)}" y="${n(bounds.y)}" width="${n(bounds.w)}" height="${n(bounds.h)}" fill="${esc(options.background)}" />`;
   }
 
+  const layerBodies = new Map<string, string>();
   for (const el of visibleElements) {
-    body += emitElement(el, imageDataUris, rasterScale, firstGrid, store);
+    const emitted = emitElement(el, imageDataUris, rasterScale, firstGrid, store);
+    layerBodies.set(el.layerId, (layerBodies.get(el.layerId) ?? '') + emitted);
+  }
+  for (const [layerId, emitted] of layerBodies) {
+    const opacity = layerManager?.getLayer?.(layerId)?.opacity ?? 1;
+    body += opacity === 1 || emitted === '' ? emitted : `<g opacity="${n(opacity)}">${emitted}</g>`;
   }
   for (const grid of grids) {
-    body += emitGrid(grid, bounds);
+    const emitted = emitGrid(grid, bounds);
+    const opacity = layerManager?.getLayer?.(grid.layerId)?.opacity ?? 1;
+    body += opacity === 1 ? emitted : `<g opacity="${n(opacity)}">${emitted}</g>`;
   }
 
   return (

@@ -9,6 +9,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 - Added `examples/live-play` — a framework-free reference app demonstrating the full real-time-collab stack
   (role join, ownership, DM hide/reveal, live cursors) against a `createSyncServer` relay.
 
+## [@fieldnotes/core 0.50.2] — 2026-08-01
+
+### Fixed
+
+- Layer opacity now affects cached canvas layers, DOM-backed notes/text/HTML, grids, PNG exports,
+  and SVG exports. Canvas and export layers are composited as groups so overlapping elements do not
+  incorrectly accumulate opacity, while existing per-element opacity continues to multiply with the
+  layer value.
+
 ## [@fieldnotes/sync 0.7.1, @fieldnotes/sync-server 0.8.1, @fieldnotes/sync-redis 0.3.1] — 2026-08-01
 
 ### Fixed

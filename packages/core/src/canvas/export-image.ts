@@ -222,45 +222,76 @@ export async function exportImage(
   renderer.setStore(store);
 
   const grids: GridElement[] = [];
-
-  for (const el of visibleElements) {
-    if (el.type === 'grid') {
-      grids.push(el);
-      continue;
-    }
-
+  const renderElement = (target: CanvasRenderingContext2D, el: CanvasElement): void => {
     if (el.type === 'note') {
       const b = getElementBounds(el);
-      withRotation(ctx, el, b ? center(b) : el.position, () => renderNoteOnCanvas(ctx, el));
-      continue;
+      withRotation(target, el, b ? center(b) : el.position, () => renderNoteOnCanvas(target, el));
+      return;
     }
 
     if (el.type === 'text') {
       const b = getElementBounds(el);
-      withRotation(ctx, el, b ? center(b) : el.position, () => renderTextOnCanvas(ctx, el));
-      continue;
+      withRotation(target, el, b ? center(b) : el.position, () => renderTextOnCanvas(target, el));
+      return;
     }
 
     if (el.type === 'html') {
-      continue;
+      return;
     }
 
     if (el.type === 'image') {
       const img = imageCache.get(el.id);
       if (img) {
         const b = getElementBounds(el);
-        withRotation(ctx, el, b ? center(b) : el.position, () =>
-          ctx.drawImage(img, el.position.x, el.position.y, el.size.w, el.size.h),
+        withRotation(target, el, b ? center(b) : el.position, () =>
+          target.drawImage(img, el.position.x, el.position.y, el.size.w, el.size.h),
         );
       }
+      return;
+    }
+
+    renderer.renderCanvasElement(target, el);
+  };
+
+  const layerGroups = new Map<string, CanvasElement[]>();
+  for (const el of visibleElements) {
+    if (el.type === 'grid') {
+      grids.push(el);
+      continue;
+    }
+    const group = layerGroups.get(el.layerId) ?? [];
+    group.push(el);
+    layerGroups.set(el.layerId, group);
+  }
+
+  for (const [layerId, elements] of layerGroups) {
+    const opacity = layerManager?.getLayer?.(layerId)?.opacity ?? 1;
+    if (opacity === 1) {
+      for (const el of elements) renderElement(ctx, el);
       continue;
     }
 
-    renderer.renderCanvasElement(ctx, el);
+    const layerCanvas = document.createElement('canvas');
+    layerCanvas.width = canvas.width;
+    layerCanvas.height = canvas.height;
+    const layerCtx = layerCanvas.getContext('2d');
+    if (!layerCtx) continue;
+    layerCtx.scale(scale, scale);
+    layerCtx.translate(-bounds.x, -bounds.y);
+    for (const el of elements) renderElement(layerCtx, el);
+
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = opacity;
+    ctx.drawImage(layerCanvas, 0, 0);
+    ctx.restore();
   }
 
   for (const grid of grids) {
+    ctx.save();
+    ctx.globalAlpha = layerManager?.getLayer?.(grid.layerId)?.opacity ?? 1;
     renderGridForBounds(ctx, grid, bounds);
+    ctx.restore();
   }
 
   return new Promise((resolve) => {

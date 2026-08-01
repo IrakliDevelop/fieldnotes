@@ -122,7 +122,7 @@ export function renderSquareGrid(
   ctx.save();
   ctx.strokeStyle = strokeColor;
   ctx.lineWidth = strokeWidth;
-  ctx.globalAlpha = opacity;
+  ctx.globalAlpha *= opacity;
   ctx.beginPath();
 
   for (const x of verticals) {
@@ -167,7 +167,7 @@ export function renderHexGrid(
   ctx.save();
   ctx.strokeStyle = strokeColor;
   ctx.lineWidth = strokeWidth;
-  ctx.globalAlpha = opacity;
+  ctx.globalAlpha *= opacity;
   ctx.beginPath();
 
   // Inline center iteration — zero allocations per hex

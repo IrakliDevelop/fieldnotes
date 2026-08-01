@@ -104,13 +104,18 @@ export class RenderLoop {
 
   markAllLayersDirty(): void {
     this.layerCache.markAllDirty();
+    this.gridCacheDirty = true;
   }
 
   getStats(): RenderStatsSnapshot {
     return this.stats.getSnapshot();
   }
 
-  private compositeLayerCache(ctx: CanvasRenderingContext2D, layerId: string): void {
+  private compositeLayerCache(
+    ctx: CanvasRenderingContext2D,
+    layerId: string,
+    opacity: number,
+  ): void {
     const cached = this.layerCache.getCanvas(layerId);
     const offset = this.marginViewport.compositeOffset(
       this.camera.position.x,
@@ -118,6 +123,7 @@ export class RenderLoop {
     );
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = opacity;
     ctx.drawImage(cached as CanvasImageSource, offset.x, offset.y);
     ctx.restore();
   }
@@ -217,11 +223,12 @@ export class RenderLoop {
       }
 
       if (this.renderer.isDomElement(element)) {
+        const layerOpacity = this.layerManager.getLayer?.(element.layerId)?.opacity ?? 1;
         const elBounds = getElementBounds(element);
         if (elBounds && !boundsIntersect(elBounds, cullingRect)) {
           this.domNodeManager.hideDomNode(element.id);
         } else {
-          this.domNodeManager.syncDomNode(element, domZIndex++);
+          this.domNodeManager.syncDomNode(element, domZIndex++, layerOpacity);
         }
         continue;
       }
@@ -242,17 +249,18 @@ export class RenderLoop {
 
     for (const [layerId, elements] of this.layerGroups) {
       const isActiveDrawingLayer = layerId === this.activeDrawingLayerId;
+      const layerOpacity = this.layerManager.getLayer?.(layerId)?.opacity ?? 1;
 
       if (!this.layerCache.isDirty(layerId)) {
         const compT0 = performance.now();
-        this.compositeLayerCache(ctx, layerId);
+        this.compositeLayerCache(ctx, layerId, layerOpacity);
         compositeMs += performance.now() - compT0;
         continue;
       }
 
       if (isActiveDrawingLayer) {
         const compT0 = performance.now();
-        this.compositeLayerCache(ctx, layerId);
+        this.compositeLayerCache(ctx, layerId, layerOpacity);
         compositeMs += performance.now() - compT0;
         continue;
       }
@@ -274,7 +282,7 @@ export class RenderLoop {
         layersMs += performance.now() - layerT0;
 
         const compT0 = performance.now();
-        this.compositeLayerCache(ctx, layerId);
+        this.compositeLayerCache(ctx, layerId, layerOpacity);
         compositeMs += performance.now() - compT0;
       }
     }
@@ -301,7 +309,10 @@ export class RenderLoop {
           this.marginViewport.applyRenderTransform(gc);
           try {
             for (const grid of gridElements) {
+              gc.save();
+              gc.globalAlpha = this.layerManager.getLayer?.(grid.layerId)?.opacity ?? 1;
               this.renderer.renderCanvasElement(gc as CanvasRenderingContext2D, grid);
+              gc.restore();
             }
           } finally {
             gc.restore();
@@ -323,7 +334,10 @@ export class RenderLoop {
         ctx.restore();
       } else {
         for (const grid of gridElements) {
+          ctx.save();
+          ctx.globalAlpha = this.layerManager.getLayer?.(grid.layerId)?.opacity ?? 1;
           this.renderer.renderCanvasElement(ctx, grid);
+          ctx.restore();
         }
       }
       gridMs = performance.now() - gridT0;
