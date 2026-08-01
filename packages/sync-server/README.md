@@ -51,6 +51,32 @@ createSyncServer({ port: 8080, heartbeatIntervalMs: 30000 });
 
 Browsers auto-pong at the protocol level, so **no client change** is needed.
 
+## Resource limits
+
+The reference server bounds work and memory per connection by default. Oversized WebSocket messages
+close with code `1009`; message-rate and pending-auth queue violations close with code `4408`.
+Messages with excessive JSON nesting are dropped. Presence sends immediately, then coalesces rapid
+updates so the latest state is forwarded at most once per throttle interval.
+
+```ts
+createSyncServer({
+  port: 8080,
+  maxMessageBytes: 1024 * 1024,
+  maxJsonDepth: 32,
+  maxPendingAuthMessages: 100,
+  maxPendingAuthBytes: 2 * 1024 * 1024,
+  messagesPerSecond: 120,
+  messageBurst: 240,
+  presenceThrottleMs: 50,
+});
+```
+
+These values are the defaults. Tune them to the largest legitimate board operation and expected
+client update rate. `maxMessageBytes` is enforced by the WebSocket parser before a complete message
+is allocated, including fragmented messages. The pending-auth limits bound messages held while an
+asynchronous `authenticate` hook is unresolved. Rate limits are per connection and use a token
+bucket: `messageBurst` is the short spike allowance and `messagesPerSecond` is the refill rate.
+
 ## Authentication
 
 Pass an `authenticate` hook to gate connections:

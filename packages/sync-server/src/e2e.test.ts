@@ -81,6 +81,43 @@ describe('sync-server WebSocket relay (end-to-end)', () => {
     expect(code).toBe(4400);
   });
 
+  it('closes clients that exceed the configured message rate', async () => {
+    const server = createSyncServer({ port: 0, messagesPerSecond: 1, messageBurst: 1 });
+    servers.push(server);
+    const port = (server.wss.address() as AddressInfo).port;
+    const c = new WsClient(`ws://127.0.0.1:${port}?room=R`);
+    rawClients.push(c);
+    let code = 0;
+    c.on('close', (closeCode) => {
+      code = closeCode;
+    });
+    await new Promise<void>((resolve) => c.once('open', () => resolve()));
+    c.send(JSON.stringify({ from: 'a', op: { kind: 'request-snapshot' } }));
+    c.send(JSON.stringify({ from: 'a', op: { kind: 'request-snapshot' } }));
+
+    await waitFor(() => code !== 0);
+    expect(code).toBe(4408);
+    await waitFor(() => server.hub.roomCount() === 0);
+  });
+
+  it('closes clients whose message exceeds the configured byte limit', async () => {
+    const server = createSyncServer({ port: 0, maxMessageBytes: 128 });
+    servers.push(server);
+    const port = (server.wss.address() as AddressInfo).port;
+    const c = new WsClient(`ws://127.0.0.1:${port}?room=R`);
+    rawClients.push(c);
+    let code = 0;
+    c.on('error', () => undefined);
+    c.on('close', (closeCode) => {
+      code = closeCode;
+    });
+    await new Promise<void>((resolve) => c.once('open', () => resolve()));
+    c.send('x'.repeat(129));
+
+    await waitFor(() => code !== 0);
+    expect(code).toBe(1009);
+  });
+
   it('forwards a live op from one client to another in the same room', async () => {
     const { port, backend } = startServer();
     const a = connect(port, 'R');

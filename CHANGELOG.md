@@ -9,6 +9,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 - Added `examples/live-play` — a framework-free reference app demonstrating the full real-time-collab stack
   (role join, ownership, DM hide/reveal, live cursors) against a `createSyncServer` relay.
 
+## [@fieldnotes/sync-server 0.9.0] — 2026-08-01
+
+### Added
+
+- The relay now applies configurable inbound message-size, message-rate, JSON-depth, pending-auth
+  queue, and presence-frequency limits with production-safe defaults.
+- Rapid presence updates are coalesced so peers receive the latest state without unbounded relay
+  traffic.
+
 ## [@fieldnotes/sync-server 0.8.2] — 2026-08-01
 
 ### Security

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createShape } from '@fieldnotes/core';
 import type { CanvasElement } from '@fieldnotes/core';
 import type { SyncOp } from '@fieldnotes/sync';
@@ -111,6 +111,18 @@ describe('SyncHub', () => {
     expect(A.sent).toEqual([]);
     expect(B.sent).toEqual([]);
     expect(C.sent).toEqual([]);
+  });
+
+  it('drops envelopes deeper than the configured JSON limit', async () => {
+    const hub = new SyncHub({ maxJsonDepth: 1 });
+    const a = makeConn('A', 'R');
+    const b = makeConn('B', 'R');
+    hub.addConnection(a);
+    hub.addConnection(b);
+
+    await hub.handleMessage('A', JSON.stringify({ from: 'A', op: { kind: 'clear' } }));
+
+    expect(b.sent).toEqual([]);
   });
 
   it('does not persist or broadcast a structurally malformed upsert', async () => {
@@ -822,6 +834,29 @@ describe('presence (ephemeral)', () => {
       from: 'a',
       op: { kind: 'presence', data: { x: 1 } },
     });
+  });
+
+  it('coalesces rapid presence updates and relays the latest state', async () => {
+    vi.useFakeTimers();
+    try {
+      const hub = new SyncHub({ presenceThrottleMs: 50 });
+      const a = makeConn('a', 'R');
+      const b = makeConn('b', 'R');
+      hub.addConnection(a);
+      hub.addConnection(b);
+
+      await hub.handleMessage('a', presenceMsg('ca', { x: 1 }));
+      await hub.handleMessage('a', presenceMsg('ca', { x: 2 }));
+      await hub.handleMessage('a', presenceMsg('ca', { x: 3 }));
+      expect(b.sent).toHaveLength(1);
+
+      await vi.advanceTimersByTimeAsync(50);
+      expect(b.sent).toHaveLength(2);
+      expect(JSON.parse(b.sent[1] as string).op.data).toEqual({ x: 3 });
+      hub.close();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('uses the connection identity when a client forges another sender', async () => {
