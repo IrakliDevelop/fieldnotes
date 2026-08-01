@@ -9,6 +9,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 - Added `examples/live-play` — a framework-free reference app demonstrating the full real-time-collab stack
   (role join, ownership, DM hide/reveal, live cursors) against a `createSyncServer` relay.
 
+## [@fieldnotes/sync-server 0.8.2] — 2026-08-01
+
+### Security
+
+- Relayed mutations, presence updates, cross-instance fan-out, and disconnect leaves now use the
+  server-owned connection identity instead of trusting the client-controlled envelope sender.
+
 ## [@fieldnotes/core 0.52.2] — 2026-08-01
 
 ### Fixed

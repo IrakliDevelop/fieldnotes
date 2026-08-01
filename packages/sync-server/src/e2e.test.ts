@@ -105,6 +105,35 @@ describe('sync-server WebSocket relay (end-to-end)', () => {
     expect(a.store.count).toBe(2); // seed + live, no duplicate echoed back to A
   }, 10000);
 
+  it('replaces forged presence identity and uses the same identity for disconnect leave', async () => {
+    const { port } = startServer();
+    const attacker = new WsClient(`ws://127.0.0.1:${port}?room=R`);
+    const observer = new WsClient(`ws://127.0.0.1:${port}?room=R`);
+    rawClients.push(attacker, observer);
+    await Promise.all([
+      new Promise<void>((resolve) => attacker.once('open', () => resolve())),
+      new Promise<void>((resolve) => observer.once('open', () => resolve())),
+    ]);
+
+    const received: { from: string; op: { kind: string; data?: unknown } }[] = [];
+    observer.on('message', (data) => received.push(JSON.parse(String(data))));
+    attacker.send(
+      JSON.stringify({ from: 'forged-victim', op: { kind: 'presence', data: { x: 1 } } }),
+    );
+    await waitFor(() => received.length === 1);
+
+    const assignedIdentity = received[0]?.from;
+    expect(assignedIdentity).not.toBe('forged-victim');
+    expect(received[0]?.op).toEqual({ kind: 'presence', data: { x: 1 } });
+
+    attacker.close();
+    await waitFor(() => received.length === 2);
+    expect(received[1]).toEqual({
+      from: assignedIdentity,
+      op: { kind: 'presence-leave' },
+    });
+  });
+
   it('sends the room snapshot to a freshly joined client', async () => {
     const { port, backend } = startServer();
     const a = connect(port, 'R');

@@ -82,6 +82,14 @@ Messages that arrive during an async auth (notably the client's initial
 `request-snapshot`) are queued and replayed once the connection is admitted, so the
 first snapshot is never lost to the auth round-trip.
 
+### Relay identity
+
+The relay assigns every admitted socket an opaque connection identity. That server-owned identity
+is used as `from` on all relayed mutations, presence updates, cross-instance fan-out, and disconnect
+leave events; the client-controlled envelope `from` cannot impersonate another connection. Presence
+identity is intentionally connection-scoped and changes after reconnecting. Application authorization
+continues to use the authenticated `userId` and `role`, not this transport identity.
+
 ### Passing a token
 
 A browser `WebSocket` can't set request headers, so pass the token as a URL query
