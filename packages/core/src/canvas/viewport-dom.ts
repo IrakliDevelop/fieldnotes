@@ -37,3 +37,10 @@ export function createDomLayer(): HTMLDivElement {
   });
   return el;
 }
+
+export function createPaintStack(): HTMLDivElement {
+  const el = createDomLayer();
+  el.dataset['fieldnotesPaintStack'] = '';
+  el.style.transformOrigin = '';
+  return el;
+}

@@ -80,7 +80,8 @@ card.querySelector('button').addEventListener('click', () => {
 const elementId = viewport.addHtmlElement(card, { x: 100, y: 200 }, { w: 250, h: 150 });
 ```
 
-HTML elements pan, zoom, and resize with the canvas. They use a **two-mode interaction model**:
+HTML elements pan, zoom, resize, and interleave by layer/`zIndex` with canvas-rendered content. They
+use a **two-mode interaction model**:
 
 - **Default** — the element can be selected, dragged, and resized like any other element
 - **Double-click** — enters interact mode, making buttons, inputs, and links work

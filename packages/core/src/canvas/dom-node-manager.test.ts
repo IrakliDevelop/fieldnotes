@@ -12,6 +12,15 @@ import {
 } from '../elements/element-factory';
 
 describe('DomNodeManager', () => {
+  it('applies camera transforms to every DOM paint stratum', () => {
+    const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+    manager.syncDomNode(note, 2);
+    manager.setCameraTransform('translate3d(20px, 30px, 0) scale(2)');
+    expect(manager.getNode(note.id)?.parentElement?.style.transform).toBe(
+      'translate3d(20px, 30px, 0) scale(2)',
+    );
+  });
+
   it('applies layer opacity to DOM elements', () => {
     const note = createNote({
       text: 'Faded',
@@ -81,6 +90,15 @@ describe('DomNodeManager', () => {
       });
       manager.syncDomNode(note, 5);
       expect(manager.getNode(note.id)?.style.zIndex).toBe('5');
+      expect(manager.getNode(note.id)?.parentElement?.dataset['paintOrder']).toBe('5');
+    });
+
+    it('moves an existing node when its paint order changes', () => {
+      const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
+      manager.syncDomNode(note, 1);
+      manager.syncDomNode(note, 3);
+      expect(manager.getNode(note.id)?.parentElement?.dataset['paintOrder']).toBe('3');
+      expect(domLayer.querySelector('[data-paint-order="1"]')).toBeNull();
     });
   });
 
@@ -357,7 +375,7 @@ describe('DomNodeManager', () => {
       });
       manager.syncDomNode(n1);
       manager.syncDomNode(n2);
-      expect(domLayer.children.length).toBe(2);
+      expect(domLayer.querySelectorAll('[data-element-id]').length).toBe(2);
       manager.clearDomNodes();
       expect(domLayer.children.length).toBe(0);
       expect(manager.getNode(n1.id)).toBeUndefined();

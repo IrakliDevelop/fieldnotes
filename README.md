@@ -156,7 +156,9 @@ pnpm dev              # start demo dev server (from demo/)
 
 ## Architecture
 
-Hybrid rendering: Canvas API for strokes/shapes/arrows, DOM for notes/images/HTML embeds. A shared camera system keeps both layers in sync. See [PROJECT.md](PROJECT.md) for full architecture details.
+Hybrid rendering: Canvas API for strokes/shapes/arrows, DOM for notes/images/HTML embeds. Shared
+camera and paint-stack systems keep both renderers synchronized and correctly interleaved by layer
+and `zIndex`. See [PROJECT.md](PROJECT.md) for full architecture details.
 
 ## License
 

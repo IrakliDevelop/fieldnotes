@@ -24,7 +24,9 @@ function makeDeps(store: ElementStore, overrides: Partial<ViewportInteractionsDe
     wrapper: document.createElement('div') as HTMLDivElement,
     domLayer: document.createElement('div') as HTMLDivElement,
     renderLoop: { flush: vi.fn() } as never,
-    domNodeManager: { getNode: (id: string) => nodes.get(id) } as never,
+    domNodeManager: {
+      getNode: (id: string) => nodes.get(id),
+    } as never,
     noteEditor: { startEditing: vi.fn() } as never,
     arrowLabelEditor: { startEditing: vi.fn() } as never,
     interactMode: { startInteracting: vi.fn(), stopInteracting: vi.fn() } as never,
