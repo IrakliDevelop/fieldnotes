@@ -38,6 +38,17 @@ describe('Quadtree', () => {
       qt.insert('a', { x: 0, y: 0, w: 10, h: 10 });
       expect(qt.query({ x: 10, y: 0, w: 10, h: 10 })).toEqual(['a']);
     });
+
+    it('expands to index items outside the initial world bounds', () => {
+      const qt = new Quadtree(worldBounds);
+      qt.insert('nearby', { x: 0, y: 0, w: 20, h: 20 });
+      qt.insert('far-positive', { x: 1_000_000, y: 2_000_000, w: 20, h: 20 });
+      qt.insert('far-negative', { x: -2_000_000, y: -1_000_000, w: 20, h: 20 });
+
+      expect(qt.queryPoint({ x: 10, y: 10 })).toEqual(['nearby']);
+      expect(qt.queryPoint({ x: 1_000_010, y: 2_000_010 })).toEqual(['far-positive']);
+      expect(qt.queryPoint({ x: -1_999_990, y: -999_990 })).toEqual(['far-negative']);
+    });
   });
 
   describe('queryPoint', () => {
@@ -87,6 +98,16 @@ describe('Quadtree', () => {
       qt.update('a', { x: 500, y: 500, w: 10, h: 10 });
       expect(qt.query({ x: 0, y: 0, w: 50, h: 50 })).toEqual([]);
       expect(qt.query({ x: 490, y: 490, w: 30, h: 30 })).toEqual(['a']);
+    });
+
+    it('keeps an item queryable when it moves outside the initial world bounds', () => {
+      const qt = new Quadtree(worldBounds);
+      qt.insert('a', { x: 0, y: 0, w: 10, h: 10 });
+
+      qt.update('a', { x: 1_000_000, y: -2_000_000, w: 10, h: 10 });
+
+      expect(qt.queryPoint({ x: 1_000_005, y: -1_999_995 })).toEqual(['a']);
+      expect(qt.size).toBe(1);
     });
   });
 
