@@ -1,0 +1,4 @@
+interface:
+  display_name: 'Field Notes Development'
+  short_description: 'Build and review Field Notes changes safely'
+  default_prompt: 'Use $fieldnotes-development to implement and verify a change in Field Notes.'
