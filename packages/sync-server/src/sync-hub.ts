@@ -3,6 +3,11 @@ import { MemoryHubBackend } from './memory-hub-backend';
 import { InMemoryHubFanout, type HubFanout } from './hub-fanout';
 import type { HubBackend } from './hub-backend';
 import type { Authorize, CanRead, OwnedElement } from './authorize';
+import {
+  DEFAULT_MAX_JSON_DEPTH,
+  DEFAULT_PRESENCE_THROTTLE_MS,
+  hasJsonDepthAtMost,
+} from './resource-limits';
 
 export interface Connection {
   id: string;
@@ -18,6 +23,8 @@ export interface SyncHubOptions {
   instanceId?: string;
   authorize?: Authorize;
   canRead?: CanRead;
+  maxJsonDepth?: number;
+  presenceThrottleMs?: number;
 }
 
 const HUB_FROM = 'hub';
@@ -55,6 +62,13 @@ export class SyncHub {
   private readonly fanoutUnsub: () => void;
   private readonly authorize?: Authorize;
   private readonly canRead?: CanRead;
+  private readonly maxJsonDepth: number;
+  private readonly presenceThrottleMs: number;
+  private readonly lastPresenceAt = new Map<string, number>();
+  private readonly pendingPresence = new Map<
+    string,
+    { data: unknown; timer: ReturnType<typeof setTimeout> }
+  >();
 
   constructor(options: SyncHubOptions = {}) {
     this.backend = options.backend ?? new MemoryHubBackend();
@@ -62,6 +76,8 @@ export class SyncHub {
     this.fanout = options.fanout ?? new InMemoryHubFanout();
     this.authorize = options.authorize;
     this.canRead = options.canRead;
+    this.maxJsonDepth = options.maxJsonDepth ?? DEFAULT_MAX_JSON_DEPTH;
+    this.presenceThrottleMs = options.presenceThrottleMs ?? DEFAULT_PRESENCE_THROTTLE_MS;
     this.fanoutUnsub = this.fanout.subscribe((payload) => this.onFanout(payload));
   }
 
@@ -81,6 +97,10 @@ export class SyncHub {
     this.conns.delete(connId);
     const room = conn.room;
     const hadPresence = this.presenceConnections.delete(connId);
+    this.lastPresenceAt.delete(connId);
+    const pendingPresence = this.pendingPresence.get(connId);
+    if (pendingPresence) clearTimeout(pendingPresence.timer);
+    this.pendingPresence.delete(connId);
     const members = this.rooms.get(room);
     if (members) {
       members.delete(connId);
@@ -99,10 +119,11 @@ export class SyncHub {
   handleMessage(connId: string, message: string): Promise<void> {
     const conn = this.conns.get(connId);
     if (!conn) return Promise.resolve();
+    if (!hasJsonDepthAtMost(message, this.maxJsonDepth)) return Promise.resolve();
     const env = parseEnvelope(message);
     if (!env) return Promise.resolve();
     if (env.op.kind === 'presence') {
-      this.broadcastPresence(conn, env.op.data); // off-queue, synchronous
+      this.schedulePresence(conn, env.op.data); // off-queue, throttled independently
       return Promise.resolve();
     }
     const room = conn.room;
@@ -218,6 +239,37 @@ export class SyncHub {
     );
   }
 
+  private schedulePresence(conn: Connection, data: unknown): void {
+    if (this.presenceThrottleMs <= 0) {
+      this.broadcastPresence(conn, data);
+      return;
+    }
+    const now = Date.now();
+    const lastSentAt = this.lastPresenceAt.get(conn.id);
+    if (lastSentAt === undefined || now - lastSentAt >= this.presenceThrottleMs) {
+      this.lastPresenceAt.set(conn.id, now);
+      this.broadcastPresence(conn, data);
+      return;
+    }
+
+    const existing = this.pendingPresence.get(conn.id);
+    if (existing) {
+      existing.data = data;
+      return;
+    }
+    const timer = setTimeout(
+      () => {
+        const pending = this.pendingPresence.get(conn.id);
+        this.pendingPresence.delete(conn.id);
+        if (!pending || !this.conns.has(conn.id)) return;
+        this.lastPresenceAt.set(conn.id, Date.now());
+        this.broadcastPresence(conn, pending.data);
+      },
+      this.presenceThrottleMs - (now - lastSentAt),
+    );
+    this.pendingPresence.set(conn.id, { data, timer });
+  }
+
   private broadcastLeave(room: string, from: string): void {
     const message = JSON.stringify({ from, op: { kind: 'presence-leave' } });
     this.relayToRoom(room, undefined, message);
@@ -331,6 +383,8 @@ export class SyncHub {
   }
 
   close(): void {
+    for (const pending of this.pendingPresence.values()) clearTimeout(pending.timer);
+    this.pendingPresence.clear();
     this.fanoutUnsub();
   }
 }

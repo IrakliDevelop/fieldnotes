@@ -3,7 +3,7 @@ import { WebSocket as WsClient } from 'ws';
 import type { AddressInfo } from 'net';
 import { SyncClient, WebSocketTransport } from '@fieldnotes/sync';
 import { ElementStore, createShape } from '@fieldnotes/core';
-import { createSyncServer } from './create-sync-server';
+import { createSyncServer, type CreateSyncServerOptions } from './create-sync-server';
 import type { Authenticate } from './authenticate';
 
 type Server = ReturnType<typeof createSyncServer>;
@@ -30,8 +30,11 @@ describe('sync-server authentication (end-to-end)', () => {
   const transports: WebSocketTransport[] = [];
   const rawSockets: WsClient[] = [];
 
-  function startServer(authenticate: Authenticate) {
-    const server = createSyncServer({ port: 0, authenticate });
+  function startServer(
+    authenticate: Authenticate,
+    options: Omit<CreateSyncServerOptions, 'port' | 'authenticate'> = {},
+  ) {
+    const server = createSyncServer({ port: 0, authenticate, ...options });
     servers.push(server);
     const port = (server.wss.address() as AddressInfo).port;
     return { server, port };
@@ -139,4 +142,25 @@ describe('sync-server authentication (end-to-end)', () => {
     await waitFor(() => b.store.getById('e1') !== undefined);
     expect(b.store.getById('e1')).toBeDefined();
   }, 10000);
+
+  it('closes a connection whose pending-auth queue exceeds its byte budget', async () => {
+    const { server, port } = startServer(() => new Promise(() => undefined), {
+      maxPendingAuthBytes: 60,
+      maxPendingAuthMessages: 100,
+      messageBurst: 100,
+    });
+    const c = new WsClient(`ws://127.0.0.1:${port}?room=R`);
+    rawSockets.push(c);
+    let closeCode = 0;
+    c.on('close', (code) => {
+      closeCode = code;
+    });
+    await new Promise<void>((resolve) => c.once('open', () => resolve()));
+    c.send('x'.repeat(40));
+    c.send('x'.repeat(40));
+
+    await waitFor(() => closeCode !== 0);
+    expect(closeCode).toBe(4408);
+    expect(server.hub.roomCount()).toBe(0);
+  });
 });
