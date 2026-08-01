@@ -1,5 +1,16 @@
 import { describe, it, expect } from 'vitest';
-import { createShape, type CanvasElement } from '@fieldnotes/core';
+import {
+  createArrow,
+  createGrid,
+  createHtmlElement,
+  createImage,
+  createNote,
+  createShape,
+  createStroke,
+  createTemplate,
+  createText,
+  type CanvasElement,
+} from '@fieldnotes/core';
 import {
   isValidElement,
   isValidEnvelope,
@@ -9,16 +20,65 @@ import {
 } from './protocol';
 
 function shape(x = 0): CanvasElement {
-  return createShape({ position: { x, y: x }, size: { width: 10, height: 10 } });
+  return createShape({ position: { x, y: x }, size: { w: 10, h: 10 } });
 }
 
 describe('isValidElement', () => {
-  it('accepts a real element', () => {
-    expect(isValidElement(shape())).toBe(true);
+  it('accepts every real element variant', () => {
+    const elements: CanvasElement[] = [
+      createStroke({ points: [{ x: 0, y: 0, pressure: 0.5 }] }),
+      createNote({ position: { x: 0, y: 0 } }),
+      createArrow({ from: { x: 0, y: 0 }, to: { x: 10, y: 10 } }),
+      createImage({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 }, src: '/map.png' }),
+      createHtmlElement({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } }),
+      createText({ position: { x: 0, y: 0 } }),
+      shape(),
+      createGrid({}),
+      createTemplate({
+        position: { x: 0, y: 0 },
+        templateShape: 'cone',
+        radius: 30,
+      }),
+    ];
+
+    for (const element of elements) expect(isValidElement(element)).toBe(true);
   });
 
-  it('accepts a minimal id + known type', () => {
-    expect(isValidElement({ id: 'x', type: 'shape' })).toBe(true);
+  it('rejects a known type whose required fields are missing', () => {
+    expect(isValidElement({ id: 'x', type: 'shape' })).toBe(false);
+  });
+
+  it('rejects malformed base fields and non-finite geometry', () => {
+    const valid = shape();
+    expect(isValidElement({ ...valid, position: { x: '0', y: 0 } })).toBe(false);
+    expect(isValidElement({ ...valid, locked: 'false' })).toBe(false);
+    expect(isValidElement({ ...valid, zIndex: Number.NaN })).toBe(false);
+    expect(isValidElement({ ...valid, size: { w: Number.POSITIVE_INFINITY, h: 10 } })).toBe(false);
+  });
+
+  it('rejects malformed fields specific to each element variant', () => {
+    const malformed: unknown[] = [
+      { ...createStroke({ points: [{ x: 0, y: 0, pressure: 0.5 }] }), points: [{}] },
+      { ...createNote({ position: { x: 0, y: 0 } }), textColor: 42 },
+      { ...createArrow({ from: { x: 0, y: 0 }, to: { x: 10, y: 10 } }), from: null },
+      {
+        ...createImage({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 }, src: '/map.png' }),
+        src: 42,
+      },
+      {
+        ...createHtmlElement({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } }),
+        interactive: 'yes',
+      },
+      { ...createText({ position: { x: 0, y: 0 } }), textAlign: 'justify' },
+      { ...shape(), shape: 'triangle' },
+      { ...createGrid({}), gridType: 'triangle' },
+      {
+        ...createTemplate({ position: { x: 0, y: 0 }, templateShape: 'cone', radius: 30 }),
+        templateShape: 'triangle',
+      },
+    ];
+
+    for (const element of malformed) expect(isValidElement(element)).toBe(false);
   });
 
   it('rejects an object with no id', () => {

@@ -184,10 +184,11 @@ describe('SyncClient', () => {
     expect(storeB.getById(existing.id)).toBeDefined();
   });
 
-  it('rejects an upsert envelope carrying a malformed element (no id/type)', () => {
+  it('rejects an upsert envelope carrying a structurally malformed element', () => {
     const before = storeB.count;
+    const malformed = { ...shape(1), size: { w: 'wide', h: 10 } };
 
-    transportA.send(JSON.stringify({ from: 'X', op: { kind: 'upsert', element: {} } }));
+    transportA.send(JSON.stringify({ from: 'X', op: { kind: 'upsert', element: malformed } }));
 
     expect(storeB.count).toBe(before);
   });
@@ -214,7 +215,7 @@ describe('SyncClient', () => {
 
 // createShape needs no DOMParser/jsdom, so these stay pure node.
 function shape(x: number): CanvasElement {
-  return createShape({ position: { x, y: x }, size: { width: 10, height: 10 } });
+  return createShape({ position: { x, y: x }, size: { w: 10, h: 10 } });
 }
 
 describe('SyncClient snapshot-on-join', () => {
@@ -664,7 +665,7 @@ describe('audience stamping (resolveAudience)', () => {
     const transport = bus.endpoint();
     const client = new SyncClient({ store, transport, clientId: 'A' });
     client.start();
-    store.add(createShape({ position: { x: 0, y: 0 }, size: { width: 1, height: 1 } }));
+    store.add(createShape({ position: { x: 0, y: 0 }, size: { w: 1, h: 1 } }));
     const up = lastUpsert(transport.sent);
     expect(up).toBeDefined();
     expect(up && 'audience' in up.element).toBe(false);
@@ -676,7 +677,7 @@ describe('audience stamping (resolveAudience)', () => {
     const transport = bus.endpoint();
     const client = new SyncClient({ store, transport, clientId: 'A', resolveAudience: () => 'dm' });
     client.start();
-    store.add(createShape({ position: { x: 0, y: 0 }, size: { width: 1, height: 1 } }));
+    store.add(createShape({ position: { x: 0, y: 0 }, size: { w: 1, h: 1 } }));
     const up = lastUpsert(transport.sent);
     expect(up?.element.audience).toBe('dm');
   });
@@ -692,7 +693,7 @@ describe('audience stamping (resolveAudience)', () => {
       resolveAudience: () => undefined,
     });
     client.start();
-    store.add(createShape({ position: { x: 0, y: 0 }, size: { width: 1, height: 1 } }));
+    store.add(createShape({ position: { x: 0, y: 0 }, size: { w: 1, h: 1 } }));
     const up = lastUpsert(transport.sent);
     expect(up && 'audience' in up.element).toBe(false);
   });
@@ -703,7 +704,7 @@ describe('audience stamping (resolveAudience)', () => {
     const transport = bus.endpoint();
     const client = new SyncClient({ store, transport, clientId: 'A', resolveAudience: () => 'dm' });
     client.start();
-    const el = createShape({ position: { x: 0, y: 0 }, size: { width: 1, height: 1 } });
+    const el = createShape({ position: { x: 0, y: 0 }, size: { w: 1, h: 1 } });
     store.add(el);
     store.remove(el.id);
     const removeEnv = transport.sent

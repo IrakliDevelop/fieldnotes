@@ -120,6 +120,11 @@ describe('RedisHubBackend', () => {
     await b.apply('R', { kind: 'upsert', element: element('good') });
     await fake.hSet('fieldnotes:room:R', 'bad', 'not json{');
     await fake.hSet('fieldnotes:room:R', 'noid', JSON.stringify({ type: 'shape' }));
+    await fake.hSet(
+      'fieldnotes:room:R',
+      'malformed',
+      JSON.stringify({ ...element('malformed'), size: { w: 'wide', h: 10 } }),
+    );
 
     const snap = await b.snapshot('R');
     expect(snap).toHaveLength(1);

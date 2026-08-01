@@ -5,14 +5,14 @@ import { MemoryHubBackend } from './memory-hub-backend';
 describe('MemoryHubBackend', () => {
   it('applies upsert and returns it in the snapshot', async () => {
     const backend = new MemoryHubBackend();
-    const el = createShape({ position: { x: 0, y: 0 }, size: { width: 10, height: 10 } });
+    const el = createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } });
     await backend.apply('R', { kind: 'upsert', element: el });
     expect(await backend.snapshot('R')).toEqual([el]);
   });
 
   it('applies remove', async () => {
     const backend = new MemoryHubBackend();
-    const el = createShape({ position: { x: 0, y: 0 }, size: { width: 10, height: 10 } });
+    const el = createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } });
     await backend.apply('R', { kind: 'upsert', element: el });
     await backend.apply('R', { kind: 'remove', id: el.id });
     expect(await backend.snapshot('R')).toEqual([]);
@@ -22,7 +22,7 @@ describe('MemoryHubBackend', () => {
     const backend = new MemoryHubBackend();
     await backend.apply('R', {
       kind: 'upsert',
-      element: createShape({ position: { x: 0, y: 0 }, size: { width: 10, height: 10 } }),
+      element: createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } }),
     });
     await backend.apply('R', { kind: 'clear' });
     expect(await backend.snapshot('R')).toEqual([]);
@@ -32,7 +32,7 @@ describe('MemoryHubBackend', () => {
     const backend = new MemoryHubBackend();
     await backend.apply('R', {
       kind: 'upsert',
-      element: createShape({ position: { x: 0, y: 0 }, size: { width: 10, height: 10 } }),
+      element: createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } }),
     });
     await backend.apply('R', { kind: 'clear' });
     expect((backend as unknown as { rooms: Map<string, unknown> }).rooms.has('R')).toBe(false);
@@ -41,7 +41,7 @@ describe('MemoryHubBackend', () => {
 
   it('isolates rooms — applying to R does not affect R2', async () => {
     const backend = new MemoryHubBackend();
-    const el = createShape({ position: { x: 0, y: 0 }, size: { width: 10, height: 10 } });
+    const el = createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } });
     await backend.apply('R', { kind: 'upsert', element: el });
     expect(await backend.snapshot('R2')).toEqual([]);
     expect(await backend.snapshot('R')).toEqual([el]);
@@ -49,7 +49,7 @@ describe('MemoryHubBackend', () => {
 
   it('get returns the stored element after apply', async () => {
     const backend = new MemoryHubBackend();
-    const el = createShape({ position: { x: 0, y: 0 }, size: { width: 10, height: 10 } });
+    const el = createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } });
     await backend.apply('R', { kind: 'upsert', element: el });
     expect(await backend.get('R', el.id)).toEqual(el);
   });
