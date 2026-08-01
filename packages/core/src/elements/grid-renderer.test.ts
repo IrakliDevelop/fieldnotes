@@ -251,6 +251,15 @@ describe('renderHexGrid — flat-top detailed', () => {
     expect(ctx.globalAlpha).toBe(0.4);
   });
 
+  it('multiplies grid opacity with an existing layer opacity', () => {
+    const ctx = mockCtx();
+    ctx.globalAlpha = 0.5;
+
+    renderSquareGrid(ctx, { minX: 0, minY: 0, maxX: 100, maxY: 100 }, 20, '#ccc', 1, 0.4);
+
+    expect(ctx.globalAlpha).toBe(0.2);
+  });
+
   it('sets strokeStyle and lineWidth', () => {
     const ctx = mockCtx();
     renderHexGrid(ctx, { minX: 0, minY: 0, maxX: 50, maxY: 50 }, 10, 'pointy', '#abc', 3, 1);

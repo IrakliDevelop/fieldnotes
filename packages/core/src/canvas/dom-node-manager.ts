@@ -18,6 +18,7 @@ export class DomNodeManager {
   private readonly getVersion: ((id: string) => number) | null;
   private lastSyncedVersion = new Map<string, number>();
   private lastSyncedZIndex = new Map<string, number>();
+  private lastSyncedOpacity = new Map<string, number>();
 
   constructor(deps: DomNodeManagerDeps) {
     this.domLayer = deps.domLayer;
@@ -42,6 +43,7 @@ export class DomNodeManager {
     this.htmlContent.delete(elementId);
     this.lastSyncedVersion.delete(elementId);
     this.lastSyncedZIndex.delete(elementId);
+    this.lastSyncedOpacity.delete(elementId);
     const node = this.domNodes.get(elementId);
     if (!node) return;
     while (node.firstChild) {
@@ -50,7 +52,7 @@ export class DomNodeManager {
     delete node.dataset['initialized'];
   }
 
-  syncDomNode(element: CanvasElement, zIndex = 0): void {
+  syncDomNode(element: CanvasElement, zIndex = 0, opacity = 1): void {
     let node = this.domNodes.get(element.id);
     if (!node) {
       node = document.createElement('div');
@@ -65,7 +67,8 @@ export class DomNodeManager {
       const currentVersion = this.getVersion(element.id);
       const lastVersion = this.lastSyncedVersion.get(element.id);
       const lastZ = this.lastSyncedZIndex.get(element.id);
-      if (lastVersion === currentVersion && lastZ === zIndex) {
+      const lastOpacity = this.lastSyncedOpacity.get(element.id);
+      if (lastVersion === currentVersion && lastZ === zIndex && lastOpacity === opacity) {
         return;
       }
     }
@@ -73,6 +76,7 @@ export class DomNodeManager {
     if (this.getVersion) {
       this.lastSyncedVersion.set(element.id, this.getVersion(element.id));
       this.lastSyncedZIndex.set(element.id, zIndex);
+      this.lastSyncedOpacity.set(element.id, opacity);
     }
 
     const size = 'size' in element ? element.size : null;
@@ -83,6 +87,7 @@ export class DomNodeManager {
       width: size ? `${size.w}px` : 'auto',
       height: size ? `${size.h}px` : 'auto',
       zIndex: String(zIndex),
+      opacity: String(opacity),
       transform: element.rotation ? `rotate(${element.rotation}rad)` : '',
       transformOrigin: '50% 50%',
     });
@@ -99,6 +104,7 @@ export class DomNodeManager {
     this.htmlContent.delete(id);
     this.lastSyncedVersion.delete(id);
     this.lastSyncedZIndex.delete(id);
+    this.lastSyncedOpacity.delete(id);
     const node = this.domNodes.get(id);
     if (node) {
       node.remove();
@@ -112,6 +118,7 @@ export class DomNodeManager {
     this.htmlContent.clear();
     this.lastSyncedVersion.clear();
     this.lastSyncedZIndex.clear();
+    this.lastSyncedOpacity.clear();
   }
 
   reattachHtmlContent(store: ElementStore): void {

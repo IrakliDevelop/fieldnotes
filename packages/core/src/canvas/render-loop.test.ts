@@ -63,6 +63,7 @@ function createMockDeps() {
 
   const layerManager = {
     isLayerVisible: vi.fn().mockReturnValue(true),
+    getLayer: vi.fn().mockReturnValue({ opacity: 1 }),
   } as unknown as LayerManager;
 
   const domNodeManager = {
@@ -293,6 +294,27 @@ describe('RenderLoop', () => {
       expect(deps.layerCache.getCanvas).toHaveBeenCalledWith('default');
     });
 
+    it('applies layer opacity while compositing the cached layer', () => {
+      vi.mocked(deps.layerCache.isDirty).mockReturnValue(false);
+      vi.mocked(deps.layerManager.getLayer).mockReturnValue({ opacity: 0.4 } as never);
+      vi.mocked(deps.store.getAll).mockReturnValue([
+        {
+          id: 'on-1',
+          type: 'rectangle',
+          layerId: 'default',
+          position: { x: 50, y: 50 },
+          size: { w: 100, h: 100 },
+        },
+      ] as never);
+
+      renderLoop.requestRender();
+      renderLoop.flush();
+
+      const mainCtx = deps.canvasEl.getContext('2d');
+      expect(mainCtx?.globalAlpha).toBe(0.4);
+      expect(mainCtx?.drawImage).toHaveBeenCalled();
+    });
+
     it('re-renders dirty layers to offscreen canvas', () => {
       vi.mocked(deps.layerCache.isDirty).mockReturnValue(true);
       const onScreenRect = {
@@ -354,6 +376,26 @@ describe('RenderLoop', () => {
     it('markAllLayersDirty delegates to layerCache', () => {
       renderLoop.markAllLayersDirty();
       expect(deps.layerCache.markAllDirty).toHaveBeenCalled();
+    });
+
+    it('markAllLayersDirty invalidates the grid cache', () => {
+      vi.mocked(deps.store.getAll).mockReturnValue([
+        {
+          id: 'grid-1',
+          type: 'grid',
+          layerId: 'default',
+          position: { x: 0, y: 0 },
+        },
+      ] as never);
+      renderLoop.requestRender();
+      renderLoop.flush();
+      vi.mocked(deps.renderer.renderCanvasElement).mockClear();
+
+      renderLoop.markAllLayersDirty();
+      renderLoop.requestRender();
+      renderLoop.flush();
+
+      expect(deps.renderer.renderCanvasElement).toHaveBeenCalled();
     });
 
     it('renders grid elements directly to main canvas, not through layer cache', () => {

@@ -12,6 +12,18 @@ import {
 } from '../elements/element-factory';
 
 describe('DomNodeManager', () => {
+  it('applies layer opacity to DOM elements', () => {
+    const note = createNote({
+      text: 'Faded',
+      position: { x: 0, y: 0 },
+      size: { w: 100, h: 50 },
+    });
+
+    manager.syncDomNode(note, 0, 0.35);
+
+    expect(manager.getNode(note.id)?.style.opacity).toBe('0.35');
+  });
+
   let domLayer: HTMLDivElement;
   let onEditRequest: ReturnType<typeof vi.fn>;
   let isEditingElement: ReturnType<typeof vi.fn>;

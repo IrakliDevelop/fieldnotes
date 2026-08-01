@@ -257,6 +257,7 @@ function mockCanvasCtx() {
     stroke: vi.fn(),
     fill: vi.fn(),
     drawImage: vi.fn(),
+    setTransform: vi.fn(),
     setLineDash: vi.fn(),
     roundRect: vi.fn(),
     font: '',
@@ -293,6 +294,29 @@ describe('exportImage — rendering paths', () => {
     const blob = await exportImage(store);
     expect(blob).toBeInstanceOf(Blob);
     expect(ctx.fill).toHaveBeenCalled();
+    vi.restoreAllMocks();
+  });
+
+  it('composites a translucent layer as one group', async () => {
+    const ctx = mockGetContext();
+    const store = new ElementStore();
+    store.add(
+      createShape({
+        layerId: 'faded',
+        position: { x: 0, y: 0 },
+        size: { w: 50, h: 50 },
+      }),
+    );
+    const layerManager = {
+      isLayerVisible: () => true,
+      getLayer: () => ({ opacity: 0.25 }),
+    };
+
+    const blob = await exportImage(store, {}, layerManager as never);
+
+    expect(blob).toBeInstanceOf(Blob);
+    expect(ctx.globalAlpha).toBe(0.25);
+    expect(ctx.drawImage).toHaveBeenCalledWith(expect.any(HTMLCanvasElement), 0, 0);
     vi.restoreAllMocks();
   });
 
