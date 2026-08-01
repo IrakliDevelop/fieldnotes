@@ -237,20 +237,42 @@ describe('InputHandler', () => {
       pointerUp(element, { pointerId: 2 });
     });
 
-    it('three simultaneous pointers do not crash', () => {
+    it('ignores extra pointers while the first two continue pinch navigation', () => {
+      const pan = vi.spyOn(camera, 'pan');
       pointerDown(element, { pointerId: 1, clientX: 50, clientY: 50 });
       pointerDown(element, { pointerId: 2, clientX: 150, clientY: 150 });
       pointerDown(element, { pointerId: 3, clientX: 250, clientY: 250 });
 
+      pointerMove(element, { pointerId: 3, clientX: 1_000, clientY: 1_000 });
+
+      expect(camera.position).toEqual({ x: 0, y: 0 });
+      expect(camera.zoom).toBe(1);
+
+      pan.mockClear();
       pointerMove(element, { pointerId: 1, clientX: 60, clientY: 60 });
-      pointerMove(element, { pointerId: 2, clientX: 160, clientY: 160 });
-      pointerMove(element, { pointerId: 3, clientX: 260, clientY: 260 });
+
+      expect(pan).toHaveBeenCalledWith(5, 5);
 
       pointerUp(element, { pointerId: 3 });
       pointerUp(element, { pointerId: 2 });
       pointerUp(element, { pointerId: 1 });
+    });
 
-      expect(camera.zoom).toBeDefined();
+    it('rebaselines pinch navigation when one of its pointers is replaced', () => {
+      const pan = vi.spyOn(camera, 'pan');
+      pointerDown(element, { pointerId: 1, clientX: 50, clientY: 50 });
+      pointerDown(element, { pointerId: 2, clientX: 150, clientY: 50 });
+      pointerDown(element, { pointerId: 3, clientX: 250, clientY: 50 });
+
+      pointerUp(element, { pointerId: 1 });
+      pan.mockClear();
+      pointerMove(element, { pointerId: 2, clientX: 160, clientY: 50 });
+
+      expect(pan).toHaveBeenCalledWith(5, 0);
+      expect(camera.zoom).toBeCloseTo(0.9);
+
+      pointerUp(element, { pointerId: 3 });
+      pointerUp(element, { pointerId: 2 });
     });
 
     it('cancels tool when second finger is added', () => {

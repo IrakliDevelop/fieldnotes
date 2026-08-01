@@ -9,6 +9,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 - Added `examples/live-play` — a framework-free reference app demonstrating the full real-time-collab stack
   (role join, ownership, DM hide/reveal, live cursors) against a `createSyncServer` relay.
 
+## [@fieldnotes/core 0.50.6] — 2026-08-01
+
+### Fixed
+
+- Pinch navigation now remains continuous with three or more active pointers: extra pointers cannot
+  trigger fallback panning, and replacing either navigation pointer rebaselines the gesture before
+  applying movement.
+
 ## [@fieldnotes/core 0.50.5] — 2026-08-01
 
 ### Fixed
