@@ -130,13 +130,15 @@ export class SyncHub {
     // The per-room serial queue is the single total-order authority: ops apply in arrival order
     // (arrival-order LWW — no per-element seq; see D3 / TD-12). Different rooms run independently.
     const prev = this.roomQueues.get(room) ?? Promise.resolve();
-    const next = prev
-      .then(() => this.process(conn, env))
-      .catch(() => {
-        // swallow so one failed message never wedges the room's serial queue
-      });
-    this.roomQueues.set(room, next);
-    return next;
+    const operation = prev.then(() => this.process(conn, env));
+    this.roomQueues.set(
+      room,
+      operation.catch(() => {
+        // Recover only the internal tail so one failed message never wedges the room queue.
+        // The caller still receives the operation rejection for observability.
+      }),
+    );
+    return operation;
   }
 
   private async process(conn: Connection, env: SyncEnvelope): Promise<void> {
@@ -181,9 +183,7 @@ export class SyncHub {
       const prevExisted = current !== undefined;
       const prevAudience = current?.audience;
 
-      this.deliverToRoom(conn.room, conn.id, conn.id, outboundOp, prevAudience, prevExisted);
-
-      this.fanout.publish(
+      await this.fanout.publish(
         JSON.stringify({
           o: this.instanceId,
           room: conn.room,
@@ -193,6 +193,8 @@ export class SyncHub {
           existed: prevExisted,
         }),
       );
+
+      this.deliverToRoom(conn.room, conn.id, conn.id, outboundOp, prevAudience, prevExisted);
     }
     // 'snapshot' from a client → ignored
   }
@@ -204,7 +206,9 @@ export class SyncHub {
 
   private safePublish(payload: string): void {
     try {
-      this.fanout.publish(payload);
+      void Promise.resolve(this.fanout.publish(payload)).catch(() => {
+        /* presence is ephemeral; a broken publisher must not create an unhandled rejection */
+      });
     } catch {
       /* a broken fanout publisher must not break the un-queued presence relay */
     }

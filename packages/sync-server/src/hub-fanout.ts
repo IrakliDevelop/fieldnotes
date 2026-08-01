@@ -1,5 +1,5 @@
 export interface HubFanout {
-  publish(payload: string): void;
+  publish(payload: string): void | Promise<void>;
   subscribe(handler: (payload: string) => void): () => void;
   close?(): void;
 }

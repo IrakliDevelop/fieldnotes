@@ -37,8 +37,7 @@ describe('RedisHubFanout', () => {
     fanoutA.subscribe(spyA);
     await tick(); // let the subscribe-inside-Promise register the listener
 
-    fanoutB.publish('hi');
-    await tick();
+    await fanoutB.publish('hi');
 
     expect(spyA).toHaveBeenCalledWith('hi');
   });
@@ -52,8 +51,7 @@ describe('RedisHubFanout', () => {
     onOther.subscribe(spy);
     await tick();
 
-    onDefault.publish('hi');
-    await tick();
+    await onDefault.publish('hi');
 
     expect(spy).not.toHaveBeenCalled();
   });
@@ -66,8 +64,7 @@ describe('RedisHubFanout', () => {
       },
     };
     const sub: RedisSubscriber = { subscribe: () => undefined };
-    new RedisHubFanout(pub, sub).publish('a');
-    await tick();
+    await new RedisHubFanout(pub, sub).publish('a');
 
     expect(targets).toEqual(['fieldnotes:fanout']);
   });
@@ -76,8 +73,7 @@ describe('RedisHubFanout', () => {
     const spy = vi.fn();
     const pub2: RedisPublisher = { publish: () => Promise.reject(new Error('x')) };
     const sub: RedisSubscriber = { subscribe: () => undefined };
-    new RedisHubFanout(pub2, sub, { onError: spy }).publish('a');
-    await tick();
+    await expect(new RedisHubFanout(pub2, sub, { onError: spy }).publish('a')).rejects.toThrow('x');
 
     expect(spy).toHaveBeenCalledOnce();
   });
@@ -101,8 +97,7 @@ describe('RedisHubFanout', () => {
     await tick();
     off();
 
-    fanout.publish('hi');
-    await tick();
+    await fanout.publish('hi');
 
     expect(spy).not.toHaveBeenCalled();
   });

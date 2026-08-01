@@ -9,6 +9,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 - Added `examples/live-play` — a framework-free reference app demonstrating the full real-time-collab stack
   (role join, ownership, DM hide/reveal, live cursors) against a `createSyncServer` relay.
 
+## [@fieldnotes/sync-server 0.10.1, @fieldnotes/sync-redis 0.3.2] — 2026-08-01
+
+### Fixed
+
+- Durable mutation fan-out is now awaited and publication failures propagate to the relay error
+  path instead of silently leaving other instances stale. Local peers receive the mutation only
+  after publication succeeds, and a failed operation no longer wedges its room queue.
+
 ## [@fieldnotes/sync-server 0.10.0] — 2026-08-01
 
 ### Added

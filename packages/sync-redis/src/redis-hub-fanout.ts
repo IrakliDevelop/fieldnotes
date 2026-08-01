@@ -25,8 +25,17 @@ export class RedisHubFanout implements HubFanout {
     this.onError = options.onError ?? (() => undefined);
   }
 
-  publish(payload: string): void {
-    Promise.resolve(this.publisher.publish(this.channel, payload)).catch(this.onError);
+  async publish(payload: string): Promise<void> {
+    try {
+      await this.publisher.publish(this.channel, payload);
+    } catch (error) {
+      try {
+        this.onError(error);
+      } catch {
+        /* preserve the publication failure even when the observer throws */
+      }
+      throw error;
+    }
   }
 
   subscribe(handler: (payload: string) => void): () => void {

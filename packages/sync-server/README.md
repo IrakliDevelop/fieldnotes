@@ -29,6 +29,12 @@ applies and forwards.
   [`@fieldnotes/sync-redis`](../sync-redis)) **together with a shared backend** — a
   shared fanout alone leaves a new joiner's snapshot stale.
 
+`HubFanout.publish()` may return a promise. `SyncHub` awaits durable mutation publication before
+notifying other local connections, and `handleMessage()` rejects if publication fails after the
+backend commit. Custom server integrations must observe that rejection; `createSyncServer` reports
+it through its relay error path. The room queue recovers so later messages can continue. Presence
+publication remains best-effort because presence is ephemeral.
+
 ## Usage
 
 ```ts
