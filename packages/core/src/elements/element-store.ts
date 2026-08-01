@@ -8,6 +8,12 @@ import { sanitizeNoteHtml } from './note-sanitizer';
 import { computeStrokeSegments, transferStrokeRenderData } from './stroke-cache';
 import type { CanvasElement, ElementType } from './types';
 
+function sanitizeRichText(element: CanvasElement): CanvasElement {
+  if (element.type !== 'note' && element.type !== 'text') return element;
+  const text = sanitizeNoteHtml(element.text);
+  return text === element.text ? element : { ...element, text };
+}
+
 export interface ElementUpdateEvent {
   previous: CanvasElement;
   current: CanvasElement;
@@ -81,6 +87,7 @@ export class ElementStore {
   }
 
   add(element: CanvasElement, meta?: ElementChangeMeta): void {
+    element = sanitizeRichText(element);
     this.sortedCache = null;
     this._versions.set(element.id, 0);
     this.elements.set(element.id, element);
@@ -114,7 +121,7 @@ export class ElementStore {
       arrow.cachedControlPoint = getArrowControlPoint(arrow.from, arrow.to, arrow.bend);
     }
 
-    if (updated.type === 'note' && 'text' in partial) {
+    if ((updated.type === 'note' || updated.type === 'text') && 'text' in partial) {
       updated.text = sanitizeNoteHtml(updated.text);
     }
 
@@ -152,11 +159,12 @@ export class ElementStore {
   }
 
   loadSnapshot(elements: CanvasElement[], meta?: ElementChangeMeta): void {
+    const sanitizedElements = elements.map(sanitizeRichText);
     this.sortedCache = null;
     this._versions.clear();
     this.elements.clear();
     this.spatialIndex.clear();
-    for (const el of elements) {
+    for (const el of sanitizedElements) {
       this.elements.set(el.id, el);
       this._versions.set(el.id, 0);
       const bounds = this.indexBounds(el);
@@ -169,7 +177,7 @@ export class ElementStore {
       }
     }
     this.bus.emit('clear', null, meta);
-    for (const el of elements) {
+    for (const el of sanitizedElements) {
       this.bus.emit('add', el, meta);
     }
   }

@@ -231,7 +231,7 @@ export function createText(input: TextInput): TextElement {
     locked: input.locked ?? false,
     layerId: input.layerId ?? '',
     size: input.size ?? { w: 200, h: 28 },
-    text: input.text ?? '',
+    text: sanitizeNoteHtml(input.text ?? ''),
     fontSize: input.fontSize ?? 16,
     color: input.color ?? '#1a1a1a',
     textAlign: input.textAlign ?? 'left',

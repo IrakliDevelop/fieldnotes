@@ -177,7 +177,7 @@ function migrateElement(obj: Record<string, unknown>): void {
     obj['textColor'] = '#000000';
   }
 
-  if (obj['type'] === 'note' && typeof obj['text'] === 'string') {
+  if ((obj['type'] === 'note' || obj['type'] === 'text') && typeof obj['text'] === 'string') {
     obj['text'] = sanitizeNoteHtml(obj['text']);
   }
 }

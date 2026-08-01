@@ -4,7 +4,7 @@ import { ElementStore } from './element-store';
 import * as strokeCache from './stroke-cache';
 import { getElementBounds } from './element-bounds';
 import { createStroke, createArrow } from './element-factory';
-import type { CanvasElement, NoteElement, StrokeElement } from './types';
+import type { CanvasElement, NoteElement, StrokeElement, TextElement } from './types';
 
 function makeNote(overrides: Partial<NoteElement> = {}): NoteElement {
   return {
@@ -33,6 +33,23 @@ function makeStroke(overrides: Partial<StrokeElement> = {}): StrokeElement {
     color: '#000',
     width: 2,
     opacity: 1,
+    zIndex: 0,
+    locked: false,
+    layerId: '',
+    ...overrides,
+  };
+}
+
+function makeText(overrides: Partial<TextElement> = {}): TextElement {
+  return {
+    id: 'text-1',
+    type: 'text',
+    position: { x: 0, y: 0 },
+    size: { w: 200, h: 28 },
+    text: 'Hello',
+    fontSize: 16,
+    color: '#000000',
+    textAlign: 'left',
     zIndex: 0,
     locked: false,
     layerId: '',
@@ -102,6 +119,47 @@ describe('ElementStore', () => {
       store.add(makeStroke());
       store.clear();
       expect(store.getAll()).toEqual([]);
+    });
+  });
+
+  describe('rich-text sanitization boundary', () => {
+    const unsafe = '<img src="x" onerror="alert(1)"><b onclick="alert(2)">safe</b>';
+
+    it('sanitizes direct text and note additions before storing or emitting them', () => {
+      const store = new ElementStore();
+      const added: CanvasElement[] = [];
+      store.on('add', (element) => added.push(element));
+
+      store.add(makeText({ text: unsafe }));
+      store.add(makeNote({ id: 'note-unsafe', text: unsafe }));
+
+      const text = store.getById('text-1');
+      const note = store.getById('note-unsafe');
+      expect(text?.type === 'text' && text.text).toBe('<b>safe</b>');
+      expect(note?.type === 'note' && note.text).toBe('<b>safe</b>');
+      expect(added.map((element) => ('text' in element ? element.text : undefined))).toEqual([
+        '<b>safe</b>',
+        '<b>safe</b>',
+      ]);
+    });
+
+    it('sanitizes text updates', () => {
+      const store = new ElementStore();
+      store.add(makeText());
+
+      store.update('text-1', { text: unsafe });
+
+      const updated = store.getById('text-1');
+      expect(updated?.type === 'text' && updated.text).toBe('<b>safe</b>');
+    });
+
+    it('sanitizes rich text loaded from remote snapshots', () => {
+      const store = new ElementStore();
+
+      store.loadSnapshot([makeText({ text: unsafe })], { origin: 'remote' });
+
+      const loaded = store.getById('text-1');
+      expect(loaded?.type === 'text' && loaded.text).toBe('<b>safe</b>');
     });
   });
 
