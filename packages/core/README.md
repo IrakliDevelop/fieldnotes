@@ -164,9 +164,30 @@ const blob = await viewport.exportImage({
 });
 ```
 
-HTML elements are currently excluded from image exports. Remote images are requested with anonymous
-CORS using their original URLs; failures are omitted from the result and reported through
-`onAssetError` when supplied.
+Remote images are requested with anonymous CORS using their original URLs; failures are omitted from
+the result and reported through `onAssetError` when supplied.
+
+Application-owned HTML embeds require an explicit rasterization hook. Return a ready canvas-compatible
+image source; Field Notes applies the element's size, rotation, paint order, and layer opacity in both
+PNG and SVG exports:
+
+```typescript
+const options = {
+  htmlTimeoutMs: 10_000,
+  renderHtml: async (element) => {
+    const node = document.querySelector(`[data-element-id="${element.id}"]`);
+    return node ? rasterizeToCanvas(node) : null; // application or library implementation
+  },
+  onHtmlError: ({ elementId, reason }) => {
+    console.warn(`Could not export HTML element ${elementId}: ${reason}`);
+  },
+};
+
+const png = await viewport.exportImage(options);
+const svg = await viewport.exportSVG(options);
+```
+
+Without `renderHtml`, embeds remain omitted and can be observed through `onHtmlError`.
 
 ## Performance Monitoring
 

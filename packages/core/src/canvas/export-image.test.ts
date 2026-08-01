@@ -254,6 +254,7 @@ describe('exportImage', () => {
     [{ scale: Number.NaN }, 'scale'],
     [{ padding: -1 }, 'padding'],
     [{ imageTimeoutMs: 0 }, 'imageTimeoutMs'],
+    [{ htmlTimeoutMs: 0 }, 'htmlTimeoutMs'],
   ])('rejects invalid options %o', async (options, optionName) => {
     const store = new ElementStore();
     store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } }));
@@ -551,10 +552,10 @@ describe('exportImage — rendering paths', () => {
     vi.restoreAllMocks();
   });
 
-  it('skips html elements', async () => {
-    mockGetContext();
+  it('renders html elements through the application hook', async () => {
+    const ctx = mockGetContext();
     const store = new ElementStore();
-    store.add({
+    const html = {
       id: 'html-1',
       type: 'html',
       position: { x: 0, y: 0 },
@@ -562,12 +563,42 @@ describe('exportImage — rendering paths', () => {
       zIndex: 0,
       locked: false,
       layerId: '',
-    } as never);
+      htmlType: 'chart',
+    } as const;
+    store.add(html);
 
     store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } }));
+    const source = document.createElement('canvas');
 
-    const blob = await exportImage(store);
+    const blob = await exportImage(store, { renderHtml: () => source });
     expect(blob).toBeInstanceOf(Blob);
+    expect(ctx.drawImage).toHaveBeenCalledWith(source, 0, 0, 100, 100);
+    vi.restoreAllMocks();
+  });
+
+  it('reports html elements omitted without an application hook', async () => {
+    mockGetContext();
+    const store = new ElementStore();
+    const html = {
+      id: 'html-unsupported',
+      type: 'html',
+      position: { x: 0, y: 0 },
+      size: { w: 100, h: 100 },
+      zIndex: 0,
+      locked: false,
+      layerId: '',
+      htmlType: 'chart',
+    } as const;
+    store.add(html);
+    const onHtmlError = vi.fn();
+
+    await exportImage(store, { onHtmlError });
+
+    expect(onHtmlError).toHaveBeenCalledWith({
+      elementId: html.id,
+      htmlType: 'chart',
+      reason: 'unsupported',
+    });
     vi.restoreAllMocks();
   });
 

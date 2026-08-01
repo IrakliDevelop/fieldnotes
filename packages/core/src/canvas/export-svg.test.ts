@@ -12,10 +12,11 @@ import {
   createTemplate,
 } from '../elements/element-factory';
 import { ElementStore } from '../elements/element-store';
+import type { HtmlElement } from '../elements/types';
 
 const HTML_MARKER = 'data-distinctive-html-marker-xyz';
 
-function htmlEl() {
+function htmlEl(): HtmlElement {
   return {
     id: 'html-1',
     type: 'html' as const,
@@ -24,8 +25,9 @@ function htmlEl() {
     zIndex: 0,
     locked: false,
     layerId: '',
-    html: `<div>${HTML_MARKER}</div>`,
-  } as never;
+    htmlType: 'chart',
+    data: { marker: HTML_MARKER },
+  };
 }
 
 function buildStore() {
@@ -67,6 +69,7 @@ describe('exportSvg', () => {
     [{ padding: -1 }, 'padding'],
     [{ rasterScale: 0 }, 'rasterScale'],
     [{ maxDimension: Number.POSITIVE_INFINITY }, 'maxDimension'],
+    [{ htmlTimeoutMs: 0 }, 'htmlTimeoutMs'],
   ])('rejects invalid options %o', async (options, optionName) => {
     const store = new ElementStore();
     store.add(createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } }));
@@ -202,6 +205,33 @@ describe('exportSvg', () => {
     const store = buildStore();
     const svg = await exportSvg(store);
     expect(svg).not.toContain(HTML_MARKER);
+  });
+
+  it('embeds html renderer output as a rotated raster image', async () => {
+    const store = new ElementStore();
+    const html = htmlEl();
+    html.rotation = Math.PI / 2;
+    store.add(html);
+    const source = document.createElement('canvas');
+    const originalCreate = document.createElement.bind(document);
+    const ctx = { drawImage: vi.fn() } as unknown as CanvasRenderingContext2D;
+    vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
+      const node = originalCreate(tag);
+      if (tag === 'canvas') {
+        vi.spyOn(node as HTMLCanvasElement, 'getContext').mockReturnValue(ctx as never);
+        vi.spyOn(node as HTMLCanvasElement, 'toDataURL').mockReturnValue(
+          'data:image/png;base64,HTML',
+        );
+      }
+      return node;
+    });
+
+    const svg = await exportSvg(store, { renderHtml: () => source });
+    vi.restoreAllMocks();
+
+    expect(ctx.drawImage).toHaveBeenCalledWith(source, 0, 0, 200, 200);
+    expect(svg).toContain('data:image/png;base64,HTML');
+    expect(svg).toMatch(/<g transform="rotate\(90 /);
   });
 
   it('snaps a bound arrow endpoint to the target edge, not its raw center', async () => {

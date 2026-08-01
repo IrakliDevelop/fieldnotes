@@ -9,6 +9,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 - Added `examples/live-play` — a framework-free reference app demonstrating the full real-time-collab stack
   (role join, ownership, DM hide/reveal, live cursors) against a `createSyncServer` relay.
 
+## [@fieldnotes/core 0.52.0] — 2026-08-01
+
+### Added
+
+- PNG and SVG exports can now include application-owned HTML embeds through the asynchronous
+  `renderHtml` hook, with bounded rendering time and typed omission/encoding diagnostics.
+
 ## [@fieldnotes/core 0.51.0] — 2026-08-01
 
 ### Added

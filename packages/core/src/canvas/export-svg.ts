@@ -8,6 +8,7 @@ import type {
   NoteElement,
   GridElement,
   TemplateElement,
+  HtmlElement,
 } from '../elements/types';
 import type { ElementStore } from '../elements/element-store';
 import type { LayerManager } from '../layers/layer-manager';
@@ -36,8 +37,10 @@ import {
   validateExportResourceOptions,
 } from './export-image';
 import type { ExportResourceOptions } from './export-image';
+import { renderHtmlElements, validateHtmlExportOptions } from './html-export';
+import type { HtmlExportOptions } from './html-export';
 
-export interface ExportSvgOptions extends ExportResourceOptions {
+export interface ExportSvgOptions extends ExportResourceOptions, HtmlExportOptions {
   padding?: number;
   background?: string;
   filter?: (el: CanvasElement) => boolean;
@@ -178,8 +181,8 @@ function emitArrow(arrow: ArrowElement, store: ElementStore): string {
   return out;
 }
 
-function emitImage(image: ImageElement, dataUri: string | undefined): string {
-  const href = dataUri ?? image.src;
+function emitImage(image: ImageElement | HtmlElement, dataUri: string | undefined): string {
+  const href = dataUri ?? ('src' in image ? image.src : '');
   if (!href) return '';
   const { x, y } = image.position;
   const { w, h } = image.size;
@@ -422,6 +425,7 @@ export async function exportSvg(
   const padding = nonNegativeOption(options.padding, 0, 'padding');
   const rasterScale = positiveOption(options.rasterScale, 2, 'rasterScale');
   validateExportResourceOptions(options);
+  validateHtmlExportOptions(options);
   const filter = options.filter;
 
   const allElements = store.getAll();
@@ -442,6 +446,9 @@ export async function exportSvg(
   );
   const imageCache = await loadImages(remoteImages, options);
   const imageDataUris = encodeImages(visibleElements, imageCache, rasterScale, options);
+  const htmlElements = visibleElements.filter((el): el is HtmlElement => el.type === 'html');
+  const htmlSources = await renderHtmlElements(htmlElements, options);
+  const htmlDataUris = encodeHtmlElements(htmlElements, htmlSources, rasterScale, options);
 
   const grids = visibleElements.filter((el): el is GridElement => el.type === 'grid');
   const firstGrid = grids[0];
@@ -453,7 +460,15 @@ export async function exportSvg(
 
   const layerBodies = new Map<string, string>();
   for (const el of visibleElements) {
-    const emitted = emitElement(el, imageDataUris, rasterScale, firstGrid, store, options);
+    const emitted = emitElement(
+      el,
+      imageDataUris,
+      htmlDataUris,
+      rasterScale,
+      firstGrid,
+      store,
+      options,
+    );
     layerBodies.set(el.layerId, (layerBodies.get(el.layerId) ?? '') + emitted);
   }
   for (const [layerId, emitted] of layerBodies) {
@@ -475,6 +490,7 @@ export async function exportSvg(
 function emitElement(
   el: CanvasElement,
   imageDataUris: Map<string, string>,
+  htmlDataUris: Map<string, string>,
   rasterScale: number,
   firstGrid: GridElement | undefined,
   store: ElementStore,
@@ -498,10 +514,67 @@ function emitElement(
     case 'grid':
       return '';
     case 'html':
-      return '';
+      return withRotationSvg(el, emitImage(el, htmlDataUris.get(el.id)));
     default:
       return '';
   }
+}
+
+function encodeHtmlElements(
+  elements: HtmlElement[],
+  sources: Map<string, CanvasImageSource>,
+  rasterScale: number,
+  options: ExportSvgOptions,
+): Map<string, string> {
+  const encoded = new Map<string, string>();
+  for (const element of elements) {
+    const source = sources.get(element.id);
+    if (!source) continue;
+    const width = Math.max(1, Math.ceil(element.size.w * rasterScale));
+    const height = Math.max(1, Math.ceil(element.size.h * rasterScale));
+    assertExportSize(width, height, options);
+    if (typeof document === 'undefined') {
+      options.onHtmlError?.({
+        elementId: element.id,
+        htmlType: element.htmlType,
+        reason: 'encode',
+      });
+      continue;
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      options.onHtmlError?.({
+        elementId: element.id,
+        htmlType: element.htmlType,
+        reason: 'encode',
+      });
+      continue;
+    }
+    try {
+      ctx.drawImage(source, 0, 0, width, height);
+      const dataUri = canvas.toDataURL();
+      if (dataUri.startsWith('data:')) {
+        encoded.set(element.id, dataUri);
+      } else {
+        options.onHtmlError?.({
+          elementId: element.id,
+          htmlType: element.htmlType,
+          reason: 'encode',
+        });
+      }
+    } catch (cause) {
+      options.onHtmlError?.({
+        elementId: element.id,
+        htmlType: element.htmlType,
+        reason: 'encode',
+        cause,
+      });
+    }
+  }
+  return encoded;
 }
 
 /** data: srcs pass through; remote/blob srcs are rasterized to data-URIs via the loaded image. */
