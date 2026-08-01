@@ -9,7 +9,7 @@ import type { LayerCache } from './layer-cache';
 import type { MarginViewport } from './margin-viewport';
 import type { Bounds } from '../core/types';
 import type { CanvasElement } from '../elements/types';
-import { getElementBounds, boundsIntersect } from '../elements/element-bounds';
+import { getElementVisualBounds, boundsIntersect } from '../elements/element-bounds';
 import { RenderStats } from './render-stats';
 import type { RenderStatsSnapshot } from './render-stats';
 import type { HybridRenderSurface } from './hybrid-render-surface';
@@ -245,7 +245,7 @@ export class RenderLoop {
       if (this.renderer.isDomElement(element)) {
         activeHybridOrder = null;
         const layerOpacity = this.layerManager.getLayer?.(element.layerId)?.opacity ?? 1;
-        const elBounds = getElementBounds(element);
+        const elBounds = getElementVisualBounds(element);
         if (elBounds && !boundsIntersect(elBounds, cullingRect)) {
           this.domNodeManager.hideDomNode(element.id);
         } else {
@@ -311,7 +311,7 @@ export class RenderLoop {
         offCtx.save();
         this.marginViewport.applyRenderTransform(offCtx);
         for (const element of elements) {
-          const elBounds = getElementBounds(element);
+          const elBounds = getElementVisualBounds(element);
           if (elBounds && !boundsIntersect(elBounds, cullingRect)) continue;
           this.renderer.renderCanvasElement(offCtx as CanvasRenderingContext2D, element);
         }
@@ -394,7 +394,7 @@ export class RenderLoop {
       hybridCtx.translate(this.camera.position.x, this.camera.position.y);
       hybridCtx.scale(this.camera.zoom, this.camera.zoom);
       for (const element of elements) {
-        const elBounds = getElementBounds(element);
+        const elBounds = getElementVisualBounds(element);
         if (elBounds && !boundsIntersect(elBounds, cullingRect)) continue;
         hybridCtx.save();
         hybridCtx.globalAlpha = this.layerManager.getLayer?.(element.layerId)?.opacity ?? 1;

@@ -1,8 +1,7 @@
 import { EventBus } from '../core/event-bus';
 import type { Bounds, Point } from '../core/types';
 import { Quadtree } from '../core/quadtree';
-import { rotatedAABB } from '../core/geometry';
-import { getElementBounds, transferStrokeBounds } from './element-bounds';
+import { getElementVisualBounds, transferStrokeBounds } from './element-bounds';
 import { getArrowControlPoint } from './arrow-geometry';
 import { sanitizeNoteHtml } from './note-sanitizer';
 import { computeStrokeSegments, transferStrokeRenderData } from './stroke-cache';
@@ -80,10 +79,7 @@ export class ElementStore {
   // Spatial index stores the rotation-expanded AABB so rotated elements remain
   // broad-phase hit-test/marquee candidates; precise tests run against local bounds.
   private indexBounds(element: CanvasElement): Bounds | null {
-    const bounds = getElementBounds(element);
-    if (!bounds) return null;
-    const angle = element.rotation ?? 0;
-    return angle === 0 ? bounds : rotatedAABB(bounds, angle);
+    return getElementVisualBounds(element);
   }
 
   add(element: CanvasElement, meta?: ElementChangeMeta): void {

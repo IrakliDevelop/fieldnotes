@@ -1,4 +1,5 @@
 import type { Bounds } from '../core/types';
+import { rotatedAABB } from '../core/geometry';
 import type { CanvasElement, TemplateElement } from './types';
 import { getArrowControlPoint } from './arrow-geometry';
 
@@ -53,6 +54,14 @@ export function getElementBounds(element: CanvasElement): Bounds | null {
   }
 
   return null;
+}
+
+/** Axis-aligned world bounds covering the element's complete rotated visual footprint. */
+export function getElementVisualBounds(element: CanvasElement): Bounds | null {
+  const bounds = getElementBounds(element);
+  if (!bounds) return null;
+  const rotation = element.rotation ?? 0;
+  return rotation === 0 ? bounds : rotatedAABB(bounds, rotation);
 }
 
 function getArrowBoundsAnalytical(
