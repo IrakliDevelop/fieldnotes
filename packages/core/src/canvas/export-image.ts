@@ -10,12 +10,36 @@ import type { LayerManager } from '../layers/layer-manager';
 import { renderNoteOnCanvas } from './note-canvas-renderer';
 import { renderTextOnCanvas } from './text-canvas-renderer';
 
-export interface ExportImageOptions {
+export interface ExportImageOptions extends ExportResourceOptions {
   scale?: number;
   padding?: number;
   background?: string;
   filter?: (element: CanvasElement) => boolean;
 }
+
+export type ExportAssetErrorReason = 'load' | 'timeout' | 'encode';
+
+export interface ExportAssetError {
+  elementId: string;
+  src: string;
+  reason: ExportAssetErrorReason;
+  cause?: unknown;
+}
+
+export interface ExportResourceOptions {
+  /** Maximum wait for each image asset. Defaults to 10 seconds. */
+  imageTimeoutMs?: number;
+  /** Maximum width or height of any allocated export canvas. Defaults to 16,384. */
+  maxDimension?: number;
+  /** Maximum pixel count of any allocated export canvas. Defaults to 67,108,864. */
+  maxPixels?: number;
+  /** Called when an image cannot be loaded or embedded. The export continues. */
+  onAssetError?: (error: ExportAssetError) => void;
+}
+
+const DEFAULT_IMAGE_TIMEOUT_MS = 10_000;
+const DEFAULT_MAX_DIMENSION = 16_384;
+const DEFAULT_MAX_PIXELS = 67_108_864;
 
 interface Rect {
   x: number;
@@ -152,13 +176,66 @@ function renderGridForBounds(
   }
 }
 
-function loadImages(elements: CanvasElement[]): Promise<Map<string, HTMLImageElement>> {
+function positiveOption(value: number | undefined, fallback: number, name: string): number {
+  const resolved = value ?? fallback;
+  if (!Number.isFinite(resolved) || resolved <= 0) {
+    throw new RangeError(`${name} must be a finite number greater than 0`);
+  }
+  return resolved;
+}
+
+function nonNegativeOption(value: number | undefined, fallback: number, name: string): number {
+  const resolved = value ?? fallback;
+  if (!Number.isFinite(resolved) || resolved < 0) {
+    throw new RangeError(`${name} must be a finite number greater than or equal to 0`);
+  }
+  return resolved;
+}
+
+function assertExportSize(
+  width: number,
+  height: number,
+  options: Pick<ExportResourceOptions, 'maxDimension' | 'maxPixels'>,
+): void {
+  const maxDimension = positiveOption(options.maxDimension, DEFAULT_MAX_DIMENSION, 'maxDimension');
+  const maxPixels = positiveOption(options.maxPixels, DEFAULT_MAX_PIXELS, 'maxPixels');
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    throw new RangeError('Export dimensions must be finite numbers greater than 0');
+  }
+  if (width > maxDimension || height > maxDimension) {
+    throw new RangeError(
+      `Export dimensions ${width}x${height} exceed the maximum dimension of ${maxDimension}`,
+    );
+  }
+  if (width * height > maxPixels) {
+    throw new RangeError(
+      `Export size ${width}x${height} exceeds the maximum of ${maxPixels} pixels`,
+    );
+  }
+}
+
+function validateExportResourceOptions(options: ExportResourceOptions): void {
+  positiveOption(options.imageTimeoutMs, DEFAULT_IMAGE_TIMEOUT_MS, 'imageTimeoutMs');
+  positiveOption(options.maxDimension, DEFAULT_MAX_DIMENSION, 'maxDimension');
+  positiveOption(options.maxPixels, DEFAULT_MAX_PIXELS, 'maxPixels');
+}
+
+function loadImages(
+  elements: CanvasElement[],
+  options: Pick<ExportResourceOptions, 'imageTimeoutMs' | 'onAssetError'> = {},
+): Promise<Map<string, HTMLImageElement>> {
   const imageElements = elements.filter(
     (el): el is CanvasElement & { src: string } => el.type === 'image' && 'src' in el,
   );
 
   const cache = new Map<string, HTMLImageElement>();
   if (imageElements.length === 0) return Promise.resolve(cache);
+
+  const timeoutMs = positiveOption(
+    options.imageTimeoutMs,
+    DEFAULT_IMAGE_TIMEOUT_MS,
+    'imageTimeoutMs',
+  );
 
   return new Promise((resolve) => {
     let remaining = imageElements.length;
@@ -170,13 +247,34 @@ function loadImages(elements: CanvasElement[]): Promise<Map<string, HTMLImageEle
     for (const el of imageElements) {
       const img = new Image();
       img.crossOrigin = 'anonymous';
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        img.onload = null;
+        img.onerror = null;
+        options.onAssetError?.({ elementId: el.id, src: el.src, reason: 'timeout' });
+        done();
+      }, timeoutMs);
+      const settle = (): boolean => {
+        if (settled) return false;
+        settled = true;
+        clearTimeout(timer);
+        img.onload = null;
+        img.onerror = null;
+        return true;
+      };
       img.onload = () => {
+        if (!settle()) return;
         cache.set(el.id, img);
         done();
       };
-      img.onerror = done;
-      const sep = el.src.includes('?') ? '&' : '?';
-      img.src = `${el.src}${sep}_cors=1`;
+      img.onerror = (cause) => {
+        if (!settle()) return;
+        options.onAssetError?.({ elementId: el.id, src: el.src, reason: 'load', cause });
+        done();
+      };
+      img.src = el.src;
     }
   });
 }
@@ -186,8 +284,9 @@ export async function exportImage(
   options: ExportImageOptions = {},
   layerManager?: LayerManager,
 ): Promise<Blob | null> {
-  const scale = options.scale ?? 2;
-  const padding = options.padding ?? 0;
+  const scale = positiveOption(options.scale, 2, 'scale');
+  const padding = nonNegativeOption(options.padding, 0, 'padding');
+  validateExportResourceOptions(options);
   const background = options.background ?? '#ffffff';
   const filter = options.filter;
 
@@ -203,11 +302,14 @@ export async function exportImage(
   const bounds = computeBounds(visibleElements, padding);
   if (!bounds) return null;
 
-  const imageCache = await loadImages(visibleElements);
+  const width = Math.ceil(bounds.w * scale);
+  const height = Math.ceil(bounds.h * scale);
+  assertExportSize(width, height, options);
+  const imageCache = await loadImages(visibleElements, options);
 
   const canvas = document.createElement('canvas');
-  canvas.width = Math.ceil(bounds.w * scale);
-  canvas.height = Math.ceil(bounds.h * scale);
+  canvas.width = width;
+  canvas.height = height;
 
   const ctx = canvas.getContext('2d');
   if (!ctx) return null;
@@ -299,4 +401,12 @@ export async function exportImage(
   });
 }
 
-export { computeBounds, getElementRect, loadImages };
+export {
+  assertExportSize,
+  computeBounds,
+  getElementRect,
+  loadImages,
+  nonNegativeOption,
+  positiveOption,
+  validateExportResourceOptions,
+};

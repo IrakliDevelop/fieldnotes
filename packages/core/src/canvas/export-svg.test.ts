@@ -63,6 +63,22 @@ function buildStore() {
 }
 
 describe('exportSvg', () => {
+  it.each([
+    [{ padding: -1 }, 'padding'],
+    [{ rasterScale: 0 }, 'rasterScale'],
+    [{ maxDimension: Number.POSITIVE_INFINITY }, 'maxDimension'],
+  ])('rejects invalid options %o', async (options, optionName) => {
+    const store = new ElementStore();
+    store.add(createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } }));
+    await expect(exportSvg(store, options)).rejects.toThrow(optionName);
+  });
+
+  it('rejects output exceeding its configured size limits', async () => {
+    const store = new ElementStore();
+    store.add(createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } }));
+    await expect(exportSvg(store, { maxPixels: 9_999 })).rejects.toThrow('maximum of 9999 pixels');
+  });
+
   it('wraps exported elements in their layer opacity', async () => {
     const store = new ElementStore();
     store.add(createShape({ layerId: 'faded', position: { x: 0, y: 0 }, size: { w: 50, h: 50 } }));

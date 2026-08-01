@@ -27,9 +27,17 @@ import {
 import { getElementBounds } from '../elements/element-bounds';
 import { renderNoteOnCanvas } from './note-canvas-renderer';
 import { renderTextOnCanvas } from './text-canvas-renderer';
-import { loadImages, computeBounds } from './export-image';
+import {
+  assertExportSize,
+  loadImages,
+  computeBounds,
+  nonNegativeOption,
+  positiveOption,
+  validateExportResourceOptions,
+} from './export-image';
+import type { ExportResourceOptions } from './export-image';
 
-export interface ExportSvgOptions {
+export interface ExportSvgOptions extends ExportResourceOptions {
   padding?: number;
   background?: string;
   filter?: (el: CanvasElement) => boolean;
@@ -178,15 +186,22 @@ function emitImage(image: ImageElement, dataUri: string | undefined): string {
   return `<image href="${esc(href)}" x="${n(x)}" y="${n(y)}" width="${n(w)}" height="${n(h)}" />`;
 }
 
-function emitText(text: TextElement, rasterScale: number): string {
+function emitText(
+  text: TextElement,
+  rasterScale: number,
+  resourceOptions: ExportResourceOptions,
+): string {
   if (!text.text) return '';
   const { x, y } = text.position;
   const { w, h } = text.size;
   if (typeof document === 'undefined') return '';
 
+  const width = Math.max(1, Math.ceil(w * rasterScale));
+  const height = Math.max(1, Math.ceil(h * rasterScale));
+  assertExportSize(width, height, resourceOptions);
   const canvas = document.createElement('canvas');
-  canvas.width = Math.max(1, Math.ceil(w * rasterScale));
-  canvas.height = Math.max(1, Math.ceil(h * rasterScale));
+  canvas.width = width;
+  canvas.height = height;
   const ctx = canvas.getContext('2d');
   if (!ctx) return '';
 
@@ -205,14 +220,21 @@ function emitText(text: TextElement, rasterScale: number): string {
   return `<image href="${esc(dataUri)}" x="${n(x)}" y="${n(y)}" width="${n(w)}" height="${n(h)}" />`;
 }
 
-function emitNote(note: NoteElement, rasterScale: number): string {
+function emitNote(
+  note: NoteElement,
+  rasterScale: number,
+  resourceOptions: ExportResourceOptions,
+): string {
   const { x, y } = note.position;
   const { w, h } = note.size;
   if (typeof document === 'undefined') return emitNotePlaceholder(note);
 
+  const width = Math.max(1, Math.ceil(w * rasterScale));
+  const height = Math.max(1, Math.ceil(h * rasterScale));
+  assertExportSize(width, height, resourceOptions);
   const canvas = document.createElement('canvas');
-  canvas.width = Math.max(1, Math.ceil(w * rasterScale));
-  canvas.height = Math.max(1, Math.ceil(h * rasterScale));
+  canvas.width = width;
+  canvas.height = height;
   const ctx = canvas.getContext('2d');
   if (!ctx) return emitNotePlaceholder(note);
 
@@ -397,8 +419,9 @@ export async function exportSvg(
   options: ExportSvgOptions = {},
   layerManager?: LayerManager,
 ): Promise<string> {
-  const padding = options.padding ?? 0;
-  const rasterScale = options.rasterScale ?? 2;
+  const padding = nonNegativeOption(options.padding, 0, 'padding');
+  const rasterScale = positiveOption(options.rasterScale, 2, 'rasterScale');
+  validateExportResourceOptions(options);
   const filter = options.filter;
 
   const allElements = store.getAll();
@@ -411,13 +434,14 @@ export async function exportSvg(
   if (!bounds) {
     return `<svg xmlns="http://www.w3.org/2000/svg" width="0" height="0" viewBox="0 0 0 0"></svg>`;
   }
+  assertExportSize(Math.ceil(bounds.w), Math.ceil(bounds.h), options);
 
   // Only remote/blob image srcs need network loading; data: srcs pass through.
   const remoteImages = visibleElements.filter(
     (el) => el.type === 'image' && !el.src.startsWith('data:'),
   );
-  const imageCache = await loadImages(remoteImages);
-  const imageDataUris = encodeImages(visibleElements, imageCache, rasterScale);
+  const imageCache = await loadImages(remoteImages, options);
+  const imageDataUris = encodeImages(visibleElements, imageCache, rasterScale, options);
 
   const grids = visibleElements.filter((el): el is GridElement => el.type === 'grid');
   const firstGrid = grids[0];
@@ -429,7 +453,7 @@ export async function exportSvg(
 
   const layerBodies = new Map<string, string>();
   for (const el of visibleElements) {
-    const emitted = emitElement(el, imageDataUris, rasterScale, firstGrid, store);
+    const emitted = emitElement(el, imageDataUris, rasterScale, firstGrid, store, options);
     layerBodies.set(el.layerId, (layerBodies.get(el.layerId) ?? '') + emitted);
   }
   for (const [layerId, emitted] of layerBodies) {
@@ -454,6 +478,7 @@ function emitElement(
   rasterScale: number,
   firstGrid: GridElement | undefined,
   store: ElementStore,
+  resourceOptions: ExportResourceOptions,
 ): string {
   switch (el.type) {
     case 'stroke':
@@ -465,9 +490,9 @@ function emitElement(
     case 'image':
       return withRotationSvg(el, emitImage(el, imageDataUris.get(el.id)));
     case 'text':
-      return withRotationSvg(el, emitText(el, rasterScale));
+      return withRotationSvg(el, emitText(el, rasterScale, resourceOptions));
     case 'note':
-      return withRotationSvg(el, emitNote(el, rasterScale));
+      return withRotationSvg(el, emitNote(el, rasterScale, resourceOptions));
     case 'template':
       return emitTemplate(el, firstGrid);
     case 'grid':
@@ -484,6 +509,7 @@ function encodeImages(
   elements: CanvasElement[],
   imageCache: Map<string, HTMLImageElement>,
   rasterScale: number,
+  resourceOptions: ExportResourceOptions,
 ): Map<string, string> {
   const out = new Map<string, string>();
   for (const el of elements) {
@@ -494,17 +520,24 @@ function encodeImages(
     }
     const img = imageCache.get(el.id);
     if (!img || typeof document === 'undefined') continue;
+    const width = Math.max(1, Math.ceil(el.size.w * rasterScale));
+    const height = Math.max(1, Math.ceil(el.size.h * rasterScale));
+    assertExportSize(width, height, resourceOptions);
     const canvas = document.createElement('canvas');
-    canvas.width = Math.max(1, Math.ceil(el.size.w * rasterScale));
-    canvas.height = Math.max(1, Math.ceil(el.size.h * rasterScale));
+    canvas.width = width;
+    canvas.height = height;
     const ctx = canvas.getContext('2d');
-    if (!ctx) continue;
+    if (!ctx) {
+      resourceOptions.onAssetError?.({ elementId: el.id, src: el.src, reason: 'encode' });
+      continue;
+    }
     try {
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
       const uri = canvas.toDataURL();
       if (uri.startsWith('data:')) out.set(el.id, uri);
-    } catch {
-      // tainted canvas or jsdom — fall back to original src
+      else resourceOptions.onAssetError?.({ elementId: el.id, src: el.src, reason: 'encode' });
+    } catch (cause) {
+      resourceOptions.onAssetError?.({ elementId: el.id, src: el.src, reason: 'encode', cause });
     }
   }
   return out;
