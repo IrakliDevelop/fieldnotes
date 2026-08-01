@@ -216,7 +216,7 @@ export class InputHandler {
       this.activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     }
 
-    if (this.activePointers.size === 2) {
+    if (this.activePointers.size >= 2) {
       this.handlePinchMove();
       return;
     }
@@ -254,10 +254,18 @@ export class InputHandler {
     } catch {
       // Already released (e.g., pointercancel fired first)
     }
-    this.activePointers.delete(e.pointerId);
+    const removedActivePointer = this.activePointers.delete(e.pointerId);
 
-    if (this.activePointers.size < 2) {
+    if (removedActivePointer && this.activePointers.size >= 2) {
+      // Pointer membership may have changed the first-two navigation pair. Rebaseline before the
+      // next move so the replacement pointer cannot produce a discontinuous pan or zoom.
+      this.startPinch();
+    } else if (this.activePointers.size < 2) {
       this.lastPinchDistance = 0;
+      const remainingPointer = this.activePointers.values().next().value;
+      if (remainingPointer && this.isPanning) {
+        this.lastPointer = { ...remainingPointer };
+      }
     }
 
     if (this.isPanning && this.activePointers.size === 0) {
