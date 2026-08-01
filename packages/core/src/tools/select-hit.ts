@@ -133,7 +133,14 @@ export function hitTestLineHandles(
   const r2 = r * r;
   for (const id of selectedIds) {
     const el = ctx.store.getById(id);
-    if (!el || el.type !== 'shape' || el.shape !== 'line') continue;
+    if (
+      !el ||
+      el.type !== 'shape' ||
+      el.shape !== 'line' ||
+      el.locked ||
+      (ctx.isLayerLocked?.(el.layerId) ?? false)
+    )
+      continue;
     const [a, b] = lineEndpoints(el);
     if ((world.x - a.x) ** 2 + (world.y - a.y) ** 2 <= r2) return { elementId: id, fixed: b };
     if ((world.x - b.x) ** 2 + (world.y - b.y) ** 2 <= r2) return { elementId: id, fixed: a };

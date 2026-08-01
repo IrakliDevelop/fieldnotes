@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi } from 'vitest';
 import { getOverlayLayout, getHandlePositions, renderSelectionBoxes } from './select-overlay';
-import { createNote } from '../elements/element-factory';
+import { createArrow, createNote, createShape } from '../elements/element-factory';
 import { ElementStore } from '../elements/element-store';
 import { createTemplate } from '../elements/element-factory';
 
@@ -21,6 +21,24 @@ describe('select-overlay', () => {
       ['sw', { x: 0, y: 20 }],
       ['se', { x: 10, y: 20 }],
     ]);
+  });
+
+  it.each([
+    ['arrow', createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 } })],
+    ['line', createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 }, shape: 'line' })],
+  ])('does not draw %s handles for a locked layer', (_name, element) => {
+    const store = new ElementStore();
+    store.add({ ...element, layerId: 'locked-layer' });
+    const ctx = mockCanvas();
+
+    renderSelectionBoxes(ctx, {
+      selectedIds: [element.id],
+      store,
+      zoom: 1,
+      isLayerLocked: (id) => id === 'locked-layer',
+    });
+
+    expect(ctx.arc).not.toHaveBeenCalled();
   });
 });
 
