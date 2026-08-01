@@ -520,6 +520,59 @@ describe('RenderLoop', () => {
       expect(deps.renderer.renderCanvasElement).toHaveBeenCalled();
     });
 
+    it('invalidates the grid cache when a later grid element reference changes', () => {
+      Object.defineProperty(deps.canvasEl, 'clientWidth', { value: 800, configurable: true });
+      Object.defineProperty(deps.canvasEl, 'clientHeight', { value: 600, configurable: true });
+
+      const grid1 = {
+        id: 'grid-1',
+        type: 'grid',
+        layerId: 'default',
+        position: { x: 0, y: 0 },
+      };
+      const grid2 = {
+        id: 'grid-2',
+        type: 'grid',
+        layerId: 'default',
+        position: { x: 0, y: 0 },
+      };
+      vi.mocked(deps.store.getAll).mockReturnValue([grid1, grid2] as never);
+
+      renderLoop.requestRender();
+      renderLoop.flush();
+      vi.mocked(deps.renderer.renderCanvasElement).mockClear();
+
+      vi.mocked(deps.store.getAll).mockReturnValue([grid1, { ...grid2 }] as never);
+      renderLoop.requestRender();
+      renderLoop.flush();
+
+      expect(deps.renderer.renderCanvasElement).toHaveBeenCalledTimes(2);
+    });
+
+    it('invalidates the grid cache when the same grid reference is removed and re-added', () => {
+      const grid = {
+        id: 'grid-1',
+        type: 'grid',
+        layerId: 'default',
+        position: { x: 0, y: 0 },
+      };
+      vi.mocked(deps.store.getAll).mockReturnValue([grid] as never);
+
+      renderLoop.requestRender();
+      renderLoop.flush();
+
+      vi.mocked(deps.store.getAll).mockReturnValue([]);
+      renderLoop.requestRender();
+      renderLoop.flush();
+      vi.mocked(deps.renderer.renderCanvasElement).mockClear();
+
+      vi.mocked(deps.store.getAll).mockReturnValue([grid] as never);
+      renderLoop.requestRender();
+      renderLoop.flush();
+
+      expect(deps.renderer.renderCanvasElement).toHaveBeenCalledWith(expect.anything(), grid);
+    });
+
     it('sets gridBoundsOverride to margin-inflated world bounds before rendering grid into cache, then clears it', () => {
       Object.defineProperty(deps.canvasEl, 'clientWidth', { value: 800, configurable: true });
       Object.defineProperty(deps.canvasEl, 'clientHeight', { value: 600, configurable: true });

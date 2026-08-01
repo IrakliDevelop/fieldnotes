@@ -45,7 +45,7 @@ export class RenderLoop {
   private layerGroups = new Map<string, CanvasElement[]>();
   private gridCacheCanvas: HTMLCanvasElement | null = null;
   private gridCacheCtx: CanvasRenderingContext2D | null = null;
-  private lastGridRef: unknown = null;
+  private lastGridRefs: CanvasElement[] = [];
 
   constructor(deps: RenderLoopDeps) {
     this.canvasEl = deps.canvasEl;
@@ -290,8 +290,10 @@ export class RenderLoop {
     // Render grids on top of layer elements
     if (gridElements.length > 0) {
       const gridT0 = performance.now();
-      const gridRef = gridElements[0];
-      const gridDirty = this.gridCacheDirty || gridRef !== this.lastGridRef;
+      const gridsChanged =
+        gridElements.length !== this.lastGridRefs.length ||
+        gridElements.some((grid, index) => grid !== this.lastGridRefs[index]);
+      const gridDirty = this.gridCacheDirty || gridsChanged;
 
       if (gridDirty) {
         this.ensureGridCache();
@@ -320,7 +322,7 @@ export class RenderLoop {
           }
         }
         this.gridCacheDirty = false;
-        this.lastGridRef = gridRef;
+        this.lastGridRefs = [...gridElements];
       }
 
       if (this.gridCacheCanvas) {
@@ -341,6 +343,8 @@ export class RenderLoop {
         }
       }
       gridMs = performance.now() - gridT0;
+    } else {
+      this.lastGridRefs = [];
     }
 
     const overlayT0 = performance.now();
