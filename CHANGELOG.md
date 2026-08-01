@@ -9,6 +9,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 - Added `examples/live-play` — a framework-free reference app demonstrating the full real-time-collab stack
   (role join, ownership, DM hide/reveal, live cursors) against a `createSyncServer` relay.
 
+## [@fieldnotes/sync-server 0.10.0] — 2026-08-01
+
+### Added
+
+- Relay shutdown is now bounded and idempotent: it stops admission, gracefully closes active
+  clients, and terminates stragglers after the configurable `shutdownGraceMs` window.
+
 ## [@fieldnotes/sync-server 0.9.0] — 2026-08-01
 
 ### Added
