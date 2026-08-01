@@ -1,10 +1,12 @@
-# CLAUDE.md
+# Claude Code entry point
 
-Guidance for Claude Code (claude.ai/code) working in this repository. Detailed instructions live in
-`.claude/` and are imported below.
+Read @AGENTS.md first. It is the canonical instruction file for all agents.
 
-**Field Notes** — a lightweight, framework-agnostic infinite canvas SDK for the web with first-class
-HTML element embedding (`@fieldnotes/core` + `@fieldnotes/react`).
+Load detailed guidance only as needed:
 
-- Project facts, architecture, code standards, and lint rules: @.claude/project.md
-- How we ship changes (batch/PR/version workflow, refactor discipline, gotchas, conventions): @.claude/workflow.md
+- Architecture and ownership: @docs/agents/architecture.md
+- Workflow and verification: @docs/agents/workflow.md
+- Code review: @docs/agents/review.md
+
+The files under `.claude/` are historical context. If they disagree with the canonical handbook,
+follow `AGENTS.md` and `docs/agents/`.
