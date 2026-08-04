@@ -768,6 +768,94 @@ describe('Viewport', () => {
   });
 
   describe('undo/redo', () => {
+    describe('public transactions', () => {
+      it('groups multiple store mutations into one undo step and returns the callback result', () => {
+        const viewport = new Viewport(container);
+        const a = createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } });
+        const b = createShape({ position: { x: 20, y: 0 }, size: { w: 10, h: 10 } });
+        viewport.store.add(a);
+        viewport.store.add(b);
+        viewport.history.clear();
+
+        const result = viewport.transaction(() => {
+          viewport.store.remove(a.id);
+          viewport.store.remove(b.id);
+          return 'removed';
+        });
+
+        expect(result).toBe('removed');
+        expect(viewport.history.undoCount).toBe(1);
+        expect(viewport.store.count).toBe(0);
+        expect(viewport.undo()).toBe(true);
+        expect(viewport.store.getById(a.id)).toEqual(a);
+        expect(viewport.store.getById(b.id)).toEqual(b);
+        expect(viewport.undo()).toBe(false);
+        viewport.destroy();
+      });
+
+      it('keeps nested transactions in the outer transaction', () => {
+        const viewport = new Viewport(container);
+        const a = createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } });
+        const b = createShape({ position: { x: 20, y: 0 }, size: { w: 10, h: 10 } });
+        viewport.history.clear();
+
+        viewport.transaction(() => {
+          viewport.store.add(a);
+          viewport.transaction(() => viewport.store.add(b));
+        });
+
+        expect(viewport.history.undoCount).toBe(1);
+        expect(viewport.undo()).toBe(true);
+        expect(viewport.store.count).toBe(0);
+        viewport.destroy();
+      });
+
+      it('commits mutations for undo before rethrowing a callback error', () => {
+        const viewport = new Viewport(container);
+        const shape = createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } });
+        viewport.history.clear();
+
+        expect(() =>
+          viewport.transaction(() => {
+            viewport.store.add(shape);
+            throw new Error('consumer failed');
+          }),
+        ).toThrow('consumer failed');
+
+        expect(viewport.history.undoCount).toBe(1);
+        expect(viewport.store.getById(shape.id)).toEqual(shape);
+        expect(viewport.undo()).toBe(true);
+        expect(viewport.store.getById(shape.id)).toBeUndefined();
+        viewport.destroy();
+      });
+
+      it('removeElements ignores missing and duplicate ids and records one undo step', () => {
+        const viewport = new Viewport(container);
+        const a = createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } });
+        const b = createShape({ position: { x: 20, y: 0 }, size: { w: 10, h: 10 } });
+        viewport.store.add(a);
+        viewport.store.add(b);
+        viewport.history.clear();
+
+        expect(viewport.removeElements([a.id, 'missing', a.id, b.id])).toBe(2);
+        expect(viewport.store.count).toBe(0);
+        expect(viewport.history.undoCount).toBe(1);
+        expect(viewport.undo()).toBe(true);
+        expect(viewport.store.getById(a.id)).toEqual(a);
+        expect(viewport.store.getById(b.id)).toEqual(b);
+        viewport.destroy();
+      });
+
+      it('removeElements is a history no-op when no ids exist', () => {
+        const viewport = new Viewport(container);
+        viewport.history.clear();
+
+        expect(viewport.removeElements(['missing'])).toBe(0);
+        expect(viewport.history.undoCount).toBe(0);
+        viewport.destroy();
+      });
+    });
+
     it('undo returns false when nothing to undo', () => {
       const viewport = new Viewport(container);
       expect(viewport.undo()).toBe(false);

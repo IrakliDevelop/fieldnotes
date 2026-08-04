@@ -107,6 +107,7 @@ export class Viewport {
   private readonly noteEditor: NoteEditor;
   private readonly arrowLabelEditor: ArrowLabelEditor;
   private readonly historyRecorder: HistoryRecorder;
+  private transactionDepth = 0;
   private readonly selectionOps: SelectionOps;
   readonly toolContext: ToolContext;
   private readonly marginViewport: MarginViewport;
@@ -504,6 +505,37 @@ export class Viewport {
 
   get shortcuts(): ShortcutsApi {
     return this.inputHandler.shortcuts;
+  }
+
+  /**
+   * Groups synchronous local store and layer mutations into one undo step.
+   * Nested calls join the outer transaction. If the callback throws, mutations
+   * already applied remain undoable and the original error is rethrown.
+   */
+  transaction<T>(operation: () => T): T {
+    const isOuterTransaction = this.transactionDepth === 0;
+    if (isOuterTransaction) {
+      this.inputHandler.flushPendingHistory();
+      this.historyRecorder.begin();
+    }
+    this.transactionDepth += 1;
+    try {
+      return operation();
+    } finally {
+      this.transactionDepth -= 1;
+      if (isOuterTransaction) this.historyRecorder.commit();
+    }
+  }
+
+  /** Removes existing elements as one undoable operation and returns the number removed. */
+  removeElements(ids: Iterable<string>): number {
+    const existingIds = [...new Set(ids)].filter((id) => this.store.getById(id) !== undefined);
+    if (existingIds.length === 0) return 0;
+    this.transaction(() => {
+      for (const id of existingIds) this.store.remove(id);
+    });
+    this.requestRender();
+    return existingIds.length;
   }
 
   undo(): boolean {
