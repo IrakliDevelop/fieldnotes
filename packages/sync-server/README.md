@@ -44,6 +44,32 @@ const { close } = createSyncServer({ port: 8080 });
 // ws://localhost:8080?room=my-room
 ```
 
+## Server-originated presence
+
+Trusted server integrations can broadcast ephemeral data without accessing the hub's connection
+registries:
+
+```ts
+const { hub } = createSyncServer({ port: 8080, fanout });
+
+const localDeliveries = hub.broadcastPresence('my-room', {
+  kind: 'poke',
+  feature: 'initiative',
+});
+```
+
+Recipients receive the existing presence envelope with the server-owned identity
+`{ from: 'hub', op: { kind: 'presence', data } }`. The event is delivered to every local room
+member and published to the configured `HubFanout`, so other relay instances deliver it to their
+local members too. The return value counts successful sends on the originating hub only; it is not a
+cluster-wide acknowledgement.
+
+Server presence is best-effort, is not persisted, does not enter a room's durable operation queue,
+and is not filtered by `authorize` or `canRead`. Validate and authorize application requests before
+calling this trusted-host API. Data must be JSON-serializable; invalid data throws before delivery.
+The method constructs the presence operation itself and does not accept a raw sync operation or
+caller-controlled sender identity.
+
 ## Heartbeat
 
 The server pings every client on an interval and **terminates** any that miss a pong,

@@ -897,6 +897,96 @@ describe('presence (ephemeral)', () => {
     return { ...makeConn(id, room), role };
   }
 
+  it('broadcasts server-owned presence to every local room member and returns the local count', () => {
+    const hub = new SyncHub();
+    const a = makeConn('a', 'R');
+    const b = makeConn('b', 'R');
+    const otherRoom = makeConn('c', 'R2');
+    hub.addConnection(a);
+    hub.addConnection(b);
+    hub.addConnection(otherRoom);
+
+    const sent = hub.broadcastPresence('R', { kind: 'poke', feature: 'initiative' });
+
+    expect(sent).toBe(2);
+    expect(a.sent).toEqual(b.sent);
+    expect(JSON.parse(a.sent[0] ?? '')).toEqual({
+      from: 'hub',
+      op: { kind: 'presence', data: { kind: 'poke', feature: 'initiative' } },
+    });
+    expect(otherRoom.sent).toEqual([]);
+  });
+
+  it('fans server-owned presence out to other hub instances without double local delivery', () => {
+    const bus = new InMemoryHubFanout();
+    const hubA = new SyncHub({ instanceId: 'A', fanout: bus });
+    const hubB = new SyncHub({ instanceId: 'B', fanout: bus });
+    const local = makeConn('local', 'R');
+    const remote = makeConn('remote', 'R');
+    hubA.addConnection(local);
+    hubB.addConnection(remote);
+
+    const sent = hubA.broadcastPresence('R', { kind: 'poke', feature: 'roster' });
+
+    expect(sent).toBe(1);
+    expect(local.sent).toHaveLength(1);
+    expect(remote.sent).toEqual(local.sent);
+    expect(JSON.parse(remote.sent[0] ?? '')).toEqual({
+      from: 'hub',
+      op: { kind: 'presence', data: { kind: 'poke', feature: 'roster' } },
+    });
+  });
+
+  it('publishes to remote instances even when the origin has no local room members', () => {
+    const bus = new InMemoryHubFanout();
+    const hubA = new SyncHub({ instanceId: 'A', fanout: bus });
+    const hubB = new SyncHub({ instanceId: 'B', fanout: bus });
+    const remote = makeConn('remote', 'R');
+    hubB.addConnection(remote);
+
+    expect(hubA.broadcastPresence('R', { kind: 'poke' })).toBe(0);
+    expect(remote.sent).toHaveLength(1);
+  });
+
+  it('isolates throwing and disconnected local recipients', () => {
+    const hub = new SyncHub();
+    const dead: FakeConn = {
+      ...makeConn('dead', 'R'),
+      send: () => {
+        throw new Error('socket closed');
+      },
+    };
+    const alive = makeConn('alive', 'R');
+    const disconnected = makeConn('gone', 'R');
+    hub.addConnection(dead);
+    hub.addConnection(alive);
+    hub.addConnection(disconnected);
+    hub.removeConnection(disconnected.id);
+
+    expect(hub.broadcastPresence('R', { kind: 'clear' })).toBe(1);
+    expect(alive.sent).toHaveLength(1);
+    expect(JSON.parse(alive.sent[0] ?? '').op).toEqual({
+      kind: 'presence',
+      data: { kind: 'clear' },
+    });
+    expect(disconnected.sent).toEqual([]);
+  });
+
+  it('rejects non-serializable data before local delivery or fan-out', () => {
+    const publish = vi.fn();
+    const hub = new SyncHub({
+      fanout: { publish, subscribe: () => () => undefined },
+    });
+    const recipient = makeConn('recipient', 'R');
+    hub.addConnection(recipient);
+    const circular: { self?: unknown } = {};
+    circular.self = circular;
+
+    expect(() => hub.broadcastPresence('R', circular)).toThrow(TypeError);
+    expect(recipient.sent).toEqual([]);
+    expect(publish).not.toHaveBeenCalled();
+  });
+
   it('broadcasts presence to every member except the sender', async () => {
     const hub = new SyncHub();
     const a = makeConn('a', 'R');

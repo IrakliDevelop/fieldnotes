@@ -94,4 +94,35 @@ describe('RedisHubFanout + RedisHubBackend cross-instance integration', () => {
     const snap = await new RedisHubBackend(redis).snapshot('R');
     expect(snap.map((e) => e.id)).toContain('e1');
   });
+
+  it('delivers server-owned presence across instances without persisting it', async () => {
+    const bus = new FakeBus();
+    const redis = new FakeRedis();
+    const pub: RedisPublisher = { publish: (c: string, m: string) => bus.publish(c, m) };
+    const sub: RedisSubscriber = {
+      subscribe: (c: string, l: (m: string) => void) => bus.subscribe(c, l),
+    };
+    const mk = (id: string): SyncHub =>
+      new SyncHub({
+        instanceId: id,
+        fanout: new RedisHubFanout(pub, sub),
+        backend: new RedisHubBackend(redis),
+      });
+    const hubA = mk('A');
+    const hubB = mk('B');
+    await tick();
+    const remote = makeConn('remote', 'R');
+    hubB.addConnection(remote);
+
+    expect(hubA.broadcastPresence('R', { kind: 'poke', feature: 'initiative' })).toBe(0);
+    await tick();
+
+    expect(remote.sent.map((message) => JSON.parse(message))).toEqual([
+      {
+        from: 'hub',
+        op: { kind: 'presence', data: { kind: 'poke', feature: 'initiative' } },
+      },
+    ]);
+    expect(await new RedisHubBackend(redis).snapshot('R')).toEqual([]);
+  });
 });

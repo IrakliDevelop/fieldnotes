@@ -502,4 +502,22 @@ describe('sync-server WebSocket relay (end-to-end)', () => {
     expect(left[0]).toBe(aId); // hub emitted a leave for A's clientId
     expect(b.store.snapshot().map((e) => e.id)).toEqual([fence.id]); // presence added NOTHING to the store
   });
+
+  it('delivers server-originated presence through a real WebSocket transport', async () => {
+    const { hub, port } = startServer();
+    const recipient = connect(port, 'SERVER-PRESENCE');
+    const received: { from: string; data: unknown }[] = [];
+    recipient.client.onPresence((from, data) => received.push({ from, data }));
+
+    await waitFor(
+      () =>
+        hub.broadcastPresence('SERVER-PRESENCE', {
+          kind: 'poke',
+          feature: 'initiative',
+        }) === 1,
+    );
+    await waitFor(() => received.length === 1);
+
+    expect(received).toEqual([{ from: 'hub', data: { kind: 'poke', feature: 'initiative' } }]);
+  });
 });

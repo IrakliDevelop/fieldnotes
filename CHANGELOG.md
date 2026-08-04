@@ -4,6 +4,14 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [@fieldnotes/sync-server 0.11.0] — 2026-08-04
+
+### Added
+
+- `SyncHub.broadcastPresence(room, data)` lets trusted server integrations send ephemeral,
+  server-owned presence data to every local room member and across configured fan-out instances
+  without accessing private connection registries or touching durable canvas state.
+
 ## [@fieldnotes/sync-server 0.10.2] — 2026-08-04
 
 ### Security
