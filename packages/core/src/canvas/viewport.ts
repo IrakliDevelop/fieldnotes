@@ -42,6 +42,7 @@ import { LayerManager } from '../layers/layer-manager';
 import { InteractMode } from './interact-mode';
 import { DomNodeManager } from './dom-node-manager';
 import { RenderLoop } from './render-loop';
+import type { OverlayRenderer } from './render-loop';
 import type { RenderStatsSnapshot } from './render-stats';
 import { LayerCache } from './layer-cache';
 import { MarginViewport } from './margin-viewport';
@@ -422,6 +423,18 @@ export class Viewport {
 
   requestRender(): void {
     this.renderLoop.requestRender();
+  }
+
+  /**
+   * Registers a world-space overlay drawn above elements on every frame,
+   * regardless of the active tool — the surface for remote presence visuals
+   * such as laser trails, cursors, pings, and shared rulers. Overlays draw
+   * beneath the active tool's own `renderOverlay` and never touch elements,
+   * history, or persisted state. Returns an idempotent unsubscribe that also
+   * erases the overlay's last frame.
+   */
+  registerOverlay(draw: OverlayRenderer): () => void {
+    return this.renderLoop.registerOverlay(draw);
   }
 
   exportState(): CanvasState {

@@ -508,6 +508,152 @@ describe('createManagedSyncConnection', () => {
   });
 });
 
+describe('createManagedSyncConnection presence passthrough', () => {
+  let store: ElementStore;
+  let transports: FakeTransport[];
+  let connection: ManagedSyncConnection | null;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    store = new ElementStore();
+    transports = [];
+    connection = null;
+  });
+
+  afterEach(() => {
+    connection?.stop();
+    connection = null;
+    vi.useRealTimers();
+  });
+
+  function start(overrides: Partial<ManagedSyncConnectionOptions> = {}): ManagedSyncConnection {
+    connection = createManagedSyncConnection({
+      store,
+      clientId: CLIENT_ID,
+      resolveUrl: () => Promise.resolve('ws://relay/a'),
+      transportFactory: (url) => {
+        const t = new FakeTransport(url);
+        transports.push(t);
+        return t;
+      },
+      retryInitialDelayMs: 100,
+      retryMaxDelayMs: 400,
+      ...overrides,
+    });
+    return connection;
+  }
+
+  async function flushAsync(): Promise<void> {
+    await vi.advanceTimersByTimeAsync(0);
+  }
+
+  function currentTransport(): FakeTransport {
+    const t = transports[transports.length - 1];
+    if (!t) throw new Error('no transport created');
+    return t;
+  }
+
+  function sentPresence(t: FakeTransport): unknown[] {
+    return t.sent
+      .map((m) => JSON.parse(m) as { op: { kind: string; data?: unknown } })
+      .filter((e) => e.op.kind === 'presence')
+      .map((e) => e.op.data);
+  }
+
+  it('sendPresence delivers only while live and DROPS (not queues) otherwise', async () => {
+    const managed = start();
+    managed.sendPresence({ kind: 'laser', points: [] }); // connecting: no transport yet
+    await flushAsync();
+    managed.sendPresence({ kind: 'laser', points: [{ x: 1, y: 1 }] }); // connecting: no snapshot yet
+    expect(sentPresence(currentTransport())).toEqual([]);
+
+    currentTransport().emitMessage(snapshotFor(CLIENT_ID));
+    managed.sendPresence({ kind: 'laser', points: [{ x: 2, y: 2 }] });
+    expect(sentPresence(currentTransport())).toEqual([{ kind: 'laser', points: [{ x: 2, y: 2 }] }]);
+
+    // Transient drop: offline until the resync snapshot lands.
+    currentTransport().emitClose(1006);
+    managed.sendPresence({ kind: 'laser', points: [{ x: 3, y: 3 }] });
+    currentTransport().emitReconnect();
+    managed.sendPresence({ kind: 'laser', points: [{ x: 4, y: 4 }] });
+    currentTransport().emitMessage(snapshotFor(CLIENT_ID));
+    // Nothing dropped while offline/connecting ever reaches the wire.
+    expect(sentPresence(currentTransport())).toEqual([{ kind: 'laser', points: [{ x: 2, y: 2 }] }]);
+  });
+
+  it('forwards presence and presence-leave frames with the envelope sender key', async () => {
+    const presence: [string, unknown][] = [];
+    const leaves: string[] = [];
+    const managed = start();
+    managed.onPresence((from, data) => presence.push([from, data]));
+    managed.onPresenceLeave((from) => leaves.push(from));
+    await flushAsync();
+    currentTransport().emitMessage(snapshotFor(CLIENT_ID));
+
+    currentTransport().emitMessage(
+      envelope('conn-7', { kind: 'presence', data: { kind: 'laser', points: [] } } as SyncOp),
+    );
+    currentTransport().emitMessage(envelope('conn-7', { kind: 'presence-leave' } as SyncOp));
+
+    expect(presence).toEqual([['conn-7', { kind: 'laser', points: [] }]]);
+    expect(leaves).toEqual(['conn-7']);
+  });
+
+  it('handlers survive a credential rebuild and unsubscribe stops delivery', async () => {
+    const seen: unknown[] = [];
+    const managed = start();
+    const unsubscribe = managed.onPresence((_from, data) => seen.push(data));
+    await flushAsync();
+    currentTransport().emitMessage(snapshotFor(CLIENT_ID));
+
+    currentTransport().emitClose(4401); // terminal auth close → rebuild
+    await vi.advanceTimersByTimeAsync(100);
+    expect(transports).toHaveLength(2);
+    currentTransport().emitMessage(snapshotFor(CLIENT_ID));
+
+    currentTransport().emitMessage(
+      envelope('conn-9', { kind: 'presence', data: { n: 1 } } as SyncOp),
+    );
+    expect(seen).toEqual([{ n: 1 }]); // still attached after the rebuild
+
+    unsubscribe();
+    currentTransport().emitMessage(
+      envelope('conn-9', { kind: 'presence', data: { n: 2 } } as SyncOp),
+    );
+    expect(seen).toEqual([{ n: 1 }]);
+  });
+
+  it("a dead cycle's transport cannot deliver presence after a rebuild (no leaks)", async () => {
+    const seen: unknown[] = [];
+    const managed = start();
+    managed.onPresence((_from, data) => seen.push(data));
+    await flushAsync();
+    const first = currentTransport();
+    first.emitMessage(snapshotFor(CLIENT_ID));
+
+    first.emitClose(4401);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(transports).toHaveLength(2);
+
+    // The torn-down transport clears its handlers on close(); even a raw
+    // late frame through it must not reach the manager's handlers.
+    first.emitMessage(envelope('conn-1', { kind: 'presence', data: { stale: true } } as SyncOp));
+    expect(seen).toEqual([]);
+  });
+
+  it('subscribing before any client exists still delivers once connected', async () => {
+    const seen: unknown[] = [];
+    const managed = start();
+    managed.onPresence((_from, data) => seen.push(data)); // no transport yet
+    await flushAsync();
+    currentTransport().emitMessage(snapshotFor(CLIENT_ID));
+    currentTransport().emitMessage(
+      envelope('conn-2', { kind: 'presence', data: { hello: 1 } } as SyncOp),
+    );
+    expect(seen).toEqual([{ hello: 1 }]);
+  });
+});
+
 describe('createManagedSyncConnection layer sync', () => {
   let store: ElementStore;
   let transports: FakeTransport[];

@@ -12,6 +12,7 @@ import {
   MeasureTool,
   TemplateTool,
   LaserTool,
+  RemoteLaserOverlay,
   AutoSave,
   IndexedDBAdapter,
   createStroke,
@@ -976,6 +977,10 @@ if (info) {
 
 (window as unknown as Record<string, unknown>).__fieldnotes_viewport = viewport;
 (window as unknown as { viewport: typeof viewport }).viewport = viewport;
+// Remote laser trails (a peer's laser presence would feed this); exposed for e2e.
+(window as unknown as Record<string, unknown>).__fieldnotes_remote_laser = new RemoteLaserOverlay(
+  viewport,
+);
 
 function mulberry32(seed: number): () => number {
   return () => {

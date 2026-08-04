@@ -14,6 +14,15 @@ import { RenderStats } from './render-stats';
 import type { RenderStatsSnapshot } from './render-stats';
 import type { HybridRenderSurface } from './hybrid-render-surface';
 
+/**
+ * A world-space draw callback rendered above elements on every frame,
+ * regardless of which tool is active. The context arrives with the camera
+ * transform applied; implementations must not assume exclusive context state
+ * (each renderer is wrapped in save/restore). A throwing renderer is isolated
+ * per frame and must not break the render loop.
+ */
+export type OverlayRenderer = (ctx: CanvasRenderingContext2D) => void;
+
 export interface RenderLoopDeps {
   canvasEl: HTMLCanvasElement;
   camera: Camera;
@@ -46,6 +55,7 @@ export class RenderLoop {
   private gridCacheDirty = true; // set on recenter/viewport-change; consumed by the grid block
   private readonly stats = new RenderStats();
   private layerGroups = new Map<string, CanvasElement[]>();
+  private readonly overlays = new Set<OverlayRenderer>();
   private gridCacheCanvas: HTMLCanvasElement | null = null;
   private gridCacheCtx: CanvasRenderingContext2D | null = null;
   private lastGridRefs: CanvasElement[] = [];
@@ -113,6 +123,32 @@ export class RenderLoop {
 
   getStats(): RenderStatsSnapshot {
     return this.stats.getSnapshot();
+  }
+
+  /**
+   * Registers a viewport overlay drawn beneath the active tool's own overlay.
+   * Returns an idempotent unsubscribe that also erases the overlay's last
+   * frame.
+   */
+  registerOverlay(draw: OverlayRenderer): () => void {
+    this.overlays.add(draw);
+    this.requestRender();
+    return () => {
+      if (this.overlays.delete(draw)) this.requestRender();
+    };
+  }
+
+  private drawRegisteredOverlays(ctx: CanvasRenderingContext2D): void {
+    for (const draw of this.overlays) {
+      ctx.save();
+      try {
+        draw(ctx);
+      } catch {
+        // One faulty overlay must not take down the frame or its siblings.
+      } finally {
+        ctx.restore();
+      }
+    }
   }
 
   private compositeLayerCache(
@@ -282,7 +318,8 @@ export class RenderLoop {
 
     const activeTool = this.toolManager.activeTool;
     const overlayOrder = visibleElements.length + 1;
-    if (hybridActive && activeTool?.renderOverlay) hybridOrders.add(overlayOrder);
+    const hasOverlay = activeTool?.renderOverlay !== undefined || this.overlays.size > 0;
+    if (hybridActive && hasOverlay) hybridOrders.add(overlayOrder);
     this.hybridSurface.beginFrame(hybridOrders, this.canvasEl.width, this.canvasEl.height);
 
     for (const [layerId, elements] of this.layerGroups) {
@@ -405,7 +442,7 @@ export class RenderLoop {
     }
 
     const overlayT0 = performance.now();
-    if (hybridActive && activeTool?.renderOverlay) {
+    if (hybridActive && hasOverlay) {
       const overlayCtx = this.hybridSurface.getContext(overlayOrder);
       if (overlayCtx) {
         overlayCtx.clearRect(0, 0, this.canvasEl.width, this.canvasEl.height);
@@ -413,11 +450,13 @@ export class RenderLoop {
         overlayCtx.scale(dpr, dpr);
         overlayCtx.translate(this.camera.position.x, this.camera.position.y);
         overlayCtx.scale(this.camera.zoom, this.camera.zoom);
-        activeTool.renderOverlay(overlayCtx);
+        this.drawRegisteredOverlays(overlayCtx);
+        if (activeTool?.renderOverlay) activeTool.renderOverlay(overlayCtx);
         overlayCtx.restore();
       }
-    } else if (activeTool?.renderOverlay) {
-      activeTool.renderOverlay(ctx);
+    } else if (hasOverlay) {
+      this.drawRegisteredOverlays(ctx);
+      if (activeTool?.renderOverlay) activeTool.renderOverlay(ctx);
     }
     const overlayMs = performance.now() - overlayT0;
 
