@@ -17,6 +17,23 @@ export interface Measurement {
   feet: number;
 }
 
+/**
+ * A raf-coalesced snapshot of the in-progress measurement — the outgoing
+ * side of a shared live ruler. Emissions carry world coordinates, derived
+ * distance, and the tool's current color so a host can forward them as
+ * ephemeral presence without duplicating the tool's input handling.
+ * Ephemeral by contract: presence only — never elements, history, or
+ * persisted state.
+ */
+export interface MeasureEmission {
+  readonly start: Point;
+  readonly end: Point;
+  readonly worldDistance: number;
+  readonly cells: number;
+  readonly feet: number;
+  readonly color: string;
+}
+
 export class MeasureTool implements Tool {
   readonly name = 'measure';
   private start: Point | null = null;
@@ -27,6 +44,8 @@ export class MeasureTool implements Tool {
   private feetPerCell: number;
   private color: string;
   private optionListeners = new Set<() => void>();
+  private measurementListeners = new Set<(emission: MeasureEmission | null) => void>();
+  private emissionRafId: number | null = null;
 
   constructor(options: MeasureToolOptions = {}) {
     this.feetPerCell = options.feetPerCell ?? 5;
@@ -48,6 +67,18 @@ export class MeasureTool implements Tool {
     return () => this.optionListeners.delete(listener);
   }
 
+  /**
+   * Subscribes to raf-coalesced measurement snapshots. While a measurement is
+   * in progress, listeners receive at most one snapshot per animation frame
+   * carrying the latest state; `null` is delivered synchronously when the
+   * measurement clears (pointer-up or deactivate). Emissions are ephemeral by
+   * contract: presence only — never elements, history, or persisted state.
+   */
+  onMeasurement(listener: (emission: MeasureEmission | null) => void): () => void {
+    this.measurementListeners.add(listener);
+    return () => this.measurementListeners.delete(listener);
+  }
+
   onPointerDown(state: PointerState, ctx: ToolContext): void {
     this.gridSize = ctx.gridSize ?? 1;
     this.gridType = ctx.gridType;
@@ -55,6 +86,7 @@ export class MeasureTool implements Tool {
     const world = ctx.camera.screenToWorld({ x: state.x, y: state.y });
     this.start = this.snapToGrid(world, ctx);
     this.end = { ...this.start };
+    this.scheduleEmission();
   }
 
   onPointerMove(state: PointerState, ctx: ToolContext): void {
@@ -62,6 +94,7 @@ export class MeasureTool implements Tool {
     const world = ctx.camera.screenToWorld({ x: state.x, y: state.y });
     this.end = this.snapToGrid(world, ctx);
     ctx.requestRender();
+    this.scheduleEmission();
   }
 
   onPointerUp(_state: PointerState, ctx: ToolContext): void {
@@ -69,11 +102,14 @@ export class MeasureTool implements Tool {
     this.start = null;
     this.end = null;
     ctx.requestRender();
+    this.emitClear();
   }
 
   onDeactivate(_ctx: ToolContext): void {
+    const wasActive = this.start !== null;
     this.start = null;
     this.end = null;
+    if (wasActive) this.emitClear();
   }
 
   getMeasurement(): Measurement | null {
@@ -168,5 +204,35 @@ export class MeasureTool implements Tool {
 
   private notifyOptionsChange(): void {
     for (const listener of this.optionListeners) listener();
+  }
+
+  private scheduleEmission(): void {
+    if (this.measurementListeners.size === 0) return;
+    if (this.emissionRafId !== null) return;
+    this.emissionRafId = requestAnimationFrame(() => {
+      this.emissionRafId = null;
+      const m = this.getMeasurement();
+      if (!m) return; // cleared before the frame; the sync null already went out
+      this.emit({ ...m, color: this.color });
+    });
+  }
+
+  private emitClear(): void {
+    if (this.emissionRafId !== null) {
+      cancelAnimationFrame(this.emissionRafId);
+      this.emissionRafId = null;
+    }
+    if (this.measurementListeners.size === 0) return;
+    this.emit(null);
+  }
+
+  private emit(emission: MeasureEmission | null): void {
+    for (const listener of this.measurementListeners) {
+      try {
+        listener(emission);
+      } catch {
+        // A throwing host listener must not break measurement input.
+      }
+    }
   }
 }
