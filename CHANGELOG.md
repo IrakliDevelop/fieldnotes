@@ -4,6 +4,15 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [@fieldnotes/core 0.53.0] — 2026-08-04
+
+### Added
+
+- `Viewport.transaction()` groups synchronous store and layer mutations into one undo step, supports
+  nested callers, returns the callback result, and preserves undoability when a callback throws.
+- `Viewport.removeElements()` removes existing element IDs in one transaction while ignoring missing
+  and duplicate IDs.
+
 ## Examples
 
 - Added `examples/live-play` — a framework-free reference app demonstrating the full real-time-collab stack
