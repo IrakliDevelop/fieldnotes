@@ -1,4 +1,4 @@
-export const VERSION = '0.55.0';
+export const VERSION = '0.56.0';
 
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
 export { snapPoint, smartSnap, snapToHexCenter } from './core/snap';
@@ -62,6 +62,8 @@ export type {
   RemotePingOverlayHost,
   RemotePingOverlayOptions,
 } from './canvas/remote-ping-overlay';
+export { PingInput } from './canvas/ping-input';
+export type { PingInputHost, PingInputOptions } from './canvas/ping-input';
 
 export { ElementStore } from './elements/element-store';
 export type { ElementUpdateEvent } from './elements/element-store';
