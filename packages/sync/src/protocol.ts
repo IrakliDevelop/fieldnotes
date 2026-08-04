@@ -1,15 +1,45 @@
-import type { CanvasElement, ElementType } from '@fieldnotes/core';
+import type { CanvasElement, ElementType, Layer } from '@fieldnotes/core';
 
 export type SyncElement = CanvasElement & { audience?: string };
+
+/**
+ * Revision of the optional layer-definition sync addition (the `layer-upsert`
+ * and `layer-remove` op kinds plus the snapshot `layers` field). Peers that
+ * predate it reject the new op kinds in `isValidEnvelope` and ignore the extra
+ * snapshot field, so mixed rooms degrade to today's element-only behavior.
+ */
+export const LAYER_SYNC_PROTOCOL_VERSION = 1;
+
+/**
+ * A versioned layer definition (or its tombstone, when `definition` is
+ * absent). `version` is a per-layer monotonic edit counter and `editor` is the
+ * stable client id of the last editor; together they totally order edits:
+ * higher version wins, equal versions resolve by lexicographic editor. The
+ * ordering is explicit and deterministic — never wall-clock or arrival-order.
+ */
+export interface LayerRecord {
+  id: string;
+  version: number;
+  editor: string;
+  definition?: Layer;
+}
+
+/** Whether record `a` is strictly newer than `b` under the layer ordering. */
+export function isNewerLayerRecord(a: LayerRecord, b: LayerRecord): boolean {
+  if (a.version !== b.version) return a.version > b.version;
+  return a.editor > b.editor;
+}
 
 export type SyncOp =
   | { kind: 'upsert'; element: CanvasElement }
   | { kind: 'remove'; id: string }
   | { kind: 'clear' }
   | { kind: 'request-snapshot' }
-  | { kind: 'snapshot'; to: string; elements: CanvasElement[] }
+  | { kind: 'snapshot'; to: string; elements: CanvasElement[]; layers?: LayerRecord[] }
   | { kind: 'presence'; data: unknown }
-  | { kind: 'presence-leave' };
+  | { kind: 'presence-leave' }
+  | { kind: 'layer-upsert'; layer: Layer; version: number; editor: string }
+  | { kind: 'layer-remove'; id: string; version: number; editor: string };
 
 export interface SyncEnvelope {
   from: string;
@@ -179,11 +209,51 @@ function isBinding(value: unknown): boolean {
   return isRecord(value) && typeof value['elementId'] === 'string';
 }
 
+export function isValidLayerDefinition(layer: unknown): layer is Layer {
+  if (!isRecord(layer)) return false;
+  return (
+    typeof layer['id'] === 'string' &&
+    typeof layer['name'] === 'string' &&
+    typeof layer['visible'] === 'boolean' &&
+    typeof layer['locked'] === 'boolean' &&
+    isFiniteNumber(layer['order']) &&
+    isFiniteNumber(layer['opacity'])
+  );
+}
+
+function isValidLayerVersion(version: unknown): version is number {
+  return typeof version === 'number' && Number.isSafeInteger(version) && version >= 1;
+}
+
+export function isValidLayerRecord(record: unknown): record is LayerRecord {
+  if (!isRecord(record)) return false;
+  if (
+    typeof record['id'] !== 'string' ||
+    !isValidLayerVersion(record['version']) ||
+    typeof record['editor'] !== 'string'
+  ) {
+    return false;
+  }
+  const definition = record['definition'];
+  if (definition === undefined) return true;
+  return isValidLayerDefinition(definition) && definition.id === record['id'];
+}
+
 export function isValidEnvelope(env: unknown): env is SyncEnvelope {
   if (typeof env !== 'object' || env === null) return false;
   const e = env as {
     from?: unknown;
-    op?: { kind?: unknown; id?: unknown; to?: unknown; elements?: unknown; element?: unknown };
+    op?: {
+      kind?: unknown;
+      id?: unknown;
+      to?: unknown;
+      elements?: unknown;
+      element?: unknown;
+      layer?: unknown;
+      layers?: unknown;
+      version?: unknown;
+      editor?: unknown;
+    };
   };
   if (typeof e.from !== 'string' || typeof e.op !== 'object' || e.op === null) return false;
   const op = e.op;
@@ -198,7 +268,24 @@ export function isValidEnvelope(env: unknown): env is SyncEnvelope {
     case 'presence-leave':
       return true;
     case 'snapshot':
-      return typeof op.to === 'string' && Array.isArray(op.elements); // SHAPE only; per-element filtered in the handler
+      // SHAPE only; per-element and per-record filtered in the handler
+      return (
+        typeof op.to === 'string' &&
+        Array.isArray(op.elements) &&
+        (op.layers === undefined || Array.isArray(op.layers))
+      );
+    case 'layer-upsert':
+      return (
+        isValidLayerDefinition(op.layer) &&
+        isValidLayerVersion(op.version) &&
+        typeof op.editor === 'string'
+      );
+    case 'layer-remove':
+      return (
+        typeof op.id === 'string' &&
+        isValidLayerVersion(op.version) &&
+        typeof op.editor === 'string'
+      );
     default:
       return false;
   }

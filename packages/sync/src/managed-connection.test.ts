@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ElementStore, createNote } from '@fieldnotes/core';
+import { ElementStore, createNote, type Layer } from '@fieldnotes/core';
 import { createManagedSyncConnection } from './managed-connection';
 import type {
   ManagedSyncConnection,
@@ -7,6 +7,7 @@ import type {
   ManagedSyncStatus,
   ManagedSyncTransport,
 } from './managed-connection';
+import type { RemoteLayerUpdate } from './sync-client';
 import type { SyncOp } from './protocol';
 
 class FakeTransport implements ManagedSyncTransport {
@@ -504,5 +505,174 @@ describe('createManagedSyncConnection', () => {
       envelope(CLIENT_ID, { kind: 'snapshot', to: CLIENT_ID, elements: [] }),
     );
     expect(connection?.getStatus()).toBe('connecting');
+  });
+});
+
+describe('createManagedSyncConnection layer sync', () => {
+  let store: ElementStore;
+  let transports: FakeTransport[];
+  let connection: ManagedSyncConnection | null;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    store = new ElementStore();
+    transports = [];
+    connection = null;
+  });
+
+  afterEach(() => {
+    connection?.stop();
+    connection = null;
+    vi.useRealTimers();
+  });
+
+  function layerDef(overrides: Partial<Layer> = {}): Layer {
+    return {
+      id: 'layer-x',
+      name: 'Layer X',
+      visible: true,
+      locked: false,
+      order: 100,
+      opacity: 1,
+      ...overrides,
+    };
+  }
+
+  function start(
+    updates: RemoteLayerUpdate[],
+    overrides: Partial<ManagedSyncConnectionOptions> = {},
+  ): ManagedSyncConnection {
+    connection = createManagedSyncConnection({
+      store,
+      clientId: CLIENT_ID,
+      resolveUrl: () => Promise.resolve('ws://relay/a'),
+      layers: { applyLayer: (u) => updates.push(u) },
+      transportFactory: (url) => {
+        const t = new FakeTransport(url);
+        transports.push(t);
+        return t;
+      },
+      retryInitialDelayMs: 100,
+      retryMaxDelayMs: 400,
+      ...overrides,
+    });
+    return connection;
+  }
+
+  async function flushAsync(): Promise<void> {
+    await vi.advanceTimersByTimeAsync(0);
+  }
+
+  function currentTransport(): FakeTransport {
+    const t = transports[transports.length - 1];
+    if (!t) throw new Error('no transport created');
+    return t;
+  }
+
+  function sentLayerOps(t: FakeTransport): { kind: string; version?: number; layer?: Layer }[] {
+    return t.sent
+      .map((m) => JSON.parse(m) as { op: { kind: string; version?: number; layer?: Layer } })
+      .map((e) => e.op)
+      .filter((op) => op.kind === 'layer-upsert' || op.kind === 'layer-remove');
+  }
+
+  it('forwards layer options to the client and publishes through it', async () => {
+    const updates: RemoteLayerUpdate[] = [];
+    const managed = start(updates);
+    await flushAsync();
+    currentTransport().emitMessage(snapshotFor(CLIENT_ID));
+
+    managed.publishLayerUpsert(layerDef());
+    expect(sentLayerOps(currentTransport())).toEqual([
+      { kind: 'layer-upsert', layer: layerDef(), version: 1, editor: CLIENT_ID },
+    ]);
+
+    currentTransport().emitMessage(
+      envelope('hub', {
+        kind: 'layer-upsert',
+        layer: layerDef({ id: 'layer-remote' }),
+        version: 3,
+        editor: 'other',
+      } as SyncOp),
+    );
+    expect(updates).toHaveLength(1);
+    expect(updates[0]?.record.id).toBe('layer-remote');
+  });
+
+  it('keeps the ledger across credential rebuilds and re-pushes newer local records', async () => {
+    const updates: RemoteLayerUpdate[] = [];
+    const managed = start(updates);
+    await flushAsync();
+    currentTransport().emitMessage(snapshotFor(CLIENT_ID));
+    managed.publishLayerUpsert(layerDef({ name: 'v1' }));
+    managed.publishLayerUpsert(layerDef({ name: 'v2' }));
+
+    // Terminal close forces a rebuild with a new transport and client.
+    currentTransport().emitClose(4000);
+    await vi.advanceTimersByTimeAsync(100);
+    await flushAsync();
+    expect(transports).toHaveLength(2);
+
+    // The rebuilt client's reconcile snapshot carries a stale layer record;
+    // the shared ledger keeps v2 and re-pushes it.
+    currentTransport().emitMessage(
+      envelope('hub', {
+        kind: 'snapshot',
+        to: CLIENT_ID,
+        elements: [],
+        layers: [
+          { id: 'layer-x', version: 1, editor: CLIENT_ID, definition: layerDef({ name: 'v1' }) },
+        ],
+      } as SyncOp),
+    );
+
+    const repushed = sentLayerOps(currentTransport());
+    expect(repushed).toEqual([
+      { kind: 'layer-upsert', layer: layerDef({ name: 'v2' }), version: 2, editor: CLIENT_ID },
+    ]);
+    // The stale record must not fire the host hook.
+    expect(updates).toHaveLength(0);
+  });
+
+  it('records an offline publish in the ledger and delivers it after the next snapshot', async () => {
+    const updates: RemoteLayerUpdate[] = [];
+    const managed = start(updates);
+    await flushAsync();
+    currentTransport().emitMessage(snapshotFor(CLIENT_ID));
+
+    // Terminal close: the client is torn down while the retry timer runs.
+    currentTransport().emitClose(4000);
+    managed.publishLayerUpsert(layerDef({ name: 'edited offline' }));
+
+    await vi.advanceTimersByTimeAsync(100);
+    await flushAsync();
+    expect(transports).toHaveLength(2);
+    currentTransport().emitMessage(snapshotFor(CLIENT_ID));
+
+    expect(sentLayerOps(currentTransport())).toEqual([
+      {
+        kind: 'layer-upsert',
+        layer: layerDef({ name: 'edited offline' }),
+        version: 1,
+        editor: CLIENT_ID,
+      },
+    ]);
+  });
+
+  it('publish methods throw when the layers option is absent', async () => {
+    const managed = createManagedSyncConnection({
+      store,
+      clientId: CLIENT_ID,
+      resolveUrl: () => Promise.resolve('ws://relay/a'),
+      transportFactory: (url) => {
+        const t = new FakeTransport(url);
+        transports.push(t);
+        return t;
+      },
+    });
+    connection = managed;
+    await flushAsync();
+    expect(() => managed.publishLayerUpsert(layerDef())).toThrow(/not enabled/);
+    expect(() => managed.publishLayerRemove('layer-x')).toThrow(/not enabled/);
   });
 });

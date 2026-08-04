@@ -1,9 +1,16 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { ElementStore, createNote, createShape, type CanvasElement } from '@fieldnotes/core';
+import {
+  ElementStore,
+  createNote,
+  createShape,
+  type CanvasElement,
+  type Layer,
+} from '@fieldnotes/core';
 import type { ElementChangeMeta } from '@fieldnotes/core';
 import { SyncClient } from './sync-client';
-import type { AuthoritativeSnapshotContext } from './sync-client';
-import type { SyncOp } from './protocol';
+import type { AuthoritativeSnapshotContext, RemoteLayerUpdate } from './sync-client';
+import { LayerLedger } from './layer-ledger';
+import type { LayerRecord, SyncOp } from './protocol';
 import type { SyncTransport } from './sync-transport';
 
 interface BusEndpoint extends SyncTransport {
@@ -1054,5 +1061,296 @@ describe('audience stamping (resolveAudience)', () => {
       .find((e) => e.op.kind === 'remove');
     expect(removeEnv).toBeDefined();
     expect(JSON.stringify(removeEnv)).not.toContain('audience');
+  });
+});
+
+describe('SyncClient layer sync', () => {
+  function layerDef(overrides: Partial<Layer> = {}): Layer {
+    return {
+      id: 'layer-x',
+      name: 'Layer X',
+      visible: true,
+      locked: false,
+      order: 100,
+      opacity: 1,
+      ...overrides,
+    };
+  }
+
+  interface LayerPeer {
+    store: ElementStore;
+    transport: BusEndpoint;
+    client: SyncClient;
+    updates: RemoteLayerUpdate[];
+  }
+
+  function layerPeer(
+    bus: Bus,
+    clientId: string,
+    options: { ledger?: LayerLedger; applyLayer?: (u: RemoteLayerUpdate) => void } = {},
+  ): LayerPeer {
+    const store = new ElementStore();
+    const transport = bus.endpoint();
+    const updates: RemoteLayerUpdate[] = [];
+    const client = new SyncClient({
+      store,
+      transport,
+      clientId,
+      layers: {
+        applyLayer: options.applyLayer ?? ((u) => updates.push(u)),
+        ...(options.ledger ? { ledger: options.ledger } : {}),
+      },
+    });
+    return { store, transport, client, updates };
+  }
+
+  it('propagates a published layer definition to an opted-in peer', () => {
+    const bus = makeBus();
+    const a = layerPeer(bus, 'A');
+    const b = layerPeer(bus, 'B');
+    a.client.start();
+    b.client.start();
+
+    a.client.publishLayerUpsert(layerDef({ name: 'Tokens' }));
+
+    expect(b.updates).toHaveLength(1);
+    const update = b.updates[0];
+    expect(update?.source).toBe('op');
+    expect(update?.record).toEqual({
+      id: 'layer-x',
+      version: 1,
+      editor: 'A',
+      definition: layerDef({ name: 'Tokens' }),
+    });
+  });
+
+  it('propagates a published removal as a tombstone that blocks stale resurrection', () => {
+    const bus = makeBus();
+    const a = layerPeer(bus, 'A');
+    const b = layerPeer(bus, 'B');
+    a.client.start();
+    b.client.start();
+
+    a.client.publishLayerUpsert(layerDef());
+    a.client.publishLayerRemove('layer-x');
+    expect(b.updates).toHaveLength(2);
+    expect(b.updates[1]?.record.definition).toBeUndefined();
+
+    // A stale v1 upsert from a third party must not resurrect the layer.
+    const c = bus.endpoint();
+    c.send(
+      envelope('C', {
+        kind: 'layer-upsert',
+        layer: layerDef({ name: 'stale' }),
+        version: 1,
+        editor: 'C',
+      }),
+    );
+    expect(b.updates).toHaveLength(2);
+  });
+
+  it('drops stale versions and resolves equal-version ties by editor on every peer', () => {
+    const bus = makeBus();
+    const b = layerPeer(bus, 'B');
+    b.client.start();
+    const x = bus.endpoint();
+    const y = bus.endpoint();
+
+    x.send(
+      envelope('X', {
+        kind: 'layer-upsert',
+        layer: layerDef({ name: 'from X' }),
+        version: 2,
+        editor: 'X',
+      }),
+    );
+    y.send(
+      envelope('Y', {
+        kind: 'layer-upsert',
+        layer: layerDef({ name: 'from Y' }),
+        version: 2,
+        editor: 'Y',
+      }),
+    );
+    x.send(
+      envelope('X', {
+        kind: 'layer-upsert',
+        layer: layerDef({ name: 'old' }),
+        version: 1,
+        editor: 'X',
+      }),
+    );
+
+    // v2/X applies, v2/Y wins the tie, v1/X is stale.
+    expect(b.updates.map((u) => u.record.definition?.name)).toEqual(['from X', 'from Y']);
+  });
+
+  it('treats a layer op from the hub as an authoritative correction, even when older', () => {
+    const bus = makeBus();
+    const a = layerPeer(bus, 'A');
+    a.client.start();
+    a.client.publishLayerUpsert(layerDef({ name: 'local v1' }));
+    a.client.publishLayerUpsert(layerDef({ name: 'local v2' }));
+
+    const hub = bus.endpoint();
+    hub.send(
+      envelope('hub', {
+        kind: 'layer-upsert',
+        layer: layerDef({ name: 'room truth' }),
+        version: 1,
+        editor: 'Z',
+      }),
+    );
+
+    expect(a.updates.map((u) => u.record.definition?.name)).toEqual(['room truth']);
+    // The correction overwrote the ledger: the next local edit builds on it.
+    a.client.publishLayerUpsert(layerDef({ name: 'after correction' }));
+    const lastSent = JSON.parse(a.transport.sent[a.transport.sent.length - 1] ?? '') as {
+      op: { version: number };
+    };
+    expect(lastSent.op.version).toBe(2);
+  });
+
+  it('a client without the layers option ignores layer traffic and answers snapshots without layers', () => {
+    const bus = makeBus();
+    const store = new ElementStore();
+    const transport = bus.endpoint();
+    const plain = new SyncClient({ store, transport, clientId: 'P' });
+    plain.start();
+
+    const remote = bus.endpoint();
+    remote.send(
+      envelope('R', { kind: 'layer-upsert', layer: layerDef(), version: 1, editor: 'R' }),
+    );
+    remote.send(envelope('R', { kind: 'request-snapshot' }));
+
+    const reply = transport.sent
+      .map((m) => JSON.parse(m) as { op: { kind: string; layers?: unknown } })
+      .find((e) => e.op.kind === 'snapshot');
+    expect(reply).toBeDefined();
+    expect(reply && 'layers' in reply.op).toBe(false);
+  });
+
+  it('answers a peer snapshot request with its ledger records', () => {
+    const bus = makeBus();
+    const a = layerPeer(bus, 'A');
+    a.client.start();
+    a.client.publishLayerUpsert(layerDef());
+
+    const remote = bus.endpoint();
+    remote.send(envelope('R', { kind: 'request-snapshot' }));
+
+    const reply = a.transport.sent
+      .map((m) => JSON.parse(m) as { op: { kind: string; layers?: LayerRecord[] } })
+      .find((e) => e.op.kind === 'snapshot');
+    expect(reply?.op.layers).toEqual([
+      { id: 'layer-x', version: 1, editor: 'A', definition: layerDef() },
+    ]);
+  });
+
+  it('applies snapshot layers before snapshot elements, skipping invalid records', () => {
+    const bus = makeBus();
+    const order: string[] = [];
+    const a = layerPeer(bus, 'A', { applyLayer: (u) => order.push(`layer:${u.record.id}`) });
+    a.store.on('add', (el) => order.push(`element:${el.id}`));
+
+    const hub = bus.endpoint();
+    a.client.start(); // sends request-snapshot
+    const el = createShape({ position: { x: 0, y: 0 }, size: { w: 1, h: 1 } });
+    hub.send(
+      envelope('hub', {
+        kind: 'snapshot',
+        to: 'A',
+        elements: [el],
+        layers: [
+          { id: 'layer-x', version: 1, editor: 'B', definition: layerDef() },
+          { bogus: true } as unknown as LayerRecord,
+        ],
+      }),
+    );
+
+    expect(order).toEqual(['layer:layer-x', `element:${el.id}`]);
+  });
+
+  it('re-pushes locally-newer layer records after a snapshot merge', () => {
+    const bus = makeBus();
+    const ledger = new LayerLedger();
+    ledger.recordUpsert(layerDef({ name: 'local only' }), 'A');
+    ledger.recordUpsert(layerDef({ id: 'layer-y', name: 'newer local' }), 'A');
+    ledger.applyRemote({
+      id: 'layer-y',
+      version: 2,
+      editor: 'A',
+      definition: layerDef({ id: 'layer-y', name: 'newer local v2' }),
+    });
+
+    const a = layerPeer(bus, 'A', { ledger });
+    const hub = bus.endpoint();
+    const received: string[] = [];
+    hub.onMessage((m) => {
+      const env = JSON.parse(m) as { op: { kind: string; layer?: Layer; version?: number } };
+      if (env.op.kind === 'layer-upsert' && env.op.layer) {
+        received.push(`${env.op.layer.id}@${String(env.op.version)}`);
+      }
+    });
+
+    a.client.start();
+    hub.send(
+      envelope('hub', {
+        kind: 'snapshot',
+        to: 'A',
+        elements: [],
+        layers: [
+          // hub already has layer-y at v1 — local v2 is newer and must be pushed
+          { id: 'layer-y', version: 1, editor: 'A', definition: layerDef({ id: 'layer-y' }) },
+        ],
+      }),
+    );
+
+    expect(received.sort()).toEqual(['layer-x@1', 'layer-y@2']);
+    // The hub's stale layer-y v1 must not have clobbered the newer local record.
+    expect(ledger.get('layer-y')?.version).toBe(2);
+  });
+
+  it('keeps syncing after the applyLayer hook throws', () => {
+    const bus = makeBus();
+    let calls = 0;
+    const a = layerPeer(bus, 'A', {
+      applyLayer: () => {
+        calls += 1;
+        throw new Error('host exploded');
+      },
+    });
+    a.client.start();
+    const remote = bus.endpoint();
+    remote.send(
+      envelope('R', { kind: 'layer-upsert', layer: layerDef(), version: 1, editor: 'R' }),
+    );
+    remote.send(
+      envelope('R', {
+        kind: 'layer-upsert',
+        layer: layerDef({ name: 'again' }),
+        version: 2,
+        editor: 'R',
+      }),
+    );
+    expect(calls).toBe(2);
+
+    const el = createShape({ position: { x: 0, y: 0 }, size: { w: 1, h: 1 } });
+    remote.send(envelope('R', { kind: 'upsert', element: el }));
+    expect(a.store.getById(el.id)).toBeDefined();
+  });
+
+  it('publish methods throw without the layers option and on invalid definitions', () => {
+    const bus = makeBus();
+    const store = new ElementStore();
+    const plain = new SyncClient({ store, transport: bus.endpoint(), clientId: 'P' });
+    expect(() => plain.publishLayerUpsert(layerDef())).toThrow(/not enabled/);
+    expect(() => plain.publishLayerRemove('x')).toThrow(/not enabled/);
+
+    const a = layerPeer(bus, 'A');
+    expect(() => a.client.publishLayerUpsert({ ...layerDef(), order: Number.NaN })).toThrow(
+      /valid layer definition/,
+    );
   });
 });

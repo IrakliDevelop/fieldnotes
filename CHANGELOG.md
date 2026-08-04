@@ -4,6 +4,54 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [@fieldnotes/sync 0.10.0] — 2026-08-04
+
+### Added
+
+- Optional versioned layer-definition sync (`LAYER_SYNC_PROTOCOL_VERSION` 1). New wire ops
+  `layer-upsert` and `layer-remove` carry a full layer definition (id, name, order, visible,
+  locked, opacity) or a removal tombstone plus an explicit per-layer `version` counter and the
+  editing client id; snapshots gain an optional `layers` field of `LayerRecord`s. Conflicts
+  resolve deterministically everywhere by highest version with lexicographic editor tiebreak —
+  never wall-clock or arrival order. Peers that predate this release reject the new op kinds in
+  `isValidEnvelope` and ignore the extra snapshot field, and clients that do not opt in ignore
+  all layer traffic, so mixed rooms keep today's element-only behavior.
+- `SyncClient` opt-in via `SyncClientOptions.layers`: the host `applyLayer` hook receives only
+  winning records (so role-local policy such as player lock state is never stomped and remote
+  applications stay out of undo history), `publishLayerUpsert`/`publishLayerRemove` stamp and
+  broadcast local edits, and the exported `LayerLedger` tracks records and tombstones. Snapshot
+  merges apply layers before elements, are non-destructive, and re-push locally-newer records;
+  layer ops arriving from the server-owned `hub` identity apply as authoritative corrections.
+- `createManagedSyncConnection` accepts `layers` and exposes
+  `publishLayerUpsert`/`publishLayerRemove`; the manager keeps one ledger for its lifetime, so
+  versions and tombstones survive credential rebuilds and edits made while disconnected are
+  re-pushed after the next authoritative snapshot.
+- Layer definitions are presentation, not security: layer records never carry element bytes and
+  element-level audience filtering remains the only privacy boundary.
+
+## [@fieldnotes/sync-server 0.12.0] — 2026-08-04
+
+### Added
+
+- `SyncHub` stores and relays the new layer-definition ops on the room's serial queue with the
+  same deterministic (version, editor) last-writer-wins rule clients apply, includes stored
+  records (tombstones included) in every snapshot so late joiners and reconnecting clients
+  converge, forwards layer ops through the configured fan-out, and answers stale or denied edits
+  with an authoritative correction to the sender only. An element `clear` never touches layer
+  records, and rooms that never used layer sync produce byte-identical snapshot frames.
+- Optional `authorizeLayer` hook on `SyncHubOptions`/`CreateSyncServerOptions` with the target
+  layer op and the hub's current record; without it every room member may edit definitions.
+- `HubBackend` gains optional, additive `layerRecords`/`getLayerRecord`/`applyLayerRecord`
+  methods (implemented by `MemoryHubBackend`); backends without them keep working unchanged and
+  the hub falls back to per-room in-memory records.
+
+## [@fieldnotes/sync-redis 0.4.0] — 2026-08-04
+
+### Added
+
+- `RedisHubBackend` implements the optional layer-record persistence contract in a separate
+  `<prefix><room>:layers` hash, validating stored values on read and surviving element `clear`.
+
 ## [@fieldnotes/sync 0.9.0] — 2026-08-04
 
 ### Added
