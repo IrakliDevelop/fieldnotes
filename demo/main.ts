@@ -13,6 +13,8 @@ import {
   TemplateTool,
   LaserTool,
   RemoteLaserOverlay,
+  PingTool,
+  RemotePingOverlay,
   AutoSave,
   IndexedDBAdapter,
   createStroke,
@@ -57,6 +59,7 @@ const shape = new ShapeTool({ strokeColor: '#1a1a1a' });
 const measure = new MeasureTool();
 const template = new TemplateTool();
 const laser = new LaserTool();
+const ping = new PingTool();
 
 viewport.toolManager.register(hand);
 viewport.toolManager.register(pencil);
@@ -70,6 +73,7 @@ viewport.toolManager.register(shape);
 viewport.toolManager.register(measure);
 viewport.toolManager.register(template);
 viewport.toolManager.register(laser);
+viewport.toolManager.register(ping);
 
 let autoSaveToastShown = false;
 
@@ -979,6 +983,10 @@ if (info) {
 (window as unknown as { viewport: typeof viewport }).viewport = viewport;
 // Remote laser trails (a peer's laser presence would feed this); exposed for e2e.
 (window as unknown as Record<string, unknown>).__fieldnotes_remote_laser = new RemoteLaserOverlay(
+  viewport,
+);
+// Remote map pings (a peer's ping presence would feed this); exposed for e2e.
+(window as unknown as Record<string, unknown>).__fieldnotes_remote_ping = new RemotePingOverlay(
   viewport,
 );
 

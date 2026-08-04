@@ -4,6 +4,28 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.55.0] — 2026-08-04
+
+### Added
+
+- Map pings ("look here"): `PingTool` — tap or click to ping a world position with a short
+  expanding-pulse animation. Each accepted tap renders the pulse locally and delivers one
+  `PingEmission` (`x`, `y`, `color`, `durationMs`, `radius`) to `onPing` listeners so hosts can
+  broadcast it as ephemeral presence. A configurable `minIntervalMs` rate limit (default 300 ms)
+  drops faster taps entirely, so rapid-fire pings cannot starve durable sync traffic. Throwing
+  listeners are isolated; deactivation clears pending pulses.
+- `RemotePingOverlay`: a reusable remote-ping controller that renders per-sender expanding pulses
+  through `viewport.registerOverlay`, independent of the viewer's active tool.
+  `apply(sender, data)` validates untyped presence payloads with the new `isPingPresence` guard
+  (`{ kind: 'ping', x, y, color?, durationMs?, radius? }`, built from an emission via
+  `toPingPresence`), stamps pings with local receive time (remote clocks are never trusted), caps
+  live pings per sender (default 8), self-expires each ping when its animation ends, and
+  `remove(sender)` erases a sender's pings immediately — wire it to `presence-leave`/disconnect.
+  Pings are ephemeral by contract: presence only, never elements, undo history, persisted canvas
+  state, or durable sync operations — and they never move the viewer's camera; pings are visual
+  only. Ping presence is visible to everyone receiving the room's presence; element-level
+  `canRead`/audience filtering remains unrelated and unchanged.
+
 ## [0.54.0] — 2026-08-04
 
 ### Added

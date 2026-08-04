@@ -56,4 +56,5 @@ export type ToolName =
   | 'shape'
   | 'measure'
   | 'template'
-  | 'laser';
+  | 'laser'
+  | 'ping';
