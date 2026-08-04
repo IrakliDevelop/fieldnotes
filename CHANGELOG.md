@@ -4,6 +4,21 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [@fieldnotes/sync 0.8.0] — 2026-08-04
+
+### Added
+
+- `createManagedSyncConnection()` owns the authenticated connection lifecycle around `SyncClient`
+  and `WebSocketTransport`: async URL/token resolution with refresh after credential expiry,
+  deterministic `connecting`/`live`/`offline`/`denied` status events, transport-owned transient
+  reconnect, manager-owned rebuild after terminal closes (`4401` by default), a bounded
+  consecutive-authentication-failure budget that settles on `denied`, exponential retry backoff for
+  credential-mint failures, and a `stop()` that cancels timers, listeners, the client, and the
+  transport while invalidating in-flight async URL results. `live` is emitted when an authoritative
+  snapshot addressed to the client arrives, and a successful snapshot resets both retry budgets. An
+  optional `onTransportMessage` hook observes raw frames before the client applies them, so hosts
+  can keep application-level message parsing without private transport access.
+
 ## [@fieldnotes/sync-server 0.11.0] — 2026-08-04
 
 ### Added
