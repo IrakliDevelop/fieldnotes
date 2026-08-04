@@ -6,6 +6,7 @@ import { getHexDistance } from '../elements/hex-fill';
 
 export interface MeasureToolOptions {
   feetPerCell?: number;
+  color?: string;
 }
 
 export interface Measurement {
@@ -24,18 +25,21 @@ export class MeasureTool implements Tool {
   private gridType: 'square' | 'hex' | undefined;
   private hexOrientation: HexOrientation | undefined;
   private feetPerCell: number;
+  private color: string;
   private optionListeners = new Set<() => void>();
 
   constructor(options: MeasureToolOptions = {}) {
     this.feetPerCell = options.feetPerCell ?? 5;
+    this.color = options.color ?? '#FF5722';
   }
 
   getOptions(): MeasureToolOptions {
-    return { feetPerCell: this.feetPerCell };
+    return { feetPerCell: this.feetPerCell, color: this.color };
   }
 
   setOptions(options: MeasureToolOptions): void {
     if (options.feetPerCell !== undefined) this.feetPerCell = options.feetPerCell;
+    if (options.color !== undefined) this.color = options.color;
     this.notifyOptionsChange();
   }
 
@@ -102,7 +106,7 @@ export class MeasureTool implements Tool {
 
     ctx.save();
 
-    ctx.strokeStyle = '#FF5722';
+    ctx.strokeStyle = this.color;
     ctx.setLineDash([8, 4]);
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -111,7 +115,7 @@ export class MeasureTool implements Tool {
     ctx.stroke();
 
     ctx.setLineDash([]);
-    ctx.fillStyle = '#FF5722';
+    ctx.fillStyle = this.color;
     const dotRadius = 4;
     ctx.beginPath();
     ctx.arc(m.start.x, m.start.y, dotRadius, 0, Math.PI * 2);

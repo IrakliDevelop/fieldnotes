@@ -113,7 +113,7 @@ describe('MeasureTool', () => {
 
   it('getOptions returns current feetPerCell', () => {
     const tool = new MeasureTool({ feetPerCell: 10 });
-    expect(tool.getOptions()).toEqual({ feetPerCell: 10 });
+    expect(tool.getOptions()).toEqual({ feetPerCell: 10, color: '#FF5722' });
   });
 
   it('fires options change listener on setOptions', () => {
@@ -363,6 +363,28 @@ describe('MeasureTool', () => {
 
       const m = tool.getMeasurement();
       expect(m?.start).toEqual({ x: 13, y: 17 });
+    });
+  });
+
+  describe('color option', () => {
+    it('defaults to #FF5722 and round-trips through setOptions', () => {
+      const tool = new MeasureTool();
+      expect(tool.getOptions().color).toBe('#FF5722');
+      tool.setOptions({ color: '#00FF00' });
+      expect(tool.getOptions().color).toBe('#00FF00');
+    });
+
+    it('notifies option listeners when color changes', () => {
+      const tool = new MeasureTool();
+      const listener = vi.fn();
+      tool.onOptionsChange(listener);
+      tool.setOptions({ color: '#123456' });
+      expect(listener).toHaveBeenCalledTimes(1);
+    });
+
+    it('accepts color in the constructor', () => {
+      const tool = new MeasureTool({ color: '#ABCDEF' });
+      expect(tool.getOptions().color).toBe('#ABCDEF');
     });
   });
 });
