@@ -410,6 +410,93 @@ describe('createManagedSyncConnection', () => {
     expect(statuses).toEqual(['connecting', 'live']);
   });
 
+  it('passes resolveLocalOnly through to the SyncClient (bootstrap preserve re-pushes)', async () => {
+    const seed = createNote({ position: { x: 1, y: 1 } });
+    store.add(seed);
+    const phases: string[] = [];
+    start({
+      resolveLocalOnly: (context) => {
+        phases.push(context.phase);
+        return { preserve: context.localOnly.map((entry) => entry.element.id) };
+      },
+    });
+    await flushAsync();
+
+    currentTransport().emitMessage(snapshotFor(CLIENT_ID));
+
+    expect(phases).toEqual(['bootstrap']);
+    expect(store.getById(seed.id)).toBeDefined();
+    const upserts = currentTransport()
+      .sent.map((m) => JSON.parse(m) as { op: { kind: string; element?: { id: string } } })
+      .filter((e) => e.op.kind === 'upsert');
+    expect(upserts.map((e) => e.op.element?.id)).toEqual([seed.id]);
+  });
+
+  it('rebuilt clients reconcile their first snapshot with hub knowledge persisted across cycles', async () => {
+    const known = createNote({ position: { x: 0, y: 0 } });
+    const contexts: { phase: string; localOnly: { id: string; hubKnown: boolean }[] }[] = [];
+    start({
+      resolveLocalOnly: (context) => {
+        contexts.push({
+          phase: context.phase,
+          localOnly: context.localOnly.map((entry) => ({
+            id: entry.element.id,
+            hubKnown: entry.hubKnown,
+          })),
+        });
+        return {
+          preserve: context.localOnly
+            .filter((entry) => !entry.hubKnown)
+            .map((entry) => entry.element.id),
+        };
+      },
+    });
+    await flushAsync();
+    // Cycle 1: the hub knows `known`.
+    currentTransport().emitMessage(snapshotFor(CLIENT_ID, [known]));
+    expect(store.getById(known.id)).toBeDefined();
+
+    // Terminal close; while the manager is down, the host adds a local element
+    // no client is attached to (never sent).
+    currentTransport().emitClose(4401);
+    const offline = createNote({ position: { x: 5, y: 5 } });
+    store.add(offline);
+
+    await vi.advanceTimersByTimeAsync(100);
+    expect(transports).toHaveLength(2);
+    // The hub deleted `known` while we were away.
+    currentTransport().emitMessage(snapshotFor(CLIENT_ID));
+
+    expect(contexts[1]?.phase).toBe('reconcile');
+    expect(contexts[1]?.localOnly).toEqual(
+      expect.arrayContaining([
+        { id: known.id, hubKnown: true },
+        { id: offline.id, hubKnown: false },
+      ]),
+    );
+    expect(store.getById(known.id)).toBeUndefined(); // deleted-while-away, even across a rebuild
+    expect(store.getById(offline.id)).toBeDefined(); // preserved and re-pushed
+    const upserts = currentTransport()
+      .sent.map((m) => JSON.parse(m) as { op: { kind: string; element?: { id: string } } })
+      .filter((e) => e.op.kind === 'upsert');
+    expect(upserts.map((e) => e.op.element?.id)).toEqual([offline.id]);
+  });
+
+  it('without a hook, a rebuilt client still removes hub-deleted elements on its first snapshot', async () => {
+    const stale = createNote({ position: { x: 2, y: 2 } });
+    start();
+    await flushAsync();
+    currentTransport().emitMessage(snapshotFor(CLIENT_ID, [stale]));
+    expect(store.getById(stale.id)).toBeDefined();
+
+    currentTransport().emitClose(4401);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(transports).toHaveLength(2);
+
+    currentTransport().emitMessage(snapshotFor(CLIENT_ID));
+    expect(store.getById(stale.id)).toBeUndefined();
+  });
+
   it('ignores a snapshot echoed back with our own clientId as sender', async () => {
     start();
     await flushAsync();

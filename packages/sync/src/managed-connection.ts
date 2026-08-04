@@ -1,5 +1,5 @@
 import type { CanvasElement, ElementStore } from '@fieldnotes/core';
-import { SyncClient } from './sync-client';
+import { SyncClient, type ResolveLocalOnly } from './sync-client';
 import type { SyncTransport } from './sync-transport';
 import { WebSocketTransport } from './websocket-transport';
 import { parseEnvelope } from './protocol';
@@ -46,6 +46,14 @@ export interface ManagedSyncConnectionOptions {
    */
   resolveUrl: () => string | null | Promise<string | null>;
   resolveAudience?: (element: CanvasElement) => string | undefined;
+  /**
+   * Authoritative bootstrap/reconcile hook, forwarded to every `SyncClient`
+   * the manager creates. The manager keeps one hub-knowledge set for its
+   * whole lifetime and starts rebuilt clients in reconcile mode, so
+   * `hubKnown` classification and deleted-while-away semantics stay correct
+   * across credential rebuilds.
+   */
+  resolveLocalOnly?: ResolveLocalOnly;
   onStatus?: (status: ManagedSyncStatus) => void;
   /**
    * Optional observer for raw transport frames. It is subscribed before the
@@ -100,7 +108,15 @@ const BACKOFF_EXPONENT_CAP = 10;
 export function createManagedSyncConnection(
   options: ManagedSyncConnectionOptions,
 ): ManagedSyncConnection {
-  const { store, clientId, resolveUrl, resolveAudience, onStatus, onTransportMessage } = options;
+  const {
+    store,
+    clientId,
+    resolveUrl,
+    resolveAudience,
+    resolveLocalOnly,
+    onStatus,
+    onTransportMessage,
+  } = options;
   const isTerminalClose =
     options.isTerminalClose ?? ((code: number) => code >= 4000 && code <= 4999);
   const isAuthClose = options.isAuthClose ?? ((code: number) => code === 4401);
@@ -112,6 +128,11 @@ export function createManagedSyncConnection(
 
   let stopped = false;
   let denied = false;
+  // Hub knowledge and joined-ness outlive individual connect cycles: a rebuilt
+  // client resumes the same store, so its first snapshot is a reconcile (with
+  // deleted-while-away semantics), not a fresh non-destructive bootstrap.
+  const hubKnownIds = new Set<string>();
+  let everJoined = false;
   // Incremented on stop() and each connect cycle so late async results
   // (resolveUrl, stale transport events) from an older cycle are discarded.
   let generation = 0;
@@ -162,6 +183,7 @@ export function createManagedSyncConnection(
     // healthy, so both retry budgets reset.
     attempt = 0;
     authFailures = 0;
+    everJoined = true;
     setStatus('live');
   };
 
@@ -217,7 +239,15 @@ export function createManagedSyncConnection(
     subscriptions.push(activeTransport.onClose((code) => handleClose(cycleGeneration, code)));
     // Subscribed last so host observers and the snapshot watcher above see
     // every frame before the client applies it to the store.
-    client = new SyncClient({ store, transport: activeTransport, clientId, resolveAudience });
+    client = new SyncClient({
+      store,
+      transport: activeTransport,
+      clientId,
+      resolveAudience,
+      resolveLocalOnly,
+      hubKnownIds,
+      firstSnapshot: everJoined ? 'reconcile' : 'merge',
+    });
     client.start();
   };
 
