@@ -1,8 +1,9 @@
-import type { CanvasElement, ElementStore } from '@fieldnotes/core';
-import { SyncClient, type ResolveLocalOnly } from './sync-client';
+import type { CanvasElement, ElementStore, Layer } from '@fieldnotes/core';
+import { SyncClient, type ResolveLocalOnly, type RemoteLayerUpdate } from './sync-client';
 import type { SyncTransport } from './sync-transport';
 import { WebSocketTransport } from './websocket-transport';
-import { parseEnvelope } from './protocol';
+import { parseEnvelope, isValidLayerDefinition } from './protocol';
+import { LayerLedger } from './layer-ledger';
 
 /**
  * Connection health as observed by the managed lifecycle:
@@ -54,6 +55,16 @@ export interface ManagedSyncConnectionOptions {
    * across credential rebuilds.
    */
   resolveLocalOnly?: ResolveLocalOnly;
+  /**
+   * Enables versioned layer-definition sync. The manager owns one
+   * `LayerLedger` for its whole lifetime and passes it to every client it
+   * builds, so version counters and tombstones survive credential rebuilds
+   * and locally-newer records are re-pushed after each reconnect snapshot.
+   */
+  layers?: {
+    /** Host application hook; see `LayerSyncOptions.applyLayer`. */
+    applyLayer: (update: RemoteLayerUpdate) => void;
+  };
   onStatus?: (status: ManagedSyncStatus) => void;
   /**
    * Optional observer for raw transport frames. It is subscribed before the
@@ -90,6 +101,15 @@ export interface ManagedSyncConnection {
    */
   stop(): void;
   getStatus(): ManagedSyncStatus;
+  /**
+   * Publishes a local layer definition edit. While no client is connected
+   * (between rebuilds) the edit is recorded in the manager's ledger and
+   * delivered by the re-push that follows the next authoritative snapshot.
+   * Throws when the `layers` option was not configured.
+   */
+  publishLayerUpsert(definition: Layer): void;
+  /** Publishes a local layer removal; same offline semantics as upsert. */
+  publishLayerRemove(id: string): void;
 }
 
 const BACKOFF_EXPONENT_CAP = 10;
@@ -132,6 +152,7 @@ export function createManagedSyncConnection(
   // client resumes the same store, so its first snapshot is a reconcile (with
   // deleted-while-away semantics), not a fresh non-destructive bootstrap.
   const hubKnownIds = new Set<string>();
+  const layerLedger = options.layers ? new LayerLedger() : null;
   let everJoined = false;
   // Incremented on stop() and each connect cycle so late async results
   // (resolveUrl, stale transport events) from an older cycle are discarded.
@@ -247,6 +268,9 @@ export function createManagedSyncConnection(
       resolveLocalOnly,
       hubKnownIds,
       firstSnapshot: everJoined ? 'reconcile' : 'merge',
+      ...(options.layers && layerLedger
+        ? { layers: { applyLayer: options.layers.applyLayer, ledger: layerLedger } }
+        : {}),
     });
     client.start();
   };
@@ -273,6 +297,31 @@ export function createManagedSyncConnection(
     },
     getStatus(): ManagedSyncStatus {
       return currentStatus ?? 'connecting';
+    },
+    publishLayerUpsert(definition: Layer): void {
+      if (!layerLedger) {
+        throw new Error('layer sync is not enabled for this connection (pass the `layers` option)');
+      }
+      if (client) {
+        client.publishLayerUpsert(definition);
+        return;
+      }
+      if (!isValidLayerDefinition(definition)) {
+        throw new Error('publishLayerUpsert requires a valid layer definition');
+      }
+      // No active client: record in the shared ledger; the re-push after the
+      // next authoritative snapshot broadcasts it.
+      layerLedger.recordUpsert({ ...definition }, clientId);
+    },
+    publishLayerRemove(id: string): void {
+      if (!layerLedger) {
+        throw new Error('layer sync is not enabled for this connection (pass the `layers` option)');
+      }
+      if (client) {
+        client.publishLayerRemove(id);
+        return;
+      }
+      layerLedger.recordRemove(id, clientId);
     },
   };
 }

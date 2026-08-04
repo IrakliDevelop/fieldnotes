@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createShape } from '@fieldnotes/core';
 import type { CanvasElement } from '@fieldnotes/core';
 import { RedisHubBackend, type RedisHashClient } from './index';
+import type { LayerRecord } from '@fieldnotes/sync';
 
 class FakeRedis implements RedisHashClient {
   store = new Map<string, Map<string, string>>();
@@ -129,5 +130,59 @@ describe('RedisHubBackend', () => {
     const snap = await b.snapshot('R');
     expect(snap).toHaveLength(1);
     expect(snap[0]?.id).toBe('good');
+  });
+});
+
+describe('RedisHubBackend layer records', () => {
+  function record(id: string, version: number, editor = 'A'): LayerRecord {
+    return {
+      id,
+      version,
+      editor,
+      definition: { id, name: id, visible: true, locked: false, order: 0, opacity: 1 },
+    };
+  }
+
+  it('round-trips layer records, tombstones included, in a separate hash', async () => {
+    const fake = new FakeRedis();
+    const b = new RedisHubBackend(fake);
+
+    await b.applyLayerRecord('R', record('layer-a', 1));
+    await b.applyLayerRecord('R', { id: 'layer-b', version: 4, editor: 'B' }); // tombstone
+    expect(await b.getLayerRecord('R', 'layer-a')).toEqual(record('layer-a', 1));
+    expect(await b.getLayerRecord('R', 'layer-b')).toEqual({
+      id: 'layer-b',
+      version: 4,
+      editor: 'B',
+    });
+    const all = await b.layerRecords('R');
+    expect(all.map((r) => r.id).sort()).toEqual(['layer-a', 'layer-b']);
+
+    // Rooms are isolated and layers live outside the element hash.
+    expect(await b.layerRecords('other')).toEqual([]);
+    expect(await b.snapshot('R')).toEqual([]);
+  });
+
+  it('an element clear leaves the layer hash intact', async () => {
+    const fake = new FakeRedis();
+    const b = new RedisHubBackend(fake);
+    await b.apply('R', { kind: 'upsert', element: element('e1') });
+    await b.applyLayerRecord('R', record('layer-a', 2));
+
+    await b.apply('R', { kind: 'clear' });
+    expect(await b.snapshot('R')).toEqual([]);
+    expect(await b.layerRecords('R')).toEqual([record('layer-a', 2)]);
+  });
+
+  it('skips corrupt or invalid stored layer values instead of throwing', async () => {
+    const fake = new FakeRedis();
+    const b = new RedisHubBackend(fake, { keyPrefix: 'p:' });
+    await b.applyLayerRecord('R', record('layer-a', 1));
+    await fake.hSet('p:R:layers', 'bad-json', '{nope');
+    await fake.hSet('p:R:layers', 'bad-shape', JSON.stringify({ id: 'bad-shape', version: 0 }));
+
+    expect(await b.layerRecords('R')).toEqual([record('layer-a', 1)]);
+    expect(await b.getLayerRecord('R', 'bad-json')).toBeUndefined();
+    expect(await b.getLayerRecord('R', 'bad-shape')).toBeUndefined();
   });
 });

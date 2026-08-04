@@ -1,6 +1,16 @@
-import type { CanvasElement, ElementStore } from '@fieldnotes/core';
+import type { CanvasElement, ElementStore, Layer } from '@fieldnotes/core';
 import type { SyncTransport } from './sync-transport';
-import { parseEnvelope, isValidElement, type SyncOp, type SyncElement } from './protocol';
+import {
+  parseEnvelope,
+  isValidElement,
+  isValidLayerDefinition,
+  isValidLayerRecord,
+  isNewerLayerRecord,
+  type LayerRecord,
+  type SyncOp,
+  type SyncElement,
+} from './protocol';
+import { LayerLedger } from './layer-ledger';
 
 /**
  * Which authoritative-snapshot merge is being applied:
@@ -55,6 +65,39 @@ export type ResolveLocalOnly = (
   context: AuthoritativeSnapshotContext,
 ) => LocalOnlyResolution | undefined;
 
+/**
+ * A winning remote layer record for the host to apply. A `record` without
+ * `definition` is a removal tombstone. `source` is `'op'` for a live
+ * `layer-upsert`/`layer-remove` and `'snapshot'` for a record carried by an
+ * authoritative or peer snapshot.
+ */
+export interface RemoteLayerUpdate {
+  readonly record: LayerRecord;
+  readonly source: 'op' | 'snapshot';
+}
+
+/**
+ * Opt-in versioned layer-definition sync. Presentation only: layer records
+ * never carry element bytes, and element-level audience filtering remains the
+ * sole privacy boundary.
+ */
+export interface LayerSyncOptions {
+  /**
+   * Applies a winning remote record to host layer state. Called only when the
+   * record beats the ledger under the deterministic (version, editor)
+   * ordering, so hosts never see stale updates. The host owns policy: it may
+   * overlay role-local fields (e.g. keep a layer locked for players) and must
+   * apply through history-transparent operations — remote layer changes must
+   * never enter local undo history. A throwing hook does not disturb sync.
+   */
+  applyLayer: (update: RemoteLayerUpdate) => void;
+  /**
+   * Versioned record state shared across successive clients over one store
+   * (e.g. managed-connection rebuilds). Defaults to a fresh ledger.
+   */
+  ledger?: LayerLedger;
+}
+
 export interface SyncClientOptions {
   store: ElementStore;
   transport: SyncTransport;
@@ -82,9 +125,17 @@ export interface SyncClientOptions {
    * with local ops made before the snapshot shielded as touched-during-resync.
    */
   firstSnapshot?: 'merge' | 'reconcile';
+  /** Enables versioned layer-definition sync for this client. */
+  layers?: LayerSyncOptions;
 }
 
 const REMOTE_ORIGIN = 'remote';
+/**
+ * Server-owned sender identity. The hub never forwards a client-stamped
+ * `from`, so a layer op arriving from `hub` is an authoritative correction
+ * and overrides the ledger even against a locally-newer version.
+ */
+const HUB_FROM = 'hub';
 
 function isExternal(origin: string | undefined): boolean {
   return origin !== undefined && origin !== 'local';
@@ -104,6 +155,8 @@ export class SyncClient {
   private readonly resolveAudience?: (element: CanvasElement) => string | undefined;
   private readonly resolveLocalOnly?: ResolveLocalOnly;
   private readonly hubKnownIds: Set<string>;
+  private readonly applyLayer?: (update: RemoteLayerUpdate) => void;
+  private readonly layerLedger?: LayerLedger;
   private unsubscribers: (() => void)[] = [];
   private started = false;
   private joined = false;
@@ -119,6 +172,10 @@ export class SyncClient {
     this.resolveAudience = options.resolveAudience;
     this.resolveLocalOnly = options.resolveLocalOnly;
     this.hubKnownIds = options.hubKnownIds ?? new Set();
+    if (options.layers) {
+      this.applyLayer = options.layers.applyLayer;
+      this.layerLedger = options.layers.ledger ?? new LayerLedger();
+    }
     this.joined = options.firstSnapshot === 'reconcile';
   }
 
@@ -177,6 +234,101 @@ export class SyncClient {
     return () => this.presenceLeaveHandlers.delete(handler);
   }
 
+  /**
+   * Publishes a local layer definition edit: stamps the next version with
+   * this client as editor, records it in the ledger, and broadcasts it.
+   * Publishing never touches element or undo state; the host decides when a
+   * local layer change is worth broadcasting. Throws when layer sync is not
+   * enabled or the definition is malformed.
+   */
+  publishLayerUpsert(definition: Layer): void {
+    const ledger = this.requireLayerLedger();
+    if (!isValidLayerDefinition(definition)) {
+      throw new Error('publishLayerUpsert requires a valid layer definition');
+    }
+    const copy: Layer = { ...definition };
+    const record = ledger.recordUpsert(copy, this.clientId);
+    this.sendOp({
+      kind: 'layer-upsert',
+      layer: copy,
+      version: record.version,
+      editor: this.clientId,
+    });
+  }
+
+  /** Publishes a local layer removal as a versioned tombstone. */
+  publishLayerRemove(id: string): void {
+    const ledger = this.requireLayerLedger();
+    const record = ledger.recordRemove(id, this.clientId);
+    this.sendOp({ kind: 'layer-remove', id, version: record.version, editor: this.clientId });
+  }
+
+  private requireLayerLedger(): LayerLedger {
+    if (!this.layerLedger) {
+      throw new Error('layer sync is not enabled for this client (pass the `layers` option)');
+    }
+    return this.layerLedger;
+  }
+
+  private onRemoteLayerOp(
+    from: string,
+    op: Extract<SyncOp, { kind: 'layer-upsert' | 'layer-remove' }>,
+  ): void {
+    if (!this.layerLedger) return; // not opted in — new traffic is ignored entirely
+    const record: LayerRecord =
+      op.kind === 'layer-upsert'
+        ? { id: op.layer.id, version: op.version, editor: op.editor, definition: op.layer }
+        : { id: op.id, version: op.version, editor: op.editor };
+    if (from === HUB_FROM) {
+      // Hub correction (stale or denied edit): authoritative, beats the ledger.
+      this.layerLedger.applyAuthoritative(record);
+    } else if (!this.layerLedger.applyRemote(record)) {
+      return; // stale under (version, editor) — already superseded locally
+    }
+    this.safeApplyLayer({ record, source: 'op' });
+  }
+
+  private mergeSnapshotLayers(layers: readonly LayerRecord[] | undefined): void {
+    if (!this.layerLedger || !layers) return;
+    for (const raw of layers as readonly unknown[]) {
+      // isValidEnvelope checks the array shape only; validate per record here.
+      if (!isValidLayerRecord(raw)) continue;
+      if (this.layerLedger.applyRemote(raw))
+        this.safeApplyLayer({ record: raw, source: 'snapshot' });
+    }
+  }
+
+  private pushNewerLayerRecords(layers: readonly LayerRecord[] | undefined): void {
+    if (!this.layerLedger) return;
+    const snapshotRecords = new Map<string, LayerRecord>();
+    for (const raw of (layers ?? []) as readonly unknown[]) {
+      if (isValidLayerRecord(raw)) snapshotRecords.set(raw.id, raw);
+    }
+    for (const record of this.layerLedger.records()) {
+      const known = snapshotRecords.get(record.id);
+      if (known && !isNewerLayerRecord(record, known)) continue;
+      this.sendOp(
+        record.definition
+          ? {
+              kind: 'layer-upsert',
+              layer: record.definition,
+              version: record.version,
+              editor: record.editor,
+            }
+          : { kind: 'layer-remove', id: record.id, version: record.version, editor: record.editor },
+      );
+    }
+  }
+
+  private safeApplyLayer(update: RemoteLayerUpdate): void {
+    if (!this.applyLayer) return;
+    try {
+      this.applyLayer(update);
+    } catch {
+      // A throwing host hook must not disturb the sync state machine.
+    }
+  }
+
   private sendOp(op: SyncOp): void {
     this.transport.send(JSON.stringify({ from: this.clientId, op }));
   }
@@ -211,9 +363,17 @@ export class SyncClient {
     if (!env || env.from === this.clientId) return; // malformed/invalid + own echo
     const op = env.op;
     if (op.kind === 'request-snapshot') {
-      this.sendOp({ kind: 'snapshot', to: env.from, elements: this.store.snapshot() });
+      const elements = this.store.snapshot();
+      this.sendOp(
+        this.layerLedger
+          ? { kind: 'snapshot', to: env.from, elements, layers: this.layerLedger.records() }
+          : { kind: 'snapshot', to: env.from, elements },
+      );
     } else if (op.kind === 'snapshot') {
       if (op.to !== this.clientId) return; // not addressed to us
+      // Layers merge BEFORE elements so an element referencing a just-synced
+      // layer arrives after the host has created that layer.
+      this.mergeSnapshotLayers(op.layers);
       const phase: AuthoritativeSnapshotPhase = this.joined ? 'reconcile' : 'bootstrap';
       const preserved = this.applyAuthoritativeSnapshot(phase, op.elements.filter(isValidElement));
       this.joined = true;
@@ -226,6 +386,12 @@ export class SyncClient {
         const element = this.store.getById(id);
         if (element) this.onLocal({ kind: 'upsert', element }, 'local');
       }
+      // Snapshot merge is non-destructive for layers: records the snapshot
+      // lacks (or carries only older versions of) are re-pushed so the sender
+      // learns them — the layer analogue of preserved-element re-push.
+      this.pushNewerLayerRecords(op.layers);
+    } else if (op.kind === 'layer-upsert' || op.kind === 'layer-remove') {
+      this.onRemoteLayerOp(env.from, op);
     } else if (op.kind === 'presence') {
       for (const h of this.presenceHandlers) h(env.from, op.data);
     } else if (op.kind === 'presence-leave') {

@@ -11,7 +11,10 @@ export type {
   LocalOnlyElement,
   LocalOnlyResolution,
   ResolveLocalOnly,
+  LayerSyncOptions,
+  RemoteLayerUpdate,
 } from './sync-client';
+export { LayerLedger } from './layer-ledger';
 export { createManagedSyncConnection } from './managed-connection';
 export type {
   ManagedSyncConnection,
@@ -19,5 +22,14 @@ export type {
   ManagedSyncStatus,
   ManagedSyncTransport,
 } from './managed-connection';
-export type { SyncOp, SyncEnvelope, SyncElement } from './protocol';
-export { isValidEnvelope, isValidElement, parseEnvelope, applyOpToMap } from './protocol';
+export type { SyncOp, SyncEnvelope, SyncElement, LayerRecord } from './protocol';
+export {
+  isValidEnvelope,
+  isValidElement,
+  isValidLayerDefinition,
+  isValidLayerRecord,
+  isNewerLayerRecord,
+  parseEnvelope,
+  applyOpToMap,
+  LAYER_SYNC_PROTOCOL_VERSION,
+} from './protocol';

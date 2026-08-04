@@ -11,11 +11,16 @@ import {
   createText,
   type CanvasElement,
 } from '@fieldnotes/core';
+import type { Layer } from '@fieldnotes/core';
 import {
   isValidElement,
   isValidEnvelope,
+  isValidLayerDefinition,
+  isValidLayerRecord,
+  isNewerLayerRecord,
   parseEnvelope,
   applyOpToMap,
+  type LayerRecord,
   type SyncOp,
 } from './protocol';
 
@@ -136,6 +141,180 @@ describe('isValidEnvelope', () => {
   });
 });
 
+function layerDef(overrides: Partial<Layer> = {}): Layer {
+  return {
+    id: 'layer-a',
+    name: 'Layer A',
+    visible: true,
+    locked: false,
+    order: 100,
+    opacity: 1,
+    ...overrides,
+  };
+}
+
+describe('layer definition and record validation', () => {
+  it('accepts a complete layer definition', () => {
+    expect(isValidLayerDefinition(layerDef())).toBe(true);
+  });
+
+  it('rejects missing or malformed definition fields', () => {
+    expect(isValidLayerDefinition({ ...layerDef(), name: 42 })).toBe(false);
+    expect(isValidLayerDefinition({ ...layerDef(), visible: 'yes' })).toBe(false);
+    expect(isValidLayerDefinition({ ...layerDef(), order: Number.NaN })).toBe(false);
+    expect(isValidLayerDefinition({ ...layerDef(), opacity: Number.POSITIVE_INFINITY })).toBe(
+      false,
+    );
+    const withoutLocked: Partial<Layer> = { ...layerDef() };
+    delete withoutLocked.locked;
+    expect(isValidLayerDefinition(withoutLocked)).toBe(false);
+    expect(isValidLayerDefinition(null)).toBe(false);
+  });
+
+  it('accepts records with and without a definition (tombstone)', () => {
+    expect(
+      isValidLayerRecord({ id: 'layer-a', version: 1, editor: 'A', definition: layerDef() }),
+    ).toBe(true);
+    expect(isValidLayerRecord({ id: 'layer-a', version: 3, editor: 'A' })).toBe(true);
+  });
+
+  it('rejects records with bad versions, missing editor, or mismatched definition id', () => {
+    expect(isValidLayerRecord({ id: 'layer-a', version: 0, editor: 'A' })).toBe(false);
+    expect(isValidLayerRecord({ id: 'layer-a', version: 1.5, editor: 'A' })).toBe(false);
+    expect(isValidLayerRecord({ id: 'layer-a', version: Number.NaN, editor: 'A' })).toBe(false);
+    expect(isValidLayerRecord({ id: 'layer-a', version: 1 })).toBe(false);
+    expect(
+      isValidLayerRecord({
+        id: 'layer-b',
+        version: 1,
+        editor: 'A',
+        definition: layerDef(), // definition.id is 'layer-a'
+      }),
+    ).toBe(false);
+  });
+
+  it('orders records by version, then lexicographic editor — deterministic ties', () => {
+    const v1A: LayerRecord = { id: 'l', version: 1, editor: 'A' };
+    const v2A: LayerRecord = { id: 'l', version: 2, editor: 'A' };
+    const v2B: LayerRecord = { id: 'l', version: 2, editor: 'B' };
+    expect(isNewerLayerRecord(v2A, v1A)).toBe(true);
+    expect(isNewerLayerRecord(v1A, v2A)).toBe(false);
+    expect(isNewerLayerRecord(v2B, v2A)).toBe(true);
+    expect(isNewerLayerRecord(v2A, v2B)).toBe(false);
+    expect(isNewerLayerRecord(v2A, v2A)).toBe(false); // equal is not newer — idempotent re-apply
+  });
+});
+
+describe('isValidEnvelope layer ops', () => {
+  it('accepts layer-upsert with a valid definition, version, and editor', () => {
+    expect(
+      isValidEnvelope({
+        from: 'A',
+        op: { kind: 'layer-upsert', layer: layerDef(), version: 1, editor: 'A' },
+      }),
+    ).toBe(true);
+  });
+
+  it('rejects layer-upsert with malformed pieces', () => {
+    expect(
+      isValidEnvelope({
+        from: 'A',
+        op: { kind: 'layer-upsert', layer: {}, version: 1, editor: 'A' },
+      }),
+    ).toBe(false);
+    expect(
+      isValidEnvelope({
+        from: 'A',
+        op: { kind: 'layer-upsert', layer: layerDef(), version: 0, editor: 'A' },
+      }),
+    ).toBe(false);
+    expect(
+      isValidEnvelope({ from: 'A', op: { kind: 'layer-upsert', layer: layerDef(), version: 1 } }),
+    ).toBe(false);
+  });
+
+  it('accepts layer-remove with id/version/editor, rejects without', () => {
+    expect(
+      isValidEnvelope({
+        from: 'A',
+        op: { kind: 'layer-remove', id: 'l', version: 2, editor: 'A' },
+      }),
+    ).toBe(true);
+    expect(
+      isValidEnvelope({ from: 'A', op: { kind: 'layer-remove', version: 2, editor: 'A' } }),
+    ).toBe(false);
+    expect(isValidEnvelope({ from: 'A', op: { kind: 'layer-remove', id: 'l', editor: 'A' } })).toBe(
+      false,
+    );
+  });
+
+  it('accepts snapshot with a layers array by shape, rejects a non-array layers field', () => {
+    expect(
+      isValidEnvelope({
+        from: 'A',
+        op: { kind: 'snapshot', to: 'B', elements: [], layers: [{ bogus: true }] },
+      }),
+    ).toBe(true);
+    expect(
+      isValidEnvelope({
+        from: 'A',
+        op: { kind: 'snapshot', to: 'B', elements: [], layers: 'nope' },
+      }),
+    ).toBe(false);
+  });
+
+  it('layer ops fail the pre-layer-sync envelope validator (old clients drop them)', () => {
+    // Frozen copy of the isValidEnvelope switch as released in
+    // @fieldnotes/sync 0.9.0 — the compatibility contract this feature relies
+    // on: peers that predate layer sync must reject the new kinds outright.
+    function legacyIsValidEnvelope(env: unknown): boolean {
+      if (typeof env !== 'object' || env === null) return false;
+      const e = env as {
+        from?: unknown;
+        op?: { kind?: unknown; id?: unknown; to?: unknown; elements?: unknown; element?: unknown };
+      };
+      if (typeof e.from !== 'string' || typeof e.op !== 'object' || e.op === null) return false;
+      const op = e.op;
+      switch (op.kind) {
+        case 'upsert':
+          return isValidElement(op.element);
+        case 'remove':
+          return typeof op.id === 'string';
+        case 'clear':
+        case 'request-snapshot':
+        case 'presence':
+        case 'presence-leave':
+          return true;
+        case 'snapshot':
+          return typeof op.to === 'string' && Array.isArray(op.elements);
+        default:
+          return false;
+      }
+    }
+
+    expect(
+      legacyIsValidEnvelope({
+        from: 'A',
+        op: { kind: 'layer-upsert', layer: layerDef(), version: 1, editor: 'A' },
+      }),
+    ).toBe(false);
+    expect(
+      legacyIsValidEnvelope({
+        from: 'A',
+        op: { kind: 'layer-remove', id: 'l', version: 2, editor: 'A' },
+      }),
+    ).toBe(false);
+    // A snapshot that carries layers still passes the legacy validator: old
+    // clients apply its elements and ignore the extra field.
+    expect(
+      legacyIsValidEnvelope({
+        from: 'A',
+        op: { kind: 'snapshot', to: 'B', elements: [], layers: [] },
+      }),
+    ).toBe(true);
+  });
+});
+
 describe('parseEnvelope', () => {
   it('returns null for malformed JSON', () => {
     expect(parseEnvelope('{bad')).toBeNull();
@@ -176,6 +355,8 @@ describe('applyOpToMap', () => {
     const ops: SyncOp[] = [
       { kind: 'request-snapshot' },
       { kind: 'snapshot', to: 'B', elements: [shape(3)] },
+      { kind: 'layer-upsert', layer: layerDef(), version: 1, editor: 'A' },
+      { kind: 'layer-remove', id: 'layer-a', version: 2, editor: 'A' },
     ];
     for (const op of ops) applyOpToMap(map, op);
 

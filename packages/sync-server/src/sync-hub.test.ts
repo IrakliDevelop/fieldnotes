@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createShape } from '@fieldnotes/core';
-import type { CanvasElement } from '@fieldnotes/core';
+import type { CanvasElement, Layer } from '@fieldnotes/core';
 import type { SyncOp } from '@fieldnotes/sync';
 import { SyncHub } from './sync-hub';
 import type { Connection } from './sync-hub';
@@ -1138,5 +1138,312 @@ describe('presence (ephemeral)', () => {
     hubA.removeConnection('a');
     expect(b.sent).toHaveLength(1);
     expect(JSON.parse(b.sent[0] as string)).toEqual({ from: 'a', op: { kind: 'presence-leave' } });
+  });
+});
+
+describe('layer-definition sync', () => {
+  function layerDef(overrides: Partial<Layer> = {}): Layer {
+    return {
+      id: 'layer-x',
+      name: 'Layer X',
+      visible: true,
+      locked: false,
+      order: 100,
+      opacity: 1,
+      ...overrides,
+    };
+  }
+
+  function layerUpsert(version: number, editor: string, overrides: Partial<Layer> = {}): SyncOp {
+    return { kind: 'layer-upsert', layer: layerDef(overrides), version, editor };
+  }
+
+  function parsed(conn: FakeConn): { from: string; op: SyncOp }[] {
+    return conn.sent.map((m) => JSON.parse(m) as { from: string; op: SyncOp });
+  }
+
+  it('stores a layer upsert and relays it to other room members only', async () => {
+    const hub = new SyncHub();
+    const a = makeConn('A', 'R');
+    const b = makeConn('B', 'R');
+    const c = makeConn('C', 'R2');
+    hub.addConnection(a);
+    hub.addConnection(b);
+    hub.addConnection(c);
+
+    await hub.handleMessage('A', envelope('clientA', layerUpsert(1, 'clientA')));
+
+    expect(parsed(b)).toEqual([{ from: 'A', op: layerUpsert(1, 'clientA') }]);
+    expect(a.sent).toEqual([]);
+    expect(c.sent).toEqual([]);
+
+    // A later joiner's snapshot carries the stored record.
+    const late = makeConn('L', 'R');
+    hub.addConnection(late);
+    await hub.handleMessage('L', envelope('clientL', { kind: 'request-snapshot' }));
+    const reply = parsed(late)[0];
+    expect(reply?.op).toEqual({
+      kind: 'snapshot',
+      to: 'clientL',
+      elements: [],
+      layers: [{ id: 'layer-x', version: 1, editor: 'clientA', definition: layerDef() }],
+    });
+    hub.close();
+  });
+
+  it('omits the snapshot layers field for rooms that never used layer sync', async () => {
+    const hub = new SyncHub();
+    const a = makeConn('A', 'R');
+    hub.addConnection(a);
+    await hub.handleMessage('A', envelope('clientA', { kind: 'request-snapshot' }));
+    const reply = JSON.parse(a.sent[0] ?? '') as { op: Record<string, unknown> };
+    expect('layers' in reply.op).toBe(false);
+    hub.close();
+  });
+
+  it('stores removal tombstones and serves them to late joiners', async () => {
+    const hub = new SyncHub();
+    const a = makeConn('A', 'R');
+    hub.addConnection(a);
+    await hub.handleMessage('A', envelope('clientA', layerUpsert(1, 'clientA')));
+    await hub.handleMessage(
+      'A',
+      envelope('clientA', { kind: 'layer-remove', id: 'layer-x', version: 2, editor: 'clientA' }),
+    );
+
+    const late = makeConn('L', 'R');
+    hub.addConnection(late);
+    await hub.handleMessage('L', envelope('clientL', { kind: 'request-snapshot' }));
+    const reply = parsed(late)[0];
+    expect(reply?.op).toEqual({
+      kind: 'snapshot',
+      to: 'clientL',
+      elements: [],
+      layers: [{ id: 'layer-x', version: 2, editor: 'clientA' }],
+    });
+    hub.close();
+  });
+
+  it('answers a stale edit with an authoritative correction to the sender only, without broadcast', async () => {
+    const hub = new SyncHub();
+    const a = makeConn('A', 'R');
+    const b = makeConn('B', 'R');
+    hub.addConnection(a);
+    hub.addConnection(b);
+
+    await hub.handleMessage(
+      'A',
+      envelope('clientA', layerUpsert(3, 'clientA', { name: 'current' })),
+    );
+    b.sent.length = 0;
+
+    await hub.handleMessage('B', envelope('clientB', layerUpsert(2, 'clientB', { name: 'stale' })));
+
+    expect(a.sent).toEqual([]); // no broadcast of the stale edit
+    expect(parsed(b)).toEqual([
+      { from: 'hub', op: layerUpsert(3, 'clientA', { name: 'current' }) },
+    ]);
+    hub.close();
+  });
+
+  it('resolves an equal-version tie by editor regardless of arrival order', async () => {
+    const hub = new SyncHub();
+    const a = makeConn('A', 'R');
+    const b = makeConn('B', 'R');
+    hub.addConnection(a);
+    hub.addConnection(b);
+
+    // Higher editor arrives first; the lower one is stale despite arriving second.
+    await hub.handleMessage(
+      'B',
+      envelope('clientB', layerUpsert(2, 'clientB', { name: 'from B' })),
+    );
+    await hub.handleMessage(
+      'A',
+      envelope('clientA', layerUpsert(2, 'clientA', { name: 'from A' })),
+    );
+
+    const late = makeConn('L', 'R');
+    hub.addConnection(late);
+    await hub.handleMessage('L', envelope('clientL', { kind: 'request-snapshot' }));
+    const reply = parsed(late)[0]?.op;
+    if (reply?.kind !== 'snapshot') throw new Error('expected a snapshot reply');
+    expect(reply.layers?.[0]?.definition?.name).toBe('from B');
+    hub.close();
+  });
+
+  it('authorizeLayer denies an edit with a correction and no broadcast or storage', async () => {
+    const denials: string[] = [];
+    const hub = new SyncHub({
+      authorizeLayer: ({ role, op }) => {
+        if (role === 'dm') return true;
+        denials.push(op.kind);
+        return false;
+      },
+    });
+    const dm: FakeConn = { ...makeConn('dm', 'R'), role: 'dm' };
+    const player: FakeConn = { ...makeConn('pl', 'R'), role: 'player' };
+    hub.addConnection(dm);
+    hub.addConnection(player);
+
+    await hub.handleMessage('dm', envelope('dmUser', layerUpsert(1, 'dmUser', { name: 'real' })));
+    player.sent.length = 0;
+
+    await hub.handleMessage('pl', envelope('plUser', layerUpsert(2, 'plUser', { name: 'hijack' })));
+    expect(denials).toEqual(['layer-upsert']);
+    expect(dm.sent).toEqual([]); // denied edit never broadcast
+    // The sender is corrected back to the room's record.
+    expect(parsed(player)).toEqual([
+      { from: 'hub', op: layerUpsert(1, 'dmUser', { name: 'real' }) },
+    ]);
+
+    // Denied edit of an unknown layer corrects with a hub tombstone.
+    await hub.handleMessage(
+      'pl',
+      envelope('plUser', {
+        kind: 'layer-upsert',
+        layer: layerDef({ id: 'layer-new', name: 'sneaky' }),
+        version: 1,
+        editor: 'plUser',
+      }),
+    );
+    const second = parsed(player)[1];
+    expect(second).toEqual({
+      from: 'hub',
+      op: { kind: 'layer-remove', id: 'layer-new', version: 1, editor: 'hub' },
+    });
+    hub.close();
+  });
+
+  it('uses backend layer persistence when provided', async () => {
+    const backend = new MemoryHubBackend();
+    const hub = new SyncHub({ backend });
+    const a = makeConn('A', 'R');
+    hub.addConnection(a);
+
+    await hub.handleMessage('A', envelope('clientA', layerUpsert(1, 'clientA')));
+    expect(await backend.layerRecords('R')).toEqual([
+      { id: 'layer-x', version: 1, editor: 'clientA', definition: layerDef() },
+    ]);
+    hub.close();
+  });
+
+  it('falls back to hub memory for backends without layer persistence', async () => {
+    const minimal: HubBackend = {
+      snapshot: async () => [],
+      get: async () => undefined,
+      apply: async () => undefined,
+    };
+    const hub = new SyncHub({ backend: minimal });
+    const a = makeConn('A', 'R');
+    hub.addConnection(a);
+
+    await hub.handleMessage('A', envelope('clientA', layerUpsert(1, 'clientA')));
+    const late = makeConn('L', 'R');
+    hub.addConnection(late);
+    await hub.handleMessage('L', envelope('clientL', { kind: 'request-snapshot' }));
+    const reply = JSON.parse(late.sent[0] ?? '') as { op: { layers?: unknown[] } };
+    expect(reply.op.layers).toEqual([
+      { id: 'layer-x', version: 1, editor: 'clientA', definition: layerDef() },
+    ]);
+    hub.close();
+  });
+
+  it('an element clear does not touch stored layer records', async () => {
+    const backend = new MemoryHubBackend();
+    const hub = new SyncHub({ backend });
+    const a = makeConn('A', 'R');
+    hub.addConnection(a);
+    await hub.handleMessage('A', envelope('clientA', { kind: 'upsert', element: sampleEl() }));
+    await hub.handleMessage('A', envelope('clientA', layerUpsert(1, 'clientA')));
+
+    await hub.handleMessage('A', envelope('clientA', { kind: 'clear' }));
+    expect(await backend.snapshot('R')).toEqual([]);
+    expect(await backend.layerRecords('R')).toHaveLength(1);
+    hub.close();
+  });
+
+  it('fans layer ops out across hub instances and converges their ledgers', async () => {
+    const fanout = new InMemoryHubFanout();
+    const hub1 = new SyncHub({ fanout, instanceId: 'i1' });
+    const hub2 = new SyncHub({ fanout, instanceId: 'i2' });
+    const a = makeConn('A', 'R');
+    const b = makeConn('B', 'R');
+    hub1.addConnection(a);
+    hub2.addConnection(b);
+
+    await hub1.handleMessage('A', envelope('clientA', layerUpsert(1, 'clientA')));
+    expect(parsed(b)).toEqual([{ from: 'A', op: layerUpsert(1, 'clientA') }]);
+
+    // applyFanoutLayerOp persists asynchronously off the queue; let it settle.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // A late joiner on the OTHER instance still receives the record.
+    const late = makeConn('L', 'R');
+    hub2.addConnection(late);
+    await hub2.handleMessage('L', envelope('clientL', { kind: 'request-snapshot' }));
+    const reply = JSON.parse(late.sent[0] ?? '') as { op: { layers?: unknown[] } };
+    expect(reply.op.layers).toEqual([
+      { id: 'layer-x', version: 1, editor: 'clientA', definition: layerDef() },
+    ]);
+    hub1.close();
+    hub2.close();
+  });
+
+  it('never carries element bytes on the layer path, even with canRead configured', async () => {
+    const hub = new SyncHub({
+      canRead: ({ role, audience }) => audience === undefined || role === 'dm',
+    });
+    const dm: FakeConn = { ...makeConn('dm', 'R'), role: 'dm' };
+    const player: FakeConn = { ...makeConn('pl', 'R'), role: 'player' };
+    hub.addConnection(dm);
+    hub.addConnection(player);
+
+    const secret = { ...sampleEl(), audience: 'dm' } as CanvasElement;
+    await hub.handleMessage('dm', envelope('dmUser', { kind: 'upsert', element: secret }));
+    await hub.handleMessage(
+      'dm',
+      envelope('dmUser', layerUpsert(1, 'dmUser', { name: 'Fog prep' })),
+    );
+    await hub.handleMessage('pl', envelope('plUser', { kind: 'request-snapshot' }));
+
+    // The player received the layer op and a snapshot, none of which contain the secret element.
+    expect(player.sent.length).toBeGreaterThan(0);
+    for (const frame of player.sent) {
+      expect(frame).not.toContain(secret.id);
+    }
+    const snapshotFrame = player.sent
+      .map(
+        (m) => JSON.parse(m) as { op: { kind: string; layers?: unknown[]; elements?: unknown[] } },
+      )
+      .find((e) => e.op.kind === 'snapshot');
+    expect(snapshotFrame?.op.elements).toEqual([]);
+    expect(snapshotFrame?.op.layers).toHaveLength(1);
+    hub.close();
+  });
+
+  it('rejects malformed layer ops at the envelope gate', async () => {
+    const hub = new SyncHub();
+    const a = makeConn('A', 'R');
+    const b = makeConn('B', 'R');
+    hub.addConnection(a);
+    hub.addConnection(b);
+
+    await hub.handleMessage(
+      'A',
+      JSON.stringify({
+        from: 'clientA',
+        op: { kind: 'layer-upsert', layer: { id: 'x' }, version: 1, editor: 'clientA' },
+      }),
+    );
+    await hub.handleMessage(
+      'A',
+      JSON.stringify({
+        from: 'clientA',
+        op: { kind: 'layer-remove', id: 'layer-x', version: 0, editor: 'clientA' },
+      }),
+    );
+    expect(b.sent).toEqual([]);
+    hub.close();
   });
 });
