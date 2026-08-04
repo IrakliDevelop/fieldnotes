@@ -116,6 +116,18 @@ export class SyncHub {
     return this.rooms.size;
   }
 
+  /**
+   * Broadcasts ephemeral server-owned presence data to every connection in a room.
+   * The returned count covers successful delivery on this hub instance only; configured fan-out
+   * forwards the same event to other instances on a best-effort basis.
+   */
+  broadcastPresence<T>(room: string, data: T): number {
+    const op = { kind: 'presence' as const, data };
+    const sent = this.relayToRoom(room, undefined, JSON.stringify({ from: HUB_FROM, op }));
+    this.safePublish(JSON.stringify({ o: this.instanceId, room, from: HUB_FROM, op }));
+    return sent;
+  }
+
   handleMessage(connId: string, message: string): Promise<void> {
     const conn = this.conns.get(connId);
     if (!conn) return Promise.resolve();
@@ -214,22 +226,25 @@ export class SyncHub {
     }
   }
 
-  private relayToRoom(room: string, excludeId: string | undefined, message: string): void {
+  private relayToRoom(room: string, excludeId: string | undefined, message: string): number {
     const members = this.rooms.get(room);
-    if (!members) return;
+    if (!members) return 0;
+    let sent = 0;
     for (const cid of members) {
       if (cid === excludeId) continue;
       const conn = this.conns.get(cid);
       if (!conn) continue;
       try {
         conn.send(message);
+        sent += 1;
       } catch {
         /* a throwing socket must not break the relay loop */
       }
     }
+    return sent;
   }
 
-  private broadcastPresence(conn: Connection, data: unknown): void {
+  private broadcastClientPresence(conn: Connection, data: unknown): void {
     this.presenceConnections.add(conn.id);
     const message = JSON.stringify({ from: conn.id, op: { kind: 'presence', data } });
     this.relayToRoom(conn.room, conn.id, message);
@@ -245,14 +260,14 @@ export class SyncHub {
 
   private schedulePresence(conn: Connection, data: unknown): void {
     if (this.presenceThrottleMs <= 0) {
-      this.broadcastPresence(conn, data);
+      this.broadcastClientPresence(conn, data);
       return;
     }
     const now = Date.now();
     const lastSentAt = this.lastPresenceAt.get(conn.id);
     if (lastSentAt === undefined || now - lastSentAt >= this.presenceThrottleMs) {
       this.lastPresenceAt.set(conn.id, now);
-      this.broadcastPresence(conn, data);
+      this.broadcastClientPresence(conn, data);
       return;
     }
 
@@ -267,7 +282,7 @@ export class SyncHub {
         this.pendingPresence.delete(conn.id);
         if (!pending || !this.conns.has(conn.id)) return;
         this.lastPresenceAt.set(conn.id, Date.now());
-        this.broadcastPresence(conn, pending.data);
+        this.broadcastClientPresence(conn, pending.data);
       },
       this.presenceThrottleMs - (now - lastSentAt),
     );
