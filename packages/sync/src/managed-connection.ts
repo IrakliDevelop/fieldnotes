@@ -102,6 +102,25 @@ export interface ManagedSyncConnection {
   stop(): void;
   getStatus(): ManagedSyncStatus;
   /**
+   * Sends ephemeral presence data to the room. Presence is fire-and-forget:
+   * while the connection is not `live` the data is DROPPED, never queued —
+   * stale presence (a laser trail, a cursor) must not replay after a
+   * reconnect. Presence never enters the durable operation queue.
+   */
+  sendPresence(data: unknown): void;
+  /**
+   * Observes room presence frames. `from` is the relay's server-owned sender
+   * id for the originating connection — an opaque per-sender key, not the
+   * remote clientId. Handlers survive credential rebuilds: they are attached
+   * to every client the manager creates. Returns unsubscribe.
+   */
+  onPresence(handler: (from: string, data: unknown) => void): () => void;
+  /**
+   * Observes presence departures (a sender's connection closed). Same `from`
+   * key and rebuild semantics as `onPresence`. Returns unsubscribe.
+   */
+  onPresenceLeave(handler: (from: string) => void): () => void;
+  /**
    * Publishes a local layer definition edit. While no client is connected
    * (between rebuilds) the edit is recorded in the manager's ledger and
    * delivered by the re-push that follows the next authoritative snapshot.
@@ -153,6 +172,10 @@ export function createManagedSyncConnection(
   // deleted-while-away semantics), not a fresh non-destructive bootstrap.
   const hubKnownIds = new Set<string>();
   const layerLedger = options.layers ? new LayerLedger() : null;
+  // Presence handlers live on the manager so they outlive credential
+  // rebuilds; each client gets one forwarder that iterates the live sets.
+  const presenceHandlers = new Set<(from: string, data: unknown) => void>();
+  const presenceLeaveHandlers = new Set<(from: string) => void>();
   let everJoined = false;
   // Incremented on stop() and each connect cycle so late async results
   // (resolveUrl, stale transport events) from an older cycle are discarded.
@@ -273,6 +296,14 @@ export function createManagedSyncConnection(
         : {}),
     });
     client.start();
+    subscriptions.push(
+      client.onPresence((from, data) => {
+        for (const handler of presenceHandlers) handler(from, data);
+      }),
+      client.onPresenceLeave((from) => {
+        for (const handler of presenceLeaveHandlers) handler(from);
+      }),
+    );
   };
 
   const beginCycle = (): void => {
@@ -297,6 +328,20 @@ export function createManagedSyncConnection(
     },
     getStatus(): ManagedSyncStatus {
       return currentStatus ?? 'connecting';
+    },
+    sendPresence(data: unknown): void {
+      // Gate on `live`, not merely on having a client: the transport buffers
+      // durable sends while (re)connecting, and stale presence must never
+      // replay from that buffer.
+      if (currentStatus === 'live' && client) client.sendPresence(data);
+    },
+    onPresence(handler: (from: string, data: unknown) => void): () => void {
+      presenceHandlers.add(handler);
+      return () => presenceHandlers.delete(handler);
+    },
+    onPresenceLeave(handler: (from: string) => void): () => void {
+      presenceLeaveHandlers.add(handler);
+      return () => presenceLeaveHandlers.delete(handler);
     },
     publishLayerUpsert(definition: Layer): void {
       if (!layerLedger) {

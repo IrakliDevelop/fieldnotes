@@ -239,6 +239,83 @@ describe('RenderLoop', () => {
     expect(renderOverlay).toHaveBeenCalled();
   });
 
+  describe('registered overlays', () => {
+    it('draws a registered overlay even when no tool is active', () => {
+      const draw = vi.fn();
+      renderLoop.registerOverlay(draw);
+      renderLoop.flush(); // registerOverlay itself requests a render
+      expect(draw).toHaveBeenCalledTimes(1);
+    });
+
+    it('draws registered overlays beneath the active tool overlay', () => {
+      const order: string[] = [];
+      const draw = vi.fn(() => order.push('registered'));
+      const renderOverlay = vi.fn(() => order.push('tool'));
+      (deps.toolManager as { activeTool: unknown }).activeTool = { renderOverlay };
+      renderLoop.registerOverlay(draw);
+      renderLoop.flush();
+      expect(order).toEqual(['registered', 'tool']);
+    });
+
+    it('unsubscribe stops drawing, requests an erasing render, and is idempotent', () => {
+      const draw = vi.fn();
+      const unsubscribe = renderLoop.registerOverlay(draw);
+      renderLoop.flush();
+      expect(draw).toHaveBeenCalledTimes(1);
+
+      unsubscribe();
+      renderLoop.flush(); // erasing frame triggered by unsubscribe
+      unsubscribe(); // second call is a no-op
+      renderLoop.flush(); // no render pending — flush does nothing
+      expect(draw).toHaveBeenCalledTimes(1);
+      expect(deps.background.render).toHaveBeenCalledTimes(2);
+    });
+
+    it('isolates a throwing overlay from its siblings and the tool overlay', () => {
+      const bad = vi.fn(() => {
+        throw new Error('boom');
+      });
+      const good = vi.fn();
+      const renderOverlay = vi.fn();
+      (deps.toolManager as { activeTool: unknown }).activeTool = { renderOverlay };
+      renderLoop.registerOverlay(bad);
+      renderLoop.registerOverlay(good);
+      renderLoop.flush();
+      expect(good).toHaveBeenCalledTimes(1);
+      expect(renderOverlay).toHaveBeenCalledTimes(1);
+      // The next frame still renders (loop not wedged by the throw).
+      renderLoop.requestRender();
+      renderLoop.flush();
+      expect(good).toHaveBeenCalledTimes(2);
+    });
+
+    it('routes registered overlays through the hybrid overlay stratum without a tool overlay', () => {
+      vi.mocked(deps.store.getAll).mockReturnValue([
+        {
+          id: 'dom-low',
+          type: 'note',
+          layerId: 'default',
+          position: { x: 0, y: 0 },
+          size: { w: 10, h: 10 },
+        },
+        {
+          id: 'canvas-top',
+          type: 'shape',
+          layerId: 'default',
+          position: { x: 0, y: 0 },
+          size: { w: 10, h: 10 },
+        },
+      ] as never);
+      const draw = vi.fn();
+      renderLoop.registerOverlay(draw);
+      renderLoop.flush();
+      // overlayOrder = visibleElements.length + 1 = 3 joins the strata set
+      expect(deps.hybridSurface.beginFrame).toHaveBeenCalledWith(new Set([2, 3]), 300, 150);
+      expect(deps.hybridSurface.getContext).toHaveBeenCalledWith(3);
+      expect(draw).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it('setCanvasSize updates canvas buffer dimensions', () => {
     const setViewportSpy = vi.spyOn(deps.marginViewport, 'setViewport');
     renderLoop.setCanvasSize(1600, 1200);

@@ -4,6 +4,44 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.54.0] — 2026-08-04
+
+### Added
+
+- Public viewport overlay registration: `viewport.registerOverlay(draw)` draws world-space
+  overlays above elements on every frame regardless of the active tool — the reusable surface for
+  remote presence visuals (laser trails, cursors, pings, shared rulers). Registered overlays draw
+  beneath the active tool's own `renderOverlay`, work in both the plain and hybrid (DOM-interleaved)
+  render paths, are isolated per frame if they throw, and return an idempotent unsubscribe that
+  erases the overlay's last frame. Overlays never touch elements, history, or persisted state.
+- `LaserTool.onTrail(listener)`: an emission hook that batches locally drawn world-space trail
+  points and delivers them at most once per animation frame (`LaserTrailEmission` with `points`,
+  `color`, `width`, `fadeMs`), so hosts can broadcast a live laser without duplicating the tool's
+  pointer handling. Nothing is recorded while no listener is subscribed; pending points are dropped
+  on tool deactivation; a throwing listener cannot stall the fade loop.
+- `RemoteLaserOverlay`: a reusable remote-trail controller that renders fading per-sender laser
+  trails through the overlay registration. `apply(sender, data)` validates untyped presence
+  payloads with the new `isLaserTrailPresence` guard (`{ kind: 'laser', points, color?, width?,
+fadeMs? }`, built from an emission via `toLaserTrailPresence`), stamps points with local receive
+  time (remote clocks are never trusted), caps stored points per sender, fades trails like the
+  local `LaserTool`, and `remove(sender)` erases a trail immediately — wire it to
+  `presence-leave`/disconnect. Laser trails are ephemeral by contract: presence only, never
+  elements, undo history, persisted canvas state, or durable sync operations. Trails are visible
+  to everyone receiving the room's presence; element-level `canRead`/audience filtering remains
+  the only privacy boundary.
+
+## [@fieldnotes/sync 0.11.0] — 2026-08-04
+
+### Added
+
+- Presence passthrough on `createManagedSyncConnection`: `sendPresence(data)` plus
+  `onPresence(handler)`/`onPresenceLeave(handler)`. Handlers are attached to every client the
+  manager builds, so they survive credential rebuilds without re-subscribing; `sendPresence` is
+  fire-and-forget and only delivers while the connection is `live` — presence produced while
+  offline/connecting is dropped, never queued, so stale trails cannot replay after a reconnect.
+  The presence `from` key is the relay's server-owned connection id (an opaque per-sender key,
+  not the remote clientId). Wire protocol unchanged; old peers are unaffected.
+
 ## [@fieldnotes/sync 0.10.0] — 2026-08-04
 
 ### Added

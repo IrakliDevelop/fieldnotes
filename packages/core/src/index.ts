@@ -1,4 +1,4 @@
-export const VERSION = '0.53.0';
+export const VERSION = '0.54.0';
 
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
 export { snapPoint, smartSnap, snapToHexCenter } from './core/snap';
@@ -39,6 +39,18 @@ export type {
   HtmlExportRenderer,
 } from './canvas/html-export';
 export type { RenderStatsSnapshot } from './canvas/render-stats';
+export type { OverlayRenderer } from './canvas/render-loop';
+export {
+  RemoteLaserOverlay,
+  isLaserTrailPresence,
+  toLaserTrailPresence,
+  LASER_TRAIL_PRESENCE_KIND,
+} from './canvas/remote-laser-overlay';
+export type {
+  LaserTrailPresence,
+  RemoteLaserOverlayHost,
+  RemoteLaserOverlayOptions,
+} from './canvas/remote-laser-overlay';
 
 export { ElementStore } from './elements/element-store';
 export type { ElementUpdateEvent } from './elements/element-store';
@@ -132,7 +144,7 @@ export type { MeasureToolOptions, Measurement } from './tools/measure-tool';
 export { TemplateTool } from './tools/template-tool';
 export type { TemplateToolOptions } from './tools/template-tool';
 export { LaserTool } from './tools/laser-tool';
-export type { LaserToolOptions } from './tools/laser-tool';
+export type { LaserToolOptions, LaserTrailEmission } from './tools/laser-tool';
 export type { Tool, ToolContext, PointerState, ToolName } from './tools/types';
 
 export { LayerManager } from './layers/layer-manager';

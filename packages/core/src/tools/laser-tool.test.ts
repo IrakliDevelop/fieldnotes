@@ -203,6 +203,113 @@ describe('LaserTool', () => {
     expect(ctx.requestRender).toHaveBeenCalled();
   });
 
+  describe('trail emission hook', () => {
+    it('coalesces down+moves into one per-frame emission with world points and style', () => {
+      const tool = new LaserTool({ color: '#00ffcc', width: 6, fadeMs: 900 });
+      setNow(tool, 0);
+      const camera = new Camera();
+      camera.moveTo(100, 0); // world x = screen x - 100 at zoom 1
+      const ctx = makeCtx({ camera });
+      const emissions: unknown[] = [];
+      tool.onTrail((e) => emissions.push(e));
+
+      tool.onPointerDown(pt(100, 0), ctx);
+      tool.onPointerMove(pt(110, 10), ctx);
+      tool.onPointerMove(pt(120, 20), ctx);
+      expect(emissions.length).toBe(0); // nothing until the frame tick
+
+      flushFrame();
+      expect(emissions).toEqual([
+        {
+          points: [
+            { x: 0, y: 0 },
+            { x: 10, y: 10 },
+            { x: 20, y: 20 },
+          ],
+          color: '#00ffcc',
+          width: 6,
+          fadeMs: 900,
+        },
+      ]);
+    });
+
+    it('later frames emit only the new points, and idle frames emit nothing', () => {
+      const tool = new LaserTool();
+      setNow(tool, 0);
+      const ctx = makeCtx();
+      const emissions: { points: readonly { x: number; y: number }[] }[] = [];
+      tool.onTrail((e) => emissions.push(e));
+
+      tool.onPointerDown(pt(0, 0), ctx);
+      flushFrame();
+      tool.onPointerMove(pt(5, 5), ctx);
+      flushFrame();
+      expect(emissions.length).toBe(2);
+      expect(emissions[1]?.points).toEqual([{ x: 5, y: 5 }]);
+
+      tool.onPointerUp(pt(5, 5), ctx);
+      setNow(tool, 100);
+      flushFrame(); // fade tick with no new points
+      expect(emissions.length).toBe(2);
+    });
+
+    it('does not accumulate points while no listener is subscribed', () => {
+      const tool = new LaserTool();
+      setNow(tool, 0);
+      const ctx = makeCtx();
+      tool.onPointerDown(pt(0, 0), ctx);
+      tool.onPointerMove(pt(5, 5), ctx);
+
+      const emissions: unknown[] = [];
+      tool.onTrail((e) => emissions.push(e));
+      flushFrame();
+      expect(emissions.length).toBe(0); // pre-subscription points are not replayed
+    });
+
+    it('unsubscribe stops delivery', () => {
+      const tool = new LaserTool();
+      setNow(tool, 0);
+      const ctx = makeCtx();
+      const emissions: unknown[] = [];
+      const unsubscribe = tool.onTrail((e) => emissions.push(e));
+      tool.onPointerDown(pt(0, 0), ctx);
+      unsubscribe();
+      flushFrame();
+      expect(emissions.length).toBe(0);
+    });
+
+    it('a throwing listener does not stall the fade loop or other listeners', () => {
+      const tool = new LaserTool({ fadeMs: 1000 });
+      setNow(tool, 0);
+      const ctx = makeCtx();
+      const emissions: unknown[] = [];
+      tool.onTrail(() => {
+        throw new Error('boom');
+      });
+      tool.onTrail((e) => emissions.push(e));
+      tool.onPointerDown(pt(0, 0), ctx);
+      tool.onPointerMove(pt(5, 5), ctx);
+      flushFrame();
+      expect(emissions.length).toBe(1);
+      // Loop still alive: expiry tick clears the trail as usual.
+      setNow(tool, 2000);
+      flushFrame();
+      expect((tool as unknown as TrailLike).trail.length).toBe(0);
+    });
+
+    it('onDeactivate drops pending unemitted points', () => {
+      const tool = new LaserTool();
+      setNow(tool, 0);
+      const ctx = makeCtx();
+      const emissions: unknown[] = [];
+      tool.onTrail((e) => emissions.push(e));
+      tool.onPointerDown(pt(0, 0), ctx);
+      tool.onDeactivate?.(ctx);
+      flushFrame();
+      expect(emissions.length).toBe(0);
+    });
+  });
+
   it('onPointerUp stops drawing but keeps the trail for fading', () => {
     const tool = new LaserTool();
     setNow(tool, 0);
