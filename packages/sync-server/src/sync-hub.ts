@@ -343,12 +343,19 @@ export class SyncHub {
     let correction: SyncOp | undefined;
     if (op.kind === 'upsert') {
       correction = current
-        ? { kind: 'upsert', element: current }
+        ? this.mayRead(conn, current.audience)
+          ? { kind: 'upsert', element: current }
+          : { kind: 'remove', id: current.id }
         : { kind: 'remove', id: op.element.id };
     } else if (op.kind === 'remove') {
-      correction = current ? { kind: 'upsert', element: current } : undefined;
+      correction = current
+        ? this.mayRead(conn, current.audience)
+          ? { kind: 'upsert', element: current }
+          : { kind: 'remove', id: current.id }
+        : undefined;
     } else if (op.kind === 'clear') {
-      const elements = await this.backend.snapshot(conn.room);
+      const all = (await this.backend.snapshot(conn.room)) as OwnedElement[];
+      const elements = this.canRead ? all.filter((el) => this.mayRead(conn, el.audience)) : all;
       correction = { kind: 'snapshot', to: from, elements };
     }
     if (correction) conn.send(JSON.stringify({ from: HUB_FROM, op: correction }));

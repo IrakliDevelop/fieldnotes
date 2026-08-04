@@ -356,6 +356,52 @@ describe('sync-server WebSocket relay (end-to-end)', () => {
     expect(player.store.getById('X')).toEqual(canonical);
   }, 10000);
 
+  it('never exposes hidden element bytes in rejected-operation corrections', async () => {
+    const backend = new MemoryHubBackend();
+    const hidden = { ...shape(), id: 'hidden', audience: 'dm', ownerId: 'dm1' };
+    const shared = { ...shape(), id: 'shared', audience: 'shared', ownerId: 'dm1' };
+    await backend.apply('R', { kind: 'upsert', element: hidden });
+    await backend.apply('R', { kind: 'upsert', element: shared });
+
+    const server = createSyncServer({
+      port: 0,
+      backend,
+      authenticate: () => ({ userId: 'player1', role: 'player' }),
+      authorize: () => false,
+      canRead: ({ role, audience }) => audience !== 'dm' || role === 'dm',
+    });
+    servers.push(server);
+    const port = (server.wss.address() as AddressInfo).port;
+    const player = new WsClient(`ws://127.0.0.1:${port}?room=R`);
+    rawClients.push(player);
+    const received: { from: string; op: Record<string, unknown> }[] = [];
+    player.on('message', (data) => {
+      received.push(JSON.parse(String(data)) as { from: string; op: Record<string, unknown> });
+    });
+    await new Promise<void>((resolve, reject) => {
+      player.once('open', resolve);
+      player.once('error', reject);
+    });
+
+    player.send(JSON.stringify({ from: 'ready', op: { kind: 'request-snapshot' } }));
+    await waitFor(() => received.some(({ op }) => op.kind === 'snapshot' && op.to === 'ready'));
+    received.length = 0;
+
+    player.send(JSON.stringify({ from: 'clear', op: { kind: 'clear' } }));
+    await waitFor(() => received.some(({ op }) => op.kind === 'snapshot' && op.to === 'clear'));
+    player.send(JSON.stringify({ from: 'remove', op: { kind: 'remove', id: hidden.id } }));
+    await waitFor(() => received.some(({ op }) => op.kind === 'remove' && op.id === hidden.id));
+
+    expect(received).toEqual([
+      {
+        from: 'hub',
+        op: { kind: 'snapshot', to: 'clear', elements: [shared] },
+      },
+      { from: 'hub', op: { kind: 'remove', id: hidden.id } },
+    ]);
+    expect(JSON.stringify(received)).not.toContain('"audience":"dm"');
+  });
+
   it('never delivers a dm-audience element to a player, and reveals/hides on retag (D3)', async () => {
     const canRead: CanRead = ({ role, audience }) => audience !== 'dm' || role === 'dm';
     const backend = new MemoryHubBackend();

@@ -207,7 +207,9 @@ createSyncServer({
   optimistic local edit self-corrects immediately — no client change, no waiting for reconnect:
   a rejected new element is **removed**, a rejected edit/remove is re-**upserted** from the canonical
   stored element, and a rejected `clear` gets a fresh **snapshot**. The correction reuses existing op
-  kinds and is sent only to the offending connection.
+  kinds and is sent only to the offending connection. When `canRead` is configured, corrections use
+  the same viewer filter: unreadable canonical upserts become byte-free removes and corrective
+  snapshots omit unreadable elements.
 
 ## Read filtering
 

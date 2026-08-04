@@ -738,6 +738,55 @@ describe('read filtering (canRead)', () => {
     expect(dmSnap.op.elements.map((e) => e.id).sort()).toEqual(['secret1', 'shared1']);
   });
 
+  it('filters hidden bytes from every denied-operation correction path', async () => {
+    const backend = new MemoryHubBackend();
+    const hub = new SyncHub({ authorize: () => false, canRead, backend });
+    const player = conn('pl', 'R', 'player');
+    hub.addConnection(player);
+
+    const shared = { ...sampleEl(), id: 'shared', audience: 'shared', ownerId: 'dm1' };
+    const secret = { ...sampleEl(), id: 'secret', audience: 'dm', ownerId: 'dm1' };
+    await backend.apply('R', { kind: 'upsert', element: shared });
+    await backend.apply('R', { kind: 'upsert', element: secret });
+
+    await hub.handleMessage(
+      'pl',
+      envelope('player-upsert', {
+        kind: 'upsert',
+        element: { ...secret, position: { x: 999, y: 999 } },
+      }),
+    );
+    await hub.handleMessage('pl', envelope('player-remove', { kind: 'remove', id: secret.id }));
+    await hub.handleMessage('pl', envelope('player-clear', { kind: 'clear' }));
+
+    expect(player.sent.map((message) => JSON.parse(message))).toEqual([
+      { from: 'hub', op: { kind: 'remove', id: secret.id } },
+      { from: 'hub', op: { kind: 'remove', id: secret.id } },
+      {
+        from: 'hub',
+        op: { kind: 'snapshot', to: 'player-clear', elements: [shared] },
+      },
+    ]);
+    expect(player.sent.join('')).not.toContain('"audience":"dm"');
+    expect(await backend.snapshot('R')).toEqual([shared, secret]);
+  });
+
+  it('keeps canonical correction behavior for viewers allowed to read the element', async () => {
+    const backend = new MemoryHubBackend();
+    const hub = new SyncHub({ authorize: () => false, canRead, backend });
+    const dm = conn('dm', 'R', 'dm');
+    hub.addConnection(dm);
+    const secret = { ...sampleEl(), id: 'secret', audience: 'dm', ownerId: 'dm1' };
+    await backend.apply('R', { kind: 'upsert', element: secret });
+
+    await hub.handleMessage('dm', envelope('dm-remove', { kind: 'remove', id: secret.id }));
+
+    expect(JSON.parse(dm.sent[0] ?? '')).toEqual({
+      from: 'hub',
+      op: { kind: 'upsert', element: secret },
+    });
+  });
+
   it('broadcasts a shared upsert to a player', async () => {
     const hub = new SyncHub({ canRead });
     const dm = conn('dm', 'R', 'dm');
