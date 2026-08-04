@@ -62,7 +62,8 @@ describe('PingInput', () => {
     el = makeElement();
     camera = new Camera();
     emissions = [];
-    input = make();
+    // Most tests exercise the long-press path, which is opt-in.
+    input = make({ longPressEnabled: true });
     setNow(input, 0);
   });
 
@@ -71,6 +72,41 @@ describe('PingInput', () => {
     el.remove();
     vi.useRealTimers();
     vi.restoreAllMocks();
+  });
+
+  describe('longPressEnabled opt-in', () => {
+    it('long-press is disabled by default; keyboard paths still work', () => {
+      input.dispose();
+      input = make();
+      setNow(input, 0);
+
+      fire(el, 'pointerdown', { clientX: 110, clientY: 120 });
+      vi.advanceTimersByTime(600);
+      fire(el, 'pointerup', {});
+      expect(emissions.length).toBe(0);
+
+      // The pointer was still tracked for pingAtPointer.
+      expect(input.pingAtPointer()).toBe(true);
+      expect(emissions[0]).toMatchObject({ x: 100, y: 100 });
+    });
+
+    it('disabling mid-press cancels the pending press; re-enabling arms new presses', () => {
+      fire(el, 'pointerdown', { clientX: 110, clientY: 120 });
+      input.setOptions({ longPressEnabled: false });
+      vi.advanceTimersByTime(600);
+      expect(emissions.length).toBe(0);
+
+      fire(el, 'pointerup', {});
+      fire(el, 'pointerdown', { clientX: 110, clientY: 120 });
+      vi.advanceTimersByTime(600);
+      expect(emissions.length).toBe(0);
+
+      fire(el, 'pointerup', {});
+      input.setOptions({ longPressEnabled: true });
+      fire(el, 'pointerdown', { clientX: 110, clientY: 120 });
+      vi.advanceTimersByTime(600);
+      expect(emissions.length).toBe(1);
+    });
   });
 
   describe('long-press firing', () => {
@@ -104,7 +140,13 @@ describe('PingInput', () => {
 
     it('uses the configured longPressMs and emission style', () => {
       input.dispose();
-      input = make({ longPressMs: 200, color: '#00ff00', durationMs: 900, radius: 24 });
+      input = make({
+        longPressEnabled: true,
+        longPressMs: 200,
+        color: '#00ff00',
+        durationMs: 900,
+        radius: 24,
+      });
       setNow(input, 0);
       fire(el, 'pointerdown', { clientX: 10, clientY: 20 });
       vi.advanceTimersByTime(200);
@@ -214,7 +256,7 @@ describe('PingInput', () => {
     it('suppresses emission and does not consume the rate limit', () => {
       let allow = false;
       input.dispose();
-      input = make({ shouldPing: () => allow });
+      input = make({ longPressEnabled: true, shouldPing: () => allow });
       setNow(input, 0);
 
       fire(el, 'pointerdown', { clientX: 110, clientY: 120 });
@@ -283,7 +325,10 @@ describe('PingInput', () => {
 
   describe('options and lifecycle', () => {
     it('exposes defaults through getOptions', () => {
+      input.dispose();
+      input = make();
       expect(input.getOptions()).toEqual({
+        longPressEnabled: false,
         longPressMs: 600,
         slopPx: 8,
         color: '#ff3b30',

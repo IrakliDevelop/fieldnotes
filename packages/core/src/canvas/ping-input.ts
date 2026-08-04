@@ -11,6 +11,13 @@ export interface PingInputHost {
 }
 
 export interface PingInputOptions {
+  /**
+   * Opt-in for the long-press gesture. Off by default: a hidden hold-to-ping
+   * gesture surprises users outside shared-canvas products, so hosts enable
+   * it deliberately. The keyboard/programmatic paths (`pingAtPointer`,
+   * `pingAt`) are always available. Default `false`.
+   */
+  longPressEnabled?: boolean;
   /** Hold duration before a still press pings. Default `600`. */
   longPressMs?: number;
   /** Maximum pointer travel while holding; moving further cancels. Default `8`. */
@@ -61,8 +68,11 @@ const DEFAULT_MIN_INTERVAL_MS = 300;
  * `'self'` sender key. Pings are ephemeral — no elements, no undo history, no
  * persisted state, no camera movement.
  *
- * A long-press arms on the first pointer down (mouse primary button, touch,
- * or pen), fires after `longPressMs` at the original press position, and
+ * The long-press gesture is opt-in via `longPressEnabled` (hosts whose users
+ * would not expect hold-to-ping simply leave it off and keep the keyboard
+ * paths). When enabled, a long-press arms on the first pointer down (mouse
+ * primary button, touch, or pen), fires after `longPressMs` at the original
+ * press position, and
  * cancels on movement past `slopPx`, a second pointer (two-finger
  * navigation), or pointer up/cancel/leave. Keyboard support is a capability,
  * not a binding: hosts call `pingAtPointer()` (last tracked hover position,
@@ -72,6 +82,7 @@ const DEFAULT_MIN_INTERVAL_MS = 300;
 export class PingInput {
   private readonly element: HTMLElement;
   private readonly host: PingInputHost;
+  private longPressEnabled: boolean;
   private longPressMs: number;
   private slopPx: number;
   private color: string;
@@ -97,6 +108,7 @@ export class PingInput {
   constructor(element: HTMLElement, host: PingInputHost, options: PingInputOptions = {}) {
     this.element = element;
     this.host = host;
+    this.longPressEnabled = options.longPressEnabled ?? false;
     this.longPressMs = options.longPressMs ?? DEFAULT_LONG_PRESS_MS;
     this.slopPx = options.slopPx ?? DEFAULT_SLOP_PX;
     this.color = options.color ?? DEFAULT_COLOR;
@@ -119,6 +131,7 @@ export class PingInput {
 
   getOptions(): PingInputOptions {
     return {
+      longPressEnabled: this.longPressEnabled,
       longPressMs: this.longPressMs,
       slopPx: this.slopPx,
       color: this.color,
@@ -130,6 +143,10 @@ export class PingInput {
   }
 
   setOptions(options: PingInputOptions): void {
+    if (options.longPressEnabled !== undefined) {
+      this.longPressEnabled = options.longPressEnabled;
+      if (!this.longPressEnabled) this.cancelPress();
+    }
     if (options.longPressMs !== undefined) this.longPressMs = options.longPressMs;
     if (options.slopPx !== undefined) this.slopPx = options.slopPx;
     if (options.color !== undefined) this.color = options.color;
@@ -203,6 +220,7 @@ export class PingInput {
       this.cancelPress();
       return;
     }
+    if (!this.longPressEnabled) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
 
     this.press = {

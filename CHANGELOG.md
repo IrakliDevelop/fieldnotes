@@ -13,10 +13,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
   (`new PingInput(element, camera, options)`) that attaches passive DOM pointer listeners to the
   host's canvas container and never calls `preventDefault`, `stopPropagation`, or captures
   pointers, so the active tool, panning, and pinch navigation are untouched (with a pencil
-  active, a still hold pings and the pencil still draws its dot). A press arms on pointer down
-  (mouse primary button, touch, or pen), fires after `longPressMs` (default 600 ms) at the
-  original press position, and cancels on movement past `slopPx` (default 8), a second pointer
-  (two-finger navigation), or pointer up/cancel/leave. Keyboard support is a capability, not a
+  active, a still hold pings and the pencil still draws its dot). The long-press gesture is
+  opt-in via `longPressEnabled` (default `false` — a hidden hold-to-ping gesture surprises users
+  outside shared-canvas products; toggling it off at runtime cancels a pending press). When
+  enabled, a press arms on pointer down (mouse primary button, touch, or pen), fires after
+  `longPressMs` (default 600 ms) at the original press position, and cancels on movement past
+  `slopPx` (default 8), a second pointer (two-finger navigation), or pointer up/cancel/leave. Keyboard support is a capability, not a
   binding: hosts call `pingAtPointer()` (last tracked pointer position, world-converted at call
   time) or `pingAt(world)` from their own shortcuts. Emissions reuse `PingEmission` via
   `onPing`, share one `minIntervalMs` rate limit (default 300 ms) across all paths, and honor an

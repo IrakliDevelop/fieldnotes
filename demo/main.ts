@@ -994,6 +994,7 @@ const remotePingOverlay = new RemotePingOverlay(viewport);
 // Long-press / keyboard pings, always available alongside the active tool.
 // The veto avoids double pings while the dedicated ping tool is active.
 const pingInput = new PingInput(container, viewport.camera, {
+  longPressEnabled: true, // opt-in: the demo showcases the hold-to-ping gesture
   shouldPing: () => viewport.toolManager.activeTool?.name !== 'ping',
 });
 pingInput.onPing((emission) => remotePingOverlay.apply('self', toPingPresence(emission)));
