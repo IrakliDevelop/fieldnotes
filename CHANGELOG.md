@@ -4,6 +4,34 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [@fieldnotes/sync 0.9.0] — 2026-08-04
+
+### Added
+
+- Explicit authoritative-bootstrap/reconcile hooks: `SyncClient` accepts `resolveLocalOnly`, called
+  synchronously for every authoritative snapshot addressed to the client with the phase
+  (`bootstrap` for the first non-destructive merge, `reconcile` for later destructive resyncs), the
+  validated snapshot, and the local-only elements the snapshot does not contain — each classified
+  `hubKnown` (seen in a snapshot or remote upsert, or sent as a local upsert). The host returns ids
+  to `preserve` (kept and re-pushed through the normal local-upsert path, so `resolveAudience`
+  stamping and server-side filtering apply) or `discard` (removed locally without broadcasting);
+  unlisted elements keep the phase default. A throwing hook falls back to the phase defaults and
+  never wedges the resync state machine, and no consumer timing around raw snapshot frames or
+  deferred macrotasks is needed. New `SyncClientOptions` (`resolveLocalOnly`, `hubKnownIds`,
+  `firstSnapshot`) and types (`AuthoritativeSnapshotPhase`, `AuthoritativeSnapshotContext`,
+  `LocalOnlyElement`, `LocalOnlyResolution`, `ResolveLocalOnly`) are exported, and
+  `createManagedSyncConnection` forwards `resolveLocalOnly` while persisting hub knowledge across
+  credential rebuilds. The wire protocol is unchanged.
+
+### Changed
+
+- After `createManagedSyncConnection` rebuilds a connection (for example after a `4401` token
+  refresh), the rebuilt client now applies its first authoritative snapshot as a reconcile instead
+  of a non-destructive merge: elements deleted while the connection was down are removed instead of
+  lingering locally, and local ops made before that snapshot are shielded by the
+  touched-during-resync rules. Hosts that need to keep hub-unknown local elements across rebuilds
+  opt in via `resolveLocalOnly`.
+
 ## [@fieldnotes/sync 0.8.0] — 2026-08-04
 
 ### Added

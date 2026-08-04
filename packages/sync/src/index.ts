@@ -4,7 +4,14 @@ export type { BroadcastChannelTransportOptions } from './broadcast-channel-trans
 export { WebSocketTransport } from './websocket-transport';
 export type { WebSocketTransportOptions } from './websocket-transport';
 export { SyncClient } from './sync-client';
-export type { SyncClientOptions } from './sync-client';
+export type {
+  SyncClientOptions,
+  AuthoritativeSnapshotPhase,
+  AuthoritativeSnapshotContext,
+  LocalOnlyElement,
+  LocalOnlyResolution,
+  ResolveLocalOnly,
+} from './sync-client';
 export { createManagedSyncConnection } from './managed-connection';
 export type {
   ManagedSyncConnection,

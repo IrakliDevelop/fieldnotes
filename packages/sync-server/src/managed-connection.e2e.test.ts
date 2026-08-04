@@ -10,6 +10,7 @@ import {
 } from '@fieldnotes/sync';
 import { ElementStore, createShape } from '@fieldnotes/core';
 import { createSyncServer, type CreateSyncServerOptions } from './create-sync-server';
+import { MemoryHubBackend } from './memory-hub-backend';
 import type { Authenticate } from './authenticate';
 
 type Server = ReturnType<typeof createSyncServer>;
@@ -208,6 +209,96 @@ describe('managed sync connection (end-to-end)', () => {
     await waitFor(() => managed.getStatus() === 'live');
     expect(statuses).toContain('offline');
     expect(statuses[statuses.length - 1]).toBe('live');
+  }, 10000);
+
+  it('a reconnecting DM keeps hub-unknown seed elements while hub-deleted elements stay deleted', async () => {
+    const valid = new Set<string>(['peer-token']);
+    const backend = new MemoryHubBackend();
+    const { server, port } = startServer(tokenAuthenticate(valid), { backend });
+
+    const dmStore = new ElementStore();
+    dmStore.add({
+      ...createShape({ position: { x: 1, y: 1 }, size: { w: 2, h: 2 } }),
+      id: 'seed-1',
+    });
+    dmStore.add({
+      ...createShape({ position: { x: 3, y: 3 }, size: { w: 2, h: 2 } }),
+      id: 'seed-2',
+    });
+
+    let allowMint = true;
+    let mintAttempts = 0;
+    let mints = 0;
+    const phases: string[] = [];
+    const connection = createManagedSyncConnection({
+      store: dmStore,
+      clientId: 'dm',
+      resolveUrl: () => {
+        mintAttempts += 1;
+        if (!allowMint) return null;
+        mints += 1;
+        const token = `dm-t-${mints}`;
+        valid.add(token);
+        return `ws://127.0.0.1:${port}?room=R&user=dm&token=${encodeURIComponent(token)}`;
+      },
+      // The intended RollKeeper policy: local-authoritative elements the hub
+      // has never seen are preserved and re-pushed; hub-known absences are
+      // deliberate deletions and stay deleted.
+      resolveLocalOnly: (context) => {
+        phases.push(context.phase);
+        return {
+          preserve: context.localOnly
+            .filter((entry) => !entry.hubKnown)
+            .map((entry) => entry.element.id),
+        };
+      },
+      transportFactory: fastTransportFactory,
+      retryInitialDelayMs: 10,
+      retryMaxDelayMs: 50,
+    });
+    connections.push(connection);
+
+    // Bootstrap: the empty hub learns both seeds through the preserve re-push.
+    await waitFor(() => connection.getStatus() === 'live');
+    await waitFor(async () => (await backend.get('R', 'seed-2')) !== undefined);
+    expect(phases).toEqual(['bootstrap']);
+
+    const peer = connectPeer(port, 'u-peer', 'peer-token');
+    await waitFor(() => peer.store.getById('seed-2') !== undefined);
+
+    // The DM goes away: its token expires and every socket drops. The peer
+    // reconnects transiently; the DM terminal-closes on 4401 and its manager
+    // cannot rebuild until minting is allowed again.
+    allowMint = false;
+    valid.delete('dm-t-1');
+    const attemptsBefore = mintAttempts;
+    for (const ws of server.wss.clients) ws.terminate();
+    await waitFor(() => mintAttempts > attemptsBefore); // old client + transport torn down
+
+    // While the DM is away: the host loads a local-authoritative element no
+    // client is attached to (the hub never sees it), and the peer deletes a
+    // seed the hub does know.
+    dmStore.add({
+      ...createShape({ position: { x: 9, y: 9 }, size: { w: 4, h: 4 } }),
+      id: 'dm-offline',
+    });
+    peer.store.remove('seed-2');
+    await waitFor(async () => (await backend.get('R', 'seed-2')) === undefined);
+
+    allowMint = true;
+    await waitFor(() => connection.getStatus() === 'live');
+    await waitFor(() => phases.length === 2);
+
+    expect(phases).toEqual(['bootstrap', 'reconcile']);
+    // Deleted-while-away stays deleted — no zombie resurrection.
+    expect(dmStore.getById('seed-2')).toBeUndefined();
+    // Untouched seed survives; the hub-unknown element is preserved and
+    // re-pushed through the normal upsert path to the hub and the peer.
+    expect(dmStore.getById('seed-1')).toBeDefined();
+    expect(dmStore.getById('dm-offline')).toBeDefined();
+    await waitFor(async () => (await backend.get('R', 'dm-offline')) !== undefined);
+    await waitFor(() => peer.store.getById('dm-offline') !== undefined);
+    expect(peer.store.getById('seed-2')).toBeUndefined();
   }, 10000);
 
   it('settles on denied after bounded consecutive authentication failures', async () => {

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { ElementStore, createNote, createShape, type CanvasElement } from '@fieldnotes/core';
 import type { ElementChangeMeta } from '@fieldnotes/core';
 import { SyncClient } from './sync-client';
+import type { AuthoritativeSnapshotContext } from './sync-client';
 import type { SyncOp } from './protocol';
 import type { SyncTransport } from './sync-transport';
 
@@ -640,6 +641,346 @@ describe('presence channel', () => {
     off();
     injector.send(JSON.stringify({ from: 'ghost2', op: { kind: 'presence-leave' } }));
     expect(left).toEqual(['ghost']); // unsubscribed
+  });
+});
+
+describe('authoritative bootstrap/reconcile hooks (resolveLocalOnly)', () => {
+  function upsertsOf(sent: string[]): (CanvasElement & { audience?: string })[] {
+    return sent
+      .map((m) => JSON.parse(m) as { op: { kind: string; element?: CanvasElement } })
+      .filter((e) => e.op.kind === 'upsert' && e.op.element)
+      .map((e) => e.op.element as CanvasElement & { audience?: string });
+  }
+
+  it('bootstrap: reports phase and hub-unknown local-only elements; preserve re-pushes them', () => {
+    const store = new ElementStore();
+    const transport = makeReconnectTransport();
+    const seed = shape(50); // present before start(), unknown to the hub
+    store.add(seed);
+    const contexts: AuthoritativeSnapshotContext[] = [];
+    const client = new SyncClient({
+      store,
+      transport,
+      clientId: 'B',
+      resolveLocalOnly: (context) => {
+        contexts.push(context);
+        return { preserve: context.localOnly.map((entry) => entry.element.id) };
+      },
+    });
+    client.start();
+
+    const hubEl = shape(1);
+    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'B', elements: [hubEl] }));
+
+    expect(contexts).toHaveLength(1);
+    expect(contexts[0]?.phase).toBe('bootstrap');
+    expect(contexts[0]?.localOnly).toEqual([{ element: seed, hubKnown: false }]);
+    expect(contexts[0]?.snapshot).toEqual([hubEl]);
+    // The preserved seed stays local AND is re-pushed to the hub as a normal upsert.
+    expect(store.getById(seed.id)).toBeDefined();
+    expect(upsertsOf(transport.sent).map((el) => el.id)).toEqual([seed.id]);
+  });
+
+  it('bootstrap: discard removes the local-only element without broadcasting a remove', () => {
+    const store = new ElementStore();
+    const transport = makeReconnectTransport();
+    const stale = shape(51);
+    store.add(stale);
+    const client = new SyncClient({
+      store,
+      transport,
+      clientId: 'B',
+      resolveLocalOnly: () => ({ discard: [stale.id] }),
+    });
+    client.start();
+
+    const origins: (string | undefined)[] = [];
+    store.on('remove', (_el, meta) => origins.push(meta.origin));
+    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'B', elements: [shape(1)] }));
+
+    expect(store.getById(stale.id)).toBeUndefined();
+    expect(origins).toEqual(['remote']);
+    expect(sentKinds(transport.sent)).toEqual(['request-snapshot']); // no remove/upsert broadcast
+  });
+
+  it('bootstrap: unlisted local-only elements keep the legacy merge behavior (kept, not pushed)', () => {
+    const store = new ElementStore();
+    const transport = makeReconnectTransport();
+    const seed = shape(52);
+    store.add(seed);
+    const client = new SyncClient({
+      store,
+      transport,
+      clientId: 'B',
+      resolveLocalOnly: () => ({}),
+    });
+    client.start();
+
+    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'B', elements: [shape(1)] }));
+
+    expect(store.getById(seed.id)).toBeDefined();
+    expect(sentKinds(transport.sent)).toEqual(['request-snapshot']);
+  });
+
+  it('reconcile: preserve keeps and re-pushes a hub-unknown element while a hub-known absent element is still removed', () => {
+    const store = new ElementStore();
+    const transport = makeReconnectTransport();
+    const seed = shape(53); // never pushed: unlisted at bootstrap
+    store.add(seed);
+    const contexts: AuthoritativeSnapshotContext[] = [];
+    const client = new SyncClient({
+      store,
+      transport,
+      clientId: 'B',
+      resolveLocalOnly: (context) => {
+        contexts.push(context);
+        if (context.phase === 'bootstrap') return {}; // leave the seed unpushed
+        return {
+          preserve: context.localOnly
+            .filter((entry) => !entry.hubKnown)
+            .map((entry) => entry.element.id),
+        };
+      },
+    });
+    client.start();
+
+    const x = shape(1);
+    const w = shape(77); // hub-known, deleted while away
+    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'B', elements: [x, w] }));
+    expect(store.count).toBe(3);
+
+    const sentBefore = transport.sent.length;
+    transport.triggerReconnect();
+    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'B', elements: [x] }));
+
+    expect(contexts[1]?.phase).toBe('reconcile');
+    const byId = new Map(contexts[1]?.localOnly.map((entry) => [entry.element.id, entry.hubKnown]));
+    expect(byId.get(seed.id)).toBe(false);
+    expect(byId.get(w.id)).toBe(true);
+    // Deleted-while-away stays deleted (no zombie); the hub-unknown seed survives and is re-pushed.
+    expect(store.getById(w.id)).toBeUndefined();
+    expect(store.getById(seed.id)).toBeDefined();
+    expect(upsertsOf(transport.sent.slice(sentBefore)).map((el) => el.id)).toEqual([seed.id]);
+  });
+
+  it('reconcile: an element sent locally while live counts as hub-known (own creation deleted while away)', () => {
+    const store = new ElementStore();
+    const transport = makeReconnectTransport();
+    const contexts: AuthoritativeSnapshotContext[] = [];
+    const client = new SyncClient({
+      store,
+      transport,
+      clientId: 'B',
+      resolveLocalOnly: (context) => {
+        contexts.push(context);
+        return {
+          preserve: context.localOnly
+            .filter((entry) => !entry.hubKnown)
+            .map((entry) => entry.element.id),
+        };
+      },
+    });
+    client.start();
+    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'B', elements: [] }));
+
+    const mine = shape(60);
+    store.add(mine); // sent to the hub while live
+
+    transport.triggerReconnect();
+    // The hub deleted it while we were away: absent from the resync snapshot.
+    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'B', elements: [] }));
+
+    expect(contexts[1]?.localOnly).toEqual([{ element: mine, hubKnown: true }]);
+    expect(store.getById(mine.id)).toBeUndefined();
+  });
+
+  it('re-pushed elements carry the resolveAudience stamp', () => {
+    const store = new ElementStore();
+    const transport = makeReconnectTransport();
+    const seed = shape(54);
+    store.add(seed);
+    const client = new SyncClient({
+      store,
+      transport,
+      clientId: 'B',
+      resolveAudience: () => 'dm',
+      resolveLocalOnly: (context) => ({
+        preserve: context.localOnly.map((entry) => entry.element.id),
+      }),
+    });
+    client.start();
+
+    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'B', elements: [] }));
+
+    const pushed = upsertsOf(transport.sent);
+    expect(pushed).toHaveLength(1);
+    expect(pushed[0]?.audience).toBe('dm');
+  });
+
+  it('excludes elements touched during the resync window from localOnly', () => {
+    const store = new ElementStore();
+    const transport = makeReconnectTransport();
+    const contexts: AuthoritativeSnapshotContext[] = [];
+    const client = new SyncClient({
+      store,
+      transport,
+      clientId: 'B',
+      resolveLocalOnly: (context) => {
+        contexts.push(context);
+        return {};
+      },
+    });
+    client.start();
+    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'B', elements: [] }));
+
+    transport.triggerReconnect();
+    const q = shape(42);
+    store.add(q); // local create during the resync window — already shielded and sent
+
+    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'B', elements: [] }));
+
+    expect(contexts[1]?.localOnly).toEqual([]);
+    expect(store.getById(q.id)).toBeDefined();
+  });
+
+  it('preserve wins over discard for the same id', () => {
+    const store = new ElementStore();
+    const transport = makeReconnectTransport();
+    const seed = shape(55);
+    store.add(seed);
+    const client = new SyncClient({
+      store,
+      transport,
+      clientId: 'B',
+      resolveLocalOnly: () => ({ preserve: [seed.id], discard: [seed.id] }),
+    });
+    client.start();
+
+    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'B', elements: [] }));
+
+    expect(store.getById(seed.id)).toBeDefined();
+    expect(upsertsOf(transport.sent).map((el) => el.id)).toEqual([seed.id]);
+  });
+
+  it('ignores resolution ids that are not local-only', () => {
+    const store = new ElementStore();
+    const transport = makeReconnectTransport();
+    const client = new SyncClient({
+      store,
+      transport,
+      clientId: 'B',
+      resolveLocalOnly: () => ({ preserve: ['nope'], discard: ['also-nope'] }),
+    });
+    client.start();
+
+    const hubEl = shape(1);
+    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'B', elements: [hubEl] }));
+
+    expect(store.getById(hubEl.id)).toBeDefined();
+    expect(sentKinds(transport.sent)).toEqual(['request-snapshot']);
+  });
+
+  it('a throwing hook falls back to default semantics and does not wedge the resync state machine', () => {
+    const store = new ElementStore();
+    const transport = makeReconnectTransport();
+    const seed = shape(56);
+    store.add(seed);
+    const client = new SyncClient({
+      store,
+      transport,
+      clientId: 'B',
+      resolveLocalOnly: () => {
+        throw new Error('host hook exploded');
+      },
+    });
+    client.start();
+
+    // Bootstrap with a throwing hook: default merge, no crash.
+    const x = shape(1);
+    expect(() =>
+      transport.deliver(envelope('hub', { kind: 'snapshot', to: 'B', elements: [x] })),
+    ).not.toThrow();
+    expect(store.getById(seed.id)).toBeDefined(); // default merge keeps it silently
+
+    // Reconcile with a throwing hook: default destructive semantics still apply.
+    transport.triggerReconnect();
+    expect(() =>
+      transport.deliver(envelope('hub', { kind: 'snapshot', to: 'B', elements: [x] })),
+    ).not.toThrow();
+    expect(store.getById(seed.id)).toBeUndefined(); // removed by the default reconcile
+
+    // resyncPending cleared: a local add after the snapshot is NOT shielded and a later
+    // reconcile removes it normally.
+    const later = shape(57);
+    store.add(later);
+    transport.triggerReconnect();
+    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'B', elements: [x, later] }));
+    transport.triggerReconnect();
+    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'B', elements: [x] }));
+    expect(store.getById(later.id)).toBeUndefined();
+  });
+
+  it("firstSnapshot 'reconcile' makes the first snapshot destructive and shields pre-snapshot local ops", () => {
+    const store = new ElementStore();
+    const transport = makeReconnectTransport();
+    const stale = shape(58); // in the store from a previous client, hub no longer has it
+    store.add(stale);
+    const known = new Set<string>([stale.id]);
+    const client = new SyncClient({
+      store,
+      transport,
+      clientId: 'B',
+      firstSnapshot: 'reconcile',
+      hubKnownIds: known,
+    });
+    client.start();
+
+    const fresh = shape(59);
+    store.add(fresh); // local op before the first snapshot — must be shielded
+
+    const x = shape(1);
+    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'B', elements: [x] }));
+
+    expect(store.getById(stale.id)).toBeUndefined(); // destructive first snapshot
+    expect(store.getById(fresh.id)).toBeDefined(); // touched during the pending resync
+    expect(store.getById(x.id)).toBeDefined();
+  });
+
+  it('shares hub knowledge across successive clients via hubKnownIds', () => {
+    const known = new Set<string>();
+    const store = new ElementStore();
+    const first = makeReconnectTransport();
+    const clientA = new SyncClient({
+      store,
+      transport: first,
+      clientId: 'B',
+      hubKnownIds: known,
+    });
+    clientA.start();
+    const x = shape(1);
+    first.deliver(envelope('hub', { kind: 'snapshot', to: 'B', elements: [x] }));
+    clientA.stop();
+
+    // A successor client (e.g. a managed rebuild) sees x as hub-known.
+    const second = makeReconnectTransport();
+    const contexts: AuthoritativeSnapshotContext[] = [];
+    const clientB = new SyncClient({
+      store,
+      transport: second,
+      clientId: 'B',
+      firstSnapshot: 'reconcile',
+      hubKnownIds: known,
+      resolveLocalOnly: (context) => {
+        contexts.push(context);
+        return {};
+      },
+    });
+    clientB.start();
+    second.deliver(envelope('hub', { kind: 'snapshot', to: 'B', elements: [] }));
+
+    expect(contexts[0]?.phase).toBe('reconcile');
+    expect(contexts[0]?.localOnly).toEqual([{ element: x, hubKnown: true }]);
+    expect(store.getById(x.id)).toBeUndefined();
   });
 });
 
