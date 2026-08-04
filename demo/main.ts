@@ -14,7 +14,9 @@ import {
   LaserTool,
   RemoteLaserOverlay,
   PingTool,
+  PingInput,
   RemotePingOverlay,
+  toPingPresence,
   AutoSave,
   IndexedDBAdapter,
   createStroke,
@@ -986,9 +988,23 @@ if (info) {
   viewport,
 );
 // Remote map pings (a peer's ping presence would feed this); exposed for e2e.
-(window as unknown as Record<string, unknown>).__fieldnotes_remote_ping = new RemotePingOverlay(
-  viewport,
-);
+const remotePingOverlay = new RemotePingOverlay(viewport);
+(window as unknown as Record<string, unknown>).__fieldnotes_remote_ping = remotePingOverlay;
+
+// Long-press / keyboard pings, always available alongside the active tool.
+// The veto avoids double pings while the dedicated ping tool is active.
+const pingInput = new PingInput(container, viewport.camera, {
+  shouldPing: () => viewport.toolManager.activeTool?.name !== 'ping',
+});
+pingInput.onPing((emission) => remotePingOverlay.apply('self', toPingPresence(emission)));
+(window as unknown as Record<string, unknown>).__fieldnotes_ping_input = pingInput;
+
+// "g" pings at the cursor ("p" is taken by the pencil tool).
+document.addEventListener('keydown', (e) => {
+  if ((e.target as HTMLElement).isContentEditable) return;
+  if (e.target instanceof HTMLInputElement) return;
+  if (e.key === 'g') pingInput.pingAtPointer();
+});
 
 function mulberry32(seed: number): () => number {
   return () => {

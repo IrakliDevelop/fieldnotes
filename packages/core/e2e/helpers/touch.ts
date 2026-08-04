@@ -63,6 +63,26 @@ export async function singleFingerDraw(
   });
 }
 
+export async function singleFingerHold(
+  page: Page,
+  point: { x: number; y: number },
+  holdMs: number,
+): Promise<void> {
+  const client = await page.context().newCDPSession(page);
+
+  await client.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [{ x: point.x, y: point.y, id: 1 }],
+  });
+
+  await page.waitForTimeout(holdMs);
+
+  await client.send('Input.dispatchTouchEvent', {
+    type: 'touchEnd',
+    touchPoints: [],
+  });
+}
+
 export async function twoFingerPan(
   page: Page,
   from: { x: number; y: number },

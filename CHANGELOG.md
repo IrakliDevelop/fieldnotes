@@ -4,6 +4,28 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.56.0] — 2026-08-04
+
+### Added
+
+- `PingInput`: always-available ping input alongside the active tool — long-press-to-ping plus
+  keyboard/programmatic pings, independent of `PingTool`. A standalone controller
+  (`new PingInput(element, camera, options)`) that attaches passive DOM pointer listeners to the
+  host's canvas container and never calls `preventDefault`, `stopPropagation`, or captures
+  pointers, so the active tool, panning, and pinch navigation are untouched (with a pencil
+  active, a still hold pings and the pencil still draws its dot). A press arms on pointer down
+  (mouse primary button, touch, or pen), fires after `longPressMs` (default 600 ms) at the
+  original press position, and cancels on movement past `slopPx` (default 8), a second pointer
+  (two-finger navigation), or pointer up/cancel/leave. Keyboard support is a capability, not a
+  binding: hosts call `pingAtPointer()` (last tracked pointer position, world-converted at call
+  time) or `pingAt(world)` from their own shortcuts. Emissions reuse `PingEmission` via
+  `onPing`, share one `minIntervalMs` rate limit (default 300 ms) across all paths, and honor an
+  optional `shouldPing` host veto (e.g. suppress while a ping tool is active); a veto does not
+  consume the rate-limit interval. `PingInput` never renders — hosts feed emissions into their
+  own `RemotePingOverlay` under a `'self'` sender key. Pings stay ephemeral: no elements, no
+  undo history, no persisted state, no camera movement. `setOptions`/`onOptionsChange`/`dispose`
+  match the tool lifecycle conventions.
+
 ## [0.55.0] — 2026-08-04
 
 ### Added
