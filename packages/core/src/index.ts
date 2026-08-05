@@ -1,4 +1,4 @@
-export const VERSION = '0.57.0';
+export const VERSION = '0.58.0';
 
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
 export { snapPoint, smartSnap, snapToHexCenter } from './core/snap';
@@ -75,6 +75,8 @@ export type {
 } from './canvas/remote-measure-overlay';
 export { PingInput } from './canvas/ping-input';
 export type { PingInputHost, PingInputOptions } from './canvas/ping-input';
+export { MinimapController } from './canvas/minimap-controller';
+export type { MinimapControllerOptions } from './canvas/minimap-controller';
 
 export { ElementStore } from './elements/element-store';
 export type { ElementUpdateEvent } from './elements/element-store';

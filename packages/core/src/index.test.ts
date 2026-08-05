@@ -3,7 +3,7 @@ import * as FN from './index';
 
 describe('core public surface', () => {
   it('exports the current version', () => {
-    expect(FN.VERSION).toBe('0.57.0');
+    expect(FN.VERSION).toBe('0.58.0');
   });
 
   it('exports the shared-ruler surface', () => {
@@ -106,6 +106,7 @@ describe('core public surface', () => {
       'exportImage',
       'exportSvg',
       'Camera',
+      'MinimapController',
       'ElementStore',
       'LayerManager',
       'ToolManager',
