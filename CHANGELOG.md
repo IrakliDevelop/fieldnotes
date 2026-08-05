@@ -4,6 +4,15 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [@fieldnotes/react 0.9.0] — 2026-08-05
+
+### Added
+
+- `<Minimap />`: collapsible thumbnail overview navigator over the new core
+  `MinimapController`. Uncontrolled `defaultCollapsed`, host-owned positioning via
+  `className`/`style`; while collapsed no controller exists (zero listeners).
+  Requires `@fieldnotes/core >= 0.58.0`.
+
 ## [0.58.0] — 2026-08-05
 
 ### Added
