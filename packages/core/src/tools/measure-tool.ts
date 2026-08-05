@@ -3,6 +3,7 @@ import type { HexOrientation } from '../elements/types';
 import type { Tool, ToolContext, PointerState } from './types';
 import { snapPoint, snapToHexCenter } from '../core/snap';
 import { getHexDistance } from '../elements/hex-fill';
+import { drawMeasurement } from '../canvas/measure-render';
 
 export interface MeasureToolOptions {
   feetPerCell?: number;
@@ -139,53 +140,7 @@ export class MeasureTool implements Tool {
   renderOverlay(ctx: CanvasRenderingContext2D): void {
     const m = this.getMeasurement();
     if (!m) return;
-
-    ctx.save();
-
-    ctx.strokeStyle = this.color;
-    ctx.setLineDash([8, 4]);
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(m.start.x, m.start.y);
-    ctx.lineTo(m.end.x, m.end.y);
-    ctx.stroke();
-
-    ctx.setLineDash([]);
-    ctx.fillStyle = this.color;
-    const dotRadius = 4;
-    ctx.beginPath();
-    ctx.arc(m.start.x, m.start.y, dotRadius, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(m.end.x, m.end.y, dotRadius, 0, Math.PI * 2);
-    ctx.fill();
-
-    const label = `${Math.round(m.feet)} ft`;
-    const midX = (m.start.x + m.end.x) / 2;
-    const midY = (m.start.y + m.end.y) / 2;
-    ctx.font = '14px sans-serif';
-    const metrics = ctx.measureText(label);
-    const padX = 6;
-    const padY = 4;
-    const textH = 14;
-
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
-    ctx.beginPath();
-    ctx.roundRect(
-      midX - metrics.width / 2 - padX,
-      midY - textH / 2 - padY,
-      metrics.width + padX * 2,
-      textH + padY * 2,
-      4,
-    );
-    ctx.fill();
-
-    ctx.fillStyle = '#FFFFFF';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(label, midX, midY);
-
-    ctx.restore();
+    drawMeasurement(ctx, { start: m.start, end: m.end, feet: m.feet, color: this.color });
   }
 
   private snapToGrid(point: Point, ctx: ToolContext): Point {
