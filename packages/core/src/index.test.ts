@@ -3,7 +3,14 @@ import * as FN from './index';
 
 describe('core public surface', () => {
   it('exports the current version', () => {
-    expect(FN.VERSION).toBe('0.56.0');
+    expect(FN.VERSION).toBe('0.57.0');
+  });
+
+  it('exports the shared-ruler surface', () => {
+    expect(FN.RemoteMeasureOverlay).toBeTypeOf('function');
+    expect(FN.isMeasurePresence).toBeTypeOf('function');
+    expect(FN.toMeasurePresence).toBeTypeOf('function');
+    expect(FN.MEASURE_PRESENCE_KIND).toBe('measure');
   });
 
   it('does not export internal machinery (trimmed before 1.0)', () => {

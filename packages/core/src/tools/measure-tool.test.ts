@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { MeasureTool } from './measure-tool';
 import { ElementStore } from '../elements/element-store';
 import { Camera } from '../canvas/camera';
 import type { ToolContext, PointerState } from './types';
+import type { MeasureEmission } from './measure-tool';
 
 function makeCtx(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
@@ -113,7 +114,7 @@ describe('MeasureTool', () => {
 
   it('getOptions returns current feetPerCell', () => {
     const tool = new MeasureTool({ feetPerCell: 10 });
-    expect(tool.getOptions()).toEqual({ feetPerCell: 10 });
+    expect(tool.getOptions()).toEqual({ feetPerCell: 10, color: '#FF5722' });
   });
 
   it('fires options change listener on setOptions', () => {
@@ -363,6 +364,124 @@ describe('MeasureTool', () => {
 
       const m = tool.getMeasurement();
       expect(m?.start).toEqual({ x: 13, y: 17 });
+    });
+  });
+
+  describe('color option', () => {
+    it('defaults to #FF5722 and round-trips through setOptions', () => {
+      const tool = new MeasureTool();
+      expect(tool.getOptions().color).toBe('#FF5722');
+      tool.setOptions({ color: '#00FF00' });
+      expect(tool.getOptions().color).toBe('#00FF00');
+    });
+
+    it('notifies option listeners when color changes', () => {
+      const tool = new MeasureTool();
+      const listener = vi.fn();
+      tool.onOptionsChange(listener);
+      tool.setOptions({ color: '#123456' });
+      expect(listener).toHaveBeenCalledTimes(1);
+    });
+
+    it('accepts color in the constructor', () => {
+      const tool = new MeasureTool({ color: '#ABCDEF' });
+      expect(tool.getOptions().color).toBe('#ABCDEF');
+    });
+  });
+
+  describe('onMeasurement emissions', () => {
+    let rafCallbacks: FrameRequestCallback[];
+    beforeEach(() => {
+      rafCallbacks = [];
+      vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+        rafCallbacks.push(cb);
+        return rafCallbacks.length;
+      });
+      vi.stubGlobal('cancelAnimationFrame', (id: number) => {
+        rafCallbacks[id - 1] = () => undefined;
+      });
+    });
+    afterEach(() => vi.unstubAllGlobals());
+
+    const flushFrame = () => {
+      const pending = rafCallbacks.splice(0);
+      for (const cb of pending) cb(0);
+    };
+
+    it('coalesces moves into one snapshot per frame with the latest state', () => {
+      const tool = new MeasureTool();
+      const ctx = makeCtx();
+      const emissions: (MeasureEmission | null)[] = [];
+      tool.onMeasurement((e) => emissions.push(e));
+      tool.onPointerDown(pt(0, 0), ctx);
+      tool.onPointerMove(pt(10, 0), ctx);
+      tool.onPointerMove(pt(20, 0), ctx);
+      expect(emissions).toHaveLength(0); // nothing before the frame
+      flushFrame();
+      expect(emissions).toHaveLength(1);
+      expect(emissions[0]?.end.x).toBe(20); // latest state, not intermediate
+      expect(emissions[0]?.color).toBe('#FF5722');
+    });
+
+    it('schedules no raf when there are no listeners', () => {
+      const tool = new MeasureTool();
+      const ctx = makeCtx();
+      tool.onPointerDown(pt(0, 0), ctx);
+      tool.onPointerMove(pt(10, 0), ctx);
+      expect(rafCallbacks).toHaveLength(0);
+    });
+
+    it('emits null synchronously on pointer-up and cancels the pending snapshot', () => {
+      const tool = new MeasureTool();
+      const ctx = makeCtx();
+      const emissions: (MeasureEmission | null)[] = [];
+      tool.onMeasurement((e) => emissions.push(e));
+      tool.onPointerDown(pt(0, 0), ctx);
+      tool.onPointerMove(pt(10, 0), ctx);
+      tool.onPointerUp(pt(10, 0), ctx);
+      expect(emissions).toEqual([null]); // clear arrived without a frame
+      flushFrame();
+      expect(emissions).toEqual([null]); // stale snapshot never fires
+    });
+
+    it('emits null on deactivate only when a measurement was active', () => {
+      const tool = new MeasureTool();
+      const ctx = makeCtx();
+      const emissions: (MeasureEmission | null)[] = [];
+      tool.onMeasurement((e) => emissions.push(e));
+      tool.onDeactivate(ctx);
+      expect(emissions).toHaveLength(0);
+      tool.onPointerDown(pt(0, 0), ctx);
+      tool.onDeactivate(ctx);
+      expect(emissions).toEqual([null]);
+    });
+
+    it('isolates throwing listeners and keeps others working', () => {
+      const tool = new MeasureTool();
+      const ctx = makeCtx();
+      const seen: (MeasureEmission | null)[] = [];
+      tool.onMeasurement(() => {
+        throw new Error('boom');
+      });
+      tool.onMeasurement((e) => seen.push(e));
+      tool.onPointerDown(pt(0, 0), ctx);
+      tool.onPointerMove(pt(10, 0), ctx);
+      flushFrame();
+      expect(seen).toHaveLength(1);
+    });
+
+    it('unsubscribe is idempotent and stops emissions', () => {
+      const tool = new MeasureTool();
+      const ctx = makeCtx();
+      const emissions: (MeasureEmission | null)[] = [];
+      const unsubscribe = tool.onMeasurement((e) => emissions.push(e));
+      unsubscribe();
+      unsubscribe();
+      tool.onPointerDown(pt(0, 0), ctx);
+      tool.onPointerMove(pt(10, 0), ctx);
+      flushFrame();
+      tool.onPointerUp(pt(10, 0), ctx);
+      expect(emissions).toHaveLength(0);
     });
   });
 });

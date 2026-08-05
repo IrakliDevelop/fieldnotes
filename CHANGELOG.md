@@ -4,6 +4,23 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.57.0] — 2026-08-05
+
+### Added
+
+- Shared live ruler surface: `MeasureTool.onMeasurement(listener)` delivers raf-coalesced
+  measurement snapshots (`MeasureEmission` — world segment, cells, feet, color) and a synchronous
+  `null` when the measurement clears; `MeasureToolOptions.color` styles the local ruler and
+  emissions (default `#FF5722`, unchanged).
+- `MeasurePresence` payload trio (`isMeasurePresence`, `toMeasurePresence`,
+  `MEASURE_PRESENCE_KIND`): validated, sender-authoritative wire shape for ruler presence —
+  receivers render the sender's `feet`/`cells` and never recompute from their own grid.
+- `RemoteMeasureOverlay`: per-sender remote rulers through `registerOverlay`, pixel-identical to
+  the local tool via a shared renderer; cleared measurements hold `holdMs` (1500) then fade
+  `fadeMs` (400); stale active entries expire after `maxAgeMs` (30000) via timer; senders vanish
+  immediately on `remove()` (presence-leave). Ephemeral presence only — no elements, history,
+  persistence, or camera moves.
+
 ## [0.56.0] — 2026-08-04
 
 ### Added
