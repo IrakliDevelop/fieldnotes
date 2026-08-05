@@ -243,8 +243,11 @@ describe('RemoteMeasureOverlay', () => {
     const host = makeHost();
     const overlay = new RemoteMeasureOverlay(host);
     overlay.apply('a', active);
+    host.requestRender.mockClear();
     overlay.dispose();
+    expect(host.requestRender).toHaveBeenCalledTimes(1);
     overlay.dispose();
+    expect(host.requestRender).toHaveBeenCalledTimes(1); // not called again
     expect(host.unregistered).toBe(true);
     expect(vi.getTimerCount()).toBe(0);
     expect(overlay.apply('a', active)).toBe(false);

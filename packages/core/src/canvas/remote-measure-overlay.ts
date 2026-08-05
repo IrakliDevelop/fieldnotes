@@ -198,6 +198,7 @@ export class RemoteMeasureOverlay {
     this.measurements.clear();
     this.unregister?.();
     this.unregister = null;
+    this.host.requestRender();
   }
 
   private beginLinger(sender: string): void {
