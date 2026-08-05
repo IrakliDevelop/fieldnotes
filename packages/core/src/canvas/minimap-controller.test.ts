@@ -326,6 +326,56 @@ describe('MinimapController', () => {
     viewport.destroy();
   });
 
+  it("3b. debounces scene re-render on a post-construction layerManager 'change' (layer-visibility toggle): not before 199ms, rendered at 200ms, hidden layer's elements excluded", () => {
+    const { viewport } = makeViewportHarness();
+    const layerId = viewport.layerManager.activeLayerId;
+    viewport.store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 200, h: 200 }, layerId }));
+    const secondLayer = viewport.layerManager.createLayer('Layer 2');
+    viewport.store.add(
+      createNote({
+        position: { x: 500, y: 500 },
+        size: { w: 100, h: 100 },
+        layerId: secondLayer.id,
+      }),
+    );
+
+    const canvas = document.createElement('canvas');
+    const queue = makeFrameQueue();
+    const controller = makeController(viewport, canvas, queue);
+    queue.flush();
+    const baselineScene = lastComposite().args[0];
+    // Both layers visible at construction: both notes rendered.
+    expect(recorder.fillRectLog.length).toBe(2);
+
+    createElementSpy.mockClear();
+    recorder.fillRectLog.length = 0;
+    // Mutating layerManager AFTER construction exercises the controller's own
+    // `viewport.layerManager.on('change', onScene)` subscription — distinct
+    // from tests 8/10 above, which hide a layer BEFORE constructing the
+    // controller and so only cover initial-render filtering.
+    viewport.layerManager.setLayerVisible(secondLayer.id, false);
+
+    // No synchronous re-render on a layer-visibility change.
+    expect(canvasCreations()).toBe(0);
+
+    vi.advanceTimersByTime(199);
+    expect(canvasCreations()).toBe(0);
+    queue.flush(); // nothing pending; must be a no-op
+
+    vi.advanceTimersByTime(1); // crosses the 200ms debounce boundary
+    expect(canvasCreations()).toBe(1);
+    expect(queue.frames.length).toBe(1);
+    queue.flush();
+
+    const newScene = lastComposite().args[0];
+    expect(newScene).not.toBe(baselineScene);
+    // The now-hidden layer's element no longer contributes to the re-rendered scene.
+    expect(recorder.fillRectLog.length).toBe(1);
+
+    controller.dispose();
+    viewport.destroy();
+  });
+
   it('4. camera pan that keeps the viewport inside content bounds re-composites without re-rendering the scene', () => {
     const { viewport } = makeViewportHarness();
     const layerId = viewport.layerManager.activeLayerId;
