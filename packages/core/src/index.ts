@@ -1,4 +1,4 @@
-export const VERSION = '0.56.0';
+export const VERSION = '0.57.0';
 
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
 export { snapPoint, smartSnap, snapToHexCenter } from './core/snap';
@@ -62,6 +62,17 @@ export type {
   RemotePingOverlayHost,
   RemotePingOverlayOptions,
 } from './canvas/remote-ping-overlay';
+export {
+  RemoteMeasureOverlay,
+  isMeasurePresence,
+  toMeasurePresence,
+  MEASURE_PRESENCE_KIND,
+} from './canvas/remote-measure-overlay';
+export type {
+  MeasurePresence,
+  RemoteMeasureOverlayHost,
+  RemoteMeasureOverlayOptions,
+} from './canvas/remote-measure-overlay';
 export { PingInput } from './canvas/ping-input';
 export type { PingInputHost, PingInputOptions } from './canvas/ping-input';
 
@@ -153,7 +164,7 @@ export type { ImageToolOptions } from './tools/image-tool';
 export { ShapeTool } from './tools/shape-tool';
 export type { ShapeToolOptions } from './tools/shape-tool';
 export { MeasureTool } from './tools/measure-tool';
-export type { MeasureToolOptions, Measurement } from './tools/measure-tool';
+export type { MeasureToolOptions, Measurement, MeasureEmission } from './tools/measure-tool';
 export { TemplateTool } from './tools/template-tool';
 export type { TemplateToolOptions } from './tools/template-tool';
 export { LaserTool } from './tools/laser-tool';

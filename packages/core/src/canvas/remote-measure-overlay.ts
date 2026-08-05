@@ -1,5 +1,7 @@
 import type { Point } from '../core/types';
 import type { MeasureEmission } from '../tools/measure-tool';
+import type { OverlayRenderer } from './render-loop';
+import { drawMeasurement } from './measure-render';
 
 /**
  * The wire shape of a shared-ruler presence payload. Presence data is untyped
@@ -66,9 +68,6 @@ export function toMeasurePresence(emission: MeasureEmission | null): MeasurePres
     color: emission.color,
   };
 }
-
-import type { OverlayRenderer } from './render-loop';
-import { drawMeasurement } from './measure-render';
 
 /** The two viewport capabilities the overlay needs; `Viewport` satisfies it. */
 export interface RemoteMeasureOverlayHost {

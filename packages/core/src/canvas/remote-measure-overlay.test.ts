@@ -96,11 +96,13 @@ function makeHost(): RemoteMeasureOverlayHost & {
   draws: number;
   drawFrame: () => void;
   unregistered: boolean;
+  lastContext: Record<string, unknown> | null;
 } {
   let renderer: ((ctx: CanvasRenderingContext2D) => void) | null = null;
   const host = {
     draws: 0,
     unregistered: false,
+    lastContext: null as Record<string, unknown> | null,
     registerOverlay(draw: (ctx: CanvasRenderingContext2D) => void) {
       renderer = draw;
       return () => {
@@ -111,7 +113,7 @@ function makeHost(): RemoteMeasureOverlayHost & {
     requestRender: vi.fn(),
     drawFrame() {
       host.draws += 1;
-      renderer?.({
+      const ctx: Record<string, unknown> = {
         save: vi.fn(),
         restore: vi.fn(),
         beginPath: vi.fn(),
@@ -124,7 +126,10 @@ function makeHost(): RemoteMeasureOverlayHost & {
         roundRect: vi.fn(),
         fillText: vi.fn(),
         measureText: vi.fn(() => ({ width: 40 })),
-      } as unknown as CanvasRenderingContext2D);
+        strokeStyle: '',
+      };
+      renderer?.(ctx as unknown as CanvasRenderingContext2D);
+      host.lastContext = ctx;
     },
   };
   return host;
@@ -253,5 +258,6 @@ describe('RemoteMeasureOverlay', () => {
     overlay.apply('a', noColor);
     host.drawFrame(); // must not throw; entry drawn with fallback
     expect(host.draws).toBe(1);
+    expect(host.lastContext?.strokeStyle).toBe('#123456');
   });
 });
