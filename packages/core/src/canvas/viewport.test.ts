@@ -2276,22 +2276,10 @@ describe('Viewport', () => {
       expect(minimapCanvas(wrapper)).toBeUndefined();
     });
 
-    it('repaints when a layer visibility toggles', () => {
-      const viewport = new Viewport(container, { minimap: true });
-      const minimap = (viewport as unknown as { minimap: { scheduleDraw: () => void } }).minimap;
-      const layer2 = viewport.layerManager.createLayer('Layer 2');
-      viewport.store.add(
-        createNote({
-          position: { x: 0, y: 0 },
-          size: { w: 100, h: 80 },
-          layerId: layer2.id,
-        }),
-      );
-      const spy = vi.spyOn(minimap, 'scheduleDraw');
-      viewport.layerManager.setLayerVisible(layer2.id, false);
-      expect(spy).toHaveBeenCalled();
-      viewport.destroy();
-    });
+    // Repaint-on-layer-change coverage now lives in MinimapController's own
+    // tests (it self-subscribes to layerManager 'change' via the same
+    // debounced-render path exercised there for store add/remove/update) —
+    // Viewport no longer drives the minimap's redraw explicitly.
   });
 
   describe('viewport public camera/viewport surface', () => {

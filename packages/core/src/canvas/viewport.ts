@@ -247,28 +247,7 @@ export class Viewport {
     this.unsubToolChange = this.toolManager.onChange(() => this.contextMenu?.close());
 
     if (options.minimap) {
-      const visibleEls = () =>
-        this.store.getAll().filter((el) => this.layerManager.isLayerVisible(el.layerId));
-      this.minimap = new Minimap({
-        container: this.wrapper,
-        getElements: visibleEls,
-        getContentBounds: () => getElementsBoundingBox(visibleEls()),
-        getViewportRect: () =>
-          this.camera.getVisibleRect(this.canvasEl.clientWidth, this.canvasEl.clientHeight),
-        navigateTo: (w) => {
-          const z = this.camera.zoom;
-          this.camera.moveTo(
-            this.canvasEl.clientWidth / 2 - w.x * z,
-            this.canvasEl.clientHeight / 2 - w.y * z,
-          );
-        },
-        requestFrame: (cb) =>
-          typeof requestAnimationFrame !== 'undefined' ? requestAnimationFrame(cb) : 0,
-        cancelFrame: (id) => {
-          if (typeof cancelAnimationFrame !== 'undefined') cancelAnimationFrame(id);
-        },
-      });
-      this.minimap.scheduleDraw();
+      this.minimap = new Minimap(this.wrapper, this);
     }
 
     this.domNodeManager = new DomNodeManager({
@@ -310,7 +289,6 @@ export class Viewport {
       this.applyCameraTransform();
       this.noteEditor.updateToolbarPosition();
       this.contextMenu?.close();
-      this.minimap?.scheduleDraw();
       this.requestRender();
     });
 
@@ -327,7 +305,6 @@ export class Viewport {
       this.store.on('add', (el) => {
         if (el.type === 'grid') this.gridController.syncContext();
         this.renderLoop.markLayerDirty(el.layerId);
-        this.minimap?.scheduleDraw();
         this.requestRender();
       }),
       this.store.on('remove', (el) => {
@@ -335,7 +312,6 @@ export class Viewport {
         this.unbindArrowsFrom(el);
         this.domNodeManager.removeDomNode(el.id);
         this.renderLoop.markLayerDirty(el.layerId);
-        this.minimap?.scheduleDraw();
         this.requestRender();
       }),
       this.store.on('update', ({ previous, current }) => {
@@ -344,14 +320,12 @@ export class Viewport {
         if (previous.layerId !== current.layerId) {
           this.renderLoop.markLayerDirty(previous.layerId);
         }
-        this.minimap?.scheduleDraw();
         this.requestRender();
       }),
       this.store.on('clear', () => {
         this.domNodeManager.clearDomNodes();
         this.renderLoop.markAllLayersDirty();
         this.gridController.syncContext();
-        this.minimap?.scheduleDraw();
         this.requestRender();
       }),
     ];
@@ -359,7 +333,6 @@ export class Viewport {
     this.layerManager.on('change', () => {
       this.toolContext.activeLayerId = this.layerManager.activeLayerId;
       this.renderLoop.markAllLayersDirty();
-      this.minimap?.scheduleDraw();
       this.requestRender();
     });
 

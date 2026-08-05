@@ -1,13 +1,24 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Bounds, Point } from '../core/types';
-import type { CanvasElement } from '../elements/types';
-import { Minimap, type MinimapDeps } from './minimap';
+import { Viewport } from './viewport';
+import { computeMinimapTransform, miniToWorld } from './minimap-transform';
+import { createNote } from '../elements/element-factory';
+
+// ---------------------------------------------------------------------------
+// Minimal recorder so canvas draw calls made by the (real) MinimapController
+// during construction/dispose never throw in jsdom, which has no real 2D
+// canvas backend. Reused convention from minimap-controller.test.ts; these
+// wrapper-scoped tests do not assert on drawing output.
+// ---------------------------------------------------------------------------
 
 interface Recorder {
   clearRect: ReturnType<typeof vi.fn>;
   fillRect: ReturnType<typeof vi.fn>;
   strokeRect: ReturnType<typeof vi.fn>;
+  drawImage: ReturnType<typeof vi.fn>;
+  setTransform: ReturnType<typeof vi.fn>;
+  save: ReturnType<typeof vi.fn>;
+  restore: ReturnType<typeof vi.fn>;
   fillStyle: string;
   strokeStyle: string;
   lineWidth: number;
@@ -18,236 +29,130 @@ function makeRecorder(): Recorder {
     clearRect: vi.fn(),
     fillRect: vi.fn(),
     strokeRect: vi.fn(),
+    drawImage: vi.fn(),
+    setTransform: vi.fn(),
+    save: vi.fn(),
+    restore: vi.fn(),
     fillStyle: '',
     strokeStyle: '',
     lineWidth: 0,
   };
 }
 
-function sizeElement(bounds: Bounds, extra: Record<string, unknown> = {}): CanvasElement {
-  return {
-    type: 'note',
-    position: { x: bounds.x, y: bounds.y },
-    size: { w: bounds.w, h: bounds.h },
-    ...extra,
-  } as unknown as CanvasElement;
-}
-
-interface Harness {
-  minimap: Minimap;
-  recorder: Recorder;
-  container: HTMLElement;
-  frames: (() => void)[];
-  flush: () => void;
-  cancelFrame: ReturnType<typeof vi.fn>;
-  getElements: ReturnType<typeof vi.fn>;
-  getContentBounds: ReturnType<typeof vi.fn>;
-  getViewportRect: ReturnType<typeof vi.fn>;
-  navigateTo: ReturnType<typeof vi.fn>;
-  canvas: HTMLCanvasElement;
-}
-
 let getContextSpy: ReturnType<typeof vi.spyOn>;
-let rectSpy: ReturnType<typeof vi.spyOn>;
-let recorder: Recorder;
 
 beforeEach(() => {
-  recorder = makeRecorder();
   getContextSpy = vi
     .spyOn(HTMLCanvasElement.prototype, 'getContext')
-    .mockReturnValue(recorder as unknown as CanvasRenderingContext2D);
-  rectSpy = vi.spyOn(HTMLCanvasElement.prototype, 'getBoundingClientRect').mockReturnValue({
-    left: 0,
-    top: 0,
-    right: 200,
-    bottom: 140,
-    width: 200,
-    height: 140,
-    x: 0,
-    y: 0,
-    toJSON: () => ({}),
-  } as DOMRect);
+    .mockReturnValue(makeRecorder() as unknown as CanvasRenderingContext2D);
 });
 
 afterEach(() => {
   getContextSpy.mockRestore();
-  rectSpy.mockRestore();
 });
 
-function makeHarness(opts: {
-  elements?: CanvasElement[];
-  content?: Bounds | null;
-  viewport?: Bounds;
-}): Harness {
-  const frames: (() => void)[] = [];
-  const container = document.createElement('div');
-  const cancelFrame = vi.fn();
-  const getElements = vi.fn(() => opts.elements ?? []);
-  const getContentBounds = vi.fn(() => opts.content ?? null);
-  const getViewportRect = vi.fn(() => opts.viewport ?? { x: 0, y: 0, w: 50, h: 50 });
-  const navigateTo = vi.fn();
-
-  const deps: MinimapDeps = {
-    container,
-    getElements,
-    getContentBounds,
-    getViewportRect,
-    navigateTo,
-    requestFrame: (cb) => {
-      frames.push(cb);
-      return frames.length;
-    },
-    cancelFrame,
-  };
-
-  const minimap = new Minimap(deps);
-  const canvas = container.querySelector('canvas');
-  if (!canvas) throw new Error('canvas not created');
-
-  return {
-    minimap,
-    recorder,
-    container,
-    frames,
-    flush: () => {
-      const pending = frames.splice(0, frames.length);
-      for (const cb of pending) cb();
-    },
-    cancelFrame,
-    getElements,
-    getContentBounds,
-    getViewportRect,
-    navigateTo,
-    canvas,
-  };
+function minimapCanvas(wrapper: HTMLElement): HTMLCanvasElement | undefined {
+  return Array.from(wrapper.querySelectorAll('canvas')).find(
+    (c) => c.style.position === 'absolute' && c.style.bottom !== '',
+  );
 }
 
-describe('Minimap', () => {
-  it('draws element rect and viewport outline via union-mapping transform', () => {
-    const h = makeHarness({
-      elements: [sizeElement({ x: 0, y: 0, w: 100, h: 100 }, { color: '#f00' })],
-      content: { x: 0, y: 0, w: 100, h: 100 },
-      viewport: { x: 0, y: 0, w: 50, h: 50 },
-    });
+function wrapperOf(container: HTMLElement): HTMLDivElement {
+  const w = container.firstElementChild;
+  if (!(w instanceof HTMLDivElement)) throw new Error('viewport wrapper not found');
+  return w;
+}
 
-    h.minimap.scheduleDraw();
-    h.flush();
+describe('Minimap (built-in wrapper)', () => {
+  let container: HTMLDivElement;
 
-    // mapping = union({0,0,100,100},{0,0,50,50}) = {0,0,100,100}
-    // scale = 1.24, offset {38,8}
-    expect(h.recorder.fillRect).toHaveBeenCalledTimes(1);
-    const fillArgs = h.recorder.fillRect.mock.calls[0];
-    expect(fillArgs[0]).toBeCloseTo(38, 5);
-    expect(fillArgs[1]).toBeCloseTo(8, 5);
-    expect(fillArgs[2]).toBeCloseTo(124, 5);
-    expect(fillArgs[3]).toBeCloseTo(124, 5);
-    expect(h.recorder.fillStyle).toBe('#f00');
-
-    expect(h.recorder.strokeRect).toHaveBeenCalledTimes(1);
-    const strokeArgs = h.recorder.strokeRect.mock.calls[0];
-    expect(strokeArgs[0]).toBeCloseTo(38, 5);
-    expect(strokeArgs[1]).toBeCloseTo(8, 5);
-    expect(strokeArgs[2]).toBeCloseTo(62, 5);
-    expect(strokeArgs[3]).toBeCloseTo(62, 5);
+  beforeEach(() => {
+    container = document.createElement('div');
+    document.body.appendChild(container);
   });
 
-  it('skips element fillRect when content is empty but still draws viewport outline', () => {
-    const h = makeHarness({
-      elements: [],
-      content: null,
-      viewport: { x: 0, y: 0, w: 50, h: 50 },
-    });
-
-    h.minimap.scheduleDraw();
-    h.flush();
-
-    expect(h.recorder.fillRect).not.toHaveBeenCalled();
-    expect(h.recorder.strokeRect).toHaveBeenCalledTimes(1);
+  afterEach(() => {
+    container.remove();
   });
 
-  it('coalesces multiple scheduleDraw calls into a single frame', () => {
-    const h = makeHarness({ content: null });
+  it('1. new Viewport(container, { minimap: true }) appends a positioned canvas to the wrapper', () => {
+    const viewport = new Viewport(container, { minimap: true });
+    const wrapper = wrapperOf(container);
+    const canvas = minimapCanvas(wrapper);
 
-    h.minimap.scheduleDraw();
-    h.minimap.scheduleDraw();
-    h.minimap.scheduleDraw();
-    expect(h.frames.length).toBe(1);
+    expect(canvas).toBeDefined();
+    expect(canvas?.style.position).toBe('absolute');
+    expect(canvas?.style.right).toBe('16px');
+    expect(canvas?.style.bottom).toBe('16px');
+    expect(canvas?.style.zIndex).toBe('10');
 
-    h.flush();
-    expect(h.recorder.clearRect).toHaveBeenCalledTimes(1);
+    viewport.destroy();
   });
 
-  it('navigates to mapping center on pointerdown', () => {
-    const h = makeHarness({
-      content: { x: 0, y: 0, w: 100, h: 100 },
-      viewport: { x: 0, y: 0, w: 50, h: 50 },
-    });
+  it('2. no minimap canvas is created without the option', () => {
+    const viewport = new Viewport(container);
+    const wrapper = wrapperOf(container);
 
-    const ev = new PointerEvent('pointerdown', {
-      clientX: 100,
-      clientY: 70,
-      pointerId: 1,
-      bubbles: true,
-    });
-    h.canvas.dispatchEvent(ev);
+    expect(minimapCanvas(wrapper)).toBeUndefined();
 
-    expect(h.navigateTo).toHaveBeenCalledTimes(1);
-    const world = h.navigateTo.mock.calls[0][0] as Point;
-    expect(world.x).toBeCloseTo(50, 5);
-    expect(world.y).toBeCloseTo(50, 5);
+    viewport.destroy();
   });
 
-  it('navigates during drag and stops after pointerup', () => {
-    const h = makeHarness({
-      content: { x: 0, y: 0, w: 100, h: 100 },
-      viewport: { x: 0, y: 0, w: 50, h: 50 },
-    });
+  it('3. viewport.destroy() removes the minimap canvas and cancels its queued frame', () => {
+    const cancelSpy = vi.spyOn(window, 'cancelAnimationFrame');
+    const viewport = new Viewport(container, { minimap: true });
+    const wrapper = wrapperOf(container);
+    const canvas = minimapCanvas(wrapper);
+    expect(canvas).toBeDefined();
 
-    h.canvas.dispatchEvent(
-      new PointerEvent('pointerdown', { clientX: 100, clientY: 70, pointerId: 1, bubbles: true }),
-    );
-    expect(h.navigateTo).toHaveBeenCalledTimes(1);
+    expect(() => viewport.destroy()).not.toThrow();
 
-    h.canvas.dispatchEvent(
-      new PointerEvent('pointermove', { clientX: 38, clientY: 8, pointerId: 1, bubbles: true }),
-    );
-    expect(h.navigateTo).toHaveBeenCalledTimes(2);
-    const dragWorld = h.navigateTo.mock.calls[1][0] as Point;
-    expect(dragWorld.x).toBeCloseTo(0, 5);
-    expect(dragWorld.y).toBeCloseTo(0, 5);
+    expect(canvas ? document.contains(canvas) : true).toBe(false);
+    expect(cancelSpy).toHaveBeenCalled();
 
-    h.canvas.dispatchEvent(
-      new PointerEvent('pointerup', { clientX: 38, clientY: 8, pointerId: 1, bubbles: true }),
-    );
-    h.canvas.dispatchEvent(
-      new PointerEvent('pointermove', { clientX: 100, clientY: 70, pointerId: 1, bubbles: true }),
-    );
-    expect(h.navigateTo).toHaveBeenCalledTimes(2);
+    cancelSpy.mockRestore();
   });
 
-  it('stops propagation on pointerdown', () => {
-    const h = makeHarness({ content: null });
-    const ev = new PointerEvent('pointerdown', {
-      clientX: 100,
-      clientY: 70,
-      pointerId: 1,
-      bubbles: true,
-    });
-    const stop = vi.spyOn(ev, 'stopPropagation');
-    h.canvas.dispatchEvent(ev);
-    expect(stop).toHaveBeenCalled();
-  });
+  it('4. pointerdown on the minimap canvas moves the camera (navigation wired end-to-end)', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const viewport = new Viewport(container, { minimap: true });
+      const layerId = viewport.layerManager.activeLayerId;
+      viewport.store.add(
+        createNote({ position: { x: 0, y: 0 }, size: { w: 2000, h: 2000 }, layerId }),
+      );
+      // Cross the controller's debounce boundary so its cached scene/transform
+      // (rendered synchronously at construction, before the note existed)
+      // picks up the note's bounds before navigation is exercised.
+      vi.advanceTimersByTime(200);
 
-  it('destroy removes canvas, cancels pending frame, and is safe to schedule after', () => {
-    const h = makeHarness({ content: null });
+      const wrapper = wrapperOf(container);
+      const canvas = minimapCanvas(wrapper);
+      if (!canvas) throw new Error('minimap canvas not found');
 
-    h.minimap.scheduleDraw();
-    expect(h.frames.length).toBe(1);
+      // Bare jsdom viewport canvas has clientWidth/clientHeight 0, matching
+      // minimap-controller.test.ts's centerCameraAt formula collapse:
+      // moveTo(clientWidth/2 - world.x*z, clientHeight/2 - world.y*z) -> -world.x*z / -world.y*z.
+      const transform = computeMinimapTransform({ x: 0, y: 0, w: 2000, h: 2000 }, 200, 140, 8);
+      const point = { x: 60, y: 40 };
+      const world = miniToWorld(transform, point);
+      const z = viewport.camera.zoom;
 
-    h.minimap.destroy();
+      canvas.dispatchEvent(
+        new PointerEvent('pointerdown', {
+          clientX: point.x,
+          clientY: point.y,
+          pointerId: 1,
+          bubbles: true,
+        }),
+      );
 
-    expect(h.container.contains(h.canvas)).toBe(false);
-    expect(h.cancelFrame).toHaveBeenCalledTimes(1);
-    expect(() => h.minimap.scheduleDraw()).not.toThrow();
+      expect(viewport.camera.position.x).toBeCloseTo(-world.x * z, 5);
+      expect(viewport.camera.position.y).toBeCloseTo(-world.y * z, 5);
+
+      viewport.destroy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
