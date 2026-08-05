@@ -888,13 +888,21 @@ describe('MinimapController navigation, resize, dispose, image reload', () => {
     // Give dispose a pending debounce to clear.
     viewport.store.add(createNote({ position: { x: 10, y: 10 }, size: { w: 20, h: 20 }, layerId }));
 
+    // The debounce's setTimeout is the only real (faked) timer in play here —
+    // FrameQueue is a plain callback array, not timer-backed — so this is 1.
+    // Asserting on the timer queue itself (rather than on a downstream no-op
+    // that renderScene/requestDraw would also skip via their own `disposed`
+    // guards even if the timer were merely orphaned) is what makes this
+    // assertion actually fail if dispose() stops calling clearDebounce().
+    expect(vi.getTimerCount()).toBe(1);
+
     controller.dispose();
 
     expect(queue.cancelFrame).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
 
     createElementSpy.mockClear();
     vi.advanceTimersByTime(1000);
-    // If the debounce had merely been orphaned instead of cleared, this would render.
     expect(canvasCreations()).toBe(0);
 
     const centerSpy = vi.spyOn(viewport, 'centerCameraAt');
