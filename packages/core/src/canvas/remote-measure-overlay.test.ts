@@ -1,8 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   isMeasurePresence,
   toMeasurePresence,
   MEASURE_PRESENCE_KIND,
+  RemoteMeasureOverlay,
+  type RemoteMeasureOverlayHost,
 } from './remote-measure-overlay';
 
 const active = {
@@ -47,6 +49,22 @@ describe('isMeasurePresence', () => {
     expect(isMeasurePresence({ ...active, color: 7 })).toBe(false);
     expect(isMeasurePresence({ kind: 'measure', cleared: 1 })).toBe(false);
   });
+
+  it('accepts a cleared payload even with bogus extra fields (cleared branch ignores active fields)', () => {
+    expect(isMeasurePresence({ kind: 'measure', cleared: true, start: { x: 0 }, feet: 'x' })).toBe(
+      true,
+    );
+  });
+
+  it('rejects cleared present but not exactly true, even with valid active fields', () => {
+    expect(isMeasurePresence({ ...active, cleared: false })).toBe(false);
+  });
+
+  it('rejects an active payload missing cells', () => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { cells: _cells, ...missingCells } = active;
+    expect(isMeasurePresence(missingCells)).toBe(false);
+  });
 });
 
 describe('toMeasurePresence', () => {
@@ -71,5 +89,169 @@ describe('toMeasurePresence', () => {
 
   it('maps null to the cleared form', () => {
     expect(toMeasurePresence(null)).toEqual({ kind: MEASURE_PRESENCE_KIND, cleared: true });
+  });
+});
+
+function makeHost(): RemoteMeasureOverlayHost & {
+  draws: number;
+  drawFrame: () => void;
+  unregistered: boolean;
+} {
+  let renderer: ((ctx: CanvasRenderingContext2D) => void) | null = null;
+  const host = {
+    draws: 0,
+    unregistered: false,
+    registerOverlay(draw: (ctx: CanvasRenderingContext2D) => void) {
+      renderer = draw;
+      return () => {
+        host.unregistered = true;
+        renderer = null;
+      };
+    },
+    requestRender: vi.fn(),
+    drawFrame() {
+      host.draws += 1;
+      renderer?.({
+        save: vi.fn(),
+        restore: vi.fn(),
+        beginPath: vi.fn(),
+        moveTo: vi.fn(),
+        lineTo: vi.fn(),
+        stroke: vi.fn(),
+        arc: vi.fn(),
+        fill: vi.fn(),
+        setLineDash: vi.fn(),
+        roundRect: vi.fn(),
+        fillText: vi.fn(),
+        measureText: vi.fn(() => ({ width: 40 })),
+      } as unknown as CanvasRenderingContext2D);
+    },
+  };
+  return host;
+}
+
+function setNow(overlay: RemoteMeasureOverlay, value: number): void {
+  vi.spyOn(overlay as unknown as { now: () => number }, 'now').mockReturnValue(value);
+}
+
+describe('RemoteMeasureOverlay', () => {
+  let rafCallbacks: FrameRequestCallback[];
+  beforeEach(() => {
+    vi.useFakeTimers();
+    rafCallbacks = [];
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+      rafCallbacks.push(cb);
+      return rafCallbacks.length;
+    });
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => {
+      rafCallbacks[id - 1] = () => undefined;
+    });
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('applies an active payload per sender and replaces on update', () => {
+    const host = makeHost();
+    const overlay = new RemoteMeasureOverlay(host);
+    expect(overlay.apply('a', active)).toBe(true);
+    expect(overlay.apply('a', { ...active, feet: 60 })).toBe(true);
+    expect(overlay.activeSenderCount).toBe(1);
+    expect(host.requestRender).toHaveBeenCalled();
+  });
+
+  it('ignores malformed and foreign payloads', () => {
+    const host = makeHost();
+    const overlay = new RemoteMeasureOverlay(host);
+    expect(overlay.apply('a', { kind: 'laser', points: [] })).toBe(false);
+    expect(overlay.apply('a', { ...active, feet: Number.NaN })).toBe(false);
+    expect(overlay.activeSenderCount).toBe(0);
+  });
+
+  it('cleared payload holds, then fades, then deletes', () => {
+    const host = makeHost();
+    const overlay = new RemoteMeasureOverlay(host); // holdMs 1500, fadeMs 400
+    setNow(overlay, 1_000);
+    overlay.apply('a', active);
+    overlay.apply('a', { kind: 'measure', cleared: true });
+    expect(overlay.activeSenderCount).toBe(1); // lingering
+    setNow(overlay, 1_000 + 1500 + 399);
+    rafCallbacks.splice(0).forEach((cb) => cb(0)); // still fading
+    expect(overlay.activeSenderCount).toBe(1);
+    setNow(overlay, 1_000 + 1500 + 400);
+    rafCallbacks.splice(0).forEach((cb) => cb(0));
+    expect(overlay.activeSenderCount).toBe(0);
+  });
+
+  it('a new active payload during linger cancels the fade', () => {
+    const host = makeHost();
+    const overlay = new RemoteMeasureOverlay(host);
+    setNow(overlay, 0);
+    overlay.apply('a', active);
+    overlay.apply('a', { kind: 'measure', cleared: true });
+    overlay.apply('a', active); // measurement restarted
+    setNow(overlay, 10_000);
+    rafCallbacks.splice(0).forEach((cb) => cb(0));
+    expect(overlay.activeSenderCount).toBe(1); // still active, no fade delete
+  });
+
+  it('maxAgeMs expires a stale active entry with no renders in between', () => {
+    const host = makeHost();
+    const overlay = new RemoteMeasureOverlay(host); // maxAgeMs 30000
+    setNow(overlay, 0);
+    overlay.apply('a', active);
+    host.requestRender.mockClear();
+    setNow(overlay, 30_000);
+    vi.advanceTimersByTime(30_000); // idle map: only the timer can wake us
+    expect(host.requestRender).toHaveBeenCalled(); // linger started
+    setNow(overlay, 30_000 + 1500 + 400);
+    rafCallbacks.splice(0).forEach((cb) => cb(0));
+    expect(overlay.activeSenderCount).toBe(0);
+  });
+
+  it('updates reset the expiry timer', () => {
+    const host = makeHost();
+    const overlay = new RemoteMeasureOverlay(host);
+    setNow(overlay, 0);
+    overlay.apply('a', active);
+    vi.advanceTimersByTime(20_000);
+    overlay.apply('a', { ...active, feet: 15 }); // timer restarts
+    vi.advanceTimersByTime(20_000); // 40s total, but only 20s since update
+    expect(overlay.activeSenderCount).toBe(1);
+    vi.advanceTimersByTime(10_000);
+    expect(rafCallbacks.length).toBeGreaterThan(0); // now lingering
+  });
+
+  it('remove deletes immediately without linger and cancels the timer', () => {
+    const host = makeHost();
+    const overlay = new RemoteMeasureOverlay(host);
+    overlay.apply('a', active);
+    overlay.remove('a');
+    expect(overlay.activeSenderCount).toBe(0);
+    vi.advanceTimersByTime(60_000); // no leaked timer fires
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('dispose is idempotent, cancels timers, and unregisters', () => {
+    const host = makeHost();
+    const overlay = new RemoteMeasureOverlay(host);
+    overlay.apply('a', active);
+    overlay.dispose();
+    overlay.dispose();
+    expect(host.unregistered).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(overlay.apply('a', active)).toBe(false);
+  });
+
+  it('renders through drawMeasurement with the fallback color when omitted', () => {
+    const host = makeHost();
+    const overlay = new RemoteMeasureOverlay(host, { color: '#123456' });
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { color: _color, ...noColor } = active;
+    overlay.apply('a', noColor);
+    host.drawFrame(); // must not throw; entry drawn with fallback
+    expect(host.draws).toBe(1);
   });
 });
