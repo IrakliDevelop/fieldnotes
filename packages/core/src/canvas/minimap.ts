@@ -27,6 +27,7 @@ export class Minimap {
       borderRadius: '4px',
       zIndex: '10',
     });
+    canvas.dataset.fieldnotesMinimap = 'true';
     container.appendChild(canvas);
     this.canvas = canvas;
     this.controller = new MinimapController(viewport, canvas, { width: WIDTH, height: HEIGHT });
