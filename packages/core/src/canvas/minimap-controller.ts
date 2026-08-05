@@ -325,7 +325,21 @@ export class MinimapController {
 
   private navigateFromEvent(e: PointerEvent): void {
     const rect = this.canvas.getBoundingClientRect();
-    const point = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    // The canvas's DISPLAYED CSS size (rect.width/height) can differ from the
+    // logical width/height the minimap transform is built for — applyCanvasSize
+    // only sets the backing-store pixel attributes, never canvas.style
+    // width/height, so a consumer that doesn't explicitly style the canvas (or
+    // that CSS-scales it responsively) can display it at a different CSS size.
+    // Normalize the pointer position from displayed to logical space first.
+    // A zero-size rect (unmeasured/unlaid-out canvas) carries no scaling
+    // information, so it falls back to an identity ratio rather than
+    // dividing by zero.
+    const scaleX = rect.width > 0 ? this.width / rect.width : 1;
+    const scaleY = rect.height > 0 ? this.height / rect.height : 1;
+    const point = {
+      x: (e.clientX - rect.left) * scaleX,
+      y: (e.clientY - rect.top) * scaleY,
+    };
     const world: Point = miniToWorld(this.navTransform(), point);
     this.viewport.centerCameraAt(world);
   }

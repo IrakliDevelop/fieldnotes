@@ -734,6 +734,47 @@ describe('MinimapController navigation, resize, dispose, image reload', () => {
     viewport.destroy();
   });
 
+  it('11b. tap navigation normalizes displayed CSS size to logical size before mapping (DPR>1 / CSS-scaled canvas)', () => {
+    // A bare consumer never styles canvas.style.width/height (applyCanvasSize
+    // only sets the backing-store pixel attributes), so on devicePixelRatio>1
+    // — or any host that CSS-scales the canvas responsively — the canvas can
+    // be DISPLAYED at a CSS size that differs from the option-configured
+    // logical width/height (200x140) the minimap transform is built for.
+    const { viewport } = makeBareViewportHarness();
+    addBaselineContent(viewport);
+
+    const canvas = document.createElement('canvas');
+    // Displayed at 400x280 CSS px: exactly 2x the logical 200x140.
+    Object.defineProperty(canvas, 'getBoundingClientRect', {
+      value: () => ({ left: 0, top: 0, width: 400, height: 280 }),
+      configurable: true,
+    });
+    const queue = makeFrameQueue();
+    const controller = makeController(viewport, canvas, queue);
+
+    const transform = computeMinimapTransform({ x: 0, y: 0, w: 2000, h: 2000 }, 200, 140, 8);
+    // A tap at displayed-space (400, 280) must map to the SAME logical
+    // minimap point (200, 140) as a tap at (200, 140) on a canvas actually
+    // displayed at 200x140 — i.e. normalized by (logical / displayed).
+    const world = miniToWorld(transform, { x: 200, y: 140 });
+    const z = viewport.camera.zoom;
+
+    canvas.dispatchEvent(
+      new PointerEvent('pointerdown', {
+        clientX: 400,
+        clientY: 280,
+        pointerId: 1,
+        bubbles: true,
+      }),
+    );
+
+    expect(viewport.camera.position.x).toBeCloseTo(-world.x * z, 5);
+    expect(viewport.camera.position.y).toBeCloseTo(-world.y * z, 5);
+
+    controller.dispose();
+    viewport.destroy();
+  });
+
   it('12. drag navigation: pointermove while dragging navigates again; pointerup ends the drag', () => {
     const { viewport } = makeBareViewportHarness();
     addBaselineContent(viewport);
