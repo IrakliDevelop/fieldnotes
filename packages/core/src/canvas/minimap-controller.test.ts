@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Viewport } from './viewport';
 import { MinimapController } from './minimap-controller';
 import type { MinimapControllerOptions } from './minimap-controller';
-import { computeMinimapTransform, worldToMini } from './minimap-transform';
+import { computeMinimapTransform, miniToWorld, worldToMini } from './minimap-transform';
 import { ElementRenderer } from '../elements/element-renderer';
 import { createNote, createStroke, createText } from '../elements/element-factory';
 import type { CanvasElement } from '../elements/types';
@@ -628,6 +628,307 @@ describe('MinimapController', () => {
     expect(recorder.fillRectLog.length).toBe(1);
 
     controller2.dispose();
+    viewport.destroy();
+  });
+});
+
+describe('MinimapController navigation, resize, dispose, image reload', () => {
+  // Navigation tests (11, 12, 12b, 13, 14) deliberately do NOT use
+  // makeViewportHarness: that helper pins the viewport's own canvasEl
+  // clientWidth/clientHeight to 800x600, which centerCameraAt reads directly
+  // (`clientWidth/2 - world.x*z`). A bare Viewport leaves those dims at
+  // jsdom's default 0, matching viewport.test.ts's own centerCameraAt
+  // coverage and collapsing the formula to `-world.x*z`.
+  function makeBareViewportHarness(): { viewport: Viewport } {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const viewport = new Viewport(container, {});
+    return { viewport };
+  }
+
+  function addBaselineContent(viewport: Viewport): void {
+    const layerId = viewport.layerManager.activeLayerId;
+    viewport.store.add(
+      createNote({ position: { x: 0, y: 0 }, size: { w: 2000, h: 2000 }, layerId }),
+    );
+  }
+
+  it('11. tap navigation centers the camera on the minimap-mapped world point', () => {
+    const { viewport } = makeBareViewportHarness();
+    addBaselineContent(viewport);
+
+    const canvas = document.createElement('canvas');
+    const queue = makeFrameQueue();
+    const controller = makeController(viewport, canvas, queue);
+
+    const transform = computeMinimapTransform({ x: 0, y: 0, w: 2000, h: 2000 }, 200, 140, 8);
+    const point = { x: 60, y: 40 };
+    const world = miniToWorld(transform, point);
+    const z = viewport.camera.zoom;
+
+    canvas.dispatchEvent(
+      new PointerEvent('pointerdown', {
+        clientX: point.x,
+        clientY: point.y,
+        pointerId: 1,
+        bubbles: true,
+      }),
+    );
+
+    // centerCameraAt: moveTo(clientWidth/2 - world.x*z, clientHeight/2 - world.y*z);
+    // canvasEl dims are 0 here, so this reduces to -world.x*z / -world.y*z.
+    expect(viewport.camera.position.x).toBeCloseTo(-world.x * z, 5);
+    expect(viewport.camera.position.y).toBeCloseTo(-world.y * z, 5);
+
+    controller.dispose();
+    viewport.destroy();
+  });
+
+  it('12. drag navigation: pointermove while dragging navigates again; pointerup ends the drag', () => {
+    const { viewport } = makeBareViewportHarness();
+    addBaselineContent(viewport);
+
+    const canvas = document.createElement('canvas');
+    const queue = makeFrameQueue();
+    const controller = makeController(viewport, canvas, queue);
+    const centerSpy = vi.spyOn(viewport, 'centerCameraAt');
+
+    canvas.dispatchEvent(
+      new PointerEvent('pointerdown', { clientX: 60, clientY: 40, pointerId: 1, bubbles: true }),
+    );
+    expect(centerSpy).toHaveBeenCalledTimes(1);
+
+    canvas.dispatchEvent(
+      new PointerEvent('pointermove', { clientX: 90, clientY: 70, pointerId: 1, bubbles: true }),
+    );
+    expect(centerSpy).toHaveBeenCalledTimes(2);
+
+    canvas.dispatchEvent(
+      new PointerEvent('pointerup', { clientX: 90, clientY: 70, pointerId: 1, bubbles: true }),
+    );
+    canvas.dispatchEvent(
+      new PointerEvent('pointermove', { clientX: 120, clientY: 100, pointerId: 1, bubbles: true }),
+    );
+    // A further move after pointerup must NOT navigate again.
+    expect(centerSpy).toHaveBeenCalledTimes(2);
+
+    controller.dispose();
+    viewport.destroy();
+  });
+
+  it('12b. drag cancellation via pointercancel or lostpointercapture stops navigation without a pointerup', () => {
+    const { viewport } = makeBareViewportHarness();
+    addBaselineContent(viewport);
+
+    const canvas = document.createElement('canvas');
+    const queue = makeFrameQueue();
+    const controller = makeController(viewport, canvas, queue);
+    const centerSpy = vi.spyOn(viewport, 'centerCameraAt');
+
+    // pointercancel: an interrupted touch ends the drag without a pointerup.
+    canvas.dispatchEvent(
+      new PointerEvent('pointerdown', { clientX: 60, clientY: 40, pointerId: 1, bubbles: true }),
+    );
+    expect(centerSpy).toHaveBeenCalledTimes(1);
+    canvas.dispatchEvent(new PointerEvent('pointercancel', { pointerId: 1, bubbles: true }));
+    canvas.dispatchEvent(
+      new PointerEvent('pointermove', { clientX: 120, clientY: 100, pointerId: 1, bubbles: true }),
+    );
+    expect(centerSpy).toHaveBeenCalledTimes(1);
+
+    // lostpointercapture: a browser gesture takeover ends the drag without a pointerup.
+    canvas.dispatchEvent(
+      new PointerEvent('pointerdown', { clientX: 60, clientY: 40, pointerId: 1, bubbles: true }),
+    );
+    expect(centerSpy).toHaveBeenCalledTimes(2);
+    canvas.dispatchEvent(new PointerEvent('lostpointercapture', { pointerId: 1, bubbles: true }));
+    canvas.dispatchEvent(
+      new PointerEvent('pointermove', { clientX: 120, clientY: 100, pointerId: 1, bubbles: true }),
+    );
+    expect(centerSpy).toHaveBeenCalledTimes(2);
+
+    controller.dispose();
+    viewport.destroy();
+  });
+
+  it('13. pointerdown stops propagation and prevents default', () => {
+    const { viewport } = makeBareViewportHarness();
+    addBaselineContent(viewport);
+
+    const canvas = document.createElement('canvas');
+    const queue = makeFrameQueue();
+    const controller = makeController(viewport, canvas, queue);
+
+    const ev = new PointerEvent('pointerdown', {
+      clientX: 10,
+      clientY: 10,
+      pointerId: 1,
+      bubbles: true,
+      cancelable: true,
+    });
+    const stopSpy = vi.spyOn(ev, 'stopPropagation');
+    const preventSpy = vi.spyOn(ev, 'preventDefault');
+    canvas.dispatchEvent(ev);
+
+    expect(stopSpy).toHaveBeenCalledTimes(1);
+    expect(preventSpy).toHaveBeenCalledTimes(1);
+
+    controller.dispose();
+    viewport.destroy();
+  });
+
+  it('14. interactive: false disables pointer navigation and never sets touchAction to none', () => {
+    const { viewport } = makeBareViewportHarness();
+    addBaselineContent(viewport);
+
+    const canvas = document.createElement('canvas');
+    const queue = makeFrameQueue();
+    const controller = makeController(viewport, canvas, queue, { interactive: false });
+    const centerSpy = vi.spyOn(viewport, 'centerCameraAt');
+
+    expect(canvas.style.touchAction).not.toBe('none');
+
+    canvas.dispatchEvent(
+      new PointerEvent('pointerdown', { clientX: 60, clientY: 40, pointerId: 1, bubbles: true }),
+    );
+    expect(centerSpy).not.toHaveBeenCalled();
+
+    controller.dispose();
+    viewport.destroy();
+  });
+
+  it('15. setSize resizes the canvas backing store by devicePixelRatio and synchronously re-renders the scene', () => {
+    vi.stubGlobal('devicePixelRatio', 2);
+    try {
+      const { viewport } = makeViewportHarness();
+      const layerId = viewport.layerManager.activeLayerId;
+      viewport.store.add(
+        createNote({ position: { x: 0, y: 0 }, size: { w: 2000, h: 2000 }, layerId }),
+      );
+
+      const canvas = document.createElement('canvas');
+      const queue = makeFrameQueue();
+      const controller = makeController(viewport, canvas, queue);
+      queue.flush();
+      const baselineScene = lastComposite().args[0];
+
+      createElementSpy.mockClear();
+      controller.setSize(100, 70);
+
+      expect(canvas.width).toBe(200); // 100 * dpr(2)
+      expect(canvas.height).toBe(140); // 70 * dpr(2)
+      expect(canvasCreations()).toBe(1); // synchronous re-render: new scene canvas identity
+      expect(queue.frames.length).toBe(1); // draw scheduled
+
+      queue.flush();
+      expect(lastComposite().args[0]).not.toBe(baselineScene);
+
+      controller.dispose();
+      viewport.destroy();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('16. a late image load schedules a debounced scene re-render', () => {
+    const setOnImageLoadSpy = vi.spyOn(ElementRenderer.prototype, 'setOnImageLoad');
+    try {
+      const { viewport } = makeViewportHarness();
+      const layerId = viewport.layerManager.activeLayerId;
+      viewport.store.add(
+        createNote({ position: { x: 0, y: 0 }, size: { w: 2000, h: 2000 }, layerId }),
+      );
+
+      const canvas = document.createElement('canvas');
+      const queue = makeFrameQueue();
+      const controller = makeController(viewport, canvas, queue);
+      queue.flush();
+      const baselineScene = lastComposite().args[0];
+
+      // Viewport's own constructor also builds an ElementRenderer and calls
+      // setOnImageLoad on it, so the MinimapController's registration is not
+      // necessarily calls[0] — it is whichever call happened most recently,
+      // since the controller is constructed after the viewport.
+      const onImageLoad = setOnImageLoadSpy.mock.calls.at(-1)?.[0];
+      if (!onImageLoad) throw new Error('expected setOnImageLoad to have been called');
+
+      createElementSpy.mockClear();
+      onImageLoad();
+
+      // Debounced: no synchronous re-render.
+      expect(canvasCreations()).toBe(0);
+
+      vi.advanceTimersByTime(200);
+      expect(canvasCreations()).toBe(1);
+      expect(queue.frames.length).toBe(1);
+      queue.flush();
+      expect(lastComposite().args[0]).not.toBe(baselineScene);
+
+      controller.dispose();
+      viewport.destroy();
+    } finally {
+      setOnImageLoadSpy.mockRestore();
+    }
+  });
+
+  it('17. dispose cancels the pending frame, clears a pending debounce, removes pointer handlers, and is idempotent', () => {
+    const { viewport } = makeViewportHarness();
+    const layerId = viewport.layerManager.activeLayerId;
+    viewport.store.add(
+      createNote({ position: { x: 0, y: 0 }, size: { w: 2000, h: 2000 }, layerId }),
+    );
+
+    const canvas = document.createElement('canvas');
+    const queue = makeFrameQueue();
+    const controller = makeController(viewport, canvas, queue);
+
+    // Constructor's initial frame is still pending (never flushed).
+    expect(queue.frames.length).toBe(1);
+
+    // Give dispose a pending debounce to clear.
+    viewport.store.add(createNote({ position: { x: 10, y: 10 }, size: { w: 20, h: 20 }, layerId }));
+
+    controller.dispose();
+
+    expect(queue.cancelFrame).toHaveBeenCalledTimes(1);
+
+    createElementSpy.mockClear();
+    vi.advanceTimersByTime(1000);
+    // If the debounce had merely been orphaned instead of cleared, this would render.
+    expect(canvasCreations()).toBe(0);
+
+    const centerSpy = vi.spyOn(viewport, 'centerCameraAt');
+    canvas.dispatchEvent(
+      new PointerEvent('pointerdown', { clientX: 10, clientY: 10, pointerId: 1, bubbles: true }),
+    );
+    expect(centerSpy).not.toHaveBeenCalled();
+
+    expect(() => controller.dispose()).not.toThrow();
+
+    viewport.destroy();
+  });
+
+  it('18. no listener leak: after dispose, store and camera events schedule no further frames', () => {
+    const { viewport } = makeViewportHarness();
+    const layerId = viewport.layerManager.activeLayerId;
+
+    const canvas = document.createElement('canvas');
+    const queue = makeFrameQueue();
+    const controller = makeController(viewport, canvas, queue);
+    queue.flush();
+    expect(queue.frames.length).toBe(0);
+
+    controller.dispose();
+
+    viewport.store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 }, layerId }));
+    expect(queue.frames.length).toBe(0);
+
+    viewport.camera.pan(10, 10);
+    expect(queue.frames.length).toBe(0);
+
+    vi.advanceTimersByTime(1000);
+    expect(queue.frames.length).toBe(0);
+
     viewport.destroy();
   });
 });
