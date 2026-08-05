@@ -2293,4 +2293,36 @@ describe('Viewport', () => {
       viewport.destroy();
     });
   });
+
+  describe('viewport public camera/viewport surface', () => {
+    it('getVisibleRect delegates to camera with the canvas dimensions', () => {
+      const vp = new Viewport(container);
+      const rect = vp.getVisibleRect();
+      // jsdom canvas is 0×0 → rect equals camera.getVisibleRect(0, 0)
+      expect(rect).toEqual(vp.camera.getVisibleRect(0, 0));
+      vp.destroy();
+    });
+
+    it('centerCameraAt moves the camera so the world point maps to the canvas center', () => {
+      const vp = new Viewport(container);
+      vp.camera.setZoom(2);
+      vp.centerCameraAt({ x: 30, y: 40 });
+      // moveTo(clientWidth/2 - 30*2, clientHeight/2 - 40*2); jsdom dims are 0
+      expect(vp.camera.position).toEqual({ x: -60, y: -80 });
+      vp.destroy();
+    });
+
+    it('onResize notifies after syncCanvasSize and unsubscribes cleanly', () => {
+      const vp = new Viewport(container);
+      const listener = vi.fn();
+      const unsub = vp.onResize(listener);
+      // syncCanvasSize is private; trigger through the same path the ResizeObserver uses.
+      (vp as unknown as { syncCanvasSize(): void }).syncCanvasSize();
+      expect(listener).toHaveBeenCalledTimes(1);
+      unsub();
+      (vp as unknown as { syncCanvasSize(): void }).syncCanvasSize();
+      expect(listener).toHaveBeenCalledTimes(1);
+      vp.destroy();
+    });
+  });
 });
