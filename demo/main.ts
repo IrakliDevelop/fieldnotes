@@ -17,13 +17,15 @@ import {
   PingInput,
   RemotePingOverlay,
   toPingPresence,
+  RemoteMeasureOverlay,
+  toMeasurePresence,
   AutoSave,
   IndexedDBAdapter,
   createStroke,
   createNote,
   createGrid,
 } from '@fieldnotes/core';
-import type { AlignEdge, DistributeAxis } from '@fieldnotes/core';
+import type { AlignEdge, DistributeAxis, MeasurePresence } from '@fieldnotes/core';
 import { SyncClient, BroadcastChannelTransport } from '@fieldnotes/sync';
 
 console.log(`Field Notes v${VERSION}`);
@@ -999,6 +1001,20 @@ const pingInput = new PingInput(container, viewport.camera, {
 });
 pingInput.onPing((emission) => remotePingOverlay.apply('self', toPingPresence(emission)));
 (window as unknown as Record<string, unknown>).__fieldnotes_ping_input = pingInput;
+
+// Shared live ruler (a peer's measure presence would feed this); exposed for e2e.
+const remoteMeasureOverlay = new RemoteMeasureOverlay(viewport);
+(window as unknown as Record<string, unknown>).__fieldnotes_remote_measure = remoteMeasureOverlay;
+const measureEmissions: MeasurePresence[] = [];
+(window as unknown as Record<string, unknown>).__fieldnotes_measure_emissions = measureEmissions;
+measure.onMeasurement((emission) => {
+  const presence = toMeasurePresence(emission);
+  measureEmissions.push(presence);
+  // Exercise the full emission → presence → overlay path locally, like the
+  // ping demo's 'self' pulses. Side effect: after release the demo shows the
+  // remote linger+fade on the measurer's own screen.
+  remoteMeasureOverlay.apply('self', presence);
+});
 
 // "g" pings at the cursor ("p" is taken by the pencil tool).
 document.addEventListener('keydown', (e) => {
