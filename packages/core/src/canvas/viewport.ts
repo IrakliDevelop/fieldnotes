@@ -15,7 +15,7 @@ import type {
   HtmlElement,
   ShapeKind,
 } from '../elements/types';
-import type { Point } from '../core/types';
+import type { Point, Bounds } from '../core/types';
 import { ContextMenu } from './context-menu';
 import type { ContextMenuItem } from './context-menu';
 import { Minimap } from './minimap';
@@ -133,6 +133,7 @@ export class Viewport {
   private contextMenu: ContextMenu | null = null;
   private minimap: Minimap | null = null;
   private readonly htmlRenderers = new Map<string, (el: HtmlElement) => HTMLElement>();
+  private readonly resizeListeners = new Set<() => void>();
 
   constructor(
     private readonly container: HTMLElement,
@@ -246,28 +247,7 @@ export class Viewport {
     this.unsubToolChange = this.toolManager.onChange(() => this.contextMenu?.close());
 
     if (options.minimap) {
-      const visibleEls = () =>
-        this.store.getAll().filter((el) => this.layerManager.isLayerVisible(el.layerId));
-      this.minimap = new Minimap({
-        container: this.wrapper,
-        getElements: visibleEls,
-        getContentBounds: () => getElementsBoundingBox(visibleEls()),
-        getViewportRect: () =>
-          this.camera.getVisibleRect(this.canvasEl.clientWidth, this.canvasEl.clientHeight),
-        navigateTo: (w) => {
-          const z = this.camera.zoom;
-          this.camera.moveTo(
-            this.canvasEl.clientWidth / 2 - w.x * z,
-            this.canvasEl.clientHeight / 2 - w.y * z,
-          );
-        },
-        requestFrame: (cb) =>
-          typeof requestAnimationFrame !== 'undefined' ? requestAnimationFrame(cb) : 0,
-        cancelFrame: (id) => {
-          if (typeof cancelAnimationFrame !== 'undefined') cancelAnimationFrame(id);
-        },
-      });
-      this.minimap.scheduleDraw();
+      this.minimap = new Minimap(this.wrapper, this);
     }
 
     this.domNodeManager = new DomNodeManager({
@@ -309,7 +289,6 @@ export class Viewport {
       this.applyCameraTransform();
       this.noteEditor.updateToolbarPosition();
       this.contextMenu?.close();
-      this.minimap?.scheduleDraw();
       this.requestRender();
     });
 
@@ -326,7 +305,6 @@ export class Viewport {
       this.store.on('add', (el) => {
         if (el.type === 'grid') this.gridController.syncContext();
         this.renderLoop.markLayerDirty(el.layerId);
-        this.minimap?.scheduleDraw();
         this.requestRender();
       }),
       this.store.on('remove', (el) => {
@@ -334,7 +312,6 @@ export class Viewport {
         this.unbindArrowsFrom(el);
         this.domNodeManager.removeDomNode(el.id);
         this.renderLoop.markLayerDirty(el.layerId);
-        this.minimap?.scheduleDraw();
         this.requestRender();
       }),
       this.store.on('update', ({ previous, current }) => {
@@ -343,14 +320,12 @@ export class Viewport {
         if (previous.layerId !== current.layerId) {
           this.renderLoop.markLayerDirty(previous.layerId);
         }
-        this.minimap?.scheduleDraw();
         this.requestRender();
       }),
       this.store.on('clear', () => {
         this.domNodeManager.clearDomNodes();
         this.renderLoop.markAllLayersDirty();
         this.gridController.syncContext();
-        this.minimap?.scheduleDraw();
         this.requestRender();
       }),
     ];
@@ -358,7 +333,6 @@ export class Viewport {
     this.layerManager.on('change', () => {
       this.toolContext.activeLayerId = this.layerManager.activeLayerId;
       this.renderLoop.markAllLayersDirty();
-      this.minimap?.scheduleDraw();
       this.requestRender();
     });
 
@@ -419,6 +393,30 @@ export class Viewport {
     const bbox = getElementsBoundingBox(visibleElements);
     if (!bbox) return;
     this.camera.fitToContent(bbox, this.wrapper.clientWidth, this.wrapper.clientHeight, padding);
+  }
+
+  /** World-space rectangle currently visible through the canvas. */
+  getVisibleRect(): Bounds {
+    return this.camera.getVisibleRect(this.canvasEl.clientWidth, this.canvasEl.clientHeight);
+  }
+
+  /** Centers the camera on a world point without changing zoom. */
+  centerCameraAt(world: Point): void {
+    const z = this.camera.zoom;
+    this.camera.moveTo(
+      this.canvasEl.clientWidth / 2 - world.x * z,
+      this.canvasEl.clientHeight / 2 - world.y * z,
+    );
+  }
+
+  /**
+   * Notifies after the host container resizes (ResizeObserver-driven). A resize
+   * changes the visible world rect without a camera event; overlays such as the
+   * minimap subscribe to stay current. Returns an idempotent unsubscribe.
+   */
+  onResize(listener: () => void): () => void {
+    this.resizeListeners.add(listener);
+    return () => this.resizeListeners.delete(listener);
   }
 
   requestRender(): void {
@@ -801,6 +799,7 @@ export class Viewport {
     this.unsubStore.forEach((fn) => fn());
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
+    this.resizeListeners.clear();
     this.wrapper.remove();
   }
 
@@ -858,6 +857,7 @@ export class Viewport {
     const dpr = typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1;
     this.renderLoop.setCanvasSize(rect.width * dpr, rect.height * dpr);
     this.requestRender();
+    this.resizeListeners.forEach((fn) => fn());
   }
 
   private observeResize(): void {

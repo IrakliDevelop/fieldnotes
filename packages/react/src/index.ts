@@ -23,3 +23,5 @@ export type {
 export type { ElementStyle } from '@fieldnotes/core';
 export type { AlignEdge, DistributeAxis } from '@fieldnotes/core';
 export { ViewportContext } from './context';
+export { Minimap } from './minimap';
+export type { MinimapProps } from './minimap';

@@ -4,6 +4,33 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [@fieldnotes/react 0.9.0] — 2026-08-05
+
+### Added
+
+- `<Minimap />`: collapsible thumbnail overview navigator over the new core
+  `MinimapController`. Uncontrolled `defaultCollapsed`, host-owned positioning via
+  `className`/`style`; while collapsed no controller exists (zero listeners).
+  Requires `@fieldnotes/core >= 0.58.0`.
+
+## [0.58.0] — 2026-08-05
+
+### Added
+
+- `MinimapController`: public thumbnail overview navigator — cached offscreen scene bitmap
+  (real element shapes, downscaled images, per-layer opacity compositing; note/text/html as
+  bounds-rect fallbacks; grids skipped), debounced invalidation on scene changes, per-frame
+  composite of bitmap + live viewport rectangle, tap/drag-to-center navigation with
+  mouse/touch/pen parity. Constructed as `new MinimapController(viewport, canvas, options)`.
+- `Viewport.getVisibleRect()`, `Viewport.centerCameraAt(world)`, and
+  `Viewport.onResize(listener)` public methods.
+
+### Changed
+
+- `ViewportOptions.minimap: true` now renders a real thumbnail (previously flat colored
+  rectangles) and stays current after host container resizes. Same size, position, and
+  navigation contract.
+
 ## [0.57.0] — 2026-08-05
 
 ### Added
