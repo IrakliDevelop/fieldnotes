@@ -10,6 +10,7 @@ import {
   createTemplate,
   createStroke,
   createText,
+  createImage,
 } from '../elements/element-factory';
 import { rotatePoint } from '../core/geometry';
 import { getElementBounds } from '../elements/element-bounds';
@@ -244,6 +245,20 @@ describe('SelectionOps', () => {
       const d = ops.getStyleDetails();
       expect(d?.common.color).toBe('#0000ff');
       expect(d?.mixed).not.toContain('color');
+    });
+
+    it('returns null when the selection has no applicable style field, unlike getStyle()', () => {
+      const { store, ops, setSelected } = setupDynamic();
+      const image = createImage({
+        position: { x: 0, y: 0 },
+        size: { w: 10, h: 10 },
+        src: 'data:image/png;base64,',
+      });
+      store.add(image);
+      setSelected([image.id]);
+
+      expect(ops.getStyleDetails()).toBeNull();
+      expect(ops.getStyle()).toEqual({});
     });
 
     it('partial definition: one element defines fillColor, the other does not', () => {

@@ -71,6 +71,12 @@ export class SelectionOps {
     return result;
   }
 
+  /**
+   * Unlike `getStyle()` — which returns `{}` for a selection whose elements
+   * have no applicable style fields (e.g. images) — this returns `null` when
+   * no field is applicable, so callers can distinguish "nothing to show" from
+   * "everything shared but empty".
+   */
   getStyleDetails(): SelectionStyleDetails | null {
     const ids = this.deps.getSelectedIds();
     if (ids.length === 0) return null;
@@ -99,6 +105,7 @@ export class SelectionOps {
         (common as Record<string, unknown>)[field] = values[0];
       }
     }
+    if (applicable.length === 0) return null;
     return { common, applicable, mixed };
   }
 

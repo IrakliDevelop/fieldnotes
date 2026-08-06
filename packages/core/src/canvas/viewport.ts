@@ -760,7 +760,7 @@ export class Viewport {
 
   /**
    * getSelectedIds() and the onSelectionChange emitter never surface stale ids:
-   * once the enclosing synchronous history transaction completes, both reflect
+   * once the enclosing history transaction completes, both reflect
    * the current selection.
    */
   getSelectedIds(): string[] {
@@ -805,7 +805,7 @@ export class Viewport {
    * regardless of whether a select tool is registered yet; it forwards
    * events from whichever select tool is currently attached via
    * `toolManager.onRegister`. Never delivers stale ids once the enclosing
-   * synchronous history transaction completes.
+   * history transaction completes.
    */
   onSelectionChange(listener: () => void): () => void {
     this.selectionListeners.add(listener);
@@ -818,6 +818,10 @@ export class Viewport {
     return this.selectionOps.getStyle();
   }
 
+  /**
+   * Unlike `getSelectionStyle()` — which returns `{}` for a style-less
+   * selection — this returns `null` when no style field is applicable.
+   */
   getSelectionStyleDetails(): SelectionStyleDetails | null {
     return this.selectionOps.getStyleDetails();
   }

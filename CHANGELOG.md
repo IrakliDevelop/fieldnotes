@@ -29,7 +29,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
   the select tool is registered works, and deletions that change the selection fire events.
   Deleted elements are pruned from the selection — batched to one event per history
   transaction (`removeElements`, keyboard delete); `getSelectedIds()` returns no stale ids
-  once the enclosing synchronous history transaction completes.
+  once the enclosing history transaction completes.
 - `Viewport.getSelectionStyleDetails()` + exported `SelectionStyleDetails` type: per-field
   `applicable`/`mixed` introspection for the current selection so hosts can render style
   controls for mixed selections; `common` matches `getSelectionStyle()`. Returns `null` for
