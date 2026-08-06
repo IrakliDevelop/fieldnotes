@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi } from 'vitest';
-import { computeBounds, getElementRect, exportImage, loadImages } from './export-image';
+import {
+  computeBounds,
+  getElementRect,
+  exportImage,
+  loadImages,
+  fitExportScale,
+} from './export-image';
 import {
   createStroke,
   createNote,
@@ -136,6 +142,46 @@ describe('computeBounds', () => {
     const grid = createGrid({});
     const bounds = computeBounds([note, grid], 0);
     expect(bounds).toEqual({ x: 50, y: 50, w: 100, h: 100 });
+  });
+});
+
+describe('fitExportScale', () => {
+  it('returns the requested scale when the output fits', () => {
+    expect(fitExportScale({ w: 100, h: 50 }, 2, {})).toBe(2);
+  });
+
+  it('clamps to the dimension cap and never upscales', () => {
+    const s = fitExportScale({ w: 1000, h: 500 }, 4, { maxDimension: 2000 });
+    expect(s).toBeLessThanOrEqual(2);
+    expect(Math.ceil(1000 * s)).toBeLessThanOrEqual(2000);
+    expect(s).toBeGreaterThan(1.9);
+  });
+
+  it('clamps to the pixel cap', () => {
+    const s = fitExportScale({ w: 1000, h: 1000 }, 4, { maxPixels: 1_000_000 });
+    expect(Math.ceil(1000 * s) * Math.ceil(1000 * s)).toBeLessThanOrEqual(1_000_000);
+  });
+
+  it('handles an analytical candidate that only violates a cap after ceil rounding', () => {
+    // sqrt(10/9) ≈ 1.054 → ceil(3 × 1.054) = 4 → 4 × 4 = 16 > 10.
+    // The largest fitting scale is 1 (3 × 3 = 9 ≤ 10).
+    const s = fitExportScale({ w: 3, h: 3 }, 4, { maxPixels: 10 });
+    expect(Math.ceil(3 * s) * Math.ceil(3 * s)).toBeLessThanOrEqual(10);
+    expect(s).toBeGreaterThan(0.99);
+    expect(s).toBeLessThanOrEqual(1);
+  });
+
+  it('fits astronomically large bounds instead of collapsing to zero', () => {
+    // 1e200 × 1e200 overflows to Infinity — the pixel candidate must be
+    // computed without forming the area product.
+    const s = fitExportScale({ w: 1e200, h: 1e200 }, 2, {});
+    expect(s).toBeGreaterThan(0);
+    const dim = Math.ceil(1e200 * s);
+    // For square bounds under the default caps the PIXEL cap binds (8192²),
+    // not the dimension cap — assert near-optimality against the binding cap.
+    expect(dim).toBeLessThanOrEqual(16_384);
+    expect(dim * dim).toBeLessThanOrEqual(67_108_864);
+    expect(dim * dim).toBeGreaterThan(67_108_864 * 0.98);
   });
 });
 
@@ -413,6 +459,40 @@ describe('exportImage', () => {
         expect(canvas.height).toBe(60);
       }
       createSpy.mockRestore();
+    });
+  });
+
+  describe('exportImage — scaleMode fit', () => {
+    it('shrinks the canvas to the caps instead of throwing', async () => {
+      const store = new ElementStore();
+      store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 1000, h: 500 } }));
+      const createSpy = vi.spyOn(document, 'createElement');
+      await exportImage(store, { scale: 4, scaleMode: 'fit', maxDimension: 2000 });
+      const canvasCall = createSpy.mock.results.find(
+        (r) => r.type === 'return' && r.value instanceof HTMLCanvasElement,
+      );
+      expect(canvasCall).toBeDefined();
+      if (canvasCall && canvasCall.type === 'return') {
+        const canvas = canvasCall.value as HTMLCanvasElement;
+        expect(canvas.width).toBeLessThanOrEqual(2000);
+        expect(canvas.height).toBeLessThanOrEqual(1000);
+        expect(canvas.width).toBeGreaterThan(1900);
+      }
+      createSpy.mockRestore();
+    });
+
+    it("keeps 'exact' mode throwing on oversized exports", async () => {
+      const store = new ElementStore();
+      store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 1000, h: 500 } }));
+      await expect(
+        exportImage(store, { scale: 4, scaleMode: 'exact', maxDimension: 2000 }),
+      ).rejects.toThrow('maximum dimension');
+    });
+
+    it('rejects an unknown scaleMode', async () => {
+      const store = new ElementStore();
+      store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } }));
+      await expect(exportImage(store, { scaleMode: 'zoom' as never })).rejects.toThrow('scaleMode');
     });
   });
 });

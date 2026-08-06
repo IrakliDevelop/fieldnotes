@@ -28,6 +28,12 @@ export interface ExportImageOptions extends ExportResourceOptions, HtmlExportOpt
   format?: 'png' | 'jpeg';
   /** Encoder quality in (0, 1]. Only meaningful for 'jpeg'. */
   quality?: number;
+  /**
+   * 'exact' (default) throws when scale × bounds exceeds maxDimension/maxPixels.
+   * 'fit' reduces the effective scale to the largest value that satisfies both
+   * caps (never above the requested scale).
+   */
+  scaleMode?: 'exact' | 'fit';
 }
 
 export type ExportAssetErrorReason = 'load' | 'timeout' | 'encode';
@@ -227,6 +233,41 @@ function nonNegativeOption(value: number | undefined, fallback: number, name: st
   return resolved;
 }
 
+function fitExportScale(
+  bounds: { w: number; h: number },
+  requestedScale: number,
+  options: Pick<ExportResourceOptions, 'maxDimension' | 'maxPixels'>,
+): number {
+  const maxDimension = positiveOption(options.maxDimension, DEFAULT_MAX_DIMENSION, 'maxDimension');
+  const maxPixels = positiveOption(options.maxPixels, DEFAULT_MAX_PIXELS, 'maxPixels');
+  const fits = (scale: number): boolean => {
+    const w = Math.ceil(bounds.w * scale);
+    const h = Math.ceil(bounds.h * scale);
+    return w <= maxDimension && h <= maxDimension && w * h <= maxPixels;
+  };
+  if (fits(requestedScale)) return requestedScale;
+  // Every fitting scale satisfies w·s ≤ maxDimension and (w·s)(h·s) ≤ maxPixels
+  // (ceil(x) ≤ n ⟹ x ≤ n), so the analytical candidate is a true upper bound —
+  // this keeps the search interval tight even for astronomically large bounds.
+  // ceil rounding makes the candidate itself unreliable, so binary-search the
+  // narrow rounding-sensitive interval below it; the predicate is monotonic.
+  // Divide by each sqrt separately: forming bounds.w * bounds.h first can
+  // overflow to Infinity for large finite bounds, collapsing the candidate to 0.
+  const analytical = Math.min(
+    maxDimension / Math.max(bounds.w, bounds.h),
+    Math.sqrt(maxPixels) / Math.sqrt(bounds.w) / Math.sqrt(bounds.h),
+  );
+  let hi = Math.min(requestedScale, analytical);
+  if (fits(hi)) return hi;
+  let lo = 0;
+  for (let i = 0; i < 40; i++) {
+    const mid = (lo + hi) / 2;
+    if (fits(mid)) lo = mid;
+    else hi = mid;
+  }
+  return lo;
+}
+
 function assertExportSize(
   width: number,
   height: number,
@@ -319,7 +360,11 @@ export async function exportImage(
   options: ExportImageOptions = {},
   layerManager?: LayerManager,
 ): Promise<Blob | null> {
-  const scale = positiveOption(options.scale, 2, 'scale');
+  const requestedScale = positiveOption(options.scale, 2, 'scale');
+  const scaleMode = options.scaleMode ?? 'exact';
+  if (scaleMode !== 'exact' && scaleMode !== 'fit') {
+    throw new RangeError(`scaleMode must be 'exact' or 'fit'`);
+  }
   const padding = nonNegativeOption(options.padding, 0, 'padding');
   validateExportResourceOptions(options);
   validateHtmlExportOptions(options);
@@ -347,6 +392,8 @@ export async function exportImage(
   const bounds = resolveExportBounds(options.region, visibleElements, padding);
   if (!bounds) return null;
 
+  const scale =
+    scaleMode === 'fit' ? fitExportScale(bounds, requestedScale, options) : requestedScale;
   const width = Math.ceil(bounds.w * scale);
   const height = Math.ceil(bounds.h * scale);
   assertExportSize(width, height, options);
@@ -467,6 +514,7 @@ export async function exportImage(
 export {
   assertExportSize,
   computeBounds,
+  fitExportScale,
   getElementRect,
   loadImages,
   nonNegativeOption,
