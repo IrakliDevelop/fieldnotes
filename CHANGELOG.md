@@ -33,7 +33,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 - `Viewport.getSelectionStyleDetails()` + exported `SelectionStyleDetails` type: per-field
   `applicable`/`mixed` introspection for the current selection so hosts can render style
   controls for mixed selections; `common` matches `getSelectionStyle()`. Returns `null` for
-  empty or stale-only selections.
+  empty, stale-only, or style-less selections (no applicable field — e.g. image-only).
 - `ToolManager.onRegister(listener)`: notified after each tool registration.
 - `HistoryRecorder.onTransactionEnd(listener)`: fires at the end of `commit()` (including
   empty commits) and `rollback()` when a transaction was open; listeners exception-isolated.
