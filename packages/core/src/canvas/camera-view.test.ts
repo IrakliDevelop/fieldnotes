@@ -3,6 +3,7 @@ import { Camera } from './camera';
 import {
   applyCameraView,
   cameraOriginForView,
+  canvasDimsUsable,
   captureCameraView,
   fitZoomForView,
   type CameraView,
@@ -119,6 +120,22 @@ describe('validation table', () => {
     // still usable
     const rect = camera.getVisibleRect(800, 600);
     expect(Number.isFinite(rect.w)).toBe(true);
+  });
+});
+
+describe('canvasDimsUsable', () => {
+  it('accepts zero and positive finite dimensions', () => {
+    expect(canvasDimsUsable(0, 0)).toBe(true);
+    expect(canvasDimsUsable(0, 600)).toBe(true);
+    expect(canvasDimsUsable(800, 0)).toBe(true);
+    expect(canvasDimsUsable(800, 600)).toBe(true);
+  });
+
+  it('rejects negative, NaN, and infinite dimensions', () => {
+    expect(canvasDimsUsable(-1, 600)).toBe(false);
+    expect(canvasDimsUsable(800, -1)).toBe(false);
+    expect(canvasDimsUsable(NaN, 600)).toBe(false);
+    expect(canvasDimsUsable(800, Infinity)).toBe(false);
   });
 });
 

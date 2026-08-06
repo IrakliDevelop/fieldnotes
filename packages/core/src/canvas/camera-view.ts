@@ -39,6 +39,16 @@ export function assertCanvasDims(canvasW: number, canvasH: number): void {
   }
 }
 
+/**
+ * Non-throwing companion to `assertCanvasDims`, for call sites that cannot
+ * throw (the per-frame animation path) and must instead resolve a zero-size
+ * canvas into a clean lifecycle outcome. Zero IS accepted here — see
+ * `assertCanvasDims` for why zero is a legitimate transient rather than a bug.
+ */
+export function canvasDimsUsable(canvasW: number, canvasH: number): boolean {
+  return Number.isFinite(canvasW) && Number.isFinite(canvasH) && canvasW >= 0 && canvasH >= 0;
+}
+
 /** Captures the currently visible world rect. */
 export function captureCameraView(viewport: {
   getVisibleRect(): { x: number; y: number; w: number; h: number };
