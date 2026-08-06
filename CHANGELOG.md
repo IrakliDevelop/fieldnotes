@@ -4,6 +4,15 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.59.0] — 2026-08-06
+
+### Added
+
+- `exportImage` options for host-composed exports: `region` (world-space crop that replaces
+  content bounds; padding still applies; empty regions export as background), `format: 'png' |
+'jpeg'` + `quality` (encoder passthrough), and `scaleMode: 'fit'` (clamps the effective scale
+  to `maxDimension`/`maxPixels` instead of throwing; `'exact'` default unchanged).
+
 ## [@fieldnotes/react 0.9.0] — 2026-08-05
 
 ### Added

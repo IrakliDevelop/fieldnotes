@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi } from 'vitest';
-import { computeBounds, getElementRect, exportImage, loadImages } from './export-image';
+import {
+  computeBounds,
+  getElementRect,
+  exportImage,
+  loadImages,
+  fitExportScale,
+} from './export-image';
 import {
   createStroke,
   createNote,
@@ -139,6 +145,46 @@ describe('computeBounds', () => {
   });
 });
 
+describe('fitExportScale', () => {
+  it('returns the requested scale when the output fits', () => {
+    expect(fitExportScale({ w: 100, h: 50 }, 2, {})).toBe(2);
+  });
+
+  it('clamps to the dimension cap and never upscales', () => {
+    const s = fitExportScale({ w: 1000, h: 500 }, 4, { maxDimension: 2000 });
+    expect(s).toBeLessThanOrEqual(2);
+    expect(Math.ceil(1000 * s)).toBeLessThanOrEqual(2000);
+    expect(s).toBeGreaterThan(1.9);
+  });
+
+  it('clamps to the pixel cap', () => {
+    const s = fitExportScale({ w: 1000, h: 1000 }, 4, { maxPixels: 1_000_000 });
+    expect(Math.ceil(1000 * s) * Math.ceil(1000 * s)).toBeLessThanOrEqual(1_000_000);
+  });
+
+  it('handles an analytical candidate that only violates a cap after ceil rounding', () => {
+    // sqrt(10/9) ≈ 1.054 → ceil(3 × 1.054) = 4 → 4 × 4 = 16 > 10.
+    // The largest fitting scale is 1 (3 × 3 = 9 ≤ 10).
+    const s = fitExportScale({ w: 3, h: 3 }, 4, { maxPixels: 10 });
+    expect(Math.ceil(3 * s) * Math.ceil(3 * s)).toBeLessThanOrEqual(10);
+    expect(s).toBeGreaterThan(0.99);
+    expect(s).toBeLessThanOrEqual(1);
+  });
+
+  it('fits astronomically large bounds instead of collapsing to zero', () => {
+    // 1e200 × 1e200 overflows to Infinity — the pixel candidate must be
+    // computed without forming the area product.
+    const s = fitExportScale({ w: 1e200, h: 1e200 }, 2, {});
+    expect(s).toBeGreaterThan(0);
+    const dim = Math.ceil(1e200 * s);
+    // For square bounds under the default caps the PIXEL cap binds (8192²),
+    // not the dimension cap — assert near-optimality against the binding cap.
+    expect(dim).toBeLessThanOrEqual(16_384);
+    expect(dim * dim).toBeLessThanOrEqual(67_108_864);
+    expect(dim * dim).toBeGreaterThan(67_108_864 * 0.98);
+  });
+});
+
 describe('loadImages', () => {
   it('loads the exact source URL without rewriting it', async () => {
     const originalImage = globalThis.Image;
@@ -261,6 +307,17 @@ describe('exportImage', () => {
     await expect(exportImage(store, options)).rejects.toThrow(optionName);
   });
 
+  it.each([
+    [{ format: 'webp' as never }, 'format'],
+    [{ quality: 0 }, 'quality'],
+    [{ quality: 1.5 }, 'quality'],
+    [{ quality: Number.NaN }, 'quality'],
+  ])('rejects invalid encoding options %o', async (options, optionName) => {
+    const store = new ElementStore();
+    store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } }));
+    await expect(exportImage(store, options)).rejects.toThrow(optionName);
+  });
+
   it('rejects an export exceeding the dimension limit before creating a canvas', async () => {
     const store = new ElementStore();
     store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 101, h: 10 } }));
@@ -358,6 +415,86 @@ describe('exportImage', () => {
     const bothBounds = computeBounds([note1, note2], 0);
     expect(bothBounds).toEqual({ x: 0, y: 0, w: 600, h: 550 });
   });
+
+  describe('exportImage — region option', () => {
+    it.each([
+      [{ x: 0, y: 0, w: 0, h: 10 }],
+      [{ x: 0, y: 0, w: 10, h: -1 }],
+      [{ x: Number.NaN, y: 0, w: 10, h: 10 }],
+      [{ x: 0, y: Infinity, w: 10, h: 10 }],
+    ])('rejects invalid region %o', async (region) => {
+      const store = new ElementStore();
+      store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } }));
+      await expect(exportImage(store, { region })).rejects.toThrow('region');
+    });
+
+    it('uses the region as canvas bounds instead of content bounds', async () => {
+      const store = new ElementStore();
+      store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 500, h: 500 } }));
+      const createSpy = vi.spyOn(document, 'createElement');
+      await exportImage(store, { scale: 1, region: { x: 10, y: 20, w: 100, h: 50 } });
+      const canvasCall = createSpy.mock.results.find(
+        (r) => r.type === 'return' && r.value instanceof HTMLCanvasElement,
+      );
+      expect(canvasCall).toBeDefined();
+      if (canvasCall && canvasCall.type === 'return') {
+        const canvas = canvasCall.value as HTMLCanvasElement;
+        expect(canvas.width).toBe(100);
+        expect(canvas.height).toBe(50);
+      }
+      createSpy.mockRestore();
+    });
+
+    it('applies padding around the region', async () => {
+      const store = new ElementStore();
+      store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } }));
+      const createSpy = vi.spyOn(document, 'createElement');
+      await exportImage(store, { scale: 1, padding: 5, region: { x: 0, y: 0, w: 100, h: 50 } });
+      const canvasCall = createSpy.mock.results.find(
+        (r) => r.type === 'return' && r.value instanceof HTMLCanvasElement,
+      );
+      if (canvasCall && canvasCall.type === 'return') {
+        const canvas = canvasCall.value as HTMLCanvasElement;
+        expect(canvas.width).toBe(110);
+        expect(canvas.height).toBe(60);
+      }
+      createSpy.mockRestore();
+    });
+  });
+
+  describe('exportImage — scaleMode fit', () => {
+    it('shrinks the canvas to the caps instead of throwing', async () => {
+      const store = new ElementStore();
+      store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 1000, h: 500 } }));
+      const createSpy = vi.spyOn(document, 'createElement');
+      await exportImage(store, { scale: 4, scaleMode: 'fit', maxDimension: 2000 });
+      const canvasCall = createSpy.mock.results.find(
+        (r) => r.type === 'return' && r.value instanceof HTMLCanvasElement,
+      );
+      expect(canvasCall).toBeDefined();
+      if (canvasCall && canvasCall.type === 'return') {
+        const canvas = canvasCall.value as HTMLCanvasElement;
+        expect(canvas.width).toBeLessThanOrEqual(2000);
+        expect(canvas.height).toBeLessThanOrEqual(1000);
+        expect(canvas.width).toBeGreaterThan(1900);
+      }
+      createSpy.mockRestore();
+    });
+
+    it("keeps 'exact' mode throwing on oversized exports", async () => {
+      const store = new ElementStore();
+      store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 1000, h: 500 } }));
+      await expect(
+        exportImage(store, { scale: 4, scaleMode: 'exact', maxDimension: 2000 }),
+      ).rejects.toThrow('maximum dimension');
+    });
+
+    it('rejects an unknown scaleMode', async () => {
+      const store = new ElementStore();
+      store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } }));
+      await expect(exportImage(store, { scaleMode: 'zoom' as never })).rejects.toThrow('scaleMode');
+    });
+  });
 });
 
 function mockCanvasCtx() {
@@ -399,15 +536,25 @@ function mockCanvasCtx() {
 
 describe('exportImage — rendering paths', () => {
   const origCreate = document.createElement.bind(document);
+  let lastToBlobArgs: [string | undefined, unknown] | null = null;
+  let lastCreateSpy: ReturnType<typeof vi.spyOn> | null = null;
 
   function mockGetContext() {
+    lastToBlobArgs = null;
+    lastCreateSpy = null;
     const ctx = mockCanvasCtx();
-    vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
+    lastCreateSpy = vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
       const el = origCreate(tag);
       if (tag === 'canvas') {
         vi.spyOn(el as HTMLCanvasElement, 'getContext').mockReturnValue(ctx as never);
-        vi.spyOn(el as HTMLCanvasElement, 'toBlob').mockImplementation((cb) => {
-          cb(new Blob(['fake'], { type: 'image/png' }));
+        vi.spyOn(el as HTMLCanvasElement, 'toBlob').mockImplementation(function (
+          this: HTMLCanvasElement,
+          cb: BlobCallback,
+          type?: string,
+          q?: unknown,
+        ) {
+          lastToBlobArgs = [type, q];
+          cb(new Blob(['fake'], { type: type ?? 'image/png' }));
         });
       }
       return el;
@@ -739,6 +886,91 @@ describe('exportImage — rendering paths', () => {
     expect(blob).toBeInstanceOf(Blob);
     expect(ctx.drawImage).toHaveBeenCalled();
     globalThis.Image = OrigImage;
+    vi.restoreAllMocks();
+  });
+
+  it('produces a background-only image for a region with no elements', async () => {
+    mockGetContext();
+    const store = new ElementStore();
+    const blob = await exportImage(store, { region: { x: 0, y: 0, w: 50, h: 50 } });
+    expect(blob).toBeInstanceOf(Blob);
+    vi.restoreAllMocks();
+  });
+
+  it('still applies filter and layer visibility under a region', async () => {
+    const ctx = mockGetContext();
+    const store = new ElementStore();
+    store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 20, h: 20 }, layerId: 'hidden' }));
+    store.add(createNote({ position: { x: 30, y: 0 }, size: { w: 20, h: 20 }, text: 'kept' }));
+    const mockLayerManager = { isLayerVisible: (id: string) => id !== 'hidden' };
+    const blob = await exportImage(
+      store,
+      { region: { x: 0, y: 0, w: 100, h: 100 }, filter: (el) => el.type === 'note' },
+      mockLayerManager as never,
+    );
+    expect(blob).toBeInstanceOf(Blob);
+    // Exactly one note rendered: the hidden-layer note is excluded even though
+    // it intersects the region. renderNoteOnCanvas uses roundRect+fill once per note.
+    expect((ctx.fill as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
+    vi.restoreAllMocks();
+  });
+
+  it('encodes jpeg with quality when requested', async () => {
+    mockGetContext();
+    const store = new ElementStore();
+    store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 20, h: 20 } }));
+    const blob = await exportImage(store, { format: 'jpeg', quality: 0.8 });
+    expect(blob?.type).toBe('image/jpeg');
+    expect(lastToBlobArgs).toEqual(['image/jpeg', 0.8]);
+    vi.restoreAllMocks();
+  });
+
+  it('composes region, filter, fit scale, and jpeg encoding in one export', async () => {
+    const ctx = mockGetContext();
+    const store = new ElementStore();
+    store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 500, h: 500 }, text: 'kept' }));
+    const excluded = createNote({ position: { x: 600, y: 0 }, size: { w: 40, h: 40 } });
+    store.add(excluded);
+
+    const blob = await exportImage(store, {
+      // Offset from the kept note's {0,0,500,500} content bounds so a
+      // silently ignored region (content-bounds fallback → 1000×1000 canvas)
+      // fails the height assertion below.
+      region: { x: 100, y: 50, w: 400, h: 300 },
+      filter: (el) => el.id !== excluded.id,
+      scale: 4,
+      scaleMode: 'fit',
+      maxDimension: 1000,
+      format: 'jpeg',
+      quality: 0.85,
+    });
+
+    expect(blob).toBeInstanceOf(Blob);
+    expect(blob?.type).toBe('image/jpeg');
+    expect(lastToBlobArgs).toEqual(['image/jpeg', 0.85]);
+    // fit clamps 4x on a 400-wide region to the 1000px dimension cap (2.5x)
+    const canvasCall = lastCreateSpy?.mock.results.find(
+      (r) => r.type === 'return' && r.value instanceof HTMLCanvasElement,
+    );
+    expect(canvasCall).toBeDefined();
+    if (canvasCall && canvasCall.type === 'return') {
+      const canvas = canvasCall.value as HTMLCanvasElement;
+      expect(canvas.width).toBeLessThanOrEqual(1000);
+      expect(canvas.width).toBeGreaterThan(990);
+      expect(canvas.height).toBe(750);
+    }
+    // exactly one note rendered: the filtered-out note never draws
+    expect((ctx.fill as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
+    vi.restoreAllMocks();
+  });
+
+  it('defaults to png encoding', async () => {
+    mockGetContext();
+    const store = new ElementStore();
+    store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 20, h: 20 } }));
+    const blob = await exportImage(store, {});
+    expect(blob?.type).toBe('image/png');
+    expect(lastToBlobArgs).toEqual(['image/png', undefined]);
     vi.restoreAllMocks();
   });
 });
