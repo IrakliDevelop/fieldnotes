@@ -4,6 +4,23 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.60.0] — 2026-08-06
+
+### Added
+
+- `Viewport.onSelectionChange` is now a persistent viewport-level emitter: subscribing before
+  the select tool is registered works, and deletions that change the selection fire events.
+  Deleted elements are pruned from the selection — batched to one event per history
+  transaction (`removeElements`, keyboard delete); `getSelectedIds()` returns no stale ids
+  once the enclosing synchronous history transaction completes.
+- `Viewport.getSelectionStyleDetails()` + exported `SelectionStyleDetails` type: per-field
+  `applicable`/`mixed` introspection for the current selection so hosts can render style
+  controls for mixed selections; `common` matches `getSelectionStyle()`. Returns `null` for
+  empty or stale-only selections.
+- `ToolManager.onRegister(listener)`: notified after each tool registration.
+- `HistoryRecorder.onTransactionEnd(listener)`: fires at the end of `commit()` (including
+  empty commits) and `rollback()` when a transaction was open; listeners exception-isolated.
+
 ## [0.59.0] — 2026-08-06
 
 ### Added
