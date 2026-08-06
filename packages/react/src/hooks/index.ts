@@ -10,5 +10,6 @@ export type { UseHistoryResult } from './use-history';
 export { useElements } from './use-elements';
 export { useSelection } from './use-selection';
 export { useSelectionStyle } from './use-selection-style';
+export { useSelectionStyleDetails } from './use-selection-style-details';
 export { useSelectionOps } from './use-selection-ops';
 export type { UseSelectionOpsResult } from './use-selection-ops';

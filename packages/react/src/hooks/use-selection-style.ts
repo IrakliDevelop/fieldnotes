@@ -5,7 +5,14 @@ import { useViewport } from './use-viewport';
 function styleEqual(a: ElementStyle | null, b: ElementStyle | null): boolean {
   if (a === b) return true;
   if (a === null || b === null) return false;
-  const keys: (keyof ElementStyle)[] = ['color', 'fillColor', 'strokeWidth', 'opacity', 'fontSize'];
+  const keys: (keyof ElementStyle)[] = [
+    'color',
+    'fillColor',
+    'strokeWidth',
+    'opacity',
+    'fontSize',
+    'strokeStyle',
+  ];
   return keys.every((k) => a[k] === b[k]);
 }
 

@@ -3,7 +3,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { render, cleanup, act } from '@testing-library/react';
 import { FieldNotesCanvas } from '../field-notes-canvas';
 import { useSelectionStyle } from './use-selection-style';
-import { SelectTool, createStroke } from '@fieldnotes/core';
+import { SelectTool, createStroke, createArrow } from '@fieldnotes/core';
 import type { ElementStyle, Viewport } from '@fieldnotes/core';
 
 describe('useSelectionStyle', () => {
@@ -165,5 +165,52 @@ describe('useSelectionStyle', () => {
     });
 
     expect(style?.color).toBe('#ddeeff');
+  });
+
+  it('re-renders when only strokeStyle changes', () => {
+    let style: ElementStyle | null = null;
+    let vp: Viewport | null = null;
+    function Consumer() {
+      [style] = useSelectionStyle();
+      return null;
+    }
+
+    render(
+      <FieldNotesCanvas
+        tools={[new SelectTool()]}
+        defaultTool="select"
+        onReady={(v) => {
+          vp = v;
+        }}
+      >
+        <Consumer />
+      </FieldNotesCanvas>,
+    );
+
+    let arrowId = '';
+    act(() => {
+      const arrow = createArrow({
+        from: { x: 0, y: 0 },
+        to: { x: 10, y: 10 },
+        color: '#000000',
+        width: 2,
+        layerId: vp?.layerManager.activeLayerId ?? '',
+      });
+      vp?.store.add(arrow);
+      arrowId = arrow.id;
+    });
+
+    act(() => {
+      const sel = vp?.toolManager.getTool<SelectTool>('select');
+      sel?.setSelection([arrowId]);
+    });
+
+    expect(style?.strokeStyle).toBeUndefined();
+
+    act(() => {
+      vp?.applyStyleToSelection({ strokeStyle: 'dashed' });
+    });
+
+    expect(style?.strokeStyle).toBe('dashed');
   });
 });

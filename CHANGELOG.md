@@ -4,6 +4,23 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [@fieldnotes/react 0.10.0] — 2026-08-06
+
+### Added
+
+- `useSelectionStyleDetails()`: reactive per-field `applicable`/`mixed` style introspection for
+  the current selection, backed by the new core `getSelectionStyleDetails()`; returns
+  `[details, applyStyle]` where `details` is `null` when nothing valid is selected and
+  `applyStyle` delegates to `applyStyleToSelection` (one undo step). Subscribes to
+  `Viewport.onSelectionChange` plus store changes, so it stays correct across late select-tool
+  registration and deletion-driven selection pruning. Requires `@fieldnotes/core >= 0.60.0`.
+
+### Fixed
+
+- `useSelectionStyle()` no longer misses updates when only `strokeStyle` changes: the internal
+  `styleEqual` cache comparison omitted `strokeStyle`, so a patch that changed only that field
+  could be treated as a no-op and the hook would return stale style data.
+
 ## [0.60.0] — 2026-08-06
 
 ### Added
