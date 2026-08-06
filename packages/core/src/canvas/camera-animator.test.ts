@@ -312,3 +312,261 @@ describe('target validation ordering', () => {
     expect(h.animator.animating).toBe(true);
   });
 });
+
+describe('arbitration', () => {
+  it('aborts when another writer moves the camera between frames', () => {
+    const h = makeHarness();
+    const reasons = collectReasons(h.animator);
+    h.animator.animateTo(TARGET);
+    h.advance(100);
+    h.flush();
+
+    h.camera.pan(37, -12); // simulates drag / inertia coast / minimap tap
+
+    h.advance(100);
+    h.flush();
+    expect(reasons).toEqual(['cancelled']);
+    expect(h.animator.animating).toBe(false);
+
+    // And it writes nothing further.
+    const after = { ...h.camera.position, zoom: h.camera.zoom };
+    h.advance(1000);
+    h.flush();
+    expect({ ...h.camera.position, zoom: h.camera.zoom }).toEqual(after);
+  });
+
+  it('does not trip its own guard on its two-step setZoom + moveTo write', () => {
+    const h = makeHarness();
+    const reasons = collectReasons(h.animator);
+    h.animator.animateTo(TARGET);
+    for (let i = 0; i < 3; i++) {
+      h.advance(50);
+      h.flush();
+    }
+    expect(reasons).toEqual([]); // survived multiple self-writes
+  });
+
+  for (const event of ['pointerdown', 'wheel', 'keydown'] as const) {
+    it(`cancels immediately on ${event}`, () => {
+      const h = makeHarness();
+      const reasons = collectReasons(h.animator);
+      h.animator.animateTo(TARGET);
+      h.element.dispatchEvent(new Event(event));
+      expect(reasons).toEqual(['cancelled']);
+      expect(h.animator.animating).toBe(false);
+    });
+  }
+
+  it('registers cancel listeners passively and never preventDefaults', () => {
+    const element = document.createElement('div');
+    const spy = vi.spyOn(element, 'addEventListener');
+    const camera = new Camera();
+    new CameraAnimator(element, camera, { getCanvasSize: () => SIZE });
+    for (const [type, , opts] of spy.mock.calls) {
+      if (['pointerdown', 'wheel', 'keydown'].includes(String(type))) {
+        expect(opts).toMatchObject({ passive: true });
+      }
+    }
+  });
+
+  it('interactive: false registers no listeners', () => {
+    const element = document.createElement('div');
+    const spy = vi.spyOn(element, 'addEventListener');
+    new CameraAnimator(element, new Camera(), {
+      getCanvasSize: () => SIZE,
+      interactive: false,
+    });
+    const cancelTypes = spy.mock.calls.filter(([type]) =>
+      ['pointerdown', 'wheel', 'keydown'].includes(String(type)),
+    );
+    expect(cancelTypes).toEqual([]);
+  });
+});
+
+describe('zero canvas size lifecycle', () => {
+  it('animateTo at zero size with nothing in flight starts nothing', () => {
+    const h = makeHarness();
+    h.setSize(0, 600);
+    const reasons = collectReasons(h.animator);
+    h.requestFrame.mockClear();
+    h.animator.animateTo(TARGET);
+    expect(reasons).toEqual([]);
+    expect(h.requestFrame).not.toHaveBeenCalled();
+    expect(h.animator.animating).toBe(false);
+  });
+
+  it('animateTo at zero size cancels an in-flight animation SYNCHRONOUSLY', () => {
+    const h = makeHarness();
+    const reasons = collectReasons(h.animator);
+    h.animator.animateTo(TARGET);
+    h.setSize(0, 0);
+    h.animator.animateTo({ x: 5, y: 5, w: 50, h: 40 });
+    // Not one frame later — the instant the call returns.
+    expect(reasons).toEqual(['cancelled']); // NOT 'superseded'
+    expect(h.animator.animating).toBe(false);
+  });
+
+  it('jumpTo at zero size cancels an in-flight animation and writes nothing', () => {
+    const h = makeHarness();
+    const reasons = collectReasons(h.animator);
+    h.animator.animateTo(TARGET);
+    const before = { ...h.camera.position, zoom: h.camera.zoom };
+    h.setSize(800, 0);
+    h.animator.jumpTo({ x: 5, y: 5, w: 50, h: 40 });
+    expect(reasons).toEqual(['cancelled']);
+    expect({ ...h.camera.position, zoom: h.camera.zoom }).toEqual(before);
+  });
+
+  it('zero size mid-flight cancels and NEVER reports a false complete', () => {
+    const h = makeHarness();
+    const reasons = collectReasons(h.animator);
+    h.animator.animateTo(TARGET);
+    h.advance(100);
+    h.flush();
+
+    h.setSize(0, 0); // host hidden
+    h.advance(2000); // run the clock well past durationMs
+    h.flush();
+    h.flush();
+
+    expect(reasons).toEqual(['cancelled']);
+    expect(reasons).not.toContain('complete');
+    expect(Number.isFinite(h.camera.zoom)).toBe(true);
+  });
+});
+
+describe('poisoned canvas measurements', () => {
+  for (const [label, w, h] of [
+    ['negative width', -800, 600],
+    ['negative height', 800, -600],
+    ['NaN width', NaN, 600],
+    ['Infinity height', 800, Infinity],
+  ] as const) {
+    it(`animateTo throws synchronously on ${label} when idle`, () => {
+      const h2 = makeHarness();
+      h2.setSize(w, h);
+      h2.requestFrame.mockClear();
+      expect(() => h2.animator.animateTo(TARGET)).toThrow();
+      expect(h2.requestFrame).not.toHaveBeenCalled();
+      expect(Number.isFinite(h2.camera.zoom)).toBe(true);
+    });
+
+    it(`jumpTo throws synchronously on ${label} when idle`, () => {
+      const h2 = makeHarness();
+      h2.setSize(w, h);
+      expect(() => h2.animator.jumpTo(TARGET)).toThrow();
+      expect(Number.isFinite(h2.camera.zoom)).toBe(true);
+    });
+  }
+
+  it('a throwing public call leaves an in-flight animation untouched', () => {
+    const h = makeHarness();
+    const reasons = collectReasons(h.animator);
+    h.animator.animateTo(TARGET);
+    h.advance(100);
+    h.flush();
+
+    h.setSize(NaN, 600);
+    expect(() => h.animator.animateTo({ x: 1, y: 1, w: 10, h: 10 })).toThrow();
+    expect(reasons).toEqual([]); // no reason emitted
+    expect(h.animator.animating).toBe(true);
+
+    h.setSize(800, 600);
+    h.advance(1000);
+    h.flush();
+    expect(reasons).toEqual(['complete']); // original completed normally
+  });
+
+  it('a poisoned measurement MID-FRAME cancels instead of throwing', () => {
+    const h = makeHarness();
+    const reasons = collectReasons(h.animator);
+    h.animator.animateTo(TARGET);
+    h.advance(100);
+    h.flush();
+
+    h.setSize(NaN, 600);
+    h.advance(100);
+    expect(() => h.flush()).not.toThrow(); // no async throw from a frame
+    expect(reasons).toEqual(['cancelled']);
+    expect(h.animator.animating).toBe(false); // no orphaned animation
+
+    // And the camera was never poisoned.
+    expect(Number.isFinite(h.camera.zoom)).toBe(true);
+    expect(Number.isFinite(h.camera.position.x)).toBe(true);
+    expect(Number.isFinite(h.camera.getVisibleRect(800, 600).w)).toBe(true);
+  });
+});
+
+describe('terminal disposal', () => {
+  it('emits cancelled for an in-flight animation before clearing listeners', () => {
+    const h = makeHarness();
+    const reasons = collectReasons(h.animator);
+    h.animator.animateTo(TARGET);
+    h.animator.dispose();
+    expect(reasons).toEqual(['cancelled']);
+  });
+
+  it('a re-entrant animateTo during disposal starts NOTHING', () => {
+    const h = makeHarness();
+    const reasons: CameraAnimationEndReason[] = [];
+    h.animator.onEnd((r) => {
+      reasons.push(r);
+      h.animator.animateTo({ x: 1, y: 1, w: 10, h: 10 }); // re-entrant
+    });
+    h.animator.animateTo(TARGET);
+    h.requestFrame.mockClear();
+
+    h.animator.dispose();
+
+    expect(reasons).toEqual(['cancelled']);
+    expect(h.requestFrame).not.toHaveBeenCalled(); // no revived animation
+    expect(h.animator.animating).toBe(false);
+  });
+
+  it('re-entrant jumpTo and cancel during disposal are no-ops', () => {
+    const h = makeHarness();
+    const reasons: CameraAnimationEndReason[] = [];
+    h.animator.onEnd((r) => {
+      reasons.push(r);
+      h.animator.jumpTo({ x: 1, y: 1, w: 10, h: 10 });
+      h.animator.cancel();
+    });
+    h.animator.animateTo(TARGET);
+    const before = { ...h.camera.position, zoom: h.camera.zoom };
+    h.animator.dispose();
+    expect(reasons).toEqual(['cancelled']);
+    expect({ ...h.camera.position, zoom: h.camera.zoom }).toEqual(before);
+  });
+
+  it('CONTRAST: a re-entrant animateTo on a LIVE animator does start one', () => {
+    const h = makeHarness();
+    h.animator.onEnd((r) => {
+      if (r === 'complete') h.animator.animateTo({ x: 900, y: 900, w: 100, h: 75 });
+    });
+    h.animator.animateTo(TARGET);
+    h.advance(1000);
+    h.flush();
+    expect(h.animator.animating).toBe(true);
+  });
+
+  it('a disposed animator is inert for valid AND invalid input', () => {
+    const h = makeHarness();
+    h.animator.dispose();
+    const reasons = collectReasons(h.animator);
+    h.requestFrame.mockClear();
+    expect(() => h.animator.animateTo({ x: 0, y: 0, w: 0, h: 0 })).not.toThrow();
+    expect(() => h.animator.jumpTo({ x: NaN, y: 0, w: 1, h: 1 })).not.toThrow();
+    h.animator.cancel();
+    expect(reasons).toEqual([]);
+    expect(h.requestFrame).not.toHaveBeenCalled();
+  });
+
+  it('dispose is idempotent and removes listeners', () => {
+    const h = makeHarness();
+    const removeSpy = vi.spyOn(h.element, 'removeEventListener');
+    h.animator.dispose();
+    h.animator.dispose();
+    expect(removeSpy).toHaveBeenCalled();
+    h.element.dispatchEvent(new Event('pointerdown')); // must not throw
+  });
+});

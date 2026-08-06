@@ -1,5 +1,11 @@
 import type { Camera } from './camera';
-import { applyCameraView, assertCanvasDims, assertValidView, type CameraView } from './camera-view';
+import {
+  applyCameraView,
+  assertCanvasDims,
+  assertValidView,
+  canvasDimsUsable,
+  type CameraView,
+} from './camera-view';
 
 /** A scheduler and its matching canceller. Inseparable by construction. */
 export interface FrameScheduler {
@@ -74,6 +80,10 @@ export class CameraAnimator {
    */
   private generation = 0;
 
+  private lastWrite: { x: number; y: number; zoom: number } | null = null;
+  private disposed = false;
+  private detachListeners: (() => void) | null = null;
+
   constructor(element: HTMLElement, camera: Camera, options: CameraAnimatorOptions) {
     if (options.frames !== undefined) {
       const { requestFrame, cancelFrame } = options.frames;
@@ -92,9 +102,21 @@ export class CameraAnimator {
     this.now = options.now ?? (() => performance.now());
     this.durationMs = options.durationMs ?? DEFAULT_DURATION_MS;
     this.easing = options.easing ?? easeOutCubic;
-    // `element` is not touched in this task; input listeners (drag/wheel
-    // arbitration against a running animation) attach to it in Task 4.
-    void element;
+
+    if (options.interactive ?? true) {
+      const onUserInput = (): void => {
+        this.end('cancelled');
+      };
+      const types = ['pointerdown', 'wheel', 'keydown'] as const;
+      for (const type of types) {
+        element.addEventListener(type, onUserInput, { passive: true });
+      }
+      this.detachListeners = () => {
+        for (const type of types) {
+          element.removeEventListener(type, onUserInput);
+        }
+      };
+    }
   }
 
   get animating(): boolean {
@@ -108,6 +130,7 @@ export class CameraAnimator {
 
   animateTo(view: CameraView): void {
     const size = this.validateAndMeasure(view);
+    if (size === null) return;
 
     const current = this.camera.getVisibleRect(size.w, size.h);
     const generation = ++this.generation;
@@ -126,46 +149,113 @@ export class CameraAnimator {
     this.from = current;
     this.to = view;
     this.startedAt = this.now();
+    this.lastWrite = null;
     this.rafId = this.frames.requestFrame(this.step);
   }
 
   jumpTo(view: CameraView): void {
     const size = this.validateAndMeasure(view);
+    if (size === null) return;
     const generation = ++this.generation;
     this.end('superseded');
     if (this.generation !== generation) return; // nested operation owns us now
     applyCameraView(this.camera, view, size.w, size.h);
+    this.lastWrite = null;
   }
 
   cancel(): void {
+    if (this.disposed) return;
     this.end('cancelled');
-  }
-
-  dispose(): void {
-    this.end('cancelled');
-    this.endListeners.clear();
   }
 
   /**
-   * Shared prologue for `animateTo`/`jumpTo`. Validates the target
-   * SYNCHRONOUSLY before touching any animation state, so an invalid input
-   * throws from the public call without writing, scheduling, or terminating a
-   * running animation.
+   * Terminal. Order is load-bearing: the flag is set BEFORE any listener runs,
+   * because an onEnd listener can call animateTo during the disposal callback.
+   * With the flag set last, that call would start a real animation which the
+   * listener clear then silently discards — a second animation with no end
+   * reason, breaking the exactly-one guarantee.
    */
-  private validateAndMeasure(view: CameraView): { w: number; h: number } {
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+
+    const wasAnimating = this.to !== null;
+    this.clearFrame();
+    this.from = null;
+    this.to = null;
+    this.lastWrite = null;
+
+    if (wasAnimating) this.emit('cancelled');
+
+    this.endListeners.clear();
+    this.detachListeners?.();
+    this.detachListeners = null;
+  }
+
+  /**
+   * Steps 1-3 of the public-call contract. Returns null when the caller must
+   * stop, having already handled termination.
+   *
+   * The disposed check precedes validation deliberately: ordering it after
+   * would make `disposed.animateTo(invalidView)` both required to throw and
+   * required to stay silent. Disposal wins — a terminal animator is inert for
+   * every input, and post-disposal calls are exactly the racy teardown paths
+   * where a throw is least useful.
+   */
+  private validateAndMeasure(view: CameraView): { w: number; h: number } | null {
+    if (this.disposed) return null;
     assertValidView(view);
     const size = this.getCanvasSize();
+    // Validate the MEASUREMENT too, not just the target. A negative or
+    // non-finite dimension would otherwise reach camera.getVisibleRect()
+    // before applyCameraView could reject it, and NaN propagates through
+    // Camera.setZoom's Math.min/Math.max clamp to poison the camera
+    // permanently. Throws synchronously here, where the caller can catch it.
     assertCanvasDims(size.w, size.h);
+    if (size.w === 0 || size.h === 0) {
+      // A valid target meeting a zero size cancels any running animation
+      // synchronously within this call, so `animating` is false the instant it
+      // returns. 'cancelled', never 'superseded': the animation was ended by
+      // the host becoming unmeasurable, not replaced by a running successor.
+      this.end('cancelled');
+      return null;
+    }
     return size;
   }
 
   private step = (): void => {
-    if (this.to === null || this.from === null) return;
+    if (this.disposed || this.to === null || this.from === null) return;
+
+    // Foreign-write guard: if the camera no longer matches what this animator
+    // last wrote, another writer moved it — drag, pinch, wheel, keyboard zoom,
+    // a PanInertia coast frame, a minimap tap, fitToContent, or loadState.
+    if (this.foreignWrite()) {
+      this.end('cancelled');
+      return;
+    }
+
     const size = this.getCanvasSize();
+    if (!canvasDimsUsable(size.w, size.h)) {
+      // A poisoned measurement mid-flight TERMINATES rather than throws.
+      // Throwing from inside a frame callback has no catcher and would strand
+      // the animation state with its lifecycle unresolved — the exact orphan
+      // this contract exists to prevent. Public calls still throw, because
+      // there a caller can handle it.
+      this.end('cancelled');
+      return;
+    }
+    if (size.w === 0 || size.h === 0) {
+      // The clock keeps advancing while a host is hidden, so without this the
+      // animation would reach t=1, write nothing, and report a false 'complete'.
+      this.end('cancelled');
+      return;
+    }
+
     const elapsed = this.now() - this.startedAt;
     const t = this.durationMs <= 0 ? 1 : Math.min(1, elapsed / this.durationMs);
     const view = lerpView(this.from, this.to, this.easing(t));
     applyCameraView(this.camera, view, size.w, size.h);
+    this.recordWrite();
 
     if (t >= 1) {
       this.end('complete');
@@ -174,12 +264,31 @@ export class CameraAnimator {
     this.rafId = this.frames.requestFrame(this.step);
   };
 
+  private recordWrite(): void {
+    this.lastWrite = {
+      x: this.camera.position.x,
+      y: this.camera.position.y,
+      zoom: this.camera.zoom,
+    };
+  }
+
+  private foreignWrite(): boolean {
+    if (this.lastWrite === null) return false;
+    const eps = 1e-6;
+    return (
+      Math.abs(this.camera.position.x - this.lastWrite.x) > eps ||
+      Math.abs(this.camera.position.y - this.lastWrite.y) > eps ||
+      Math.abs(this.camera.zoom - this.lastWrite.zoom) > eps
+    );
+  }
+
   /** Terminates an in-flight animation with `reason`. No-op when idle. */
   private end(reason: CameraAnimationEndReason): void {
-    if (this.to === null) return;
+    if (this.disposed || this.to === null) return;
     this.clearFrame();
     this.from = null;
     this.to = null;
+    this.lastWrite = null;
     this.emit(reason);
   }
 
