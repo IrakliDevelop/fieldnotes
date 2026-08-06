@@ -217,15 +217,43 @@ describe('re-entrancy from a superseded listener', () => {
       }
     });
 
+    // The nested animateTo's starting frame is the camera's pre-jump position
+    // (no step has run yet), and it sits far from the outer jump's target —
+    // (400, 300) vs (60, 47.5) — so "the jump wrote" and "the jump did not
+    // write" are unambiguous, not a rounding-epsilon apart.
+    const preJumpFramed = h.camera.getVisibleRect(SIZE.w, SIZE.h);
+    const OUTER_JUMP: CameraView = { x: 10, y: 10, w: 100, h: 75 };
+
     h.animator.animateTo(TARGET);
-    h.animator.jumpTo({ x: 10, y: 10, w: 100, h: 75 }); // outer jump supersedes
+    h.animator.jumpTo(OUTER_JUMP); // outer jump supersedes
 
     // The nested animation is still running — the jump must not have written
     // over it, and it must still reach its own end reason.
     expect(h.animator.animating).toBe(true);
+
+    // The outer jump's stale target must never land on the camera: the
+    // nested animation now owns the camera, and since it hasn't run a frame
+    // yet the camera must still sit exactly where it was before the jump,
+    // not at the outer jump's (far-away) target.
+    const framedAfterJump = h.camera.getVisibleRect(SIZE.w, SIZE.h);
+    expect(framedAfterJump.x + framedAfterJump.w / 2).toBeCloseTo(
+      preJumpFramed.x + preJumpFramed.w / 2,
+      3,
+    );
+    expect(framedAfterJump.y + framedAfterJump.h / 2).toBeCloseTo(
+      preJumpFramed.y + preJumpFramed.h / 2,
+      3,
+    );
+
     h.advance(1000);
     h.flush();
     expect(reasons).toEqual(['superseded', 'complete']);
+
+    // The nested animation must ultimately land on its own target, not the
+    // outer jump's — mirrors the animateTo re-entrancy test's final check.
+    const framedAtEnd = h.camera.getVisibleRect(SIZE.w, SIZE.h);
+    expect(framedAtEnd.x + framedAtEnd.w / 2).toBeCloseTo(NESTED.x + NESTED.w / 2, 3);
+    expect(framedAtEnd.y + framedAtEnd.h / 2).toBeCloseTo(NESTED.y + NESTED.h / 2, 3);
   });
 
   it('every started operation reports exactly one reason under nesting', () => {
