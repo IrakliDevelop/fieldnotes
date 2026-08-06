@@ -114,6 +114,7 @@ export {
 export { getElementBounds, boundsIntersect } from './elements/element-bounds';
 export { styleToPatch, getElementStyle } from './elements/element-style';
 export type { ElementStyle } from './elements/element-style';
+export type { SelectionStyleDetails } from './canvas/selection-ops';
 export { getElementsBoundingBox } from './elements/bounds';
 export {
   getHexDistance,

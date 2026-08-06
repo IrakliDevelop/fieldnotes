@@ -48,6 +48,7 @@ import { LayerCache } from './layer-cache';
 import { MarginViewport } from './margin-viewport';
 import type { ElementStyle } from '../elements/element-style';
 import { SelectionOps } from './selection-ops';
+import type { SelectionStyleDetails } from './selection-ops';
 import type { AlignEdge, DistributeAxis } from './selection-ops';
 import { GridController } from './grid-controller';
 import type { GridInfo } from './grid-controller';
@@ -815,6 +816,10 @@ export class Viewport {
 
   getSelectionStyle(): ElementStyle | null {
     return this.selectionOps.getStyle();
+  }
+
+  getSelectionStyleDetails(): SelectionStyleDetails | null {
+    return this.selectionOps.getStyleDetails();
   }
 
   applyStyleToSelection(style: ElementStyle): void {
