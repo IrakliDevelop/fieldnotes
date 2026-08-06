@@ -405,13 +405,15 @@ describe('HistoryRecorder', () => {
     it('fires after commit with commands', () => {
       const { store, recorder } = setup();
       let fired = 0;
+      let idAtFire: number | null | undefined;
       recorder.onTransactionEnd(() => {
         fired++;
-        expect(recorder.currentTransactionId).toBeNull();
+        idAtFire = recorder.currentTransactionId;
       });
       recorder.begin();
       store.add(createNote({ position: { x: 0, y: 0 } }));
       recorder.commit();
+      expect(idAtFire).toBeNull();
       expect(fired).toBe(1);
     });
 
@@ -435,12 +437,14 @@ describe('HistoryRecorder', () => {
     it('fires after rollback', () => {
       const { recorder } = setup();
       let fired = 0;
+      let idAtFire: number | null | undefined;
       recorder.onTransactionEnd(() => {
         fired++;
-        expect(recorder.currentTransactionId).toBeNull();
+        idAtFire = recorder.currentTransactionId;
       });
       recorder.begin();
       recorder.rollback();
+      expect(idAtFire).toBeNull();
       expect(fired).toBe(1);
     });
 
