@@ -4,6 +4,7 @@ export class ToolManager {
   private tools = new Map<string, Tool>();
   private current: Tool | null = null;
   private changeListeners = new Set<(name: string) => void>();
+  private registerListeners = new Set<(tool: Tool) => void>();
 
   get activeTool(): Tool | null {
     return this.current;
@@ -15,6 +16,7 @@ export class ToolManager {
 
   register(tool: Tool): void {
     this.tools.set(tool.name, tool);
+    this.registerListeners.forEach((fn) => fn(tool));
   }
 
   getTool<T extends Tool = Tool>(name: string): T | undefined {
@@ -46,5 +48,10 @@ export class ToolManager {
   onChange(listener: (name: string) => void): () => void {
     this.changeListeners.add(listener);
     return () => this.changeListeners.delete(listener);
+  }
+
+  onRegister(listener: (tool: Tool) => void): () => void {
+    this.registerListeners.add(listener);
+    return () => this.registerListeners.delete(listener);
   }
 }
