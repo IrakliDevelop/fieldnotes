@@ -23,6 +23,7 @@ export class HistoryRecorder {
   private generation = 0;
   private updateSnapshots = new Map<string, CanvasElement>();
   private unsubscribers: (() => void)[];
+  private transactionEndListeners = new Set<() => void>();
 
   constructor(
     private readonly store: ElementStore,
@@ -65,6 +66,21 @@ export class HistoryRecorder {
     return this.transaction !== null ? this.generation : null;
   }
 
+  onTransactionEnd(listener: () => void): () => void {
+    this.transactionEndListeners.add(listener);
+    return () => this.transactionEndListeners.delete(listener);
+  }
+
+  private notifyTransactionEnd(): void {
+    for (const listener of this.transactionEndListeners) {
+      try {
+        listener();
+      } catch {
+        // Listeners must not interrupt history commit.
+      }
+    }
+  }
+
   commit(): void {
     if (!this.transaction) return;
 
@@ -73,14 +89,18 @@ export class HistoryRecorder {
     this.transaction = null;
     this.updateSnapshots.clear();
 
-    if (all.length === 0) return;
-    const first = all[0];
-    this.stack.push(all.length === 1 && first ? first : new BatchCommand(all));
+    if (all.length > 0) {
+      const first = all[0];
+      this.stack.push(all.length === 1 && first ? first : new BatchCommand(all));
+    }
+    this.notifyTransactionEnd();
   }
 
   rollback(): void {
+    const wasOpen = this.transaction !== null;
     this.transaction = null;
     this.updateSnapshots.clear();
+    if (wasOpen) this.notifyTransactionEnd();
   }
 
   destroy(): void {

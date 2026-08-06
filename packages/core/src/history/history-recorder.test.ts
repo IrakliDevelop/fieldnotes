@@ -400,4 +400,65 @@ describe('HistoryRecorder', () => {
       expect(stack.undoCount).toBe(0);
     });
   });
+
+  describe('onTransactionEnd', () => {
+    it('fires after commit with commands', () => {
+      const { store, recorder } = setup();
+      let fired = 0;
+      recorder.onTransactionEnd(() => fired++);
+      recorder.begin();
+      store.add(createNote({ position: { x: 0, y: 0 } }));
+      recorder.commit();
+      expect(fired).toBe(1);
+    });
+
+    it('fires after an empty commit', () => {
+      const { recorder } = setup();
+      let fired = 0;
+      recorder.onTransactionEnd(() => fired++);
+      recorder.begin();
+      recorder.commit();
+      expect(fired).toBe(1);
+    });
+
+    it('does not fire from commit() when no transaction is open', () => {
+      const { recorder } = setup();
+      let fired = 0;
+      recorder.onTransactionEnd(() => fired++);
+      recorder.commit(); // no begin()
+      expect(fired).toBe(0);
+    });
+
+    it('fires after rollback', () => {
+      const { recorder } = setup();
+      let fired = 0;
+      recorder.onTransactionEnd(() => fired++);
+      recorder.begin();
+      recorder.rollback();
+      expect(fired).toBe(1);
+    });
+
+    it('isolates throwing listeners and still runs the rest', () => {
+      const { recorder } = setup();
+      const calls: string[] = [];
+      recorder.onTransactionEnd(() => {
+        calls.push('a');
+        throw new Error('boom');
+      });
+      recorder.onTransactionEnd(() => calls.push('b'));
+      recorder.begin();
+      expect(() => recorder.commit()).not.toThrow();
+      expect(calls).toEqual(['a', 'b']);
+    });
+
+    it('unsubscribe works', () => {
+      const { recorder } = setup();
+      let fired = 0;
+      const off = recorder.onTransactionEnd(() => fired++);
+      off();
+      recorder.begin();
+      recorder.commit();
+      expect(fired).toBe(0);
+    });
+  });
 });
