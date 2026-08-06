@@ -1,19 +1,12 @@
 import { useCallback, useRef, useSyncExternalStore } from 'react';
 import type { ElementStyle } from '@fieldnotes/core';
 import { useViewport } from './use-viewport';
+import { STYLE_KEYS } from './style-keys';
 
 function styleEqual(a: ElementStyle | null, b: ElementStyle | null): boolean {
   if (a === b) return true;
   if (a === null || b === null) return false;
-  const keys: (keyof ElementStyle)[] = [
-    'color',
-    'fillColor',
-    'strokeWidth',
-    'opacity',
-    'fontSize',
-    'strokeStyle',
-  ];
-  return keys.every((k) => a[k] === b[k]);
+  return STYLE_KEYS.every((k) => a[k] === b[k]);
 }
 
 /**

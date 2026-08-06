@@ -1,15 +1,7 @@
 import { useCallback, useRef, useSyncExternalStore } from 'react';
 import type { ElementStyle, SelectionStyleDetails } from '@fieldnotes/core';
 import { useViewport } from './use-viewport';
-
-const STYLE_KEYS: (keyof ElementStyle)[] = [
-  'color',
-  'fillColor',
-  'strokeWidth',
-  'opacity',
-  'fontSize',
-  'strokeStyle',
-];
+import { STYLE_KEYS } from './style-keys';
 
 function keysEqual(
   a: readonly (keyof ElementStyle)[],
