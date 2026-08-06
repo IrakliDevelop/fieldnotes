@@ -405,7 +405,10 @@ describe('HistoryRecorder', () => {
     it('fires after commit with commands', () => {
       const { store, recorder } = setup();
       let fired = 0;
-      recorder.onTransactionEnd(() => fired++);
+      recorder.onTransactionEnd(() => {
+        fired++;
+        expect(recorder.currentTransactionId).toBeNull();
+      });
       recorder.begin();
       store.add(createNote({ position: { x: 0, y: 0 } }));
       recorder.commit();
@@ -432,7 +435,10 @@ describe('HistoryRecorder', () => {
     it('fires after rollback', () => {
       const { recorder } = setup();
       let fired = 0;
-      recorder.onTransactionEnd(() => fired++);
+      recorder.onTransactionEnd(() => {
+        fired++;
+        expect(recorder.currentTransactionId).toBeNull();
+      });
       recorder.begin();
       recorder.rollback();
       expect(fired).toBe(1);
