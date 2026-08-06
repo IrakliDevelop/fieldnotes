@@ -9,6 +9,7 @@ import {
   createArrow,
   createTemplate,
   createStroke,
+  createText,
 } from '../elements/element-factory';
 import { rotatePoint } from '../core/geometry';
 import { getElementBounds } from '../elements/element-bounds';
@@ -191,6 +192,39 @@ describe('SelectionOps', () => {
       const b = addShape({ position: { x: 50, y: 0 }, size: { w: 10, h: 10 }, strokeWidth: 8 });
       setSelected([a.id, b.id]);
       expect(ops.getStyleDetails()?.mixed).toContain('strokeWidth');
+    });
+
+    it('heterogeneous font sizes are mixed', () => {
+      const setupTextDynamic = () => {
+        const selectedIds: string[] = [];
+        const store = new ElementStore();
+        const stack = new HistoryStack();
+        const recorder = new HistoryRecorder(store, stack);
+        const requestRender = vi.fn();
+        const ops = new SelectionOps({
+          store,
+          recorder,
+          getSelectedIds: () => selectedIds,
+          requestRender,
+        });
+        const addText = (opts: Parameters<typeof createText>[0]) => {
+          const el = createText(opts);
+          store.add(el);
+          return el;
+        };
+        const setSelected = (ids: string[]) => {
+          selectedIds.length = 0;
+          selectedIds.push(...ids);
+        };
+        return { ops, addText, setSelected };
+      };
+      const { ops, addText, setSelected } = setupTextDynamic();
+      const a = addText({ position: { x: 0, y: 0 }, text: 'small', fontSize: 12 });
+      const b = addText({ position: { x: 50, y: 0 }, text: 'large', fontSize: 24 });
+      setSelected([a.id, b.id]);
+      const d = ops.getStyleDetails();
+      expect(d?.mixed).toContain('fontSize');
+      expect(d?.common.fontSize).toBeUndefined();
     });
 
     it('applyStyle on a mixed selection normalizes all supporting elements in one transaction', () => {
