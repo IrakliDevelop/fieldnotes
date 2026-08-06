@@ -4,7 +4,14 @@ import { SelectionOps } from './selection-ops';
 import { ElementStore } from '../elements/element-store';
 import { HistoryStack } from '../history/history-stack';
 import { HistoryRecorder } from '../history/history-recorder';
-import { createShape, createArrow, createTemplate } from '../elements/element-factory';
+import {
+  createShape,
+  createArrow,
+  createTemplate,
+  createStroke,
+  createText,
+  createImage,
+} from '../elements/element-factory';
 import { rotatePoint } from '../core/geometry';
 import { getElementBounds } from '../elements/element-bounds';
 
@@ -74,6 +81,207 @@ describe('SelectionOps', () => {
     store.add(b);
 
     expect(ops.getStyle()?.color).toBe('#ff0000');
+  });
+
+  describe('getStyleDetails', () => {
+    function setupDynamic() {
+      const selectedIds: string[] = [];
+      const store = new ElementStore();
+      const stack = new HistoryStack();
+      const recorder = new HistoryRecorder(store, stack);
+      const requestRender = vi.fn();
+      const ops = new SelectionOps({
+        store,
+        recorder,
+        getSelectedIds: () => selectedIds,
+        requestRender,
+      });
+
+      const addShape = (opts: Parameters<typeof createShape>[0]) => {
+        const el = createShape(opts);
+        store.add(el);
+        return el;
+      };
+
+      const addStroke = (opts: Parameters<typeof createStroke>[0]) => {
+        const el = createStroke(opts);
+        store.add(el);
+        return el;
+      };
+
+      const setSelected = (ids: string[]) => {
+        selectedIds.length = 0;
+        selectedIds.push(...ids);
+      };
+
+      return { store, stack, recorder, requestRender, ops, addShape, addStroke, setSelected };
+    }
+
+    it('returns null for empty selection', () => {
+      const { ops, setSelected } = setupDynamic();
+      setSelected([]);
+      expect(ops.getStyleDetails()).toBeNull();
+    });
+
+    it('returns null for stale-only selection', () => {
+      const { ops, setSelected } = setupDynamic();
+      setSelected(['ghost-id']);
+      expect(ops.getStyleDetails()).toBeNull();
+    });
+
+    it('heterogeneous colors: applicable + mixed, absent from common', () => {
+      const { ops, addShape, setSelected } = setupDynamic();
+      const a = addShape({
+        position: { x: 0, y: 0 },
+        size: { w: 10, h: 10 },
+        strokeColor: '#ff0000',
+      });
+      const b = addShape({
+        position: { x: 50, y: 0 },
+        size: { w: 10, h: 10 },
+        strokeColor: '#00ff00',
+      });
+      setSelected([a.id, b.id]);
+      const d = ops.getStyleDetails();
+      expect(d?.applicable).toContain('color');
+      expect(d?.mixed).toContain('color');
+      expect(d?.common.color).toBeUndefined();
+    });
+
+    it('uniform values: common matches getStyle(), mixed empty for that field', () => {
+      const { ops, addShape, setSelected } = setupDynamic();
+      const a = addShape({
+        position: { x: 0, y: 0 },
+        size: { w: 10, h: 10 },
+        strokeColor: '#ff0000',
+      });
+      const b = addShape({
+        position: { x: 50, y: 0 },
+        size: { w: 10, h: 10 },
+        strokeColor: '#ff0000',
+      });
+      setSelected([a.id, b.id]);
+      const d = ops.getStyleDetails();
+      expect(d?.common).toEqual(ops.getStyle());
+      expect(d?.mixed).not.toContain('color');
+    });
+
+    it('type-disjoint selection unions applicability', () => {
+      const { ops, addShape, addStroke, setSelected } = setupDynamic();
+      const stroke = addStroke({
+        position: { x: 0, y: 0 },
+        points: [
+          { x: 0, y: 0 },
+          { x: 10, y: 10 },
+        ],
+        width: 4,
+      });
+      const shape = addShape({
+        position: { x: 50, y: 0 },
+        size: { w: 10, h: 10 },
+        fillColor: '#123456',
+      });
+      setSelected([stroke.id, shape.id]);
+      const d = ops.getStyleDetails();
+      expect(d?.applicable).toContain('strokeWidth');
+      expect(d?.applicable).toContain('fillColor');
+    });
+
+    it('heterogeneous widths are mixed', () => {
+      const { ops, addShape, setSelected } = setupDynamic();
+      const a = addShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 }, strokeWidth: 2 });
+      const b = addShape({ position: { x: 50, y: 0 }, size: { w: 10, h: 10 }, strokeWidth: 8 });
+      setSelected([a.id, b.id]);
+      expect(ops.getStyleDetails()?.mixed).toContain('strokeWidth');
+    });
+
+    it('heterogeneous font sizes are mixed', () => {
+      const setupTextDynamic = () => {
+        const selectedIds: string[] = [];
+        const store = new ElementStore();
+        const stack = new HistoryStack();
+        const recorder = new HistoryRecorder(store, stack);
+        const requestRender = vi.fn();
+        const ops = new SelectionOps({
+          store,
+          recorder,
+          getSelectedIds: () => selectedIds,
+          requestRender,
+        });
+        const addText = (opts: Parameters<typeof createText>[0]) => {
+          const el = createText(opts);
+          store.add(el);
+          return el;
+        };
+        const setSelected = (ids: string[]) => {
+          selectedIds.length = 0;
+          selectedIds.push(...ids);
+        };
+        return { ops, addText, setSelected };
+      };
+      const { ops, addText, setSelected } = setupTextDynamic();
+      const a = addText({ position: { x: 0, y: 0 }, text: 'small', fontSize: 12 });
+      const b = addText({ position: { x: 50, y: 0 }, text: 'large', fontSize: 24 });
+      setSelected([a.id, b.id]);
+      const d = ops.getStyleDetails();
+      expect(d?.mixed).toContain('fontSize');
+      expect(d?.common.fontSize).toBeUndefined();
+    });
+
+    it('applyStyle on a mixed selection normalizes all supporting elements in one transaction', () => {
+      const { ops, addShape, setSelected } = setupDynamic();
+      const a = addShape({
+        position: { x: 0, y: 0 },
+        size: { w: 10, h: 10 },
+        strokeColor: '#ff0000',
+      });
+      const b = addShape({
+        position: { x: 50, y: 0 },
+        size: { w: 10, h: 10 },
+        strokeColor: '#00ff00',
+      });
+      setSelected([a.id, b.id]);
+      ops.applyStyle({ color: '#0000ff' });
+      const d = ops.getStyleDetails();
+      expect(d?.common.color).toBe('#0000ff');
+      expect(d?.mixed).not.toContain('color');
+    });
+
+    it('returns null when the selection has no applicable style field, unlike getStyle()', () => {
+      const { store, ops, setSelected } = setupDynamic();
+      const image = createImage({
+        position: { x: 0, y: 0 },
+        size: { w: 10, h: 10 },
+        src: 'data:image/png;base64,',
+      });
+      store.add(image);
+      setSelected([image.id]);
+
+      expect(ops.getStyleDetails()).toBeNull();
+      expect(ops.getStyle()).toEqual({});
+    });
+
+    it('partial definition: one element defines fillColor, the other does not', () => {
+      const { ops, addShape, addStroke, setSelected } = setupDynamic();
+      const stroke = addStroke({
+        position: { x: 0, y: 0 },
+        points: [
+          { x: 0, y: 0 },
+          { x: 10, y: 10 },
+        ],
+      });
+      const shape = addShape({
+        position: { x: 50, y: 0 },
+        size: { w: 10, h: 10 },
+        fillColor: '#123456',
+      });
+      setSelected([stroke.id, shape.id]);
+      const d = ops.getStyleDetails();
+      expect(d?.applicable).toContain('fillColor');
+      expect(d?.mixed).not.toContain('fillColor');
+      expect(d?.common.fillColor).toBe('#123456');
+      expect(d?.common).toEqual(ops.getStyle());
+    });
   });
 });
 

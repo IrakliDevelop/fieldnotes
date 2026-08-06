@@ -11,6 +11,21 @@ import type { Bounds } from '../core/types';
 import { rotationPivot, rotateElementPatch, unionBounds } from './selection-rotate';
 import type { RotateDirection } from './selection-rotate';
 
+const STYLE_FIELDS = [
+  'color',
+  'fillColor',
+  'strokeWidth',
+  'opacity',
+  'fontSize',
+  'strokeStyle',
+] as const;
+
+export interface SelectionStyleDetails {
+  common: ElementStyle;
+  applicable: readonly (keyof ElementStyle)[];
+  mixed: readonly (keyof ElementStyle)[];
+}
+
 export type AlignEdge = 'left' | 'center-x' | 'right' | 'top' | 'middle' | 'bottom';
 export type DistributeAxis = 'horizontal' | 'vertical';
 
@@ -54,6 +69,44 @@ export class SelectionOps {
     const strokeStyle = sharedValue(styles.map((s) => s.strokeStyle));
     if (strokeStyle !== undefined) result.strokeStyle = strokeStyle;
     return result;
+  }
+
+  /**
+   * Unlike `getStyle()` — which returns `{}` for a selection whose elements
+   * have no applicable style fields (e.g. images) — this returns `null` when
+   * no field is applicable, so callers can distinguish "nothing to show" from
+   * "everything shared but empty".
+   */
+  getStyleDetails(): SelectionStyleDetails | null {
+    const ids = this.deps.getSelectedIds();
+    if (ids.length === 0) return null;
+    const styles: ElementStyle[] = [];
+    for (const id of ids) {
+      const el = this.deps.store.getById(id);
+      if (el) styles.push(getElementStyle(el));
+    }
+    if (styles.length === 0) return null;
+    const common: ElementStyle = {};
+    const applicable: (keyof ElementStyle)[] = [];
+    const mixed: (keyof ElementStyle)[] = [];
+    for (const field of STYLE_FIELDS) {
+      const allValues = styles.map((s) => s[field]);
+      // Filter out undefined values without requiring a type predicate
+      const values: NonNullable<(typeof allValues)[0]>[] = [];
+      for (const v of allValues) {
+        if (v !== undefined) values.push(v);
+      }
+      if (values.length === 0) continue;
+      applicable.push(field);
+      const distinct = new Set(values);
+      if (distinct.size > 1) {
+        mixed.push(field);
+      } else {
+        (common as Record<string, unknown>)[field] = values[0];
+      }
+    }
+    if (applicable.length === 0) return null;
+    return { common, applicable, mixed };
   }
 
   applyStyle(style: ElementStyle): void {

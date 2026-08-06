@@ -80,4 +80,67 @@ test.describe('select and interact', () => {
     expect(posAfter.x).not.toBe(posBefore.x);
     expect(posAfter.y).not.toBe(posBefore.y);
   });
+
+  test('align panel clears when selected elements are deleted via keyboard', async ({
+    canvasPage,
+  }) => {
+    const wrapper = canvasPage.wrapper();
+    const box = await wrapper.boundingBox();
+    if (!box) throw new Error('Wrapper not found');
+
+    const cx = box.x + box.width / 2;
+    const cy = box.y + box.height * 0.5;
+
+    // Draw first rectangle.
+    await canvasPage.selectTool('shape');
+    await canvasPage.page.mouse.move(cx - 180, cy - 60);
+    await canvasPage.page.mouse.down();
+    await canvasPage.page.mouse.move(cx - 100, cy, { steps: 5 });
+    await canvasPage.page.mouse.up();
+    await canvasPage.page.waitForTimeout(200);
+
+    // Draw second rectangle, well clear of the first.
+    await canvasPage.selectTool('shape');
+    await canvasPage.page.mouse.move(cx + 100, cy - 60);
+    await canvasPage.page.mouse.down();
+    await canvasPage.page.mouse.move(cx + 180, cy, { steps: 5 });
+    await canvasPage.page.mouse.up();
+    await canvasPage.page.waitForTimeout(200);
+
+    const shapes = await canvasPage.getElementsByType('shape');
+    expect(shapes.length).toBe(2);
+
+    // Marquee-select both rectangles from empty space.
+    await canvasPage.page.keyboard.press('v');
+    await canvasPage.page.waitForTimeout(200);
+
+    await canvasPage.page.mouse.move(cx - 200, cy - 100);
+    await canvasPage.page.mouse.down();
+    await canvasPage.page.mouse.move(cx + 200, cy + 60, { steps: 10 });
+    await canvasPage.page.mouse.up();
+    await canvasPage.page.waitForTimeout(200);
+
+    const selectedCount = await canvasPage.page.evaluate(() => {
+      const vp = (window as unknown as Record<string, unknown>).__fieldnotes_viewport as {
+        toolManager: {
+          getTool: (name: string) => { selectedIds: string[] };
+        };
+      };
+      return vp.toolManager.getTool('select').selectedIds.length;
+    });
+    expect(selectedCount).toBe(2);
+
+    const alignPanel = canvasPage.page.locator('#align-panel');
+    await expect(alignPanel).toBeVisible();
+    await expect(alignPanel).toHaveCSS('display', 'flex');
+
+    await canvasPage.page.keyboard.press('Delete');
+
+    // No further pointer input after this point: the panel must clear from
+    // the deletion's own selection-change event alone.
+    await expect(alignPanel).toBeHidden();
+
+    const shapesAfterDelete = await canvasPage.getElementsByType('shape');
+    expect(shapesAfterDelete.length).toBe(0);
+  });
 });

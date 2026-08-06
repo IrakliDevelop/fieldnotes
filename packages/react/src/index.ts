@@ -12,6 +12,7 @@ export {
   useElements,
   useSelection,
   useSelectionStyle,
+  useSelectionStyleDetails,
   useSelectionOps,
 } from './hooks';
 export type {
@@ -20,7 +21,7 @@ export type {
   UseHistoryResult,
   UseSelectionOpsResult,
 } from './hooks';
-export type { ElementStyle } from '@fieldnotes/core';
+export type { ElementStyle, SelectionStyleDetails } from '@fieldnotes/core';
 export type { AlignEdge, DistributeAxis } from '@fieldnotes/core';
 export { ViewportContext } from './context';
 export { Minimap } from './minimap';

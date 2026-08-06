@@ -23,6 +23,10 @@ function stubContext(): ToolContext {
 
 const point: PointerState = { x: 10, y: 20, pressure: 0.5, pointerType: 'mouse', shiftKey: false };
 
+function makeTool(name: string): Tool {
+  return { name, onPointerDown: vi.fn(), onPointerMove: vi.fn(), onPointerUp: vi.fn() };
+}
+
 describe('ToolManager', () => {
   it('starts with no active tool', () => {
     const manager = new ToolManager();
@@ -126,5 +130,37 @@ describe('ToolManager', () => {
     manager.register(stubTool('eraser'));
 
     expect(manager.toolNames).toEqual(['pencil', 'eraser']);
+  });
+});
+
+describe('onRegister', () => {
+  it('notifies listeners with the registered tool', () => {
+    const tm = new ToolManager();
+    const seen: string[] = [];
+    tm.onRegister((tool) => seen.push(tool.name));
+    tm.register(makeTool('select'));
+    tm.register(makeTool('pencil'));
+    expect(seen).toEqual(['select', 'pencil']);
+  });
+
+  it('unsubscribe stops notifications and is idempotent', () => {
+    const tm = new ToolManager();
+    const seen: string[] = [];
+    const off = tm.onRegister((tool) => seen.push(tool.name));
+    off();
+    off();
+    tm.register(makeTool('select'));
+    expect(seen).toEqual([]);
+  });
+
+  it('tool is retrievable via getTool when listener runs', () => {
+    const tm = new ToolManager();
+    let retrieved: unknown;
+    tm.onRegister((tool) => {
+      retrieved = tm.getTool(tool.name);
+    });
+    const t = makeTool('select');
+    tm.register(t);
+    expect(retrieved).toBe(t);
   });
 });
