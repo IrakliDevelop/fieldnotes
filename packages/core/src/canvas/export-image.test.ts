@@ -358,6 +358,52 @@ describe('exportImage', () => {
     const bothBounds = computeBounds([note1, note2], 0);
     expect(bothBounds).toEqual({ x: 0, y: 0, w: 600, h: 550 });
   });
+
+  describe('exportImage — region option', () => {
+    it.each([
+      [{ x: 0, y: 0, w: 0, h: 10 }],
+      [{ x: 0, y: 0, w: 10, h: -1 }],
+      [{ x: Number.NaN, y: 0, w: 10, h: 10 }],
+      [{ x: 0, y: Infinity, w: 10, h: 10 }],
+    ])('rejects invalid region %o', async (region) => {
+      const store = new ElementStore();
+      store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } }));
+      await expect(exportImage(store, { region })).rejects.toThrow('region');
+    });
+
+    it('uses the region as canvas bounds instead of content bounds', async () => {
+      const store = new ElementStore();
+      store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 500, h: 500 } }));
+      const createSpy = vi.spyOn(document, 'createElement');
+      await exportImage(store, { scale: 1, region: { x: 10, y: 20, w: 100, h: 50 } });
+      const canvasCall = createSpy.mock.results.find(
+        (r) => r.type === 'return' && r.value instanceof HTMLCanvasElement,
+      );
+      expect(canvasCall).toBeDefined();
+      if (canvasCall && canvasCall.type === 'return') {
+        const canvas = canvasCall.value as HTMLCanvasElement;
+        expect(canvas.width).toBe(100);
+        expect(canvas.height).toBe(50);
+      }
+      createSpy.mockRestore();
+    });
+
+    it('applies padding around the region', async () => {
+      const store = new ElementStore();
+      store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } }));
+      const createSpy = vi.spyOn(document, 'createElement');
+      await exportImage(store, { scale: 1, padding: 5, region: { x: 0, y: 0, w: 100, h: 50 } });
+      const canvasCall = createSpy.mock.results.find(
+        (r) => r.type === 'return' && r.value instanceof HTMLCanvasElement,
+      );
+      if (canvasCall && canvasCall.type === 'return') {
+        const canvas = canvasCall.value as HTMLCanvasElement;
+        expect(canvas.width).toBe(110);
+        expect(canvas.height).toBe(60);
+      }
+      createSpy.mockRestore();
+    });
+  });
 });
 
 function mockCanvasCtx() {
@@ -739,6 +785,32 @@ describe('exportImage — rendering paths', () => {
     expect(blob).toBeInstanceOf(Blob);
     expect(ctx.drawImage).toHaveBeenCalled();
     globalThis.Image = OrigImage;
+    vi.restoreAllMocks();
+  });
+
+  it('produces a background-only image for a region with no elements', async () => {
+    mockGetContext();
+    const store = new ElementStore();
+    const blob = await exportImage(store, { region: { x: 0, y: 0, w: 50, h: 50 } });
+    expect(blob).toBeInstanceOf(Blob);
+    vi.restoreAllMocks();
+  });
+
+  it('still applies filter and layer visibility under a region', async () => {
+    const ctx = mockGetContext();
+    const store = new ElementStore();
+    store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 20, h: 20 }, layerId: 'hidden' }));
+    store.add(createNote({ position: { x: 30, y: 0 }, size: { w: 20, h: 20 }, text: 'kept' }));
+    const mockLayerManager = { isLayerVisible: (id: string) => id !== 'hidden' };
+    const blob = await exportImage(
+      store,
+      { region: { x: 0, y: 0, w: 100, h: 100 }, filter: (el) => el.type === 'note' },
+      mockLayerManager as never,
+    );
+    expect(blob).toBeInstanceOf(Blob);
+    // Exactly one note rendered: the hidden-layer note is excluded even though
+    // it intersects the region. renderNoteOnCanvas uses roundRect+fill once per note.
+    expect((ctx.fill as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
     vi.restoreAllMocks();
   });
 });

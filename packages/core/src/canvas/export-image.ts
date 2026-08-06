@@ -17,6 +17,13 @@ export interface ExportImageOptions extends ExportResourceOptions, HtmlExportOpt
   padding?: number;
   background?: string;
   filter?: (element: CanvasElement) => boolean;
+  /**
+   * Optional world-space crop. When set it replaces the computed content
+   * bounds; `padding` still applies around it. Elements outside the region
+   * clip naturally. A region export with no intersecting elements still
+   * produces a background-filled image.
+   */
+  region?: { x: number; y: number; w: number; h: number };
 }
 
 export type ExportAssetErrorReason = 'load' | 'timeout' | 'encode';
@@ -141,6 +148,28 @@ function computeBounds(
     y: minY - padding,
     w: maxX - minX + padding * 2,
     h: maxY - minY + padding * 2,
+  };
+}
+
+function resolveExportBounds(
+  region: { x: number; y: number; w: number; h: number } | undefined,
+  elements: CanvasElement[],
+  padding: number,
+): Rect | null {
+  if (!region) return computeBounds(elements, padding);
+  const finite =
+    Number.isFinite(region.x) &&
+    Number.isFinite(region.y) &&
+    Number.isFinite(region.w) &&
+    Number.isFinite(region.h);
+  if (!finite || region.w <= 0 || region.h <= 0) {
+    throw new RangeError('region must have finite coordinates and positive w/h');
+  }
+  return {
+    x: region.x - padding,
+    y: region.y - padding,
+    w: region.w + padding * 2,
+    h: region.h + padding * 2,
   };
 }
 
@@ -302,7 +331,7 @@ export async function exportImage(
     visibleElements = visibleElements.filter(filter);
   }
 
-  const bounds = computeBounds(visibleElements, padding);
+  const bounds = resolveExportBounds(options.region, visibleElements, padding);
   if (!bounds) return null;
 
   const width = Math.ceil(bounds.w * scale);
