@@ -27,7 +27,7 @@ import { getElementsBoundingBox } from '../elements/bounds';
 import { getArrowTangentAngle } from '../elements/arrow-geometry';
 import { ArrowLabelEditor } from '../elements/arrow-label-editor';
 import { ToolManager } from '../tools/tool-manager';
-import type { ToolContext } from '../tools/types';
+import type { ToolContext, Tool } from '../tools/types';
 import type { SelectTool } from '../tools/select-tool';
 import { HistoryStack } from '../history/history-stack';
 import { HistoryRecorder } from '../history/history-recorder';
@@ -134,6 +134,11 @@ export class Viewport {
   private minimap: Minimap | null = null;
   private readonly htmlRenderers = new Map<string, (el: HtmlElement) => HTMLElement>();
   private readonly resizeListeners = new Set<() => void>();
+  private readonly selectionListeners = new Set<() => void>();
+  private detachSelectionSource: (() => void) | null = null;
+  private unsubToolRegister: () => void = () => {
+    // Replaced synchronously in the constructor below.
+  };
 
   constructor(
     private readonly container: HTMLElement,
@@ -145,6 +150,13 @@ export class Viewport {
     this.store = new ElementStore();
     this.layerManager = new LayerManager(this.store);
     this.toolManager = new ToolManager();
+    this.unsubToolRegister = this.toolManager.onRegister((tool) => {
+      if (Viewport.isSelectionSource(tool)) this.attachSelectionSource(tool);
+    });
+    const existingSelect = this.getSelectTool();
+    if (existingSelect && Viewport.isSelectionSource(existingSelect)) {
+      this.attachSelectionSource(existingSelect);
+    }
     this.renderer = new ElementRenderer();
     this.renderer.setStore(this.store);
     this.renderer.setCamera(this.camera);
@@ -693,6 +705,35 @@ export class Viewport {
     return this.toolManager.getTool<SelectTool>('select');
   }
 
+  private static isSelectionSource(tool: Tool): tool is SelectTool {
+    const candidate = tool as Partial<SelectTool>;
+    return (
+      tool.name === 'select' &&
+      typeof candidate.onSelectionChange === 'function' &&
+      typeof candidate.setSelection === 'function'
+    );
+  }
+
+  private emitSelectionChange(): void {
+    for (const listener of this.selectionListeners) {
+      try {
+        listener();
+      } catch {
+        // Selection listeners must not break each other or the caller.
+      }
+    }
+  }
+
+  private attachSelectionSource(tool: SelectTool): void {
+    this.detachSelectionSource?.();
+    this.detachSelectionSource = tool.onSelectionChange(() => this.emitSelectionChange());
+  }
+
+  /**
+   * getSelectedIds() and the onSelectionChange emitter never surface stale ids:
+   * once the enclosing synchronous history transaction completes, both reflect
+   * the current selection.
+   */
   getSelectedIds(): string[] {
     return this.getSelectTool()?.selectedIds ?? EMPTY_IDS;
   }
@@ -730,9 +771,18 @@ export class Viewport {
     this.contextMenu.open(items, screenPos);
   }
 
+  /**
+   * Persistent, viewport-owned selection-change emitter. Subscribing works
+   * regardless of whether a select tool is registered yet; it forwards
+   * events from whichever select tool is currently attached via
+   * `toolManager.onRegister`. Never delivers stale ids once the enclosing
+   * synchronous history transaction completes.
+   */
   onSelectionChange(listener: () => void): () => void {
-    const tool = this.getSelectTool();
-    return tool ? tool.onSelectionChange(listener) : noop;
+    this.selectionListeners.add(listener);
+    return () => {
+      this.selectionListeners.delete(listener);
+    };
   }
 
   getSelectionStyle(): ElementStyle | null {
@@ -796,6 +846,10 @@ export class Viewport {
     this.inputHandler.destroy();
     this.unsubCamera();
     this.unsubToolChange();
+    this.unsubToolRegister();
+    this.detachSelectionSource?.();
+    this.detachSelectionSource = null;
+    this.selectionListeners.clear();
     this.unsubStore.forEach((fn) => fn());
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
