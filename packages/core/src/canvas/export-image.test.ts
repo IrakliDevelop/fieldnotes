@@ -933,7 +933,10 @@ describe('exportImage — rendering paths', () => {
     store.add(excluded);
 
     const blob = await exportImage(store, {
-      region: { x: 0, y: 0, w: 500, h: 500 },
+      // Offset from the kept note's {0,0,500,500} content bounds so a
+      // silently ignored region (content-bounds fallback → 1000×1000 canvas)
+      // fails the height assertion below.
+      region: { x: 100, y: 50, w: 400, h: 300 },
       filter: (el) => el.id !== excluded.id,
       scale: 4,
       scaleMode: 'fit',
@@ -945,7 +948,7 @@ describe('exportImage — rendering paths', () => {
     expect(blob).toBeInstanceOf(Blob);
     expect(blob?.type).toBe('image/jpeg');
     expect(lastToBlobArgs).toEqual(['image/jpeg', 0.85]);
-    // fit clamps 4x on a 500-wide region to the 1000px dimension cap
+    // fit clamps 4x on a 400-wide region to the 1000px dimension cap (2.5x)
     const canvasCall = lastCreateSpy?.mock.results.find(
       (r) => r.type === 'return' && r.value instanceof HTMLCanvasElement,
     );
@@ -954,6 +957,7 @@ describe('exportImage — rendering paths', () => {
       const canvas = canvasCall.value as HTMLCanvasElement;
       expect(canvas.width).toBeLessThanOrEqual(1000);
       expect(canvas.width).toBeGreaterThan(990);
+      expect(canvas.height).toBe(750);
     }
     // exactly one note rendered: the filtered-out note never draws
     expect((ctx.fill as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
