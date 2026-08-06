@@ -24,6 +24,10 @@ export interface ExportImageOptions extends ExportResourceOptions, HtmlExportOpt
    * produces a background-filled image.
    */
   region?: { x: number; y: number; w: number; h: number };
+  /** Output encoding. Defaults to 'png'. */
+  format?: 'png' | 'jpeg';
+  /** Encoder quality in (0, 1]. Only meaningful for 'jpeg'. */
+  quality?: number;
 }
 
 export type ExportAssetErrorReason = 'load' | 'timeout' | 'encode';
@@ -319,6 +323,15 @@ export async function exportImage(
   const padding = nonNegativeOption(options.padding, 0, 'padding');
   validateExportResourceOptions(options);
   validateHtmlExportOptions(options);
+  const format = options.format ?? 'png';
+  if (format !== 'png' && format !== 'jpeg') {
+    throw new RangeError(`format must be 'png' or 'jpeg'`);
+  }
+  if (options.quality !== undefined) {
+    if (!Number.isFinite(options.quality) || options.quality <= 0 || options.quality > 1) {
+      throw new RangeError('quality must be a finite number in (0, 1]');
+    }
+  }
   const background = options.background ?? '#ffffff';
   const filter = options.filter;
 
@@ -445,8 +458,9 @@ export async function exportImage(
     ctx.restore();
   }
 
+  const mimeType = format === 'jpeg' ? 'image/jpeg' : 'image/png';
   return new Promise((resolve) => {
-    canvas.toBlob((blob) => resolve(blob), 'image/png');
+    canvas.toBlob((blob) => resolve(blob), mimeType, options.quality);
   });
 }
 

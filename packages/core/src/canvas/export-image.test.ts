@@ -261,6 +261,17 @@ describe('exportImage', () => {
     await expect(exportImage(store, options)).rejects.toThrow(optionName);
   });
 
+  it.each([
+    [{ format: 'webp' as never }, 'format'],
+    [{ quality: 0 }, 'quality'],
+    [{ quality: 1.5 }, 'quality'],
+    [{ quality: Number.NaN }, 'quality'],
+  ])('rejects invalid encoding options %o', async (options, optionName) => {
+    const store = new ElementStore();
+    store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } }));
+    await expect(exportImage(store, options)).rejects.toThrow(optionName);
+  });
+
   it('rejects an export exceeding the dimension limit before creating a canvas', async () => {
     const store = new ElementStore();
     store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 101, h: 10 } }));
@@ -445,15 +456,23 @@ function mockCanvasCtx() {
 
 describe('exportImage — rendering paths', () => {
   const origCreate = document.createElement.bind(document);
+  let lastToBlobArgs: [string | undefined, unknown] | null = null;
 
   function mockGetContext() {
+    lastToBlobArgs = null;
     const ctx = mockCanvasCtx();
     vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
       const el = origCreate(tag);
       if (tag === 'canvas') {
         vi.spyOn(el as HTMLCanvasElement, 'getContext').mockReturnValue(ctx as never);
-        vi.spyOn(el as HTMLCanvasElement, 'toBlob').mockImplementation((cb) => {
-          cb(new Blob(['fake'], { type: 'image/png' }));
+        vi.spyOn(el as HTMLCanvasElement, 'toBlob').mockImplementation(function (
+          this: HTMLCanvasElement,
+          cb: BlobCallback,
+          type?: string,
+          q?: unknown,
+        ) {
+          lastToBlobArgs = [type, q];
+          cb(new Blob(['fake'], { type: type ?? 'image/png' }));
         });
       }
       return el;
@@ -811,6 +830,26 @@ describe('exportImage — rendering paths', () => {
     // Exactly one note rendered: the hidden-layer note is excluded even though
     // it intersects the region. renderNoteOnCanvas uses roundRect+fill once per note.
     expect((ctx.fill as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
+    vi.restoreAllMocks();
+  });
+
+  it('encodes jpeg with quality when requested', async () => {
+    mockGetContext();
+    const store = new ElementStore();
+    store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 20, h: 20 } }));
+    const blob = await exportImage(store, { format: 'jpeg', quality: 0.8 });
+    expect(blob?.type).toBe('image/jpeg');
+    expect(lastToBlobArgs).toEqual(['image/jpeg', 0.8]);
+    vi.restoreAllMocks();
+  });
+
+  it('defaults to png encoding', async () => {
+    mockGetContext();
+    const store = new ElementStore();
+    store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 20, h: 20 } }));
+    const blob = await exportImage(store, {});
+    expect(blob?.type).toBe('image/png');
+    expect(lastToBlobArgs).toEqual(['image/png', undefined]);
     vi.restoreAllMocks();
   });
 });
