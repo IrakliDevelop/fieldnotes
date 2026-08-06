@@ -108,4 +108,115 @@ describe('viewport selection emitter', () => {
     // re-create so afterEach destroy() stays safe
     viewport = new Viewport(container);
   });
+
+  describe('deletion pruning', () => {
+    it('deleting a selected element fires once and prunes ids', () => {
+      viewport.toolManager.register(select);
+      const id = seedRect(viewport);
+      select.setSelection([id]);
+      let fired = 0;
+      viewport.onSelectionChange(() => fired++);
+      viewport.store.remove(id); // direct store removal, no transaction
+      expect(fired).toBe(1);
+      expect(viewport.getSelectedIds()).toEqual([]);
+    });
+
+    it('removeElements of multiple selected ids fires exactly ONE event with the final selection', () => {
+      viewport.toolManager.register(select);
+      const a = seedRect(viewport, 0, 0);
+      const b = seedRect(viewport, 100, 0);
+      const c = seedRect(viewport, 200, 0);
+      select.setSelection([a, b, c]);
+      const snapshots: string[][] = [];
+      viewport.onSelectionChange(() => snapshots.push([...viewport.getSelectedIds()]));
+      viewport.removeElements([a, b]);
+      expect(snapshots).toEqual([[c]]); // one event, final state — fails with per-removal pruning
+    });
+
+    it('staleness contract: mid-transaction store listener sees pre-prune ids; after removeElements returns, ids are pruned', () => {
+      viewport.toolManager.register(select);
+      const a = seedRect(viewport, 0, 0);
+      const b = seedRect(viewport, 100, 0);
+      select.setSelection([a, b]);
+      const midTransaction: string[][] = [];
+      viewport.store.on('remove', () => midTransaction.push([...viewport.getSelectedIds()]));
+      viewport.removeElements([a]);
+      expect(midTransaction[0]).toEqual([a, b]); // stale window is contractual
+      expect(viewport.getSelectedIds()).toEqual([b]); // pruned synchronously post-commit
+    });
+
+    it('keyboard deleteSelected of a multi-selection fires one final event', () => {
+      viewport.toolManager.register(select);
+      viewport.setTool('select');
+      const a = seedRect(viewport, 0, 0);
+      const b = seedRect(viewport, 100, 0);
+      select.setSelection([a, b]);
+      let fired = 0;
+      viewport.onSelectionChange(() => fired++);
+      viewport.runAction('delete');
+      expect(fired).toBe(1);
+      expect(viewport.getSelectedIds()).toEqual([]);
+    });
+
+    it('deleting an UNSELECTED element fires nothing and preserves the ids array reference', () => {
+      viewport.toolManager.register(select);
+      const a = seedRect(viewport, 0, 0);
+      const other = seedRect(viewport, 100, 0);
+      select.setSelection([a]);
+      const before = viewport.getSelectedIds();
+      let fired = 0;
+      viewport.onSelectionChange(() => fired++);
+      viewport.store.remove(other);
+      expect(fired).toBe(0);
+      expect(viewport.getSelectedIds()).toBe(before);
+    });
+
+    it('store.clear() empties selection with one event', () => {
+      viewport.toolManager.register(select);
+      const a = seedRect(viewport);
+      select.setSelection([a]);
+      let fired = 0;
+      viewport.onSelectionChange(() => fired++);
+      viewport.store.clear();
+      expect(fired).toBe(1);
+      expect(viewport.getSelectedIds()).toEqual([]);
+    });
+
+    it('destroy detaches pruning and recorder-completion listeners', () => {
+      viewport.toolManager.register(select);
+      const a = seedRect(viewport, 0, 0);
+      const b = seedRect(viewport, 100, 0);
+      select.setSelection([a, b]);
+      let fired = 0;
+      viewport.onSelectionChange(() => fired++);
+      viewport.destroy();
+
+      // store pruning listener detached: direct removal of a selected element fires nothing
+      viewport.store.remove(a);
+      expect(fired).toBe(0);
+      expect(select.selectedIds).toEqual([a, b]); // no prune ran
+
+      // recorder-completion listener detached: a transaction-deferred removal flushes nothing
+      viewport.transaction(() => {
+        viewport.store.remove(b);
+      });
+      expect(fired).toBe(0);
+      expect(select.selectedIds).toEqual([a, b]);
+
+      viewport = new Viewport(container); // afterEach safety
+    });
+
+    it('prune adds no history entry: undo restores elements but NOT selection; redo stable', () => {
+      viewport.toolManager.register(select);
+      const a = seedRect(viewport, 0, 0);
+      select.setSelection([a]);
+      viewport.removeElements([a]);
+      expect(viewport.getSelectedIds()).toEqual([]);
+      expect(viewport.undo()).toBe(true);
+      expect(viewport.store.getById(a)).toBeDefined();
+      expect(viewport.getSelectedIds()).toEqual([]); // selection not restored
+      expect(viewport.redo()).toBe(true);
+      expect(viewport.store.getById(a)).toBeUndefined();
+    });
+  });
 });

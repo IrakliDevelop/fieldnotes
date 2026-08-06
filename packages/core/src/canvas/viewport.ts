@@ -139,6 +139,10 @@ export class Viewport {
   private unsubToolRegister: () => void = () => {
     // Replaced synchronously in the constructor below.
   };
+  private pendingSelectionPrune = false;
+  private unsubRecorderEnd: () => void = () => {
+    // Replaced synchronously in the constructor below.
+  };
 
   constructor(
     private readonly container: HTMLElement,
@@ -191,6 +195,11 @@ export class Viewport {
     this.dropHandler = options.onDrop;
     this.history = new HistoryStack();
     this.historyRecorder = new HistoryRecorder(this.store, this.history, this.layerManager);
+    this.unsubRecorderEnd = this.historyRecorder.onTransactionEnd(() => {
+      if (!this.pendingSelectionPrune) return;
+      this.pendingSelectionPrune = false;
+      this.pruneSelection();
+    });
     this.selectionOps = new SelectionOps({
       store: this.store,
       recorder: this.historyRecorder,
@@ -325,6 +334,7 @@ export class Viewport {
         this.domNodeManager.removeDomNode(el.id);
         this.renderLoop.markLayerDirty(el.layerId);
         this.requestRender();
+        this.handleRemovedElement(el.id);
       }),
       this.store.on('update', ({ previous, current }) => {
         if (current.type === 'grid') this.gridController.syncContext();
@@ -339,6 +349,7 @@ export class Viewport {
         this.renderLoop.markAllLayersDirty();
         this.gridController.syncContext();
         this.requestRender();
+        this.pruneSelection();
       }),
     ];
 
@@ -705,6 +716,23 @@ export class Viewport {
     return this.toolManager.getTool<SelectTool>('select');
   }
 
+  private pruneSelection(): void {
+    const tool = this.getSelectTool();
+    if (!tool) return;
+    const ids = tool.selectedIds;
+    const filtered = ids.filter((id) => this.store.getById(id) !== undefined);
+    if (filtered.length !== ids.length) tool.setSelection(filtered);
+  }
+
+  private handleRemovedElement(id: string): void {
+    if (!this.getSelectedIds().includes(id)) return;
+    if (this.historyRecorder.currentTransactionId !== null) {
+      this.pendingSelectionPrune = true;
+      return;
+    }
+    this.pruneSelection();
+  }
+
   private static isSelectionSource(tool: Tool): tool is SelectTool {
     const candidate = tool as Partial<SelectTool>;
     return (
@@ -847,6 +875,7 @@ export class Viewport {
     this.unsubCamera();
     this.unsubToolChange();
     this.unsubToolRegister();
+    this.unsubRecorderEnd();
     this.detachSelectionSource?.();
     this.detachSelectionSource = null;
     this.selectionListeners.clear();
