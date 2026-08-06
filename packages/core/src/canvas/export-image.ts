@@ -24,7 +24,11 @@ export interface ExportImageOptions extends ExportResourceOptions, HtmlExportOpt
    * produces a background-filled image.
    */
   region?: { x: number; y: number; w: number; h: number };
-  /** Output encoding. Defaults to 'png'. */
+  /**
+   * Output encoding. Defaults to 'png'. JPEG output is opaque — a transparent
+   * `background` renders as black; keep the default `#ffffff` (or any opaque color)
+   * for JPEG exports.
+   */
   format?: 'png' | 'jpeg';
   /** Encoder quality in (0, 1]. Only meaningful for 'jpeg'. */
   quality?: number;

@@ -537,11 +537,13 @@ function mockCanvasCtx() {
 describe('exportImage — rendering paths', () => {
   const origCreate = document.createElement.bind(document);
   let lastToBlobArgs: [string | undefined, unknown] | null = null;
+  let lastCreateSpy: ReturnType<typeof vi.spyOn> | null = null;
 
   function mockGetContext() {
     lastToBlobArgs = null;
+    lastCreateSpy = null;
     const ctx = mockCanvasCtx();
-    vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
+    lastCreateSpy = vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
       const el = origCreate(tag);
       if (tag === 'canvas') {
         vi.spyOn(el as HTMLCanvasElement, 'getContext').mockReturnValue(ctx as never);
@@ -920,6 +922,41 @@ describe('exportImage — rendering paths', () => {
     const blob = await exportImage(store, { format: 'jpeg', quality: 0.8 });
     expect(blob?.type).toBe('image/jpeg');
     expect(lastToBlobArgs).toEqual(['image/jpeg', 0.8]);
+    vi.restoreAllMocks();
+  });
+
+  it('composes region, filter, fit scale, and jpeg encoding in one export', async () => {
+    const ctx = mockGetContext();
+    const store = new ElementStore();
+    store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 500, h: 500 }, text: 'kept' }));
+    const excluded = createNote({ position: { x: 600, y: 0 }, size: { w: 40, h: 40 } });
+    store.add(excluded);
+
+    const blob = await exportImage(store, {
+      region: { x: 0, y: 0, w: 500, h: 500 },
+      filter: (el) => el.id !== excluded.id,
+      scale: 4,
+      scaleMode: 'fit',
+      maxDimension: 1000,
+      format: 'jpeg',
+      quality: 0.85,
+    });
+
+    expect(blob).toBeInstanceOf(Blob);
+    expect(blob?.type).toBe('image/jpeg');
+    expect(lastToBlobArgs).toEqual(['image/jpeg', 0.85]);
+    // fit clamps 4x on a 500-wide region to the 1000px dimension cap
+    const canvasCall = lastCreateSpy?.mock.results.find(
+      (r) => r.type === 'return' && r.value instanceof HTMLCanvasElement,
+    );
+    expect(canvasCall).toBeDefined();
+    if (canvasCall && canvasCall.type === 'return') {
+      const canvas = canvasCall.value as HTMLCanvasElement;
+      expect(canvas.width).toBeLessThanOrEqual(1000);
+      expect(canvas.width).toBeGreaterThan(990);
+    }
+    // exactly one note rendered: the filtered-out note never draws
+    expect((ctx.fill as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
     vi.restoreAllMocks();
   });
 
