@@ -1,4 +1,4 @@
-export const VERSION = '0.60.0';
+export const VERSION = '0.61.0';
 
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
 export { snapPoint, smartSnap, snapToHexCenter } from './core/snap';
@@ -77,6 +77,27 @@ export { PingInput } from './canvas/ping-input';
 export type { PingInputHost, PingInputOptions } from './canvas/ping-input';
 export { MinimapController } from './canvas/minimap-controller';
 export type { MinimapControllerOptions } from './canvas/minimap-controller';
+export {
+  captureCameraView,
+  fitZoomForView,
+  cameraOriginForView,
+  applyCameraView,
+} from './canvas/camera-view';
+export type { CameraView } from './canvas/camera-view';
+export { CameraAnimator } from './canvas/camera-animator';
+export type {
+  CameraAnimatorOptions,
+  CameraAnimationEndReason,
+  FrameScheduler,
+} from './canvas/camera-animator';
+export { isFocusPresence, toFocusPresence, FOCUS_PRESENCE_KIND } from './canvas/focus-presence';
+export type { FocusPresence, FocusAudience } from './canvas/focus-presence';
+export { RemoteFocusReceiver } from './canvas/remote-focus-receiver';
+export type {
+  FocusRole,
+  RemoteFocusReceiverHost,
+  RemoteFocusReceiverOptions,
+} from './canvas/remote-focus-receiver';
 
 export { ElementStore } from './elements/element-store';
 export type { ElementUpdateEvent } from './elements/element-store';
