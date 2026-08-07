@@ -4,6 +4,25 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.61.0] — 2026-08-06
+
+### Added
+
+- `CameraView` — a viewport-size-independent world rect, with `captureCameraView`,
+  `fitZoomForView`, `cameraOriginForView`, and `applyCameraView` (contain-fit; the same view
+  frames the same content on any screen size or aspect).
+- `Viewport.getCanvasSize()` — the canvas dimensions `getVisibleRect()` measures, so consumers
+  can restore a captured view against the same element.
+- `CameraAnimator` — interruptible camera animation. Yields to every other camera writer via
+  passive `pointerdown`/`wheel`/`keydown` listeners plus a per-frame foreign-write guard
+  (drag, pinch, wheel, keyboard zoom, pan inertia, minimap navigation, `fitToContent`,
+  `loadState`). Rect interpolation, injectable frame/clock seams, terminal disposal.
+- Focus-request presence: `FocusPresence`, `isFocusPresence`, `toFocusPresence`,
+  `FOCUS_PRESENCE_KIND`, and `RemoteFocusReceiver` with role-based audience filtering and an
+  arrival pulse. Ephemeral: never elements, history, persisted state, or the durable queue.
+
+No persisted-canvas or wire-protocol change. No react, sync, sync-server, or sync-redis release.
+
 ## [@fieldnotes/react 0.10.0] — 2026-08-06
 
 ### Added

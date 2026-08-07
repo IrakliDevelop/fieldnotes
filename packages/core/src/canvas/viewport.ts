@@ -424,6 +424,18 @@ export class Viewport {
     return this.camera.getVisibleRect(this.canvasEl.clientWidth, this.canvasEl.clientHeight);
   }
 
+  /**
+   * Size in CSS pixels of the canvas that `getVisibleRect()` measures.
+   * Exposed because `canvasEl` is private: consumers can only reach the
+   * wrapper (via `domLayer.parentElement`), so without this accessor the
+   * canonical size behind `getVisibleRect()` is unreachable and callers
+   * resort to `getVisibleRect().w * camera.zoom`. Capture and restore must
+   * measure the same element or saved views do not round-trip.
+   */
+  getCanvasSize(): { w: number; h: number } {
+    return { w: this.canvasEl.clientWidth, h: this.canvasEl.clientHeight };
+  }
+
   /** Centers the camera on a world point without changing zoom. */
   centerCameraAt(world: Point): void {
     const z = this.camera.zoom;

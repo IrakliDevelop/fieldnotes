@@ -1,0 +1,606 @@
+// @vitest-environment jsdom
+import { describe, it, expect, vi } from 'vitest';
+import { Camera } from './camera';
+import { CameraAnimator, type CameraAnimationEndReason } from './camera-animator';
+import type { CameraView } from './camera-view';
+
+const TARGET: CameraView = { x: 0, y: 0, w: 400, h: 300 };
+const SIZE = { w: 800, h: 600 };
+
+/** Deterministic frame + clock harness. */
+function makeHarness(size: { w: number; h: number } = SIZE) {
+  let pending: (() => void)[] = [];
+  let nextId = 1;
+  let clock = 0;
+  const cancelled: number[] = [];
+  const requestFrame = vi.fn((cb: () => void) => {
+    pending.push(cb);
+    return nextId++;
+  });
+  const cancelFrame = vi.fn((id: number) => {
+    cancelled.push(id);
+  });
+  const element = document.createElement('div');
+  const camera = new Camera();
+  const current = { ...size };
+  const animator = new CameraAnimator(element, camera, {
+    getCanvasSize: () => ({ ...current }),
+    frames: { requestFrame, cancelFrame },
+    now: () => clock,
+    durationMs: 400,
+  });
+  return {
+    element,
+    camera,
+    animator,
+    requestFrame,
+    cancelFrame,
+    cancelled,
+    setSize: (w: number, h: number) => {
+      current.w = w;
+      current.h = h;
+    },
+    advance: (ms: number) => {
+      clock += ms;
+    },
+    /** Runs every queued frame callback once. */
+    flush: () => {
+      const due = pending;
+      pending = [];
+      for (const cb of due) cb();
+    },
+    pendingCount: () => pending.length,
+  };
+}
+
+function collectReasons(animator: CameraAnimator): CameraAnimationEndReason[] {
+  const reasons: CameraAnimationEndReason[] = [];
+  animator.onEnd((r) => reasons.push(r));
+  return reasons;
+}
+
+describe('CameraAnimator construction', () => {
+  it('rejects a one-sided frames pair', () => {
+    const element = document.createElement('div');
+    const camera = new Camera();
+    const opts = { getCanvasSize: () => SIZE };
+    expect(
+      () =>
+        new CameraAnimator(element, camera, {
+          ...opts,
+          frames: { requestFrame: (_cb: () => void) => 1 } as never,
+        }),
+    ).toThrow();
+    expect(
+      () =>
+        new CameraAnimator(element, camera, {
+          ...opts,
+          frames: { cancelFrame: () => undefined } as never,
+        }),
+    ).toThrow();
+    expect(
+      () =>
+        new CameraAnimator(element, camera, {
+          ...opts,
+          frames: { requestFrame: 1, cancelFrame: 2 } as never,
+        }),
+    ).toThrow();
+  });
+});
+
+describe('animation to completion', () => {
+  it('animates toward the target and ends with complete', () => {
+    const h = makeHarness();
+    const reasons = collectReasons(h.animator);
+    h.animator.animateTo(TARGET);
+    expect(h.animator.animating).toBe(true);
+
+    h.advance(200);
+    h.flush();
+    expect(reasons).toEqual([]); // still mid-flight
+
+    h.advance(200);
+    h.flush();
+    expect(reasons).toEqual(['complete']);
+    expect(h.animator.animating).toBe(false);
+
+    const framed = h.camera.getVisibleRect(SIZE.w, SIZE.h);
+    expect(framed.x + framed.w / 2).toBeCloseTo(TARGET.x + TARGET.w / 2, 4);
+    expect(framed.y + framed.h / 2).toBeCloseTo(TARGET.y + TARGET.h / 2, 4);
+  });
+
+  it('emits exactly one reason per animation', () => {
+    const h = makeHarness();
+    const reasons = collectReasons(h.animator);
+    h.animator.animateTo(TARGET);
+    h.advance(1000);
+    h.flush();
+    h.flush(); // extra flush must not re-emit
+    expect(reasons).toEqual(['complete']);
+  });
+
+  it('an already-framed target completes synchronously with no frames', () => {
+    const h = makeHarness();
+    h.animator.jumpTo(TARGET);
+    const reasons = collectReasons(h.animator);
+    h.requestFrame.mockClear();
+    h.animator.animateTo(TARGET);
+    expect(reasons).toEqual(['complete']);
+    expect(h.requestFrame).not.toHaveBeenCalled();
+  });
+
+  it('retargeting mid-flight supersedes rather than cancels', () => {
+    const h = makeHarness();
+    const reasons = collectReasons(h.animator);
+    h.animator.animateTo(TARGET);
+    h.advance(100);
+    h.flush();
+    h.animator.animateTo({ x: 900, y: 900, w: 200, h: 150 });
+    expect(reasons).toEqual(['superseded']);
+    expect(h.animator.animating).toBe(true);
+  });
+
+  it('jumpTo writes once and schedules no frames', () => {
+    const h = makeHarness();
+    h.requestFrame.mockClear();
+    h.animator.jumpTo(TARGET);
+    expect(h.requestFrame).not.toHaveBeenCalled();
+    expect(h.animator.animating).toBe(false);
+    const framed = h.camera.getVisibleRect(SIZE.w, SIZE.h);
+    expect(framed.x + framed.w / 2).toBeCloseTo(TARGET.x + TARGET.w / 2, 4);
+  });
+
+  it('jumpTo mid-flight supersedes the running animation', () => {
+    const h = makeHarness();
+    const reasons = collectReasons(h.animator);
+    h.animator.animateTo(TARGET);
+    h.animator.jumpTo({ x: 10, y: 10, w: 100, h: 75 });
+    expect(reasons).toEqual(['superseded']);
+    expect(h.animator.animating).toBe(false);
+  });
+
+  it('cancel with nothing in flight emits nothing', () => {
+    const h = makeHarness();
+    const reasons = collectReasons(h.animator);
+    h.animator.cancel();
+    h.animator.jumpTo(TARGET);
+    expect(reasons).toEqual([]);
+  });
+
+  it('isolates a throwing onEnd listener and still runs later listeners', () => {
+    const h = makeHarness();
+    const seen: string[] = [];
+    h.animator.onEnd(() => {
+      throw new Error('boom');
+    });
+    h.animator.onEnd(() => seen.push('second'));
+    h.animator.animateTo(TARGET);
+    h.advance(1000);
+    expect(() => h.flush()).not.toThrow();
+    expect(seen).toEqual(['second']);
+  });
+});
+
+describe('re-entrancy from a superseded listener', () => {
+  it('animateTo does not overwrite an animation started during its own supersede', () => {
+    const h = makeHarness();
+    const NESTED: CameraView = { x: 5000, y: 5000, w: 100, h: 75 };
+    const reasons: CameraAnimationEndReason[] = [];
+    h.animator.onEnd((r) => {
+      reasons.push(r);
+      if (r === 'superseded' && reasons.length === 1) {
+        h.animator.animateTo(NESTED); // nested op takes ownership
+      }
+    });
+
+    h.animator.animateTo(TARGET);
+    h.animator.animateTo({ x: 900, y: 900, w: 200, h: 150 }); // outer; supersedes
+
+    // The nested animation must own the animator; the outer call must NOT
+    // silently overwrite it (which would leave the nested one with no reason).
+    h.advance(1000);
+    h.flush();
+    expect(reasons).toEqual(['superseded', 'complete']);
+
+    const framed = h.camera.getVisibleRect(SIZE.w, SIZE.h);
+    expect(framed.x + framed.w / 2).toBeCloseTo(NESTED.x + NESTED.w / 2, 3);
+  });
+
+  it('jumpTo does not overwrite an animation started during its own supersede', () => {
+    const h = makeHarness();
+    const NESTED: CameraView = { x: 5000, y: 5000, w: 100, h: 75 };
+    const reasons: CameraAnimationEndReason[] = [];
+    h.animator.onEnd((r) => {
+      reasons.push(r);
+      if (r === 'superseded' && reasons.length === 1) {
+        h.animator.animateTo(NESTED);
+      }
+    });
+
+    // The nested animateTo's starting frame is the camera's pre-jump position
+    // (no step has run yet), and it sits far from the outer jump's target —
+    // (400, 300) vs (60, 47.5) — so "the jump wrote" and "the jump did not
+    // write" are unambiguous, not a rounding-epsilon apart.
+    const preJumpFramed = h.camera.getVisibleRect(SIZE.w, SIZE.h);
+    const OUTER_JUMP: CameraView = { x: 10, y: 10, w: 100, h: 75 };
+
+    h.animator.animateTo(TARGET);
+    h.animator.jumpTo(OUTER_JUMP); // outer jump supersedes
+
+    // The nested animation is still running — the jump must not have written
+    // over it, and it must still reach its own end reason.
+    expect(h.animator.animating).toBe(true);
+
+    // The outer jump's stale target must never land on the camera: the
+    // nested animation now owns the camera, and since it hasn't run a frame
+    // yet the camera must still sit exactly where it was before the jump,
+    // not at the outer jump's (far-away) target.
+    const framedAfterJump = h.camera.getVisibleRect(SIZE.w, SIZE.h);
+    expect(framedAfterJump.x + framedAfterJump.w / 2).toBeCloseTo(
+      preJumpFramed.x + preJumpFramed.w / 2,
+      3,
+    );
+    expect(framedAfterJump.y + framedAfterJump.h / 2).toBeCloseTo(
+      preJumpFramed.y + preJumpFramed.h / 2,
+      3,
+    );
+
+    h.advance(1000);
+    h.flush();
+    expect(reasons).toEqual(['superseded', 'complete']);
+
+    // The nested animation must ultimately land on its own target, not the
+    // outer jump's — mirrors the animateTo re-entrancy test's final check.
+    const framedAtEnd = h.camera.getVisibleRect(SIZE.w, SIZE.h);
+    expect(framedAtEnd.x + framedAtEnd.w / 2).toBeCloseTo(NESTED.x + NESTED.w / 2, 3);
+    expect(framedAtEnd.y + framedAtEnd.h / 2).toBeCloseTo(NESTED.y + NESTED.h / 2, 3);
+  });
+
+  it('every started operation reports exactly one reason under nesting', () => {
+    const h = makeHarness();
+    const reasons: CameraAnimationEndReason[] = [];
+    let nested = 0;
+    h.animator.onEnd((r) => {
+      reasons.push(r);
+      if (r === 'superseded' && nested === 0) {
+        nested++;
+        h.animator.animateTo({ x: 5000, y: 5000, w: 100, h: 75 });
+      }
+    });
+    h.animator.animateTo(TARGET);
+    h.animator.animateTo({ x: 900, y: 900, w: 200, h: 150 });
+    h.advance(1000);
+    h.flush();
+    // 2 animations actually started (outer TARGET, nested) -> 2 reasons.
+    expect(reasons).toHaveLength(2);
+  });
+
+  it('animateTo does not revive a disposed animator when dispose() is called from its own supersede listener', () => {
+    const h = makeHarness();
+    h.animator.onEnd((r) => {
+      if (r === 'superseded') h.animator.dispose(); // disposal nested inside the emit
+    });
+
+    h.animator.animateTo(TARGET);
+    h.requestFrame.mockClear();
+    h.animator.animateTo({ x: 900, y: 900, w: 200, h: 150 }); // outer; supersedes then disposes
+
+    // The disposal must win: no new frame requested, and the animator must
+    // report itself as not animating, not silently resurrected.
+    expect(h.requestFrame).not.toHaveBeenCalled();
+    expect(h.animator.animating).toBe(false);
+  });
+
+  it('jumpTo does not write the camera when dispose() is called from its own supersede listener', () => {
+    const h = makeHarness();
+    h.animator.onEnd((r) => {
+      if (r === 'superseded') h.animator.dispose(); // disposal nested inside the emit
+    });
+
+    h.animator.animateTo(TARGET);
+    const before = { ...h.camera.position, zoom: h.camera.zoom };
+    h.animator.jumpTo({ x: 900, y: 900, w: 200, h: 150 }); // outer jump; supersedes then disposes
+
+    // Disposal must leave the animator inert: the jump's target must never
+    // land on the camera once the animator is terminal.
+    expect({ ...h.camera.position, zoom: h.camera.zoom }).toEqual(before);
+    expect(h.animator.animating).toBe(false);
+  });
+});
+
+describe('target validation ordering', () => {
+  const BAD: CameraView = { x: 0, y: 0, w: 0, h: 100 };
+
+  it('animateTo throws synchronously and schedules nothing when idle', () => {
+    const h = makeHarness();
+    h.requestFrame.mockClear();
+    expect(() => h.animator.animateTo(BAD)).toThrow();
+    expect(h.requestFrame).not.toHaveBeenCalled();
+    expect(h.animator.animating).toBe(false);
+  });
+
+  it('an invalid animateTo during an active animation leaves it untouched', () => {
+    const h = makeHarness();
+    const reasons = collectReasons(h.animator);
+    h.animator.animateTo(TARGET);
+    h.advance(100);
+    h.flush();
+
+    expect(() => h.animator.animateTo(BAD)).toThrow();
+    expect(reasons).toEqual([]); // NOT 'superseded'
+    expect(h.animator.animating).toBe(true);
+
+    h.advance(1000);
+    h.flush();
+    expect(reasons).toEqual(['complete']); // original still completes
+  });
+
+  it('an invalid jumpTo during an active animation leaves it untouched', () => {
+    const h = makeHarness();
+    const reasons = collectReasons(h.animator);
+    h.animator.animateTo(TARGET);
+    expect(() => h.animator.jumpTo(BAD)).toThrow();
+    expect(reasons).toEqual([]);
+    expect(h.animator.animating).toBe(true);
+  });
+});
+
+describe('arbitration', () => {
+  it('aborts when another writer moves the camera between frames', () => {
+    const h = makeHarness();
+    const reasons = collectReasons(h.animator);
+    h.animator.animateTo(TARGET);
+    h.advance(100);
+    h.flush();
+
+    h.camera.pan(37, -12); // simulates drag / inertia coast / minimap tap
+
+    h.advance(100);
+    h.flush();
+    expect(reasons).toEqual(['cancelled']);
+    expect(h.animator.animating).toBe(false);
+
+    // And it writes nothing further.
+    const after = { ...h.camera.position, zoom: h.camera.zoom };
+    h.advance(1000);
+    h.flush();
+    expect({ ...h.camera.position, zoom: h.camera.zoom }).toEqual(after);
+  });
+
+  it('does not trip its own guard on its two-step setZoom + moveTo write', () => {
+    const h = makeHarness();
+    const reasons = collectReasons(h.animator);
+    h.animator.animateTo(TARGET);
+    for (let i = 0; i < 3; i++) {
+      h.advance(50);
+      h.flush();
+    }
+    expect(reasons).toEqual([]); // survived multiple self-writes
+  });
+
+  for (const event of ['pointerdown', 'wheel', 'keydown'] as const) {
+    it(`cancels immediately on ${event}`, () => {
+      const h = makeHarness();
+      const reasons = collectReasons(h.animator);
+      h.animator.animateTo(TARGET);
+      h.element.dispatchEvent(new Event(event));
+      expect(reasons).toEqual(['cancelled']);
+      expect(h.animator.animating).toBe(false);
+    });
+  }
+
+  it('registers cancel listeners passively and never preventDefaults', () => {
+    const element = document.createElement('div');
+    const spy = vi.spyOn(element, 'addEventListener');
+    const camera = new Camera();
+    new CameraAnimator(element, camera, { getCanvasSize: () => SIZE });
+    const cancelCalls = spy.mock.calls.filter(([type]) =>
+      ['pointerdown', 'wheel', 'keydown'].includes(String(type)),
+    );
+    expect(cancelCalls).toHaveLength(3);
+    for (const [, , opts] of cancelCalls) {
+      expect(opts).toMatchObject({ passive: true });
+    }
+  });
+
+  it('interactive: false registers no listeners', () => {
+    const element = document.createElement('div');
+    const spy = vi.spyOn(element, 'addEventListener');
+    new CameraAnimator(element, new Camera(), {
+      getCanvasSize: () => SIZE,
+      interactive: false,
+    });
+    const cancelTypes = spy.mock.calls.filter(([type]) =>
+      ['pointerdown', 'wheel', 'keydown'].includes(String(type)),
+    );
+    expect(cancelTypes).toEqual([]);
+  });
+});
+
+describe('zero canvas size lifecycle', () => {
+  it('animateTo at zero size with nothing in flight starts nothing', () => {
+    const h = makeHarness();
+    h.setSize(0, 600);
+    const reasons = collectReasons(h.animator);
+    h.requestFrame.mockClear();
+    h.animator.animateTo(TARGET);
+    expect(reasons).toEqual([]);
+    expect(h.requestFrame).not.toHaveBeenCalled();
+    expect(h.animator.animating).toBe(false);
+  });
+
+  it('animateTo at zero size cancels an in-flight animation SYNCHRONOUSLY', () => {
+    const h = makeHarness();
+    const reasons = collectReasons(h.animator);
+    h.animator.animateTo(TARGET);
+    h.setSize(0, 0);
+    h.animator.animateTo({ x: 5, y: 5, w: 50, h: 40 });
+    // Not one frame later — the instant the call returns.
+    expect(reasons).toEqual(['cancelled']); // NOT 'superseded'
+    expect(h.animator.animating).toBe(false);
+  });
+
+  it('jumpTo at zero size cancels an in-flight animation and writes nothing', () => {
+    const h = makeHarness();
+    const reasons = collectReasons(h.animator);
+    h.animator.animateTo(TARGET);
+    const before = { ...h.camera.position, zoom: h.camera.zoom };
+    h.setSize(800, 0);
+    h.animator.jumpTo({ x: 5, y: 5, w: 50, h: 40 });
+    expect(reasons).toEqual(['cancelled']);
+    expect({ ...h.camera.position, zoom: h.camera.zoom }).toEqual(before);
+  });
+
+  it('zero size mid-flight cancels and NEVER reports a false complete', () => {
+    const h = makeHarness();
+    const reasons = collectReasons(h.animator);
+    h.animator.animateTo(TARGET);
+    h.advance(100);
+    h.flush();
+
+    h.setSize(0, 0); // host hidden
+    h.advance(2000); // run the clock well past durationMs
+    h.flush();
+    h.flush();
+
+    expect(reasons).toEqual(['cancelled']);
+    expect(reasons).not.toContain('complete');
+    expect(Number.isFinite(h.camera.zoom)).toBe(true);
+  });
+});
+
+describe('poisoned canvas measurements', () => {
+  for (const [label, w, h] of [
+    ['negative width', -800, 600],
+    ['negative height', 800, -600],
+    ['NaN width', NaN, 600],
+    ['Infinity height', 800, Infinity],
+  ] as const) {
+    it(`animateTo throws synchronously on ${label} when idle`, () => {
+      const h2 = makeHarness();
+      h2.setSize(w, h);
+      h2.requestFrame.mockClear();
+      expect(() => h2.animator.animateTo(TARGET)).toThrow();
+      expect(h2.requestFrame).not.toHaveBeenCalled();
+      expect(Number.isFinite(h2.camera.zoom)).toBe(true);
+    });
+
+    it(`jumpTo throws synchronously on ${label} when idle`, () => {
+      const h2 = makeHarness();
+      h2.setSize(w, h);
+      expect(() => h2.animator.jumpTo(TARGET)).toThrow();
+      expect(Number.isFinite(h2.camera.zoom)).toBe(true);
+    });
+  }
+
+  it('a throwing public call leaves an in-flight animation untouched', () => {
+    const h = makeHarness();
+    const reasons = collectReasons(h.animator);
+    h.animator.animateTo(TARGET);
+    h.advance(100);
+    h.flush();
+
+    h.setSize(NaN, 600);
+    expect(() => h.animator.animateTo({ x: 1, y: 1, w: 10, h: 10 })).toThrow();
+    expect(reasons).toEqual([]); // no reason emitted
+    expect(h.animator.animating).toBe(true);
+
+    h.setSize(800, 600);
+    h.advance(1000);
+    h.flush();
+    expect(reasons).toEqual(['complete']); // original completed normally
+  });
+
+  it('a poisoned measurement MID-FRAME cancels instead of throwing', () => {
+    const h = makeHarness();
+    const reasons = collectReasons(h.animator);
+    h.animator.animateTo(TARGET);
+    h.advance(100);
+    h.flush();
+
+    h.setSize(NaN, 600);
+    h.advance(100);
+    expect(() => h.flush()).not.toThrow(); // no async throw from a frame
+    expect(reasons).toEqual(['cancelled']);
+    expect(h.animator.animating).toBe(false); // no orphaned animation
+
+    // And the camera was never poisoned.
+    expect(Number.isFinite(h.camera.zoom)).toBe(true);
+    expect(Number.isFinite(h.camera.position.x)).toBe(true);
+    expect(Number.isFinite(h.camera.getVisibleRect(800, 600).w)).toBe(true);
+  });
+});
+
+describe('terminal disposal', () => {
+  it('emits cancelled for an in-flight animation before clearing listeners', () => {
+    const h = makeHarness();
+    const reasons = collectReasons(h.animator);
+    h.animator.animateTo(TARGET);
+    h.animator.dispose();
+    expect(reasons).toEqual(['cancelled']);
+  });
+
+  it('a re-entrant animateTo during disposal starts NOTHING', () => {
+    const h = makeHarness();
+    const reasons: CameraAnimationEndReason[] = [];
+    h.animator.onEnd((r) => {
+      reasons.push(r);
+      h.animator.animateTo({ x: 1, y: 1, w: 10, h: 10 }); // re-entrant
+    });
+    h.animator.animateTo(TARGET);
+    h.requestFrame.mockClear();
+
+    h.animator.dispose();
+
+    expect(reasons).toEqual(['cancelled']);
+    expect(h.requestFrame).not.toHaveBeenCalled(); // no revived animation
+    expect(h.animator.animating).toBe(false);
+  });
+
+  it('re-entrant jumpTo and cancel during disposal are no-ops', () => {
+    const h = makeHarness();
+    const reasons: CameraAnimationEndReason[] = [];
+    h.animator.onEnd((r) => {
+      reasons.push(r);
+      h.animator.jumpTo({ x: 1, y: 1, w: 10, h: 10 });
+      h.animator.cancel();
+    });
+    h.animator.animateTo(TARGET);
+    const before = { ...h.camera.position, zoom: h.camera.zoom };
+    h.animator.dispose();
+    expect(reasons).toEqual(['cancelled']);
+    expect({ ...h.camera.position, zoom: h.camera.zoom }).toEqual(before);
+  });
+
+  it('CONTRAST: a re-entrant animateTo on a LIVE animator does start one', () => {
+    const h = makeHarness();
+    h.animator.onEnd((r) => {
+      if (r === 'complete') h.animator.animateTo({ x: 900, y: 900, w: 100, h: 75 });
+    });
+    h.animator.animateTo(TARGET);
+    h.advance(1000);
+    h.flush();
+    expect(h.animator.animating).toBe(true);
+  });
+
+  it('a disposed animator is inert for valid AND invalid input', () => {
+    const h = makeHarness();
+    h.animator.dispose();
+    const reasons = collectReasons(h.animator);
+    h.requestFrame.mockClear();
+    expect(() => h.animator.animateTo({ x: 0, y: 0, w: 0, h: 0 })).not.toThrow();
+    expect(() => h.animator.jumpTo({ x: NaN, y: 0, w: 1, h: 1 })).not.toThrow();
+    h.animator.cancel();
+    expect(reasons).toEqual([]);
+    expect(h.requestFrame).not.toHaveBeenCalled();
+  });
+
+  it('dispose is idempotent and removes listeners', () => {
+    const h = makeHarness();
+    const removeSpy = vi.spyOn(h.element, 'removeEventListener');
+    h.animator.dispose();
+    h.animator.dispose();
+    expect(removeSpy).toHaveBeenCalled();
+    h.element.dispatchEvent(new Event('pointerdown')); // must not throw
+  });
+});

@@ -2313,4 +2313,40 @@ describe('Viewport', () => {
       vp.destroy();
     });
   });
+
+  describe('getCanvasSize', () => {
+    it('returns the canvas element dimensions', () => {
+      const vp = new Viewport(container);
+      const canvas = container.querySelector('canvas');
+      if (!(canvas instanceof HTMLCanvasElement)) throw new Error('canvas not found');
+      Object.defineProperty(canvas, 'clientWidth', { value: 800, configurable: true });
+      Object.defineProperty(canvas, 'clientHeight', { value: 600, configurable: true });
+      expect(vp.getCanvasSize()).toEqual({ w: 800, h: 600 });
+      vp.destroy();
+    });
+
+    it('agrees with getVisibleRect scaled by zoom at several zoom levels', () => {
+      const vp = new Viewport(container);
+      const canvas = container.querySelector('canvas');
+      if (!(canvas instanceof HTMLCanvasElement)) throw new Error('canvas not found');
+      // Stub the canvas and wrapper to different non-zero sizes so this test
+      // actually discriminates which element getCanvasSize()/getVisibleRect()
+      // measure. Without this, jsdom reports clientWidth/clientHeight as 0 for
+      // every element, both accessors collapse to {w:0,h:0}, and the
+      // assertions below hold vacuously regardless of which element is read.
+      Object.defineProperty(canvas, 'clientWidth', { value: 800, configurable: true });
+      Object.defineProperty(canvas, 'clientHeight', { value: 600, configurable: true });
+      const wrapper = wrapperOf(container);
+      Object.defineProperty(wrapper, 'clientWidth', { value: 1024, configurable: true });
+      Object.defineProperty(wrapper, 'clientHeight', { value: 768, configurable: true });
+      for (const zoom of [0.5, 1, 2.5]) {
+        vp.camera.setZoom(zoom);
+        const size = vp.getCanvasSize();
+        const visible = vp.getVisibleRect();
+        expect(visible.w * vp.camera.zoom).toBeCloseTo(size.w, 6);
+        expect(visible.h * vp.camera.zoom).toBeCloseTo(size.h, 6);
+      }
+      vp.destroy();
+    });
+  });
 });

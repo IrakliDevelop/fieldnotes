@@ -3,7 +3,7 @@ import * as FN from './index';
 
 describe('core public surface', () => {
   it('exports the current version', () => {
-    expect(FN.VERSION).toBe('0.60.0');
+    expect(FN.VERSION).toBe('0.61.0');
   });
 
   it('exports the shared-ruler surface', () => {
@@ -11,6 +11,18 @@ describe('core public surface', () => {
     expect(FN.isMeasurePresence).toBeTypeOf('function');
     expect(FN.toMeasurePresence).toBeTypeOf('function');
     expect(FN.MEASURE_PRESENCE_KIND).toBe('measure');
+  });
+
+  it('exports the camera view, animator, and focus presence surface', () => {
+    expect(typeof FN.captureCameraView).toBe('function');
+    expect(typeof FN.fitZoomForView).toBe('function');
+    expect(typeof FN.cameraOriginForView).toBe('function');
+    expect(typeof FN.applyCameraView).toBe('function');
+    expect(typeof FN.CameraAnimator).toBe('function');
+    expect(typeof FN.isFocusPresence).toBe('function');
+    expect(typeof FN.toFocusPresence).toBe('function');
+    expect(FN.FOCUS_PRESENCE_KIND).toBe('focus');
+    expect(typeof FN.RemoteFocusReceiver).toBe('function');
   });
 
   it('does not export internal machinery (trimmed before 1.0)', () => {
