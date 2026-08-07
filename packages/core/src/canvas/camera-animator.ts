@@ -178,6 +178,12 @@ export class CameraAnimator {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    // Bump the generation so an animateTo/jumpTo call whose 'superseded' emit
+    // reached this dispose() (nested inside its own emit) sees its claimed
+    // generation go stale, just like nested animateTo/jumpTo re-entrancy. Without
+    // this, the outer call's generation guard passes and it writes state (or
+    // schedules a frame) onto a disposed animator.
+    this.generation++;
 
     const wasAnimating = this.to !== null;
     this.clearFrame();

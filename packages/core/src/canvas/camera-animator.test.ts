@@ -274,6 +274,38 @@ describe('re-entrancy from a superseded listener', () => {
     // 2 animations actually started (outer TARGET, nested) -> 2 reasons.
     expect(reasons).toHaveLength(2);
   });
+
+  it('animateTo does not revive a disposed animator when dispose() is called from its own supersede listener', () => {
+    const h = makeHarness();
+    h.animator.onEnd((r) => {
+      if (r === 'superseded') h.animator.dispose(); // disposal nested inside the emit
+    });
+
+    h.animator.animateTo(TARGET);
+    h.requestFrame.mockClear();
+    h.animator.animateTo({ x: 900, y: 900, w: 200, h: 150 }); // outer; supersedes then disposes
+
+    // The disposal must win: no new frame requested, and the animator must
+    // report itself as not animating, not silently resurrected.
+    expect(h.requestFrame).not.toHaveBeenCalled();
+    expect(h.animator.animating).toBe(false);
+  });
+
+  it('jumpTo does not write the camera when dispose() is called from its own supersede listener', () => {
+    const h = makeHarness();
+    h.animator.onEnd((r) => {
+      if (r === 'superseded') h.animator.dispose(); // disposal nested inside the emit
+    });
+
+    h.animator.animateTo(TARGET);
+    const before = { ...h.camera.position, zoom: h.camera.zoom };
+    h.animator.jumpTo({ x: 900, y: 900, w: 200, h: 150 }); // outer jump; supersedes then disposes
+
+    // Disposal must leave the animator inert: the jump's target must never
+    // land on the camera once the animator is terminal.
+    expect({ ...h.camera.position, zoom: h.camera.zoom }).toEqual(before);
+    expect(h.animator.animating).toBe(false);
+  });
 });
 
 describe('target validation ordering', () => {
@@ -362,10 +394,12 @@ describe('arbitration', () => {
     const spy = vi.spyOn(element, 'addEventListener');
     const camera = new Camera();
     new CameraAnimator(element, camera, { getCanvasSize: () => SIZE });
-    for (const [type, , opts] of spy.mock.calls) {
-      if (['pointerdown', 'wheel', 'keydown'].includes(String(type))) {
-        expect(opts).toMatchObject({ passive: true });
-      }
+    const cancelCalls = spy.mock.calls.filter(([type]) =>
+      ['pointerdown', 'wheel', 'keydown'].includes(String(type)),
+    );
+    expect(cancelCalls).toHaveLength(3);
+    for (const [, , opts] of cancelCalls) {
+      expect(opts).toMatchObject({ passive: true });
     }
   });
 

@@ -24,7 +24,7 @@ export type FocusAudience = 'all' | 'players' | 'display';
 
 export const FOCUS_PRESENCE_KIND = 'focus';
 
-const AUDIENCES: readonly string[] = ['all', 'players', 'display'];
+const AUDIENCES: readonly FocusAudience[] = ['all', 'players', 'display'];
 
 function isPositiveFinite(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0;
@@ -57,7 +57,7 @@ export function isFocusPresence(data: unknown): data is FocusPresence {
   if (payload.kind !== FOCUS_PRESENCE_KIND) return false;
   if (!isFiniteNumber(payload.x) || !isFiniteNumber(payload.y)) return false;
   if (!isPositiveFinite(payload.w) || !isPositiveFinite(payload.h)) return false;
-  if (typeof payload.audience !== 'string' || !AUDIENCES.includes(payload.audience)) {
+  if (typeof payload.audience !== 'string' || !AUDIENCES.some((a) => a === payload.audience)) {
     return false;
   }
   if (payload.color !== undefined && typeof payload.color !== 'string') return false;
