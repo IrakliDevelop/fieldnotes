@@ -28,6 +28,18 @@ describe('isFocusPresence', () => {
     expect(isFocusPresence({ kind: 'measure', start: {}, end: {} })).toBe(false);
   });
 
+  it('rejects the kind check alone, holding every other field valid', () => {
+    // Each fixture is otherwise a fully valid focus payload, so only the
+    // `kind` check can be responsible for the rejection.
+    expect(isFocusPresence({ ...VALID, kind: 'poke' })).toBe(false);
+    expect(isFocusPresence({ ...VALID, kind: 'laser' })).toBe(false);
+    expect(isFocusPresence({ ...VALID, kind: 'ping' })).toBe(false);
+    expect(isFocusPresence({ ...VALID, kind: 'measure' })).toBe(false);
+    const { x, y, w, h, audience, color } = VALID;
+    expect(isFocusPresence({ x, y, w, h, audience, color })).toBe(false);
+    expect(isFocusPresence({ ...VALID, kind: 1 })).toBe(false);
+  });
+
   it('rejects non-objects and null', () => {
     expect(isFocusPresence(null)).toBe(false);
     expect(isFocusPresence(undefined)).toBe(false);
