@@ -19,13 +19,23 @@ import {
   toPingPresence,
   RemoteMeasureOverlay,
   toMeasurePresence,
+  CameraAnimator,
+  RemoteFocusReceiver,
+  toFocusPresence,
+  captureCameraView,
   AutoSave,
   IndexedDBAdapter,
   createStroke,
   createNote,
   createGrid,
 } from '@fieldnotes/core';
-import type { AlignEdge, DistributeAxis, MeasurePresence } from '@fieldnotes/core';
+import type {
+  AlignEdge,
+  DistributeAxis,
+  MeasurePresence,
+  CameraView,
+  FocusAudience,
+} from '@fieldnotes/core';
 import { SyncClient, BroadcastChannelTransport } from '@fieldnotes/sync';
 
 console.log(`Field Notes v${VERSION}`);
@@ -1022,6 +1032,29 @@ document.addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement) return;
   if (e.key === 'g') pingInput.pingAtPointer();
 });
+
+// Camera bookmarks / focus requests: CameraAnimator drives the viewport's
+// camera and RemoteFocusReceiver (role 'player') applies focus presence
+// frames the way a DM's "bring everyone here" would — animating to the
+// target, freezing on any local input mid-flight, and marking arrival with
+// one pulse (delegated to the same overlay the map pings use).
+const cameraWrapperEl = viewport.domLayer.parentElement;
+if (!cameraWrapperEl) throw new Error('Missing viewport wrapper');
+const cameraAnimator = new CameraAnimator(cameraWrapperEl, viewport.camera, {
+  getCanvasSize: () => viewport.getCanvasSize(),
+});
+const focusReceiver = new RemoteFocusReceiver(viewport, {
+  role: 'player',
+  animator: cameraAnimator,
+});
+// Demo-only e2e hook, mirroring __fieldnotes_remote_ping / __fieldnotes_remote_measure.
+(window as unknown as Record<string, unknown>)['__fieldnotes_focus'] = {
+  animator: cameraAnimator,
+  receiver: focusReceiver,
+  capture: () => captureCameraView(viewport),
+  focus: (view: CameraView, audience: FocusAudience = 'all') =>
+    focusReceiver.apply('demo-dm', toFocusPresence(view, audience)),
+};
 
 function mulberry32(seed: number): () => number {
   return () => {
