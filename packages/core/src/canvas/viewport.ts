@@ -353,8 +353,9 @@ export class Viewport {
     this.unsubStore = [
       this.store.on('add', (el) => {
         if (el.type === 'grid') this.gridController.syncContext();
-        if (el.type === 'html')
+        if (el.type === 'html') {
           this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
+        }
         this.renderLoop.markLayerDirty(el.layerId);
         this.requestRender();
       }),
@@ -380,6 +381,7 @@ export class Viewport {
       }),
       this.store.on('clear', () => {
         this.domNodeManager.clearDomNodes();
+        this.htmlDiagnostics.reset();
         this.renderLoop.markAllLayersDirty();
         this.gridController.syncContext();
         this.requestRender();

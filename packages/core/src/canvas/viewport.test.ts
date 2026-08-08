@@ -2509,6 +2509,27 @@ describe('Viewport html painters', () => {
     expect(sink).toHaveBeenCalledTimes(2);
   });
 
+  it('re-emits missing-painter diagnostics after loadState reloads the same document', async () => {
+    const vp = makeViewport();
+    const sink = vi.fn<(d: HtmlPaintDiagnostic) => void>();
+    vp.onHtmlPaintDiagnostic(sink);
+    vp.expectCanvasHtmlTypes(['rk-marker']);
+    const el = markerElement();
+    vp.store.add(el);
+    await nextFrame(vp);
+    expect(sink).toHaveBeenCalledTimes(1);
+
+    // Reload the identical document through the same public path a host uses
+    // (loadState/loadJSON). ElementStore.clear()/loadSnapshot() emit a single
+    // 'clear' event with no per-element 'remove' events, so the dedupe state
+    // keyed on this element's id must be reset independently of 'remove'.
+    const state = vp.exportState();
+    vp.loadState(state);
+    await nextFrame(vp);
+
+    expect(sink).toHaveBeenCalledTimes(2);
+  });
+
   it('leaves no node and no empty stratum behind for a canvas-routed marker', async () => {
     const vp = makeViewport();
     const el = markerElement();
