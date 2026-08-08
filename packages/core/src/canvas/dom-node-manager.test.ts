@@ -897,6 +897,36 @@ describe('DomNodeManager canvas routing', () => {
     expect(manager.getNode(el.id)?.style.pointerEvents).toBe('auto');
   });
 
+  it('remounts preserved content on the canvas -> dom leg alone', () => {
+    // Mount the ordinary way first (direct syncDomNode, as the "reconcile detaches..." test
+    // above does), so reconciliation's first pass is a no-op with respect to mounting. This
+    // isolates evidence for the canvas -> dom remount branch specifically, independent of
+    // whichever branch performs a routing='dom' element's very first mount.
+    const { manager, store } = setup();
+    const el = htmlElement('embed');
+    store.add(el);
+    const content = document.createElement('span');
+    content.textContent = 'original';
+    manager.storeHtmlContent(el.id, content);
+    manager.syncDomNode(el);
+
+    let routing: 'dom' | 'canvas' = 'dom';
+    const reconcile = () => manager.reconcileHtmlRouting(store, () => routing);
+
+    reconcile();
+    expect(manager.getNode(el.id)?.textContent).toBe('original');
+
+    routing = 'canvas';
+    reconcile();
+    expect(manager.getNode(el.id)).toBeUndefined();
+    expect(manager.hasContent(el.id)).toBe(true);
+
+    routing = 'dom';
+    reconcile();
+    // The canvas -> dom leg alone must remount the ORIGINAL content, synchronously.
+    expect(manager.getNode(el.id)?.textContent).toBe('original');
+  });
+
   it('reconcile detaches canvas-routed ids and leaves dom-routed ones mounted', () => {
     const { manager, store } = setup();
     const canvasEl = htmlElement('rk-marker');

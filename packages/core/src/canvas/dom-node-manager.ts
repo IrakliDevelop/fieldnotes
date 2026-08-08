@@ -128,26 +128,20 @@ export class DomNodeManager {
 
   removeDomNode(id: string): void {
     this.htmlContent.delete(id);
-    this.lastSyncedVersion.delete(id);
-    this.lastSyncedZIndex.delete(id);
-    this.lastSyncedOpacity.delete(id);
-    const node = this.domNodes.get(id);
-    if (node) {
-      const stratum = node.parentElement;
-      node.remove();
-      this.domNodes.delete(id);
-      if (stratum?.childElementCount === 0) {
-        const order = Number(stratum.dataset['paintOrder']);
-        stratum.remove();
-        this.strata.delete(order);
-      }
-    }
+    this.detachNodeElement(id);
   }
 
   /** Removes the node but KEEPS htmlContent, so a later re-mount restores the original embed.
    *  The registry factory that produces embed content only runs in loadState (G1), so dropping
    *  content here would be unrecoverable. Use `removeDomNode` when the element itself is gone. */
   detachDomNode(id: string): void {
+    this.detachNodeElement(id);
+  }
+
+  /** Shared by `removeDomNode` and `detachDomNode`: clears dirty-tracking caches, removes the
+   *  node from the DOM, and cleans up its stratum if now empty. Does NOT touch `htmlContent` —
+   *  that distinction is each caller's own responsibility. */
+  private detachNodeElement(id: string): void {
     this.lastSyncedVersion.delete(id);
     this.lastSyncedZIndex.delete(id);
     this.lastSyncedOpacity.delete(id);
