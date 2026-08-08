@@ -1182,11 +1182,11 @@ describe('ElementRenderer', () => {
 describe('ElementRenderer html routing', () => {
   it('does not paint an html element when no painter is registered', () => {
     const renderer = new ElementRenderer();
-    const painter = vi.fn();
+    const ctx = mockCtx();
     renderer.setHtmlPainters(new HtmlPainterRegistry());
     renderer.setRenderTarget('screen');
-    renderer.renderCanvasElement(mockCtx(), htmlElement('rk-marker'));
-    expect(painter).not.toHaveBeenCalled();
+    renderer.renderCanvasElement(ctx, htmlElement('rk-marker'));
+    expect(totalCtxCalls(ctx)).toBe(0);
   });
 
   it('paints a canvas-routed html element via its registered painter', () => {
