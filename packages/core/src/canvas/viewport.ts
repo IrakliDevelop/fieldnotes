@@ -744,6 +744,19 @@ export class Viewport {
   }
 
   /**
+   * Direct access to the viewport's live html-painter registry — the same
+   * instance the viewport itself uses to route canvas-backed html elements.
+   * Beyond `register`/`expectCanvasHtmlTypes` (already exposed above), this
+   * hands out `getActivePainter`, `canvasTypes`, `onChange`, and `version`,
+   * so a surface such as the minimap that needs to read routing state or
+   * react to registry changes can do so without the viewport re-deriving or
+   * proxying each capability individually.
+   */
+  getHtmlPainters(): HtmlPainterRegistry {
+    return this.htmlPainters;
+  }
+
+  /**
    * Registers the canvas painter for `htmlType`. Later registrations for the
    * same type shadow earlier ones (LIFO); unregistering restores the previous
    * entry. Existing elements of this type reconcile synchronously — DOM nodes

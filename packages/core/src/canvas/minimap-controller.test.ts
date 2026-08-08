@@ -5,8 +5,16 @@ import { MinimapController } from './minimap-controller';
 import type { MinimapControllerOptions } from './minimap-controller';
 import { computeMinimapTransform, miniToWorld, worldToMini } from './minimap-transform';
 import { ElementRenderer } from '../elements/element-renderer';
-import { createNote, createStroke, createText } from '../elements/element-factory';
+import {
+  createHtmlElement,
+  createNote,
+  createStroke,
+  createText,
+} from '../elements/element-factory';
 import type { CanvasElement } from '../elements/types';
+import type { HtmlPainterRegistry } from './html-painter-registry';
+import type { Camera } from './camera';
+import type { LayerManager } from '../layers/layer-manager';
 
 // ---------------------------------------------------------------------------
 // Recorder: a shared fake CanvasRenderingContext2D returned for every canvas
@@ -1028,6 +1036,132 @@ describe('MinimapController navigation, resize, dispose, image reload', () => {
     vi.advanceTimersByTime(1000);
     expect(queue.frames.length).toBe(0);
 
+    viewport.destroy();
+  });
+});
+
+describe('MinimapController canvas-routed html painters', () => {
+  // Matches MinimapController's own DEFAULT_DEBOUNCE_MS (not exported); every
+  // makeController() call below leaves debounceMs at its default.
+  const DEBOUNCE_MS = 200;
+
+  interface MinimapHtmlHarness {
+    viewport: Viewport;
+    controller: MinimapController;
+    registry: HtmlPainterRegistry;
+    camera: Camera;
+    layers: LayerManager;
+    layerId: string;
+    sceneRenderSpy: ReturnType<typeof vi.spyOn>;
+    // The brief's `controller.renderNow()`: MinimapController exposes no such
+    // method (only invalidateScene() is new production API), so this harness
+    // helper stands in for it — settle the debounce timer, then flush the
+    // frame queue, exactly what the file's other tests do inline via
+    // `vi.advanceTimersByTime(200)` + `queue.flush()`.
+    renderNow: () => void;
+  }
+
+  // One html element routable to 'rk-marker' sits in the scene from the
+  // start, on the viewport's default layer, so registering/expecting a
+  // painter for that htmlType is immediately observable in a render.
+  function setupMinimap(): MinimapHtmlHarness {
+    const { viewport } = makeViewportHarness();
+    const layerId = viewport.layerManager.activeLayerId;
+    viewport.store.add(
+      createHtmlElement({
+        position: { x: 0, y: 0 },
+        size: { w: 50, h: 50 },
+        layerId,
+        htmlType: 'rk-marker',
+      }),
+    );
+
+    const canvas = document.createElement('canvas');
+    const queue = makeFrameQueue();
+    const controller = makeController(viewport, canvas, queue);
+    queue.flush(); // drain the constructor's own initial frame, like the file's other tests
+
+    const sceneRenderSpy = vi.spyOn(
+      controller as unknown as Record<'renderScene', () => void>,
+      'renderScene',
+    );
+
+    return {
+      viewport,
+      controller,
+      registry: viewport.getHtmlPainters(),
+      camera: viewport.camera,
+      layers: viewport.layerManager,
+      layerId,
+      sceneRenderSpy,
+      renderNow: () => {
+        vi.advanceTimersByTime(DEBOUNCE_MS + 1);
+        queue.flush();
+      },
+    };
+  }
+
+  it('paints a canvas-routed marker with the minimap fit scale, not the camera zoom', () => {
+    const { viewport, controller, registry, camera, renderNow } = setupMinimap();
+    camera.setZoom(4);
+    const painter = vi.fn();
+    registry.expect(['rk-marker']);
+    registry.register('rk-marker', painter);
+    controller.invalidateScene();
+    renderNow();
+    const zoom = (painter.mock.calls[0]?.[0] as { zoom: number }).zoom;
+    expect(zoom).not.toBe(4);
+    expect(zoom).toBeGreaterThan(0);
+
+    controller.dispose();
+    viewport.destroy();
+  });
+
+  // Two SEPARATE guarantees. A single test combining registration with an
+  // explicit render could not fail even without invalidateScene: register()
+  // firing onChange is not what this test checks — it checks that onChange
+  // ALONE (no direct render/composite call) is enough to eventually paint.
+  it('schedules a debounced scene rebuild from onChange, with NO explicit renderNow()', () => {
+    const { viewport, controller, registry, renderNow } = setupMinimap();
+    renderNow(); // prime the cache
+    const painter = vi.fn();
+    registry.expect(['rk-marker']);
+    registry.register('rk-marker', painter); // onChange -> invalidateScene
+    vi.advanceTimersByTime(DEBOUNCE_MS + 1); // fake timers; no direct render call
+    expect(painter).toHaveBeenCalled();
+
+    controller.dispose();
+    viewport.destroy();
+  });
+
+  it('reuses the cached scene bitmap when nothing changed', () => {
+    const { viewport, controller, registry, sceneRenderSpy, renderNow } = setupMinimap();
+    registry.expect(['rk-marker']);
+    registry.register('rk-marker', vi.fn());
+    renderNow();
+    const initial = sceneRenderSpy.mock.calls.length;
+    renderNow(); // camera-only tick: composite, do not rebuild
+    expect(sceneRenderSpy.mock.calls.length).toBe(initial);
+
+    controller.dispose();
+    viewport.destroy();
+  });
+
+  it('applies translucent layer opacity exactly once', () => {
+    const { viewport, controller, registry, layers, layerId, renderNow } = setupMinimap();
+    layers.setLayerOpacity(layerId, 0.5);
+    let observed = -1;
+    registry.expect(['rk-marker']);
+    registry.register('rk-marker', ({ ctx }) => {
+      observed = ctx.globalAlpha;
+    });
+    renderNow();
+    expect(observed).toBe(1); // painter sees no alpha; composite applies 0.5
+    // No controller.lastCompositeAlpha exists (nor should it): the same
+    // recorder-based assertion the file's own test 7 uses for this composite.
+    expect(layerCompositeCalls().at(-1)?.alpha).toBe(0.5);
+
+    controller.dispose();
     viewport.destroy();
   });
 });
