@@ -2449,6 +2449,21 @@ describe('Viewport html painters', () => {
     return (vp as unknown as { paintStack: HTMLDivElement }).paintStack;
   }
 
+  it("getHtmlPainters returns the viewport's own live registry", () => {
+    const vp = makeViewport();
+    const painter = vi.fn();
+    // A painter registered via the viewport's own registerHtmlPainter(...)
+    // must be visible through the registry getHtmlPainters() hands out --
+    // proving it is the SAME instance the viewport routes elements through,
+    // not a copy or a freshly constructed one.
+    const unregister = vp.registerHtmlPainter('rk-marker', painter);
+    const registry = vp.getHtmlPainters();
+    expect(registry.getActivePainter('rk-marker')).toBe(painter);
+    // Repeated calls return the identical instance, not a new wrapper each time.
+    expect(vp.getHtmlPainters()).toBe(registry);
+    unregister();
+  });
+
   it('paints a registered marker on the next frame with no DOM node created', async () => {
     const vp = makeViewport();
     const painter = vi.fn();
