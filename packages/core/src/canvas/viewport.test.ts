@@ -14,7 +14,8 @@ import {
 import { SelectTool } from '../tools/select-tool';
 import { PencilTool } from '../tools/pencil-tool';
 import { renderImage } from '../elements/renderers/image-renderer';
-import type { ImageElement } from '../elements/types';
+import type { ImageElement, HtmlElement } from '../elements/types';
+import type { HtmlPaintDiagnostic } from './html-paint-diagnostics';
 
 function wrapperOf(container: HTMLElement): HTMLDivElement {
   const w = container.firstElementChild;
@@ -2348,5 +2349,176 @@ describe('Viewport', () => {
       }
       vp.destroy();
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Viewport html painters (Task A5)
+//
+// jsdom ships no real 2D canvas backend (no `canvas` npm package installed in
+// this repo), so `HTMLCanvasElement.getContext('2d')` normally returns null
+// and RenderLoop.render() bails out at its first line. A Proxy-based context
+// stub (any method -> no-op, any property settable) is installed for this
+// block only, so Viewport's REAL render loop — Background, LayerCache offscreen
+// canvases, HybridRenderSurface, ElementRenderer — can run end to end without
+// throwing, exercising the actual painter-invocation and DOM-node-reconciliation
+// paths rather than a mocked stand-in for them.
+// ---------------------------------------------------------------------------
+describe('Viewport html painters', () => {
+  function makeStubContext(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
+    const state: Record<string, unknown> = { canvas };
+    const handler: ProxyHandler<Record<string, unknown>> = {
+      get(target, prop) {
+        if (prop in target) return target[prop as string];
+        if (prop === 'measureText') return () => ({ width: 0 });
+        if (
+          prop === 'createPattern' ||
+          prop === 'createLinearGradient' ||
+          prop === 'createRadialGradient'
+        ) {
+          return () => null;
+        }
+        if (prop === 'getImageData') {
+          return () => ({ data: new Uint8ClampedArray(4), width: 1, height: 1 });
+        }
+        return () => undefined;
+      },
+      set(target, prop, value) {
+        target[prop as string] = value;
+        return true;
+      },
+    };
+    return new Proxy(state, handler) as unknown as CanvasRenderingContext2D;
+  }
+
+  let getContextSpy: ReturnType<typeof vi.spyOn>;
+  const created: { vp: Viewport; container: HTMLDivElement }[] = [];
+
+  beforeEach(() => {
+    getContextSpy = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockImplementation(function (this: HTMLCanvasElement) {
+        return makeStubContext(this);
+      } as never);
+  });
+
+  afterEach(() => {
+    while (created.length > 0) {
+      const entry = created.pop();
+      entry?.vp.destroy();
+      entry?.container.remove();
+    }
+    getContextSpy.mockRestore();
+  });
+
+  function makeViewport(): Viewport {
+    const container = document.createElement('div');
+    Object.defineProperty(container, 'getBoundingClientRect', {
+      value: () => ({ left: 0, top: 0, width: 800, height: 600 }),
+    });
+    document.body.appendChild(container);
+    const vp = new Viewport(container);
+    const canvas = container.querySelector('canvas');
+    if (!(canvas instanceof HTMLCanvasElement)) throw new Error('canvas not found');
+    Object.defineProperty(canvas, 'clientWidth', { value: 800, configurable: true });
+    Object.defineProperty(canvas, 'clientHeight', { value: 600, configurable: true });
+    created.push({ vp, container });
+    return vp;
+  }
+
+  function markerElement(): HtmlElement {
+    return createHtmlElement({
+      position: { x: 0, y: 0 },
+      size: { w: 50, h: 50 },
+      htmlType: 'rk-marker',
+    });
+  }
+
+  // Real requestAnimationFrame (not faked): the Viewport's own RAF-driven render
+  // loop already has a pending frame from construction, registered before this
+  // call, so a single further rAF tick lands after that pending frame runs.
+  async function nextFrame(_vp: Viewport): Promise<void> {
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  }
+
+  // DomNodeManager mounts synced nodes into the private `paintStack` layer, not
+  // the public `domLayer` (which carries unrelated overlays such as the note
+  // toolbar). Reached via cast rather than a new accessor, matching this file's
+  // existing `(viewport as unknown as {...}).domNodeManager` convention.
+  function paintStackOf(vp: Viewport): HTMLDivElement {
+    return (vp as unknown as { paintStack: HTMLDivElement }).paintStack;
+  }
+
+  it('paints a registered marker on the next frame with no DOM node created', async () => {
+    const vp = makeViewport();
+    const painter = vi.fn();
+    vp.expectCanvasHtmlTypes(['rk-marker']);
+    vp.registerHtmlPainter('rk-marker', painter);
+    vp.store.add(markerElement());
+    await nextFrame(vp);
+    expect(painter).toHaveBeenCalled();
+    expect(paintStackOf(vp).querySelector('[data-element-id]')).toBeNull();
+  });
+
+  it('repaints elements that already existed when the painter registers later', async () => {
+    const vp = makeViewport();
+    vp.store.add(markerElement());
+    await nextFrame(vp);
+    const painter = vi.fn();
+    vp.expectCanvasHtmlTypes(['rk-marker']);
+    vp.registerHtmlPainter('rk-marker', painter);
+    await nextFrame(vp);
+    expect(painter).toHaveBeenCalled();
+  });
+
+  it('detaches an existing DOM node synchronously when a painter registers', () => {
+    const vp = makeViewport();
+    const el = markerElement();
+    vp.store.add(el);
+    vp.updateHtmlElement(el.id, document.createElement('span'));
+    // Content mounts synchronously (no render pass has run): without this, the final
+    // assertion below would hold vacuously whether or not registration ever detaches
+    // anything, since there would never have been a node to begin with.
+    expect(paintStackOf(vp).querySelector(`[data-element-id="${el.id}"]`)).not.toBeNull();
+    // eslint-disable-next-line @typescript-eslint/no-empty-function
+    vp.registerHtmlPainter('rk-marker', () => {});
+    expect(paintStackOf(vp).querySelector(`[data-element-id="${el.id}"]`)).toBeNull();
+  });
+
+  it('forwards missing-painter diagnostics to onHtmlPaintDiagnostic', async () => {
+    const vp = makeViewport();
+    const sink = vi.fn<(d: HtmlPaintDiagnostic) => void>();
+    vp.onHtmlPaintDiagnostic(sink);
+    vp.expectCanvasHtmlTypes(['rk-marker']);
+    vp.store.add(markerElement());
+    await nextFrame(vp);
+    expect(sink).toHaveBeenCalledWith(expect.objectContaining({ kind: 'missing-painter' }));
+  });
+
+  it('clears diagnostic dedupe state when the element is removed', async () => {
+    const vp = makeViewport();
+    const sink = vi.fn<(d: HtmlPaintDiagnostic) => void>();
+    vp.onHtmlPaintDiagnostic(sink);
+    vp.expectCanvasHtmlTypes(['rk-marker']);
+    const el = markerElement();
+    vp.store.add(el);
+    await nextFrame(vp);
+    vp.store.remove(el.id);
+    vp.store.add(el);
+    await nextFrame(vp);
+    expect(sink).toHaveBeenCalledTimes(2);
+  });
+
+  it('leaves no node and no empty stratum behind for a canvas-routed marker', async () => {
+    const vp = makeViewport();
+    const el = markerElement();
+    vp.store.add(el);
+    vp.updateHtmlElement(el.id, document.createElement('span')); // becomes DOM-backed
+    await nextFrame(vp);
+    // eslint-disable-next-line @typescript-eslint/no-empty-function
+    vp.registerHtmlPainter('rk-marker', () => {}); // now canvas-routed
+    await nextFrame(vp);
+    expect(paintStackOf(vp).querySelector(`[data-element-id="${el.id}"]`)).toBeNull();
+    expect(paintStackOf(vp).querySelector('[data-paint-order]')).toBeNull();
   });
 });
