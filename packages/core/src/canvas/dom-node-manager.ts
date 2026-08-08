@@ -1,4 +1,4 @@
-import type { CanvasElement } from '../elements/types';
+import type { CanvasElement, HtmlElement } from '../elements/types';
 import type { ElementStore } from '../elements/element-store';
 import { DEFAULT_NOTE_FONT_SIZE } from '../elements/element-factory';
 import { DoubleTapDetector } from './double-tap-detector';
@@ -41,6 +41,11 @@ export class DomNodeManager {
 
   storeHtmlContent(elementId: string, dom: HTMLElement): void {
     this.htmlContent.set(elementId, dom);
+    // Content arriving (or changing) is not reflected in the element's own data version, so
+    // the dirty-tracking fast path in syncDomNode must be invalidated explicitly — otherwise a
+    // contentless node stuck at pointerEvents:'none' (G2) would never re-render once content
+    // shows up.
+    this.lastSyncedVersion.delete(elementId);
   }
 
   hasContent(elementId: string): boolean {
@@ -139,6 +144,44 @@ export class DomNodeManager {
     }
   }
 
+  /** Removes the node but KEEPS htmlContent, so a later re-mount restores the original embed.
+   *  The registry factory that produces embed content only runs in loadState (G1), so dropping
+   *  content here would be unrecoverable. Use `removeDomNode` when the element itself is gone. */
+  detachDomNode(id: string): void {
+    this.lastSyncedVersion.delete(id);
+    this.lastSyncedZIndex.delete(id);
+    this.lastSyncedOpacity.delete(id);
+    const node = this.domNodes.get(id);
+    if (!node) return;
+    const stratum = node.parentElement;
+    node.remove();
+    this.domNodes.delete(id);
+    if (stratum?.childElementCount === 0) {
+      const order = Number(stratum.dataset['paintOrder']);
+      stratum.remove();
+      this.strata.delete(order);
+    }
+  }
+
+  /** Reconciles BOTH directions synchronously. Canvas/missing routing detaches the node
+   *  (content preserved); dom routing remounts preserved content immediately, so a painter
+   *  unregistration does not wait for an unrelated render pass. */
+  reconcileHtmlRouting(
+    store: ElementStore,
+    resolve: (el: HtmlElement) => 'dom' | 'canvas' | 'missing',
+  ): void {
+    for (const el of store.getElementsByType('html')) {
+      if (resolve(el) !== 'dom') {
+        this.detachDomNode(el.id);
+        continue;
+      }
+      // Reverse transition: only meaningful when content survived a detach.
+      if (this.htmlContent.has(el.id) && !this.domNodes.has(el.id)) {
+        this.syncDomNode(el);
+      }
+    }
+  }
+
   clearDomNodes(): void {
     this.domNodes.forEach((node) => node.remove());
     this.domNodes.clear();
@@ -227,8 +270,8 @@ export class DomNodeManager {
     }
 
     if (element.type === 'html') {
+      const content = this.htmlContent.get(element.id);
       if (!node.dataset['initialized']) {
-        const content = this.htmlContent.get(element.id);
         if (content) {
           node.dataset['initialized'] = 'true';
           Object.assign(node.style, {
@@ -236,6 +279,10 @@ export class DomNodeManager {
             pointerEvents: element.interactive ? 'auto' : 'none',
           });
           node.appendChild(content);
+        } else {
+          // G2: a contentless html node must not swallow pointer events. This is what an
+          // unknown htmlType on an older client produces.
+          node.style.pointerEvents = 'none';
         }
       } else {
         node.style.pointerEvents = element.interactive ? 'auto' : 'none';
