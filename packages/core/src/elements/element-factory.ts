@@ -27,7 +27,6 @@ interface BaseDefaults {
   zIndex?: number;
   locked?: boolean;
   layerId?: string;
-  rotation?: number;
 }
 
 interface StrokeInput extends BaseDefaults {
@@ -72,6 +71,7 @@ interface HtmlInput extends BaseDefaults {
   interactive?: boolean;
   htmlType?: string;
   data?: Record<string, unknown>;
+  rotation?: number;
 }
 
 interface TextInput extends BaseDefaults {

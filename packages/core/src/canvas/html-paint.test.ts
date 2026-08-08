@@ -114,7 +114,13 @@ describe('paintHtmlElement', () => {
       },
       { ctx, zoom: 1, target: 'screen' },
     );
-    expect(ctx.calls.some((c) => c.startsWith('rotate:0.5'))).toBe(true);
+    // Pin the ordered centre-rotation sequence: translate to centre, rotate,
+    // translate back by -halfSize. Order matters — a top-left rotation would
+    // also emit `rotate:0.5` but with the wrong translate calls/order.
+    const transformCalls = ctx.calls.filter(
+      (c) => c.startsWith('translate:') || c.startsWith('rotate:'),
+    );
+    expect(transformCalls).toEqual(['translate:40,50', 'rotate:0.5', 'translate:-20,-20']);
   });
 
   it('skips rotation when applyRotation is false, for callers that rotate themselves', () => {
