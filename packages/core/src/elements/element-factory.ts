@@ -27,6 +27,7 @@ interface BaseDefaults {
   zIndex?: number;
   locked?: boolean;
   layerId?: string;
+  rotation?: number;
 }
 
 interface StrokeInput extends BaseDefaults {
@@ -165,6 +166,7 @@ export function createHtmlElement(input: HtmlInput): HtmlElement {
   if (input.interactive) el.interactive = input.interactive;
   if (input.htmlType) el.htmlType = input.htmlType;
   if (input.data) el.data = input.data;
+  if (input.rotation !== undefined) el.rotation = input.rotation;
   return el;
 }
 
