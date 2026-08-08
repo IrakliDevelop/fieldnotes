@@ -18,6 +18,8 @@ import {
   createTemplate,
 } from '../elements/element-factory';
 import { ElementStore } from '../elements/element-store';
+import { HtmlPainterRegistry, HtmlPainterMissingError } from './html-painter-registry';
+import type { HtmlElement } from '../elements/types';
 
 describe('getElementRect', () => {
   it('returns bounds for a note', () => {
@@ -503,6 +505,9 @@ function mockCanvasCtx() {
     restore: vi.fn(),
     scale: vi.fn(),
     translate: vi.fn(),
+    rotate: vi.fn(),
+    rect: vi.fn(),
+    clip: vi.fn(),
     fillRect: vi.fn(),
     strokeRect: vi.fn(),
     fillStyle: '',
@@ -532,6 +537,67 @@ function mockCanvasCtx() {
     lineCap: '',
     lineJoin: '',
   } as unknown as CanvasRenderingContext2D;
+}
+
+const painterCallCounts = new WeakMap<HtmlPainterRegistry, number>();
+
+function markerElement(overrides: Partial<HtmlElement> = {}): HtmlElement {
+  return {
+    id: 'marker-1',
+    type: 'html',
+    position: { x: 0, y: 0 },
+    size: { w: 100, h: 100 },
+    zIndex: 0,
+    locked: false,
+    layerId: '',
+    htmlType: 'rk-marker',
+    ...overrides,
+  };
+}
+
+function htmlElement(htmlType: string, overrides: Partial<HtmlElement> = {}): HtmlElement {
+  return {
+    id: `html-${htmlType}`,
+    type: 'html',
+    position: { x: 0, y: 0 },
+    size: { w: 100, h: 100 },
+    zIndex: 0,
+    locked: false,
+    layerId: '',
+    htmlType,
+    ...overrides,
+  };
+}
+
+function storeWith(el: HtmlElement): ElementStore {
+  const store = new ElementStore();
+  store.add(el);
+  return store;
+}
+
+/** A registry with an active, call-counted painter for `htmlType`. */
+function registryWith(htmlType: string): HtmlPainterRegistry {
+  const registry = new HtmlPainterRegistry();
+  registry.expect([htmlType]);
+  painterCallCounts.set(registry, 0);
+  registry.register(htmlType, () => {
+    painterCallCounts.set(registry, (painterCallCounts.get(registry) ?? 0) + 1);
+  });
+  return registry;
+}
+
+function painterCalls(registry: HtmlPainterRegistry): number {
+  return painterCallCounts.get(registry) ?? 0;
+}
+
+function layersWithOpacity(opacity: number): {
+  isLayerVisible: () => boolean;
+  getLayer: () => { opacity: number };
+} {
+  return {
+    isLayerVisible: () => true,
+    getLayer: () => ({ opacity }),
+  };
 }
 
 describe('exportImage — rendering paths', () => {
@@ -972,5 +1038,151 @@ describe('exportImage — rendering paths', () => {
     expect(blob?.type).toBe('image/png');
     expect(lastToBlobArgs).toEqual(['image/png', undefined]);
     vi.restoreAllMocks();
+  });
+
+  describe('exportImage canvas-routed html', () => {
+    it('paints a marker through the registry', async () => {
+      mockGetContext();
+      const registry = registryWith('rk-marker');
+      const blob = await exportImage(storeWith(markerElement()), {
+        htmlPainters: registry,
+        expectedCanvasTypes: new Set(['rk-marker']),
+      });
+      expect(blob).not.toBeNull();
+      expect(painterCalls(registry)).toBe(1);
+      vi.restoreAllMocks();
+    });
+
+    it('does NOT ask renderHtml for canvas-routed elements', async () => {
+      mockGetContext();
+      const renderHtml = vi.fn();
+      await exportImage(storeWith(markerElement()), {
+        htmlPainters: registryWith('rk-marker'),
+        renderHtml,
+      });
+      expect(renderHtml).not.toHaveBeenCalled();
+      vi.restoreAllMocks();
+    });
+
+    it('throws HtmlPainterMissingError under strictMissingCanvasHtml', async () => {
+      mockGetContext();
+      await expect(
+        exportImage(storeWith(markerElement()), {
+          expectedCanvasTypes: new Set(['rk-marker']),
+          strictMissingCanvasHtml: true,
+        }),
+      ).rejects.toBeInstanceOf(HtmlPainterMissingError);
+      vi.restoreAllMocks();
+    });
+
+    it('reports missing-painter without throwing when strict is off', async () => {
+      mockGetContext();
+      const onHtmlError = vi.fn();
+      await exportImage(storeWith(markerElement()), {
+        expectedCanvasTypes: new Set(['rk-marker']),
+        onHtmlError,
+      });
+      expect(onHtmlError).toHaveBeenCalledWith(
+        expect.objectContaining({ reason: 'missing-painter' }),
+      );
+      vi.restoreAllMocks();
+    });
+
+    it('keeps DOM-backed html non-fatal under strictMissingCanvasHtml', async () => {
+      // Discriminating in both halves: the existing 'unsupported' diagnostic MUST still
+      // fire (no renderHtml supplied), and strict mode must NOT escalate it to a throw.
+      mockGetContext();
+      const onHtmlError = vi.fn();
+      const blob = await exportImage(storeWith(htmlElement('legacy-embed')), {
+        strictMissingCanvasHtml: true,
+        onHtmlError,
+      });
+      expect(blob).not.toBeNull();
+      expect(onHtmlError).toHaveBeenCalledWith(expect.objectContaining({ reason: 'unsupported' }));
+      vi.restoreAllMocks();
+    });
+
+    it('applies layer opacity once for a canvas-routed marker', async () => {
+      mockGetContext();
+      // Poison value: if the painter is never invoked (e.g. the marker is silently
+      // dropped instead of routed to canvas), this stays -1 and the assertion fails —
+      // it must not be able to pass just because nothing ran.
+      let observed = -1;
+      const registry = new HtmlPainterRegistry();
+      registry.expect(['rk-marker']);
+      registry.register('rk-marker', ({ ctx }) => {
+        observed = ctx.globalAlpha;
+      });
+      await exportImage(
+        storeWith(markerElement()),
+        { htmlPainters: registry },
+        layersWithOpacity(0.5) as never,
+      );
+      expect(observed).toBe(1);
+      vi.restoreAllMocks();
+    });
+
+    it('rotates a canvas-routed marker exactly once', async () => {
+      // paintHtmlElement rotates internally (applyRotation defaults to true), so the html
+      // branch must NOT also wrap canvas-routed elements in withRotation(...). Double
+      // rotation still produces a non-null blob, so counting the calls is the only
+      // discriminating assertion.
+      const ctx = mockGetContext();
+      const registry = new HtmlPainterRegistry();
+      registry.expect(['rk-marker']);
+      // eslint-disable-next-line @typescript-eslint/no-empty-function
+      registry.register('rk-marker', () => {});
+      await exportImage(storeWith(markerElement({ rotation: Math.PI / 2 })), {
+        htmlPainters: registry,
+      });
+      const rotateCalls = (ctx.rotate as ReturnType<typeof vi.fn>).mock.calls;
+      expect(rotateCalls).toEqual([[Math.PI / 2]]);
+      vi.restoreAllMocks();
+    });
+
+    // Supplementary to the brief's Step 1 list: Step 3 also requires forwarding
+    // paintHtmlElement's own diagnostics (degenerate-size, painter-threw) into
+    // onHtmlError with matching reasons — verify the wiring, not just the routing.
+    it('forwards a painter-threw diagnostic to onHtmlError with the cause', async () => {
+      mockGetContext();
+      const boom = new Error('boom');
+      const registry = new HtmlPainterRegistry();
+      registry.expect(['rk-marker']);
+      registry.register('rk-marker', () => {
+        throw boom;
+      });
+      const onHtmlError = vi.fn();
+      const blob = await exportImage(storeWith(markerElement()), {
+        htmlPainters: registry,
+        onHtmlError,
+      });
+      expect(blob).not.toBeNull();
+      expect(onHtmlError).toHaveBeenCalledWith({
+        elementId: 'marker-1',
+        htmlType: 'rk-marker',
+        reason: 'painter-threw',
+        cause: boom,
+      });
+      vi.restoreAllMocks();
+    });
+
+    it('forwards a degenerate-size diagnostic to onHtmlError without invoking the painter', async () => {
+      mockGetContext();
+      const registry = registryWith('rk-marker');
+      const onHtmlError = vi.fn();
+      // The zero-width marker alone would collapse export bounds to 0×h and fail
+      // dimension validation before painting is ever reached; a normal note keeps
+      // the canvas non-degenerate so the diagnostic path under test is exercised.
+      const store = new ElementStore();
+      store.add(createNote({ position: { x: 200, y: 200 }, size: { w: 100, h: 50 } }));
+      store.add(markerElement({ size: { w: 0, h: 100 } }));
+      const blob = await exportImage(store, { htmlPainters: registry, onHtmlError });
+      expect(blob).not.toBeNull();
+      expect(painterCalls(registry)).toBe(0);
+      expect(onHtmlError).toHaveBeenCalledWith(
+        expect.objectContaining({ elementId: 'marker-1', reason: 'degenerate-size' }),
+      );
+      vi.restoreAllMocks();
+    });
   });
 });

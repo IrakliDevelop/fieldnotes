@@ -11,6 +11,10 @@ import { renderNoteOnCanvas } from './note-canvas-renderer';
 import { renderTextOnCanvas } from './text-canvas-renderer';
 import { renderHtmlElements, validateHtmlExportOptions } from './html-export';
 import type { HtmlExportOptions } from './html-export';
+import { resolveHtmlRouting, HtmlPainterMissingError } from './html-painter-registry';
+import type { HtmlPainterRegistry } from './html-painter-registry';
+import { paintHtmlElement } from './html-paint';
+import type { HtmlPaintDiagnostic } from './html-paint-diagnostics';
 
 export interface ExportImageOptions extends ExportResourceOptions, HtmlExportOptions {
   scale?: number;
@@ -38,6 +42,20 @@ export interface ExportImageOptions extends ExportResourceOptions, HtmlExportOpt
    * caps (never above the requested scale).
    */
   scaleMode?: 'exact' | 'fit';
+  /** Registry of canvas-backed html painters, keyed by `htmlType`. When absent (or when
+   *  an element's `htmlType` isn't claimed), html elements fall back to the legacy
+   *  DOM-raster path (`renderHtml`). */
+  htmlPainters?: HtmlPainterRegistry;
+  /** `htmlType`s that must route to canvas even before a painter for them is
+   *  registered — lets a host declare intent up front (mirrors `HtmlPainterRegistry.expect`). */
+  expectedCanvasTypes?: ReadonlySet<string>;
+  /**
+   * When true, a canvas-routed html element with no active painter throws
+   * `HtmlPainterMissingError` instead of reporting `onHtmlError` and continuing.
+   * DOM-routed html elements are never affected — a missing `renderHtml` stays
+   * a non-fatal `'unsupported'` diagnostic regardless of this flag.
+   */
+  strictMissingCanvasHtml?: boolean;
 }
 
 export type ExportAssetErrorReason = 'load' | 'timeout' | 'encode';
@@ -403,7 +421,32 @@ export async function exportImage(
   assertExportSize(width, height, options);
   const imageCache = await loadImages(visibleElements, options);
   const htmlElements = visibleElements.filter((el): el is HtmlElement => el.type === 'html');
-  const htmlSources = await renderHtmlElements(htmlElements, options);
+
+  // Resolve routing per visible html element before doing any rendering work: canvas-routed
+  // elements never reach the DOM-raster path (renderHtmlElements), and 'missing' is either
+  // fatal (strictMissingCanvasHtml) or reported once here — it never falls back to DOM.
+  const canvasRoutedIds = new Set<string>();
+  const domHtmlElements: HtmlElement[] = [];
+  for (const el of htmlElements) {
+    const routing = resolveHtmlRouting(
+      el,
+      options.htmlPainters ?? null,
+      options.expectedCanvasTypes,
+    );
+    if (routing === 'missing') {
+      if (options.strictMissingCanvasHtml) {
+        throw new HtmlPainterMissingError(el.id, el.htmlType);
+      }
+      options.onHtmlError?.({ elementId: el.id, htmlType: el.htmlType, reason: 'missing-painter' });
+      continue;
+    }
+    if (routing === 'canvas') {
+      canvasRoutedIds.add(el.id);
+    } else {
+      domHtmlElements.push(el);
+    }
+  }
+  const htmlSources = await renderHtmlElements(domHtmlElements, options);
 
   const canvas = document.createElement('canvas');
   canvas.width = width;
@@ -421,6 +464,15 @@ export async function exportImage(
   const renderer = new ElementRenderer();
   renderer.setStore(store);
 
+  const onHtmlPaintDiagnostic = (d: HtmlPaintDiagnostic): void => {
+    options.onHtmlError?.({
+      elementId: d.elementId,
+      htmlType: d.htmlType,
+      reason: d.kind,
+      cause: d.kind === 'painter-threw' ? d.error : undefined,
+    });
+  };
+
   const grids: GridElement[] = [];
   const renderElement = (target: CanvasRenderingContext2D, el: CanvasElement): void => {
     if (el.type === 'note') {
@@ -436,6 +488,20 @@ export async function exportImage(
     }
 
     if (el.type === 'html') {
+      if (canvasRoutedIds.has(el.id)) {
+        // paintHtmlElement rotates internally (applyRotation defaults to true), so this
+        // must stay OUTSIDE withRotation — wrapping it too would double-rotate.
+        const painter = options.htmlPainters?.getActivePainter(el.htmlType ?? '');
+        if (!painter) return; // routing === 'canvas' guarantees this, but stay defensive
+        paintHtmlElement(el, painter, {
+          ctx: target,
+          zoom: scale,
+          target: 'export',
+          onDiagnostic: onHtmlPaintDiagnostic,
+        });
+        return;
+      }
+
       const source = htmlSources.get(el.id);
       if (!source) return;
       const b = getElementBounds(el);

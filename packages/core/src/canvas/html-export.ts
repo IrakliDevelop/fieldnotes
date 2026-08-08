@@ -4,7 +4,14 @@ export type HtmlExportRenderer = (
   element: HtmlElement,
 ) => CanvasImageSource | null | Promise<CanvasImageSource | null>;
 
-export type HtmlExportErrorReason = 'unsupported' | 'timeout' | 'render' | 'encode';
+export type HtmlExportErrorReason =
+  | 'unsupported'
+  | 'timeout'
+  | 'render'
+  | 'encode'
+  | 'missing-painter'
+  | 'painter-threw'
+  | 'degenerate-size';
 
 export interface HtmlExportError {
   elementId: string;
