@@ -108,6 +108,34 @@ describe('PanInertia', () => {
     expect(h.panCalls.length).toBe(n);
   });
 
+  it('isCoasting reports a scheduled frame and clears on cancel and on decay', () => {
+    const h = makeHarness();
+    expect(h.inertia.isCoasting()).toBe(false);
+
+    h.sampleMove(10, 0);
+    h.sampleMove(10, 0);
+    h.sampleMove(10, 0);
+    h.sampleMove(10, 0);
+    // Sampling alone is a drag, not a coast.
+    expect(h.inertia.isCoasting()).toBe(false);
+
+    h.inertia.release();
+    expect(h.inertia.isCoasting()).toBe(true);
+    h.flushOne();
+    expect(h.inertia.isCoasting()).toBe(true);
+
+    h.inertia.cancel();
+    expect(h.inertia.isCoasting()).toBe(false);
+
+    // A coast left to decay to a stop reports false as well.
+    h.sampleMove(10, 0);
+    h.sampleMove(10, 0);
+    h.inertia.release();
+    expect(h.inertia.isCoasting()).toBe(true);
+    h.flushAll();
+    expect(h.inertia.isCoasting()).toBe(false);
+  });
+
   it('disabled does not coast', () => {
     const h = makeHarness(false);
     h.sampleMove(10, 0);

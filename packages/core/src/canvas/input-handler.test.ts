@@ -2008,5 +2008,34 @@ describe('InputHandler', () => {
       expect(afterOneFrame).toBeGreaterThan(2);
       expect(panSpy.mock.calls.length).toBe(afterOneFrame);
     });
+
+    it('reports the camera as coasting until the pointer that stopped it lifts', () => {
+      handler.destroy();
+      handler = new InputHandler(element, camera);
+      expect(handler.isCameraCoasting()).toBe(false);
+
+      flickMousePan();
+      expect(handler.isCameraCoasting()).toBe(true);
+
+      // The pointerdown cancels the coast, but the gesture that killed it is
+      // still down: passive observers must keep seeing a busy camera, since they
+      // are notified after this handler and would otherwise read a still camera.
+      pointerDown(element, { button: 0, clientX: 0, clientY: 0 });
+      expect(handler.isCameraCoasting()).toBe(true);
+
+      pointerUp(element, { button: 0, clientX: 0, clientY: 0 });
+      expect(handler.isCameraCoasting()).toBe(false);
+
+      // A tap with no coast in flight never sets the flag.
+      pointerDown(element, { button: 0, clientX: 0, clientY: 0 });
+      expect(handler.isCameraCoasting()).toBe(false);
+      pointerUp(element, { button: 0, clientX: 0, clientY: 0 });
+
+      // A coast left alone stops reporting once it decays.
+      flickMousePan();
+      expect(handler.isCameraCoasting()).toBe(true);
+      flushFrames();
+      expect(handler.isCameraCoasting()).toBe(false);
+    });
   });
 });

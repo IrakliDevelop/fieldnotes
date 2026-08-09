@@ -62,6 +62,12 @@ interface PendingTap {
    * record shape, but deliberately NOT compared: pairing is decided by element
    * identity, which is strictly stronger than screen distance (that is exactly
    * what lets two adjacent markers fuse in the shared `DoubleTapDetector`).
+   *
+   * The consequence is deliberate but worth stating: `slopPx` bounds travel
+   * WITHIN one tap and never BETWEEN taps. Two taps on opposite corners of the
+   * SAME element, inside `doubleDelayMs`, therefore pair into a `'double'`
+   * however far apart they landed — inert for a 40x40 marker, surprising on a
+   * 400x400 canvas-routed element.
    */
   clientPoint: Point;
   time: number;
@@ -226,9 +232,10 @@ export class ElementActivation {
   }
 
   private onPointerDown(e: PointerEvent): void {
-    // Right/middle buttons never activate and never disturb a pending tap.
-    if (e.button !== 0) return;
-
+    // EVERY contact is tracked, whichever button it reports. Per the Pointer
+    // Events spec a pen barrel-button contact arrives as `button === 2`, as does
+    // a held mouse right button, yet both are pointers physically down; skipping
+    // them here would let the next pointer arm a gesture two-pointers-deep.
     const hadPointers = this.downPointers.size > 0;
     this.downPointers.add(e.pointerId);
     if (hadPointers) {
@@ -238,6 +245,11 @@ export class ElementActivation {
       this.clearGesture();
       return;
     }
+
+    // A non-primary button never ARMS a gesture. On its own — no other pointer
+    // down — it also leaves any pending tap alone; only its membership in
+    // `downPointers` above affects the pointers that follow it.
+    if (e.button !== 0) return;
 
     this.active = null;
     if (this.isCameraBusy()) {
@@ -300,6 +312,12 @@ export class ElementActivation {
 
     const pending = this.pending;
     const time = this.now();
+    // The elapsed-time comparison below is belt-and-braces: `setPending` also
+    // arms a `doubleDelayMs` timeout that nulls `pending`, so under both real and
+    // fake timers `pending` is already gone whenever the comparison would reject
+    // — no test can make it fail, and no mutation of it can be caught. It is kept
+    // as the defence against a backgrounded tab, where timer throttling can
+    // delay that callback long past the deadline while events still arrive.
     if (
       pending &&
       pending.elementId === target.id &&

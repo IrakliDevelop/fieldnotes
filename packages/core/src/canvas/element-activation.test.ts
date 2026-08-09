@@ -203,6 +203,56 @@ function tap(
   fire(target, 'pointerup', client, { ...init, buttons: 0 });
 }
 
+const MIDDLE_BUTTON = 1;
+
+interface FrameCapture {
+  /** Runs every frame queued so far; frames they re-queue wait for the next flush. */
+  flush: () => void;
+  restore: () => void;
+}
+
+/**
+ * Replaces the global `requestAnimationFrame` with a manually drained queue.
+ * `PanInertia.step` early-returns until its `rafId` is assigned, so a
+ * synchronous (re-entrant) stub would never coast; queueing gives a bounded,
+ * deterministic clock in which a coast can be observed while it is still live.
+ */
+function captureFrames(): FrameCapture {
+  const realRaf = globalThis.requestAnimationFrame;
+  const realCaf = globalThis.cancelAnimationFrame;
+  let queue: { id: number; cb: FrameRequestCallback }[] = [];
+  let nextId = 0;
+  globalThis.requestAnimationFrame = ((cb: FrameRequestCallback): number => {
+    const id = ++nextId;
+    queue.push({ id, cb });
+    return id;
+  }) as typeof globalThis.requestAnimationFrame;
+  globalThis.cancelAnimationFrame = ((id: number): void => {
+    queue = queue.filter((frame) => frame.id !== id);
+  }) as typeof globalThis.cancelAnimationFrame;
+  return {
+    flush: () => {
+      const due = queue;
+      queue = [];
+      for (const frame of due) frame.cb(0);
+    },
+    restore: () => {
+      globalThis.requestAnimationFrame = realRaf;
+      globalThis.cancelAnimationFrame = realCaf;
+    },
+  };
+}
+
+/** A middle-button drag released at speed: the viewport camera coasts afterwards. */
+function flickPan(wrapper: HTMLElement): void {
+  const init: PointerEventInit = { pointerId: 50, button: MIDDLE_BUTTON, buttons: 4 };
+  fire(wrapper, 'pointerdown', { x: 400, y: 300 }, init);
+  for (let i = 1; i <= 3; i++) {
+    fire(wrapper, 'pointermove', { x: 400 + i * 12, y: 300 }, init);
+  }
+  fire(wrapper, 'pointerup', { x: 436, y: 300 }, { ...init, buttons: 0 });
+}
+
 const POINTER_TYPES = ['mouse', 'touch', 'pen'] as const;
 
 const MARKER_A_WORLD = { x: 100, y: 100 };
@@ -515,6 +565,53 @@ describe('ElementActivation', () => {
     tap(h.wrapper, centre, { button: 2, buttons: 2 });
     tap(h.wrapper, centre, { button: 1, buttons: 4 });
     expect(h.events).toEqual([]);
+    h.dispose();
+  });
+
+  it('does not arm a gesture while a non-primary contact is still down', () => {
+    const h = createHarness({ gesture: 'single' });
+    addMarker(h.store, MARKER_A_WORLD);
+    const centre = centreClient(MARKER_A_WORLD);
+    const barrel: PointerEventInit = { pointerId: 3, pointerType: 'pen', button: 2, buttons: 2 };
+
+    // Positive control: this primary tap activates on its own.
+    tap(h.wrapper, centre, { pointerId: 4 });
+    expect(h.events).toHaveLength(1);
+
+    // A pen barrel-button contact reports `button === 2` (Pointer Events spec)
+    // but IS a pointer physically down, so the finger that follows is a SECOND
+    // pointer: navigation, not activation.
+    h.events.length = 0;
+    fire(h.wrapper, 'pointerdown', centre, barrel);
+    tap(h.wrapper, centre, { pointerId: 4 });
+    expect(h.events).toEqual([]);
+
+    // Symmetrically, a non-primary contact arriving mid-gesture kills the armed
+    // gesture rather than letting it release into an activation.
+    fire(h.wrapper, 'pointerup', centre, { ...barrel, buttons: 0 });
+    fire(h.wrapper, 'pointerdown', centre, { pointerId: 4 });
+    fire(h.wrapper, 'pointerdown', centre, barrel);
+    fire(h.wrapper, 'pointerup', centre, { pointerId: 4, buttons: 0 });
+    expect(h.events).toEqual([]);
+
+    // Releasing every contact restores activation, which proves the suppression
+    // above came from tracking the non-primary pointer, not from a dead marker.
+    fire(h.wrapper, 'pointerup', centre, { ...barrel, buttons: 0 });
+    tap(h.wrapper, centre, { pointerId: 4 });
+    expect(h.events).toHaveLength(1);
+    h.dispose();
+  });
+
+  it('lets a lone non-primary click pass without disturbing a pending tap', () => {
+    const h = createHarness({ gesture: 'double' });
+    addMarker(h.store, MARKER_A_WORLD);
+    const centre = centreClient(MARKER_A_WORLD);
+
+    tap(h.wrapper, centre, {});
+    tap(h.wrapper, centre, { button: 2, buttons: 2 });
+    tap(h.wrapper, centre, {});
+    expect(h.events).toHaveLength(1);
+    expect(h.events[0]?.gesture).toBe('double');
     h.dispose();
   });
 
@@ -897,6 +994,51 @@ describe('ElementActivation', () => {
     expect(ok).toBeInstanceOf(ElementActivation);
     ok.dispose();
     h.dispose();
+  });
+
+  it('does not activate the tap that stops a LIVE inertia coast', () => {
+    // Interaction spec 5.3: a gesture whose purpose is to halt a glide must not
+    // also activate whatever happens to sit under the finger. The camera-revision
+    // gate cannot cover this: `InputHandler.onPointerDown` cancels the coast as
+    // its first statement, so by pointerup the camera has been stationary for the
+    // whole gesture and the revision still matches.
+    const frames = captureFrames();
+    const vp = createViewportHarness({ gesture: 'single' });
+    try {
+      addMarker(vp.viewport.store, MARKER_A_WORLD);
+      const centreWorld = { x: MARKER_A_WORLD.x + 20, y: MARKER_A_WORLD.y + 20 };
+      const onMarker = (): { x: number; y: number } =>
+        vp.viewport.camera.worldToScreen(centreWorld);
+
+      // Positive control: with a still camera this exact tap activates.
+      tap(vp.wrapper, onMarker());
+      expect(vp.events).toHaveLength(1);
+
+      vp.events.length = 0;
+      flickPan(vp.wrapper);
+      const beforeFrame = vp.viewport.camera.position.x;
+      frames.flush();
+      // The coast is genuinely live: a frame moved the camera on its own.
+      expect(vp.viewport.camera.position.x).not.toBe(beforeFrame);
+
+      // Case under test: land a finger on the marker to stop the glide.
+      tap(vp.wrapper, onMarker());
+      expect(vp.events).toEqual([]);
+
+      // That tap really did stop the coast, so the rejection above was the coast
+      // gate and not a camera that had already run out of momentum.
+      const afterTap = vp.viewport.camera.position.x;
+      frames.flush();
+      expect(vp.viewport.camera.position.x).toBe(afterTap);
+
+      // With the coast gone the identical tap activates again: the marker never
+      // stopped being reachable at that point.
+      tap(vp.wrapper, onMarker());
+      expect(vp.events).toHaveLength(1);
+    } finally {
+      vp.dispose();
+      frames.restore();
+    }
   });
 
   it('expires the pending tap after doubleDelayMs', () => {

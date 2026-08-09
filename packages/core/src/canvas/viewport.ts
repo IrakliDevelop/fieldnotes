@@ -829,6 +829,11 @@ export class Viewport {
             store: this.store,
             resolveHtmlRouting: this.resolveRouting,
             isLayerVisible: (layerId: string) => this.layerManager.isLayerVisible(layerId),
+            // Owner-side busy signal: the camera is gliding under pan inertia, or
+            // this very gesture is the one that stopped the glide. Suppressing
+            // both is what keeps "tap to stop a flick" from activating whatever
+            // sits under the finger.
+            isCameraBusy: () => this.inputHandler.isCameraCoasting(),
           },
           options,
         )

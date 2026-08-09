@@ -66,6 +66,11 @@ export class PanInertia {
     this.reset();
   }
 
+  /** Whether a coast frame is scheduled, i.e. the camera is still gliding. */
+  isCoasting(): boolean {
+    return this.rafId !== null;
+  }
+
   private step = (): void => {
     if (this.rafId === null) return;
     this.deps.pan(this.vx, this.vy);
