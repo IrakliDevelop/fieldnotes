@@ -236,6 +236,14 @@ export class ElementActivation {
     // Events spec a pen barrel-button contact arrives as `button === 2`, as does
     // a held mouse right button, yet both are pointers physically down; skipping
     // them here would let the next pointer arm a gesture two-pointers-deep.
+    //
+    // `downPointers` counts button-presses per pointer id, not physical
+    // contacts: a mouse or pen reports ONE constant `pointerId` across buttons,
+    // so primary-down, barrel/right-down (same id), then barrel/right-up
+    // deletes that id while the primary button is still physically held. This
+    // is harmless — the primary button cannot emit another `pointerdown`
+    // without an intervening `pointerup`, and `active` is already `null` by
+    // then — but it does mean an empty set is not proof no contact remains.
     const hadPointers = this.downPointers.size > 0;
     this.downPointers.add(e.pointerId);
     if (hadPointers) {

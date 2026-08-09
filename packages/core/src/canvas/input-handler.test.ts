@@ -32,6 +32,10 @@ function pointerUp(el: HTMLElement, opts: PointerEventInit = {}) {
   el.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, ...opts }));
 }
 
+function pointerCancel(el: HTMLElement, opts: PointerEventInit = {}) {
+  el.dispatchEvent(new PointerEvent('pointercancel', { bubbles: true, ...opts }));
+}
+
 function keyDown(key: string) {
   window.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
 }
@@ -2036,6 +2040,50 @@ describe('InputHandler', () => {
       expect(handler.isCameraCoasting()).toBe(true);
       flushFrames();
       expect(handler.isCameraCoasting()).toBe(false);
+
+      // pointercancel shares onPointerUp today; assert it clears the flag
+      // directly so a future split of that handler cannot silently regress it.
+      flickMousePan();
+      expect(handler.isCameraCoasting()).toBe(true);
+      pointerDown(element, { button: 0, clientX: 0, clientY: 0 });
+      expect(handler.isCameraCoasting()).toBe(true);
+      pointerCancel(element, { button: 0, clientX: 0, clientY: 0 });
+      expect(handler.isCameraCoasting()).toBe(false);
+
+      // Multi-pointer: the flag must survive until the LAST pointer of the
+      // gesture lifts, not just the one that stopped the coast.
+      flickMousePan();
+      expect(handler.isCameraCoasting()).toBe(true);
+      pointerDown(element, { pointerId: 1, button: 0, clientX: 0, clientY: 0 });
+      expect(handler.isCameraCoasting()).toBe(true);
+      pointerDown(element, { pointerId: 2, button: 0, clientX: 10, clientY: 10 });
+      pointerUp(element, { pointerId: 1, button: 0, clientX: 0, clientY: 0 });
+      expect(handler.isCameraCoasting()).toBe(true);
+      pointerUp(element, { pointerId: 2, button: 0, clientX: 10, clientY: 10 });
+      expect(handler.isCameraCoasting()).toBe(false);
+    });
+
+    it('clears the coast-stopped flag on blur/visibilitychange when the matching pointerup never arrives', () => {
+      for (const interrupt of [
+        () => window.dispatchEvent(new Event('blur')),
+        () => document.dispatchEvent(new Event('visibilitychange', { bubbles: true })),
+      ]) {
+        handler.destroy();
+        handler = new InputHandler(element, camera);
+
+        flickMousePan();
+        expect(handler.isCameraCoasting()).toBe(true);
+
+        pointerDown(element, { button: 0, clientX: 0, clientY: 0 });
+        expect(handler.isCameraCoasting()).toBe(true);
+
+        // Pointer capture is lost, or the tab is backgrounded, mid-press: no
+        // matching pointerup/pointercancel/pointerleave ever reaches the
+        // wrapper, so only the window-level interrupt can recover the flag.
+        interrupt();
+
+        expect(handler.isCameraCoasting()).toBe(false);
+      }
     });
   });
 });

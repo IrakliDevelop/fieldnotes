@@ -170,6 +170,13 @@ export class InputHandler {
     this.element.addEventListener('pointerleave', this.onPointerLeave, opts);
     this.element.addEventListener('pointercancel', this.onPointerUp, opts);
     this.element.addEventListener('contextmenu', this.onContextMenu, opts);
+
+    // `coastStoppedByPointer` otherwise clears only when `activePointers` empties,
+    // which never happens if the gesture's up/cancel/leave is truncated (lost
+    // pointer capture, tab switch mid-press). Window-level, state-clearing only,
+    // mirroring `ElementActivation`'s own blur/visibilitychange recovery.
+    window.addEventListener('blur', this.onCoastInterrupt, opts);
+    window.addEventListener('visibilitychange', this.onCoastInterrupt, opts);
   }
 
   private onWheel = (e: WheelEvent): void => {
@@ -390,6 +397,13 @@ export class InputHandler {
   private onPointerLeave = (e: PointerEvent): void => {
     this.lastPointerEvent = null;
     this.onPointerUp(e);
+  };
+
+  // Recovers `coastStoppedByPointer` when the gesture that set it never delivers
+  // a matching pointerup/cancel/leave. Deliberately narrow: it clears only this
+  // flag, not `activePointers`/`isPanning`, which is a separate pre-existing gap.
+  private onCoastInterrupt = (): void => {
+    this.coastStoppedByPointer = false;
   };
 
   private toPointerState(e: PointerEvent): PointerState {
