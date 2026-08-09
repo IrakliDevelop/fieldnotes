@@ -58,6 +58,8 @@ import { GridController } from './grid-controller';
 import type { GridInfo } from './grid-controller';
 import { ViewportInteractions } from './viewport-interactions';
 import type { RotateDirection } from './selection-rotate';
+import { ElementActivation } from './element-activation';
+import type { ActivationOptions, ElementActivationEvent } from './element-activation';
 
 export type { AlignEdge, DistributeAxis } from './selection-ops';
 export type { GridInfo } from './grid-controller';
@@ -152,6 +154,9 @@ export class Viewport {
   private readonly resolveRouting = (el: HtmlElement): HtmlRouting =>
     resolveHtmlRouting(el, this.htmlPainters);
   private readonly unsubHtmlPainters: () => void;
+  private activation: ElementActivation | null = null;
+  private activationGeneration = 0;
+  private readonly activationListeners = new Set<(e: ElementActivationEvent) => void>();
   private readonly resizeListeners = new Set<() => void>();
   private readonly selectionListeners = new Set<() => void>();
   private detachSelectionSource: (() => void) | null = null;
@@ -799,6 +804,70 @@ export class Viewport {
   }
 
   /**
+   * Enables (or replaces, or with `null` disables) pointer activation of
+   * canvas-painted elements — the bridge for elements that are drawn rather than
+   * mounted and so cannot receive DOM events. **Default off**, so every existing
+   * consumer behaves identically.
+   *
+   * The controller is a passive observer: listeners are `{ passive: true }` and
+   * it never calls `preventDefault`, `stopPropagation`, or takes pointer capture.
+   * Changing or disabling activation resets all active and pending gestures.
+   * Throws `RangeError` for a non-finite/negative `slopPx` or a non-positive
+   * `doubleDelayMs`, leaving any existing activation untouched.
+   *
+   * The returned disposer clears **only its own generation**, so a stale
+   * Strict-Mode cleanup cannot tear down a newer registration.
+   */
+  setActivation(options: ActivationOptions | null): () => void {
+    // Construct before tearing down: a RangeError must leave the current
+    // controller — and every outstanding disposer's generation — intact.
+    const next = options
+      ? new ElementActivation(
+          {
+            element: this.wrapper,
+            camera: this.camera,
+            store: this.store,
+            resolveHtmlRouting: this.resolveRouting,
+            isLayerVisible: (layerId: string) => this.layerManager.isLayerVisible(layerId),
+          },
+          options,
+        )
+      : null;
+    this.activation?.dispose();
+    this.activation = next;
+    next?.onActivate((e) => this.emitActivation(e));
+    const generation = ++this.activationGeneration;
+    return () => {
+      if (this.activationGeneration !== generation) return;
+      this.activation?.dispose();
+      this.activation = null;
+    };
+  }
+
+  /**
+   * Subscribes to element activations. Persistent and independent of
+   * `setActivation`: subscribing before activation is enabled, or across a
+   * replacement, keeps working. Emission iterates a snapshot with per-listener
+   * try/catch. Returns an idempotent unsubscribe.
+   */
+  onElementActivate(listener: (e: ElementActivationEvent) => void): () => void {
+    this.activationListeners.add(listener);
+    return () => {
+      this.activationListeners.delete(listener);
+    };
+  }
+
+  private emitActivation(event: ElementActivationEvent): void {
+    for (const listener of [...this.activationListeners]) {
+      try {
+        listener(event);
+      } catch {
+        // One host listener's fault must not break its siblings.
+      }
+    }
+  }
+
+  /**
    * Fires whenever the html painter registry's active-painter set changes
    * (declare, register, or their release). Reconciliation is synchronous —
    * routing flips (and any DOM detach/remount) happen before this returns —
@@ -1021,6 +1090,9 @@ export class Viewport {
     this.unsubToolRegister();
     this.unsubRecorderEnd();
     this.unsubHtmlPainters();
+    this.activation?.dispose();
+    this.activation = null;
+    this.activationListeners.clear();
     this.htmlDiagnosticListeners.clear();
     this.detachSelectionSource?.();
     this.detachSelectionSource = null;

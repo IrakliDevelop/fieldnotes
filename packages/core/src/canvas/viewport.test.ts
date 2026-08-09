@@ -17,6 +17,7 @@ import { renderImage } from '../elements/renderers/image-renderer';
 import type { ImageElement, HtmlElement } from '../elements/types';
 import type { HtmlPaintDiagnostic } from './html-paint-diagnostics';
 import { HtmlPainterRegistry } from './html-painter-registry';
+import type { ElementActivationEvent } from './element-activation';
 
 function wrapperOf(container: HTMLElement): HTMLDivElement {
   const w = container.firstElementChild;
@@ -2668,5 +2669,135 @@ describe('Viewport html painters', () => {
       await vp.exportSVG();
       expect(painter).toHaveBeenCalled();
     });
+  });
+});
+
+describe('Viewport element activation', () => {
+  const created: { vp: Viewport; container: HTMLDivElement }[] = [];
+
+  afterEach(() => {
+    while (created.length > 0) {
+      const entry = created.pop();
+      entry?.vp.destroy();
+      entry?.container.remove();
+    }
+  });
+
+  function makeViewport(): { vp: Viewport; wrapper: HTMLDivElement } {
+    const container = document.createElement('div');
+    Object.defineProperty(container, 'getBoundingClientRect', {
+      value: () => ({ left: 0, top: 0, width: 800, height: 600 }),
+    });
+    document.body.appendChild(container);
+    const vp = new Viewport(container);
+    created.push({ vp, container });
+    vp.registerHtmlPainter('rk-marker', () => {
+      /* canvas routing for markers */
+    });
+    vp.store.add(
+      createHtmlElement({
+        position: { x: 100, y: 100 },
+        size: { w: 40, h: 40 },
+        htmlType: 'rk-marker',
+      }),
+    );
+    return { vp, wrapper: wrapperOf(container) };
+  }
+
+  function tapMarker(wrapper: HTMLDivElement): void {
+    for (const type of ['pointerdown', 'pointerup']) {
+      wrapper.dispatchEvent(
+        new PointerEvent(type, {
+          bubbles: true,
+          cancelable: true,
+          pointerId: 1,
+          pointerType: 'mouse',
+          button: 0,
+          clientX: 120,
+          clientY: 120,
+        }),
+      );
+    }
+  }
+
+  it('is off by default and activates only once setActivation enables it', () => {
+    const { vp, wrapper } = makeViewport();
+    const events: ElementActivationEvent[] = [];
+    vp.onElementActivate((e) => events.push(e));
+
+    tapMarker(wrapper);
+    expect(events).toEqual([]);
+
+    vp.setActivation({ gesture: 'single' });
+    tapMarker(wrapper);
+    expect(events).toHaveLength(1);
+    expect(events[0]?.gesture).toBe('single');
+  });
+
+  it('returns a disposer that clears only its own generation', () => {
+    const { vp, wrapper } = makeViewport();
+    const events: ElementActivationEvent[] = [];
+    vp.onElementActivate((e) => events.push(e));
+
+    const staleDisposer = vp.setActivation({ gesture: 'single' });
+    vp.setActivation({ gesture: 'single' });
+
+    // A stale Strict-Mode cleanup must not tear down the newer registration.
+    staleDisposer();
+    tapMarker(wrapper);
+    expect(events).toHaveLength(1);
+
+    // The current generation's disposer does tear it down, and is idempotent.
+    const currentDisposer = vp.setActivation({ gesture: 'single' });
+    events.length = 0;
+    currentDisposer();
+    currentDisposer();
+    tapMarker(wrapper);
+    expect(events).toEqual([]);
+  });
+
+  it('rejects invalid options with RangeError and keeps the existing activation', () => {
+    const { vp, wrapper } = makeViewport();
+    const events: ElementActivationEvent[] = [];
+    vp.onElementActivate((e) => events.push(e));
+    vp.setActivation({ gesture: 'single' });
+
+    expect(() => vp.setActivation({ gesture: 'single', slopPx: -1 })).toThrow(RangeError);
+    expect(() => vp.setActivation({ gesture: 'single', doubleDelayMs: 0 })).toThrow(RangeError);
+
+    tapMarker(wrapper);
+    expect(events).toHaveLength(1);
+  });
+
+  it('isolates a throwing onElementActivate listener from its siblings', () => {
+    const { vp, wrapper } = makeViewport();
+    const seen: string[] = [];
+    vp.onElementActivate(() => {
+      seen.push('throwing');
+      throw new Error('boom');
+    });
+    const unsub = vp.onElementActivate(() => seen.push('second'));
+    vp.setActivation({ gesture: 'single' });
+
+    tapMarker(wrapper);
+    expect(seen).toEqual(['throwing', 'second']);
+
+    unsub();
+    tapMarker(wrapper);
+    expect(seen).toEqual(['throwing', 'second', 'throwing']);
+  });
+
+  it('destroy() disposes the activation controller', () => {
+    const { vp, wrapper } = makeViewport();
+    const events: ElementActivationEvent[] = [];
+    vp.onElementActivate((e) => events.push(e));
+    vp.setActivation({ gesture: 'single' });
+    tapMarker(wrapper);
+    expect(events).toHaveLength(1);
+
+    vp.destroy();
+    events.length = 0;
+    tapMarker(wrapper);
+    expect(events).toEqual([]);
   });
 });
