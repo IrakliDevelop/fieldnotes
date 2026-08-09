@@ -16,6 +16,7 @@ import { PencilTool } from '../tools/pencil-tool';
 import { renderImage } from '../elements/renderers/image-renderer';
 import type { ImageElement, HtmlElement } from '../elements/types';
 import type { HtmlPaintDiagnostic } from './html-paint-diagnostics';
+import { HtmlPainterRegistry } from './html-painter-registry';
 
 function wrapperOf(container: HTMLElement): HTMLDivElement {
   const w = container.firstElementChild;
@@ -2556,5 +2557,116 @@ describe('Viewport html painters', () => {
     await nextFrame(vp);
     expect(paintStackOf(vp).querySelector(`[data-element-id="${el.id}"]`)).toBeNull();
     expect(paintStackOf(vp).querySelector('[data-paint-order]')).toBeNull();
+  });
+
+  describe('export delegation', () => {
+    // jsdom implements neither method (both log "Not implemented" and no-op) — export-image.ts
+    // and export-svg.ts's own test suites stub them the same way for any test that expects a
+    // real result out of exportImage()/exportSVG().
+    let toBlobSpy: ReturnType<typeof vi.spyOn>;
+    let toDataURLSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      toBlobSpy = vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(function (
+        this: HTMLCanvasElement,
+        cb: BlobCallback,
+      ) {
+        cb(new Blob(['fake'], { type: 'image/png' }));
+      });
+      toDataURLSpy = vi
+        .spyOn(HTMLCanvasElement.prototype, 'toDataURL')
+        .mockReturnValue('data:image/png;base64,AAAA');
+    });
+
+    afterEach(() => {
+      toBlobSpy.mockRestore();
+      toDataURLSpy.mockRestore();
+    });
+
+    function htmlElement(htmlType: string): HtmlElement {
+      return createHtmlElement({
+        position: { x: 200, y: 200 },
+        size: { w: 50, h: 50 },
+        htmlType,
+      });
+    }
+
+    it('injects the viewport registry when the caller passes no html options', async () => {
+      const vp = makeViewport();
+      const painter = vi.fn();
+      vp.expectCanvasHtmlTypes(['rk-marker']);
+      vp.registerHtmlPainter('rk-marker', painter);
+      vp.store.add(markerElement());
+      await vp.exportImage();
+      expect(painter).toHaveBeenCalled();
+    });
+
+    it('lets an explicitly passed registry replace the viewport one', async () => {
+      const vp = makeViewport();
+      const viewportPainter = vi.fn();
+      const callerPainter = vi.fn();
+      vp.registerHtmlPainter('rk-marker', viewportPainter);
+      const caller = new HtmlPainterRegistry();
+      caller.register('rk-marker', callerPainter);
+      vp.store.add(markerElement());
+      await vp.exportImage({ htmlPainters: caller });
+      expect(callerPainter).toHaveBeenCalled();
+      expect(viewportPainter).not.toHaveBeenCalled();
+    });
+
+    it('unions an explicit expectedCanvasTypes with the registry declarations', async () => {
+      const vp = makeViewport();
+      vp.expectCanvasHtmlTypes(['rk-marker']);
+      vp.store.add(markerElement());
+      vp.store.add(htmlElement('other-canvas-type'));
+      const onHtmlError = vi.fn();
+      await vp.exportImage({ expectedCanvasTypes: new Set(['other-canvas-type']), onHtmlError });
+      // Filter to 'missing-painter' specifically: an element that falls through to the
+      // DOM-raster path instead (because it was never actually canvas-routed) reports
+      // 'unsupported' instead, with the same htmlType field — an unfiltered read would
+      // let that unrelated path satisfy this assertion by coincidence.
+      const missingPainterTypes = onHtmlError.mock.calls
+        .filter((c) => c[0].reason === 'missing-painter')
+        .map((c) => c[0].htmlType)
+        .sort();
+      expect(missingPainterTypes).toEqual(['other-canvas-type', 'rk-marker']);
+    });
+
+    // Black-box coverage above cannot distinguish the union computation from a naive
+    // "caller's set replaces declared" implementation: resolveHtmlRouting ORs
+    // registry.canvasTypes directly (the same registry withHtmlDefaults injects as
+    // htmlPainters), so a declared-but-unioned type still routes to canvas regardless
+    // of whether the union actually happened. This white-box test reads
+    // withHtmlDefaults's return value directly to pin the union itself — see the
+    // mutation-verification note in the task report for the empirical confirmation.
+    it('withHtmlDefaults unions expectedCanvasTypes with the registry declarations (white-box)', () => {
+      const vp = makeViewport();
+      vp.expectCanvasHtmlTypes(['rk-marker']);
+      const withHtmlDefaults = (
+        vp as unknown as {
+          withHtmlDefaults: (options?: { expectedCanvasTypes?: ReadonlySet<string> }) => {
+            expectedCanvasTypes: ReadonlySet<string>;
+          };
+        }
+      ).withHtmlDefaults.bind(vp);
+      const result = withHtmlDefaults({ expectedCanvasTypes: new Set(['other-canvas-type']) });
+      expect([...result.expectedCanvasTypes].sort()).toEqual(['other-canvas-type', 'rk-marker']);
+    });
+
+    it('defaults strictMissingCanvasHtml to false from the viewport', async () => {
+      const vp = makeViewport();
+      vp.expectCanvasHtmlTypes(['rk-marker']);
+      vp.store.add(markerElement());
+      await expect(vp.exportImage()).resolves.not.toThrow();
+    });
+
+    it('applies the same delegation to exportSVG', async () => {
+      const vp = makeViewport();
+      const painter = vi.fn();
+      vp.registerHtmlPainter('rk-marker', painter);
+      vp.store.add(markerElement());
+      await vp.exportSVG();
+      expect(painter).toHaveBeenCalled();
+    });
   });
 });

@@ -519,12 +519,32 @@ export class Viewport {
     return JSON.stringify(this.exportState());
   }
 
+  /**
+   * Injects this viewport's own html painter registry into export options so a host
+   * that registered painters via `registerHtmlPainter`/`expectCanvasHtmlTypes` gets
+   * markers in exports without passing anything. An explicitly passed `htmlPainters`
+   * REPLACES the viewport's registry rather than merging with it. `expectedCanvasTypes`
+   * is always UNIONED with the resolved registry's own declarations — a caller's set
+   * can only add expectations, never shrink the registry's own.
+   */
+  private withHtmlDefaults<
+    T extends { htmlPainters?: HtmlPainterRegistry; expectedCanvasTypes?: ReadonlySet<string> },
+  >(options?: T): T {
+    const base = (options ?? {}) as T;
+    const registry = base.htmlPainters ?? this.htmlPainters;
+    const declared = registry.canvasTypes;
+    const expected = base.expectedCanvasTypes
+      ? new Set([...declared, ...base.expectedCanvasTypes]) // union only; never shrink
+      : declared;
+    return { ...base, htmlPainters: registry, expectedCanvasTypes: expected };
+  }
+
   async exportImage(options?: ExportImageOptions): Promise<Blob | null> {
-    return exportImage(this.store, options, this.layerManager);
+    return exportImage(this.store, this.withHtmlDefaults(options), this.layerManager);
   }
 
   async exportSVG(options?: ExportSvgOptions): Promise<string> {
-    return exportSvg(this.store, options, this.layerManager);
+    return exportSvg(this.store, this.withHtmlDefaults(options), this.layerManager);
   }
 
   loadState(state: CanvasState): void {
