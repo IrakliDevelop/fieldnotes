@@ -594,8 +594,21 @@ test.describe('marker activation — integration edge cases', () => {
     });
     await twoFingerPan(page, point, { x: 80, y: 0 }, 4);
 
+    // Drop everything recorded during the drag itself: handlePinchMove()
+    // calls camera.pan() on every touchmove step of a two-finger drag, so
+    // positions collected up to this point are movement from the finger,
+    // not from coasting. Only samples recorded strictly after release can
+    // show a live coast.
+    await page.evaluate(() => {
+      const positions = (window as unknown as Record<string, unknown>)[
+        '__markers_coast_positions'
+      ] as { x: number; y: number }[];
+      positions.length = 0;
+    });
+
     // Confirm the camera is still gliding (moving with no further input)
-    // before the stopping tap — otherwise this test would prove nothing.
+    // after release and before the stopping tap — otherwise this test
+    // would prove nothing.
     await page.waitForTimeout(60);
     const coastingPositions = await page.evaluate(
       () =>
