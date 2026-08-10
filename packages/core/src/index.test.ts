@@ -3,7 +3,7 @@ import * as FN from './index';
 
 describe('core public surface', () => {
   it('exports the current version', () => {
-    expect(FN.VERSION).toBe('0.61.0');
+    expect(FN.VERSION).toBe('0.62.0');
   });
 
   it('exports the shared-ruler surface', () => {
@@ -161,5 +161,31 @@ describe('core public surface', () => {
     for (const name of kept) {
       expect(name in FN, `${name} should be exported`).toBe(true);
     }
+  });
+
+  it('exports the html painter and activation surface', async () => {
+    const api = await import('./index');
+    for (const name of ['HtmlPainterRegistry', 'resolveHtmlRouting', 'HtmlPainterMissingError']) {
+      expect(api).toHaveProperty(name);
+    }
+  });
+
+  it('exposes the viewport html-painter and activation methods', async () => {
+    const { Viewport } = await import('./index');
+    for (const method of [
+      'getHtmlPainters',
+      'expectCanvasHtmlTypes',
+      'registerHtmlPainter',
+      'onHtmlPaintDiagnostic',
+      'setActivation',
+      'onElementActivate',
+    ]) {
+      expect(typeof Viewport.prototype[method as keyof Viewport]).toBe('function');
+    }
+  });
+
+  it('reports VERSION 0.62.0', async () => {
+    const { VERSION } = await import('./index');
+    expect(VERSION).toBe('0.62.0');
   });
 });

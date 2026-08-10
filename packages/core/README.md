@@ -12,6 +12,7 @@ A lightweight, framework-agnostic infinite canvas SDK for the web — with first
 - **Text** — standalone text elements with font size and alignment
 - **Images** — drag & drop or programmatic placement (canvas-rendered for proper layer ordering)
 - **HTML embedding** — add any DOM element as a fully interactive canvas citizen
+- **Canvas-routed HTML painters** — register a painter to draw `html` elements on the canvas (screen, minimap, and export) instead of the DOM, with typed element activation events
 - **Layers** — named layers with visibility, locking, and absolute ordering
 - **Select & multi-select** — click, drag box, move, resize (layer-aware)
 - **Undo / redo** — full history stack with configurable depth
