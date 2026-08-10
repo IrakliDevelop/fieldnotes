@@ -657,6 +657,39 @@ describe('exportSvg canvas-routed html', () => {
     );
   });
 
+  it('reports missing-painter for a painter unregistered during the html await', async () => {
+    // Routing is resolved BEFORE `await renderHtmlElements(...)`, the painter is looked up
+    // after. Unregistering inside that window used to drop the element with no diagnostic.
+    const { restore } = installFakeRasterCanvas();
+    try {
+      const registry = new HtmlPainterRegistry();
+      registry.expect(['rk-marker']);
+      // eslint-disable-next-line @typescript-eslint/no-empty-function
+      const unregister = registry.register('rk-marker', () => {});
+      const store = new ElementStore();
+      store.add(markerElement({ id: 'legacy-embed', htmlType: 'legacy-embed' })); // DOM-routed
+      store.add(markerElement());
+      const onHtmlError = vi.fn();
+
+      const svg = await exportSvg(store, {
+        htmlPainters: registry,
+        onHtmlError,
+        // Runs inside the awaited window, after routing was decided.
+        renderHtml: () => {
+          unregister();
+          return null;
+        },
+      });
+
+      expect(svg).toContain('<svg');
+      expect(onHtmlError).toHaveBeenCalledWith(
+        expect.objectContaining({ elementId: 'marker-1', reason: 'missing-painter' }),
+      );
+    } finally {
+      restore();
+    }
+  });
+
   it('does NOT ask renderHtml for canvas-routed elements', async () => {
     const { restore } = installFakeRasterCanvas();
     try {

@@ -1220,6 +1220,7 @@ describe('ElementRenderer html routing', () => {
     const ctx = mockCtx();
     renderer.setHtmlPainters(new HtmlPainterRegistry());
     renderer.renderCanvasElement(ctx, noteElement());
+    renderer.renderCanvasElement(ctx, textElement());
     expect(totalCtxCalls(ctx)).toBe(0);
   });
 });

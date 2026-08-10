@@ -103,6 +103,37 @@ describe('HtmlPainterRegistry identity', () => {
     expect([...r.canvasTypes].sort()).toEqual(['declared', 'painted']);
   });
 
+  it('invalidates the memoized canvasTypes on every membership change', () => {
+    // canvasTypes is read several times per element per frame, so the Set is memoized.
+    // Every transition that can change its membership must drop that cache: reading it
+    // BEFORE each transition is what makes a stale cache observable.
+    const r = new HtmlPainterRegistry();
+    expect([...r.canvasTypes]).toEqual([]);
+
+    const releaseExpect = r.expect(['declared']);
+    expect([...r.canvasTypes].sort()).toEqual(['declared']);
+
+    // eslint-disable-next-line @typescript-eslint/no-empty-function
+    const unregister = r.register('painted', () => {});
+    expect([...r.canvasTypes].sort()).toEqual(['declared', 'painted']);
+
+    // Stacked painter for the same type: membership is unchanged, and so is the answer.
+    // eslint-disable-next-line @typescript-eslint/no-empty-function
+    const unregisterTop = r.register('painted', () => {});
+    expect([...r.canvasTypes].sort()).toEqual(['declared', 'painted']);
+    unregisterTop();
+    expect([...r.canvasTypes].sort()).toEqual(['declared', 'painted']);
+
+    releaseExpect();
+    expect([...r.canvasTypes].sort()).toEqual(['painted']);
+
+    unregister();
+    expect([...r.canvasTypes]).toEqual([]);
+
+    // A second identical read is still correct (and is the cached instance).
+    expect(r.canvasTypes).toBe(r.canvasTypes);
+  });
+
   it('notifies onChange once per active change and stops after unsubscribe', () => {
     const r = new HtmlPainterRegistry();
     const listener = vi.fn();

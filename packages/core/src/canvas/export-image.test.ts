@@ -1088,6 +1088,37 @@ describe('exportImage — rendering paths', () => {
       vi.restoreAllMocks();
     });
 
+    it('reports missing-painter for a painter unregistered during the html await', async () => {
+      // Routing is resolved BEFORE `await renderHtmlElements(...)`, the painter is looked
+      // up after. Unregistering inside that window used to drop the element with no
+      // diagnostic at all — the only silent failure in either exporter.
+      mockGetContext();
+      const registry = new HtmlPainterRegistry();
+      registry.expect(['rk-marker']);
+      // eslint-disable-next-line @typescript-eslint/no-empty-function
+      const unregister = registry.register('rk-marker', () => {});
+      const store = new ElementStore();
+      store.add(htmlElement('legacy-embed')); // DOM-routed: gives renderHtml a reason to run
+      store.add(markerElement());
+      const onHtmlError = vi.fn();
+
+      const blob = await exportImage(store, {
+        htmlPainters: registry,
+        onHtmlError,
+        // Runs inside the awaited window, after routing was decided.
+        renderHtml: () => {
+          unregister();
+          return null;
+        },
+      });
+
+      expect(blob).not.toBeNull();
+      expect(onHtmlError).toHaveBeenCalledWith(
+        expect.objectContaining({ elementId: 'marker-1', reason: 'missing-painter' }),
+      );
+      vi.restoreAllMocks();
+    });
+
     it('keeps DOM-backed html non-fatal under strictMissingCanvasHtml', async () => {
       // Discriminating in both halves: the existing 'unsupported' diagnostic MUST still
       // fire (no renderHtml supplied), and strict mode must NOT escalate it to a throw.

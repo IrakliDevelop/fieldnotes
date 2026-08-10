@@ -492,7 +492,18 @@ export async function exportImage(
         // paintHtmlElement rotates internally (applyRotation defaults to true), so this
         // must stay OUTSIDE withRotation — wrapping it too would double-rotate.
         const painter = options.htmlPainters?.getActivePainter(el.htmlType ?? '');
-        if (!painter) return; // routing === 'canvas' guarantees this, but stay defensive
+        if (!painter) {
+          // Routing was resolved before `await renderHtmlElements(...)`; a painter
+          // unregistered inside that window lands here. Reporting it keeps every dropped
+          // element accounted for — a silent omission is the one outcome this exporter
+          // never produces.
+          options.onHtmlError?.({
+            elementId: el.id,
+            htmlType: el.htmlType,
+            reason: 'missing-painter',
+          });
+          return;
+        }
         paintHtmlElement(el, painter, {
           ctx: target,
           zoom: scale,

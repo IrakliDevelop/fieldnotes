@@ -102,6 +102,12 @@ describe('core public surface', () => {
       'rotateElementPatch',
       'unionBounds',
       'BoundedElement',
+      // canvas-routed html painting and element-activation internals
+      'paintHtmlElement',
+      'HtmlPaintDiagnosticDeduper',
+      'ElementActivation',
+      'DEFAULT_ACTIVATION_SLOP_PX',
+      'DEFAULT_ACTIVATION_DOUBLE_DELAY_MS',
     ];
     for (const name of removed) {
       expect(name in FN, `${name} should not be exported`).toBe(false);

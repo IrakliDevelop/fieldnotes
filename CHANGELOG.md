@@ -40,8 +40,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ### Fixed
 
-- Contentless canvas-routed `html` elements (no DOM node, painted only on the canvas) no longer
-  intercept pointer events intended for the canvas beneath them.
+- A DOM-routed `html` element whose node has no content — what an unknown `htmlType` produces on a
+  client that has neither an `html` renderer nor a painter registered for it — no longer intercepts
+  pointer events intended for the canvas beneath it. The empty node stays at `pointer-events: none`
+  until content actually arrives, instead of covering the canvas with an invisible hit target.
 
 No persisted-canvas or wire-protocol change. No react, sync, sync-server, or sync-redis release.
 

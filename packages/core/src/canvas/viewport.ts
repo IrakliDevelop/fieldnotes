@@ -584,6 +584,10 @@ export class Viewport {
         const node = this.domNodeManager.getNode(el.id);
         if (node) {
           this.onHtmlElementMount(el.id, el.domId, node);
+          // The host mounted its content INTO the node; nothing else records it. Without
+          // this marker a routing change to canvas would detach the node and destroy the
+          // host's content, and the return leg would mount a fresh, permanently empty one.
+          this.domNodeManager.markHostOwnedContent(el.id);
           node.dataset['initialized'] = 'true';
           Object.assign(node.style, {
             overflow: 'hidden',

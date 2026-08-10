@@ -13,6 +13,10 @@ export class DomNodeManager {
   private domNodes = new Map<string, HTMLDivElement>();
   private strata = new Map<number, HTMLDivElement>();
   private htmlContent = new Map<string, HTMLElement>();
+  /** Elements whose node carries host-supplied content (see `markHostOwnedContent`). */
+  private hostOwnedContent = new Set<string>();
+  /** Host-owned nodes removed from the DOM but kept alive for a later remount. */
+  private preservedNodes = new Map<string, HTMLDivElement>();
   private readonly domLayer: HTMLDivElement;
   private readonly onEditRequest: (id: string) => void;
   private readonly isEditingElement: (id: string) => boolean;
@@ -48,12 +52,28 @@ export class DomNodeManager {
     this.lastSyncedVersion.delete(elementId);
   }
 
+  /**
+   * Marks an element's node as carrying content the HOST mounted into it directly
+   * (`ViewportOptions.onHtmlElementMount`). That content is never recorded in
+   * `htmlContent` — the host appends straight into the node — so a detach would
+   * destroy it and no remount could ever bring it back. Preserving the node itself
+   * (rather than a guessed-at child) keeps arbitrary subtrees, host-attached
+   * listeners, and the host's own reference to the node all valid.
+   */
+  markHostOwnedContent(elementId: string): void {
+    this.hostOwnedContent.add(elementId);
+  }
+
   hasContent(elementId: string): boolean {
     return this.htmlContent.has(elementId);
   }
 
   resetHtmlContent(elementId: string): void {
     this.htmlContent.delete(elementId);
+    // Replacing an element's content ends host ownership: the caller owns it now, and a
+    // stale preserved node would remount the OLD content ahead of the new.
+    this.hostOwnedContent.delete(elementId);
+    this.preservedNodes.delete(elementId);
     this.lastSyncedVersion.delete(elementId);
     this.lastSyncedZIndex.delete(elementId);
     this.lastSyncedOpacity.delete(elementId);
@@ -68,12 +88,20 @@ export class DomNodeManager {
   syncDomNode(element: CanvasElement, zIndex = 0, opacity = 1): void {
     let node = this.domNodes.get(element.id);
     if (!node) {
-      node = document.createElement('div');
-      node.dataset['elementId'] = element.id;
-      Object.assign(node.style, {
-        position: 'absolute',
-        pointerEvents: 'auto',
-      });
+      const preserved = this.preservedNodes.get(element.id);
+      if (preserved) {
+        // Host-owned node coming back from a canvas detour: reattach the ORIGINAL node so
+        // the host's content survives. A fresh node here would be permanently empty.
+        this.preservedNodes.delete(element.id);
+        node = preserved;
+      } else {
+        node = document.createElement('div');
+        node.dataset['elementId'] = element.id;
+        Object.assign(node.style, {
+          position: 'absolute',
+          pointerEvents: 'auto',
+        });
+      }
       this.getStratum(zIndex).appendChild(node);
       this.domNodes.set(element.id, node);
     } else if (this.getVersion) {
@@ -128,13 +156,21 @@ export class DomNodeManager {
 
   removeDomNode(id: string): void {
     this.htmlContent.delete(id);
+    this.hostOwnedContent.delete(id);
+    this.preservedNodes.delete(id);
     this.detachNodeElement(id);
   }
 
   /** Removes the node but KEEPS htmlContent, so a later re-mount restores the original embed.
    *  The registry factory that produces embed content only runs in loadState (G1), so dropping
-   *  content here would be unrecoverable. Use `removeDomNode` when the element itself is gone. */
+   *  content here would be unrecoverable. For a host-owned node there is no recorded content at
+   *  all, so the node ITSELF is kept alive off-DOM and reattached by `syncDomNode`.
+   *  Use `removeDomNode` when the element itself is gone. */
   detachDomNode(id: string): void {
+    if (this.hostOwnedContent.has(id)) {
+      const node = this.domNodes.get(id);
+      if (node) this.preservedNodes.set(id, node);
+    }
     this.detachNodeElement(id);
   }
 
@@ -169,8 +205,12 @@ export class DomNodeManager {
         this.detachDomNode(el.id);
         continue;
       }
-      // Reverse transition: only meaningful when content survived a detach.
-      if (this.htmlContent.has(el.id) && !this.domNodes.has(el.id)) {
+      // Reverse transition: only meaningful when content — recorded content, or a preserved
+      // host-owned node — survived a detach.
+      if (
+        (this.htmlContent.has(el.id) || this.preservedNodes.has(el.id)) &&
+        !this.domNodes.has(el.id)
+      ) {
         this.syncDomNode(el);
       }
     }
@@ -180,6 +220,8 @@ export class DomNodeManager {
     this.domNodes.forEach((node) => node.remove());
     this.domNodes.clear();
     this.htmlContent.clear();
+    this.hostOwnedContent.clear();
+    this.preservedNodes.clear();
     this.lastSyncedVersion.clear();
     this.lastSyncedZIndex.clear();
     this.lastSyncedOpacity.clear();

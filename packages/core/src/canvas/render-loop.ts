@@ -59,6 +59,8 @@ export class RenderLoop {
   private gridCacheCanvas: HTMLCanvasElement | null = null;
   private gridCacheCtx: CanvasRenderingContext2D | null = null;
   private lastGridRefs: CanvasElement[] = [];
+  private htmlScratchCanvas: HTMLCanvasElement | null = null;
+  private htmlScratchCtx: CanvasRenderingContext2D | null = null;
 
   constructor(deps: RenderLoopDeps) {
     this.canvasEl = deps.canvasEl;
@@ -193,6 +195,72 @@ export class RenderLoop {
     }
 
     this.gridCacheCtx = this.gridCacheCanvas.getContext('2d') as CanvasRenderingContext2D | null;
+  }
+
+  /** Lazily allocated, and only ever touched by the translucent-layer html branch below. */
+  private ensureHtmlScratch(w: number, h: number): CanvasRenderingContext2D | null {
+    if (this.htmlScratchCanvas === null || this.htmlScratchCtx === null) {
+      if (typeof OffscreenCanvas !== 'undefined') {
+        this.htmlScratchCanvas = new OffscreenCanvas(w, h) as unknown as HTMLCanvasElement;
+      } else if (typeof document !== 'undefined') {
+        this.htmlScratchCanvas = document.createElement('canvas');
+      } else {
+        return null;
+      }
+      this.htmlScratchCtx = this.htmlScratchCanvas.getContext(
+        '2d',
+      ) as CanvasRenderingContext2D | null;
+      if (this.htmlScratchCtx === null) {
+        this.htmlScratchCanvas = null;
+        return null;
+      }
+    }
+    if (this.htmlScratchCanvas.width !== w) this.htmlScratchCanvas.width = w;
+    if (this.htmlScratchCanvas.height !== h) this.htmlScratchCanvas.height = h;
+    return this.htmlScratchCtx;
+  }
+
+  /**
+   * Draws one canvas-routed html element on the hybrid stratum with the layer-opacity
+   * boundary the painter contract requires: paint at `globalAlpha === 1` into a scratch
+   * surface, then composite that raster at the layer's opacity. Mirrors `exportImage`'s
+   * per-layer temp canvas and the minimap's layer composite.
+   */
+  private paintHybridHtmlAtLayerOpacity(
+    hybridCtx: CanvasRenderingContext2D,
+    element: CanvasElement,
+    layerOpacity: number,
+    dpr: number,
+  ): void {
+    const width = this.canvasEl.width;
+    const height = this.canvasEl.height;
+    const scratchCtx = this.ensureHtmlScratch(width, height);
+    const scratchCanvas = this.htmlScratchCanvas;
+    if (!scratchCtx || !scratchCanvas) {
+      // No scratch surface available: drawing the element pre-multiplied still beats
+      // dropping it, and this is the same fallback shape the grid cache uses.
+      hybridCtx.save();
+      hybridCtx.globalAlpha = layerOpacity;
+      this.renderer.renderCanvasElement(hybridCtx, element);
+      hybridCtx.restore();
+      return;
+    }
+
+    scratchCtx.setTransform(1, 0, 0, 1, 0, 0);
+    scratchCtx.clearRect(0, 0, width, height);
+    scratchCtx.save();
+    scratchCtx.globalAlpha = 1;
+    scratchCtx.scale(dpr, dpr);
+    scratchCtx.translate(this.camera.position.x, this.camera.position.y);
+    scratchCtx.scale(this.camera.zoom, this.camera.zoom);
+    this.renderer.renderCanvasElement(scratchCtx, element);
+    scratchCtx.restore();
+
+    hybridCtx.save();
+    hybridCtx.setTransform(1, 0, 0, 1, 0, 0);
+    hybridCtx.globalAlpha = layerOpacity;
+    hybridCtx.drawImage(scratchCanvas as CanvasImageSource, 0, 0);
+    hybridCtx.restore();
   }
 
   private render(): void {
@@ -433,8 +501,20 @@ export class RenderLoop {
       for (const element of elements) {
         const elBounds = getElementVisualBounds(element);
         if (elBounds && !boundsIntersect(elBounds, cullingRect)) continue;
+        const layerOpacity = this.layerManager.getLayer?.(element.layerId)?.opacity ?? 1;
+        // Canvas-routed html owns the layer-opacity boundary the same way every other
+        // surface does (cached-layer composite, minimap, image export, svg export): the
+        // painter is handed globalAlpha 1 and layer opacity is applied to the painted
+        // RESULT. Pre-multiplying here — which is the right thing for every other element
+        // type, and stays that way — would let a painter that assigns globalAlpha wipe the
+        // layer's opacity out, so a marker's on-screen opacity would change the moment an
+        // unrelated note pushed the frame onto this hybrid path.
+        if (element.type === 'html' && layerOpacity < 1) {
+          this.paintHybridHtmlAtLayerOpacity(hybridCtx, element, layerOpacity, dpr);
+          continue;
+        }
         hybridCtx.save();
-        hybridCtx.globalAlpha = this.layerManager.getLayer?.(element.layerId)?.opacity ?? 1;
+        hybridCtx.globalAlpha = element.type === 'html' ? 1 : layerOpacity;
         this.renderer.renderCanvasElement(hybridCtx, element);
         hybridCtx.restore();
       }

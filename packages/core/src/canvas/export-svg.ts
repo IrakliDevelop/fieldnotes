@@ -594,7 +594,17 @@ function rasterizeCanvasRoutedHtml(
 
   for (const element of elements) {
     const painter = registry?.getActivePainter(element.htmlType ?? '');
-    if (!painter) continue; // resolveHtmlRouting only returns 'canvas' when a painter exists
+    if (!painter) {
+      // Routing was resolved before `await renderHtmlElements(...)`; a painter unregistered
+      // inside that window lands here. Reporting it keeps every dropped element accounted
+      // for — a silent omission is the one outcome this exporter never produces.
+      options.onHtmlError?.({
+        elementId: element.id,
+        htmlType: element.htmlType,
+        reason: 'missing-painter',
+      });
+      continue;
+    }
     if (typeof document === 'undefined') {
       options.onHtmlError?.({
         elementId: element.id,

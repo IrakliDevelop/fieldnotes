@@ -35,16 +35,27 @@ export class HtmlPainterRegistry {
   private readonly declared = new Map<string, number>();
   private readonly listeners = new Set<() => void>();
   private _version = 0;
+  private canvasTypesCache: ReadonlySet<string> | null = null;
 
   get version(): number {
     return this._version;
   }
 
+  /**
+   * Memoized: this is the hottest read in the feature — `isDomElement` consults it several
+   * times per element per frame, and every html-element store update re-reconciles every
+   * html element. The cache is dropped in `bump()`, which is called on exactly the
+   * transitions that can change the membership of this set (first `expect` of a type, last
+   * release of a type, any `register`, and any unregister that empties a type's stack).
+   */
   get canvasTypes(): ReadonlySet<string> {
+    const cached = this.canvasTypesCache;
+    if (cached) return cached;
     const types = new Set<string>(this.declared.keys());
     for (const [type, stack] of this.painters) {
       if (stack.length > 0) types.add(type);
     }
+    this.canvasTypesCache = types;
     return types;
   }
 
@@ -109,6 +120,7 @@ export class HtmlPainterRegistry {
   }
 
   private bump(): void {
+    this.canvasTypesCache = null;
     this._version += 1;
     for (const listener of [...this.listeners]) {
       try {

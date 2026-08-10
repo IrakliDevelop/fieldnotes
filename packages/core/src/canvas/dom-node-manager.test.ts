@@ -927,6 +927,48 @@ describe('DomNodeManager canvas routing', () => {
     expect(manager.getNode(el.id)?.textContent).toBe('original');
   });
 
+  it('preserves a host-owned node and its subtree across a canvas -> dom round trip', () => {
+    // Content mounted by the host through ViewportOptions.onHtmlElementMount is never
+    // recorded in htmlContent (the host appends straight into the node), so only the
+    // host-owned marker can keep detach from destroying it.
+    const { manager, store } = setup();
+    const el = htmlElement('chart');
+    store.add(el);
+    manager.syncDomNode(el);
+    const mounted = manager.getNode(el.id);
+    expect(mounted).toBeDefined();
+    const hostContent = document.createElement('canvas');
+    hostContent.dataset['host'] = 'live-chart';
+    mounted?.appendChild(hostContent);
+    mounted?.setAttribute('data-initialized', 'true');
+    manager.markHostOwnedContent(el.id);
+
+    let routing: 'dom' | 'canvas' = 'canvas';
+    const reconcile = () => manager.reconcileHtmlRouting(store, () => routing);
+
+    reconcile();
+    expect(manager.getNode(el.id)).toBeUndefined();
+
+    routing = 'dom';
+    reconcile();
+    const remounted = manager.getNode(el.id);
+    expect(remounted).toBe(mounted); // the ORIGINAL node, not a fresh empty one
+    expect(remounted?.querySelector('[data-host="live-chart"]')).toBe(hostContent);
+  });
+
+  it('removeDomNode drops host-owned preservation (the element itself is gone)', () => {
+    const { manager, store } = setup();
+    const el = htmlElement('chart');
+    store.add(el);
+    manager.syncDomNode(el);
+    manager.getNode(el.id)?.appendChild(document.createElement('canvas'));
+    manager.markHostOwnedContent(el.id);
+    manager.detachDomNode(el.id); // node is now preserved off-DOM
+    manager.removeDomNode(el.id); // ...but the element itself is gone: drop it
+    manager.reconcileHtmlRouting(store, () => 'dom');
+    expect(manager.getNode(el.id)).toBeUndefined();
+  });
+
   it('reconcile detaches canvas-routed ids and leaves dom-routed ones mounted', () => {
     const { manager, store } = setup();
     const canvasEl = htmlElement('rk-marker');

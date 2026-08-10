@@ -1121,6 +1121,50 @@ describe('Viewport', () => {
       vp2.destroy();
     });
 
+    it('keeps host-mounted content alive across a painter register/unregister round trip', () => {
+      // The host wires live content straight into the node the callback hands it; nothing
+      // records that content anywhere. A painter registering for the htmlType detaches the
+      // node, and unregistering routes it back to the DOM — the ORIGINAL content must come
+      // back, not a fresh empty node.
+      const vp = new Viewport(container);
+      const el = createHtmlElement({
+        position: { x: 10, y: 20 },
+        size: { w: 200, h: 150 },
+        htmlType: 'chart',
+        layerId: vp.layerManager.activeLayerId,
+      });
+      vp.store.add(el);
+      const state = vp.exportState();
+      vp.destroy();
+
+      const vp2 = new Viewport(container, {
+        onHtmlElementMount: (_id, _domId, node) => {
+          const live = document.createElement('div');
+          live.dataset['host'] = 'live-chart';
+          live.textContent = 'host content';
+          node.appendChild(live);
+        },
+      });
+      vp2.loadState(state);
+      const paintStack = (vp2 as unknown as { paintStack: HTMLDivElement }).paintStack;
+      const mountedNode = (): Element | null =>
+        paintStack.querySelector(`[data-element-id="${el.id}"]`);
+      expect(mountedNode()?.querySelector('[data-host="live-chart"]')?.textContent).toBe(
+        'host content',
+      );
+
+      // eslint-disable-next-line @typescript-eslint/no-empty-function
+      const unregister = vp2.registerHtmlPainter('chart', () => {});
+      expect(mountedNode()).toBeNull(); // canvas-routed: node detached
+
+      unregister();
+      expect(mountedNode()?.querySelector('[data-host="live-chart"]')?.textContent).toBe(
+        'host content',
+      );
+
+      vp2.destroy();
+    });
+
     it('does not fire when no callback is provided (backward compat)', () => {
       const vp = new Viewport(container);
       const el = createHtmlElement({
@@ -2471,10 +2515,50 @@ describe('Viewport html painters', () => {
     const painter = vi.fn();
     vp.expectCanvasHtmlTypes(['rk-marker']);
     vp.registerHtmlPainter('rk-marker', painter);
-    vp.store.add(markerElement());
+    const marker = markerElement();
+    vp.store.add(marker);
+    // Control element: an html element whose htmlType nobody claims stays DOM-routed and
+    // DOES get a node in this very frame. Without it the "no node for the marker"
+    // assertion would hold vacuously — the marker has no stored content either way.
+    const domEmbed = createHtmlElement({
+      position: { x: 0, y: 0 },
+      size: { w: 50, h: 50 },
+      htmlType: 'legacy-embed',
+    });
+    vp.store.add(domEmbed);
+
     await nextFrame(vp);
+
     expect(painter).toHaveBeenCalled();
-    expect(paintStackOf(vp).querySelector('[data-element-id]')).toBeNull();
+    expect(paintStackOf(vp).querySelector(`[data-element-id="${domEmbed.id}"]`)).not.toBeNull();
+    expect(paintStackOf(vp).querySelector(`[data-element-id="${marker.id}"]`)).toBeNull();
+  });
+
+  it('hands the painter globalAlpha 1 on a translucent layer, hybrid path included', async () => {
+    // Every other surface (cached-layer composite, minimap, both exports) paints html at
+    // globalAlpha 1 and applies layer opacity to the RESULT. The hybrid screen path must
+    // agree, or adding an unrelated note (which is what flips the frame into hybrid mode)
+    // silently changes a marker's on-screen opacity and screen stops matching the export.
+    const vp = makeViewport();
+    const layerId = vp.layerManager.activeLayerId;
+    const seen: unknown[] = [];
+    vp.expectCanvasHtmlTypes(['rk-marker']);
+    vp.registerHtmlPainter('rk-marker', ({ ctx }) => {
+      seen.push(ctx.globalAlpha);
+    });
+    // A DOM-routed element FIRST, then the marker: that ordering is what makes the frame
+    // hybrid and moves the marker onto the hybrid surface instead of a cached layer.
+    vp.store.add(
+      createNote({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 }, text: 'note', layerId }),
+    );
+    const marker = markerElement();
+    vp.store.add({ ...marker, layerId });
+    vp.layerManager.setLayerOpacity(layerId, 0.5);
+
+    await nextFrame(vp);
+
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen).toEqual(seen.map(() => 1));
   });
 
   it('repaints elements that already existed when the painter registers later', async () => {
