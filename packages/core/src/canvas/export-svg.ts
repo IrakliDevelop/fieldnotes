@@ -39,12 +39,30 @@ import {
 import type { ExportResourceOptions } from './export-image';
 import { renderHtmlElements, validateHtmlExportOptions } from './html-export';
 import type { HtmlExportOptions } from './html-export';
+import { resolveHtmlRouting, HtmlPainterMissingError } from './html-painter-registry';
+import type { HtmlPainterRegistry } from './html-painter-registry';
+import { paintHtmlElement } from './html-paint';
+import type { HtmlPaintDiagnostic } from './html-paint-diagnostics';
 
 export interface ExportSvgOptions extends ExportResourceOptions, HtmlExportOptions {
   padding?: number;
   background?: string;
   filter?: (el: CanvasElement) => boolean;
   rasterScale?: number;
+  /** Registry of canvas-backed html painters, keyed by `htmlType`. When absent (or when
+   *  an element's `htmlType` isn't claimed), html elements fall back to the legacy
+   *  DOM-raster path (`renderHtml`). */
+  htmlPainters?: HtmlPainterRegistry;
+  /** `htmlType`s that must route to canvas even before a painter for them is
+   *  registered — lets a host declare intent up front (mirrors `HtmlPainterRegistry.expect`). */
+  expectedCanvasTypes?: ReadonlySet<string>;
+  /**
+   * When true, a canvas-routed html element with no active painter throws
+   * `HtmlPainterMissingError` instead of reporting `onHtmlError` and continuing.
+   * DOM-routed html elements are never affected — a missing `renderHtml` stays
+   * a non-fatal `'unsupported'` diagnostic regardless of this flag.
+   */
+  strictMissingCanvasHtml?: boolean;
 }
 
 interface Bounds {
@@ -447,8 +465,40 @@ export async function exportSvg(
   const imageCache = await loadImages(remoteImages, options);
   const imageDataUris = encodeImages(visibleElements, imageCache, rasterScale, options);
   const htmlElements = visibleElements.filter((el): el is HtmlElement => el.type === 'html');
-  const htmlSources = await renderHtmlElements(htmlElements, options);
-  const htmlDataUris = encodeHtmlElements(htmlElements, htmlSources, rasterScale, options);
+
+  // Resolve routing per visible html element before doing any rendering work: canvas-routed
+  // elements never reach the DOM-raster path (renderHtmlElements), and 'missing' is either
+  // fatal (strictMissingCanvasHtml) or reported once here — it never falls back to DOM.
+  const canvasRoutedElements: HtmlElement[] = [];
+  const domHtmlElements: HtmlElement[] = [];
+  for (const el of htmlElements) {
+    const routing = resolveHtmlRouting(
+      el,
+      options.htmlPainters ?? null,
+      options.expectedCanvasTypes,
+    );
+    if (routing === 'missing') {
+      if (options.strictMissingCanvasHtml) {
+        throw new HtmlPainterMissingError(el.id, el.htmlType);
+      }
+      options.onHtmlError?.({ elementId: el.id, htmlType: el.htmlType, reason: 'missing-painter' });
+      continue;
+    }
+    if (routing === 'canvas') {
+      canvasRoutedElements.push(el);
+    } else {
+      domHtmlElements.push(el);
+    }
+  }
+  const htmlSources = await renderHtmlElements(domHtmlElements, options);
+  const htmlDataUris = encodeHtmlElements(domHtmlElements, htmlSources, rasterScale, options);
+  const canvasHtmlDataUris = rasterizeCanvasRoutedHtml(
+    canvasRoutedElements,
+    options.htmlPainters,
+    rasterScale,
+    options,
+  );
+  for (const [id, uri] of canvasHtmlDataUris) htmlDataUris.set(id, uri);
 
   const grids = visibleElements.filter((el): el is GridElement => el.type === 'grid');
   const firstGrid = grids[0];
@@ -518,6 +568,100 @@ function emitElement(
     default:
       return '';
   }
+}
+
+/**
+ * Rasterizes canvas-routed html elements through the shared `paintHtmlElement` path into
+ * their own offscreen canvas, one per element, sized to the element's own w×h (not the
+ * export bounds). `emitElement`'s 'html' case then places the resulting data-URI in an
+ * `<image>` unchanged, identical to the DOM-raster path.
+ */
+function rasterizeCanvasRoutedHtml(
+  elements: HtmlElement[],
+  registry: HtmlPainterRegistry | undefined,
+  rasterScale: number,
+  options: ExportSvgOptions,
+): Map<string, string> {
+  const encoded = new Map<string, string>();
+  const onDiagnostic = (d: HtmlPaintDiagnostic): void => {
+    options.onHtmlError?.({
+      elementId: d.elementId,
+      htmlType: d.htmlType,
+      reason: d.kind,
+      cause: d.kind === 'painter-threw' ? d.error : undefined,
+    });
+  };
+
+  for (const element of elements) {
+    const painter = registry?.getActivePainter(element.htmlType ?? '');
+    if (!painter) {
+      // Routing was resolved before `await renderHtmlElements(...)`; a painter unregistered
+      // inside that window lands here. Reporting it keeps every dropped element accounted
+      // for — a silent omission is the one outcome this exporter never produces.
+      options.onHtmlError?.({
+        elementId: element.id,
+        htmlType: element.htmlType,
+        reason: 'missing-painter',
+      });
+      continue;
+    }
+    if (typeof document === 'undefined') {
+      options.onHtmlError?.({
+        elementId: element.id,
+        htmlType: element.htmlType,
+        reason: 'encode',
+      });
+      continue;
+    }
+    const width = Math.max(1, Math.ceil(element.size.w * rasterScale));
+    const height = Math.max(1, Math.ceil(element.size.h * rasterScale));
+    assertExportSize(width, height, options);
+    const off = document.createElement('canvas');
+    off.width = width;
+    off.height = height;
+    const octx = off.getContext('2d');
+    if (!octx) {
+      options.onHtmlError?.({
+        elementId: element.id,
+        htmlType: element.htmlType,
+        reason: 'encode',
+      });
+      continue;
+    }
+    octx.scale(rasterScale, rasterScale);
+    // LOCALIZING TRANSFORM — paintHtmlElement translates by the element's WORLD position,
+    // but this offscreen canvas is sized to only the element's own w×h. Without cancelling
+    // the world offset here first, the paint lands outside the canvas and the raster comes
+    // out fully transparent.
+    octx.translate(-element.position.x, -element.position.y);
+    paintHtmlElement(element, painter, {
+      ctx: octx,
+      zoom: rasterScale,
+      target: 'export',
+      applyRotation: false, // withRotationSvg wraps the emitted <image>; rotating here too would double it
+      onDiagnostic,
+    });
+    try {
+      const dataUri = off.toDataURL('image/png');
+      if (dataUri.startsWith('data:')) {
+        encoded.set(element.id, dataUri);
+      } else {
+        options.onHtmlError?.({
+          elementId: element.id,
+          htmlType: element.htmlType,
+          reason: 'encode',
+        });
+      }
+    } catch (cause) {
+      options.onHtmlError?.({
+        elementId: element.id,
+        htmlType: element.htmlType,
+        reason: 'encode',
+        cause,
+      });
+    }
+  }
+  return encoded;
 }
 
 function encodeHtmlElements(

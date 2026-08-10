@@ -805,3 +805,181 @@ describe('DomNodeManager', () => {
     });
   });
 });
+
+describe('DomNodeManager canvas routing', () => {
+  function setup() {
+    const layer = document.createElement('div');
+    document.body.appendChild(layer);
+    // getVersion is constant across calls: storing html content does not itself bump an
+    // element's data version, so the dirty-tracking fast path must be invalidated explicitly
+    // (see storeHtmlContent) for a content-arrival re-render to happen at all.
+    const manager = new DomNodeManager({
+      domLayer: layer,
+      onEditRequest: vi.fn(),
+      isEditingElement: vi.fn().mockReturnValue(false),
+      getVersion: () => 0,
+    });
+    const store = new ElementStore();
+    return { manager, layer, store };
+  }
+
+  function htmlElement(htmlType: string, extra: { interactive?: boolean } = {}) {
+    return createHtmlElement({
+      position: { x: 0, y: 0 },
+      size: { w: 100, h: 100 },
+      htmlType,
+      ...extra,
+    });
+  }
+
+  it('detaches a node while preserving its stored content', () => {
+    const { manager, layer } = setup();
+    const el = htmlElement('embed');
+    const content = document.createElement('span');
+    manager.storeHtmlContent(el.id, content);
+    manager.syncDomNode(el);
+    manager.detachDomNode(el.id);
+    expect(layer.querySelector('[data-element-id]')).toBeNull();
+    expect(manager.hasContent(el.id)).toBe(true);
+  });
+
+  it('restores the ORIGINAL embed through routing transitions alone', () => {
+    // dom -> canvas -> dom driven ONLY by the resolver, with no manual syncDomNode calls,
+    // so this exercises reconciliation rather than the caller.
+    const { manager, store } = setup();
+    const el = htmlElement('embed');
+    store.add(el);
+    const content = document.createElement('span');
+    content.textContent = 'original';
+    manager.storeHtmlContent(el.id, content);
+
+    let routing: 'dom' | 'canvas' = 'dom';
+    const reconcile = () => manager.reconcileHtmlRouting(store, () => routing);
+
+    reconcile();
+    expect(manager.getNode(el.id)?.textContent).toBe('original');
+
+    routing = 'canvas';
+    reconcile();
+    expect(manager.getNode(el.id)).toBeUndefined();
+    expect(manager.hasContent(el.id)).toBe(true);
+
+    routing = 'dom';
+    reconcile();
+    // Mounted SYNCHRONOUSLY by reconciliation — not deferred to a later render pass.
+    expect(manager.getNode(el.id)?.textContent).toBe('original');
+  });
+
+  it('does not remount a dom-routed element that never had content', () => {
+    const { manager, store } = setup();
+    const el = htmlElement('never-had-content');
+    store.add(el);
+    manager.reconcileHtmlRouting(store, () => 'dom');
+    expect(manager.getNode(el.id)).toBeUndefined();
+  });
+
+  it('removeDomNode still drops content (unchanged behaviour)', () => {
+    const { manager } = setup();
+    const el = htmlElement('embed');
+    manager.storeHtmlContent(el.id, document.createElement('span'));
+    manager.syncDomNode(el);
+    manager.removeDomNode(el.id);
+    expect(manager.hasContent(el.id)).toBe(false);
+  });
+
+  it('gives a contentless html node pointerEvents none, then restores on content arrival', () => {
+    const { manager } = setup();
+    const el = htmlElement('embed', { interactive: true });
+    manager.syncDomNode(el);
+    expect(manager.getNode(el.id)?.style.pointerEvents).toBe('none');
+    manager.storeHtmlContent(el.id, document.createElement('span'));
+    manager.syncDomNode(el);
+    expect(manager.getNode(el.id)?.style.pointerEvents).toBe('auto');
+  });
+
+  it('remounts preserved content on the canvas -> dom leg alone', () => {
+    // Mount the ordinary way first (direct syncDomNode, as the "reconcile detaches..." test
+    // above does), so reconciliation's first pass is a no-op with respect to mounting. This
+    // isolates evidence for the canvas -> dom remount branch specifically, independent of
+    // whichever branch performs a routing='dom' element's very first mount.
+    const { manager, store } = setup();
+    const el = htmlElement('embed');
+    store.add(el);
+    const content = document.createElement('span');
+    content.textContent = 'original';
+    manager.storeHtmlContent(el.id, content);
+    manager.syncDomNode(el);
+
+    let routing: 'dom' | 'canvas' = 'dom';
+    const reconcile = () => manager.reconcileHtmlRouting(store, () => routing);
+
+    reconcile();
+    expect(manager.getNode(el.id)?.textContent).toBe('original');
+
+    routing = 'canvas';
+    reconcile();
+    expect(manager.getNode(el.id)).toBeUndefined();
+    expect(manager.hasContent(el.id)).toBe(true);
+
+    routing = 'dom';
+    reconcile();
+    // The canvas -> dom leg alone must remount the ORIGINAL content, synchronously.
+    expect(manager.getNode(el.id)?.textContent).toBe('original');
+  });
+
+  it('preserves a host-owned node and its subtree across a canvas -> dom round trip', () => {
+    // Content mounted by the host through ViewportOptions.onHtmlElementMount is never
+    // recorded in htmlContent (the host appends straight into the node), so only the
+    // host-owned marker can keep detach from destroying it.
+    const { manager, store } = setup();
+    const el = htmlElement('chart');
+    store.add(el);
+    manager.syncDomNode(el);
+    const mounted = manager.getNode(el.id);
+    expect(mounted).toBeDefined();
+    const hostContent = document.createElement('canvas');
+    hostContent.dataset['host'] = 'live-chart';
+    mounted?.appendChild(hostContent);
+    mounted?.setAttribute('data-initialized', 'true');
+    manager.markHostOwnedContent(el.id);
+
+    let routing: 'dom' | 'canvas' = 'canvas';
+    const reconcile = () => manager.reconcileHtmlRouting(store, () => routing);
+
+    reconcile();
+    expect(manager.getNode(el.id)).toBeUndefined();
+
+    routing = 'dom';
+    reconcile();
+    const remounted = manager.getNode(el.id);
+    expect(remounted).toBe(mounted); // the ORIGINAL node, not a fresh empty one
+    expect(remounted?.querySelector('[data-host="live-chart"]')).toBe(hostContent);
+  });
+
+  it('removeDomNode drops host-owned preservation (the element itself is gone)', () => {
+    const { manager, store } = setup();
+    const el = htmlElement('chart');
+    store.add(el);
+    manager.syncDomNode(el);
+    manager.getNode(el.id)?.appendChild(document.createElement('canvas'));
+    manager.markHostOwnedContent(el.id);
+    manager.detachDomNode(el.id); // node is now preserved off-DOM
+    manager.removeDomNode(el.id); // ...but the element itself is gone: drop it
+    manager.reconcileHtmlRouting(store, () => 'dom');
+    expect(manager.getNode(el.id)).toBeUndefined();
+  });
+
+  it('reconcile detaches canvas-routed ids and leaves dom-routed ones mounted', () => {
+    const { manager, store } = setup();
+    const canvasEl = htmlElement('rk-marker');
+    const domEl = htmlElement('embed');
+    store.add(canvasEl);
+    store.add(domEl);
+    manager.storeHtmlContent(domEl.id, document.createElement('span'));
+    manager.syncDomNode(canvasEl);
+    manager.syncDomNode(domEl);
+    manager.reconcileHtmlRouting(store, (el) => (el.htmlType === 'rk-marker' ? 'canvas' : 'dom'));
+    expect(manager.getNode(canvasEl.id)).toBeUndefined();
+    expect(manager.getNode(domEl.id)).toBeDefined();
+  });
+});

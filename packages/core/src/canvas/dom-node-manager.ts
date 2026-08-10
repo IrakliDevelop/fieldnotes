@@ -1,4 +1,4 @@
-import type { CanvasElement } from '../elements/types';
+import type { CanvasElement, HtmlElement } from '../elements/types';
 import type { ElementStore } from '../elements/element-store';
 import { DEFAULT_NOTE_FONT_SIZE } from '../elements/element-factory';
 import { DoubleTapDetector } from './double-tap-detector';
@@ -13,6 +13,10 @@ export class DomNodeManager {
   private domNodes = new Map<string, HTMLDivElement>();
   private strata = new Map<number, HTMLDivElement>();
   private htmlContent = new Map<string, HTMLElement>();
+  /** Elements whose node carries host-supplied content (see `markHostOwnedContent`). */
+  private hostOwnedContent = new Set<string>();
+  /** Host-owned nodes removed from the DOM but kept alive for a later remount. */
+  private preservedNodes = new Map<string, HTMLDivElement>();
   private readonly domLayer: HTMLDivElement;
   private readonly onEditRequest: (id: string) => void;
   private readonly isEditingElement: (id: string) => boolean;
@@ -41,6 +45,31 @@ export class DomNodeManager {
 
   storeHtmlContent(elementId: string, dom: HTMLElement): void {
     this.htmlContent.set(elementId, dom);
+    // Content arriving (or changing) is not reflected in the element's own data version, so
+    // the dirty-tracking fast path in syncDomNode must be invalidated explicitly — otherwise a
+    // contentless node stuck at pointerEvents:'none' (G2) would never re-render once content
+    // shows up.
+    this.lastSyncedVersion.delete(elementId);
+  }
+
+  /**
+   * Marks an element's node as carrying content the HOST mounted into it directly
+   * (`ViewportOptions.onHtmlElementMount`). That content is never recorded in
+   * `htmlContent` — the host appends straight into the node — so a detach would
+   * destroy it and no remount could ever bring it back. Preserving the node itself
+   * (rather than a guessed-at child) keeps arbitrary subtrees, host-attached
+   * listeners, and the host's own reference to the node all valid.
+   *
+   * Callers mark UNCONDITIONALLY, without inspecting the node — a host that only attaches
+   * listeners or styles owns its node just as much as one that appended children, and
+   * there is no way to tell those apart from the outside. Two consequences follow, both
+   * accepted: a node the host never populated can still round-trip back into the DOM (the
+   * documented exception to "never had content -> never remount", reachable only via
+   * `onHtmlElementMount`), and one detached `<div>` is retained per such element for its
+   * lifetime.
+   */
+  markHostOwnedContent(elementId: string): void {
+    this.hostOwnedContent.add(elementId);
   }
 
   hasContent(elementId: string): boolean {
@@ -49,6 +78,10 @@ export class DomNodeManager {
 
   resetHtmlContent(elementId: string): void {
     this.htmlContent.delete(elementId);
+    // Replacing an element's content ends host ownership: the caller owns it now, and a
+    // stale preserved node would remount the OLD content ahead of the new.
+    this.hostOwnedContent.delete(elementId);
+    this.preservedNodes.delete(elementId);
     this.lastSyncedVersion.delete(elementId);
     this.lastSyncedZIndex.delete(elementId);
     this.lastSyncedOpacity.delete(elementId);
@@ -63,12 +96,20 @@ export class DomNodeManager {
   syncDomNode(element: CanvasElement, zIndex = 0, opacity = 1): void {
     let node = this.domNodes.get(element.id);
     if (!node) {
-      node = document.createElement('div');
-      node.dataset['elementId'] = element.id;
-      Object.assign(node.style, {
-        position: 'absolute',
-        pointerEvents: 'auto',
-      });
+      const preserved = this.preservedNodes.get(element.id);
+      if (preserved) {
+        // Host-owned node coming back from a canvas detour: reattach the ORIGINAL node so
+        // the host's content survives. A fresh node here would be permanently empty.
+        this.preservedNodes.delete(element.id);
+        node = preserved;
+      } else {
+        node = document.createElement('div');
+        node.dataset['elementId'] = element.id;
+        Object.assign(node.style, {
+          position: 'absolute',
+          pointerEvents: 'auto',
+        });
+      }
       this.getStratum(zIndex).appendChild(node);
       this.domNodes.set(element.id, node);
     } else if (this.getVersion) {
@@ -123,18 +164,62 @@ export class DomNodeManager {
 
   removeDomNode(id: string): void {
     this.htmlContent.delete(id);
+    this.hostOwnedContent.delete(id);
+    this.preservedNodes.delete(id);
+    this.detachNodeElement(id);
+  }
+
+  /** Removes the node but KEEPS htmlContent, so a later re-mount restores the original embed.
+   *  The registry factory that produces embed content only runs in loadState (G1), so dropping
+   *  content here would be unrecoverable. For a host-owned node there is no recorded content at
+   *  all, so the node ITSELF is kept alive off-DOM and reattached by `syncDomNode`.
+   *  Use `removeDomNode` when the element itself is gone. */
+  detachDomNode(id: string): void {
+    if (this.hostOwnedContent.has(id)) {
+      const node = this.domNodes.get(id);
+      if (node) this.preservedNodes.set(id, node);
+    }
+    this.detachNodeElement(id);
+  }
+
+  /** Shared by `removeDomNode` and `detachDomNode`: clears dirty-tracking caches, removes the
+   *  node from the DOM, and cleans up its stratum if now empty. Does NOT touch `htmlContent` —
+   *  that distinction is each caller's own responsibility. */
+  private detachNodeElement(id: string): void {
     this.lastSyncedVersion.delete(id);
     this.lastSyncedZIndex.delete(id);
     this.lastSyncedOpacity.delete(id);
     const node = this.domNodes.get(id);
-    if (node) {
-      const stratum = node.parentElement;
-      node.remove();
-      this.domNodes.delete(id);
-      if (stratum?.childElementCount === 0) {
-        const order = Number(stratum.dataset['paintOrder']);
-        stratum.remove();
-        this.strata.delete(order);
+    if (!node) return;
+    const stratum = node.parentElement;
+    node.remove();
+    this.domNodes.delete(id);
+    if (stratum?.childElementCount === 0) {
+      const order = Number(stratum.dataset['paintOrder']);
+      stratum.remove();
+      this.strata.delete(order);
+    }
+  }
+
+  /** Reconciles BOTH directions synchronously. Canvas/missing routing detaches the node
+   *  (content preserved); dom routing remounts preserved content immediately, so a painter
+   *  unregistration does not wait for an unrelated render pass. */
+  reconcileHtmlRouting(
+    store: ElementStore,
+    resolve: (el: HtmlElement) => 'dom' | 'canvas' | 'missing',
+  ): void {
+    for (const el of store.getElementsByType('html')) {
+      if (resolve(el) !== 'dom') {
+        this.detachDomNode(el.id);
+        continue;
+      }
+      // Reverse transition: only meaningful when content — recorded content, or a preserved
+      // host-owned node — survived a detach.
+      if (
+        (this.htmlContent.has(el.id) || this.preservedNodes.has(el.id)) &&
+        !this.domNodes.has(el.id)
+      ) {
+        this.syncDomNode(el);
       }
     }
   }
@@ -143,6 +228,8 @@ export class DomNodeManager {
     this.domNodes.forEach((node) => node.remove());
     this.domNodes.clear();
     this.htmlContent.clear();
+    this.hostOwnedContent.clear();
+    this.preservedNodes.clear();
     this.lastSyncedVersion.clear();
     this.lastSyncedZIndex.clear();
     this.lastSyncedOpacity.clear();
@@ -227,8 +314,8 @@ export class DomNodeManager {
     }
 
     if (element.type === 'html') {
+      const content = this.htmlContent.get(element.id);
       if (!node.dataset['initialized']) {
-        const content = this.htmlContent.get(element.id);
         if (content) {
           node.dataset['initialized'] = 'true';
           Object.assign(node.style, {
@@ -236,6 +323,10 @@ export class DomNodeManager {
             pointerEvents: element.interactive ? 'auto' : 'none',
           });
           node.appendChild(content);
+        } else {
+          // G2: a contentless html node must not swallow pointer events. This is what an
+          // unknown htmlType on an older client produces.
+          node.style.pointerEvents = 'none';
         }
       } else {
         node.style.pointerEvents = element.interactive ? 'auto' : 'none';

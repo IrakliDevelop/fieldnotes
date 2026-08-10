@@ -43,6 +43,10 @@ import { InteractMode } from './interact-mode';
 import { DomNodeManager } from './dom-node-manager';
 import { RenderLoop } from './render-loop';
 import type { OverlayRenderer } from './render-loop';
+import { HtmlPainterRegistry, resolveHtmlRouting } from './html-painter-registry';
+import type { HtmlPainter, HtmlRouting } from './html-painter-registry';
+import { HtmlPaintDiagnosticDeduper } from './html-paint-diagnostics';
+import type { HtmlPaintDiagnostic } from './html-paint-diagnostics';
 import type { RenderStatsSnapshot } from './render-stats';
 import { LayerCache } from './layer-cache';
 import { MarginViewport } from './margin-viewport';
@@ -54,6 +58,8 @@ import { GridController } from './grid-controller';
 import type { GridInfo } from './grid-controller';
 import { ViewportInteractions } from './viewport-interactions';
 import type { RotateDirection } from './selection-rotate';
+import { ElementActivation } from './element-activation';
+import type { ActivationOptions, ElementActivationEvent } from './element-activation';
 
 export type { AlignEdge, DistributeAxis } from './selection-ops';
 export type { GridInfo } from './grid-controller';
@@ -134,6 +140,23 @@ export class Viewport {
   private contextMenu: ContextMenu | null = null;
   private minimap: Minimap | null = null;
   private readonly htmlRenderers = new Map<string, (el: HtmlElement) => HTMLElement>();
+  private readonly htmlPainters = new HtmlPainterRegistry();
+  private readonly htmlDiagnosticListeners = new Set<(d: HtmlPaintDiagnostic) => void>();
+  private readonly htmlDiagnostics = new HtmlPaintDiagnosticDeduper((d) => {
+    for (const listener of [...this.htmlDiagnosticListeners]) {
+      try {
+        listener(d);
+      } catch {
+        /* isolated: one listener's fault must not break its siblings */
+      }
+    }
+  });
+  private readonly resolveRouting = (el: HtmlElement): HtmlRouting =>
+    resolveHtmlRouting(el, this.htmlPainters);
+  private readonly unsubHtmlPainters: () => void;
+  private activation: ElementActivation | null = null;
+  private activationGeneration = 0;
+  private readonly activationListeners = new Set<(e: ElementActivationEvent) => void>();
   private readonly resizeListeners = new Set<() => void>();
   private readonly selectionListeners = new Set<() => void>();
   private detachSelectionSource: (() => void) | null = null;
@@ -179,6 +202,13 @@ export class Viewport {
       } else {
         console.warn(`[fieldnotes] image failed to load: ${src}`);
       }
+    });
+    this.renderer.setHtmlPainters(this.htmlPainters);
+    this.renderer.setDiagnosticSink((d) => {
+      this.htmlDiagnostics.emit(d, {
+        registryVersion: this.htmlPainters.version,
+        elementVersion: this.store.getVersion(d.elementId),
+      });
     });
     this.noteEditor = new NoteEditor({
       fontSizePresets: options.fontSizePresets,
@@ -307,6 +337,8 @@ export class Viewport {
       hybridSurface: new HybridRenderSurface(this.paintStack),
     });
 
+    this.unsubHtmlPainters = this.htmlPainters.onChange(() => this.onHtmlRegistryChanged());
+
     this.unsubCamera = this.camera.onChange(() => {
       this.applyCameraTransform();
       this.noteEditor.updateToolbarPosition();
@@ -326,6 +358,9 @@ export class Viewport {
     this.unsubStore = [
       this.store.on('add', (el) => {
         if (el.type === 'grid') this.gridController.syncContext();
+        if (el.type === 'html') {
+          this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
+        }
         this.renderLoop.markLayerDirty(el.layerId);
         this.requestRender();
       }),
@@ -333,12 +368,16 @@ export class Viewport {
         if (el.type === 'grid') this.gridController.syncContext();
         this.unbindArrowsFrom(el);
         this.domNodeManager.removeDomNode(el.id);
+        this.htmlDiagnostics.forget(el.id);
         this.renderLoop.markLayerDirty(el.layerId);
         this.requestRender();
         this.handleRemovedElement(el.id);
       }),
       this.store.on('update', ({ previous, current }) => {
         if (current.type === 'grid') this.gridController.syncContext();
+        if (current.type === 'html') {
+          this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
+        }
         this.renderLoop.markLayerDirty(current.layerId);
         if (previous.layerId !== current.layerId) {
           this.renderLoop.markLayerDirty(previous.layerId);
@@ -347,6 +386,7 @@ export class Viewport {
       }),
       this.store.on('clear', () => {
         this.domNodeManager.clearDomNodes();
+        this.htmlDiagnostics.reset();
         this.renderLoop.markAllLayersDirty();
         this.gridController.syncContext();
         this.requestRender();
@@ -484,12 +524,32 @@ export class Viewport {
     return JSON.stringify(this.exportState());
   }
 
+  /**
+   * Injects this viewport's own html painter registry into export options so a host
+   * that registered painters via `registerHtmlPainter`/`expectCanvasHtmlTypes` gets
+   * markers in exports without passing anything. An explicitly passed `htmlPainters`
+   * REPLACES the viewport's registry rather than merging with it. `expectedCanvasTypes`
+   * is always UNIONED with the resolved registry's own declarations — a caller's set
+   * can only add expectations, never shrink the registry's own.
+   */
+  private withHtmlDefaults<
+    T extends { htmlPainters?: HtmlPainterRegistry; expectedCanvasTypes?: ReadonlySet<string> },
+  >(options?: T): T {
+    const base = (options ?? {}) as T;
+    const registry = base.htmlPainters ?? this.htmlPainters;
+    const declared = registry.canvasTypes;
+    const expected = base.expectedCanvasTypes
+      ? new Set([...declared, ...base.expectedCanvasTypes]) // union only; never shrink
+      : declared;
+    return { ...base, htmlPainters: registry, expectedCanvasTypes: expected };
+  }
+
   async exportImage(options?: ExportImageOptions): Promise<Blob | null> {
-    return exportImage(this.store, options, this.layerManager);
+    return exportImage(this.store, this.withHtmlDefaults(options), this.layerManager);
   }
 
   async exportSVG(options?: ExportSvgOptions): Promise<string> {
-    return exportSvg(this.store, options, this.layerManager);
+    return exportSvg(this.store, this.withHtmlDefaults(options), this.layerManager);
   }
 
   loadState(state: CanvasState): void {
@@ -524,6 +584,10 @@ export class Viewport {
         const node = this.domNodeManager.getNode(el.id);
         if (node) {
           this.onHtmlElementMount(el.id, el.domId, node);
+          // The host mounted its content INTO the node; nothing else records it. Without
+          // this marker a routing change to canvas would detach the node and destroy the
+          // host's content, and the return leg would mount a fresh, permanently empty one.
+          this.domNodeManager.markHostOwnedContent(el.id);
           node.dataset['initialized'] = 'true';
           Object.assign(node.style, {
             overflow: 'hidden',
@@ -536,6 +600,7 @@ export class Viewport {
     this.historyRecorder.resume();
     this.camera.moveTo(state.camera.position.x, state.camera.position.y);
     this.camera.setZoom(state.camera.zoom);
+    this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
   }
 
   loadJSON(json: string): void {
@@ -688,6 +753,142 @@ export class Viewport {
     if (el.type !== 'html') throw new Error(`Element ${id} is not an HTML element`);
     this.domNodeManager.resetHtmlContent(id);
     this.domNodeManager.storeHtmlContent(id, newContent);
+    // Content changes need the same synchronous reconciliation as registry changes: newly
+    // available content for a dom-routed element must mount immediately rather than waiting
+    // for the next render pass (and this method never calls store.update, so the store's own
+    // 'update' listener never fires for it).
+    this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
+    this.requestRender();
+  }
+
+  /**
+   * Declares htmlTypes that route to canvas painters even before a painter for
+   * them registers, so the element renderer never treats them as DOM-backed
+   * (avoiding a DOM-mount flash while a host is still loading its painter).
+   * Returns an idempotent release; each `expect` call is independently reference
+   * counted by the registry.
+   */
+  expectCanvasHtmlTypes(htmlTypes: Iterable<string>): () => void {
+    return this.htmlPainters.expect(htmlTypes);
+  }
+
+  /**
+   * Direct access to the viewport's live html-painter registry — the same
+   * instance the viewport itself uses to route canvas-backed html elements.
+   * Beyond `register`/`expectCanvasHtmlTypes` (already exposed above), this
+   * hands out `getActivePainter`, `canvasTypes`, `onChange`, and `version`,
+   * so a surface such as the minimap that needs to read routing state or
+   * react to registry changes can do so without the viewport re-deriving or
+   * proxying each capability individually.
+   */
+  getHtmlPainters(): HtmlPainterRegistry {
+    return this.htmlPainters;
+  }
+
+  /**
+   * Registers the canvas painter for `htmlType`. Later registrations for the
+   * same type shadow earlier ones (LIFO); unregistering restores the previous
+   * entry. Existing elements of this type reconcile synchronously — DOM nodes
+   * detach and the render loop repaints on the next frame.
+   */
+  registerHtmlPainter(htmlType: string, painter: HtmlPainter): () => void {
+    return this.htmlPainters.register(htmlType, painter);
+  }
+
+  /**
+   * Subscribes to diagnostics emitted while painting canvas-routed html
+   * elements (missing painter, painter threw, degenerate size). Deduped per
+   * element/target/kind against the current registry and element versions, so
+   * a fail -> repair -> fail-again sequence reports twice rather than being
+   * suppressed forever. Returns an idempotent unsubscribe.
+   */
+  onHtmlPaintDiagnostic(listener: (d: HtmlPaintDiagnostic) => void): () => void {
+    this.htmlDiagnosticListeners.add(listener);
+    return () => this.htmlDiagnosticListeners.delete(listener);
+  }
+
+  /**
+   * Enables (or replaces, or with `null` disables) pointer activation of
+   * canvas-painted elements — the bridge for elements that are drawn rather than
+   * mounted and so cannot receive DOM events. **Default off**, so every existing
+   * consumer behaves identically.
+   *
+   * The controller is a passive observer: listeners are `{ passive: true }` and
+   * it never calls `preventDefault`, `stopPropagation`, or takes pointer capture.
+   * Changing or disabling activation resets all active and pending gestures.
+   * Throws `RangeError` for a non-finite/negative `slopPx` or a non-positive
+   * `doubleDelayMs`, leaving any existing activation untouched.
+   *
+   * The returned disposer clears **only its own generation**, so a stale
+   * Strict-Mode cleanup cannot tear down a newer registration.
+   */
+  setActivation(options: ActivationOptions | null): () => void {
+    // Construct before tearing down: a RangeError must leave the current
+    // controller — and every outstanding disposer's generation — intact.
+    const next = options
+      ? new ElementActivation(
+          {
+            element: this.wrapper,
+            camera: this.camera,
+            store: this.store,
+            resolveHtmlRouting: this.resolveRouting,
+            isLayerVisible: (layerId: string) => this.layerManager.isLayerVisible(layerId),
+            // Owner-side busy signal: the camera is gliding under pan inertia, or
+            // this very gesture is the one that stopped the glide. Suppressing
+            // both is what keeps "tap to stop a flick" from activating whatever
+            // sits under the finger.
+            isCameraBusy: () => this.inputHandler.isCameraCoasting(),
+          },
+          options,
+        )
+      : null;
+    this.activation?.dispose();
+    this.activation = next;
+    next?.onActivate((e) => this.emitActivation(e));
+    const generation = ++this.activationGeneration;
+    return () => {
+      if (this.activationGeneration !== generation) return;
+      this.activation?.dispose();
+      this.activation = null;
+    };
+  }
+
+  /**
+   * Subscribes to element activations. Persistent and independent of
+   * `setActivation`: subscribing before activation is enabled, or across a
+   * replacement, keeps working. Emission iterates a snapshot with per-listener
+   * try/catch. Returns an idempotent unsubscribe.
+   */
+  onElementActivate(listener: (e: ElementActivationEvent) => void): () => void {
+    this.activationListeners.add(listener);
+    return () => {
+      this.activationListeners.delete(listener);
+    };
+  }
+
+  private emitActivation(event: ElementActivationEvent): void {
+    for (const listener of [...this.activationListeners]) {
+      try {
+        listener(event);
+      } catch {
+        // One host listener's fault must not break its siblings.
+      }
+    }
+  }
+
+  /**
+   * Fires whenever the html painter registry's active-painter set changes
+   * (declare, register, or their release). Reconciliation is synchronous —
+   * routing flips (and any DOM detach/remount) happen before this returns —
+   * while the actual repaint of newly canvas-routed elements is deferred to
+   * the next render frame via markAllLayersDirty + requestRender. Does NOT
+   * touch a minimap: Viewport does not own a MinimapController, and the
+   * built-in wrapper / React <Minimap /> each subscribe to the registry
+   * directly.
+   */
+  private onHtmlRegistryChanged(): void {
+    this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
+    this.renderLoop.markAllLayersDirty();
     this.requestRender();
   }
 
@@ -897,6 +1098,11 @@ export class Viewport {
     this.unsubToolChange();
     this.unsubToolRegister();
     this.unsubRecorderEnd();
+    this.unsubHtmlPainters();
+    this.activation?.dispose();
+    this.activation = null;
+    this.activationListeners.clear();
+    this.htmlDiagnosticListeners.clear();
     this.detachSelectionSource?.();
     this.detachSelectionSource = null;
     this.selectionListeners.clear();

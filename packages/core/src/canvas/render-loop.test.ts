@@ -224,6 +224,220 @@ describe('RenderLoop', () => {
     expect(deps.hybridSurface.getContext).toHaveBeenCalledTimes(1);
   });
 
+  describe('hybrid stratum layer opacity', () => {
+    function recordingCtx(): {
+      ctx: CanvasRenderingContext2D;
+      drawImageAlphas: unknown[];
+      drawImageArgs: unknown[][];
+    } {
+      const drawImageAlphas: unknown[] = [];
+      const drawImageArgs: unknown[][] = [];
+      const ctx = {
+        globalAlpha: 1,
+        save: vi.fn(),
+        restore: vi.fn(),
+        scale: vi.fn(),
+        translate: vi.fn(),
+        clearRect: vi.fn(),
+        setTransform: vi.fn(),
+        drawImage: vi.fn((...args: unknown[]) => {
+          drawImageAlphas.push(ctx.globalAlpha);
+          drawImageArgs.push(args);
+        }),
+      };
+      return { ctx: ctx as unknown as CanvasRenderingContext2D, drawImageAlphas, drawImageArgs };
+    }
+
+    function hybridPair(): { note: unknown; canvasEl: unknown } {
+      return {
+        note: {
+          id: 'dom-first',
+          type: 'note',
+          layerId: 'default',
+          position: { x: 0, y: 0 },
+          size: { w: 10, h: 10 },
+        },
+        canvasEl: {
+          id: 'marker',
+          type: 'html',
+          layerId: 'default',
+          position: { x: 0, y: 0 },
+          size: { w: 10, h: 10 },
+        },
+      };
+    }
+
+    it('paints canvas-routed html at alpha 1 and composites the result at layer opacity', () => {
+      // The painter contract (html-paint.ts) is that layer opacity is applied by the
+      // SURFACE, never handed to the painter. Pre-multiplying on the hybrid context lets
+      // any painter that assigns globalAlpha wipe the layer's opacity out, so the screen
+      // would disagree with both exports and the minimap.
+      const { note, canvasEl } = hybridPair();
+      vi.mocked(deps.store.getAll).mockReturnValue([note, canvasEl] as never);
+      vi.mocked(deps.renderer.isDomElement).mockImplementation(
+        (el: { type: string }) => el.type === 'note',
+      );
+      vi.mocked(deps.layerManager.getLayer).mockReturnValue({ opacity: 0.5 } as never);
+      const { ctx: hybridCtx, drawImageAlphas } = recordingCtx();
+      vi.mocked(deps.hybridSurface.getContext).mockReturnValue(hybridCtx);
+      const paintedAlphas: unknown[] = [];
+      vi.mocked(deps.renderer.renderCanvasElement).mockImplementation(
+        (ctx: CanvasRenderingContext2D, el: { type: string }) => {
+          if (el.type === 'html') paintedAlphas.push(ctx.globalAlpha);
+        },
+      );
+
+      renderLoop.requestRender();
+      renderLoop.flush();
+
+      expect(paintedAlphas).toEqual([1]);
+      expect(drawImageAlphas).toEqual([0.5]);
+    });
+
+    it('leaves every non-html hybrid element pre-multiplied by layer opacity', () => {
+      // Pre-existing behaviour for shapes/strokes/images: unchanged by the html carve-out.
+      const { note } = hybridPair();
+      const shape = {
+        id: 'shape',
+        type: 'shape',
+        layerId: 'default',
+        position: { x: 0, y: 0 },
+        size: { w: 10, h: 10 },
+      };
+      vi.mocked(deps.store.getAll).mockReturnValue([note, shape] as never);
+      vi.mocked(deps.renderer.isDomElement).mockImplementation(
+        (el: { type: string }) => el.type === 'note',
+      );
+      vi.mocked(deps.layerManager.getLayer).mockReturnValue({ opacity: 0.5 } as never);
+      const { ctx: hybridCtx, drawImageAlphas } = recordingCtx();
+      vi.mocked(deps.hybridSurface.getContext).mockReturnValue(hybridCtx);
+      const paintedAlphas: unknown[] = [];
+      vi.mocked(deps.renderer.renderCanvasElement).mockImplementation(
+        (ctx: CanvasRenderingContext2D, el: { type: string }) => {
+          if (el.type === 'shape') paintedAlphas.push(ctx.globalAlpha);
+        },
+      );
+
+      renderLoop.requestRender();
+      renderLoop.flush();
+
+      expect(paintedAlphas).toEqual([0.5]);
+      expect(drawImageAlphas).toEqual([]); // no scratch composite for non-html
+    });
+
+    it('draws canvas-routed html straight through on a fully opaque layer', () => {
+      const { note, canvasEl } = hybridPair();
+      vi.mocked(deps.store.getAll).mockReturnValue([note, canvasEl] as never);
+      vi.mocked(deps.renderer.isDomElement).mockImplementation(
+        (el: { type: string }) => el.type === 'note',
+      );
+      vi.mocked(deps.layerManager.getLayer).mockReturnValue({ opacity: 1 } as never);
+      const { ctx: hybridCtx, drawImageAlphas } = recordingCtx();
+      vi.mocked(deps.hybridSurface.getContext).mockReturnValue(hybridCtx);
+      const targets: unknown[] = [];
+      vi.mocked(deps.renderer.renderCanvasElement).mockImplementation(
+        (ctx: CanvasRenderingContext2D, el: { type: string }) => {
+          if (el.type === 'html') targets.push(ctx);
+        },
+      );
+
+      renderLoop.requestRender();
+      renderLoop.flush();
+
+      expect(targets).toEqual([hybridCtx]); // cheap path: no scratch canvas at all
+      expect(drawImageAlphas).toEqual([]);
+    });
+
+    it('sizes the html scratch to the element rect under pan, zoom and dpr', () => {
+      // The scratch covers only the element's own device-pixel rect, the way export-svg's
+      // rasterizeCanvasRoutedHtml sizes its offscreen to the element rather than the export
+      // bounds. That is exact rather than approximate because paintHtmlElement clips every
+      // painter to the element's rect. The offset is whole device pixels and the blit is
+      // 1:1, so the raster lands on exactly the pixels a full-canvas scratch would have used.
+      const { note } = hybridPair();
+      const marker = {
+        id: 'marker',
+        type: 'html',
+        layerId: 'default',
+        position: { x: 10, y: 20 },
+        size: { w: 10, h: 10 },
+      };
+      const camera = deps.camera as unknown as { position: { x: number; y: number }; zoom: number };
+      camera.position.x = 30;
+      camera.position.y = 40;
+      camera.zoom = 2;
+      vi.mocked(deps.store.getAll).mockReturnValue([note, marker] as never);
+      vi.mocked(deps.renderer.isDomElement).mockImplementation(
+        (el: { type: string }) => el.type === 'note',
+      );
+      vi.mocked(deps.layerManager.getLayer).mockReturnValue({ opacity: 0.5 } as never);
+      const { ctx: hybridCtx, drawImageArgs } = recordingCtx();
+      vi.mocked(deps.hybridSurface.getContext).mockReturnValue(hybridCtx);
+      // Every canvas in this file shares one mocked 2D context, so the scratch context is
+      // reachable through canvasEl; clear it so only this frame's calls are asserted.
+      const scratchCtx = deps.canvasEl.getContext('2d');
+      if (!scratchCtx) throw new Error('expected the mocked 2D context');
+      vi.mocked(scratchCtx.translate).mockClear();
+
+      renderLoop.requestRender();
+      renderLoop.flush();
+
+      // world x 10..20 -> css (x*2 + 30) = 50..70 -> device 50..70 at dpr 1;
+      // world y 20..30 -> css (y*2 + 40) = 80..100 -> device 80..100.
+      expect(drawImageArgs).toEqual([[expect.anything(), 0, 0, 20, 20, 50, 80, 20, 20]]);
+      // The scratch origin shift must PAIR with that destination, or the raster lands in
+      // the wrong place; nothing else on this frame translates by a negative offset.
+      expect(scratchCtx.translate).toHaveBeenCalledWith(-50, -80);
+    });
+
+    it('never hands a zero-dimension surface to drawImage when the canvas has no pixels', () => {
+      // A host that hides the viewport (a tab panel going display:none) drives
+      // canvasEl.width/height to 0 through the ResizeObserver -> syncCanvasSize path, and
+      // that same path requests a render. Culling does NOT go degenerate with it: the
+      // margin viewport's cached world band is (cssW + 2*256)/zoom, so a marker near the
+      // camera still survives and the translucent-layer html branch still runs. Per the
+      // spec's "check the usability of the image argument", a CANVAS source with a zero
+      // width or height throws InvalidStateError (unlike an image source, which no-ops) —
+      // and an exception escaping render() never reaches requestAnimationFrame(loop) in
+      // start(), so the viewport would stop rendering for the rest of the session.
+      const { note, canvasEl } = hybridPair();
+      vi.mocked(deps.store.getAll).mockReturnValue([note, canvasEl] as never);
+      vi.mocked(deps.renderer.isDomElement).mockImplementation(
+        (el: { type: string }) => el.type === 'note',
+      );
+      vi.mocked(deps.layerManager.getLayer).mockReturnValue({ opacity: 0.5 } as never);
+      const { ctx: hybridCtx, drawImageAlphas, drawImageArgs } = recordingCtx();
+      vi.mocked(deps.hybridSurface.getContext).mockReturnValue(hybridCtx);
+
+      deps.canvasEl.width = 0;
+      deps.canvasEl.height = 0;
+      renderLoop.requestRender();
+      renderLoop.flush();
+
+      const degenerate = drawImageArgs.filter((args) => {
+        const source = args[0] as { width?: number; height?: number } | undefined;
+        const sourceW = args[3];
+        const sourceH = args[4];
+        return (
+          !(typeof source?.width === 'number' && source.width >= 1) ||
+          !(typeof source?.height === 'number' && source.height >= 1) ||
+          (typeof sourceW === 'number' && sourceW < 1) ||
+          (typeof sourceH === 'number' && sourceH < 1)
+        );
+      });
+      expect(degenerate).toEqual([]);
+
+      // Guard against passing vacuously: the very same setup at a real canvas size must
+      // still reach the scratch composite, so "no degenerate drawImage" above is the guard
+      // firing and not the branch quietly never running.
+      deps.canvasEl.width = 300;
+      deps.canvasEl.height = 150;
+      renderLoop.requestRender();
+      renderLoop.flush();
+      expect(drawImageAlphas).toEqual([0.5]);
+    });
+  });
+
   it('calls domNodeManager.hideDomNode for invisible layer DOM elements', () => {
     vi.mocked(deps.layerManager.isLayerVisible).mockReturnValue(false);
     renderLoop.requestRender();

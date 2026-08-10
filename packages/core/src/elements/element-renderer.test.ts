@@ -14,9 +14,17 @@ import type {
   HtmlElement,
   TextElement,
 } from './types';
-import { createArrow, createShape, createStroke } from './element-factory';
+import {
+  createArrow,
+  createShape,
+  createStroke,
+  createHtmlElement,
+  createNote,
+  createText,
+} from './element-factory';
 import { ElementStore } from './element-store';
 import { Camera } from '../canvas/camera';
+import { HtmlPainterRegistry } from '../canvas/html-painter-registry';
 
 function mockCtx(): CanvasRenderingContext2D {
   return {
@@ -28,6 +36,8 @@ function mockCtx(): CanvasRenderingContext2D {
     stroke: vi.fn(),
     fill: vi.fn(),
     closePath: vi.fn(),
+    rect: vi.fn(),
+    clip: vi.fn(),
     arc: vi.fn(),
     quadraticCurveTo: vi.fn(),
     bezierCurveTo: vi.fn(),
@@ -90,6 +100,31 @@ function makeArrow(overrides: Partial<ArrowElement> = {}): ArrowElement {
     layerId: '',
     ...overrides,
   };
+}
+
+function htmlElement(htmlType: string): HtmlElement {
+  return createHtmlElement({
+    position: { x: 0, y: 0 },
+    size: { w: 100, h: 100 },
+    htmlType,
+  });
+}
+
+function noteElement(): NoteElement {
+  return createNote({ position: { x: 0, y: 0 } });
+}
+
+function textElement(): TextElement {
+  return createText({ position: { x: 0, y: 0 } });
+}
+
+function totalCtxCalls(ctx: CanvasRenderingContext2D): number {
+  return Object.values(ctx as unknown as Record<string, unknown>).reduce((sum: number, value) => {
+    if (typeof value === 'function' && 'mock' in value) {
+      return sum + (value as ReturnType<typeof vi.fn>).mock.calls.length;
+    }
+    return sum;
+  }, 0);
 }
 
 describe('ElementRenderer', () => {
@@ -1141,5 +1176,121 @@ describe('ElementRenderer', () => {
       renderer.renderCanvasElement(ctx, grid);
       expect(ctx.save).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('ElementRenderer html routing', () => {
+  it('does not paint an html element when no painter is registered', () => {
+    const renderer = new ElementRenderer();
+    const ctx = mockCtx();
+    renderer.setHtmlPainters(new HtmlPainterRegistry());
+    renderer.setRenderTarget('screen');
+    renderer.renderCanvasElement(ctx, htmlElement('rk-marker'));
+    expect(totalCtxCalls(ctx)).toBe(0);
+  });
+
+  it('paints a canvas-routed html element via its registered painter', () => {
+    const renderer = new ElementRenderer();
+    const registry = new HtmlPainterRegistry();
+    const painter = vi.fn();
+    registry.expect(['rk-marker']);
+    registry.register('rk-marker', painter);
+    renderer.setHtmlPainters(registry);
+    renderer.setRenderTarget('screen');
+    renderer.renderCanvasElement(mockCtx(), htmlElement('rk-marker'));
+    expect(painter).toHaveBeenCalledTimes(1);
+  });
+
+  it('emits missing-painter for a declared type with no painter', () => {
+    const renderer = new ElementRenderer();
+    const registry = new HtmlPainterRegistry();
+    registry.expect(['rk-marker']);
+    const sink = vi.fn();
+    renderer.setHtmlPainters(registry);
+    renderer.setRenderTarget('screen');
+    renderer.setDiagnosticSink(sink);
+    renderer.renderCanvasElement(mockCtx(), htmlElement('rk-marker'));
+    expect(sink).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'missing-painter', target: 'screen' }),
+    );
+  });
+
+  it('still skips note and text elements entirely', () => {
+    const renderer = new ElementRenderer();
+    const ctx = mockCtx();
+    renderer.setHtmlPainters(new HtmlPainterRegistry());
+    renderer.renderCanvasElement(ctx, noteElement());
+    renderer.renderCanvasElement(ctx, textElement());
+    expect(totalCtxCalls(ctx)).toBe(0);
+  });
+});
+
+describe('ElementRenderer.isDomElement is routing-aware', () => {
+  it('always reports note and text as DOM elements', () => {
+    const renderer = new ElementRenderer();
+    renderer.setHtmlPainters(new HtmlPainterRegistry());
+    expect(renderer.isDomElement(noteElement())).toBe(true);
+    expect(renderer.isDomElement(textElement())).toBe(true);
+  });
+
+  it('reports an UNREGISTERED legacy html embed as a DOM element', () => {
+    const renderer = new ElementRenderer();
+    renderer.setHtmlPainters(new HtmlPainterRegistry());
+    expect(renderer.isDomElement(htmlElement('legacy-embed'))).toBe(true);
+  });
+
+  it('reports a canvas-routed html element as NOT a DOM element', () => {
+    const renderer = new ElementRenderer();
+    const registry = new HtmlPainterRegistry();
+    // eslint-disable-next-line @typescript-eslint/no-empty-function
+    registry.register('rk-marker', () => {});
+    renderer.setHtmlPainters(registry);
+    expect(renderer.isDomElement(htmlElement('rk-marker'))).toBe(false);
+  });
+
+  it('reports a declared-but-unpainted html element as NOT a DOM element', () => {
+    const renderer = new ElementRenderer();
+    const registry = new HtmlPainterRegistry();
+    registry.expect(['rk-marker']);
+    renderer.setHtmlPainters(registry);
+    expect(renderer.isDomElement(htmlElement('rk-marker'))).toBe(false);
+  });
+});
+
+describe('ElementRenderer html zoom', () => {
+  it('uses the camera zoom for the screen target', () => {
+    const renderer = new ElementRenderer();
+    const registry = new HtmlPainterRegistry();
+    const painter = vi.fn();
+    registry.register('rk-marker', painter);
+    renderer.setHtmlPainters(registry);
+    renderer.setRenderTarget('screen');
+    const camera = new Camera();
+    camera.setZoom(2);
+    renderer.setCamera(camera);
+    renderer.renderCanvasElement(mockCtx(), htmlElement('rk-marker'));
+    expect(painter).toHaveBeenCalledWith(expect.objectContaining({ zoom: 2 }));
+  });
+
+  it('uses the explicit surface zoom for non-screen targets', () => {
+    const renderer = new ElementRenderer();
+    const registry = new HtmlPainterRegistry();
+    const painter = vi.fn();
+    registry.register('rk-marker', painter);
+    renderer.setHtmlPainters(registry);
+    renderer.setRenderTarget('minimap');
+    renderer.setSurfaceZoom(0.25);
+    renderer.renderCanvasElement(mockCtx(), htmlElement('rk-marker'));
+    expect(painter).toHaveBeenCalledWith(expect.objectContaining({ zoom: 0.25 }));
+  });
+
+  it('defaults zoom to 1 when no camera and no surface zoom are set', () => {
+    const renderer = new ElementRenderer();
+    const registry = new HtmlPainterRegistry();
+    const painter = vi.fn();
+    registry.register('rk-marker', painter);
+    renderer.setHtmlPainters(registry);
+    renderer.renderCanvasElement(mockCtx(), htmlElement('rk-marker'));
+    expect(painter).toHaveBeenCalledWith(expect.objectContaining({ zoom: 1 }));
   });
 });

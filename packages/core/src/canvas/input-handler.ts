@@ -57,6 +57,7 @@ export class InputHandler {
   private readonly openContextMenu?: (screenPos: Point, world: Point) => void;
   private readonly panInertia: PanInertia;
   private readonly panInertiaEnabled: boolean;
+  private coastStoppedByPointer = false;
 
   constructor(
     private readonly element: HTMLElement,
@@ -135,8 +136,18 @@ export class InputHandler {
     return this.keyboard.shortcuts;
   }
 
+  /**
+   * True while the camera glides under pan inertia, and while the pointer
+   * gesture that just stopped such a glide is still down. Passive observers use
+   * it to ignore a gesture that was only meant to halt the coast.
+   */
+  isCameraCoasting(): boolean {
+    return this.panInertia.isCoasting() || this.coastStoppedByPointer;
+  }
+
   destroy(): void {
     this.panInertia.cancel();
+    this.coastStoppedByPointer = false;
     this.actions.dispose();
     this.abortController.abort();
     this.inputFilter.reset();
@@ -159,6 +170,13 @@ export class InputHandler {
     this.element.addEventListener('pointerleave', this.onPointerLeave, opts);
     this.element.addEventListener('pointercancel', this.onPointerUp, opts);
     this.element.addEventListener('contextmenu', this.onContextMenu, opts);
+
+    // `coastStoppedByPointer` otherwise clears only when `activePointers` empties,
+    // which never happens if the gesture's up/cancel/leave is truncated (lost
+    // pointer capture, tab switch mid-press). Window-level, state-clearing only,
+    // mirroring `ElementActivation`'s own blur/visibilitychange recovery.
+    window.addEventListener('blur', this.onCoastInterrupt, opts);
+    window.addEventListener('visibilitychange', this.onCoastInterrupt, opts);
   }
 
   private onWheel = (e: WheelEvent): void => {
@@ -174,6 +192,13 @@ export class InputHandler {
   };
 
   private onPointerDown = (e: PointerEvent): void => {
+    // A pointer landing on the canvas STOPS a coast, and the stop is recorded
+    // before it happens. Passive observers (element activation) are registered
+    // after this handler, so by the time they see the same pointerdown
+    // `panInertia.isCoasting()` already reads false and a gesture whose only
+    // purpose was to halt the glide would look like a deliberate tap. The flag
+    // outlives the cancel until the gesture's last pointer is released.
+    if (this.panInertia.isCoasting()) this.coastStoppedByPointer = true;
     this.panInertia.cancel();
     this.focusSelf();
     this.activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -273,6 +298,10 @@ export class InputHandler {
       this.panInertia.release();
     }
 
+    // The gesture that stopped a coast is over once nothing is left down. If it
+    // released into a new coast, `panInertia.isCoasting()` reports that instead.
+    if (this.activePointers.size === 0) this.coastStoppedByPointer = false;
+
     const upResult = this.inputFilter.filterUp(e);
 
     if (this.isToolActive) {
@@ -368,6 +397,13 @@ export class InputHandler {
   private onPointerLeave = (e: PointerEvent): void => {
     this.lastPointerEvent = null;
     this.onPointerUp(e);
+  };
+
+  // Recovers `coastStoppedByPointer` when the gesture that set it never delivers
+  // a matching pointerup/cancel/leave. Deliberately narrow: it clears only this
+  // flag, not `activePointers`/`isPanning`, which is a separate pre-existing gap.
+  private onCoastInterrupt = (): void => {
+    this.coastStoppedByPointer = false;
   };
 
   private toPointerState(e: PointerEvent): PointerState {

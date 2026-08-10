@@ -89,6 +89,44 @@ viewport.toolManager.register(template);
 viewport.toolManager.register(laser);
 viewport.toolManager.register(ping);
 
+// Rich-marker canvas painter + activation (Task A11 e2e coverage). Declared up
+// front — before any state loads — so a 'demo-marker' html element never
+// DOM-flashes while the painter registers. The painter draws a solid disc in
+// the spec's marker color plus a small label offset toward the bottom edge,
+// so a pixel probe at the element's centre reads pure #1E88E5 rather than the
+// label's white glyph.
+const MARKER_COLOR = '#1E88E5';
+viewport.expectCanvasHtmlTypes(['demo-marker']);
+const markerPainterCalls = { count: 0 };
+(window as unknown as Record<string, unknown>).__fieldnotes_marker_painter_calls =
+  markerPainterCalls;
+viewport.registerHtmlPainter('demo-marker', ({ ctx, size }) => {
+  markerPainterCalls.count += 1;
+  const cx = size.w / 2;
+  const cy = size.h / 2;
+  const radius = Math.max(1, Math.min(size.w, size.h) / 2 - 2);
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.fillStyle = MARKER_COLOR;
+  ctx.fill();
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '10px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillText('M', cx, size.h - 4);
+});
+
+// `?activation=single` selects a one-tap surface (case 3 / touch parity);
+// otherwise the demo defaults to the 'double' gesture surface.
+const activationMode: 'single' | 'double' =
+  new URLSearchParams(location.search).get('activation') === 'single' ? 'single' : 'double';
+viewport.setActivation({ gesture: activationMode });
+const markerActivations: unknown[] = [];
+(window as unknown as Record<string, unknown>).__fieldnotes_marker_activations = markerActivations;
+viewport.onElementActivate((event) => {
+  markerActivations.push(event);
+});
+
 let autoSaveToastShown = false;
 
 function showToast(id: string, message: string): void {

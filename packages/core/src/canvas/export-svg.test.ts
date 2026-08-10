@@ -12,6 +12,7 @@ import {
   createTemplate,
 } from '../elements/element-factory';
 import { ElementStore } from '../elements/element-store';
+import { HtmlPainterRegistry, HtmlPainterMissingError } from './html-painter-registry';
 import type { HtmlElement } from '../elements/types';
 
 const HTML_MARKER = 'data-distinctive-html-marker-xyz';
@@ -381,5 +382,381 @@ describe('exportSvg', () => {
     const hasImage = svg.includes('<image');
     const hasPlaceholder = /<rect[^>]*fill="#abcabc"/.test(svg);
     expect(hasImage || hasPlaceholder).toBe(true);
+  });
+});
+
+// --- canvas-routed html raster helpers -------------------------------------------------
+//
+// jsdom's HTMLCanvasElement.getContext('2d') returns null (no `canvas` npm package is
+// installed in this workspace — confirmed via `pnpm ls canvas -r`), so real pixel
+// rasterization is unavailable. To genuinely test "did the localizing transform run"
+// rather than merely "was fillRect called with plausible-looking arguments", the mock
+// below implements a small software affine-transform + pixel-buffer simulation: it tracks
+// the real cumulative matrix through save/scale/translate/rotate calls exactly as a real
+// CanvasRenderingContext2D would, and fillRect marks pixels in a same-sized buffer only
+// where that matrix actually places them. A missing localizing translate therefore maps
+// fillRect's coordinates outside the buffer for real, not by assertion — the resulting
+// data URI (still prefixed `data:image/png;base64,` so it matches the SVG's <image> href
+// regex) carries a JSON-encoded alpha buffer that `opaquePixelRatio` decodes and measures.
+
+interface FakeMatrix {
+  a: number;
+  b: number;
+  c: number;
+  d: number;
+  e: number;
+  f: number;
+}
+
+const FAKE_IDENTITY: FakeMatrix = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
+
+function matMul(m1: FakeMatrix, m2: FakeMatrix): FakeMatrix {
+  return {
+    a: m1.a * m2.a + m1.c * m2.b,
+    b: m1.b * m2.a + m1.d * m2.b,
+    c: m1.a * m2.c + m1.c * m2.d,
+    d: m1.b * m2.c + m1.d * m2.d,
+    e: m1.a * m2.e + m1.c * m2.f + m1.e,
+    f: m1.b * m2.e + m1.d * m2.f + m1.f,
+  };
+}
+
+function matApply(m: FakeMatrix, x: number, y: number): { x: number; y: number } {
+  return { x: m.a * x + m.c * y + m.e, y: m.b * x + m.d * y + m.f };
+}
+
+// This file always runs under `@vitest-environment jsdom` (see the top-of-file pragma),
+// so the browser-global btoa/atob are always present — no Node Buffer fallback needed.
+function toBase64(json: string): string {
+  return btoa(json);
+}
+
+function fromBase64(encoded: string): string {
+  return atob(encoded);
+}
+
+/** Builds a fake 2D context + matching toDataURL backed by a real simulated pixel buffer. */
+function createFakeRasterContext(
+  width: number,
+  height: number,
+  rotateLog: number[],
+): { ctx: CanvasRenderingContext2D; toDataURL: () => string } {
+  const alpha = new Uint8ClampedArray(Math.max(0, width * height));
+  let current: FakeMatrix = FAKE_IDENTITY;
+  const stack: FakeMatrix[] = [];
+  let globalAlpha = 1;
+
+  const ctx = {
+    save: () => stack.push(current),
+    restore: () => {
+      const m = stack.pop();
+      if (m) current = m;
+    },
+    scale: (sx: number, sy: number) => {
+      current = matMul(current, { a: sx, b: 0, c: 0, d: sy, e: 0, f: 0 });
+    },
+    translate: (dx: number, dy: number) => {
+      current = matMul(current, { a: 1, b: 0, c: 0, d: 1, e: dx, f: dy });
+    },
+    rotate: (theta: number) => {
+      rotateLog.push(theta);
+      const cos = Math.cos(theta);
+      const sin = Math.sin(theta);
+      current = matMul(current, { a: cos, b: sin, c: -sin, d: cos, e: 0, f: 0 });
+    },
+    beginPath: vi.fn(),
+    rect: vi.fn(),
+    clip: vi.fn(),
+    fillRect: (x: number, y: number, w: number, h: number) => {
+      const corners = [
+        matApply(current, x, y),
+        matApply(current, x + w, y),
+        matApply(current, x, y + h),
+        matApply(current, x + w, y + h),
+      ];
+      const minX = Math.max(0, Math.floor(Math.min(...corners.map((c) => c.x))));
+      const maxX = Math.min(width, Math.ceil(Math.max(...corners.map((c) => c.x))));
+      const minY = Math.max(0, Math.floor(Math.min(...corners.map((c) => c.y))));
+      const maxY = Math.min(height, Math.ceil(Math.max(...corners.map((c) => c.y))));
+      for (let py = minY; py < maxY; py++) {
+        for (let px = minX; px < maxX; px++) {
+          alpha[py * width + px] = 255;
+        }
+      }
+    },
+    get globalAlpha() {
+      return globalAlpha;
+    },
+    set globalAlpha(v: number) {
+      globalAlpha = v;
+    },
+    fillStyle: '#000000',
+  } as unknown as CanvasRenderingContext2D;
+
+  const toDataURL = (): string => {
+    const payload = JSON.stringify({ width, height, alpha: Array.from(alpha) });
+    return `data:image/png;base64,${toBase64(payload)}`;
+  };
+
+  return { ctx, toDataURL };
+}
+
+/** Fraction of pixels with nonzero alpha in a data URI produced by createFakeRasterContext. */
+async function opaquePixelRatio(dataUri: string): Promise<number> {
+  const commaIndex = dataUri.indexOf(',');
+  const base64 = commaIndex === -1 ? '' : dataUri.slice(commaIndex + 1);
+  const parsed = JSON.parse(fromBase64(base64)) as { alpha: number[] };
+  if (parsed.alpha.length === 0) return 0;
+  const opaque = parsed.alpha.filter((a) => a > 0).length;
+  return opaque / parsed.alpha.length;
+}
+
+/** Routes every `document.createElement('canvas')` to a fake raster context/buffer.
+ *  Returns the rotate-call log (shared across every canvas created while installed,
+ *  since these tests only ever raster one html element at a time) and a restore fn. */
+function installFakeRasterCanvas(): { rotateLog: number[]; restore: () => void } {
+  const rotateLog: number[] = [];
+  const origCreate = document.createElement.bind(document);
+  const spy = vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
+    const node = origCreate(tag);
+    if (tag === 'canvas') {
+      const canvasEl = node as HTMLCanvasElement;
+      vi.spyOn(canvasEl, 'getContext').mockImplementation(() => {
+        const { ctx, toDataURL } = createFakeRasterContext(
+          canvasEl.width,
+          canvasEl.height,
+          rotateLog,
+        );
+        vi.spyOn(canvasEl, 'toDataURL').mockImplementation(toDataURL);
+        return ctx as never;
+      });
+    }
+    return node;
+  });
+  return { rotateLog, restore: () => spy.mockRestore() };
+}
+
+function markerElement(overrides: Partial<HtmlElement> = {}): HtmlElement {
+  return {
+    id: 'marker-1',
+    type: 'html',
+    position: { x: 0, y: 0 },
+    size: { w: 100, h: 100 },
+    zIndex: 0,
+    locked: false,
+    layerId: '',
+    htmlType: 'rk-marker',
+    ...overrides,
+  };
+}
+
+function storeWith(el: HtmlElement): ElementStore {
+  const store = new ElementStore();
+  store.add(el);
+  return store;
+}
+
+/** A registry with an active painter for `htmlType` that does nothing (pixel-agnostic). */
+function registryWith(htmlType: string): HtmlPainterRegistry {
+  const registry = new HtmlPainterRegistry();
+  registry.expect([htmlType]);
+  // eslint-disable-next-line @typescript-eslint/no-empty-function
+  registry.register(htmlType, () => {});
+  return registry;
+}
+
+function layersWithOpacity(opacity: number): {
+  isLayerVisible: () => boolean;
+  getLayer: () => { opacity: number };
+} {
+  return {
+    isLayerVisible: () => true,
+    getLayer: () => ({ opacity }),
+  };
+}
+
+describe('exportSvg canvas-routed html', () => {
+  it('rasterises a marker at a NONZERO position into non-blank pixels', async () => {
+    // Discriminating: a missing localizing transform paints outside the offscreen
+    // canvas and yields a fully transparent raster, which an <image>-presence
+    // assertion alone would happily accept.
+    const { restore } = installFakeRasterCanvas();
+    try {
+      const registry = new HtmlPainterRegistry();
+      registry.expect(['rk-marker']);
+      registry.register('rk-marker', ({ ctx, size }) => {
+        ctx.fillStyle = '#ff0000';
+        ctx.fillRect(0, 0, size.w, size.h);
+      });
+      const el = markerElement({ position: { x: 640, y: 480 } });
+      const svg = await exportSvg(storeWith(el), { htmlPainters: registry });
+      const dataUri = /href="(data:image\/[^"]+)"/.exec(svg)?.[1];
+      if (dataUri === undefined) throw new Error('expected an embedded raster data URI');
+      expect(await opaquePixelRatio(dataUri)).toBeGreaterThan(0.9);
+    } finally {
+      restore();
+    }
+  });
+
+  it('does not double-apply rotation: the raster is unrotated, the <image> carries rotate()', async () => {
+    const { rotateLog, restore } = installFakeRasterCanvas();
+    try {
+      const svg = await exportSvg(storeWith(markerElement({ rotation: 0.3 })), {
+        htmlPainters: registryWith('rk-marker'),
+      });
+      expect(svg).toContain('<image');
+      expect(svg).toMatch(/rotate\(/);
+      expect(rotateLog.length).toBe(0); // spy installed on the offscreen context
+    } finally {
+      restore();
+    }
+  });
+
+  it('wraps a translucent layer once in a <g opacity> and not in the raster', async () => {
+    const { restore } = installFakeRasterCanvas();
+    try {
+      // Poison value: if the painter never runs (e.g. the marker is silently dropped
+      // instead of routed to canvas), this stays -1 and the assertion fails — it must
+      // not be able to pass just because nothing ran.
+      let observed = -1;
+      const registry = new HtmlPainterRegistry();
+      registry.expect(['rk-marker']);
+      registry.register('rk-marker', ({ ctx }) => {
+        observed = ctx.globalAlpha;
+      });
+      const svg = await exportSvg(
+        storeWith(markerElement()),
+        { htmlPainters: registry },
+        layersWithOpacity(0.5) as never,
+      );
+      expect(observed).toBe(1);
+      expect(svg).toContain('<g opacity="0.5">');
+    } finally {
+      restore();
+    }
+  });
+
+  it('throws HtmlPainterMissingError under strictMissingCanvasHtml', async () => {
+    await expect(
+      exportSvg(storeWith(markerElement()), {
+        expectedCanvasTypes: new Set(['rk-marker']),
+        strictMissingCanvasHtml: true,
+      }),
+    ).rejects.toBeInstanceOf(HtmlPainterMissingError);
+  });
+
+  it('reports missing-painter without throwing when strict is off', async () => {
+    const onHtmlError = vi.fn();
+    const svg = await exportSvg(storeWith(markerElement()), {
+      expectedCanvasTypes: new Set(['rk-marker']),
+      onHtmlError,
+    });
+    expect(svg).not.toContain('<image');
+    expect(onHtmlError).toHaveBeenCalledWith(
+      expect.objectContaining({ elementId: 'marker-1', reason: 'missing-painter' }),
+    );
+  });
+
+  it('reports missing-painter for a painter unregistered during the html await', async () => {
+    // Routing is resolved BEFORE `await renderHtmlElements(...)`, the painter is looked up
+    // after. Unregistering inside that window used to drop the element with no diagnostic.
+    const { restore } = installFakeRasterCanvas();
+    try {
+      const registry = new HtmlPainterRegistry();
+      registry.expect(['rk-marker']);
+      // eslint-disable-next-line @typescript-eslint/no-empty-function
+      const unregister = registry.register('rk-marker', () => {});
+      const store = new ElementStore();
+      store.add(markerElement({ id: 'legacy-embed', htmlType: 'legacy-embed' })); // DOM-routed
+      store.add(markerElement());
+      const onHtmlError = vi.fn();
+
+      const svg = await exportSvg(store, {
+        htmlPainters: registry,
+        onHtmlError,
+        // Runs inside the awaited window, after routing was decided.
+        renderHtml: () => {
+          unregister();
+          return null;
+        },
+      });
+
+      expect(svg).toContain('<svg');
+      expect(onHtmlError).toHaveBeenCalledWith(
+        expect.objectContaining({ elementId: 'marker-1', reason: 'missing-painter' }),
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  it('does NOT ask renderHtml for canvas-routed elements', async () => {
+    const { restore } = installFakeRasterCanvas();
+    try {
+      const renderHtml = vi.fn();
+      await exportSvg(storeWith(markerElement()), {
+        htmlPainters: registryWith('rk-marker'),
+        renderHtml,
+      });
+      expect(renderHtml).not.toHaveBeenCalled();
+    } finally {
+      restore();
+    }
+  });
+
+  // Supplementary to the brief's Step 1 list (mirrors A7's export-image coverage):
+  // Step 3 also requires forwarding paintHtmlElement's own diagnostics into onHtmlError
+  // with matching reasons — verify the wiring, not just the routing.
+  it('forwards a painter-threw diagnostic to onHtmlError with the cause', async () => {
+    const { restore } = installFakeRasterCanvas();
+    try {
+      const boom = new Error('boom');
+      const registry = new HtmlPainterRegistry();
+      registry.expect(['rk-marker']);
+      registry.register('rk-marker', () => {
+        throw boom;
+      });
+      const onHtmlError = vi.fn();
+      const svg = await exportSvg(storeWith(markerElement()), {
+        htmlPainters: registry,
+        onHtmlError,
+      });
+      // The offscreen canvas is still encoded (blank) even though the painter threw.
+      expect(svg).toContain('<image');
+      expect(onHtmlError).toHaveBeenCalledWith({
+        elementId: 'marker-1',
+        htmlType: 'rk-marker',
+        reason: 'painter-threw',
+        cause: boom,
+      });
+    } finally {
+      restore();
+    }
+  });
+
+  it('forwards a degenerate-size diagnostic to onHtmlError without invoking the painter', async () => {
+    const { restore } = installFakeRasterCanvas();
+    try {
+      const registry = registryWith('rk-marker');
+      const painted = vi.fn();
+      registry.register('rk-marker', painted);
+      const onHtmlError = vi.fn();
+      // A zero-width marker alone would collapse export bounds to 0×h and fail dimension
+      // validation before painting is ever reached; a normal shape keeps the overall
+      // canvas non-degenerate so the diagnostic path under test is exercised.
+      const store = new ElementStore();
+      store.add(createShape({ position: { x: 200, y: 200 }, size: { w: 50, h: 50 } }));
+      store.add(markerElement({ size: { w: 0, h: 100 } }));
+      // The raster still encodes (blank) for a degenerate element, same as A7's
+      // exportImage — 'degenerate-size' is a paint-time diagnostic, not an encode
+      // failure, so the assertions that matter are: painter untouched, diagnostic fired.
+      await exportSvg(store, { htmlPainters: registry, onHtmlError });
+      expect(painted).not.toHaveBeenCalled();
+      expect(onHtmlError).toHaveBeenCalledWith(
+        expect.objectContaining({ elementId: 'marker-1', reason: 'degenerate-size' }),
+      );
+    } finally {
+      restore();
+    }
   });
 });

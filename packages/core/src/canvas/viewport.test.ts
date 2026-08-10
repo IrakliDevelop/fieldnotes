@@ -14,7 +14,10 @@ import {
 import { SelectTool } from '../tools/select-tool';
 import { PencilTool } from '../tools/pencil-tool';
 import { renderImage } from '../elements/renderers/image-renderer';
-import type { ImageElement } from '../elements/types';
+import type { ImageElement, HtmlElement } from '../elements/types';
+import type { HtmlPaintDiagnostic } from './html-paint-diagnostics';
+import { HtmlPainterRegistry } from './html-painter-registry';
+import type { ElementActivationEvent } from './element-activation';
 
 function wrapperOf(container: HTMLElement): HTMLDivElement {
   const w = container.firstElementChild;
@@ -1115,6 +1118,50 @@ describe('Viewport', () => {
 
       dom.remove();
       vp.destroy();
+      vp2.destroy();
+    });
+
+    it('keeps host-mounted content alive across a painter register/unregister round trip', () => {
+      // The host wires live content straight into the node the callback hands it; nothing
+      // records that content anywhere. A painter registering for the htmlType detaches the
+      // node, and unregistering routes it back to the DOM — the ORIGINAL content must come
+      // back, not a fresh empty node.
+      const vp = new Viewport(container);
+      const el = createHtmlElement({
+        position: { x: 10, y: 20 },
+        size: { w: 200, h: 150 },
+        htmlType: 'chart',
+        layerId: vp.layerManager.activeLayerId,
+      });
+      vp.store.add(el);
+      const state = vp.exportState();
+      vp.destroy();
+
+      const vp2 = new Viewport(container, {
+        onHtmlElementMount: (_id, _domId, node) => {
+          const live = document.createElement('div');
+          live.dataset['host'] = 'live-chart';
+          live.textContent = 'host content';
+          node.appendChild(live);
+        },
+      });
+      vp2.loadState(state);
+      const paintStack = (vp2 as unknown as { paintStack: HTMLDivElement }).paintStack;
+      const mountedNode = (): Element | null =>
+        paintStack.querySelector(`[data-element-id="${el.id}"]`);
+      expect(mountedNode()?.querySelector('[data-host="live-chart"]')?.textContent).toBe(
+        'host content',
+      );
+
+      // eslint-disable-next-line @typescript-eslint/no-empty-function
+      const unregister = vp2.registerHtmlPainter('chart', () => {});
+      expect(mountedNode()).toBeNull(); // canvas-routed: node detached
+
+      unregister();
+      expect(mountedNode()?.querySelector('[data-host="live-chart"]')?.textContent).toBe(
+        'host content',
+      );
+
       vp2.destroy();
     });
 
@@ -2348,5 +2395,493 @@ describe('Viewport', () => {
       }
       vp.destroy();
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Viewport html painters (Task A5)
+//
+// jsdom ships no real 2D canvas backend (no `canvas` npm package installed in
+// this repo), so `HTMLCanvasElement.getContext('2d')` normally returns null
+// and RenderLoop.render() bails out at its first line. A Proxy-based context
+// stub (any method -> no-op, any property settable) is installed for this
+// block only, so Viewport's REAL render loop — Background, LayerCache offscreen
+// canvases, HybridRenderSurface, ElementRenderer — can run end to end without
+// throwing, exercising the actual painter-invocation and DOM-node-reconciliation
+// paths rather than a mocked stand-in for them.
+// ---------------------------------------------------------------------------
+describe('Viewport html painters', () => {
+  function makeStubContext(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
+    const state: Record<string, unknown> = { canvas };
+    const handler: ProxyHandler<Record<string, unknown>> = {
+      get(target, prop) {
+        if (prop in target) return target[prop as string];
+        if (prop === 'measureText') return () => ({ width: 0 });
+        if (
+          prop === 'createPattern' ||
+          prop === 'createLinearGradient' ||
+          prop === 'createRadialGradient'
+        ) {
+          return () => null;
+        }
+        if (prop === 'getImageData') {
+          return () => ({ data: new Uint8ClampedArray(4), width: 1, height: 1 });
+        }
+        return () => undefined;
+      },
+      set(target, prop, value) {
+        target[prop as string] = value;
+        return true;
+      },
+    };
+    return new Proxy(state, handler) as unknown as CanvasRenderingContext2D;
+  }
+
+  let getContextSpy: ReturnType<typeof vi.spyOn>;
+  const created: { vp: Viewport; container: HTMLDivElement }[] = [];
+
+  beforeEach(() => {
+    getContextSpy = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockImplementation(function (this: HTMLCanvasElement) {
+        return makeStubContext(this);
+      } as never);
+  });
+
+  afterEach(() => {
+    while (created.length > 0) {
+      const entry = created.pop();
+      entry?.vp.destroy();
+      entry?.container.remove();
+    }
+    getContextSpy.mockRestore();
+  });
+
+  function makeViewport(): Viewport {
+    const container = document.createElement('div');
+    Object.defineProperty(container, 'getBoundingClientRect', {
+      value: () => ({ left: 0, top: 0, width: 800, height: 600 }),
+    });
+    document.body.appendChild(container);
+    const vp = new Viewport(container);
+    const canvas = container.querySelector('canvas');
+    if (!(canvas instanceof HTMLCanvasElement)) throw new Error('canvas not found');
+    Object.defineProperty(canvas, 'clientWidth', { value: 800, configurable: true });
+    Object.defineProperty(canvas, 'clientHeight', { value: 600, configurable: true });
+    created.push({ vp, container });
+    return vp;
+  }
+
+  function markerElement(): HtmlElement {
+    return createHtmlElement({
+      position: { x: 0, y: 0 },
+      size: { w: 50, h: 50 },
+      htmlType: 'rk-marker',
+    });
+  }
+
+  // Real requestAnimationFrame (not faked): the Viewport's own RAF-driven render
+  // loop already has a pending frame from construction, registered before this
+  // call, so a single further rAF tick lands after that pending frame runs.
+  async function nextFrame(_vp: Viewport): Promise<void> {
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  }
+
+  // DomNodeManager mounts synced nodes into the private `paintStack` layer, not
+  // the public `domLayer` (which carries unrelated overlays such as the note
+  // toolbar). Reached via cast rather than a new accessor, matching this file's
+  // existing `(viewport as unknown as {...}).domNodeManager` convention.
+  function paintStackOf(vp: Viewport): HTMLDivElement {
+    return (vp as unknown as { paintStack: HTMLDivElement }).paintStack;
+  }
+
+  it("getHtmlPainters returns the viewport's own live registry", () => {
+    const vp = makeViewport();
+    const painter = vi.fn();
+    // A painter registered via the viewport's own registerHtmlPainter(...)
+    // must be visible through the registry getHtmlPainters() hands out --
+    // proving it is the SAME instance the viewport routes elements through,
+    // not a copy or a freshly constructed one.
+    const unregister = vp.registerHtmlPainter('rk-marker', painter);
+    const registry = vp.getHtmlPainters();
+    expect(registry.getActivePainter('rk-marker')).toBe(painter);
+    // Repeated calls return the identical instance, not a new wrapper each time.
+    expect(vp.getHtmlPainters()).toBe(registry);
+    unregister();
+  });
+
+  it('paints a registered marker on the next frame with no DOM node created', async () => {
+    const vp = makeViewport();
+    const painter = vi.fn();
+    vp.expectCanvasHtmlTypes(['rk-marker']);
+    vp.registerHtmlPainter('rk-marker', painter);
+    const marker = markerElement();
+    vp.store.add(marker);
+    // Control element: an html element whose htmlType nobody claims stays DOM-routed and
+    // DOES get a node in this very frame. Without it the "no node for the marker"
+    // assertion would hold vacuously — the marker has no stored content either way.
+    const domEmbed = createHtmlElement({
+      position: { x: 0, y: 0 },
+      size: { w: 50, h: 50 },
+      htmlType: 'legacy-embed',
+    });
+    vp.store.add(domEmbed);
+
+    await nextFrame(vp);
+
+    expect(painter).toHaveBeenCalled();
+    expect(paintStackOf(vp).querySelector(`[data-element-id="${domEmbed.id}"]`)).not.toBeNull();
+    expect(paintStackOf(vp).querySelector(`[data-element-id="${marker.id}"]`)).toBeNull();
+  });
+
+  it('hands the painter globalAlpha 1 on a translucent layer, hybrid path included', async () => {
+    // Every other surface (cached-layer composite, minimap, both exports) paints html at
+    // globalAlpha 1 and applies layer opacity to the RESULT. The hybrid screen path must
+    // agree, or adding an unrelated note (which is what flips the frame into hybrid mode)
+    // silently changes a marker's on-screen opacity and screen stops matching the export.
+    const vp = makeViewport();
+    const layerId = vp.layerManager.activeLayerId;
+    const seen: unknown[] = [];
+    vp.expectCanvasHtmlTypes(['rk-marker']);
+    vp.registerHtmlPainter('rk-marker', ({ ctx }) => {
+      seen.push(ctx.globalAlpha);
+    });
+    // A DOM-routed element FIRST, then the marker: that ordering is what makes the frame
+    // hybrid and moves the marker onto the hybrid surface instead of a cached layer.
+    vp.store.add(
+      createNote({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 }, text: 'note', layerId }),
+    );
+    const marker = markerElement();
+    vp.store.add({ ...marker, layerId });
+    vp.layerManager.setLayerOpacity(layerId, 0.5);
+
+    await nextFrame(vp);
+
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen).toEqual(seen.map(() => 1));
+  });
+
+  it('repaints elements that already existed when the painter registers later', async () => {
+    const vp = makeViewport();
+    vp.store.add(markerElement());
+    await nextFrame(vp);
+    const painter = vi.fn();
+    vp.expectCanvasHtmlTypes(['rk-marker']);
+    vp.registerHtmlPainter('rk-marker', painter);
+    await nextFrame(vp);
+    expect(painter).toHaveBeenCalled();
+  });
+
+  it('detaches an existing DOM node synchronously when a painter registers', () => {
+    const vp = makeViewport();
+    const el = markerElement();
+    vp.store.add(el);
+    vp.updateHtmlElement(el.id, document.createElement('span'));
+    // Content mounts synchronously (no render pass has run): without this, the final
+    // assertion below would hold vacuously whether or not registration ever detaches
+    // anything, since there would never have been a node to begin with.
+    expect(paintStackOf(vp).querySelector(`[data-element-id="${el.id}"]`)).not.toBeNull();
+    // eslint-disable-next-line @typescript-eslint/no-empty-function
+    vp.registerHtmlPainter('rk-marker', () => {});
+    expect(paintStackOf(vp).querySelector(`[data-element-id="${el.id}"]`)).toBeNull();
+  });
+
+  it('forwards missing-painter diagnostics to onHtmlPaintDiagnostic', async () => {
+    const vp = makeViewport();
+    const sink = vi.fn<(d: HtmlPaintDiagnostic) => void>();
+    vp.onHtmlPaintDiagnostic(sink);
+    vp.expectCanvasHtmlTypes(['rk-marker']);
+    vp.store.add(markerElement());
+    await nextFrame(vp);
+    expect(sink).toHaveBeenCalledWith(expect.objectContaining({ kind: 'missing-painter' }));
+  });
+
+  it('clears diagnostic dedupe state when the element is removed', async () => {
+    const vp = makeViewport();
+    const sink = vi.fn<(d: HtmlPaintDiagnostic) => void>();
+    vp.onHtmlPaintDiagnostic(sink);
+    vp.expectCanvasHtmlTypes(['rk-marker']);
+    const el = markerElement();
+    vp.store.add(el);
+    await nextFrame(vp);
+    vp.store.remove(el.id);
+    vp.store.add(el);
+    await nextFrame(vp);
+    expect(sink).toHaveBeenCalledTimes(2);
+  });
+
+  it('re-emits missing-painter diagnostics after loadState reloads the same document', async () => {
+    const vp = makeViewport();
+    const sink = vi.fn<(d: HtmlPaintDiagnostic) => void>();
+    vp.onHtmlPaintDiagnostic(sink);
+    vp.expectCanvasHtmlTypes(['rk-marker']);
+    const el = markerElement();
+    vp.store.add(el);
+    await nextFrame(vp);
+    expect(sink).toHaveBeenCalledTimes(1);
+
+    // Reload the identical document through the same public path a host uses
+    // (loadState/loadJSON). ElementStore.clear()/loadSnapshot() emit a single
+    // 'clear' event with no per-element 'remove' events, so the dedupe state
+    // keyed on this element's id must be reset independently of 'remove'.
+    const state = vp.exportState();
+    vp.loadState(state);
+    await nextFrame(vp);
+
+    expect(sink).toHaveBeenCalledTimes(2);
+  });
+
+  it('leaves no node and no empty stratum behind for a canvas-routed marker', async () => {
+    const vp = makeViewport();
+    const el = markerElement();
+    vp.store.add(el);
+    vp.updateHtmlElement(el.id, document.createElement('span')); // becomes DOM-backed
+    await nextFrame(vp);
+    // eslint-disable-next-line @typescript-eslint/no-empty-function
+    vp.registerHtmlPainter('rk-marker', () => {}); // now canvas-routed
+    await nextFrame(vp);
+    expect(paintStackOf(vp).querySelector(`[data-element-id="${el.id}"]`)).toBeNull();
+    expect(paintStackOf(vp).querySelector('[data-paint-order]')).toBeNull();
+  });
+
+  describe('export delegation', () => {
+    // jsdom implements neither method (both log "Not implemented" and no-op) — export-image.ts
+    // and export-svg.ts's own test suites stub them the same way for any test that expects a
+    // real result out of exportImage()/exportSVG().
+    let toBlobSpy: ReturnType<typeof vi.spyOn>;
+    let toDataURLSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      toBlobSpy = vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(function (
+        this: HTMLCanvasElement,
+        cb: BlobCallback,
+      ) {
+        cb(new Blob(['fake'], { type: 'image/png' }));
+      });
+      toDataURLSpy = vi
+        .spyOn(HTMLCanvasElement.prototype, 'toDataURL')
+        .mockReturnValue('data:image/png;base64,AAAA');
+    });
+
+    afterEach(() => {
+      toBlobSpy.mockRestore();
+      toDataURLSpy.mockRestore();
+    });
+
+    function htmlElement(htmlType: string): HtmlElement {
+      return createHtmlElement({
+        position: { x: 200, y: 200 },
+        size: { w: 50, h: 50 },
+        htmlType,
+      });
+    }
+
+    it('injects the viewport registry when the caller passes no html options', async () => {
+      const vp = makeViewport();
+      const painter = vi.fn();
+      vp.expectCanvasHtmlTypes(['rk-marker']);
+      vp.registerHtmlPainter('rk-marker', painter);
+      vp.store.add(markerElement());
+      await vp.exportImage();
+      expect(painter).toHaveBeenCalled();
+    });
+
+    it('lets an explicitly passed registry replace the viewport one', async () => {
+      const vp = makeViewport();
+      const viewportPainter = vi.fn();
+      const callerPainter = vi.fn();
+      vp.registerHtmlPainter('rk-marker', viewportPainter);
+      const caller = new HtmlPainterRegistry();
+      caller.register('rk-marker', callerPainter);
+      vp.store.add(markerElement());
+      await vp.exportImage({ htmlPainters: caller });
+      expect(callerPainter).toHaveBeenCalled();
+      expect(viewportPainter).not.toHaveBeenCalled();
+    });
+
+    it('unions an explicit expectedCanvasTypes with the registry declarations', async () => {
+      const vp = makeViewport();
+      vp.expectCanvasHtmlTypes(['rk-marker']);
+      vp.store.add(markerElement());
+      vp.store.add(htmlElement('other-canvas-type'));
+      const onHtmlError = vi.fn();
+      await vp.exportImage({ expectedCanvasTypes: new Set(['other-canvas-type']), onHtmlError });
+      // Filter to 'missing-painter' specifically: an element that falls through to the
+      // DOM-raster path instead (because it was never actually canvas-routed) reports
+      // 'unsupported' instead, with the same htmlType field — an unfiltered read would
+      // let that unrelated path satisfy this assertion by coincidence.
+      const missingPainterTypes = onHtmlError.mock.calls
+        .filter((c) => c[0].reason === 'missing-painter')
+        .map((c) => c[0].htmlType)
+        .sort();
+      expect(missingPainterTypes).toEqual(['other-canvas-type', 'rk-marker']);
+    });
+
+    // Black-box coverage above cannot distinguish the union computation from a naive
+    // "caller's set replaces declared" implementation: resolveHtmlRouting ORs
+    // registry.canvasTypes directly (the same registry withHtmlDefaults injects as
+    // htmlPainters), so a declared-but-unioned type still routes to canvas regardless
+    // of whether the union actually happened. This white-box test reads
+    // withHtmlDefaults's return value directly to pin the union itself — see the
+    // mutation-verification note in the task report for the empirical confirmation.
+    it('withHtmlDefaults unions expectedCanvasTypes with the registry declarations (white-box)', () => {
+      const vp = makeViewport();
+      vp.expectCanvasHtmlTypes(['rk-marker']);
+      const withHtmlDefaults = (
+        vp as unknown as {
+          withHtmlDefaults: (options?: { expectedCanvasTypes?: ReadonlySet<string> }) => {
+            expectedCanvasTypes: ReadonlySet<string>;
+          };
+        }
+      ).withHtmlDefaults.bind(vp);
+      const result = withHtmlDefaults({ expectedCanvasTypes: new Set(['other-canvas-type']) });
+      expect([...result.expectedCanvasTypes].sort()).toEqual(['other-canvas-type', 'rk-marker']);
+    });
+
+    it('defaults strictMissingCanvasHtml to false from the viewport', async () => {
+      const vp = makeViewport();
+      vp.expectCanvasHtmlTypes(['rk-marker']);
+      vp.store.add(markerElement());
+      await expect(vp.exportImage()).resolves.not.toThrow();
+    });
+
+    it('applies the same delegation to exportSVG', async () => {
+      const vp = makeViewport();
+      const painter = vi.fn();
+      vp.registerHtmlPainter('rk-marker', painter);
+      vp.store.add(markerElement());
+      await vp.exportSVG();
+      expect(painter).toHaveBeenCalled();
+    });
+  });
+});
+
+describe('Viewport element activation', () => {
+  const created: { vp: Viewport; container: HTMLDivElement }[] = [];
+
+  afterEach(() => {
+    while (created.length > 0) {
+      const entry = created.pop();
+      entry?.vp.destroy();
+      entry?.container.remove();
+    }
+  });
+
+  function makeViewport(): { vp: Viewport; wrapper: HTMLDivElement } {
+    const container = document.createElement('div');
+    Object.defineProperty(container, 'getBoundingClientRect', {
+      value: () => ({ left: 0, top: 0, width: 800, height: 600 }),
+    });
+    document.body.appendChild(container);
+    const vp = new Viewport(container);
+    created.push({ vp, container });
+    vp.registerHtmlPainter('rk-marker', () => {
+      /* canvas routing for markers */
+    });
+    vp.store.add(
+      createHtmlElement({
+        position: { x: 100, y: 100 },
+        size: { w: 40, h: 40 },
+        htmlType: 'rk-marker',
+      }),
+    );
+    return { vp, wrapper: wrapperOf(container) };
+  }
+
+  function tapMarker(wrapper: HTMLDivElement): void {
+    for (const type of ['pointerdown', 'pointerup']) {
+      wrapper.dispatchEvent(
+        new PointerEvent(type, {
+          bubbles: true,
+          cancelable: true,
+          pointerId: 1,
+          pointerType: 'mouse',
+          button: 0,
+          clientX: 120,
+          clientY: 120,
+        }),
+      );
+    }
+  }
+
+  it('is off by default and activates only once setActivation enables it', () => {
+    const { vp, wrapper } = makeViewport();
+    const events: ElementActivationEvent[] = [];
+    vp.onElementActivate((e) => events.push(e));
+
+    tapMarker(wrapper);
+    expect(events).toEqual([]);
+
+    vp.setActivation({ gesture: 'single' });
+    tapMarker(wrapper);
+    expect(events).toHaveLength(1);
+    expect(events[0]?.gesture).toBe('single');
+  });
+
+  it('returns a disposer that clears only its own generation', () => {
+    const { vp, wrapper } = makeViewport();
+    const events: ElementActivationEvent[] = [];
+    vp.onElementActivate((e) => events.push(e));
+
+    const staleDisposer = vp.setActivation({ gesture: 'single' });
+    vp.setActivation({ gesture: 'single' });
+
+    // A stale Strict-Mode cleanup must not tear down the newer registration.
+    staleDisposer();
+    tapMarker(wrapper);
+    expect(events).toHaveLength(1);
+
+    // The current generation's disposer does tear it down, and is idempotent.
+    const currentDisposer = vp.setActivation({ gesture: 'single' });
+    events.length = 0;
+    currentDisposer();
+    currentDisposer();
+    tapMarker(wrapper);
+    expect(events).toEqual([]);
+  });
+
+  it('rejects invalid options with RangeError and keeps the existing activation', () => {
+    const { vp, wrapper } = makeViewport();
+    const events: ElementActivationEvent[] = [];
+    vp.onElementActivate((e) => events.push(e));
+    vp.setActivation({ gesture: 'single' });
+
+    expect(() => vp.setActivation({ gesture: 'single', slopPx: -1 })).toThrow(RangeError);
+    expect(() => vp.setActivation({ gesture: 'single', doubleDelayMs: 0 })).toThrow(RangeError);
+
+    tapMarker(wrapper);
+    expect(events).toHaveLength(1);
+  });
+
+  it('isolates a throwing onElementActivate listener from its siblings', () => {
+    const { vp, wrapper } = makeViewport();
+    const seen: string[] = [];
+    vp.onElementActivate(() => {
+      seen.push('throwing');
+      throw new Error('boom');
+    });
+    const unsub = vp.onElementActivate(() => seen.push('second'));
+    vp.setActivation({ gesture: 'single' });
+
+    tapMarker(wrapper);
+    expect(seen).toEqual(['throwing', 'second']);
+
+    unsub();
+    tapMarker(wrapper);
+    expect(seen).toEqual(['throwing', 'second', 'throwing']);
+  });
+
+  it('destroy() disposes the activation controller', () => {
+    const { vp, wrapper } = makeViewport();
+    const events: ElementActivationEvent[] = [];
+    vp.onElementActivate((e) => events.push(e));
+    vp.setActivation({ gesture: 'single' });
+    tapMarker(wrapper);
+    expect(events).toHaveLength(1);
+
+    vp.destroy();
+    events.length = 0;
+    tapMarker(wrapper);
+    expect(events).toEqual([]);
   });
 });

@@ -4,6 +4,49 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.62.0] — 2026-08-10
+
+### Added
+
+- `HtmlPainterRegistry` — a host-owned registry that lets `html` elements be routed to the canvas
+  instead of the DOM, keyed by `htmlType`: `register(htmlType, painter)` (last-registered wins,
+  stack-based so unregistering restores the prior painter), `expect(htmlTypes)` to declare canvas
+  intent before a painter is ready, `getActivePainter`, `canvasTypes`, and `onChange`. Exposed on
+  `Viewport` as `getHtmlPainters()`, `registerHtmlPainter()`, and `expectCanvasHtmlTypes()`.
+  `resolveHtmlRouting(element, registry, expectedCanvasTypes?)` resolves an element to
+  `'dom' | 'canvas' | 'missing'`.
+- Canvas-routed `html` rendering on every surface that draws elements: on-screen (via
+  `ElementRenderer`), the minimap (`MinimapController`), PNG/image export (`exportImage`), and SVG
+  export (`exportSvg`, which rasterizes canvas-routed content into the embedded image rather than
+  inlining DOM). No wire, persisted-state, or element-schema change — routing is derived purely
+  from whether a painter is registered for the element's `htmlType`.
+- `Viewport.exportImage()` / `Viewport.exportSVG()` delegate canvas-routed `html` elements to the
+  registered painter automatically; the existing `renderHtml` hook stays the path for DOM-routed
+  embeds. `strictMissingCanvasHtml` (export option): when `true`, an element declared canvas-routed
+  with no active painter rejects the export with `HtmlPainterMissingError` instead of silently
+  omitting it — opt-in per export call, off by default.
+- Element activation: `Viewport.setActivation(options)` and `Viewport.onElementActivate(listener)`
+  turn a pointer gesture on a canvas-painted element into a typed `ElementActivationEvent`
+  (`element`, `world`, `pointerType`, `gesture: 'single' | 'double'`). Canvas-painted elements
+  aren't DOM nodes and can't receive DOM events, so this is the bridge. Passive by contract — every
+  listener is `{ passive: true }` and it never calls `preventDefault`, `stopPropagation`, or takes
+  pointer capture, so native scroll/zoom, the active tool, and pan/pinch navigation are unaffected.
+  `ActivationOptions.gesture: 'double'` recognizes double taps per-element (not by screen distance
+  alone), so two adjacent canvas-painted elements cannot fuse into a single double-tap.
+- Paint diagnostics: `Viewport.onHtmlPaintDiagnostic(listener)` reports a
+  `'missing-painter' | 'painter-threw' | 'degenerate-size'` diagnostic per canvas-routed `html`
+  element, deduped per element/version so a steady-state failure does not flood the host every
+  frame.
+
+### Fixed
+
+- A DOM-routed `html` element whose node has no content — what an unknown `htmlType` produces on a
+  client that has neither an `html` renderer nor a painter registered for it — no longer intercepts
+  pointer events intended for the canvas beneath it. The empty node stays at `pointer-events: none`
+  until content actually arrives, instead of covering the canvas with an invisible hit target.
+
+No persisted-canvas or wire-protocol change. No react, sync, sync-server, or sync-redis release.
+
 ## [0.61.0] — 2026-08-06
 
 ### Added

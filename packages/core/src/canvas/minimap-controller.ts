@@ -1,6 +1,7 @@
 import type { Bounds, Point } from '../core/types';
 import type { CanvasElement } from '../elements/types';
 import type { Viewport } from './viewport';
+import type { HtmlPainterRegistry } from './html-painter-registry';
 import { ElementRenderer } from '../elements/element-renderer';
 import { getElementBounds } from '../elements/element-bounds';
 import { getElementsBoundingBox } from '../elements/bounds';
@@ -39,7 +40,6 @@ const DEFAULT_PADDING = 8;
 const DEFAULT_DEBOUNCE_MS = 200;
 const DEFAULT_VIEWPORT_STROKE = '#3b82f6';
 const NEUTRAL = 'rgba(100,116,139,0.6)';
-const DOM_FALLBACK_TYPES = new Set(['note', 'text', 'html']);
 
 function elementColor(el: CanvasElement): string {
   return 'color' in el && typeof el.color === 'string' ? el.color : NEUTRAL;
@@ -73,6 +73,10 @@ export class MinimapController {
   private readonly requestFrame: (cb: () => void) => number;
   private readonly cancelFrame: (id: number) => void;
   private readonly renderer = new ElementRenderer();
+  // Declared, not initialized here: a field initializer runs before parameter
+  // properties are assigned (ES2022 useDefineForClassFields), so it cannot
+  // read the `viewport` parameter. Assigned in the constructor body instead.
+  private readonly htmlPainters: HtmlPainterRegistry;
   private scene: SceneCache | null = null;
   private frameId: number | null = null;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -103,6 +107,9 @@ export class MinimapController {
 
     this.renderer.setStore(viewport.store);
     this.renderer.setOnImageLoad(() => this.markSceneDirty());
+    this.htmlPainters = viewport.getHtmlPainters(); // parameter, not this.viewport
+    this.renderer.setHtmlPainters(this.htmlPainters);
+    this.renderer.setRenderTarget('minimap');
     this.applyCanvasSize();
 
     const onScene = () => this.markSceneDirty();
@@ -114,6 +121,7 @@ export class MinimapController {
       viewport.layerManager.on('change', onScene),
       viewport.camera.onChange(() => this.onViewChanged()),
       viewport.onResize(() => this.onViewChanged()),
+      this.htmlPainters.onChange(() => this.invalidateScene()),
     );
 
     if (this.interactive) {
@@ -143,6 +151,24 @@ export class MinimapController {
   requestDraw(): void {
     if (this.disposed || this.frameId !== null) return;
     this.frameId = this.requestFrame(this.draw);
+  }
+
+  /**
+   * Invalidates the cached scene bitmap in response to html-painter registry
+   * changes (a painter registering/unregistering, or an `expect` declaration
+   * changing) and schedules the same debounced rebuild `markSceneDirty` uses
+   * for every other invalidation source. Unlike those other sources — which
+   * deliberately keep compositing the OLD bitmap until the rebuild lands, so
+   * camera motion and content edits never stall on a render — painter
+   * availability has no "old bitmap is still valid" reading: an element that
+   * was falling back to a neutral fillRect (no painter yet) or a stale
+   * painter's output is not a safe thing to keep showing, so the cached
+   * bitmap is dropped immediately instead of composited a further time.
+   */
+  invalidateScene(): void {
+    if (this.disposed) return;
+    this.scene = null;
+    this.markSceneDirty();
   }
 
   dispose(): void {
@@ -220,6 +246,10 @@ export class MinimapController {
     const dpr = this.dpr();
     const mapping = this.currentMapping();
     const transform = computeMinimapTransform(mapping, this.width, this.height, this.padding);
+    // The minimap fit scale, not the live camera zoom — canvas-routed html
+    // painters read this via HtmlPaintContext.zoom (renderTarget 'minimap'
+    // ignores the camera entirely; see ElementRenderer.zoomForTarget).
+    this.renderer.setSurfaceZoom(transform.scale);
     const sceneCanvas = document.createElement('canvas');
     sceneCanvas.width = Math.max(1, Math.round(this.width * dpr));
     sceneCanvas.height = Math.max(1, Math.round(this.height * dpr));
@@ -269,7 +299,11 @@ export class MinimapController {
     dpr: number,
   ): void {
     for (const el of elements) {
-      if (DOM_FALLBACK_TYPES.has(el.type)) {
+      // note/text always fall back; 'html' only falls back when the shared
+      // renderer's routing resolves it to 'dom' (no canvas painter claims
+      // it) — the SAME routing decision the main renderer and export make,
+      // via the registry this controller forwarded in setHtmlPainters().
+      if (this.renderer.isDomElement(el)) {
         const b = getElementBounds(el);
         if (!b) continue;
         const tl = worldToMini(t, { x: b.x, y: b.y });

@@ -24,7 +24,8 @@ reverse dependencies.
 render loop, input, element store, layers, history, DOM elements, editing, and focused controllers.
 Keep orchestration there and behavior in the narrowest collaborator.
 
-- `canvas/`: viewport/camera, input/keyboard routing, rendering, export, interactions.
+- `canvas/`: viewport/camera, input/keyboard routing, rendering, export, interactions,
+  canvas-routed html painting (`html-painter-registry.ts`), element activation (`element-activation.ts`).
 - `core/`: generic geometry, events, indexing, persistence, serialization.
 - `elements/`: element union/factories/store, geometry, editing, rendering.
 - `tools/`: tool strategies and selection transforms.

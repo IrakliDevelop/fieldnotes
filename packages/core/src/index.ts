@@ -1,4 +1,4 @@
-export const VERSION = '0.61.0';
+export const VERSION = '0.62.0';
 
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
 export { snapPoint, smartSnap, snapToHexCenter } from './core/snap';
@@ -98,6 +98,14 @@ export type {
   RemoteFocusReceiverHost,
   RemoteFocusReceiverOptions,
 } from './canvas/remote-focus-receiver';
+export {
+  HtmlPainterRegistry,
+  HtmlPainterMissingError,
+  resolveHtmlRouting,
+} from './canvas/html-painter-registry';
+export type { HtmlPaintContext, HtmlPainter, HtmlRouting } from './canvas/html-painter-registry';
+export type { HtmlPaintDiagnostic, HtmlRenderTarget } from './canvas/html-paint-diagnostics';
+export type { ElementActivationEvent, ActivationOptions } from './canvas/element-activation';
 
 export { ElementStore } from './elements/element-store';
 export type { ElementUpdateEvent } from './elements/element-store';
