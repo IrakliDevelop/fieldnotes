@@ -59,6 +59,14 @@ export class DomNodeManager {
    * destroy it and no remount could ever bring it back. Preserving the node itself
    * (rather than a guessed-at child) keeps arbitrary subtrees, host-attached
    * listeners, and the host's own reference to the node all valid.
+   *
+   * Callers mark UNCONDITIONALLY, without inspecting the node — a host that only attaches
+   * listeners or styles owns its node just as much as one that appended children, and
+   * there is no way to tell those apart from the outside. Two consequences follow, both
+   * accepted: a node the host never populated can still round-trip back into the DOM (the
+   * documented exception to "never had content -> never remount", reachable only via
+   * `onHtmlElementMount`), and one detached `<div>` is retained per such element for its
+   * lifetime.
    */
   markHostOwnedContent(elementId: string): void {
     this.hostOwnedContent.add(elementId);

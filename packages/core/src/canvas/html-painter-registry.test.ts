@@ -124,6 +124,25 @@ describe('HtmlPainterRegistry identity', () => {
     unregisterTop();
     expect([...r.canvasTypes].sort()).toEqual(['declared', 'painted']);
 
+    // Releasing a SHADOWED entry is the one unregister that deliberately does NOT bump
+    // (`wasActive === false`), so it is the only path where a wrongly-kept cache could go
+    // unnoticed. Both unregister helpers above pop the TOP of their stack, so neither of
+    // them reaches it. The type must still be reported, and the ACTIVE painter must still
+    // be the top one — a release that removed the wrong entry would leave membership
+    // intact and go undetected without that second assertion.
+    // eslint-disable-next-line @typescript-eslint/no-empty-function
+    const shadowedPainter = (): void => {};
+    // eslint-disable-next-line @typescript-eslint/no-empty-function
+    const topPainter = (): void => {};
+    const unregisterShadowed = r.register('painted', shadowedPainter);
+    const unregisterNewTop = r.register('painted', topPainter);
+    expect([...r.canvasTypes].sort()).toEqual(['declared', 'painted']);
+    unregisterShadowed();
+    expect([...r.canvasTypes].sort()).toEqual(['declared', 'painted']);
+    expect(r.getActivePainter('painted')).toBe(topPainter);
+    unregisterNewTop();
+    expect([...r.canvasTypes].sort()).toEqual(['declared', 'painted']);
+
     releaseExpect();
     expect([...r.canvasTypes].sort()).toEqual(['painted']);
 

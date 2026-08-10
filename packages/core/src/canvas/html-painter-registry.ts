@@ -47,6 +47,12 @@ export class HtmlPainterRegistry {
    * html element. The cache is dropped in `bump()`, which is called on exactly the
    * transitions that can change the membership of this set (first `expect` of a type, last
    * release of a type, any `register`, and any unregister that empties a type's stack).
+   *
+   * The returned `Set` is the LIVE memoized instance, not a copy: callers must not mutate
+   * it, and a caller that holds it across a `bump()` holds a stale snapshot. Nothing in the
+   * codebase does either — `withHtmlDefaults` passes it straight through to the exporters
+   * unless the caller supplied `expectedCanvasTypes`, in which case it builds a fresh union
+   * — and holding it across a change was already a stale snapshot before memoization.
    */
   get canvasTypes(): ReadonlySet<string> {
     const cached = this.canvasTypesCache;

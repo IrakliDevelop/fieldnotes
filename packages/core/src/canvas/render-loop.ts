@@ -197,7 +197,13 @@ export class RenderLoop {
     this.gridCacheCtx = this.gridCacheCanvas.getContext('2d') as CanvasRenderingContext2D | null;
   }
 
-  /** Lazily allocated, and only ever touched by the translucent-layer html branch below. */
+  /**
+   * Lazily allocated, and only ever touched by the translucent-layer html branch below.
+   * Grow-only: the branch runs once per element per frame, and reassigning `width` or
+   * `height` reallocates the backing store, so shrinking to each element in turn would
+   * thrash. The requested size is always clipped to the visible canvas by
+   * `htmlScratchRect`, so this stays bounded by the canvas itself.
+   */
   private ensureHtmlScratch(w: number, h: number): CanvasRenderingContext2D | null {
     if (this.htmlScratchCanvas === null || this.htmlScratchCtx === null) {
       if (typeof OffscreenCanvas !== 'undefined') {
@@ -215,9 +221,42 @@ export class RenderLoop {
         return null;
       }
     }
-    if (this.htmlScratchCanvas.width !== w) this.htmlScratchCanvas.width = w;
-    if (this.htmlScratchCanvas.height !== h) this.htmlScratchCanvas.height = h;
+    if (this.htmlScratchCanvas.width < w) this.htmlScratchCanvas.width = w;
+    if (this.htmlScratchCanvas.height < h) this.htmlScratchCanvas.height = h;
     return this.htmlScratchCtx;
+  }
+
+  /**
+   * The device-pixel footprint an element occupies on the hybrid surface: its world
+   * bounds mapped through the same `scale(dpr) -> translate(cam) -> scale(zoom)` chain
+   * the hybrid context uses, snapped OUT to whole pixels (so the clip edge's antialiased
+   * pixel is included) and intersected with the surface.
+   *
+   * Null when nothing of the element lands on the surface. That includes the case where
+   * the surface has no pixels at all: a host hiding the viewport (`display: none`) drives
+   * `canvasEl.width` to 0 via `syncCanvasSize`, culling does not go degenerate with it,
+   * and a zero-dimension canvas throws `InvalidStateError` when used as a `drawImage`
+   * SOURCE — which would escape `render()` and kill the frame loop permanently.
+   * Non-finite bounds fail the same `>= 1` test and are rejected here too.
+   */
+  private htmlScratchRect(bounds: Bounds | null, dpr: number): Bounds | null {
+    let left = 0;
+    let top = 0;
+    let right = this.canvasEl.width;
+    let bottom = this.canvasEl.height;
+    if (bounds) {
+      const zoom = this.camera.zoom;
+      const camX = this.camera.position.x;
+      const camY = this.camera.position.y;
+      left = Math.max(left, Math.floor((bounds.x * zoom + camX) * dpr));
+      top = Math.max(top, Math.floor((bounds.y * zoom + camY) * dpr));
+      right = Math.min(right, Math.ceil(((bounds.x + bounds.w) * zoom + camX) * dpr));
+      bottom = Math.min(bottom, Math.ceil(((bounds.y + bounds.h) * zoom + camY) * dpr));
+    }
+    const w = right - left;
+    const h = bottom - top;
+    if (!(w >= 1) || !(h >= 1)) return null;
+    return { x: left, y: top, w, h };
   }
 
   /**
@@ -225,16 +264,24 @@ export class RenderLoop {
    * boundary the painter contract requires: paint at `globalAlpha === 1` into a scratch
    * surface, then composite that raster at the layer's opacity. Mirrors `exportImage`'s
    * per-layer temp canvas and the minimap's layer composite.
+   *
+   * The scratch covers only the element's own device-pixel rect, the way
+   * `rasterizeCanvasRoutedHtml` sizes its offscreen to the element rather than the export
+   * bounds. That is exact rather than approximate because `paintHtmlElement` clips every
+   * painter to the element's (rotated) rect, so nothing can land outside those bounds.
+   * The offset is whole device pixels and the blit is 1:1, so the element occupies
+   * exactly the pixels a full-canvas scratch would have given it.
    */
   private paintHybridHtmlAtLayerOpacity(
     hybridCtx: CanvasRenderingContext2D,
     element: CanvasElement,
+    elementBounds: Bounds | null,
     layerOpacity: number,
     dpr: number,
   ): void {
-    const width = this.canvasEl.width;
-    const height = this.canvasEl.height;
-    const scratchCtx = this.ensureHtmlScratch(width, height);
+    const rect = this.htmlScratchRect(elementBounds, dpr);
+    if (!rect) return; // no pixels to paint into, and no degenerate drawImage source
+    const scratchCtx = this.ensureHtmlScratch(rect.w, rect.h);
     const scratchCanvas = this.htmlScratchCanvas;
     if (!scratchCtx || !scratchCanvas) {
       // No scratch surface available: drawing the element pre-multiplied still beats
@@ -247,9 +294,10 @@ export class RenderLoop {
     }
 
     scratchCtx.setTransform(1, 0, 0, 1, 0, 0);
-    scratchCtx.clearRect(0, 0, width, height);
+    scratchCtx.clearRect(0, 0, rect.w, rect.h);
     scratchCtx.save();
     scratchCtx.globalAlpha = 1;
+    scratchCtx.translate(-rect.x, -rect.y);
     scratchCtx.scale(dpr, dpr);
     scratchCtx.translate(this.camera.position.x, this.camera.position.y);
     scratchCtx.scale(this.camera.zoom, this.camera.zoom);
@@ -259,7 +307,17 @@ export class RenderLoop {
     hybridCtx.save();
     hybridCtx.setTransform(1, 0, 0, 1, 0, 0);
     hybridCtx.globalAlpha = layerOpacity;
-    hybridCtx.drawImage(scratchCanvas as CanvasImageSource, 0, 0);
+    hybridCtx.drawImage(
+      scratchCanvas as CanvasImageSource,
+      0,
+      0,
+      rect.w,
+      rect.h,
+      rect.x,
+      rect.y,
+      rect.w,
+      rect.h,
+    );
     hybridCtx.restore();
   }
 
@@ -502,19 +560,29 @@ export class RenderLoop {
         const elBounds = getElementVisualBounds(element);
         if (elBounds && !boundsIntersect(elBounds, cullingRect)) continue;
         const layerOpacity = this.layerManager.getLayer?.(element.layerId)?.opacity ?? 1;
-        // Canvas-routed html owns the layer-opacity boundary the same way every other
-        // surface does (cached-layer composite, minimap, image export, svg export): the
-        // painter is handed globalAlpha 1 and layer opacity is applied to the painted
-        // RESULT. Pre-multiplying here — which is the right thing for every other element
-        // type, and stays that way — would let a painter that assigns globalAlpha wipe the
+        // Canvas-routed html gets the painter's ALPHA BOUNDARY that every other surface
+        // honours (cached-layer composite, minimap, image export, svg export): the painter
+        // is handed globalAlpha 1 and layer opacity is applied to the painted RESULT.
+        // Pre-multiplying here — which is the right thing for every other element type,
+        // and stays that way — would let a painter that assigns globalAlpha wipe the
         // layer's opacity out, so a marker's on-screen opacity would change the moment an
         // unrelated note pushed the frame onto this hybrid path.
+        //
+        // The COMPOSITING GRANULARITY still differs from those surfaces, and deliberately
+        // so: they composite once per layer, this composites once per element. Two
+        // overlapping elements on a layer at opacity 0.5 therefore reach ~0.75 effective
+        // coverage here versus 0.5 there. That is pre-existing on this path — it held for
+        // every element type before the alpha boundary was fixed — and closing it means
+        // grouping the hybrid run by layer and compositing once, which is a restructuring
+        // this fix deliberately does not attempt.
         if (element.type === 'html' && layerOpacity < 1) {
-          this.paintHybridHtmlAtLayerOpacity(hybridCtx, element, layerOpacity, dpr);
+          this.paintHybridHtmlAtLayerOpacity(hybridCtx, element, elBounds, layerOpacity, dpr);
           continue;
         }
+        // html only reaches here with layerOpacity >= 1, so this is the pre-multiplied
+        // path for every other element type and a no-op assignment for html.
         hybridCtx.save();
-        hybridCtx.globalAlpha = element.type === 'html' ? 1 : layerOpacity;
+        hybridCtx.globalAlpha = layerOpacity;
         this.renderer.renderCanvasElement(hybridCtx, element);
         hybridCtx.restore();
       }
