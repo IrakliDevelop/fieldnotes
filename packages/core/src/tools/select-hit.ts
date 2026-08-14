@@ -15,7 +15,11 @@ import {
   templateAimKnob,
 } from './select-overlay';
 
-export function hitTest(world: Point, ctx: ToolContext): CanvasElement | null {
+export function hitTest(
+  world: Point,
+  ctx: ToolContext,
+  match?: (element: CanvasElement) => boolean,
+): CanvasElement | null {
   // Inflate query by hit radius so strokes/arrows near the point are included
   const r = 10;
   const candidates = ctx.store
@@ -25,6 +29,7 @@ export function hitTest(world: Point, ctx: ToolContext): CanvasElement | null {
     if (ctx.isLayerVisible && !ctx.isLayerVisible(el.layerId)) continue;
     if (ctx.isLayerLocked && ctx.isLayerLocked(el.layerId)) continue;
     if (el.type === 'grid') continue;
+    if (match && !match(el)) continue;
     if (isInsideBounds(world, el)) return el;
   }
   return null;

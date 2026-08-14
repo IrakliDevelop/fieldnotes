@@ -29,6 +29,7 @@ import { ArrowLabelEditor } from '../elements/arrow-label-editor';
 import { ToolManager } from '../tools/tool-manager';
 import type { ToolContext, Tool } from '../tools/types';
 import type { SelectTool } from '../tools/select-tool';
+import { hitTest } from '../tools/select-hit';
 import { HistoryStack } from '../history/history-stack';
 import { HistoryRecorder } from '../history/history-recorder';
 import { createImage, createHtmlElement, createShape } from '../elements/element-factory';
@@ -94,6 +95,13 @@ export interface ViewportOptions {
   panInertia?: boolean;
   /** Show an overview minimap (bottom-right) with tap/drag-to-navigate. Default `false`. */
   minimap?: boolean;
+}
+
+export interface HitTestOptions {
+  /** Skip elements on locked layers. Default `true` (selection semantics). */
+  respectLayerLock?: boolean;
+  /** Applied inside the candidate walk; the topmost passing element wins. */
+  match?: (element: CanvasElement) => boolean;
 }
 
 export class Viewport {
@@ -462,6 +470,22 @@ export class Viewport {
   /** World-space rectangle currently visible through the canvas. */
   getVisibleRect(): Bounds {
     return this.camera.getVisibleRect(this.canvasEl.clientWidth, this.canvasEl.clientHeight);
+  }
+
+  /**
+   * Topmost element at a world point, using the same geometry selection uses
+   * (rotation-aware, grid excluded, real stroke/line hit paths).
+   *
+   * `match` participates in the topmost-first walk rather than filtering the
+   * result, so a non-matching element on top does not swallow the hit.
+   * Invisible layers are never returned, in any mode.
+   */
+  getElementAt(world: Point, options?: HitTestOptions): CanvasElement | null {
+    const ctx =
+      options?.respectLayerLock === false
+        ? { ...this.toolContext, isLayerLocked: () => false }
+        : this.toolContext;
+    return hitTest(world, ctx, options?.match);
   }
 
   /**
