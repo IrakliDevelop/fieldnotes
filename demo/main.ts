@@ -1033,6 +1033,12 @@ if (info) {
 
 (window as unknown as Record<string, unknown>).__fieldnotes_viewport = viewport;
 (window as unknown as { viewport: typeof viewport }).viewport = viewport;
+// Element hit-testing probe (world coordinates); exposed for e2e.
+(window as unknown as Record<string, unknown>).__fieldnotes_hit_test = (
+  x: number,
+  y: number,
+  respectLayerLock?: boolean,
+) => viewport.getElementAt({ x, y }, { respectLayerLock })?.id ?? null;
 // Remote laser trails (a peer's laser presence would feed this); exposed for e2e.
 (window as unknown as Record<string, unknown>).__fieldnotes_remote_laser = new RemoteLaserOverlay(
   viewport,

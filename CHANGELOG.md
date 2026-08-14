@@ -4,6 +4,33 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.63.0] — 2026-08-13
+
+### Added
+
+- `ElementRectTracker` — tracks the world rects of a host-matched subset of elements and emits a
+  keyed snapshot when one changes. Deliberately store-only: it never subscribes to the camera, so
+  pan and zoom cost nothing for hosts that position content under a single camera transform. The
+  matcher returns an opaque key (or `null` to skip), and that key participates in change detection,
+  so an element whose host identity changes without moving still emits. Construction is synchronous —
+  `getRects()` is valid immediately and seeds the change baseline. Exports the underlying
+  `computeElementRects` and `elementRectsEqual` so consumers needing a snapshot without a live
+  tracker cannot drift from its rules.
+- `Viewport.getElementAt(world, options?)` — the topmost element at a world point, using the same
+  geometry selection uses (rotation-aware, grid excluded, real stroke and line hit paths), which was
+  previously internal. `respectLayerLock: false` reaches elements on locked layers (mirrored or
+  locked host layers need this); `match` participates in the topmost-first walk rather than
+  filtering its result, so a non-matching element on top does not swallow the hit. Invisible layers
+  are never returned.
+
+No persisted-canvas or wire-protocol change.
+
+### `@fieldnotes/react` 0.11.0
+
+- `useElementRects(match)` — reactive world rects for a matched element subset, re-rendering only
+  when a tracked field changes and never on camera motion. Peer floor raised to
+  `@fieldnotes/core >=0.63.0`.
+
 ## [0.62.0] — 2026-08-10
 
 ### Added

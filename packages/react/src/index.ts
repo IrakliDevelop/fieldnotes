@@ -14,6 +14,7 @@ export {
   useSelectionStyle,
   useSelectionStyleDetails,
   useSelectionOps,
+  useElementRects,
 } from './hooks';
 export type {
   CameraState,
@@ -21,7 +22,7 @@ export type {
   UseHistoryResult,
   UseSelectionOpsResult,
 } from './hooks';
-export type { ElementStyle, SelectionStyleDetails } from '@fieldnotes/core';
+export type { ElementStyle, SelectionStyleDetails, ElementRect } from '@fieldnotes/core';
 export type { AlignEdge, DistributeAxis } from '@fieldnotes/core';
 export { ViewportContext } from './context';
 export { Minimap } from './minimap';

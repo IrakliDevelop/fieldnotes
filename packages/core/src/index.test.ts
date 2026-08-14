@@ -3,7 +3,7 @@ import * as FN from './index';
 
 describe('core public surface', () => {
   it('exports the current version', () => {
-    expect(FN.VERSION).toBe('0.62.0');
+    expect(FN.VERSION).toBe('0.63.0');
   });
 
   it('exports the shared-ruler surface', () => {
@@ -190,8 +190,15 @@ describe('core public surface', () => {
     }
   });
 
-  it('reports VERSION 0.62.0', async () => {
+  it('exports the element rect tracking surface', async () => {
+    const FN = await import('./index');
+    expect(typeof FN.ElementRectTracker).toBe('function');
+    expect(typeof FN.computeElementRects).toBe('function');
+    expect(typeof FN.elementRectsEqual).toBe('function');
+  });
+
+  it('reports VERSION 0.63.0', async () => {
     const { VERSION } = await import('./index');
-    expect(VERSION).toBe('0.62.0');
+    expect(VERSION).toBe('0.63.0');
   });
 });

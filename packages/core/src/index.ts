@@ -1,4 +1,4 @@
-export const VERSION = '0.62.0';
+export const VERSION = '0.63.0';
 
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
 export { snapPoint, smartSnap, snapToHexCenter } from './core/snap';
@@ -23,6 +23,19 @@ export type {
   DistributeAxis,
   RotateDirection,
 } from './canvas/viewport';
+export {
+  ElementRectTracker,
+  computeElementRects,
+  elementRectsEqual,
+} from './canvas/element-rect-tracker';
+export type {
+  ElementRect,
+  ElementRectMatch,
+  ElementRectMatchError,
+  ElementRectTrackerOptions,
+  RectTrackerHost,
+} from './canvas/element-rect-tracker';
+export type { HitTestOptions } from './canvas/viewport';
 export { exportImage } from './canvas/export-image';
 export type {
   ExportAssetError,
