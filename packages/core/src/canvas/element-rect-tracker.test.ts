@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ElementStore } from '../elements/element-store';
-import { createImage, createStroke } from '../elements/element-factory';
+import { createArrow, createGrid, createImage, createStroke } from '../elements/element-factory';
 import { computeElementRects, elementRectsEqual, ElementRectTracker } from './element-rect-tracker';
 import type { CanvasElement } from '../elements/types';
 
@@ -64,6 +64,24 @@ describe('computeElementRects', () => {
   it('treats a non-string, non-null match result as unmatched', () => {
     const rects = computeElementRects(storeWith(image('a', 0, 0)), () => 42 as unknown as string);
     expect(rects).toEqual([]);
+  });
+
+  it('omits an element whose getElementBounds is null, even under a permissive matcher', () => {
+    // A grid element has no bounds at all (element-bounds.ts:12: `if (element.type
+    // === 'grid') return null`). The matcher below accepts everything, so the
+    // only thing that can exclude it is the `if (!bounds) continue` in
+    // computeElementRects itself.
+    const grid = createGrid({ layerId: 'l1' });
+    const rects = computeElementRects(storeWith(grid), () => 'k');
+    expect(rects).toEqual([]);
+  });
+
+  it('tracks an arrow element via its analytical bounds', () => {
+    const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 30, y: 40 }, layerId: 'l1' });
+    const rects = computeElementRects(storeWith(arrow), () => 'arrow-key');
+    expect(rects).toHaveLength(1);
+    expect(rects[0]?.w).toBeGreaterThan(0);
+    expect(rects[0]?.h).toBeGreaterThan(0);
   });
 });
 
@@ -337,7 +355,10 @@ describe('ElementRectTracker', () => {
     const emitted = listener.mock.calls[0]?.[0];
     expect(emitted).toHaveLength(3);
     expect(emitted.map((r: { id: string }) => r.id).sort()).toEqual(['c', 'd', 'e']);
-    expect(tracker.getRects()).toEqual(emitted);
+    // Reference identity, not just structural equality: `getRects()` must hand
+    // back the exact array the listener was emitted (§5.1.9), not a separately
+    // constructed but field-identical copy.
+    expect(tracker.getRects()).toBe(emitted);
     tracker.dispose();
   });
 

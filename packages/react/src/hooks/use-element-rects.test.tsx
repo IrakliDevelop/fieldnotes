@@ -17,6 +17,7 @@ function image(id: string, x: number, layerId: string): CanvasElement {
 describe('useElementRects', () => {
   afterEach(() => {
     destroyTestViewports();
+    vi.restoreAllMocks();
   });
 
   it('returns rects for matched elements and updates on store mutation', async () => {
@@ -77,13 +78,16 @@ describe('useElementRects', () => {
     const wrapper = ({ children }: { children: ReactNode }) => (
       <ViewportContext.Provider value={vp}>{children}</ViewportContext.Provider>
     );
-    // Spy on `dispose` to prove the rehearsal actually ran — without this, a
-    // Strict Mode config that silently degrades to a single mount (or a
-    // `<StrictMode>` wrapper indirection that doesn't double-invoke effects
-    // under this React 19 + RTL setup) would let this test pass for the wrong
-    // reason: a single-mount copy of "returns rects ... updates on store
-    // mutation" that happens to also assert Strict Mode without exercising it.
-    const disposeSpy = vi.spyOn(ElementRectTracker.prototype, 'dispose');
+    // Spy on `getRects`, called exactly once per `subscribe` invocation
+    // (use-element-rects.ts:34), to prove the rehearsal actually ran two full
+    // setup cycles — without this, a Strict Mode config that silently
+    // degrades to a single mount (or a `<StrictMode>` wrapper indirection
+    // that doesn't double-invoke effects under this React 19 + RTL setup)
+    // would let this test pass for the wrong reason: a single-mount copy of
+    // "returns rects ... updates on store mutation" that happens to also
+    // assert Strict Mode without exercising it. Spying before `renderHook` is
+    // required: the count must include the very first setup cycle.
+    const getRectsSpy = vi.spyOn(ElementRectTracker.prototype, 'getRects');
 
     // `reactStrictMode: true` — NOT a `wrapper: <StrictMode>` indirection, which
     // does not double-invoke effects under React 19 + RTL and would leave this
@@ -93,11 +97,10 @@ describe('useElementRects', () => {
       reactStrictMode: true,
     });
 
-    // The rehearsal's mid-cycle cleanup (setup -> cleanup -> setup) disposes
-    // tracker #1 before tracker #2 is ever constructed — this must have
-    // already happened by the time `renderHook` returns, before any store
-    // mutation.
-    expect(disposeSpy.mock.calls.length).toBeGreaterThanOrEqual(1);
+    // Two setup cycles (setup -> cleanup -> setup), each subscribing its own
+    // tracker and calling `getRects` once, must have already happened by the
+    // time `renderHook` returns, before any store mutation.
+    expect(getRectsSpy.mock.calls.length).toBeGreaterThanOrEqual(2);
 
     await act(async () => {
       vp.store.add(image('a', 10, vp.layerManager.activeLayerId));
@@ -105,8 +108,6 @@ describe('useElementRects', () => {
     });
 
     expect(result.current.map((r) => r.id)).toEqual(['a']);
-
-    disposeSpy.mockRestore();
   });
 
   it('updates when the predicate semantics change with no store mutation', async () => {
@@ -162,5 +163,35 @@ describe('useElementRects', () => {
     // over the store on the next frame. Counting matcher invocations is the
     // discriminator; "did not throw" would stay green with the leak intact.
     expect(match.mock.calls.length).toBe(callsAfterUnmount);
+  });
+
+  it('does not re-subscribe when the caller passes a new inline predicate every render', () => {
+    const vp = createTestViewport();
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <ViewportContext.Provider value={vp}>{children}</ViewportContext.Provider>
+    );
+    // `getRects` is called exactly once per `subscribe` invocation
+    // (use-element-rects.ts:34), so counting its calls detects a re-subscribe
+    // directly.
+    const getRectsSpy = vi.spyOn(ElementRectTracker.prototype, 'getRects');
+
+    const { rerender } = renderHook(() => useElementRects((el) => el.type === 'arrow'), {
+      wrapper,
+    });
+    // Mount work (the initial subscribe) is already flushed by the time
+    // `renderHook` returns.
+    const callsAfterMount = getRectsSpy.mock.calls.length;
+
+    // Re-invokes the render callback above, which constructs a brand-new
+    // inline arrow — a fresh closure, never `===` the previous one.
+    rerender();
+
+    // `useSyncExternalStore` only re-subscribes (and so only re-calls
+    // `getRects`) when `subscribe`'s identity changes. The hook's internal
+    // `stableMatch` wrapper is memoized with an empty dep array and must
+    // never change identity regardless of what the caller's inline `match`
+    // closes over, so a new inline predicate every render must not
+    // re-subscribe.
+    expect(getRectsSpy.mock.calls.length).toBe(callsAfterMount);
   });
 });
