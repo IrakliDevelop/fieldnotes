@@ -13,3 +13,4 @@ export { useSelectionStyle } from './use-selection-style';
 export { useSelectionStyleDetails } from './use-selection-style-details';
 export { useSelectionOps } from './use-selection-ops';
 export type { UseSelectionOpsResult } from './use-selection-ops';
+export { useElementRects } from './use-element-rects';

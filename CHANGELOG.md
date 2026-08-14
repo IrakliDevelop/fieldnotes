@@ -25,6 +25,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 No persisted-canvas or wire-protocol change.
 
+### `@fieldnotes/react` 0.11.0
+
+- `useElementRects(match)` — reactive world rects for a matched element subset, re-rendering only
+  when a tracked field changes and never on camera motion. Peer floor raised to
+  `@fieldnotes/core >=0.63.0`.
+
 ## [0.62.0] — 2026-08-10
 
 ### Added
