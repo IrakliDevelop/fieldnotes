@@ -112,6 +112,35 @@ function manualFrames() {
   };
 }
 
+/** A scheduler whose `requestFrame` invokes its callback inline. */
+function inlineFrames() {
+  let next = 1;
+  return {
+    requestFrame: (cb: () => void) => {
+      const id = next++;
+      cb();
+      return id;
+    },
+    cancelFrame: () => {
+      // Nothing to cancel: this scheduler's callback already ran inline.
+    },
+  };
+}
+
+/**
+ * A store double exposing only what the tracker actually calls
+ * (`getAll`/`onChange`), so `onChange`'s returned unsubscribe can be spied on
+ * directly instead of reasoning about `ElementStore`'s internal `EventBus`.
+ */
+function fakeStore(elements: CanvasElement[] = []) {
+  const unsubscribe = vi.fn();
+  const store = {
+    getAll: () => elements,
+    onChange: vi.fn(() => unsubscribe),
+  } as unknown as ElementStore;
+  return { store, unsubscribe };
+}
+
 describe('ElementRectTracker', () => {
   it('computes its snapshot synchronously in the constructor', () => {
     const frames = manualFrames();
@@ -142,6 +171,11 @@ describe('ElementRectTracker', () => {
     store.add(image('b', 10, 10));
     store.add(image('c', 20, 20));
     expect(listener).not.toHaveBeenCalled();
+    // Pins the coalescing itself: three mutations must request exactly one
+    // frame, not three. Without this, the test would also pass with a
+    // scheduler that queued a frame per mutation, as long as change-only
+    // emission collapsed the resulting calls to one.
+    expect(frames.pendingCount).toBe(1);
     frames.flush();
 
     expect(listener).toHaveBeenCalledTimes(1);
@@ -281,6 +315,32 @@ describe('ElementRectTracker', () => {
     tracker.dispose();
   });
 
+  it('reconciles a store loadSnapshot, which emits one clear then a per-element add', () => {
+    const frames = manualFrames();
+    const store = storeWith(image('a', 0, 0), image('b', 10, 10));
+    const tracker = new ElementRectTracker(
+      { store },
+      { match: () => 'k', frames: frames.scheduler },
+    );
+    const listener = vi.fn();
+    tracker.onChange(listener);
+
+    // loadSnapshot (element-store.ts:157) clears the store and re-adds every
+    // element: one 'clear' event, then one 'add' event per element, all
+    // within the same synchronous call. The tracker must still coalesce this
+    // burst into exactly one reconciling emission carrying the new set, not
+    // one emission per underlying store event.
+    store.loadSnapshot([image('c', 30, 30), image('d', 40, 40), image('e', 50, 50)]);
+    frames.flush();
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    const emitted = listener.mock.calls[0]?.[0];
+    expect(emitted).toHaveLength(3);
+    expect(emitted.map((r: { id: string }) => r.id).sort()).toEqual(['c', 'd', 'e']);
+    expect(tracker.getRects()).toEqual(emitted);
+    tracker.dispose();
+  });
+
   it('isolates a throwing listener from its siblings', () => {
     const frames = manualFrames();
     const store = storeWith();
@@ -300,15 +360,30 @@ describe('ElementRectTracker', () => {
     tracker.dispose();
   });
 
-  it('keeps the same array reference between emissions', () => {
+  it('keeps the same array reference between emissions, and changes it only when the rects actually change', () => {
     const frames = manualFrames();
     const store = storeWith(image('a', 0, 0));
     const tracker = new ElementRectTracker(
       { store },
-      { match: () => 'k', frames: frames.scheduler },
+      { match: (el) => (el.id === 'a' ? 'k' : null), frames: frames.scheduler },
     );
     const first = tracker.getRects();
     expect(tracker.getRects()).toBe(first);
+
+    // A dirty frame that cannot change the matched rects: add an element the
+    // matcher rejects. getRects() must still hand back the exact same array,
+    // not merely an equal one, because a fresh array would defeat memoized
+    // consumers (e.g. React's useSyncExternalStore) even when nothing changed.
+    store.add(image('ignored', 99, 99));
+    frames.flush();
+    expect(tracker.getRects()).toBe(first);
+
+    // A real change: move the matched element itself. Now the reference must
+    // change, or consumers would never re-render.
+    store.update('a', { position: { x: 20, y: 20 } });
+    frames.flush();
+    expect(tracker.getRects()).not.toBe(first);
+
     tracker.dispose();
   });
 
@@ -331,5 +406,65 @@ describe('ElementRectTracker', () => {
     store.add(image('b', 0, 0));
     frames.flush();
     expect(listener).not.toHaveBeenCalled();
+  });
+
+  it('does not freeze when the frame scheduler runs its callback inline', () => {
+    const store = storeWith();
+    const tracker = new ElementRectTracker({ store }, { match: () => 'k', frames: inlineFrames() });
+    const listener = vi.fn();
+    tracker.onChange(listener);
+
+    // A scheduler that invokes its callback synchronously nulls `frameId`
+    // inside that callback before `requestFrame` returns. If `schedule()`
+    // then unconditionally assigned the returned id over that null, `frameId`
+    // would be left permanently non-null, and every later mutation would be
+    // silently swallowed by the "already scheduled" guard.
+    store.add(image('a', 0, 0));
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    store.add(image('b', 10, 10));
+    expect(listener).toHaveBeenCalledTimes(2);
+
+    tracker.dispose();
+  });
+
+  it('calls the store unsubscribe exactly once, even across repeated dispose calls', () => {
+    const frames = manualFrames();
+    const { store, unsubscribe } = fakeStore();
+    const tracker = new ElementRectTracker(
+      { store },
+      { match: () => 'k', frames: frames.scheduler },
+    );
+
+    tracker.dispose();
+    tracker.dispose();
+    tracker.dispose();
+
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not throw when a listener disposes the tracker mid-emission, and stays stopped after', () => {
+    const frames = manualFrames();
+    const store = storeWith();
+    const tracker = new ElementRectTracker(
+      { store },
+      { match: () => 'k', frames: frames.scheduler },
+    );
+    const second = vi.fn();
+    tracker.onChange(() => {
+      tracker.dispose();
+    });
+    tracker.onChange(second);
+
+    store.add(image('a', 0, 0));
+    expect(() => frames.flush()).not.toThrow();
+    // The listener snapshot taken at the start of this emission still runs
+    // to completion: a mid-emission dispose must not strand sibling
+    // listeners already queued for this same flush.
+    expect(second).toHaveBeenCalledTimes(1);
+
+    // But the tracker is now disposed: a later mutation schedules nothing.
+    store.add(image('b', 10, 10));
+    expect(frames.pendingCount).toBe(0);
   });
 });

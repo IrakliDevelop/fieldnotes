@@ -165,10 +165,21 @@ export class ElementRectTracker {
 
   private schedule(): void {
     if (this.disposed || this.frameId !== null) return;
-    this.frameId = this.frames.requestFrame(() => {
+    // `requestFrame` may invoke its callback synchronously (a test double, or
+    // a host that treats "frame" as "next microtask"). When it does, the
+    // callback already nulls `frameId` before `requestFrame` returns — so the
+    // assignment below must not blindly overwrite that with the now-stale id,
+    // or the tracker would believe a frame is forever pending and never
+    // schedule another one.
+    let ranSynchronously = false;
+    const id = this.frames.requestFrame(() => {
+      ranSynchronously = true;
       this.frameId = null;
       this.flush();
     });
+    if (!ranSynchronously) {
+      this.frameId = id;
+    }
   }
 
   private flush(): void {
