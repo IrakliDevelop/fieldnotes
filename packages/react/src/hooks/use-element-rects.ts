@@ -21,18 +21,9 @@ export function useElementRects(match: ElementRectMatch): readonly ElementRect[]
 
   const cacheRef = useRef<readonly ElementRect[] | null>(null);
   const trackerRef = useRef<ElementRectTracker | null>(null);
-  const onStoreChangeRef = useRef<(() => void) | null>(null);
-  // Guards the mount-time run of the setMatch effect below: subscribe()'s own
-  // by-field handoff (see the block inside `subscribe`) already reconciles the
-  // cache against the freshly constructed tracker once, so the first effect
-  // run must not re-run that same comparison a second time under a different
-  // name — only genuine post-mount predicate changes take this path.
-  const didMountRef = useRef(false);
 
   const subscribe = useCallback(
     (onStoreChange: () => void) => {
-      onStoreChangeRef.current = onStoreChange;
-
       // Constructed HERE, not in a memo: Strict Mode rehearses
       // setup -> cleanup -> setup without re-creating memoized state, so a
       // memo-created tracker disposed by the first cleanup would be reused
@@ -56,7 +47,6 @@ export function useElementRects(match: ElementRectMatch): readonly ElementRect[]
         off();
         tracker.dispose();
         if (trackerRef.current === tracker) trackerRef.current = null;
-        if (onStoreChangeRef.current === onStoreChange) onStoreChangeRef.current = null;
       };
     },
     [viewport, stableMatch],
@@ -73,29 +63,9 @@ export function useElementRects(match: ElementRectMatch): readonly ElementRect[]
 
   // `stableMatch` never changes identity while its behavior does, so the
   // tracker needs an explicit nudge whenever the caller's matcher changes.
-  // `setMatch` keeps the tracker's own cache correct for whatever store
-  // mutation comes next; the synchronous rescan below (skipped on the mount
-  // run, which `subscribe`'s handoff already reconciled) is what makes a
-  // predicate change visible immediately, with no store mutation required to
-  // carry it — recomputing here, inside the effect, rather than waiting on the
-  // tracker's next animation frame.
   useEffect(() => {
-    const tracker = trackerRef.current;
-    if (!tracker) return;
-    tracker.setMatch(stableMatch);
-
-    if (!didMountRef.current) {
-      didMountRef.current = true;
-      return;
-    }
-
-    const next = computeElementRects(viewport.store, stableMatch);
-    const previous = cacheRef.current ?? [];
-    if (!elementRectsEqual(previous, next)) {
-      cacheRef.current = next;
-      onStoreChangeRef.current?.();
-    }
-  }, [match, stableMatch, viewport]);
+    trackerRef.current?.setMatch(stableMatch);
+  }, [match, stableMatch]);
 
   return rects;
 }

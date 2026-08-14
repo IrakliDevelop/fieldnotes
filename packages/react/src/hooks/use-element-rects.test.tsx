@@ -1,9 +1,9 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, render, renderHook } from '@testing-library/react';
 import { useElementRects } from './use-element-rects';
 import { ViewportContext } from '../context';
-import { createTestViewport } from '../test-utils/create-test-viewport';
-import { createImage } from '@fieldnotes/core';
+import { createTestViewport, destroyTestViewports } from '../test-utils/create-test-viewport';
+import { createImage, ElementRectTracker } from '@fieldnotes/core';
 import type { CanvasElement } from '@fieldnotes/core';
 import type { ReactNode } from 'react';
 
@@ -15,6 +15,10 @@ function image(id: string, x: number, layerId: string): CanvasElement {
 }
 
 describe('useElementRects', () => {
+  afterEach(() => {
+    destroyTestViewports();
+  });
+
   it('returns rects for matched elements and updates on store mutation', async () => {
     const vp = createTestViewport();
     const wrapper = ({ children }: { children: ReactNode }) => (
@@ -73,6 +77,14 @@ describe('useElementRects', () => {
     const wrapper = ({ children }: { children: ReactNode }) => (
       <ViewportContext.Provider value={vp}>{children}</ViewportContext.Provider>
     );
+    // Spy on `dispose` to prove the rehearsal actually ran — without this, a
+    // Strict Mode config that silently degrades to a single mount (or a
+    // `<StrictMode>` wrapper indirection that doesn't double-invoke effects
+    // under this React 19 + RTL setup) would let this test pass for the wrong
+    // reason: a single-mount copy of "returns rects ... updates on store
+    // mutation" that happens to also assert Strict Mode without exercising it.
+    const disposeSpy = vi.spyOn(ElementRectTracker.prototype, 'dispose');
+
     // `reactStrictMode: true` — NOT a `wrapper: <StrictMode>` indirection, which
     // does not double-invoke effects under React 19 + RTL and would leave this
     // test inert.
@@ -81,12 +93,20 @@ describe('useElementRects', () => {
       reactStrictMode: true,
     });
 
+    // The rehearsal's mid-cycle cleanup (setup -> cleanup -> setup) disposes
+    // tracker #1 before tracker #2 is ever constructed — this must have
+    // already happened by the time `renderHook` returns, before any store
+    // mutation.
+    expect(disposeSpy.mock.calls.length).toBeGreaterThanOrEqual(1);
+
     await act(async () => {
       vp.store.add(image('a', 10, vp.layerManager.activeLayerId));
       await new Promise((r) => requestAnimationFrame(() => r(null)));
     });
 
     expect(result.current.map((r) => r.id)).toEqual(['a']);
+
+    disposeSpy.mockRestore();
   });
 
   it('updates when the predicate semantics change with no store mutation', async () => {
@@ -103,8 +123,19 @@ describe('useElementRects', () => {
     );
     expect(result.current.map((r) => r.id)).toEqual(['a']);
 
+    // Two hops, not one: `act #1` flushes the props change through render and
+    // effects — which is what schedules the tracker's rescan frame via
+    // `setMatch` — and only `act #2` awaits that already-scheduled frame. A
+    // single `act(async () => { rerender(...); await rAF })` call defers
+    // rerender's render+effects to the very end of that call (React 19's
+    // `act()` batches nested synchronous work across awaits within one async
+    // callback), so a frame scheduled by those effects has no chance to fire
+    // before the call returns — the two-hop split is what makes this
+    // observable in this environment, not a hook change.
     await act(async () => {
       rerender({ wanted: 'b' });
+    });
+    await act(async () => {
       await new Promise((r) => requestAnimationFrame(() => r(null)));
     });
 
