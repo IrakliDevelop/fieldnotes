@@ -1,6 +1,23 @@
 import { describe, it, expect } from 'vitest';
-import { snapPoint, snapToHexCenter, smartSnap } from './snap';
+import {
+  snapPoint,
+  snapToHexCenter,
+  smartSnap,
+  snapToCellCenter,
+  snapFootprintCenter,
+} from './snap';
 import type { ToolContext } from '../tools/types';
+import { Camera } from '../canvas/camera';
+import { ElementStore } from '../elements/element-store';
+
+function ctxWith(overrides: Partial<ToolContext>): ToolContext {
+  return {
+    camera: new Camera(),
+    store: new ElementStore(),
+    requestRender: () => undefined,
+    ...overrides,
+  };
+}
 
 describe('snapPoint', () => {
   it('snaps to nearest grid intersection', () => {
@@ -129,5 +146,67 @@ describe('smartSnap', () => {
   it('falls back to square snap when gridType is hex but hexOrientation is absent', () => {
     const ctx: ToolContext = { ...baseCtx, snapToGrid: true, gridSize: 24, gridType: 'hex' };
     expect(smartSnap({ x: 37, y: 55 }, ctx)).toEqual({ x: 48, y: 48 });
+  });
+});
+
+describe('snapToCellCenter', () => {
+  it('odd footprint (default 1) centres in the nearest cell', () => {
+    expect(snapToCellCenter({ x: 55, y: 70 }, 40)).toEqual({ x: 60, y: 60 });
+    expect(snapToCellCenter({ x: 5, y: 5 }, 40)).toEqual({ x: 20, y: 20 });
+  });
+  it('even footprint lands on the nearest intersection', () => {
+    expect(snapToCellCenter({ x: 55, y: 70 }, 40, 2)).toEqual({ x: 40, y: 80 });
+  });
+  it('rectangular footprints snap each axis independently (1×2 → centre X, intersection Y)', () => {
+    expect(snapToCellCenter({ x: 55, y: 70 }, 40, { w: 1, h: 2 })).toEqual({ x: 60, y: 80 });
+    expect(snapToCellCenter({ x: 55, y: 70 }, 40, { w: 2, h: 1 })).toEqual({ x: 40, y: 60 });
+  });
+  it('3×3 is odd (centre) and 4×4 even (intersection)', () => {
+    expect(snapToCellCenter({ x: 55, y: 70 }, 40, 3)).toEqual({ x: 60, y: 60 });
+    expect(snapToCellCenter({ x: 55, y: 70 }, 40, 4)).toEqual({ x: 40, y: 80 });
+  });
+  it('never returns -0', () => {
+    const p = snapToCellCenter({ x: -1, y: -1 }, 40, 2);
+    expect(Object.is(p.x, -0)).toBe(false);
+    expect(Object.is(p.y, -0)).toBe(false);
+  });
+});
+
+describe('snapFootprintCenter', () => {
+  it('is identity when snapping is off or gridSize is missing', () => {
+    expect(
+      snapFootprintCenter(
+        { x: 55, y: 70 },
+        1,
+        ctxWith({ snapToGrid: false, gridSize: 40, gridType: 'square' }),
+      ),
+    ).toEqual({ x: 55, y: 70 });
+    expect(snapFootprintCenter({ x: 55, y: 70 }, 1, ctxWith({ snapToGrid: true }))).toEqual({
+      x: 55,
+      y: 70,
+    });
+  });
+  it('routes hex to snapToHexCenter regardless of footprint', () => {
+    const ctx = ctxWith({
+      snapToGrid: true,
+      gridSize: 40,
+      gridType: 'hex',
+      hexOrientation: 'pointy',
+    });
+    expect(snapFootprintCenter({ x: 55, y: 70 }, 2, ctx)).toEqual(
+      snapToHexCenter({ x: 55, y: 70 }, 40, 'pointy'),
+    );
+  });
+  it('routes square (and no-gridType) to snapToCellCenter with the footprint', () => {
+    expect(
+      snapFootprintCenter(
+        { x: 55, y: 70 },
+        { w: 1, h: 2 },
+        ctxWith({ snapToGrid: true, gridSize: 40, gridType: 'square' }),
+      ),
+    ).toEqual({ x: 60, y: 80 });
+    expect(
+      snapFootprintCenter({ x: 55, y: 70 }, 1, ctxWith({ snapToGrid: true, gridSize: 40 })),
+    ).toEqual({ x: 60, y: 60 });
   });
 });

@@ -38,3 +38,40 @@ export function smartSnap(point: Point, ctx: ToolContext): Point {
   }
   return snapPoint(point, ctx.gridSize);
 }
+
+/** Cell footprint of a snapped thing: a scalar N means N×N cells. */
+export type Footprint = number | { w: number; h: number };
+
+function footprintOf(footprint: Footprint): { w: number; h: number } {
+  return typeof footprint === 'number' ? { w: footprint, h: footprint } : footprint;
+}
+
+function snapAxisToCell(value: number, gridSize: number, cells: number): number {
+  const n = Math.max(1, Math.round(cells));
+  if (n % 2 === 0) return Math.round(value / gridSize) * gridSize || 0;
+  return (Math.round((value - gridSize / 2) / gridSize) + 0.5) * gridSize || 0;
+}
+
+/**
+ * Snaps a CENTRE point so a footprint of `w`×`h` cells fills whole cells on a
+ * square grid: an odd axis lands on a cell centre, an even axis on an
+ * intersection. Each axis is independent (a 1×2 footprint centres on X and
+ * sits on an intersection on Y). Compare `snapPoint`, which snaps to
+ * intersections only.
+ */
+export function snapToCellCenter(point: Point, gridSize: number, footprint: Footprint = 1): Point {
+  const { w, h } = footprintOf(footprint);
+  return { x: snapAxisToCell(point.x, gridSize, w), y: snapAxisToCell(point.y, gridSize, h) };
+}
+
+/**
+ * `smartSnap` for centres: identity when snapping is off, hex centres on hex
+ * grids, footprint-aware cell centres otherwise.
+ */
+export function snapFootprintCenter(point: Point, footprint: Footprint, ctx: ToolContext): Point {
+  if (!ctx.snapToGrid || !ctx.gridSize) return point;
+  if (ctx.gridType === 'hex' && ctx.hexOrientation) {
+    return snapToHexCenter(point, ctx.gridSize, ctx.hexOrientation);
+  }
+  return snapToCellCenter(point, ctx.gridSize, footprint);
+}
