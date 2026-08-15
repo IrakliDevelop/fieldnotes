@@ -45,6 +45,14 @@ export class ToolManager {
     this.current?.onPointerUp(state, ctx);
   }
 
+  /** Cancels the active gesture; falls back to `onPointerUp` for tools without `onPointerCancel`. */
+  handlePointerCancel(state: PointerState, ctx: ToolContext): void {
+    const tool = this.current;
+    if (!tool) return;
+    if (tool.onPointerCancel) tool.onPointerCancel(state, ctx);
+    else tool.onPointerUp(state, ctx);
+  }
+
   onChange(listener: (name: string) => void): () => void {
     this.changeListeners.add(listener);
     return () => this.changeListeners.delete(listener);

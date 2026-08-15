@@ -71,6 +71,7 @@ function stubToolManager() {
     handlePointerDown: vi.fn(),
     handlePointerMove: vi.fn(),
     handlePointerUp: vi.fn(),
+    handlePointerCancel: vi.fn(),
   } as unknown as ToolManager;
 }
 
@@ -288,7 +289,7 @@ describe('InputHandler', () => {
       expect(tm.handlePointerDown).toHaveBeenCalledOnce();
 
       pointerDown(element, { pointerId: 2, button: 0, clientX: 150, clientY: 150 });
-      expect(tm.handlePointerUp).toHaveBeenCalledOnce();
+      expect(tm.handlePointerCancel).toHaveBeenCalledOnce();
     });
 
     it('dispatches tool for touch events even when button is not 0', () => {
@@ -321,6 +322,84 @@ describe('InputHandler', () => {
       });
       expect(tm.handlePointerDown).toHaveBeenCalledOnce();
       pointerUp(element, { pointerId: 1 });
+    });
+  });
+
+  describe('tool cancellation', () => {
+    it('a second pointer cancels the active tool through handlePointerCancel, not handlePointerUp', () => {
+      const tm = stubToolManager();
+      handler.setToolManager(tm, stubToolContext());
+      pointerDown(element, {
+        pointerId: 1,
+        button: 0,
+        pointerType: 'mouse',
+        clientX: 10,
+        clientY: 10,
+      });
+      expect(tm.handlePointerDown).toHaveBeenCalledOnce();
+      pointerDown(element, {
+        pointerId: 2,
+        button: 0,
+        pointerType: 'mouse',
+        clientX: 60,
+        clientY: 60,
+      });
+      expect(tm.handlePointerCancel).toHaveBeenCalledOnce();
+      expect(tm.handlePointerUp).not.toHaveBeenCalled();
+      pointerUp(element, { pointerId: 1 });
+      pointerUp(element, { pointerId: 2 });
+      expect(tm.handlePointerUp).not.toHaveBeenCalled();
+    });
+
+    it('pointercancel routes the active tool through handlePointerCancel', () => {
+      const tm = stubToolManager();
+      handler.setToolManager(tm, stubToolContext());
+      pointerDown(element, {
+        pointerId: 1,
+        button: 0,
+        pointerType: 'mouse',
+        clientX: 10,
+        clientY: 10,
+      });
+      pointerCancel(element, { pointerId: 1 });
+      expect(tm.handlePointerCancel).toHaveBeenCalledOnce();
+      expect(tm.handlePointerUp).not.toHaveBeenCalled();
+    });
+
+    it('pointerup still routes through handlePointerUp', () => {
+      const tm = stubToolManager();
+      handler.setToolManager(tm, stubToolContext());
+      pointerDown(element, {
+        pointerId: 1,
+        button: 0,
+        pointerType: 'mouse',
+        clientX: 10,
+        clientY: 10,
+      });
+      pointerUp(element, { pointerId: 1 });
+      expect(tm.handlePointerUp).toHaveBeenCalledOnce();
+      expect(tm.handlePointerCancel).not.toHaveBeenCalled();
+    });
+
+    it('a cancel still commits the gesture transaction', () => {
+      const recorder = { begin: vi.fn(), commit: vi.fn() } as unknown as HistoryRecorder;
+      const tm = stubToolManager();
+      handler.destroy();
+      handler = new InputHandler(element, camera, {
+        toolManager: tm,
+        toolContext: stubToolContext(),
+        historyRecorder: recorder,
+      });
+      pointerDown(element, {
+        pointerId: 1,
+        button: 0,
+        pointerType: 'mouse',
+        clientX: 10,
+        clientY: 10,
+      });
+      pointerCancel(element, { pointerId: 1 });
+      expect(recorder.begin).toHaveBeenCalledOnce();
+      expect(recorder.commit).toHaveBeenCalledOnce();
     });
   });
 

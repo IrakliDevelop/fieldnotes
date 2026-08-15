@@ -168,7 +168,7 @@ export class InputHandler {
     this.element.addEventListener('pointermove', this.onPointerMove, opts);
     this.element.addEventListener('pointerup', this.onPointerUp, opts);
     this.element.addEventListener('pointerleave', this.onPointerLeave, opts);
-    this.element.addEventListener('pointercancel', this.onPointerUp, opts);
+    this.element.addEventListener('pointercancel', this.onPointerCancel, opts);
     this.element.addEventListener('contextmenu', this.onContextMenu, opts);
 
     // `coastStoppedByPointer` otherwise clears only when `activePointers` empties,
@@ -273,6 +273,14 @@ export class InputHandler {
   };
 
   private onPointerUp = (e: PointerEvent): void => {
+    this.finishPointer(e, false);
+  };
+
+  private onPointerCancel = (e: PointerEvent): void => {
+    this.finishPointer(e, true);
+  };
+
+  private finishPointer(e: PointerEvent, cancelled: boolean): void {
     this.cancelLongPress();
     try {
       this.element.releasePointerCapture(e.pointerId);
@@ -305,7 +313,8 @@ export class InputHandler {
     const upResult = this.inputFilter.filterUp(e);
 
     if (this.isToolActive) {
-      this.dispatchToolUp(e);
+      if (cancelled) this.dispatchToolCancel(e);
+      else this.dispatchToolUp(e);
       this.isToolActive = false;
     } else if (this.deferredDown && upResult.pendingTap) {
       this.dispatchToolDown(this.deferredDown);
@@ -314,7 +323,7 @@ export class InputHandler {
     } else {
       this.deferredDown = null;
     }
-  };
+  }
 
   runAction(action: string, e?: KeyboardEvent): void {
     this.keyboard.runAction(action, e);
@@ -444,6 +453,12 @@ export class InputHandler {
     this.historyRecorder?.commit();
   }
 
+  private dispatchToolCancel(e: PointerEvent): void {
+    if (!this.toolManager || !this.toolContext) return;
+    this.toolManager.handlePointerCancel(this.toPointerState(e), this.toolContext);
+    this.historyRecorder?.commit();
+  }
+
   private isInScope(): boolean {
     if (this.scope === 'window') return true;
     const active = document.activeElement;
@@ -458,7 +473,7 @@ export class InputHandler {
   private cancelToolIfActive(e: PointerEvent): void {
     this.cancelLongPress();
     if (this.isToolActive) {
-      this.dispatchToolUp(e);
+      this.dispatchToolCancel(e);
       this.isToolActive = false;
     }
     this.deferredDown = null;
