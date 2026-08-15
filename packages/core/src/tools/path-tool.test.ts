@@ -83,15 +83,17 @@ function makeRecordingCanvas(): CanvasRenderingContext2D & { calls: Call[] } {
 
 describe('PathTool', () => {
   let rafCallbacks: FrameRequestCallback[];
+  let cancelAnimationFrameSpy: ReturnType<typeof vi.fn>;
   beforeEach(() => {
     rafCallbacks = [];
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
       rafCallbacks.push(cb);
       return rafCallbacks.length;
     });
-    vi.stubGlobal('cancelAnimationFrame', (id: number) => {
+    cancelAnimationFrameSpy = vi.fn((id: number) => {
       rafCallbacks[id - 1] = () => undefined;
     });
+    vi.stubGlobal('cancelAnimationFrame', cancelAnimationFrameSpy);
   });
   afterEach(() => vi.unstubAllGlobals());
 
@@ -357,7 +359,13 @@ describe('PathTool', () => {
     tool.onPath((e) => paths.push(e));
 
     tool.onPointerDown(pt(60, 60), ctx);
+    expect(cancelAnimationFrameSpy).not.toHaveBeenCalled();
+    const pendingId = rafCallbacks.length;
+
     tool.onKeyDown(key('Escape'), ctx);
+    expect(cancelAnimationFrameSpy).toHaveBeenCalledTimes(1);
+    expect(cancelAnimationFrameSpy).toHaveBeenCalledWith(pendingId);
+
     flushRaf();
 
     expect(paths).toEqual([null]);
@@ -558,5 +566,47 @@ describe('PathTool', () => {
     expect(e?.waypoints).toEqual([{ x: 13, y: 17 }]);
     expect(e?.cursor).toEqual({ x: 113, y: 117 });
     expect(Number.isFinite(e?.totalCells)).toBe(true);
+  });
+
+  it('captures the grid at the opening pointer-down and keeps it for the whole path, even if ctx is mutated mid-gesture', () => {
+    const tool = new PathTool({ diagonalRule: 'chebyshev' });
+    const ctx = makeCtx(); // snapToGrid: true, gridSize: 40, gridType: 'square'
+
+    tool.onPointerDown(pt(55, 70), ctx);
+    expect(tool.getEmission()?.waypoints).toEqual([{ x: 60, y: 60 }]);
+
+    // Reconfigure the grid mid-gesture; the already-open path must ignore this
+    // and keep measuring on the grid captured at pointer-down.
+    ctx.gridSize = 100;
+    ctx.gridType = undefined;
+
+    tool.onPointerMove(pt(140, 60), ctx);
+    tool.onPointerUp(pt(140, 60), ctx);
+
+    const e = tool.getEmission();
+    expect(e?.waypoints).toEqual([
+      { x: 60, y: 60 },
+      { x: 140, y: 60 },
+    ]);
+    // Chebyshev distance on the ORIGINAL 40-size grid: 80/40 = 2 cells.
+    expect(e?.segments).toEqual([{ cells: 2, feet: 10 }]);
+  });
+
+  it('snaps through snapPoint (intersections) when snapToGrid is true but gridType is unset', () => {
+    const tool = new PathTool();
+    const ctx = makeCtx({ gridType: undefined });
+
+    tool.onPointerDown(pt(55, 70), ctx);
+
+    expect(tool.getEmission()?.waypoints).toEqual([{ x: 40, y: 80 }]);
+  });
+
+  it('does not snap (identity) when snapToGrid is false and gridType is unset', () => {
+    const tool = new PathTool();
+    const ctx = makeCtx({ snapToGrid: false, gridType: undefined });
+
+    tool.onPointerDown(pt(55, 70), ctx);
+
+    expect(tool.getEmission()?.waypoints).toEqual([{ x: 55, y: 70 }]);
   });
 });
