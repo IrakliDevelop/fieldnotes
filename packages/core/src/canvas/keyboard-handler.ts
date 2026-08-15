@@ -1,5 +1,5 @@
 import type { Camera } from './camera';
-import type { ToolContext } from '../tools/types';
+import type { Tool, ToolContext } from '../tools/types';
 import type { ShortcutOptions, ShortcutsApi } from './shortcut-map';
 import { ShortcutMap } from './shortcut-map';
 import type { KeyboardActions } from './keyboard-actions';
@@ -22,6 +22,7 @@ export interface KeyboardHandlerDeps {
   abortSignal: AbortSignal;
   getToolContext: () => ToolContext | null;
   getIsToolActive: () => boolean;
+  getActiveTool: () => Tool | null;
   getLastPointerEvent: () => PointerEvent | null;
   setSpaceHeld: (v: boolean) => void;
   getActivePointerCount: () => number;
@@ -73,6 +74,14 @@ export class KeyboardHandler {
     if (e.key === ' ') {
       this.deps.setSpaceHeld(true);
     }
+
+    const tool = this.deps.getActiveTool();
+    const ctx = this.deps.getToolContext();
+    if (tool?.onKeyDown && ctx && tool.onKeyDown(e, ctx)) {
+      e.preventDefault();
+      return;
+    }
+
     const action = this.shortcutMap.match(e);
     if (action !== null) {
       this.runAction(action, e);

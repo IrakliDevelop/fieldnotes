@@ -64,16 +64,16 @@ export class ShapeTool implements Tool {
 
   onActivate(_ctx: ToolContext): void {
     if (typeof window !== 'undefined') {
-      window.addEventListener('keydown', this.onKeyDown);
-      window.addEventListener('keyup', this.onKeyUp);
+      window.addEventListener('keydown', this.trackShiftKeyDown);
+      window.addEventListener('keyup', this.trackShiftKeyUp);
     }
   }
 
   onDeactivate(_ctx: ToolContext): void {
     this.shiftHeld = false;
     if (typeof window !== 'undefined') {
-      window.removeEventListener('keydown', this.onKeyDown);
-      window.removeEventListener('keyup', this.onKeyUp);
+      window.removeEventListener('keydown', this.trackShiftKeyDown);
+      window.removeEventListener('keyup', this.trackShiftKeyUp);
     }
   }
 
@@ -183,11 +183,11 @@ export class ShapeTool implements Tool {
     return smartSnap(point, ctx);
   }
 
-  private onKeyDown = (e: KeyboardEvent): void => {
+  private trackShiftKeyDown = (e: KeyboardEvent): void => {
     if (e.key === 'Shift') this.shiftHeld = true;
   };
 
-  private onKeyUp = (e: KeyboardEvent): void => {
+  private trackShiftKeyUp = (e: KeyboardEvent): void => {
     if (e.key === 'Shift') this.shiftHeld = false;
   };
 }
