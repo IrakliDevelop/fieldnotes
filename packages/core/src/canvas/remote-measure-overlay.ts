@@ -2,6 +2,7 @@ import type { Point } from '../core/types';
 import type { MeasureEmission } from '../tools/measure-tool';
 import type { OverlayRenderer } from './render-loop';
 import { drawMeasurement } from './measure-render';
+import { LingerOverlay } from './linger-overlay';
 
 /**
  * The wire shape of a shared-ruler presence payload. Presence data is untyped
@@ -91,15 +92,9 @@ interface RemoteMeasurement {
   end: Point;
   feet: number;
   color: string;
-  /** Local receive time of the linger start; `null` while active. */
-  clearedAt: number | null;
-  expiryTimer: ReturnType<typeof setTimeout> | null;
 }
 
 const DEFAULT_COLOR = '#FF5722';
-const DEFAULT_HOLD_MS = 1500;
-const DEFAULT_FADE_MS = 400;
-const DEFAULT_MAX_AGE_MS = 30_000;
 
 /**
  * Renders remote shared-ruler measurements through the viewport overlay
@@ -110,25 +105,22 @@ const DEFAULT_MAX_AGE_MS = 30_000;
  * updated for `maxAgeMs` is expired by a timer — an idle map never renders,
  * so expiry cannot ride on the draw path. The overlay never touches elements,
  * history, or persisted state, and never moves the viewer's camera.
+ *
+ * The per-sender lifetime is `LingerOverlay`; this class only validates
+ * payloads and draws one measurement.
  */
 export class RemoteMeasureOverlay {
-  private readonly host: RemoteMeasureOverlayHost;
   private readonly color: string;
-  private readonly holdMs: number;
-  private readonly fadeMs: number;
-  private readonly maxAgeMs: number;
-  private readonly measurements = new Map<string, RemoteMeasurement>();
-  private unregister: (() => void) | null;
-  private rafId: number | null = null;
-  private disposed = false;
+  private readonly overlay: LingerOverlay<RemoteMeasurement>;
 
   constructor(host: RemoteMeasureOverlayHost, options: RemoteMeasureOverlayOptions = {}) {
-    this.host = host;
     this.color = options.color ?? DEFAULT_COLOR;
-    this.holdMs = options.holdMs ?? DEFAULT_HOLD_MS;
-    this.fadeMs = options.fadeMs ?? DEFAULT_FADE_MS;
-    this.maxAgeMs = options.maxAgeMs ?? DEFAULT_MAX_AGE_MS;
-    this.unregister = host.registerOverlay((ctx) => this.renderMeasurements(ctx));
+    this.overlay = new LingerOverlay<RemoteMeasurement>(
+      host,
+      options,
+      (ctx, entry, alpha) => drawMeasurement(ctx, entry, { alpha }),
+      () => this.now(),
+    );
   }
 
   private now(): number {
@@ -141,110 +133,37 @@ export class RemoteMeasureOverlay {
    * reported as `false`, so hosts can feed every presence frame through.
    */
   apply(sender: string, data: unknown): boolean {
-    if (this.disposed || !isMeasurePresence(data)) return false;
+    if (this.overlay.disposed || !isMeasurePresence(data)) return false;
     if ('cleared' in data) {
-      this.beginLinger(sender);
+      this.overlay.linger(sender);
       return true;
     }
-    const existing = this.measurements.get(sender);
-    if (existing?.expiryTimer != null) clearTimeout(existing.expiryTimer);
-    this.measurements.set(sender, {
+    this.overlay.set(sender, {
       start: data.start,
       end: data.end,
       feet: data.feet,
       color: data.color ?? this.color,
-      clearedAt: null,
-      expiryTimer: setTimeout(() => this.beginLinger(sender), this.maxAgeMs),
     });
-    this.host.requestRender();
     return true;
   }
 
   /** Removes a sender's ruler immediately (presence-leave/disconnect). */
   remove(sender: string): void {
-    const entry = this.measurements.get(sender);
-    if (!entry) return;
-    if (entry.expiryTimer != null) clearTimeout(entry.expiryTimer);
-    this.measurements.delete(sender);
-    this.host.requestRender();
+    this.overlay.remove(sender);
   }
 
   /** Removes every ruler immediately. */
   clear(): void {
-    if (this.measurements.size === 0) return;
-    for (const entry of this.measurements.values()) {
-      if (entry.expiryTimer != null) clearTimeout(entry.expiryTimer);
-    }
-    this.measurements.clear();
-    this.host.requestRender();
+    this.overlay.clear();
   }
 
   /** Number of senders with a visible (active or lingering) ruler. */
   get activeSenderCount(): number {
-    return this.measurements.size;
+    return this.overlay.activeSenderCount;
   }
 
   /** Unregisters the overlay, cancels timers, stops animating. Idempotent. */
   dispose(): void {
-    if (this.disposed) return;
-    this.disposed = true;
-    if (this.rafId !== null) {
-      cancelAnimationFrame(this.rafId);
-      this.rafId = null;
-    }
-    for (const entry of this.measurements.values()) {
-      if (entry.expiryTimer != null) clearTimeout(entry.expiryTimer);
-    }
-    this.measurements.clear();
-    this.unregister?.();
-    this.unregister = null;
-    this.host.requestRender();
-  }
-
-  private beginLinger(sender: string): void {
-    const entry = this.measurements.get(sender);
-    if (!entry || entry.clearedAt !== null) return;
-    if (entry.expiryTimer != null) {
-      clearTimeout(entry.expiryTimer);
-      entry.expiryTimer = null;
-    }
-    entry.clearedAt = this.now();
-    this.ensureAnimating();
-    this.host.requestRender();
-  }
-
-  private ensureAnimating(): void {
-    if (this.rafId === null) {
-      this.rafId = requestAnimationFrame(() => this.tick());
-    }
-  }
-
-  private tick(): void {
-    if (this.disposed) return;
-    const now = this.now();
-    let lingering = 0;
-    for (const [sender, entry] of this.measurements) {
-      if (entry.clearedAt === null) continue;
-      if (now - entry.clearedAt >= this.holdMs + this.fadeMs) {
-        this.measurements.delete(sender);
-      } else {
-        lingering += 1;
-      }
-    }
-    this.host.requestRender();
-    this.rafId = lingering > 0 ? requestAnimationFrame(() => this.tick()) : null;
-  }
-
-  private renderMeasurements(ctx: CanvasRenderingContext2D): void {
-    if (this.measurements.size === 0) return;
-    const now = this.now();
-    for (const entry of this.measurements.values()) {
-      let alpha = 1;
-      if (entry.clearedAt !== null) {
-        const fadeAge = now - entry.clearedAt - this.holdMs;
-        if (fadeAge > 0) alpha = Math.max(0, 1 - fadeAge / this.fadeMs);
-      }
-      drawMeasurement(ctx, entry, { alpha });
-    }
+    this.overlay.dispose();
   }
 }
