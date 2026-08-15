@@ -95,8 +95,16 @@ describe('LingerOverlay', () => {
     vi.advanceTimersByTime(4000); // 8s total, only 4s since the update
     expect(rafCallbacks).toHaveLength(0); // not lingering yet
 
+    // The clock must agree with the timer wheel BEFORE the expiry fires, or
+    // `clearedAt` is stamped at 0 and any later value clears the hold+fade.
+    setNow(overlay, 9000);
     vi.advanceTimersByTime(1000);
     expect(requestRender).toHaveBeenCalled(); // linger started by the timer
+
+    setNow(overlay, 9000 + 1500 + 400 - 1); // default hold+fade, one ms short
+    rafCallbacks.splice(0).forEach((cb) => cb(0));
+    expect(overlay.activeSenderCount).toBe(1);
+
     setNow(overlay, 9000 + 1500 + 400);
     rafCallbacks.splice(0).forEach((cb) => cb(0));
     expect(overlay.activeSenderCount).toBe(0);

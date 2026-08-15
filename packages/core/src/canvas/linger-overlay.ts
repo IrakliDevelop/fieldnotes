@@ -15,6 +15,15 @@ export interface LingerOverlayOptions {
   maxAgeMs?: number;
 }
 
+/**
+ * Draws one entry for the overlay. The overlay does NOT wrap the call in
+ * `save`/`restore` — the callback owns the context state it touches. `alpha` is
+ * normally in `(0, 1]`, but is exactly `0` on the single frame where the fade
+ * completes. Invoked as a method of the overlay, once per visible entry per
+ * frame.
+ */
+export type LingerDraw<T> = (ctx: CanvasRenderingContext2D, entry: T, alpha: number) => void;
+
 interface LingerEntry<T> {
   entry: T;
   /** Local receive time of the linger start; `null` while active. */
@@ -40,7 +49,7 @@ const DEFAULT_MAX_AGE_MS = 30_000;
  */
 export class LingerOverlay<T> {
   private readonly host: LingerOverlayHost;
-  private readonly draw: (ctx: CanvasRenderingContext2D, entry: T, alpha: number) => void;
+  private readonly draw: LingerDraw<T>;
   private readonly clock: () => number;
   private readonly holdMs: number;
   private readonly fadeMs: number;
@@ -58,7 +67,7 @@ export class LingerOverlay<T> {
   constructor(
     host: LingerOverlayHost,
     options: LingerOverlayOptions,
-    draw: (ctx: CanvasRenderingContext2D, entry: T, alpha: number) => void,
+    draw: LingerDraw<T>,
     clock: () => number = () => performance.now(),
   ) {
     this.host = host;
