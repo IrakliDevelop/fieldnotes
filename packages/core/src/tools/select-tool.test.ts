@@ -19,6 +19,7 @@ import {
 } from '../elements/element-factory';
 import { lineEndpoints } from '../elements/shape-geometry';
 import { rotatePoint } from '../core/geometry';
+import { snapToHexCenter } from '../core/snap';
 import type { ToolContext, PointerState } from './types';
 import type { NoteElement, ImageElement, TemplateElement, ShapeElement } from '../elements/types';
 import type { Point } from '../core/types';
@@ -803,6 +804,84 @@ describe('SelectTool', () => {
 
       const moved = ctx.store.getById(note.id);
       expect(moved?.position).toEqual({ x: 55, y: 55 });
+    });
+
+    describe('grid drag keeps the cell footprint centred', () => {
+      const grid = { snapToGrid: true, gridSize: 40, gridType: 'square' as const };
+      function dragImage(
+        size: { w: number; h: number },
+        from: Point,
+        to: Point,
+        ctxOverrides: Partial<ToolContext> = grid,
+      ) {
+        const tool = new SelectTool();
+        const ctx = makeCtx(ctxOverrides);
+        const img = createImage({ position: { x: 0, y: 0 }, size, src: 'x' });
+        ctx.store.add(img);
+        tool.onPointerDown(pt(from.x, from.y), ctx);
+        tool.onPointerMove(pt(from.x + 5, from.y), ctx);
+        tool.onPointerMove(pt(to.x, to.y), ctx);
+        tool.onPointerUp(pt(to.x, to.y), ctx);
+        const moved = ctx.store.getById(img.id);
+        if (!moved) throw new Error('image lost');
+        return moved.position;
+      }
+
+      it('1×1 stays cell-centred (old code parked it on an intersection)', () => {
+        expect(dragImage({ w: 40, h: 40 }, { x: 20, y: 20 }, { x: 100, y: 60 })).toEqual({
+          x: 80,
+          y: 40,
+        });
+      });
+      it('2×2 sits on an intersection', () => {
+        expect(dragImage({ w: 80, h: 80 }, { x: 40, y: 40 }, { x: 120, y: 80 })).toEqual({
+          x: 80,
+          y: 40,
+        });
+      });
+      it('1×2 centres on X and sits on an intersection on Y', () => {
+        expect(dragImage({ w: 40, h: 80 }, { x: 20, y: 40 }, { x: 100, y: 80 })).toEqual({
+          x: 80,
+          y: 40,
+        });
+      });
+      it('2×1 sits on an intersection on X and centres on Y', () => {
+        expect(dragImage({ w: 80, h: 40 }, { x: 40, y: 20 }, { x: 120, y: 60 })).toEqual({
+          x: 80,
+          y: 40,
+        });
+      });
+      it('hex grids are unchanged (hex centre snapping)', () => {
+        const pos = dragImage(
+          { w: 40, h: 40 },
+          { x: 0, y: 0 },
+          { x: 140, y: 0 },
+          {
+            snapToGrid: true,
+            gridSize: 40,
+            gridType: 'hex',
+            hexOrientation: 'pointy',
+          },
+        );
+        // Image centre starts at (20,20); pointer delta is snapToHexCenter(140,0) − snapToHexCenter(0,0) = (138.56, 0);
+        // the moved centre re-snaps to the same hex centre.
+        const expectedCentre = snapToHexCenter({ x: 20 + 138.56, y: 20 }, 40, 'pointy');
+        expect(pos.x).toBeCloseTo(expectedCentre.x - 20, 1);
+        expect(pos.y).toBeCloseTo(expectedCentre.y - 20, 1);
+      });
+      it('without a gridType the plain delta path is unchanged', () => {
+        expect(
+          dragImage(
+            { w: 40, h: 40 },
+            { x: 20, y: 20 },
+            { x: 100, y: 60 },
+            {
+              snapToGrid: true,
+              gridSize: 40,
+            },
+          ),
+        ).toEqual({ x: 80, y: 40 });
+      });
     });
   });
 
