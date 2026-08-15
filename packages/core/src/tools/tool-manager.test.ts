@@ -131,6 +131,25 @@ describe('ToolManager', () => {
 
     expect(manager.toolNames).toEqual(['pencil', 'eraser']);
   });
+
+  it('handlePointerCancel prefers onPointerCancel when the tool implements it', () => {
+    const manager = new ToolManager();
+    const tool = { ...makeTool('path'), onPointerCancel: vi.fn() };
+    manager.register(tool);
+    manager.setTool('path', stubContext());
+    manager.handlePointerCancel(point, stubContext());
+    expect(tool.onPointerCancel).toHaveBeenCalledOnce();
+    expect(tool.onPointerUp).not.toHaveBeenCalled();
+  });
+
+  it('handlePointerCancel falls back to onPointerUp for tools without it', () => {
+    const manager = new ToolManager();
+    const tool = makeTool('pencil');
+    manager.register(tool);
+    manager.setTool('pencil', stubContext());
+    manager.handlePointerCancel(point, stubContext());
+    expect(tool.onPointerUp).toHaveBeenCalledOnce();
+  });
 });
 
 describe('onRegister', () => {

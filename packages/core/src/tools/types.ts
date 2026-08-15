@@ -35,6 +35,13 @@ export interface Tool {
   onPointerDown(state: PointerState, ctx: ToolContext): void;
   onPointerMove(state: PointerState, ctx: ToolContext): void;
   onPointerUp(state: PointerState, ctx: ToolContext): void;
+  /**
+   * The gesture was taken over (a second pointer started navigation) or the
+   * platform cancelled the pointer. Optional: tools without it receive
+   * `onPointerUp` instead, exactly as before. Implement it when "up" and
+   * "abandon" must differ (a multi-step tool must not treat a pinch as input).
+   */
+  onPointerCancel?(state: PointerState, ctx: ToolContext): void;
   onHover?(state: PointerState, ctx: ToolContext): void;
   onActivate?(ctx: ToolContext): void;
   onDeactivate?(ctx: ToolContext): void;
