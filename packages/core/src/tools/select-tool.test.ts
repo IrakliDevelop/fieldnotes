@@ -19,7 +19,6 @@ import {
 } from '../elements/element-factory';
 import { lineEndpoints } from '../elements/shape-geometry';
 import { rotatePoint } from '../core/geometry';
-import { snapToHexCenter } from '../core/snap';
 import type { ToolContext, PointerState } from './types';
 import type { NoteElement, ImageElement, TemplateElement, ShapeElement } from '../elements/types';
 import type { Point } from '../core/types';
@@ -813,10 +812,11 @@ describe('SelectTool', () => {
         from: Point,
         to: Point,
         ctxOverrides: Partial<ToolContext> = grid,
+        position: Point = { x: 0, y: 0 },
       ) {
         const tool = new SelectTool();
         const ctx = makeCtx(ctxOverrides);
-        const img = createImage({ position: { x: 0, y: 0 }, size, src: 'x' });
+        const img = createImage({ position, size, src: 'x' });
         ctx.store.add(img);
         tool.onPointerDown(pt(from.x, from.y), ctx);
         tool.onPointerMove(pt(from.x + 5, from.y), ctx);
@@ -863,24 +863,25 @@ describe('SelectTool', () => {
             hexOrientation: 'pointy',
           },
         );
-        // Image centre starts at (20,20); pointer delta is snapToHexCenter(140,0) − snapToHexCenter(0,0) = (138.56, 0);
-        // the moved centre re-snaps to the same hex centre.
-        const expectedCentre = snapToHexCenter({ x: 20 + 138.56, y: 20 }, 40, 'pointy');
-        expect(pos.x).toBeCloseTo(expectedCentre.x - 20, 1);
-        expect(pos.y).toBeCloseTo(expectedCentre.y - 20, 1);
+        // Pointy hex, cellSize 40: hexW = √3·40 ≈ 69.28. The first move re-snaps the centre (20,20) to hex
+        // centre (0,0); the pointer delta from (0,0) to (140,0) is snapToHexCenter(140,0) − (0,0) = (138.56, 0);
+        // the moved centre (138.56, 0) re-snaps to itself → position (118.56, −20).
+        expect(pos.x).toBeCloseTo(118.56, 1);
+        expect(pos.y).toBeCloseTo(-20, 1);
       });
-      it('without a gridType the plain delta path is unchanged', () => {
+      it('without a gridType the plain delta path is unchanged (off-centre element stays off-centre)', () => {
+        // Element centre starts at (25,25) — NOT a cell centre. Plain snapped delta is (80,40)
+        // (lastWorld snapPoint(25,25)=(40,40), pointer (100,60) → (120,80)), so it lands at (85,45).
+        // The footprint branch would re-centre it to (80,40); no snapping at all would give (80,40) too.
         expect(
           dragImage(
             { w: 40, h: 40 },
-            { x: 20, y: 20 },
+            { x: 25, y: 25 },
             { x: 100, y: 60 },
-            {
-              snapToGrid: true,
-              gridSize: 40,
-            },
+            { snapToGrid: true, gridSize: 40 },
+            { x: 5, y: 5 },
           ),
-        ).toEqual({ x: 80, y: 40 });
+        ).toEqual({ x: 85, y: 45 });
       });
     });
   });
