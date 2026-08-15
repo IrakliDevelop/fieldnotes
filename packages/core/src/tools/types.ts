@@ -70,6 +70,7 @@ export type ToolName =
   | 'text'
   | 'shape'
   | 'measure'
+  | 'path'
   | 'template'
   | 'laser'
   | 'ping';
