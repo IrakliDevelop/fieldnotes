@@ -43,6 +43,14 @@ export interface Tool {
    */
   onPointerCancel?(state: PointerState, ctx: ToolContext): void;
   onHover?(state: PointerState, ctx: ToolContext): void;
+  /**
+   * Offered every keydown that reaches the canvas (never from editable
+   * targets, and only within the viewport's keyboard scope) BEFORE the
+   * shortcut map. Return `true` to consume it (default prevented, no shortcut
+   * runs). Listeners are owned by the viewport, so a tool holds no DOM
+   * subscriptions and deactivation cannot leak.
+   */
+  onKeyDown?(event: KeyboardEvent, ctx: ToolContext): boolean;
   onActivate?(ctx: ToolContext): void;
   onDeactivate?(ctx: ToolContext): void;
   renderOverlay?(ctx: CanvasRenderingContext2D): void;

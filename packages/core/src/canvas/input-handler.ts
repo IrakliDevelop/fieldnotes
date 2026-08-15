@@ -103,6 +103,7 @@ export class InputHandler {
       abortSignal: this.abortController.signal,
       getToolContext: () => this.toolContext,
       getIsToolActive: () => this.isToolActive,
+      getActiveTool: () => this.toolManager?.activeTool ?? null,
       getLastPointerEvent: () => this.lastPointerEvent,
       setSpaceHeld: (v) => {
         this.spaceHeld = v;

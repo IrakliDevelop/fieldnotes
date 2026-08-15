@@ -1784,6 +1784,76 @@ describe('InputHandler', () => {
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('my-typo-action'));
       warnSpy.mockRestore();
     });
+
+    describe('active-tool key routing', () => {
+      function toolWith(onKeyDown: (e: KeyboardEvent) => boolean) {
+        return {
+          name: 'x',
+          onPointerDown: vi.fn(),
+          onPointerMove: vi.fn(),
+          onPointerUp: vi.fn(),
+          onKeyDown: vi.fn(onKeyDown),
+        };
+      }
+      function setupWithActiveTool(tool: ReturnType<typeof toolWith>) {
+        const tm = { ...stubToolManager(), activeTool: tool } as unknown as ToolManager;
+        const switchTool = vi.fn();
+        handler.destroy();
+        handler = new InputHandler(element, camera, {
+          toolManager: tm,
+          toolContext: { ...stubToolContext(), switchTool },
+        });
+        return { switchTool };
+      }
+
+      it('a tool that handles the key wins over the shortcut map and the event is defaultPrevented', () => {
+        const tool = toolWith(() => true);
+        const { switchTool } = setupWithActiveTool(tool);
+        const e = new KeyboardEvent('keydown', { key: 'p', cancelable: true });
+        window.dispatchEvent(e);
+        expect(tool.onKeyDown).toHaveBeenCalledOnce();
+        expect(switchTool).not.toHaveBeenCalled();
+        expect(e.defaultPrevented).toBe(true);
+      });
+
+      it('a tool that declines the key lets the shortcut map run', () => {
+        const tool = toolWith(() => false);
+        const { switchTool } = setupWithActiveTool(tool);
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'p' }));
+        expect(tool.onKeyDown).toHaveBeenCalledOnce();
+        expect(switchTool).toHaveBeenCalledWith('pencil');
+      });
+
+      it('keys typed into an editable target never reach the tool', () => {
+        const tool = toolWith(() => true);
+        setupWithActiveTool(tool);
+        const input = document.createElement('input');
+        document.body.appendChild(input);
+        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        expect(tool.onKeyDown).not.toHaveBeenCalled();
+        input.remove();
+      });
+
+      it('a tool without onKeyDown changes nothing', () => {
+        const tm = {
+          ...stubToolManager(),
+          activeTool: {
+            name: 'y',
+            onPointerDown: vi.fn(),
+            onPointerMove: vi.fn(),
+            onPointerUp: vi.fn(),
+          },
+        } as unknown as ToolManager;
+        const switchTool = vi.fn();
+        handler.destroy();
+        handler = new InputHandler(element, camera, {
+          toolManager: tm,
+          toolContext: { ...stubToolContext(), switchTool },
+        });
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'p' }));
+        expect(switchTool).toHaveBeenCalledWith('pencil');
+      });
+    });
   });
 
   describe('focus scoping', () => {
