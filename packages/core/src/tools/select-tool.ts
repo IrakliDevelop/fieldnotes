@@ -1,6 +1,6 @@
 import type { Bounds, Point } from '../core/types';
 import type { Tool, ToolContext, PointerState } from './types';
-import { smartSnap, snapFootprintCenter } from '../core/snap';
+import { smartSnap, snapFootprintCenter, footprintFromSize } from '../core/snap';
 import { normalizeAngle } from '../core/geometry';
 import type { CanvasElement } from '../elements/types';
 import { updateArrowsBoundToElements } from '../elements/arrow-binding';
@@ -393,14 +393,7 @@ export class SelectTool implements Tool {
         } else if (!ctx.smartGuides && ctx.gridType && 'size' in el) {
           const centerX = el.position.x + el.size.w / 2 + adjDx;
           const centerY = el.position.y + el.size.h / 2 + adjDy;
-          const gridSize = ctx.gridSize ?? 0;
-          const footprint =
-            gridSize > 0
-              ? {
-                  w: Math.max(1, Math.round(el.size.w / gridSize)),
-                  h: Math.max(1, Math.round(el.size.h / gridSize)),
-                }
-              : 1;
+          const footprint = footprintFromSize(el.size, ctx.gridSize ?? 0);
           const snappedCenter = snapFootprintCenter({ x: centerX, y: centerY }, footprint, ctx);
           ctx.store.update(id, {
             position: {
