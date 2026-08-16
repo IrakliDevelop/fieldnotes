@@ -1,7 +1,16 @@
-export const VERSION = '0.63.0';
+export const VERSION = '0.64.0';
 
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
-export { snapPoint, smartSnap, snapToHexCenter } from './core/snap';
+export {
+  snapPoint,
+  smartSnap,
+  snapToHexCenter,
+  snapToCellCenter,
+  snapFootprintCenter,
+} from './core/snap';
+export type { Footprint } from './core/snap';
+export { pathDistanceCells, gridDistanceCells } from './core/grid-metric';
+export type { DiagonalRule, GridMetric, PathDistance } from './core/grid-metric';
 export type { CanvasState } from './core/state-serializer';
 export { AutoSave } from './core/auto-save';
 export type { AutoSaveOptions } from './core/auto-save';
@@ -86,6 +95,18 @@ export type {
   RemoteMeasureOverlayHost,
   RemoteMeasureOverlayOptions,
 } from './canvas/remote-measure-overlay';
+export {
+  RemotePathOverlay,
+  isPathPresence,
+  toPathPresence,
+  PATH_PRESENCE_KIND,
+  PATH_PRESENCE_MAX_POINTS,
+} from './canvas/remote-path-overlay';
+export type {
+  PathPresence,
+  RemotePathOverlayHost,
+  RemotePathOverlayOptions,
+} from './canvas/remote-path-overlay';
 export { PingInput } from './canvas/ping-input';
 export type { PingInputHost, PingInputOptions } from './canvas/ping-input';
 export { MinimapController } from './canvas/minimap-controller';
@@ -210,6 +231,14 @@ export { ShapeTool } from './tools/shape-tool';
 export type { ShapeToolOptions } from './tools/shape-tool';
 export { MeasureTool } from './tools/measure-tool';
 export type { MeasureToolOptions, Measurement, MeasureEmission } from './tools/measure-tool';
+export { PathTool } from './tools/path-tool';
+export type {
+  PathToolOptions,
+  PathAnchor,
+  PathRangeBand,
+  PathSegment,
+  PathEmission,
+} from './tools/path-tool';
 export { TemplateTool } from './tools/template-tool';
 export type { TemplateToolOptions } from './tools/template-tool';
 export { LaserTool } from './tools/laser-tool';
