@@ -318,8 +318,12 @@ export class InputHandler {
       else this.dispatchToolUp(e);
       this.isToolActive = false;
     } else if (this.deferredDown && upResult.pendingTap) {
+      // The press was still deferred when the pointer ended. Promote it so the
+      // tool sees a complete gesture, but a CANCELLED promotion must abandon,
+      // not commit: a tap the platform took away is not a tap the user made.
       this.dispatchToolDown(this.deferredDown);
-      this.dispatchToolUp(e);
+      if (cancelled) this.dispatchToolCancel(e);
+      else this.dispatchToolUp(e);
       this.deferredDown = null;
     } else {
       this.deferredDown = null;

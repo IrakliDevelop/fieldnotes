@@ -381,6 +381,54 @@ describe('InputHandler', () => {
       expect(tm.handlePointerCancel).not.toHaveBeenCalled();
     });
 
+    it('routes a cancelled deferred tap through handlePointerCancel, not handlePointerUp', () => {
+      const tm = stubToolManager();
+      handler.setToolManager(tm, stubToolContext());
+      // A touch press is deferred until it moves past the tap threshold, so the
+      // tool has seen nothing yet when the platform cancels the pointer.
+      pointerDown(element, {
+        pointerId: 1,
+        button: 0,
+        pointerType: 'touch',
+        clientX: 50,
+        clientY: 50,
+      });
+      expect(tm.handlePointerDown).not.toHaveBeenCalled();
+
+      pointerCancel(element, {
+        pointerId: 1,
+        pointerType: 'touch',
+        clientX: 51,
+        clientY: 51,
+      });
+
+      expect(tm.handlePointerDown).toHaveBeenCalledOnce();
+      expect(tm.handlePointerCancel).toHaveBeenCalledOnce();
+      expect(tm.handlePointerUp).not.toHaveBeenCalled();
+    });
+
+    it('still routes a released deferred tap through handlePointerUp', () => {
+      const tm = stubToolManager();
+      handler.setToolManager(tm, stubToolContext());
+      pointerDown(element, {
+        pointerId: 1,
+        button: 0,
+        pointerType: 'touch',
+        clientX: 50,
+        clientY: 50,
+      });
+      pointerUp(element, {
+        pointerId: 1,
+        pointerType: 'touch',
+        clientX: 51,
+        clientY: 51,
+      });
+
+      expect(tm.handlePointerDown).toHaveBeenCalledOnce();
+      expect(tm.handlePointerUp).toHaveBeenCalledOnce();
+      expect(tm.handlePointerCancel).not.toHaveBeenCalled();
+    });
+
     it('a cancel still commits the gesture transaction', () => {
       const recorder = { begin: vi.fn(), commit: vi.fn() } as unknown as HistoryRecorder;
       const tm = stubToolManager();
