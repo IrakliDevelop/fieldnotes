@@ -40,6 +40,9 @@ export interface Tool {
    * platform cancelled the pointer. Optional: tools without it receive
    * `onPointerUp` instead, exactly as before. Implement it when "up" and
    * "abandon" must differ (a multi-step tool must not treat a pinch as input).
+   * The gesture's history transaction is still committed afterwards (an
+   * in-progress store mutation must never be left open); a tool that wants
+   * abandon semantics must revert its own store mutations before returning.
    */
   onPointerCancel?(state: PointerState, ctx: ToolContext): void;
   onHover?(state: PointerState, ctx: ToolContext): void;
