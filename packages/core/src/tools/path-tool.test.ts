@@ -28,6 +28,22 @@ function key(k: string): KeyboardEvent {
   return new KeyboardEvent('keydown', { key: k });
 }
 
+/**
+ * Every mutating door into `ElementStore`, plus the subscription. `PathTool` is
+ * store-free by contract, so a real empty store proves nothing — a call to any
+ * of these must fail the test loudly.
+ */
+function makeStoreSpies() {
+  return {
+    add: vi.fn(),
+    update: vi.fn(),
+    remove: vi.fn(),
+    clear: vi.fn(),
+    loadSnapshot: vi.fn(),
+    onChange: vi.fn(() => () => undefined),
+  };
+}
+
 /** Recording call shape: [method-or-property, ...args-or-value]. */
 type Call = [string, ...unknown[]];
 
@@ -542,17 +558,100 @@ describe('PathTool', () => {
     expect(tool.getEmission()?.cursor).toEqual({ x: 60, y: 60 });
   });
 
-  it('never touches the store', () => {
+  it('never touches the store, through a committed path and through a cancelled one', () => {
+    const spies = makeStoreSpies();
     const tool = new PathTool({ diagonalRule: 'chebyshev' });
-    const ctx = makeCtx();
+    const ctx = makeCtx({ store: spies as unknown as ToolContext['store'] });
 
+    // A full gesture that COMMITS.
     drawFirstLeg(tool, ctx);
     tool.onHover(pt(220, 140), ctx);
     tool.onPointerDown(pt(220, 140), ctx);
     tool.onPointerUp(pt(220, 140), ctx);
     tool.onKeyDown(key('Enter'), ctx);
+    flushRaf();
+    expect(tool.isOpen).toBe(false);
 
-    expect(ctx.store.getAll()).toHaveLength(0);
+    // A full gesture that is CANCELLED.
+    drawFirstLeg(tool, ctx);
+    tool.onHover(pt(220, 140), ctx);
+    tool.onKeyDown(key('Escape'), ctx);
+    flushRaf();
+    expect(tool.isOpen).toBe(false);
+
+    for (const [name, spy] of Object.entries(spies)) {
+      expect(spy, `store.${name} was called`).not.toHaveBeenCalled();
+    }
+  });
+
+  it('re-arms the rAF: two flushes with a move between them yield two distinct emissions', () => {
+    const tool = new PathTool({ diagonalRule: 'chebyshev' });
+    const ctx = makeCtx();
+    const paths: (PathEmission | null)[] = [];
+    tool.onPath((e) => paths.push(e));
+
+    tool.onPointerDown(pt(60, 60), ctx);
+    flushRaf();
+    expect(paths).toHaveLength(1);
+
+    tool.onPointerMove(pt(140, 60), ctx);
+    flushRaf();
+
+    // A tool that never clears `emissionRafId` would stop after the first frame.
+    expect(paths).toHaveLength(2);
+    expect(paths[0]?.cursor).toEqual({ x: 60, y: 60 });
+    expect(paths[1]?.cursor).toEqual({ x: 140, y: 60 });
+  });
+
+  it('coalesces moves inside one frame into a single emission carrying the LAST cursor', () => {
+    const tool = new PathTool({ diagonalRule: 'chebyshev' });
+    const ctx = makeCtx();
+    const paths: (PathEmission | null)[] = [];
+    tool.onPath((e) => paths.push(e));
+
+    tool.onPointerDown(pt(60, 60), ctx);
+    flushRaf();
+    paths.length = 0;
+
+    tool.onPointerMove(pt(140, 60), ctx);
+    tool.onPointerMove(pt(220, 60), ctx);
+    flushRaf();
+
+    expect(paths).toHaveLength(1);
+    expect(paths[0]?.cursor).toEqual({ x: 220, y: 60 });
+  });
+
+  it('emits nothing further after a commit, even if a frame was already pending', () => {
+    const tool = new PathTool({ diagonalRule: 'chebyshev' });
+    const ctx = makeCtx();
+    const paths: (PathEmission | null)[] = [];
+    tool.onPath((e) => paths.push(e));
+
+    drawFirstLeg(tool, ctx);
+    tool.onKeyDown(key('Enter'), ctx);
+    const countAfterCommit = paths.length;
+    expect(paths[paths.length - 1]).toBeNull();
+
+    flushRaf();
+
+    expect(paths).toHaveLength(countAfterCommit);
+  });
+
+  it('resolveStart receives WORLD coordinates and the tool context', () => {
+    const camera = new Camera();
+    camera.moveTo(30, -50);
+    camera.setZoom(2);
+    const resolveStart = vi.fn(() => null);
+    const tool = new PathTool({ resolveStart });
+    const ctx = makeCtx({ camera });
+
+    tool.onPointerDown(pt(150, 90), ctx);
+
+    const expected = camera.screenToWorld({ x: 150, y: 90 });
+    // Screen and world must differ, or the assertion would prove nothing.
+    expect(expected).not.toEqual({ x: 150, y: 90 });
+    expect(resolveStart).toHaveBeenCalledTimes(1);
+    expect(resolveStart).toHaveBeenCalledWith(expected, ctx);
   });
 
   it('does not snap without a grid size', () => {
