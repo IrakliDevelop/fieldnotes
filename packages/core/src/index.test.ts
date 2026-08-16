@@ -3,7 +3,7 @@ import * as FN from './index';
 
 describe('core public surface', () => {
   it('exports the current version', () => {
-    expect(FN.VERSION).toBe('0.63.0');
+    expect(FN.VERSION).toBe('0.64.0');
   });
 
   it('exports the shared-ruler surface', () => {
@@ -197,8 +197,24 @@ describe('core public surface', () => {
     expect(typeof FN.elementRectsEqual).toBe('function');
   });
 
-  it('reports VERSION 0.63.0', async () => {
+  it('reports VERSION 0.64.0', async () => {
     const { VERSION } = await import('./index');
-    expect(VERSION).toBe('0.63.0');
+    expect(VERSION).toBe('0.64.0');
+  });
+
+  it('exports the movement-path surface', () => {
+    expect(FN.PathTool).toBeTypeOf('function');
+    expect(FN.pathDistanceCells).toBeTypeOf('function');
+    expect(FN.gridDistanceCells).toBeTypeOf('function');
+    expect(FN.snapToCellCenter).toBeTypeOf('function');
+    expect(FN.snapFootprintCenter).toBeTypeOf('function');
+    expect(FN.RemotePathOverlay).toBeTypeOf('function');
+    expect(FN.isPathPresence).toBeTypeOf('function');
+    expect(FN.toPathPresence).toBeTypeOf('function');
+    expect(FN.PATH_PRESENCE_KIND).toBe('path');
+  });
+  it('keeps the path renderer and linger overlay internal', () => {
+    expect((FN as Record<string, unknown>).drawPath).toBeUndefined();
+    expect((FN as Record<string, unknown>).LingerOverlay).toBeUndefined();
   });
 });

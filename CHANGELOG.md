@@ -4,6 +4,39 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.64.0] — 2026-08-16
+
+### Added
+
+- `PathTool` — a store-free, multi-waypoint measuring tool for grid-aware movement previews. Pointer-up
+  adds a waypoint; tapping the last waypoint or pressing Enter commits; Escape, a pinch takeover, a
+  platform `pointercancel`, or deactivation cancels. Emits raf-coalesced `PathEmission` snapshots
+  through `onPath` (sync `null` on clear, like `MeasureTool`) and fires `onCommit` once with the final
+  path so a host can apply a move in its own single transaction. `resolveStart` lets the host anchor
+  (or veto) a path and attach an opaque `anchorKey` that is echoed, never interpreted, and never put on
+  the wire; `rangeBands` colour segments by running distance in feet; `footprint` snaps waypoints
+  for N×M-cell footprints. Ephemeral by contract.
+- `pathDistanceCells` / `gridDistanceCells` — grid distance in cells with a square `diagonalRule`
+  (`euclidean` default — the ruler's behaviour, `chebyshev`, `alternate` 5-10-5 accumulated over the
+  whole path, `manhattan`); hex grids use the cube metric.
+- `snapToCellCenter` / `snapFootprintCenter` / `Footprint` — centre snapping that keeps an odd cell
+  footprint centred in a cell and an even one on an intersection, per axis.
+- Path presence: `PathPresence`, `isPathPresence`, `toPathPresence`, `PATH_PRESENCE_KIND`, and
+  `RemotePathOverlay` (per-sender hold/fade/expiry like `RemoteMeasureOverlay`).
+- Tool lifecycle: optional `Tool.onPointerCancel` (pinch takeover and `pointercancel` now route through
+  it; tools without it still receive `onPointerUp`) and optional `Tool.onKeyDown` (offered before the
+  shortcut map, never from editable targets, within viewport scope).
+- Internal refactor: `RemoteMeasureOverlay` now delegates its per-sender hold/fade/expiry lifetime to an
+  internal `LingerOverlay` shared with `RemotePathOverlay`; no public API or behaviour change.
+
+### Fixed
+
+- Dragging a sized element on a square grid with `snapToGrid` re-snapped its centre to a grid
+  intersection, so a one-cell element ended up straddling four cells. The centre now snaps by the
+  element's cell footprint (odd → cell centre, even → intersection, per axis).
+
+No persisted-canvas or wire-protocol change; the `path` presence kind is additive.
+
 ## [0.63.0] — 2026-08-13
 
 ### Added
