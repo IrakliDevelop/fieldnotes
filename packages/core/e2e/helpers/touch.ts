@@ -83,6 +83,54 @@ export async function singleFingerHold(
   });
 }
 
+/**
+ * A takeover that lands MID-GESTURE: one finger presses and drags far enough
+ * for the input filter to promote its deferred press into a tool press, and
+ * only then does a second finger arrive. This is the shape a real pinch takes
+ * while a leg is being dragged, and the only shape that reaches the tool's
+ * `onPointerCancel` — a two-finger gesture started from no fingers at all is
+ * pure navigation and the tool never sees it.
+ */
+export async function twoFingerTakeover(
+  page: Page,
+  from: { x: number; y: number },
+  delta: { x: number; y: number },
+  steps = 6,
+): Promise<void> {
+  const client = await page.context().newCDPSession(page);
+  const spacing = 40;
+  await client.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [{ x: from.x, y: from.y, id: 1 }],
+  });
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps;
+    await client.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [{ x: from.x + delta.x * t, y: from.y + delta.y * t, id: 1 }],
+    });
+  }
+  const held = { x: from.x + delta.x, y: from.y + delta.y };
+  await client.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [
+      { x: held.x, y: held.y, id: 1 },
+      { x: held.x + spacing * 2, y: held.y, id: 2 },
+    ],
+  });
+  for (let i = 1; i <= steps; i++) {
+    const dx = (spacing * i) / steps;
+    await client.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [
+        { x: held.x + dx, y: held.y, id: 1 },
+        { x: held.x + spacing * 2 + dx, y: held.y, id: 2 },
+      ],
+    });
+  }
+  await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+}
+
 export async function twoFingerPan(
   page: Page,
   from: { x: number; y: number },

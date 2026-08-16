@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures/canvas-page';
-import { singleFingerDraw, twoFingerPan } from './helpers/touch';
+import { singleFingerDraw, twoFingerPan, twoFingerTakeover } from './helpers/touch';
 import type { Page } from '@playwright/test';
 
 /**
@@ -298,51 +298,8 @@ test.describe('remote path overlay', () => {
   });
 });
 
-/**
- * A takeover that lands MID-GESTURE: one finger presses and drags far enough
- * for the input filter to promote its deferred press into a tool press, and
- * only then does a second finger arrive. This is the shape a real pinch takes
- * while a leg is being dragged, and the only shape that reaches the tool's
- * `onPointerCancel` — a two-finger gesture started from no fingers at all is
- * pure navigation and the tool never sees it.
- */
-async function twoFingerTakeover(page: Page, from: Point, delta: Point, steps = 6): Promise<void> {
-  const client = await page.context().newCDPSession(page);
-  const spacing = 40;
-  await client.send('Input.dispatchTouchEvent', {
-    type: 'touchStart',
-    touchPoints: [{ x: from.x, y: from.y, id: 1 }],
-  });
-  for (let i = 1; i <= steps; i++) {
-    const t = i / steps;
-    await client.send('Input.dispatchTouchEvent', {
-      type: 'touchMove',
-      touchPoints: [{ x: from.x + delta.x * t, y: from.y + delta.y * t, id: 1 }],
-    });
-  }
-  const held = { x: from.x + delta.x, y: from.y + delta.y };
-  await client.send('Input.dispatchTouchEvent', {
-    type: 'touchStart',
-    touchPoints: [
-      { x: held.x, y: held.y, id: 1 },
-      { x: held.x + spacing * 2, y: held.y, id: 2 },
-    ],
-  });
-  for (let i = 1; i <= steps; i++) {
-    const dx = (spacing * i) / steps;
-    await client.send('Input.dispatchTouchEvent', {
-      type: 'touchMove',
-      touchPoints: [
-        { x: held.x + dx, y: held.y, id: 1 },
-        { x: held.x + spacing * 2 + dx, y: held.y, id: 2 },
-      ],
-    });
-  }
-  await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-}
-
 test.describe('touch movement paths', () => {
-  test('one finger draws a leg, a two-finger pan navigates without disturbing it, and a takeover mid-leg abandons it', async ({
+  test('a two-finger pan between legs does not disturb the open path — proven by committing it afterward — and a takeover mid-leg abandons the next one', async ({
     canvasPage,
   }) => {
     const page = canvasPage.page;
@@ -365,24 +322,39 @@ test.describe('touch movement paths', () => {
     expect(await readCommits(page)).toHaveLength(0);
 
     // Two fingers landing between legs are navigation, not input: the tool is
-    // idle so it is never told anything, and the open path survives the pan.
+    // idle so it is never told anything. Re-reading the last emission after
+    // the pan can't prove that on its own — nothing new being pushed looks
+    // identical whether the pan was ignored or never reached the tool for an
+    // unrelated reason — so pin the emission COUNT instead: nothing appended,
+    // nothing cleared.
+    const beforePanCount = drawn.length;
     await twoFingerPan(page, centre, { x: 60, y: 0 }, 6);
     await page.waitForTimeout(200);
 
     const afterPan = await readEmissions(page);
-    const lastAfterPan = afterPan[afterPan.length - 1];
-    expect(lastAfterPan && isActivePath(lastAfterPan)).toBe(true);
-    expect(lastAfterPan && isActivePath(lastAfterPan) ? lastAfterPan.points.length : 0).toBe(2);
-    expect(await readCommits(page)).toHaveLength(0);
+    expect(afterPan.length).toBe(beforePanCount);
 
-    // A second finger arriving while a leg is being dragged IS a takeover: the
-    // tool is cancelled, so the open path is abandoned, never committed.
+    // Positive proof the path is still open: committing it now must yield
+    // exactly the two waypoints drawn before the pan.
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(150);
+
+    const commits = await readCommits(page);
+    expect(commits.length).toBe(1);
+    expect(commits[0]?.waypoints.length).toBe(2);
+
+    const afterCommit = await readEmissions(page);
+    expect(afterCommit[afterCommit.length - 1]).toEqual({ kind: 'path', cleared: true });
+
+    // A second finger arriving while a FRESH leg is being dragged IS a
+    // takeover: the tool is cancelled, so the open path is abandoned, never
+    // committed — the commit count from above must not grow.
     await twoFingerTakeover(page, { x: centre.x - 120, y: centre.y + 60 }, { x: 80, y: 0 });
     await page.waitForTimeout(200);
 
     const emissions = await readEmissions(page);
     expect(emissions[emissions.length - 1]).toEqual({ kind: 'path', cleared: true });
-    expect(await readCommits(page)).toHaveLength(0);
+    expect(await readCommits(page)).toHaveLength(1); // the takeover added no commit
     expect(await canvasPage.getElementCount()).toBe(0);
   });
 });
