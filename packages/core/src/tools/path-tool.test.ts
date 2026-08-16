@@ -834,6 +834,9 @@ describe('PathTool', () => {
     expect(expected).not.toEqual({ x: 150, y: 90 });
     expect(resolveStart).toHaveBeenCalledTimes(1);
     expect(resolveStart).toHaveBeenCalledWith(expected, ctx);
+    // Identity, not just deep equality: resolveStart must receive the SAME
+    // ctx object the tool was given, not a copy.
+    expect(resolveStart.mock.calls[0]?.[1]).toBe(ctx);
   });
 
   it('does not snap without a grid size', () => {

@@ -54,7 +54,7 @@ function footprintOf(footprint: Footprint): { w: number; h: number } {
  * an even-cell one on an intersection.
  */
 export function footprintFromSize(size: { w: number; h: number }, gridSize: number): Footprint {
-  if (gridSize <= 0) return 1;
+  if (!(gridSize > 0)) return 1;
   return {
     w: Math.max(1, Math.round(size.w / gridSize)),
     h: Math.max(1, Math.round(size.h / gridSize)),
