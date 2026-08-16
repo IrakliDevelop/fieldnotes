@@ -19,6 +19,9 @@ import {
   toPingPresence,
   RemoteMeasureOverlay,
   toMeasurePresence,
+  PathTool,
+  RemotePathOverlay,
+  toPathPresence,
   CameraAnimator,
   RemoteFocusReceiver,
   toFocusPresence,
@@ -33,6 +36,8 @@ import type {
   AlignEdge,
   DistributeAxis,
   MeasurePresence,
+  PathPresence,
+  PathEmission,
   CameraView,
   FocusAudience,
 } from '@fieldnotes/core';
@@ -71,6 +76,15 @@ const note = new NoteTool();
 const text = new TextTool();
 const shape = new ShapeTool({ strokeColor: '#1a1a1a' });
 const measure = new MeasureTool();
+// Movement measuring: 30 ft of a typical walk in green, the dash out to 60 ft
+// in amber, anything past that in the tool's own red.
+const path = new PathTool({
+  rangeBands: [
+    { feet: 30, color: '#2E7D32' },
+    { feet: 60, color: '#F9A825' },
+  ],
+  color: '#C62828',
+});
 const template = new TemplateTool();
 const laser = new LaserTool();
 const ping = new PingTool();
@@ -85,6 +99,7 @@ viewport.toolManager.register(note);
 viewport.toolManager.register(text);
 viewport.toolManager.register(shape);
 viewport.toolManager.register(measure);
+viewport.toolManager.register(path);
 viewport.toolManager.register(template);
 viewport.toolManager.register(laser);
 viewport.toolManager.register(ping);
@@ -1069,6 +1084,20 @@ measure.onMeasurement((emission) => {
   // remote linger+fade on the measurer's own screen.
   remoteMeasureOverlay.apply('self', presence);
 });
+
+// Grid-aware movement path (a peer's path presence would feed this); exposed for e2e.
+const remotePathOverlay = new RemotePathOverlay(viewport);
+(window as unknown as Record<string, unknown>).__fieldnotes_remote_path = remotePathOverlay;
+const pathEmissions: PathPresence[] = [];
+const pathCommits: PathEmission[] = [];
+(window as unknown as Record<string, unknown>).__fieldnotes_path_emissions = pathEmissions;
+(window as unknown as Record<string, unknown>).__fieldnotes_path_commits = pathCommits;
+path.onPath((emission) => {
+  const presence = toPathPresence(emission);
+  pathEmissions.push(presence);
+  remotePathOverlay.apply('self', presence);
+});
+path.onCommit((emission) => pathCommits.push(emission));
 
 // "g" pings at the cursor ("p" is taken by the pencil tool).
 document.addEventListener('keydown', (e) => {
