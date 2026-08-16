@@ -208,6 +208,7 @@ describe('core public surface', () => {
     expect(FN.gridDistanceCells).toBeTypeOf('function');
     expect(FN.snapToCellCenter).toBeTypeOf('function');
     expect(FN.snapFootprintCenter).toBeTypeOf('function');
+    expect(FN.footprintFromSize).toBeTypeOf('function');
     expect(FN.RemotePathOverlay).toBeTypeOf('function');
     expect(FN.isPathPresence).toBeTypeOf('function');
     expect(FN.toPathPresence).toBeTypeOf('function');

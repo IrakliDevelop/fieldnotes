@@ -46,6 +46,21 @@ function footprintOf(footprint: Footprint): { w: number; h: number } {
   return typeof footprint === 'number' ? { w: footprint, h: footprint } : footprint;
 }
 
+/**
+ * The cell footprint an element of `size` occupies on a square grid: each axis
+ * rounds to the NEAREST whole cell (a 1.25-cell token is one cell wide), never
+ * below one. Without a usable grid size the footprint is a single cell. Pair it
+ * with `snapFootprintCenter` so an odd-cell element lands on a cell centre and
+ * an even-cell one on an intersection.
+ */
+export function footprintFromSize(size: { w: number; h: number }, gridSize: number): Footprint {
+  if (gridSize <= 0) return 1;
+  return {
+    w: Math.max(1, Math.round(size.w / gridSize)),
+    h: Math.max(1, Math.round(size.h / gridSize)),
+  };
+}
+
 function snapAxisToCell(value: number, gridSize: number, cells: number): number {
   const n = Math.max(1, Math.round(cells));
   if (n % 2 === 0) return Math.round(value / gridSize) * gridSize || 0;

@@ -5,6 +5,7 @@ import {
   smartSnap,
   snapToCellCenter,
   snapFootprintCenter,
+  footprintFromSize,
 } from './snap';
 import type { ToolContext } from '../tools/types';
 import { Camera } from '../canvas/camera';
@@ -208,5 +209,26 @@ describe('snapFootprintCenter', () => {
     expect(
       snapFootprintCenter({ x: 55, y: 70 }, 1, ctxWith({ snapToGrid: true, gridSize: 40 })),
     ).toEqual({ x: 60, y: 60 });
+  });
+});
+
+describe('footprintFromSize', () => {
+  it('derives whole-cell footprints by rounding each axis', () => {
+    expect(footprintFromSize({ w: 40, h: 40 }, 40)).toEqual({ w: 1, h: 1 });
+    expect(footprintFromSize({ w: 80, h: 40 }, 40)).toEqual({ w: 2, h: 1 });
+  });
+
+  it('rounds to the nearest cell count, not the ceiling', () => {
+    expect(footprintFromSize({ w: 50, h: 50 }, 40)).toEqual({ w: 1, h: 1 });
+    expect(footprintFromSize({ w: 60, h: 60 }, 40)).toEqual({ w: 2, h: 2 });
+  });
+
+  it('never returns a zero axis for a sub-cell element', () => {
+    expect(footprintFromSize({ w: 4, h: 4 }, 40)).toEqual({ w: 1, h: 1 });
+  });
+
+  it('falls back to a single cell without a usable grid size', () => {
+    expect(footprintFromSize({ w: 80, h: 40 }, 0)).toBe(1);
+    expect(footprintFromSize({ w: 80, h: 40 }, -40)).toBe(1);
   });
 });

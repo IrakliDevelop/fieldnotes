@@ -7,6 +7,7 @@ export {
   snapToHexCenter,
   snapToCellCenter,
   snapFootprintCenter,
+  footprintFromSize,
 } from './core/snap';
 export type { Footprint } from './core/snap';
 export { pathDistanceCells, gridDistanceCells } from './core/grid-metric';
