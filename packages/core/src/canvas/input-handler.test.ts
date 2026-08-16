@@ -449,6 +449,37 @@ describe('InputHandler', () => {
       expect(recorder.begin).toHaveBeenCalledOnce();
       expect(recorder.commit).toHaveBeenCalledOnce();
     });
+
+    it('a cancelled deferred touch tap still commits the gesture transaction exactly once', () => {
+      const recorder = { begin: vi.fn(), commit: vi.fn() } as unknown as HistoryRecorder;
+      const tm = stubToolManager();
+      handler.destroy();
+      handler = new InputHandler(element, camera, {
+        toolManager: tm,
+        toolContext: stubToolContext(),
+        historyRecorder: recorder,
+      });
+      // A touch press is deferred until it moves past the tap threshold, so no
+      // begin() has happened yet when the platform cancels the pointer.
+      pointerDown(element, {
+        pointerId: 1,
+        button: 0,
+        pointerType: 'touch',
+        clientX: 50,
+        clientY: 50,
+      });
+      expect(recorder.begin).not.toHaveBeenCalled();
+
+      pointerCancel(element, {
+        pointerId: 1,
+        pointerType: 'touch',
+        clientX: 51,
+        clientY: 51,
+      });
+
+      expect(recorder.begin).toHaveBeenCalledOnce();
+      expect(recorder.commit).toHaveBeenCalledOnce();
+    });
   });
 
   describe('keyboard shortcuts', () => {

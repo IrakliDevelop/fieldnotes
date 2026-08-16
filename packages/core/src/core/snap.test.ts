@@ -231,4 +231,8 @@ describe('footprintFromSize', () => {
     expect(footprintFromSize({ w: 80, h: 40 }, 0)).toBe(1);
     expect(footprintFromSize({ w: 80, h: 40 }, -40)).toBe(1);
   });
+
+  it('falls back to a single cell for a NaN grid size', () => {
+    expect(footprintFromSize({ w: 80, h: 40 }, NaN)).toBe(1);
+  });
 });
