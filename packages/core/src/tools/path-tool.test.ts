@@ -660,6 +660,72 @@ describe('PathTool', () => {
       tool.onPointerUp(pt(105, 0), ctx);
       expect(commits).toHaveLength(1);
     });
+
+    it('on a snapping grid, a tap on the ADJACENT cell centre adds a waypoint instead of committing (radius does not apply on a grid)', () => {
+      const camera = new Camera();
+      camera.setZoom(0.25);
+      const tool = new PathTool();
+      const ctx = makeCtx({ gridSize: 40, gridType: 'square', camera });
+      const commits: PathEmission[] = [];
+      tool.onCommit((e) => commits.push(e));
+
+      // world (20,20) -> screen (5,5) at zoom 0.25; already a cell centre.
+      tool.onPointerDown(pt(5, 5), ctx);
+      // Adjacent cell centre world (60,20): 40 world units = 10 screen px at
+      // zoom 0.25, inside the default 12 screen-px radius — the OLD bug (radius
+      // applied unconditionally) would wrongly commit here.
+      tool.onPointerDown(pt(15, 5), ctx);
+      tool.onPointerUp(pt(15, 5), ctx);
+
+      expect(commits).toHaveLength(0);
+      expect(tool.isOpen).toBe(true);
+      expect(tool.getEmission()?.waypoints).toEqual([
+        { x: 20, y: 20 },
+        { x: 60, y: 20 },
+      ]);
+    });
+
+    it('on a snapping grid, tapping the SAME cell centre again still commits (exact match is unaffected)', () => {
+      const camera = new Camera();
+      camera.setZoom(0.25);
+      const tool = new PathTool();
+      const ctx = makeCtx({ gridSize: 40, gridType: 'square', camera });
+      const commits: PathEmission[] = [];
+      tool.onCommit((e) => commits.push(e));
+
+      tool.onPointerDown(pt(5, 5), ctx);
+      tool.onPointerDown(pt(15, 5), ctx);
+      tool.onPointerUp(pt(15, 5), ctx);
+      expect(tool.isOpen).toBe(true);
+
+      // Exact re-tap on the last waypoint's cell centre.
+      tool.onPointerDown(pt(15, 5), ctx);
+      tool.onPointerUp(pt(15, 5), ctx);
+
+      expect(commits).toHaveLength(1);
+      expect(tool.isOpen).toBe(false);
+    });
+
+    it('gridSize 10 at zoom 1: a tap on the adjacent cell centre adds a waypoint instead of committing', () => {
+      const tool = new PathTool();
+      const ctx = makeCtx({ gridSize: 10, gridType: 'square' });
+      const commits: PathEmission[] = [];
+      tool.onCommit((e) => commits.push(e));
+
+      // Opens at cell centre (5,5).
+      tool.onPointerDown(pt(5, 5), ctx);
+      // Adjacent cell centre (15,5): 10 world/screen px away at zoom 1, inside
+      // the default 12 screen-px radius.
+      tool.onPointerDown(pt(15, 5), ctx);
+      tool.onPointerUp(pt(15, 5), ctx);
+
+      expect(commits).toHaveLength(0);
+      expect(tool.isOpen).toBe(true);
+      expect(tool.getEmission()?.waypoints).toEqual([
+        { x: 5, y: 5 },
+        { x: 15, y: 5 },
+      ]);
+    });
   });
 
   it('hover is ignored while a pointer is down and while no path is open', () => {
