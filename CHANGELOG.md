@@ -9,7 +9,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 ### Added
 
 - `PathTool` — a store-free, multi-waypoint measuring tool for grid-aware movement previews. Pointer-up
-  adds a waypoint; tapping the last waypoint or pressing Enter commits; Escape, a pinch takeover, a
+  adds a waypoint; tapping on or near the last waypoint (`commitTapRadiusPx`, default 12 screen px, so
+  a fingertip can finish a path on a gridless canvas) or pressing Enter commits; Escape, a second
+  finger arriving mid-drag (a two-finger pan started between legs leaves the path open), a
   platform `pointercancel`, or deactivation cancels. Emits raf-coalesced `PathEmission` snapshots
   through `onPath` (sync `null` on clear, like `MeasureTool`) and fires `onCommit` once with the final
   path so a host can apply a move in its own single transaction. `resolveStart` lets the host anchor
@@ -19,10 +21,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 - `pathDistanceCells` / `gridDistanceCells` — grid distance in cells with a square `diagonalRule`
   (`euclidean` default — the ruler's behaviour, `chebyshev`, `alternate` 5-10-5 accumulated over the
   whole path, `manhattan`); hex grids use the cube metric.
-- `snapToCellCenter` / `snapFootprintCenter` / `Footprint` — centre snapping that keeps an odd cell
-  footprint centred in a cell and an even one on an intersection, per axis.
+- `snapToCellCenter` / `snapFootprintCenter` / `footprintFromSize` / `Footprint` — centre snapping that
+  keeps an odd cell footprint centred in a cell and an even one on an intersection, per axis;
+  `footprintFromSize` derives that footprint from an element's size and the grid size (the rule
+  `SelectTool` uses, now shared with hosts).
 - Path presence: `PathPresence`, `isPathPresence`, `toPathPresence`, `PATH_PRESENCE_KIND`, and
-  `RemotePathOverlay` (per-sender hold/fade/expiry like `RemoteMeasureOverlay`).
+  `RemotePathOverlay` (per-sender hold/fade/expiry like `RemoteMeasureOverlay`). `isPathPresence` is a
+  wire-boundary guard with hard bounds: at most `PATH_PRESENCE_MAX_POINTS` (256) points, colour strings
+  of at most 64 characters, and no sparse arrays. The sender imposes no cap, so a longer path simply is
+  not delivered.
 - Tool lifecycle: optional `Tool.onPointerCancel` (pinch takeover and `pointercancel` now route through
   it; tools without it still receive `onPointerUp`) and optional `Tool.onKeyDown` (offered before the
   shortcut map, never from editable targets, within viewport scope).
@@ -31,9 +38,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ### Fixed
 
-- Dragging a sized element on a square grid with `snapToGrid` re-snapped its centre to a grid
-  intersection, so a one-cell element ended up straddling four cells. The centre now snaps by the
-  element's cell footprint (odd → cell centre, even → intersection, per axis).
+- Dragging any sized element on a square grid with snapping on and smart guides off re-snapped its
+  centre to a grid intersection, so an odd-cell footprint (1×1, 3×1, 3×3 …) shifted half a cell and
+  ended up straddling cells instead of filling them. The centre now snaps by the element's cell
+  footprint (odd → cell centre, even → intersection, per axis).
 
 No persisted-canvas or wire-protocol change; the `path` presence kind is additive.
 

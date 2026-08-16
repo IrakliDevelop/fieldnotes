@@ -313,6 +313,13 @@ export class PathTool implements Tool {
     return dx * dx + dy * dy <= radius * radius;
   }
 
+  /**
+   * Snapping to cell or hex centres is UNCONDITIONAL whenever a `gridType` is
+   * set: a movement path measures in cells, so an unsnapped waypoint would
+   * report a distance the grid does not agree with. `ctx.snapToGrid` is
+   * consulted only for the gridType-less intersection fallback — unlike
+   * `smartSnap`, which is off entirely when the user turns snapping off.
+   */
   private snap(point: Point): Point {
     if (this.gridSize <= 0) return point;
     if (this.gridType === 'hex' && this.hexOrientation) {
