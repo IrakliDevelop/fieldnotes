@@ -30,6 +30,9 @@ export const PATH_PRESENCE_KIND = 'path';
 /** Point cap for a received path; longer payloads are rejected outright. */
 export const PATH_PRESENCE_MAX_POINTS = 256;
 
+/** Longest accepted colour string, per segment colour and for `color`. */
+const MAX_COLOR_LENGTH = 64;
+
 const EPS = 1e-6;
 
 function isFinitePoint(value: unknown): value is Point {
@@ -57,12 +60,22 @@ export function isPathPresence(data: unknown): data is PathPresence {
   if ('cleared' in payload) return payload.cleared === true;
   if (!Array.isArray(payload.points)) return false;
   if (payload.points.length === 0 || payload.points.length > PATH_PRESENCE_MAX_POINTS) return false;
-  if (!payload.points.every(isFinitePoint)) return false;
+  // Iteration, not `.every`: `Array.prototype.every` SKIPS holes, so a sparse
+  // array would pass validation and reach the renderer as `undefined`. A
+  // `for…of` visits every index and yields `undefined` for a hole, which the
+  // checks below reject.
+  for (const point of payload.points as readonly unknown[]) {
+    if (!isFinitePoint(point)) return false;
+  }
   if (!Array.isArray(payload.segmentColors)) return false;
   if (payload.segmentColors.length !== payload.points.length - 1) return false;
-  if (!payload.segmentColors.every((color) => typeof color === 'string')) return false;
+  for (const color of payload.segmentColors as readonly unknown[]) {
+    if (typeof color !== 'string' || color.length > MAX_COLOR_LENGTH) return false;
+  }
   if (typeof payload.feet !== 'number' || !Number.isFinite(payload.feet)) return false;
-  if (payload.color !== undefined && typeof payload.color !== 'string') return false;
+  if (payload.color !== undefined) {
+    if (typeof payload.color !== 'string' || payload.color.length > MAX_COLOR_LENGTH) return false;
+  }
   return true;
 }
 
@@ -75,6 +88,11 @@ function samePoint(a: Point, b: Point): boolean {
  * are resolved to per-segment colours here, so a receiver renders the sender's
  * bands without knowing them. `anchorKey` is deliberately dropped: it names a
  * local element the receiver cannot resolve.
+ *
+ * The sender imposes NO waypoint cap: a path longer than
+ * `PATH_PRESENCE_MAX_POINTS` produces a payload that every receiver rejects, so
+ * a host that allows very long paths should cap waypoints itself or expect
+ * non-delivery beyond the limit.
  */
 export function toPathPresence(emission: PathEmission | null): PathPresence {
   if (emission === null) return { kind: PATH_PRESENCE_KIND, cleared: true };
@@ -93,7 +111,7 @@ export function toPathPresence(emission: PathEmission | null): PathPresence {
   return {
     kind: PATH_PRESENCE_KIND,
     points,
-    segmentColors: resolveSegmentColors(cumulativeFeet, [...emission.rangeBands], emission.color),
+    segmentColors: resolveSegmentColors(cumulativeFeet, emission.rangeBands, emission.color),
     feet: emission.totalFeet,
     color: emission.color,
   };

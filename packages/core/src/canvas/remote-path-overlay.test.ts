@@ -104,6 +104,38 @@ describe('isPathPresence', () => {
     ).toBe(false);
   });
 
+  it('rejects a sparse points array (holes are not finite points)', () => {
+    // `Array.prototype.every` SKIPS holes, so a sparse array sails through a
+    // naive `.every(isFinitePoint)` and reaches the renderer as `undefined`.
+    const sparse = [
+      { x: 0, y: 0 },
+      { x: 40, y: 0 },
+      { x: 40, y: 40 },
+    ];
+    delete sparse[1];
+    expect(isPathPresence({ ...active, points: sparse })).toBe(false);
+
+    const holeAtEnd: Point[] = new Array<Point>(3);
+    holeAtEnd[0] = { x: 0, y: 0 };
+    holeAtEnd[1] = { x: 40, y: 0 };
+    expect(isPathPresence({ ...active, points: holeAtEnd })).toBe(false);
+  });
+
+  it('rejects a sparse segmentColors array', () => {
+    const sparse = ['green', 'red'];
+    delete sparse[1];
+    expect(isPathPresence({ ...active, segmentColors: sparse })).toBe(false);
+  });
+
+  it('accepts a 64-character colour and rejects a longer one', () => {
+    const ok = 'a'.repeat(64);
+    const tooLong = 'a'.repeat(65);
+    expect(isPathPresence({ ...active, color: ok })).toBe(true);
+    expect(isPathPresence({ ...active, color: tooLong })).toBe(false);
+    expect(isPathPresence({ ...active, segmentColors: [ok, 'red'] })).toBe(true);
+    expect(isPathPresence({ ...active, segmentColors: ['green', tooLong] })).toBe(false);
+  });
+
   it('rejects segmentColors whose length is not points.length - 1', () => {
     expect(isPathPresence({ ...active, segmentColors: ['green'] })).toBe(false);
     expect(isPathPresence({ ...active, segmentColors: ['green', 'red', 'blue'] })).toBe(false);
