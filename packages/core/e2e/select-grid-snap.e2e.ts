@@ -121,6 +121,13 @@ test.describe('select drag snapping on a square grid', () => {
         () => (window as unknown as { viewport: { snapToGrid: boolean } }).viewport.snapToGrid,
       ),
     ).toBe(true);
+    // Smart guides are a separate, mutually-exclusive snap path; off here
+    // means the centring below is coming from grid snap alone.
+    expect(
+      await page.evaluate(
+        () => (window as unknown as { viewport: { smartGuides: boolean } }).viewport.smartGuides,
+      ),
+    ).toBe(false);
 
     const box = await canvasPage.wrapper().boundingBox();
     if (!box) throw new Error('Wrapper not found');
@@ -151,9 +158,14 @@ test.describe('select drag snapping on a square grid', () => {
 
     const before = await elementCentre(page, id);
     expect(Math.abs(cellOffset(before.x))).toBeCloseTo(0.5, 6);
+    expect(Math.abs(cellOffset(before.y))).toBeCloseTo(0.5, 6);
 
     await canvasPage.selectTool('select');
-    await dragElementBy(page, box, id, { x: 2 * CELL, y: CELL });
+    // A delta of (90, 50) is NOT a multiple of the 40px cell in either axis
+    // (unlike the old (80, 40)), so an unsnapped translation would land off
+    // the cell centre and fail the assertion below — this drag actually
+    // exercises the snap, rather than passing it by coincidence.
+    await dragElementBy(page, box, id, { x: 90, y: 50 });
 
     const afterOdd = await elementCentre(page, id);
     // It really moved, and the odd footprint kept it centred in its cell.
