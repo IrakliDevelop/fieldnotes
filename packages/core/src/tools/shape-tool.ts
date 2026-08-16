@@ -183,6 +183,9 @@ export class ShapeTool implements Tool {
     return smartSnap(point, ctx);
   }
 
+  // Deliberately NOT migrated to `Tool.onKeyDown`: that hook is gated by
+  // editable-target and keyboard-scope checks, and a Shift release must be
+  // observed wherever it happens or the constraint sticks after the key is up.
   private trackShiftKeyDown = (e: KeyboardEvent): void => {
     if (e.key === 'Shift') this.shiftHeld = true;
   };
