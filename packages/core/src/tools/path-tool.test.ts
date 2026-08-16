@@ -473,6 +473,7 @@ describe('PathTool', () => {
       diagonalRule: 'euclidean',
       footprint: 1,
       rangeBands: [],
+      commitTapRadiusPx: 12,
     });
 
     const listener = vi.fn();
@@ -484,6 +485,7 @@ describe('PathTool', () => {
       diagonalRule: 'manhattan',
       footprint: { w: 2, h: 3 },
       rangeBands: bands,
+      commitTapRadiusPx: 20,
     });
 
     expect(listener).toHaveBeenCalledTimes(1);
@@ -493,6 +495,7 @@ describe('PathTool', () => {
       diagonalRule: 'manhattan',
       footprint: { w: 2, h: 3 },
       rangeBands: bands,
+      commitTapRadiusPx: 20,
     });
 
     const unsubscribed = vi.fn();
@@ -544,6 +547,119 @@ describe('PathTool', () => {
       { x: 140, y: 60 },
       { x: 220, y: 60 },
     ]);
+  });
+
+  describe('commit tap radius', () => {
+    /** Opens a gridless path from world (0,0) to world (100,0) at `zoom`. */
+    function openGridlessLeg(tool: PathTool, ctx: ToolContext, zoom = 1): void {
+      tool.onPointerDown(pt(0, 0), ctx);
+      tool.onPointerMove(pt(100 * zoom, 0), ctx);
+      tool.onPointerUp(pt(100 * zoom, 0), ctx);
+    }
+
+    it('commits on a tap NEAR the last waypoint on a gridless canvas', () => {
+      const tool = new PathTool();
+      const ctx = makeCtx({ gridSize: 0 });
+      const commits: PathEmission[] = [];
+      tool.onCommit((e) => commits.push(e));
+
+      openGridlessLeg(tool, ctx);
+      // 5 world px away — inside the default 12 screen-px radius at zoom 1.
+      tool.onPointerDown(pt(105, 0), ctx);
+      tool.onPointerUp(pt(105, 0), ctx);
+
+      expect(commits).toHaveLength(1);
+      expect(commits[0]?.waypoints).toEqual([
+        { x: 0, y: 0 },
+        { x: 100, y: 0 },
+      ]);
+      expect(tool.isOpen).toBe(false);
+    });
+
+    it('adds a waypoint on a tap OUTSIDE the radius', () => {
+      const tool = new PathTool();
+      const ctx = makeCtx({ gridSize: 0 });
+      const commits: PathEmission[] = [];
+      tool.onCommit((e) => commits.push(e));
+
+      openGridlessLeg(tool, ctx);
+      tool.onPointerDown(pt(120, 0), ctx);
+      tool.onPointerUp(pt(120, 0), ctx);
+
+      expect(commits).toHaveLength(0);
+      expect(tool.isOpen).toBe(true);
+      expect(tool.getEmission()?.waypoints).toEqual([
+        { x: 0, y: 0 },
+        { x: 100, y: 0 },
+        { x: 120, y: 0 },
+      ]);
+    });
+
+    it('the radius is screen-space: zoom shrinks it in world units', () => {
+      const camera = new Camera();
+      camera.setZoom(2);
+      const farTool = new PathTool();
+      const farCtx = makeCtx({ gridSize: 0, camera });
+      const farCommits: PathEmission[] = [];
+      farTool.onCommit((e) => farCommits.push(e));
+
+      openGridlessLeg(farTool, farCtx, 2);
+      // 8 world px = 16 screen px at zoom 2 — outside 12 screen px.
+      farTool.onPointerDown(pt(108 * 2, 0), farCtx);
+      farTool.onPointerUp(pt(108 * 2, 0), farCtx);
+
+      expect(farCommits).toHaveLength(0);
+      expect(farTool.isOpen).toBe(true);
+
+      const nearTool = new PathTool();
+      const nearCtx = makeCtx({ gridSize: 0, camera });
+      const nearCommits: PathEmission[] = [];
+      nearTool.onCommit((e) => nearCommits.push(e));
+
+      openGridlessLeg(nearTool, nearCtx, 2);
+      // 5 world px = 10 screen px at zoom 2 — inside 12 screen px.
+      nearTool.onPointerDown(pt(105 * 2, 0), nearCtx);
+      nearTool.onPointerUp(pt(105 * 2, 0), nearCtx);
+
+      expect(nearCommits).toHaveLength(1);
+      expect(nearTool.isOpen).toBe(false);
+    });
+
+    it('an armed commit pins the cursor to the last waypoint (no rubber-banding inside the radius)', () => {
+      const tool = new PathTool();
+      const ctx = makeCtx({ gridSize: 0 });
+
+      openGridlessLeg(tool, ctx);
+      tool.onPointerDown(pt(105, 0), ctx);
+      expect(tool.getEmission()?.cursor).toEqual({ x: 100, y: 0 });
+
+      tool.onPointerMove(pt(103, 0), ctx);
+      expect(tool.getEmission()?.cursor).toEqual({ x: 100, y: 0 });
+
+      // Leaving the radius disarms and the cursor rubber-bands again.
+      tool.onPointerMove(pt(140, 0), ctx);
+      expect(tool.getEmission()?.cursor).toEqual({ x: 140, y: 0 });
+      tool.onPointerUp(pt(140, 0), ctx);
+      expect(tool.isOpen).toBe(true);
+    });
+
+    it('commitTapRadiusPx 0 restores exact-match-only commits', () => {
+      const tool = new PathTool({ commitTapRadiusPx: 0 });
+      const ctx = makeCtx({ gridSize: 0 });
+      const commits: PathEmission[] = [];
+      tool.onCommit((e) => commits.push(e));
+
+      openGridlessLeg(tool, ctx);
+      tool.onPointerDown(pt(105, 0), ctx);
+      tool.onPointerUp(pt(105, 0), ctx);
+      expect(commits).toHaveLength(0);
+      expect(tool.getEmission()?.waypoints).toHaveLength(3);
+
+      // An EXACT re-tap still commits.
+      tool.onPointerDown(pt(105, 0), ctx);
+      tool.onPointerUp(pt(105, 0), ctx);
+      expect(commits).toHaveLength(1);
+    });
   });
 
   it('hover is ignored while a pointer is down and while no path is open', () => {

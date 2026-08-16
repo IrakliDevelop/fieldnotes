@@ -31,6 +31,14 @@ export interface PathToolOptions {
   diagonalRule?: DiagonalRule;
   footprint?: Footprint;
   rangeBands?: readonly PathRangeBand[];
+  /**
+   * Screen-space radius, in CSS pixels, around the last waypoint inside which a
+   * tap finishes the path instead of adding a corner. Default `12`. Screen
+   * space so the target keeps its physical size at any zoom; `0` restores
+   * exact-match-only commits (a fingertip can never hit an exact world point on
+   * a gridless canvas, so a touch commit needs the tolerance).
+   */
+  commitTapRadiusPx?: number;
   /** Returning `null` vetoes the gesture — no path opens and nothing is emitted. */
   resolveStart?: (world: Point, ctx: ToolContext) => PathAnchor | null;
 }
@@ -59,14 +67,16 @@ export interface PathEmission {
 
 const EPS = 1e-6;
 
+const DEFAULT_COMMIT_TAP_RADIUS_PX = 12;
+
 function samePoint(a: Point, b: Point): boolean {
   return Math.abs(a.x - b.x) < EPS && Math.abs(a.y - b.y) < EPS;
 }
 
 /**
  * Multi-waypoint movement measuring: tap to anchor, drag or click to add
- * corners, tap the last waypoint (or press Enter) to finish, Escape or a
- * pointer takeover to abandon.
+ * corners, tap on or near the last waypoint (or press Enter) to finish, Escape
+ * or a pointer takeover to abandon.
  *
  * Store-free by contract: the tool never creates, moves, or deletes elements
  * and never opens a history transaction — it only measures. A completed path
@@ -82,6 +92,7 @@ export class PathTool implements Tool {
   private diagonalRule: DiagonalRule;
   private footprintOption: Footprint;
   private rangeBands: readonly PathRangeBand[];
+  private commitTapRadiusPx: number;
   private resolveStart: PathToolOptions['resolveStart'];
 
   private waypoints: Point[] = [];
@@ -109,6 +120,7 @@ export class PathTool implements Tool {
     this.diagonalRule = options.diagonalRule ?? 'euclidean';
     this.footprintOption = options.footprint ?? 1;
     this.rangeBands = options.rangeBands ?? [];
+    this.commitTapRadiusPx = options.commitTapRadiusPx ?? DEFAULT_COMMIT_TAP_RADIUS_PX;
     this.resolveStart = options.resolveStart;
   }
 
@@ -119,6 +131,7 @@ export class PathTool implements Tool {
       diagonalRule: this.diagonalRule,
       footprint: this.footprintOption,
       rangeBands: this.rangeBands,
+      commitTapRadiusPx: this.commitTapRadiusPx,
       resolveStart: this.resolveStart,
     };
   }
@@ -129,6 +142,9 @@ export class PathTool implements Tool {
     if (options.diagonalRule !== undefined) this.diagonalRule = options.diagonalRule;
     if (options.footprint !== undefined) this.footprintOption = options.footprint;
     if (options.rangeBands !== undefined) this.rangeBands = options.rangeBands;
+    if (options.commitTapRadiusPx !== undefined) {
+      this.commitTapRadiusPx = options.commitTapRadiusPx;
+    }
     if (options.resolveStart !== undefined) this.resolveStart = options.resolveStart;
     this.notifyOptionsChange();
   }
@@ -190,9 +206,15 @@ export class PathTool implements Tool {
     }
     const point = this.snap(world);
     const last = this.lastWaypoint();
-    // Pressing the last waypoint arms a commit; dragging away disarms it.
-    if (last && samePoint(point, last)) this.commitOnUp = true;
-    else this.cursor = point;
+    // Pressing on or near the last waypoint arms a commit; dragging out of the
+    // radius disarms it. While armed the cursor is PINNED to the waypoint, so
+    // the path does not rubber-band by a few pixels under a fingertip.
+    if (last && this.withinCommitRadius(point, last, ctx)) {
+      this.commitOnUp = true;
+      this.cursor = { ...last };
+    } else {
+      this.cursor = point;
+    }
     this.pointerDown = true;
     this.scheduleEmission();
     ctx.requestRender();
@@ -201,9 +223,14 @@ export class PathTool implements Tool {
   onPointerMove(state: PointerState, ctx: ToolContext): void {
     if (!this.isOpen) return;
     const world = ctx.camera.screenToWorld({ x: state.x, y: state.y });
-    this.cursor = this.snap(world);
+    const point = this.snap(world);
     const last = this.lastWaypoint();
-    if (this.commitOnUp && last && !samePoint(this.cursor, last)) this.commitOnUp = false;
+    if (this.commitOnUp && last && this.withinCommitRadius(point, last, ctx)) {
+      this.cursor = { ...last };
+    } else {
+      this.commitOnUp = false;
+      this.cursor = point;
+    }
     this.scheduleEmission();
     ctx.requestRender();
   }
@@ -267,6 +294,23 @@ export class PathTool implements Tool {
 
   private lastWaypoint(): Point | undefined {
     return this.waypoints[this.waypoints.length - 1];
+  }
+
+  /**
+   * Is `point` close enough to `last` to mean "finish here"? The exact match is
+   * a subset: on a grid the snapped tap IS the waypoint, so grid behaviour is
+   * unchanged. The tolerance is screen-space, converted to world units with the
+   * live zoom, so the target keeps its physical size as the camera moves.
+   */
+  private withinCommitRadius(point: Point, last: Point, ctx: ToolContext): boolean {
+    if (samePoint(point, last)) return true;
+    const zoom = ctx.camera.zoom;
+    if (!(zoom > 0)) return false;
+    const radius = this.commitTapRadiusPx / zoom;
+    if (radius <= 0) return false;
+    const dx = point.x - last.x;
+    const dy = point.y - last.y;
+    return dx * dx + dy * dy <= radius * radius;
   }
 
   private snap(point: Point): Point {
