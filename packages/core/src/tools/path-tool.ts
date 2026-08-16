@@ -36,7 +36,11 @@ export interface PathToolOptions {
    * tap finishes the path instead of adding a corner. Default `12`. Screen
    * space so the target keeps its physical size at any zoom; `0` restores
    * exact-match-only commits (a fingertip can never hit an exact world point on
-   * a gridless canvas, so a touch commit needs the tolerance).
+   * a gridless canvas, so a touch commit needs the tolerance). Ignored while
+   * this path has an active snapping grid (square, or hex with an
+   * orientation) — there the snapped tap already lands exactly on the last
+   * waypoint, and a screen-space radius could otherwise reach a neighbouring
+   * cell centre at a zoomed-out camera.
    */
   commitTapRadiusPx?: number;
   /** Returning `null` vetoes the gesture — no path opens and nothing is emitted. */
@@ -297,13 +301,22 @@ export class PathTool implements Tool {
   }
 
   /**
-   * Is `point` close enough to `last` to mean "finish here"? The exact match is
-   * a subset: on a grid the snapped tap IS the waypoint, so grid behaviour is
-   * unchanged. The tolerance is screen-space, converted to world units with the
-   * live zoom, so the target keeps its physical size as the camera moves.
+   * Is `point` close enough to `last` to mean "finish here"? EXACT match always
+   * qualifies. The screen-space tolerance is added ONLY when this path has no
+   * active snapping grid: on a snapping grid (`gridType === 'square'`, or
+   * `'hex'` with a captured orientation, and `gridSize > 0`) the adjacent
+   * cell/hex centre can be as little as one grid cell away, and a radius
+   * computed from CSS pixels has no relationship to that distance — at a
+   * sufficiently zoomed-out camera the radius would swallow a whole neighbour
+   * cell and turn a deliberate next-waypoint tap into an unwanted commit.
+   * Snapping already makes a fingertip tap land exactly on the last waypoint,
+   * so the tolerance is unnecessary there; it exists for the gridless and
+   * `snapPoint`/identity paths, where a fingertip can never land on an exact
+   * world point.
    */
   private withinCommitRadius(point: Point, last: Point, ctx: ToolContext): boolean {
     if (samePoint(point, last)) return true;
+    if (this.hasSnappingGrid()) return false;
     const zoom = ctx.camera.zoom;
     if (!(zoom > 0)) return false;
     const radius = this.commitTapRadiusPx / zoom;
@@ -314,11 +327,26 @@ export class PathTool implements Tool {
   }
 
   /**
-   * Snapping to cell or hex centres is UNCONDITIONAL whenever a `gridType` is
-   * set: a movement path measures in cells, so an unsnapped waypoint would
-   * report a distance the grid does not agree with. `ctx.snapToGrid` is
-   * consulted only for the gridType-less intersection fallback — unlike
-   * `smartSnap`, which is off entirely when the user turns snapping off.
+   * True when this path's captured grid state snaps every waypoint onto a
+   * cell/hex centre: a `square` grid, or a `hex` grid with a captured
+   * orientation, both with a usable `gridSize`. Mirrors the unconditional
+   * branches of `snap` below — NOT the `snapToGrid`-gated fallback, which
+   * leaves waypoints unsnapped when the user turns snapping off.
+   */
+  private hasSnappingGrid(): boolean {
+    if (!(this.gridSize > 0)) return false;
+    if (this.gridType === 'square') return true;
+    return this.gridType === 'hex' && this.hexOrientation !== undefined;
+  }
+
+  /**
+   * Snapping to cell or hex centres is UNCONDITIONAL for a `square` grid, or a
+   * `hex` grid WITH a captured orientation: a movement path measures in cells,
+   * so an unsnapped waypoint would report a distance the grid does not agree
+   * with. A `hex` grid WITHOUT an orientation falls through to the
+   * `snapToGrid`-gated `snapPoint` (intersection) branch below, same as the
+   * gridType-less case — unlike `smartSnap`, which is off entirely when the
+   * user turns snapping off.
    */
   private snap(point: Point): Point {
     if (this.gridSize <= 0) return point;
