@@ -104,7 +104,9 @@
     <div id="join">
       <form id="join-form">
         <strong>Join live play</strong>
-        <label>Name (unique) <input name="name" required autocomplete="off" /></label>
+        <label
+          >Name (unique) <input name="name" required autocomplete="off" maxlength="64"
+        /></label>
         <label><input type="radio" name="role" value="dm" /> DM</label>
         <label><input type="radio" name="role" value="player" checked /> Player</label>
         <label>Room <input name="room" value="table" /></label>
