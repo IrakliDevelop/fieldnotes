@@ -157,6 +157,13 @@ export type {
   RemoteSelectionOverlayHost,
   RemoteSelectionOverlayOptions,
 } from './canvas/remote-selection-overlay';
+export { attachAwareness } from './canvas/attach-awareness';
+export type {
+  PresenceChannel,
+  AwarenessViewport,
+  AttachAwarenessOptions,
+  AwarenessHandle,
+} from './canvas/attach-awareness';
 export {
   HtmlPainterRegistry,
   HtmlPainterMissingError,
