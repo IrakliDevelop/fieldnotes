@@ -22,24 +22,6 @@
         inset: 0;
         touch-action: none;
       }
-      #cursors {
-        position: absolute;
-        inset: 0;
-        pointer-events: none;
-        overflow: hidden;
-      }
-      .peer-cursor {
-        position: absolute;
-        top: 0;
-        left: 0;
-        transform: translate(-9999px, -9999px);
-        font-size: 12px;
-        padding: 1px 5px;
-        border-radius: 6px;
-        color: #fff;
-        white-space: nowrap;
-        background: var(--c, #3b82f6);
-      }
       #dm-toolbar {
         position: absolute;
         top: 10px;
@@ -77,6 +59,18 @@
         background: #cbd5e1;
         margin: 2px;
       }
+      #peers {
+        display: flex;
+        gap: 6px;
+        padding: 4px 8px;
+        font-size: 12px;
+      }
+      .peer {
+        padding: 1px 6px;
+        border-radius: 6px;
+        color: #fff;
+        background: var(--c);
+      }
       #join {
         position: fixed;
         inset: 0;
@@ -101,8 +95,8 @@
   <body>
     <div id="app">
       <div id="host"></div>
-      <div id="cursors"></div>
       <div id="tools"></div>
+      <div id="peers"></div>
       <div id="dm-toolbar">
         <button id="hide">Hide from players</button><button id="reveal">Reveal</button>
       </div>

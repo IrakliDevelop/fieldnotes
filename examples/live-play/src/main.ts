@@ -8,12 +8,12 @@ import {
   NoteTool,
   TextTool,
   EraserTool,
+  attachAwareness,
 } from '@fieldnotes/core';
 import type { Tool } from '@fieldnotes/core';
 import { SyncClient, WebSocketTransport } from '@fieldnotes/sync';
 import { makeResolveAudience, type Role } from './policies';
 import { TokenTool } from './token-tool';
-import { mountCursors } from './cursors';
 
 const TOOL_LABELS: Record<string, string> = {
   select: 'Select',
@@ -87,7 +87,7 @@ function start(name: string, role: Role, room: string): void {
   client.start();
 
   $('join').style.display = 'none';
-  wireLiveFeatures({ viewport, client, name, color, role, dmSecretLayerId });
+  wireLiveFeatures({ viewport, client, transport, name, color, role, dmSecretLayerId });
 }
 
 // Build the tool palette + undo/redo, and highlight the active tool (also when it changes via keyboard).
@@ -124,14 +124,34 @@ function buildToolbar(viewport: Viewport, palette: Tool[]): void {
 function wireLiveFeatures(ctx: {
   viewport: Viewport;
   client: SyncClient;
+  transport: WebSocketTransport;
   name: string;
   color: string;
   role: Role;
   dmSecretLayerId: string | null;
 }): void {
-  const { viewport, client, name, color, role, dmSecretLayerId } = ctx;
+  const { viewport, client, transport, name, color, role, dmSecretLayerId } = ctx;
 
-  mountCursors($('host'), $('cursors'), viewport.camera, client, { name, color });
+  const awareness = attachAwareness(viewport, client, {
+    identity: { id: name, name, color, role },
+    fields: { cursor: true, selection: false, tool: true },
+  });
+  awareness.announce();
+  transport.onReconnect(() => awareness.announce());
+
+  const peers = $('peers');
+  const renderPeers = () => {
+    peers.textContent = '';
+    for (const peer of awareness.roster.getPeers()) {
+      const chip = document.createElement('span');
+      chip.className = 'peer';
+      chip.style.setProperty('--c', awareness.cursors?.resolveColor(peer) ?? '#3b82f6');
+      chip.textContent = `${peer.name ?? peer.id}${peer.tool ? ` · ${peer.tool}` : ''}`;
+      peers.appendChild(chip);
+    }
+  };
+  awareness.roster.onChange(renderPeers);
+  renderPeers();
 
   if (role === 'dm' && dmSecretLayerId !== null) {
     const toolbar = $('dm-toolbar');
