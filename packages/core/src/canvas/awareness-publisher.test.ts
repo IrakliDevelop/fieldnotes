@@ -296,14 +296,11 @@ describe('LocalAwareness selection privacy', () => {
     host.selection = ['secret-1'];
     host.fireSelection();
     expect(send.mock.calls[0]?.[0]).not.toHaveProperty('selection');
-    // getState() now re-applies the filter on top of the onSelectionChange
-    // handler's own refresh (selection publishing is on), so one failing
-    // fireSelection() with an immediate flush reports twice, not once.
-    expect(onError).toHaveBeenCalledTimes(3);
+    expect(onError).toHaveBeenCalledTimes(2);
     mode = 'garbage';
     host.fireSelection();
     expect(send.mock.calls[1]?.[0]).not.toHaveProperty('selection');
-    expect(onError).toHaveBeenCalledTimes(5);
+    expect(onError).toHaveBeenCalledTimes(3);
     expect(JSON.stringify(send.mock.calls)).not.toContain('secret-1');
     mode = 'ok';
     host.fireSelection();
@@ -323,6 +320,25 @@ describe('LocalAwareness selection privacy', () => {
     });
     expect(selectionFilter).toHaveBeenCalledTimes(1);
     expect(selectionFilter).toHaveBeenCalledWith([]);
+    local.dispose();
+  });
+
+  it('the filter is never consulted while selection publishing is off', () => {
+    const { host } = makeHost();
+    const send = vi.fn();
+    const selectionFilter = vi.fn((ids: readonly string[]) => ids);
+    const local = new LocalAwareness(host, {
+      identity,
+      send,
+      intervalMs: 0,
+      heartbeatMs: 1000,
+      selectionFilter,
+    });
+    host.selection = ['e1'];
+    host.fireSelection();
+    local.announce();
+    vi.advanceTimersByTime(1000);
+    expect(selectionFilter).not.toHaveBeenCalled();
     local.dispose();
   });
 
@@ -363,10 +379,7 @@ describe('LocalAwareness selection privacy', () => {
     expect(onError).toHaveBeenCalledTimes(1);
     host.selection = ['whatever'];
     host.fireSelection();
-    // getState() now re-applies the filter on top of the onSelectionChange
-    // handler's own refresh (selection publishing is on), so one failing
-    // fireSelection() with an immediate flush reports twice, not once.
-    expect(onError).toHaveBeenCalledTimes(3);
+    expect(onError).toHaveBeenCalledTimes(2);
     expect(send.mock.calls.at(-1)?.[0]).not.toHaveProperty('selection');
     local.dispose();
   });
@@ -567,10 +580,7 @@ describe('LocalAwareness identity and tool bounds', () => {
     });
     host.selection = ['x'.repeat(129)];
     host.fireSelection();
-    // getState() now re-applies the filter on top of the onSelectionChange
-    // handler's own refresh (selection publishing is on), so one failing
-    // fireSelection() with an immediate flush reports twice, not once.
-    expect(onError).toHaveBeenCalledTimes(2);
+    expect(onError).toHaveBeenCalledTimes(1);
     const sent = send.mock.calls.at(-1)?.[0] as AwarenessPresence;
     expect(sent).not.toHaveProperty('selection');
     expect(sent).toMatchObject({ id: 'ada', tool: 'select' });

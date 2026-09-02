@@ -6,6 +6,7 @@ import type { Viewport } from './viewport';
 import { ElementStore } from '../elements/element-store';
 import { LayerManager } from '../layers/layer-manager';
 import { PeerRoster } from './awareness-roster';
+import { RemoteCursorOverlay } from './remote-cursor-overlay';
 
 // Compile-time pin: `Viewport` must keep satisfying `AwarenessViewport`
 // structurally, with no cast required at the call site.
@@ -76,6 +77,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.useRealTimers();
+  vi.restoreAllMocks();
   document.body.innerHTML = '';
 });
 
@@ -264,7 +266,7 @@ describe('attachAwareness', () => {
     // the unwind, not just that the roster itself was later disposed.
     const originalOnDiscover = PeerRoster.prototype.onDiscover;
     const onDiscoverUnsub = vi.fn();
-    const onDiscoverSpy = vi.spyOn(PeerRoster.prototype, 'onDiscover').mockImplementation(function (
+    vi.spyOn(PeerRoster.prototype, 'onDiscover').mockImplementation(function (
       this: PeerRoster,
       listener: (from: string) => void,
     ) {
@@ -295,7 +297,6 @@ describe('attachAwareness', () => {
     expect(bus.sentBy.get('A')).toEqual([{ kind: 'awareness', id: 'ada', cleared: true }]);
     expect(vi.getTimerCount()).toBe(0);
     expect(onDiscoverUnsub).toHaveBeenCalledTimes(1);
-    onDiscoverSpy.mockRestore();
   });
 
   it('unwinds channel subscriptions that fail to register: onPresenceLeave throws', () => {
@@ -303,7 +304,7 @@ describe('attachAwareness', () => {
     const base = bus.channelFor('A');
     const originalOnDiscover = PeerRoster.prototype.onDiscover;
     const onDiscoverUnsub = vi.fn();
-    const onDiscoverSpy = vi.spyOn(PeerRoster.prototype, 'onDiscover').mockImplementation(function (
+    vi.spyOn(PeerRoster.prototype, 'onDiscover').mockImplementation(function (
       this: PeerRoster,
       listener: (from: string) => void,
     ) {
@@ -339,7 +340,49 @@ describe('attachAwareness', () => {
     expect(vi.getTimerCount()).toBe(0);
     expect(onDiscoverUnsub).toHaveBeenCalledTimes(1);
     expect(onPresenceUnsub).toHaveBeenCalledTimes(1);
-    onDiscoverSpy.mockRestore();
+  });
+
+  it('rethrows the original registration error even when unwind steps also throw: a throwing onPresenceLeave and a throwing cursors.dispose do not mask each other, and the rest of the unwind still runs', () => {
+    const bus = makeBus();
+    const base = bus.channelFor('A');
+    let capturedRoster: PeerRoster | undefined;
+    // Passed as a plain argument (not aliased) so as not to trip
+    // @typescript-eslint/no-this-alias.
+    function captureRoster(instance: PeerRoster): PeerRoster {
+      capturedRoster = instance;
+      return instance;
+    }
+    const originalOnDiscover = PeerRoster.prototype.onDiscover;
+    vi.spyOn(PeerRoster.prototype, 'onDiscover').mockImplementation(function (
+      this: PeerRoster,
+      listener: (from: string) => void,
+    ) {
+      return originalOnDiscover.call(captureRoster(this), listener);
+    });
+    vi.spyOn(RemoteCursorOverlay.prototype, 'dispose').mockImplementation(() => {
+      throw new Error('cursors.dispose: also broken');
+    });
+    const registrationError = new Error('onPresenceLeave: transport already tearing down');
+    const channel: PresenceChannel = {
+      sendPresence: base.sendPresence,
+      onPresence: (h) => base.onPresence(h),
+      onPresenceLeave: () => {
+        throw registrationError;
+      },
+    };
+    expect(() =>
+      attachAwareness(makeViewport(), channel, {
+        identity: { id: 'ada' },
+        intervalMs: 0,
+        heartbeatMs: 1000,
+      }),
+    ).toThrow(registrationError);
+    // The publisher's dispose still ran (its cleared frame went out) despite
+    // cursors.dispose throwing before it in the unwind order.
+    expect(bus.sentBy.get('A')).toEqual([{ kind: 'awareness', id: 'ada', cleared: true }]);
+    // roster.dispose() still ran too: the captured roster instance now
+    // rejects further presence frames.
+    expect(capturedRoster?.apply('peer-1', { kind: 'awareness', id: 'peer-1' })).toBe(false);
   });
 
   it('frames arriving after dispose are ignored', () => {
