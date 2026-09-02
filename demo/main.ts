@@ -1099,6 +1099,7 @@ path.onPath((emission) => {
   pathEmissions.push(presence);
   remotePathOverlay.apply('self', presence);
 });
+path.onCommit((emission) => pathCommits.push(emission));
 
 // Shared presence: a peer's awareness frames would feed this roster; exposed for e2e.
 const awarenessRoster = new PeerRoster();
@@ -1107,7 +1108,6 @@ const remoteCursorOverlay = new RemoteCursorOverlay(viewport, awarenessRoster);
   roster: awarenessRoster,
   cursors: remoteCursorOverlay,
 };
-path.onCommit((emission) => pathCommits.push(emission));
 
 // "g" pings at the cursor ("p" is taken by the pencil tool).
 document.addEventListener('keydown', (e) => {

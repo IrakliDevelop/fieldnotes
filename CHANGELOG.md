@@ -37,7 +37,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 - `RemoteCursorOverlay` draws named cursors at constant screen size (colour precedence: `colorFor`
   resolver → wire `color` → `defaultPeerColor(id)`, a deterministic 12-hue palette); `RemoteSelectionOverlay`
   outlines peers' selections only for elements present in the local store and on a locally visible
-  layer, rescanning the store only when a selection or colour actually changed.
+  layer, rescanning the store only when a selection or colour actually changed, or when the store or
+  layer visibility changed.
 - `attachAwareness(viewport, channel, options)` binds all of the above to any `PresenceChannel`
   (`sendPresence`/`onPresence`/`onPresenceLeave` — the raw client, the managed connection, and host
   wrappers all satisfy it): discovery triggers one coalesced re-announce, leave drops the sender, and
