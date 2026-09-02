@@ -56,7 +56,11 @@ export interface AttachAwarenessOptions extends Omit<LocalAwarenessOptions, 'sen
   cursors?: RemoteCursorOverlayOptions | false;
   /** Selection outline overlay: options or `true` to enable. Default off. */
   selections?: RemoteSelectionOverlayOptions | boolean;
-  /** `false` builds a receive-only attachment (no `LocalAwareness`). Default `true`. */
+  /**
+   * `false` builds a receive-only attachment (no `LocalAwareness`). Default
+   * `true`. When `false`, `identity` is ignored: there is no publisher to
+   * carry it.
+   */
   publish?: boolean;
 }
 
@@ -76,9 +80,11 @@ export interface AwarenessHandle {
 /**
  * Binds the awareness lifecycle to a presence channel: incoming frames feed
  * the roster, presence-leave drops rows and discovery budget, and each newly
- * discovered sender makes this client re-announce once (coalesced by the
- * publisher's interval, so ten simultaneous joiners cost one frame). Dispose
- * order: publisher (sends `cleared`) → overlays → roster → channel
+ * discovered sender makes this client re-announce once, coalesced by the
+ * publisher's interval: from a cold start the first discovery goes out on
+ * the leading edge and later ones fold into a single trailing frame, so N
+ * simultaneous joiners cost at most two frames; while already active, one.
+ * Dispose order: publisher (sends `cleared`) → overlays → roster → channel
  * unsubscribes.
  */
 export function attachAwareness(
@@ -94,29 +100,42 @@ export function attachAwareness(
     ...localOptions
   } = options;
   const roster = new PeerRoster(rosterOptions);
-  const local =
-    publish === false
-      ? null
-      : new LocalAwareness(viewport, {
-          ...localOptions,
-          send: (data) => channel.sendPresence(data),
-        });
-  const cursors =
-    cursorOptions === false ? null : new RemoteCursorOverlay(viewport, roster, cursorOptions ?? {});
-  const selections =
-    selectionOptions === undefined || selectionOptions === false
-      ? null
-      : new RemoteSelectionOverlay(
-          viewport,
-          roster,
-          selectionOptions === true ? {} : selectionOptions,
-        );
+  let local: LocalAwareness | null = null;
+  let cursors: RemoteCursorOverlay | null = null;
+  let selections: RemoteSelectionOverlay | null = null;
+  try {
+    local =
+      publish === false
+        ? null
+        : new LocalAwareness(viewport, {
+            ...localOptions,
+            send: (data) => channel.sendPresence(data),
+          });
+    cursors =
+      cursorOptions === false
+        ? null
+        : new RemoteCursorOverlay(viewport, roster, cursorOptions ?? {});
+    selections =
+      selectionOptions === undefined || selectionOptions === false
+        ? null
+        : new RemoteSelectionOverlay(
+            viewport,
+            roster,
+            selectionOptions === true ? {} : selectionOptions,
+          );
+  } catch (error) {
+    selections?.dispose();
+    cursors?.dispose();
+    local?.dispose();
+    roster.dispose();
+    throw error;
+  }
   const unsubscribers: (() => void)[] = [
+    ...(publish === false ? [] : [roster.onDiscover(() => local?.announce())]),
     channel.onPresence((from, data) => {
       roster.apply(from, data);
     }),
     channel.onPresenceLeave((from) => roster.remove(from)),
-    roster.onDiscover(() => local?.announce()),
   ];
   let disposed = false;
   return {
