@@ -419,6 +419,17 @@ describe('LocalAwareness identity and tool bounds', () => {
     );
   });
 
+  it('setIdentity throws a RangeError for an empty id and truncates a 100-char name to 64', () => {
+    const { host } = makeHost();
+    const send = vi.fn();
+    const local = new LocalAwareness(host, { identity, send, intervalMs: 0 });
+    expect(() => local.setIdentity({ id: '' })).toThrow(RangeError);
+    local.setIdentity({ id: 'ada', name: 'n'.repeat(100) });
+    const frame = send.mock.calls.at(-1)?.[0] as AwarenessPresence;
+    expect(frame.name).toHaveLength(64);
+    local.dispose();
+  });
+
   it('setIdentity truncates role to 32 characters', () => {
     const { host } = makeHost();
     const send = vi.fn();
@@ -440,27 +451,45 @@ describe('LocalAwareness identity and tool bounds', () => {
     local.dispose();
   });
 
-  it('drops and reports a frame that fails the wire guard instead of sending it', () => {
-    // Defence in depth: `flush()` re-validates the frame through
-    // `isAwarenessPresence` right before `send`. With truncation and the
-    // guard both in place this never trips; if either is removed, an
-    // over-long identity string would either violate the wire cap directly
-    // (guard removed) or slip through untruncated into a rejected frame
-    // (both removed) — in both cases this assertion catches the regression
-    // by requiring exactly the one, valid, truncated frame to be sent.
+  it('an over-long selection id fails the selection closed and still sends the frame', () => {
     const { host } = makeHost();
     const send = vi.fn();
     const onError = vi.fn();
     const local = new LocalAwareness(host, {
-      identity: { id: 'ada', name: 'x'.repeat(100), role: 'r'.repeat(40) },
+      identity,
       send,
       onError,
       intervalMs: 0,
+      fields: { selection: true },
     });
-    local.announce();
-    expect(send).toHaveBeenCalledTimes(1);
-    expect(isAwarenessPresence(send.mock.calls[0]?.[0])).toBe(true);
-    expect(onError).not.toHaveBeenCalled();
+    host.selection = ['x'.repeat(129)];
+    host.fireSelection();
+    expect(onError).toHaveBeenCalledTimes(1);
+    const sent = send.mock.calls.at(-1)?.[0] as AwarenessPresence;
+    expect(sent).not.toHaveProperty('selection');
+    expect(sent).toMatchObject({ id: 'ada', tool: 'select' });
+    local.dispose();
+  });
+
+  it('every frame is valid by construction', () => {
+    const { host } = makeHost();
+    const send = vi.fn();
+    const local = new LocalAwareness(host, {
+      identity: { id: 'ada', name: 'n'.repeat(100), role: 'r'.repeat(40) },
+      send,
+      intervalMs: 0,
+      fields: { selection: true },
+    });
+    expect(isAwarenessPresence(local.getState())).toBe(true);
+    host.fireTool('t'.repeat(65));
+    expect(isAwarenessPresence(local.getState())).toBe(true);
+    // A 256+ selection with one over-long id well inside the 256 cap
+    // boundary: fixed by the fail-closed check in refreshSelection, so the
+    // frame either carries no selection or a fully valid one — never an
+    // over-long id smuggled through by the length cap alone.
+    host.selection = Array.from({ length: 300 }, (_, i) => (i === 200 ? 'x'.repeat(129) : `e${i}`));
+    host.fireSelection();
+    expect(isAwarenessPresence(local.getState())).toBe(true);
     local.dispose();
   });
 });
