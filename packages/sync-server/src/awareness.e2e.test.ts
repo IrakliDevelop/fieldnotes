@@ -107,32 +107,38 @@ describe('awareness over the relay (end-to-end)', () => {
       announcesA++;
       a.sendPresence(frameA);
     });
-    await waitFor(() => a.getStatus() === 'live');
-    a.sendPresence(frameA);
-
-    // B joins later; A has been idle since its only frame.
-    const b = startManaged({ port, userId: 'b', mint: () => 'b-token' });
     const rosterB = new PeerRoster();
-    b.onPresence((from, data) => rosterB.apply(from, data));
-    b.onPresenceLeave((from) => rosterB.remove(from));
-    await waitFor(() => b.getStatus() === 'live');
-    b.sendPresence({ kind: 'awareness', id: 'bob', name: 'Bob' });
+    try {
+      await waitFor(() => a.getStatus() === 'live');
+      a.sendPresence(frameA);
 
-    await waitFor(() => rosterB.getPeers().some((p) => p.id === 'ada'));
-    expect(rosterA.getPeers().map((p) => p.id)).toEqual(['bob']);
-    expect(announcesA).toBe(1);
+      // B joins later; A has been idle since its only frame.
+      const b = startManaged({ port, userId: 'b', mint: () => 'b-token' });
+      b.onPresence((from, data) => rosterB.apply(from, data));
+      b.onPresenceLeave((from) => rosterB.remove(from));
+      await waitFor(() => b.getStatus() === 'live');
+      b.sendPresence({ kind: 'awareness', id: 'bob', name: 'Bob' });
 
-    // More frames from B never re-trigger A.
-    b.sendPresence({ kind: 'awareness', id: 'bob', name: 'Bob', cursor: { x: 1, y: 1 } });
-    b.sendPresence({ kind: 'awareness', id: 'bob', cleared: true });
-    b.sendPresence({ kind: 'awareness', id: 'bob', name: 'Bob' });
-    await waitFor(() => rosterA.getPeers().some((p) => p.name === 'Bob'));
-    expect(announcesA).toBe(1);
+      await waitFor(() => rosterB.getPeers().some((p) => p.id === 'ada'));
+      expect(rosterA.getPeers().map((p) => p.id)).toEqual(['bob']);
+      expect(announcesA).toBe(1);
 
-    b.stop();
-    await waitFor(() => rosterA.getPeers().length === 0);
-    rosterA.dispose();
-    rosterB.dispose();
+      // More frames from B never re-trigger A. The recreate frame below uses a
+      // distinct name so this wait cannot be satisfied by B's earlier frame:
+      // it forces the test to actually observe the post-`cleared` frame
+      // before asserting that A stayed silent.
+      b.sendPresence({ kind: 'awareness', id: 'bob', name: 'Bob', cursor: { x: 1, y: 1 } });
+      b.sendPresence({ kind: 'awareness', id: 'bob', cleared: true });
+      b.sendPresence({ kind: 'awareness', id: 'bob', name: 'Bob again' });
+      await waitFor(() => rosterA.getPeers().some((p) => p.name === 'Bob again'));
+      expect(announcesA).toBe(1);
+
+      b.stop();
+      await waitFor(() => rosterA.getPeers().length === 0);
+    } finally {
+      rosterA.dispose();
+      rosterB.dispose();
+    }
   }, 10000);
 
   it('a cursor stream through the real throttle never swallows a ping or a path cleared', async () => {
@@ -140,8 +146,8 @@ describe('awareness over the relay (end-to-end)', () => {
     const { port } = startServer(tokenAuthenticate(valid), { presenceThrottleMs: 50 });
     const a = startManaged({ port, userId: 'a', mint: () => 'a-token' });
     const b = startManaged({ port, userId: 'b', mint: () => 'b-token' });
-    const kinds: string[] = [];
-    b.onPresence((_from, data) => kinds.push((data as { kind: string }).kind));
+    const frames: unknown[] = [];
+    b.onPresence((_from, data) => frames.push(data));
     await waitFor(() => a.getStatus() === 'live' && b.getStatus() === 'live');
 
     const stop = setInterval(
@@ -156,8 +162,11 @@ describe('awareness over the relay (end-to-end)', () => {
     clearInterval(stop);
     await new Promise((r) => setTimeout(r, 100));
 
+    const kinds = frames.map((f) => (f as { kind: string }).kind);
+    const pathFrames = frames.filter((f) => (f as { kind: string }).kind === 'path');
     expect(kinds.filter((k) => k === 'ping')).toHaveLength(1);
-    expect(kinds.filter((k) => k === 'path').length).toBeGreaterThanOrEqual(1);
+    expect(pathFrames).toHaveLength(2);
+    expect(pathFrames.at(-1)).toEqual({ kind: 'path', cleared: true });
     expect(kinds.filter((k) => k === 'awareness').length).toBeGreaterThanOrEqual(3);
   }, 10000);
 });
