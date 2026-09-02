@@ -201,17 +201,8 @@ export class LocalAwareness {
   }
 
   private refreshSelection(): void {
-    const raw = this.host.getSelectedIds();
-    // Nothing to leak and nothing to validate; skip invoking a (possibly
-    // broken) filter for a no-op input. Keeps construction — which seeds
-    // this from whatever the host reports before any selection exists —
-    // from tripping a filter that only ever matters once ids are present.
-    if (raw.length === 0) {
-      this.selection = [];
-      this.selectionFailed = false;
-      return;
-    }
     try {
+      const raw = this.host.getSelectedIds();
       const ids = this.selectionFilter ? this.selectionFilter(raw) : raw;
       if (!Array.isArray(ids)) throw new TypeError('selectionFilter must return an array');
       const out: string[] = [];
