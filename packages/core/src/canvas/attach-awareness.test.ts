@@ -2,8 +2,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { attachAwareness } from './attach-awareness';
 import type { PresenceChannel, AwarenessViewport } from './attach-awareness';
+import type { Viewport } from './viewport';
 import { ElementStore } from '../elements/element-store';
 import { LayerManager } from '../layers/layer-manager';
+
+// Compile-time pin: `Viewport` must keep satisfying `AwarenessViewport`
+// structurally, with no cast required at the call site.
+const viewportSatisfies: Viewport extends AwarenessViewport ? true : never = true;
+void viewportSatisfies;
 
 /** Two viewports share one in-memory "relay": each send fans out to the other with a stable sender key. */
 function makeBus() {
@@ -42,7 +48,7 @@ function makeBus() {
   return { channelFor, leave, sentBy };
 }
 
-function makeViewport(): AwarenessViewport {
+function makeViewport(overrides: Partial<AwarenessViewport> = {}): AwarenessViewport {
   const wrapper = document.createElement('div');
   const domLayer = document.createElement('div');
   wrapper.appendChild(domLayer);
@@ -59,6 +65,7 @@ function makeViewport(): AwarenessViewport {
     toolManager: { onChange: () => vi.fn(), activeTool: { name: 'select' } },
     registerOverlay: () => vi.fn(),
     requestRender: vi.fn(),
+    ...overrides,
   };
 }
 
@@ -224,5 +231,40 @@ describe('attachAwareness', () => {
       'unsub:presence',
       'unsub:leave',
     ]);
+  });
+
+  it('unwinds partial construction when an overlay constructor throws: publisher is disposed (sent its cleared frame), no timers leak', () => {
+    const bus = makeBus();
+    const boom = new Error('registerOverlay: viewport is being torn down');
+    const viewport = makeViewport({
+      registerOverlay: () => {
+        throw boom;
+      },
+    });
+    expect(() =>
+      attachAwareness(viewport, bus.channelFor('A'), {
+        identity: { id: 'ada' },
+        intervalMs: 0,
+        heartbeatMs: 0,
+      }),
+    ).toThrow(boom);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(bus.sentBy.get('A')).toEqual([{ kind: 'awareness', id: 'ada', cleared: true }]);
+  });
+
+  it('frames arriving after dispose are ignored', () => {
+    const bus = makeBus();
+    const requestRender = vi.fn();
+    const viewport = makeViewport({ requestRender });
+    const a = attachAwareness(viewport, bus.channelFor('A'), {
+      identity: { id: 'ada' },
+      intervalMs: 0,
+      heartbeatMs: 0,
+    });
+    a.dispose();
+    requestRender.mockClear();
+    bus.channelFor('Z').sendPresence({ kind: 'awareness', id: 'z' });
+    expect(a.roster.getPeer('Z')).toBeUndefined();
+    expect(requestRender).not.toHaveBeenCalled();
   });
 });
