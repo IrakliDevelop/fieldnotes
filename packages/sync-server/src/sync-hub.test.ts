@@ -1071,6 +1071,50 @@ describe('presence (ephemeral)', () => {
     }
   });
 
+  it('a newer frame arriving at the throttle-window boundary supersedes the still-pending older frame', async () => {
+    vi.useFakeTimers();
+    try {
+      const hub = new SyncHub({ presenceThrottleMs: 50 });
+      const a = makeConn('a', 'R');
+      const b = makeConn('b', 'R');
+      hub.addConnection(a);
+      hub.addConnection(b);
+
+      // Frame A: relayed immediately (first frame in the lane).
+      await hub.handleMessage(
+        'a',
+        presenceMsg('ca', { kind: 'awareness', id: 'u', cursor: { x: 1, y: 1 } }),
+      );
+      // Frame B, +10ms: within the window, so it becomes pending (timer due at +50).
+      await vi.advanceTimersByTimeAsync(10);
+      await hub.handleMessage(
+        'a',
+        presenceMsg('ca', { kind: 'awareness', id: 'u', cursor: { x: 2, y: 2 } }),
+      );
+      // The clock reaches the window boundary, but the pending timer has not run yet.
+      vi.setSystemTime(Date.now() + 40);
+      // Frame C (cleared) is processed before the stale timer fires: it takes the
+      // immediate path and must drain B rather than letting B fire after it.
+      await hub.handleMessage(
+        'a',
+        presenceMsg('ca', { kind: 'awareness', id: 'u', cleared: true }),
+      );
+      expect(b.sent.map((m) => (JSON.parse(m) as { op: { data: unknown } }).op.data)).toEqual([
+        { kind: 'awareness', id: 'u', cursor: { x: 1, y: 1 } },
+        { kind: 'awareness', id: 'u', cleared: true },
+      ]);
+
+      await vi.advanceTimersByTimeAsync(100);
+      expect(b.sent).toHaveLength(2);
+      const last = JSON.parse(b.sent[1] as string) as { op: { data: unknown } };
+      expect(last.op.data).toEqual({ kind: 'awareness', id: 'u', cleared: true });
+      expect(vi.getTimerCount()).toBe(0);
+      hub.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('caps lanes per connection: beyond maxPresenceLanes - 1 named kinds everything shares the fallback lane', async () => {
     vi.useFakeTimers();
     try {
@@ -1120,6 +1164,61 @@ describe('presence (ephemeral)', () => {
       await hub.handleMessage('a', presenceMsg('ca', 'plain'));
       // Same (fallback) lane: the string is queued behind the long-kind frame, not sent at once.
       expect(b.sent).toHaveLength(1);
+      hub.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a 64-character kind gets its own lane; 65 characters falls back (boundary)', async () => {
+    vi.useFakeTimers();
+    try {
+      const hub = new SyncHub({ presenceThrottleMs: 50 });
+      const a = makeConn('a', 'R');
+      const b = makeConn('b', 'R');
+      hub.addConnection(a);
+      hub.addConnection(b);
+      const boundaryKind = 'k'.repeat(64);
+      await hub.handleMessage('a', presenceMsg('ca', { kind: boundaryKind, n: 1 }));
+      await hub.handleMessage('a', presenceMsg('ca', 'plain'));
+      // Distinct lanes: both the named-kind frame and the fallback string relay at once.
+      expect(b.sent).toHaveLength(2);
+      hub.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('the default lane cap is 16: a 16th named kind and a plain string share the fallback lane', async () => {
+    vi.useFakeTimers();
+    try {
+      const hub = new SyncHub({ presenceThrottleMs: 50 });
+      const a = makeConn('a', 'R');
+      const b = makeConn('b', 'R');
+      hub.addConnection(a);
+      hub.addConnection(b);
+
+      const namedKinds = Array.from({ length: 15 }, (_, i) => `kind-${i}`);
+      for (const kind of namedKinds) {
+        await hub.handleMessage('a', presenceMsg('ca', { kind, n: 1 }));
+        await hub.handleMessage('a', presenceMsg('ca', { kind, n: 2 }));
+      }
+      // The 16th named kind exceeds the 15 dedicated named lanes (cap 16 minus the
+      // reserved fallback lane), so it shares the fallback lane with the plain string.
+      await hub.handleMessage('a', presenceMsg('ca', { kind: 'kind-15', n: 1 }));
+      await hub.handleMessage('a', presenceMsg('ca', { kind: 'kind-15', n: 2 }));
+      await hub.handleMessage('a', presenceMsg('ca', 'plain'));
+
+      // 15 named lanes + 1 fallback lane each sent their leading frame.
+      expect(b.sent).toHaveLength(16);
+      expect(vi.getTimerCount()).toBeLessThanOrEqual(16);
+
+      await vi.advanceTimersByTimeAsync(50);
+      const payloads = b.sent.map((m) => (JSON.parse(m) as { op: { data: unknown } }).op.data);
+      expect(payloads).toHaveLength(32);
+      // The fallback lane's trailing frame is the plain string, which replaced kind-15's
+      // second frame.
+      expect(payloads[payloads.length - 1]).toBe('plain');
       hub.close();
     } finally {
       vi.useRealTimers();

@@ -429,6 +429,10 @@ export class SyncHub {
     const lane = this.presenceLaneFor(conn.id, presenceLaneOf(data));
     const now = Date.now();
     if (lane.lastSentAt === undefined || now - lane.lastSentAt >= this.presenceThrottleMs) {
+      if (lane.pending) {
+        clearTimeout(lane.pending.timer);
+        lane.pending = null;
+      }
       lane.lastSentAt = now;
       this.broadcastClientPresence(conn, data);
       return;
