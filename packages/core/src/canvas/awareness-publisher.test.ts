@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { LocalAwareness } from './awareness-publisher';
 import type { LocalAwarenessHost } from './awareness-publisher';
+import { isAwarenessPresence } from './awareness-presence';
 import type { AwarenessPresence } from './awareness-presence';
 
 type PointerInit = PointerEventInit & { clientX?: number; clientY?: number };
@@ -135,6 +136,12 @@ describe('LocalAwareness frames', () => {
     host.fireTool('pencil');
     fire(wrapper, 'pointermove', { clientX: 103, clientY: 53 });
     expect(send).toHaveBeenCalledTimes(1);
+    // Regression for the "delete `if (this.throttleTimer !== null) return;`"
+    // mutation: without the re-entry guard, every change in the burst would
+    // arm its own throttle timer. At most two timers may be live here: the
+    // one pending throttle timer (coalescing the burst) and the heartbeat
+    // timer armed by the leading `announce()` flush (default heartbeatMs).
+    expect(vi.getTimerCount()).toBeLessThanOrEqual(2);
     vi.advanceTimersByTime(49);
     expect(send).toHaveBeenCalledTimes(1);
     vi.advanceTimersByTime(1);
@@ -194,6 +201,32 @@ describe('LocalAwareness frames', () => {
     const local = new LocalAwareness(host, { identity, send, heartbeatMs: 0 });
     vi.advanceTimersByTime(60_000);
     expect(send).not.toHaveBeenCalled();
+    local.dispose();
+  });
+
+  it('a non-finite heartbeatMs (Infinity) disables the heartbeat instead of flooding', () => {
+    const { host } = makeHost();
+    const send = vi.fn();
+    const local = new LocalAwareness(host, { identity, send, heartbeatMs: Infinity });
+    vi.advanceTimersByTime(60_000);
+    expect(send).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+    local.dispose();
+  });
+
+  it('a non-finite intervalMs (NaN) behaves as 0: each change sends immediately with no timer', () => {
+    const { host, wrapper } = makeHost();
+    const send = vi.fn();
+    const local = new LocalAwareness(host, {
+      identity,
+      send,
+      intervalMs: NaN,
+      heartbeatMs: 0,
+    });
+    fire(wrapper, 'pointermove', { clientX: 110, clientY: 70 });
+    fire(wrapper, 'pointermove', { clientX: 120, clientY: 80 });
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(0);
     local.dispose();
   });
 });
@@ -293,6 +326,30 @@ describe('LocalAwareness selection privacy', () => {
     expect(frame.selection?.[0]).toBe('e0');
     local.dispose();
   });
+
+  it('validates every filter entry before capping: a bad id past the 256 boundary still fails closed', () => {
+    const { host } = makeHost();
+    const send = vi.fn();
+    const onError = vi.fn();
+    const ids = Array.from({ length: 300 }, (_, i) => `e${i}`) as unknown[];
+    ids[280] = 42;
+    const local = new LocalAwareness(host, {
+      identity,
+      send,
+      onError,
+      intervalMs: 0,
+      fields: { selection: true },
+      selectionFilter: () => ids as readonly string[],
+    });
+    // The constructor already ran refreshSelection() once against the same
+    // bad filter output, so `onError` has already fired by construction time.
+    expect(onError).toHaveBeenCalledTimes(1);
+    host.selection = ['whatever'];
+    host.fireSelection();
+    expect(onError).toHaveBeenCalledTimes(2);
+    expect(send.mock.calls.at(-1)?.[0]).not.toHaveProperty('selection');
+    local.dispose();
+  });
 });
 
 describe('LocalAwareness setFields / setIdentity', () => {
@@ -336,6 +393,78 @@ describe('LocalAwareness setFields / setIdentity', () => {
   });
 });
 
+describe('LocalAwareness identity and tool bounds', () => {
+  it('truncates an over-long name to the 64-char wire cap', () => {
+    const { host } = makeHost();
+    const send = vi.fn();
+    const local = new LocalAwareness(host, {
+      identity: { id: 'ada', name: 'x'.repeat(100) },
+      send,
+      intervalMs: 0,
+    });
+    local.announce();
+    const frame = send.mock.calls.at(-1)?.[0] as AwarenessPresence;
+    expect(frame.name).toHaveLength(64);
+    expect(isAwarenessPresence(local.getState())).toBe(true);
+    local.dispose();
+  });
+
+  it('throws a RangeError when id is empty or over 128 characters', () => {
+    const { host } = makeHost();
+    expect(
+      () => new LocalAwareness(host, { identity: { id: 'x'.repeat(129) }, send: vi.fn() }),
+    ).toThrow(RangeError);
+    expect(() => new LocalAwareness(host, { identity: { id: '' }, send: vi.fn() })).toThrow(
+      RangeError,
+    );
+  });
+
+  it('setIdentity truncates role to 32 characters', () => {
+    const { host } = makeHost();
+    const send = vi.fn();
+    const local = new LocalAwareness(host, { identity, send, intervalMs: 0 });
+    local.setIdentity({ id: 'ada', role: 'r'.repeat(40) });
+    const frame = send.mock.calls.at(-1)?.[0] as AwarenessPresence;
+    expect(frame.role).toHaveLength(32);
+    expect(isAwarenessPresence(local.getState())).toBe(true);
+    local.dispose();
+  });
+
+  it('omits an over-long tool name from the frame instead of truncating it', () => {
+    const { host } = makeHost();
+    const send = vi.fn();
+    const local = new LocalAwareness(host, { identity, send, intervalMs: 0 });
+    host.fireTool('t'.repeat(65));
+    const frame = send.mock.calls.at(-1)?.[0] as AwarenessPresence;
+    expect(frame).not.toHaveProperty('tool');
+    local.dispose();
+  });
+
+  it('drops and reports a frame that fails the wire guard instead of sending it', () => {
+    // Defence in depth: `flush()` re-validates the frame through
+    // `isAwarenessPresence` right before `send`. With truncation and the
+    // guard both in place this never trips; if either is removed, an
+    // over-long identity string would either violate the wire cap directly
+    // (guard removed) or slip through untruncated into a rejected frame
+    // (both removed) — in both cases this assertion catches the regression
+    // by requiring exactly the one, valid, truncated frame to be sent.
+    const { host } = makeHost();
+    const send = vi.fn();
+    const onError = vi.fn();
+    const local = new LocalAwareness(host, {
+      identity: { id: 'ada', name: 'x'.repeat(100), role: 'r'.repeat(40) },
+      send,
+      onError,
+      intervalMs: 0,
+    });
+    local.announce();
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(isAwarenessPresence(send.mock.calls[0]?.[0])).toBe(true);
+    expect(onError).not.toHaveBeenCalled();
+    local.dispose();
+  });
+});
+
 describe('LocalAwareness lifecycle', () => {
   it('dispose sends exactly one cleared frame, removes listeners and timers, and is idempotent', () => {
     const { host, wrapper } = makeHost();
@@ -373,6 +502,32 @@ describe('LocalAwareness lifecycle', () => {
     fail = false;
     host.fireTool('pencil');
     expect(send).toHaveBeenCalledTimes(2);
+    local.dispose();
+  });
+
+  it('a throwing onError never escapes, even when selectionFilter also throws', () => {
+    const { host } = makeHost();
+    const send = vi.fn();
+    const onError = vi.fn(() => {
+      throw new Error('onError itself is broken');
+    });
+    const selectionFilter = vi.fn(() => {
+      throw new Error('filter exploded');
+    });
+    const local = new LocalAwareness(host, {
+      identity,
+      send,
+      onError,
+      intervalMs: 0,
+      fields: { selection: true },
+      selectionFilter,
+    });
+    host.selection = ['secret-1'];
+    expect(() => host.fireSelection()).not.toThrow();
+    expect(onError).toHaveBeenCalled();
+    host.fireTool('pencil');
+    expect(send).toHaveBeenCalled();
+    expect(send.mock.calls.at(-1)?.[0]).toMatchObject({ tool: 'pencil' });
     local.dispose();
   });
 
