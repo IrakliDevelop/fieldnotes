@@ -147,6 +147,11 @@ export type {
   LocalAwarenessOptions,
   AwarenessFields,
 } from './canvas/awareness-publisher';
+export { RemoteCursorOverlay, defaultPeerColor, PEER_COLORS } from './canvas/remote-cursor-overlay';
+export type {
+  RemoteCursorOverlayHost,
+  RemoteCursorOverlayOptions,
+} from './canvas/remote-cursor-overlay';
 export {
   HtmlPainterRegistry,
   HtmlPainterMissingError,
