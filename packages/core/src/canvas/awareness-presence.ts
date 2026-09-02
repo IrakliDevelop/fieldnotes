@@ -69,7 +69,9 @@ function isFinitePoint(value: unknown): value is Point {
 /**
  * Wire-boundary guard, fail closed: any violated cap rejects the whole frame
  * (nothing is clamped or sanitised). Unknown extra fields are tolerated so a
- * newer sender can add fields without breaking older receivers.
+ * newer sender can add fields without breaking older receivers. `cleared`,
+ * when present, must be exactly `true`; `cleared: false` rejects the whole
+ * frame.
  */
 export function isAwarenessPresence(data: unknown): data is AwarenessPresence {
   if (typeof data !== 'object' || data === null) return false;
@@ -85,6 +87,9 @@ export function isAwarenessPresence(data: unknown): data is AwarenessPresence {
     cleared?: unknown;
   };
   if (payload.kind !== AWARENESS_PRESENCE_KIND) return false;
+  // Deliberately runs BEFORE the `cleared` short-circuit below: `id` is
+  // required on every frame, cleared or not, so a `cleared` frame with a
+  // missing or invalid `id` must still be rejected.
   if (!isBoundedString(payload.id, MAX_ID_LENGTH) || payload.id.length === 0) return false;
   if ('cleared' in payload) return payload.cleared === true;
   if (!isOptionalBoundedString(payload.name, MAX_NAME_LENGTH)) return false;
