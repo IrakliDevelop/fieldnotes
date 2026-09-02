@@ -36,6 +36,7 @@ export interface CreateSyncServerOptions {
   messagesPerSecond?: number;
   messageBurst?: number;
   presenceThrottleMs?: number;
+  maxPresenceLanes?: number;
   shutdownGraceMs?: number;
 }
 
@@ -62,6 +63,7 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
     canRead: options.canRead,
     maxJsonDepth: options.maxJsonDepth ?? DEFAULT_MAX_JSON_DEPTH,
     presenceThrottleMs: options.presenceThrottleMs ?? DEFAULT_PRESENCE_THROTTLE_MS,
+    maxPresenceLanes: options.maxPresenceLanes,
   });
   const maxMessageBytes = options.maxMessageBytes ?? DEFAULT_MAX_MESSAGE_BYTES;
   const wss = options.server
