@@ -1,9 +1,5 @@
 import type { Point } from '../core/types';
-import {
-  AWARENESS_PRESENCE_KIND,
-  AWARENESS_MAX_SELECTION,
-  isAwarenessPresence,
-} from './awareness-presence';
+import { AWARENESS_PRESENCE_KIND, AWARENESS_MAX_SELECTION } from './awareness-presence';
 import type { AwarenessIdentity, AwarenessPresence } from './awareness-presence';
 
 /** The viewport capabilities the publisher reads; `Viewport` satisfies it. */
@@ -61,6 +57,8 @@ const MAX_IDENTITY_NAME_LENGTH = 64;
 const MAX_IDENTITY_COLOR_LENGTH = 64;
 const MAX_IDENTITY_ROLE_LENGTH = 32;
 const MAX_TOOL_LENGTH = 64;
+/** Matches `isAwarenessPresence`'s per-selection-id cap in awareness-presence.ts. */
+const MAX_SELECTION_ID_LENGTH = 128;
 
 /** A non-finite or negative `setTimeout` delay is normalised to `0`. */
 function normalizeIntervalMs(value: number): number {
@@ -107,16 +105,16 @@ type MutableFrame = {
  * the window. A heartbeat re-sends the state while idle. `dispose` sends one
  * `cleared` frame. Nothing here touches elements, history, or the camera.
  *
- * Identity strings are truncated to the wire caps (`name`/`color` to 64
- * characters, `role` to 32) so a sender can never publish a frame the wire
- * guard would reject outright; an invalid `id` (empty or over 128 characters)
- * throws instead of silently truncating. `tool` is never truncated: a tool
- * name over 64 characters is omitted from the frame rather than corrupted.
- * As defence in depth, every outgoing frame is re-checked against
- * `isAwarenessPresence` immediately before `send`; a frame that still fails
- * is dropped and reported through `onError` instead of being sent. `intervalMs`
- * and `heartbeatMs` are normalised so a non-finite or out-of-range value (e.g.
- * `Infinity`) can never arm a near-zero busy-loop timer.
+ * Frames are valid by construction: identity is truncated to the wire caps
+ * (`name`/`color` to 64 characters, `role` to 32) so a sender can never
+ * publish a frame the wire guard would reject outright; an invalid `id`
+ * (empty or over 128 characters) throws instead of silently truncating.
+ * `tool` is never truncated: a tool name over 64 characters is omitted from
+ * the frame rather than corrupted. An over-long or empty selection id fails
+ * the selection closed (like a non-string filter entry) rather than being
+ * sent. `intervalMs` and `heartbeatMs` are normalised so a non-finite or
+ * out-of-range value (e.g. `Infinity`) can never arm a near-zero busy-loop
+ * timer.
  */
 export class LocalAwareness {
   private readonly host: LocalAwarenessHost;
@@ -262,9 +260,15 @@ export class LocalAwareness {
       if (!Array.isArray(ids)) throw new TypeError('selectionFilter must return an array');
       // Validate every entry before capping, so a bad id past the cap boundary
       // (e.g. index 280 of a 300-entry array) still fails closed instead of
-      // being silently dropped by the slice.
+      // being silently dropped by the slice. An id longer than the wire cap
+      // (or empty) is treated the same as a non-string entry: it would make
+      // isAwarenessPresence reject the whole frame, so the selection fails
+      // closed here instead.
       for (const id of ids as readonly unknown[]) {
         if (typeof id !== 'string') throw new TypeError('selectionFilter must return strings');
+        if (id.length === 0 || id.length > MAX_SELECTION_ID_LENGTH) {
+          throw new TypeError('selectionFilter must return ids of 1..128 characters');
+        }
       }
       this.selection = (ids as readonly string[]).slice(0, AWARENESS_MAX_SELECTION);
       this.selectionFailed = false;
@@ -296,12 +300,7 @@ export class LocalAwareness {
   private flush(): void {
     this.dirty = false;
     this.lastSentAt = this.now();
-    const frame = this.getState();
-    if (isAwarenessPresence(frame)) {
-      this.safeSend(frame);
-    } else {
-      this.report(new Error('LocalAwareness: frame rejected by isAwarenessPresence'));
-    }
+    this.safeSend(this.getState());
     this.armHeartbeat();
   }
 
