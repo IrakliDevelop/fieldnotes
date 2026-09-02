@@ -139,6 +139,8 @@ export {
   AWARENESS_MAX_SELECTION,
 } from './canvas/awareness-presence';
 export type { AwarenessPresence, AwarenessIdentity } from './canvas/awareness-presence';
+export { PeerRoster } from './canvas/awareness-roster';
+export type { Peer, PeerLeaveReason, PeerRosterOptions } from './canvas/awareness-roster';
 export {
   HtmlPainterRegistry,
   HtmlPainterMissingError,
