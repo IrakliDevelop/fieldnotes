@@ -35,7 +35,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
   visible field or membership changes (heartbeats are silent) and preserves each peer's `selection`
   array reference across cursor-only updates.
 - `RemoteCursorOverlay` draws named cursors at constant screen size (colour precedence: `colorFor`
-  resolver → wire `color` → `defaultPeerColor(id)`, a deterministic 12-hue palette); `RemoteSelectionOverlay`
+  resolver → wire `color` → `defaultPeerColor(id)`, a deterministic hash over the exported 12-hue
+  `PEER_COLORS` palette); `RemoteSelectionOverlay`
   outlines peers' selections only for elements present in the local store and on a locally visible
   layer, rescanning the store only when a selection or colour actually changed, or when the store or
   layer visibility changed.
@@ -58,6 +59,10 @@ stream can still displace other presence kinds inside one throttle window.
   rapid stream of one kind — a laser trail, an awareness cursor — could replace a pending `ping`,
   `focus`, or a `measure`/`path` `cleared` frame sent in the same 50 ms window. Within a lane the newest
   payload still wins.
+- A frame arriving right at a lane's throttle-window boundary now supersedes that lane's still-pending
+  older frame instead of being relayed ahead of it: the immediate-relay path drains and cancels any
+  pending frame before sending, so a newer frame (e.g. an awareness `cleared`) can no longer be
+  followed by a stale one (e.g. a cursor) that was merely waiting on its timer to fire.
 
 ### Added
 
