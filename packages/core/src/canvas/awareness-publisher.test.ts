@@ -175,6 +175,19 @@ describe('LocalAwareness frames', () => {
     local.dispose();
   });
 
+  it('drops a non-finite pointer instead of publishing it on the wire', () => {
+    const { host, wrapper } = makeHost();
+    host.camera.screenToWorld = () => ({ x: NaN, y: 0 });
+    const send = vi.fn();
+    const local = new LocalAwareness(host, { identity, send, intervalMs: 0 });
+    fire(wrapper, 'pointermove', { clientX: 110, clientY: 70 });
+    expect(send).toHaveBeenCalledTimes(1);
+    const frame = send.mock.calls[0]?.[0] as AwarenessPresence;
+    expect(frame).not.toHaveProperty('cursor');
+    expect(isAwarenessPresence(frame)).toBe(true);
+    local.dispose();
+  });
+
   it('heartbeat re-sends the full state only while idle, measured from the last send', () => {
     const { host, wrapper } = makeHost();
     const send = vi.fn();
@@ -324,6 +337,7 @@ describe('LocalAwareness selection privacy', () => {
     const frame = send.mock.calls[0]?.[0] as AwarenessPresence;
     expect(frame.selection).toHaveLength(256);
     expect(frame.selection?.[0]).toBe('e0');
+    expect(isAwarenessPresence(frame)).toBe(true);
     local.dispose();
   });
 

@@ -240,10 +240,12 @@ export class LocalAwareness {
   private onPointerMove(e: PointerEvent): void {
     if (!e.isPrimary) return;
     const rect = this.element.getBoundingClientRect();
-    this.lastPointer = this.host.camera.screenToWorld({
+    const world = this.host.camera.screenToWorld({
       x: e.clientX - rect.left,
       y: e.clientY - rect.top,
     });
+    this.lastPointer =
+      Number.isFinite(world.x) && Number.isFinite(world.y) ? { x: world.x, y: world.y } : null;
     if (this.fields.cursor) this.schedule();
   }
 
