@@ -12,6 +12,7 @@ import type { HubBackend } from './hub-backend';
 import type { Authorize, AuthorizeLayer, CanRead, OwnedElement } from './authorize';
 import {
   DEFAULT_MAX_JSON_DEPTH,
+  DEFAULT_MAX_PRESENCE_LANES,
   DEFAULT_PRESENCE_THROTTLE_MS,
   hasJsonDepthAtMost,
 } from './resource-limits';
@@ -33,6 +34,7 @@ export interface SyncHubOptions {
   canRead?: CanRead;
   maxJsonDepth?: number;
   presenceThrottleMs?: number;
+  maxPresenceLanes?: number;
 }
 
 const HUB_FROM = 'hub';
@@ -52,6 +54,23 @@ function isFanoutOp(op: unknown): op is Extract<SyncOp, { kind: 'upsert' | 'remo
 }
 
 type LayerOp = Extract<SyncOp, { kind: 'layer-upsert' | 'layer-remove' }>;
+
+interface PresenceLane {
+  lastSentAt: number | undefined;
+  pending: { data: unknown; timer: ReturnType<typeof setTimeout> } | null;
+}
+
+const FALLBACK_PRESENCE_LANE = '';
+const MAX_PRESENCE_LANE_LENGTH = 64;
+
+function presenceLaneOf(data: unknown): string {
+  if (typeof data !== 'object' || data === null) return FALLBACK_PRESENCE_LANE;
+  const kind = (data as { kind?: unknown }).kind;
+  if (typeof kind !== 'string' || kind.length === 0 || kind.length > MAX_PRESENCE_LANE_LENGTH) {
+    return FALLBACK_PRESENCE_LANE;
+  }
+  return kind;
+}
 
 function isLayerOp(op: unknown): op is LayerOp {
   if (typeof op !== 'object' || op === null) return false;
@@ -102,11 +121,17 @@ export class SyncHub {
   private readonly memoryLayers = new Map<string, Map<string, LayerRecord>>();
   private readonly maxJsonDepth: number;
   private readonly presenceThrottleMs: number;
-  private readonly lastPresenceAt = new Map<string, number>();
-  private readonly pendingPresence = new Map<
-    string,
-    { data: unknown; timer: ReturnType<typeof setTimeout> }
-  >();
+  private readonly maxPresenceLanes: number;
+  /**
+   * Presence throttle state keyed by connection, then by lane. A lane is the
+   * payload's `kind` (a non-empty string of at most 64 chars) or the reserved
+   * fallback lane `''`, so a rapid stream of one kind (awareness cursors) can
+   * never replace a pending frame of another kind (a ping, a path `cleared`).
+   * Within a lane the newest payload wins. The lane count per connection is
+   * capped by `maxPresenceLanes`, counting the fallback lane, so a client
+   * cannot mint timers by varying `kind`.
+   */
+  private readonly presenceLanes = new Map<string, Map<string, PresenceLane>>();
 
   constructor(options: SyncHubOptions = {}) {
     this.backend = options.backend ?? new MemoryHubBackend();
@@ -117,6 +142,11 @@ export class SyncHub {
     this.canRead = options.canRead;
     this.maxJsonDepth = options.maxJsonDepth ?? DEFAULT_MAX_JSON_DEPTH;
     this.presenceThrottleMs = options.presenceThrottleMs ?? DEFAULT_PRESENCE_THROTTLE_MS;
+    const maxPresenceLanes = options.maxPresenceLanes ?? DEFAULT_MAX_PRESENCE_LANES;
+    if (!Number.isFinite(maxPresenceLanes) || maxPresenceLanes < 1) {
+      throw new RangeError('maxPresenceLanes must be a finite number of at least 1');
+    }
+    this.maxPresenceLanes = Math.floor(maxPresenceLanes);
     this.fanoutUnsub = this.fanout.subscribe((payload) => this.onFanout(payload));
   }
 
@@ -136,10 +166,7 @@ export class SyncHub {
     this.conns.delete(connId);
     const room = conn.room;
     const hadPresence = this.presenceConnections.delete(connId);
-    this.lastPresenceAt.delete(connId);
-    const pendingPresence = this.pendingPresence.get(connId);
-    if (pendingPresence) clearTimeout(pendingPresence.timer);
-    this.pendingPresence.delete(connId);
+    this.clearPresenceLanes(connId);
     const members = this.rooms.get(room);
     if (members) {
       members.delete(connId);
@@ -385,35 +412,61 @@ export class SyncHub {
     );
   }
 
+  private clearPresenceLanes(connId: string): void {
+    const lanes = this.presenceLanes.get(connId);
+    if (!lanes) return;
+    for (const lane of lanes.values()) {
+      if (lane.pending) clearTimeout(lane.pending.timer);
+    }
+    this.presenceLanes.delete(connId);
+  }
+
   private schedulePresence(conn: Connection, data: unknown): void {
     if (this.presenceThrottleMs <= 0) {
       this.broadcastClientPresence(conn, data);
       return;
     }
+    const lane = this.presenceLaneFor(conn.id, presenceLaneOf(data));
     const now = Date.now();
-    const lastSentAt = this.lastPresenceAt.get(conn.id);
-    if (lastSentAt === undefined || now - lastSentAt >= this.presenceThrottleMs) {
-      this.lastPresenceAt.set(conn.id, now);
+    if (lane.lastSentAt === undefined || now - lane.lastSentAt >= this.presenceThrottleMs) {
+      lane.lastSentAt = now;
       this.broadcastClientPresence(conn, data);
       return;
     }
-
-    const existing = this.pendingPresence.get(conn.id);
-    if (existing) {
-      existing.data = data;
+    if (lane.pending) {
+      lane.pending.data = data;
       return;
     }
     const timer = setTimeout(
       () => {
-        const pending = this.pendingPresence.get(conn.id);
-        this.pendingPresence.delete(conn.id);
+        const pending = lane.pending;
+        lane.pending = null;
         if (!pending || !this.conns.has(conn.id)) return;
-        this.lastPresenceAt.set(conn.id, Date.now());
+        lane.lastSentAt = Date.now();
         this.broadcastClientPresence(conn, pending.data);
       },
-      this.presenceThrottleMs - (now - lastSentAt),
+      this.presenceThrottleMs - (now - lane.lastSentAt),
     );
-    this.pendingPresence.set(conn.id, { data, timer });
+    lane.pending = { data, timer };
+  }
+
+  private presenceLaneFor(connId: string, requested: string): PresenceLane {
+    let lanes = this.presenceLanes.get(connId);
+    if (!lanes) {
+      lanes = new Map();
+      this.presenceLanes.set(connId, lanes);
+    }
+    let key = requested;
+    if (key !== FALLBACK_PRESENCE_LANE && !lanes.has(key)) {
+      const named = lanes.size - (lanes.has(FALLBACK_PRESENCE_LANE) ? 1 : 0);
+      if (named >= this.maxPresenceLanes - 1) key = FALLBACK_PRESENCE_LANE;
+    }
+    let lane = lanes.get(key);
+    if (!lane) {
+      lane = { lastSentAt: undefined, pending: null };
+      lanes.set(key, lane);
+    }
+    return lane;
   }
 
   private broadcastLeave(room: string, from: string): void {
@@ -553,8 +606,7 @@ export class SyncHub {
   }
 
   close(): void {
-    for (const pending of this.pendingPresence.values()) clearTimeout(pending.timer);
-    this.pendingPresence.clear();
+    for (const connId of [...this.presenceLanes.keys()]) this.clearPresenceLanes(connId);
     this.fanoutUnsub();
   }
 }

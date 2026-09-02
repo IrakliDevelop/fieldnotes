@@ -1025,6 +1025,140 @@ describe('presence (ephemeral)', () => {
     }
   });
 
+  it('throttles per payload kind: a rapid awareness stream never swallows a ping or a cleared', async () => {
+    vi.useFakeTimers();
+    try {
+      const hub = new SyncHub({ presenceThrottleMs: 50 });
+      const a = makeConn('a', 'R');
+      const b = makeConn('b', 'R');
+      hub.addConnection(a);
+      hub.addConnection(b);
+
+      await hub.handleMessage(
+        'a',
+        presenceMsg('ca', { kind: 'awareness', id: 'u', cursor: { x: 1, y: 1 } }),
+      );
+      await hub.handleMessage(
+        'a',
+        presenceMsg('ca', { kind: 'awareness', id: 'u', cursor: { x: 2, y: 2 } }),
+      );
+      // A one-shot ping inside the awareness window must go out at once (its own lane).
+      await hub.handleMessage('a', presenceMsg('ca', { kind: 'ping', x: 5, y: 5 }));
+      // A path clear inside the window must not be replaced by the next cursor frame.
+      await hub.handleMessage(
+        'a',
+        presenceMsg('ca', { kind: 'path', points: [{ x: 0, y: 0 }], segmentColors: [], feet: 0 }),
+      );
+      await hub.handleMessage('a', presenceMsg('ca', { kind: 'path', cleared: true }));
+      await hub.handleMessage(
+        'a',
+        presenceMsg('ca', { kind: 'awareness', id: 'u', cursor: { x: 3, y: 3 } }),
+      );
+
+      const kinds = () =>
+        b.sent.map((m) => (JSON.parse(m) as { op: { data: { kind: string } } }).op.data.kind);
+      expect(kinds()).toEqual(['awareness', 'ping', 'path']);
+
+      await vi.advanceTimersByTimeAsync(50);
+      expect(kinds()).toEqual(['awareness', 'ping', 'path', 'awareness', 'path']);
+      const last = JSON.parse(b.sent[4] as string) as { op: { data: unknown } };
+      expect(last.op.data).toEqual({ kind: 'path', cleared: true });
+      const cursor = JSON.parse(b.sent[3] as string) as { op: { data: { cursor: { x: number } } } };
+      expect(cursor.op.data.cursor.x).toBe(3);
+      hub.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('caps lanes per connection: beyond maxPresenceLanes - 1 named kinds everything shares the fallback lane', async () => {
+    vi.useFakeTimers();
+    try {
+      const hub = new SyncHub({ presenceThrottleMs: 50, maxPresenceLanes: 4 });
+      const a = makeConn('a', 'R');
+      const b = makeConn('b', 'R');
+      hub.addConnection(a);
+      hub.addConnection(b);
+
+      for (const kind of ['k1', 'k2', 'k3', 'k4']) {
+        await hub.handleMessage('a', presenceMsg('ca', { kind, n: 1 }));
+        await hub.handleMessage('a', presenceMsg('ca', { kind, n: 2 }));
+      }
+      // Non-object payloads always use the fallback lane, which k4 now shares.
+      await hub.handleMessage('a', presenceMsg('ca', 'plain'));
+      // 3 named lanes + 1 fallback lane each sent their leading frame; nothing else yet.
+      expect(b.sent).toHaveLength(4);
+      // Pending timers can never exceed the cap.
+      expect(vi.getTimerCount()).toBeLessThanOrEqual(4);
+
+      await vi.advanceTimersByTimeAsync(50);
+      const payloads = b.sent.map((m) => (JSON.parse(m) as { op: { data: unknown } }).op.data);
+      expect(payloads).toHaveLength(8);
+      // The fallback lane's trailing frame is the plain string, which replaced k4's second frame.
+      expect(payloads.slice(4)).toEqual([
+        { kind: 'k1', n: 2 },
+        { kind: 'k2', n: 2 },
+        { kind: 'k3', n: 2 },
+        'plain',
+      ]);
+      hub.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('treats an over-long kind as the fallback lane', async () => {
+    vi.useFakeTimers();
+    try {
+      const hub = new SyncHub({ presenceThrottleMs: 50 });
+      const a = makeConn('a', 'R');
+      const b = makeConn('b', 'R');
+      hub.addConnection(a);
+      hub.addConnection(b);
+      const longKind = 'k'.repeat(65);
+      await hub.handleMessage('a', presenceMsg('ca', { kind: longKind, n: 1 }));
+      await hub.handleMessage('a', presenceMsg('ca', 'plain'));
+      // Same (fallback) lane: the string is queued behind the long-kind frame, not sent at once.
+      expect(b.sent).toHaveLength(1);
+      hub.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('clears every lane timer when the connection is removed mid-window', async () => {
+    vi.useFakeTimers();
+    try {
+      const hub = new SyncHub({ presenceThrottleMs: 50 });
+      const a = makeConn('a', 'R');
+      const b = makeConn('b', 'R');
+      hub.addConnection(a);
+      hub.addConnection(b);
+      for (const kind of ['awareness', 'laser', 'ping']) {
+        await hub.handleMessage('a', presenceMsg('ca', { kind, n: 1 }));
+        await hub.handleMessage('a', presenceMsg('ca', { kind, n: 2 }));
+      }
+      expect(b.sent).toHaveLength(3);
+      hub.removeConnection('a');
+      expect(vi.getTimerCount()).toBe(0);
+      await vi.advanceTimersByTimeAsync(100);
+      // 3 leading frames + the leave; no trailing frames after removal.
+      expect(b.sent).toHaveLength(4);
+      expect(JSON.parse(b.sent[3] as string)).toEqual({
+        from: 'a',
+        op: { kind: 'presence-leave' },
+      });
+      hub.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rejects a non-positive maxPresenceLanes', () => {
+    expect(() => new SyncHub({ maxPresenceLanes: 0 })).toThrow(RangeError);
+    expect(() => new SyncHub({ maxPresenceLanes: Number.NaN })).toThrow(RangeError);
+  });
+
   it('uses the connection identity when a client forges another sender', async () => {
     const hub = new SyncHub();
     const attacker = makeConn('attacker', 'R');

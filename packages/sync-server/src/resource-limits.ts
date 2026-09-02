@@ -5,6 +5,8 @@ export const DEFAULT_MAX_PENDING_AUTH_BYTES = 2 * 1024 * 1024;
 export const DEFAULT_MESSAGES_PER_SECOND = 120;
 export const DEFAULT_MESSAGE_BURST = 240;
 export const DEFAULT_PRESENCE_THROTTLE_MS = 50;
+/** Per-connection presence throttle lanes, INCLUDING the reserved fallback lane. */
+export const DEFAULT_MAX_PRESENCE_LANES = 16;
 
 export function hasJsonDepthAtMost(message: string, maxDepth: number): boolean {
   let depth = 0;
