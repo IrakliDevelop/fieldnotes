@@ -1,5 +1,9 @@
 import type { Point } from '../core/types';
-import { AWARENESS_PRESENCE_KIND, AWARENESS_MAX_SELECTION } from './awareness-presence';
+import {
+  AWARENESS_PRESENCE_KIND,
+  AWARENESS_MAX_SELECTION,
+  isAwarenessPresence,
+} from './awareness-presence';
 import type { AwarenessIdentity, AwarenessPresence } from './awareness-presence';
 
 /** The viewport capabilities the publisher reads; `Viewport` satisfies it. */
@@ -50,6 +54,44 @@ const DEFAULT_FIELDS: Readonly<Required<AwarenessFields>> = Object.freeze({
 });
 const DEFAULT_INTERVAL_MS = 50;
 const DEFAULT_HEARTBEAT_MS = 15_000;
+/** `setTimeout` clamps delays outside this range to 1ms; never schedule those. */
+const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
+const MAX_IDENTITY_ID_LENGTH = 128;
+const MAX_IDENTITY_NAME_LENGTH = 64;
+const MAX_IDENTITY_COLOR_LENGTH = 64;
+const MAX_IDENTITY_ROLE_LENGTH = 32;
+const MAX_TOOL_LENGTH = 64;
+
+/** A non-finite or negative `setTimeout` delay is normalised to `0`. */
+function normalizeIntervalMs(value: number): number {
+  return Number.isFinite(value) && value >= 0 ? value : 0;
+}
+
+/** A non-finite or non-positive heartbeat disables the heartbeat (`0`). */
+function normalizeHeartbeatMs(value: number): number {
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+/**
+ * Truncates identity strings to the wire caps and rejects an invalid id, so a
+ * sender can never publish a frame that the wire guard would drop outright.
+ */
+function normalizeIdentity(identity: AwarenessIdentity): AwarenessIdentity {
+  if (identity.id.length === 0 || identity.id.length > MAX_IDENTITY_ID_LENGTH) {
+    throw new RangeError('LocalAwareness: identity.id must be 1..128 characters');
+  }
+  const normalized: { id: string; name?: string; color?: string; role?: string } = {
+    id: identity.id,
+  };
+  if (identity.name !== undefined)
+    normalized.name = identity.name.slice(0, MAX_IDENTITY_NAME_LENGTH);
+  if (identity.color !== undefined) {
+    normalized.color = identity.color.slice(0, MAX_IDENTITY_COLOR_LENGTH);
+  }
+  if (identity.role !== undefined)
+    normalized.role = identity.role.slice(0, MAX_IDENTITY_ROLE_LENGTH);
+  return normalized;
+}
 
 type MutableFrame = {
   -readonly [K in keyof AwarenessPresence]?: AwarenessPresence[K];
@@ -64,6 +106,17 @@ type MutableFrame = {
  * otherwise one trailing frame per `intervalMs` carries every change made in
  * the window. A heartbeat re-sends the state while idle. `dispose` sends one
  * `cleared` frame. Nothing here touches elements, history, or the camera.
+ *
+ * Identity strings are truncated to the wire caps (`name`/`color` to 64
+ * characters, `role` to 32) so a sender can never publish a frame the wire
+ * guard would reject outright; an invalid `id` (empty or over 128 characters)
+ * throws instead of silently truncating. `tool` is never truncated: a tool
+ * name over 64 characters is omitted from the frame rather than corrupted.
+ * As defence in depth, every outgoing frame is re-checked against
+ * `isAwarenessPresence` immediately before `send`; a frame that still fails
+ * is dropped and reported through `onError` instead of being sent. `intervalMs`
+ * and `heartbeatMs` are normalised so a non-finite or out-of-range value (e.g.
+ * `Infinity`) can never arm a near-zero busy-loop timer.
  */
 export class LocalAwareness {
   private readonly host: LocalAwarenessHost;
@@ -97,9 +150,9 @@ export class LocalAwareness {
     this.send = options.send;
     this.selectionFilter = options.selectionFilter;
     this.onError = options.onError;
-    this.intervalMs = options.intervalMs ?? DEFAULT_INTERVAL_MS;
-    this.heartbeatMs = options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
-    this.identity = { ...options.identity };
+    this.intervalMs = normalizeIntervalMs(options.intervalMs ?? DEFAULT_INTERVAL_MS);
+    this.heartbeatMs = normalizeHeartbeatMs(options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS);
+    this.identity = normalizeIdentity(options.identity);
     this.fields = mergeFields(DEFAULT_FIELDS, options.fields ?? {});
     this.tool = host.toolManager.activeTool?.name ?? null;
     this.refreshSelection();
@@ -130,7 +183,7 @@ export class LocalAwareness {
   }
 
   setIdentity(identity: AwarenessIdentity): void {
-    this.identity = { ...identity };
+    this.identity = normalizeIdentity(identity);
     this.schedule();
   }
 
@@ -161,7 +214,9 @@ export class LocalAwareness {
     if (this.fields.selection && !this.selectionFailed && this.selection.length > 0) {
       frame.selection = [...this.selection];
     }
-    if (this.fields.tool && this.tool !== null) frame.tool = this.tool;
+    if (this.fields.tool && this.tool !== null && this.tool.length <= MAX_TOOL_LENGTH) {
+      frame.tool = this.tool;
+    }
     return frame;
   }
 
@@ -205,13 +260,13 @@ export class LocalAwareness {
       const raw = this.host.getSelectedIds();
       const ids = this.selectionFilter ? this.selectionFilter(raw) : raw;
       if (!Array.isArray(ids)) throw new TypeError('selectionFilter must return an array');
-      const out: string[] = [];
+      // Validate every entry before capping, so a bad id past the cap boundary
+      // (e.g. index 280 of a 300-entry array) still fails closed instead of
+      // being silently dropped by the slice.
       for (const id of ids as readonly unknown[]) {
         if (typeof id !== 'string') throw new TypeError('selectionFilter must return strings');
-        out.push(id);
-        if (out.length === AWARENESS_MAX_SELECTION) break;
       }
-      this.selection = out;
+      this.selection = (ids as readonly string[]).slice(0, AWARENESS_MAX_SELECTION);
       this.selectionFailed = false;
     } catch (error) {
       this.selection = [];
@@ -229,16 +284,24 @@ export class LocalAwareness {
       this.flush();
       return;
     }
-    this.throttleTimer = setTimeout(() => {
-      this.throttleTimer = null;
-      if (this.dirty) this.flush();
-    }, this.intervalMs - elapsed);
+    this.throttleTimer = setTimeout(
+      () => {
+        this.throttleTimer = null;
+        if (this.dirty) this.flush();
+      },
+      Math.min(this.intervalMs - elapsed, MAX_TIMER_DELAY_MS),
+    );
   }
 
   private flush(): void {
     this.dirty = false;
     this.lastSentAt = this.now();
-    this.safeSend(this.getState());
+    const frame = this.getState();
+    if (isAwarenessPresence(frame)) {
+      this.safeSend(frame);
+    } else {
+      this.report(new Error('LocalAwareness: frame rejected by isAwarenessPresence'));
+    }
     this.armHeartbeat();
   }
 
@@ -246,10 +309,13 @@ export class LocalAwareness {
     if (this.heartbeatTimer !== null) clearTimeout(this.heartbeatTimer);
     this.heartbeatTimer = null;
     if (this.heartbeatMs <= 0 || this.isDisposed) return;
-    this.heartbeatTimer = setTimeout(() => {
-      this.heartbeatTimer = null;
-      this.flush();
-    }, this.heartbeatMs);
+    this.heartbeatTimer = setTimeout(
+      () => {
+        this.heartbeatTimer = null;
+        this.flush();
+      },
+      Math.min(this.heartbeatMs, MAX_TIMER_DELAY_MS),
+    );
   }
 
   private safeSend(frame: AwarenessPresence): void {
