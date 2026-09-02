@@ -122,6 +122,16 @@ describe('PeerRoster rows', () => {
     roster.remove('ghost');
     expect(leave).not.toHaveBeenCalled();
     expect(change).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('two sockets claiming the same id are two rows', () => {
+    const roster = new PeerRoster();
+    roster.apply('c1', frame('ada'));
+    roster.apply('c2', frame('ada'));
+    const peers = roster.getPeers();
+    expect(peers).toHaveLength(2);
+    expect(peers.map((p) => p.from).sort()).toEqual(['c1', 'c2']);
   });
 });
 
@@ -228,6 +238,47 @@ describe('PeerRoster stale timer', () => {
     expect(vi.getTimerCount()).toBe(0);
     vi.advanceTimersByTime(10 * 60_000);
     expect(roster.getPeers()).toHaveLength(1);
+  });
+
+  it('staleMs: Infinity (or NaN) disables expiry instead of busy-looping', () => {
+    const roster = new PeerRoster({ staleMs: Infinity });
+    roster.apply('a', frame('a'));
+    expect(vi.getTimerCount()).toBe(0);
+    vi.advanceTimersByTime(10 * 60_000);
+    expect(roster.getPeers()).toHaveLength(1);
+  });
+
+  it('defaults to a 45s stale window', () => {
+    const roster = new PeerRoster();
+    const leave = vi.fn();
+    roster.onLeave(leave);
+    roster.apply('a', frame('a'));
+    vi.advanceTimersByTime(44_999);
+    expect(leave).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(2);
+    expect(leave).toHaveBeenCalledTimes(1);
+    expect(leave.mock.calls[0]?.[1]).toBe('stale');
+  });
+
+  it('a re-entrant apply during stale expiry keeps the refreshed sender alive and never re-discovers it', () => {
+    const roster = new PeerRoster({ staleMs: 1000 });
+    const leaves: string[] = [];
+    let discoverCount = 0;
+    roster.onDiscover(() => {
+      discoverCount++;
+    });
+    roster.onLeave((peer) => {
+      leaves.push(peer.from);
+      if (peer.from === 'a') roster.apply('b', frame('b'));
+    });
+    roster.apply('a', frame('a'));
+    roster.apply('b', frame('b'));
+    expect(discoverCount).toBe(2);
+    vi.advanceTimersByTime(1000);
+    expect(leaves).toEqual(['a']);
+    expect(roster.getPeer('b')).toBeDefined();
+    roster.apply('b', frame('b'));
+    expect(discoverCount).toBe(2);
   });
 });
 

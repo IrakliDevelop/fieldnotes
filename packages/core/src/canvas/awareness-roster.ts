@@ -216,10 +216,17 @@ export class PeerRoster {
   private armStaleTimer(): void {
     if (this.staleTimer !== null) clearTimeout(this.staleTimer);
     this.staleTimer = null;
-    if (this.staleMs <= 0 || this.isDisposed || this.discovered.size === 0) return;
+    if (
+      !Number.isFinite(this.staleMs) ||
+      this.staleMs <= 0 ||
+      this.isDisposed ||
+      this.discovered.size === 0
+    ) {
+      return;
+    }
     let earliest = Infinity;
     for (const seen of this.discovered.values()) if (seen < earliest) earliest = seen;
-    const delay = Math.max(0, earliest + this.staleMs - this.now());
+    const delay = Math.min(Math.max(0, earliest + this.staleMs - this.now()), 2 ** 31 - 1);
     this.staleTimer = setTimeout(() => {
       this.staleTimer = null;
       this.expireStale();
@@ -228,11 +235,11 @@ export class PeerRoster {
 
   private expireStale(): void {
     const t = this.now();
-    for (const [from, seen] of [...this.discovered]) {
-      if (t - seen >= this.staleMs) {
-        this.discovered.delete(from);
-        this.dropRow(from, 'stale');
-      }
+    for (const from of [...this.discovered.keys()]) {
+      const seen = this.discovered.get(from);
+      if (seen === undefined || t - seen < this.staleMs) continue;
+      this.discovered.delete(from);
+      this.dropRow(from, 'stale');
     }
     this.armStaleTimer();
   }
