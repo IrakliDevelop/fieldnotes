@@ -70,27 +70,6 @@ function normalizeHeartbeatMs(value: number): number {
   return Number.isFinite(value) && value > 0 ? value : 0;
 }
 
-/**
- * Truncates identity strings to the wire caps and rejects an invalid id, so a
- * sender can never publish a frame that the wire guard would drop outright.
- */
-function normalizeIdentity(identity: AwarenessIdentity): AwarenessIdentity {
-  if (identity.id.length === 0 || identity.id.length > MAX_IDENTITY_ID_LENGTH) {
-    throw new RangeError('LocalAwareness: identity.id must be 1..128 characters');
-  }
-  const normalized: { id: string; name?: string; color?: string; role?: string } = {
-    id: identity.id,
-  };
-  if (identity.name !== undefined)
-    normalized.name = identity.name.slice(0, MAX_IDENTITY_NAME_LENGTH);
-  if (identity.color !== undefined) {
-    normalized.color = identity.color.slice(0, MAX_IDENTITY_COLOR_LENGTH);
-  }
-  if (identity.role !== undefined)
-    normalized.role = identity.role.slice(0, MAX_IDENTITY_ROLE_LENGTH);
-  return normalized;
-}
-
 type MutableFrame = {
   -readonly [K in keyof AwarenessPresence]?: AwarenessPresence[K];
 } & { kind: 'awareness'; id: string };
@@ -107,8 +86,9 @@ type MutableFrame = {
  *
  * Frames are valid by construction: identity is truncated to the wire caps
  * (`name`/`color` to 64 characters, `role` to 32) so a sender can never
- * publish a frame the wire guard would reject outright; an invalid `id`
- * (empty or over 128 characters) throws instead of silently truncating.
+ * publish a frame the wire guard would reject outright; truncation is
+ * reported through `onError` (a `RangeError`) rather than silent. An
+ * invalid `id` (empty or over 128 characters) throws instead of truncating.
  * `tool` is never truncated: a tool name over 64 characters is omitted from
  * the frame rather than corrupted. An over-long or empty selection id fails
  * the selection closed (like a non-string filter entry) rather than being
@@ -150,7 +130,7 @@ export class LocalAwareness {
     this.onError = options.onError;
     this.intervalMs = normalizeIntervalMs(options.intervalMs ?? DEFAULT_INTERVAL_MS);
     this.heartbeatMs = normalizeHeartbeatMs(options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS);
-    this.identity = normalizeIdentity(options.identity);
+    this.identity = this.normalizeIdentity(options.identity);
     this.fields = mergeFields(DEFAULT_FIELDS, options.fields ?? {});
     this.tool = host.toolManager.activeTool?.name ?? null;
     this.refreshSelection();
@@ -181,7 +161,7 @@ export class LocalAwareness {
   }
 
   setIdentity(identity: AwarenessIdentity): void {
-    this.identity = normalizeIdentity(identity);
+    this.identity = this.normalizeIdentity(identity);
     this.schedule();
   }
 
@@ -333,6 +313,52 @@ export class LocalAwareness {
     } catch {
       // A throwing error sink must not break the publisher.
     }
+  }
+
+  /**
+   * Truncates identity strings to the wire caps and rejects an invalid id, so a
+   * sender can never publish a frame that the wire guard would drop outright.
+   * A truncated field is reported through `onError` (a `RangeError`) rather
+   * than silently shortened, so a caller passing an over-long name finds out.
+   */
+  private normalizeIdentity(identity: AwarenessIdentity): AwarenessIdentity {
+    if (identity.id.length === 0 || identity.id.length > MAX_IDENTITY_ID_LENGTH) {
+      throw new RangeError('LocalAwareness: identity.id must be 1..128 characters');
+    }
+    const normalized: { id: string; name?: string; color?: string; role?: string } = {
+      id: identity.id,
+    };
+    if (identity.name !== undefined) {
+      normalized.name = identity.name.slice(0, MAX_IDENTITY_NAME_LENGTH);
+      if (identity.name.length > MAX_IDENTITY_NAME_LENGTH) {
+        this.report(
+          new RangeError(
+            `LocalAwareness: identity.name truncated to ${MAX_IDENTITY_NAME_LENGTH} characters`,
+          ),
+        );
+      }
+    }
+    if (identity.color !== undefined) {
+      normalized.color = identity.color.slice(0, MAX_IDENTITY_COLOR_LENGTH);
+      if (identity.color.length > MAX_IDENTITY_COLOR_LENGTH) {
+        this.report(
+          new RangeError(
+            `LocalAwareness: identity.color truncated to ${MAX_IDENTITY_COLOR_LENGTH} characters`,
+          ),
+        );
+      }
+    }
+    if (identity.role !== undefined) {
+      normalized.role = identity.role.slice(0, MAX_IDENTITY_ROLE_LENGTH);
+      if (identity.role.length > MAX_IDENTITY_ROLE_LENGTH) {
+        this.report(
+          new RangeError(
+            `LocalAwareness: identity.role truncated to ${MAX_IDENTITY_ROLE_LENGTH} characters`,
+          ),
+        );
+      }
+    }
+    return normalized;
   }
 }
 

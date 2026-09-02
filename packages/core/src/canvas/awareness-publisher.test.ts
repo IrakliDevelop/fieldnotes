@@ -423,6 +423,24 @@ describe('LocalAwareness identity and tool bounds', () => {
     local.dispose();
   });
 
+  it('reports a truncated identity field through onError instead of staying silent', () => {
+    const { host } = makeHost();
+    const send = vi.fn();
+    const onError = vi.fn();
+    const local = new LocalAwareness(host, {
+      identity: { id: 'ada', name: 'x'.repeat(100) },
+      send,
+      onError,
+      intervalMs: 0,
+    });
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError.mock.calls[0]?.[0]).toBeInstanceOf(RangeError);
+    local.announce();
+    const frame = send.mock.calls.at(-1)?.[0] as AwarenessPresence;
+    expect(frame.name).toHaveLength(64);
+    local.dispose();
+  });
+
   it('throws a RangeError when id is empty or over 128 characters', () => {
     const { host } = makeHost();
     expect(
@@ -572,6 +590,22 @@ describe('LocalAwareness lifecycle', () => {
     expect(send).toHaveBeenCalled();
     expect(send.mock.calls.at(-1)?.[0]).toMatchObject({ tool: 'pencil' });
     local.dispose();
+  });
+
+  it('dispose after a pending trailing frame sends cleared, never the stale cursor', () => {
+    const { host, wrapper } = makeHost();
+    const send = vi.fn();
+    const local = new LocalAwareness(host, { identity, send, intervalMs: 50, heartbeatMs: 0 });
+    fire(wrapper, 'pointermove', { clientX: 110, clientY: 70 });
+    expect(send).toHaveBeenCalledTimes(1); // leading frame
+    vi.advanceTimersByTime(10);
+    fire(wrapper, 'pointermove', { clientX: 120, clientY: 80 });
+    expect(send).toHaveBeenCalledTimes(1); // still pending, throttled
+    local.dispose();
+    vi.advanceTimersByTime(100);
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send.mock.calls[1]?.[0]).toEqual({ kind: 'awareness', id: 'ada', cleared: true });
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it('throws when the viewport wrapper is not mounted and no element is given', () => {

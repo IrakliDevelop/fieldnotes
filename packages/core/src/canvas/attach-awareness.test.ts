@@ -245,7 +245,10 @@ describe('attachAwareness', () => {
       attachAwareness(viewport, bus.channelFor('A'), {
         identity: { id: 'ada' },
         intervalMs: 0,
-        heartbeatMs: 0,
+        // Non-zero so the LocalAwareness constructor arms a heartbeat timer;
+        // `vi.getTimerCount() === 0` below is only a meaningful assertion
+        // (rather than vacuously true) if there was a timer to clear.
+        heartbeatMs: 1000,
       }),
     ).toThrow(boom);
     expect(vi.getTimerCount()).toBe(0);
