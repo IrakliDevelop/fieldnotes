@@ -152,6 +152,11 @@ export type {
   RemoteCursorOverlayHost,
   RemoteCursorOverlayOptions,
 } from './canvas/remote-cursor-overlay';
+export { RemoteSelectionOverlay } from './canvas/remote-selection-overlay';
+export type {
+  RemoteSelectionOverlayHost,
+  RemoteSelectionOverlayOptions,
+} from './canvas/remote-selection-overlay';
 export {
   HtmlPainterRegistry,
   HtmlPainterMissingError,
