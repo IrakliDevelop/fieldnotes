@@ -58,6 +58,8 @@ const LABEL_PAD_X = 6;
 const LABEL_PAD_Y = 3;
 const LABEL_HEIGHT = 16;
 const LABEL_OFFSET = 14;
+/** Above this many cached label widths, the whole cache is cleared rather than tracked per-peer. */
+const MAX_LABEL_WIDTH_CACHE = 64;
 
 /**
  * Renders every roster peer that has a cursor as an arrow glyph plus a name
@@ -88,7 +90,14 @@ export class RemoteCursorOverlay {
     this.showLabels = options.showLabels ?? true;
     this.labelFont = options.labelFont ?? DEFAULT_LABEL_FONT;
     this.unregister = host.registerOverlay((ctx) => this.render(ctx));
-    this.unsubscribe = roster.onChange(() => host.requestRender());
+    this.unsubscribe = roster.onChange(() => {
+      // Bound the label-width cache: peer names are unbounded and churn (join
+      // / leave, name changes), so an unlimited cache would leak. Clearing
+      // outright once it grows past a small bound keeps this O(1) and
+      // deterministic, at the cost of re-measuring after a burst of new peers.
+      if (this.labelWidths.size > MAX_LABEL_WIDTH_CACHE) this.labelWidths.clear();
+      host.requestRender();
+    });
   }
 
   get disposed(): boolean {
