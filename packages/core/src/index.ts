@@ -134,6 +134,12 @@ export type {
   RemoteFocusReceiverOptions,
 } from './canvas/remote-focus-receiver';
 export {
+  isAwarenessPresence,
+  AWARENESS_PRESENCE_KIND,
+  AWARENESS_MAX_SELECTION,
+} from './canvas/awareness-presence';
+export type { AwarenessPresence, AwarenessIdentity } from './canvas/awareness-presence';
+export {
   HtmlPainterRegistry,
   HtmlPainterMissingError,
   resolveHtmlRouting,
