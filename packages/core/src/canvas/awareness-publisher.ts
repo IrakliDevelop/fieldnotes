@@ -135,7 +135,7 @@ export class LocalAwareness {
     this.identity = this.normalizeIdentity(options.identity);
     this.fields = mergeFields(DEFAULT_FIELDS, options.fields ?? {});
     this.tool = host.toolManager.activeTool?.name ?? null;
-    this.refreshSelection();
+    if (this.fields.selection) this.refreshSelection();
 
     const opts: AddEventListenerOptions = { passive: true };
     element.addEventListener('pointermove', this.handlePointerMove, opts);
@@ -143,12 +143,11 @@ export class LocalAwareness {
     element.addEventListener('pointercancel', this.handlePointerEnd, opts);
     this.unsubscribers.push(
       host.onSelectionChange(() => {
-        // No ids are read or published while selection publishing is off;
-        // getState() re-reads them itself the moment it is turned on.
-        if (this.fields.selection) {
-          this.refreshSelection();
-          this.schedule();
-        }
+        // getState() re-reads and re-filters the ids for the frame itself, so
+        // nothing is read here: while selection publishing is off no ids are
+        // touched at all; while it is on the frame carries the selection as of
+        // send time.
+        if (this.fields.selection) this.schedule();
       }),
       host.toolManager.onChange((name) => {
         this.tool = name;
@@ -186,7 +185,12 @@ export class LocalAwareness {
     this.schedule();
   }
 
-  /** The complete state a frame carries right now. */
+  /**
+   * The complete state a frame carries right now. Side-effecting when
+   * selection publishing is on: re-reads `getSelectedIds()`, re-runs
+   * `selectionFilter`, updates the fail-closed selection state, and may call
+   * `onError`. A no-op with respect to selection while publishing is off.
+   */
   getState(): AwarenessPresence {
     const frame: MutableFrame = { kind: AWARENESS_PRESENCE_KIND, id: this.identity.id };
     if (this.identity.name !== undefined) frame.name = this.identity.name;

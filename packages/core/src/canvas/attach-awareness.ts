@@ -136,12 +136,34 @@ export function attachAwareness(
     );
     unsubscribers.push(channel.onPresenceLeave((from) => roster.remove(from)));
   } catch (error) {
-    for (let i = unsubscribers.length - 1; i >= 0; i--) unsubscribers[i]?.();
+    for (let i = unsubscribers.length - 1; i >= 0; i--) {
+      try {
+        unsubscribers[i]?.();
+      } catch {
+        // The original error is what surfaces.
+      }
+    }
     unsubscribers.length = 0;
-    selections?.dispose();
-    cursors?.dispose();
-    local?.dispose();
-    roster.dispose();
+    try {
+      selections?.dispose();
+    } catch {
+      // The original error is what surfaces.
+    }
+    try {
+      cursors?.dispose();
+    } catch {
+      // The original error is what surfaces.
+    }
+    try {
+      local?.dispose();
+    } catch {
+      // The original error is what surfaces.
+    }
+    try {
+      roster.dispose();
+    } catch {
+      // The original error is what surfaces.
+    }
     throw error;
   }
   let disposed = false;
@@ -155,11 +177,35 @@ export function attachAwareness(
     dispose: () => {
       if (disposed) return;
       disposed = true;
-      local?.dispose();
-      cursors?.dispose();
-      selections?.dispose();
-      roster.dispose();
-      for (const unsub of unsubscribers) unsub();
+      // Each step is guarded so one throwing collaborator cannot skip the
+      // rest of the documented teardown order.
+      try {
+        local?.dispose();
+      } catch {
+        // Keep unwinding regardless.
+      }
+      try {
+        cursors?.dispose();
+      } catch {
+        // Keep unwinding regardless.
+      }
+      try {
+        selections?.dispose();
+      } catch {
+        // Keep unwinding regardless.
+      }
+      try {
+        roster.dispose();
+      } catch {
+        // Keep unwinding regardless.
+      }
+      for (const unsub of unsubscribers) {
+        try {
+          unsub();
+        } catch {
+          // Keep unwinding regardless.
+        }
+      }
       unsubscribers.length = 0;
     },
   };
