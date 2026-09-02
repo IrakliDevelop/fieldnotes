@@ -103,6 +103,11 @@ export function attachAwareness(
   let local: LocalAwareness | null = null;
   let cursors: RemoteCursorOverlay | null = null;
   let selections: RemoteSelectionOverlay | null = null;
+  // Registering the channel subscriptions lives inside this same guarded
+  // section: if `onPresence` or `onPresenceLeave` throws (a transport already
+  // tearing down, say), everything already built above must not leak with no
+  // handle to dispose it.
+  const unsubscribers: (() => void)[] = [];
   try {
     local =
       publish === false
@@ -123,20 +128,22 @@ export function attachAwareness(
             roster,
             selectionOptions === true ? {} : selectionOptions,
           );
+    if (publish !== false) unsubscribers.push(roster.onDiscover(() => local?.announce()));
+    unsubscribers.push(
+      channel.onPresence((from, data) => {
+        roster.apply(from, data);
+      }),
+    );
+    unsubscribers.push(channel.onPresenceLeave((from) => roster.remove(from)));
   } catch (error) {
+    for (let i = unsubscribers.length - 1; i >= 0; i--) unsubscribers[i]?.();
+    unsubscribers.length = 0;
     selections?.dispose();
     cursors?.dispose();
     local?.dispose();
     roster.dispose();
     throw error;
   }
-  const unsubscribers: (() => void)[] = [
-    ...(publish === false ? [] : [roster.onDiscover(() => local?.announce())]),
-    channel.onPresence((from, data) => {
-      roster.apply(from, data);
-    }),
-    channel.onPresenceLeave((from) => roster.remove(from)),
-  ];
   let disposed = false;
   return {
     roster,

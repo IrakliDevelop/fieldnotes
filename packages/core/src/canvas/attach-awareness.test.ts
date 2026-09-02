@@ -5,6 +5,7 @@ import type { PresenceChannel, AwarenessViewport } from './attach-awareness';
 import type { Viewport } from './viewport';
 import { ElementStore } from '../elements/element-store';
 import { LayerManager } from '../layers/layer-manager';
+import { PeerRoster } from './awareness-roster';
 
 // Compile-time pin: `Viewport` must keep satisfying `AwarenessViewport`
 // structurally, with no cast required at the call site.
@@ -253,6 +254,92 @@ describe('attachAwareness', () => {
     ).toThrow(boom);
     expect(vi.getTimerCount()).toBe(0);
     expect(bus.sentBy.get('A')).toEqual([{ kind: 'awareness', id: 'ada', cleared: true }]);
+  });
+
+  it('unwinds channel subscriptions that fail to register: onPresence throws', () => {
+    const bus = makeBus();
+    const base = bus.channelFor('A');
+    // Spy on the roster's onDiscover so we can prove ITS returned unsubscribe
+    // (registered before the failing onPresence) was actually invoked during
+    // the unwind, not just that the roster itself was later disposed.
+    const originalOnDiscover = PeerRoster.prototype.onDiscover;
+    const onDiscoverUnsub = vi.fn();
+    const onDiscoverSpy = vi.spyOn(PeerRoster.prototype, 'onDiscover').mockImplementation(function (
+      this: PeerRoster,
+      listener: (from: string) => void,
+    ) {
+      const off = originalOnDiscover.call(this, listener);
+      return () => {
+        onDiscoverUnsub();
+        off();
+      };
+    });
+    const boom = new Error('onPresence: transport already tearing down');
+    const channel: PresenceChannel = {
+      sendPresence: base.sendPresence,
+      onPresence: () => {
+        throw boom;
+      },
+      onPresenceLeave: (h) => base.onPresenceLeave(h),
+    };
+    expect(() =>
+      attachAwareness(makeViewport(), channel, {
+        identity: { id: 'ada' },
+        intervalMs: 0,
+        // Non-zero so the LocalAwareness constructor arms a heartbeat timer;
+        // `vi.getTimerCount() === 0` below is only a meaningful assertion if
+        // there was a timer to clear.
+        heartbeatMs: 1000,
+      }),
+    ).toThrow(boom);
+    expect(bus.sentBy.get('A')).toEqual([{ kind: 'awareness', id: 'ada', cleared: true }]);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(onDiscoverUnsub).toHaveBeenCalledTimes(1);
+    onDiscoverSpy.mockRestore();
+  });
+
+  it('unwinds channel subscriptions that fail to register: onPresenceLeave throws', () => {
+    const bus = makeBus();
+    const base = bus.channelFor('A');
+    const originalOnDiscover = PeerRoster.prototype.onDiscover;
+    const onDiscoverUnsub = vi.fn();
+    const onDiscoverSpy = vi.spyOn(PeerRoster.prototype, 'onDiscover').mockImplementation(function (
+      this: PeerRoster,
+      listener: (from: string) => void,
+    ) {
+      const off = originalOnDiscover.call(this, listener);
+      return () => {
+        onDiscoverUnsub();
+        off();
+      };
+    });
+    const onPresenceUnsub = vi.fn();
+    const boom = new Error('onPresenceLeave: transport already tearing down');
+    const channel: PresenceChannel = {
+      sendPresence: base.sendPresence,
+      onPresence: (h) => {
+        const off = base.onPresence(h);
+        return () => {
+          onPresenceUnsub();
+          off();
+        };
+      },
+      onPresenceLeave: () => {
+        throw boom;
+      },
+    };
+    expect(() =>
+      attachAwareness(makeViewport(), channel, {
+        identity: { id: 'ada' },
+        intervalMs: 0,
+        heartbeatMs: 1000,
+      }),
+    ).toThrow(boom);
+    expect(bus.sentBy.get('A')).toEqual([{ kind: 'awareness', id: 'ada', cleared: true }]);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(onDiscoverUnsub).toHaveBeenCalledTimes(1);
+    expect(onPresenceUnsub).toHaveBeenCalledTimes(1);
+    onDiscoverSpy.mockRestore();
   });
 
   it('frames arriving after dispose are ignored', () => {
