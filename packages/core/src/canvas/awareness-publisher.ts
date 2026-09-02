@@ -94,7 +94,9 @@ type MutableFrame = {
  * the selection closed (like a non-string filter entry) rather than being
  * sent. `intervalMs` and `heartbeatMs` are normalised so a non-finite or
  * out-of-range value (e.g. `Infinity`) can never arm a near-zero busy-loop
- * timer.
+ * timer. The selection filter is re-applied before every frame that carries
+ * a selection, so a policy change takes effect on the next frame without a
+ * selection event.
  */
 export class LocalAwareness {
   private readonly host: LocalAwarenessHost;
@@ -141,8 +143,12 @@ export class LocalAwareness {
     element.addEventListener('pointercancel', this.handlePointerEnd, opts);
     this.unsubscribers.push(
       host.onSelectionChange(() => {
-        this.refreshSelection();
-        if (this.fields.selection) this.schedule();
+        // No ids are read or published while selection publishing is off;
+        // getState() re-reads them itself the moment it is turned on.
+        if (this.fields.selection) {
+          this.refreshSelection();
+          this.schedule();
+        }
       }),
       host.toolManager.onChange((name) => {
         this.tool = name;
@@ -189,8 +195,16 @@ export class LocalAwareness {
     if (this.fields.cursor && this.lastPointer !== null) {
       frame.cursor = { x: this.lastPointer.x, y: this.lastPointer.y };
     }
-    if (this.fields.selection && !this.selectionFailed && this.selection.length > 0) {
-      frame.selection = [...this.selection];
+    if (this.fields.selection) {
+      // Re-consult the host and the filter right before this snapshot goes
+      // out, so a policy change takes effect on the very next frame even
+      // when it wasn't accompanied by a selection-change event (heartbeat,
+      // announce(), setFields, setIdentity, or a host calling getState()
+      // directly all funnel through here).
+      this.refreshSelection();
+      if (!this.selectionFailed && this.selection.length > 0) {
+        frame.selection = [...this.selection];
+      }
     }
     if (this.fields.tool && this.tool !== null && this.tool.length <= MAX_TOOL_LENGTH) {
       frame.tool = this.tool;

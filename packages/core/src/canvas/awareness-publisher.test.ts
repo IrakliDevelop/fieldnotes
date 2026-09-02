@@ -296,11 +296,14 @@ describe('LocalAwareness selection privacy', () => {
     host.selection = ['secret-1'];
     host.fireSelection();
     expect(send.mock.calls[0]?.[0]).not.toHaveProperty('selection');
-    expect(onError).toHaveBeenCalledTimes(2);
+    // getState() now re-applies the filter on top of the onSelectionChange
+    // handler's own refresh (selection publishing is on), so one failing
+    // fireSelection() with an immediate flush reports twice, not once.
+    expect(onError).toHaveBeenCalledTimes(3);
     mode = 'garbage';
     host.fireSelection();
     expect(send.mock.calls[1]?.[0]).not.toHaveProperty('selection');
-    expect(onError).toHaveBeenCalledTimes(3);
+    expect(onError).toHaveBeenCalledTimes(5);
     expect(JSON.stringify(send.mock.calls)).not.toContain('secret-1');
     mode = 'ok';
     host.fireSelection();
@@ -360,8 +363,76 @@ describe('LocalAwareness selection privacy', () => {
     expect(onError).toHaveBeenCalledTimes(1);
     host.selection = ['whatever'];
     host.fireSelection();
-    expect(onError).toHaveBeenCalledTimes(2);
+    // getState() now re-applies the filter on top of the onSelectionChange
+    // handler's own refresh (selection publishing is on), so one failing
+    // fireSelection() with an immediate flush reports twice, not once.
+    expect(onError).toHaveBeenCalledTimes(3);
     expect(send.mock.calls.at(-1)?.[0]).not.toHaveProperty('selection');
+    local.dispose();
+  });
+});
+
+describe('LocalAwareness selection policy changes', () => {
+  it('a policy change before enabling selection is honoured', () => {
+    const { host } = makeHost();
+    const send = vi.fn();
+    const privateIds = new Set<string>();
+    const local = new LocalAwareness(host, {
+      identity,
+      send,
+      selectionFilter: (ids) => ids.filter((id) => !privateIds.has(id)),
+    });
+    host.selection = ['e1'];
+    host.fireSelection();
+    privateIds.add('e1');
+    local.setFields({ selection: true });
+    const frame = send.mock.calls.at(-1)?.[0] as AwarenessPresence;
+    expect(frame).not.toHaveProperty('selection');
+    expect(JSON.stringify(send.mock.calls)).not.toContain('e1');
+    local.dispose();
+  });
+
+  it('a policy change while enabled takes effect on the next heartbeat without a selection event', () => {
+    const { host } = makeHost();
+    const send = vi.fn();
+    const privateIds = new Set<string>();
+    const local = new LocalAwareness(host, {
+      identity,
+      send,
+      fields: { selection: true },
+      heartbeatMs: 1000,
+      intervalMs: 0,
+      selectionFilter: (ids) => ids.filter((id) => !privateIds.has(id)),
+    });
+    host.selection = ['e1', 'e2'];
+    host.fireSelection();
+    expect(send.mock.calls.at(-1)?.[0]).toMatchObject({ selection: ['e1', 'e2'] });
+    privateIds.add('e2');
+    vi.advanceTimersByTime(1000);
+    expect(send.mock.calls.at(-1)?.[0]).toMatchObject({ selection: ['e1'] });
+    local.dispose();
+  });
+
+  it('announce() re-applies the filter', () => {
+    const { host } = makeHost();
+    const send = vi.fn();
+    const privateIds = new Set<string>();
+    const local = new LocalAwareness(host, {
+      identity,
+      send,
+      fields: { selection: true },
+      heartbeatMs: 1000,
+      intervalMs: 0,
+      selectionFilter: (ids) => ids.filter((id) => !privateIds.has(id)),
+    });
+    host.selection = ['e1', 'e2'];
+    host.fireSelection();
+    expect(send.mock.calls.at(-1)?.[0]).toMatchObject({ selection: ['e1', 'e2'] });
+    privateIds.add('e1');
+    local.announce();
+    const frame = send.mock.calls.at(-1)?.[0] as AwarenessPresence;
+    expect(frame).toMatchObject({ selection: ['e2'] });
+    expect(JSON.stringify([frame])).not.toContain('"e1"');
     local.dispose();
   });
 });
@@ -496,7 +567,10 @@ describe('LocalAwareness identity and tool bounds', () => {
     });
     host.selection = ['x'.repeat(129)];
     host.fireSelection();
-    expect(onError).toHaveBeenCalledTimes(1);
+    // getState() now re-applies the filter on top of the onSelectionChange
+    // handler's own refresh (selection publishing is on), so one failing
+    // fireSelection() with an immediate flush reports twice, not once.
+    expect(onError).toHaveBeenCalledTimes(2);
     const sent = send.mock.calls.at(-1)?.[0] as AwarenessPresence;
     expect(sent).not.toHaveProperty('selection');
     expect(sent).toMatchObject({ id: 'ada', tool: 'select' });
