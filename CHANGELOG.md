@@ -4,6 +4,66 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.65.0] — 2026-09-02
+
+### Added
+
+- Shared presence (typed awareness). `AwarenessPresence` is a full-snapshot frame carrying a
+  self-asserted identity (`id`, optional `name`/`color`/`role`) plus the sender's world-space `cursor`,
+  published `selection` ids, and active `tool`; `isAwarenessPresence` is a fail-closed wire guard with
+  hard caps (`id` ≤ 128, `name`/`color`/`tool` ≤ 64, `role` ≤ 32, `AWARENESS_MAX_SELECTION` = 256, no
+  sparse arrays, finite cursor). Treat `name` as untrusted text and never gate security on any field.
+- `LocalAwareness` publishes this client's state from a passive primary-pointer listener on the
+  viewport wrapper, `onSelectionChange`, and `ToolManager.onChange`: one leading frame when idle, then
+  one trailing frame per `intervalMs` (default 50, non-finite or negative values normalised to 0)
+  carrying every change in the window, a full-state heartbeat while idle (`heartbeatMs`, default 15 s,
+  measured from the last send; a non-finite or non-positive value disables the heartbeat), and one
+  `cleared` frame on dispose. Every published frame is valid by construction: identity strings are
+  truncated to the wire caps (`name`/`color` to 64 chars, `role` to 32), an empty or over-128-char `id`
+  throws `RangeError` at construction, an over-long `tool` is omitted rather than sent truncated, and a
+  selection containing any id that is empty or over 128 chars fails the whole selection closed —
+  there is no flush-time guard because nothing invalid can reach the flush path. `fields` default
+  `{ cursor: true, selection: false, tool: true }` — selection is a disclosure the moment it is sent,
+  so it is opt-in and passes through `selectionFilter`, which itself fails closed (a throwing or
+  malformed filter omits the selection, never the raw ids). `setFields` merges partial flags at
+  runtime.
+- `PeerRoster` keeps the last state per relay sender key with two separate books: visible rows
+  (removed by `cleared`, presence-leave via `remove()`, or `staleMs` silence, default 45 s — a
+  non-finite `staleMs` disables staleness entirely) and a discovery budget that only a server-authored
+  leave or stale silence resets, so `onDiscover` fires at most once per socket and a client cycling
+  `cleared` frames cannot make the room re-announce. `getPeers()` returns a stable reference until a
+  visible field or membership changes (heartbeats are silent) and preserves each peer's `selection`
+  array reference across cursor-only updates.
+- `RemoteCursorOverlay` draws named cursors at constant screen size (colour precedence: `colorFor`
+  resolver → wire `color` → `defaultPeerColor(id)`, a deterministic 12-hue palette); `RemoteSelectionOverlay`
+  outlines peers' selections only for elements present in the local store and on a locally visible
+  layer, rescanning the store only when a selection or colour actually changed.
+- `attachAwareness(viewport, channel, options)` binds all of the above to any `PresenceChannel`
+  (`sendPresence`/`onPresence`/`onPresenceLeave` — the raw client, the managed connection, and host
+  wrappers all satisfy it): discovery triggers one coalesced re-announce, leave drops the sender, and
+  `dispose` runs publisher → overlays → roster → unsubscribes. `publish: false` builds a receive-only
+  attachment.
+
+No persisted-canvas or wire-protocol change; the `awareness` presence kind is additive. Pairs with
+`@fieldnotes/sync-server` 0.13.0 (below): without per-kind throttle lanes on the relay, a cursor
+stream can still displace other presence kinds inside one throttle window.
+
+## [@fieldnotes/sync-server 0.13.0] — 2026-09-02
+
+### Fixed
+
+- Presence throttling is now isolated per payload `kind` (a non-empty string of at most 64 characters;
+  anything else shares a reserved fallback lane). Previously one pending slot per connection meant a
+  rapid stream of one kind — a laser trail, an awareness cursor — could replace a pending `ping`,
+  `focus`, or a `measure`/`path` `cleared` frame sent in the same 50 ms window. Within a lane the newest
+  payload still wins.
+
+### Added
+
+- `maxPresenceLanes` on `SyncHubOptions`/`CreateSyncServerOptions` (default 16, counting the fallback
+  lane) caps lanes per connection so a client cannot mint timers by varying `kind`; all lanes are
+  cleared on disconnect and `close()`.
+
 ## [0.64.0] — 2026-08-16
 
 ### Added

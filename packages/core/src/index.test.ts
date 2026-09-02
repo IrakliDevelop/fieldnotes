@@ -3,7 +3,7 @@ import * as FN from './index';
 
 describe('core public surface', () => {
   it('exports the current version', () => {
-    expect(FN.VERSION).toBe('0.64.0');
+    expect(FN.VERSION).toBe('0.65.0');
   });
 
   it('exports the shared-ruler surface', () => {
@@ -197,9 +197,9 @@ describe('core public surface', () => {
     expect(typeof FN.elementRectsEqual).toBe('function');
   });
 
-  it('reports VERSION 0.64.0', async () => {
+  it('reports VERSION 0.65.0', async () => {
     const { VERSION } = await import('./index');
-    expect(VERSION).toBe('0.64.0');
+    expect(VERSION).toBe('0.65.0');
   });
 
   it('exports the movement-path surface', () => {
@@ -217,5 +217,18 @@ describe('core public surface', () => {
   it('keeps the path renderer and linger overlay internal', () => {
     expect((FN as Record<string, unknown>).drawPath).toBeUndefined();
     expect((FN as Record<string, unknown>).LingerOverlay).toBeUndefined();
+  });
+
+  it('exports the shared-presence (awareness) surface', () => {
+    expect(FN.isAwarenessPresence).toBeTypeOf('function');
+    expect(FN.AWARENESS_PRESENCE_KIND).toBe('awareness');
+    expect(FN.AWARENESS_MAX_SELECTION).toBe(256);
+    expect(FN.PeerRoster).toBeTypeOf('function');
+    expect(FN.LocalAwareness).toBeTypeOf('function');
+    expect(FN.RemoteCursorOverlay).toBeTypeOf('function');
+    expect(FN.RemoteSelectionOverlay).toBeTypeOf('function');
+    expect(FN.defaultPeerColor).toBeTypeOf('function');
+    expect(FN.PEER_COLORS).toHaveLength(12);
+    expect(FN.attachAwareness).toBeTypeOf('function');
   });
 });
