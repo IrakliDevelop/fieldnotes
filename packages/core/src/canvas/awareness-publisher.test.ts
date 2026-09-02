@@ -246,18 +246,34 @@ describe('LocalAwareness selection privacy', () => {
         return ids;
       },
     });
+    expect(onError).toHaveBeenCalledTimes(1);
     host.selection = ['secret-1'];
     host.fireSelection();
     expect(send.mock.calls[0]?.[0]).not.toHaveProperty('selection');
-    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledTimes(2);
     mode = 'garbage';
     host.fireSelection();
     expect(send.mock.calls[1]?.[0]).not.toHaveProperty('selection');
-    expect(onError).toHaveBeenCalledTimes(2);
+    expect(onError).toHaveBeenCalledTimes(3);
     expect(JSON.stringify(send.mock.calls)).not.toContain('secret-1');
     mode = 'ok';
     host.fireSelection();
     expect(send.mock.calls[2]?.[0]).toMatchObject({ selection: ['secret-1'] });
+    local.dispose();
+  });
+
+  it('selectionFilter is consulted even for an empty selection', () => {
+    const { host } = makeHost();
+    const send = vi.fn();
+    const selectionFilter = vi.fn((ids: readonly string[]) => ids);
+    const local = new LocalAwareness(host, {
+      identity,
+      send,
+      fields: { selection: true },
+      selectionFilter,
+    });
+    expect(selectionFilter).toHaveBeenCalledTimes(1);
+    expect(selectionFilter).toHaveBeenCalledWith([]);
     local.dispose();
   });
 
