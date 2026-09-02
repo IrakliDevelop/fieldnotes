@@ -45,7 +45,9 @@ const DEFAULT_LINE_WIDTH_PX = 2;
  * `selectionFilter` — privacy is decided at publish time, not here. The store
  * is rescanned only when some peer's selection reference or resolved colour
  * changed, or when the store or layer visibility changed; cursor-only roster
- * updates never scan.
+ * updates never scan. When two peers select the same element, the peer
+ * earlier in `roster.getPeers()` order (insertion order: whoever the roster
+ * saw first) supplies the outline colour for it.
  */
 export class RemoteSelectionOverlay {
   private readonly host: RemoteSelectionOverlayHost;
@@ -128,6 +130,10 @@ export class RemoteSelectionOverlay {
       this.outlines = [];
       return;
     }
+    // Tie-break for an element selected by more than one peer: `next` walks
+    // peers in `roster.getPeers()` (insertion) order, and `!colorById.has(id)`
+    // keeps only the first colour set for each id, so the earliest peer to
+    // have selected it wins the outline colour.
     const colorById = new Map<string, string>();
     for (const sig of next) {
       for (const id of sig.selection) if (!colorById.has(id)) colorById.set(id, sig.color);

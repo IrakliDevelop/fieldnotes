@@ -8,19 +8,29 @@ import { LayerManager } from '../layers/layer-manager';
 import { createShape } from '../elements/element-factory';
 import type { OverlayRenderer } from './render-loop';
 
-function makeCtx(): { ctx: CanvasRenderingContext2D; strokes: [number, number, number, number][] } {
+function makeCtx(): {
+  ctx: CanvasRenderingContext2D;
+  strokes: [number, number, number, number][];
+  strokeStyles: string[];
+} {
   const strokes: [number, number, number, number][] = [];
+  const strokeStyles: string[] = [];
   const ctx = {
     save: vi.fn(),
     restore: vi.fn(),
     translate: vi.fn(),
     rotate: vi.fn(),
     strokeRect: vi.fn((x: number, y: number, w: number, h: number) => strokes.push([x, y, w, h])),
-    strokeStyle: '',
     lineWidth: 0,
     globalAlpha: 1,
   } as unknown as CanvasRenderingContext2D;
-  return { ctx, strokes };
+  Object.defineProperty(ctx, 'strokeStyle', {
+    get: () => strokeStyles.at(-1) ?? '',
+    set: (value: string) => {
+      strokeStyles.push(value);
+    },
+  });
+  return { ctx, strokes, strokeStyles };
 }
 
 function makeHost(): {
@@ -83,6 +93,40 @@ describe('RemoteSelectionOverlay', () => {
     const second = makeCtx();
     getRenderer()?.(second.ctx);
     expect(second.strokes).toHaveLength(2);
+    overlay.dispose();
+  });
+
+  it("two peers selecting the same element outline it once in the first peer's colour", () => {
+    const { host, store, getRenderer } = makeHost();
+    const roster = new PeerRoster();
+    const overlay = new RemoteSelectionOverlay(host, roster);
+    const el = createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } });
+    store.add(el);
+    roster.apply('c1', frame('ada', { selection: [el.id], color: '#111111' }));
+    roster.apply('c2', frame('bea', { selection: [el.id], color: '#222222' }));
+    const { ctx, strokes, strokeStyles } = makeCtx();
+    getRenderer()?.(ctx);
+    expect(strokes).toHaveLength(1);
+    // The strokeStyle assignment made just before the (only) strokeRect call
+    // must be the first peer's colour.
+    expect(strokeStyles.at(-1)).toBe('#111111');
+    overlay.dispose();
+  });
+
+  it('clearing a selection erases a previously drawn outline', () => {
+    const { host, store, getRenderer } = makeHost();
+    const roster = new PeerRoster();
+    const overlay = new RemoteSelectionOverlay(host, roster);
+    const el = createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } });
+    store.add(el);
+    roster.apply('c1', frame('ada', { selection: [el.id] }));
+    const first = makeCtx();
+    getRenderer()?.(first.ctx);
+    expect(first.strokes).toHaveLength(1);
+    roster.apply('c1', frame('ada', { selection: [], cursor: { x: 1, y: 1 } }));
+    const second = makeCtx();
+    getRenderer()?.(second.ctx);
+    expect(second.strokes).toHaveLength(0);
     overlay.dispose();
   });
 
