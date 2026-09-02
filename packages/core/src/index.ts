@@ -141,6 +141,12 @@ export {
 export type { AwarenessPresence, AwarenessIdentity } from './canvas/awareness-presence';
 export { PeerRoster } from './canvas/awareness-roster';
 export type { Peer, PeerLeaveReason, PeerRosterOptions } from './canvas/awareness-roster';
+export { LocalAwareness } from './canvas/awareness-publisher';
+export type {
+  LocalAwarenessHost,
+  LocalAwarenessOptions,
+  AwarenessFields,
+} from './canvas/awareness-publisher';
 export {
   HtmlPainterRegistry,
   HtmlPainterMissingError,
