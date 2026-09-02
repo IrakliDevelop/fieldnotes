@@ -10,11 +10,11 @@ interface Recorded {
   fills: string[];
   translates: [number, number][];
   scales: [number, number][];
-  fillCount: number;
+  calls: string[];
 }
 
 function makeCtx(): { ctx: CanvasRenderingContext2D; rec: Recorded } {
-  const rec: Recorded = { texts: [], fills: [], translates: [], scales: [], fillCount: 0 };
+  const rec: Recorded = { texts: [], fills: [], translates: [], scales: [], calls: [] };
   let fillStyle = '';
   const ctx = {
     save: vi.fn(),
@@ -26,13 +26,22 @@ function makeCtx(): { ctx: CanvasRenderingContext2D; rec: Recorded } {
     roundRect: vi.fn(),
     stroke: vi.fn(),
     fill: vi.fn(() => {
-      rec.fillCount++;
+      rec.calls.push('fill');
       rec.fills.push(fillStyle);
     }),
-    fillText: vi.fn((text: string) => rec.texts.push(text)),
+    fillText: vi.fn((text: string) => {
+      rec.calls.push('fillText');
+      rec.texts.push(text);
+    }),
     measureText: vi.fn((text: string) => ({ width: text.length * 6 })),
-    translate: vi.fn((x: number, y: number) => rec.translates.push([x, y])),
-    scale: vi.fn((x: number, y: number) => rec.scales.push([x, y])),
+    translate: vi.fn((x: number, y: number) => {
+      rec.calls.push('translate');
+      rec.translates.push([x, y]);
+    }),
+    scale: vi.fn((x: number, y: number) => {
+      rec.calls.push('scale');
+      rec.scales.push([x, y]);
+    }),
     set fillStyle(v: string) {
       fillStyle = v;
     },
@@ -103,6 +112,22 @@ describe('RemoteCursorOverlay', () => {
     expect(rec.translates).toEqual([[10, 20]]);
     expect(rec.scales).toEqual([[0.5, 0.5]]);
     expect(rec.texts).toEqual(['<b>Ada</b>']);
+    // Order matters: `translate` must move the origin to the cursor's world
+    // point BEFORE `scale` shrinks the glyph by 1/zoom. Swapping them would
+    // scale the translation itself, drawing the glyph at the wrong point.
+    expect(rec.calls.indexOf('translate')).toBeLessThan(rec.calls.indexOf('scale'));
+    expect(rec.calls.indexOf('scale')).toBeLessThan(rec.calls.indexOf('fill'));
+    overlay.dispose();
+  });
+
+  it.each([0, NaN])('falls back to scale 1 when zoom is %s', (zoom) => {
+    const roster = new PeerRoster();
+    const { host, getRenderer } = makeHost(zoom);
+    const overlay = new RemoteCursorOverlay(host, roster);
+    roster.apply('c1', frame('ada', { cursor: { x: 5, y: 5 } }));
+    const { ctx, rec } = makeCtx();
+    getRenderer()?.(ctx);
+    expect(rec.scales).toEqual([[1, 1]]);
     overlay.dispose();
   });
 
@@ -152,6 +177,24 @@ describe('RemoteCursorOverlay', () => {
     roster.apply('c1', frame('ada', { name: 'Ada', cursor: { x: 2, y: 2 } }));
     getRenderer()?.(ctx);
     expect(ctx.measureText).toHaveBeenCalledTimes(1);
+    overlay.dispose();
+  });
+
+  it('clears the label-width cache once it grows past 64 entries, instead of caching unboundedly', () => {
+    const roster = new PeerRoster();
+    const { host, getRenderer } = makeHost();
+    const overlay = new RemoteCursorOverlay(host, roster);
+    for (let i = 0; i < 70; i++) {
+      roster.apply(`c${i}`, frame(`p${i}`, { name: `name${i}`, cursor: { x: i, y: i } }));
+    }
+    const { ctx } = makeCtx();
+    getRenderer()?.(ctx);
+    expect(ctx.measureText).toHaveBeenCalledTimes(70);
+    // Crossing the 64-entry bound on the next roster change clears the whole
+    // cache, so every peer (now 71) is re-measured on the next render.
+    roster.apply('c70', frame('p70', { name: 'name70', cursor: { x: 70, y: 70 } }));
+    getRenderer()?.(ctx);
+    expect(ctx.measureText).toHaveBeenCalledTimes(70 + 71);
     overlay.dispose();
   });
 
