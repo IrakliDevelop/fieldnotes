@@ -13,6 +13,9 @@ class FakeRedis implements RedisHashClient {
     }
     return m;
   }
+  async hGet(key: string, field: string): Promise<string | null> {
+    return this.store.get(key)?.get(field) ?? null;
+  }
   async hGetAll(key: string): Promise<Record<string, string>> {
     const m = this.store.get(key);
     return m ? Object.fromEntries(m) : {};

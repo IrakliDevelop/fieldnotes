@@ -1,4 +1,4 @@
-export const VERSION = '0.65.0';
+export const VERSION = '0.66.0';
 
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
 export {
@@ -281,3 +281,30 @@ export type { Tool, ToolContext, PointerState, ToolName } from './tools/types';
 
 export { LayerManager } from './layers/layer-manager';
 export type { Layer } from './layers/types';
+
+export { FogManager } from './fog/fog-manager';
+export type { FogManagerOptions, FogIdFactory } from './fog/fog-manager';
+export { FOG_STATE_VERSION, FOG_TILE_CELLS, FOG_MAX_TILES } from './fog/types';
+export type {
+  FogBase,
+  FogDefinitionV1,
+  FogTileV1,
+  FogStateV1,
+  FogViewMode,
+  FogOperation,
+  FogRegion,
+  FogToolOptions,
+  FogPatch,
+  FogChangeEvent,
+  FogViewEvent,
+} from './fog/types';
+export {
+  validateFogState,
+  validateFogDefinition,
+  recommendedFogCellSize,
+  encodeBase64 as fogEncodeBase64,
+  decodeBase64 as fogDecodeBase64,
+} from './fog/tile-codec';
+export { FogRenderer } from './fog/fog-renderer';
+export type { FogRendererOptions } from './fog/fog-renderer';
+export { FogTool } from './tools/fog-tool';

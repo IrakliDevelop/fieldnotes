@@ -12,6 +12,8 @@ export type {
   AuthorizeContext,
   AuthorizeLayer,
   AuthorizeLayerContext,
+  AuthorizeFog,
+  AuthorizeFogContext,
   OwnedElement,
   ReadContext,
   CanRead,

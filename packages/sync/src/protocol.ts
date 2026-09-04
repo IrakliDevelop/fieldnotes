@@ -1,4 +1,5 @@
-import type { CanvasElement, ElementType, Layer } from '@fieldnotes/core';
+import type { CanvasElement, ElementType, Layer, FogDefinitionV1 } from '@fieldnotes/core';
+import { validateFogDefinition, FOG_MAX_TILES } from '@fieldnotes/core';
 
 export type SyncElement = CanvasElement & { audience?: string };
 
@@ -30,16 +31,47 @@ export function isNewerLayerRecord(a: LayerRecord, b: LayerRecord): boolean {
   return a.editor > b.editor;
 }
 
+export const FOG_SYNC_PROTOCOL_VERSION = 1;
+export const FOG_PATCH_MAX_TILES = 64;
+
+export interface FogMetaRecord {
+  readonly version: number;
+  readonly editor: string;
+  readonly definition?: FogDefinitionV1;
+}
+
+export interface FogTileRecord {
+  readonly generation: string;
+  readonly x: number;
+  readonly y: number;
+  readonly version: number;
+  readonly editor: string;
+  readonly data?: string;
+}
+
+export interface FogSnapshot {
+  readonly meta: FogMetaRecord;
+  readonly tiles: readonly FogTileRecord[];
+}
+
 export type SyncOp =
   | { kind: 'upsert'; element: CanvasElement }
   | { kind: 'remove'; id: string }
   | { kind: 'clear' }
   | { kind: 'request-snapshot' }
-  | { kind: 'snapshot'; to: string; elements: CanvasElement[]; layers?: LayerRecord[] }
+  | {
+      kind: 'snapshot';
+      to: string;
+      elements: CanvasElement[];
+      layers?: LayerRecord[];
+      fog?: FogSnapshot;
+    }
   | { kind: 'presence'; data: unknown }
   | { kind: 'presence-leave' }
   | { kind: 'layer-upsert'; layer: Layer; version: number; editor: string }
-  | { kind: 'layer-remove'; id: string; version: number; editor: string };
+  | { kind: 'layer-remove'; id: string; version: number; editor: string }
+  | { kind: 'fog-meta'; record: FogMetaRecord }
+  | { kind: 'fog-patch'; generation: string; tiles: FogTileRecord[] };
 
 export interface SyncEnvelope {
   from: string;
@@ -239,6 +271,67 @@ export function isValidLayerRecord(record: unknown): record is LayerRecord {
   return isValidLayerDefinition(definition) && definition.id === record['id'];
 }
 
+export function isNewerFogRecord(
+  a: { version: number; editor: string },
+  b: { version: number; editor: string },
+): boolean {
+  if (a.version !== b.version) return a.version > b.version;
+  return a.editor > b.editor;
+}
+
+function isBoundedString(value: unknown, maxLen: number): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= maxLen;
+}
+
+export function isValidFogMetaRecord(record: unknown): record is FogMetaRecord {
+  if (!isRecord(record)) return false;
+  if (
+    !Number.isSafeInteger(record['version']) ||
+    (record['version'] as number) < 1 ||
+    typeof record['editor'] !== 'string' ||
+    !isBoundedString(record['editor'], 128)
+  ) {
+    return false;
+  }
+  if (record['definition'] !== undefined) {
+    try {
+      validateFogDefinition(record['definition']);
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
+export function isValidFogTileRecord(record: unknown): record is FogTileRecord {
+  if (!isRecord(record)) return false;
+  return (
+    isBoundedString(record['generation'], 128) &&
+    Number.isSafeInteger(record['x']) &&
+    Number.isSafeInteger(record['y']) &&
+    Number.isSafeInteger(record['version']) &&
+    (record['version'] as number) >= 1 &&
+    isBoundedString(record['editor'], 128) &&
+    (record['data'] === undefined || typeof record['data'] === 'string')
+  );
+}
+
+export function isValidFogSnapshot(snap: unknown): snap is FogSnapshot {
+  if (!isRecord(snap)) return false;
+  if (!isValidFogMetaRecord(snap['meta'])) return false;
+  if (!Array.isArray(snap['tiles'])) return false;
+  const tiles = snap['tiles'] as unknown[];
+  if (tiles.length > FOG_MAX_TILES) return false;
+  const seen = new Set<string>();
+  for (const tile of tiles) {
+    if (!isValidFogTileRecord(tile)) return false;
+    const key = `${(tile as FogTileRecord).x},${(tile as FogTileRecord).y}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+  }
+  return true;
+}
+
 export function isValidEnvelope(env: unknown): env is SyncEnvelope {
   if (typeof env !== 'object' || env === null) return false;
   const e = env as {
@@ -286,6 +379,23 @@ export function isValidEnvelope(env: unknown): env is SyncEnvelope {
         isValidLayerVersion(op.version) &&
         typeof op.editor === 'string'
       );
+    case 'fog-meta':
+      return isValidFogMetaRecord((op as Record<string, unknown>)['record']);
+    case 'fog-patch': {
+      const patchOp = op as Record<string, unknown>;
+      if (!isBoundedString(patchOp['generation'], 128)) return false;
+      if (!Array.isArray(patchOp['tiles'])) return false;
+      const patchTiles = patchOp['tiles'] as unknown[];
+      if (patchTiles.length > FOG_PATCH_MAX_TILES) return false;
+      const patchSeen = new Set<string>();
+      for (const tile of patchTiles) {
+        if (!isValidFogTileRecord(tile)) return false;
+        const key = `${(tile as FogTileRecord).x},${(tile as FogTileRecord).y}`;
+        if (patchSeen.has(key)) return false;
+        patchSeen.add(key);
+      }
+      return true;
+    }
     default:
       return false;
   }
@@ -301,8 +411,24 @@ export function parseEnvelope(message: string): SyncEnvelope | null {
 }
 
 export function applyOpToMap(map: Map<string, CanvasElement>, op: SyncOp): void {
-  if (op.kind === 'upsert') map.set(op.element.id, op.element);
-  else if (op.kind === 'remove') map.delete(op.id);
-  else if (op.kind === 'clear') map.clear();
-  // non-data ops (request-snapshot/snapshot/presence/presence-leave) are no-ops here
+  switch (op.kind) {
+    case 'upsert':
+      map.set(op.element.id, op.element);
+      break;
+    case 'remove':
+      map.delete(op.id);
+      break;
+    case 'clear':
+      map.clear();
+      break;
+    case 'request-snapshot':
+    case 'snapshot':
+    case 'presence':
+    case 'presence-leave':
+    case 'layer-upsert':
+    case 'layer-remove':
+    case 'fog-meta':
+    case 'fog-patch':
+      break;
+  }
 }

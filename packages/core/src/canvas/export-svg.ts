@@ -43,26 +43,18 @@ import { resolveHtmlRouting, HtmlPainterMissingError } from './html-painter-regi
 import type { HtmlPainterRegistry } from './html-painter-registry';
 import { paintHtmlElement } from './html-paint';
 import type { HtmlPaintDiagnostic } from './html-paint-diagnostics';
+import type { FogStateV1 } from '../fog/types';
+import { FogRenderer } from '../fog/fog-renderer';
 
 export interface ExportSvgOptions extends ExportResourceOptions, HtmlExportOptions {
   padding?: number;
   background?: string;
   filter?: (el: CanvasElement) => boolean;
   rasterScale?: number;
-  /** Registry of canvas-backed html painters, keyed by `htmlType`. When absent (or when
-   *  an element's `htmlType` isn't claimed), html elements fall back to the legacy
-   *  DOM-raster path (`renderHtml`). */
   htmlPainters?: HtmlPainterRegistry;
-  /** `htmlType`s that must route to canvas even before a painter for them is
-   *  registered — lets a host declare intent up front (mirrors `HtmlPainterRegistry.expect`). */
   expectedCanvasTypes?: ReadonlySet<string>;
-  /**
-   * When true, a canvas-routed html element with no active painter throws
-   * `HtmlPainterMissingError` instead of reporting `onHtmlError` and continuing.
-   * DOM-routed html elements are never affected — a missing `renderHtml` stays
-   * a non-fatal `'unsupported'` diagnostic regardless of this flag.
-   */
   strictMissingCanvasHtml?: boolean;
+  fog?: { state: FogStateV1; mode: 'editor' | 'player'; color?: string } | false;
 }
 
 interface Bounds {
@@ -529,6 +521,29 @@ export async function exportSvg(
     const emitted = emitGrid(grid, bounds);
     const opacity = layerManager?.getLayer?.(grid.layerId)?.opacity ?? 1;
     body += opacity === 1 ? emitted : `<g opacity="${n(opacity)}">${emitted}</g>`;
+  }
+
+  if (options.fog && typeof document !== 'undefined') {
+    const fogState = options.fog.state;
+    const fogW = Math.max(1, Math.ceil(bounds.w));
+    const fogH = Math.max(1, Math.ceil(bounds.h));
+    const fogCanvas = document.createElement('canvas');
+    fogCanvas.width = fogW;
+    fogCanvas.height = fogH;
+    const fogCtx = fogCanvas.getContext('2d');
+    if (fogCtx) {
+      fogCtx.translate(-bounds.x, -bounds.y);
+      const fogRenderer = new FogRenderer();
+      fogRenderer.renderForExport(fogCtx, fogState, options.fog.mode, options.fog.color);
+      try {
+        const fogDataUri = fogCanvas.toDataURL('image/png');
+        if (fogDataUri.startsWith('data:')) {
+          body += `<image href="${esc(fogDataUri)}" x="${n(bounds.x)}" y="${n(bounds.y)}" width="${n(bounds.w)}" height="${n(bounds.h)}" />`;
+        }
+      } catch {
+        // encoding failed — skip fog in SVG rather than failing the whole export
+      }
+    }
   }
 
   return (

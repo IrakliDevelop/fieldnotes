@@ -1,7 +1,9 @@
 import type { CanvasElement } from '../elements/types';
 import type { Point } from './types';
 import type { Layer } from '../layers/types';
+import type { FogStateV1 } from '../fog/types';
 import { sanitizeNoteHtml } from '../elements/note-sanitizer';
+import { validateFogState } from '../fog/tile-codec';
 
 export interface CanvasState {
   version: number;
@@ -12,9 +14,10 @@ export interface CanvasState {
   elements: CanvasElement[];
   layers?: Layer[];
   activeLayerId?: string;
+  fog?: FogStateV1;
 }
 
-const CURRENT_VERSION = 2;
+const CURRENT_VERSION = 3;
 const ELEMENT_TYPES = [
   'stroke',
   'note',
@@ -37,6 +40,7 @@ export function exportState(
   camera: { position: Point; zoom: number },
   layers: Layer[] = [],
   activeLayerId?: string,
+  fog?: FogStateV1 | null,
 ): CanvasState {
   const state: CanvasState = {
     version: CURRENT_VERSION,
@@ -54,6 +58,7 @@ export function exportState(
     layers: layers.map((l) => ({ ...l })),
   };
   if (activeLayerId) state.activeLayerId = activeLayerId;
+  if (fog) state.fog = structuredClone(fog) as FogStateV1;
   return state;
 }
 
@@ -146,6 +151,10 @@ function validateState(data: unknown): asserts data is CanvasState {
   }
 
   cleanBindings(elements as Record<string, unknown>[]);
+
+  if (obj['fog'] !== undefined && obj['fog'] !== null) {
+    validateFogState(obj['fog']);
+  }
 }
 
 function validateElement(el: unknown): asserts el is CanvasElement {

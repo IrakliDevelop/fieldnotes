@@ -2,14 +2,18 @@ import {
   parseEnvelope,
   isValidElement,
   isNewerLayerRecord,
+  FogLedger,
   type LayerRecord,
   type SyncOp,
   type SyncEnvelope,
+  type FogMetaRecord,
+  type FogTileRecord,
+  type FogSnapshot,
 } from '@fieldnotes/sync';
 import { MemoryHubBackend } from './memory-hub-backend';
 import { InMemoryHubFanout, type HubFanout } from './hub-fanout';
 import type { HubBackend } from './hub-backend';
-import type { Authorize, AuthorizeLayer, CanRead, OwnedElement } from './authorize';
+import type { Authorize, AuthorizeLayer, AuthorizeFog, CanRead, OwnedElement } from './authorize';
 import {
   DEFAULT_MAX_JSON_DEPTH,
   DEFAULT_MAX_PRESENCE_LANES,
@@ -31,6 +35,7 @@ export interface SyncHubOptions {
   instanceId?: string;
   authorize?: Authorize;
   authorizeLayer?: AuthorizeLayer;
+  authorizeFog?: AuthorizeFog;
   canRead?: CanRead;
   maxJsonDepth?: number;
   presenceThrottleMs?: number;
@@ -116,9 +121,10 @@ export class SyncHub {
   private readonly fanoutUnsub: () => void;
   private readonly authorize?: Authorize;
   private readonly authorizeLayer?: AuthorizeLayer;
+  private readonly authorizeFog?: AuthorizeFog;
   private readonly canRead?: CanRead;
-  /** Fallback layer-record store for backends without layer persistence. */
   private readonly memoryLayers = new Map<string, Map<string, LayerRecord>>();
+  private readonly memoryFog = new Map<string, FogLedger>();
   private readonly maxJsonDepth: number;
   private readonly presenceThrottleMs: number;
   private readonly maxPresenceLanes: number;
@@ -139,6 +145,7 @@ export class SyncHub {
     this.fanout = options.fanout ?? new InMemoryHubFanout();
     this.authorize = options.authorize;
     this.authorizeLayer = options.authorizeLayer;
+    this.authorizeFog = options.authorizeFog;
     this.canRead = options.canRead;
     this.maxJsonDepth = options.maxJsonDepth ?? DEFAULT_MAX_JSON_DEPTH;
     this.presenceThrottleMs = options.presenceThrottleMs ?? DEFAULT_PRESENCE_THROTTLE_MS;
@@ -228,19 +235,19 @@ export class SyncHub {
       // audience filter applies; the field is omitted while a room has never
       // used layer sync, keeping snapshot frames byte-identical to before.
       const layers = await this.getLayerRecords(conn.room);
-      conn.send(
-        // `to` is a private correlation address for the requesting SyncClient. It is never
-        // broadcast; every public sender identity below comes from the server-owned connection.
-        JSON.stringify({
-          from: HUB_FROM,
-          op:
-            layers.length > 0
-              ? { kind: 'snapshot', to: env.from, elements, layers }
-              : { kind: 'snapshot', to: env.from, elements },
-        }),
-      );
+      const fog = await this.getFogSnapshot(conn.room);
+      const snapshotOp: Record<string, unknown> = {
+        kind: 'snapshot',
+        to: env.from,
+        elements,
+      };
+      if (layers.length > 0) snapshotOp['layers'] = layers;
+      if (fog) snapshotOp['fog'] = fog;
+      conn.send(JSON.stringify({ from: HUB_FROM, op: snapshotOp }));
     } else if (op.kind === 'layer-upsert' || op.kind === 'layer-remove') {
       await this.processLayerOp(conn, op);
+    } else if (op.kind === 'fog-meta' || op.kind === 'fog-patch') {
+      await this.processFogOp(conn, op);
     } else if (op.kind === 'upsert' || op.kind === 'remove' || op.kind === 'clear') {
       const id = op.kind === 'upsert' ? op.element.id : op.kind === 'remove' ? op.id : undefined;
       const needCurrent = (this.authorize || this.canRead) && id !== undefined;
@@ -363,6 +370,132 @@ export class SyncHub {
       this.memoryLayers.set(room, map);
     }
     map.set(record.id, record);
+  }
+
+  // ── Fog processing ──
+
+  private fogBackend(): Required<
+    Pick<HubBackend, 'fogSnapshot' | 'applyFogMeta' | 'applyFogTile'>
+  > | null {
+    const { fogSnapshot, applyFogMeta, applyFogTile } = this.backend;
+    if (!fogSnapshot || !applyFogMeta || !applyFogTile) return null;
+    return {
+      fogSnapshot: fogSnapshot.bind(this.backend),
+      applyFogMeta: applyFogMeta.bind(this.backend),
+      applyFogTile: applyFogTile.bind(this.backend),
+    };
+  }
+
+  private getFogLedger(room: string): FogLedger {
+    let ledger = this.memoryFog.get(room);
+    if (!ledger) {
+      ledger = new FogLedger();
+      this.memoryFog.set(room, ledger);
+    }
+    return ledger;
+  }
+
+  private async getFogSnapshot(room: string): Promise<FogSnapshot | undefined> {
+    const backend = this.fogBackend();
+    if (backend) return backend.fogSnapshot(room);
+    return this.getFogLedger(room).snapshot();
+  }
+
+  private async applyFogMeta(room: string, record: FogMetaRecord): Promise<void> {
+    const backend = this.fogBackend();
+    if (backend) {
+      await backend.applyFogMeta(room, record);
+      return;
+    }
+    this.getFogLedger(room).applyMeta(record);
+  }
+
+  private async applyFogTile(room: string, record: FogTileRecord): Promise<void> {
+    const backend = this.fogBackend();
+    if (backend) {
+      await backend.applyFogTile(room, record);
+      return;
+    }
+    this.getFogLedger(room).applyTile(record);
+  }
+
+  private async processFogOp(
+    conn: Connection,
+    op: Extract<SyncOp, { kind: 'fog-meta' | 'fog-patch' }>,
+  ): Promise<void> {
+    const current = await this.getFogSnapshot(conn.room);
+
+    if (this.authorizeFog) {
+      const allowed = await this.authorizeFog({
+        userId: conn.userId,
+        role: conn.role,
+        room: conn.room,
+        op,
+        current,
+      });
+      if (!allowed) {
+        if (op.kind === 'fog-meta' && current?.meta) {
+          conn.send(
+            JSON.stringify({ from: HUB_FROM, op: { kind: 'fog-meta', record: current.meta } }),
+          );
+        } else if (op.kind === 'fog-patch' && current) {
+          const corrections = op.tiles.map((t) => {
+            const existing = current.tiles.find((ct) => ct.x === t.x && ct.y === t.y);
+            return (
+              existing ?? { generation: op.generation, x: t.x, y: t.y, version: 0, editor: '' }
+            );
+          });
+          conn.send(
+            JSON.stringify({
+              from: HUB_FROM,
+              op: { kind: 'fog-patch', generation: op.generation, tiles: corrections },
+            }),
+          );
+        }
+        return;
+      }
+    }
+
+    if (op.kind === 'fog-meta') {
+      const ledger = this.getFogLedger(conn.room);
+      const result = ledger.applyMeta(op.record);
+      if (!result.accepted) {
+        if (result.correction) {
+          conn.send(
+            JSON.stringify({ from: HUB_FROM, op: { kind: 'fog-meta', record: result.correction } }),
+          );
+        }
+        return;
+      }
+      await this.applyFogMeta(conn.room, op.record);
+    } else {
+      const ledger = this.getFogLedger(conn.room);
+      const corrections: FogTileRecord[] = [];
+      let anyAccepted = false;
+      for (const tile of op.tiles) {
+        const result = ledger.applyTile(tile);
+        if (result.accepted) {
+          anyAccepted = true;
+          await this.applyFogTile(conn.room, tile);
+        } else if (result.correction) {
+          corrections.push(result.correction);
+        }
+      }
+      if (corrections.length > 0) {
+        conn.send(
+          JSON.stringify({
+            from: HUB_FROM,
+            op: { kind: 'fog-patch', generation: op.generation, tiles: corrections },
+          }),
+        );
+      }
+      if (!anyAccepted) return;
+    }
+
+    await this.fanout.publish(
+      JSON.stringify({ o: this.instanceId, room: conn.room, from: conn.id, op }),
+    );
+    this.relayToRoom(conn.room, conn.id, JSON.stringify({ from: conn.id, op }));
   }
 
   private mayRead(conn: Connection, audience: string | undefined): boolean {
