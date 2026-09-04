@@ -140,8 +140,8 @@ export class RedisHubBackend implements HubBackend {
     if (metaStr != null) {
       try {
         const oldMeta: unknown = JSON.parse(metaStr);
-        if (isValidFogMetaRecord(oldMeta) && oldMeta.definition) {
-          oldGeneration = oldMeta.definition.generation;
+        if (isValidFogMetaRecord(oldMeta) && (oldMeta as FogMetaRecord).definition) {
+          oldGeneration = (oldMeta as FogMetaRecord).definition?.generation;
         }
       } catch {
         // corrupt, overwrite

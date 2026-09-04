@@ -31,7 +31,7 @@ describe('FogManager', () => {
     expect(state.definition.base).toBe('covered');
     expect(state.definition.generation).toBe('test-gen-1');
     expect(state.tiles).toEqual([]);
-    expect(m.getState()).toBe(state);
+    expect(m.getState()).toStrictEqual(state);
   });
 
   it('initialize with custom base', () => {

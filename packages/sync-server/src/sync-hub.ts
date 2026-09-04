@@ -110,6 +110,14 @@ function isPresenceOp(
   return k === 'presence' || k === 'presence-leave';
 }
 
+type FogOp = Extract<SyncOp, { kind: 'fog-meta' | 'fog-patch' }>;
+
+function isFogOp(op: unknown): op is FogOp {
+  if (typeof op !== 'object' || op === null) return false;
+  const k = (op as { kind?: unknown }).kind;
+  return k === 'fog-meta' || k === 'fog-patch';
+}
+
 export class SyncHub {
   private readonly backend: HubBackend;
   private readonly conns = new Map<string, Connection>();
@@ -395,6 +403,17 @@ export class SyncHub {
     return ledger;
   }
 
+  private async ensureFogLedger(room: string): Promise<FogLedger> {
+    const ledger = this.getFogLedger(room);
+    if (ledger.getMeta() !== null) return ledger;
+    const backend = this.fogBackend();
+    if (backend) {
+      const snap = await backend.fogSnapshot(room);
+      if (snap) ledger.loadSnapshot(snap);
+    }
+    return ledger;
+  }
+
   private async getFogSnapshot(room: string): Promise<FogSnapshot | undefined> {
     const backend = this.fogBackend();
     if (backend) return backend.fogSnapshot(room);
@@ -442,7 +461,13 @@ export class SyncHub {
           const corrections = op.tiles.map((t) => {
             const existing = current.tiles.find((ct) => ct.x === t.x && ct.y === t.y);
             return (
-              existing ?? { generation: op.generation, x: t.x, y: t.y, version: 0, editor: '' }
+              existing ?? {
+                generation: op.generation,
+                x: t.x,
+                y: t.y,
+                version: 1,
+                editor: HUB_FROM,
+              }
             );
           });
           conn.send(
@@ -457,7 +482,7 @@ export class SyncHub {
     }
 
     if (op.kind === 'fog-meta') {
-      const ledger = this.getFogLedger(conn.room);
+      const ledger = await this.ensureFogLedger(conn.room);
       const result = ledger.applyMeta(op.record);
       if (!result.accepted) {
         if (result.correction) {
@@ -469,7 +494,7 @@ export class SyncHub {
       }
       await this.applyFogMeta(conn.room, op.record);
     } else {
-      const ledger = this.getFogLedger(conn.room);
+      const ledger = await this.ensureFogLedger(conn.room);
       const corrections: FogTileRecord[] = [];
       let anyAccepted = false;
       for (const tile of op.tiles) {
@@ -720,10 +745,14 @@ export class SyncHub {
       return;
     }
     if (isLayerOp(op)) {
-      // LWW-guarded local apply keeps memory-fallback instances converged; a
-      // shared backend already holds the record (the guarded re-apply is a
-      // no-op). Relay is unconditional — receiving clients LWW-drop stale ops.
       void this.applyFanoutLayerOp(env.room, op).catch(() => {
+        /* a broken backend must not break the fanout relay */
+      });
+      this.relayToRoom(env.room, undefined, JSON.stringify({ from: env.from, op }));
+      return;
+    }
+    if (isFogOp(op)) {
+      void this.applyFanoutFogOp(env.room, op).catch(() => {
         /* a broken backend must not break the fanout relay */
       });
       this.relayToRoom(env.room, undefined, JSON.stringify({ from: env.from, op }));
@@ -740,6 +769,21 @@ export class SyncHub {
     const current = await this.getLayerRecord(room, record.id);
     if (current && !isNewerLayerRecord(record, current)) return;
     await this.applyLayerRecord(room, record);
+  }
+
+  private async applyFanoutFogOp(room: string, op: FogOp): Promise<void> {
+    const ledger = this.getFogLedger(room);
+    if (op.kind === 'fog-meta') {
+      ledger.applyMeta(op.record);
+      await this.applyFogMeta(room, op.record);
+    } else {
+      for (const tile of op.tiles) {
+        const result = ledger.applyTile(tile);
+        if (result.accepted) {
+          await this.applyFogTile(room, tile);
+        }
+      }
+    }
   }
 
   close(): void {

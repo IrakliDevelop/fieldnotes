@@ -564,7 +564,7 @@ export class SyncClient {
       const tiles: FogTileRecord[] = [];
       for (const coord of event.tiles) {
         const tile = state.tiles.find((t) => t.x === coord.x && t.y === coord.y);
-        const existing = this.fogLedger.getTile(coord.x, coord.y);
+        const existing = this.fogLedger.getRecord(coord.x, coord.y);
         const version = (existing?.version ?? 0) + 1;
         const record: FogTileRecord = {
           generation,
@@ -599,25 +599,49 @@ export class SyncClient {
         return;
       }
       if (op.record.definition) {
+        const currentState = this.fogManager.getState();
+        const generationChanged =
+          !currentState || currentState.definition.generation !== op.record.definition.generation;
         const fogState: FogStateV1 = {
           definition: op.record.definition,
-          tiles: [],
+          tiles: generationChanged ? [] : (currentState?.tiles ?? []),
         };
         this.fogManager.loadState(fogState, { origin: REMOTE_ORIGIN });
       } else {
         this.fogManager.loadState(null, { origin: REMOTE_ORIGIN });
       }
     } else {
-      const acceptedTiles: { x: number; y: number; data: string }[] = [];
+      const acceptedDataTiles: { x: number; y: number; data: string }[] = [];
+      const removedCoords: { x: number; y: number }[] = [];
       for (const tile of op.tiles) {
         if (!isValidFogTileRecord(tile)) continue;
         const result = this.fogLedger.applyTile(tile);
-        if (result.accepted && tile.data) {
-          acceptedTiles.push({ x: tile.x, y: tile.y, data: tile.data });
+        if (result.accepted) {
+          if (tile.data) {
+            acceptedDataTiles.push({ x: tile.x, y: tile.y, data: tile.data });
+          } else {
+            removedCoords.push({ x: tile.x, y: tile.y });
+          }
         }
       }
-      if (acceptedTiles.length > 0) {
-        this.fogManager.applyPatchDirect({ tiles: acceptedTiles }, { origin: REMOTE_ORIGIN });
+      if (acceptedDataTiles.length > 0) {
+        this.fogManager.applyPatchDirect({ tiles: acceptedDataTiles }, { origin: REMOTE_ORIGIN });
+      }
+      if (removedCoords.length > 0) {
+        const currentState = this.fogManager.getState();
+        if (currentState) {
+          const removedKeys = new Set(removedCoords.map((c) => `${c.x},${c.y}`));
+          const remainingTiles = currentState.tiles.filter(
+            (t) => !removedKeys.has(`${t.x},${t.y}`),
+          );
+          if (remainingTiles.length !== currentState.tiles.length) {
+            const updatedState: FogStateV1 = {
+              definition: currentState.definition,
+              tiles: remainingTiles,
+            };
+            this.fogManager.loadState(updatedState, { origin: REMOTE_ORIGIN });
+          }
+        }
       }
     }
   }
@@ -625,10 +649,13 @@ export class SyncClient {
   private mergeSnapshotFog(raw: unknown): void {
     if (!this.fogManager || !this.fogLedger) return;
     if (raw === undefined || raw === null) {
+      const wasHubKnown = this.fogHubKnown;
       this.fogHubKnown = true;
-      if (!this.fogPreserveLocal || this.fogHubKnown) {
+      if (!this.fogPreserveLocal || wasHubKnown) {
         this.fogManager.loadState(null, { origin: REMOTE_ORIGIN });
         this.fogLedger.clear();
+      } else if (this.fogPreserveLocal && this.fogManager.getState()) {
+        this.publishLocalFog();
       }
       return;
     }
@@ -646,6 +673,38 @@ export class SyncClient {
       this.fogManager.loadState(fogState, { origin: REMOTE_ORIGIN });
     } else {
       this.fogManager.loadState(null, { origin: REMOTE_ORIGIN });
+    }
+  }
+
+  private publishLocalFog(): void {
+    if (!this.fogManager || !this.fogLedger) return;
+    const state = this.fogManager.getState();
+    if (!state) return;
+    const meta: FogMetaRecord = {
+      version: (this.fogLedger.getMeta()?.version ?? 0) + 1,
+      editor: this.clientId,
+      definition: state.definition,
+    };
+    this.fogLedger.applyMeta(meta);
+    this.sendOp({ kind: 'fog-meta', record: meta });
+    if (state.tiles.length > 0) {
+      const generation = state.definition.generation;
+      const tiles: FogTileRecord[] = state.tiles.map((t, i) => ({
+        generation,
+        x: t.x,
+        y: t.y,
+        version: i + 1,
+        editor: this.clientId,
+        data: t.data,
+      }));
+      for (const tile of tiles) this.fogLedger.applyTile(tile);
+      for (let i = 0; i < tiles.length; i += FOG_PATCH_MAX_TILES) {
+        this.sendOp({
+          kind: 'fog-patch',
+          generation,
+          tiles: tiles.slice(i, i + FOG_PATCH_MAX_TILES),
+        });
+      }
     }
   }
 }
