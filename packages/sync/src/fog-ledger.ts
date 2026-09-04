@@ -1,5 +1,8 @@
 import type { FogMetaRecord, FogTileRecord, FogSnapshot } from './protocol';
 import { isNewerFogRecord } from './protocol';
+import { FOG_MAX_TILES } from '@fieldnotes/core';
+
+const MAX_STORED_TILES = FOG_MAX_TILES;
 
 export class FogLedger {
   private meta: FogMetaRecord | null = null;
@@ -10,6 +13,11 @@ export class FogLedger {
   }
 
   getTile(x: number, y: number): FogTileRecord | undefined {
+    const record = this.tiles.get(tileKey(x, y));
+    return record?.data !== undefined ? record : undefined;
+  }
+
+  getRecord(x: number, y: number): FogTileRecord | undefined {
     return this.tiles.get(tileKey(x, y));
   }
 
@@ -53,11 +61,11 @@ export class FogLedger {
       return { accepted: false, correction: existing };
     }
 
-    if (record.data === undefined) {
-      this.tiles.delete(key);
-    } else {
-      this.tiles.set(key, record);
+    if (!existing && record.data !== undefined && this.dataTileCount() >= MAX_STORED_TILES) {
+      return { accepted: false };
     }
+
+    this.tiles.set(key, record);
 
     return { accepted: true };
   }
@@ -74,15 +82,21 @@ export class FogLedger {
     this.meta = snap.meta;
     this.tiles.clear();
     for (const tile of snap.tiles) {
-      if (tile.data !== undefined) {
-        this.tiles.set(tileKey(tile.x, tile.y), tile);
-      }
+      this.tiles.set(tileKey(tile.x, tile.y), tile);
     }
   }
 
   clear(): void {
     this.meta = null;
     this.tiles.clear();
+  }
+
+  private dataTileCount(): number {
+    let count = 0;
+    for (const tile of this.tiles.values()) {
+      if (tile.data !== undefined) count++;
+    }
+    return count;
   }
 }
 
@@ -95,7 +109,7 @@ function tombstone(record: FogTileRecord, generation: string): FogTileRecord {
     generation,
     x: record.x,
     y: record.y,
-    version: 0,
-    editor: '',
+    version: 1,
+    editor: 'hub',
   };
 }

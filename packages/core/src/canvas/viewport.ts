@@ -61,6 +61,8 @@ import { ViewportInteractions } from './viewport-interactions';
 import type { RotateDirection } from './selection-rotate';
 import { ElementActivation } from './element-activation';
 import type { ActivationOptions, ElementActivationEvent } from './element-activation';
+import { FogManager } from '../fog/fog-manager';
+import { FogRenderer } from '../fog/fog-renderer';
 
 export type { AlignEdge, DistributeAxis } from './selection-ops';
 export type { GridInfo } from './grid-controller';
@@ -95,6 +97,8 @@ export interface ViewportOptions {
   panInertia?: boolean;
   /** Show an overview minimap (bottom-right) with tap/drag-to-navigate. Default `false`. */
   minimap?: boolean;
+  /** Fog-of-war presentation options. Enables fog rendering and the `fog` accessor. */
+  fog?: { editorColor?: string; playerColor?: string };
 }
 
 export interface HitTestOptions {
@@ -132,6 +136,8 @@ export class Viewport {
   private _smartGuides = false;
   private readonly _gridSize: number;
   private readonly renderLoop: RenderLoop;
+  private readonly fogManager: FogManager;
+  private readonly fogRenderer: FogRenderer;
   private readonly domNodeManager: DomNodeManager;
   private readonly interactMode: InteractMode;
   private readonly onHtmlElementMount?: (
@@ -306,8 +312,14 @@ export class Viewport {
     }
     this.unsubToolChange = this.toolManager.onChange(() => this.contextMenu?.close());
 
+    this.fogManager = new FogManager({
+      onCommand: (cmd) => this.history.push(cmd),
+    });
+    this.fogRenderer = new FogRenderer(options.fog);
+
     if (options.minimap) {
       this.minimap = new Minimap(this.wrapper, this);
+      this.minimap.setFogRenderer(this.fogRenderer);
     }
 
     this.domNodeManager = new DomNodeManager({
@@ -343,6 +355,16 @@ export class Viewport {
       layerCache,
       marginViewport: this.marginViewport,
       hybridSurface: new HybridRenderSurface(this.paintStack),
+      fogRenderer: this.fogRenderer,
+    });
+
+    this.fogManager.on('change', () => {
+      this.fogRenderer.setState(this.fogManager.getState());
+      this.renderLoop.requestRender();
+    });
+    this.fogManager.on('view', () => {
+      this.fogRenderer.setViewMode(this.fogManager.getViewMode());
+      this.renderLoop.requestRender();
     });
 
     this.unsubHtmlPainters = this.htmlPainters.onChange(() => this.onHtmlRegistryChanged());
@@ -437,6 +459,10 @@ export class Viewport {
 
   get ctx(): CanvasRenderingContext2D | null {
     return this.canvasEl.getContext('2d');
+  }
+
+  get fog(): FogManager {
+    return this.fogManager;
   }
 
   get snapToGrid(): boolean {
@@ -541,6 +567,7 @@ export class Viewport {
       this.camera,
       this.layerManager.snapshot(),
       this.layerManager.activeLayerId,
+      this.fogManager.getState(),
     );
   }
 
@@ -569,11 +596,27 @@ export class Viewport {
   }
 
   async exportImage(options?: ExportImageOptions): Promise<Blob | null> {
-    return exportImage(this.store, this.withHtmlDefaults(options), this.layerManager);
+    const opts = this.withHtmlDefaults(options);
+    if (opts.fog === undefined && this.fogRenderer.isVisible()) {
+      const state = this.fogManager.getState();
+      if (state) {
+        const mode = this.fogRenderer.getViewMode() as 'editor' | 'player';
+        (opts as ExportImageOptions).fog = { state, mode };
+      }
+    }
+    return exportImage(this.store, opts, this.layerManager);
   }
 
   async exportSVG(options?: ExportSvgOptions): Promise<string> {
-    return exportSvg(this.store, this.withHtmlDefaults(options), this.layerManager);
+    const opts = this.withHtmlDefaults(options);
+    if (opts.fog === undefined && this.fogRenderer.isVisible()) {
+      const state = this.fogManager.getState();
+      if (state) {
+        const mode = this.fogRenderer.getViewMode() as 'editor' | 'player';
+        (opts as ExportSvgOptions).fog = { state, mode };
+      }
+    }
+    return exportSvg(this.store, opts, this.layerManager);
   }
 
   loadState(state: CanvasState): void {
@@ -620,6 +663,7 @@ export class Viewport {
         }
       }
     }
+    this.fogManager.loadState(state.fog ?? null);
     this.history.clear();
     this.historyRecorder.resume();
     this.camera.moveTo(state.camera.position.x, state.camera.position.y);
@@ -1123,6 +1167,8 @@ export class Viewport {
     this.unsubToolRegister();
     this.unsubRecorderEnd();
     this.unsubHtmlPainters();
+    this.fogManager.dispose();
+    this.fogRenderer.dispose();
     this.activation?.dispose();
     this.activation = null;
     this.activationListeners.clear();

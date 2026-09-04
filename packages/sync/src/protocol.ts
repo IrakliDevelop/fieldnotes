@@ -303,17 +303,24 @@ export function isValidFogMetaRecord(record: unknown): record is FogMetaRecord {
   return true;
 }
 
+const FOG_TILE_BYTES = (128 * 128) / 8;
+const FOG_CANONICAL_B64_LENGTH = Math.ceil(FOG_TILE_BYTES / 3) * 4;
+
 export function isValidFogTileRecord(record: unknown): record is FogTileRecord {
   if (!isRecord(record)) return false;
-  return (
-    isBoundedString(record['generation'], 128) &&
-    Number.isSafeInteger(record['x']) &&
-    Number.isSafeInteger(record['y']) &&
-    Number.isSafeInteger(record['version']) &&
-    (record['version'] as number) >= 1 &&
-    isBoundedString(record['editor'], 128) &&
-    (record['data'] === undefined || typeof record['data'] === 'string')
-  );
+  if (
+    !isBoundedString(record['generation'], 128) ||
+    !Number.isSafeInteger(record['x']) ||
+    !Number.isSafeInteger(record['y']) ||
+    !Number.isSafeInteger(record['version']) ||
+    (record['version'] as number) < 1 ||
+    !isBoundedString(record['editor'], 128)
+  ) {
+    return false;
+  }
+  if (record['data'] === undefined) return true;
+  if (typeof record['data'] !== 'string') return false;
+  return (record['data'] as string).length === FOG_CANONICAL_B64_LENGTH;
 }
 
 export function isValidFogSnapshot(snap: unknown): snap is FogSnapshot {

@@ -1,5 +1,6 @@
 import type { Viewport } from './viewport';
 import { MinimapController } from './minimap-controller';
+import type { FogRenderer } from '../fog/fog-renderer';
 
 const WIDTH = 200;
 const HEIGHT = 140;
@@ -31,6 +32,10 @@ export class Minimap {
     container.appendChild(canvas);
     this.canvas = canvas;
     this.controller = new MinimapController(viewport, canvas, { width: WIDTH, height: HEIGHT });
+  }
+
+  setFogRenderer(renderer: FogRenderer | null): void {
+    this.controller.setFogRenderer(renderer);
   }
 
   scheduleDraw(): void {

@@ -50,7 +50,11 @@ export class FogManager {
   }
 
   getState(): FogStateV1 | null {
-    return this.state;
+    if (!this.state) return null;
+    return {
+      definition: { ...this.state.definition, bounds: { ...this.state.definition.bounds } },
+      tiles: this.state.tiles.map((t) => ({ ...t })),
+    };
   }
 
   getViewMode(): FogViewMode {
@@ -87,8 +91,10 @@ export class FogManager {
   loadState(state: FogStateV1 | null, meta?: { origin?: string }): void {
     if (state !== null) {
       validateFogState(state);
+      this.state = structuredClone(state) as FogStateV1;
+    } else {
+      this.state = null;
     }
-    this.state = state;
     this.notifyChange({
       kind: state === null ? 'disable' : 'definition',
       origin: meta?.origin,

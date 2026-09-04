@@ -71,7 +71,6 @@ export class FogRenderer {
     const tileWorldSize = FOG_TILE_CELLS * cellSize;
 
     const color = this.viewMode === 'editor' ? this.editorColor : this.playerColor;
-    const isOpaque = this.viewMode === 'player';
 
     const worldBounds = getVisibleWorld(camera, viewportWidth, viewportHeight);
     const minTX = Math.floor(Math.max(def.bounds.x, worldBounds.x) / tileWorldSize);
@@ -118,7 +117,7 @@ export class FogRenderer {
         }
 
         if (data) {
-          this.renderTile(ctx, data, tx, ty, def, color, baseCovered, isOpaque);
+          this.renderTile(ctx, data, tx, ty, def, color);
         }
       }
     }
@@ -138,7 +137,6 @@ export class FogRenderer {
     const tileWorldSize = FOG_TILE_CELLS * cellSize;
     const fogColor = color ?? (mode === 'editor' ? this.editorColor : this.playerColor);
     const baseCovered = def.base === 'covered';
-    const isOpaque = mode === 'player';
 
     const tileMap = new Map<string, string>();
     for (const tile of state.tiles) {
@@ -170,7 +168,7 @@ export class FogRenderer {
         }
 
         if (data) {
-          this.renderTileForExport(ctx, data, tx, ty, def, fogColor, baseCovered, isOpaque);
+          this.renderTileForExport(ctx, data, tx, ty, def, fogColor);
         }
       }
     }
@@ -188,8 +186,6 @@ export class FogRenderer {
     ty: number,
     def: FogStateV1['definition'],
     color: string,
-    baseCovered: boolean,
-    _isOpaque: boolean,
   ): void {
     const cellSize = def.cellSize;
     const tileWorldX = tx * FOG_TILE_CELLS * cellSize;
@@ -217,7 +213,7 @@ export class FogRenderer {
         const bitIndex = 7 - (index & 7);
         const revealed = (((bytes[byteIndex] as number) >> bitIndex) & 1) === 1;
 
-        const covered = baseCovered ? !revealed : revealed;
+        const covered = !revealed;
         if (covered) {
           ctx.fillRect(cellWorldX, cellWorldY, cellSize, cellSize);
         }
@@ -232,10 +228,8 @@ export class FogRenderer {
     ty: number,
     def: FogStateV1['definition'],
     color: string,
-    baseCovered: boolean,
-    isOpaque: boolean,
   ): void {
-    this.renderTile(ctx, data, tx, ty, def, color, baseCovered, isOpaque);
+    this.renderTile(ctx, data, tx, ty, def, color);
   }
 }
 
