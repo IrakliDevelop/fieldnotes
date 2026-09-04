@@ -1,4 +1,4 @@
-import type { SyncOp, LayerRecord } from '@fieldnotes/sync';
+import type { SyncOp, LayerRecord, FogSnapshot } from '@fieldnotes/sync';
 import type { CanvasElement } from '@fieldnotes/core';
 
 export type OwnedElement = CanvasElement & { ownerId?: string; audience?: string };
@@ -38,3 +38,13 @@ export interface ReadContext {
 }
 
 export type CanRead = (ctx: ReadContext) => boolean;
+
+export interface AuthorizeFogContext {
+  userId?: string;
+  role?: string;
+  room: string;
+  op: Extract<SyncOp, { kind: 'fog-meta' | 'fog-patch' }>;
+  current: FogSnapshot | undefined;
+}
+
+export type AuthorizeFog = (ctx: AuthorizeFogContext) => boolean | Promise<boolean>;

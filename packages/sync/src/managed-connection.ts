@@ -1,9 +1,15 @@
 import type { CanvasElement, ElementStore, Layer } from '@fieldnotes/core';
-import { SyncClient, type ResolveLocalOnly, type RemoteLayerUpdate } from './sync-client';
+import {
+  SyncClient,
+  type ResolveLocalOnly,
+  type RemoteLayerUpdate,
+  type FogSyncManager,
+} from './sync-client';
 import type { SyncTransport } from './sync-transport';
 import { WebSocketTransport } from './websocket-transport';
 import { parseEnvelope, isValidLayerDefinition } from './protocol';
 import { LayerLedger } from './layer-ledger';
+import { FogLedger } from './fog-ledger';
 
 /**
  * Connection health as observed by the managed lifecycle:
@@ -62,8 +68,11 @@ export interface ManagedSyncConnectionOptions {
    * and locally-newer records are re-pushed after each reconnect snapshot.
    */
   layers?: {
-    /** Host application hook; see `LayerSyncOptions.applyLayer`. */
     applyLayer: (update: RemoteLayerUpdate) => void;
+  };
+  fog?: {
+    manager: FogSyncManager;
+    preserveLocalWhenRemoteMissing?: boolean;
   };
   onStatus?: (status: ManagedSyncStatus) => void;
   /**
@@ -172,6 +181,7 @@ export function createManagedSyncConnection(
   // deleted-while-away semantics), not a fresh non-destructive bootstrap.
   const hubKnownIds = new Set<string>();
   const layerLedger = options.layers ? new LayerLedger() : null;
+  const fogLedger = options.fog ? new FogLedger() : null;
   // Presence handlers live on the manager so they outlive credential
   // rebuilds; each client gets one forwarder that iterates the live sets.
   const presenceHandlers = new Set<(from: string, data: unknown) => void>();
@@ -293,6 +303,15 @@ export function createManagedSyncConnection(
       firstSnapshot: everJoined ? 'reconcile' : 'merge',
       ...(options.layers && layerLedger
         ? { layers: { applyLayer: options.layers.applyLayer, ledger: layerLedger } }
+        : {}),
+      ...(options.fog && fogLedger
+        ? {
+            fog: {
+              manager: options.fog.manager,
+              ledger: fogLedger,
+              preserveLocalWhenRemoteMissing: options.fog.preserveLocalWhenRemoteMissing,
+            },
+          }
         : {}),
     });
     client.start();

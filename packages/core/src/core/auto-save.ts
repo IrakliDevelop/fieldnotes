@@ -1,6 +1,7 @@
 import type { ElementStore } from '../elements/element-store';
 import type { Camera } from '../canvas/camera';
 import type { LayerManager } from '../layers/layer-manager';
+import type { FogManager } from '../fog/fog-manager';
 import { exportState, parseState } from './state-serializer';
 import type { CanvasState } from './state-serializer';
 import { LocalStorageAdapter } from './storage/local-storage-adapter';
@@ -10,6 +11,7 @@ export interface AutoSaveOptions {
   key?: string;
   debounceMs?: number;
   layerManager?: LayerManager;
+  fogManager?: FogManager;
   adapter?: StorageAdapter;
   onError?: (error: Error) => void;
 }
@@ -21,6 +23,7 @@ export class AutoSave {
   private readonly key: string;
   private readonly debounceMs: number;
   private readonly layerManager?: LayerManager;
+  private readonly fogManager?: FogManager;
   private readonly adapter: StorageAdapter;
   private timerId: ReturnType<typeof setTimeout> | null = null;
   private unsubscribers: (() => void)[] = [];
@@ -36,6 +39,7 @@ export class AutoSave {
     this.key = options.key ?? DEFAULT_KEY;
     this.debounceMs = options.debounceMs ?? DEFAULT_DEBOUNCE_MS;
     this.layerManager = options.layerManager;
+    this.fogManager = options.fogManager;
     this.adapter = options.adapter ?? new LocalStorageAdapter();
     this.onError = options.onError;
   }
@@ -51,6 +55,9 @@ export class AutoSave {
     ];
     if (this.layerManager) {
       this.unsubscribers.push(this.layerManager.on('change', schedule));
+    }
+    if (this.fogManager) {
+      this.unsubscribers.push(this.fogManager.on('change', schedule));
     }
   }
 
@@ -95,7 +102,8 @@ export class AutoSave {
     this.saving = true;
     try {
       const layers = this.layerManager?.snapshot() ?? [];
-      const state = exportState(this.store.snapshot(), this.camera, layers);
+      const fog = this.fogManager?.getState() ?? undefined;
+      const state = exportState(this.store.snapshot(), this.camera, layers, undefined, fog);
       await this.adapter.save(this.key, JSON.stringify(state));
     } catch (e) {
       this.onError?.(e instanceof Error ? e : new Error(String(e)));

@@ -76,4 +76,5 @@ export type ToolName =
   | 'path'
   | 'template'
   | 'laser'
-  | 'ping';
+  | 'ping'
+  | 'fog';

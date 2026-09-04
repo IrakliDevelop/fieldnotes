@@ -1,4 +1,4 @@
-import type { CanvasElement, ElementStore, Layer } from '@fieldnotes/core';
+import type { CanvasElement, ElementStore, Layer, FogStateV1 } from '@fieldnotes/core';
 import type { SyncTransport } from './sync-transport';
 import {
   parseEnvelope,
@@ -6,11 +6,18 @@ import {
   isValidLayerDefinition,
   isValidLayerRecord,
   isNewerLayerRecord,
+  isValidFogMetaRecord,
+  isValidFogTileRecord,
+  isValidFogSnapshot,
+  FOG_PATCH_MAX_TILES,
   type LayerRecord,
   type SyncOp,
   type SyncElement,
+  type FogMetaRecord,
+  type FogTileRecord,
 } from './protocol';
 import { LayerLedger } from './layer-ledger';
+import { FogLedger } from './fog-ledger';
 
 /**
  * Which authoritative-snapshot merge is being applied:
@@ -98,6 +105,29 @@ export interface LayerSyncOptions {
   ledger?: LayerLedger;
 }
 
+export interface FogSyncManager {
+  getState(): FogStateV1 | null;
+  loadState(state: FogStateV1 | null, meta?: { origin?: string }): void;
+  applyPatchDirect(
+    patch: { tiles: readonly { x: number; y: number; data: string }[] },
+    meta?: { origin?: string },
+  ): void;
+  on(
+    event: 'change',
+    listener: (event: {
+      kind: string;
+      tiles?: readonly { x: number; y: number }[];
+      origin?: string;
+    }) => void,
+  ): () => void;
+}
+
+export interface FogSyncOptions {
+  manager: FogSyncManager;
+  ledger?: FogLedger;
+  preserveLocalWhenRemoteMissing?: boolean;
+}
+
 export interface SyncClientOptions {
   store: ElementStore;
   transport: SyncTransport;
@@ -127,6 +157,8 @@ export interface SyncClientOptions {
   firstSnapshot?: 'merge' | 'reconcile';
   /** Enables versioned layer-definition sync for this client. */
   layers?: LayerSyncOptions;
+  /** Enables fog-of-war sync for this client. */
+  fog?: FogSyncOptions;
 }
 
 const REMOTE_ORIGIN = 'remote';
@@ -157,6 +189,10 @@ export class SyncClient {
   private readonly hubKnownIds: Set<string>;
   private readonly applyLayer?: (update: RemoteLayerUpdate) => void;
   private readonly layerLedger?: LayerLedger;
+  private readonly fogManager?: FogSyncManager;
+  private readonly fogLedger?: FogLedger;
+  private readonly fogPreserveLocal: boolean;
+  private fogHubKnown = false;
   private unsubscribers: (() => void)[] = [];
   private started = false;
   private joined = false;
@@ -175,6 +211,13 @@ export class SyncClient {
     if (options.layers) {
       this.applyLayer = options.layers.applyLayer;
       this.layerLedger = options.layers.ledger ?? new LayerLedger();
+    }
+    if (options.fog) {
+      this.fogManager = options.fog.manager;
+      this.fogLedger = options.fog.ledger ?? new FogLedger();
+      this.fogPreserveLocal = options.fog.preserveLocalWhenRemoteMissing ?? false;
+    } else {
+      this.fogPreserveLocal = false;
     }
     this.joined = options.firstSnapshot === 'reconcile';
   }
@@ -200,6 +243,11 @@ export class SyncClient {
     ];
     if (this.transport.onReconnect) {
       this.unsubscribers.push(this.transport.onReconnect(() => this.onReconnect()));
+    }
+    if (this.fogManager) {
+      this.unsubscribers.push(
+        this.fogManager.on('change', (event) => this.onLocalFogChange(event)),
+      );
     }
     // MUST be last: a synchronous bus delivers the peer's reply reentrantly, so the
     // onMessage receive handler above must already be wired before we request.
@@ -364,16 +412,19 @@ export class SyncClient {
     const op = env.op;
     if (op.kind === 'request-snapshot') {
       const elements = this.store.snapshot();
-      this.sendOp(
-        this.layerLedger
-          ? { kind: 'snapshot', to: env.from, elements, layers: this.layerLedger.records() }
-          : { kind: 'snapshot', to: env.from, elements },
-      );
+      const snapshotOp: Record<string, unknown> = { kind: 'snapshot', to: env.from, elements };
+      if (this.layerLedger) snapshotOp['layers'] = this.layerLedger.records();
+      if (this.fogLedger) {
+        const fogSnap = this.fogLedger.snapshot();
+        if (fogSnap) snapshotOp['fog'] = fogSnap;
+      }
+      this.sendOp(snapshotOp as SyncOp);
     } else if (op.kind === 'snapshot') {
       if (op.to !== this.clientId) return; // not addressed to us
       // Layers merge BEFORE elements so an element referencing a just-synced
       // layer arrives after the host has created that layer.
       this.mergeSnapshotLayers(op.layers);
+      this.mergeSnapshotFog((op as Record<string, unknown>)['fog']);
       const phase: AuthoritativeSnapshotPhase = this.joined ? 'reconcile' : 'bootstrap';
       const preserved = this.applyAuthoritativeSnapshot(phase, op.elements.filter(isValidElement));
       this.joined = true;
@@ -392,6 +443,8 @@ export class SyncClient {
       this.pushNewerLayerRecords(op.layers);
     } else if (op.kind === 'layer-upsert' || op.kind === 'layer-remove') {
       this.onRemoteLayerOp(env.from, op);
+    } else if (op.kind === 'fog-meta' || op.kind === 'fog-patch') {
+      this.onRemoteFogOp(env.from, op);
     } else if (op.kind === 'presence') {
       for (const h of this.presenceHandlers) h(env.from, op.data);
     } else if (op.kind === 'presence-leave') {
@@ -476,5 +529,123 @@ export class SyncClient {
       discard.delete(id);
     }
     return { preserve, discard };
+  }
+
+  // ── Fog sync ──
+
+  private onLocalFogChange(event: {
+    kind: string;
+    tiles?: readonly { x: number; y: number }[];
+    origin?: string;
+  }): void {
+    if (isExternal(event.origin)) return;
+    if (!this.fogManager || !this.fogLedger) return;
+
+    const state = this.fogManager.getState();
+
+    if (event.kind === 'definition' || event.kind === 'reset') {
+      if (!state) return;
+      const meta: FogMetaRecord = {
+        version: (this.fogLedger.getMeta()?.version ?? 0) + 1,
+        editor: this.clientId,
+        definition: state.definition,
+      };
+      this.fogLedger.applyMeta(meta);
+      this.sendOp({ kind: 'fog-meta', record: meta });
+    } else if (event.kind === 'disable') {
+      const meta: FogMetaRecord = {
+        version: (this.fogLedger.getMeta()?.version ?? 0) + 1,
+        editor: this.clientId,
+      };
+      this.fogLedger.applyMeta(meta);
+      this.sendOp({ kind: 'fog-meta', record: meta });
+    } else if (event.kind === 'tiles' && event.tiles && state) {
+      const generation = state.definition.generation;
+      const tiles: FogTileRecord[] = [];
+      for (const coord of event.tiles) {
+        const tile = state.tiles.find((t) => t.x === coord.x && t.y === coord.y);
+        const existing = this.fogLedger.getTile(coord.x, coord.y);
+        const version = (existing?.version ?? 0) + 1;
+        const record: FogTileRecord = {
+          generation,
+          x: coord.x,
+          y: coord.y,
+          version,
+          editor: this.clientId,
+          data: tile?.data,
+        };
+        this.fogLedger.applyTile(record);
+        tiles.push(record);
+      }
+      // Split into batches of FOG_PATCH_MAX_TILES
+      for (let i = 0; i < tiles.length; i += FOG_PATCH_MAX_TILES) {
+        const batch = tiles.slice(i, i + FOG_PATCH_MAX_TILES);
+        this.sendOp({ kind: 'fog-patch', generation, tiles: batch });
+      }
+    }
+  }
+
+  private onRemoteFogOp(
+    from: string,
+    op: Extract<SyncOp, { kind: 'fog-meta' | 'fog-patch' }>,
+  ): void {
+    if (!this.fogManager || !this.fogLedger) return;
+
+    if (op.kind === 'fog-meta') {
+      if (!isValidFogMetaRecord(op.record)) return;
+      if (from === HUB_FROM) {
+        this.fogLedger.applyMeta(op.record);
+      } else if (!this.fogLedger.applyMeta(op.record).accepted) {
+        return;
+      }
+      if (op.record.definition) {
+        const fogState: FogStateV1 = {
+          definition: op.record.definition,
+          tiles: [],
+        };
+        this.fogManager.loadState(fogState, { origin: REMOTE_ORIGIN });
+      } else {
+        this.fogManager.loadState(null, { origin: REMOTE_ORIGIN });
+      }
+    } else {
+      const acceptedTiles: { x: number; y: number; data: string }[] = [];
+      for (const tile of op.tiles) {
+        if (!isValidFogTileRecord(tile)) continue;
+        const result = this.fogLedger.applyTile(tile);
+        if (result.accepted && tile.data) {
+          acceptedTiles.push({ x: tile.x, y: tile.y, data: tile.data });
+        }
+      }
+      if (acceptedTiles.length > 0) {
+        this.fogManager.applyPatchDirect({ tiles: acceptedTiles }, { origin: REMOTE_ORIGIN });
+      }
+    }
+  }
+
+  private mergeSnapshotFog(raw: unknown): void {
+    if (!this.fogManager || !this.fogLedger) return;
+    if (raw === undefined || raw === null) {
+      this.fogHubKnown = true;
+      if (!this.fogPreserveLocal || this.fogHubKnown) {
+        this.fogManager.loadState(null, { origin: REMOTE_ORIGIN });
+        this.fogLedger.clear();
+      }
+      return;
+    }
+    if (!isValidFogSnapshot(raw)) return;
+    this.fogHubKnown = true;
+    this.fogLedger.loadSnapshot(raw);
+    if (raw.meta.definition) {
+      const tiles = raw.tiles
+        .filter((t): t is FogTileRecord & { data: string } => t.data !== undefined)
+        .map((t) => ({ x: t.x, y: t.y, data: t.data }));
+      const fogState: FogStateV1 = {
+        definition: raw.meta.definition,
+        tiles,
+      };
+      this.fogManager.loadState(fogState, { origin: REMOTE_ORIGIN });
+    } else {
+      this.fogManager.loadState(null, { origin: REMOTE_ORIGIN });
+    }
   }
 }

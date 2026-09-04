@@ -4,7 +4,7 @@ import { SyncHub } from './sync-hub';
 import type { HubBackend } from './hub-backend';
 import type { HubFanout } from './hub-fanout';
 import type { Authenticate } from './authenticate';
-import type { Authorize, AuthorizeLayer, CanRead } from './authorize';
+import type { Authorize, AuthorizeLayer, AuthorizeFog, CanRead } from './authorize';
 import { startHeartbeat } from './heartbeat';
 import {
   DEFAULT_MAX_JSON_DEPTH,
@@ -27,6 +27,7 @@ export interface CreateSyncServerOptions {
   authenticate?: Authenticate;
   authorize?: Authorize;
   authorizeLayer?: AuthorizeLayer;
+  authorizeFog?: AuthorizeFog;
   canRead?: CanRead;
   heartbeatIntervalMs?: number;
   maxMessageBytes?: number;
@@ -60,6 +61,7 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
     instanceId: options.instanceId,
     authorize: options.authorize,
     authorizeLayer: options.authorizeLayer,
+    authorizeFog: options.authorizeFog,
     canRead: options.canRead,
     maxJsonDepth: options.maxJsonDepth ?? DEFAULT_MAX_JSON_DEPTH,
     presenceThrottleMs: options.presenceThrottleMs ?? DEFAULT_PRESENCE_THROTTLE_MS,

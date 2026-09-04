@@ -25,7 +25,7 @@ describe('exportState', () => {
     const note = createNote({ position: { x: 10, y: 20 } });
     const state = exportState([stroke, note], makeCamera(100, 200, 1.5));
 
-    expect(state.version).toBe(2);
+    expect(state.version).toBe(3);
     expect(state.camera).toEqual({ position: { x: 100, y: 200 }, zoom: 1.5 });
     expect(state.elements).toHaveLength(2);
     expect(state.elements[0]?.type).toBe('stroke');
@@ -86,7 +86,7 @@ describe('exportState', () => {
 describe('parseState', () => {
   function validState(): CanvasState {
     return {
-      version: 2,
+      version: 3,
       camera: { position: { x: 0, y: 0 }, zoom: 1 },
       elements: [
         createStroke({ points: [{ x: 0, y: 0, pressure: 0.5 }], layerId: 'default-layer' }),
@@ -108,7 +108,7 @@ describe('parseState', () => {
     const json = JSON.stringify(validState());
     const state = parseState(json);
 
-    expect(state.version).toBe(2);
+    expect(state.version).toBe(3);
     expect(state.camera.zoom).toBe(1);
     expect(state.elements).toHaveLength(1);
   });
@@ -218,8 +218,8 @@ describe('parseState', () => {
 
   it('rejects unsupported future versions', () => {
     const data = validState();
-    data.version = 3;
-    expect(() => parseState(JSON.stringify(data))).toThrow('unsupported version 3');
+    data.version = 4;
+    expect(() => parseState(JSON.stringify(data))).toThrow('unsupported version 4');
   });
 
   it.each([0, -1, 1.5])('rejects invalid version %s', (version) => {
@@ -537,7 +537,7 @@ describe('parseState', () => {
 
     it('exportState with empty store produces valid state', () => {
       const state = exportState([], makeCamera());
-      expect(state.version).toBe(2);
+      expect(state.version).toBe(3);
       expect(state.elements).toEqual([]);
       expect(state.camera).toEqual({ position: { x: 0, y: 0 }, zoom: 1 });
 

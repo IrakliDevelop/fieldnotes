@@ -4,6 +4,41 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.66.0] — 2026-09-04
+
+### Added
+
+- **Visual fog of war.** A bounded sparse raster mask (`FogManager`, `FogStateV1`) with
+  reveal/conceal tools (`FogTool` — brush, rectangle, polygon/lasso), one-gesture undo,
+  history-transparent remote state, and three presentation modes (`off`, `editor`, `player`).
+  The mask is a dedicated compositing stratum above all canvas- and DOM-backed scene content
+  and below registered/tool overlays, ensuring DOM elements are properly hidden in player mode.
+- Fog tile codec: 128 × 128 one-bit tiles, base64-encoded, at most 256 stored tiles per document.
+  `recommendedFogCellSize(bounds)` selects the coarsest integer cell size that fits within the cap.
+  Strict fail-closed validation rejects malformed state without partial reveals.
+- `CanvasState` version 3 with optional `fog` field. Versions 1 and 2 still parse; version 3
+  rejects on older core.
+- `AutoSave` gains optional `fogManager` subscription.
+- `FogRenderer` with per-tile cell rendering, visible-tile culling, and export helper.
+- `exportImage`/`exportSvg` gain explicit `fog` option (state + mode + optional color, or `false`).
+  SVG embeds one bounded raster mask image, not per-cell nodes.
+- `MinimapController.setFogRenderer()` composites the fog mask into the scene cache and includes fog
+  bounds in the minimap mapping. Player mode is opaque in the minimap.
+- `@fieldnotes/sync` 0.12.0: `FogMetaRecord`, `FogTileRecord`, `FogSnapshot`, `fog-meta`/`fog-patch`
+  ops with strict guards and caps (64 tiles per patch, 256 per snapshot). `FogLedger` with
+  deterministic `(version, editor)` LWW ordering and generation-based tile reset.
+  `SyncClient` and managed connection gain opt-in `fog` option with manager interface, ledger,
+  preserve-local-when-remote-missing, and snapshot merge.
+- `@fieldnotes/sync-server` 0.14.0: `AuthorizeFog` hook, fog ops on the per-room serial queue with
+  corrections, fog in authoritative snapshots, `MemoryHubBackend` fog support, `HubBackend` optional
+  fog capability group.
+- `@fieldnotes/sync-redis` 0.5.0: `RedisHubBackend` fog meta/tile keys with generation-reset cleanup
+  and corrupt-record skip.
+
+### Changed
+
+- `CanvasState.version` is now 3. The serializer accepts 1–3; future versions remain rejected.
+
 ## [0.65.0] — 2026-09-02
 
 ### Added

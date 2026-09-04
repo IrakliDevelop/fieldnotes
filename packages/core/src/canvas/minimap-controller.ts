@@ -2,6 +2,7 @@ import type { Bounds, Point } from '../core/types';
 import type { CanvasElement } from '../elements/types';
 import type { Viewport } from './viewport';
 import type { HtmlPainterRegistry } from './html-painter-registry';
+import type { FogRenderer } from '../fog/fog-renderer';
 import { ElementRenderer } from '../elements/element-renderer';
 import { getElementBounds } from '../elements/element-bounds';
 import { getElementsBoundingBox } from '../elements/bounds';
@@ -78,6 +79,8 @@ export class MinimapController {
   // read the `viewport` parameter. Assigned in the constructor body instead.
   private readonly htmlPainters: HtmlPainterRegistry;
   private scene: SceneCache | null = null;
+  private fogRenderer: FogRenderer | null = null;
+  private fogUnsub: (() => void) | null = null;
   private frameId: number | null = null;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private dragging = false;
@@ -146,6 +149,16 @@ export class MinimapController {
     this.clearDebounce();
     this.renderScene();
     this.requestDraw();
+  }
+
+  setFogRenderer(renderer: FogRenderer | null): void {
+    if (this.disposed) return;
+    if (this.fogUnsub) {
+      this.fogUnsub();
+      this.fogUnsub = null;
+    }
+    this.fogRenderer = renderer;
+    this.invalidateScene();
   }
 
   requestDraw(): void {
@@ -218,8 +231,15 @@ export class MinimapController {
 
   private currentMapping(): Bounds {
     const viewportRect = this.viewport.getVisibleRect();
-    const content = getElementsBoundingBox(this.sceneElements());
-    return content ? unionBounds(content, viewportRect) : viewportRect;
+    let mapping = getElementsBoundingBox(this.sceneElements());
+    mapping = mapping ? unionBounds(mapping, viewportRect) : viewportRect;
+    if (this.fogRenderer?.isVisible()) {
+      const fogState = this.fogRenderer.getState();
+      if (fogState) {
+        mapping = unionBounds(mapping, fogState.definition.bounds);
+      }
+    }
+    return mapping;
   }
 
   private onViewChanged(): void {
@@ -286,6 +306,24 @@ export class MinimapController {
       ctx.globalAlpha = opacity;
       ctx.drawImage(layerCanvas, 0, 0);
       ctx.restore();
+    }
+
+    if (this.fogRenderer?.isVisible()) {
+      const fogState = this.fogRenderer.getState();
+      const fogMode = this.fogRenderer.getViewMode();
+      if (fogState && (fogMode === 'editor' || fogMode === 'player')) {
+        ctx.save();
+        ctx.setTransform(
+          dpr * transform.scale,
+          0,
+          0,
+          dpr * transform.scale,
+          dpr * transform.offsetX,
+          dpr * transform.offsetY,
+        );
+        this.fogRenderer.renderForExport(ctx, fogState, fogMode);
+        ctx.restore();
+      }
     }
 
     // Atomic swap: bitmap, transform, and mapping replace together.
