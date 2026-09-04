@@ -4,6 +4,9 @@ import {
   type ResolveLocalOnly,
   type RemoteLayerUpdate,
   type FogSyncManager,
+  type FogSyncSessionState,
+  captureOfflineFogChange,
+  assertValidFogClientId,
 } from './sync-client';
 import type { SyncTransport } from './sync-transport';
 import { WebSocketTransport } from './websocket-transport';
@@ -42,7 +45,8 @@ export interface ManagedSyncConnectionOptions {
   /**
    * Stable client identity. It must not change across reconnects and, for
    * authenticated relays, must equal the server-authenticated user id so
-   * ownership authorization and reconnect echo-suppression keep working.
+   * ownership authorization and reconnect echo-suppression keep working. When
+   * `fog` is enabled, it must be 1-128 printable ASCII characters.
    */
   clientId: string;
   /**
@@ -156,6 +160,7 @@ const BACKOFF_EXPONENT_CAP = 10;
 export function createManagedSyncConnection(
   options: ManagedSyncConnectionOptions,
 ): ManagedSyncConnection {
+  if (options.fog) assertValidFogClientId(options.clientId);
   const {
     store,
     clientId,
@@ -182,6 +187,8 @@ export function createManagedSyncConnection(
   const hubKnownIds = new Set<string>();
   const layerLedger = options.layers ? new LayerLedger() : null;
   const fogLedger = options.fog ? new FogLedger() : null;
+  const fogOptions = options.fog;
+  const fogSession: FogSyncSessionState = { hubKnown: false, pending: null };
   // Presence handlers live on the manager so they outlive credential
   // rebuilds; each client gets one forwarder that iterates the live sets.
   const presenceHandlers = new Set<(from: string, data: unknown) => void>();
@@ -197,6 +204,13 @@ export function createManagedSyncConnection(
   let transport: ManagedSyncTransport | null = null;
   let subscriptions: (() => void)[] = [];
   let currentStatus: ManagedSyncStatus | null = null;
+  const unsubscribeOfflineFog =
+    fogOptions && fogLedger
+      ? fogOptions.manager.on('change', (event) => {
+          if (client !== null) return;
+          captureOfflineFogChange(fogSession, fogLedger, fogOptions.manager, clientId, event);
+        })
+      : null;
 
   const setStatus = (next: ManagedSyncStatus): void => {
     if (next === currentStatus) return;
@@ -309,6 +323,7 @@ export function createManagedSyncConnection(
             fog: {
               manager: options.fog.manager,
               ledger: fogLedger,
+              sessionState: fogSession,
               preserveLocalWhenRemoteMissing: options.fog.preserveLocalWhenRemoteMissing,
             },
           }
@@ -344,6 +359,7 @@ export function createManagedSyncConnection(
         retryTimer = null;
       }
       teardownConnection();
+      unsubscribeOfflineFog?.();
     },
     getStatus(): ManagedSyncStatus {
       return currentStatus ?? 'connecting';

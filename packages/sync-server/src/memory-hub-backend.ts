@@ -8,7 +8,7 @@ import {
   type FogTileRecord,
 } from '@fieldnotes/sync';
 import type { CanvasElement } from '@fieldnotes/core';
-import type { HubBackend } from './hub-backend';
+import type { FogApplyResult, FogPatchApplyResult, HubBackend } from './hub-backend';
 
 export class MemoryHubBackend implements HubBackend {
   private rooms = new Map<string, Map<string, CanvasElement>>();
@@ -75,11 +75,18 @@ export class MemoryHubBackend implements HubBackend {
     return this.fog(room).snapshot();
   }
 
-  async applyFogMeta(room: string, record: FogMetaRecord): Promise<void> {
-    this.fog(room).applyMeta(record);
+  async applyFogMeta(room: string, record: FogMetaRecord): Promise<FogApplyResult<FogMetaRecord>> {
+    return this.fog(room).applyMeta(record);
   }
 
-  async applyFogTile(room: string, record: FogTileRecord): Promise<void> {
-    this.fog(room).applyTile(record);
+  async applyFogTile(room: string, record: FogTileRecord): Promise<FogApplyResult<FogTileRecord>> {
+    return this.fog(room).applyTile(record);
+  }
+
+  async applyFogPatch(
+    room: string,
+    records: readonly FogTileRecord[],
+  ): Promise<FogPatchApplyResult> {
+    return this.fog(room).applyPatch(records);
   }
 }

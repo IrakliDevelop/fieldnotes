@@ -5,4 +5,6 @@ export interface RedisHashClient {
   hSet(key: string, field: string, value: string): Promise<unknown>;
   hDel(key: string, field: string): Promise<unknown>;
   del(key: string): Promise<unknown>;
+  /** Required for atomic fog LWW updates; node-redis conforms directly. */
+  eval(script: string, options: { keys: string[]; arguments: string[] }): Promise<unknown>;
 }

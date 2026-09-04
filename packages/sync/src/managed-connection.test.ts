@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ElementStore, createNote, type Layer } from '@fieldnotes/core';
+import {
+  ElementStore,
+  FogManager,
+  createNote,
+  fogEncodeBase64,
+  type Layer,
+} from '@fieldnotes/core';
 import { createManagedSyncConnection } from './managed-connection';
 import type {
   ManagedSyncConnection,
@@ -820,5 +826,98 @@ describe('createManagedSyncConnection layer sync', () => {
     await flushAsync();
     expect(() => managed.publishLayerUpsert(layerDef())).toThrow(/not enabled/);
     expect(() => managed.publishLayerRemove('layer-x')).toThrow(/not enabled/);
+  });
+});
+
+describe('createManagedSyncConnection fog lifecycle', () => {
+  const definition = {
+    version: 1 as const,
+    generation: 'gen-1',
+    bounds: { x: 0, y: 0, w: 128, h: 128 },
+    cellSize: 1,
+    tileCells: 128 as const,
+    base: 'covered' as const,
+  };
+  const data = fogEncodeBase64(new Uint8Array(2048).fill(0xff));
+
+  it('rejects an invalid fog ordering identity before starting the async lifecycle', () => {
+    const resolveUrl = vi.fn(() => Promise.resolve('ws://relay/a'));
+    const transportFactory = vi.fn((url: string) => new FakeTransport(url));
+
+    expect(() =>
+      createManagedSyncConnection({
+        store: new ElementStore(),
+        clientId: '😀',
+        resolveUrl,
+        fog: { manager: new FogManager() },
+        transportFactory,
+      }),
+    ).toThrow(/printable ASCII/);
+    expect(resolveUrl).not.toHaveBeenCalled();
+    expect(transportFactory).not.toHaveBeenCalled();
+  });
+
+  it('keeps hub knowledge and shields a fog edit made during a credential rebuild gap', async () => {
+    vi.useFakeTimers();
+    const store = new ElementStore();
+    const manager = new FogManager({ idFactory: () => 'gen-local' });
+    manager.loadState({ definition, tiles: [] });
+    const transports: FakeTransport[] = [];
+    const connection = createManagedSyncConnection({
+      store,
+      clientId: CLIENT_ID,
+      resolveUrl: () => Promise.resolve('ws://relay/a'),
+      fog: { manager, preserveLocalWhenRemoteMissing: true },
+      transportFactory: (url) => {
+        const transport = new FakeTransport(url);
+        transports.push(transport);
+        return transport;
+      },
+      retryInitialDelayMs: 10,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    transports[0]?.emitMessage(
+      envelope('hub', {
+        kind: 'snapshot',
+        to: CLIENT_ID,
+        elements: [],
+        fog: { meta: { version: 1, editor: 'hub', definition }, tiles: [] },
+      } as SyncOp),
+    );
+
+    transports[0]?.emitClose(4401);
+    manager.applyPatchDirect({ tiles: [{ x: 0, y: 0, data }] });
+    await vi.advanceTimersByTimeAsync(10);
+    const rebuilt = transports[1];
+    expect(rebuilt).toBeDefined();
+    rebuilt?.emitMessage(
+      envelope('hub', {
+        kind: 'snapshot',
+        to: CLIENT_ID,
+        elements: [],
+        fog: {
+          meta: { version: 1, editor: 'hub', definition },
+          tiles: [{ generation: 'gen-1', x: 0, y: 0, version: 10, editor: 'hub', data }],
+        },
+      } as SyncOp),
+    );
+    const patch = rebuilt?.sent
+      .map((raw) => JSON.parse(raw).op as SyncOp)
+      .find((op) => op.kind === 'fog-patch');
+    expect(patch).toMatchObject({
+      kind: 'fog-patch',
+      tiles: [{ x: 0, y: 0, version: 11, editor: CLIENT_ID }],
+    });
+
+    rebuilt?.emitClose(4401);
+    await vi.advanceTimersByTimeAsync(10);
+    const third = transports[2];
+    third?.emitMessage(snapshotFor(CLIENT_ID));
+    expect(manager.getState()).toBeNull();
+    expect(third?.sent.some((raw) => (JSON.parse(raw).op as SyncOp).kind === 'fog-meta')).toBe(
+      false,
+    );
+    connection.stop();
+    vi.useRealTimers();
   });
 });

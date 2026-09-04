@@ -3,6 +3,8 @@ import {
   ElementStore,
   createNote,
   createShape,
+  fogEncodeBase64,
+  FogManager,
   type CanvasElement,
   type Layer,
 } from '@fieldnotes/core';
@@ -10,7 +12,7 @@ import type { ElementChangeMeta } from '@fieldnotes/core';
 import { SyncClient } from './sync-client';
 import type { AuthoritativeSnapshotContext, RemoteLayerUpdate } from './sync-client';
 import { LayerLedger } from './layer-ledger';
-import type { LayerRecord, SyncOp } from './protocol';
+import type { FogMetaRecord, FogSnapshot, LayerRecord, SyncOp } from './protocol';
 import type { SyncTransport } from './sync-transport';
 
 interface BusEndpoint extends SyncTransport {
@@ -588,6 +590,496 @@ describe('SyncClient resync-on-reconnect', () => {
     // resyncPending stuck true, so the local add recorded X in touchedDuringResync and the
     // reconcile would skip removing it (getById('X') still defined -> failure).
     expect(store.getById('X')).toBeUndefined();
+  });
+});
+
+describe('SyncClient fog convergence', () => {
+  const definition = {
+    version: 1 as const,
+    generation: 'gen-1',
+    bounds: { x: 0, y: 0, w: 256, h: 128 },
+    cellSize: 1,
+    tileCells: 128 as const,
+    base: 'covered' as const,
+  };
+  const dataA = fogEncodeBase64(new Uint8Array(2048).fill(0xff));
+  const changedBytes = new Uint8Array(2048).fill(0xff);
+  changedBytes[0] = 0x7f;
+  const dataB = fogEncodeBase64(changedBytes);
+
+  function fogSnapshot(meta: FogMetaRecord, tiles: FogSnapshot['tiles'] = []): FogSnapshot {
+    return { meta, tiles };
+  }
+
+  function fogClient() {
+    const store = new ElementStore();
+    const transport = makeReconnectTransport();
+    const manager = new FogManager();
+    const client = new SyncClient({
+      store,
+      transport,
+      clientId: 'A',
+      fog: { manager },
+    });
+    client.start();
+    return { transport, manager, client };
+  }
+
+  it('fails fast when fog sync is configured with an invalid ordering identity', () => {
+    expect(
+      () =>
+        new SyncClient({
+          store: new ElementStore(),
+          transport: makeReconnectTransport(),
+          clientId: '😀',
+          fog: { manager: new FogManager() },
+        }),
+    ).toThrow(/printable ASCII/);
+  });
+
+  it('merges untouched remote tiles with exact local edits made during resync', () => {
+    const { transport, manager } = fogClient();
+    const meta = { version: 1, editor: 'hub', definition };
+    transport.deliver(
+      envelope('hub', {
+        kind: 'snapshot',
+        to: 'A',
+        elements: [],
+        fog: fogSnapshot(meta, [
+          { generation: 'gen-1', x: 0, y: 0, version: 1, editor: 'hub', data: dataA },
+        ]),
+      }),
+    );
+
+    // The real WebSocket transport flushes buffered writes before onReconnect,
+    // so capture the local edit before the reconnect callback fires.
+    manager.applyPatchDirect({ tiles: [{ x: 0, y: 0, data: dataB }] });
+    transport.triggerReconnect();
+    transport.deliver(
+      envelope('hub', {
+        kind: 'fog-patch',
+        generation: 'gen-1',
+        tiles: [{ generation: 'gen-1', x: 0, y: 0, version: 10, editor: 'hub', data: dataA }],
+      }),
+    );
+    const beforeSnapshot = transport.sent.length;
+    transport.deliver(
+      envelope('hub', {
+        kind: 'snapshot',
+        to: 'A',
+        elements: [],
+        fog: fogSnapshot(meta, [
+          { generation: 'gen-1', x: 0, y: 0, version: 10, editor: 'hub', data: dataA },
+          { generation: 'gen-1', x: 1, y: 0, version: 1, editor: 'hub', data: dataA },
+        ]),
+      }),
+    );
+
+    expect(manager.getState()?.tiles).toEqual([
+      { x: 0, y: 0, data: dataB },
+      { x: 1, y: 0, data: dataA },
+    ]);
+    const repushed = transport.sent
+      .slice(beforeSnapshot)
+      .map((message) => JSON.parse(message).op as SyncOp)
+      .filter((op): op is Extract<SyncOp, { kind: 'fog-patch' }> => op.kind === 'fog-patch');
+    expect(repushed).toEqual([
+      {
+        kind: 'fog-patch',
+        generation: 'gen-1',
+        tiles: [{ generation: 'gen-1', x: 0, y: 0, version: 11, editor: 'A', data: dataB }],
+      },
+    ]);
+  });
+
+  it('rejects a same-generation bounds shrink so removed coordinates cannot resurrect', () => {
+    const { transport, manager } = fogClient();
+    transport.deliver(
+      envelope('hub', {
+        kind: 'snapshot',
+        to: 'A',
+        elements: [],
+        fog: fogSnapshot({ version: 1, editor: 'hub', definition }, [
+          { generation: 'gen-1', x: 0, y: 0, version: 1, editor: 'hub', data: dataA },
+          { generation: 'gen-1', x: 1, y: 0, version: 1, editor: 'hub', data: dataB },
+        ]),
+      }),
+    );
+
+    expect(() =>
+      transport.deliver(
+        envelope('B', {
+          kind: 'fog-meta',
+          record: {
+            version: 2,
+            editor: 'B',
+            definition: { ...definition, bounds: { x: 0, y: 0, w: 128, h: 128 } },
+          },
+        }),
+      ),
+    ).not.toThrow();
+    expect(manager.getState()?.definition.bounds.w).toBe(256);
+    expect(manager.getState()?.tiles).toEqual([
+      { x: 0, y: 0, data: dataA },
+      { x: 1, y: 0, data: dataB },
+    ]);
+  });
+
+  it('does not resurrect an old-generation local tile across a remote reset', () => {
+    const { transport, manager } = fogClient();
+    const meta = { version: 1, editor: 'hub', definition };
+    transport.deliver(
+      envelope('hub', { kind: 'snapshot', to: 'A', elements: [], fog: fogSnapshot(meta) }),
+    );
+    transport.triggerReconnect();
+    manager.applyPatchDirect({ tiles: [{ x: 0, y: 0, data: dataA }] });
+    const resetDefinition = { ...definition, generation: 'gen-2' };
+    const beforeSnapshot = transport.sent.length;
+    transport.deliver(
+      envelope('hub', {
+        kind: 'snapshot',
+        to: 'A',
+        elements: [],
+        fog: fogSnapshot({ version: 2, editor: 'hub', definition: resetDefinition }),
+      }),
+    );
+    expect(manager.getState()?.definition.generation).toBe('gen-2');
+    expect(manager.getState()?.tiles).toEqual([]);
+    expect(transport.sent.slice(beforeSnapshot).map((message) => JSON.parse(message).op)).toEqual(
+      [],
+    );
+  });
+
+  it('does not replay a local tile after a newer live peer edit supersedes it', () => {
+    const { transport, manager } = fogClient();
+    const meta = { version: 1, editor: 'hub', definition };
+    transport.deliver(
+      envelope('hub', {
+        kind: 'snapshot',
+        to: 'A',
+        elements: [],
+        fog: fogSnapshot(meta, [
+          { generation: 'gen-1', x: 0, y: 0, version: 1, editor: 'hub', data: dataA },
+        ]),
+      }),
+    );
+    manager.applyPatchDirect({ tiles: [{ x: 0, y: 0, data: dataB }] });
+    const peerRecord = {
+      generation: 'gen-1',
+      x: 0,
+      y: 0,
+      version: 3,
+      editor: 'B',
+      data: dataA,
+    };
+    transport.deliver(
+      envelope('B', { kind: 'fog-patch', generation: 'gen-1', tiles: [peerRecord] }),
+    );
+
+    transport.triggerReconnect();
+    const beforeSnapshot = transport.sent.length;
+    transport.deliver(
+      envelope('hub', {
+        kind: 'snapshot',
+        to: 'A',
+        elements: [],
+        fog: fogSnapshot(meta, [peerRecord]),
+      }),
+    );
+
+    expect(manager.getState()?.tiles).toEqual([{ x: 0, y: 0, data: dataA }]);
+    expect(transport.sent.slice(beforeSnapshot).map((message) => JSON.parse(message).op)).toEqual(
+      [],
+    );
+  });
+
+  it('does not replay an ordinary local tile superseded only in the reconnect snapshot', () => {
+    const { transport, manager } = fogClient();
+    const meta = { version: 1, editor: 'hub', definition };
+    const original = {
+      generation: 'gen-1',
+      x: 0,
+      y: 0,
+      version: 1,
+      editor: 'hub',
+      data: dataA,
+    };
+    transport.deliver(
+      envelope('hub', {
+        kind: 'snapshot',
+        to: 'A',
+        elements: [],
+        fog: fogSnapshot(meta, [original]),
+      }),
+    );
+    manager.applyPatchDirect({ tiles: [{ x: 0, y: 0, data: dataB }] });
+    transport.triggerReconnect();
+    const beforeSnapshot = transport.sent.length;
+    const peerRecord = { ...original, version: 3, editor: 'B' };
+    transport.deliver(
+      envelope('hub', {
+        kind: 'snapshot',
+        to: 'A',
+        elements: [],
+        fog: fogSnapshot(meta, [peerRecord]),
+      }),
+    );
+
+    expect(manager.getState()?.tiles).toEqual([{ x: 0, y: 0, data: dataA }]);
+    expect(transport.sent.slice(beforeSnapshot).map((message) => JSON.parse(message).op)).toEqual(
+      [],
+    );
+  });
+
+  it('does not replay a local generation after a newer live peer reset supersedes it', () => {
+    const { transport, manager } = fogClient();
+    transport.deliver(
+      envelope('hub', {
+        kind: 'snapshot',
+        to: 'A',
+        elements: [],
+        fog: fogSnapshot({ version: 1, editor: 'hub', definition }),
+      }),
+    );
+    manager.setBounds({ x: 0, y: 0, w: 100, h: 128 });
+    const peerDefinition = { ...definition, generation: 'gen-peer' };
+    const peerMeta = { version: 3, editor: 'B', definition: peerDefinition };
+    transport.deliver(envelope('B', { kind: 'fog-meta', record: peerMeta }));
+
+    transport.triggerReconnect();
+    const beforeSnapshot = transport.sent.length;
+    transport.deliver(
+      envelope('hub', {
+        kind: 'snapshot',
+        to: 'A',
+        elements: [],
+        fog: fogSnapshot(peerMeta),
+      }),
+    );
+
+    expect(manager.getState()?.definition.generation).toBe('gen-peer');
+    expect(manager.getState()?.tiles).toEqual([]);
+    expect(transport.sent.slice(beforeSnapshot).map((message) => JSON.parse(message).op)).toEqual(
+      [],
+    );
+  });
+
+  it('does not replay an ordinary local generation superseded in the reconnect snapshot', () => {
+    const { transport, manager } = fogClient();
+    transport.deliver(
+      envelope('hub', {
+        kind: 'snapshot',
+        to: 'A',
+        elements: [],
+        fog: fogSnapshot({ version: 1, editor: 'hub', definition }),
+      }),
+    );
+    manager.setBounds({ x: 0, y: 0, w: 100, h: 128 });
+    transport.triggerReconnect();
+    const beforeSnapshot = transport.sent.length;
+    const peerDefinition = { ...definition, generation: 'gen-peer' };
+    transport.deliver(
+      envelope('hub', {
+        kind: 'snapshot',
+        to: 'A',
+        elements: [],
+        fog: fogSnapshot({ version: 3, editor: 'B', definition: peerDefinition }),
+      }),
+    );
+
+    expect(manager.getState()?.definition.generation).toBe('gen-peer');
+    expect(manager.getState()?.tiles).toEqual([]);
+    expect(transport.sent.slice(beforeSnapshot).map((message) => JSON.parse(message).op)).toEqual(
+      [],
+    );
+  });
+
+  it('keeps pending local intent when an authoritative tile is semantically invalid', () => {
+    const { transport, manager } = fogClient();
+    const meta = { version: 1, editor: 'hub', definition };
+    const original = {
+      generation: 'gen-1',
+      x: 0,
+      y: 0,
+      version: 1,
+      editor: 'hub',
+      data: dataA,
+    };
+    transport.deliver(
+      envelope('hub', {
+        kind: 'snapshot',
+        to: 'A',
+        elements: [],
+        fog: fogSnapshot(meta, [original]),
+      }),
+    );
+    manager.applyPatchDirect({ tiles: [{ x: 0, y: 0, data: dataB }] });
+    transport.deliver(
+      envelope('hub', {
+        kind: 'fog-patch',
+        generation: 'gen-1',
+        tiles: [
+          {
+            ...original,
+            version: 2,
+            data: fogEncodeBase64(new Uint8Array(2048)),
+          },
+        ],
+      }),
+    );
+
+    transport.triggerReconnect();
+    const beforeSnapshot = transport.sent.length;
+    transport.deliver(
+      envelope('hub', {
+        kind: 'snapshot',
+        to: 'A',
+        elements: [],
+        fog: fogSnapshot(meta, [original]),
+      }),
+    );
+
+    expect(manager.getState()?.tiles).toEqual([{ x: 0, y: 0, data: dataB }]);
+    const replayed = transport.sent
+      .slice(beforeSnapshot)
+      .map((message) => JSON.parse(message).op as SyncOp)
+      .filter((op) => op.kind === 'fog-patch');
+    expect(replayed).toHaveLength(1);
+  });
+
+  it('publishes a local shrink as a new generation followed by canonical preserved tiles', () => {
+    const { transport, manager } = fogClient();
+    transport.deliver(
+      envelope('hub', {
+        kind: 'snapshot',
+        to: 'A',
+        elements: [],
+        fog: fogSnapshot({ version: 1, editor: 'hub', definition }, [
+          { generation: 'gen-1', x: 0, y: 0, version: 1, editor: 'hub', data: dataA },
+        ]),
+      }),
+    );
+    const before = transport.sent.length;
+    manager.setBounds({ x: 0, y: 0, w: 100, h: 128 });
+    const ops = transport.sent.slice(before).map((message) => JSON.parse(message).op as SyncOp);
+    expect(ops[0]?.kind).toBe('fog-meta');
+    expect(ops[1]?.kind).toBe('fog-patch');
+    if (ops[0]?.kind !== 'fog-meta' || ops[1]?.kind !== 'fog-patch') return;
+    const generation = ops[0].record.definition?.generation;
+    expect(generation).toBeTruthy();
+    expect(generation).not.toBe('gen-1');
+    expect(ops[1].generation).toBe(generation);
+    expect(ops[1].tiles).toHaveLength(1);
+    expect(manager.getState()?.tiles[0]?.data).not.toBe(dataA);
+  });
+
+  it('re-pushes a local disable made during resync', () => {
+    const { transport, manager } = fogClient();
+    const meta = { version: 1, editor: 'hub', definition };
+    transport.deliver(
+      envelope('hub', {
+        kind: 'snapshot',
+        to: 'A',
+        elements: [],
+        fog: fogSnapshot({ ...meta, version: 10 }),
+      }),
+    );
+    transport.triggerReconnect();
+    manager.disable();
+    const beforeSnapshot = transport.sent.length;
+
+    transport.deliver(
+      envelope('hub', {
+        kind: 'snapshot',
+        to: 'A',
+        elements: [],
+        fog: fogSnapshot(meta),
+      }),
+    );
+
+    expect(manager.getState()).toBeNull();
+    expect(transport.sent.slice(beforeSnapshot).map((message) => JSON.parse(message).op)).toEqual([
+      { kind: 'fog-meta', record: { version: 11, editor: 'A' } },
+    ]);
+  });
+
+  it('re-pushes a buffered disable after a hub correction arrives before the snapshot', () => {
+    const { transport, manager } = fogClient();
+    const authoritative = { version: 10, editor: 'hub', definition };
+    transport.deliver(
+      envelope('hub', {
+        kind: 'snapshot',
+        to: 'A',
+        elements: [],
+        fog: fogSnapshot(authoritative),
+      }),
+    );
+    manager.disable();
+    transport.triggerReconnect();
+    transport.deliver(envelope('hub', { kind: 'fog-meta', record: authoritative }));
+    const beforeSnapshot = transport.sent.length;
+
+    transport.deliver(
+      envelope('hub', {
+        kind: 'snapshot',
+        to: 'A',
+        elements: [],
+        fog: fogSnapshot(authoritative),
+      }),
+    );
+
+    expect(manager.getState()).toBeNull();
+    expect(transport.sent.slice(beforeSnapshot).map((message) => JSON.parse(message).op)).toEqual([
+      { kind: 'fog-meta', record: { version: 11, editor: 'A' } },
+    ]);
+  });
+
+  it('lets an authoritative meta correction replace a newer optimistic ledger record', () => {
+    const { transport, manager } = fogClient();
+    transport.deliver(
+      envelope('hub', {
+        kind: 'snapshot',
+        to: 'A',
+        elements: [],
+        fog: fogSnapshot({ version: 1, editor: 'server', definition }),
+      }),
+    );
+    manager.setBounds({ x: 0, y: 0, w: 200, h: 128 }); // optimistic v2
+    transport.deliver(
+      envelope('hub', {
+        kind: 'fog-meta',
+        record: { version: 1, editor: 'server', definition },
+      }),
+    );
+
+    manager.setBounds({ x: 0, y: 0, w: 180, h: 128 });
+    const last = JSON.parse(transport.sent[transport.sent.length - 1] ?? '') as {
+      op: { kind: string; record: FogMetaRecord };
+    };
+    expect(last.op.kind).toBe('fog-meta');
+    expect(last.op.record.version).toBe(2);
+  });
+
+  it('restores staged tiles after a rejected disable and requests authoritative reconciliation', () => {
+    const { transport, manager } = fogClient();
+    const authoritative = { version: 1, editor: 'server', definition };
+    transport.deliver(
+      envelope('hub', {
+        kind: 'snapshot',
+        to: 'A',
+        elements: [],
+        fog: fogSnapshot(authoritative, [
+          { generation: 'gen-1', x: 0, y: 0, version: 4, editor: 'server', data: dataA },
+        ]),
+      }),
+    );
+    manager.disable();
+    transport.deliver(envelope('hub', { kind: 'fog-meta', record: authoritative }));
+
+    expect(manager.getState()?.tiles).toEqual([{ x: 0, y: 0, data: dataA }]);
+    expect(JSON.parse(transport.sent[transport.sent.length - 1] ?? '').op).toEqual({
+      kind: 'request-snapshot',
+    });
   });
 });
 

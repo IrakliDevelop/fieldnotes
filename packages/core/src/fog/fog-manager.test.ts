@@ -47,6 +47,23 @@ describe('FogManager', () => {
     expect(commands).toHaveLength(1);
   });
 
+  it('undo and redo of a reset always allocate fresh generation ids', () => {
+    const commands: Command[] = [];
+    const m = makeManager({ onCommand: (command) => commands.push(command) });
+    const initial = m.initialize({ bounds: { x: 0, y: 0, w: 128, h: 128 } });
+    m.reset('revealed');
+    const resetGeneration = getState(m).definition.generation;
+    const resetCommand = commands[1];
+    expect(resetCommand).toBeDefined();
+    resetCommand?.undo(null as never);
+    const undoGeneration = getState(m).definition.generation;
+    expect(undoGeneration).not.toBe(initial.definition.generation);
+    expect(undoGeneration).not.toBe(resetGeneration);
+    resetCommand?.execute(null as never);
+    expect(getState(m).definition.generation).not.toBe(resetGeneration);
+    expect(getState(m).definition.generation).not.toBe(undoGeneration);
+  });
+
   it('applyRegion reveals cells and pushes one command', () => {
     const commands: Command[] = [];
     const m = makeManager({ onCommand: (c) => commands.push(c) });
@@ -158,8 +175,18 @@ describe('FogManager', () => {
       'reveal',
     );
     const tilesBeforeShrink = getState(m).tiles.length;
+    const oldGeneration = getState(m).definition.generation;
     m.setBounds({ x: 0, y: 0, w: 100, h: 100 });
     expect(getState(m).tiles.length).toBeLessThan(tilesBeforeShrink);
+    expect(getState(m).definition.generation).not.toBe(oldGeneration);
+  });
+
+  it('rejects invalid bounds atomically', () => {
+    const m = makeManager();
+    m.initialize({ bounds: { x: 0, y: 0, w: 256, h: 256 }, cellSize: 1 });
+    const before = m.getState();
+    expect(() => m.setBounds({ x: Number.NaN, y: 0, w: 100, h: 100 })).toThrow();
+    expect(m.getState()).toEqual(before);
   });
 
   it('remote patch with origin does not push command', () => {

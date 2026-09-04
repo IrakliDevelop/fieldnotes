@@ -149,6 +149,19 @@ export class SyncHub {
 
   constructor(options: SyncHubOptions = {}) {
     this.backend = options.backend ?? new MemoryHubBackend();
+    const fogMethods = [
+      this.backend.fogSnapshot,
+      this.backend.applyFogMeta,
+      this.backend.applyFogPatch,
+    ];
+    if (
+      (fogMethods.some(Boolean) || Boolean(this.backend.applyFogTile)) &&
+      !fogMethods.every(Boolean)
+    ) {
+      throw new Error(
+        'HubBackend fog support is an all-or-none capability: fogSnapshot, applyFogMeta, and applyFogPatch are required',
+      );
+    }
     this.instanceId = options.instanceId ?? generateInstanceId();
     this.fanout = options.fanout ?? new InMemoryHubFanout();
     this.authorize = options.authorize;
@@ -383,14 +396,14 @@ export class SyncHub {
   // ── Fog processing ──
 
   private fogBackend(): Required<
-    Pick<HubBackend, 'fogSnapshot' | 'applyFogMeta' | 'applyFogTile'>
+    Pick<HubBackend, 'fogSnapshot' | 'applyFogMeta' | 'applyFogPatch'>
   > | null {
-    const { fogSnapshot, applyFogMeta, applyFogTile } = this.backend;
-    if (!fogSnapshot || !applyFogMeta || !applyFogTile) return null;
+    const { fogSnapshot, applyFogMeta, applyFogPatch } = this.backend;
+    if (!fogSnapshot || !applyFogMeta || !applyFogPatch) return null;
     return {
       fogSnapshot: fogSnapshot.bind(this.backend),
       applyFogMeta: applyFogMeta.bind(this.backend),
-      applyFogTile: applyFogTile.bind(this.backend),
+      applyFogPatch: applyFogPatch.bind(this.backend),
     };
   }
 
@@ -403,39 +416,28 @@ export class SyncHub {
     return ledger;
   }
 
-  private async ensureFogLedger(room: string): Promise<FogLedger> {
-    const ledger = this.getFogLedger(room);
-    if (ledger.getMeta() !== null) return ledger;
-    const backend = this.fogBackend();
-    if (backend) {
-      const snap = await backend.fogSnapshot(room);
-      if (snap) ledger.loadSnapshot(snap);
-    }
-    return ledger;
-  }
-
   private async getFogSnapshot(room: string): Promise<FogSnapshot | undefined> {
     const backend = this.fogBackend();
     if (backend) return backend.fogSnapshot(room);
     return this.getFogLedger(room).snapshot();
   }
 
-  private async applyFogMeta(room: string, record: FogMetaRecord): Promise<void> {
+  private async applyFogMeta(
+    room: string,
+    record: FogMetaRecord,
+  ): Promise<{ accepted: boolean; correction?: FogMetaRecord }> {
     const backend = this.fogBackend();
-    if (backend) {
-      await backend.applyFogMeta(room, record);
-      return;
-    }
-    this.getFogLedger(room).applyMeta(record);
+    if (backend) return backend.applyFogMeta(room, record);
+    return this.getFogLedger(room).applyMeta(record);
   }
 
-  private async applyFogTile(room: string, record: FogTileRecord): Promise<void> {
+  private async applyFogPatch(
+    room: string,
+    records: readonly FogTileRecord[],
+  ): Promise<{ accepted: FogTileRecord[]; corrections: FogTileRecord[] }> {
     const backend = this.fogBackend();
-    if (backend) {
-      await backend.applyFogTile(room, record);
-      return;
-    }
-    this.getFogLedger(room).applyTile(record);
+    if (backend) return backend.applyFogPatch(room, records);
+    return this.getFogLedger(room).applyPatch(records);
   }
 
   private async processFogOp(
@@ -453,16 +455,18 @@ export class SyncHub {
         current,
       });
       if (!allowed) {
-        if (op.kind === 'fog-meta' && current?.meta) {
+        if (op.kind === 'fog-meta') {
+          const correction =
+            current?.meta ?? ({ version: 1, editor: HUB_FROM } satisfies FogMetaRecord);
           conn.send(
-            JSON.stringify({ from: HUB_FROM, op: { kind: 'fog-meta', record: current.meta } }),
+            JSON.stringify({ from: HUB_FROM, op: { kind: 'fog-meta', record: correction } }),
           );
-        } else if (op.kind === 'fog-patch' && current) {
+        } else if (current?.meta.definition) {
           const corrections = op.tiles.map((t) => {
             const existing = current.tiles.find((ct) => ct.x === t.x && ct.y === t.y);
             return (
               existing ?? {
-                generation: op.generation,
+                generation: current.meta.definition?.generation ?? op.generation,
                 x: t.x,
                 y: t.y,
                 version: 1,
@@ -473,7 +477,21 @@ export class SyncHub {
           conn.send(
             JSON.stringify({
               from: HUB_FROM,
-              op: { kind: 'fog-patch', generation: op.generation, tiles: corrections },
+              op: {
+                kind: 'fog-patch',
+                generation: current.meta.definition.generation,
+                tiles: corrections,
+              },
+            }),
+          );
+        } else {
+          conn.send(
+            JSON.stringify({
+              from: HUB_FROM,
+              op: {
+                kind: 'fog-meta',
+                record: current?.meta ?? { version: 1, editor: HUB_FROM },
+              },
             }),
           );
         }
@@ -481,9 +499,9 @@ export class SyncHub {
       }
     }
 
+    let outbound: FogOp;
     if (op.kind === 'fog-meta') {
-      const ledger = await this.ensureFogLedger(conn.room);
-      const result = ledger.applyMeta(op.record);
+      const result = await this.applyFogMeta(conn.room, op.record);
       if (!result.accepted) {
         if (result.correction) {
           conn.send(
@@ -492,35 +510,26 @@ export class SyncHub {
         }
         return;
       }
-      await this.applyFogMeta(conn.room, op.record);
+      outbound = op;
     } else {
-      const ledger = await this.ensureFogLedger(conn.room);
-      const corrections: FogTileRecord[] = [];
-      let anyAccepted = false;
-      for (const tile of op.tiles) {
-        const result = ledger.applyTile(tile);
-        if (result.accepted) {
-          anyAccepted = true;
-          await this.applyFogTile(conn.room, tile);
-        } else if (result.correction) {
-          corrections.push(result.correction);
-        }
-      }
+      const { accepted, corrections } = await this.applyFogPatch(conn.room, op.tiles);
       if (corrections.length > 0) {
+        const correctionGeneration = corrections[0]?.generation ?? op.generation;
         conn.send(
           JSON.stringify({
             from: HUB_FROM,
-            op: { kind: 'fog-patch', generation: op.generation, tiles: corrections },
+            op: { kind: 'fog-patch', generation: correctionGeneration, tiles: corrections },
           }),
         );
       }
-      if (!anyAccepted) return;
+      if (accepted.length === 0) return;
+      outbound = { kind: 'fog-patch', generation: op.generation, tiles: accepted };
     }
 
     await this.fanout.publish(
-      JSON.stringify({ o: this.instanceId, room: conn.room, from: conn.id, op }),
+      JSON.stringify({ o: this.instanceId, room: conn.room, from: conn.id, op: outbound }),
     );
-    this.relayToRoom(conn.room, conn.id, JSON.stringify({ from: conn.id, op }));
+    this.relayToRoom(conn.room, conn.id, JSON.stringify({ from: conn.id, op: outbound }));
   }
 
   private mayRead(conn: Connection, audience: string | undefined): boolean {
@@ -752,10 +761,23 @@ export class SyncHub {
       return;
     }
     if (isFogOp(op)) {
-      void this.applyFanoutFogOp(env.room, op).catch(() => {
-        /* a broken backend must not break the fanout relay */
+      const previous = this.roomQueues.get(env.room) ?? Promise.resolve();
+      const operation = previous.then(async () => {
+        const accepted = await this.applyFanoutFogOp(env.room as string, op);
+        if (accepted) {
+          this.relayToRoom(
+            env.room as string,
+            undefined,
+            JSON.stringify({ from: env.from, op: accepted }),
+          );
+        }
       });
-      this.relayToRoom(env.room, undefined, JSON.stringify({ from: env.from, op }));
+      this.roomQueues.set(
+        env.room,
+        operation.catch(() => {
+          /* a broken backend must not wedge the room queue */
+        }),
+      );
       return;
     }
     if (!isFanoutOp(op)) return;
@@ -771,21 +793,14 @@ export class SyncHub {
     await this.applyLayerRecord(room, record);
   }
 
-  private async applyFanoutFogOp(room: string, op: FogOp): Promise<void> {
-    const ledger = await this.ensureFogLedger(room);
+  private async applyFanoutFogOp(room: string, op: FogOp): Promise<FogOp | null> {
+    if (this.backend.sharedAcrossInstances === true && this.fogBackend()) return op;
     if (op.kind === 'fog-meta') {
-      const result = ledger.applyMeta(op.record);
-      if (result.accepted) {
-        await this.applyFogMeta(room, op.record);
-      }
-    } else {
-      for (const tile of op.tiles) {
-        const result = ledger.applyTile(tile);
-        if (result.accepted) {
-          await this.applyFogTile(room, tile);
-        }
-      }
+      const result = await this.applyFogMeta(room, op.record);
+      return result.accepted ? op : null;
     }
+    const { accepted } = await this.applyFogPatch(room, op.tiles);
+    return accepted.length > 0 ? { ...op, tiles: accepted } : null;
   }
 
   close(): void {

@@ -1,5 +1,10 @@
 import type { CanvasElement, ElementType, Layer, FogDefinitionV1 } from '@fieldnotes/core';
-import { validateFogDefinition, FOG_MAX_TILES } from '@fieldnotes/core';
+import {
+  validateFogDefinition,
+  validateFogTile,
+  FOG_MAX_TILES,
+  FOG_TILE_CELLS,
+} from '@fieldnotes/core';
 
 export type SyncElement = CanvasElement & { audience?: string };
 
@@ -280,7 +285,12 @@ export function isNewerFogRecord(
 }
 
 function isBoundedString(value: unknown, maxLen: number): value is string {
-  return typeof value === 'string' && value.length > 0 && value.length <= maxLen;
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    value.length <= maxLen &&
+    /^[\x20-\x7e]+$/.test(value)
+  );
 }
 
 export function isValidFogMetaRecord(record: unknown): record is FogMetaRecord {
@@ -305,7 +315,28 @@ export function isValidFogMetaRecord(record: unknown): record is FogMetaRecord {
 
 const FOG_TILE_BYTES = (128 * 128) / 8;
 const FOG_CANONICAL_B64_LENGTH = Math.ceil(FOG_TILE_BYTES / 3) * 4;
-const B64_CHARS_RE = /^[A-Za-z0-9+/]*={0,2}$/;
+const B64_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+const B64_CHARS_RE = /^[A-Za-z0-9+/]+=$/;
+
+function isCanonicalFogTileData(data: string): boolean {
+  if (data.length !== FOG_CANONICAL_B64_LENGTH || !B64_CHARS_RE.test(data)) return false;
+  // A 2,048-byte tile has a two-byte final quantum, hence exactly one '='. Canonical
+  // encoding also requires the final sextet's two unused bits to be zero.
+  const finalSextet = B64_CHARS.indexOf(data[data.length - 2] as string);
+  return finalSextet >= 0 && (finalSextet & 0b11) === 0;
+}
+
+function tileIntersectsDefinition(x: number, y: number, def: FogDefinitionV1): boolean {
+  const tileWorldSize = FOG_TILE_CELLS * def.cellSize;
+  const tileWorldX = x * tileWorldSize;
+  const tileWorldY = y * tileWorldSize;
+  return !(
+    tileWorldX + tileWorldSize <= def.bounds.x ||
+    tileWorldY + tileWorldSize <= def.bounds.y ||
+    tileWorldX >= def.bounds.x + def.bounds.w ||
+    tileWorldY >= def.bounds.y + def.bounds.h
+  );
+}
 
 export function isValidFogTileRecord(record: unknown): record is FogTileRecord {
   if (!isRecord(record)) return false;
@@ -321,8 +352,7 @@ export function isValidFogTileRecord(record: unknown): record is FogTileRecord {
   }
   if (record['data'] === undefined) return true;
   if (typeof record['data'] !== 'string') return false;
-  const data = record['data'] as string;
-  return data.length === FOG_CANONICAL_B64_LENGTH && B64_CHARS_RE.test(data);
+  return isCanonicalFogTileData(record['data']);
 }
 
 export function isValidFogSnapshot(snap: unknown): snap is FogSnapshot {
@@ -333,11 +363,20 @@ export function isValidFogSnapshot(snap: unknown): snap is FogSnapshot {
   const generation = meta.definition?.generation;
   const tiles = snap['tiles'] as unknown[];
   if (tiles.length > FOG_MAX_TILES) return false;
+  if (!meta.definition && tiles.length > 0) return false;
   const seen = new Set<string>();
   for (const tile of tiles) {
     if (!isValidFogTileRecord(tile)) return false;
     const t = tile as FogTileRecord;
     if (generation !== undefined && t.generation !== generation) return false;
+    if (meta.definition && !tileIntersectsDefinition(t.x, t.y, meta.definition)) return false;
+    if (meta.definition && t.data !== undefined) {
+      try {
+        validateFogTile({ x: t.x, y: t.y, data: t.data }, meta.definition);
+      } catch {
+        return false;
+      }
+    }
     const key = `${t.x},${t.y}`;
     if (seen.has(key)) return false;
     seen.add(key);
@@ -403,6 +442,7 @@ export function isValidEnvelope(env: unknown): env is SyncEnvelope {
       const patchSeen = new Set<string>();
       for (const tile of patchTiles) {
         if (!isValidFogTileRecord(tile)) return false;
+        if ((tile as FogTileRecord).generation !== patchOp['generation']) return false;
         const key = `${(tile as FogTileRecord).x},${(tile as FogTileRecord).y}`;
         if (patchSeen.has(key)) return false;
         patchSeen.add(key);

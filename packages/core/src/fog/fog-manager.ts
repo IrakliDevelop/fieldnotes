@@ -18,6 +18,7 @@ import {
   recommendedFogCellSize,
   encodeBase64,
   createTileBytes,
+  canonicalizeFogTile,
 } from './tile-codec';
 import { FogRegionCommand, FogResetCommand } from './fog-command';
 import type { Command } from '../history/types';
@@ -79,6 +80,7 @@ export class FogManager {
       },
       tiles: [],
     };
+    validateFogState(newState);
 
     const before = this.state;
     this.state = newState;
@@ -103,26 +105,55 @@ export class FogManager {
     });
   }
 
+  /** Restores a historical visual state without reusing its causal generation id. */
+  restoreHistoryState(state: FogStateV1 | null): void {
+    if (state === null) {
+      this.loadState(null);
+      return;
+    }
+    this.loadState({
+      definition: { ...state.definition, generation: this.idFactory() },
+      tiles: state.tiles,
+    });
+  }
+
   setBounds(bounds: Bounds): void {
     if (!this.state) return;
     const def = this.state.definition;
+    validateFogState({
+      definition: { ...def, bounds: { ...bounds } },
+      tiles: [],
+    });
 
-    const tiles = this.state.tiles.filter((tile) => {
+    const shrinks =
+      bounds.x > def.bounds.x ||
+      bounds.y > def.bounds.y ||
+      bounds.x + bounds.w < def.bounds.x + def.bounds.w ||
+      bounds.y + bounds.h < def.bounds.y + def.bounds.h;
+    const nextDefinition = {
+      ...def,
+      bounds: { ...bounds },
+      generation: shrinks ? this.idFactory() : def.generation,
+    };
+    const tiles = this.state.tiles.flatMap((tile) => {
       const tileWorldX = tile.x * FOG_TILE_CELLS * def.cellSize;
       const tileWorldY = tile.y * FOG_TILE_CELLS * def.cellSize;
       const tileWorldW = FOG_TILE_CELLS * def.cellSize;
       const tileWorldH = FOG_TILE_CELLS * def.cellSize;
-      return !(
+      const intersects = !(
         tileWorldX + tileWorldW <= bounds.x ||
         tileWorldY + tileWorldH <= bounds.y ||
         tileWorldX >= bounds.x + bounds.w ||
         tileWorldY >= bounds.y + bounds.h
       );
+      if (!intersects) return [];
+      const canonical = canonicalizeFogTile(tile, nextDefinition);
+      return canonical ? [canonical] : [];
     });
 
     const before = this.state;
     this.state = {
-      definition: { ...def, bounds: { ...bounds } },
+      definition: nextDefinition,
       tiles,
     };
 

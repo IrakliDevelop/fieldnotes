@@ -12,7 +12,7 @@ export interface FogRendererOptions {
 }
 
 export class FogRenderer {
-  private tileCache = new Map<string, Uint8Array>();
+  private tileCache = new Map<string, HTMLCanvasElement>();
   private state: FogStateV1 | null = null;
   private viewMode: FogViewMode = 'off';
   private dirty = true;
@@ -26,14 +26,12 @@ export class FogRenderer {
 
   setState(state: FogStateV1 | null): void {
     this.state = state;
-    this.tileCache.clear();
     this.dirty = true;
   }
 
   setViewMode(mode: FogViewMode): void {
     if (mode === this.viewMode) return;
     this.viewMode = mode;
-    this.tileCache.clear();
     this.dirty = true;
   }
 
@@ -179,13 +177,33 @@ export class FogRenderer {
     this.state = null;
   }
 
-  private decodeTile(data: string): Uint8Array {
-    let bytes = this.tileCache.get(data);
-    if (!bytes) {
-      bytes = decodeBase64(data);
-      this.tileCache.set(data, bytes);
+  private tileRaster(data: string, color: string): HTMLCanvasElement | null {
+    const key = `${color}\u0000${data}`;
+    const cached = this.tileCache.get(key);
+    if (cached) return cached;
+    if (typeof document === 'undefined') return null;
+    const canvas = document.createElement('canvas');
+    canvas.width = FOG_TILE_CELLS;
+    canvas.height = FOG_TILE_CELLS;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    const bytes = decodeBase64(data);
+    ctx.fillStyle = color;
+    for (let row = 0; row < FOG_TILE_CELLS; row++) {
+      for (let col = 0; col < FOG_TILE_CELLS; col++) {
+        const index = row * FOG_TILE_CELLS + col;
+        const byteIndex = index >> 3;
+        const bitIndex = 7 - (index & 7);
+        const revealed = (((bytes[byteIndex] as number) >> bitIndex) & 1) === 1;
+        if (!revealed) ctx.fillRect(col, row, 1, 1);
+      }
     }
-    return bytes;
+    if (this.tileCache.size >= 256) {
+      const oldest = this.tileCache.keys().next().value as string | undefined;
+      if (oldest !== undefined) this.tileCache.delete(oldest);
+    }
+    this.tileCache.set(key, canvas);
+    return canvas;
   }
 
   private renderTile(
@@ -199,7 +217,24 @@ export class FogRenderer {
     const cellSize = def.cellSize;
     const tileWorldX = tx * FOG_TILE_CELLS * cellSize;
     const tileWorldY = ty * FOG_TILE_CELLS * cellSize;
-    const bytes = this.decodeTile(data);
+    const raster = this.tileRaster(data, color);
+    if (raster) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(def.bounds.x, def.bounds.y, def.bounds.w, def.bounds.h);
+      ctx.clip();
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(
+        raster,
+        tileWorldX,
+        tileWorldY,
+        FOG_TILE_CELLS * cellSize,
+        FOG_TILE_CELLS * cellSize,
+      );
+      ctx.restore();
+      return;
+    }
+    const bytes = decodeBase64(data);
 
     ctx.fillStyle = color;
 

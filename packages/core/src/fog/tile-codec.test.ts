@@ -167,6 +167,16 @@ describe('validation', () => {
     expect(() => validateFogTile({ x: 0, y: 0, data }, makeDef())).not.toThrow();
   });
 
+  it('rejects base-value tiles and non-canonical edge padding', () => {
+    const def = makeDef({ bounds: { x: 0, y: 0, w: 100, h: 128 }, base: 'covered' });
+    expect(() =>
+      validateFogTile({ x: 0, y: 0, data: encodeBase64(createTileBytes(false)) }, def),
+    ).toThrow('base-value');
+    expect(() =>
+      validateFogTile({ x: 0, y: 0, data: encodeBase64(createTileBytes(true)) }, def),
+    ).toThrow('edge padding');
+  });
+
   it('rejects tile with non-integer coordinates', () => {
     const data = encodeBase64(createTileBytes(false));
     expect(() => validateFogTile({ x: 0.5, y: 0, data }, makeDef())).toThrow('safe integers');
@@ -179,6 +189,16 @@ describe('validation', () => {
 
   it('rejects non-canonical base64', () => {
     expect(() => validateFogTile({ x: 0, y: 0, data: 'short' }, makeDef())).toThrow('invalid data');
+    const data = encodeBase64(createTileBytes(false));
+    expect(() => validateFogTile({ x: 0, y: 0, data: data.slice(0, -1) + 'A' }, makeDef())).toThrow(
+      'invalid data',
+    );
+    expect(() =>
+      validateFogTile({ x: 0, y: 0, data: data.slice(0, -2) + 'B=' }, makeDef()),
+    ).toThrow('invalid data');
+    expect(() =>
+      validateFogTile({ x: 0, y: 0, data: data.slice(0, -2) + '==' }, makeDef()),
+    ).toThrow('invalid data');
   });
 
   it('validates full state', () => {
@@ -254,6 +274,16 @@ describe('recommendedFogCellSize', () => {
 
   it('returns at least 1', () => {
     expect(recommendedFogCellSize({ x: 0, y: 0, w: 1, h: 1 })).toBe(1);
+  });
+
+  it('accounts for origin-anchored tiles when bounds straddle tile boundaries', () => {
+    const bounds = { x: -1, y: -1, w: 2048, h: 2048 };
+    const cellSize = recommendedFogCellSize(bounds);
+    const tileSize = FOG_TILE_CELLS * cellSize;
+    const width = Math.ceil((bounds.x + bounds.w) / tileSize) - Math.floor(bounds.x / tileSize);
+    const height = Math.ceil((bounds.y + bounds.h) / tileSize) - Math.floor(bounds.y / tileSize);
+    expect(cellSize).toBeGreaterThan(1);
+    expect(width * height).toBeLessThanOrEqual(FOG_MAX_TILES);
   });
 });
 

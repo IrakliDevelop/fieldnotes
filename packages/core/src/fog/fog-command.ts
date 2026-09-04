@@ -27,10 +27,10 @@ export class FogResetCommand implements Command {
   ) {}
 
   execute(_store: ElementStore): void {
-    this.manager.loadState(this.after);
+    this.manager.restoreHistoryState(this.after);
   }
 
   undo(_store: ElementStore): void {
-    this.manager.loadState(this.before);
+    this.manager.restoreHistoryState(this.before);
   }
 }

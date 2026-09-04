@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { FogLedger } from './fog-ledger';
 import type { FogMetaRecord, FogTileRecord, FogSnapshot } from './protocol';
+import { FOG_MAX_TILES, fogEncodeBase64 } from '@fieldnotes/core';
+
+const NON_BASE_TILE = fogEncodeBase64(new Uint8Array(2048).fill(0xff));
 
 function makeDef(gen = 'gen-1') {
   return {
@@ -23,7 +26,7 @@ function tileRecord(
   version: number,
   editor: string,
   gen = 'gen-1',
-  data = 'AAAA',
+  data = NON_BASE_TILE,
 ): FogTileRecord {
   return { generation: gen, x, y, version, editor, data };
 }
@@ -75,7 +78,7 @@ describe('FogLedger', () => {
     ledger.applyMeta(metaRecord(1, 'alice'));
     const r = ledger.applyTile(tileRecord(0, 0, 1, 'alice'));
     expect(r.accepted).toBe(true);
-    expect(ledger.getTile(0, 0)?.data).toBe('AAAA');
+    expect(ledger.getTile(0, 0)?.data).toBe(NON_BASE_TILE);
   });
 
   it('rejects tile with wrong generation', () => {
@@ -155,5 +158,97 @@ describe('FogLedger', () => {
     const ledger = new FogLedger();
     const r = ledger.applyTile(tileRecord(0, 0, 1, 'alice'));
     expect(r.accepted).toBe(false);
+  });
+
+  it('caps all stored records, including tombstones, without truncating snapshots', () => {
+    const ledger = new FogLedger();
+    ledger.applyMeta({
+      version: 1,
+      editor: 'alice',
+      definition: {
+        ...makeDef(),
+        bounds: { x: 0, y: 0, w: FOG_MAX_TILES * 128 * 2 + 256, h: 256 },
+      },
+    });
+    for (let x = 0; x < FOG_MAX_TILES; x++) {
+      expect(
+        ledger.applyTile({
+          generation: 'gen-1',
+          x,
+          y: 0,
+          version: 1,
+          editor: 'alice',
+        }).accepted,
+      ).toBe(true);
+    }
+
+    expect(
+      ledger.applyTile({
+        generation: 'gen-1',
+        x: FOG_MAX_TILES,
+        y: 0,
+        version: 1,
+        editor: 'alice',
+      }).accepted,
+    ).toBe(false);
+    expect(ledger.snapshot()?.tiles).toHaveLength(FOG_MAX_TILES);
+  });
+
+  it('rejects an overflowing patch atomically and returns corrections for every coordinate', () => {
+    const ledger = new FogLedger();
+    ledger.applyMeta({
+      version: 1,
+      editor: 'alice',
+      definition: {
+        ...makeDef(),
+        bounds: { x: 0, y: 0, w: (FOG_MAX_TILES + 2) * 256, h: 256 },
+      },
+    });
+    for (let x = 0; x < FOG_MAX_TILES - 1; x++) {
+      ledger.applyTile({ generation: 'gen-1', x, y: 0, version: 1, editor: 'alice' });
+    }
+    const result = ledger.applyPatch([
+      { generation: 'gen-1', x: FOG_MAX_TILES - 1, y: 0, version: 1, editor: 'alice' },
+      { generation: 'gen-1', x: FOG_MAX_TILES, y: 0, version: 1, editor: 'alice' },
+    ]);
+    expect(result.accepted).toEqual([]);
+    expect(result.corrections).toHaveLength(2);
+    expect(ledger.snapshot()?.tiles).toHaveLength(FOG_MAX_TILES - 1);
+  });
+
+  it('requires a new generation for shrinking bounds or changing the grid/base', () => {
+    const ledger = new FogLedger();
+    const original = metaRecord(1, 'alice');
+    ledger.applyMeta(original);
+    for (const definition of [
+      { ...makeDef(), bounds: { x: 0, y: 0, w: 512, h: 1024 } },
+      { ...makeDef(), cellSize: 4 },
+      { ...makeDef(), base: 'revealed' as const },
+    ]) {
+      expect(ledger.applyMeta({ version: 2, editor: 'bob', definition }).accepted).toBe(false);
+      expect(ledger.getMeta()).toBe(original);
+    }
+  });
+
+  it('authoritative records replace newer local records but still enforce generation and bounds', () => {
+    const ledger = new FogLedger();
+    ledger.applyMeta(metaRecord(9, 'local'));
+    ledger.applyTile(tileRecord(0, 0, 9, 'local'));
+
+    ledger.applyMetaAuthoritative(metaRecord(1, 'hub'));
+    expect(ledger.getMeta()?.version).toBe(1);
+    expect(ledger.applyAuthoritative(tileRecord(0, 0, 1, 'hub'))).toBe(true);
+    expect(ledger.getRecord(0, 0)?.version).toBe(1);
+    expect(ledger.applyAuthoritative(tileRecord(5, 0, 1, 'hub'))).toBe(false);
+    expect(ledger.applyAuthoritative(tileRecord(0, 0, 2, 'hub', 'other'))).toBe(false);
+  });
+
+  it('rejects a semantically invalid authoritative tile', () => {
+    const ledger = new FogLedger();
+    ledger.applyMetaAuthoritative(metaRecord(1, 'hub'));
+    const baseOnly = fogEncodeBase64(new Uint8Array(2048));
+
+    expect(ledger.applyAuthoritative(tileRecord(0, 0, 1, 'hub', 'gen-1', baseOnly))).toBe(false);
+    expect(ledger.snapshot()?.tiles).toEqual([]);
   });
 });
