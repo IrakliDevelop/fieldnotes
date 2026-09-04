@@ -198,6 +198,7 @@ export class SyncClient {
   private joined = false;
   private resyncPending = false;
   private readonly touchedDuringResync = new Set<string>();
+  private fogTouchedDuringResync = false;
   private readonly presenceHandlers = new Set<(from: string, data: unknown) => void>();
   private readonly presenceLeaveHandlers = new Set<(from: string) => void>();
 
@@ -257,6 +258,7 @@ export class SyncClient {
   private onReconnect(): void {
     this.resyncPending = true;
     this.touchedDuringResync.clear();
+    this.fogTouchedDuringResync = false;
     this.sendOp({ kind: 'request-snapshot' });
   }
 
@@ -541,6 +543,10 @@ export class SyncClient {
     if (isExternal(event.origin)) return;
     if (!this.fogManager || !this.fogLedger) return;
 
+    if (this.resyncPending) {
+      this.fogTouchedDuringResync = true;
+    }
+
     const state = this.fogManager.getState();
 
     if (event.kind === 'definition' || event.kind === 'reset') {
@@ -615,8 +621,14 @@ export class SyncClient {
       const removedCoords: { x: number; y: number }[] = [];
       for (const tile of op.tiles) {
         if (!isValidFogTileRecord(tile)) continue;
-        const result = this.fogLedger.applyTile(tile);
-        if (result.accepted) {
+        let accepted: boolean;
+        if (from === HUB_FROM) {
+          this.fogLedger.applyAuthoritative(tile);
+          accepted = true;
+        } else {
+          accepted = this.fogLedger.applyTile(tile).accepted;
+        }
+        if (accepted) {
           if (tile.data) {
             acceptedDataTiles.push({ x: tile.x, y: tile.y, data: tile.data });
           } else {
@@ -648,10 +660,15 @@ export class SyncClient {
 
   private mergeSnapshotFog(raw: unknown): void {
     if (!this.fogManager || !this.fogLedger) return;
+    const fogShielded = this.fogTouchedDuringResync;
+    this.fogTouchedDuringResync = false;
+
     if (raw === undefined || raw === null) {
       const wasHubKnown = this.fogHubKnown;
       this.fogHubKnown = true;
-      if (!this.fogPreserveLocal || wasHubKnown) {
+      if (fogShielded) {
+        this.publishLocalFog();
+      } else if (!this.fogPreserveLocal || wasHubKnown) {
         this.fogManager.loadState(null, { origin: REMOTE_ORIGIN });
         this.fogLedger.clear();
       } else if (this.fogPreserveLocal && this.fogManager.getState()) {
@@ -662,6 +679,12 @@ export class SyncClient {
     if (!isValidFogSnapshot(raw)) return;
     this.fogHubKnown = true;
     this.fogLedger.loadSnapshot(raw);
+
+    if (fogShielded) {
+      this.publishLocalFog();
+      return;
+    }
+
     if (raw.meta.definition) {
       const tiles = raw.tiles
         .filter((t): t is FogTileRecord & { data: string } => t.data !== undefined)

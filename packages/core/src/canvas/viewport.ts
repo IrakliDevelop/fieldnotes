@@ -63,6 +63,7 @@ import { ElementActivation } from './element-activation';
 import type { ActivationOptions, ElementActivationEvent } from './element-activation';
 import { FogManager } from '../fog/fog-manager';
 import { FogRenderer } from '../fog/fog-renderer';
+import { validateFogState } from '../fog/tile-codec';
 
 export type { AlignEdge, DistributeAxis } from './selection-ops';
 export type { GridInfo } from './grid-controller';
@@ -361,10 +362,12 @@ export class Viewport {
     this.fogManager.on('change', () => {
       this.fogRenderer.setState(this.fogManager.getState());
       this.renderLoop.requestRender();
+      this.minimap?.invalidateScene();
     });
     this.fogManager.on('view', () => {
       this.fogRenderer.setViewMode(this.fogManager.getViewMode());
       this.renderLoop.requestRender();
+      this.minimap?.invalidateScene();
     });
 
     this.unsubHtmlPainters = this.htmlPainters.onChange(() => this.onHtmlRegistryChanged());
@@ -620,6 +623,9 @@ export class Viewport {
   }
 
   loadState(state: CanvasState): void {
+    if (state.fog != null) {
+      validateFogState(state.fog);
+    }
     this.inputHandler.flushPendingHistory();
     this.historyRecorder.pause();
     this.noteEditor.destroy(this.store);

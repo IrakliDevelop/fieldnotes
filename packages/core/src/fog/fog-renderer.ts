@@ -12,7 +12,7 @@ export interface FogRendererOptions {
 }
 
 export class FogRenderer {
-  private tileCache = new Map<string, ImageData>();
+  private tileCache = new Map<string, Uint8Array>();
   private state: FogStateV1 | null = null;
   private viewMode: FogViewMode = 'off';
   private dirty = true;
@@ -179,6 +179,15 @@ export class FogRenderer {
     this.state = null;
   }
 
+  private decodeTile(data: string): Uint8Array {
+    let bytes = this.tileCache.get(data);
+    if (!bytes) {
+      bytes = decodeBase64(data);
+      this.tileCache.set(data, bytes);
+    }
+    return bytes;
+  }
+
   private renderTile(
     ctx: CanvasRenderingContext2D,
     data: string,
@@ -190,7 +199,7 @@ export class FogRenderer {
     const cellSize = def.cellSize;
     const tileWorldX = tx * FOG_TILE_CELLS * cellSize;
     const tileWorldY = ty * FOG_TILE_CELLS * cellSize;
-    const bytes = decodeBase64(data);
+    const bytes = this.decodeTile(data);
 
     ctx.fillStyle = color;
 

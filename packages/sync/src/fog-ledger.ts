@@ -1,6 +1,7 @@
 import type { FogMetaRecord, FogTileRecord, FogSnapshot } from './protocol';
 import { isNewerFogRecord } from './protocol';
-import { FOG_MAX_TILES } from '@fieldnotes/core';
+import { FOG_MAX_TILES, FOG_TILE_CELLS } from '@fieldnotes/core';
+import type { FogDefinitionV1 } from '@fieldnotes/core';
 
 const MAX_STORED_TILES = FOG_MAX_TILES;
 
@@ -27,12 +28,15 @@ export class FogLedger {
     }
 
     const oldGeneration = this.meta?.definition?.generation;
+    const oldBounds = this.meta?.definition?.bounds;
     this.meta = record;
 
     if (record.definition) {
       const newGen = record.definition.generation;
       if (oldGeneration !== undefined && newGen !== oldGeneration) {
         this.tiles.clear();
+      } else if (record.definition.bounds && oldBounds) {
+        this.pruneOutOfBounds(record.definition);
       }
     } else {
       this.tiles.clear();
@@ -54,6 +58,10 @@ export class FogLedger {
       };
     }
 
+    if (!tileIntersectsBounds(record.x, record.y, this.meta.definition)) {
+      return { accepted: false };
+    }
+
     const key = tileKey(record.x, record.y);
     const existing = this.tiles.get(key);
 
@@ -70,12 +78,19 @@ export class FogLedger {
     return { accepted: true };
   }
 
+  applyAuthoritative(record: FogTileRecord): void {
+    const key = tileKey(record.x, record.y);
+    this.tiles.set(key, record);
+  }
+
   snapshot(): FogSnapshot | undefined {
     if (!this.meta) return undefined;
-    return {
-      meta: this.meta,
-      tiles: [...this.tiles.values()],
-    };
+    const tiles = [...this.tiles.values()];
+    if (tiles.length > MAX_STORED_TILES) {
+      tiles.sort((a, b) => b.version - a.version || b.editor.localeCompare(a.editor));
+      tiles.length = MAX_STORED_TILES;
+    }
+    return { meta: this.meta, tiles };
   }
 
   loadSnapshot(snap: FogSnapshot): void {
@@ -98,10 +113,31 @@ export class FogLedger {
     }
     return count;
   }
+
+  private pruneOutOfBounds(def: FogDefinitionV1): void {
+    for (const [key, tile] of this.tiles) {
+      if (!tileIntersectsBounds(tile.x, tile.y, def)) {
+        this.tiles.delete(key);
+      }
+    }
+  }
 }
 
 function tileKey(x: number, y: number): string {
   return `${x},${y}`;
+}
+
+function tileIntersectsBounds(x: number, y: number, def: FogDefinitionV1): boolean {
+  const tileWorldX = x * FOG_TILE_CELLS * def.cellSize;
+  const tileWorldY = y * FOG_TILE_CELLS * def.cellSize;
+  const tileWorldW = FOG_TILE_CELLS * def.cellSize;
+  const tileWorldH = FOG_TILE_CELLS * def.cellSize;
+  return !(
+    tileWorldX + tileWorldW <= def.bounds.x ||
+    tileWorldY + tileWorldH <= def.bounds.y ||
+    tileWorldX >= def.bounds.x + def.bounds.w ||
+    tileWorldY >= def.bounds.y + def.bounds.h
+  );
 }
 
 function tombstone(record: FogTileRecord, generation: string): FogTileRecord {
