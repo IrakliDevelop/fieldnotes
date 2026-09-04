@@ -301,6 +301,8 @@ export type {
 export {
   validateFogState,
   validateFogDefinition,
+  validateFogTile,
+  canonicalizeFogTile,
   recommendedFogCellSize,
   encodeBase64 as fogEncodeBase64,
   decodeBase64 as fogDecodeBase64,

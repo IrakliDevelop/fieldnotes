@@ -9,12 +9,14 @@ import {
   isValidFogMetaRecord,
   isValidFogTileRecord,
   isValidFogSnapshot,
+  isNewerFogRecord,
   FOG_PATCH_MAX_TILES,
   type LayerRecord,
   type SyncOp,
   type SyncElement,
   type FogMetaRecord,
   type FogTileRecord,
+  type FogSnapshot,
 } from './protocol';
 import { LayerLedger } from './layer-ledger';
 import { FogLedger } from './fog-ledger';
@@ -126,11 +128,27 @@ export interface FogSyncOptions {
   manager: FogSyncManager;
   ledger?: FogLedger;
   preserveLocalWhenRemoteMissing?: boolean;
+  /** @internal Shared by createManagedSyncConnection across credential rebuilds. */
+  sessionState?: FogSyncSessionState;
+}
+
+export interface PendingFogEdits {
+  meta?: FogMetaRecord;
+  readonly tiles: Map<string, FogTileRecord>;
+  metaMustReplay: boolean;
+  readonly mustReplayTiles: Set<string>;
+  state: FogStateV1 | null;
+}
+
+export interface FogSyncSessionState {
+  hubKnown: boolean;
+  pending: PendingFogEdits | null;
 }
 
 export interface SyncClientOptions {
   store: ElementStore;
   transport: SyncTransport;
+  /** When `fog` is enabled, must be 1-128 printable ASCII characters. */
   clientId?: string;
   resolveAudience?: (element: CanvasElement) => string | undefined;
   /**
@@ -169,8 +187,93 @@ const REMOTE_ORIGIN = 'remote';
  */
 const HUB_FROM = 'hub';
 
+/** @internal Enforces the wire-safe identity used for deterministic fog ordering. */
+export function assertValidFogClientId(clientId: string): void {
+  if (clientId.length === 0 || clientId.length > 128 || !/^[\x20-\x7e]+$/.test(clientId)) {
+    throw new RangeError('fog sync requires clientId to be 1-128 printable ASCII characters');
+  }
+}
+
 function isExternal(origin: string | undefined): boolean {
   return origin !== undefined && origin !== 'local';
+}
+
+/** @internal Captures fog edits made while a managed connection has no active client. */
+export function captureOfflineFogChange(
+  session: FogSyncSessionState,
+  ledger: FogLedger,
+  manager: FogSyncManager,
+  clientId: string,
+  event: { kind: string; tiles?: readonly { x: number; y: number }[]; origin?: string },
+): void {
+  if (isExternal(event.origin)) return;
+  const state = manager.getState();
+  if (event.kind === 'definition' || event.kind === 'reset' || event.kind === 'disable') {
+    const previousGeneration = ledger.getMeta()?.definition?.generation;
+    const meta: FogMetaRecord = {
+      version: (ledger.getMeta()?.version ?? 0) + 1,
+      editor: clientId,
+      definition: state?.definition,
+    };
+    ledger.applyMeta(meta);
+    const pending = session.pending ?? {
+      tiles: new Map<string, FogTileRecord>(),
+      metaMustReplay: false,
+      mustReplayTiles: new Set<string>(),
+      state,
+    };
+    if (!meta.definition || pending.state?.definition.generation !== meta.definition.generation) {
+      pending.tiles.clear();
+      pending.mustReplayTiles.clear();
+    }
+    pending.meta = meta;
+    pending.metaMustReplay = true;
+    pending.state = state;
+    session.pending = pending;
+    if (state && previousGeneration !== state.definition.generation) {
+      for (const tile of state.tiles) {
+        const record: FogTileRecord = {
+          generation: state.definition.generation,
+          x: tile.x,
+          y: tile.y,
+          version: 1,
+          editor: clientId,
+          data: tile.data,
+        };
+        ledger.applyTile(record);
+        const key = `${tile.x},${tile.y}`;
+        pending.tiles.set(key, record);
+        pending.mustReplayTiles.add(key);
+      }
+    }
+    return;
+  }
+  if (event.kind !== 'tiles' || !event.tiles || !state) return;
+  const dataByKey = new Map(state.tiles.map((tile) => [`${tile.x},${tile.y}`, tile.data]));
+  const pending = session.pending ?? {
+    tiles: new Map<string, FogTileRecord>(),
+    metaMustReplay: false,
+    mustReplayTiles: new Set<string>(),
+    state,
+  };
+  for (const coord of event.tiles) {
+    const previous = ledger.getRecord(coord.x, coord.y);
+    const data = dataByKey.get(`${coord.x},${coord.y}`);
+    const record: FogTileRecord = {
+      generation: state.definition.generation,
+      x: coord.x,
+      y: coord.y,
+      version: (previous?.version ?? 0) + 1,
+      editor: clientId,
+      ...(data === undefined ? {} : { data }),
+    };
+    ledger.applyTile(record);
+    const key = `${coord.x},${coord.y}`;
+    pending.tiles.set(key, record);
+    pending.mustReplayTiles.add(key);
+  }
+  pending.state = state;
+  session.pending = pending;
 }
 
 function randomId(): string {
@@ -192,13 +295,14 @@ export class SyncClient {
   private readonly fogManager?: FogSyncManager;
   private readonly fogLedger?: FogLedger;
   private readonly fogPreserveLocal: boolean;
-  private fogHubKnown = false;
+  private readonly fogSession: FogSyncSessionState;
+  private fogMetaRollback: FogSnapshot | undefined;
+  private fogSnapshotPending = false;
   private unsubscribers: (() => void)[] = [];
   private started = false;
   private joined = false;
   private resyncPending = false;
   private readonly touchedDuringResync = new Set<string>();
-  private fogTouchedDuringResync = false;
   private readonly presenceHandlers = new Set<(from: string, data: unknown) => void>();
   private readonly presenceLeaveHandlers = new Set<(from: string) => void>();
 
@@ -214,11 +318,15 @@ export class SyncClient {
       this.layerLedger = options.layers.ledger ?? new LayerLedger();
     }
     if (options.fog) {
+      assertValidFogClientId(this.clientId);
       this.fogManager = options.fog.manager;
       this.fogLedger = options.fog.ledger ?? new FogLedger();
       this.fogPreserveLocal = options.fog.preserveLocalWhenRemoteMissing ?? false;
+      this.fogSession = options.fog.sessionState ?? { hubKnown: false, pending: null };
+      this.fogSnapshotPending = true;
     } else {
       this.fogPreserveLocal = false;
+      this.fogSession = { hubKnown: false, pending: null };
     }
     this.joined = options.firstSnapshot === 'reconcile';
   }
@@ -257,8 +365,8 @@ export class SyncClient {
 
   private onReconnect(): void {
     this.resyncPending = true;
+    if (this.fogManager) this.fogSnapshotPending = true;
     this.touchedDuringResync.clear();
-    this.fogTouchedDuringResync = false;
     this.sendOp({ kind: 'request-snapshot' });
   }
 
@@ -543,27 +651,41 @@ export class SyncClient {
     if (isExternal(event.origin)) return;
     if (!this.fogManager || !this.fogLedger) return;
 
-    if (this.resyncPending) {
-      this.fogTouchedDuringResync = true;
-    }
-
     const state = this.fogManager.getState();
 
     if (event.kind === 'definition' || event.kind === 'reset') {
       if (!state) return;
+      const previousGeneration = this.fogLedger.getMeta()?.definition?.generation;
+      this.fogMetaRollback ??= this.fogLedger.snapshot();
       const meta: FogMetaRecord = {
         version: (this.fogLedger.getMeta()?.version ?? 0) + 1,
         editor: this.clientId,
         definition: state.definition,
       };
       this.fogLedger.applyMeta(meta);
+      this.rememberFogMeta(meta, state);
       this.sendOp({ kind: 'fog-meta', record: meta });
+      if (previousGeneration !== state.definition.generation && state.tiles.length > 0) {
+        const tiles = state.tiles.map((tile) => ({
+          generation: state.definition.generation,
+          x: tile.x,
+          y: tile.y,
+          version: 1,
+          editor: this.clientId,
+          data: tile.data,
+        }));
+        for (const tile of tiles) this.fogLedger.applyTile(tile);
+        this.rememberFogTiles(tiles, state);
+        this.sendFogTiles(tiles);
+      }
     } else if (event.kind === 'disable') {
+      this.fogMetaRollback ??= this.fogLedger.snapshot();
       const meta: FogMetaRecord = {
         version: (this.fogLedger.getMeta()?.version ?? 0) + 1,
         editor: this.clientId,
       };
       this.fogLedger.applyMeta(meta);
+      this.rememberFogMeta(meta, null);
       this.sendOp({ kind: 'fog-meta', record: meta });
     } else if (event.kind === 'tiles' && event.tiles && state) {
       const generation = state.definition.generation;
@@ -583,6 +705,7 @@ export class SyncClient {
         this.fogLedger.applyTile(record);
         tiles.push(record);
       }
+      this.rememberFogTiles(tiles, state);
       // Split into batches of FOG_PATCH_MAX_TILES
       for (let i = 0; i < tiles.length; i += FOG_PATCH_MAX_TILES) {
         const batch = tiles.slice(i, i + FOG_PATCH_MAX_TILES);
@@ -600,134 +723,299 @@ export class SyncClient {
     if (op.kind === 'fog-meta') {
       if (!isValidFogMetaRecord(op.record)) return;
       if (from === HUB_FROM) {
-        this.fogLedger.applyMeta(op.record);
+        const wasSnapshotPending = this.fogSnapshotPending;
+        const rollback = this.fogMetaRollback;
+        const tiles =
+          rollback && rollback.meta.definition?.generation === op.record.definition?.generation
+            ? rollback.tiles
+            : [];
+        this.fogLedger.loadSnapshot({ meta: op.record, tiles });
+        this.fogMetaRollback = undefined;
+        this.applyFogLedgerToManager();
+        this.resyncPending = true;
+        this.fogSnapshotPending = true;
+        if (wasSnapshotPending) this.protectPendingFogAfterMeta(op.record);
+        else this.fogSession.pending = null;
+        this.sendOp({ kind: 'request-snapshot' });
+        return;
       } else if (!this.fogLedger.applyMeta(op.record).accepted) {
         return;
       }
-      if (op.record.definition) {
-        const currentState = this.fogManager.getState();
-        const generationChanged =
-          !currentState || currentState.definition.generation !== op.record.definition.generation;
-        const fogState: FogStateV1 = {
-          definition: op.record.definition,
-          tiles: generationChanged ? [] : (currentState?.tiles ?? []),
-        };
-        this.fogManager.loadState(fogState, { origin: REMOTE_ORIGIN });
-      } else {
-        this.fogManager.loadState(null, { origin: REMOTE_ORIGIN });
+      if (from !== HUB_FROM) {
+        if (this.fogSnapshotPending) this.protectPendingFogAfterMeta(op.record);
+        else this.retirePendingFogAfterMeta(op.record);
       }
+      this.fogMetaRollback = undefined;
+      this.applyFogLedgerToManager();
     } else {
-      const acceptedDataTiles: { x: number; y: number; data: string }[] = [];
-      const removedCoords: { x: number; y: number }[] = [];
+      let changed = false;
       for (const tile of op.tiles) {
         if (!isValidFogTileRecord(tile)) continue;
-        let accepted: boolean;
         if (from === HUB_FROM) {
-          this.fogLedger.applyAuthoritative(tile);
-          accepted = true;
+          const accepted = this.fogLedger.applyAuthoritative(tile);
+          if (accepted) {
+            if (this.fogSnapshotPending) this.protectPendingFogTile(tile);
+            else this.retirePendingFogTile(tile, true);
+          }
+          changed = accepted || changed;
         } else {
-          accepted = this.fogLedger.applyTile(tile).accepted;
-        }
-        if (accepted) {
-          if (tile.data) {
-            acceptedDataTiles.push({ x: tile.x, y: tile.y, data: tile.data });
-          } else {
-            removedCoords.push({ x: tile.x, y: tile.y });
+          const accepted = this.fogLedger.applyTile(tile).accepted;
+          if (accepted) {
+            if (this.fogSnapshotPending) this.protectPendingFogTile(tile);
+            else this.retirePendingFogTile(tile, false);
           }
+          changed = accepted || changed;
         }
       }
-      if (acceptedDataTiles.length > 0) {
-        this.fogManager.applyPatchDirect({ tiles: acceptedDataTiles }, { origin: REMOTE_ORIGIN });
-      }
-      if (removedCoords.length > 0) {
-        const currentState = this.fogManager.getState();
-        if (currentState) {
-          const removedKeys = new Set(removedCoords.map((c) => `${c.x},${c.y}`));
-          const remainingTiles = currentState.tiles.filter(
-            (t) => !removedKeys.has(`${t.x},${t.y}`),
-          );
-          if (remainingTiles.length !== currentState.tiles.length) {
-            const updatedState: FogStateV1 = {
-              definition: currentState.definition,
-              tiles: remainingTiles,
-            };
-            this.fogManager.loadState(updatedState, { origin: REMOTE_ORIGIN });
-          }
-        }
-      }
+      if (changed) this.applyFogLedgerToManager();
     }
   }
 
   private mergeSnapshotFog(raw: unknown): void {
     if (!this.fogManager || !this.fogLedger) return;
-    const fogShielded = this.fogTouchedDuringResync;
-    this.fogTouchedDuringResync = false;
+    const pending = this.fogSession.pending;
+    this.fogSnapshotPending = false;
 
     if (raw === undefined || raw === null) {
-      const wasHubKnown = this.fogHubKnown;
-      this.fogHubKnown = true;
-      if (fogShielded) {
-        this.publishLocalFog();
+      this.fogMetaRollback = undefined;
+      this.fogSession.pending = null;
+      const wasHubKnown = this.fogSession.hubKnown;
+      this.fogSession.hubKnown = true;
+      if (pending) {
+        this.fogLedger.clear();
+        this.publishFogState(pending.state);
       } else if (!this.fogPreserveLocal || wasHubKnown) {
         this.fogManager.loadState(null, { origin: REMOTE_ORIGIN });
         this.fogLedger.clear();
       } else if (this.fogPreserveLocal && this.fogManager.getState()) {
-        this.publishLocalFog();
+        this.publishFogState(this.fogManager.getState());
       }
       return;
     }
-    if (!isValidFogSnapshot(raw)) return;
-    this.fogHubKnown = true;
+    if (!isValidFogSnapshot(raw)) {
+      this.fogSession.pending = null;
+      if (pending) this.replayPendingFog(pending);
+      return;
+    }
+    const unresolved = pending ? this.unresolvedPendingFog(pending, raw) : null;
+    this.fogSession.pending = null;
+    this.fogMetaRollback = undefined;
+    this.fogSession.hubKnown = true;
     this.fogLedger.loadSnapshot(raw);
 
-    if (fogShielded) {
-      this.publishLocalFog();
+    if (unresolved) {
+      this.replayPendingFog(unresolved);
       return;
     }
 
-    if (raw.meta.definition) {
-      const tiles = raw.tiles
-        .filter((t): t is FogTileRecord & { data: string } => t.data !== undefined)
-        .map((t) => ({ x: t.x, y: t.y, data: t.data }));
-      const fogState: FogStateV1 = {
-        definition: raw.meta.definition,
-        tiles,
-      };
-      this.fogManager.loadState(fogState, { origin: REMOTE_ORIGIN });
-    } else {
-      this.fogManager.loadState(null, { origin: REMOTE_ORIGIN });
-    }
+    this.applyFogLedgerToManager();
   }
 
-  private publishLocalFog(): void {
-    if (!this.fogManager || !this.fogLedger) return;
-    const state = this.fogManager.getState();
-    if (!state) return;
+  private publishFogState(state: FogStateV1 | null): void {
+    if (!this.fogLedger) return;
     const meta: FogMetaRecord = {
       version: (this.fogLedger.getMeta()?.version ?? 0) + 1,
       editor: this.clientId,
-      definition: state.definition,
+      definition: state?.definition,
     };
     this.fogLedger.applyMeta(meta);
     this.sendOp({ kind: 'fog-meta', record: meta });
-    if (state.tiles.length > 0) {
-      const generation = state.definition.generation;
-      const tiles: FogTileRecord[] = state.tiles.map((t, i) => ({
-        generation,
+    if (state && state.tiles.length > 0) {
+      const tiles: FogTileRecord[] = state.tiles.map((t) => ({
+        generation: state.definition.generation,
         x: t.x,
         y: t.y,
-        version: i + 1,
+        version: (this.fogLedger?.getRecord(t.x, t.y)?.version ?? 0) + 1,
         editor: this.clientId,
         data: t.data,
       }));
       for (const tile of tiles) this.fogLedger.applyTile(tile);
-      for (let i = 0; i < tiles.length; i += FOG_PATCH_MAX_TILES) {
-        this.sendOp({
-          kind: 'fog-patch',
-          generation,
-          tiles: tiles.slice(i, i + FOG_PATCH_MAX_TILES),
-        });
+      this.sendFogTiles(tiles);
+    }
+  }
+
+  private rememberFogMeta(meta: FogMetaRecord, state: FogStateV1 | null): void {
+    const pending: PendingFogEdits = this.fogSession.pending ?? {
+      tiles: new Map<string, FogTileRecord>(),
+      metaMustReplay: false,
+      mustReplayTiles: new Set<string>(),
+      state,
+    };
+    const previousGeneration = pending.state?.definition.generation;
+    if (
+      !meta.definition ||
+      (previousGeneration && previousGeneration !== meta.definition.generation)
+    ) {
+      pending.tiles.clear();
+      pending.mustReplayTiles.clear();
+    }
+    pending.meta = meta;
+    if (this.fogSnapshotPending) pending.metaMustReplay = true;
+    pending.state = state;
+    this.fogSession.pending = pending;
+  }
+
+  private rememberFogTiles(tiles: readonly FogTileRecord[], state: FogStateV1): void {
+    const pending: PendingFogEdits = this.fogSession.pending ?? {
+      tiles: new Map<string, FogTileRecord>(),
+      metaMustReplay: false,
+      mustReplayTiles: new Set<string>(),
+      state,
+    };
+    for (const tile of tiles) {
+      const key = `${tile.x},${tile.y}`;
+      pending.tiles.set(key, tile);
+      if (this.fogSnapshotPending) pending.mustReplayTiles.add(key);
+    }
+    pending.state = state;
+    this.fogSession.pending = pending;
+  }
+
+  private retirePendingFogAfterMeta(record: FogMetaRecord): void {
+    const pending = this.fogSession.pending;
+    if (!pending) return;
+    delete pending.meta;
+    pending.metaMustReplay = false;
+    const generation = record.definition?.generation;
+    for (const [key, tile] of pending.tiles) {
+      if (!generation || tile.generation !== generation) {
+        pending.tiles.delete(key);
+        pending.mustReplayTiles.delete(key);
       }
     }
+    if (pending.tiles.size === 0) this.fogSession.pending = null;
+  }
+
+  private retirePendingFogTile(record: FogTileRecord, authoritative: boolean): void {
+    const pending = this.fogSession.pending;
+    if (!pending) return;
+    const key = `${record.x},${record.y}`;
+    const local = pending.tiles.get(key);
+    if (!local) return;
+    const sameOrdering = record.version === local.version && record.editor === local.editor;
+    if (
+      authoritative ||
+      isNewerFogRecord(record, local) ||
+      (sameOrdering && record.generation === local.generation && record.data === local.data)
+    ) {
+      pending.tiles.delete(key);
+      pending.mustReplayTiles.delete(key);
+      if (!pending.meta && pending.tiles.size === 0) this.fogSession.pending = null;
+    }
+  }
+
+  private protectPendingFogAfterMeta(record: FogMetaRecord): void {
+    const pending = this.fogSession.pending;
+    if (!pending) return;
+    if (pending.meta) pending.metaMustReplay = true;
+    const pendingGeneration = pending.meta?.definition?.generation;
+    const activeGeneration = record.definition?.generation;
+    for (const [key, tile] of pending.tiles) {
+      if (tile.generation === pendingGeneration || tile.generation === activeGeneration) {
+        pending.mustReplayTiles.add(key);
+      }
+    }
+  }
+
+  private protectPendingFogTile(record: FogTileRecord): void {
+    const pending = this.fogSession.pending;
+    if (!pending) return;
+    const key = `${record.x},${record.y}`;
+    if (pending.tiles.has(key)) pending.mustReplayTiles.add(key);
+  }
+
+  private unresolvedPendingFog(
+    pending: PendingFogEdits,
+    snapshot: FogSnapshot,
+  ): PendingFogEdits | null {
+    const retainedMeta =
+      pending.meta && (pending.metaMustReplay || isNewerFogRecord(pending.meta, snapshot.meta))
+        ? pending.meta
+        : undefined;
+    const snapshotGeneration = snapshot.meta.definition?.generation;
+    const retainedGeneration = retainedMeta?.definition?.generation;
+    const snapshotTiles = new Map(snapshot.tiles.map((tile) => [`${tile.x},${tile.y}`, tile]));
+    const tiles = new Map<string, FogTileRecord>();
+    const mustReplayTiles = new Set<string>();
+
+    for (const [key, tile] of pending.tiles) {
+      if (tile.generation !== snapshotGeneration && tile.generation !== retainedGeneration)
+        continue;
+      const authoritative = snapshotTiles.get(key);
+      const mustReplay = pending.mustReplayTiles.has(key);
+      if (!mustReplay && authoritative && !isNewerFogRecord(tile, authoritative)) continue;
+      tiles.set(key, tile);
+      if (mustReplay) mustReplayTiles.add(key);
+    }
+
+    if (!retainedMeta && tiles.size === 0) return null;
+    return {
+      ...(retainedMeta ? { meta: retainedMeta } : {}),
+      tiles,
+      metaMustReplay: pending.metaMustReplay && retainedMeta !== undefined,
+      mustReplayTiles,
+      state: pending.state,
+    };
+  }
+
+  private replayPendingFog(pending: PendingFogEdits): void {
+    if (!this.fogLedger) return;
+    const pendingMeta = pending.meta;
+
+    let acceptedMeta: FogMetaRecord | undefined;
+    if (pendingMeta) {
+      const currentVersion = this.fogLedger.getMeta()?.version ?? 0;
+      const rebased = {
+        ...pendingMeta,
+        version: Math.max(pendingMeta.version, currentVersion + 1),
+        editor: this.clientId,
+      };
+      if (this.fogLedger.applyMeta(rebased).accepted) acceptedMeta = rebased;
+    }
+
+    const acceptedTiles: FogTileRecord[] = [];
+    const activeGeneration = this.fogLedger.getMeta()?.definition?.generation;
+    for (const tile of pending.tiles.values()) {
+      if (!activeGeneration || tile.generation !== activeGeneration) continue;
+      const currentVersion = this.fogLedger.getRecord(tile.x, tile.y)?.version ?? 0;
+      const rebased = {
+        ...tile,
+        version: Math.max(tile.version, currentVersion + 1),
+        editor: this.clientId,
+      };
+      if (this.fogLedger.applyTile(rebased).accepted) acceptedTiles.push(rebased);
+    }
+    this.applyFogLedgerToManager();
+    if (acceptedMeta) this.sendOp({ kind: 'fog-meta', record: acceptedMeta });
+    this.sendFogTiles(acceptedTiles);
+  }
+
+  private sendFogTiles(tiles: readonly FogTileRecord[]): void {
+    for (let i = 0; i < tiles.length; i += FOG_PATCH_MAX_TILES) {
+      const batch = tiles.slice(i, i + FOG_PATCH_MAX_TILES);
+      const generation = batch[0]?.generation;
+      if (!generation) continue;
+      this.sendOp({ kind: 'fog-patch', generation, tiles: batch });
+    }
+  }
+
+  private applyFogLedgerToManager(): void {
+    if (!this.fogManager || !this.fogLedger) return;
+    const snapshot = this.fogLedger.snapshot();
+    if (!snapshot?.meta.definition) {
+      this.fogManager.loadState(null, { origin: REMOTE_ORIGIN });
+      return;
+    }
+    const tiles = snapshot.tiles
+      .filter((tile): tile is FogTileRecord & { data: string } => tile.data !== undefined)
+      .map((tile) => ({
+        x: tile.x,
+        y: tile.y,
+        data: tile.data,
+      }));
+    this.fogManager.loadState(
+      { definition: snapshot.meta.definition, tiles },
+      { origin: REMOTE_ORIGIN },
+    );
   }
 }

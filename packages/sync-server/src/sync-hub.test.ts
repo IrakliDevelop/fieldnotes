@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { createShape } from '@fieldnotes/core';
+import { createShape, fogEncodeBase64 } from '@fieldnotes/core';
 import type { CanvasElement, Layer } from '@fieldnotes/core';
 import type { SyncOp } from '@fieldnotes/sync';
 import { SyncHub } from './sync-hub';
@@ -699,6 +699,179 @@ describe('SyncHub', () => {
         expect(p.sent).toEqual([]);
       });
     });
+  });
+});
+
+describe('SyncHub fog authority', () => {
+  const definition = {
+    version: 1 as const,
+    generation: 'gen-1',
+    bounds: { x: 0, y: 0, w: 256, h: 128 },
+    cellSize: 1,
+    tileCells: 128 as const,
+    base: 'covered' as const,
+  };
+  const data = fogEncodeBase64(new Uint8Array(2048).fill(0xff));
+
+  it('rejects an incomplete fog backend instead of silently falling back to process memory', () => {
+    const memory = new MemoryHubBackend();
+    expect(
+      () =>
+        new SyncHub({
+          backend: {
+            snapshot: memory.snapshot.bind(memory),
+            get: memory.get.bind(memory),
+            apply: memory.apply.bind(memory),
+            fogSnapshot: memory.fogSnapshot.bind(memory),
+            applyFogMeta: memory.applyFogMeta.bind(memory),
+          },
+        }),
+    ).toThrow(/all-or-none/);
+  });
+
+  it('broadcasts only accepted records from a partially stale patch', async () => {
+    const fogHub = new SyncHub();
+    const a = makeConn('A', 'R');
+    const b = makeConn('B', 'R');
+    fogHub.addConnection(a);
+    fogHub.addConnection(b);
+    await fogHub.handleMessage(
+      'A',
+      envelope('A', {
+        kind: 'fog-meta',
+        record: { version: 1, editor: 'A', definition },
+      }),
+    );
+    await fogHub.handleMessage(
+      'A',
+      envelope('A', {
+        kind: 'fog-patch',
+        generation: 'gen-1',
+        tiles: [{ generation: 'gen-1', x: 0, y: 0, version: 5, editor: 'A', data }],
+      }),
+    );
+    a.sent.length = 0;
+    b.sent.length = 0;
+
+    await fogHub.handleMessage(
+      'B',
+      envelope('B', {
+        kind: 'fog-patch',
+        generation: 'gen-1',
+        tiles: [
+          { generation: 'gen-1', x: 0, y: 0, version: 4, editor: 'B', data },
+          { generation: 'gen-1', x: 1, y: 0, version: 1, editor: 'B', data },
+        ],
+      }),
+    );
+
+    expect(JSON.parse(a.sent[0] ?? '').op.tiles).toEqual([
+      { generation: 'gen-1', x: 1, y: 0, version: 1, editor: 'B', data },
+    ]);
+    expect(JSON.parse(b.sent[0] ?? '').op.tiles).toEqual([
+      { generation: 'gen-1', x: 0, y: 0, version: 5, editor: 'A', data },
+    ]);
+    fogHub.close();
+  });
+
+  it('corrects a denied first fog edit to an authoritative disabled record', async () => {
+    const fogHub = new SyncHub({ authorizeFog: () => false });
+    const player = makeConn('player', 'R');
+    fogHub.addConnection(player);
+
+    await fogHub.handleMessage(
+      'player',
+      envelope('player', {
+        kind: 'fog-meta',
+        record: { version: 1, editor: 'player', definition },
+      }),
+    );
+
+    expect(JSON.parse(player.sent[0] ?? '')).toEqual({
+      from: 'hub',
+      op: { kind: 'fog-meta', record: { version: 1, editor: 'hub' } },
+    });
+    fogHub.close();
+  });
+
+  it('rejects a same-generation bounds shrink', async () => {
+    const backend = new MemoryHubBackend();
+    const fogHub = new SyncHub({ backend });
+    const a = makeConn('A', 'R');
+    fogHub.addConnection(a);
+    await fogHub.handleMessage(
+      'A',
+      envelope('A', {
+        kind: 'fog-meta',
+        record: { version: 1, editor: 'A', definition },
+      }),
+    );
+    await fogHub.handleMessage(
+      'A',
+      envelope('A', {
+        kind: 'fog-patch',
+        generation: 'gen-1',
+        tiles: [
+          { generation: 'gen-1', x: 0, y: 0, version: 1, editor: 'A', data },
+          { generation: 'gen-1', x: 1, y: 0, version: 1, editor: 'A', data },
+        ],
+      }),
+    );
+    await fogHub.handleMessage(
+      'A',
+      envelope('A', {
+        kind: 'fog-meta',
+        record: {
+          version: 2,
+          editor: 'A',
+          definition: { ...definition, bounds: { x: 0, y: 0, w: 128, h: 128 } },
+        },
+      }),
+    );
+
+    expect((await backend.fogSnapshot('R'))?.meta.definition?.bounds.w).toBe(256);
+    expect((await backend.fogSnapshot('R'))?.tiles.map((tile) => tile.x)).toEqual([0, 1]);
+    expect(JSON.parse(a.sent[a.sent.length - 1] ?? '').from).toBe('hub');
+    fogHub.close();
+  });
+
+  it('rejects a capacity-overflowing patch atomically and corrects every coordinate', async () => {
+    const backend = new MemoryHubBackend();
+    const wideDefinition = {
+      ...definition,
+      bounds: { x: 0, y: 0, w: 258 * 128, h: 128 },
+    };
+    await backend.applyFogMeta('R', { version: 1, editor: 'seed', definition: wideDefinition });
+    await backend.applyFogPatch(
+      'R',
+      Array.from({ length: 255 }, (_, x) => ({
+        generation: 'gen-1',
+        x,
+        y: 0,
+        version: 1,
+        editor: 'seed',
+      })),
+    );
+    const fogHub = new SyncHub({ backend });
+    const a = makeConn('A', 'R');
+    const b = makeConn('B', 'R');
+    fogHub.addConnection(a);
+    fogHub.addConnection(b);
+    await fogHub.handleMessage(
+      'A',
+      envelope('A', {
+        kind: 'fog-patch',
+        generation: 'gen-1',
+        tiles: [
+          { generation: 'gen-1', x: 255, y: 0, version: 1, editor: 'A' },
+          { generation: 'gen-1', x: 256, y: 0, version: 1, editor: 'A' },
+        ],
+      }),
+    );
+    expect((await backend.fogSnapshot('R'))?.tiles).toHaveLength(255);
+    expect(b.sent).toEqual([]);
+    expect(JSON.parse(a.sent[0] ?? '').op.tiles).toHaveLength(2);
+    fogHub.close();
   });
 });
 

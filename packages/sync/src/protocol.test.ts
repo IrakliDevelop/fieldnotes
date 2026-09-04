@@ -10,6 +10,7 @@ import {
   createTemplate,
   createText,
   type CanvasElement,
+  fogEncodeBase64,
 } from '@fieldnotes/core';
 import type { Layer } from '@fieldnotes/core';
 import {
@@ -22,6 +23,9 @@ import {
   applyOpToMap,
   type LayerRecord,
   type SyncOp,
+  isValidFogTileRecord,
+  isValidFogMetaRecord,
+  isValidFogSnapshot,
 } from './protocol';
 
 function shape(x = 0): CanvasElement {
@@ -138,6 +142,57 @@ describe('isValidEnvelope', () => {
     expect(isValidEnvelope(null)).toBe(false);
     expect(isValidEnvelope('x')).toBe(false);
     expect(isValidEnvelope({ from: 1, op: { kind: 'clear' } })).toBe(false);
+  });
+});
+
+describe('fog wire validation', () => {
+  const definition = {
+    version: 1 as const,
+    generation: 'gen-1',
+    bounds: { x: 0, y: 0, w: 256, h: 256 },
+    cellSize: 1,
+    tileCells: 128 as const,
+    base: 'covered' as const,
+  };
+  const data = fogEncodeBase64(new Uint8Array(2048).fill(0xff));
+  const tile = {
+    generation: 'gen-1',
+    x: 0,
+    y: 0,
+    version: 1,
+    editor: 'A',
+    data,
+  };
+
+  it('requires exact canonical tile bytes, including padding bits', () => {
+    expect(isValidFogTileRecord(tile)).toBe(true);
+    expect(isValidFogTileRecord({ ...tile, data: data.slice(0, -1) + 'A' })).toBe(false);
+    expect(isValidFogTileRecord({ ...tile, data: data.slice(0, -2) + 'B=' })).toBe(false);
+    expect(isValidFogTileRecord({ ...tile, data: data.slice(0, -2) + '==' })).toBe(false);
+  });
+
+  it('rejects snapshot tiles when fog is disabled or coordinates miss the definition', () => {
+    expect(isValidFogSnapshot({ meta: { version: 1, editor: 'A' }, tiles: [tile] })).toBe(false);
+    expect(
+      isValidFogSnapshot({
+        meta: { version: 1, editor: 'A', definition },
+        tiles: [{ ...tile, x: 2 }],
+      }),
+    ).toBe(false);
+  });
+
+  it('requires every patch record to match the outer generation', () => {
+    expect(
+      isValidEnvelope({
+        from: 'A',
+        op: { kind: 'fog-patch', generation: 'gen-2', tiles: [tile] },
+      }),
+    ).toBe(false);
+  });
+
+  it('rejects non-ASCII ordering identifiers so JS and Redis tie-break identically', () => {
+    expect(isValidFogMetaRecord({ version: 1, editor: '😀', definition })).toBe(false);
+    expect(isValidFogTileRecord({ ...tile, editor: '\ue000' })).toBe(false);
   });
 });
 

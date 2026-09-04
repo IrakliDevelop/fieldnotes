@@ -127,19 +127,23 @@ function canonicalizeEdgePadding(
   }
 }
 
+export function canonicalizeFogTile(tile: FogTileV1, def: FogDefinitionV1): FogTileV1 | null {
+  const bytes = decodeBase64(tile.data);
+  canonicalizeEdgePadding(bytes, def, tile.x, tile.y);
+  if (isTileBase(bytes, def.base)) return null;
+  return { x: tile.x, y: tile.y, data: encodeBase64(bytes) };
+}
+
 // ── Validation ──
 
 function isCanonicalBase64(str: string): boolean {
   if (str.length !== CANONICAL_B64_LENGTH) return false;
-  for (let i = 0; i < str.length; i++) {
-    const c = str[i] as string;
-    if (c === '=') {
-      if (i < str.length - 2) return false;
-    } else if (!B64_CHARS.includes(c)) {
-      return false;
-    }
+  if (str[str.length - 1] !== '=' || str[str.length - 2] === '=') return false;
+  for (let i = 0; i < str.length - 1; i++) {
+    if (!B64_CHARS.includes(str[i] as string)) return false;
   }
-  return true;
+  const finalSextet = B64_CHARS.indexOf(str[str.length - 2] as string);
+  return finalSextet >= 0 && (finalSextet & 0b11) === 0;
 }
 
 function isSafeInteger(n: unknown): n is number {
@@ -185,7 +189,8 @@ export function validateFogDefinition(def: unknown): asserts def is FogDefinitio
   if (
     typeof d['generation'] !== 'string' ||
     d['generation'].length === 0 ||
-    d['generation'].length > 128
+    d['generation'].length > 128 ||
+    !/^[\x20-\x7e]+$/.test(d['generation'])
   ) {
     throw new Error('Invalid fog definition: invalid generation');
   }
@@ -221,6 +226,16 @@ export function validateFogTile(tile: unknown, def: FogDefinitionV1): asserts ti
   if (decoded.length !== TILE_BYTES) {
     throw new Error('Invalid fog tile: decoded data wrong length');
   }
+  if (isTileBase(decoded, def.base)) {
+    throw new Error('Invalid fog tile: base-value tiles must be omitted');
+  }
+  const canonical = new Uint8Array(decoded);
+  canonicalizeEdgePadding(canonical, def, t['x'] as number, t['y'] as number);
+  for (let i = 0; i < decoded.length; i++) {
+    if (decoded[i] !== canonical[i]) {
+      throw new Error('Invalid fog tile: non-canonical edge padding');
+    }
+  }
 }
 
 export function validateFogState(state: unknown): asserts state is FogStateV1 {
@@ -254,8 +269,13 @@ export function validateFogState(state: unknown): asserts state is FogStateV1 {
 export function recommendedFogCellSize(bounds: Bounds): number {
   let cellSize = 1;
   while (true) {
-    const tw = Math.ceil(bounds.w / (FOG_TILE_CELLS * cellSize));
-    const th = Math.ceil(bounds.h / (FOG_TILE_CELLS * cellSize));
+    const tileWorldSize = FOG_TILE_CELLS * cellSize;
+    const minTX = Math.floor(bounds.x / tileWorldSize);
+    const minTY = Math.floor(bounds.y / tileWorldSize);
+    const maxTX = Math.ceil((bounds.x + bounds.w) / tileWorldSize) - 1;
+    const maxTY = Math.ceil((bounds.y + bounds.h) / tileWorldSize) - 1;
+    const tw = maxTX - minTX + 1;
+    const th = maxTY - minTY + 1;
     if (tw * th <= FOG_MAX_TILES) return cellSize;
     cellSize++;
     if (cellSize > 10000) return cellSize;
