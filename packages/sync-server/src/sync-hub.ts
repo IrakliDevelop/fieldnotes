@@ -772,10 +772,12 @@ export class SyncHub {
   }
 
   private async applyFanoutFogOp(room: string, op: FogOp): Promise<void> {
-    const ledger = this.getFogLedger(room);
+    const ledger = await this.ensureFogLedger(room);
     if (op.kind === 'fog-meta') {
-      ledger.applyMeta(op.record);
-      await this.applyFogMeta(room, op.record);
+      const result = ledger.applyMeta(op.record);
+      if (result.accepted) {
+        await this.applyFogMeta(room, op.record);
+      }
     } else {
       for (const tile of op.tiles) {
         const result = ledger.applyTile(tile);

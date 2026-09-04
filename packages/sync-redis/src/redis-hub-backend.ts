@@ -158,10 +158,6 @@ export class RedisHubBackend implements HubBackend {
 
   async applyFogTile(room: string, record: FogTileRecord): Promise<void> {
     const key = `${record.x},${record.y}`;
-    if (record.data === undefined) {
-      await this.client.hDel(this.fogTilesKey(room), key);
-    } else {
-      await this.client.hSet(this.fogTilesKey(room), key, JSON.stringify(record));
-    }
+    await this.client.hSet(this.fogTilesKey(room), key, JSON.stringify(record));
   }
 }

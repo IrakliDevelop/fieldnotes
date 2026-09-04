@@ -42,6 +42,10 @@ export class Minimap {
     this.controller.requestDraw();
   }
 
+  invalidateScene(): void {
+    this.controller.invalidateScene();
+  }
+
   destroy(): void {
     this.controller.dispose();
     this.canvas.remove();

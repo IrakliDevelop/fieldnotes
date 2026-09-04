@@ -305,6 +305,7 @@ export function isValidFogMetaRecord(record: unknown): record is FogMetaRecord {
 
 const FOG_TILE_BYTES = (128 * 128) / 8;
 const FOG_CANONICAL_B64_LENGTH = Math.ceil(FOG_TILE_BYTES / 3) * 4;
+const B64_CHARS_RE = /^[A-Za-z0-9+/]*={0,2}$/;
 
 export function isValidFogTileRecord(record: unknown): record is FogTileRecord {
   if (!isRecord(record)) return false;
@@ -320,19 +321,24 @@ export function isValidFogTileRecord(record: unknown): record is FogTileRecord {
   }
   if (record['data'] === undefined) return true;
   if (typeof record['data'] !== 'string') return false;
-  return (record['data'] as string).length === FOG_CANONICAL_B64_LENGTH;
+  const data = record['data'] as string;
+  return data.length === FOG_CANONICAL_B64_LENGTH && B64_CHARS_RE.test(data);
 }
 
 export function isValidFogSnapshot(snap: unknown): snap is FogSnapshot {
   if (!isRecord(snap)) return false;
   if (!isValidFogMetaRecord(snap['meta'])) return false;
   if (!Array.isArray(snap['tiles'])) return false;
+  const meta = snap['meta'] as FogMetaRecord;
+  const generation = meta.definition?.generation;
   const tiles = snap['tiles'] as unknown[];
   if (tiles.length > FOG_MAX_TILES) return false;
   const seen = new Set<string>();
   for (const tile of tiles) {
     if (!isValidFogTileRecord(tile)) return false;
-    const key = `${(tile as FogTileRecord).x},${(tile as FogTileRecord).y}`;
+    const t = tile as FogTileRecord;
+    if (generation !== undefined && t.generation !== generation) return false;
+    const key = `${t.x},${t.y}`;
     if (seen.has(key)) return false;
     seen.add(key);
   }

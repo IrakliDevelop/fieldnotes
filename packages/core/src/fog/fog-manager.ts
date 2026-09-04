@@ -24,9 +24,11 @@ import type { Command } from '../history/types';
 
 export type FogIdFactory = () => string;
 
-let nextId = 1;
 function defaultIdFactory(): string {
-  return `fog-gen-${nextId++}`;
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `fog-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 export interface FogManagerOptions {
@@ -85,7 +87,7 @@ export class FogManager {
     this.onCommand?.(command);
     this.notifyChange({ kind: 'definition' });
 
-    return newState;
+    return structuredClone(newState) as FogStateV1;
   }
 
   loadState(state: FogStateV1 | null, meta?: { origin?: string }): void {
