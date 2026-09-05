@@ -20,7 +20,10 @@ describe('translateElementPatch', () => {
     expect(patch.position).toEqual({ x: arrow.position.x + 4, y: arrow.position.y + 6 });
   });
   it('translates a stroke by position only (points untouched)', () => {
-    const stroke = createStroke({ points: [{ x: 0, y: 0, pressure: 1 }], position: { x: 2, y: 2 } });
+    const stroke = createStroke({
+      points: [{ x: 0, y: 0, pressure: 1 }],
+      position: { x: 2, y: 2 },
+    });
     const patch = translateElementPatch(stroke, 1, 1);
     expect(patch).toEqual({ position: { x: 3, y: 3 } });
     expect('points' in patch).toBe(false);

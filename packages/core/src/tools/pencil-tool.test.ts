@@ -30,7 +30,12 @@ describe('PencilTool', () => {
   });
 
   it('creates strokes with configured opacity and blendMode', () => {
-    const tool = new PencilTool({ name: 'highlighter', width: 12, opacity: 0.4, blendMode: 'multiply' });
+    const tool = new PencilTool({
+      name: 'highlighter',
+      width: 12,
+      opacity: 0.4,
+      blendMode: 'multiply',
+    });
     const ctx = makeCtx();
     tool.onPointerDown(pt(0, 0), ctx);
     tool.onPointerMove(pt(10, 10), ctx);
