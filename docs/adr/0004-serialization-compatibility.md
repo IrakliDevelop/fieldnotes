@@ -1,6 +1,6 @@
 # ADR-0004: Serialization Compatibility Strategy
 
-- **Status:** Decided
+- **Status:** Proposed
 - **Deciders:** Project maintainer
 - **Date:** 2026-09-05
 - **Supersedes:** —
@@ -104,14 +104,23 @@ function resolveFogState(state: CanvasState): FogStateV1 | undefined {
 
 The `extensions` field is an unknown field from v3's perspective — it doesn't trigger the version gate because the version is still 3. Old clients that don't know about `extensions` simply ignore it (standard JSON forward compatibility for unknown fields within the same version).
 
-### Phase 2: Remove legacy fog field (after all clients upgraded)
+### Phase 2: Remove legacy fog field (after adoption gate)
 
-Once all clients read from `extensions.fog`:
+Once **all** clients are confirmed upgraded to read from `extensions.fog`:
 
 **Write:** Only `extensions.fog`. The `fog` field is no longer written.
 **Read:** `extensions.fog` only. The `fog` fallback is removed.
 
-The state is still `version: 3`. Old clients that expect `fog` at the top level will not find it, but they are no longer in use.
+The state is still `version: 3`.
+
+> **Critical:** This phase must not proceed on a timer. Removing the top-level `fog` field while keeping `version: 3` creates a **silent privacy failure** — an old client will accept the state (version 3 passes validation), find no `fog` field, and render without fog. No error, no migration message, just missing fog. This is worse than a version-bump rejection because it is silent.
+
+**Adoption gate:** Phase 2 proceeds only when 100% of connecting clients report v3+dual-write capability. Client versions are tracked via the sync handshake — each connecting client reports its serializer capabilities, and the server tracks the minimum across all active and recently-seen clients. The legacy `fog` fallback (`state.fog`) must remain written for as long as ANY old reader is supported.
+
+Removal of the legacy `fog` field requires either:
+
+- A measured adoption gate with explicit version tracking (this phase), OR
+- A major compatibility boundary (version bump to v4, which old clients reject explicitly)
 
 ### Phase 3: Bump to v4 (after soak period)
 
@@ -148,13 +157,30 @@ The same dual-write strategy applies to the sync protocol:
 
 ### Compatibility matrix
 
-| Writer \ Reader | v3 (no extensions) | v3 (dual-write) | v4 (extensions only) |
-| --------------- | ------------------ | --------------- | -------------------- |
-| v3 (no ext)     | ✅ Works           | ✅ Works        | ❌ Rejects (version) |
-| v3 (dual-write) | ✅ Reads legacy    | ✅ Reads ext    | ❌ Rejects (version) |
-| v4 (ext only)   | ✅ Migrates        | ✅ Reads ext    | ✅ Works             |
+| Writer \ Reader | v3 (no extensions)                   | v3 (dual-write)                      | v4 (extensions only) |
+| --------------- | ------------------------------------ | ------------------------------------ | -------------------- |
+| v3 (no ext)     | ✅ Works                             | ✅ Works                             | ❌ Rejects (version) |
+| v3 (dual-write) | ✅ Reads legacy                      | ✅ Reads ext                         | ❌ Rejects (version) |
+| v4 (ext only)   | ❌ Rejects (v3 reader can't read v4) | ❌ Rejects (v3 reader can't read v4) | ✅ Works             |
 
-Key insight: during Phase 1-2, all writers produce v3. Old readers work because the version hasn't changed. The `extensions` field is an additive, unknown JSON field that old clients ignore.
+Key insight: **old readers cannot read newer versions.** The version gate is a hard reject (`if (version > CURRENT_VERSION) throw`). Only newer readers can read older versions (via migration). During Phase 1-2, all writers produce v3, so old readers work because the version hasn't changed. The `extensions` field is an additive, unknown JSON field that old clients ignore.
+
+### Old-client re-export data loss
+
+During the dual-write phase (Phase 1-2), an old client that reads v3 dual-write state and re-exports it will silently destroy extension data:
+
+1. Read the state (version 3, has both `fog` and `extensions`)
+2. The `extensions` field is unknown → old client ignores it (standard JSON forward compat)
+3. On re-export, old client writes `version: 3` with only known fields → `extensions` is lost
+4. Extension data (fog, future extensions) is silently destroyed
+
+During Phase 1-2 this is acceptable because `fog` (legacy) is also written, so fog data survives. But if additional extensions are added later, they would be lost on old-client re-export. This reinforces the need for the version bump (Phase 3) to happen before adding more extensions beyond fog.
+
+### Old-client element validation constraint
+
+The serializer's `validateTypeFields()` has a 9-case switch covering known element types. If ADR-0001 introduces extension elements with `type: 'extension'`, old clients' `validateTypeFields()` will reject them (unknown type). This means extension elements cannot flow through old clients at all.
+
+**Constraint:** Extension elements are only supported after all clients upgrade to the registry-aware version. During the dual-write phase, only legacy element types (stroke, note, arrow, etc.) plus grid/template (which old clients already know) can be used. New extension element types must wait until Phase 3 or later.
 
 ## Options Considered
 
@@ -181,21 +207,35 @@ Clients negotiate supported versions on sync connection. Mixed-version rooms use
 ### Positive
 
 - **Zero breakage:** Existing persisted state loads correctly. Old clients continue to work during transition.
-- **Measured rollout:** Each phase can be deployed independently. Soak period between phases.
+- **Measured rollout:** Each phase can be deployed independently. Adoption gate ensures Phase 2 only proceeds when safe.
 - **Follows existing pattern:** The `migrateElement()` pattern already handles forward-compatibility via additive defaults. The `extensions` field follows the same principle.
 - **Sync compatibility:** Wire kinds are preserved. No protocol break during transition.
+- **Explicit version tracking:** The adoption gate requires tracking client versions via sync handshake, providing visibility into the upgrade state of the fleet.
 
 ### Negative
 
 - **Dual-write complexity:** During Phase 1-2, state is written twice (legacy + extensions). Slightly larger payloads.
 - **Long transition:** 4 phases over ~6 months. Requires discipline to progress through phases.
 - **Testing matrix:** Must test all combinations of writer/reader versions during each phase.
+- **Adoption gate overhead:** Phase 2 requires implementing and maintaining client version tracking in the sync handshake.
+- **Old-client data loss risk:** During dual-write, old clients that re-export state will silently drop the `extensions` field (see "Old-client re-export data loss" above).
 
 ### Risks
 
-- If the soak period is too short, some clients may still be on old versions when legacy fields are removed.
+- **Silent privacy failure (mitigated):** Phase 2 removes `fog` while keeping `version: 3`. Without the adoption gate, old clients would silently render without fog. The adoption gate (100% client upgrade confirmation) prevents this.
+- **Old-client re-export data loss:** During Phase 1-2, old clients that read and re-export state will silently destroy extension data. Acceptable for fog (legacy field survives) but unacceptable for future extensions. Reinforces the need to complete Phase 3 before adding more extensions.
+- **Element validation blocks extension types:** Old clients' `validateTypeFields()` rejects unknown element types. Extension elements (`type: 'extension'`) cannot flow through old clients. New element types must wait until all clients upgrade.
 - The `extensions` field grows unbounded if multiple domain packages register extensions. Need a size limit or warning.
 - RollKeeper's relay deploys independently. If the relay is upgraded before the web client (or vice versa), mixed-version rooms may have unexpected behavior.
+
+## Review Response
+
+This revision addresses Finding 7 (F7) from the ADR review:
+
+- **Part A (Matrix corrected):** The compatibility matrix now correctly shows that v3 readers reject v4 states (hard version gate). The off-diagonal cases are fixed.
+- **Part B (Phase 2 adoption gate):** Phase 2 now requires an adoption gate (100% client upgrade confirmation via sync handshake), not a timer. The silent privacy failure risk is documented.
+- **Part C (Old-client re-export data loss):** Added explicit documentation of the risk that old clients silently destroy extension data on re-export. Acceptable during dual-write for fog, but reinforces the need for Phase 3 before adding more extensions.
+- **Part D (Element validation constraint):** Added explicit documentation that old clients' `validateTypeFields()` rejects unknown element types. Extension elements cannot flow through old clients.
 
 ## References
 

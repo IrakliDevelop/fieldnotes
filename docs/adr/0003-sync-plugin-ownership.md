@@ -1,6 +1,6 @@
 # ADR-0003: Sync/Server Plugin Ownership
 
-- **Status:** Decided
+- **Status:** Proposed
 - **Deciders:** Project maintainer
 - **Date:** 2026-09-05
 - **Supersedes:** —
@@ -89,22 +89,80 @@ export function createFogBackendPlugin(): BackendSyncPlugin;
 interface ClientSyncPlugin {
   readonly name: string;
   produceOps?(): SyncOp[];
-  handleOp?(op: SyncOp): void;
+  handleOp?(
+    op: SyncOp,
+    meta: {
+      sender: string;
+      isLocal: boolean;
+      phase: 'live' | 'reconnect' | 'snapshot';
+    },
+  ): void;
   extendSnapshot?(snapshot: SyncSnapshot): void;
-  applySnapshot?(snapshot: SyncSnapshot): void;
+  applySnapshot?(
+    snapshot: SyncSnapshot,
+    meta: { phase: 'initial' | 'reconnect' | 'offline-replay' },
+  ): void;
+  handleCorrection?(op: SyncOp): void; // Handle server-sent corrections
 }
 ```
+
+The `handleOp` meta provides the sender identity, whether the op originated locally, and the
+connection phase so the plugin can distinguish live ops from reconnect replays and authoritative
+snapshot deliveries. `handleCorrection` receives ops the server rejected — the current fog flow
+sends the existing tile state back to the sender only, not to the whole room.
 
 **Server plugin:**
 
 ```typescript
 interface ServerSyncPlugin {
   readonly name: string;
-  authorize?(ctx: AuthContext, op: SyncOp): boolean | Promise<boolean>;
-  apply?(op: SyncOp, backend: HubBackend): Promise<void>;
-  snapshot?(backend: HubBackend): Promise<unknown>;
+  authorize?(ctx: PluginAuthContext, op: SyncOp): boolean | Promise<boolean>;
+  apply?(op: SyncOp, ctx: ServerOpContext): Promise<ApplyResult>;
+  snapshot?(room: string, backend: HubBackend): Promise<unknown>;
+  registerOpKinds?(registry: OpKindRegistry): void;
+}
+
+interface PluginAuthContext {
+  userId: string;
+  role: string;
+  room: string;
+  connectionId: string;
+  currentState: unknown; // Current plugin state for authorization decisions
+}
+
+interface ServerOpContext {
+  room: string;
+  connectionId: string;
+  userId: string;
+  role: string;
+  backend: HubBackend;
+}
+
+interface ApplyResult {
+  accepted: SyncOp | null; // The op to fan out (may be modified/partial)
+  corrections: SyncOp[]; // Ops to send back to sender only
+  broadcast?: SyncOp[]; // Additional ops to broadcast to all (e.g., derived state)
+}
+
+// OpKindRegistry allows plugins to extend the wire protocol
+interface OpKindRegistry {
+  register(kind: string, validator: (op: unknown) => boolean): void;
 }
 ```
+
+The server plugin interfaces model the actual fog processing flow in `sync-hub.ts`:
+
+1. Authorize with full context — `PluginAuthContext` carries `userId`, `role`, `room`,
+   `connectionId`, and `currentState` (the plugin's own snapshot, mirroring today's
+   `AuthorizeFogContext.current: FogSnapshot`).
+2. On denial: return corrections (current state) via `ApplyResult.corrections` — the hub sends
+   these to the sender only.
+3. On accept: `ApplyResult.accepted` is the (possibly partial) op to fan out to all other
+   connections; `corrections` go to the sender only; `broadcast` covers additional derived ops
+   that go to everyone.
+4. `snapshot()` takes a `room` parameter — the current `fogSnapshot()` is room-scoped.
+5. `registerOpKinds()` lets plugins extend the `SyncOp` union with new wire kinds instead of
+   requiring changes to `@fieldnotes/sync` for every new domain op.
 
 **Backend (Redis) plugin:**
 
@@ -113,10 +171,16 @@ interface BackendSyncPlugin {
   readonly name: string;
   keyPrefix: string;
   scripts?: Record<string, string>;
-  encode?(data: unknown): string;
-  decode?(raw: string): unknown;
+  // Atomic operations — not just encode/decode
+  snapshot?(room: string): Promise<unknown>;
+  apply?(room: string, op: SyncOp): Promise<ApplyResult>;
 }
 ```
+
+The backend plugin exposes atomic `snapshot` and `apply` operations rather than only raw
+encode/decode codecs. This matches the current Redis backend where `applyFogPatch` runs a Lua
+script that performs validation, LWW resolution, and tile canonicalization atomically — the
+result is an `ApplyResult` with accepted and corrected subsets, not a simple success/failure.
 
 ### Wire format preservation
 
@@ -124,35 +188,58 @@ During the mixed-version window, `fog-meta` and `fog-patch` wire kinds are prese
 
 ### RollKeeper relay migration
 
-RollKeeper's relay wraps fog backend methods. After extraction, it uses the VTT backend plugin plus its own buffering plugin:
+RollKeeper's relay wraps fog backend methods. After extraction, it uses the VTT backend plugin plus its own buffering plugin. The backend plugin's atomic `apply()` returns an `ApplyResult` that the buffering layer can intercept and modify:
 
 ```typescript
 const backend = new RedisHubBackend({
   plugins: [
-    createFogBackendPlugin(), // VTT fog persistence
+    createFogBackendPlugin(), // VTT fog persistence — atomic apply()
     createRollKeeperBufferPlugin(), // RollKeeper-specific buffering
   ],
 });
 ```
 
-DM-only authorization moves from `policies.ts` to the server plugin configuration:
+DM-only authorization moves from `policies.ts` to the server plugin configuration. The `PluginAuthContext` provides full connection context including the current plugin state:
 
 ```typescript
 const server = createSyncServer({
   plugins: [
     createFogServerPlugin({
-      authorizeFog: (ctx) => ctx.role === 'dm',
+      authorizeFog: (ctx: PluginAuthContext, op: SyncOp) => {
+        // ctx.userId, ctx.role, ctx.room, ctx.connectionId available
+        // ctx.currentState contains the current fog snapshot
+        return ctx.role === 'dm';
+      },
     }),
   ],
   backend,
 });
 ```
 
+The server plugin's `apply()` method returns an `ApplyResult` with `accepted`, `corrections`, and optional `broadcast` fields, matching the current fog processing flow where corrections go to the sender only and accepted ops fan out to all other connections.
+
+### VTT subpath exports
+
+A single root `@fieldnotes/vtt` export containing browser, sync-server, and Redis factories would
+couple browser consumers to server-side dependencies (Redis, Lua scripts, Node-only APIs). Instead,
+VTT-owned subpath exports keep each deployment target free of cross-environment dependencies:
+
+```
+@fieldnotes/vtt           — browser-only (elements, rendering, tools)
+@fieldnotes/vtt/sync      — sync client plugin (shared browser/node)
+@fieldnotes/vtt/server    — sync server plugin (node only)
+@fieldnotes/vtt/redis     — Redis backend plugin (node only)
+```
+
+This keeps VTT ownership of all four layers without requiring separate packages or putting VTT
+code inside generic sync packages. Browser bundles import only `@fieldnotes/vtt` and
+`@fieldnotes/vtt/sync`; the server and Redis factories are only pulled in by Node deployments.
+
 ### Deployment order
 
-1. Deploy plugin-capable sync-server + sync-redis (backward compatible — fog methods still work as before)
-2. Deploy RollKeeper relay with plugin registration
-3. Deploy RollKeeper web/client with client-side plugin registration
+1. Deploy plugin-capable sync-server + sync-redis with expanded plugin interfaces (backward compatible — fog methods still work as before)
+2. Deploy RollKeeper relay with plugin registration using `@fieldnotes/vtt/server` and `@fieldnotes/vtt/redis`
+3. Deploy RollKeeper web/client with client-side plugin registration using `@fieldnotes/vtt/sync`
 4. After soak: remove legacy fog methods from sync-server/sync-redis
 
 ## Options Considered
@@ -192,6 +279,9 @@ Generic sync packages gain plugin registration APIs. VTT code moves to `@fieldno
 - **Clean deployment:** Server plugins deploy with the server. Client plugins deploy with the client. Backend plugins deploy with Redis.
 - **RollKeeper compatibility:** Relay can compose VTT backend plugin with its own buffering plugin.
 - **Extensibility:** Other domain packages can register their own sync plugins (e.g., movement paths sync).
+- **Interfaces model real semantics:** The expanded plugin interfaces (`PluginAuthContext`, `ServerOpContext`, `ApplyResult`, `handleOp` meta) directly mirror the existing fog processing flow — authorization with full connection context, partial acceptance with corrections, sender-only correction delivery, and reconnect/snapshot phase distinction. Migration is a structural refactor, not a semantic redesign.
+- **Wire protocol extensibility:** `OpKindRegistry` lets plugins register new op kinds with validators, so VTT (or future domains) can own new wire operations without modifying `@fieldnotes/sync` core.
+- **Subpath exports prevent environment coupling:** `@fieldnotes/vtt/sync`, `@fieldnotes/vtt/server`, and `@fieldnotes/vtt/redis` keep browser bundles free of Node-only dependencies without requiring separate packages.
 
 ### Negative
 
@@ -199,12 +289,21 @@ Generic sync packages gain plugin registration APIs. VTT code moves to `@fieldno
 - **Server refactoring:** sync-server and sync-redis need significant internal refactoring to support plugins. The `processFogOp()` dispatch, `HubBackend` fog methods, and Lua scripts must all become plugin-driven.
 - **Deployment coordination:** Server must deploy before clients. Mixed-version rooms need backward compatibility.
 - **Testing complexity:** Need integration tests that span client → server → Redis with plugins at each layer.
+- **Subpath export maintenance:** Each subpath (`/sync`, `/server`, `/redis`) needs its own entry point, build configuration, and dependency boundary. The package `exports` map must be kept in sync.
 
 ### Risks
 
 - The Lua scripts are complex (~180 lines) and handle optimistic concurrency, LWW conflict resolution, and tile canonicalization. Extracting them into a plugin mechanism without breaking fog sync is high-risk.
 - RollKeeper's relay wraps fog backend methods in a cost-optimized buffered backend. The plugin mechanism must support this kind of composition (multiple backend plugins, ordering matters).
 - The `HubBackend` interface's fog methods are optional. The plugin system must handle the case where no backend plugin is registered (fall back to in-memory `FogLedger`, as today).
+- `OpKindRegistry` introduces dynamic op validation. A misconfigured plugin could register a validator that accepts malformed ops or conflicts with an existing kind.
+
+## Review Response
+
+The following changes address review findings:
+
+- **F6 (Sync plugin interfaces cannot model existing fog semantics):** Expanded all three plugin interfaces to model actual fog processing flow. `ClientSyncPlugin` now carries sender/phase metadata and a correction handler. `ServerSyncPlugin` uses `PluginAuthContext` (with `currentState`), `ServerOpContext` (with room/connection/role), and `ApplyResult` (with accepted/corrections/broadcast). `BackendSyncPlugin` exposes atomic `snapshot()`/`apply()` instead of just encode/decode. Added `OpKindRegistry` so plugins can extend the wire protocol.
+- **F11 (Runtime package boundaries):** Added "VTT subpath exports" section recommending `@fieldnotes/vtt/sync`, `@fieldnotes/vtt/server`, and `@fieldnotes/vtt/redis` subpath exports to keep browser bundles free of Node-only dependencies without requiring separate packages.
 
 ## References
 

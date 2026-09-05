@@ -2,14 +2,14 @@
 
 ADRs for the VTT extraction and extension system design. These decisions gate the migration plan in `MIGRATION_VTT_EXTRACTION.md`.
 
-| ADR                                             | Title                                | Status      | Date       |
-| ----------------------------------------------- | ------------------------------------ | ----------- | ---------- |
-| [ADR-0001](0001-element-extensibility.md)       | Element Extensibility Model          | **Decided** | 2026-09-05 |
-| [ADR-0002](0002-render-surface-model.md)        | Render Surface Model                 | **Decided** | 2026-09-05 |
-| [ADR-0003](0003-sync-plugin-ownership.md)       | Sync/Server Plugin Ownership         | **Decided** | 2026-09-05 |
-| [ADR-0004](0004-serialization-compatibility.md) | Serialization Compatibility Strategy | **Decided** | 2026-09-05 |
-| [ADR-0005](0005-plugin-lifecycle.md)            | Plugin Lifecycle & Installation      | **Decided** | 2026-09-05 |
-| [ADR-0006](0006-snapping-as-service.md)         | Snapping as Opt-In Service           | **Decided** | 2026-09-05 |
+| ADR                                             | Title                                | Status       | Date       |
+| ----------------------------------------------- | ------------------------------------ | ------------ | ---------- |
+| [ADR-0001](0001-element-extensibility.md)       | Element Extensibility Model          | **Proposed** | 2026-09-05 |
+| [ADR-0002](0002-render-surface-model.md)        | Render Surface Model                 | **Proposed** | 2026-09-05 |
+| [ADR-0003](0003-sync-plugin-ownership.md)       | Sync/Server Plugin Ownership         | **Proposed** | 2026-09-05 |
+| [ADR-0004](0004-serialization-compatibility.md) | Serialization Compatibility Strategy | **Proposed** | 2026-09-05 |
+| [ADR-0005](0005-plugin-lifecycle.md)            | Plugin Lifecycle & Installation      | **Proposed** | 2026-09-05 |
+| [ADR-0006](0006-snapping-as-service.md)         | Snapping as Opt-In Service           | **Proposed** | 2026-09-05 |
 
 ## Context
 

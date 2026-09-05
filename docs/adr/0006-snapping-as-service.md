@@ -1,6 +1,6 @@
 # ADR-0006: Snapping as Opt-In Service
 
-- **Status:** Decided
+- **Status:** Proposed
 - **Deciders:** Project maintainer
 - **Date:** 2026-09-05
 - **Supersedes:** —
@@ -117,34 +117,54 @@ This breaks RollKeeper's mixed-snapping tools. If `PointerState` is globally sna
 
 ## Decision
 
-**Explicit snap service on ToolContext** (Option B).
+**Domain-neutral point-constraint service on ToolContext** (Option B, revised).
 
-Core exposes snapping as an opt-in service. Tools call it when they want snapping. Different tools can use different snap strategies in the same gesture.
+Core exposes a generic point-constraint service slot. Tools call it when they want coordinate constraining. Different tools can use different constraint strategies in the same gesture. The core interface carries zero VTT concepts — grid, hex, cell-center, and footprint types live in `@fieldnotes/vtt`.
 
 ```typescript
-// SnapService is provided by the VTT package, registered on ToolContext:
+// Core provides a generic service slot — no VTT concepts
 interface ToolContext {
   // ... existing fields ...
-  snapService?: SnapService; // Provided by @fieldnotes/vtt when grid is active
+  constraintService?: PointConstraintService; // Domain-neutral
 }
 
-interface SnapService {
-  // Snap a world-space point to the nearest grid intersection
-  snapWorld(point: Point, options?: SnapOptions): Point;
-  // Snap to cell center (accounting for footprint)
+interface PointConstraintService {
+  // Generic point constraint — no grid/hex/cell concepts
+  constrainPoint(point: Point, options?: ConstraintOptions): Point;
+  // Get info about the current constraint (opaque to core)
+  getConstraintInfo(): ConstraintInfo | null;
+  // Check if constraining is currently active
+  get isActive(): boolean;
+}
+
+interface ConstraintOptions {
+  mode?: string; // Domain-specific constraint mode
+  overrides?: Record<string, unknown>; // Domain-specific overrides
+}
+
+interface ConstraintInfo {
+  type: string; // Domain-specific type identifier (e.g., 'grid', 'hex')
+  // Domain-specific fields as opaque data
+  [key: string]: unknown;
+}
+```
+
+`@fieldnotes/vtt` provides the typed grid implementation:
+
+```typescript
+// @fieldnotes/vtt provides the typed grid service
+class GridConstraintService implements PointConstraintService {
+  constrainPoint(point: Point, options?: GridConstraintOptions): Point {
+    // Uses grid-specific logic (smartSnap, snapToCellCenter, etc.)
+  }
+  getConstraintInfo(): GridConstraintInfo {
+    return { type: 'grid', gridType: this.gridType, cellSize: this.cellSize, ... };
+  }
+  get isActive(): boolean { return this._active; }
+
+  // VTT-specific typed methods (not on the core interface)
   snapToCellCenter(point: Point, footprint?: Footprint): Point;
-  // Smart snap — uses current grid type (square/hex) automatically
   smartSnap(point: Point): Point;
-  // Get current grid info
-  getGridInfo(): GridInfo | null;
-  // Check if snapping is currently active
-  get isSnappingEnabled(): boolean;
-}
-
-interface SnapOptions {
-  mode?: 'center' | 'edge' | 'corner' | 'nearest';
-  gridSize?: number; // Override current grid size
-  gridType?: 'square' | 'hex'; // Override current grid type
 }
 ```
 
@@ -153,12 +173,16 @@ interface SnapOptions {
 Each tool migrates from scattered snap calls to explicit service calls:
 
 ```typescript
-// Before (scattered):
+// Before (VTT-specific import from core):
 import { smartSnap } from '@fieldnotes/core';
 const snapped = smartSnap(world, ctx);
 
-// After (explicit service):
-const snapped = ctx.snapService?.smartSnap(world) ?? world;
+// After (domain-neutral via constraint service):
+const snapped = ctx.constraintService?.constrainPoint(world) ?? world;
+
+// VTT tools that need grid-specific behavior can cast:
+const gridService = ctx.constraintService as GridConstraintService | undefined;
+const snapped = gridService?.snapToCellCenter(world, footprint) ?? world;
 ```
 
 ```typescript
@@ -169,34 +193,74 @@ private snapToGrid(point: Point, ctx: ToolContext): Point {
 }
 
 // After (explicit service):
-const snapped = ctx.snapService?.snapWorld(point) ?? point;
+const snapped = ctx.constraintService?.constrainPoint(point) ?? point;
 ```
 
 Tools that don't snap (DmMarkerTool, MovementPathTool) simply don't call the service. No change needed.
 
+### Explicit opt-out for missing service
+
+Silent fallback to raw coordinates (`?? world`) risks unnoticed behavior changes when no constraint service is registered. Tools that **require** constraining must declare it and handle the missing-service case explicitly:
+
+```typescript
+// Instead of silent fallback:
+const snapped = ctx.constraintService?.constrainPoint(world) ?? world;
+
+// Require explicit handling:
+if (!ctx.constraintService) {
+  // Tool knows it needs constraining but no service available
+  // Log warning in development, throw in tests
+  if (process.env.NODE_ENV === 'development') {
+    console.warn(`Tool ${toolName} requires constraintService but none is registered`);
+  }
+}
+const snapped = ctx.constraintService?.constrainPoint(world) ?? world;
+```
+
+Better: tools that require constraining declare it in their registration, and the tool manager warns if no service is available when the tool is active.
+
 ### RollKeeper tool compatibility
 
-| Tool                | Current behavior                     | After migration                                       |
-| ------------------- | ------------------------------------ | ----------------------------------------------------- |
-| DmMarkerTool        | No snap (explicit comment)           | No snap — doesn't call snapService                    |
-| SpellTemplateTool   | `smartSnap(world, ctx)`              | `ctx.snapService?.smartSnap(world)`                   |
-| DmTokenTool         | `snapToCellCenter(world, footprint)` | `ctx.snapService?.snapToCellCenter(world, footprint)` |
-| MovementPathTool    | No snap                              | No snap — doesn't call snapService                    |
-| SelectTool (resize) | `snapFootprintCenter(...)`           | `ctx.snapService?.snapToCellCenter(point, footprint)` |
+| Tool                | Current behavior                     | After migration                                                                 |
+| ------------------- | ------------------------------------ | ------------------------------------------------------------------------------- |
+| DmMarkerTool        | No snap (explicit comment)           | No snap — doesn't call constraintService                                        |
+| SpellTemplateTool   | `smartSnap(world, ctx)`              | `ctx.constraintService?.constrainPoint(world)`                                  |
+| DmTokenTool         | `snapToCellCenter(world, footprint)` | `(ctx.constraintService as GridConstraintService)?.snapToCellCenter(world, fp)` |
+| MovementPathTool    | No snap                              | No snap — doesn't call constraintService                                        |
+| SelectTool (resize) | `snapFootprintCenter(...)`           | `(ctx.constraintService as GridConstraintService)?.snapToCellCenter(point, fp)` |
 
-### SnapService ownership
+### ConstraintService ownership
 
-The `SnapService` is created and owned by the VTT package's grid plugin. It reads grid state from the `ElementStore` (via `store.getElementsByType('grid')`) and provides snap functions.
+The `PointConstraintService` slot lives on `ToolContext` in `@fieldnotes/core`. The concrete implementation (`GridConstraintService`) is created and owned by the VTT package's grid plugin. It reads grid state from the `ElementStore` (via `store.getElementsByType('grid')`) and provides constraint functions.
 
-When no grid is active, `snapService` is `undefined` on `ToolContext`. Tools that call it must handle the `undefined` case (fall back to unsnapped coordinates).
+When no grid is active, `constraintService` is `undefined` on `ToolContext`. Tools that call it must handle the `undefined` case (fall back to unconstrained coordinates, with explicit warnings as described above).
 
-When a grid is added/removed/changed, the grid plugin updates the `SnapService` instance (or replaces it). `GridController.syncContext()` becomes the grid plugin's responsibility.
+When a grid is added/removed/changed, the grid plugin updates the `PointConstraintService` instance (or replaces it). `GridController.syncContext()` becomes the grid plugin's responsibility.
+
+### Preserving existing APIs
+
+#### `Viewport.setSnapToGrid(enabled: boolean)`
+
+This public API toggles snapping on/off. It remains in core as a simple boolean toggle. When enabled, core activates the constraint service (if one is registered). When disabled, core deactivates it. The method does **not** take grid parameters — those come from the constraint service itself.
+
+#### React `snapToGrid` prop
+
+The reactive prop at `packages/react/src/field-notes-canvas.tsx:104` continues to call `viewport.setSnapToGrid(snapToGrid)`. No change needed for this prop.
 
 ### Backward compatibility
 
-The existing snap functions (`smartSnap`, `snapPoint`, etc.) remain exported from `@fieldnotes/core` during the transition. Tools that import them directly continue to work. The `SnapService` is a new, preferred API that wraps these functions with grid-aware state.
+During the transition:
 
-After the VTT extraction, the snap functions move to `@fieldnotes/vtt`. Core no longer exports them. Tools must use `ctx.snapService` (provided by the VTT plugin) or import from `@fieldnotes/vtt` directly.
+- `smartSnap`, `snapPoint`, etc. remain exported from `@fieldnotes/core`
+- `GridController.syncContext()` continues to work as before
+- The `constraintService` slot is added to ToolContext as optional
+- VTT plugin installs the `GridConstraintService` into the slot
+
+After extraction:
+
+- Snap functions move to `@fieldnotes/vtt`
+- Core only has the `constraintService` slot
+- Tools use `ctx.constraintService?.constrainPoint()` or import from `@fieldnotes/vtt`
 
 ## Options Considered
 
@@ -228,28 +292,59 @@ The tool system applies snapping based on the declaration.
 
 **Why rejected:** Too rigid. Tools need runtime control over snapping (e.g., snap only when shift is held, or snap to different targets based on the current operation). An explicit service call gives tools full control.
 
+### Option B (original): VTT-specific SnapService (superseded)
+
+The original Option B proposed a `SnapService` with VTT-specific methods like `snapToCellCenter`, `getGridInfo`, and types like `'square' | 'hex'` directly on `ToolContext` in `@fieldnotes/core`.
+
+**Why superseded:** This embedded VTT concepts (grid, hex, cell-center, footprint) into core's `ToolContext`, contradicting the zero-VTT-core objective. The revised Option B replaces it with a domain-neutral `PointConstraintService` that carries no VTT concepts. VTT-specific behavior lives in `@fieldnotes/vtt`'s `GridConstraintService` implementation.
+
 ## Consequences
 
 ### Positive
 
-- **Tool autonomy:** Each tool decides independently whether and how to snap.
-- **Mixed strategies:** Different tools can use different snap modes in the same gesture.
+- **Tool autonomy:** Each tool decides independently whether and how to constrain coordinates.
+- **Mixed strategies:** Different tools can use different constraint modes in the same gesture.
 - **RollKeeper compatible:** DmMarkerTool stays unsnapped. SpellTemplateTool snaps. No conflicts.
-- **Testable:** SnapService is a pure service that can be tested independently of tools.
-- **Clean ownership:** SnapService is owned by the VTT grid plugin. Core doesn't know about grid snapping.
+- **Testable:** `PointConstraintService` is a pure service that can be tested independently of tools.
+- **Zero VTT in core:** Core's `constraintService` slot is domain-neutral. Grid, hex, cell-center, and footprint concepts live entirely in `@fieldnotes/vtt`.
+- **Existing APIs preserved:** `Viewport.setSnapToGrid()` and the React `snapToGrid` prop continue to work unchanged.
 
 ### Negative
 
-- **Tool migration:** Every tool that currently calls `smartSnap` must be updated to use `ctx.snapService`. ~8 core tools + RollKeeper tools.
-- **Undefined handling:** Tools must handle `snapService` being `undefined` (no grid active). Adds a null check at every call site.
-- **API change:** `smartSnap(point, ctx)` becomes `ctx.snapService?.smartSnap(point)`. Different signature. RollKeeper's `import { smartSnap } from '@fieldnotes/core'` breaks after extraction.
-- **Grid state access:** SnapService needs access to grid state (grid size, type, orientation). It reads from the store, which adds a dependency.
+- **Tool migration:** Every tool that currently calls `smartSnap` must be updated to use `ctx.constraintService`. ~8 core tools + RollKeeper tools.
+- **Undefined handling:** Tools must handle `constraintService` being `undefined` (no constraint service active). Adds a null check at every call site, with explicit warnings for tools that require constraining.
+- **API change:** `smartSnap(point, ctx)` becomes `ctx.constraintService?.constrainPoint(point)`. Different signature. RollKeeper's `import { smartSnap } from '@fieldnotes/core'` breaks after extraction.
+- **Casting for VTT-specific behavior:** Tools that need grid-specific methods (e.g., `snapToCellCenter`) must cast `constraintService` to `GridConstraintService`, introducing a VTT import.
+- **Grid state access:** `GridConstraintService` needs access to grid state (grid size, type, orientation). It reads from the store, which adds a dependency.
 
 ### Risks
 
-- Tools that currently use `smartSnap` may silently stop snapping if `snapService` is `undefined` and the fallback is `?? world` (raw coordinates). Must ensure the VTT plugin installs the snap service before tools need it.
-- RollKeeper imports `smartSnap` directly from `@fieldnotes/core`. After extraction, this import breaks. RollKeeper must either use `ctx.snapService` or import from `@fieldnotes/vtt`.
+- Tools that currently use `smartSnap` may silently stop snapping if `constraintService` is `undefined` and the fallback is `?? world` (raw coordinates). Must ensure the VTT plugin installs the constraint service before tools need it. The explicit opt-out pattern (development warnings, tool registration declarations) mitigates this.
+- RollKeeper imports `smartSnap` directly from `@fieldnotes/core`. After extraction, this import breaks. RollKeeper must either use `ctx.constraintService` or import from `@fieldnotes/vtt`.
 - The `GridController.syncContext()` logic (syncing grid type/orientation into ToolContext) must move to the grid plugin. If the plugin doesn't sync correctly, snap behavior changes unexpectedly.
+- Casting `constraintService as GridConstraintService` introduces a VTT dependency in core tools. Tools that need grid-specific behavior should ideally be in `@fieldnotes/vtt`, not `@fieldnotes/core`.
+
+## Review Response
+
+This ADR was revised to address **Finding 10 (F10): SnapService still embeds VTT concepts in core**.
+
+The original proposal placed a VTT-specific `SnapService` (with methods like `snapToCellCenter`, `getGridInfo`, and types like `'square' | 'hex'`) directly on `ToolContext` in `@fieldnotes/core`. This contradicted the zero-VTT-core objective.
+
+**Changes made:**
+
+1. **Replaced `SnapService` with domain-neutral `PointConstraintService`.** Core's `constraintService` slot carries no grid/hex/cell concepts. The generic interface (`constrainPoint`, `getConstraintInfo`, `isActive`) is domain-agnostic.
+
+2. **Moved VTT-specific behavior to `@fieldnotes/vtt`.** The `GridConstraintService` class implements `PointConstraintService` and adds VTT-specific typed methods (`snapToCellCenter`, `smartSnap`). Core tools that need grid-specific behavior cast to `GridConstraintService`.
+
+3. **Added explicit opt-out pattern for missing service.** Instead of silent fallback (`?? world`), tools that require constraining must handle the missing-service case with development warnings or tool registration declarations.
+
+4. **Documented preservation of existing APIs.** `Viewport.setSnapToGrid(enabled: boolean)` remains in core as a boolean toggle. The React `snapToGrid` prop at `field-notes-canvas.tsx:104` continues to work unchanged.
+
+5. **Updated backward compatibility section.** Clarified the transition path: snap functions remain in core during transition, move to `@fieldnotes/vtt` after extraction.
+
+6. **Added Option B (original) to Options Considered.** Documented why the original VTT-specific `SnapService` was superseded by the domain-neutral approach.
+
+7. **Updated Consequences and Risks.** Added "Zero VTT in core" and "Existing APIs preserved" as positive consequences. Added "Casting for VTT-specific behavior" as a negative consequence. Updated risks to reflect the explicit opt-out pattern and casting concerns.
 
 ## References
 

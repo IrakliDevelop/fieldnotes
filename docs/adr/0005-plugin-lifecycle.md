@@ -1,6 +1,6 @@
 # ADR-0005: Plugin Lifecycle & Installation
 
-- **Status:** Decided
+- **Status:** Proposed
 - **Deciders:** Project maintainer
 - **Date:** 2026-09-05
 - **Supersedes:** —
@@ -60,13 +60,13 @@ The original migration plan proposed `viewport.renderHooks.register()` as a post
 
 ## Decision
 
-**Constructor-time plugin installation** with deterministic ordering and idempotent disposal.
+**Four-phase constructor-time plugin installation** with synchronous internal phases, per-instance handles, and deterministic ordering.
 
 ```typescript
 const viewport = new Viewport({
   container: element,
   plugins: [
-    fogPlugin, // Installed first — privacy-critical
+    fogPlugin, // Installed first — privacy-critical (required: true)
     gridPlugin, // Installed second
     measurePlugin, // Installed third
   ],
@@ -80,55 +80,109 @@ const viewport = new Viewport({
 interface ViewportPlugin {
   readonly name: string;
   readonly priority?: number; // Lower = installed first. Default: 0.
+  readonly required?: boolean; // If true, viewport refuses to render without this plugin.
 
-  // Called during Viewport construction, before first render.
-  // Plugins receive the viewport's internal services and can register
-  // hooks, tools, serialization handlers, etc.
-  install(ctx: PluginInstallContext): void;
+  // Phase 1: Configure — restricted context, before subsystems exist.
+  // Plugins can register hooks, tools, serialization handlers.
+  // Plugins CANNOT access viewport, renderLoop, minimap, fog (not yet created).
+  configure?(ctx: PluginConfigureContext): void;
 
-  // Called during Viewport disposal. Must clean up all registrations.
-  dispose?(): void;
+  // Phase 3: Start — full runtime, after all subsystems exist.
+  // Returns a PluginHandle for per-instance cleanup.
+  start?(ctx: PluginStartContext): PluginHandle;
+
+  // State management (see loadState ordering below)
+  validateState?(state: CanvasState): void;
+  loadState?(state: CanvasState): void;
+  exportState?(): Record<string, unknown>;
 }
 
-interface PluginInstallContext {
-  viewport: Viewport; // Public API
-  store: ElementStore;
+interface PluginHandle {
+  dispose(): void; // Per-instance cleanup
+}
+
+interface PluginConfigureContext {
+  elementRegistry: ElementRegistry;
   toolManager: ToolManager;
   renderHooks: RenderHooks;
-  serialization: SerializationRegistry;
-  // ... other internal services
+  serializationRegistry: SerializationRegistry;
+  snapServiceFactory?: SnapServiceFactory; // Domain-neutral slot
+}
+
+interface PluginStartContext {
+  viewport: Viewport; // Fully constructed
+  store: ElementStore;
+  renderLoop: RenderLoop;
+  // ... all services available
 }
 ```
 
-### Installation order
+Key design points:
 
-1. Plugins are sorted by `priority` (ascending). Equal priority preserves array order.
-2. Each plugin's `install()` is called synchronously, in order, during the Viewport constructor.
-3. All plugins install **before** `renderLoop.start()` (before step 26 in the current constructor).
-4. Fog plugin installs first (priority: -100 or similar) to ensure it's active before any render.
+- **`configure()` and `start()` are separate.** A plugin definition can be safely reused across viewports because `start()` returns a per-instance `PluginHandle` — `dispose()` lives on the handle, not on the shared plugin definition.
+- **`configure()` receives a restricted context.** The viewport, renderLoop, minimap, and fog do not exist yet. Plugins can only register hooks, tools, and serialization handlers.
+- **`start()` receives the full runtime.** All subsystems are fully constructed. Plugins that need viewport access do their setup here.
+- **Failed installation rolls back.** If `start()` throws, all registrations made by that plugin's `configure()` phase are rolled back.
 
-### Where plugins install in the constructor
+### Required plugin enforcement
+
+Plugins can be marked `required: true`. If a required plugin's `configure()` or `start()` fails, the Viewport constructor throws — the viewport cannot be created without its required plugins. This enforces privacy at construction time.
+
+```typescript
+const fogPlugin: ViewportPlugin = {
+  name: 'fog',
+  required: true, // Viewport refuses to render without this plugin
+  priority: -100, // Installed first
+  configure(ctx) {
+    /* register fog hooks */
+  },
+  start(ctx) {
+    /* initialize fog rendering */
+  },
+};
+```
+
+### Four-phase constructor order
 
 ```
 Viewport constructor (revised):
- 1-10. Core services (Camera, Store, ToolManager, etc.)
- 11. **Plugin installation** ← NEW — sorted by priority, before any VTT services
- 12-15. FogManager, Minimap, RenderLoop (now configured by plugins)
- 16-25. Event wiring, store listeners, etc.
- 26. renderLoop.start()
- 27. gridController.syncContext()
-```
 
-Plugins can register fog-related hooks, tools, and serialization handlers. The core services that plugins depend on (store, toolManager, renderHooks) are already initialized (steps 1-10). The VTT-specific services (FogManager, GridController) are created _by_ the plugins during installation.
+Phase 1: Configure — plugins receive a restricted registry/service context
+  1-10. Core services (Camera, Store, ToolManager, ElementRegistry, etc.)
+  11. Sort plugins by priority (ascending). Equal priority preserves array order.
+  12. For each plugin: plugin.configure(ctx) ← restricted context
+      - Plugins register hooks, tools, serialization handlers
+      - Plugins CANNOT access viewport, renderLoop, minimap, fog
+      - If required plugin throws → constructor throws, no viewport created
+      - If optional plugin throws → skip plugin, continue
+
+Phase 2: Construct — core creates all subsystems using plugin registrations
+  13. FogManager, FogRenderer (configured by plugin-registered hooks)
+  14. Minimap (optional) + setFogRenderer
+  15. DomNodeManager, InteractMode, MarginViewport, LayerCache
+  16. RenderLoop (assembled with all deps including HybridRenderSurface)
+  17. Event wiring, store listeners, ResizeObserver, syncCanvasSize()
+
+Phase 3: Start — plugins receive the complete runtime
+  18. For each plugin: plugin.start(ctx) ← full runtime context
+      - Viewport is fully constructed, all services available
+      - Returns PluginHandle with per-instance dispose()
+      - If start() throws → roll back configure() registrations for this plugin
+      - If required plugin throws → dispose all prior handles, constructor throws
+
+Phase 4: Render — first frame
+  19. renderLoop.start() ← first requestAnimationFrame scheduled
+  20. gridController.syncContext()
+```
 
 ### Idempotent disposal
 
 ```typescript
-// Disposing the viewport calls each plugin's dispose() in reverse order:
+// Disposing the viewport calls each plugin handle's dispose() in reverse order:
 viewport.destroy();
-// → measurePlugin.dispose()
-// → gridPlugin.dispose()
-// → fogPlugin.dispose()
+// → measureHandle.dispose()
+// → gridHandle.dispose()
+// → fogHandle.dispose()
 ```
 
 Re-registering the same plugin (by name) is a no-op:
@@ -138,36 +192,51 @@ Re-registering the same plugin (by name) is a no-op:
 if (installedPlugins.has(plugin.name)) return;
 ```
 
-### loadState ordering
+### State export with namespaced keys
 
-Plugins can hook into `loadState()` to control their data loading order:
+Plugin state is exported under namespaced keys to prevent collisions:
 
 ```typescript
 interface ViewportPlugin {
-  // ... install, dispose ...
-
-  // Called during loadState(), after elements and layers are loaded.
-  // Plugins load their own state (e.g., fog state from extensions field).
-  loadState?(state: CanvasState): void;
-
-  // Called during exportState(), to add plugin state to the export.
+  // Keys auto-namespaced by plugin name.
+  // e.g., fog plugin exports { fog: {...} } → stored as extensions.fog
   exportState?(): Record<string, unknown>;
 }
 ```
 
-The `loadState()` order:
+Collision handling: if two plugins export the same top-level key, throw at registration time (not at export time). This catches naming conflicts early.
 
-1. Elements loaded
-2. Layers loaded
-3. Active layer set
-4. HTML content reattached
-5. **Plugin `loadState()` called** ← plugins load their data
-6. History cleared
-7. Camera restored
+### Two-phase loadState ordering
 
-This ensures fog state is loaded at the right point in the lifecycle — after elements (which fog may reference) but before the next render.
+State loading uses a validate-then-apply pattern to ensure atomicity:
+
+```
+loadState() order:
+
+Phase 1: Validate — all plugins validate their state before any mutations
+  1. For each plugin: plugin.validateState?(state)
+     - Plugins inspect their portion of CanvasState (e.g., extensions.fog)
+     - If validation throws → entire load is aborted, no partial mutations
+
+Phase 2: Apply — only after all validations pass
+  2. Elements loaded
+  3. Layers loaded
+  4. Active layer set
+  5. HTML content reattached
+  6. Plugin loadState() called ← plugins load their data
+  7. History cleared
+  8. Camera restored
+```
+
+If any plugin's `validateState()` throws, the entire load is aborted — no partial mutations. This prevents the previous issue where elements and layers were already committed when a plugin's `loadState()` failed.
 
 ## Options Considered
+
+### Option A (original): Single-phase install() with full context
+
+The original proposal had a single `install(ctx: PluginInstallContext)` method called during construction, where `PluginInstallContext` included `viewport: Viewport`. This exposed a partially constructed Viewport — fog, render loop, and minimap did not exist yet at the point `install()` was called. The `dispose()` method lived on the plugin definition itself, making it unsafe for reuse across viewports.
+
+**Why superseded:** Splitting into `configure()` (restricted) + `start()` (full runtime) with per-instance `PluginHandle` solves both problems: plugins never see partially constructed subsystems, and plugin definitions can be safely reused.
 
 ### Option B: Lazy registration with readiness gate
 
@@ -204,23 +273,38 @@ await viewport.initialize({ plugins: [fogPlugin, gridPlugin] });
 ### Positive
 
 - **No unmasked frames:** Fog plugin is active before the first render. Privacy is preserved from frame zero.
+- **No partial Viewport exposure:** `configure()` receives only registries and managers — never the incomplete Viewport. Plugins cannot accidentally interact with subsystems that don't exist yet.
+- **Safe plugin reuse:** Plugin definitions are stateless; per-instance state lives in `PluginHandle`. The same plugin definition can be installed across multiple viewports.
 - **Deterministic ordering:** Plugin installation order is explicit (priority + array order). No race conditions.
-- **Clean disposal:** Reverse-order disposal ensures plugins clean up in the right sequence.
+- **Clean disposal:** Reverse-order handle disposal ensures plugins clean up in the right sequence. Per-instance handles prevent cross-viewport cleanup bugs.
+- **Required plugin enforcement:** Privacy-critical plugins can be marked `required`, preventing viewport creation without them.
+- **Atomic state loading:** Two-phase validate-then-apply prevents partial mutations when plugin state is invalid.
 - **Idempotent:** Re-registering the same plugin is safe.
-- **Familiar pattern:** Constructor-time configuration is the standard pattern for complex objects.
+- **Rollback on failure:** If `start()` throws, `configure()` registrations are rolled back — no orphaned hooks or tools.
 
 ### Negative
 
-- **Constructor complexity:** The Viewport constructor grows to accommodate plugin installation. More code in a single function.
-- **Plugin API surface:** The `PluginInstallContext` exposes internal services. This is a large API surface that must be stable.
-- **Testing:** Plugin installation order must be tested. Priority ordering, idempotency, and disposal all need test coverage.
+- **Two-phase plugin API:** Plugins must implement `configure()` and `start()` separately instead of a single `install()`. Slightly more ceremony for plugin authors.
+- **Constructor complexity:** The Viewport constructor grows to accommodate four phases. More code in a single function.
+- **Plugin API surface:** The `PluginConfigureContext` and `PluginStartContext` expose internal services. This is a large API surface that must be stable.
+- **Testing:** Plugin installation phases, ordering, rollback, required enforcement, and disposal all need test coverage.
 - **Migration:** Existing consumers that create Viewport without plugins must continue to work. The `plugins` option is optional.
 
 ### Risks
 
-- If a plugin's `install()` throws, the Viewport is in a partially-initialized state. Must handle this gracefully (dispose already-installed plugins, throw with clear error).
-- Plugins that depend on each other (e.g., grid plugin depends on snap service from core) must have their dependencies available at install time. The install context must provide all necessary services.
-- RollKeeper's existing bootstrap ordering (snapshot → fog → render) must be preserved through the plugin lifecycle. The `loadState()` hook gives plugins control, but the ordering must be correct.
+- Plugins that depend on each other (e.g., grid plugin depends on snap service from core) must have their dependencies available at configure time. The `PluginConfigureContext` must provide all necessary services.
+- RollKeeper's existing bootstrap ordering (snapshot → fog → render) must be preserved through the plugin lifecycle. The two-phase `validateState()` / `loadState()` pattern gives plugins control, but the ordering must be correct.
+- Plugin name collisions in `exportState()` keys are caught at registration time, but this means plugin naming becomes part of the public contract — renaming a plugin is a breaking change for persisted state.
+
+## Review Response
+
+This revision addresses three review findings:
+
+- **F8 (Plugin installation exposes partially constructed Viewport):** Resolved by splitting `install()` into `configure()` (restricted context, before subsystems) and `start()` (full runtime, after all subsystems). `start()` returns a per-instance `PluginHandle` so plugin definitions can be safely reused across viewports. Failed `start()` triggers rollback of `configure()` registrations.
+
+- **F9 (Plugin state loading is not atomic):** Resolved by introducing two-phase state loading: `validateState()` runs first across all plugins before any mutations, then `loadState()` applies only after all validations pass. State export uses namespaced keys with collision detection at registration time.
+
+- **F1 cross-cut (Plugin installation must enforce privacy):** Resolved by adding a `required` flag to `ViewportPlugin`. If a required plugin's `configure()` or `start()` fails, the Viewport constructor throws — the viewport cannot be created without its required plugins.
 
 ## References
 

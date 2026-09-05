@@ -1,6 +1,6 @@
 # ADR-0002: Render Surface Model
 
-- **Status:** Decided
+- **Status:** Proposed
 - **Deciders:** Project maintainer
 - **Date:** 2026-09-05
 - **Supersedes:** —
@@ -54,47 +54,97 @@ The original migration plan proposed a single `afterElements(ctx)` callback. Thi
 
 ## Decision
 
-**Per-surface hook registration** (Option A).
+**Per-surface hook registration with typed interfaces** (Option A, revised).
 
-Each render surface has its own independent hook registry. Extensions register separately for each surface they participate in.
+Each render surface has its own independent, **typed** hook registry. Extensions register separately for each surface they participate in, and each surface's hooks receive the correct context type for that surface.
+
+### Typed per-surface hook interfaces
+
+Rather than a single generic `SurfaceRenderHooks` interface (which cannot express the different context types each surface provides), each surface defines its own hook shape:
 
 ```typescript
-interface SurfaceRenderHooks {
-  beforeElements?(ctx: RenderContext, camera: Camera): void;
-  afterElements?(ctx: RenderContext, camera: Camera): void;
-  afterAll?(ctx: RenderContext, camera: Camera): void;
+// Viewport: canvas 2D context with camera
+interface ViewportRenderHooks {
+  beforeElements?(ctx: CanvasRenderingContext2D, camera: Camera, dpr: number): void;
+  afterElements?(ctx: CanvasRenderingContext2D, camera: Camera, dpr: number): void;
+  afterAll?(ctx: CanvasRenderingContext2D, camera: Camera, dpr: number): void;
 }
 
-interface SurfaceHookRegistry {
-  register(hooks: SurfaceRenderHooks, options?: { zOrder?: number }): () => void;
+// Minimap: canvas 2D context with minimap-specific mapping
+interface MinimapRenderHooks {
+  afterElements?(ctx: CanvasRenderingContext2D, mapping: MinimapMapping): void;
 }
 
-// Each surface is independently extensible:
+// Image export: OffscreenCanvas context with export options
+interface ImageExportHooks {
+  afterElements?(ctx: CanvasRenderingContext2D, options: ImageExportOptions): void;
+}
+
+// SVG export: string builder (matching actual implementation)
+interface SvgExportHooks {
+  afterElements?(svg: SvgStringBuilder, options: SvgExportOptions): void;
+}
+
 interface RenderHooks {
-  viewport: SurfaceHookRegistry;
-  minimap: SurfaceHookRegistry;
-  imageExport: SurfaceHookRegistry;
-  svgExport: SurfaceHookRegistry;
+  viewport: TypedHookRegistry<ViewportRenderHooks>;
+  minimap: TypedHookRegistry<MinimapRenderHooks>;
+  imageExport: TypedHookRegistry<ImageExportHooks>;
+  svgExport: TypedHookRegistry<SvgExportHooks>;
 }
 ```
 
+### Semantic slot ordering (viewport)
+
+Rather than arbitrary numeric `zOrder`, viewport hooks are placed into **typed semantic slots** that correspond to the hybrid surface strata. Priority is scoped within a slot, not global:
+
+```typescript
+type ViewportSlot =
+  | 'afterSceneBeforeOverlay' // fog goes here
+  | 'afterOverlay'
+  | 'afterToolOverlay';
+
+// Priority only within a slot, not global z-order
+interface ViewportHookOptions {
+  slot: ViewportSlot;
+  priority?: number; // Default 0. Higher = later within slot.
+  required?: boolean; // Privacy-critical hooks
+}
+```
+
+The render loop translates slots into hybrid surface stratum positions, preserving the current paint stack ordering.
+
+### Required hooks and fail-closed behavior
+
+Hooks marked `required: true` are **privacy-critical**. If a required hook is not registered, the surface refuses to render unmasked content:
+
+| Surface      | Behavior when required hook is absent                               |
+| ------------ | ------------------------------------------------------------------- |
+| Viewport     | Renders an opaque mask over the content area (fog-colored or solid) |
+| Minimap      | Renders blank (no map content visible)                              |
+| Image export | Throws or returns a masked image                                    |
+| SVG export   | Emits an opaque `<rect>` covering the content                       |
+
+Hook exceptions follow the same policy — if a required hook's render function throws, the surface falls back to the masked state, not to unmasked rendering.
+
+This is enforced by the plugin lifecycle (see [ADR-0005](0005-plugin-lifecycle.md)): fog plugins install at construction time with `required: true`, before `renderLoop.start()`.
+
 ### Viewport surface
 
-Fog registers on the viewport surface with a specific z-order that maps to its hybrid surface stratum position:
+Fog registers on the viewport surface in the correct semantic slot:
 
 ```typescript
 viewport.renderHooks.viewport.register(
   {
-    afterElements: (ctx, camera) => {
+    afterElements: (ctx, camera, dpr) => {
       // Fog rendering — receives screen-space context (no world transform)
       fogRenderer.render(ctx, camera, width, height, dpr);
     },
   },
-  { zOrder: FOG_Z_ORDER },
-); // Maps to fogOrder in hybrid surface
+  { slot: 'afterSceneBeforeOverlay', required: true },
+);
 ```
 
-The render loop translates `zOrder` into hybrid surface stratum positions, preserving the current paint stack ordering.
+If the fog plugin is not installed, the viewport renders an opaque mask instead of unmasked content.
 
 ### Minimap surface
 
@@ -103,46 +153,57 @@ Fog registers on the minimap surface with privacy awareness:
 ```typescript
 viewport.renderHooks.minimap.register(
   {
-    afterElements: (ctx, camera) => {
+    afterElements: (ctx, mapping) => {
       // Minimap fog — respects view mode (DM sees all, player sees revealed only)
       if (fogRenderer.shouldRenderOnMinimap()) {
         fogRenderer.renderForExport(ctx, fogState, fogMode);
       }
     },
   },
-  { zOrder: 100 },
+  { required: true },
 );
 ```
 
-The `shouldRenderOnMinimap()` check allows the VTT package to implement privacy logic (e.g., player view hides fog on minimap).
+If the fog plugin is not installed, the minimap renders blank — no map content is visible.
 
 ### Export surfaces
 
-Image and SVG export hooks receive the appropriate context type:
+Image and SVG export hooks receive the correct context type for each surface:
 
 ```typescript
-// Image export — receives OffscreenCanvas context
-viewport.renderHooks.imageExport.register({
-  afterElements: (ctx, options) => {
-    fogRenderer.renderForExport(ctx, fogState, fogMode);
+// Image export — receives OffscreenCanvas 2D context + export options
+viewport.renderHooks.imageExport.register(
+  {
+    afterElements: (ctx, options) => {
+      fogRenderer.renderForExport(ctx, fogState, fogMode);
+    },
   },
-});
+  { required: true },
+);
 
-// SVG export — receives SVG document
-viewport.renderHooks.svgExport.register({
-  afterElements: (svgDoc, options) => {
-    fogRenderer.renderAsSvg(svgDoc, fogState, fogMode);
+// SVG export — receives string builder + export options
+viewport.renderHooks.svgExport.register(
+  {
+    afterElements: (svg, options) => {
+      fogRenderer.renderAsSvg(svg, fogState, fogMode);
+    },
   },
-});
+  { required: true },
+);
 ```
 
-### Fail-closed behavior
+If a required export hook is not registered, image export throws (or returns a masked image) and SVG export emits an opaque `<rect>` covering the content area.
 
-Extensions that are privacy-critical (fog masking) default to **fail-closed**: if the extension is not registered, the surface renders without fog (which may reveal hidden information). The extension must be installed before the first render to prevent unmasked frames.
-
-This is enforced by the plugin lifecycle (see [ADR-0005](0005-plugin-lifecycle.md)): fog plugins install at construction time, before `renderLoop.start()`.
+Standalone export functions (`exportImage()`, `exportSvg()`) accept the same `RenderHooks` registry — not viewport-only hooks.
 
 ## Options Considered
+
+### Option A: Per-surface hook registration with typed interfaces (chosen)
+
+Each render surface has its own typed hook registry. Hooks receive the correct context type for their surface (canvas 2D for viewport/minimap, OffscreenCanvas for image export, string builder for SVG export). Privacy-critical hooks can be marked `required`, causing the surface to render an opaque mask if the hook is absent.
+
+**Pros:** Type-safe context parameters prevent runtime errors. Fail-closed behavior protects privacy by default. Semantic slots replace fragile numeric z-ordering.
+**Cons:** More registration boilerplate (4 typed registries). Extensions must understand each surface's hook shape.
 
 ### Option B: Unified render pass
 
@@ -184,21 +245,23 @@ viewport.renderHooks.register({
 ### Positive
 
 - **Explicit surface participation:** Extensions declare exactly which surfaces they render on. No ambiguity.
-- **Privacy-aware:** Each surface can implement its own privacy logic (minimap hides fog for players).
+- **Type-safe context parameters:** Each surface's hooks receive the correct context type (`CanvasRenderingContext2D`, `SvgStringBuilder`, etc.). No runtime type mismatches between canvas and SVG contexts.
+- **Fail-closed privacy:** Required hooks that are absent or throw cause the surface to render an opaque mask, not unmasked content. Privacy is protected by default, not by convention.
+- **Semantic slot ordering:** Viewport hooks use named slots (`afterSceneBeforeOverlay`, `afterOverlay`, `afterToolOverlay`) instead of arbitrary numeric z-order. Priority is scoped within a slot, eliminating ambiguity about dynamic stratum positions.
 - **Export composition:** RollKeeper can compose fog with custom markers in export.
 - **Clean separation:** Viewport rendering (screen-space, hybrid) is separate from minimap (bounds-mapped) and export (offline).
 
 ### Negative
 
 - **More registration boilerplate:** Extensions must register separately for each surface. A fog extension needs 4 registrations (viewport, minimap, image, SVG).
-- **API surface:** 4 registries instead of 1. More concepts to learn.
-- **Z-ordering complexity:** Each surface has its own z-order space. Extensions must understand the paint stack for each surface.
+- **Typed API surface:** 4 typed registries with different hook shapes instead of 1 generic registry. More concepts to learn.
+- **Fail-closed strictness:** Missing required plugins cause masked output rather than graceful degradation. This is intentional for privacy but may surprise developers during testing.
 
 ### Risks
 
-- The viewport surface's z-order must correctly map to hybrid surface strata. Getting this wrong breaks the paint stack (fog renders above/below elements incorrectly).
-- Export hooks must receive the correct context type. A canvas hook receiving an SVG context (or vice versa) causes runtime errors.
+- The viewport surface's semantic slots must correctly map to hybrid surface strata. Getting this wrong breaks the paint stack (fog renders above/below elements incorrectly).
 - RollKeeper's custom export composition may need additional hooks beyond `afterElements` (e.g., `beforeElements` for background markers).
+- The `required` flag must be applied consistently to all privacy-critical hooks. A missing `required` flag on a fog hook silently degrades to fail-open behavior.
 
 ## References
 
@@ -209,3 +272,11 @@ viewport.renderHooks.register({
 - `packages/core/src/canvas/export-image.ts` — image export pipeline
 - `packages/core/src/canvas/export-svg.ts:571` — SVG export `emitElement()` switch
 - `MIGRATION_VTT_EXTRACTION.md` §Render Surface Contract
+
+## Review Response
+
+This revision addresses two findings from peer review:
+
+**F1 — "Fail-closed" was defined as fail-open.** The previous version stated that missing fog extensions caused the surface to "render without fog (which may reveal hidden information)" — this is literally fail-open. The revised design introduces a `required` flag on hook registration. When a required hook is absent or throws, the surface renders an opaque mask (viewport), blank content (minimap), throws or returns a masked image (image export), or emits an opaque `<rect>` (SVG export). Privacy is protected by default, not by convention.
+
+**F5 — Render-hook API was internally inconsistent.** The previous version defined a single `SurfaceRenderHooks` interface with `(ctx: RenderContext, camera: Camera)` but then showed different parameter shapes for different surfaces (viewport: `(ctx, camera)`, image export: `(ctx, options)`, SVG export: `(svgDoc, options)`). The revised design replaces the generic interface with typed per-surface hook interfaces: `ViewportRenderHooks`, `MinimapRenderHooks`, `ImageExportHooks`, and `SvgExportHooks`. Each receives the correct context type for its surface. The SVG export hook receives a `SvgStringBuilder` (matching the actual string-based implementation) instead of a non-existent `SVGDocument`. Arbitrary numeric `zOrder` is replaced with typed semantic slots (`ViewportSlot`) scoped to the hybrid surface strata.
