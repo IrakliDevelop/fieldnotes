@@ -139,13 +139,13 @@ The same dual-write strategy applies to the sync protocol:
 
 ### Compatibility matrix
 
-| Writer \ Reader | v3 (no extensions) | v3 (dual-write)   | v4 (extensions only) |
-| --------------- | ------------------ | ----------------- | -------------------- |
-| v3 (no ext)     | ✅ Works           | ✅ Works          | ❌ Rejects (version) |
-| v3 (dual-write) | ✅ Reads legacy    | ✅ Reads ext      | ❌ Rejects (version) |
-| v4 (ext only)   | ✅ Migrates v3→v4  | ✅ Migrates v3→v4 | ✅ Works             |
+| Writer \ Reader | v3 (no extensions)   | v3 (dual-write)      | v4 (extensions only) |
+| --------------- | -------------------- | -------------------- | -------------------- |
+| v3 (no ext)     | ✅ Works             | ✅ Works             | ✅ Migrates v3→v4    |
+| v3 (dual-write) | ✅ Reads legacy      | ✅ Reads ext         | ✅ Migrates v3→v4    |
+| v4 (ext only)   | ❌ Rejects (version) | ❌ Rejects (version) | ✅ Works             |
 
-Key: v4 reader migrates v3 states (both with and without extensions) using `migrateState()`. Only old (v3) readers reject v4 states. The version gate is a hard reject (`if (version > CURRENT_VERSION) throw`). During Phase 1, all writers produce v3, so old readers work because the version hasn't changed. The `extensions` field is an additive, unknown JSON field that old clients ignore.
+Key: v3 readers reject v4 states (hard version gate). v4 readers migrate v3 states via `migrateState()`. The version gate is a hard reject (`if (version > CURRENT_VERSION) throw`). During Phase 1, all writers produce v3, so old readers work because the version hasn't changed. The `extensions` field is an additive, unknown JSON field that old clients ignore.
 
 ### Old-client re-export data loss
 
@@ -177,6 +177,65 @@ The rollout across ADR-0001 (element extensibility) and ADR-0004 (serialization 
 During Phase 1, no `type: 'extension'` envelope is written — all elements use their existing wire formats. At Phase 2, the v4 version bump creates a clean compatibility boundary where old clients fail explicitly, making it safe to introduce new element envelopes.
 
 See [ADR-0001](0001-element-extensibility.md) for the element-type registry rollout, which is coordinated with this serialization timeline.
+
+### Sync protocol compatibility
+
+The compatibility matrix above addresses persisted state. The sync protocol has its own compatibility concerns that require separate treatment.
+
+#### The problem
+
+The sync protocol's `isValidEnvelope()` rejects unknown op kinds. In mixed-version RollKeeper rooms, old clients silently discard extension ops because `parseEnvelope()` returns `null` for unrecognized kinds, and the sync hub drops nulls. A four-week state soak is not a protocol capability gate — it does not prevent old clients from receiving ops they cannot process.
+
+#### Solution: continued legacy emission during mixed-version window
+
+During the mixed-version window (Phases 1–3), the sync protocol continues to emit legacy wire kinds (`fog-meta`, `fog-patch`). Extension ops are NOT emitted during this period. This ensures old clients can process all ops they receive.
+
+```
+Phase 1 (v3 dual-write):
+  SYNC: All ops use legacy wire kinds. No extension ops.
+
+Phase 2 (v4 bump):
+  SYNC: Still legacy wire kinds. Extension ops available but not required.
+
+Phase 3 (after all clients support plugin system):
+  SYNC: Introduce capability exchange on sync connection.
+  If both sides support extension ops, use ExtensionOp envelope.
+  If one side doesn't, continue legacy emission.
+```
+
+#### Capability exchange protocol
+
+When all clients support the plugin system, introduce a capability exchange on sync connection:
+
+```typescript
+// On sync connection, exchange supported capabilities:
+interface SyncCapabilities {
+  protocolVersion: number;
+  extensionKinds: string[]; // ['vtt:fog-meta', 'vtt:fog-patch', ...]
+}
+
+// If both sides support an extension kind, use ExtensionOp envelope for it.
+// If one side doesn't, continue emitting the legacy wire kind.
+```
+
+#### Translation layer
+
+During the mixed-version window, the sync hub can translate extension ops to legacy wire kinds for old clients:
+
+```typescript
+// Server-side translation for mixed-version rooms:
+function translateForClient(op: SyncOp, clientCapabilities: SyncCapabilities): SyncOp {
+  if (op.kind === 'extension' && !clientCapabilities.extensionKinds.includes(op.extensionKind)) {
+    // Translate extension op to legacy wire kind
+    return translateToLegacy(op);
+  }
+  return op;
+}
+```
+
+#### Timeline
+
+The capability exchange is introduced AFTER the v4 bump, not before. During Phases 1–2, all clients use legacy wire kinds. The capability exchange is only needed when extension ops are introduced (Phase 3+).
 
 ## Options Considered
 
@@ -228,6 +287,11 @@ This revision addresses findings from the third ADR review:
 - **F2 Part A (Matrix corrected):** The compatibility matrix now correctly shows that v4 readers migrate v3 states (both with and without extensions) via `migrateState()`. Only old (v3) readers reject v4 states.
 - **F2 Part B (Phase 2 eliminated):** The unsafe mid-version legacy field removal phase is removed entirely. The structure is now two phases: Phase 1 (v3 dual-write) and Phase 2 (v4 bump + legacy field removal). The legacy `fog` field is removed ONLY at the v4 boundary, where old readers explicitly reject v4 via the hard version gate. All text about adoption gate based on client version tracking is removed — the version bump itself is the adoption gate.
 - **F3 (Shared rollout state machine):** Added a "Shared rollout state machine" section that defines the unified rollout across ADR-0001 and ADR-0004. During Phase 1 (v3 dual-write), all elements retain their current wire format — no `type: 'extension'` envelope is written. At Phase 2 (v4), extension elements can use the `type: 'extension'` envelope because old clients reject v4 entirely (safe failure). Cross-reference to ADR-0001 added.
+
+### Fourth review — F8
+
+- **F8a (Matrix transposed):** The compatibility matrix was transposed — the v4 writer row incorrectly showed "✅ Migrates v3→v4" for v3 readers, but v3 readers reject v4 states via the hard version gate. The matrix now correctly shows: v3 writers → v4 reader = "✅ Migrates v3→v4" (v4 readers migrate v3 states), and v4 writer → v3 readers = "❌ Rejects (version)" (v3 readers cannot read v4 states). The key text is updated to match.
+- **F8b (Sync protocol compatibility):** The ADR only addressed persisted state compatibility. Added a "Sync protocol compatibility" section covering: (1) the problem — `isValidEnvelope()` rejects unknown op kinds, causing old clients to silently discard extension ops in mixed-version rooms; (2) the solution — continued legacy wire kind emission during the mixed-version window (Phases 1–3), with extension ops deferred until all clients support the plugin system; (3) a capability exchange protocol (`SyncCapabilities`) introduced at Phase 3+ to negotiate extension op support; (4) a server-side translation layer for mixed-version rooms; (5) a timeline clarifying that the capability exchange is introduced after the v4 bump, not before.
 
 ## References
 

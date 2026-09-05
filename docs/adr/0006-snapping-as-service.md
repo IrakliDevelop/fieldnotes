@@ -125,7 +125,7 @@ Core exposes a generic point-constraint service slot. Tools call it when they wa
 // Core provides a generic service slot — no VTT concepts
 interface ToolContext {
   // ... existing fields ...
-  constraintService?: PointConstraintService; // Domain-neutral
+  constraintService: PointConstraintService; // Stable proxy — always present once initialized
 }
 
 interface PointConstraintService {
@@ -138,9 +138,8 @@ interface PointConstraintService {
   readonly isActive: boolean;
   setActive(active: boolean): void;
 
-  // Typed capability query — no casting needed
+  // Capability query — string-based, no unsafe generics
   hasCapability(capability: string): boolean;
-  getCapability<T>(capability: string): T | undefined;
 }
 
 interface ConstraintOptions {
@@ -177,9 +176,10 @@ class GridConstraintService implements PointConstraintService {
   hasCapability(capability: string): boolean {
     // e.g., 'grid:cell-center', 'grid:smart-snap'
   }
-  getCapability<T>(capability: string): T | undefined {
-    // Return typed capability object if supported
-  }
+
+  // Domain-specific methods available via typed service registry (ADR-0005):
+  // viewport.getService<GridConstraintService>('grid')
+  snapToCellCenter(point: Point, footprint: Footprint): Point { ... }
 }
 ```
 
@@ -193,10 +193,10 @@ import { smartSnap } from '@fieldnotes/core';
 const snapped = smartSnap(world, ctx);
 
 // After (domain-neutral via constraint service):
-// Tools always call the service — it handles active/inactive internally:
-const snapped = ctx.constraintService?.constrainPoint(world) ?? world;
-// If service is inactive (setSnapToGrid(false)), constrainPoint returns world unchanged.
-// If no service is registered, ?? world provides the unconstrained fallback.
+// The proxy is always present — tools call it directly:
+const snapped = ctx.constraintService.constrainPoint(world);
+// If proxy is inactive (setSnapToGrid(false)) or has no implementation,
+// constrainPoint returns world unchanged.
 ```
 
 ```typescript
@@ -206,74 +206,124 @@ private snapToGrid(point: Point, ctx: ToolContext): Point {
   return point;
 }
 
-// After (explicit service):
-const snapped = ctx.constraintService?.constrainPoint(point) ?? point;
+// After (explicit service via stable proxy):
+const snapped = ctx.constraintService.constrainPoint(point);
 ```
 
 Tools that need grid-specific behavior (e.g., cell-center snapping with a footprint) express their placement intent through domain-neutral `ConstraintOptions`. The `GridConstraintService` implementation interprets these options using its grid-specific logic. No cast needed. No VTT import in core. The service is the abstraction boundary.
 
 ```typescript
 // Core tools use domain-neutral options — no cast, no VTT import:
-const snapped =
-  ctx.constraintService?.constrainPoint(world, {
-    mode: 'cell-center',
-    footprint: { width: 2, height: 2 },
-  }) ?? world;
+const snapped = ctx.constraintService.constrainPoint(world, {
+  mode: 'cell-center',
+  footprint: { width: 2, height: 2 },
+});
 
 // The GridConstraintService interprets these options using its grid-specific logic.
 ```
 
-For cases where a tool genuinely needs grid-specific behavior that can't be expressed through options, the `hasCapability()` / `getCapability()` pattern provides a safe typed query without casting:
+For cases where a tool genuinely needs grid-specific behavior that can't be expressed through `ConstraintOptions`, tools should use the service registry (ADR-0005) to obtain the typed implementation directly, rather than using an unsafe generic query on the constraint service:
 
 ```typescript
-// Typed capability query — no unsafe cast:
-const snapped = ctx.constraintService?.hasCapability('grid:cell-center')
-  ? ctx.constraintService
-      .getCapability<GridSnapCapability>('grid:cell-center')!
-      .snapToCellCenter(world, footprint)
-  : world;
+// Before (unsafe — prohibited):
+const snapped = ctx.constraintService
+  ?.getCapability<GridSnapCapability>('grid:cell-center')!
+  .snapToCellCenter(world, footprint);
+
+// After (safe — use service registry):
+const gridService = viewport.getService<GridConstraintService>('grid');
+const snapped = gridService?.snapToCellCenter(world, footprint) ?? world;
 ```
+
+Tools that need domain-specific constraint behavior (e.g., template resizing that recalculates `radiusFeet`) should use the service registry (`viewport.getService<GridConstraintService>('grid')`) to obtain the typed implementation directly, rather than using an unsafe generic query on the constraint service.
 
 Tools that don't snap (DmMarkerTool, MovementPathTool) simply don't call the service. No change needed.
 
-### Explicit opt-out for missing service
+### Explicit opt-out for inactive service
 
-Silent fallback to raw coordinates (`?? world`) risks unnoticed behavior changes when no constraint service is registered. Tools that **require** constraining must declare it and handle the missing-service case explicitly:
+The stable proxy is always present on `ToolContext` once initialized, but it may have no implementation (no grid plugin installed). When the proxy has no implementation, `constrainPoint()` returns the point unchanged. Tools that **require** constraining should check whether the service is active and warn if it is not:
 
 ```typescript
 // Instead of silent fallback:
-const snapped = ctx.constraintService?.constrainPoint(world) ?? world;
+const snapped = ctx.constraintService.constrainPoint(world);
 
-// Require explicit handling:
-if (!ctx.constraintService) {
-  // Tool knows it needs constraining but no service available
+// Require explicit handling for tools that need constraining:
+if (!ctx.constraintService.isActive) {
+  // Tool knows it needs constraining but service is inactive or has no implementation
   // Log warning in development, throw in tests
   if (process.env.NODE_ENV === 'development') {
-    console.warn(`Tool ${toolName} requires constraintService but none is registered`);
+    console.warn(`Tool ${toolName} requires constraintService but it is not active`);
   }
 }
-const snapped = ctx.constraintService?.constrainPoint(world) ?? world;
+const snapped = ctx.constraintService.constrainPoint(world);
 ```
 
-Better: tools that require constraining declare it in their registration, and the tool manager warns if no service is available when the tool is active.
+Better: tools that require constraining declare it in their registration, and the tool manager warns if the constraint service is not active when the tool is active.
 
 ### RollKeeper tool compatibility
 
-| Tool                | Current behavior                     | After migration                                                                    |
-| ------------------- | ------------------------------------ | ---------------------------------------------------------------------------------- |
-| DmMarkerTool        | No snap (explicit comment)           | No snap — doesn't call constraintService                                           |
-| SpellTemplateTool   | `smartSnap(world, ctx)`              | `ctx.constraintService?.constrainPoint(world)`                                     |
-| DmTokenTool         | `snapToCellCenter(world, footprint)` | `ctx.constraintService?.constrainPoint(world, { mode: 'cell-center', footprint })` |
-| MovementPathTool    | No snap                              | No snap — doesn't call constraintService                                           |
-| SelectTool (resize) | `snapFootprintCenter(...)`           | `ctx.constraintService?.constrainPoint(point, { mode: 'cell-center', footprint })` |
+| Tool                  | Current behavior                        | After migration                                                                   |
+| --------------------- | --------------------------------------- | --------------------------------------------------------------------------------- |
+| DmMarkerTool          | No snap (explicit comment)              | No snap — doesn't call constraintService                                          |
+| SpellTemplateTool     | `smartSnap(world, ctx)`                 | `ctx.constraintService.constrainPoint(world)`                                     |
+| DmTokenTool           | `snapToCellCenter(world, footprint)`    | `ctx.constraintService.constrainPoint(world, { mode: 'cell-center', footprint })` |
+| MovementPathTool      | No snap                                 | No snap — doesn't call constraintService                                          |
+| SelectTool (resize)   | `snapFootprintCenter(...)`              | `ctx.constraintService.constrainPoint(point, { mode: 'cell-center', footprint })` |
+| TemplateTool (resize) | Private `snapToGrid()` for radius/width | Uses interaction adapter (ADR-0001) — not constraint service (see below)          |
+
+**Note on template resizing:** Template resizing involves snapping scalar values (radius, width) and recalculating derived fields (e.g., `radiusFeet`). This is not reducible to `constrainPoint()` — it requires domain-specific logic that understands template geometry. This logic belongs in the template element type's interaction adapter (see [ADR-0001](0001-element-extensibility.md), `ElementInteractionAdapter.dragUpdate()`). The interaction adapter receives the element, drag delta, and context, and returns the updated element. Template-specific snapping and recalculation happens inside the adapter, not in the constraint service.
+
+```typescript
+// Template resizing — NOT handled by constraint service
+// This logic lives in the template's interaction adapter (ADR-0001):
+// TemplateElementTypeDefinition.interaction.dragUpdate(el, delta, ctx)
+// The adapter handles snapping radius/width and recalculating radiusFeet.
+```
 
 ### ConstraintService ownership
 
-The `PointConstraintService` slot lives on `ToolContext` in `@fieldnotes/core`. The concrete implementation (`GridConstraintService`) is created and owned by the VTT package's grid plugin. It reads grid state from the `ElementStore` (via `store.getElementsByType('grid')`) and provides constraint functions.
+The `PointConstraintService` slot on `ToolContext` is a stable proxy owned by core. The grid plugin provides the implementation via `_setImpl()`. Activation state (`setActive()`) is owned by core and survives service replacement. When the grid plugin replaces the implementation, the proxy re-applies the current activation state.
 
-When no grid is active, `constraintService` is `undefined` on `ToolContext`. Tools that call it must handle the `undefined` case (fall back to unconstrained coordinates, with explicit warnings as described above).
+Core provides a `ConstraintServiceProxy` that delegates to the current implementation. The proxy is always present on `ToolContext` once the constraint service system is initialized — it is never `undefined`. This ensures that activation state (the snap-to-grid toggle) survives service replacement when grids are added, removed, or changed.
 
-When a grid is added/removed/changed, the grid plugin updates the `PointConstraintService` instance (or replaces it). `GridController.syncContext()` becomes the grid plugin's responsibility.
+```typescript
+// Core provides a stable proxy — activation state survives service replacement
+class ConstraintServiceProxy implements PointConstraintService {
+  private _impl: PointConstraintService | null = null;
+  private _active = false; // Core-owned activation state
+
+  constrainPoint(point: Point, options?: ConstraintOptions): Point {
+    if (!this._active || !this._impl) return point;
+    return this._impl.constrainPoint(point, options);
+  }
+
+  readonly isActive: boolean;
+  setActive(active: boolean): void {
+    this._active = active; // Survives service replacement
+  }
+
+  // Called by the grid plugin when the service is ready/replaced
+  _setImpl(impl: PointConstraintService | null): void {
+    this._impl = impl;
+    // If activation was requested before the service was ready, apply it now
+    if (this._active && impl) {
+      impl.setActive(true);
+    }
+  }
+
+  getConstraintInfo(): ConstraintInfo | null {
+    return this._impl?.getConstraintInfo() ?? null;
+  }
+
+  hasCapability(capability: string): boolean {
+    return this._impl?.hasCapability(capability) ?? false;
+  }
+}
+```
+
+When the grid plugin replaces the service implementation, the proxy's `_setImpl()` method re-applies the current activation state. If `setSnapToGrid(true)` was called before the service was ready, the new service starts active. This prevents the loss of the snap toggle when grid state changes.
+
+`GridController.syncContext()` becomes the grid plugin's responsibility.
 
 ### Preserving existing APIs
 
@@ -281,13 +331,13 @@ When a grid is added/removed/changed, the grid plugin updates the `PointConstrai
 
 This public API toggles snapping on/off. It remains in core as a simple boolean toggle. The method does **not** take grid parameters — those come from the constraint service itself.
 
-`Viewport.setSnapToGrid()` delegates to the constraint service's `setActive()` method:
+`Viewport.setSnapToGrid()` delegates to the constraint service proxy's `setActive()` method:
 
 ```typescript
-// Viewport.setSnapToGrid() delegates to the constraint service:
+// Viewport.setSnapToGrid() delegates to the stable proxy:
 setSnapToGrid(enabled: boolean): void {
   this._snapToGrid = enabled;
-  this.constraintService?.setActive(enabled);
+  this.constraintService.setActive(enabled); // Proxy is always present — no optional chaining
 }
 ```
 
@@ -303,14 +353,14 @@ During the transition:
 
 - `smartSnap`, `snapPoint`, etc. remain exported from `@fieldnotes/core`
 - `GridController.syncContext()` continues to work as before
-- The `constraintService` slot is added to ToolContext as optional
-- VTT plugin installs the `GridConstraintService` into the slot
+- The `ConstraintServiceProxy` is added to ToolContext (always present once initialized)
+- VTT plugin installs the `GridConstraintService` via `proxy._setImpl()`
 
 After extraction:
 
 - Snap functions move to `@fieldnotes/vtt`
-- Core only has the `constraintService` slot
-- Tools use `ctx.constraintService?.constrainPoint()` or import from `@fieldnotes/vtt`
+- Core only has the `constraintService` proxy
+- Tools use `ctx.constraintService.constrainPoint()` or import from `@fieldnotes/vtt`
 
 ## Options Considered
 
@@ -357,19 +407,21 @@ The original Option B proposed a `SnapService` with VTT-specific methods like `s
 - **RollKeeper compatible:** DmMarkerTool stays unsnapped. SpellTemplateTool snaps. No conflicts.
 - **Testable:** `PointConstraintService` is a pure service that can be tested independently of tools.
 - **Zero VTT in core:** Core's `constraintService` slot is domain-neutral. Grid, hex, cell-center, and footprint concepts live entirely in `@fieldnotes/vtt`.
-- **No unsafe casts:** Tools express placement intent through domain-neutral `ConstraintOptions`. The service implementation interprets options using domain-specific logic. Core tools never import VTT types.
+- **No unsafe casts or generics:** Tools express placement intent through domain-neutral `ConstraintOptions`. The service implementation interprets options using domain-specific logic. Core tools never import VTT types. Domain-specific access uses the typed service registry (ADR-0005), not unsafe generic queries.
+- **Stable activation state:** The `ConstraintServiceProxy` ensures the snap toggle survives service replacement. `setSnapToGrid(true)` called before the grid service is ready is preserved when the service becomes available.
 - **Existing APIs preserved:** `Viewport.setSnapToGrid()` and the React `snapToGrid` prop continue to work unchanged.
 
 ### Negative
 
 - **Tool migration:** Every tool that currently calls `smartSnap` must be updated to use `ctx.constraintService`. ~8 core tools + RollKeeper tools.
-- **Undefined handling:** Tools must handle `constraintService` being `undefined` (no constraint service active). Adds a null check at every call site, with explicit warnings for tools that require constraining.
-- **API change:** `smartSnap(point, ctx)` becomes `ctx.constraintService?.constrainPoint(point)`. Different signature. RollKeeper's `import { smartSnap } from '@fieldnotes/core'` breaks after extraction.
+- **Proxy indirection:** The stable proxy adds a layer of indirection. Tools call the proxy, which delegates to the current implementation. Debugging requires understanding the proxy→impl chain.
+- **API change:** `smartSnap(point, ctx)` becomes `ctx.constraintService.constrainPoint(point)`. Different signature. RollKeeper's `import { smartSnap } from '@fieldnotes/core'` breaks after extraction.
 - **Grid state access:** `GridConstraintService` needs access to grid state (grid size, type, orientation). It reads from the store, which adds a dependency.
+- **Template resizing not covered:** Template resizing (snapping scalar radius/width and recalculating `radiusFeet`) cannot be expressed through `constrainPoint()`. This logic must live in the template element type's interaction adapter (ADR-0001), adding complexity to the migration path.
 
 ### Risks
 
-- Tools that currently use `smartSnap` may silently stop snapping if `constraintService` is `undefined` and the fallback is `?? world` (raw coordinates). Must ensure the VTT plugin installs the constraint service before tools need it. The explicit opt-out pattern (development warnings, tool registration declarations) mitigates this.
+- Tools that currently use `smartSnap` may silently stop snapping if the constraint service proxy has no implementation (no grid plugin installed). The proxy returns the point unchanged when no implementation is set. The explicit opt-out pattern (development warnings, tool registration declarations) mitigates this.
 - RollKeeper imports `smartSnap` directly from `@fieldnotes/core`. After extraction, this import breaks. RollKeeper must either use `ctx.constraintService` or import from `@fieldnotes/vtt`.
 - The `GridController.syncContext()` logic (syncing grid type/orientation into ToolContext) must move to the grid plugin. If the plugin doesn't sync correctly, snap behavior changes unexpectedly.
 
@@ -416,6 +468,32 @@ The original proposal placed a VTT-specific `SnapService` (with methods like `sn
 6. **Updated RollKeeper tool compatibility table.** DmTokenTool and SelectTool now use `constrainPoint(world, { mode: 'cell-center', footprint })` instead of casting.
 
 7. **Updated Consequences.** Removed "Casting for VTT-specific behavior" from negatives. Added "No unsafe casts" to positives. Removed casting risk from risks section.
+
+### Fourth review — Finding 11 (F11): Point-constraint service still cannot preserve snapping behavior
+
+**Part A — Service can disappear or be replaced when grid state changes:** The ADR said "When a grid is added/removed/changed, the grid plugin updates the `PointConstraintService` instance (or replaces it)." If `setSnapToGrid(true)` runs while no service exists, a later service starts inactive and loses the toggle.
+
+**Part B — `getCapability<T>()` lets the caller assert any type:** The generic `getCapability<T>()` was unsafe — the caller could assert any type. The example used a prohibited non-null assertion (`!`).
+
+**Part C — Template resizing snaps scalar radius/width and recalculates radiusFeet:** This logic is not reducible to `constrainPoint()`. It needs the missing template interaction adapter from ADR-0001's F3.
+
+**Changes made:**
+
+1. **Added stable `ConstraintServiceProxy`.** Core owns a proxy that is always present on `ToolContext` once initialized. The proxy delegates to the current implementation via `_setImpl()`. Activation state (`_active`) is owned by core and survives service replacement. When the grid plugin replaces the implementation, the proxy re-applies the current activation state — `setSnapToGrid(true)` called before the service is ready is preserved.
+
+2. **Removed `getCapability<T>()`.** The unsafe generic method was removed from `PointConstraintService`. Domain-specific access now uses the typed service registry (ADR-0005): `viewport.getService<GridConstraintService>('grid')`. This eliminates the possibility of callers asserting arbitrary types.
+
+3. **Replaced non-null assertion example.** The `getCapability<GridSnapCapability>(...)!.snapToCellCenter(...)` pattern was replaced with the safe service registry pattern: `viewport.getService<GridConstraintService>('grid')?.snapToCellCenter(world, footprint) ?? world`.
+
+4. **Acknowledged template resizing limitation.** Template resizing involves snapping scalar values (radius, width) and recalculating derived fields (`radiusFeet`). This is not reducible to `constrainPoint()` — it requires domain-specific logic that understands template geometry. This logic belongs in the template element type's interaction adapter (ADR-0001, `ElementInteractionAdapter.dragUpdate()`).
+
+5. **Updated RollKeeper tool compatibility table.** Added TemplateTool (resize) row noting it uses the interaction adapter, not the constraint service. Added explanatory note with code comment showing where the logic lives.
+
+6. **Updated `ToolContext` interface.** Changed `constraintService?: PointConstraintService` to `constraintService: PointConstraintService` — the proxy is always present once initialized. Updated all tool migration examples to remove optional chaining (`?.`) and null-coalescing (`?? world`).
+
+7. **Updated ConstraintService ownership section.** Replaced the "service can be `undefined`" model with the stable proxy pattern. Documented `_setImpl()`, activation state persistence, and re-application on service replacement.
+
+8. **Updated Consequences.** Added "Stable activation state" and "No unsafe casts or generics" to positives. Added "Proxy indirection" and "Template resizing not covered" to negatives. Updated risks to reflect proxy behavior.
 
 ## References
 

@@ -42,6 +42,13 @@ type ExtensionOp = {
   extensionKind: string; // e.g., 'vtt:fog-meta', 'vtt:fog-patch'
   payload: unknown; // Validated by the owning plugin's codec
 };
+
+// Plugin-scoped snapshot envelope
+interface PluginSnapshot {
+  pluginName: string; // Owning plugin's name
+  version: number; // Plugin-specific version for migration
+  data: unknown; // Plugin-specific state (validated by plugin)
+}
 ```
 
 `isValidEnvelope()` is a switch on `op.kind` with a `default: return false` — unknown op kinds are rejected. `parseEnvelope()` returns `null` for invalid envelopes, and the sync hub silently drops nulls.
@@ -107,12 +114,25 @@ interface ClientSyncPlugin {
   ): void;
   extendSnapshot?(snapshot: SyncSnapshot): void;
   applySnapshot?(
-    snapshot: SyncSnapshot,
+    snapshot: PluginSnapshot,
     meta: { phase: 'initial' | 'reconnect' | 'offline-replay' },
   ): void;
   handleCorrection?(op: SyncOp): void; // Handle server-sent corrections
-  // Handle extension ops for kinds this plugin owns
-  handleExtensionOp?(op: ExtensionOp): void;
+
+  // Register extension kinds this plugin owns — atomic binding
+  registerExtensionKinds?(registry: ClientExtensionRegistry): void;
+
+  // Snapshot migration and validation
+  migrateSnapshot?(data: unknown, fromVersion: number): unknown;
+  validateSnapshot?(data: unknown): boolean;
+}
+
+interface ClientExtensionRegistry {
+  register<TPayload>(config: {
+    extensionKind: string;
+    codec: OpCodec<TPayload>;
+    handler: (op: ExtensionOp) => void;
+  }): void;
 }
 ```
 
@@ -121,23 +141,28 @@ connection phase so the plugin can distinguish live ops from reconnect replays a
 snapshot deliveries. `handleCorrection` receives ops the server rejected — the current fog flow
 sends the existing tile state back to the sender only, not to the whole room.
 
+`applySnapshot()` receives a `PluginSnapshot` (not the full `SyncSnapshot`) — the sync hub
+dispatches snapshots to plugins by `pluginName`. `migrateSnapshot()` allows the plugin to migrate
+old snapshot data when the `version` has changed. `validateSnapshot()` allows the plugin to
+validate snapshot data on receipt.
+
 **Server plugin:**
 
 ```typescript
 interface ServerSyncPlugin {
   readonly name: string;
 
-  // Unified processing: authorize + apply in one step.
-  // Returns ApplyResult for both acceptance and denial.
-  // On denial: return { accepted: null, corrections: [current state] }
-  // On accept: return { accepted: op, corrections: [], broadcast: [...] }
+  // Unified processing for CORE ops only
   process?(op: SyncOp, ctx: ServerOpContext): Promise<ApplyResult>;
 
-  // Handle extension ops for kinds this plugin owns
-  handleExtensionOp?(op: ExtensionOp, ctx: ServerOpContext): Promise<ApplyResult>;
+  // Register extension kinds this plugin owns — atomic binding
+  registerExtensionKinds?(registry: ServerExtensionRegistry): void;
 
-  snapshot?(room: string, backend: HubBackend): Promise<unknown>;
-  registerCodec?(registry: OpKindRegistry): void;
+  snapshot?(room: string, backend: HubBackend): Promise<PluginSnapshot>;
+  filterSnapshot?(
+    snapshot: PluginSnapshot,
+    viewer: { userId: string; role: string },
+  ): PluginSnapshot | null;
 }
 
 interface ServerOpContext {
@@ -162,52 +187,83 @@ interface OpCodec<TPayload = unknown> {
   validate(payload: unknown): payload is TPayload;
 }
 
-// OpKindRegistry associates each extension kind with its owning plugin's codec
-interface OpKindRegistry {
-  // Register a codec + owning plugin for an extension kind
-  register<TPayload>(codec: OpCodec<TPayload>): void;
-  // Look up the codec for an extension kind
-  getCodec(extensionKind: string): OpCodec | undefined;
+// ServerExtensionRegistry atomically binds extension kind + codec + handler
+interface ServerExtensionRegistry {
+  register<TPayload>(config: {
+    extensionKind: string;
+    codec: OpCodec<TPayload>;
+    handler: (op: ExtensionOp, ctx: ServerOpContext) => Promise<ApplyResult>;
+  }): void;
 }
 ```
 
 Instead of trying to extend the closed `SyncOp` union at runtime (which TypeScript cannot do),
 all extension ops flow through a single `ExtensionOp` envelope with `kind: 'extension'`. The
 `extensionKind` field discriminates between different extension op types (e.g.,
-`'vtt:fog-meta'`, `'vtt:fog-patch'`). Each plugin registers a codec via `registerCodec()` that
-validates the payload for its extension kinds. The registry associates each `extensionKind` with
-its owning plugin's codec, and the sync hub routes incoming `ExtensionOp` instances to the
-correct plugin by looking up the `extensionKind` in the registry.
+`'vtt:fog-meta'`, `'vtt:fog-patch'`). Each plugin registers its extension kinds via
+`registerExtensionKinds()`, which atomically binds the extension kind, codec, and handler at
+every participating layer (client, server, and backend). The sync hub routes `ExtensionOp` by
+looking up `extensionKind` in the registry, which returns both the codec (for validation) and
+the handler (for processing). There is no separate `handleExtensionOp()` — the handler
+registered via `registerExtensionKinds()` IS the processing entry point for extension ops.
+
+Each extension kind is owned by exactly one plugin. The `registerExtensionKinds()` method
+atomically binds the extension kind, codec, and handler. The sync hub routes incoming
+`ExtensionOp` instances by looking up the `extensionKind` in the registry — the registered
+handler processes the op. There is no ambiguity about ownership.
+
+`process()` handles CORE ops only (upsert, remove, clear, etc.). Extension ops are routed
+through the registered handlers, not through `process()`. This eliminates the overlap between
+`process()` and extension op handling.
 
 The server plugin interfaces model the actual fog processing flow in `sync-hub.ts`:
 
-1. `process()` unifies authorization and application into a single step. The current fog flow
-   does authorization and application in a single `processFogOp()` function — the separate
-   `authorize()` + `apply()` split didn't match this flow because denial needs to return
-   corrections (current state), which requires backend access. A unified `process()` handles
-   both paths naturally.
+1. `process()` handles CORE ops only and unifies authorization and application into a single
+   step. The current fog flow does authorization and application in a single `processFogOp()`
+   function — the separate `authorize()` + `apply()` split didn't match this flow because
+   denial needs to return corrections (current state), which requires backend access. A unified
+   `process()` handles both paths naturally.
 2. On denial: return `{ accepted: null, corrections: [current state] }` — the hub sends these
    to the sender only.
 3. On accept: `ApplyResult.accepted` is the (possibly partial) op to fan out to all other
    connections; `corrections` go to the sender only; `broadcast` covers additional derived ops
    that go to everyone.
-4. `snapshot()` takes a `room` parameter — the current `fogSnapshot()` is room-scoped.
-5. `registerCodec()` lets plugins register typed codecs for their extension kinds, so VTT (or
-   future domains) can own new wire operations without modifying `@fieldnotes/sync` core.
-6. `ServerOpContext.backendPlugin<T>()` gives the server plugin typed access to its
+4. `snapshot()` takes a `room` parameter and returns a `PluginSnapshot` (with `pluginName`,
+   `version`, and `data`) — the current `fogSnapshot()` is room-scoped.
+5. `registerExtensionKinds()` lets plugins atomically register extension kinds with their codec
+   and handler, so VTT (or future domains) can own new wire operations without modifying
+   `@fieldnotes/sync` core.
+6. `filterSnapshot()` allows per-viewer filtering of snapshot data. Return `null` to exclude
+   the plugin's snapshot entirely for a viewer (e.g., hide fog state from non-DM viewers).
+7. `ServerOpContext.backendPlugin<T>()` gives the server plugin typed access to its
    corresponding backend plugin, enabling server-side logic to coordinate with backend state.
+
+The server collects snapshots from all registered plugins into a `SyncSnapshot`:
+
+```typescript
+interface SyncSnapshot {
+  // ... existing fields (elements, layers, etc.) ...
+  extensions: Record<string, PluginSnapshot>; // Keyed by pluginName
+}
+```
+
+The server calls `snapshot()` on each `ServerSyncPlugin`, then applies `filterSnapshot()` per
+viewer to allow per-viewer exclusion or modification. The client dispatches each
+`PluginSnapshot` to the matching `ClientSyncPlugin` by `pluginName`, calling `applySnapshot()`
+with the phase metadata.
 
 **Backend (Redis) plugin:**
 
 ```typescript
 interface BackendSyncPlugin {
   readonly name: string;
+  readonly sharedAcrossInstances: boolean; // true = shared Redis, false = process-local
   keyPrefix: string;
   scripts?: Record<string, string>;
-  // Atomic operations
-  snapshot?(room: string): Promise<unknown>;
+  snapshot?(room: string): Promise<PluginSnapshot>;
   // Middleware chain — each plugin can intercept, modify, or pass through
   apply?(room: string, op: SyncOp, next: BackendNext): Promise<ApplyResult>;
+  dispose?(): void; // Lifecycle cleanup
 }
 
 // Middleware chain — each plugin can intercept, modify, or pass through
@@ -224,6 +280,19 @@ can intercept ops, modify them, buffer them, or pass them through to the next pl
 `next()`. This matches the middleware pattern used in web frameworks and enables composition
 such as RollKeeper's buffering layer wrapping the VTT fog backend plugin.
 
+The `plugins` array is ordered outer-to-inner. The first plugin's `apply()` is called first.
+It can intercept, modify, or pass through to `next()`, which calls the second plugin, and so
+on. The terminal `next()` call (after the last plugin) performs the default backend persistence
+(in-memory or Redis).
+
+Each op is owned by exactly one backend plugin. The middleware chain determines ownership: the
+first plugin that handles the op (without calling `next()`) owns it. If a plugin calls `next()`,
+ownership passes to the next plugin in the chain. The terminal handler (default persistence) is
+the final owner.
+
+Backend plugins can implement `dispose()` for lifecycle cleanup. The `RedisHubBackend` calls
+`dispose()` on each plugin during shutdown, in reverse order.
+
 ### Wire format preservation
 
 During the mixed-version window, `fog-meta` and `fog-patch` wire kinds are preserved as
@@ -239,20 +308,20 @@ compatibility strategy.
 ### RollKeeper relay migration
 
 RollKeeper's relay wraps fog backend methods. After extraction, it uses the VTT backend plugin
-plus its own buffering plugin. The `next` middleware pattern allows the buffer plugin to
-intercept ops, buffer them, and forward to the fog plugin:
+plus its own buffering plugin. The buffer plugin wraps the fog plugin — it is outer in the
+middleware chain:
 
 ```typescript
 const backend = new RedisHubBackend({
   plugins: [
-    createFogBackendPlugin(), // VTT fog persistence
-    createRollKeeperBufferPlugin(), // Wraps fog with buffering — calls next()
+    createRollKeeperBufferPlugin(), // Outer — intercepts ops, buffers, calls next()
+    createFogBackendPlugin(), // Inner — persists fog to Redis
   ],
 });
 ```
 
-The buffer plugin's `apply()` intercepts ops, buffers them, and calls `next()` to forward to
-the fog plugin. This matches the middleware pattern used in web frameworks.
+The buffer plugin's `apply()` intercepts base-element ops, buffers them in process memory, and
+calls `next()` to forward to the fog plugin. The fog plugin persists fog ops to shared Redis.
 
 DM-only authorization moves from `policies.ts` to the server plugin's `process()` method. The
 `ServerOpContext` provides full connection context and typed backend plugin access:
@@ -276,6 +345,14 @@ const server = createSyncServer({
 The server plugin's `process()` method returns an `ApplyResult` with `accepted`, `corrections`,
 and optional `broadcast` fields, matching the current fog processing flow where corrections go
 to the sender only and accepted ops fan out to all other connections.
+
+### Multi-instance semantics
+
+Plugins with `sharedAcrossInstances: true` (e.g., fog backend) persist to shared storage (Redis)
+that is visible to all server instances. Plugins with `sharedAcrossInstances: false` (e.g.,
+RollKeeper buffer) use process-local storage that is NOT shared. The sync hub handles fanout
+differently for shared vs. local plugins: shared plugin ops are broadcast to all connections,
+while local plugin ops may need cross-instance synchronization.
 
 ### VTT subpath exports
 
@@ -339,8 +416,9 @@ Generic sync packages gain plugin registration APIs. VTT code moves to `@fieldno
 - **RollKeeper compatibility:** Relay can compose VTT backend plugin with its own buffering plugin.
 - **Extensibility:** Other domain packages can register their own sync plugins (e.g., movement paths sync).
 - **Interfaces model real semantics:** The expanded plugin interfaces (`ServerOpContext` with `backendPlugin<T>()`, unified `process()`, `ApplyResult`, `handleOp` meta) directly mirror the existing fog processing flow — unified authorization and application with full connection context, partial acceptance with corrections, sender-only correction delivery, typed backend plugin access, and reconnect/snapshot phase distinction. Migration is a structural refactor, not a semantic redesign.
-- **Wire protocol extensibility:** The `ExtensionOp` envelope with `OpKindRegistry` codec registration lets plugins define typed extension kinds with payload validation, so VTT (or future domains) can own new wire operations without modifying `@fieldnotes/sync` core. The sync hub routes `ExtensionOp` to the correct plugin by looking up the `extensionKind` in the registry.
-- **Backend middleware composition:** The `BackendNext` middleware pattern allows backend plugins to form chains — RollKeeper's buffering layer wraps the VTT fog backend plugin by intercepting ops and calling `next()` to forward.
+- **Wire protocol extensibility:** The `ExtensionOp` envelope with atomic `registerExtensionKinds()` registration (binding extension kind + codec + handler) lets plugins define typed extension kinds with payload validation, so VTT (or future domains) can own new wire operations without modifying `@fieldnotes/sync` core. The sync hub routes `ExtensionOp` by looking up `extensionKind` in the registry, which returns both the codec and handler. There is no ambiguity about ownership.
+- **Complete snapshot system:** The `PluginSnapshot` envelope (with `pluginName`, `version`, `data`) provides namespaced, versioned, validated snapshots. Server plugins return typed snapshots, the server collects them into `SyncSnapshot.extensions`, per-viewer filtering is supported via `filterSnapshot()`, and client plugins dispatch by `pluginName` with migration support via `migrateSnapshot()`. Once legacy fog is removed, reconnecting and newly joining clients can receive authoritative extension state.
+- **Backend middleware composition:** The `BackendNext` middleware pattern allows backend plugins to form chains — RollKeeper's buffering layer wraps the VTT fog backend plugin by intercepting ops and calling `next()` to forward. Backend composition now includes instance locality tracking (`sharedAcrossInstances`), defined middleware ordering (outer-to-inner), op ownership rules, and lifecycle cleanup (`dispose()`).
 - **Subpath exports prevent environment coupling:** `@fieldnotes/vtt/sync`, `@fieldnotes/vtt/server`, and `@fieldnotes/vtt/redis` keep browser bundles free of Node-only dependencies without requiring separate packages.
 
 ### Negative
@@ -350,13 +428,15 @@ Generic sync packages gain plugin registration APIs. VTT code moves to `@fieldno
 - **Deployment coordination:** Server must deploy before clients. Mixed-version rooms need backward compatibility.
 - **Testing complexity:** Need integration tests that span client → server → Redis with plugins at each layer.
 - **Subpath export maintenance:** Each subpath (`/sync`, `/server`, `/redis`) needs its own entry point, build configuration, and dependency boundary. The package `exports` map must be kept in sync.
+- **Backend composition complexity:** Middleware ordering, op ownership, and lifecycle cleanup add complexity. A buggy plugin that fails to call `next()` or calls it multiple times can break the chain.
 
 ### Risks
 
 - The Lua scripts are complex (~180 lines) and handle optimistic concurrency, LWW conflict resolution, and tile canonicalization. Extracting them into a plugin mechanism without breaking fog sync is high-risk.
 - RollKeeper's relay wraps fog backend methods in a cost-optimized buffered backend. The plugin mechanism must support this kind of composition (multiple backend plugins, ordering matters).
 - The `HubBackend` interface's fog methods are optional. The plugin system must handle the case where no backend plugin is registered (fall back to in-memory `FogLedger`, as today).
-- `OpKindRegistry` codec registration introduces dynamic op validation. A misconfigured plugin could register a codec that accepts malformed payloads or whose `extensionKind` conflicts with another plugin's.
+- Extension kind registration introduces dynamic op handling. A misconfigured plugin could register a handler that accepts malformed payloads or whose `extensionKind` conflicts with another plugin's.
+- Backend middleware chains require careful ordering. A buggy plugin that fails to call `next()` or calls it multiple times can break the chain or double-apply operations.
 
 ## Review Response
 
@@ -371,6 +451,12 @@ The following changes address review findings:
 
 - **F6 (Runtime op registration does not actually extend SyncOp):** Replaced the untyped `OpKindRegistry` with a typed extension envelope. Instead of trying to extend the closed `SyncOp` union at runtime, all extension ops flow through a single `ExtensionOp` envelope (`kind: 'extension'`) with an `extensionKind` discriminator and a `payload` validated by the owning plugin's `OpCodec`. The registry now associates each `extensionKind` with its codec via `register<TPayload>(codec)` / `getCodec(extensionKind)`. Both `ServerSyncPlugin` and `ClientSyncPlugin` gain a `handleExtensionOp()` method. Updated the wire format section to explain that `fog-meta` and `fog-patch` are preserved as top-level `SyncOp` members during the mixed-version window; the `ExtensionOp` envelope is introduced only after all clients support the plugin system, coordinated with ADR-0004's serialization phases.
 - **F7 (Server/backend contracts cannot model the described fog flow):** Part A — replaced the separate `authorize()` + `apply()` with a unified `process()` method that returns `ApplyResult` for both acceptance and denial, matching the actual `processFogOp()` flow in `sync-hub.ts` where denial needs backend access to return corrections. Removed `PluginAuthContext` (its fields are now part of `ServerOpContext`). Part B — added `backendPlugin<T>(name)` to `ServerOpContext` for typed access to the corresponding backend plugin. Introduced `BackendNext` middleware type so backend plugins form a chain: each plugin's `apply()` receives a `next` callback to forward to the next plugin, enabling RollKeeper's buffering layer to wrap the fog backend plugin by intercepting ops and calling `next()`. Updated the RollKeeper relay migration example to use the middleware pattern.
+
+### Fourth review
+
+- **F5 (Extension sync ops cannot be routed end-to-end):** Replaced separate codec registration (`registerCodec()`) with atomic extension-kind registration (`registerExtensionKinds()`) that binds extension kind + codec + handler + owner at every participating layer. Server-side: `ServerExtensionRegistry.register()` atomically binds the extension kind, codec, and handler — the sync hub routes `ExtensionOp` by looking up `extensionKind` to find both the codec (for validation) and the handler (for processing). Client-side: added `registerExtensionKinds()` with `ClientExtensionRegistry` to `ClientSyncPlugin`. Removed `handleExtensionOp()` from both `ServerSyncPlugin` and `ClientSyncPlugin` — the handler registered via `registerExtensionKinds()` IS the processing entry point. Clarified that `process()` handles CORE ops only; extension ops are routed through registered handlers, eliminating the overlap between `process()` and extension op handling. Each extension kind is owned by exactly one plugin with no ambiguity.
+- **F6 (Extension snapshots are undefined):** Defined a complete snapshot system. Added `PluginSnapshot` envelope (with `pluginName`, `version`, `data`) — server plugins now return `PluginSnapshot` instead of anonymous `unknown`. Added `extensions: Record<string, PluginSnapshot>` to `SyncSnapshot`, keyed by `pluginName`. Client dispatches snapshots to plugins by `pluginName` via `applySnapshot(snapshot: PluginSnapshot, meta)`. Added `migrateSnapshot()` for version migration, `validateSnapshot()` for client-side validation, and `filterSnapshot()` on the server for per-viewer filtering (return `null` to exclude a plugin's snapshot for a viewer, e.g., hide fog from non-DM viewers). Once legacy fog is removed, reconnecting and newly joining clients can receive authoritative extension state.
+- **F7 (Backend composition does not preserve RollKeeper multi-instance semantics):** Added `sharedAcrossInstances: boolean` to `BackendSyncPlugin` so each plugin declares whether it uses shared Redis or process-local storage. Defined middleware ordering as outer-to-inner (first plugin's `apply()` is called first, terminal `next()` performs default persistence). Defined op ownership: the first plugin that handles without calling `next()` owns the op. Added `dispose()` for lifecycle cleanup (called in reverse order during shutdown). Added "Multi-instance semantics" section documenting how shared vs. local plugins affect fanout. Corrected the RollKeeper relay example to show buffer plugin as outer and fog plugin as inner (was reversed).
 
 ## References
 

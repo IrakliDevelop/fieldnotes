@@ -63,11 +63,23 @@ Each render surface has its own independent, **typed** hook registry. Extensions
 Rather than a single generic `SurfaceRenderHooks` interface (which cannot express the different context types each surface provides), each surface defines its own hook shape:
 
 ```typescript
-// Viewport: canvas 2D context with camera
+// Viewport: canvas 2D context with camera and viewport dimensions
 interface ViewportRenderHooks {
-  beforeElements?(ctx: CanvasRenderingContext2D, camera: Camera, dpr: number): void;
-  afterElements?(ctx: CanvasRenderingContext2D, camera: Camera, dpr: number): void;
-  afterAll?(ctx: CanvasRenderingContext2D, camera: Camera, dpr: number): void;
+  beforeElements?(
+    ctx: CanvasRenderingContext2D,
+    camera: Camera,
+    dimensions: { width: number; height: number; dpr: number },
+  ): void;
+  afterElements?(
+    ctx: CanvasRenderingContext2D,
+    camera: Camera,
+    dimensions: { width: number; height: number; dpr: number },
+  ): void;
+  afterAll?(
+    ctx: CanvasRenderingContext2D,
+    camera: Camera,
+    dimensions: { width: number; height: number; dpr: number },
+  ): void;
 }
 
 // Minimap: canvas 2D context with minimap-specific mapping
@@ -116,22 +128,47 @@ The render loop translates slots into hybrid surface stratum positions, preservi
 
 ### Required hooks and fail-closed behavior
 
-The fail-closed mechanism operates on two layers, ensuring that missing plugins are detected even when no registration carries `required: true`.
+The fail-closed mechanism operates at **two enforcement points** — construction time and render time — and on **two layers** within each, ensuring that missing plugins are detected even when no registration carries `required: true`.
 
-**Layer 1: Host-declared required capabilities.** The Viewport constructor (or export function) accepts a `requiredCapabilities` list:
+#### Two enforcement points
+
+These two enforcement points are complementary, not contradictory:
+
+- **Construction time (see [ADR-0005](0005-plugin-lifecycle.md)).** After ALL plugin phases complete — including Phase 3 (Start) where optional plugins may fail and have their registrations rolled back — the viewport re-checks that all `requiredCapabilities` are satisfied by the remaining registered hooks. If any capability is unsatisfied after all rollbacks, the constructor **throws**. This prevents creating a viewport that cannot render safely.
+
+- **Render time (this ADR).** If a hook marked `required: true` throws during rendering, the surface falls back to masked rendering. This handles runtime failures — e.g., a hook that works during construction but fails during rendering due to state changes, resource exhaustion, or corrupted plugin state.
+
+Construction-time enforcement catches missing or rolled-back plugins before the viewport is usable. Render-time enforcement catches runtime failures that cannot be predicted at construction time.
+
+#### Layer 1: Host-declared required capabilities
+
+The Viewport constructor (or export function) accepts a `requiredCapabilities` declaration:
 
 ```typescript
 interface ViewportOptions {
   // ... existing options ...
-  requiredCapabilities?: string[]; // e.g., ['vtt:fog']
+  requiredCapabilities?:
+    | string[]
+    | {
+        viewport?: string[];
+        minimap?: string[];
+        imageExport?: string[];
+        svgExport?: string[];
+      };
 }
 ```
 
-These are capability identifiers, not plugin names. The host declares what the viewport needs to render safely. If a required capability is not satisfied by any registered hook, the surface renders its opaque mask — regardless of whether a plugin was "forgotten" or "optional."
+When `requiredCapabilities` is an **array**, it applies to ALL surfaces (backward compatible). When it is an **object**, each surface can declare its own capability requirements independently — e.g., the viewport may require `vtt:fog` while the minimap does not.
 
-**Layer 2: Hook-level `required` flag.** Individual hook registrations can also be marked `required: true`. This is a secondary signal — it means "this specific hook is privacy-critical." If a hook marked `required` throws during rendering, the surface falls back to the masked state.
+These are capability identifiers, not plugin names. The host declares what each surface needs to render safely.
 
-**Capability satisfaction.** When a hook is registered, it can declare which capabilities it satisfies:
+#### Layer 2: Hook-level `required` flag
+
+Individual hook registrations can also be marked `required: true`. This is a secondary signal — it means "this specific hook is privacy-critical." If a hook marked `required` throws during rendering, the surface falls back to the masked state.
+
+#### Capability satisfaction
+
+When a hook is registered, it can declare which capabilities it satisfies:
 
 ```typescript
 interface ViewportHookOptions {
@@ -142,14 +179,16 @@ interface ViewportHookOptions {
 }
 ```
 
-After all plugins are installed (during the constructor's Phase 2), the viewport checks that all `requiredCapabilities` are satisfied. If any are unsatisfied, the viewport renders opaque masks on all surfaces until the capability is satisfied.
+**Slot constraint.** `afterElements` hooks are only valid in the `afterSceneBeforeOverlay` and `afterOverlay` slots. The `afterToolOverlay` slot only accepts `afterAll` hooks (tool overlay is the final paint step).
 
-| Surface      | Behavior when required capability is unsatisfied                    |
-| ------------ | ------------------------------------------------------------------- |
-| Viewport     | Renders an opaque mask over the content area (fog-colored or solid) |
-| Minimap      | Renders blank (no map content visible)                              |
-| Image export | Throws or returns a masked image                                    |
-| SVG export   | Emits an opaque `<rect>` covering the content                       |
+After all plugin phases complete — including Phase 3 (Start) where optional plugins may fail and have their registrations rolled back — the viewport checks that each surface's required capabilities are satisfied by hooks registered on **that** surface. If any surface has unsatisfied requirements, the constructor throws.
+
+| Surface      | Behavior when required capability is unsatisfied (at render time) |
+| ------------ | ----------------------------------------------------------------- |
+| Viewport     | Renders an opaque mask over the content area                      |
+| Minimap      | Renders blank (no map content visible)                            |
+| Image export | Throws or returns a masked image                                  |
+| SVG export   | Emits an opaque `<rect>` covering the content                     |
 
 Hook exceptions follow the same policy — if a required hook's render function throws, the surface falls back to the masked state, not to unmasked rendering.
 
@@ -162,7 +201,7 @@ Fog registers on the viewport surface in the correct semantic slot:
 ```typescript
 viewport.renderHooks.viewport.register(
   {
-    afterElements: (ctx, camera, dpr) => {
+    afterElements: (ctx, camera, { width, height, dpr }) => {
       // Fog rendering — receives screen-space context (no world transform)
       fogRenderer.render(ctx, camera, width, height, dpr);
     },
@@ -311,3 +350,13 @@ This revision addresses two findings from peer review:
 **F5 — Render-hook API was internally inconsistent.** The previous version defined a single `SurfaceRenderHooks` interface with `(ctx: RenderContext, camera: Camera)` but then showed different parameter shapes for different surfaces (viewport: `(ctx, camera)`, image export: `(ctx, options)`, SVG export: `(svgDoc, options)`). The revised design replaces the generic interface with typed per-surface hook interfaces: `ViewportRenderHooks`, `MinimapRenderHooks`, `ImageExportHooks`, and `SvgExportHooks`. Each receives the correct context type for its surface. The SVG export hook receives a `SvgStringBuilder` (matching the actual string-based implementation) instead of a non-existent `SVGDocument`. Arbitrary numeric `zOrder` is replaced with typed semantic slots (`ViewportSlot`) scoped to the hybrid surface strata.
 
 **Third review — F1 (Missing "required" hooks cannot be detected):** The `required: true` flag on hook registration only works if the hook is actually registered. If the fog plugin is omitted entirely, no registration carries `required: true`, and the registry cannot detect the gap. Resolved by introducing host-declared `requiredCapabilities` (e.g., `['vtt:fog']`) on the Viewport constructor and export functions. Hooks declare which capabilities they `satisfy`. After plugin installation, the viewport checks that all required capabilities are satisfied; unsatisfied capabilities trigger opaque-mask rendering. This decouples capability requirements from plugin registration — the host declares what it needs, independent of which plugins are provided.
+
+**Fourth review — F4 (The render hook and fail-closed contracts contradict each other):**
+
+1. **Contradictory enforcement points.** ADR-0002 said missing capabilities produce masked surfaces, while ADR-0005 said the constructor throws. These appeared contradictory. Resolved by clarifying that there are two complementary enforcement points: construction time (after all plugin phases complete, the constructor throws if any `requiredCapabilities` are unsatisfied) and render time (if a `required: true` hook throws during rendering, the surface falls back to masked rendering). Construction-time enforcement catches missing or rolled-back plugins; render-time enforcement catches runtime failures.
+
+2. **Post-rollback re-validation.** Capability validation previously occurred after Phase 2 (Construct), but optional plugins may fail during Phase 3 (Start) and have their registrations rolled back — potentially unsatisfying a capability that was valid after Phase 2. Resolved by specifying that the viewport re-checks all `requiredCapabilities` after ALL plugin phases complete, including Phase 3 rollbacks. If any capability is unsatisfied after all rollbacks, the constructor throws.
+
+3. **Surface-qualified requirements.** All surfaces used the same `vtt:fog` identifier without clearly requiring it independently on each surface. Resolved by extending `requiredCapabilities` to accept either an array (applies to all surfaces, backward compatible) or an object with per-surface keys (`viewport`, `minimap`, `imageExport`, `svgExport`). Each surface's capabilities are checked against hooks registered on that surface specifically.
+
+4. **Slot/hook pairing and viewport dimensions.** `afterElements` could be paired with the `afterToolOverlay` slot, which doesn't make semantic sense (tool overlay is the final paint step). Resolved by adding a constraint: `afterElements` hooks are only valid in `afterSceneBeforeOverlay` and `afterOverlay` slots; `afterToolOverlay` only accepts `afterAll` hooks. Additionally, the viewport hook callback now receives a `dimensions` parameter (`{ width, height, dpr }`) instead of just `dpr`, so hooks have access to viewport dimensions without referencing undefined variables.
