@@ -128,15 +128,13 @@ interface ToolContext {
   constraintService: PointConstraintService; // Stable proxy — always present once initialized
 }
 
+// Implementation interface — no activation control
+// Activation is solely the proxy's concern
 interface PointConstraintService {
   // Generic point constraint — no grid/hex/cell concepts
   constrainPoint(point: Point, options?: ConstraintOptions): Point;
   // Get info about the current constraint (opaque to core)
   getConstraintInfo(): ConstraintInfo | null;
-
-  // Activation control — core toggles constraining on/off
-  readonly isActive: boolean;
-  setActive(active: boolean): void;
 
   // Capability query — string-based, no unsafe generics
   hasCapability(capability: string): boolean;
@@ -160,18 +158,17 @@ interface ConstraintInfo {
 ```typescript
 // @fieldnotes/vtt provides the typed grid service
 class GridConstraintService implements PointConstraintService {
-  private _active = false;
+  // No _active field — activation is the proxy's concern
 
   constrainPoint(point: Point, options?: ConstraintOptions): Point {
-    if (!this._active) return point; // Inactive → return unchanged
+    // Always ready to constrain when called
+    // The proxy gates calls — this is only called when active
     // Interprets options.mode and options.footprint using grid-specific logic
     // (smartSnap, snapToCellCenter, etc.)
   }
   getConstraintInfo(): GridConstraintInfo {
     return { type: 'grid', gridType: this.gridType, cellSize: this.cellSize, ... };
   }
-  readonly isActive: boolean;
-  setActive(active: boolean): void { this._active = active; }
 
   hasCapability(capability: string): boolean {
     // e.g., 'grid:cell-center', 'grid:smart-snap'
@@ -241,7 +238,7 @@ Tools that don't snap (DmMarkerTool, MovementPathTool) simply don't call the ser
 
 ### Explicit opt-out for inactive service
 
-The stable proxy is always present on `ToolContext` once initialized, but it may have no implementation (no grid plugin installed). When the proxy has no implementation, `constrainPoint()` returns the point unchanged. Tools that **require** constraining should check whether the service is active and warn if it is not:
+The stable proxy is always present on `ToolContext` once initialized, but it may have no implementation (no grid plugin installed). When the proxy has no implementation, or when the proxy is inactive, `constrainPoint()` returns the point unchanged. The proxy's `isActive` getter is the single source of truth for whether constraining is active — implementations have no activation state of their own. Tools that **require** constraining should check the proxy's `isActive` and warn if it is not active:
 
 ```typescript
 // Instead of silent fallback:
@@ -249,7 +246,7 @@ const snapped = ctx.constraintService.constrainPoint(world);
 
 // Require explicit handling for tools that need constraining:
 if (!ctx.constraintService.isActive) {
-  // Tool knows it needs constraining but service is inactive or has no implementation
+  // Proxy is inactive or has no implementation — isActive is solely the proxy's concern
   // Log warning in development, throw in tests
   if (process.env.NODE_ENV === 'development') {
     console.warn(`Tool ${toolName} requires constraintService but it is not active`);
@@ -258,7 +255,7 @@ if (!ctx.constraintService.isActive) {
 const snapped = ctx.constraintService.constrainPoint(world);
 ```
 
-Better: tools that require constraining declare it in their registration, and the tool manager warns if the constraint service is not active when the tool is active.
+Better: tools that require constraining declare it in their registration, and the tool manager warns if the constraint service proxy is not active when the tool is active.
 
 ### RollKeeper tool compatibility
 
@@ -282,33 +279,34 @@ Better: tools that require constraining declare it in their registration, and th
 
 ### ConstraintService ownership
 
-The `PointConstraintService` slot on `ToolContext` is a stable proxy owned by core. The grid plugin provides the implementation via `_setImpl()`. Activation state (`setActive()`) is owned by core and survives service replacement. When the grid plugin replaces the implementation, the proxy re-applies the current activation state.
+The `ConstraintServiceProxy` slot on `ToolContext` is a stable proxy owned by core. The grid plugin provides the implementation via `_setImpl()`. Activation is solely the proxy's concern — the proxy owns activation state (`_active`) and gates calls. Implementations are stateless with respect to activation: they constrain points when asked, and the proxy decides when to ask.
 
-Core provides a `ConstraintServiceProxy` that delegates to the current implementation. The proxy is always present on `ToolContext` once the constraint service system is initialized — it is never `undefined`. This ensures that activation state (the snap-to-grid toggle) survives service replacement when grids are added, removed, or changed.
+Core provides a `ConstraintServiceProxy` that delegates to the current implementation. The proxy is always present on `ToolContext` once the constraint service system is initialized — it is never `undefined`. This ensures that activation state (the snap-to-grid toggle) survives service replacement when grids are added, removed, or changed. Since implementations have no activation state, `_setImpl()` simply swaps the implementation — no activation forwarding is needed.
 
 ```typescript
-// Core provides a stable proxy — activation state survives service replacement
-class ConstraintServiceProxy implements PointConstraintService {
+// Core provides a stable proxy — activation is solely the proxy's concern
+class ConstraintServiceProxy {
   private _impl: PointConstraintService | null = null;
-  private _active = false; // Core-owned activation state
+  private _active = false;
+
+  // Proxy's public API — includes activation control
+  get isActive(): boolean {
+    return this._active;
+  }
+
+  setActive(active: boolean): void {
+    this._active = active;
+    // No forwarding to implementation — activation is proxy-only
+  }
 
   constrainPoint(point: Point, options?: ConstraintOptions): Point {
     if (!this._active || !this._impl) return point;
     return this._impl.constrainPoint(point, options);
   }
 
-  readonly isActive: boolean;
-  setActive(active: boolean): void {
-    this._active = active; // Survives service replacement
-  }
-
-  // Called by the grid plugin when the service is ready/replaced
   _setImpl(impl: PointConstraintService | null): void {
     this._impl = impl;
-    // If activation was requested before the service was ready, apply it now
-    if (this._active && impl) {
-      impl.setActive(true);
-    }
+    // No activation forwarding — implementations don't have activation state
   }
 
   getConstraintInfo(): ConstraintInfo | null {
@@ -321,7 +319,7 @@ class ConstraintServiceProxy implements PointConstraintService {
 }
 ```
 
-When the grid plugin replaces the service implementation, the proxy's `_setImpl()` method re-applies the current activation state. If `setSnapToGrid(true)` was called before the service was ready, the new service starts active. This prevents the loss of the snap toggle when grid state changes.
+When the grid plugin replaces the service implementation, the proxy's `_setImpl()` method simply swaps the implementation — no activation forwarding is needed because implementations have no activation state. The proxy continues to gate calls based on its own `_active` state. This prevents the bug where `_setImpl()` only forwarded `true` and the implementation could remain active after `setSnapToGrid(false)`.
 
 `GridController.syncContext()` becomes the grid plugin's responsibility.
 
@@ -341,7 +339,7 @@ setSnapToGrid(enabled: boolean): void {
 }
 ```
 
-The `setActive()` method gives core explicit control over whether constraining is active. When `setSnapToGrid(false)` is called, the service deactivates — tools that call `constrainPoint()` while the service is inactive get back the original point unchanged (the service itself checks `isActive` before constraining). This preserves the existing toggle behavior without requiring tools to check `isActive` themselves.
+The proxy's `setActive()` method gives core explicit control over whether constraining is active. When `setSnapToGrid(false)` is called, the proxy deactivates — tools that call `constrainPoint()` while the proxy is inactive get back the original point unchanged (the proxy checks `_active` before delegating to the implementation). Activation is solely the proxy's concern — implementations are always ready to constrain when called, and have no activation state of their own. This preserves the existing toggle behavior without requiring tools to check `isActive` themselves.
 
 #### React `snapToGrid` prop
 
@@ -433,7 +431,7 @@ The original proposal placed a VTT-specific `SnapService` (with methods like `sn
 
 **Changes made:**
 
-1. **Replaced `SnapService` with domain-neutral `PointConstraintService`.** Core's `constraintService` slot carries no grid/hex/cell concepts. The generic interface (`constrainPoint`, `getConstraintInfo`, `isActive`) is domain-agnostic.
+1. **Replaced `SnapService` with domain-neutral `PointConstraintService`.** Core's `constraintService` slot carries no grid/hex/cell concepts. The generic interface (`constrainPoint`, `getConstraintInfo`, `hasCapability`) is domain-agnostic.
 
 2. **Moved VTT-specific behavior to `@fieldnotes/vtt`.** The `GridConstraintService` class implements `PointConstraintService` and interprets domain-neutral `ConstraintOptions` using grid-specific logic. Core tools never need VTT-specific imports or casts.
 
@@ -479,7 +477,7 @@ The original proposal placed a VTT-specific `SnapService` (with methods like `sn
 
 **Changes made:**
 
-1. **Added stable `ConstraintServiceProxy`.** Core owns a proxy that is always present on `ToolContext` once initialized. The proxy delegates to the current implementation via `_setImpl()`. Activation state (`_active`) is owned by core and survives service replacement. When the grid plugin replaces the implementation, the proxy re-applies the current activation state — `setSnapToGrid(true)` called before the service is ready is preserved.
+1. **Added stable `ConstraintServiceProxy`.** Core owns a proxy that is always present on `ToolContext` once initialized. The proxy delegates to the current implementation via `_setImpl()`. Activation state (`_active`) is owned solely by the proxy and survives service replacement. Since implementations have no activation state, `_setImpl()` simply swaps the implementation — the proxy continues gating based on its own `_active` state.
 
 2. **Removed `getCapability<T>()`.** The unsafe generic method was removed from `PointConstraintService`. Domain-specific access now uses the typed service registry (ADR-0005): `viewport.getService<GridConstraintService>('grid')`. This eliminates the possibility of callers asserting arbitrary types.
 
@@ -494,6 +492,10 @@ The original proposal placed a VTT-specific `SnapService` (with methods like `sn
 7. **Updated ConstraintService ownership section.** Replaced the "service can be `undefined`" model with the stable proxy pattern. Documented `_setImpl()`, activation state persistence, and re-application on service replacement.
 
 8. **Updated Consequences.** Added "Stable activation state" and "No unsafe casts or generics" to positives. Added "Proxy indirection" and "Template resizing not covered" to negatives. Updated risks to reflect proxy behavior.
+
+### Fifth review — F10
+
+- **F10 (Constraint proxy activation):** Redesigned so activation is solely a proxy concern. Removed `isActive` and `setActive()` from the `PointConstraintService` implementation interface. The `ConstraintServiceProxy` owns activation state (`_active`) and gates calls — implementations are always ready, they just constrain points when the proxy delegates. `_setImpl()` no longer forwards activation state (there's nothing to forward). `isActive` is a proper getter on the proxy. This eliminates the bug where `_setImpl()` only forwarded `true` and the implementation could remain active after `setSnapToGrid(false)`.
 
 ## References
 

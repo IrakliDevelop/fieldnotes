@@ -74,6 +74,31 @@ const viewport = new Viewport({
 });
 ```
 
+### Typed service keys
+
+Service registration and retrieval use opaque `ServiceKey<T>` tokens instead of string keys. The key carries the service type, eliminating unchecked casts.
+
+```typescript
+// Opaque typed key — the key carries the service type
+declare const ServiceKeyBrand: unique symbol;
+interface ServiceKey<T> {
+  readonly [ServiceKeyBrand]: T;
+  readonly name: string; // For debugging
+}
+
+// Factory function to create typed keys
+function createServiceKey<T>(name: string): ServiceKey<T> {
+  return { name } as ServiceKey<T>;
+}
+```
+
+VTT packages export typed service keys:
+
+```typescript
+export const FogManagerKey = createServiceKey<FogManager>('fog');
+export const GridControllerKey = createServiceKey<GridController>('grid');
+```
+
 ### Plugin interface
 
 ```typescript
@@ -120,7 +145,11 @@ interface PluginStartContext {
   // ... all services available
 
   // Register a typed service accessible to the host via viewport.getService()
-  registerService<T>(key: string, service: T): void;
+  registerService<T>(key: ServiceKey<T>, service: T): void;
+
+  // Register a disposer that will be called if start() fails
+  // or when the plugin is disposed
+  addDisposer(dispose: () => void): void;
 }
 ```
 
@@ -132,13 +161,18 @@ Key design points:
 - **`configure()` receives a restricted context.** The viewport, renderLoop, minimap, and fog do not exist yet. Plugins can only register hooks, tools, and serialization handlers.
 - **`start()` receives the full runtime.** All subsystems are fully constructed. Plugins that need viewport access do their setup here.
 - **`configure()` registration is transactional.** The configure context tracks all registrations made during `configure()`. If the plugin throws (during configure or during start), the viewport rolls back all registrations made by that plugin's configure phase. This is implemented by the viewport wrapping each plugin's configure call in a try/catch that tracks and reverses registrations.
-- **Failed installation rolls back.** If `start()` throws, all registrations made by that plugin's `configure()` phase are rolled back.
+- **Failed installation rolls back.** If `start()` throws, the viewport:
+  1. Calls all disposers registered via `ctx.addDisposer()` during this plugin's `start()` call (in reverse order)
+  2. Rolls back all `configure()` registrations made by this plugin
+  3. Removes any services registered via `ctx.registerService()` during this plugin's `start()` call
+
+  This ensures no partial state survives a failed `start()`. The transaction scope covers both `configure()` and `start()` phases.
 
 ### Required plugin enforcement
 
 There are two enforcement points, operating at different stages:
 
-1. **Construction time:** After ALL plugin phases complete — Phase 1 (Configure), Phase 2 (Construct), Phase 3 (Start) including any rollbacks from failed optional plugins — the viewport checks that all `requiredCapabilities` are satisfied by the remaining registered hooks. If any capability is unsatisfied after all rollbacks, the constructor throws.
+1. **Construction time:** After ALL plugin phases complete — Phase 1 (Configure), Phase 2 (Construct), Phase 3 (Start) including any rollbacks from failed optional plugins — the viewport checks that all `requiredCapabilities` are satisfied by the remaining registered hooks. If any capability is unsatisfied after all rollbacks, the viewport calls `dispose()` on all successfully started plugin handles, calls all registered disposers, then throws.
 
 2. **Render time:** If a `required: true` hook throws during rendering, the surface falls back to masked rendering. This is consistent with ADR-0002's fail-closed design: missing capabilities produce masked surfaces, not errors.
 
@@ -200,43 +234,49 @@ const fogPlugin: ViewportPlugin = {
 
 ### Plugin service registry
 
-Plugins that provide services accessible to the host application (e.g., FogManager, GridController) register them during `start()` via `ctx.registerService()`. The host application retrieves them via `viewport.getService()`. This replaces direct property access (e.g., `viewport.fog`) with a typed, plugin-mediated service registry.
+Plugins that provide services accessible to the host application (e.g., FogManager, GridController) register them during `start()` via `ctx.registerService()` using typed `ServiceKey<T>` tokens. The host application retrieves them via `viewport.getService()`. This replaces direct property access (e.g., `viewport.fog`) with a type-safe, plugin-mediated service registry.
 
 ```typescript
 interface Viewport {
-  // Typed service retrieval — plugins register services during start()
-  getService<T>(key: string): T | undefined;
+  // Typed service retrieval — T is inferred from the ServiceKey<T>
+  getService<T>(key: ServiceKey<T>): T | undefined;
 
   // ... existing methods ...
 }
 ```
 
-Plugins register services during `start()`:
+Plugins register services during `start()` using typed keys:
 
 ```typescript
-// Fog plugin registers FogManager as a service:
+// VTT package exports typed service keys:
+export const FogManagerKey = createServiceKey<FogManager>('fog');
+export const GridControllerKey = createServiceKey<GridController>('grid');
+
+// Fog plugin registers FogManager with typed key:
 start(ctx) {
   const fogManager = new FogManager(/* ... */);
-  ctx.registerService<FogManager>('fog', fogManager);
+  ctx.registerService(FogManagerKey, fogManager);
   return { dispose() { fogManager.dispose(); } };
 }
 ```
 
-The host application and other consumers retrieve services through the registry:
+The host application and other consumers retrieve services through the registry — `T` is inferred from the key, no cast needed:
 
 ```typescript
-// RollKeeper accesses plugin-owned services:
-const fogManager = viewport.getService<FogManager>('fog');
-const gridController = viewport.getService<GridController>('grid');
+// RollKeeper accesses plugin-owned services — T is inferred:
+const fogManager = viewport.getService(FogManagerKey); // FogManager | undefined
+const gridController = viewport.getService(GridControllerKey); // GridController | undefined
 
 // Replace direct property access:
 // Before: viewport.fog.setStyle(...)
-// After: viewport.getService<FogManager>('fog')?.setStyle(...)
+// After: viewport.getService(FogManagerKey)?.setStyle(...)
 
 // Autosave accesses fog state through the service registry:
-const fog = viewport.getService<FogManager>('fog');
+const fog = viewport.getService(FogManagerKey);
 const fogState = fog?.exportState();
 ```
+
+> **Note:** `ServerOpContext.backendPlugin<T>()` in ADR-0003 uses the same `ServiceKey<T>` pattern for type-safe backend plugin access.
 
 ### Four-phase constructor order
 
@@ -264,8 +304,13 @@ Steps marked TEMPORARY exist during the migration window. After VTT extraction, 
 Phase 3: Start — plugins receive the complete runtime
   18. For each plugin: plugin.start(ctx) ← full runtime context
       - Viewport is fully constructed, all services available
+      - ctx.addDisposer() tracks cleanup callbacks
+      - ctx.registerService() tracks registered services
       - Returns PluginHandle with per-instance dispose()
-      - If start() throws → roll back configure() registrations for this plugin
+      - If start() throws:
+        a. Call all disposers registered during this start() call (reverse order)
+        b. Remove all services registered during this start() call
+        c. Roll back configure() registrations for this plugin
       - If required plugin throws → dispose all prior handles, constructor throws
 
 Phase 4: Render — first frame
@@ -317,9 +362,17 @@ Since each plugin's state is stored at `extensions[plugin.name]`, collisions are
 
 ### Four-phase loadState ordering
 
-State loading uses a validate-snapshot-apply-restore pattern. During Phase 3 (Apply), the viewport suppresses store change notifications. Autosave and sync observers do not receive events during the apply phase. This prevents them from observing partial mutations. After all apply steps complete successfully, the viewport emits a single batch notification covering all changes. Autosave and sync observers see the complete new state, not intermediate mutations.
+State loading uses a validate-snapshot-apply-restore pattern. During Phase 3 (Apply), the viewport suspends ALL observer notifications across all subsystems via a viewport-wide event barrier. No observers receive events during the apply phase. This prevents any subsystem from observing partial mutations. After all apply steps complete successfully, the viewport resumes notifications, flushing batched events. All observers see the complete new state, not intermediate mutations.
 
-If Phase 4 (Restore) is triggered because an apply step threw, the viewport restores the snapshot from Phase 2. However, some effects cannot be fully retracted:
+```typescript
+interface Viewport {
+  // Suspend all observer notifications across all subsystems
+  // Returns a resume function that flushes batched notifications
+  suspendNotifications(): () => void;
+}
+```
+
+If Phase 4 (Restore) is triggered because an apply step threw, the viewport calls `resume()` to re-enable notifications, then restores the snapshot from Phase 2. However, some effects cannot be fully retracted:
 
 - DOM mutations may have already occurred (the DOM is restored, but any DOM observers have already fired).
 - Plugin `loadState()` may have side effects that cannot be undone (e.g., network requests, timers).
@@ -336,8 +389,14 @@ Phase 1: Validate — all plugins validate before any mutations
 Phase 2: Snapshot — capture current state for rollback
   2. Snapshot current elements, layers, plugin state, active layer, camera, history
 
-Phase 3: Apply — suppress notifications, apply mutations
-  3. Suppress store change notifications
+Phase 3: Apply — viewport-wide event barrier, apply mutations
+  3. Call viewport.suspendNotifications() — this suspends:
+     - Store change notifications (add/remove/update/clear)
+     - Layer manager change notifications
+     - Camera change notifications
+     - History change notifications
+     - Plugin state change notifications
+     All observers are queued but not fired.
   4. Elements loaded
   5. Layers loaded
   6. Active layer set
@@ -345,13 +404,18 @@ Phase 3: Apply — suppress notifications, apply mutations
   8. Plugin handle.loadState() called
   9. History cleared
   10. Camera restored
-  11. Re-enable store change notifications
-  12. Emit single batch notification for all changes
+  11. Call resume() — this flushes batched notifications:
+      - Single batched store notification covering all element changes
+      - Single layer manager notification
+      - Single camera notification
+      - Single history notification
+      Observers see the complete new state, not intermediate mutations.
 
 Phase 4: On failure — restore snapshot (best-effort)
   If any step in Phase 3 throws:
+  - Call resume() to re-enable notifications (flushing whatever changes occurred)
   - Restore snapshot from Phase 2
-  - Re-enable notifications if suppressed
+  - Re-notify observers of restored state (single batch)
   - Log warning if restore encounters errors
   - System may be in inconsistent state (documented limitation)
 ```
@@ -396,6 +460,10 @@ await viewport.initialize({ plugins: [fogPlugin, gridPlugin] });
 
 ## Consequences
 
+### Positive (additions)
+
+- **Viewport-wide atomicity:** The event barrier ensures ALL observers (store, layers, camera, history, plugins) see the complete new state or the restored snapshot — never partial mutations. This replaces the store-only notification suppression which left layer-sync observers, camera listeners, and plugin persistence able to observe partial state.
+
 ### Positive
 
 - **No unmasked frames:** Fog plugin is active before the first render. Privacy is preserved from frame zero.
@@ -421,8 +489,9 @@ await viewport.initialize({ plugins: [fogPlugin, gridPlugin] });
 - Plugins that depend on each other (e.g., grid plugin depends on snap service from core) must have their dependencies available at configure time. The `PluginConfigureContext` must provide all necessary services.
 - RollKeeper's existing bootstrap ordering (snapshot → fog → render) must be preserved through the plugin lifecycle. The four-phase `validateState()` / snapshot / `loadState()` / restore pattern gives plugins control, but the ordering must be correct.
 - Plugin name collisions in `exportState()` keys are caught at registration time, but this means plugin naming becomes part of the public contract — renaming a plugin is a breaking change for persisted state.
-- The service registry uses string-keyed lookups (`getService<T>(key)`). Service keys (e.g., `'fog'`, `'grid'`) become part of the public contract — renaming a service key is a breaking change for consumers.
+- The service registry uses typed `ServiceKey<T>` tokens. Service keys (e.g., `FogManagerKey`, `GridControllerKey`) become part of the public contract — renaming or removing a service key is a breaking change for consumers.
 - State restore after a failed `loadState()` is best-effort. DOM observer firings and plugin side effects (network requests, timers) cannot be retracted. The system may be in an inconsistent state after a failed restore.
+- The event barrier must cover ALL observable subsystems. If a new subsystem is added that has its own observers, it must participate in the barrier. Missing a subsystem re-introduces the partial-state observation problem.
 
 ## Review Response
 
@@ -456,6 +525,14 @@ await viewport.initialize({ plugins: [fogPlugin, gridPlugin] });
 - **F10 (RollKeeper cannot access plugin-owned fog and grid services):** Once FogManager and GridController move to plugins, the application has no supported way to obtain them. Added a typed service-key registry on Viewport: plugins register services during `start()` via `ctx.registerService()`, the host retrieves them via `viewport.getService<T>()`. This replaces direct property access (e.g., `viewport.fog`) with a typed, plugin-mediated service registry. Autosave and sync also use the service registry to access plugin-owned state.
 
 - **F13 (Plugin-state namespacing cannot work as documented):** `exportState()` returns keys only at export time, so collisions cannot be detected "at registration time." Replaced the namespaced key approach with a simpler model: each plugin's state is stored as a single opaque value at `extensions[plugin.name]`. The `PluginHandle` receives only its own state slice (`validateState(data: unknown)`, `loadState(data: unknown)`, `exportState(): unknown`). Collisions are impossible by construction since plugin names are unique (enforced by the idempotent registration check).
+
+### Fifth review — F7, F8, F9
+
+- **F7 (Typed service registry):** Replaced string-keyed `getService<T>(key: string)` with opaque `ServiceKey<T>` tokens. `createServiceKey<T>(name)` creates a typed key that carries the service type through registration and retrieval. `registerService(key, service)` and `getService(key)` are type-safe — no unchecked casts. VTT package exports typed keys (`FogManagerKey`, `GridControllerKey`). Same pattern applied to ADR-0003's `backendPlugin<T>()`.
+
+- **F8 (start() partial state):** Extended transaction scope to cover `start()` in addition to `configure()`. Added `ctx.addDisposer()` to `PluginStartContext` — tracks cleanup callbacks during start. If `start()` throws: (1) all disposers called in reverse order, (2) all services registered during start removed, (3) configure registrations rolled back. No partial state survives a failed start.
+
+- **F9 (loadState atomicity):** Replaced store-only notification suppression with viewport-wide event barrier (`viewport.suspendNotifications()`). ALL observers are suspended during apply: store, layers, camera, history, plugins. On success, resume flushes batched notifications. On failure, resume re-enables notifications, then restore + re-notify. Every subsystem participates in the barrier — no partial-state observation possible.
 
 ## References
 

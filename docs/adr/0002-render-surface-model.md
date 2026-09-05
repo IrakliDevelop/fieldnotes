@@ -190,9 +190,21 @@ After all plugin phases complete — including Phase 3 (Start) where optional pl
 | Image export | Throws or returns a masked image                                  |
 | SVG export   | Emits an opaque `<rect>` covering the content                     |
 
+Additionally, if a hook that satisfies a required capability throws during rendering (regardless of whether it was explicitly marked `required`), the surface falls back to masked rendering. This ensures that required capabilities cannot fail open through a non-required hook.
+
 Hook exceptions follow the same policy — if a required hook's render function throws, the surface falls back to the masked state, not to unmasked rendering.
 
 This is enforced by the plugin lifecycle (see [ADR-0005](0005-plugin-lifecycle.md)): fog plugins install at construction time with `satisfies: ['vtt:fog']`, before `renderLoop.start()`.
+
+#### Auto-required for hooks satisfying required capabilities
+
+A hook that `satisfies` a host-declared required capability automatically inherits fail-closed treatment at render time. The registry cross-references each hook's `satisfies` array against the surface's `requiredCapabilities` when both are available (after all plugin phases complete). If a hook satisfies a required capability and that hook throws during rendering, the surface falls back to masked rendering — even if the hook was not explicitly marked `required: true`.
+
+This eliminates the gap where a capability is "satisfied" by a hook that is not marked `required`, and the hook's exception does not trigger the masked fallback. The rule is:
+
+> **If a capability is required (declared by the host), ALL hooks that satisfy it are treated as required for render-time enforcement.**
+
+This does not affect construction-time enforcement — the capability is still considered satisfied as long as the hook is registered. It only affects render-time behavior: if the hook throws, the surface masks.
 
 ### Viewport surface
 
@@ -328,7 +340,7 @@ viewport.renderHooks.register({
 
 - The viewport surface's semantic slots must correctly map to hybrid surface strata. Getting this wrong breaks the paint stack (fog renders above/below elements incorrectly).
 - RollKeeper's custom export composition may need additional hooks beyond `afterElements` (e.g., `beforeElements` for background markers).
-- The `required` flag must be applied consistently to all privacy-critical hooks. A missing `required` flag on a fog hook silently degrades to fail-open behavior.
+- The `required` flag should still be applied explicitly to privacy-critical hooks for clarity, but the auto-required mechanism ensures that hooks satisfying required capabilities inherit fail-closed treatment even without the explicit flag.
 - Capability identifiers (`vtt:fog`, etc.) become part of the public contract. Renaming a capability identifier is a breaking change for host configurations.
 
 ## References
@@ -360,3 +372,7 @@ This revision addresses two findings from peer review:
 3. **Surface-qualified requirements.** All surfaces used the same `vtt:fog` identifier without clearly requiring it independently on each surface. Resolved by extending `requiredCapabilities` to accept either an array (applies to all surfaces, backward compatible) or an object with per-surface keys (`viewport`, `minimap`, `imageExport`, `svgExport`). Each surface's capabilities are checked against hooks registered on that surface specifically.
 
 4. **Slot/hook pairing and viewport dimensions.** `afterElements` could be paired with the `afterToolOverlay` slot, which doesn't make semantic sense (tool overlay is the final paint step). Resolved by adding a constraint: `afterElements` hooks are only valid in `afterSceneBeforeOverlay` and `afterOverlay` slots; `afterToolOverlay` only accepts `afterAll` hooks. Additionally, the viewport hook callback now receives a `dimensions` parameter (`{ width, height, dpr }`) instead of just `dpr`, so hooks have access to viewport dimensions without referencing undefined variables.
+
+### Fifth review — F11
+
+- **F11 (Required capabilities can fail open):** `satisfies` and `required` were independent flags — a hook could satisfy a required capability without being marked `required`, and its exception would not trigger masked fallback. Resolved by adding auto-required treatment: any hook that satisfies a host-declared required capability automatically inherits fail-closed render-time enforcement. If such a hook throws, the surface falls back to masked rendering regardless of the explicit `required` flag.

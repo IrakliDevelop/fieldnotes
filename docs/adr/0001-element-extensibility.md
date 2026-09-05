@@ -73,29 +73,24 @@ interface ExtensionElementEnvelope extends BaseElement {
 This preserves TypeScript's discriminated union. A `switch` on `element.type` narrows exhaustively over the known members. Extension types are wrapped in the core-owned `ExtensionElementEnvelope`, not added directly to the union. Application code (RollKeeper, VTT) uses the registry's typed guards and `unwrap()` to narrow from `ExtensionElementEnvelope` to specific extension types:
 
 ```typescript
-// Application-level typed access — no generic propagation
-// The registry provides typed access to extension data:
-const gridDef = registry.getDefinition('vtt:grid');
-if (gridDef?.validate(element)) {
-  // element is now narrowed to the extension type
-  const gridData = element.data; // Record<string, unknown>
-  // Or use the definition's typed accessor:
-  const grid = gridDef.unwrap(element); // GridElement (typed)
+// Application-level typed access via ElementTypeKey<T>
+const gridKey = registry.getKey<GridElement>('vtt:grid');
+if (gridKey?.validate(element.data)) {
+  const grid = gridKey.unwrap(element); // GridElement (typed)
+  // Later, wrap back to envelope:
+  const envelope = gridKey.wrap(grid); // ExtensionElementEnvelope
 }
 ```
 
 ### Type propagation strategy
 
-Core operates on `CanvasElement` which includes `ExtensionElementEnvelope`. Extension elements flow through `ElementStore`, history, exports, and sync as `ExtensionElementEnvelope`. The registry's `unwrap()`/`wrap()` methods convert between the envelope and typed extension types. Application code uses the registry for typed access. This is a genuine erased adapter — core never sees extension-specific types, only the envelope.
+The registry uses a two-level design to solve the variance problem: `ElementTypeDefinition<T>` has methods that consume `T` (contravariant, e.g., `wrap(el: T)`, `bounds(el: T)`) and methods that produce `T` (covariant, e.g., `unwrap()`), making the interface invariant in `T`. This means `ElementTypeDefinition<GridElement>` cannot be subsumed to `ElementTypeDefinition<BaseElement>`. The solution is to separate the typed consumer-facing handle from the internal erased adapter.
 
-1. **Core operates on `CanvasElement` with the extension envelope.** The `CanvasElement` union includes `ExtensionElementEnvelope` as a core-owned type. `ElementStore`, `Viewport`, `ToolContext`, history commands, exports, serializers, and `SyncOp` all operate on this union. Core code never sees extension-specific types — only the envelope with its opaque `data: Record<string, unknown>`.
+1. **Core operates on `ExtensionElementEnvelope` via `ElementTypeAdapter` (erased).** The `CanvasElement` union includes `ExtensionElementEnvelope` as a core-owned type. `ElementStore`, `Viewport`, `ToolContext`, history commands, exports, serializers, and `SyncOp` all operate on this union. Core code never sees extension-specific types — only the envelope with its opaque `data: Record<string, unknown>`. The registry stores each definition as a non-generic `ElementTypeAdapter` that operates exclusively on `ExtensionElementEnvelope`.
 
-2. **The registry converts between envelopes and typed extensions.** `ElementTypeDefinition<T>` provides `unwrap(el: ExtensionElementEnvelope): T` and `wrap(el: T): ExtensionElementEnvelope`. The registry's type erasure is safe because:
-   - `validate()` uses a type guard (`el is T`) that performs runtime checks
-   - `unwrap()` and `wrap()` are compile-time contracts for domain packages, not runtime checks
-   - All other methods receive elements that have already passed validation
+2. **Consumers use `ElementTypeKey<T>` for typed access (unwrap/wrap/validateData).** `ElementTypeKey<T>` is a typed registration handle returned to consumers by `register()`. It preserves the type parameter `T` so that `unwrap()` returns `T`, `wrap()` accepts `T`, and `validate()` checks the envelope's `data` field. The key is a thin wrapper around the definition that provides type-safe access at the application boundary.
 
-3. **Application code uses the registry for typed access.** RollKeeper (or VTT) uses the registry's `unwrap()` to convert from `ExtensionElementEnvelope` to typed extension types (e.g., `GridElement`, `TemplateElement`). Typed access is available at the application boundary, not through generic type propagation.
+3. **The registry wraps each `ElementTypeDefinition<T>` in an erased `ElementTypeAdapter` at registration time.** The adapter converts envelope↔typed at the boundary: `validateEnvelope(el)` checks `el.extensionType === def.type && def.validateData(el.data)`, `bounds(el)` calls `def.bounds(def.unwrap(el))`, etc. This erasure is safe because the adapter only operates on envelopes and delegates to the typed definition internally.
 
 ### Element definition interface
 
@@ -137,7 +132,7 @@ interface ElementTypeDefinition<T extends BaseElement> {
   readonly type: string;
 
   // Validation & serialization
-  validate(el: unknown): el is T;
+  validateData(data: Record<string, unknown>): boolean; // Validates envelope.data contents
   serialize?(el: T): unknown;
   deserialize?(data: unknown): T;
   migrate?(el: Record<string, unknown>, fromVersion: number): void;
@@ -201,17 +196,17 @@ Key design points:
 
 ### Serialization envelope for extension elements
 
-Core elements serialize as today (their type string plus fields). Extension elements serialize with a discriminated envelope:
+Core elements serialize as today (their type string plus fields). Extension elements serialize with a discriminated envelope using a `data` field for extension-specific fields:
 
 ```json
 {
   "type": "extension",
   "extensionType": "vtt:grid",
-  ...extensionFields
+  "data": { "gridType": "hex", "hexOrientation": "pointy", "cellSize": 50 }
 }
 ```
 
-The `type: 'extension'` discriminator keeps the top-level union safe. The `extensionType` field is namespaced (e.g., `vtt:grid`, `vtt:template`) to avoid collisions between domain packages. This envelope is introduced at Phase 4 (v4 serialization boundary), coordinated with [ADR-0004](0004-serialization-compatibility.md). During Phases 2–3, extension elements retain their legacy wire shape (`type: 'grid'`, `type: 'template'`). See Backward compatibility below.
+The `type: 'extension'` discriminator keeps the top-level union safe. The `extensionType` field is namespaced (e.g., `vtt:grid`, `vtt:template`) to avoid collisions between domain packages. The `data` field contains all extension-specific fields — this matches the in-memory `ExtensionElementEnvelope` exactly. This envelope is introduced at Phase 4 (v4 serialization boundary), coordinated with [ADR-0004](0004-serialization-compatibility.md). During Phases 2–3, extension elements retain their legacy wire shape (`type: 'grid'`, `type: 'template'`). At Phase 4, legacy elements are converted by collecting all extension-specific fields into a `data` object. `parseState()` reads the legacy format, collects extension fields into `data`, and creates `ExtensionElementEnvelope`. `serializeState()` writes the envelope as-is (no conversion needed at Phase 4). See Backward compatibility below.
 
 ### In-memory vs. serialized representation
 
@@ -221,17 +216,17 @@ The in-memory representation (what lives in `ElementStore`) and the serialized r
 
 2. **Conversion boundary:** The registry's `wrap()` and `unwrap()` methods convert between typed extension types (e.g., `GridElement`) and `ExtensionElementEnvelope`. Domain packages call `wrap()` when creating elements and `unwrap()` when accessing extension data.
 
-3. **Serialized representation (wire format):** During Phases 2–3, extension elements retain their legacy wire shape (`type: 'grid'`, `type: 'template'`). The serializer's `parseState()` reads legacy shapes and calls `registry.wrap()` to convert to `ExtensionElementEnvelope` for `ElementStore`. At Phase 4 (v4 boundary), extension elements use the `type: 'extension'` envelope on the wire too.
+3. **Serialized representation (wire format):** The serialized format uses the same `data` field as the in-memory format — both use `ExtensionElementEnvelope` with `data: Record<string, unknown>`. During Phases 2–3, extension elements retain their legacy wire shape (`type: 'grid'`, `type: 'template'`). The serializer converts between legacy wire format and envelope: `parseState()` reads legacy fields into `data` via `wrap()`, `serializeState()` extracts from `data` via `unwrap()` then serializes in legacy format. At Phase 4 (v4 boundary), extension elements use the `type: 'extension'` envelope on the wire too.
 
-4. **Phase 2–3 detail:** During Phases 2–3, grid and template elements are stored in `ElementStore` as `ExtensionElementEnvelope` (in-memory), but serialize with their legacy wire shape. The serializer handles the conversion: `serialize()` calls `registry.unwrap()` to get the typed element, then serializes using the legacy format. `parseState()` reads the legacy format and calls `registry.wrap()` to create the envelope.
+4. **Phase 2–3 detail:** During Phases 2–3, grid and template elements are stored in `ElementStore` as `ExtensionElementEnvelope` (in-memory, with `data` field), but serialize with their legacy wire shape. The serializer handles the conversion: `serializeState()` calls `registry.getAdapter()` to get the erased adapter, calls `unwrap()` to get the typed element, then serializes using the legacy format. `parseState()` reads the legacy format, collects extension-specific fields into a `data` object, and calls `wrap()` to create the envelope.
 
-5. **Phase 4 detail:** At Phase 4, the wire format matches the in-memory format — both use `ExtensionElementEnvelope`. No conversion needed.
+5. **Phase 4 detail:** At Phase 4, wire format matches in-memory format — both use `ExtensionElementEnvelope` with `data` field. No conversion needed. `parseState()` reads the envelope as-is. `serializeState()` writes the envelope as-is.
 
-| Phase | In-memory (ElementStore)       | Wire format (serialized)       |
-| ----- | ------------------------------ | ------------------------------ |
-| 1     | Legacy (`type: 'grid'`)        | Legacy (`type: 'grid'`)        |
-| 2-3   | Envelope (`type: 'extension'`) | Legacy (`type: 'grid'`)        |
-| 4     | Envelope (`type: 'extension'`) | Envelope (`type: 'extension'`) |
+| Phase | In-memory (ElementStore)                      | Wire format (serialized)                      |
+| ----- | --------------------------------------------- | --------------------------------------------- |
+| 1     | Legacy (`type: 'grid'`)                       | Legacy (`type: 'grid'`)                       |
+| 2-3   | Envelope (`type: 'extension'`, `data: {...}`) | Legacy (`type: 'grid'`)                       |
+| 4     | Envelope (`type: 'extension'`, `data: {...}`) | Envelope (`type: 'extension'`, `data: {...}`) |
 
 ### Registry ownership
 
@@ -244,10 +239,31 @@ The registry is a standalone `ElementRegistry` object — not attached to `Viewp
 - Server and Redis processes (no viewport exists)
 
 ```typescript
+// Typed handle returned to consumers — preserves T
+interface ElementTypeKey<T extends BaseElement> {
+  readonly type: string;
+  validate(data: Record<string, unknown>): boolean; // Validates envelope.data contents
+  unwrap(el: ExtensionElementEnvelope): T;
+  wrap(el: T): ExtensionElementEnvelope;
+}
+
+// Internal erased adapter — non-generic, used by core
+interface ElementTypeAdapter {
+  readonly type: string;
+  validateEnvelope(el: ExtensionElementEnvelope): boolean;
+  bounds(el: ExtensionElementEnvelope): Bounds | null;
+  hitTest(el: ExtensionElementEnvelope, point: Point): boolean;
+  renderMode: 'canvas' | 'dom' | 'hybrid' | 'none';
+  render?(el: ExtensionElementEnvelope, ctx: ElementRenderContext): void;
+  // ... all other methods operate on ExtensionElementEnvelope
+}
+
 class ElementRegistry {
-  register<T extends BaseElement>(def: ElementTypeDefinition<T>): () => void;
-  validate(type: string, el: unknown): boolean;
-  getDefinition(type: string): ElementTypeDefinition<BaseElement> | undefined; // NOT any
+  register<T extends BaseElement>(def: ElementTypeDefinition<T>): ElementTypeKey<T>;
+  unregister(key: ElementTypeKey<unknown>): void;
+  validate(type: string, el: ExtensionElementEnvelope): boolean;
+  getAdapter(type: string): ElementTypeAdapter | undefined; // Internal use — erased
+  getKey<T>(type: string): ElementTypeKey<T> | undefined; // Consumer use — typed
   getTypes(): string[];
 }
 ```
@@ -269,18 +285,18 @@ These phases are aligned with [ADR-0004](0004-serialization-compatibility.md)'s 
 
 **Phase 1 — Add the registry and envelope model alongside existing types.** The 7 core element types (stroke, note, arrow, image, html, text, shape) remain as closed union members with their existing switch-statement paths. Introduce `ElementRegistry`, `ElementTypeDefinition<T>`, and the `ExtensionElementEnvelope` as a new member of the `CanvasElement` union. The registry is additive — it doesn't replace anything yet. No wire format changes.
 
-**Phase 2 — Register grid and template via the registry (internal refactor only).** Internally refactor grid and template so that the actual validation, rendering, and serialization logic is delegated to registered definitions. However, the wire format stays unchanged — grid and template still serialize as `type: 'grid'` and `type: 'template'` (their legacy shape). The `type: 'extension'` envelope is NOT used yet. This phase is an internal refactor only; no external behavior changes.
+**Phase 2 — Register grid and template via the registry (internal refactor only).** Internally refactor grid and template so that the actual validation, rendering, and serialization logic is delegated to registered definitions. The `ExtensionElementEnvelope` IS used in-memory (in `ElementStore`) starting from this phase. However, the wire format stays unchanged — grid and template still serialize as `type: 'grid'` and `type: 'template'` (their legacy shape). The `type: 'extension'` envelope is NOT used on the wire yet. This phase is an internal refactor only; no external behavior changes.
 
 **Phase 3 — Move definitions to @fieldnotes/vtt.** The `GridElementTypeDefinition` and `TemplateElementTypeDefinition` implementations move to the VTT package. Core's switch statements shrink to 7 cases. VTT code uses the registry's `unwrap()` for typed access to extension elements. Grid and template elements still serialize with their legacy wire format (`type: 'grid'`, `type: 'template'`).
 
-**Phase 4 — Adopt the extension envelope at the v4 boundary.** Coordinated with [ADR-0004 Phase 3](0004-serialization-compatibility.md), extension elements begin using the `type: 'extension'` envelope with namespaced `extensionType`. This only happens when ALL clients support the new format (v4 serialization boundary). After this transition, `'grid'` and `'template'` can be removed from `ELEMENT_TYPES` in core. Core's `CanvasElement` union has 8 members (7 core types + `ExtensionElementEnvelope`) and is fully closed. VTT package registers the types at construction time and uses the registry's `unwrap()` for typed access throughout.
+**Phase 4 — Adopt the extension envelope at the v4 boundary.** Coordinated with [ADR-0004 Phase 4](0004-serialization-compatibility.md), extension elements begin using the `type: 'extension'` envelope with namespaced `extensionType`. This only happens when ALL clients support the new format (v4 serialization boundary). After this transition, `'grid'` and `'template'` can be removed from `ELEMENT_TYPES` in core. Core's `CanvasElement` union has 8 members (7 core types + `ExtensionElementEnvelope`) and is fully closed. VTT package registers the types at construction time and uses the registry's `unwrap()` for typed access throughout.
 
 ### Backward compatibility
 
 During Phases 2–3, extension elements (grid, template) retain their legacy wire shape (`type: 'grid'`, `type: 'template'`). The `type: 'extension'` envelope is only introduced at Phase 4, coordinated with [ADR-0004](0004-serialization-compatibility.md)'s v4 serialization boundary. This ensures backward compatibility throughout the rollout:
 
 1. **Phases 2–3 (legacy wire format):** Grid and template elements continue to serialize as `type: 'grid'` and `type: 'template'`. Old clients can still read and write these elements. The internal registry refactor is invisible on the wire.
-2. **Phase 4 (v4 boundary — extension envelope):** Once all clients support the v4 format, extension elements begin using the `type: 'extension'` envelope with namespaced `extensionType`. `parseState()` detects elements with `type: 'grid'` or `type: 'template'` (the old format) and transparently upgrades them to the `type: 'extension'` envelope before deserialization. The registered definitions handle the actual field validation.
+2. **Phase 4 (v4 boundary — extension envelope):** Once all clients support the v4 format, extension elements begin using the `type: 'extension'` envelope with namespaced `extensionType` and extension-specific fields collected into a `data` object. `parseState()` detects elements with `type: 'grid'` or `type: 'template'` (the old format) and transparently upgrades them to the `type: 'extension'` envelope by collecting all extension-specific fields into `data`. The registered definitions handle the actual field validation via `validateData()`.
 3. **Writing new state (post-v4):** Extension elements are written with the `type: 'extension'` envelope. Once a canvas is saved in the new format, old core versions will not recognize the elements (acceptable — this is a forward migration, gated on all clients supporting v4).
 4. **Sync protocol:** `isValidElement()` validates base fields and delegates type-specific validation to the registry. During Phases 2–3, it accepts the legacy `type: 'grid'` and `type: 'template'` formats. At Phase 4, it handles both old and new envelope formats during the transition window.
 
@@ -361,7 +377,7 @@ Add a generic `metadata?: Record<string, unknown>` field to `BaseElement`. Move 
 
 ### Third review
 
-- **F3 — ADR-0001 and ADR-0004 specify incompatible rollout sequences:** Aligned ADR-0001's phases with ADR-0004's shared rollout state machine. Grid and template retain their legacy wire shape (`type: 'grid'`, `type: 'template'`) through Phases 2–3. The `type: 'extension'` envelope is only introduced at Phase 4, coordinated with ADR-0004 Phase 3 (v4 serialization boundary). Updated the Backward compatibility section to reflect the phased wire format transition. Added cross-references to ADR-0004.
+- **F3 — ADR-0001 and ADR-0004 specify incompatible rollout sequences:** Aligned ADR-0001's phases with ADR-0004's shared rollout state machine. Grid and template retain their legacy wire shape (`type: 'grid'`, `type: 'template'`) through Phases 2–3. The `type: 'extension'` envelope is only introduced at Phase 4, coordinated with ADR-0004 Phase 4 (v4 serialization boundary). Updated the Backward compatibility section to reflect the phased wire format transition. Added cross-references to ADR-0004.
 
 - **F4 — Generic element type is not propagated through the runtime:** Added a "Type propagation strategy" section documenting the erased registry adapter approach. Core operates on `CanvasElement` (erased). `ElementRegistry.getDefinition()` returns `ElementTypeDefinition<BaseElement>` (not `any`) — the type erasure is safe because `validate()` uses a runtime type guard and all other methods receive pre-validated elements. Application code (RollKeeper, VTT) uses the registry's `unwrap()` for typed access. (Superseded by fourth review F1 — generic parameter removed entirely; replaced by `ExtensionElementEnvelope` in the union.)
 
@@ -374,3 +390,11 @@ Add a generic `metadata?: Record<string, unknown>` field to `BaseElement`. Move 
 - **F2 — In-memory and serialized extension representations are unresolved:** Added a new "In-memory vs. serialized representation" section that explicitly defines: (1) extension elements are stored as `ExtensionElementEnvelope` in `ElementStore` (canonical in-memory form), (2) the registry's `wrap()`/`unwrap()` are the conversion boundary between typed extensions and envelopes, (3) during Phases 2–3 the wire format retains legacy shapes while in-memory uses envelopes, (4) at Phase 4 the wire format matches in-memory. Added a summary table showing the representation at each phase.
 
 - **F3 — ElementTypeDefinition does not cover template interaction or grid render-pass behavior:** Added `ElementInteractionAdapter<T>` interface covering handle hit-testing, cursor, drag/update, style-to-patch, and rotation — the behaviors SelectTool currently implements with template-specific code (select-tool.ts:286). Added `RenderPassDescriptor` interface covering cache identity, render stratum, invalidation dependencies, and composition mode. Added both as optional fields on `ElementTypeDefinition`. Updated `requiresDedicatedCache` description to require a `renderPass` descriptor when `true`.
+
+### Fifth review — F1, F2, F3 (partial)
+
+- **F1 (Type safety):** Replaced `getDefinition(): ElementTypeDefinition<BaseElement>` with two-level design: `ElementTypeKey<T>` (typed handle for consumers) and `ElementTypeAdapter` (erased adapter for core internals). `register()` returns `ElementTypeKey<T>`. Core uses `getAdapter()` for rendering/bounds/hit-testing (all operate on `ExtensionElementEnvelope`). Consumers use `getKey()` for typed unwrap/wrap/validateData. `ElementTypeDefinition<T>.validate()` renamed to `validateData()` — it validates the envelope's `data` field, not the envelope itself.
+
+- **F2 (Two envelope schemas):** Chose `data` field as canonical for both in-memory and serialized formats. The serialized JSON now uses `{ type: 'extension', extensionType: 'vtt:grid', data: { ... } }` — matching the in-memory envelope. Phase 4 requires no conversion because wire and memory are identical. Phase 2-3 serializer converts between legacy wire format and envelope by collecting/scattering extension fields into/from `data`.
+
+- **F3 (Phase references):** Updated cross-references from "ADR-0004 Phase 3" to "ADR-0004 Phase 4" to match the unified 4-phase rollout state machine.

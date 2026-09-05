@@ -77,39 +77,33 @@ This is an **in-place mutation** with unconditional `undefined` checks — no ve
 
 **Dual-write on v3 with eventual bump to v4** (Option A).
 
-### Phase 1: Stay on v3, add `extensions` field (immediate)
+### Phase 1: Add the registry alongside existing types (v3, no wire changes)
 
-Keep `CURRENT_VERSION = 3`. Add an optional `extensions` field to `CanvasState`:
+Keep `CURRENT_VERSION = 3`. Add `ElementRegistry` and `ExtensionElementEnvelope` as additive types. No wire format changes. All elements retain their current wire shape.
 
-```typescript
-interface CanvasState {
-  version: 3; // Unchanged
-  camera: { position: Point; zoom: number };
-  elements: CanvasElement[];
-  layers?: Layer[];
-  activeLayerId?: string;
-  fog?: FogStateV1; // Legacy — still written
-  extensions?: Record<string, unknown>; // New — also written
-}
-```
+**Write:** `version: 3`. Both `fog` (legacy) and `extensions.fog` (new) are written. Extension elements NOT used — all elements use current wire format.
+**Read:** `extensions.fog` first, fall back to `fog`. Extension elements not present.
 
-**Write:** Both `fog` (legacy) and `extensions.fog` (new) are written.
-**Read:** `extensions.fog` first, fall back to `fog`.
+### Phase 2: Internal refactor — envelope in memory, legacy on wire (v3)
 
-```typescript
-function resolveFogState(state: CanvasState): FogStateV1 | undefined {
-  return state.extensions?.fog ?? state.fog;
-}
-```
+Introduce the in-memory `ExtensionElementEnvelope` in `ElementStore`. Grid and template elements are stored as envelopes in memory but retain their legacy wire shape (`type: 'grid'`, `type: 'template'`). The serializer converts between the two forms.
 
-The `extensions` field is an unknown field from v3's perspective — it doesn't trigger the version gate because the version is still 3. Old clients that don't know about `extensions` simply ignore it (standard JSON forward compatibility for unknown fields within the same version).
+**Write:** `version: 3`. Legacy wire format for all elements. Dual-write fog.
+**Read:** Legacy wire format. Serializer wraps into envelope for ElementStore.
 
-### Phase 2: Bump to v4, remove legacy field (after soak period)
+### Phase 3: Move definitions to domain packages (v3)
 
-After a measured soak period (proposed: 4 weeks minimum) of Phase 1 dual-write:
+Grid and template type definitions move to `@fieldnotes/vtt`. Core's switch statements shrink. Wire format unchanged.
 
-**Write:** `version: 4` with `extensions` only. The legacy `fog` field is removed at this boundary.
-**Read:** v4 with automatic migration from v3.
+**Write:** `version: 3`. Legacy wire format. Dual-write fog.
+**Read:** Same as Phase 2.
+
+### Phase 4: Adopt extension envelope + bump to v4
+
+Coordinated with ADR-0001 Phase 4. Extension elements use `type: 'extension'` envelope on the wire. Legacy `fog` field removed. Version bumped to 4.
+
+**Write:** `version: 4`. Extension envelope for extension elements. `extensions` only (no legacy `fog`).
+**Read:** v4 with automatic migration from v3 via `migrateState()`.
 
 ```typescript
 function migrateState(state: CanvasState): CanvasState {
@@ -133,19 +127,20 @@ The legacy `fog` field is removed ONLY at this v4 boundary, where old readers ex
 
 The same dual-write strategy applies to the sync protocol:
 
-**Phase 1:** `fog-meta` and `fog-patch` wire kinds are preserved exactly. No changes to the sync protocol. Fog ops flow through the existing paths in sync-hub and sync-redis.
+**Phases 1–3:** `fog-meta` and `fog-patch` wire kinds are preserved exactly. No changes to the sync protocol. Fog ops flow through the existing paths in sync-hub and sync-redis.
 
-**Phase 2:** Introduce a generic `extension` envelope alongside fog kinds. Both are accepted. Deprecate `fog-meta`/`fog-patch` — only the generic `extension` envelope remains for new code paths.
+**Phase 4:** Introduce a generic `extension` envelope alongside fog kinds. Both are accepted. Deprecate `fog-meta`/`fog-patch` — only the generic `extension` envelope remains for new code paths.
 
 ### Compatibility matrix
 
-| Writer \ Reader | v3 (no extensions)   | v3 (dual-write)      | v4 (extensions only) |
-| --------------- | -------------------- | -------------------- | -------------------- |
-| v3 (no ext)     | ✅ Works             | ✅ Works             | ✅ Migrates v3→v4    |
-| v3 (dual-write) | ✅ Reads legacy      | ✅ Reads ext         | ✅ Migrates v3→v4    |
-| v4 (ext only)   | ❌ Rejects (version) | ❌ Rejects (version) | ✅ Works             |
+| Writer \ Reader         | v3 (no extensions) | v3 (dual-write)  | v3 (envelope in memory) | v4 (extensions + v4 bump) |
+| ----------------------- | ------------------ | ---------------- | ----------------------- | ------------------------- |
+| v3 (no ext)             | ✅ Works           | ✅ Works         | ✅ Works                | ✅ Migrates v3→v4         |
+| v3 (dual-write)         | ✅ Reads legacy    | ✅ Reads ext     | ✅ Reads ext            | ✅ Migrates v3→v4         |
+| v3 (envelope in memory) | ✅ Reads legacy    | ✅ Reads ext     | ✅ Reads ext            | ✅ Migrates v3→v4         |
+| v4 (ext + v4 bump)      | ❌ Rejects (ver)   | ❌ Rejects (ver) | ❌ Rejects (ver)        | ✅ Works                  |
 
-Key: v3 readers reject v4 states (hard version gate). v4 readers migrate v3 states via `migrateState()`. The version gate is a hard reject (`if (version > CURRENT_VERSION) throw`). During Phase 1, all writers produce v3, so old readers work because the version hasn't changed. The `extensions` field is an additive, unknown JSON field that old clients ignore.
+Key: v3 readers reject v4 states (hard version gate). v4 readers migrate v3 states via `migrateState()`. The version gate is a hard reject (`if (version > CURRENT_VERSION) throw`). During Phases 1–3, all writers produce v3, so old readers work because the version hasn't changed. The `extensions` field is an additive, unknown JSON field that old clients ignore.
 
 ### Old-client re-export data loss
 
@@ -157,24 +152,26 @@ During Phase 1 (v3 dual-write), an old client that reads v3 dual-write state and
 
 However, fog data survives because the legacy `fog` field is also written during Phase 1. The re-exported state still contains `fog`, so no data is lost for fog specifically.
 
-At Phase 2 (v4), old clients reject the state entirely via the hard version gate — they cannot read or re-export v4 states. This is the correct behavior: an explicit rejection is safer than silent data loss.
+At Phase 4 (v4), old clients reject the state entirely via the hard version gate — they cannot read or re-export v4 states. This is the correct behavior: an explicit rejection is safer than silent data loss.
 
 ### Old-client element validation constraint
 
 The serializer's `validateTypeFields()` has a 9-case switch covering known element types. If ADR-0001 introduces extension elements with `type: 'extension'`, old clients' `validateTypeFields()` will reject them (unknown type). This means extension elements cannot flow through old clients at all.
 
-**Constraint:** During Phase 1 (v3 dual-write), ALL elements retain their current wire format. Grid stays `type: 'grid'`, template stays `type: 'template'`. No `type: 'extension'` envelope is written. This is because old clients' `validateTypeFields()` rejects unknown types. At the v4 boundary (Phase 2), extension elements CAN begin using the `type: 'extension'` envelope, because old clients reject v4 entirely (safe failure).
+**Constraint:** During Phases 1–3 (v3 dual-write), ALL elements retain their current wire format. Grid stays `type: 'grid'`, template stays `type: 'template'`. No `type: 'extension'` envelope is written. This is because old clients' `validateTypeFields()` rejects unknown types. At the v4 boundary (Phase 4), extension elements CAN begin using the `type: 'extension'` envelope, because old clients reject v4 entirely (safe failure).
 
 ### Shared rollout state machine
 
-The rollout across ADR-0001 (element extensibility) and ADR-0004 (serialization compatibility) is coordinated through a unified state machine:
+This is the **canonical rollout state machine** that all ADRs reference. ADR-0001, ADR-0003, and `MIGRATION_VTT_EXTRACTION.md` all reference these phase numbers.
 
-| Phase | Version | Wire format                                    | Extension elements | Legacy fog |
-| ----- | ------- | ---------------------------------------------- | ------------------ | ---------- |
-| 1     | v3      | All elements use current format                | Not used           | Dual-write |
-| 2     | v4      | Extension elements use `type: 'extension'` env | Available          | Removed    |
+| Phase | Version | Wire format | Extension elements (wire) | Extension elements (memory) | Legacy fog |
+| ----- | ------- | ----------- | ------------------------- | --------------------------- | ---------- |
+| 1     | v3      | Legacy      | Not used                  | Legacy                      | Dual-write |
+| 2     | v3      | Legacy      | Not used                  | Envelope                    | Dual-write |
+| 3     | v3      | Legacy      | Not used                  | Envelope                    | Dual-write |
+| 4     | v4      | Envelope    | `type: 'extension'`       | Envelope                    | Removed    |
 
-During Phase 1, no `type: 'extension'` envelope is written — all elements use their existing wire formats. At Phase 2, the v4 version bump creates a clean compatibility boundary where old clients fail explicitly, making it safe to introduce new element envelopes.
+During Phases 1–3, no `type: 'extension'` envelope is written — all elements use their existing wire formats. At Phase 4, the v4 version bump creates a clean compatibility boundary where old clients fail explicitly, making it safe to introduce new element envelopes.
 
 See [ADR-0001](0001-element-extensibility.md) for the element-type registry rollout, which is coordinated with this serialization timeline.
 
@@ -191,43 +188,44 @@ The sync protocol's `isValidEnvelope()` rejects unknown op kinds. In mixed-versi
 During the mixed-version window (Phases 1–3), the sync protocol continues to emit legacy wire kinds (`fog-meta`, `fog-patch`). Extension ops are NOT emitted during this period. This ensures old clients can process all ops they receive.
 
 ```
-Phase 1 (v3 dual-write):
-  SYNC: All ops use legacy wire kinds. No extension ops.
-
-Phase 2 (v4 bump):
-  SYNC: Still legacy wire kinds. Extension ops available but not required.
-
-Phase 3 (after all clients support plugin system):
-  SYNC: Introduce capability exchange on sync connection.
-  If both sides support extension ops, use ExtensionOp envelope.
-  If one side doesn't, continue legacy emission.
+Phases 1–3 (v3 dual-write):
+  SYNC: All ops use legacy wire kinds. No extension elements. No capability exchange needed.
 ```
 
-#### Capability exchange protocol
+#### Phase 4: Capability exchange with v4 bump
 
-When all clients support the plugin system, introduce a capability exchange on sync connection:
+When the v4 bump occurs (Phase 4), introduce capability exchange on sync connection. This happens BEFORE any extension-shaped elements are sent:
 
 ```typescript
-// On sync connection, exchange supported capabilities:
 interface SyncCapabilities {
-  protocolVersion: number;
-  extensionKinds: string[]; // ['vtt:fog-meta', 'vtt:fog-patch', ...]
+  protocolVersion: number; // Incremented when new extension kinds are added
+  extensionKinds: string[]; // Supported extension kinds
+  elementEnvelope: boolean; // Supports type: 'extension' envelope
 }
-
-// If both sides support an extension kind, use ExtensionOp envelope for it.
-// If one side doesn't, continue emitting the legacy wire kind.
 ```
 
-#### Translation layer
+On sync connection, both peers exchange capabilities. If both support `elementEnvelope: true`, extension elements can flow through sync ops. If one doesn't, the capable peer must translate extension elements to legacy format (or drop them if no legacy equivalent exists).
 
-During the mixed-version window, the sync hub can translate extension ops to legacy wire kinds for old clients:
+This ensures capability negotiation precedes any extension-shaped element on the wire. The v4 bump and capability exchange are simultaneous — no window where extension elements can arrive before the peer is ready.
+
+#### Translation layer (Phase 4+)
+
+During Phase 4, peers may support different extension kinds. The sync hub translates for peers that don't support a specific extension kind:
 
 ```typescript
-// Server-side translation for mixed-version rooms:
-function translateForClient(op: SyncOp, clientCapabilities: SyncCapabilities): SyncOp {
+function translateForClient(op: SyncOp, clientCapabilities: SyncCapabilities): SyncOp | null {
   if (op.kind === 'extension' && !clientCapabilities.extensionKinds.includes(op.extensionKind)) {
-    // Translate extension op to legacy wire kind
-    return translateToLegacy(op);
+    // This peer doesn't support this extension kind — drop the op
+    // (or translate to legacy format if a legacy equivalent exists)
+    return null;
+  }
+  if (
+    op.kind === 'upsert' &&
+    op.element.type === 'extension' &&
+    !clientCapabilities.elementEnvelope
+  ) {
+    // This peer doesn't support extension envelope — translate to legacy if possible
+    return translateToLegacyElement(op);
   }
   return op;
 }
@@ -235,7 +233,10 @@ function translateForClient(op: SyncOp, clientCapabilities: SyncCapabilities): S
 
 #### Timeline
 
-The capability exchange is introduced AFTER the v4 bump, not before. During Phases 1–2, all clients use legacy wire kinds. The capability exchange is only needed when extension ops are introduced (Phase 3+).
+| Phase | Sync behavior                                                                                                                                                                  |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1-3   | All ops use legacy wire kinds. No extension elements. No capability exchange needed.                                                                                           |
+| 4     | Capability exchange on sync connection. Extension elements only sent if both peers support `elementEnvelope`. Translation layer for mixed-version peers within v4 (if needed). |
 
 ## Options Considered
 
@@ -262,21 +263,21 @@ Clients negotiate supported versions on sync connection. Mixed-version rooms use
 ### Positive
 
 - **Zero breakage:** Existing persisted state loads correctly. Old clients continue to work during transition.
-- **Measured rollout:** Two clean phases. The v4 version bump is the natural adoption gate — old readers reject v4 explicitly, so there is no silent failure mode.
+- **Measured rollout:** Four clean phases. The v4 version bump is the natural adoption gate — old readers reject v4 explicitly, so there is no silent failure mode.
 - **Follows existing pattern:** The `migrateElement()` pattern already handles forward-compatibility via additive defaults. The `extensions` field follows the same principle.
 - **Sync compatibility:** Wire kinds are preserved during Phase 1. No protocol break during the dual-write period.
 
 ### Negative
 
 - **Dual-write complexity:** During Phase 1, state is written twice (legacy + extensions). Slightly larger payloads.
-- **Two-phase transition:** Requires discipline to progress from dual-write to v4 after the soak period.
+- **Four-phase transition:** Requires discipline to progress through each phase in order, and to complete the v4 bump after the soak period.
 - **Testing matrix:** Must test all combinations of writer/reader versions during each phase.
 - **Old-client data loss risk:** During Phase 1, old clients that re-export state will silently drop the `extensions` field (see "Old-client re-export data loss" above). Fog survives via the legacy field.
 
 ### Risks
 
 - **Old-client re-export drops extensions:** During Phase 1, old clients that read and re-export state will silently drop the `extensions` field. Acceptable for fog (legacy field survives) but reinforces the need to complete the v4 bump before adding more extensions.
-- **Element validation blocks extension types:** Old clients' `validateTypeFields()` rejects unknown element types. Extension elements (`type: 'extension'`) cannot flow through old clients. New element types are deferred to Phase 2 (v4), where old clients reject the state entirely.
+- **Element validation blocks extension types:** Old clients' `validateTypeFields()` rejects unknown element types. Extension elements (`type: 'extension'`) cannot flow through old clients. New element types are deferred to Phase 4 (v4), where old clients reject the state entirely.
 - The `extensions` field grows unbounded if multiple domain packages register extensions. Need a size limit or warning.
 - RollKeeper's relay deploys independently. If the relay is upgraded before the web client (or vice versa), mixed-version rooms may have unexpected behavior.
 
@@ -292,6 +293,12 @@ This revision addresses findings from the third ADR review:
 
 - **F8a (Matrix transposed):** The compatibility matrix was transposed — the v4 writer row incorrectly showed "✅ Migrates v3→v4" for v3 readers, but v3 readers reject v4 states via the hard version gate. The matrix now correctly shows: v3 writers → v4 reader = "✅ Migrates v3→v4" (v4 readers migrate v3 states), and v4 writer → v3 readers = "❌ Rejects (version)" (v3 readers cannot read v4 states). The key text is updated to match.
 - **F8b (Sync protocol compatibility):** The ADR only addressed persisted state compatibility. Added a "Sync protocol compatibility" section covering: (1) the problem — `isValidEnvelope()` rejects unknown op kinds, causing old clients to silently discard extension ops in mixed-version rooms; (2) the solution — continued legacy wire kind emission during the mixed-version window (Phases 1–3), with extension ops deferred until all clients support the plugin system; (3) a capability exchange protocol (`SyncCapabilities`) introduced at Phase 3+ to negotiate extension op support; (4) a server-side translation layer for mixed-version rooms; (5) a timeline clarifying that the capability exchange is introduced after the v4 bump, not before.
+
+### Fifth review — F3 (partial), F4
+
+- **F3 (Unified rollout state machine):** Replaced 2-phase model with unified 4-phase rollout state machine. Phase 1 (registry additive, no wire changes), Phase 2 (envelope in memory, legacy on wire), Phase 3 (definitions move to domain packages), Phase 4 (extension envelope on wire + v4 bump). This is the canonical rollout state machine — ADR-0001, ADR-0003, and MIGRATION_VTT_EXTRACTION.md all reference these phase numbers. Updated compatibility matrix to include all 4 phases.
+
+- **F4 (Capability negotiation timing):** Moved capability exchange from non-existent "Phase 3" to Phase 4 (coinciding with v4 bump). Capability exchange happens on sync connection BEFORE any extension-shaped elements are sent. Both peers exchange `SyncCapabilities` including `elementEnvelope: boolean`. Extension elements only flow if both peers support them. This eliminates the window where extension elements could arrive before the peer is ready.
 
 ## References
 
