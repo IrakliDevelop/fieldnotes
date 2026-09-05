@@ -4,13 +4,13 @@
 > **Status:** Phase 0 — compatibility work and extension-design spikes. **Do not begin moving grid, templates, or fog yet.**
 > **Created:** 2026-09-05
 > **Revised:** 2026-09-05 (post-review — incorporated Codex review findings, see [Review Findings](#review-findings))
-> **Revised:** 2026-09-06 (aligned with fifth ADR review — all six ADRs finalized, see ADR-0001 through ADR-0006 Review Response sections)
+> **Revised:** 2026-09-06 (aligned with sixth ADR review — addressed 11 findings across all ADRs and migration doc)
 
 ## Table of Contents
 
 1. [Goals](#goals)
 2. [Review Findings](#review-findings)
-3. [Open Architectural Decisions (ADRs Needed)](#open-architectural-decisions)
+3. [Architectural Decisions (ADRs Finalized)](#architectural-decisions-adrs-finalized)
 4. [Architecture Overview](#architecture-overview)
 5. [Extension Point Design](#extension-point-design)
 6. [Element-Type Registry](#element-type-registry)
@@ -54,68 +54,33 @@ This plan was reviewed (2026-09-05) and found to contain six P1 issues. All have
 
 ---
 
-## Open Architectural Decisions
+## Architectural Decisions (ADRs Finalized)
 
-> **These ADRs must be written and approved before Phase 1 begins.** Each decision gates downstream work.
+> **All six ADRs have been written and are in Proposed status.** See `docs/adr/0001` through `docs/adr/0006`. The decisions below summarize the outcomes — the ADR documents are the canonical source.
 
-### ADR-1: Element Extensibility Model
+### ADR-0001: Element Extensibility Model → Full element-type registry
 
-**Decision needed:** How do grid and template leave the CanvasElement union?
+Core provides a standalone `ElementRegistry` with a two-level type system: typed `ElementTypeKey<T>` for consumers (retained from `register()`, with `matches()` for checked unwrap) and erased `ElementTypeAdapter` for core internals. Extension elements flow through core as `ExtensionElementEnvelope` with `type: 'extension'`, `extensionType: string`, and `data: Record<string, unknown>`. Each definition includes a legacy codec (`legacyTypes`, `decodeLegacy`, `encodeLegacy`) for backward-compatible wire format conversion during Phases 2–3. No `CustomElement` escape hatch — the envelope is the only extension mechanism.
 
-- **Option A — Full element-type registry:** Core provides a generic registration API (`registerElementType({ type, validate, bounds, hitTest, render, serialize })`). Domain packages register their own element types. CanvasElement becomes an open union with a `CustomElement` escape hatch.
-- **Option B — Generic primitives:** Grid and template are reclassified as intentionally generic core primitives (like `shape` or `html`). They stay in the CanvasElement union but their VTT-specific _behavior_ (snapping, AoE calculations) moves to the VTT package.
-- **Option C — Metadata-only:** Grid and template remain as element types but their VTT-specific fields (e.g., `feetPerCell`, `gridType`) move to a generic `metadata: Record<string, unknown>` field. Core validates only base fields; domain packages validate their own metadata.
+### ADR-0002: Render Surface Model → Per-surface typed hooks
 
-**Recommendation:** Option A. It is the most general solution and aligns with the Emacs philosophy. However, it is the highest upfront cost. Option C is a viable incremental step toward A.
+Each render surface has its own typed hook registry: `ViewportRenderHooks`, `MinimapRenderHooks`, `ImageExportHooks`, `SvgExportHooks`. Privacy-critical hooks use `required: true` and `satisfies` for fail-closed behavior. Host-declared `requiredCapabilities` are checked after all plugin phases complete. Hooks satisfying required capabilities auto-inherit fail-closed render-time enforcement.
 
-### ADR-2: Render Surface Model
+### ADR-0003: Sync/Server Plugin Ownership → Plugin contracts in existing packages
 
-**Decision needed:** How do extensions declare which render surfaces they participate in?
+Client, server, and backend layers all gain plugin registration APIs in their existing packages. VTT exports three plugin factories. Extension ops use typed `TypedExtensionOp<TPayload>` with codec-validated payloads. Backend plugins support middleware composition. `ApplyResult.locality` controls per-operation fanout. `ownedLegacyKinds` declares legacy wire kind ownership during the transition.
 
-- **Option A — Per-surface hooks:** Extensions register separately for viewport, minimap, image-export, SVG-export. Each surface has its own hook API.
-- **Option B — Unified render pass:** Extensions declare render passes with a `surface` filter (`['viewport', 'minimap']`). One registration, multiple surfaces.
-- **Option C — Surface-agnostic callbacks:** Extensions provide a single render function; core routes it to the appropriate surfaces automatically.
+### ADR-0004: Serialization Compatibility → Unified 4-phase rollout
 
-**Recommendation:** Option A. Fog needs different rendering logic for viewport (hybrid DOM surface) vs. minimap (separate canvas) vs. export (SVG nodes). Conflating them hides real complexity.
+Canonical rollout: Phase 1 (v3, registry additive), Phase 2 (v3, envelope in memory, legacy on wire), Phase 3 (v3, definitions in domain packages), Phase 4 (v4, extension envelope on wire + version bump). Capability exchange at Phase 4 with handshake gating before any data flows. Translation covers ALL outbound paths (snapshots, upserts, corrections, broadcasts) per-peer.
 
-### ADR-3: Sync/Server Plugin Ownership
+### ADR-0005: Plugin Lifecycle → Constructor-time 4-phase installation
 
-**Decision needed:** How is fog sync extracted across the client/server/Redis boundary?
+`configure()` (restricted) + `start()` (full runtime) with per-instance `PluginHandle`. Typed `ServiceKey<T>` with invariant brand and `NoInfer<T>`. `viewport.suspendNotifications()` with `resume()`/`discard()` for atomic loadState. Persisted plugin state uses versioned `PersistedPluginState` envelope with `migrateState()` hook. Constructor abort transaction covers all core and plugin resources.
 
-- **Option A — Separate VTT sync packages:** `@fieldnotes/vtt-sync-client`, `@fieldnotes/vtt-sync-server`, `@fieldnotes/vtt-sync-redis`. Each depends on its generic counterpart.
-- **Option B — Plugin contracts in existing packages:** Generic sync packages gain plugin registration APIs. VTT packages export plugins that are registered at construction time.
-- **Option C — Subpath exports:** `@fieldnotes/sync/vtt`, `@fieldnotes/sync-server/vtt`, `@fieldnotes/sync-redis/vtt`. Single package, separate entry points.
+### ADR-0006: Snapping as Service → Domain-neutral constraint service
 
-**Recommendation:** Option B for client (aligns with extension system). Option A for server/Redis (cleaner deployment boundary, independent versioning). RollKeeper's relay already deploys independently.
-
-### ADR-4: Serialization Compatibility Strategy
-
-**Decision needed:** How do we transition persisted state without breaking old clients?
-
-- **Option A — Stay on v3, dual-write:** Keep `version: 3`. Write both `fog` (legacy) and `extensions.fog` (new). Read `extensions.fog` first, fall back to `fog`. Remove legacy field after soak period.
-- **Option B — Bump to v4 with migration:** Bump to `version: 4`. Old clients reject v4 (current behavior). Provide migration tooling.
-- **Option C — Capability negotiation:** Clients negotiate supported versions on sync connection. Mixed-version rooms use the lowest common denominator.
-
-**Recommendation:** Option A. It preserves backward compatibility with all existing persisted state and avoids a hard version break. The dual-write window is temporary and can be measured.
-
-### ADR-5: Plugin Lifecycle & Installation
-
-**Decision needed:** When and how are plugins installed?
-
-- **Constraint:** Plugins required for privacy (e.g., fog masking) must install **before** the first render, load, or sync connection. There is no "add plugin later" for privacy-critical extensions.
-- **Constraint:** Plugin installation must be deterministic (registration order = behavior order) and idempotent (re-registering the same plugin is a no-op).
-- **Constraint:** Disposal must be clean — `dispose()` unregisters all hooks, cancels all subscriptions, releases all resources.
-
-**Recommendation:** Constructor-time plugin installation. `new Viewport({ plugins: [fogPlugin, gridPlugin] })`. Plugins are installed before any lifecycle method runs.
-
-### ADR-6: Snapping as Service vs. Global Hook
-
-**Decision needed:** How do tools access grid snapping?
-
-- **Option A — Global input hook:** `InputHooks.beforePointerDown` rewrites `PointerState` coordinates before tools see them. All tools receive snapped coordinates when snapping is active.
-- **Option B — Explicit snap service:** Core exposes `snap(worldPoint, options) → snappedPoint`. Tools call it when they want snapping. Different tools can use different snap strategies in the same gesture.
-
-**Recommendation:** Option B. RollKeeper deliberately mixes snapped and unsnapped coordinates within the same gesture (unsnapped markers with screen-pixel drag thresholds, footprint-centered token snapping, smart-snapped spell templates). Global rewriting breaks these workflows. See Finding 5.
+`ConstraintServiceAccess` (public, includes activation) wraps `PointConstraintService` (implementation, no activation). `ConstraintServiceProxy` is always present on `ToolContext`. Tools call `constrainPoint()` explicitly. Domain-specific access uses `viewport.getService(ServiceKey<T>)`.
 
 ---
 
@@ -299,6 +264,15 @@ viewport.renderHooks.minimap.register({
 **Design:**
 
 ```typescript
+// Public interface — exposed on ToolContext, includes activation control
+interface ConstraintServiceAccess {
+  readonly isActive: boolean;
+  setActive(active: boolean): void;
+  constrainPoint(point: Point, options?: ConstraintOptions): Point;
+  getConstraintInfo(): ConstraintInfo | null;
+  hasCapability(capability: string): boolean;
+}
+
 // Implementation interface — NO activation control
 interface PointConstraintService {
   constrainPoint(point: Point, options?: ConstraintOptions): Point;
@@ -311,8 +285,8 @@ interface ConstraintOptions {
   footprint?: { width: number; height: number };
 }
 
-// Proxy owns activation — gates calls, implementations don't know about it
-class ConstraintServiceProxy {
+// Proxy implements ConstraintServiceAccess (public), delegates to PointConstraintService (impl)
+class ConstraintServiceProxy implements ConstraintServiceAccess {
   private _impl: PointConstraintService | null = null;
   private _active = false;
 
@@ -330,8 +304,12 @@ class ConstraintServiceProxy {
 
   _setImpl(impl: PointConstraintService | null): void {
     this._impl = impl;
-    // No activation forwarding — implementations don't have activation state
   }
+}
+
+// ToolContext exposes ConstraintServiceAccess (public — includes activation):
+interface ToolContext {
+  constraintService: ConstraintServiceAccess; // Always present once initialized
 }
 
 // Tools call constraint explicitly when they want it:
@@ -347,7 +325,6 @@ class DmMarkerTool implements Tool {
   onPointerDown(state: PointerState, ctx: ToolContext) {
     const worldPoint = ctx.camera.screenToWorld(state);
     // NO constraint — marker uses raw world coordinates
-    // Screen-pixel drag threshold for marker placement
   }
 }
 
@@ -360,7 +337,7 @@ const gridService = viewport.getService(GridControllerKey); // Typed via Service
 - No global `PointerState` mutation
 - Each tool decides independently whether to constrain
 - Different tools can use different constraint strategies in the same gesture
-- `PointConstraintService` is domain-neutral (no grid/hex/cell concepts in core)
+- Two-interface design: `ConstraintServiceAccess` (public, includes activation) vs `PointConstraintService` (implementation, no activation)
 - `ConstraintServiceProxy` is always present on `ToolContext` (never undefined once initialized)
 - Activation state survives service replacement
 - Domain-specific access uses `viewport.getService(ServiceKey<T>)` for typed retrieval
@@ -401,18 +378,14 @@ const viewport = new Viewport({
 ```typescript
 interface ClientSyncPlugin {
   readonly name: string;
-  // Outbound: plugin can produce custom ops
   produceOps?(): SyncOp[];
-  // Inbound: plugin handles custom ops with full metadata
   handleOp?(
     op: SyncOp,
     meta: { sender: string; isLocal: boolean; phase: 'live' | 'reconnect' | 'snapshot' },
   ): void;
-  // Extension kind registration
   registerExtensionKinds?(registry: ClientExtensionRegistry): void;
-  // ClientExtensionRegistry handler includes metadata:
-  // handler: (op: ExtensionOp, meta: { sender: string; isLocal: boolean; phase: 'live' | 'reconnect' | 'snapshot' }) => void;
-  // Snapshot: plugin extends snapshot
+  // ClientExtensionRegistry handler receives TypedExtensionOp<TPayload> (not raw ExtensionOp):
+  // handler: (op: TypedExtensionOp<TPayload>, meta: { ... }) => void;
   extendSnapshot?(snapshot: SyncSnapshot): void;
   applySnapshot?(
     snapshot: PluginSnapshot,
@@ -430,11 +403,10 @@ interface ClientSyncPlugin {
 interface ServerSyncPlugin {
   readonly name: string;
   readonly ownedLegacyKinds?: string[]; // e.g., ['fog-meta', 'fog-patch']
-  // Unified process: combines authorization + application in one step
   process?(op: SyncOp, ctx: ServerOpContext): Promise<ApplyResult>;
-  // Extension kind registration
   registerExtensionKinds?(registry: ServerExtensionRegistry): void;
-  // Snapshot: plugin provides snapshot data
+  // ServerExtensionRegistry handler receives TypedExtensionOp<TPayload>:
+  // handler: (op: TypedExtensionOp<TPayload>, ctx: ServerOpContext) => Promise<ApplyResult>;
   snapshot?(room: string, backend: HubBackend): Promise<PluginSnapshot>;
   filterSnapshot?(
     snapshot: PluginSnapshot,
@@ -449,19 +421,18 @@ interface ServerSyncPlugin {
 interface BackendSyncPlugin {
   readonly name: string;
   readonly sharedAcrossInstances: boolean;
-  // Key schema: Redis keys owned by this plugin
   keyPrefix: string;
-  // Persistence: Lua scripts for atomic operations
   scripts?: Record<string, string>;
-  // Snapshot: plugin provides snapshot data
   snapshot?(room: string): Promise<PluginSnapshot>;
-  // Middleware-style apply: outer-to-inner ordering, op ownership
   apply?(room: string, op: SyncOp, next: BackendNext): Promise<ApplyResult>;
+  registerExtensionKinds?(registry: BackendExtensionRegistry): void;
+  // BackendExtensionRegistry handler receives TypedExtensionOp<TPayload>:
+  // handler: (op: TypedExtensionOp<TPayload>, ctx: BackendOpContext) => Promise<ApplyResult>;
   dispose?(): void;
 }
 ```
 
-> **Note on backend middleware ordering:** Backend plugins compose as middleware — `apply()` receives a `next` callback and may call it to delegate to inner plugins, or return an `ApplyResult` directly to short-circuit. Plugins execute outer-to-inner (registration order). Each plugin owns the ops for its `keyPrefix`; ops not matching any plugin's prefix are rejected.
+> **Note on backend middleware ordering:** Backend plugins compose as middleware — `apply()` receives a `next` callback and may call it to delegate to inner plugins, or return an `ApplyResult` directly to short-circuit. Plugins execute outer-to-inner (registration order). Each plugin owns the ops for its `keyPrefix`; ops not matching any plugin's prefix are rejected. **RollKeeper buffer contract:** base-element ops short-circuit with `{ accepted: op, locality: 'local' }` WITHOUT calling `next()` — they never reach Redis. Fog ops delegate via `next()` to the inner fog backend plugin.
 
 **ApplyResult:**
 
@@ -518,29 +489,53 @@ interface OverlayOptions {
 viewport.overlays.register(renderer, { zOrder: 300, lifecycle: 'persistent' });
 ```
 
-### 7. Service Registry (Plugin Lifecycle)
+### 7. Service Registry (Plugin Lifecycle, Aligned with ADR-0005)
 
-Plugins register typed services during `start()` and retrieve them via the viewport using opaque typed keys:
+Plugins register typed services during `start()` and retrieve them via the viewport using opaque typed keys with invariant branding:
 
 ```typescript
-// Opaque typed key — the key carries the service type
-interface ServiceKey<T> { readonly name: string; }
-function createServiceKey<T>(name: string): ServiceKey<T>;
+// Opaque typed key — invariant brand prevents type widening
+declare const ServiceKeyBrand: unique symbol;
+interface ServiceKey<T> {
+  readonly [ServiceKeyBrand]: { readonly _in: T; readonly _out: T };
+  readonly name: string; // Debugging only — NOT used for identity
+  readonly id: symbol; // Runtime identity — unique per createServiceKey() call
+}
 
-// During plugin start():
-ctx.registerService<T>(key: ServiceKey<T>, service: T): void;
+function createServiceKey<T>(name: string): ServiceKey<T> {
+  return { name, id: Symbol(name) } as ServiceKey<T>;
+}
 
-// Typed retrieval from anywhere with a viewport reference:
+// During plugin start() — NoInfer prevents inference from service argument:
+ctx.registerService<T>(key: ServiceKey<T>, service: NoInfer<T>): void;
+
+// Typed retrieval — T inferred from key:
 viewport.getService<T>(key: ServiceKey<T>): T | undefined;
 
 // VTT package exports typed keys:
 export const FogManagerKey = createServiceKey<FogManager>('fog');
 export const GridControllerKey = createServiceKey<GridController>('grid');
 
-// Plugin state is stored at extensions[plugin.name] — one opaque value per plugin
+// Runtime identity: by symbol reference, NOT by name.
+// Two keys with the same name are distinct. Duplicate registration (same symbol) replaces.
 ```
 
-This enables domain packages to expose rich, typed services (e.g., `GridController`, `FogManager`) without core knowing about them. The service registry is the primary mechanism for cross-plugin communication.
+Persisted plugin state uses a versioned envelope (see ADR-0005):
+
+```typescript
+interface PersistedPluginState {
+  version: number; // Plugin-specific version
+  data: unknown; // Plugin-specific state
+}
+
+// In CanvasState:
+interface CanvasState {
+  extensions: Record<string, PersistedPluginState>; // Versioned, not raw unknown
+}
+
+// Unknown-plugin policy: preserved as-is on re-export, not dropped.
+// Version mismatch: migrateState() called if available, otherwise dropped with warning.
+```
 
 ---
 
@@ -587,27 +582,34 @@ interface ExtensionElementEnvelope extends BaseElement {
   readonly data: Record<string, unknown>;
 }
 
-// Typed handle for consumers — carries the element type at the type level
-interface ElementTypeKey<T> {
+// Typed handle for consumers — retained from register(), NOT looked up by string
+interface ElementTypeKey<T extends BaseElement> {
+  readonly type: string;
+  matches(envelope: ExtensionElementEnvelope): boolean; // Checks extensionType + data validation
+  validateData(data: Record<string, unknown>): boolean;
   unwrap(envelope: ExtensionElementEnvelope): T;
+  wrap(el: T): ExtensionElementEnvelope;
 }
 
 // Erased adapter for core — no type parameter, used internally
 interface ElementTypeAdapter {
   readonly type: string;
-  validateData(data: Record<string, unknown>): boolean;
-  unwrap(envelope: ExtensionElementEnvelope): BaseElement;
-  wrap(el: BaseElement): ExtensionElementEnvelope;
-  bounds(el: BaseElement): Bounds | null;
-  hitTest(el: BaseElement, point: Point): boolean;
+  readonly legacyTypes: string[]; // Legacy wire types this adapter handles
+  validateEnvelope(el: ExtensionElementEnvelope): boolean;
+  decodeLegacy(raw: Record<string, unknown>): ExtensionElementEnvelope;
+  encodeLegacy(el: ExtensionElementEnvelope): Record<string, unknown>;
+  bounds(el: ExtensionElementEnvelope): Bounds | null;
+  hitTest(el: ExtensionElementEnvelope, point: Point): boolean;
   renderMode: 'canvas' | 'dom' | 'hybrid' | 'none';
-  render?(el: BaseElement, renderCtx: ElementRenderContext): void;
-  interaction?: ElementInteractionAdapter<BaseElement>;
-  renderPass?: RenderPassDescriptor;
+  render?(el: ExtensionElementEnvelope, renderCtx: ElementRenderContext): void;
 }
 
 interface ElementTypeDefinition<T extends BaseElement> {
-  readonly type: string;
+  readonly type: string; // Namespaced: 'vtt:grid'
+  // Legacy wire codec — required for Phases 2-3 backward compatibility
+  readonly legacyTypes: string[]; // ['grid'] — legacy type strings this definition handles
+  decodeLegacy(raw: Record<string, unknown>): T; // Legacy wire fields → typed element
+  encodeLegacy(el: T): Record<string, unknown>; // Typed element → legacy wire fields
   validateData(data: Record<string, unknown>): boolean;
   unwrap(el: ExtensionElementEnvelope): T;
   wrap(el: T): ExtensionElementEnvelope;
@@ -617,22 +619,27 @@ interface ElementTypeDefinition<T extends BaseElement> {
   render?(el: T, renderCtx: ElementRenderContext): void;
   interaction?: ElementInteractionAdapter<T>;
   renderPass?: RenderPassDescriptor;
-  // ... other methods
 }
 
 // Standalone registry — passed explicitly to every boundary
 const elementRegistry = new ElementRegistry();
-elementRegistry.register(gridElementTypeDefinition); // Returns ElementTypeKey<GridElement>
-elementRegistry.register(templateElementTypeDefinition); // Returns ElementTypeKey<TemplateElement>
+// Registration returns typed key — consumers RETAIN this key
+const gridKey = elementRegistry.register(gridElementTypeDefinition); // ElementTypeKey<GridElement>
+const templateKey = elementRegistry.register(templateElementTypeDefinition); // ElementTypeKey<TemplateElement>
 
 // Passed to Viewport, parseState, exportImage, exportSvg, sync:
 const viewport = new Viewport({ container, elementRegistry, plugins: [...] });
 parseState(json, elementRegistry);
 exportImage(elements, ..., elementRegistry);
 
-// Consumers use typed keys:
-const gridKey = elementRegistry.getKey<GridElement>('vtt:grid');
-const grid = gridKey.unwrap(envelope); // Typed GridElement
+// Consumers use retained typed keys (NOT string lookup):
+if (gridKey.matches(envelope)) {
+  const grid = gridKey.unwrap(envelope); // Typed GridElement — safe
+}
+
+// parseState uses legacy type dispatch for Phases 2-3:
+// const adapter = elementRegistry.getAdapterByLegacyType('grid');
+// const envelope = adapter.decodeLegacy(rawFields);
 ```
 
 ### Migration Path
@@ -683,38 +690,55 @@ This is a stepping stone — it doesn't achieve full core purity but reduces VTT
 | Image export        | Offscreen Canvas 2D | `withFogDefaults()` merges fog style  | Export transform                     |
 | SVG export          | SVG DOM             | Fog rendered as SVG rect/group        | Export transform                     |
 
-### Required Extension Contract
+### Required Extension Contract (Aligned with ADR-0002)
 
-Each surface must be independently extensible:
+Each surface has its own typed hook interface — no generic `SurfaceRenderHooks`, no `SVGDocument`:
 
 ```typescript
-// Viewport surface: fog needs hybrid DOM stratum positioning
-interface ViewportRenderExtension {
-  // Where in the paint stack does this extension render?
-  stratum: 'before-elements' | 'after-elements' | 'after-overlays';
-  // Is this a hybrid DOM surface or a canvas overlay?
-  surface: 'canvas' | 'hybrid';
-  // The render function
-  render(ctx: CanvasRenderingContext2D, camera: Camera, bounds: Bounds): void;
+// Viewport: canvas 2D context with camera and viewport dimensions
+interface ViewportRenderHooks {
+  beforeElements?(
+    ctx: CanvasRenderingContext2D,
+    camera: Camera,
+    dimensions: { width: number; height: number; dpr: number },
+  ): void;
+  afterElements?(
+    ctx: CanvasRenderingContext2D,
+    camera: Camera,
+    dimensions: { width: number; height: number; dpr: number },
+  ): void;
+  afterAll?(
+    ctx: CanvasRenderingContext2D,
+    camera: Camera,
+    dimensions: { width: number; height: number; dpr: number },
+  ): void;
 }
 
-// Minimap surface: fog needs privacy-aware rendering
-interface MinimapRenderExtension {
-  // Should fog be rendered on minimap? (privacy: player view may hide fog)
-  shouldRender(ctx: MinimapContext): boolean;
-  render(ctx: CanvasRenderingContext2D, minimap: Minimap): void;
+// Minimap: canvas 2D context with minimap-specific mapping
+interface MinimapRenderHooks {
+  afterElements?(ctx: CanvasRenderingContext2D, mapping: MinimapMapping): void;
 }
 
-// Image export surface
-interface ImageExportExtension {
-  render(ctx: CanvasRenderingContext2D, exportOptions: ExportOptions): void;
+// Image export: OffscreenCanvas context with export options
+interface ImageExportHooks {
+  afterElements?(ctx: CanvasRenderingContext2D, options: ImageExportOptions): void;
 }
 
-// SVG export surface
-interface SvgExportExtension {
-  render(svg: SVGDocument, exportOptions: ExportOptions): void;
+// SVG export: string builder (matching actual implementation — NOT SVGDocument)
+interface SvgExportHooks {
+  afterElements?(svg: SvgStringBuilder, options: SvgExportOptions): void;
+}
+
+// Per-surface typed registries:
+interface RenderHooks {
+  viewport: TypedHookRegistry<ViewportRenderHooks>;
+  minimap: TypedHookRegistry<MinimapRenderHooks>;
+  imageExport: TypedHookRegistry<ImageExportHooks>;
+  svgExport: TypedHookRegistry<SvgExportHooks>;
 }
 ```
+
+Viewport hooks use semantic slots (`afterSceneBeforeOverlay`, `afterOverlay`, `afterToolOverlay`) with within-slot priority. Privacy-critical hooks use `required: true` and `satisfies` for fail-closed behavior.
 
 ### RollKeeper-Specific Requirements
 
@@ -861,17 +885,17 @@ function migrateState(state: CanvasState): CanvasState {
 
 ### Grid Serialization
 
-Grid currently serializes as a `CanvasElement` with `type: 'grid'`. After element-type registry implementation (ADR-1), grid serializes as an `ExtensionElementEnvelope` with `extensionType: 'vtt:grid'` and type-specific data in the `data` field, handled by the VTT package's registered type definition via `wrap()`/`unwrap()`. During the transition, grid remains a core element type (no serialization change).
+Grid currently serializes as a `CanvasElement` with `type: 'grid'`. After element-type registry implementation (ADR-0001), grid is registered via `ElementTypeDefinition` with a legacy codec (`legacyTypes: ['grid']`, `decodeLegacy`, `encodeLegacy`). During Phases 2–3, `parseState()` uses `elementRegistry.getAdapterByLegacyType('grid')` to find the adapter, calls `decodeLegacy()` to convert legacy wire fields to a typed element, then `wrap()` to create the in-memory envelope. `serializeState()` calls `unwrap()` then `encodeLegacy()` to write the legacy wire format. At Phase 4 (v4 boundary), both in-memory and wire use the `ExtensionElementEnvelope` with `data` field — no conversion needed.
 
-### PluginSnapshot Envelope
+### PluginSnapshot and PersistedPluginState Envelopes
 
-Each plugin's serialized state is wrapped in a versioned envelope:
+**Sync snapshots** use `PluginSnapshot` (per-plugin versioned envelope for sync protocol):
 
 ```typescript
 interface PluginSnapshot {
   pluginName: string;
-  version: number;
-  data: unknown;
+  version: number; // Plugin-specific version for migration
+  data: unknown; // Plugin-specific state (validated by plugin)
 }
 
 interface SyncSnapshot {
@@ -881,7 +905,21 @@ interface SyncSnapshot {
 }
 ```
 
-This enables per-plugin versioning and migration without affecting other plugins or the core schema.
+**Persisted state** uses `PersistedPluginState` (per-plugin versioned envelope for storage, aligned with ADR-0005):
+
+```typescript
+interface PersistedPluginState {
+  version: number; // Plugin-specific version
+  data: unknown; // Plugin-specific state
+}
+
+// In CanvasState:
+interface CanvasState {
+  extensions: Record<string, PersistedPluginState>; // Versioned, not raw unknown
+}
+```
+
+**Unknown-plugin policy:** When loading state, entries for unregistered plugins are preserved as-is on re-export — not dropped, not modified. When a registered plugin's `stateVersion` differs from the persisted `version`, `migrateState()` is called; if unavailable or throws, the entry is dropped with a warning.
 
 ---
 
@@ -914,17 +952,21 @@ Phase 4: Capability exchange on sync connection. Extension elements only if both
 
 ### Capability Negotiation (Phase 4)
 
-When all clients support the plugin system (Phase 4), introduce capability negotiation on sync connection:
+When all clients support the plugin system (Phase 4), introduce capability negotiation on sync connection. **Handshake gating:** capability exchange MUST complete before ANY data is sent or processed.
 
 ```typescript
 // On sync connection, exchange supported plugin capabilities:
 interface SyncCapabilities {
-  plugins: string[]; // ['fog', 'movement-paths', ...]
-  protocolVersion: number;
+  protocolVersion: number; // Incremented when new extension kinds are added
+  extensionKinds: string[]; // Supported extension kinds
+  elementEnvelope: boolean; // Supports type: 'extension' envelope
 }
 
-// If both sides support 'elementEnvelope', use generic extension envelope
-// If one side doesn't, fall back to legacy fog-meta/fog-patch
+// Handshake protocol:
+// 1. Both peers exchange SyncCapabilities on connection
+// 2. Neither peer sends extension-shaped elements until both have received capabilities
+// 3. Incoming ops are QUEUED (not processed) until handshake completes
+// 4. If handshake fails or times out → connection refused
 ```
 
 ### Sync Protocol Compatibility
@@ -935,7 +977,14 @@ During the mixed-version transition window, the sync protocol must handle both l
 
 2. **Capability exchange protocol (Phase 4):** After the v4 version bump, introduce a capability exchange on sync connection handshake. Each side advertises supported plugin kinds and protocol version. Extension elements are used only if both peers support `elementEnvelope`. This replaces the implicit "unknown kinds are silently dropped" behavior.
 
-3. **Translation layer for mixed-version rooms:** When a new client shares a room with an old client, the sync layer translates between legacy wire kinds and the plugin envelope. The translation is stateless and happens at the wire boundary — plugin code only sees the canonical internal representation.
+3. **Translation layer covers ALL outbound paths:** When a new client shares a room with an old client, the sync layer translates for peers that don't support extension envelopes. Translation must cover every path that can carry extension elements:
+   - **Snapshot elements** (`snapshot.elements: CanvasElement[]`) — initial, reconnect, and correction snapshots
+   - **Upserts** (`op.element: CanvasElement`) — individual element updates
+   - **Corrections** — server-sent corrections containing elements
+   - **Additional broadcasts** (`ApplyResult.broadcast`) — plugin-produced ops
+   - **Peer-produced snapshots** — server plugin `snapshot()` results
+
+   Each path is translated per-peer using `encodeLegacy()` from the element registry (ADR-0001).
 
 ---
 
@@ -1026,10 +1075,14 @@ class RollKeeperBackend implements HubBackend {
 // After:
 const backend = new RedisHubBackend({
   plugins: [
-    createRollKeeperBufferPlugin(), // Outer — intercepts base ops, buffers, calls next()
+    createRollKeeperBufferPlugin(), // Outer — intercepts base ops, short-circuits (NO next())
     createFogBackendPlugin(),       // Inner — persists fog to Redis
   ],
 });
+
+// Buffer plugin contract:
+// - Base-element ops: return { accepted: op, locality: 'local' } WITHOUT calling next()
+// - Fog ops: delegate via next() → fog plugin persists to Redis → { accepted: op, locality: 'shared' }
 ```
 
 #### Deployment Order
@@ -1158,17 +1211,20 @@ const backend = new RedisHubBackend({
 
 1. Move grid code to `packages/vtt/src/grid/`
 2. Move template code to `packages/vtt/src/template/`
-3. VTT package registers 'grid' and 'template' element types via registry
-4. Move grid-specific validation, rendering, metrics to VTT package
-5. Move template-specific validation, rendering to VTT package
-6. Remove grid and template from core's `ELEMENT_TYPES` and validation
-7. Update RollKeeper imports
+3. VTT package defines `GridElementTypeDefinition` and `TemplateElementTypeDefinition` with full legacy codec (`legacyTypes: ['grid']`, `decodeLegacy`, `encodeLegacy`)
+4. VTT package registers types via `elementRegistry.register()` and retains the `ElementTypeKey<T>` handles
+5. Move grid-specific validation, rendering, metrics to VTT package
+6. Move template-specific validation, rendering to VTT package
+7. Core's `parseState()` uses `elementRegistry.getAdapterByLegacyType('grid')` to dispatch legacy wire types to the correct adapter
+8. Remove grid and template from core's `ELEMENT_TYPES` and validation switches
+9. Update RollKeeper imports — uses retained `ElementTypeKey<T>` for typed access
 
 **Deliverables:**
 
 - Grid and template live in `@fieldnotes/vtt`
-- Core's CanvasElement union no longer includes grid/template
-- RollKeeper uses VTT package for grid and templates
+- Core's CanvasElement union has 8 members (7 core + ExtensionElementEnvelope)
+- RollKeeper uses VTT package for grid and templates via retained typed keys
+- Legacy wire format (`type: 'grid'`) still readable via `decodeLegacy()` during Phases 2–3
 
 **Risk:** High. Grid is deeply coupled (~1154 refs). Element-type registry must be solid.
 
@@ -1177,7 +1233,8 @@ const backend = new RedisHubBackend({
 - Core tests pass (no grid/template code)
 - VTT tests pass (grid and templates work)
 - RollKeeper grid/templates work (hex/square, snapping, AoE)
-- Serialization: old state with grid/template elements loads correctly
+- Serialization: old state with `type: 'grid'` loads correctly via `decodeLegacy()`
+- Round-trip: `decodeLegacy` → `wrap` → `unwrap` → `encodeLegacy` produces identical wire format
 
 ### Phase 5: Extract Fog (Last) (4-6 weeks)
 
@@ -1220,20 +1277,28 @@ const backend = new RedisHubBackend({
 2. Deploy RollKeeper relay with plugin registration
 3. Deploy RollKeeper web/client with VTT package
 4. Monitor for issues (2-4 week soak period)
-5. Remove legacy fog fields from serialization (after soak)
-6. Remove legacy fog-meta/fog-patch wire kinds (after soak)
-7. Bump to CanvasState v4 (after soak)
+5. **Bump to CanvasState v4** (after soak — this is the adoption gate)
+6. Remove legacy fog fields from serialization (after v4 bump — old readers reject v4 explicitly)
+7. Remove legacy fog-meta/fog-patch wire kinds (after v4 bump)
+8. Introduce capability exchange handshake on sync connection (at v4 boundary, before any extension elements flow)
+
+> **Ordering constraint:** The v4 version bump MUST happen BEFORE legacy field/kind removal. The v4 bump creates a hard compatibility boundary — old readers reject v4 states via the hard version gate (`if (version > CURRENT_VERSION) throw`). This makes it safe to remove legacy formats because old clients can no longer read the state at all. Removing legacy fields BEFORE the v4 bump would create a window where old clients read the state but silently drop unknown fields.
 
 **Deliverables:**
 
 - Production deployment with new architecture
-- Legacy code removed after verification
+- v4 version bump with automatic v3→v4 migration
+- Legacy code removed after v4 boundary
+- Capability exchange handshake in sync protocol
 - Migration guide for external consumers
 
 **Validation:**
 
 - Zero fog-related incidents during soak
 - All RollKeeper production features work
+- v3 states migrate to v4 correctly via `migrateState()`
+- Old clients reject v4 states with clear error message
+- Capability exchange handshake works (both peers exchange before data flows)
 - External consumers (if any) have migration path
 
 ### Phase 7: Document Extension API (2-3 weeks)
@@ -1467,13 +1532,18 @@ import { FogManager } from '@fieldnotes/vtt/fog';
 
 > **Revised 2026-09-06:** Aligned with fifth ADR review — all six ADRs finalized (ADR-0001 through ADR-0006).
 
-### Element-Type Registry
+### Element-Type Registry (Aligned with ADR-0001)
 
 ```typescript
 // Core's runtime union — includes extension envelope
 type CanvasElement =
-  | StrokeElement | NoteElement | ArrowElement | ImageElement
-  | HtmlElement | TextElement | ShapeElement
+  | StrokeElement
+  | NoteElement
+  | ArrowElement
+  | ImageElement
+  | HtmlElement
+  | TextElement
+  | ShapeElement
   | ExtensionElementEnvelope; // Core-owned extension type
 
 interface ExtensionElementEnvelope extends BaseElement {
@@ -1482,25 +1552,33 @@ interface ExtensionElementEnvelope extends BaseElement {
   readonly data: Record<string, unknown>;
 }
 
-// Typed handle for consumers — carries the element type at the type level
-interface ElementTypeKey<T> {
+// Typed handle — retained from register(), NOT looked up by string
+interface ElementTypeKey<T extends BaseElement> {
+  readonly type: string;
+  matches(envelope: ExtensionElementEnvelope): boolean; // Checks extensionType + data
+  validateData(data: Record<string, unknown>): boolean;
   unwrap(envelope: ExtensionElementEnvelope): T;
+  wrap(el: T): ExtensionElementEnvelope;
 }
 
-// Erased adapter for core — no type parameter, used internally
+// Erased adapter for core — includes legacy codec
 interface ElementTypeAdapter {
   readonly type: string;
-  validateData(data: Record<string, unknown>): boolean;
-  unwrap(envelope: ExtensionElementEnvelope): BaseElement;
-  wrap(el: BaseElement): ExtensionElementEnvelope;
-  bounds(el: BaseElement): Bounds | null;
-  hitTest(el: BaseElement, point: Point): boolean;
+  readonly legacyTypes: string[];
+  validateEnvelope(el: ExtensionElementEnvelope): boolean;
+  decodeLegacy(raw: Record<string, unknown>): ExtensionElementEnvelope;
+  encodeLegacy(el: ExtensionElementEnvelope): Record<string, unknown>;
+  bounds(el: ExtensionElementEnvelope): Bounds | null;
+  hitTest(el: ExtensionElementEnvelope, point: Point): boolean;
   renderMode: 'canvas' | 'dom' | 'hybrid' | 'none';
-  render?(el: BaseElement, renderCtx: ElementRenderContext): void;
+  render?(el: ExtensionElementEnvelope, renderCtx: ElementRenderContext): void;
 }
 
 interface ElementTypeDefinition<T extends BaseElement> {
   readonly type: string;
+  readonly legacyTypes: string[]; // ['grid'] — legacy wire types
+  decodeLegacy(raw: Record<string, unknown>): T;
+  encodeLegacy(el: T): Record<string, unknown>;
   validateData(data: Record<string, unknown>): boolean;
   unwrap(el: ExtensionElementEnvelope): T;
   wrap(el: T): ExtensionElementEnvelope;
@@ -1513,13 +1591,22 @@ interface ElementTypeDefinition<T extends BaseElement> {
 }
 
 // Standalone registry — passed explicitly to every boundary
-const elementRegistry = new ElementRegistry();
-elementRegistry.register(definition: ElementTypeDefinition<T>): ElementTypeKey<T>;
+class ElementRegistry {
+  register<T extends BaseElement>(def: ElementTypeDefinition<T>): ElementTypeKey<T>;
+  unregister(type: string): void;
+  getAdapter(type: string): ElementTypeAdapter | undefined;
+  getAdapterByLegacyType(legacyType: string): ElementTypeAdapter | undefined;
+  getTypes(): string[];
+}
 
-// Passed to Viewport, parseState, exportImage, exportSvg, sync:
-const viewport = new Viewport({ container, elementRegistry, plugins: [...] });
-parseState(json, elementRegistry);
-exportImage(elements, ..., elementRegistry);
+// Consumers retain typed keys from register():
+const gridKey = elementRegistry.register(gridDefinition);
+if (gridKey.matches(envelope)) {
+  const grid = gridKey.unwrap(envelope);
+}
+
+// parseState uses legacy dispatch during Phases 2-3:
+const adapter = elementRegistry.getAdapterByLegacyType('grid');
 ```
 
 ### Render Hooks (Per-Surface Typed)
@@ -1566,9 +1653,18 @@ viewport.renderHooks.imageExport.register(hooks: ImageExportHooks): () => void;
 viewport.renderHooks.svgExport.register(hooks: SvgExportHooks): () => void;
 ```
 
-### Point Constraint Service
+### Point Constraint Service (Aligned with ADR-0006)
 
 ```typescript
+// Public interface — exposed on ToolContext, includes activation
+interface ConstraintServiceAccess {
+  readonly isActive: boolean;
+  setActive(active: boolean): void;
+  constrainPoint(point: Point, options?: ConstraintOptions): Point;
+  getConstraintInfo(): ConstraintInfo | null;
+  hasCapability(capability: string): boolean;
+}
+
 // Implementation interface — NO activation control
 interface PointConstraintService {
   constrainPoint(point: Point, options?: ConstraintOptions): Point;
@@ -1581,31 +1677,30 @@ interface ConstraintOptions {
   footprint?: { width: number; height: number };
 }
 
-// Proxy owns activation — gates calls, implementations don't know about it
-class ConstraintServiceProxy {
+// Proxy implements ConstraintServiceAccess, delegates to PointConstraintService
+class ConstraintServiceProxy implements ConstraintServiceAccess {
   private _impl: PointConstraintService | null = null;
   private _active = false;
-
   get isActive(): boolean {
     return this._active;
   }
   setActive(active: boolean): void {
     this._active = active;
   }
-
   constrainPoint(point: Point, options?: ConstraintOptions): Point {
     if (!this._active || !this._impl) return point;
     return this._impl.constrainPoint(point, options);
   }
-
   _setImpl(impl: PointConstraintService | null): void {
     this._impl = impl;
-    // No activation forwarding — implementations don't have activation state
   }
 }
 
-// Available on ToolContext (never undefined once initialized):
+// Available on ToolContext (ConstraintServiceAccess — includes activation):
 ctx.constraintService.constrainPoint(worldPoint, { mode: 'cell-center' });
+if (ctx.constraintService.isActive) {
+  /* ... */
+}
 
 // Domain-specific access via ServiceKey<T>:
 viewport.getService(GridControllerKey); // Typed via ServiceKey<T>
@@ -1620,15 +1715,26 @@ interface PluginHandle {
   dispose(): void;
   validateState?(data: unknown): void;
   loadState?(data: unknown): void;
-  exportState?(): unknown;
+  exportState?(): unknown; // Returns data; viewport wraps in PersistedPluginState
+  migrateState?(data: unknown, fromVersion: number): unknown;
+  readonly stateVersion?: number; // Default: 1
 }
 
-// State stored at extensions[plugin.name] — one opaque value per plugin
+// Persisted state uses versioned envelope:
+interface PersistedPluginState {
+  version: number;
+  data: unknown;
+}
+// CanvasState.extensions: Record<string, PersistedPluginState>
+
+// Unknown-plugin policy: preserved as-is on re-export, not dropped.
+// Version mismatch: migrateState() called if available, otherwise dropped with warning.
+
 // Constructor-time installation:
 new Viewport({ plugins: [fogPlugin] });
 ```
 
-### Sync Plugins (Client)
+### Sync Plugins (Client, Aligned with ADR-0003)
 
 ```typescript
 interface ClientSyncPlugin {
@@ -1643,19 +1749,26 @@ interface ClientSyncPlugin {
   handleCorrection?(op: SyncOp): void;
 }
 
-// ClientExtensionRegistry handler includes metadata:
+// Typed extension op — payload validated by codec before handler sees it:
+interface TypedExtensionOp<TPayload> {
+  readonly kind: 'extension';
+  readonly extensionKind: string;
+  readonly payload: TPayload; // Validated — not unknown
+}
+
+// ClientExtensionRegistry handler receives typed payload:
 interface ClientExtensionRegistry {
   register<TPayload>(config: {
     extensionKind: string;
     codec: OpCodec<TPayload>;
-    handler: (op: ExtensionOp, meta: { sender: string; isLocal: boolean; phase: 'live' | 'reconnect' | 'snapshot' }) => void;
+    handler: (op: TypedExtensionOp<TPayload>, meta: { sender: string; isLocal: boolean; phase: 'live' | 'reconnect' | 'snapshot' }) => void;
   }): void;
 }
 
 syncClient.registerPlugin(plugin: ClientSyncPlugin): () => void;
 ```
 
-### Sync Plugins (Server)
+### Sync Plugins (Server, Aligned with ADR-0003)
 
 ```typescript
 interface ServerSyncPlugin {
@@ -1667,10 +1780,19 @@ interface ServerSyncPlugin {
   filterSnapshot?(snapshot: PluginSnapshot, viewer: { userId: string; role: string }): PluginSnapshot | null;
 }
 
+// ServerExtensionRegistry handler receives typed payload:
+interface ServerExtensionRegistry {
+  register<TPayload>(config: {
+    extensionKind: string;
+    codec: OpCodec<TPayload>;
+    handler: (op: TypedExtensionOp<TPayload>, ctx: ServerOpContext) => Promise<ApplyResult>;
+  }): void;
+}
+
 syncServer.registerPlugin(plugin: ServerSyncPlugin): () => void;
 ```
 
-### Sync Plugins (Backend/Redis)
+### Sync Plugins (Backend/Redis, Aligned with ADR-0003)
 
 ```typescript
 interface BackendSyncPlugin {
@@ -1680,7 +1802,17 @@ interface BackendSyncPlugin {
   scripts?: Record<string, string>;
   snapshot?(room: string): Promise<PluginSnapshot>;
   apply?(room: string, op: SyncOp, next: BackendNext): Promise<ApplyResult>;
+  registerExtensionKinds?(registry: BackendExtensionRegistry): void;
   dispose?(): void;
+}
+
+// BackendExtensionRegistry handler receives typed payload:
+interface BackendExtensionRegistry {
+  register<TPayload>(config: {
+    extensionKind: string;
+    codec: OpCodec<TPayload>;
+    handler: (op: TypedExtensionOp<TPayload>, ctx: BackendOpContext) => Promise<ApplyResult>;
+  }): void;
 }
 
 // ApplyResult includes locality:
@@ -1691,14 +1823,25 @@ interface ApplyResult {
   locality?: 'shared' | 'local'; // Default: 'shared'
 }
 
+// RollKeeper buffer contract:
+// Base ops: return { accepted: op, locality: 'local' } WITHOUT calling next()
+// Fog ops: delegate via next() → inner plugin → { accepted: op, locality: 'shared' }
+
 redisBackend.registerPlugin(plugin: BackendSyncPlugin): () => void;
 ```
 
-### PluginSnapshot Envelope
+### PluginSnapshot and PersistedPluginState Envelopes
 
 ```typescript
+// Sync protocol — per-plugin versioned snapshot
 interface PluginSnapshot {
   pluginName: string;
+  version: number;
+  data: unknown;
+}
+
+// Persisted state — per-plugin versioned envelope (ADR-0005)
+interface PersistedPluginState {
   version: number;
   data: unknown;
 }
@@ -1708,6 +1851,10 @@ interface SyncSnapshot {
   layers?: LayerRecord[];
   extensions: Record<string, PluginSnapshot>; // Keyed by pluginName
 }
+
+// CanvasState.extensions: Record<string, PersistedPluginState>
+// Unknown-plugin policy: preserved as-is on re-export
+// Version mismatch: migrateState() called if available
 ```
 
 ### Camera Modifiers (Viewport Constraints Only)
@@ -1733,26 +1880,51 @@ interface OverlayOptions {
 viewport.overlays.register(renderer: OverlayRenderer, options: OverlayOptions): () => void;
 ```
 
-### Service Registry
+### Service Registry (Aligned with ADR-0005)
 
 ```typescript
-// Opaque typed key — the key carries the service type
-interface ServiceKey<T> { readonly name: string; }
+// Opaque typed key — invariant brand, NoInfer on registration
+declare const ServiceKeyBrand: unique symbol;
+interface ServiceKey<T> {
+  readonly [ServiceKeyBrand]: { readonly _in: T; readonly _out: T };
+  readonly name: string; // Debugging only
+  readonly id: symbol; // Runtime identity — unique per createServiceKey() call
+}
 function createServiceKey<T>(name: string): ServiceKey<T>;
 
-// During plugin start():
-ctx.registerService<T>(key: ServiceKey<T>, service: T): void;
+// During plugin start() — NoInfer prevents inference from service:
+ctx.registerService<T>(key: ServiceKey<T>, service: NoInfer<T>): void;
 
-// Typed retrieval:
+// Typed retrieval — T inferred from key:
 viewport.getService<T>(key: ServiceKey<T>): T | undefined;
 
 // VTT package exports typed keys:
 export const FogManagerKey = createServiceKey<FogManager>('fog');
 export const GridControllerKey = createServiceKey<GridController>('grid');
 
-// Plugin state stored at extensions[plugin.name] — one opaque value per plugin
+// Runtime identity: by symbol reference, NOT by name.
 ```
 
 ---
 
-_This is a living document. Updated 2026-09-06 with fifth ADR review alignment (all six ADRs finalized). Update as the migration progresses._
+_This is a living document. Updated 2026-09-06 with sixth ADR review alignment (11 findings addressed across all ADRs and migration doc). Update as the migration progresses._
+
+---
+
+## Sixth Review Response (2026-09-06)
+
+This revision addresses 11 findings (10 P1 + 1 P2) from the sixth Codex review:
+
+| #   | Severity | Finding                                              | Resolution                                                                                                                                                                               |
+| --- | -------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | P1       | ElementTypeKey type safety — getKey\<T\>() is unsafe | Removed getKey\<T\>() from registry. Consumers retain typed keys from register(). Added matches() for checked unwrap. See ADR-0001.                                                      |
+| 2   | P1       | Legacy element conversion has no codec               | Added legacyTypes, decodeLegacy, encodeLegacy to ElementTypeDefinition. Registry provides getAdapterByLegacyType(). See ADR-0001.                                                        |
+| 3   | P1       | Extension-op handlers receive untyped payloads       | Handlers now receive TypedExtensionOp\<TPayload\> with codec-validated payloads. Backend gains registerExtensionKinds(). See ADR-0003.                                                   |
+| 4   | P1       | RollKeeper buffer sends base ops to Redis            | Base ops short-circuit with locality: 'local' WITHOUT calling next(). Fog ops delegate via next(). See ADR-0003.                                                                         |
+| 5   | P1       | Capability translation misses snapshots              | Translation now covers ALL outbound paths (snapshots, upserts, corrections, broadcasts). Handshake gates processing until capabilities known. See ADR-0004.                              |
+| 6   | P1       | Failed loadState exposes partial state               | Rollback happens while notifications remain suspended. resume()/discard() controller. No intermediate state observable. See ADR-0005.                                                    |
+| 7   | P1       | Constraint public type missing activation API        | Introduced ConstraintServiceAccess (public, includes activation) vs PointConstraintService (implementation, no activation). See ADR-0006.                                                |
+| 8   | P1       | ServiceKey not as type-safe as claimed               | Added invariant brand, NoInfer\<T\> on registration, symbol-based runtime identity. See ADR-0005.                                                                                        |
+| 9   | P1       | Persisted plugin state has no versioning             | Added PersistedPluginState envelope, migrateState() hook, unknown-plugin preservation policy. See ADR-0005.                                                                              |
+| 10  | P1       | Migration plan out of sync with ADRs                 | Replaced "Open Decisions" with finalized ADR summaries. Fixed render contract (no SVGDocument). Fixed Phase 6 ordering (v4 bump before legacy removal). Aligned all appendix references. |
+| 11  | P2       | Constructor abort cleanup incomplete                 | Added abort transaction covering DOM, listeners, ResizeObserver, animation frames. See ADR-0005.                                                                                         |

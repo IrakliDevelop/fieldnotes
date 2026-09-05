@@ -125,11 +125,21 @@ Core exposes a generic point-constraint service slot. Tools call it when they wa
 // Core provides a generic service slot — no VTT concepts
 interface ToolContext {
   // ... existing fields ...
-  constraintService: PointConstraintService; // Stable proxy — always present once initialized
+  constraintService: ConstraintServiceAccess; // Public proxy — includes activation
 }
 
-// Implementation interface — no activation control
-// Activation is solely the proxy's concern
+// Public interface — exposed on ToolContext and Viewport
+// Includes activation control (proxy-owned)
+interface ConstraintServiceAccess {
+  readonly isActive: boolean;
+  setActive(active: boolean): void;
+  constrainPoint(point: Point, options?: ConstraintOptions): Point;
+  getConstraintInfo(): ConstraintInfo | null;
+  hasCapability(capability: string): boolean;
+}
+
+// Implementation interface — NO activation control
+// Implementations provide constraint logic only
 interface PointConstraintService {
   // Generic point constraint — no grid/hex/cell concepts
   constrainPoint(point: Point, options?: ConstraintOptions): Point;
@@ -175,7 +185,7 @@ class GridConstraintService implements PointConstraintService {
   }
 
   // Domain-specific methods available via typed service registry (ADR-0005):
-  // viewport.getService<GridConstraintService>('grid')
+  // viewport.getService(GridControllerKey) // ServiceKey<GridController>
   snapToCellCenter(point: Point, footprint: Footprint): Point { ... }
 }
 ```
@@ -228,11 +238,11 @@ const snapped = ctx.constraintService
   .snapToCellCenter(world, footprint);
 
 // After (safe — use service registry):
-const gridService = viewport.getService<GridConstraintService>('grid');
+const gridService = viewport.getService(GridControllerKey); // ServiceKey<GridController>
 const snapped = gridService?.snapToCellCenter(world, footprint) ?? world;
 ```
 
-Tools that need domain-specific constraint behavior (e.g., template resizing that recalculates `radiusFeet`) should use the service registry (`viewport.getService<GridConstraintService>('grid')`) to obtain the typed implementation directly, rather than using an unsafe generic query on the constraint service.
+Tools that need domain-specific constraint behavior (e.g., template resizing that recalculates `radiusFeet`) should use the service registry (`viewport.getService(GridControllerKey)` — `ServiceKey<GridController>`) to obtain the typed implementation directly, rather than using an unsafe generic query on the constraint service.
 
 Tools that don't snap (DmMarkerTool, MovementPathTool) simply don't call the service. No change needed.
 
@@ -245,8 +255,9 @@ The stable proxy is always present on `ToolContext` once initialized, but it may
 const snapped = ctx.constraintService.constrainPoint(world);
 
 // Require explicit handling for tools that need constraining:
+// ConstraintServiceAccess — isActive is part of the public interface
 if (!ctx.constraintService.isActive) {
-  // Proxy is inactive or has no implementation — isActive is solely the proxy's concern
+  // Proxy is inactive — isActive is solely the proxy's concern
   // Log warning in development, throw in tests
   if (process.env.NODE_ENV === 'development') {
     console.warn(`Tool ${toolName} requires constraintService but it is not active`);
@@ -279,13 +290,16 @@ Better: tools that require constraining declare it in their registration, and th
 
 ### ConstraintService ownership
 
-The `ConstraintServiceProxy` slot on `ToolContext` is a stable proxy owned by core. The grid plugin provides the implementation via `_setImpl()`. Activation is solely the proxy's concern — the proxy owns activation state (`_active`) and gates calls. Implementations are stateless with respect to activation: they constrain points when asked, and the proxy decides when to ask.
+The `ConstraintServiceProxy` slot on `ToolContext` is a stable proxy owned by core that implements `ConstraintServiceAccess` (the public interface). The grid plugin provides the implementation via `_setImpl()`, which accepts a `PointConstraintService` (the implementation interface). Activation is solely the proxy's concern — the proxy owns activation state (`_active`) and gates calls. Implementations are stateless with respect to activation: they constrain points when asked, and the proxy decides when to ask.
+
+The two-interface design separates concerns: `ConstraintServiceAccess` is the public API exposed to tools and the viewport — it includes activation control (`isActive`, `setActive`). `PointConstraintService` is the implementation interface provided by domain packages — it has no activation state. The `ConstraintServiceProxy` implements `ConstraintServiceAccess` publicly and delegates to a `PointConstraintService` implementation internally. This prevents implementations from silently bypassing the global snap toggle.
 
 Core provides a `ConstraintServiceProxy` that delegates to the current implementation. The proxy is always present on `ToolContext` once the constraint service system is initialized — it is never `undefined`. This ensures that activation state (the snap-to-grid toggle) survives service replacement when grids are added, removed, or changed. Since implementations have no activation state, `_setImpl()` simply swaps the implementation — no activation forwarding is needed.
 
 ```typescript
-// Core provides a stable proxy — activation is solely the proxy's concern
-class ConstraintServiceProxy {
+// Core provides a stable proxy — implements ConstraintServiceAccess (public)
+// Delegates constraint logic to PointConstraintService (implementation)
+class ConstraintServiceProxy implements ConstraintServiceAccess {
   private _impl: PointConstraintService | null = null;
   private _active = false;
 
@@ -332,10 +346,9 @@ This public API toggles snapping on/off. It remains in core as a simple boolean 
 `Viewport.setSnapToGrid()` delegates to the constraint service proxy's `setActive()` method:
 
 ```typescript
-// Viewport.setSnapToGrid() delegates to the stable proxy:
 setSnapToGrid(enabled: boolean): void {
   this._snapToGrid = enabled;
-  this.constraintService.setActive(enabled); // Proxy is always present — no optional chaining
+  this.constraintService.setActive(enabled); // ConstraintServiceAccess — has setActive
 }
 ```
 
@@ -496,6 +509,28 @@ The original proposal placed a VTT-specific `SnapService` (with methods like `sn
 ### Fifth review — F10
 
 - **F10 (Constraint proxy activation):** Redesigned so activation is solely a proxy concern. Removed `isActive` and `setActive()` from the `PointConstraintService` implementation interface. The `ConstraintServiceProxy` owns activation state (`_active`) and gates calls — implementations are always ready, they just constrain points when the proxy delegates. `_setImpl()` no longer forwards activation state (there's nothing to forward). `isActive` is a proper getter on the proxy. This eliminates the bug where `_setImpl()` only forwarded `true` and the implementation could remain active after `setSnapToGrid(false)`.
+
+### Sixth review — Finding 7 (P1): Point-constraint public type does not expose activation API
+
+**Problem:** `ToolContext.constraintService` was declared as `PointConstraintService` which intentionally has no `isActive` or `setActive()`. But examples accessed `.isActive` and `.setActive()` — these wouldn't compile.
+
+**Changes made:**
+
+1. **Defined `ConstraintServiceAccess` public interface.** Includes activation control (`isActive`, `setActive`) alongside constraint methods. This is the interface exposed on `ToolContext` and `Viewport`.
+
+2. **Updated `ToolContext` to use `ConstraintServiceAccess`.** Changed `constraintService: PointConstraintService` to `constraintService: ConstraintServiceAccess` so the public type matches the actual API.
+
+3. **Updated `ConstraintServiceProxy` to implement `ConstraintServiceAccess`.** The proxy now explicitly implements the public interface while delegating constraint logic to a `PointConstraintService` implementation internally.
+
+4. **Fixed string-generic `getService` examples.** Replaced `getService<GridConstraintService>('grid')` (unsafe string-keyed) with `getService(GridControllerKey)` (typed `ServiceKey<GridController>` pattern).
+
+5. **Added two-interface design note.** Documented that `ConstraintServiceAccess` is the public API (includes activation) while `PointConstraintService` is the implementation interface (no activation). The proxy implements the former and delegates to the latter, preventing implementations from bypassing the global snap toggle.
+
+6. **Updated `Viewport.setSnapToGrid()` section.** Clarified that `constraintService.setActive()` is available because the type is `ConstraintServiceAccess`.
+
+7. **Updated "Explicit opt-out for inactive service" section.** Added comment noting that `isActive` is part of the `ConstraintServiceAccess` public interface.
+
+8. **Updated tool migration examples.** All examples now use `ConstraintServiceAccess` consistently.
 
 ## References
 

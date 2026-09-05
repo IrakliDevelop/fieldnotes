@@ -208,35 +208,74 @@ On sync connection, both peers exchange capabilities. If both support `elementEn
 
 This ensures capability negotiation precedes any extension-shaped element on the wire. The v4 bump and capability exchange are simultaneous — no window where extension elements can arrive before the peer is ready.
 
+**Handshake gating:** The capability exchange MUST complete before ANY data is sent or processed. The sync connection handshake gates all op processing:
+
+1. On sync connection, both peers exchange `SyncCapabilities`
+2. Neither peer sends extension-shaped elements until both have received the other's capabilities
+3. If a peer has not yet received capabilities, ALL incoming ops are queued (not processed) until the handshake completes
+4. If the handshake fails or times out, the connection is refused — no ops are processed with unknown peer capabilities
+
+This eliminates the window where extension elements could arrive before the peer is ready. The handshake is not merely documented as happening 'before' — it is enforced as a protocol gate.
+
 #### Translation layer (Phase 4+)
 
-During Phase 4, peers may support different extension kinds. The sync hub translates for peers that don't support a specific extension kind:
+During Phase 4, peers may support different extension kinds. The sync hub translates for peers that don't support a specific extension kind. The translation layer must cover every outbound path that can carry extension elements:
+
+1. **Snapshot elements** (`snapshot.kind === 'snapshot'`, `elements: CanvasElement[]`) — initial snapshots, reconnect snapshots, and snapshot corrections
+2. **Upserts** (`op.kind === 'upsert'`, `element: CanvasElement`) — individual element updates
+3. **Corrections** — server-sent corrections containing elements
+4. **Additional broadcasts** (`ApplyResult.broadcast`) — plugin-produced additional ops
+5. **Peer-produced snapshots** — server plugin `snapshot()` results that include elements
+
+Each path is translated per-peer based on that peer's capabilities. A peer without `elementEnvelope` support receives legacy-format elements in ALL of these paths, not just in individual upserts.
 
 ```typescript
-function translateForClient(op: SyncOp, clientCapabilities: SyncCapabilities): SyncOp | null {
-  if (op.kind === 'extension' && !clientCapabilities.extensionKinds.includes(op.extensionKind)) {
-    // This peer doesn't support this extension kind — drop the op
-    // (or translate to legacy format if a legacy equivalent exists)
+// Translation covers ALL outbound paths — not just individual ops
+function translateForPeer(
+  op: SyncOp,
+  peerCapabilities: SyncCapabilities,
+  registry: ElementRegistry,
+): SyncOp | null {
+  // Extension ops: drop if peer doesn't support this extension kind
+  if (op.kind === 'extension' && !peerCapabilities.extensionKinds.includes(op.extensionKind)) {
     return null;
   }
+
+  // Upserts containing extension elements: translate to legacy if peer lacks envelope support
   if (
     op.kind === 'upsert' &&
     op.element.type === 'extension' &&
-    !clientCapabilities.elementEnvelope
+    !peerCapabilities.elementEnvelope
   ) {
-    // This peer doesn't support extension envelope — translate to legacy if possible
-    return translateToLegacyElement(op);
+    return translateElementToLegacy(op, registry);
   }
+
+  // Snapshots containing extension elements in their elements[] array
+  if (op.kind === 'snapshot' && !peerCapabilities.elementEnvelope) {
+    return translateSnapshotElements(op, registry);
+  }
+
+  // Corrections containing extension elements
+  if (
+    op.kind === 'correction' &&
+    op.element?.type === 'extension' &&
+    !peerCapabilities.elementEnvelope
+  ) {
+    return translateElementToLegacy(op, registry);
+  }
+
   return op;
 }
 ```
 
+Snapshot translation detail: A `snapshot` op carries `elements: CanvasElement[]`. When translating for a peer without `elementEnvelope` support, each element with `type: 'extension'` is converted to its legacy wire format using the element registry's `encodeLegacy()` (see ADR-0001). The translated snapshot retains the same structure but with legacy-typed elements instead of extension envelopes.
+
 #### Timeline
 
-| Phase | Sync behavior                                                                                                                                                                  |
-| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 1-3   | All ops use legacy wire kinds. No extension elements. No capability exchange needed.                                                                                           |
-| 4     | Capability exchange on sync connection. Extension elements only sent if both peers support `elementEnvelope`. Translation layer for mixed-version peers within v4 (if needed). |
+| Phase | Sync behavior                                                                                                                                                                                                                                         |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1-3   | All ops use legacy wire kinds. No extension elements. No capability exchange needed.                                                                                                                                                                  |
+| 4     | **Handshake gate:** capability exchange on sync connection BEFORE any data flows. Extension elements only sent if both peers support `elementEnvelope`. Translation covers ALL outbound paths (snapshots, upserts, corrections, broadcasts) per-peer. |
 
 ## Options Considered
 
@@ -299,6 +338,8 @@ This revision addresses findings from the third ADR review:
 - **F3 (Unified rollout state machine):** Replaced 2-phase model with unified 4-phase rollout state machine. Phase 1 (registry additive, no wire changes), Phase 2 (envelope in memory, legacy on wire), Phase 3 (definitions move to domain packages), Phase 4 (extension envelope on wire + v4 bump). This is the canonical rollout state machine — ADR-0001, ADR-0003, and MIGRATION_VTT_EXTRACTION.md all reference these phase numbers. Updated compatibility matrix to include all 4 phases.
 
 - **F4 (Capability negotiation timing):** Moved capability exchange from non-existent "Phase 3" to Phase 4 (coinciding with v4 bump). Capability exchange happens on sync connection BEFORE any extension-shaped elements are sent. Both peers exchange `SyncCapabilities` including `elementEnvelope: boolean`. Extension elements only flow if both peers support them. This eliminates the window where extension elements could arrive before the peer is ready.
+
+- **F5 (Capability translation misses element-bearing snapshots):** The translation section previously only covered extension ops and individual upserts. Expanded `translateForPeer` to cover ALL outbound paths that can carry extension elements: snapshot elements, upserts, corrections, additional broadcasts, and peer-produced snapshots. Added handshake gating requirement — capability exchange MUST complete before ANY data is sent or processed, with incoming ops queued until the handshake completes. Added snapshot translation detail: each `type: 'extension'` element in a snapshot's `elements[]` is converted via `encodeLegacy()` for peers without `elementEnvelope` support.
 
 ## References
 

@@ -79,18 +79,26 @@ const viewport = new Viewport({
 Service registration and retrieval use opaque `ServiceKey<T>` tokens instead of string keys. The key carries the service type, eliminating unchecked casts.
 
 ```typescript
-// Opaque typed key — the key carries the service type
+// Opaque typed key — invariant brand prevents TypeScript from inferring a common supertype
 declare const ServiceKeyBrand: unique symbol;
 interface ServiceKey<T> {
-  readonly [ServiceKeyBrand]: T;
-  readonly name: string; // For debugging
+  readonly [ServiceKeyBrand]: {
+    readonly _in: T; // Contravariant input position
+    readonly _out: T; // Covariant output position
+  };
+  readonly name: string; // For debugging only — NOT used for identity
+  readonly id: symbol; // Runtime identity — unique per createServiceKey() call
 }
 
 // Factory function to create typed keys
 function createServiceKey<T>(name: string): ServiceKey<T> {
-  return { name } as ServiceKey<T>;
+  return { name, id: Symbol(name) } as ServiceKey<T>;
 }
 ```
+
+**Runtime identity:** Each `createServiceKey<T>()` call produces a unique key with a unique `id: symbol`. Identity is by symbol reference, NOT by name. Two keys created with the same name are distinct keys. `registerService()` with a duplicate key (same symbol) replaces the previous registration. The `name` field is for debugging and logging only.
+
+> **Note:** `MIGRATION_VTT_EXTRACTION.md` contains a simplified version of `ServiceKey` that omits the invariant brand. That version is incorrect — implementations should use the full branded version defined here.
 
 VTT packages export typed service keys:
 
@@ -124,6 +132,10 @@ interface PluginHandle {
   validateState?(data: unknown): void;
   loadState?(data: unknown): void;
   exportState?(): unknown;
+  // Migrate persisted state from an older version
+  migrateState?(data: unknown, fromVersion: number): unknown;
+  // Current version of this plugin's persisted state format (default: 1)
+  readonly stateVersion?: number;
 }
 
 interface PluginConfigureContext {
@@ -145,7 +157,8 @@ interface PluginStartContext {
   // ... all services available
 
   // Register a typed service accessible to the host via viewport.getService()
-  registerService<T>(key: ServiceKey<T>, service: T): void;
+  // T is inferred from the key only — NoInfer prevents inference from service
+  registerService<T>(key: ServiceKey<T>, service: NoInfer<T>): void;
 
   // Register a disposer that will be called if start() fails
   // or when the plugin is disposed
@@ -299,6 +312,8 @@ Phase 2: Construct — core creates all subsystems using plugin registrations
   16. RenderLoop (assembled with all deps including HybridRenderSurface)
   17. Event wiring, store listeners, ResizeObserver, syncCanvasSize()
 
+  All DOM nodes, event listeners, ResizeObserver, and animation frames created during this phase are tracked by the constructor's abort transaction. If the constructor throws, these resources are cleaned up.
+
 Steps marked TEMPORARY exist during the migration window. After VTT extraction, these subsystems are created by the fog plugin's `start()` phase, not by the core constructor. The core constructor creates only domain-agnostic subsystems.
 
 Phase 3: Start — plugins receive the complete runtime
@@ -312,6 +327,18 @@ Phase 3: Start — plugins receive the complete runtime
         b. Remove all services registered during this start() call
         c. Roll back configure() registrations for this plugin
       - If required plugin throws → dispose all prior handles, constructor throws
+
+**Constructor abort transaction:** If the constructor must throw (required plugin throws, capability validation fails after all rollbacks), the viewport performs a complete abort that covers ALL resources created during construction:
+
+1. Call `dispose()` on all successfully started plugin handles (reverse order)
+2. Call all disposers registered via `ctx.addDisposer()` during all `start()` calls (reverse order)
+3. Roll back all `configure()` registrations for all plugins (hooks, tools, serialization handlers)
+4. **Disconnect the ResizeObserver** created during Phase 2
+5. **Remove all DOM nodes** created during Phase 2 (wrapper, canvases, paint stack, DOM layer)
+6. **Remove all event listeners** added during Phase 2 (pointer events, store listeners, camera listeners, layer listeners)
+7. **Cancel any pending animation frames** scheduled by `renderLoop.start()`
+
+The abort covers every resource created by both core (Phase 2) and plugins (Phases 1 and 3). No resource leaks. The constructor either produces a fully functional viewport or leaves no trace.
 
 Phase 4: Render — first frame
   19. renderLoop.start() ← first requestAnimationFrame scheduled
@@ -337,12 +364,19 @@ if (installedPlugins.has(plugin.name)) return;
 
 ### State storage per plugin
 
-Each plugin's state is stored as a single opaque value at `extensions[plugin.name]`:
+Each plugin's state is stored as a versioned envelope at `extensions[plugin.name]`:
 
 ```typescript
+// Persisted plugin state envelope — versioned for migration
+interface PersistedPluginState {
+  version: number; // Plugin-specific version
+  data: unknown; // Plugin-specific state
+}
+
+// In CanvasState:
 interface CanvasState {
   // ... existing fields ...
-  extensions: Record<string, unknown>; // Keyed by plugin name
+  extensions: Record<string, PersistedPluginState>; // Keyed by plugin name, versioned
 }
 ```
 
@@ -353,12 +387,24 @@ interface PluginHandle {
   // Receives only this plugin's state slice
   validateState?(data: unknown): void;
   loadState?(data: unknown): void;
-  // Returns this plugin's state (stored at extensions[plugin.name])
-  exportState?(): unknown;
+  // Returns this plugin's state wrapped in a versioned envelope
+  // The viewport stores it at extensions[plugin.name] = { version, data }
+  exportState?(): unknown; // Returns the data; viewport wraps in PersistedPluginState
+
+  // Migrate persisted state from an older version
+  // Returns migrated data, or throws if migration is not possible
+  migrateState?(data: unknown, fromVersion: number): unknown;
+
+  // Current version of this plugin's persisted state format
+  readonly stateVersion?: number; // Default: 1
 }
 ```
 
 Since each plugin's state is stored at `extensions[plugin.name]`, collisions are impossible by construction — plugin names are unique (enforced by the idempotent registration check). There is no need for collision detection on export keys.
+
+**Unknown-plugin policy:** When loading state, if `extensions[pluginName]` exists but no plugin with that name is registered, the entry is **preserved as-is** in the persisted state. It is not modified, not dropped, and not migrated. On re-export, the unknown entry is written back unchanged. This ensures that uninstalling and reinstalling a plugin does not lose its persisted state.
+
+When loading state, if a plugin IS registered but its `stateVersion` differs from the persisted `version`, the plugin's `migrateState()` is called to upgrade the data. If `migrateState()` is not provided or throws, the plugin's state entry is dropped and a warning is logged.
 
 ### Four-phase loadState ordering
 
@@ -367,17 +413,24 @@ State loading uses a validate-snapshot-apply-restore pattern. During Phase 3 (Ap
 ```typescript
 interface Viewport {
   // Suspend all observer notifications across all subsystems
-  // Returns a resume function that flushes batched notifications
-  suspendNotifications(): () => void;
+  // Returns a controller with resume() and discard() methods
+  suspendNotifications(): NotificationController;
+}
+
+interface NotificationController {
+  // Flush batched notifications and re-enable observers
+  resume(): void;
+  // Discard all queued notifications and re-enable observers
+  discard(): void;
 }
 ```
 
-If Phase 4 (Restore) is triggered because an apply step threw, the viewport calls `resume()` to re-enable notifications, then restores the snapshot from Phase 2. However, some effects cannot be fully retracted:
+While the notification barrier prevents observable partial state for autosave, sync, and other event consumers, some effects cannot be fully retracted:
 
-- DOM mutations may have already occurred (the DOM is restored, but any DOM observers have already fired).
+- DOM mutations may have already occurred during the apply phase. The DOM is restored to the snapshot state, but any external DOM observers (e.g., MutationObserver) may have already fired.
 - Plugin `loadState()` may have side effects that cannot be undone (e.g., network requests, timers).
 
-The restore is best-effort for these cases. The viewport logs a warning if restore encounters errors. The system may be in an inconsistent state after a failed restore — this is documented as a known limitation.
+The rollback is best-effort for these non-observable side effects. The key invariant is: **no event consumer (autosave, sync, store subscribers) ever observes partial state.** The viewport logs a warning if restore encounters errors.
 
 ```
 loadState() order (revised):
@@ -411,13 +464,13 @@ Phase 3: Apply — viewport-wide event barrier, apply mutations
       - Single history notification
       Observers see the complete new state, not intermediate mutations.
 
-Phase 4: On failure — restore snapshot (best-effort)
+Phase 4: On failure — rollback while notifications remain suspended
   If any step in Phase 3 throws:
-  - Call resume() to re-enable notifications (flushing whatever changes occurred)
-  - Restore snapshot from Phase 2
-  - Re-notify observers of restored state (single batch)
-  - Log warning if restore encounters errors
-  - System may be in inconsistent state (documented limitation)
+  - DO NOT call resume() yet — notifications remain suspended
+  - Restore snapshot from Phase 2 (elements, layers, plugin state, camera, history)
+  - Discard all queued notifications from the failed apply phase
+  - Call resume() AFTER rollback is complete — observers see the restored pre-load state
+  - No intermediate partial state is ever observable by autosave, sync, or other consumers
 ```
 
 ## Options Considered
@@ -490,7 +543,7 @@ await viewport.initialize({ plugins: [fogPlugin, gridPlugin] });
 - RollKeeper's existing bootstrap ordering (snapshot → fog → render) must be preserved through the plugin lifecycle. The four-phase `validateState()` / snapshot / `loadState()` / restore pattern gives plugins control, but the ordering must be correct.
 - Plugin name collisions in `exportState()` keys are caught at registration time, but this means plugin naming becomes part of the public contract — renaming a plugin is a breaking change for persisted state.
 - The service registry uses typed `ServiceKey<T>` tokens. Service keys (e.g., `FogManagerKey`, `GridControllerKey`) become part of the public contract — renaming or removing a service key is a breaking change for consumers.
-- State restore after a failed `loadState()` is best-effort. DOM observer firings and plugin side effects (network requests, timers) cannot be retracted. The system may be in an inconsistent state after a failed restore.
+- State restore after a failed `loadState()` rolls back while notifications remain suspended, so no event consumer (autosave, sync, store subscribers) observes partial state. However, DOM observer firings (e.g., MutationObserver) and plugin side effects (network requests, timers) cannot be retracted — the rollback is best-effort for these non-observable side effects.
 - The event barrier must cover ALL observable subsystems. If a new subsystem is added that has its own observers, it must participate in the barrier. Missing a subsystem re-introduces the partial-state observation problem.
 
 ## Review Response
@@ -533,6 +586,16 @@ await viewport.initialize({ plugins: [fogPlugin, gridPlugin] });
 - **F8 (start() partial state):** Extended transaction scope to cover `start()` in addition to `configure()`. Added `ctx.addDisposer()` to `PluginStartContext` — tracks cleanup callbacks during start. If `start()` throws: (1) all disposers called in reverse order, (2) all services registered during start removed, (3) configure registrations rolled back. No partial state survives a failed start.
 
 - **F9 (loadState atomicity):** Replaced store-only notification suppression with viewport-wide event barrier (`viewport.suspendNotifications()`). ALL observers are suspended during apply: store, layers, camera, history, plugins. On success, resume flushes batched notifications. On failure, resume re-enables notifications, then restore + re-notify. Every subsystem participates in the barrier — no partial-state observation possible.
+
+### Sixth review — F6, F8, F9, F11
+
+- **F6 (Failed loadState() exposes partial state):** Phase 4 (On failure) called `resume()` before restoring the snapshot, allowing autosave and sync to consume partial state. Fixed: notifications remain suspended during rollback; `resume()` is called only after the snapshot is restored. `suspendNotifications()` now returns a `NotificationController` with `resume()` (flush) and `discard()` (drop queued notifications) methods. The key invariant: no event consumer ever observes partial state.
+
+- **F8 (ServiceKey\<T\> is not as type-safe as claimed):** `T` appeared only covariantly, allowing TypeScript to infer a common supertype. Fixed: added an invariant brand (`_in`/`_out` phantom pair) to `ServiceKey<T>`, and `registerService()` uses `NoInfer<T>` on the service argument to prevent inference from the service value. Added runtime identity via `id: symbol` — identity is by symbol reference, not by name.
+
+- **F9 (Persisted plugin state has no versioning or unknown-plugin policy):** Added `PersistedPluginState` envelope with `version` and `data` fields. Added `migrateState()` and `stateVersion` to `PluginHandle` for version migration. Added unknown-plugin preservation policy: unregistered plugin entries are preserved as-is across load/save cycles.
+
+- **F11 (Constructor abort cleanup incomplete):** Added a complete abort transaction to the constructor that covers ALL resources: plugin handles, disposers, configure registrations, ResizeObserver, DOM nodes, event listeners, and pending animation frames. Phase 2 resources are explicitly tracked for abort cleanup. The constructor either produces a fully functional viewport or leaves no trace.
 
 ## References
 
