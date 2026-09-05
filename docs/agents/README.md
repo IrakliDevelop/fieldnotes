@@ -5,10 +5,20 @@ the mandatory short entry point; these pages provide detail on demand.
 
 | Need                                  | Read                                                                      |
 | ------------------------------------- | ------------------------------------------------------------------------- |
+| First time here? Start with the wiki  | [Agent Wiki](../wiki/README.md)                                           |
 | Find the owning package or subsystem  | [Architecture map](architecture.md)                                       |
 | Implement, test, refactor, or release | [Workflow and verification](workflow.md)                                  |
 | Review a change or prepare a handoff  | [Review playbook](review.md)                                              |
 | Invoke a reusable procedure           | [Field Notes skill](../../.agents/skills/fieldnotes-development/SKILL.md) |
+
+## Wiki vs Handbook
+
+The [**Agent Wiki**](../wiki/README.md) provides comprehensive context: architecture deep dives,
+core concepts explained, package-by-package documentation, development patterns, and common gotchas.
+Read it when you need to understand _how_ and _why_ things work.
+
+The **handbook** (these pages) provides concise rules and verification commands. Read it when you
+need to know _what_ to do and _how_ to verify it.
 
 ## Source-of-truth hierarchy
 
