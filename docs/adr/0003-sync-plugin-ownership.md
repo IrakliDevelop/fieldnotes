@@ -33,7 +33,15 @@ type SyncOp =
   | { kind: 'layer-upsert'; layer: Layer; version: number; editor: string }
   | { kind: 'layer-remove'; id: string; version: number; editor: string }
   | { kind: 'fog-meta'; record: FogMetaRecord } // ← VTT-specific
-  | { kind: 'fog-patch'; generation: string; tiles: FogTileRecord[] }; // ← VTT-specific
+  | { kind: 'fog-patch'; generation: string; tiles: FogTileRecord[] } // ← VTT-specific
+  | ExtensionOp; // ← Plugin extension envelope
+
+// Extension ops use a uniform envelope that extends the closed SyncOp union
+type ExtensionOp = {
+  kind: 'extension';
+  extensionKind: string; // e.g., 'vtt:fog-meta', 'vtt:fog-patch'
+  payload: unknown; // Validated by the owning plugin's codec
+};
 ```
 
 `isValidEnvelope()` is a switch on `op.kind` with a `default: return false` — unknown op kinds are rejected. `parseEnvelope()` returns `null` for invalid envelopes, and the sync hub silently drops nulls.
@@ -103,6 +111,8 @@ interface ClientSyncPlugin {
     meta: { phase: 'initial' | 'reconnect' | 'offline-replay' },
   ): void;
   handleCorrection?(op: SyncOp): void; // Handle server-sent corrections
+  // Handle extension ops for kinds this plugin owns
+  handleExtensionOp?(op: ExtensionOp): void;
 }
 ```
 
@@ -116,18 +126,18 @@ sends the existing tile state back to the sender only, not to the whole room.
 ```typescript
 interface ServerSyncPlugin {
   readonly name: string;
-  authorize?(ctx: PluginAuthContext, op: SyncOp): boolean | Promise<boolean>;
-  apply?(op: SyncOp, ctx: ServerOpContext): Promise<ApplyResult>;
-  snapshot?(room: string, backend: HubBackend): Promise<unknown>;
-  registerOpKinds?(registry: OpKindRegistry): void;
-}
 
-interface PluginAuthContext {
-  userId: string;
-  role: string;
-  room: string;
-  connectionId: string;
-  currentState: unknown; // Current plugin state for authorization decisions
+  // Unified processing: authorize + apply in one step.
+  // Returns ApplyResult for both acceptance and denial.
+  // On denial: return { accepted: null, corrections: [current state] }
+  // On accept: return { accepted: op, corrections: [], broadcast: [...] }
+  process?(op: SyncOp, ctx: ServerOpContext): Promise<ApplyResult>;
+
+  // Handle extension ops for kinds this plugin owns
+  handleExtensionOp?(op: ExtensionOp, ctx: ServerOpContext): Promise<ApplyResult>;
+
+  snapshot?(room: string, backend: HubBackend): Promise<unknown>;
+  registerCodec?(registry: OpKindRegistry): void;
 }
 
 interface ServerOpContext {
@@ -136,6 +146,8 @@ interface ServerOpContext {
   userId: string;
   role: string;
   backend: HubBackend;
+  // Typed access to this plugin's corresponding backend plugin
+  backendPlugin<T extends BackendSyncPlugin>(name: string): T | undefined;
 }
 
 interface ApplyResult {
@@ -144,25 +156,46 @@ interface ApplyResult {
   broadcast?: SyncOp[]; // Additional ops to broadcast to all (e.g., derived state)
 }
 
-// OpKindRegistry allows plugins to extend the wire protocol
+// OpCodec validates payloads for a specific extension kind
+interface OpCodec<TPayload = unknown> {
+  extensionKind: string;
+  validate(payload: unknown): payload is TPayload;
+}
+
+// OpKindRegistry associates each extension kind with its owning plugin's codec
 interface OpKindRegistry {
-  register(kind: string, validator: (op: unknown) => boolean): void;
+  // Register a codec + owning plugin for an extension kind
+  register<TPayload>(codec: OpCodec<TPayload>): void;
+  // Look up the codec for an extension kind
+  getCodec(extensionKind: string): OpCodec | undefined;
 }
 ```
 
+Instead of trying to extend the closed `SyncOp` union at runtime (which TypeScript cannot do),
+all extension ops flow through a single `ExtensionOp` envelope with `kind: 'extension'`. The
+`extensionKind` field discriminates between different extension op types (e.g.,
+`'vtt:fog-meta'`, `'vtt:fog-patch'`). Each plugin registers a codec via `registerCodec()` that
+validates the payload for its extension kinds. The registry associates each `extensionKind` with
+its owning plugin's codec, and the sync hub routes incoming `ExtensionOp` instances to the
+correct plugin by looking up the `extensionKind` in the registry.
+
 The server plugin interfaces model the actual fog processing flow in `sync-hub.ts`:
 
-1. Authorize with full context — `PluginAuthContext` carries `userId`, `role`, `room`,
-   `connectionId`, and `currentState` (the plugin's own snapshot, mirroring today's
-   `AuthorizeFogContext.current: FogSnapshot`).
-2. On denial: return corrections (current state) via `ApplyResult.corrections` — the hub sends
-   these to the sender only.
+1. `process()` unifies authorization and application into a single step. The current fog flow
+   does authorization and application in a single `processFogOp()` function — the separate
+   `authorize()` + `apply()` split didn't match this flow because denial needs to return
+   corrections (current state), which requires backend access. A unified `process()` handles
+   both paths naturally.
+2. On denial: return `{ accepted: null, corrections: [current state] }` — the hub sends these
+   to the sender only.
 3. On accept: `ApplyResult.accepted` is the (possibly partial) op to fan out to all other
    connections; `corrections` go to the sender only; `broadcast` covers additional derived ops
    that go to everyone.
 4. `snapshot()` takes a `room` parameter — the current `fogSnapshot()` is room-scoped.
-5. `registerOpKinds()` lets plugins extend the `SyncOp` union with new wire kinds instead of
-   requiring changes to `@fieldnotes/sync` for every new domain op.
+5. `registerCodec()` lets plugins register typed codecs for their extension kinds, so VTT (or
+   future domains) can own new wire operations without modifying `@fieldnotes/sync` core.
+6. `ServerOpContext.backendPlugin<T>()` gives the server plugin typed access to its
+   corresponding backend plugin, enabling server-side logic to coordinate with backend state.
 
 **Backend (Redis) plugin:**
 
@@ -171,10 +204,14 @@ interface BackendSyncPlugin {
   readonly name: string;
   keyPrefix: string;
   scripts?: Record<string, string>;
-  // Atomic operations — not just encode/decode
+  // Atomic operations
   snapshot?(room: string): Promise<unknown>;
-  apply?(room: string, op: SyncOp): Promise<ApplyResult>;
+  // Middleware chain — each plugin can intercept, modify, or pass through
+  apply?(room: string, op: SyncOp, next: BackendNext): Promise<ApplyResult>;
 }
+
+// Middleware chain — each plugin can intercept, modify, or pass through
+type BackendNext = (room: string, op: SyncOp) => Promise<ApplyResult>;
 ```
 
 The backend plugin exposes atomic `snapshot` and `apply` operations rather than only raw
@@ -182,33 +219,53 @@ encode/decode codecs. This matches the current Redis backend where `applyFogPatc
 script that performs validation, LWW resolution, and tile canonicalization atomically — the
 result is an `ApplyResult` with accepted and corrected subsets, not a simple success/failure.
 
+The `next` callback in `apply()` allows backend plugins to form a middleware chain. Each plugin
+can intercept ops, modify them, buffer them, or pass them through to the next plugin via
+`next()`. This matches the middleware pattern used in web frameworks and enables composition
+such as RollKeeper's buffering layer wrapping the VTT fog backend plugin.
+
 ### Wire format preservation
 
-During the mixed-version window, `fog-meta` and `fog-patch` wire kinds are preserved exactly as-is. The generic `extension` envelope is introduced only after all clients support the plugin system (see [ADR-0004](0004-serialization-compatibility.md) for the compatibility strategy).
+During the mixed-version window, `fog-meta` and `fog-patch` wire kinds are preserved as
+top-level `SyncOp` members — they are not wrapped in the `ExtensionOp` envelope. This ensures
+backward compatibility with clients that do not yet support the plugin system.
+
+The `ExtensionOp` envelope is introduced only after all clients support the plugin system. The
+migration from specific wire kinds (`fog-meta`, `fog-patch`) to the extension envelope is
+coordinated with [ADR-0004](0004-serialization-compatibility.md)'s serialization phases,
+ensuring that the wire format transition is synchronized with the broader serialization
+compatibility strategy.
 
 ### RollKeeper relay migration
 
-RollKeeper's relay wraps fog backend methods. After extraction, it uses the VTT backend plugin plus its own buffering plugin. The backend plugin's atomic `apply()` returns an `ApplyResult` that the buffering layer can intercept and modify:
+RollKeeper's relay wraps fog backend methods. After extraction, it uses the VTT backend plugin
+plus its own buffering plugin. The `next` middleware pattern allows the buffer plugin to
+intercept ops, buffer them, and forward to the fog plugin:
 
 ```typescript
 const backend = new RedisHubBackend({
   plugins: [
-    createFogBackendPlugin(), // VTT fog persistence — atomic apply()
-    createRollKeeperBufferPlugin(), // RollKeeper-specific buffering
+    createFogBackendPlugin(), // VTT fog persistence
+    createRollKeeperBufferPlugin(), // Wraps fog with buffering — calls next()
   ],
 });
 ```
 
-DM-only authorization moves from `policies.ts` to the server plugin configuration. The `PluginAuthContext` provides full connection context including the current plugin state:
+The buffer plugin's `apply()` intercepts ops, buffers them, and calls `next()` to forward to
+the fog plugin. This matches the middleware pattern used in web frameworks.
+
+DM-only authorization moves from `policies.ts` to the server plugin's `process()` method. The
+`ServerOpContext` provides full connection context and typed backend plugin access:
 
 ```typescript
 const server = createSyncServer({
   plugins: [
     createFogServerPlugin({
-      authorizeFog: (ctx: PluginAuthContext, op: SyncOp) => {
-        // ctx.userId, ctx.role, ctx.room, ctx.connectionId available
-        // ctx.currentState contains the current fog snapshot
-        return ctx.role === 'dm';
+      process: async (op, ctx) => {
+        // ctx.backendPlugin('fog-backend') gives typed access to the backend plugin
+        const backend = ctx.backendPlugin<FogBackendPlugin>('fog-backend');
+        // ... authorization + application logic
+        return { accepted: op, corrections: [] };
       },
     }),
   ],
@@ -216,7 +273,9 @@ const server = createSyncServer({
 });
 ```
 
-The server plugin's `apply()` method returns an `ApplyResult` with `accepted`, `corrections`, and optional `broadcast` fields, matching the current fog processing flow where corrections go to the sender only and accepted ops fan out to all other connections.
+The server plugin's `process()` method returns an `ApplyResult` with `accepted`, `corrections`,
+and optional `broadcast` fields, matching the current fog processing flow where corrections go
+to the sender only and accepted ops fan out to all other connections.
 
 ### VTT subpath exports
 
@@ -279,8 +338,9 @@ Generic sync packages gain plugin registration APIs. VTT code moves to `@fieldno
 - **Clean deployment:** Server plugins deploy with the server. Client plugins deploy with the client. Backend plugins deploy with Redis.
 - **RollKeeper compatibility:** Relay can compose VTT backend plugin with its own buffering plugin.
 - **Extensibility:** Other domain packages can register their own sync plugins (e.g., movement paths sync).
-- **Interfaces model real semantics:** The expanded plugin interfaces (`PluginAuthContext`, `ServerOpContext`, `ApplyResult`, `handleOp` meta) directly mirror the existing fog processing flow — authorization with full connection context, partial acceptance with corrections, sender-only correction delivery, and reconnect/snapshot phase distinction. Migration is a structural refactor, not a semantic redesign.
-- **Wire protocol extensibility:** `OpKindRegistry` lets plugins register new op kinds with validators, so VTT (or future domains) can own new wire operations without modifying `@fieldnotes/sync` core.
+- **Interfaces model real semantics:** The expanded plugin interfaces (`ServerOpContext` with `backendPlugin<T>()`, unified `process()`, `ApplyResult`, `handleOp` meta) directly mirror the existing fog processing flow — unified authorization and application with full connection context, partial acceptance with corrections, sender-only correction delivery, typed backend plugin access, and reconnect/snapshot phase distinction. Migration is a structural refactor, not a semantic redesign.
+- **Wire protocol extensibility:** The `ExtensionOp` envelope with `OpKindRegistry` codec registration lets plugins define typed extension kinds with payload validation, so VTT (or future domains) can own new wire operations without modifying `@fieldnotes/sync` core. The sync hub routes `ExtensionOp` to the correct plugin by looking up the `extensionKind` in the registry.
+- **Backend middleware composition:** The `BackendNext` middleware pattern allows backend plugins to form chains — RollKeeper's buffering layer wraps the VTT fog backend plugin by intercepting ops and calling `next()` to forward.
 - **Subpath exports prevent environment coupling:** `@fieldnotes/vtt/sync`, `@fieldnotes/vtt/server`, and `@fieldnotes/vtt/redis` keep browser bundles free of Node-only dependencies without requiring separate packages.
 
 ### Negative
@@ -296,14 +356,21 @@ Generic sync packages gain plugin registration APIs. VTT code moves to `@fieldno
 - The Lua scripts are complex (~180 lines) and handle optimistic concurrency, LWW conflict resolution, and tile canonicalization. Extracting them into a plugin mechanism without breaking fog sync is high-risk.
 - RollKeeper's relay wraps fog backend methods in a cost-optimized buffered backend. The plugin mechanism must support this kind of composition (multiple backend plugins, ordering matters).
 - The `HubBackend` interface's fog methods are optional. The plugin system must handle the case where no backend plugin is registered (fall back to in-memory `FogLedger`, as today).
-- `OpKindRegistry` introduces dynamic op validation. A misconfigured plugin could register a validator that accepts malformed ops or conflicts with an existing kind.
+- `OpKindRegistry` codec registration introduces dynamic op validation. A misconfigured plugin could register a codec that accepts malformed payloads or whose `extensionKind` conflicts with another plugin's.
 
 ## Review Response
 
 The following changes address review findings:
 
-- **F6 (Sync plugin interfaces cannot model existing fog semantics):** Expanded all three plugin interfaces to model actual fog processing flow. `ClientSyncPlugin` now carries sender/phase metadata and a correction handler. `ServerSyncPlugin` uses `PluginAuthContext` (with `currentState`), `ServerOpContext` (with room/connection/role), and `ApplyResult` (with accepted/corrections/broadcast). `BackendSyncPlugin` exposes atomic `snapshot()`/`apply()` instead of just encode/decode. Added `OpKindRegistry` so plugins can extend the wire protocol.
+### First review
+
+- **F6 (Sync plugin interfaces cannot model existing fog semantics):** Expanded all three plugin interfaces to model actual fog processing flow. `ClientSyncPlugin` now carries sender/phase metadata and a correction handler. `ServerSyncPlugin` uses `ServerOpContext` (with room/connection/role), unified `process()`, and `ApplyResult` (with accepted/corrections/broadcast). `BackendSyncPlugin` exposes atomic `snapshot()`/`apply()` instead of just encode/decode. Added `OpKindRegistry` so plugins can extend the wire protocol.
 - **F11 (Runtime package boundaries):** Added "VTT subpath exports" section recommending `@fieldnotes/vtt/sync`, `@fieldnotes/vtt/server`, and `@fieldnotes/vtt/redis` subpath exports to keep browser bundles free of Node-only dependencies without requiring separate packages.
+
+### Third review
+
+- **F6 (Runtime op registration does not actually extend SyncOp):** Replaced the untyped `OpKindRegistry` with a typed extension envelope. Instead of trying to extend the closed `SyncOp` union at runtime, all extension ops flow through a single `ExtensionOp` envelope (`kind: 'extension'`) with an `extensionKind` discriminator and a `payload` validated by the owning plugin's `OpCodec`. The registry now associates each `extensionKind` with its codec via `register<TPayload>(codec)` / `getCodec(extensionKind)`. Both `ServerSyncPlugin` and `ClientSyncPlugin` gain a `handleExtensionOp()` method. Updated the wire format section to explain that `fog-meta` and `fog-patch` are preserved as top-level `SyncOp` members during the mixed-version window; the `ExtensionOp` envelope is introduced only after all clients support the plugin system, coordinated with ADR-0004's serialization phases.
+- **F7 (Server/backend contracts cannot model the described fog flow):** Part A — replaced the separate `authorize()` + `apply()` with a unified `process()` method that returns `ApplyResult` for both acceptance and denial, matching the actual `processFogOp()` flow in `sync-hub.ts` where denial needs backend access to return corrections. Removed `PluginAuthContext` (its fields are now part of `ServerOpContext`). Part B — added `backendPlugin<T>(name)` to `ServerOpContext` for typed access to the corresponding backend plugin. Introduced `BackendNext` middleware type so backend plugins form a chain: each plugin's `apply()` receives a `next` callback to forward to the next plugin, enabling RollKeeper's buffering layer to wrap the fog backend plugin by intercepting ops and calling `next()`. Updated the RollKeeper relay migration example to use the middleware pattern.
 
 ## References
 

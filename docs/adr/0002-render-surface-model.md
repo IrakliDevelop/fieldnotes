@@ -108,6 +108,7 @@ interface ViewportHookOptions {
   slot: ViewportSlot;
   priority?: number; // Default 0. Higher = later within slot.
   required?: boolean; // Privacy-critical hooks
+  satisfies?: string[]; // Capabilities this hook satisfies (e.g., ['vtt:fog'])
 }
 ```
 
@@ -115,9 +116,35 @@ The render loop translates slots into hybrid surface stratum positions, preservi
 
 ### Required hooks and fail-closed behavior
 
-Hooks marked `required: true` are **privacy-critical**. If a required hook is not registered, the surface refuses to render unmasked content:
+The fail-closed mechanism operates on two layers, ensuring that missing plugins are detected even when no registration carries `required: true`.
 
-| Surface      | Behavior when required hook is absent                               |
+**Layer 1: Host-declared required capabilities.** The Viewport constructor (or export function) accepts a `requiredCapabilities` list:
+
+```typescript
+interface ViewportOptions {
+  // ... existing options ...
+  requiredCapabilities?: string[]; // e.g., ['vtt:fog']
+}
+```
+
+These are capability identifiers, not plugin names. The host declares what the viewport needs to render safely. If a required capability is not satisfied by any registered hook, the surface renders its opaque mask — regardless of whether a plugin was "forgotten" or "optional."
+
+**Layer 2: Hook-level `required` flag.** Individual hook registrations can also be marked `required: true`. This is a secondary signal — it means "this specific hook is privacy-critical." If a hook marked `required` throws during rendering, the surface falls back to the masked state.
+
+**Capability satisfaction.** When a hook is registered, it can declare which capabilities it satisfies:
+
+```typescript
+interface ViewportHookOptions {
+  slot: ViewportSlot;
+  priority?: number;
+  required?: boolean; // This hook is privacy-critical (throws → mask)
+  satisfies?: string[]; // Capabilities this hook satisfies (e.g., ['vtt:fog'])
+}
+```
+
+After all plugins are installed (during the constructor's Phase 2), the viewport checks that all `requiredCapabilities` are satisfied. If any are unsatisfied, the viewport renders opaque masks on all surfaces until the capability is satisfied.
+
+| Surface      | Behavior when required capability is unsatisfied                    |
 | ------------ | ------------------------------------------------------------------- |
 | Viewport     | Renders an opaque mask over the content area (fog-colored or solid) |
 | Minimap      | Renders blank (no map content visible)                              |
@@ -126,7 +153,7 @@ Hooks marked `required: true` are **privacy-critical**. If a required hook is no
 
 Hook exceptions follow the same policy — if a required hook's render function throws, the surface falls back to the masked state, not to unmasked rendering.
 
-This is enforced by the plugin lifecycle (see [ADR-0005](0005-plugin-lifecycle.md)): fog plugins install at construction time with `required: true`, before `renderLoop.start()`.
+This is enforced by the plugin lifecycle (see [ADR-0005](0005-plugin-lifecycle.md)): fog plugins install at construction time with `satisfies: ['vtt:fog']`, before `renderLoop.start()`.
 
 ### Viewport surface
 
@@ -140,11 +167,11 @@ viewport.renderHooks.viewport.register(
       fogRenderer.render(ctx, camera, width, height, dpr);
     },
   },
-  { slot: 'afterSceneBeforeOverlay', required: true },
+  { slot: 'afterSceneBeforeOverlay', required: true, satisfies: ['vtt:fog'] },
 );
 ```
 
-If the fog plugin is not installed, the viewport renders an opaque mask instead of unmasked content.
+If the `vtt:fog` capability is not satisfied (e.g., the fog plugin is omitted entirely), the viewport renders an opaque mask instead of unmasked content.
 
 ### Minimap surface
 
@@ -160,11 +187,11 @@ viewport.renderHooks.minimap.register(
       }
     },
   },
-  { required: true },
+  { required: true, satisfies: ['vtt:fog'] },
 );
 ```
 
-If the fog plugin is not installed, the minimap renders blank — no map content is visible.
+If the `vtt:fog` capability is not satisfied, the minimap renders blank — no map content is visible.
 
 ### Export surfaces
 
@@ -178,7 +205,7 @@ viewport.renderHooks.imageExport.register(
       fogRenderer.renderForExport(ctx, fogState, fogMode);
     },
   },
-  { required: true },
+  { required: true, satisfies: ['vtt:fog'] },
 );
 
 // SVG export — receives string builder + export options
@@ -188,13 +215,13 @@ viewport.renderHooks.svgExport.register(
       fogRenderer.renderAsSvg(svg, fogState, fogMode);
     },
   },
-  { required: true },
+  { required: true, satisfies: ['vtt:fog'] },
 );
 ```
 
 If a required export hook is not registered, image export throws (or returns a masked image) and SVG export emits an opaque `<rect>` covering the content area.
 
-Standalone export functions (`exportImage()`, `exportSvg()`) accept the same `RenderHooks` registry — not viewport-only hooks.
+Standalone export functions (`exportImage()`, `exportSvg()`) accept the same `RenderHooks` registry — not viewport-only hooks. They also accept `requiredCapabilities`. If a required capability is not satisfied at export time, the export throws or returns a masked result. This solves the "standalone export" problem — the export function doesn't need to know which plugins exist; it checks capabilities.
 
 ## Options Considered
 
@@ -250,6 +277,7 @@ viewport.renderHooks.register({
 - **Semantic slot ordering:** Viewport hooks use named slots (`afterSceneBeforeOverlay`, `afterOverlay`, `afterToolOverlay`) instead of arbitrary numeric z-order. Priority is scoped within a slot, eliminating ambiguity about dynamic stratum positions.
 - **Export composition:** RollKeeper can compose fog with custom markers in export.
 - **Clean separation:** Viewport rendering (screen-space, hybrid) is separate from minimap (bounds-mapped) and export (offline).
+- **Host-declared capabilities:** The `requiredCapabilities` mechanism ensures that missing plugins are detected even when no registration carries `required: true`. The host declares what it needs; the system enforces it.
 
 ### Negative
 
@@ -262,6 +290,7 @@ viewport.renderHooks.register({
 - The viewport surface's semantic slots must correctly map to hybrid surface strata. Getting this wrong breaks the paint stack (fog renders above/below elements incorrectly).
 - RollKeeper's custom export composition may need additional hooks beyond `afterElements` (e.g., `beforeElements` for background markers).
 - The `required` flag must be applied consistently to all privacy-critical hooks. A missing `required` flag on a fog hook silently degrades to fail-open behavior.
+- Capability identifiers (`vtt:fog`, etc.) become part of the public contract. Renaming a capability identifier is a breaking change for host configurations.
 
 ## References
 
@@ -280,3 +309,5 @@ This revision addresses two findings from peer review:
 **F1 — "Fail-closed" was defined as fail-open.** The previous version stated that missing fog extensions caused the surface to "render without fog (which may reveal hidden information)" — this is literally fail-open. The revised design introduces a `required` flag on hook registration. When a required hook is absent or throws, the surface renders an opaque mask (viewport), blank content (minimap), throws or returns a masked image (image export), or emits an opaque `<rect>` (SVG export). Privacy is protected by default, not by convention.
 
 **F5 — Render-hook API was internally inconsistent.** The previous version defined a single `SurfaceRenderHooks` interface with `(ctx: RenderContext, camera: Camera)` but then showed different parameter shapes for different surfaces (viewport: `(ctx, camera)`, image export: `(ctx, options)`, SVG export: `(svgDoc, options)`). The revised design replaces the generic interface with typed per-surface hook interfaces: `ViewportRenderHooks`, `MinimapRenderHooks`, `ImageExportHooks`, and `SvgExportHooks`. Each receives the correct context type for its surface. The SVG export hook receives a `SvgStringBuilder` (matching the actual string-based implementation) instead of a non-existent `SVGDocument`. Arbitrary numeric `zOrder` is replaced with typed semantic slots (`ViewportSlot`) scoped to the hybrid surface strata.
+
+**Third review — F1 (Missing "required" hooks cannot be detected):** The `required: true` flag on hook registration only works if the hook is actually registered. If the fog plugin is omitted entirely, no registration carries `required: true`, and the registry cannot detect the gap. Resolved by introducing host-declared `requiredCapabilities` (e.g., `['vtt:fog']`) on the Viewport constructor and export functions. Hooks declare which capabilities they `satisfy`. After plugin installation, the viewport checks that all required capabilities are satisfied; unsatisfied capabilities trigger opaque-mask rendering. This decouples capability requirements from plugin registration — the host declares what it needs, independent of which plugins are provided.

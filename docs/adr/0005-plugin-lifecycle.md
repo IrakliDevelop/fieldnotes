@@ -90,15 +90,14 @@ interface ViewportPlugin {
   // Phase 3: Start — full runtime, after all subsystems exist.
   // Returns a PluginHandle for per-instance cleanup.
   start?(ctx: PluginStartContext): PluginHandle;
-
-  // State management (see loadState ordering below)
-  validateState?(state: CanvasState): void;
-  loadState?(state: CanvasState): void;
-  exportState?(): Record<string, unknown>;
 }
 
 interface PluginHandle {
-  dispose(): void; // Per-instance cleanup
+  dispose(): void;
+  // State management moved here — per-instance, not shared
+  validateState?(state: CanvasState): void;
+  loadState?(state: CanvasState): void;
+  exportState?(): Record<string, unknown>;
 }
 
 interface PluginConfigureContext {
@@ -106,7 +105,11 @@ interface PluginConfigureContext {
   toolManager: ToolManager;
   renderHooks: RenderHooks;
   serializationRegistry: SerializationRegistry;
-  snapServiceFactory?: SnapServiceFactory; // Domain-neutral slot
+  constraintServiceFactory?: ConstraintServiceFactory; // Domain-neutral (see ADR-0006)
+
+  // All registrations within configure() are scoped to a transaction.
+  // If the plugin throws during configure(), all its registrations are rolled back.
+  // If an optional plugin throws during start(), its configure() registrations are also rolled back.
 }
 
 interface PluginStartContext {
@@ -117,16 +120,45 @@ interface PluginStartContext {
 }
 ```
 
+State management methods (`validateState`, `loadState`, `exportState`) live on `PluginHandle`, not on the shared `ViewportPlugin` definition. State is per-viewport instance. The shared plugin definition is stateless and reusable. Moving state methods to `PluginHandle` ensures each viewport instance manages its own state independently.
+
 Key design points:
 
 - **`configure()` and `start()` are separate.** A plugin definition can be safely reused across viewports because `start()` returns a per-instance `PluginHandle` — `dispose()` lives on the handle, not on the shared plugin definition.
 - **`configure()` receives a restricted context.** The viewport, renderLoop, minimap, and fog do not exist yet. Plugins can only register hooks, tools, and serialization handlers.
 - **`start()` receives the full runtime.** All subsystems are fully constructed. Plugins that need viewport access do their setup here.
+- **`configure()` registration is transactional.** The configure context tracks all registrations made during `configure()`. If the plugin throws (during configure or during start), the viewport rolls back all registrations made by that plugin's configure phase. This is implemented by the viewport wrapping each plugin's configure call in a try/catch that tracks and reverses registrations.
 - **Failed installation rolls back.** If `start()` throws, all registrations made by that plugin's `configure()` phase are rolled back.
 
 ### Required plugin enforcement
 
-Plugins can be marked `required: true`. If a required plugin's `configure()` or `start()` fails, the Viewport constructor throws — the viewport cannot be created without its required plugins. This enforces privacy at construction time.
+There are two layers of enforcement:
+
+1. **Plugin-level:** `required: true` on a plugin means the constructor throws if that plugin's `configure()` or `start()` fails.
+2. **Capability-level:** `requiredCapabilities` on the Viewport constructor means the constructor throws if no registered hook satisfies a required capability. This catches the case where the host forgets to pass a plugin entirely.
+
+```typescript
+interface ViewportOptions {
+  // ... existing options ...
+  requiredCapabilities?: string[]; // e.g., ['vtt:fog']
+}
+```
+
+After Phase 2 (Construct) completes, the viewport checks that all `requiredCapabilities` are satisfied by registered hooks. If any capability is unsatisfied, the viewport constructor throws — the viewport cannot be created without its required capabilities. This is independent of the `required` flag on individual plugins.
+
+```typescript
+// Two layers of enforcement:
+// 1. Plugin-level: required: true → constructor throws if plugin's configure/start fails
+// 2. Capability-level: requiredCapabilities → constructor throws if no hook satisfies a required capability
+
+const viewport = new Viewport({
+  container: element,
+  requiredCapabilities: ['vtt:fog'], // Host declares what it needs
+  plugins: [
+    fogPlugin, // satisfies 'vtt:fog' via hook registration
+  ],
+});
+```
 
 ```typescript
 const fogPlugin: ViewportPlugin = {
@@ -157,11 +189,13 @@ Phase 1: Configure — plugins receive a restricted registry/service context
       - If optional plugin throws → skip plugin, continue
 
 Phase 2: Construct — core creates all subsystems using plugin registrations
-  13. FogManager, FogRenderer (configured by plugin-registered hooks)
-  14. Minimap (optional) + setFogRenderer
+  13. FogManager, FogRenderer (configured by plugin-registered hooks) ← TEMPORARY: moves to plugin in Phase 3
+  14. Minimap (optional) + setFogRenderer                               ← TEMPORARY: moves to plugin
   15. DomNodeManager, InteractMode, MarginViewport, LayerCache
   16. RenderLoop (assembled with all deps including HybridRenderSurface)
   17. Event wiring, store listeners, ResizeObserver, syncCanvasSize()
+
+Steps marked TEMPORARY exist during the migration window. After VTT extraction, these subsystems are created by the fog plugin's `start()` phase, not by the core constructor. The core constructor creates only domain-agnostic subsystems.
 
 Phase 3: Start — plugins receive the complete runtime
   18. For each plugin: plugin.start(ctx) ← full runtime context
@@ -197,7 +231,7 @@ if (installedPlugins.has(plugin.name)) return;
 Plugin state is exported under namespaced keys to prevent collisions:
 
 ```typescript
-interface ViewportPlugin {
+interface PluginHandle {
   // Keys auto-namespaced by plugin name.
   // e.g., fog plugin exports { fog: {...} } → stored as extensions.fog
   exportState?(): Record<string, unknown>;
@@ -206,29 +240,35 @@ interface ViewportPlugin {
 
 Collision handling: if two plugins export the same top-level key, throw at registration time (not at export time). This catches naming conflicts early.
 
-### Two-phase loadState ordering
+### Four-phase loadState ordering
 
-State loading uses a validate-then-apply pattern to ensure atomicity:
+State loading uses a validate-snapshot-apply-restore pattern to ensure atomicity:
 
 ```
-loadState() order:
+loadState() order (revised):
 
 Phase 1: Validate — all plugins validate their state before any mutations
-  1. For each plugin: plugin.validateState?(state)
-     - Plugins inspect their portion of CanvasState (e.g., extensions.fog)
-     - If validation throws → entire load is aborted, no partial mutations
+  1. For each plugin: handle.validateState?(state)
+     - If any throws → entire load is aborted, no partial mutations
 
-Phase 2: Apply — only after all validations pass
-  2. Elements loaded
-  3. Layers loaded
-  4. Active layer set
-  5. HTML content reattached
-  6. Plugin loadState() called ← plugins load their data
-  7. History cleared
-  8. Camera restored
+Phase 2: Snapshot — capture current state for rollback
+  2. Snapshot current elements, layers, and plugin state
+
+Phase 3: Apply — only after all validations pass
+  3. Elements loaded
+  4. Layers loaded
+  5. Active layer set
+  6. HTML content reattached
+  7. Plugin handle.loadState() called
+  8. History cleared
+  9. Camera restored
+
+Phase 4: On failure — restore snapshot
+  If any step in Phase 3 throws → restore the snapshot from Phase 2.
+  All mutations are rolled back to the pre-load state.
 ```
 
-If any plugin's `validateState()` throws, the entire load is aborted — no partial mutations. This prevents the previous issue where elements and layers were already committed when a plugin's `loadState()` failed.
+The snapshot/restore pattern ensures that if any core mutation or plugin `loadState()` throws during the apply phase, the system returns to its pre-load state. This makes loading truly atomic — it either fully succeeds or leaves no trace.
 
 ## Options Considered
 
@@ -277,8 +317,8 @@ await viewport.initialize({ plugins: [fogPlugin, gridPlugin] });
 - **Safe plugin reuse:** Plugin definitions are stateless; per-instance state lives in `PluginHandle`. The same plugin definition can be installed across multiple viewports.
 - **Deterministic ordering:** Plugin installation order is explicit (priority + array order). No race conditions.
 - **Clean disposal:** Reverse-order handle disposal ensures plugins clean up in the right sequence. Per-instance handles prevent cross-viewport cleanup bugs.
-- **Required plugin enforcement:** Privacy-critical plugins can be marked `required`, preventing viewport creation without them.
-- **Atomic state loading:** Two-phase validate-then-apply prevents partial mutations when plugin state is invalid.
+- **Required plugin enforcement:** Privacy-critical plugins can be marked `required`, and the host can declare `requiredCapabilities` — both prevent viewport creation without essential functionality.
+- **Atomic state loading:** Four-phase validate-snapshot-apply-restore prevents partial mutations when plugin state is invalid or a core mutation throws.
 - **Idempotent:** Re-registering the same plugin is safe.
 - **Rollback on failure:** If `start()` throws, `configure()` registrations are rolled back — no orphaned hooks or tools.
 
@@ -293,18 +333,31 @@ await viewport.initialize({ plugins: [fogPlugin, gridPlugin] });
 ### Risks
 
 - Plugins that depend on each other (e.g., grid plugin depends on snap service from core) must have their dependencies available at configure time. The `PluginConfigureContext` must provide all necessary services.
-- RollKeeper's existing bootstrap ordering (snapshot → fog → render) must be preserved through the plugin lifecycle. The two-phase `validateState()` / `loadState()` pattern gives plugins control, but the ordering must be correct.
+- RollKeeper's existing bootstrap ordering (snapshot → fog → render) must be preserved through the plugin lifecycle. The four-phase `validateState()` / snapshot / `loadState()` / restore pattern gives plugins control, but the ordering must be correct.
 - Plugin name collisions in `exportState()` keys are caught at registration time, but this means plugin naming becomes part of the public contract — renaming a plugin is a breaking change for persisted state.
 
 ## Review Response
 
-This revision addresses three review findings:
+### Second review
 
 - **F8 (Plugin installation exposes partially constructed Viewport):** Resolved by splitting `install()` into `configure()` (restricted context, before subsystems) and `start()` (full runtime, after all subsystems). `start()` returns a per-instance `PluginHandle` so plugin definitions can be safely reused across viewports. Failed `start()` triggers rollback of `configure()` registrations.
 
 - **F9 (Plugin state loading is not atomic):** Resolved by introducing two-phase state loading: `validateState()` runs first across all plugins before any mutations, then `loadState()` applies only after all validations pass. State export uses namespaced keys with collision detection at registration time.
 
 - **F1 cross-cut (Plugin installation must enforce privacy):** Resolved by adding a `required` flag to `ViewportPlugin`. If a required plugin's `configure()` or `start()` fails, the Viewport constructor throws — the viewport cannot be created without its required plugins.
+
+### Third review
+
+- **F1 (Missing "required" hooks cannot be detected):** The `required: true` flag on a plugin only enforces that the plugin must succeed _if provided_. If the host forgets to pass the plugin entirely, nothing declares the requirement. Resolved by adding host-declared `requiredCapabilities` to the Viewport constructor. After Phase 2 (Construct) completes, the viewport checks that all `requiredCapabilities` are satisfied by registered hooks. If any capability is unsatisfied, the viewport constructor throws. This is the lifecycle-level enforcement mechanism for the render-surface capability system described in ADR-0002.
+
+- **F8 (Plugin reuse, rollback, and state atomicity are incomplete):** Three sub-issues resolved:
+  - **(A) State methods on wrong interface:** `loadState()`, `exportState()`, and `validateState()` lived on the stateless shared `ViewportPlugin` definition rather than the per-viewport `PluginHandle`. Moved to `PluginHandle` so each viewport instance manages its own state independently.
+  - **(B) Non-transactional configure():** An optional plugin that throws after registering one hook left partial registrations behind. Resolved by making `configure()` registration transactional — the `PluginConfigureContext` tracks all registrations, and if the plugin throws during `configure()` or `start()`, all its registrations are rolled back.
+  - **(C) Non-atomic loadState apply phase:** Validating before applying did not make loading atomic if a core mutation or plugin `loadState()` subsequently threw. Resolved by adding a snapshot/restore pattern: Phase 2 captures current state, Phase 3 applies mutations, Phase 4 restores the snapshot if any apply step throws.
+
+- **F10 (Lifecycle text still describes VTT construction inside core):** Two issues resolved:
+  - Phase 2 steps 13–14 (FogManager, FogRenderer, Minimap + setFogRenderer) are now labeled as TEMPORARY migration stages. After VTT extraction, these subsystems are created by the fog plugin's `start()` phase, not by the core constructor.
+  - `PluginConfigureContext` field renamed from `snapServiceFactory` to `constraintServiceFactory` — the domain-neutral name per ADR-0006.
 
 ## References
 

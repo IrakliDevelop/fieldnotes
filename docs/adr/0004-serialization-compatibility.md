@@ -104,29 +104,11 @@ function resolveFogState(state: CanvasState): FogStateV1 | undefined {
 
 The `extensions` field is an unknown field from v3's perspective — it doesn't trigger the version gate because the version is still 3. Old clients that don't know about `extensions` simply ignore it (standard JSON forward compatibility for unknown fields within the same version).
 
-### Phase 2: Remove legacy fog field (after adoption gate)
+### Phase 2: Bump to v4, remove legacy field (after soak period)
 
-Once **all** clients are confirmed upgraded to read from `extensions.fog`:
+After a measured soak period (proposed: 4 weeks minimum) of Phase 1 dual-write:
 
-**Write:** Only `extensions.fog`. The `fog` field is no longer written.
-**Read:** `extensions.fog` only. The `fog` fallback is removed.
-
-The state is still `version: 3`.
-
-> **Critical:** This phase must not proceed on a timer. Removing the top-level `fog` field while keeping `version: 3` creates a **silent privacy failure** — an old client will accept the state (version 3 passes validation), find no `fog` field, and render without fog. No error, no migration message, just missing fog. This is worse than a version-bump rejection because it is silent.
-
-**Adoption gate:** Phase 2 proceeds only when 100% of connecting clients report v3+dual-write capability. Client versions are tracked via the sync handshake — each connecting client reports its serializer capabilities, and the server tracks the minimum across all active and recently-seen clients. The legacy `fog` fallback (`state.fog`) must remain written for as long as ANY old reader is supported.
-
-Removal of the legacy `fog` field requires either:
-
-- A measured adoption gate with explicit version tracking (this phase), OR
-- A major compatibility boundary (version bump to v4, which old clients reject explicitly)
-
-### Phase 3: Bump to v4 (after soak period)
-
-After a measured soak period (proposed: 4 weeks minimum):
-
-**Write:** `version: 4` with `extensions` only.
+**Write:** `version: 4` with `extensions` only. The legacy `fog` field is removed at this boundary.
 **Read:** v4 with automatic migration from v3.
 
 ```typescript
@@ -143,44 +125,58 @@ function migrateState(state: CanvasState): CanvasState {
 }
 ```
 
-The version gate changes: `CURRENT_VERSION = 4`. v3 states are migrated on load. v4 states are read directly.
+The version gate changes: `CURRENT_VERSION = 4`. v3 states are migrated on load via `migrateState()`. v4 states are read directly.
+
+The legacy `fog` field is removed ONLY at this v4 boundary, where old readers explicitly reject v4 states via the hard version gate. Old readers get a clear error ("unsupported version 4"), not silent data loss. The version bump itself is the adoption gate — there is no separate client version tracking.
 
 ### Sync protocol: preserve wire kinds
 
 The same dual-write strategy applies to the sync protocol:
 
-**Phase 1-2:** `fog-meta` and `fog-patch` wire kinds are preserved exactly. No changes to the sync protocol. Fog ops flow through the existing paths in sync-hub and sync-redis.
+**Phase 1:** `fog-meta` and `fog-patch` wire kinds are preserved exactly. No changes to the sync protocol. Fog ops flow through the existing paths in sync-hub and sync-redis.
 
-**Phase 3:** Introduce a generic `extension` envelope alongside fog kinds. Both are accepted.
-
-**Phase 4:** Deprecate `fog-meta`/`fog-patch`. Only generic `extension` envelope remains.
+**Phase 2:** Introduce a generic `extension` envelope alongside fog kinds. Both are accepted. Deprecate `fog-meta`/`fog-patch` — only the generic `extension` envelope remains for new code paths.
 
 ### Compatibility matrix
 
-| Writer \ Reader | v3 (no extensions)                   | v3 (dual-write)                      | v4 (extensions only) |
-| --------------- | ------------------------------------ | ------------------------------------ | -------------------- |
-| v3 (no ext)     | ✅ Works                             | ✅ Works                             | ❌ Rejects (version) |
-| v3 (dual-write) | ✅ Reads legacy                      | ✅ Reads ext                         | ❌ Rejects (version) |
-| v4 (ext only)   | ❌ Rejects (v3 reader can't read v4) | ❌ Rejects (v3 reader can't read v4) | ✅ Works             |
+| Writer \ Reader | v3 (no extensions) | v3 (dual-write)   | v4 (extensions only) |
+| --------------- | ------------------ | ----------------- | -------------------- |
+| v3 (no ext)     | ✅ Works           | ✅ Works          | ❌ Rejects (version) |
+| v3 (dual-write) | ✅ Reads legacy    | ✅ Reads ext      | ❌ Rejects (version) |
+| v4 (ext only)   | ✅ Migrates v3→v4  | ✅ Migrates v3→v4 | ✅ Works             |
 
-Key insight: **old readers cannot read newer versions.** The version gate is a hard reject (`if (version > CURRENT_VERSION) throw`). Only newer readers can read older versions (via migration). During Phase 1-2, all writers produce v3, so old readers work because the version hasn't changed. The `extensions` field is an additive, unknown JSON field that old clients ignore.
+Key: v4 reader migrates v3 states (both with and without extensions) using `migrateState()`. Only old (v3) readers reject v4 states. The version gate is a hard reject (`if (version > CURRENT_VERSION) throw`). During Phase 1, all writers produce v3, so old readers work because the version hasn't changed. The `extensions` field is an additive, unknown JSON field that old clients ignore.
 
 ### Old-client re-export data loss
 
-During the dual-write phase (Phase 1-2), an old client that reads v3 dual-write state and re-exports it will silently destroy extension data:
+During Phase 1 (v3 dual-write), an old client that reads v3 dual-write state and re-exports it will silently drop the `extensions` field:
 
 1. Read the state (version 3, has both `fog` and `extensions`)
 2. The `extensions` field is unknown → old client ignores it (standard JSON forward compat)
 3. On re-export, old client writes `version: 3` with only known fields → `extensions` is lost
-4. Extension data (fog, future extensions) is silently destroyed
 
-During Phase 1-2 this is acceptable because `fog` (legacy) is also written, so fog data survives. But if additional extensions are added later, they would be lost on old-client re-export. This reinforces the need for the version bump (Phase 3) to happen before adding more extensions beyond fog.
+However, fog data survives because the legacy `fog` field is also written during Phase 1. The re-exported state still contains `fog`, so no data is lost for fog specifically.
+
+At Phase 2 (v4), old clients reject the state entirely via the hard version gate — they cannot read or re-export v4 states. This is the correct behavior: an explicit rejection is safer than silent data loss.
 
 ### Old-client element validation constraint
 
 The serializer's `validateTypeFields()` has a 9-case switch covering known element types. If ADR-0001 introduces extension elements with `type: 'extension'`, old clients' `validateTypeFields()` will reject them (unknown type). This means extension elements cannot flow through old clients at all.
 
-**Constraint:** Extension elements are only supported after all clients upgrade to the registry-aware version. During the dual-write phase, only legacy element types (stroke, note, arrow, etc.) plus grid/template (which old clients already know) can be used. New extension element types must wait until Phase 3 or later.
+**Constraint:** During Phase 1 (v3 dual-write), ALL elements retain their current wire format. Grid stays `type: 'grid'`, template stays `type: 'template'`. No `type: 'extension'` envelope is written. This is because old clients' `validateTypeFields()` rejects unknown types. At the v4 boundary (Phase 2), extension elements CAN begin using the `type: 'extension'` envelope, because old clients reject v4 entirely (safe failure).
+
+### Shared rollout state machine
+
+The rollout across ADR-0001 (element extensibility) and ADR-0004 (serialization compatibility) is coordinated through a unified state machine:
+
+| Phase | Version | Wire format                                    | Extension elements | Legacy fog |
+| ----- | ------- | ---------------------------------------------- | ------------------ | ---------- |
+| 1     | v3      | All elements use current format                | Not used           | Dual-write |
+| 2     | v4      | Extension elements use `type: 'extension'` env | Available          | Removed    |
+
+During Phase 1, no `type: 'extension'` envelope is written — all elements use their existing wire formats. At Phase 2, the v4 version bump creates a clean compatibility boundary where old clients fail explicitly, making it safe to introduce new element envelopes.
+
+See [ADR-0001](0001-element-extensibility.md) for the element-type registry rollout, which is coordinated with this serialization timeline.
 
 ## Options Considered
 
@@ -207,35 +203,31 @@ Clients negotiate supported versions on sync connection. Mixed-version rooms use
 ### Positive
 
 - **Zero breakage:** Existing persisted state loads correctly. Old clients continue to work during transition.
-- **Measured rollout:** Each phase can be deployed independently. Adoption gate ensures Phase 2 only proceeds when safe.
+- **Measured rollout:** Two clean phases. The v4 version bump is the natural adoption gate — old readers reject v4 explicitly, so there is no silent failure mode.
 - **Follows existing pattern:** The `migrateElement()` pattern already handles forward-compatibility via additive defaults. The `extensions` field follows the same principle.
-- **Sync compatibility:** Wire kinds are preserved. No protocol break during transition.
-- **Explicit version tracking:** The adoption gate requires tracking client versions via sync handshake, providing visibility into the upgrade state of the fleet.
+- **Sync compatibility:** Wire kinds are preserved during Phase 1. No protocol break during the dual-write period.
 
 ### Negative
 
-- **Dual-write complexity:** During Phase 1-2, state is written twice (legacy + extensions). Slightly larger payloads.
-- **Long transition:** 4 phases over ~6 months. Requires discipline to progress through phases.
+- **Dual-write complexity:** During Phase 1, state is written twice (legacy + extensions). Slightly larger payloads.
+- **Two-phase transition:** Requires discipline to progress from dual-write to v4 after the soak period.
 - **Testing matrix:** Must test all combinations of writer/reader versions during each phase.
-- **Adoption gate overhead:** Phase 2 requires implementing and maintaining client version tracking in the sync handshake.
-- **Old-client data loss risk:** During dual-write, old clients that re-export state will silently drop the `extensions` field (see "Old-client re-export data loss" above).
+- **Old-client data loss risk:** During Phase 1, old clients that re-export state will silently drop the `extensions` field (see "Old-client re-export data loss" above). Fog survives via the legacy field.
 
 ### Risks
 
-- **Silent privacy failure (mitigated):** Phase 2 removes `fog` while keeping `version: 3`. Without the adoption gate, old clients would silently render without fog. The adoption gate (100% client upgrade confirmation) prevents this.
-- **Old-client re-export data loss:** During Phase 1-2, old clients that read and re-export state will silently destroy extension data. Acceptable for fog (legacy field survives) but unacceptable for future extensions. Reinforces the need to complete Phase 3 before adding more extensions.
-- **Element validation blocks extension types:** Old clients' `validateTypeFields()` rejects unknown element types. Extension elements (`type: 'extension'`) cannot flow through old clients. New element types must wait until all clients upgrade.
+- **Old-client re-export drops extensions:** During Phase 1, old clients that read and re-export state will silently drop the `extensions` field. Acceptable for fog (legacy field survives) but reinforces the need to complete the v4 bump before adding more extensions.
+- **Element validation blocks extension types:** Old clients' `validateTypeFields()` rejects unknown element types. Extension elements (`type: 'extension'`) cannot flow through old clients. New element types are deferred to Phase 2 (v4), where old clients reject the state entirely.
 - The `extensions` field grows unbounded if multiple domain packages register extensions. Need a size limit or warning.
 - RollKeeper's relay deploys independently. If the relay is upgraded before the web client (or vice versa), mixed-version rooms may have unexpected behavior.
 
 ## Review Response
 
-This revision addresses Finding 7 (F7) from the ADR review:
+This revision addresses findings from the third ADR review:
 
-- **Part A (Matrix corrected):** The compatibility matrix now correctly shows that v3 readers reject v4 states (hard version gate). The off-diagonal cases are fixed.
-- **Part B (Phase 2 adoption gate):** Phase 2 now requires an adoption gate (100% client upgrade confirmation via sync handshake), not a timer. The silent privacy failure risk is documented.
-- **Part C (Old-client re-export data loss):** Added explicit documentation of the risk that old clients silently destroy extension data on re-export. Acceptable during dual-write for fog, but reinforces the need for Phase 3 before adding more extensions.
-- **Part D (Element validation constraint):** Added explicit documentation that old clients' `validateTypeFields()` rejects unknown element types. Extension elements cannot flow through old clients.
+- **F2 Part A (Matrix corrected):** The compatibility matrix now correctly shows that v4 readers migrate v3 states (both with and without extensions) via `migrateState()`. Only old (v3) readers reject v4 states.
+- **F2 Part B (Phase 2 eliminated):** The unsafe mid-version legacy field removal phase is removed entirely. The structure is now two phases: Phase 1 (v3 dual-write) and Phase 2 (v4 bump + legacy field removal). The legacy `fog` field is removed ONLY at the v4 boundary, where old readers explicitly reject v4 via the hard version gate. All text about adoption gate based on client version tracking is removed — the version bump itself is the adoption gate.
+- **F3 (Shared rollout state machine):** Added a "Shared rollout state machine" section that defines the unified rollout across ADR-0001 and ADR-0004. During Phase 1 (v3 dual-write), all elements retain their current wire format — no `type: 'extension'` envelope is written. At Phase 2 (v4), extension elements can use the `type: 'extension'` envelope because old clients reject v4 entirely (safe failure). Cross-reference to ADR-0001 added.
 
 ## References
 
