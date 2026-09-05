@@ -317,5 +317,5 @@ export type {
   ResolvedProceduralStyle,
   ResolvedFogStyle,
 } from './fog/fog-style';
-export { resolveFogStyle, fogStyleCacheKey } from './fog/fog-style';
+export { resolveFogStyle } from './fog/fog-style';
 export { FogTool } from './tools/fog-tool';

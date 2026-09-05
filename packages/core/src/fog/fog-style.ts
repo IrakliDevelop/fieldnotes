@@ -5,10 +5,10 @@ export interface FogSolidStyle {
 
 export interface FogProceduralStyle {
   kind: 'procedural';
-  /** Opaque base fill painted before the noise pattern. */
+  /** Base fill painted before the noise pattern. Player mode adds an opaque safety layer. */
   backdrop: string;
-  /** Tint color mixed into the noise pattern. Defaults to `backdrop`. */
-  tint?: string;
+  /** Canvas-compatible CSS tint mixed into the noise pattern. */
+  tint: string;
   /** Overall noise opacity, 0–1. Default `0.6`. */
   opacity?: number;
   /** Pattern scale in world units per tile repeat. 64–1024. Default `256`. */
@@ -25,6 +25,7 @@ const DEFAULT_PROCEDURAL_OPACITY = 0.6;
 const DEFAULT_PROCEDURAL_SCALE = 256;
 const DEFAULT_PROCEDURAL_SEED = 0;
 const DEFAULT_PROCEDURAL_DETAIL = 2;
+const DEFAULT_PROCEDURAL_TINT = '#ffffff';
 
 const MIN_SCALE = 64;
 const MAX_SCALE = 1024;
@@ -53,30 +54,38 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
+function finiteOrDefault(value: number | undefined, defaultValue: number): number {
+  return value !== undefined && Number.isFinite(value) ? value : defaultValue;
+}
+
 export function resolveFogStyle(
   style: FogStyle | undefined,
   legacyColor: string | undefined,
   defaultColor: string,
 ): ResolvedFogStyle {
   if (style && style.kind === 'procedural') {
-    const opacity =
-      style.opacity !== undefined ? clamp(style.opacity, 0, 1) : DEFAULT_PROCEDURAL_OPACITY;
-    const scale =
-      style.scale !== undefined
-        ? clamp(style.scale, MIN_SCALE, MAX_SCALE)
-        : DEFAULT_PROCEDURAL_SCALE;
-    const seed =
-      style.seed !== undefined
-        ? clamp(Math.floor(style.seed), 0, MAX_SEED)
-        : DEFAULT_PROCEDURAL_SEED;
-    const detail =
-      style.detail !== undefined
-        ? clamp(Math.floor(style.detail), MIN_DETAIL, MAX_DETAIL)
-        : DEFAULT_PROCEDURAL_DETAIL;
+    const opacity = clamp(finiteOrDefault(style.opacity, DEFAULT_PROCEDURAL_OPACITY), 0, 1);
+    const scale = clamp(
+      finiteOrDefault(style.scale, DEFAULT_PROCEDURAL_SCALE),
+      MIN_SCALE,
+      MAX_SCALE,
+    );
+    const seed = clamp(
+      Math.floor(finiteOrDefault(style.seed, DEFAULT_PROCEDURAL_SEED)),
+      0,
+      MAX_SEED,
+    );
+    const detail = clamp(
+      Math.floor(finiteOrDefault(style.detail, DEFAULT_PROCEDURAL_DETAIL)),
+      MIN_DETAIL,
+      MAX_DETAIL,
+    );
     return {
       kind: 'procedural',
       backdrop: style.backdrop,
-      tint: style.tint ?? style.backdrop,
+      // `tint` is required for typed callers. Keep a visible runtime fallback for
+      // untyped/older JavaScript hosts instead of producing a flat same-color overlay.
+      tint: style.tint || DEFAULT_PROCEDURAL_TINT,
       opacity,
       scale,
       seed,

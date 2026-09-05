@@ -89,7 +89,16 @@ export class FogRenderer {
 
     const mode = this.viewMode === 'editor' ? 'editor' : 'player';
     const style = this.getResolvedStyle(mode);
-    const color = style.kind === 'solid' ? style.color : style.backdrop;
+    const proceduralStyle = style.kind === 'procedural' ? style : null;
+    const color =
+      style.kind === 'procedural'
+        ? normalizeCanvasColor(
+            ctx,
+            style.backdrop,
+            mode === 'player' ? DEFAULT_PLAYER_COLOR : DEFAULT_EDITOR_COLOR,
+          )
+        : style.color;
+    const safetyColor = proceduralStyle && mode === 'player' ? DEFAULT_PLAYER_COLOR : null;
 
     const worldBounds = getVisibleWorld(camera, viewportWidth, viewportHeight);
     const minTX = Math.floor(Math.max(def.bounds.x, worldBounds.x) / tileWorldSize);
@@ -126,9 +135,21 @@ export class FogRenderer {
           const clipR = Math.min(tileWorldX + tileWorldSize, def.bounds.x + def.bounds.w);
           const clipB = Math.min(tileWorldY + tileWorldSize, def.bounds.y + def.bounds.h);
           if (clipR > clipX && clipB > clipY) {
+            if (safetyColor) {
+              ctx.fillStyle = safetyColor;
+              ctx.fillRect(clipX, clipY, clipR - clipX, clipB - clipY);
+            }
+            ctx.fillStyle = color;
             ctx.fillRect(clipX, clipY, clipR - clipX, clipB - clipY);
-            if (style.kind === 'procedural') {
-              this.paintProceduralOverlay(ctx, style, clipX, clipY, clipR - clipX, clipB - clipY);
+            if (proceduralStyle) {
+              this.paintProceduralOverlay(
+                ctx,
+                proceduralStyle,
+                clipX,
+                clipY,
+                clipR - clipX,
+                clipB - clipY,
+              );
             }
           }
           continue;
@@ -139,9 +160,10 @@ export class FogRenderer {
         }
 
         if (data) {
+          if (safetyColor) this.renderTile(ctx, data, tx, ty, def, safetyColor);
           this.renderTile(ctx, data, tx, ty, def, color);
-          if (style.kind === 'procedural') {
-            this.renderTileProceduralOverlay(ctx, data, tx, ty, def, style);
+          if (proceduralStyle) {
+            this.renderTileProceduralOverlay(ctx, data, tx, ty, def, proceduralStyle);
           }
         }
       }
@@ -156,13 +178,31 @@ export class FogRenderer {
     state: FogStateV1,
     mode: 'editor' | 'player',
     color?: string,
-    style?: ResolvedFogStyle,
+    style?: FogStyle,
   ): void {
     const def = state.definition;
     const cellSize = def.cellSize;
     const tileWorldSize = FOG_TILE_CELLS * cellSize;
-    const resolved = style ?? this.getResolvedStyle(mode);
-    const fogColor = color ?? (resolved.kind === 'solid' ? resolved.color : resolved.backdrop);
+    const resolved = style
+      ? resolveFogStyle(
+          style,
+          undefined,
+          mode === 'editor' ? DEFAULT_EDITOR_COLOR : DEFAULT_PLAYER_COLOR,
+        )
+      : this.getResolvedStyle(mode);
+    const proceduralStyle = !color && resolved.kind === 'procedural' ? resolved : null;
+    const fogColor =
+      color ??
+      (proceduralStyle
+        ? normalizeCanvasColor(
+            ctx,
+            proceduralStyle.backdrop,
+            mode === 'player' ? DEFAULT_PLAYER_COLOR : DEFAULT_EDITOR_COLOR,
+          )
+        : resolved.kind === 'solid'
+          ? resolved.color
+          : resolved.backdrop);
+    const safetyColor = proceduralStyle && mode === 'player' ? DEFAULT_PLAYER_COLOR : null;
     const baseCovered = def.base === 'covered';
 
     const tileMap = new Map<string, string>();
@@ -189,11 +229,16 @@ export class FogRenderer {
           const clipR = Math.min(tileWorldX + tileWorldSize, def.bounds.x + def.bounds.w);
           const clipB = Math.min(tileWorldY + tileWorldSize, def.bounds.y + def.bounds.h);
           if (clipR > clipX && clipB > clipY) {
+            if (safetyColor) {
+              ctx.fillStyle = safetyColor;
+              ctx.fillRect(clipX, clipY, clipR - clipX, clipB - clipY);
+            }
+            ctx.fillStyle = fogColor;
             ctx.fillRect(clipX, clipY, clipR - clipX, clipB - clipY);
-            if (!color && resolved.kind === 'procedural') {
+            if (proceduralStyle) {
               this.paintProceduralOverlay(
                 ctx,
-                resolved,
+                proceduralStyle,
                 clipX,
                 clipY,
                 clipR - clipX,
@@ -205,9 +250,10 @@ export class FogRenderer {
         }
 
         if (data) {
+          if (safetyColor) this.renderTileForExport(ctx, data, tx, ty, def, safetyColor);
           this.renderTileForExport(ctx, data, tx, ty, def, fogColor);
-          if (!color && resolved.kind === 'procedural') {
-            this.renderTileProceduralOverlay(ctx, data, tx, ty, def, resolved);
+          if (proceduralStyle) {
+            this.renderTileProceduralOverlay(ctx, data, tx, ty, def, proceduralStyle);
           }
         }
       }
@@ -230,8 +276,14 @@ export class FogRenderer {
     const cached = this.patternCache.get(key);
     if (cached !== undefined) return cached;
 
-    const tileData = getCachedProceduralTile(style);
-    const pattern = this.createPatternFromTileData(ctx, tileData, style, worldScale);
+    let pattern: CanvasPattern | null = null;
+    try {
+      const tileData = getCachedProceduralTile(style);
+      pattern = this.createPatternFromTileData(ctx, tileData, style, worldScale);
+    } catch {
+      // The backdrop is already painted. Pattern allocation, ImageData, and
+      // browser canvas failures must degrade to solid fog instead of killing a frame.
+    }
 
     if (this.patternCache.size >= 32) {
       const oldest = this.patternCache.keys().next().value as string | undefined;
@@ -249,15 +301,6 @@ export class FogRenderer {
   ): CanvasPattern | null {
     if (typeof document === 'undefined') return null;
 
-    const patternPx = Math.round(style.scale * worldScale);
-    if (patternPx < 1) return null;
-
-    const patternCanvas = document.createElement('canvas');
-    patternCanvas.width = patternPx;
-    patternCanvas.height = patternPx;
-    const patternCtx = patternCanvas.getContext('2d');
-    if (!patternCtx) return null;
-
     const sourceCanvas = document.createElement('canvas');
     sourceCanvas.width = tileData.width;
     sourceCanvas.height = tileData.height;
@@ -270,6 +313,31 @@ export class FogRenderer {
       tileData.height,
     );
     sourceCtx.putImageData(imageData, 0, 0);
+    sourceCtx.globalCompositeOperation = 'source-in';
+    sourceCtx.fillStyle = normalizeCanvasColor(sourceCtx, style.tint, '#ffffff');
+    sourceCtx.fillRect(0, 0, tileData.width, tileData.height);
+    sourceCtx.globalCompositeOperation = 'source-over';
+
+    const patternScale = (style.scale * worldScale) / tileData.width;
+    const pattern = ctx.createPattern(sourceCanvas, 'repeat');
+    if (pattern && typeof pattern.setTransform === 'function' && typeof DOMMatrix !== 'undefined') {
+      try {
+        pattern.setTransform(new DOMMatrix([patternScale, 0, 0, patternScale, 0, 0]));
+        return pattern;
+      } catch {
+        // Older implementations can expose setTransform but reject DOMMatrix input.
+        // Fall through to the bounded raster-scale compatibility path.
+      }
+    }
+
+    const patternPx = Math.round(style.scale * worldScale);
+    if (patternPx < 1) return null;
+
+    const patternCanvas = document.createElement('canvas');
+    patternCanvas.width = patternPx;
+    patternCanvas.height = patternPx;
+    const patternCtx = patternCanvas.getContext('2d');
+    if (!patternCtx) return null;
 
     patternCtx.drawImage(sourceCanvas, 0, 0, patternPx, patternPx);
 
@@ -454,4 +522,30 @@ function getVisibleWorld(
     w: bottomRight.x - topLeft.x,
     h: bottomRight.y - topLeft.y,
   };
+}
+
+/**
+ * Resolve a Canvas-compatible CSS color without implementing a partial CSS parser.
+ * Invalid assignments leave fillStyle unchanged; two sentinels distinguish that
+ * behavior from a valid color's stable canonical representation.
+ */
+function normalizeCanvasColor(
+  ctx: CanvasRenderingContext2D,
+  value: string,
+  fallback: string,
+): string {
+  const previous = ctx.fillStyle;
+  try {
+    ctx.fillStyle = '#010203';
+    ctx.fillStyle = value;
+    const first = ctx.fillStyle;
+    ctx.fillStyle = '#040506';
+    ctx.fillStyle = value;
+    const second = ctx.fillStyle;
+    return typeof first === 'string' && first === second ? first : fallback;
+  } catch {
+    return fallback;
+  } finally {
+    ctx.fillStyle = previous;
+  }
 }

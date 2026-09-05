@@ -19,6 +19,7 @@ A lightweight, framework-agnostic infinite canvas SDK for the web — with first
 - **State serialization** — export/import JSON snapshots with automatic migration
 - **Grids** — square and hex grid overlays for D&D maps and alignment
 - **Export** — PNG export with scale, padding, background, and element filter options
+- **Fog of war** — solid or deterministic procedural concealment with editor/player presentation
 - **Performance instrumentation** — `getRenderStats()` and `logPerformance()` for frame timing
 - **Touch & tablet** — Pointer Events API, pinch-to-zoom, two-finger pan, stylus pressure
 - **Zero dependencies** — vanilla TypeScript, no framework required
@@ -190,6 +191,41 @@ const svg = await viewport.exportSVG(options);
 ```
 
 Without `renderHtml`, embeds remain omitted and can be observed through `onHtmlError`.
+
+## Fog of War Styling
+
+Solid fog remains the default. Hosts can opt into deterministic procedural presentation separately
+for editor and player modes without changing or persisting the fog mask:
+
+```typescript
+const viewport = new Viewport(container, {
+  fog: {
+    editorStyle: {
+      kind: 'procedural',
+      backdrop: 'rgba(30, 40, 60, 0.45)',
+      tint: 'rgba(150, 170, 210, 0.8)',
+      opacity: 0.45,
+      scale: 256, // world units per repeat
+      seed: 42,
+      detail: 2,
+    },
+    playerStyle: {
+      kind: 'procedural',
+      backdrop: '#0b1020',
+      tint: '#596683',
+      opacity: 0.55,
+      scale: 256,
+      seed: 42,
+      detail: 2,
+    },
+  },
+});
+```
+
+`backdrop` and `tint` accept Canvas-compatible CSS colors. Procedural player fog paints an opaque
+safety base before its configurable backdrop and pattern. Style is local presentation only: it is
+not included in `CanvasState`, history, autosave, or sync. Existing `editorColor` and `playerColor`
+options remain available for solid fog.
 
 ## Performance Monitoring
 
