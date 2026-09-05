@@ -192,3 +192,94 @@ describe('FogRenderer tile raster cache', () => {
     expect(fills).toEqual(['#20283a']);
   });
 });
+
+describe('FogRenderer.setOptions', () => {
+  it('updates resolved editor style', () => {
+    const renderer = new FogRenderer();
+    expect(renderer.getResolvedStyle('editor').kind).toBe('solid');
+
+    renderer.setOptions({
+      editorStyle: { kind: 'procedural', backdrop: '#111', tint: '#aaa' },
+    });
+    const style = renderer.getResolvedStyle('editor');
+    expect(style.kind).toBe('procedural');
+    if (style.kind === 'procedural') {
+      expect(style.backdrop).toBe('#111');
+      expect(style.tint).toBe('#aaa');
+    }
+  });
+
+  it('updates resolved player style', () => {
+    const renderer = new FogRenderer();
+    renderer.setOptions({
+      playerStyle: { kind: 'procedural', backdrop: '#222', tint: '#bbb' },
+    });
+    const style = renderer.getResolvedStyle('player');
+    expect(style.kind).toBe('procedural');
+    if (style.kind === 'procedural') {
+      expect(style.backdrop).toBe('#222');
+    }
+  });
+
+  it('reverts to solid defaults when given empty options', () => {
+    const renderer = new FogRenderer({
+      editorStyle: { kind: 'procedural', backdrop: '#111', tint: '#aaa' },
+    });
+    expect(renderer.getResolvedStyle('editor').kind).toBe('procedural');
+
+    renderer.setOptions({});
+    expect(renderer.getResolvedStyle('editor').kind).toBe('solid');
+  });
+
+  it('marks renderer dirty', () => {
+    const renderer = new FogRenderer();
+    renderer.setState({
+      definition: {
+        version: 1,
+        generation: 'g',
+        bounds: { x: 0, y: 0, w: 8, h: 8 },
+        cellSize: 1,
+        tileCells: 128,
+        base: 'covered',
+      },
+      tiles: [],
+    });
+    renderer.setViewMode('editor');
+    const cam = {
+      position: { x: 0, y: 0 },
+      zoom: 1,
+      screenToWorld: (p: { x: number; y: number }) => p,
+    } as unknown as Camera;
+    renderer.render(context(), cam, 800, 600, 1);
+    expect(renderer.isDirty()).toBe(false);
+
+    renderer.setOptions({
+      editorStyle: { kind: 'procedural', backdrop: '#111', tint: '#aaa' },
+    });
+    expect(renderer.isDirty()).toBe(true);
+  });
+
+  it('does not mutate fog state or view mode', () => {
+    const renderer = new FogRenderer();
+    const state = {
+      definition: {
+        version: 1 as const,
+        generation: 'g',
+        bounds: { x: 0, y: 0, w: 8, h: 8 },
+        cellSize: 1,
+        tileCells: 128,
+        base: 'covered' as const,
+      },
+      tiles: [],
+    };
+    renderer.setState(state);
+    renderer.setViewMode('player');
+
+    renderer.setOptions({
+      editorStyle: { kind: 'procedural', backdrop: '#111', tint: '#aaa' },
+    });
+
+    expect(renderer.getState()).toBe(state);
+    expect(renderer.getViewMode()).toBe('player');
+  });
+});

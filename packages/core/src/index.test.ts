@@ -3,7 +3,7 @@ import * as FN from './index';
 
 describe('core public surface', () => {
   it('exports the current version', () => {
-    expect(FN.VERSION).toBe('0.67.0');
+    expect(FN.VERSION).toBe('0.68.0');
   });
 
   it('exports the shared-ruler surface', () => {

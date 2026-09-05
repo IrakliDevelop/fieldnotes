@@ -469,6 +469,12 @@ export class Viewport {
     return this.fogManager;
   }
 
+  setFogStyle(options: FogRendererOptions): void {
+    this.fogRenderer.setOptions(options);
+    this.renderLoop.requestRender();
+    this.minimap?.invalidateScene();
+  }
+
   get snapToGrid(): boolean {
     return this._snapToGrid;
   }

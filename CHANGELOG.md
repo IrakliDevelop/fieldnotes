@@ -4,6 +4,16 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.68.0] — 2026-09-05
+
+### Added
+
+- `Viewport.setFogStyle(options)` — runtime fog presentation setter that updates editor and player
+  styles on a mounted viewport without remounting the canvas. Clears procedural caches, marks fog
+  dirty, refreshes the render loop and minimap. Fog state, view mode, history, sync, camera, tools,
+  and scene caches are untouched.
+- `FogRenderer.setOptions(options)` — internal style re-resolution backing the viewport setter.
+
 ## [0.67.0] — 2026-09-05
 
 ### Added
