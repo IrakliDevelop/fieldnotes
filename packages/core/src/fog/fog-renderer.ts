@@ -23,8 +23,8 @@ export class FogRenderer {
   private state: FogStateV1 | null = null;
   private viewMode: FogViewMode = 'off';
   private dirty = true;
-  private readonly editorStyle: ResolvedFogStyle;
-  private readonly playerStyle: ResolvedFogStyle;
+  private editorStyle: ResolvedFogStyle;
+  private playerStyle: ResolvedFogStyle;
 
   constructor(options: FogRendererOptions = {}) {
     this.editorStyle = resolveFogStyle(
@@ -37,6 +37,22 @@ export class FogRenderer {
       options.playerColor,
       DEFAULT_PLAYER_COLOR,
     );
+  }
+
+  setOptions(options: FogRendererOptions): void {
+    this.editorStyle = resolveFogStyle(
+      options.editorStyle,
+      options.editorColor,
+      DEFAULT_EDITOR_COLOR,
+    );
+    this.playerStyle = resolveFogStyle(
+      options.playerStyle,
+      options.playerColor,
+      DEFAULT_PLAYER_COLOR,
+    );
+    this.tileCache.clear();
+    this.patternCache.clear();
+    this.dirty = true;
   }
 
   setState(state: FogStateV1 | null): void {
