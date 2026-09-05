@@ -197,9 +197,9 @@ describe('core public surface', () => {
     expect(typeof FN.elementRectsEqual).toBe('function');
   });
 
-  it('reports VERSION 0.67.0', async () => {
+  it('reports VERSION 0.68.0', async () => {
     const { VERSION } = await import('./index');
-    expect(VERSION).toBe('0.67.0');
+    expect(VERSION).toBe('0.68.0');
   });
 
   it('exports the movement-path surface', () => {
