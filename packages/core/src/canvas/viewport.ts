@@ -63,6 +63,7 @@ import { ElementActivation } from './element-activation';
 import type { ActivationOptions, ElementActivationEvent } from './element-activation';
 import { FogManager } from '../fog/fog-manager';
 import { FogRenderer } from '../fog/fog-renderer';
+import type { FogRendererOptions } from '../fog/fog-renderer';
 import { validateFogState } from '../fog/tile-codec';
 
 export type { AlignEdge, DistributeAxis } from './selection-ops';
@@ -99,7 +100,7 @@ export interface ViewportOptions {
   /** Show an overview minimap (bottom-right) with tap/drag-to-navigate. Default `false`. */
   minimap?: boolean;
   /** Fog-of-war presentation options. Enables fog rendering and the `fog` accessor. */
-  fog?: { editorColor?: string; playerColor?: string };
+  fog?: FogRendererOptions;
 }
 
 export interface HitTestOptions {
@@ -604,7 +605,11 @@ export class Viewport {
       const state = this.fogManager.getState();
       if (state) {
         const mode = this.fogRenderer.getViewMode() as 'editor' | 'player';
-        (opts as ExportImageOptions).fog = { state, mode };
+        (opts as ExportImageOptions).fog = {
+          state,
+          mode,
+          style: this.fogRenderer.getResolvedStyle(mode),
+        };
       }
     }
     return exportImage(this.store, opts, this.layerManager);
@@ -616,7 +621,11 @@ export class Viewport {
       const state = this.fogManager.getState();
       if (state) {
         const mode = this.fogRenderer.getViewMode() as 'editor' | 'player';
-        (opts as ExportSvgOptions).fog = { state, mode };
+        (opts as ExportSvgOptions).fog = {
+          state,
+          mode,
+          style: this.fogRenderer.getResolvedStyle(mode),
+        };
       }
     }
     return exportSvg(this.store, opts, this.layerManager);
