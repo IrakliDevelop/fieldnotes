@@ -1,5 +1,4 @@
 import type { ResolvedProceduralStyle } from './fog-style';
-import { fogStyleCacheKey } from './fog-style';
 
 const TILE_PX = 128;
 
@@ -106,10 +105,6 @@ export function generateProceduralTile(style: ResolvedProceduralStyle): Procedur
 
   const data = new Uint8ClampedArray(TILE_PX * TILE_PX * 4);
 
-  const r = parseInt(style.tint.slice(1, 3), 16) || 0;
-  const g = parseInt(style.tint.slice(3, 5), 16) || 0;
-  const b = parseInt(style.tint.slice(5, 7), 16) || 0;
-
   for (let py = 0; py < TILE_PX; py++) {
     for (let px = 0; px < TILE_PX; px++) {
       const nx = (px / TILE_PX) * gridSize;
@@ -117,9 +112,11 @@ export function generateProceduralTile(style: ResolvedProceduralStyle): Procedur
       const n = layeredNoise(nx, ny, style.detail, gridSize, gx, gy);
       const alpha = Math.round(n * style.opacity * 255);
       const idx = (py * TILE_PX + px) * 4;
-      data[idx] = r;
-      data[idx + 1] = g;
-      data[idx + 2] = b;
+      // The generator owns only deterministic opacity. The renderer applies the
+      // host's Canvas-compatible CSS tint without reimplementing CSS color parsing.
+      data[idx] = 0xff;
+      data[idx + 1] = 0xff;
+      data[idx + 2] = 0xff;
       data[idx + 3] = alpha;
     }
   }
@@ -131,7 +128,7 @@ const tileCache = new Map<string, ProceduralTileData>();
 const MAX_CACHED_TILES = 16;
 
 export function getCachedProceduralTile(style: ResolvedProceduralStyle): ProceduralTileData {
-  const key = fogStyleCacheKey(style);
+  const key = `${style.opacity}\0${style.seed}\0${style.detail}`;
   const cached = tileCache.get(key);
   if (cached) return cached;
 

@@ -18,6 +18,7 @@ import type { ImageElement, HtmlElement } from '../elements/types';
 import type { HtmlPaintDiagnostic } from './html-paint-diagnostics';
 import { HtmlPainterRegistry } from './html-painter-registry';
 import type { ElementActivationEvent } from './element-activation';
+import type { ExportImageOptions } from './export-image';
 
 function wrapperOf(container: HTMLElement): HTMLDivElement {
   const w = container.firstElementChild;
@@ -2457,13 +2458,13 @@ describe('Viewport html painters', () => {
     getContextSpy.mockRestore();
   });
 
-  function makeViewport(): Viewport {
+  function makeViewport(options?: ConstructorParameters<typeof Viewport>[1]): Viewport {
     const container = document.createElement('div');
     Object.defineProperty(container, 'getBoundingClientRect', {
       value: () => ({ left: 0, top: 0, width: 800, height: 600 }),
     });
     document.body.appendChild(container);
-    const vp = new Viewport(container);
+    const vp = new Viewport(container, options);
     const canvas = container.querySelector('canvas');
     if (!(canvas instanceof HTMLCanvasElement)) throw new Error('canvas not found');
     Object.defineProperty(canvas, 'clientWidth', { value: 800, configurable: true });
@@ -2736,6 +2737,75 @@ describe('Viewport html painters', () => {
       ).withHtmlDefaults.bind(vp);
       const result = withHtmlDefaults({ expectedCanvasTypes: new Set(['other-canvas-type']) });
       expect([...result.expectedCanvasTypes].sort()).toEqual(['other-canvas-type', 'rk-marker']);
+    });
+
+    it('inherits configured fog style for an explicit state/mode export', () => {
+      const vp = makeViewport({
+        fog: {
+          playerStyle: {
+            kind: 'procedural',
+            backdrop: '#0b1020',
+            tint: 'rebeccapurple',
+            seed: 42,
+          },
+        },
+      });
+      const state = {
+        definition: {
+          version: 1 as const,
+          generation: 'gen-1',
+          bounds: { x: 0, y: 0, w: 128, h: 128 },
+          cellSize: 1,
+          tileCells: 128 as const,
+          base: 'covered' as const,
+        },
+        tiles: [],
+      };
+      const withFogDefaults = (
+        vp as unknown as {
+          withFogDefaults: (options: ExportImageOptions) => ExportImageOptions;
+        }
+      ).withFogDefaults.bind(vp);
+
+      const result = withFogDefaults({ fog: { state, mode: 'player' } });
+
+      expect(result.fog && result.fog.style).toEqual({
+        kind: 'procedural',
+        backdrop: '#0b1020',
+        tint: 'rebeccapurple',
+        opacity: 0.6,
+        scale: 256,
+        seed: 42,
+        detail: 2,
+      });
+    });
+
+    it('preserves an explicit legacy fog color instead of inheriting viewport style', () => {
+      const vp = makeViewport({
+        fog: {
+          playerStyle: { kind: 'procedural', backdrop: '#0b1020', tint: '#ffffff' },
+        },
+      });
+      const state = {
+        definition: {
+          version: 1 as const,
+          generation: 'gen-1',
+          bounds: { x: 0, y: 0, w: 128, h: 128 },
+          cellSize: 1,
+          tileCells: 128 as const,
+          base: 'covered' as const,
+        },
+        tiles: [],
+      };
+      const withFogDefaults = (
+        vp as unknown as {
+          withFogDefaults: (options: ExportImageOptions) => ExportImageOptions;
+        }
+      ).withFogDefaults.bind(vp);
+
+      const result = withFogDefaults({ fog: { state, mode: 'player', color: '#123456' } });
+
+      expect(result.fog).toEqual({ state, mode: 'player', color: '#123456' });
     });
 
     it('defaults strictMissingCanvasHtml to false from the viewport', async () => {

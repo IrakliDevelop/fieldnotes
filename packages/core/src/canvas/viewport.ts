@@ -599,35 +599,39 @@ export class Viewport {
     return { ...base, htmlPainters: registry, expectedCanvasTypes: expected };
   }
 
-  async exportImage(options?: ExportImageOptions): Promise<Blob | null> {
-    const opts = this.withHtmlDefaults(options);
-    if (opts.fog === undefined && this.fogRenderer.isVisible()) {
-      const state = this.fogManager.getState();
-      if (state) {
-        const mode = this.fogRenderer.getViewMode() as 'editor' | 'player';
-        (opts as ExportImageOptions).fog = {
-          state,
-          mode,
-          style: this.fogRenderer.getResolvedStyle(mode),
-        };
-      }
+  /**
+   * Carry constructor-configured fog presentation into both implicit exports and
+   * explicit state/mode exports. Explicit style and legacy color overrides win.
+   */
+  private withFogDefaults<T extends ExportImageOptions | ExportSvgOptions>(options: T): T {
+    const fog = options.fog;
+    if (fog === false) return options;
+
+    if (fog !== undefined) {
+      if (fog.style !== undefined || fog.color !== undefined) return options;
+      return {
+        ...options,
+        fog: { ...fog, style: this.fogRenderer.getResolvedStyle(fog.mode) },
+      } as T;
     }
+
+    if (!this.fogRenderer.isVisible()) return options;
+    const state = this.fogManager.getState();
+    if (!state) return options;
+    const mode = this.fogRenderer.getViewMode() as 'editor' | 'player';
+    return {
+      ...options,
+      fog: { state, mode, style: this.fogRenderer.getResolvedStyle(mode) },
+    } as T;
+  }
+
+  async exportImage(options?: ExportImageOptions): Promise<Blob | null> {
+    const opts = this.withFogDefaults(this.withHtmlDefaults(options));
     return exportImage(this.store, opts, this.layerManager);
   }
 
   async exportSVG(options?: ExportSvgOptions): Promise<string> {
-    const opts = this.withHtmlDefaults(options);
-    if (opts.fog === undefined && this.fogRenderer.isVisible()) {
-      const state = this.fogManager.getState();
-      if (state) {
-        const mode = this.fogRenderer.getViewMode() as 'editor' | 'player';
-        (opts as ExportSvgOptions).fog = {
-          state,
-          mode,
-          style: this.fogRenderer.getResolvedStyle(mode),
-        };
-      }
-    }
+    const opts = this.withFogDefaults(this.withHtmlDefaults(options));
     return exportSvg(this.store, opts, this.layerManager);
   }
 

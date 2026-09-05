@@ -214,6 +214,13 @@ describe('core public surface', () => {
     expect(FN.toPathPresence).toBeTypeOf('function');
     expect(FN.PATH_PRESENCE_KIND).toBe('path');
   });
+
+  it('exports the intentional procedural fog surface without cache internals', () => {
+    expect(typeof FN.FogRenderer).toBe('function');
+    expect(typeof FN.resolveFogStyle).toBe('function');
+    expect('fogStyleCacheKey' in FN).toBe(false);
+  });
+
   it('keeps the path renderer and linger overlay internal', () => {
     expect((FN as Record<string, unknown>).drawPath).toBeUndefined();
     expect((FN as Record<string, unknown>).LingerOverlay).toBeUndefined();

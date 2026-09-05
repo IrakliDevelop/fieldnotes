@@ -4,6 +4,19 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.67.0] — 2026-09-05
+
+### Added
+
+- Opt-in deterministic procedural fog presentation through `FogProceduralStyle`, independently
+  configurable for editor and player modes. Existing solid fog remains the unchanged default and
+  legacy `editorColor` / `playerColor` configuration remains supported.
+- Procedural fog uses a bounded seamless noise tile, Canvas-compatible CSS tinting, world-space
+  scaling, opaque player safety coverage, and the same presentation in the viewport, minimap,
+  PNG/JPEG export, and SVG's raster fog artifact.
+- Viewport exports inherit their configured fog style when callers explicitly provide fog state and
+  mode; explicit export `style` or legacy `color` values still override the viewport configuration.
+
 ## [0.66.0] — 2026-09-04
 
 ### Added

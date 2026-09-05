@@ -53,6 +53,28 @@ if (!container) throw new Error('Missing #canvas element');
 const viewport = new Viewport(container, {
   background: { pattern: 'dots', spacing: 24, color: '#c0c0c0' },
   minimap: true,
+  // Presentation only: any fog state loaded into the demo uses the same
+  // deterministic style in the viewport, minimap, and exports.
+  fog: {
+    editorStyle: {
+      kind: 'procedural',
+      backdrop: 'rgba(30, 40, 60, 0.45)',
+      tint: 'rgba(150, 170, 210, 0.8)',
+      opacity: 0.45,
+      scale: 256,
+      seed: 42,
+      detail: 2,
+    },
+    playerStyle: {
+      kind: 'procedural',
+      backdrop: '#0b1020',
+      tint: '#596683',
+      opacity: 0.55,
+      scale: 256,
+      seed: 42,
+      detail: 2,
+    },
+  },
   onImageError: ({ src }) => {
     console.warn('Image failed to load:', src);
     showToast('image-error-toast', 'Image failed to load');

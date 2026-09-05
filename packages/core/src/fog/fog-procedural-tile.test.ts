@@ -51,8 +51,8 @@ describe('generateProceduralTile', () => {
     expect(same).toBe(false);
   });
 
-  it('produces seamless tiling (edge continuity)', () => {
-    const tile = generateProceduralTile(makeStyle({ detail: 1 }));
+  it.each([1, 2, 3, 4])('produces seamless edge continuity at detail %i', (detail) => {
+    const tile = generateProceduralTile(makeStyle({ detail }));
     const w = PROCEDURAL_TILE_PX;
     const tolerance = 30;
 
@@ -80,13 +80,13 @@ describe('generateProceduralTile', () => {
     }
   });
 
-  it('rgb channels match tint color', () => {
-    const style = makeStyle({ tint: '#ff8040' });
+  it('emits a neutral alpha mask so the renderer can apply any CSS tint', () => {
+    const style = makeStyle({ tint: 'rebeccapurple' });
     const tile = generateProceduralTile(style);
     for (let i = 0; i < tile.data.length; i += 4) {
       expect(tile.data[i]).toBe(0xff);
-      expect(tile.data[i + 1]).toBe(0x80);
-      expect(tile.data[i + 2]).toBe(0x40);
+      expect(tile.data[i + 1]).toBe(0xff);
+      expect(tile.data[i + 2]).toBe(0xff);
     }
   });
 });

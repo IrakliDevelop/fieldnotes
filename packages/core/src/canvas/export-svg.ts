@@ -45,7 +45,7 @@ import { paintHtmlElement } from './html-paint';
 import type { HtmlPaintDiagnostic } from './html-paint-diagnostics';
 import type { FogStateV1 } from '../fog/types';
 import { FogRenderer } from '../fog/fog-renderer';
-import type { ResolvedFogStyle } from '../fog/fog-style';
+import type { FogStyle } from '../fog/fog-style';
 
 export interface ExportSvgOptions extends ExportResourceOptions, HtmlExportOptions {
   padding?: number;
@@ -55,9 +55,7 @@ export interface ExportSvgOptions extends ExportResourceOptions, HtmlExportOptio
   htmlPainters?: HtmlPainterRegistry;
   expectedCanvasTypes?: ReadonlySet<string>;
   strictMissingCanvasHtml?: boolean;
-  fog?:
-    | { state: FogStateV1; mode: 'editor' | 'player'; color?: string; style?: ResolvedFogStyle }
-    | false;
+  fog?: { state: FogStateV1; mode: 'editor' | 'player'; color?: string; style?: FogStyle } | false;
 }
 
 interface Bounds {

@@ -28,12 +28,16 @@ describe('resolveFogStyle', () => {
   });
 
   it('resolves procedural with defaults', () => {
-    const style: FogProceduralStyle = { kind: 'procedural', backdrop: '#1a1a2e' };
+    const style: FogProceduralStyle = {
+      kind: 'procedural',
+      backdrop: '#1a1a2e',
+      tint: '#ffffff',
+    };
     const result = resolveFogStyle(style, undefined, DEFAULT);
     expect(result).toEqual({
       kind: 'procedural',
       backdrop: '#1a1a2e',
-      tint: '#1a1a2e',
+      tint: '#ffffff',
       opacity: 0.6,
       scale: 256,
       seed: 0,
@@ -65,14 +69,14 @@ describe('resolveFogStyle', () => {
 
   it('clamps opacity to [0, 1]', () => {
     const over = resolveFogStyle(
-      { kind: 'procedural', backdrop: '#000', opacity: 5 },
+      { kind: 'procedural', backdrop: '#000', tint: '#fff', opacity: 5 },
       undefined,
       DEFAULT,
     );
     expect(over.kind === 'procedural' && over.opacity).toBe(1);
 
     const under = resolveFogStyle(
-      { kind: 'procedural', backdrop: '#000', opacity: -1 },
+      { kind: 'procedural', backdrop: '#000', tint: '#fff', opacity: -1 },
       undefined,
       DEFAULT,
     );
@@ -81,14 +85,14 @@ describe('resolveFogStyle', () => {
 
   it('clamps scale to [64, 1024]', () => {
     const small = resolveFogStyle(
-      { kind: 'procedural', backdrop: '#000', scale: 10 },
+      { kind: 'procedural', backdrop: '#000', tint: '#fff', scale: 10 },
       undefined,
       DEFAULT,
     );
     expect(small.kind === 'procedural' && small.scale).toBe(64);
 
     const large = resolveFogStyle(
-      { kind: 'procedural', backdrop: '#000', scale: 9999 },
+      { kind: 'procedural', backdrop: '#000', tint: '#fff', scale: 9999 },
       undefined,
       DEFAULT,
     );
@@ -97,14 +101,14 @@ describe('resolveFogStyle', () => {
 
   it('clamps seed to [0, 65535] and floors', () => {
     const result = resolveFogStyle(
-      { kind: 'procedural', backdrop: '#000', seed: 100000.7 },
+      { kind: 'procedural', backdrop: '#000', tint: '#fff', seed: 100000.7 },
       undefined,
       DEFAULT,
     );
     expect(result.kind === 'procedural' && result.seed).toBe(65535);
 
     const neg = resolveFogStyle(
-      { kind: 'procedural', backdrop: '#000', seed: -5 },
+      { kind: 'procedural', backdrop: '#000', tint: '#fff', seed: -5 },
       undefined,
       DEFAULT,
     );
@@ -113,7 +117,7 @@ describe('resolveFogStyle', () => {
 
   it('clamps detail to [1, 4] and floors', () => {
     const result = resolveFogStyle(
-      { kind: 'procedural', backdrop: '#000', detail: 7.5 },
+      { kind: 'procedural', backdrop: '#000', tint: '#fff', detail: 7.5 },
       undefined,
       DEFAULT,
     );
@@ -121,9 +125,44 @@ describe('resolveFogStyle', () => {
   });
 
   it('does not mutate input', () => {
-    const style: FogProceduralStyle = { kind: 'procedural', backdrop: '#000' };
+    const style: FogProceduralStyle = { kind: 'procedural', backdrop: '#000', tint: '#fff' };
     const frozen = Object.freeze(style);
     expect(() => resolveFogStyle(frozen, undefined, DEFAULT)).not.toThrow();
+  });
+
+  it('normalizes non-finite numeric values to documented defaults', () => {
+    const result = resolveFogStyle(
+      {
+        kind: 'procedural',
+        backdrop: '#000',
+        tint: '#fff',
+        opacity: Number.NaN,
+        scale: Number.POSITIVE_INFINITY,
+        seed: Number.NEGATIVE_INFINITY,
+        detail: Number.NaN,
+      },
+      undefined,
+      DEFAULT,
+    );
+
+    expect(result).toEqual({
+      kind: 'procedural',
+      backdrop: '#000',
+      tint: '#fff',
+      opacity: 0.6,
+      scale: 256,
+      seed: 0,
+      detail: 2,
+    });
+  });
+
+  it('keeps a visible runtime tint fallback for untyped callers', () => {
+    const result = resolveFogStyle(
+      { kind: 'procedural', backdrop: '#000' } as FogProceduralStyle,
+      undefined,
+      DEFAULT,
+    );
+    expect(result.kind === 'procedural' && result.tint).toBe('#ffffff');
   });
 });
 

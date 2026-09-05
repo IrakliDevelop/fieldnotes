@@ -17,7 +17,7 @@ import { paintHtmlElement } from './html-paint';
 import type { HtmlPaintDiagnostic } from './html-paint-diagnostics';
 import type { FogStateV1 } from '../fog/types';
 import { FogRenderer } from '../fog/fog-renderer';
-import type { ResolvedFogStyle } from '../fog/fog-style';
+import type { FogStyle } from '../fog/fog-style';
 
 export interface ExportImageOptions extends ExportResourceOptions, HtmlExportOptions {
   scale?: number;
@@ -59,9 +59,7 @@ export interface ExportImageOptions extends ExportResourceOptions, HtmlExportOpt
    * a non-fatal `'unsupported'` diagnostic regardless of this flag.
    */
   strictMissingCanvasHtml?: boolean;
-  fog?:
-    | { state: FogStateV1; mode: 'editor' | 'player'; color?: string; style?: ResolvedFogStyle }
-    | false;
+  fog?: { state: FogStateV1; mode: 'editor' | 'player'; color?: string; style?: FogStyle } | false;
 }
 
 export type ExportAssetErrorReason = 'load' | 'timeout' | 'encode';
