@@ -12,7 +12,7 @@ import type { SyncTransport } from './sync-transport';
 import { WebSocketTransport } from './websocket-transport';
 import { parseEnvelope, isValidLayerDefinition } from './protocol';
 import { LayerLedger } from './layer-ledger';
-import { FogLedger } from './fog-ledger';
+import { FogLedger } from '@fieldnotes/vtt';
 
 /**
  * Connection health as observed by the managed lifecycle:

@@ -49,5 +49,5 @@ export {
   FOG_SYNC_PROTOCOL_VERSION,
   FOG_PATCH_MAX_TILES,
 } from './protocol';
-export { FogLedger } from './fog-ledger';
+export { FogLedger } from '@fieldnotes/vtt';
 export type { ClientSyncPlugin, PluginSnapshot, SyncSnapshot } from './sync-plugin';
