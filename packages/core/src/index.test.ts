@@ -3,14 +3,7 @@ import * as FN from './index';
 
 describe('core public surface', () => {
   it('exports the current version', () => {
-    expect(FN.VERSION).toBe('0.75.0');
-  });
-
-  it('exports the shared-ruler surface', () => {
-    expect(FN.RemoteMeasureOverlay).toBeTypeOf('function');
-    expect(FN.isMeasurePresence).toBeTypeOf('function');
-    expect(FN.toMeasurePresence).toBeTypeOf('function');
-    expect(FN.MEASURE_PRESENCE_KIND).toBe('measure');
+    expect(FN.VERSION).toBe('0.76.0');
   });
 
   it('exports the camera view, animator, and focus presence surface', () => {
@@ -139,7 +132,6 @@ describe('core public surface', () => {
       'ImageTool',
       'ShapeTool',
       'LaserTool',
-      'MeasureTool',
       'TemplateTool',
       'PingTool',
       'PingInput',
@@ -197,9 +189,9 @@ describe('core public surface', () => {
     expect(typeof FN.elementRectsEqual).toBe('function');
   });
 
-  it('reports VERSION 0.75.0', async () => {
+  it('reports VERSION 0.76.0', async () => {
     const { VERSION } = await import('./index');
-    expect(VERSION).toBe('0.75.0');
+    expect(VERSION).toBe('0.76.0');
   });
 
   it('exports the movement-path surface', () => {
@@ -222,9 +214,12 @@ describe('core public surface', () => {
     expect('fogStyleCacheKey' in FN).toBe(false);
   });
 
-  it('keeps the path renderer and linger overlay internal', () => {
+  it('keeps the path renderer internal', () => {
     expect((FN as Record<string, unknown>).drawPath).toBeUndefined();
-    expect((FN as Record<string, unknown>).LingerOverlay).toBeUndefined();
+  });
+
+  it('exports LingerOverlay as a public utility', () => {
+    expect(FN.LingerOverlay).toBeTypeOf('function');
   });
 
   it('exports the shared-presence (awareness) surface', () => {

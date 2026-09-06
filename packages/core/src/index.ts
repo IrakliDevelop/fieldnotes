@@ -1,4 +1,4 @@
-export const VERSION = '0.75.0';
+export const VERSION = '0.76.0';
 
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
 export {
@@ -63,6 +63,8 @@ export type {
 } from './canvas/html-export';
 export type { RenderStatsSnapshot } from './canvas/render-stats';
 export type { OverlayRenderer } from './canvas/render-loop';
+export { LingerOverlay } from './canvas/linger-overlay';
+export type { LingerOverlayHost, LingerOverlayOptions, LingerDraw } from './canvas/linger-overlay';
 export {
   RemoteLaserOverlay,
   isLaserTrailPresence,
@@ -85,17 +87,6 @@ export type {
   RemotePingOverlayHost,
   RemotePingOverlayOptions,
 } from './canvas/remote-ping-overlay';
-export {
-  RemoteMeasureOverlay,
-  isMeasurePresence,
-  toMeasurePresence,
-  MEASURE_PRESENCE_KIND,
-} from './canvas/remote-measure-overlay';
-export type {
-  MeasurePresence,
-  RemoteMeasureOverlayHost,
-  RemoteMeasureOverlayOptions,
-} from './canvas/remote-measure-overlay';
 export {
   RemotePathOverlay,
   isPathPresence,
@@ -300,8 +291,6 @@ export { ImageTool } from './tools/image-tool';
 export type { ImageToolOptions } from './tools/image-tool';
 export { ShapeTool } from './tools/shape-tool';
 export type { ShapeToolOptions } from './tools/shape-tool';
-export { MeasureTool } from './tools/measure-tool';
-export type { MeasureToolOptions, Measurement, MeasureEmission } from './tools/measure-tool';
 export { PathTool } from './tools/path-tool';
 export type {
   PathToolOptions,

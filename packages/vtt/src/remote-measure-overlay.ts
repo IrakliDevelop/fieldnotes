@@ -1,8 +1,7 @@
-import type { Point } from '../core/types';
-import type { MeasureEmission } from '../tools/measure-tool';
-import type { OverlayRenderer } from './render-loop';
+import type { Point, OverlayRenderer } from '@fieldnotes/core';
+import { LingerOverlay } from '@fieldnotes/core';
+import type { MeasureEmission } from './measure-tool';
 import { drawMeasurement } from './measure-render';
-import { LingerOverlay } from './linger-overlay';
 
 /**
  * The wire shape of a shared-ruler presence payload. Presence data is untyped

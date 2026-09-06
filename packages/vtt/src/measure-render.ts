@@ -1,4 +1,4 @@
-import type { Point } from '../core/types';
+import type { Point } from '@fieldnotes/core';
 
 /** Label parity contract: local tool and remote overlay must format identically. */
 export function formatMeasureLabel(feet: number): string {

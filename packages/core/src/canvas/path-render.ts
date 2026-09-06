@@ -1,5 +1,8 @@
 import type { Point } from '../core/types';
-import { formatMeasureLabel } from './measure-render';
+
+function formatDistanceLabel(feet: number): string {
+  return `${Math.round(feet)} ft`;
+}
 
 export interface PathRenderModel {
   readonly points: readonly Point[];
@@ -64,7 +67,7 @@ export function drawPath(
   }
   if (m.points.length >= 2) {
     const last = prev;
-    const label = formatMeasureLabel(m.feet);
+    const label = formatDistanceLabel(m.feet);
     ctx.font = '14px sans-serif';
     const metrics = ctx.measureText(label);
     const padX = 6;

@@ -1,9 +1,8 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { ElementStore, Camera } from '@fieldnotes/core';
+import type { ToolContext, PointerState } from '@fieldnotes/core';
 import { MeasureTool } from './measure-tool';
-import { ElementStore } from '../elements/element-store';
-import { Camera } from '../canvas/camera';
-import type { ToolContext, PointerState } from './types';
 import type { MeasureEmission } from './measure-tool';
 
 function makeCtx(overrides: Partial<ToolContext> = {}): ToolContext {

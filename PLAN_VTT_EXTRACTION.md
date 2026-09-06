@@ -1,6 +1,6 @@
 # Plan: VTT Feature Extraction & the Emacs Philosophy
 
-> **Status:** Phase 2 in progress — grid snapping → ConstraintService complete, fog rendering → render hooks complete, fog serialization → dual-write complete. Fog sync remains. See `MIGRATION_VTT_EXTRACTION.md` §Implementation Progress for details.
+> **Status:** Phase 3 complete — MeasureTool extracted to `@fieldnotes/vtt` (canary). Fog sync deferred to Phase 5. See `MIGRATION_VTT_EXTRACTION.md` §Implementation Progress for details.
 > **Created:** 2026-09-05
 > **Revised:** 2026-09-05 (post-review — incorporated Codex review findings)
 > **Scope:** Architectural reorganization of @fieldnotes/core
@@ -508,7 +508,7 @@ interface ElementDecorator {
    e. ✅ Grid snapping → `PointConstraintService` (`GridConstraintService`, all 9 tools migrated)
    f. ✅ Fog serialization → `PluginHandle` dual-write (`CanvasState.extensions`, extensions-first read)
    g. ❌ Fog sync → client/server/backend plugins
-7. **Phase 3:** Extract MeasureTool as canary
+7. **Phase 3:** ✅ Extract MeasureTool as canary — `@fieldnotes/vtt` package created, MeasureTool/RemoteMeasureOverlay/measure-render extracted
 8. **Phase 4:** Extract Grid + Templates (requires element-type registry)
 9. **Phase 5:** Extract Fog (server/Redis first, then client)
 10. **Phase 6:** Deploy, soak, remove legacy code
