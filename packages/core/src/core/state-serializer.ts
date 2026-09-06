@@ -4,6 +4,8 @@ import type { Layer } from '../layers/types';
 import type { FogStateV1 } from '../fog/types';
 import { sanitizeNoteHtml } from '../elements/note-sanitizer';
 import { validateFogState } from '../fog/tile-codec';
+import type { ElementRegistry } from '../elements/element-registry';
+import { getDefaultElementRegistry } from '../elements/default-registry';
 
 export interface CanvasState {
   version: number;
@@ -28,6 +30,7 @@ const ELEMENT_TYPES = [
   'shape',
   'grid',
   'template',
+  'extension',
 ] as const satisfies readonly CanvasElement['type'][];
 type _ElementTypesAreExhaustive = CanvasElement['type'] extends (typeof ELEMENT_TYPES)[number]
   ? true
@@ -41,7 +44,9 @@ export function exportState(
   layers: Layer[] = [],
   activeLayerId?: string,
   fog?: FogStateV1 | null,
+  registry?: ElementRegistry,
 ): CanvasState {
+  const reg = registry ?? getDefaultElementRegistry();
   const state: CanvasState = {
     version: CURRENT_VERSION,
     camera: {
@@ -49,6 +54,12 @@ export function exportState(
       zoom: camera.zoom,
     },
     elements: elements.map((el) => {
+      if (el.type === 'extension') {
+        const adapter = reg.getAdapter(el.extensionType);
+        if (adapter) {
+          return structuredClone(adapter.encodeLegacy(el)) as unknown as CanvasElement;
+        }
+      }
       const clone = structuredClone(el);
       if (clone.type === 'arrow') {
         delete clone.cachedControlPoint;
@@ -62,10 +73,28 @@ export function exportState(
   return state;
 }
 
-export function parseState(json: string): CanvasState {
+export function parseState(json: string, registry?: ElementRegistry): CanvasState {
   const data: unknown = JSON.parse(json);
   validateState(data);
+  const reg = registry ?? getDefaultElementRegistry();
+  convertLegacyToEnvelopes(data.elements, reg);
   return data;
+}
+
+export function convertLegacyToEnvelopes(
+  elements: CanvasElement[],
+  registry: ElementRegistry,
+): void {
+  for (let i = 0; i < elements.length; i++) {
+    const el = elements[i];
+    if (!el || el.type === 'extension') continue;
+    const adapter = registry.getAdapterByLegacyType(el.type);
+    if (adapter) {
+      const raw = structuredClone(el) as unknown as Record<string, unknown>;
+      const envelope = adapter.decodeLegacy(raw);
+      elements[i] = envelope as unknown as CanvasElement;
+    }
+  }
 }
 
 function validateState(data: unknown): asserts data is CanvasState {
@@ -267,6 +296,8 @@ function validateTypeFields(el: Record<string, unknown>, type: CanvasElement['ty
         isOptional(el['radiusFeet'], isFiniteNumber) &&
         isOptionalEnum(el['renderStyle'], ['cells', 'geometric'])
       );
+    case 'extension':
+      return isString(el['extensionType']) && isRecord(el['data']);
   }
 }
 

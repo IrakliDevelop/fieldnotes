@@ -137,7 +137,8 @@ export type CanvasElement =
   | TextElement
   | ShapeElement
   | GridElement
-  | TemplateElement;
+  | TemplateElement
+  | ExtensionElementEnvelope;
 
 export type ElementType = CanvasElement['type'];
 
@@ -165,9 +166,12 @@ export interface ElementTypeDefinition<T extends BaseElement> {
 export interface ElementTypeAdapter {
   readonly type: string;
   readonly legacyTypes: readonly string[];
+  readonly renderMode: 'canvas' | 'dom' | 'hybrid' | 'none';
   validateEnvelope(el: ExtensionElementEnvelope): boolean;
   decodeLegacy(raw: Record<string, unknown>): ExtensionElementEnvelope;
   encodeLegacy(el: ExtensionElementEnvelope): Record<string, unknown>;
+  wrap(el: BaseElement): ExtensionElementEnvelope;
+  unwrap(el: ExtensionElementEnvelope): BaseElement;
   bounds(el: ExtensionElementEnvelope): Bounds | null;
 }
 

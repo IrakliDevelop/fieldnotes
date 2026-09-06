@@ -2,6 +2,7 @@ import type { Bounds } from '../core/types';
 import { rotatedAABB } from '../core/geometry';
 import type { CanvasElement, TemplateElement } from './types';
 import { getArrowControlPoint } from './arrow-geometry';
+import { getDefaultElementRegistry } from './default-registry';
 
 // Cache stroke bounds via WeakMap.
 // May miss after ElementStore.update() creates new object via spread,
@@ -10,6 +11,10 @@ const strokeBoundsCache = new WeakMap<CanvasElement, Bounds>();
 
 export function getElementBounds(element: CanvasElement): Bounds | null {
   if (element.type === 'grid') return null;
+  if (element.type === 'extension') {
+    const adapter = getDefaultElementRegistry().getAdapter(element.extensionType);
+    return adapter ? adapter.bounds(element) : null;
+  }
 
   if ('size' in element) {
     return {

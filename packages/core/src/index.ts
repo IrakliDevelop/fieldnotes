@@ -1,4 +1,4 @@
-export const VERSION = '0.70.0';
+export const VERSION = '0.71.0';
 
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
 export {
@@ -245,6 +245,9 @@ export type {
   ElementTypeKey,
 } from './elements/types';
 export { ElementRegistry } from './elements/element-registry';
+export { getDefaultElementRegistry, setDefaultElementRegistry } from './elements/default-registry';
+export { gridElementTypeDefinition } from './elements/grid-definition';
+export { templateElementTypeDefinition } from './elements/template-definition';
 export { TypedHookRegistry } from './canvas/render-hooks';
 export type { ViewportSlot, HookRegistrationOptions } from './canvas/render-hooks';
 export { PluginStateManager } from './core/plugin-state-manager';

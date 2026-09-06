@@ -1,4 +1,9 @@
-import type { CanvasElement, GridElement, HtmlElement } from '../elements/types';
+import type {
+  CanvasElement,
+  GridElement,
+  HtmlElement,
+  ExtensionElementEnvelope,
+} from '../elements/types';
 import type { ElementStore } from '../elements/element-store';
 import { ElementRenderer } from '../elements/element-renderer';
 import { getArrowBounds } from '../elements/arrow-geometry';
@@ -13,6 +18,7 @@ import { renderHtmlElements, validateHtmlExportOptions } from './html-export';
 import type { HtmlExportOptions } from './html-export';
 import { resolveHtmlRouting, HtmlPainterMissingError } from './html-painter-registry';
 import type { HtmlPainterRegistry } from './html-painter-registry';
+import { getDefaultElementRegistry } from '../elements/default-registry';
 import { paintHtmlElement } from './html-paint';
 import type { HtmlPaintDiagnostic } from './html-paint-diagnostics';
 import type { FogStateV1 } from '../fog/types';
@@ -151,6 +157,9 @@ function getElementRect(el: CanvasElement): Rect | null {
           el.rotation ?? 0,
         );
       }
+      return null;
+    case 'extension':
+      // Extension elements bounds are computed by registered type handlers (Phase 4)
       return null;
     default:
       return null;
@@ -553,6 +562,14 @@ export async function exportImage(
   for (const el of visibleElements) {
     if (el.type === 'grid') {
       grids.push(el);
+      continue;
+    }
+    if (el.type === 'extension' && el.extensionType === 'vtt:grid') {
+      const adapter = getDefaultElementRegistry().getAdapter('vtt:grid');
+      if (adapter) {
+        const grid = adapter.unwrap(el as ExtensionElementEnvelope) as unknown as GridElement;
+        grids.push(grid);
+      }
       continue;
     }
     const group = layerGroups.get(el.layerId) ?? [];

@@ -20,6 +20,7 @@ import { resolveHtmlRouting } from '../canvas/html-painter-registry';
 import type { HtmlPainterRegistry } from '../canvas/html-painter-registry';
 import { paintHtmlElement } from '../canvas/html-paint';
 import type { HtmlPaintDiagnostic, HtmlRenderTarget } from '../canvas/html-paint-diagnostics';
+import type { ElementRegistry } from './element-registry';
 
 const DOM_ELEMENT_TYPES = new Set(['note', 'html', 'text']);
 
@@ -40,9 +41,14 @@ export class ElementRenderer {
   private renderTarget: HtmlRenderTarget = 'screen';
   private diagnosticSink: ((d: HtmlPaintDiagnostic) => void) | null = null;
   private surfaceZoom: number | null = null;
+  private elementRegistry: ElementRegistry | null = null;
 
   setStore(store: ElementStore): void {
     this.store = store;
+  }
+
+  setElementRegistry(registry: ElementRegistry): void {
+    this.elementRegistry = registry;
   }
 
   setOnImageLoad(callback: () => void): void {
@@ -94,6 +100,10 @@ export class ElementRenderer {
   }
 
   isDomElement(element: CanvasElement): boolean {
+    if (element.type === 'extension' && this.elementRegistry) {
+      const adapter = this.elementRegistry.getAdapter(element.extensionType);
+      return adapter?.renderMode === 'dom';
+    }
     if (element.type !== 'html') return DOM_ELEMENT_TYPES.has(element.type);
     // canvas and missing are NOT DOM-participating; dom is.
     return resolveHtmlRouting(element, this.htmlPainters, this.expectedCanvasTypes) === 'dom';
@@ -132,6 +142,9 @@ export class ElementRenderer {
         break;
       case 'html':
         this.renderHtml(ctx, element);
+        break;
+      case 'extension':
+        // Extension elements are rendered by registered type handlers (Phase 4)
         break;
     }
   }

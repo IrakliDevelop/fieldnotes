@@ -1,8 +1,9 @@
 import type { ElementStore } from '../elements/element-store';
 import type { HistoryRecorder } from '../history/history-recorder';
 import type { ToolContext } from '../tools/types';
-import type { GridElement } from '../elements/types';
+import type { GridElement, ExtensionElementEnvelope } from '../elements/types';
 import { createGrid } from '../elements/element-factory';
+import type { ElementRegistry } from '../elements/element-registry';
 
 export interface GridInfo {
   gridType: 'square' | 'hex';
@@ -18,6 +19,7 @@ export interface GridControllerDeps {
   getActiveLayerId: () => string;
   toolContext: ToolContext;
   defaultGridSize: number;
+  elementRegistry: ElementRegistry;
 }
 
 export class GridController {
@@ -33,13 +35,15 @@ export class GridController {
     strokeWidth?: number;
     opacity?: number;
   }): string {
-    const existing = this.deps.store.getElementsByType('grid')[0];
+    const existing = this.getGridEnvelope();
     this.deps.recorder.begin();
     if (existing) {
       this.deps.store.remove(existing.id);
     }
     const grid = createGrid({ ...input, layerId: this.deps.getActiveLayerId() });
-    this.deps.store.add(grid);
+    const adapter = this.deps.elementRegistry.getAdapter('vtt:grid');
+    const envelope = adapter ? adapter.wrap(grid) : (grid as unknown as ExtensionElementEnvelope);
+    this.deps.store.add(envelope as unknown as GridElement);
     this.deps.recorder.commit();
     this.deps.requestRender();
     return grid.id;
@@ -53,25 +57,34 @@ export class GridController {
       >
     >,
   ): void {
-    const grid = this.deps.store.getElementsByType('grid')[0];
+    const envelope = this.getGridEnvelope();
+    if (!envelope) return;
+    const grid = this.unwrapGrid(envelope);
     if (!grid) return;
+    const updated: GridElement = { ...grid, ...updates };
+    const adapter = this.deps.elementRegistry.getAdapter('vtt:grid');
+    const newEnvelope = adapter
+      ? adapter.wrap(updated)
+      : (updated as unknown as ExtensionElementEnvelope);
     this.deps.recorder.begin();
-    this.deps.store.update(grid.id, updates);
+    this.deps.store.update(envelope.id, newEnvelope as unknown as GridElement);
     this.deps.recorder.commit();
     this.deps.requestRender();
   }
 
   remove(): void {
-    const grid = this.deps.store.getElementsByType('grid')[0];
-    if (!grid) return;
+    const envelope = this.getGridEnvelope();
+    if (!envelope) return;
     this.deps.recorder.begin();
-    this.deps.store.remove(grid.id);
+    this.deps.store.remove(envelope.id);
     this.deps.recorder.commit();
     this.deps.requestRender();
   }
 
   getInfo(): GridInfo | null {
-    const grid = this.deps.store.getElementsByType('grid')[0];
+    const envelope = this.getGridEnvelope();
+    if (!envelope) return null;
+    const grid = this.unwrapGrid(envelope);
     if (!grid) return null;
     return {
       gridType: grid.gridType,
@@ -89,7 +102,8 @@ export class GridController {
   }
 
   syncContext(): void {
-    const grid = this.deps.store.getElementsByType('grid')[0];
+    const envelope = this.getGridEnvelope();
+    const grid = envelope ? this.unwrapGrid(envelope) : null;
     if (grid) {
       this.deps.toolContext.gridSize = grid.cellSize;
       this.deps.toolContext.gridType = grid.gridType;
@@ -102,6 +116,19 @@ export class GridController {
     this.notify();
   }
 
+  private getGridEnvelope(): ExtensionElementEnvelope | null {
+    const extensionElements = this.deps.store.getElementsByType('extension');
+    return (
+      extensionElements.find((el) => el.type === 'extension' && el.extensionType === 'vtt:grid') ??
+      null
+    );
+  }
+
+  private unwrapGrid(envelope: ExtensionElementEnvelope): GridElement | null {
+    const adapter = this.deps.elementRegistry.getAdapter('vtt:grid');
+    if (!adapter) return null;
+    return adapter.unwrap(envelope) as unknown as GridElement;
+  }
   private notify(): void {
     const info = this.getInfo();
     for (const listener of this.listeners) {

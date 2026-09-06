@@ -21,6 +21,7 @@ export class ElementRegistry {
     const adapter: ElementTypeAdapter = {
       type: def.type,
       legacyTypes: def.legacyTypes,
+      renderMode: def.renderMode ?? 'canvas',
       validateEnvelope: (el) => el.extensionType === def.type && def.validateData(el.data),
       decodeLegacy: (raw) => {
         const typed = def.decodeLegacy(raw);
@@ -30,6 +31,8 @@ export class ElementRegistry {
         const typed = def.unwrap(el);
         return def.encodeLegacy(typed);
       },
+      wrap: (el) => def.wrap(el as never),
+      unwrap: (el) => def.unwrap(el),
       bounds: (el) => {
         const typed = def.unwrap(el);
         return def.bounds(typed);

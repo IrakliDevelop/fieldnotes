@@ -5,6 +5,7 @@ import { ElementStore } from '../elements/element-store';
 import { HistoryStack } from '../history/history-stack';
 import { HistoryRecorder } from '../history/history-recorder';
 import type { ToolContext } from '../tools/types';
+import { getDefaultElementRegistry } from '../elements/default-registry';
 
 function setup() {
   const store = new ElementStore();
@@ -16,6 +17,7 @@ function setup() {
     gridType: undefined,
     hexOrientation: undefined,
   } as unknown as ToolContext;
+  const elementRegistry = getDefaultElementRegistry();
   const controller = new GridController({
     store,
     recorder,
@@ -23,8 +25,9 @@ function setup() {
     getActiveLayerId: () => 'layer',
     toolContext,
     defaultGridSize: 24,
+    elementRegistry,
   });
-  return { store, stack, recorder, requestRender, toolContext, controller };
+  return { store, stack, recorder, requestRender, toolContext, controller, elementRegistry };
 }
 
 describe('GridController', () => {
@@ -34,8 +37,10 @@ describe('GridController', () => {
 
     const id = controller.add({ gridType: 'square', cellSize: 40 });
 
-    expect(store.getById(id)?.type).toBe('grid');
-    expect(store.getElementsByType('grid')).toHaveLength(1);
+    expect(store.getById(id)?.type).toBe('extension');
+    expect(
+      store.getElementsByType('extension').filter((el) => el.extensionType === 'vtt:grid'),
+    ).toHaveLength(1);
     expect(stack.undoCount).toBe(baseline + 1);
   });
 
@@ -47,7 +52,9 @@ describe('GridController', () => {
     const second = controller.add({ gridType: 'hex' });
 
     expect(second).not.toBe(first);
-    expect(store.getElementsByType('grid')).toHaveLength(1);
+    expect(
+      store.getElementsByType('extension').filter((el) => el.extensionType === 'vtt:grid'),
+    ).toHaveLength(1);
     expect(store.getById(first)).toBeUndefined();
     expect(stack.undoCount).toBe(baseline + 1);
   });

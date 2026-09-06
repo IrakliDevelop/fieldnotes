@@ -29,6 +29,7 @@ export function hitTest(
     if (ctx.isLayerVisible && !ctx.isLayerVisible(el.layerId)) continue;
     if (ctx.isLayerLocked && ctx.isLayerLocked(el.layerId)) continue;
     if (el.type === 'grid') continue;
+    if (el.type === 'extension') continue;
     if (match && !match(el)) continue;
     if (isInsideBounds(world, el)) return el;
   }
@@ -37,6 +38,7 @@ export function hitTest(
 
 export function isInsideBounds(point: Point, el: CanvasElement): boolean {
   if (el.type === 'grid') return false;
+  if (el.type === 'extension') return false;
   const angle = el.rotation ?? 0;
   if (angle !== 0) {
     const b = getElementBounds(el);
@@ -247,6 +249,7 @@ export function findElementsInRect(marquee: Bounds, ctx: ToolContext): string[] 
     if (ctx.isLayerVisible && !ctx.isLayerVisible(el.layerId)) continue;
     if (ctx.isLayerLocked && ctx.isLayerLocked(el.layerId)) continue;
     if (el.type === 'grid') continue;
+    if (el.type === 'extension') continue;
     const bounds = getElementBounds(el);
     if (bounds && rectsOverlap(marquee, rotatedAABB(bounds, el.rotation ?? 0))) {
       ids.push(el.id);

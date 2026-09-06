@@ -1037,13 +1037,21 @@ describe('Viewport', () => {
     it('replaces existing grid when adding a new one', () => {
       const viewport = new Viewport(container);
       viewport.addGrid({ gridType: 'square', cellSize: 40 });
-      const grids1 = viewport.store.getElementsByType('grid');
+      const grids1 = viewport.store
+        .getElementsByType('extension')
+        .filter((el) => el.extensionType === 'vtt:grid');
       expect(grids1.length).toBe(1);
 
       viewport.addGrid({ gridType: 'hex', cellSize: 60 });
-      const grids2 = viewport.store.getElementsByType('grid');
+      const grids2 = viewport.store
+        .getElementsByType('extension')
+        .filter((el) => el.extensionType === 'vtt:grid');
       expect(grids2.length).toBe(1);
-      expect(grids2[0]?.gridType).toBe('hex');
+      const adapter = viewport.elementRegistry.getAdapter('vtt:grid');
+      const grid = grids2[0]
+        ? (adapter?.unwrap(grids2[0]) as unknown as { gridType: string })
+        : undefined;
+      expect(grid?.gridType).toBe('hex');
       viewport.destroy();
     });
   });

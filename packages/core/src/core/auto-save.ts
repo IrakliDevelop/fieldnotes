@@ -6,6 +6,7 @@ import { exportState, parseState } from './state-serializer';
 import type { CanvasState } from './state-serializer';
 import { LocalStorageAdapter } from './storage/local-storage-adapter';
 import type { StorageAdapter } from './storage/storage-adapter';
+import type { ElementRegistry } from '../elements/element-registry';
 
 export interface AutoSaveOptions {
   key?: string;
@@ -14,6 +15,7 @@ export interface AutoSaveOptions {
   fogManager?: FogManager;
   adapter?: StorageAdapter;
   onError?: (error: Error) => void;
+  elementRegistry?: ElementRegistry;
 }
 
 const DEFAULT_KEY = 'fieldnotes-autosave';
@@ -28,6 +30,7 @@ export class AutoSave {
   private timerId: ReturnType<typeof setTimeout> | null = null;
   private unsubscribers: (() => void)[] = [];
   private readonly onError?: (error: Error) => void;
+  private readonly elementRegistry?: ElementRegistry;
   private saving = false;
   private pendingSave = false;
 
@@ -42,6 +45,7 @@ export class AutoSave {
     this.fogManager = options.fogManager;
     this.adapter = options.adapter ?? new LocalStorageAdapter();
     this.onError = options.onError;
+    this.elementRegistry = options.elementRegistry;
   }
 
   start(): void {
@@ -72,7 +76,7 @@ export class AutoSave {
     if (!json) return null;
 
     try {
-      return parseState(json);
+      return parseState(json, this.elementRegistry);
     } catch {
       return null;
     }
@@ -103,7 +107,14 @@ export class AutoSave {
     try {
       const layers = this.layerManager?.snapshot() ?? [];
       const fog = this.fogManager?.getState() ?? undefined;
-      const state = exportState(this.store.snapshot(), this.camera, layers, undefined, fog);
+      const state = exportState(
+        this.store.snapshot(),
+        this.camera,
+        layers,
+        undefined,
+        fog,
+        this.elementRegistry,
+      );
       await this.adapter.save(this.key, JSON.stringify(state));
     } catch (e) {
       this.onError?.(e instanceof Error ? e : new Error(String(e)));

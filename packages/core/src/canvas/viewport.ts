@@ -33,7 +33,11 @@ import { hitTest } from '../tools/select-hit';
 import { HistoryStack } from '../history/history-stack';
 import { HistoryRecorder } from '../history/history-recorder';
 import { createImage, createHtmlElement, createShape } from '../elements/element-factory';
-import { exportState as exportCanvasState, parseState } from '../core/state-serializer';
+import {
+  exportState as exportCanvasState,
+  parseState,
+  convertLegacyToEnvelopes,
+} from '../core/state-serializer';
 import { exportImage } from './export-image';
 import type { ExportImageOptions } from './export-image';
 import { exportSvg } from './export-svg';
@@ -46,8 +50,10 @@ import { RenderLoop } from './render-loop';
 import type { OverlayRenderer } from './render-loop';
 import { HtmlPainterRegistry, resolveHtmlRouting } from './html-painter-registry';
 import type { HtmlPainter, HtmlRouting } from './html-painter-registry';
-import { HtmlPaintDiagnosticDeduper } from './html-paint-diagnostics';
-import type { HtmlPaintDiagnostic } from './html-paint-diagnostics';
+import { HtmlPaintDiagnosticDeduper } from '../canvas/html-paint-diagnostics';
+import type { HtmlPaintDiagnostic } from '../canvas/html-paint-diagnostics';
+import type { ElementRegistry } from '../elements/element-registry';
+import { getDefaultElementRegistry } from '../elements/default-registry';
 import type { RenderStatsSnapshot } from './render-stats';
 import { LayerCache } from './layer-cache';
 import { MarginViewport } from './margin-viewport';
@@ -101,6 +107,8 @@ export interface ViewportOptions {
   minimap?: boolean;
   /** Fog-of-war presentation options. Enables fog rendering and the `fog` accessor. */
   fog?: FogRendererOptions;
+  /** Element type registry for extension element support. Defaults to built-in registry with grid+template. */
+  elementRegistry?: ElementRegistry;
 }
 
 export interface HitTestOptions {
@@ -116,6 +124,7 @@ export class Viewport {
   readonly layerManager: LayerManager;
   readonly toolManager: ToolManager;
   readonly history: HistoryStack;
+  readonly elementRegistry: ElementRegistry;
   readonly domLayer: HTMLDivElement;
   private readonly canvasEl: HTMLCanvasElement;
   private readonly paintStack: HTMLDivElement;
@@ -191,6 +200,7 @@ export class Viewport {
     this.camera = new Camera(options.camera);
     this.background = new Background(options.background);
     this._gridSize = options.background?.spacing ?? 24;
+    this.elementRegistry = options.elementRegistry ?? getDefaultElementRegistry();
     this.store = new ElementStore();
     this.layerManager = new LayerManager(this.store);
     this.toolManager = new ToolManager();
@@ -204,6 +214,7 @@ export class Viewport {
     this.renderer = new ElementRenderer();
     this.renderer.setStore(this.store);
     this.renderer.setCamera(this.camera);
+    this.renderer.setElementRegistry(this.elementRegistry);
     this.renderer.setOnImageLoad(() => {
       this.renderLoop.markAllLayersDirty();
       this.requestRender();
@@ -387,11 +398,13 @@ export class Viewport {
       getActiveLayerId: () => this.layerManager.activeLayerId,
       toolContext: this.toolContext,
       defaultGridSize: this._gridSize,
+      elementRegistry: this.elementRegistry,
     });
 
     this.unsubStore = [
       this.store.on('add', (el) => {
-        if (el.type === 'grid') this.gridController.syncContext();
+        if (el.type === 'grid' || (el.type === 'extension' && el.extensionType === 'vtt:grid'))
+          this.gridController.syncContext();
         if (el.type === 'html') {
           this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
         }
@@ -399,7 +412,8 @@ export class Viewport {
         this.requestRender();
       }),
       this.store.on('remove', (el) => {
-        if (el.type === 'grid') this.gridController.syncContext();
+        if (el.type === 'grid' || (el.type === 'extension' && el.extensionType === 'vtt:grid'))
+          this.gridController.syncContext();
         this.unbindArrowsFrom(el);
         this.domNodeManager.removeDomNode(el.id);
         this.htmlDiagnostics.forget(el.id);
@@ -408,7 +422,11 @@ export class Viewport {
         this.handleRemovedElement(el.id);
       }),
       this.store.on('update', ({ previous, current }) => {
-        if (current.type === 'grid') this.gridController.syncContext();
+        if (
+          current.type === 'grid' ||
+          (current.type === 'extension' && current.extensionType === 'vtt:grid')
+        )
+          this.gridController.syncContext();
         if (current.type === 'html') {
           this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
         }
@@ -578,6 +596,7 @@ export class Viewport {
       this.layerManager.snapshot(),
       this.layerManager.activeLayerId,
       this.fogManager.getState(),
+      this.elementRegistry,
     );
   }
 
@@ -649,6 +668,7 @@ export class Viewport {
     this.historyRecorder.pause();
     this.noteEditor.destroy(this.store);
     this.domNodeManager.clearDomNodes();
+    convertLegacyToEnvelopes(state.elements, this.elementRegistry);
     this.store.loadSnapshot(state.elements);
     if (state.layers && state.layers.length > 0) {
       this.layerManager.loadSnapshot(state.layers);
@@ -697,7 +717,7 @@ export class Viewport {
   }
 
   loadJSON(json: string): void {
-    this.loadState(parseState(json));
+    this.loadState(parseState(json, this.elementRegistry));
   }
 
   setTool(name: string): void {

@@ -9,6 +9,7 @@ import type {
   GridElement,
   TemplateElement,
   HtmlElement,
+  ExtensionElementEnvelope,
 } from '../elements/types';
 import type { ElementStore } from '../elements/element-store';
 import type { LayerManager } from '../layers/layer-manager';
@@ -28,6 +29,7 @@ import {
 import { getElementBounds } from '../elements/element-bounds';
 import { renderNoteOnCanvas } from './note-canvas-renderer';
 import { renderTextOnCanvas } from './text-canvas-renderer';
+import { getDefaultElementRegistry } from '../elements/default-registry';
 import {
   assertExportSize,
   loadImages,
@@ -494,7 +496,16 @@ export async function exportSvg(
   for (const [id, uri] of canvasHtmlDataUris) htmlDataUris.set(id, uri);
 
   const grids = visibleElements.filter((el): el is GridElement => el.type === 'grid');
-  const firstGrid = grids[0];
+  const extensionGrid = visibleElements.find(
+    (el) => el.type === 'extension' && el.extensionType === 'vtt:grid',
+  ) as ExtensionElementEnvelope | undefined;
+  const firstGrid: GridElement | undefined =
+    grids[0] ??
+    (extensionGrid
+      ? (getDefaultElementRegistry()
+          .getAdapter('vtt:grid')
+          ?.unwrap(extensionGrid) as unknown as GridElement)
+      : undefined);
 
   let body = '';
   if (options.background) {
@@ -587,6 +598,9 @@ function emitElement(
       return '';
     case 'html':
       return withRotationSvg(el, emitImage(el, htmlDataUris.get(el.id)));
+    case 'extension':
+      // Extension elements are rendered by registered type handlers (Phase 4)
+      return '';
     default:
       return '';
   }

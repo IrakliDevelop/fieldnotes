@@ -41,7 +41,11 @@ describe('Integration: serialization', () => {
     expect(h.viewport.store.getElementsByType('stroke')).toHaveLength(1);
     expect(h.viewport.store.getElementsByType('shape')).toHaveLength(1);
     expect(h.viewport.store.getElementsByType('note')).toHaveLength(1);
-    expect(h.viewport.store.getElementsByType('grid')).toHaveLength(1);
+    expect(
+      h.viewport.store
+        .getElementsByType('extension')
+        .filter((el) => el.extensionType === 'vtt:grid'),
+    ).toHaveLength(1);
 
     const json = h.viewport.exportJSON();
 
@@ -51,7 +55,9 @@ describe('Integration: serialization', () => {
     expect(v2.store.getElementsByType('stroke')).toHaveLength(1);
     expect(v2.store.getElementsByType('shape')).toHaveLength(1);
     expect(v2.store.getElementsByType('note')).toHaveLength(1);
-    expect(v2.store.getElementsByType('grid')).toHaveLength(1);
+    expect(
+      v2.store.getElementsByType('extension').filter((el) => el.extensionType === 'vtt:grid'),
+    ).toHaveLength(1);
 
     v2.destroy();
     c2.remove();

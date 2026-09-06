@@ -256,22 +256,32 @@ describe('Viewport save/load roundtrip', () => {
     });
 
     const state = v1.exportState();
-    const gridId = v1.store.getElementsByType('grid')[0]?.id;
+    const gridEnvelope = v1.store
+      .getElementsByType('extension')
+      .find((el) => el.extensionType === 'vtt:grid');
+    const gridId = gridEnvelope?.id;
     v1.destroy();
 
     const v2 = new Viewport(container);
     v2.loadState(state);
 
     expect(gridId).toBeDefined();
-    const rGrid = v2.store.getById(gridId ?? '') as GridElement;
+    const rGridEnvelope = v2.store
+      .getElementsByType('extension')
+      .find((el) => el.extensionType === 'vtt:grid');
+    expect(rGridEnvelope).toBeDefined();
+    expect(rGridEnvelope?.id).toBe(gridId);
+    const adapter = v2.elementRegistry.getAdapter('vtt:grid');
+    const rGrid = rGridEnvelope
+      ? (adapter?.unwrap(rGridEnvelope) as unknown as GridElement)
+      : undefined;
     expect(rGrid).toBeDefined();
-    expect(rGrid.type).toBe('grid');
-    expect(rGrid.gridType).toBe('hex');
-    expect(rGrid.hexOrientation).toBe('flat');
-    expect(rGrid.cellSize).toBe(60);
-    expect(rGrid.strokeColor).toBe('#aabbcc');
-    expect(rGrid.strokeWidth).toBe(2);
-    expect(rGrid.opacity).toBe(0.8);
+    expect(rGrid?.gridType).toBe('hex');
+    expect(rGrid?.hexOrientation).toBe('flat');
+    expect(rGrid?.cellSize).toBe(60);
+    expect(rGrid?.strokeColor).toBe('#aabbcc');
+    expect(rGrid?.strokeWidth).toBe(2);
+    expect(rGrid?.opacity).toBe(0.8);
 
     v2.destroy();
   });
