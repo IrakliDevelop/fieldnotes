@@ -39,8 +39,16 @@ import type {
   CameraView,
   FocusAudience,
 } from '@fieldnotes/core';
-import { MeasureTool, RemoteMeasureOverlay, toMeasurePresence } from '@fieldnotes/vtt';
+import {
+  MeasureTool,
+  RemoteMeasureOverlay,
+  toMeasurePresence,
+  registerVttElementTypes,
+} from '@fieldnotes/vtt';
 import type { MeasurePresence } from '@fieldnotes/vtt';
+
+// Register VTT element types (grid, template) before creating the viewport
+registerVttElementTypes();
 import { SyncClient, BroadcastChannelTransport } from '@fieldnotes/sync';
 
 console.log(`Field Notes v${VERSION}`);
