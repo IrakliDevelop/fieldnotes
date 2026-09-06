@@ -4,6 +4,16 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.70.0] — 2026-09-06
+
+### Added
+
+- **Extension point interfaces** (Phase 1 of VTT extraction migration):
+  - `ElementRegistry` — two-level element type extension system with typed `ElementTypeKey<T>` for consumers and erased `ElementTypeAdapter` for core internals. Supports legacy wire codec for backward-compatible serialization.
+  - `TypedHookRegistry<T>` — generic per-surface render hook registry with `ViewportSlot` semantic ordering, priority, capability tracking, and required hook enforcement.
+  - `PluginStateManager` — transactional plugin lifecycle with migrate → validate → snapshot → commit/rollback. Unknown plugin preservation across load/save cycles.
+  - `ExtensionElementEnvelope`, `ElementTypeDefinition<T>`, `PersistedPluginState`, `NotificationController` types.
+
 ## [0.69.0] — 2026-09-06
 
 ### Added
