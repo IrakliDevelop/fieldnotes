@@ -73,6 +73,8 @@ import { FogManager } from '../fog/fog-manager';
 import { FogRenderer } from '../fog/fog-renderer';
 import type { FogRendererOptions } from '../fog/fog-renderer';
 import { validateFogState } from '../fog/tile-codec';
+import { createRenderHooks } from './render-hooks';
+import type { RenderHooks } from './render-hooks';
 
 export type { AlignEdge, DistributeAxis } from './selection-ops';
 export type { GridInfo } from './grid-controller';
@@ -151,6 +153,7 @@ export class Viewport {
   private readonly renderLoop: RenderLoop;
   private readonly fogManager: FogManager;
   private readonly fogRenderer: FogRenderer;
+  private readonly _renderHooks: RenderHooks;
   private readonly domNodeManager: DomNodeManager;
   private readonly interactMode: InteractMode;
   private readonly onHtmlElementMount?: (
@@ -333,10 +336,58 @@ export class Viewport {
       onCommand: (cmd) => this.history.push(cmd),
     });
     this.fogRenderer = new FogRenderer(options.fog);
+    this._renderHooks = createRenderHooks();
+
+    // Register fog on the viewport render hook — fog renders after elements,
+    // before overlays (the same z-order it held on the old hybrid surface).
+    this._renderHooks.viewport.register(
+      {
+        afterElements: (ctx, camera, dimensions) => {
+          if (this.fogRenderer.isVisible()) {
+            this.fogRenderer.render(
+              ctx,
+              camera,
+              dimensions.width,
+              dimensions.height,
+              dimensions.dpr,
+            );
+          }
+        },
+      },
+      { slot: 'afterSceneBeforeOverlay' },
+    );
+
+    // Register fog on the minimap render hook.
+    this._renderHooks.minimap.register({
+      afterElements: (mapping) => {
+        if (!this.fogRenderer.isVisible()) return;
+        const fogState = this.fogRenderer.getState();
+        const fogMode = this.fogRenderer.getViewMode();
+        if (!fogState || (fogMode !== 'editor' && fogMode !== 'player')) return;
+        const dpr = typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1;
+        mapping.ctx.save();
+        mapping.ctx.setTransform(
+          dpr * mapping.scale,
+          0,
+          0,
+          dpr * mapping.scale,
+          dpr * mapping.offsetX,
+          dpr * mapping.offsetY,
+        );
+        this.fogRenderer.renderForExport(mapping.ctx, fogState, fogMode);
+        mapping.ctx.restore();
+      },
+    });
 
     if (options.minimap) {
-      this.minimap = new Minimap(this.wrapper, this);
-      this.minimap.setFogRenderer(this.fogRenderer);
+      this.minimap = new Minimap(this.wrapper, this, {
+        minimapHooks: this._renderHooks.minimap,
+        getExtraBounds: () => {
+          if (!this.fogRenderer.isVisible()) return null;
+          const fogState = this.fogRenderer.getState();
+          return fogState ? fogState.definition.bounds : null;
+        },
+      });
     }
 
     this.domNodeManager = new DomNodeManager({
@@ -372,7 +423,7 @@ export class Viewport {
       layerCache,
       marginViewport: this.marginViewport,
       hybridSurface: new HybridRenderSurface(this.paintStack),
-      fogRenderer: this.fogRenderer,
+      hooks: this._renderHooks,
     });
 
     this.fogManager.on('change', () => {
@@ -493,6 +544,10 @@ export class Viewport {
 
   get fog(): FogManager {
     return this.fogManager;
+  }
+
+  get renderHooks(): RenderHooks {
+    return this._renderHooks;
   }
 
   setFogStyle(options: FogRendererOptions): void {

@@ -13,7 +13,7 @@ import { getElementVisualBounds, boundsIntersect } from '../elements/element-bou
 import { RenderStats } from './render-stats';
 import type { RenderStatsSnapshot } from './render-stats';
 import type { HybridRenderSurface } from './hybrid-render-surface';
-import type { FogRenderer } from '../fog/fog-renderer';
+import type { RenderHooks } from './render-hooks';
 
 /**
  * A world-space draw callback rendered above elements on every frame,
@@ -36,7 +36,7 @@ export interface RenderLoopDeps {
   layerCache: LayerCache;
   marginViewport: MarginViewport;
   hybridSurface: HybridRenderSurface;
-  fogRenderer?: FogRenderer;
+  hooks?: RenderHooks;
 }
 
 export class RenderLoop {
@@ -53,7 +53,7 @@ export class RenderLoop {
   private readonly layerCache: LayerCache;
   private readonly marginViewport: MarginViewport;
   private readonly hybridSurface: HybridRenderSurface;
-  private readonly fogRenderer?: FogRenderer;
+  private readonly hooks?: RenderHooks;
   private activeDrawingLayerId: string | null = null;
   private gridCacheDirty = true; // set on recenter/viewport-change; consumed by the grid block
   private readonly stats = new RenderStats();
@@ -77,7 +77,7 @@ export class RenderLoop {
     this.layerCache = deps.layerCache;
     this.marginViewport = deps.marginViewport;
     this.hybridSurface = deps.hybridSurface;
-    this.fogRenderer = deps.fogRenderer;
+    this.hooks = deps.hooks;
   }
 
   requestRender(): void {
@@ -457,12 +457,9 @@ export class RenderLoop {
     }
 
     const activeTool = this.toolManager.activeTool;
-    const fogVisible = this.fogRenderer?.isVisible() ?? false;
-    const fogOrder = visibleElements.length + 1;
-    const overlayOrder = fogVisible ? fogOrder + 1 : visibleElements.length + 1;
+    const overlayOrder = visibleElements.length + 1;
     const hasOverlay = activeTool?.renderOverlay !== undefined || this.overlays.size > 0;
-    if (fogVisible) hybridOrders.add(fogOrder);
-    if (hasOverlay && (hybridActive || fogVisible)) hybridOrders.add(overlayOrder);
+    if (hasOverlay && hybridActive) hybridOrders.add(overlayOrder);
     this.hybridSurface.beginFrame(hybridOrders, this.canvasEl.width, this.canvasEl.height);
 
     for (const [layerId, elements] of this.layerGroups) {
@@ -606,19 +603,17 @@ export class RenderLoop {
       hybridCtx.restore();
     }
 
-    if (fogVisible && this.fogRenderer) {
-      const fogCtx = this.hybridSurface.getContext(fogOrder);
-      if (fogCtx) {
-        fogCtx.clearRect(0, 0, this.canvasEl.width, this.canvasEl.height);
-        fogCtx.save();
-        fogCtx.scale(dpr, dpr);
-        this.fogRenderer.render(fogCtx, this.camera, cssWidth, cssHeight, dpr);
-        fogCtx.restore();
+    // Fire afterElements hooks while the camera transform is active (world space).
+    // Fog and other domain surfaces render here, replacing the old hard-coded
+    // hybrid-surface fog path.
+    if (this.hooks) {
+      for (const fn of this.hooks.viewport.iterate('afterElements')) {
+        fn(ctx, this.camera, { width: cssWidth, height: cssHeight, dpr });
       }
     }
 
     const overlayT0 = performance.now();
-    if ((hybridActive || fogVisible) && hasOverlay) {
+    if (hybridActive && hasOverlay) {
       const overlayCtx = this.hybridSurface.getContext(overlayOrder);
       if (overlayCtx) {
         overlayCtx.clearRect(0, 0, this.canvasEl.width, this.canvasEl.height);
@@ -634,6 +629,15 @@ export class RenderLoop {
       this.drawRegisteredOverlays(ctx);
       if (activeTool?.renderOverlay) activeTool.renderOverlay(ctx);
     }
+
+    // Fire afterAll hooks after everything (elements, overlays) — camera transform
+    // is still active (only the outer DPR save/restore is outstanding).
+    if (this.hooks) {
+      for (const fn of this.hooks.viewport.iterate('afterAll')) {
+        fn(ctx, this.camera, { width: cssWidth, height: cssHeight, dpr });
+      }
+    }
+
     const overlayMs = performance.now() - overlayT0;
 
     ctx.restore();

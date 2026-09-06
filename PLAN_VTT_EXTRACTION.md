@@ -1,6 +1,6 @@
 # Plan: VTT Feature Extraction & the Emacs Philosophy
 
-> **Status:** Phase 2 in progress — grid snapping → ConstraintService complete. Fog refactor items remain. See `MIGRATION_VTT_EXTRACTION.md` §Implementation Progress for details.
+> **Status:** Phase 2 in progress — grid snapping → ConstraintService complete, fog rendering → render hooks complete. Fog serialization and sync remain. See `MIGRATION_VTT_EXTRACTION.md` §Implementation Progress for details.
 > **Created:** 2026-09-05
 > **Revised:** 2026-09-05 (post-review — incorporated Codex review findings)
 > **Scope:** Architectural reorganization of @fieldnotes/core

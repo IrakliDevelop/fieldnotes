@@ -13,6 +13,8 @@ import type { LayerManager } from '../layers/layer-manager';
 import type { DomNodeManager } from './dom-node-manager';
 import type { LayerCache } from './layer-cache';
 import type { HybridRenderSurface } from './hybrid-render-surface';
+import { createRenderHooks } from './render-hooks';
+import type { RenderHooks } from './render-hooks';
 
 function createMockDeps() {
   const canvasEl = document.createElement('canvas');
@@ -1194,6 +1196,67 @@ describe('RenderLoop', () => {
       const stats = renderLoop.getStats();
       expect(stats).toHaveProperty('fps');
       expect(stats).toHaveProperty('avgFrameMs');
+    });
+  });
+
+  describe('render hooks', () => {
+    it('fires afterElements hooks during render', () => {
+      const hooks: RenderHooks = createRenderHooks();
+      const afterElements = vi.fn();
+      hooks.viewport.register({ afterElements }, { slot: 'afterSceneBeforeOverlay' });
+
+      const loopWithHooks = new RenderLoop({ ...deps, hooks });
+      loopWithHooks.requestRender();
+      loopWithHooks.flush();
+
+      expect(afterElements).toHaveBeenCalledTimes(1);
+      expect(afterElements).toHaveBeenCalledWith(
+        expect.anything(),
+        deps.camera,
+        expect.objectContaining({
+          width: expect.any(Number),
+          height: expect.any(Number),
+          dpr: expect.any(Number),
+        }),
+      );
+    });
+
+    it('fires afterAll hooks during render', () => {
+      const hooks: RenderHooks = createRenderHooks();
+      const afterAll = vi.fn();
+      hooks.viewport.register({ afterAll });
+
+      const loopWithHooks = new RenderLoop({ ...deps, hooks });
+      loopWithHooks.requestRender();
+      loopWithHooks.flush();
+
+      expect(afterAll).toHaveBeenCalledTimes(1);
+    });
+
+    it('fires afterElements before afterAll', () => {
+      const hooks: RenderHooks = createRenderHooks();
+      const order: string[] = [];
+      hooks.viewport.register({
+        afterElements: () => {
+          order.push('afterElements');
+        },
+        afterAll: () => {
+          order.push('afterAll');
+        },
+      });
+
+      const loopWithHooks = new RenderLoop({ ...deps, hooks });
+      loopWithHooks.requestRender();
+      loopWithHooks.flush();
+
+      expect(order).toEqual(['afterElements', 'afterAll']);
+    });
+
+    it('does not fire hooks when no hooks provided', () => {
+      const loop = new RenderLoop(deps);
+      loop.requestRender();
+      loop.flush();
+      // No error thrown — hooks are optional
     });
   });
 });

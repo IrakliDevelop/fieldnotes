@@ -62,9 +62,8 @@ export class TypedHookRegistry<T extends Record<string, unknown>> {
     };
   }
 
-  *iterate(
-    hookName: keyof T & string,
-  ): Generator<Extract<T[keyof T], (...args: unknown[]) => unknown>> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- generic hook dispatcher; concrete signatures are enforced at register time
+  *iterate(hookName: keyof T & string): Generator<(...args: any[]) => void> {
     const sorted = [...this.entries].sort((a, b) => {
       const slotDiff = SLOT_ORDER[a.slot] - SLOT_ORDER[b.slot];
       if (slotDiff !== 0) return slotDiff;
@@ -76,12 +75,14 @@ export class TypedHookRegistry<T extends Record<string, unknown>> {
     for (const entry of sorted) {
       const fn = entry.hooks[hookName];
       if (typeof fn === 'function') {
-        yield fn as Extract<T[keyof T], (...args: unknown[]) => unknown>;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        yield fn as (...args: any[]) => void;
       }
     }
   }
 
-  *iterateRequired(): Generator<Extract<T[keyof T], (...args: unknown[]) => unknown>> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- generic hook dispatcher
+  *iterateRequired(): Generator<(...args: any[]) => void> {
     const sorted = [...this.entries]
       .filter((e) => e.required)
       .sort((a, b) => {
@@ -95,7 +96,8 @@ export class TypedHookRegistry<T extends Record<string, unknown>> {
     for (const entry of sorted) {
       for (const fn of Object.values(entry.hooks)) {
         if (typeof fn === 'function') {
-          yield fn as Extract<T[keyof T], (...args: unknown[]) => unknown>;
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          yield fn as (...args: any[]) => void;
         }
       }
     }
@@ -144,6 +146,8 @@ export interface MinimapMapping {
   readonly canvasHeight: number;
   readonly worldBounds: { x: number; y: number; w: number; h: number };
   readonly scale: number;
+  readonly offsetX: number;
+  readonly offsetY: number;
 }
 
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions -- type alias required for Record<string, unknown> constraint
