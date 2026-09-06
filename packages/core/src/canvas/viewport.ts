@@ -75,6 +75,9 @@ import type { FogRendererOptions } from '../fog/fog-renderer';
 import { validateFogState } from '../fog/tile-codec';
 import { createRenderHooks } from './render-hooks';
 import type { RenderHooks } from './render-hooks';
+import { PluginStateManager } from '../core/plugin-state-manager';
+import type { PersistedPluginState } from '../core/plugin-state-manager';
+import { createFogPluginHandle } from '../fog/fog-plugin-handle';
 
 export type { AlignEdge, DistributeAxis } from './selection-ops';
 export type { GridInfo } from './grid-controller';
@@ -154,6 +157,7 @@ export class Viewport {
   private readonly fogManager: FogManager;
   private readonly fogRenderer: FogRenderer;
   private readonly _renderHooks: RenderHooks;
+  private readonly pluginStateManager: PluginStateManager;
   private readonly domNodeManager: DomNodeManager;
   private readonly interactMode: InteractMode;
   private readonly onHtmlElementMount?: (
@@ -390,6 +394,9 @@ export class Viewport {
       });
     }
 
+    this.pluginStateManager = new PluginStateManager();
+    this.pluginStateManager.registerPlugin('fog', createFogPluginHandle(this.fogManager));
+
     this.domNodeManager = new DomNodeManager({
       domLayer: this.paintStack,
       onEditRequest: (id) => this.interactions.startEditingElement(id),
@@ -546,6 +553,10 @@ export class Viewport {
     return this.fogManager;
   }
 
+  get plugins(): PluginStateManager {
+    return this.pluginStateManager;
+  }
+
   get renderHooks(): RenderHooks {
     return this._renderHooks;
   }
@@ -661,6 +672,7 @@ export class Viewport {
       this.layerManager.activeLayerId,
       this.fogManager.getState(),
       this.elementRegistry,
+      this.pluginStateManager.exportState(),
     );
   }
 
@@ -725,7 +737,9 @@ export class Viewport {
   }
 
   loadState(state: CanvasState): void {
-    if (state.fog != null) {
+    // Resolve fog: prefer extensions.fog (new) over fog (legacy).
+    const hasExtensions = state.extensions && Object.keys(state.extensions).length > 0;
+    if (!hasExtensions && state.fog != null) {
       validateFogState(state.fog);
     }
     this.inputHandler.flushPendingHistory();
@@ -772,7 +786,11 @@ export class Viewport {
         }
       }
     }
-    this.fogManager.loadState(state.fog ?? null);
+    if (hasExtensions) {
+      this.pluginStateManager.loadState(state.extensions as Record<string, PersistedPluginState>);
+    } else {
+      this.fogManager.loadState(state.fog ?? null);
+    }
     this.history.clear();
     this.historyRecorder.resume();
     this.camera.moveTo(state.camera.position.x, state.camera.position.y);

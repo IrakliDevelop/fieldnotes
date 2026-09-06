@@ -6,6 +6,7 @@ import { sanitizeNoteHtml } from '../elements/note-sanitizer';
 import { validateFogState } from '../fog/tile-codec';
 import type { ElementRegistry } from '../elements/element-registry';
 import { getDefaultElementRegistry } from '../elements/default-registry';
+import type { PersistedPluginState } from './plugin-state-manager';
 
 export interface CanvasState {
   version: number;
@@ -17,6 +18,7 @@ export interface CanvasState {
   layers?: Layer[];
   activeLayerId?: string;
   fog?: FogStateV1;
+  extensions?: Record<string, PersistedPluginState>;
 }
 
 const CURRENT_VERSION = 3;
@@ -45,6 +47,7 @@ export function exportState(
   activeLayerId?: string,
   fog?: FogStateV1 | null,
   registry?: ElementRegistry,
+  extensions?: Record<string, PersistedPluginState>,
 ): CanvasState {
   const reg = registry ?? getDefaultElementRegistry();
   const state: CanvasState = {
@@ -70,6 +73,9 @@ export function exportState(
   };
   if (activeLayerId) state.activeLayerId = activeLayerId;
   if (fog) state.fog = structuredClone(fog) as FogStateV1;
+  if (extensions && Object.keys(extensions).length > 0) {
+    state.extensions = structuredClone(extensions);
+  }
   return state;
 }
 
@@ -183,6 +189,24 @@ function validateState(data: unknown): asserts data is CanvasState {
 
   if (obj['fog'] !== undefined && obj['fog'] !== null) {
     validateFogState(obj['fog']);
+  }
+
+  if (obj['extensions'] !== undefined) {
+    validateExtensions(obj['extensions']);
+  }
+}
+
+function validateExtensions(value: unknown): asserts value is Record<string, PersistedPluginState> {
+  if (!isRecord(value)) {
+    throw new Error('Invalid state: extensions must be an object');
+  }
+  for (const [name, entry] of Object.entries(value)) {
+    if (!isRecord(entry)) {
+      throw new Error(`Invalid state: extensions.${name} must be an object`);
+    }
+    if (!Number.isInteger(entry['version']) || (entry['version'] as number) < 1) {
+      throw new Error(`Invalid state: extensions.${name}.version must be a positive integer`);
+    }
   }
 }
 
