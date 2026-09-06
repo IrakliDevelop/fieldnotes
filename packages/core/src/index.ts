@@ -10,8 +10,6 @@ export {
   footprintFromSize,
 } from './core/snap';
 export type { Footprint } from './core/snap';
-export { pathDistanceCells, gridDistanceCells } from './core/grid-metric';
-export type { DiagonalRule, GridMetric, PathDistance } from './core/grid-metric';
 export type { CanvasState } from './core/state-serializer';
 export { AutoSave } from './core/auto-save';
 export type { AutoSaveOptions } from './core/auto-save';
@@ -301,6 +299,8 @@ export type {
 } from './tools/path-tool';
 export { TemplateTool } from './tools/template-tool';
 export type { TemplateToolOptions } from './tools/template-tool';
+export { renderTemplateFeetLabel } from './elements/renderers/template-measure';
+export type { TemplateFeetLabelParams } from './elements/renderers/template-measure';
 export { LaserTool } from './tools/laser-tool';
 export type { LaserToolOptions, LaserTrailEmission } from './tools/laser-tool';
 export { PingTool } from './tools/ping-tool';

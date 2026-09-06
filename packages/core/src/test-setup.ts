@@ -16,6 +16,16 @@ if (typeof document !== 'undefined' && !('queryCommandState' in document)) {
   });
 }
 
+// Register VTT element types (grid, template) for all tests.
+// In production, consumers call registerVttElementTypes() from @fieldnotes/vtt.
+import { getDefaultElementRegistry } from './elements/default-registry';
+import { gridElementTypeDefinition } from './elements/grid-definition';
+import { templateElementTypeDefinition } from './elements/template-definition';
+
+const testRegistry = getDefaultElementRegistry();
+testRegistry.register(gridElementTypeDefinition);
+testRegistry.register(templateElementTypeDefinition);
+
 // Provide a localStorage mock for tests. jsdom should provide it, but Node.js 22+
 // has experimental localStorage support that may interfere. This mock ensures tests
 // have a working localStorage and that vi.spyOn(Storage.prototype, 'setItem') works.
