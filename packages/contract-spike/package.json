@@ -1,0 +1,22 @@
+{
+  "name": "@fieldnotes/contract-spike",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Executable architecture spike — proves ADR contracts compile together",
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@fieldnotes/core": "workspace:*",
+    "@fieldnotes/sync": "workspace:*",
+    "@fieldnotes/sync-server": "workspace:*"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^4.1.0",
+    "vitest": "^4.1.0"
+  }
+}
