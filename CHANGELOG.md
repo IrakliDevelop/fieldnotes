@@ -4,6 +4,24 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.71.0] — 2026-09-06
+
+### Added
+
+- **Grid and template element type definitions** (Phase 2 of VTT extraction migration):
+  - `gridElementTypeDefinition` and `templateElementTypeDefinition` — `ElementTypeDefinition<T>` implementations with legacy wire codec, validation, bounds, and wrap/unwrap.
+  - `getDefaultElementRegistry()` / `setDefaultElementRegistry()` — module-level default registry with grid+template pre-registered.
+  - `convertLegacyToEnvelopes()` — exported for `Viewport.loadState()` direct usage.
+
+### Changed
+
+- `ExtensionElementEnvelope` added to `CanvasElement` union as 10th member (`type: 'extension'`).
+- `ElementTypeAdapter` extended with `renderMode`, `wrap()`, `unwrap()`.
+- `Viewport` accepts `elementRegistry` option, passes to renderer, GridController, and serializer.
+- Serializer performs dual conversion: legacy wire (`type: 'grid'`/`type: 'template'`) ↔ in-memory envelopes (`type: 'extension'`). Wire format unchanged.
+- GridController stores grid as `ExtensionElementEnvelope` in ElementStore, wraps/unwraps via registry adapter.
+- All exhaustive switches on `CanvasElement.type` updated to handle `'extension'`.
+
 ## [0.70.0] — 2026-09-06
 
 ### Added
