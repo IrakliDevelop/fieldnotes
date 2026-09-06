@@ -3,7 +3,7 @@ import * as FN from './index';
 
 describe('core public surface', () => {
   it('exports the current version', () => {
-    expect(FN.VERSION).toBe('0.68.0');
+    expect(FN.VERSION).toBe('0.69.0');
   });
 
   it('exports the shared-ruler surface', () => {
@@ -197,9 +197,9 @@ describe('core public surface', () => {
     expect(typeof FN.elementRectsEqual).toBe('function');
   });
 
-  it('reports VERSION 0.68.0', async () => {
+  it('reports VERSION 0.69.0', async () => {
     const { VERSION } = await import('./index');
-    expect(VERSION).toBe('0.68.0');
+    expect(VERSION).toBe('0.69.0');
   });
 
   it('exports the movement-path surface', () => {
@@ -218,6 +218,7 @@ describe('core public surface', () => {
   it('exports the intentional procedural fog surface without cache internals', () => {
     expect(typeof FN.FogRenderer).toBe('function');
     expect(typeof FN.resolveFogStyle).toBe('function');
+    expect(typeof FN.renderFogStylePreview).toBe('function');
     expect('fogStyleCacheKey' in FN).toBe(false);
   });
 

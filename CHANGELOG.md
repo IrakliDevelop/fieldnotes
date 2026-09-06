@@ -4,6 +4,13 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.69.0] — 2026-09-06
+
+### Added
+
+- `renderFogStylePreview(ctx, style, width, height)` paints solid and procedural material swatches
+  with the same deterministic noise tile and scale used by the viewport renderer.
+
 ## [0.68.0] — 2026-09-05
 
 ### Added
