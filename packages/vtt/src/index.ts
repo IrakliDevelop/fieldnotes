@@ -75,3 +75,15 @@ export { resolveFogStyle } from './fog/fog-style';
 export { renderFogStylePreview } from './fog/fog-style-preview';
 export { createFogPluginHandle } from './fog/fog-plugin-handle';
 export { FogTool } from './fog/fog-tool';
+
+// Fog sync types (Phase 5e)
+export {
+  FOG_SYNC_PROTOCOL_VERSION,
+  FOG_PATCH_MAX_TILES,
+  isNewerFogRecord,
+  isValidFogMetaRecord,
+  isValidFogTileRecord,
+  isValidFogSnapshot,
+} from './fog/fog-sync-types';
+export type { FogMetaRecord, FogTileRecord, FogSnapshot } from './fog/fog-sync-types';
+export { FogLedger } from './fog/fog-ledger';

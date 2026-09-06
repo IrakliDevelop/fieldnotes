@@ -20,7 +20,7 @@ import {
   type FogSnapshot,
 } from './protocol';
 import { LayerLedger } from './layer-ledger';
-import { FogLedger } from './fog-ledger';
+import { FogLedger } from '@fieldnotes/vtt';
 
 /**
  * Which authoritative-snapshot merge is being applied:

@@ -1,12 +1,8 @@
-import type { FogMetaRecord, FogTileRecord, FogSnapshot } from './protocol';
-import { isNewerFogRecord } from './protocol';
-import type { FogDefinitionV1 } from '@fieldnotes/vtt';
-import {
-  FOG_MAX_TILES,
-  FOG_TILE_CELLS,
-  validateFogTile,
-  canonicalizeFogTile,
-} from '@fieldnotes/vtt';
+import type { FogMetaRecord, FogTileRecord, FogSnapshot } from './fog-sync-types';
+import { isNewerFogRecord } from './fog-sync-types';
+import type { FogDefinitionV1 } from './types';
+import { FOG_TILE_CELLS, FOG_MAX_TILES } from './types';
+import { canonicalizeFogTile, validateFogTile } from './tile-codec';
 
 const MAX_STORED_TILES = FOG_MAX_TILES;
 
