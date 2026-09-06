@@ -58,6 +58,8 @@ import type { RenderStatsSnapshot } from './render-stats';
 import { LayerCache } from './layer-cache';
 import { MarginViewport } from './margin-viewport';
 import type { ElementStyle } from '../elements/element-style';
+import { ConstraintServiceProxy } from '../core/constraint-service';
+import { GridConstraintService } from './grid-constraint-service';
 import { SelectionOps } from './selection-ops';
 import type { SelectionStyleDetails } from './selection-ops';
 import type { AlignEdge, DistributeAxis } from './selection-ops';
@@ -161,6 +163,7 @@ export class Viewport {
     worldPosition: { x: number; y: number },
   ) => void;
   private readonly gridController: GridController;
+  private readonly constraintProxy = new ConstraintServiceProxy();
   private readonly interactions: ViewportInteractions;
   private contextMenu: ContextMenu | null = null;
   private minimap: Minimap | null = null;
@@ -294,6 +297,7 @@ export class Viewport {
       smartGuides: false,
       getVisibleRect: () =>
         this.camera.getVisibleRect(this.canvasEl.clientWidth, this.canvasEl.clientHeight),
+      constraintService: this.constraintProxy,
     };
 
     this.inputHandler = new InputHandler(this.wrapper, this.camera, {
@@ -401,6 +405,10 @@ export class Viewport {
       elementRegistry: this.elementRegistry,
     });
 
+    this.constraintProxy.setImplementation(
+      new GridConstraintService(() => this.gridController.getInfo()),
+    );
+
     this.unsubStore = [
       this.store.on('add', (el) => {
         if (el.type === 'grid' || (el.type === 'extension' && el.extensionType === 'vtt:grid'))
@@ -500,6 +508,7 @@ export class Viewport {
   setSnapToGrid(enabled: boolean): void {
     this._snapToGrid = enabled;
     this.toolContext.snapToGrid = enabled;
+    this.constraintProxy.setActive(enabled);
   }
 
   get smartGuides(): boolean {

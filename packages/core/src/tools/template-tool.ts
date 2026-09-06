@@ -92,7 +92,11 @@ export class TemplateTool implements Tool {
     this.gridSize = ctx.gridSize ?? 1;
     this.gridType = ctx.gridType;
     this.hexOrientation = ctx.hexOrientation;
-    this.snapEnabled = !!ctx.gridType || (ctx.snapToGrid ?? false);
+    this.snapEnabled = !!(
+      ctx.constraintService?.getConstraintInfo() ||
+      ctx.gridType ||
+      (ctx.snapToGrid ?? false)
+    );
     this.feetScaleUnit =
       ctx.gridSize && ctx.gridSize > 0
         ? ctx.gridType === 'hex'
@@ -347,6 +351,10 @@ export class TemplateTool implements Tool {
   }
 
   private snapToGrid(point: Point, ctx: ToolContext): Point {
+    const cs = ctx.constraintService;
+    if (cs && cs.getConstraintInfo()) {
+      return cs.constrainPoint(point);
+    }
     if (!ctx.gridSize) return point;
     if (ctx.gridType === 'hex' && ctx.hexOrientation) {
       return snapToHexCenter(point, ctx.gridSize, ctx.hexOrientation);

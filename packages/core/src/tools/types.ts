@@ -2,6 +2,7 @@ import type { Camera } from '../canvas/camera';
 import type { ElementStore } from '../elements/element-store';
 import type { HexOrientation } from '../elements/types';
 import type { Bounds } from '../core/types';
+import type { ConstraintServiceAccess } from '../core/constraint-service';
 
 export interface ToolContext {
   camera: Camera;
@@ -20,6 +21,7 @@ export interface ToolContext {
   isLayerLocked?: (layerId: string) => boolean;
   smartGuides?: boolean;
   getVisibleRect?: () => Bounds;
+  constraintService?: ConstraintServiceAccess;
 }
 
 export interface PointerState {
