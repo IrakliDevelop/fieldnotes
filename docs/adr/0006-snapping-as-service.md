@@ -242,6 +242,16 @@ const gridService = viewport.getService(GridControllerKey); // ServiceKey<GridCo
 const snapped = gridService?.snapToCellCenter(world, footprint) ?? world;
 ```
 
+**Important:** Even when accessing the typed implementation directly via the service registry, tools that perform constrained operations MUST still check the proxy's `isActive` state. Direct implementation access is for domain-specific methods (e.g., `snapToCellCenter`) that are not expressible through `constrainPoint()`. The global snapping toggle is the proxy's concern — implementations have no activation state of their own.
+
+```typescript
+// Correct: check proxy activation before using domain-specific method
+const gridService = viewport.getService(GridControllerKey);
+const snapped = ctx.constraintService.isActive
+  ? (gridService?.snapToCellCenter(world, footprint) ?? world)
+  : world;
+```
+
 Tools that need domain-specific constraint behavior (e.g., template resizing that recalculates `radiusFeet`) should use the service registry (`viewport.getService(GridControllerKey)` — `ServiceKey<GridController>`) to obtain the typed implementation directly, rather than using an unsafe generic query on the constraint service.
 
 Tools that don't snap (DmMarkerTool, MovementPathTool) simply don't call the service. No change needed.
@@ -372,6 +382,14 @@ After extraction:
 - Snap functions move to `@fieldnotes/vtt`
 - Core only has the `constraintService` proxy
 - Tools use `ctx.constraintService.constrainPoint()` or import from `@fieldnotes/vtt`
+
+### Spike Validation (2026-09-06)
+
+These contracts were proven in `packages/contract-spike`:
+
+- `ConstraintServiceProxy` returns point unchanged when inactive — confirmed by runtime tests
+- Implementation replacement preserves activation state — proxy gating survives service swap
+- `isActive` is solely the proxy's concern — implementations have no activation state
 
 ## Options Considered
 

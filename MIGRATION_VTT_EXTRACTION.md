@@ -5,12 +5,13 @@
 > **Created:** 2026-09-05
 > **Revised:** 2026-09-05 (post-review — incorporated Codex review findings, see [Review Findings](#review-findings))
 > **Revised:** 2026-09-06 (aligned with sixth ADR review — addressed 11 findings across all ADRs and migration doc)
+> **Revised:** 2026-09-06 (executable contract spike — validated all ADR contracts in `packages/contract-spike`, 39 tests passing)
 
 ## Table of Contents
 
 1. [Goals](#goals)
 2. [Review Findings](#review-findings)
-3. [Architectural Decisions (ADRs Finalized)](#architectural-decisions-adrs-finalized)
+3. [Architectural Decisions (ADRs Proposed)](#architectural-decisions-adrs-proposed)
 4. [Architecture Overview](#architecture-overview)
 5. [Extension Point Design](#extension-point-design)
 6. [Element-Type Registry](#element-type-registry)
@@ -23,7 +24,8 @@
 13. [Phased Migration](#phased-migration)
 14. [RollKeeper Migration Path](#rollkeeper-migration-path)
 15. [Risk Mitigation](#risk-mitigation)
-16. [Success Criteria](#success-criteria)
+16. [Spike Validation](#spike-validation)
+17. [Success Criteria](#success-criteria)
 
 ---
 
@@ -54,9 +56,9 @@ This plan was reviewed (2026-09-05) and found to contain six P1 issues. All have
 
 ---
 
-## Architectural Decisions (ADRs Finalized)
+## Architectural Decisions (ADRs Proposed)
 
-> **All six ADRs have been written and are in Proposed status.** See `docs/adr/0001` through `docs/adr/0006`. The decisions below summarize the outcomes — the ADR documents are the canonical source.
+> **All six ADRs have been written and are in Proposed status.** See `docs/adr/0001` through `docs/adr/0006`. The decisions below summarize the outcomes — the ADR documents are the canonical source. Contracts have been validated by an executable spike (`packages/contract-spike`) — see [Spike Validation](#spike-validation).
 
 ### ADR-0001: Element Extensibility Model → Full element-type registry
 
@@ -863,9 +865,9 @@ Phase 4 (v4, extension envelope + version bump):
 function migrateState(state: CanvasState): CanvasState {
   if (state.version === 3) {
     const v4 = { ...state, version: 4 };
-    // Migrate legacy fog to extensions
+    // Migrate legacy fog to extensions — wrapped in PersistedPluginState envelope
     if (state.fog && !state.extensions?.fog) {
-      v4.extensions = { ...v4.extensions, fog: state.fog };
+      v4.extensions = { ...v4.extensions, fog: { version: 1, data: state.fog } };
     }
     delete v4.fog;
     return v4;
@@ -873,6 +875,8 @@ function migrateState(state: CanvasState): CanvasState {
   return state;
 }
 ```
+
+> **Note:** The fog state is wrapped in `{ version: 1, data: state.fog }` to satisfy the `PersistedPluginState` contract (ADR-0005). Without this envelope, the migrated state would fail versioned plugin state validation.
 
 ### Compatibility Matrix (4-Phase Model)
 
@@ -1488,6 +1492,43 @@ import { FogManager } from '@fieldnotes/vtt/fog';
 - Soak period between each deployment
 
 **Acceptance criteria:** Zero-downtime deployment. No fog sync incidents during transition.
+
+---
+
+## Spike Validation
+
+> **Added 2026-09-06.** After 7 rounds of prose-only ADR review, the contracts were validated by an executable TypeScript spike in `packages/contract-spike`. This resolves the structural issue of validating TypeScript architecture through prose.
+
+### What was proven
+
+| Contract                                     | Proof                                                      | Test file                      |
+| -------------------------------------------- | ---------------------------------------------------------- | ------------------------------ |
+| `WireElement` ≠ `RuntimeElement`             | `'grid'` is not assignable to `RuntimeElement['type']`     | `types.test-d.ts`              |
+| `ServiceKey<T>` genuine invariance           | `ServiceKey<Dog>` not assignable to `ServiceKey<Animal>`   | `types.test-d.ts`              |
+| `ElementTypeKey<T>` function properties      | Avoids bivariant method checking                           | `types.test-d.ts`              |
+| `ExtensionKind<TPayload>` unified descriptor | Single descriptor binds codec + handler at all 3 layers    | `extension-descriptor.test.ts` |
+| v3↔v4 round-trip                             | `parseV3(serializeV3(elements))` preserves data            | `round-trip.test.ts`           |
+| v3→v4 fog migration                          | Produces `{ version: 1, data: fogState }`                  | `round-trip.test.ts`           |
+| Capability handshake                         | Legacy peers get translated format, queues ops until ready | `handshake.test.ts`            |
+| `BufferedBackend` as HubBackend decorator    | Full `snapshot/get/apply/flush` semantics                  | `buffered-backend.test.ts`     |
+| Plugin state lifecycle                       | migrate → validate → commit, exactly one transition        | `plugin-lifecycle.test.ts`     |
+| Constraint proxy gating                      | Inactive proxy returns point unchanged                     | `constraint-proxy.test.ts`     |
+
+### Key design corrections from spike
+
+1. **WireElement vs RuntimeElement** — separate types enforced at compile time. Wire format (v3) has `type: 'grid'`; runtime uses `ExtensionElementEnvelope`.
+2. **ServiceKey invariance** — uses `(value: T) => T` function property brand, not covariant `{ _in: T; _out: T }`.
+3. **Unified ExtensionKind** — client/server/backend register against one descriptor, not independent string+codec pairs.
+4. **BufferedBackend is a HubBackend decorator** — not an apply()-only plugin. Intercepts `snapshot()`, `get()`, `apply()`, and `flush()`.
+5. **Handshake supports legacy peers** — additive capability exchange, not a hard gate. Legacy clients get legacy wire format.
+6. **loadState ordering** — migrate → validate prepared data → commit OR rollback. Exactly one `discard()` or `resume()` transition.
+
+### Running the spike
+
+```bash
+pnpm --filter @fieldnotes/contract-spike typecheck  # Compile-time proofs
+pnpm --filter @fieldnotes/contract-spike test       # 39 runtime tests
+```
 
 ---
 

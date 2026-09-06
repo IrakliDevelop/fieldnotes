@@ -82,10 +82,8 @@ Service registration and retrieval use opaque `ServiceKey<T>` tokens instead of 
 // Opaque typed key — invariant brand prevents TypeScript from inferring a common supertype
 declare const ServiceKeyBrand: unique symbol;
 interface ServiceKey<T> {
-  readonly [ServiceKeyBrand]: {
-    readonly _in: T; // Contravariant input position
-    readonly _out: T; // Covariant output position
-  };
+  readonly [ServiceKeyBrand]: true;
+  readonly _brand: (value: T) => T;
   readonly name: string; // For debugging only — NOT used for identity
   readonly id: symbol; // Runtime identity — unique per createServiceKey() call
 }
@@ -95,6 +93,8 @@ function createServiceKey<T>(name: string): ServiceKey<T> {
   return { name, id: Symbol(name) } as ServiceKey<T>;
 }
 ```
+
+The `_brand: (value: T) => T` function property creates genuine invariance. Unlike the previous `{ _in: T; _out: T }` object (where both positions are covariant), a function property `(value: T) => T` is checked strictly under TypeScript's strict function types. `ServiceKey<Dog>` is NOT assignable to `ServiceKey<Animal>` and vice versa.
 
 **Runtime identity:** Each `createServiceKey<T>()` call produces a unique key with a unique `id: symbol`. Identity is by symbol reference, NOT by name. Two keys created with the same name are distinct keys. `registerService()` with a duplicate key (same symbol) replaces the previous registration. The `name` field is for debugging and logging only.
 
@@ -408,7 +408,7 @@ When loading state, if a plugin IS registered but its `stateVersion` differs fro
 
 ### Four-phase loadState ordering
 
-State loading uses a validate-snapshot-apply-restore pattern. During Phase 3 (Apply), the viewport suspends ALL observer notifications across all subsystems via a viewport-wide event barrier. No observers receive events during the apply phase. This prevents any subsystem from observing partial mutations. After all apply steps complete successfully, the viewport resumes notifications, flushing batched events. All observers see the complete new state, not intermediate mutations.
+State loading uses a prepare-validate-commit-rollback pattern. Phase 1 migrates old data BEFORE validation. Phase 2 validates the prepared (migrated) data. Phase 3 commits only if all validations pass — the viewport suspends ALL observer notifications across all subsystems via a viewport-wide event barrier, applies mutations, then resumes notifications flushing batched events. Phase 4 rolls back on validation failure with exactly one `discard()` transition. All observers see the complete new state, not intermediate mutations.
 
 ```typescript
 interface Viewport {
@@ -425,24 +425,28 @@ interface NotificationController {
 }
 ```
 
-While the notification barrier prevents observable partial state for autosave, sync, and other event consumers, some effects cannot be fully retracted:
+While the notification barrier prevents observable partial state for autosave, sync, and other event consumers, some effects cannot be fully retracted if a `loadState()` call throws during Phase 3 (Commit):
 
-- DOM mutations may have already occurred during the apply phase. The DOM is restored to the snapshot state, but any external DOM observers (e.g., MutationObserver) may have already fired.
+- DOM mutations may have already occurred during the apply phase.
 - Plugin `loadState()` may have side effects that cannot be undone (e.g., network requests, timers).
 
-The rollback is best-effort for these non-observable side effects. The key invariant is: **no event consumer (autosave, sync, store subscribers) ever observes partial state.** The viewport logs a warning if restore encounters errors.
+The rollback is best-effort for these non-observable side effects. The key invariant is: **no event consumer (autosave, sync, store subscribers) ever observes partial state.** Validation failures (Phase 2) require no rollback — no mutations have occurred yet, and `discard()` re-enables notifications with a single transition.
 
 ```
 loadState() order (revised):
 
-Phase 1: Validate — all plugins validate before any mutations
-  1. For each plugin: handle.validateState?(state)
+Phase 1: Prepare — for each plugin with version mismatch, call migrateState()
+  1. For each plugin with a persisted state version that differs from stateVersion:
+     - Call handle.migrateState?(data, fromVersion) to upgrade the data
+     - If migrateState() is not provided or throws → the plugin's state entry is dropped,
+       a warning is logged, and the plugin loads with no state
+
+Phase 2: Validate — for each plugin, call validateState() on the PREPARED (migrated) data
+  2. For each plugin: handle.validateState?(preparedData)
+     - Validation runs on the MIGRATED data, not the raw persisted data
      - If any throws → entire load aborted, no partial mutations
 
-Phase 2: Snapshot — capture current state for rollback
-  2. Snapshot current elements, layers, plugin state, active layer, camera, history
-
-Phase 3: Apply — viewport-wide event barrier, apply mutations
+Phase 3: Commit — if all validations pass, call loadState() on each plugin, then resume()
   3. Call viewport.suspendNotifications() — this suspends:
      - Store change notifications (add/remove/update/clear)
      - Layer manager change notifications
@@ -454,7 +458,7 @@ Phase 3: Apply — viewport-wide event barrier, apply mutations
   5. Layers loaded
   6. Active layer set
   7. HTML content reattached
-  8. Plugin handle.loadState() called
+  8. Plugin handle.loadState() called (with prepared/migrated data)
   9. History cleared
   10. Camera restored
   11. Call resume() — this flushes batched notifications:
@@ -464,14 +468,24 @@ Phase 3: Apply — viewport-wide event barrier, apply mutations
       - Single history notification
       Observers see the complete new state, not intermediate mutations.
 
-Phase 4: On failure — rollback while notifications remain suspended
-  If any step in Phase 3 throws:
-  - DO NOT call resume() yet — notifications remain suspended
-  - Restore snapshot from Phase 2 (elements, layers, plugin state, camera, history)
-  - Discard all queued notifications from the failed apply phase
-  - Call resume() AFTER rollback is complete — observers see the restored pre-load state
-  - No intermediate partial state is ever observable by autosave, sync, or other consumers
+Phase 4: Rollback — if any validation fails, discard() (exactly one transition)
+  If any step in Phase 2 throws:
+  - Call discard() — exactly one transition: re-enables notifications with no queued events
+  - There is no double-transition (discard + resume)
+  - No loadState() was called, so no snapshot/restore is needed
 ```
+
+Old data is migrated BEFORE validation, not after. Validation runs on the migrated data. On failure, exactly one transition occurs: `discard()` re-enables notifications. There is no double-transition (discard + resume).
+
+### Spike Validation (2026-09-06)
+
+These contracts were proven in `packages/contract-spike`:
+
+- `ServiceKey<T>` invariance: type tests confirm `ServiceKey<Dog>` is not assignable to `ServiceKey<Animal>`
+- `PluginStateManager.loadState()`: migrate → validate → commit ordering confirmed by runtime tests
+- Missing migration for version mismatch fails before validation
+- Validation failure after migration triggers exactly one `discard()` transition
+- Unknown plugin entries are preserved as-is
 
 ## Options Considered
 
@@ -525,7 +539,7 @@ await viewport.initialize({ plugins: [fogPlugin, gridPlugin] });
 - **Deterministic ordering:** Plugin installation order is explicit (priority + array order). No race conditions.
 - **Clean disposal:** Reverse-order handle disposal ensures plugins clean up in the right sequence. Per-instance handles prevent cross-viewport cleanup bugs.
 - **Required plugin enforcement:** Privacy-critical plugins can be marked `required`, and the host can declare `requiredCapabilities` — both prevent viewport creation without essential functionality.
-- **Safe state loading:** Four-phase validate-snapshot-apply-restore with notification suppression prevents autosave and sync from observing partial mutations. Restore is best-effort — some side effects (DOM observers, plugin side effects) cannot be fully retracted.
+- **Safe state loading:** Four-phase prepare-validate-commit-rollback with notification suppression prevents autosave and sync from observing partial mutations. Migration runs before validation; validation failures trigger exactly one `discard()` transition with no mutations to roll back. Commit-phase failures are best-effort — some side effects (DOM observers, plugin side effects) cannot be fully retracted.
 - **Idempotent:** Re-registering the same plugin is safe.
 - **Rollback on failure:** If `start()` throws, `configure()` registrations are rolled back — no orphaned hooks or tools.
 
@@ -540,7 +554,7 @@ await viewport.initialize({ plugins: [fogPlugin, gridPlugin] });
 ### Risks
 
 - Plugins that depend on each other (e.g., grid plugin depends on snap service from core) must have their dependencies available at configure time. The `PluginConfigureContext` must provide all necessary services.
-- RollKeeper's existing bootstrap ordering (snapshot → fog → render) must be preserved through the plugin lifecycle. The four-phase `validateState()` / snapshot / `loadState()` / restore pattern gives plugins control, but the ordering must be correct.
+- RollKeeper's existing bootstrap ordering (snapshot → fog → render) must be preserved through the plugin lifecycle. The four-phase prepare (`migrateState()`) / validate (`validateState()`) / commit (`loadState()` + `resume()`) / rollback (`discard()`) pattern gives plugins control, but the ordering must be correct.
 - Plugin name collisions in `exportState()` keys are caught at registration time, but this means plugin naming becomes part of the public contract — renaming a plugin is a breaking change for persisted state.
 - The service registry uses typed `ServiceKey<T>` tokens. Service keys (e.g., `FogManagerKey`, `GridControllerKey`) become part of the public contract — renaming or removing a service key is a breaking change for consumers.
 - State restore after a failed `loadState()` rolls back while notifications remain suspended, so no event consumer (autosave, sync, store subscribers) observes partial state. However, DOM observer firings (e.g., MutationObserver) and plugin side effects (network requests, timers) cannot be retracted — the rollback is best-effort for these non-observable side effects.
@@ -591,7 +605,7 @@ await viewport.initialize({ plugins: [fogPlugin, gridPlugin] });
 
 - **F6 (Failed loadState() exposes partial state):** Phase 4 (On failure) called `resume()` before restoring the snapshot, allowing autosave and sync to consume partial state. Fixed: notifications remain suspended during rollback; `resume()` is called only after the snapshot is restored. `suspendNotifications()` now returns a `NotificationController` with `resume()` (flush) and `discard()` (drop queued notifications) methods. The key invariant: no event consumer ever observes partial state.
 
-- **F8 (ServiceKey\<T\> is not as type-safe as claimed):** `T` appeared only covariantly, allowing TypeScript to infer a common supertype. Fixed: added an invariant brand (`_in`/`_out` phantom pair) to `ServiceKey<T>`, and `registerService()` uses `NoInfer<T>` on the service argument to prevent inference from the service value. Added runtime identity via `id: symbol` — identity is by symbol reference, not by name.
+- **F8 (ServiceKey\<T\> is not as type-safe as claimed):** `T` appeared only covariantly, allowing TypeScript to infer a common supertype. Fixed: added an invariant brand via `_brand: (value: T) => T` function property to `ServiceKey<T>` (checked strictly under TypeScript's strict function types), and `registerService()` uses `NoInfer<T>` on the service argument to prevent inference from the service value. Added runtime identity via `id: symbol` — identity is by symbol reference, not by name.
 
 - **F9 (Persisted plugin state has no versioning or unknown-plugin policy):** Added `PersistedPluginState` envelope with `version` and `data` fields. Added `migrateState()` and `stateVersion` to `PluginHandle` for version migration. Added unknown-plugin preservation policy: unregistered plugin entries are preserved as-is across load/save cycles.
 

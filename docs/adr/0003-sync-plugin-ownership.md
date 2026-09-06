@@ -98,6 +98,33 @@ export function createFogBackendPlugin(): BackendSyncPlugin;
 
 ### Plugin interfaces
 
+#### Unified extension kind descriptor
+
+All three layers register handlers against a single `ExtensionKind<TPayload>` descriptor, not independent string+codec pairs. This prevents client/server/backend from compiling with mutually incompatible payload types.
+
+```typescript
+interface ExtensionKind<TPayload> {
+  readonly extensionKind: string;
+  readonly codec: OpCodec<TPayload>;
+  readonly legacyKinds: string[];
+  readonly toLegacyWire?: (payload: TPayload) => unknown;
+  readonly fromLegacyWire?: (legacyPayload: unknown) => TPayload;
+}
+```
+
+Each layer's registry takes the descriptor as its first argument:
+
+```typescript
+interface ClientExtensionRegistry {
+  register<TPayload>(
+    kind: ExtensionKind<TPayload>,
+    handler: (op: TypedExtensionOp<TPayload>, meta: { sender: string }) => void,
+  ): void;
+}
+```
+
+The codec validates the payload BEFORE the handler sees it. The handler's `TPayload` type parameter is guaranteed by the codec's type guard.
+
 **Client plugin:**
 
 ```typescript
@@ -254,6 +281,10 @@ The server plugin interfaces model the actual fog processing flow in `sync-hub.t
 7. `ServerOpContext.backendPlugin<T>(key: ServiceKey<T>)` gives the server plugin typed access
    to its corresponding backend plugin via the `ServiceKey<T>` pattern (see ADR-0005), enabling
    server-side logic to coordinate with backend state without unchecked string-keyed casts.
+
+#### Server middleware ordering for core ops
+
+When multiple server plugins declare `process()`, they form an ordered middleware chain. Core ops (upsert, remove, clear) pass through plugins in registration order. Each plugin can intercept, modify, or pass through. Authorization plugins register before application plugins. The sync hub documents the canonical order.
 
 The server collects snapshots from all registered plugins into a `SyncSnapshot`:
 
@@ -496,6 +527,14 @@ code inside generic sync packages. Browser bundles import only `@fieldnotes/vtt`
 2. Deploy RollKeeper relay with plugin registration using `@fieldnotes/vtt/server` and `@fieldnotes/vtt/redis`
 3. Deploy RollKeeper web/client with client-side plugin registration using `@fieldnotes/vtt/sync`
 4. After soak: remove legacy fog methods from sync-server/sync-redis
+
+### Spike Validation (2026-09-06)
+
+These contracts were proven in `packages/contract-spike`:
+
+- `ExtensionKind<TPayload>` binds codec + handler at all three layers — single descriptor, no duplicated string+codec
+- `UnifiedExtensionRegistry` dispatches with codec validation before handler invocation
+- Runtime tests confirm: invalid payloads throw before reaching handlers
 
 ## Options Considered
 

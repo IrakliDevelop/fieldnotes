@@ -91,7 +91,7 @@ The registry uses a two-level design to solve the variance problem: `ElementType
 
 1. **Core operates on `ExtensionElementEnvelope` via `ElementTypeAdapter` (erased).** The `CanvasElement` union includes `ExtensionElementEnvelope` as a core-owned type. `ElementStore`, `Viewport`, `ToolContext`, history commands, exports, serializers, and `SyncOp` all operate on this union. Core code never sees extension-specific types — only the envelope with its opaque `data: Record<string, unknown>`. The registry stores each definition as a non-generic `ElementTypeAdapter` that operates exclusively on `ExtensionElementEnvelope`.
 
-2. **Consumers use `ElementTypeKey<T>` for typed access (matches/unwrap/wrap/validateData).** `ElementTypeKey<T>` is a typed registration handle returned to consumers by `register()`. It preserves the type parameter `T` so that `unwrap()` returns `T`, `wrap()` accepts `T`, `matches()` checks both the envelope's `extensionType` and data validation as a checked unwrap contract, and `validateData()` checks the envelope's `data` field alone. The key is a thin wrapper around the definition that provides type-safe access at the application boundary.
+2. **Consumers use `ElementTypeKey<T>` for typed access (matches/unwrap/wrap/validateData).** `ElementTypeKey<T>` is a typed registration handle returned to consumers by `register()`. It preserves the type parameter `T` so that `unwrap(envelope)` — validates `extensionType` matches AND data passes `validateData()`, returns `T`. Throws on mismatch. `wrap()` accepts `T`, `matches()` checks both the envelope's `extensionType` and data validation as a checked unwrap contract, and `validateData()` checks the envelope's `data` field alone. The key is a thin wrapper around the definition that provides type-safe access at the application boundary.
 
 3. **The registry wraps each `ElementTypeDefinition<T>` in an erased `ElementTypeAdapter` at registration time.** The adapter converts envelope↔typed at the boundary: `validateEnvelope(el)` checks `el.extensionType === def.type && def.validateData(el.data)`, `bounds(el)` calls `def.bounds(def.unwrap(el))`, etc. This erasure is safe because the adapter only operates on envelopes and delegates to the typed definition internally.
 
@@ -237,6 +237,20 @@ The in-memory representation (what lives in `ElementStore`) and the serialized r
 | 2-3   | Envelope (`type: 'extension'`, `data: {...}`) | Legacy (`type: 'grid'`)                       |
 | 4     | Envelope (`type: 'extension'`, `data: {...}`) | Envelope (`type: 'extension'`, `data: {...}`) |
 
+### Wire vs Runtime types
+
+The executable contract spike (`packages/contract-spike`) proved that the wire format and the in-memory runtime use **separate, non-interchangeable type unions**:
+
+```typescript
+// In-memory runtime union — grid/template live inside envelopes
+type RuntimeElement = CoreElement | ExtensionElementEnvelope;
+
+// Wire format union — grid/template have their own type discriminators in v3
+type WireElement = CoreElement | WireGridElement | WireTemplateElement | ExtensionElementEnvelope;
+```
+
+These are **separate types** — `WireElement` is NOT assignable to `RuntimeElement` and vice versa. For example, `'grid'` is a valid `WireElement['type']` but not a valid `RuntimeElement['type']`. The serializer converts between them at persistence and transport boundaries: `parseState()` reads `WireElement` from JSON and produces `RuntimeElement` for `ElementStore`; `serializeState()` reads `RuntimeElement` from `ElementStore` and produces `WireElement` for JSON output.
+
 ### Registry ownership
 
 The registry is a standalone `ElementRegistry` object — not attached to `Viewport`. Validation, geometry, and serialization happen in many places that have no viewport:
@@ -251,10 +265,10 @@ The registry is a standalone `ElementRegistry` object — not attached to `Viewp
 // Typed handle returned to consumers — preserves T
 interface ElementTypeKey<T extends BaseElement> {
   readonly type: string;
-  matches(envelope: ExtensionElementEnvelope): envelope is ExtensionElementEnvelope; // Checks extensionType + data validation
-  validateData(data: Record<string, unknown>): boolean;
-  unwrap(el: ExtensionElementEnvelope): T;
-  wrap(el: T): ExtensionElementEnvelope;
+  readonly matches: (envelope: ExtensionElementEnvelope) => boolean;
+  readonly validateData: (data: Record<string, unknown>) => boolean;
+  readonly unwrap: (envelope: ExtensionElementEnvelope) => T;
+  readonly wrap: (el: T) => ExtensionElementEnvelope;
 }
 
 // Internal erased adapter — non-generic, used by core
@@ -280,6 +294,8 @@ class ElementRegistry {
   getTypes(): string[];
 }
 ```
+
+Function properties (not method syntax) avoid TypeScript's bivariant method parameter checking, ensuring genuine type safety.
 
 The registry provides `getAdapterByLegacyType(legacyType: string): ElementTypeAdapter | undefined` so that `parseState()` can find the right adapter when encountering a legacy type string like `'grid'`.
 
@@ -316,6 +332,15 @@ During Phases 2–3, extension elements (grid, template) retain their legacy wir
 4. **Sync protocol:** `isValidElement()` validates base fields and delegates type-specific validation to the registry. During Phases 2–3, it accepts the legacy `type: 'grid'` and `type: 'template'` formats. At Phase 4, it handles both old and new envelope formats during the transition window.
 
 See [ADR-0004 §Shared rollout state machine](0004-serialization-compatibility.md) for the coordinated rollout timeline across all serialization changes.
+
+### Spike Validation (2026-09-06)
+
+These contracts were proven in `packages/contract-spike`:
+
+- `WireElement` and `RuntimeElement` are separate types — `'grid'` is not assignable to `RuntimeElement['type']`
+- `ElementTypeKey<T>` uses function properties — type tests confirm invariance
+- `unwrap()` validates envelope data before returning T — runtime tests confirm throw on mismatch
+- v3/v4 round-trip preserves element data through serialize→parse cycle
 
 ## Options Considered
 

@@ -110,7 +110,7 @@ function migrateState(state: CanvasState): CanvasState {
   if (state.version === 3) {
     const v4 = { ...state, version: 4 };
     if (state.fog && !state.extensions?.fog) {
-      v4.extensions = { ...v4.extensions, fog: state.fog };
+      v4.extensions = { ...v4.extensions, fog: { version: 1, data: state.fog } };
     }
     delete v4.fog;
     return v4;
@@ -118,6 +118,8 @@ function migrateState(state: CanvasState): CanvasState {
   return state;
 }
 ```
+
+The fog slice is wrapped in `{ version: 1, data: ... }` to satisfy the `PersistedPluginState` contract (ADR-0005). Without this envelope, the migrated state would fail the versioned plugin state validation.
 
 The version gate changes: `CURRENT_VERSION = 4`. v3 states are migrated on load via `migrateState()`. v4 states are read directly.
 
@@ -213,7 +215,7 @@ This ensures capability negotiation precedes any extension-shaped element on the
 1. On sync connection, both peers exchange `SyncCapabilities`
 2. Neither peer sends extension-shaped elements until both have received the other's capabilities
 3. If a peer has not yet received capabilities, ALL incoming ops are queued (not processed) until the handshake completes
-4. If the handshake fails or times out, the connection is refused — no ops are processed with unknown peer capabilities
+4. If a peer does not send capabilities (legacy client), the capable peer assumes legacy mode: no extension elements are sent, all ops use legacy wire format. The handshake is additive — it does not break existing clients.
 
 This eliminates the window where extension elements could arrive before the peer is ready. The handshake is not merely documented as happening 'before' — it is enforced as a protocol gate.
 
@@ -270,12 +272,35 @@ function translateForPeer(
 
 Snapshot translation detail: A `snapshot` op carries `elements: CanvasElement[]`. When translating for a peer without `elementEnvelope` support, each element with `type: 'extension'` is converted to its legacy wire format using the element registry's `encodeLegacy()` (see ADR-0001). The translated snapshot retains the same structure but with legacy-typed elements instead of extension envelopes.
 
+#### WireSyncOp — separate from runtime SyncOp
+
+Sync ops on the wire carry `WireElement` (which can have `type: 'grid'`), not `RuntimeElement` (which uses `ExtensionElementEnvelope`). This separation is enforced at the type level:
+
+```typescript
+type WireSyncOp =
+  | { kind: 'upsert'; element: WireElement }
+  | { kind: 'snapshot'; to: string; elements: WireElement[] }
+  | ...
+```
+
+Translation between `WireSyncOp` and runtime ops happens at the transport boundary.
+
 #### Timeline
 
 | Phase | Sync behavior                                                                                                                                                                                                                                         |
 | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1-3   | All ops use legacy wire kinds. No extension elements. No capability exchange needed.                                                                                                                                                                  |
 | 4     | **Handshake gate:** capability exchange on sync connection BEFORE any data flows. Extension elements only sent if both peers support `elementEnvelope`. Translation covers ALL outbound paths (snapshots, upserts, corrections, broadcasts) per-peer. |
+
+### Spike Validation (2026-09-06)
+
+These contracts were proven in `packages/contract-spike`:
+
+- v3→v4 migration produces `{ version: 1, data: fogState }` — not raw fogState
+- `CapabilityHandshake` queues ops until both sides exchange, drains on completion
+- `translateForPeer` covers all outbound paths: upserts, snapshots, extension ops
+- Legacy peers receive translated wire format; v4 peers receive envelopes
+- Round-trip tests confirm data preservation through serialize→parse cycle
 
 ## Options Considered
 
