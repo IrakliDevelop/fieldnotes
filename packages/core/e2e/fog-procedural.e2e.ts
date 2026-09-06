@@ -36,17 +36,11 @@ test.describe('procedural fog presentation', () => {
         await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       };
       const fogCanvas = (): HTMLCanvasElement => {
-        const canvases = [
-          ...document.querySelectorAll<HTMLCanvasElement>(
-            '[data-fieldnotes-paint-stack] canvas[data-paint-order]',
-          ),
-        ];
-        const painted = canvases.find((canvas) => {
-          const ctx = canvas.getContext('2d');
-          return ctx ? ctx.getImageData(8, 8, 1, 1).data[3] === 255 : false;
-        });
-        if (!painted) throw new Error('procedural fog canvas not found');
-        return painted;
+        // Fog now renders on the main canvas via render hooks (not on a
+        // separate hybrid-surface stratum). Access it through the viewport.
+        const mainCanvas = (vp as unknown as { canvasEl: HTMLCanvasElement }).canvasEl;
+        if (!mainCanvas) throw new Error('main canvas not found');
+        return mainCanvas;
       };
       const rasterColorCount = async (source: Blob): Promise<number> => {
         const url = URL.createObjectURL(source);
@@ -109,8 +103,11 @@ test.describe('procedural fog presentation', () => {
       const afterCtx = fogCanvas().getContext('2d');
       if (!afterCtx) throw new Error('fog context unavailable');
       const dpr = window.devicePixelRatio || 1;
-      const revealedAlpha = afterCtx.getImageData(64 * dpr, 64 * dpr, 1, 1).data[3];
-      const coveredAlpha = afterCtx.getImageData(160 * dpr, 160 * dpr, 1, 1).data[3];
+      // On the main canvas the revealed area shows the shape fill (#dbeafe)
+      // while the covered area shows the player fog colour (#0b1020). Both
+      // are fully opaque; we distinguish them by their red channel.
+      const revealedRed = afterCtx.getImageData(64 * dpr, 64 * dpr, 1, 1).data[0];
+      const coveredRed = afterCtx.getImageData(160 * dpr, 160 * dpr, 1, 1).data[0];
       const fogState = vp.fog.getState();
       if (!fogState) throw new Error('fog state unavailable');
       const png = await vp.exportImage({
@@ -138,8 +135,8 @@ test.describe('procedural fog presentation', () => {
       return {
         allOpaque,
         colorCount: colors.size,
-        revealedAlpha,
-        coveredAlpha,
+        revealedRed,
+        coveredRed,
         exportColorCount,
         svgColorCount,
         minimapColorCount: minimapColors.size,
@@ -148,8 +145,10 @@ test.describe('procedural fog presentation', () => {
 
     expect(result.allOpaque).toBe(true);
     expect(result.colorCount).toBeGreaterThan(8);
-    expect(result.revealedAlpha).toBe(0);
-    expect(result.coveredAlpha).toBe(255);
+    // Revealed area shows the shape fill (#dbeafe → red=219, light).
+    // Covered area shows the player fog (#0b1020 → red=11, dark).
+    expect(result.revealedRed).toBeGreaterThan(128);
+    expect(result.coveredRed).toBeLessThan(128);
     expect(result.exportColorCount).toBeGreaterThan(8);
     expect(result.svgColorCount).toBeGreaterThan(8);
     // Minimap downscaling intentionally compresses the palette, but a solid fill
