@@ -9,7 +9,8 @@
   },
   "dependencies": {
     "@fieldnotes/core": "workspace:*",
-    "@fieldnotes/sync": "workspace:*"
+    "@fieldnotes/sync": "workspace:*",
+    "@fieldnotes/vtt": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.9.3",

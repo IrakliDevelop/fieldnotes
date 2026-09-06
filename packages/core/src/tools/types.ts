@@ -74,7 +74,6 @@ export type ToolName =
   | 'image'
   | 'text'
   | 'shape'
-  | 'measure'
   | 'path'
   | 'template'
   | 'laser'

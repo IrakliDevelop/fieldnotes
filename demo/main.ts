@@ -9,7 +9,6 @@ import {
   NoteTool,
   TextTool,
   ShapeTool,
-  MeasureTool,
   TemplateTool,
   LaserTool,
   RemoteLaserOverlay,
@@ -17,8 +16,6 @@ import {
   PingInput,
   RemotePingOverlay,
   toPingPresence,
-  RemoteMeasureOverlay,
-  toMeasurePresence,
   PathTool,
   RemotePathOverlay,
   toPathPresence,
@@ -37,12 +34,13 @@ import {
 import type {
   AlignEdge,
   DistributeAxis,
-  MeasurePresence,
   PathPresence,
   PathEmission,
   CameraView,
   FocusAudience,
 } from '@fieldnotes/core';
+import { MeasureTool, RemoteMeasureOverlay, toMeasurePresence } from '@fieldnotes/vtt';
+import type { MeasurePresence } from '@fieldnotes/vtt';
 import { SyncClient, BroadcastChannelTransport } from '@fieldnotes/sync';
 
 console.log(`Field Notes v${VERSION}`);

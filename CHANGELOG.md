@@ -4,6 +4,22 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.76.0] — 2026-09-06
+
+### Added
+
+- **`@fieldnotes/vtt` package** (new, v0.1.0). VTT domain tools and overlays extracted from core.
+  Initial contents: `MeasureTool`, `RemoteMeasureOverlay`, `measure-render` utilities.
+- `LingerOverlay` is now exported from `@fieldnotes/core` as a public generic utility for
+  per-sender presence overlays with hold-then-fade lifetime.
+
+### Removed
+
+- **MeasureTool, RemoteMeasureOverlay, MeasurePresence** — removed from `@fieldnotes/core`.
+  Import from `@fieldnotes/vtt` instead.
+- `'measure'` removed from the `ToolName` union type. The tool registry still supports dynamic
+  tool names; consumers register `MeasureTool` from `@fieldnotes/vtt` by its `name` property.
+
 ## [0.75.0] — 2026-09-06
 
 ### Added

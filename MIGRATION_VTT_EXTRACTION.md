@@ -1,7 +1,7 @@
 # Migration Plan: VTT Feature Extraction
 
 > **Companion documents:** `VISION.md` (the Emacs philosophy), `PLAN_VTT_EXTRACTION.md` (audit results)
-> **Status:** Phase 2 in progress — grid snapping → ConstraintService complete, fog rendering → render hooks complete, fog serialization → dual-write complete. Fog sync remains.
+> **Status:** Phase 3 in progress — MeasureTool extracted to `@fieldnotes/vtt` (canary complete). Fog sync deferred to Phase 5.
 > **Created:** 2026-09-05
 > **Revised:** 2026-09-05 (post-review — incorporated Codex review findings, see [Review Findings](#review-findings))
 > **Revised:** 2026-09-06 (aligned with sixth ADR review — addressed 11 findings across all ADRs and migration doc)
@@ -89,7 +89,7 @@
 
 | Phase | Description                                   | Status         |
 | ----- | --------------------------------------------- | -------------- |
-| 3     | Extract MeasureTool (canary)                  | ❌ Not started |
+| 3     | Extract MeasureTool (canary)                  | ✅ Done        |
 | 4     | Extract Grid + Templates to `@fieldnotes/vtt` | ❌ Not started |
 | 5     | Extract Fog (last)                            | ❌ Not started |
 | 6     | Deploy & soak, v4 bump, legacy removal        | ❌ Not started |

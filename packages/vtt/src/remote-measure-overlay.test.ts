@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { OverlayRenderer } from '@fieldnotes/core';
 import {
   isMeasurePresence,
   toMeasurePresence,
@@ -98,12 +99,12 @@ function makeHost(): RemoteMeasureOverlayHost & {
   unregistered: boolean;
   lastContext: Record<string, unknown> | null;
 } {
-  let renderer: ((ctx: CanvasRenderingContext2D) => void) | null = null;
+  let renderer: OverlayRenderer | null = null;
   const host = {
     draws: 0,
     unregistered: false,
     lastContext: null as Record<string, unknown> | null,
-    registerOverlay(draw: (ctx: CanvasRenderingContext2D) => void) {
+    registerOverlay(draw: OverlayRenderer) {
       renderer = draw;
       return () => {
         host.unregistered = true;
