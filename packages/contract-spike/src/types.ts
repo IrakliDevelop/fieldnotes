@@ -35,7 +35,10 @@ export interface ExtensionElementEnvelope extends BaseElement {
 // Grid and template are extracted into ExtensionElementEnvelope at runtime.
 // The remaining 7 core element types stay as-is.
 
-export type CoreElement = Exclude<CanvasElement, GridElement | TemplateElement>;
+export type CoreElement = Exclude<
+  CanvasElement,
+  GridElement | TemplateElement | ExtensionElementEnvelope
+>;
 
 // ─── RuntimeElement — in-memory representation ───────────────────────────────
 // Extension elements are stored as ExtensionElementEnvelope in memory.
@@ -44,11 +47,12 @@ export type CoreElement = Exclude<CanvasElement, GridElement | TemplateElement>;
 export type RuntimeElement = CoreElement | ExtensionElementEnvelope;
 
 // ─── Wire element types — versioned (F4) ─────────────────────────────────────
-// V3 wire format: real CanvasElement (includes grid/template as distinct types).
+// V3 wire format: real CanvasElement (includes grid/template as distinct types)
+// but NOT ExtensionElementEnvelope — V3 clients do not understand envelopes.
 // V4 wire format: extracted core elements are no longer legal on the wire.
 // migrateV3toV4() converts grid/template elements → ExtensionElementEnvelope.
 
-export type WireElementV3 = CanvasElement;
+export type WireElementV3 = Exclude<CanvasElement, ExtensionElementEnvelope>;
 
 export type WireElementV4 = CoreElement | ExtensionElementEnvelope;
 
