@@ -50,16 +50,16 @@ describe('GridConstraintService', () => {
       expect(result).toEqual({ x: 25, y: 25 });
     });
 
-    it('snaps to cell centre with footprint option', () => {
+    it('snaps to cell centre with footprint option (1×1 → centre)', () => {
       const svc = new GridConstraintService(squareGrid(50));
-      const result = svc.constrainPoint({ x: 23, y: 47 }, { footprint: { w: 2, h: 2 } });
-      expect(result).toEqual({ x: 0, y: 50 });
+      const result = svc.constrainPoint({ x: 23, y: 47 }, { footprint: { width: 1, height: 1 } });
+      expect(result).toEqual({ x: 25, y: 25 });
     });
 
-    it('snaps to cell centre with odd footprint landing on centre', () => {
+    it('snaps even footprint to intersection (2×2 → intersection)', () => {
       const svc = new GridConstraintService(squareGrid(50));
-      const result = svc.constrainPoint({ x: 23, y: 47 }, { footprint: { w: 1, h: 1 } });
-      expect(result).toEqual({ x: 25, y: 25 });
+      const result = svc.constrainPoint({ x: 23, y: 47 }, { footprint: { width: 2, height: 2 } });
+      expect(result).toEqual({ x: 0, y: 50 });
     });
   });
 

@@ -20,7 +20,8 @@ export class GridConstraintService implements PointConstraintService {
     }
 
     if (options?.mode === 'cell-center' || options?.footprint) {
-      const footprint: Footprint = options?.footprint ?? 1;
+      const raw = options?.footprint;
+      const footprint: Footprint = raw ? { w: raw.width, h: raw.height } : 1;
       return snapToCellCenter(point, info.cellSize, footprint);
     }
 
