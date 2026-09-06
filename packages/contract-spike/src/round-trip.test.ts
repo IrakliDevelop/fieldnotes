@@ -1,7 +1,13 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 import { describe, it, expect } from 'vitest';
 import { ElementRegistry } from './element-registry';
-import { serializeRuntimeToWire, parseWireToRuntime, migrateV3toV4, roundTrip } from './serializer';
+import {
+  serializeRuntimeToWire,
+  parseWireToRuntime,
+  migrateV3toV4,
+  migrateElementToV4,
+  roundTrip,
+} from './serializer';
 import type {
   BaseElement,
   ExtensionElementEnvelope,
@@ -11,10 +17,12 @@ import type {
   CanvasStateV3,
   FogStateV1,
 } from './types';
+import type { GridElement, TemplateElement } from '@fieldnotes/core';
 
 // ─── Test element definitions ────────────────────────────────────────────────
 
 interface GridData extends BaseElement {
+  type: 'grid';
   cellSize: number;
   gridType: 'square' | 'hex';
 }
@@ -24,6 +32,7 @@ const gridDefinition: ElementTypeDefinition<GridData> = {
   legacyTypes: ['grid'],
   decodeLegacy: (raw) => ({
     id: raw['id'] as string,
+    type: 'grid' as const,
     position: raw['position'] as { x: number; y: number },
     zIndex: raw['zIndex'] as number,
     locked: raw['locked'] as boolean,
@@ -45,6 +54,7 @@ const gridDefinition: ElementTypeDefinition<GridData> = {
     (data['gridType'] === 'square' || data['gridType'] === 'hex'),
   unwrap: (env) => ({
     id: env.id,
+    type: 'grid' as const,
     position: env.position,
     zIndex: env.zIndex,
     locked: env.locked,
@@ -66,6 +76,7 @@ const gridDefinition: ElementTypeDefinition<GridData> = {
 };
 
 interface TemplateData extends BaseElement {
+  type: 'template';
   radius: number;
   templateShape: string;
 }
@@ -75,6 +86,7 @@ const templateDefinition: ElementTypeDefinition<TemplateData> = {
   legacyTypes: ['template'],
   decodeLegacy: (raw) => ({
     id: raw['id'] as string,
+    type: 'template' as const,
     position: raw['position'] as { x: number; y: number },
     zIndex: raw['zIndex'] as number,
     locked: raw['locked'] as boolean,
@@ -95,6 +107,7 @@ const templateDefinition: ElementTypeDefinition<TemplateData> = {
     typeof data['radius'] === 'number' && typeof data['templateShape'] === 'string',
   unwrap: (env) => ({
     id: env.id,
+    type: 'template' as const,
     position: env.position,
     zIndex: env.zIndex,
     locked: env.locked,
@@ -266,5 +279,79 @@ describe('v3→v4 migration', () => {
     const v4 = migrateV3toV4(v3);
     expect(v4.version).toBe(4);
     expect(Object.keys(v4.extensions)).toHaveLength(0);
+  });
+
+  it('migrates grid and template elements to extension envelopes', () => {
+    const grid: GridElement = {
+      id: 'grid-1',
+      type: 'grid',
+      position: { x: 0, y: 0 },
+      zIndex: 0,
+      locked: false,
+      layerId: 'default',
+      gridType: 'hex',
+      hexOrientation: 'pointy',
+      cellSize: 50,
+      strokeColor: '#000',
+      strokeWidth: 1,
+      opacity: 1,
+    };
+
+    const template: TemplateElement = {
+      id: 'tmpl-1',
+      type: 'template',
+      position: { x: 10, y: 20 },
+      zIndex: 1,
+      locked: false,
+      layerId: 'default',
+      templateShape: 'circle',
+      radius: 30,
+      angle: 0,
+      fillColor: '#ff0000',
+      strokeColor: '#000',
+      strokeWidth: 1,
+      opacity: 0.8,
+    };
+
+    const v3: CanvasStateV3 = {
+      version: 3,
+      camera: { position: { x: 0, y: 0 }, zoom: 1 },
+      elements: [grid, template],
+    };
+
+    const v4 = migrateV3toV4(v3);
+
+    expect(v4.elements).toHaveLength(2);
+
+    const gridEnv = v4.elements[0] as ExtensionElementEnvelope;
+    expect(gridEnv.type).toBe('extension');
+    expect(gridEnv.extensionType).toBe('vtt:grid');
+    expect(gridEnv.data['cellSize']).toBe(50);
+    expect(gridEnv.data['gridType']).toBe('hex');
+    expect(gridEnv.data['hexOrientation']).toBe('pointy');
+
+    const tmplEnv = v4.elements[1] as ExtensionElementEnvelope;
+    expect(tmplEnv.type).toBe('extension');
+    expect(tmplEnv.extensionType).toBe('vtt:template');
+    expect(tmplEnv.data['radius']).toBe(30);
+    expect(tmplEnv.data['templateShape']).toBe('circle');
+  });
+
+  it('migrateElementToV4 passes through non-grid/template elements unchanged', () => {
+    const note: WireElement = {
+      id: 'note-1',
+      type: 'note',
+      position: { x: 0, y: 0 },
+      zIndex: 0,
+      locked: false,
+      layerId: 'default',
+      size: { w: 100, h: 100 },
+      text: 'test',
+      backgroundColor: '#fff',
+      textColor: '#000',
+    };
+
+    const result = migrateElementToV4(note);
+    expect(result).toEqual(note);
   });
 });

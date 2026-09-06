@@ -221,6 +221,7 @@ export {
   drawHexPath,
 } from './elements/hex-fill';
 export type {
+  BaseElement,
   Binding,
   CanvasElement,
   ElementType,

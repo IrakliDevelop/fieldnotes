@@ -155,14 +155,13 @@ interface ClientSyncPlugin {
 }
 
 interface ClientExtensionRegistry {
-  register<TPayload>(config: {
-    extensionKind: string;
-    codec: OpCodec<TPayload>;
+  register<TPayload>(
+    kind: ExtensionKind<TPayload>,
     handler: (
       op: TypedExtensionOp<TPayload>,
       meta: { sender: string; isLocal: boolean; phase: 'live' | 'reconnect' | 'snapshot' },
-    ) => void;
-  }): void;
+    ) => void,
+  ): void;
 }
 
 // Typed extension op — payload is validated by the codec before the handler sees it
@@ -232,11 +231,10 @@ interface OpCodec<TPayload = unknown> {
 
 // ServerExtensionRegistry atomically binds extension kind + codec + handler
 interface ServerExtensionRegistry {
-  register<TPayload>(config: {
-    extensionKind: string;
-    codec: OpCodec<TPayload>;
-    handler: (op: TypedExtensionOp<TPayload>, ctx: ServerOpContext) => Promise<ApplyResult>;
-  }): void;
+  register<TPayload>(
+    kind: ExtensionKind<TPayload>,
+    handler: (op: TypedExtensionOp<TPayload>, ctx: ServerOpContext) => Promise<ApplyResult>,
+  ): void;
 }
 ```
 
@@ -357,11 +355,10 @@ interface BackendSyncPlugin {
 type BackendNext = (room: string, op: SyncOp) => Promise<ApplyResult>;
 
 interface BackendExtensionRegistry {
-  register<TPayload>(config: {
-    extensionKind: string;
-    codec: OpCodec<TPayload>;
-    handler: (op: TypedExtensionOp<TPayload>, ctx: BackendOpContext) => Promise<ApplyResult>;
-  }): void;
+  register<TPayload>(
+    kind: ExtensionKind<TPayload>,
+    handler: (op: TypedExtensionOp<TPayload>, ctx: BackendOpContext) => Promise<ApplyResult>,
+  ): void;
 }
 
 interface BackendOpContext {
@@ -437,11 +434,11 @@ const backend = new RedisHubBackend({
 });
 ```
 
-The buffer plugin's `apply()` intercepts base-element ops, buffers them in process memory, and
-**returns immediately** with `{ accepted: op, locality: 'local' }` — it does NOT call `next()`.
-This prevents base-element ops from reaching the fog plugin and terminal Redis persistence.
-Only fog ops (which the buffer plugin does not intercept) fall through to the fog backend plugin
-via `next()`, which returns `{ accepted: op, locality: 'shared' }` for shared Redis persistence.
+The buffer plugin is a **full `HubBackend` decorator** that wraps the inner backend (fog plugin).
+It buffers base-element upserts, removes, and clears locally in process memory. Fog and extension
+ops are delegated to the inner backend via `next()`. On flush, buffered ops are persisted to the
+inner backend, and the buffer is deleted only after the flush succeeds. On dispose, pending writes
+are flushed before the inner backend is disposed.
 
 ```typescript
 // RollKeeper buffer plugin — base ops short-circuit, fog ops delegate

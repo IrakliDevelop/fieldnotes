@@ -63,25 +63,37 @@ describe('PluginStateManager', () => {
     expect((migrated[0] as Record<string, unknown>)['fromVersion']).toBe(1);
   });
 
-  it('fails when migration is missing for version mismatch', () => {
+  it('drops plugin with missing migration, continues with others', () => {
     const mgr = new PluginStateManager();
+    const gridLoaded: unknown[] = [];
     mgr.registerPlugin(
       'fog',
       makeHandle({
         stateVersion: 2,
+        // no migrateState
+      }),
+    );
+    mgr.registerPlugin(
+      'grid',
+      makeHandle({
+        stateVersion: 1,
+        loadState: (data) => gridLoaded.push(data),
       }),
     );
 
     const persisted: Record<string, PersistedPluginState> = {
       fog: { version: 1, data: {} },
+      grid: { version: 1, data: { cells: [] } },
     };
 
     const result = mgr.loadState(persisted);
-    expect(result.success).toBe(false);
-    expect(result.error).toContain('no migrateState');
+    expect(result.success).toBe(true);
+    expect(result.droppedPlugins).toEqual(['fog']);
+    expect(gridLoaded).toHaveLength(1);
+    expect(gridLoaded[0]).toEqual({ cells: [] });
   });
 
-  it('fails when validation fails after migration', () => {
+  it('drops plugin when validation fails after migration', () => {
     const mgr = new PluginStateManager();
     mgr.registerPlugin(
       'fog',
@@ -99,19 +111,80 @@ describe('PluginStateManager', () => {
     };
 
     const result = mgr.loadState(persisted);
-    expect(result.success).toBe(false);
-    expect(result.error).toContain('validation failed');
+    expect(result.success).toBe(true);
+    expect(result.droppedPlugins).toEqual(['fog']);
   });
 
-  it('preserves unknown plugin entries', () => {
+  it('preserves unknown plugin entries with original version', () => {
     const mgr = new PluginStateManager();
 
     const persisted: Record<string, PersistedPluginState> = {
-      unknownPlugin: { version: 3, data: { custom: true } },
+      unknown_plugin: { version: 3, data: { custom: true } },
     };
 
     const result = mgr.loadState(persisted);
     expect(result.success).toBe(true);
+
+    const exported = mgr.exportState();
+    expect(exported['unknown_plugin']).toBeDefined();
+    expect(exported['unknown_plugin']!.version).toBe(3);
+    expect(exported['unknown_plugin']!.data).toEqual({ custom: true });
+  });
+
+  it('catches throwing loadState, continues with other plugins', () => {
+    const mgr = new PluginStateManager();
+    const gridLoaded: unknown[] = [];
+    mgr.registerPlugin(
+      'fog',
+      makeHandle({
+        stateVersion: 1,
+        loadState: () => {
+          throw new Error('load failed');
+        },
+      }),
+    );
+    mgr.registerPlugin(
+      'grid',
+      makeHandle({
+        stateVersion: 1,
+        loadState: (data) => gridLoaded.push(data),
+      }),
+    );
+
+    const persisted: Record<string, PersistedPluginState> = {
+      fog: { version: 1, data: {} },
+      grid: { version: 1, data: { cells: [] } },
+    };
+
+    const result = mgr.loadState(persisted);
+    expect(result.success).toBe(true);
+    expect(result.droppedPlugins).toContain('fog');
+    expect(gridLoaded).toHaveLength(1);
+    expect(gridLoaded[0]).toEqual({ cells: [] });
+  });
+
+  it('exportState reflects loaded state, not stale exportState()', () => {
+    const mgr = new PluginStateManager();
+    let internalData: unknown = { tiles: [] };
+    mgr.registerPlugin(
+      'fog',
+      makeHandle({
+        stateVersion: 1,
+        loadState: (data) => {
+          // Simulate loadState enriching the data
+          internalData = { ...(data as Record<string, unknown>), loaded: true };
+        },
+        exportState: () => internalData,
+      }),
+    );
+
+    const persisted: Record<string, PersistedPluginState> = {
+      fog: { version: 1, data: { tiles: [] } },
+    };
+
+    mgr.loadState(persisted);
+    const exported = mgr.exportState();
+    expect(exported['fog']!.data).toEqual({ tiles: [], loaded: true });
   });
 
   it('exports state with versioned envelope', () => {

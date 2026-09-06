@@ -499,7 +499,8 @@ Plugins register typed services during `start()` and retrieve them via the viewp
 // Opaque typed key — invariant brand prevents type widening
 declare const ServiceKeyBrand: unique symbol;
 interface ServiceKey<T> {
-  readonly [ServiceKeyBrand]: { readonly _in: T; readonly _out: T };
+  readonly [ServiceKeyBrand]: true;
+  readonly _brand: (value: T) => T;
   readonly name: string; // Debugging only — NOT used for identity
   readonly id: symbol; // Runtime identity — unique per createServiceKey() call
 }
@@ -587,10 +588,10 @@ interface ExtensionElementEnvelope extends BaseElement {
 // Typed handle for consumers — retained from register(), NOT looked up by string
 interface ElementTypeKey<T extends BaseElement> {
   readonly type: string;
-  matches(envelope: ExtensionElementEnvelope): boolean; // Checks extensionType + data validation
-  validateData(data: Record<string, unknown>): boolean;
-  unwrap(envelope: ExtensionElementEnvelope): T;
-  wrap(el: T): ExtensionElementEnvelope;
+  readonly matches: (envelope: ExtensionElementEnvelope) => boolean; // Checks extensionType + data validation
+  readonly validateData: (data: Record<string, unknown>) => boolean;
+  readonly unwrap: (envelope: ExtensionElementEnvelope) => T;
+  readonly wrap: (el: T) => ExtensionElementEnvelope;
 }
 
 // Erased adapter for core — no type parameter, used internally
@@ -1158,6 +1159,8 @@ const backend = new RedisHubBackend({
 **Validation:** Write a test that registers a custom element type, a custom render hook, and a custom sync plugin — verify all work.
 
 ### Phase 2: Internal Refactor — VTT Uses Extension Points (3-4 weeks)
+
+> **⚠️ Public API breaking change (Phase 2):** Converting grid/template to extension envelopes changes the `ElementType` union. `store.getElementsByType('grid')` will no longer compile after this migration. RollKeeper and other consumers must migrate to `store.getElementsByType('extension')` filtered by `extensionType === 'vtt:grid'`, or use a compatibility facade provided during the transition period.
 
 **Goal:** Refactor fog, grid, measure, templates to use extension points internally. Keep them in core.
 
@@ -1927,7 +1930,8 @@ viewport.overlays.register(renderer: OverlayRenderer, options: OverlayOptions): 
 // Opaque typed key — invariant brand, NoInfer on registration
 declare const ServiceKeyBrand: unique symbol;
 interface ServiceKey<T> {
-  readonly [ServiceKeyBrand]: { readonly _in: T; readonly _out: T };
+  readonly [ServiceKeyBrand]: true;
+  readonly _brand: (value: T) => T;
   readonly name: string; // Debugging only
   readonly id: symbol; // Runtime identity — unique per createServiceKey() call
 }

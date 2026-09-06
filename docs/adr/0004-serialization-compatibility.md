@@ -216,6 +216,7 @@ This ensures capability negotiation precedes any extension-shaped element on the
 2. Neither peer sends extension-shaped elements until both have received the other's capabilities
 3. If a peer has not yet received capabilities, ALL incoming ops are queued (not processed) until the handshake completes
 4. If a peer does not send capabilities (legacy client), the capable peer assumes legacy mode: no extension elements are sent, all ops use legacy wire format. The handshake is additive — it does not break existing clients.
+5. **Timeout → legacy fallback:** If the capability handshake does not complete within a configurable timeout (default 5s), the remote peer is treated as legacy (v3). Extension elements are translated to legacy wire format using registered adapters. Extension ops that cannot be translated are rejected with an error — they are never silently dropped.
 
 This eliminates the window where extension elements could arrive before the peer is ready. The handshake is not merely documented as happening 'before' — it is enforced as a protocol gate.
 
@@ -255,15 +256,6 @@ function translateForPeer(
   // Snapshots containing extension elements in their elements[] array
   if (op.kind === 'snapshot' && !peerCapabilities.elementEnvelope) {
     return translateSnapshotElements(op, registry);
-  }
-
-  // Corrections containing extension elements
-  if (
-    op.kind === 'correction' &&
-    op.element?.type === 'extension' &&
-    !peerCapabilities.elementEnvelope
-  ) {
-    return translateElementToLegacy(op, registry);
   }
 
   return op;

@@ -1,8 +1,10 @@
+import type { GridElement, TemplateElement } from '@fieldnotes/core';
 import type { ElementRegistry } from './element-registry';
 import type {
   CanvasState,
   CanvasStateV3,
   CanvasStateV4,
+  ExtensionElementEnvelope,
   FogStateV1,
   PersistedPluginState,
   RuntimeElement,
@@ -48,6 +50,65 @@ export function parseWireToRuntime(
   });
 }
 
+// ─── Element migration: grid/template → ExtensionElementEnvelope ─────────────
+
+function gridToEnvelope(el: GridElement): ExtensionElementEnvelope {
+  return {
+    id: el.id,
+    type: 'extension',
+    extensionType: 'vtt:grid',
+    position: el.position,
+    zIndex: el.zIndex,
+    locked: el.locked,
+    layerId: el.layerId,
+    groupId: el.groupId,
+    rotation: el.rotation,
+    data: {
+      gridType: el.gridType,
+      hexOrientation: el.hexOrientation,
+      cellSize: el.cellSize,
+      strokeColor: el.strokeColor,
+      strokeWidth: el.strokeWidth,
+      opacity: el.opacity,
+    },
+  };
+}
+
+function templateToEnvelope(el: TemplateElement): ExtensionElementEnvelope {
+  return {
+    id: el.id,
+    type: 'extension',
+    extensionType: 'vtt:template',
+    position: el.position,
+    zIndex: el.zIndex,
+    locked: el.locked,
+    layerId: el.layerId,
+    groupId: el.groupId,
+    rotation: el.rotation,
+    data: {
+      templateShape: el.templateShape,
+      radius: el.radius,
+      angle: el.angle,
+      width: el.width,
+      fillColor: el.fillColor,
+      strokeColor: el.strokeColor,
+      strokeWidth: el.strokeWidth,
+      opacity: el.opacity,
+      feetPerCell: el.feetPerCell,
+      radiusFeet: el.radiusFeet,
+      renderStyle: el.renderStyle,
+    },
+  };
+}
+
+export function migrateElementToV4(el: WireElement): WireElement {
+  if (el.type === 'grid') return gridToEnvelope(el as GridElement);
+  if (el.type === 'template') return templateToEnvelope(el as TemplateElement);
+  return el;
+}
+
+// ─── State migration ─────────────────────────────────────────────────────────
+
 export function migrateV3toV4(state: CanvasStateV3): CanvasStateV4 {
   const extensions: Record<string, PersistedPluginState> = {};
 
@@ -61,7 +122,7 @@ export function migrateV3toV4(state: CanvasStateV3): CanvasStateV4 {
   const v4: CanvasStateV4 = {
     version: 4,
     camera: { ...state.camera },
-    elements: state.elements,
+    elements: state.elements.map(migrateElementToV4),
     extensions,
   };
 

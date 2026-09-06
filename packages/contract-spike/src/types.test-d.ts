@@ -5,8 +5,8 @@ import type {
   ServiceKey,
   WireElement,
   RuntimeElement,
-  WireGridElement,
-  WireTemplateElement,
+  GridElement,
+  TemplateElement,
   TypedExtensionOp,
   Point,
 } from './types';
@@ -53,13 +53,13 @@ describe('ServiceKey invariance', () => {
 // ─── WireElement ≠ RuntimeElement ────────────────────────────────────────────
 
 describe('Wire vs Runtime separation', () => {
-  it('WireGridElement is a WireElement', () => {
-    const grid = {} as WireGridElement;
+  it('GridElement (from core) is a WireElement', () => {
+    const grid = {} as GridElement;
     assertType<WireElement>(grid);
   });
 
-  it('WireTemplateElement is a WireElement', () => {
-    const tmpl = {} as WireTemplateElement;
+  it('TemplateElement (from core) is a WireElement', () => {
+    const tmpl = {} as TemplateElement;
     assertType<WireElement>(tmpl);
   });
 

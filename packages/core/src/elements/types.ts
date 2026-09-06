@@ -1,6 +1,6 @@
 import type { Point, Size, StrokePoint } from '../core/types';
 
-interface BaseElement {
+export interface BaseElement {
   id: string;
   type: string;
   position: Point;

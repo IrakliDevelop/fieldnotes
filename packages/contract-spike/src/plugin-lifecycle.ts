@@ -8,15 +8,21 @@ export class PluginStateManager {
     this.plugins.set(name, handle);
   }
 
-  loadState(persisted: Record<string, PersistedPluginState>): { success: boolean; error?: string } {
+  loadState(persisted: Record<string, PersistedPluginState>): {
+    success: boolean;
+    error?: string;
+    droppedPlugins?: string[];
+  } {
     const controller = suspendNotifications();
 
-    const prepared = new Map<string, unknown>();
+    const prepared = new Map<string, PersistedPluginState>();
+    const droppedPlugins: string[] = [];
 
     for (const [pluginName, entry] of Object.entries(persisted)) {
       const handle = this.plugins.get(pluginName);
       if (!handle) {
-        prepared.set(pluginName, entry.data);
+        // Unknown plugin: preserve the full entry as-is with original version
+        prepared.set(pluginName, entry);
         continue;
       }
 
@@ -25,63 +31,70 @@ export class PluginStateManager {
 
       if (entry.version !== version) {
         if (!handle.migrateState) {
-          controller.discard();
-          return {
-            success: false,
-            error: `Plugin "${pluginName}" has no migrateState but version mismatch (${entry.version} → ${version})`,
-          };
+          // Drop this plugin entry and continue (per ADR)
+          droppedPlugins.push(pluginName);
+          continue;
         }
         try {
           data = handle.migrateState(data, entry.version);
-        } catch (err) {
-          controller.discard();
-          return {
-            success: false,
-            error: `Plugin "${pluginName}" migration failed: ${String(err)}`,
-          };
+        } catch {
+          // Migration threw — drop this plugin and continue
+          droppedPlugins.push(pluginName);
+          continue;
         }
       }
 
       if (handle.validateState) {
         try {
           handle.validateState(data);
-        } catch (err) {
-          controller.discard();
-          return {
-            success: false,
-            error: `Plugin "${pluginName}" validation failed after migration: ${String(err)}`,
-          };
+        } catch {
+          // Validation failed — drop this plugin and continue
+          droppedPlugins.push(pluginName);
+          continue;
         }
       }
 
-      prepared.set(pluginName, data);
+      prepared.set(pluginName, { version, data });
     }
 
-    for (const [pluginName, data] of prepared) {
+    for (const [pluginName, entry] of prepared) {
       const handle = this.plugins.get(pluginName);
       if (handle?.loadState) {
-        handle.loadState(data);
+        try {
+          handle.loadState(entry.data);
+        } catch {
+          // loadState threw — record in dropped, continue with others
+          droppedPlugins.push(pluginName);
+        }
       }
     }
 
+    // Only store unknown plugin entries in this.state.
+    // Registered plugins are handled via exportState() so that
+    // post-loadState() mutations are reflected (not stale persisted data).
     this.state = {};
-    for (const [pluginName, data] of prepared) {
-      const handle = this.plugins.get(pluginName);
-      const version = handle?.stateVersion ?? 1;
-      this.state[pluginName] = { version, data };
+    for (const [pluginName, entry] of prepared) {
+      if (!this.plugins.has(pluginName)) {
+        this.state[pluginName] = entry;
+      }
     }
 
     controller.resume();
-    return { success: true };
+    return {
+      success: true,
+      ...(droppedPlugins.length > 0 ? { droppedPlugins } : {}),
+    };
   }
 
   exportState(): Record<string, PersistedPluginState> {
     const result: Record<string, PersistedPluginState> = {};
 
+    // Unknown plugins: return their preserved state
     for (const [name, entry] of Object.entries(this.state)) {
       result[name] = entry;
     }
 
+    // Registered plugins: always call exportState() for current state
     for (const [pluginName, handle] of this.plugins) {
       if (pluginName in result) continue;
       if (handle.exportState) {

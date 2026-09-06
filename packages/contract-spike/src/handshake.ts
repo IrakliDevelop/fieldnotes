@@ -5,6 +5,8 @@ export class CapabilityHandshake {
   private localCaps: SyncCapabilities | null = null;
   private remoteCaps: SyncCapabilities | null = null;
   private readonly pendingOps: WireSyncOp[] = [];
+  private timedOut = false;
+  private timeoutHandle: ReturnType<typeof setTimeout> | null = null;
 
   setLocalCapabilities(caps: SyncCapabilities): void {
     this.localCaps = caps;
@@ -12,6 +14,10 @@ export class CapabilityHandshake {
 
   receiveRemoteCapabilities(caps: SyncCapabilities): void {
     this.remoteCaps = caps;
+    if (this.timeoutHandle !== null) {
+      clearTimeout(this.timeoutHandle);
+      this.timeoutHandle = null;
+    }
   }
 
   isComplete(): boolean {
@@ -33,18 +39,53 @@ export class CapabilityHandshake {
     this.pendingOps.length = 0;
     return ops;
   }
+
+  startTimeout(ms: number, onTimeout: () => void): void {
+    if (this.isComplete()) return;
+    this.timeoutHandle = setTimeout(() => {
+      this.timedOut = true;
+      this.forceLegacyMode();
+      onTimeout();
+    }, ms);
+  }
+
+  isTimedOut(): boolean {
+    return this.timedOut;
+  }
+
+  forceLegacyMode(): void {
+    this.remoteCaps = {
+      protocolVersion: 1,
+      extensionKinds: [],
+      elementEnvelope: false,
+    };
+  }
+
+  isLegacyMode(): boolean {
+    if (this.timedOut) return true;
+    return this.remoteCaps !== null && !this.remoteCaps.elementEnvelope;
+  }
 }
 
 export function translateForPeer(
   op: WireSyncOp,
   peerCapabilities: SyncCapabilities,
   registry: ElementRegistry,
-): WireSyncOp | null {
+  extensionKinds?: Map<string, { toLegacyWire?: (payload: unknown) => unknown }>,
+): WireSyncOp {
   if (op.kind === 'extension') {
-    if (!peerCapabilities.extensionKinds.includes(op.extensionKind)) {
-      return null;
+    if (peerCapabilities.extensionKinds.includes(op.extensionKind)) {
+      return op;
     }
-    return op;
+    // Peer doesn't support this extension kind — try legacy translator
+    const kindDef = extensionKinds?.get(op.extensionKind);
+    if (kindDef?.toLegacyWire) {
+      const legacyPayload = kindDef.toLegacyWire(op.payload);
+      return { ...op, payload: legacyPayload };
+    }
+    throw new Error(
+      `Extension op '${op.extensionKind}' cannot be translated for legacy peer — no translator registered`,
+    );
   }
 
   if (op.kind === 'upsert' && !peerCapabilities.elementEnvelope) {

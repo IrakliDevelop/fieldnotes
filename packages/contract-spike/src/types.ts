@@ -1,91 +1,10 @@
-// ─── Base geometry ───────────────────────────────────────────────────────────
+// ─── Imports from @fieldnotes/core (F1: spike validates against real types) ──
+import type { CanvasElement, GridElement, TemplateElement } from '@fieldnotes/core';
+export type { BaseElement, Point, Size, Bounds } from '@fieldnotes/core';
+import type { BaseElement, Point, Bounds } from '@fieldnotes/core';
 
-export interface Point {
-  x: number;
-  y: number;
-}
-
-export interface Size {
-  w: number;
-  h: number;
-}
-
-export interface Bounds {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
-
-// ─── Base element (shared fields) ────────────────────────────────────────────
-
-export interface BaseElement {
-  id: string;
-  position: Point;
-  zIndex: number;
-  locked: boolean;
-  layerId: string;
-  groupId?: string;
-  rotation?: number;
-}
-
-// ─── Core element types (7 closed members) ───────────────────────────────────
-
-export interface StrokeElement extends BaseElement {
-  type: 'stroke';
-  points: (Point & { pressure: number })[];
-  color: string;
-  width: number;
-  opacity: number;
-}
-
-export interface NoteElement extends BaseElement {
-  type: 'note';
-  size: Size;
-  text: string;
-  backgroundColor: string;
-  textColor: string;
-}
-
-export interface ArrowElement extends BaseElement {
-  type: 'arrow';
-  from: Point;
-  to: Point;
-  bend: number;
-  color: string;
-  width: number;
-}
-
-export interface ImageElement extends BaseElement {
-  type: 'image';
-  size: Size;
-  src: string;
-}
-
-export interface TextElement extends BaseElement {
-  type: 'text';
-  size: Size;
-  text: string;
-  fontSize: number;
-  color: string;
-}
-
-export interface ShapeElement extends BaseElement {
-  type: 'shape';
-  shape: 'rectangle' | 'ellipse' | 'line';
-  size: Size;
-  strokeColor: string;
-  strokeWidth: number;
-  fillColor: string;
-}
-
-export type CoreElement =
-  | StrokeElement
-  | NoteElement
-  | ArrowElement
-  | ImageElement
-  | TextElement
-  | ShapeElement;
+// Re-export core types used throughout the spike
+export type { CanvasElement, GridElement, TemplateElement } from '@fieldnotes/core';
 
 // ─── Extension element envelope (core-owned, type-erased) ────────────────────
 
@@ -95,45 +14,31 @@ export interface ExtensionElementEnvelope extends BaseElement {
   readonly data: Record<string, unknown>;
 }
 
+// ─── CoreElement — in-memory core types (excludes grid/template) ─────────────
+// Grid and template are extracted into ExtensionElementEnvelope at runtime.
+// The remaining 7 core element types stay as-is.
+
+export type CoreElement = Exclude<CanvasElement, GridElement | TemplateElement>;
+
 // ─── RuntimeElement — in-memory representation ───────────────────────────────
 // Extension elements are stored as ExtensionElementEnvelope in memory.
 // Grid/template are NOT members — they live inside envelopes.
 
 export type RuntimeElement = CoreElement | ExtensionElementEnvelope;
 
-// ─── WireElement — wire/persistence representation ───────────────────────────
-// On the wire (v3), grid and template have their own type discriminators.
-// On the wire (v4), they use the extension envelope.
-// WireElement covers BOTH v3 and v4 wire formats.
+// ─── Wire element types — versioned (F4) ─────────────────────────────────────
+// V3 wire format: real CanvasElement (includes grid/template as distinct types).
+// V4 wire format: CanvasElement | ExtensionElementEnvelope (extensions use envelopes).
+// migrateV3toV4() converts grid/template elements → ExtensionElementEnvelope.
 
-export interface WireGridElement extends BaseElement {
-  type: 'grid';
-  gridType: 'square' | 'hex';
-  hexOrientation: 'pointy' | 'flat';
-  cellSize: number;
-  strokeColor: string;
-  strokeWidth: number;
-  opacity: number;
-}
+export type WireElementV3 = CanvasElement;
 
-export interface WireTemplateElement extends BaseElement {
-  type: 'template';
-  templateShape: 'circle' | 'cone' | 'line' | 'square' | 'rectangle';
-  radius: number;
-  angle: number;
-  fillColor: string;
-  strokeColor: string;
-  strokeWidth: number;
-  opacity: number;
-}
+export type WireElementV4 = CanvasElement | ExtensionElementEnvelope;
 
-export type WireElement =
-  | CoreElement
-  | WireGridElement
-  | WireTemplateElement
-  | ExtensionElementEnvelope;
+export type WireElement = WireElementV3 | WireElementV4;
 
-// ─── WireSyncOp — sync ops with WireElement (not RuntimeElement) ─────────────
+// ─── WireSyncOp — sync ops carrying wire elements ────────────────────────────
+// Supports both v3 (CanvasElement) and v4 (envelope) wire formats.
 // Corrections reuse ordinary op kinds (no separate 'correction' kind).
 
 export type WireSyncOp =
@@ -141,7 +46,9 @@ export type WireSyncOp =
   | { kind: 'remove'; id: string }
   | { kind: 'clear' }
   | { kind: 'snapshot'; to: string; elements: WireElement[] }
+  | { kind: 'request-snapshot' }
   | { kind: 'presence'; data: unknown }
+  | { kind: 'presence-leave' }
   | { kind: 'fog-meta'; record: unknown }
   | { kind: 'fog-patch'; tiles: unknown[] }
   | WireExtensionOp;
@@ -169,7 +76,7 @@ export interface OpCodec<TPayload> {
 // ─── ExtensionKind<TPayload> — unified nominal descriptor ────────────────────
 // Single descriptor binding codec + legacy translations + kind string.
 // Client/server/backend register handlers against THIS descriptor,
-// not independent string+codec pairs. (Fixes F8.)
+// not independent string+codec pairs.
 
 export interface ExtensionKind<TPayload> {
   readonly extensionKind: string;
@@ -197,9 +104,8 @@ export function createExtensionKind<TPayload>(config: {
 
 // ─── ServiceKey<T> — genuine invariance ──────────────────────────────────────
 // Uses function-property brand (value: T) => T instead of covariant _in/_out.
-// Function properties are bivariant in TS method syntax, but a readonly
-// property typed as a function IS checked strictly under strict function types.
-// (Fixes F7.)
+// Under strict function types, function properties are checked strictly,
+// providing genuine invariance.
 
 declare const ServiceKeyBrand: unique symbol;
 
@@ -221,7 +127,7 @@ export function createServiceKey<T>(name: string): ServiceKey<T> {
 
 // ─── ElementTypeKey<T> — typed registration handle ───────────────────────────
 // Function-property methods (not TS method syntax) to avoid bivariance.
-// unwrap() validates and throws on mismatch. (Fixes F7.)
+// unwrap() validates and throws on mismatch.
 
 export interface ElementTypeKey<T extends BaseElement> {
   readonly type: string;
@@ -312,12 +218,13 @@ export interface ApplyResult {
   locality?: 'shared' | 'local';
 }
 
-// ─── HubBackend — full interface ─────────────────────────────────────────────
+// ─── HubBackend — full decorator interface (F3) ──────────────────────────────
 
 export interface HubBackend {
   snapshot(room: string): Promise<WireElement[]>;
   get(room: string, id: string): Promise<WireElement | undefined>;
   apply(room: string, op: WireSyncOp): Promise<ApplyResult>;
+  flush?(room: string): Promise<WireElement[]>;
   dispose?(): Promise<void>;
 }
 
@@ -332,19 +239,19 @@ export interface PluginHandle {
   readonly stateVersion?: number;
 }
 
-// ─── Canvas state ────────────────────────────────────────────────────────────
+// ─── Canvas state — versioned ────────────────────────────────────────────────
 
 export interface CanvasStateV3 {
   version: 3;
   camera: { position: Point; zoom: number };
-  elements: WireElement[];
+  elements: WireElementV3[];
   fog?: FogStateV1;
 }
 
 export interface CanvasStateV4 {
   version: 4;
   camera: { position: Point; zoom: number };
-  elements: WireElement[];
+  elements: WireElementV4[];
   extensions: Record<string, PersistedPluginState>;
 }
 

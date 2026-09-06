@@ -1,6 +1,7 @@
+/* eslint-disable @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-empty-function */
 import { describe, it, expect } from 'vitest';
 import { BufferedBackend, createMemoryBackend } from './buffered-backend';
-import type { WireElement, WireSyncOp } from './types';
+import type { HubBackend, WireElement, WireSyncOp } from './types';
 
 function makeNote(id: string): WireElement {
   return {
@@ -102,5 +103,107 @@ describe('BufferedBackend', () => {
     const snapshot = await buffered.snapshot('room-1');
     expect(snapshot).toHaveLength(1);
     expect((snapshot[0] as unknown as Record<string, unknown>)['text']).toBe('modified');
+  });
+
+  it('buffers remove ops for base elements', async () => {
+    const inner = createMemoryBackend();
+    const buffered = new BufferedBackend(inner);
+
+    // Upsert then remove — both should be buffered, inner stays empty
+    await buffered.apply('room-1', { kind: 'upsert', element: makeNote('note-1') });
+    await buffered.apply('room-1', { kind: 'remove', id: 'note-1' });
+
+    const innerSnapshot = await inner.snapshot('room-1');
+    expect(innerSnapshot).toHaveLength(0);
+
+    const snapshot = await buffered.snapshot('room-1');
+    expect(snapshot).toHaveLength(0);
+  });
+
+  it('buffers clear ops', async () => {
+    const inner = createMemoryBackend();
+    await inner.apply('room-1', { kind: 'upsert', element: makeNote('pre-existing') });
+
+    const buffered = new BufferedBackend(inner);
+    await buffered.apply('room-1', { kind: 'upsert', element: makeNote('note-1') });
+    await buffered.apply('room-1', { kind: 'clear' });
+
+    // Inner should not have received the clear
+    const innerSnapshot = await inner.snapshot('room-1');
+    expect(innerSnapshot.map((e) => e.id)).toContain('pre-existing');
+
+    // Buffered snapshot should be empty (cleared, no subsequent upserts)
+    const snapshot = await buffered.snapshot('room-1');
+    expect(snapshot).toHaveLength(0);
+  });
+
+  it('flush persists remove to inner', async () => {
+    const inner = createMemoryBackend();
+    const buffered = new BufferedBackend(inner);
+
+    await buffered.apply('room-1', { kind: 'upsert', element: makeNote('note-1') });
+    await buffered.apply('room-1', { kind: 'remove', id: 'note-1' });
+
+    await buffered.flush('room-1');
+
+    const innerSnapshot = await inner.snapshot('room-1');
+    expect(innerSnapshot).toHaveLength(0);
+  });
+
+  it('flush failure preserves buffer', async () => {
+    const failingInner: HubBackend = {
+      async snapshot() {
+        return [];
+      },
+      async get() {
+        return undefined;
+      },
+      async apply() {
+        throw new Error('persist failed');
+      },
+      async dispose() {},
+    };
+
+    const buffered = new BufferedBackend(failingInner);
+    await buffered.apply('room-1', { kind: 'upsert', element: makeNote('note-1') });
+
+    await expect(buffered.flush('room-1')).rejects.toThrow('persist failed');
+
+    // Buffer should be preserved after failed flush
+    expect(buffered.getBufferedCount('room-1')).toBe(1);
+  });
+
+  it('dispose flushes pending writes', async () => {
+    // Use a backend that preserves data after dispose (realistic: persist to
+    // disk, dispose closes the connection — data survives).
+    const store = new Map<string, Map<string, WireElement>>();
+    const inner: HubBackend = {
+      async snapshot(room: string) {
+        return [...(store.get(room)?.values() ?? [])];
+      },
+      async get(room: string, id: string) {
+        return store.get(room)?.get(id);
+      },
+      async apply(room: string, op: WireSyncOp) {
+        if (!store.has(room)) store.set(room, new Map());
+        const s = store.get(room)!;
+        if (op.kind === 'upsert') s.set(op.element.id, op.element);
+        if (op.kind === 'remove') s.delete(op.id);
+        if (op.kind === 'clear') s.clear();
+        return { accepted: op, corrections: [], locality: 'shared' };
+      },
+      async dispose() {
+        // intentionally does NOT clear store — simulates persistent backend
+      },
+    };
+
+    const buffered = new BufferedBackend(inner);
+    await buffered.apply('room-1', { kind: 'upsert', element: makeNote('note-1') });
+    await buffered.apply('room-1', { kind: 'upsert', element: makeNote('note-2') });
+
+    await buffered.dispose();
+
+    const innerSnapshot = await inner.snapshot('room-1');
+    expect(innerSnapshot).toHaveLength(2);
   });
 });

@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { ElementRegistry } from './element-registry';
 import {
   CapabilityHandshake,
@@ -19,6 +19,7 @@ import type {
 // ─── Minimal grid definition for translation tests ──────────────────────────
 
 interface GridData extends BaseElement {
+  type: 'grid';
   cellSize: number;
 }
 
@@ -27,6 +28,7 @@ const gridDef: ElementTypeDefinition<GridData> = {
   legacyTypes: ['grid'],
   decodeLegacy: (raw) => ({
     id: raw['id'] as string,
+    type: 'grid' as const,
     position: raw['position'] as { x: number; y: number },
     zIndex: raw['zIndex'] as number,
     locked: raw['locked'] as boolean,
@@ -44,6 +46,7 @@ const gridDef: ElementTypeDefinition<GridData> = {
   validateData: (data) => typeof data['cellSize'] === 'number',
   unwrap: (env) => ({
     id: env.id,
+    type: 'grid' as const,
     position: env.position,
     zIndex: env.zIndex,
     locked: env.locked,
@@ -108,16 +111,57 @@ describe('CapabilityHandshake', () => {
     expect(pending).toHaveLength(1);
     expect(hs.queueUntilReady(op)).toBeNull();
   });
+
+  it('timeout triggers legacy mode', async () => {
+    vi.useFakeTimers();
+    try {
+      const hs = new CapabilityHandshake();
+      hs.setLocalCapabilities(createV4Capabilities([]));
+      const onTimeout = vi.fn();
+
+      hs.startTimeout(100, onTimeout);
+      expect(hs.isTimedOut()).toBe(false);
+      expect(hs.isLegacyMode()).toBe(false);
+
+      vi.advanceTimersByTime(100);
+
+      expect(hs.isTimedOut()).toBe(true);
+      expect(hs.isLegacyMode()).toBe(true);
+      expect(onTimeout).toHaveBeenCalledOnce();
+      expect(hs.getRemoteCapabilities()).toEqual(createDefaultCapabilities());
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe('translateForPeer', () => {
-  it('drops extension ops peer does not support', () => {
+  it('throws on unsupported extension ops without translator', () => {
     const registry = new ElementRegistry();
     const caps = createDefaultCapabilities();
     const op: WireSyncOp = { kind: 'extension', extensionKind: 'vtt:fog-patch', payload: {} };
 
-    const result = translateForPeer(op, caps, registry);
-    expect(result).toBeNull();
+    expect(() => translateForPeer(op, caps, registry)).toThrow(
+      "Extension op 'vtt:fog-patch' cannot be translated for legacy peer — no translator registered",
+    );
+  });
+
+  it('unsupported extension op with legacy translator is translated', () => {
+    const registry = new ElementRegistry();
+    const caps = createDefaultCapabilities();
+    const op: WireSyncOp = { kind: 'extension', extensionKind: 'vtt:fog-patch', payload: { v: 4 } };
+
+    const extensionKinds = new Map<string, { toLegacyWire?: (payload: unknown) => unknown }>();
+    extensionKinds.set('vtt:fog-patch', {
+      toLegacyWire: (payload) => ({ legacy: true, original: payload }),
+    });
+
+    const result = translateForPeer(op, caps, registry, extensionKinds);
+    expect(result.kind).toBe('extension');
+    if (result.kind === 'extension') {
+      expect(result.extensionKind).toBe('vtt:fog-patch');
+      expect(result.payload).toEqual({ legacy: true, original: { v: 4 } });
+    }
   });
 
   it('passes extension ops peer supports', () => {
