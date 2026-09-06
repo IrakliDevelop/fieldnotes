@@ -1,6 +1,6 @@
-import type { Point, Size, StrokePoint } from '../core/types';
+import type { Bounds, Point, Size, StrokePoint } from '../core/types';
 
-interface BaseElement {
+export interface BaseElement {
   id: string;
   type: string;
   position: Point;
@@ -140,3 +140,41 @@ export type CanvasElement =
   | TemplateElement;
 
 export type ElementType = CanvasElement['type'];
+
+// ─── Extension element model (Phase 1 — additive) ────────────────────────────
+
+export interface ExtensionElementEnvelope extends BaseElement {
+  readonly type: 'extension';
+  readonly extensionType: string;
+  readonly data: Record<string, unknown>;
+}
+
+export interface ElementTypeDefinition<T extends BaseElement> {
+  readonly type: string;
+  readonly legacyTypes: readonly string[];
+  decodeLegacy(raw: Record<string, unknown>): T;
+  encodeLegacy(el: T): Record<string, unknown>;
+  validateData(data: Record<string, unknown>): boolean;
+  unwrap(el: ExtensionElementEnvelope): T;
+  wrap(el: T): ExtensionElementEnvelope;
+  bounds(el: T): Bounds | null;
+  hitTest?(el: T, point: Point): boolean;
+  renderMode?: 'canvas' | 'dom' | 'hybrid' | 'none';
+}
+
+export interface ElementTypeAdapter {
+  readonly type: string;
+  readonly legacyTypes: readonly string[];
+  validateEnvelope(el: ExtensionElementEnvelope): boolean;
+  decodeLegacy(raw: Record<string, unknown>): ExtensionElementEnvelope;
+  encodeLegacy(el: ExtensionElementEnvelope): Record<string, unknown>;
+  bounds(el: ExtensionElementEnvelope): Bounds | null;
+}
+
+export interface ElementTypeKey<T extends BaseElement> {
+  readonly type: string;
+  readonly matches: (envelope: ExtensionElementEnvelope) => boolean;
+  readonly validateData: (data: Record<string, unknown>) => boolean;
+  readonly unwrap: (envelope: ExtensionElementEnvelope) => T;
+  readonly wrap: (el: T) => ExtensionElementEnvelope;
+}

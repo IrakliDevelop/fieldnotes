@@ -221,6 +221,7 @@ export {
   drawHexPath,
 } from './elements/hex-fill';
 export type {
+  BaseElement,
   Binding,
   CanvasElement,
   ElementType,
@@ -238,7 +239,21 @@ export type {
   TemplateElement,
   TemplateShape,
   TemplateRenderStyle,
+  ExtensionElementEnvelope,
+  ElementTypeDefinition,
+  ElementTypeAdapter,
+  ElementTypeKey,
 } from './elements/types';
+export { ElementRegistry } from './elements/element-registry';
+export { TypedHookRegistry } from './canvas/render-hooks';
+export type { ViewportSlot, HookRegistrationOptions } from './canvas/render-hooks';
+export { PluginStateManager } from './core/plugin-state-manager';
+export type {
+  PluginHandle,
+  PersistedPluginState,
+  NotificationController,
+  PluginLoadResult,
+} from './core/plugin-state-manager';
 
 export type { Command } from './history/types';
 export { HistoryStack } from './history/history-stack';
