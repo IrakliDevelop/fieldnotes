@@ -1,11 +1,12 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-empty-function */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { PluginStateManager } from './plugin-lifecycle';
 import type { PluginHandle, PersistedPluginState } from './types';
 
 function makeHandle(overrides: Partial<PluginHandle> = {}): PluginHandle {
   return {
     dispose: () => {},
+    exportState: () => undefined,
     ...overrides,
   };
 }
@@ -71,6 +72,7 @@ describe('PluginStateManager', () => {
       makeHandle({
         stateVersion: 2,
         // no migrateState
+        loadState: () => {},
       }),
     );
     mgr.registerPlugin(
@@ -93,8 +95,10 @@ describe('PluginStateManager', () => {
     expect(gridLoaded[0]).toEqual({ cells: [] });
   });
 
-  it('drops plugin when validation fails after migration', () => {
-    const mgr = new PluginStateManager();
+  it('aborts the entire load when validation fails after migration', () => {
+    const resume = vi.fn();
+    const discard = vi.fn();
+    const mgr = new PluginStateManager(() => ({ resume, discard }));
     mgr.registerPlugin(
       'fog',
       makeHandle({
@@ -103,6 +107,7 @@ describe('PluginStateManager', () => {
         validateState: () => {
           throw new Error('invalid');
         },
+        loadState: () => {},
       }),
     );
 
@@ -111,8 +116,10 @@ describe('PluginStateManager', () => {
     };
 
     const result = mgr.loadState(persisted);
-    expect(result.success).toBe(true);
-    expect(result.droppedPlugins).toEqual(['fog']);
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('validation failed');
+    expect(discard).toHaveBeenCalledOnce();
+    expect(resume).not.toHaveBeenCalled();
   });
 
   it('preserves unknown plugin entries with original version', () => {
@@ -131,36 +138,82 @@ describe('PluginStateManager', () => {
     expect(exported['unknown_plugin']!.data).toEqual({ custom: true });
   });
 
-  it('catches throwing loadState, continues with other plugins', () => {
-    const mgr = new PluginStateManager();
-    const gridLoaded: unknown[] = [];
+  it('rolls back all attempted plugins when a loadState commit throws', () => {
+    const resume = vi.fn();
+    const discard = vi.fn();
+    const mgr = new PluginStateManager(() => ({ resume, discard }));
+    let fogState: unknown = { before: 'fog' };
+    let gridState: unknown = { before: 'grid' };
+    mgr.registerPlugin(
+      'grid',
+      makeHandle({
+        stateVersion: 1,
+        exportState: () => gridState,
+        loadState: (data) => {
+          gridState = data;
+        },
+      }),
+    );
     mgr.registerPlugin(
       'fog',
       makeHandle({
         stateVersion: 1,
-        loadState: () => {
-          throw new Error('load failed');
+        exportState: () => fogState,
+        loadState: (data) => {
+          fogState = data;
+          if ((data as Record<string, unknown> | undefined)?.['fail']) {
+            throw new Error('load failed');
+          }
         },
+      }),
+    );
+
+    const persisted: Record<string, PersistedPluginState> = {
+      grid: { version: 1, data: { cells: [] } },
+      fog: { version: 1, data: { fail: true } },
+    };
+
+    const result = mgr.loadState(persisted);
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('load failed');
+    expect(gridState).toEqual({ before: 'grid' });
+    expect(fogState).toEqual({ before: 'fog' });
+    expect(discard).toHaveBeenCalledOnce();
+    expect(resume).not.toHaveBeenCalled();
+  });
+
+  it('loads undefined for absent or dropped entries so stale state is cleared', () => {
+    const mgr = new PluginStateManager();
+    const loaded: unknown[] = [];
+    mgr.registerPlugin(
+      'fog',
+      makeHandle({
+        stateVersion: 2,
+        loadState: (data) => loaded.push(data),
       }),
     );
     mgr.registerPlugin(
       'grid',
       makeHandle({
         stateVersion: 1,
-        loadState: (data) => gridLoaded.push(data),
+        loadState: (data) => loaded.push(data),
       }),
     );
 
-    const persisted: Record<string, PersistedPluginState> = {
-      fog: { version: 1, data: {} },
-      grid: { version: 1, data: { cells: [] } },
-    };
+    const result = mgr.loadState({ fog: { version: 1, data: { stale: true } } });
 
-    const result = mgr.loadState(persisted);
-    expect(result.success).toBe(true);
-    expect(result.droppedPlugins).toContain('fog');
-    expect(gridLoaded).toHaveLength(1);
-    expect(gridLoaded[0]).toEqual({ cells: [] });
+    expect(result).toEqual({ success: true, droppedPlugins: ['fog'] });
+    expect(loaded).toEqual([undefined, undefined]);
+  });
+
+  it('rejects stateful plugins that cannot provide rollback state', () => {
+    const mgr = new PluginStateManager();
+    mgr.registerPlugin('fog', { dispose: () => {}, loadState: () => {} });
+
+    const result = mgr.loadState({ fog: { version: 1, data: {} } });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('rollback is impossible');
   });
 
   it('exportState reflects loaded state, not stale exportState()', () => {

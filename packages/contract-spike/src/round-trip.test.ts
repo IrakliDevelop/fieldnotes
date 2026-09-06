@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import { ElementRegistry } from './element-registry';
 import {
-  serializeRuntimeToWire,
+  serializeRuntimeToWireV3,
   parseWireToRuntime,
   migrateV3toV4,
   migrateElementToV4,
@@ -14,6 +14,7 @@ import type {
   ElementTypeDefinition,
   RuntimeElement,
   WireElement,
+  WireElementV3,
   CanvasStateV3,
   FogStateV1,
 } from './types';
@@ -180,7 +181,7 @@ describe('v3/v4 round-trip', () => {
     registry.register(templateDefinition);
 
     const runtime: RuntimeElement[] = [makeBaseElement('note-1'), makeGridEnvelope()];
-    const wire = serializeRuntimeToWire(runtime, registry);
+    const wire = serializeRuntimeToWireV3(runtime, registry);
 
     expect(wire).toHaveLength(2);
     expect(wire[0]!.type).toBe('note');
@@ -281,6 +282,54 @@ describe('v3→v4 migration', () => {
     expect(Object.keys(v4.extensions)).toHaveLength(0);
   });
 
+  it('preserves layers, active layer, and existing extension state', () => {
+    const v3: CanvasStateV3 = {
+      version: 3,
+      camera: { position: { x: 3, y: 4 }, zoom: 2 },
+      elements: [],
+      layers: [
+        {
+          id: 'tokens',
+          name: 'Tokens',
+          visible: true,
+          locked: false,
+          order: 0,
+          opacity: 1,
+        },
+      ],
+      activeLayerId: 'tokens',
+      extensions: { custom: { version: 7, data: { enabled: true } } },
+    };
+
+    const v4 = migrateV3toV4(v3);
+
+    expect(v4.camera).toEqual(v3.camera);
+    expect(v4.layers).toEqual(v3.layers);
+    expect(v4.activeLayerId).toBe('tokens');
+    expect(v4.extensions['custom']).toEqual({ version: 7, data: { enabled: true } });
+  });
+
+  it('does not overwrite already-migrated fog extension state', () => {
+    const v3: CanvasStateV3 = {
+      version: 3,
+      camera: { position: { x: 0, y: 0 }, zoom: 1 },
+      elements: [],
+      fog: {
+        definition: {
+          version: 1,
+          generation: 'legacy',
+          bounds: { x: 0, y: 0, w: 1, h: 1 },
+          cellSize: 1,
+          base: 'covered',
+        },
+        tiles: [],
+      },
+      extensions: { fog: { version: 2, data: { generation: 'already-migrated' } } },
+    };
+
+    expect(migrateV3toV4(v3).extensions['fog']).toEqual(v3.extensions?.['fog']);
+  });
+
   it('migrates grid and template elements to extension envelopes', () => {
     const grid: GridElement = {
       id: 'grid-1',
@@ -338,7 +387,7 @@ describe('v3→v4 migration', () => {
   });
 
   it('migrateElementToV4 passes through non-grid/template elements unchanged', () => {
-    const note: WireElement = {
+    const note: WireElementV3 = {
       id: 'note-1',
       type: 'note',
       position: { x: 0, y: 0 },

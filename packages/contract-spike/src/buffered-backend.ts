@@ -1,241 +1,178 @@
 import type { ApplyResult, HubBackend, WireElement, WireSyncOp } from './types';
 
-// ─── Buffer entry types ──────────────────────────────────────────────────────
-
 type BufferEntry = { kind: 'upsert'; element: WireElement } | { kind: 'remove'; id: string };
 
-// ─── BufferedBackend ─────────────────────────────────────────────────────────
+interface RoomState {
+  readonly elements: Map<string, WireElement>;
+  readonly pending: Map<string, BufferEntry>;
+  hydrated: boolean;
+  hydration?: Promise<void>;
+  clearToken?: symbol;
+}
 
+/**
+ * A write-behind HubBackend decorator. Element mutations fan out immediately from
+ * this process and are persisted by flush(); shared plugin state still delegates
+ * synchronously to the inner backend.
+ */
 export class BufferedBackend implements HubBackend {
-  private readonly buffers = new Map<string, BufferEntry[]>();
-  private readonly index = new Map<string, Map<string, WireElement>>();
-  private readonly clearedRooms = new Set<string>();
+  private readonly rooms = new Map<string, RoomState>();
+  readonly sharedAcrossInstances = false;
+  readonly layerRecords?: NonNullable<HubBackend['layerRecords']>;
+  readonly getLayerRecord?: NonNullable<HubBackend['getLayerRecord']>;
+  readonly applyLayerRecord?: NonNullable<HubBackend['applyLayerRecord']>;
+  readonly fogSnapshot?: NonNullable<HubBackend['fogSnapshot']>;
+  readonly applyFogMeta?: NonNullable<HubBackend['applyFogMeta']>;
+  readonly applyFogTile?: NonNullable<HubBackend['applyFogTile']>;
+  readonly applyFogPatch?: NonNullable<HubBackend['applyFogPatch']>;
 
-  constructor(private readonly inner: HubBackend) {}
+  constructor(private readonly inner: HubBackend) {
+    if (inner.layerRecords) this.layerRecords = inner.layerRecords.bind(inner);
+    if (inner.getLayerRecord) this.getLayerRecord = inner.getLayerRecord.bind(inner);
+    if (inner.applyLayerRecord) this.applyLayerRecord = inner.applyLayerRecord.bind(inner);
+    if (inner.fogSnapshot) this.fogSnapshot = inner.fogSnapshot.bind(inner);
+    if (inner.applyFogMeta) this.applyFogMeta = inner.applyFogMeta.bind(inner);
+    if (inner.applyFogTile) this.applyFogTile = inner.applyFogTile.bind(inner);
+    if (inner.applyFogPatch) this.applyFogPatch = inner.applyFogPatch.bind(inner);
+  }
 
   async snapshot(room: string): Promise<WireElement[]> {
-    if (this.clearedRooms.has(room)) {
-      // After clear: return only buffered upserts, not inner contents
-      const buffer = this.buffers.get(room) ?? [];
-      return buffer
-        .filter((e): e is Extract<BufferEntry, { kind: 'upsert' }> => e.kind === 'upsert')
-        .map((e) => e.element);
-    }
-
-    const innerSnapshot = await this.inner.snapshot(room);
-    const buffer = this.buffers.get(room) ?? [];
-    const merged = new Map<string, WireElement>();
-
-    for (const el of innerSnapshot) {
-      merged.set(el.id, el);
-    }
-    for (const entry of buffer) {
-      if (entry.kind === 'upsert') {
-        merged.set(entry.element.id, entry.element);
-      } else {
-        // Tombstone: exclude this ID from the snapshot
-        merged.delete(entry.id);
-      }
-    }
-
-    return [...merged.values()];
+    const state = await this.ensureHydrated(room);
+    return [...state.elements.values()];
   }
 
   async get(room: string, id: string): Promise<WireElement | undefined> {
-    // If room is cleared, only look in buffer
-    if (this.clearedRooms.has(room)) {
-      const roomIndex = this.index.get(room);
-      return roomIndex?.get(id);
-    }
-
-    const roomIndex = this.index.get(room);
-    if (roomIndex) {
-      // Check if this ID has been tombstoned in the buffer
-      const buffer = this.buffers.get(room) ?? [];
-      const hasTombstone = buffer.some((e) => e.kind === 'remove' && e.id === id);
-      if (hasTombstone && !roomIndex.has(id)) {
-        return undefined;
-      }
-      if (roomIndex.has(id)) {
-        return roomIndex.get(id);
-      }
-    }
-    return this.inner.get(room, id);
+    const state = await this.ensureHydrated(room);
+    return state.elements.get(id);
   }
 
   async apply(room: string, op: WireSyncOp): Promise<ApplyResult> {
-    if (op.kind === 'clear' && isBaseElementRoom(room, op)) {
-      this.clearRoom(room);
-      return {
-        accepted: op,
-        corrections: [],
-        locality: 'local',
-      };
-    }
-
-    if (isBaseElementOp(op)) {
-      this.bufferOp(room, op);
-      return {
-        accepted: op,
-        corrections: [],
-        locality: 'local',
-      };
+    if (op.kind === 'upsert' || op.kind === 'remove' || op.kind === 'clear') {
+      const state = await this.ensureHydrated(room);
+      this.bufferElementMutation(state, op);
+      return { accepted: op, corrections: [], locality: 'local' };
     }
 
     return this.inner.apply(room, op);
   }
 
   async flush(room: string): Promise<WireElement[]> {
-    const buffer = this.buffers.get(room) ?? [];
-    const wasCleared = this.clearedRooms.has(room);
+    const state = await this.ensureHydrated(room);
+    const clearToken = state.clearToken;
+    const entries = [...state.pending.entries()];
 
-    // Persist ALL buffered ops to inner FIRST
-    if (wasCleared) {
+    if (clearToken) {
       await this.inner.apply(room, { kind: 'clear' });
     }
+    for (const [, entry] of entries) {
+      await this.inner.apply(
+        room,
+        entry.kind === 'upsert'
+          ? { kind: 'upsert', element: entry.element }
+          : { kind: 'remove', id: entry.id },
+      );
+    }
 
-    for (const entry of buffer) {
-      if (entry.kind === 'upsert') {
-        await this.inner.apply(room, { kind: 'upsert', element: entry.element });
-      } else {
-        await this.inner.apply(room, { kind: 'remove', id: entry.id });
+    // Delete only entries that still match the captured batch. An apply that
+    // races with this flush remains pending for the next flush.
+    if (clearToken && state.clearToken === clearToken) {
+      state.clearToken = undefined;
+    }
+    for (const [id, entry] of entries) {
+      if (state.pending.get(id) === entry) {
+        state.pending.delete(id);
       }
     }
 
-    // Only delete buffers AFTER all persist calls succeed
-    this.buffers.delete(room);
-    this.index.delete(room);
-    this.clearedRooms.delete(room);
-
-    // Return the resulting elements (upserts only)
-    return buffer
-      .filter((e): e is Extract<BufferEntry, { kind: 'upsert' }> => e.kind === 'upsert')
-      .map((e) => e.element);
+    return entries.flatMap(([, entry]) => (entry.kind === 'upsert' ? [entry.element] : []));
   }
 
   async dispose(): Promise<void> {
-    // Flush all pending rooms before disposing
-    const rooms = [...this.buffers.keys()];
-    for (const room of rooms) {
-      try {
-        await this.flush(room);
-      } catch (err) {
-        console.warn(`BufferedBackend: failed to flush room "${room}" during dispose`, err);
-      }
+    for (const room of this.rooms.keys()) {
+      await this.flush(room);
     }
-
-    this.buffers.clear();
-    this.index.clear();
-    this.clearedRooms.clear();
     await this.inner.dispose?.();
+    this.rooms.clear();
   }
 
   getBufferedCount(room: string): number {
-    return this.buffers.get(room)?.length ?? 0;
+    const state = this.rooms.get(room);
+    return (state?.pending.size ?? 0) + (state?.clearToken ? 1 : 0);
   }
 
-  private bufferOp(room: string, op: WireSyncOp): void {
-    if (!this.buffers.has(room)) {
-      this.buffers.set(room, []);
+  private async ensureHydrated(room: string): Promise<RoomState> {
+    let state = this.rooms.get(room);
+    if (!state) {
+      state = { elements: new Map(), pending: new Map(), hydrated: false };
+      this.rooms.set(room, state);
     }
-    if (!this.index.has(room)) {
-      this.index.set(room, new Map());
+    if (state.hydrated) return state;
+
+    state.hydration ??= this.hydrate(room, state);
+    await state.hydration;
+    return state;
+  }
+
+  private async hydrate(room: string, state: RoomState): Promise<void> {
+    try {
+      const persisted = await this.inner.snapshot(room);
+      for (const element of persisted) {
+        if (!state.clearToken && !state.pending.has(element.id)) {
+          state.elements.set(element.id, element);
+        }
+      }
+      state.hydrated = true;
+    } finally {
+      state.hydration = undefined;
     }
+  }
 
-    const buffer = this.buffers.get(room);
-    const roomIndex = this.index.get(room);
-    if (!buffer || !roomIndex) return;
-
+  private bufferElementMutation(
+    state: RoomState,
+    op: Extract<WireSyncOp, { kind: 'upsert' | 'remove' | 'clear' }>,
+  ): void {
+    if (op.kind === 'clear') {
+      state.elements.clear();
+      state.pending.clear();
+      state.clearToken = Symbol('clear');
+      return;
+    }
     if (op.kind === 'upsert') {
-      // Remove any existing entry for this ID, then append
-      const existingIdx = buffer.findIndex(
-        (e) =>
-          (e.kind === 'upsert' && e.element.id === op.element.id) ||
-          (e.kind === 'remove' && e.id === op.element.id),
-      );
-      if (existingIdx >= 0) {
-        buffer.splice(existingIdx, 1);
-      }
-      buffer.push({ kind: 'upsert', element: op.element });
-      roomIndex.set(op.element.id, op.element);
-    } else if (op.kind === 'remove') {
-      // Remove any existing entry for this ID, then add tombstone
-      const existingIdx = buffer.findIndex(
-        (e) =>
-          (e.kind === 'upsert' && e.element.id === op.id) ||
-          (e.kind === 'remove' && e.id === op.id),
-      );
-      if (existingIdx >= 0) {
-        buffer.splice(existingIdx, 1);
-      }
-      buffer.push({ kind: 'remove', id: op.id });
-      roomIndex.delete(op.id);
+      const entry: BufferEntry = { kind: 'upsert', element: op.element };
+      state.elements.set(op.element.id, op.element);
+      state.pending.set(op.element.id, entry);
+      return;
     }
-  }
 
-  private clearRoom(room: string): void {
-    this.clearedRooms.add(room);
-    this.buffers.set(room, []);
-    this.index.set(room, new Map());
+    const entry: BufferEntry = { kind: 'remove', id: op.id };
+    state.elements.delete(op.id);
+    state.pending.set(op.id, entry);
   }
 }
 
-// ─── Op classification ───────────────────────────────────────────────────────
-
-function isBaseElementOp(op: WireSyncOp): boolean {
-  if (op.kind === 'upsert') {
-    const type = op.element.type;
-    return type !== 'grid' && type !== 'template' && type !== 'extension';
-  }
-  if (op.kind === 'remove') {
-    return true;
-  }
-  return false;
-}
-
-/** Clear is room-scoped, not element-type-scoped — always buffer it. */
-function isBaseElementRoom(_room: string, _op: WireSyncOp): boolean {
-  return true;
-}
-
-// ─── In-memory backend (test helper) ─────────────────────────────────────────
-
+/** In-memory backend used by the executable contract tests. */
 export function createMemoryBackend(): HubBackend {
   const store = new Map<string, Map<string, WireElement>>();
 
   return {
-    async snapshot(room: string): Promise<WireElement[]> {
+    async snapshot(room) {
       return [...(store.get(room)?.values() ?? [])];
     },
-
-    async get(room: string, id: string): Promise<WireElement | undefined> {
+    async get(room, id) {
       return store.get(room)?.get(id);
     },
-
-    async apply(room: string, op: WireSyncOp): Promise<ApplyResult> {
-      if (!store.has(room)) {
-        store.set(room, new Map());
+    async apply(room, op) {
+      let roomStore = store.get(room);
+      if (!roomStore) {
+        roomStore = new Map();
+        store.set(room, roomStore);
       }
-      const roomStore = store.get(room);
-      if (!roomStore) return { accepted: null, corrections: [], locality: 'shared' };
-
-      if (op.kind === 'upsert') {
-        roomStore.set(op.element.id, op.element);
-        return { accepted: op, corrections: [], locality: 'shared' };
-      }
-      if (op.kind === 'remove') {
-        roomStore.delete(op.id);
-        return { accepted: op, corrections: [], locality: 'shared' };
-      }
-      if (op.kind === 'clear') {
-        roomStore.clear();
-        return { accepted: op, corrections: [], locality: 'shared' };
-      }
-
-      return { accepted: null, corrections: [], locality: 'shared' };
+      if (op.kind === 'upsert') roomStore.set(op.element.id, op.element);
+      if (op.kind === 'remove') roomStore.delete(op.id);
+      if (op.kind === 'clear') roomStore.clear();
+      return { accepted: op, corrections: [], locality: 'shared' };
     },
-
-    async dispose(): Promise<void> {
+    async dispose() {
       store.clear();
     },
   };

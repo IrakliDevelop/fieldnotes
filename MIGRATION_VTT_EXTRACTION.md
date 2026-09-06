@@ -70,7 +70,12 @@ Each render surface has its own typed hook registry: `ViewportRenderHooks`, `Min
 
 ### ADR-0003: Sync/Server Plugin Ownership → Plugin contracts in existing packages
 
-Client, server, and backend layers all gain plugin registration APIs in their existing packages. VTT exports three plugin factories. Extension ops use typed `TypedExtensionOp<TPayload>` with codec-validated payloads. Backend plugins support middleware composition. `ApplyResult.locality` controls per-operation fanout. `ownedLegacyKinds` declares legacy wire kind ownership during the transition.
+Client, server, and backend layers all gain plugin registration APIs in their existing packages.
+VTT exports three plugin factories. Extension ops use typed `TypedExtensionOp<TPayload>` with
+codec-validated payloads. Server processing composes as authenticated middleware; Redis plugins own
+domain-specific shared state. RollKeeper retains a full write-behind `HubBackend` decorator.
+`ApplyResult.locality` controls per-operation live fanout, and `ownedLegacyKinds` declares legacy
+wire kind ownership during the transition.
 
 ### ADR-0004: Serialization Compatibility → Unified 4-phase rollout
 
@@ -361,6 +366,9 @@ interface PluginHandle {
   exportState?(): unknown;
 }
 
+// A handle that implements loadState() must also implement exportState().
+// loadState(undefined) clears stale state for absent/dropped entries.
+
 // State stored at extensions[plugin.name] — one opaque value per plugin
 // No separate SerializationPlugin — state management is part of the plugin lifecycle
 
@@ -405,7 +413,7 @@ interface ClientSyncPlugin {
 interface ServerSyncPlugin {
   readonly name: string;
   readonly ownedLegacyKinds?: string[]; // e.g., ['fog-meta', 'fog-patch']
-  process?(op: SyncOp, ctx: ServerOpContext): Promise<ApplyResult>;
+  process?(op: SyncOp, ctx: ServerOpContext, next: ServerNext): Promise<ApplyResult>;
   registerExtensionKinds?(registry: ServerExtensionRegistry): void;
   // ServerExtensionRegistry handler receives TypedExtensionOp<TPayload>:
   // handler: (op: TypedExtensionOp<TPayload>, ctx: ServerOpContext) => Promise<ApplyResult>;
@@ -422,11 +430,9 @@ interface ServerSyncPlugin {
 ```typescript
 interface BackendSyncPlugin {
   readonly name: string;
-  readonly sharedAcrossInstances: boolean;
-  keyPrefix: string;
-  scripts?: Record<string, string>;
+  readonly keyPrefix: string;
+  readonly scripts?: Record<string, string>;
   snapshot?(room: string): Promise<PluginSnapshot>;
-  apply?(room: string, op: SyncOp, next: BackendNext): Promise<ApplyResult>;
   registerExtensionKinds?(registry: BackendExtensionRegistry): void;
   // BackendExtensionRegistry handler receives TypedExtensionOp<TPayload>:
   // handler: (op: TypedExtensionOp<TPayload>, ctx: BackendOpContext) => Promise<ApplyResult>;
@@ -434,7 +440,11 @@ interface BackendSyncPlugin {
 }
 ```
 
-> **Note on backend middleware ordering:** Backend plugins compose as middleware — `apply()` receives a `next` callback and may call it to delegate to inner plugins, or return an `ApplyResult` directly to short-circuit. Plugins execute outer-to-inner (registration order). Each plugin owns the ops for its `keyPrefix`; ops not matching any plugin's prefix are rejected. **RollKeeper buffer contract:** base-element ops short-circuit with `{ accepted: op, locality: 'local' }` WITHOUT calling `next()` — they never reach Redis. Fog ops delegate via `next()` to the inner fog backend plugin.
+Backend plugins own domain-specific Redis state and atomic extension handlers. RollKeeper buffering
+is not a backend plugin: it remains a full `HubBackend` decorator around the plugin-capable Redis
+backend. It buffers every element mutation for eventual persistence, while fog/extension authority
+delegates synchronously to Redis. `ApplyResult.locality` controls immediate fanout, not whether an
+operation will ever be durable.
 
 **ApplyResult:**
 
@@ -865,13 +875,17 @@ Phase 4 (v4, extension envelope + version bump):
 ```typescript
 function migrateState(state: CanvasState): CanvasState {
   if (state.version === 3) {
-    const v4 = { ...state, version: 4 };
-    // Migrate legacy fog to extensions — wrapped in PersistedPluginState envelope
-    if (state.fog && !state.extensions?.fog) {
-      v4.extensions = { ...v4.extensions, fog: { version: 1, data: state.fog } };
+    const { fog, ...preserved } = state;
+    const extensions = structuredClone(state.extensions ?? {});
+    if (fog && !extensions.fog) {
+      extensions.fog = { version: 1, data: structuredClone(fog) };
     }
-    delete v4.fog;
-    return v4;
+    return {
+      ...preserved,
+      version: 4,
+      elements: state.elements.map(migrateElementToV4),
+      extensions,
+    };
   }
   return state;
 }
@@ -971,7 +985,8 @@ interface SyncCapabilities {
 // 1. Both peers exchange SyncCapabilities on connection
 // 2. Neither peer sends extension-shaped elements until both have received capabilities
 // 3. Incoming ops are QUEUED (not processed) until handshake completes
-// 4. If handshake fails or times out → connection refused
+// 4. If handshake times out → bounded queue drains through legacy translation
+// 5. A late capability message cannot switch the connection out of chosen legacy mode
 ```
 
 ### Sync Protocol Compatibility
@@ -989,7 +1004,10 @@ During the mixed-version transition window, the sync protocol must handle both l
    - **Additional broadcasts** (`ApplyResult.broadcast`) — plugin-produced ops
    - **Peer-produced snapshots** — server plugin `snapshot()` results
 
-   Each path is translated per-peer using `encodeLegacy()` from the element registry (ADR-0001).
+Each path is translated per-peer using `encodeLegacy()` from the element registry (ADR-0001).
+An unsupported extension op uses its descriptor's legacy adapter, which returns a complete legacy
+`SyncOp`; changing only the payload of a `kind: 'extension'` op is not a translation. If no adapter
+exists, reject explicitly rather than silently dropping the operation.
 
 ---
 
@@ -1068,27 +1086,26 @@ const backend = new RedisHubBackend({
 
 #### Step 4: Migrate RollKeeper Relay
 
-RollKeeper's relay wraps fog backend methods. After extraction, it uses the VTT backend plugin:
+RollKeeper's relay keeps its write-behind behavior as a full backend decorator. The extracted VTT
+fog plugin is installed in the inner Redis backend:
 
 ```typescript
-// Before:
-class RollKeeperBackend implements HubBackend {
-  async applyFogMeta(...) { /* buffered fog logic */ }
-  // ...
-}
-
-// After:
-const backend = new RedisHubBackend({
-  plugins: [
-    createRollKeeperBufferPlugin(), // Outer — intercepts base ops, short-circuits (NO next())
-    createFogBackendPlugin(),       // Inner — persists fog to Redis
-  ],
+const redis = new RedisHubBackend({
+  plugins: [createFogBackendPlugin()],
 });
-
-// Buffer plugin contract:
-// - Base-element ops: return { accepted: op, locality: 'local' } WITHOUT calling next()
-// - Fog ops: delegate via next() → fog plugin persists to Redis → { accepted: op, locality: 'shared' }
+const backend = new RollKeeperBufferedBackend(redis, {
+  flushIntervalMs,
+  roomTtlSeconds,
+  retry,
+  eviction,
+});
 ```
+
+Migration acceptance requires one-time hydration, buffering of all element upserts/removes/clears
+(including extension elements), exact-batch deletion after a successful flush, retention on
+partial failure, safe concurrent apply/flush behavior, TTL refresh, bounded retry/backoff,
+idle-room eviction, and shutdown that rejects without clearing memory when flushing fails. Fog and
+other shared extension operations continue to delegate synchronously.
 
 #### Deployment Order
 
@@ -1141,7 +1158,7 @@ const backend = new RedisHubBackend({
 1. Implement element-type registry (ADR-1 decision)
 2. Implement per-surface render hooks (ADR-2 decision)
 3. Implement point constraint service on ToolContext (ADR-6 decision)
-4. Implement serialization plugin interface with dual-write (ADR-4 decision)
+4. Implement `PluginHandle` state lifecycle and v3 dual-write (ADR-0004/0005; no separate serialization plugin)
 5. Implement client sync plugin interface
 6. Implement server sync plugin interface
 7. Implement backend sync plugin interface
@@ -1176,10 +1193,12 @@ const backend = new RedisHubBackend({
 **Deliverables:**
 
 - VTT features in core use extension points internally
-- No public API changes (backward compatible)
+- Compatibility facade and migration guide for the changed element-query/type surface
+- Coordinated major-version release plan for the public `CanvasElement`/`ElementType` change
 - Extension API validated by real usage
 
-**Risk:** Medium. Internal refactoring, but no public API changes.
+**Risk:** High. Runtime behavior should remain equivalent, but the public element union and typed
+queries change. This phase cannot ship as an internal-only refactor or ordinary minor release.
 
 **Validation:** All existing tests pass. Fog/grid/measure/templates work identically.
 
@@ -1406,9 +1425,9 @@ import { FogManager } from '@fieldnotes/vtt/fog';
 - [ ] **Phase 5:** Verify fog sync (DM fog ops, player view, corrections)
 - [ ] **Phase 5:** Verify fog export (image, SVG, player-mode fog)
 - [ ] **Phase 5:** Verify fog minimap (privacy-aware rendering)
-- [ ] **Phase 5:** Update relay to use VTT fog backend plugin
+- [ ] **Phase 5:** Install VTT fog plugin in Redis; retain RollKeeper `HubBackend` decorator
 - [ ] **Phase 5:** Verify DM-only fog authorization through plugin
-- [ ] **Phase 5:** Verify cost-optimized buffered fog backend still works
+- [ ] **Phase 5:** Verify decorator hydration, all-element flush, retry/TTL/eviction, concurrent writes, and failure-safe shutdown
 - [ ] **Phase 6:** Mixed-version sync test (old client + new client)
 - [ ] **Phase 6:** Production soak (2-4 weeks monitoring)
 
@@ -1504,33 +1523,39 @@ import { FogManager } from '@fieldnotes/vtt/fog';
 
 ### What was proven
 
-| Contract                                     | Proof                                                      | Test file                      |
-| -------------------------------------------- | ---------------------------------------------------------- | ------------------------------ |
-| `WireElement` ≠ `RuntimeElement`             | `'grid'` is not assignable to `RuntimeElement['type']`     | `types.test-d.ts`              |
-| `ServiceKey<T>` genuine invariance           | `ServiceKey<Dog>` not assignable to `ServiceKey<Animal>`   | `types.test-d.ts`              |
-| `ElementTypeKey<T>` function properties      | Avoids bivariant method checking                           | `types.test-d.ts`              |
-| `ExtensionKind<TPayload>` unified descriptor | Single descriptor binds codec + handler at all 3 layers    | `extension-descriptor.test.ts` |
-| v3↔v4 round-trip                             | `parseV3(serializeV3(elements))` preserves data            | `round-trip.test.ts`           |
-| v3→v4 fog migration                          | Produces `{ version: 1, data: fogState }`                  | `round-trip.test.ts`           |
-| Capability handshake                         | Legacy peers get translated format, queues ops until ready | `handshake.test.ts`            |
-| `BufferedBackend` as HubBackend decorator    | Full `snapshot/get/apply/flush` semantics                  | `buffered-backend.test.ts`     |
-| Plugin state lifecycle                       | migrate → validate → commit, exactly one transition        | `plugin-lifecycle.test.ts`     |
-| Constraint proxy gating                      | Inactive proxy returns point unchanged                     | `constraint-proxy.test.ts`     |
+| Contract                                     | Proof                                                    | Test file                      |
+| -------------------------------------------- | -------------------------------------------------------- | ------------------------------ |
+| `WireElement` ≠ `RuntimeElement`             | `'grid'` is not assignable to `RuntimeElement['type']`   | `types.test-d.ts`              |
+| `ServiceKey<T>` genuine invariance           | `ServiceKey<Dog>` not assignable to `ServiceKey<Animal>` | `types.test-d.ts`              |
+| `ElementTypeKey<T>` function properties      | Avoids bivariant method checking                         | `types.test-d.ts`              |
+| `ExtensionKind<TPayload>` unified descriptor | Single descriptor binds codec + handler at all 3 layers  | `extension-descriptor.test.ts` |
+| v3↔v4 round-trip                             | `parseV3(serializeV3(elements))` preserves data          | `round-trip.test.ts`           |
+| v3→v4 state migration                        | Preserves layers/extensions; migrates fog and elements   | `round-trip.test.ts`           |
+| Capability handshake                         | Bounded queue, timeout fallback, complete legacy ops     | `handshake.test.ts`            |
+| `BufferedBackend` as HubBackend decorator    | Hydration, all-element flush, failure/concurrency safety | `buffered-backend.test.ts`     |
+| Plugin state lifecycle                       | Validate-before-mutate; rollback on commit failure       | `plugin-lifecycle.test.ts`     |
+| Constraint proxy gating                      | Inactive proxy returns point unchanged                   | `constraint-proxy.test.ts`     |
 
 ### Key design corrections from spike
 
 1. **WireElement vs RuntimeElement** — separate types enforced at compile time. Wire format (v3) has `type: 'grid'`; runtime uses `ExtensionElementEnvelope`.
 2. **ServiceKey invariance** — uses `(value: T) => T` function property brand, not covariant `{ _in: T; _out: T }`.
 3. **Unified ExtensionKind** — client/server/backend register against one descriptor, not independent string+codec pairs.
-4. **BufferedBackend is a HubBackend decorator** — not an apply()-only plugin. Intercepts `snapshot()`, `get()`, `apply()`, and `flush()`.
-5. **Handshake supports legacy peers** — additive capability exchange, not a hard gate. Legacy clients get legacy wire format.
-6. **loadState ordering** — migrate → validate prepared data → commit OR rollback. Exactly one `discard()` or `resume()` transition.
+4. **BufferedBackend is a HubBackend decorator** — not an apply()-only plugin. It hydrates once,
+   buffers every element kind, deletes only successful captured batches, and retains data on
+   flush/dispose failures and concurrent writes.
+5. **Handshake supports legacy peers** — additive capability exchange with bounded timeout fallback.
+   Legacy translation produces complete legacy ops and rejects missing adapters.
+6. **loadState is transactional** — migrate → validate all → snapshot → commit or restore. Absent
+   and dropped registered state clears via `undefined`; exactly one `discard()` or `resume()` runs.
+7. **Real contract derivation** — the spike derives state, sync-op, and backend deltas from
+   `@fieldnotes/core`, `@fieldnotes/sync`, and `@fieldnotes/sync-server` rather than local copies.
 
 ### Running the spike
 
 ```bash
 pnpm --filter @fieldnotes/contract-spike typecheck  # Compile-time proofs
-pnpm --filter @fieldnotes/contract-spike test       # 39 runtime tests
+pnpm --filter @fieldnotes/contract-spike test       # 61 runtime tests
 ```
 
 ---
@@ -1780,99 +1805,23 @@ new Viewport({ plugins: [fogPlugin] });
 
 ### Sync Plugins (Client, Aligned with ADR-0003)
 
-```typescript
-interface ClientSyncPlugin {
-  readonly name: string;
-  produceOps?(): SyncOp[];
-  handleOp?(op: SyncOp, meta: { sender: string; isLocal: boolean; phase: 'live' | 'reconnect' | 'snapshot' }): void;
-  registerExtensionKinds?(registry: ClientExtensionRegistry): void;
-  extendSnapshot?(snapshot: SyncSnapshot): void;
-  applySnapshot?(snapshot: PluginSnapshot, meta: { phase: 'initial' | 'reconnect' | 'offline-replay' }): void;
-  validateSnapshot?(data: unknown): boolean;
-  migrateSnapshot?(data: unknown, fromVersion: number): unknown;
-  handleCorrection?(op: SyncOp): void;
-}
-
-// Typed extension op — payload validated by codec before handler sees it:
-interface TypedExtensionOp<TPayload> {
-  readonly kind: 'extension';
-  readonly extensionKind: string;
-  readonly payload: TPayload; // Validated — not unknown
-}
-
-// ClientExtensionRegistry handler receives typed payload:
-interface ClientExtensionRegistry {
-  register<TPayload>(config: {
-    extensionKind: string;
-    codec: OpCodec<TPayload>;
-    handler: (op: TypedExtensionOp<TPayload>, meta: { sender: string; isLocal: boolean; phase: 'live' | 'reconnect' | 'snapshot' }) => void;
-  }): void;
-}
-
-syncClient.registerPlugin(plugin: ClientSyncPlugin): () => void;
-```
+Use the canonical `ClientSyncPlugin`, `ExtensionKind<TPayload>`, and
+`ClientExtensionRegistry.register(kind, handler)` contracts in ADR-0003. The same nominal
+descriptor instance binds codec, optional whole-op legacy translation, and typed handlers across
+client, server, and backend registrations.
 
 ### Sync Plugins (Server, Aligned with ADR-0003)
 
-```typescript
-interface ServerSyncPlugin {
-  readonly name: string;
-  readonly ownedLegacyKinds?: string[]; // e.g., ['fog-meta', 'fog-patch']
-  process?(op: SyncOp, ctx: ServerOpContext): Promise<ApplyResult>;
-  registerExtensionKinds?(registry: ServerExtensionRegistry): void;
-  snapshot?(room: string, backend: HubBackend): Promise<PluginSnapshot>;
-  filterSnapshot?(snapshot: PluginSnapshot, viewer: { userId: string; role: string }): PluginSnapshot | null;
-}
-
-// ServerExtensionRegistry handler receives typed payload:
-interface ServerExtensionRegistry {
-  register<TPayload>(config: {
-    extensionKind: string;
-    codec: OpCodec<TPayload>;
-    handler: (op: TypedExtensionOp<TPayload>, ctx: ServerOpContext) => Promise<ApplyResult>;
-  }): void;
-}
-
-syncServer.registerPlugin(plugin: ServerSyncPlugin): () => void;
-```
+Use ADR-0003's canonical `process(op, ctx, next)` contract. Hub-owned authentication, validation,
+and core authorization precede plugin middleware; the owning domain plugin performs any additional
+domain authorization before backend mutation.
 
 ### Sync Plugins (Backend/Redis, Aligned with ADR-0003)
 
-```typescript
-interface BackendSyncPlugin {
-  readonly name: string;
-  readonly sharedAcrossInstances: boolean;
-  keyPrefix: string;
-  scripts?: Record<string, string>;
-  snapshot?(room: string): Promise<PluginSnapshot>;
-  apply?(room: string, op: SyncOp, next: BackendNext): Promise<ApplyResult>;
-  registerExtensionKinds?(registry: BackendExtensionRegistry): void;
-  dispose?(): void;
-}
-
-// BackendExtensionRegistry handler receives typed payload:
-interface BackendExtensionRegistry {
-  register<TPayload>(config: {
-    extensionKind: string;
-    codec: OpCodec<TPayload>;
-    handler: (op: TypedExtensionOp<TPayload>, ctx: BackendOpContext) => Promise<ApplyResult>;
-  }): void;
-}
-
-// ApplyResult includes locality:
-interface ApplyResult {
-  accepted: SyncOp | null;
-  corrections: SyncOp[];
-  broadcast?: SyncOp[];
-  locality?: 'shared' | 'local'; // Default: 'shared'
-}
-
-// RollKeeper buffer contract:
-// Base ops: return { accepted: op, locality: 'local' } WITHOUT calling next()
-// Fog ops: delegate via next() → inner plugin → { accepted: op, locality: 'shared' }
-
-redisBackend.registerPlugin(plugin: BackendSyncPlugin): () => void;
-```
+Use ADR-0003's canonical Redis plugin contract for domain-owned keys, scripts, snapshots, and typed
+extension handlers. RollKeeper's write-behind layer is a full `HubBackend` decorator, not an
+apply-only Redis plugin. `locality` describes immediate fanout; buffered element operations remain
+eventually durable.
 
 ### PluginSnapshot and PersistedPluginState Envelopes
 
@@ -1952,7 +1901,8 @@ export const GridControllerKey = createServiceKey<GridController>('grid');
 
 ---
 
-_This is a living document. Updated 2026-09-06 with sixth ADR review alignment (11 findings addressed across all ADRs and migration doc). Update as the migration progresses._
+_This is a living document. Updated 2026-09-06 after executable-contract and RollKeeper migration
+review. Update it as the migration progresses._
 
 ---
 
@@ -1960,16 +1910,16 @@ _This is a living document. Updated 2026-09-06 with sixth ADR review alignment (
 
 This revision addresses 11 findings (10 P1 + 1 P2) from the sixth Codex review:
 
-| #   | Severity | Finding                                              | Resolution                                                                                                                                                                               |
-| --- | -------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | P1       | ElementTypeKey type safety — getKey\<T\>() is unsafe | Removed getKey\<T\>() from registry. Consumers retain typed keys from register(). Added matches() for checked unwrap. See ADR-0001.                                                      |
-| 2   | P1       | Legacy element conversion has no codec               | Added legacyTypes, decodeLegacy, encodeLegacy to ElementTypeDefinition. Registry provides getAdapterByLegacyType(). See ADR-0001.                                                        |
-| 3   | P1       | Extension-op handlers receive untyped payloads       | Handlers now receive TypedExtensionOp\<TPayload\> with codec-validated payloads. Backend gains registerExtensionKinds(). See ADR-0003.                                                   |
-| 4   | P1       | RollKeeper buffer sends base ops to Redis            | Base ops short-circuit with locality: 'local' WITHOUT calling next(). Fog ops delegate via next(). See ADR-0003.                                                                         |
-| 5   | P1       | Capability translation misses snapshots              | Translation now covers ALL outbound paths (snapshots, upserts, corrections, broadcasts). Handshake gates processing until capabilities known. See ADR-0004.                              |
-| 6   | P1       | Failed loadState exposes partial state               | Rollback happens while notifications remain suspended. resume()/discard() controller. No intermediate state observable. See ADR-0005.                                                    |
-| 7   | P1       | Constraint public type missing activation API        | Introduced ConstraintServiceAccess (public, includes activation) vs PointConstraintService (implementation, no activation). See ADR-0006.                                                |
-| 8   | P1       | ServiceKey not as type-safe as claimed               | Added invariant brand, NoInfer\<T\> on registration, symbol-based runtime identity. See ADR-0005.                                                                                        |
-| 9   | P1       | Persisted plugin state has no versioning             | Added PersistedPluginState envelope, migrateState() hook, unknown-plugin preservation policy. See ADR-0005.                                                                              |
-| 10  | P1       | Migration plan out of sync with ADRs                 | Replaced "Open Decisions" with finalized ADR summaries. Fixed render contract (no SVGDocument). Fixed Phase 6 ordering (v4 bump before legacy removal). Aligned all appendix references. |
-| 11  | P2       | Constructor abort cleanup incomplete                 | Added abort transaction covering DOM, listeners, ResizeObserver, animation frames. See ADR-0005.                                                                                         |
+| #   | Severity | Finding                                               | Resolution                                                                                                                                                                               |
+| --- | -------- | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | P1       | ElementTypeKey type safety — getKey\<T\>() is unsafe  | Removed getKey\<T\>() from registry. Consumers retain typed keys from register(). Added matches() for checked unwrap. See ADR-0001.                                                      |
+| 2   | P1       | Legacy element conversion has no codec                | Added legacyTypes, decodeLegacy, encodeLegacy to ElementTypeDefinition. Registry provides getAdapterByLegacyType(). See ADR-0001.                                                        |
+| 3   | P1       | Extension-op handlers receive untyped payloads        | Handlers now receive TypedExtensionOp\<TPayload\> with codec-validated payloads. Backend gains registerExtensionKinds(). See ADR-0003.                                                   |
+| 4   | P1       | RollKeeper backend model was internally contradictory | Model buffering as a full `HubBackend` decorator. All element ops eventually flush; locality controls live fanout. Fog delegates synchronously. See ADR-0003.                            |
+| 5   | P1       | Capability translation misses snapshots               | Translation now covers ALL outbound paths (snapshots, upserts, corrections, broadcasts). Handshake gates processing until capabilities known. See ADR-0004.                              |
+| 6   | P1       | Failed loadState exposes partial state                | Rollback happens while notifications remain suspended. resume()/discard() controller. No intermediate state observable. See ADR-0005.                                                    |
+| 7   | P1       | Constraint public type missing activation API         | Introduced ConstraintServiceAccess (public, includes activation) vs PointConstraintService (implementation, no activation). See ADR-0006.                                                |
+| 8   | P1       | ServiceKey not as type-safe as claimed                | Added invariant brand, NoInfer\<T\> on registration, symbol-based runtime identity. See ADR-0005.                                                                                        |
+| 9   | P1       | Persisted plugin state has no versioning              | Added PersistedPluginState envelope, migrateState() hook, unknown-plugin preservation policy. See ADR-0005.                                                                              |
+| 10  | P1       | Migration plan out of sync with ADRs                  | Replaced "Open Decisions" with finalized ADR summaries. Fixed render contract (no SVGDocument). Fixed Phase 6 ordering (v4 bump before legacy removal). Aligned all appendix references. |
+| 11  | P2       | Constructor abort cleanup incomplete                  | Added abort transaction covering DOM, listeners, ResizeObserver, animation frames. See ADR-0005.                                                                                         |

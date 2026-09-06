@@ -1,10 +1,27 @@
 // ─── Imports from @fieldnotes/core (F1: spike validates against real types) ──
-import type { CanvasElement, GridElement, TemplateElement } from '@fieldnotes/core';
-export type { BaseElement, Point, Size, Bounds } from '@fieldnotes/core';
-import type { BaseElement, Point, Bounds } from '@fieldnotes/core';
+import type {
+  Bounds,
+  CanvasElement,
+  CanvasState as CurrentCanvasState,
+  GridElement,
+  Point,
+  TemplateElement,
+} from '@fieldnotes/core';
+import type { SyncOp } from '@fieldnotes/sync';
+import type { HubBackend as CurrentHubBackend } from '@fieldnotes/sync-server';
+export type { Point, Size, Bounds } from '@fieldnotes/core';
 
 // Re-export core types used throughout the spike
 export type { CanvasElement, GridElement, TemplateElement } from '@fieldnotes/core';
+
+/** Common element fields, derived without making core's internal base interface public. */
+export type BaseElement = Omit<
+  Pick<
+    CanvasElement,
+    'id' | 'type' | 'position' | 'zIndex' | 'locked' | 'layerId' | 'groupId' | 'rotation'
+  >,
+  'type'
+> & { type: string };
 
 // ─── Extension element envelope (core-owned, type-erased) ────────────────────
 
@@ -28,12 +45,12 @@ export type RuntimeElement = CoreElement | ExtensionElementEnvelope;
 
 // ─── Wire element types — versioned (F4) ─────────────────────────────────────
 // V3 wire format: real CanvasElement (includes grid/template as distinct types).
-// V4 wire format: CanvasElement | ExtensionElementEnvelope (extensions use envelopes).
+// V4 wire format: extracted core elements are no longer legal on the wire.
 // migrateV3toV4() converts grid/template elements → ExtensionElementEnvelope.
 
 export type WireElementV3 = CanvasElement;
 
-export type WireElementV4 = CanvasElement | ExtensionElementEnvelope;
+export type WireElementV4 = CoreElement | ExtensionElementEnvelope;
 
 export type WireElement = WireElementV3 | WireElementV4;
 
@@ -41,17 +58,25 @@ export type WireElement = WireElementV3 | WireElementV4;
 // Supports both v3 (CanvasElement) and v4 (envelope) wire formats.
 // Corrections reuse ordinary op kinds (no separate 'correction' kind).
 
-export type WireSyncOp =
-  | { kind: 'upsert'; element: WireElement }
-  | { kind: 'remove'; id: string }
-  | { kind: 'clear' }
-  | { kind: 'snapshot'; to: string; elements: WireElement[] }
-  | { kind: 'request-snapshot' }
-  | { kind: 'presence'; data: unknown }
-  | { kind: 'presence-leave' }
-  | { kind: 'fog-meta'; record: unknown }
-  | { kind: 'fog-patch'; tiles: unknown[] }
-  | WireExtensionOp;
+type ElementlessSyncOp = Exclude<SyncOp, { kind: 'upsert' } | { kind: 'snapshot' }>;
+type CurrentSnapshotOp = Extract<SyncOp, { kind: 'snapshot' }>;
+
+type VersionedElementOps<TElement> =
+  | { kind: 'upsert'; element: TElement }
+  | {
+      kind: 'snapshot';
+      to: string;
+      elements: TElement[];
+      layers?: CurrentSnapshotOp['layers'];
+      fog?: CurrentSnapshotOp['fog'];
+    };
+
+export type WireSyncOpV3 = ElementlessSyncOp | VersionedElementOps<WireElementV3>;
+
+export type WireSyncOpV4 = ElementlessSyncOp | VersionedElementOps<WireElementV4> | WireExtensionOp;
+
+/** Transitional in-memory union; persistence and negotiated transports use V3 or V4 explicitly. */
+export type WireSyncOp = ElementlessSyncOp | VersionedElementOps<WireElement> | WireExtensionOp;
 
 // ─── Extension ops ───────────────────────────────────────────────────────────
 
@@ -81,24 +106,22 @@ export interface OpCodec<TPayload> {
 export interface ExtensionKind<TPayload> {
   readonly extensionKind: string;
   readonly codec: OpCodec<TPayload>;
-  readonly legacyKinds: string[];
-  readonly toLegacyWire?: (payload: TPayload) => unknown;
-  readonly fromLegacyWire?: (legacyPayload: unknown) => TPayload;
+  readonly legacy?: {
+    readonly kinds: readonly WireSyncOpV3['kind'][];
+    readonly encode: (payload: TPayload) => WireSyncOpV3;
+    readonly decode: (op: WireSyncOpV3) => TPayload | null;
+  };
 }
 
 export function createExtensionKind<TPayload>(config: {
   extensionKind: string;
   codec: OpCodec<TPayload>;
-  legacyKinds?: string[];
-  toLegacyWire?: (payload: TPayload) => unknown;
-  fromLegacyWire?: (legacyPayload: unknown) => TPayload;
+  legacy?: ExtensionKind<TPayload>['legacy'];
 }): ExtensionKind<TPayload> {
   return {
     extensionKind: config.extensionKind,
     codec: config.codec,
-    legacyKinds: config.legacyKinds ?? [],
-    toLegacyWire: config.toLegacyWire,
-    fromLegacyWire: config.fromLegacyWire,
+    legacy: config.legacy,
   };
 }
 
@@ -220,7 +243,7 @@ export interface ApplyResult {
 
 // ─── HubBackend — full decorator interface (F3) ──────────────────────────────
 
-export interface HubBackend {
+export interface HubBackend extends Omit<CurrentHubBackend, 'snapshot' | 'get' | 'apply'> {
   snapshot(room: string): Promise<WireElement[]>;
   get(room: string, id: string): Promise<WireElement | undefined>;
   apply(room: string, op: WireSyncOp): Promise<ApplyResult>;
@@ -241,19 +264,21 @@ export interface PluginHandle {
 
 // ─── Canvas state — versioned ────────────────────────────────────────────────
 
-export interface CanvasStateV3 {
+type CanvasStateCommon = Pick<CurrentCanvasState, 'camera' | 'layers' | 'activeLayerId'>;
+
+export type CanvasStateV3 = CanvasStateCommon & {
   version: 3;
-  camera: { position: Point; zoom: number };
   elements: WireElementV3[];
   fog?: FogStateV1;
-}
+  /** Forward-compatible plugin data written by a migration-aware v3 host. */
+  extensions?: Record<string, PersistedPluginState>;
+};
 
-export interface CanvasStateV4 {
+export type CanvasStateV4 = CanvasStateCommon & {
   version: 4;
-  camera: { position: Point; zoom: number };
   elements: WireElementV4[];
   extensions: Record<string, PersistedPluginState>;
-}
+};
 
 export type CanvasState = CanvasStateV3 | CanvasStateV4;
 

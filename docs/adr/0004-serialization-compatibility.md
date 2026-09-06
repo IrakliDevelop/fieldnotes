@@ -84,9 +84,13 @@ Keep `CURRENT_VERSION = 3`. Add `ElementRegistry` and `ExtensionElementEnvelope`
 **Write:** `version: 3`. Both `fog` (legacy) and `extensions.fog` (new) are written. Extension elements NOT used — all elements use current wire format.
 **Read:** `extensions.fog` first, fall back to `fog`. Extension elements not present.
 
-### Phase 2: Internal refactor — envelope in memory, legacy on wire (v3)
+### Phase 2: Public model transition — envelope in memory, legacy on wire (v3)
 
 Introduce the in-memory `ExtensionElementEnvelope` in `ElementStore`. Grid and template elements are stored as envelopes in memory but retain their legacy wire shape (`type: 'grid'`, `type: 'template'`). The serializer converts between the two forms.
+
+This preserves serialized compatibility but changes the public runtime element union and typed
+store queries. It therefore ships with the Phase 2 compatibility facade, migration guide, and
+major package version described by ADR-0001; it is not an internal-only refactor.
 
 **Write:** `version: 3`. Legacy wire format for all elements. Dual-write fog.
 **Read:** Legacy wire format. Serializer wraps into envelope for ElementStore.
@@ -108,12 +112,17 @@ Coordinated with ADR-0001 Phase 4. Extension elements use `type: 'extension'` en
 ```typescript
 function migrateState(state: CanvasState): CanvasState {
   if (state.version === 3) {
-    const v4 = { ...state, version: 4 };
-    if (state.fog && !state.extensions?.fog) {
-      v4.extensions = { ...v4.extensions, fog: { version: 1, data: state.fog } };
+    const { fog, ...preserved } = state;
+    const extensions = structuredClone(state.extensions ?? {});
+    if (fog && !extensions.fog) {
+      extensions.fog = { version: 1, data: structuredClone(fog) };
     }
-    delete v4.fog;
-    return v4;
+    return {
+      ...preserved, // camera, layers, activeLayerId, and future additive fields survive
+      version: 4,
+      elements: state.elements.map(migrateElementToV4),
+      extensions,
+    };
   }
   return state;
 }
@@ -206,7 +215,7 @@ interface SyncCapabilities {
 }
 ```
 
-On sync connection, both peers exchange capabilities. If both support `elementEnvelope: true`, extension elements can flow through sync ops. If one doesn't, the capable peer must translate extension elements to legacy format (or drop them if no legacy equivalent exists).
+On sync connection, both peers exchange capabilities. If both support `elementEnvelope: true`, extension elements can flow through sync ops. If one doesn't, the capable peer must translate extension elements to legacy format. If no lossless legacy representation exists, the outbound operation is rejected explicitly; it is never silently dropped.
 
 This ensures capability negotiation precedes any extension-shaped element on the wire. The v4 bump and capability exchange are simultaneous — no window where extension elements can arrive before the peer is ready.
 
@@ -235,13 +244,16 @@ Each path is translated per-peer based on that peer's capabilities. A peer witho
 ```typescript
 // Translation covers ALL outbound paths — not just individual ops
 function translateForPeer(
-  op: SyncOp,
+  op: WireSyncOpV4,
   peerCapabilities: SyncCapabilities,
   registry: ElementRegistry,
-): SyncOp | null {
-  // Extension ops: drop if peer doesn't support this extension kind
+  extensionKinds: ExtensionKindRegistry,
+): WireSyncOpV3 | WireSyncOpV4 {
+  // The adapter returns a complete legacy op, not an extension op with changed payload.
   if (op.kind === 'extension' && !peerCapabilities.extensionKinds.includes(op.extensionKind)) {
-    return null;
+    const adapter = extensionKinds.get(op.extensionKind)?.legacy;
+    if (!adapter) throw new Error(`No legacy translation for ${op.extensionKind}`);
+    return adapter.encode(op.payload);
   }
 
   // Upserts containing extension elements: translate to legacy if peer lacks envelope support
@@ -266,13 +278,16 @@ Snapshot translation detail: A `snapshot` op carries `elements: CanvasElement[]`
 
 #### WireSyncOp — separate from runtime SyncOp
 
-Sync ops on the wire carry `WireElement` (which can have `type: 'grid'`), not `RuntimeElement` (which uses `ExtensionElementEnvelope`). This separation is enforced at the type level:
+Sync ops on the wire are versioned separately from `RuntimeElement`. V3 admits the legacy
+`CanvasElement` union; V4 admits only remaining core elements plus
+`ExtensionElementEnvelope`. This prevents a v4 writer from accidentally emitting extracted
+`grid` or `template` shapes.
 
 ```typescript
-type WireSyncOp =
-  | { kind: 'upsert'; element: WireElement }
-  | { kind: 'snapshot'; to: string; elements: WireElement[] }
-  | ...
+type WireElementV3 = CanvasElement;
+type WireElementV4 = CoreElement | ExtensionElementEnvelope;
+type WireSyncOpV3 = NonElementSyncOp | ElementOps<WireElementV3>;
+type WireSyncOpV4 = NonElementSyncOp | ElementOps<WireElementV4> | ExtensionOp;
 ```
 
 Translation between `WireSyncOp` and runtime ops happens at the transport boundary.
@@ -288,10 +303,13 @@ Translation between `WireSyncOp` and runtime ops happens at the transport bounda
 
 These contracts were proven in `packages/contract-spike`:
 
-- v3→v4 migration produces `{ version: 1, data: fogState }` — not raw fogState
-- `CapabilityHandshake` queues ops until both sides exchange, drains on completion
+- v3→v4 migration preserves camera, layers, active layer, existing extension state, and converts
+  grid/template elements while wrapping legacy fog only when needed
+- `CapabilityHandshake` has a bounded queue, drains it on timeout fallback, and ignores late
+  capabilities after choosing legacy mode
 - `translateForPeer` covers all outbound paths: upserts, snapshots, extension ops
-- Legacy peers receive translated wire format; v4 peers receive envelopes
+- Legacy peers receive complete legacy ops and translated elements; missing adapters reject
+  explicitly; v4 peers receive envelopes
 - Round-trip tests confirm data preservation through serialize→parse cycle
 
 ## Options Considered
@@ -312,7 +330,10 @@ Clients negotiate supported versions on sync connection. Mixed-version rooms use
 **Pros:** Most flexible. Supports arbitrary version combinations.
 **Cons:** Significant complexity. Requires a negotiation protocol. RollKeeper's relay must implement negotiation. Over-engineered for a 2-version transition.
 
-**Why rejected:** Overkill. We're transitioning from v3 to v4 — two versions. A negotiation protocol is warranted for many versions but not for one. The dual-write approach handles the transition simply. Capability negotiation can be introduced later if the version count grows.
+**Why rejected as the persisted-state rollout mechanism:** Negotiation cannot make a v3 reader
+understand a v4 file, so dual-write plus the version boundary remains the persistence decision.
+Capability negotiation is nevertheless required for the independent live sync transport at Phase
+4, as specified above.
 
 ## Consequences
 

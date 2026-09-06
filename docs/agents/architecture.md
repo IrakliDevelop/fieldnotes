@@ -2,17 +2,18 @@
 
 ## Workspace ownership
 
-| Path                                               | Responsibility                                                  | Primary verification                                     |
-| -------------------------------------------------- | --------------------------------------------------------------- | -------------------------------------------------------- |
-| `packages/core` (`@fieldnotes/core`)               | Framework-free canvas engine, public model, browser interaction | core tests/build; e2e for browser behavior               |
-| `packages/react` (`@fieldnotes/react`)             | Thin React lifecycle, context, and components over core         | react tests/build; core build when consumed API changes  |
-| `packages/sync` (`@fieldnotes/sync`)               | Transport-neutral client, wire protocol, browser transports     | sync tests/build; protocol compatibility tests           |
-| `packages/sync-server` (`@fieldnotes/sync-server`) | Authoritative relay, auth, authorization, heartbeat             | server tests/build; sync tests for shared contracts      |
-| `packages/sync-redis` (`@fieldnotes/sync-redis`)   | Redis persistence and cross-instance fan-out                    | redis tests/build; integration environment when required |
-| `demo`                                             | Manual vanilla playground                                       | demo build and focused smoke test                        |
-| `examples/react-app`                               | React integration example                                       | example build                                            |
-| `examples/live-play`                               | Collaboration reference app                                     | example tests/build                                      |
-| `website`                                          | Project website                                                 | website build                                            |
+| Path                                                     | Responsibility                                                  | Primary verification                                      |
+| -------------------------------------------------------- | --------------------------------------------------------------- | --------------------------------------------------------- |
+| `packages/core` (`@fieldnotes/core`)                     | Framework-free canvas engine, public model, browser interaction | core tests/build; e2e for browser behavior                |
+| `packages/react` (`@fieldnotes/react`)                   | Thin React lifecycle, context, and components over core         | react tests/build; core build when consumed API changes   |
+| `packages/sync` (`@fieldnotes/sync`)                     | Transport-neutral client, wire protocol, browser transports     | sync tests/build; protocol compatibility tests            |
+| `packages/sync-server` (`@fieldnotes/sync-server`)       | Authoritative relay, auth, authorization, heartbeat             | server tests/build; sync tests for shared contracts       |
+| `packages/sync-redis` (`@fieldnotes/sync-redis`)         | Redis persistence and cross-instance fan-out                    | redis tests/build; integration environment when required  |
+| `packages/contract-spike` (`@fieldnotes/contract-spike`) | Private executable proof for proposed cross-package contracts   | spike typecheck/tests; not a published runtime dependency |
+| `demo`                                                   | Manual vanilla playground                                       | demo build and focused smoke test                         |
+| `examples/react-app`                                     | React integration example                                       | example build                                             |
+| `examples/live-play`                                     | Collaboration reference app                                     | example tests/build                                       |
+| `website`                                                | Project website                                                 | website build                                             |
 
 Dependencies flow from wrappers and adapters toward contracts: React and sync depend on core; server
 depends on sync; Redis depends on sync and implements server integration contracts. Do not introduce

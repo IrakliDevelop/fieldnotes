@@ -8,13 +8,14 @@ import type {
   FogStateV1,
   PersistedPluginState,
   RuntimeElement,
-  WireElement,
+  WireElementV3,
+  WireElementV4,
 } from './types';
 
-export function serializeRuntimeToWire(
+export function serializeRuntimeToWireV3(
   elements: RuntimeElement[],
   registry: ElementRegistry,
-): WireElement[] {
+): WireElementV3[] {
   return elements.map((el) => {
     if (el.type !== 'extension') return el;
     const adapter = registry.getAdapter(el.extensionType);
@@ -26,12 +27,12 @@ export function serializeRuntimeToWire(
     if (!legacyType) {
       throw new Error(`No legacy type for extension type "${el.extensionType}"`);
     }
-    return { ...el, ...legacyFields, type: legacyType } as WireElement;
+    return { ...el, ...legacyFields, type: legacyType } as unknown as WireElementV3;
   });
 }
 
 export function parseWireToRuntime(
-  wireElements: WireElement[],
+  wireElements: readonly (WireElementV3 | WireElementV4)[],
   registry: ElementRegistry,
 ): RuntimeElement[] {
   return wireElements.map((el) => {
@@ -101,18 +102,20 @@ function templateToEnvelope(el: TemplateElement): ExtensionElementEnvelope {
   };
 }
 
-export function migrateElementToV4(el: WireElement): WireElement {
-  if (el.type === 'grid') return gridToEnvelope(el as GridElement);
-  if (el.type === 'template') return templateToEnvelope(el as TemplateElement);
+export function migrateElementToV4(el: WireElementV3): WireElementV4 {
+  if (el.type === 'grid') return gridToEnvelope(el);
+  if (el.type === 'template') return templateToEnvelope(el);
   return el;
 }
 
 // ─── State migration ─────────────────────────────────────────────────────────
 
 export function migrateV3toV4(state: CanvasStateV3): CanvasStateV4 {
-  const extensions: Record<string, PersistedPluginState> = {};
+  const extensions: Record<string, PersistedPluginState> = structuredClone(
+    state.extensions ?? {},
+  ) as Record<string, PersistedPluginState>;
 
-  if (state.fog) {
+  if (state.fog && !extensions['fog']) {
     extensions['fog'] = {
       version: 1,
       data: structuredClone(state.fog) as FogStateV1,
@@ -121,10 +124,16 @@ export function migrateV3toV4(state: CanvasStateV3): CanvasStateV4 {
 
   const v4: CanvasStateV4 = {
     version: 4,
-    camera: { ...state.camera },
+    camera: structuredClone(state.camera) as CanvasStateV4['camera'],
     elements: state.elements.map(migrateElementToV4),
     extensions,
   };
+  if (state.layers) {
+    v4.layers = structuredClone(state.layers) as NonNullable<CanvasStateV4['layers']>;
+  }
+  if (state.activeLayerId !== undefined) {
+    v4.activeLayerId = state.activeLayerId;
+  }
 
   return v4;
 }
@@ -135,6 +144,6 @@ export function migrateState(state: CanvasState): CanvasStateV4 {
 }
 
 export function roundTrip(elements: RuntimeElement[], registry: ElementRegistry): RuntimeElement[] {
-  const wire = serializeRuntimeToWire(elements, registry);
+  const wire = serializeRuntimeToWireV3(elements, registry);
   return parseWireToRuntime(wire, registry);
 }

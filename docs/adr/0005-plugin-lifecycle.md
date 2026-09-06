@@ -166,6 +166,11 @@ interface PluginStartContext {
 }
 ```
 
+**Rollback invariant:** a handle that implements `loadState()` MUST also implement `exportState()`.
+The viewport captures that exported value before commit and uses it for rollback. `loadState()` is
+restricted to reversible in-memory/plugin-owned state changes; network requests, timers, and other
+irreversible effects belong in `start()` or after a successful load notification.
+
 State management methods (`validateState`, `loadState`, `exportState`) live on `PluginHandle`, not on the shared `ViewportPlugin` definition. State is per-viewport instance. The shared plugin definition is stateless and reusable. Moving state methods to `PluginHandle` ensures each viewport instance manages its own state independently.
 
 Key design points:
@@ -404,11 +409,21 @@ Since each plugin's state is stored at `extensions[plugin.name]`, collisions are
 
 **Unknown-plugin policy:** When loading state, if `extensions[pluginName]` exists but no plugin with that name is registered, the entry is **preserved as-is** in the persisted state. It is not modified, not dropped, and not migrated. On re-export, the unknown entry is written back unchanged. This ensures that uninstalling and reinstalling a plugin does not lose its persisted state.
 
-When loading state, if a plugin IS registered but its `stateVersion` differs from the persisted `version`, the plugin's `migrateState()` is called to upgrade the data. If `migrateState()` is not provided or throws, the plugin's state entry is dropped and a warning is logged.
+When loading state, if a plugin IS registered but its `stateVersion` differs from the persisted
+`version`, the plugin's `migrateState()` is called to upgrade the data. If `migrateState()` is not
+provided or throws, that entry is dropped, a warning is logged, and `loadState(undefined)` clears
+any stale in-memory state. A registered plugin absent from the incoming document likewise receives
+`undefined`. Unknown, unregistered entries remain preserved byte-for-byte.
 
 ### Four-phase loadState ordering
 
-State loading uses a prepare-validate-commit-rollback pattern. Phase 1 migrates old data BEFORE validation. Phase 2 validates the prepared (migrated) data. Phase 3 commits only if all validations pass — the viewport suspends ALL observer notifications across all subsystems via a viewport-wide event barrier, applies mutations, then resumes notifications flushing batched events. Phase 4 rolls back on validation failure with exactly one `discard()` transition. All observers see the complete new state, not intermediate mutations.
+State loading uses a prepare-validate-commit-rollback pattern. Phase 1 migrates old data BEFORE
+validation and captures rollback snapshots. Phase 2 validates every prepared slice before any
+mutation. Phase 3 commits only if all validations pass while a viewport-wide event barrier
+suspends ALL observer notifications. Phase 4 handles either validation or commit failure with
+exactly one `discard()` transition; commit failures restore every attempted subsystem and plugin
+from its captured snapshot before discarding notifications. All observers see either the complete
+new state or the unchanged old state.
 
 ```typescript
 interface Viewport {
@@ -425,12 +440,12 @@ interface NotificationController {
 }
 ```
 
-While the notification barrier prevents observable partial state for autosave, sync, and other event consumers, some effects cannot be fully retracted if a `loadState()` call throws during Phase 3 (Commit):
-
-- DOM mutations may have already occurred during the apply phase.
-- Plugin `loadState()` may have side effects that cannot be undone (e.g., network requests, timers).
-
-The rollback is best-effort for these non-observable side effects. The key invariant is: **no event consumer (autosave, sync, store subscribers) ever observes partial state.** Validation failures (Phase 2) require no rollback — no mutations have occurred yet, and `discard()` re-enables notifications with a single transition.
+The transaction includes elements, layers, active layer, HTML content, plugin state, history, and
+camera. Core subsystems already have snapshot/restore paths. Stateful plugins participate by
+providing `exportState()` whenever they provide `loadState()`. A handle that cannot supply rollback
+state fails preparation before mutations begin. The key invariant is: **no event consumer
+(autosave, sync, store subscribers) observes partial state, and no committed in-memory state remains
+partially updated after an error.**
 
 ```
 loadState() order (revised):
@@ -440,39 +455,46 @@ Phase 1: Prepare — for each plugin with version mismatch, call migrateState()
      - Call handle.migrateState?(data, fromVersion) to upgrade the data
      - If migrateState() is not provided or throws → the plugin's state entry is dropped,
        a warning is logged, and the plugin loads with no state
+     - If the entry is absent → prepare undefined so stale plugin state is cleared
+  2. Capture core state and handle.exportState() for every plugin with loadState()
+     - A stateful handle without exportState() aborts before mutation
 
-Phase 2: Validate — for each plugin, call validateState() on the PREPARED (migrated) data
-  2. For each plugin: handle.validateState?(preparedData)
+Phase 2: Validate — validate each non-undefined PREPARED (migrated) data slice
+  3. For each plugin with prepared data: handle.validateState?(preparedData)
      - Validation runs on the MIGRATED data, not the raw persisted data
+     - Missing/dropped entries are legitimate empty state and skip validation
      - If any throws → entire load aborted, no partial mutations
 
 Phase 3: Commit — if all validations pass, call loadState() on each plugin, then resume()
-  3. Call viewport.suspendNotifications() — this suspends:
+  4. Call viewport.suspendNotifications() — this suspends:
      - Store change notifications (add/remove/update/clear)
      - Layer manager change notifications
      - Camera change notifications
      - History change notifications
      - Plugin state change notifications
      All observers are queued but not fired.
-  4. Elements loaded
-  5. Layers loaded
-  6. Active layer set
-  7. HTML content reattached
-  8. Plugin handle.loadState() called (with prepared/migrated data)
-  9. History cleared
-  10. Camera restored
-  11. Call resume() — this flushes batched notifications:
+  5. Elements loaded
+  6. Layers loaded
+  7. Active layer set
+  8. HTML content reattached
+  9. Plugin handle.loadState() called (with prepared/migrated data or undefined)
+  10. History cleared
+  11. Camera restored
+  12. Call resume() — this flushes batched notifications:
       - Single batched store notification covering all element changes
       - Single layer manager notification
       - Single camera notification
       - Single history notification
       Observers see the complete new state, not intermediate mutations.
 
-Phase 4: Rollback — if any validation fails, discard() (exactly one transition)
+Phase 4: Abort or rollback — discard() exactly once
   If any step in Phase 2 throws:
   - Call discard() — exactly one transition: re-enables notifications with no queued events
-  - There is no double-transition (discard + resume)
   - No loadState() was called, so no snapshot/restore is needed
+  If any step in Phase 3 throws:
+  - Keep notifications suspended
+  - Restore every attempted core subsystem and plugin in reverse order
+  - Call discard() exactly once; never call resume()
 ```
 
 Old data is migrated BEFORE validation, not after. Validation runs on the migrated data. On failure, exactly one transition occurs: `discard()` re-enables notifications. There is no double-transition (discard + resume).
@@ -483,9 +505,12 @@ These contracts were proven in `packages/contract-spike`:
 
 - `ServiceKey<T>` invariance: type tests confirm `ServiceKey<Dog>` is not assignable to `ServiceKey<Animal>`
 - `PluginStateManager.loadState()`: migrate → validate → commit ordering confirmed by runtime tests
-- Missing migration for version mismatch fails before validation
+- Missing/failed migration drops only that entry and loads the registered plugin with undefined
 - Validation failure after migration triggers exactly one `discard()` transition
 - Unknown plugin entries are preserved as-is
+- Absent registered plugin entries clear stale state
+- Commit failure restores all attempted plugin states and triggers exactly one `discard()`
+- Stateful handles without `exportState()` are rejected before mutation
 
 ## Options Considered
 
@@ -539,7 +564,9 @@ await viewport.initialize({ plugins: [fogPlugin, gridPlugin] });
 - **Deterministic ordering:** Plugin installation order is explicit (priority + array order). No race conditions.
 - **Clean disposal:** Reverse-order handle disposal ensures plugins clean up in the right sequence. Per-instance handles prevent cross-viewport cleanup bugs.
 - **Required plugin enforcement:** Privacy-critical plugins can be marked `required`, and the host can declare `requiredCapabilities` — both prevent viewport creation without essential functionality.
-- **Safe state loading:** Four-phase prepare-validate-commit-rollback with notification suppression prevents autosave and sync from observing partial mutations. Migration runs before validation; validation failures trigger exactly one `discard()` transition with no mutations to roll back. Commit-phase failures are best-effort — some side effects (DOM observers, plugin side effects) cannot be fully retracted.
+- **Safe state loading:** Four-phase prepare-validate-commit-rollback with notification suppression
+  prevents autosave and sync from observing partial mutations. Validation failures abort before
+  mutation; commit failures restore captured core and plugin state before exactly one `discard()`.
 - **Idempotent:** Re-registering the same plugin is safe.
 - **Rollback on failure:** If `start()` throws, `configure()` registrations are rolled back — no orphaned hooks or tools.
 
@@ -557,7 +584,9 @@ await viewport.initialize({ plugins: [fogPlugin, gridPlugin] });
 - RollKeeper's existing bootstrap ordering (snapshot → fog → render) must be preserved through the plugin lifecycle. The four-phase prepare (`migrateState()`) / validate (`validateState()`) / commit (`loadState()` + `resume()`) / rollback (`discard()`) pattern gives plugins control, but the ordering must be correct.
 - Plugin name collisions in `exportState()` keys are caught at registration time, but this means plugin naming becomes part of the public contract — renaming a plugin is a breaking change for persisted state.
 - The service registry uses typed `ServiceKey<T>` tokens. Service keys (e.g., `FogManagerKey`, `GridControllerKey`) become part of the public contract — renaming or removing a service key is a breaking change for consumers.
-- State restore after a failed `loadState()` rolls back while notifications remain suspended, so no event consumer (autosave, sync, store subscribers) observes partial state. However, DOM observer firings (e.g., MutationObserver) and plugin side effects (network requests, timers) cannot be retracted — the rollback is best-effort for these non-observable side effects.
+- A plugin `loadState()` that performs irreversible external side effects violates the lifecycle
+  contract. State restore relies on `exportState()`/`loadState()` being a reversible in-memory
+  operation; integration tests must enforce that for bundled plugins.
 - The event barrier must cover ALL observable subsystems. If a new subsystem is added that has its own observers, it must participate in the barrier. Missing a subsystem re-introduces the partial-state observation problem.
 
 ## Review Response
@@ -577,7 +606,7 @@ await viewport.initialize({ plugins: [fogPlugin, gridPlugin] });
 - **F8 (Plugin reuse, rollback, and state atomicity are incomplete):** Three sub-issues resolved:
   - **(A) State methods on wrong interface:** `loadState()`, `exportState()`, and `validateState()` lived on the stateless shared `ViewportPlugin` definition rather than the per-viewport `PluginHandle`. Moved to `PluginHandle` so each viewport instance manages its own state independently.
   - **(B) Non-transactional configure():** An optional plugin that throws after registering one hook left partial registrations behind. Resolved by making `configure()` registration transactional — the `PluginConfigureContext` tracks all registrations, and if the plugin throws during `configure()` or `start()`, all its registrations are rolled back.
-  - **(C) Non-atomic loadState apply phase:** Validating before applying did not make loading atomic if a core mutation or plugin `loadState()` subsequently threw. Resolved by adding a snapshot/restore pattern: Phase 2 captures current state, Phase 3 applies mutations with notifications suppressed (emitting a single batch notification on success), Phase 4 restores the snapshot (best-effort) if any apply step throws.
+  - **(C) Non-atomic loadState apply phase:** Validating before applying did not make loading atomic if a core mutation or plugin `loadState()` subsequently threw. Resolved by adding a snapshot/restore pattern: preparation captures current state, commit applies mutations with notifications suppressed, and rollback restores all attempted state before discarding notifications. Stateful handles must provide `exportState()` and keep `loadState()` reversible.
 
 - **F10 (Lifecycle text still describes VTT construction inside core):** Two issues resolved:
   - Phase 2 steps 13–14 (FogManager, FogRenderer, Minimap + setFogRenderer) are now labeled as TEMPORARY migration stages. After VTT extraction, these subsystems are created by the fog plugin's `start()` phase, not by the core constructor.
@@ -587,7 +616,10 @@ await viewport.initialize({ plugins: [fogPlugin, gridPlugin] });
 
 - **F4 (Render hook and fail-closed contracts contradict ADR-0002):** ADR-0002 says missing capabilities produce masked surfaces, while ADR-0005 said the constructor throws. Clarified two enforcement points: (1) construction time — after ALL plugin phases complete including Phase 3 rollbacks, if a required capability is unsatisfied, the constructor throws; (2) render time — if a `required: true` hook throws during rendering, the surface falls back to masked rendering. Updated `ViewportOptions` to support surface-qualified requirements (matching ADR-0002's revised design): when an array, applies to all surfaces; when an object, each surface declares its own requirements.
 
-- **F9 (Plugin state loading is not atomic as claimed):** The apply phase changes the active layer, DOM content, history, and camera. Store mutations emit events that autosave and sync observers can already consume. Replaced the "Four-phase loadState ordering" section with a more honest description: (1) notifications are suppressed during Phase 3 (Apply), with a single batch notification emitted after all apply steps succeed; (2) Phase 4 (Restore) is best-effort — DOM observer firings and plugin side effects cannot be fully retracted; (3) the snapshot now includes active layer, camera, and history in addition to elements, layers, and plugin state.
+- **F9 (Plugin state loading is not atomic as claimed):** The transaction now captures elements,
+  layers, active layer, HTML content, history, camera, and plugin state. Commit runs behind the
+  notification barrier; any failure restores all attempted state before a single `discard()`.
+  Irreversible side effects are forbidden inside plugin `loadState()`.
 
 - **F10 (RollKeeper cannot access plugin-owned fog and grid services):** Once FogManager and GridController move to plugins, the application has no supported way to obtain them. Added a typed service-key registry on Viewport: plugins register services during `start()` via `ctx.registerService()`, the host retrieves them via `viewport.getService<T>()`. This replaces direct property access (e.g., `viewport.fog`) with a typed, plugin-mediated service registry. Autosave and sync also use the service registry to access plugin-owned state.
 
@@ -603,7 +635,9 @@ await viewport.initialize({ plugins: [fogPlugin, gridPlugin] });
 
 ### Sixth review — F6, F8, F9, F11
 
-- **F6 (Failed loadState() exposes partial state):** Phase 4 (On failure) called `resume()` before restoring the snapshot, allowing autosave and sync to consume partial state. Fixed: notifications remain suspended during rollback; `resume()` is called only after the snapshot is restored. `suspendNotifications()` now returns a `NotificationController` with `resume()` (flush) and `discard()` (drop queued notifications) methods. The key invariant: no event consumer ever observes partial state.
+- **F6 (Failed loadState() exposes partial state):** Notifications remain suspended during
+  rollback. On success the controller calls `resume()` once; on validation or commit failure it
+  restores captured state and calls `discard()` once. It never performs both transitions.
 
 - **F8 (ServiceKey\<T\> is not as type-safe as claimed):** `T` appeared only covariantly, allowing TypeScript to infer a common supertype. Fixed: added an invariant brand via `_brand: (value: T) => T` function property to `ServiceKey<T>` (checked strictly under TypeScript's strict function types), and `registerService()` uses `NoInfer<T>` on the service argument to prevent inference from the service value. Added runtime identity via `id: symbol` — identity is by symbol reference, not by name.
 

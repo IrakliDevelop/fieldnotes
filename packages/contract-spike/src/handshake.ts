@@ -1,5 +1,15 @@
 import type { ElementRegistry } from './element-registry';
-import type { SyncCapabilities, WireElement, WireSyncOp } from './types';
+import type {
+  SyncCapabilities,
+  WireElement,
+  WireElementV3,
+  WireSyncOp,
+  WireSyncOpV3,
+} from './types';
+
+export interface ExtensionWireAdapter {
+  readonly encodeLegacyOp: (payload: unknown) => WireSyncOpV3;
+}
 
 export class CapabilityHandshake {
   private localCaps: SyncCapabilities | null = null;
@@ -8,11 +18,14 @@ export class CapabilityHandshake {
   private timedOut = false;
   private timeoutHandle: ReturnType<typeof setTimeout> | null = null;
 
+  constructor(private readonly maxPendingOps = 1_000) {}
+
   setLocalCapabilities(caps: SyncCapabilities): void {
     this.localCaps = caps;
   }
 
   receiveRemoteCapabilities(caps: SyncCapabilities): void {
+    if (this.timedOut) return;
     this.remoteCaps = caps;
     if (this.timeoutHandle !== null) {
       clearTimeout(this.timeoutHandle);
@@ -30,8 +43,11 @@ export class CapabilityHandshake {
 
   queueUntilReady(op: WireSyncOp): WireSyncOp[] | null {
     if (this.isComplete()) return null;
+    if (this.pendingOps.length >= this.maxPendingOps) {
+      throw new Error(`Capability handshake queue exceeded ${String(this.maxPendingOps)} ops`);
+    }
     this.pendingOps.push(op);
-    return this.pendingOps;
+    return [...this.pendingOps];
   }
 
   drainPending(): WireSyncOp[] {
@@ -40,12 +56,12 @@ export class CapabilityHandshake {
     return ops;
   }
 
-  startTimeout(ms: number, onTimeout: () => void): void {
+  startTimeout(ms: number, onTimeout: (pending: WireSyncOp[]) => void): void {
     if (this.isComplete()) return;
     this.timeoutHandle = setTimeout(() => {
       this.timedOut = true;
       this.forceLegacyMode();
-      onTimeout();
+      onTimeout(this.drainPending());
     }, ms);
   }
 
@@ -61,6 +77,14 @@ export class CapabilityHandshake {
     };
   }
 
+  dispose(): void {
+    if (this.timeoutHandle !== null) {
+      clearTimeout(this.timeoutHandle);
+      this.timeoutHandle = null;
+    }
+    this.pendingOps.length = 0;
+  }
+
   isLegacyMode(): boolean {
     if (this.timedOut) return true;
     return this.remoteCaps !== null && !this.remoteCaps.elementEnvelope;
@@ -71,7 +95,7 @@ export function translateForPeer(
   op: WireSyncOp,
   peerCapabilities: SyncCapabilities,
   registry: ElementRegistry,
-  extensionKinds?: Map<string, { toLegacyWire?: (payload: unknown) => unknown }>,
+  extensionKinds?: ReadonlyMap<string, ExtensionWireAdapter>,
 ): WireSyncOp {
   if (op.kind === 'extension') {
     if (peerCapabilities.extensionKinds.includes(op.extensionKind)) {
@@ -79,9 +103,8 @@ export function translateForPeer(
     }
     // Peer doesn't support this extension kind — try legacy translator
     const kindDef = extensionKinds?.get(op.extensionKind);
-    if (kindDef?.toLegacyWire) {
-      const legacyPayload = kindDef.toLegacyWire(op.payload);
-      return { ...op, payload: legacyPayload };
+    if (kindDef) {
+      return kindDef.encodeLegacyOp(op.payload);
     }
     throw new Error(
       `Extension op '${op.extensionKind}' cannot be translated for legacy peer — no translator registered`,
@@ -102,17 +125,21 @@ export function translateForPeer(
   return op;
 }
 
-function translateElementToLegacy(el: WireElement, registry: ElementRegistry): WireElement {
+function translateElementToLegacy(el: WireElement, registry: ElementRegistry): WireElementV3 {
   if (el.type !== 'extension') return el;
 
   const adapter = registry.getAdapter(el.extensionType);
-  if (!adapter) return el;
+  if (!adapter) {
+    throw new Error(`No adapter registered for extension type "${el.extensionType}"`);
+  }
 
   const legacyType = adapter.legacyTypes[0];
-  if (!legacyType) return el;
+  if (!legacyType) {
+    throw new Error(`No legacy type for extension type "${el.extensionType}"`);
+  }
 
   const legacyFields = adapter.encodeLegacy(el);
-  return { ...el, ...legacyFields, type: legacyType } as WireElement;
+  return { ...el, ...legacyFields, type: legacyType } as unknown as WireElementV3;
 }
 
 export function translateSnapshotElements(

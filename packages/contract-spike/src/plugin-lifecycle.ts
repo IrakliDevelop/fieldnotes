@@ -1,84 +1,120 @@
 import type { NotificationController, PersistedPluginState, PluginHandle } from './types';
 
+export interface PluginLoadResult {
+  readonly success: boolean;
+  readonly error?: string;
+  readonly droppedPlugins?: string[];
+}
+
+interface PreparedLoad {
+  readonly name: string;
+  readonly handle: PluginHandle;
+  readonly data: unknown;
+}
+
 export class PluginStateManager {
   private readonly plugins = new Map<string, PluginHandle>();
   private state: Record<string, PersistedPluginState> = {};
+
+  constructor(
+    private readonly suspendNotifications: () => NotificationController = createNotificationController,
+  ) {}
 
   registerPlugin(name: string, handle: PluginHandle): void {
     this.plugins.set(name, handle);
   }
 
-  loadState(persisted: Record<string, PersistedPluginState>): {
-    success: boolean;
-    error?: string;
-    droppedPlugins?: string[];
-  } {
-    const controller = suspendNotifications();
-
-    const prepared = new Map<string, PersistedPluginState>();
+  loadState(persisted: Record<string, PersistedPluginState>): PluginLoadResult {
+    const controller = this.suspendNotifications();
+    const preparedLoads: PreparedLoad[] = [];
+    const preservedUnknown: Record<string, PersistedPluginState> = {};
     const droppedPlugins: string[] = [];
 
-    for (const [pluginName, entry] of Object.entries(persisted)) {
-      const handle = this.plugins.get(pluginName);
-      if (!handle) {
-        // Unknown plugin: preserve the full entry as-is with original version
-        prepared.set(pluginName, entry);
-        continue;
-      }
-
-      const version = handle.stateVersion ?? 1;
-      let data = entry.data;
-
-      if (entry.version !== version) {
-        if (!handle.migrateState) {
-          // Drop this plugin entry and continue (per ADR)
-          droppedPlugins.push(pluginName);
-          continue;
-        }
-        try {
-          data = handle.migrateState(data, entry.version);
-        } catch {
-          // Migration threw — drop this plugin and continue
-          droppedPlugins.push(pluginName);
-          continue;
-        }
-      }
-
-      if (handle.validateState) {
-        try {
-          handle.validateState(data);
-        } catch {
-          // Validation failed — drop this plugin and continue
-          droppedPlugins.push(pluginName);
-          continue;
-        }
-      }
-
-      prepared.set(pluginName, { version, data });
+    for (const [name, entry] of Object.entries(persisted)) {
+      if (!this.plugins.has(name)) preservedUnknown[name] = entry;
     }
 
-    for (const [pluginName, entry] of prepared) {
-      const handle = this.plugins.get(pluginName);
-      if (handle?.loadState) {
-        try {
-          handle.loadState(entry.data);
-        } catch {
-          // loadState threw — record in dropped, continue with others
-          droppedPlugins.push(pluginName);
+    for (const [name, handle] of this.plugins) {
+      if (!handle.loadState) continue;
+      const entry = persisted[name];
+      let data: unknown = undefined;
+
+      if (entry) {
+        const currentVersion = handle.stateVersion ?? 1;
+        data = entry.data;
+        if (entry.version !== currentVersion) {
+          if (!handle.migrateState) {
+            droppedPlugins.push(name);
+            data = undefined;
+          } else {
+            try {
+              data = handle.migrateState(data, entry.version);
+            } catch {
+              droppedPlugins.push(name);
+              data = undefined;
+            }
+          }
+        }
+
+        if (data !== undefined && handle.validateState) {
+          try {
+            handle.validateState(data);
+          } catch (error) {
+            controller.discard();
+            return {
+              success: false,
+              error: `Plugin "${name}" state validation failed: ${errorMessage(error)}`,
+            };
+          }
         }
       }
-    }
 
-    // Only store unknown plugin entries in this.state.
-    // Registered plugins are handled via exportState() so that
-    // post-loadState() mutations are reflected (not stale persisted data).
-    this.state = {};
-    for (const [pluginName, entry] of prepared) {
-      if (!this.plugins.has(pluginName)) {
-        this.state[pluginName] = entry;
+      if (!handle.exportState) {
+        controller.discard();
+        return {
+          success: false,
+          error: `Plugin "${name}" implements loadState but not exportState; rollback is impossible`,
+        };
       }
+      preparedLoads.push({ name, handle, data });
     }
 
+    const previous = new Map<string, unknown>();
+    try {
+      for (const prepared of preparedLoads) {
+        previous.set(prepared.name, structuredClone(prepared.handle.exportState?.()));
+      }
+    } catch (error) {
+      controller.discard();
+      return { success: false, error: `Could not capture plugin state: ${errorMessage(error)}` };
+    }
+
+    const attempted: PreparedLoad[] = [];
+    try {
+      for (const prepared of preparedLoads) {
+        attempted.push(prepared);
+        prepared.handle.loadState?.(prepared.data);
+      }
+    } catch (error) {
+      const rollbackErrors: string[] = [];
+      for (const prepared of attempted.reverse()) {
+        try {
+          prepared.handle.loadState?.(previous.get(prepared.name));
+        } catch (rollbackError) {
+          rollbackErrors.push(`${prepared.name}: ${errorMessage(rollbackError)}`);
+        }
+      }
+      controller.discard();
+      return {
+        success: false,
+        error: [
+          `Plugin state commit failed: ${errorMessage(error)}`,
+          ...(rollbackErrors.length > 0 ? [`Rollback failed (${rollbackErrors.join(', ')})`] : []),
+        ].join('. '),
+      };
+    }
+
+    this.state = preservedUnknown;
     controller.resume();
     return {
       success: true,
@@ -87,22 +123,14 @@ export class PluginStateManager {
   }
 
   exportState(): Record<string, PersistedPluginState> {
-    const result: Record<string, PersistedPluginState> = {};
-
-    // Unknown plugins: return their preserved state
-    for (const [name, entry] of Object.entries(this.state)) {
-      result[name] = entry;
+    const result: Record<string, PersistedPluginState> = { ...this.state };
+    for (const [name, handle] of this.plugins) {
+      if (!handle.exportState) continue;
+      result[name] = {
+        version: handle.stateVersion ?? 1,
+        data: handle.exportState(),
+      };
     }
-
-    // Registered plugins: always call exportState() for current state
-    for (const [pluginName, handle] of this.plugins) {
-      if (pluginName in result) continue;
-      if (handle.exportState) {
-        const version = handle.stateVersion ?? 1;
-        result[pluginName] = { version, data: handle.exportState() };
-      }
-    }
-
     return result;
   }
 
@@ -111,21 +139,13 @@ export class PluginStateManager {
   }
 }
 
-function suspendNotifications(): NotificationController {
-  let active = true;
-  const queue: (() => void)[] = [];
-
+function createNotificationController(): NotificationController {
   return {
-    resume() {
-      if (!active) return;
-      active = false;
-      for (const fn of queue) fn();
-      queue.length = 0;
-    },
-    discard() {
-      if (!active) return;
-      active = false;
-      queue.length = 0;
-    },
+    resume: () => undefined,
+    discard: () => undefined,
   };
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

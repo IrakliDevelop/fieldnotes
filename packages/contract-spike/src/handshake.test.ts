@@ -14,6 +14,7 @@ import type {
   ExtensionElementEnvelope,
   WireElement,
   WireSyncOp,
+  WireSyncOpV3,
 } from './types';
 
 // ─── Minimal grid definition for translation tests ──────────────────────────
@@ -112,12 +113,24 @@ describe('CapabilityHandshake', () => {
     expect(hs.queueUntilReady(op)).toBeNull();
   });
 
+  it('bounds the pre-handshake queue', () => {
+    const hs = new CapabilityHandshake(1);
+    hs.setLocalCapabilities(createV4Capabilities([]));
+    hs.queueUntilReady({ kind: 'remove', id: 'first' });
+
+    expect(() => hs.queueUntilReady({ kind: 'remove', id: 'second' })).toThrow(
+      'Capability handshake queue exceeded 1 ops',
+    );
+  });
+
   it('timeout triggers legacy mode', async () => {
     vi.useFakeTimers();
     try {
       const hs = new CapabilityHandshake();
       hs.setLocalCapabilities(createV4Capabilities([]));
       const onTimeout = vi.fn();
+      const pendingOp: WireSyncOp = { kind: 'remove', id: 'pending' };
+      hs.queueUntilReady(pendingOp);
 
       hs.startTimeout(100, onTimeout);
       expect(hs.isTimedOut()).toBe(false);
@@ -128,6 +141,9 @@ describe('CapabilityHandshake', () => {
       expect(hs.isTimedOut()).toBe(true);
       expect(hs.isLegacyMode()).toBe(true);
       expect(onTimeout).toHaveBeenCalledOnce();
+      expect(onTimeout).toHaveBeenCalledWith([pendingOp]);
+      expect(hs.getRemoteCapabilities()).toEqual(createDefaultCapabilities());
+      hs.receiveRemoteCapabilities(createV4Capabilities([]));
       expect(hs.getRemoteCapabilities()).toEqual(createDefaultCapabilities());
     } finally {
       vi.useRealTimers();
@@ -151,17 +167,19 @@ describe('translateForPeer', () => {
     const caps = createDefaultCapabilities();
     const op: WireSyncOp = { kind: 'extension', extensionKind: 'vtt:fog-patch', payload: { v: 4 } };
 
-    const extensionKinds = new Map<string, { toLegacyWire?: (payload: unknown) => unknown }>();
+    const extensionKinds = new Map<
+      string,
+      { encodeLegacyOp: (payload: unknown) => WireSyncOpV3 }
+    >();
     extensionKinds.set('vtt:fog-patch', {
-      toLegacyWire: (payload) => ({ legacy: true, original: payload }),
+      encodeLegacyOp: () => ({ kind: 'fog-meta', record: { version: 1, editor: 'legacy-bridge' } }),
     });
 
     const result = translateForPeer(op, caps, registry, extensionKinds);
-    expect(result.kind).toBe('extension');
-    if (result.kind === 'extension') {
-      expect(result.extensionKind).toBe('vtt:fog-patch');
-      expect(result.payload).toEqual({ legacy: true, original: { v: 4 } });
-    }
+    expect(result).toEqual({
+      kind: 'fog-meta',
+      record: { version: 1, editor: 'legacy-bridge' },
+    });
   });
 
   it('passes extension ops peer supports', () => {
@@ -197,6 +215,28 @@ describe('translateForPeer', () => {
       expect(result!.element.type).toBe('grid');
       expect((result!.element as unknown as Record<string, unknown>)['cellSize']).toBe(50);
     }
+  });
+
+  it('rejects extension elements that cannot be represented for a legacy peer', () => {
+    const registry = new ElementRegistry();
+    const envelope: ExtensionElementEnvelope = {
+      id: 'unknown-1',
+      type: 'extension',
+      extensionType: 'unknown:type',
+      position: { x: 0, y: 0 },
+      zIndex: 0,
+      locked: false,
+      layerId: 'default',
+      data: {},
+    };
+
+    expect(() =>
+      translateForPeer(
+        { kind: 'upsert', element: envelope },
+        createDefaultCapabilities(),
+        registry,
+      ),
+    ).toThrow('No adapter registered for extension type "unknown:type"');
   });
 
   it('translates snapshot elements for legacy peers', () => {

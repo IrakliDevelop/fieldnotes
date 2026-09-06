@@ -109,6 +109,12 @@ importers:
       '@fieldnotes/core':
         specifier: workspace:*
         version: link:../core
+      '@fieldnotes/sync':
+        specifier: workspace:*
+        version: link:../sync
+      '@fieldnotes/sync-server':
+        specifier: workspace:*
+        version: link:../sync-server
     devDependencies:
       '@vitest/coverage-v8':
         specifier: ^4.1.0

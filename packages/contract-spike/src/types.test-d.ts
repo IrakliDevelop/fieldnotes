@@ -4,6 +4,8 @@ import type {
   ExtensionKind,
   ServiceKey,
   WireElement,
+  WireElementV3,
+  WireElementV4,
   RuntimeElement,
   GridElement,
   TemplateElement,
@@ -56,6 +58,9 @@ describe('Wire vs Runtime separation', () => {
   it('GridElement (from core) is a WireElement', () => {
     const grid = {} as GridElement;
     assertType<WireElement>(grid);
+    assertType<WireElementV3>(grid);
+    // @ts-expect-error — extracted legacy shapes are not legal in v4 output
+    assertType<WireElementV4>(grid);
   });
 
   it('TemplateElement (from core) is a WireElement', () => {
@@ -66,6 +71,9 @@ describe('Wire vs Runtime separation', () => {
   it('ExtensionElementEnvelope is both WireElement and RuntimeElement', () => {
     const env = {} as ExtensionElementEnvelope;
     assertType<WireElement>(env);
+    assertType<WireElementV4>(env);
+    // @ts-expect-error — v3 readers do not know the extension envelope
+    assertType<WireElementV3>(env);
     assertType<RuntimeElement>(env);
   });
 
@@ -104,7 +112,6 @@ describe('ExtensionKind type binding', () => {
     const fogKind = createExtensionKind({
       extensionKind: 'vtt:fog-patch',
       codec: fogCodec,
-      legacyKinds: ['fog-patch'],
     });
 
     assertType<ExtensionKind<FogPayload>>(fogKind);

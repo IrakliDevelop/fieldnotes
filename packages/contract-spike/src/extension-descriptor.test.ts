@@ -23,9 +23,28 @@ const fogCodec = {
 const fogKind = createExtensionKind({
   extensionKind: 'vtt:fog-patch',
   codec: fogCodec,
-  legacyKinds: ['fog-patch'],
-  toLegacyWire: (payload) => ({ generation: payload.generation, tiles: payload.tiles }),
-  fromLegacyWire: (raw) => raw as FogPayload,
+  legacy: {
+    kinds: ['fog-patch'],
+    encode: (payload) => ({
+      kind: 'fog-patch',
+      generation: payload.generation,
+      tiles: payload.tiles.map((tile) => ({
+        ...tile,
+        generation: payload.generation,
+        version: 1,
+        editor: 'legacy-bridge',
+      })),
+    }),
+    decode: (op) =>
+      op.kind === 'fog-patch'
+        ? {
+            generation: op.generation,
+            tiles: op.tiles.flatMap((tile) =>
+              tile.data === undefined ? [] : [{ x: tile.x, y: tile.y, data: tile.data }],
+            ),
+          }
+        : null,
+  },
 });
 
 describe('UnifiedExtensionRegistry', () => {
@@ -104,6 +123,6 @@ describe('UnifiedExtensionRegistry', () => {
     const kind = reg.getKind('vtt:fog-patch');
     expect(kind).toBeDefined();
     expect(kind!.extensionKind).toBe('vtt:fog-patch');
-    expect(kind!.legacyKinds).toContain('fog-patch');
+    expect(kind!.legacy?.kinds).toContain('fog-patch');
   });
 });

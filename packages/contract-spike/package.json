@@ -11,7 +11,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@fieldnotes/core": "workspace:*"
+    "@fieldnotes/core": "workspace:*",
+    "@fieldnotes/sync": "workspace:*",
+    "@fieldnotes/sync-server": "workspace:*"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^4.1.0",
