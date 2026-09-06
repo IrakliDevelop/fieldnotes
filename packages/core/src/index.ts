@@ -245,6 +245,8 @@ export type {
   ElementTypeKey,
 } from './elements/types';
 export { ElementRegistry } from './elements/element-registry';
+export { gridElementTypeDefinition } from './elements/grid-definition';
+export { templateElementTypeDefinition } from './elements/template-definition';
 export { TypedHookRegistry } from './canvas/render-hooks';
 export type { ViewportSlot, HookRegistrationOptions } from './canvas/render-hooks';
 export { PluginStateManager } from './core/plugin-state-manager';
