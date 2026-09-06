@@ -76,7 +76,6 @@ describe('core public surface', () => {
       'renderTemplate',
       'templateAimKnob',
       'hitTestTemplateAimHandle',
-      'renderTemplateFeetLabel',
       // template-tool and select-resize rectangle internals
       'hitTestRectangleLengthHandle',
       'hitTestRectangleWidthHandle',
@@ -196,8 +195,7 @@ describe('core public surface', () => {
 
   it('exports the movement-path surface', () => {
     expect(FN.PathTool).toBeTypeOf('function');
-    expect(FN.pathDistanceCells).toBeTypeOf('function');
-    expect(FN.gridDistanceCells).toBeTypeOf('function');
+    // pathDistanceCells and gridDistanceCells moved to @fieldnotes/vtt
     expect(FN.snapToCellCenter).toBeTypeOf('function');
     expect(FN.snapFootprintCenter).toBeTypeOf('function');
     expect(FN.footprintFromSize).toBeTypeOf('function');
