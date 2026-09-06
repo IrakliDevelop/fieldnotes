@@ -4,6 +4,25 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.74.0] — 2026-09-06
+
+### Changed
+
+- **Fog rendering now uses per-surface render hooks.** The render loop, minimap controller, and
+  viewport no longer hard-code `FogRenderer` calls. Fog registers on `renderHooks.viewport`
+  (`afterElements`) and `renderHooks.minimap` (`afterElements`) instead. The render loop accepts
+  `hooks?: RenderHooks` in place of `fogRenderer`. The minimap controller accepts
+  `minimapHooks` and `getExtraBounds` options. `Minimap.setFogRenderer()` and
+  `MinimapController.setFogRenderer()` are removed. `MinimapMapping` gains `offsetX`/`offsetY`.
+  `TypedHookRegistry.iterate()` / `iterateRequired()` return `(...args: any[]) => void` to fix
+  generic dispatcher callability.
+- `Viewport.renderHooks` — new public getter exposing the render hook registries.
+
+### Added
+
+- Render loop fires `afterElements` and `afterAll` viewport hooks at the correct render-pipeline
+  positions (after elements/grid, before/after overlays).
+
 ## [0.73.0] — 2026-09-06
 
 ### Added

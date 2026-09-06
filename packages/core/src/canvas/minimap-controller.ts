@@ -2,7 +2,7 @@ import type { Bounds, Point } from '../core/types';
 import type { CanvasElement } from '../elements/types';
 import type { Viewport } from './viewport';
 import type { HtmlPainterRegistry } from './html-painter-registry';
-import type { FogRenderer } from '../fog/fog-renderer';
+import type { TypedHookRegistry, MinimapRenderHooks, MinimapMapping } from './render-hooks';
 import { ElementRenderer } from '../elements/element-renderer';
 import { getElementBounds } from '../elements/element-bounds';
 import { getElementsBoundingBox } from '../elements/bounds';
@@ -33,6 +33,10 @@ export interface MinimapControllerOptions {
   requestFrame?: (cb: () => void) => number;
   /** Frame canceller; default `cancelAnimationFrame`. Injected by tests. */
   cancelFrame?: (id: number) => void;
+  /** Render hook registries for domain surfaces (fog, etc.). */
+  minimapHooks?: TypedHookRegistry<MinimapRenderHooks>;
+  /** Returns additional world bounds to include in the minimap mapping. */
+  getExtraBounds?: () => Bounds | null;
 }
 
 const DEFAULT_WIDTH = 200;
@@ -79,8 +83,8 @@ export class MinimapController {
   // read the `viewport` parameter. Assigned in the constructor body instead.
   private readonly htmlPainters: HtmlPainterRegistry;
   private scene: SceneCache | null = null;
-  private fogRenderer: FogRenderer | null = null;
-  private fogUnsub: (() => void) | null = null;
+  private readonly minimapHooks?: TypedHookRegistry<MinimapRenderHooks>;
+  private readonly getExtraBounds?: () => Bounds | null;
   private frameId: number | null = null;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private dragging = false;
@@ -107,6 +111,8 @@ export class MinimapController {
       ((id) => {
         if (typeof cancelAnimationFrame !== 'undefined') cancelAnimationFrame(id);
       });
+    this.minimapHooks = options.minimapHooks;
+    this.getExtraBounds = options.getExtraBounds;
 
     this.renderer.setStore(viewport.store);
     this.renderer.setOnImageLoad(() => this.markSceneDirty());
@@ -149,16 +155,6 @@ export class MinimapController {
     this.clearDebounce();
     this.renderScene();
     this.requestDraw();
-  }
-
-  setFogRenderer(renderer: FogRenderer | null): void {
-    if (this.disposed) return;
-    if (this.fogUnsub) {
-      this.fogUnsub();
-      this.fogUnsub = null;
-    }
-    this.fogRenderer = renderer;
-    this.invalidateScene();
   }
 
   requestDraw(): void {
@@ -233,11 +229,9 @@ export class MinimapController {
     const viewportRect = this.viewport.getVisibleRect();
     let mapping = getElementsBoundingBox(this.sceneElements());
     mapping = mapping ? unionBounds(mapping, viewportRect) : viewportRect;
-    if (this.fogRenderer?.isVisible()) {
-      const fogState = this.fogRenderer.getState();
-      if (fogState) {
-        mapping = unionBounds(mapping, fogState.definition.bounds);
-      }
+    const extra = this.getExtraBounds?.();
+    if (extra) {
+      mapping = unionBounds(mapping, extra);
     }
     return mapping;
   }
@@ -308,21 +302,18 @@ export class MinimapController {
       ctx.restore();
     }
 
-    if (this.fogRenderer?.isVisible()) {
-      const fogState = this.fogRenderer.getState();
-      const fogMode = this.fogRenderer.getViewMode();
-      if (fogState && (fogMode === 'editor' || fogMode === 'player')) {
-        ctx.save();
-        ctx.setTransform(
-          dpr * transform.scale,
-          0,
-          0,
-          dpr * transform.scale,
-          dpr * transform.offsetX,
-          dpr * transform.offsetY,
-        );
-        this.fogRenderer.renderForExport(ctx, fogState, fogMode);
-        ctx.restore();
+    if (this.minimapHooks) {
+      const miniMapping: MinimapMapping = {
+        ctx,
+        canvasWidth: this.width,
+        canvasHeight: this.height,
+        worldBounds: mapping,
+        scale: transform.scale,
+        offsetX: transform.offsetX,
+        offsetY: transform.offsetY,
+      };
+      for (const fn of this.minimapHooks.iterate('afterElements')) {
+        fn(miniMapping);
       }
     }
 

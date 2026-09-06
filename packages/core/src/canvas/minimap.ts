@@ -1,6 +1,6 @@
 import type { Viewport } from './viewport';
 import { MinimapController } from './minimap-controller';
-import type { FogRenderer } from '../fog/fog-renderer';
+import type { MinimapControllerOptions } from './minimap-controller';
 
 const WIDTH = 200;
 const HEIGHT = 140;
@@ -15,7 +15,11 @@ export class Minimap {
   private readonly canvas: HTMLCanvasElement;
   private readonly controller: MinimapController;
 
-  constructor(container: HTMLElement, viewport: Viewport) {
+  constructor(
+    container: HTMLElement,
+    viewport: Viewport,
+    controllerOptions?: MinimapControllerOptions,
+  ) {
     const canvas = document.createElement('canvas');
     Object.assign(canvas.style, {
       position: 'absolute',
@@ -31,11 +35,11 @@ export class Minimap {
     canvas.dataset.fieldnotesMinimap = 'true';
     container.appendChild(canvas);
     this.canvas = canvas;
-    this.controller = new MinimapController(viewport, canvas, { width: WIDTH, height: HEIGHT });
-  }
-
-  setFogRenderer(renderer: FogRenderer | null): void {
-    this.controller.setFogRenderer(renderer);
+    this.controller = new MinimapController(viewport, canvas, {
+      width: WIDTH,
+      height: HEIGHT,
+      ...controllerOptions,
+    });
   }
 
   scheduleDraw(): void {
