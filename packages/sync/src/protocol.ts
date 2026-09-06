@@ -1,10 +1,11 @@
-import type { CanvasElement, ElementType, Layer, FogDefinitionV1 } from '@fieldnotes/core';
+import type { CanvasElement, ElementType, Layer } from '@fieldnotes/core';
+import type { FogDefinitionV1 } from '@fieldnotes/vtt';
 import {
   validateFogDefinition,
   validateFogTile,
   FOG_MAX_TILES,
   FOG_TILE_CELLS,
-} from '@fieldnotes/core';
+} from '@fieldnotes/vtt';
 
 export type SyncElement = CanvasElement & { audience?: string };
 

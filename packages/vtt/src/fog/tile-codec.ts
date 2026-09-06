@@ -1,4 +1,4 @@
-import type { Bounds, Point } from '../core/types';
+import type { Bounds, Point } from '@fieldnotes/core';
 import type {
   FogBase,
   FogDefinitionV1,

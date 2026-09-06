@@ -1,5 +1,4 @@
-import type { ElementStore } from '../elements/element-store';
-import type { Command } from '../history/types';
+import type { Command, ElementStore } from '@fieldnotes/core';
 import type { FogManager } from './fog-manager';
 import type { FogStateV1, FogTileV1 } from './types';
 

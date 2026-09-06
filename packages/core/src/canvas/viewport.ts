@@ -69,15 +69,12 @@ import { ViewportInteractions } from './viewport-interactions';
 import type { RotateDirection } from './selection-rotate';
 import { ElementActivation } from './element-activation';
 import type { ActivationOptions, ElementActivationEvent } from './element-activation';
-import { FogManager } from '../fog/fog-manager';
-import { FogRenderer } from '../fog/fog-renderer';
-import type { FogRendererOptions } from '../fog/fog-renderer';
-import { validateFogState } from '../fog/tile-codec';
 import { createRenderHooks } from './render-hooks';
 import type { RenderHooks } from './render-hooks';
 import { PluginStateManager } from '../core/plugin-state-manager';
 import type { PersistedPluginState } from '../core/plugin-state-manager';
-import { createFogPluginHandle } from '../fog/fog-plugin-handle';
+import type { ViewportPlugin, ViewportPluginHost } from './viewport-plugin';
+export type { ViewportPlugin, ViewportPluginHost } from './viewport-plugin';
 
 export type { AlignEdge, DistributeAxis } from './selection-ops';
 export type { GridInfo } from './grid-controller';
@@ -112,10 +109,10 @@ export interface ViewportOptions {
   panInertia?: boolean;
   /** Show an overview minimap (bottom-right) with tap/drag-to-navigate. Default `false`. */
   minimap?: boolean;
-  /** Fog-of-war presentation options. Enables fog rendering and the `fog` accessor. */
-  fog?: FogRendererOptions;
   /** Element type registry for extension element support. Defaults to built-in registry with grid+template. */
   elementRegistry?: ElementRegistry;
+  /** Domain plugins to install (e.g. fog-of-war). Each plugin self-wires via the host API. */
+  plugins?: ViewportPlugin[];
 }
 
 export interface HitTestOptions {
@@ -154,10 +151,11 @@ export class Viewport {
   private _smartGuides = false;
   private readonly _gridSize: number;
   private readonly renderLoop: RenderLoop;
-  private readonly fogManager: FogManager;
-  private readonly fogRenderer: FogRenderer;
   private readonly _renderHooks: RenderHooks;
   private readonly pluginStateManager: PluginStateManager;
+  private readonly installedPlugins: ViewportPlugin[] = [];
+  private readonly extraBoundsProviders = new Set<() => Bounds | null>();
+  private readonly pluginChangeListeners = new Set<() => void>();
   private readonly domNodeManager: DomNodeManager;
   private readonly interactMode: InteractMode;
   private readonly onHtmlElementMount?: (
@@ -336,66 +334,32 @@ export class Viewport {
     }
     this.unsubToolChange = this.toolManager.onChange(() => this.contextMenu?.close());
 
-    this.fogManager = new FogManager({
-      onCommand: (cmd) => this.history.push(cmd),
-    });
-    this.fogRenderer = new FogRenderer(options.fog);
     this._renderHooks = createRenderHooks();
-
-    // Register fog on the viewport render hook — fog renders after elements,
-    // before overlays (the same z-order it held on the old hybrid surface).
-    this._renderHooks.viewport.register(
-      {
-        afterElements: (ctx, camera, dimensions) => {
-          if (this.fogRenderer.isVisible()) {
-            this.fogRenderer.render(
-              ctx,
-              camera,
-              dimensions.width,
-              dimensions.height,
-              dimensions.dpr,
-            );
-          }
-        },
-      },
-      { slot: 'afterSceneBeforeOverlay' },
-    );
-
-    // Register fog on the minimap render hook.
-    this._renderHooks.minimap.register({
-      afterElements: (mapping) => {
-        if (!this.fogRenderer.isVisible()) return;
-        const fogState = this.fogRenderer.getState();
-        const fogMode = this.fogRenderer.getViewMode();
-        if (!fogState || (fogMode !== 'editor' && fogMode !== 'player')) return;
-        const dpr = typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1;
-        mapping.ctx.save();
-        mapping.ctx.setTransform(
-          dpr * mapping.scale,
-          0,
-          0,
-          dpr * mapping.scale,
-          dpr * mapping.offsetX,
-          dpr * mapping.offsetY,
-        );
-        this.fogRenderer.renderForExport(mapping.ctx, fogState, fogMode);
-        mapping.ctx.restore();
-      },
-    });
 
     if (options.minimap) {
       this.minimap = new Minimap(this.wrapper, this, {
         minimapHooks: this._renderHooks.minimap,
         getExtraBounds: () => {
-          if (!this.fogRenderer.isVisible()) return null;
-          const fogState = this.fogRenderer.getState();
-          return fogState ? fogState.definition.bounds : null;
+          let combined: Bounds | null = null;
+          for (const provider of this.extraBoundsProviders) {
+            const b = provider();
+            if (!b) continue;
+            if (!combined) {
+              combined = { ...b };
+            } else {
+              const minX = Math.min(combined.x, b.x);
+              const minY = Math.min(combined.y, b.y);
+              const maxR = Math.max(combined.x + combined.w, b.x + b.w);
+              const maxB = Math.max(combined.y + combined.h, b.y + b.h);
+              combined = { x: minX, y: minY, w: maxR - minX, h: maxB - minY };
+            }
+          }
+          return combined;
         },
       });
     }
 
     this.pluginStateManager = new PluginStateManager();
-    this.pluginStateManager.registerPlugin('fog', createFogPluginHandle(this.fogManager));
 
     this.domNodeManager = new DomNodeManager({
       domLayer: this.paintStack,
@@ -433,16 +397,7 @@ export class Viewport {
       hooks: this._renderHooks,
     });
 
-    this.fogManager.on('change', () => {
-      this.fogRenderer.setState(this.fogManager.getState());
-      this.renderLoop.requestRender();
-      this.minimap?.invalidateScene();
-    });
-    this.fogManager.on('view', () => {
-      this.fogRenderer.setViewMode(this.fogManager.getViewMode());
-      this.renderLoop.requestRender();
-      this.minimap?.invalidateScene();
-    });
+    this.installPlugins(options.plugins);
 
     this.unsubHtmlPainters = this.htmlPainters.onChange(() => this.onHtmlRegistryChanged());
 
@@ -549,22 +504,12 @@ export class Viewport {
     return this.canvasEl.getContext('2d');
   }
 
-  get fog(): FogManager {
-    return this.fogManager;
-  }
-
   get plugins(): PluginStateManager {
     return this.pluginStateManager;
   }
 
   get renderHooks(): RenderHooks {
     return this._renderHooks;
-  }
-
-  setFogStyle(options: FogRendererOptions): void {
-    this.fogRenderer.setOptions(options);
-    this.renderLoop.requestRender();
-    this.minimap?.invalidateScene();
   }
 
   get snapToGrid(): boolean {
@@ -670,7 +615,6 @@ export class Viewport {
       this.camera,
       this.layerManager.snapshot(),
       this.layerManager.activeLayerId,
-      this.fogManager.getState(),
       this.elementRegistry,
       this.pluginStateManager.exportState(),
     );
@@ -700,48 +644,17 @@ export class Viewport {
     return { ...base, htmlPainters: registry, expectedCanvasTypes: expected };
   }
 
-  /**
-   * Carry constructor-configured fog presentation into both implicit exports and
-   * explicit state/mode exports. Explicit style and legacy color overrides win.
-   */
-  private withFogDefaults<T extends ExportImageOptions | ExportSvgOptions>(options: T): T {
-    const fog = options.fog;
-    if (fog === false) return options;
-
-    if (fog !== undefined) {
-      if (fog.style !== undefined || fog.color !== undefined) return options;
-      return {
-        ...options,
-        fog: { ...fog, style: this.fogRenderer.getResolvedStyle(fog.mode) },
-      } as T;
-    }
-
-    if (!this.fogRenderer.isVisible()) return options;
-    const state = this.fogManager.getState();
-    if (!state) return options;
-    const mode = this.fogRenderer.getViewMode() as 'editor' | 'player';
-    return {
-      ...options,
-      fog: { state, mode, style: this.fogRenderer.getResolvedStyle(mode) },
-    } as T;
-  }
-
   async exportImage(options?: ExportImageOptions): Promise<Blob | null> {
-    const opts = this.withFogDefaults(this.withHtmlDefaults(options));
+    const opts = this.withHtmlDefaults(options);
     return exportImage(this.store, opts, this.layerManager);
   }
 
   async exportSVG(options?: ExportSvgOptions): Promise<string> {
-    const opts = this.withFogDefaults(this.withHtmlDefaults(options));
+    const opts = this.withHtmlDefaults(options);
     return exportSvg(this.store, opts, this.layerManager);
   }
 
   loadState(state: CanvasState): void {
-    // Resolve fog: prefer extensions.fog (new) over fog (legacy).
-    const hasExtensions = state.extensions && Object.keys(state.extensions).length > 0;
-    if (!hasExtensions && state.fog != null) {
-      validateFogState(state.fog);
-    }
     this.inputHandler.flushPendingHistory();
     this.historyRecorder.pause();
     this.noteEditor.destroy(this.store);
@@ -786,10 +699,8 @@ export class Viewport {
         }
       }
     }
-    if (hasExtensions) {
+    if (state.extensions) {
       this.pluginStateManager.loadState(state.extensions as Record<string, PersistedPluginState>);
-    } else {
-      this.fogManager.loadState(state.fog ?? null);
     }
     this.history.clear();
     this.historyRecorder.resume();
@@ -1294,8 +1205,9 @@ export class Viewport {
     this.unsubToolRegister();
     this.unsubRecorderEnd();
     this.unsubHtmlPainters();
-    this.fogManager.dispose();
-    this.fogRenderer.dispose();
+    for (const plugin of [...this.installedPlugins].reverse()) {
+      plugin.dispose?.();
+    }
     this.activation?.dispose();
     this.activation = null;
     this.activationListeners.clear();
@@ -1371,5 +1283,42 @@ export class Viewport {
     if (typeof ResizeObserver === 'undefined') return;
     this.resizeObserver = new ResizeObserver(() => this.syncCanvasSize());
     this.resizeObserver.observe(this.container);
+  }
+
+  private installPlugins(plugins?: ViewportPlugin[]): void {
+    if (!plugins?.length) return;
+    const host: ViewportPluginHost = {
+      renderHooks: this._renderHooks,
+      store: this.store,
+      pushHistory: (cmd) => this.history.push(cmd),
+      requestRender: () => this.renderLoop.requestRender(),
+      invalidateMinimap: () => this.minimap?.invalidateScene(),
+      registerPluginHandle: (name, handle) => {
+        this.pluginStateManager.registerPlugin(name, handle);
+      },
+      registerExtraBounds: (provider) => {
+        this.extraBoundsProviders.add(provider);
+        this.minimap?.invalidateScene();
+        return () => {
+          this.extraBoundsProviders.delete(provider);
+          this.minimap?.invalidateScene();
+        };
+      },
+      onChange: (listener) => {
+        this.pluginChangeListeners.add(listener);
+        return () => {
+          this.pluginChangeListeners.delete(listener);
+        };
+      },
+      notifyChange: () => {
+        for (const listener of this.pluginChangeListeners) {
+          listener();
+        }
+      },
+    };
+    for (const plugin of plugins) {
+      plugin.install(host);
+      this.installedPlugins.push(plugin);
+    }
   }
 }

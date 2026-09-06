@@ -1,10 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import { FogTool } from './fog-tool';
-import { FogManager } from '../fog/fog-manager';
-import { ElementStore } from '../elements/element-store';
-import type { ToolContext, PointerState } from './types';
-import type { FogRegion } from '../fog/types';
-import { Camera } from '../canvas/camera';
+import { FogManager } from './fog-manager';
+import { ElementStore } from '@fieldnotes/core';
+import type { ToolContext, PointerState } from '@fieldnotes/core';
+import type { FogRegion } from './types';
+import { Camera } from '@fieldnotes/core';
 
 function makeToolContext(): ToolContext {
   return {

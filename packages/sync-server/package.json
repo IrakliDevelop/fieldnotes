@@ -47,6 +47,7 @@
   },
   "devDependencies": {
     "@fieldnotes/core": "workspace:*",
+    "@fieldnotes/vtt": "workspace:*",
     "@types/ws": "^8.5.12",
     "@vitest/coverage-v8": "^4.1.0",
     "tsup": "^8.5.1",

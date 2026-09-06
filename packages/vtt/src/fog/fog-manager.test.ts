@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { FogManager } from './fog-manager';
 import type { FogChangeEvent, FogStateV1 } from './types';
-import type { Command } from '../history/types';
+import type { Command } from '@fieldnotes/core';
 import { encodeBase64, createTileBytes } from './tile-codec';
 
 function makeManager(options?: { onCommand?: (cmd: Command) => void }) {

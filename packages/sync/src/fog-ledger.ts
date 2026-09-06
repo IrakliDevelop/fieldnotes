@@ -1,12 +1,12 @@
 import type { FogMetaRecord, FogTileRecord, FogSnapshot } from './protocol';
 import { isNewerFogRecord } from './protocol';
+import type { FogDefinitionV1 } from '@fieldnotes/vtt';
 import {
   FOG_MAX_TILES,
   FOG_TILE_CELLS,
   validateFogTile,
   canonicalizeFogTile,
-} from '@fieldnotes/core';
-import type { FogDefinitionV1 } from '@fieldnotes/core';
+} from '@fieldnotes/vtt';
 
 const MAX_STORED_TILES = FOG_MAX_TILES;
 

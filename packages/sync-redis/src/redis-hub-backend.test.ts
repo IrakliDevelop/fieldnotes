@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { createShape, fogEncodeBase64 } from '@fieldnotes/core';
+import { createShape } from '@fieldnotes/core';
+import { fogEncodeBase64 } from '@fieldnotes/vtt';
 import type { CanvasElement } from '@fieldnotes/core';
 import { RedisHubBackend, type RedisHashClient } from './index';
 import type { FogMetaRecord, FogTileRecord, LayerRecord } from '@fieldnotes/sync';

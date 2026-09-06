@@ -550,14 +550,14 @@ describe('parseState', () => {
   describe('extensions', () => {
     it('exportState includes extensions when provided', () => {
       const extensions = {
-        fog: { version: 1, data: { definition: { version: 1 }, tiles: [] } },
+        somePlugin: { version: 1, data: { definition: { version: 1 }, tiles: [] } },
       };
-      const state = exportState([], makeCamera(), [], undefined, null, undefined, extensions);
+      const state = exportState([], makeCamera(), [], undefined, undefined, extensions);
       expect(state.extensions).toEqual(extensions);
     });
 
     it('exportState omits extensions when empty', () => {
-      const state = exportState([], makeCamera(), [], undefined, null, undefined, {});
+      const state = exportState([], makeCamera(), [], undefined, undefined, {});
       expect(state.extensions).toBeUndefined();
     });
 
@@ -567,11 +567,11 @@ describe('parseState', () => {
     });
 
     it('exportState deep-copies extensions', () => {
-      const extensions = { fog: { version: 1, data: { foo: 'bar' } } };
-      const state = exportState([], makeCamera(), [], undefined, null, undefined, extensions);
-      extensions.fog.data = { foo: 'mutated' };
-      const fogData = state.extensions?.fog?.data as { foo: string } | undefined;
-      expect(fogData?.foo).toBe('bar');
+      const extensions = { somePlugin: { version: 1, data: { foo: 'bar' } } };
+      const state = exportState([], makeCamera(), [], undefined, undefined, extensions);
+      extensions.somePlugin.data = { foo: 'mutated' };
+      const pluginData = state.extensions?.somePlugin?.data as { foo: string } | undefined;
+      expect(pluginData?.foo).toBe('bar');
     });
 
     it('parseState preserves extensions field', () => {
@@ -579,10 +579,10 @@ describe('parseState', () => {
         version: 3,
         camera: { position: { x: 0, y: 0 }, zoom: 1 },
         elements: [],
-        extensions: { fog: { version: 1, data: { some: 'state' } } },
+        extensions: { somePlugin: { version: 1, data: { some: 'state' } } },
       };
       const state = parseState(JSON.stringify(data));
-      expect(state.extensions).toEqual({ fog: { version: 1, data: { some: 'state' } } });
+      expect(state.extensions).toEqual({ somePlugin: { version: 1, data: { some: 'state' } } });
     });
 
     it('parseState preserves unknown plugin extensions', () => {
@@ -601,16 +601,6 @@ describe('parseState', () => {
       });
     });
 
-    it('parseState rejects extensions with invalid version', () => {
-      const data = {
-        version: 3,
-        camera: { position: { x: 0, y: 0 }, zoom: 1 },
-        elements: [],
-        extensions: { fog: { version: 0, data: null } },
-      };
-      expect(() => parseState(JSON.stringify(data))).toThrow('extensions.fog.version');
-    });
-
     it('parseState rejects non-object extensions', () => {
       const data = {
         version: 3,
@@ -621,31 +611,12 @@ describe('parseState', () => {
       expect(() => parseState(JSON.stringify(data))).toThrow('extensions must be an object');
     });
 
-    it('dual-write: both fog and extensions.fog are present', () => {
-      const fogState = {
-        definition: {
-          version: 1 as const,
-          generation: 'gen-1',
-          bounds: { x: 0, y: 0, w: 256, h: 256 },
-          cellSize: 4,
-          tileCells: 128 as const,
-          base: 'covered' as const,
-        },
-        tiles: [],
-      };
-      const extensions = { fog: { version: 1, data: fogState } };
-      const state = exportState([], makeCamera(), [], undefined, fogState, undefined, extensions);
-      expect(state.fog).toBeDefined();
-      expect(state.extensions?.fog).toBeDefined();
-      expect(state.fog).toEqual(state.extensions?.fog?.data);
-    });
-
     it('roundtrip: extensions survive JSON serialize/parse', () => {
       const extensions = {
-        fog: { version: 1, data: { definition: { version: 1 }, tiles: [] } },
+        somePlugin: { version: 1, data: { definition: { version: 1 }, tiles: [] } },
         other: { version: 3, data: [1, 2, 3] },
       };
-      const exported = exportState([], makeCamera(), [], undefined, null, undefined, extensions);
+      const exported = exportState([], makeCamera(), [], undefined, undefined, extensions);
       const json = JSON.stringify(exported);
       const parsed = parseState(json);
       expect(parsed.extensions).toEqual(extensions);

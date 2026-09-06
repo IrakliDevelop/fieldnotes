@@ -3,11 +3,10 @@ import {
   ElementStore,
   createNote,
   createShape,
-  fogEncodeBase64,
-  FogManager,
   type CanvasElement,
   type Layer,
 } from '@fieldnotes/core';
+import { fogEncodeBase64, FogManager } from '@fieldnotes/vtt';
 import type { ElementChangeMeta } from '@fieldnotes/core';
 import { SyncClient } from './sync-client';
 import type { AuthoritativeSnapshotContext, RemoteLayerUpdate } from './sync-client';

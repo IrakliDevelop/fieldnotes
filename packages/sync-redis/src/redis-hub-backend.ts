@@ -10,7 +10,8 @@ import {
   type FogMetaRecord,
   type FogTileRecord,
 } from '@fieldnotes/sync';
-import { canonicalizeFogTile, type CanvasElement } from '@fieldnotes/core';
+import { canonicalizeFogTile } from '@fieldnotes/vtt';
+import type { CanvasElement } from '@fieldnotes/core';
 import type { FogApplyResult, FogPatchApplyResult, HubBackend } from '@fieldnotes/sync-server';
 import type { RedisHashClient } from './redis-hash-client';
 

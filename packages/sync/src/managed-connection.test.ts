@@ -1,11 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  ElementStore,
-  FogManager,
-  createNote,
-  fogEncodeBase64,
-  type Layer,
-} from '@fieldnotes/core';
+import { ElementStore, createNote, type Layer } from '@fieldnotes/core';
+import { FogManager, fogEncodeBase64 } from '@fieldnotes/vtt';
 import { createManagedSyncConnection } from './managed-connection';
 import type {
   ManagedSyncConnection,

@@ -1,4 +1,5 @@
-import type { CanvasElement, ElementStore, Layer, FogStateV1 } from '@fieldnotes/core';
+import type { CanvasElement, ElementStore, Layer } from '@fieldnotes/core';
+import type { FogStateV1 } from '@fieldnotes/vtt';
 import type { SyncTransport } from './sync-transport';
 import {
   parseEnvelope,
