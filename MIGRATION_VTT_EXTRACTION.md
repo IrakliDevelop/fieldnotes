@@ -1,11 +1,12 @@
 # Migration Plan: VTT Feature Extraction
 
 > **Companion documents:** `VISION.md` (the Emacs philosophy), `PLAN_VTT_EXTRACTION.md` (audit results)
-> **Status:** Phase 0 — compatibility work and extension-design spikes. **Do not begin moving grid, templates, or fog yet.**
+> **Status:** Phase 1 complete — all extension point interfaces landed (PR #163). Phase 2 internal refactor is next.
 > **Created:** 2026-09-05
 > **Revised:** 2026-09-05 (post-review — incorporated Codex review findings, see [Review Findings](#review-findings))
 > **Revised:** 2026-09-06 (aligned with sixth ADR review — addressed 11 findings across all ADRs and migration doc)
 > **Revised:** 2026-09-06 (executable contract spike — validated all ADR contracts in `packages/contract-spike`, 39 tests passing)
+> **Revised:** 2026-09-06 (Phase 1 PR #160 merged — ElementRegistry, PluginHandle, default registry; Phase 2 PR #162 merged — type definitions, union change, wire registry, envelope conversion)
 
 ## Table of Contents
 
@@ -37,6 +38,68 @@
 4. **Backward compatibility:** Existing consumers (RollKeeper) can migrate incrementally. Wire formats remain stable through a mixed-version window.
 5. **No functionality loss:** Every feature RollKeeper uses today must work after migration.
 6. **Server-side parity:** Sync-server and sync-redis extraction is scoped explicitly — not treated as an afterthought.
+
+---
+
+## Implementation Progress
+
+> **Last updated:** 2026-09-06 (after Phase 1 PR #163 — all extension point interfaces)
+
+### Phase 0: Compatibility & Design
+
+| Task                                 | Status         | Notes                                                                    |
+| ------------------------------------ | -------------- | ------------------------------------------------------------------------ |
+| Write 6 ADRs                         | ✅ Done        | `docs/adr/0001` through `0006` — all Proposed                            |
+| Executable contract spike            | ✅ Done        | `packages/contract-spike` — 61 tests, all ADR contracts validated        |
+| `@fieldnotes/vtt` facade package     | ❌ Not started | Package does not exist yet                                               |
+| RollKeeper compatibility fixtures    | ❌ Not started | Old/new state and protocol matrices                                      |
+| RollKeeper import migration          | ❌ Not started | Depends on facade package                                                |
+| Constructor-time plugin installation | ❌ Not started | `PluginHandle` exists; Viewport integration pending                      |
+| Audit gap completion                 | ❌ Not started | Templates, export, React, server/Redis, tool lifecycle, privacy ordering |
+
+### Phase 1: Extension Point Interfaces
+
+| Task                                                | Status     | Notes                                                                                                              |
+| --------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------ |
+| Element-type registry (`ElementRegistry`)           | ✅ Done    | PR #160 — `ElementRegistry`, `getDefaultElementRegistry`, `ElementTypeKey<T>`, `ElementTypeAdapter`                |
+| Plugin state lifecycle (`PluginHandle`)             | ✅ Done    | PR #160 — `PluginHandle`, `PersistedPluginState`, `PluginStateManager`                                             |
+| Per-surface render hooks                            | ✅ Done    | PR #163 — `createRenderHooks()`, `ViewportRenderHooks`, `MinimapRenderHooks`, `ImageExportHooks`, `SvgExportHooks` |
+| `ServiceKey<T>` / `createServiceKey`                | ✅ Done    | PR #163 — invariant-branded typed key with symbol identity                                                         |
+| `PointConstraintService` / `ConstraintServiceProxy` | ✅ Done    | PR #163 — two-interface design per ADR-0006                                                                        |
+| Client sync plugin interface                        | ✅ Done    | PR #163 — `ClientSyncPlugin`, `PluginSnapshot`, `SyncSnapshot` in `@fieldnotes/sync`                               |
+| Server sync plugin interface                        | ✅ Done    | PR #163 — `ServerSyncPlugin`, `ApplyResult`, `ServerOpContext` in `@fieldnotes/sync-server`                        |
+| Backend sync plugin interface                       | ✅ Done    | PR #163 — `BackendSyncPlugin`, `BackendOpContext` in `@fieldnotes/sync-redis`                                      |
+| Overlay registry enhancements                       | ⏸ Deferred | Existing overlay system adequate; render hooks cover plugin z-ordering                                             |
+
+### Phase 2: Internal Refactor — Type System
+
+| Task                                                                | Status         | Notes                                                                                 |
+| ------------------------------------------------------------------- | -------------- | ------------------------------------------------------------------------------------- |
+| Grid/template element type definitions                              | ✅ Done        | PR #162 — `GridElement`, `TemplateElement` with VTT fields                            |
+| `ExtensionElementEnvelope` added to `CanvasElement` union           | ✅ Done        | PR #162 — `RuntimeElement = CoreElement \| ExtensionElementEnvelope`                  |
+| Wire registry + envelope conversion                                 | ✅ Done        | PR #162 — `GridElementTypeDefinition`, `TemplateElementTypeDefinition`, legacy codecs |
+| `CoreElement` / `WireElementV3` / `WireElementV4` type distinctions | ✅ Done        | PR #162 + contract-spike fix                                                          |
+| Fog rendering → per-surface render hooks                            | ❌ Not started | Render hooks now available (Phase 1)                                                  |
+| Grid snapping → `PointConstraintService`                            | ❌ Not started | Constraint service now available (Phase 1)                                            |
+| Fog serialization → `PluginHandle` dual-write                       | ❌ Not started | v3 dual-write infrastructure                                                          |
+| Fog sync → client/server/backend plugins                            | ❌ Not started | Sync plugin interfaces now available (Phase 1)                                        |
+| Register grid/template in default registry                          | ✅ Done        | `getDefaultElementRegistry()` registers both definitions                              |
+
+### Phases 3–7: Not Started
+
+| Phase | Description                                   | Status         |
+| ----- | --------------------------------------------- | -------------- |
+| 3     | Extract MeasureTool (canary)                  | ❌ Not started |
+| 4     | Extract Grid + Templates to `@fieldnotes/vtt` | ❌ Not started |
+| 5     | Extract Fog (last)                            | ❌ Not started |
+| 6     | Deploy & soak, v4 bump, legacy removal        | ❌ Not started |
+| 7     | Document extension API                        | ❌ Not started |
+
+### Next Steps
+
+1. **Complete Phase 2 internal refactor** — refactor fog/grid-snapping/serialization/sync to use extension points
+2. **Phase 0 facade package** — create `@fieldnotes/vtt` as compatibility facade
+3. **Phase 3 canary extraction** — extract MeasureTool to validate the pattern
 
 ---
 

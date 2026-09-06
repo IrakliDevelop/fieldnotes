@@ -1,3 +1,5 @@
+import type { Camera } from './camera';
+
 export type ViewportSlot = 'afterSceneBeforeOverlay' | 'afterOverlay' | 'afterToolOverlay';
 
 const SLOT_ORDER: Record<ViewportSlot, number> = {
@@ -107,4 +109,82 @@ export class TypedHookRegistry<T extends Record<string, unknown>> {
     this.entries.length = 0;
     this.capabilityCounts.clear();
   }
+}
+
+// ─── Per-surface render hook interfaces ─────────────────────────────────────
+
+export interface RenderSurfaceDimensions {
+  readonly width: number;
+  readonly height: number;
+  readonly dpr: number;
+}
+
+// eslint-disable-next-line @typescript-eslint/consistent-type-definitions -- type alias required for Record<string, unknown> constraint
+export type ViewportRenderHooks = {
+  beforeElements?(
+    ctx: CanvasRenderingContext2D,
+    camera: Camera,
+    dimensions: RenderSurfaceDimensions,
+  ): void;
+  afterElements?(
+    ctx: CanvasRenderingContext2D,
+    camera: Camera,
+    dimensions: RenderSurfaceDimensions,
+  ): void;
+  afterAll?(
+    ctx: CanvasRenderingContext2D,
+    camera: Camera,
+    dimensions: RenderSurfaceDimensions,
+  ): void;
+};
+
+export interface MinimapMapping {
+  readonly ctx: CanvasRenderingContext2D;
+  readonly canvasWidth: number;
+  readonly canvasHeight: number;
+  readonly worldBounds: { x: number; y: number; w: number; h: number };
+  readonly scale: number;
+}
+
+// eslint-disable-next-line @typescript-eslint/consistent-type-definitions -- type alias required for Record<string, unknown> constraint
+export type MinimapRenderHooks = {
+  afterElements?(mapping: MinimapMapping): void;
+};
+
+export interface ImageExportMapping {
+  readonly ctx: CanvasRenderingContext2D;
+  readonly width: number;
+  readonly height: number;
+  readonly scale: number;
+}
+
+// eslint-disable-next-line @typescript-eslint/consistent-type-definitions -- type alias required for Record<string, unknown> constraint
+export type ImageExportHooks = {
+  afterElements?(mapping: ImageExportMapping): void;
+};
+
+export interface SvgExportMapping {
+  readonly appendSvg: (fragment: string) => void;
+  readonly viewBox: { x: number; y: number; w: number; h: number };
+}
+
+// eslint-disable-next-line @typescript-eslint/consistent-type-definitions -- type alias required for Record<string, unknown> constraint
+export type SvgExportHooks = {
+  afterElements?(mapping: SvgExportMapping): void;
+};
+
+export interface RenderHooks {
+  readonly viewport: TypedHookRegistry<ViewportRenderHooks>;
+  readonly minimap: TypedHookRegistry<MinimapRenderHooks>;
+  readonly imageExport: TypedHookRegistry<ImageExportHooks>;
+  readonly svgExport: TypedHookRegistry<SvgExportHooks>;
+}
+
+export function createRenderHooks(): RenderHooks {
+  return {
+    viewport: new TypedHookRegistry<ViewportRenderHooks>(),
+    minimap: new TypedHookRegistry<MinimapRenderHooks>(),
+    imageExport: new TypedHookRegistry<ImageExportHooks>(),
+    svgExport: new TypedHookRegistry<SvgExportHooks>(),
+  };
 }

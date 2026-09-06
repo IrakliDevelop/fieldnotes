@@ -1,4 +1,4 @@
-export const VERSION = '0.71.0';
+export const VERSION = '0.72.0';
 
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
 export {
@@ -248,8 +248,20 @@ export { ElementRegistry } from './elements/element-registry';
 export { getDefaultElementRegistry, setDefaultElementRegistry } from './elements/default-registry';
 export { gridElementTypeDefinition } from './elements/grid-definition';
 export { templateElementTypeDefinition } from './elements/template-definition';
-export { TypedHookRegistry } from './canvas/render-hooks';
-export type { ViewportSlot, HookRegistrationOptions } from './canvas/render-hooks';
+export { TypedHookRegistry, createRenderHooks } from './canvas/render-hooks';
+export type {
+  ViewportSlot,
+  HookRegistrationOptions,
+  RenderSurfaceDimensions,
+  ViewportRenderHooks,
+  MinimapRenderHooks,
+  MinimapMapping,
+  ImageExportHooks,
+  ImageExportMapping,
+  SvgExportHooks,
+  SvgExportMapping,
+  RenderHooks,
+} from './canvas/render-hooks';
 export { PluginStateManager } from './core/plugin-state-manager';
 export type {
   PluginHandle,
@@ -257,6 +269,15 @@ export type {
   NotificationController,
   PluginLoadResult,
 } from './core/plugin-state-manager';
+export { createServiceKey } from './core/service-key';
+export type { ServiceKey } from './core/service-key';
+export { ConstraintServiceProxy } from './core/constraint-service';
+export type {
+  PointConstraintService,
+  ConstraintServiceAccess,
+  ConstraintOptions,
+  ConstraintInfo,
+} from './core/constraint-service';
 
 export type { Command } from './history/types';
 export { HistoryStack } from './history/history-stack';

@@ -20,3 +20,10 @@ export type {
 } from './authorize';
 export { startHeartbeat } from './heartbeat';
 export type { Heartbeat, HeartbeatSocket, HeartbeatServer } from './heartbeat';
+export type {
+  ServerSyncPlugin,
+  ApplyResult,
+  ServerOpContext,
+  ServerNext,
+  PluginSnapshot,
+} from './sync-plugin';

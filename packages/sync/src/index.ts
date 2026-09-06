@@ -50,3 +50,4 @@ export {
   FOG_PATCH_MAX_TILES,
 } from './protocol';
 export { FogLedger } from './fog-ledger';
+export type { ClientSyncPlugin, PluginSnapshot, SyncSnapshot } from './sync-plugin';
