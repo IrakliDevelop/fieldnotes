@@ -15,13 +15,15 @@ function makeGridService(cellSize: number): PointConstraintService {
 }
 
 describe('ConstraintServiceProxy', () => {
-  it('returns point unchanged when inactive', () => {
+  it('constrainPoint delegates regardless of isActive', () => {
     const proxy = new ConstraintServiceProxy();
     proxy.setImplementation(makeGridService(50));
     proxy.setActive(false);
 
-    const result = proxy.constrainPoint({ x: 23, y: 47 });
-    expect(result).toEqual({ x: 23, y: 47 });
+    expect(proxy.constrainPoint({ x: 23, y: 47 })).toEqual({ x: 0, y: 50 });
+
+    proxy.setActive(true);
+    expect(proxy.constrainPoint({ x: 23, y: 47 })).toEqual({ x: 0, y: 50 });
   });
 
   it('returns point unchanged when no implementation', () => {
@@ -30,15 +32,6 @@ describe('ConstraintServiceProxy', () => {
 
     const result = proxy.constrainPoint({ x: 23, y: 47 });
     expect(result).toEqual({ x: 23, y: 47 });
-  });
-
-  it('delegates to implementation when active', () => {
-    const proxy = new ConstraintServiceProxy();
-    proxy.setImplementation(makeGridService(50));
-    proxy.setActive(true);
-
-    const result = proxy.constrainPoint({ x: 23, y: 47 });
-    expect(result).toEqual({ x: 0, y: 50 });
   });
 
   it('isActive reflects setActive', () => {

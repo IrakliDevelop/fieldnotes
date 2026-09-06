@@ -4,6 +4,21 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.73.0] — 2026-09-06
+
+### Added
+
+- **Phase 2 internal refactor: grid snapping → ConstraintService** (VTT extraction migration):
+  - `GridConstraintService` — implements `PointConstraintService`, wraps existing snap logic (square grid intersections, hex centres, cell-centre with footprint).
+  - `ToolContext.constraintService` — optional `ConstraintServiceAccess` on the tool context, wired by Viewport.
+  - `smartSnap` and `snapFootprintCenter` now route through the constraint service when available, with full fallback for unconfigured contexts.
+  - `ConstraintServiceProxy.constrainPoint()` now always delegates to the implementation when one exists; `isActive` is informational (tools check it to decide whether to constrain).
+  - Measure, template, and path tools migrated to use the constraint service directly (Pattern B/C), preserving unconditional-snap-when-grid-exists behaviour.
+
+### Package versions
+
+- `@fieldnotes/core` 0.72.0 → 0.73.0
+
 ## [0.72.0] — 2026-09-06
 
 ### Added

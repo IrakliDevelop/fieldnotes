@@ -144,6 +144,10 @@ export class MeasureTool implements Tool {
   }
 
   private snapToGrid(point: Point, ctx: ToolContext): Point {
+    const cs = ctx.constraintService;
+    if (cs && cs.getConstraintInfo()) {
+      return cs.constrainPoint(point);
+    }
     if (!ctx.gridSize) return point;
     if (ctx.gridType === 'hex' && ctx.hexOrientation) {
       return snapToHexCenter(point, ctx.gridSize, ctx.hexOrientation);

@@ -1,6 +1,6 @@
 # Plan: VTT Feature Extraction & the Emacs Philosophy
 
-> **Status:** Phase 1 complete — all extension point interfaces landed (PR #163). Phase 2 internal refactor is next. See `MIGRATION_VTT_EXTRACTION.md` §Implementation Progress for details.
+> **Status:** Phase 2 in progress — grid snapping → ConstraintService complete. Fog refactor items remain. See `MIGRATION_VTT_EXTRACTION.md` §Implementation Progress for details.
 > **Created:** 2026-09-05
 > **Revised:** 2026-09-05 (post-review — incorporated Codex review findings)
 > **Scope:** Architectural reorganization of @fieldnotes/core
@@ -500,12 +500,12 @@ interface ElementDecorator {
    e. ✅ `PointConstraintService` / `ConstraintServiceProxy` (PR #163)
    f. ✅ Client/server/backend sync plugin interfaces (PR #163)
    g. ⏸ Overlay registry enhancements (deferred — existing system adequate)
-6. **Phase 2 — Internal Refactor (type system done, refactor pending):**
+6. **Phase 2 — Internal Refactor (type system done, grid snapping done, fog pending):**
    a. ✅ Grid/template type definitions + `ExtensionElementEnvelope` union (PR #162)
    b. ✅ Wire registry + envelope conversion + legacy codecs (PR #162)
    c. ✅ Register grid/template in default registry (already wired in PR #162)
    d. ❌ Fog rendering → per-surface render hooks
-   e. ❌ Grid snapping → `PointConstraintService`
+   e. ✅ Grid snapping → `PointConstraintService` (`GridConstraintService`, all 9 tools migrated)
    f. ❌ Fog serialization → `PluginHandle` dual-write
    g. ❌ Fog sync → client/server/backend plugins
 7. **Phase 3:** Extract MeasureTool as canary

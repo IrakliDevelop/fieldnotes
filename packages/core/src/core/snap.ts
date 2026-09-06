@@ -32,6 +32,10 @@ export function snapToHexCenter(
 }
 
 export function smartSnap(point: Point, ctx: ToolContext): Point {
+  const cs = ctx.constraintService;
+  if (cs) {
+    return cs.isActive ? cs.constrainPoint(point) : point;
+  }
   if (!ctx.snapToGrid || !ctx.gridSize) return point;
   if (ctx.gridType === 'hex' && ctx.hexOrientation) {
     return snapToHexCenter(point, ctx.gridSize, ctx.hexOrientation);
@@ -84,6 +88,12 @@ export function snapToCellCenter(point: Point, gridSize: number, footprint: Foot
  * grids, footprint-aware cell centres otherwise.
  */
 export function snapFootprintCenter(point: Point, footprint: Footprint, ctx: ToolContext): Point {
+  const cs = ctx.constraintService;
+  if (cs) {
+    if (!cs.isActive) return point;
+    const fp = typeof footprint === 'number' ? { w: footprint, h: footprint } : footprint;
+    return cs.constrainPoint(point, { footprint: { width: fp.w, height: fp.h } });
+  }
   if (!ctx.snapToGrid || !ctx.gridSize) return point;
   if (ctx.gridType === 'hex' && ctx.hexOrientation) {
     return snapToHexCenter(point, ctx.gridSize, ctx.hexOrientation);

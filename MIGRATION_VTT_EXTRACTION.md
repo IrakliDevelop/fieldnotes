@@ -1,7 +1,7 @@
 # Migration Plan: VTT Feature Extraction
 
 > **Companion documents:** `VISION.md` (the Emacs philosophy), `PLAN_VTT_EXTRACTION.md` (audit results)
-> **Status:** Phase 1 complete — all extension point interfaces landed (PR #163). Phase 2 internal refactor is next.
+> **Status:** Phase 2 in progress — grid snapping → ConstraintService complete. Fog refactor items remain.
 > **Created:** 2026-09-05
 > **Revised:** 2026-09-05 (post-review — incorporated Codex review findings, see [Review Findings](#review-findings))
 > **Revised:** 2026-09-06 (aligned with sixth ADR review — addressed 11 findings across all ADRs and migration doc)
@@ -43,7 +43,7 @@
 
 ## Implementation Progress
 
-> **Last updated:** 2026-09-06 (after Phase 1 PR #163 — all extension point interfaces)
+> **Last updated:** 2026-09-06 (Phase 2: grid snapping → ConstraintService complete, all 9 tools migrated)
 
 ### Phase 0: Compatibility & Design
 
@@ -80,7 +80,7 @@
 | Wire registry + envelope conversion                                 | ✅ Done        | PR #162 — `GridElementTypeDefinition`, `TemplateElementTypeDefinition`, legacy codecs |
 | `CoreElement` / `WireElementV3` / `WireElementV4` type distinctions | ✅ Done        | PR #162 + contract-spike fix                                                          |
 | Fog rendering → per-surface render hooks                            | ❌ Not started | Render hooks now available (Phase 1)                                                  |
-| Grid snapping → `PointConstraintService`                            | ❌ Not started | Constraint service now available (Phase 1)                                            |
+| Grid snapping → `PointConstraintService`                            | ✅ Done        | `GridConstraintService`, `ToolContext.constraintService`, all 9 tools migrated        |
 | Fog serialization → `PluginHandle` dual-write                       | ❌ Not started | v3 dual-write infrastructure                                                          |
 | Fog sync → client/server/backend plugins                            | ❌ Not started | Sync plugin interfaces now available (Phase 1)                                        |
 | Register grid/template in default registry                          | ✅ Done        | `getDefaultElementRegistry()` registers both definitions                              |
@@ -97,7 +97,7 @@
 
 ### Next Steps
 
-1. **Complete Phase 2 internal refactor** — refactor fog/grid-snapping/serialization/sync to use extension points
+1. **Complete Phase 2 internal refactor** — fog rendering → render hooks, fog serialization → PluginHandle dual-write, fog sync → plugin interfaces
 2. **Phase 0 facade package** — create `@fieldnotes/vtt` as compatibility facade
 3. **Phase 3 canary extraction** — extract MeasureTool to validate the pattern
 

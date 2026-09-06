@@ -37,7 +37,7 @@ export class ConstraintServiceProxy implements ConstraintServiceAccess {
   }
 
   constrainPoint(point: Point, options?: ConstraintOptions): Point {
-    if (!this._active || !this._impl) return point;
+    if (!this._impl) return point;
     return this._impl.constrainPoint(point, options);
   }
 

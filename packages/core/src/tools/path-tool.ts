@@ -1,6 +1,7 @@
 import type { Point } from '../core/types';
 import type { HexOrientation } from '../elements/types';
 import type { Tool, ToolContext, PointerState } from './types';
+import type { ConstraintServiceAccess } from '../core/constraint-service';
 import { snapPoint, snapToHexCenter, snapToCellCenter } from '../core/snap';
 import type { Footprint } from '../core/snap';
 import { pathDistanceCells } from '../core/grid-metric';
@@ -112,6 +113,7 @@ export class PathTool implements Tool {
   private gridType: 'square' | 'hex' | undefined;
   private hexOrientation: HexOrientation | undefined;
   private snapEnabled = false;
+  private constraintService: ConstraintServiceAccess | null = null;
 
   private optionListeners = new Set<() => void>();
   private pathListeners = new Set<(emission: PathEmission | null) => void>();
@@ -198,6 +200,7 @@ export class PathTool implements Tool {
       this.gridType = ctx.gridType;
       this.hexOrientation = ctx.hexOrientation;
       this.snapEnabled = ctx.snapToGrid === true;
+      this.constraintService = ctx.constraintService ?? null;
       this.footprint = anchor.footprint ?? this.footprintOption;
       const origin = this.snap(anchor.origin);
       this.waypoints = [origin];
@@ -349,6 +352,14 @@ export class PathTool implements Tool {
    * user turns snapping off.
    */
   private snap(point: Point): Point {
+    const cs = this.constraintService;
+    if (cs && cs.getConstraintInfo()) {
+      const fp =
+        typeof this.footprint === 'number'
+          ? { w: this.footprint, h: this.footprint }
+          : this.footprint;
+      return cs.constrainPoint(point, { footprint: { width: fp.w, height: fp.h } });
+    }
     if (this.gridSize <= 0) return point;
     if (this.gridType === 'hex' && this.hexOrientation) {
       return snapToHexCenter(point, this.gridSize, this.hexOrientation);
