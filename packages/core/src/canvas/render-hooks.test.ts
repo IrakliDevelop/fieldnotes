@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-empty-function */
 import { describe, it, expect, vi } from 'vitest';
-import { TypedHookRegistry } from './render-hooks';
+import { TypedHookRegistry, createRenderHooks } from './render-hooks';
 
 // ─── Test fixture: a simple hook shape ───────────────────────────────────────
 
@@ -221,5 +221,92 @@ describe('TypedHookRegistry', () => {
 
       expect(registry.getSatisfiedCapabilities()).not.toContain('vtt:fog');
     });
+  });
+});
+
+describe('createRenderHooks', () => {
+  it('creates all four surface registries', () => {
+    const hooks = createRenderHooks();
+    expect(hooks.viewport).toBeInstanceOf(TypedHookRegistry);
+    expect(hooks.minimap).toBeInstanceOf(TypedHookRegistry);
+    expect(hooks.imageExport).toBeInstanceOf(TypedHookRegistry);
+    expect(hooks.svgExport).toBeInstanceOf(TypedHookRegistry);
+  });
+
+  it('viewport hooks receive camera and dimensions', () => {
+    const hooks = createRenderHooks();
+    const fn = vi.fn();
+    hooks.viewport.register({ afterElements: fn });
+
+    const camera = { position: { x: 0, y: 0 }, zoom: 1 } as never;
+    const dims = { width: 800, height: 600, dpr: 2 };
+    const ctx = {} as CanvasRenderingContext2D;
+
+    for (const hook of hooks.viewport.iterate('afterElements')) {
+      hook(ctx, camera, dims);
+    }
+
+    expect(fn).toHaveBeenCalledWith(ctx, camera, dims);
+  });
+
+  it('minimap hooks receive mapping', () => {
+    const hooks = createRenderHooks();
+    const fn = vi.fn();
+    hooks.minimap.register({ afterElements: fn });
+
+    const mapping = {
+      ctx: {} as CanvasRenderingContext2D,
+      canvasWidth: 200,
+      canvasHeight: 140,
+      worldBounds: { x: 0, y: 0, w: 1000, h: 1000 },
+      scale: 0.2,
+    };
+
+    for (const hook of hooks.minimap.iterate('afterElements')) {
+      hook(mapping);
+    }
+
+    expect(fn).toHaveBeenCalledWith(mapping);
+  });
+
+  it('svg export hooks receive appendSvg and viewBox', () => {
+    const hooks = createRenderHooks();
+    const fn = vi.fn();
+    hooks.svgExport.register({ afterElements: fn });
+
+    const fragments: string[] = [];
+    const mapping = {
+      appendSvg: (frag: string) => fragments.push(frag),
+      viewBox: { x: 0, y: 0, w: 500, h: 400 },
+    };
+
+    for (const hook of hooks.svgExport.iterate('afterElements')) {
+      hook(mapping);
+    }
+
+    expect(fn).toHaveBeenCalledWith(mapping);
+  });
+
+  it('each surface registry is independent', () => {
+    const hooks = createRenderHooks();
+    const viewportFn = vi.fn();
+    const minimapFn = vi.fn();
+
+    hooks.viewport.register({ afterElements: viewportFn });
+    hooks.minimap.register({ afterElements: minimapFn });
+
+    expect([...hooks.viewport.iterate('afterElements')]).toHaveLength(1);
+    expect([...hooks.minimap.iterate('afterElements')]).toHaveLength(1);
+
+    viewportFn.mockClear();
+    minimapFn.mockClear();
+
+    const ctx = {} as CanvasRenderingContext2D;
+    for (const hook of hooks.viewport.iterate('afterElements')) {
+      hook(ctx, null as never, { width: 0, height: 0, dpr: 1 });
+    }
+
+    expect(viewportFn).toHaveBeenCalledOnce();
+    expect(minimapFn).not.toHaveBeenCalled();
   });
 });

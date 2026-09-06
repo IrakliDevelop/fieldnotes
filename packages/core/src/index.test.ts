@@ -3,7 +3,7 @@ import * as FN from './index';
 
 describe('core public surface', () => {
   it('exports the current version', () => {
-    expect(FN.VERSION).toBe('0.71.0');
+    expect(FN.VERSION).toBe('0.72.0');
   });
 
   it('exports the shared-ruler surface', () => {
@@ -197,9 +197,9 @@ describe('core public surface', () => {
     expect(typeof FN.elementRectsEqual).toBe('function');
   });
 
-  it('reports VERSION 0.71.0', async () => {
+  it('reports VERSION 0.72.0', async () => {
     const { VERSION } = await import('./index');
-    expect(VERSION).toBe('0.71.0');
+    expect(VERSION).toBe('0.72.0');
   });
 
   it('exports the movement-path surface', () => {
@@ -238,5 +238,12 @@ describe('core public surface', () => {
     expect(FN.defaultPeerColor).toBeTypeOf('function');
     expect(FN.PEER_COLORS).toHaveLength(12);
     expect(FN.attachAwareness).toBeTypeOf('function');
+  });
+
+  it('exports the Phase 1 extension point surface', () => {
+    expect(typeof FN.createServiceKey).toBe('function');
+    expect(typeof FN.ConstraintServiceProxy).toBe('function');
+    expect(typeof FN.createRenderHooks).toBe('function');
+    expect(typeof FN.TypedHookRegistry).toBe('function');
   });
 });

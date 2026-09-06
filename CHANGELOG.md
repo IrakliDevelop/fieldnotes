@@ -4,6 +4,25 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.72.0] — 2026-09-06
+
+### Added
+
+- **Phase 1 extension point interfaces** (VTT extraction migration):
+  - `createServiceKey<T>(name)` / `ServiceKey<T>` — invariant-branded typed key for service registry (ADR-0005).
+  - `ConstraintServiceProxy` / `PointConstraintService` / `ConstraintServiceAccess` — two-interface constraint service with activate/delegate/proxy pattern (ADR-0006).
+  - `createRenderHooks()` / `RenderHooks` — per-surface typed hook registries: `ViewportRenderHooks`, `MinimapRenderHooks`, `ImageExportHooks`, `SvgExportHooks` (ADR-0002).
+  - `ClientSyncPlugin` interface in `@fieldnotes/sync` (ADR-0003).
+  - `ServerSyncPlugin` / `ApplyResult` / `ServerOpContext` interfaces in `@fieldnotes/sync-server` (ADR-0003).
+  - `BackendSyncPlugin` / `BackendOpContext` interfaces in `@fieldnotes/sync-redis` (ADR-0003).
+
+### Package versions
+
+- `@fieldnotes/core` 0.71.0 → 0.72.0
+- `@fieldnotes/sync` 0.13.0 → 0.14.0
+- `@fieldnotes/sync-server` 0.14.0 → 0.15.0
+- `@fieldnotes/sync-redis` 0.5.0 → 0.6.0
+
 ## [0.71.0] — 2026-09-06
 
 ### Added
