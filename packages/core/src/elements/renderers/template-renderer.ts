@@ -1,4 +1,9 @@
-import type { TemplateElement, HexOrientation } from '../types';
+import type {
+  TemplateElement,
+  HexOrientation,
+  GridElement,
+  ExtensionElementEnvelope,
+} from '../types';
 import type { ElementStore } from '../element-store';
 import {
   getHexCellsInRadius,
@@ -9,19 +14,34 @@ import {
   drawHexPath,
 } from '../hex-fill';
 import { renderTemplateFeetLabel } from './template-measure';
+import { getDefaultElementRegistry } from '../default-registry';
 
 export function renderTemplate(
   ctx: CanvasRenderingContext2D,
   template: TemplateElement,
   store: ElementStore | null,
 ): void {
-  const grid = store?.getElementsByType('grid')[0];
+  const grid = findGridInStore(store);
   if (grid && grid.gridType === 'hex' && template.renderStyle !== 'geometric') {
     renderHexTemplate(ctx, template, grid.cellSize, grid.hexOrientation);
     return;
   }
 
   renderGeometricTemplate(ctx, template);
+}
+
+function findGridInStore(store: ElementStore | null): GridElement | null {
+  if (!store) return null;
+  const directGrid = store.getElementsByType('grid')[0];
+  if (directGrid) return directGrid;
+  const extensionGrid = store
+    .getElementsByType('extension')
+    .find((el) => el.extensionType === 'vtt:grid') as ExtensionElementEnvelope | undefined;
+  if (extensionGrid) {
+    const adapter = getDefaultElementRegistry().getAdapter('vtt:grid');
+    if (adapter) return adapter.unwrap(extensionGrid) as unknown as GridElement;
+  }
+  return null;
 }
 
 function renderGeometricTemplate(ctx: CanvasRenderingContext2D, template: TemplateElement): void {

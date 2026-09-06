@@ -354,7 +354,9 @@ export class RenderLoop {
     ctx.scale(dpr, dpr);
 
     this.renderer.setCanvasSize(cssWidth, cssHeight);
-    const hasGridElement = this.store.getElementsByType('grid').length > 0;
+    const hasGridElement =
+      this.store.getElementsByType('grid').length > 0 ||
+      this.store.getElementsByType('extension').some((el) => el.extensionType === 'vtt:grid');
     const bgT0 = performance.now();
     if (hasGridElement) {
       ctx.save();
@@ -420,7 +422,12 @@ export class RenderLoop {
         continue;
       }
 
-      if (hybridActive && paintOrder > firstDomIndex + 1 && element.type !== 'grid') {
+      if (
+        hybridActive &&
+        paintOrder > firstDomIndex + 1 &&
+        element.type !== 'grid' &&
+        !(element.type === 'extension' && element.extensionType === 'vtt:grid')
+      ) {
         activeHybridOrder ??= order;
         let run = hybridCanvasRuns.get(activeHybridOrder);
         if (!run) {
@@ -433,7 +440,10 @@ export class RenderLoop {
       }
 
       // Grids are viewport-filling; handled via anchored cache below
-      if (element.type === 'grid') {
+      if (
+        element.type === 'grid' ||
+        (element.type === 'extension' && element.extensionType === 'vtt:grid')
+      ) {
         gridElements.push(element);
         continue;
       }

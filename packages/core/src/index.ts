@@ -245,6 +245,7 @@ export type {
   ElementTypeKey,
 } from './elements/types';
 export { ElementRegistry } from './elements/element-registry';
+export { getDefaultElementRegistry, setDefaultElementRegistry } from './elements/default-registry';
 export { gridElementTypeDefinition } from './elements/grid-definition';
 export { templateElementTypeDefinition } from './elements/template-definition';
 export { TypedHookRegistry } from './canvas/render-hooks';
