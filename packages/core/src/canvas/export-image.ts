@@ -152,6 +152,9 @@ function getElementRect(el: CanvasElement): Rect | null {
         );
       }
       return null;
+    case 'extension':
+      // Extension elements bounds are computed by registered type handlers (Phase 4)
+      return null;
     default:
       return null;
   }

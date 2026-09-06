@@ -137,7 +137,8 @@ export type CanvasElement =
   | TextElement
   | ShapeElement
   | GridElement
-  | TemplateElement;
+  | TemplateElement
+  | ExtensionElementEnvelope;
 
 export type ElementType = CanvasElement['type'];
 

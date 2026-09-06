@@ -10,6 +10,7 @@ const strokeBoundsCache = new WeakMap<CanvasElement, Bounds>();
 
 export function getElementBounds(element: CanvasElement): Bounds | null {
   if (element.type === 'grid') return null;
+  if (element.type === 'extension') return null;
 
   if ('size' in element) {
     return {

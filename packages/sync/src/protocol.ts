@@ -93,6 +93,7 @@ const ELEMENT_TYPES = [
   'shape',
   'grid',
   'template',
+  'extension',
 ] as const;
 // Compile-time exhaustiveness: errors if a core ElementType is missing from the allowlist above.
 type _ExhaustiveCheck = ElementType extends (typeof ELEMENT_TYPES)[number] ? true : never;
@@ -195,6 +196,8 @@ export function isValidElement(el: unknown): el is CanvasElement {
         isOptional(el['radiusFeet'], isFiniteNumber) &&
         isOptionalEnum(el['renderStyle'], ['cells', 'geometric'])
       );
+    case 'extension':
+      return typeof el['extensionType'] === 'string' && isRecord(el['data']);
     default:
       return false;
   }

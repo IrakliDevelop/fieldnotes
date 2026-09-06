@@ -28,6 +28,7 @@ const ELEMENT_TYPES = [
   'shape',
   'grid',
   'template',
+  'extension',
 ] as const satisfies readonly CanvasElement['type'][];
 type _ElementTypesAreExhaustive = CanvasElement['type'] extends (typeof ELEMENT_TYPES)[number]
   ? true
@@ -267,6 +268,8 @@ function validateTypeFields(el: Record<string, unknown>, type: CanvasElement['ty
         isOptional(el['radiusFeet'], isFiniteNumber) &&
         isOptionalEnum(el['renderStyle'], ['cells', 'geometric'])
       );
+    case 'extension':
+      return isString(el['extensionType']) && isRecord(el['data']);
   }
 }
 

@@ -54,6 +54,8 @@ export function styleToPatch(element: CanvasElement, style: ElementStyle): Parti
         ...(strokeWidth !== undefined ? { strokeWidth } : {}),
         ...(opacity !== undefined ? { opacity } : {}),
       };
+    case 'extension':
+      return {};
     default:
       return {};
   }
@@ -96,6 +98,8 @@ export function getElementStyle(element: CanvasElement): ElementStyle {
         strokeWidth: element.strokeWidth,
         opacity: element.opacity,
       };
+    case 'extension':
+      return {};
     default:
       return {};
   }

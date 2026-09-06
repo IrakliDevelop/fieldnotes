@@ -587,6 +587,9 @@ function emitElement(
       return '';
     case 'html':
       return withRotationSvg(el, emitImage(el, htmlDataUris.get(el.id)));
+    case 'extension':
+      // Extension elements are rendered by registered type handlers (Phase 4)
+      return '';
     default:
       return '';
   }

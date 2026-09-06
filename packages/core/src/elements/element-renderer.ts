@@ -133,6 +133,9 @@ export class ElementRenderer {
       case 'html':
         this.renderHtml(ctx, element);
         break;
+      case 'extension':
+        // Extension elements are rendered by registered type handlers (Phase 4)
+        break;
     }
   }
 
