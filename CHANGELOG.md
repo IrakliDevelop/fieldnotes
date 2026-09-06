@@ -4,6 +4,26 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.75.0] — 2026-09-06
+
+### Added
+
+- **Fog serialization dual-write (Phase 2).** `CanvasState` gains an `extensions` field
+  (`Record<string, PersistedPluginState>`). `exportState()` writes fog to both the legacy `fog`
+  field and `extensions.fog` simultaneously. `loadState()` prefers `extensions.fog` when present,
+  falling back to the legacy `fog` field for backward compatibility.
+- `createFogPluginHandle(manager)` — wraps a `FogManager` as a `PluginHandle` for the
+  `PluginStateManager`.
+- `Viewport.plugins` — new public getter exposing the `PluginStateManager`.
+- `AutoSave` accepts `pluginStateManager` option to include plugin extensions in saved state.
+
+### Changed
+
+- `exportState()` in `state-serializer.ts` accepts an optional `extensions` parameter (7th arg).
+- `validateState()` validates the `extensions` field when present (each entry must have a positive
+  integer `version`).
+- Unknown plugin entries in `extensions` are preserved as-is on re-export.
+
 ## [0.74.0] — 2026-09-06
 
 ### Changed

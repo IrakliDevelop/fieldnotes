@@ -1,4 +1,4 @@
-export const VERSION = '0.74.0';
+export const VERSION = '0.75.0';
 
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
 export {
@@ -358,4 +358,5 @@ export type {
 } from './fog/fog-style';
 export { resolveFogStyle } from './fog/fog-style';
 export { renderFogStylePreview } from './fog/fog-style-preview';
+export { createFogPluginHandle } from './fog/fog-plugin-handle';
 export { FogTool } from './tools/fog-tool';

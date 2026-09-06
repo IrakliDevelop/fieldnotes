@@ -1,7 +1,7 @@
 # Migration Plan: VTT Feature Extraction
 
 > **Companion documents:** `VISION.md` (the Emacs philosophy), `PLAN_VTT_EXTRACTION.md` (audit results)
-> **Status:** Phase 2 in progress — grid snapping → ConstraintService complete, fog rendering → render hooks complete. Fog serialization and sync remain.
+> **Status:** Phase 2 in progress — grid snapping → ConstraintService complete, fog rendering → render hooks complete, fog serialization → dual-write complete. Fog sync remains.
 > **Created:** 2026-09-05
 > **Revised:** 2026-09-05 (post-review — incorporated Codex review findings, see [Review Findings](#review-findings))
 > **Revised:** 2026-09-06 (aligned with sixth ADR review — addressed 11 findings across all ADRs and migration doc)
@@ -43,7 +43,7 @@
 
 ## Implementation Progress
 
-> **Last updated:** 2026-09-06 (Phase 2: fog rendering → render hooks complete, render-loop/minimap/viewport decoupled)
+> **Last updated:** 2026-09-06 (Phase 2: fog serialization → dual-write complete, extensions field in CanvasState, extensions-first read with legacy fallback)
 
 ### Phase 0: Compatibility & Design
 
@@ -73,17 +73,17 @@
 
 ### Phase 2: Internal Refactor — Type System
 
-| Task                                                                | Status         | Notes                                                                                 |
-| ------------------------------------------------------------------- | -------------- | ------------------------------------------------------------------------------------- |
-| Grid/template element type definitions                              | ✅ Done        | PR #162 — `GridElement`, `TemplateElement` with VTT fields                            |
-| `ExtensionElementEnvelope` added to `CanvasElement` union           | ✅ Done        | PR #162 — `RuntimeElement = CoreElement \| ExtensionElementEnvelope`                  |
-| Wire registry + envelope conversion                                 | ✅ Done        | PR #162 — `GridElementTypeDefinition`, `TemplateElementTypeDefinition`, legacy codecs |
-| `CoreElement` / `WireElementV3` / `WireElementV4` type distinctions | ✅ Done        | PR #162 + contract-spike fix                                                          |
-| Fog rendering → per-surface render hooks                            | ✅ Done        | Render loop, minimap, viewport wired through hooks; fog no longer hard-coded          |
-| Grid snapping → `PointConstraintService`                            | ✅ Done        | `GridConstraintService`, `ToolContext.constraintService`, all 9 tools migrated        |
-| Fog serialization → `PluginHandle` dual-write                       | ❌ Not started | v3 dual-write infrastructure                                                          |
-| Fog sync → client/server/backend plugins                            | ❌ Not started | Sync plugin interfaces now available (Phase 1)                                        |
-| Register grid/template in default registry                          | ✅ Done        | `getDefaultElementRegistry()` registers both definitions                              |
+| Task                                                                | Status         | Notes                                                                                                     |
+| ------------------------------------------------------------------- | -------------- | --------------------------------------------------------------------------------------------------------- |
+| Grid/template element type definitions                              | ✅ Done        | PR #162 — `GridElement`, `TemplateElement` with VTT fields                                                |
+| `ExtensionElementEnvelope` added to `CanvasElement` union           | ✅ Done        | PR #162 — `RuntimeElement = CoreElement \| ExtensionElementEnvelope`                                      |
+| Wire registry + envelope conversion                                 | ✅ Done        | PR #162 — `GridElementTypeDefinition`, `TemplateElementTypeDefinition`, legacy codecs                     |
+| `CoreElement` / `WireElementV3` / `WireElementV4` type distinctions | ✅ Done        | PR #162 + contract-spike fix                                                                              |
+| Fog rendering → per-surface render hooks                            | ✅ Done        | Render loop, minimap, viewport wired through hooks; fog no longer hard-coded                              |
+| Grid snapping → `PointConstraintService`                            | ✅ Done        | `GridConstraintService`, `ToolContext.constraintService`, all 9 tools migrated                            |
+| Fog serialization → `PluginHandle` dual-write                       | ✅ Done        | `CanvasState.extensions`, `createFogPluginHandle`, `Viewport.plugins`, dual-write + extensions-first read |
+| Fog sync → client/server/backend plugins                            | ❌ Not started | Sync plugin interfaces now available (Phase 1)                                                            |
+| Register grid/template in default registry                          | ✅ Done        | `getDefaultElementRegistry()` registers both definitions                                                  |
 
 ### Phases 3–7: Not Started
 

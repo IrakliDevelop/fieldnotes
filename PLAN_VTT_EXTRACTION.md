@@ -1,6 +1,6 @@
 # Plan: VTT Feature Extraction & the Emacs Philosophy
 
-> **Status:** Phase 2 in progress — grid snapping → ConstraintService complete, fog rendering → render hooks complete. Fog serialization and sync remain. See `MIGRATION_VTT_EXTRACTION.md` §Implementation Progress for details.
+> **Status:** Phase 2 in progress — grid snapping → ConstraintService complete, fog rendering → render hooks complete, fog serialization → dual-write complete. Fog sync remains. See `MIGRATION_VTT_EXTRACTION.md` §Implementation Progress for details.
 > **Created:** 2026-09-05
 > **Revised:** 2026-09-05 (post-review — incorporated Codex review findings)
 > **Scope:** Architectural reorganization of @fieldnotes/core
@@ -504,9 +504,9 @@ interface ElementDecorator {
    a. ✅ Grid/template type definitions + `ExtensionElementEnvelope` union (PR #162)
    b. ✅ Wire registry + envelope conversion + legacy codecs (PR #162)
    c. ✅ Register grid/template in default registry (already wired in PR #162)
-   d. ❌ Fog rendering → per-surface render hooks
+   d. ✅ Fog rendering → per-surface render hooks (PR #165)
    e. ✅ Grid snapping → `PointConstraintService` (`GridConstraintService`, all 9 tools migrated)
-   f. ❌ Fog serialization → `PluginHandle` dual-write
+   f. ✅ Fog serialization → `PluginHandle` dual-write (`CanvasState.extensions`, extensions-first read)
    g. ❌ Fog sync → client/server/backend plugins
 7. **Phase 3:** Extract MeasureTool as canary
 8. **Phase 4:** Extract Grid + Templates (requires element-type registry)
