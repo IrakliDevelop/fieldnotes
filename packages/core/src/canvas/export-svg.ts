@@ -45,9 +45,6 @@ import { resolveHtmlRouting, HtmlPainterMissingError } from './html-painter-regi
 import type { HtmlPainterRegistry } from './html-painter-registry';
 import { paintHtmlElement } from './html-paint';
 import type { HtmlPaintDiagnostic } from './html-paint-diagnostics';
-import type { FogStateV1 } from '../fog/types';
-import { FogRenderer } from '../fog/fog-renderer';
-import type { FogStyle } from '../fog/fog-style';
 
 export interface ExportSvgOptions extends ExportResourceOptions, HtmlExportOptions {
   padding?: number;
@@ -57,7 +54,7 @@ export interface ExportSvgOptions extends ExportResourceOptions, HtmlExportOptio
   htmlPainters?: HtmlPainterRegistry;
   expectedCanvasTypes?: ReadonlySet<string>;
   strictMissingCanvasHtml?: boolean;
-  fog?: { state: FogStateV1; mode: 'editor' | 'player'; color?: string; style?: FogStyle } | false;
+  afterElements?: (ctx: CanvasRenderingContext2D, width: number, height: number) => void;
 }
 
 interface Bounds {
@@ -535,31 +532,23 @@ export async function exportSvg(
     body += opacity === 1 ? emitted : `<g opacity="${n(opacity)}">${emitted}</g>`;
   }
 
-  if (options.fog && typeof document !== 'undefined') {
-    const fogState = options.fog.state;
-    const fogW = Math.max(1, Math.ceil(bounds.w));
-    const fogH = Math.max(1, Math.ceil(bounds.h));
-    const fogCanvas = document.createElement('canvas');
-    fogCanvas.width = fogW;
-    fogCanvas.height = fogH;
-    const fogCtx = fogCanvas.getContext('2d');
-    if (fogCtx) {
-      fogCtx.translate(-bounds.x, -bounds.y);
-      const fogRenderer = new FogRenderer();
-      fogRenderer.renderForExport(
-        fogCtx,
-        fogState,
-        options.fog.mode,
-        options.fog.color,
-        options.fog.style,
-      );
+  if (options.afterElements && typeof document !== 'undefined') {
+    const overlayW = Math.max(1, Math.ceil(bounds.w));
+    const overlayH = Math.max(1, Math.ceil(bounds.h));
+    const overlayCanvas = document.createElement('canvas');
+    overlayCanvas.width = overlayW;
+    overlayCanvas.height = overlayH;
+    const overlayCtx = overlayCanvas.getContext('2d');
+    if (overlayCtx) {
+      overlayCtx.translate(-bounds.x, -bounds.y);
+      options.afterElements(overlayCtx, bounds.w, bounds.h);
       try {
-        const fogDataUri = fogCanvas.toDataURL('image/png');
-        if (fogDataUri.startsWith('data:')) {
-          body += `<image href="${esc(fogDataUri)}" x="${n(bounds.x)}" y="${n(bounds.y)}" width="${n(bounds.w)}" height="${n(bounds.h)}" />`;
+        const dataUri = overlayCanvas.toDataURL('image/png');
+        if (dataUri.startsWith('data:')) {
+          body += `<image href="${esc(dataUri)}" x="${n(bounds.x)}" y="${n(bounds.y)}" width="${n(bounds.w)}" height="${n(bounds.h)}" />`;
         }
       } catch {
-        // encoding failed — skip fog in SVG rather than failing the whole export
+        // encoding failed — skip overlay in SVG rather than failing the whole export
       }
     }
   }

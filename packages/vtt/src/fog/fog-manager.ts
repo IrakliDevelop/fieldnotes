@@ -1,4 +1,4 @@
-import type { Bounds } from '../core/types';
+import type { Bounds } from '@fieldnotes/core';
 import type {
   FogBase,
   FogChangeEvent,
@@ -21,7 +21,7 @@ import {
   canonicalizeFogTile,
 } from './tile-codec';
 import { FogRegionCommand, FogResetCommand } from './fog-command';
-import type { Command } from '../history/types';
+import type { Command } from '@fieldnotes/core';
 
 export type FogIdFactory = () => string;
 

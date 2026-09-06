@@ -32,3 +32,46 @@ export type { TemplateToolOptions } from './template/template-tool';
 
 // Registration
 export { registerVttElementTypes } from './register';
+
+// Fog (Phase 5)
+export { createFogPlugin } from './fog/fog-plugin';
+export type { FogPlugin, CreateFogPluginOptions } from './fog/fog-plugin';
+export { FogManager } from './fog/fog-manager';
+export type { FogManagerOptions, FogIdFactory } from './fog/fog-manager';
+export { FOG_STATE_VERSION, FOG_TILE_CELLS, FOG_MAX_TILES } from './fog/types';
+export type {
+  FogBase,
+  FogDefinitionV1,
+  FogTileV1,
+  FogStateV1,
+  FogViewMode,
+  FogOperation,
+  FogRegion,
+  FogToolOptions,
+  FogPatch,
+  FogChangeEvent,
+  FogViewEvent,
+} from './fog/types';
+export {
+  validateFogState,
+  validateFogDefinition,
+  validateFogTile,
+  canonicalizeFogTile,
+  recommendedFogCellSize,
+  encodeBase64 as fogEncodeBase64,
+  decodeBase64 as fogDecodeBase64,
+} from './fog/tile-codec';
+export { FogRenderer } from './fog/fog-renderer';
+export type { FogRendererOptions } from './fog/fog-renderer';
+export type {
+  FogSolidStyle,
+  FogProceduralStyle,
+  FogStyle,
+  ResolvedSolidStyle,
+  ResolvedProceduralStyle,
+  ResolvedFogStyle,
+} from './fog/fog-style';
+export { resolveFogStyle } from './fog/fog-style';
+export { renderFogStylePreview } from './fog/fog-style-preview';
+export { createFogPluginHandle } from './fog/fog-plugin-handle';
+export { FogTool } from './fog/fog-tool';

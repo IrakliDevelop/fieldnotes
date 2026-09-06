@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { Camera } from '../canvas/camera';
+import type { Camera } from '@fieldnotes/core';
 import { FogRenderer } from './fog-renderer';
 import { createTileBytes, encodeBase64 } from './tile-codec';
 

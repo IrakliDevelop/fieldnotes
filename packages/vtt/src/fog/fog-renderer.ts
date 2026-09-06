@@ -1,4 +1,4 @@
-import type { Camera } from '../canvas/camera';
+import type { Camera } from '@fieldnotes/core';
 import type { FogStateV1, FogViewMode } from './types';
 import { FOG_TILE_CELLS } from './types';
 import { decodeBase64 } from './tile-codec';

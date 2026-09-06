@@ -1,9 +1,7 @@
 import type { CanvasElement } from '../elements/types';
 import type { Point } from './types';
 import type { Layer } from '../layers/types';
-import type { FogStateV1 } from '../fog/types';
 import { sanitizeNoteHtml } from '../elements/note-sanitizer';
-import { validateFogState } from '../fog/tile-codec';
 import type { ElementRegistry } from '../elements/element-registry';
 import { getDefaultElementRegistry } from '../elements/default-registry';
 import type { PersistedPluginState } from './plugin-state-manager';
@@ -17,7 +15,6 @@ export interface CanvasState {
   elements: CanvasElement[];
   layers?: Layer[];
   activeLayerId?: string;
-  fog?: FogStateV1;
   extensions?: Record<string, PersistedPluginState>;
 }
 
@@ -45,7 +42,6 @@ export function exportState(
   camera: { position: Point; zoom: number },
   layers: Layer[] = [],
   activeLayerId?: string,
-  fog?: FogStateV1 | null,
   registry?: ElementRegistry,
   extensions?: Record<string, PersistedPluginState>,
 ): CanvasState {
@@ -72,7 +68,6 @@ export function exportState(
     layers: layers.map((l) => ({ ...l })),
   };
   if (activeLayerId) state.activeLayerId = activeLayerId;
-  if (fog) state.fog = structuredClone(fog) as FogStateV1;
   if (extensions && Object.keys(extensions).length > 0) {
     state.extensions = structuredClone(extensions);
   }
@@ -186,10 +181,6 @@ function validateState(data: unknown): asserts data is CanvasState {
   }
 
   cleanBindings(elements as Record<string, unknown>[]);
-
-  if (obj['fog'] !== undefined && obj['fog'] !== null) {
-    validateFogState(obj['fog']);
-  }
 
   if (obj['extensions'] !== undefined) {
     validateExtensions(obj['extensions']);

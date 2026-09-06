@@ -1,7 +1,6 @@
 import type { ElementStore } from '../elements/element-store';
 import type { Camera } from '../canvas/camera';
 import type { LayerManager } from '../layers/layer-manager';
-import type { FogManager } from '../fog/fog-manager';
 import { exportState, parseState } from './state-serializer';
 import type { CanvasState } from './state-serializer';
 import { LocalStorageAdapter } from './storage/local-storage-adapter';
@@ -13,11 +12,11 @@ export interface AutoSaveOptions {
   key?: string;
   debounceMs?: number;
   layerManager?: LayerManager;
-  fogManager?: FogManager;
   adapter?: StorageAdapter;
   onError?: (error: Error) => void;
   elementRegistry?: ElementRegistry;
   pluginStateManager?: PluginStateManager;
+  changeEmitters?: { onChange(listener: () => void): () => void }[];
 }
 
 const DEFAULT_KEY = 'fieldnotes-autosave';
@@ -27,13 +26,13 @@ export class AutoSave {
   private readonly key: string;
   private readonly debounceMs: number;
   private readonly layerManager?: LayerManager;
-  private readonly fogManager?: FogManager;
   private readonly adapter: StorageAdapter;
   private timerId: ReturnType<typeof setTimeout> | null = null;
   private unsubscribers: (() => void)[] = [];
   private readonly onError?: (error: Error) => void;
   private readonly elementRegistry?: ElementRegistry;
   private readonly pluginStateManager?: PluginStateManager;
+  private readonly changeEmitters?: { onChange(listener: () => void): () => void }[];
   private saving = false;
   private pendingSave = false;
 
@@ -45,11 +44,11 @@ export class AutoSave {
     this.key = options.key ?? DEFAULT_KEY;
     this.debounceMs = options.debounceMs ?? DEFAULT_DEBOUNCE_MS;
     this.layerManager = options.layerManager;
-    this.fogManager = options.fogManager;
     this.adapter = options.adapter ?? new LocalStorageAdapter();
     this.onError = options.onError;
     this.elementRegistry = options.elementRegistry;
     this.pluginStateManager = options.pluginStateManager;
+    this.changeEmitters = options.changeEmitters;
   }
 
   start(): void {
@@ -64,8 +63,8 @@ export class AutoSave {
     if (this.layerManager) {
       this.unsubscribers.push(this.layerManager.on('change', schedule));
     }
-    if (this.fogManager) {
-      this.unsubscribers.push(this.fogManager.on('change', schedule));
+    for (const emitter of this.changeEmitters ?? []) {
+      this.unsubscribers.push(emitter.onChange(schedule));
     }
   }
 
@@ -110,14 +109,12 @@ export class AutoSave {
     this.saving = true;
     try {
       const layers = this.layerManager?.snapshot() ?? [];
-      const fog = this.fogManager?.getState() ?? undefined;
       const extensions = this.pluginStateManager?.exportState();
       const state = exportState(
         this.store.snapshot(),
         this.camera,
         layers,
         undefined,
-        fog,
         this.elementRegistry,
         extensions,
       );

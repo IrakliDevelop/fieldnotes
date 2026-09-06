@@ -10,9 +10,9 @@ import {
   createTemplate,
   createText,
   type CanvasElement,
-  fogEncodeBase64,
 } from '@fieldnotes/core';
 import type { Layer } from '@fieldnotes/core';
+import { fogEncodeBase64 } from '@fieldnotes/vtt';
 import {
   isValidElement,
   isValidEnvelope,

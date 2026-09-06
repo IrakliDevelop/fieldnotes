@@ -1,7 +1,6 @@
-import type { Point } from '../core/types';
-import type { Tool, ToolContext, PointerState } from './types';
-import type { FogManager } from '../fog/fog-manager';
-import type { FogOperation, FogRegion, FogToolOptions } from '../fog/types';
+import type { Point, Tool, ToolContext, PointerState } from '@fieldnotes/core';
+import type { FogManager } from './fog-manager';
+import type { FogOperation, FogRegion, FogToolOptions } from './types';
 
 const DEFAULT_RADIUS = 40;
 const MIN_POINT_DISTANCE = 4;

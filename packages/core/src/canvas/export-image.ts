@@ -21,9 +21,6 @@ import type { HtmlPainterRegistry } from './html-painter-registry';
 import { getDefaultElementRegistry } from '../elements/default-registry';
 import { paintHtmlElement } from './html-paint';
 import type { HtmlPaintDiagnostic } from './html-paint-diagnostics';
-import type { FogStateV1 } from '../fog/types';
-import { FogRenderer } from '../fog/fog-renderer';
-import type { FogStyle } from '../fog/fog-style';
 
 export interface ExportImageOptions extends ExportResourceOptions, HtmlExportOptions {
   scale?: number;
@@ -65,7 +62,7 @@ export interface ExportImageOptions extends ExportResourceOptions, HtmlExportOpt
    * a non-fatal `'unsupported'` diagnostic regardless of this flag.
    */
   strictMissingCanvasHtml?: boolean;
-  fog?: { state: FogStateV1; mode: 'editor' | 'player'; color?: string; style?: FogStyle } | false;
+  afterElements?: (ctx: CanvasRenderingContext2D, width: number, height: number) => void;
 }
 
 export type ExportAssetErrorReason = 'load' | 'timeout' | 'encode';
@@ -607,15 +604,8 @@ export async function exportImage(
     ctx.restore();
   }
 
-  if (options.fog) {
-    const fogRenderer = new FogRenderer();
-    fogRenderer.renderForExport(
-      ctx,
-      options.fog.state,
-      options.fog.mode,
-      options.fog.color,
-      options.fog.style,
-    );
+  if (options.afterElements) {
+    options.afterElements(ctx, bounds.w, bounds.h);
   }
 
   const mimeType = format === 'jpeg' ? 'image/jpeg' : 'image/png';

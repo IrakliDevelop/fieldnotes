@@ -42,10 +42,12 @@
     "fieldnotes"
   ],
   "peerDependencies": {
-    "@fieldnotes/core": ">=0.46.0 <1.0.0"
+    "@fieldnotes/core": ">=0.46.0 <1.0.0",
+    "@fieldnotes/vtt": ">=0.3.0 <1.0.0"
   },
   "devDependencies": {
     "@fieldnotes/core": "workspace:*",
+    "@fieldnotes/vtt": "workspace:*",
     "@vitest/coverage-v8": "^4.1.0",
     "tsup": "^8.5.1",
     "vitest": "^4.1.0"

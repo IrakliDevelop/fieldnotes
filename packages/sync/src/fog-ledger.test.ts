@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { FogLedger } from './fog-ledger';
 import type { FogMetaRecord, FogTileRecord, FogSnapshot } from './protocol';
-import { FOG_MAX_TILES, fogEncodeBase64 } from '@fieldnotes/core';
+import { FOG_MAX_TILES, fogEncodeBase64 } from '@fieldnotes/vtt';
 
 const NON_BASE_TILE = fogEncodeBase64(new Uint8Array(2048).fill(0xff));
 

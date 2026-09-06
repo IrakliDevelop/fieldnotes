@@ -1,4 +1,4 @@
-import type { Bounds, Point } from '../core/types';
+import type { Bounds, Point } from '@fieldnotes/core';
 
 export const FOG_STATE_VERSION = 1;
 export const FOG_TILE_CELLS = 128;

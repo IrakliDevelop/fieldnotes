@@ -1,4 +1,4 @@
-import type { PluginHandle } from '../core/plugin-state-manager';
+import type { PluginHandle } from '@fieldnotes/core';
 import type { FogManager } from './fog-manager';
 import { validateFogState } from './tile-codec';
 

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { createShape, fogEncodeBase64 } from '@fieldnotes/core';
+import { createShape } from '@fieldnotes/core';
+import { fogEncodeBase64 } from '@fieldnotes/vtt';
 import type { CanvasElement, Layer } from '@fieldnotes/core';
 import type { SyncOp } from '@fieldnotes/sync';
 import { SyncHub } from './sync-hub';
