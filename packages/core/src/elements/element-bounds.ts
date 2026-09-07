@@ -3,16 +3,20 @@ import { rotatedAABB } from '../core/geometry';
 import type { CanvasElement, TemplateElement } from './types';
 import { getArrowControlPoint } from './arrow-geometry';
 import { getDefaultElementRegistry } from './default-registry';
+import type { ElementRegistry } from './element-registry';
 
 // Cache stroke bounds via WeakMap.
 // May miss after ElementStore.update() creates new object via spread,
 // acceptable since stroke points never change after commit.
 const strokeBoundsCache = new WeakMap<CanvasElement, Bounds>();
 
-export function getElementBounds(element: CanvasElement): Bounds | null {
+export function getElementBounds(
+  element: CanvasElement,
+  registry: ElementRegistry = getDefaultElementRegistry(),
+): Bounds | null {
   if (element.type === 'grid') return null;
   if (element.type === 'extension') {
-    const adapter = getDefaultElementRegistry().getAdapter(element.extensionType);
+    const adapter = registry.getAdapter(element.extensionType);
     return adapter ? adapter.bounds(element) : null;
   }
 
@@ -62,8 +66,11 @@ export function getElementBounds(element: CanvasElement): Bounds | null {
 }
 
 /** Axis-aligned world bounds covering the element's complete rotated visual footprint. */
-export function getElementVisualBounds(element: CanvasElement): Bounds | null {
-  const bounds = getElementBounds(element);
+export function getElementVisualBounds(
+  element: CanvasElement,
+  registry: ElementRegistry = getDefaultElementRegistry(),
+): Bounds | null {
+  const bounds = getElementBounds(element, registry);
   if (!bounds) return null;
   const rotation = element.rotation ?? 0;
   return rotation === 0 ? bounds : rotatedAABB(bounds, rotation);

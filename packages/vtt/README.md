@@ -31,18 +31,23 @@ registerVttElementTypes();
 Tile-based fog of war with CRDT sync, undo/redo integration, and configurable rendering styles.
 
 ```typescript
+import { Viewport } from '@fieldnotes/core';
 import { createFogPlugin, FogManager, FogTool } from '@fieldnotes/vtt';
 
-const fogManager = new FogManager({
-  definition: {
-    /* ... */
-  },
+const container = document.querySelector('#canvas');
+if (!(container instanceof HTMLElement)) throw new Error('Missing canvas container');
+const fogManager = new FogManager();
+fogManager.initialize({
+  bounds: { x: 0, y: 0, w: 4096, h: 4096 },
+  base: 'covered',
+  cellSize: 32,
 });
 const fogPlugin = createFogPlugin({ manager: fogManager });
-viewport.addPlugin(fogPlugin);
+const viewport = new Viewport(container, { plugins: [fogPlugin] });
 
 // Reveal/conceal with the fog tool
-const fogTool = new FogTool({ manager: fogManager, mode: 'reveal' });
+const fogTool = new FogTool(fogManager, { operation: 'reveal' });
+viewport.toolManager.register(fogTool);
 ```
 
 ### Fog sync
@@ -84,8 +89,9 @@ Distance measurement with ruler-style overlays and shared presence for collabora
 ```typescript
 import { MeasureTool, RemoteMeasureOverlay } from '@fieldnotes/vtt';
 
-const measure = new MeasureTool({ viewport });
-measure.on('measure', (m) => console.log(m.distance));
+const measure = new MeasureTool({ feetPerCell: 5 });
+measure.onMeasurement((emission) => console.log(emission?.feet));
+viewport.toolManager.register(measure);
 ```
 
 ## Grid
@@ -103,12 +109,8 @@ Map template placement tool for dropping pre-defined layouts onto the canvas.
 ```typescript
 import { TemplateTool } from '@fieldnotes/vtt';
 
-const template = new TemplateTool({
-  viewport,
-  template: {
-    /* ... */
-  },
-});
+const template = new TemplateTool({ templateShape: 'cone', feetPerCell: 5 });
+viewport.toolManager.register(template);
 ```
 
 ## Fog Redis persistence

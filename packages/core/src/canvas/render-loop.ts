@@ -324,6 +324,12 @@ export class RenderLoop {
     this.background.render(ctx, this.camera);
     const backgroundMs = performance.now() - bgT0;
 
+    if (this.hooks) {
+      for (const fn of this.hooks.viewport.iterate('beforeElements')) {
+        fn(ctx, this.camera, { width: cssWidth, height: cssHeight, dpr });
+      }
+    }
+
     ctx.save();
     ctx.translate(this.camera.position.x, this.camera.position.y);
     ctx.scale(this.camera.zoom, this.camera.zoom);
@@ -406,9 +412,15 @@ export class RenderLoop {
     }
 
     const activeTool = this.toolManager.activeTool;
-    const overlayOrder = visibleElements.length + 1;
+    const hasAfterElementsHook = this.hooks?.viewport.has('afterElements') ?? false;
+    const hasAfterAllHook = this.hooks?.viewport.has('afterAll') ?? false;
+    const afterElementsOrder = visibleElements.length + 1;
+    const overlayOrder = afterElementsOrder + (hasAfterElementsHook ? 1 : 0);
+    const afterAllOrder = overlayOrder + 1;
     const hasOverlay = activeTool?.renderOverlay !== undefined || this.overlays.size > 0;
-    if (hasOverlay && hybridActive) hybridOrders.add(overlayOrder);
+    if (hasAfterElementsHook) hybridOrders.add(afterElementsOrder);
+    if (hasOverlay && (hybridActive || hasAfterElementsHook)) hybridOrders.add(overlayOrder);
+    if (hasAfterAllHook) hybridOrders.add(afterAllOrder);
     this.hybridSurface.beginFrame(hybridOrders, this.canvasEl.width, this.canvasEl.height);
 
     for (const [layerId, elements] of this.layerGroups) {
@@ -510,17 +522,24 @@ export class RenderLoop {
       hybridCtx.restore();
     }
 
-    // Fire afterElements hooks while the camera transform is active (world space).
-    // Fog and other domain surfaces render here, replacing the old hard-coded
-    // hybrid-surface fog path.
-    if (this.hooks) {
-      for (const fn of this.hooks.viewport.iterate('afterElements')) {
-        fn(ctx, this.camera, { width: cssWidth, height: cssHeight, dpr });
+    // Post-scene surfaces must live above every canvas and DOM paint stratum. The
+    // base canvas is below the DOM stack, so drawing privacy surfaces such as fog
+    // there would expose DOM-backed notes and interleaved hybrid elements.
+    if (this.hooks && hasAfterElementsHook) {
+      const hookCtx = this.hybridSurface.getContext(afterElementsOrder);
+      if (hookCtx) {
+        hookCtx.clearRect(0, 0, this.canvasEl.width, this.canvasEl.height);
+        hookCtx.save();
+        hookCtx.scale(dpr, dpr);
+        for (const fn of this.hooks.viewport.iterate('afterElements')) {
+          fn(hookCtx, this.camera, { width: cssWidth, height: cssHeight, dpr });
+        }
+        hookCtx.restore();
       }
     }
 
     const overlayT0 = performance.now();
-    if (hybridActive && hasOverlay) {
+    if ((hybridActive || hasAfterElementsHook) && hasOverlay) {
       const overlayCtx = this.hybridSurface.getContext(overlayOrder);
       if (overlayCtx) {
         overlayCtx.clearRect(0, 0, this.canvasEl.width, this.canvasEl.height);
@@ -537,11 +556,16 @@ export class RenderLoop {
       if (activeTool?.renderOverlay) activeTool.renderOverlay(ctx);
     }
 
-    // Fire afterAll hooks after everything (elements, overlays) — camera transform
-    // is still active (only the outer DPR save/restore is outstanding).
-    if (this.hooks) {
-      for (const fn of this.hooks.viewport.iterate('afterAll')) {
-        fn(ctx, this.camera, { width: cssWidth, height: cssHeight, dpr });
+    if (this.hooks && hasAfterAllHook) {
+      const hookCtx = this.hybridSurface.getContext(afterAllOrder);
+      if (hookCtx) {
+        hookCtx.clearRect(0, 0, this.canvasEl.width, this.canvasEl.height);
+        hookCtx.save();
+        hookCtx.scale(dpr, dpr);
+        for (const fn of this.hooks.viewport.iterate('afterAll')) {
+          fn(hookCtx, this.camera, { width: cssWidth, height: cssHeight, dpr });
+        }
+        hookCtx.restore();
       }
     }
 

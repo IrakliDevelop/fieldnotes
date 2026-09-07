@@ -1,5 +1,5 @@
 import type { Point, Tool, ToolContext, PointerState } from '@fieldnotes/core';
-import { snapPoint, snapToHexCenter } from '@fieldnotes/core';
+import { getDefaultElementRegistry, snapPoint, snapToHexCenter } from '@fieldnotes/core';
 import type { TemplateShape, HexOrientation, TemplateRenderStyle } from '../elements/types';
 import { createTemplate } from '../elements/element-factory';
 import {
@@ -144,7 +144,14 @@ export class TemplateTool implements Tool {
       renderStyle: this.renderStyle,
       layerId: ctx.activeLayerId ?? '',
     });
-    ctx.store.add(element);
+    const registry = ctx.elementRegistry ?? getDefaultElementRegistry();
+    const adapter = registry.getAdapter('vtt:template');
+    if (!adapter) {
+      throw new Error(
+        'TemplateTool requires registerVttElementTypes() on the viewport element registry',
+      );
+    }
+    ctx.store.add(adapter.wrap(element));
     ctx.requestRender();
     ctx.switchTool?.('select');
   }

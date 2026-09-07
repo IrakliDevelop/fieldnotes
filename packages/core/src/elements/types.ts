@@ -189,6 +189,7 @@ export interface ElementTypeAdapter {
   wrap(el: BaseElement): ExtensionElementEnvelope;
   unwrap(el: ExtensionElementEnvelope): BaseElement;
   bounds(el: ExtensionElementEnvelope): Bounds | null;
+  hitTest?(el: ExtensionElementEnvelope, point: Point): boolean;
   render?(
     ctx: CanvasRenderingContext2D,
     el: ExtensionElementEnvelope,

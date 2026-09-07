@@ -31,6 +31,7 @@ import {
   exportState as exportCanvasState,
   parseState,
   convertLegacyToEnvelopes,
+  migrateLegacyPluginState,
 } from '../core/state-serializer';
 import { exportImage } from './export-image';
 import type { ExportImageOptions } from './export-image';
@@ -198,7 +199,7 @@ export class Viewport {
     this.background = new Background(options.background);
     this._gridSize = options.background?.spacing ?? 24;
     this.elementRegistry = options.elementRegistry ?? getDefaultElementRegistry();
-    this.store = new ElementStore();
+    this.store = new ElementStore(this.elementRegistry);
     this.layerManager = new LayerManager(this.store);
     this.toolManager = new ToolManager();
     this.unsubToolRegister = this.toolManager.onRegister((tool) => {
@@ -292,6 +293,7 @@ export class Viewport {
       getVisibleRect: () =>
         this.camera.getVisibleRect(this.canvasEl.clientWidth, this.canvasEl.clientHeight),
       constraintService: this.constraintProxy,
+      elementRegistry: this.elementRegistry,
     };
 
     this.inputHandler = new InputHandler(this.wrapper, this.camera, {
@@ -386,7 +388,14 @@ export class Viewport {
       hooks: this._renderHooks,
     });
 
-    this.installPlugins(options.plugins);
+    try {
+      this.installPlugins(options.plugins);
+    } catch (error) {
+      this.domNodeManager.clearDomNodes();
+      this.renderLoop.stop();
+      this.wrapper.remove();
+      throw error;
+    }
 
     this.unsubHtmlPainters = this.htmlPainters.onChange(() => this.onHtmlRegistryChanged());
 
@@ -609,12 +618,20 @@ export class Viewport {
   }
 
   async exportImage(options?: ExportImageOptions): Promise<Blob | null> {
-    const opts = this.withHtmlDefaults(options);
+    const opts = {
+      ...this.withHtmlDefaults(options),
+      elementRegistry: options?.elementRegistry ?? this.elementRegistry,
+      renderHooks: options?.renderHooks ?? this._renderHooks,
+    };
     return exportImage(this.store, opts, this.layerManager);
   }
 
   async exportSVG(options?: ExportSvgOptions): Promise<string> {
-    const opts = this.withHtmlDefaults(options);
+    const opts = {
+      ...this.withHtmlDefaults(options),
+      elementRegistry: options?.elementRegistry ?? this.elementRegistry,
+      renderHooks: options?.renderHooks ?? this._renderHooks,
+    };
     return exportSvg(this.store, opts, this.layerManager);
   }
 
@@ -623,6 +640,7 @@ export class Viewport {
     this.historyRecorder.pause();
     this.noteEditor.destroy(this.store);
     this.domNodeManager.clearDomNodes();
+    migrateLegacyPluginState(state);
     convertLegacyToEnvelopes(state.elements, this.elementRegistry);
     this.store.loadSnapshot(state.elements);
     if (state.layers && state.layers.length > 0) {
@@ -663,9 +681,9 @@ export class Viewport {
         }
       }
     }
-    if (state.extensions) {
-      this.pluginStateManager.loadState(state.extensions as Record<string, PersistedPluginState>);
-    }
+    this.pluginStateManager.loadState(
+      (state.extensions ?? {}) as Record<string, PersistedPluginState>,
+    );
     this.history.clear();
     this.historyRecorder.resume();
     this.camera.moveTo(state.camera.position.x, state.camera.position.y);
@@ -1246,9 +1264,40 @@ export class Viewport {
         }
       },
     };
-    for (const plugin of plugins) {
-      plugin.install(host);
-      this.installedPlugins.push(plugin);
+    const installedNow: ViewportPlugin[] = [];
+    try {
+      for (const plugin of plugins) {
+        try {
+          plugin.install(host);
+        } catch (error) {
+          try {
+            plugin.dispose?.();
+          } catch {
+            // Preserve the installation failure; rollback remains best-effort.
+          }
+          throw error;
+        }
+        installedNow.push(plugin);
+        this.installedPlugins.push(plugin);
+      }
+    } catch (error) {
+      for (const plugin of installedNow.reverse()) {
+        try {
+          plugin.dispose?.();
+        } catch {
+          // Continue rolling back the remaining plugins.
+        }
+      }
+      this.installedPlugins.splice(
+        Math.max(0, this.installedPlugins.length - installedNow.length),
+        installedNow.length,
+      );
+      this._renderHooks.viewport.clear();
+      this._renderHooks.minimap.clear();
+      this._renderHooks.imageExport.clear();
+      this._renderHooks.svgExport.clear();
+      this.extraBoundsProviders.clear();
+      throw error;
     }
   }
 }

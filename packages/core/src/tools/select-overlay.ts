@@ -6,6 +6,7 @@ import { getElementBounds } from '../elements/element-bounds';
 import { rotatePoint } from '../core/geometry';
 import { lineEndpoints } from '../elements/shape-geometry';
 import { renderArrowHandles } from './arrow-handles';
+import type { ElementRegistry } from '../elements/element-registry';
 
 export type HandlePosition = 'nw' | 'ne' | 'sw' | 'se';
 
@@ -29,8 +30,12 @@ export interface OverlayLayout {
   angle: number;
 }
 
-export function getOverlayLayout(el: CanvasElement, zoom: number): OverlayLayout | null {
-  const bounds = getElementBounds(el);
+export function getOverlayLayout(
+  el: CanvasElement,
+  zoom: number,
+  registry?: ElementRegistry,
+): OverlayLayout | null {
+  const bounds = getElementBounds(el, registry);
   if (!bounds) return null;
   const angle = el.rotation ?? 0;
   const pad = SELECTION_PAD / zoom;
@@ -159,6 +164,7 @@ export function renderSelectionBoxes(
     store: ElementStore;
     zoom: number;
     isLayerLocked?: (layerId: string) => boolean;
+    elementRegistry?: ElementRegistry;
   },
 ): void {
   if (p.selectedIds.length === 0) return;
@@ -198,10 +204,10 @@ export function renderSelectionBoxes(
       continue;
     }
 
-    const bounds = getElementBounds(el);
+    const bounds = getElementBounds(el, p.elementRegistry);
     if (!bounds) continue;
 
-    const layout = getOverlayLayout(el, zoom);
+    const layout = getOverlayLayout(el, zoom, p.elementRegistry);
     if (!layout) continue;
 
     const pad = SELECTION_PAD / zoom;

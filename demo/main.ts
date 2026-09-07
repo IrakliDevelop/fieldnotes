@@ -58,31 +58,31 @@ console.log(`Field Notes v${VERSION}`);
 const container = document.getElementById('canvas');
 if (!container) throw new Error('Missing #canvas element');
 
+const fogPlugin = createFogPlugin({
+  editorStyle: {
+    kind: 'procedural',
+    backdrop: 'rgba(30, 40, 60, 0.45)',
+    tint: 'rgba(150, 170, 210, 0.8)',
+    opacity: 0.45,
+    scale: 256,
+    seed: 42,
+    detail: 2,
+  },
+  playerStyle: {
+    kind: 'procedural',
+    backdrop: '#0b1020',
+    tint: '#596683',
+    opacity: 0.55,
+    scale: 256,
+    seed: 42,
+    detail: 2,
+  },
+});
+
 const viewport = new Viewport(container, {
   background: { pattern: 'dots', spacing: 24, color: '#c0c0c0' },
   minimap: true,
-  plugins: [
-    createFogPlugin({
-      editorStyle: {
-        kind: 'procedural',
-        backdrop: 'rgba(30, 40, 60, 0.45)',
-        tint: 'rgba(150, 170, 210, 0.8)',
-        opacity: 0.45,
-        scale: 256,
-        seed: 42,
-        detail: 2,
-      },
-      playerStyle: {
-        kind: 'procedural',
-        backdrop: '#0b1020',
-        tint: '#596683',
-        opacity: 0.55,
-        scale: 256,
-        seed: 42,
-        detail: 2,
-      },
-    }),
-  ],
+  plugins: [fogPlugin],
   onImageError: ({ src }) => {
     console.warn('Image failed to load:', src);
     showToast('image-error-toast', 'Image failed to load');
@@ -1090,6 +1090,7 @@ if (info) {
 }
 
 (window as unknown as Record<string, unknown>).__fieldnotes_viewport = viewport;
+(window as unknown as Record<string, unknown>).__fieldnotes_fog_manager = fogPlugin.manager;
 (window as unknown as { viewport: typeof viewport }).viewport = viewport;
 (window as unknown as Record<string, unknown>).__fieldnotes_grid_controller = gridController;
 // Element hit-testing probe (world coordinates); exposed for e2e.

@@ -472,6 +472,7 @@ export class SelectTool implements Tool {
         store: this.ctx.store,
         zoom: this.ctx.camera.zoom,
         isLayerLocked: this.ctx.isLayerLocked,
+        elementRegistry: this.ctx.elementRegistry,
       });
 
     if (this.mode.type === 'arrow-handle' && this.ctx) {

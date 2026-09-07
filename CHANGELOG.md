@@ -4,6 +4,28 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.80.0] — 2026-09-07
+
+### Fixed
+
+- Fog renders in a unified top paint stratum, covering DOM-backed and hybrid canvas elements, and
+  participates in bitmap and SVG exports.
+- Extension-only exports derive bounds from the viewport's element registry.
+- TemplateTool creates runtime extension envelopes; selection hit testing and marquee selection
+  delegate to registered element adapters.
+- v3 persistence restores fog dual-read/dual-write compatibility, preferring `extensions.fog` when
+  both representations exist.
+- Sync translates registered extension envelopes to legacy v3 shapes on every outbound upsert and
+  snapshot, and translates legacy shapes back to envelopes on receipt.
+- Viewport plugin installation disposes already-installed plugins when a later installation fails.
+
+### Package versions
+
+- `@fieldnotes/core` 0.79.1 → 0.80.0
+- `@fieldnotes/vtt` 0.6.1 → 0.6.2
+- `@fieldnotes/sync` 0.16.0 → 0.17.0
+- `@fieldnotes/sync-redis` 0.7.1 → 0.7.2
+
 ## [0.76.0] — 2026-09-06
 
 ### Added

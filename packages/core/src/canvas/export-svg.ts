@@ -34,6 +34,8 @@ import { resolveHtmlRouting, HtmlPainterMissingError } from './html-painter-regi
 import type { HtmlPainterRegistry } from './html-painter-registry';
 import { paintHtmlElement } from './html-paint';
 import type { HtmlPaintDiagnostic } from './html-paint-diagnostics';
+import type { ElementRegistry } from '../elements/element-registry';
+import type { RenderHooks } from './render-hooks';
 
 export interface ExportSvgOptions extends ExportResourceOptions, HtmlExportOptions {
   padding?: number;
@@ -43,6 +45,10 @@ export interface ExportSvgOptions extends ExportResourceOptions, HtmlExportOptio
   htmlPainters?: HtmlPainterRegistry;
   expectedCanvasTypes?: ReadonlySet<string>;
   strictMissingCanvasHtml?: boolean;
+  /** Element adapters used for extension bounds, rendering, and SVG emission. */
+  elementRegistry?: ElementRegistry;
+  /** Per-surface hooks installed by viewport plugins. */
+  renderHooks?: RenderHooks;
   afterElements?: (ctx: CanvasRenderingContext2D, width: number, height: number) => void;
 }
 
@@ -264,6 +270,7 @@ export async function exportSvg(
   validateExportResourceOptions(options);
   validateHtmlExportOptions(options);
   const filter = options.filter;
+  const registry = options.elementRegistry ?? getDefaultElementRegistry();
 
   const allElements = store.getAll();
   let visibleElements = layerManager
@@ -271,7 +278,7 @@ export async function exportSvg(
     : allElements;
   if (filter) visibleElements = visibleElements.filter(filter);
 
-  const bounds = computeBounds(visibleElements, padding);
+  const bounds = computeBounds(visibleElements, padding, registry);
   if (!bounds) {
     return `<svg xmlns="http://www.w3.org/2000/svg" width="0" height="0" viewBox="0 0 0 0"></svg>`;
   }
@@ -324,7 +331,6 @@ export async function exportSvg(
     body += `<rect x="${n(bounds.x)}" y="${n(bounds.y)}" width="${n(bounds.w)}" height="${n(bounds.h)}" fill="${esc(options.background)}" />`;
   }
 
-  const registry = getDefaultElementRegistry();
   const fullCanvasSvg: string[] = [];
   const layerBodies = new Map<string, string>();
   for (const el of visibleElements) {
@@ -338,7 +344,15 @@ export async function exportSvg(
       }
       continue;
     }
-    const emitted = emitElement(el, imageDataUris, htmlDataUris, rasterScale, store, options);
+    const emitted = emitElement(
+      el,
+      imageDataUris,
+      htmlDataUris,
+      rasterScale,
+      store,
+      options,
+      registry,
+    );
     layerBodies.set(el.layerId, (layerBodies.get(el.layerId) ?? '') + emitted);
   }
   for (const [layerId, emitted] of layerBodies) {
@@ -370,6 +384,18 @@ export async function exportSvg(
     }
   }
 
+  if (options.renderHooks) {
+    for (const fn of options.renderHooks.svgExport.iterate('afterElements')) {
+      fn({
+        appendSvg: (fragment: string) => {
+          body += fragment;
+        },
+        viewBox: bounds,
+        rasterScale,
+      });
+    }
+  }
+
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${n(bounds.w)}" height="${n(bounds.h)}" ` +
     `viewBox="${n(bounds.x)} ${n(bounds.y)} ${n(bounds.w)} ${n(bounds.h)}">${body}</svg>`
@@ -383,6 +409,7 @@ function emitElement(
   rasterScale: number,
   store: ElementStore,
   resourceOptions: ExportResourceOptions,
+  registry: ElementRegistry,
 ): string {
   switch (el.type) {
     case 'stroke':
@@ -404,7 +431,7 @@ function emitElement(
     case 'html':
       return withRotationSvg(el, emitImage(el, htmlDataUris.get(el.id)));
     case 'extension': {
-      const adapter = getDefaultElementRegistry().getAdapter(el.extensionType);
+      const adapter = registry.getAdapter(el.extensionType);
       if (adapter?.emitSvg) {
         const allElements = store.getAll();
         return adapter.emitSvg(el, allElements, { x: 0, y: 0, w: 0, h: 0 });

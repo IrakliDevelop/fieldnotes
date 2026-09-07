@@ -1,6 +1,6 @@
 {
   "name": "@fieldnotes/sync-redis",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "description": "Redis-backed HubBackend for Field Notes real-time sync relay",
   "type": "module",
   "sideEffects": false,
@@ -41,12 +41,12 @@
     "fieldnotes"
   ],
   "dependencies": {
-    "@fieldnotes/sync": "workspace:*"
+    "@fieldnotes/sync": "workspace:*",
+    "@fieldnotes/vtt": "workspace:*"
   },
   "devDependencies": {
     "@fieldnotes/sync-server": "workspace:*",
     "@fieldnotes/core": "workspace:*",
-    "@fieldnotes/vtt": "workspace:*",
     "@vitest/coverage-v8": "^4.1.0",
     "tsup": "^8.5.1",
     "vitest": "^4.1.0"

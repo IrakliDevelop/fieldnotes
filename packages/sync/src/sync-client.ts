@@ -1,4 +1,5 @@
-import type { CanvasElement, ElementStore, Layer } from '@fieldnotes/core';
+import { getDefaultElementRegistry } from '@fieldnotes/core';
+import type { CanvasElement, ElementRegistry, ElementStore, Layer } from '@fieldnotes/core';
 import {
   FogSyncController,
   type FogSyncManager,
@@ -143,6 +144,8 @@ export interface SyncClientOptions {
   layers?: LayerSyncOptions;
   /** Enables fog-of-war sync for this client. */
   fog?: FogSyncOptions;
+  /** Converts registered runtime extension envelopes at the v3 wire boundary. */
+  elementRegistry?: ElementRegistry;
   /** @internal Pre-built fog controller (used by managed-connection to share one across rebuilds). */
   fogController?: FogSyncController;
 }
@@ -175,6 +178,7 @@ export class SyncClient {
   private readonly hubKnownIds: Set<string>;
   private readonly applyLayer?: (update: RemoteLayerUpdate) => void;
   private readonly layerLedger?: LayerLedger;
+  private readonly elementRegistry: ElementRegistry;
   private readonly fogController?: FogSyncController;
   private fogControllerUnsub: (() => void) | undefined;
   private unsubscribers: (() => void)[] = [];
@@ -192,6 +196,8 @@ export class SyncClient {
     this.resolveAudience = options.resolveAudience;
     this.resolveLocalOnly = options.resolveLocalOnly;
     this.hubKnownIds = options.hubKnownIds ?? new Set();
+    this.elementRegistry = options.elementRegistry ?? getDefaultElementRegistry();
+    this.store.setElementRegistry(this.elementRegistry);
     if (options.layers) {
       this.applyLayer = options.layers.applyLayer;
       this.layerLedger = options.layers.ledger ?? new LayerLedger();
@@ -370,7 +376,36 @@ export class SyncClient {
   }
 
   private sendOp(op: SyncOp): void {
-    this.transport.send(JSON.stringify({ from: this.clientId, op }));
+    this.transport.send(JSON.stringify({ from: this.clientId, op: this.toWireOp(op) }));
+  }
+
+  private toWireOp(op: SyncOp): SyncOp {
+    if (op.kind === 'upsert') {
+      return { kind: 'upsert', element: this.toWireElement(op.element) };
+    }
+    if (op.kind === 'snapshot') {
+      return { ...op, elements: op.elements.map((element) => this.toWireElement(element)) };
+    }
+    return op;
+  }
+
+  private toWireElement(element: CanvasElement): CanvasElement {
+    if (element.type !== 'extension') return element;
+    const adapter = this.elementRegistry.getAdapter(element.extensionType);
+    if (!adapter) return element;
+    const legacy = adapter.encodeLegacy(element);
+    const audience = (element as SyncElement).audience;
+    if (audience !== undefined) legacy['audience'] = audience;
+    return legacy as unknown as CanvasElement;
+  }
+
+  private toRuntimeElement(element: CanvasElement): CanvasElement {
+    if (element.type === 'extension') return element;
+    const adapter = this.elementRegistry.getAdapterByLegacyType(element.type);
+    if (!adapter) return element;
+    return adapter.decodeLegacy(
+      structuredClone(element) as unknown as Record<string, unknown>,
+    ) as CanvasElement;
   }
 
   private stampAudience(op: SyncOp): SyncOp {
@@ -418,7 +453,10 @@ export class SyncClient {
       this.mergeSnapshotLayers(op.layers);
       this.fogController?.mergeSnapshot((op as Record<string, unknown>)['fog']);
       const phase: AuthoritativeSnapshotPhase = this.joined ? 'reconcile' : 'bootstrap';
-      const preserved = this.applyAuthoritativeSnapshot(phase, op.elements.filter(isValidElement));
+      const preserved = this.applyAuthoritativeSnapshot(
+        phase,
+        op.elements.filter(isValidElement).map((element) => this.toRuntimeElement(element)),
+      );
       this.joined = true;
       this.resyncPending = false; // TD-1: finalize after ANY snapshot (merge OR reconcile)
       this.touchedDuringResync.clear();
@@ -448,7 +486,7 @@ export class SyncClient {
 
   private applyOp(op: SyncOp): void {
     if (op.kind === 'upsert') {
-      const el = op.element;
+      const el = this.toRuntimeElement(op.element);
       this.hubKnownIds.add(el.id); // remote/snapshot upserts are hub evidence
       if (this.store.getById(el.id)) {
         this.store.update(el.id, el, { origin: REMOTE_ORIGIN });

@@ -16,6 +16,8 @@ export interface CanvasState {
   layers?: Layer[];
   activeLayerId?: string;
   extensions?: Record<string, PersistedPluginState>;
+  /** @deprecated v3 compatibility mirror; use `extensions.fog.data`. */
+  fog?: unknown;
 }
 
 const CURRENT_VERSION = 3;
@@ -70,6 +72,9 @@ export function exportState(
   if (activeLayerId) state.activeLayerId = activeLayerId;
   if (extensions && Object.keys(extensions).length > 0) {
     state.extensions = structuredClone(extensions);
+    if (Object.hasOwn(extensions, 'fog')) {
+      state.fog = structuredClone(extensions['fog']?.data);
+    }
   }
   return state;
 }
@@ -77,9 +82,23 @@ export function exportState(
 export function parseState(json: string, registry?: ElementRegistry): CanvasState {
   const data: unknown = JSON.parse(json);
   validateState(data);
+  migrateLegacyPluginState(data);
   const reg = registry ?? getDefaultElementRegistry();
   convertLegacyToEnvelopes(data.elements, reg);
   return data;
+}
+
+/**
+ * Normalizes the v3 top-level fog field into plugin state while retaining the
+ * original field for dual-read/dual-write compatibility during the v3 window.
+ */
+export function migrateLegacyPluginState(state: CanvasState): void {
+  if (!Object.hasOwn(state, 'fog')) return;
+  state.extensions ??= {};
+  state.extensions['fog'] ??= {
+    version: 1,
+    data: structuredClone(state.fog),
+  };
 }
 
 export function convertLegacyToEnvelopes(
@@ -184,6 +203,9 @@ function validateState(data: unknown): asserts data is CanvasState {
 
   if (obj['extensions'] !== undefined) {
     validateExtensions(obj['extensions']);
+  }
+  if (obj['fog'] !== undefined && obj['fog'] !== null && !isRecord(obj['fog'])) {
+    throw new Error('Invalid state: fog must be an object or null');
   }
 }
 

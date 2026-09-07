@@ -81,6 +81,10 @@ export class TypedHookRegistry<T extends Record<string, unknown>> {
     }
   }
 
+  has(hookName: keyof T & string): boolean {
+    return this.entries.some((entry) => typeof entry.hooks[hookName] === 'function');
+  }
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- generic hook dispatcher
   *iterateRequired(): Generator<(...args: any[]) => void> {
     const sorted = [...this.entries]
@@ -170,6 +174,7 @@ export type ImageExportHooks = {
 export interface SvgExportMapping {
   readonly appendSvg: (fragment: string) => void;
   readonly viewBox: { x: number; y: number; w: number; h: number };
+  readonly rasterScale: number;
 }
 
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions -- type alias required for Record<string, unknown> constraint

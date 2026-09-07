@@ -8,12 +8,15 @@ import {
   hitTestRectangleLengthHandle,
   hitTestRectangleWidthHandle,
   hitTestTemplateResizeHandle,
+  hitTest,
 } from './select-hit';
 import { ElementStore } from '../elements/element-store';
 import { Camera } from '../canvas/camera';
 import { createNote, createTemplate } from '../elements/element-factory';
 import { getElementBounds } from '../elements/element-bounds';
 import type { ToolContext } from './types';
+import { ElementRegistry } from '../elements/element-registry';
+import type { ExtensionElementEnvelope } from '../elements/types';
 
 function makeCtx(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
@@ -52,6 +55,38 @@ describe('isInsideBounds', () => {
     // (190, 50) sits inside the unrotated 200x100 box but outside the 90°-rotated footprint.
     expect(isInsideBounds({ x: 190, y: 50 }, note)).toBe(true);
     expect(isInsideBounds({ x: 190, y: 50 }, rotated)).toBe(false);
+  });
+
+  it('delegates extension hit testing to the context registry', () => {
+    const registry = new ElementRegistry();
+    registry.register<ExtensionElementEnvelope>({
+      type: 'test:selectable',
+      legacyTypes: [],
+      decodeLegacy: (raw) => raw as unknown as ExtensionElementEnvelope,
+      encodeLegacy: (el) => structuredClone(el) as unknown as Record<string, unknown>,
+      validateData: () => true,
+      unwrap: (el) => el,
+      wrap: (el) => el,
+      bounds: () => ({ x: 0, y: 0, w: 100, h: 100 }),
+      hitTest: (_el, point) => point.x === 42 && point.y === 24,
+    });
+    const element: ExtensionElementEnvelope = {
+      id: 'ext',
+      type: 'extension',
+      extensionType: 'test:selectable',
+      position: { x: 0, y: 0 },
+      zIndex: 0,
+      locked: false,
+      layerId: '',
+      data: {},
+    };
+    const ctx = makeCtx({ elementRegistry: registry });
+    ctx.store.setElementRegistry(registry);
+    ctx.store.add(element);
+
+    expect(isInsideBounds({ x: 42, y: 24 }, element, ctx)).toBe(true);
+    expect(isInsideBounds({ x: 10, y: 10 }, element, ctx)).toBe(false);
+    expect(hitTest({ x: 42, y: 24 }, ctx)?.id).toBe(element.id);
   });
 });
 

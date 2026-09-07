@@ -3,6 +3,7 @@ import type { ElementStore } from '../elements/element-store';
 import type { HexOrientation } from '../elements/types';
 import type { Bounds } from '../core/types';
 import type { ConstraintServiceAccess } from '../core/constraint-service';
+import type { ElementRegistry } from '../elements/element-registry';
 
 export interface ToolContext {
   camera: Camera;
@@ -22,6 +23,7 @@ export interface ToolContext {
   smartGuides?: boolean;
   getVisibleRect?: () => Bounds;
   constraintService?: ConstraintServiceAccess;
+  elementRegistry?: ElementRegistry;
 }
 
 export interface PointerState {

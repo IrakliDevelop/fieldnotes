@@ -38,6 +38,12 @@ export class ElementRegistry {
         const typed = def.unwrap(el);
         return def.bounds(typed);
       },
+      hitTest: def.hitTest
+        ? (el, point) => {
+            const fn = def.hitTest;
+            return fn ? fn(def.unwrap(el), point) : false;
+          }
+        : undefined,
       render: def.render
         ? (ctx, envelope, allElements, worldBounds) => {
             const fn = def.render;

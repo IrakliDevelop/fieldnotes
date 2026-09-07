@@ -181,13 +181,14 @@ importers:
         version: 4.1.0(@types/node@26.0.1)(jsdom@29.0.0)(vite@8.0.0(@types/node@26.0.1)(esbuild@0.27.4)(tsx@4.23.0)(yaml@2.8.2))
 
   packages/sync:
+    dependencies:
+      '@fieldnotes/vtt':
+        specifier: workspace:*
+        version: link:../vtt
     devDependencies:
       '@fieldnotes/core':
         specifier: workspace:*
         version: link:../core
-      '@fieldnotes/vtt':
-        specifier: workspace:*
-        version: link:../vtt
       '@vitest/coverage-v8':
         specifier: ^4.1.0
         version: 4.1.0(vitest@4.1.0(@types/node@26.0.1)(jsdom@29.0.0)(vite@8.0.0(@types/node@26.0.1)(esbuild@0.27.4)(tsx@4.23.0)(yaml@2.8.2)))
@@ -203,6 +204,9 @@ importers:
       '@fieldnotes/sync':
         specifier: workspace:*
         version: link:../sync
+      '@fieldnotes/vtt':
+        specifier: workspace:*
+        version: link:../vtt
     devDependencies:
       '@fieldnotes/core':
         specifier: workspace:*
@@ -210,9 +214,6 @@ importers:
       '@fieldnotes/sync-server':
         specifier: workspace:*
         version: link:../sync-server
-      '@fieldnotes/vtt':
-        specifier: workspace:*
-        version: link:../vtt
       '@vitest/coverage-v8':
         specifier: ^4.1.0
         version: 4.1.0(vitest@4.1.0(@types/node@26.0.1)(jsdom@29.0.0)(vite@8.0.0(@types/node@26.0.1)(esbuild@0.27.4)(tsx@4.23.0)(yaml@2.8.2)))

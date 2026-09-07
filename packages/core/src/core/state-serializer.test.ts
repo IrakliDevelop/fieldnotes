@@ -621,5 +621,45 @@ describe('parseState', () => {
       const parsed = parseState(json);
       expect(parsed.extensions).toEqual(extensions);
     });
+
+    it('dual-writes fog plugin state to the v3 top-level field', () => {
+      const fog = { definition: { version: 1 }, tiles: [] };
+      const state = exportState([], makeCamera(), [], undefined, undefined, {
+        fog: { version: 1, data: fog },
+      });
+
+      expect(state.extensions?.['fog']).toEqual({ version: 1, data: fog });
+      expect(state.fog).toEqual(fog);
+      expect(state.fog).not.toBe(fog);
+    });
+
+    it('migrates a legacy top-level fog field into plugin state', () => {
+      const fog = { definition: { version: 1 }, tiles: [] };
+      const state = parseState(
+        JSON.stringify({
+          version: 3,
+          camera: { position: { x: 0, y: 0 }, zoom: 1 },
+          elements: [],
+          fog,
+        }),
+      );
+
+      expect(state.extensions?.['fog']).toEqual({ version: 1, data: fog });
+      expect(state.fog).toEqual(fog);
+    });
+
+    it('prefers plugin fog state when both representations exist', () => {
+      const state = parseState(
+        JSON.stringify({
+          version: 3,
+          camera: { position: { x: 0, y: 0 }, zoom: 1 },
+          elements: [],
+          fog: { source: 'legacy' },
+          extensions: { fog: { version: 1, data: { source: 'plugin' } } },
+        }),
+      );
+
+      expect(state.extensions?.['fog']?.data).toEqual({ source: 'plugin' });
+    });
   });
 });

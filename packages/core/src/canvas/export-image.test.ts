@@ -18,7 +18,36 @@ import {
 } from '../elements/element-factory';
 import { ElementStore } from '../elements/element-store';
 import { HtmlPainterRegistry, HtmlPainterMissingError } from './html-painter-registry';
-import type { HtmlElement } from '../elements/types';
+import type { ExtensionElementEnvelope, HtmlElement } from '../elements/types';
+import { ElementRegistry } from '../elements/element-registry';
+
+function extensionFixture(): {
+  element: ExtensionElementEnvelope;
+  registry: ElementRegistry;
+} {
+  const element: ExtensionElementEnvelope = {
+    id: 'extension-1',
+    type: 'extension',
+    extensionType: 'test:bounded',
+    position: { x: 20, y: 30 },
+    zIndex: 0,
+    locked: false,
+    layerId: '',
+    data: {},
+  };
+  const registry = new ElementRegistry();
+  registry.register<ExtensionElementEnvelope>({
+    type: 'test:bounded',
+    legacyTypes: [],
+    decodeLegacy: (raw) => raw as unknown as ExtensionElementEnvelope,
+    encodeLegacy: (el) => structuredClone(el) as unknown as Record<string, unknown>,
+    validateData: () => true,
+    unwrap: (el) => el,
+    wrap: (el) => el,
+    bounds: (el) => ({ x: el.position.x, y: el.position.y, w: 40, h: 50 }),
+  });
+  return { element, registry };
+}
 
 describe('getElementRect', () => {
   it('returns bounds for a note', () => {
@@ -113,6 +142,11 @@ describe('getElementRect', () => {
     const stroke = createStroke({ points: [] as never[] });
     expect(getElementRect(stroke)).toBeNull();
   });
+
+  it('uses the supplied registry for extension bounds', () => {
+    const { element, registry } = extensionFixture();
+    expect(getElementRect(element, registry)).toEqual({ x: 20, y: 30, w: 40, h: 50 });
+  });
 });
 
 describe('computeBounds', () => {
@@ -137,6 +171,11 @@ describe('computeBounds', () => {
     const grid = createGrid({});
     const bounds = computeBounds([note, grid], 0);
     expect(bounds).toEqual({ x: 50, y: 50, w: 100, h: 100 });
+  });
+
+  it('computes non-empty bounds for an extension-only export', () => {
+    const { element, registry } = extensionFixture();
+    expect(computeBounds([element], 5, registry)).toEqual({ x: 15, y: 25, w: 50, h: 60 });
   });
 });
 
