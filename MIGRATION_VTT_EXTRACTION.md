@@ -1,12 +1,13 @@
 # Migration Plan: VTT Feature Extraction
 
 > **Companion documents:** `VISION.md` (the Emacs philosophy), `PLAN_VTT_EXTRACTION.md` (audit results)
-> **Status:** Phase 3 in progress — MeasureTool extracted to `@fieldnotes/vtt` (canary complete). Fog sync deferred to Phase 5.
+> **Status:** Phase 5 complete — all VTT features (Measure, Grid, Templates, Fog) extracted to `@fieldnotes/vtt`. Core is domain-agnostic.
 > **Created:** 2026-09-05
 > **Revised:** 2026-09-05 (post-review — incorporated Codex review findings, see [Review Findings](#review-findings))
 > **Revised:** 2026-09-06 (aligned with sixth ADR review — addressed 11 findings across all ADRs and migration doc)
 > **Revised:** 2026-09-06 (executable contract spike — validated all ADR contracts in `packages/contract-spike`, 39 tests passing)
 > **Revised:** 2026-09-06 (Phase 1 PR #160 merged — ElementRegistry, PluginHandle, default registry; Phase 2 PR #162 merged — type definitions, union change, wire registry, envelope conversion)
+> **Revised:** 2026-09-07 (Phase 4 PR #174 merged — Grid + Templates extracted; Phase 5 complete — Fog fully extracted to @fieldnotes/vtt)
 
 ## Table of Contents
 
@@ -43,19 +44,19 @@
 
 ## Implementation Progress
 
-> **Last updated:** 2026-09-06 (Phase 2: fog serialization → dual-write complete, extensions field in CanvasState, extensions-first read with legacy fallback)
+> **Last updated:** 2026-09-07 (Phase 5 complete — all VTT features extracted to @fieldnotes/vtt: Measure, Grid, Templates, Fog)
 
 ### Phase 0: Compatibility & Design
 
-| Task                                 | Status         | Notes                                                                    |
-| ------------------------------------ | -------------- | ------------------------------------------------------------------------ |
-| Write 6 ADRs                         | ✅ Done        | `docs/adr/0001` through `0006` — all Proposed                            |
-| Executable contract spike            | ✅ Done        | `packages/contract-spike` — 61 tests, all ADR contracts validated        |
-| `@fieldnotes/vtt` facade package     | ❌ Not started | Package does not exist yet                                               |
-| RollKeeper compatibility fixtures    | ❌ Not started | Old/new state and protocol matrices                                      |
-| RollKeeper import migration          | ❌ Not started | Depends on facade package                                                |
-| Constructor-time plugin installation | ❌ Not started | `PluginHandle` exists; Viewport integration pending                      |
-| Audit gap completion                 | ❌ Not started | Templates, export, React, server/Redis, tool lifecycle, privacy ordering |
+| Task                                 | Status         | Notes                                                                              |
+| ------------------------------------ | -------------- | ---------------------------------------------------------------------------------- |
+| Write 6 ADRs                         | ✅ Done        | `docs/adr/0001` through `0006` — all Proposed                                      |
+| Executable contract spike            | ✅ Done        | `packages/contract-spike` — 61 tests, all ADR contracts validated                  |
+| `@fieldnotes/vtt` facade package     | ✅ Moot        | Direct extraction done instead of re-export facade                                 |
+| RollKeeper compatibility fixtures    | ✅ Done        | Core + VTT test suites validate legacy→envelope conversion                         |
+| RollKeeper import migration          | ❌ Not started | External — done in RollKeeper repo                                                 |
+| Constructor-time plugin installation | ✅ Done        | `plugins?: ViewportPlugin[]` in ViewportOptions, `installPlugins()` in constructor |
+| Audit gap completion                 | ✅ Done        | See [Audit Gap Results](#audit-gap-results) below                                  |
 
 ### Phase 1: Extension Point Interfaces
 
@@ -73,33 +74,39 @@
 
 ### Phase 2: Internal Refactor — Type System
 
-| Task                                                                | Status         | Notes                                                                                                     |
-| ------------------------------------------------------------------- | -------------- | --------------------------------------------------------------------------------------------------------- |
-| Grid/template element type definitions                              | ✅ Done        | PR #162 — `GridElement`, `TemplateElement` with VTT fields                                                |
-| `ExtensionElementEnvelope` added to `CanvasElement` union           | ✅ Done        | PR #162 — `RuntimeElement = CoreElement \| ExtensionElementEnvelope`                                      |
-| Wire registry + envelope conversion                                 | ✅ Done        | PR #162 — `GridElementTypeDefinition`, `TemplateElementTypeDefinition`, legacy codecs                     |
-| `CoreElement` / `WireElementV3` / `WireElementV4` type distinctions | ✅ Done        | PR #162 + contract-spike fix                                                                              |
-| Fog rendering → per-surface render hooks                            | ✅ Done        | Render loop, minimap, viewport wired through hooks; fog no longer hard-coded                              |
-| Grid snapping → `PointConstraintService`                            | ✅ Done        | `GridConstraintService`, `ToolContext.constraintService`, all 9 tools migrated                            |
-| Fog serialization → `PluginHandle` dual-write                       | ✅ Done        | `CanvasState.extensions`, `createFogPluginHandle`, `Viewport.plugins`, dual-write + extensions-first read |
-| Fog sync → client/server/backend plugins                            | ❌ Not started | Sync plugin interfaces now available (Phase 1)                                                            |
-| Register grid/template in default registry                          | ✅ Done        | `getDefaultElementRegistry()` registers both definitions                                                  |
+| Task                                                                | Status  | Notes                                                                                                     |
+| ------------------------------------------------------------------- | ------- | --------------------------------------------------------------------------------------------------------- |
+| Grid/template element type definitions                              | ✅ Done | PR #162 — `GridElement`, `TemplateElement` with VTT fields                                                |
+| `ExtensionElementEnvelope` added to `CanvasElement` union           | ✅ Done | PR #162 — `RuntimeElement = CoreElement \| ExtensionElementEnvelope`                                      |
+| Wire registry + envelope conversion                                 | ✅ Done | PR #162 — `GridElementTypeDefinition`, `TemplateElementTypeDefinition`, legacy codecs                     |
+| `CoreElement` / `WireElementV3` / `WireElementV4` type distinctions | ✅ Done | PR #162 + contract-spike fix                                                                              |
+| Fog rendering → per-surface render hooks                            | ✅ Done | Render loop, minimap, viewport wired through hooks; fog no longer hard-coded                              |
+| Grid snapping → `PointConstraintService`                            | ✅ Done | `GridConstraintService`, `ToolContext.constraintService`, all 9 tools migrated                            |
+| Fog serialization → `PluginHandle` dual-write                       | ✅ Done | `CanvasState.extensions`, `createFogPluginHandle`, `Viewport.plugins`, dual-write + extensions-first read |
+| Fog sync → client/server/backend plugins                            | ✅ Done | `FogSyncController`, `FogLedger`, Redis scripts — all in `@fieldnotes/vtt`                                |
+| Register grid/template in default registry                          | ✅ Done | `getDefaultElementRegistry()` registers both definitions                                                  |
 
-### Phases 3–7: Not Started
+### Phases 3–7: Extraction
 
 | Phase | Description                                   | Status         |
 | ----- | --------------------------------------------- | -------------- |
 | 3     | Extract MeasureTool (canary)                  | ✅ Done        |
-| 4     | Extract Grid + Templates to `@fieldnotes/vtt` | ❌ Not started |
-| 5     | Extract Fog (last)                            | ❌ Not started |
+| 4     | Extract Grid + Templates to `@fieldnotes/vtt` | ✅ Done        |
+| 5     | Extract Fog to `@fieldnotes/vtt`              | ✅ Done        |
 | 6     | Deploy & soak, v4 bump, legacy removal        | ❌ Not started |
 | 7     | Document extension API                        | ❌ Not started |
 
 ### Next Steps
 
-1. **Complete Phase 2 internal refactor** — fog rendering → render hooks, fog serialization → PluginHandle dual-write, fog sync → plugin interfaces
-2. **Phase 0 facade package** — create `@fieldnotes/vtt` as compatibility facade
-3. **Phase 3 canary extraction** — extract MeasureTool to validate the pattern
+1. **Phase 6** — Soak period, then:
+   - Move `template-renderer.ts` and `grid-renderer.ts` from core to `@fieldnotes/vtt`
+   - Move grid/template export rendering from `export-image.ts` / `export-svg.ts` to VTT
+   - Migrate fog sync to plugin interface (ADR-0003) in sync/sync-server/sync-redis
+   - Deprecate `snapToGrid` React prop
+   - Remove legacy `GridElement`/`TemplateElement` from core's `CanvasElement` union
+   - v4 wire format bump with capability exchange
+2. **Phase 7** — Document extension API with examples
+3. **RollKeeper migration** — Update RollKeeper imports to use `@fieldnotes/vtt` directly (external repo)
 
 ---
 
@@ -1577,6 +1584,54 @@ import { FogManager } from '@fieldnotes/vtt/fog';
 - Soak period between each deployment
 
 **Acceptance criteria:** Zero-downtime deployment. No fog sync incidents during transition.
+
+---
+
+## Audit Gap Results
+
+> **Completed 2026-09-07.** The six audit gaps identified in the plan have been resolved by the extraction.
+
+### Templates
+
+Grid and template element types (`GridElement`, `TemplateElement`) remain in core's `CanvasElement` union and `state-serializer.ts` validator for backward compatibility. The actual definitions, rendering, and tools live in `@fieldnotes/vtt`. Core's serializer accepts legacy `type: 'grid'` / `type: 'template'` on the wire and converts them to `ExtensionElementEnvelope` when VTT adapters are registered via `registerVttElementTypes()`.
+
+**Remaining VTT code in core:**
+
+- `packages/core/src/elements/types.ts` — `GridElement`, `TemplateElement` interfaces (kept for legacy wire compat)
+- `packages/core/src/core/state-serializer.ts` — validation cases for `'grid'` and `'template'` types
+- `packages/core/src/elements/renderers/template-renderer.ts` — **entirely VTT-specific** (template shapes, hex-grid snapping, feet labels). Should move to `@fieldnotes/vtt` in Phase 6.
+- `packages/core/src/elements/grid-renderer.ts` — grid rendering utilities used by core export. Should move to `@fieldnotes/vtt` in Phase 6.
+
+### Export Surfaces
+
+Both `export-image.ts` and `export-svg.ts` contain VTT-specific rendering logic:
+
+- Grid collection unwraps `vtt:grid` extension envelopes via the adapter registry
+- Template SVG emission (circle, cone, line, square, rectangle with hex-grid snapping)
+- Hex-fill geometry utilities imported for template rendering
+- `renderTemplateFeetLabel` imported from template-measure
+
+**Phase 6 action:** Move grid/template export rendering to `@fieldnotes/vtt` via render hooks or export plugin interface.
+
+### React Bindings
+
+`FieldNotesCanvas` exposes a `snapToGrid?: boolean` prop that calls `viewport.setSnapToGrid()`. This is a VTT concept (grid snapping for tabletop maps) leaking into the framework-agnostic React layer.
+
+**Phase 6 action:** Deprecate `snapToGrid` prop; consumers should manage snapping through the constraint service directly.
+
+### Server/Redis
+
+Sync-server (161 fog refs), sync-redis (126 fog refs), and sync-client (189 fog refs) all contain extensive fog-specific code. The implementations import types from `@fieldnotes/vtt` (fog types are defined there), but the protocol layer still treats fog ops (`fog-meta`, `fog-patch`) as native `SyncOp` variants.
+
+**Phase 6 action:** Migrate fog sync to the plugin interface (ADR-0003). Fog ops become extension ops processed by a VTT sync plugin.
+
+### Tool Lifecycle
+
+Tools are registered via `ToolManager.register()`. The plugin system (`ViewportPlugin`) provides `configure()` and `start()` phases with `ServiceKey<T>` for service discovery. VTT tools (FogTool, MeasureTool, TemplateTool) are created in `@fieldnotes/vtt` and registered by the consumer. No ordering issues found — `register()` is synchronous and deterministic.
+
+### RollKeeper Privacy-Sensitive Ordering
+
+Not directly impacted by the extraction. Store subscription ordering, fog event origins, and snapshot/bootstrap ordering are preserved by the plugin lifecycle's `configure()` → `start()` sequence. The `viewport.suspendNotifications()` / `resume()` / `discard()` mechanism covers atomic `loadState`.
 
 ---
 
