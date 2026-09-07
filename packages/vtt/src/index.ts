@@ -17,18 +17,49 @@ export type {
   RemoteMeasureOverlayOptions,
 } from './remote-measure-overlay';
 
-// Grid (Phase 4) — re-exported from core, registration via registerVttElementTypes()
-export { gridElementTypeDefinition } from '@fieldnotes/core';
+// Grid (Phase 4)
+export { gridElementTypeDefinition } from './grid/grid-definition';
 export { GridController } from './grid/grid-controller';
 export type { GridInfo, GridControllerDeps } from './grid/grid-controller';
 export { GridConstraintService } from './grid/grid-constraint-service';
 export { pathDistanceCells, gridDistanceCells } from './grid/grid-metric';
 export type { DiagonalRule, GridMetric, PathDistance } from './grid/grid-metric';
+export {
+  renderSquareGrid,
+  renderHexGrid,
+  renderHexGridTiled,
+  createHexGridTile,
+  getSquareGridLines,
+  getHexVertices,
+  getHexCenters,
+} from './grid/grid-renderer';
+export type { VisibleBounds, SquareGridLines, HexVertex, HexGridTile } from './grid/grid-renderer';
+export {
+  getHexDistance,
+  getHexCellsInRadius,
+  getHexCellsInCone,
+  getHexCellsInLine,
+  getHexCellsInSquare,
+  getHexCellsInRectangle,
+  drawHexPath,
+} from './grid/hex-fill';
 
-// Template (Phase 4) — re-exported from core, registration via registerVttElementTypes()
-export { templateElementTypeDefinition } from '@fieldnotes/core';
+// Template (Phase 4)
+export { templateElementTypeDefinition } from './template/template-definition';
 export { TemplateTool, defaultRectWidth } from './template/template-tool';
 export type { TemplateToolOptions } from './template/template-tool';
+export { renderTemplateFeetLabel } from './template/template-measure';
+export type { TemplateFeetLabelParams } from './template/template-measure';
+
+// Element types and factories (Phase 4)
+export type {
+  GridElement,
+  HexOrientation,
+  TemplateElement,
+  TemplateShape,
+  TemplateRenderStyle,
+} from './elements/types';
+export { createGrid, createTemplate } from './elements/element-factory';
 
 // Registration
 export { registerVttElementTypes } from './register';

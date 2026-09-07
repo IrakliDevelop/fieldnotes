@@ -1,4 +1,4 @@
-import type { HexOrientation } from './types';
+import type { HexOrientation } from '../elements/types';
 
 export interface VisibleBounds {
   minX: number;

@@ -198,6 +198,22 @@ export function createShape(input: ShapeInput): ShapeElement {
   return result;
 }
 
+export function createText(input: TextInput): TextElement {
+  return {
+    id: createId('text'),
+    type: 'text',
+    position: input.position,
+    zIndex: input.zIndex ?? 0,
+    locked: input.locked ?? false,
+    layerId: input.layerId ?? '',
+    size: input.size ?? { w: 200, h: 28 },
+    text: sanitizeNoteHtml(input.text ?? ''),
+    fontSize: input.fontSize ?? 16,
+    color: input.color ?? '#1a1a1a',
+    textAlign: input.textAlign ?? 'left',
+  };
+}
+
 interface GridInput extends BaseDefaults {
   gridType?: 'square' | 'hex';
   hexOrientation?: HexOrientation;
@@ -221,22 +237,6 @@ export function createGrid(input: GridInput): GridElement {
     strokeColor: input.strokeColor ?? '#000000',
     strokeWidth: input.strokeWidth ?? 1,
     opacity: input.opacity ?? 1,
-  };
-}
-
-export function createText(input: TextInput): TextElement {
-  return {
-    id: createId('text'),
-    type: 'text',
-    position: input.position,
-    zIndex: input.zIndex ?? 0,
-    locked: input.locked ?? false,
-    layerId: input.layerId ?? '',
-    size: input.size ?? { w: 200, h: 28 },
-    text: sanitizeNoteHtml(input.text ?? ''),
-    fontSize: input.fontSize ?? 16,
-    color: input.color ?? '#1a1a1a',
-    textAlign: input.textAlign ?? 'left',
   };
 }
 

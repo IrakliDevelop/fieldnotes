@@ -8,13 +8,7 @@ import { ElementStore } from '../elements/element-store';
 import { ElementRenderer } from '../elements/element-renderer';
 import { NoteEditor } from '../elements/note-editor';
 import type { FontSizePreset } from '../elements/note-toolbar';
-import type {
-  CanvasElement,
-  ArrowElement,
-  GridElement,
-  HtmlElement,
-  ShapeKind,
-} from '../elements/types';
+import type { CanvasElement, ArrowElement, HtmlElement, ShapeKind } from '../elements/types';
 import type { Point, Bounds } from '../core/types';
 import { ContextMenu } from './context-menu';
 import type { ContextMenuItem } from './context-menu';
@@ -59,12 +53,9 @@ import { LayerCache } from './layer-cache';
 import { MarginViewport } from './margin-viewport';
 import type { ElementStyle } from '../elements/element-style';
 import { ConstraintServiceProxy } from '../core/constraint-service';
-import { GridConstraintService } from './grid-constraint-service';
 import { SelectionOps } from './selection-ops';
 import type { SelectionStyleDetails } from './selection-ops';
 import type { AlignEdge, DistributeAxis } from './selection-ops';
-import { GridController } from './grid-controller';
-import type { GridInfo } from './grid-controller';
 import { ViewportInteractions } from './viewport-interactions';
 import type { RotateDirection } from './selection-rotate';
 import { ElementActivation } from './element-activation';
@@ -77,7 +68,6 @@ import type { ViewportPlugin, ViewportPluginHost } from './viewport-plugin';
 export type { ViewportPlugin, ViewportPluginHost } from './viewport-plugin';
 
 export type { AlignEdge, DistributeAxis } from './selection-ops';
-export type { GridInfo } from './grid-controller';
 export type { RotateDirection } from './selection-rotate';
 
 const EMPTY_IDS: string[] = [];
@@ -167,7 +157,6 @@ export class Viewport {
     event: DragEvent,
     worldPosition: { x: number; y: number },
   ) => void;
-  private readonly gridController: GridController;
   private readonly constraintProxy = new ConstraintServiceProxy();
   private readonly interactions: ViewportInteractions;
   private contextMenu: ContextMenu | null = null;
@@ -408,24 +397,8 @@ export class Viewport {
       this.requestRender();
     });
 
-    this.gridController = new GridController({
-      store: this.store,
-      recorder: this.historyRecorder,
-      requestRender: () => this.requestRender(),
-      getActiveLayerId: () => this.layerManager.activeLayerId,
-      toolContext: this.toolContext,
-      defaultGridSize: this._gridSize,
-      elementRegistry: this.elementRegistry,
-    });
-
-    this.constraintProxy.setImplementation(
-      new GridConstraintService(() => this.gridController.getInfo()),
-    );
-
     this.unsubStore = [
       this.store.on('add', (el) => {
-        if (el.type === 'grid' || (el.type === 'extension' && el.extensionType === 'vtt:grid'))
-          this.gridController.syncContext();
         if (el.type === 'html') {
           this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
         }
@@ -433,8 +406,6 @@ export class Viewport {
         this.requestRender();
       }),
       this.store.on('remove', (el) => {
-        if (el.type === 'grid' || (el.type === 'extension' && el.extensionType === 'vtt:grid'))
-          this.gridController.syncContext();
         this.unbindArrowsFrom(el);
         this.domNodeManager.removeDomNode(el.id);
         this.htmlDiagnostics.forget(el.id);
@@ -443,11 +414,6 @@ export class Viewport {
         this.handleRemovedElement(el.id);
       }),
       this.store.on('update', ({ previous, current }) => {
-        if (
-          current.type === 'grid' ||
-          (current.type === 'extension' && current.extensionType === 'vtt:grid')
-        )
-          this.gridController.syncContext();
         if (current.type === 'html') {
           this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
         }
@@ -461,7 +427,6 @@ export class Viewport {
         this.domNodeManager.clearDomNodes();
         this.htmlDiagnostics.reset();
         this.renderLoop.markAllLayersDirty();
-        this.gridController.syncContext();
         this.requestRender();
         this.pruneSelection();
       }),
@@ -497,7 +462,6 @@ export class Viewport {
     this.observeResize();
     this.syncCanvasSize();
     this.renderLoop.start();
-    this.gridController.syncContext();
   }
 
   get ctx(): CanvasRenderingContext2D | null {
@@ -996,40 +960,6 @@ export class Viewport {
     this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
     this.renderLoop.markAllLayersDirty();
     this.requestRender();
-  }
-
-  addGrid(input: {
-    gridType?: 'square' | 'hex';
-    hexOrientation?: 'pointy' | 'flat';
-    cellSize?: number;
-    strokeColor?: string;
-    strokeWidth?: number;
-    opacity?: number;
-  }): string {
-    return this.gridController.add(input);
-  }
-
-  updateGrid(
-    updates: Partial<
-      Pick<
-        GridElement,
-        'gridType' | 'hexOrientation' | 'cellSize' | 'strokeColor' | 'strokeWidth' | 'opacity'
-      >
-    >,
-  ): void {
-    this.gridController.update(updates);
-  }
-
-  removeGrid(): void {
-    this.gridController.remove();
-  }
-
-  getGridInfo(): GridInfo | null {
-    return this.gridController.getInfo();
-  }
-
-  onGridChange(listener: (info: GridInfo | null) => void): () => void {
-    return this.gridController.onChange(listener);
   }
 
   private getSelectTool(): SelectTool | undefined {

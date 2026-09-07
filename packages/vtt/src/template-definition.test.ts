@@ -1,8 +1,8 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 import { describe, it, expect } from 'vitest';
-import { templateElementTypeDefinition } from './template-definition';
-import { ElementRegistry } from './element-registry';
-import type { TemplateElement, ExtensionElementEnvelope } from './types';
+import { templateElementTypeDefinition } from './template/template-definition';
+import { ElementRegistry } from '@fieldnotes/core';
+import type { TemplateElement, ExtensionElementEnvelope } from './elements/types';
 
 function makeTemplate(overrides: Partial<TemplateElement> = {}): TemplateElement {
   return {

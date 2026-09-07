@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi } from 'vitest';
-import { renderTemplateFeetLabel } from './template-measure';
+import { renderTemplateFeetLabel } from './template/template-measure';
 
 function mockCtx(): CanvasRenderingContext2D {
   return {

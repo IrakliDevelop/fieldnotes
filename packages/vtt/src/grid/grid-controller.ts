@@ -1,11 +1,11 @@
 import type {
   ElementStore,
   ToolContext,
-  GridElement,
   ExtensionElementEnvelope,
   ElementRegistry,
 } from '@fieldnotes/core';
-import { createGrid } from '@fieldnotes/core';
+import type { GridElement } from '../elements/types';
+import { createGrid } from '../elements/element-factory';
 
 /** Minimal interface for history recording (matches core's HistoryRecorder). */
 export interface HistoryRecorderLike {

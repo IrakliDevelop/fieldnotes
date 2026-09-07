@@ -1,4 +1,5 @@
-import type { ElementTypeDefinition, ExtensionElementEnvelope, GridElement } from './types';
+import type { ElementTypeDefinition, ExtensionElementEnvelope } from '@fieldnotes/core';
+import type { GridElement } from '../elements/types';
 
 function isEnum(value: unknown, allowed: readonly string[]): boolean {
   return typeof value === 'string' && allowed.includes(value);
