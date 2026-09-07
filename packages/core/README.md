@@ -17,9 +17,7 @@ A lightweight, framework-agnostic infinite canvas SDK for the web — with first
 - **Select & multi-select** — click, drag box, move, resize (layer-aware)
 - **Undo / redo** — full history stack with configurable depth
 - **State serialization** — export/import JSON snapshots with automatic migration
-- **Grids** — square and hex grid overlays for D&D maps and alignment
 - **Export** — PNG export with scale, padding, background, and element filter options
-- **Fog of war** — solid or deterministic procedural concealment with editor/player presentation
 - **Performance instrumentation** — `getRenderStats()` and `logPerformance()` for frame timing
 - **Touch & tablet** — Pointer Events API, pinch-to-zoom, two-finger pan, stylus pressure
 - **Zero dependencies** — vanilla TypeScript, no framework required
@@ -29,6 +27,14 @@ A lightweight, framework-agnostic infinite canvas SDK for the web — with first
 
 ```bash
 npm install @fieldnotes/core
+```
+
+### Domain packages
+
+Core is domain-agnostic. VTT-specific features (grid, fog of war, measurement, templates, tokens) live in [`@fieldnotes/vtt`](../vtt/):
+
+```bash
+npm install @fieldnotes/vtt
 ```
 
 ## Quick Start
@@ -126,28 +132,6 @@ viewport.addShape({
 
 `addShape(opts?): string` creates a shape in a single undo step, selects the new shape, and returns its id. With no options it places a 100×100 rectangle centered in the current viewport — a keyboard-friendly path to shape creation.
 
-## Grids
-
-Add square or hex grid overlays — useful for D&D combat maps, alignment, or graph paper backgrounds. Grids always render on top of images and other layer elements.
-
-```typescript
-// Add a hex grid
-viewport.addGrid({
-  gridType: 'hex',
-  hexOrientation: 'pointy', // 'pointy' | 'flat'
-  cellSize: 40,
-  strokeColor: '#cccccc',
-  strokeWidth: 1,
-  opacity: 0.5,
-});
-
-// Update grid properties
-viewport.updateGrid({ cellSize: 50, strokeColor: '#aaaaaa' });
-
-// Remove grid
-viewport.removeGrid();
-```
-
 ## Image Export
 
 Export the canvas as a PNG image:
@@ -191,41 +175,6 @@ const svg = await viewport.exportSVG(options);
 ```
 
 Without `renderHtml`, embeds remain omitted and can be observed through `onHtmlError`.
-
-## Fog of War Styling
-
-Solid fog remains the default. Hosts can opt into deterministic procedural presentation separately
-for editor and player modes without changing or persisting the fog mask:
-
-```typescript
-const viewport = new Viewport(container, {
-  fog: {
-    editorStyle: {
-      kind: 'procedural',
-      backdrop: 'rgba(30, 40, 60, 0.45)',
-      tint: 'rgba(150, 170, 210, 0.8)',
-      opacity: 0.45,
-      scale: 256, // world units per repeat
-      seed: 42,
-      detail: 2,
-    },
-    playerStyle: {
-      kind: 'procedural',
-      backdrop: '#0b1020',
-      tint: '#596683',
-      opacity: 0.55,
-      scale: 256,
-      seed: 42,
-      detail: 2,
-    },
-  },
-});
-```
-
-`backdrop` and `tint` accept Canvas-compatible CSS colors. Procedural player fog paints an opaque
-safety base before its configurable backdrop and pattern. Style is local presentation only: it is
-not included in `CanvasState`, history, autosave, or sync. Existing `editorColor` and `playerColor`
-options remain available for solid fog.
 
 ## Performance Monitoring
 
@@ -366,9 +315,8 @@ viewport.toolManager.onChange((toolName) => {
 Defaults (remappable): `Delete`/`Backspace` delete · `Escape` deselect · `mod+Z` undo ·
 `mod+Y`/`mod+Shift+Z` redo · `mod+A` select all · `mod+C/V/D` copy/paste/duplicate ·
 `[`/`]` z-order (with `mod` = to back/front) · `Shift+1` zoom-to-fit · `mod+=` zoom in ·
-`mod+-` zoom out · `mod+0` reset zoom to 100% · arrows nudge
-(`Shift` = one grid cell) · tool keys `V` select, `H` hand, `P` pencil, `E` eraser,
-`A` arrow, `N` note, `T` text, `S` shape, `M` measure, `G` template.
+`mod+-` zoom out · `mod+0` reset zoom to 100% · arrows nudge · tool keys `V` select,
+`H` hand, `P` pencil, `E` eraser, `A` arrow, `N` note, `T` text, `S` shape.
 
 `mod` = Ctrl or Cmd. Shortcuts fire only while the canvas has focus (click it once);
 pass `shortcuts: { scope: 'window' }` for page-wide handling.
@@ -580,7 +528,6 @@ interface BaseElement {
 | `image`  | `size`, `src`                                                                                                                                |
 | `shape`  | `size`, `shape` (`rectangle` \| `ellipse` \| `line`), `strokeColor`, `fillColor`, `flip` (`boolean` — which bbox diagonal a line runs along) |
 | `text`   | `size`, `text`, `fontSize`, `color`, `textAlign`                                                                                             |
-| `grid`   | `gridType` (`square` \| `hex`), `hexOrientation`, `cellSize`, `strokeColor`, `opacity`                                                       |
 | `html`   | `size`                                                                                                                                       |
 
 ## Styling the Selection
@@ -669,11 +616,9 @@ viewport.alignSelection('middle'); // center on horizontal axis
 viewport.distributeSelection('horizontal'); // equal horizontal spacing
 ```
 
-Grids are ignored by both operations.
-
 ## Smart Alignment Guides
 
-Call `viewport.setSmartGuides(true)` to enable drag-time alignment snapping. While dragging a selection, its edges and centers snap to the edges and centers of nearby visible elements (within 6 screen pixels), and guide lines are drawn at each matched alignment. Smart guides replace grid snapping for the duration of the drag; the result is still committed as a single undo step.
+Call `viewport.setSmartGuides(true)` to enable drag-time alignment snapping. While dragging a selection, its edges and centers snap to the edges and centers of nearby visible elements (within 6 screen pixels), and guide lines are drawn at each matched alignment. The result is still committed as a single undo step.
 
 ```typescript
 viewport.setSmartGuides(true); // enable

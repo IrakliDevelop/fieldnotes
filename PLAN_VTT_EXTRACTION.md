@@ -1,6 +1,6 @@
 # Plan: VTT Feature Extraction & the Emacs Philosophy
 
-> **Status:** Phase 3 complete — MeasureTool extracted to `@fieldnotes/vtt` (canary). Fog sync deferred to Phase 5. See `MIGRATION_VTT_EXTRACTION.md` §Implementation Progress for details.
+> **Status:** Phase 5 complete — all VTT features (Measure, Grid, Templates, Fog) extracted to `@fieldnotes/vtt`. Core is domain-agnostic. See `MIGRATION_VTT_EXTRACTION.md` §Implementation Progress for details.
 > **Created:** 2026-09-05
 > **Revised:** 2026-09-05 (post-review — incorporated Codex review findings)
 > **Scope:** Architectural reorganization of @fieldnotes/core
