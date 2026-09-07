@@ -9,7 +9,6 @@ import {
   NoteTool,
   TextTool,
   ShapeTool,
-  TemplateTool,
   LaserTool,
   RemoteLaserOverlay,
   PingTool,
@@ -45,6 +44,7 @@ import {
   toMeasurePresence,
   registerVttElementTypes,
   createFogPlugin,
+  TemplateTool,
 } from '@fieldnotes/vtt';
 import type { MeasurePresence } from '@fieldnotes/vtt';
 
