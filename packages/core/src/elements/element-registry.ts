@@ -22,6 +22,7 @@ export class ElementRegistry {
       type: def.type,
       legacyTypes: def.legacyTypes,
       renderMode: def.renderMode ?? 'canvas',
+      fullCanvas: def.fullCanvas ?? false,
       validateEnvelope: (el) => el.extensionType === def.type && def.validateData(el.data),
       decodeLegacy: (raw) => {
         const typed = def.decodeLegacy(raw);
@@ -37,6 +38,19 @@ export class ElementRegistry {
         const typed = def.unwrap(el);
         return def.bounds(typed);
       },
+      render: def.render
+        ? (ctx, envelope, allElements, worldBounds) => {
+            const fn = def.render;
+            if (fn) fn(ctx, def.unwrap(envelope), allElements, worldBounds);
+          }
+        : undefined,
+      emitSvg: def.emitSvg
+        ? (envelope, allElements, viewBox) => {
+            const fn = def.emitSvg;
+            if (fn) return fn(def.unwrap(envelope), allElements, viewBox);
+            return '';
+          }
+        : undefined,
     };
 
     this.adapters.set(def.type, adapter);

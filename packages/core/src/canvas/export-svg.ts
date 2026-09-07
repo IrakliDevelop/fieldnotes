@@ -6,10 +6,7 @@ import type {
   ImageElement,
   TextElement,
   NoteElement,
-  GridElement,
-  TemplateElement,
   HtmlElement,
-  ExtensionElementEnvelope,
 } from '../elements/types';
 import type { ElementStore } from '../elements/element-store';
 import type { LayerManager } from '../layers/layer-manager';
@@ -18,14 +15,6 @@ import { lineEndpoints } from '../elements/shape-geometry';
 import { getArrowControlPoint, getArrowMidpoint } from '../elements/arrow-geometry';
 import { getArrowRenderGeometry } from '../elements/arrow-render-cache';
 import { getVisualEndpoints, getArrowDashPattern } from '../elements/renderers/arrow-renderer';
-import { getSquareGridLines, getHexVertices, getHexCenters } from '../elements/grid-renderer';
-import {
-  getHexCellsInRadius,
-  getHexCellsInCone,
-  getHexCellsInLine,
-  getHexCellsInSquare,
-  getHexCellsInRectangle,
-} from '../elements/hex-fill';
 import { getElementBounds } from '../elements/element-bounds';
 import { renderNoteOnCanvas } from './note-canvas-renderer';
 import { renderTextOnCanvas } from './text-canvas-renderer';
@@ -55,13 +44,6 @@ export interface ExportSvgOptions extends ExportResourceOptions, HtmlExportOptio
   expectedCanvasTypes?: ReadonlySet<string>;
   strictMissingCanvasHtml?: boolean;
   afterElements?: (ctx: CanvasRenderingContext2D, width: number, height: number) => void;
-}
-
-interface Bounds {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
 }
 
 const ARROWHEAD_LENGTH = 12;
@@ -272,161 +254,6 @@ function emitNotePlaceholder(note: NoteElement): string {
   return `<rect x="${n(x)}" y="${n(y)}" width="${n(w)}" height="${n(h)}" rx="4" fill="${esc(note.backgroundColor)}" />`;
 }
 
-function emitGrid(grid: GridElement, bounds: Bounds): string {
-  if (grid.cellSize <= 0) return '';
-  const vb = {
-    minX: bounds.x,
-    minY: bounds.y,
-    maxX: bounds.x + bounds.w,
-    maxY: bounds.y + bounds.h,
-  };
-  const stroke = esc(grid.strokeColor);
-  const sw = n(grid.strokeWidth);
-  const op = n(grid.opacity);
-
-  if (grid.gridType === 'hex') {
-    const centers = getHexCenters(vb, grid.cellSize, grid.hexOrientation);
-    let d = '';
-    for (const c of centers) {
-      const verts = getHexVertices(c.x, c.y, grid.cellSize, grid.hexOrientation);
-      const first = verts[0];
-      if (!first) continue;
-      d += `M${n(first.x)} ${n(first.y)}`;
-      for (let i = 1; i < verts.length; i++) {
-        const v = verts[i];
-        if (v) d += `L${n(v.x)} ${n(v.y)}`;
-      }
-      d += 'Z';
-    }
-    return `<path d="${d}" fill="none" stroke="${stroke}" stroke-width="${sw}" opacity="${op}" />`;
-  }
-
-  const { verticals, horizontals } = getSquareGridLines(vb, grid.cellSize);
-  let d = '';
-  for (const gx of verticals) d += `M${n(gx)} ${n(vb.minY)}L${n(gx)} ${n(vb.maxY)}`;
-  for (const gy of horizontals) d += `M${n(vb.minX)} ${n(gy)}L${n(vb.maxX)} ${n(gy)}`;
-  return `<path d="${d}" fill="none" stroke="${stroke}" stroke-width="${sw}" opacity="${op}" />`;
-}
-
-// Geometric template only (square-grid context). Hex-grid templates fill snapped
-// hex cells; we approximate by emitting the cell hex outlines.
-function emitTemplate(template: TemplateElement, grid: GridElement | undefined): string {
-  if (grid && grid.gridType === 'hex') {
-    return emitHexTemplate(template, grid);
-  }
-  return emitGeometricTemplate(template);
-}
-
-function emitGeometricTemplate(t: TemplateElement): string {
-  const { x: cx, y: cy } = t.position;
-  const r = t.radius;
-  const fill = esc(t.fillColor);
-  const stroke = esc(t.strokeColor);
-  const sw = n(t.strokeWidth);
-  const op = n(t.opacity);
-  const attrs = `fill="${fill}" stroke="${stroke}" stroke-width="${sw}" opacity="${op}"`;
-
-  switch (t.templateShape) {
-    case 'circle':
-      return `<circle cx="${n(cx)}" cy="${n(cy)}" r="${n(r)}" ${attrs} />`;
-    case 'square':
-      return `<rect x="${n(cx - r / 2)}" y="${n(cy - r / 2)}" width="${n(r)}" height="${n(r)}" ${attrs} />`;
-    case 'cone': {
-      const halfAngle = Math.atan(0.5);
-      const a0 = t.angle - halfAngle;
-      const a1 = t.angle + halfAngle;
-      const p0x = cx + r * Math.cos(a0);
-      const p0y = cy + r * Math.sin(a0);
-      const p1x = cx + r * Math.cos(a1);
-      const p1y = cy + r * Math.sin(a1);
-      const large = a1 - a0 > Math.PI ? 1 : 0;
-      return `<path d="M${n(cx)} ${n(cy)} L${n(p0x)} ${n(p0y)} A${n(r)} ${n(r)} 0 ${large} 1 ${n(p1x)} ${n(p1y)} Z" ${attrs} />`;
-    }
-    case 'line': {
-      const halfW = r / 12;
-      const cos = Math.cos(t.angle);
-      const sin = Math.sin(t.angle);
-      const perpX = -sin * halfW;
-      const perpY = cos * halfW;
-      const pts = [
-        [cx + perpX, cy + perpY],
-        [cx + r * cos + perpX, cy + r * sin + perpY],
-        [cx + r * cos - perpX, cy + r * sin - perpY],
-        [cx - perpX, cy - perpY],
-      ]
-        .map(([px, py]) => `${n(px ?? 0)},${n(py ?? 0)}`)
-        .join(' ');
-      return `<polygon points="${pts}" ${attrs} />`;
-    }
-    case 'rectangle': {
-      const halfW = (t.width ?? 0) / 2;
-      const cos = Math.cos(t.angle);
-      const sin = Math.sin(t.angle);
-      const perpX = -sin * halfW;
-      const perpY = cos * halfW;
-      const pts = [
-        [cx + perpX, cy + perpY],
-        [cx + r * cos + perpX, cy + r * sin + perpY],
-        [cx + r * cos - perpX, cy + r * sin - perpY],
-        [cx - perpX, cy - perpY],
-      ]
-        .map(([px, py]) => `${n(px ?? 0)},${n(py ?? 0)}`)
-        .join(' ');
-      return `<polygon points="${pts}" ${attrs} />`;
-    }
-  }
-}
-
-function emitHexTemplate(t: TemplateElement, grid: GridElement): string {
-  const cellSize = grid.cellSize;
-  const orientation = grid.hexOrientation;
-  const snapUnit = Math.sqrt(3) * cellSize;
-  const radiusCells = t.radius / snapUnit;
-  const center = t.position;
-
-  let cells: { x: number; y: number }[];
-  switch (t.templateShape) {
-    case 'circle':
-      cells = getHexCellsInRadius(center, radiusCells, cellSize, orientation);
-      break;
-    case 'cone':
-      cells = getHexCellsInCone(center, t.angle, radiusCells, cellSize, orientation);
-      break;
-    case 'line':
-      cells = getHexCellsInLine(center, t.angle, radiusCells, cellSize, orientation);
-      break;
-    case 'square':
-      cells = getHexCellsInSquare(center, radiusCells, cellSize, orientation);
-      break;
-    case 'rectangle': {
-      const widthCells = (t.width ?? 0) / snapUnit;
-      cells = getHexCellsInRectangle(
-        center,
-        t.angle,
-        radiusCells,
-        widthCells,
-        cellSize,
-        orientation,
-      );
-      break;
-    }
-  }
-
-  let d = '';
-  for (const cell of cells) {
-    const verts = getHexVertices(cell.x, cell.y, cellSize, orientation);
-    const first = verts[0];
-    if (!first) continue;
-    d += `M${n(first.x)} ${n(first.y)}`;
-    for (let i = 1; i < verts.length; i++) {
-      const v = verts[i];
-      if (v) d += `L${n(v.x)} ${n(v.y)}`;
-    }
-    d += 'Z';
-  }
-  return `<path d="${d}" fill="${esc(t.fillColor)}" stroke="${esc(t.strokeColor)}" stroke-width="${n(t.strokeWidth)}" opacity="${n(t.opacity)}" />`;
-}
-
 export async function exportSvg(
   store: ElementStore,
   options: ExportSvgOptions = {},
@@ -492,44 +319,34 @@ export async function exportSvg(
   );
   for (const [id, uri] of canvasHtmlDataUris) htmlDataUris.set(id, uri);
 
-  const grids = visibleElements.filter((el): el is GridElement => el.type === 'grid');
-  const extensionGrid = visibleElements.find(
-    (el) => el.type === 'extension' && el.extensionType === 'vtt:grid',
-  ) as ExtensionElementEnvelope | undefined;
-  const firstGrid: GridElement | undefined =
-    grids[0] ??
-    (extensionGrid
-      ? (getDefaultElementRegistry()
-          .getAdapter('vtt:grid')
-          ?.unwrap(extensionGrid) as unknown as GridElement)
-      : undefined);
-
   let body = '';
   if (options.background) {
     body += `<rect x="${n(bounds.x)}" y="${n(bounds.y)}" width="${n(bounds.w)}" height="${n(bounds.h)}" fill="${esc(options.background)}" />`;
   }
 
+  const registry = getDefaultElementRegistry();
+  const fullCanvasSvg: string[] = [];
   const layerBodies = new Map<string, string>();
   for (const el of visibleElements) {
-    const emitted = emitElement(
-      el,
-      imageDataUris,
-      htmlDataUris,
-      rasterScale,
-      firstGrid,
-      store,
-      options,
-    );
+    if (el.type === 'extension' && registry.getAdapter(el.extensionType)?.fullCanvas) {
+      const adapter = registry.getAdapter(el.extensionType);
+      if (adapter?.emitSvg) {
+        const viewBox = { x: bounds.x, y: bounds.y, w: bounds.w, h: bounds.h };
+        const emitted = adapter.emitSvg(el, visibleElements, viewBox);
+        const opacity = layerManager?.getLayer?.(el.layerId)?.opacity ?? 1;
+        fullCanvasSvg.push(opacity === 1 ? emitted : `<g opacity="${n(opacity)}">${emitted}</g>`);
+      }
+      continue;
+    }
+    const emitted = emitElement(el, imageDataUris, htmlDataUris, rasterScale, store, options);
     layerBodies.set(el.layerId, (layerBodies.get(el.layerId) ?? '') + emitted);
   }
   for (const [layerId, emitted] of layerBodies) {
     const opacity = layerManager?.getLayer?.(layerId)?.opacity ?? 1;
     body += opacity === 1 || emitted === '' ? emitted : `<g opacity="${n(opacity)}">${emitted}</g>`;
   }
-  for (const grid of grids) {
-    const emitted = emitGrid(grid, bounds);
-    const opacity = layerManager?.getLayer?.(grid.layerId)?.opacity ?? 1;
-    body += opacity === 1 ? emitted : `<g opacity="${n(opacity)}">${emitted}</g>`;
+  for (const svg of fullCanvasSvg) {
+    body += svg;
   }
 
   if (options.afterElements && typeof document !== 'undefined') {
@@ -564,7 +381,6 @@ function emitElement(
   imageDataUris: Map<string, string>,
   htmlDataUris: Map<string, string>,
   rasterScale: number,
-  firstGrid: GridElement | undefined,
   store: ElementStore,
   resourceOptions: ExportResourceOptions,
 ): string {
@@ -581,15 +397,20 @@ function emitElement(
       return withRotationSvg(el, emitText(el, rasterScale, resourceOptions));
     case 'note':
       return withRotationSvg(el, emitNote(el, rasterScale, resourceOptions));
-    case 'template':
-      return emitTemplate(el, firstGrid);
     case 'grid':
+    case 'template':
+      // Grid/template SVG emission is delegated to VTT element type definitions (Phase 6)
       return '';
     case 'html':
       return withRotationSvg(el, emitImage(el, htmlDataUris.get(el.id)));
-    case 'extension':
-      // Extension elements are rendered by registered type handlers (Phase 4)
+    case 'extension': {
+      const adapter = getDefaultElementRegistry().getAdapter(el.extensionType);
+      if (adapter?.emitSvg) {
+        const allElements = store.getAll();
+        return adapter.emitSvg(el, allElements, { x: 0, y: 0, w: 0, h: 0 });
+      }
       return '';
+    }
     default:
       return '';
   }

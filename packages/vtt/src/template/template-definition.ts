@@ -1,6 +1,7 @@
-import type { Bounds } from '@fieldnotes/core';
+import type { Bounds, CanvasElement } from '@fieldnotes/core';
 import type { ElementTypeDefinition, ExtensionElementEnvelope } from '@fieldnotes/core';
 import type { TemplateElement, TemplateRenderStyle, TemplateShape } from '../elements/types';
+import { renderTemplate, emitTemplateSvg } from './template-renderer';
 
 function isEnum(value: unknown, allowed: readonly string[]): boolean {
   return typeof value === 'string' && allowed.includes(value);
@@ -149,6 +150,18 @@ export const templateElementTypeDefinition: ElementTypeDefinition<TemplateElemen
   },
 
   renderMode: 'canvas',
+
+  render(
+    ctx: CanvasRenderingContext2D,
+    template: TemplateElement,
+    allElements: readonly CanvasElement[],
+  ): void {
+    renderTemplate(ctx, template, allElements);
+  },
+
+  emitSvg(template: TemplateElement, allElements: readonly CanvasElement[]): string {
+    return emitTemplateSvg(template, allElements);
+  },
 };
 
 function getTemplateBounds(el: TemplateElement): Bounds {

@@ -5,7 +5,6 @@ export interface RenderStatsSnapshot {
   avgFrameMs: number;
   p95FrameMs: number;
   lastFrameMs: number;
-  lastGridMs: number;
   layersMs: number;
   backgroundMs: number;
   compositeMs: number;
@@ -14,7 +13,6 @@ export interface RenderStatsSnapshot {
 }
 
 interface FrameBreakdown {
-  gridMs?: number;
   layersMs?: number;
   backgroundMs?: number;
   compositeMs?: number;
@@ -24,7 +22,6 @@ interface FrameBreakdown {
 export class RenderStats {
   private frameTimes: number[] = [];
   private frameCount = 0;
-  private _lastGridMs = 0;
   private _lastLayersMs = 0;
   private _lastBackgroundMs = 0;
   private _lastCompositeMs = 0;
@@ -37,7 +34,6 @@ export class RenderStats {
       this.frameTimes.shift();
     }
     if (breakdown !== undefined) {
-      if (breakdown.gridMs !== undefined) this._lastGridMs = breakdown.gridMs;
       if (breakdown.layersMs !== undefined) this._lastLayersMs = breakdown.layersMs;
       if (breakdown.backgroundMs !== undefined) this._lastBackgroundMs = breakdown.backgroundMs;
       if (breakdown.compositeMs !== undefined) this._lastCompositeMs = breakdown.compositeMs;
@@ -53,7 +49,6 @@ export class RenderStats {
         avgFrameMs: 0,
         p95FrameMs: 0,
         lastFrameMs: 0,
-        lastGridMs: 0,
         layersMs: 0,
         backgroundMs: 0,
         compositeMs: 0,
@@ -72,7 +67,6 @@ export class RenderStats {
       avgFrameMs: Math.round(avg * 100) / 100,
       p95FrameMs: Math.round((sorted[p95Index] ?? 0) * 100) / 100,
       lastFrameMs: Math.round(lastFrame * 100) / 100,
-      lastGridMs: Math.round(this._lastGridMs * 100) / 100,
       layersMs: Math.round(this._lastLayersMs * 100) / 100,
       backgroundMs: Math.round(this._lastBackgroundMs * 100) / 100,
       compositeMs: Math.round(this._lastCompositeMs * 100) / 100,

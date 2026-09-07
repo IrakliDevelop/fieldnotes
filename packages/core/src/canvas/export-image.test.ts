@@ -15,7 +15,6 @@ import {
   createText,
   createShape,
   createGrid,
-  createTemplate,
 } from '../elements/element-factory';
 import { ElementStore } from '../elements/element-store';
 import { HtmlPainterRegistry, HtmlPainterMissingError } from './html-painter-registry';
@@ -103,12 +102,6 @@ describe('getElementRect', () => {
       expect(rect.x).toBeLessThan(0);
       expect(rect.w).toBeGreaterThan(100);
     }
-  });
-
-  it('returns bounds for a template element', () => {
-    const t = createTemplate({ position: { x: 100, y: 100 }, templateShape: 'circle', radius: 30 });
-    const rect = getElementRect(t);
-    expect(rect).toEqual({ x: 70, y: 70, w: 60, h: 60 });
   });
 
   it('returns null for grid elements', () => {
@@ -815,30 +808,6 @@ describe('exportImage — rendering paths', () => {
     vi.restoreAllMocks();
   });
 
-  it('renders grids at the end after other elements', async () => {
-    const ctx = mockGetContext();
-    const store = new ElementStore();
-    store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } }));
-    store.add(createGrid({ gridType: 'square', cellSize: 20 }));
-
-    const blob = await exportImage(store);
-    expect(blob).toBeInstanceOf(Blob);
-    expect(ctx.stroke).toHaveBeenCalled();
-    vi.restoreAllMocks();
-  });
-
-  it('renders hex grids', async () => {
-    const ctx = mockGetContext();
-    const store = new ElementStore();
-    store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } }));
-    store.add(createGrid({ gridType: 'hex', hexOrientation: 'pointy', cellSize: 20 }));
-
-    const blob = await exportImage(store);
-    expect(blob).toBeInstanceOf(Blob);
-    expect(ctx.closePath).toHaveBeenCalled();
-    vi.restoreAllMocks();
-  });
-
   it('uses default options when none provided', async () => {
     const ctx = mockGetContext();
     const store = new ElementStore();
@@ -865,23 +834,6 @@ describe('exportImage — rendering paths', () => {
     expect(ctx.fillRect).toHaveBeenCalled();
     const firstFillRectCall = (ctx.fillRect as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(firstFillRectCall).toBeDefined();
-    vi.restoreAllMocks();
-  });
-
-  it('renders templates via element renderer', async () => {
-    const ctx = mockGetContext();
-    const store = new ElementStore();
-    store.add(
-      createTemplate({
-        position: { x: 50, y: 50 },
-        templateShape: 'circle',
-        radius: 30,
-      }),
-    );
-
-    const blob = await exportImage(store);
-    expect(blob).toBeInstanceOf(Blob);
-    expect(ctx.arc).toHaveBeenCalled();
     vi.restoreAllMocks();
   });
 
