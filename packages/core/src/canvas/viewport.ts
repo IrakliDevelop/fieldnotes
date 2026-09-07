@@ -131,7 +131,7 @@ export class Viewport {
   private readonly renderer: ElementRenderer;
   private readonly noteEditor: NoteEditor;
   private readonly arrowLabelEditor: ArrowLabelEditor;
-  private readonly historyRecorder: HistoryRecorder;
+  readonly historyRecorder: HistoryRecorder;
   private transactionDepth = 0;
   private readonly selectionOps: SelectionOps;
   readonly toolContext: ToolContext;
@@ -157,7 +157,7 @@ export class Viewport {
     event: DragEvent,
     worldPosition: { x: number; y: number },
   ) => void;
-  private readonly constraintProxy = new ConstraintServiceProxy();
+  readonly constraintProxy = new ConstraintServiceProxy();
   private readonly interactions: ViewportInteractions;
   private contextMenu: ContextMenu | null = null;
   private minimap: Minimap | null = null;

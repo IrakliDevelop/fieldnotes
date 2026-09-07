@@ -45,6 +45,7 @@ import {
   registerVttElementTypes,
   createFogPlugin,
   TemplateTool,
+  GridController,
 } from '@fieldnotes/vtt';
 import type { MeasurePresence } from '@fieldnotes/vtt';
 
@@ -86,6 +87,17 @@ const viewport = new Viewport(container, {
     console.warn('Image failed to load:', src);
     showToast('image-error-toast', 'Image failed to load');
   },
+});
+
+const gridController = new GridController({
+  store: viewport.store,
+  recorder: viewport.historyRecorder,
+  requestRender: () => viewport.requestRender(),
+  getActiveLayerId: () => viewport.layerManager.activeLayerId,
+  toolContext: viewport.toolContext,
+  defaultGridSize: 24,
+  elementRegistry: viewport.elementRegistry,
+  constraintService: viewport.constraintProxy,
 });
 
 const benchParam = new URLSearchParams(location.search).get('bench');
@@ -992,7 +1004,7 @@ updateHexOrientationVisibility();
 
 function addOrUpdateGrid() {
   if (!gridActive) return;
-  viewport.addGrid({
+  gridController.add({
     gridType: (gridTypeSelect?.value as 'square' | 'hex') ?? 'hex',
     hexOrientation: (hexOrientationSelect?.value as 'pointy' | 'flat') ?? 'pointy',
     cellSize: Number(gridCellSizeInput?.value ?? 40),
@@ -1009,7 +1021,7 @@ gridToggleBtn?.addEventListener('click', () => {
     gridToggleBtn.textContent = 'Grid: On';
     gridToggleBtn.classList.add('active');
   } else {
-    viewport.removeGrid();
+    gridController.remove();
     gridToggleBtn.textContent = 'Grid: Off';
     gridToggleBtn.classList.remove('active');
   }
@@ -1027,13 +1039,13 @@ hexOrientationSelect?.addEventListener('change', () => {
 gridCellSizeInput?.addEventListener('input', () => {
   if (gridCellSizeLabel) gridCellSizeLabel.textContent = gridCellSizeInput.value;
   if (gridActive) {
-    viewport.updateGrid({ cellSize: Number(gridCellSizeInput.value) });
+    gridController.update({ cellSize: Number(gridCellSizeInput.value) });
   }
 });
 
 gridColorInput?.addEventListener('input', () => {
   if (gridActive) {
-    viewport.updateGrid({ strokeColor: gridColorInput.value });
+    gridController.update({ strokeColor: gridColorInput.value });
   }
 });
 
@@ -1079,6 +1091,7 @@ if (info) {
 
 (window as unknown as Record<string, unknown>).__fieldnotes_viewport = viewport;
 (window as unknown as { viewport: typeof viewport }).viewport = viewport;
+(window as unknown as Record<string, unknown>).__fieldnotes_grid_controller = gridController;
 // Element hit-testing probe (world coordinates); exposed for e2e.
 (window as unknown as Record<string, unknown>).__fieldnotes_hit_test = (
   x: number,

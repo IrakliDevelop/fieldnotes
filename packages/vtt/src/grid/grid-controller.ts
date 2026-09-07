@@ -3,9 +3,11 @@ import type {
   ToolContext,
   ExtensionElementEnvelope,
   ElementRegistry,
+  ConstraintServiceAccess,
 } from '@fieldnotes/core';
 import type { GridElement } from '../elements/types';
 import { createGrid } from '../elements/element-factory';
+import { GridConstraintService } from './grid-constraint-service';
 
 /** Minimal interface for history recording (matches core's HistoryRecorder). */
 export interface HistoryRecorderLike {
@@ -28,12 +30,21 @@ export interface GridControllerDeps {
   toolContext: ToolContext;
   defaultGridSize: number;
   elementRegistry: ElementRegistry;
+  constraintService?: ConstraintServiceAccess;
 }
 
 export class GridController {
   private readonly listeners = new Set<(info: GridInfo | null) => void>();
+  private readonly constraintService: GridConstraintService;
 
-  constructor(private readonly deps: GridControllerDeps) {}
+  constructor(private readonly deps: GridControllerDeps) {
+    this.constraintService = new GridConstraintService(() => this.getInfo());
+    if (deps.constraintService && 'setImplementation' in deps.constraintService) {
+      (deps.constraintService as { setImplementation: (impl: unknown) => void }).setImplementation(
+        this.constraintService,
+      );
+    }
+  }
 
   add(input: {
     gridType?: 'square' | 'hex';
@@ -54,6 +65,7 @@ export class GridController {
     this.deps.store.add(envelope as unknown as GridElement);
     this.deps.recorder.commit();
     this.deps.requestRender();
+    this.syncContext();
     return grid.id;
   }
 
@@ -78,6 +90,7 @@ export class GridController {
     this.deps.store.update(envelope.id, newEnvelope as unknown as GridElement);
     this.deps.recorder.commit();
     this.deps.requestRender();
+    this.syncContext();
   }
 
   remove(): void {
@@ -87,6 +100,7 @@ export class GridController {
     this.deps.store.remove(envelope.id);
     this.deps.recorder.commit();
     this.deps.requestRender();
+    this.syncContext();
   }
 
   getInfo(): GridInfo | null {
