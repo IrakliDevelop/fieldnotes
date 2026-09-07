@@ -4,15 +4,12 @@ import {
   type ResolveLocalOnly,
   type RemoteLayerUpdate,
   type FogSyncManager,
-  type FogSyncSessionState,
-  captureOfflineFogChange,
-  assertValidFogClientId,
 } from './sync-client';
 import type { SyncTransport } from './sync-transport';
 import { WebSocketTransport } from './websocket-transport';
 import { parseEnvelope, isValidLayerDefinition } from './protocol';
 import { LayerLedger } from './layer-ledger';
-import { FogLedger } from '@fieldnotes/vtt';
+import { FogSyncController, assertValidFogClientId } from '@fieldnotes/vtt';
 
 /**
  * Connection health as observed by the managed lifecycle:
@@ -186,9 +183,14 @@ export function createManagedSyncConnection(
   // deleted-while-away semantics), not a fresh non-destructive bootstrap.
   const hubKnownIds = new Set<string>();
   const layerLedger = options.layers ? new LayerLedger() : null;
-  const fogLedger = options.fog ? new FogLedger() : null;
+  const fogController = options.fog
+    ? new FogSyncController({
+        clientId,
+        manager: options.fog.manager,
+        preserveLocalWhenRemoteMissing: options.fog.preserveLocalWhenRemoteMissing,
+      })
+    : null;
   const fogOptions = options.fog;
-  const fogSession: FogSyncSessionState = { hubKnown: false, pending: null };
   // Presence handlers live on the manager so they outlive credential
   // rebuilds; each client gets one forwarder that iterates the live sets.
   const presenceHandlers = new Set<(from: string, data: unknown) => void>();
@@ -205,10 +207,10 @@ export function createManagedSyncConnection(
   let subscriptions: (() => void)[] = [];
   let currentStatus: ManagedSyncStatus | null = null;
   const unsubscribeOfflineFog =
-    fogOptions && fogLedger
+    fogController && fogOptions
       ? fogOptions.manager.on('change', (event) => {
           if (client !== null) return;
-          captureOfflineFogChange(fogSession, fogLedger, fogOptions.manager, clientId, event);
+          fogController.captureOfflineChange(event);
         })
       : null;
 
@@ -318,16 +320,7 @@ export function createManagedSyncConnection(
       ...(options.layers && layerLedger
         ? { layers: { applyLayer: options.layers.applyLayer, ledger: layerLedger } }
         : {}),
-      ...(options.fog && fogLedger
-        ? {
-            fog: {
-              manager: options.fog.manager,
-              ledger: fogLedger,
-              sessionState: fogSession,
-              preserveLocalWhenRemoteMissing: options.fog.preserveLocalWhenRemoteMissing,
-            },
-          }
-        : {}),
+      ...(options.fog && fogController ? { fogController } : {}),
     });
     client.start();
     subscriptions.push(
@@ -360,6 +353,7 @@ export function createManagedSyncConnection(
       }
       teardownConnection();
       unsubscribeOfflineFog?.();
+      fogController?.dispose();
     },
     getStatus(): ManagedSyncStatus {
       return currentStatus ?? 'connecting';

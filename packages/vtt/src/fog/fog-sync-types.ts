@@ -1,4 +1,4 @@
-import type { FogDefinitionV1 } from './types';
+import type { FogDefinitionV1, FogStateV1 } from './types';
 import { FOG_MAX_TILES, FOG_TILE_CELLS } from './types';
 import { validateFogDefinition, validateFogTile } from './tile-codec';
 
@@ -135,4 +135,66 @@ export function isValidFogSnapshot(snap: unknown): snap is FogSnapshot {
     seen.add(key);
   }
   return true;
+}
+
+// ── Fog sync controller types ──
+
+/**
+ * Host-provided fog state manager. The controller uses this to read the
+ * current fog definition/tiles, apply winning remote state, and listen for
+ * local edits that need to be broadcast.
+ */
+export interface FogSyncManager {
+  getState(): FogStateV1 | null;
+  loadState(state: FogStateV1 | null, meta?: { origin?: string }): void;
+  applyPatchDirect(
+    patch: { tiles: readonly { x: number; y: number; data: string }[] },
+    meta?: { origin?: string },
+  ): void;
+  on(
+    event: 'change',
+    listener: (event: {
+      kind: string;
+      tiles?: readonly { x: number; y: number }[];
+      origin?: string;
+    }) => void,
+  ): () => void;
+}
+
+/** Options for constructing a FogSyncController. */
+export interface FogSyncControllerOptions {
+  clientId: string;
+  manager: FogSyncManager;
+  preserveLocalWhenRemoteMissing?: boolean;
+  /** Restore session state from a previous controller (across reconnects). */
+  sessionSnapshot?: FogSyncSessionSnapshot;
+}
+
+/** Serializable session state for cross-reconnect persistence. */
+export interface FogSyncSessionSnapshot {
+  readonly hubKnown: boolean;
+  readonly pendingMeta?: FogMetaRecord;
+  readonly pendingTiles: readonly FogTileRecord[];
+  readonly metaMustReplay: boolean;
+  readonly mustReplayTileKeys: readonly string[];
+  readonly pendingState: FogStateV1 | null;
+}
+
+/** Fog op shapes emitted by the controller via the `sendOp` event. */
+export type FogSyncOp =
+  | { kind: 'fog-meta'; record: FogMetaRecord }
+  | { kind: 'fog-patch'; generation: string; tiles: FogTileRecord[] }
+  | { kind: 'request-snapshot' };
+
+/** Events emitted by the controller. */
+export interface FogSyncControllerEvents {
+  sendOp: (op: FogSyncOp) => void;
+  stateChange: () => void;
+}
+
+/** Validate the clientId used for fog sync ordering. */
+export function assertValidFogClientId(clientId: string): void {
+  if (clientId.length === 0 || clientId.length > 128 || !/^[\x20-\x7e]+$/.test(clientId)) {
+    throw new RangeError('fog sync requires clientId to be 1-128 printable ASCII characters');
+  }
 }
