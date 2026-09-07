@@ -63,14 +63,12 @@ describe('RenderStats', () => {
   it('records and reports per-subsystem timings', () => {
     const stats = new RenderStats();
     stats.recordFrame(10, {
-      gridMs: 2,
       layersMs: 4,
       backgroundMs: 1,
       compositeMs: 0.5,
       overlayMs: 0.25,
     });
     const snap = stats.getSnapshot();
-    expect(snap.lastGridMs).toBe(2);
     expect(snap.layersMs).toBe(4);
     expect(snap.backgroundMs).toBe(1);
     expect(snap.compositeMs).toBe(0.5);

@@ -1111,7 +1111,7 @@ export class Viewport {
     const id = setInterval(() => {
       const s = this.getRenderStats();
       console.log(
-        `[FieldNotes] fps=${s.fps} frame=${s.avgFrameMs}ms p95=${s.p95FrameMs}ms grid=${s.lastGridMs}ms layers=${s.layersMs}ms comp=${s.compositeMs}ms bg=${s.backgroundMs}ms overlay=${s.overlayMs}ms`,
+        `[FieldNotes] fps=${s.fps} frame=${s.avgFrameMs}ms p95=${s.p95FrameMs}ms layers=${s.layersMs}ms comp=${s.compositeMs}ms bg=${s.backgroundMs}ms overlay=${s.overlayMs}ms`,
       );
     }, intervalMs);
     return () => clearInterval(id);

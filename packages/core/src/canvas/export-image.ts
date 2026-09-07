@@ -1,24 +1,18 @@
-import type {
-  CanvasElement,
-  GridElement,
-  HtmlElement,
-  ExtensionElementEnvelope,
-} from '../elements/types';
+import type { CanvasElement, HtmlElement } from '../elements/types';
 import type { ElementStore } from '../elements/element-store';
 import { ElementRenderer } from '../elements/element-renderer';
 import { getArrowBounds } from '../elements/arrow-geometry';
 import { getElementBounds } from '../elements/element-bounds';
-import { renderSquareGrid, renderHexGrid } from '../elements/grid-renderer';
 import { withRotation } from '../elements/rotate-canvas';
 import { rotatedAABB } from '../core/geometry';
 import type { LayerManager } from '../layers/layer-manager';
 import { renderNoteOnCanvas } from './note-canvas-renderer';
 import { renderTextOnCanvas } from './text-canvas-renderer';
+import { getDefaultElementRegistry } from '../elements/default-registry';
 import { renderHtmlElements, validateHtmlExportOptions } from './html-export';
 import type { HtmlExportOptions } from './html-export';
 import { resolveHtmlRouting, HtmlPainterMissingError } from './html-painter-registry';
 import type { HtmlPainterRegistry } from './html-painter-registry';
-import { getDefaultElementRegistry } from '../elements/default-registry';
 import { paintHtmlElement } from './html-paint';
 import type { HtmlPaintDiagnostic } from './html-paint-diagnostics';
 
@@ -136,13 +130,6 @@ function getElementRect(el: CanvasElement): Rect | null {
       const pad = el.width / 2 + 14;
       return { x: b.x - pad, y: b.y - pad, w: b.w + pad * 2, h: b.h + pad * 2 };
     }
-    case 'grid':
-      return null;
-    case 'template': {
-      const bounds = getElementBounds(el);
-      if (!bounds) return null;
-      return bounds;
-    }
     case 'note':
     case 'image':
     case 'html':
@@ -213,40 +200,6 @@ function resolveExportBounds(
     w: region.w + padding * 2,
     h: region.h + padding * 2,
   };
-}
-
-function renderGridForBounds(
-  ctx: CanvasRenderingContext2D,
-  grid: GridElement,
-  bounds: { x: number; y: number; w: number; h: number },
-): void {
-  const visibleBounds = {
-    minX: bounds.x,
-    minY: bounds.y,
-    maxX: bounds.x + bounds.w,
-    maxY: bounds.y + bounds.h,
-  };
-
-  if (grid.gridType === 'hex') {
-    renderHexGrid(
-      ctx,
-      visibleBounds,
-      grid.cellSize,
-      grid.hexOrientation,
-      grid.strokeColor,
-      grid.strokeWidth,
-      grid.opacity,
-    );
-  } else {
-    renderSquareGrid(
-      ctx,
-      visibleBounds,
-      grid.cellSize,
-      grid.strokeColor,
-      grid.strokeWidth,
-      grid.opacity,
-    );
-  }
 }
 
 function positiveOption(value: number | undefined, fallback: number, name: string): number {
@@ -483,7 +436,6 @@ export async function exportImage(
     });
   };
 
-  const grids: GridElement[] = [];
   const renderElement = (target: CanvasRenderingContext2D, el: CanvasElement): void => {
     if (el.type === 'note') {
       const b = getElementBounds(el);
@@ -556,17 +508,11 @@ export async function exportImage(
   };
 
   const layerGroups = new Map<string, CanvasElement[]>();
+  const fullCanvasElements: CanvasElement[] = [];
+  const registry = getDefaultElementRegistry();
   for (const el of visibleElements) {
-    if (el.type === 'grid') {
-      grids.push(el);
-      continue;
-    }
-    if (el.type === 'extension' && el.extensionType === 'vtt:grid') {
-      const adapter = getDefaultElementRegistry().getAdapter('vtt:grid');
-      if (adapter) {
-        const grid = adapter.unwrap(el as ExtensionElementEnvelope) as unknown as GridElement;
-        grids.push(grid);
-      }
+    if (el.type === 'extension' && registry.getAdapter(el.extensionType)?.fullCanvas) {
+      fullCanvasElements.push(el);
       continue;
     }
     const group = layerGroups.get(el.layerId) ?? [];
@@ -597,11 +543,22 @@ export async function exportImage(
     ctx.restore();
   }
 
-  for (const grid of grids) {
-    ctx.save();
-    ctx.globalAlpha = layerManager?.getLayer?.(grid.layerId)?.opacity ?? 1;
-    renderGridForBounds(ctx, grid, bounds);
-    ctx.restore();
+  // Render full-canvas extensions (e.g. grids) with explicit world bounds
+  for (const el of fullCanvasElements) {
+    if (el.type !== 'extension') continue;
+    const adapter = registry.getAdapter(el.extensionType);
+    if (adapter?.render) {
+      ctx.save();
+      ctx.globalAlpha = layerManager?.getLayer?.(el.layerId)?.opacity ?? 1;
+      const worldBounds = {
+        minX: bounds.x,
+        minY: bounds.y,
+        maxX: bounds.x + bounds.w,
+        maxY: bounds.y + bounds.h,
+      };
+      adapter.render(ctx, el, visibleElements, worldBounds);
+      ctx.restore();
+    }
   }
 
   if (options.afterElements) {

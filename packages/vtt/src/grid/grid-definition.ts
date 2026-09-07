@@ -1,5 +1,11 @@
-import type { ElementTypeDefinition, ExtensionElementEnvelope } from '@fieldnotes/core';
+import type {
+  CanvasElement,
+  ElementTypeDefinition,
+  ExtensionElementEnvelope,
+} from '@fieldnotes/core';
 import type { GridElement } from '../elements/types';
+import { renderSquareGrid, renderHexGrid } from './grid-renderer';
+import { emitGridSvg } from '../template/template-renderer';
 
 function isEnum(value: unknown, allowed: readonly string[]): boolean {
   return typeof value === 'string' && allowed.includes(value);
@@ -108,4 +114,43 @@ export const gridElementTypeDefinition: ElementTypeDefinition<GridElement> = {
   },
 
   renderMode: 'canvas',
+  fullCanvas: true,
+
+  render(
+    ctx: CanvasRenderingContext2D,
+    grid: GridElement,
+    _allElements: readonly CanvasElement[],
+    worldBounds?: { minX: number; minY: number; maxX: number; maxY: number },
+  ): void {
+    const bounds = worldBounds ?? { minX: -1e6, minY: -1e6, maxX: 1e6, maxY: 1e6 };
+
+    if (grid.gridType === 'hex') {
+      renderHexGrid(
+        ctx,
+        bounds,
+        grid.cellSize,
+        grid.hexOrientation,
+        grid.strokeColor,
+        grid.strokeWidth,
+        grid.opacity,
+      );
+    } else {
+      renderSquareGrid(
+        ctx,
+        bounds,
+        grid.cellSize,
+        grid.strokeColor,
+        grid.strokeWidth,
+        grid.opacity,
+      );
+    }
+  },
+
+  emitSvg(
+    grid: GridElement,
+    _allElements: readonly CanvasElement[],
+    viewBox: { x: number; y: number; w: number; h: number },
+  ): string {
+    return emitGridSvg(grid, viewBox);
+  },
 };

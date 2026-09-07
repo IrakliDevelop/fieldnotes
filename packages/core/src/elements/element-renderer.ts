@@ -1,20 +1,11 @@
-import type { CanvasElement, GridElement, HtmlElement } from './types';
+import type { CanvasElement, HtmlElement } from './types';
 import { getElementBounds } from './element-bounds';
 import { withRotation } from './rotate-canvas';
 import { renderStroke } from './renderers/stroke-renderer';
 import { renderShape } from './renderers/shape-renderer';
 import { renderArrow } from './renderers/arrow-renderer';
 import { renderImage } from './renderers/image-renderer';
-import { renderTemplate } from './renderers/template-renderer';
 import type { ElementStore } from './element-store';
-import {
-  renderSquareGrid,
-  renderHexGrid,
-  createHexGridTile,
-  renderHexGridTiled,
-} from './grid-renderer';
-import type { HexGridTile } from './grid-renderer';
-import type { HexOrientation } from './types';
 import type { Camera } from '../canvas/camera';
 import { resolveHtmlRouting } from '../canvas/html-painter-registry';
 import type { HtmlPainterRegistry } from '../canvas/html-painter-registry';
@@ -30,11 +21,6 @@ export class ElementRenderer {
   private onImageLoad: (() => void) | null = null;
   private onImageError: ((src: string, cause?: unknown) => void) | null = null;
   private camera: Camera | null = null;
-  private canvasSize: { w: number; h: number } | null = null;
-  private hexTileCache: HexGridTile | null = null;
-  private hexTileCacheKey = '';
-  private gridBoundsOverride: { minX: number; minY: number; maxX: number; maxY: number } | null =
-    null;
   private labelEditingId: string | null = null;
   private htmlPainters: HtmlPainterRegistry | null = null;
   private expectedCanvasTypes: ReadonlySet<string> | undefined;
@@ -63,14 +49,26 @@ export class ElementRenderer {
     this.camera = camera;
   }
 
-  setCanvasSize(w: number, h: number): void {
-    this.canvasSize = { w, h };
+  setCanvasSize(_w: number, _h: number): void {
+    // Reserved for future use; canvas dimensions are no longer needed by core rendering.
   }
 
-  setGridBoundsOverride(
-    bounds: { minX: number; minY: number; maxX: number; maxY: number } | null,
+  /**
+   * Render an extension element that needs explicit world-space bounds rather than
+   * relying on the canvas transform (e.g. viewport-filling grids). The caller provides
+   * the visible world bounds; the adapter's render method receives them via a
+   * temporarily translated/scaled context.
+   */
+  renderExtensionWithBounds(
+    ctx: CanvasRenderingContext2D,
+    el: CanvasElement,
+    worldBounds: { minX: number; minY: number; maxX: number; maxY: number },
+    allElements: readonly CanvasElement[],
   ): void {
-    this.gridBoundsOverride = bounds;
+    if (el.type !== 'extension' || !this.elementRegistry) return;
+    const adapter = this.elementRegistry.getAdapter(el.extensionType);
+    if (!adapter?.render) return;
+    adapter.render(ctx, el, allElements, worldBounds);
   }
 
   setLabelEditingId(id: string | null): void {
@@ -109,6 +107,14 @@ export class ElementRenderer {
     return resolveHtmlRouting(element, this.htmlPainters, this.expectedCanvasTypes) === 'dom';
   }
 
+  isFullCanvasElement(element: CanvasElement): boolean {
+    if (element.type === 'extension' && this.elementRegistry) {
+      const adapter = this.elementRegistry.getAdapter(element.extensionType);
+      return adapter?.fullCanvas === true;
+    }
+    return false;
+  }
+
   renderCanvasElement(ctx: CanvasRenderingContext2D, element: CanvasElement): void {
     switch (element.type) {
       case 'stroke': {
@@ -135,17 +141,24 @@ export class ElementRenderer {
         break;
       }
       case 'grid':
-        this.renderGrid(ctx, element);
+        // Grid rendering is delegated to the VTT element type definition (Phase 6)
         break;
       case 'template':
-        renderTemplate(ctx, element, this.store);
+        // Template rendering is delegated to the VTT element type definition (Phase 6)
         break;
       case 'html':
         this.renderHtml(ctx, element);
         break;
-      case 'extension':
-        // Extension elements are rendered by registered type handlers (Phase 4)
+      case 'extension': {
+        if (this.elementRegistry) {
+          const adapter = this.elementRegistry.getAdapter(element.extensionType);
+          if (adapter?.render) {
+            const allElements = this.store?.getAll() ?? [];
+            adapter.render(ctx, element, allElements);
+          }
+        }
         break;
+      }
     }
   }
 
@@ -176,81 +189,5 @@ export class ElementRenderer {
   private zoomForTarget(): number {
     if (this.renderTarget === 'screen') return this.camera?.zoom ?? 1;
     return this.surfaceZoom ?? 1;
-  }
-
-  private renderGrid(ctx: CanvasRenderingContext2D, grid: GridElement): void {
-    const canvasSize = this.canvasSize;
-    if (!canvasSize) return;
-
-    const cam = this.camera;
-    if (!cam) return;
-
-    const bounds =
-      this.gridBoundsOverride ??
-      (() => {
-        const topLeft = cam.screenToWorld({ x: 0, y: 0 });
-        const bottomRight = cam.screenToWorld({ x: canvasSize.w, y: canvasSize.h });
-        return {
-          minX: topLeft.x,
-          minY: topLeft.y,
-          maxX: bottomRight.x,
-          maxY: bottomRight.y,
-        };
-      })();
-
-    if (grid.gridType === 'hex') {
-      const dpr = typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1;
-      const scale = cam.zoom * dpr;
-      const tile = this.getHexTile(
-        grid.cellSize,
-        grid.hexOrientation,
-        grid.strokeColor,
-        grid.strokeWidth,
-        grid.opacity,
-        scale,
-      );
-      if (tile) {
-        renderHexGridTiled(ctx, bounds, grid.cellSize, tile);
-      } else {
-        renderHexGrid(
-          ctx,
-          bounds,
-          grid.cellSize,
-          grid.hexOrientation,
-          grid.strokeColor,
-          grid.strokeWidth,
-          grid.opacity,
-        );
-      }
-    } else {
-      renderSquareGrid(
-        ctx,
-        bounds,
-        grid.cellSize,
-        grid.strokeColor,
-        grid.strokeWidth,
-        grid.opacity,
-      );
-    }
-  }
-
-  private getHexTile(
-    cellSize: number,
-    orientation: HexOrientation,
-    strokeColor: string,
-    strokeWidth: number,
-    opacity: number,
-    scale: number,
-  ): HexGridTile | null {
-    const key = `${cellSize}:${orientation}:${strokeColor}:${strokeWidth}:${opacity}:${scale}`;
-    if (this.hexTileCacheKey === key && this.hexTileCache) {
-      return this.hexTileCache;
-    }
-    const tile = createHexGridTile(cellSize, orientation, strokeColor, strokeWidth, opacity, scale);
-    if (tile) {
-      this.hexTileCache = tile;
-      this.hexTileCacheKey = key;
-    }
-    return tile;
   }
 }

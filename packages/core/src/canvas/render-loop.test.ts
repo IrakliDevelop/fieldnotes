@@ -56,8 +56,9 @@ function createMockDeps() {
     isDomElement: vi.fn(
       (el: { type: string }) => el.type === 'note' || el.type === 'html' || el.type === 'text',
     ),
+    isFullCanvasElement: vi.fn().mockReturnValue(false),
     renderCanvasElement: vi.fn(),
-    setGridBoundsOverride: vi.fn(),
+    renderExtensionWithBounds: vi.fn(),
   } as unknown as ElementRenderer;
 
   const toolManager = {
@@ -689,7 +690,7 @@ describe('RenderLoop', () => {
       expect(deps.domNodeManager.hideDomNode).not.toHaveBeenCalledWith(rotatedNote.id);
     });
 
-    it('always renders grid elements regardless of position', () => {
+    it('routes full-canvas elements through renderExtensionWithBounds', () => {
       const gridElement = {
         id: 'grid-1',
         type: 'grid',
@@ -697,11 +698,12 @@ describe('RenderLoop', () => {
         position: { x: 0, y: 0 },
       };
       vi.mocked(deps.store.getAll).mockReturnValue([gridElement] as never);
+      vi.mocked(deps.renderer.isFullCanvasElement).mockReturnValue(true);
 
       renderLoop.requestRender();
       renderLoop.flush();
 
-      expect(deps.renderer.renderCanvasElement).toHaveBeenCalled();
+      expect(deps.renderer.renderExtensionWithBounds).toHaveBeenCalled();
     });
   });
 
@@ -811,251 +813,6 @@ describe('RenderLoop', () => {
     it('markAllLayersDirty delegates to layerCache', () => {
       renderLoop.markAllLayersDirty();
       expect(deps.layerCache.markAllDirty).toHaveBeenCalled();
-    });
-
-    it('markAllLayersDirty invalidates the grid cache', () => {
-      vi.mocked(deps.store.getAll).mockReturnValue([
-        {
-          id: 'grid-1',
-          type: 'grid',
-          layerId: 'default',
-          position: { x: 0, y: 0 },
-        },
-      ] as never);
-      renderLoop.requestRender();
-      renderLoop.flush();
-      vi.mocked(deps.renderer.renderCanvasElement).mockClear();
-
-      renderLoop.markAllLayersDirty();
-      renderLoop.requestRender();
-      renderLoop.flush();
-
-      expect(deps.renderer.renderCanvasElement).toHaveBeenCalled();
-    });
-
-    it('renders grid elements directly to main canvas, not through layer cache', () => {
-      vi.mocked(deps.layerCache.isDirty).mockReturnValue(true);
-      const gridElement = {
-        id: 'grid-1',
-        type: 'grid',
-        layerId: 'default',
-        position: { x: 0, y: 0 },
-      };
-      vi.mocked(deps.store.getAll).mockReturnValue([gridElement] as never);
-
-      renderLoop.requestRender();
-      renderLoop.flush();
-
-      expect(deps.renderer.renderCanvasElement).toHaveBeenCalled();
-      expect(deps.layerCache.getContext).not.toHaveBeenCalled();
-    });
-
-    it('uses grid cache on second render with same params', () => {
-      Object.defineProperty(deps.canvasEl, 'clientWidth', { value: 800, configurable: true });
-      Object.defineProperty(deps.canvasEl, 'clientHeight', { value: 600, configurable: true });
-
-      const gridElement = {
-        id: 'grid-1',
-        type: 'grid',
-        layerId: 'default',
-        position: { x: 0, y: 0 },
-      };
-      vi.mocked(deps.store.getAll).mockReturnValue([gridElement] as never);
-
-      renderLoop.requestRender();
-      renderLoop.flush();
-
-      vi.mocked(deps.renderer.renderCanvasElement).mockClear();
-
-      renderLoop.requestRender();
-      renderLoop.flush();
-
-      expect(deps.renderer.renderCanvasElement).not.toHaveBeenCalled();
-    });
-
-    it('does not re-render the grid on a within-margin pan (cache reused)', () => {
-      Object.defineProperty(deps.canvasEl, 'clientWidth', { value: 800, configurable: true });
-      Object.defineProperty(deps.canvasEl, 'clientHeight', { value: 600, configurable: true });
-
-      const gridElement = {
-        id: 'grid-1',
-        type: 'grid',
-        layerId: 'default',
-        position: { x: 0, y: 0 },
-      };
-      vi.mocked(deps.store.getAll).mockReturnValue([gridElement] as never);
-      vi.mocked(deps.store.getElementsByType).mockReturnValue([gridElement] as never);
-
-      renderLoop.requestRender();
-      renderLoop.flush();
-
-      const gridRenders = (): number =>
-        (deps.renderer.renderCanvasElement as ReturnType<typeof vi.fn>).mock.calls.filter(
-          (c: unknown[]) => (c[1] as { type: string } | undefined)?.type === 'grid',
-        ).length;
-      const before = gridRenders();
-      (deps.camera as { position: { x: number; y: number } }).position = { x: 80, y: 0 }; // < 256
-
-      renderLoop.requestRender();
-      renderLoop.flush();
-
-      expect(gridRenders()).toBe(before); // grid composited from cache, not re-rendered
-    });
-
-    it('re-renders the grid on a pan beyond the margin (recenter)', () => {
-      Object.defineProperty(deps.canvasEl, 'clientWidth', { value: 800, configurable: true });
-      Object.defineProperty(deps.canvasEl, 'clientHeight', { value: 600, configurable: true });
-
-      const gridElement = {
-        id: 'grid-1',
-        type: 'grid',
-        layerId: 'default',
-        position: { x: 0, y: 0 },
-      };
-      vi.mocked(deps.store.getAll).mockReturnValue([gridElement] as never);
-      vi.mocked(deps.store.getElementsByType).mockReturnValue([gridElement] as never);
-
-      renderLoop.requestRender();
-      renderLoop.flush();
-
-      const gridRenders = (): number =>
-        (deps.renderer.renderCanvasElement as ReturnType<typeof vi.fn>).mock.calls.filter(
-          (c: unknown[]) => (c[1] as { type: string } | undefined)?.type === 'grid',
-        ).length;
-      const before = gridRenders();
-      (deps.camera as { position: { x: number; y: number } }).position = { x: 400, y: 0 }; // > 256
-
-      renderLoop.requestRender();
-      renderLoop.flush();
-
-      expect(gridRenders()).toBeGreaterThan(before);
-    });
-
-    it('skips grid cache when grid element reference changes', () => {
-      Object.defineProperty(deps.canvasEl, 'clientWidth', { value: 800, configurable: true });
-      Object.defineProperty(deps.canvasEl, 'clientHeight', { value: 600, configurable: true });
-
-      const grid1 = {
-        id: 'grid-1',
-        type: 'grid',
-        layerId: 'default',
-        position: { x: 0, y: 0 },
-      };
-      vi.mocked(deps.store.getAll).mockReturnValue([grid1] as never);
-
-      renderLoop.requestRender();
-      renderLoop.flush();
-      vi.mocked(deps.renderer.renderCanvasElement).mockClear();
-
-      const grid2 = { ...grid1 };
-      vi.mocked(deps.store.getAll).mockReturnValue([grid2] as never);
-      renderLoop.requestRender();
-      renderLoop.flush();
-
-      expect(deps.renderer.renderCanvasElement).toHaveBeenCalled();
-    });
-
-    it('invalidates the grid cache when a later grid element reference changes', () => {
-      Object.defineProperty(deps.canvasEl, 'clientWidth', { value: 800, configurable: true });
-      Object.defineProperty(deps.canvasEl, 'clientHeight', { value: 600, configurable: true });
-
-      const grid1 = {
-        id: 'grid-1',
-        type: 'grid',
-        layerId: 'default',
-        position: { x: 0, y: 0 },
-      };
-      const grid2 = {
-        id: 'grid-2',
-        type: 'grid',
-        layerId: 'default',
-        position: { x: 0, y: 0 },
-      };
-      vi.mocked(deps.store.getAll).mockReturnValue([grid1, grid2] as never);
-
-      renderLoop.requestRender();
-      renderLoop.flush();
-      vi.mocked(deps.renderer.renderCanvasElement).mockClear();
-
-      vi.mocked(deps.store.getAll).mockReturnValue([grid1, { ...grid2 }] as never);
-      renderLoop.requestRender();
-      renderLoop.flush();
-
-      expect(deps.renderer.renderCanvasElement).toHaveBeenCalledTimes(2);
-    });
-
-    it('invalidates the grid cache when the same grid reference is removed and re-added', () => {
-      const grid = {
-        id: 'grid-1',
-        type: 'grid',
-        layerId: 'default',
-        position: { x: 0, y: 0 },
-      };
-      vi.mocked(deps.store.getAll).mockReturnValue([grid] as never);
-
-      renderLoop.requestRender();
-      renderLoop.flush();
-
-      vi.mocked(deps.store.getAll).mockReturnValue([]);
-      renderLoop.requestRender();
-      renderLoop.flush();
-      vi.mocked(deps.renderer.renderCanvasElement).mockClear();
-
-      vi.mocked(deps.store.getAll).mockReturnValue([grid] as never);
-      renderLoop.requestRender();
-      renderLoop.flush();
-
-      expect(deps.renderer.renderCanvasElement).toHaveBeenCalledWith(expect.anything(), grid);
-    });
-
-    it('sets gridBoundsOverride to margin-inflated world bounds before rendering grid into cache, then clears it', () => {
-      Object.defineProperty(deps.canvasEl, 'clientWidth', { value: 800, configurable: true });
-      Object.defineProperty(deps.canvasEl, 'clientHeight', { value: 600, configurable: true });
-
-      const gridElement = {
-        id: 'grid-1',
-        type: 'grid',
-        layerId: 'default',
-        position: { x: 0, y: 0 },
-      };
-      vi.mocked(deps.store.getAll).mockReturnValue([gridElement] as never);
-
-      // First flush causes a recenter (anchor at cam 0,0 zoom 1);
-      // gridCacheDirty = true so the override must be set before rendering
-      renderLoop.requestRender();
-      renderLoop.flush();
-
-      const setOverrideMock = deps.renderer.setGridBoundsOverride as ReturnType<typeof vi.fn>;
-      // With anchor cam (0,0) zoom 1 and margin 256:
-      // cachedWorldBounds.x = (-256 - 0) / 1 = -256
-      const overrideCalls = setOverrideMock.mock.calls;
-      const nonNullCall = overrideCalls.find((c: unknown[]) => c[0] !== null) as
-        | [{ minX: number; minY: number; maxX: number; maxY: number }]
-        | undefined;
-      expect(nonNullCall).toBeDefined();
-      expect(nonNullCall?.[0].minX).toBeLessThanOrEqual(-256);
-
-      // After rendering into cache, override is cleared
-      const lastCall = overrideCalls[overrideCalls.length - 1] as [unknown];
-      expect(lastCall[0]).toBeNull();
-    });
-
-    it('falls back to direct render when grid cache context is unavailable', () => {
-      Object.defineProperty(deps.canvasEl, 'clientWidth', { value: 800, configurable: true });
-      Object.defineProperty(deps.canvasEl, 'clientHeight', { value: 600, configurable: true });
-
-      const gridElement = {
-        id: 'grid-1',
-        type: 'grid',
-        layerId: 'default',
-        position: { x: 0, y: 0 },
-      };
-      vi.mocked(deps.store.getAll).mockReturnValue([gridElement] as never);
-
-      renderLoop.requestRender();
-      renderLoop.flush();
-
-      expect(deps.renderer.renderCanvasElement).toHaveBeenCalled();
     });
 
     it('handles null context from getContext gracefully', () => {

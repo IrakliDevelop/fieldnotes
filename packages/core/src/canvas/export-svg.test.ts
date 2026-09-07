@@ -8,8 +8,6 @@ import {
   createImage,
   createText,
   createShape,
-  createGrid,
-  createTemplate,
 } from '../elements/element-factory';
 import { ElementStore } from '../elements/element-store';
 import { HtmlPainterRegistry, HtmlPainterMissingError } from './html-painter-registry';
@@ -300,31 +298,6 @@ describe('exportSvg', () => {
     store.add(arrow);
     const svg = await exportSvg(store);
     expect(svg).not.toContain('stroke-dasharray');
-  });
-
-  it('emits a grid path', async () => {
-    const store = new ElementStore();
-    store.add(createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } }));
-    store.add(createGrid({ gridType: 'square', cellSize: 20 }));
-    const svg = await exportSvg(store);
-    expect(svg).toContain('<path');
-  });
-
-  it('emits a hex grid path', async () => {
-    const store = new ElementStore();
-    store.add(createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } }));
-    store.add(createGrid({ gridType: 'hex', hexOrientation: 'pointy', cellSize: 20 }));
-    const svg = await exportSvg(store);
-    expect(svg).toContain('<path');
-  });
-
-  it('emits a geometric circle template', async () => {
-    const store = new ElementStore();
-    store.add(
-      createTemplate({ position: { x: 100, y: 100 }, templateShape: 'circle', radius: 30 }),
-    );
-    const svg = await exportSvg(store);
-    expect(svg).toContain('<circle');
   });
 
   it('wraps rotated elements in a rotation group', async () => {

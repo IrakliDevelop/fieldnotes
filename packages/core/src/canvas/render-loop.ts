@@ -55,13 +55,9 @@ export class RenderLoop {
   private readonly hybridSurface: HybridRenderSurface;
   private readonly hooks?: RenderHooks;
   private activeDrawingLayerId: string | null = null;
-  private gridCacheDirty = true; // set on recenter/viewport-change; consumed by the grid block
   private readonly stats = new RenderStats();
   private layerGroups = new Map<string, CanvasElement[]>();
   private readonly overlays = new Set<OverlayRenderer>();
-  private gridCacheCanvas: HTMLCanvasElement | null = null;
-  private gridCacheCtx: CanvasRenderingContext2D | null = null;
-  private lastGridRefs: CanvasElement[] = [];
   private htmlScratchCanvas: HTMLCanvasElement | null = null;
   private htmlScratchCtx: CanvasRenderingContext2D | null = null;
 
@@ -124,7 +120,6 @@ export class RenderLoop {
 
   markAllLayersDirty(): void {
     this.layerCache.markAllDirty();
-    this.gridCacheDirty = true;
   }
 
   getStats(): RenderStatsSnapshot {
@@ -172,33 +167,6 @@ export class RenderLoop {
     ctx.globalAlpha = opacity;
     ctx.drawImage(cached as CanvasImageSource, offset.x, offset.y);
     ctx.restore();
-  }
-
-  private ensureGridCache(): void {
-    const w = this.marginViewport.physicalWidth();
-    const h = this.marginViewport.physicalHeight();
-    if (
-      this.gridCacheCanvas !== null &&
-      this.gridCacheCanvas.width === w &&
-      this.gridCacheCanvas.height === h
-    ) {
-      return;
-    }
-
-    if (typeof OffscreenCanvas !== 'undefined') {
-      this.gridCacheCanvas = new OffscreenCanvas(w, h) as unknown as HTMLCanvasElement;
-    } else if (typeof document !== 'undefined') {
-      const el = document.createElement('canvas');
-      el.width = w;
-      el.height = h;
-      this.gridCacheCanvas = el;
-    } else {
-      this.gridCacheCanvas = null;
-      this.gridCacheCtx = null;
-      return;
-    }
-
-    this.gridCacheCtx = this.gridCacheCanvas.getContext('2d') as CanvasRenderingContext2D | null;
   }
 
   /**
@@ -332,7 +300,6 @@ export class RenderLoop {
 
     let layersMs = 0;
     let compositeMs = 0;
-    let gridMs = 0;
 
     const dpr = typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1;
     const cssWidth = this.canvasEl.clientWidth;
@@ -347,25 +314,14 @@ export class RenderLoop {
     if (this.marginViewport.needsRecenter(currentCamX, currentCamY, currentZoom)) {
       this.marginViewport.recenter(currentCamX, currentCamY, currentZoom);
       this.layerCache.markAllDirty();
-      this.gridCacheDirty = true;
     }
 
     ctx.save();
     ctx.scale(dpr, dpr);
 
     this.renderer.setCanvasSize(cssWidth, cssHeight);
-    const hasGridElement =
-      this.store.getElementsByType('grid').length > 0 ||
-      this.store.getElementsByType('extension').some((el) => el.extensionType === 'vtt:grid');
     const bgT0 = performance.now();
-    if (hasGridElement) {
-      ctx.save();
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.clearRect(0, 0, cssWidth, cssHeight);
-      ctx.restore();
-    } else {
-      this.background.render(ctx, this.camera);
-    }
+    this.background.render(ctx, this.camera);
     const backgroundMs = performance.now() - bgT0;
 
     ctx.save();
@@ -397,7 +353,7 @@ export class RenderLoop {
     const hybridOrders = new Set<number>();
     let activeHybridOrder: number | null = null;
     this.layerGroups.clear();
-    const gridElements: CanvasElement[] = [];
+    const fullCanvasElements: CanvasElement[] = [];
     let paintOrder = 0;
 
     for (const element of allElements) {
@@ -422,12 +378,14 @@ export class RenderLoop {
         continue;
       }
 
-      if (
-        hybridActive &&
-        paintOrder > firstDomIndex + 1 &&
-        element.type !== 'grid' &&
-        !(element.type === 'extension' && element.extensionType === 'vtt:grid')
-      ) {
+      // Full-canvas extensions (e.g. grids) render on a separate pass with
+      // explicit world bounds, not inline with layer elements.
+      if (this.renderer.isFullCanvasElement(element)) {
+        fullCanvasElements.push(element);
+        continue;
+      }
+
+      if (hybridActive && paintOrder > firstDomIndex + 1) {
         activeHybridOrder ??= order;
         let run = hybridCanvasRuns.get(activeHybridOrder);
         if (!run) {
@@ -436,15 +394,6 @@ export class RenderLoop {
           hybridOrders.add(activeHybridOrder);
         }
         run.push(element);
-        continue;
-      }
-
-      // Grids are viewport-filling; handled via anchored cache below
-      if (
-        element.type === 'grid' ||
-        (element.type === 'extension' && element.extensionType === 'vtt:grid')
-      ) {
-        gridElements.push(element);
         continue;
       }
 
@@ -502,64 +451,22 @@ export class RenderLoop {
       }
     }
 
-    // Render grids on top of layer elements
-    if (gridElements.length > 0) {
-      const gridT0 = performance.now();
-      const gridsChanged =
-        gridElements.length !== this.lastGridRefs.length ||
-        gridElements.some((grid, index) => grid !== this.lastGridRefs[index]);
-      const gridDirty = this.gridCacheDirty || gridsChanged;
-
-      if (gridDirty) {
-        this.ensureGridCache();
-        if (this.gridCacheCtx && this.gridCacheCanvas) {
-          const cb = this.marginViewport.cachedWorldBounds();
-          this.renderer.setGridBoundsOverride({
-            minX: cb.x,
-            minY: cb.y,
-            maxX: cb.x + cb.w,
-            maxY: cb.y + cb.h,
-          });
-          const gc = this.gridCacheCtx;
-          gc.clearRect(0, 0, this.gridCacheCanvas.width, this.gridCacheCanvas.height);
-          gc.save();
-          this.marginViewport.applyRenderTransform(gc);
-          try {
-            for (const grid of gridElements) {
-              gc.save();
-              gc.globalAlpha = this.layerManager.getLayer?.(grid.layerId)?.opacity ?? 1;
-              this.renderer.renderCanvasElement(gc as CanvasRenderingContext2D, grid);
-              gc.restore();
-            }
-          } finally {
-            gc.restore();
-            this.renderer.setGridBoundsOverride(null);
-          }
-        }
-        this.gridCacheDirty = false;
-        this.lastGridRefs = [...gridElements];
-      }
-
-      if (this.gridCacheCanvas) {
-        const offset = this.marginViewport.compositeOffset(
-          this.camera.position.x,
-          this.camera.position.y,
-        );
+    // Render full-canvas extensions (e.g. grids) with explicit world bounds.
+    // These render after layer elements but before hybrid canvas runs.
+    if (fullCanvasElements.length > 0) {
+      const cb = this.marginViewport.cachedWorldBounds();
+      const worldBounds = {
+        minX: cb.x,
+        minY: cb.y,
+        maxX: cb.x + cb.w,
+        maxY: cb.y + cb.h,
+      };
+      for (const el of fullCanvasElements) {
         ctx.save();
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
-        ctx.drawImage(this.gridCacheCanvas as CanvasImageSource, offset.x, offset.y);
+        ctx.globalAlpha = this.layerManager.getLayer?.(el.layerId)?.opacity ?? 1;
+        this.renderer.renderExtensionWithBounds(ctx, el, worldBounds, allElements);
         ctx.restore();
-      } else {
-        for (const grid of gridElements) {
-          ctx.save();
-          ctx.globalAlpha = this.layerManager.getLayer?.(grid.layerId)?.opacity ?? 1;
-          this.renderer.renderCanvasElement(ctx, grid);
-          ctx.restore();
-        }
       }
-      gridMs = performance.now() - gridT0;
-    } else {
-      this.lastGridRefs = [];
     }
 
     for (const [order, elements] of hybridCanvasRuns) {
@@ -644,7 +551,6 @@ export class RenderLoop {
     ctx.restore();
 
     this.stats.recordFrame(performance.now() - t0, {
-      gridMs,
       layersMs,
       backgroundMs,
       compositeMs,

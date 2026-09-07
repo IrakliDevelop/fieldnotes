@@ -50,6 +50,7 @@ export { TemplateTool, defaultRectWidth } from './template/template-tool';
 export type { TemplateToolOptions } from './template/template-tool';
 export { renderTemplateFeetLabel } from './template/template-measure';
 export type { TemplateFeetLabelParams } from './template/template-measure';
+export { renderTemplate, emitTemplateSvg, emitGridSvg } from './template/template-renderer';
 
 // Element types and factories (Phase 4)
 export type {

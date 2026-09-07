@@ -211,23 +211,6 @@ export {
 } from './elements/hex-fill';
 export { pathDistanceCells, gridDistanceCells } from './core/grid-metric';
 export type { DiagonalRule, GridMetric, PathDistance } from './core/grid-metric';
-export {
-  renderSquareGrid,
-  renderHexGrid,
-  renderHexGridTiled,
-  createHexGridTile,
-  getSquareGridLines,
-  getHexVertices,
-  getHexCenters,
-} from './elements/grid-renderer';
-export type {
-  VisibleBounds,
-  SquareGridLines,
-  HexVertex,
-  HexGridTile,
-} from './elements/grid-renderer';
-export { renderTemplateFeetLabel } from './elements/renderers/template-measure';
-export type { TemplateFeetLabelParams } from './elements/renderers/template-measure';
 export type {
   BaseElement,
   Binding,

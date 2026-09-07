@@ -161,18 +161,45 @@ export interface ElementTypeDefinition<T extends BaseElement> {
   bounds(el: T): Bounds | null;
   hitTest?(el: T, point: Point): boolean;
   renderMode?: 'canvas' | 'dom' | 'hybrid' | 'none';
+  /** When true, the element renders on a separate full-viewport pass with explicit
+   *  world bounds rather than inline with layer elements. Used for viewport-filling
+   *  elements like grids. */
+  fullCanvas?: boolean;
+  render?(
+    ctx: CanvasRenderingContext2D,
+    el: T,
+    allElements: readonly CanvasElement[],
+    worldBounds?: { minX: number; minY: number; maxX: number; maxY: number },
+  ): void;
+  emitSvg?(
+    el: T,
+    allElements: readonly CanvasElement[],
+    viewBox: { x: number; y: number; w: number; h: number },
+  ): string;
 }
 
 export interface ElementTypeAdapter {
   readonly type: string;
   readonly legacyTypes: readonly string[];
   readonly renderMode: 'canvas' | 'dom' | 'hybrid' | 'none';
+  readonly fullCanvas: boolean;
   validateEnvelope(el: ExtensionElementEnvelope): boolean;
   decodeLegacy(raw: Record<string, unknown>): ExtensionElementEnvelope;
   encodeLegacy(el: ExtensionElementEnvelope): Record<string, unknown>;
   wrap(el: BaseElement): ExtensionElementEnvelope;
   unwrap(el: ExtensionElementEnvelope): BaseElement;
   bounds(el: ExtensionElementEnvelope): Bounds | null;
+  render?(
+    ctx: CanvasRenderingContext2D,
+    el: ExtensionElementEnvelope,
+    allElements: readonly CanvasElement[],
+    worldBounds?: { minX: number; minY: number; maxX: number; maxY: number },
+  ): void;
+  emitSvg?(
+    el: ExtensionElementEnvelope,
+    allElements: readonly CanvasElement[],
+    viewBox: { x: number; y: number; w: number; h: number },
+  ): string;
 }
 
 export interface ElementTypeKey<T extends BaseElement> {
