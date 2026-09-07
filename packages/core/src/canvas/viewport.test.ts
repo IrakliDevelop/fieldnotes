@@ -1032,45 +1032,6 @@ describe('Viewport', () => {
     });
   });
 
-  describe('addGrid', () => {
-    it('replaces existing grid when adding a new one', () => {
-      const viewport = new Viewport(container);
-      viewport.addGrid({ gridType: 'square', cellSize: 40 });
-      const grids1 = viewport.store
-        .getElementsByType('extension')
-        .filter((el) => el.extensionType === 'vtt:grid');
-      expect(grids1.length).toBe(1);
-
-      viewport.addGrid({ gridType: 'hex', cellSize: 60 });
-      const grids2 = viewport.store
-        .getElementsByType('extension')
-        .filter((el) => el.extensionType === 'vtt:grid');
-      expect(grids2.length).toBe(1);
-      const adapter = viewport.elementRegistry.getAdapter('vtt:grid');
-      const grid = grids2[0]
-        ? (adapter?.unwrap(grids2[0]) as unknown as { gridType: string })
-        : undefined;
-      expect(grid?.gridType).toBe('hex');
-      viewport.destroy();
-    });
-  });
-
-  describe('updateGrid', () => {
-    it('no-ops when no grid exists', () => {
-      const viewport = new Viewport(container);
-      expect(() => viewport.updateGrid({ cellSize: 100 })).not.toThrow();
-      viewport.destroy();
-    });
-  });
-
-  describe('removeGrid', () => {
-    it('no-ops when no grid exists', () => {
-      const viewport = new Viewport(container);
-      expect(() => viewport.removeGrid()).not.toThrow();
-      viewport.destroy();
-    });
-  });
-
   describe('exportJSON/loadJSON', () => {
     it('round-trips via JSON', () => {
       const viewport = new Viewport(container);

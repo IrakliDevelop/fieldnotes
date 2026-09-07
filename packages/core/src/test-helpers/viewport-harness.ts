@@ -8,7 +8,6 @@ import { ArrowTool } from '../tools/arrow-tool';
 import { NoteTool } from '../tools/note-tool';
 import { TextTool } from '../tools/text-tool';
 import { ImageTool } from '../tools/image-tool';
-import { TemplateTool } from '../tools/template-tool';
 import type { Tool } from '../tools/types';
 
 export interface ViewportHarness {
@@ -37,7 +36,6 @@ export function createViewportHarness(): ViewportHarness {
     new NoteTool(),
     new TextTool(),
     new ImageTool(),
-    new TemplateTool(),
   ];
   for (const tool of tools) {
     viewport.toolManager.register(tool);

@@ -1,11 +1,6 @@
-import type { Bounds } from '../core/types';
-import type {
-  ElementTypeDefinition,
-  ExtensionElementEnvelope,
-  TemplateElement,
-  TemplateRenderStyle,
-  TemplateShape,
-} from './types';
+import type { Bounds } from '@fieldnotes/core';
+import type { ElementTypeDefinition, ExtensionElementEnvelope } from '@fieldnotes/core';
+import type { TemplateElement, TemplateRenderStyle, TemplateShape } from '../elements/types';
 
 function isEnum(value: unknown, allowed: readonly string[]): boolean {
   return typeof value === 'string' && allowed.includes(value);

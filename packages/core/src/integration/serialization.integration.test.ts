@@ -36,16 +36,12 @@ describe('Integration: serialization', () => {
     h.viewport.toolManager.setTool('note', h.viewport.toolContext);
     tap(h.wrapper, 400, 300);
 
-    h.viewport.addGrid({ gridType: 'square', cellSize: 50 });
+    // Grid elements are now managed by VTT's GridController.
+    // h.viewport.addGrid({ gridType: 'square', cellSize: 50 });
 
     expect(h.viewport.store.getElementsByType('stroke')).toHaveLength(1);
     expect(h.viewport.store.getElementsByType('shape')).toHaveLength(1);
     expect(h.viewport.store.getElementsByType('note')).toHaveLength(1);
-    expect(
-      h.viewport.store
-        .getElementsByType('extension')
-        .filter((el) => el.extensionType === 'vtt:grid'),
-    ).toHaveLength(1);
 
     const json = h.viewport.exportJSON();
 
@@ -55,9 +51,6 @@ describe('Integration: serialization', () => {
     expect(v2.store.getElementsByType('stroke')).toHaveLength(1);
     expect(v2.store.getElementsByType('shape')).toHaveLength(1);
     expect(v2.store.getElementsByType('note')).toHaveLength(1);
-    expect(
-      v2.store.getElementsByType('extension').filter((el) => el.extensionType === 'vtt:grid'),
-    ).toHaveLength(1);
 
     v2.destroy();
     c2.remove();

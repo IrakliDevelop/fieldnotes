@@ -1,9 +1,7 @@
 import type { ElementRegistry } from '@fieldnotes/core';
-import {
-  getDefaultElementRegistry,
-  gridElementTypeDefinition,
-  templateElementTypeDefinition,
-} from '@fieldnotes/core';
+import { getDefaultElementRegistry } from '@fieldnotes/core';
+import { gridElementTypeDefinition } from './grid/grid-definition';
+import { templateElementTypeDefinition } from './template/template-definition';
 
 /**
  * Register VTT element types (grid, template) in the given element registry.

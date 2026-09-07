@@ -14,7 +14,6 @@ const ALL_TOOLS = [
   'note',
   'text',
   'image',
-  'template',
 ] as const;
 
 describe('Integration: edge cases', () => {
@@ -35,7 +34,7 @@ describe('Integration: edge cases', () => {
       }
     }
 
-    expect(h.viewport.toolManager.activeTool?.name).toBe('template');
+    expect(h.viewport.toolManager.activeTool?.name).toBe('image');
   });
 
   it('tap on empty canvas with each tool does not crash', () => {

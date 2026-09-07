@@ -26,7 +26,6 @@ export type { ShortcutOptions, ShortcutBindings, ShortcutsApi } from './canvas/s
 export { Viewport } from './canvas/viewport';
 export type {
   ViewportOptions,
-  GridInfo,
   AlignEdge,
   DistributeAxis,
   RotateDirection,
@@ -210,6 +209,25 @@ export {
   getHexCellsInRectangle,
   drawHexPath,
 } from './elements/hex-fill';
+export { pathDistanceCells, gridDistanceCells } from './core/grid-metric';
+export type { DiagonalRule, GridMetric, PathDistance } from './core/grid-metric';
+export {
+  renderSquareGrid,
+  renderHexGrid,
+  renderHexGridTiled,
+  createHexGridTile,
+  getSquareGridLines,
+  getHexVertices,
+  getHexCenters,
+} from './elements/grid-renderer';
+export type {
+  VisibleBounds,
+  SquareGridLines,
+  HexVertex,
+  HexGridTile,
+} from './elements/grid-renderer';
+export { renderTemplateFeetLabel } from './elements/renderers/template-measure';
+export type { TemplateFeetLabelParams } from './elements/renderers/template-measure';
 export type {
   BaseElement,
   Binding,
@@ -224,8 +242,8 @@ export type {
   TextElement,
   ShapeElement,
   ShapeKind,
-  GridElement,
   HexOrientation,
+  GridElement,
   TemplateElement,
   TemplateShape,
   TemplateRenderStyle,
@@ -236,8 +254,6 @@ export type {
 } from './elements/types';
 export { ElementRegistry } from './elements/element-registry';
 export { getDefaultElementRegistry, setDefaultElementRegistry } from './elements/default-registry';
-export { gridElementTypeDefinition } from './elements/grid-definition';
-export { templateElementTypeDefinition } from './elements/template-definition';
 export { TypedHookRegistry, createRenderHooks } from './canvas/render-hooks';
 export type {
   ViewportSlot,
@@ -298,10 +314,6 @@ export type {
   PathSegment,
   PathEmission,
 } from './tools/path-tool';
-export { TemplateTool } from './tools/template-tool';
-export type { TemplateToolOptions } from './tools/template-tool';
-export { renderTemplateFeetLabel } from './elements/renderers/template-measure';
-export type { TemplateFeetLabelParams } from './elements/renderers/template-measure';
 export { LaserTool } from './tools/laser-tool';
 export type { LaserToolOptions, LaserTrailEmission } from './tools/laser-tool';
 export { PingTool } from './tools/ping-tool';

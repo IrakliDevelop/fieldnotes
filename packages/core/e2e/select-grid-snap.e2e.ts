@@ -100,10 +100,11 @@ test.describe('select drag snapping on a square grid', () => {
     await expect(page.locator('#grid-cell-size')).toHaveValue(String(CELL));
 
     const grid = await page.evaluate(() => {
-      const vp = (window as unknown as Record<string, unknown>).__fieldnotes_viewport as {
-        getGridInfo: () => { gridType: string; cellSize: number } | null;
+      const gridController = (window as unknown as Record<string, unknown>)
+        .__fieldnotes_grid_controller as {
+        getInfo: () => { gridType: string; cellSize: number } | null;
       };
-      return vp.getGridInfo();
+      return gridController.getInfo();
     });
     expect(grid?.gridType).toBe('square');
     expect(grid?.cellSize).toBe(CELL);

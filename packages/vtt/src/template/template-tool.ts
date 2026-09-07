@@ -1,14 +1,7 @@
-import type {
-  Point,
-  TemplateShape,
-  HexOrientation,
-  TemplateRenderStyle,
-  Tool,
-  ToolContext,
-  PointerState,
-} from '@fieldnotes/core';
-import { createTemplate } from '@fieldnotes/core';
+import type { Point, Tool, ToolContext, PointerState } from '@fieldnotes/core';
 import { snapPoint, snapToHexCenter } from '@fieldnotes/core';
+import type { TemplateShape, HexOrientation, TemplateRenderStyle } from '../elements/types';
+import { createTemplate } from '../elements/element-factory';
 import {
   getHexCellsInRadius,
   getHexCellsInCone,
@@ -16,8 +9,8 @@ import {
   getHexCellsInSquare,
   getHexCellsInRectangle,
   drawHexPath,
-} from '@fieldnotes/core';
-import { renderTemplateFeetLabel } from '@fieldnotes/core';
+} from '../grid/hex-fill';
+import { renderTemplateFeetLabel } from './template-measure';
 
 const MIN_RECT_WIDTH = 20;
 
