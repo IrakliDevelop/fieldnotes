@@ -4,6 +4,23 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.81.1] — 2026-09-08
+
+### Fixed
+
+- Clean-checkout CI now resolves contract-spike workspace imports from source before packages have
+  been built.
+- Workspace builds run in deterministic dependency order, preventing declaration builds in the
+  VTT test dependency cycle from racing another package's `dist` output.
+
+### Package versions
+
+- `@fieldnotes/core` 0.81.0 → 0.81.1
+- `@fieldnotes/vtt` 0.7.0 → 0.7.1
+- `@fieldnotes/sync` 0.18.0 → 0.18.1
+- `@fieldnotes/sync-server` 0.17.0 → 0.17.1
+- `@fieldnotes/sync-redis` 0.8.0 → 0.8.1
+
 ## [0.81.0] — 2026-09-08
 
 ### Added
