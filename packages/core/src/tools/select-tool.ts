@@ -45,6 +45,7 @@ import {
   computeRectangleLengthResize,
   computeRectangleWidthResize,
 } from './select-resize';
+import { resolveTemplateElement, updateTemplateElement } from './template-compat';
 
 const SNAP_PX = 6;
 const ROTATE_SNAP = Math.PI / 12; // 15°
@@ -290,14 +291,18 @@ export class SelectTool implements Tool {
     }
 
     if (this.mode.type === 'aiming-template') {
-      const el = ctx.store.getById(this.mode.elementId);
-      if (el && el.type === 'template' && !el.locked) {
+      const stored = ctx.store.getById(this.mode.elementId);
+      const el = stored ? resolveTemplateElement(stored, ctx.elementRegistry) : null;
+      if (stored && el && !stored.locked) {
         let a = Math.atan2(world.y - el.position.y, world.x - el.position.x);
         if (state.shiftKey) {
           const snap = ctx.gridType === 'hex' ? Math.PI / 3 : ROTATE_SNAP;
           a = Math.round(a / snap) * snap;
         }
-        ctx.store.update(this.mode.elementId, { angle: normalizeAngle(a) });
+        ctx.store.update(
+          this.mode.elementId,
+          updateTemplateElement(stored, { ...el, angle: normalizeAngle(a) }, ctx.elementRegistry),
+        );
         ctx.requestRender();
       }
       return;
@@ -305,15 +310,19 @@ export class SelectTool implements Tool {
 
     if (this.mode.type === 'resizing-rect-length' || this.mode.type === 'resizing-rect-width') {
       ctx.setCursor?.(this.mode.type === 'resizing-rect-length' ? 'ew-resize' : 'ns-resize');
-      const el = ctx.store.getById(this.mode.elementId);
-      if (el && el.type === 'template' && !el.locked) {
+      const stored = ctx.store.getById(this.mode.elementId);
+      const el = stored ? resolveTemplateElement(stored, ctx.elementRegistry) : null;
+      if (stored && el && !stored.locked) {
         const opts = { snapToGrid: ctx.snapToGrid, gridSize: ctx.gridSize, gridType: ctx.gridType };
         const patch =
           this.mode.type === 'resizing-rect-length'
             ? computeRectangleLengthResize(el, world, opts)
             : computeRectangleWidthResize(el, world, opts);
         if (patch) {
-          ctx.store.update(this.mode.elementId, patch);
+          ctx.store.update(
+            this.mode.elementId,
+            updateTemplateElement(stored, { ...el, ...patch }, ctx.elementRegistry),
+          );
           ctx.requestRender();
         }
       }
@@ -642,8 +651,10 @@ export class SelectTool implements Tool {
   private handleTemplateResize(world: Point, ctx: ToolContext): void {
     if (this.mode.type !== 'resizing-template') return;
 
-    const el = ctx.store.getById(this.mode.elementId);
-    if (!el || el.type !== 'template' || el.locked) return;
+    const stored = ctx.store.getById(this.mode.elementId);
+    if (!stored || stored.locked) return;
+    const el = resolveTemplateElement(stored, ctx.elementRegistry);
+    if (!el) return;
 
     const patch = computeTemplateResize(el, world, {
       snapToGrid: ctx.snapToGrid,
@@ -651,7 +662,10 @@ export class SelectTool implements Tool {
       gridType: ctx.gridType,
     });
     if (patch) {
-      ctx.store.update(this.mode.elementId, patch);
+      ctx.store.update(
+        this.mode.elementId,
+        updateTemplateElement(stored, { ...el, ...patch }, ctx.elementRegistry),
+      );
       ctx.requestRender();
     }
   }

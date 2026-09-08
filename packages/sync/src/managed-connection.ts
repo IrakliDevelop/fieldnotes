@@ -1,15 +1,10 @@
 import type { CanvasElement, ElementRegistry, ElementStore, Layer } from '@fieldnotes/core';
-import {
-  SyncClient,
-  type ResolveLocalOnly,
-  type RemoteLayerUpdate,
-  type FogSyncManager,
-} from './sync-client';
+import { SyncClient, type ResolveLocalOnly, type RemoteLayerUpdate } from './sync-client';
 import type { SyncTransport } from './sync-transport';
 import { WebSocketTransport } from './websocket-transport';
 import { parseEnvelope, isValidLayerDefinition } from './protocol';
 import { LayerLedger } from './layer-ledger';
-import { FogSyncController, assertValidFogClientId } from '@fieldnotes/vtt';
+import type { ClientSyncPlugin } from './sync-plugin';
 
 /**
  * Connection health as observed by the managed lifecycle:
@@ -45,7 +40,7 @@ export interface ManagedSyncConnectionOptions {
    * Stable client identity. It must not change across reconnects and, for
    * authenticated relays, must equal the server-authenticated user id so
    * ownership authorization and reconnect echo-suppression keep working. When
-   * `fog` is enabled, it must be 1-128 printable ASCII characters.
+   * Plugins may impose additional identity constraints.
    */
   clientId: string;
   /**
@@ -73,10 +68,7 @@ export interface ManagedSyncConnectionOptions {
   layers?: {
     applyLayer: (update: RemoteLayerUpdate) => void;
   };
-  fog?: {
-    manager: FogSyncManager;
-    preserveLocalWhenRemoteMissing?: boolean;
-  };
+  plugins?: readonly ClientSyncPlugin[];
   onStatus?: (status: ManagedSyncStatus) => void;
   /**
    * Optional observer for raw transport frames. It is subscribed before the
@@ -159,7 +151,7 @@ const BACKOFF_EXPONENT_CAP = 10;
 export function createManagedSyncConnection(
   options: ManagedSyncConnectionOptions,
 ): ManagedSyncConnection {
-  if (options.fog) assertValidFogClientId(options.clientId);
+  for (const plugin of options.plugins ?? []) plugin.validateClientId?.(options.clientId);
   const {
     store,
     clientId,
@@ -185,14 +177,6 @@ export function createManagedSyncConnection(
   // deleted-while-away semantics), not a fresh non-destructive bootstrap.
   const hubKnownIds = new Set<string>();
   const layerLedger = options.layers ? new LayerLedger() : null;
-  const fogController = options.fog
-    ? new FogSyncController({
-        clientId,
-        manager: options.fog.manager,
-        preserveLocalWhenRemoteMissing: options.fog.preserveLocalWhenRemoteMissing,
-      })
-    : null;
-  const fogOptions = options.fog;
   // Presence handlers live on the manager so they outlive credential
   // rebuilds; each client gets one forwarder that iterates the live sets.
   const presenceHandlers = new Set<(from: string, data: unknown) => void>();
@@ -208,13 +192,6 @@ export function createManagedSyncConnection(
   let transport: ManagedSyncTransport | null = null;
   let subscriptions: (() => void)[] = [];
   let currentStatus: ManagedSyncStatus | null = null;
-  const unsubscribeOfflineFog =
-    fogController && fogOptions
-      ? fogOptions.manager.on('change', (event) => {
-          if (client !== null) return;
-          fogController.captureOfflineChange(event);
-        })
-      : null;
 
   const setStatus = (next: ManagedSyncStatus): void => {
     if (next === currentStatus) return;
@@ -323,7 +300,7 @@ export function createManagedSyncConnection(
       ...(options.layers && layerLedger
         ? { layers: { applyLayer: options.layers.applyLayer, ledger: layerLedger } }
         : {}),
-      ...(options.fog && fogController ? { fogController } : {}),
+      plugins: options.plugins,
     });
     client.start();
     subscriptions.push(
@@ -355,8 +332,7 @@ export function createManagedSyncConnection(
         retryTimer = null;
       }
       teardownConnection();
-      unsubscribeOfflineFog?.();
-      fogController?.dispose();
+      for (const plugin of options.plugins ?? []) plugin.dispose?.();
     },
     getStatus(): ManagedSyncStatus {
       return currentStatus ?? 'connecting';

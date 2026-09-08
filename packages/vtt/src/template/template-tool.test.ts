@@ -83,4 +83,66 @@ describe('TemplateTool', () => {
     select.onPointerUp(pointer(10, 5), ctx);
     expect(store.getById(created.id)?.position).toEqual({ x: 10, y: 5 });
   });
+
+  it('keeps core aim controls working for an extracted template envelope', () => {
+    const registry = new ElementRegistry();
+    registerVttElementTypes(registry);
+    const store = new ElementStore(registry);
+    const ctx: ToolContext = {
+      camera: new Camera(),
+      store,
+      requestRender: vi.fn(),
+      elementRegistry: registry,
+    };
+    const template = new TemplateTool({ templateShape: 'cone' });
+    template.onPointerDown(pointer(100, 100), ctx);
+    template.onPointerMove(pointer(180, 100), ctx);
+    template.onPointerUp(pointer(180, 100), ctx);
+    const created = store.getAll()[0];
+    if (!created || created.type !== 'extension') throw new Error('template was not created');
+    store.update(created.id, { data: { ...created.data, futureField: 'preserved' } });
+
+    const select = new SelectTool();
+    select.onPointerDown(pointer(100, 100), ctx);
+    select.onPointerUp(pointer(100, 100), ctx);
+    select.onPointerDown(pointer(204, 100), ctx);
+    select.onPointerMove(pointer(100, 20), ctx);
+    select.onPointerUp(pointer(100, 20), ctx);
+
+    const updated = store.getById(created.id);
+    expect(updated?.type).toBe('extension');
+    if (!updated || updated.type !== 'extension') return;
+    expect(updated.data['angle']).toBeCloseTo(-Math.PI / 2, 3);
+    expect(updated.data['futureField']).toBe('preserved');
+  });
+
+  it('keeps core resize controls working for an extracted template envelope', () => {
+    const registry = new ElementRegistry();
+    registerVttElementTypes(registry);
+    const store = new ElementStore(registry);
+    const ctx: ToolContext = {
+      camera: new Camera(),
+      store,
+      requestRender: vi.fn(),
+      elementRegistry: registry,
+    };
+    const template = new TemplateTool({ templateShape: 'circle' });
+    template.onPointerDown(pointer(100, 100), ctx);
+    template.onPointerMove(pointer(140, 100), ctx);
+    template.onPointerUp(pointer(140, 100), ctx);
+    const created = store.getAll()[0];
+    if (!created || created.type !== 'extension') throw new Error('template was not created');
+
+    const select = new SelectTool();
+    select.onPointerDown(pointer(100, 100), ctx);
+    select.onPointerUp(pointer(100, 100), ctx);
+    select.onPointerDown(pointer(140, 140), ctx);
+    select.onPointerMove(pointer(170, 170), ctx);
+    select.onPointerUp(pointer(170, 170), ctx);
+
+    const updated = store.getById(created.id);
+    expect(updated?.type).toBe('extension');
+    if (!updated || updated.type !== 'extension') return;
+    expect(updated.data['radius']).toBeGreaterThan(40);
+  });
 });

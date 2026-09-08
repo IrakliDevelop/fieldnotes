@@ -66,7 +66,7 @@ export { createGrid, createTemplate } from './elements/element-factory';
 export { registerVttElementTypes } from './register';
 
 // Fog (Phase 5)
-export { createFogPlugin } from './fog/fog-plugin';
+export { createFogPlugin, FogManagerKey } from './fog/fog-plugin';
 export type { FogPlugin, CreateFogPluginOptions } from './fog/fog-plugin';
 export { FogManager } from './fog/fog-manager';
 export type { FogManagerOptions, FogIdFactory } from './fog/fog-manager';
@@ -128,15 +128,3 @@ export type {
   FogSyncSessionSnapshot,
   FogSyncOp,
 } from './fog/fog-sync-types';
-export { FogLedger } from './fog/fog-ledger';
-export { FogSyncController } from './fog/fog-sync-controller';
-
-// Fog Redis scripts (Phase 5g)
-export {
-  FOG_META_LWW_SCRIPT,
-  FOG_PATCH_LWW_SCRIPT,
-  tileIntersectsDefinition,
-  parseFogRedisMetaResult,
-  parseFogRedisPatchResult,
-} from './fog/fog-redis-scripts';
-export type { FogRedisApplyResult, FogRedisPatchApplyResult } from './fog/fog-redis-scripts';

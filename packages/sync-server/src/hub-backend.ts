@@ -1,21 +1,6 @@
 import type { CanvasElement } from '@fieldnotes/core';
-import type {
-  SyncOp,
-  LayerRecord,
-  FogSnapshot,
-  FogMetaRecord,
-  FogTileRecord,
-} from '@fieldnotes/sync';
-
-export interface FogApplyResult<T> {
-  readonly accepted: boolean;
-  readonly correction?: T;
-}
-
-export interface FogPatchApplyResult {
-  readonly accepted: FogTileRecord[];
-  readonly corrections: FogTileRecord[];
-}
+import type { ServiceKey } from '@fieldnotes/core';
+import type { SyncOp, LayerRecord } from '@fieldnotes/sync';
 
 export interface HubBackend {
   /** True when every hub instance addresses the same atomic backing state (for example Redis). */
@@ -26,8 +11,5 @@ export interface HubBackend {
   layerRecords?(room: string): Promise<LayerRecord[]>;
   getLayerRecord?(room: string, id: string): Promise<LayerRecord | undefined>;
   applyLayerRecord?(room: string, record: LayerRecord): Promise<void>;
-  fogSnapshot?(room: string): Promise<FogSnapshot | undefined>;
-  applyFogMeta?(room: string, record: FogMetaRecord): Promise<FogApplyResult<FogMetaRecord>>;
-  applyFogTile?(room: string, record: FogTileRecord): Promise<FogApplyResult<FogTileRecord>>;
-  applyFogPatch?(room: string, records: readonly FogTileRecord[]): Promise<FogPatchApplyResult>;
+  getService?<T>(key: ServiceKey<T>): T | undefined;
 }

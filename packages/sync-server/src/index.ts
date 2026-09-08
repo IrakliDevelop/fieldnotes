@@ -1,7 +1,7 @@
 export { SyncHub } from './sync-hub';
 export type { SyncHubOptions, Connection } from './sync-hub';
 export { MemoryHubBackend } from './memory-hub-backend';
-export type { HubBackend, FogApplyResult, FogPatchApplyResult } from './hub-backend';
+export type { HubBackend } from './hub-backend';
 export { createSyncServer } from './create-sync-server';
 export type { CreateSyncServerOptions } from './create-sync-server';
 export { InMemoryHubFanout } from './hub-fanout';
@@ -12,8 +12,6 @@ export type {
   AuthorizeContext,
   AuthorizeLayer,
   AuthorizeLayerContext,
-  AuthorizeFog,
-  AuthorizeFogContext,
   OwnedElement,
   ReadContext,
   CanRead,
@@ -26,4 +24,5 @@ export type {
   ServerOpContext,
   ServerNext,
   PluginSnapshot,
+  ServerExtensionRegistry,
 } from './sync-plugin';

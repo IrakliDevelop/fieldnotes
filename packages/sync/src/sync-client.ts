@@ -1,11 +1,5 @@
 import { getDefaultElementRegistry } from '@fieldnotes/core';
 import type { CanvasElement, ElementRegistry, ElementStore, Layer } from '@fieldnotes/core';
-import {
-  FogSyncController,
-  type FogSyncManager,
-  type FogSyncSessionSnapshot,
-} from '@fieldnotes/vtt';
-export type { FogSyncManager } from '@fieldnotes/vtt';
 import type { SyncTransport } from './sync-transport';
 import {
   parseEnvelope,
@@ -18,6 +12,8 @@ import {
   type SyncElement,
 } from './protocol';
 import { LayerLedger } from './layer-ledger';
+import { ClientPluginRegistry } from './sync-plugin';
+import type { ClientSyncPlugin, PluginSnapshot } from './sync-plugin';
 
 /**
  * Which authoritative-snapshot merge is being applied:
@@ -105,17 +101,10 @@ export interface LayerSyncOptions {
   ledger?: LayerLedger;
 }
 
-export interface FogSyncOptions {
-  manager: FogSyncManager;
-  preserveLocalWhenRemoteMissing?: boolean;
-  /** @internal Restore session state from a previous controller (across credential rebuilds). */
-  sessionSnapshot?: FogSyncSessionSnapshot;
-}
-
 export interface SyncClientOptions {
   store: ElementStore;
   transport: SyncTransport;
-  /** When `fog` is enabled, must be 1-128 printable ASCII characters. */
+  /** Plugins may impose additional identity constraints (fog requires printable ASCII). */
   clientId?: string;
   resolveAudience?: (element: CanvasElement) => string | undefined;
   /**
@@ -142,12 +131,10 @@ export interface SyncClientOptions {
   firstSnapshot?: 'merge' | 'reconcile';
   /** Enables versioned layer-definition sync for this client. */
   layers?: LayerSyncOptions;
-  /** Enables fog-of-war sync for this client. */
-  fog?: FogSyncOptions;
+  /** Domain sync plugins. Legacy v3 kinds remain on the wire during the migration window. */
+  plugins?: readonly ClientSyncPlugin[];
   /** Converts registered runtime extension envelopes at the v3 wire boundary. */
   elementRegistry?: ElementRegistry;
-  /** @internal Pre-built fog controller (used by managed-connection to share one across rebuilds). */
-  fogController?: FogSyncController;
 }
 
 const REMOTE_ORIGIN = 'remote';
@@ -179,10 +166,11 @@ export class SyncClient {
   private readonly applyLayer?: (update: RemoteLayerUpdate) => void;
   private readonly layerLedger?: LayerLedger;
   private readonly elementRegistry: ElementRegistry;
-  private readonly fogController?: FogSyncController;
-  private fogControllerUnsub: (() => void) | undefined;
+  private readonly pluginRegistry: ClientPluginRegistry;
+  private pluginCleanups: (() => void)[] = [];
   private unsubscribers: (() => void)[] = [];
   private started = false;
+  private disposed = false;
   private joined = false;
   private resyncPending = false;
   private readonly touchedDuringResync = new Set<string>();
@@ -197,25 +185,18 @@ export class SyncClient {
     this.resolveLocalOnly = options.resolveLocalOnly;
     this.hubKnownIds = options.hubKnownIds ?? new Set();
     this.elementRegistry = options.elementRegistry ?? getDefaultElementRegistry();
+    this.pluginRegistry = new ClientPluginRegistry(options.plugins ?? []);
+    for (const plugin of this.pluginRegistry.plugins) plugin.validateClientId?.(this.clientId);
     this.store.setElementRegistry(this.elementRegistry);
     if (options.layers) {
       this.applyLayer = options.layers.applyLayer;
       this.layerLedger = options.layers.ledger ?? new LayerLedger();
     }
-    if (options.fogController) {
-      this.fogController = options.fogController;
-    } else if (options.fog) {
-      this.fogController = new FogSyncController({
-        clientId: this.clientId,
-        manager: options.fog.manager,
-        preserveLocalWhenRemoteMissing: options.fog.preserveLocalWhenRemoteMissing,
-        sessionSnapshot: options.fog.sessionSnapshot,
-      });
-    }
     this.joined = options.firstSnapshot === 'reconcile';
   }
 
   start(): void {
+    if (this.disposed) throw new Error('SyncClient has been disposed');
     if (this.started) return;
     this.started = true;
     // A reconcile-first client resumes an already-synced store, so its first
@@ -232,16 +213,29 @@ export class SyncClient {
         this.onLocal({ kind: 'remove', id: el.id }, meta.origin),
       ),
       this.store.on('clear', (_data, meta) => this.onLocal({ kind: 'clear' }, meta.origin)),
+      this.store.on('batch', (_data, meta) => {
+        this.onLocal({ kind: 'clear' }, meta.origin);
+        for (const element of this.store.snapshot()) {
+          this.onLocal({ kind: 'upsert', element }, meta.origin);
+        }
+      }),
       this.transport.onMessage((msg) => this.onRemote(msg)),
     ];
     if (this.transport.onReconnect) {
       this.unsubscribers.push(this.transport.onReconnect(() => this.onReconnect()));
     }
-    if (this.fogController) {
-      this.fogController.setEnabled(true);
-      this.fogControllerUnsub = this.fogController.on('sendOp', (op) => {
-        this.sendOp(op as SyncOp);
-      });
+    try {
+      for (const plugin of this.pluginRegistry.plugins) {
+        const cleanup = plugin.start?.({ clientId: this.clientId, send: (op) => this.sendOp(op) });
+        if (cleanup) this.pluginCleanups.push(cleanup);
+      }
+    } catch (error) {
+      for (const cleanup of this.pluginCleanups.reverse()) cleanup();
+      this.pluginCleanups = [];
+      this.unsubscribers.forEach((unsubscribe) => unsubscribe());
+      this.unsubscribers = [];
+      this.started = false;
+      throw error;
     }
     // MUST be last: a synchronous bus delivers the peer's reply reentrantly, so the
     // onMessage receive handler above must already be wired before we request.
@@ -250,7 +244,7 @@ export class SyncClient {
 
   private onReconnect(): void {
     this.resyncPending = true;
-    this.fogController?.resetForReconnect();
+    for (const plugin of this.pluginRegistry.plugins) plugin.onReconnect?.();
     this.touchedDuringResync.clear();
     this.sendOp({ kind: 'request-snapshot' });
   }
@@ -258,11 +252,23 @@ export class SyncClient {
   stop(): void {
     if (!this.started) return;
     this.started = false;
-    this.fogController?.setEnabled(false);
-    this.fogControllerUnsub?.();
-    this.fogControllerUnsub = undefined;
+    for (const cleanup of this.pluginCleanups.reverse()) cleanup();
+    this.pluginCleanups = [];
     this.unsubscribers.forEach((u) => u());
     this.unsubscribers = [];
+  }
+
+  dispose(): void {
+    if (this.disposed) return;
+    this.stop();
+    this.disposed = true;
+    for (const plugin of [...this.pluginRegistry.plugins].reverse()) {
+      try {
+        plugin.dispose?.();
+      } catch {
+        // One plugin must not prevent the remaining plugins from being released.
+      }
+    }
   }
 
   sendPresence(data: unknown): void {
@@ -441,17 +447,27 @@ export class SyncClient {
       const elements = this.store.snapshot();
       const snapshotOp: Record<string, unknown> = { kind: 'snapshot', to: env.from, elements };
       if (this.layerLedger) snapshotOp['layers'] = this.layerLedger.records();
-      if (this.fogController) {
-        const fogSnap = this.fogController.produceSnapshotFog();
-        if (fogSnap) snapshotOp['fog'] = fogSnap;
+      const extensions: Record<string, PluginSnapshot> = {};
+      for (const plugin of this.pluginRegistry.plugins) {
+        const data = plugin.createSnapshot?.();
+        if (data === undefined) continue;
+        if (plugin.legacySnapshotKey) snapshotOp[plugin.legacySnapshotKey] = data;
+        else {
+          extensions[plugin.name] = {
+            pluginName: plugin.name,
+            version: plugin.snapshotVersion ?? 1,
+            data,
+          };
+        }
       }
+      if (Object.keys(extensions).length > 0) snapshotOp['extensions'] = extensions;
       this.sendOp(snapshotOp as SyncOp);
     } else if (op.kind === 'snapshot') {
       if (op.to !== this.clientId) return; // not addressed to us
       // Layers merge BEFORE elements so an element referencing a just-synced
       // layer arrives after the host has created that layer.
       this.mergeSnapshotLayers(op.layers);
-      this.fogController?.mergeSnapshot((op as Record<string, unknown>)['fog']);
+      this.applyPluginSnapshots(op, this.joined ? 'reconnect' : 'initial');
       const phase: AuthoritativeSnapshotPhase = this.joined ? 'reconcile' : 'bootstrap';
       const preserved = this.applyAuthoritativeSnapshot(
         phase,
@@ -473,14 +489,60 @@ export class SyncClient {
       this.pushNewerLayerRecords(op.layers);
     } else if (op.kind === 'layer-upsert' || op.kind === 'layer-remove') {
       this.onRemoteLayerOp(env.from, op);
-    } else if (op.kind === 'fog-meta' || op.kind === 'fog-patch') {
-      this.fogController?.handleRemoteOp(env.from, op);
+    } else if (op.kind === 'extension') {
+      this.pluginRegistry.dispatchExtension(op, {
+        sender: env.from,
+        isLocal: false,
+        phase: this.resyncPending ? 'reconnect' : 'live',
+      });
+    } else if (this.pluginRegistry.ownerOf(op.kind)) {
+      this.pluginRegistry.ownerOf(op.kind)?.handleOp?.(op, {
+        sender: env.from,
+        isLocal: false,
+        phase: this.resyncPending ? 'reconnect' : 'live',
+      });
     } else if (op.kind === 'presence') {
       for (const h of this.presenceHandlers) h(env.from, op.data);
     } else if (op.kind === 'presence-leave') {
       for (const h of this.presenceLeaveHandlers) h(env.from);
     } else {
       this.applyOp(op); // narrows to upsert | remove | clear
+    }
+  }
+
+  private applyPluginSnapshots(
+    op: Extract<SyncOp, { kind: 'snapshot' }>,
+    phase: 'initial' | 'reconnect',
+  ): void {
+    const raw = op as unknown as Record<string, unknown>;
+    const extensions = raw['extensions'];
+    for (const plugin of this.pluginRegistry.plugins) {
+      let snapshot: PluginSnapshot | undefined;
+      if (plugin.legacySnapshotKey) {
+        snapshot = {
+          pluginName: plugin.name,
+          version: plugin.snapshotVersion ?? 1,
+          data: raw[plugin.legacySnapshotKey],
+        };
+      } else if (typeof extensions === 'object' && extensions !== null) {
+        const candidate = (extensions as Record<string, unknown>)[plugin.name];
+        if (typeof candidate === 'object' && candidate !== null) {
+          snapshot = candidate as PluginSnapshot;
+        }
+      }
+      if (!snapshot) continue;
+      let data = snapshot.data;
+      const currentVersion = plugin.snapshotVersion ?? 1;
+      if (snapshot.version !== currentVersion) {
+        if (!plugin.migrateSnapshot) continue;
+        try {
+          data = plugin.migrateSnapshot(data, snapshot.version);
+        } catch {
+          continue;
+        }
+      }
+      if (plugin.validateSnapshot && !plugin.validateSnapshot(data)) continue;
+      plugin.applySnapshot?.({ pluginName: plugin.name, version: currentVersion, data }, { phase });
     }
   }
 

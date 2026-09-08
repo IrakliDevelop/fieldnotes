@@ -15,7 +15,7 @@ pnpm add ioredis
 
 `@fieldnotes/sync-redis` has **no Redis dependency of its own** — you inject a client that satisfies a
 minimal `RedisHashClient` interface (`hGetAll` / `hGet` / `hSet` / `hDel` / `del` / `eval`).
-`eval` is required for atomic fog-of-war updates.
+`eval` is optional for the generic element backend and is used by plugins that need atomic scripts.
 
 ## node-redis v4 (direct)
 
@@ -59,9 +59,10 @@ Each room is stored as a Redis **HASH** at `{keyPrefix}{room}` (default prefix `
 - **field** = element id
 - **value** = `JSON.stringify(element)`
 
-Fog uses two additional hashes, `${key}:fog:meta` and `${key}:fog:tiles`, and atomic Lua scripts via
-`EVAL`; custom Redis adapters must expose the node-redis-compatible `eval(script, { keys, arguments })`
-shape shown above.
+Backend plugins own any additional key schemas and atomic scripts. For fog, pass
+`createFogBackendPlugin()` from `@fieldnotes/vtt/redis`; it owns `${key}:fog:meta` and
+`${key}:fog:tiles` and requires the node-redis-compatible
+`eval(script, { keys, arguments })` shape shown above.
 
 node-redis v4 conforms to `RedisHashClient` directly (it has `hGet`); `RedisHubBackend.get(room, id)`
 (via `HGET`) powers the relay's ownership lookups for write authorization (D2).
@@ -70,6 +71,12 @@ The prefix is configurable:
 
 ```ts
 new RedisHubBackend(client, { keyPrefix: 'myapp:room:' });
+```
+
+```ts
+import { createFogBackendPlugin } from '@fieldnotes/vtt/redis';
+
+new RedisHubBackend(client, { plugins: [createFogBackendPlugin()] });
 ```
 
 ## Single vs. multiple relay instances

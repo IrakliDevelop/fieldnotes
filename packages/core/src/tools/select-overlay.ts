@@ -7,6 +7,7 @@ import { rotatePoint } from '../core/geometry';
 import { lineEndpoints } from '../elements/shape-geometry';
 import { renderArrowHandles } from './arrow-handles';
 import type { ElementRegistry } from '../elements/element-registry';
+import { resolveTemplateElement } from './template-compat';
 
 export type HandlePosition = 'nw' | 'ne' | 'sw' | 'se';
 
@@ -57,22 +58,24 @@ export function getOverlayLayout(
 export function templateAimKnob(
   el: CanvasElement,
   zoom: number,
+  registry?: ElementRegistry,
 ): { origin: Point; knob: Point } | null {
-  if (el.type !== 'template') return null;
+  const template = resolveTemplateElement(el, registry);
+  if (!template) return null;
   if (
-    el.templateShape !== 'cone' &&
-    el.templateShape !== 'line' &&
-    el.templateShape !== 'rectangle'
+    template.templateShape !== 'cone' &&
+    template.templateShape !== 'line' &&
+    template.templateShape !== 'rectangle'
   )
     return null;
   const gap = ROTATE_HANDLE_OFFSET / zoom;
-  const dist = el.radius + gap;
-  const origin = el.position;
+  const dist = template.radius + gap;
+  const origin = template.position;
   return {
     origin,
     knob: {
-      x: origin.x + dist * Math.cos(el.angle),
-      y: origin.y + dist * Math.sin(el.angle),
+      x: origin.x + dist * Math.cos(template.angle),
+      y: origin.y + dist * Math.sin(template.angle),
     },
   };
 }
@@ -247,19 +250,24 @@ export function renderSelectionBoxes(
           );
         }
         ctx.setLineDash([4 / zoom, 4 / zoom]);
-      } else if (el.type === 'template') {
+      } else {
+        const template = resolveTemplateElement(el, p.elementRegistry);
+        if (!template) continue;
         ctx.setLineDash([]);
         ctx.fillStyle = '#ffffff';
-        if (el.templateShape === 'rectangle') {
+        if (template.templateShape === 'rectangle') {
           if (p.selectedIds.length === 1) {
-            const cos = Math.cos(el.angle);
-            const sin = Math.sin(el.angle);
-            const halfW = (el.width ?? 0) / 2;
+            const cos = Math.cos(template.angle);
+            const sin = Math.sin(template.angle);
+            const halfW = (template.width ?? 0) / 2;
             const pts: [number, number][] = [
-              [el.position.x + el.radius * cos, el.position.y + el.radius * sin],
               [
-                el.position.x + (el.radius / 2) * cos + halfW * -sin,
-                el.position.y + (el.radius / 2) * sin + halfW * cos,
+                template.position.x + template.radius * cos,
+                template.position.y + template.radius * sin,
+              ],
+              [
+                template.position.x + (template.radius / 2) * cos + halfW * -sin,
+                template.position.y + (template.radius / 2) * sin + halfW * cos,
               ],
             ];
             for (const [hx, hy] of pts) {
@@ -297,11 +305,11 @@ export function renderSelectionBoxes(
 
         if (
           p.selectedIds.length === 1 &&
-          (el.templateShape === 'cone' ||
-            el.templateShape === 'line' ||
-            el.templateShape === 'rectangle')
+          (template.templateShape === 'cone' ||
+            template.templateShape === 'line' ||
+            template.templateShape === 'rectangle')
         ) {
-          const aim = templateAimKnob(el, zoom);
+          const aim = templateAimKnob(el, zoom, p.elementRegistry);
           if (aim) {
             ctx.beginPath();
             ctx.moveTo(aim.origin.x, aim.origin.y);

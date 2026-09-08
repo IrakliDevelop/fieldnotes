@@ -201,6 +201,42 @@ describe('TypedHookRegistry', () => {
     });
   });
 
+  describe('runtime enablement', () => {
+    it('keeps a disabled hook capability registered without activating its render slot', () => {
+      const registry = new TypedHookRegistry<TestHooks>();
+      let enabled = false;
+      registry.register(
+        { afterRender: () => {} },
+        { required: true, satisfies: ['vtt:fog'], enabled: () => enabled },
+      );
+
+      expect(registry.getSatisfiedCapabilities()).toContain('vtt:fog');
+      expect(registry.has('afterRender')).toBe(false);
+      expect([...registry.iterate('afterRender')]).toEqual([]);
+      expect([...registry.iterateRequired()]).toEqual([]);
+
+      enabled = true;
+      expect(registry.has('afterRender')).toBe(true);
+      expect([...registry.iterate('afterRender')]).toHaveLength(1);
+      expect([...registry.iterateRequired()]).toHaveLength(1);
+    });
+
+    it('isolates a throwing enablement predicate as disabled', () => {
+      const registry = new TypedHookRegistry<TestHooks>();
+      registry.register(
+        { afterRender: () => {} },
+        {
+          enabled: () => {
+            throw new Error('unavailable');
+          },
+        },
+      );
+
+      expect(registry.has('afterRender')).toBe(false);
+      expect([...registry.iterate('afterRender')]).toEqual([]);
+    });
+  });
+
   describe('clear', () => {
     it('removes all hooks', () => {
       const registry = new TypedHookRegistry<TestHooks>();

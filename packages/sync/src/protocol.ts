@@ -6,8 +6,8 @@ import {
   isValidFogTileRecord,
   isValidFogSnapshot,
   isNewerFogRecord,
-} from '@fieldnotes/vtt';
-import type { FogMetaRecord, FogTileRecord, FogSnapshot } from '@fieldnotes/vtt';
+} from './legacy-fog-wire';
+import type { FogMetaRecord, FogTileRecord, FogSnapshot } from './legacy-fog-wire';
 
 // Re-export fog sync types for backward compatibility
 export {
@@ -61,13 +61,15 @@ export type SyncOp =
       elements: CanvasElement[];
       layers?: LayerRecord[];
       fog?: FogSnapshot;
+      extensions?: Record<string, { pluginName: string; version: number; data: unknown }>;
     }
   | { kind: 'presence'; data: unknown }
   | { kind: 'presence-leave' }
   | { kind: 'layer-upsert'; layer: Layer; version: number; editor: string }
   | { kind: 'layer-remove'; id: string; version: number; editor: string }
   | { kind: 'fog-meta'; record: FogMetaRecord }
-  | { kind: 'fog-patch'; generation: string; tiles: FogTileRecord[] };
+  | { kind: 'fog-patch'; generation: string; tiles: FogTileRecord[] }
+  | { kind: 'extension'; extensionKind: string; payload: unknown };
 
 export interface SyncEnvelope {
   from: string;
@@ -344,6 +346,11 @@ export function isValidEnvelope(env: unknown): env is SyncEnvelope {
       }
       return true;
     }
+    case 'extension':
+      return (
+        isBoundedString((op as Record<string, unknown>)['extensionKind'], 128) &&
+        Object.prototype.hasOwnProperty.call(op, 'payload')
+      );
     default:
       return false;
   }
@@ -377,6 +384,7 @@ export function applyOpToMap(map: Map<string, CanvasElement>, op: SyncOp): void 
     case 'layer-remove':
     case 'fog-meta':
     case 'fog-patch':
+    case 'extension':
       break;
   }
 }

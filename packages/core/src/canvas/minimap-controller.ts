@@ -127,6 +127,7 @@ export class MinimapController {
       viewport.store.on('remove', onScene),
       viewport.store.on('update', onScene),
       viewport.store.on('clear', onScene),
+      viewport.store.on('batch', onScene),
       viewport.layerManager.on('change', onScene),
       viewport.camera.onChange(() => this.onViewChanged()),
       viewport.onResize(() => this.onViewChanged()),

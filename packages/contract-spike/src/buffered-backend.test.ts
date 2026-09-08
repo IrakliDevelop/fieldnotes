@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-empty-function */
 import { describe, it, expect, vi } from 'vitest';
+import { createServiceKey } from '@fieldnotes/core';
 import { BufferedBackend, createMemoryBackend } from './buffered-backend';
 import type { HubBackend, WireElement, WireSyncOp } from './types';
 
@@ -59,7 +60,7 @@ describe('BufferedBackend', () => {
     expect(await inner.get('room-1', extension.id)).toBeUndefined();
   });
 
-  it('delegates fog ops to inner backend', async () => {
+  it('delegates non-element ops to the inner backend', async () => {
     const inner = createMemoryBackend();
     const buffered = new BufferedBackend(inner);
 
@@ -70,16 +71,18 @@ describe('BufferedBackend', () => {
     expect(buffered.getBufferedCount('room-1')).toBe(0);
   });
 
-  it('preserves optional backend capabilities without inventing unsupported ones', async () => {
-    const withoutFog = new BufferedBackend(createMemoryBackend());
-    expect(withoutFog.fogSnapshot).toBeUndefined();
+  it('preserves optional backend services without inventing unsupported ones', () => {
+    const key = createServiceKey<{ ready: true }>('contract-spike');
+    const withoutServices = new BufferedBackend(createMemoryBackend());
+    expect(withoutServices.getService).toBeUndefined();
 
-    const fogSnapshot = vi.fn(async () => undefined);
-    const inner: HubBackend = { ...createMemoryBackend(), fogSnapshot };
-    const withFog = new BufferedBackend(inner);
-    await withFog.fogSnapshot?.('room-1');
+    const service = { ready: true } as const;
+    const getService: NonNullable<HubBackend['getService']> = (requested) =>
+      requested.id === key.id ? (service as never) : undefined;
+    const inner: HubBackend = { ...createMemoryBackend(), getService };
+    const withServices = new BufferedBackend(inner);
 
-    expect(fogSnapshot).toHaveBeenCalledWith('room-1');
+    expect(withServices.getService?.(key)).toBe(service);
   });
 
   it('snapshot merges buffered + inner elements', async () => {

@@ -14,9 +14,18 @@ export class ToolManager {
     return [...this.tools.keys()];
   }
 
-  register(tool: Tool): void {
+  register(tool: Tool): () => void {
+    const previous = this.tools.get(tool.name);
     this.tools.set(tool.name, tool);
     this.registerListeners.forEach((fn) => fn(tool));
+    let disposed = false;
+    return () => {
+      if (disposed || this.tools.get(tool.name) !== tool) return;
+      disposed = true;
+      if (previous) this.tools.set(tool.name, previous);
+      else this.tools.delete(tool.name);
+      if (this.current === tool) this.current = null;
+    };
   }
 
   getTool<T extends Tool = Tool>(name: string): T | undefined {

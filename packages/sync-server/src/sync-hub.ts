@@ -2,18 +2,17 @@ import {
   parseEnvelope,
   isValidElement,
   isNewerLayerRecord,
-  FogLedger,
   type LayerRecord,
   type SyncOp,
   type SyncEnvelope,
-  type FogMetaRecord,
-  type FogTileRecord,
-  type FogSnapshot,
+  type PluginSnapshot,
 } from '@fieldnotes/sync';
 import { MemoryHubBackend } from './memory-hub-backend';
 import { InMemoryHubFanout, type HubFanout } from './hub-fanout';
 import type { HubBackend } from './hub-backend';
-import type { Authorize, AuthorizeLayer, AuthorizeFog, CanRead, OwnedElement } from './authorize';
+import type { Authorize, AuthorizeLayer, CanRead, OwnedElement } from './authorize';
+import { ServerPluginRegistry } from './sync-plugin';
+import type { ApplyResult, ServerOpContext, ServerSyncPlugin } from './sync-plugin';
 import {
   DEFAULT_MAX_JSON_DEPTH,
   DEFAULT_MAX_PRESENCE_LANES,
@@ -35,7 +34,7 @@ export interface SyncHubOptions {
   instanceId?: string;
   authorize?: Authorize;
   authorizeLayer?: AuthorizeLayer;
-  authorizeFog?: AuthorizeFog;
+  plugins?: readonly ServerSyncPlugin[];
   canRead?: CanRead;
   maxJsonDepth?: number;
   presenceThrottleMs?: number;
@@ -110,14 +109,6 @@ function isPresenceOp(
   return k === 'presence' || k === 'presence-leave';
 }
 
-type FogOp = Extract<SyncOp, { kind: 'fog-meta' | 'fog-patch' }>;
-
-function isFogOp(op: unknown): op is FogOp {
-  if (typeof op !== 'object' || op === null) return false;
-  const k = (op as { kind?: unknown }).kind;
-  return k === 'fog-meta' || k === 'fog-patch';
-}
-
 export class SyncHub {
   private readonly backend: HubBackend;
   private readonly conns = new Map<string, Connection>();
@@ -129,10 +120,9 @@ export class SyncHub {
   private readonly fanoutUnsub: () => void;
   private readonly authorize?: Authorize;
   private readonly authorizeLayer?: AuthorizeLayer;
-  private readonly authorizeFog?: AuthorizeFog;
+  private readonly pluginRegistry: ServerPluginRegistry;
   private readonly canRead?: CanRead;
   private readonly memoryLayers = new Map<string, Map<string, LayerRecord>>();
-  private readonly memoryFog = new Map<string, FogLedger>();
   private readonly maxJsonDepth: number;
   private readonly presenceThrottleMs: number;
   private readonly maxPresenceLanes: number;
@@ -149,24 +139,11 @@ export class SyncHub {
 
   constructor(options: SyncHubOptions = {}) {
     this.backend = options.backend ?? new MemoryHubBackend();
-    const fogMethods = [
-      this.backend.fogSnapshot,
-      this.backend.applyFogMeta,
-      this.backend.applyFogPatch,
-    ];
-    if (
-      (fogMethods.some(Boolean) || Boolean(this.backend.applyFogTile)) &&
-      !fogMethods.every(Boolean)
-    ) {
-      throw new Error(
-        'HubBackend fog support is an all-or-none capability: fogSnapshot, applyFogMeta, and applyFogPatch are required',
-      );
-    }
+    this.pluginRegistry = new ServerPluginRegistry(options.plugins ?? []);
     this.instanceId = options.instanceId ?? generateInstanceId();
     this.fanout = options.fanout ?? new InMemoryHubFanout();
     this.authorize = options.authorize;
     this.authorizeLayer = options.authorizeLayer;
-    this.authorizeFog = options.authorizeFog;
     this.canRead = options.canRead;
     this.maxJsonDepth = options.maxJsonDepth ?? DEFAULT_MAX_JSON_DEPTH;
     this.presenceThrottleMs = options.presenceThrottleMs ?? DEFAULT_PRESENCE_THROTTLE_MS;
@@ -256,19 +233,40 @@ export class SyncHub {
       // audience filter applies; the field is omitted while a room has never
       // used layer sync, keeping snapshot frames byte-identical to before.
       const layers = await this.getLayerRecords(conn.room);
-      const fog = await this.getFogSnapshot(conn.room);
       const snapshotOp: Record<string, unknown> = {
         kind: 'snapshot',
         to: env.from,
         elements,
       };
       if (layers.length > 0) snapshotOp['layers'] = layers;
-      if (fog) snapshotOp['fog'] = fog;
+      const extensions: Record<string, PluginSnapshot> = {};
+      for (const plugin of this.pluginRegistry.plugins) {
+        let snapshot = await plugin.snapshot?.(conn.room, this.backend);
+        if (!snapshot) continue;
+        if (plugin.filterSnapshot) {
+          snapshot =
+            plugin.filterSnapshot(snapshot, { userId: conn.userId, role: conn.role }) ?? undefined;
+        }
+        if (!snapshot) continue;
+        if (plugin.legacySnapshotKey) snapshotOp[plugin.legacySnapshotKey] = snapshot.data;
+        else extensions[plugin.name] = snapshot;
+      }
+      if (Object.keys(extensions).length > 0) snapshotOp['extensions'] = extensions;
       conn.send(JSON.stringify({ from: HUB_FROM, op: snapshotOp }));
     } else if (op.kind === 'layer-upsert' || op.kind === 'layer-remove') {
       await this.processLayerOp(conn, op);
-    } else if (op.kind === 'fog-meta' || op.kind === 'fog-patch') {
-      await this.processFogOp(conn, op);
+    } else if (op.kind === 'extension') {
+      const entry = this.pluginRegistry.extension(op.extensionKind);
+      if (!entry || !entry.kind.codec.validate(op.payload)) return;
+      await this.deliverPluginResult(conn, await entry.handler(op, this.pluginContext(conn)));
+    } else if (this.pluginRegistry.ownerOf(op.kind)) {
+      const owner = this.pluginRegistry.ownerOf(op.kind);
+      if (!owner?.process) return;
+      const result = await owner.process(op, this.pluginContext(conn), async () => ({
+        accepted: null,
+        corrections: [],
+      }));
+      await this.deliverPluginResult(conn, result);
     } else if (op.kind === 'upsert' || op.kind === 'remove' || op.kind === 'clear') {
       const id = op.kind === 'upsert' ? op.element.id : op.kind === 'remove' ? op.id : undefined;
       const needCurrent = (this.authorize || this.canRead) && id !== undefined;
@@ -296,25 +294,92 @@ export class SyncHub {
         }
       }
 
-      await this.backend.apply(conn.room, outboundOp);
-
       const prevExisted = current !== undefined;
       const prevAudience = current?.audience;
-
-      await this.fanout.publish(
-        JSON.stringify({
-          o: this.instanceId,
-          room: conn.room,
-          from: conn.id,
-          op: outboundOp,
-          prev: prevAudience,
-          existed: prevExisted,
-        }),
-      );
-
-      this.deliverToRoom(conn.room, conn.id, conn.id, outboundOp, prevAudience, prevExisted);
+      const result = await this.runCorePlugins(conn, outboundOp);
+      for (const correction of result.corrections) {
+        conn.send(JSON.stringify({ from: HUB_FROM, op: correction }));
+      }
+      const accepted = result.accepted;
+      if (
+        accepted &&
+        (accepted.kind === 'upsert' || accepted.kind === 'remove' || accepted.kind === 'clear')
+      ) {
+        if (result.locality !== 'local') {
+          await this.fanout.publish(
+            JSON.stringify({
+              o: this.instanceId,
+              room: conn.room,
+              from: conn.id,
+              op: accepted,
+              prev: prevAudience,
+              existed: prevExisted,
+            }),
+          );
+        }
+        this.deliverToRoom(conn.room, conn.id, conn.id, accepted, prevAudience, prevExisted);
+      }
+      for (const broadcast of result.broadcast ?? []) {
+        await this.publishPluginOp(conn, broadcast, result.locality);
+      }
     }
     // 'snapshot' from a client → ignored
+  }
+
+  private pluginContext(conn: Connection): ServerOpContext {
+    return {
+      room: conn.room,
+      connectionId: conn.id,
+      userId: conn.userId,
+      role: conn.role,
+      backend: this.backend,
+      backendPlugin: (key) => this.backend.getService?.(key),
+    };
+  }
+
+  private async runCorePlugins(conn: Connection, op: SyncOp): Promise<ApplyResult> {
+    const middleware = this.pluginRegistry.plugins.filter((plugin) => plugin.process);
+    const context = this.pluginContext(conn);
+    const dispatch = async (index: number, current: SyncOp): Promise<ApplyResult> => {
+      const plugin = middleware[index];
+      if (!plugin?.process) {
+        await this.backend.apply(conn.room, current);
+        return { accepted: current, corrections: [] };
+      }
+      let called = false;
+      return plugin.process(current, context, async (nextOp, nextContext) => {
+        if (called) throw new Error(`Server plugin "${plugin.name}" called next() more than once`);
+        if (nextContext !== context) {
+          throw new Error(`Server plugin "${plugin.name}" replaced the operation context`);
+        }
+        called = true;
+        return dispatch(index + 1, nextOp);
+      });
+    };
+    return dispatch(0, op);
+  }
+
+  private async deliverPluginResult(conn: Connection, result: ApplyResult): Promise<void> {
+    for (const correction of result.corrections) {
+      conn.send(JSON.stringify({ from: HUB_FROM, op: correction }));
+    }
+    if (result.accepted) await this.publishPluginOp(conn, result.accepted, result.locality);
+    for (const broadcast of result.broadcast ?? []) {
+      await this.publishPluginOp(conn, broadcast, result.locality);
+    }
+  }
+
+  private async publishPluginOp(
+    conn: Connection,
+    op: SyncOp,
+    locality: ApplyResult['locality'],
+  ): Promise<void> {
+    if (locality !== 'local') {
+      await this.fanout.publish(
+        JSON.stringify({ o: this.instanceId, room: conn.room, from: conn.id, op }),
+      );
+    }
+    this.relayToRoom(conn.room, conn.id, JSON.stringify({ from: conn.id, op }));
   }
 
   /**
@@ -391,145 +456,6 @@ export class SyncHub {
       this.memoryLayers.set(room, map);
     }
     map.set(record.id, record);
-  }
-
-  // ── Fog processing ──
-
-  private fogBackend(): Required<
-    Pick<HubBackend, 'fogSnapshot' | 'applyFogMeta' | 'applyFogPatch'>
-  > | null {
-    const { fogSnapshot, applyFogMeta, applyFogPatch } = this.backend;
-    if (!fogSnapshot || !applyFogMeta || !applyFogPatch) return null;
-    return {
-      fogSnapshot: fogSnapshot.bind(this.backend),
-      applyFogMeta: applyFogMeta.bind(this.backend),
-      applyFogPatch: applyFogPatch.bind(this.backend),
-    };
-  }
-
-  private getFogLedger(room: string): FogLedger {
-    let ledger = this.memoryFog.get(room);
-    if (!ledger) {
-      ledger = new FogLedger();
-      this.memoryFog.set(room, ledger);
-    }
-    return ledger;
-  }
-
-  private async getFogSnapshot(room: string): Promise<FogSnapshot | undefined> {
-    const backend = this.fogBackend();
-    if (backend) return backend.fogSnapshot(room);
-    return this.getFogLedger(room).snapshot();
-  }
-
-  private async applyFogMeta(
-    room: string,
-    record: FogMetaRecord,
-  ): Promise<{ accepted: boolean; correction?: FogMetaRecord }> {
-    const backend = this.fogBackend();
-    if (backend) return backend.applyFogMeta(room, record);
-    return this.getFogLedger(room).applyMeta(record);
-  }
-
-  private async applyFogPatch(
-    room: string,
-    records: readonly FogTileRecord[],
-  ): Promise<{ accepted: FogTileRecord[]; corrections: FogTileRecord[] }> {
-    const backend = this.fogBackend();
-    if (backend) return backend.applyFogPatch(room, records);
-    return this.getFogLedger(room).applyPatch(records);
-  }
-
-  private async processFogOp(
-    conn: Connection,
-    op: Extract<SyncOp, { kind: 'fog-meta' | 'fog-patch' }>,
-  ): Promise<void> {
-    const current = await this.getFogSnapshot(conn.room);
-
-    if (this.authorizeFog) {
-      const allowed = await this.authorizeFog({
-        userId: conn.userId,
-        role: conn.role,
-        room: conn.room,
-        op,
-        current,
-      });
-      if (!allowed) {
-        if (op.kind === 'fog-meta') {
-          const correction =
-            current?.meta ?? ({ version: 1, editor: HUB_FROM } satisfies FogMetaRecord);
-          conn.send(
-            JSON.stringify({ from: HUB_FROM, op: { kind: 'fog-meta', record: correction } }),
-          );
-        } else if (current?.meta.definition) {
-          const corrections = op.tiles.map((t) => {
-            const existing = current.tiles.find((ct) => ct.x === t.x && ct.y === t.y);
-            return (
-              existing ?? {
-                generation: current.meta.definition?.generation ?? op.generation,
-                x: t.x,
-                y: t.y,
-                version: 1,
-                editor: HUB_FROM,
-              }
-            );
-          });
-          conn.send(
-            JSON.stringify({
-              from: HUB_FROM,
-              op: {
-                kind: 'fog-patch',
-                generation: current.meta.definition.generation,
-                tiles: corrections,
-              },
-            }),
-          );
-        } else {
-          conn.send(
-            JSON.stringify({
-              from: HUB_FROM,
-              op: {
-                kind: 'fog-meta',
-                record: current?.meta ?? { version: 1, editor: HUB_FROM },
-              },
-            }),
-          );
-        }
-        return;
-      }
-    }
-
-    let outbound: FogOp;
-    if (op.kind === 'fog-meta') {
-      const result = await this.applyFogMeta(conn.room, op.record);
-      if (!result.accepted) {
-        if (result.correction) {
-          conn.send(
-            JSON.stringify({ from: HUB_FROM, op: { kind: 'fog-meta', record: result.correction } }),
-          );
-        }
-        return;
-      }
-      outbound = op;
-    } else {
-      const { accepted, corrections } = await this.applyFogPatch(conn.room, op.tiles);
-      if (corrections.length > 0) {
-        const correctionGeneration = corrections[0]?.generation ?? op.generation;
-        conn.send(
-          JSON.stringify({
-            from: HUB_FROM,
-            op: { kind: 'fog-patch', generation: correctionGeneration, tiles: corrections },
-          }),
-        );
-      }
-      if (accepted.length === 0) return;
-      outbound = { kind: 'fog-patch', generation: op.generation, tiles: accepted };
-    }
-
-    await this.fanout.publish(
-      JSON.stringify({ o: this.instanceId, room: conn.room, from: conn.id, op: outbound }),
-    );
-    this.relayToRoom(conn.room, conn.id, JSON.stringify({ from: conn.id, op: outbound }));
   }
 
   private mayRead(conn: Connection, audience: string | undefined): boolean {
@@ -760,10 +686,27 @@ export class SyncHub {
       this.relayToRoom(env.room, undefined, JSON.stringify({ from: env.from, op }));
       return;
     }
-    if (isFogOp(op)) {
+    const plugin =
+      typeof op === 'object' && op !== null && (op as { kind?: unknown }).kind === 'extension'
+        ? this.pluginRegistry.extension((op as { extensionKind?: string }).extensionKind ?? '')
+            ?.plugin
+        : typeof op === 'object' &&
+            op !== null &&
+            typeof (op as { kind?: unknown }).kind === 'string'
+          ? this.pluginRegistry.ownerOf((op as { kind: string }).kind)
+          : undefined;
+    if (plugin && typeof op === 'object' && op !== null) {
       const previous = this.roomQueues.get(env.room) ?? Promise.resolve();
       const operation = previous.then(async () => {
-        const accepted = await this.applyFanoutFogOp(env.room as string, op);
+        const context: ServerOpContext = {
+          room: env.room as string,
+          connectionId: env.from as string,
+          backend: this.backend,
+          backendPlugin: (key) => this.backend.getService?.(key),
+        };
+        const accepted = plugin.applyFanout
+          ? await plugin.applyFanout(op as SyncOp, context)
+          : (op as SyncOp);
         if (accepted) {
           this.relayToRoom(
             env.room as string,
@@ -791,16 +734,6 @@ export class SyncHub {
     const current = await this.getLayerRecord(room, record.id);
     if (current && !isNewerLayerRecord(record, current)) return;
     await this.applyLayerRecord(room, record);
-  }
-
-  private async applyFanoutFogOp(room: string, op: FogOp): Promise<FogOp | null> {
-    if (this.backend.sharedAcrossInstances === true && this.fogBackend()) return op;
-    if (op.kind === 'fog-meta') {
-      const result = await this.applyFogMeta(room, op.record);
-      return result.accepted ? op : null;
-    }
-    const { accepted } = await this.applyFogPatch(room, op.tiles);
-    return accepted.length > 0 ? { ...op, tiles: accepted } : null;
   }
 
   close(): void {

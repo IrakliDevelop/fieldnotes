@@ -2,7 +2,13 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "./dist",
-    "rootDir": "./src"
+    "baseUrl": ".",
+    "paths": {
+      "@fieldnotes/core": ["../core/src/index.ts"],
+      "@fieldnotes/sync": ["../sync/src/index.ts"],
+      "@fieldnotes/sync-server": ["../sync-server/src/index.ts"],
+      "@fieldnotes/sync-redis": ["../sync-redis/src/index.ts"]
+    }
   },
   "include": ["src"]
 }

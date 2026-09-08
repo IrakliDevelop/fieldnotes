@@ -64,9 +64,24 @@ import type { ActivationOptions, ElementActivationEvent } from './element-activa
 import { createRenderHooks } from './render-hooks';
 import type { RenderHooks } from './render-hooks';
 import { PluginStateManager } from '../core/plugin-state-manager';
-import type { PersistedPluginState } from '../core/plugin-state-manager';
-import type { ViewportPlugin, ViewportPluginHost } from './viewport-plugin';
-export type { ViewportPlugin, ViewportPluginHost } from './viewport-plugin';
+import type {
+  NotificationController,
+  PersistedPluginState,
+  PluginHandle,
+} from '../core/plugin-state-manager';
+import type {
+  PluginConfigureContext,
+  PluginStartContext,
+  RequiredCapabilities,
+  ViewportPlugin,
+} from './viewport-plugin';
+import type { ServiceKey } from '../core/service-key';
+export type {
+  PluginConfigureContext,
+  PluginStartContext,
+  RequiredCapabilities,
+  ViewportPlugin,
+} from './viewport-plugin';
 
 export type { AlignEdge, DistributeAxis } from './selection-ops';
 export type { RotateDirection } from './selection-rotate';
@@ -104,6 +119,15 @@ export interface ViewportOptions {
   elementRegistry?: ElementRegistry;
   /** Domain plugins to install (e.g. fog-of-war). Each plugin self-wires via the host API. */
   plugins?: ViewportPlugin[];
+  /** Render capabilities that must remain installed after optional-plugin rollback. */
+  requiredCapabilities?: RequiredCapabilities;
+}
+
+interface ConfiguredPlugin {
+  readonly plugin: ViewportPlugin;
+  readonly configureDisposers: (() => void)[];
+  startDisposers: (() => void)[];
+  handle?: PluginHandle;
 }
 
 export interface HitTestOptions {
@@ -125,6 +149,7 @@ export class Viewport {
   private readonly paintStack: HTMLDivElement;
   private readonly wrapper: HTMLDivElement;
   private readonly unsubCamera: () => void;
+  private readonly unsubLayers: () => void;
   private readonly unsubToolChange: () => void;
   private readonly unsubStore: (() => void)[];
   private readonly inputHandler: InputHandler;
@@ -144,9 +169,12 @@ export class Viewport {
   private readonly renderLoop: RenderLoop;
   private readonly _renderHooks: RenderHooks;
   private readonly pluginStateManager: PluginStateManager;
-  private readonly installedPlugins: ViewportPlugin[] = [];
+  private readonly installedPlugins: ConfiguredPlugin[] = [];
+  private readonly services = new Map<symbol, unknown>();
   private readonly extraBoundsProviders = new Set<() => Bounds | null>();
   private readonly pluginChangeListeners = new Set<() => void>();
+  private pluginNotificationDepth = 0;
+  private pluginChangePending = false;
   private readonly domNodeManager: DomNodeManager;
   private readonly interactMode: InteractMode;
   private readonly onHtmlElementMount?: (
@@ -326,6 +354,21 @@ export class Viewport {
     this.unsubToolChange = this.toolManager.onChange(() => this.contextMenu?.close());
 
     this._renderHooks = createRenderHooks();
+    this.pluginStateManager = new PluginStateManager(() => this.suspendNotifications());
+    try {
+      this.configurePlugins(options.plugins);
+    } catch (error) {
+      this.inputHandler.destroy();
+      this.contextMenu?.dispose();
+      this.historyRecorder.destroy();
+      this.noteEditor.destroy(this.store);
+      this.arrowLabelEditor.cancel();
+      this.unsubToolChange();
+      this.unsubToolRegister();
+      this.unsubRecorderEnd();
+      this.wrapper.remove();
+      throw error;
+    }
 
     if (options.minimap) {
       this.minimap = new Minimap(this.wrapper, this, {
@@ -349,8 +392,6 @@ export class Viewport {
         },
       });
     }
-
-    this.pluginStateManager = new PluginStateManager();
 
     this.domNodeManager = new DomNodeManager({
       domLayer: this.paintStack,
@@ -387,15 +428,6 @@ export class Viewport {
       hybridSurface: new HybridRenderSurface(this.paintStack),
       hooks: this._renderHooks,
     });
-
-    try {
-      this.installPlugins(options.plugins);
-    } catch (error) {
-      this.domNodeManager.clearDomNodes();
-      this.renderLoop.stop();
-      this.wrapper.remove();
-      throw error;
-    }
 
     this.unsubHtmlPainters = this.htmlPainters.onChange(() => this.onHtmlRegistryChanged());
 
@@ -439,9 +471,16 @@ export class Viewport {
         this.requestRender();
         this.pruneSelection();
       }),
+      this.store.on('batch', () => {
+        this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
+        this.htmlDiagnostics.reset();
+        this.renderLoop.markAllLayersDirty();
+        this.requestRender();
+        this.pruneSelection();
+      }),
     ];
 
-    this.layerManager.on('change', () => {
+    this.unsubLayers = this.layerManager.on('change', () => {
       this.toolContext.activeLayerId = this.layerManager.activeLayerId;
       this.renderLoop.markAllLayersDirty();
       this.requestRender();
@@ -464,6 +503,31 @@ export class Viewport {
       dropHandler: this.dropHandler,
     });
 
+    try {
+      this.startPlugins();
+      this.validateRequiredCapabilities(options.requiredCapabilities);
+    } catch (error) {
+      this.disposePlugins();
+      this.domNodeManager.clearDomNodes();
+      this.renderLoop.stop();
+      this.interactMode.destroy();
+      this.noteEditor.destroy(this.store);
+      this.arrowLabelEditor.cancel();
+      this.historyRecorder.destroy();
+      this.contextMenu?.dispose();
+      this.minimap?.destroy();
+      this.inputHandler.destroy();
+      this.unsubCamera();
+      this.unsubLayers();
+      this.unsubToolChange();
+      this.unsubToolRegister();
+      this.unsubRecorderEnd();
+      this.unsubHtmlPainters();
+      this.unsubStore.forEach((unsubscribe) => unsubscribe());
+      this.wrapper.remove();
+      throw error;
+    }
+
     this.wrapper.addEventListener('pointerdown', this.interactions.onTapDown);
     this.wrapper.addEventListener('pointerup', this.interactions.onDoubleTap);
     this.wrapper.addEventListener('dragover', this.interactions.onDragOver);
@@ -483,6 +547,42 @@ export class Viewport {
 
   get renderHooks(): RenderHooks {
     return this._renderHooks;
+  }
+
+  getService<T>(key: ServiceKey<T>): T | undefined {
+    return this.services.get(key.id) as T | undefined;
+  }
+
+  suspendNotifications(): NotificationController {
+    const controllers = [
+      this.store.suspendNotifications(),
+      this.layerManager.suspendNotifications(),
+      this.camera.suspendNotifications(),
+      this.history.suspendNotifications(),
+    ];
+    this.pluginNotificationDepth += 1;
+    let settled = false;
+    const settle = (flush: boolean): void => {
+      if (settled) return;
+      settled = true;
+      for (const controller of controllers) {
+        if (flush) controller.resume();
+        else controller.discard();
+      }
+      this.pluginNotificationDepth = Math.max(0, this.pluginNotificationDepth - 1);
+      if (!flush) this.pluginChangePending = false;
+      if (flush && this.pluginNotificationDepth === 0 && this.pluginChangePending) {
+        this.pluginChangePending = false;
+        for (const listener of this.pluginChangeListeners) {
+          try {
+            listener();
+          } catch (error) {
+            console.error('[fieldnotes] plugin change listener failed', error);
+          }
+        }
+      }
+    };
+    return { resume: () => settle(true), discard: () => settle(false) };
   }
 
   get snapToGrid(): boolean {
@@ -636,59 +736,97 @@ export class Viewport {
   }
 
   loadState(state: CanvasState): void {
+    const incoming = structuredClone(state) as CanvasState;
+    migrateLegacyPluginState(incoming);
+    convertLegacyToEnvelopes(incoming.elements, this.elementRegistry);
+    const preparedPlugins = this.pluginStateManager.prepareState(
+      (incoming.extensions ?? {}) as Record<string, PersistedPluginState>,
+    );
+    if (!preparedPlugins.success) throw new Error(preparedPlugins.error);
+
     this.inputHandler.flushPendingHistory();
+    const previous = {
+      elements: this.store.snapshot(),
+      layers: this.layerManager.snapshot(),
+      activeLayerId: this.layerManager.activeLayerId,
+      camera: { position: this.camera.position, zoom: this.camera.zoom },
+      history: this.history.snapshot(),
+    };
+    const notifications = this.suspendNotifications();
     this.historyRecorder.pause();
-    this.noteEditor.destroy(this.store);
-    this.domNodeManager.clearDomNodes();
-    migrateLegacyPluginState(state);
-    convertLegacyToEnvelopes(state.elements, this.elementRegistry);
+    let pluginsCommitted = false;
+    try {
+      this.noteEditor.destroy(this.store);
+      this.domNodeManager.clearDomNodes();
+      this.applyCoreState(incoming);
+      this.history.clear();
+      this.camera.moveTo(incoming.camera.position.x, incoming.camera.position.y);
+      this.camera.setZoom(incoming.camera.zoom);
+      this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
+      const pluginResult = this.pluginStateManager.commitPrepared(preparedPlugins.prepared);
+      if (!pluginResult.success) throw new Error(pluginResult.error);
+      pluginsCommitted = true;
+      notifications.resume();
+      this.historyRecorder.resume();
+    } catch (error) {
+      const rollbackErrors: string[] = [];
+      if (pluginsCommitted) {
+        rollbackErrors.push(...this.pluginStateManager.rollbackPrepared(preparedPlugins.prepared));
+      }
+      try {
+        this.store.loadSnapshot(previous.elements);
+        this.layerManager.loadSnapshot(previous.layers);
+        this.layerManager.setActiveLayer(previous.activeLayerId);
+        this.camera.moveTo(previous.camera.position.x, previous.camera.position.y);
+        this.camera.setZoom(previous.camera.zoom);
+        this.history.loadSnapshot(previous.history);
+        this.domNodeManager.clearDomNodes();
+        this.domNodeManager.reattachHtmlContent(this.store);
+        this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
+      } catch (rollbackError) {
+        rollbackErrors.push(
+          rollbackError instanceof Error ? rollbackError.message : String(rollbackError),
+        );
+      } finally {
+        this.historyRecorder.resume();
+        notifications.discard();
+      }
+      if (rollbackErrors.length > 0) {
+        throw new AggregateError(
+          [error, ...rollbackErrors.map((message) => new Error(message))],
+          'Viewport state load and rollback failed',
+          { cause: error },
+        );
+      }
+      throw error;
+    }
+  }
+
+  private applyCoreState(state: CanvasState): void {
     this.store.loadSnapshot(state.elements);
-    if (state.layers && state.layers.length > 0) {
-      this.layerManager.loadSnapshot(state.layers);
-    }
-    if (state.activeLayerId) {
-      this.layerManager.setActiveLayer(state.activeLayerId);
-    }
+    if (state.layers && state.layers.length > 0) this.layerManager.loadSnapshot(state.layers);
+    if (state.activeLayerId) this.layerManager.setActiveLayer(state.activeLayerId);
     this.domNodeManager.reattachHtmlContent(this.store);
     for (const el of this.store.getElementsByType('html')) {
       if (this.domNodeManager.hasContent(el.id)) continue;
-
-      // Registry first: rebuild the embed from serialized data and mount it via the html branch
-      // of renderDomContent. This stores content BEFORE the onHtmlElementMount path's hasContent
-      // check, so a factory-rebuilt element never also gets an empty node from the callback path.
       const factory = el.htmlType ? this.htmlRenderers.get(el.htmlType) : undefined;
       const rebuilt = factory ? factory(el) : null;
       if (rebuilt) {
         this.domNodeManager.storeHtmlContent(el.id, rebuilt);
         this.domNodeManager.syncDomNode(el);
       }
-
-      // Callback still fires for wiring (both fire; registry produces the node, callback wires it).
-      if (this.onHtmlElementMount) {
-        if (!rebuilt) this.domNodeManager.syncDomNode(el);
-        const node = this.domNodeManager.getNode(el.id);
-        if (node) {
-          this.onHtmlElementMount(el.id, el.domId, node);
-          // The host mounted its content INTO the node; nothing else records it. Without
-          // this marker a routing change to canvas would detach the node and destroy the
-          // host's content, and the return leg would mount a fresh, permanently empty one.
-          this.domNodeManager.markHostOwnedContent(el.id);
-          node.dataset['initialized'] = 'true';
-          Object.assign(node.style, {
-            overflow: 'hidden',
-            pointerEvents: el.interactive ? 'auto' : 'none',
-          });
-        }
-      }
+      if (!this.onHtmlElementMount) continue;
+      if (!rebuilt) this.domNodeManager.syncDomNode(el);
+      const node = this.domNodeManager.getNode(el.id);
+      if (!node) continue;
+      this.onHtmlElementMount(el.id, el.domId, node);
+      this.domNodeManager.markHostOwnedContent(el.id);
+      node.dataset['initialized'] = 'true';
+      Object.assign(node.style, {
+        overflow: 'hidden',
+        pointerEvents: el.interactive ? 'auto' : 'none',
+      });
     }
-    this.pluginStateManager.loadState(
-      (state.extensions ?? {}) as Record<string, PersistedPluginState>,
-    );
-    this.history.clear();
-    this.historyRecorder.resume();
-    this.camera.moveTo(state.camera.position.x, state.camera.position.y);
-    this.camera.setZoom(state.camera.zoom);
-    this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
   }
 
   loadJSON(json: string): void {
@@ -1149,13 +1287,12 @@ export class Viewport {
     this.wrapper.removeEventListener('drop', this.interactions.onDrop);
     this.inputHandler.destroy();
     this.unsubCamera();
+    this.unsubLayers();
     this.unsubToolChange();
     this.unsubToolRegister();
     this.unsubRecorderEnd();
     this.unsubHtmlPainters();
-    for (const plugin of [...this.installedPlugins].reverse()) {
-      plugin.dispose?.();
-    }
+    this.disposePlugins();
     this.activation?.dispose();
     this.activation = null;
     this.activationListeners.clear();
@@ -1233,71 +1370,162 @@ export class Viewport {
     this.resizeObserver.observe(this.container);
   }
 
-  private installPlugins(plugins?: ViewportPlugin[]): void {
+  private configurePlugins(plugins?: ViewportPlugin[]): void {
     if (!plugins?.length) return;
-    const host: ViewportPluginHost = {
-      renderHooks: this._renderHooks,
-      store: this.store,
-      pushHistory: (cmd) => this.history.push(cmd),
-      requestRender: () => this.renderLoop.requestRender(),
-      invalidateMinimap: () => this.minimap?.invalidateScene(),
-      registerPluginHandle: (name, handle) => {
-        this.pluginStateManager.registerPlugin(name, handle);
-      },
-      registerExtraBounds: (provider) => {
-        this.extraBoundsProviders.add(provider);
-        this.minimap?.invalidateScene();
-        return () => {
-          this.extraBoundsProviders.delete(provider);
-          this.minimap?.invalidateScene();
-        };
-      },
-      onChange: (listener) => {
-        this.pluginChangeListeners.add(listener);
-        return () => {
-          this.pluginChangeListeners.delete(listener);
-        };
-      },
-      notifyChange: () => {
-        for (const listener of this.pluginChangeListeners) {
-          listener();
-        }
-      },
-    };
-    const installedNow: ViewportPlugin[] = [];
-    try {
-      for (const plugin of plugins) {
-        try {
-          plugin.install(host);
-        } catch (error) {
-          try {
-            plugin.dispose?.();
-          } catch {
-            // Preserve the installation failure; rollback remains best-effort.
-          }
+    const names = new Set<string>();
+    const ordered = plugins
+      .map((plugin, index) => ({ plugin, index }))
+      .sort((a, b) => (a.plugin.priority ?? 0) - (b.plugin.priority ?? 0) || a.index - b.index);
+    for (const { plugin } of ordered) {
+      if (names.has(plugin.name)) continue;
+      names.add(plugin.name);
+      const configureDisposers: (() => void)[] = [];
+      const track = (dispose: () => void): void => {
+        configureDisposers.push(dispose);
+      };
+      const context: PluginConfigureContext = {
+        elementRegistry: this.elementRegistry,
+        toolManager: this.toolManager,
+        registerElementType: (definition) => {
+          this.elementRegistry.register(definition);
+          track(() => this.elementRegistry.unregister(definition.type));
+        },
+        registerTool: (tool) => track(this.toolManager.register(tool)),
+        registerViewportHooks: (hooks, options) =>
+          track(this._renderHooks.viewport.register(hooks, options)),
+        registerMinimapHooks: (hooks, options) =>
+          track(this._renderHooks.minimap.register(hooks, options)),
+        registerImageExportHooks: (hooks, options) =>
+          track(this._renderHooks.imageExport.register(hooks, options)),
+        registerSvgExportHooks: (hooks, options) =>
+          track(this._renderHooks.svgExport.register(hooks, options)),
+      };
+      try {
+        plugin.configure?.(context);
+        this.installedPlugins.push({ plugin, configureDisposers, startDisposers: [] });
+      } catch (error) {
+        for (const dispose of configureDisposers.reverse()) safelyDispose(dispose);
+        if (plugin.required) {
+          this.disposePlugins();
           throw error;
         }
-        installedNow.push(plugin);
-        this.installedPlugins.push(plugin);
       }
-    } catch (error) {
-      for (const plugin of installedNow.reverse()) {
-        try {
-          plugin.dispose?.();
-        } catch {
-          // Continue rolling back the remaining plugins.
+    }
+  }
+
+  private startPlugins(): void {
+    for (const configured of [...this.installedPlugins]) {
+      const startDisposers: (() => void)[] = [];
+      const registeredServices: { key: symbol; previous: unknown; hadPrevious: boolean }[] = [];
+      const context: PluginStartContext = {
+        viewport: this,
+        store: this.store,
+        pushHistory: (command) => this.history.push(command),
+        requestRender: () => this.renderLoop.requestRender(),
+        invalidateMinimap: () => this.minimap?.invalidateScene(),
+        registerService: (key, service) => {
+          registeredServices.push({
+            key: key.id,
+            previous: this.services.get(key.id),
+            hadPrevious: this.services.has(key.id),
+          });
+          this.services.set(key.id, service);
+        },
+        addDisposer: (dispose) => startDisposers.push(dispose),
+        registerExtraBounds: (provider) => {
+          this.extraBoundsProviders.add(provider);
+          this.minimap?.invalidateScene();
+          const dispose = () => {
+            this.extraBoundsProviders.delete(provider);
+            this.minimap?.invalidateScene();
+          };
+          startDisposers.push(dispose);
+          return dispose;
+        },
+        onChange: (listener) => {
+          this.pluginChangeListeners.add(listener);
+          const dispose = () => this.pluginChangeListeners.delete(listener);
+          startDisposers.push(dispose);
+          return dispose;
+        },
+        notifyChange: () => {
+          if (this.pluginNotificationDepth > 0) {
+            this.pluginChangePending = true;
+            return;
+          }
+          for (const listener of this.pluginChangeListeners) {
+            try {
+              listener();
+            } catch (error) {
+              console.error('[fieldnotes] plugin change listener failed', error);
+            }
+          }
+        },
+      };
+      try {
+        const handle = configured.plugin.start?.(context);
+        configured.startDisposers = startDisposers;
+        if (handle) {
+          configured.handle = handle;
+          this.pluginStateManager.registerPlugin(configured.plugin.name, handle);
+        }
+      } catch (error) {
+        for (const dispose of startDisposers.reverse()) safelyDispose(dispose);
+        for (const service of registeredServices.reverse()) {
+          if (service.hadPrevious) this.services.set(service.key, service.previous);
+          else this.services.delete(service.key);
+        }
+        for (const dispose of configured.configureDisposers.reverse()) safelyDispose(dispose);
+        this.installedPlugins.splice(this.installedPlugins.indexOf(configured), 1);
+        if (configured.plugin.required) {
+          this.disposePlugins();
+          throw error;
         }
       }
-      this.installedPlugins.splice(
-        Math.max(0, this.installedPlugins.length - installedNow.length),
-        installedNow.length,
-      );
-      this._renderHooks.viewport.clear();
-      this._renderHooks.minimap.clear();
-      this._renderHooks.imageExport.clear();
-      this._renderHooks.svgExport.clear();
-      this.extraBoundsProviders.clear();
-      throw error;
     }
+  }
+
+  private validateRequiredCapabilities(required?: RequiredCapabilities): void {
+    if (!required) return;
+    const bySurface: Exclude<RequiredCapabilities, readonly string[]> = Array.isArray(required)
+      ? {
+          viewport: required,
+          minimap: required,
+          imageExport: required,
+          svgExport: required,
+        }
+      : (required as Exclude<RequiredCapabilities, readonly string[]>);
+    const surfaces = ['viewport', 'minimap', 'imageExport', 'svgExport'] as const;
+    const missing: string[] = [];
+    for (const surface of surfaces) {
+      const satisfied = new Set(this._renderHooks[surface].getSatisfiedCapabilities());
+      for (const capability of bySurface[surface] ?? []) {
+        if (!satisfied.has(capability)) missing.push(`${surface}:${capability}`);
+      }
+    }
+    if (missing.length > 0) {
+      throw new Error(`Required plugin capabilities are missing: ${missing.join(', ')}`);
+    }
+  }
+
+  private disposePlugins(): void {
+    for (const configured of [...this.installedPlugins].reverse()) {
+      if (configured.handle) {
+        this.pluginStateManager.unregisterPlugin(configured.plugin.name, configured.handle);
+        safelyDispose(() => configured.handle?.dispose());
+      }
+      for (const dispose of [...configured.startDisposers].reverse()) safelyDispose(dispose);
+      for (const dispose of [...configured.configureDisposers].reverse()) safelyDispose(dispose);
+    }
+    this.installedPlugins.length = 0;
+    this.services.clear();
+  }
+}
+
+function safelyDispose(dispose: () => void): void {
+  try {
+    dispose();
+  } catch {
+    // Cleanup remains best-effort so later resources are still released.
   }
 }

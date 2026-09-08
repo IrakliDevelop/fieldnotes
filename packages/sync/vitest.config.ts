@@ -6,6 +6,7 @@ export default defineConfig({
     alias: {
       // Resolve the core dependency to its TypeScript source so tests don't depend
       // on @fieldnotes/core being built first (mirrors packages/react/vitest.config.ts).
+      '@fieldnotes/vtt/sync': path.resolve(__dirname, '../vtt/src/sync.ts'),
       '@fieldnotes/core': path.resolve(__dirname, '../core/src/index.ts'),
       '@fieldnotes/vtt': path.resolve(__dirname, '../vtt/src/index.ts'),
     },

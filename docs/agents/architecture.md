@@ -17,9 +17,10 @@
 | `website`                                                | Project website                                                 | website build                                             |
 
 Dependencies flow from wrappers and adapters toward contracts: React and VTT depend on core; server
-depends on sync; Redis depends on sync and implements server integration contracts. The legacy v3 fog
-wire implementation still makes sync depend on VTT; ADR-0003 tracks removing that transitional edge.
-Do not introduce additional reverse dependencies.
+depends on sync; Redis depends on sync and implements server integration contracts. Generic sync
+packages do not depend on VTT at runtime. VTT supplies domain behavior through its `/sync`, `/server`,
+and `/redis` plugin subpaths; `@fieldnotes/sync` retains structural v3 fog codecs only until the v4
+compatibility boundary. Do not introduce reverse dependencies.
 
 ## Core request path
 

@@ -181,6 +181,26 @@ describe('fog wire validation', () => {
     ).toBe(false);
   });
 
+  it('preserves v3 snapshot canonicalization checks without importing VTT at runtime', () => {
+    const baseValue = fogEncodeBase64(new Uint8Array(2048));
+    expect(
+      isValidFogSnapshot({
+        meta: { version: 1, editor: 'A', definition },
+        tiles: [{ ...tile, data: baseValue }],
+      }),
+    ).toBe(false);
+    expect(
+      isValidFogSnapshot({
+        meta: {
+          version: 1,
+          editor: 'A',
+          definition: { ...definition, bounds: { x: 0, y: 0, w: 64, h: 64 } },
+        },
+        tiles: [tile],
+      }),
+    ).toBe(false);
+  });
+
   it('requires every patch record to match the outer generation', () => {
     expect(
       isValidEnvelope({

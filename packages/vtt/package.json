@@ -1,6 +1,6 @@
 {
   "name": "@fieldnotes/vtt",
-  "version": "0.6.2",
+  "version": "0.7.1",
   "description": "VTT domain tools and overlays for Field Notes canvas SDK",
   "type": "module",
   "sideEffects": false,
@@ -12,6 +12,21 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
+    },
+    "./sync": {
+      "types": "./dist/sync.d.ts",
+      "import": "./dist/sync.js",
+      "require": "./dist/sync.cjs"
+    },
+    "./server": {
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js",
+      "require": "./dist/server.cjs"
+    },
+    "./redis": {
+      "types": "./dist/redis.d.ts",
+      "import": "./dist/redis.js",
+      "require": "./dist/redis.cjs"
     }
   },
   "files": [
@@ -43,10 +58,27 @@
     "fieldnotes"
   ],
   "peerDependencies": {
-    "@fieldnotes/core": ">=0.80.0 <1.0.0"
+    "@fieldnotes/core": ">=0.81.0 <1.0.0",
+    "@fieldnotes/sync": ">=0.18.0 <1.0.0",
+    "@fieldnotes/sync-server": ">=0.17.0 <1.0.0",
+    "@fieldnotes/sync-redis": ">=0.8.0 <1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@fieldnotes/sync": {
+      "optional": true
+    },
+    "@fieldnotes/sync-server": {
+      "optional": true
+    },
+    "@fieldnotes/sync-redis": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@fieldnotes/core": "workspace:*",
+    "@fieldnotes/sync": "workspace:*",
+    "@fieldnotes/sync-server": "workspace:*",
+    "@fieldnotes/sync-redis": "workspace:*",
     "@vitest/coverage-v8": "^4.1.0",
     "tsup": "^8.5.1",
     "vitest": "^4.1.0"

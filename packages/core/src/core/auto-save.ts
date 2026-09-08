@@ -58,6 +58,7 @@ export class AutoSave {
       this.store.on('add', schedule),
       this.store.on('remove', schedule),
       this.store.on('update', schedule),
+      this.store.on('batch', schedule),
       this.camera.onChange(schedule),
     ];
     if (this.layerManager) {

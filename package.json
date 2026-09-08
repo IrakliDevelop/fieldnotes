@@ -6,7 +6,7 @@
   "scripts": {
     "agent:check": "node scripts/check-agent-docs.mjs",
     "agent:format:check": "prettier --check AGENTS.md CLAUDE.md package.json 'docs/agents/*.md' '.agents/**/*.{md,yaml}' scripts/check-agent-docs.mjs",
-    "build": "pnpm -r build",
+    "build": "pnpm -r --workspace-concurrency=1 build",
     "test": "pnpm -r test",
     "lint": "eslint 'packages/*/src/**/*.{ts,tsx}'",
     "lint:fix": "eslint --fix 'packages/*/src/**/*.{ts,tsx}'",

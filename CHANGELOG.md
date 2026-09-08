@@ -4,6 +4,58 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.81.1] — 2026-09-08
+
+### Fixed
+
+- Clean-checkout CI now resolves contract-spike workspace imports from source before packages have
+  been built.
+- Workspace builds run in deterministic dependency order, preventing declaration builds in the
+  VTT test dependency cycle from racing another package's `dist` output.
+
+### Package versions
+
+- `@fieldnotes/core` 0.81.0 → 0.81.1
+- `@fieldnotes/vtt` 0.7.0 → 0.7.1
+- `@fieldnotes/sync` 0.18.0 → 0.18.1
+- `@fieldnotes/sync-server` 0.17.0 → 0.17.1
+- `@fieldnotes/sync-redis` 0.8.0 → 0.8.1
+
+## [0.81.0] — 2026-09-08
+
+### Added
+
+- Constructor-time viewport plugins now have transactional `configure()` and `start()` phases,
+  typed service registration, capability validation, per-instance handles, and reverse-order
+  rollback/disposal.
+- Client, server, and Redis sync packages expose domain-neutral plugin contracts, typed extension
+  operation codecs, plugin snapshots, backend services, and per-operation fanout locality.
+- `@fieldnotes/vtt/sync`, `@fieldnotes/vtt/server`, and `@fieldnotes/vtt/redis` provide the fog
+  client, authoritative server, and Redis backend plugins without pulling server code into the
+  browser entry point.
+
+### Fixed
+
+- Viewport state loading now validates before mutation, suppresses all subsystem notifications,
+  and restores core, history, and plugin state before discarding events when commit fails.
+- Registered `vtt:template` envelopes retain the legacy selection controls for aiming cones,
+  lines, and rectangles and resizing circular, square, and rectangular templates.
+- Fog sync and Redis persistence continue to emit and accept the exact v3 `fog-meta`, `fog-patch`,
+  and snapshot shapes while routing them through plugins.
+
+### Changed
+
+- `@fieldnotes/sync`, `@fieldnotes/sync-server`, and `@fieldnotes/sync-redis` no longer depend on
+  VTT at runtime. Fog ownership moved to `@fieldnotes/vtt` subpath factories.
+
+### Package versions
+
+- `@fieldnotes/core` 0.80.0 → 0.81.0
+- `@fieldnotes/vtt` 0.6.2 → 0.7.0
+- `@fieldnotes/sync` 0.17.0 → 0.18.0
+- `@fieldnotes/sync-server` 0.16.0 → 0.17.0
+- `@fieldnotes/sync-redis` 0.7.2 → 0.8.0
+
 ## [0.80.0] — 2026-09-07
 
 ### Fixed

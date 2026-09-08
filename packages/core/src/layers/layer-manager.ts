@@ -157,6 +157,10 @@ export class LayerManager {
     return this.bus.on(event, callback);
   }
 
+  suspendNotifications(): { resume(): void; discard(): void } {
+    return this.bus.suspendNotifications(() => ({ event: 'change', data: null }));
+  }
+
   addLayerDirect(layer: Layer): void {
     this.layers.set(layer.id, { ...layer });
     this.syncLayerOrder();

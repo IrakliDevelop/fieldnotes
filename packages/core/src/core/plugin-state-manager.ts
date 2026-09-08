@@ -23,11 +23,23 @@ export interface PluginLoadResult {
   readonly droppedPlugins?: string[];
 }
 
-interface PreparedLoad {
+export interface PreparedLoad {
   readonly name: string;
   readonly handle: PluginHandle;
   readonly data: unknown;
 }
+
+export interface PreparedPluginState {
+  readonly loads: readonly PreparedLoad[];
+  readonly previous: ReadonlyMap<string, unknown>;
+  readonly previousPreservedUnknown: Record<string, PersistedPluginState>;
+  readonly preservedUnknown: Record<string, PersistedPluginState>;
+  readonly droppedPlugins: readonly string[];
+}
+
+export type PluginPrepareResult =
+  | { readonly success: true; readonly prepared: PreparedPluginState }
+  | { readonly success: false; readonly error: string };
 
 export class PluginStateManager {
   private readonly plugins = new Map<string, PluginHandle>();
@@ -38,11 +50,15 @@ export class PluginStateManager {
   ) {}
 
   registerPlugin(name: string, handle: PluginHandle): void {
+    if (this.plugins.has(name)) throw new Error(`Plugin "${name}" is already registered`);
     this.plugins.set(name, handle);
   }
 
-  loadState(persisted: Record<string, PersistedPluginState>): PluginLoadResult {
-    const controller = this.suspendNotifications();
+  unregisterPlugin(name: string, handle: PluginHandle): void {
+    if (this.plugins.get(name) === handle) this.plugins.delete(name);
+  }
+
+  prepareState(persisted: Record<string, PersistedPluginState>): PluginPrepareResult {
     const preparedLoads: PreparedLoad[] = [];
     const preservedUnknown: Record<string, PersistedPluginState> = {};
     const droppedPlugins: string[] = [];
@@ -77,7 +93,6 @@ export class PluginStateManager {
           try {
             handle.validateState(data);
           } catch (error) {
-            controller.discard();
             return {
               success: false,
               error: `Plugin "${name}" state validation failed: ${errorMessage(error)}`,
@@ -87,7 +102,6 @@ export class PluginStateManager {
       }
 
       if (!handle.exportState) {
-        controller.discard();
         return {
           success: false,
           error: `Plugin "${name}" implements loadState but not exportState; rollback is impossible`,
@@ -102,26 +116,30 @@ export class PluginStateManager {
         previous.set(prepared.name, structuredClone(prepared.handle.exportState?.()));
       }
     } catch (error) {
-      controller.discard();
       return { success: false, error: `Could not capture plugin state: ${errorMessage(error)}` };
     }
 
+    return {
+      success: true,
+      prepared: {
+        loads: preparedLoads,
+        previous,
+        previousPreservedUnknown: { ...this.preservedUnknown },
+        preservedUnknown,
+        droppedPlugins,
+      },
+    };
+  }
+
+  commitPrepared(prepared: PreparedPluginState): PluginLoadResult {
     const attempted: PreparedLoad[] = [];
     try {
-      for (const prepared of preparedLoads) {
-        attempted.push(prepared);
-        prepared.handle.loadState?.(prepared.data);
+      for (const load of prepared.loads) {
+        attempted.push(load);
+        load.handle.loadState?.(load.data);
       }
     } catch (error) {
-      const rollbackErrors: string[] = [];
-      for (const prepared of attempted.reverse()) {
-        try {
-          prepared.handle.loadState?.(previous.get(prepared.name));
-        } catch (rollbackError) {
-          rollbackErrors.push(`${prepared.name}: ${errorMessage(rollbackError)}`);
-        }
-      }
-      controller.discard();
+      const rollbackErrors = this.rollbackPrepared(prepared, attempted);
       return {
         success: false,
         error: [
@@ -131,12 +149,42 @@ export class PluginStateManager {
       };
     }
 
-    this.preservedUnknown = preservedUnknown;
-    controller.resume();
+    this.preservedUnknown = prepared.preservedUnknown;
     return {
       success: true,
-      ...(droppedPlugins.length > 0 ? { droppedPlugins } : {}),
+      ...(prepared.droppedPlugins.length > 0
+        ? { droppedPlugins: [...prepared.droppedPlugins] }
+        : {}),
     };
+  }
+
+  rollbackPrepared(
+    prepared: PreparedPluginState,
+    loads: readonly PreparedLoad[] = prepared.loads,
+  ): string[] {
+    const rollbackErrors: string[] = [];
+    for (const load of [...loads].reverse()) {
+      try {
+        load.handle.loadState?.(prepared.previous.get(load.name));
+      } catch (rollbackError) {
+        rollbackErrors.push(`${load.name}: ${errorMessage(rollbackError)}`);
+      }
+    }
+    this.preservedUnknown = { ...prepared.previousPreservedUnknown };
+    return rollbackErrors;
+  }
+
+  loadState(persisted: Record<string, PersistedPluginState>): PluginLoadResult {
+    const controller = this.suspendNotifications();
+    const prepared = this.prepareState(persisted);
+    if (!prepared.success) {
+      controller.discard();
+      return prepared;
+    }
+    const result = this.commitPrepared(prepared.prepared);
+    if (result.success) controller.resume();
+    else controller.discard();
+    return result;
   }
 
   exportState(): Record<string, PersistedPluginState> {

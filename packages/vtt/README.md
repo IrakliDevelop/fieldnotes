@@ -52,27 +52,25 @@ viewport.toolManager.register(fogTool);
 
 ### Fog sync
 
-Fog state syncs across clients via `FogSyncController`, which encapsulates the full CRDT state
-machine — pending edit tracking, offline capture, snapshot merge/replay, and rollback protection.
-The controller emits `sendOp` and `stateChange` events that the sync layer bridges to transport.
+Fog state syncs across clients through the generic sync plugin contract. The VTT client factory
+encapsulates pending edits, offline capture, snapshot merge/replay, and rollback protection while
+keeping `@fieldnotes/sync` domain-neutral.
 
 ```typescript
-import { FogSyncController } from '@fieldnotes/vtt';
+import { SyncClient } from '@fieldnotes/sync';
+import { createFogClientPlugin } from '@fieldnotes/vtt/sync';
 
-const controller = new FogSyncController({
+const client = new SyncClient({
+  store,
+  transport,
   clientId: 'client-1',
-  manager: fogManager,
-});
-
-controller.on('sendOp', (op) => transport.send(op));
-controller.on('stateChange', () => {
-  /* fog state updated from remote */
+  plugins: [createFogClientPlugin({ manager: fogManager })],
 });
 ```
 
-The `FogLedger` class handles CRDT conflict resolution with `(version, editor)` LWW ordering and
-generation-aware tile tracking. It is used internally by the controller and can also be used
-standalone for server-side fog state.
+Server and Redis deployments use `createFogServerPlugin()` from `@fieldnotes/vtt/server` and
+`createFogBackendPlugin()` from `@fieldnotes/vtt/redis` respectively. These retain the v3
+`fog-meta`/`fog-patch` wire format.
 
 ### Fog rendering
 
@@ -125,7 +123,7 @@ import {
   tileIntersectsDefinition,
   parseFogRedisMetaResult,
   parseFogRedisPatchResult,
-} from '@fieldnotes/vtt';
+} from '@fieldnotes/vtt/redis';
 ```
 
 ## License

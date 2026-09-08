@@ -1,6 +1,11 @@
-import { describe, it, expect } from 'vitest';
-import { createShape } from '@fieldnotes/core';
+import { describe, it, expect, vi } from 'vitest';
+import { createServiceKey, createShape } from '@fieldnotes/core';
 import { fogEncodeBase64 } from '@fieldnotes/vtt';
+import {
+  createFogBackendPlugin,
+  FogBackendServiceKey,
+  type FogBackendService,
+} from '@fieldnotes/vtt/redis';
 import type { CanvasElement } from '@fieldnotes/core';
 import { RedisHubBackend, type RedisHashClient } from './index';
 import type { FogMetaRecord, FogTileRecord, LayerRecord } from '@fieldnotes/sync';
@@ -178,6 +183,38 @@ function element(id: string, x = 0): CanvasElement {
 }
 
 describe('RedisHubBackend', () => {
+  it('rolls back current and prior backend plugins when start fails', () => {
+    const fake = new FakeRedis();
+    const serviceKey = createServiceKey<{ ready: true }>('temporary');
+    const currentDispose = vi.fn();
+    const priorDispose = vi.fn();
+
+    expect(
+      () =>
+        new RedisHubBackend(fake, {
+          plugins: [
+            {
+              name: 'prior',
+              keyPrefix: 'prior',
+              start(context) {
+                context.registerService(serviceKey, { ready: true });
+                context.addDisposer(priorDispose);
+              },
+            },
+            {
+              name: 'broken',
+              keyPrefix: 'broken',
+              start(context) {
+                context.addDisposer(currentDispose);
+                throw new Error('backend start failed');
+              },
+            },
+          ],
+        }),
+    ).toThrow('backend start failed');
+    expect(currentDispose).toHaveBeenCalledOnce();
+    expect(priorDispose).toHaveBeenCalledOnce();
+  });
   it('round-trips upsert/update/remove/clear', async () => {
     const fake = new FakeRedis();
     const b = new RedisHubBackend(fake);
@@ -336,33 +373,40 @@ describe('RedisHubBackend fog records', () => {
   };
   const data = fogEncodeBase64(new Uint8Array(2048).fill(0xff));
 
+  function fogBackend(fake: FakeRedis): FogBackendService {
+    const backend = new RedisHubBackend(fake, { plugins: [createFogBackendPlugin()] });
+    const fog = backend.getService(FogBackendServiceKey);
+    if (!fog) throw new Error('fog backend plugin did not register its service');
+    return fog;
+  }
+
   it('makes the LWW decision against shared state, not a process-local cache', async () => {
     const fake = new FakeRedis();
-    const first = new RedisHubBackend(fake);
-    const second = new RedisHubBackend(fake);
-    expect(await first.applyFogMeta('R', { version: 10, editor: 'Z', definition })).toEqual({
+    const first = fogBackend(fake);
+    const second = fogBackend(fake);
+    expect(await first.applyMeta('R', { version: 10, editor: 'Z', definition })).toEqual({
       accepted: true,
     });
 
-    expect(await second.applyFogMeta('R', { version: 6, editor: 'A', definition })).toEqual({
+    expect(await second.applyMeta('R', { version: 6, editor: 'A', definition })).toEqual({
       accepted: false,
       correction: { version: 10, editor: 'Z', definition },
     });
-    expect((await second.fogSnapshot('R'))?.meta.version).toBe(10);
+    expect((await second.snapshot('R'))?.meta.version).toBe(10);
   });
 
   it('stores tombstones and rejects a same-generation bounds shrink', async () => {
     const fake = new FakeRedis();
-    const backend = new RedisHubBackend(fake);
-    await backend.applyFogMeta('R', { version: 1, editor: 'A', definition });
-    await backend.applyFogTile('R', {
+    const backend = fogBackend(fake);
+    await backend.applyMeta('R', { version: 1, editor: 'A', definition });
+    await backend.applyTile('R', {
       generation: 'gen-1',
       x: 0,
       y: 0,
       version: 1,
       editor: 'A',
     });
-    await backend.applyFogTile('R', {
+    await backend.applyTile('R', {
       generation: 'gen-1',
       x: 1,
       y: 0,
@@ -372,13 +416,13 @@ describe('RedisHubBackend fog records', () => {
     });
 
     expect(
-      await backend.applyFogMeta('R', {
+      await backend.applyMeta('R', {
         version: 2,
         editor: 'A',
         definition: { ...definition, bounds: { x: 0, y: 0, w: 128, h: 128 } },
       }),
     ).toEqual({ accepted: false, correction: { version: 1, editor: 'A', definition } });
-    expect(await backend.fogSnapshot('R')).toEqual({
+    expect(await backend.snapshot('R')).toEqual({
       meta: { version: 1, editor: 'A', definition },
       tiles: [
         { generation: 'gen-1', x: 0, y: 0, version: 1, editor: 'A' },
@@ -389,10 +433,10 @@ describe('RedisHubBackend fog records', () => {
 
   it('rejects a capacity-overflowing patch atomically', async () => {
     const fake = new FakeRedis();
-    const backend = new RedisHubBackend(fake);
+    const backend = fogBackend(fake);
     const wide = { ...definition, bounds: { x: 0, y: 0, w: 258 * 128, h: 128 } };
-    await backend.applyFogMeta('R', { version: 1, editor: 'A', definition: wide });
-    await backend.applyFogPatch(
+    await backend.applyMeta('R', { version: 1, editor: 'A', definition: wide });
+    await backend.applyPatch(
       'R',
       Array.from({ length: 255 }, (_, x) => ({
         generation: 'gen-1',
@@ -402,27 +446,27 @@ describe('RedisHubBackend fog records', () => {
         editor: 'A',
       })),
     );
-    const result = await backend.applyFogPatch('R', [
+    const result = await backend.applyPatch('R', [
       { generation: 'gen-1', x: 255, y: 0, version: 1, editor: 'A' },
       { generation: 'gen-1', x: 256, y: 0, version: 1, editor: 'A' },
     ]);
     expect(result.accepted).toEqual([]);
     expect(result.corrections).toHaveLength(2);
-    expect((await backend.fogSnapshot('R'))?.tiles).toHaveLength(255);
+    expect((await backend.snapshot('R'))?.tiles).toHaveLength(255);
   });
 
   it('accepts a new-generation shrink and drops old records atomically', async () => {
     const fake = new FakeRedis();
-    const backend = new RedisHubBackend(fake);
-    await backend.applyFogMeta('R', { version: 1, editor: 'A', definition });
-    await backend.applyFogTile('R', {
+    const backend = fogBackend(fake);
+    await backend.applyMeta('R', { version: 1, editor: 'A', definition });
+    await backend.applyTile('R', {
       generation: 'gen-1',
       x: 0,
       y: 0,
       version: 1,
       editor: 'A',
     });
-    await backend.applyFogMeta('R', {
+    await backend.applyMeta('R', {
       version: 2,
       editor: 'A',
       definition: {
@@ -431,7 +475,7 @@ describe('RedisHubBackend fog records', () => {
         bounds: { x: 0, y: 0, w: 128, h: 128 },
       },
     });
-    expect(await backend.fogSnapshot('R')).toEqual({
+    expect(await backend.snapshot('R')).toEqual({
       meta: {
         version: 2,
         editor: 'A',
@@ -447,9 +491,9 @@ describe('RedisHubBackend fog records', () => {
 
   it('removes a semantically invalid stored tile while applying a valid patch', async () => {
     const fake = new FakeRedis();
-    const backend = new RedisHubBackend(fake);
+    const backend = fogBackend(fake);
     const tilesKey = 'fieldnotes:room:R:fog:tiles';
-    await backend.applyFogMeta('R', { version: 1, editor: 'A', definition });
+    await backend.applyMeta('R', { version: 1, editor: 'A', definition });
     await fake.hSet(
       tilesKey,
       '0,0',
@@ -471,19 +515,19 @@ describe('RedisHubBackend fog records', () => {
       data,
     };
 
-    expect(await backend.applyFogPatch('R', [valid])).toEqual({
+    expect(await backend.applyPatch('R', [valid])).toEqual({
       accepted: [valid],
       corrections: [],
     });
     expect(fake.store.get(tilesKey)?.has('0,0')).toBe(false);
-    expect((await backend.fogSnapshot('R'))?.tiles).toEqual([valid]);
+    expect((await backend.snapshot('R'))?.tiles).toEqual([valid]);
   });
 
   it('does not delete a tile repaired after the invalid-state read', async () => {
     const fake = new FakeRedis();
-    const backend = new RedisHubBackend(fake);
+    const backend = fogBackend(fake);
     const tilesKey = 'fieldnotes:room:R:fog:tiles';
-    await backend.applyFogMeta('R', { version: 1, editor: 'A', definition });
+    await backend.applyMeta('R', { version: 1, editor: 'A', definition });
     await fake.hSet(
       tilesKey,
       '0,0',
@@ -517,10 +561,10 @@ describe('RedisHubBackend fog records', () => {
       data,
     };
 
-    expect(await backend.applyFogPatch('R', [incoming])).toEqual({
+    expect(await backend.applyPatch('R', [incoming])).toEqual({
       accepted: [incoming],
       corrections: [],
     });
-    expect((await backend.fogSnapshot('R'))?.tiles).toEqual([repaired, incoming]);
+    expect((await backend.snapshot('R'))?.tiles).toEqual([repaired, incoming]);
   });
 });

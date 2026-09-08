@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createShape } from '@fieldnotes/core';
 import { fogEncodeBase64 } from '@fieldnotes/vtt';
+import { createFogServerPlugin } from '@fieldnotes/vtt/server';
 import type { CanvasElement, Layer } from '@fieldnotes/core';
-import type { SyncOp } from '@fieldnotes/sync';
+import { createExtensionKind, type SyncOp } from '@fieldnotes/sync';
 import { SyncHub } from './sync-hub';
 import type { Connection } from './sync-hub';
 import type { HubBackend } from './hub-backend';
@@ -40,6 +41,62 @@ describe('SyncHub', () => {
     hub.addConnection(A);
     hub.addConnection(B);
     hub.addConnection(C);
+  });
+
+  it('validates and routes extension operations through their server plugin', async () => {
+    hub.close();
+    const handled: unknown[] = [];
+    const kind = createExtensionKind<{ value: number }>({
+      extensionKind: 'test:counter',
+      codec: {
+        validate: (payload): payload is { value: number } =>
+          typeof payload === 'object' &&
+          payload !== null &&
+          typeof (payload as { value?: unknown }).value === 'number',
+      },
+    });
+    hub = new SyncHub({
+      plugins: [
+        {
+          name: 'counter',
+          registerExtensionKinds(registry) {
+            registry.register(kind, async (op, context) => {
+              handled.push({ payload: op.payload, room: context.room });
+              return { accepted: op, corrections: [] };
+            });
+          },
+        },
+      ],
+    });
+    A = makeConn('A', 'R');
+    B = makeConn('B', 'R');
+    hub.addConnection(A);
+    hub.addConnection(B);
+
+    await hub.handleMessage(
+      'A',
+      envelope('A', {
+        kind: 'extension',
+        extensionKind: 'test:counter',
+        payload: { value: 3 },
+      }),
+    );
+    await hub.handleMessage(
+      'A',
+      envelope('A', {
+        kind: 'extension',
+        extensionKind: 'test:counter',
+        payload: { value: 'invalid' },
+      }),
+    );
+
+    expect(handled).toEqual([{ payload: { value: 3 }, room: 'R' }]);
+    expect(B.sent).toHaveLength(1);
+    expect(JSON.parse(B.sent[0] ?? '').op).toEqual({
+      kind: 'extension',
+      extensionKind: 'test:counter',
+      payload: { value: 3 },
+    });
   });
 
   it('forwards an upsert to other room members but not the sender or cross-room', async () => {
@@ -714,24 +771,17 @@ describe('SyncHub fog authority', () => {
   };
   const data = fogEncodeBase64(new Uint8Array(2048).fill(0xff));
 
-  it('rejects an incomplete fog backend instead of silently falling back to process memory', () => {
-    const memory = new MemoryHubBackend();
+  it('rejects duplicate legacy fog ownership', () => {
     expect(
       () =>
         new SyncHub({
-          backend: {
-            snapshot: memory.snapshot.bind(memory),
-            get: memory.get.bind(memory),
-            apply: memory.apply.bind(memory),
-            fogSnapshot: memory.fogSnapshot.bind(memory),
-            applyFogMeta: memory.applyFogMeta.bind(memory),
-          },
+          plugins: [createFogServerPlugin(), createFogServerPlugin()],
         }),
-    ).toThrow(/all-or-none/);
+    ).toThrow(/two owners|duplicated/);
   });
 
   it('broadcasts only accepted records from a partially stale patch', async () => {
-    const fogHub = new SyncHub();
+    const fogHub = new SyncHub({ plugins: [createFogServerPlugin()] });
     const a = makeConn('A', 'R');
     const b = makeConn('B', 'R');
     fogHub.addConnection(a);
@@ -776,7 +826,9 @@ describe('SyncHub fog authority', () => {
   });
 
   it('corrects a denied first fog edit to an authoritative disabled record', async () => {
-    const fogHub = new SyncHub({ authorizeFog: () => false });
+    const fogHub = new SyncHub({
+      plugins: [createFogServerPlugin({ authorize: () => false })],
+    });
     const player = makeConn('player', 'R');
     fogHub.addConnection(player);
 
@@ -795,9 +847,47 @@ describe('SyncHub fog authority', () => {
     fogHub.close();
   });
 
+  it('authorizes a fog edit once at its origin and applies trusted fanout remotely', async () => {
+    const fanout = new InMemoryHubFanout();
+    const authorize = vi.fn(({ role }: { role?: string }) => role === 'dm');
+    const hubA = new SyncHub({
+      instanceId: 'fog-a',
+      fanout,
+      plugins: [createFogServerPlugin({ authorize })],
+    });
+    const hubB = new SyncHub({
+      instanceId: 'fog-b',
+      fanout,
+      plugins: [createFogServerPlugin({ authorize })],
+    });
+    const dm: FakeConn = { ...makeConn('dm', 'R'), role: 'dm' };
+    const player: FakeConn = { ...makeConn('player', 'R'), role: 'player' };
+    hubA.addConnection(dm);
+    hubB.addConnection(player);
+
+    const op: SyncOp = {
+      kind: 'fog-meta',
+      record: { version: 1, editor: 'dm', definition },
+    };
+    await hubA.handleMessage('dm', envelope('dm', op));
+    await vi.waitFor(() => expect(player.sent).toHaveLength(1));
+
+    expect(JSON.parse(player.sent[0] ?? '')).toEqual({ from: 'dm', op });
+    expect(authorize).toHaveBeenCalledTimes(1);
+
+    const late = makeConn('late', 'R');
+    hubB.addConnection(late);
+    await hubB.handleMessage('late', envelope('late', { kind: 'request-snapshot' }));
+    const snapshot = JSON.parse(late.sent[0] ?? '') as {
+      op: { fog?: { meta?: { definition?: unknown } } };
+    };
+    expect(snapshot.op.fog?.meta?.definition).toEqual(definition);
+    hubA.close();
+    hubB.close();
+  });
+
   it('rejects a same-generation bounds shrink', async () => {
-    const backend = new MemoryHubBackend();
-    const fogHub = new SyncHub({ backend });
+    const fogHub = new SyncHub({ plugins: [createFogServerPlugin()] });
     const a = makeConn('A', 'R');
     fogHub.addConnection(a);
     await fogHub.handleMessage(
@@ -830,34 +920,51 @@ describe('SyncHub fog authority', () => {
       }),
     );
 
-    expect((await backend.fogSnapshot('R'))?.meta.definition?.bounds.w).toBe(256);
-    expect((await backend.fogSnapshot('R'))?.tiles.map((tile) => tile.x)).toEqual([0, 1]);
+    a.sent.length = 0;
+    await fogHub.handleMessage('A', envelope('A', { kind: 'request-snapshot' }));
+    const snapshot = JSON.parse(a.sent[0] ?? '').op.fog;
+    expect(snapshot.meta.definition.bounds.w).toBe(256);
+    expect(snapshot.tiles.map((tile: { x: number }) => tile.x)).toEqual([0, 1]);
     expect(JSON.parse(a.sent[a.sent.length - 1] ?? '').from).toBe('hub');
     fogHub.close();
   });
 
   it('rejects a capacity-overflowing patch atomically and corrects every coordinate', async () => {
-    const backend = new MemoryHubBackend();
     const wideDefinition = {
       ...definition,
       bounds: { x: 0, y: 0, w: 258 * 128, h: 128 },
     };
-    await backend.applyFogMeta('R', { version: 1, editor: 'seed', definition: wideDefinition });
-    await backend.applyFogPatch(
-      'R',
-      Array.from({ length: 255 }, (_, x) => ({
-        generation: 'gen-1',
-        x,
-        y: 0,
-        version: 1,
-        editor: 'seed',
-      })),
-    );
-    const fogHub = new SyncHub({ backend });
+    const fogHub = new SyncHub({ plugins: [createFogServerPlugin()] });
     const a = makeConn('A', 'R');
     const b = makeConn('B', 'R');
     fogHub.addConnection(a);
     fogHub.addConnection(b);
+    await fogHub.handleMessage(
+      'A',
+      envelope('seed', {
+        kind: 'fog-meta',
+        record: { version: 1, editor: 'seed', definition: wideDefinition },
+      }),
+    );
+    const seeded = Array.from({ length: 255 }, (_, x) => ({
+      generation: 'gen-1',
+      x,
+      y: 0,
+      version: 1,
+      editor: 'seed',
+    }));
+    for (let offset = 0; offset < seeded.length; offset += 64) {
+      await fogHub.handleMessage(
+        'A',
+        envelope('seed', {
+          kind: 'fog-patch',
+          generation: 'gen-1',
+          tiles: seeded.slice(offset, offset + 64),
+        }),
+      );
+    }
+    a.sent.length = 0;
+    b.sent.length = 0;
     await fogHub.handleMessage(
       'A',
       envelope('A', {
@@ -869,7 +976,8 @@ describe('SyncHub fog authority', () => {
         ],
       }),
     );
-    expect((await backend.fogSnapshot('R'))?.tiles).toHaveLength(255);
+    await fogHub.handleMessage('A', envelope('A', { kind: 'request-snapshot' }));
+    expect(JSON.parse(a.sent[a.sent.length - 1] ?? '').op.fog.tiles).toHaveLength(255);
     expect(b.sent).toEqual([]);
     expect(JSON.parse(a.sent[0] ?? '').op.tiles).toHaveLength(2);
     fogHub.close();

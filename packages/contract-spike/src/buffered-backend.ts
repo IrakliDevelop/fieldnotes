@@ -12,8 +12,8 @@ interface RoomState {
 
 /**
  * A write-behind HubBackend decorator. Element mutations fan out immediately from
- * this process and are persisted by flush(); shared plugin state still delegates
- * synchronously to the inner backend.
+ * this process and are persisted by flush(); backend plugin services still delegate
+ * to the inner backend.
  */
 export class BufferedBackend implements HubBackend {
   private readonly rooms = new Map<string, RoomState>();
@@ -21,19 +21,13 @@ export class BufferedBackend implements HubBackend {
   readonly layerRecords?: NonNullable<HubBackend['layerRecords']>;
   readonly getLayerRecord?: NonNullable<HubBackend['getLayerRecord']>;
   readonly applyLayerRecord?: NonNullable<HubBackend['applyLayerRecord']>;
-  readonly fogSnapshot?: NonNullable<HubBackend['fogSnapshot']>;
-  readonly applyFogMeta?: NonNullable<HubBackend['applyFogMeta']>;
-  readonly applyFogTile?: NonNullable<HubBackend['applyFogTile']>;
-  readonly applyFogPatch?: NonNullable<HubBackend['applyFogPatch']>;
+  readonly getService?: NonNullable<HubBackend['getService']>;
 
   constructor(private readonly inner: HubBackend) {
     if (inner.layerRecords) this.layerRecords = inner.layerRecords.bind(inner);
     if (inner.getLayerRecord) this.getLayerRecord = inner.getLayerRecord.bind(inner);
     if (inner.applyLayerRecord) this.applyLayerRecord = inner.applyLayerRecord.bind(inner);
-    if (inner.fogSnapshot) this.fogSnapshot = inner.fogSnapshot.bind(inner);
-    if (inner.applyFogMeta) this.applyFogMeta = inner.applyFogMeta.bind(inner);
-    if (inner.applyFogTile) this.applyFogTile = inner.applyFogTile.bind(inner);
-    if (inner.applyFogPatch) this.applyFogPatch = inner.applyFogPatch.bind(inner);
+    if (inner.getService) this.getService = inner.getService.bind(inner);
   }
 
   async snapshot(room: string): Promise<WireElement[]> {
