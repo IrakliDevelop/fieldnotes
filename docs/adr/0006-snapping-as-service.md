@@ -1,6 +1,6 @@
 # ADR-0006: Snapping as Opt-In Service
 
-- **Status:** Proposed
+- **Status:** Accepted and implemented
 - **Deciders:** Project maintainer
 - **Date:** 2026-09-05
 - **Supersedes:** —

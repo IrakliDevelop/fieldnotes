@@ -1,6 +1,6 @@
 # ADR-0001: Element Extensibility Model
 
-- **Status:** Proposed
+- **Status:** Accepted and implemented for v3; final legacy-type removal deferred to ADR-0004
 - **Deciders:** Project maintainer
 - **Date:** 2026-09-05
 - **Supersedes:** —

@@ -1,6 +1,6 @@
 # ADR-0002: Render Surface Model
 
-- **Status:** Proposed
+- **Status:** Accepted and implemented
 - **Deciders:** Project maintainer
 - **Date:** 2026-09-05
 - **Supersedes:** —

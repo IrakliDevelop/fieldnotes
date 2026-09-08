@@ -1,6 +1,6 @@
 # ADR-0005: Plugin Lifecycle & Installation
 
-- **Status:** Implemented (pending maintainer acceptance)
+- **Status:** Accepted and implemented
 - **Deciders:** Project maintainer
 - **Date:** 2026-09-05
 - **Supersedes:** —

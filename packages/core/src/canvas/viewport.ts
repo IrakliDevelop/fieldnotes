@@ -115,7 +115,7 @@ export interface ViewportOptions {
   panInertia?: boolean;
   /** Show an overview minimap (bottom-right) with tap/drag-to-navigate. Default `false`. */
   minimap?: boolean;
-  /** Element type registry for extension element support. Defaults to built-in registry with grid+template. */
+  /** Element type registry for extension support. VTT types require explicit registration. */
   elementRegistry?: ElementRegistry;
   /** Domain plugins to install (e.g. fog-of-war). Each plugin self-wires via the host API. */
   plugins?: ViewportPlugin[];

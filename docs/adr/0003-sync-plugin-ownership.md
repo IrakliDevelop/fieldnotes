@@ -1,6 +1,6 @@
 # ADR-0003: Sync/Server Plugin Ownership
 
-- **Status:** Implemented (pending maintainer acceptance)
+- **Status:** Accepted and implemented for v3; v4 compatibility cleanup deferred to ADR-0004
 - **Deciders:** Project maintainer
 - **Date:** 2026-09-05
 - **Supersedes:** —

@@ -1,6 +1,6 @@
 # ADR-0004: Serialization Compatibility Strategy
 
-- **Status:** Proposed
+- **Status:** Accepted; v3 compatibility implemented, v4 transition pending RollKeeper rollout
 - **Deciders:** Project maintainer
 - **Date:** 2026-09-05
 - **Supersedes:** —
