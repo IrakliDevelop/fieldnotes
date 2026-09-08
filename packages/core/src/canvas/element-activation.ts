@@ -154,6 +154,7 @@ export class ElementActivation {
     this.unsubStore = [
       deps.store.on('remove', (el) => this.forgetElement(el.id)),
       deps.store.on('clear', () => this.reset()),
+      deps.store.on('batch', () => this.reset()),
     ];
 
     deps.element.addEventListener('pointerdown', this.handlePointerDown, PASSIVE);

@@ -1,19 +1,10 @@
-import {
-  applyOpToMap,
-  FogLedger,
-  type SyncOp,
-  type LayerRecord,
-  type FogSnapshot,
-  type FogMetaRecord,
-  type FogTileRecord,
-} from '@fieldnotes/sync';
+import { applyOpToMap, type SyncOp, type LayerRecord } from '@fieldnotes/sync';
 import type { CanvasElement } from '@fieldnotes/core';
-import type { FogApplyResult, FogPatchApplyResult, HubBackend } from './hub-backend';
+import type { HubBackend } from './hub-backend';
 
 export class MemoryHubBackend implements HubBackend {
   private rooms = new Map<string, Map<string, CanvasElement>>();
   private roomLayers = new Map<string, Map<string, LayerRecord>>();
-  private roomFog = new Map<string, FogLedger>();
 
   private room(id: string): Map<string, CanvasElement> {
     let r = this.rooms.get(id);
@@ -60,33 +51,5 @@ export class MemoryHubBackend implements HubBackend {
 
   async applyLayerRecord(room: string, record: LayerRecord): Promise<void> {
     this.layers(room).set(record.id, record);
-  }
-
-  private fog(room: string): FogLedger {
-    let ledger = this.roomFog.get(room);
-    if (!ledger) {
-      ledger = new FogLedger();
-      this.roomFog.set(room, ledger);
-    }
-    return ledger;
-  }
-
-  async fogSnapshot(room: string): Promise<FogSnapshot | undefined> {
-    return this.fog(room).snapshot();
-  }
-
-  async applyFogMeta(room: string, record: FogMetaRecord): Promise<FogApplyResult<FogMetaRecord>> {
-    return this.fog(room).applyMeta(record);
-  }
-
-  async applyFogTile(room: string, record: FogTileRecord): Promise<FogApplyResult<FogTileRecord>> {
-    return this.fog(room).applyTile(record);
-  }
-
-  async applyFogPatch(
-    room: string,
-    records: readonly FogTileRecord[],
-  ): Promise<FogPatchApplyResult> {
-    return this.fog(room).applyPatch(records);
   }
 }

@@ -1,10 +1,24 @@
 # ADR-0003: Sync/Server Plugin Ownership
 
-- **Status:** Proposed
+- **Status:** Implemented (pending maintainer acceptance)
 - **Deciders:** Project maintainer
 - **Date:** 2026-09-05
 - **Supersedes:** —
 - **Related:** [ADR-0004](0004-serialization-compatibility.md) (serialization), [ADR-0005](0005-plugin-lifecycle.md) (plugin lifecycle)
+
+## Implementation status (2026-09-08)
+
+The v3 migration scope is implemented. `SyncClient`, `SyncHub`, and `RedisHubBackend` install
+domain-neutral plugins; VTT owns fog factories at `@fieldnotes/vtt/sync`, `/server`, and `/redis`.
+Legacy fog kinds and snapshot fields remain structurally validated in `@fieldnotes/sync` solely for
+mixed-version compatibility. There is no runtime generic-sync → VTT dependency.
+
+The Redis implementation realizes backend operation ownership through `BackendSyncPlugin.start()`:
+the plugin owns its Lua scripts and key schema and registers a typed backend service. The server
+plugin reaches that service through `ServerOpContext.backendPlugin(ServiceKey)`. Redis does not
+independently route transport envelopes because the authoritative server has already authenticated,
+codec-validated, and selected the operation owner. Extension-envelope wire routing remains reserved
+for the coordinated v4 phase in ADR-0004.
 
 ## Context
 

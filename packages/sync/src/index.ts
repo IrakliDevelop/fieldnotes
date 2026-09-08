@@ -13,7 +13,6 @@ export type {
   ResolveLocalOnly,
   LayerSyncOptions,
   RemoteLayerUpdate,
-  FogSyncOptions,
 } from './sync-client';
 export { LayerLedger } from './layer-ledger';
 export { createManagedSyncConnection } from './managed-connection';
@@ -48,12 +47,15 @@ export {
   FOG_SYNC_PROTOCOL_VERSION,
   FOG_PATCH_MAX_TILES,
 } from './protocol';
-export { FogLedger, FogSyncController, assertValidFogClientId } from '@fieldnotes/vtt';
 export type {
-  FogSyncManager,
-  FogSyncControllerOptions,
-  FogSyncControllerEvents,
-  FogSyncSessionSnapshot,
-  FogSyncOp,
-} from '@fieldnotes/vtt';
-export type { ClientSyncPlugin, PluginSnapshot, SyncSnapshot } from './sync-plugin';
+  ClientSyncPlugin,
+  ClientSyncPluginContext,
+  ClientOpMeta,
+  ClientExtensionRegistry,
+  ExtensionKind,
+  TypedExtensionOp,
+  OpCodec,
+  PluginSnapshot,
+  SyncSnapshot,
+} from './sync-plugin';
+export { createExtensionKind } from './sync-plugin';

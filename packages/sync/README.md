@@ -21,4 +21,9 @@ injectable `BroadcastChannel` factory for testing.
 pnpm add @fieldnotes/sync @fieldnotes/core
 ```
 
-Requires `@fieldnotes/core` `>=0.46.0` (peer dependency).
+Requires `@fieldnotes/core` `>=0.81.0` (peer dependency).
+
+Domain operations are installed through `ClientSyncPlugin`. A plugin may own legacy v3 operation
+kinds during a compatibility window and may register codec-validated extension kinds and versioned
+snapshot state. For fog, install `createFogClientPlugin()` from `@fieldnotes/vtt/sync`; this package
+does not depend on VTT at runtime.

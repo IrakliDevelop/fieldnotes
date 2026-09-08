@@ -3,6 +3,8 @@ import { createShape } from '@fieldnotes/core';
 import { InMemoryHubFanout, SyncHub } from '@fieldnotes/sync-server';
 import type { FogMetaRecord, FogTileRecord } from '@fieldnotes/sync';
 import { RedisHubBackend, type RedisHashClient } from './index';
+import { createFogBackendPlugin, FogBackendServiceKey } from '@fieldnotes/vtt/redis';
+import { createFogServerPlugin } from '@fieldnotes/vtt/server';
 
 class FakeRedis implements RedisHashClient {
   store = new Map<string, Map<string, string>>();
@@ -178,12 +180,14 @@ describe('RedisHubBackend behind SyncHub', () => {
     const fake = new FakeRedis();
     const fanout = new InMemoryHubFanout();
     const hubA = new SyncHub({
-      backend: new RedisHubBackend(fake),
+      backend: new RedisHubBackend(fake, { plugins: [createFogBackendPlugin()] }),
+      plugins: [createFogServerPlugin()],
       fanout,
       instanceId: 'hub-a',
     });
     const hubB = new SyncHub({
-      backend: new RedisHubBackend(fake),
+      backend: new RedisHubBackend(fake, { plugins: [createFogBackendPlugin()] }),
+      plugins: [createFogServerPlugin()],
       fanout,
       instanceId: 'hub-b',
     });
@@ -221,7 +225,10 @@ describe('RedisHubBackend behind SyncHub', () => {
       editor: 'Z',
       definition,
     });
-    expect((await new RedisHubBackend(fake).fogSnapshot('R'))?.meta.version).toBe(10);
+    const inspectionBackend = new RedisHubBackend(fake, { plugins: [createFogBackendPlugin()] });
+    expect(
+      (await inspectionBackend.getService(FogBackendServiceKey)?.snapshot('R'))?.meta.version,
+    ).toBe(10);
     hubA.close();
     hubB.close();
   });

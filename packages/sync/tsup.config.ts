@@ -6,5 +6,5 @@ export default defineConfig({
   dts: true,
   sourcemap: true,
   clean: true,
-  external: ['@fieldnotes/core', '@fieldnotes/vtt'],
+  external: ['@fieldnotes/core'],
 });

@@ -14,12 +14,14 @@ import {
   registerVttElementTypes,
   templateElementTypeDefinition,
 } from '@fieldnotes/vtt';
+import { createFogClientPlugin } from '@fieldnotes/vtt/sync';
 import type { ElementChangeMeta } from '@fieldnotes/core';
 import { SyncClient } from './sync-client';
 import type { AuthoritativeSnapshotContext, RemoteLayerUpdate } from './sync-client';
 import { LayerLedger } from './layer-ledger';
 import type { FogMetaRecord, FogSnapshot, LayerRecord, SyncOp } from './protocol';
 import type { SyncTransport } from './sync-transport';
+import { createExtensionKind } from './sync-plugin';
 
 interface BusEndpoint extends SyncTransport {
   sent: string[];
@@ -81,6 +83,59 @@ describe('SyncClient', () => {
     clientB = new SyncClient({ store: storeB, transport: transportB, clientId: 'B' });
     clientA.start();
     clientB.start();
+  });
+
+  it('routes only codec-valid extension operations through a client plugin', () => {
+    const bus = makeBus();
+    const peer = bus.endpoint();
+    const transport = bus.endpoint();
+    const received: unknown[] = [];
+    const cursorKind = createExtensionKind<{ x: number }>({
+      extensionKind: 'test:cursor',
+      codec: {
+        validate: (payload): payload is { x: number } =>
+          typeof payload === 'object' &&
+          payload !== null &&
+          typeof (payload as { x?: unknown }).x === 'number',
+      },
+    });
+    const client = new SyncClient({
+      store: new ElementStore(),
+      transport,
+      clientId: 'client',
+      plugins: [
+        {
+          name: 'cursor',
+          registerExtensionKinds(registry) {
+            registry.register(cursorKind, (op, meta) => received.push({ op, meta }));
+          },
+        },
+      ],
+    });
+    client.start();
+
+    peer.send(
+      envelope('peer', {
+        kind: 'extension',
+        extensionKind: 'test:cursor',
+        payload: { x: 12 },
+      }),
+    );
+    peer.send(
+      envelope('peer', {
+        kind: 'extension',
+        extensionKind: 'test:cursor',
+        payload: { x: 'invalid' },
+      }),
+    );
+
+    expect(received).toEqual([
+      {
+        op: { kind: 'extension', extensionKind: 'test:cursor', payload: { x: 12 } },
+        meta: { sender: 'peer', isLocal: false, phase: 'live' },
+      },
+    ]);
+    client.dispose();
   });
 
   it('propagates a local add to the remote store, tagged origin remote, without echo', () => {
@@ -666,7 +721,7 @@ describe('SyncClient fog convergence', () => {
       store,
       transport,
       clientId: 'A',
-      fog: { manager },
+      plugins: [createFogClientPlugin({ manager })],
     });
     client.start();
     return { transport, manager, client };
@@ -679,7 +734,7 @@ describe('SyncClient fog convergence', () => {
           store: new ElementStore(),
           transport: makeReconnectTransport(),
           clientId: '😀',
-          fog: { manager: new FogManager() },
+          plugins: [createFogClientPlugin({ manager: new FogManager() })],
         }),
     ).toThrow(/printable ASCII/);
   });

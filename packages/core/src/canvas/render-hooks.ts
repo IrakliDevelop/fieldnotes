@@ -12,7 +12,9 @@ export interface HookRegistrationOptions {
   slot?: ViewportSlot;
   priority?: number;
   required?: boolean;
-  satisfies?: string[];
+  satisfies?: readonly string[];
+  /** Runtime visibility predicate; disabled hooks keep their registered capabilities. */
+  enabled?: () => boolean;
 }
 
 interface InternalEntry<T> {
@@ -21,6 +23,7 @@ interface InternalEntry<T> {
   priority: number;
   required: boolean;
   satisfies: string[];
+  enabled?: () => boolean;
   insertionOrder: number;
 }
 
@@ -35,7 +38,8 @@ export class TypedHookRegistry<T extends Record<string, unknown>> {
       slot: options.slot ?? 'afterSceneBeforeOverlay',
       priority: options.priority ?? 0,
       required: options.required ?? false,
-      satisfies: options.satisfies ?? [],
+      satisfies: [...(options.satisfies ?? [])],
+      enabled: options.enabled,
       insertionOrder: this.nextId++,
     };
 
@@ -73,6 +77,7 @@ export class TypedHookRegistry<T extends Record<string, unknown>> {
     });
 
     for (const entry of sorted) {
+      if (!this.isEnabled(entry)) continue;
       const fn = entry.hooks[hookName];
       if (typeof fn === 'function') {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -82,7 +87,9 @@ export class TypedHookRegistry<T extends Record<string, unknown>> {
   }
 
   has(hookName: keyof T & string): boolean {
-    return this.entries.some((entry) => typeof entry.hooks[hookName] === 'function');
+    return this.entries.some(
+      (entry) => this.isEnabled(entry) && typeof entry.hooks[hookName] === 'function',
+    );
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- generic hook dispatcher
@@ -98,6 +105,7 @@ export class TypedHookRegistry<T extends Record<string, unknown>> {
       });
 
     for (const entry of sorted) {
+      if (!this.isEnabled(entry)) continue;
       for (const fn of Object.values(entry.hooks)) {
         if (typeof fn === 'function') {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -114,6 +122,14 @@ export class TypedHookRegistry<T extends Record<string, unknown>> {
   clear(): void {
     this.entries.length = 0;
     this.capabilityCounts.clear();
+  }
+
+  private isEnabled(entry: InternalEntry<T>): boolean {
+    try {
+      return entry.enabled?.() ?? true;
+    } catch {
+      return false;
+    }
   }
 }
 

@@ -1,169 +1,105 @@
-import { describe, it, expect, vi } from 'vitest';
-import { createFogPlugin } from './fog-plugin';
+import { describe, expect, it, vi } from 'vitest';
+import type { PluginConfigureContext, PluginStartContext } from '@fieldnotes/core';
+import { createFogPlugin, FogManagerKey } from './fog-plugin';
 import { FogManager } from './fog-manager';
-import type { ViewportPluginHost } from '@fieldnotes/core';
 
-function makeHost(): ViewportPluginHost & {
-  changeListeners: Set<() => void>;
-  extraBoundsProviders: Set<() => unknown>;
-  pluginHandles: Map<string, unknown>;
-} {
-  const changeListeners = new Set<() => void>();
-  const extraBoundsProviders = new Set<() => unknown>();
-  const pluginHandles = new Map<string, unknown>();
+function configureContext() {
+  const registrations = {
+    viewport: vi.fn(),
+    minimap: vi.fn(),
+    imageExport: vi.fn(),
+    svgExport: vi.fn(),
+  };
+  const context = {
+    elementRegistry: {},
+    toolManager: {},
+    registerElementType: vi.fn(),
+    registerTool: vi.fn(),
+    registerViewportHooks: registrations.viewport,
+    registerMinimapHooks: registrations.minimap,
+    registerImageExportHooks: registrations.imageExport,
+    registerSvgExportHooks: registrations.svgExport,
+  } as unknown as PluginConfigureContext;
+  return { context, registrations };
+}
 
-  return {
-    renderHooks: {
-      viewport: { register: vi.fn(() => vi.fn()) },
-      minimap: { register: vi.fn(() => vi.fn()) },
-      imageExport: { register: vi.fn(() => vi.fn()) },
-      svgExport: { register: vi.fn(() => vi.fn()) },
-    } as unknown as ViewportPluginHost['renderHooks'],
-    store: {} as ViewportPluginHost['store'],
+function startContext() {
+  const disposers: (() => void)[] = [];
+  const context = {
+    viewport: {},
+    store: {},
     pushHistory: vi.fn(),
     requestRender: vi.fn(),
     invalidateMinimap: vi.fn(),
-    registerPluginHandle: vi.fn((name: string, handle: unknown) => {
-      pluginHandles.set(name, handle);
-    }),
-    registerExtraBounds: vi.fn((provider: () => unknown) => {
-      extraBoundsProviders.add(provider);
-      return () => {
-        extraBoundsProviders.delete(provider);
-      };
-    }),
-    onChange: vi.fn((listener: () => void) => {
-      changeListeners.add(listener);
-      return () => {
-        changeListeners.delete(listener);
-      };
-    }),
-    notifyChange: vi.fn(() => {
-      for (const fn of changeListeners) fn();
-    }),
-    changeListeners,
-    extraBoundsProviders,
-    pluginHandles,
-  };
+    registerService: vi.fn(),
+    addDisposer: (dispose: () => void) => disposers.push(dispose),
+    registerExtraBounds: vi.fn(() => vi.fn()),
+    onChange: vi.fn(() => vi.fn()),
+    notifyChange: vi.fn(),
+  } as unknown as PluginStartContext;
+  return { context, disposers };
 }
 
 describe('createFogPlugin', () => {
-  it('creates a plugin with name "fog"', () => {
+  it('declares privacy-first lifecycle metadata', () => {
     const plugin = createFogPlugin();
-    expect(plugin.name).toBe('fog');
-    plugin.dispose?.();
+    expect(plugin).toMatchObject({ name: 'fog', priority: -100, required: true });
+    expect(plugin.manager).toBeInstanceOf(FogManager);
   });
 
-  it('exposes a FogManager', () => {
+  it('registers required fog capabilities on every render surface during configure', () => {
     const plugin = createFogPlugin();
-    expect(plugin.manager).toBeDefined();
-    expect(typeof plugin.manager.initialize).toBe('function');
-    plugin.dispose?.();
+    const { context, registrations } = configureContext();
+    plugin.configure?.(context);
+    for (const register of Object.values(registrations)) {
+      expect(register).toHaveBeenCalledOnce();
+      expect(register.mock.calls[0]?.[1]).toMatchObject({
+        required: true,
+        satisfies: ['vtt:fog'],
+      });
+    }
   });
 
-  it('registers export hooks, plugin handle, and extra bounds on install', () => {
-    const plugin = createFogPlugin();
-    const host = makeHost();
-    plugin.install(host);
-
-    expect(host.renderHooks.viewport.register).not.toHaveBeenCalled();
-    expect(host.renderHooks.minimap.register).toHaveBeenCalledOnce();
-    expect(host.renderHooks.imageExport.register).toHaveBeenCalledOnce();
-    expect(host.renderHooks.svgExport.register).toHaveBeenCalledOnce();
-    expect(host.registerPluginHandle).toHaveBeenCalledWith('fog', expect.any(Object));
-    expect(host.registerExtraBounds).toHaveBeenCalledOnce();
-
-    plugin.dispose?.();
-  });
-
-  it('registers its viewport layer only while fog is visible', () => {
-    const unregisterViewport = vi.fn();
-    const plugin = createFogPlugin();
-    const host = makeHost();
-    vi.mocked(host.renderHooks.viewport.register).mockReturnValue(unregisterViewport);
-    plugin.install(host);
-
-    plugin.manager.initialize({
-      bounds: { x: 0, y: 0, w: 256, h: 256 },
-      base: 'covered',
-      cellSize: 64,
-    });
-    expect(host.renderHooks.viewport.register).not.toHaveBeenCalled();
-
-    plugin.manager.setViewMode('editor');
-    expect(host.renderHooks.viewport.register).toHaveBeenCalledOnce();
-
-    plugin.manager.setViewMode('off');
-    expect(unregisterViewport).toHaveBeenCalledOnce();
-
-    plugin.dispose?.();
-  });
-
-  it('setOptions updates the renderer and triggers render', () => {
-    const plugin = createFogPlugin();
-    const host = makeHost();
-    plugin.install(host);
-
-    plugin.setOptions({ editorColor: '#ff0000' });
-    expect(host.requestRender).toHaveBeenCalled();
-    expect(host.invalidateMinimap).toHaveBeenCalled();
-
-    plugin.dispose?.();
-  });
-
-  it('fog manager change triggers render, minimap invalidation, and notifyChange', () => {
-    const plugin = createFogPlugin();
-    const host = makeHost();
-    plugin.install(host);
-
-    plugin.manager.initialize({
-      bounds: { x: 0, y: 0, w: 256, h: 256 },
-      base: 'covered',
-      cellSize: 64,
-    });
-    plugin.manager.setViewMode('editor');
-    plugin.manager.applyRegion(
-      { kind: 'rectangle', from: { x: 100, y: 100 }, to: { x: 150, y: 150 } },
-      'reveal',
-    );
-
-    expect(host.requestRender).toHaveBeenCalled();
-    expect(host.invalidateMinimap).toHaveBeenCalled();
-    expect(host.notifyChange).toHaveBeenCalled();
-
-    plugin.dispose?.();
-  });
-
-  it('dispose cleans up subscriptions', () => {
-    const plugin = createFogPlugin();
-    const host = makeHost();
-    plugin.install(host);
-
-    plugin.manager.initialize({
-      bounds: { x: 0, y: 0, w: 256, h: 256 },
-      base: 'covered',
-      cellSize: 64,
-    });
-    plugin.manager.setViewMode('editor');
-
-    plugin.dispose?.();
-
-    const renderBefore = (host.requestRender as ReturnType<typeof vi.fn>).mock.calls.length;
-    const notifyBefore = (host.notifyChange as ReturnType<typeof vi.fn>).mock.calls.length;
-
-    plugin.manager.applyRegion(
-      { kind: 'rectangle', from: { x: 100, y: 100 }, to: { x: 150, y: 150 } },
-      'reveal',
-    );
-
-    expect((host.requestRender as ReturnType<typeof vi.fn>).mock.calls.length).toBe(renderBefore);
-    expect((host.notifyChange as ReturnType<typeof vi.fn>).mock.calls.length).toBe(notifyBefore);
-  });
-
-  it('accepts a pre-created FogManager', () => {
+  it('registers the typed manager service and a per-instance state handle during start', () => {
     const manager = new FogManager();
     const plugin = createFogPlugin({ manager });
-    expect(plugin.manager).toBe(manager);
-    plugin.dispose?.();
+    const configured = configureContext();
+    const started = startContext();
+    plugin.configure?.(configured.context);
+    const handle = plugin.start?.(started.context);
+    expect(started.context.registerService).toHaveBeenCalledWith(FogManagerKey, manager);
+    expect(handle?.exportState?.()).toBeNull();
+    handle?.dispose();
+    for (const dispose of started.disposers.reverse()) dispose();
+  });
+
+  it('manager changes invalidate both viewport and minimap and emit plugin change', () => {
+    const plugin = createFogPlugin();
+    const configured = configureContext();
+    const started = startContext();
+    plugin.configure?.(configured.context);
+    const handle = plugin.start?.(started.context);
+    plugin.manager.initialize({ bounds: { x: 0, y: 0, w: 128, h: 128 }, cellSize: 1 });
+    expect(started.context.requestRender).toHaveBeenCalled();
+    expect(started.context.invalidateMinimap).toHaveBeenCalled();
+    expect(started.context.notifyChange).toHaveBeenCalled();
+    handle?.dispose();
+    for (const dispose of started.disposers.reverse()) dispose();
+  });
+
+  it('returns independent renderer handles when the definition is configured twice', () => {
+    const plugin = createFogPlugin();
+    const firstConfigure = configureContext();
+    const secondConfigure = configureContext();
+    plugin.configure?.(firstConfigure.context);
+    plugin.configure?.(secondConfigure.context);
+    const first = startContext();
+    const second = startContext();
+    const firstHandle = plugin.start?.(first.context);
+    const secondHandle = plugin.start?.(second.context);
+    expect(firstHandle).not.toBe(secondHandle);
+    firstHandle?.dispose();
+    secondHandle?.dispose();
+    for (const dispose of [...first.disposers, ...second.disposers].reverse()) dispose();
   });
 });

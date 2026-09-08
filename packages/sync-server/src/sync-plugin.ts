@@ -1,34 +1,100 @@
-import type { SyncOp } from '@fieldnotes/sync';
+import type { ServiceKey } from '@fieldnotes/core';
+import type { ExtensionKind, PluginSnapshot, SyncOp, TypedExtensionOp } from '@fieldnotes/sync';
 import type { HubBackend } from './hub-backend';
 
 export interface ApplyResult {
-  accepted: SyncOp | null;
-  corrections: SyncOp[];
-  broadcast?: SyncOp[];
-  locality?: 'shared' | 'local';
+  readonly accepted: SyncOp | null;
+  readonly corrections: SyncOp[];
+  readonly broadcast?: SyncOp[];
+  readonly locality?: 'shared' | 'local';
 }
 
 export interface ServerOpContext {
   readonly room: string;
-  readonly sender: string;
+  readonly connectionId: string;
+  readonly userId?: string;
+  readonly role?: string;
   readonly backend: HubBackend;
+  backendPlugin<T>(key: ServiceKey<T>): T | undefined;
 }
 
-export type ServerNext = () => Promise<ApplyResult>;
+export type ServerNext = (op: SyncOp, context: ServerOpContext) => Promise<ApplyResult>;
+
+export interface ServerExtensionRegistry {
+  register<TPayload>(
+    kind: ExtensionKind<TPayload>,
+    handler: (op: TypedExtensionOp<TPayload>, context: ServerOpContext) => Promise<ApplyResult>,
+  ): void;
+}
 
 export interface ServerSyncPlugin {
   readonly name: string;
-  readonly ownedLegacyKinds?: string[];
-  process?(op: SyncOp, ctx: ServerOpContext, next: ServerNext): Promise<ApplyResult>;
-  snapshot?(room: string, backend: HubBackend): Promise<PluginSnapshot>;
+  readonly ownedLegacyKinds?: readonly string[];
+  readonly legacySnapshotKey?: string;
+  process?(op: SyncOp, context: ServerOpContext, next: ServerNext): Promise<ApplyResult>;
+  applyFanout?(op: SyncOp, context: ServerOpContext): Promise<SyncOp | null>;
+  registerExtensionKinds?(registry: ServerExtensionRegistry): void;
+  snapshot?(room: string, backend: HubBackend): Promise<PluginSnapshot | undefined>;
   filterSnapshot?(
     snapshot: PluginSnapshot,
-    viewer: { userId: string; role: string },
+    viewer: { userId?: string; role?: string },
   ): PluginSnapshot | null;
 }
 
-export interface PluginSnapshot {
-  readonly pluginName: string;
-  readonly version: number;
-  readonly data: unknown;
+interface ServerExtensionEntry {
+  readonly kind: ExtensionKind<unknown>;
+  readonly plugin: ServerSyncPlugin;
+  readonly handler: (
+    op: TypedExtensionOp<unknown>,
+    context: ServerOpContext,
+  ) => Promise<ApplyResult>;
 }
+
+export class ServerPluginRegistry {
+  private readonly byName = new Map<string, ServerSyncPlugin>();
+  private readonly legacyOwners = new Map<string, ServerSyncPlugin>();
+  private readonly extensions = new Map<string, ServerExtensionEntry>();
+
+  constructor(plugins: readonly ServerSyncPlugin[]) {
+    for (const plugin of plugins) this.register(plugin);
+  }
+
+  private register(plugin: ServerSyncPlugin): void {
+    if (this.byName.has(plugin.name))
+      throw new Error(`Server plugin "${plugin.name}" is duplicated`);
+    this.byName.set(plugin.name, plugin);
+    for (const kind of plugin.ownedLegacyKinds ?? []) {
+      if (this.legacyOwners.has(kind)) throw new Error(`Sync op kind "${kind}" has two owners`);
+      this.legacyOwners.set(kind, plugin);
+    }
+    plugin.registerExtensionKinds?.({
+      register: <TPayload>(
+        kind: ExtensionKind<TPayload>,
+        handler: (op: TypedExtensionOp<TPayload>, context: ServerOpContext) => Promise<ApplyResult>,
+      ) => {
+        if (this.extensions.has(kind.extensionKind)) {
+          throw new Error(`Extension kind "${kind.extensionKind}" has two owners`);
+        }
+        this.extensions.set(kind.extensionKind, {
+          kind: kind as ExtensionKind<unknown>,
+          plugin,
+          handler: handler as ServerExtensionEntry['handler'],
+        });
+      },
+    });
+  }
+
+  get plugins(): readonly ServerSyncPlugin[] {
+    return [...this.byName.values()];
+  }
+
+  ownerOf(kind: string): ServerSyncPlugin | undefined {
+    return this.legacyOwners.get(kind);
+  }
+
+  extension(extensionKind: string): ServerExtensionEntry | undefined {
+    return this.extensions.get(extensionKind);
+  }
+}
+
+export type { PluginSnapshot } from '@fieldnotes/sync';

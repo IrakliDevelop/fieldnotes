@@ -1,3 +1,4 @@
+import { EventBus } from '../core/event-bus';
 import type { Bounds, Point } from '../core/types';
 
 export interface CameraOptions {
@@ -19,7 +20,7 @@ export class Camera {
   private z = 1;
   private readonly minZoom: number;
   private readonly maxZoom: number;
-  private changeListeners = new Set<(info: CameraChangeInfo) => void>();
+  private readonly bus = new EventBus<{ change: CameraChangeInfo }>();
 
   constructor(options: CameraOptions = {}) {
     this.minZoom = options.minZoom ?? DEFAULT_MIN_ZOOM;
@@ -101,19 +102,25 @@ export class Camera {
   }
 
   onChange(listener: (info: CameraChangeInfo) => void): () => void {
-    this.changeListeners.add(listener);
-    return () => this.changeListeners.delete(listener);
+    return this.bus.on('change', (info) => listener(info));
+  }
+
+  suspendNotifications(): { resume(): void; discard(): void } {
+    return this.bus.suspendNotifications(() => ({
+      event: 'change',
+      data: { panned: true, zoomed: true },
+    }));
   }
 
   private notifyPan(): void {
-    this.changeListeners.forEach((fn) => fn({ panned: true, zoomed: false }));
+    this.bus.emit('change', { panned: true, zoomed: false });
   }
 
   private notifyZoom(): void {
-    this.changeListeners.forEach((fn) => fn({ panned: false, zoomed: true }));
+    this.bus.emit('change', { panned: false, zoomed: true });
   }
 
   private notifyPanAndZoom(): void {
-    this.changeListeners.forEach((fn) => fn({ panned: true, zoomed: true }));
+    this.bus.emit('change', { panned: true, zoomed: true });
   }
 }

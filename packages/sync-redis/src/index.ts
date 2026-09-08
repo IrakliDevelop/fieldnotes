@@ -4,9 +4,4 @@ export type { RedisHashClient } from './redis-hash-client';
 export { RedisHubFanout } from './redis-hub-fanout';
 export type { RedisHubFanoutOptions } from './redis-hub-fanout';
 export type { RedisPublisher, RedisSubscriber } from './redis-fanout-client';
-export type {
-  BackendSyncPlugin,
-  ApplyResult,
-  BackendOpContext,
-  PluginSnapshot,
-} from './sync-plugin';
+export type { BackendSyncPlugin, BackendPluginContext } from './sync-plugin';

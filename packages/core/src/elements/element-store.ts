@@ -34,6 +34,8 @@ interface ElementStoreEvents {
   remove: CanvasElement;
   update: ElementUpdateEvent;
   clear: null;
+  /** Atomic replacement completed; inspect the store for its final contents. */
+  batch: null;
 }
 
 export class ElementStore {
@@ -283,7 +285,12 @@ export class ElementStore {
       this.bus.on('remove', listener),
       this.bus.on('update', listener),
       this.bus.on('clear', listener),
+      this.bus.on('batch', listener),
     ];
     return () => unsubs.forEach((fn) => fn());
+  }
+
+  suspendNotifications(): { resume(): void; discard(): void } {
+    return this.bus.suspendNotifications(() => ({ event: 'batch', data: null }));
   }
 }

@@ -1,10 +1,20 @@
 # ADR-0005: Plugin Lifecycle & Installation
 
-- **Status:** Proposed
+- **Status:** Implemented (pending maintainer acceptance)
 - **Deciders:** Project maintainer
 - **Date:** 2026-09-05
 - **Supersedes:** —
 - **Related:** [ADR-0002](0002-render-surface-model.md) (render surfaces), [ADR-0003](0003-sync-plugin-ownership.md) (sync plugins)
+
+## Implementation status (2026-09-08)
+
+The lifecycle is implemented in `Viewport`: deterministic transactional `configure()` and
+`start()` phases, per-instance handles, typed services, post-rollback capability validation,
+constructor abort cleanup, and reverse disposal. `loadState()` prepares and validates all plugin
+slices before mutation, captures core/history/plugin rollback snapshots, barriers notifications for
+every participating subsystem, and restores state before discarding events on failure. Regression
+tests cover optional and required failures, reuse, service/capability validation, rollback, and
+notification-safe success and failure paths.
 
 ## Context
 
@@ -480,12 +490,11 @@ Phase 3: Commit — if all validations pass, call loadState() on each plugin, th
   9. Plugin handle.loadState() called (with prepared/migrated data or undefined)
   10. History cleared
   11. Camera restored
-  12. Call resume() — this flushes batched notifications:
-      - Single batched store notification covering all element changes
-      - Single layer manager notification
-      - Single camera notification
-      - Single history notification
-      Observers see the complete new state, not intermediate mutations.
+  12. Call resume() — this flushes coalesced notifications only after store, layers, active layer,
+      HTML, plugin state, history, and camera all hold the complete new state. The element store
+      emits one `batch` change; layers, camera, and history each emit at most one `change` event;
+      plugin callbacks run only after the barrier opens. Observers therefore see the complete new
+      state, not intermediate mutations.
 
 Phase 4: Abort or rollback — discard() exactly once
   If any step in Phase 2 throws:
@@ -631,7 +640,7 @@ await viewport.initialize({ plugins: [fogPlugin, gridPlugin] });
 
 - **F8 (start() partial state):** Extended transaction scope to cover `start()` in addition to `configure()`. Added `ctx.addDisposer()` to `PluginStartContext` — tracks cleanup callbacks during start. If `start()` throws: (1) all disposers called in reverse order, (2) all services registered during start removed, (3) configure registrations rolled back. No partial state survives a failed start.
 
-- **F9 (loadState atomicity):** Replaced store-only notification suppression with viewport-wide event barrier (`viewport.suspendNotifications()`). ALL observers are suspended during apply: store, layers, camera, history, plugins. On success, resume flushes batched notifications. On failure, resume re-enables notifications, then restore + re-notify. Every subsystem participates in the barrier — no partial-state observation possible.
+- **F9 (loadState atomicity):** Replaced store-only notification suppression with viewport-wide event barrier (`viewport.suspendNotifications()`). ALL observers are suspended during apply: store, layers, camera, history, plugins. On success, `resume()` flushes queued notifications after every subsystem has committed. On failure, state is restored while notifications remain suspended and `discard()` re-enables delivery without emitting the attempted mutations. Every subsystem participates in the barrier — no partial-state observation is possible.
 
 ### Sixth review — F6, F8, F9, F11
 

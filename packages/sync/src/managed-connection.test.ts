@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ElementStore, createNote, type Layer } from '@fieldnotes/core';
 import { FogManager, fogEncodeBase64 } from '@fieldnotes/vtt';
+import { createFogClientPlugin } from '@fieldnotes/vtt/sync';
 import { createManagedSyncConnection } from './managed-connection';
 import type {
   ManagedSyncConnection,
@@ -844,7 +845,7 @@ describe('createManagedSyncConnection fog lifecycle', () => {
         store: new ElementStore(),
         clientId: '😀',
         resolveUrl,
-        fog: { manager: new FogManager() },
+        plugins: [createFogClientPlugin({ manager: new FogManager() })],
         transportFactory,
       }),
     ).toThrow(/printable ASCII/);
@@ -862,7 +863,7 @@ describe('createManagedSyncConnection fog lifecycle', () => {
       store,
       clientId: CLIENT_ID,
       resolveUrl: () => Promise.resolve('ws://relay/a'),
-      fog: { manager, preserveLocalWhenRemoteMissing: true },
+      plugins: [createFogClientPlugin({ manager, preserveLocalWhenRemoteMissing: true })],
       transportFactory: (url) => {
         const transport = new FakeTransport(url);
         transports.push(transport);

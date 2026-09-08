@@ -1,27 +1,16 @@
-import type { SyncOp } from '@fieldnotes/sync';
+import type { ServiceKey } from '@fieldnotes/core';
+import type { RedisHashClient } from './redis-hash-client';
 
-export interface ApplyResult {
-  accepted: SyncOp | null;
-  corrections: SyncOp[];
-  broadcast?: SyncOp[];
-  locality?: 'shared' | 'local';
-}
-
-export interface BackendOpContext {
-  readonly room: string;
-}
-
-export interface PluginSnapshot {
-  readonly pluginName: string;
-  readonly version: number;
-  readonly data: unknown;
+export interface BackendPluginContext {
+  readonly client: RedisHashClient;
+  readonly roomKeyPrefix: string;
+  registerService<T>(key: ServiceKey<T>, service: NoInfer<T>): void;
+  addDisposer(dispose: () => void): void;
 }
 
 export interface BackendSyncPlugin {
   readonly name: string;
   readonly keyPrefix: string;
-  readonly scripts?: Record<string, string>;
-  snapshot?(room: string): Promise<PluginSnapshot>;
-  applyOp?(op: SyncOp, ctx: BackendOpContext): Promise<ApplyResult>;
-  dispose?(): void;
+  readonly scripts?: Readonly<Record<string, string>>;
+  start(context: BackendPluginContext): void;
 }

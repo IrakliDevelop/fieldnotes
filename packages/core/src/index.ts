@@ -1,4 +1,4 @@
-export const VERSION = '0.80.0';
+export const VERSION = '0.81.0';
 
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
 export {
@@ -43,7 +43,13 @@ export type {
   RectTrackerHost,
 } from './canvas/element-rect-tracker';
 export type { HitTestOptions } from './canvas/viewport';
-export type { ViewportPlugin, ViewportPluginHost } from './canvas/viewport-plugin';
+export type {
+  ViewportPlugin,
+  PluginConfigureContext,
+  PluginStartContext,
+  RequiredCapabilities,
+  RenderSurfaceName,
+} from './canvas/viewport-plugin';
 export { exportImage } from './canvas/export-image';
 export type {
   ExportAssetError,
@@ -257,6 +263,8 @@ export type {
   PersistedPluginState,
   NotificationController,
   PluginLoadResult,
+  PreparedPluginState,
+  PluginPrepareResult,
 } from './core/plugin-state-manager';
 export { createServiceKey } from './core/service-key';
 export type { ServiceKey } from './core/service-key';

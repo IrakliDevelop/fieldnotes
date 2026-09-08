@@ -281,3 +281,11 @@ gets a synthetic **remove**, one who gains it gets an **add**.
   control.
 
 A Redis `HubBackend` and cross-instance fan-out ship in [`@fieldnotes/sync-redis`](../sync-redis).
+
+## Domain plugins
+
+`SyncHubOptions.plugins` installs ordered `ServerSyncPlugin` middleware. Plugins can own legacy v3
+kinds, register codec-validated extension kinds, provide versioned snapshots, return sender-only
+corrections, and choose local or shared fanout per accepted operation. Fog authorization and state
+application are supplied by `createFogServerPlugin()` from `@fieldnotes/vtt/server`; the generic
+server has no runtime VTT dependency.
