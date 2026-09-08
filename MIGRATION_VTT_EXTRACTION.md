@@ -9,26 +9,28 @@
 > **Revised:** 2026-09-06 (Phase 1 PR #160 merged — ElementRegistry, PluginHandle, default registry; Phase 2 PR #162 merged — type definitions, union change, wire registry, envelope conversion)
 > **Revised:** 2026-09-07 (post-extraction audit — Phase 5 feature movement complete, stabilization and sync ownership still open)
 > **Revised:** 2026-09-08 (ADR-0003/0005 implementation complete; verified v3 fog compatibility and template interaction parity)
+> **Revised:** 2026-09-08 (post-merge state clarified; RollKeeper adoption made the explicit gate before v4 and legacy removal)
 
 ## Table of Contents
 
 1. [Goals](#goals)
-2. [Review Findings](#review-findings)
-3. [Architectural Decisions (ADRs Proposed)](#architectural-decisions-adrs-proposed)
-4. [Architecture Overview](#architecture-overview)
-5. [Extension Point Design](#extension-point-design)
-6. [Element-Type Registry](#element-type-registry)
-7. [Render Surface Contract](#render-surface-contract)
-8. [Package Communication](#package-communication)
-9. [Dependency Flow](#dependency-flow)
-10. [Serialization Strategy](#serialization-strategy)
-11. [Sync Protocol Strategy](#sync-protocol-strategy)
-12. [Server & Redis Extraction](#server--redis-extraction)
-13. [Phased Migration](#phased-migration)
-14. [RollKeeper Migration Path](#rollkeeper-migration-path)
-15. [Risk Mitigation](#risk-mitigation)
-16. [Spike Validation](#spike-validation)
-17. [Success Criteria](#success-criteria)
+2. [Current State After PR #178](#current-state-after-pr-178)
+3. [Review Findings](#review-findings)
+4. [Architectural Decisions](#architectural-decisions)
+5. [Architecture Overview](#architecture-overview)
+6. [Extension Point Design](#extension-point-design)
+7. [Element-Type Registry](#element-type-registry)
+8. [Render Surface Contract](#render-surface-contract)
+9. [Package Communication](#package-communication)
+10. [Dependency Flow](#dependency-flow)
+11. [Serialization Strategy](#serialization-strategy)
+12. [Sync Protocol Strategy](#sync-protocol-strategy)
+13. [Server & Redis Extraction](#server--redis-extraction)
+14. [Phased Migration](#phased-migration)
+15. [RollKeeper Migration Path](#rollkeeper-migration-path)
+16. [Risk Mitigation](#risk-mitigation)
+17. [Spike Validation](#spike-validation)
+18. [Success Criteria](#success-criteria)
 
 ---
 
@@ -43,15 +45,66 @@
 
 ---
 
+## Current State After PR #178
+
+The **Field Notes repository extraction is complete on v3**. This means feature ownership and runtime
+dependency direction have reached the intended plugin architecture:
+
+- `@fieldnotes/core` has no runtime dependency on `@fieldnotes/vtt`.
+- Active grid/template definitions and renderers, measure tooling, and fog implementations are owned
+  by `@fieldnotes/vtt`.
+- Fog synchronization is supplied by `@fieldnotes/vtt/sync`, `/server`, and `/redis` through the
+  domain-neutral contracts in the existing sync packages.
+- Viewport plugins have transactional configuration/startup, typed services, capability validation,
+  rollback, and notification-safe atomic state loading.
+- The v3 persistence and wire contracts remain compatible with existing consumers.
+
+This does **not** mean the final core-purity cleanup or the consumer rollout is complete. The following
+transitional contracts intentionally remain while consumers still use v3:
+
+- Core retains legacy `GridElement` and `TemplateElement` types, validation/factories, interaction
+  bridges, and the top-level `CanvasState.fog` compatibility mirror.
+- Sync retains structural validation and public types for the legacy `fog-meta`, `fog-patch`, and
+  snapshot `fog` wire shapes. Sync-server and sync-redis no longer own fog behavior at runtime.
+- VTT element definitions are **not** installed by core. Consumers must call
+  `registerVttElementTypes()` before loading grid/template state, or provide a registry with those
+  definitions explicitly.
+
+These compatibility paths are prerequisites for a safe RollKeeper migration, not evidence that VTT
+feature ownership is still split. They must remain until the v4 boundary described in ADR-0004.
+
+### Ordered Remaining Work
+
+1. **Adopt the plugin architecture in RollKeeper while staying on v3.** Register VTT element types,
+   the viewport fog plugin, and the client/server/Redis fog sync plugins. Preserve RollKeeper's
+   backend decorator, authorization, privacy, and bootstrap ordering.
+2. **Validate and deploy the v3 integration.** Exercise existing battlemaps, dual-read/dual-write
+   persistence, reconnect/snapshot convergence, DM-only fog visibility, cross-instance fanout,
+   buffering/flush locality, and template pointer interactions. Then soak the deployment in
+   production with a rollback path.
+3. **Introduce the v4 boundary only after adoption and soak.** Add capability negotiation before any
+   extension-shaped elements flow and add automatic v3-to-v4 persistence migration.
+4. **Remove compatibility code after the v4 gate.** Remove the top-level fog mirror, legacy fog wire
+   kinds/snapshot field, and legacy grid/template members and branches from core. Deprecate the React
+   `snapToGrid` compatibility prop as planned.
+5. **Finish ecosystem work.** Complete extension API documentation/examples and the outstanding
+   performance and bundle-size acceptance checks.
+
+RollKeeper adoption is therefore the next blocking gate. Starting v4 or deleting the v3 shims before
+that adoption and soak would remove the compatibility path needed to validate production data and
+mixed deployments.
+
+---
+
 ## Implementation Progress
 
-> **Last updated:** 2026-09-08 (repository implementation audit; external rollout not inferred)
+> **Last updated:** 2026-09-08 (post-merge repository audit; external rollout not inferred)
 
 ### Phase 0: Compatibility & Design
 
 | Task                                 | Status         | Notes                                                                                             |
 | ------------------------------------ | -------------- | ------------------------------------------------------------------------------------------------- |
-| Write 6 ADRs                         | ✅ Done        | `docs/adr/0001` through `0006` — all Proposed                                                     |
+| Write 6 ADRs                         | ✅ Done        | `docs/adr/0001` through `0006`; each ADR records its current acceptance/implementation status     |
 | Executable contract spike            | ✅ Done        | `packages/contract-spike` — 61 tests, all ADR contracts validated                                 |
 | `@fieldnotes/vtt` facade package     | ✅ Moot        | Direct extraction done instead of re-export facade                                                |
 | RollKeeper compatibility fixtures    | ✅ Done        | Core + VTT test suites validate legacy→envelope conversion                                        |
@@ -85,7 +138,7 @@
 | Grid snapping → `PointConstraintService`                            | ✅ Done | `GridConstraintService`, `ToolContext.constraintService`, all 9 tools migrated                            |
 | Fog serialization → `PluginHandle` dual-write                       | ✅ Done | `CanvasState.extensions`, `createFogPluginHandle`, `Viewport.plugins`, dual-write + extensions-first read |
 | Fog sync → client/server/backend plugins                            | ✅ Done | VTT subpath factories own client/server/Redis behavior; generic packages retain only v3 wire codecs       |
-| Register grid/template in default registry                          | ✅ Done | `getDefaultElementRegistry()` registers both definitions                                                  |
+| Explicit VTT grid/template registration                             | ✅ Done | Consumers call `registerVttElementTypes()`; core's default registry remains domain-neutral                |
 
 ### Phases 3–7: Extraction
 
@@ -94,16 +147,18 @@
 | 3     | Extract MeasureTool (canary)                  | ✅ Done                                          |
 | 4     | Extract Grid + Templates to `@fieldnotes/vtt` | ✅ Done                                          |
 | 5     | Extract Fog to `@fieldnotes/vtt`              | ✅ Repository complete; external rollout pending |
-| 6     | Deploy & soak, v4 bump, legacy removal        | ❌ Not started                                   |
+| 6     | Deploy & soak, v4 bump, legacy removal        | ⛔ Blocked on RollKeeper adoption                |
 | 7     | Document extension API                        | ❌ Not started                                   |
 
 ### Next Steps
 
-1. **RollKeeper adoption** — Register the VTT client/server/Redis plugins and verify its backend decorator and privacy policies in the external repository.
-2. **Phase 6** — Deploy and soak, then:
-   - Deprecate `snapToGrid` React prop
-   - Remove legacy `GridElement`/`TemplateElement` from core's `CanvasElement` union
+1. **RollKeeper adoption on v3** — Register VTT element types and the viewport/client/server/Redis
+   plugins, then verify its backend decorator, bootstrap ordering, and privacy policies in the
+   external repository.
+2. **Phase 6 after adoption** — Deploy and soak the v3 integration, then:
    - v4 wire format bump with capability exchange
+   - remove legacy fog and grid/template compatibility paths after the v4 boundary
+   - deprecate the `snapToGrid` React compatibility prop
 3. **Phase 7** — Expand extension API documentation and examples beyond the package README and ADRs.
 
 ---
@@ -124,7 +179,7 @@ This plan was reviewed (2026-09-05) and found to contain six P1 issues. All have
 
 ---
 
-## Architectural Decisions (ADRs Proposed)
+## Architectural Decisions
 
 > **All six ADRs have been written and are in Proposed status.** See `docs/adr/0001` through `docs/adr/0006`. The decisions below summarize the outcomes — the ADR documents are the canonical source. Contracts have been validated by an executable spike (`packages/contract-spike`) — see [Spike Validation](#spike-validation).
 
@@ -1691,14 +1746,17 @@ pnpm --filter @fieldnotes/contract-spike test       # 61 runtime tests
 
 ## Success Criteria
 
+> Audited after PR #178. Checked items are verified in the Field Notes repository; RollKeeper,
+> production-soak, performance, and v4 outcomes are not inferred from repository CI.
+
 ### Functional Criteria
 
 - [ ] Core has no VTT-specific code (fog, grid, ruler, templates)
-- [ ] `@fieldnotes/vtt` package exists and provides all VTT features
+- [x] `@fieldnotes/vtt` package exists and provides all VTT features
 - [ ] RollKeeper works with the new architecture (no functionality loss)
 - [ ] Extension API is documented with examples
 - [ ] A developer can build a custom domain package using extension API
-- [ ] Server-side fog extraction is complete (sync-server, sync-redis)
+- [x] Server-side fog extraction is complete (sync-server, sync-redis)
 
 ### Performance Criteria
 
@@ -1708,11 +1766,12 @@ pnpm --filter @fieldnotes/contract-spike test       # 61 runtime tests
 
 ### Quality Criteria
 
-- [ ] All core tests pass (no VTT code)
-- [ ] All VTT tests pass (all features work)
+- [x] All core tests pass
+- [ ] Core's legacy VTT compatibility code is removed
+- [x] All VTT tests pass (all features work)
 - [ ] All RollKeeper tests pass
-- [ ] No TypeScript errors
-- [ ] No lint errors
+- [x] No TypeScript errors
+- [x] No lint errors
 - [ ] Documentation is complete
 - [ ] Mixed-version sync works during transition
 - [ ] Persisted state migration works (v3 → v4)
@@ -1720,7 +1779,7 @@ pnpm --filter @fieldnotes/contract-spike test       # 61 runtime tests
 ### Ecosystem Criteria
 
 - [ ] Template repository for building domain packages
-- [ ] Example: VTT package (reference implementation)
+- [x] Example: VTT package (reference implementation)
 - [ ] Example: diagramming package (future)
 - [ ] Community can discover and install domain packages via npm
 
