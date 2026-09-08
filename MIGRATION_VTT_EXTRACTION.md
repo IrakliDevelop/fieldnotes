@@ -1,13 +1,13 @@
 # Migration Plan: VTT Feature Extraction
 
 > **Companion documents:** `VISION.md` (the Emacs philosophy), `PLAN_VTT_EXTRACTION.md` (audit results)
-> **Status:** Phase 5 complete — all VTT features (Measure, Grid, Templates, Fog) extracted to `@fieldnotes/vtt`. Core is domain-agnostic.
+> **Status:** Stabilization in progress — feature code is extracted, but legacy sync ownership and the full ADR-0005 lifecycle remain incomplete.
 > **Created:** 2026-09-05
 > **Revised:** 2026-09-05 (post-review — incorporated Codex review findings, see [Review Findings](#review-findings))
 > **Revised:** 2026-09-06 (aligned with sixth ADR review — addressed 11 findings across all ADRs and migration doc)
 > **Revised:** 2026-09-06 (executable contract spike — validated all ADR contracts in `packages/contract-spike`, 39 tests passing)
 > **Revised:** 2026-09-06 (Phase 1 PR #160 merged — ElementRegistry, PluginHandle, default registry; Phase 2 PR #162 merged — type definitions, union change, wire registry, envelope conversion)
-> **Revised:** 2026-09-07 (Phase 4 PR #174 merged — Grid + Templates extracted; Phase 5 complete — Fog fully extracted to @fieldnotes/vtt)
+> **Revised:** 2026-09-07 (post-extraction audit — Phase 5 feature movement complete, stabilization and sync ownership still open)
 
 ## Table of Contents
 
@@ -44,7 +44,7 @@
 
 ## Implementation Progress
 
-> **Last updated:** 2026-09-07 (Phase 5 complete — all VTT features extracted to @fieldnotes/vtt: Measure, Grid, Templates, Fog)
+> **Last updated:** 2026-09-07 (post-extraction stabilization and compatibility audit)
 
 ### Phase 0: Compatibility & Design
 
@@ -67,24 +67,24 @@
 | Per-surface render hooks                            | ✅ Done    | PR #163 — `createRenderHooks()`, `ViewportRenderHooks`, `MinimapRenderHooks`, `ImageExportHooks`, `SvgExportHooks` |
 | `ServiceKey<T>` / `createServiceKey`                | ✅ Done    | PR #163 — invariant-branded typed key with symbol identity                                                         |
 | `PointConstraintService` / `ConstraintServiceProxy` | ✅ Done    | PR #163 — two-interface design per ADR-0006                                                                        |
-| Client sync plugin interface                        | ✅ Done    | PR #163 — `ClientSyncPlugin`, `PluginSnapshot`, `SyncSnapshot` in `@fieldnotes/sync`                               |
-| Server sync plugin interface                        | ✅ Done    | PR #163 — `ServerSyncPlugin`, `ApplyResult`, `ServerOpContext` in `@fieldnotes/sync-server`                        |
-| Backend sync plugin interface                       | ✅ Done    | PR #163 — `BackendSyncPlugin`, `BackendOpContext` in `@fieldnotes/sync-redis`                                      |
+| Client sync plugin interface                        | 🟡 Partial | Contracts exist, but `SyncClient` still uses the legacy fog-specific path                                          |
+| Server sync plugin interface                        | 🟡 Partial | Contracts exist; fog routing is not migrated to them                                                               |
+| Backend sync plugin interface                       | 🟡 Partial | Contracts exist; Redis fog persistence is not migrated to them                                                     |
 | Overlay registry enhancements                       | ⏸ Deferred | Existing overlay system adequate; render hooks cover plugin z-ordering                                             |
 
 ### Phase 2: Internal Refactor — Type System
 
-| Task                                                                | Status  | Notes                                                                                                     |
-| ------------------------------------------------------------------- | ------- | --------------------------------------------------------------------------------------------------------- |
-| Grid/template element type definitions                              | ✅ Done | PR #162 — `GridElement`, `TemplateElement` with VTT fields                                                |
-| `ExtensionElementEnvelope` added to `CanvasElement` union           | ✅ Done | PR #162 — `RuntimeElement = CoreElement \| ExtensionElementEnvelope`                                      |
-| Wire registry + envelope conversion                                 | ✅ Done | PR #162 — `GridElementTypeDefinition`, `TemplateElementTypeDefinition`, legacy codecs                     |
-| `CoreElement` / `WireElementV3` / `WireElementV4` type distinctions | ✅ Done | PR #162 + contract-spike fix                                                                              |
-| Fog rendering → per-surface render hooks                            | ✅ Done | Render loop, minimap, viewport wired through hooks; fog no longer hard-coded                              |
-| Grid snapping → `PointConstraintService`                            | ✅ Done | `GridConstraintService`, `ToolContext.constraintService`, all 9 tools migrated                            |
-| Fog serialization → `PluginHandle` dual-write                       | ✅ Done | `CanvasState.extensions`, `createFogPluginHandle`, `Viewport.plugins`, dual-write + extensions-first read |
-| Fog sync → client/server/backend plugins                            | ✅ Done | `FogSyncController`, `FogLedger`, Redis scripts — all in `@fieldnotes/vtt`                                |
-| Register grid/template in default registry                          | ✅ Done | `getDefaultElementRegistry()` registers both definitions                                                  |
+| Task                                                                | Status      | Notes                                                                                                     |
+| ------------------------------------------------------------------- | ----------- | --------------------------------------------------------------------------------------------------------- |
+| Grid/template element type definitions                              | ✅ Done     | PR #162 — `GridElement`, `TemplateElement` with VTT fields                                                |
+| `ExtensionElementEnvelope` added to `CanvasElement` union           | ✅ Done     | PR #162 — `RuntimeElement = CoreElement \| ExtensionElementEnvelope`                                      |
+| Wire registry + envelope conversion                                 | ✅ Done     | PR #162 — `GridElementTypeDefinition`, `TemplateElementTypeDefinition`, legacy codecs                     |
+| `CoreElement` / `WireElementV3` / `WireElementV4` type distinctions | ✅ Done     | PR #162 + contract-spike fix                                                                              |
+| Fog rendering → per-surface render hooks                            | ✅ Done     | Render loop, minimap, viewport wired through hooks; fog no longer hard-coded                              |
+| Grid snapping → `PointConstraintService`                            | ✅ Done     | `GridConstraintService`, `ToolContext.constraintService`, all 9 tools migrated                            |
+| Fog serialization → `PluginHandle` dual-write                       | ✅ Done     | `CanvasState.extensions`, `createFogPluginHandle`, `Viewport.plugins`, dual-write + extensions-first read |
+| Fog sync → client/server/backend plugins                            | ❌ Not done | Contracts exist, but sync, server, and Redis still contain fog-specific integration                       |
+| Register grid/template in default registry                          | ✅ Done     | `getDefaultElementRegistry()` registers both definitions                                                  |
 
 ### Phases 3–7: Extraction
 
@@ -92,21 +92,19 @@
 | ----- | --------------------------------------------- | -------------- |
 | 3     | Extract MeasureTool (canary)                  | ✅ Done        |
 | 4     | Extract Grid + Templates to `@fieldnotes/vtt` | ✅ Done        |
-| 5     | Extract Fog to `@fieldnotes/vtt`              | ✅ Done        |
+| 5     | Extract Fog to `@fieldnotes/vtt`              | 🟡 Stabilizing |
 | 6     | Deploy & soak, v4 bump, legacy removal        | ❌ Not started |
 | 7     | Document extension API                        | ❌ Not started |
 
 ### Next Steps
 
-1. **Phase 6** — Soak period, then:
-   - Move `template-renderer.ts` and `grid-renderer.ts` from core to `@fieldnotes/vtt`
-   - Move grid/template export rendering from `export-image.ts` / `export-svg.ts` to VTT
-   - Migrate fog sync to plugin interface (ADR-0003) in sync/sync-server/sync-redis
+1. **Finish Phase 5** — Complete ADR-0003 plugin routing and remove the `sync -> vtt` dependency.
+2. **Phase 6** — Soak period, then:
    - Deprecate `snapToGrid` React prop
    - Remove legacy `GridElement`/`TemplateElement` from core's `CanvasElement` union
    - v4 wire format bump with capability exchange
-2. **Phase 7** — Document extension API with examples
-3. **RollKeeper migration** — Update RollKeeper imports to use `@fieldnotes/vtt` directly (external repo)
+3. **Phase 7** — Document extension API with examples
+4. **RollKeeper migration** — Update RollKeeper imports to use `@fieldnotes/vtt` directly (external repo)
 
 ---
 

@@ -1,4 +1,4 @@
-import type { CanvasElement, ElementStore, Layer } from '@fieldnotes/core';
+import type { CanvasElement, ElementRegistry, ElementStore, Layer } from '@fieldnotes/core';
 import {
   SyncClient,
   type ResolveLocalOnly,
@@ -39,6 +39,8 @@ export interface ManagedSyncTransport extends SyncTransport {
 
 export interface ManagedSyncConnectionOptions {
   store: ElementStore;
+  /** Registry used to translate runtime extension envelopes to the v3 wire format. */
+  elementRegistry?: ElementRegistry;
   /**
    * Stable client identity. It must not change across reconnects and, for
    * authenticated relays, must equal the server-authenticated user id so
@@ -315,6 +317,7 @@ export function createManagedSyncConnection(
       clientId,
       resolveAudience,
       resolveLocalOnly,
+      elementRegistry: options.elementRegistry,
       hubKnownIds,
       firstSnapshot: everJoined ? 'reconcile' : 'merge',
       ...(options.layers && layerLedger

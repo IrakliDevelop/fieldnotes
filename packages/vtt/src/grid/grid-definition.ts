@@ -31,6 +31,8 @@ export const gridElementTypeDefinition: ElementTypeDefinition<GridElement> = {
       zIndex: raw['zIndex'] as number,
       locked: raw['locked'] as boolean,
       layerId: raw['layerId'] as string,
+      groupId: raw['groupId'] as string | undefined,
+      rotation: raw['rotation'] as number | undefined,
       gridType: raw['gridType'] as 'square' | 'hex',
       hexOrientation: raw['hexOrientation'] as 'pointy' | 'flat',
       cellSize: raw['cellSize'] as number,
@@ -41,7 +43,7 @@ export const gridElementTypeDefinition: ElementTypeDefinition<GridElement> = {
   },
 
   encodeLegacy(el: GridElement): Record<string, unknown> {
-    return {
+    const result: Record<string, unknown> = {
       id: el.id,
       type: 'grid',
       position: el.position,
@@ -55,6 +57,9 @@ export const gridElementTypeDefinition: ElementTypeDefinition<GridElement> = {
       strokeWidth: el.strokeWidth,
       opacity: el.opacity,
     };
+    if (el.groupId !== undefined) result['groupId'] = el.groupId;
+    if (el.rotation !== undefined) result['rotation'] = el.rotation;
+    return result;
   },
 
   validateData(data: Record<string, unknown>): boolean {

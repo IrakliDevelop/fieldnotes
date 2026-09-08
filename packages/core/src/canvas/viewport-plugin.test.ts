@@ -147,6 +147,55 @@ describe('ViewportPlugin', () => {
     expect(disposed).toEqual(['c', 'b', 'a']);
   });
 
+  it('rolls back plugins and owned DOM when installation fails', () => {
+    const disposed: string[] = [];
+    const first: ViewportPlugin = {
+      name: 'first',
+      install() {
+        // installed successfully before the later failure
+      },
+      dispose() {
+        disposed.push('first');
+      },
+    };
+    const second: ViewportPlugin = {
+      name: 'second',
+      install() {
+        throw new Error('installation failed');
+      },
+      dispose() {
+        disposed.push('second');
+      },
+    };
+
+    expect(() => new Viewport(container, { plugins: [first, second] })).toThrow(
+      'installation failed',
+    );
+    expect(disposed).toEqual(['second', 'first']);
+    expect(container.childElementCount).toBe(0);
+  });
+
+  it('rolls back installed plugins when a later install fails', () => {
+    const disposed: string[] = [];
+    const first: ViewportPlugin = {
+      name: 'first',
+      install(host) {
+        host.renderHooks.viewport.register({ afterElements: vi.fn() });
+      },
+      dispose: () => disposed.push('first'),
+    };
+    const failing: ViewportPlugin = {
+      name: 'failing',
+      install() {
+        throw new Error('install failed');
+      },
+      dispose: () => disposed.push('failing'),
+    };
+
+    expect(() => new Viewport(container, { plugins: [first, failing] })).toThrow('install failed');
+    expect(disposed).toEqual(['failing', 'first']);
+  });
+
   it('plugin can register render hooks via the host', () => {
     const afterElementsSpy = vi.fn();
     let registeredHooks = false;

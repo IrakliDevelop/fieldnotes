@@ -15,6 +15,8 @@ import { resolveHtmlRouting, HtmlPainterMissingError } from './html-painter-regi
 import type { HtmlPainterRegistry } from './html-painter-registry';
 import { paintHtmlElement } from './html-paint';
 import type { HtmlPaintDiagnostic } from './html-paint-diagnostics';
+import type { ElementRegistry } from '../elements/element-registry';
+import type { RenderHooks } from './render-hooks';
 
 export interface ExportImageOptions extends ExportResourceOptions, HtmlExportOptions {
   scale?: number;
@@ -56,6 +58,10 @@ export interface ExportImageOptions extends ExportResourceOptions, HtmlExportOpt
    * a non-fatal `'unsupported'` diagnostic regardless of this flag.
    */
   strictMissingCanvasHtml?: boolean;
+  /** Element adapters used for extension bounds and rendering. */
+  elementRegistry?: ElementRegistry;
+  /** Per-surface hooks installed by viewport plugins. */
+  renderHooks?: RenderHooks;
   afterElements?: (ctx: CanvasRenderingContext2D, width: number, height: number) => void;
 }
 
@@ -119,7 +125,10 @@ function getStrokeBounds(el: CanvasElement): Rect | null {
   };
 }
 
-function getElementRect(el: CanvasElement): Rect | null {
+function getElementRect(
+  el: CanvasElement,
+  registry: ElementRegistry = getDefaultElementRegistry(),
+): Rect | null {
   switch (el.type) {
     case 'stroke': {
       const r = getStrokeBounds(el);
@@ -143,8 +152,7 @@ function getElementRect(el: CanvasElement): Rect | null {
       }
       return null;
     case 'extension':
-      // Extension elements bounds are computed by registered type handlers (Phase 4)
-      return null;
+      return registry.getAdapter(el.extensionType)?.bounds(el) ?? null;
     default:
       return null;
   }
@@ -153,6 +161,7 @@ function getElementRect(el: CanvasElement): Rect | null {
 function computeBounds(
   elements: CanvasElement[],
   padding: number,
+  registry: ElementRegistry = getDefaultElementRegistry(),
 ): { x: number; y: number; w: number; h: number } | null {
   let minX = Infinity;
   let minY = Infinity;
@@ -161,7 +170,7 @@ function computeBounds(
   let found = false;
 
   for (const el of elements) {
-    const rect = getElementRect(el);
+    const rect = getElementRect(el, registry);
     if (!rect) continue;
     found = true;
     minX = Math.min(minX, rect.x);
@@ -184,8 +193,9 @@ function resolveExportBounds(
   region: { x: number; y: number; w: number; h: number } | undefined,
   elements: CanvasElement[],
   padding: number,
+  registry: ElementRegistry,
 ): Rect | null {
-  if (!region) return computeBounds(elements, padding);
+  if (!region) return computeBounds(elements, padding, registry);
   const finite =
     Number.isFinite(region.x) &&
     Number.isFinite(region.y) &&
@@ -364,6 +374,7 @@ export async function exportImage(
   }
   const background = options.background ?? '#ffffff';
   const filter = options.filter;
+  const registry = options.elementRegistry ?? getDefaultElementRegistry();
 
   const allElements = store.getAll();
   let visibleElements = layerManager
@@ -374,7 +385,7 @@ export async function exportImage(
     visibleElements = visibleElements.filter(filter);
   }
 
-  const bounds = resolveExportBounds(options.region, visibleElements, padding);
+  const bounds = resolveExportBounds(options.region, visibleElements, padding, registry);
   if (!bounds) return null;
 
   const scale =
@@ -426,6 +437,7 @@ export async function exportImage(
 
   const renderer = new ElementRenderer();
   renderer.setStore(store);
+  renderer.setElementRegistry(registry);
 
   const onHtmlPaintDiagnostic = (d: HtmlPaintDiagnostic): void => {
     options.onHtmlError?.({
@@ -509,7 +521,6 @@ export async function exportImage(
 
   const layerGroups = new Map<string, CanvasElement[]>();
   const fullCanvasElements: CanvasElement[] = [];
-  const registry = getDefaultElementRegistry();
   for (const el of visibleElements) {
     if (el.type === 'extension' && registry.getAdapter(el.extensionType)?.fullCanvas) {
       fullCanvasElements.push(el);
@@ -563,6 +574,11 @@ export async function exportImage(
 
   if (options.afterElements) {
     options.afterElements(ctx, bounds.w, bounds.h);
+  }
+  if (options.renderHooks) {
+    for (const fn of options.renderHooks.imageExport.iterate('afterElements')) {
+      fn({ ctx, width: bounds.w, height: bounds.h, scale });
+    }
   }
 
   const mimeType = format === 'jpeg' ? 'image/jpeg' : 'image/png';

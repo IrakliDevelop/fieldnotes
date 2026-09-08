@@ -14,10 +14,10 @@ function makeHost(): ViewportPluginHost & {
 
   return {
     renderHooks: {
-      viewport: { register: vi.fn() },
-      minimap: { register: vi.fn() },
-      imageExport: { register: vi.fn() },
-      svgExport: { register: vi.fn() },
+      viewport: { register: vi.fn(() => vi.fn()) },
+      minimap: { register: vi.fn(() => vi.fn()) },
+      imageExport: { register: vi.fn(() => vi.fn()) },
+      svgExport: { register: vi.fn(() => vi.fn()) },
     } as unknown as ViewportPluginHost['renderHooks'],
     store: {} as ViewportPluginHost['store'],
     pushHistory: vi.fn(),
@@ -61,15 +61,40 @@ describe('createFogPlugin', () => {
     plugin.dispose?.();
   });
 
-  it('registers render hooks, plugin handle, and extra bounds on install', () => {
+  it('registers export hooks, plugin handle, and extra bounds on install', () => {
     const plugin = createFogPlugin();
     const host = makeHost();
     plugin.install(host);
 
-    expect(host.renderHooks.viewport.register).toHaveBeenCalledOnce();
+    expect(host.renderHooks.viewport.register).not.toHaveBeenCalled();
     expect(host.renderHooks.minimap.register).toHaveBeenCalledOnce();
+    expect(host.renderHooks.imageExport.register).toHaveBeenCalledOnce();
+    expect(host.renderHooks.svgExport.register).toHaveBeenCalledOnce();
     expect(host.registerPluginHandle).toHaveBeenCalledWith('fog', expect.any(Object));
     expect(host.registerExtraBounds).toHaveBeenCalledOnce();
+
+    plugin.dispose?.();
+  });
+
+  it('registers its viewport layer only while fog is visible', () => {
+    const unregisterViewport = vi.fn();
+    const plugin = createFogPlugin();
+    const host = makeHost();
+    vi.mocked(host.renderHooks.viewport.register).mockReturnValue(unregisterViewport);
+    plugin.install(host);
+
+    plugin.manager.initialize({
+      bounds: { x: 0, y: 0, w: 256, h: 256 },
+      base: 'covered',
+      cellSize: 64,
+    });
+    expect(host.renderHooks.viewport.register).not.toHaveBeenCalled();
+
+    plugin.manager.setViewMode('editor');
+    expect(host.renderHooks.viewport.register).toHaveBeenCalledOnce();
+
+    plugin.manager.setViewMode('off');
+    expect(unregisterViewport).toHaveBeenCalledOnce();
 
     plugin.dispose?.();
   });

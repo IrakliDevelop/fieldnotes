@@ -1,12 +1,19 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   ElementStore,
+  ElementRegistry,
   createNote,
   createShape,
   type CanvasElement,
   type Layer,
 } from '@fieldnotes/core';
-import { fogEncodeBase64, FogManager } from '@fieldnotes/vtt';
+import {
+  createTemplate,
+  fogEncodeBase64,
+  FogManager,
+  registerVttElementTypes,
+  templateElementTypeDefinition,
+} from '@fieldnotes/vtt';
 import type { ElementChangeMeta } from '@fieldnotes/core';
 import { SyncClient } from './sync-client';
 import type { AuthoritativeSnapshotContext, RemoteLayerUpdate } from './sync-client';
@@ -105,6 +112,47 @@ describe('SyncClient', () => {
     if (remote?.type === 'note') {
       expect(remote.backgroundColor).toBe('#bbbbbb');
     }
+  });
+
+  it('keeps v3 template shapes on the wire and extension envelopes at runtime', () => {
+    const bus = makeBus();
+    const registry = new ElementRegistry();
+    registerVttElementTypes(registry);
+    const source = new ElementStore();
+    const target = new ElementStore();
+    const sourceTransport = bus.endpoint();
+    const sourceClient = new SyncClient({
+      store: source,
+      transport: sourceTransport,
+      clientId: 'source',
+      elementRegistry: registry,
+    });
+    const targetClient = new SyncClient({
+      store: target,
+      transport: bus.endpoint(),
+      clientId: 'target',
+      elementRegistry: registry,
+    });
+    sourceClient.start();
+    targetClient.start();
+
+    const envelopeElement = templateElementTypeDefinition.wrap(
+      createTemplate({ position: { x: 10, y: 20 }, templateShape: 'circle', radius: 30 }),
+    );
+    source.add(envelopeElement);
+
+    const sent = sourceTransport.sent
+      .map((message) => JSON.parse(message) as { op: SyncOp })
+      .find(({ op }) => op.kind === 'upsert');
+    expect(sent?.op.kind).toBe('upsert');
+    if (sent?.op.kind === 'upsert') expect(sent.op.element.type).toBe('template');
+    expect(target.getById(envelopeElement.id)).toMatchObject({
+      type: 'extension',
+      extensionType: 'vtt:template',
+    });
+
+    sourceClient.stop();
+    targetClient.stop();
   });
 
   it('propagates a local remove to the remote store', () => {

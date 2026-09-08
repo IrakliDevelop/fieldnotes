@@ -960,6 +960,8 @@ describe('RenderLoop', () => {
     it('fires afterElements hooks during render', () => {
       const hooks: RenderHooks = createRenderHooks();
       const afterElements = vi.fn();
+      const hookCtx = mockCtx();
+      vi.mocked(deps.hybridSurface.getContext).mockReturnValue(hookCtx);
       hooks.viewport.register({ afterElements }, { slot: 'afterSceneBeforeOverlay' });
 
       const loopWithHooks = new RenderLoop({ ...deps, hooks });
@@ -968,7 +970,7 @@ describe('RenderLoop', () => {
 
       expect(afterElements).toHaveBeenCalledTimes(1);
       expect(afterElements).toHaveBeenCalledWith(
-        expect.anything(),
+        hookCtx,
         deps.camera,
         expect.objectContaining({
           width: expect.any(Number),
@@ -976,6 +978,22 @@ describe('RenderLoop', () => {
           dpr: expect.any(Number),
         }),
       );
+      expect(deps.hybridSurface.beginFrame).toHaveBeenCalledWith(new Set([3]), 300, 150);
+      expect(deps.hybridSurface.getContext).toHaveBeenCalledWith(3);
+    });
+
+    it('places overlays above the afterElements privacy stratum', () => {
+      const hooks: RenderHooks = createRenderHooks();
+      hooks.viewport.register({ afterElements: vi.fn() });
+      (deps.toolManager as { activeTool: unknown }).activeTool = { renderOverlay: vi.fn() };
+
+      const loopWithHooks = new RenderLoop({ ...deps, hooks });
+      loopWithHooks.requestRender();
+      loopWithHooks.flush();
+
+      expect(deps.hybridSurface.beginFrame).toHaveBeenCalledWith(new Set([3, 4]), 300, 150);
+      expect(deps.hybridSurface.getContext).toHaveBeenNthCalledWith(1, 3);
+      expect(deps.hybridSurface.getContext).toHaveBeenNthCalledWith(2, 4);
     });
 
     it('fires afterAll hooks during render', () => {

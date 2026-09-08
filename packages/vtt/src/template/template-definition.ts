@@ -35,6 +35,8 @@ export const templateElementTypeDefinition: ElementTypeDefinition<TemplateElemen
       zIndex: raw['zIndex'] as number,
       locked: raw['locked'] as boolean,
       layerId: raw['layerId'] as string,
+      groupId: raw['groupId'] as string | undefined,
+      rotation: raw['rotation'] as number | undefined,
       templateShape: raw['templateShape'] as TemplateShape,
       radius: raw['radius'] as number,
       angle: raw['angle'] as number,
@@ -68,6 +70,8 @@ export const templateElementTypeDefinition: ElementTypeDefinition<TemplateElemen
       opacity: el.opacity,
     };
     if (el.width !== undefined) result['width'] = el.width;
+    if (el.groupId !== undefined) result['groupId'] = el.groupId;
+    if (el.rotation !== undefined) result['rotation'] = el.rotation;
     if (el.feetPerCell !== undefined) result['feetPerCell'] = el.feetPerCell;
     if (el.radiusFeet !== undefined) result['radiusFeet'] = el.radiusFeet;
     if (el.renderStyle !== undefined) result['renderStyle'] = el.renderStyle;
@@ -147,6 +151,16 @@ export const templateElementTypeDefinition: ElementTypeDefinition<TemplateElemen
 
   bounds(el: TemplateElement): Bounds | null {
     return getTemplateBounds(el);
+  },
+
+  hitTest(el: TemplateElement, point): boolean {
+    const bounds = getTemplateBounds(el);
+    return (
+      point.x >= bounds.x &&
+      point.x <= bounds.x + bounds.w &&
+      point.y >= bounds.y &&
+      point.y <= bounds.y + bounds.h
+    );
   },
 
   renderMode: 'canvas',

@@ -1,6 +1,6 @@
 {
   "name": "@fieldnotes/vtt",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "VTT domain tools and overlays for Field Notes canvas SDK",
   "type": "module",
   "sideEffects": false,
@@ -43,7 +43,7 @@
     "fieldnotes"
   ],
   "peerDependencies": {
-    "@fieldnotes/core": ">=0.75.0 <1.0.0"
+    "@fieldnotes/core": ">=0.80.0 <1.0.0"
   },
   "devDependencies": {
     "@fieldnotes/core": "workspace:*",

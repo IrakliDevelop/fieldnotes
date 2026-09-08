@@ -6,6 +6,8 @@ import { getArrowControlPoint } from './arrow-geometry';
 import { sanitizeNoteHtml } from './note-sanitizer';
 import { computeStrokeSegments, transferStrokeRenderData } from './stroke-cache';
 import type { CanvasElement, ElementType } from './types';
+import type { ElementRegistry } from './element-registry';
+import { getDefaultElementRegistry } from './default-registry';
 
 function sanitizeRichText(element: CanvasElement): CanvasElement {
   if (element.type !== 'note' && element.type !== 'text') return element;
@@ -41,6 +43,21 @@ export class ElementStore {
   private spatialIndex = new Quadtree({ x: -100000, y: -100000, w: 200000, h: 200000 });
   private sortedCache: CanvasElement[] | null = null;
   private _versions = new Map<string, number>();
+  private elementRegistry: ElementRegistry;
+
+  constructor(elementRegistry: ElementRegistry = getDefaultElementRegistry()) {
+    this.elementRegistry = elementRegistry;
+  }
+
+  setElementRegistry(elementRegistry: ElementRegistry): void {
+    if (elementRegistry === this.elementRegistry) return;
+    this.elementRegistry = elementRegistry;
+    this.spatialIndex.clear();
+    for (const element of this.elements.values()) {
+      const bounds = this.indexBounds(element);
+      if (bounds) this.spatialIndex.insert(element.id, bounds);
+    }
+  }
 
   get count(): number {
     return this.elements.size;
@@ -79,7 +96,7 @@ export class ElementStore {
   // Spatial index stores the rotation-expanded AABB so rotated elements remain
   // broad-phase hit-test/marquee candidates; precise tests run against local bounds.
   private indexBounds(element: CanvasElement): Bounds | null {
-    return getElementVisualBounds(element);
+    return getElementVisualBounds(element, this.elementRegistry);
   }
 
   add(element: CanvasElement, meta?: ElementChangeMeta): void {

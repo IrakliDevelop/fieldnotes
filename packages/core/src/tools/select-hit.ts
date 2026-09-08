@@ -7,6 +7,7 @@ import { getElementBounds } from '../elements/element-bounds';
 import { hitTestStroke } from '../elements/stroke-hit';
 import { lineEndpoints } from '../elements/shape-geometry';
 import type { HandlePosition } from './select-overlay';
+import { getDefaultElementRegistry } from '../elements/default-registry';
 import {
   HANDLE_SIZE,
   HANDLE_HIT_PADDING,
@@ -29,16 +30,28 @@ export function hitTest(
     if (ctx.isLayerVisible && !ctx.isLayerVisible(el.layerId)) continue;
     if (ctx.isLayerLocked && ctx.isLayerLocked(el.layerId)) continue;
     if (el.type === 'grid') continue;
-    if (el.type === 'extension') continue;
     if (match && !match(el)) continue;
-    if (isInsideBounds(world, el)) return el;
+    if (isInsideBounds(world, el, ctx)) return el;
   }
   return null;
 }
 
-export function isInsideBounds(point: Point, el: CanvasElement): boolean {
+export function isInsideBounds(point: Point, el: CanvasElement, ctx?: ToolContext): boolean {
   if (el.type === 'grid') return false;
-  if (el.type === 'extension') return false;
+  if (el.type === 'extension') {
+    const registry = ctx?.elementRegistry ?? getDefaultElementRegistry();
+    const adapter = registry.getAdapter(el.extensionType);
+    if (!adapter || adapter.fullCanvas) return false;
+    if (adapter.hitTest) return adapter.hitTest(el, point);
+    const bounds = adapter.bounds(el);
+    return (
+      !!bounds &&
+      point.x >= bounds.x &&
+      point.x <= bounds.x + bounds.w &&
+      point.y >= bounds.y &&
+      point.y <= bounds.y + bounds.h
+    );
+  }
   const angle = el.rotation ?? 0;
   if (angle !== 0) {
     const b = getElementBounds(el);
@@ -99,7 +112,7 @@ export function hitTestResizeHandle(
     if (el.locked) continue;
     if (el.type === 'shape' && el.shape === 'line') continue;
 
-    const layout = getOverlayLayout(el, zoom);
+    const layout = getOverlayLayout(el, zoom, ctx.elementRegistry);
     if (!layout) continue;
     for (const [handle, pos] of layout.corners) {
       if (Math.abs(world.x - pos.x) <= handleHalf && Math.abs(world.y - pos.y) <= handleHalf) {
@@ -121,7 +134,7 @@ export function hitTestRotateHandle(
   if (!id) return null;
   const el = ctx.store.getById(id);
   if (!el || el.locked || !ROTATABLE_TYPES.has(el.type)) return null;
-  const layout = getOverlayLayout(el, ctx.camera.zoom);
+  const layout = getOverlayLayout(el, ctx.camera.zoom, ctx.elementRegistry);
   if (!layout) return null;
   const r = (HANDLE_SIZE / 2 + HANDLE_HIT_PADDING) / ctx.camera.zoom;
   const dx = world.x - layout.rotateHandle.x;
@@ -249,8 +262,18 @@ export function findElementsInRect(marquee: Bounds, ctx: ToolContext): string[] 
     if (ctx.isLayerVisible && !ctx.isLayerVisible(el.layerId)) continue;
     if (ctx.isLayerLocked && ctx.isLayerLocked(el.layerId)) continue;
     if (el.type === 'grid') continue;
-    if (el.type === 'extension') continue;
-    const bounds = getElementBounds(el);
+    if (
+      el.type === 'extension' &&
+      (ctx.elementRegistry ?? getDefaultElementRegistry()).getAdapter(el.extensionType)?.fullCanvas
+    ) {
+      continue;
+    }
+    const bounds =
+      el.type === 'extension'
+        ? (ctx.elementRegistry ?? getDefaultElementRegistry())
+            .getAdapter(el.extensionType)
+            ?.bounds(el)
+        : getElementBounds(el);
     if (bounds && rectsOverlap(marquee, rotatedAABB(bounds, el.rotation ?? 0))) {
       ids.push(el.id);
     }
