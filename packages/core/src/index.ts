@@ -1,4 +1,4 @@
-export const VERSION = '0.81.1';
+export const VERSION = '0.82.0';
 
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
 export {
@@ -10,7 +10,8 @@ export {
   footprintFromSize,
 } from './core/snap';
 export type { Footprint } from './core/snap';
-export type { CanvasState } from './core/state-serializer';
+export { CANVAS_STATE_VERSION } from './core/state-serializer';
+export type { CanvasState, ImportableCanvasState } from './core/state-serializer';
 export { AutoSave } from './core/auto-save';
 export type { AutoSaveOptions } from './core/auto-save';
 export { MemoryAdapter } from './core/storage/memory-adapter';
@@ -189,8 +190,6 @@ export {
   createHtmlElement,
   createText,
   createShape,
-  createGrid,
-  createTemplate,
   DEFAULT_NOTE_FONT_SIZE,
 } from './elements/element-factory';
 export {
@@ -232,11 +231,10 @@ export type {
   ShapeElement,
   ShapeKind,
   HexOrientation,
-  GridElement,
-  TemplateElement,
-  TemplateShape,
-  TemplateRenderStyle,
   ExtensionElementEnvelope,
+  ExtensionInteractionHandle,
+  ExtensionInteractionContext,
+  ElementInteractionAdapter,
   ElementTypeDefinition,
   ElementTypeAdapter,
   ElementTypeKey,

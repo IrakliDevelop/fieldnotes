@@ -30,6 +30,7 @@ export type {
   FogMetaRecord,
   FogTileRecord,
   FogSnapshot,
+  SyncCapabilities,
 } from './protocol';
 export {
   isValidEnvelope,
@@ -59,3 +60,11 @@ export type {
   SyncSnapshot,
 } from './sync-plugin';
 export { createExtensionKind } from './sync-plugin';
+export {
+  CapabilityHandshake,
+  createCurrentCapabilities,
+  createLegacyCapabilities,
+  translateOpForPeer,
+  DEFAULT_CAPABILITY_TIMEOUT_MS,
+  DEFAULT_CAPABILITY_QUEUE_LIMIT,
+} from './capabilities';

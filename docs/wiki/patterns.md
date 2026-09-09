@@ -62,14 +62,14 @@ Persisted state and sync protocol are **public contracts**. Never break them.
 ```typescript
 // ✓ Correct — add optional field
 interface CanvasState {
-  version: 3;
+  version: 4;
   elements: CanvasElement[];
   newField?: string; // optional, old clients ignore it
 }
 
 // ✗ Wrong — breaking change
 interface CanvasState {
-  version: 3;
+  version: 4;
   elements: CanvasElement[];
   newField: string; // required, old clients crash
 }

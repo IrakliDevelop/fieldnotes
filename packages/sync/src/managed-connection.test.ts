@@ -142,7 +142,11 @@ describe('createManagedSyncConnection', () => {
     start();
     await flushAsync();
 
-    const first = JSON.parse(currentTransport().sent[0] ?? '') as {
+    const request = currentTransport()
+      .sent.map((message) => JSON.parse(message) as { from: string; op: { kind: string } })
+      .find((envelope) => envelope.op.kind === 'request-snapshot');
+    expect(request).toBeDefined();
+    const first = request as {
       from: string;
       op: { kind: string };
     };

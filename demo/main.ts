@@ -26,7 +26,6 @@ import {
   IndexedDBAdapter,
   createStroke,
   createNote,
-  createGrid,
   PeerRoster,
   RemoteCursorOverlay,
 } from '@fieldnotes/core';
@@ -46,6 +45,8 @@ import {
   createFogPlugin,
   TemplateTool,
   GridController,
+  createGrid,
+  gridElementTypeDefinition,
 } from '@fieldnotes/vtt';
 import type { MeasurePresence } from '@fieldnotes/vtt';
 
@@ -1050,19 +1051,21 @@ gridColorInput?.addEventListener('input', () => {
 });
 
 function syncGridPanelFromStore() {
-  const grid = viewport.store.getElementsByType('grid')[0];
+  const grid = viewport.store
+    .getElementsByType('extension')
+    .find((element) => element.extensionType === 'vtt:grid');
   gridActive = !!grid;
   if (gridToggleBtn) {
     gridToggleBtn.textContent = gridActive ? 'Grid: On' : 'Grid: Off';
     if (gridActive) gridToggleBtn.classList.add('active');
     else gridToggleBtn.classList.remove('active');
   }
-  if (grid && grid.type === 'grid') {
-    if (gridTypeSelect) gridTypeSelect.value = grid.gridType;
-    if (hexOrientationSelect) hexOrientationSelect.value = grid.hexOrientation;
-    if (gridCellSizeInput) gridCellSizeInput.value = String(grid.cellSize);
-    if (gridCellSizeLabel) gridCellSizeLabel.textContent = String(grid.cellSize);
-    if (gridColorInput) gridColorInput.value = grid.strokeColor;
+  if (grid) {
+    if (gridTypeSelect) gridTypeSelect.value = String(grid.data['gridType']);
+    if (hexOrientationSelect) hexOrientationSelect.value = String(grid.data['hexOrientation']);
+    if (gridCellSizeInput) gridCellSizeInput.value = String(grid.data['cellSize']);
+    if (gridCellSizeLabel) gridCellSizeLabel.textContent = String(grid.data['cellSize']);
+    if (gridColorInput) gridColorInput.value = String(grid.data['strokeColor']);
     updateHexOrientationVisibility();
   }
 }
@@ -1229,15 +1232,17 @@ function seedBench(count: number): void {
   }
 
   viewport.store.add(
-    createGrid({
-      gridType: 'hex',
-      hexOrientation: 'pointy',
-      cellSize: 40,
-      strokeColor: '#888888',
-      strokeWidth: 1,
-      opacity: 0.3,
-      layerId,
-    }),
+    gridElementTypeDefinition.wrap(
+      createGrid({
+        gridType: 'hex',
+        hexOrientation: 'pointy',
+        cellSize: 40,
+        strokeColor: '#888888',
+        strokeWidth: 1,
+        opacity: 0.3,
+        layerId,
+      }),
+    ),
   );
 
   viewport.fitToContent();

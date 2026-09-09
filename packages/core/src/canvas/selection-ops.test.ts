@@ -7,13 +7,10 @@ import { HistoryRecorder } from '../history/history-recorder';
 import {
   createShape,
   createArrow,
-  createTemplate,
   createStroke,
   createText,
   createImage,
 } from '../elements/element-factory';
-import { rotatePoint } from '../core/geometry';
-import { getElementBounds } from '../elements/element-bounds';
 
 function setup(selectedIds: string[] = []) {
   const store = new ElementStore();
@@ -407,25 +404,6 @@ describe('rotateSelection', () => {
     expect(boundAfter.to).not.toEqual(boundToOld);
   });
 
-  it('template rotates aim and orbits pivot as part of a group', () => {
-    const t = createTemplate({
-      position: { x: 0, y: 0 },
-      templateShape: 'cone',
-      radius: 30,
-      angle: 0,
-    });
-    const s = createShape({ position: { x: 50, y: 0 }, size: { w: 10, h: 10 } });
-    const { store, ops } = setup([t.id, s.id]);
-    store.add(t);
-    store.add(s);
-
-    ops.rotateSelection('cw');
-
-    const rt = store.getById(t.id);
-    if (rt?.type !== 'template') throw new Error('template expected');
-    expect(rt.angle).toBeCloseTo(Math.PI / 2);
-  });
-
   it('lone selected arrow orbits its own bbox center', () => {
     // bbox of (0,0)-(10,0) is x:[0,10] y:[0,0], center (5,0).
     // y-down CW: (x,y)-pivot -> (-dy,dx)+pivot. from (0,0): d=(-5,0) -> (0,-5) -> (5,-5).
@@ -442,29 +420,6 @@ describe('rotateSelection', () => {
     expect(el.from.y).toBeCloseTo(-5);
     expect(el.to.x).toBeCloseTo(5);
     expect(el.to.y).toBeCloseTo(5);
-  });
-
-  it('lone selected template orbits its own bounds center', () => {
-    const template = createTemplate({
-      position: { x: 10, y: 0 },
-      templateShape: 'cone',
-      radius: 30,
-      angle: 0,
-    });
-    const { store, ops } = setup([template.id]);
-    store.add(template);
-    const bounds = getElementBounds(template);
-    if (!bounds) throw new Error('bounds expected');
-    const pivot = { x: bounds.x + bounds.w / 2, y: bounds.y + bounds.h / 2 };
-    const expectedPosition = rotatePoint(template.position, pivot, Math.PI / 2);
-
-    ops.rotateSelection('cw');
-
-    const el = store.getById(template.id);
-    if (el?.type !== 'template') throw new Error('template expected');
-    expect(el.angle).toBeCloseTo(Math.PI / 2);
-    expect(el.position.x).toBeCloseTo(expectedPosition.x);
-    expect(el.position.y).toBeCloseTo(expectedPosition.y);
   });
 
   it('empty selection is a no-op', () => {

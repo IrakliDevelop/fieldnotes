@@ -1,14 +1,11 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from 'vitest';
 import { rotatePoint } from '../core/geometry';
-import { createNote, createTemplate } from '../elements/element-factory';
+import { createNote } from '../elements/element-factory';
 import {
   anchorOffset,
   computeResize,
   computeRotatedResize,
-  computeTemplateResize,
-  computeRectangleLengthResize,
-  computeRectangleWidthResize,
   MIN_ELEMENT_SIZE,
 } from './select-resize';
 
@@ -91,55 +88,4 @@ describe('computeRotatedResize', () => {
       expect(patch.size.h).toBeGreaterThan(note.size.h);
     });
   }
-});
-
-describe('computeTemplateResize', () => {
-  it('sets radius from the pointer distance, clamped at MIN_ELEMENT_SIZE', () => {
-    const tpl = createTemplate({
-      position: { x: 0, y: 0 },
-      templateShape: 'circle',
-      radius: 100,
-    });
-    const patch = computeTemplateResize(tpl, { x: 30, y: 40 }, {});
-    expect(patch).not.toBeNull();
-    expect(patch?.radius).toBeCloseTo(50, 6);
-
-    const small = computeTemplateResize(tpl, { x: 3, y: 4 }, {});
-    expect(small?.radius).toBe(MIN_ELEMENT_SIZE);
-  });
-});
-
-describe('computeRectangleLengthResize', () => {
-  const rect = () =>
-    createTemplate({
-      position: { x: 0, y: 0 },
-      templateShape: 'rectangle',
-      radius: 100,
-      angle: 0,
-      width: 40,
-    });
-  it('sets radius to the along-aim projection, leaving width untouched', () => {
-    const patch = computeRectangleLengthResize(rect(), { x: 160, y: 30 }, {});
-    expect(patch?.radius).toBeCloseTo(160, 3);
-    expect('width' in (patch ?? {})).toBe(false);
-  });
-  it('clamps to MIN_ELEMENT_SIZE', () => {
-    const patch = computeRectangleLengthResize(rect(), { x: 5, y: 0 }, {});
-    expect(patch?.radius).toBe(20);
-  });
-});
-describe('computeRectangleWidthResize', () => {
-  const rect = () =>
-    createTemplate({
-      position: { x: 0, y: 0 },
-      templateShape: 'rectangle',
-      radius: 100,
-      angle: 0,
-      width: 40,
-    });
-  it('sets width to twice the perpendicular distance, leaving radius untouched', () => {
-    const patch = computeRectangleWidthResize(rect(), { x: 50, y: 30 }, {});
-    expect(patch?.width).toBeCloseTo(60, 3);
-    expect('radius' in (patch ?? {})).toBe(false);
-  });
 });

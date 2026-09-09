@@ -140,12 +140,6 @@ export class ElementRenderer {
         );
         break;
       }
-      case 'grid':
-        // Grid rendering is delegated to the VTT element type definition (Phase 6)
-        break;
-      case 'template':
-        // Template rendering is delegated to the VTT element type definition (Phase 6)
-        break;
       case 'html':
         this.renderHtml(ctx, element);
         break;

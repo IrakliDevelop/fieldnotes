@@ -24,10 +24,7 @@ import {
   hitTestResizeHandle,
   hitTestRotateHandle,
   hitTestLineHandles,
-  hitTestTemplateResizeHandle,
-  hitTestTemplateAimHandle,
-  hitTestRectangleLengthHandle,
-  hitTestRectangleWidthHandle,
+  hitTestExtensionHandle,
   findElementsInRect,
 } from './select-hit';
 import type { HandlePosition, OverlayLayout } from './select-overlay';
@@ -38,14 +35,7 @@ import {
   renderSelectionBoxes,
   renderGuideLines,
 } from './select-overlay';
-import {
-  computeResize,
-  computeRotatedResize,
-  computeTemplateResize,
-  computeRectangleLengthResize,
-  computeRectangleWidthResize,
-} from './select-resize';
-import { resolveTemplateElement, updateTemplateElement } from './template-compat';
+import { computeResize, computeRotatedResize } from './select-resize';
 
 const SNAP_PX = 6;
 const ROTATE_SNAP = Math.PI / 12; // 15°
@@ -55,10 +45,7 @@ type Mode =
   | { type: 'dragging' }
   | { type: 'marquee'; start: Point }
   | { type: 'resizing'; elementId: string; handle: HandlePosition }
-  | { type: 'resizing-template'; elementId: string }
-  | { type: 'aiming-template'; elementId: string }
-  | { type: 'resizing-rect-length'; elementId: string }
-  | { type: 'resizing-rect-width'; elementId: string }
+  | { type: 'extension-handle'; elementId: string; handleId: string; cursor: string }
   | { type: 'arrow-handle'; elementId: string; handle: ArrowHandle }
   | { type: 'line-handle'; elementId: string; fixed: Point }
   | {
@@ -167,30 +154,9 @@ export class SelectTool implements Tool {
       return;
     }
 
-    const templateResizeHit = hitTestTemplateResizeHandle(world, ctx, this._selectedIds);
-    if (templateResizeHit) {
-      this.mode = { type: 'resizing-template', elementId: templateResizeHit };
-      ctx.requestRender();
-      return;
-    }
-
-    const rectLengthHit = hitTestRectangleLengthHandle(world, ctx, this._selectedIds);
-    if (rectLengthHit) {
-      this.mode = { type: 'resizing-rect-length', elementId: rectLengthHit.elementId };
-      ctx.requestRender();
-      return;
-    }
-
-    const rectWidthHit = hitTestRectangleWidthHandle(world, ctx, this._selectedIds);
-    if (rectWidthHit) {
-      this.mode = { type: 'resizing-rect-width', elementId: rectWidthHit.elementId };
-      ctx.requestRender();
-      return;
-    }
-
-    const aimHit = hitTestTemplateAimHandle(world, ctx, this._selectedIds);
-    if (aimHit) {
-      this.mode = { type: 'aiming-template', elementId: aimHit.elementId };
+    const extensionHandle = hitTestExtensionHandle(world, ctx, this._selectedIds);
+    if (extensionHandle) {
+      this.mode = { type: 'extension-handle', ...extensionHandle };
       ctx.requestRender();
       return;
     }
@@ -284,47 +250,18 @@ export class SelectTool implements Tool {
       return;
     }
 
-    if (this.mode.type === 'resizing-template') {
-      ctx.setCursor?.('nwse-resize');
-      this.handleTemplateResize(world, ctx);
-      return;
-    }
-
-    if (this.mode.type === 'aiming-template') {
+    if (this.mode.type === 'extension-handle') {
+      ctx.setCursor?.(this.mode.cursor);
       const stored = ctx.store.getById(this.mode.elementId);
-      const el = stored ? resolveTemplateElement(stored, ctx.elementRegistry) : null;
-      if (stored && el && !stored.locked) {
-        let a = Math.atan2(world.y - el.position.y, world.x - el.position.x);
-        if (state.shiftKey) {
-          const snap = ctx.gridType === 'hex' ? Math.PI / 3 : ROTATE_SNAP;
-          a = Math.round(a / snap) * snap;
-        }
-        ctx.store.update(
-          this.mode.elementId,
-          updateTemplateElement(stored, { ...el, angle: normalizeAngle(a) }, ctx.elementRegistry),
-        );
+      if (stored?.type === 'extension' && !stored.locked) {
+        const adapter = ctx.elementRegistry?.getAdapter(stored.extensionType);
+        const updated = adapter?.updateHandle?.(stored, this.mode.handleId, world, {
+          zoom: ctx.camera.zoom,
+          shiftKey: state.shiftKey,
+          snap: { enabled: ctx.snapToGrid === true, size: ctx.gridSize, mode: ctx.gridType },
+        });
+        if (updated) ctx.store.update(stored.id, updated);
         ctx.requestRender();
-      }
-      return;
-    }
-
-    if (this.mode.type === 'resizing-rect-length' || this.mode.type === 'resizing-rect-width') {
-      ctx.setCursor?.(this.mode.type === 'resizing-rect-length' ? 'ew-resize' : 'ns-resize');
-      const stored = ctx.store.getById(this.mode.elementId);
-      const el = stored ? resolveTemplateElement(stored, ctx.elementRegistry) : null;
-      if (stored && el && !stored.locked) {
-        const opts = { snapToGrid: ctx.snapToGrid, gridSize: ctx.gridSize, gridType: ctx.gridType };
-        const patch =
-          this.mode.type === 'resizing-rect-length'
-            ? computeRectangleLengthResize(el, world, opts)
-            : computeRectangleWidthResize(el, world, opts);
-        if (patch) {
-          ctx.store.update(
-            this.mode.elementId,
-            updateTemplateElement(stored, { ...el, ...patch }, ctx.elementRegistry),
-          );
-          ctx.requestRender();
-        }
       }
       return;
     }
@@ -364,7 +301,7 @@ export class SelectTool implements Tool {
           this.dragVisibleRect = ctx.getVisibleRect?.() ?? null;
           const candidates = (
             this.dragVisibleRect ? ctx.store.queryRect(this.dragVisibleRect) : ctx.store.getAll()
-          ).filter((el) => !selSet.has(el.id) && el.type !== 'grid');
+          ).filter((el) => !selSet.has(el.id));
           const targets: Bounds[] = [];
           for (const el of candidates) {
             const b = getElementBounds(el);
@@ -567,23 +504,9 @@ export class SelectTool implements Tool {
       return null;
     }
 
-    const templateResizeHit = hitTestTemplateResizeHandle(world, ctx, this._selectedIds);
-    if (templateResizeHit) {
-      ctx.setCursor?.('nwse-resize');
-      return null;
-    }
-
-    if (hitTestRectangleLengthHandle(world, ctx, this._selectedIds)) {
-      ctx.setCursor?.('ew-resize');
-      return null;
-    }
-    if (hitTestRectangleWidthHandle(world, ctx, this._selectedIds)) {
-      ctx.setCursor?.('ns-resize');
-      return null;
-    }
-
-    if (hitTestTemplateAimHandle(world, ctx, this._selectedIds)) {
-      ctx.setCursor?.('grab');
+    const extensionHandle = hitTestExtensionHandle(world, ctx, this._selectedIds);
+    if (extensionHandle) {
+      ctx.setCursor?.(extensionHandle.cursor);
       return null;
     }
 
@@ -646,28 +569,6 @@ export class SelectTool implements Tool {
 
   private getOverlayLayout(el: CanvasElement, zoom: number): OverlayLayout | null {
     return getOverlayLayout(el, zoom);
-  }
-
-  private handleTemplateResize(world: Point, ctx: ToolContext): void {
-    if (this.mode.type !== 'resizing-template') return;
-
-    const stored = ctx.store.getById(this.mode.elementId);
-    if (!stored || stored.locked) return;
-    const el = resolveTemplateElement(stored, ctx.elementRegistry);
-    if (!el) return;
-
-    const patch = computeTemplateResize(el, world, {
-      snapToGrid: ctx.snapToGrid,
-      gridSize: ctx.gridSize,
-      gridType: ctx.gridType,
-    });
-    if (patch) {
-      ctx.store.update(
-        this.mode.elementId,
-        updateTemplateElement(stored, { ...el, ...patch }, ctx.elementRegistry),
-      );
-      ctx.requestRender();
-    }
   }
 
   private getMarqueeRect(): Bounds | null {

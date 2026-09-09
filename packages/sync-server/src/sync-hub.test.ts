@@ -1,9 +1,14 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { createShape } from '@fieldnotes/core';
-import { fogEncodeBase64 } from '@fieldnotes/vtt';
+import { createShape, ElementRegistry } from '@fieldnotes/core';
+import {
+  createTemplate,
+  fogEncodeBase64,
+  registerVttElementTypes,
+  templateElementTypeDefinition,
+} from '@fieldnotes/vtt';
 import { createFogServerPlugin } from '@fieldnotes/vtt/server';
 import type { CanvasElement, Layer } from '@fieldnotes/core';
-import { createExtensionKind, type SyncOp } from '@fieldnotes/sync';
+import { createCurrentCapabilities, createExtensionKind, type SyncOp } from '@fieldnotes/sync';
 import { SyncHub } from './sync-hub';
 import type { Connection } from './sync-hub';
 import type { HubBackend } from './hub-backend';
@@ -72,6 +77,14 @@ describe('SyncHub', () => {
     B = makeConn('B', 'R');
     hub.addConnection(A);
     hub.addConnection(B);
+    await hub.handleMessage(
+      'B',
+      envelope('B', {
+        kind: 'capabilities',
+        capabilities: createCurrentCapabilities(['test:counter']),
+      }),
+    );
+    B.sent.length = 0;
 
     await hub.handleMessage(
       'A',
@@ -110,6 +123,77 @@ describe('SyncHub', () => {
     });
     expect(A.sent).toEqual([]); // not echoed to sender
     expect(C.sent).toEqual([]); // cross-room isolated
+  });
+
+  it('translates envelope upserts and snapshots independently for each peer', async () => {
+    hub.close();
+    const registry = new ElementRegistry();
+    registerVttElementTypes(registry);
+    const backend = new MemoryHubBackend();
+    hub = new SyncHub({ elementRegistry: registry, backend });
+    A = makeConn('A', 'R');
+    B = makeConn('B', 'R'); // no handshake: legacy fallback
+    const modern = makeConn('modern', 'R');
+    hub.addConnection(A);
+    hub.addConnection(B);
+    hub.addConnection(modern);
+    await hub.handleMessage(
+      modern.id,
+      envelope(modern.id, {
+        kind: 'capabilities',
+        capabilities: createCurrentCapabilities([]),
+      }),
+    );
+    modern.sent.length = 0;
+
+    const template = templateElementTypeDefinition.wrap(
+      createTemplate({ position: { x: 10, y: 20 }, templateShape: 'cone', radius: 30 }),
+    );
+    await hub.handleMessage(A.id, envelope(A.id, { kind: 'upsert', element: template }));
+
+    expect(JSON.parse(B.sent[0] ?? '').op.element).toMatchObject({
+      type: 'template',
+      templateShape: 'cone',
+    });
+    expect(JSON.parse(modern.sent[0] ?? '').op.element).toMatchObject({
+      type: 'extension',
+      extensionType: 'vtt:template',
+    });
+
+    B.sent.length = 0;
+    modern.sent.length = 0;
+    await hub.handleMessage(B.id, envelope('legacy-client', { kind: 'request-snapshot' }));
+    await hub.handleMessage(modern.id, envelope('modern-client', { kind: 'request-snapshot' }));
+
+    expect(JSON.parse(B.sent[0] ?? '').op.elements[0].type).toBe('template');
+    expect(JSON.parse(modern.sent[0] ?? '').op.elements[0]).toMatchObject({
+      type: 'extension',
+      extensionType: 'vtt:template',
+    });
+
+    A.sent.length = 0;
+    modern.sent.length = 0;
+    const legacyTemplate = templateElementTypeDefinition.encodeLegacy(
+      createTemplate({ position: { x: 40, y: 50 }, templateShape: 'square', radius: 20 }),
+    );
+    legacyTemplate['audience'] = 'table';
+    legacyTemplate['ownerId'] = 'legacy-owner';
+    await hub.handleMessage(
+      B.id,
+      JSON.stringify({ from: B.id, op: { kind: 'upsert', element: legacyTemplate } }),
+    );
+
+    expect(JSON.parse(A.sent[0] ?? '').op.element.type).toBe('template');
+    expect(JSON.parse(modern.sent[0] ?? '').op.element).toMatchObject({
+      type: 'extension',
+      extensionType: 'vtt:template',
+    });
+    expect((await backend.snapshot('R')).at(-1)).toMatchObject({
+      type: 'extension',
+      extensionType: 'vtt:template',
+      audience: 'table',
+      ownerId: 'legacy-owner',
+    });
   });
 
   it('applies forwarded ops to the backend (snapshot reflects it)', async () => {

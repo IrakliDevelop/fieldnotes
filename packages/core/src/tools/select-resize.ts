@@ -1,5 +1,5 @@
 import type { Point } from '../core/types';
-import type { CanvasElement, TemplateElement } from '../elements/types';
+import type { CanvasElement } from '../elements/types';
 import { rotatePoint } from '../core/geometry';
 import type { HandlePosition } from './select-overlay';
 
@@ -153,72 +153,4 @@ export function computeRotatedResize(
   const position = { x: newCenter.x - w / 2, y: newCenter.y - h / 2 };
 
   return { position, size: { w, h } };
-}
-
-export interface TemplateResizeOptions {
-  snapToGrid?: boolean;
-  gridSize?: number;
-  gridType?: 'square' | 'hex';
-}
-
-export function computeTemplateResize(
-  el: TemplateElement,
-  world: Point,
-  opts: TemplateResizeOptions,
-): Record<string, unknown> | null {
-  const dx = world.x - el.position.x;
-  const dy = world.y - el.position.y;
-  let newRadius = Math.sqrt(dx * dx + dy * dy);
-
-  if (opts.snapToGrid && opts.gridSize && opts.gridSize > 0) {
-    const snapUnit = opts.gridType === 'hex' ? Math.sqrt(3) * opts.gridSize : opts.gridSize;
-    newRadius = Math.max(snapUnit, Math.round(newRadius / snapUnit) * snapUnit);
-  }
-  newRadius = Math.max(MIN_ELEMENT_SIZE, newRadius);
-
-  const updates: Record<string, unknown> = { radius: newRadius };
-  if (el.feetPerCell != null && opts.gridSize && opts.gridSize > 0) {
-    const snapUnit = opts.gridType === 'hex' ? Math.sqrt(3) * opts.gridSize : opts.gridSize;
-    updates.radiusFeet = (newRadius / snapUnit) * el.feetPerCell;
-  }
-
-  return updates;
-}
-
-export function computeRectangleLengthResize(
-  el: TemplateElement,
-  world: Point,
-  opts: TemplateResizeOptions,
-): Record<string, unknown> | null {
-  const cos = Math.cos(el.angle);
-  const sin = Math.sin(el.angle);
-  let len = (world.x - el.position.x) * cos + (world.y - el.position.y) * sin;
-  if (opts.snapToGrid && opts.gridSize && opts.gridSize > 0) {
-    const snapUnit = opts.gridType === 'hex' ? Math.sqrt(3) * opts.gridSize : opts.gridSize;
-    len = Math.max(snapUnit, Math.round(len / snapUnit) * snapUnit);
-  }
-  len = Math.max(MIN_ELEMENT_SIZE, len);
-  const updates: Record<string, unknown> = { radius: len };
-  if (el.feetPerCell != null && opts.gridSize && opts.gridSize > 0) {
-    const snapUnit = opts.gridType === 'hex' ? Math.sqrt(3) * opts.gridSize : opts.gridSize;
-    updates.radiusFeet = (len / snapUnit) * el.feetPerCell;
-  }
-  return updates;
-}
-
-export function computeRectangleWidthResize(
-  el: TemplateElement,
-  world: Point,
-  opts: TemplateResizeOptions,
-): Record<string, unknown> | null {
-  const cos = Math.cos(el.angle);
-  const sin = Math.sin(el.angle);
-  const perp = Math.abs(-(world.x - el.position.x) * sin + (world.y - el.position.y) * cos);
-  let width = perp * 2;
-  if (opts.snapToGrid && opts.gridSize && opts.gridSize > 0) {
-    const snapUnit = opts.gridType === 'hex' ? Math.sqrt(3) * opts.gridSize : opts.gridSize;
-    width = Math.max(snapUnit, Math.round(width / snapUnit) * snapUnit);
-  }
-  width = Math.max(MIN_ELEMENT_SIZE, width);
-  return { width };
 }

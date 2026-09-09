@@ -128,4 +128,12 @@ export class ClientPluginRegistry {
     entry.handler(op, meta);
     return true;
   }
+
+  get extensionKinds(): readonly string[] {
+    return [...this.extensions.keys()];
+  }
+
+  get extensionDefinitions(): ReadonlyMap<string, ExtensionKind<unknown>> {
+    return new Map([...this.extensions].map(([name, entry]) => [name, entry.kind]));
+  }
 }

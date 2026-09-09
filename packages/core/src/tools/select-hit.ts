@@ -13,9 +13,7 @@ import {
   HANDLE_HIT_PADDING,
   ROTATABLE_TYPES,
   getOverlayLayout,
-  templateAimKnob,
 } from './select-overlay';
-import { resolveTemplateElement } from './template-compat';
 
 export function hitTest(
   world: Point,
@@ -30,7 +28,6 @@ export function hitTest(
   for (const el of candidates) {
     if (ctx.isLayerVisible && !ctx.isLayerVisible(el.layerId)) continue;
     if (ctx.isLayerLocked && ctx.isLayerLocked(el.layerId)) continue;
-    if (el.type === 'grid') continue;
     if (match && !match(el)) continue;
     if (isInsideBounds(world, el, ctx)) return el;
   }
@@ -38,7 +35,6 @@ export function hitTest(
 }
 
 export function isInsideBounds(point: Point, el: CanvasElement, ctx?: ToolContext): boolean {
-  if (el.type === 'grid') return false;
   if (el.type === 'extension') {
     const registry = ctx?.elementRegistry ?? getDefaultElementRegistry();
     const adapter = registry.getAdapter(el.extensionType);
@@ -83,18 +79,32 @@ export function isInsideBounds(point: Point, el: CanvasElement, ctx?: ToolContex
     return isNearBezier(point, el.from, el.to, el.bend, 10);
   }
 
-  if (el.type === 'template') {
-    const bounds = getElementBounds(el);
-    if (!bounds) return false;
-    return (
-      point.x >= bounds.x &&
-      point.x <= bounds.x + bounds.w &&
-      point.y >= bounds.y &&
-      point.y <= bounds.y + bounds.h
-    );
-  }
-
   return false;
+}
+
+export function hitTestExtensionHandle(
+  world: Point,
+  ctx: ToolContext,
+  selectedIds: string[],
+): { elementId: string; handleId: string; cursor: string } | null {
+  for (const id of selectedIds) {
+    const element = ctx.store.getById(id);
+    if (
+      !element ||
+      element.type !== 'extension' ||
+      element.locked ||
+      (ctx.isLayerLocked?.(element.layerId) ?? false)
+    )
+      continue;
+    const adapter = ctx.elementRegistry?.getAdapter(element.extensionType);
+    const handle = adapter?.hitTestHandle?.(element, world, {
+      zoom: ctx.camera.zoom,
+      shiftKey: false,
+      snap: { enabled: ctx.snapToGrid === true, size: ctx.gridSize, mode: ctx.gridType },
+    });
+    if (handle) return { elementId: id, handleId: handle.id, cursor: handle.cursor };
+  }
+  return null;
 }
 
 export function hitTestResizeHandle(
@@ -169,107 +179,12 @@ export function hitTestLineHandles(
   return null;
 }
 
-export function hitTestTemplateResizeHandle(
-  world: Point,
-  ctx: ToolContext,
-  selectedIds: string[],
-): string | null {
-  if (selectedIds.length === 0) return null;
-
-  const zoom = ctx.camera.zoom;
-  const handleHalf = (HANDLE_SIZE / 2 + HANDLE_HIT_PADDING) / zoom;
-
-  for (const id of selectedIds) {
-    const stored = ctx.store.getById(id);
-    if (!stored) continue;
-    const el = resolveTemplateElement(stored, ctx.elementRegistry);
-    if (!el || el.templateShape === 'rectangle') continue;
-
-    const bounds = getElementBounds(el);
-    if (!bounds) continue;
-
-    const hx = bounds.x + bounds.w;
-    const hy = bounds.y + bounds.h;
-    if (Math.abs(world.x - hx) <= handleHalf && Math.abs(world.y - hy) <= handleHalf) {
-      return id;
-    }
-  }
-
-  return null;
-}
-
-export function hitTestTemplateAimHandle(
-  world: Point,
-  ctx: ToolContext,
-  selectedIds: string[],
-): { elementId: string } | null {
-  if (selectedIds.length !== 1) return null;
-  const id = selectedIds[0];
-  if (!id) return null;
-  const stored = ctx.store.getById(id);
-  if (!stored || stored.locked) return null;
-  const el = resolveTemplateElement(stored, ctx.elementRegistry);
-  if (!el) return null;
-  const knob = templateAimKnob(el, ctx.camera.zoom, ctx.elementRegistry);
-  if (!knob) return null;
-  const r = (HANDLE_SIZE / 2 + HANDLE_HIT_PADDING) / ctx.camera.zoom;
-  const dx = world.x - knob.knob.x;
-  const dy = world.y - knob.knob.y;
-  return dx * dx + dy * dy <= r * r ? { elementId: id } : null;
-}
-
-export function hitTestRectangleLengthHandle(
-  world: Point,
-  ctx: ToolContext,
-  selectedIds: string[],
-): { elementId: string } | null {
-  if (selectedIds.length !== 1) return null;
-  const id = selectedIds[0];
-  if (!id) return null;
-  const stored = ctx.store.getById(id);
-  if (!stored || stored.locked) return null;
-  const el = resolveTemplateElement(stored, ctx.elementRegistry);
-  if (!el || el.templateShape !== 'rectangle') return null;
-  const zoom = ctx.camera.zoom;
-  const r = (HANDLE_SIZE / 2 + HANDLE_HIT_PADDING) / zoom;
-  const hx = el.position.x + el.radius * Math.cos(el.angle);
-  const hy = el.position.y + el.radius * Math.sin(el.angle);
-  const dx = world.x - hx;
-  const dy = world.y - hy;
-  return dx * dx + dy * dy <= r * r ? { elementId: id } : null;
-}
-
-export function hitTestRectangleWidthHandle(
-  world: Point,
-  ctx: ToolContext,
-  selectedIds: string[],
-): { elementId: string } | null {
-  if (selectedIds.length !== 1) return null;
-  const id = selectedIds[0];
-  if (!id) return null;
-  const stored = ctx.store.getById(id);
-  if (!stored || stored.locked) return null;
-  const el = resolveTemplateElement(stored, ctx.elementRegistry);
-  if (!el || el.templateShape !== 'rectangle') return null;
-  const zoom = ctx.camera.zoom;
-  const r = (HANDLE_SIZE / 2 + HANDLE_HIT_PADDING) / zoom;
-  const cos = Math.cos(el.angle);
-  const sin = Math.sin(el.angle);
-  const halfW = (el.width ?? 0) / 2;
-  const hx = el.position.x + (el.radius / 2) * cos + halfW * -sin;
-  const hy = el.position.y + (el.radius / 2) * sin + halfW * cos;
-  const dx = world.x - hx;
-  const dy = world.y - hy;
-  return dx * dx + dy * dy <= r * r ? { elementId: id } : null;
-}
-
 export function findElementsInRect(marquee: Bounds, ctx: ToolContext): string[] {
   const candidates = ctx.store.queryRect(marquee);
   const ids: string[] = [];
   for (const el of candidates) {
     if (ctx.isLayerVisible && !ctx.isLayerVisible(el.layerId)) continue;
     if (ctx.isLayerLocked && ctx.isLayerLocked(el.layerId)) continue;
-    if (el.type === 'grid') continue;
     if (
       el.type === 'extension' &&
       (ctx.elementRegistry ?? getDefaultElementRegistry()).getAdapter(el.extensionType)?.fullCanvas

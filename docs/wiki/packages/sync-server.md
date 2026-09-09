@@ -1,6 +1,6 @@
 # @fieldnotes/sync-server
 
-**Version:** 0.14.0
+**Version:** 0.18.0
 **Location:** `packages/sync-server/`
 **Description:** Authoritative WebSocket relay server for Field Notes real-time sync
 

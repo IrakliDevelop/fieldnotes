@@ -86,10 +86,10 @@ Not all props are reactive — the canvas is stateful. Changing a mount-only pro
 | `tools`                            | Reactive, append-only (tools cannot be unregistered). Hoist the array out of render |
 | `tool` / `onToolChange`            | Reactive (controlled). Memoize the callback                                         |
 | `defaultTool`                      | Mount-only (uncontrolled initial tool)                                              |
-| `snapToGrid`                       | Reactive                                                                            |
+| `snapToGrid` (deprecated)          | Reactive compatibility prop; prefer a domain constraint service                     |
 | `className` / `style` / `children` | Reactive (plain React)                                                              |
 
-Runtime changes beyond these go through the viewport — access it via `useViewport()` or the ref: `viewport.setSnapToGrid(...)`, `viewport.shortcuts.rebind(...)`, `viewport.fitToContent()`. The background pattern is constructor-only (`options.background`).
+Runtime changes beyond these go through the viewport — access it via `useViewport()` or the ref. Grid snapping is domain behavior; VTT consumers should configure `GridController` and its constraint service rather than adopting the deprecated React prop. The background pattern is constructor-only (`options.background`).
 
 ## Embedding React Components
 
@@ -243,13 +243,29 @@ Returns reactive selection state plus group/ungroup/lock/align/distribute action
 import { useSelectionOps } from '@fieldnotes/react';
 
 function SelectionToolbar() {
-  const { selectedCount, canGroup, canUngroup, isLocked, group, ungroup, toggleLock, align, distribute } = useSelectionOps();
+  const {
+    selectedCount,
+    canGroup,
+    canUngroup,
+    isLocked,
+    group,
+    ungroup,
+    toggleLock,
+    align,
+    distribute,
+  } = useSelectionOps();
 
   return (
     <div>
-      <button disabled={!canGroup} onClick={group}>Group</button>
-      <button disabled={!canUngroup} onClick={ungroup}>Ungroup</button>
-      <button disabled={selectedCount === 0} onClick={toggleLock}>{isLocked ? 'Unlock' : 'Lock'}</button>
+      <button disabled={!canGroup} onClick={group}>
+        Group
+      </button>
+      <button disabled={!canUngroup} onClick={ungroup}>
+        Ungroup
+      </button>
+      <button disabled={selectedCount === 0} onClick={toggleLock}>
+        {isLocked ? 'Unlock' : 'Lock'}
+      </button>
       <button onClick={() => align('left')}>Align left</button>
       <button onClick={() => distribute('horizontal')}>Distribute</button>
     </div>

@@ -1,10 +1,22 @@
 # ADR-0004: Serialization Compatibility Strategy
 
-- **Status:** Accepted; v3 compatibility implemented, v4 transition pending RollKeeper rollout
+- **Status:** Accepted and implemented; v4 package release pending
 - **Deciders:** Project maintainer
 - **Date:** 2026-09-05
 - **Supersedes:** —
 - **Related:** [ADR-0001](0001-element-extensibility.md) (element types), [ADR-0003](0003-sync-plugin-ownership.md) (sync plugins)
+
+## Implementation status (2026-09-10)
+
+The v4 boundary is implemented for the coordinated `@fieldnotes/core` 0.82 / `@fieldnotes/sync`
+0.19 / `@fieldnotes/sync-server` 0.18 package set. Core writes v4 extension-only state, migrates
+v1–v3 state transactionally through registered legacy adapters, and moves top-level fog into its
+plugin state. Sync peers exchange bounded capabilities and translate envelope traffic per peer
+across snapshots, upserts, corrections, broadcasts, and fanout.
+
+Legacy element codecs and fog wire codecs remain available as translation targets during the
+mixed-peer window. Their final deletion is a later release gate, not part of introducing the v4
+writer. See [CanvasState v4 migration](../CANVAS_STATE_V4_MIGRATION.md).
 
 ## Context
 
@@ -103,6 +115,8 @@ Grid and template type definitions move to `@fieldnotes/vtt`. Core's switch stat
 **Read:** Same as Phase 2.
 
 ### Phase 4: Adopt extension envelope + bump to v4
+
+**Implemented 2026-09-10; pending coordinated package publication and consumer adoption.**
 
 Coordinated with ADR-0001 Phase 4. Extension elements use `type: 'extension'` envelope on the wire. Legacy `fog` field removed. Version bumped to 4.
 
@@ -219,11 +233,14 @@ On sync connection, both peers exchange capabilities. If both support `elementEn
 
 This ensures capability negotiation precedes any extension-shaped element on the wire. The v4 bump and capability exchange are simultaneous — no window where extension elements can arrive before the peer is ready.
 
-**Handshake gating:** The capability exchange MUST complete before ANY data is sent or processed. The sync connection handshake gates all op processing:
+**Handshake gating:** The capability exchange MUST complete before extension-sensitive data is sent
+or processed. Legacy-safe core operations remain live so an old peer can complete its existing
+snapshot bootstrap without understanding the additive capability frame:
 
 1. On sync connection, both peers exchange `SyncCapabilities`
-2. Neither peer sends extension-shaped elements until both have received the other's capabilities
-3. If a peer has not yet received capabilities, ALL incoming ops are queued (not processed) until the handshake completes
+2. Neither peer sends extension-shaped elements until it has received the other's capabilities
+3. If a peer has not yet received capabilities, extension ops and element operations containing
+   extension envelopes are queued; legacy-safe core operations continue
 4. If a peer does not send capabilities (legacy client), the capable peer assumes legacy mode: no extension elements are sent, all ops use legacy wire format. The handshake is additive — it does not break existing clients.
 5. **Timeout → legacy fallback:** If the capability handshake does not complete within a configurable timeout (default 5s), the remote peer is treated as legacy (v3). Extension elements are translated to legacy wire format using registered adapters. Extension ops that cannot be translated are rejected with an error — they are never silently dropped.
 
@@ -294,14 +311,15 @@ Translation between `WireSyncOp` and runtime ops happens at the transport bounda
 
 #### Timeline
 
-| Phase | Sync behavior                                                                                                                                                                                                                                         |
-| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1-3   | All ops use legacy wire kinds. No extension elements. No capability exchange needed.                                                                                                                                                                  |
-| 4     | **Handshake gate:** capability exchange on sync connection BEFORE any data flows. Extension elements only sent if both peers support `elementEnvelope`. Translation covers ALL outbound paths (snapshots, upserts, corrections, broadcasts) per-peer. |
+| Phase | Sync behavior                                                                                                                                                                                                                                       |
+| ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1-3   | All ops use legacy wire kinds. No extension elements. No capability exchange needed.                                                                                                                                                                |
+| 4     | **Handshake gate:** capability exchange before extension-sensitive data flows. Extension elements are translated for peers without `elementEnvelope`. Translation covers all outbound paths (snapshots, upserts, corrections, broadcasts) per-peer. |
 
-### Spike Validation (2026-09-06)
+### Historical spike validation (2026-09-06)
 
-These contracts were proven in `packages/contract-spike`:
+These contracts were first proven in `packages/contract-spike` and now live in the production
+package test suites. The private spike was retired when Phase 4 was implemented:
 
 - v3→v4 migration preserves camera, layers, active layer, existing extension state, and converts
   grid/template elements while wrapping legacy fog only when needed

@@ -38,7 +38,7 @@ Dependencies flow **one direction**: wrappers and adapters depend toward contrac
 
 ## Package Responsibilities
 
-### @fieldnotes/core (v0.68.0)
+### @fieldnotes/core (v0.82.0)
 
 The **framework-free canvas engine**. Zero framework dependencies — pure TypeScript that works in any browser environment.
 
@@ -65,7 +65,7 @@ The **framework-free canvas engine**. Zero framework dependencies — pure TypeS
 - InputHandler (pointer/keyboard routing)
 - FogManager (fog of war state)
 
-### @fieldnotes/react (v0.11.0)
+### @fieldnotes/react (v0.12.0)
 
 **Thin React wrapper** over core. Provides:
 
@@ -76,7 +76,7 @@ The **framework-free canvas engine**. Zero framework dependencies — pure TypeS
 
 **Key principle:** React bindings are a thin adapter layer. All logic lives in core.
 
-### @fieldnotes/sync (v0.12.0)
+### @fieldnotes/sync (v0.19.0)
 
 **Transport-neutral sync client.** Handles:
 
@@ -93,7 +93,7 @@ The **framework-free canvas engine**. Zero framework dependencies — pure TypeS
 - `WebSocketTransport` / `BroadcastChannelTransport` — transport implementations
 - `LayerLedger` / `FogLedger` — version tracking for conflict resolution
 
-### @fieldnotes/sync-server (v0.14.0)
+### @fieldnotes/sync-server (v0.18.0)
 
 **Authoritative WebSocket relay.** Provides:
 
@@ -105,7 +105,7 @@ The **framework-free canvas engine**. Zero framework dependencies — pure TypeS
 
 **Key principle:** The server is a relay, not a store. It validates and routes messages but doesn't persist state (unless using Redis backend).
 
-### @fieldnotes/sync-redis (v0.5.0)
+### @fieldnotes/sync-redis (v0.9.0)
 
 **Redis-backed persistence** for the sync server. Implements:
 
@@ -167,14 +167,17 @@ State is serialized via `packages/core/src/core/state-serializer.ts`:
 
 ```typescript
 interface CanvasState {
-  version: 3; // current version
+  version: 4; // current version
+  camera: { position: Point; zoom: number };
   elements: CanvasElement[];
   layers?: Layer[];
-  fog?: FogStateV1;
+  activeLayerId?: string;
+  extensions?: Record<string, PersistedPluginState>;
 }
 ```
 
-**Versioning:** The serializer handles backward compatibility. Older versions still parse.
+**Versioning:** The serializer migrates versions 1–3. Legacy domain elements are converted through
+registered adapters, and plugin state lives under `extensions`.
 
 **Storage adapters:** `StorageAdapter` interface with implementations:
 
@@ -196,11 +199,11 @@ type SyncOp =
       to: string;
       elements: CanvasElement[];
       layers?: LayerRecord[];
-      fog?: FogSnapshot;
+      extensions?: Record<string, PluginSnapshot>;
     }
   | { kind: 'presence'; data: unknown }
   | { kind: 'layer-upsert'; layer: Layer; version: number; editor: string }
-  | { kind: 'fog-patch'; generation: string; tiles: FogTileRecord[] };
+  | { kind: 'extension'; extensionKind: string; payload: unknown };
 // ... etc
 ```
 

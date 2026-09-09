@@ -14,6 +14,14 @@ import {
 import { LayerLedger } from './layer-ledger';
 import { ClientPluginRegistry } from './sync-plugin';
 import type { ClientSyncPlugin, PluginSnapshot } from './sync-plugin';
+import {
+  CapabilityHandshake,
+  createCurrentCapabilities,
+  DEFAULT_CAPABILITY_QUEUE_LIMIT,
+  DEFAULT_CAPABILITY_TIMEOUT_MS,
+  translateOpForPeer,
+} from './capabilities';
+import type { SyncCapabilities, SyncEnvelope } from './protocol';
 
 /**
  * Which authoritative-snapshot merge is being applied:
@@ -135,6 +143,10 @@ export interface SyncClientOptions {
   plugins?: readonly ClientSyncPlugin[];
   /** Converts registered runtime extension envelopes at the v3 wire boundary. */
   elementRegistry?: ElementRegistry;
+  /** Maximum time to wait for capability negotiation before locking into legacy mode. */
+  capabilityTimeoutMs?: number;
+  /** Maximum number of inbound and outbound messages retained during negotiation. */
+  capabilityQueueLimit?: number;
 }
 
 const REMOTE_ORIGIN = 'remote';
@@ -167,6 +179,11 @@ export class SyncClient {
   private readonly layerLedger?: LayerLedger;
   private readonly elementRegistry: ElementRegistry;
   private readonly pluginRegistry: ClientPluginRegistry;
+  private readonly localCapabilities: SyncCapabilities;
+  private readonly capabilityTimeoutMs: number;
+  private readonly capabilityQueueLimit: number;
+  private handshake: CapabilityHandshake<SyncOp>;
+  private readonly pendingIncoming: SyncEnvelope[] = [];
   private pluginCleanups: (() => void)[] = [];
   private unsubscribers: (() => void)[] = [];
   private started = false;
@@ -186,6 +203,10 @@ export class SyncClient {
     this.hubKnownIds = options.hubKnownIds ?? new Set();
     this.elementRegistry = options.elementRegistry ?? getDefaultElementRegistry();
     this.pluginRegistry = new ClientPluginRegistry(options.plugins ?? []);
+    this.localCapabilities = createCurrentCapabilities(this.pluginRegistry.extensionKinds);
+    this.capabilityTimeoutMs = options.capabilityTimeoutMs ?? DEFAULT_CAPABILITY_TIMEOUT_MS;
+    this.capabilityQueueLimit = options.capabilityQueueLimit ?? DEFAULT_CAPABILITY_QUEUE_LIMIT;
+    this.handshake = new CapabilityHandshake<SyncOp>(this.capabilityQueueLimit);
     for (const plugin of this.pluginRegistry.plugins) plugin.validateClientId?.(this.clientId);
     this.store.setElementRegistry(this.elementRegistry);
     if (options.layers) {
@@ -239,6 +260,7 @@ export class SyncClient {
     }
     // MUST be last: a synchronous bus delivers the peer's reply reentrantly, so the
     // onMessage receive handler above must already be wired before we request.
+    this.beginCapabilityHandshake();
     this.sendOp({ kind: 'request-snapshot' });
   }
 
@@ -246,6 +268,7 @@ export class SyncClient {
     this.resyncPending = true;
     for (const plugin of this.pluginRegistry.plugins) plugin.onReconnect?.();
     this.touchedDuringResync.clear();
+    this.beginCapabilityHandshake();
     this.sendOp({ kind: 'request-snapshot' });
   }
 
@@ -256,6 +279,8 @@ export class SyncClient {
     this.pluginCleanups = [];
     this.unsubscribers.forEach((u) => u());
     this.unsubscribers = [];
+    this.handshake.dispose();
+    this.pendingIncoming.length = 0;
   }
 
   dispose(): void {
@@ -382,27 +407,43 @@ export class SyncClient {
   }
 
   private sendOp(op: SyncOp): void {
-    this.transport.send(JSON.stringify({ from: this.clientId, op: this.toWireOp(op) }));
+    if (!this.handshake.complete && requiresCapabilityNegotiation(op)) {
+      this.handshake.queue(op);
+      return;
+    }
+    if (!this.handshake.complete) {
+      this.transport.send(JSON.stringify({ from: this.clientId, op }));
+      return;
+    }
+    this.sendNegotiated(op);
   }
 
-  private toWireOp(op: SyncOp): SyncOp {
-    if (op.kind === 'upsert') {
-      return { kind: 'upsert', element: this.toWireElement(op.element) };
-    }
-    if (op.kind === 'snapshot') {
-      return { ...op, elements: op.elements.map((element) => this.toWireElement(element)) };
-    }
-    return op;
+  private beginCapabilityHandshake(): void {
+    this.handshake.dispose();
+    this.handshake = new CapabilityHandshake<SyncOp>(this.capabilityQueueLimit);
+    this.pendingIncoming.length = 0;
+    this.transport.send(
+      JSON.stringify({
+        from: this.clientId,
+        op: { kind: 'capabilities', capabilities: this.localCapabilities },
+      }),
+    );
+    this.handshake.startTimeout(this.capabilityTimeoutMs, (pending) => {
+      for (const op of pending) this.sendNegotiated(op);
+      this.drainPendingIncoming();
+    });
   }
 
-  private toWireElement(element: CanvasElement): CanvasElement {
-    if (element.type !== 'extension') return element;
-    const adapter = this.elementRegistry.getAdapter(element.extensionType);
-    if (!adapter) return element;
-    const legacy = adapter.encodeLegacy(element);
-    const audience = (element as SyncElement).audience;
-    if (audience !== undefined) legacy['audience'] = audience;
-    return legacy as unknown as CanvasElement;
+  private sendNegotiated(op: SyncOp): void {
+    const capabilities = this.handshake.capabilities;
+    if (!capabilities) throw new Error('Capability handshake completed without peer capabilities');
+    const wire = translateOpForPeer(
+      op,
+      capabilities,
+      this.elementRegistry,
+      this.pluginRegistry.extensionDefinitions,
+    );
+    this.transport.send(JSON.stringify({ from: this.clientId, op: wire }));
   }
 
   private toRuntimeElement(element: CanvasElement): CanvasElement {
@@ -442,6 +483,38 @@ export class SyncClient {
     // relay echoes back after a reconnect (the reconnected socket is a NEW hub connection, so the hub's
     // connId echo-suppression does not cover them). Do NOT key this guard off the connection.
     if (!env || env.from === this.clientId) return; // malformed/invalid + own echo
+    if (env.op.kind === 'capabilities') {
+      const shouldAcknowledge = !this.handshake.complete;
+      const pending = this.handshake.receive(env.op.capabilities);
+      if (shouldAcknowledge) {
+        this.transport.send(
+          JSON.stringify({
+            from: this.clientId,
+            op: { kind: 'capabilities', capabilities: this.localCapabilities },
+          }),
+        );
+      }
+      for (const op of pending) this.sendNegotiated(op);
+      this.drainPendingIncoming();
+      return;
+    }
+    if (!this.handshake.complete && requiresCapabilityNegotiation(env.op)) {
+      if (this.pendingIncoming.length >= this.capabilityQueueLimit) {
+        throw new Error(
+          `Capability handshake queue exceeded ${String(this.capabilityQueueLimit)} messages`,
+        );
+      }
+      this.pendingIncoming.push(env);
+      return;
+    }
+    this.handleRemoteEnvelope(env);
+  }
+
+  private drainPendingIncoming(): void {
+    for (const env of this.pendingIncoming.splice(0)) this.handleRemoteEnvelope(env);
+  }
+
+  private handleRemoteEnvelope(env: SyncEnvelope): void {
     const op = env.op;
     if (op.kind === 'request-snapshot') {
       const elements = this.store.snapshot();
@@ -505,6 +578,8 @@ export class SyncClient {
       for (const h of this.presenceHandlers) h(env.from, op.data);
     } else if (op.kind === 'presence-leave') {
       for (const h of this.presenceLeaveHandlers) h(env.from);
+    } else if (op.kind === 'capabilities') {
+      // Capability frames are handled before the negotiated data path.
     } else {
       this.applyOp(op); // narrows to upsert | remove | clear
     }
@@ -622,4 +697,11 @@ export class SyncClient {
     }
     return { preserve, discard };
   }
+}
+
+function requiresCapabilityNegotiation(op: SyncOp): boolean {
+  if (op.kind === 'extension') return true;
+  if (op.kind === 'upsert') return op.element.type === 'extension';
+  if (op.kind === 'snapshot') return op.elements.some((element) => element.type === 'extension');
+  return false;
 }

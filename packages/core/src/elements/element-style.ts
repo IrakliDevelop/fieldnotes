@@ -41,19 +41,6 @@ export function styleToPatch(element: CanvasElement, style: ElementStyle): Parti
         ...(fillColor !== undefined ? { backgroundColor: fillColor } : {}),
         ...(fontSize !== undefined ? { fontSize } : {}),
       };
-    case 'grid':
-      return {
-        ...(color !== undefined ? { strokeColor: color } : {}),
-        ...(strokeWidth !== undefined ? { strokeWidth } : {}),
-        ...(opacity !== undefined ? { opacity } : {}),
-      };
-    case 'template':
-      return {
-        ...(color !== undefined ? { strokeColor: color } : {}),
-        ...(fillColor !== undefined ? { fillColor } : {}),
-        ...(strokeWidth !== undefined ? { strokeWidth } : {}),
-        ...(opacity !== undefined ? { opacity } : {}),
-      };
     case 'extension':
       return {};
     default:
@@ -84,19 +71,6 @@ export function getElementStyle(element: CanvasElement): ElementStyle {
         color: element.textColor,
         fillColor: element.backgroundColor,
         ...(element.fontSize !== undefined ? { fontSize: element.fontSize } : {}),
-      };
-    case 'grid':
-      return {
-        color: element.strokeColor,
-        strokeWidth: element.strokeWidth,
-        opacity: element.opacity,
-      };
-    case 'template':
-      return {
-        color: element.strokeColor,
-        fillColor: element.fillColor,
-        strokeWidth: element.strokeWidth,
-        opacity: element.opacity,
       };
     case 'extension':
       return {};

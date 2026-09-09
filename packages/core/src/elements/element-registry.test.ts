@@ -83,6 +83,14 @@ const markerDefinition: ElementTypeDefinition<MarkerElement> = {
       point.y <= el.position.y + 10
     );
   },
+  interaction: {
+    hitTestHandle: (_el, point) => (point.x === 10 ? { id: 'move', cursor: 'move' } : null),
+    updateHandle: (el, _handleId, point) => ({ ...el, position: point }),
+    rotate: (el, _pivot, delta) => ({
+      ...el,
+      position: { x: el.position.x + delta, y: el.position.y },
+    }),
+  },
   renderMode: 'canvas',
 };
 
@@ -198,6 +206,43 @@ describe('ElementRegistry', () => {
       const b = adapter.bounds(envelope);
 
       expect(b).toEqual({ x: 100, y: 200, w: 10, h: 10 });
+    });
+
+    it('delegates interaction hooks and preserves unknown envelope data', () => {
+      const registry = new ElementRegistry();
+      registry.register(markerDefinition);
+      const adapter = registry.getAdapter('test:marker')!;
+      const envelope = makeMarkerEnvelope({
+        data: { label: 'hello', color: '#ff0000', futureField: 'preserved' },
+      });
+
+      expect(
+        adapter.hitTestHandle?.(
+          envelope,
+          { x: 10, y: 0 },
+          {
+            zoom: 1,
+            shiftKey: false,
+            snap: { enabled: false },
+          },
+        ),
+      ).toEqual({ id: 'move', cursor: 'move' });
+      const updated = adapter.updateHandle?.(
+        envelope,
+        'move',
+        { x: 20, y: 30 },
+        {
+          zoom: 1,
+          shiftKey: false,
+          snap: { enabled: false },
+        },
+      );
+      expect(updated?.position).toEqual({ x: 20, y: 30 });
+      expect(updated?.data['futureField']).toBe('preserved');
+
+      const rotated = adapter.rotate?.(envelope, { x: 0, y: 0 }, 2);
+      expect(rotated?.position.x).toBe(2);
+      expect(rotated?.data['futureField']).toBe('preserved');
     });
   });
 

@@ -95,6 +95,14 @@ export class ServerPluginRegistry {
   extension(extensionKind: string): ServerExtensionEntry | undefined {
     return this.extensions.get(extensionKind);
   }
+
+  get extensionKinds(): readonly string[] {
+    return [...this.extensions.keys()];
+  }
+
+  get extensionDefinitions(): ReadonlyMap<string, ExtensionKind<unknown>> {
+    return new Map([...this.extensions].map(([name, entry]) => [name, entry.kind]));
+  }
 }
 
 export type { PluginSnapshot } from '@fieldnotes/sync';

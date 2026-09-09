@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   ElementStore,
   ElementRegistry,
@@ -22,6 +22,7 @@ import { LayerLedger } from './layer-ledger';
 import type { FogMetaRecord, FogSnapshot, LayerRecord, SyncOp } from './protocol';
 import type { SyncTransport } from './sync-transport';
 import { createExtensionKind } from './sync-plugin';
+import { createCurrentCapabilities } from './capabilities';
 
 interface BusEndpoint extends SyncTransport {
   sent: string[];
@@ -116,6 +117,13 @@ describe('SyncClient', () => {
 
     peer.send(
       envelope('peer', {
+        kind: 'capabilities',
+        capabilities: createCurrentCapabilities(['test:cursor']),
+      }),
+    );
+
+    peer.send(
+      envelope('peer', {
         kind: 'extension',
         extensionKind: 'test:cursor',
         payload: { x: 12 },
@@ -151,7 +159,7 @@ describe('SyncClient', () => {
     expect(captured?.origin).toBe('remote');
     // B applied the op as remote, so it must NOT re-broadcast it — only its
     // join request-snapshot (sent during start()) appears on B's transport.
-    expect(transportB.sent.map((m) => JSON.parse(m).op.kind)).toEqual(['request-snapshot']);
+    expect(sentKinds(transportB.sent)).toEqual(['request-snapshot']);
     // No duplicate on the originating side.
     expect(storeA.count).toBe(1);
   });
@@ -169,7 +177,7 @@ describe('SyncClient', () => {
     }
   });
 
-  it('keeps v3 template shapes on the wire and extension envelopes at runtime', () => {
+  it('keeps negotiated template envelopes on the wire and at runtime', () => {
     const bus = makeBus();
     const registry = new ElementRegistry();
     registerVttElementTypes(registry);
@@ -200,7 +208,7 @@ describe('SyncClient', () => {
       .map((message) => JSON.parse(message) as { op: SyncOp })
       .find(({ op }) => op.kind === 'upsert');
     expect(sent?.op.kind).toBe('upsert');
-    if (sent?.op.kind === 'upsert') expect(sent.op.element.type).toBe('template');
+    if (sent?.op.kind === 'upsert') expect(sent.op.element.type).toBe('extension');
     expect(target.getById(envelopeElement.id)).toMatchObject({
       type: 'extension',
       extensionType: 'vtt:template',
@@ -208,6 +216,41 @@ describe('SyncClient', () => {
 
     sourceClient.stop();
     targetClient.stop();
+  });
+
+  it('holds extension upserts until timeout, then sends a lossless legacy encoding', () => {
+    vi.useFakeTimers();
+    try {
+      const bus = makeBus();
+      const registry = new ElementRegistry();
+      registerVttElementTypes(registry);
+      const store = new ElementStore();
+      const transport = bus.endpoint();
+      const client = new SyncClient({
+        store,
+        transport,
+        clientId: 'modern',
+        elementRegistry: registry,
+        capabilityTimeoutMs: 25,
+      });
+      client.start();
+
+      store.add(
+        templateElementTypeDefinition.wrap(
+          createTemplate({ position: { x: 10, y: 20 }, templateShape: 'circle', radius: 30 }),
+        ),
+      );
+      expect(sentKinds(transport.sent)).toEqual(['request-snapshot']);
+
+      vi.advanceTimersByTime(25);
+      const upsert = transport.sent
+        .map((message) => JSON.parse(message) as { op: Record<string, unknown> })
+        .find(({ op }) => op['kind'] === 'upsert');
+      expect((upsert?.op['element'] as { type?: string } | undefined)?.type).toBe('template');
+      client.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('propagates a local remove to the remote store', () => {
@@ -354,7 +397,7 @@ describe('SyncClient snapshot-on-join', () => {
     expect(storeB.count).toBe(2);
     expect(captured).toEqual(['remote', 'remote']);
     // B must NOT re-broadcast the merged elements — only its join request goes out.
-    const sentOps = transportB.sent.map((m) => JSON.parse(m).op.kind);
+    const sentOps = sentKinds(transportB.sent);
     expect(sentOps).toEqual(['request-snapshot']);
   });
 
@@ -400,7 +443,7 @@ describe('SyncClient snapshot-on-join', () => {
     expect(() => clientB.start()).not.toThrow();
 
     expect(storeB.count).toBe(0);
-    expect(transportB.sent.map((m) => JSON.parse(m).op.kind)).toEqual(['request-snapshot']);
+    expect(sentKinds(transportB.sent)).toEqual(['request-snapshot']);
   });
 
   it('drops malformed snapshots and applies only valid elements within a mixed batch', () => {
@@ -499,7 +542,7 @@ function makeReconnectTransport(): ReconnectTransport {
 }
 
 function sentKinds(sent: string[]): string[] {
-  return sent.map((m) => JSON.parse(m).op.kind);
+  return sent.map((m) => JSON.parse(m).op.kind as string).filter((kind) => kind !== 'capabilities');
 }
 
 describe('SyncClient resync-on-reconnect', () => {

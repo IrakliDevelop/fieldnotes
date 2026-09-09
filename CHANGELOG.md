@@ -4,6 +4,48 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.82.0] — 2026-09-10
+
+### Added
+
+- CanvasState v4 persistence with transactional v1–v3 migration. Legacy top-level fog state moves
+  into `extensions.fog`; v4 output contains extension envelopes and never writes the top-level fog
+  mirror.
+- Sync capability negotiation with bounded queues, a timeout-based legacy fallback, and per-peer
+  translation for envelope upserts, snapshots, corrections, and broadcasts.
+- Domain-neutral extension interaction hooks for selection handles, resize/aim updates, selection
+  overlays, and toolbar rotation.
+
+### Changed
+
+- Grid and template selection behavior is now implemented by `@fieldnotes/vtt` element definitions.
+  The core renderer, bounds/style helpers, selection tool, serializer writer, factories, and public
+  element union no longer contain VTT-specific branches.
+- The demo now creates and queries grid extension envelopes through `@fieldnotes/vtt`.
+- The React `snapToGrid` prop is deprecated; VTT consumers should configure snapping through the
+  grid/constraint service.
+- The private `@fieldnotes/contract-spike` workspace was retired after its contracts graduated into
+  production packages and their test suites.
+
+### Compatibility
+
+- v4 readers automatically migrate v1–v3 files. Legacy grid/template records require
+  `registerVttElementTypes()` before import.
+- Negotiated peers receive extension envelopes. Peers that do not advertise capabilities receive
+  registered legacy element encodings and legacy extension operations where a translator exists.
+- This is a breaking pre-1.0 core release: import VTT element types and factories from
+  `@fieldnotes/vtt`, and query `type: 'extension'` plus `extensionType` instead of core
+  `grid`/`template` union members.
+
+### Package versions
+
+- `@fieldnotes/core` 0.81.1 → 0.82.0
+- `@fieldnotes/vtt` 0.7.1 → 0.8.0
+- `@fieldnotes/sync` 0.18.1 → 0.19.0
+- `@fieldnotes/sync-server` 0.17.1 → 0.18.0
+- `@fieldnotes/sync-redis` 0.8.1 → 0.9.0
+- `@fieldnotes/react` 0.11.0 → 0.12.0
+
 ## [0.81.1] — 2026-09-08
 
 ### Fixed

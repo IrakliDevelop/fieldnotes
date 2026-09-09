@@ -7,7 +7,7 @@ import { getDefaultElementRegistry } from '../elements/default-registry';
 import type { PersistedPluginState } from './plugin-state-manager';
 
 export interface CanvasState {
-  version: number;
+  version: 4;
   camera: {
     position: Point;
     zoom: number;
@@ -16,28 +16,19 @@ export interface CanvasState {
   layers?: Layer[];
   activeLayerId?: string;
   extensions?: Record<string, PersistedPluginState>;
-  /** @deprecated v3 compatibility mirror; use `extensions.fog.data`. */
+}
+
+interface LegacyCanvasState extends Omit<CanvasState, 'version' | 'elements'> {
+  version: 1 | 2 | 3;
+  elements: unknown[];
   fog?: unknown;
 }
 
-const CURRENT_VERSION = 3;
-const ELEMENT_TYPES = [
-  'stroke',
-  'note',
-  'arrow',
-  'image',
-  'html',
-  'text',
-  'shape',
-  'grid',
-  'template',
-  'extension',
-] as const satisfies readonly CanvasElement['type'][];
-type _ElementTypesAreExhaustive = CanvasElement['type'] extends (typeof ELEMENT_TYPES)[number]
-  ? true
-  : never;
-const _elementTypesAreExhaustive: _ElementTypesAreExhaustive = true;
-void _elementTypesAreExhaustive;
+export type ImportableCanvasState = CanvasState | LegacyCanvasState;
+
+export const CANVAS_STATE_VERSION = 4;
+const CORE_ELEMENT_TYPES = ['stroke', 'note', 'arrow', 'image', 'html', 'text', 'shape'] as const;
+const ELEMENT_TYPES = [...CORE_ELEMENT_TYPES, 'extension'] as const;
 
 export function exportState(
   elements: CanvasElement[],
@@ -47,20 +38,14 @@ export function exportState(
   registry?: ElementRegistry,
   extensions?: Record<string, PersistedPluginState>,
 ): CanvasState {
-  const reg = registry ?? getDefaultElementRegistry();
+  void registry;
   const state: CanvasState = {
-    version: CURRENT_VERSION,
+    version: CANVAS_STATE_VERSION,
     camera: {
       position: { ...camera.position },
       zoom: camera.zoom,
     },
     elements: elements.map((el) => {
-      if (el.type === 'extension') {
-        const adapter = reg.getAdapter(el.extensionType);
-        if (adapter) {
-          return structuredClone(adapter.encodeLegacy(el)) as unknown as CanvasElement;
-        }
-      }
       const clone = structuredClone(el);
       if (clone.type === 'arrow') {
         delete clone.cachedControlPoint;
@@ -72,52 +57,60 @@ export function exportState(
   if (activeLayerId) state.activeLayerId = activeLayerId;
   if (extensions && Object.keys(extensions).length > 0) {
     state.extensions = structuredClone(extensions);
-    if (Object.hasOwn(extensions, 'fog')) {
-      state.fog = structuredClone(extensions['fog']?.data);
-    }
   }
   return state;
 }
 
 export function parseState(json: string, registry?: ElementRegistry): CanvasState {
   const data: unknown = JSON.parse(json);
-  validateState(data);
-  migrateLegacyPluginState(data);
   const reg = registry ?? getDefaultElementRegistry();
-  convertLegacyToEnvelopes(data.elements, reg);
-  return data;
+  validateState(data, reg);
+  return migrateState(data, reg);
 }
 
 /**
- * Normalizes the v3 top-level fog field into plugin state while retaining the
- * original field for dual-read/dual-write compatibility during the v3 window.
+ * Upgrades an importable state to the v4 extension-only persistence model.
+ * The input is mutated only after callers have cloned or parsed it.
  */
-export function migrateLegacyPluginState(state: CanvasState): void {
-  if (!Object.hasOwn(state, 'fog')) return;
-  state.extensions ??= {};
-  state.extensions['fog'] ??= {
-    version: 1,
-    data: structuredClone(state.fog),
-  };
+export function migrateState(
+  state: ImportableCanvasState,
+  registry: ElementRegistry = getDefaultElementRegistry(),
+): CanvasState {
+  if (state.version === CANVAS_STATE_VERSION) return state;
+  const legacy = state as LegacyCanvasState;
+  convertLegacyToEnvelopes(legacy.elements, registry);
+  if (Object.hasOwn(legacy, 'fog')) {
+    legacy.extensions ??= {};
+    legacy.extensions['fog'] ??= {
+      version: 1,
+      data: structuredClone(legacy.fog),
+    };
+    delete legacy.fog;
+  }
+  (legacy as { version: number }).version = CANVAS_STATE_VERSION;
+  return legacy as unknown as CanvasState;
 }
 
-export function convertLegacyToEnvelopes(
-  elements: CanvasElement[],
-  registry: ElementRegistry,
-): void {
+export function convertLegacyToEnvelopes(elements: unknown[], registry: ElementRegistry): void {
   for (let i = 0; i < elements.length; i++) {
     const el = elements[i];
-    if (!el || el.type === 'extension') continue;
-    const adapter = registry.getAdapterByLegacyType(el.type);
-    if (adapter) {
-      const raw = structuredClone(el) as unknown as Record<string, unknown>;
-      const envelope = adapter.decodeLegacy(raw);
-      elements[i] = envelope as unknown as CanvasElement;
+    if (!isRecord(el) || !isString(el['type'])) continue;
+    const legacyType = el['type'];
+    if (legacyType === 'extension' || isEnum(legacyType, CORE_ELEMENT_TYPES)) continue;
+    const adapter = registry.getAdapterByLegacyType(legacyType);
+    if (!adapter) {
+      throw new Error(
+        `Cannot migrate legacy element type "${legacyType}" without a registered adapter`,
+      );
     }
+    elements[i] = adapter.decodeLegacy(structuredClone(el));
   }
 }
 
-function validateState(data: unknown): asserts data is CanvasState {
+function validateState(
+  data: unknown,
+  registry: ElementRegistry,
+): asserts data is ImportableCanvasState {
   if (!isRecord(data)) {
     throw new Error('Invalid state: expected an object');
   }
@@ -127,7 +120,7 @@ function validateState(data: unknown): asserts data is CanvasState {
   if (!Number.isInteger(obj['version']) || (obj['version'] as number) < 1) {
     throw new Error('Invalid state: missing or invalid version');
   }
-  if ((obj['version'] as number) > CURRENT_VERSION) {
+  if ((obj['version'] as number) > CANVAS_STATE_VERSION) {
     throw new Error(`Invalid state: unsupported version ${String(obj['version'])}`);
   }
 
@@ -156,6 +149,7 @@ function validateState(data: unknown): asserts data is CanvasState {
   }
 
   const elements = obj['elements'] as unknown[];
+  const version = obj['version'] as number;
   const hasLayers = Array.isArray(obj['layers']) && obj['layers'].length > 0;
   for (const el of elements) {
     if (!isRecord(el)) throw new Error('Invalid element: expected an object');
@@ -185,7 +179,7 @@ function validateState(data: unknown): asserts data is CanvasState {
 
   const elementIds = new Set<string>();
   for (const el of elements) {
-    validateElement(el);
+    validateElement(el, version, registry);
     if (elementIds.has(el.id)) throw new Error(`Invalid state: duplicate element id "${el.id}"`);
     elementIds.add(el.id);
     if (!layerIds.has(el.layerId)) {
@@ -223,7 +217,11 @@ function validateExtensions(value: unknown): asserts value is Record<string, Per
   }
 }
 
-function validateElement(el: unknown): asserts el is CanvasElement {
+function validateElement(
+  el: unknown,
+  version: number,
+  registry: ElementRegistry,
+): asserts el is CanvasElement {
   if (!isRecord(el)) {
     throw new Error('Invalid element: expected an object');
   }
@@ -231,7 +229,7 @@ function validateElement(el: unknown): asserts el is CanvasElement {
   if (typeof el['id'] !== 'string' || el['id'].length === 0) {
     throw new Error('Invalid element: missing id');
   }
-  if (!isEnum(el['type'], ELEMENT_TYPES)) {
+  if (!isString(el['type'])) {
     throw new Error(`Invalid element: unknown type "${String(el['type'])}"`);
   }
   if (!isFiniteNumber(el['zIndex'])) {
@@ -247,11 +245,37 @@ function validateElement(el: unknown): asserts el is CanvasElement {
     throw new Error(`Invalid element "${el['id']}": invalid base fields or geometry`);
   }
 
-  const valid = validateTypeFields(el, el['type']);
-  if (!valid) throw new Error(`Invalid element "${el['id']}": malformed ${el['type']} data`);
+  if (isEnum(el['type'], ELEMENT_TYPES)) {
+    const valid = validateTypeFields(el, el['type']);
+    if (!valid) throw new Error(`Invalid element "${el['id']}": malformed ${el['type']} data`);
+    return;
+  }
+
+  const adapter =
+    version < CANVAS_STATE_VERSION ? registry.getAdapterByLegacyType(el['type']) : undefined;
+  if (!adapter) {
+    if (version < CANVAS_STATE_VERSION) {
+      throw new Error(
+        `Cannot migrate legacy element type "${el['type']}" without a registered adapter`,
+      );
+    }
+    throw new Error(`Invalid element: unknown type "${el['type']}"`);
+  }
+  let envelope;
+  try {
+    envelope = adapter.decodeLegacy(structuredClone(el));
+  } catch {
+    throw new Error(`Invalid element "${el['id']}": malformed ${el['type']} data`);
+  }
+  if (!adapter.validateEnvelope(envelope)) {
+    throw new Error(`Invalid element "${el['id']}": malformed ${el['type']} data`);
+  }
 }
 
-function validateTypeFields(el: Record<string, unknown>, type: CanvasElement['type']): boolean {
+function validateTypeFields(
+  el: Record<string, unknown>,
+  type: (typeof ELEMENT_TYPES)[number],
+): boolean {
   switch (type) {
     case 'stroke':
       return (
@@ -309,29 +333,6 @@ function validateTypeFields(el: Record<string, unknown>, type: CanvasElement['ty
         isFiniteNumber(el['strokeWidth']) &&
         isString(el['fillColor']) &&
         isOptional(el['flip'], isBoolean)
-      );
-    case 'grid':
-      return (
-        isEnum(el['gridType'], ['square', 'hex']) &&
-        isEnum(el['hexOrientation'], ['pointy', 'flat']) &&
-        isFiniteNumber(el['cellSize']) &&
-        isString(el['strokeColor']) &&
-        isFiniteNumber(el['strokeWidth']) &&
-        isFiniteNumber(el['opacity'])
-      );
-    case 'template':
-      return (
-        isEnum(el['templateShape'], ['circle', 'cone', 'line', 'square', 'rectangle']) &&
-        isFiniteNumber(el['radius']) &&
-        isFiniteNumber(el['angle']) &&
-        isOptional(el['width'], isFiniteNumber) &&
-        isString(el['fillColor']) &&
-        isString(el['strokeColor']) &&
-        isFiniteNumber(el['strokeWidth']) &&
-        isFiniteNumber(el['opacity']) &&
-        isOptional(el['feetPerCell'], isFiniteNumber) &&
-        isOptional(el['radiusFeet'], isFiniteNumber) &&
-        isOptionalEnum(el['renderStyle'], ['cells', 'geometric'])
       );
     case 'extension':
       return isString(el['extensionType']) && isRecord(el['data']);

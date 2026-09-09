@@ -1,18 +1,16 @@
 import { describe, it, expect } from 'vitest';
 import {
   createArrow,
-  createGrid,
   createHtmlElement,
   createImage,
   createNote,
   createShape,
   createStroke,
-  createTemplate,
   createText,
   type CanvasElement,
 } from '@fieldnotes/core';
 import type { Layer } from '@fieldnotes/core';
-import { fogEncodeBase64 } from '@fieldnotes/vtt';
+import { createGrid, createTemplate, fogEncodeBase64 } from '@fieldnotes/vtt';
 import {
   isValidElement,
   isValidEnvelope,
@@ -42,12 +40,12 @@ describe('isValidElement', () => {
       createHtmlElement({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } }),
       createText({ position: { x: 0, y: 0 } }),
       shape(),
-      createGrid({}),
+      createGrid({}) as unknown as CanvasElement,
       createTemplate({
         position: { x: 0, y: 0 },
         templateShape: 'cone',
         radius: 30,
-      }),
+      }) as unknown as CanvasElement,
     ];
 
     for (const element of elements) expect(isValidElement(element)).toBe(true);

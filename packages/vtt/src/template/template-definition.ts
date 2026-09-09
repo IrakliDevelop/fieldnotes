@@ -1,5 +1,10 @@
 import type { Bounds, CanvasElement } from '@fieldnotes/core';
-import type { ElementTypeDefinition, ExtensionElementEnvelope } from '@fieldnotes/core';
+import type {
+  ElementTypeDefinition,
+  ExtensionElementEnvelope,
+  ExtensionInteractionContext,
+  Point,
+} from '@fieldnotes/core';
 import type { TemplateElement, TemplateRenderStyle, TemplateShape } from '../elements/types';
 import { renderTemplate, emitTemplateSvg } from './template-renderer';
 
@@ -22,6 +27,50 @@ function isOptional(value: unknown, check: (v: unknown) => boolean): boolean {
 const TEMPLATE_SHAPES: readonly TemplateShape[] = ['circle', 'cone', 'line', 'square', 'rectangle'];
 
 const RENDER_STYLES: readonly TemplateRenderStyle[] = ['cells', 'geometric'];
+const HANDLE_SIZE = 8;
+const HANDLE_HIT_PADDING = 4;
+const AIM_HANDLE_OFFSET = 24;
+const MIN_TEMPLATE_SIZE = 20;
+
+function normalizeAngle(angle: number): number {
+  const full = Math.PI * 2;
+  const normalized = ((((angle + Math.PI) % full) + full) % full) - Math.PI;
+  return normalized === -Math.PI ? Math.PI : normalized;
+}
+
+function rotatePoint(point: Point, center: Point, angle: number): Point {
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  const dx = point.x - center.x;
+  const dy = point.y - center.y;
+  return { x: center.x + dx * cos - dy * sin, y: center.y + dx * sin + dy * cos };
+}
+
+function snapUnit(context: ExtensionInteractionContext): number | null {
+  const size = context.snap.size;
+  if (!context.snap.enabled || size === undefined || size <= 0) return null;
+  return context.snap.mode === 'hex' ? Math.sqrt(3) * size : size;
+}
+
+function snapLength(value: number, context: ExtensionInteractionContext): number {
+  const unit = snapUnit(context);
+  return unit ? Math.max(unit, Math.round(value / unit) * unit) : value;
+}
+
+function hitRadius(point: Point, target: Point, radius: number): boolean {
+  const dx = point.x - target.x;
+  const dy = point.y - target.y;
+  return dx * dx + dy * dy <= radius * radius;
+}
+
+function aimKnob(el: TemplateElement, zoom: number): Point | null {
+  if (!['cone', 'line', 'rectangle'].includes(el.templateShape)) return null;
+  const distance = el.radius + AIM_HANDLE_OFFSET / zoom;
+  return {
+    x: el.position.x + distance * Math.cos(el.angle),
+    y: el.position.y + distance * Math.sin(el.angle),
+  };
+}
 
 export const templateElementTypeDefinition: ElementTypeDefinition<TemplateElement> = {
   type: 'vtt:template',
@@ -161,6 +210,116 @@ export const templateElementTypeDefinition: ElementTypeDefinition<TemplateElemen
       point.y >= bounds.y &&
       point.y <= bounds.y + bounds.h
     );
+  },
+
+  interaction: {
+    hitTestHandle(el, point, context) {
+      const hit = (HANDLE_SIZE / 2 + HANDLE_HIT_PADDING) / context.zoom;
+      if (el.templateShape === 'rectangle') {
+        const cos = Math.cos(el.angle);
+        const sin = Math.sin(el.angle);
+        const length = {
+          x: el.position.x + el.radius * cos,
+          y: el.position.y + el.radius * sin,
+        };
+        if (hitRadius(point, length, hit)) return { id: 'length', cursor: 'ew-resize' };
+        const halfWidth = (el.width ?? 0) / 2;
+        const width = {
+          x: el.position.x + (el.radius / 2) * cos - halfWidth * sin,
+          y: el.position.y + (el.radius / 2) * sin + halfWidth * cos,
+        };
+        if (hitRadius(point, width, hit)) return { id: 'width', cursor: 'ns-resize' };
+      } else {
+        const bounds = getTemplateBounds(el);
+        const resize = { x: bounds.x + bounds.w, y: bounds.y + bounds.h };
+        if (Math.abs(point.x - resize.x) <= hit && Math.abs(point.y - resize.y) <= hit) {
+          return { id: 'radius', cursor: 'nwse-resize' };
+        }
+      }
+      const aim = aimKnob(el, context.zoom);
+      return aim && hitRadius(point, aim, hit) ? { id: 'aim', cursor: 'grab' } : null;
+    },
+
+    updateHandle(el, handleId, point, context) {
+      if (handleId === 'aim') {
+        let angle = Math.atan2(point.y - el.position.y, point.x - el.position.x);
+        if (context.shiftKey) {
+          const increment = context.snap.mode === 'hex' ? Math.PI / 3 : Math.PI / 12;
+          angle = Math.round(angle / increment) * increment;
+        }
+        return { ...el, angle: normalizeAngle(angle) };
+      }
+      if (handleId === 'width') {
+        const cos = Math.cos(el.angle);
+        const sin = Math.sin(el.angle);
+        const perpendicular = Math.abs(
+          -(point.x - el.position.x) * sin + (point.y - el.position.y) * cos,
+        );
+        return {
+          ...el,
+          width: Math.max(MIN_TEMPLATE_SIZE, snapLength(perpendicular * 2, context)),
+        };
+      }
+      let radius =
+        handleId === 'length'
+          ? (point.x - el.position.x) * Math.cos(el.angle) +
+            (point.y - el.position.y) * Math.sin(el.angle)
+          : Math.hypot(point.x - el.position.x, point.y - el.position.y);
+      radius = Math.max(MIN_TEMPLATE_SIZE, snapLength(radius, context));
+      const unit = snapUnit(context);
+      return {
+        ...el,
+        radius,
+        ...(el.feetPerCell !== undefined && unit
+          ? { radiusFeet: (radius / unit) * el.feetPerCell }
+          : {}),
+      };
+    },
+
+    renderSelection(ctx, el, context) {
+      const handleSize = HANDLE_SIZE / context.zoom;
+      const drawSquare = (point: Point): void => {
+        ctx.fillRect(point.x - handleSize / 2, point.y - handleSize / 2, handleSize, handleSize);
+        ctx.strokeRect(point.x - handleSize / 2, point.y - handleSize / 2, handleSize, handleSize);
+      };
+      ctx.setLineDash([]);
+      ctx.fillStyle = '#ffffff';
+      if (el.templateShape === 'rectangle') {
+        if (context.selectedCount === 1) {
+          const cos = Math.cos(el.angle);
+          const sin = Math.sin(el.angle);
+          const halfWidth = (el.width ?? 0) / 2;
+          drawSquare({ x: el.position.x + el.radius * cos, y: el.position.y + el.radius * sin });
+          drawSquare({
+            x: el.position.x + (el.radius / 2) * cos - halfWidth * sin,
+            y: el.position.y + (el.radius / 2) * sin + halfWidth * cos,
+          });
+        }
+      } else {
+        const bounds = getTemplateBounds(el);
+        drawSquare({ x: bounds.x + bounds.w, y: bounds.y + bounds.h });
+      }
+      const aim = context.selectedCount === 1 ? aimKnob(el, context.zoom) : null;
+      if (aim) {
+        ctx.beginPath();
+        ctx.moveTo(el.position.x, el.position.y);
+        ctx.lineTo(aim.x, aim.y);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(aim.x, aim.y, handleSize / 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+      ctx.setLineDash([4 / context.zoom, 4 / context.zoom]);
+    },
+
+    rotate(el, pivot, delta) {
+      return {
+        ...el,
+        position: rotatePoint(el.position, pivot, delta),
+        angle: normalizeAngle(el.angle + delta),
+      };
+    },
   },
 
   renderMode: 'canvas',

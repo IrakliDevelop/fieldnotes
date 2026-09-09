@@ -5,8 +5,8 @@
  * These tests verify what @fieldnotes/core guarantees for state persisted by
  * RollKeeper before the VTT extraction:
  *
- *   1. Legacy grid/template element types are still accepted by the validator
- *   2. Without VTT adapters registered, they pass through as-is
+ *   1. Legacy grid/template element types require the VTT adapters
+ *   2. Core never leaks VTT-shaped elements into the v4 model
  *   3. The extensions field (fog plugin state) round-trips correctly
  *   4. Unknown plugin entries in extensions are tolerated
  *
@@ -15,7 +15,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { parseState, exportState } from '../core/state-serializer';
-import type { CanvasState } from '../core/state-serializer';
+import type { ImportableCanvasState } from '../core/state-serializer';
 
 function legacyState(
   elements: Record<string, unknown>[],
@@ -35,7 +35,7 @@ function legacyState(
 }
 
 describe('RollKeeper compatibility — legacy grid element', () => {
-  it('accepts legacy type: "grid" in state validator', () => {
+  it('requires a VTT adapter instead of leaking a legacy grid into core', () => {
     const json = legacyState([
       {
         id: 'grid-1',
@@ -53,12 +53,12 @@ describe('RollKeeper compatibility — legacy grid element', () => {
       },
     ]);
 
-    const state = parseState(json);
-    expect(state.elements).toHaveLength(1);
-    expect(state.elements[0]?.type).toBe('grid');
+    expect(() => parseState(json)).toThrow(
+      'Cannot migrate legacy element type "grid" without a registered adapter',
+    );
   });
 
-  it('accepts legacy hex grid', () => {
+  it('also rejects legacy hex grids without a VTT adapter', () => {
     const json = legacyState([
       {
         id: 'grid-1',
@@ -76,16 +76,14 @@ describe('RollKeeper compatibility — legacy grid element', () => {
       },
     ]);
 
-    const state = parseState(json);
-    const grid = state.elements[0] as Record<string, unknown> | undefined;
-    expect(grid?.type).toBe('grid');
-    expect(grid?.gridType).toBe('hex');
-    expect(grid?.hexOrientation).toBe('flat');
+    expect(() => parseState(json)).toThrow(
+      'Cannot migrate legacy element type "grid" without a registered adapter',
+    );
   });
 });
 
 describe('RollKeeper compatibility — legacy template element', () => {
-  it('accepts legacy type: "template" in state validator', () => {
+  it('requires a VTT adapter instead of leaking a legacy template into core', () => {
     const json = legacyState([
       {
         id: 'tpl-1',
@@ -107,17 +105,14 @@ describe('RollKeeper compatibility — legacy template element', () => {
       },
     ]);
 
-    const state = parseState(json);
-    expect(state.elements).toHaveLength(1);
-    const tpl = state.elements[0] as Record<string, unknown> | undefined;
-    expect(tpl?.type).toBe('template');
-    expect(tpl?.templateShape).toBe('circle');
-    expect(tpl?.radiusFeet).toBe(30);
+    expect(() => parseState(json)).toThrow(
+      'Cannot migrate legacy element type "template" without a registered adapter',
+    );
   });
 });
 
 describe('RollKeeper compatibility — mixed legacy state', () => {
-  it('loads core elements + grid + template + fog extensions together', () => {
+  it('fails transactionally before returning a partially migrated state', () => {
     const json = legacyState(
       [
         {
@@ -172,15 +167,9 @@ describe('RollKeeper compatibility — mixed legacy state', () => {
       },
     );
 
-    const state = parseState(json);
-
-    expect(state.elements).toHaveLength(3);
-    expect(state.elements[0]?.type).toBe('stroke');
-    expect(state.elements[1]?.type).toBe('grid');
-    expect(state.elements[2]?.type).toBe('template');
-    expect(state.extensions).toBeDefined();
-    expect(state.extensions?.fog).toBeDefined();
-    expect(state.extensions?.fog?.version).toBe(1);
+    expect(() => parseState(json)).toThrow(
+      'Cannot migrate legacy element type "grid" without a registered adapter',
+    );
   });
 });
 
@@ -246,7 +235,7 @@ describe('RollKeeper compatibility — fog plugin state', () => {
 
 describe('RollKeeper compatibility — extension envelope passthrough', () => {
   it('accepts extension envelope elements in state', () => {
-    const state: CanvasState = {
+    const state: ImportableCanvasState = {
       version: 3,
       camera: { position: { x: 0, y: 0 }, zoom: 1 },
       elements: [
@@ -259,7 +248,7 @@ describe('RollKeeper compatibility — extension envelope passthrough', () => {
           locked: true,
           layerId: 'default-layer',
           data: { gridType: 'square', cellSize: 24 },
-        } as unknown as CanvasState['elements'][number],
+        } as unknown as ImportableCanvasState['elements'][number],
       ],
       layers: [
         {

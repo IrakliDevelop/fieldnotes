@@ -286,6 +286,64 @@ describe('TemplateElementTypeDefinition', () => {
     });
   });
 
+  describe('interaction adapter', () => {
+    const context = {
+      zoom: 1,
+      shiftKey: false,
+      snap: { enabled: false },
+    } as const;
+
+    it('owns radius, rectangle, and aim handle hit testing', () => {
+      const interaction = templateElementTypeDefinition.interaction;
+      if (!interaction?.hitTestHandle) throw new Error('interaction adapter is required');
+
+      expect(interaction.hitTestHandle(makeTemplate(), { x: 130, y: 230 }, context)?.id).toBe(
+        'radius',
+      );
+      const rectangle = makeTemplate({ templateShape: 'rectangle', width: 20 });
+      expect(interaction.hitTestHandle(rectangle, { x: 130, y: 200 }, context)?.id).toBe('length');
+      expect(interaction.hitTestHandle(rectangle, { x: 115, y: 210 }, context)?.id).toBe('width');
+      expect(interaction.hitTestHandle(rectangle, { x: 154, y: 200 }, context)?.id).toBe('aim');
+    });
+
+    it('snaps radius and keeps feet metadata in VTT-owned data', () => {
+      const interaction = templateElementTypeDefinition.interaction;
+      if (!interaction?.updateHandle) throw new Error('interaction adapter is required');
+      const updated = interaction.updateHandle(
+        makeTemplate({ position: { x: 0, y: 0 }, radius: 30, feetPerCell: 5 }),
+        'radius',
+        { x: 33, y: 0 },
+        { zoom: 1, shiftKey: false, snap: { enabled: true, size: 20, mode: 'square' } },
+      );
+
+      expect(updated.radius).toBe(40);
+      expect(updated.radiusFeet).toBe(10);
+    });
+
+    it('snaps aim angles and rotates around an arbitrary pivot', () => {
+      const interaction = templateElementTypeDefinition.interaction;
+      if (!interaction?.updateHandle || !interaction.rotate) {
+        throw new Error('interaction adapter is required');
+      }
+      const aimed = interaction.updateHandle(
+        makeTemplate({ position: { x: 0, y: 0 }, angle: 0 }),
+        'aim',
+        { x: 50, y: 50 },
+        { zoom: 1, shiftKey: true, snap: { enabled: false, mode: 'hex' } },
+      );
+      expect(aimed.angle).toBeCloseTo(Math.PI / 3);
+
+      const rotated = interaction.rotate(
+        makeTemplate({ position: { x: 10, y: 0 }, angle: 0 }),
+        { x: 0, y: 0 },
+        Math.PI / 2,
+      );
+      expect(rotated.position.x).toBeCloseTo(0);
+      expect(rotated.position.y).toBeCloseTo(10);
+      expect(rotated.angle).toBeCloseTo(Math.PI / 2);
+    });
+  });
+
   describe('renderMode', () => {
     it('is canvas', () => {
       expect(templateElementTypeDefinition.renderMode).toBe('canvas');

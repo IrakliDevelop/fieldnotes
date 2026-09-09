@@ -14,7 +14,7 @@ collaboration.
 pnpm add @fieldnotes/vtt @fieldnotes/core
 ```
 
-Requires `@fieldnotes/core` `>=0.75.0` (peer dependency).
+Requires `@fieldnotes/core` `>=0.82.0` (peer dependency).
 
 ## Register element types
 

@@ -22,6 +22,12 @@ export type { FogMetaRecord, FogTileRecord, FogSnapshot };
 
 export type SyncElement = CanvasElement & { audience?: string };
 
+export interface SyncCapabilities {
+  protocolVersion: number;
+  extensionKinds: string[];
+  elementEnvelope: boolean;
+}
+
 /**
  * Revision of the optional layer-definition sync addition (the `layer-upsert`
  * and `layer-remove` op kinds plus the snapshot `layers` field). Peers that
@@ -65,6 +71,7 @@ export type SyncOp =
     }
   | { kind: 'presence'; data: unknown }
   | { kind: 'presence-leave' }
+  | { kind: 'capabilities'; capabilities: SyncCapabilities }
   | { kind: 'layer-upsert'; layer: Layer; version: number; editor: string }
   | { kind: 'layer-remove'; id: string; version: number; editor: string }
   | { kind: 'fog-meta'; record: FogMetaRecord }
@@ -309,6 +316,8 @@ export function isValidEnvelope(env: unknown): env is SyncEnvelope {
     case 'presence':
     case 'presence-leave':
       return true;
+    case 'capabilities':
+      return isValidCapabilities((op as Record<string, unknown>)['capabilities']);
     case 'snapshot':
       // SHAPE only; per-element and per-record filtered in the handler
       return (
@@ -380,6 +389,7 @@ export function applyOpToMap(map: Map<string, CanvasElement>, op: SyncOp): void 
     case 'snapshot':
     case 'presence':
     case 'presence-leave':
+    case 'capabilities':
     case 'layer-upsert':
     case 'layer-remove':
     case 'fog-meta':
@@ -387,4 +397,16 @@ export function applyOpToMap(map: Map<string, CanvasElement>, op: SyncOp): void 
     case 'extension':
       break;
   }
+}
+
+function isValidCapabilities(value: unknown): value is SyncCapabilities {
+  if (!isRecord(value)) return false;
+  if (!Number.isSafeInteger(value['protocolVersion']) || (value['protocolVersion'] as number) < 1) {
+    return false;
+  }
+  if (typeof value['elementEnvelope'] !== 'boolean' || !Array.isArray(value['extensionKinds'])) {
+    return false;
+  }
+  const kinds = value['extensionKinds'] as unknown[];
+  return kinds.length <= 256 && kinds.every((kind) => isBoundedString(kind, 128));
 }

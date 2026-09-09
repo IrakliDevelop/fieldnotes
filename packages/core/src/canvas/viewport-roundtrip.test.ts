@@ -18,7 +18,6 @@ import type {
   ImageElement,
   TextElement,
   ShapeElement,
-  GridElement,
 } from '../elements/types';
 
 describe('Viewport save/load roundtrip', () => {
@@ -239,51 +238,6 @@ describe('Viewport save/load roundtrip', () => {
     expect(rDefault?.layerId).toBe(noteOnDefault.layerId);
     expect(rL2?.layerId).toBe(layer2.id);
     expect(rL3?.layerId).toBe(layer3.id);
-
-    v2.destroy();
-  });
-
-  // Grid elements are now managed by VTT's GridController.
-  // This test should be in VTT's test suite.
-  it.skip('preserves grid element properties through roundtrip', () => {
-    const v1 = new Viewport(container);
-
-    v1.addGrid({
-      gridType: 'hex',
-      hexOrientation: 'flat',
-      cellSize: 60,
-      strokeColor: '#aabbcc',
-      strokeWidth: 2,
-      opacity: 0.8,
-    });
-
-    const state = v1.exportState();
-    const gridEnvelope = v1.store
-      .getElementsByType('extension')
-      .find((el) => el.extensionType === 'vtt:grid');
-    const gridId = gridEnvelope?.id;
-    v1.destroy();
-
-    const v2 = new Viewport(container);
-    v2.loadState(state);
-
-    expect(gridId).toBeDefined();
-    const rGridEnvelope = v2.store
-      .getElementsByType('extension')
-      .find((el) => el.extensionType === 'vtt:grid');
-    expect(rGridEnvelope).toBeDefined();
-    expect(rGridEnvelope?.id).toBe(gridId);
-    const adapter = v2.elementRegistry.getAdapter('vtt:grid');
-    const rGrid = rGridEnvelope
-      ? (adapter?.unwrap(rGridEnvelope) as unknown as GridElement)
-      : undefined;
-    expect(rGrid).toBeDefined();
-    expect(rGrid?.gridType).toBe('hex');
-    expect(rGrid?.hexOrientation).toBe('flat');
-    expect(rGrid?.cellSize).toBe(60);
-    expect(rGrid?.strokeColor).toBe('#aabbcc');
-    expect(rGrid?.strokeWidth).toBe(2);
-    expect(rGrid?.opacity).toBe(0.8);
 
     v2.destroy();
   });

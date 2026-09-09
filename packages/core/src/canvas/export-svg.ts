@@ -424,10 +424,6 @@ function emitElement(
       return withRotationSvg(el, emitText(el, rasterScale, resourceOptions));
     case 'note':
       return withRotationSvg(el, emitNote(el, rasterScale, resourceOptions));
-    case 'grid':
-    case 'template':
-      // Grid/template SVG emission is delegated to VTT element type definitions (Phase 6)
-      return '';
     case 'html':
       return withRotationSvg(el, emitImage(el, htmlDataUris.get(el.id)));
     case 'extension': {

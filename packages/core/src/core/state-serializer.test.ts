@@ -1,19 +1,60 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from 'vitest';
 import { exportState, parseState } from './state-serializer';
-import type { CanvasState } from './state-serializer';
+import type { CanvasState, ImportableCanvasState } from './state-serializer';
 import {
   createArrow,
-  createGrid,
   createHtmlElement,
   createImage,
   createNote,
   createShape,
   createStroke,
-  createTemplate,
   createText,
 } from '../elements/element-factory';
 import type { Layer } from '../layers/types';
+import { ElementRegistry } from '../elements/element-registry';
+import type { BaseElement, ElementTypeDefinition } from '../elements/types';
+
+interface LegacyMarker extends BaseElement {
+  type: 'marker';
+  label: string;
+}
+
+const markerDefinition: ElementTypeDefinition<LegacyMarker> = {
+  type: 'test:marker',
+  legacyTypes: ['marker'],
+  decodeLegacy: (raw) => ({
+    id: String(raw['id']),
+    type: 'marker',
+    position: raw['position'] as { x: number; y: number },
+    zIndex: raw['zIndex'] as number,
+    locked: raw['locked'] as boolean,
+    layerId: raw['layerId'] as string,
+    label: raw['label'] as string,
+  }),
+  encodeLegacy: (element) => ({ ...element }),
+  validateData: (data) => typeof data['label'] === 'string',
+  unwrap: (envelope) => ({
+    id: envelope.id,
+    type: 'marker',
+    position: envelope.position,
+    zIndex: envelope.zIndex,
+    locked: envelope.locked,
+    layerId: envelope.layerId,
+    label: envelope.data['label'] as string,
+  }),
+  wrap: (element) => ({
+    id: element.id,
+    type: 'extension',
+    extensionType: 'test:marker',
+    position: element.position,
+    zIndex: element.zIndex,
+    locked: element.locked,
+    layerId: element.layerId,
+    data: { label: element.label },
+  }),
+  bounds: () => null,
+};
 
 function makeCamera(x = 0, y = 0, zoom = 1) {
   return { position: { x, y }, zoom };
@@ -25,7 +66,7 @@ describe('exportState', () => {
     const note = createNote({ position: { x: 10, y: 20 } });
     const state = exportState([stroke, note], makeCamera(100, 200, 1.5));
 
-    expect(state.version).toBe(3);
+    expect(state.version).toBe(4);
     expect(state.camera).toEqual({ position: { x: 100, y: 200 }, zoom: 1.5 });
     expect(state.elements).toHaveLength(2);
     expect(state.elements[0]?.type).toBe('stroke');
@@ -84,7 +125,7 @@ describe('exportState', () => {
 });
 
 describe('parseState', () => {
-  function validState(): CanvasState {
+  function validState(): ImportableCanvasState {
     return {
       version: 3,
       camera: { position: { x: 0, y: 0 }, zoom: 1 },
@@ -108,9 +149,59 @@ describe('parseState', () => {
     const json = JSON.stringify(validState());
     const state = parseState(json);
 
-    expect(state.version).toBe(3);
+    expect(state.version).toBe(4);
     expect(state.camera.zoom).toBe(1);
     expect(state.elements).toHaveLength(1);
+  });
+
+  it('migrates registered legacy element types without domain knowledge in core', () => {
+    const registry = new ElementRegistry();
+    registry.register(markerDefinition);
+    const data = validState();
+    data.elements = [
+      {
+        id: 'marker-1',
+        type: 'marker',
+        position: { x: 10, y: 20 },
+        zIndex: 1,
+        locked: false,
+        layerId: 'default-layer',
+        label: 'hello',
+      },
+    ];
+
+    const state = parseState(JSON.stringify(data), registry);
+
+    expect(state).toMatchObject({
+      version: 4,
+      elements: [
+        {
+          id: 'marker-1',
+          type: 'extension',
+          extensionType: 'test:marker',
+          data: { label: 'hello' },
+        },
+      ],
+    });
+  });
+
+  it('rejects malformed registered legacy data before migration mutates state', () => {
+    const registry = new ElementRegistry();
+    registry.register(markerDefinition);
+    const data = validState();
+    data.elements = [
+      {
+        id: 'marker-1',
+        type: 'marker',
+        position: { x: 10, y: 20 },
+        zIndex: 1,
+        locked: false,
+        layerId: 'default-layer',
+        label: 42,
+      },
+    ];
+
+    expect(() => parseState(JSON.stringify(data), registry)).toThrow('malformed marker data');
   });
 
   it('sanitizes text-element HTML during import', () => {
@@ -218,13 +309,13 @@ describe('parseState', () => {
 
   it('rejects unsupported future versions', () => {
     const data = validState();
-    data.version = 4;
-    expect(() => parseState(JSON.stringify(data))).toThrow('unsupported version 4');
+    (data as { version: number }).version = 5;
+    expect(() => parseState(JSON.stringify(data))).toThrow('unsupported version 5');
   });
 
   it.each([0, -1, 1.5])('rejects invalid version %s', (version) => {
     const data = validState();
-    data.version = version;
+    (data as { version: number }).version = version;
     expect(() => parseState(JSON.stringify(data))).toThrow('version');
   });
 
@@ -248,13 +339,13 @@ describe('parseState', () => {
     expect(() => parseState(JSON.stringify(data))).toThrow('array');
   });
 
-  it('throws on element with unknown type', () => {
+  it('throws on an unregistered legacy element type', () => {
     const data = {
       version: 1,
       camera: { position: { x: 0, y: 0 }, zoom: 1 },
       elements: [{ id: '1', type: 'unknown', position: { x: 0, y: 0 }, zIndex: 0, locked: false }],
     };
-    expect(() => parseState(JSON.stringify(data))).toThrow('unknown type');
+    expect(() => parseState(JSON.stringify(data))).toThrow('without a registered adapter');
   });
 
   it('throws on element missing id', () => {
@@ -317,16 +408,9 @@ describe('parseState', () => {
         size: { w: 10, h: 10 },
         layerId: 'default-layer',
       }),
-      createGrid({ layerId: 'default-layer' }),
-      createTemplate({
-        position: { x: 0, y: 0 },
-        templateShape: 'circle',
-        radius: 10,
-        layerId: 'default-layer',
-      }),
     ];
 
-    expect(parseState(JSON.stringify(data)).elements).toHaveLength(9);
+    expect(parseState(JSON.stringify(data)).elements).toHaveLength(7);
   });
 
   it.each([
@@ -337,8 +421,6 @@ describe('parseState', () => {
     ['html', 'size'],
     ['text', 'textAlign'],
     ['shape', 'strokeWidth'],
-    ['grid', 'cellSize'],
-    ['template', 'radius'],
   ])('rejects malformed %s-specific data', (type, field) => {
     const data = validState();
     const elements = {
@@ -360,13 +442,6 @@ describe('parseState', () => {
       shape: createShape({
         position: { x: 0, y: 0 },
         size: { w: 10, h: 10 },
-        layerId: 'default-layer',
-      }),
-      grid: createGrid({ layerId: 'default-layer' }),
-      template: createTemplate({
-        position: { x: 0, y: 0 },
-        templateShape: 'circle',
-        radius: 10,
         layerId: 'default-layer',
       }),
     };
@@ -537,7 +612,7 @@ describe('parseState', () => {
 
     it('exportState with empty store produces valid state', () => {
       const state = exportState([], makeCamera());
-      expect(state.version).toBe(3);
+      expect(state.version).toBe(4);
       expect(state.elements).toEqual([]);
       expect(state.camera).toEqual({ position: { x: 0, y: 0 }, zoom: 1 });
 
@@ -622,15 +697,14 @@ describe('parseState', () => {
       expect(parsed.extensions).toEqual(extensions);
     });
 
-    it('dual-writes fog plugin state to the v3 top-level field', () => {
+    it('writes fog plugin state only in the v4 extensions envelope', () => {
       const fog = { definition: { version: 1 }, tiles: [] };
       const state = exportState([], makeCamera(), [], undefined, undefined, {
         fog: { version: 1, data: fog },
       });
 
       expect(state.extensions?.['fog']).toEqual({ version: 1, data: fog });
-      expect(state.fog).toEqual(fog);
-      expect(state.fog).not.toBe(fog);
+      expect('fog' in state).toBe(false);
     });
 
     it('migrates a legacy top-level fog field into plugin state', () => {
@@ -645,7 +719,8 @@ describe('parseState', () => {
       );
 
       expect(state.extensions?.['fog']).toEqual({ version: 1, data: fog });
-      expect(state.fog).toEqual(fog);
+      expect(state.version).toBe(4);
+      expect('fog' in state).toBe(false);
     });
 
     it('prefers plugin fog state when both representations exist', () => {

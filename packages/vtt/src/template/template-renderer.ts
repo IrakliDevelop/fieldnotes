@@ -24,7 +24,6 @@ const n = (v: number): string => (Number.isFinite(v) ? `${Math.round(v * 1000) /
 
 function findGridInStore(allElements: readonly CanvasElement[]): GridElement | null {
   for (const el of allElements) {
-    if (el.type === 'grid') return el as unknown as GridElement;
     if (el.type === 'extension' && el.extensionType === 'vtt:grid') {
       return {
         type: 'grid',
