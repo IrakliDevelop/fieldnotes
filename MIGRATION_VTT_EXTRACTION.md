@@ -15,7 +15,7 @@
 ## Table of Contents
 
 1. [Goals](#goals)
-2. [Current State After PR #178](#current-state-after-pr-178)
+2. [Current State After PR #178 and RollKeeper PR #310](#current-state-after-pr-178-and-rollkeeper-pr-310)
 3. [Review Findings](#review-findings)
 4. [Architectural Decisions](#architectural-decisions)
 5. [Architecture Overview](#architecture-overview)
@@ -1414,13 +1414,14 @@ queries change. This phase cannot ship as an internal-only refactor or ordinary 
 - Mixed-version sync: old client + new client in same room
 - Persisted state: v3 with legacy fog field loads correctly
 
-### Phase 6: Deploy & Soak (2-4 weeks)
+### Phase 6: Deploy, Soak, and Establish the v4 Boundary
 
 > **2026-09-10 update:** RollKeeper's v3 deployment is operator-confirmed healthy. Tasks 5–8 are
 > implemented on the v4 release branch. Legacy codecs remain as intentional per-peer translation
 > targets until the mixed-peer window closes.
 
-**Goal:** Deploy plugin-capable infrastructure, verify in production, remove legacy code.
+**Goal:** Deploy plugin-capable infrastructure, verify it in production, then establish the v4
+boundary and remove legacy runtime ownership while retaining negotiated compatibility codecs.
 
 **Tasks:**
 
@@ -1438,18 +1439,65 @@ queries change. This phase cannot ship as an internal-only refactor or ordinary 
 **Deliverables:**
 
 - Production deployment with new architecture
-- v4 version bump with automatic v3→v4 migration
-- Legacy code removed after v4 boundary
-- Capability exchange handshake in sync protocol
-- Migration guide for external consumers
+- Timestamped rollout/soak evidence and immutable artifact inventory
+- Tested rollback path to the previous RollKeeper web and relay release
+- Explicit go/no-go decision for beginning Phase 6B
 
 **Validation:**
 
 - Zero fog-related incidents during soak
 - All RollKeeper production features work
+- Existing v3 states remain readable by both the adopted and rollback releases
+- Privacy fails closed during bootstrap, reconnect, corrections, and cross-instance fanout
+
+The completed rollout was initiated with
+[`docs/VTT_V3_PRODUCTION_SOAK_KICKOFF.md`](docs/VTT_V3_PRODUCTION_SOAK_KICKOFF.md); that document is
+retained as the historical execution and evidence checklist.
+
+#### Phase 6B: CanvasState v4 Boundary and Legacy Cleanup
+
+**Gate:** Satisfied by the operator-confirmed v3 deployment. The implementation is complete on this
+release branch; coordinated package publication and RollKeeper v4 adoption remain.
+
+**Tasks, in order:**
+
+1. Reconfirm the deployed-client and external-consumer inventory and publish the migration path.
+2. Add handshake-gated sync capability negotiation. Queue extension-sensitive incoming and outgoing
+   data until capabilities arrive; use a bounded timeout for a legacy fallback and upgrade if a valid
+   capabilities frame arrives later. No extension-shaped data may flow before a compatible mode is
+   known.
+3. Add transactional v3→v4 persistence migration that validates before commit and preserves camera,
+   layers, active layer, plugin extensions, fog, and every registered element.
+4. Bump to CanvasState v4 and emit extension envelopes plus `extensions`-only fog state. Retain the
+   v3 reader/migrator so existing battlemaps remain importable.
+5. Apply per-peer legacy translation to every live-sync outbound path: initial/reconnect/correction
+   snapshots, upserts, corrections, plugin broadcasts, and peer-produced snapshots. Reject missing
+   adapters explicitly.
+6. After the v4 capability boundary is active, stop emitting the top-level fog mirror, legacy fog
+   operations, and the legacy fog snapshot field. Remove obsolete fog ownership APIs from generic
+   sync/server/Redis packages.
+7. Remove legacy grid/template members and branches from core after their v3 decoding responsibility
+   is isolated in migration adapters. Replace the template interaction bridge and deprecate the React
+   `snapToGrid` compatibility prop.
+
+> **Ordering constraint:** Capability negotiation must ship before or atomically with the first v4 or
+> extension-shaped sync data. The v4 version bump must happen before legacy fields and kinds stop
+> being emitted. Removing legacy output while still writing v3 would let old clients accept a state
+> and silently lose data; v4 makes incompatible persisted-state readers fail explicitly.
+
+**Deliverables:**
+
+- Capability-negotiated live protocol with full outbound-path translation
+- CanvasState v4 plus automatic, transactional v3→v4 migration
+- Legacy output and obsolete compatibility ownership removed after the boundary
+- Migration guide and coordinated Field Notes/RollKeeper release plan
+
+**Validation:**
+
 - v3 states migrate to v4 correctly via `migrateState()`
 - Old clients reject v4 states with clear error message
 - Capability exchange handshake works (both peers exchange before data flows)
+- Mixed live peers receive only a format they advertised and converge across reconnect/correction paths
 - External consumers (if any) have migration path
 
 ### Phase 7: Document Extension API (2-3 weeks)
@@ -1697,8 +1745,9 @@ The repository now guarantees that required plugins start before the first rende
 construction rolls back prior handles, registrations, services, DOM, and event resources. State load
 migrates and validates all plugin slices before mutation, then barriers store, layer, camera, history,
 and plugin notifications. A commit failure restores core, history, and plugin state before queued
-events are discarded. RollKeeper's application-specific subscription order still requires external
-integration verification during adoption.
+events are discarded. RollKeeper PR #310 verifies application-specific subscription and bootstrap
+ordering in automated tests; the production soak must still verify deployed first-frame privacy and
+cross-instance behavior.
 
 ---
 
@@ -2086,8 +2135,8 @@ export const GridControllerKey = createServiceKey<GridController>('grid');
 
 ---
 
-_This is a living document. Updated 2026-09-06 after executable-contract and RollKeeper migration
-review. Update it as the migration progresses._
+_This is a living document. Updated 2026-09-08 after the RollKeeper v3 adoption merge and production-
+soak kickoff. Update it as the migration progresses._
 
 ---
 
