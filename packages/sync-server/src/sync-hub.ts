@@ -110,6 +110,16 @@ function layerRecordToOp(record: LayerRecord): LayerOp {
     : { kind: 'layer-remove', id: record.id, version: record.version, editor: record.editor };
 }
 
+/**
+ * Peers sharing a capability profile receive byte-identical frames, so a
+ * relay encodes each (sender, op) once per profile instead of once per recipient.
+ */
+type EncodedFrames = Map<string, string | null>;
+
+function capabilityProfile(capabilities: SyncCapabilities): string {
+  return `${capabilities.elementEnvelope ? '1' : '0'}|${capabilities.extensionKinds.join(',')}`;
+}
+
 function isPresenceOp(
   op: unknown,
 ): op is { kind: 'presence'; data: unknown } | { kind: 'presence-leave' } {
@@ -523,8 +533,30 @@ export class SyncHub {
    * lossy for this peer (no legacy encoding) or the socket throws; neither
    * may reject the room operation that produced it.
    */
-  private sendToConnection(conn: Connection, from: string, op: SyncOp): boolean {
+  private sendToConnection(
+    conn: Connection,
+    from: string,
+    op: SyncOp,
+    encoded?: EncodedFrames,
+  ): boolean {
     const capabilities = this.peerCapabilities.get(conn.id) ?? createLegacyCapabilities();
+    const profile = encoded ? capabilityProfile(capabilities) : undefined;
+    let message = profile === undefined ? undefined : encoded?.get(profile);
+    if (message === undefined) {
+      message = this.encodeForPeer(from, op, capabilities);
+      if (profile !== undefined) encoded?.set(profile, message);
+    }
+    if (message === null) return false;
+    try {
+      conn.send(message);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Returns the wire frame for `op` translated for `capabilities`, or null when lossy. */
+  private encodeForPeer(from: string, op: SyncOp, capabilities: SyncCapabilities): string | null {
     try {
       const translated = translateOpForPeer(
         op,
@@ -532,10 +564,9 @@ export class SyncHub {
         this.elementRegistry,
         this.pluginRegistry.extensionDefinitions,
       );
-      conn.send(JSON.stringify({ from, op: translated }));
-      return true;
+      return JSON.stringify({ from, op: translated });
     } catch {
-      return false;
+      return null;
     }
   }
 
@@ -584,12 +615,13 @@ export class SyncHub {
     const members = this.rooms.get(room);
     if (!members) return 0;
     let sent = 0;
+    const encoded: EncodedFrames = new Map();
     for (const connectionId of members) {
       if (connectionId === excludeId) continue;
       const conn = this.conns.get(connectionId);
       if (!conn) continue;
       // A lossy translation is skipped for this peer without blocking compatible peers.
-      if (this.sendToConnection(conn, from, op)) sent += 1;
+      if (this.sendToConnection(conn, from, op, encoded)) sent += 1;
     }
     return sent;
   }
@@ -687,18 +719,19 @@ export class SyncHub {
   ): void {
     const members = this.rooms.get(room);
     if (!members) return;
-    const send = (conn: Connection, sender: string, outbound: SyncOp): void => {
-      this.sendToConnection(conn, sender, outbound);
-    };
+    const encoded: EncodedFrames = new Map();
     if (op.kind === 'upsert') {
       const audience = (op.element as OwnedElement).audience;
       const removeOp: SyncOp = { kind: 'remove', id: op.element.id };
+      const encodedRemove: EncodedFrames = new Map();
       for (const cid of members) {
         if (cid === excludeId) continue;
         const conn = this.conns.get(cid);
         if (!conn) continue;
-        if (this.mayRead(conn, audience)) send(conn, from, op);
-        else if (prevExisted && this.mayRead(conn, prevAudience)) send(conn, HUB_FROM, removeOp);
+        if (this.mayRead(conn, audience)) this.sendToConnection(conn, from, op, encoded);
+        else if (prevExisted && this.mayRead(conn, prevAudience)) {
+          this.sendToConnection(conn, HUB_FROM, removeOp, encodedRemove);
+        }
       }
     } else if (op.kind === 'remove') {
       for (const cid of members) {
@@ -708,13 +741,13 @@ export class SyncHub {
         // No read filter → forward to all (today's behavior; current/prevExisted aren't fetched without
         // a hook). With canRead, only recipients who could see the removed element get it.
         const wasVisible = !this.canRead || (prevExisted && this.mayRead(conn, prevAudience));
-        if (wasVisible) send(conn, from, op);
+        if (wasVisible) this.sendToConnection(conn, from, op, encoded);
       }
     } else if (op.kind === 'clear') {
       for (const cid of members) {
         if (cid === excludeId) continue;
         const conn = this.conns.get(cid);
-        if (conn) send(conn, from, op);
+        if (conn) this.sendToConnection(conn, from, op, encoded);
       }
     }
   }

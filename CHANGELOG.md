@@ -17,6 +17,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
   overlays, and toolbar rotation. `ExtensionInteractionContext` carries `selectedCount` so adapters
   can keep single-selection handles (template aim/length/width) out of multi-selection hit testing.
 - `createSyncServer({ elementRegistry })` forwards a registry to the hub for legacy-peer translation.
+- `HANDLE_SIZE` and `HANDLE_HIT_PADDING` are exported so extension adapters match core's handles.
 
 ### Changed
 
@@ -28,6 +29,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
   grid/constraint service.
 - The private `@fieldnotes/contract-spike` workspace was retired after its contracts graduated into
   production packages and their test suites.
+- `exportState` drops its unused `registry` parameter; `extensions` is now the fifth argument.
+- The hub encodes a relayed frame once per capability profile instead of once per recipient, and
+  plugin registries build their extension-definition view once at construction.
 
 ### Compatibility
 

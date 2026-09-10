@@ -665,12 +665,12 @@ describe('parseState', () => {
       const extensions = {
         somePlugin: { version: 1, data: { definition: { version: 1 }, tiles: [] } },
       };
-      const state = exportState([], makeCamera(), [], undefined, undefined, extensions);
+      const state = exportState([], makeCamera(), [], undefined, extensions);
       expect(state.extensions).toEqual(extensions);
     });
 
     it('exportState omits extensions when empty', () => {
-      const state = exportState([], makeCamera(), [], undefined, undefined, {});
+      const state = exportState([], makeCamera(), [], undefined, {});
       expect(state.extensions).toBeUndefined();
     });
 
@@ -681,7 +681,7 @@ describe('parseState', () => {
 
     it('exportState deep-copies extensions', () => {
       const extensions = { somePlugin: { version: 1, data: { foo: 'bar' } } };
-      const state = exportState([], makeCamera(), [], undefined, undefined, extensions);
+      const state = exportState([], makeCamera(), [], undefined, extensions);
       extensions.somePlugin.data = { foo: 'mutated' };
       const pluginData = state.extensions?.somePlugin?.data as { foo: string } | undefined;
       expect(pluginData?.foo).toBe('bar');
@@ -729,7 +729,7 @@ describe('parseState', () => {
         somePlugin: { version: 1, data: { definition: { version: 1 }, tiles: [] } },
         other: { version: 3, data: [1, 2, 3] },
       };
-      const exported = exportState([], makeCamera(), [], undefined, undefined, extensions);
+      const exported = exportState([], makeCamera(), [], undefined, extensions);
       const json = JSON.stringify(exported);
       const parsed = parseState(json);
       expect(parsed.extensions).toEqual(extensions);
@@ -737,7 +737,7 @@ describe('parseState', () => {
 
     it('writes fog plugin state only in the v4 extensions envelope', () => {
       const fog = { definition: { version: 1 }, tiles: [] };
-      const state = exportState([], makeCamera(), [], undefined, undefined, {
+      const state = exportState([], makeCamera(), [], undefined, {
         fog: { version: 1, data: fog },
       });
 

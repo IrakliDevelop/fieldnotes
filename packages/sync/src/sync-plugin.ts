@@ -86,9 +86,13 @@ export class ClientPluginRegistry {
   private readonly byName = new Map<string, ClientSyncPlugin>();
   private readonly legacyOwners = new Map<string, ClientSyncPlugin>();
   private readonly extensions = new Map<string, ClientExtensionEntry>();
+  private readonly definitions: ReadonlyMap<string, ExtensionKind<unknown>>;
 
   constructor(plugins: readonly ClientSyncPlugin[]) {
     for (const plugin of plugins) this.register(plugin);
+    // Registration is constructor-only, so the translation view is fixed here
+    // instead of rebuilt on every sent op.
+    this.definitions = new Map([...this.extensions].map(([name, entry]) => [name, entry.kind]));
   }
 
   private register(plugin: ClientSyncPlugin): void {
@@ -134,6 +138,6 @@ export class ClientPluginRegistry {
   }
 
   get extensionDefinitions(): ReadonlyMap<string, ExtensionKind<unknown>> {
-    return new Map([...this.extensions].map(([name, entry]) => [name, entry.kind]));
+    return this.definitions;
   }
 }

@@ -1,3 +1,4 @@
+import { HANDLE_SIZE, HANDLE_HIT_PADDING } from '@fieldnotes/core';
 import type { Bounds, CanvasElement } from '@fieldnotes/core';
 import type {
   ElementTypeDefinition,
@@ -27,11 +28,11 @@ function isOptional(value: unknown, check: (v: unknown) => boolean): boolean {
 const TEMPLATE_SHAPES: readonly TemplateShape[] = ['circle', 'cone', 'line', 'square', 'rectangle'];
 
 const RENDER_STYLES: readonly TemplateRenderStyle[] = ['cells', 'geometric'];
-const HANDLE_SIZE = 8;
-const HANDLE_HIT_PADDING = 4;
 const AIM_HANDLE_OFFSET = 24;
 const MIN_TEMPLATE_SIZE = 20;
 
+// `normalizeAngle`/`rotatePoint` mirror core's private geometry helpers; core
+// deliberately keeps those off its public surface (see core index.test.ts).
 function normalizeAngle(angle: number): number {
   const full = Math.PI * 2;
   const normalized = ((((angle + Math.PI) % full) + full) % full) - Math.PI;

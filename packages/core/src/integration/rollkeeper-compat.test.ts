@@ -188,14 +188,9 @@ describe('RollKeeper compatibility — fog plugin state', () => {
       },
     };
 
-    const exported = exportState(
-      [],
-      { position: { x: 0, y: 0 }, zoom: 1 },
-      [],
-      undefined,
-      undefined,
-      { fog: fogState },
-    );
+    const exported = exportState([], { position: { x: 0, y: 0 }, zoom: 1 }, [], undefined, {
+      fog: fogState,
+    });
 
     expect(exported.extensions).toBeDefined();
     expect(exported.extensions?.fog).toEqual(fogState);

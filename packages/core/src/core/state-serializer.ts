@@ -35,10 +35,8 @@ export function exportState(
   camera: { position: Point; zoom: number },
   layers: Layer[] = [],
   activeLayerId?: string,
-  registry?: ElementRegistry,
   extensions?: Record<string, PersistedPluginState>,
 ): CanvasState {
-  void registry;
   const state: CanvasState = {
     version: CANVAS_STATE_VERSION,
     camera: {
@@ -178,8 +176,11 @@ function validateState(
   }
 
   const elementIds = new Set<string>();
-  for (const el of elements) {
-    validateElement(el, version, registry);
+  for (let i = 0; i < elements.length; i++) {
+    // Validation already decodes a legacy element to prove it well-formed;
+    // keep that envelope so migration need not decode it a second time.
+    const el = validateElement(elements[i], version, registry);
+    elements[i] = el;
     if (elementIds.has(el.id)) throw new Error(`Invalid state: duplicate element id "${el.id}"`);
     elementIds.add(el.id);
     if (!layerIds.has(el.layerId)) {
@@ -217,11 +218,12 @@ function validateExtensions(value: unknown): asserts value is Record<string, Per
   }
 }
 
-function validateElement(
-  el: unknown,
-  version: number,
-  registry: ElementRegistry,
-): asserts el is CanvasElement {
+/**
+ * Validates one persisted element and returns its runtime form: the element
+ * itself for core and v4 extension types, or the decoded envelope for a
+ * registered legacy type.
+ */
+function validateElement(el: unknown, version: number, registry: ElementRegistry): CanvasElement {
   if (!isRecord(el)) {
     throw new Error('Invalid element: expected an object');
   }
@@ -257,7 +259,7 @@ function validateElement(
         throw new Error(`Invalid element "${el['id']}": malformed ${extensionType} data`);
       }
     }
-    return;
+    return el as unknown as CanvasElement;
   }
 
   const adapter =
@@ -279,6 +281,7 @@ function validateElement(
   if (!adapter.validateEnvelope(envelope)) {
     throw new Error(`Invalid element "${el['id']}": malformed ${el['type']} data`);
   }
+  return envelope;
 }
 
 function validateTypeFields(
