@@ -46,10 +46,15 @@ function rotatePoint(point: Point, center: Point, angle: number): Point {
   return { x: center.x + dx * cos - dy * sin, y: center.y + dx * sin + dy * cos };
 }
 
-function snapUnit(context: ExtensionInteractionContext): number | null {
+/** World-units per grid cell, independent of whether snapping is on. */
+function gridUnit(context: ExtensionInteractionContext): number | null {
   const size = context.snap.size;
-  if (!context.snap.enabled || size === undefined || size <= 0) return null;
+  if (size === undefined || size <= 0) return null;
   return context.snap.mode === 'hex' ? Math.sqrt(3) * size : size;
+}
+
+function snapUnit(context: ExtensionInteractionContext): number | null {
+  return context.snap.enabled ? gridUnit(context) : null;
 }
 
 function snapLength(value: number, context: ExtensionInteractionContext): number {
@@ -215,7 +220,11 @@ export const templateElementTypeDefinition: ElementTypeDefinition<TemplateElemen
   interaction: {
     hitTestHandle(el, point, context) {
       const hit = (HANDLE_SIZE / 2 + HANDLE_HIT_PADDING) / context.zoom;
+      // Length, width, and aim handles are drawn only for a single selection
+      // (see renderSelection); an undrawn handle must not capture the pointer.
+      const single = context.selectedCount === 1;
       if (el.templateShape === 'rectangle') {
+        if (!single) return null;
         const cos = Math.cos(el.angle);
         const sin = Math.sin(el.angle);
         const length = {
@@ -236,7 +245,7 @@ export const templateElementTypeDefinition: ElementTypeDefinition<TemplateElemen
           return { id: 'radius', cursor: 'nwse-resize' };
         }
       }
-      const aim = aimKnob(el, context.zoom);
+      const aim = single ? aimKnob(el, context.zoom) : null;
       return aim && hitRadius(point, aim, hit) ? { id: 'aim', cursor: 'grab' } : null;
     },
 
@@ -266,7 +275,9 @@ export const templateElementTypeDefinition: ElementTypeDefinition<TemplateElemen
             (point.y - el.position.y) * Math.sin(el.angle)
           : Math.hypot(point.x - el.position.x, point.y - el.position.y);
       radius = Math.max(MIN_TEMPLATE_SIZE, snapLength(radius, context));
-      const unit = snapUnit(context);
+      // Feet track the grid metric even with snapping off; the label must
+      // never lag behind the dragged radius.
+      const unit = gridUnit(context);
       return {
         ...el,
         radius,

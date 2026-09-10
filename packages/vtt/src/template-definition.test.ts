@@ -290,6 +290,7 @@ describe('TemplateElementTypeDefinition', () => {
     const context = {
       zoom: 1,
       shiftKey: false,
+      selectedCount: 1,
       snap: { enabled: false },
     } as const;
 
@@ -306,6 +307,37 @@ describe('TemplateElementTypeDefinition', () => {
       expect(interaction.hitTestHandle(rectangle, { x: 154, y: 200 }, context)?.id).toBe('aim');
     });
 
+    it('exposes only the radius handle in a multi-selection', () => {
+      const interaction = templateElementTypeDefinition.interaction;
+      if (!interaction?.hitTestHandle) throw new Error('interaction adapter is required');
+      const multi = { ...context, selectedCount: 2 };
+
+      // Undrawn handles must not capture the pointer.
+      const rectangle = makeTemplate({ templateShape: 'rectangle', width: 20 });
+      expect(interaction.hitTestHandle(rectangle, { x: 130, y: 200 }, multi)).toBeNull();
+      expect(interaction.hitTestHandle(rectangle, { x: 115, y: 210 }, multi)).toBeNull();
+      expect(interaction.hitTestHandle(rectangle, { x: 154, y: 200 }, multi)).toBeNull();
+      expect(interaction.hitTestHandle(makeTemplate(), { x: 154, y: 200 }, multi)).toBeNull();
+      // The radius handle is always drawn, so it stays hit-testable.
+      expect(interaction.hitTestHandle(makeTemplate(), { x: 130, y: 230 }, multi)?.id).toBe(
+        'radius',
+      );
+    });
+
+    it('recomputes feet from the grid metric even when snapping is off', () => {
+      const interaction = templateElementTypeDefinition.interaction;
+      if (!interaction?.updateHandle) throw new Error('interaction adapter is required');
+      const updated = interaction.updateHandle(
+        makeTemplate({ position: { x: 0, y: 0 }, radius: 50, feetPerCell: 5, radiusFeet: 12.5 }),
+        'radius',
+        { x: 100, y: 0 },
+        { ...context, snap: { enabled: false, size: 20, mode: 'square' } },
+      );
+
+      expect(updated.radius).toBe(100); // unsnapped
+      expect(updated.radiusFeet).toBe(25);
+    });
+
     it('snaps radius and keeps feet metadata in VTT-owned data', () => {
       const interaction = templateElementTypeDefinition.interaction;
       if (!interaction?.updateHandle) throw new Error('interaction adapter is required');
@@ -313,7 +345,7 @@ describe('TemplateElementTypeDefinition', () => {
         makeTemplate({ position: { x: 0, y: 0 }, radius: 30, feetPerCell: 5 }),
         'radius',
         { x: 33, y: 0 },
-        { zoom: 1, shiftKey: false, snap: { enabled: true, size: 20, mode: 'square' } },
+        { ...context, snap: { enabled: true, size: 20, mode: 'square' } },
       );
 
       expect(updated.radius).toBe(40);
@@ -329,7 +361,7 @@ describe('TemplateElementTypeDefinition', () => {
         makeTemplate({ position: { x: 0, y: 0 }, angle: 0 }),
         'aim',
         { x: 50, y: 50 },
-        { zoom: 1, shiftKey: true, snap: { enabled: false, mode: 'hex' } },
+        { ...context, shiftKey: true, snap: { enabled: false, mode: 'hex' } },
       );
       expect(aimed.angle).toBeCloseTo(Math.PI / 3);
 

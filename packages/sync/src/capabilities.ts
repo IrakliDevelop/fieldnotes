@@ -35,10 +35,17 @@ export function translateOpForPeer(
     return { ...op, element: translateElementForPeer(op.element, registry) };
   }
   if (op.kind === 'snapshot' && !peer.elementEnvelope) {
-    return {
-      ...op,
-      elements: op.elements.map((element) => translateElementForPeer(element, registry)),
-    };
+    // Best-effort: a snapshot is the peer's only route to a populated canvas,
+    // so one untranslatable element must not withhold every other element.
+    const elements: CanvasElement[] = [];
+    for (const element of op.elements) {
+      try {
+        elements.push(translateElementForPeer(element, registry));
+      } catch {
+        // Lossy for this peer — omitted rather than failing the whole frame.
+      }
+    }
+    return { ...op, elements };
   }
   return op;
 }
@@ -64,6 +71,7 @@ export class CapabilityHandshake<T> {
   private readonly pending: T[] = [];
   private timeoutHandle: ReturnType<typeof setTimeout> | null = null;
   private settled = false;
+  private fallback = false;
 
   constructor(private readonly maxPending = DEFAULT_CAPABILITY_QUEUE_LIMIT) {
     if (!Number.isSafeInteger(maxPending) || maxPending < 1) {
@@ -72,9 +80,13 @@ export class CapabilityHandshake<T> {
   }
 
   receive(capabilities: SyncCapabilities): T[] {
-    if (this.settled) return [];
+    if (this.settled && !this.fallback) return [];
+    // A frame arriving after the legacy-fallback timer (slow connect, late
+    // BroadcastChannel joiner) upgrades the session; only a peer-provided
+    // capability set is final.
     this.remote = capabilities;
     this.settled = true;
+    this.fallback = false;
     this.clearTimer();
     return this.drain();
   }
@@ -97,6 +109,7 @@ export class CapabilityHandshake<T> {
       if (this.settled) return;
       this.remote = createLegacyCapabilities();
       this.settled = true;
+      this.fallback = true;
       onLegacyFallback(this.drain());
     }, ms);
   }
@@ -111,6 +124,20 @@ export class CapabilityHandshake<T> {
 
   get legacy(): boolean {
     return this.remote !== null && !this.remote.elementEnvelope;
+  }
+
+  /** True while the session settled by timeout rather than by a peer frame. */
+  get timedOut(): boolean {
+    return this.fallback;
+  }
+
+  get pendingCount(): number {
+    return this.pending.length;
+  }
+
+  /** Removes and returns the queued values without settling — for hand-off to a successor. */
+  takePending(): T[] {
+    return this.drain();
   }
 
   dispose(): void {

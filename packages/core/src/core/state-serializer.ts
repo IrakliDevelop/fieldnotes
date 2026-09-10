@@ -1,4 +1,4 @@
-import type { CanvasElement } from '../elements/types';
+import type { CanvasElement, ExtensionElementEnvelope } from '../elements/types';
 import type { Point } from './types';
 import type { Layer } from '../layers/types';
 import { sanitizeNoteHtml } from '../elements/note-sanitizer';
@@ -248,6 +248,15 @@ function validateElement(
   if (isEnum(el['type'], ELEMENT_TYPES)) {
     const valid = validateTypeFields(el, el['type']);
     if (!valid) throw new Error(`Invalid element "${el['id']}": malformed ${el['type']} data`);
+    if (el['type'] === 'extension') {
+      // The envelope shape is generic; the owning adapter validates the
+      // domain data so a malformed payload cannot reach the store and index.
+      const extensionType = el['extensionType'] as string;
+      const adapter = registry.getAdapter(extensionType);
+      if (adapter && !adapter.validateEnvelope(el as unknown as ExtensionElementEnvelope)) {
+        throw new Error(`Invalid element "${el['id']}": malformed ${extensionType} data`);
+      }
+    }
     return;
   }
 

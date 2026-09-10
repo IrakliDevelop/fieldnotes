@@ -14,7 +14,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 - Sync capability negotiation with bounded queues, a timeout-based legacy fallback, and per-peer
   translation for envelope upserts, snapshots, corrections, and broadcasts.
 - Domain-neutral extension interaction hooks for selection handles, resize/aim updates, selection
-  overlays, and toolbar rotation.
+  overlays, and toolbar rotation. `ExtensionInteractionContext` carries `selectedCount` so adapters
+  can keep single-selection handles (template aim/length/width) out of multi-selection hit testing.
+- `createSyncServer({ elementRegistry })` forwards a registry to the hub for legacy-peer translation.
 
 ### Changed
 
@@ -33,6 +35,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
   `registerVttElementTypes()` before import.
 - Negotiated peers receive extension envelopes. Peers that do not advertise capabilities receive
   registered legacy element encodings and legacy extension operations where a translator exists.
+  A legacy snapshot omits elements that have no legacy encoding rather than withholding the frame.
+- The hub relays and stores legacy element types it has no adapter for verbatim, so a hub deployed
+  without `@fieldnotes/vtt` adapters never erases existing grids and templates. Clients drop a
+  legacy-typed element they have no adapter for instead of admitting it into a v4 save.
+- Element ops held during capability negotiation keep store order (a remove never overtakes the
+  upsert it undoes), survive a reconnect, and are flushed individually so one untranslatable op
+  cannot drop the rest. A capabilities frame arriving after the legacy timeout upgrades the session.
+- v4 extension envelopes are validated by their registered adapter on import.
 - This is a breaking pre-1.0 core release: import VTT element types and factories from
   `@fieldnotes/vtt`, and query `type: 'extension'` plus `extensionType` instead of core
   `grid`/`template` union members.

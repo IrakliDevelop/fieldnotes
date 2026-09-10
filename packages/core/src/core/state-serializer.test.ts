@@ -204,6 +204,44 @@ describe('parseState', () => {
     expect(() => parseState(JSON.stringify(data), registry)).toThrow('malformed marker data');
   });
 
+  it('rejects a v4 extension envelope whose registered adapter finds the data malformed', () => {
+    const registry = new ElementRegistry();
+    registry.register(markerDefinition);
+    const data = validState();
+    data.elements = [
+      {
+        id: 'marker-1',
+        type: 'extension',
+        extensionType: 'test:marker',
+        position: { x: 10, y: 20 },
+        zIndex: 1,
+        locked: false,
+        layerId: 'default-layer',
+        data: { label: 42 },
+      },
+    ];
+
+    expect(() => parseState(JSON.stringify(data), registry)).toThrow('malformed test:marker data');
+  });
+
+  it('preserves a v4 extension envelope with no registered adapter', () => {
+    const data = validState();
+    data.elements = [
+      {
+        id: 'unknown-1',
+        type: 'extension',
+        extensionType: 'app:unknown',
+        position: { x: 10, y: 20 },
+        zIndex: 1,
+        locked: false,
+        layerId: 'default-layer',
+        data: { anything: true },
+      },
+    ];
+
+    expect(parseState(JSON.stringify(data), new ElementRegistry()).elements).toHaveLength(1);
+  });
+
   it('sanitizes text-element HTML during import', () => {
     const state = validState();
     const text = createText({

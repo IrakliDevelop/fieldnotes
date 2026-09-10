@@ -126,6 +126,8 @@ export interface ExtensionInteractionHandle {
 export interface ExtensionInteractionContext {
   readonly zoom: number;
   readonly shiftKey: boolean;
+  /** Number of selected elements; handles drawn only for a single selection should gate on it. */
+  readonly selectedCount: number;
   readonly snap: {
     readonly enabled: boolean;
     readonly size?: number;

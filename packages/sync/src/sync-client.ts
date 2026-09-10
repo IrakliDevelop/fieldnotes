@@ -150,6 +150,15 @@ export interface SyncClientOptions {
 }
 
 const REMOTE_ORIGIN = 'remote';
+const CORE_ELEMENT_TYPES: ReadonlySet<string> = new Set([
+  'stroke',
+  'note',
+  'arrow',
+  'image',
+  'html',
+  'text',
+  'shape',
+]);
 /**
  * Server-owned sender identity. The hub never forwards a client-stamped
  * `from`, so a layer op arriving from `hub` is an authoritative correction
@@ -184,6 +193,8 @@ export class SyncClient {
   private readonly capabilityQueueLimit: number;
   private handshake: CapabilityHandshake<SyncOp>;
   private readonly pendingIncoming: SyncEnvelope[] = [];
+  /** Peers already answered with our capabilities during the current handshake. */
+  private readonly acknowledgedPeers = new Set<string>();
   private pluginCleanups: (() => void)[] = [];
   private unsubscribers: (() => void)[] = [];
   private started = false;
@@ -407,11 +418,17 @@ export class SyncClient {
   }
 
   private sendOp(op: SyncOp): void {
-    if (!this.handshake.complete && requiresCapabilityNegotiation(op)) {
-      this.handshake.queue(op);
-      return;
-    }
     if (!this.handshake.complete) {
+      // Element ops must leave in store order: once anything is held for
+      // negotiation, later element ops queue behind it so a remove/clear can
+      // never overtake the upsert it was meant to undo.
+      const hold =
+        requiresCapabilityNegotiation(op) ||
+        (isElementDataOp(op) && this.handshake.pendingCount > 0);
+      if (hold) {
+        this.handshake.queue(op);
+        return;
+      }
       this.transport.send(JSON.stringify({ from: this.clientId, op }));
       return;
     }
@@ -419,9 +436,23 @@ export class SyncClient {
   }
 
   private beginCapabilityHandshake(): void {
+    // Ops still held by an unfinished handshake were never sent; carry them
+    // into the successor instead of discarding them.
+    const carried = this.handshake.takePending();
     this.handshake.dispose();
     this.handshake = new CapabilityHandshake<SyncOp>(this.capabilityQueueLimit);
     this.pendingIncoming.length = 0;
+    this.acknowledgedPeers.clear();
+    for (const op of carried) {
+      this.handshake.queue(op);
+      // The hub has not seen these yet, so shield them from the reconcile
+      // snapshot that precedes their delivery — the same treatment as local
+      // edits made during the resync window.
+      if (this.resyncPending) {
+        if (op.kind === 'upsert') this.touchedDuringResync.add(op.element.id);
+        else if (op.kind === 'remove') this.touchedDuringResync.add(op.id);
+      }
+    }
     this.transport.send(
       JSON.stringify({
         from: this.clientId,
@@ -429,9 +460,24 @@ export class SyncClient {
       }),
     );
     this.handshake.startTimeout(this.capabilityTimeoutMs, (pending) => {
-      for (const op of pending) this.sendNegotiated(op);
-      this.drainPendingIncoming();
+      this.flushNegotiated(pending);
     });
+  }
+
+  /**
+   * Sends ops held during negotiation, then applies the inbound frames held
+   * alongside them. One untranslatable op is skipped so it can neither drop
+   * the ops behind it nor strand the inbound queue.
+   */
+  private flushNegotiated(pending: readonly SyncOp[]): void {
+    for (const op of pending) {
+      try {
+        this.sendNegotiated(op);
+      } catch {
+        // Lossy for this peer; the remaining queue still ships.
+      }
+    }
+    this.drainPendingIncoming();
   }
 
   private sendNegotiated(op: SyncOp): void {
@@ -446,10 +492,15 @@ export class SyncClient {
     this.transport.send(JSON.stringify({ from: this.clientId, op: wire }));
   }
 
-  private toRuntimeElement(element: CanvasElement): CanvasElement {
-    if (element.type === 'extension') return element;
+  /**
+   * Converts a wire element to its runtime form. A legacy-typed element with
+   * no registered adapter is dropped (`null`): admitting it would let a v4
+   * save stamp an element the serializer can never load back.
+   */
+  private toRuntimeElement(element: CanvasElement): CanvasElement | null {
+    if (element.type === 'extension' || CORE_ELEMENT_TYPES.has(element.type)) return element;
     const adapter = this.elementRegistry.getAdapterByLegacyType(element.type);
-    if (!adapter) return element;
+    if (!adapter) return null;
     return adapter.decodeLegacy(
       structuredClone(element) as unknown as Record<string, unknown>,
     ) as CanvasElement;
@@ -484,9 +535,11 @@ export class SyncClient {
     // connId echo-suppression does not cover them). Do NOT key this guard off the connection.
     if (!env || env.from === this.clientId) return; // malformed/invalid + own echo
     if (env.op.kind === 'capabilities') {
-      const shouldAcknowledge = !this.handshake.complete;
       const pending = this.handshake.receive(env.op.capabilities);
-      if (shouldAcknowledge) {
+      // Answer each peer once per handshake: a late joiner on a shared bus
+      // still learns our capabilities, while a reply to our own reply stops.
+      if (!this.acknowledgedPeers.has(env.from)) {
+        this.acknowledgedPeers.add(env.from);
         this.transport.send(
           JSON.stringify({
             from: this.clientId,
@@ -494,18 +547,22 @@ export class SyncClient {
           }),
         );
       }
-      for (const op of pending) this.sendNegotiated(op);
-      this.drainPendingIncoming();
+      this.flushNegotiated(pending);
       return;
     }
-    if (!this.handshake.complete && requiresCapabilityNegotiation(env.op)) {
-      if (this.pendingIncoming.length >= this.capabilityQueueLimit) {
-        throw new Error(
-          `Capability handshake queue exceeded ${String(this.capabilityQueueLimit)} messages`,
-        );
+    if (!this.handshake.complete) {
+      const hold =
+        requiresCapabilityNegotiation(env.op) ||
+        (isElementDataOp(env.op) && this.pendingIncoming.length > 0);
+      if (hold) {
+        if (this.pendingIncoming.length >= this.capabilityQueueLimit) {
+          throw new Error(
+            `Capability handshake queue exceeded ${String(this.capabilityQueueLimit)} messages`,
+          );
+        }
+        this.pendingIncoming.push(env);
+        return;
       }
-      this.pendingIncoming.push(env);
-      return;
     }
     this.handleRemoteEnvelope(env);
   }
@@ -542,10 +599,13 @@ export class SyncClient {
       this.mergeSnapshotLayers(op.layers);
       this.applyPluginSnapshots(op, this.joined ? 'reconnect' : 'initial');
       const phase: AuthoritativeSnapshotPhase = this.joined ? 'reconcile' : 'bootstrap';
-      const preserved = this.applyAuthoritativeSnapshot(
-        phase,
-        op.elements.filter(isValidElement).map((element) => this.toRuntimeElement(element)),
-      );
+      const runtimeElements: CanvasElement[] = [];
+      for (const element of op.elements) {
+        if (!isValidElement(element)) continue;
+        const runtime = this.toRuntimeElement(element);
+        if (runtime) runtimeElements.push(runtime);
+      }
+      const preserved = this.applyAuthoritativeSnapshot(phase, runtimeElements);
       this.joined = true;
       this.resyncPending = false; // TD-1: finalize after ANY snapshot (merge OR reconcile)
       this.touchedDuringResync.clear();
@@ -624,6 +684,7 @@ export class SyncClient {
   private applyOp(op: SyncOp): void {
     if (op.kind === 'upsert') {
       const el = this.toRuntimeElement(op.element);
+      if (!el) return; // unknown legacy type: not representable in this client
       this.hubKnownIds.add(el.id); // remote/snapshot upserts are hub evidence
       if (this.store.getById(el.id)) {
         this.store.update(el.id, el, { origin: REMOTE_ORIGIN });
@@ -704,4 +765,11 @@ function requiresCapabilityNegotiation(op: SyncOp): boolean {
   if (op.kind === 'upsert') return op.element.type === 'extension';
   if (op.kind === 'snapshot') return op.elements.some((element) => element.type === 'extension');
   return false;
+}
+
+/** Ops whose relative order against element upserts is load-bearing. */
+function isElementDataOp(op: SyncOp): boolean {
+  return (
+    op.kind === 'upsert' || op.kind === 'remove' || op.kind === 'clear' || op.kind === 'snapshot'
+  );
 }

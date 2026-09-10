@@ -54,7 +54,7 @@ describe('CapabilityHandshake', () => {
     expect(() => handshake.queue('two')).toThrow('queue exceeded 1 messages');
   });
 
-  it('settles permanently in legacy mode after timeout', () => {
+  it('falls back to legacy on timeout, then upgrades when a peer frame arrives late', () => {
     vi.useFakeTimers();
     try {
       const handshake = new CapabilityHandshake<string>();
@@ -63,12 +63,28 @@ describe('CapabilityHandshake', () => {
       handshake.startTimeout(50, fallback);
       vi.advanceTimersByTime(50);
       expect(handshake.legacy).toBe(true);
+      expect(handshake.timedOut).toBe(true);
       expect(fallback).toHaveBeenCalledWith(['pending']);
-      expect(handshake.receive(createCurrentCapabilities([]))).toEqual([]);
-      expect(handshake.legacy).toBe(true);
+      // A slow connect or late BroadcastChannel joiner must not be locked into legacy.
+      expect(handshake.receive(createCurrentCapabilities(['x']))).toEqual([]);
+      expect(handshake.legacy).toBe(false);
+      expect(handshake.timedOut).toBe(false);
+      // Only the first peer-provided frame is final.
+      expect(handshake.receive(createLegacyCapabilities())).toEqual([]);
+      expect(handshake.legacy).toBe(false);
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('hands its queue to a successor without settling', () => {
+    const handshake = new CapabilityHandshake<string>();
+    handshake.queue('one');
+    handshake.queue('two');
+    expect(handshake.pendingCount).toBe(2);
+    expect(handshake.takePending()).toEqual(['one', 'two']);
+    expect(handshake.pendingCount).toBe(0);
+    expect(handshake.complete).toBe(false);
   });
 });
 
@@ -98,6 +114,28 @@ describe('translateOpForPeer', () => {
 
     expect(upsert.kind === 'upsert' && upsert.element.type).toBe('grid');
     expect(snapshot.kind === 'snapshot' && snapshot.elements[0]?.type).toBe('grid');
+  });
+
+  it('omits untranslatable elements from a legacy snapshot instead of failing the frame', () => {
+    const registry = new ElementRegistry();
+    registry.register(gridDefinition);
+    const orphan: ExtensionElementEnvelope = {
+      ...envelope,
+      id: 'orphan',
+      extensionType: 'app:unknown',
+    };
+    const snapshot = translateOpForPeer(
+      { kind: 'snapshot', to: 'legacy', elements: [orphan, envelope] },
+      createLegacyCapabilities(),
+      registry,
+    );
+    expect(snapshot.kind === 'snapshot' && snapshot.elements.map((el) => el.id)).toEqual([
+      'grid-1',
+    ]);
+    // An upsert stays strict: the caller decides whether to skip this peer.
+    expect(() =>
+      translateOpForPeer({ kind: 'upsert', element: orphan }, createLegacyCapabilities(), registry),
+    ).toThrow('No adapter registered');
   });
 
   it('passes envelopes through for capable peers', () => {

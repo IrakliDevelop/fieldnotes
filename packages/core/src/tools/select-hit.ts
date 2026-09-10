@@ -100,6 +100,7 @@ export function hitTestExtensionHandle(
     const handle = adapter?.hitTestHandle?.(element, world, {
       zoom: ctx.camera.zoom,
       shiftKey: false,
+      selectedCount: selectedIds.length,
       snap: { enabled: ctx.snapToGrid === true, size: ctx.gridSize, mode: ctx.gridType },
     });
     if (handle) return { elementId: id, handleId: handle.id, cursor: handle.cursor };

@@ -258,6 +258,7 @@ export class SelectTool implements Tool {
         const updated = adapter?.updateHandle?.(stored, this.mode.handleId, world, {
           zoom: ctx.camera.zoom,
           shiftKey: state.shiftKey,
+          selectedCount: this._selectedIds.length,
           snap: { enabled: ctx.snapToGrid === true, size: ctx.gridSize, mode: ctx.gridType },
         });
         if (updated) ctx.store.update(stored.id, updated);

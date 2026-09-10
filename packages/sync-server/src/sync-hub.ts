@@ -518,24 +518,40 @@ export class SyncHub {
     return sent;
   }
 
-  private sendToConnection(conn: Connection, from: string, op: SyncOp): void {
+  /**
+   * Translates `op` for the peer and sends it. Returns false when the op is
+   * lossy for this peer (no legacy encoding) or the socket throws; neither
+   * may reject the room operation that produced it.
+   */
+  private sendToConnection(conn: Connection, from: string, op: SyncOp): boolean {
     const capabilities = this.peerCapabilities.get(conn.id) ?? createLegacyCapabilities();
-    const translated = translateOpForPeer(
-      op,
-      capabilities,
-      this.elementRegistry,
-      this.pluginRegistry.extensionDefinitions,
-    );
-    conn.send(JSON.stringify({ from, op: translated }));
+    try {
+      const translated = translateOpForPeer(
+        op,
+        capabilities,
+        this.elementRegistry,
+        this.pluginRegistry.extensionDefinitions,
+      );
+      conn.send(JSON.stringify({ from, op: translated }));
+      return true;
+    } catch {
+      return false;
+    }
   }
 
-  /** Normalize registered legacy wire elements before authorization, storage, and relay. */
+  /**
+   * Normalize registered legacy wire elements before authorization, storage,
+   * and relay. A legacy type this hub has no adapter for is forwarded and
+   * stored verbatim — the hub is a relay, and the peers decide whether they
+   * understand it — so a hub deployed without domain adapters never erases
+   * the room's existing elements. Only a malformed registered element is dropped.
+   */
   private toRuntimeElement(
     element: Extract<SyncOp, { kind: 'upsert' }>['element'],
   ): OwnedElement | null {
     if (element.type === 'extension' || CORE_ELEMENT_TYPES.has(element.type)) return element;
     const adapter = this.elementRegistry.getAdapterByLegacyType(element.type);
-    if (!adapter) return null;
+    if (!adapter) return element;
     try {
       const raw = Object.fromEntries(Object.entries(element));
       const envelope = adapter.decodeLegacy(raw);
@@ -572,12 +588,8 @@ export class SyncHub {
       if (connectionId === excludeId) continue;
       const conn = this.conns.get(connectionId);
       if (!conn) continue;
-      try {
-        this.sendToConnection(conn, from, op);
-        sent += 1;
-      } catch {
-        // Reject a lossy translation for this peer without blocking compatible peers.
-      }
+      // A lossy translation is skipped for this peer without blocking compatible peers.
+      if (this.sendToConnection(conn, from, op)) sent += 1;
     }
     return sent;
   }
@@ -676,11 +688,7 @@ export class SyncHub {
     const members = this.rooms.get(room);
     if (!members) return;
     const send = (conn: Connection, sender: string, outbound: SyncOp): void => {
-      try {
-        this.sendToConnection(conn, sender, outbound);
-      } catch {
-        /* a throwing socket must not break the delivery loop */
-      }
+      this.sendToConnection(conn, sender, outbound);
     };
     if (op.kind === 'upsert') {
       const audience = (op.element as OwnedElement).audience;

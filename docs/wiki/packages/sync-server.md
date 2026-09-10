@@ -70,6 +70,7 @@ wss.on('connection', (ws) => {
 - `maxJsonDepth?: number` — max JSON nesting depth (default: 10)
 - `presenceThrottleMs?: number` — presence rate limit (default: 50ms)
 - `maxPresenceLanes?: number` — max presence categories
+- `elementRegistry?: ElementRegistry` — adapters used to encode extension envelopes for legacy peers (unknown legacy types are relayed verbatim)
 
 **Methods:**
 
