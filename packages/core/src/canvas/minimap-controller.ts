@@ -33,7 +33,7 @@ export interface MinimapControllerOptions {
   requestFrame?: (cb: () => void) => number;
   /** Frame canceller; default `cancelAnimationFrame`. Injected by tests. */
   cancelFrame?: (id: number) => void;
-  /** Render hook registries for domain surfaces (fog, etc.). */
+  /** Render hook registries for domain surfaces. */
   minimapHooks?: TypedHookRegistry<MinimapRenderHooks>;
   /** Returns additional world bounds to include in the minimap mapping. */
   getExtraBounds?: () => Bounds | null;
@@ -216,14 +216,12 @@ export class MinimapController {
     this.canvas.height = Math.max(1, Math.round(this.height * dpr));
   }
 
-  // Single source for both mapping bounds and rendering: layer-visible,
-  // grids excluded. (getElementBounds already returns null for grids, so they
-  // cannot extend the bounding box today — this filter makes the invariant
-  // structural instead of relying on that special case.)
+  // Single source for both mapping bounds and rendering: layer-visible elements.
+  // Full-canvas extensions return null bounds through their registered adapter.
   private sceneElements(): CanvasElement[] {
     return this.viewport.store
       .getAll()
-      .filter((el) => el.type !== 'grid' && this.viewport.layerManager.isLayerVisible(el.layerId));
+      .filter((el) => this.viewport.layerManager.isLayerVisible(el.layerId));
   }
 
   private currentMapping(): Bounds {

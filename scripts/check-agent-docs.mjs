@@ -36,9 +36,14 @@ for (const [source, content] of contents) {
 const packageNames = [];
 for (const entry of await readdir(resolve(root, 'packages'), { withFileTypes: true })) {
   if (!entry.isDirectory()) continue;
-  const manifest = JSON.parse(
-    await readFile(resolve(root, 'packages', entry.name, 'package.json'), 'utf8'),
-  );
+  let manifestSource;
+  try {
+    manifestSource = await readFile(resolve(root, 'packages', entry.name, 'package.json'), 'utf8');
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') continue;
+    throw error;
+  }
+  const manifest = JSON.parse(manifestSource);
   packageNames.push(manifest.name);
 }
 

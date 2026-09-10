@@ -7,7 +7,7 @@ import type { KeyboardActionsDeps } from './keyboard-actions';
 import { Camera } from './camera';
 import { ElementStore } from '../elements/element-store';
 import { SelectTool } from '../tools/select-tool';
-import { createNote, createArrow, createGrid } from '../elements/element-factory';
+import { createNote, createArrow } from '../elements/element-factory';
 import type { ToolManager } from '../tools/tool-manager';
 import type { ToolContext } from '../tools/types';
 import { HistoryRecorder } from '../history/history-recorder';
@@ -873,17 +873,16 @@ describe('KeyboardActions.cycleSelection', () => {
     expect(tool.selectedIds).toEqual([a.id]);
   });
 
-  it('never cycles onto locked, grid, or hidden-layer elements', () => {
+  it('never cycles onto locked or hidden-layer elements', () => {
     const ctx = makeCtx({
       isLayerVisible: (layerId: string) => layerId !== 'hidden-layer',
     });
     const { actions, tool } = makeActions({ ctx });
     const a = makeNote(0, 0);
     const locked = makeNote(100, 1, { locked: true });
-    const grid = createGrid({ zIndex: 2 });
     const hidden = makeNote(300, 3, { layerId: 'hidden-layer' });
     const b = makeNote(400, 4);
-    for (const el of [a, locked, grid, hidden, b]) ctx.store.add(el);
+    for (const el of [a, locked, hidden, b]) ctx.store.add(el);
     tool.setSelection([a.id]);
 
     actions.cycleSelection(1);
@@ -895,9 +894,7 @@ describe('KeyboardActions.cycleSelection', () => {
 
   it('is a no-op (selection unchanged) when there are no eligible elements', () => {
     const { actions, ctx, tool } = makeActions();
-    const grid = createGrid({ zIndex: 0 });
     const locked = makeNote(100, 1, { locked: true });
-    ctx.store.add(grid);
     ctx.store.add(locked);
     tool.setSelection([]);
 

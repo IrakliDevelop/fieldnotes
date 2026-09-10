@@ -1,6 +1,18 @@
 import { describe, it, expect } from 'vitest';
 import { getElementsBoundingBox } from './bounds';
-import { createNote, createShape, createStroke, createGrid } from './element-factory';
+import { createNote, createShape, createStroke } from './element-factory';
+import type { ExtensionElementEnvelope } from './types';
+
+const unboundedExtension: ExtensionElementEnvelope = {
+  id: 'extension',
+  type: 'extension',
+  extensionType: 'test:unbounded',
+  position: { x: 0, y: 0 },
+  zIndex: 0,
+  locked: false,
+  layerId: '',
+  data: {},
+};
 
 describe('getElementsBoundingBox', () => {
   it('returns null for empty array', () => {
@@ -29,19 +41,17 @@ describe('getElementsBoundingBox', () => {
     expect(box).toEqual({ x: 0, y: 0, w: 280, h: 210 });
   });
 
-  it('skips elements with no bounds (e.g. grid)', () => {
+  it('skips extension elements with no registered bounds adapter', () => {
     const note = createNote({
       position: { x: 10, y: 20 },
       size: { w: 100, h: 50 },
     });
-    const grid = createGrid({});
-    const box = getElementsBoundingBox([grid, note]);
+    const box = getElementsBoundingBox([unboundedExtension, note]);
     expect(box).toEqual({ x: 10, y: 20, w: 100, h: 50 });
   });
 
   it('returns null when all elements have no bounds', () => {
-    const grid = createGrid({});
-    expect(getElementsBoundingBox([grid])).toBeNull();
+    expect(getElementsBoundingBox([unboundedExtension])).toBeNull();
   });
 
   it('includes stroke elements via their computed bounds', () => {

@@ -1,6 +1,6 @@
 # @fieldnotes/core
 
-**Version:** 0.68.0
+**Version:** 0.82.0
 **Location:** `packages/core/`
 **Description:** Framework-free infinite canvas engine
 

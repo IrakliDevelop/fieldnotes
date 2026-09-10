@@ -6,6 +6,7 @@ import type { HubFanout } from './hub-fanout';
 import type { Authenticate } from './authenticate';
 import type { Authorize, AuthorizeLayer, CanRead } from './authorize';
 import type { ServerSyncPlugin } from './sync-plugin';
+import type { ElementRegistry } from '@fieldnotes/core';
 import { startHeartbeat } from './heartbeat';
 import {
   DEFAULT_MAX_JSON_DEPTH,
@@ -40,6 +41,12 @@ export interface CreateSyncServerOptions {
   presenceThrottleMs?: number;
   maxPresenceLanes?: number;
   shutdownGraceMs?: number;
+  /**
+   * Registry used to translate extension envelopes for legacy peers. Without
+   * it the hub relays unknown legacy element types verbatim and cannot encode
+   * envelopes for pre-envelope clients.
+   */
+  elementRegistry?: ElementRegistry;
 }
 
 function rawDataByteLength(data: RawData): number {
@@ -67,6 +74,7 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
     maxJsonDepth: options.maxJsonDepth ?? DEFAULT_MAX_JSON_DEPTH,
     presenceThrottleMs: options.presenceThrottleMs ?? DEFAULT_PRESENCE_THROTTLE_MS,
     maxPresenceLanes: options.maxPresenceLanes,
+    elementRegistry: options.elementRegistry,
   });
   const maxMessageBytes = options.maxMessageBytes ?? DEFAULT_MAX_MESSAGE_BYTES;
   const wss = options.server

@@ -7,7 +7,6 @@ import { rotatePoint } from '../core/geometry';
 import { lineEndpoints } from '../elements/shape-geometry';
 import { renderArrowHandles } from './arrow-handles';
 import type { ElementRegistry } from '../elements/element-registry';
-import { resolveTemplateElement } from './template-compat';
 
 export type HandlePosition = 'nw' | 'ne' | 'sw' | 'se';
 
@@ -53,31 +52,6 @@ export function getOverlayLayout(
   const topMid = { x: center.x, y: bounds.y - pad - ROTATE_HANDLE_OFFSET / zoom };
   const rotateHandle = rotatePoint(topMid, center, angle);
   return { center, corners, rotateHandle, angle };
-}
-
-export function templateAimKnob(
-  el: CanvasElement,
-  zoom: number,
-  registry?: ElementRegistry,
-): { origin: Point; knob: Point } | null {
-  const template = resolveTemplateElement(el, registry);
-  if (!template) return null;
-  if (
-    template.templateShape !== 'cone' &&
-    template.templateShape !== 'line' &&
-    template.templateShape !== 'rectangle'
-  )
-    return null;
-  const gap = ROTATE_HANDLE_OFFSET / zoom;
-  const dist = template.radius + gap;
-  const origin = template.position;
-  return {
-    origin,
-    knob: {
-      x: origin.x + dist * Math.cos(template.angle),
-      y: origin.y + dist * Math.sin(template.angle),
-    },
-  };
 }
 
 export function getHandlePositions(bounds: Bounds): [HandlePosition, Point][] {
@@ -230,7 +204,7 @@ export function renderSelectionBoxes(
       }
     }
 
-    if (!el.locked) {
+    if (!locked) {
       if ('size' in el) {
         ctx.setLineDash([]);
         ctx.fillStyle = '#ffffff';
@@ -251,80 +225,11 @@ export function renderSelectionBoxes(
         }
         ctx.setLineDash([4 / zoom, 4 / zoom]);
       } else {
-        const template = resolveTemplateElement(el, p.elementRegistry);
-        if (!template) continue;
-        ctx.setLineDash([]);
-        ctx.fillStyle = '#ffffff';
-        if (template.templateShape === 'rectangle') {
-          if (p.selectedIds.length === 1) {
-            const cos = Math.cos(template.angle);
-            const sin = Math.sin(template.angle);
-            const halfW = (template.width ?? 0) / 2;
-            const pts: [number, number][] = [
-              [
-                template.position.x + template.radius * cos,
-                template.position.y + template.radius * sin,
-              ],
-              [
-                template.position.x + (template.radius / 2) * cos + halfW * -sin,
-                template.position.y + (template.radius / 2) * sin + halfW * cos,
-              ],
-            ];
-            for (const [hx, hy] of pts) {
-              ctx.fillRect(
-                hx - handleWorldSize / 2,
-                hy - handleWorldSize / 2,
-                handleWorldSize,
-                handleWorldSize,
-              );
-              ctx.strokeRect(
-                hx - handleWorldSize / 2,
-                hy - handleWorldSize / 2,
-                handleWorldSize,
-                handleWorldSize,
-              );
-            }
-          }
-        } else {
-          const hx = bounds.x + bounds.w;
-          const hy = bounds.y + bounds.h;
-          ctx.fillRect(
-            hx - handleWorldSize / 2,
-            hy - handleWorldSize / 2,
-            handleWorldSize,
-            handleWorldSize,
-          );
-          ctx.strokeRect(
-            hx - handleWorldSize / 2,
-            hy - handleWorldSize / 2,
-            handleWorldSize,
-            handleWorldSize,
-          );
-        }
-        ctx.setLineDash([4 / zoom, 4 / zoom]);
-
-        if (
-          p.selectedIds.length === 1 &&
-          (template.templateShape === 'cone' ||
-            template.templateShape === 'line' ||
-            template.templateShape === 'rectangle')
-        ) {
-          const aim = templateAimKnob(el, zoom, p.elementRegistry);
-          if (aim) {
-            ctx.beginPath();
-            ctx.moveTo(aim.origin.x, aim.origin.y);
-            ctx.lineTo(aim.knob.x, aim.knob.y);
-            ctx.stroke();
-
-            ctx.setLineDash([]);
-            ctx.fillStyle = '#ffffff';
-            ctx.beginPath();
-            ctx.arc(aim.knob.x, aim.knob.y, handleWorldSize / 2, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.stroke();
-            ctx.setLineDash([4 / zoom, 4 / zoom]);
-          }
-        }
+        if (el.type !== 'extension') continue;
+        p.elementRegistry?.getAdapter(el.extensionType)?.renderSelection?.(ctx, el, {
+          zoom,
+          selectedCount: p.selectedIds.length,
+        });
       }
 
       if (p.selectedIds.length === 1 && ROTATABLE_TYPES.has(el.type)) {
@@ -345,7 +250,7 @@ export function renderSelectionBoxes(
       }
     }
 
-    if (el.locked) {
+    if (locked) {
       const ne = layout.corners.find(([h]) => h === 'ne')?.[1];
       if (ne) drawLockBadge(ctx, ne, zoom);
     }

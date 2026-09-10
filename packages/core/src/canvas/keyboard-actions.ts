@@ -224,7 +224,7 @@ export class KeyboardActions {
     if (tm.activeTool?.name !== 'select') ctx.switchTool?.('select');
     const sel = this.selectTool();
     if (!sel) return;
-    const eligible = this.selectableElements(sel.ctx).filter((el) => el.type !== 'grid');
+    const eligible = this.selectableElements(sel.ctx);
     if (eligible.length === 0) return;
     const idxs = sel.tool.selectedIds
       .map((id) => eligible.findIndex((e) => e.id === id))

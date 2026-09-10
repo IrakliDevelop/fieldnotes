@@ -10,6 +10,7 @@ import type { CanvasElement } from '../elements/types';
 import type { Bounds } from '../core/types';
 import { rotationPivot, rotateElementPatch, unionBounds } from './selection-rotate';
 import type { RotateDirection } from './selection-rotate';
+import type { ElementRegistry } from '../elements/element-registry';
 
 const STYLE_FIELDS = [
   'color',
@@ -41,6 +42,7 @@ export interface SelectionOpsDeps {
   recorder: HistoryRecorder;
   getSelectedIds: () => string[];
   requestRender: () => void;
+  elementRegistry?: ElementRegistry;
 }
 
 export class SelectionOps {
@@ -236,7 +238,10 @@ export class SelectionOps {
     this.deps.recorder.begin();
     const moved: string[] = [];
     for (const { id, el, bounds } of eligible) {
-      this.deps.store.update(id, rotateElementPatch(el, bounds, pivot, delta));
+      this.deps.store.update(
+        id,
+        rotateElementPatch(el, bounds, pivot, delta, this.deps.elementRegistry),
+      );
       moved.push(id);
     }
     updateArrowsBoundToElements(moved, this.deps.store);

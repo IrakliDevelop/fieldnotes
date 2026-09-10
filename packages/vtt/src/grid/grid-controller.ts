@@ -3,11 +3,12 @@ import type {
   ToolContext,
   ExtensionElementEnvelope,
   ElementRegistry,
-  ConstraintServiceAccess,
+  ConstraintServiceProxy,
 } from '@fieldnotes/core';
 import type { GridElement } from '../elements/types';
 import { createGrid } from '../elements/element-factory';
 import { GridConstraintService } from './grid-constraint-service';
+import { gridElementTypeDefinition } from './grid-definition';
 
 /** Minimal interface for history recording (matches core's HistoryRecorder). */
 export interface HistoryRecorderLike {
@@ -30,7 +31,7 @@ export interface GridControllerDeps {
   toolContext: ToolContext;
   defaultGridSize: number;
   elementRegistry: ElementRegistry;
-  constraintService?: ConstraintServiceAccess;
+  constraintService?: ConstraintServiceProxy;
 }
 
 export class GridController {
@@ -39,11 +40,7 @@ export class GridController {
 
   constructor(private readonly deps: GridControllerDeps) {
     this.constraintService = new GridConstraintService(() => this.getInfo());
-    if (deps.constraintService && 'setImplementation' in deps.constraintService) {
-      (deps.constraintService as { setImplementation: (impl: unknown) => void }).setImplementation(
-        this.constraintService,
-      );
-    }
+    deps.constraintService?.setImplementation(this.constraintService);
   }
 
   add(input: {
@@ -61,8 +58,9 @@ export class GridController {
     }
     const grid = createGrid({ ...input, layerId: this.deps.getActiveLayerId() });
     const adapter = this.deps.elementRegistry.getAdapter('vtt:grid');
-    const envelope = adapter ? adapter.wrap(grid) : (grid as unknown as ExtensionElementEnvelope);
-    this.deps.store.add(envelope as unknown as GridElement);
+    if (!adapter) throw new Error('GridController requires the vtt:grid element definition');
+    const envelope = adapter.wrap(grid);
+    this.deps.store.add(envelope);
     this.deps.recorder.commit();
     this.deps.requestRender();
     this.syncContext();
@@ -83,11 +81,11 @@ export class GridController {
     if (!grid) return;
     const updated: GridElement = { ...grid, ...updates };
     const adapter = this.deps.elementRegistry.getAdapter('vtt:grid');
-    const newEnvelope = adapter
-      ? adapter.wrap(updated)
-      : (updated as unknown as ExtensionElementEnvelope);
+    if (!adapter) throw new Error('GridController requires the vtt:grid element definition');
+    const wrapped = adapter.wrap(updated);
+    const newEnvelope = { ...wrapped, data: { ...envelope.data, ...wrapped.data } };
     this.deps.recorder.begin();
-    this.deps.store.update(envelope.id, newEnvelope as unknown as GridElement);
+    this.deps.store.update(envelope.id, newEnvelope);
     this.deps.recorder.commit();
     this.deps.requestRender();
     this.syncContext();
@@ -147,9 +145,13 @@ export class GridController {
   }
 
   private unwrapGrid(envelope: ExtensionElementEnvelope): GridElement | null {
-    const adapter = this.deps.elementRegistry.getAdapter('vtt:grid');
-    if (!adapter) return null;
-    return adapter.unwrap(envelope) as unknown as GridElement;
+    if (
+      envelope.extensionType !== gridElementTypeDefinition.type ||
+      !gridElementTypeDefinition.validateData(envelope.data)
+    ) {
+      return null;
+    }
+    return gridElementTypeDefinition.unwrap(envelope);
   }
   private notify(): void {
     const info = this.getInfo();

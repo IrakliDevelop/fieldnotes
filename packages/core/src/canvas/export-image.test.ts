@@ -14,7 +14,6 @@ import {
   createImage,
   createText,
   createShape,
-  createGrid,
 } from '../elements/element-factory';
 import { ElementStore } from '../elements/element-store';
 import { HtmlPainterRegistry, HtmlPainterMissingError } from './html-painter-registry';
@@ -133,9 +132,9 @@ describe('getElementRect', () => {
     }
   });
 
-  it('returns null for grid elements', () => {
-    const grid = createGrid({});
-    expect(getElementRect(grid)).toBeNull();
+  it('returns null for extension elements without a registered bounds adapter', () => {
+    const { element } = extensionFixture();
+    expect(getElementRect(element)).toBeNull();
   });
 
   it('returns null for stroke with no points', () => {
@@ -161,15 +160,15 @@ describe('computeBounds', () => {
     expect(computeBounds([], 10)).toBeNull();
   });
 
-  it('returns null when all elements are grids', () => {
-    const grid = createGrid({});
-    expect(computeBounds([grid], 10)).toBeNull();
+  it('returns null when all elements are unbounded extensions', () => {
+    const { element } = extensionFixture();
+    expect(computeBounds([element], 10)).toBeNull();
   });
 
-  it('ignores grid elements in bounds calculation', () => {
+  it('ignores unbounded extension elements in bounds calculation', () => {
     const note = createNote({ position: { x: 50, y: 50 }, size: { w: 100, h: 100 } });
-    const grid = createGrid({});
-    const bounds = computeBounds([note, grid], 0);
+    const { element } = extensionFixture();
+    const bounds = computeBounds([note, element], 0);
     expect(bounds).toEqual({ x: 50, y: 50, w: 100, h: 100 });
   });
 
@@ -382,9 +381,10 @@ describe('exportImage', () => {
     expect(result).toBeNull();
   });
 
-  it('returns null when all elements are grids', async () => {
+  it('returns null when all elements are unbounded extensions', async () => {
     const store = new ElementStore();
-    store.add(createGrid({}));
+    const { element } = extensionFixture();
+    store.add(element);
     const result = await exportImage(store);
     expect(result).toBeNull();
   });

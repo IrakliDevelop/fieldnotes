@@ -6,7 +6,7 @@
 // `document.createElement` throws before any assertion runs.
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Viewport } from './viewport';
-import { createGrid, createImage, createShape, createStroke } from '../elements/element-factory';
+import { createImage, createShape, createStroke } from '../elements/element-factory';
 import type { CanvasElement } from '../elements/types';
 
 function imageAt(id: string, x: number, y: number, layerId: string): CanvasElement {
@@ -146,20 +146,6 @@ describe('Viewport.getElementAt', () => {
     // about (20,20) lands it at ~(20, -5.46) — outside. A hit-test that
     // ignored rotation would incorrectly hit here.
     expect(vp.getElementAt({ x: 2, y: 2 })).toBeNull();
-  });
-
-  it('never returns a grid element, even directly under the probe point', () => {
-    // High zIndex: were grid participation ever restored, it would be the
-    // topmost candidate at this point, so only the explicit exclusion (not
-    // z-order) can be what keeps `under` the answer.
-    vp.store.add({ ...createGrid({ layerId: targetLayerId }), id: 'g', zIndex: 999 });
-    vp.store.add(imageAt('under', 0, 0, targetLayerId));
-
-    expect(vp.getElementAt({ x: 20, y: 20 })?.id).toBe('under');
-
-    // And with nothing beneath it, a probe over the grid alone finds nothing.
-    vp.store.add({ ...createGrid({ layerId: targetLayerId }), id: 'g2', zIndex: 999 });
-    expect(vp.getElementAt({ x: 500, y: 500 })).toBeNull();
   });
 
   it('hits a stroke within its 10px threshold, misses just beyond it', () => {

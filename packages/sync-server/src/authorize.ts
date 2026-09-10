@@ -1,13 +1,12 @@
-import type { SyncOp, LayerRecord } from '@fieldnotes/sync';
-import type { CanvasElement } from '@fieldnotes/core';
+import type { LayerRecord, WireSyncElement, WireSyncOp } from '@fieldnotes/sync';
 
-export type OwnedElement = CanvasElement & { ownerId?: string; audience?: string };
+export type OwnedElement = WireSyncElement;
 
 export interface AuthorizeContext {
   userId?: string;
   role?: string;
   room: string;
-  op: SyncOp;
+  op: WireSyncOp;
   currentElement?: OwnedElement;
 }
 
@@ -17,7 +16,7 @@ export interface AuthorizeLayerContext {
   userId?: string;
   role?: string;
   room: string;
-  op: Extract<SyncOp, { kind: 'layer-upsert' | 'layer-remove' }>;
+  op: Extract<WireSyncOp, { kind: 'layer-upsert' | 'layer-remove' }>;
   /** The hub's current record for the target layer, tombstones included. */
   currentRecord?: LayerRecord;
 }

@@ -1,6 +1,6 @@
 {
   "name": "@fieldnotes/sync-redis",
-  "version": "0.8.1",
+  "version": "0.9.0",
   "description": "Redis-backed HubBackend for Field Notes real-time sync relay",
   "type": "module",
   "sideEffects": false,
@@ -44,7 +44,7 @@
     "@fieldnotes/sync": "workspace:*"
   },
   "peerDependencies": {
-    "@fieldnotes/core": ">=0.81.0 <1.0.0"
+    "@fieldnotes/core": ">=0.82.0 <1.0.0"
   },
   "devDependencies": {
     "@fieldnotes/sync-server": "workspace:*",

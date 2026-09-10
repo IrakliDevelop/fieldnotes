@@ -8,8 +8,6 @@ import {
   createHtmlElement,
   createText,
   createShape,
-  createGrid,
-  createTemplate,
 } from './element-factory';
 
 describe('element factories', () => {
@@ -231,40 +229,6 @@ describe('element factories', () => {
     });
   });
 
-  describe('createGrid', () => {
-    it('creates a grid with defaults', () => {
-      const grid = createGrid({});
-      expect(grid.type).toBe('grid');
-      expect(grid.id).toMatch(/^grid_/);
-      expect(grid.gridType).toBe('square');
-      expect(grid.hexOrientation).toBe('pointy');
-      expect(grid.cellSize).toBe(40);
-      expect(grid.strokeColor).toBe('#000000');
-      expect(grid.strokeWidth).toBe(1);
-      expect(grid.opacity).toBe(1);
-      expect(grid.position).toEqual({ x: 0, y: 0 });
-      expect(grid.zIndex).toBe(0);
-      expect(grid.locked).toBe(false);
-    });
-
-    it('accepts overrides', () => {
-      const grid = createGrid({
-        gridType: 'hex',
-        hexOrientation: 'flat',
-        cellSize: 60,
-        strokeColor: '#ff0000',
-        strokeWidth: 2,
-        opacity: 0.5,
-      });
-      expect(grid.gridType).toBe('hex');
-      expect(grid.hexOrientation).toBe('flat');
-      expect(grid.cellSize).toBe(60);
-      expect(grid.strokeColor).toBe('#ff0000');
-      expect(grid.strokeWidth).toBe(2);
-      expect(grid.opacity).toBe(0.5);
-    });
-  });
-
   describe('createText', () => {
     it('creates a text element with defaults', () => {
       const el = createText({ position: { x: 0, y: 0 } });
@@ -299,106 +263,6 @@ describe('element factories', () => {
       });
 
       expect(el.text).toBe('<b>safe</b>');
-    });
-  });
-
-  describe('createTemplate', () => {
-    it('creates a template with defaults', () => {
-      const t = createTemplate({
-        position: { x: 100, y: 200 },
-        templateShape: 'circle',
-        radius: 30,
-      });
-      expect(t.type).toBe('template');
-      expect(t.id).toMatch(/^template_/);
-      expect(t.position).toEqual({ x: 100, y: 200 });
-      expect(t.templateShape).toBe('circle');
-      expect(t.radius).toBe(30);
-      expect(t.angle).toBe(0);
-      expect(t.fillColor).toBe('rgba(255, 87, 34, 0.2)');
-      expect(t.strokeColor).toBe('#FF5722');
-      expect(t.strokeWidth).toBe(2);
-      expect(t.opacity).toBe(0.6);
-      expect(t.locked).toBe(false);
-      expect(t.zIndex).toBe(0);
-    });
-
-    it('creates a cone with angle', () => {
-      const t = createTemplate({
-        position: { x: 50, y: 50 },
-        templateShape: 'cone',
-        radius: 60,
-        angle: Math.PI / 4,
-      });
-      expect(t.templateShape).toBe('cone');
-      expect(t.angle).toBe(Math.PI / 4);
-      expect(t.radius).toBe(60);
-    });
-
-    it('assigns layerId', () => {
-      const t = createTemplate({
-        position: { x: 0, y: 0 },
-        templateShape: 'square',
-        radius: 20,
-        layerId: 'layer-1',
-      });
-      expect(t.layerId).toBe('layer-1');
-    });
-
-    it('stores feetPerCell and radiusFeet when provided', () => {
-      const t = createTemplate({
-        position: { x: 0, y: 0 },
-        templateShape: 'circle',
-        radius: 80,
-        feetPerCell: 5,
-        radiusFeet: 10,
-      });
-      expect(t.feetPerCell).toBe(5);
-      expect(t.radiusFeet).toBe(10);
-    });
-
-    it('leaves feetPerCell and radiusFeet undefined when not provided', () => {
-      const t = createTemplate({
-        position: { x: 0, y: 0 },
-        templateShape: 'circle',
-        radius: 80,
-      });
-      expect(t.feetPerCell).toBeUndefined();
-      expect(t.radiusFeet).toBeUndefined();
-    });
-
-    it('stores renderStyle when provided', () => {
-      const t = createTemplate({
-        position: { x: 0, y: 0 },
-        templateShape: 'cone',
-        radius: 80,
-        renderStyle: 'geometric',
-      });
-      expect(t.renderStyle).toBe('geometric');
-    });
-
-    it('leaves renderStyle absent when not provided', () => {
-      const t = createTemplate({
-        position: { x: 0, y: 0 },
-        templateShape: 'cone',
-        radius: 80,
-      });
-      expect('renderStyle' in t).toBe(false);
-    });
-
-    it('stores width for a rectangle template when provided', () => {
-      const t = createTemplate({
-        position: { x: 0, y: 0 },
-        templateShape: 'rectangle',
-        radius: 100,
-        width: 40,
-      });
-      expect(t.width).toBe(40);
-    });
-
-    it('omits width when not provided', () => {
-      const t = createTemplate({ position: { x: 0, y: 0 }, templateShape: 'circle', radius: 100 });
-      expect('width' in t).toBe(false);
     });
   });
 });

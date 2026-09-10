@@ -30,14 +30,13 @@ import { createImage, createHtmlElement, createShape } from '../elements/element
 import {
   exportState as exportCanvasState,
   parseState,
-  convertLegacyToEnvelopes,
-  migrateLegacyPluginState,
+  migrateState,
 } from '../core/state-serializer';
 import { exportImage } from './export-image';
 import type { ExportImageOptions } from './export-image';
 import { exportSvg } from './export-svg';
 import type { ExportSvgOptions } from './export-svg';
-import type { CanvasState } from '../core/state-serializer';
+import type { CanvasState, ImportableCanvasState } from '../core/state-serializer';
 import { LayerManager } from '../layers/layer-manager';
 import { InteractMode } from './interact-mode';
 import { DomNodeManager } from './dom-node-manager';
@@ -115,9 +114,9 @@ export interface ViewportOptions {
   panInertia?: boolean;
   /** Show an overview minimap (bottom-right) with tap/drag-to-navigate. Default `false`. */
   minimap?: boolean;
-  /** Element type registry for extension support. VTT types require explicit registration. */
+  /** Element type registry for extension support. Domain types require explicit registration. */
   elementRegistry?: ElementRegistry;
-  /** Domain plugins to install (e.g. fog-of-war). Each plugin self-wires via the host API. */
+  /** Domain plugins to install. Each plugin self-wires via the host API. */
   plugins?: ViewportPlugin[];
   /** Render capabilities that must remain installed after optional-plugin rollback. */
   requiredCapabilities?: RequiredCapabilities;
@@ -289,6 +288,7 @@ export class Viewport {
       recorder: this.historyRecorder,
       getSelectedIds: () => this.getSelectedIds(),
       requestRender: () => this.requestRender(),
+      elementRegistry: this.elementRegistry,
     });
 
     this.wrapper = createWrapper();
@@ -688,7 +688,6 @@ export class Viewport {
       this.camera,
       this.layerManager.snapshot(),
       this.layerManager.activeLayerId,
-      this.elementRegistry,
       this.pluginStateManager.exportState(),
     );
   }
@@ -735,10 +734,11 @@ export class Viewport {
     return exportSvg(this.store, opts, this.layerManager);
   }
 
-  loadState(state: CanvasState): void {
-    const incoming = structuredClone(state) as CanvasState;
-    migrateLegacyPluginState(incoming);
-    convertLegacyToEnvelopes(incoming.elements, this.elementRegistry);
+  loadState(state: ImportableCanvasState): void {
+    const incoming = migrateState(
+      structuredClone(state) as ImportableCanvasState,
+      this.elementRegistry,
+    );
     const preparedPlugins = this.pluginStateManager.prepareState(
       (incoming.extensions ?? {}) as Record<string, PersistedPluginState>,
     );

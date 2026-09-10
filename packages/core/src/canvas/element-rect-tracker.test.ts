@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ElementStore } from '../elements/element-store';
-import { createArrow, createGrid, createImage, createStroke } from '../elements/element-factory';
+import { createArrow, createImage, createStroke } from '../elements/element-factory';
 import { computeElementRects, elementRectsEqual, ElementRectTracker } from './element-rect-tracker';
 import type { CanvasElement } from '../elements/types';
 
@@ -67,12 +67,17 @@ describe('computeElementRects', () => {
   });
 
   it('omits an element whose getElementBounds is null, even under a permissive matcher', () => {
-    // A grid element has no bounds at all (element-bounds.ts:12: `if (element.type
-    // === 'grid') return null`). The matcher below accepts everything, so the
-    // only thing that can exclude it is the `if (!bounds) continue` in
-    // computeElementRects itself.
-    const grid = createGrid({ layerId: 'l1' });
-    const rects = computeElementRects(storeWith(grid), () => 'k');
+    const extension: CanvasElement = {
+      id: 'extension',
+      type: 'extension',
+      extensionType: 'test:unbounded',
+      position: { x: 0, y: 0 },
+      zIndex: 0,
+      locked: false,
+      layerId: 'l1',
+      data: {},
+    };
+    const rects = computeElementRects(storeWith(extension), () => 'k');
     expect(rects).toEqual([]);
   });
 

@@ -184,13 +184,13 @@ authorize(ctx) => boolean | Promise<boolean>
   userId?: string;          // the connection's authenticated user (from authenticate)
   role?: string;            // the connection's role (from authenticate)
   room: string;
-  op: SyncOp;               // the incoming upsert / remove / clear
+  op: WireSyncOp;           // the incoming upsert / remove / clear
   currentElement?: OwnedElement; // the STORED element, if this id already exists
 }
 ```
 
 `currentElement` is the element currently in room state for an `upsert`/`remove` of an
-**existing** id (typed `OwnedElement = CanvasElement & { ownerId?: string }`), and
+**existing** id (typed `OwnedElement = WireSyncElement`), and
 `undefined` for a new/absent id.
 
 **Ownership is server-stamped and un-forgeable.** A new element's `ownerId` is set to the

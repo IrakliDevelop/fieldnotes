@@ -1,6 +1,6 @@
 # @fieldnotes/react
 
-**Version:** 0.11.0
+**Version:** 0.12.0
 **Location:** `packages/react/`
 **Description:** React bindings for Field Notes canvas SDK
 
@@ -62,7 +62,7 @@ function App() {
 - `defaultTool?: string` — initial tool
 - `tool?: string` — controlled active tool
 - `onToolChange?: (name: string) => void` — tool change callback
-- `snapToGrid?: boolean` — grid snapping
+- `snapToGrid?: boolean` — deprecated compatibility prop; VTT consumers should configure snapping through `GridController` and the constraint service
 - `onReady?: (viewport: Viewport) => void` — called after mount
 - `className?: string` — CSS class
 - `style?: CSSProperties` — inline styles
@@ -294,7 +294,7 @@ The React package handles viewport lifecycle automatically:
 
 ## Peer Dependencies
 
-- `@fieldnotes/core` >= 0.63.0 < 1.0.0
+- `@fieldnotes/core` >= 0.82.0 < 1.0.0
 - `react` >= 18 < 20
 - `react-dom` >= 18 < 20
 

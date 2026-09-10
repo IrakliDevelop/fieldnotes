@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { rotationPivot, rotateElementPatch } from './selection-rotate';
 import type { BoundedElement } from './selection-rotate';
-import { createShape, createArrow, createTemplate } from '../elements/element-factory';
+import { createShape, createArrow } from '../elements/element-factory';
 import { getElementBounds } from '../elements/element-bounds';
 import type { CanvasElement } from '../elements/types';
 
@@ -85,26 +85,6 @@ describe('rotateElementPatch', () => {
     } else {
       throw new Error('expected arrow patch with from/to');
     }
-    expect(patch.rotation).toBeUndefined();
-  });
-
-  it('template: angle shifts by delta (normalized), origin orbits pivot', () => {
-    const t = createTemplate({
-      position: { x: 10, y: 0 },
-      templateShape: 'cone',
-      radius: 30,
-      angle: 0,
-    });
-    const bounds = getElementBounds(t);
-    if (!bounds) throw new Error('no bounds');
-    const patch = rotateElementPatch(t, bounds, { x: 0, y: 0 }, CW);
-    if ('angle' in patch) {
-      expect(patch.angle).toBeCloseTo(Math.PI / 2);
-    } else {
-      throw new Error('expected template patch with angle');
-    }
-    expect(patch.position?.x).toBeCloseTo(0);
-    expect(patch.position?.y).toBeCloseTo(10);
     expect(patch.rotation).toBeUndefined();
   });
 });

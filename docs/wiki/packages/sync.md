@@ -1,6 +1,6 @@
 # @fieldnotes/sync
 
-**Version:** 0.12.0
+**Version:** 0.19.0
 **Location:** `packages/sync/`
 **Description:** Real-time element sync for Field Notes canvas SDK
 
@@ -297,4 +297,4 @@ pnpm --filter @fieldnotes/sync build
 
 ## Peer Dependencies
 
-- `@fieldnotes/core` >= 0.46.0 < 1.0.0
+- `@fieldnotes/core` >= 0.82.0 < 1.0.0

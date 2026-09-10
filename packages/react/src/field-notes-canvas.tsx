@@ -29,7 +29,11 @@ export interface FieldNotesCanvasProps {
    * Memoize with useCallback to avoid re-subscribing each render.
    */
   onToolChange?: (name: string) => void;
-  /** Reactive: toggles grid snapping. */
+  /**
+   * Reactive compatibility toggle for the core snap flag.
+   * @deprecated Grid snapping is domain behavior. Configure it through the
+   * VTT grid/constraint service instead.
+   */
   snapToGrid?: boolean;
   className?: string;
   style?: CSSProperties;

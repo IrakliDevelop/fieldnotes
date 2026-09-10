@@ -13,14 +13,12 @@ import {
   createArrow,
   createStroke,
   createImage,
-  createTemplate,
-  createGrid,
   createShape,
 } from '../elements/element-factory';
 import { lineEndpoints } from '../elements/shape-geometry';
 import { rotatePoint } from '../core/geometry';
 import type { ToolContext, PointerState } from './types';
-import type { NoteElement, ImageElement, TemplateElement, ShapeElement } from '../elements/types';
+import type { NoteElement, ImageElement, ShapeElement } from '../elements/types';
 import type { Point } from '../core/types';
 
 function makeCtx(overrides: Partial<ToolContext> = {}): ToolContext {
@@ -1152,28 +1150,6 @@ describe('SelectTool', () => {
 
       expect(setCursor).toHaveBeenCalledWith('crosshair');
     });
-
-    it('shows resize cursor when hovering over template resize handle', () => {
-      const tool = new SelectTool();
-      const setCursor = vi.fn();
-      const ctx = makeCtx({ setCursor });
-      const tmpl = createTemplate({
-        position: { x: 100, y: 100 },
-        templateShape: 'circle',
-        radius: 50,
-      });
-      ctx.store.add(tmpl);
-
-      tool.onActivate(ctx);
-      tool.onPointerDown(pt(100, 100), ctx);
-      tool.onPointerUp(pt(100, 100), ctx);
-      expect(tool.selectedIds).toEqual([tmpl.id]);
-      setCursor.mockClear();
-
-      tool.onHover?.(pt(150, 150), ctx);
-
-      expect(setCursor).toHaveBeenCalledWith('nwse-resize');
-    });
   });
 
   describe('renderOverlay', () => {
@@ -1376,27 +1352,6 @@ describe('SelectTool', () => {
       expect(canvas.fillRect).toHaveBeenCalled();
     });
 
-    it('draws template resize handle for selected template', () => {
-      const tool = new SelectTool();
-      const ctx = makeCtx();
-      const tmpl = createTemplate({
-        position: { x: 100, y: 100 },
-        templateShape: 'circle',
-        radius: 50,
-      });
-      ctx.store.add(tmpl);
-
-      tool.onPointerDown(pt(100, 100), ctx);
-      tool.onPointerUp(pt(100, 100), ctx);
-      expect(tool.selectedIds).toEqual([tmpl.id]);
-
-      const canvas = mockCanvas();
-      tool.renderOverlay?.(canvas);
-
-      expect(canvas.strokeRect).toHaveBeenCalled();
-      expect(canvas.fillRect).toHaveBeenCalled();
-    });
-
     it('draws arrow drag target highlight when dragging arrow handle near element', () => {
       const tool = new SelectTool();
       const ctx = makeCtx();
@@ -1481,54 +1436,6 @@ describe('SelectTool', () => {
 
       const strokeRectCalls = (canvas.strokeRect as ReturnType<typeof vi.fn>).mock.calls.length;
       expect(strokeRectCalls).toBeGreaterThanOrEqual(1);
-    });
-  });
-
-  describe('template resize with feetPerCell', () => {
-    it('updates radiusFeet when template has feetPerCell and grid is set', () => {
-      const tool = new SelectTool();
-      const ctx = makeCtx({ gridSize: 40 });
-      const tmpl = createTemplate({
-        position: { x: 100, y: 100 },
-        templateShape: 'circle',
-        radius: 50,
-        feetPerCell: 5,
-      });
-      ctx.store.add(tmpl);
-
-      tool.onPointerDown(pt(100, 100), ctx);
-      tool.onPointerUp(pt(100, 100), ctx);
-      expect(tool.selectedIds).toEqual([tmpl.id]);
-
-      tool.onPointerDown(pt(150, 150), ctx);
-      tool.onPointerMove(pt(200, 200), ctx);
-      tool.onPointerUp(pt(200, 200), ctx);
-
-      const resized = ctx.store.getById(tmpl.id) as TemplateElement;
-      expect(resized.radiusFeet).toBeDefined();
-      expect(resized.radiusFeet).toBeGreaterThan(0);
-    });
-
-    it('snaps template radius to grid when snap is enabled', () => {
-      const tool = new SelectTool();
-      const ctx = makeCtx({ gridSize: 50, snapToGrid: true });
-      const tmpl = createTemplate({
-        position: { x: 100, y: 100 },
-        templateShape: 'circle',
-        radius: 50,
-        feetPerCell: 5,
-      });
-      ctx.store.add(tmpl);
-
-      tool.onPointerDown(pt(100, 100), ctx);
-      tool.onPointerUp(pt(100, 100), ctx);
-
-      tool.onPointerDown(pt(150, 150), ctx);
-      tool.onPointerMove(pt(170, 170), ctx);
-      tool.onPointerUp(pt(170, 170), ctx);
-
-      const resized = ctx.store.getById(tmpl.id) as TemplateElement;
-      expect(resized.radius % 50).toBe(0);
     });
   });
 
@@ -1890,82 +1797,6 @@ describe('SelectTool', () => {
         shape: 'rectangle',
       });
       expect(isInsideBounds({ x: 90, y: 10 }, rect)).toBe(true);
-    });
-  });
-
-  describe('grid element exclusion', () => {
-    it('does not select grid elements by click', () => {
-      const tool = new SelectTool();
-      const ctx = makeCtx();
-      const grid = createGrid({ position: { x: 0, y: 0 } });
-      ctx.store.add(grid);
-
-      tool.onPointerDown(pt(10, 10), ctx);
-      tool.onPointerUp(pt(10, 10), ctx);
-
-      expect(tool.selectedIds).toEqual([]);
-    });
-  });
-
-  describe('template interaction', () => {
-    it('selects a template when clicking inside its bounds', () => {
-      const tool = new SelectTool();
-      const ctx = makeCtx();
-      const tmpl = createTemplate({
-        position: { x: 100, y: 100 },
-        templateShape: 'circle',
-        radius: 50,
-      });
-      ctx.store.add(tmpl);
-
-      tool.onPointerDown(pt(120, 120), ctx);
-      tool.onPointerUp(pt(120, 120), ctx);
-
-      expect(tool.selectedIds).toEqual([tmpl.id]);
-    });
-
-    it('drags a template to move it', () => {
-      const tool = new SelectTool();
-      const ctx = makeCtx();
-      const tmpl = createTemplate({
-        position: { x: 100, y: 100 },
-        templateShape: 'circle',
-        radius: 50,
-      });
-      ctx.store.add(tmpl);
-
-      tool.onPointerDown(pt(100, 100), ctx);
-      tool.onPointerMove(pt(120, 130), ctx);
-      tool.onPointerUp(pt(120, 130), ctx);
-
-      const moved = ctx.store.getById(tmpl.id) as TemplateElement;
-      expect(moved.position.x).toBe(120);
-      expect(moved.position.y).toBe(130);
-    });
-
-    it('resizes a template via SE handle', () => {
-      const tool = new SelectTool();
-      const ctx = makeCtx();
-      const tmpl = createTemplate({
-        position: { x: 100, y: 100 },
-        templateShape: 'circle',
-        radius: 50,
-      });
-      ctx.store.add(tmpl);
-
-      // Select first
-      tool.onPointerDown(pt(100, 100), ctx);
-      tool.onPointerUp(pt(100, 100), ctx);
-      expect(tool.selectedIds).toEqual([tmpl.id]);
-
-      // Drag the SE handle (bottom-right of bounds: 100+50=150, 100+50=150)
-      tool.onPointerDown(pt(150, 150), ctx);
-      tool.onPointerMove(pt(200, 200), ctx);
-      tool.onPointerUp(pt(200, 200), ctx);
-
-      const resized = ctx.store.getById(tmpl.id) as TemplateElement;
-      const expectedRadius = Math.sqrt(100 * 100 + 100 * 100);
-      expect(resized.radius).toBeCloseTo(expectedRadius);
     });
   });
 
@@ -2619,95 +2450,6 @@ describe('SelectTool', () => {
       const se = layout.corners.find(([h]) => h === 'se')?.[1] as Point;
       expect(hitTestResizeHandle(se, ctx, tool.selectedIds)).toBeNull();
       expect(hitTestRotateHandle(layout.rotateHandle, ctx, tool.selectedIds)).toBeNull();
-    });
-  });
-
-  describe('template aim handle', () => {
-    const selectCone = (ctx: ToolContext, angle = 0) => {
-      const cone = createTemplate({
-        position: { x: 100, y: 100 },
-        templateShape: 'cone',
-        radius: 80,
-        angle,
-      });
-      ctx.store.add(cone);
-      const tool = new SelectTool();
-      tool.onPointerDown(pt(100, 100), ctx);
-      tool.onPointerUp(pt(100, 100), ctx);
-      expect(tool.selectedIds).toEqual([cone.id]);
-      return { tool, cone };
-    };
-
-    it('re-aims the cone about its origin (position), not the bbox center', () => {
-      const ctx = makeCtx();
-      const { tool, cone } = selectCone(ctx);
-      // knob at (204,100); drag to straight above the origin → angle = -PI/2
-      tool.onPointerDown(pt(204, 100), ctx);
-      tool.onPointerMove(pt(100, 20), ctx);
-      tool.onPointerUp(pt(100, 20), ctx);
-      const el = ctx.store.getById(cone.id) as TemplateElement;
-      expect(el.angle).toBeCloseTo(-Math.PI / 2, 3);
-      expect(el.position).toEqual({ x: 100, y: 100 });
-    });
-
-    it('shift-snaps to 15° with no hex grid', () => {
-      const ctx = makeCtx();
-      const { tool, cone } = selectCone(ctx);
-      tool.onPointerDown(pt(204, 100), ctx);
-      // dx=40, dy=10 → ~14.04°; shift snaps to 15° = PI/12
-      tool.onPointerMove(shiftPt(140, 110), ctx);
-      tool.onPointerUp(shiftPt(140, 110), ctx);
-      const el = ctx.store.getById(cone.id) as TemplateElement;
-      expect(el.angle).toBeCloseTo(Math.PI / 12, 3);
-    });
-
-    it('shift-snaps to 60° on a hex grid', () => {
-      const ctx = makeCtx({ gridType: 'hex' });
-      const { tool, cone } = selectCone(ctx);
-      tool.onPointerDown(pt(204, 100), ctx);
-      // drag to 45°; hex snaps to 60° = PI/3
-      tool.onPointerMove(shiftPt(150, 150), ctx);
-      tool.onPointerUp(shiftPt(150, 150), ctx);
-      const el = ctx.store.getById(cone.id) as TemplateElement;
-      expect(el.angle).toBeCloseTo(Math.PI / 3, 3);
-    });
-  });
-
-  describe('rectangle resize handles', () => {
-    const selectRect = (ctx: ToolContext) => {
-      const rect = createTemplate({
-        position: { x: 100, y: 100 },
-        templateShape: 'rectangle',
-        radius: 80,
-        angle: 0,
-        width: 40,
-      });
-      ctx.store.add(rect);
-      const tool = new SelectTool();
-      tool.onPointerDown(pt(120, 100), ctx); // inside the rectangle body
-      tool.onPointerUp(pt(120, 100), ctx);
-      expect(tool.selectedIds).toEqual([rect.id]);
-      return { tool, rect };
-    };
-    it('dragging the length handle changes radius, not width', () => {
-      const ctx = makeCtx();
-      const { tool, rect } = selectRect(ctx);
-      tool.onPointerDown(pt(180, 100), ctx); // length handle at (180,100)
-      tool.onPointerMove(pt(230, 100), ctx);
-      tool.onPointerUp(pt(230, 100), ctx);
-      const el = ctx.store.getById(rect.id) as TemplateElement;
-      expect(el.radius).toBeCloseTo(130, 3);
-      expect(el.width).toBe(40);
-    });
-    it('dragging the width handle changes width, not radius', () => {
-      const ctx = makeCtx();
-      const { tool, rect } = selectRect(ctx);
-      tool.onPointerDown(pt(140, 120), ctx); // width handle at (140,120)
-      tool.onPointerMove(pt(140, 140), ctx); // perp dist 40 → width 80
-      tool.onPointerUp(pt(140, 140), ctx);
-      const el = ctx.store.getById(rect.id) as TemplateElement;
-      expect(el.width).toBeCloseTo(80, 3);
-      expect(el.radius).toBe(80);
     });
   });
 });

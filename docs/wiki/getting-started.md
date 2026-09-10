@@ -115,10 +115,11 @@ Current package versions (as of September 2026):
 
 | Package                 | Version |
 | ----------------------- | ------- |
-| @fieldnotes/core        | 0.68.0  |
-| @fieldnotes/react       | 0.11.0  |
-| @fieldnotes/sync        | 0.12.0  |
-| @fieldnotes/sync-server | 0.14.0  |
-| @fieldnotes/sync-redis  | 0.5.0   |
+| @fieldnotes/core        | 0.82.0  |
+| @fieldnotes/react       | 0.12.0  |
+| @fieldnotes/sync        | 0.19.0  |
+| @fieldnotes/sync-server | 0.18.0  |
+| @fieldnotes/sync-redis  | 0.9.0   |
+| @fieldnotes/vtt         | 0.8.0   |
 
 The `VERSION` constant in `packages/core/src/index.ts` must match `packages/core/package.json`.

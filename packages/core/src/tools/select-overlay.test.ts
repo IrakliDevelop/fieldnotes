@@ -3,7 +3,6 @@ import { describe, it, expect, vi } from 'vitest';
 import { getOverlayLayout, getHandlePositions, renderSelectionBoxes } from './select-overlay';
 import { createArrow, createNote, createShape } from '../elements/element-factory';
 import { ElementStore } from '../elements/element-store';
-import { createTemplate } from '../elements/element-factory';
 
 describe('select-overlay', () => {
   it('getOverlayLayout centers and rotates corners', () => {
@@ -62,90 +61,3 @@ function mockCanvas(): CanvasRenderingContext2D {
     globalAlpha: 1,
   } as unknown as CanvasRenderingContext2D;
 }
-
-describe('aim handle overlay', () => {
-  const storeWith = (...els: ReturnType<typeof createTemplate>[]) => {
-    const s = new ElementStore();
-    for (const e of els) s.add(e);
-    return s;
-  };
-
-  it('draws an aim knob (arc) for a single selected cone', () => {
-    const cone = createTemplate({
-      position: { x: 0, y: 0 },
-      templateShape: 'cone',
-      radius: 80,
-      angle: 0,
-    });
-    const store = storeWith(cone);
-    const ctx = mockCanvas();
-    renderSelectionBoxes(ctx, { selectedIds: [cone.id], store, zoom: 1 });
-    expect(ctx.moveTo).toHaveBeenCalled();
-  });
-
-  it('draws an aim knob for a single selected line', () => {
-    const line = createTemplate({
-      position: { x: 0, y: 0 },
-      templateShape: 'line',
-      radius: 80,
-      angle: 0,
-    });
-    const store = storeWith(line);
-    const ctx = mockCanvas();
-    renderSelectionBoxes(ctx, { selectedIds: [line.id], store, zoom: 1 });
-    expect(ctx.moveTo).toHaveBeenCalled();
-  });
-
-  it('draws an aim knob for a single selected rectangle', () => {
-    const rect = createTemplate({
-      position: { x: 0, y: 0 },
-      templateShape: 'rectangle',
-      radius: 80,
-      angle: 0,
-      width: 40,
-    });
-    const ctx = mockCanvas();
-    renderSelectionBoxes(ctx, { selectedIds: [rect.id], store: storeWith(rect), zoom: 1 });
-    expect(ctx.moveTo).toHaveBeenCalled();
-    expect(ctx.arc).toHaveBeenCalled();
-  });
-
-  it('does not draw an aim knob for circle, locked, or multi-selection', () => {
-    const circle = createTemplate({
-      position: { x: 0, y: 0 },
-      templateShape: 'circle',
-      radius: 80,
-      angle: 0,
-    });
-    const cCtx = mockCanvas();
-    renderSelectionBoxes(cCtx, { selectedIds: [circle.id], store: storeWith(circle), zoom: 1 });
-    expect(cCtx.moveTo).not.toHaveBeenCalled();
-
-    const locked = createTemplate({
-      position: { x: 0, y: 0 },
-      templateShape: 'cone',
-      radius: 80,
-      angle: 0,
-      locked: true,
-    });
-    const lCtx = mockCanvas();
-    renderSelectionBoxes(lCtx, { selectedIds: [locked.id], store: storeWith(locked), zoom: 1 });
-    expect(lCtx.moveTo).not.toHaveBeenCalled();
-
-    const a = createTemplate({
-      position: { x: 0, y: 0 },
-      templateShape: 'cone',
-      radius: 80,
-      angle: 0,
-    });
-    const b = createTemplate({
-      position: { x: 300, y: 0 },
-      templateShape: 'cone',
-      radius: 80,
-      angle: 0,
-    });
-    const mCtx = mockCanvas();
-    renderSelectionBoxes(mCtx, { selectedIds: [a.id, b.id], store: storeWith(a, b), zoom: 1 });
-    expect(mCtx.moveTo).not.toHaveBeenCalled();
-  });
-});

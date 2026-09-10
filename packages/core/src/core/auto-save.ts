@@ -111,14 +111,7 @@ export class AutoSave {
     try {
       const layers = this.layerManager?.snapshot() ?? [];
       const extensions = this.pluginStateManager?.exportState();
-      const state = exportState(
-        this.store.snapshot(),
-        this.camera,
-        layers,
-        undefined,
-        this.elementRegistry,
-        extensions,
-      );
+      const state = exportState(this.store.snapshot(), this.camera, layers, undefined, extensions);
       await this.adapter.save(this.key, JSON.stringify(state));
     } catch (e) {
       this.onError?.(e instanceof Error ? e : new Error(String(e)));

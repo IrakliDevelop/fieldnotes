@@ -105,8 +105,7 @@ type CanvasElement =
   | HtmlElement // embedded HTML (iframes, widgets)
   | TextElement // plain text label
   | ShapeElement // rectangle, ellipse, line
-  | GridElement // hex/square grid
-  | TemplateElement; // reusable template
+  | ExtensionElementEnvelope; // domain-owned element, e.g. VTT grid/template
 ```
 
 **Common properties (BaseElement):**
@@ -330,14 +329,17 @@ State serialization converts the canvas to/from JSON.
 
 ```typescript
 interface CanvasState {
-  version: 3;
+  version: 4;
+  camera: { position: Point; zoom: number };
   elements: CanvasElement[];
   layers?: Layer[];
-  fog?: FogStateV1;
+  activeLayerId?: string;
+  extensions?: Record<string, PersistedPluginState>;
 }
 ```
 
-**Versioning:** The serializer handles backward compatibility. Older versions (1, 2) still parse.
+**Versioning:** The serializer migrates versions 1–3 to v4. Domain-owned legacy elements require
+their adapters to be registered before loading.
 
 **Storage adapters:** `StorageAdapter` interface for persistence:
 

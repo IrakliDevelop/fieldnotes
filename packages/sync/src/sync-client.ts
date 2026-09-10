@@ -4,16 +4,26 @@ import type { SyncTransport } from './sync-transport';
 import {
   parseEnvelope,
   isValidElement,
+  isValidWireElement,
   isValidLayerDefinition,
   isValidLayerRecord,
   isNewerLayerRecord,
   type LayerRecord,
   type SyncOp,
   type SyncElement,
+  type WireSyncElement,
 } from './protocol';
 import { LayerLedger } from './layer-ledger';
 import { ClientPluginRegistry } from './sync-plugin';
 import type { ClientSyncPlugin, PluginSnapshot } from './sync-plugin';
+import {
+  CapabilityHandshake,
+  createCurrentCapabilities,
+  DEFAULT_CAPABILITY_QUEUE_LIMIT,
+  DEFAULT_CAPABILITY_TIMEOUT_MS,
+  translateOpForPeer,
+} from './capabilities';
+import type { SyncCapabilities, WireSyncEnvelope, WireSyncOp } from './protocol';
 
 /**
  * Which authoritative-snapshot merge is being applied:
@@ -135,6 +145,10 @@ export interface SyncClientOptions {
   plugins?: readonly ClientSyncPlugin[];
   /** Converts registered runtime extension envelopes at the v3 wire boundary. */
   elementRegistry?: ElementRegistry;
+  /** Maximum time to wait for capability negotiation before locking into legacy mode. */
+  capabilityTimeoutMs?: number;
+  /** Maximum number of inbound and outbound messages retained during negotiation. */
+  capabilityQueueLimit?: number;
 }
 
 const REMOTE_ORIGIN = 'remote';
@@ -167,6 +181,13 @@ export class SyncClient {
   private readonly layerLedger?: LayerLedger;
   private readonly elementRegistry: ElementRegistry;
   private readonly pluginRegistry: ClientPluginRegistry;
+  private readonly localCapabilities: SyncCapabilities;
+  private readonly capabilityTimeoutMs: number;
+  private readonly capabilityQueueLimit: number;
+  private handshake: CapabilityHandshake<SyncOp>;
+  private readonly pendingIncoming: WireSyncEnvelope[] = [];
+  /** Peers already answered with our capabilities during the current handshake. */
+  private readonly acknowledgedPeers = new Set<string>();
   private pluginCleanups: (() => void)[] = [];
   private unsubscribers: (() => void)[] = [];
   private started = false;
@@ -174,6 +195,8 @@ export class SyncClient {
   private joined = false;
   private resyncPending = false;
   private readonly touchedDuringResync = new Set<string>();
+  /** A local clear supersedes every element in the in-flight authoritative snapshot. */
+  private clearedBeforeSnapshot = false;
   private readonly presenceHandlers = new Set<(from: string, data: unknown) => void>();
   private readonly presenceLeaveHandlers = new Set<(from: string) => void>();
 
@@ -186,6 +209,10 @@ export class SyncClient {
     this.hubKnownIds = options.hubKnownIds ?? new Set();
     this.elementRegistry = options.elementRegistry ?? getDefaultElementRegistry();
     this.pluginRegistry = new ClientPluginRegistry(options.plugins ?? []);
+    this.localCapabilities = createCurrentCapabilities(this.pluginRegistry.extensionKinds);
+    this.capabilityTimeoutMs = options.capabilityTimeoutMs ?? DEFAULT_CAPABILITY_TIMEOUT_MS;
+    this.capabilityQueueLimit = options.capabilityQueueLimit ?? DEFAULT_CAPABILITY_QUEUE_LIMIT;
+    this.handshake = new CapabilityHandshake<SyncOp>(this.capabilityQueueLimit);
     for (const plugin of this.pluginRegistry.plugins) plugin.validateClientId?.(this.clientId);
     this.store.setElementRegistry(this.elementRegistry);
     if (options.layers) {
@@ -239,6 +266,7 @@ export class SyncClient {
     }
     // MUST be last: a synchronous bus delivers the peer's reply reentrantly, so the
     // onMessage receive handler above must already be wired before we request.
+    this.beginCapabilityHandshake();
     this.sendOp({ kind: 'request-snapshot' });
   }
 
@@ -246,6 +274,8 @@ export class SyncClient {
     this.resyncPending = true;
     for (const plugin of this.pluginRegistry.plugins) plugin.onReconnect?.();
     this.touchedDuringResync.clear();
+    this.clearedBeforeSnapshot = false;
+    this.beginCapabilityHandshake();
     this.sendOp({ kind: 'request-snapshot' });
   }
 
@@ -256,6 +286,8 @@ export class SyncClient {
     this.pluginCleanups = [];
     this.unsubscribers.forEach((u) => u());
     this.unsubscribers = [];
+    this.handshake.dispose();
+    this.pendingIncoming.length = 0;
   }
 
   dispose(): void {
@@ -382,33 +414,90 @@ export class SyncClient {
   }
 
   private sendOp(op: SyncOp): void {
-    this.transport.send(JSON.stringify({ from: this.clientId, op: this.toWireOp(op) }));
-  }
-
-  private toWireOp(op: SyncOp): SyncOp {
-    if (op.kind === 'upsert') {
-      return { kind: 'upsert', element: this.toWireElement(op.element) };
+    if (!this.handshake.complete) {
+      // Element ops must leave in store order: once anything is held for
+      // negotiation, later element ops queue behind it so a remove/clear can
+      // never overtake the upsert it was meant to undo.
+      const hold =
+        requiresCapabilityNegotiation(op) ||
+        (isElementDataOp(op) && this.handshake.pendingCount > 0);
+      if (hold) {
+        this.handshake.queue(op);
+        return;
+      }
+      this.transport.send(JSON.stringify({ from: this.clientId, op }));
+      return;
     }
-    if (op.kind === 'snapshot') {
-      return { ...op, elements: op.elements.map((element) => this.toWireElement(element)) };
+    this.sendNegotiated(op);
+  }
+
+  private beginCapabilityHandshake(): void {
+    // Ops still held by an unfinished handshake were never sent; carry them
+    // into the successor instead of discarding them.
+    const carried = this.handshake.takePending();
+    this.handshake.dispose();
+    this.handshake = new CapabilityHandshake<SyncOp>(this.capabilityQueueLimit);
+    this.pendingIncoming.length = 0;
+    this.acknowledgedPeers.clear();
+    for (const op of carried) {
+      this.handshake.queue(op);
+      // The hub has not seen these yet, so shield them from the reconcile
+      // snapshot that precedes their delivery — the same treatment as local
+      // edits made during the resync window.
+      if (this.resyncPending) {
+        if (op.kind === 'upsert') this.touchedDuringResync.add(op.element.id);
+        else if (op.kind === 'remove') this.touchedDuringResync.add(op.id);
+        else if (op.kind === 'clear') this.clearedBeforeSnapshot = true;
+      }
     }
-    return op;
+    this.transport.send(
+      JSON.stringify({
+        from: this.clientId,
+        op: { kind: 'capabilities', capabilities: this.localCapabilities },
+      }),
+    );
+    this.handshake.startTimeout(this.capabilityTimeoutMs, (pending) => {
+      this.flushNegotiated(pending);
+    });
   }
 
-  private toWireElement(element: CanvasElement): CanvasElement {
-    if (element.type !== 'extension') return element;
-    const adapter = this.elementRegistry.getAdapter(element.extensionType);
-    if (!adapter) return element;
-    const legacy = adapter.encodeLegacy(element);
-    const audience = (element as SyncElement).audience;
-    if (audience !== undefined) legacy['audience'] = audience;
-    return legacy as unknown as CanvasElement;
+  /**
+   * Sends ops held during negotiation, then applies the inbound frames held
+   * alongside them. One untranslatable op is skipped so it can neither drop
+   * the ops behind it nor strand the inbound queue.
+   */
+  private flushNegotiated(pending: readonly SyncOp[]): void {
+    for (const op of pending) {
+      try {
+        this.sendNegotiated(op);
+      } catch {
+        // Lossy for this peer; the remaining queue still ships.
+      }
+    }
+    this.drainPendingIncoming();
   }
 
-  private toRuntimeElement(element: CanvasElement): CanvasElement {
-    if (element.type === 'extension') return element;
+  private sendNegotiated(op: SyncOp): void {
+    const capabilities = this.handshake.capabilities;
+    if (!capabilities) throw new Error('Capability handshake completed without peer capabilities');
+    const wire = translateOpForPeer(
+      op,
+      capabilities,
+      this.elementRegistry,
+      this.pluginRegistry.extensionDefinitions,
+    );
+    this.transport.send(JSON.stringify({ from: this.clientId, op: wire }));
+  }
+
+  /**
+   * Converts a wire element to its runtime form. A legacy-typed element with
+   * no registered adapter is dropped (`null`): admitting it would let a v4
+   * save stamp an element the serializer can never load back.
+   */
+  private toRuntimeElement(element: WireSyncElement): CanvasElement | null {
+    if (isValidElement(element)) return element;
     const adapter = this.elementRegistry.getAdapterByLegacyType(element.type);
-    if (!adapter) return element;
+    if (!adapter) return null;
     return adapter.decodeLegacy(
       structuredClone(element) as unknown as Record<string, unknown>,
     ) as CanvasElement;
@@ -425,10 +514,10 @@ export class SyncClient {
   private onLocal(op: SyncOp, origin: string | undefined): void {
     if (isExternal(origin)) return; // applied remote ops must not re-broadcast
     const outgoing = this.stampAudience(op);
-    if (this.resyncPending) {
+    if (this.resyncPending || !this.joined) {
       if (outgoing.kind === 'upsert') this.touchedDuringResync.add(outgoing.element.id);
       else if (outgoing.kind === 'remove') this.touchedDuringResync.add(outgoing.id);
-      // 'clear' during a resync window is not shielded (whole-store, rare) — acceptable
+      else if (outgoing.kind === 'clear') this.clearedBeforeSnapshot = true;
     }
     // Fire-and-forget delivery: a sent upsert is assumed to reach the hub, the
     // same assumption the resync shield already makes.
@@ -442,6 +531,44 @@ export class SyncClient {
     // relay echoes back after a reconnect (the reconnected socket is a NEW hub connection, so the hub's
     // connId echo-suppression does not cover them). Do NOT key this guard off the connection.
     if (!env || env.from === this.clientId) return; // malformed/invalid + own echo
+    if (env.op.kind === 'capabilities') {
+      const pending = this.handshake.receive(env.op.capabilities);
+      // Answer each peer once per handshake: a late joiner on a shared bus
+      // still learns our capabilities, while a reply to our own reply stops.
+      if (!this.acknowledgedPeers.has(env.from)) {
+        this.acknowledgedPeers.add(env.from);
+        this.transport.send(
+          JSON.stringify({
+            from: this.clientId,
+            op: { kind: 'capabilities', capabilities: this.localCapabilities },
+          }),
+        );
+      }
+      this.flushNegotiated(pending);
+      return;
+    }
+    if (!this.handshake.complete) {
+      const hold =
+        requiresCapabilityNegotiation(env.op) ||
+        (isElementDataOp(env.op) && this.pendingIncoming.length > 0);
+      if (hold) {
+        if (this.pendingIncoming.length >= this.capabilityQueueLimit) {
+          throw new Error(
+            `Capability handshake queue exceeded ${String(this.capabilityQueueLimit)} messages`,
+          );
+        }
+        this.pendingIncoming.push(env);
+        return;
+      }
+    }
+    this.handleRemoteEnvelope(env);
+  }
+
+  private drainPendingIncoming(): void {
+    for (const env of this.pendingIncoming.splice(0)) this.handleRemoteEnvelope(env);
+  }
+
+  private handleRemoteEnvelope(env: WireSyncEnvelope): void {
     const op = env.op;
     if (op.kind === 'request-snapshot') {
       const elements = this.store.snapshot();
@@ -469,13 +596,17 @@ export class SyncClient {
       this.mergeSnapshotLayers(op.layers);
       this.applyPluginSnapshots(op, this.joined ? 'reconnect' : 'initial');
       const phase: AuthoritativeSnapshotPhase = this.joined ? 'reconcile' : 'bootstrap';
-      const preserved = this.applyAuthoritativeSnapshot(
-        phase,
-        op.elements.filter(isValidElement).map((element) => this.toRuntimeElement(element)),
-      );
+      const runtimeElements: CanvasElement[] = [];
+      for (const element of op.elements) {
+        if (!isValidWireElement(element)) continue;
+        const runtime = this.toRuntimeElement(element);
+        if (runtime) runtimeElements.push(runtime);
+      }
+      const preserved = this.applyAuthoritativeSnapshot(phase, runtimeElements);
       this.joined = true;
       this.resyncPending = false; // TD-1: finalize after ANY snapshot (merge OR reconcile)
       this.touchedDuringResync.clear();
+      this.clearedBeforeSnapshot = false;
       // Re-push AFTER the resync finalizes, through the normal local-upsert
       // path (audience stamping, hub-knowledge marking) — synchronously, so
       // hosts never need deferred-macrotask timing around snapshots.
@@ -495,6 +626,8 @@ export class SyncClient {
         isLocal: false,
         phase: this.resyncPending ? 'reconnect' : 'live',
       });
+    } else if (op.kind === 'upsert' || op.kind === 'remove' || op.kind === 'clear') {
+      this.applyOp(op);
     } else if (this.pluginRegistry.ownerOf(op.kind)) {
       this.pluginRegistry.ownerOf(op.kind)?.handleOp?.(op, {
         sender: env.from,
@@ -505,13 +638,13 @@ export class SyncClient {
       for (const h of this.presenceHandlers) h(env.from, op.data);
     } else if (op.kind === 'presence-leave') {
       for (const h of this.presenceLeaveHandlers) h(env.from);
-    } else {
-      this.applyOp(op); // narrows to upsert | remove | clear
+    } else if (op.kind === 'capabilities') {
+      // Capability frames are handled before the negotiated data path.
     }
   }
 
   private applyPluginSnapshots(
-    op: Extract<SyncOp, { kind: 'snapshot' }>,
+    op: Extract<WireSyncOp, { kind: 'snapshot' }>,
     phase: 'initial' | 'reconnect',
   ): void {
     const raw = op as unknown as Record<string, unknown>;
@@ -546,9 +679,10 @@ export class SyncClient {
     }
   }
 
-  private applyOp(op: SyncOp): void {
+  private applyOp(op: Extract<WireSyncOp, { kind: 'upsert' | 'remove' | 'clear' }>): void {
     if (op.kind === 'upsert') {
       const el = this.toRuntimeElement(op.element);
+      if (!el) return; // unknown legacy type: not representable in this client
       this.hubKnownIds.add(el.id); // remote/snapshot upserts are hub evidence
       if (this.store.getById(el.id)) {
         this.store.update(el.id, el, { origin: REMOTE_ORIGIN });
@@ -589,8 +723,14 @@ export class SyncClient {
       }
     }
     for (const el of snapshot) {
-      // On reconcile a touched local edit is newer + already sent to the hub.
-      if (phase === 'reconcile' && this.touchedDuringResync.has(el.id)) continue;
+      // A local clear supersedes the complete in-flight snapshot. Otherwise,
+      // on reconcile, a touched local edit is newer and already sent to the hub.
+      if (
+        this.clearedBeforeSnapshot ||
+        (phase === 'reconcile' && this.touchedDuringResync.has(el.id))
+      ) {
+        continue;
+      }
       this.applyOp({ kind: 'upsert', element: el });
     }
     return [...preserve];
@@ -622,4 +762,18 @@ export class SyncClient {
     }
     return { preserve, discard };
   }
+}
+
+function requiresCapabilityNegotiation(op: WireSyncOp): boolean {
+  if (op.kind === 'extension') return true;
+  if (op.kind === 'upsert') return op.element.type === 'extension';
+  if (op.kind === 'snapshot') return op.elements.some((element) => element.type === 'extension');
+  return false;
+}
+
+/** Ops whose relative order against element upserts is load-bearing. */
+function isElementDataOp(op: WireSyncOp): boolean {
+  return (
+    op.kind === 'upsert' || op.kind === 'remove' || op.kind === 'clear' || op.kind === 'snapshot'
+  );
 }

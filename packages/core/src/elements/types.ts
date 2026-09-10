@@ -10,7 +10,8 @@ export interface BaseElement {
   /** Optional flat group membership. Elements sharing a groupId select/move/delete as a unit. */
   groupId?: string;
   /** Rotation in radians (clockwise) about the element's center. Absent = 0 (unrotated).
-   * Applied to note/text/image/html/shape/stroke; ignored for arrow/grid/template. */
+   * Applied to note/text/image/html/shape/stroke; ignored for arrows. Extension
+   * element definitions own their rotation semantics. */
   rotation?: number;
 }
 
@@ -97,37 +98,6 @@ export interface ShapeElement extends BaseElement {
 
 export type HexOrientation = 'pointy' | 'flat';
 
-export interface GridElement extends BaseElement {
-  type: 'grid';
-  gridType: 'square' | 'hex';
-  hexOrientation: HexOrientation;
-  cellSize: number;
-  strokeColor: string;
-  strokeWidth: number;
-  opacity: number;
-}
-
-export type TemplateShape = 'circle' | 'cone' | 'line' | 'square' | 'rectangle';
-
-export type TemplateRenderStyle = 'cells' | 'geometric';
-
-export interface TemplateElement extends BaseElement {
-  type: 'template';
-  templateShape: TemplateShape;
-  radius: number;
-  angle: number;
-  /** Rectangle-only: full perpendicular extent in world units (centered on the aim axis).
-   *  Absent for other shapes. Distinct from strokeWidth. */
-  width?: number;
-  fillColor: string;
-  strokeColor: string;
-  strokeWidth: number;
-  opacity: number;
-  feetPerCell?: number;
-  radiusFeet?: number;
-  renderStyle?: TemplateRenderStyle;
-}
-
 export type CanvasElement =
   | StrokeElement
   | NoteElement
@@ -136,8 +106,6 @@ export type CanvasElement =
   | HtmlElement
   | TextElement
   | ShapeElement
-  | GridElement
-  | TemplateElement
   | ExtensionElementEnvelope;
 
 export type ElementType = CanvasElement['type'];
@@ -150,6 +118,38 @@ export interface ExtensionElementEnvelope extends BaseElement {
   readonly data: Record<string, unknown>;
 }
 
+export interface ExtensionInteractionHandle {
+  readonly id: string;
+  readonly cursor: string;
+}
+
+export interface ExtensionInteractionContext {
+  readonly zoom: number;
+  readonly shiftKey: boolean;
+  /** Number of selected elements; handles drawn only for a single selection should gate on it. */
+  readonly selectedCount: number;
+  readonly snap: {
+    readonly enabled: boolean;
+    readonly size?: number;
+    readonly mode?: string;
+  };
+}
+
+export interface ElementInteractionAdapter<T extends BaseElement> {
+  hitTestHandle?(
+    el: T,
+    point: Point,
+    context: ExtensionInteractionContext,
+  ): ExtensionInteractionHandle | null;
+  updateHandle?(el: T, handleId: string, point: Point, context: ExtensionInteractionContext): T;
+  renderSelection?(
+    ctx: CanvasRenderingContext2D,
+    el: T,
+    context: { readonly zoom: number; readonly selectedCount: number },
+  ): void;
+  rotate?(el: T, pivot: Point, delta: number): T;
+}
+
 export interface ElementTypeDefinition<T extends BaseElement> {
   readonly type: string;
   readonly legacyTypes: readonly string[];
@@ -160,6 +160,7 @@ export interface ElementTypeDefinition<T extends BaseElement> {
   wrap(el: T): ExtensionElementEnvelope;
   bounds(el: T): Bounds | null;
   hitTest?(el: T, point: Point): boolean;
+  interaction?: ElementInteractionAdapter<T>;
   renderMode?: 'canvas' | 'dom' | 'hybrid' | 'none';
   /** When true, the element renders on a separate full-viewport pass with explicit
    *  world bounds rather than inline with layer elements. Used for viewport-filling
@@ -190,6 +191,23 @@ export interface ElementTypeAdapter {
   unwrap(el: ExtensionElementEnvelope): BaseElement;
   bounds(el: ExtensionElementEnvelope): Bounds | null;
   hitTest?(el: ExtensionElementEnvelope, point: Point): boolean;
+  hitTestHandle?(
+    el: ExtensionElementEnvelope,
+    point: Point,
+    context: ExtensionInteractionContext,
+  ): ExtensionInteractionHandle | null;
+  updateHandle?(
+    el: ExtensionElementEnvelope,
+    handleId: string,
+    point: Point,
+    context: ExtensionInteractionContext,
+  ): ExtensionElementEnvelope;
+  renderSelection?(
+    ctx: CanvasRenderingContext2D,
+    el: ExtensionElementEnvelope,
+    context: { readonly zoom: number; readonly selectedCount: number },
+  ): void;
+  rotate?(el: ExtensionElementEnvelope, pivot: Point, delta: number): ExtensionElementEnvelope;
   render?(
     ctx: CanvasRenderingContext2D,
     el: ExtensionElementEnvelope,

@@ -1,6 +1,6 @@
 # @fieldnotes/sync-redis
 
-**Version:** 0.5.0
+**Version:** 0.9.0
 **Location:** `packages/sync-redis/`
 **Description:** Redis-backed HubBackend for Field Notes real-time sync relay
 

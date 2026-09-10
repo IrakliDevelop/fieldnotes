@@ -1,7 +1,7 @@
 # Migration Plan: VTT Feature Extraction
 
 > **Companion documents:** `VISION.md` (the Emacs philosophy), `PLAN_VTT_EXTRACTION.md` (audit results)
-> **Status:** Repository extraction and RollKeeper code adoption are complete on v3 — production deployment/soak, v4 negotiation, and final legacy-type removal remain open.
+> **Status:** Repository migration implementation complete — RollKeeper v3 adoption is deployed and operator-confirmed; CanvasState v4, capability negotiation, and core legacy-type removal are implemented pending coordinated package publication and RollKeeper adoption.
 > **Created:** 2026-09-05
 > **Revised:** 2026-09-05 (post-review — incorporated Codex review findings, see [Review Findings](#review-findings))
 > **Revised:** 2026-09-06 (aligned with sixth ADR review — addressed 11 findings across all ADRs and migration doc)
@@ -10,7 +10,7 @@
 > **Revised:** 2026-09-07 (post-extraction audit — Phase 5 feature movement complete, stabilization and sync ownership still open)
 > **Revised:** 2026-09-08 (ADR-0003/0005 implementation complete; verified v3 fog compatibility and template interaction parity)
 > **Revised:** 2026-09-08 (post-merge state clarified; RollKeeper adoption made the explicit gate before v4 and legacy removal)
-> **Revised:** 2026-09-08 (RollKeeper PR #310 merged; code adoption verified; production deployment and soak remain the v4 gate)
+> **Revised:** 2026-09-10 (production gate confirmed; v4 boundary and final repository cleanup implemented)
 
 ## Table of Contents
 
@@ -30,7 +30,7 @@
 14. [Phased Migration](#phased-migration)
 15. [RollKeeper Migration Path](#rollkeeper-migration-path)
 16. [Risk Mitigation](#risk-mitigation)
-17. [Spike Validation](#spike-validation)
+17. [Historical Spike Validation](#historical-spike-validation)
 18. [Success Criteria](#success-criteria)
 
 ---
@@ -46,10 +46,11 @@
 
 ---
 
-## Current State After PR #178 and RollKeeper PR #310
+## Current State
 
-The **Field Notes repository extraction is complete on v3**. This means feature ownership and runtime
-dependency direction have reached the intended plugin architecture:
+The **Field Notes repository migration is complete in the v4 release branch**. Feature ownership,
+runtime dependency direction, persistence, and negotiated wire behavior now match the intended
+plugin architecture:
 
 - `@fieldnotes/core` has no runtime dependency on `@fieldnotes/vtt`.
 - Active grid/template definitions and renderers, measure tooling, and fog implementations are owned
@@ -58,65 +59,52 @@ dependency direction have reached the intended plugin architecture:
   domain-neutral contracts in the existing sync packages.
 - Viewport plugins have transactional configuration/startup, typed services, capability validation,
   rollback, and notification-safe atomic state loading.
-- The v3 persistence and wire contracts remain compatible with existing consumers.
+- CanvasState writes v4 extension envelopes and migrates v1–v3 data through registered adapters.
+- Sync advertises capabilities and translates extension-sensitive traffic per peer.
 
-RollKeeper completed its code-level v3 adoption in
-[PR #310](https://github.com/IrakliDevelop/RollKeeper/pull/310). The merged integration registers VTT
-element types before parsing, installs fog plugins across viewport/client/relay/Redis boundaries,
-preserves application authorization and backend buffering, and keeps v3 wire and persistence
-compatibility. Its local verification and post-merge CI passed. This repository does not infer a
-production deployment or soak from that merge.
+The remaining work is release coordination rather than repository extraction:
 
-This does **not** mean the final core-purity cleanup or the production rollout is complete. The
-following transitional contracts intentionally remain while deployed consumers still use v3:
-
-- Core retains legacy `GridElement` and `TemplateElement` types, validation/factories, interaction
-  bridges, and the top-level `CanvasState.fog` compatibility mirror.
-- Sync retains structural validation and public types for the legacy `fog-meta`, `fog-patch`, and
-  snapshot `fog` wire shapes. Sync-server and sync-redis no longer own fog behavior at runtime.
+- Core no longer exports or branches on `GridElement` or `TemplateElement`, and the v4 writer no
+  longer emits the top-level `CanvasState.fog` mirror.
+- Sync retains structural validation for legacy fog wire shapes solely as negotiated translation
+  targets during the mixed-peer release window. Sync-server and sync-redis do not own fog behavior.
 - VTT element definitions are **not** installed by core. Consumers must call
   `registerVttElementTypes()` before loading grid/template state, or provide a registry with those
   definitions explicitly.
 
-These compatibility paths protect the RollKeeper rollout; they are not evidence that VTT feature
-ownership is still split. They must remain through the production soak and until the v4 boundary
-described in ADR-0004.
+These remaining wire codecs are compatibility infrastructure, not split feature ownership. Their
+eventual deletion is gated on closing the mixed-peer support window after v4 adoption.
 
 ### Ordered Remaining Work
 
-1. **Deploy and soak the adopted v3 integration.** Exercise existing battlemaps, dual-read/dual-write
-   persistence, reconnect/snapshot convergence, DM-only fog visibility, cross-instance fanout,
-   buffering/flush locality, and template pointer interactions. Then soak the deployment in
-   production for 2–4 weeks with a tested rollback path. Use
-   [`docs/VTT_V3_PRODUCTION_SOAK_KICKOFF.md`](docs/VTT_V3_PRODUCTION_SOAK_KICKOFF.md) as the kickoff.
-2. **Introduce the v4 boundary only after successful soak.** Add capability negotiation before any
-   extension-shaped elements flow and add automatic v3-to-v4 persistence migration.
-3. **Remove compatibility code after the v4 gate.** Remove the top-level fog mirror, legacy fog wire
-   kinds/snapshot field, and legacy grid/template members and branches from core. Deprecate the React
-   `snapToGrid` compatibility prop as planned.
-4. **Finish ecosystem work.** Complete extension API documentation/examples and the outstanding
+1. **Publish the coordinated v4 package set.** Follow
+   [`docs/CANVAS_STATE_V4_MIGRATION.md`](docs/CANVAS_STATE_V4_MIGRATION.md); do not merge the cleanup
+   PR until all package versions are available.
+2. **Adopt v4 in RollKeeper relay-first.** Verify capability negotiation, legacy peer translation,
+   authorization/privacy filtering, reconnect, and real v3-to-v4 persisted-state migration.
+3. **Close the compatibility window later.** Remove legacy fog wire codecs and element translators
+   only after supported peers have moved to v4.
+4. **Finish ecosystem work.** Complete extension API examples and the outstanding
    performance and bundle-size acceptance checks.
 
-The RollKeeper production soak is therefore the next blocking gate. Starting v4 or deleting the v3
-shims before that soak succeeds would remove the compatibility path needed to validate production
-data and mixed deployments.
+The implementation deliberately keeps lossless legacy translation available while packages and
+consumers roll forward independently.
 
 ---
 
 ## Implementation Progress
 
-> **Last updated:** 2026-09-08 (post-merge repository audit; external rollout not inferred)
+> **Last updated:** 2026-09-10 (v4 implementation branch; package publication pending)
 
 ### Phase 0: Compatibility & Design
 
 | Task                                 | Status     | Notes                                                                                             |
 | ------------------------------------ | ---------- | ------------------------------------------------------------------------------------------------- |
 | Write 6 ADRs                         | ✅ Done    | `docs/adr/0001` through `0006`; each ADR records its current acceptance/implementation status     |
-| Executable contract spike            | ✅ Done    | `packages/contract-spike` — 61 tests, all ADR contracts validated                                 |
+| Executable contract spike            | ✅ Retired | Historical proof; contracts now live in production package tests                                  |
 | `@fieldnotes/vtt` facade package     | ✅ Moot    | Direct extraction done instead of re-export facade                                                |
 | RollKeeper compatibility fixtures    | ✅ Done    | Core + VTT test suites validate legacy→envelope conversion                                        |
-| RollKeeper import migration          | ✅ Done    | External — merged as RollKeeper PR #310; post-merge CI passed                                     |
-| RollKeeper production soak           | ⏳ Pending | Next gate; use `docs/VTT_V3_PRODUCTION_SOAK_KICKOFF.md`                                           |
+| RollKeeper import migration          | ✅ Done    | External adoption deployed and confirmed by the operator                                          |
 | Constructor-time plugin installation | ✅ Done    | Transactional `configure()`/`start()`, services, capabilities, rollback, and atomic state loading |
 | Audit gap completion                 | ✅ Done    | See [Audit Gap Results](#audit-gap-results) below                                                 |
 
@@ -150,24 +138,21 @@ data and mixed deployments.
 
 ### Phases 3–7: Extraction
 
-| Phase | Description                                   | Status                                          |
-| ----- | --------------------------------------------- | ----------------------------------------------- |
-| 3     | Extract MeasureTool (canary)                  | ✅ Done                                         |
-| 4     | Extract Grid + Templates to `@fieldnotes/vtt` | ✅ Done                                         |
-| 5     | Extract Fog to `@fieldnotes/vtt`              | ✅ Repository and RollKeeper code adoption done |
-| 6     | Deploy/soak v3; then v4 boundary and cleanup  | 🚧 Ready for authorized rollout; soak pending   |
-| 7     | Document extension API                        | ❌ Not started                                  |
+| Phase | Description                                   | Status                                               |
+| ----- | --------------------------------------------- | ---------------------------------------------------- |
+| 3     | Extract MeasureTool (canary)                  | ✅ Done                                              |
+| 4     | Extract Grid + Templates to `@fieldnotes/vtt` | ✅ Done                                              |
+| 5     | Extract Fog to `@fieldnotes/vtt`              | ✅ Done                                              |
+| 6     | Deploy & soak, v4 bump, legacy removal        | 🟡 Implemented; coordinated release pending          |
+| 7     | Document extension API                        | 🟡 Migration guide complete; broader examples remain |
 
 ### Next Steps
 
-1. **RollKeeper production rollout on v3** — Use the production-soak kickoff to verify immutable
-   artifacts, authorization, monitoring, rollback, existing data, privacy, and cross-instance
-   behavior before and during the 2–4 week soak.
-2. **Phase 6B after a successful soak** — In a separate task:
-   - v4 wire format bump with capability exchange
-   - remove legacy fog and grid/template compatibility paths after the v4 boundary
-   - deprecate the `snapToGrid` React compatibility prop
-3. **Phase 7** — Expand extension API documentation and examples beyond the package README and ADRs.
+1. Publish the coordinated package versions documented in `docs/CANVAS_STATE_V4_MIGRATION.md`.
+2. Update RollKeeper relay/Redis first, then its client, and verify mixed-peer translation and real
+   v3 state migration.
+3. After the compatibility window closes, remove the retained legacy fog/element translation codecs.
+4. Expand extension API documentation and examples beyond the package README, migration guide, and ADRs.
 
 ---
 
@@ -189,7 +174,10 @@ This plan was reviewed (2026-09-05) and found to contain six P1 issues. All have
 
 ## Architectural Decisions
 
-> **All six ADRs have been written and are in Proposed status.** See `docs/adr/0001` through `docs/adr/0006`. The decisions below summarize the outcomes — the ADR documents are the canonical source. Contracts have been validated by an executable spike (`packages/contract-spike`) — see [Spike Validation](#spike-validation).
+> **All six ADRs have been written and accepted.** See `docs/adr/0001` through `docs/adr/0006`.
+> The decisions below summarize the outcomes; the ADR documents are canonical. The original
+> executable spike has been retired now that its contracts live in production package tests — see
+> [Historical Spike Validation](#historical-spike-validation).
 
 ### ADR-0001: Element Extensibility Model → Full element-type registry
 
@@ -224,7 +212,7 @@ Canonical rollout: Phase 1 (v3, registry additive), Phase 2 (v3, envelope in mem
 
 ## Architecture Overview
 
-### Current Architecture
+### Pre-extraction Architecture (Historical)
 
 ```
 @fieldnotes/core
@@ -261,20 +249,20 @@ Canonical rollout: Phase 1 (v3, registry additive), Phase 2 (v3, envelope in mem
     └── Fog canonicalization
 ```
 
-### Target Architecture
+### Implemented Architecture
 
 ```
 @fieldnotes/core (pure canvas engine)
 ├── Element system (elements, store, rendering, serialization)
-│   └── Element-type registry ← NEW (generic, domain-agnostic)
+│   └── Element-type registry (generic, domain-agnostic)
 ├── Camera/viewport
 ├── Rendering pipeline (hybrid canvas + DOM)
-│   └── Render surface contract ← NEW (viewport, minimap, export surfaces)
+│   └── Render surface contract (viewport, minimap, export surfaces)
 ├── Input pipeline (pointer events, tool system)
-│   └── Point constraint service ← NEW (explicit, opt-in, world-space, domain-neutral)
+│   └── Point constraint service (explicit, opt-in, world-space, domain-neutral)
 ├── History/undo
-├── Serialization (CanvasState v3 + extensions field, dual-write)
-├── Extension system ← NEW
+├── Serialization (CanvasState v4 extension envelopes)
+├── Extension system
 │   ├── Rendering hooks (per-surface)
 │   ├── Serialization plugins
 │   ├── Sync plugins (client-side)
@@ -282,13 +270,13 @@ Canonical rollout: Phase 1 (v3, registry additive), Phase 2 (v3, envelope in mem
 │   └── Plugin lifecycle (constructor-time installation)
 └── Generic utilities (distance, bounds — domain-agnostic)
 
-@fieldnotes/vtt ← NEW PACKAGE
+@fieldnotes/vtt
 ├── Fog of war (manager, renderer, tool, codec)
 ├── Grid (controller, renderer, snap integration)
-│   └── Registers 'grid' element type via element-type registry
+│   └── Registers 'vtt:grid' via the element-type registry
 ├── Measure/Ruler (tool, overlay)
 ├── Templates (tool, element renderer)
-│   └── Registers 'template' element type via element-type registry
+│   └── Registers 'vtt:template' via the element-type registry
 ├── Fog sync plugin (client)
 ├── Fog sync plugin (server) ← separate from client plugin
 └── VTT-specific utilities (hex distance, etc.)
@@ -299,17 +287,17 @@ Canonical rollout: Phase 1 (v3, registry additive), Phase 2 (v3, envelope in mem
 
 @fieldnotes/sync (extensible)
 ├── Sync client
-├── Plugin system ← NEW (client-side op routing)
+├── Plugin system (client-side op routing)
 └── Presence system (generic)
 
 @fieldnotes/sync-server (extensible)
 ├── WebSocket relay
-├── Plugin system ← NEW (server-side op authorization + application)
+├── Plugin system (server-side op authorization + application)
 └── Hub backend interface (generic)
 
 @fieldnotes/sync-redis (extensible)
 ├── Redis persistence (generic key-value + plugin-owned domains)
-└── Plugin system ← NEW (domain-specific Lua scripts, key schemas)
+└── Plugin system (domain-specific Lua scripts, key schemas)
 ```
 
 ---
@@ -1119,7 +1107,7 @@ interface SyncCapabilities {
 // 2. Neither peer sends extension-shaped elements until both have received capabilities
 // 3. Incoming ops are QUEUED (not processed) until handshake completes
 // 4. If handshake times out → bounded queue drains through legacy translation
-// 5. A late capability message cannot switch the connection out of chosen legacy mode
+// 5. A valid late capability message upgrades a connection that used timeout fallback
 ```
 
 ### Sync Protocol Compatibility
@@ -1426,10 +1414,14 @@ queries change. This phase cannot ship as an internal-only refactor or ordinary 
 - Mixed-version sync: old client + new client in same room
 - Persisted state: v3 with legacy fog field loads correctly
 
-### Phase 6A: Deploy & Soak on v3 (2-4 weeks)
+### Phase 6: Deploy, Soak, and Establish the v4 Boundary
 
-**Goal:** Deploy the adopted plugin architecture and verify it in production without changing v3
-wire or persistence contracts.
+> **2026-09-10 update:** RollKeeper's v3 deployment is operator-confirmed healthy. Tasks 5–8 are
+> implemented on the v4 release branch. Legacy codecs remain as intentional per-peer translation
+> targets until the mixed-peer window closes.
+
+**Goal:** Deploy plugin-capable infrastructure, verify it in production, then establish the v4
+boundary and remove legacy runtime ownership while retaining negotiated compatibility codecs.
 
 **Tasks:**
 
@@ -1437,6 +1429,12 @@ wire or persistence contracts.
 2. Deploy RollKeeper relay with plugin registration
 3. Deploy RollKeeper web/client with VTT package
 4. Monitor for issues (2-4 week soak period)
+5. **Bump to CanvasState v4** (after soak — this is the adoption gate)
+6. Remove legacy fog fields from v4 persistence (after v4 bump — old readers reject v4 explicitly)
+7. Retain legacy fog-meta/fog-patch wire codecs only for negotiated old-peer translation
+8. Introduce capability exchange handshake on sync connection (at v4 boundary, before any extension elements flow)
+
+> **Ordering constraint:** The v4 version bump MUST happen BEFORE legacy field/kind removal. The v4 bump creates a hard compatibility boundary — old readers reject v4 states via the hard version gate (`if (version > CURRENT_VERSION) throw`). This makes it safe to remove legacy formats because old clients can no longer read the state at all. Removing legacy fields BEFORE the v4 bump would create a window where old clients read the state but silently drop unknown fields.
 
 **Deliverables:**
 
@@ -1452,20 +1450,22 @@ wire or persistence contracts.
 - Existing v3 states remain readable by both the adopted and rollback releases
 - Privacy fails closed during bootstrap, reconnect, corrections, and cross-instance fanout
 
-Use [`docs/VTT_V3_PRODUCTION_SOAK_KICKOFF.md`](docs/VTT_V3_PRODUCTION_SOAK_KICKOFF.md) for the
-execution prompt and evidence requirements.
+The completed rollout was initiated with
+[`docs/VTT_V3_PRODUCTION_SOAK_KICKOFF.md`](docs/VTT_V3_PRODUCTION_SOAK_KICKOFF.md); that document is
+retained as the historical execution and evidence checklist.
 
-### Phase 6B: CanvasState v4 Boundary and Legacy Cleanup
+#### Phase 6B: CanvasState v4 Boundary and Legacy Cleanup
 
-**Gate:** Start only after Phase 6A has a documented successful soak and rollback rehearsal. This is
-a separate implementation and release task.
+**Gate:** Satisfied by the operator-confirmed v3 deployment. The implementation is complete on this
+release branch; coordinated package publication and RollKeeper v4 adoption remain.
 
 **Tasks, in order:**
 
 1. Reconfirm the deployed-client and external-consumer inventory and publish the migration path.
-2. Add handshake-gated sync capability negotiation. Queue all incoming and outgoing data until both
-   peers exchange capabilities; use a bounded timeout that selects legacy mode permanently for that
-   connection. No extension-shaped data may flow before the mode is fixed.
+2. Add handshake-gated sync capability negotiation. Queue extension-sensitive incoming and outgoing
+   data until capabilities arrive; use a bounded timeout for a legacy fallback and upgrade if a valid
+   capabilities frame arrives later. No extension-shaped data may flow before a compatible mode is
+   known.
 3. Add transactional v3→v4 persistence migration that validates before commit and preserves camera,
    layers, active layer, plugin extensions, fog, and every registered element.
 4. Bump to CanvasState v4 and emit extension envelopes plus `extensions`-only fog state. Retain the
@@ -1692,23 +1692,23 @@ import { FogManager } from '@fieldnotes/vtt/fog';
 
 ## Audit Gap Results
 
-> **Re-audited 2026-09-08.** These results describe the repository and merged RollKeeper code
-> adoption. They do not claim that the RollKeeper production soak or v4 cleanup has happened.
+> **Re-audited 2026-09-10.** These results describe the v4 release branch. Package publication and
+> RollKeeper v4 adoption remain separate release operations.
 
 ### Templates
 
-Grid and template element types (`GridElement`, `TemplateElement`) remain in core's `CanvasElement` union and `state-serializer.ts` validator for backward compatibility. The actual definitions, rendering, and tools live in `@fieldnotes/vtt`. Core's serializer accepts legacy `type: 'grid'` / `type: 'template'` on the wire and converts them to `ExtensionElementEnvelope` when VTT adapters are registered via `registerVttElementTypes()`.
+Grid and template element types are absent from core's `CanvasElement` union. Definitions,
+validation, rendering, interactions, factories, and tools live in `@fieldnotes/vtt`. Core's generic
+v1–v3 importer discovers any legacy element through `ElementRegistry` and converts it to an
+`ExtensionElementEnvelope`; the v4 writer persists the envelope directly.
 
-**Remaining v3 compatibility code in core:**
+**Core boundary:**
 
-- `packages/core/src/elements/types.ts`, `element-factory.ts`, `element-bounds.ts`, and
-  `core/state-serializer.ts` retain the legacy grid/template shapes needed to decode and encode v3.
-- `packages/core/src/tools/template-compat.ts` lets the existing selection overlay, hit targets,
-  resize gestures, and aim gestures unwrap and re-wrap a registered `vtt:template` envelope. Browser
-  and VTT tests cover both aiming and resizing. This bridge remains until the v4 interaction API can
-  replace legacy-template knowledge in core.
+- Core owns generic legacy-adapter dispatch but names no VTT element type.
+- Generic extension interaction hooks cover handle hit testing, updates, selection rendering, and
+  rotation; `@fieldnotes/vtt` supplies template behavior through those hooks.
 - Grid/template definitions, rendering, metrics, tools, bitmap export hooks, and SVG export hooks are
-  owned by `@fieldnotes/vtt`; the previously listed core renderer files no longer exist.
+  owned by `@fieldnotes/vtt`.
 
 ### Export Surfaces
 
@@ -1718,18 +1718,19 @@ element registry. No VTT renderer is imported by the core export modules.
 
 ### React Bindings
 
-`FieldNotesCanvas` exposes a `snapToGrid?: boolean` prop that calls `viewport.setSnapToGrid()`. This is a VTT concept (grid snapping for tabletop maps) leaking into the framework-agnostic React layer.
+`FieldNotesCanvas` retains a deprecated `snapToGrid?: boolean` compatibility prop. New VTT consumers
+configure `GridController` and the constraint service directly.
 
-**Phase 6 action:** Deprecate `snapToGrid` prop; consumers should manage snapping through the constraint service directly.
+The prop can be removed in a later major release after consumer migration.
 
 ### Server/Redis
 
 `@fieldnotes/sync`, `@fieldnotes/sync-server`, and `@fieldnotes/sync-redis` have no runtime dependency
 on `@fieldnotes/vtt`. Fog behavior is supplied by `@fieldnotes/vtt/sync`, `/server`, and `/redis`.
-The generic v3 protocol still names and validates `fog-meta`, `fog-patch`, and the legacy fog snapshot
-field so mixed-version clients remain byte-compatible; these compatibility codecs are intentionally
-removed only at the v4 boundary. Server authorization/corrections and Redis Lua/key ownership are
-already routed through plugins, not deferred to Phase 6.
+The generic protocol still names and validates `fog-meta`, `fog-patch`, and the legacy fog snapshot
+field so negotiated old peers remain byte-compatible. New peers advertise extension kinds and use
+generic extension operations. Server authorization/corrections and Redis Lua/key ownership remain
+routed through plugins.
 
 ### Tool Lifecycle
 
@@ -1750,9 +1751,11 @@ cross-instance behavior.
 
 ---
 
-## Spike Validation
+## Historical Spike Validation
 
-> **Added 2026-09-06.** After 7 rounds of prose-only ADR review, the contracts were validated by an executable TypeScript spike in `packages/contract-spike`. This resolves the structural issue of validating TypeScript architecture through prose.
+> **Added 2026-09-06; retired 2026-09-10.** The executable spike validated the contracts before
+> implementation. Its proofs now live in core, VTT, sync, sync-server, and sync-redis tests, so the
+> private workspace package has been removed.
 
 ### What was proven
 
@@ -1784,26 +1787,18 @@ cross-instance behavior.
 7. **Real contract derivation** — the spike derives state, sync-op, and backend deltas from
    `@fieldnotes/core`, `@fieldnotes/sync`, and `@fieldnotes/sync-server` rather than local copies.
 
-### Running the spike
-
-```bash
-pnpm --filter @fieldnotes/contract-spike typecheck  # Compile-time proofs
-pnpm --filter @fieldnotes/contract-spike test       # 61 runtime tests
-```
-
 ---
 
 ## Success Criteria
 
-> Audited after Field Notes PR #178 and RollKeeper PR #310. Checked RollKeeper items refer to merged
-> code and CI evidence; production-soak, performance, and v4 outcomes are not inferred from CI.
+> Audited on the v4 release branch. Repository checks do not substitute for the pending coordinated
+> package publication and RollKeeper v4 rollout.
 
 ### Functional Criteria
 
-- [ ] Core has no VTT-specific code (fog, grid, ruler, templates)
+- [x] Core has no VTT runtime behavior; only the v3 top-level fog migration key remains
 - [x] `@fieldnotes/vtt` package exists and provides all VTT features
-- [x] RollKeeper code adoption works with the new architecture (PR #310 tests and CI)
-- [ ] RollKeeper production deployment and 2–4 week soak succeed
+- [x] RollKeeper v3 adoption works with the plugin architecture (operator-confirmed deployment)
 - [ ] Extension API is documented with examples
 - [ ] A developer can build a custom domain package using extension API
 - [x] Server-side fog extraction is complete (sync-server, sync-redis)
@@ -1817,14 +1812,14 @@ pnpm --filter @fieldnotes/contract-spike test       # 61 runtime tests
 ### Quality Criteria
 
 - [x] All core tests pass
-- [ ] Core's legacy VTT compatibility code is removed
+- [x] Core's legacy VTT types, factories, and branches are removed
 - [x] All VTT tests pass (all features work)
-- [x] All RollKeeper PR and post-merge CI checks pass
+- [x] RollKeeper adoption tests passed before deployment
 - [x] No TypeScript errors
 - [x] No lint errors
 - [ ] Documentation is complete
-- [ ] Mixed-version sync works during transition
-- [ ] Persisted state migration works (v3 → v4)
+- [x] Mixed-version sync translation is covered per peer
+- [x] Persisted state migration works (v3 → v4)
 
 ### Ecosystem Criteria
 

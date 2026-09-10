@@ -1,6 +1,7 @@
 import type { Bounds, Point } from '../core/types';
 import type { CanvasElement } from '../elements/types';
 import { normalizeAngle, rotatePoint, rotatedAABB } from '../core/geometry';
+import type { ElementRegistry } from '../elements/element-registry';
 
 export type RotateDirection = 'cw' | 'ccw';
 
@@ -38,6 +39,7 @@ export function rotateElementPatch(
   bounds: Bounds,
   pivot: Point,
   delta: number,
+  registry?: ElementRegistry,
 ): Partial<CanvasElement> {
   if (el.type === 'arrow') {
     const center = { x: bounds.x + bounds.w / 2, y: bounds.y + bounds.h / 2 };
@@ -48,11 +50,8 @@ export function rotateElementPatch(
       to: rotatePoint(el.to, pivot, delta),
     };
   }
-  if (el.type === 'template') {
-    return {
-      position: rotatePoint(el.position, pivot, delta),
-      angle: normalizeAngle(el.angle + delta),
-    };
+  if (el.type === 'extension') {
+    return registry?.getAdapter(el.extensionType)?.rotate?.(el, pivot, delta) ?? {};
   }
   const center = { x: bounds.x + bounds.w / 2, y: bounds.y + bounds.h / 2 };
   const moved = rotatePoint(center, pivot, delta);

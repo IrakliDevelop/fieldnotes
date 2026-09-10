@@ -4,6 +4,68 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.82.0] — 2026-09-10
+
+### Added
+
+- CanvasState v4 persistence with transactional v1–v3 migration. Legacy top-level fog state moves
+  into `extensions.fog`; v4 output contains extension envelopes and never writes the top-level fog
+  mirror.
+- Sync capability negotiation with bounded queues, a timeout-based legacy fallback, and per-peer
+  translation for envelope upserts, snapshots, corrections, and broadcasts.
+- Domain-neutral extension interaction hooks for selection handles, resize/aim updates, selection
+  overlays, and toolbar rotation. `ExtensionInteractionContext` carries `selectedCount` so adapters
+  can keep single-selection handles (template aim/length/width) out of multi-selection hit testing.
+- `createSyncServer({ elementRegistry })` forwards a registry to the hub for legacy-peer translation.
+- `HANDLE_SIZE` and `HANDLE_HIT_PADDING` are exported so extension adapters match core's handles.
+
+### Changed
+
+- Grid and template selection behavior is now implemented by `@fieldnotes/vtt` element definitions.
+  The core renderer, bounds/style helpers, selection tool, serializer writer, factories, and public
+  element union no longer contain VTT-specific branches.
+- The demo now creates and queries grid extension envelopes through `@fieldnotes/vtt`.
+- The React `snapToGrid` prop is deprecated; VTT consumers should configure snapping through the
+  grid/constraint service.
+- The private `@fieldnotes/contract-spike` workspace was retired after its contracts graduated into
+  production packages and their test suites.
+- `exportState` drops its unused `registry` parameter; `extensions` is now the fifth argument.
+- The hub encodes a relayed frame once per capability profile instead of once per recipient, and
+  plugin registries build their extension-definition view once at construction.
+- Sync now exposes separate `WireSyncElement`/`WireSyncOp` contracts for transport and backend
+  boundaries; `SyncElement`/`SyncOp` remain restricted to v4 runtime elements.
+
+### Compatibility
+
+- v4 readers automatically migrate v1–v3 files. Legacy grid/template records require
+  `registerVttElementTypes()` before import.
+- Negotiated peers receive extension envelopes. Peers that do not advertise capabilities receive
+  registered legacy element encodings and legacy extension operations where a translator exists.
+  A legacy snapshot omits elements that have no legacy encoding rather than withholding the frame.
+- The hub relays and stores legacy element types it has no adapter for verbatim, so a hub deployed
+  without `@fieldnotes/vtt` adapters never erases existing grids and templates. Clients drop a
+  legacy-typed element they have no adapter for instead of admitting it into a v4 save.
+- Element ops held during capability negotiation keep store order (a remove never overtakes the
+  upsert it undoes), survive a reconnect, and are flushed individually so one untranslatable op
+  cannot drop the rest. A carried clear supersedes the in-flight reconciliation snapshot instead of
+  resurrecting its elements. A capabilities frame arriving after the legacy timeout upgrades the
+  session.
+- Capability-profile relay caching uses collision-free keys even when extension kinds contain
+  delimiters such as commas.
+- v4 extension envelopes are validated by their registered adapter on import.
+- This is a breaking pre-1.0 core release: import VTT element types and factories from
+  `@fieldnotes/vtt`, and query `type: 'extension'` plus `extensionType` instead of core
+  `grid`/`template` union members.
+
+### Package versions
+
+- `@fieldnotes/core` 0.81.1 → 0.82.0
+- `@fieldnotes/vtt` 0.7.1 → 0.8.0
+- `@fieldnotes/sync` 0.18.1 → 0.19.0
+- `@fieldnotes/sync-server` 0.17.1 → 0.18.0
+- `@fieldnotes/sync-redis` 0.8.1 → 0.9.0
+- `@fieldnotes/react` 0.11.0 → 0.12.0
+
 ## [0.81.1] — 2026-09-08
 
 ### Fixed

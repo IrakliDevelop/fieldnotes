@@ -1,12 +1,20 @@
 import {
+  createCurrentCapabilities,
+  createLegacyCapabilities,
   parseEnvelope,
   isValidElement,
+  isValidWireElement,
   isNewerLayerRecord,
+  translateOpForPeer,
   type LayerRecord,
-  type SyncOp,
-  type SyncEnvelope,
+  type WireSyncElement,
+  type WireSyncOp,
+  type WireSyncEnvelope,
+  type SyncCapabilities,
   type PluginSnapshot,
 } from '@fieldnotes/sync';
+import { getDefaultElementRegistry } from '@fieldnotes/core';
+import type { ElementRegistry } from '@fieldnotes/core';
 import { MemoryHubBackend } from './memory-hub-backend';
 import { InMemoryHubFanout, type HubFanout } from './hub-fanout';
 import type { HubBackend } from './hub-backend';
@@ -39,25 +47,28 @@ export interface SyncHubOptions {
   maxJsonDepth?: number;
   presenceThrottleMs?: number;
   maxPresenceLanes?: number;
+  /** Registry used to translate extension elements for legacy peers. */
+  elementRegistry?: ElementRegistry;
 }
 
 const HUB_FROM = 'hub';
-
 function generateInstanceId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
     return crypto.randomUUID();
   return `i-${Math.random().toString(36).slice(2)}`;
 }
 
-function isFanoutOp(op: unknown): op is Extract<SyncOp, { kind: 'upsert' | 'remove' | 'clear' }> {
+function isFanoutOp(
+  op: unknown,
+): op is Extract<WireSyncOp, { kind: 'upsert' | 'remove' | 'clear' }> {
   if (typeof op !== 'object' || op === null) return false;
   const o = op as { kind?: unknown; element?: unknown; id?: unknown };
-  if (o.kind === 'upsert') return isValidElement(o.element);
+  if (o.kind === 'upsert') return isValidWireElement(o.element);
   if (o.kind === 'remove') return typeof o.id === 'string';
   return o.kind === 'clear';
 }
 
-type LayerOp = Extract<SyncOp, { kind: 'layer-upsert' | 'layer-remove' }>;
+type LayerOp = Extract<WireSyncOp, { kind: 'layer-upsert' | 'layer-remove' }>;
 
 interface PresenceLane {
   lastSentAt: number | undefined;
@@ -101,6 +112,16 @@ function layerRecordToOp(record: LayerRecord): LayerOp {
     : { kind: 'layer-remove', id: record.id, version: record.version, editor: record.editor };
 }
 
+/**
+ * Peers sharing a capability profile receive byte-identical frames, so a
+ * relay encodes each (sender, op) once per profile instead of once per recipient.
+ */
+type EncodedFrames = Map<string, string | null>;
+
+function capabilityProfile(capabilities: SyncCapabilities): string {
+  return JSON.stringify([capabilities.elementEnvelope, capabilities.extensionKinds]);
+}
+
 function isPresenceOp(
   op: unknown,
 ): op is { kind: 'presence'; data: unknown } | { kind: 'presence-leave' } {
@@ -121,6 +142,8 @@ export class SyncHub {
   private readonly authorize?: Authorize;
   private readonly authorizeLayer?: AuthorizeLayer;
   private readonly pluginRegistry: ServerPluginRegistry;
+  private readonly elementRegistry: ElementRegistry;
+  private readonly peerCapabilities = new Map<string, SyncCapabilities>();
   private readonly canRead?: CanRead;
   private readonly memoryLayers = new Map<string, Map<string, LayerRecord>>();
   private readonly maxJsonDepth: number;
@@ -140,6 +163,7 @@ export class SyncHub {
   constructor(options: SyncHubOptions = {}) {
     this.backend = options.backend ?? new MemoryHubBackend();
     this.pluginRegistry = new ServerPluginRegistry(options.plugins ?? []);
+    this.elementRegistry = options.elementRegistry ?? getDefaultElementRegistry();
     this.instanceId = options.instanceId ?? generateInstanceId();
     this.fanout = options.fanout ?? new InMemoryHubFanout();
     this.authorize = options.authorize;
@@ -169,6 +193,7 @@ export class SyncHub {
     const conn = this.conns.get(connId);
     if (!conn) return;
     this.conns.delete(connId);
+    this.peerCapabilities.delete(connId);
     const room = conn.room;
     const hadPresence = this.presenceConnections.delete(connId);
     this.clearPresenceLanes(connId);
@@ -205,6 +230,14 @@ export class SyncHub {
     if (!hasJsonDepthAtMost(message, this.maxJsonDepth)) return Promise.resolve();
     const env = parseEnvelope(message);
     if (!env) return Promise.resolve();
+    if (env.op.kind === 'capabilities') {
+      this.peerCapabilities.set(conn.id, env.op.capabilities);
+      this.sendToConnection(conn, HUB_FROM, {
+        kind: 'capabilities',
+        capabilities: createCurrentCapabilities(this.pluginRegistry.extensionKinds),
+      });
+      return Promise.resolve();
+    }
     if (env.op.kind === 'presence') {
       this.schedulePresence(conn, env.op.data); // off-queue, throttled independently
       return Promise.resolve();
@@ -224,10 +257,15 @@ export class SyncHub {
     return operation;
   }
 
-  private async process(conn: Connection, env: SyncEnvelope): Promise<void> {
-    const op = env.op;
+  private async process(conn: Connection, env: WireSyncEnvelope): Promise<void> {
+    let op = env.op;
+    if (op.kind === 'upsert') {
+      const element = this.normalizeElement(op.element);
+      if (!element) return;
+      op = { ...op, element };
+    }
     if (op.kind === 'request-snapshot') {
-      const all = (await this.backend.snapshot(conn.room)) as OwnedElement[];
+      const all = this.normalizeElements(await this.backend.snapshot(conn.room));
       const elements = this.canRead ? all.filter((el) => this.mayRead(conn, el.audience)) : all;
       // Layer records are presentation-only and carry no element bytes, so no
       // audience filter applies; the field is omitted while a room has never
@@ -252,7 +290,7 @@ export class SyncHub {
         else extensions[plugin.name] = snapshot;
       }
       if (Object.keys(extensions).length > 0) snapshotOp['extensions'] = extensions;
-      conn.send(JSON.stringify({ from: HUB_FROM, op: snapshotOp }));
+      this.sendToConnection(conn, HUB_FROM, snapshotOp as WireSyncOp);
     } else if (op.kind === 'layer-upsert' || op.kind === 'layer-remove') {
       await this.processLayerOp(conn, op);
     } else if (op.kind === 'extension') {
@@ -270,11 +308,12 @@ export class SyncHub {
     } else if (op.kind === 'upsert' || op.kind === 'remove' || op.kind === 'clear') {
       const id = op.kind === 'upsert' ? op.element.id : op.kind === 'remove' ? op.id : undefined;
       const needCurrent = (this.authorize || this.canRead) && id !== undefined;
-      const current: OwnedElement | undefined = needCurrent
-        ? await this.backend.get(conn.room, id)
+      const storedCurrent = needCurrent ? await this.backend.get(conn.room, id) : undefined;
+      const current = storedCurrent
+        ? (this.normalizeElement(storedCurrent) ?? undefined)
         : undefined;
 
-      let outboundOp: SyncOp = op;
+      let outboundOp: WireSyncOp = op;
       if (this.authorize) {
         const allowed = await this.authorize({
           userId: conn.userId,
@@ -298,7 +337,7 @@ export class SyncHub {
       const prevAudience = current?.audience;
       const result = await this.runCorePlugins(conn, outboundOp);
       for (const correction of result.corrections) {
-        conn.send(JSON.stringify({ from: HUB_FROM, op: correction }));
+        this.sendToConnection(conn, HUB_FROM, correction);
       }
       const accepted = result.accepted;
       if (
@@ -337,10 +376,10 @@ export class SyncHub {
     };
   }
 
-  private async runCorePlugins(conn: Connection, op: SyncOp): Promise<ApplyResult> {
+  private async runCorePlugins(conn: Connection, op: WireSyncOp): Promise<ApplyResult> {
     const middleware = this.pluginRegistry.plugins.filter((plugin) => plugin.process);
     const context = this.pluginContext(conn);
-    const dispatch = async (index: number, current: SyncOp): Promise<ApplyResult> => {
+    const dispatch = async (index: number, current: WireSyncOp): Promise<ApplyResult> => {
       const plugin = middleware[index];
       if (!plugin?.process) {
         await this.backend.apply(conn.room, current);
@@ -361,7 +400,7 @@ export class SyncHub {
 
   private async deliverPluginResult(conn: Connection, result: ApplyResult): Promise<void> {
     for (const correction of result.corrections) {
-      conn.send(JSON.stringify({ from: HUB_FROM, op: correction }));
+      this.sendToConnection(conn, HUB_FROM, correction);
     }
     if (result.accepted) await this.publishPluginOp(conn, result.accepted, result.locality);
     for (const broadcast of result.broadcast ?? []) {
@@ -371,7 +410,7 @@ export class SyncHub {
 
   private async publishPluginOp(
     conn: Connection,
-    op: SyncOp,
+    op: WireSyncOp,
     locality: ApplyResult['locality'],
   ): Promise<void> {
     if (locality !== 'local') {
@@ -379,7 +418,7 @@ export class SyncHub {
         JSON.stringify({ o: this.instanceId, room: conn.room, from: conn.id, op }),
       );
     }
-    this.relayToRoom(conn.room, conn.id, JSON.stringify({ from: conn.id, op }));
+    this.relayOpToRoom(conn.room, conn.id, conn.id, op);
   }
 
   /**
@@ -404,20 +443,20 @@ export class SyncHub {
         // Revert the sender to the room's record; a tombstone when there is
         // none, so the denied local edit disappears everywhere consistently.
         const correction = current ?? { id: record.id, version: record.version, editor: HUB_FROM };
-        conn.send(JSON.stringify({ from: HUB_FROM, op: layerRecordToOp(correction) }));
+        this.sendToConnection(conn, HUB_FROM, layerRecordToOp(correction));
         return;
       }
     }
     if (current && !isNewerLayerRecord(record, current)) {
       // Stale under (version, editor): converge the sender, do not broadcast.
-      conn.send(JSON.stringify({ from: HUB_FROM, op: layerRecordToOp(current) }));
+      this.sendToConnection(conn, HUB_FROM, layerRecordToOp(current));
       return;
     }
     await this.applyLayerRecord(conn.room, record);
     await this.fanout.publish(
       JSON.stringify({ o: this.instanceId, room: conn.room, from: conn.id, op }),
     );
-    this.relayToRoom(conn.room, conn.id, JSON.stringify({ from: conn.id, op }));
+    this.relayOpToRoom(conn.room, conn.id, conn.id, op);
   }
 
   private layerBackend(): Required<
@@ -487,6 +526,106 @@ export class SyncHub {
       } catch {
         /* a throwing socket must not break the relay loop */
       }
+    }
+    return sent;
+  }
+
+  /**
+   * Translates `op` for the peer and sends it. Returns false when the op is
+   * lossy for this peer (no legacy encoding) or the socket throws; neither
+   * may reject the room operation that produced it.
+   */
+  private sendToConnection(
+    conn: Connection,
+    from: string,
+    op: WireSyncOp,
+    encoded?: EncodedFrames,
+  ): boolean {
+    const capabilities = this.peerCapabilities.get(conn.id) ?? createLegacyCapabilities();
+    const profile = encoded ? capabilityProfile(capabilities) : undefined;
+    let message = profile === undefined ? undefined : encoded?.get(profile);
+    if (message === undefined) {
+      message = this.encodeForPeer(from, op, capabilities);
+      if (profile !== undefined) encoded?.set(profile, message);
+    }
+    if (message === null) return false;
+    try {
+      conn.send(message);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Returns the wire frame for `op` translated for `capabilities`, or null when lossy. */
+  private encodeForPeer(
+    from: string,
+    op: WireSyncOp,
+    capabilities: SyncCapabilities,
+  ): string | null {
+    try {
+      const translated = translateOpForPeer(
+        op,
+        capabilities,
+        this.elementRegistry,
+        this.pluginRegistry.extensionDefinitions,
+      );
+      return JSON.stringify({ from, op: translated });
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Normalize registered legacy wire elements before authorization, storage,
+   * and relay. A legacy type this hub has no adapter for is forwarded and
+   * stored verbatim — the hub is a relay, and the peers decide whether they
+   * understand it — so a hub deployed without domain adapters never erases
+   * the room's existing elements. Only a malformed registered element is dropped.
+   */
+  private normalizeElement(element: WireSyncElement): OwnedElement | null {
+    if (isValidElement(element)) return element;
+    const adapter = this.elementRegistry.getAdapterByLegacyType(element.type);
+    if (!adapter) return element;
+    try {
+      const raw = Object.fromEntries(Object.entries(element));
+      const envelope = adapter.decodeLegacy(raw);
+      if (!adapter.validateEnvelope(envelope)) return null;
+      return {
+        ...envelope,
+        ...(typeof raw['audience'] === 'string' ? { audience: raw['audience'] } : {}),
+        ...(typeof raw['ownerId'] === 'string' ? { ownerId: raw['ownerId'] } : {}),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private normalizeElements(elements: readonly WireSyncElement[]): OwnedElement[] {
+    const normalized: OwnedElement[] = [];
+    for (const element of elements) {
+      const runtime = this.normalizeElement(element);
+      if (runtime) normalized.push(runtime);
+    }
+    return normalized;
+  }
+
+  private relayOpToRoom(
+    room: string,
+    excludeId: string | undefined,
+    from: string,
+    op: WireSyncOp,
+  ): number {
+    const members = this.rooms.get(room);
+    if (!members) return 0;
+    let sent = 0;
+    const encoded: EncodedFrames = new Map();
+    for (const connectionId of members) {
+      if (connectionId === excludeId) continue;
+      const conn = this.conns.get(connectionId);
+      if (!conn) continue;
+      // A lossy translation is skipped for this peer without blocking compatible peers.
+      if (this.sendToConnection(conn, from, op, encoded)) sent += 1;
     }
     return sent;
   }
@@ -578,35 +717,27 @@ export class SyncHub {
     room: string,
     excludeId: string | undefined,
     from: string,
-    op: SyncOp,
+    op: WireSyncOp,
     prevAudience: string | undefined,
     prevExisted: boolean,
   ): void {
     const members = this.rooms.get(room);
     if (!members) return;
-    const send = (conn: Connection, msg: string): void => {
-      try {
-        conn.send(msg);
-      } catch {
-        /* a throwing socket must not break the delivery loop */
-      }
-    };
+    const encoded: EncodedFrames = new Map();
     if (op.kind === 'upsert') {
       const audience = (op.element as OwnedElement).audience;
-      const upsertMsg = JSON.stringify({ from, op });
-      const removeMsg = JSON.stringify({
-        from: HUB_FROM,
-        op: { kind: 'remove', id: op.element.id },
-      });
+      const removeOp: WireSyncOp = { kind: 'remove', id: op.element.id };
+      const encodedRemove: EncodedFrames = new Map();
       for (const cid of members) {
         if (cid === excludeId) continue;
         const conn = this.conns.get(cid);
         if (!conn) continue;
-        if (this.mayRead(conn, audience)) send(conn, upsertMsg);
-        else if (prevExisted && this.mayRead(conn, prevAudience)) send(conn, removeMsg);
+        if (this.mayRead(conn, audience)) this.sendToConnection(conn, from, op, encoded);
+        else if (prevExisted && this.mayRead(conn, prevAudience)) {
+          this.sendToConnection(conn, HUB_FROM, removeOp, encodedRemove);
+        }
       }
     } else if (op.kind === 'remove') {
-      const removeMsg = JSON.stringify({ from, op });
       for (const cid of members) {
         if (cid === excludeId) continue;
         const conn = this.conns.get(cid);
@@ -614,14 +745,13 @@ export class SyncHub {
         // No read filter → forward to all (today's behavior; current/prevExisted aren't fetched without
         // a hook). With canRead, only recipients who could see the removed element get it.
         const wasVisible = !this.canRead || (prevExisted && this.mayRead(conn, prevAudience));
-        if (wasVisible) send(conn, removeMsg);
+        if (wasVisible) this.sendToConnection(conn, from, op, encoded);
       }
     } else if (op.kind === 'clear') {
-      const clearMsg = JSON.stringify({ from, op });
       for (const cid of members) {
         if (cid === excludeId) continue;
         const conn = this.conns.get(cid);
-        if (conn) send(conn, clearMsg);
+        if (conn) this.sendToConnection(conn, from, op, encoded);
       }
     }
   }
@@ -629,10 +759,10 @@ export class SyncHub {
   private async sendCorrection(
     conn: Connection,
     from: string,
-    op: SyncOp,
+    op: WireSyncOp,
     current: OwnedElement | undefined,
   ): Promise<void> {
-    let correction: SyncOp | undefined;
+    let correction: WireSyncOp | undefined;
     if (op.kind === 'upsert') {
       correction = current
         ? this.mayRead(conn, current.audience)
@@ -646,11 +776,11 @@ export class SyncHub {
           : { kind: 'remove', id: current.id }
         : undefined;
     } else if (op.kind === 'clear') {
-      const all = (await this.backend.snapshot(conn.room)) as OwnedElement[];
+      const all = this.normalizeElements(await this.backend.snapshot(conn.room));
       const elements = this.canRead ? all.filter((el) => this.mayRead(conn, el.audience)) : all;
       correction = { kind: 'snapshot', to: from, elements };
     }
-    if (correction) conn.send(JSON.stringify({ from: HUB_FROM, op: correction }));
+    if (correction) this.sendToConnection(conn, HUB_FROM, correction);
   }
 
   private onFanout(payload: string): void {
@@ -683,7 +813,7 @@ export class SyncHub {
       void this.applyFanoutLayerOp(env.room, op).catch(() => {
         /* a broken backend must not break the fanout relay */
       });
-      this.relayToRoom(env.room, undefined, JSON.stringify({ from: env.from, op }));
+      this.relayOpToRoom(env.room, undefined, env.from, op);
       return;
     }
     const plugin =
@@ -705,14 +835,10 @@ export class SyncHub {
           backendPlugin: (key) => this.backend.getService?.(key),
         };
         const accepted = plugin.applyFanout
-          ? await plugin.applyFanout(op as SyncOp, context)
-          : (op as SyncOp);
+          ? await plugin.applyFanout(op as WireSyncOp, context)
+          : (op as WireSyncOp);
         if (accepted) {
-          this.relayToRoom(
-            env.room as string,
-            undefined,
-            JSON.stringify({ from: env.from, op: accepted }),
-          );
+          this.relayOpToRoom(env.room as string, undefined, env.from as string, accepted);
         }
       });
       this.roomQueues.set(
@@ -724,9 +850,17 @@ export class SyncHub {
       return;
     }
     if (!isFanoutOp(op)) return;
+    const runtimeOp =
+      op.kind === 'upsert'
+        ? (() => {
+            const element = this.normalizeElement(op.element);
+            return element ? ({ ...op, element } satisfies WireSyncOp) : null;
+          })()
+        : op;
+    if (!runtimeOp) return;
     const prevAudience = typeof env.prev === 'string' ? env.prev : undefined;
     const prevExisted = env.existed === true;
-    this.deliverToRoom(env.room, undefined, env.from, op, prevAudience, prevExisted);
+    this.deliverToRoom(env.room, undefined, env.from, runtimeOp, prevAudience, prevExisted);
   }
 
   private async applyFanoutLayerOp(room: string, op: LayerOp): Promise<void> {
