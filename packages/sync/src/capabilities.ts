@@ -1,6 +1,6 @@
-import type { CanvasElement, ElementRegistry } from '@fieldnotes/core';
+import type { ElementRegistry } from '@fieldnotes/core';
 import type { ExtensionKind } from './sync-plugin';
-import type { SyncCapabilities, SyncOp } from './protocol';
+import type { SyncCapabilities, WireSyncElement, WireSyncOp } from './protocol';
 
 export const DEFAULT_CAPABILITY_TIMEOUT_MS = 5_000;
 export const DEFAULT_CAPABILITY_QUEUE_LIMIT = 1_000;
@@ -14,11 +14,11 @@ export function createCurrentCapabilities(extensionKinds: readonly string[]): Sy
 }
 
 export function translateOpForPeer(
-  op: SyncOp,
+  op: WireSyncOp,
   peer: SyncCapabilities,
   registry: ElementRegistry,
   extensionKinds?: ReadonlyMap<string, ExtensionKind<unknown>>,
-): SyncOp {
+): WireSyncOp {
   if (op.kind === 'extension' && !peer.extensionKinds.includes(op.extensionKind)) {
     const definition = extensionKinds?.get(op.extensionKind);
     if (!definition?.legacy) {
@@ -37,7 +37,7 @@ export function translateOpForPeer(
   if (op.kind === 'snapshot' && !peer.elementEnvelope) {
     // Best-effort: a snapshot is the peer's only route to a populated canvas,
     // so one untranslatable element must not withhold every other element.
-    const elements: CanvasElement[] = [];
+    const elements: WireSyncElement[] = [];
     for (const element of op.elements) {
       try {
         elements.push(translateElementForPeer(element, registry));
@@ -50,7 +50,10 @@ export function translateOpForPeer(
   return op;
 }
 
-function translateElementForPeer(element: CanvasElement, registry: ElementRegistry): CanvasElement {
+function translateElementForPeer(
+  element: WireSyncElement,
+  registry: ElementRegistry,
+): WireSyncElement {
   if (element.type !== 'extension') return element;
   const adapter = registry.getAdapter(element.extensionType);
   if (!adapter) {
@@ -63,7 +66,7 @@ function translateElementForPeer(element: CanvasElement, registry: ElementRegist
   const metadata = element as unknown as Record<string, unknown>;
   if (metadata['audience'] !== undefined) legacy['audience'] = metadata['audience'];
   if (metadata['ownerId'] !== undefined) legacy['ownerId'] = metadata['ownerId'];
-  return legacy as unknown as CanvasElement;
+  return legacy as unknown as WireSyncElement;
 }
 
 export class CapabilityHandshake<T> {

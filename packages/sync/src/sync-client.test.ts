@@ -356,6 +356,46 @@ describe('SyncClient', () => {
     }
   });
 
+  it('does not resurrect snapshot elements after carrying a held clear across reconnect', () => {
+    vi.useFakeTimers();
+    try {
+      const registry = new ElementRegistry();
+      registerVttElementTypes(registry);
+      const store = new ElementStore();
+      const transport = makeReconnectTransport();
+      const client = new SyncClient({
+        store,
+        transport,
+        clientId: 'modern',
+        elementRegistry: registry,
+        capabilityTimeoutMs: 25,
+      });
+      client.start();
+      transport.deliver(envelope('hub', { kind: 'snapshot', to: 'modern', elements: [] }));
+
+      const template = templateElementTypeDefinition.wrap(
+        createTemplate({ position: { x: 10, y: 20 }, templateShape: 'circle', radius: 30 }),
+      );
+      store.add(template);
+      store.clear();
+      transport.triggerReconnect();
+
+      const serverNote = createNote({ position: { x: 30, y: 40 } });
+      transport.deliver(
+        envelope('hub', { kind: 'snapshot', to: 'modern', elements: [serverNote] }),
+      );
+      transport.deliver(
+        envelope('hub', { kind: 'capabilities', capabilities: createCurrentCapabilities([]) }),
+      );
+
+      expect(sentKinds(transport.sent).slice(-2)).toEqual(['upsert', 'clear']);
+      expect(store.snapshot()).toEqual([]);
+      client.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('skips an untranslatable held op without dropping the ops queued behind it', () => {
     vi.useFakeTimers();
     try {

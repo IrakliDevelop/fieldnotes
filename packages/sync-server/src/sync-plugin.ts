@@ -1,11 +1,11 @@
 import type { ServiceKey } from '@fieldnotes/core';
-import type { ExtensionKind, PluginSnapshot, SyncOp, TypedExtensionOp } from '@fieldnotes/sync';
+import type { ExtensionKind, PluginSnapshot, TypedExtensionOp, WireSyncOp } from '@fieldnotes/sync';
 import type { HubBackend } from './hub-backend';
 
 export interface ApplyResult {
-  readonly accepted: SyncOp | null;
-  readonly corrections: SyncOp[];
-  readonly broadcast?: SyncOp[];
+  readonly accepted: WireSyncOp | null;
+  readonly corrections: WireSyncOp[];
+  readonly broadcast?: WireSyncOp[];
   readonly locality?: 'shared' | 'local';
 }
 
@@ -18,7 +18,7 @@ export interface ServerOpContext {
   backendPlugin<T>(key: ServiceKey<T>): T | undefined;
 }
 
-export type ServerNext = (op: SyncOp, context: ServerOpContext) => Promise<ApplyResult>;
+export type ServerNext = (op: WireSyncOp, context: ServerOpContext) => Promise<ApplyResult>;
 
 export interface ServerExtensionRegistry {
   register<TPayload>(
@@ -31,8 +31,8 @@ export interface ServerSyncPlugin {
   readonly name: string;
   readonly ownedLegacyKinds?: readonly string[];
   readonly legacySnapshotKey?: string;
-  process?(op: SyncOp, context: ServerOpContext, next: ServerNext): Promise<ApplyResult>;
-  applyFanout?(op: SyncOp, context: ServerOpContext): Promise<SyncOp | null>;
+  process?(op: WireSyncOp, context: ServerOpContext, next: ServerNext): Promise<ApplyResult>;
+  applyFanout?(op: WireSyncOp, context: ServerOpContext): Promise<WireSyncOp | null>;
   registerExtensionKinds?(registry: ServerExtensionRegistry): void;
   snapshot?(room: string, backend: HubBackend): Promise<PluginSnapshot | undefined>;
   filterSnapshot?(

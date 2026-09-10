@@ -13,6 +13,7 @@ import type { Layer } from '@fieldnotes/core';
 import { createGrid, createTemplate, fogEncodeBase64 } from '@fieldnotes/vtt';
 import {
   isValidElement,
+  isValidWireElement,
   isValidEnvelope,
   isValidLayerDefinition,
   isValidLayerRecord,
@@ -21,6 +22,7 @@ import {
   applyOpToMap,
   type LayerRecord,
   type SyncOp,
+  type WireSyncOp,
   isValidFogTileRecord,
   isValidFogMetaRecord,
   isValidFogSnapshot,
@@ -31,7 +33,7 @@ function shape(x = 0): CanvasElement {
 }
 
 describe('isValidElement', () => {
-  it('accepts every real element variant', () => {
+  it('accepts every runtime element variant without claiming legacy wire shapes', () => {
     const elements: CanvasElement[] = [
       createStroke({ points: [{ x: 0, y: 0, pressure: 0.5 }] }),
       createNote({ position: { x: 0, y: 0 } }),
@@ -40,15 +42,22 @@ describe('isValidElement', () => {
       createHtmlElement({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } }),
       createText({ position: { x: 0, y: 0 } }),
       shape(),
-      createGrid({}) as unknown as CanvasElement,
+    ];
+
+    for (const element of elements) expect(isValidElement(element)).toBe(true);
+
+    const legacy = [
+      createGrid({}),
       createTemplate({
         position: { x: 0, y: 0 },
         templateShape: 'cone',
         radius: 30,
-      }) as unknown as CanvasElement,
+      }),
     ];
-
-    for (const element of elements) expect(isValidElement(element)).toBe(true);
+    for (const element of legacy) {
+      expect(isValidWireElement(element)).toBe(true);
+      expect(isValidElement(element)).toBe(false);
+    }
   });
 
   it('rejects a known type whose required fields are missing', () => {
@@ -85,7 +94,7 @@ describe('isValidElement', () => {
       },
     ];
 
-    for (const element of malformed) expect(isValidElement(element)).toBe(false);
+    for (const element of malformed) expect(isValidWireElement(element)).toBe(false);
   });
 
   it('rejects an object with no id', () => {
@@ -350,7 +359,7 @@ describe('isValidEnvelope layer ops', () => {
       const op = e.op;
       switch (op.kind) {
         case 'upsert':
-          return isValidElement(op.element);
+          return isValidWireElement(op.element);
         case 'remove':
           return typeof op.id === 'string';
         case 'clear':
@@ -401,6 +410,17 @@ describe('parseEnvelope', () => {
   it('returns the envelope for valid input', () => {
     const env = { from: 'A', op: { kind: 'clear' as const } };
     expect(parseEnvelope(JSON.stringify(env))).toEqual(env);
+  });
+
+  it('types a parsed legacy upsert as a wire operation', () => {
+    const legacy = createGrid({});
+    const parsed = parseEnvelope(
+      JSON.stringify({ from: 'A', op: { kind: 'upsert', element: legacy } }),
+    );
+    expect(parsed).not.toBeNull();
+    if (!parsed) return;
+    const op: WireSyncOp = parsed.op;
+    expect(op.kind === 'upsert' && op.element.type).toBe('grid');
   });
 });
 

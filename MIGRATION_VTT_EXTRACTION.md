@@ -1107,7 +1107,7 @@ interface SyncCapabilities {
 // 2. Neither peer sends extension-shaped elements until both have received capabilities
 // 3. Incoming ops are QUEUED (not processed) until handshake completes
 // 4. If handshake times out → bounded queue drains through legacy translation
-// 5. A late capability message cannot switch the connection out of chosen legacy mode
+// 5. A valid late capability message upgrades a connection that used timeout fallback
 ```
 
 ### Sync Protocol Compatibility

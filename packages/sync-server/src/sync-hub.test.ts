@@ -112,6 +112,66 @@ describe('SyncHub', () => {
     });
   });
 
+  it('keeps capability cache entries distinct when extension kinds contain commas', async () => {
+    hub.close();
+    const kind = createExtensionKind<Record<string, never>>({
+      extensionKind: 'a',
+      codec: {
+        validate: (payload): payload is Record<string, never> =>
+          typeof payload === 'object' && payload !== null,
+      },
+      legacy: {
+        kinds: ['clear'],
+        encode: () => ({ kind: 'clear' }),
+        decode: () => null,
+      },
+    });
+    hub = new SyncHub({
+      plugins: [
+        {
+          name: 'comma-profile',
+          registerExtensionKinds(registry) {
+            registry.register(kind, async (op) => ({ accepted: op, corrections: [] }));
+          },
+        },
+      ],
+    });
+    A = makeConn('source', 'R');
+    B = makeConn('unsupported', 'R');
+    C = makeConn('supported', 'R');
+    hub.addConnection(A);
+    hub.addConnection(B);
+    hub.addConnection(C);
+    await hub.handleMessage(
+      B.id,
+      envelope(B.id, {
+        kind: 'capabilities',
+        capabilities: createCurrentCapabilities(['a,b']),
+      }),
+    );
+    await hub.handleMessage(
+      C.id,
+      envelope(C.id, {
+        kind: 'capabilities',
+        capabilities: createCurrentCapabilities(['a', 'b']),
+      }),
+    );
+    B.sent.length = 0;
+    C.sent.length = 0;
+
+    await hub.handleMessage(
+      A.id,
+      envelope(A.id, { kind: 'extension', extensionKind: 'a', payload: {} }),
+    );
+
+    expect(JSON.parse(B.sent[0] ?? '').op.kind).toBe('clear');
+    expect(JSON.parse(C.sent[0] ?? '').op).toEqual({
+      kind: 'extension',
+      extensionKind: 'a',
+      payload: {},
+    });
+  });
+
   it('forwards an upsert to other room members but not the sender or cross-room', async () => {
     const el = sampleEl();
     const msg = envelope('clientA', { kind: 'upsert', element: el });

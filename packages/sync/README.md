@@ -35,3 +35,9 @@ Extension-sensitive traffic waits for that bounded handshake; peers that do not 
 legacy peers. Registered element and plugin codecs translate envelopes and extension operations for
 those peers, while ordinary core operations continue during negotiation. Missing translations fail
 explicitly instead of silently dropping domain data.
+
+`SyncOp` and `SyncEnvelope` describe v4 runtime values. Transport parsers return `WireSyncOp` and
+`WireSyncEnvelope`, whose `WireSyncElement` payload also admits the legacy v3 grid/template shapes.
+Use `isValidElement` for runtime values and `isValidWireElement` at transport or persistence
+boundaries. A connection that initially times out to legacy mode upgrades if capabilities arrive
+later.

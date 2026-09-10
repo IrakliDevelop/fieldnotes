@@ -24,8 +24,15 @@ export type {
 } from './managed-connection';
 export type {
   SyncOp,
+  WireSyncOp,
   SyncEnvelope,
+  WireSyncEnvelope,
   SyncElement,
+  WireSyncElement,
+  WireElement,
+  LegacyWireElement,
+  LegacyGridWireElement,
+  LegacyTemplateWireElement,
   LayerRecord,
   FogMetaRecord,
   FogTileRecord,
@@ -35,6 +42,7 @@ export type {
 export {
   isValidEnvelope,
   isValidElement,
+  isValidWireElement,
   isValidLayerDefinition,
   isValidLayerRecord,
   isNewerLayerRecord,

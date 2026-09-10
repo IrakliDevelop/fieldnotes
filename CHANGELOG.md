@@ -32,6 +32,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 - `exportState` drops its unused `registry` parameter; `extensions` is now the fifth argument.
 - The hub encodes a relayed frame once per capability profile instead of once per recipient, and
   plugin registries build their extension-definition view once at construction.
+- Sync now exposes separate `WireSyncElement`/`WireSyncOp` contracts for transport and backend
+  boundaries; `SyncElement`/`SyncOp` remain restricted to v4 runtime elements.
 
 ### Compatibility
 
@@ -45,7 +47,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
   legacy-typed element they have no adapter for instead of admitting it into a v4 save.
 - Element ops held during capability negotiation keep store order (a remove never overtakes the
   upsert it undoes), survive a reconnect, and are flushed individually so one untranslatable op
-  cannot drop the rest. A capabilities frame arriving after the legacy timeout upgrades the session.
+  cannot drop the rest. A carried clear supersedes the in-flight reconciliation snapshot instead of
+  resurrecting its elements. A capabilities frame arriving after the legacy timeout upgrades the
+  session.
+- Capability-profile relay caching uses collision-free keys even when extension kinds contain
+  delimiters such as commas.
 - v4 extension envelopes are validated by their registered adapter on import.
 - This is a breaking pre-1.0 core release: import VTT element types and factories from
   `@fieldnotes/vtt`, and query `type: 'extension'` plus `extensionType` instead of core

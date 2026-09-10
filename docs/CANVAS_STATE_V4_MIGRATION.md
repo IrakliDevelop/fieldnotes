@@ -77,7 +77,8 @@ Clients and the relay exchange a capabilities control frame before extension-sen
 Negotiation is bounded by message-count and time limits:
 
 - capable peers receive extension envelopes and extension operations;
-- peers that do not advertise capabilities lock into the legacy path after the timeout;
+- peers that do not advertise capabilities use the legacy path after the timeout, and upgrade if a
+  valid capabilities frame arrives later;
 - upserts and snapshots are translated per peer through the element registry;
 - unsupported extension operations use their registered legacy translator;
 - a missing translator fails closed for that peer instead of sending lossy data;

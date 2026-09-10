@@ -1,4 +1,4 @@
-import type { CanvasElement, ElementType, Layer } from '@fieldnotes/core';
+import type { BaseElement, CanvasElement, ElementType, Layer } from '@fieldnotes/core';
 import {
   FOG_SYNC_PROTOCOL_VERSION,
   FOG_PATCH_MAX_TILES,
@@ -21,6 +21,37 @@ export {
 export type { FogMetaRecord, FogTileRecord, FogSnapshot };
 
 export type SyncElement = CanvasElement & { audience?: string };
+
+/** V3-only grid shape retained at the compatibility wire and persistence boundary. */
+export interface LegacyGridWireElement extends BaseElement {
+  type: 'grid';
+  gridType: 'square' | 'hex';
+  hexOrientation: 'pointy' | 'flat';
+  cellSize: number;
+  strokeColor: string;
+  strokeWidth: number;
+  opacity: number;
+}
+
+/** V3-only template shape retained at the compatibility wire and persistence boundary. */
+export interface LegacyTemplateWireElement extends BaseElement {
+  type: 'template';
+  templateShape: 'circle' | 'cone' | 'line' | 'square' | 'rectangle';
+  radius: number;
+  angle: number;
+  width?: number;
+  fillColor: string;
+  strokeColor: string;
+  strokeWidth: number;
+  opacity: number;
+  feetPerCell?: number;
+  radiusFeet?: number;
+  renderStyle?: 'cells' | 'geometric';
+}
+
+export type LegacyWireElement = LegacyGridWireElement | LegacyTemplateWireElement;
+export type WireElement = CanvasElement | LegacyWireElement;
+export type WireSyncElement = WireElement & { audience?: string; ownerId?: string };
 
 export interface SyncCapabilities {
   protocolVersion: number;
@@ -56,19 +87,21 @@ export function isNewerLayerRecord(a: LayerRecord, b: LayerRecord): boolean {
   return a.editor > b.editor;
 }
 
-export type SyncOp =
-  | { kind: 'upsert'; element: CanvasElement }
-  | { kind: 'remove'; id: string }
-  | { kind: 'clear' }
-  | { kind: 'request-snapshot' }
+type ElementSyncOp<TElement> =
+  | { kind: 'upsert'; element: TElement }
   | {
       kind: 'snapshot';
       to: string;
-      elements: CanvasElement[];
+      elements: TElement[];
       layers?: LayerRecord[];
       fog?: FogSnapshot;
       extensions?: Record<string, { pluginName: string; version: number; data: unknown }>;
-    }
+    };
+
+type NonElementSyncOp =
+  | { kind: 'remove'; id: string }
+  | { kind: 'clear' }
+  | { kind: 'request-snapshot' }
   | { kind: 'presence'; data: unknown }
   | { kind: 'presence-leave' }
   | { kind: 'capabilities'; capabilities: SyncCapabilities }
@@ -78,12 +111,23 @@ export type SyncOp =
   | { kind: 'fog-patch'; generation: string; tiles: FogTileRecord[] }
   | { kind: 'extension'; extensionKind: string; payload: unknown };
 
+/** Operations after legacy element shapes have been normalized for a v4 runtime. */
+export type SyncOp = ElementSyncOp<SyncElement> | NonElementSyncOp;
+
+/** Operations accepted or emitted at the mixed-v3/v4 transport boundary. */
+export type WireSyncOp = ElementSyncOp<WireSyncElement> | NonElementSyncOp;
+
 export interface SyncEnvelope {
   from: string;
   op: SyncOp;
 }
 
-const ELEMENT_TYPES = [
+export interface WireSyncEnvelope {
+  from: string;
+  op: WireSyncOp;
+}
+
+const WIRE_ELEMENT_TYPES = [
   'stroke',
   'note',
   'arrow',
@@ -96,15 +140,15 @@ const ELEMENT_TYPES = [
   'extension',
 ] as const;
 // Compile-time exhaustiveness: errors if a core ElementType is missing from the allowlist above.
-type _ExhaustiveCheck = ElementType extends (typeof ELEMENT_TYPES)[number] ? true : never;
+type _ExhaustiveCheck = ElementType extends (typeof WIRE_ELEMENT_TYPES)[number] ? true : never;
 const _elementTypesCoverAll: _ExhaustiveCheck = true;
 void _elementTypesCoverAll;
 
-export function isValidElement(el: unknown): el is CanvasElement {
+export function isValidWireElement(el: unknown): el is WireSyncElement {
   if (!isRecord(el)) return false;
   if (
     typeof el['id'] !== 'string' ||
-    !(ELEMENT_TYPES as readonly unknown[]).includes(el['type']) ||
+    !(WIRE_ELEMENT_TYPES as readonly unknown[]).includes(el['type']) ||
     !isPoint(el['position']) ||
     !isFiniteNumber(el['zIndex']) ||
     typeof el['locked'] !== 'boolean' ||
@@ -203,6 +247,11 @@ export function isValidElement(el: unknown): el is CanvasElement {
   }
 }
 
+/** Validates only elements representable by the current core runtime. */
+export function isValidElement(el: unknown): el is CanvasElement {
+  return isValidWireElement(el) && el.type !== 'grid' && el.type !== 'template';
+}
+
 type Validator = (value: unknown) => boolean;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -288,7 +337,7 @@ function isBoundedString(value: unknown, maxLen: number): value is string {
   );
 }
 
-export function isValidEnvelope(env: unknown): env is SyncEnvelope {
+export function isValidEnvelope(env: unknown): env is WireSyncEnvelope {
   if (typeof env !== 'object' || env === null) return false;
   const e = env as {
     from?: unknown;
@@ -308,7 +357,7 @@ export function isValidEnvelope(env: unknown): env is SyncEnvelope {
   const op = e.op;
   switch (op.kind) {
     case 'upsert':
-      return isValidElement(op.element);
+      return isValidWireElement(op.element);
     case 'remove':
       return typeof op.id === 'string';
     case 'clear':
@@ -365,7 +414,7 @@ export function isValidEnvelope(env: unknown): env is SyncEnvelope {
   }
 }
 
-export function parseEnvelope(message: string): SyncEnvelope | null {
+export function parseEnvelope(message: string): WireSyncEnvelope | null {
   try {
     const env: unknown = JSON.parse(message);
     return isValidEnvelope(env) ? env : null;
@@ -374,7 +423,10 @@ export function parseEnvelope(message: string): SyncEnvelope | null {
   }
 }
 
-export function applyOpToMap(map: Map<string, CanvasElement>, op: SyncOp): void {
+export function applyOpToMap<TElement extends WireSyncElement>(
+  map: Map<string, TElement>,
+  op: ElementSyncOp<TElement> | NonElementSyncOp,
+): void {
   switch (op.kind) {
     case 'upsert':
       map.set(op.element.id, op.element);

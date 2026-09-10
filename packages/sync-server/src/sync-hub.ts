@@ -3,16 +3,18 @@ import {
   createLegacyCapabilities,
   parseEnvelope,
   isValidElement,
+  isValidWireElement,
   isNewerLayerRecord,
   translateOpForPeer,
   type LayerRecord,
-  type SyncOp,
-  type SyncEnvelope,
+  type WireSyncElement,
+  type WireSyncOp,
+  type WireSyncEnvelope,
   type SyncCapabilities,
   type PluginSnapshot,
 } from '@fieldnotes/sync';
 import { getDefaultElementRegistry } from '@fieldnotes/core';
-import type { CanvasElement, ElementRegistry } from '@fieldnotes/core';
+import type { ElementRegistry } from '@fieldnotes/core';
 import { MemoryHubBackend } from './memory-hub-backend';
 import { InMemoryHubFanout, type HubFanout } from './hub-fanout';
 import type { HubBackend } from './hub-backend';
@@ -50,23 +52,23 @@ export interface SyncHubOptions {
 }
 
 const HUB_FROM = 'hub';
-const CORE_ELEMENT_TYPES = new Set(['stroke', 'note', 'arrow', 'image', 'html', 'text', 'shape']);
-
 function generateInstanceId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
     return crypto.randomUUID();
   return `i-${Math.random().toString(36).slice(2)}`;
 }
 
-function isFanoutOp(op: unknown): op is Extract<SyncOp, { kind: 'upsert' | 'remove' | 'clear' }> {
+function isFanoutOp(
+  op: unknown,
+): op is Extract<WireSyncOp, { kind: 'upsert' | 'remove' | 'clear' }> {
   if (typeof op !== 'object' || op === null) return false;
   const o = op as { kind?: unknown; element?: unknown; id?: unknown };
-  if (o.kind === 'upsert') return isValidElement(o.element);
+  if (o.kind === 'upsert') return isValidWireElement(o.element);
   if (o.kind === 'remove') return typeof o.id === 'string';
   return o.kind === 'clear';
 }
 
-type LayerOp = Extract<SyncOp, { kind: 'layer-upsert' | 'layer-remove' }>;
+type LayerOp = Extract<WireSyncOp, { kind: 'layer-upsert' | 'layer-remove' }>;
 
 interface PresenceLane {
   lastSentAt: number | undefined;
@@ -117,7 +119,7 @@ function layerRecordToOp(record: LayerRecord): LayerOp {
 type EncodedFrames = Map<string, string | null>;
 
 function capabilityProfile(capabilities: SyncCapabilities): string {
-  return `${capabilities.elementEnvelope ? '1' : '0'}|${capabilities.extensionKinds.join(',')}`;
+  return JSON.stringify([capabilities.elementEnvelope, capabilities.extensionKinds]);
 }
 
 function isPresenceOp(
@@ -255,15 +257,15 @@ export class SyncHub {
     return operation;
   }
 
-  private async process(conn: Connection, env: SyncEnvelope): Promise<void> {
+  private async process(conn: Connection, env: WireSyncEnvelope): Promise<void> {
     let op = env.op;
     if (op.kind === 'upsert') {
-      const element = this.toRuntimeElement(op.element);
+      const element = this.normalizeElement(op.element);
       if (!element) return;
       op = { ...op, element };
     }
     if (op.kind === 'request-snapshot') {
-      const all = this.toRuntimeElements(await this.backend.snapshot(conn.room));
+      const all = this.normalizeElements(await this.backend.snapshot(conn.room));
       const elements = this.canRead ? all.filter((el) => this.mayRead(conn, el.audience)) : all;
       // Layer records are presentation-only and carry no element bytes, so no
       // audience filter applies; the field is omitted while a room has never
@@ -288,7 +290,7 @@ export class SyncHub {
         else extensions[plugin.name] = snapshot;
       }
       if (Object.keys(extensions).length > 0) snapshotOp['extensions'] = extensions;
-      this.sendToConnection(conn, HUB_FROM, snapshotOp as SyncOp);
+      this.sendToConnection(conn, HUB_FROM, snapshotOp as WireSyncOp);
     } else if (op.kind === 'layer-upsert' || op.kind === 'layer-remove') {
       await this.processLayerOp(conn, op);
     } else if (op.kind === 'extension') {
@@ -308,10 +310,10 @@ export class SyncHub {
       const needCurrent = (this.authorize || this.canRead) && id !== undefined;
       const storedCurrent = needCurrent ? await this.backend.get(conn.room, id) : undefined;
       const current = storedCurrent
-        ? (this.toRuntimeElement(storedCurrent) ?? undefined)
+        ? (this.normalizeElement(storedCurrent) ?? undefined)
         : undefined;
 
-      let outboundOp: SyncOp = op;
+      let outboundOp: WireSyncOp = op;
       if (this.authorize) {
         const allowed = await this.authorize({
           userId: conn.userId,
@@ -374,10 +376,10 @@ export class SyncHub {
     };
   }
 
-  private async runCorePlugins(conn: Connection, op: SyncOp): Promise<ApplyResult> {
+  private async runCorePlugins(conn: Connection, op: WireSyncOp): Promise<ApplyResult> {
     const middleware = this.pluginRegistry.plugins.filter((plugin) => plugin.process);
     const context = this.pluginContext(conn);
-    const dispatch = async (index: number, current: SyncOp): Promise<ApplyResult> => {
+    const dispatch = async (index: number, current: WireSyncOp): Promise<ApplyResult> => {
       const plugin = middleware[index];
       if (!plugin?.process) {
         await this.backend.apply(conn.room, current);
@@ -408,7 +410,7 @@ export class SyncHub {
 
   private async publishPluginOp(
     conn: Connection,
-    op: SyncOp,
+    op: WireSyncOp,
     locality: ApplyResult['locality'],
   ): Promise<void> {
     if (locality !== 'local') {
@@ -536,7 +538,7 @@ export class SyncHub {
   private sendToConnection(
     conn: Connection,
     from: string,
-    op: SyncOp,
+    op: WireSyncOp,
     encoded?: EncodedFrames,
   ): boolean {
     const capabilities = this.peerCapabilities.get(conn.id) ?? createLegacyCapabilities();
@@ -556,7 +558,11 @@ export class SyncHub {
   }
 
   /** Returns the wire frame for `op` translated for `capabilities`, or null when lossy. */
-  private encodeForPeer(from: string, op: SyncOp, capabilities: SyncCapabilities): string | null {
+  private encodeForPeer(
+    from: string,
+    op: WireSyncOp,
+    capabilities: SyncCapabilities,
+  ): string | null {
     try {
       const translated = translateOpForPeer(
         op,
@@ -577,10 +583,8 @@ export class SyncHub {
    * understand it — so a hub deployed without domain adapters never erases
    * the room's existing elements. Only a malformed registered element is dropped.
    */
-  private toRuntimeElement(
-    element: Extract<SyncOp, { kind: 'upsert' }>['element'],
-  ): OwnedElement | null {
-    if (element.type === 'extension' || CORE_ELEMENT_TYPES.has(element.type)) return element;
+  private normalizeElement(element: WireSyncElement): OwnedElement | null {
+    if (isValidElement(element)) return element;
     const adapter = this.elementRegistry.getAdapterByLegacyType(element.type);
     if (!adapter) return element;
     try {
@@ -597,10 +601,10 @@ export class SyncHub {
     }
   }
 
-  private toRuntimeElements(elements: readonly CanvasElement[]): OwnedElement[] {
+  private normalizeElements(elements: readonly WireSyncElement[]): OwnedElement[] {
     const normalized: OwnedElement[] = [];
     for (const element of elements) {
-      const runtime = this.toRuntimeElement(element);
+      const runtime = this.normalizeElement(element);
       if (runtime) normalized.push(runtime);
     }
     return normalized;
@@ -610,7 +614,7 @@ export class SyncHub {
     room: string,
     excludeId: string | undefined,
     from: string,
-    op: SyncOp,
+    op: WireSyncOp,
   ): number {
     const members = this.rooms.get(room);
     if (!members) return 0;
@@ -713,7 +717,7 @@ export class SyncHub {
     room: string,
     excludeId: string | undefined,
     from: string,
-    op: SyncOp,
+    op: WireSyncOp,
     prevAudience: string | undefined,
     prevExisted: boolean,
   ): void {
@@ -722,7 +726,7 @@ export class SyncHub {
     const encoded: EncodedFrames = new Map();
     if (op.kind === 'upsert') {
       const audience = (op.element as OwnedElement).audience;
-      const removeOp: SyncOp = { kind: 'remove', id: op.element.id };
+      const removeOp: WireSyncOp = { kind: 'remove', id: op.element.id };
       const encodedRemove: EncodedFrames = new Map();
       for (const cid of members) {
         if (cid === excludeId) continue;
@@ -755,10 +759,10 @@ export class SyncHub {
   private async sendCorrection(
     conn: Connection,
     from: string,
-    op: SyncOp,
+    op: WireSyncOp,
     current: OwnedElement | undefined,
   ): Promise<void> {
-    let correction: SyncOp | undefined;
+    let correction: WireSyncOp | undefined;
     if (op.kind === 'upsert') {
       correction = current
         ? this.mayRead(conn, current.audience)
@@ -772,7 +776,7 @@ export class SyncHub {
           : { kind: 'remove', id: current.id }
         : undefined;
     } else if (op.kind === 'clear') {
-      const all = this.toRuntimeElements(await this.backend.snapshot(conn.room));
+      const all = this.normalizeElements(await this.backend.snapshot(conn.room));
       const elements = this.canRead ? all.filter((el) => this.mayRead(conn, el.audience)) : all;
       correction = { kind: 'snapshot', to: from, elements };
     }
@@ -831,8 +835,8 @@ export class SyncHub {
           backendPlugin: (key) => this.backend.getService?.(key),
         };
         const accepted = plugin.applyFanout
-          ? await plugin.applyFanout(op as SyncOp, context)
-          : (op as SyncOp);
+          ? await plugin.applyFanout(op as WireSyncOp, context)
+          : (op as WireSyncOp);
         if (accepted) {
           this.relayOpToRoom(env.room as string, undefined, env.from as string, accepted);
         }
@@ -849,8 +853,8 @@ export class SyncHub {
     const runtimeOp =
       op.kind === 'upsert'
         ? (() => {
-            const element = this.toRuntimeElement(op.element);
-            return element ? ({ ...op, element } satisfies SyncOp) : null;
+            const element = this.normalizeElement(op.element);
+            return element ? ({ ...op, element } satisfies WireSyncOp) : null;
           })()
         : op;
     if (!runtimeOp) return;

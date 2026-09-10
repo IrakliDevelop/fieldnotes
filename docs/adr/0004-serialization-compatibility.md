@@ -291,17 +291,21 @@ function translateForPeer(
 }
 ```
 
-Snapshot translation detail: A `snapshot` op carries `elements: CanvasElement[]`. When translating for a peer without `elementEnvelope` support, each element with `type: 'extension'` is converted to its legacy wire format using the element registry's `encodeLegacy()` (see ADR-0001). The translated snapshot retains the same structure but with legacy-typed elements instead of extension envelopes.
+Snapshot translation detail: A runtime `snapshot` carries `SyncElement[]`; the transport-facing
+`WireSyncOp` carries `WireSyncElement[]`. When translating for a peer without `elementEnvelope`
+support, each element with `type: 'extension'` is converted to its legacy wire format using the
+element registry's `encodeLegacy()` (see ADR-0001). The translated snapshot retains the same
+structure but with legacy-typed elements instead of extension envelopes.
 
 #### WireSyncOp — separate from runtime SyncOp
 
-Sync ops on the wire are versioned separately from `RuntimeElement`. V3 admits the legacy
-`CanvasElement` union; V4 admits only remaining core elements plus
-`ExtensionElementEnvelope`. This prevents a v4 writer from accidentally emitting extracted
-`grid` or `template` shapes.
+Sync ops on the wire are versioned separately from `RuntimeElement`. V3 admits the remaining core
+elements plus `LegacyWireElement`; V4 admits only remaining core elements plus
+`ExtensionElementEnvelope`. This prevents a v4 writer from accidentally emitting extracted `grid`
+or `template` shapes.
 
 ```typescript
-type WireElementV3 = CanvasElement;
+type WireElementV3 = CoreElement | LegacyWireElement;
 type WireElementV4 = CoreElement | ExtensionElementEnvelope;
 type WireSyncOpV3 = NonElementSyncOp | ElementOps<WireElementV3>;
 type WireSyncOpV4 = NonElementSyncOp | ElementOps<WireElementV4> | ExtensionOp;
@@ -323,8 +327,8 @@ package test suites. The private spike was retired when Phase 4 was implemented:
 
 - v3→v4 migration preserves camera, layers, active layer, existing extension state, and converts
   grid/template elements while wrapping legacy fog only when needed
-- `CapabilityHandshake` has a bounded queue, drains it on timeout fallback, and ignores late
-  capabilities after choosing legacy mode
+- `CapabilityHandshake` has a bounded queue, drains it on timeout fallback, and upgrades the
+  connection when a valid capabilities frame arrives after fallback
 - `translateForPeer` covers all outbound paths: upserts, snapshots, extension ops
 - Legacy peers receive complete legacy ops and translated elements; missing adapters reject
   explicitly; v4 peers receive envelopes
