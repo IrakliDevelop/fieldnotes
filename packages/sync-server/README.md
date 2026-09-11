@@ -173,11 +173,42 @@ continues to use the authenticated `userId` and `role`, not this transport ident
 
 ### Passing a token
 
-A browser `WebSocket` can't set request headers, so pass the token as a URL query
-param (`ws://relay?room=R&token=…`) and read it from `req.url` in `authenticate`. URLs
-land in access/proxy logs, so prefer **short-lived / single-use** tokens. Non-browser
-clients can instead put the token in `req.headers` (e.g. `Authorization`), which
-`authenticate` reads directly.
+`authenticate` receives `token`, resolved by the exported `readBearerToken(req)` in this order:
+
+1. A `Sec-WebSocket-Protocol` entry `fieldnotes-bearer.<token>` — the browser-safe channel. A
+   browser `WebSocket` can't set request headers, but it can offer subprotocols; the relay reads
+   the token, selects the `fieldnotes-sync` subprotocol and never echoes the bearer entry. On the
+   client, `bearerSubprotocols(token)` from `@fieldnotes/sync` builds the offer:
+
+   ```ts
+   import {
+     WebSocketTransport,
+     bearerSubprotocols,
+     createManagedSyncConnection,
+   } from '@fieldnotes/sync';
+
+   new WebSocketTransport('wss://relay?room=R', { protocols: bearerSubprotocols(token) });
+   // or, managed:
+   createManagedSyncConnection({
+     store,
+     clientId,
+     resolveUrl: async () => ({
+       url: 'wss://relay?room=R',
+       protocols: bearerSubprotocols(await mint()),
+     }),
+   });
+   ```
+
+   The token must be a valid subprotocol token (JWT and base64url alphabets qualify; base64 `=`
+   padding does not).
+
+2. An `Authorization: Bearer <token>` header, for non-browser clients.
+3. The `token` URL query parameter (`ws://relay?room=R&token=…`). Still supported so existing
+   clients keep working, but URLs land in access/proxy logs: prefer the channels above, and use
+   **short-lived / single-use** tokens if you must stay on the URL.
+
+`req` is still passed, so an `authenticate` hook that reads `req.url` or `req.headers` itself
+keeps working unchanged.
 
 ## Authorization
 

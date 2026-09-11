@@ -97,6 +97,41 @@ describe('createManagedSyncConnection', () => {
     vi.useRealTimers();
   });
 
+  it('passes protocols from a structured resolveUrl result to the transport factory', async () => {
+    const factory = vi.fn((url: string, protocols?: readonly string[]) => {
+      const t = new FakeTransport(url);
+      transports.push(t);
+      void protocols;
+      return t;
+    });
+    start({
+      resolveUrl: () => ({
+        url: 'ws://relay/b',
+        protocols: ['fieldnotes-sync', 'fieldnotes-bearer.t'],
+      }),
+      transportFactory: factory,
+    });
+    await flushAsync();
+
+    expect(factory).toHaveBeenCalledWith('ws://relay/b', [
+      'fieldnotes-sync',
+      'fieldnotes-bearer.t',
+    ]);
+  });
+
+  it('keeps accepting a plain URL string from resolveUrl', async () => {
+    const factory = vi.fn((url: string, protocols?: readonly string[]) => {
+      const t = new FakeTransport(url);
+      transports.push(t);
+      void protocols;
+      return t;
+    });
+    start({ transportFactory: factory });
+    await flushAsync();
+
+    expect(factory).toHaveBeenCalledWith('ws://relay/a', undefined);
+  });
+
   function start(overrides: Partial<ManagedSyncConnectionOptions> = {}): ManagedSyncConnection {
     connection = createManagedSyncConnection({
       store,

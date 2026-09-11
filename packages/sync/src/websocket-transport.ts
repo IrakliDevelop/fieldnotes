@@ -2,6 +2,11 @@ import type { SyncTransport } from './sync-transport';
 
 export interface WebSocketTransportOptions {
   WebSocket?: typeof WebSocket;
+  /**
+   * Subprotocols offered on every connect, including reconnects. Use
+   * `bearerSubprotocols(token)` to authenticate without a token in the URL.
+   */
+  protocols?: readonly string[];
   reconnect?: boolean;
   reconnectInitialDelayMs?: number;
   reconnectMaxDelayMs?: number;
@@ -13,6 +18,7 @@ export interface WebSocketTransportOptions {
 
 export class WebSocketTransport implements SyncTransport {
   private readonly url: string;
+  private readonly protocols: readonly string[] | undefined;
   private readonly WS: typeof WebSocket | null;
   private readonly reconnect: boolean;
   private readonly initialDelay: number;
@@ -35,6 +41,7 @@ export class WebSocketTransport implements SyncTransport {
 
   constructor(url: string, options: WebSocketTransportOptions = {}) {
     this.url = url;
+    this.protocols = options.protocols;
     this.WS = options.WebSocket ?? (typeof WebSocket !== 'undefined' ? WebSocket : null);
     this.reconnect = options.reconnect ?? true;
     this.initialDelay = options.reconnectInitialDelayMs ?? 500;
@@ -50,7 +57,7 @@ export class WebSocketTransport implements SyncTransport {
 
   private connect(): void {
     if (!this.WS) return;
-    const ws = new this.WS(this.url);
+    const ws = this.protocols ? new this.WS(this.url, [...this.protocols]) : new this.WS(this.url);
     this.ws = ws;
     ws.onopen = () => {
       this.attempt = 0;

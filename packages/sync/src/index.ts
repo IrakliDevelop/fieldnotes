@@ -3,6 +3,12 @@ export { BroadcastChannelTransport } from './broadcast-channel-transport';
 export type { BroadcastChannelTransportOptions } from './broadcast-channel-transport';
 export { WebSocketTransport } from './websocket-transport';
 export type { WebSocketTransportOptions } from './websocket-transport';
+export {
+  SYNC_WS_SUBPROTOCOL,
+  BEARER_SUBPROTOCOL_PREFIX,
+  bearerSubprotocols,
+  readBearerSubprotocol,
+} from './ws-auth';
 export { SyncClient } from './sync-client';
 export type {
   SyncClientOptions,
@@ -19,6 +25,7 @@ export { createManagedSyncConnection } from './managed-connection';
 export type {
   ManagedSyncConnection,
   ManagedSyncConnectionOptions,
+  ManagedSyncEndpoint,
   ManagedSyncStatus,
   ManagedSyncTransport,
 } from './managed-connection';

@@ -16,7 +16,10 @@ class FakeWebSocket {
   onclose: ((event: { code: number; reason: string }) => void) | null = null;
   sent: string[] = [];
 
-  constructor(public readonly url: string) {
+  constructor(
+    public readonly url: string,
+    public readonly protocols?: string | string[],
+  ) {
     instances.push(this);
   }
 
@@ -58,6 +61,25 @@ afterEach(() => {
 });
 
 describe('WebSocketTransport', () => {
+  it('offers the configured subprotocols on connect and on every reconnect', () => {
+    vi.useFakeTimers();
+    const protocols = ['fieldnotes-sync', 'fieldnotes-bearer.tok'];
+    new WebSocketTransport('ws://x', { WebSocket: Fake, protocols, random: () => 0 });
+    expect(lastInstance().protocols).toEqual(protocols);
+
+    lastInstance().triggerOpen();
+    lastInstance().triggerServerClose(1006);
+    vi.advanceTimersByTime(10_000);
+
+    expect(instances).toHaveLength(2);
+    expect(lastInstance().protocols).toEqual(protocols);
+  });
+
+  it('constructs the socket without a protocol argument when none are configured', () => {
+    new WebSocketTransport('ws://x', { WebSocket: Fake });
+    expect(lastInstance().protocols).toBeUndefined();
+  });
+
   it('buffers sends while CONNECTING and flushes them in order on open', () => {
     const transport = new WebSocketTransport('ws://x', { WebSocket: Fake });
     const fake = lastInstance();

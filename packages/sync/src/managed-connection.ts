@@ -44,12 +44,18 @@ export interface ManagedSyncConnectionOptions {
    */
   clientId: string;
   /**
-   * Resolves the connection URL, including any embedded credentials. Called
-   * once per connect cycle, so an expired token is refreshed by returning a
-   * fresh URL. Return `null` (or throw) to signal a mint failure; the manager
+   * Resolves the connection endpoint. Called once per connect cycle, so an
+   * expired token is refreshed by returning a fresh result. Return a plain URL
+   * (credentials in the query, the legacy form) or `{ url, protocols }` to
+   * offer subprotocols — `bearerSubprotocols(token)` keeps the token out of
+   * the URL. Return `null` (or throw) to signal a mint failure; the manager
    * retries with exponential backoff.
    */
-  resolveUrl: () => string | null | Promise<string | null>;
+  resolveUrl: () =>
+    | string
+    | ManagedSyncEndpoint
+    | null
+    | Promise<string | ManagedSyncEndpoint | null>;
   resolveAudience?: (element: CanvasElement) => string | undefined;
   /**
    * Authoritative bootstrap/reconcile hook, forwarded to every `SyncClient`
@@ -94,8 +100,14 @@ export interface ManagedSyncConnectionOptions {
   retryInitialDelayMs?: number;
   /** Retry delay cap. Default: 15000ms. */
   retryMaxDelayMs?: number;
-  /** DI seam for tests; defaults to `url => new WebSocketTransport(url)`. */
-  transportFactory?: (url: string) => ManagedSyncTransport;
+  /** DI seam for tests; defaults to `(url, protocols) => new WebSocketTransport(url, { protocols })`. */
+  transportFactory?: (url: string, protocols?: readonly string[]) => ManagedSyncTransport;
+}
+
+/** A resolved connection target: the relay URL plus optional subprotocols to offer. */
+export interface ManagedSyncEndpoint {
+  url: string;
+  protocols?: readonly string[];
 }
 
 export interface ManagedSyncConnection {
@@ -168,7 +180,9 @@ export function createManagedSyncConnection(
   const retryInitialDelayMs = options.retryInitialDelayMs ?? 1000;
   const retryMaxDelayMs = options.retryMaxDelayMs ?? 15_000;
   const transportFactory =
-    options.transportFactory ?? ((url: string) => new WebSocketTransport(url));
+    options.transportFactory ??
+    ((url: string, protocols?: readonly string[]) =>
+      new WebSocketTransport(url, protocols ? { protocols } : {}));
 
   let stopped = false;
   let denied = false;
@@ -259,19 +273,22 @@ export function createManagedSyncConnection(
   };
 
   const connect = async (cycleGeneration: number): Promise<void> => {
-    let url: string | null;
+    let endpoint: string | ManagedSyncEndpoint | null;
     try {
-      url = await resolveUrl();
+      endpoint = await resolveUrl();
     } catch {
-      url = null;
+      endpoint = null;
     }
     // stop() or a newer cycle invalidates this in-flight resolution.
     if (stopped || cycleGeneration !== generation) return;
-    if (url === null) {
+    if (endpoint === null) {
       scheduleRetry();
       return;
     }
-    const activeTransport = transportFactory(url);
+    const activeTransport =
+      typeof endpoint === 'string'
+        ? transportFactory(endpoint, undefined)
+        : transportFactory(endpoint.url, endpoint.protocols);
     transport = activeTransport;
     if (onTransportMessage) {
       subscriptions.push(activeTransport.onMessage(onTransportMessage));

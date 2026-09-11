@@ -3,7 +3,7 @@ import type { IncomingMessage, Server } from 'http';
 import { SyncHub } from './sync-hub';
 import type { HubBackend } from './hub-backend';
 import type { HubFanout } from './hub-fanout';
-import type { Authenticate } from './authenticate';
+import { readBearerToken, type Authenticate } from './authenticate';
 import type {
   Authorize,
   AuthorizeLayer,
@@ -14,6 +14,7 @@ import type {
 import type { ServerSyncPlugin } from './sync-plugin';
 import type { ElementRegistry } from '@fieldnotes/core';
 import { startHeartbeat } from './heartbeat';
+import { BEARER_SUBPROTOCOL_PREFIX, SYNC_WS_SUBPROTOCOL } from '@fieldnotes/sync';
 import {
   DEFAULT_BYTES_PER_SECOND,
   DEFAULT_BYTE_BURST,
@@ -134,9 +135,23 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
     elementRegistry: options.elementRegistry,
   });
   const maxMessageBytes = options.maxMessageBytes ?? DEFAULT_MAX_MESSAGE_BYTES;
+  // A browser fails the handshake unless one offered subprotocol is selected, so select the
+  // sync subprotocol when offered, otherwise the first non-bearer one (ws's default choice).
+  // The bearer entry carries the token and is never echoed back.
+  const handleProtocols = (protocols: Set<string>): string | false => {
+    if (protocols.has(SYNC_WS_SUBPROTOCOL)) return SYNC_WS_SUBPROTOCOL;
+    for (const protocol of protocols) {
+      if (!protocol.startsWith(BEARER_SUBPROTOCOL_PREFIX)) return protocol;
+    }
+    return protocols.values().next().value ?? false;
+  };
   const wss = options.server
-    ? new WebSocketServer({ server: options.server, maxPayload: maxMessageBytes })
-    : new WebSocketServer({ port: options.port ?? 0, maxPayload: maxMessageBytes });
+    ? new WebSocketServer({ server: options.server, maxPayload: maxMessageBytes, handleProtocols })
+    : new WebSocketServer({
+        port: options.port ?? 0,
+        maxPayload: maxMessageBytes,
+        handleProtocols,
+      });
   const heartbeat = startHeartbeat(wss, options.heartbeatIntervalMs ?? 30000);
   let shuttingDown = false;
   let closePromise: Promise<void> | undefined;
@@ -244,7 +259,11 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
       if (admitted) hub.removeConnection(connId);
     });
 
-    Promise.resolve(options.authenticate ? options.authenticate({ req, room }) : { userId: connId })
+    Promise.resolve(
+      options.authenticate
+        ? options.authenticate({ req, room, token: readBearerToken(req) })
+        : { userId: connId },
+    )
       .then((result) => {
         if (closed || state === 'rejected' || shuttingDown) return;
         if (!result) {
