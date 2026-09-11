@@ -85,13 +85,12 @@ export class AutoSave {
    * file is never silently overwritten by an older build.
    */
   async load(): Promise<CanvasState | null> {
-    const json = await this.adapter.load(this.key);
-    if (!json) {
-      this.loadFailed = false;
-      return null;
-    }
-
     try {
+      const json = await this.adapter.load(this.key);
+      if (!json) {
+        this.loadFailed = false;
+        return null;
+      }
       const state = parseState(json, this.elementRegistry);
       this.loadFailed = false;
       return state;

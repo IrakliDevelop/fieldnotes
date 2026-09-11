@@ -144,12 +144,17 @@ export class ViewportInteractions {
   };
 
   findArrowAt(world: { x: number; y: number }): ArrowElement | undefined {
-    const candidates = this.deps.store.queryPoint(world).reverse();
+    const tolerance = ARROW_HIT_THRESHOLD_PX / this.deps.camera.zoom;
+    const candidates = this.deps.store
+      .queryRect({
+        x: world.x - tolerance,
+        y: world.y - tolerance,
+        w: tolerance * 2,
+        h: tolerance * 2,
+      })
+      .reverse();
     for (const el of candidates) {
-      if (
-        el.type === 'arrow' &&
-        isNearBezier(world, el.from, el.to, el.bend, ARROW_HIT_THRESHOLD_PX / this.deps.camera.zoom)
-      ) {
+      if (el.type === 'arrow' && isNearBezier(world, el.from, el.to, el.bend, tolerance)) {
         return el;
       }
     }

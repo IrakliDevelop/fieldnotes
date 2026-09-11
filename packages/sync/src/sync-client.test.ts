@@ -3,6 +3,7 @@ import {
   ElementStore,
   ElementRegistry,
   createNote,
+  createStroke,
   createShape,
   type CanvasElement,
   type Layer,
@@ -523,6 +524,23 @@ describe('SyncClient', () => {
     storeA.update(note.id, { groupId: undefined });
 
     expect(storeB.getById(note.id)?.groupId).toBeUndefined();
+  });
+
+  it('replaces a same-id element whose remote type changed', () => {
+    const note = { ...createNote({ position: { x: 0, y: 0 } }), id: 'same-id' };
+    storeB.add(note);
+    const stroke = {
+      ...createStroke({
+        points: [
+          { x: 0, y: 0, pressure: 0.5 },
+          { x: 10, y: 0, pressure: 0.5 },
+        ],
+      }),
+      id: note.id,
+    };
+
+    expect(() => transportA.send(envelope('A', { kind: 'upsert', element: stroke }))).not.toThrow();
+    expect(storeB.getById(note.id)).toEqual(stroke);
   });
 
   it('propagates a local remove to the remote store', () => {

@@ -14,18 +14,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 - `ImageTool` places images on the active layer; previously it wrote `layerId: ''`, which the
   serializer rejects, so `loadJSON(exportJSON())` threw after placing an image with the tool.
 - `InputHandler` records which pointer started a tool gesture and ignores up/cancel/leave from
-  other pointers, so a hovering pen leaving the canvas no longer commits a mouse drag. Lost
-  pointer capture, window blur and tab visibility changes now abandon held pointers and pans, so a
-  truncated gesture can no longer leave the handler treating every later stroke as a pinch.
+  other pointers, including while a touch tap is still deferred, so a hovering pen leaving the
+  canvas no longer commits a mouse drag or discards the touch tap. Lost pointer capture, window
+  blur and tab visibility changes now abandon held pointers and pans, so a truncated gesture can no
+  longer leave the handler treating every later stroke as a pinch.
 - The eraser skips locked strokes, hit-tests rotated strokes where they are drawn, and preserves
   `blendMode`, `groupId` and rotation on partially-erased fragments (fragments are repositioned so
   rotating about their own center leaves them in place).
 - Stroke, arrow and line-shape hit tolerances are screen pixels divided by zoom; strokes stay
   selectable when zoomed out and no longer grow a 100px halo when zoomed in.
 - `AutoSave.load()` reports an unreadable or newer-version save through `onError` and refuses to
-  save until `clear()` or a later successful `load()`, instead of silently overwriting it.
+  save until `clear()` or a later successful `load()`, including when the storage adapter itself
+  rejects the read, instead of silently overwriting it.
 - Sync: a remote upsert clears every field the peer removed (ungroup, arrow unbind, cleared
-  label/rotation/fontSize/blendMode) instead of shallow-merging the stale value forever.
+  label/rotation/fontSize/blendMode) instead of shallow-merging the stale value forever. A valid
+  same-id upsert whose element type changed now safely replaces the record.
 - VTT: fog edits made before the sync client first starts are buffered and published on connect
   instead of being wiped when the hub reports no fog.
 

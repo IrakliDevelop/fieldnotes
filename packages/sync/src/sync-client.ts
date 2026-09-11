@@ -686,7 +686,15 @@ export class SyncClient {
       this.hubKnownIds.add(el.id); // remote/snapshot upserts are hub evidence
       const existing = this.store.getById(el.id);
       if (existing) {
-        this.store.update(el.id, replacementPatch(existing, el), { origin: REMOTE_ORIGIN });
+        if (existing.type === el.type) {
+          this.store.update(el.id, replacementPatch(existing, el), { origin: REMOTE_ORIGIN });
+        } else {
+          // ElementStore.update intentionally preserves the existing discriminator.
+          // A whole-element wire replacement with a different type must therefore
+          // replace the record, not clear the old type's required fields in place.
+          this.store.remove(el.id, { origin: REMOTE_ORIGIN });
+          this.store.add(el, { origin: REMOTE_ORIGIN });
+        }
       } else {
         this.store.add(el, { origin: REMOTE_ORIGIN });
       }

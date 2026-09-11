@@ -335,6 +335,30 @@ describe('AutoSave', () => {
       expect(await adapter.load('k')).toBe(original);
     });
 
+    it('reports a rejected adapter load and blocks later saves', async () => {
+      const save = vi.fn(async () => undefined);
+      const adapter: StorageAdapter = {
+        load: async () => {
+          throw new Error('storage unavailable');
+        },
+        save,
+        clear: async () => undefined,
+      };
+      const onError = vi.fn();
+      autoSave = new AutoSave(store, camera, { key: 'k', adapter, onError });
+
+      await expect(autoSave.load()).resolves.toBeNull();
+      expect(onError).toHaveBeenCalledOnce();
+      expect(onError.mock.calls[0]?.[0]).toMatchObject({
+        message: expect.stringContaining('storage unavailable'),
+      });
+
+      autoSave.start();
+      store.add(makeNote());
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(save).not.toHaveBeenCalled();
+    });
+
     it('clear() re-enables saving after a failed load', async () => {
       const adapter = new MemoryAdapter();
       await adapter.save('k', 'not json');

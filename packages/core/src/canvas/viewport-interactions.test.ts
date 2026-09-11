@@ -83,6 +83,20 @@ describe('ViewportInteractions', () => {
       const interactions = new ViewportInteractions(deps) as unknown as Priv;
       expect(interactions.findArrowAt({ x: 50, y: 80 })).toBeUndefined();
     });
+
+    it('finds an arrow within the screen-pixel tolerance when zoomed out', () => {
+      const store = new ElementStore();
+      const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 } });
+      store.add(arrow);
+      const { deps } = makeDeps(store, {
+        camera: { zoom: 0.1, screenToWorld: (p: { x: number; y: number }) => p } as never,
+      });
+      const interactions = new ViewportInteractions(deps) as unknown as Priv;
+
+      // Fifty world units are five screen pixels at 0.1x. The broad-phase
+      // query must use the same tolerance as the precise curve hit test.
+      expect(interactions.findArrowAt({ x: 50, y: 50 })?.id).toBe(arrow.id);
+    });
   });
 
   describe('liveFitHeight', () => {

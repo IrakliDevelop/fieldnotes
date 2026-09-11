@@ -178,9 +178,9 @@ export class InputHandler {
     // A gesture whose up/cancel/leave never arrives (tab switch, iframe or OS
     // gesture stealing the pointer) would otherwise leave `activePointers`
     // populated forever, so the next single finger looks like a pinch and every
-    // stroke is cancelled. Window-level abandon, mirroring `ElementActivation`.
+    // stroke is cancelled. Page-level abandon, mirroring `ElementActivation`.
     window.addEventListener('blur', this.onInterrupt, opts);
-    window.addEventListener('visibilitychange', this.onInterrupt, opts);
+    document.addEventListener('visibilitychange', this.onInterrupt, opts);
   }
 
   private onWheel = (e: WheelEvent): void => {
@@ -285,6 +285,15 @@ export class InputHandler {
   };
 
   private finishPointer(e: PointerEvent, cancelled: boolean): void {
+    // Pointer events that never had a matching down must not mutate another
+    // pointer's active or still-deferred gesture. Touch taps are deferred until
+    // movement/up, so `isToolActive` alone does not own them yet.
+    const foreignToolEnd =
+      this.isToolActive && this.toolPointerId !== null && e.pointerId !== this.toolPointerId;
+    const foreignDeferredEnd =
+      this.deferredDown !== null && e.pointerId !== this.deferredDown.pointerId;
+    if (!this.activePointers.has(e.pointerId) && (foreignToolEnd || foreignDeferredEnd)) return;
+
     this.cancelLongPress();
     try {
       this.element.releasePointerCapture(e.pointerId);

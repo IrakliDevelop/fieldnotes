@@ -1005,6 +1005,34 @@ describe('InputHandler', () => {
       expect(tm.handlePointerUp).toHaveBeenCalledOnce();
     });
 
+    it('a foreign pointer leaving does not discard a deferred touch tap', () => {
+      const tm = stubToolManager();
+      handler.setToolManager(tm, stubToolContext());
+      pointerDown(element, {
+        pointerId: 1,
+        button: 0,
+        pointerType: 'touch',
+        clientX: 10,
+        clientY: 10,
+      });
+      expect(tm.handlePointerDown).not.toHaveBeenCalled();
+
+      element.dispatchEvent(
+        new PointerEvent('pointerleave', { bubbles: true, pointerId: 2, pointerType: 'pen' }),
+      );
+      pointerUp(element, {
+        pointerId: 1,
+        button: 0,
+        pointerType: 'touch',
+        clientX: 10,
+        clientY: 10,
+      });
+
+      expect(tm.handlePointerDown).toHaveBeenCalledOnce();
+      expect(tm.handlePointerUp).toHaveBeenCalledOnce();
+      expect(tm.handlePointerCancel).not.toHaveBeenCalled();
+    });
+
     it('losing pointer capture while the pointer is still held cancels the tool and frees the gesture', () => {
       const tm = stubToolManager();
       handler.setToolManager(tm, stubToolContext());
@@ -1053,7 +1081,7 @@ describe('InputHandler', () => {
       expect(camera.x).not.toBe(0);
       const afterPan = camera.x;
 
-      document.dispatchEvent(new Event('visibilitychange', { bubbles: true }));
+      document.dispatchEvent(new Event('visibilitychange'));
 
       pointerMove(element, { pointerId: 1, clientX: 50, clientY: 0 });
       expect(camera.x).toBe(afterPan);
@@ -2388,7 +2416,7 @@ describe('InputHandler', () => {
     it('clears the coast-stopped flag on blur/visibilitychange when the matching pointerup never arrives', () => {
       for (const interrupt of [
         () => window.dispatchEvent(new Event('blur')),
-        () => document.dispatchEvent(new Event('visibilitychange', { bubbles: true })),
+        () => document.dispatchEvent(new Event('visibilitychange')),
       ]) {
         handler.destroy();
         handler = new InputHandler(element, camera);
@@ -2401,7 +2429,7 @@ describe('InputHandler', () => {
 
         // Pointer capture is lost, or the tab is backgrounded, mid-press: no
         // matching pointerup/pointercancel/pointerleave ever reaches the
-        // wrapper, so only the window-level interrupt can recover the flag.
+        // wrapper, so only the page-level interrupt can recover the flag.
         interrupt();
 
         expect(handler.isCameraCoasting()).toBe(false);
