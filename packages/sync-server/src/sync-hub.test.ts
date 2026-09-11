@@ -13,7 +13,7 @@ import { SyncHub } from './sync-hub';
 import type { Connection } from './sync-hub';
 import type { HubBackend } from './hub-backend';
 import { MemoryHubBackend } from './memory-hub-backend';
-import type { Authorize, OwnedElement } from './authorize';
+import type { Authorize, OwnedElement, ResolveAudience } from './authorize';
 import { InMemoryHubFanout } from './hub-fanout';
 
 interface FakeConn extends Connection {
@@ -1560,6 +1560,87 @@ describe('read filtering (canRead)', () => {
     await hub.handleMessage('dm', envelope('cdm', { kind: 'clear' }));
     expect(player.sent.length).toBe(1);
     expect(JSON.parse(player.sent[0] as string).op).toEqual({ kind: 'clear' });
+  });
+
+  describe('hub-side audience resolution (S2)', () => {
+    const byRole: ResolveAudience = ({ role }) => (role === 'dm' ? 'dm' : 'shared');
+
+    it('overrides a client-asserted audience so a player cannot hide or reveal content', async () => {
+      const backend = new MemoryHubBackend();
+      const hub = new SyncHub({ canRead, backend, resolveAudience: byRole });
+      const player = conn('pl', 'R', 'player');
+      const other = conn('other', 'R', 'player');
+      const dm = conn('dm', 'R', 'dm');
+      hub.addConnection(player);
+      hub.addConnection(other);
+      hub.addConnection(dm);
+
+      // A player tags an upsert 'dm' to hide it from the table.
+      await hub.handleMessage('pl', upsertMsg('cpl', 'e1', 'dm'));
+      expect(JSON.parse(other.sent[0] ?? '').op.element.audience).toBe('shared');
+      expect((await backend.get('R', 'e1'))?.audience).toBe('shared');
+
+      // The DM's edit of the same element keeps the DM-resolved audience.
+      other.sent.length = 0;
+      await hub.handleMessage('dm', upsertMsg('cdm', 'e1', 'shared'));
+      expect((await backend.get('R', 'e1'))?.audience).toBe('dm');
+      // The player who could see it gets a synthetic remove, not the retagged bytes.
+      expect(JSON.parse(other.sent[0] ?? '').op).toEqual({ kind: 'remove', id: 'e1' });
+    });
+
+    it('clears the audience when the resolver returns undefined', async () => {
+      const backend = new MemoryHubBackend();
+      const hub = new SyncHub({ canRead, backend, resolveAudience: () => undefined });
+      const player = conn('pl', 'R', 'player');
+      hub.addConnection(player);
+
+      await hub.handleMessage('pl', upsertMsg('cpl', 'e1', 'dm'));
+
+      expect(await backend.get('R', 'e1')).not.toHaveProperty('audience');
+    });
+
+    it('passes the resolved audience and the stored element to authorize', async () => {
+      const backend = new MemoryHubBackend();
+      const seen: { audience?: string; current?: string }[] = [];
+      const hub = new SyncHub({
+        backend,
+        resolveAudience: ({ element, currentElement }) =>
+          currentElement?.audience ?? (element.audience === 'dm' ? 'shared' : element.audience),
+        authorize: ({ op, currentElement }) => {
+          if (op.kind === 'upsert') {
+            seen.push({ audience: op.element.audience, current: currentElement?.audience });
+          }
+          return true;
+        },
+      });
+      const player = { ...conn('pl', 'R', 'player'), userId: 'p1' };
+      hub.addConnection(player);
+
+      await hub.handleMessage('pl', upsertMsg('cpl', 'e1', 'dm'));
+      await hub.handleMessage('pl', upsertMsg('cpl', 'e1', 'dm'));
+
+      expect(seen).toEqual([
+        { audience: 'shared', current: undefined },
+        { audience: 'shared', current: 'shared' },
+      ]);
+    });
+
+    it('receives the sender identity, room and the raw client element', async () => {
+      const resolveAudience = vi.fn<ResolveAudience>(() => 'shared');
+      const hub = new SyncHub({ resolveAudience });
+      const player = { ...conn('pl', 'R', 'player'), userId: 'p1' };
+      hub.addConnection(player);
+
+      await hub.handleMessage('pl', upsertMsg('cpl', 'e1', 'dm'));
+
+      expect(resolveAudience).toHaveBeenCalledWith({
+        userId: 'p1',
+        role: 'player',
+        room: 'R',
+        element: expect.objectContaining({ id: 'e1', audience: 'dm' }),
+        currentElement: undefined,
+      });
+    });
   });
 });
 

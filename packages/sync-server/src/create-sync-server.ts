@@ -4,7 +4,13 @@ import { SyncHub } from './sync-hub';
 import type { HubBackend } from './hub-backend';
 import type { HubFanout } from './hub-fanout';
 import type { Authenticate } from './authenticate';
-import type { Authorize, AuthorizeLayer, CanRead, CanReadOwnerId } from './authorize';
+import type {
+  Authorize,
+  AuthorizeLayer,
+  CanRead,
+  CanReadOwnerId,
+  ResolveAudience,
+} from './authorize';
 import type { ServerSyncPlugin } from './sync-plugin';
 import type { ElementRegistry } from '@fieldnotes/core';
 import { startHeartbeat } from './heartbeat';
@@ -33,6 +39,7 @@ export interface CreateSyncServerOptions {
   plugins?: readonly ServerSyncPlugin[];
   canRead?: CanRead;
   canReadOwnerId?: CanReadOwnerId;
+  resolveAudience?: ResolveAudience;
   heartbeatIntervalMs?: number;
   maxMessageBytes?: number;
   maxJsonDepth?: number;
@@ -79,6 +86,7 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
     plugins: options.plugins,
     canRead: options.canRead,
     canReadOwnerId: options.canReadOwnerId,
+    resolveAudience: options.resolveAudience,
     maxJsonDepth: options.maxJsonDepth ?? DEFAULT_MAX_JSON_DEPTH,
     presenceThrottleMs: options.presenceThrottleMs ?? DEFAULT_PRESENCE_THROTTLE_MS,
     maxPresenceLanes: options.maxPresenceLanes,

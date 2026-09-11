@@ -205,6 +205,10 @@ privileged viewers, e.g. `canReadOwnerId: ({ role }) => role === 'dm'`.
 
 With **no hook**, rooms are OPEN (allow-all — every op is accepted).
 
+When `canRead` filtering is in use, `op.element.audience` is what the sender asserted unless a
+`resolveAudience` hook is configured (see [Read filtering](#read-filtering)); an `authorize` policy
+without that hook must validate the audience itself.
+
 A copy-paste DM / player / display policy:
 
 ```ts
@@ -282,9 +286,17 @@ gets a synthetic **remove**, one who gains it gets an **add**.
   instance only), `canRead` runs on **every** instance — each re-filters fanned-out ops for its own
   local members — so all relay instances must inject the **same** `canRead`, alongside the existing
   shared-backend + shared-fanout requirement.
-- **Labeling integrity.** `audience` is client-asserted, so read secrecy is only as trustworthy as
-  the `authorize` (write) policy that stops a player from stamping `dm` on content they shouldn't
-  control.
+- **Labeling integrity.** `audience` arrives client-asserted. Without a `resolveAudience` hook a
+  player can tag an upsert `dm` to hide it from the table, or retag a hidden element `shared` to
+  reveal it, so **one of the two following hooks is required** for read secrecy:
+  - `resolveAudience({ userId, role, room, element, currentElement }) => string | undefined`
+    (recommended) makes the hub the authority: its return value replaces the client's tag
+    (`undefined` clears it) before `authorize`, storage and relay. A policy such as
+    `({ role, currentElement }) => currentElement?.audience ?? (role === 'dm' ? 'dm' : 'shared')`
+    keeps an element's audience stable and lets only a DM create hidden content.
+  - Otherwise `authorize` **must** enforce the audience contract itself: reject an `upsert` whose
+    `op.element.audience` the sender may not write to, and reject one whose audience differs from
+    `currentElement.audience` unless the sender may move it.
 
 A Redis `HubBackend` and cross-instance fan-out ship in [`@fieldnotes/sync-redis`](../sync-redis).
 

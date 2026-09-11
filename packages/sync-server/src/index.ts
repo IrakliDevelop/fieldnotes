@@ -18,6 +18,8 @@ export type {
   CanRead,
   OwnerReadContext,
   CanReadOwnerId,
+  ResolveAudienceContext,
+  ResolveAudience,
 } from './authorize';
 export { startHeartbeat } from './heartbeat';
 export type { Heartbeat, HeartbeatSocket, HeartbeatServer } from './heartbeat';

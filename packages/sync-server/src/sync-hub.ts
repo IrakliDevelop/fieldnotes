@@ -18,7 +18,14 @@ import type { ElementRegistry } from '@fieldnotes/core';
 import { MemoryHubBackend } from './memory-hub-backend';
 import { InMemoryHubFanout, type HubFanout } from './hub-fanout';
 import type { HubBackend } from './hub-backend';
-import type { Authorize, AuthorizeLayer, CanRead, CanReadOwnerId, OwnedElement } from './authorize';
+import type {
+  Authorize,
+  AuthorizeLayer,
+  CanRead,
+  CanReadOwnerId,
+  OwnedElement,
+  ResolveAudience,
+} from './authorize';
 import { ServerPluginRegistry } from './sync-plugin';
 import type { ApplyResult, ServerOpContext, ServerSyncPlugin } from './sync-plugin';
 import {
@@ -45,6 +52,7 @@ export interface SyncHubOptions {
   plugins?: readonly ServerSyncPlugin[];
   canRead?: CanRead;
   canReadOwnerId?: CanReadOwnerId;
+  resolveAudience?: ResolveAudience;
   maxJsonDepth?: number;
   presenceThrottleMs?: number;
   maxPresenceLanes?: number;
@@ -152,6 +160,7 @@ export class SyncHub {
   private readonly peerCapabilities = new Map<string, SyncCapabilities>();
   private readonly canRead?: CanRead;
   private readonly canReadOwnerId?: CanReadOwnerId;
+  private readonly resolveAudience?: ResolveAudience;
   private readonly memoryLayers = new Map<string, Map<string, LayerRecord>>();
   private readonly maxJsonDepth: number;
   private readonly presenceThrottleMs: number;
@@ -177,6 +186,7 @@ export class SyncHub {
     this.authorizeLayer = options.authorizeLayer;
     this.canRead = options.canRead;
     this.canReadOwnerId = options.canReadOwnerId;
+    this.resolveAudience = options.resolveAudience;
     this.maxJsonDepth = options.maxJsonDepth ?? DEFAULT_MAX_JSON_DEPTH;
     this.presenceThrottleMs = options.presenceThrottleMs ?? DEFAULT_PRESENCE_THROTTLE_MS;
     const maxPresenceLanes = options.maxPresenceLanes ?? DEFAULT_MAX_PRESENCE_LANES;
@@ -315,11 +325,28 @@ export class SyncHub {
       await this.deliverPluginResult(conn, result);
     } else if (op.kind === 'upsert' || op.kind === 'remove' || op.kind === 'clear') {
       const id = op.kind === 'upsert' ? op.element.id : op.kind === 'remove' ? op.id : undefined;
-      const needCurrent = (this.authorize || this.canRead) && id !== undefined;
+      const needCurrent =
+        (this.authorize || this.canRead || this.resolveAudience) && id !== undefined;
       const storedCurrent = needCurrent ? await this.backend.get(conn.room, id) : undefined;
       const current = storedCurrent
         ? (this.normalizeElement(storedCurrent) ?? undefined)
         : undefined;
+
+      if (op.kind === 'upsert' && this.resolveAudience) {
+        // The hub, not the client, decides the audience; it runs before authorize so a
+        // policy sees the authoritative tag.
+        const audience = this.resolveAudience({
+          userId: conn.userId,
+          role: conn.role,
+          room: conn.room,
+          element: op.element,
+          currentElement: current,
+        });
+        const element: OwnedElement = { ...op.element };
+        if (audience === undefined) delete element.audience;
+        else element.audience = audience;
+        op = { kind: 'upsert', element };
+      }
 
       let outboundOp: WireSyncOp = op;
       if (this.authorize) {
