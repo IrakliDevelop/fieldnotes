@@ -266,6 +266,44 @@ describe('RedisHubBackend', () => {
     expect(await b.snapshot('R2')).toHaveLength(0);
   });
 
+  it("escapes room names so a room cannot alias another room's sub-key hashes", async () => {
+    const fake = new FakeRedis();
+    const b = new RedisHubBackend(fake, { plugins: [createFogBackendPlugin()] });
+    const fog = b.getService(FogBackendServiceKey);
+    if (!fog) throw new Error('fog backend plugin did not register its service');
+    await b.applyLayerRecord('foo', {
+      id: 'layer-a',
+      version: 1,
+      editor: 'A',
+      definition: { id: 'layer-a', name: 'a', visible: true, locked: false, order: 0, opacity: 1 },
+    });
+
+    // Element writes addressed to the aliasing rooms must land in their own hashes.
+    await b.apply('foo:layers', { kind: 'upsert', element: element('layer-a') });
+    await b.apply('foo:fog:meta', { kind: 'upsert', element: element('current') });
+
+    expect(await b.getLayerRecord('foo', 'layer-a')).toMatchObject({ version: 1, editor: 'A' });
+    expect(await fog.snapshot('foo')).toBeUndefined();
+    expect(await b.snapshot('foo')).toHaveLength(0);
+    expect(await b.snapshot('foo:layers')).toHaveLength(1);
+
+    // A clear on the aliasing room must not delete the real room's layer ledger.
+    await b.apply('foo:layers', { kind: 'clear' });
+    expect(await b.layerRecords('foo')).toHaveLength(1);
+    expect(fake.store.has('fieldnotes:room:foo:layers')).toBe(true);
+  });
+
+  it('keeps the historical key layout for valid room names', async () => {
+    const fake = new FakeRedis();
+    const b = new RedisHubBackend(fake, { plugins: [createFogBackendPlugin()] });
+    await b.apply('Room_1-x', { kind: 'upsert', element: element('e1') });
+    await b.applyLayerRecord('Room_1-x', { id: 'l', version: 1, editor: 'A' });
+    expect([...fake.store.keys()]).toEqual([
+      'fieldnotes:room:Room_1-x',
+      'fieldnotes:room:Room_1-x:layers',
+    ]);
+  });
+
   describe('get', () => {
     it('returns the stored element after apply', async () => {
       const fake = new FakeRedis();

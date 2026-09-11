@@ -3,6 +3,7 @@ export type { SyncHubOptions, Connection } from './sync-hub';
 export { MemoryHubBackend } from './memory-hub-backend';
 export type { HubBackend } from './hub-backend';
 export { createSyncServer } from './create-sync-server';
+export { ROOM_NAME_PATTERN, isValidRoomName } from './room-name';
 export type { CreateSyncServerOptions } from './create-sync-server';
 export { InMemoryHubFanout } from './hub-fanout';
 export type { HubFanout } from './hub-fanout';

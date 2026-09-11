@@ -19,6 +19,7 @@ import {
   MessageRateLimiter,
 } from './resource-limits';
 import { DEFAULT_SHUTDOWN_GRACE_MS, drainWebSocketServer } from './shutdown';
+import { isValidRoomName } from './room-name';
 
 export interface CreateSyncServerOptions {
   port?: number;
@@ -97,6 +98,10 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
     const room = url.searchParams.get('room');
     if (!room) {
       ws.close(4400, 'room required');
+      return;
+    }
+    if (!isValidRoomName(room)) {
+      ws.close(4400, 'invalid room');
       return;
     }
     const connId = `c${++counter}-${Math.random().toString(36).slice(2, 8)}`;

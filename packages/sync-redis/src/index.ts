@@ -5,3 +5,4 @@ export { RedisHubFanout } from './redis-hub-fanout';
 export type { RedisHubFanoutOptions } from './redis-hub-fanout';
 export type { RedisPublisher, RedisSubscriber } from './redis-fanout-client';
 export type { BackendSyncPlugin, BackendPluginContext } from './sync-plugin';
+export { encodeRoomKey } from './room-key';
