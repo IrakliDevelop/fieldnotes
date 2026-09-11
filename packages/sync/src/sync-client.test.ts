@@ -513,6 +513,18 @@ describe('SyncClient', () => {
     }
   });
 
+  it('propagates a cleared optional field (ungroup, unbind) to the remote store', () => {
+    const note: CanvasElement = { ...createNote({ position: { x: 0, y: 0 } }), groupId: 'g1' };
+    storeA.add(note);
+    expect(storeB.getById(note.id)?.groupId).toBe('g1');
+
+    // JSON drops `undefined`, so the wire element simply lacks the key; the
+    // remote store must clear it rather than keep the stale value forever.
+    storeA.update(note.id, { groupId: undefined });
+
+    expect(storeB.getById(note.id)?.groupId).toBeUndefined();
+  });
+
   it('propagates a local remove to the remote store', () => {
     const note = createNote({ position: { x: 0, y: 0 } });
     storeA.add(note);
