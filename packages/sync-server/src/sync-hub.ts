@@ -249,6 +249,7 @@ export class SyncHub {
    * forwards the same event to other instances on a best-effort basis.
    */
   broadcastPresence<T>(room: string, data: T): number {
+    if (!this.isPresenceWithinLimit(data)) return 0;
     const op = { kind: 'presence' as const, data };
     const sent = this.relayToRoom(room, undefined, JSON.stringify({ from: HUB_FROM, op }));
     this.safePublish(JSON.stringify({ o: this.instanceId, room, from: HUB_FROM, op }));
@@ -271,9 +272,7 @@ export class SyncHub {
     }
     if (env.op.kind === 'presence') {
       // Presence is relayed to every member verbatim, so its size is the amplification factor.
-      if (utf8ByteLength(JSON.stringify(env.op.data) ?? '') > this.maxPresenceBytes) {
-        return Promise.resolve();
-      }
+      if (!this.isPresenceWithinLimit(env.op.data)) return Promise.resolve();
       this.schedulePresence(conn, env.op.data); // off-queue, throttled independently
       return Promise.resolve();
     }
@@ -872,6 +871,7 @@ export class SyncHub {
     if (!isValidEnvelope(envelope)) return;
     const op = envelope.op;
     if (isPresenceOp(op)) {
+      if (op.kind === 'presence' && !this.isPresenceWithinLimit(op.data)) return;
       // presence/leave: raw forward to all local members (the sender lives on the origin instance),
       // no backend, no canRead filter.
       this.relayToRoom(env.room, undefined, JSON.stringify({ from: env.from, op }));
@@ -927,6 +927,10 @@ export class SyncHub {
     const prevAudience = typeof env.prev === 'string' ? env.prev : undefined;
     const prevExisted = env.existed === true;
     this.deliverToRoom(env.room, undefined, env.from, runtimeOp, prevAudience, prevExisted);
+  }
+
+  private isPresenceWithinLimit(data: unknown): boolean {
+    return utf8ByteLength(JSON.stringify(data) ?? '') <= this.maxPresenceBytes;
   }
 
   private async applyFanoutLayerOp(room: string, op: LayerOp): Promise<void> {

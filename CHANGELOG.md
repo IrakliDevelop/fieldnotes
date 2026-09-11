@@ -4,10 +4,10 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
-## [@fieldnotes/sync-server 0.18.1] — 2026-09-11
+## [@fieldnotes/sync-server 0.19.0] — 2026-09-11
 
-Sync security batch (Phase 0 §2.5). No persisted-canvas change; the wire protocol is unchanged and
-every existing client keeps connecting, but hosts should read the **Behavior changes** below.
+Sync security batch (Phase 0 §2.5). No persisted-canvas or wire-protocol change, but hosts must read
+the **Behavior changes** below and migrate room identifiers outside the newly enforced safe alphabet.
 
 ### Security
 
@@ -31,6 +31,11 @@ every existing client keeps connecting, but hosts should read the **Behavior cha
   over `maxPresenceBytes` (4 KiB, UTF-8) are dropped.
 - `createSyncServer` throws when `authorize` is configured without `authenticate`: ownership policies
   need a stable `userId`, and the anonymous default changes on every reconnect.
+- Presence size enforcement now covers client frames, server-owned broadcasts, and cross-instance
+  fanout ingress, so no path can bypass `maxPresenceBytes` and amplify an oversized payload.
+- Resource-limit options fail fast during server construction when they are non-finite, non-positive,
+  or (for connection caps) not safe integers. `Infinity` remains supported for disabling connection
+  caps.
 
 ### Added
 
@@ -42,6 +47,12 @@ every existing client keeps connecting, but hosts should read the **Behavior cha
 - `ROOM_NAME_PATTERN` / `isValidRoomName` exports, plus `OwnerReadContext`, `CanReadOwnerId`,
   `ResolveAudienceContext` and `ResolveAudience` types.
 
+### Fixed
+
+- A client offering only `fieldnotes-bearer.<token>` no longer receives the credential-bearing
+  protocol in the handshake response; the handshake is rejected instead.
+- The live-play example validates room names before connecting and explains `4400` room rejections.
+
 ### Behavior changes
 
 - Rooms with names outside `[A-Za-z0-9_-]{1,64}` are rejected; rename them before upgrading.
@@ -51,16 +62,16 @@ every existing client keeps connecting, but hosts should read the **Behavior cha
 
 ### Package versions
 
-- `@fieldnotes/sync` 0.19.1 → 0.19.2 — `bearerSubprotocols(token)`, `readBearerSubprotocol(header)`,
+- `@fieldnotes/sync` 0.19.1 → 0.20.0 — `bearerSubprotocols(token)`, `readBearerSubprotocol(header)`,
   `SYNC_WS_SUBPROTOCOL`, `BEARER_SUBPROTOCOL_PREFIX`; `WebSocketTransportOptions.protocols`;
   `resolveUrl` may return `{ url, protocols }` (`ManagedSyncEndpoint`) and `transportFactory` receives
   the protocols as a second argument.
-- `@fieldnotes/sync-server` 0.18.0 → 0.18.1 (above).
-- `@fieldnotes/sync-redis` 0.9.0 → 0.9.1 — Redis room keys encode the room name (`encodeRoomKey`,
+- `@fieldnotes/sync-server` 0.18.0 → 0.19.0 (above).
+- `@fieldnotes/sync-redis` 0.9.0 → 0.10.0 — Redis room keys encode the room name (`encodeRoomKey`,
   exported); valid room names keep their historical key layout. `BackendPluginContext.roomKey(room)`
   returns the escaped base key for plugins to derive sub-keys from.
-- `@fieldnotes/vtt` 0.8.1 → 0.8.2 — the Redis fog backend derives its keys from `roomKey`; peer floor
-  `@fieldnotes/sync-redis >= 0.9.1`.
+- `@fieldnotes/vtt` 0.8.1 → 0.9.0 — the Redis fog backend derives its keys from `roomKey`; peer floor
+  `@fieldnotes/sync-redis >= 0.10.0`.
 
 ## [0.82.1] — 2026-09-11
 

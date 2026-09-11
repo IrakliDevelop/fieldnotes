@@ -157,6 +157,26 @@ describe('sync-server connection hardening (end-to-end)', () => {
 
       expect(await closed).toEqual({ code: 4408, reason: 'rate limit exceeded' });
     });
+
+    it.each([
+      ['messagesPerSecond', { messagesPerSecond: Number.NaN }],
+      ['messageBurst', { messageBurst: 0 }],
+      ['bytesPerSecond', { bytesPerSecond: Number.POSITIVE_INFINITY }],
+      ['byteBurst', { byteBurst: -1 }],
+      ['maxConnectionsPerIp', { maxConnectionsPerIp: 1.5 }],
+      ['maxConnectionsPerRoom', { maxConnectionsPerRoom: Number.NaN }],
+    ] as const)('refuses to start with an invalid %s limit', (_name, options) => {
+      expect(() => createSyncServer({ port: 0, ...options })).toThrow(RangeError);
+    });
+
+    it('accepts Infinity as the documented way to disable connection caps', () => {
+      const { server } = startServer({
+        maxConnectionsPerIp: Infinity,
+        maxConnectionsPerRoom: Infinity,
+      });
+
+      expect(server.hub).toBeDefined();
+    });
   });
 
   describe('room names (S1)', () => {

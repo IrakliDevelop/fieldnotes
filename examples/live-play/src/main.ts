@@ -77,6 +77,9 @@ function start(name: string, role: Role, room: string): void {
   );
   transport.onClose((code) => {
     if (code === 4401) $('denied').textContent = 'Access denied — pick a unique name and rejoin.';
+    if (code === 4400) {
+      $('denied').textContent = 'Invalid room — use letters, numbers, underscores, or hyphens.';
+    }
   });
   const client = new SyncClient({
     store: viewport.store,

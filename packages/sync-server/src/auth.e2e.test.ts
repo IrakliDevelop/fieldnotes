@@ -164,6 +164,14 @@ describe('sync-server authentication (end-to-end)', () => {
 
       expect(result).toEqual({ code: 0, protocol: 'my-app' });
     });
+
+    it('never selects or echoes a bearer-only subprotocol offer', async () => {
+      const { port } = startServer(() => ({ userId: 'u1' }));
+
+      const result = await openWith(port, { protocols: ['fieldnotes-bearer.secret-token'] });
+
+      expect(result).toEqual({ code: 1006, protocol: '' });
+    });
   });
 
   it('accepts a good token and rejects a bad token', async () => {

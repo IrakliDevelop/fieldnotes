@@ -1,6 +1,6 @@
 {
   "name": "@fieldnotes/vtt",
-  "version": "0.8.2",
+  "version": "0.9.0",
   "description": "VTT domain tools and overlays for Field Notes canvas SDK",
   "type": "module",
   "sideEffects": false,
@@ -61,7 +61,7 @@
     "@fieldnotes/core": ">=0.82.0 <1.0.0",
     "@fieldnotes/sync": ">=0.19.0 <1.0.0",
     "@fieldnotes/sync-server": ">=0.18.0 <1.0.0",
-    "@fieldnotes/sync-redis": ">=0.9.1 <1.0.0"
+    "@fieldnotes/sync-redis": ">=0.10.0 <1.0.0"
   },
   "peerDependenciesMeta": {
     "@fieldnotes/sync": {

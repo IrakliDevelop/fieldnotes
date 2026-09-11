@@ -1682,6 +1682,33 @@ describe('presence (ephemeral)', () => {
     expect(b.sent).toEqual([]);
   });
 
+  it('drops oversized presence received from the fanout channel (S5, S18)', async () => {
+    const bus = new InMemoryHubFanout();
+    const hub = new SyncHub({ instanceId: 'local', fanout: bus, maxPresenceBytes: 32 });
+    const recipient = conn('recipient', 'R');
+    hub.addConnection(recipient);
+
+    bus.publish(
+      JSON.stringify({
+        o: 'rogue',
+        room: 'R',
+        from: 'remote',
+        op: { kind: 'presence', data: { big: 'x'.repeat(80) } },
+      }),
+    );
+    bus.publish(
+      JSON.stringify({
+        o: 'remote-hub',
+        room: 'R',
+        from: 'remote',
+        op: { kind: 'presence', data: { ok: true } },
+      }),
+    );
+
+    await vi.waitFor(() => expect(recipient.sent).toHaveLength(1));
+    expect(JSON.parse(recipient.sent[0] ?? '').op.data).toEqual({ ok: true });
+  });
+
   it('broadcasts server-owned presence to every local room member and returns the local count', () => {
     const hub = new SyncHub();
     const a = makeConn('a', 'R');
@@ -1700,6 +1727,20 @@ describe('presence (ephemeral)', () => {
       op: { kind: 'presence', data: { kind: 'poke', feature: 'initiative' } },
     });
     expect(otherRoom.sent).toEqual([]);
+  });
+
+  it('does not locally deliver or fan out oversized server-owned presence', () => {
+    const publish = vi.fn();
+    const hub = new SyncHub({
+      maxPresenceBytes: 32,
+      fanout: { publish, subscribe: () => () => undefined },
+    });
+    const recipient = makeConn('recipient', 'R');
+    hub.addConnection(recipient);
+
+    expect(hub.broadcastPresence('R', { big: 'x'.repeat(80) })).toBe(0);
+    expect(recipient.sent).toEqual([]);
+    expect(publish).not.toHaveBeenCalled();
   });
 
   it('fans server-owned presence out to other hub instances without double local delivery', () => {

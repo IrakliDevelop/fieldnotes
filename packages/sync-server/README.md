@@ -130,7 +130,9 @@ buckets: `messageBurst` / `byteBurst` are the short spike allowances and `messag
 `bytesPerSecond` the refill rates, so relay amplification is bounded in bytes, not just frames.
 Connection caps are taken at the upgrade, before `authenticate` runs, and count pending-auth
 sockets; behind a trusted proxy supply `clientAddress` to read the forwarded address, and return
-`undefined` to exempt a connection from the per-address cap.
+`undefined` to exempt a connection from the per-address cap. Rate and burst values must be positive
+finite numbers; connection caps must be positive safe integers, or `Infinity` to disable a cap.
+Invalid values throw during `createSyncServer` construction.
 
 ## Authentication
 

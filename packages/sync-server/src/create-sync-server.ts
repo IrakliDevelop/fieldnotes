@@ -104,6 +104,20 @@ function rawDataByteLength(data: RawData): number {
   return data.byteLength;
 }
 
+function requirePositiveFinite(name: string, value: number): number {
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new RangeError(`${name} must be a positive finite number`);
+  }
+  return value;
+}
+
+function requirePositiveIntegerOrInfinity(name: string, value: number): number {
+  if (value !== Infinity && (!Number.isSafeInteger(value) || value <= 0)) {
+    throw new RangeError(`${name} must be a positive safe integer or Infinity`);
+  }
+  return value;
+}
+
 export function createSyncServer(options: CreateSyncServerOptions = {}): {
   hub: SyncHub;
   wss: WebSocketServer;
@@ -113,6 +127,27 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
   if (!Number.isFinite(shutdownGraceMs) || shutdownGraceMs < 0) {
     throw new RangeError('shutdownGraceMs must be a non-negative finite number');
   }
+  const messagesPerSecond = requirePositiveFinite(
+    'messagesPerSecond',
+    options.messagesPerSecond ?? DEFAULT_MESSAGES_PER_SECOND,
+  );
+  const messageBurst = requirePositiveFinite(
+    'messageBurst',
+    options.messageBurst ?? DEFAULT_MESSAGE_BURST,
+  );
+  const bytesPerSecond = requirePositiveFinite(
+    'bytesPerSecond',
+    options.bytesPerSecond ?? DEFAULT_BYTES_PER_SECOND,
+  );
+  const byteBurst = requirePositiveFinite('byteBurst', options.byteBurst ?? DEFAULT_BYTE_BURST);
+  const maxConnectionsPerIp = requirePositiveIntegerOrInfinity(
+    'maxConnectionsPerIp',
+    options.maxConnectionsPerIp ?? DEFAULT_MAX_CONNECTIONS_PER_IP,
+  );
+  const maxConnectionsPerRoom = requirePositiveIntegerOrInfinity(
+    'maxConnectionsPerRoom',
+    options.maxConnectionsPerRoom ?? DEFAULT_MAX_CONNECTIONS_PER_ROOM,
+  );
   if (options.authorize && !options.authenticate) {
     // Ownership authorization needs a stable userId; the anonymous default is
     // the per-socket connId, which changes on every reconnect.
@@ -143,7 +178,7 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
     for (const protocol of protocols) {
       if (!protocol.startsWith(BEARER_SUBPROTOCOL_PREFIX)) return protocol;
     }
-    return protocols.values().next().value ?? false;
+    return false;
   };
   const wss = options.server
     ? new WebSocketServer({ server: options.server, maxPayload: maxMessageBytes, handleProtocols })
@@ -156,12 +191,8 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
   let shuttingDown = false;
   let closePromise: Promise<void> | undefined;
   let counter = 0;
-  const perIp = new ConcurrencyCounter(
-    options.maxConnectionsPerIp ?? DEFAULT_MAX_CONNECTIONS_PER_IP,
-  );
-  const perRoom = new ConcurrencyCounter(
-    options.maxConnectionsPerRoom ?? DEFAULT_MAX_CONNECTIONS_PER_ROOM,
-  );
+  const perIp = new ConcurrencyCounter(maxConnectionsPerIp);
+  const perRoom = new ConcurrencyCounter(maxConnectionsPerRoom);
   const clientAddress = options.clientAddress ?? ((req) => req.socket.remoteAddress);
   wss.on('connection', (ws, req) => {
     if (shuttingDown) {
@@ -205,14 +236,8 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
     const maxPendingAuthMessages =
       options.maxPendingAuthMessages ?? DEFAULT_MAX_PENDING_AUTH_MESSAGES;
     const maxPendingAuthBytes = options.maxPendingAuthBytes ?? DEFAULT_MAX_PENDING_AUTH_BYTES;
-    const limiter = new MessageRateLimiter(
-      options.messagesPerSecond ?? DEFAULT_MESSAGES_PER_SECOND,
-      options.messageBurst ?? DEFAULT_MESSAGE_BURST,
-    );
-    const byteLimiter = new MessageRateLimiter(
-      options.bytesPerSecond ?? DEFAULT_BYTES_PER_SECOND,
-      options.byteBurst ?? DEFAULT_BYTE_BURST,
-    );
+    const limiter = new MessageRateLimiter(messagesPerSecond, messageBurst);
+    const byteLimiter = new MessageRateLimiter(bytesPerSecond, byteBurst);
 
     const send = (m: string) => {
       try {

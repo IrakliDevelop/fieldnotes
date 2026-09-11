@@ -109,7 +109,16 @@
         /></label>
         <label><input type="radio" name="role" value="dm" /> DM</label>
         <label><input type="radio" name="role" value="player" checked /> Player</label>
-        <label>Room <input name="room" value="table" /></label>
+        <label
+          >Room
+          <input
+            name="room"
+            value="table"
+            required
+            maxlength="64"
+            pattern="[A-Za-z0-9_\-]{1,64}"
+            title="Use 1–64 letters, numbers, underscores, or hyphens"
+        /></label>
         <button type="submit">Join</button>
         <div id="denied"></div>
       </form>
