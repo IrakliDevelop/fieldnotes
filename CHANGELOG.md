@@ -4,6 +4,37 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.82.1] — 2026-09-11
+
+### Fixed
+
+- Pencil, arrow, shape, note, text and image tools implement `onPointerCancel` and abandon their
+  in-progress gesture. A second finger starting a pinch no longer commits a half-drawn stroke,
+  creates a shape or arrow, or opens a note editor.
+- `ImageTool` places images on the active layer; previously it wrote `layerId: ''`, which the
+  serializer rejects, so `loadJSON(exportJSON())` threw after placing an image with the tool.
+- `InputHandler` records which pointer started a tool gesture and ignores up/cancel/leave from
+  other pointers, so a hovering pen leaving the canvas no longer commits a mouse drag. Lost
+  pointer capture, window blur and tab visibility changes now abandon held pointers and pans, so a
+  truncated gesture can no longer leave the handler treating every later stroke as a pinch.
+- The eraser skips locked strokes, hit-tests rotated strokes where they are drawn, and preserves
+  `blendMode`, `groupId` and rotation on partially-erased fragments (fragments are repositioned so
+  rotating about their own center leaves them in place).
+- Stroke, arrow and line-shape hit tolerances are screen pixels divided by zoom; strokes stay
+  selectable when zoomed out and no longer grow a 100px halo when zoomed in.
+- `AutoSave.load()` reports an unreadable or newer-version save through `onError` and refuses to
+  save until `clear()` or a later successful `load()`, instead of silently overwriting it.
+- Sync: a remote upsert clears every field the peer removed (ungroup, arrow unbind, cleared
+  label/rotation/fontSize/blendMode) instead of shallow-merging the stale value forever.
+- VTT: fog edits made before the sync client first starts are buffered and published on connect
+  instead of being wiped when the hub reports no fog.
+
+### Package versions
+
+- `@fieldnotes/core` 0.82.0 → 0.82.1
+- `@fieldnotes/sync` 0.19.0 → 0.19.1
+- `@fieldnotes/vtt` 0.8.0 → 0.8.1
+
 ## [0.82.0] — 2026-09-10
 
 ### Added
