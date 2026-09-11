@@ -2,8 +2,8 @@ import {
   createCurrentCapabilities,
   createLegacyCapabilities,
   parseEnvelope,
+  isValidEnvelope,
   isValidElement,
-  isValidWireElement,
   isNewerLayerRecord,
   translateOpForPeer,
   type LayerRecord,
@@ -59,13 +59,9 @@ function generateInstanceId(): string {
 }
 
 function isFanoutOp(
-  op: unknown,
+  op: WireSyncOp,
 ): op is Extract<WireSyncOp, { kind: 'upsert' | 'remove' | 'clear' }> {
-  if (typeof op !== 'object' || op === null) return false;
-  const o = op as { kind?: unknown; element?: unknown; id?: unknown };
-  if (o.kind === 'upsert') return isValidWireElement(o.element);
-  if (o.kind === 'remove') return typeof o.id === 'string';
-  return o.kind === 'clear';
+  return op.kind === 'upsert' || op.kind === 'remove' || op.kind === 'clear';
 }
 
 type LayerOp = Extract<WireSyncOp, { kind: 'layer-upsert' | 'layer-remove' }>;
@@ -87,12 +83,8 @@ function presenceLaneOf(data: unknown): string {
   return kind;
 }
 
-function isLayerOp(op: unknown): op is LayerOp {
-  if (typeof op !== 'object' || op === null) return false;
-  const k = (op as { kind?: unknown }).kind;
-  // Shape is re-validated by parseEnvelope on the serial path; fanout payloads
-  // come from a sibling hub that already validated them.
-  return k === 'layer-upsert' || k === 'layer-remove';
+function isLayerOp(op: WireSyncOp): op is LayerOp {
+  return op.kind === 'layer-upsert' || op.kind === 'layer-remove';
 }
 
 function layerOpToRecord(op: LayerOp): LayerRecord {
@@ -123,11 +115,9 @@ function capabilityProfile(capabilities: SyncCapabilities): string {
 }
 
 function isPresenceOp(
-  op: unknown,
-): op is { kind: 'presence'; data: unknown } | { kind: 'presence-leave' } {
-  if (typeof op !== 'object' || op === null) return false;
-  const k = (op as { kind?: unknown }).kind;
-  return k === 'presence' || k === 'presence-leave';
+  op: WireSyncOp,
+): op is Extract<WireSyncOp, { kind: 'presence' | 'presence-leave' }> {
+  return op.kind === 'presence' || op.kind === 'presence-leave';
 }
 
 export class SyncHub {
@@ -786,6 +776,9 @@ export class SyncHub {
   private onFanout(payload: string): void {
     // Off the serial queue on purpose: forward-only (the origin already applied to the SHARED backend),
     // and delivery is already ordered. Re-filter per local member (canRead runs on EVERY instance).
+    // The channel is a trust boundary of its own: anyone who can publish to it reaches every
+    // instance, so a fanout op passes the same shape validation as a client frame.
+    if (!hasJsonDepthAtMost(payload, this.maxJsonDepth)) return;
     let env: {
       o?: unknown;
       room?: unknown;
@@ -802,7 +795,9 @@ export class SyncHub {
     if (typeof env.o !== 'string' || typeof env.room !== 'string' || typeof env.from !== 'string')
       return;
     if (env.o === this.instanceId) return; // our own publish — already delivered locally
-    const op = env.op;
+    const envelope = { from: env.from, op: env.op };
+    if (!isValidEnvelope(envelope)) return;
+    const op = envelope.op;
     if (isPresenceOp(op)) {
       // presence/leave: raw forward to all local members (the sender lives on the origin instance),
       // no backend, no canRead filter.
@@ -816,16 +811,16 @@ export class SyncHub {
       this.relayOpToRoom(env.room, undefined, env.from, op);
       return;
     }
-    const plugin =
-      typeof op === 'object' && op !== null && (op as { kind?: unknown }).kind === 'extension'
-        ? this.pluginRegistry.extension((op as { extensionKind?: string }).extensionKind ?? '')
-            ?.plugin
-        : typeof op === 'object' &&
-            op !== null &&
-            typeof (op as { kind?: unknown }).kind === 'string'
-          ? this.pluginRegistry.ownerOf((op as { kind: string }).kind)
-          : undefined;
-    if (plugin && typeof op === 'object' && op !== null) {
+    let plugin: ServerSyncPlugin | undefined;
+    if (op.kind === 'extension') {
+      const entry = this.pluginRegistry.extension(op.extensionKind);
+      if (!entry || !entry.kind.codec.validate(op.payload)) return;
+      plugin = entry.plugin;
+    } else {
+      plugin = this.pluginRegistry.ownerOf(op.kind);
+    }
+    if (plugin) {
+      const owner = plugin;
       const previous = this.roomQueues.get(env.room) ?? Promise.resolve();
       const operation = previous.then(async () => {
         const context: ServerOpContext = {
@@ -834,9 +829,7 @@ export class SyncHub {
           backend: this.backend,
           backendPlugin: (key) => this.backend.getService?.(key),
         };
-        const accepted = plugin.applyFanout
-          ? await plugin.applyFanout(op as WireSyncOp, context)
-          : (op as WireSyncOp);
+        const accepted = owner.applyFanout ? await owner.applyFanout(op, context) : op;
         if (accepted) {
           this.relayOpToRoom(env.room as string, undefined, env.from as string, accepted);
         }

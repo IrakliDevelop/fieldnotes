@@ -510,6 +510,98 @@ describe('SyncHub', () => {
       expect(b.sent).toEqual([]);
     });
 
+    it('drops a malformed layer op injected on the fanout channel (S18)', async () => {
+      const bus = new InMemoryHubFanout();
+      const hubB = new SyncHub({ instanceId: 'B', fanout: bus });
+      const b = makeConn('b', 'R');
+      hubB.addConnection(b);
+
+      // Anyone who can PUBLISH to the channel bypasses the origin hub's parseEnvelope.
+      bus.publish(
+        JSON.stringify({
+          o: 'rogue',
+          room: 'R',
+          from: 'x',
+          op: { kind: 'layer-upsert', layer: { id: 'L' }, version: 1, editor: 'x' },
+        }),
+      );
+      await new Promise((r) => setTimeout(r, 0));
+      await hubB.handleMessage('b', envelope('b', { kind: 'request-snapshot' }));
+
+      expect(b.sent).toHaveLength(1);
+      expect(JSON.parse(b.sent[0] ?? '')).toMatchObject({ op: { kind: 'snapshot' } });
+      expect(JSON.parse(b.sent[0] ?? '').op.layers).toBeUndefined();
+    });
+
+    it('drops an extension op whose payload fails its codec on the fanout channel (S18)', async () => {
+      const bus = new InMemoryHubFanout();
+      const kind = createExtensionKind<{ value: number }>({
+        extensionKind: 'test:counter',
+        codec: {
+          validate: (payload): payload is { value: number } =>
+            typeof payload === 'object' &&
+            payload !== null &&
+            typeof (payload as { value?: unknown }).value === 'number',
+        },
+      });
+      const hubB = new SyncHub({
+        instanceId: 'B',
+        fanout: bus,
+        plugins: [
+          {
+            name: 'counter',
+            registerExtensionKinds(registry) {
+              registry.register(kind, async (op) => ({ accepted: op, corrections: [] }));
+            },
+          },
+        ],
+      });
+      const b = makeConn('b', 'R');
+      hubB.addConnection(b);
+      await hubB.handleMessage(
+        'b',
+        envelope('b', {
+          kind: 'capabilities',
+          capabilities: createCurrentCapabilities(['test:counter']),
+        }),
+      );
+      b.sent.length = 0;
+
+      const rogue = (payload: unknown) =>
+        bus.publish(
+          JSON.stringify({
+            o: 'rogue',
+            room: 'R',
+            from: 'x',
+            op: { kind: 'extension', extensionKind: 'test:counter', payload },
+          }),
+        );
+      rogue({ value: 'nope' });
+      rogue({ value: 3 });
+      await vi.waitFor(() => expect(b.sent).toHaveLength(1));
+
+      expect(JSON.parse(b.sent[0] ?? '').op).toMatchObject({ payload: { value: 3 } });
+    });
+
+    it('drops a fanout payload nested deeper than maxJsonDepth (S18)', async () => {
+      const bus = new InMemoryHubFanout();
+      const hubB = new SyncHub({ instanceId: 'B', fanout: bus, maxJsonDepth: 4 });
+      const b = makeConn('b', 'R');
+      hubB.addConnection(b);
+
+      bus.publish(
+        JSON.stringify({
+          o: 'rogue',
+          room: 'R',
+          from: 'x',
+          op: { kind: 'presence', data: { a: { b: { c: { d: { e: 1 } } } } } },
+        }),
+      );
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(b.sent).toEqual([]);
+    });
+
     it('surfaces publication failure, withholds local delivery, and keeps the room queue usable', async () => {
       const error = new Error('fanout unavailable');
       let publishCount = 0;
