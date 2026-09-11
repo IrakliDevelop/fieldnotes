@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { rectsOverlap, isInsideBounds, hitTestResizeHandle, hitTest } from './select-hit';
 import { ElementStore } from '../elements/element-store';
 import { Camera } from '../canvas/camera';
-import { createNote } from '../elements/element-factory';
+import { createNote, createStroke, createArrow } from '../elements/element-factory';
 import type { ToolContext } from './types';
 import { ElementRegistry } from '../elements/element-registry';
 import type { ExtensionElementEnvelope } from '../elements/types';
@@ -86,5 +86,42 @@ describe('hitTestResizeHandle', () => {
     const note = createNote({ position: { x: 0, y: 0 }, size: { w: 200, h: 100 }, locked: true });
     ctx.store.add(note);
     expect(hitTestResizeHandle({ x: 200, y: 100 }, ctx, [note.id])).toBeNull();
+  });
+
+  describe('hit tolerance scales with zoom', () => {
+    function strokeCtx(zoom: number): ToolContext {
+      const ctx = makeCtx();
+      ctx.camera.setZoom(zoom);
+      ctx.store.add(
+        createStroke({
+          points: [
+            { x: 0, y: 0, pressure: 0.5 },
+            { x: 100, y: 0, pressure: 0.5 },
+          ],
+        }),
+      );
+      return ctx;
+    }
+
+    it('a click 5 world units off a stroke hits at zoom 1', () => {
+      expect(hitTest({ x: 50, y: 5 }, strokeCtx(1))).not.toBeNull();
+    });
+
+    it('when zoomed out, a click 50 world units (5 screen px) off a stroke still hits', () => {
+      expect(hitTest({ x: 50, y: 50 }, strokeCtx(0.1))).not.toBeNull();
+    });
+
+    it('when zoomed in, a click 5 world units (50 screen px) off a stroke misses', () => {
+      expect(hitTest({ x: 50, y: 5 }, strokeCtx(10))).toBeNull();
+    });
+
+    it('arrow tolerance follows zoom too', () => {
+      const ctx = makeCtx();
+      ctx.camera.setZoom(0.1);
+      ctx.store.add(
+        createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 }, position: { x: 0, y: 0 } }),
+      );
+      expect(hitTest({ x: 50, y: 50 }, ctx)).not.toBeNull();
+    });
   });
 });

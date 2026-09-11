@@ -20,7 +20,7 @@ function makeDeps(store: ElementStore, overrides: Partial<ViewportInteractionsDe
   const nodes = new Map<string, HTMLElement>();
   const deps: ViewportInteractionsDeps = {
     store,
-    camera: { screenToWorld: (p: { x: number; y: number }) => p } as never,
+    camera: { zoom: 1, screenToWorld: (p: { x: number; y: number }) => p } as never,
     wrapper: document.createElement('div') as HTMLDivElement,
     domLayer: document.createElement('div') as HTMLDivElement,
     renderLoop: { flush: vi.fn() } as never,
