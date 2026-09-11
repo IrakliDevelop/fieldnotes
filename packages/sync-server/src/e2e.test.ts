@@ -395,7 +395,7 @@ describe('sync-server WebSocket relay (end-to-end)', () => {
     expect(received).toEqual([
       {
         from: 'hub',
-        op: { kind: 'snapshot', to: 'clear', elements: [shared] },
+        op: { kind: 'snapshot', to: 'clear', elements: [{ ...shared, ownerId: undefined }] },
       },
       { from: 'hub', op: { kind: 'remove', id: hidden.id } },
     ]);

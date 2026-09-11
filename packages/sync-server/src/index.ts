@@ -16,6 +16,8 @@ export type {
   OwnedElement,
   ReadContext,
   CanRead,
+  OwnerReadContext,
+  CanReadOwnerId,
 } from './authorize';
 export { startHeartbeat } from './heartbeat';
 export type { Heartbeat, HeartbeatSocket, HeartbeatServer } from './heartbeat';

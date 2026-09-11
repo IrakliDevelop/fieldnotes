@@ -198,6 +198,11 @@ authenticated creator; on edit the stored owner is **preserved**; a client-suppl
 `ownerId` is always **discarded**. A policy can therefore trust `currentElement.ownerId`
 to enforce "own elements only".
 
+**`ownerId` stays on the server.** It is stripped from every outbound frame (live ops,
+snapshots, corrections, legacy translations) so a viewer's save file never records who
+created what. Pass `canReadOwnerId({ userId, role, room }) => boolean` to reveal it to
+privileged viewers, e.g. `canReadOwnerId: ({ role }) => role === 'dm'`.
+
 With **no hook**, rooms are OPEN (allow-all — every op is accepted).
 
 A copy-paste DM / player / display policy:

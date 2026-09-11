@@ -18,7 +18,7 @@ import type { ElementRegistry } from '@fieldnotes/core';
 import { MemoryHubBackend } from './memory-hub-backend';
 import { InMemoryHubFanout, type HubFanout } from './hub-fanout';
 import type { HubBackend } from './hub-backend';
-import type { Authorize, AuthorizeLayer, CanRead, OwnedElement } from './authorize';
+import type { Authorize, AuthorizeLayer, CanRead, CanReadOwnerId, OwnedElement } from './authorize';
 import { ServerPluginRegistry } from './sync-plugin';
 import type { ApplyResult, ServerOpContext, ServerSyncPlugin } from './sync-plugin';
 import {
@@ -44,6 +44,7 @@ export interface SyncHubOptions {
   authorizeLayer?: AuthorizeLayer;
   plugins?: readonly ServerSyncPlugin[];
   canRead?: CanRead;
+  canReadOwnerId?: CanReadOwnerId;
   maxJsonDepth?: number;
   presenceThrottleMs?: number;
   maxPresenceLanes?: number;
@@ -105,13 +106,28 @@ function layerRecordToOp(record: LayerRecord): LayerOp {
 }
 
 /**
- * Peers sharing a capability profile receive byte-identical frames, so a
- * relay encodes each (sender, op) once per profile instead of once per recipient.
+ * Peers sharing an encoding profile (capabilities plus ownerId privilege)
+ * receive byte-identical frames, so a relay encodes each (sender, op) once
+ * per profile instead of once per recipient.
  */
 type EncodedFrames = Map<string, string | null>;
 
-function capabilityProfile(capabilities: SyncCapabilities): string {
-  return JSON.stringify([capabilities.elementEnvelope, capabilities.extensionKinds]);
+function encodingProfile(capabilities: SyncCapabilities, revealOwner: boolean): string {
+  return JSON.stringify([capabilities.elementEnvelope, capabilities.extensionKinds, revealOwner]);
+}
+
+function withoutOwnerId(element: WireSyncElement): WireSyncElement {
+  if (element.ownerId === undefined) return element;
+  const rest: WireSyncElement = { ...element };
+  delete rest.ownerId;
+  return rest;
+}
+
+/** Removes the server-stamped `ownerId` from every element an op carries. */
+function stripOwnerId(op: WireSyncOp): WireSyncOp {
+  if (op.kind === 'upsert') return { ...op, element: withoutOwnerId(op.element) };
+  if (op.kind === 'snapshot') return { ...op, elements: op.elements.map(withoutOwnerId) };
+  return op;
 }
 
 function isPresenceOp(
@@ -135,6 +151,7 @@ export class SyncHub {
   private readonly elementRegistry: ElementRegistry;
   private readonly peerCapabilities = new Map<string, SyncCapabilities>();
   private readonly canRead?: CanRead;
+  private readonly canReadOwnerId?: CanReadOwnerId;
   private readonly memoryLayers = new Map<string, Map<string, LayerRecord>>();
   private readonly maxJsonDepth: number;
   private readonly presenceThrottleMs: number;
@@ -159,6 +176,7 @@ export class SyncHub {
     this.authorize = options.authorize;
     this.authorizeLayer = options.authorizeLayer;
     this.canRead = options.canRead;
+    this.canReadOwnerId = options.canReadOwnerId;
     this.maxJsonDepth = options.maxJsonDepth ?? DEFAULT_MAX_JSON_DEPTH;
     this.presenceThrottleMs = options.presenceThrottleMs ?? DEFAULT_PRESENCE_THROTTLE_MS;
     const maxPresenceLanes = options.maxPresenceLanes ?? DEFAULT_MAX_PRESENCE_LANES;
@@ -487,6 +505,11 @@ export class SyncHub {
     map.set(record.id, record);
   }
 
+  private mayReadOwnerId(conn: Connection): boolean {
+    if (!this.canReadOwnerId) return false;
+    return this.canReadOwnerId({ userId: conn.userId, role: conn.role, room: conn.room });
+  }
+
   private mayRead(conn: Connection, audience: string | undefined): boolean {
     if (!this.canRead) return true;
     return this.canRead({ userId: conn.userId, role: conn.role, room: conn.room, audience });
@@ -532,10 +555,11 @@ export class SyncHub {
     encoded?: EncodedFrames,
   ): boolean {
     const capabilities = this.peerCapabilities.get(conn.id) ?? createLegacyCapabilities();
-    const profile = encoded ? capabilityProfile(capabilities) : undefined;
+    const revealOwner = this.mayReadOwnerId(conn);
+    const profile = encoded ? encodingProfile(capabilities, revealOwner) : undefined;
     let message = profile === undefined ? undefined : encoded?.get(profile);
     if (message === undefined) {
-      message = this.encodeForPeer(from, op, capabilities);
+      message = this.encodeForPeer(from, op, capabilities, revealOwner);
       if (profile !== undefined) encoded?.set(profile, message);
     }
     if (message === null) return false;
@@ -547,15 +571,20 @@ export class SyncHub {
     }
   }
 
-  /** Returns the wire frame for `op` translated for `capabilities`, or null when lossy. */
+  /**
+   * Returns the wire frame for `op` translated for `capabilities`, or null
+   * when lossy. The server-stamped `ownerId` is a server-side authorization
+   * fact: it leaves the hub only for peers `canReadOwnerId` admits.
+   */
   private encodeForPeer(
     from: string,
     op: WireSyncOp,
     capabilities: SyncCapabilities,
+    revealOwner: boolean,
   ): string | null {
     try {
       const translated = translateOpForPeer(
-        op,
+        revealOwner ? op : stripOwnerId(op),
         capabilities,
         this.elementRegistry,
         this.pluginRegistry.extensionDefinitions,

@@ -32,6 +32,13 @@ function envelope(from: string, op: SyncOp): string {
 const sampleEl = (): CanvasElement =>
   createShape({ position: { x: 1, y: 2 }, size: { w: 10, h: 20 } });
 
+/** What a non-privileged reader receives: the element minus the server-stamped ownerId (S4). */
+function publicView<T extends { ownerId?: string }>(element: T): Omit<T, 'ownerId'> {
+  const rest: T = { ...element };
+  delete rest.ownerId;
+  return rest;
+}
+
 describe('SyncHub', () => {
   let hub: SyncHub;
   let A: FakeConn;
@@ -746,6 +753,105 @@ describe('SyncHub', () => {
       return false;
     };
 
+    describe('ownerId privacy (S4)', () => {
+      const withoutOwner = (element: CanvasElement): Record<string, unknown> => {
+        const copy: Record<string, unknown> = { ...element };
+        delete copy['ownerId'];
+        return copy;
+      };
+
+      it('strips the server-stamped ownerId from relayed upserts, snapshots and corrections', async () => {
+        const backend = new MemoryHubBackend();
+        const hub = new SyncHub({ authorize: policy, backend });
+        const p = roleConn('p', 'R', 'player1', 'player');
+        const p2 = roleConn('p2', 'R', 'player2', 'player');
+        const obs = roleConn('obs', 'R', 'dm1', 'dm');
+        hub.addConnection(p);
+        hub.addConnection(p2);
+        hub.addConnection(obs);
+
+        await hub.handleMessage('p', envelope('cp', { kind: 'upsert', element: el('e1') }));
+        expect(((await backend.get('R', 'e1')) as OwnedElement | undefined)?.ownerId).toBe(
+          'player1',
+        );
+        expect(JSON.parse(obs.sent[0] ?? '').op.element).toEqual(withoutOwner(el('e1')));
+        expect(JSON.parse(p2.sent[0] ?? '').op.element).not.toHaveProperty('ownerId');
+
+        obs.sent.length = 0;
+        await hub.handleMessage('obs', envelope('cobs', { kind: 'request-snapshot' }));
+        expect(JSON.parse(obs.sent[0] ?? '').op.elements).toEqual([withoutOwner(el('e1'))]);
+
+        p2.sent.length = 0;
+        await hub.handleMessage(
+          'p2',
+          envelope('cp2', { kind: 'upsert', element: { ...el('e1'), position: { x: 9, y: 9 } } }),
+        );
+        const correction = JSON.parse(p2.sent[0] ?? '');
+        expect(correction).toMatchObject({ from: 'hub', op: { kind: 'upsert' } });
+        expect(correction.op.element).toEqual(withoutOwner(el('e1')));
+      });
+
+      it('strips a persisted ownerId even when no authorize hook is configured', async () => {
+        const backend = new MemoryHubBackend();
+        await backend.apply('R', { kind: 'upsert', element: { ...el('e1'), ownerId: 'dm1' } });
+        const bus = new InMemoryHubFanout();
+        const hubA = new SyncHub({ backend, instanceId: 'A', fanout: bus });
+        const hubB = new SyncHub({ backend, instanceId: 'B', fanout: bus });
+        const a = makeConn('a', 'R');
+        const b = makeConn('b', 'R');
+        hubA.addConnection(a);
+        hubB.addConnection(b);
+
+        await hubA.handleMessage('a', envelope('ca', { kind: 'request-snapshot' }));
+        expect(JSON.parse(a.sent[0] ?? '').op.elements).toEqual([withoutOwner(el('e1'))]);
+
+        // A fanned-out upsert carrying a stored ownerId is stripped on the receiving instance too.
+        bus.publish(
+          JSON.stringify({
+            o: 'C',
+            room: 'R',
+            from: 'x',
+            op: { kind: 'upsert', element: { ...el('e2'), ownerId: 'dm1' } },
+          }),
+        );
+        expect(JSON.parse(b.sent[0] ?? '').op.element).toEqual(withoutOwner(el('e2')));
+      });
+
+      it('reveals ownerId only to readers allowed by canReadOwnerId', async () => {
+        const backend = new MemoryHubBackend();
+        const hub = new SyncHub({
+          authorize: policy,
+          backend,
+          canReadOwnerId: ({ role }) => role === 'dm',
+        });
+        const p = roleConn('p', 'R', 'player1', 'player');
+        const other = roleConn('other', 'R', 'player2', 'player');
+        const dm = roleConn('dm', 'R', 'dm1', 'dm');
+        const dmModern = roleConn('dm2', 'R', 'dm2', 'dm');
+        hub.addConnection(p);
+        hub.addConnection(other);
+        hub.addConnection(dm);
+        hub.addConnection(dmModern);
+        await hub.handleMessage(
+          'dm2',
+          envelope('cdm2', { kind: 'capabilities', capabilities: createCurrentCapabilities([]) }),
+        );
+        dmModern.sent.length = 0;
+
+        await hub.handleMessage('p', envelope('cp', { kind: 'upsert', element: el('e1') }));
+
+        // Same capability profile as `other`, different privilege: the encode cache must not leak.
+        expect(JSON.parse(dm.sent[0] ?? '').op.element.ownerId).toBe('player1');
+        expect(JSON.parse(dmModern.sent[0] ?? '').op.element.ownerId).toBe('player1');
+        expect(JSON.parse(other.sent[0] ?? '').op.element).not.toHaveProperty('ownerId');
+
+        await hub.handleMessage('other', envelope('co', { kind: 'request-snapshot' }));
+        await hub.handleMessage('dm', envelope('cdm', { kind: 'request-snapshot' }));
+        expect(JSON.parse(other.sent[1] ?? '').op.elements[0]).not.toHaveProperty('ownerId');
+        expect(JSON.parse(dm.sent[1] ?? '').op.elements[0].ownerId).toBe('player1');
+      });
+    });
+
     it('default (no authorize) forwards an upsert WITHOUT an ownerId', async () => {
       const h = new SyncHub();
       const p = roleConn('p', 'R', 'player1', 'player');
@@ -768,7 +874,8 @@ describe('SyncHub', () => {
       await hub.handleMessage('p', envelope('cp', { kind: 'upsert', element: el('e1') }));
 
       const fwd = JSON.parse(obs.sent[0] ?? '');
-      expect(fwd.op.element.ownerId).toBe('player1');
+      expect(fwd.op.element.id).toBe('e1');
+      expect(fwd.op.element.ownerId).toBeUndefined(); // stamped server-side, never relayed (S4)
       const stored = (await backend.get('R', 'e1')) as OwnedElement | undefined;
       expect(stored?.ownerId).toBe('player1');
     });
@@ -855,7 +962,8 @@ describe('SyncHub', () => {
 
       await hub.handleMessage('dm', envelope('cdm', { kind: 'upsert', element: el('X') }));
       const fwd = JSON.parse(obs.sent[0] ?? '');
-      expect(fwd.op.element.ownerId).toBe('dm1');
+      expect(fwd.op.element.id).toBe('X');
+      expect(((await backend.get('R', 'X')) as OwnedElement | undefined)?.ownerId).toBe('dm1');
 
       await hub.handleMessage('dm', envelope('cdm', { kind: 'remove', id: 'X' }));
       expect(await backend.get('R', 'X')).toBeUndefined();
@@ -876,7 +984,7 @@ describe('SyncHub', () => {
       const forgedNew: OwnedElement = { ...sampleEl(), id: 'f', ownerId: 'dm' };
       await hub.handleMessage('p', envelope('cp', { kind: 'upsert', element: forgedNew }));
       const fwdNew = JSON.parse(obs.sent[0] ?? '');
-      expect(fwdNew.op.element.ownerId).toBe('player1');
+      expect(fwdNew.op.element.ownerId).toBeUndefined(); // the forged value never reaches a peer
       expect(((await backend.get('R', 'f')) as OwnedElement | undefined)?.ownerId).toBe('player1');
 
       const forgedOwn: OwnedElement = { ...sampleEl(), id: 'f', ownerId: 'zzz' };
@@ -958,7 +1066,7 @@ describe('SyncHub', () => {
 
         expect(lastCorrection(p)).toEqual({
           from: 'hub',
-          op: { kind: 'upsert', element: canonical },
+          op: { kind: 'upsert', element: publicView(canonical) },
         });
         expect(canonical.ownerId).toBe('dm1');
         expect(await backend.get('R', 'X')).toEqual(canonical);
@@ -980,7 +1088,7 @@ describe('SyncHub', () => {
 
         expect(lastCorrection(p)).toEqual({
           from: 'hub',
-          op: { kind: 'upsert', element: canonical },
+          op: { kind: 'upsert', element: publicView(canonical) },
         });
         expect(await backend.get('R', 'X')).toEqual(canonical);
       });
@@ -1012,7 +1120,7 @@ describe('SyncHub', () => {
 
         expect(lastCorrection(p)).toEqual({
           from: 'hub',
-          op: { kind: 'snapshot', to: 'cp-clr', elements: canonical },
+          op: { kind: 'snapshot', to: 'cp-clr', elements: canonical.map(publicView) },
         });
         expect(await backend.snapshot('R')).toEqual(canonical);
       });
@@ -1330,7 +1438,7 @@ describe('read filtering (canRead)', () => {
       { from: 'hub', op: { kind: 'remove', id: secret.id } },
       {
         from: 'hub',
-        op: { kind: 'snapshot', to: 'player-clear', elements: [shared] },
+        op: { kind: 'snapshot', to: 'player-clear', elements: [publicView(shared)] },
       },
     ]);
     expect(player.sent.join('')).not.toContain('"audience":"dm"');
@@ -1349,7 +1457,7 @@ describe('read filtering (canRead)', () => {
 
     expect(JSON.parse(dm.sent[0] ?? '')).toEqual({
       from: 'hub',
-      op: { kind: 'upsert', element: secret },
+      op: { kind: 'upsert', element: publicView(secret) },
     });
   });
 

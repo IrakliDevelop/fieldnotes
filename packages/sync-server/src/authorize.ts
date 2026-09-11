@@ -37,3 +37,16 @@ export interface ReadContext {
 }
 
 export type CanRead = (ctx: ReadContext) => boolean;
+
+export interface OwnerReadContext {
+  userId?: string;
+  role?: string;
+  room: string;
+}
+
+/**
+ * Decides whether a viewer may see the server-stamped `ownerId` on elements it
+ * receives (live ops, snapshots and corrections). Without a hook `ownerId` is
+ * stripped from every outbound frame; it stays in the backend for `authorize`.
+ */
+export type CanReadOwnerId = (ctx: OwnerReadContext) => boolean;
