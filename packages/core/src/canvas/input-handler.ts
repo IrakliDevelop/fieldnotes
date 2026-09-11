@@ -45,6 +45,8 @@ export class InputHandler {
   private historyRecorder: HistoryRecorder | null;
   private historyStack: HistoryStack | null;
   private isToolActive = false;
+  /** Pointer that started the active tool gesture; only its up/cancel/leave may end it. */
+  private toolPointerId: number | null = null;
   private lastPointerEvent: PointerEvent | null = null;
   private readonly inputFilter = new InputFilter();
   private deferredDown: PointerEvent | null = null;
@@ -170,14 +172,15 @@ export class InputHandler {
     this.element.addEventListener('pointerup', this.onPointerUp, opts);
     this.element.addEventListener('pointerleave', this.onPointerLeave, opts);
     this.element.addEventListener('pointercancel', this.onPointerCancel, opts);
+    this.element.addEventListener('lostpointercapture', this.onLostPointerCapture, opts);
     this.element.addEventListener('contextmenu', this.onContextMenu, opts);
 
-    // `coastStoppedByPointer` otherwise clears only when `activePointers` empties,
-    // which never happens if the gesture's up/cancel/leave is truncated (lost
-    // pointer capture, tab switch mid-press). Window-level, state-clearing only,
-    // mirroring `ElementActivation`'s own blur/visibilitychange recovery.
-    window.addEventListener('blur', this.onCoastInterrupt, opts);
-    window.addEventListener('visibilitychange', this.onCoastInterrupt, opts);
+    // A gesture whose up/cancel/leave never arrives (tab switch, iframe or OS
+    // gesture stealing the pointer) would otherwise leave `activePointers`
+    // populated forever, so the next single finger looks like a pinch and every
+    // stroke is cancelled. Window-level abandon, mirroring `ElementActivation`.
+    window.addEventListener('blur', this.onInterrupt, opts);
+    window.addEventListener('visibilitychange', this.onInterrupt, opts);
   }
 
   private onWheel = (e: WheelEvent): void => {
@@ -314,10 +317,15 @@ export class InputHandler {
     const upResult = this.inputFilter.filterUp(e);
 
     if (this.isToolActive) {
+      // A hovering pen leaving the canvas, or a pointer that never went down,
+      // must not end another pointer's gesture.
+      if (this.toolPointerId !== null && e.pointerId !== this.toolPointerId) return;
       if (cancelled) this.dispatchToolCancel(e);
       else this.dispatchToolUp(e);
       this.isToolActive = false;
+      this.toolPointerId = null;
     } else if (this.deferredDown && upResult.pendingTap) {
+      if (e.pointerId !== this.deferredDown.pointerId) return;
       // The press was still deferred when the pointer ended. Promote it so the
       // tool sees a complete gesture, but a CANCELLED promotion must abandon,
       // not commit: a tap the platform took away is not a tap the user made.
@@ -413,11 +421,15 @@ export class InputHandler {
     this.onPointerUp(e);
   };
 
-  // Recovers `coastStoppedByPointer` when the gesture that set it never delivers
-  // a matching pointerup/cancel/leave. Deliberately narrow: it clears only this
-  // flag, not `activePointers`/`isPanning`, which is a separate pre-existing gap.
-  private onCoastInterrupt = (): void => {
-    this.coastStoppedByPointer = false;
+  private onInterrupt = (): void => {
+    this.abandonGestures();
+  };
+
+  // Fired after a normal release too, but by then `finishPointer` has already
+  // removed the pointer. Still-held means the platform took the pointer away.
+  private onLostPointerCapture = (e: PointerEvent): void => {
+    if (!this.activePointers.has(e.pointerId)) return;
+    this.finishPointer(e, true);
   };
 
   private toPointerState(e: PointerEvent): PointerState {
@@ -436,6 +448,7 @@ export class InputHandler {
     this.actions.flushPendingNudge();
     this.historyRecorder?.begin();
     this.isToolActive = true;
+    this.toolPointerId = e.pointerId;
     this.toolManager.handlePointerDown(this.toPointerState(e), this.toolContext);
   }
 
@@ -480,8 +493,39 @@ export class InputHandler {
     if (this.isToolActive) {
       this.dispatchToolCancel(e);
       this.isToolActive = false;
+      this.toolPointerId = null;
     }
     this.deferredDown = null;
+  }
+
+  /**
+   * Drops every held pointer and in-progress gesture. Used when the platform
+   * stops delivering pointer events for pointers we still believe are down.
+   */
+  private abandonGestures(): void {
+    this.cancelLongPress();
+    if (this.isToolActive) {
+      const e = this.lastPointerEvent ?? new PointerEvent('pointercancel');
+      this.dispatchToolCancel(e);
+      this.isToolActive = false;
+      this.toolPointerId = null;
+    }
+    this.deferredDown = null;
+    for (const pointerId of this.activePointers.keys()) {
+      try {
+        this.element.releasePointerCapture(pointerId);
+      } catch {
+        // Capture already gone; that is the case we are recovering from.
+      }
+    }
+    this.activePointers.clear();
+    this.lastPinchDistance = 0;
+    if (this.isPanning) {
+      this.isPanning = false;
+      this.panInertia.cancel();
+    }
+    this.inputFilter.reset();
+    this.coastStoppedByPointer = false;
   }
 
   private startLongPress(e: PointerEvent): void {
