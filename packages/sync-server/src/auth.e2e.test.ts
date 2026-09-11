@@ -1,7 +1,7 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { WebSocket as WsClient } from 'ws';
 import type { AddressInfo } from 'net';
-import { SyncClient, WebSocketTransport } from '@fieldnotes/sync';
+import { SyncClient, WebSocketTransport, bearerSubprotocols } from '@fieldnotes/sync';
 import { ElementStore, createShape } from '@fieldnotes/core';
 import { createSyncServer, type CreateSyncServerOptions } from './create-sync-server';
 import type { Authenticate } from './authenticate';
@@ -96,6 +96,83 @@ describe('sync-server authentication (end-to-end)', () => {
     // never-admit guarantee the hub would answer request-snapshot and gotMessage → true.
     expect(gotMessage).toBe(false);
   }, 10000);
+
+  describe('bearer token outside the URL (S3)', () => {
+    function openWith(
+      port: number,
+      init: { protocols?: string[]; headers?: Record<string, string>; query?: string },
+    ) {
+      const socket = new WsClient(
+        `ws://127.0.0.1:${port}?room=R${init.query ?? ''}`,
+        init.protocols ?? [],
+        {
+          headers: init.headers ?? {},
+        },
+      );
+      rawSockets.push(socket);
+      return new Promise<{ code: number; protocol: string }>((resolve) => {
+        socket.once('open', () => resolve({ code: 0, protocol: socket.protocol }));
+        socket.once('close', (code) => resolve({ code, protocol: socket.protocol }));
+        socket.once('error', () => undefined);
+      });
+    }
+
+    it('reads the token from a Sec-WebSocket-Protocol bearer entry and selects the sync subprotocol', async () => {
+      const authenticate = vi.fn<Authenticate>(({ token }) =>
+        token === 'good.tok' ? { userId: 'u1' } : null,
+      );
+      const { port } = startServer(authenticate);
+
+      const result = await openWith(port, { protocols: bearerSubprotocols('good.tok') });
+
+      expect(result).toEqual({ code: 0, protocol: 'fieldnotes-sync' });
+      expect(authenticate).toHaveBeenCalledWith(
+        expect.objectContaining({ room: 'R', token: 'good.tok' }),
+      );
+      expect(authenticate.mock.calls[0]?.[0].req.url).not.toContain('good.tok');
+    });
+
+    it('reads the token from an Authorization: Bearer header', async () => {
+      const authenticate = vi.fn<Authenticate>(({ token }) =>
+        token === 'hdr' ? { userId: 'u1' } : null,
+      );
+      const { port } = startServer(authenticate);
+
+      const result = await openWith(port, { headers: { authorization: 'Bearer hdr' } });
+
+      expect(result.code).toBe(0);
+      expect(authenticate).toHaveBeenCalledWith(expect.objectContaining({ token: 'hdr' }));
+    });
+
+    it('keeps the URL token working and lets the subprotocol take precedence over it', async () => {
+      const seen: (string | undefined)[] = [];
+      const { port } = startServer(({ token }) => {
+        seen.push(token);
+        return { userId: 'u1' };
+      });
+
+      await openWith(port, { query: '&token=urltok' });
+      await openWith(port, { query: '&token=urltok', protocols: bearerSubprotocols('subtok') });
+
+      expect(seen).toEqual(['urltok', 'subtok']);
+    });
+
+    it('still echoes a foreign subprotocol offered without a bearer entry', async () => {
+      const { port } = startServer(() => ({ userId: 'u1' }));
+
+      const result = await openWith(port, { protocols: ['my-app'] });
+
+      expect(result).toEqual({ code: 0, protocol: 'my-app' });
+    });
+
+    it('never selects or echoes a bearer-only subprotocol offer', async () => {
+      const { port } = startServer(() => ({ userId: 'u1' }));
+
+      const result = await openWith(port, { protocols: ['fieldnotes-bearer.secret-token'] });
+
+      expect(result).toEqual({ code: 1006, protocol: '' });
+    });
+  });
 
   it('accepts a good token and rejects a bad token', async () => {
     const { port } = startServer(({ req }) => {

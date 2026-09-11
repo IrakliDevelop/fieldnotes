@@ -9,6 +9,7 @@ import {
 import type { HubBackend } from '@fieldnotes/sync-server';
 import type { RedisHashClient } from './redis-hash-client';
 import type { BackendSyncPlugin } from './sync-plugin';
+import { encodeRoomKey } from './room-key';
 
 export interface RedisHubBackendOptions {
   keyPrefix?: string;
@@ -33,11 +34,11 @@ export class RedisHubBackend implements HubBackend {
   }
 
   private key(room: string): string {
-    return `${this.keyPrefix}${room}`;
+    return `${this.keyPrefix}${encodeRoomKey(room)}`;
   }
 
   private layersKey(room: string): string {
-    return `${this.keyPrefix}${room}:layers`;
+    return `${this.key(room)}:layers`;
   }
 
   async snapshot(room: string): Promise<WireSyncElement[]> {
@@ -126,6 +127,7 @@ export class RedisHubBackend implements HubBackend {
           plugin.start({
             client: this.client,
             roomKeyPrefix: this.keyPrefix,
+            roomKey: (room) => this.key(room),
             registerService: (key, service) => {
               if (this.services.has(key.id)) {
                 throw new Error(`Backend service "${key.name}" is already registered`);

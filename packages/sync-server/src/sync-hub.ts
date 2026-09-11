@@ -2,8 +2,8 @@ import {
   createCurrentCapabilities,
   createLegacyCapabilities,
   parseEnvelope,
+  isValidEnvelope,
   isValidElement,
-  isValidWireElement,
   isNewerLayerRecord,
   translateOpForPeer,
   type LayerRecord,
@@ -18,11 +18,19 @@ import type { ElementRegistry } from '@fieldnotes/core';
 import { MemoryHubBackend } from './memory-hub-backend';
 import { InMemoryHubFanout, type HubFanout } from './hub-fanout';
 import type { HubBackend } from './hub-backend';
-import type { Authorize, AuthorizeLayer, CanRead, OwnedElement } from './authorize';
+import type {
+  Authorize,
+  AuthorizeLayer,
+  CanRead,
+  CanReadOwnerId,
+  OwnedElement,
+  ResolveAudience,
+} from './authorize';
 import { ServerPluginRegistry } from './sync-plugin';
 import type { ApplyResult, ServerOpContext, ServerSyncPlugin } from './sync-plugin';
 import {
   DEFAULT_MAX_JSON_DEPTH,
+  DEFAULT_MAX_PRESENCE_BYTES,
   DEFAULT_MAX_PRESENCE_LANES,
   DEFAULT_PRESENCE_THROTTLE_MS,
   hasJsonDepthAtMost,
@@ -44,14 +52,22 @@ export interface SyncHubOptions {
   authorizeLayer?: AuthorizeLayer;
   plugins?: readonly ServerSyncPlugin[];
   canRead?: CanRead;
+  canReadOwnerId?: CanReadOwnerId;
+  resolveAudience?: ResolveAudience;
   maxJsonDepth?: number;
   presenceThrottleMs?: number;
   maxPresenceLanes?: number;
+  /** Largest `presence.data` payload relayed, in UTF-8 bytes of its JSON encoding. */
+  maxPresenceBytes?: number;
   /** Registry used to translate extension elements for legacy peers. */
   elementRegistry?: ElementRegistry;
 }
 
 const HUB_FROM = 'hub';
+const utf8 = new TextEncoder();
+function utf8ByteLength(text: string): number {
+  return utf8.encode(text).byteLength;
+}
 function generateInstanceId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
     return crypto.randomUUID();
@@ -59,13 +75,9 @@ function generateInstanceId(): string {
 }
 
 function isFanoutOp(
-  op: unknown,
+  op: WireSyncOp,
 ): op is Extract<WireSyncOp, { kind: 'upsert' | 'remove' | 'clear' }> {
-  if (typeof op !== 'object' || op === null) return false;
-  const o = op as { kind?: unknown; element?: unknown; id?: unknown };
-  if (o.kind === 'upsert') return isValidWireElement(o.element);
-  if (o.kind === 'remove') return typeof o.id === 'string';
-  return o.kind === 'clear';
+  return op.kind === 'upsert' || op.kind === 'remove' || op.kind === 'clear';
 }
 
 type LayerOp = Extract<WireSyncOp, { kind: 'layer-upsert' | 'layer-remove' }>;
@@ -87,12 +99,8 @@ function presenceLaneOf(data: unknown): string {
   return kind;
 }
 
-function isLayerOp(op: unknown): op is LayerOp {
-  if (typeof op !== 'object' || op === null) return false;
-  const k = (op as { kind?: unknown }).kind;
-  // Shape is re-validated by parseEnvelope on the serial path; fanout payloads
-  // come from a sibling hub that already validated them.
-  return k === 'layer-upsert' || k === 'layer-remove';
+function isLayerOp(op: WireSyncOp): op is LayerOp {
+  return op.kind === 'layer-upsert' || op.kind === 'layer-remove';
 }
 
 function layerOpToRecord(op: LayerOp): LayerRecord {
@@ -113,21 +121,34 @@ function layerRecordToOp(record: LayerRecord): LayerOp {
 }
 
 /**
- * Peers sharing a capability profile receive byte-identical frames, so a
- * relay encodes each (sender, op) once per profile instead of once per recipient.
+ * Peers sharing an encoding profile (capabilities plus ownerId privilege)
+ * receive byte-identical frames, so a relay encodes each (sender, op) once
+ * per profile instead of once per recipient.
  */
 type EncodedFrames = Map<string, string | null>;
 
-function capabilityProfile(capabilities: SyncCapabilities): string {
-  return JSON.stringify([capabilities.elementEnvelope, capabilities.extensionKinds]);
+function encodingProfile(capabilities: SyncCapabilities, revealOwner: boolean): string {
+  return JSON.stringify([capabilities.elementEnvelope, capabilities.extensionKinds, revealOwner]);
+}
+
+function withoutOwnerId(element: WireSyncElement): WireSyncElement {
+  if (element.ownerId === undefined) return element;
+  const rest: WireSyncElement = { ...element };
+  delete rest.ownerId;
+  return rest;
+}
+
+/** Removes the server-stamped `ownerId` from every element an op carries. */
+function stripOwnerId(op: WireSyncOp): WireSyncOp {
+  if (op.kind === 'upsert') return { ...op, element: withoutOwnerId(op.element) };
+  if (op.kind === 'snapshot') return { ...op, elements: op.elements.map(withoutOwnerId) };
+  return op;
 }
 
 function isPresenceOp(
-  op: unknown,
-): op is { kind: 'presence'; data: unknown } | { kind: 'presence-leave' } {
-  if (typeof op !== 'object' || op === null) return false;
-  const k = (op as { kind?: unknown }).kind;
-  return k === 'presence' || k === 'presence-leave';
+  op: WireSyncOp,
+): op is Extract<WireSyncOp, { kind: 'presence' | 'presence-leave' }> {
+  return op.kind === 'presence' || op.kind === 'presence-leave';
 }
 
 export class SyncHub {
@@ -145,10 +166,13 @@ export class SyncHub {
   private readonly elementRegistry: ElementRegistry;
   private readonly peerCapabilities = new Map<string, SyncCapabilities>();
   private readonly canRead?: CanRead;
+  private readonly canReadOwnerId?: CanReadOwnerId;
+  private readonly resolveAudience?: ResolveAudience;
   private readonly memoryLayers = new Map<string, Map<string, LayerRecord>>();
   private readonly maxJsonDepth: number;
   private readonly presenceThrottleMs: number;
   private readonly maxPresenceLanes: number;
+  private readonly maxPresenceBytes: number;
   /**
    * Presence throttle state keyed by connection, then by lane. A lane is the
    * payload's `kind` (a non-empty string of at most 64 chars) or the reserved
@@ -169,6 +193,8 @@ export class SyncHub {
     this.authorize = options.authorize;
     this.authorizeLayer = options.authorizeLayer;
     this.canRead = options.canRead;
+    this.canReadOwnerId = options.canReadOwnerId;
+    this.resolveAudience = options.resolveAudience;
     this.maxJsonDepth = options.maxJsonDepth ?? DEFAULT_MAX_JSON_DEPTH;
     this.presenceThrottleMs = options.presenceThrottleMs ?? DEFAULT_PRESENCE_THROTTLE_MS;
     const maxPresenceLanes = options.maxPresenceLanes ?? DEFAULT_MAX_PRESENCE_LANES;
@@ -176,6 +202,11 @@ export class SyncHub {
       throw new RangeError('maxPresenceLanes must be a finite number of at least 1');
     }
     this.maxPresenceLanes = Math.floor(maxPresenceLanes);
+    const maxPresenceBytes = options.maxPresenceBytes ?? DEFAULT_MAX_PRESENCE_BYTES;
+    if (!Number.isFinite(maxPresenceBytes) || maxPresenceBytes < 0) {
+      throw new RangeError('maxPresenceBytes must be a non-negative finite number');
+    }
+    this.maxPresenceBytes = maxPresenceBytes;
     this.fanoutUnsub = this.fanout.subscribe((payload) => this.onFanout(payload));
   }
 
@@ -218,6 +249,7 @@ export class SyncHub {
    * forwards the same event to other instances on a best-effort basis.
    */
   broadcastPresence<T>(room: string, data: T): number {
+    if (!this.isPresenceWithinLimit(data)) return 0;
     const op = { kind: 'presence' as const, data };
     const sent = this.relayToRoom(room, undefined, JSON.stringify({ from: HUB_FROM, op }));
     this.safePublish(JSON.stringify({ o: this.instanceId, room, from: HUB_FROM, op }));
@@ -239,6 +271,8 @@ export class SyncHub {
       return Promise.resolve();
     }
     if (env.op.kind === 'presence') {
+      // Presence is relayed to every member verbatim, so its size is the amplification factor.
+      if (!this.isPresenceWithinLimit(env.op.data)) return Promise.resolve();
       this.schedulePresence(conn, env.op.data); // off-queue, throttled independently
       return Promise.resolve();
     }
@@ -307,11 +341,28 @@ export class SyncHub {
       await this.deliverPluginResult(conn, result);
     } else if (op.kind === 'upsert' || op.kind === 'remove' || op.kind === 'clear') {
       const id = op.kind === 'upsert' ? op.element.id : op.kind === 'remove' ? op.id : undefined;
-      const needCurrent = (this.authorize || this.canRead) && id !== undefined;
+      const needCurrent =
+        (this.authorize || this.canRead || this.resolveAudience) && id !== undefined;
       const storedCurrent = needCurrent ? await this.backend.get(conn.room, id) : undefined;
       const current = storedCurrent
         ? (this.normalizeElement(storedCurrent) ?? undefined)
         : undefined;
+
+      if (op.kind === 'upsert' && this.resolveAudience) {
+        // The hub, not the client, decides the audience; it runs before authorize so a
+        // policy sees the authoritative tag.
+        const audience = this.resolveAudience({
+          userId: conn.userId,
+          role: conn.role,
+          room: conn.room,
+          element: op.element,
+          currentElement: current,
+        });
+        const element: OwnedElement = { ...op.element };
+        if (audience === undefined) delete element.audience;
+        else element.audience = audience;
+        op = { kind: 'upsert', element };
+      }
 
       let outboundOp: WireSyncOp = op;
       if (this.authorize) {
@@ -497,6 +548,11 @@ export class SyncHub {
     map.set(record.id, record);
   }
 
+  private mayReadOwnerId(conn: Connection): boolean {
+    if (!this.canReadOwnerId) return false;
+    return this.canReadOwnerId({ userId: conn.userId, role: conn.role, room: conn.room });
+  }
+
   private mayRead(conn: Connection, audience: string | undefined): boolean {
     if (!this.canRead) return true;
     return this.canRead({ userId: conn.userId, role: conn.role, room: conn.room, audience });
@@ -542,10 +598,11 @@ export class SyncHub {
     encoded?: EncodedFrames,
   ): boolean {
     const capabilities = this.peerCapabilities.get(conn.id) ?? createLegacyCapabilities();
-    const profile = encoded ? capabilityProfile(capabilities) : undefined;
+    const revealOwner = this.mayReadOwnerId(conn);
+    const profile = encoded ? encodingProfile(capabilities, revealOwner) : undefined;
     let message = profile === undefined ? undefined : encoded?.get(profile);
     if (message === undefined) {
-      message = this.encodeForPeer(from, op, capabilities);
+      message = this.encodeForPeer(from, op, capabilities, revealOwner);
       if (profile !== undefined) encoded?.set(profile, message);
     }
     if (message === null) return false;
@@ -557,15 +614,20 @@ export class SyncHub {
     }
   }
 
-  /** Returns the wire frame for `op` translated for `capabilities`, or null when lossy. */
+  /**
+   * Returns the wire frame for `op` translated for `capabilities`, or null
+   * when lossy. The server-stamped `ownerId` is a server-side authorization
+   * fact: it leaves the hub only for peers `canReadOwnerId` admits.
+   */
   private encodeForPeer(
     from: string,
     op: WireSyncOp,
     capabilities: SyncCapabilities,
+    revealOwner: boolean,
   ): string | null {
     try {
       const translated = translateOpForPeer(
-        op,
+        revealOwner ? op : stripOwnerId(op),
         capabilities,
         this.elementRegistry,
         this.pluginRegistry.extensionDefinitions,
@@ -786,6 +848,9 @@ export class SyncHub {
   private onFanout(payload: string): void {
     // Off the serial queue on purpose: forward-only (the origin already applied to the SHARED backend),
     // and delivery is already ordered. Re-filter per local member (canRead runs on EVERY instance).
+    // The channel is a trust boundary of its own: anyone who can publish to it reaches every
+    // instance, so a fanout op passes the same shape validation as a client frame.
+    if (!hasJsonDepthAtMost(payload, this.maxJsonDepth)) return;
     let env: {
       o?: unknown;
       room?: unknown;
@@ -802,8 +867,11 @@ export class SyncHub {
     if (typeof env.o !== 'string' || typeof env.room !== 'string' || typeof env.from !== 'string')
       return;
     if (env.o === this.instanceId) return; // our own publish — already delivered locally
-    const op = env.op;
+    const envelope = { from: env.from, op: env.op };
+    if (!isValidEnvelope(envelope)) return;
+    const op = envelope.op;
     if (isPresenceOp(op)) {
+      if (op.kind === 'presence' && !this.isPresenceWithinLimit(op.data)) return;
       // presence/leave: raw forward to all local members (the sender lives on the origin instance),
       // no backend, no canRead filter.
       this.relayToRoom(env.room, undefined, JSON.stringify({ from: env.from, op }));
@@ -816,16 +884,16 @@ export class SyncHub {
       this.relayOpToRoom(env.room, undefined, env.from, op);
       return;
     }
-    const plugin =
-      typeof op === 'object' && op !== null && (op as { kind?: unknown }).kind === 'extension'
-        ? this.pluginRegistry.extension((op as { extensionKind?: string }).extensionKind ?? '')
-            ?.plugin
-        : typeof op === 'object' &&
-            op !== null &&
-            typeof (op as { kind?: unknown }).kind === 'string'
-          ? this.pluginRegistry.ownerOf((op as { kind: string }).kind)
-          : undefined;
-    if (plugin && typeof op === 'object' && op !== null) {
+    let plugin: ServerSyncPlugin | undefined;
+    if (op.kind === 'extension') {
+      const entry = this.pluginRegistry.extension(op.extensionKind);
+      if (!entry || !entry.kind.codec.validate(op.payload)) return;
+      plugin = entry.plugin;
+    } else {
+      plugin = this.pluginRegistry.ownerOf(op.kind);
+    }
+    if (plugin) {
+      const owner = plugin;
       const previous = this.roomQueues.get(env.room) ?? Promise.resolve();
       const operation = previous.then(async () => {
         const context: ServerOpContext = {
@@ -834,9 +902,7 @@ export class SyncHub {
           backend: this.backend,
           backendPlugin: (key) => this.backend.getService?.(key),
         };
-        const accepted = plugin.applyFanout
-          ? await plugin.applyFanout(op as WireSyncOp, context)
-          : (op as WireSyncOp);
+        const accepted = owner.applyFanout ? await owner.applyFanout(op, context) : op;
         if (accepted) {
           this.relayOpToRoom(env.room as string, undefined, env.from as string, accepted);
         }
@@ -861,6 +927,10 @@ export class SyncHub {
     const prevAudience = typeof env.prev === 'string' ? env.prev : undefined;
     const prevExisted = env.existed === true;
     this.deliverToRoom(env.room, undefined, env.from, runtimeOp, prevAudience, prevExisted);
+  }
+
+  private isPresenceWithinLimit(data: unknown): boolean {
+    return utf8ByteLength(JSON.stringify(data) ?? '') <= this.maxPresenceBytes;
   }
 
   private async applyFanoutLayerOp(room: string, op: LayerOp): Promise<void> {

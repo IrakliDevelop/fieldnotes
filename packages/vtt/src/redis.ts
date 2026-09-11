@@ -33,15 +33,15 @@ export type { FogRedisApplyResult, FogRedisPatchApplyResult } from './fog/fog-re
 class RedisFogBackend implements FogBackendService {
   constructor(
     private readonly client: RedisHashClient,
-    private readonly roomKeyPrefix: string,
+    private readonly roomKey: (room: string) => string,
   ) {}
 
   private metaKey(room: string): string {
-    return `${this.roomKeyPrefix}${room}:fog:meta`;
+    return `${this.roomKey(room)}:fog:meta`;
   }
 
   private tilesKey(room: string): string {
-    return `${this.roomKeyPrefix}${room}:fog:tiles`;
+    return `${this.roomKey(room)}:fog:tiles`;
   }
 
   async snapshot(room: string): Promise<FogSnapshot | undefined> {
@@ -216,7 +216,7 @@ export function createFogBackendPlugin(): BackendSyncPlugin {
     start(context) {
       context.registerService(
         FogBackendServiceKey,
-        new RedisFogBackend(context.client, context.roomKeyPrefix),
+        new RedisFogBackend(context.client, context.roomKey),
       );
     },
   };

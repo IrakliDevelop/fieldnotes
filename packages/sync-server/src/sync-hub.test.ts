@@ -13,7 +13,7 @@ import { SyncHub } from './sync-hub';
 import type { Connection } from './sync-hub';
 import type { HubBackend } from './hub-backend';
 import { MemoryHubBackend } from './memory-hub-backend';
-import type { Authorize, OwnedElement } from './authorize';
+import type { Authorize, OwnedElement, ResolveAudience } from './authorize';
 import { InMemoryHubFanout } from './hub-fanout';
 
 interface FakeConn extends Connection {
@@ -31,6 +31,13 @@ function envelope(from: string, op: SyncOp): string {
 
 const sampleEl = (): CanvasElement =>
   createShape({ position: { x: 1, y: 2 }, size: { w: 10, h: 20 } });
+
+/** What a non-privileged reader receives: the element minus the server-stamped ownerId (S4). */
+function publicView<T extends { ownerId?: string }>(element: T): Omit<T, 'ownerId'> {
+  const rest: T = { ...element };
+  delete rest.ownerId;
+  return rest;
+}
 
 describe('SyncHub', () => {
   let hub: SyncHub;
@@ -510,6 +517,98 @@ describe('SyncHub', () => {
       expect(b.sent).toEqual([]);
     });
 
+    it('drops a malformed layer op injected on the fanout channel (S18)', async () => {
+      const bus = new InMemoryHubFanout();
+      const hubB = new SyncHub({ instanceId: 'B', fanout: bus });
+      const b = makeConn('b', 'R');
+      hubB.addConnection(b);
+
+      // Anyone who can PUBLISH to the channel bypasses the origin hub's parseEnvelope.
+      bus.publish(
+        JSON.stringify({
+          o: 'rogue',
+          room: 'R',
+          from: 'x',
+          op: { kind: 'layer-upsert', layer: { id: 'L' }, version: 1, editor: 'x' },
+        }),
+      );
+      await new Promise((r) => setTimeout(r, 0));
+      await hubB.handleMessage('b', envelope('b', { kind: 'request-snapshot' }));
+
+      expect(b.sent).toHaveLength(1);
+      expect(JSON.parse(b.sent[0] ?? '')).toMatchObject({ op: { kind: 'snapshot' } });
+      expect(JSON.parse(b.sent[0] ?? '').op.layers).toBeUndefined();
+    });
+
+    it('drops an extension op whose payload fails its codec on the fanout channel (S18)', async () => {
+      const bus = new InMemoryHubFanout();
+      const kind = createExtensionKind<{ value: number }>({
+        extensionKind: 'test:counter',
+        codec: {
+          validate: (payload): payload is { value: number } =>
+            typeof payload === 'object' &&
+            payload !== null &&
+            typeof (payload as { value?: unknown }).value === 'number',
+        },
+      });
+      const hubB = new SyncHub({
+        instanceId: 'B',
+        fanout: bus,
+        plugins: [
+          {
+            name: 'counter',
+            registerExtensionKinds(registry) {
+              registry.register(kind, async (op) => ({ accepted: op, corrections: [] }));
+            },
+          },
+        ],
+      });
+      const b = makeConn('b', 'R');
+      hubB.addConnection(b);
+      await hubB.handleMessage(
+        'b',
+        envelope('b', {
+          kind: 'capabilities',
+          capabilities: createCurrentCapabilities(['test:counter']),
+        }),
+      );
+      b.sent.length = 0;
+
+      const rogue = (payload: unknown) =>
+        bus.publish(
+          JSON.stringify({
+            o: 'rogue',
+            room: 'R',
+            from: 'x',
+            op: { kind: 'extension', extensionKind: 'test:counter', payload },
+          }),
+        );
+      rogue({ value: 'nope' });
+      rogue({ value: 3 });
+      await vi.waitFor(() => expect(b.sent).toHaveLength(1));
+
+      expect(JSON.parse(b.sent[0] ?? '').op).toMatchObject({ payload: { value: 3 } });
+    });
+
+    it('drops a fanout payload nested deeper than maxJsonDepth (S18)', async () => {
+      const bus = new InMemoryHubFanout();
+      const hubB = new SyncHub({ instanceId: 'B', fanout: bus, maxJsonDepth: 4 });
+      const b = makeConn('b', 'R');
+      hubB.addConnection(b);
+
+      bus.publish(
+        JSON.stringify({
+          o: 'rogue',
+          room: 'R',
+          from: 'x',
+          op: { kind: 'presence', data: { a: { b: { c: { d: { e: 1 } } } } } },
+        }),
+      );
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(b.sent).toEqual([]);
+    });
+
     it('surfaces publication failure, withholds local delivery, and keeps the room queue usable', async () => {
       const error = new Error('fanout unavailable');
       let publishCount = 0;
@@ -654,6 +753,105 @@ describe('SyncHub', () => {
       return false;
     };
 
+    describe('ownerId privacy (S4)', () => {
+      const withoutOwner = (element: CanvasElement): Record<string, unknown> => {
+        const copy: Record<string, unknown> = { ...element };
+        delete copy['ownerId'];
+        return copy;
+      };
+
+      it('strips the server-stamped ownerId from relayed upserts, snapshots and corrections', async () => {
+        const backend = new MemoryHubBackend();
+        const hub = new SyncHub({ authorize: policy, backend });
+        const p = roleConn('p', 'R', 'player1', 'player');
+        const p2 = roleConn('p2', 'R', 'player2', 'player');
+        const obs = roleConn('obs', 'R', 'dm1', 'dm');
+        hub.addConnection(p);
+        hub.addConnection(p2);
+        hub.addConnection(obs);
+
+        await hub.handleMessage('p', envelope('cp', { kind: 'upsert', element: el('e1') }));
+        expect(((await backend.get('R', 'e1')) as OwnedElement | undefined)?.ownerId).toBe(
+          'player1',
+        );
+        expect(JSON.parse(obs.sent[0] ?? '').op.element).toEqual(withoutOwner(el('e1')));
+        expect(JSON.parse(p2.sent[0] ?? '').op.element).not.toHaveProperty('ownerId');
+
+        obs.sent.length = 0;
+        await hub.handleMessage('obs', envelope('cobs', { kind: 'request-snapshot' }));
+        expect(JSON.parse(obs.sent[0] ?? '').op.elements).toEqual([withoutOwner(el('e1'))]);
+
+        p2.sent.length = 0;
+        await hub.handleMessage(
+          'p2',
+          envelope('cp2', { kind: 'upsert', element: { ...el('e1'), position: { x: 9, y: 9 } } }),
+        );
+        const correction = JSON.parse(p2.sent[0] ?? '');
+        expect(correction).toMatchObject({ from: 'hub', op: { kind: 'upsert' } });
+        expect(correction.op.element).toEqual(withoutOwner(el('e1')));
+      });
+
+      it('strips a persisted ownerId even when no authorize hook is configured', async () => {
+        const backend = new MemoryHubBackend();
+        await backend.apply('R', { kind: 'upsert', element: { ...el('e1'), ownerId: 'dm1' } });
+        const bus = new InMemoryHubFanout();
+        const hubA = new SyncHub({ backend, instanceId: 'A', fanout: bus });
+        const hubB = new SyncHub({ backend, instanceId: 'B', fanout: bus });
+        const a = makeConn('a', 'R');
+        const b = makeConn('b', 'R');
+        hubA.addConnection(a);
+        hubB.addConnection(b);
+
+        await hubA.handleMessage('a', envelope('ca', { kind: 'request-snapshot' }));
+        expect(JSON.parse(a.sent[0] ?? '').op.elements).toEqual([withoutOwner(el('e1'))]);
+
+        // A fanned-out upsert carrying a stored ownerId is stripped on the receiving instance too.
+        bus.publish(
+          JSON.stringify({
+            o: 'C',
+            room: 'R',
+            from: 'x',
+            op: { kind: 'upsert', element: { ...el('e2'), ownerId: 'dm1' } },
+          }),
+        );
+        expect(JSON.parse(b.sent[0] ?? '').op.element).toEqual(withoutOwner(el('e2')));
+      });
+
+      it('reveals ownerId only to readers allowed by canReadOwnerId', async () => {
+        const backend = new MemoryHubBackend();
+        const hub = new SyncHub({
+          authorize: policy,
+          backend,
+          canReadOwnerId: ({ role }) => role === 'dm',
+        });
+        const p = roleConn('p', 'R', 'player1', 'player');
+        const other = roleConn('other', 'R', 'player2', 'player');
+        const dm = roleConn('dm', 'R', 'dm1', 'dm');
+        const dmModern = roleConn('dm2', 'R', 'dm2', 'dm');
+        hub.addConnection(p);
+        hub.addConnection(other);
+        hub.addConnection(dm);
+        hub.addConnection(dmModern);
+        await hub.handleMessage(
+          'dm2',
+          envelope('cdm2', { kind: 'capabilities', capabilities: createCurrentCapabilities([]) }),
+        );
+        dmModern.sent.length = 0;
+
+        await hub.handleMessage('p', envelope('cp', { kind: 'upsert', element: el('e1') }));
+
+        // Same capability profile as `other`, different privilege: the encode cache must not leak.
+        expect(JSON.parse(dm.sent[0] ?? '').op.element.ownerId).toBe('player1');
+        expect(JSON.parse(dmModern.sent[0] ?? '').op.element.ownerId).toBe('player1');
+        expect(JSON.parse(other.sent[0] ?? '').op.element).not.toHaveProperty('ownerId');
+
+        await hub.handleMessage('other', envelope('co', { kind: 'request-snapshot' }));
+        await hub.handleMessage('dm', envelope('cdm', { kind: 'request-snapshot' }));
+        expect(JSON.parse(other.sent[1] ?? '').op.elements[0]).not.toHaveProperty('ownerId');
+        expect(JSON.parse(dm.sent[1] ?? '').op.elements[0].ownerId).toBe('player1');
+      });
+    });
+
     it('default (no authorize) forwards an upsert WITHOUT an ownerId', async () => {
       const h = new SyncHub();
       const p = roleConn('p', 'R', 'player1', 'player');
@@ -676,7 +874,8 @@ describe('SyncHub', () => {
       await hub.handleMessage('p', envelope('cp', { kind: 'upsert', element: el('e1') }));
 
       const fwd = JSON.parse(obs.sent[0] ?? '');
-      expect(fwd.op.element.ownerId).toBe('player1');
+      expect(fwd.op.element.id).toBe('e1');
+      expect(fwd.op.element.ownerId).toBeUndefined(); // stamped server-side, never relayed (S4)
       const stored = (await backend.get('R', 'e1')) as OwnedElement | undefined;
       expect(stored?.ownerId).toBe('player1');
     });
@@ -763,7 +962,8 @@ describe('SyncHub', () => {
 
       await hub.handleMessage('dm', envelope('cdm', { kind: 'upsert', element: el('X') }));
       const fwd = JSON.parse(obs.sent[0] ?? '');
-      expect(fwd.op.element.ownerId).toBe('dm1');
+      expect(fwd.op.element.id).toBe('X');
+      expect(((await backend.get('R', 'X')) as OwnedElement | undefined)?.ownerId).toBe('dm1');
 
       await hub.handleMessage('dm', envelope('cdm', { kind: 'remove', id: 'X' }));
       expect(await backend.get('R', 'X')).toBeUndefined();
@@ -784,7 +984,7 @@ describe('SyncHub', () => {
       const forgedNew: OwnedElement = { ...sampleEl(), id: 'f', ownerId: 'dm' };
       await hub.handleMessage('p', envelope('cp', { kind: 'upsert', element: forgedNew }));
       const fwdNew = JSON.parse(obs.sent[0] ?? '');
-      expect(fwdNew.op.element.ownerId).toBe('player1');
+      expect(fwdNew.op.element.ownerId).toBeUndefined(); // the forged value never reaches a peer
       expect(((await backend.get('R', 'f')) as OwnedElement | undefined)?.ownerId).toBe('player1');
 
       const forgedOwn: OwnedElement = { ...sampleEl(), id: 'f', ownerId: 'zzz' };
@@ -866,7 +1066,7 @@ describe('SyncHub', () => {
 
         expect(lastCorrection(p)).toEqual({
           from: 'hub',
-          op: { kind: 'upsert', element: canonical },
+          op: { kind: 'upsert', element: publicView(canonical) },
         });
         expect(canonical.ownerId).toBe('dm1');
         expect(await backend.get('R', 'X')).toEqual(canonical);
@@ -888,7 +1088,7 @@ describe('SyncHub', () => {
 
         expect(lastCorrection(p)).toEqual({
           from: 'hub',
-          op: { kind: 'upsert', element: canonical },
+          op: { kind: 'upsert', element: publicView(canonical) },
         });
         expect(await backend.get('R', 'X')).toEqual(canonical);
       });
@@ -920,7 +1120,7 @@ describe('SyncHub', () => {
 
         expect(lastCorrection(p)).toEqual({
           from: 'hub',
-          op: { kind: 'snapshot', to: 'cp-clr', elements: canonical },
+          op: { kind: 'snapshot', to: 'cp-clr', elements: canonical.map(publicView) },
         });
         expect(await backend.snapshot('R')).toEqual(canonical);
       });
@@ -1238,7 +1438,7 @@ describe('read filtering (canRead)', () => {
       { from: 'hub', op: { kind: 'remove', id: secret.id } },
       {
         from: 'hub',
-        op: { kind: 'snapshot', to: 'player-clear', elements: [shared] },
+        op: { kind: 'snapshot', to: 'player-clear', elements: [publicView(shared)] },
       },
     ]);
     expect(player.sent.join('')).not.toContain('"audience":"dm"');
@@ -1257,7 +1457,7 @@ describe('read filtering (canRead)', () => {
 
     expect(JSON.parse(dm.sent[0] ?? '')).toEqual({
       from: 'hub',
-      op: { kind: 'upsert', element: secret },
+      op: { kind: 'upsert', element: publicView(secret) },
     });
   });
 
@@ -1361,6 +1561,87 @@ describe('read filtering (canRead)', () => {
     expect(player.sent.length).toBe(1);
     expect(JSON.parse(player.sent[0] as string).op).toEqual({ kind: 'clear' });
   });
+
+  describe('hub-side audience resolution (S2)', () => {
+    const byRole: ResolveAudience = ({ role }) => (role === 'dm' ? 'dm' : 'shared');
+
+    it('overrides a client-asserted audience so a player cannot hide or reveal content', async () => {
+      const backend = new MemoryHubBackend();
+      const hub = new SyncHub({ canRead, backend, resolveAudience: byRole });
+      const player = conn('pl', 'R', 'player');
+      const other = conn('other', 'R', 'player');
+      const dm = conn('dm', 'R', 'dm');
+      hub.addConnection(player);
+      hub.addConnection(other);
+      hub.addConnection(dm);
+
+      // A player tags an upsert 'dm' to hide it from the table.
+      await hub.handleMessage('pl', upsertMsg('cpl', 'e1', 'dm'));
+      expect(JSON.parse(other.sent[0] ?? '').op.element.audience).toBe('shared');
+      expect((await backend.get('R', 'e1'))?.audience).toBe('shared');
+
+      // The DM's edit of the same element keeps the DM-resolved audience.
+      other.sent.length = 0;
+      await hub.handleMessage('dm', upsertMsg('cdm', 'e1', 'shared'));
+      expect((await backend.get('R', 'e1'))?.audience).toBe('dm');
+      // The player who could see it gets a synthetic remove, not the retagged bytes.
+      expect(JSON.parse(other.sent[0] ?? '').op).toEqual({ kind: 'remove', id: 'e1' });
+    });
+
+    it('clears the audience when the resolver returns undefined', async () => {
+      const backend = new MemoryHubBackend();
+      const hub = new SyncHub({ canRead, backend, resolveAudience: () => undefined });
+      const player = conn('pl', 'R', 'player');
+      hub.addConnection(player);
+
+      await hub.handleMessage('pl', upsertMsg('cpl', 'e1', 'dm'));
+
+      expect(await backend.get('R', 'e1')).not.toHaveProperty('audience');
+    });
+
+    it('passes the resolved audience and the stored element to authorize', async () => {
+      const backend = new MemoryHubBackend();
+      const seen: { audience?: string; current?: string }[] = [];
+      const hub = new SyncHub({
+        backend,
+        resolveAudience: ({ element, currentElement }) =>
+          currentElement?.audience ?? (element.audience === 'dm' ? 'shared' : element.audience),
+        authorize: ({ op, currentElement }) => {
+          if (op.kind === 'upsert') {
+            seen.push({ audience: op.element.audience, current: currentElement?.audience });
+          }
+          return true;
+        },
+      });
+      const player = { ...conn('pl', 'R', 'player'), userId: 'p1' };
+      hub.addConnection(player);
+
+      await hub.handleMessage('pl', upsertMsg('cpl', 'e1', 'dm'));
+      await hub.handleMessage('pl', upsertMsg('cpl', 'e1', 'dm'));
+
+      expect(seen).toEqual([
+        { audience: 'shared', current: undefined },
+        { audience: 'shared', current: 'shared' },
+      ]);
+    });
+
+    it('receives the sender identity, room and the raw client element', async () => {
+      const resolveAudience = vi.fn<ResolveAudience>(() => 'shared');
+      const hub = new SyncHub({ resolveAudience });
+      const player = { ...conn('pl', 'R', 'player'), userId: 'p1' };
+      hub.addConnection(player);
+
+      await hub.handleMessage('pl', upsertMsg('cpl', 'e1', 'dm'));
+
+      expect(resolveAudience).toHaveBeenCalledWith({
+        userId: 'p1',
+        role: 'player',
+        room: 'R',
+        element: expect.objectContaining({ id: 'e1', audience: 'dm' }),
+        currentElement: undefined,
+      });
+    });
+  });
 });
 
 describe('presence (ephemeral)', () => {
@@ -1370,6 +1651,63 @@ describe('presence (ephemeral)', () => {
   function conn(id: string, room: string, role?: string): FakeConn {
     return { ...makeConn(id, room), role };
   }
+
+  it('drops a presence payload larger than maxPresenceBytes (S5)', async () => {
+    const hub = new SyncHub({ presenceThrottleMs: 0, maxPresenceBytes: 64 });
+    const a = conn('a', 'R');
+    const b = conn('b', 'R');
+    hub.addConnection(a);
+    hub.addConnection(b);
+
+    await hub.handleMessage(
+      'a',
+      envelope('ca', { kind: 'presence', data: { big: 'x'.repeat(80) } }),
+    );
+    await hub.handleMessage('a', envelope('ca', { kind: 'presence', data: { ok: true } }));
+
+    expect(b.sent).toHaveLength(1);
+    expect(JSON.parse(b.sent[0] ?? '').op.data).toEqual({ ok: true });
+  });
+
+  it('measures presence in UTF-8 bytes, not code units (S5)', async () => {
+    const hub = new SyncHub({ presenceThrottleMs: 0, maxPresenceBytes: 32 });
+    const a = conn('a', 'R');
+    const b = conn('b', 'R');
+    hub.addConnection(a);
+    hub.addConnection(b);
+
+    // 12 chars of 3-byte glyphs → 36 bytes of data plus the object wrapper.
+    await hub.handleMessage('a', envelope('ca', { kind: 'presence', data: { t: '€'.repeat(12) } }));
+
+    expect(b.sent).toEqual([]);
+  });
+
+  it('drops oversized presence received from the fanout channel (S5, S18)', async () => {
+    const bus = new InMemoryHubFanout();
+    const hub = new SyncHub({ instanceId: 'local', fanout: bus, maxPresenceBytes: 32 });
+    const recipient = conn('recipient', 'R');
+    hub.addConnection(recipient);
+
+    bus.publish(
+      JSON.stringify({
+        o: 'rogue',
+        room: 'R',
+        from: 'remote',
+        op: { kind: 'presence', data: { big: 'x'.repeat(80) } },
+      }),
+    );
+    bus.publish(
+      JSON.stringify({
+        o: 'remote-hub',
+        room: 'R',
+        from: 'remote',
+        op: { kind: 'presence', data: { ok: true } },
+      }),
+    );
+
+    await vi.waitFor(() => expect(recipient.sent).toHaveLength(1));
+    expect(JSON.parse(recipient.sent[0] ?? '').op.data).toEqual({ ok: true });
+  });
 
   it('broadcasts server-owned presence to every local room member and returns the local count', () => {
     const hub = new SyncHub();
@@ -1389,6 +1727,20 @@ describe('presence (ephemeral)', () => {
       op: { kind: 'presence', data: { kind: 'poke', feature: 'initiative' } },
     });
     expect(otherRoom.sent).toEqual([]);
+  });
+
+  it('does not locally deliver or fan out oversized server-owned presence', () => {
+    const publish = vi.fn();
+    const hub = new SyncHub({
+      maxPresenceBytes: 32,
+      fanout: { publish, subscribe: () => () => undefined },
+    });
+    const recipient = makeConn('recipient', 'R');
+    hub.addConnection(recipient);
+
+    expect(hub.broadcastPresence('R', { big: 'x'.repeat(80) })).toBe(0);
+    expect(recipient.sent).toEqual([]);
+    expect(publish).not.toHaveBeenCalled();
   });
 
   it('fans server-owned presence out to other hub instances without double local delivery', () => {
