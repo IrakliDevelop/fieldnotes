@@ -115,6 +115,13 @@ export class ShapeTool implements Tool {
     ctx.switchTool?.('select');
   }
 
+  /** Pinch takeover or platform cancel: abandon the shape without creating it. */
+  onPointerCancel(_state: PointerState, ctx: ToolContext): void {
+    if (!this.drawing) return;
+    this.drawing = false;
+    ctx.requestRender();
+  }
+
   renderOverlay(ctx: CanvasRenderingContext2D): void {
     if (!this.drawing) return;
 

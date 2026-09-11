@@ -126,6 +126,16 @@ export class ArrowTool implements Tool {
     ctx.switchTool?.('select');
   }
 
+  /** Pinch takeover or platform cancel: abandon the arrow without creating it. */
+  onPointerCancel(_state: PointerState, ctx: ToolContext): void {
+    if (!this.drawing) return;
+    this.drawing = false;
+    this.fromTarget = null;
+    this.toTarget = null;
+    this.fromBinding = undefined;
+    ctx.requestRender();
+  }
+
   renderOverlay(ctx: CanvasRenderingContext2D): void {
     if (!this.drawing) return;
     if (this.start.x === this.end.x && this.start.y === this.end.y) return;

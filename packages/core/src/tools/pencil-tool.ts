@@ -145,6 +145,14 @@ export class PencilTool implements Tool {
     ctx.requestRender();
   }
 
+  /** Pinch takeover or platform cancel: drop the partial stroke instead of committing it. */
+  onPointerCancel(_state: PointerState, ctx: ToolContext): void {
+    if (!this.drawing) return;
+    this.drawing = false;
+    this.points = [];
+    ctx.requestRender();
+  }
+
   private notifyOptionsChange(): void {
     for (const listener of this.optionListeners) listener();
   }

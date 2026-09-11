@@ -372,4 +372,20 @@ describe('PencilTool', () => {
       expect(canvas.globalCompositeOperation).toBe('source-over');
     });
   });
+
+  it('discards the in-progress stroke on pointer cancel (pinch takeover)', () => {
+    const tool = new PencilTool();
+    const ctx = makeCtx();
+
+    tool.onPointerDown(pt(0, 0), ctx);
+    tool.onPointerMove(pt(10, 10), ctx);
+    tool.onPointerMove(pt(20, 20), ctx);
+    tool.onPointerCancel?.(pt(20, 20), ctx);
+
+    expect(ctx.store.count).toBe(0);
+    // A later move must not resurrect the cancelled stroke.
+    tool.onPointerMove(pt(30, 30), ctx);
+    tool.onPointerUp(pt(30, 30), ctx);
+    expect(ctx.store.count).toBe(0);
+  });
 });

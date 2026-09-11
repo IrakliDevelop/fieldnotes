@@ -73,4 +73,9 @@ export class TextTool implements Tool {
     ctx.switchTool?.('select');
     ctx.editElement?.(textEl.id);
   }
+
+  /** Placement happens on pointer up; a cancelled gesture must not place anything. */
+  onPointerCancel(_state: PointerState, _ctx: ToolContext): void {
+    // Intentionally empty: without this, ToolManager falls back to onPointerUp.
+  }
 }

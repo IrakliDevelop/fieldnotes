@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { ImageTool } from './image-tool';
+import { ToolManager } from './tool-manager';
 import { ElementStore } from '../elements/element-store';
 import { Camera } from '../canvas/camera';
 import type { ToolContext, PointerState } from './types';
@@ -109,6 +110,38 @@ describe('ImageTool', () => {
 
     tool.onPointerDown(pt(50, 50), ctx);
     tool.onPointerUp(pt(50, 50), ctx);
+    expect(ctx.store.count).toBe(1);
+  });
+
+  it('places the image on the active layer so exported state can be reloaded', () => {
+    const tool = new ImageTool();
+    tool.setSrc('test.png');
+    const ctx = makeCtx({ activeLayerId: 'layer-2' });
+
+    tool.onPointerDown(pt(0, 0), ctx);
+    tool.onPointerUp(pt(0, 0), ctx);
+
+    const img = ctx.store.getAll()[0] as ImageElement;
+    expect(img.layerId).toBe('layer-2');
+  });
+
+  it('does not place the image when the manager cancels the gesture, keeping the pending src', () => {
+    const tool = new ImageTool();
+    tool.setSrc('test.png');
+    const manager = new ToolManager();
+    manager.register(tool);
+    const switchTool = vi.fn();
+    const ctx = makeCtx({ switchTool });
+    manager.setTool('image', ctx);
+
+    manager.handlePointerDown(pt(10, 10), ctx);
+    manager.handlePointerCancel(pt(10, 10), ctx);
+    expect(ctx.store.count).toBe(0);
+    expect(switchTool).not.toHaveBeenCalled();
+
+    // The user can still place it with the next clean tap.
+    manager.handlePointerDown(pt(10, 10), ctx);
+    manager.handlePointerUp(pt(10, 10), ctx);
     expect(ctx.store.count).toBe(1);
   });
 });

@@ -40,11 +40,17 @@ export class ImageTool implements Tool {
       },
       size: { ...this.size },
       src: this.src,
+      layerId: ctx.activeLayerId ?? '',
     });
     ctx.store.add(image);
     ctx.requestRender();
 
     this.src = null;
     ctx.switchTool?.('select');
+  }
+
+  /** Placement happens on pointer up; a cancelled gesture must not place anything. */
+  onPointerCancel(_state: PointerState, _ctx: ToolContext): void {
+    // Intentionally empty: without this, ToolManager falls back to onPointerUp.
   }
 }
