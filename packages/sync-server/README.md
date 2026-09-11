@@ -224,7 +224,8 @@ createSyncServer({
 
 - Ownership-based authz **requires `authenticate` to supply a STABLE `userId`**. The
   no-hook anonymous default is `userId = connId`, which changes on every reconnect — a
-  user would lose access to their own elements after reconnecting.
+  user would lose access to their own elements after reconnecting. `createSyncServer`
+  therefore **throws** when `authorize` is configured without `authenticate`.
 - The authz path adds one `backend.get` (a Redis `HGET`) per data op — negligible for
   low-write use.
 - Reads / visibility (a player not **receiving** hidden content) are a separate, upcoming

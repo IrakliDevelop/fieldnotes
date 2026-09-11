@@ -50,6 +50,30 @@ describe('sync-server connection hardening (end-to-end)', () => {
     servers.length = 0;
   });
 
+  describe('authorize requires authenticate (TD-7)', () => {
+    it('refuses to start with an authorize hook but no authenticate hook', () => {
+      // Without authenticate, userId defaults to the per-socket connId, so an
+      // ownership policy silently loses every element on reconnect.
+      expect(() => createSyncServer({ port: 0, authorize: () => true })).toThrow(
+        /authorize.*authenticate/,
+      );
+    });
+
+    it('starts with authorize when authenticate is configured', async () => {
+      const { server } = startServer({
+        authenticate: () => ({ userId: 'u1' }),
+        authorize: () => true,
+      });
+      expect(server.hub).toBeDefined();
+    });
+
+    it('still starts with only authenticate or only canRead (no authorize)', async () => {
+      startServer({ authenticate: () => ({ userId: 'u1' }) });
+      startServer({ canRead: () => true });
+      expect(servers).toHaveLength(2);
+    });
+  });
+
   describe('room names (S1)', () => {
     it.each([
       ['foo:layers', 'a Redis sub-key alias'],

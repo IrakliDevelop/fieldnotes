@@ -64,6 +64,11 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
   if (!Number.isFinite(shutdownGraceMs) || shutdownGraceMs < 0) {
     throw new RangeError('shutdownGraceMs must be a non-negative finite number');
   }
+  if (options.authorize && !options.authenticate) {
+    // Ownership authorization needs a stable userId; the anonymous default is
+    // the per-socket connId, which changes on every reconnect.
+    throw new Error('createSyncServer: `authorize` requires an `authenticate` hook');
+  }
   const hub = new SyncHub({
     backend: options.backend,
     fanout: options.fanout,
