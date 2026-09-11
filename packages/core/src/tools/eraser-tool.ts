@@ -4,6 +4,8 @@ import type { StrokeElement } from '../elements/types';
 import { hitTestStroke } from '../elements/stroke-hit';
 import { createStroke } from '../elements/element-factory';
 import { erasePoints } from '../elements/stroke-erase';
+import { getElementBounds } from '../elements/element-bounds';
+import { rotatePoint } from '../core/geometry';
 
 export interface EraserToolOptions {
   /** Eraser radius in SCREEN pixels (matches the cursor circle; converted to world units per zoom). */
@@ -80,30 +82,55 @@ export class EraserTool implements Tool {
 
     for (const el of candidates) {
       if (el.type !== 'stroke') continue;
+      if (el.locked) continue;
       if (ctx.isLayerVisible && !ctx.isLayerVisible(el.layerId)) continue;
       if (ctx.isLayerLocked && ctx.isLayerLocked(el.layerId)) continue;
-      if (!this.strokeIntersects(el, world, worldRadius)) continue;
+      // Strokes rotate about their bounds center; bring the eraser into the
+      // stroke's unrotated frame so it erases where the stroke is drawn.
+      const angle = el.rotation ?? 0;
+      const bounds = angle !== 0 ? getElementBounds(el) : null;
+      const center = bounds ? { x: bounds.x + bounds.w / 2, y: bounds.y + bounds.h / 2 } : null;
+      const unrotated = center ? rotatePoint(world, center, -angle) : world;
+      if (!this.strokeIntersects(el, unrotated, worldRadius)) continue;
       if (this.mode === 'stroke') {
         ctx.store.remove(el.id);
         erased = true;
         continue;
       }
-      const localEraser = { x: world.x - el.position.x, y: world.y - el.position.y };
+      const localEraser = { x: unrotated.x - el.position.x, y: unrotated.y - el.position.y };
       const runs = erasePoints(el.points, localEraser, worldRadius);
       if (runs === null) continue;
       ctx.store.remove(el.id);
       for (const run of runs) {
-        ctx.store.add(
-          createStroke({
+        const fragment: StrokeElement = {
+          ...createStroke({
             points: run,
             color: el.color,
             width: el.width,
             opacity: el.opacity,
+            blendMode: el.blendMode,
             layerId: el.layerId,
             zIndex: el.zIndex,
             position: el.position,
           }),
-        );
+        };
+        if (el.groupId !== undefined) fragment.groupId = el.groupId;
+        if (angle !== 0 && center) {
+          // A fragment rotates about its OWN center, so shift its position by
+          // (I - R)(c - c') to keep it exactly where the parent drew it.
+          fragment.rotation = angle;
+          const fb = getElementBounds(fragment);
+          if (fb) {
+            const fc = { x: fb.x + fb.w / 2, y: fb.y + fb.h / 2 };
+            const d = { x: center.x - fc.x, y: center.y - fc.y };
+            const rd = rotatePoint(d, { x: 0, y: 0 }, angle);
+            fragment.position = {
+              x: fragment.position.x + d.x - rd.x,
+              y: fragment.position.y + d.y - rd.y,
+            };
+          }
+        }
+        ctx.store.add(fragment);
       }
       erased = true;
     }
