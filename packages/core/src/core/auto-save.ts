@@ -34,6 +34,8 @@ export class AutoSave {
   private readonly pluginStateManager?: PluginStateManager;
   private readonly changeEmitters?: { onChange(listener: () => void): () => void }[];
   private saving = false;
+  /** Set when the saved data was unreadable; blocks saves so it is not clobbered. */
+  private loadFailed = false;
   private pendingSave = false;
 
   constructor(
@@ -75,19 +77,40 @@ export class AutoSave {
     this.unsubscribers = [];
   }
 
+  /**
+   * Loads the saved state. Returns `null` when nothing is saved OR when the
+   * saved data cannot be read (corrupt, or written by a newer version). In the
+   * latter case the error is reported through `onError` and subsequent saves
+   * are refused until `clear()` or a later successful `load()`, so a newer
+   * file is never silently overwritten by an older build.
+   */
   async load(): Promise<CanvasState | null> {
     const json = await this.adapter.load(this.key);
-    if (!json) return null;
+    if (!json) {
+      this.loadFailed = false;
+      return null;
+    }
 
     try {
-      return parseState(json, this.elementRegistry);
-    } catch {
+      const state = parseState(json, this.elementRegistry);
+      this.loadFailed = false;
+      return state;
+    } catch (e) {
+      this.loadFailed = true;
+      this.onError?.(
+        new Error(
+          `AutoSave: saved state at "${this.key}" could not be loaded and will not be overwritten: ${
+            e instanceof Error ? e.message : String(e)
+          }`,
+        ),
+      );
       return null;
     }
   }
 
   async clear(): Promise<void> {
     await this.adapter.clear(this.key);
+    this.loadFailed = false;
   }
 
   private scheduleSave(): void {
@@ -103,6 +126,7 @@ export class AutoSave {
   }
 
   private async save(): Promise<void> {
+    if (this.loadFailed) return;
     if (this.saving) {
       this.pendingSave = true;
       return;

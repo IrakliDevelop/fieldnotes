@@ -308,4 +308,47 @@ describe('AutoSave', () => {
     deferreds[1]?.();
     await vi.advanceTimersByTimeAsync(0);
   });
+
+  describe('corrupt or newer saved state', () => {
+    it('reports an unreadable save through onError instead of silently returning null', async () => {
+      const adapter = new MemoryAdapter();
+      await adapter.save('k', JSON.stringify({ version: 999, elements: [] }));
+      const onError = vi.fn();
+      autoSave = new AutoSave(store, camera, { key: 'k', adapter, onError });
+
+      expect(await autoSave.load()).toBeNull();
+      expect(onError).toHaveBeenCalledOnce();
+    });
+
+    it('does not overwrite a save it could not load', async () => {
+      const adapter = new MemoryAdapter();
+      const original = JSON.stringify({ version: 999, elements: [] });
+      await adapter.save('k', original);
+      const onError = vi.fn();
+      autoSave = new AutoSave(store, camera, { key: 'k', adapter, onError });
+      await autoSave.load();
+
+      autoSave.start();
+      store.add(makeNote());
+      await vi.advanceTimersByTimeAsync(1000);
+
+      expect(await adapter.load('k')).toBe(original);
+    });
+
+    it('clear() re-enables saving after a failed load', async () => {
+      const adapter = new MemoryAdapter();
+      await adapter.save('k', 'not json');
+      autoSave = new AutoSave(store, camera, { key: 'k', adapter });
+      await autoSave.load();
+      await autoSave.clear();
+
+      autoSave.start();
+      store.add(makeNote());
+      await vi.advanceTimersByTimeAsync(1000);
+
+      const saved = await adapter.load('k');
+      expect(saved).not.toBeNull();
+      expect(JSON.parse(saved ?? '{}')).toHaveProperty('elements');
+    });
+  });
 });
