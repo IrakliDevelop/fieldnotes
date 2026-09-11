@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { NoteTool } from './note-tool';
+import { ToolManager } from './tool-manager';
 import { ElementStore } from '../elements/element-store';
 import { Camera } from '../canvas/camera';
 import type { ToolContext, PointerState } from './types';
@@ -189,5 +190,22 @@ describe('NoteTool', () => {
       tool.setOptions({ backgroundColor: '#0000ff' });
       expect(listener).not.toHaveBeenCalled();
     });
+  });
+
+  it('does not create a note when the manager cancels the gesture', () => {
+    const tool = new NoteTool();
+    const manager = new ToolManager();
+    manager.register(tool);
+    const switchTool = vi.fn();
+    const editElement = vi.fn();
+    const ctx = makeCtx({ switchTool, editElement });
+    manager.setTool('note', ctx);
+
+    manager.handlePointerDown(pt(10, 10), ctx);
+    manager.handlePointerCancel(pt(10, 10), ctx);
+
+    expect(ctx.store.count).toBe(0);
+    expect(switchTool).not.toHaveBeenCalled();
+    expect(editElement).not.toHaveBeenCalled();
   });
 });

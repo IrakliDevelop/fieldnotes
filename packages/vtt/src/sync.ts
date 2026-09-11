@@ -15,8 +15,14 @@ export function createFogClientPlugin(options: FogClientPluginOptions): ClientSy
   let controllerClientId: string | undefined;
   let active = false;
   let disposed = false;
+  // Edits made before the first start() have no controller to capture them
+  // yet; buffer and replay them so offline fog is published, not wiped.
+  type FogChangeEvent = Parameters<Parameters<FogSyncManager['on']>[1]>[0];
+  const preStartEdits: FogChangeEvent[] = [];
   const offlineUnsubscribe = options.manager.on('change', (event) => {
-    if (!active) controller?.captureOfflineChange(event);
+    if (active) return;
+    if (controller) controller.captureOfflineChange(event);
+    else preStartEdits.push(event);
   });
 
   return {
@@ -35,6 +41,7 @@ export function createFogClientPlugin(options: FogClientPluginOptions): ClientSy
           manager: options.manager,
           preserveLocalWhenRemoteMissing: options.preserveLocalWhenRemoteMissing,
         });
+        for (const event of preStartEdits.splice(0)) controller.captureOfflineChange(event);
       } else if (controllerClientId !== context.clientId) {
         throw new Error('Fog client plugin cannot be reused with a different clientId');
       }

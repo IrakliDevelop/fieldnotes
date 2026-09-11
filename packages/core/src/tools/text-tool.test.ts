@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { TextTool } from './text-tool';
+import { ToolManager } from './tool-manager';
 import { ElementStore } from '../elements/element-store';
 import { Camera } from '../canvas/camera';
 import type { ToolContext, PointerState } from './types';
@@ -150,5 +151,22 @@ describe('TextTool', () => {
       tool.setOptions({ fontSize: 32 });
       expect(listener).not.toHaveBeenCalled();
     });
+  });
+
+  it('does not create a text element when the manager cancels the gesture', () => {
+    const tool = new TextTool();
+    const manager = new ToolManager();
+    manager.register(tool);
+    const switchTool = vi.fn();
+    const editElement = vi.fn();
+    const ctx = makeCtx({ switchTool, editElement });
+    manager.setTool('text', ctx);
+
+    manager.handlePointerDown(pt(10, 10), ctx);
+    manager.handlePointerCancel(pt(10, 10), ctx);
+
+    expect(ctx.store.count).toBe(0);
+    expect(switchTool).not.toHaveBeenCalled();
+    expect(editElement).not.toHaveBeenCalled();
   });
 });

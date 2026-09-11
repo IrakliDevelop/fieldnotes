@@ -1,4 +1,4 @@
-export const VERSION = '0.82.0';
+export const VERSION = '0.82.1';
 
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
 export {

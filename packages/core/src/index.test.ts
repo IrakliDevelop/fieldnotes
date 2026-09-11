@@ -3,7 +3,7 @@ import * as FN from './index';
 
 describe('core public surface', () => {
   it('exports the current version', () => {
-    expect(FN.VERSION).toBe('0.82.0');
+    expect(FN.VERSION).toBe('0.82.1');
   });
 
   it('exports the camera view, animator, and focus presence surface', () => {
@@ -185,9 +185,9 @@ describe('core public surface', () => {
     expect(typeof FN.elementRectsEqual).toBe('function');
   });
 
-  it('reports VERSION 0.82.0', async () => {
+  it('reports VERSION 0.82.1', async () => {
     const { VERSION } = await import('./index');
-    expect(VERSION).toBe('0.82.0');
+    expect(VERSION).toBe('0.82.1');
   });
 
   it('exports the movement-path surface', () => {

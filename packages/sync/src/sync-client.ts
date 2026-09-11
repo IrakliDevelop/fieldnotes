@@ -684,8 +684,17 @@ export class SyncClient {
       const el = this.toRuntimeElement(op.element);
       if (!el) return; // unknown legacy type: not representable in this client
       this.hubKnownIds.add(el.id); // remote/snapshot upserts are hub evidence
-      if (this.store.getById(el.id)) {
-        this.store.update(el.id, el, { origin: REMOTE_ORIGIN });
+      const existing = this.store.getById(el.id);
+      if (existing) {
+        if (existing.type === el.type) {
+          this.store.update(el.id, replacementPatch(existing, el), { origin: REMOTE_ORIGIN });
+        } else {
+          // ElementStore.update intentionally preserves the existing discriminator.
+          // A whole-element wire replacement with a different type must therefore
+          // replace the record, not clear the old type's required fields in place.
+          this.store.remove(el.id, { origin: REMOTE_ORIGIN });
+          this.store.add(el, { origin: REMOTE_ORIGIN });
+        }
       } else {
         this.store.add(el, { origin: REMOTE_ORIGIN });
       }
@@ -776,4 +785,18 @@ function isElementDataOp(op: WireSyncOp): boolean {
   return (
     op.kind === 'upsert' || op.kind === 'remove' || op.kind === 'clear' || op.kind === 'snapshot'
   );
+}
+
+/**
+ * A wire element is the peer's WHOLE element. `store.update` merges, and
+ * JSON drops `undefined`, so a field the peer cleared (ungroup, unbind, clear
+ * label) would otherwise survive forever on this side. Explicitly clear every
+ * key the local copy has that the wire copy lacks.
+ */
+function replacementPatch(existing: CanvasElement, wire: CanvasElement): Partial<CanvasElement> {
+  const patch: Record<string, unknown> = { ...wire };
+  for (const key of Object.keys(existing)) {
+    if (!(key in wire)) patch[key] = undefined;
+  }
+  return patch as Partial<CanvasElement>;
 }

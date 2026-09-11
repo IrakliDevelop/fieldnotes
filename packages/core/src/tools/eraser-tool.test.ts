@@ -5,6 +5,9 @@ import { ElementStore } from '../elements/element-store';
 import { Camera } from '../canvas/camera';
 import { createStroke, createNote } from '../elements/element-factory';
 import type { ToolContext, PointerState } from './types';
+import type { StrokeElement } from '../elements/types';
+import { rotatePoint } from '../core/geometry';
+import { getElementBounds } from '../elements/element-bounds';
 
 function makeCtx(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
@@ -351,6 +354,102 @@ describe('EraserTool', () => {
       store.add(stroke);
       tool.onPointerDown({ x: 50, y: 0, pressure: 1, pointerType: 'mouse', shiftKey: false }, ctx);
       expect(store.getById(stroke.id)).toBeUndefined();
+    });
+  });
+
+  describe('locked and styled strokes', () => {
+    it('does not erase a locked stroke', () => {
+      const { tool, ctx, store } = makeEraser({ radius: 20, mode: 'stroke' });
+      const stroke = createStroke({
+        points: [
+          { x: 0, y: 0, pressure: 0.5 },
+          { x: 100, y: 0, pressure: 0.5 },
+        ],
+        locked: true,
+      });
+      store.add(stroke);
+      tool.onPointerDown(pt(50, 0), ctx);
+      tool.onPointerUp(pt(50, 0), ctx);
+      expect(store.getById(stroke.id)).toBeDefined();
+    });
+
+    it('partial erase keeps blend mode, group and rotation on the surviving fragments', () => {
+      const { tool, ctx, store } = makeEraser({ radius: 5, mode: 'partial' });
+      const stroke: StrokeElement = {
+        ...createStroke({
+          points: Array.from({ length: 21 }, (_, i) => ({ x: i * 5, y: 0, pressure: 0.5 })),
+          blendMode: 'multiply',
+        }),
+        groupId: 'g1',
+        rotation: 0,
+      };
+      store.add(stroke);
+      tool.onPointerDown(pt(50, 0), ctx);
+      tool.onPointerUp(pt(50, 0), ctx);
+      const fragments = store.getAll().filter((e): e is StrokeElement => e.type === 'stroke');
+      expect(fragments.length).toBe(2);
+      for (const f of fragments) {
+        expect(f.blendMode).toBe('multiply');
+        expect(f.groupId).toBe('g1');
+      }
+    });
+
+    it('erases a rotated stroke where it is drawn, not where its unrotated points are', () => {
+      const { tool, ctx, store } = makeEraser({ radius: 10, mode: 'stroke' });
+      // Horizontal stroke 0..100 rotated 90° about its center (50,0): drawn as a vertical line at x=50.
+      const stroke: StrokeElement = {
+        ...createStroke({
+          points: [
+            { x: 0, y: 0, pressure: 0.5 },
+            { x: 100, y: 0, pressure: 0.5 },
+          ],
+        }),
+        rotation: Math.PI / 2,
+      };
+      store.add(stroke);
+
+      tool.onPointerDown(pt(90, 0), ctx); // unrotated location, visually empty
+      tool.onPointerUp(pt(90, 0), ctx);
+      expect(store.getById(stroke.id)).toBeDefined();
+
+      tool.onPointerDown(pt(50, 40), ctx); // on the drawn vertical line
+      tool.onPointerUp(pt(50, 40), ctx);
+      expect(store.getById(stroke.id)).toBeUndefined();
+    });
+
+    it('partial erase of a rotated stroke leaves fragments in their visual place', () => {
+      const { tool, ctx, store } = makeEraser({ radius: 5, mode: 'partial' });
+      const angle = Math.PI / 2;
+      const stroke: StrokeElement = {
+        ...createStroke({
+          points: Array.from({ length: 21 }, (_, i) => ({ x: i * 5, y: 0, pressure: 0.5 })),
+        }),
+        rotation: angle,
+      };
+      store.add(stroke);
+      // Visual position of the first point before erasing: rotate (0,0) about center (50,0).
+      const before = rotatePoint({ x: 0, y: 0 }, { x: 50, y: 0 }, angle);
+
+      tool.onPointerDown(pt(50, 0), ctx); // midpoint of the drawn vertical line
+      tool.onPointerUp(pt(50, 0), ctx);
+
+      const fragments = store.getAll().filter((e): e is StrokeElement => e.type === 'stroke');
+      expect(fragments.length).toBe(2);
+      const visualStarts = fragments.map((f) => {
+        const b = getElementBounds(f);
+        if (!b) throw new Error('no bounds');
+        const first = f.points[0];
+        if (!first) throw new Error('no points');
+        return rotatePoint(
+          { x: f.position.x + first.x, y: f.position.y + first.y },
+          { x: b.x + b.w / 2, y: b.y + b.h / 2 },
+          f.rotation ?? 0,
+        );
+      });
+      const match = visualStarts.some(
+        (p) => Math.abs(p.x - before.x) < 1e-6 && Math.abs(p.y - before.y) < 1e-6,
+      );
+      expect(match).toBe(true);
     });
   });
 });

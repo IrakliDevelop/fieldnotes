@@ -12,7 +12,8 @@ import { DoubleTapDetector } from './double-tap-detector';
 import { isNearBezier } from '../elements/arrow-geometry';
 import { isNoteContentEmpty } from '../elements/note-sanitizer';
 
-const ARROW_HIT_THRESHOLD = 10;
+/** Screen pixels; converted to world units per zoom at the call site. */
+const ARROW_HIT_THRESHOLD_PX = 10;
 
 export interface ViewportInteractionsDeps {
   store: ElementStore;
@@ -143,12 +144,17 @@ export class ViewportInteractions {
   };
 
   findArrowAt(world: { x: number; y: number }): ArrowElement | undefined {
-    const candidates = this.deps.store.queryPoint(world).reverse();
+    const tolerance = ARROW_HIT_THRESHOLD_PX / this.deps.camera.zoom;
+    const candidates = this.deps.store
+      .queryRect({
+        x: world.x - tolerance,
+        y: world.y - tolerance,
+        w: tolerance * 2,
+        h: tolerance * 2,
+      })
+      .reverse();
     for (const el of candidates) {
-      if (
-        el.type === 'arrow' &&
-        isNearBezier(world, el.from, el.to, el.bend, ARROW_HIT_THRESHOLD)
-      ) {
+      if (el.type === 'arrow' && isNearBezier(world, el.from, el.to, el.bend, tolerance)) {
         return el;
       }
     }

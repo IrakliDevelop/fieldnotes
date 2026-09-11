@@ -307,4 +307,19 @@ describe('ArrowTool binding', () => {
     expect(arrows[0]?.fromBinding?.elementId).toBe(note.id);
     expect(arrows[0]?.toBinding).toBeUndefined();
   });
+
+  it('discards the in-progress arrow on pointer cancel', () => {
+    const tool = new ArrowTool();
+    const switchTool = vi.fn();
+    const ctx = makeCtx({ switchTool });
+
+    tool.onPointerDown(pt(0, 0), ctx);
+    tool.onPointerMove(pt(100, 100), ctx);
+    tool.onPointerCancel?.(pt(100, 100), ctx);
+
+    expect(ctx.store.count).toBe(0);
+    expect(switchTool).not.toHaveBeenCalled();
+    tool.onPointerUp(pt(120, 120), ctx);
+    expect(ctx.store.count).toBe(0);
+  });
 });

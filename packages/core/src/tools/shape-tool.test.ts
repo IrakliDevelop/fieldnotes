@@ -383,4 +383,19 @@ describe('ShapeTool', () => {
       expect((line as { size: { h: number } }).size.h).toBeCloseTo(0, 4);
     });
   });
+
+  it('discards the in-progress shape on pointer cancel', () => {
+    const tool = new ShapeTool();
+    const switchTool = vi.fn();
+    const ctx = makeCtx({ switchTool });
+
+    tool.onPointerDown(pt(0, 0), ctx);
+    tool.onPointerMove(pt(100, 100), ctx);
+    tool.onPointerCancel?.(pt(100, 100), ctx);
+
+    expect(ctx.store.count).toBe(0);
+    expect(switchTool).not.toHaveBeenCalled();
+    tool.onPointerUp(pt(120, 120), ctx);
+    expect(ctx.store.count).toBe(0);
+  });
 });

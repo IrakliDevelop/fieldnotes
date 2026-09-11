@@ -966,6 +966,128 @@ describe('InputHandler', () => {
     });
   });
 
+  describe('gesture ownership and recovery', () => {
+    const mouseDown = (pointerId: number) =>
+      pointerDown(element, {
+        pointerId,
+        button: 0,
+        pointerType: 'mouse',
+        clientX: 10,
+        clientY: 10,
+      });
+
+    it('a foreign pointer leaving the element does not end the active tool gesture', () => {
+      const tm = stubToolManager();
+      handler.setToolManager(tm, stubToolContext());
+      mouseDown(1);
+      expect(tm.handlePointerDown).toHaveBeenCalledOnce();
+
+      // A hovering pen (never pressed) drifts off the canvas mid-drag.
+      element.dispatchEvent(
+        new PointerEvent('pointerleave', { bubbles: true, pointerId: 2, pointerType: 'pen' }),
+      );
+      expect(tm.handlePointerUp).not.toHaveBeenCalled();
+      expect(tm.handlePointerCancel).not.toHaveBeenCalled();
+
+      pointerUp(element, { pointerId: 1, button: 0, pointerType: 'mouse' });
+      expect(tm.handlePointerUp).toHaveBeenCalledOnce();
+    });
+
+    it('a pointerup from a pointer that never went down does not end the active tool gesture', () => {
+      const tm = stubToolManager();
+      handler.setToolManager(tm, stubToolContext());
+      mouseDown(1);
+
+      pointerUp(element, { pointerId: 9, button: 0, pointerType: 'mouse' });
+      expect(tm.handlePointerUp).not.toHaveBeenCalled();
+
+      pointerUp(element, { pointerId: 1, button: 0, pointerType: 'mouse' });
+      expect(tm.handlePointerUp).toHaveBeenCalledOnce();
+    });
+
+    it('a foreign pointer leaving does not discard a deferred touch tap', () => {
+      const tm = stubToolManager();
+      handler.setToolManager(tm, stubToolContext());
+      pointerDown(element, {
+        pointerId: 1,
+        button: 0,
+        pointerType: 'touch',
+        clientX: 10,
+        clientY: 10,
+      });
+      expect(tm.handlePointerDown).not.toHaveBeenCalled();
+
+      element.dispatchEvent(
+        new PointerEvent('pointerleave', { bubbles: true, pointerId: 2, pointerType: 'pen' }),
+      );
+      pointerUp(element, {
+        pointerId: 1,
+        button: 0,
+        pointerType: 'touch',
+        clientX: 10,
+        clientY: 10,
+      });
+
+      expect(tm.handlePointerDown).toHaveBeenCalledOnce();
+      expect(tm.handlePointerUp).toHaveBeenCalledOnce();
+      expect(tm.handlePointerCancel).not.toHaveBeenCalled();
+    });
+
+    it('losing pointer capture while the pointer is still held cancels the tool and frees the gesture', () => {
+      const tm = stubToolManager();
+      handler.setToolManager(tm, stubToolContext());
+      mouseDown(1);
+
+      element.dispatchEvent(
+        new PointerEvent('lostpointercapture', {
+          bubbles: true,
+          pointerId: 1,
+          pointerType: 'mouse',
+        }),
+      );
+      expect(tm.handlePointerCancel).toHaveBeenCalledOnce();
+      expect(tm.handlePointerUp).not.toHaveBeenCalled();
+
+      // The next single pointer must be a fresh tool gesture, not a pinch.
+      mouseDown(2);
+      expect(tm.handlePointerDown).toHaveBeenCalledTimes(2);
+      expect(tm.handlePointerCancel).toHaveBeenCalledOnce();
+    });
+
+    it('window blur mid-gesture cancels the tool and clears the held pointers', () => {
+      const tm = stubToolManager();
+      handler.setToolManager(tm, stubToolContext());
+      mouseDown(1);
+
+      window.dispatchEvent(new Event('blur'));
+      expect(tm.handlePointerCancel).toHaveBeenCalledOnce();
+
+      mouseDown(2);
+      expect(tm.handlePointerDown).toHaveBeenCalledTimes(2);
+      expect(tm.handlePointerCancel).toHaveBeenCalledOnce();
+      pointerUp(element, { pointerId: 2, button: 0, pointerType: 'mouse' });
+      expect(tm.handlePointerUp).toHaveBeenCalledOnce();
+    });
+
+    it('a pan whose pointerup was lost does not keep panning after the tab returns', () => {
+      pointerDown(element, {
+        pointerId: 1,
+        button: 1,
+        pointerType: 'mouse',
+        clientX: 0,
+        clientY: 0,
+      });
+      pointerMove(element, { pointerId: 1, clientX: 10, clientY: 0 });
+      expect(camera.x).not.toBe(0);
+      const afterPan = camera.x;
+
+      document.dispatchEvent(new Event('visibilitychange'));
+
+      pointerMove(element, { pointerId: 1, clientX: 50, clientY: 0 });
+      expect(camera.x).toBe(afterPan);
+    });
+  });
+
   describe('pointer capture', () => {
     it('calls setPointerCapture on pointer down', () => {
       const spy = vi.fn();
@@ -2294,7 +2416,7 @@ describe('InputHandler', () => {
     it('clears the coast-stopped flag on blur/visibilitychange when the matching pointerup never arrives', () => {
       for (const interrupt of [
         () => window.dispatchEvent(new Event('blur')),
-        () => document.dispatchEvent(new Event('visibilitychange', { bubbles: true })),
+        () => document.dispatchEvent(new Event('visibilitychange')),
       ]) {
         handler.destroy();
         handler = new InputHandler(element, camera);
@@ -2307,7 +2429,7 @@ describe('InputHandler', () => {
 
         // Pointer capture is lost, or the tab is backgrounded, mid-press: no
         // matching pointerup/pointercancel/pointerleave ever reaches the
-        // wrapper, so only the window-level interrupt can recover the flag.
+        // wrapper, so only the page-level interrupt can recover the flag.
         interrupt();
 
         expect(handler.isCameraCoasting()).toBe(false);

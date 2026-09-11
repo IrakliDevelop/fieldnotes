@@ -20,8 +20,10 @@ export function hitTest(
   ctx: ToolContext,
   match?: (element: CanvasElement) => boolean,
 ): CanvasElement | null {
-  // Inflate query by hit radius so strokes/arrows near the point are included
-  const r = 10;
+  // Inflate query by hit radius so strokes/arrows near the point are included.
+  // Tolerances are screen pixels: divide by zoom so a stroke stays clickable
+  // when zoomed out and does not grow a 100px halo when zoomed in.
+  const r = HIT_TOLERANCE_PX / ctx.camera.zoom;
   const candidates = ctx.store
     .queryRect({ x: world.x - r, y: world.y - r, w: r * 2, h: r * 2 })
     .reverse();
@@ -34,7 +36,14 @@ export function hitTest(
   return null;
 }
 
+/** Screen-pixel tolerance for strokes and arrows (world units = px / zoom). */
+export const HIT_TOLERANCE_PX = 10;
+/** Screen-pixel minimum half-width for line shapes. */
+const LINE_MIN_HALF_WIDTH_PX = 6;
+
 export function isInsideBounds(point: Point, el: CanvasElement, ctx?: ToolContext): boolean {
+  const zoom = ctx?.camera.zoom ?? 1;
+  const tolerance = HIT_TOLERANCE_PX / zoom;
   if (el.type === 'extension') {
     const registry = ctx?.elementRegistry ?? getDefaultElementRegistry();
     const adapter = registry.getAdapter(el.extensionType);
@@ -58,7 +67,7 @@ export function isInsideBounds(point: Point, el: CanvasElement, ctx?: ToolContex
   }
   if (el.type === 'shape' && el.shape === 'line') {
     const [a, b] = lineEndpoints(el);
-    const threshold = Math.max(el.strokeWidth / 2, 6);
+    const threshold = Math.max(el.strokeWidth / 2, LINE_MIN_HALF_WIDTH_PX / zoom);
     return distSqToSegment(point, a, b) <= threshold * threshold;
   }
   if ('size' in el) {
@@ -72,11 +81,11 @@ export function isInsideBounds(point: Point, el: CanvasElement, ctx?: ToolContex
   }
 
   if (el.type === 'stroke') {
-    return hitTestStroke(el, point, 10);
+    return hitTestStroke(el, point, tolerance);
   }
 
   if (el.type === 'arrow') {
-    return isNearBezier(point, el.from, el.to, el.bend, 10);
+    return isNearBezier(point, el.from, el.to, el.bend, tolerance);
   }
 
   return false;

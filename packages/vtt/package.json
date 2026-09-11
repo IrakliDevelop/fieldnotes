@@ -1,6 +1,6 @@
 {
   "name": "@fieldnotes/vtt",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "VTT domain tools and overlays for Field Notes canvas SDK",
   "type": "module",
   "sideEffects": false,
