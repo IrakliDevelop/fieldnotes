@@ -24,3 +24,18 @@ describe('MessageRateLimiter', () => {
     expect(limiter.take(1_500)).toBe(true);
   });
 });
+
+describe('MessageRateLimiter with weighted costs', () => {
+  it('charges the given cost against the bucket', () => {
+    const limiter = new MessageRateLimiter(100, 200, 1_000);
+    expect(limiter.take(1_000, 150)).toBe(true);
+    expect(limiter.take(1_000, 150)).toBe(false);
+    expect(limiter.take(2_000, 150)).toBe(true); // +100 refilled → 150 available
+  });
+
+  it('never admits a single cost above the burst', () => {
+    const limiter = new MessageRateLimiter(100, 200, 1_000);
+    expect(limiter.take(1_000, 201)).toBe(false);
+    expect(limiter.take(1_000, 200)).toBe(true);
+  });
+});

@@ -74,6 +74,91 @@ describe('sync-server connection hardening (end-to-end)', () => {
     });
   });
 
+  describe('connection caps and byte budgets (S5)', () => {
+    async function openAdmitted(port: number, room: string): Promise<WsClient> {
+      const socket = new WsClient(`ws://127.0.0.1:${port}?room=${room}`);
+      rawSockets.push(socket);
+      await new Promise<void>((resolve, reject) => {
+        socket.once('open', () => resolve());
+        socket.once('error', reject);
+      });
+      return socket;
+    }
+
+    it('caps concurrent connections per client address and frees the slot on close', async () => {
+      const { port } = startServer({ maxConnectionsPerIp: 2 });
+      const first = await openAdmitted(port, 'R');
+      await openAdmitted(port, 'R2');
+
+      const third = await openRaw(port, 'room=R');
+      expect(third).toEqual({ code: 4429, reason: 'too many connections' });
+
+      first.close();
+      await new Promise<void>((resolve) => first.once('close', () => resolve()));
+      const again = await openAdmitted(port, 'R');
+      expect(again.readyState).toBe(WsClient.OPEN);
+    });
+
+    it('caps concurrent connections per room, counting sockets still pending auth', async () => {
+      let release: (() => void) | undefined;
+      const { server, port } = startServer({
+        maxConnectionsPerRoom: 1,
+        authenticate: () =>
+          new Promise<{ userId: string }>((resolve) => {
+            release = () => resolve({ userId: 'u' });
+          }),
+      });
+      await openAdmitted(port, 'R');
+
+      const second = await openRaw(port, 'room=R');
+      expect(second).toEqual({ code: 4429, reason: 'too many connections' });
+      // The cap is per room: another room is unaffected.
+      await openAdmitted(port, 'R2');
+      expect(server.hub.roomCount()).toBe(0); // still pending; capped before auth resolved
+      release?.();
+    });
+
+    it('resolves the client address through clientAddress for proxied deployments', async () => {
+      const { port } = startServer({
+        maxConnectionsPerIp: 1,
+        clientAddress: (req) => String(req.headers['x-forwarded-for'] ?? ''),
+      });
+      const open = (ip: string) => {
+        const socket = new WsClient(`ws://127.0.0.1:${port}?room=R`, {
+          headers: { 'x-forwarded-for': ip },
+        });
+        rawSockets.push(socket);
+        // The upgrade completes before the server closes a capped socket, so `open`
+        // alone proves nothing: settle on close, or on staying open for a beat.
+        return new Promise<number>((resolve) => {
+          socket.once('open', () => setTimeout(() => resolve(0), 150));
+          socket.once('close', (code) => resolve(code));
+          socket.once('error', () => undefined);
+        });
+      };
+      expect(await open('10.0.0.1')).toBe(0);
+      expect(await open('10.0.0.2')).toBe(0);
+      expect(await open('10.0.0.1')).toBe(4429);
+    });
+
+    it('closes a connection that exceeds its byte budget even within the frame budget', async () => {
+      const { port } = startServer({
+        bytesPerSecond: 100,
+        byteBurst: 200,
+        messagesPerSecond: 1000,
+        messageBurst: 1000,
+      });
+      const socket = await openAdmitted(port, 'R');
+      const closed = new Promise<{ code: number; reason: string }>((resolve) =>
+        socket.once('close', (code, reason) => resolve({ code, reason: String(reason) })),
+      );
+      socket.send('x'.repeat(150));
+      socket.send('x'.repeat(150));
+
+      expect(await closed).toEqual({ code: 4408, reason: 'rate limit exceeded' });
+    });
+  });
+
   describe('room names (S1)', () => {
     it.each([
       ['foo:layers', 'a Redis sub-key alias'],

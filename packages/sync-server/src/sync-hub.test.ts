@@ -1652,6 +1652,36 @@ describe('presence (ephemeral)', () => {
     return { ...makeConn(id, room), role };
   }
 
+  it('drops a presence payload larger than maxPresenceBytes (S5)', async () => {
+    const hub = new SyncHub({ presenceThrottleMs: 0, maxPresenceBytes: 64 });
+    const a = conn('a', 'R');
+    const b = conn('b', 'R');
+    hub.addConnection(a);
+    hub.addConnection(b);
+
+    await hub.handleMessage(
+      'a',
+      envelope('ca', { kind: 'presence', data: { big: 'x'.repeat(80) } }),
+    );
+    await hub.handleMessage('a', envelope('ca', { kind: 'presence', data: { ok: true } }));
+
+    expect(b.sent).toHaveLength(1);
+    expect(JSON.parse(b.sent[0] ?? '').op.data).toEqual({ ok: true });
+  });
+
+  it('measures presence in UTF-8 bytes, not code units (S5)', async () => {
+    const hub = new SyncHub({ presenceThrottleMs: 0, maxPresenceBytes: 32 });
+    const a = conn('a', 'R');
+    const b = conn('b', 'R');
+    hub.addConnection(a);
+    hub.addConnection(b);
+
+    // 12 chars of 3-byte glyphs → 36 bytes of data plus the object wrapper.
+    await hub.handleMessage('a', envelope('ca', { kind: 'presence', data: { t: '€'.repeat(12) } }));
+
+    expect(b.sent).toEqual([]);
+  });
+
   it('broadcasts server-owned presence to every local room member and returns the local count', () => {
     const hub = new SyncHub();
     const a = makeConn('a', 'R');

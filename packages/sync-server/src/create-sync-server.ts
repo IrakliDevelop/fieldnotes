@@ -1,5 +1,5 @@
 import { WebSocketServer, type RawData } from 'ws';
-import type { Server } from 'http';
+import type { IncomingMessage, Server } from 'http';
 import { SyncHub } from './sync-hub';
 import type { HubBackend } from './hub-backend';
 import type { HubFanout } from './hub-fanout';
@@ -15,6 +15,10 @@ import type { ServerSyncPlugin } from './sync-plugin';
 import type { ElementRegistry } from '@fieldnotes/core';
 import { startHeartbeat } from './heartbeat';
 import {
+  DEFAULT_BYTES_PER_SECOND,
+  DEFAULT_BYTE_BURST,
+  DEFAULT_MAX_CONNECTIONS_PER_IP,
+  DEFAULT_MAX_CONNECTIONS_PER_ROOM,
   DEFAULT_MAX_JSON_DEPTH,
   DEFAULT_MAX_MESSAGE_BYTES,
   DEFAULT_MAX_PENDING_AUTH_BYTES,
@@ -47,8 +51,23 @@ export interface CreateSyncServerOptions {
   maxPendingAuthBytes?: number;
   messagesPerSecond?: number;
   messageBurst?: number;
+  /** Sustained inbound bytes per second per connection (token bucket). */
+  bytesPerSecond?: number;
+  /** Inbound byte spike allowance per connection; a frame larger than this is never admitted. */
+  byteBurst?: number;
   presenceThrottleMs?: number;
   maxPresenceLanes?: number;
+  maxPresenceBytes?: number;
+  /** Concurrent sockets per client address; `Infinity` disables the cap. */
+  maxConnectionsPerIp?: number;
+  /** Concurrent sockets per room, pending-auth sockets included; `Infinity` disables the cap. */
+  maxConnectionsPerRoom?: number;
+  /**
+   * Resolves the client address the per-IP cap keys on. Defaults to the socket's
+   * remote address; behind a trusted proxy read the forwarded header here.
+   * Returning `undefined` or `''` exempts the connection from the per-IP cap.
+   */
+  clientAddress?: (req: IncomingMessage) => string | undefined;
   shutdownGraceMs?: number;
   /**
    * Registry used to translate extension envelopes for legacy peers. Without
@@ -56,6 +75,27 @@ export interface CreateSyncServerOptions {
    * envelopes for pre-envelope clients.
    */
   elementRegistry?: ElementRegistry;
+}
+
+class ConcurrencyCounter {
+  private readonly counts = new Map<string, number>();
+
+  constructor(private readonly limit: number) {}
+
+  /** Reserves a slot for `key`; returns a release function, or null when the cap is reached. */
+  acquire(key: string): (() => void) | null {
+    const current = this.counts.get(key) ?? 0;
+    if (current >= this.limit) return null;
+    this.counts.set(key, current + 1);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const remaining = (this.counts.get(key) ?? 1) - 1;
+      if (remaining <= 0) this.counts.delete(key);
+      else this.counts.set(key, remaining);
+    };
+  }
 }
 
 function rawDataByteLength(data: RawData): number {
@@ -90,6 +130,7 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
     maxJsonDepth: options.maxJsonDepth ?? DEFAULT_MAX_JSON_DEPTH,
     presenceThrottleMs: options.presenceThrottleMs ?? DEFAULT_PRESENCE_THROTTLE_MS,
     maxPresenceLanes: options.maxPresenceLanes,
+    maxPresenceBytes: options.maxPresenceBytes,
     elementRegistry: options.elementRegistry,
   });
   const maxMessageBytes = options.maxMessageBytes ?? DEFAULT_MAX_MESSAGE_BYTES;
@@ -100,6 +141,13 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
   let shuttingDown = false;
   let closePromise: Promise<void> | undefined;
   let counter = 0;
+  const perIp = new ConcurrencyCounter(
+    options.maxConnectionsPerIp ?? DEFAULT_MAX_CONNECTIONS_PER_IP,
+  );
+  const perRoom = new ConcurrencyCounter(
+    options.maxConnectionsPerRoom ?? DEFAULT_MAX_CONNECTIONS_PER_ROOM,
+  );
+  const clientAddress = options.clientAddress ?? ((req) => req.socket.remoteAddress);
   wss.on('connection', (ws, req) => {
     if (shuttingDown) {
       ws.close(1001, 'server shutting down');
@@ -119,6 +167,19 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
       ws.close(4400, 'invalid room');
       return;
     }
+    // Caps are taken before auth: the pending-auth window is exactly what a flood targets.
+    const address = clientAddress(req);
+    const releaseIp = address ? perIp.acquire(address) : () => undefined;
+    if (!releaseIp) {
+      ws.close(4429, 'too many connections');
+      return;
+    }
+    const releaseRoom = perRoom.acquire(room);
+    if (!releaseRoom) {
+      releaseIp();
+      ws.close(4429, 'too many connections');
+      return;
+    }
     const connId = `c${++counter}-${Math.random().toString(36).slice(2, 8)}`;
 
     let state: 'pending' | 'ready' | 'rejected' = 'pending';
@@ -132,6 +193,10 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
     const limiter = new MessageRateLimiter(
       options.messagesPerSecond ?? DEFAULT_MESSAGES_PER_SECOND,
       options.messageBurst ?? DEFAULT_MESSAGE_BURST,
+    );
+    const byteLimiter = new MessageRateLimiter(
+      options.bytesPerSecond ?? DEFAULT_BYTES_PER_SECOND,
+      options.byteBurst ?? DEFAULT_BYTE_BURST,
     );
 
     const send = (m: string) => {
@@ -150,7 +215,8 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
         ws.close(1009, 'message too large');
         return;
       }
-      if (!limiter.take()) {
+      const now = Date.now();
+      if (!limiter.take(now) || !byteLimiter.take(now, messageBytes)) {
         state = 'rejected';
         ws.close(4408, 'rate limit exceeded');
         return;
@@ -173,6 +239,8 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
     });
     ws.on('close', () => {
       closed = true;
+      releaseIp();
+      releaseRoom();
       if (admitted) hub.removeConnection(connId);
     });
 

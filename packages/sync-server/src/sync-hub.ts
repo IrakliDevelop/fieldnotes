@@ -30,6 +30,7 @@ import { ServerPluginRegistry } from './sync-plugin';
 import type { ApplyResult, ServerOpContext, ServerSyncPlugin } from './sync-plugin';
 import {
   DEFAULT_MAX_JSON_DEPTH,
+  DEFAULT_MAX_PRESENCE_BYTES,
   DEFAULT_MAX_PRESENCE_LANES,
   DEFAULT_PRESENCE_THROTTLE_MS,
   hasJsonDepthAtMost,
@@ -56,11 +57,17 @@ export interface SyncHubOptions {
   maxJsonDepth?: number;
   presenceThrottleMs?: number;
   maxPresenceLanes?: number;
+  /** Largest `presence.data` payload relayed, in UTF-8 bytes of its JSON encoding. */
+  maxPresenceBytes?: number;
   /** Registry used to translate extension elements for legacy peers. */
   elementRegistry?: ElementRegistry;
 }
 
 const HUB_FROM = 'hub';
+const utf8 = new TextEncoder();
+function utf8ByteLength(text: string): number {
+  return utf8.encode(text).byteLength;
+}
 function generateInstanceId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
     return crypto.randomUUID();
@@ -165,6 +172,7 @@ export class SyncHub {
   private readonly maxJsonDepth: number;
   private readonly presenceThrottleMs: number;
   private readonly maxPresenceLanes: number;
+  private readonly maxPresenceBytes: number;
   /**
    * Presence throttle state keyed by connection, then by lane. A lane is the
    * payload's `kind` (a non-empty string of at most 64 chars) or the reserved
@@ -194,6 +202,11 @@ export class SyncHub {
       throw new RangeError('maxPresenceLanes must be a finite number of at least 1');
     }
     this.maxPresenceLanes = Math.floor(maxPresenceLanes);
+    const maxPresenceBytes = options.maxPresenceBytes ?? DEFAULT_MAX_PRESENCE_BYTES;
+    if (!Number.isFinite(maxPresenceBytes) || maxPresenceBytes < 0) {
+      throw new RangeError('maxPresenceBytes must be a non-negative finite number');
+    }
+    this.maxPresenceBytes = maxPresenceBytes;
     this.fanoutUnsub = this.fanout.subscribe((payload) => this.onFanout(payload));
   }
 
@@ -257,6 +270,10 @@ export class SyncHub {
       return Promise.resolve();
     }
     if (env.op.kind === 'presence') {
+      // Presence is relayed to every member verbatim, so its size is the amplification factor.
+      if (utf8ByteLength(JSON.stringify(env.op.data) ?? '') > this.maxPresenceBytes) {
+        return Promise.resolve();
+      }
       this.schedulePresence(conn, env.op.data); // off-queue, throttled independently
       return Promise.resolve();
     }

@@ -5,6 +5,15 @@ export const DEFAULT_MAX_PENDING_AUTH_BYTES = 2 * 1024 * 1024;
 export const DEFAULT_MESSAGES_PER_SECOND = 120;
 export const DEFAULT_MESSAGE_BURST = 240;
 export const DEFAULT_PRESENCE_THROTTLE_MS = 50;
+/** Largest `presence.data` payload (UTF-8 bytes of its JSON) the hub relays. */
+export const DEFAULT_MAX_PRESENCE_BYTES = 4 * 1024;
+/** Sustained inbound byte budget per connection; bounds relay amplification, not just frame count. */
+export const DEFAULT_BYTES_PER_SECOND = 4 * 1024 * 1024;
+export const DEFAULT_BYTE_BURST = 8 * 1024 * 1024;
+/** Concurrent sockets per client address, counted from the upgrade until close. */
+export const DEFAULT_MAX_CONNECTIONS_PER_IP = 64;
+/** Concurrent sockets per room, pending-auth sockets included. */
+export const DEFAULT_MAX_CONNECTIONS_PER_ROOM = 256;
 /** Per-connection presence throttle lanes, INCLUDING the reserved fallback lane. */
 export const DEFAULT_MAX_PRESENCE_LANES = 16;
 
@@ -46,12 +55,13 @@ export class MessageRateLimiter {
     this.updatedAt = now;
   }
 
-  take(now = Date.now()): boolean {
+  /** Charges `cost` tokens (frames or bytes); a cost above `burst` never fits. */
+  take(now = Date.now(), cost = 1): boolean {
     const elapsedSeconds = Math.max(0, now - this.updatedAt) / 1000;
     this.tokens = Math.min(this.burst, this.tokens + elapsedSeconds * this.ratePerSecond);
     this.updatedAt = now;
-    if (this.tokens < 1) return false;
-    this.tokens -= 1;
+    if (this.tokens < cost) return false;
+    this.tokens -= cost;
     return true;
   }
 }

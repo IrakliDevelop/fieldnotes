@@ -97,9 +97,11 @@ await server.close();
 ## Resource limits
 
 The reference server bounds work and memory per connection by default. Oversized WebSocket messages
-close with code `1009`; message-rate and pending-auth queue violations close with code `4408`.
-Messages with excessive JSON nesting are dropped. Presence sends immediately, then coalesces rapid
-updates so the latest state is forwarded at most once per throttle interval.
+close with code `1009`; message-rate, byte-rate and pending-auth queue violations close with code
+`4408`; a socket over the per-address or per-room connection cap closes with `4429`. Messages with
+excessive JSON nesting, and presence payloads over `maxPresenceBytes`, are dropped. Presence sends
+immediately, then coalesces rapid updates so the latest state is forwarded at most once per throttle
+interval.
 
 ```ts
 createSyncServer({
@@ -110,15 +112,25 @@ createSyncServer({
   maxPendingAuthBytes: 2 * 1024 * 1024,
   messagesPerSecond: 120,
   messageBurst: 240,
+  bytesPerSecond: 4 * 1024 * 1024,
+  byteBurst: 8 * 1024 * 1024,
   presenceThrottleMs: 50,
+  maxPresenceBytes: 4 * 1024,
+  maxConnectionsPerIp: 64,
+  maxConnectionsPerRoom: 256,
+  clientAddress: (req) => req.socket.remoteAddress,
 });
 ```
 
 These values are the defaults. Tune them to the largest legitimate board operation and expected
 client update rate. `maxMessageBytes` is enforced by the WebSocket parser before a complete message
 is allocated, including fragmented messages. The pending-auth limits bound messages held while an
-asynchronous `authenticate` hook is unresolved. Rate limits are per connection and use a token
-bucket: `messageBurst` is the short spike allowance and `messagesPerSecond` is the refill rate.
+asynchronous `authenticate` hook is unresolved. Rate limits are per connection and use token
+buckets: `messageBurst` / `byteBurst` are the short spike allowances and `messagesPerSecond` /
+`bytesPerSecond` the refill rates, so relay amplification is bounded in bytes, not just frames.
+Connection caps are taken at the upgrade, before `authenticate` runs, and count pending-auth
+sockets; behind a trusted proxy supply `clientAddress` to read the forwarded address, and return
+`undefined` to exempt a connection from the per-address cap.
 
 ## Authentication
 
