@@ -5,7 +5,8 @@
 1. Establish scope: inspect status, branch, nearby source, tests, exports, and callers.
 2. For substantive product changes, honor design/spec/plan approval gates requested by the user.
 3. Write or identify a test that distinguishes old from desired behavior.
-4. Make the smallest coherent change; avoid unrelated cleanup.
+4. Make the smallest coherent change; avoid unrelated cleanup. The thinking tier writes the
+   task brief; a coding-tier agent makes the change (see [delegation.md](delegation.md)).
 5. Run the narrow test, then the affected package build. DTS builds catch errors Vitest misses.
 6. Review the diff, public surface, generated artifacts, docs, and version implications.
 7. Run the appropriate verification tier and provide an evidence-based handoff.

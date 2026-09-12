@@ -9,6 +9,7 @@ the mandatory short entry point; these pages provide detail on demand.
 | Find the owning package or subsystem  | [Architecture map](architecture.md)                                       |
 | Implement, test, refactor, or release | [Workflow and verification](workflow.md)                                  |
 | Review a change or prepare a handoff  | [Review playbook](review.md)                                              |
+| Split work across model tiers         | [Tiered delegation](delegation.md)                                        |
 | Invoke a reusable procedure           | [Field Notes skill](../../.agents/skills/fieldnotes-development/SKILL.md) |
 
 ## Wiki vs Handbook
