@@ -4,6 +4,32 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.83.0] — 2026-09-12
+
+### Added
+
+- `HtmlElement.transient?: boolean`: a transient html element is omitted from `exportState()` /
+  `exportJSON()`, is never sent to a sync relay, survives an authoritative snapshot reconcile and
+  a remote `clear` on the client, and loads without error if a state file carries it.
+- `Viewport.addHtmlElement(dom, position, size?, opts?)` accepts `opts.transient` and
+  `opts.origin`; an external origin (anything other than `undefined` / `'local'`, e.g. the reserved
+  `'host'`) adds the element without a history transaction.
+
+### Fixed
+
+- React `<CanvasElement>` is host-owned and transient: mount, prop updates (one combined update)
+  and unmount carry `origin: 'host'`, so they no longer create undo steps (Ctrl+Z no longer deletes
+  a mounted React embed), are not broadcast by the sync client, do not leak a ghost html element into
+  saved state, and the component re-registers its DOM content after any store `clear`.
+- Sync client: transient elements are excluded from outgoing ops and from snapshots served to peers,
+  are kept across authoritative snapshot reconciles and remote clears.
+
+### Package versions
+
+- `@fieldnotes/core` 0.82.1 → 0.83.0
+- `@fieldnotes/react` 0.12.0 → 0.12.1 (peer `@fieldnotes/core >= 0.83.0`)
+- `@fieldnotes/sync` 0.20.0 → 0.20.1
+
 ## [@fieldnotes/sync-server 0.19.0] — 2026-09-11
 
 Sync security batch (Phase 0 §2.5). No persisted-canvas or wire-protocol change, but hosts must read
