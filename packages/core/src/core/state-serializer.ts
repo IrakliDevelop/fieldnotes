@@ -43,15 +43,16 @@ export function exportState(
       position: { ...camera.position },
       zoom: camera.zoom,
     },
-    elements: elements.flatMap((el) => {
+    elements: elements
       // Host-owned transient html elements belong to the embedding app, not the document.
-      if (el.type === 'html' && el.transient === true) return [];
-      const clone = structuredClone(el);
-      if (clone.type === 'arrow') {
-        delete clone.cachedControlPoint;
-      }
-      return [clone];
-    }),
+      .filter((el) => !(el.type === 'html' && el.transient === true))
+      .map((el) => {
+        const clone = structuredClone(el);
+        if (clone.type === 'arrow') {
+          delete clone.cachedControlPoint;
+        }
+        return clone;
+      }),
     layers: layers.map((l) => ({ ...l })),
   };
   if (activeLayerId) state.activeLayerId = activeLayerId;
