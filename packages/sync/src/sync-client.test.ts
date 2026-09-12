@@ -1968,6 +1968,49 @@ describe('transient elements stay local', () => {
     expect(store.getById(el.id)).toBeDefined();
     expect(store.getById(x.id)).toBeDefined();
   });
+
+  it('omits transient elements from the snapshot it serves to a peer', () => {
+    const bus = makeBus();
+    const storeA = new ElementStore();
+    const transportA = bus.endpoint();
+    const transportX = bus.endpoint();
+    const normal = shape(1);
+    const el = transientHtml();
+    storeA.add(normal);
+    storeA.add(el);
+    new SyncClient({ store: storeA, transport: transportA, clientId: 'A' }).start();
+
+    const before = transportA.sent.length;
+    transportX.send(envelope('X', { kind: 'request-snapshot' }));
+
+    const served = transportA.sent
+      .slice(before)
+      .map((m) => JSON.parse(m) as { op: { kind: string; elements?: CanvasElement[] } })
+      .filter((e) => e.op.kind === 'snapshot')
+      .map((e) => e.op.elements ?? []);
+    expect(served).toHaveLength(1);
+    expect(served[0]?.map((e) => e.id)).toEqual([normal.id]);
+  });
+
+  it('keeps transient elements across a remote clear', () => {
+    const store = new ElementStore();
+    const transport = makeReconnectTransport();
+    const client = new SyncClient({ store, transport, clientId: 'B' });
+    client.start();
+
+    const normal = shape(1);
+    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'B', elements: [normal] }));
+
+    const el = transientHtml();
+    store.add(el);
+
+    const before = transport.sent.length;
+    transport.deliver(envelope('hub', { kind: 'clear' }));
+
+    expect(store.getById(el.id)).toBeDefined();
+    expect(store.getById(normal.id)).toBeUndefined();
+    expect(upsertIds(transport.sent.slice(before))).not.toContain(el.id);
+  });
 });
 
 describe('audience stamping (resolveAudience)', () => {
