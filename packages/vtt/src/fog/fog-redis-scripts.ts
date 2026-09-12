@@ -179,8 +179,10 @@ return {1}
  * lands between the caller's read and this call cannot produce a conflict, and
  * per-tile LWW runs against the value stored at that moment. ARGV[1] is the
  * incoming tile array as JSON; there is no compare-and-set argument and no
- * retry result. The tiles hash is scanned only when the patch would otherwise
- * overflow capacity, to reclaim records the current definition no longer admits.
+ * retry result. A stored definition the script cannot compute with counts as no
+ * definition at all, so a corrupt meta record degrades to corrections instead of
+ * failing the script. The tiles hash is scanned only when the patch would
+ * otherwise overflow capacity, to reclaim records the definition no longer admits.
  */
 export const FOG_PATCH_LWW_SCRIPT = `
 local incomingTiles = cjson.decode(ARGV[1])
@@ -208,15 +210,18 @@ end
 local function tombstone(generation, x, y)
   return cjson.encode({generation = generation, x = x, y = y, version = 1, editor = 'hub'})
 end
+local function validDef(def)
+  return type(def) == 'table' and type(def.generation) == 'string'
+    and type(def.cellSize) == 'number' and def.cellSize > 0
+    and type(def.bounds) == 'table' and type(def.bounds.x) == 'number'
+    and type(def.bounds.y) == 'number' and type(def.bounds.w) == 'number' and def.bounds.w > 0
+    and type(def.bounds.h) == 'number' and def.bounds.h > 0
+end
 local metaRaw = redis.call('HGET', KEYS[1], 'current')
 local def = nil
 if metaRaw then
   local metaOk, meta = pcall(cjson.decode, metaRaw)
-  if metaOk and type(meta) == 'table' and type(meta.definition) == 'table'
-    and type(meta.definition.generation) == 'string' and type(meta.definition.cellSize) == 'number'
-    and type(meta.definition.bounds) == 'table' then
-    def = meta.definition
-  end
+  if metaOk and type(meta) == 'table' and validDef(meta.definition) then def = meta.definition end
 end
 if not def then
   local orphaned = {0, #incomingTiles}

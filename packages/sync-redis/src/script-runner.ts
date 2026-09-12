@@ -40,12 +40,15 @@ export function createScriptRunner(client: RedisHashClient): ScriptRunner {
 
   return async (script, options) => {
     if (!scriptLoad || !evalSha) return evalScript(script, options);
-    const sha = await load(script, scriptLoad);
+    const pending = load(script, scriptLoad);
+    const sha = await pending;
     try {
       return await evalSha(sha, options);
     } catch (error) {
       if (!isNoScriptError(error)) throw error;
-      shaByScript.delete(script);
+      // Evict only this call's load: a concurrent NOSCRIPT may already have
+      // started the reload, and dropping it would load the script again.
+      if (shaByScript.get(script) === pending) shaByScript.delete(script);
       const reloaded = await load(script, scriptLoad);
       return await evalSha(reloaded, options);
     }

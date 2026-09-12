@@ -67,6 +67,45 @@ describe('createScriptRunner', () => {
     expect(evalFn).toHaveBeenCalledTimes(0);
   });
 
+  it('loads a script once for two calls started concurrently', async () => {
+    const evalFn = vi.fn(async () => 'evaluated');
+    const scriptLoad = vi.fn(async () => 'sha-1');
+    const evalSha = vi.fn(async () => 'by-sha');
+    const client: RedisHashClient = { ...baseClient(), eval: evalFn, scriptLoad, evalSha };
+
+    const run = createScriptRunner(client);
+    const first = run(SCRIPT, OPTIONS);
+    const second = run(SCRIPT, OPTIONS);
+
+    await expect(Promise.all([first, second])).resolves.toEqual(['by-sha', 'by-sha']);
+    expect(scriptLoad).toHaveBeenCalledTimes(1);
+    expect(evalSha).toHaveBeenCalledTimes(2);
+    expect(evalFn).toHaveBeenCalledTimes(0);
+  });
+
+  it('keeps the reload a concurrent NOSCRIPT already started', async () => {
+    const evalFn = vi.fn(async () => 'evaluated');
+    let loads = 0;
+    const scriptLoad = vi.fn(async () => {
+      loads += 1;
+      return `sha-${loads}`;
+    });
+    // Only the first load's sha is missing server-side; a reload must happen once.
+    const evalSha = vi.fn(async (sha: string) => {
+      if (sha === 'sha-1') throw new Error('NOSCRIPT No matching script. Please use EVAL.');
+      return 'by-sha';
+    });
+    const client: RedisHashClient = { ...baseClient(), eval: evalFn, scriptLoad, evalSha };
+
+    const run = createScriptRunner(client);
+    const first = run(SCRIPT, OPTIONS);
+    const second = run(SCRIPT, OPTIONS);
+
+    await expect(Promise.all([first, second])).resolves.toEqual(['by-sha', 'by-sha']);
+    expect(scriptLoad).toHaveBeenCalledTimes(2);
+    expect(evalSha).toHaveBeenCalledTimes(4);
+  });
+
   it('propagates other errors', async () => {
     const evalFn = vi.fn(async () => 'evaluated');
     const scriptLoad = vi.fn(async () => 'sha-1');
