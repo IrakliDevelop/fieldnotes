@@ -4,6 +4,32 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [@fieldnotes/sync-redis 0.11.0] — 2026-09-12
+
+### Fixed
+
+- Redis fog persistence (`@fieldnotes/vtt/redis`) no longer livelocks under concurrent painting.
+  The meta and patch Lua scripts decide last-writer-wins inside Redis against the current state
+  instead of a whole-hash compare-and-swap: tile replacements and invalid-tile deletions are guarded
+  per field and skipped on mismatch, the retry loop and its "did not converge" error are gone, and the
+  patch hot path no longer reads the whole tiles hash. A patch no longer repairs unrelated invalid
+  stored tiles; `snapshot()` keeps filtering them and a meta write still rewrites them. Hash layout,
+  LWW rule (`version`, then `editor`), generation gate, shrink rejection and the 256-tile capacity are
+  unchanged; a capacity-blocked patch first sweeps invalid and foreign-generation fields.
+
+### Added
+
+- `RedisHashClient` gains optional `scriptLoad` and `evalSha`; `createScriptRunner(client)` runs a
+  script by SHA with automatic `SCRIPT LOAD` and `NOSCRIPT` fallback, or by `EVAL` when the client
+  lacks them. The fog backend uses it.
+- Opt-in real-Redis integration suite in `@fieldnotes/sync-redis` (`REDIS_URL=… pnpm --filter
+@fieldnotes/sync-redis test`), skipped otherwise.
+
+### Package versions
+
+- `@fieldnotes/sync-redis` 0.10.0 → 0.11.0
+- `@fieldnotes/vtt` 0.9.0 → 0.9.1 (peer `@fieldnotes/sync-redis >= 0.11.0`)
+
 ## [@fieldnotes/sync-server 0.19.0] — 2026-09-11
 
 Sync security batch (Phase 0 §2.5). No persisted-canvas or wire-protocol change, but hosts must read
