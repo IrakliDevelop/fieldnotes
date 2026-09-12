@@ -628,12 +628,74 @@ describe('SyncHub', () => {
       h.addConnection(localPeer);
 
       await expect(h.handleMessage('a', upsert('ca', 'e1'))).rejects.toBe(error);
-      expect((await backend.snapshot('R')).map((element) => element.id)).toEqual(['e1']);
+      // Publish-then-apply (S7): a rejected publication persists nothing, so the
+      // sender is resynced from authoritative state instead of keeping a phantom.
+      expect((await backend.snapshot('R')).map((element) => element.id)).toEqual([]);
+      expect(origin.sent).toHaveLength(1);
+      expect(JSON.parse(origin.sent[0] ?? '')).toEqual({
+        from: 'hub',
+        op: { kind: 'snapshot', to: 'ca', elements: [] },
+      });
       expect(localPeer.sent).toEqual([]);
 
       await expect(h.handleMessage('a', upsert('ca', 'e2'))).resolves.toBeUndefined();
       expect(localPeer.sent).toHaveLength(1);
       expect(JSON.parse(localPeer.sent[0] ?? '').op.element.id).toBe('e2');
+    });
+
+    it('sends the sender a snapshot correction when backend.apply rejects after publish', async () => {
+      const error = new Error('backend unavailable');
+      class ApplyFailsOnceBackend extends MemoryHubBackend {
+        pendingFailure: Error | undefined = error;
+
+        override async apply(...args: Parameters<HubBackend['apply']>): Promise<void> {
+          const failure = this.pendingFailure;
+          if (failure) {
+            this.pendingFailure = undefined;
+            throw failure;
+          }
+          await super.apply(...args);
+        }
+      }
+      const backend = new ApplyFailsOnceBackend();
+      const fanout = { publish: vi.fn(() => Promise.resolve()), subscribe: () => () => undefined };
+      const origin = makeConn('a', 'R');
+      const localPeer = makeConn('b', 'R');
+      const h = new SyncHub({ backend, fanout, instanceId: 'A' });
+      h.addConnection(origin);
+      h.addConnection(localPeer);
+
+      await expect(h.handleMessage('a', upsert('ca', 'e1'))).rejects.toBe(error);
+      expect((await backend.snapshot('R')).map((element) => element.id)).toEqual([]);
+      expect(origin.sent).toHaveLength(1);
+      expect(JSON.parse(origin.sent[0] ?? '')).toEqual({
+        from: 'hub',
+        op: { kind: 'snapshot', to: 'ca', elements: [] },
+      });
+      expect(localPeer.sent).toEqual([]);
+
+      await expect(h.handleMessage('a', upsert('ca', 'e2'))).resolves.toBeUndefined();
+      expect((await backend.snapshot('R')).map((element) => element.id)).toEqual(['e2']);
+      expect(localPeer.sent).toHaveLength(1);
+    });
+
+    it('publishes before applying', async () => {
+      const backend = new MemoryHubBackend();
+      let idsWhenPublished: string[] | undefined;
+      const fanout = {
+        publish: vi.fn(async () => {
+          idsWhenPublished = (await backend.snapshot('R')).map((element) => element.id);
+        }),
+        subscribe: () => () => undefined,
+      };
+      const origin = makeConn('a', 'R');
+      const h = new SyncHub({ backend, fanout, instanceId: 'A' });
+      h.addConnection(origin);
+
+      await h.handleMessage('a', upsert('ca', 'e1'));
+
+      expect(idsWhenPublished).toEqual([]);
+      expect((await backend.snapshot('R')).map((element) => element.id)).toEqual(['e1']);
     });
 
     it('isolates rooms across instances', async () => {
