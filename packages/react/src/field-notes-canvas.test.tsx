@@ -1,9 +1,19 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, type Mock } from 'vitest';
 import { render, cleanup, act } from '@testing-library/react';
 import { useContext, useState, StrictMode } from 'react';
 import { FieldNotesCanvas } from './field-notes-canvas';
 import { ViewportContext } from './context';
 import { HandTool, SelectTool, PencilTool } from '@fieldnotes/core';
+import type { Viewport } from '@fieldnotes/core';
+
+type OnReady = Mock<(viewport: Viewport) => void>;
+
+/** The viewport handed to the `index`-th `onReady` call (negative counts from the end). */
+function viewportAt(onReady: OnReady, index: number): Viewport {
+  const call = onReady.mock.calls.at(index);
+  if (!call) throw new Error(`onReady was not called (call index ${index})`);
+  return call[0];
+}
 
 describe('FieldNotesCanvas', () => {
   afterEach(cleanup);
@@ -37,7 +47,7 @@ describe('FieldNotesCanvas', () => {
   });
 
   it('registers tools passed as props', () => {
-    const onReady = vi.fn();
+    const onReady = vi.fn<(viewport: Viewport) => void>();
     render(
       <FieldNotesCanvas
         tools={[new HandTool(), new SelectTool()]}
@@ -46,7 +56,7 @@ describe('FieldNotesCanvas', () => {
       />,
     );
     expect(onReady).toHaveBeenCalledTimes(1);
-    const viewport = onReady.mock.calls[0][0];
+    const viewport = viewportAt(onReady, 0);
     expect(viewport.toolManager.toolNames).toContain('hand');
     expect(viewport.toolManager.toolNames).toContain('select');
   });
@@ -69,7 +79,7 @@ describe('FieldNotesCanvas', () => {
   });
 
   it('controlled tool prop wins over defaultTool at mount', () => {
-    const onReady = vi.fn();
+    const onReady = vi.fn<(viewport: Viewport) => void>();
     render(
       <FieldNotesCanvas
         tools={[new HandTool(), new SelectTool()]}
@@ -78,15 +88,15 @@ describe('FieldNotesCanvas', () => {
         onReady={onReady}
       />,
     );
-    const viewport = onReady.mock.calls[0][0];
+    const viewport = viewportAt(onReady, 0);
     expect(viewport.toolManager.activeTool?.name).toBe('select');
   });
 
   it('tool prop change switches the active tool', () => {
-    const onReady = vi.fn();
+    const onReady = vi.fn<(viewport: Viewport) => void>();
     const tools = [new HandTool(), new SelectTool()];
     const { rerender } = render(<FieldNotesCanvas tools={tools} tool="select" onReady={onReady} />);
-    const viewport = onReady.mock.calls[0][0];
+    const viewport = viewportAt(onReady, 0);
     expect(viewport.toolManager.activeTool?.name).toBe('select');
 
     rerender(<FieldNotesCanvas tools={tools} tool="hand" onReady={onReady} />);
@@ -94,7 +104,7 @@ describe('FieldNotesCanvas', () => {
   });
 
   it('onToolChange fires when the tool switches imperatively', () => {
-    const onReady = vi.fn();
+    const onReady = vi.fn<(viewport: Viewport) => void>();
     const onToolChange = vi.fn();
     render(
       <FieldNotesCanvas
@@ -104,7 +114,7 @@ describe('FieldNotesCanvas', () => {
         onReady={onReady}
       />,
     );
-    const viewport = onReady.mock.calls[0][0];
+    const viewport = viewportAt(onReady, 0);
     act(() => {
       viewport.setTool('hand');
     });
@@ -112,7 +122,7 @@ describe('FieldNotesCanvas', () => {
   });
 
   it('controlled tool does not loop (set -> onChange -> same value)', () => {
-    const onReady = vi.fn();
+    const onReady = vi.fn<(viewport: Viewport) => void>();
     let changeCount = 0;
     function Harness() {
       const [tool, setTool] = useState('select');
@@ -129,7 +139,7 @@ describe('FieldNotesCanvas', () => {
       );
     }
     render(<Harness />);
-    const viewport = onReady.mock.calls[0][0];
+    const viewport = viewportAt(onReady, 0);
     act(() => {
       viewport.setTool('hand');
     });
@@ -138,9 +148,9 @@ describe('FieldNotesCanvas', () => {
   });
 
   it('snapToGrid prop is reactive', () => {
-    const onReady = vi.fn();
+    const onReady = vi.fn<(viewport: Viewport) => void>();
     const { rerender } = render(<FieldNotesCanvas snapToGrid onReady={onReady} />);
-    const viewport = onReady.mock.calls[0][0];
+    const viewport = viewportAt(onReady, 0);
     expect(viewport.snapToGrid).toBe(true);
 
     rerender(<FieldNotesCanvas snapToGrid={false} onReady={onReady} />);
@@ -148,9 +158,9 @@ describe('FieldNotesCanvas', () => {
   });
 
   it('tools added after mount are registered', () => {
-    const onReady = vi.fn();
+    const onReady = vi.fn<(viewport: Viewport) => void>();
     const { rerender } = render(<FieldNotesCanvas tools={[new HandTool()]} onReady={onReady} />);
-    const viewport = onReady.mock.calls[0][0];
+    const viewport = viewportAt(onReady, 0);
     expect(viewport.toolManager.toolNames).toEqual(['hand']);
 
     rerender(<FieldNotesCanvas tools={[new HandTool(), new PencilTool()]} onReady={onReady} />);
@@ -158,14 +168,14 @@ describe('FieldNotesCanvas', () => {
   });
 
   it('survives StrictMode double-mount with a usable viewport', () => {
-    const onReady = vi.fn();
+    const onReady = vi.fn<(viewport: Viewport) => void>();
     const { container } = render(
       <StrictMode>
         <FieldNotesCanvas tools={[new SelectTool()]} defaultTool="select" onReady={onReady} />
       </StrictMode>,
     );
     expect(container.querySelectorAll('canvas').length).toBe(1);
-    const viewport = onReady.mock.calls[onReady.mock.calls.length - 1][0];
+    const viewport = viewportAt(onReady, -1);
     expect(viewport.toolManager.activeTool?.name).toBe('select');
   });
 });

@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Camera } from '@fieldnotes/core';
 import { FogRenderer } from './fog-renderer';
+import type { FogStateV1 } from './types';
 import { createTileBytes, encodeBase64 } from './tile-codec';
 
 function context(): CanvasRenderingContext2D {
@@ -261,14 +262,14 @@ describe('FogRenderer.setOptions', () => {
 
   it('does not mutate fog state or view mode', () => {
     const renderer = new FogRenderer();
-    const state = {
+    const state: FogStateV1 = {
       definition: {
-        version: 1 as const,
+        version: 1,
         generation: 'g',
         bounds: { x: 0, y: 0, w: 8, h: 8 },
         cellSize: 1,
         tileCells: 128,
-        base: 'covered' as const,
+        base: 'covered',
       },
       tiles: [],
     };

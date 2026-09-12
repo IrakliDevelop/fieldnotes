@@ -65,6 +65,7 @@ describe('renderTemplateFeetLabel', () => {
       color: '#000',
     });
     const end = (ctx.lineTo as ReturnType<typeof vi.fn>).mock.calls[0];
+    if (!end) throw new Error('lineTo was never called');
     expect(end[0]).toBeCloseTo(0, 3);
     expect(end[1]).toBeCloseTo(100, 3);
   });
