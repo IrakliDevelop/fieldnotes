@@ -174,7 +174,9 @@ describe('core public surface', () => {
       'setActivation',
       'onElementActivate',
     ]) {
-      expect(typeof Viewport.prototype[method as keyof Viewport]).toBe('function');
+      expect(typeof Viewport.prototype[method as keyof InstanceType<typeof Viewport>]).toBe(
+        'function',
+      );
     }
   });
 

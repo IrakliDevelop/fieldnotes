@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from 'vitest';
 import { exportState, parseState } from './state-serializer';
-import type { CanvasState, ImportableCanvasState } from './state-serializer';
+import type { CanvasState } from './state-serializer';
 import {
   createArrow,
   createHtmlElement,
@@ -13,7 +13,10 @@ import {
 } from '../elements/element-factory';
 import type { Layer } from '../layers/types';
 import { ElementRegistry } from '../elements/element-registry';
-import type { BaseElement, ElementTypeDefinition } from '../elements/types';
+import type { BaseElement, CanvasElement, ElementTypeDefinition } from '../elements/types';
+
+/** A version-3 state fixture: legacy version number with fully typed v4 element payloads. */
+type ValidStateFixture = Omit<CanvasState, 'version'> & { version: 3 };
 
 interface LegacyMarker extends BaseElement {
   type: 'marker';
@@ -125,7 +128,7 @@ describe('exportState', () => {
 });
 
 describe('parseState', () => {
-  function validState(): ImportableCanvasState {
+  function validState(): ValidStateFixture {
     return {
       version: 3,
       camera: { position: { x: 0, y: 0 }, zoom: 1 },
@@ -157,18 +160,20 @@ describe('parseState', () => {
   it('migrates registered legacy element types without domain knowledge in core', () => {
     const registry = new ElementRegistry();
     registry.register(markerDefinition);
-    const data = validState();
-    data.elements = [
-      {
-        id: 'marker-1',
-        type: 'marker',
-        position: { x: 10, y: 20 },
-        zIndex: 1,
-        locked: false,
-        layerId: 'default-layer',
-        label: 'hello',
-      },
-    ];
+    const data = {
+      ...validState(),
+      elements: [
+        {
+          id: 'marker-1',
+          type: 'marker',
+          position: { x: 10, y: 20 },
+          zIndex: 1,
+          locked: false,
+          layerId: 'default-layer',
+          label: 'hello',
+        },
+      ],
+    };
 
     const state = parseState(JSON.stringify(data), registry);
 
@@ -188,18 +193,20 @@ describe('parseState', () => {
   it('rejects malformed registered legacy data before migration mutates state', () => {
     const registry = new ElementRegistry();
     registry.register(markerDefinition);
-    const data = validState();
-    data.elements = [
-      {
-        id: 'marker-1',
-        type: 'marker',
-        position: { x: 10, y: 20 },
-        zIndex: 1,
-        locked: false,
-        layerId: 'default-layer',
-        label: 42,
-      },
-    ];
+    const data = {
+      ...validState(),
+      elements: [
+        {
+          id: 'marker-1',
+          type: 'marker',
+          position: { x: 10, y: 20 },
+          zIndex: 1,
+          locked: false,
+          layerId: 'default-layer',
+          label: 42,
+        },
+      ],
+    };
 
     expect(() => parseState(JSON.stringify(data), registry)).toThrow('malformed marker data');
   });
@@ -260,7 +267,7 @@ describe('parseState', () => {
 
   it('returns activeLayerId when present in state', () => {
     const state = validState();
-    (state as Record<string, unknown>).activeLayerId = 'default-layer';
+    state.activeLayerId = 'default-layer';
     const json = JSON.stringify(state);
     const parsed = parseState(json);
     expect(parsed.activeLayerId).toBe('default-layer');
@@ -562,9 +569,8 @@ describe('parseState', () => {
   describe('layer migration', () => {
     it('adds default layer when layers array is missing', () => {
       const state = validState();
-      const raw = state as Record<string, unknown>;
-      delete raw['layers'];
-      const json = JSON.stringify(raw);
+      delete state.layers;
+      const json = JSON.stringify(state);
       const parsed = parseState(json);
       expect(parsed.layers).toHaveLength(1);
       const first = parsed.layers?.[0];
@@ -574,13 +580,13 @@ describe('parseState', () => {
 
     it('adds layerId to elements missing it', () => {
       const state = validState();
-      const raw = state as Record<string, unknown>;
-      delete raw['layers'];
-      for (const el of state.elements) {
-        const elRaw = el as Record<string, unknown>;
-        delete elRaw['layerId'];
-      }
-      const json = JSON.stringify(raw);
+      delete state.layers;
+      const rawElements = state.elements.map((el) => {
+        const raw: Partial<CanvasElement> = { ...el };
+        delete raw.layerId;
+        return raw;
+      });
+      const json = JSON.stringify({ ...state, elements: rawElements });
       const parsed = parseState(json);
       for (const el of parsed.elements) {
         expect(el.layerId).toBe('default-layer');
@@ -589,15 +595,14 @@ describe('parseState', () => {
 
     it('preserves existing layers array', () => {
       const state = validState();
-      const raw = state as Record<string, unknown>;
-      raw['layers'] = [
+      state.layers = [
         { id: 'L1', name: 'Background', visible: true, locked: true, order: 0, opacity: 1 },
         { id: 'L2', name: 'Foreground', visible: true, locked: false, order: 1, opacity: 1 },
       ];
       const element = state.elements[0];
       if (!element) throw new Error('Test fixture must contain an element');
       element.layerId = 'L1';
-      const json = JSON.stringify(raw);
+      const json = JSON.stringify(state);
       const parsed = parseState(json);
       expect(parsed.layers).toHaveLength(2);
       const first = parsed.layers?.[0];

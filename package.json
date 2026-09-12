@@ -8,6 +8,7 @@
     "agent:format:check": "prettier --check AGENTS.md CLAUDE.md package.json 'docs/agents/*.md' '.agents/**/*.{md,yaml}' scripts/check-agent-docs.mjs",
     "build": "pnpm -r --workspace-concurrency=1 build",
     "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
     "lint": "eslint 'packages/*/src/**/*.{ts,tsx}'",
     "lint:fix": "eslint --fix 'packages/*/src/**/*.{ts,tsx}'",
     "format": "prettier --write 'packages/*/src/**/*.{ts,tsx}'",

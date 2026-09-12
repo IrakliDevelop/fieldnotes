@@ -210,11 +210,11 @@ describe('getArrowHandlePositions', () => {
     const handles = getArrowHandlePositions(arrow);
 
     expect(handles).toHaveLength(3);
-    expect(handles[0][0]).toBe('start');
-    expect(handles[0][1]).toEqual({ x: 0, y: 0 });
-    expect(handles[2][0]).toBe('end');
-    expect(handles[2][1]).toEqual({ x: 200, y: 0 });
-    expect(handles[1][0]).toBe('mid');
+    expect(handles[0]?.[0]).toBe('start');
+    expect(handles[0]?.[1]).toEqual({ x: 0, y: 0 });
+    expect(handles[2]?.[0]).toBe('end');
+    expect(handles[2]?.[1]).toEqual({ x: 200, y: 0 });
+    expect(handles[1]?.[0]).toBe('mid');
   });
 });
 
@@ -386,7 +386,7 @@ describe('renderArrowHandles', () => {
     renderArrowHandles(canvas, arrow, 2);
 
     const arcCalls = (canvas.arc as ReturnType<typeof vi.fn>).mock.calls;
-    expect(arcCalls[0][2]).toBe(5 / 2);
+    expect(arcCalls[0]?.[2]).toBe(5 / 2);
   });
 
   it('uses blue fill for mid handle and white for endpoints', () => {
@@ -395,15 +395,10 @@ describe('renderArrowHandles', () => {
 
     renderArrowHandles(canvas, arrow, 1);
 
-    const fillStyleChanges: string[] = [];
     const beginPathCalls = (canvas.beginPath as ReturnType<typeof vi.fn>).mock.invocationCallOrder;
     const fillCalls = (canvas.fill as ReturnType<typeof vi.fn>).mock.invocationCallOrder;
 
     expect(beginPathCalls.length).toBe(3);
     expect(fillCalls.length).toBe(3);
-
-    const fillStyleProxy = canvas as Record<string, unknown>;
-    void fillStyleProxy;
-    void fillStyleChanges;
   });
 });

@@ -39,6 +39,7 @@ describe('Viewport plugin lifecycle', () => {
       configure: () => order.push(`configure:${name}`),
       start: () => {
         order.push(`start:${name}`);
+        return undefined;
       },
     });
     const viewport = new Viewport(container, {
@@ -77,6 +78,7 @@ describe('Viewport plugin lifecycle', () => {
           name: 'service',
           start(context) {
             context.registerService(key, { value: 42 });
+            return undefined;
           },
         },
       ],
@@ -268,7 +270,7 @@ describe('Viewport plugin lifecycle', () => {
 
   it('rolls back core, plugin, and history state without notifications when commit fails', () => {
     let state = { count: 1, fail: false };
-    let notifyChange = () => undefined;
+    let notifyChange: () => void = () => undefined;
     const pluginNotifications = vi.fn();
     const viewport = new Viewport(container, {
       plugins: [
@@ -326,7 +328,7 @@ describe('Viewport plugin lifecycle', () => {
 
   it('flushes load notifications only after every subsystem has committed', () => {
     let state = { count: 1 };
-    let notifyChange = () => undefined;
+    let notifyChange: () => void = () => undefined;
     const observations: { x: number; zoom: number; count: number; undo: number }[] = [];
     let storeNotifications = 0;
     let record = (): void => undefined;

@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vitest';
 import { DomNodeManager } from './dom-node-manager';
 import { ElementStore } from '../elements/element-store';
 import {
@@ -34,15 +34,15 @@ describe('DomNodeManager', () => {
   });
 
   let domLayer: HTMLDivElement;
-  let onEditRequest: ReturnType<typeof vi.fn>;
-  let isEditingElement: ReturnType<typeof vi.fn>;
+  let onEditRequest: Mock<(id: string) => void>;
+  let isEditingElement: Mock<(id: string) => boolean>;
   let manager: DomNodeManager;
 
   beforeEach(() => {
     domLayer = document.createElement('div');
     document.body.appendChild(domLayer);
-    onEditRequest = vi.fn();
-    isEditingElement = vi.fn().mockReturnValue(false);
+    onEditRequest = vi.fn<(id: string) => void>();
+    isEditingElement = vi.fn<(id: string) => boolean>().mockReturnValue(false);
     manager = new DomNodeManager({
       domLayer,
       onEditRequest,
@@ -67,7 +67,7 @@ describe('DomNodeManager', () => {
       expect(node?.style.top).toBe('200px');
       expect(node?.style.width).toBe('300px');
       expect(node?.style.height).toBe('150px');
-      expect(domLayer.contains(node)).toBe(true);
+      expect(domLayer.contains(node ?? null)).toBe(true);
     });
 
     it('reuses existing node on second call', () => {

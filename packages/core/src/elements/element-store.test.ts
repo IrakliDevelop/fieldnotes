@@ -14,6 +14,7 @@ function makeNote(overrides: Partial<NoteElement> = {}): NoteElement {
     size: { w: 200, h: 100 },
     text: 'Hello',
     backgroundColor: '#ffeb3b',
+    textColor: '#000000',
     zIndex: 0,
     locked: false,
     layerId: '',
@@ -27,8 +28,8 @@ function makeStroke(overrides: Partial<StrokeElement> = {}): StrokeElement {
     type: 'stroke',
     position: { x: 0, y: 0 },
     points: [
-      { x: 0, y: 0 },
-      { x: 10, y: 10 },
+      { x: 0, y: 0, pressure: 0.5 },
+      { x: 10, y: 10, pressure: 0.5 },
     ],
     color: '#000',
     width: 2,
@@ -87,7 +88,8 @@ describe('ElementStore', () => {
       const store = new ElementStore();
       store.add(makeNote());
       store.update('note-1', { text: 'Updated' });
-      expect(store.getById('note-1')?.text).toBe('Updated');
+      const updated = store.getById('note-1');
+      expect(updated?.type === 'note' && updated.text).toBe('Updated');
     });
 
     it('preserves other fields on update', () => {
@@ -395,6 +397,8 @@ describe('ElementStore', () => {
       const store = new ElementStore();
       store.add({
         id: 'g',
+        // @ts-expect-error 'grid' is not a core element type: the store must ignore
+        // elements it cannot measure instead of indexing them.
         type: 'grid',
         position: { x: 0, y: 0 },
         gridType: 'square',
@@ -406,7 +410,7 @@ describe('ElementStore', () => {
         zIndex: 0,
         locked: false,
         layerId: 'default',
-      } as CanvasElement);
+      });
       expect(store.queryPoint({ x: 0, y: 0 })).toEqual([]);
     });
   });
@@ -698,7 +702,8 @@ describe('ElementStore', () => {
       const store = new ElementStore();
       store.add(makeStroke());
       store.update('stroke-1', { color: '#ff0000' } as Partial<CanvasElement>);
-      expect(store.getById('stroke-1')?.color).toBe('#ff0000');
+      const updated = store.getById('stroke-1');
+      expect(updated?.type === 'stroke' && updated.color).toBe('#ff0000');
     });
 
     it('preserves allowed HTML on note update', () => {

@@ -168,8 +168,8 @@ describe('SelectionOps', () => {
       const stroke = addStroke({
         position: { x: 0, y: 0 },
         points: [
-          { x: 0, y: 0 },
-          { x: 10, y: 10 },
+          { x: 0, y: 0, pressure: 0.5 },
+          { x: 10, y: 10, pressure: 0.5 },
         ],
         width: 4,
       });
@@ -263,8 +263,8 @@ describe('SelectionOps', () => {
       const stroke = addStroke({
         position: { x: 0, y: 0 },
         points: [
-          { x: 0, y: 0 },
-          { x: 10, y: 10 },
+          { x: 0, y: 0, pressure: 0.5 },
+          { x: 10, y: 10, pressure: 0.5 },
         ],
       });
       const shape = addShape({
