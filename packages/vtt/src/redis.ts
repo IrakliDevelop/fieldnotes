@@ -1,4 +1,5 @@
-import type { BackendSyncPlugin, RedisHashClient } from '@fieldnotes/sync-redis';
+import { createScriptRunner } from '@fieldnotes/sync-redis';
+import type { BackendSyncPlugin, RedisHashClient, ScriptRunner } from '@fieldnotes/sync-redis';
 import {
   isValidFogMetaRecord,
   isValidFogSnapshot,
@@ -14,6 +15,7 @@ import {
   parseFogRedisPatchResult,
   tileIntersectsDefinition,
 } from './fog/fog-redis-scripts';
+import type { FogMetaTileReplacement } from './fog/fog-redis-scripts';
 import {
   FogBackendServiceKey,
   type FogApplyResult,
@@ -31,10 +33,17 @@ export {
 export type { FogRedisApplyResult, FogRedisPatchApplyResult } from './fog/fog-redis-scripts';
 
 class RedisFogBackend implements FogBackendService {
+  private readonly run: ScriptRunner;
+
   constructor(
     private readonly client: RedisHashClient,
     private readonly roomKey: (room: string) => string,
-  ) {}
+  ) {
+    if (!client.eval) {
+      throw new Error('Redis fog persistence requires a Redis client with EVAL support');
+    }
+    this.run = createScriptRunner(client);
+  }
 
   private metaKey(room: string): string {
     return `${this.roomKey(room)}:fog:meta`;
@@ -79,54 +88,26 @@ class RedisFogBackend implements FogBackendService {
   }
 
   async applyMeta(room: string, record: FogMetaRecord): Promise<FogApplyResult<FogMetaRecord>> {
-    for (let attempt = 0; attempt < 4; attempt++) {
-      const expectedMeta = await this.client.hGet(this.metaKey(room), 'current');
-      const expectedTiles = await this.client.hGetAll(this.tilesKey(room));
-      const replacements: FogTileRecord[] = [];
-      let current: FogMetaRecord | undefined;
-      if (expectedMeta !== null) {
-        try {
-          const parsed: unknown = JSON.parse(expectedMeta);
-          if (isValidFogMetaRecord(parsed)) current = parsed;
-        } catch {
-          // A valid winning record atomically replaces corrupt metadata.
-        }
+    const metaRaw = await this.client.hGet(this.metaKey(room), 'current');
+    let current: FogMetaRecord | undefined;
+    if (metaRaw !== null) {
+      try {
+        const parsed: unknown = JSON.parse(metaRaw);
+        if (isValidFogMetaRecord(parsed)) current = parsed;
+      } catch {
+        // A valid winning record atomically replaces corrupt metadata.
       }
-      if (
-        current?.definition &&
-        record.definition &&
-        current.definition.generation === record.definition.generation
-      ) {
-        for (const raw of Object.values(expectedTiles)) {
-          let tile: unknown;
-          try {
-            tile = JSON.parse(raw);
-          } catch {
-            continue;
-          }
-          if (!isValidFogSnapshot({ meta: current, tiles: [tile] })) continue;
-          const valid = tile as FogTileRecord;
-          if (!tileIntersectsDefinition(valid.x, valid.y, record.definition)) continue;
-          if (valid.data === undefined) {
-            replacements.push(valid);
-            continue;
-          }
-          const canonical = canonicalizeFogTile(
-            { x: valid.x, y: valid.y, data: valid.data },
-            record.definition,
-          );
-          if (canonical) replacements.push({ ...valid, data: canonical.data });
-        }
-      }
-      const result = await this.eval(FOG_META_LWW_SCRIPT, room, record, [
-        expectedMeta ?? '',
-        JSON.stringify(expectedTiles),
-        JSON.stringify(replacements),
-      ]);
-      if (Array.isArray(result) && result[0] === 2) continue;
-      return parseFogRedisMetaResult(result, isValidFogMetaRecord);
     }
-    throw new Error('Redis fog meta update did not converge after concurrent writes');
+    // Only a same-generation change keeps tiles; the script drops the hash otherwise.
+    const definition = record.definition;
+    const replacements =
+      current?.definition && definition && current.definition.generation === definition.generation
+        ? metaTileReplacements(await this.client.hGetAll(this.tilesKey(room)), current, definition)
+        : [];
+    const result = await this.eval(FOG_META_LWW_SCRIPT, room, record, [
+      JSON.stringify(replacements),
+    ]);
+    return parseFogRedisMetaResult(result, isValidFogMetaRecord);
   }
 
   async applyTile(room: string, record: FogTileRecord): Promise<FogApplyResult<FogTileRecord>> {
@@ -137,59 +118,63 @@ class RedisFogBackend implements FogBackendService {
   }
 
   async applyPatch(room: string, records: readonly FogTileRecord[]): Promise<FogPatchApplyResult> {
-    for (let attempt = 0; attempt < 4; attempt++) {
-      const metaRaw = await this.client.hGet(this.metaKey(room), 'current');
-      if (metaRaw === null) return { accepted: [], corrections: [] };
-      let meta: unknown;
-      try {
-        meta = JSON.parse(metaRaw);
-      } catch {
-        return { accepted: [], corrections: [] };
-      }
-      if (!isValidFogMetaRecord(meta) || !meta.definition) {
-        return { accepted: [], corrections: [] };
-      }
-      const stored = await this.client.hGetAll(this.tilesKey(room));
-      const invalidStored: Record<string, string> = {};
-      for (const [field, raw] of Object.entries(stored)) {
-        try {
-          const parsed: unknown = JSON.parse(raw);
-          if (!isValidFogSnapshot({ meta, tiles: [parsed] })) invalidStored[field] = raw;
-        } catch {
-          invalidStored[field] = raw;
-        }
-      }
-      if (records.some((tile) => !isValidFogSnapshot({ meta, tiles: [tile] }))) {
-        return {
-          accepted: [],
-          corrections: records.map((tile) => {
-            const raw = stored[`${tile.x},${tile.y}`];
-            if (raw) {
-              try {
-                const parsed: unknown = JSON.parse(raw);
-                if (isValidFogSnapshot({ meta, tiles: [parsed] })) return parsed as FogTileRecord;
-              } catch {
-                // Fall through to an authoritative tombstone.
-              }
-            }
-            return {
-              generation: meta.definition?.generation ?? tile.generation,
+    const metaRaw = await this.client.hGet(this.metaKey(room), 'current');
+    if (metaRaw === null) return { accepted: [], corrections: [] };
+    let meta: unknown;
+    try {
+      meta = JSON.parse(metaRaw);
+    } catch {
+      return { accepted: [], corrections: [] };
+    }
+    if (!isValidFogMetaRecord(meta)) return { accepted: [], corrections: [] };
+    const definition = meta.definition;
+    if (!definition) return { accepted: [], corrections: [] };
+    // Semantic tile validation the script cannot do (base fill, edge padding).
+    // The script re-checks generation, bounds, LWW and capacity against the state
+    // it reads itself, so this read of the meta record never needs to be a CAS.
+    if (records.some((tile) => !isValidFogSnapshot({ meta, tiles: [tile] }))) {
+      // Only this path reads the tiles hash: a rejected patch must not report a
+      // coordinate as empty while Redis holds a valid record for it.
+      const corrections = await Promise.all(
+        records.map(async (tile) => {
+          const stored = await this.storedTile(room, meta, tile.x, tile.y);
+          return (
+            stored ?? {
+              generation: definition.generation,
               x: tile.x,
               y: tile.y,
               version: 1,
               editor: 'hub',
-            };
-          }),
-        };
-      }
-      const result = await this.eval(FOG_PATCH_LWW_SCRIPT, room, records, [
-        metaRaw,
-        JSON.stringify(invalidStored),
-      ]);
-      if (Array.isArray(result) && result[0] === 2) continue;
-      return parseFogRedisPatchResult(result);
+            }
+          );
+        }),
+      );
+      return { accepted: [], corrections };
     }
-    throw new Error('Redis fog patch did not converge after concurrent definition writes');
+    const result = await this.eval(FOG_PATCH_LWW_SCRIPT, room, records, []);
+    return parseFogRedisPatchResult(result);
+  }
+
+  /** The record stored at a coordinate, when it is valid under the current meta. */
+  private async storedTile(
+    room: string,
+    meta: FogMetaRecord,
+    x: number,
+    y: number,
+  ): Promise<FogTileRecord | undefined> {
+    const raw = await this.client.hGet(this.tilesKey(room), `${x},${y}`);
+    if (raw === null) return undefined;
+    let stored: unknown;
+    try {
+      stored = JSON.parse(raw);
+    } catch {
+      return undefined;
+    }
+    if (!isValidFogSnapshot({ meta, tiles: [stored] })) return undefined;
+    const valid = stored as FogTileRecord;
+    // A raw filed under another coordinate must never stand in for this one.
+    if (valid.x !== x || valid.y !== y) return undefined;
+    return valid;
   }
 
   private async eval(
@@ -198,14 +183,51 @@ class RedisFogBackend implements FogBackendService {
     record: object,
     extraArguments: readonly string[],
   ): Promise<unknown> {
-    if (!this.client.eval) {
-      throw new Error('Redis fog persistence requires a Redis client with EVAL support');
-    }
-    return this.client.eval(script, {
+    return this.run(script, {
       keys: [this.metaKey(room), this.tilesKey(room)],
       arguments: [JSON.stringify(record), ...extraArguments],
     });
   }
+}
+
+/**
+ * The guarded rewrite of every tile the caller read, for a same-generation
+ * definition change: each stored record is re-stored canonically, or dropped
+ * when it is invalid, misfiled, outside the new bounds, or now equal to the base
+ * fill. Tiles written after this read carry no entry and are left untouched.
+ */
+function metaTileReplacements(
+  stored: Record<string, string>,
+  current: FogMetaRecord,
+  definition: NonNullable<FogMetaRecord['definition']>,
+): FogMetaTileReplacement[] {
+  const replacements: FogMetaTileReplacement[] = [];
+  for (const [field, expectedRaw] of Object.entries(stored)) {
+    const tile = canonicalMetaTile(field, expectedRaw, current, definition);
+    replacements.push(tile ? { field, expectedRaw, tile } : { field, expectedRaw });
+  }
+  return replacements;
+}
+
+function canonicalMetaTile(
+  field: string,
+  raw: string,
+  current: FogMetaRecord,
+  definition: NonNullable<FogMetaRecord['definition']>,
+): FogTileRecord | undefined {
+  let tile: unknown;
+  try {
+    tile = JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+  if (!isValidFogSnapshot({ meta: current, tiles: [tile] })) return undefined;
+  const valid = tile as FogTileRecord;
+  if (field !== `${valid.x},${valid.y}`) return undefined;
+  if (!tileIntersectsDefinition(valid.x, valid.y, definition)) return undefined;
+  if (valid.data === undefined) return valid;
+  const canonical = canonicalizeFogTile({ x: valid.x, y: valid.y, data: valid.data }, definition);
+  return canonical ? { ...valid, data: canonical.data } : undefined;
 }
 
 export function createFogBackendPlugin(): BackendSyncPlugin {

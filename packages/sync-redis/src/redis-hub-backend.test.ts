@@ -1,18 +1,26 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createServiceKey, createShape } from '@fieldnotes/core';
-import { fogEncodeBase64 } from '@fieldnotes/vtt';
+import { fogEncodeBase64, isValidFogMetaRecord } from '@fieldnotes/vtt';
 import {
   createFogBackendPlugin,
   FogBackendServiceKey,
+  FOG_META_LWW_SCRIPT,
+  FOG_PATCH_LWW_SCRIPT,
   type FogBackendService,
 } from '@fieldnotes/vtt/redis';
 import type { CanvasElement } from '@fieldnotes/core';
 import { RedisHubBackend, type RedisHashClient } from './index';
 import type { FogMetaRecord, FogTileRecord, LayerRecord } from '@fieldnotes/sync';
 
+interface MetaTileReplacement {
+  field: string;
+  expectedRaw: string;
+  tile?: FogTileRecord;
+}
+
 class FakeRedis implements RedisHashClient {
   store = new Map<string, Map<string, string>>();
-  beforeFogPatchEval?: (tilesKey: string) => void;
+  beforeEval?: (tilesKey: string) => void;
   private hash(key: string): Map<string, string> {
     let m = this.store.get(key);
     if (!m) {
@@ -41,24 +49,23 @@ class FakeRedis implements RedisHashClient {
     return 1;
   }
 
-  async eval(_script: string, options: { keys: string[]; arguments: string[] }): Promise<unknown> {
+  async eval(script: string, options: { keys: string[]; arguments: string[] }): Promise<unknown> {
     const [metaKey, tilesKey] = options.keys;
-    const incoming = JSON.parse(options.arguments[0] ?? '') as
-      | FogMetaRecord
-      | FogTileRecord
-      | FogTileRecord[];
     if (!metaKey || !tilesKey) throw new Error('missing keys');
-    if (Array.isArray(incoming)) {
-      this.beforeFogPatchEval?.(tilesKey);
-      const invalidStored = JSON.parse(options.arguments[2] ?? '{}') as Record<string, string>;
-      for (const [field, raw] of Object.entries(invalidStored)) {
-        const tiles = this.store.get(tilesKey);
-        if (tiles?.get(field) === raw) tiles.delete(field);
-      }
+    this.beforeEval?.(tilesKey);
+    // Dispatch on script identity, and hold each script to its ARGV arity.
+    if (script === FOG_PATCH_LWW_SCRIPT) {
+      if (options.arguments.length !== 1) throw new Error('fog patch takes one argument');
+      const incoming = JSON.parse(options.arguments[0] ?? '') as FogTileRecord[];
+      if (!Array.isArray(incoming)) throw new Error('fog patch takes a tile array');
       return this.applyFogPatch(metaKey, tilesKey, incoming);
     }
-    if ('x' in incoming) return this.applyFogTile(metaKey, tilesKey, incoming);
-    return this.applyFogMeta(metaKey, tilesKey, incoming, options.arguments[3]);
+    if (script === FOG_META_LWW_SCRIPT) {
+      if (options.arguments.length !== 2) throw new Error('fog meta takes two arguments');
+      const incoming = JSON.parse(options.arguments[0] ?? '') as FogMetaRecord;
+      return this.applyFogMeta(metaKey, tilesKey, incoming, options.arguments[1]);
+    }
+    throw new Error('FakeRedis was asked to evaluate an unknown script');
   }
 
   private applyFogMeta(
@@ -68,7 +75,19 @@ class FakeRedis implements RedisHashClient {
     replacementsRaw?: string,
   ): unknown[] {
     const currentRaw = this.store.get(metaKey)?.get('current');
-    const current = currentRaw ? (JSON.parse(currentRaw) as FogMetaRecord) : undefined;
+    // Like the script: a corrupt or invalid stored record counts as absent and
+    // is deleted rather than failing the call.
+    let current: FogMetaRecord | undefined;
+    if (currentRaw !== undefined) {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(currentRaw);
+      } catch {
+        parsed = undefined;
+      }
+      if (isValidFogMetaRecord(parsed)) current = parsed;
+      else this.store.get(metaKey)?.delete('current');
+    }
     if (current && !newer(incoming, current)) return [0, currentRaw];
     if (
       current?.definition &&
@@ -92,71 +111,136 @@ class FakeRedis implements RedisHashClient {
       current.definition.generation !== incoming.definition.generation
     ) {
       this.store.delete(tilesKey);
-    } else if (replacementsRaw) {
-      this.store.delete(tilesKey);
-      for (const tile of JSON.parse(replacementsRaw) as FogTileRecord[]) {
-        this.hash(tilesKey).set(`${tile.x},${tile.y}`, JSON.stringify(tile));
-      }
+      return [1];
     }
-    return [1];
-  }
-
-  private applyFogTile(metaKey: string, tilesKey: string, incoming: FogTileRecord): unknown[] {
-    const metaRaw = this.store.get(metaKey)?.get('current');
-    const meta = metaRaw ? (JSON.parse(metaRaw) as FogMetaRecord) : undefined;
-    if (!meta?.definition) return [0];
-    const key = `${incoming.x},${incoming.y}`;
-    const currentRaw = this.store.get(tilesKey)?.get(key);
-    const current = currentRaw ? (JSON.parse(currentRaw) as FogTileRecord) : undefined;
-    const correction =
-      currentRaw ??
-      JSON.stringify({
-        generation: meta.definition.generation,
-        x: incoming.x,
-        y: incoming.y,
-        version: 1,
-        editor: 'hub',
-      });
-    if (incoming.generation !== meta.definition.generation) return [0, correction];
-    if (!tileIntersects(incoming, meta.definition)) return [0, correction];
-    if (current && !newer(incoming, current)) return [0, currentRaw];
-    if (!current && (this.store.get(tilesKey)?.size ?? 0) >= 256) return [0, correction];
-    this.hash(tilesKey).set(key, JSON.stringify(incoming));
+    // Same generation: each replacement applies only while its field is unchanged.
+    const replacements = JSON.parse(replacementsRaw ?? '[]') as MetaTileReplacement[];
+    for (const replacement of replacements) {
+      const tiles = this.store.get(tilesKey);
+      if (tiles?.get(replacement.field) !== replacement.expectedRaw) continue;
+      if (replacement.tile) tiles.set(replacement.field, JSON.stringify(replacement.tile));
+      else tiles.delete(replacement.field);
+    }
     return [1];
   }
 
   private applyFogPatch(metaKey: string, tilesKey: string, incoming: FogTileRecord[]): unknown[] {
-    const before = new Map(this.store.get(tilesKey) ?? []);
-    const newCoordinates = incoming.filter((tile) => !before.has(`${tile.x},${tile.y}`)).length;
-    if (before.size + newCoordinates > 256) {
-      const meta = JSON.parse(this.store.get(metaKey)?.get('current') ?? '{}') as FogMetaRecord;
-      const corrections = incoming.map((tile) =>
-        before.has(`${tile.x},${tile.y}`)
-          ? (JSON.parse(before.get(`${tile.x},${tile.y}`) ?? '') as FogTileRecord)
-          : {
-              generation: meta.definition?.generation ?? tile.generation,
-              x: tile.x,
-              y: tile.y,
-              version: 1,
-              editor: 'hub',
-            },
-      );
-      return [0, corrections.length, ...corrections.map(JSON.stringify)];
+    const definition = patchDefinition(this.store.get(metaKey)?.get('current'));
+    if (!definition) {
+      const orphaned = incoming.map((tile) => tombstone(tile.generation, tile.x, tile.y));
+      return [0, orphaned.length, ...orphaned];
     }
-    const accepted: FogTileRecord[] = [];
-    const corrections: FogTileRecord[] = [];
+    const def = definition;
+    const tiles = this.hash(tilesKey);
+    // A stored record the current definition no longer admits counts as absent.
+    const admitted = (field: string): FogTileRecord | undefined => {
+      const raw = tiles.get(field);
+      if (raw === undefined) return undefined;
+      let tile: unknown;
+      try {
+        tile = JSON.parse(raw);
+      } catch {
+        return undefined;
+      }
+      if (!validFogTile(tile)) return undefined;
+      if (field !== `${tile.x},${tile.y}`) return undefined;
+      if (tile.generation !== def.generation) return undefined;
+      return tileIntersects(tile, def) ? tile : undefined;
+    };
+    const accepted: string[] = [];
+    const corrections: string[] = [];
+    const currents: (string | undefined)[] = [];
+    let newCount = 0;
     for (const tile of incoming) {
-      const result = this.applyFogTile(metaKey, tilesKey, tile);
-      if (result[0] === 1) accepted.push(tile);
-      else if (typeof result[1] === 'string') corrections.push(JSON.parse(result[1]));
+      const field = `${tile.x},${tile.y}`;
+      const current = admitted(field);
+      const currentRaw = current ? tiles.get(field) : undefined;
+      currents.push(currentRaw);
+      if (
+        tile.generation !== def.generation ||
+        !tileIntersects(tile, def) ||
+        (current && !newer(tile, current))
+      ) {
+        corrections.push(currentRaw ?? tombstone(def.generation, tile.x, tile.y));
+      } else {
+        accepted.push(JSON.stringify(tile));
+        if (!current) newCount += 1;
+      }
     }
-    return [
-      accepted.length,
-      ...accepted.map(JSON.stringify),
-      corrections.length,
-      ...corrections.map(JSON.stringify),
-    ];
+    let count = tiles.size;
+    if (count + newCount > 256) {
+      count = 0;
+      for (const field of [...tiles.keys()]) {
+        if (admitted(field)) count += 1;
+        else tiles.delete(field);
+      }
+    }
+    if (count + newCount > 256) {
+      const overflow = incoming.map(
+        (tile, index) => currents[index] ?? tombstone(def.generation, tile.x, tile.y),
+      );
+      return [0, overflow.length, ...overflow];
+    }
+    for (const raw of accepted) {
+      const record = JSON.parse(raw) as FogTileRecord;
+      tiles.set(`${record.x},${record.y}`, raw);
+    }
+    return [accepted.length, ...accepted, corrections.length, ...corrections];
   }
+}
+
+/**
+ * Mirrors the patch script's acceptance test for the stored definition: anything
+ * it rejects counts as no definition at all, so the patch degrades to
+ * corrections instead of running arithmetic on a corrupt record.
+ */
+function patchDefinition(metaRaw: string | undefined): FogMetaRecord['definition'] {
+  if (metaRaw === undefined) return undefined;
+  let meta: unknown;
+  try {
+    meta = JSON.parse(metaRaw);
+  } catch {
+    return undefined;
+  }
+  if (typeof meta !== 'object' || meta === null) return undefined;
+  const definition = (meta as { definition?: unknown }).definition;
+  if (typeof definition !== 'object' || definition === null) return undefined;
+  const def = definition as Record<string, unknown>;
+  const bounds = def['bounds'];
+  if (typeof def['generation'] !== 'string' || typeof def['cellSize'] !== 'number') {
+    return undefined;
+  }
+  if (def['cellSize'] <= 0) return undefined;
+  if (typeof bounds !== 'object' || bounds === null) return undefined;
+  const box = bounds as Record<string, unknown>;
+  if (typeof box['x'] !== 'number' || typeof box['y'] !== 'number') return undefined;
+  if (typeof box['w'] !== 'number' || box['w'] <= 0) return undefined;
+  if (typeof box['h'] !== 'number' || box['h'] <= 0) return undefined;
+  return definition as FogMetaRecord['definition'];
+}
+
+function tombstone(generation: string, x: number, y: number): string {
+  return JSON.stringify({ generation, x, y, version: 1, editor: 'hub' });
+}
+
+function validFogTile(tile: unknown): tile is FogTileRecord {
+  if (typeof tile !== 'object' || tile === null) return false;
+  const record = tile as Record<string, unknown>;
+  const data = record['data'];
+  const dataOk =
+    data === undefined ||
+    (typeof data === 'string' &&
+      data.length === 2732 &&
+      /^[A-Za-z0-9+/]+[AEIMQUYcgkosw048]=$/.test(data));
+  return (
+    typeof record['generation'] === 'string' &&
+    Number.isSafeInteger(record['x']) &&
+    Number.isSafeInteger(record['y']) &&
+    Number.isSafeInteger(record['version']) &&
+    (record['version'] as number) >= 1 &&
+    typeof record['editor'] === 'string' &&
+    dataOk
+  );
 }
 
 function newer(a: { version: number; editor: string }, b: { version: number; editor: string }) {
@@ -527,82 +611,387 @@ describe('RedisHubBackend fog records', () => {
     });
   });
 
-  it('removes a semantically invalid stored tile while applying a valid patch', async () => {
+  it('applies a newer meta while a concurrent paint changes the tiles hash', async () => {
     const fake = new FakeRedis();
     const backend = fogBackend(fake);
     const tilesKey = 'fieldnotes:room:R:fog:tiles';
     await backend.applyMeta('R', { version: 1, editor: 'A', definition });
-    await fake.hSet(
-      tilesKey,
-      '0,0',
-      JSON.stringify({
-        generation: 'gen-1',
-        x: 0,
-        y: 0,
-        version: 1,
-        editor: 'A',
-        data: fogEncodeBase64(new Uint8Array(2048)),
-      }),
-    );
-    const valid = {
-      generation: 'gen-1',
-      x: 1,
-      y: 0,
-      version: 1,
-      editor: 'A',
-      data,
-    };
+    const painted = { generation: 'gen-1', x: 0, y: 0, version: 1, editor: 'A', data };
+    await backend.applyTile('R', painted);
 
-    expect(await backend.applyPatch('R', [valid])).toEqual({
-      accepted: [valid],
-      corrections: [],
+    // Every attempt sees a different tiles hash: a painter keeps working during the update.
+    let concurrent = 0;
+    fake.beforeEval = (key) => {
+      concurrent += 1;
+      const tile = { generation: 'gen-1', x: concurrent, y: 0, version: 1, editor: 'B', data };
+      fake.store.get(key)?.set(`${tile.x},${tile.y}`, JSON.stringify(tile));
+    };
+    const grown = { ...definition, bounds: { x: 0, y: 0, w: 384, h: 128 } };
+
+    expect(await backend.applyMeta('R', { version: 2, editor: 'A', definition: grown })).toEqual({
+      accepted: true,
     });
-    expect(fake.store.get(tilesKey)?.has('0,0')).toBe(false);
-    expect((await backend.snapshot('R'))?.tiles).toEqual([valid]);
+    expect(concurrent).toBe(1);
+    expect((await backend.snapshot('R'))?.tiles).toEqual([
+      painted,
+      { generation: 'gen-1', x: 1, y: 0, version: 1, editor: 'B', data },
+    ]);
+    expect(fake.store.get(tilesKey)?.size).toBe(2);
   });
 
-  it('does not delete a tile repaired after the invalid-state read', async () => {
+  it('applies a patch while the meta record is rewritten concurrently', async () => {
+    const fake = new FakeRedis();
+    const backend = fogBackend(fake);
+    const metaKey = 'fieldnotes:room:R:fog:meta';
+    await backend.applyMeta('R', { version: 1, editor: 'A', definition });
+    const tile = { generation: 'gen-1', x: 0, y: 0, version: 1, editor: 'A', data };
+
+    // A second hub rewrites the meta record between the caller's read and every script call.
+    let rewrites = 0;
+    fake.beforeEval = () => {
+      rewrites += 1;
+      fake.store
+        .get(metaKey)
+        ?.set('current', JSON.stringify({ version: 1 + rewrites, editor: 'B', definition }));
+    };
+
+    expect(await backend.applyPatch('R', [tile])).toEqual({ accepted: [tile], corrections: [] });
+    expect(rewrites).toBe(1);
+    expect((await backend.snapshot('R'))?.tiles).toEqual([tile]);
+  });
+
+  it('does not read the tiles hash on the accepted patch path', async () => {
+    const fake = new FakeRedis();
+    const backend = fogBackend(fake);
+    await backend.applyMeta('R', { version: 1, editor: 'A', definition });
+    const tile = { generation: 'gen-1', x: 0, y: 0, version: 1, editor: 'A', data };
+    const hGetAll = vi.spyOn(fake, 'hGetAll');
+
+    expect(await backend.applyPatch('R', [tile])).toEqual({ accepted: [tile], corrections: [] });
+    expect(hGetAll).not.toHaveBeenCalled();
+  });
+
+  it('corrects an invalid incoming tile with the stored record, not a tombstone', async () => {
     const fake = new FakeRedis();
     const backend = fogBackend(fake);
     const tilesKey = 'fieldnotes:room:R:fog:tiles';
     await backend.applyMeta('R', { version: 1, editor: 'A', definition });
-    await fake.hSet(
-      tilesKey,
-      '0,0',
-      JSON.stringify({
-        generation: 'gen-1',
-        x: 0,
-        y: 0,
-        version: 1,
-        editor: 'A',
-        data: fogEncodeBase64(new Uint8Array(2048)),
-      }),
-    );
-    const repaired = {
+    const stored = { generation: 'gen-1', x: 0, y: 0, version: 2, editor: 'A', data };
+    const hGet = vi.spyOn(fake, 'hGet');
+
+    expect(await backend.applyPatch('R', [stored])).toEqual({
+      accepted: [stored],
+      corrections: [],
+    });
+    expect(hGet.mock.calls.filter(([key]) => key === tilesKey)).toEqual([]);
+    const storedRaw = fake.store.get(tilesKey)?.get('0,0');
+
+    // Base-fill data must be omitted, so this tile fails the JS validity gate.
+    const invalid = {
       generation: 'gen-1',
       x: 0,
       y: 0,
-      version: 2,
+      version: 3,
       editor: 'B',
+      data: fogEncodeBase64(new Uint8Array(2048)),
+    };
+
+    expect(await backend.applyPatch('R', [invalid])).toEqual({
+      accepted: [],
+      corrections: [stored],
+    });
+    expect(fake.store.get(tilesKey)?.get('0,0')).toBe(storedRaw);
+  });
+
+  it('replaces a corrupt stored meta record instead of failing the script', async () => {
+    const fake = new FakeRedis();
+    const backend = fogBackend(fake);
+    const metaKey = 'fieldnotes:room:R:fog:meta';
+    const tilesKey = 'fieldnotes:room:R:fog:tiles';
+    await backend.applyMeta('R', { version: 1, editor: 'A', definition });
+    await backend.applyTile('R', {
+      generation: 'gen-1',
+      x: 0,
+      y: 0,
+      version: 1,
+      editor: 'A',
       data,
+    });
+
+    // A concurrent writer corrupts the meta field between the read and the call.
+    fake.beforeEval = () => {
+      fake.beforeEval = undefined;
+      fake.store.get(metaKey)?.set('current', 'not json{');
     };
-    fake.beforeFogPatchEval = (key) => {
-      fake.beforeFogPatchEval = undefined;
-      fake.store.get(key)?.set('0,0', JSON.stringify(repaired));
+    const next = { version: 2, editor: 'A', definition };
+
+    // Corrupt metadata counts as absent, so the incoming record wins outright
+    // and the tiles hash is dropped with the generation it belonged to.
+    expect(await backend.applyMeta('R', next)).toEqual({ accepted: true });
+    expect(fake.store.get(metaKey)?.get('current')).toBe(JSON.stringify(next));
+    expect(fake.store.get(tilesKey)).toBeUndefined();
+  });
+
+  it('degrades a patch to corrections when the stored fog definition is corrupt', async () => {
+    const fake = new FakeRedis();
+    const backend = fogBackend(fake);
+    const metaKey = 'fieldnotes:room:R:fog:meta';
+    const tilesKey = 'fieldnotes:room:R:fog:tiles';
+    await backend.applyMeta('R', { version: 1, editor: 'A', definition });
+    const tile = { generation: 'gen-1', x: 0, y: 0, version: 1, editor: 'A', data };
+
+    // A concurrent writer replaces the definition with one whose bounds are not numeric.
+    fake.beforeEval = () => {
+      fake.beforeEval = undefined;
+      fake.store.get(metaKey)?.set(
+        'current',
+        JSON.stringify({
+          version: 2,
+          editor: 'B',
+          definition: {
+            ...definition,
+            generation: 'gen-2',
+            bounds: { x: 0, y: 0, w: 'wide', h: 128 },
+          },
+        }),
+      );
     };
-    const incoming = {
+
+    // A definition the script cannot compute with counts as absent, so the
+    // corrections carry the incoming generation instead of the corrupt one.
+    expect(await backend.applyPatch('R', [tile])).toEqual({
+      accepted: [],
+      corrections: [{ generation: 'gen-1', x: 0, y: 0, version: 1, editor: 'hub' }],
+    });
+    expect(fake.store.get(tilesKey)?.size ?? 0).toBe(0);
+  });
+
+  it('does not answer a correction with a stored record misfiled under another field', async () => {
+    const fake = new FakeRedis();
+    const backend = fogBackend(fake);
+    const tilesKey = 'fieldnotes:room:R:fog:tiles';
+    await backend.applyMeta('R', { version: 1, editor: 'A', definition });
+    // Valid on its own terms, but filed under the wrong coordinate.
+    const misfiled = { generation: 'gen-1', x: 1, y: 0, version: 5, editor: 'A', data };
+    await fake.hSet(tilesKey, '0,0', JSON.stringify(misfiled));
+    const invalid = {
+      generation: 'gen-1',
+      x: 0,
+      y: 0,
+      version: 3,
+      editor: 'B',
+      data: fogEncodeBase64(new Uint8Array(2048)),
+    };
+
+    expect(await backend.applyPatch('R', [invalid])).toEqual({
+      accepted: [],
+      corrections: [{ generation: 'gen-1', x: 0, y: 0, version: 1, editor: 'hub' }],
+    });
+  });
+
+  it('overwrites an invalid stored tile a patch targets and leaves untargeted ones to snapshot filtering', async () => {
+    const fake = new FakeRedis();
+    const backend = fogBackend(fake);
+    const tilesKey = 'fieldnotes:room:R:fog:tiles';
+    await backend.applyMeta('R', { version: 1, editor: 'A', definition });
+    // Field '0,0' is unparseable; field '1,0' holds a base-fill record the
+    // snapshot filter rejects. The patch targets only '0,0'.
+    await fake.hSet(tilesKey, '0,0', 'not json{');
+    const untargeted = JSON.stringify({
       generation: 'gen-1',
       x: 1,
       y: 0,
       version: 1,
       editor: 'A',
-      data,
-    };
+      data: fogEncodeBase64(new Uint8Array(2048)),
+    });
+    await fake.hSet(tilesKey, '1,0', untargeted);
+    const targeted = { generation: 'gen-1', x: 0, y: 0, version: 1, editor: 'A', data };
 
-    expect(await backend.applyPatch('R', [incoming])).toEqual({
-      accepted: [incoming],
+    expect(await backend.applyPatch('R', [targeted])).toEqual({
+      accepted: [targeted],
       corrections: [],
     });
-    expect((await backend.snapshot('R'))?.tiles).toEqual([repaired, incoming]);
+    expect(fake.store.get(tilesKey)?.get('0,0')).toBe(JSON.stringify(targeted));
+    // The patch repairs nothing it does not target; snapshot() filters it out.
+    expect(fake.store.get(tilesKey)?.get('1,0')).toBe(untargeted);
+    expect((await backend.snapshot('R'))?.tiles).toEqual([targeted]);
+  });
+
+  it('a capacity-blocked patch sweeps invalid and foreign-generation fields before deciding', async () => {
+    const fake = new FakeRedis();
+    const backend = fogBackend(fake);
+    const tilesKey = 'fieldnotes:room:R:fog:tiles';
+    const wide = { ...definition, bounds: { x: 0, y: 0, w: 258 * 128, h: 128 } };
+    await backend.applyMeta('R', { version: 1, editor: 'A', definition: wide });
+    await backend.applyPatch(
+      'R',
+      Array.from({ length: 255 }, (_, x) => ({
+        generation: 'gen-1',
+        x,
+        y: 0,
+        version: 1,
+        editor: 'A',
+      })),
+    );
+    // Two fields the definition no longer admits push HLEN over capacity.
+    await fake.hSet(tilesKey, '255,0', 'not json{');
+    await fake.hSet(
+      tilesKey,
+      '256,0',
+      JSON.stringify({ generation: 'gen-0', x: 256, y: 0, version: 9, editor: 'A' }),
+    );
+    expect(fake.store.get(tilesKey)?.size).toBe(257);
+
+    const overwrite = [
+      { generation: 'gen-1', x: 0, y: 0, version: 2, editor: 'A' },
+      { generation: 'gen-1', x: 1, y: 0, version: 2, editor: 'A' },
+    ];
+    expect(await backend.applyPatch('R', overwrite)).toEqual({
+      accepted: overwrite,
+      corrections: [],
+    });
+    expect(fake.store.get(tilesKey)?.has('255,0')).toBe(false);
+    expect(fake.store.get(tilesKey)?.has('256,0')).toBe(false);
+    expect(fake.store.get(tilesKey)?.size).toBe(255);
+
+    // With 256 admitted records and nothing left to reclaim, the next new tile
+    // is still rejected atomically.
+    await backend.applyPatch('R', [{ generation: 'gen-1', x: 255, y: 0, version: 1, editor: 'A' }]);
+    expect(fake.store.get(tilesKey)?.size).toBe(256);
+    const blocked = await backend.applyPatch('R', [
+      { generation: 'gen-1', x: 256, y: 0, version: 1, editor: 'A' },
+    ]);
+    expect(blocked).toEqual({
+      accepted: [],
+      corrections: [{ generation: 'gen-1', x: 256, y: 0, version: 1, editor: 'hub' }],
+    });
+    expect(fake.store.get(tilesKey)?.size).toBe(256);
+  });
+
+  it('reclaims foreign-generation fields so a capacity-blocked patch can store a new tile', async () => {
+    const fake = new FakeRedis();
+    const backend = fogBackend(fake);
+    const tilesKey = 'fieldnotes:room:R:fog:tiles';
+    const wide = { ...definition, bounds: { x: 0, y: 0, w: 258 * 128, h: 128 } };
+    await backend.applyMeta('R', { version: 1, editor: 'A', definition: wide });
+    await backend.applyPatch(
+      'R',
+      Array.from({ length: 255 }, (_, x) => ({
+        generation: 'gen-1',
+        x,
+        y: 0,
+        version: 1,
+        editor: 'A',
+      })),
+    );
+    for (const x of [255, 256]) {
+      await fake.hSet(
+        tilesKey,
+        `${x},0`,
+        JSON.stringify({ generation: 'gen-0', x, y: 0, version: 3, editor: 'A' }),
+      );
+    }
+
+    // One overwrite plus one brand-new coordinate: only the sweep leaves room.
+    const patch = [
+      { generation: 'gen-1', x: 0, y: 0, version: 2, editor: 'A' },
+      { generation: 'gen-1', x: 257, y: 0, version: 1, editor: 'A' },
+    ];
+    expect(await backend.applyPatch('R', patch)).toEqual({ accepted: patch, corrections: [] });
+    expect(fake.store.get(tilesKey)?.has('255,0')).toBe(false);
+    expect(fake.store.get(tilesKey)?.has('256,0')).toBe(false);
+    expect(fake.store.get(tilesKey)?.get('257,0')).toBe(JSON.stringify(patch[1]));
+    expect(fake.store.get(tilesKey)?.size).toBe(256);
+  });
+
+  it('meta replacement is skipped when the tile changed concurrently', async () => {
+    const fake = new FakeRedis();
+    const backend = fogBackend(fake);
+    const tilesKey = 'fieldnotes:room:R:fog:tiles';
+    await backend.applyMeta('R', { version: 1, editor: 'A', definition });
+    // Invalid stored data: the meta apply would drop this field.
+    await fake.hSet(
+      tilesKey,
+      '0,0',
+      JSON.stringify({
+        generation: 'gen-1',
+        x: 0,
+        y: 0,
+        version: 1,
+        editor: 'A',
+        data: fogEncodeBase64(new Uint8Array(2048)),
+      }),
+    );
+    const repaired = { generation: 'gen-1', x: 0, y: 0, version: 2, editor: 'B', data };
+
+    // A painter repairs the field after the caller read it: expectedRaw no
+    // longer matches, so the replacement must be skipped, not applied.
+    fake.beforeEval = (key) => {
+      fake.beforeEval = undefined;
+      fake.store.get(key)?.set('0,0', JSON.stringify(repaired));
+    };
+    const grown = { ...definition, bounds: { x: 0, y: 0, w: 384, h: 128 } };
+
+    expect(await backend.applyMeta('R', { version: 2, editor: 'A', definition: grown })).toEqual({
+      accepted: true,
+    });
+    expect(fake.store.get(tilesKey)?.get('0,0')).toBe(JSON.stringify(repaired));
+    expect(await backend.snapshot('R')).toEqual({
+      meta: { version: 2, editor: 'A', definition: grown },
+      tiles: [repaired],
+    });
+  });
+
+  it('rewrites a stored tile canonically when a same-generation meta change applies', async () => {
+    const fake = new FakeRedis();
+    const backend = fogBackend(fake);
+    const tilesKey = 'fieldnotes:room:R:fog:tiles';
+    await backend.applyMeta('R', { version: 1, editor: 'A', definition });
+    const record = { generation: 'gen-1', x: 0, y: 0, version: 2, editor: 'A', data };
+    // Valid, but not stored in the canonical encoding the replacement writes.
+    const storedRaw = JSON.stringify(record, null, 2);
+    await fake.hSet(tilesKey, '0,0', storedRaw);
+    const grown = { ...definition, bounds: { x: 0, y: 0, w: 384, h: 128 } };
+
+    expect(await backend.applyMeta('R', { version: 2, editor: 'A', definition: grown })).toEqual({
+      accepted: true,
+    });
+    const rewritten = fake.store.get(tilesKey)?.get('0,0');
+    expect(rewritten).not.toBe(storedRaw);
+    expect(rewritten).toBe(JSON.stringify(record));
+    expect(rewritten === undefined ? undefined : JSON.parse(rewritten)).toEqual(record);
+  });
+
+  it('drops a stored tile a same-generation meta change no longer admits', async () => {
+    const fake = new FakeRedis();
+    const backend = fogBackend(fake);
+    const tilesKey = 'fieldnotes:room:R:fog:tiles';
+    await backend.applyMeta('R', { version: 1, editor: 'A', definition });
+    // Semantically invalid data, and a record outside the definition bounds.
+    await fake.hSet(
+      tilesKey,
+      '0,0',
+      JSON.stringify({
+        generation: 'gen-1',
+        x: 0,
+        y: 0,
+        version: 1,
+        editor: 'A',
+        data: fogEncodeBase64(new Uint8Array(2048)),
+      }),
+    );
+    await fake.hSet(
+      tilesKey,
+      '2,0',
+      JSON.stringify({ generation: 'gen-1', x: 2, y: 0, version: 1, editor: 'A' }),
+    );
+
+    expect(await backend.applyMeta('R', { version: 2, editor: 'A', definition })).toEqual({
+      accepted: true,
+    });
+    expect(fake.store.get(tilesKey)?.has('0,0')).toBe(false);
+    expect(fake.store.get(tilesKey)?.has('2,0')).toBe(false);
+    expect((await backend.snapshot('R'))?.tiles).toEqual([]);
   });
 });

@@ -5,6 +5,10 @@ export interface RedisHashClient {
   hSet(key: string, field: string, value: string): Promise<unknown>;
   hDel(key: string, field: string): Promise<unknown>;
   del(key: string): Promise<unknown>;
-  /** Optional primitive used by backend plugins for atomic updates; node-redis conforms directly. */
+  /** Primitive used by backend plugins for atomic updates; node-redis conforms directly. */
   eval(script: string, options: { keys: string[]; arguments: string[] }): Promise<unknown>;
+  /** Optional: caches a Lua script server-side and returns its SHA1. Enables EVALSHA. */
+  scriptLoad?(script: string): Promise<string>;
+  /** Optional: runs a cached Lua script by SHA1. Only used when `scriptLoad` is present too. */
+  evalSha?(sha: string, options: { keys: string[]; arguments: string[] }): Promise<unknown>;
 }

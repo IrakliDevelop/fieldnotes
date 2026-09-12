@@ -164,3 +164,14 @@ fanout forwards live ops; the shared backend keeps snapshots consistent. A share
 backend leaves a new joiner's snapshot stale — it would catch up from whichever instance it happened to hit,
 missing edits applied elsewhere. Pair `RedisHubFanout` with `RedisHubBackend` for full multi-instance
 real-time sync.
+
+## Running the real-Redis fog tests
+
+`src/redis-fog.integration.test.ts` runs the fog Lua scripts against a real server instead of a fake, so
+it is skipped unless `REDIS_URL` is set. Point it at a scratch Redis — the suite writes under a random
+`fieldnotes-it:<uuid>:room:` key prefix and deletes those keys afterwards, but it does use `KEYS`, so do
+not aim it at a production instance:
+
+```bash
+REDIS_URL=redis://localhost:6379 pnpm --filter @fieldnotes/sync-redis test
+```
