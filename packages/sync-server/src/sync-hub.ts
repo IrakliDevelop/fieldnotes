@@ -547,12 +547,13 @@ export class SyncHub {
 
   /**
    * The authoritative record to send a sender whose layer edit did not survive: the room's
-   * record, or a tombstone when there is none. The tombstone sits one version above the
-   * rejected edit because `isNewerLayerRecord` breaks a version tie on the editor string, and
-   * `HUB_FROM` loses that comparison to every editor sorting after it.
+   * record, or a tombstone when there is none. The tombstone keeps the rejected edit's version:
+   * the client applies every `from: 'hub'` layer op authoritatively rather than through the
+   * `isNewerLayerRecord` tie-break, so parity replaces the edit, while a higher version would
+   * mint a hub record the client re-pushes as a room-wide delete.
    */
   private layerCorrectionFor(current: LayerRecord | undefined, record: LayerRecord): LayerRecord {
-    return current ?? { id: record.id, version: record.version + 1, editor: HUB_FROM };
+    return current ?? { id: record.id, version: record.version, editor: HUB_FROM };
   }
 
   private layerBackend(): Required<
