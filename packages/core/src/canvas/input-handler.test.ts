@@ -4,6 +4,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Camera } from './camera';
 import { InputHandler } from './input-handler';
+import type { InputHandlerOptions } from './input-handler';
 import type { ToolManager } from '../tools/tool-manager';
 import type { ToolContext } from '../tools/types';
 import type { HistoryRecorder } from '../history/history-recorder';
@@ -12,6 +13,7 @@ import { HistoryRecorder as RealHistoryRecorder } from '../history/history-recor
 import { HistoryStack as RealHistoryStack } from '../history/history-stack';
 import { ElementStore } from '../elements/element-store';
 import { createNote, createArrow } from '../elements/element-factory';
+import type { ArrowElement } from '../elements/types';
 
 function wheel(
   el: HTMLElement,
@@ -1078,13 +1080,13 @@ describe('InputHandler', () => {
         clientY: 0,
       });
       pointerMove(element, { pointerId: 1, clientX: 10, clientY: 0 });
-      expect(camera.x).not.toBe(0);
-      const afterPan = camera.x;
+      expect(camera.position.x).not.toBe(0);
+      const afterPan = camera.position.x;
 
       document.dispatchEvent(new Event('visibilitychange'));
 
       pointerMove(element, { pointerId: 1, clientX: 50, clientY: 0 });
-      expect(camera.x).toBe(afterPan);
+      expect(camera.position.x).toBe(afterPan);
     });
   });
 
@@ -1482,7 +1484,9 @@ describe('InputHandler', () => {
       pasteEvent();
 
       const all = store.getAll();
-      const pastedArrows = all.filter((el) => el.type === 'arrow' && el.id !== arrow.id);
+      const pastedArrows = all.filter(
+        (el): el is ArrowElement => el.type === 'arrow' && el.id !== arrow.id,
+      );
       expect(pastedArrows).toHaveLength(1);
       const pastedArrow = pastedArrows[0];
       if (!pastedArrow) return;
@@ -1536,7 +1540,9 @@ describe('InputHandler', () => {
       pasteEvent();
 
       const all = store.getAll();
-      const pastedArrows = all.filter((el) => el.type === 'arrow' && el.id !== arrow.id);
+      const pastedArrows = all.filter(
+        (el): el is ArrowElement => el.type === 'arrow' && el.id !== arrow.id,
+      );
       expect(pastedArrows).toHaveLength(1);
       const strippedArrow = pastedArrows[0];
       if (!strippedArrow) return;
@@ -1571,7 +1577,9 @@ describe('InputHandler', () => {
 
   describe('OS-clipboard image paste', () => {
     function setupImagePaste() {
-      const addImage = vi.fn(() => 'img-1');
+      const addImage = vi.fn<(src: string, world: { x: number; y: number }) => string>(
+        () => 'img-1',
+      );
       const paste = vi.fn();
       const actions = { paste };
       const h = new InputHandler(element, camera, {
@@ -2209,7 +2217,9 @@ describe('InputHandler', () => {
   });
 
   describe('long-press (touch context menu)', () => {
-    function makeSelectHandler(openContextMenu: ReturnType<typeof vi.fn>) {
+    function makeSelectHandler(
+      openContextMenu: NonNullable<InputHandlerOptions['openContextMenu']>,
+    ) {
       const tm = {
         ...stubToolManager(),
         activeTool: { name: 'select' },

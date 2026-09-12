@@ -58,22 +58,6 @@ describe('Integration: drawing tools', () => {
       expect(h.viewport.toolManager.activeTool?.name).toBe('select');
     });
 
-    // Grid snapping tests require VTT's GridController to set up the grid.
-    // These tests should be in VTT's test suite.
-    it.skip('shape snaps to grid when enabled', () => {
-      h.viewport.addGrid({ gridType: 'square', cellSize: 50 });
-      h.viewport.setSnapToGrid(true);
-      h.viewport.toolManager.setTool('shape', h.viewport.toolContext);
-
-      drag(h.wrapper, [12, 18], [163, 112]);
-
-      const shapes = h.viewport.store.getElementsByType('shape');
-      expect(shapes).toHaveLength(1);
-      const pos = shapes[0]?.position;
-      expect((pos?.x ?? NaN) % 50).toBe(0);
-      expect((pos?.y ?? NaN) % 50).toBe(0);
-    });
-
     it('preserves stroke and fill colors', () => {
       h.viewport.toolManager.setTool('shape', h.viewport.toolContext);
       const shapeTool = h.viewport.toolManager.getTool<ShapeTool>('shape');
@@ -242,22 +226,6 @@ describe('Integration: drawing tools', () => {
       const notePos = notes[0]?.position;
       expect(notePos).toBeDefined();
       expect(notePos?.x).not.toBe(200);
-    });
-
-    // Grid snapping tests require VTT's GridController to set up the grid.
-    // These tests should be in VTT's test suite.
-    it.skip('note snaps to grid when enabled', () => {
-      h.viewport.addGrid({ gridType: 'square', cellSize: 50 });
-      h.viewport.setSnapToGrid(true);
-      h.viewport.toolManager.setTool('note', h.viewport.toolContext);
-
-      tap(h.wrapper, 73, 88);
-
-      const notes = h.viewport.store.getElementsByType('note');
-      expect(notes).toHaveLength(1);
-      const pos = notes[0]?.position;
-      expect((pos?.x ?? NaN) % 50).toBe(0);
-      expect((pos?.y ?? NaN) % 50).toBe(0);
     });
 
     it('uses configured background and text colors', () => {

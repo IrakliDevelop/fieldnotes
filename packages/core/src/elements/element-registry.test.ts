@@ -16,7 +16,9 @@ interface MarkerElement {
   color: string;
 }
 
-function makeMarkerEnvelope(overrides: Partial<MarkerElement> = {}): ExtensionElementEnvelope {
+function makeMarkerEnvelope(
+  overrides: Partial<ExtensionElementEnvelope> = {},
+): ExtensionElementEnvelope {
   return {
     id: 'marker-1',
     type: 'extension',
@@ -223,6 +225,7 @@ describe('ElementRegistry', () => {
           {
             zoom: 1,
             shiftKey: false,
+            selectedCount: 1,
             snap: { enabled: false },
           },
         ),
@@ -234,6 +237,7 @@ describe('ElementRegistry', () => {
         {
           zoom: 1,
           shiftKey: false,
+          selectedCount: 1,
           snap: { enabled: false },
         },
       );
