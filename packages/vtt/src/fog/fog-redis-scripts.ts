@@ -93,20 +93,24 @@ function parseFogTileResultRecord(raw: unknown): FogTileRecord {
 
 // ── Lua scripts ──
 
+/**
+ * One entry of `FOG_META_LWW_SCRIPT`'s ARGV[2]: the tiles-hash field to rewrite,
+ * the raw value the caller read from it, and the record to store. A missing
+ * `tile` deletes the field. The script applies an entry only while the field
+ * still holds `expectedRaw`, so a tile written between the caller's read and the
+ * script survives untouched instead of being discarded.
+ */
+export interface FogMetaTileReplacement {
+  readonly field: string;
+  readonly expectedRaw: string;
+  readonly tile?: FogTileRecord;
+}
+
 export const FOG_META_LWW_SCRIPT = `
 local incomingRaw = ARGV[1]
 local incoming = cjson.decode(incomingRaw)
+local replacements = cjson.decode(ARGV[2])
 local currentRaw = redis.call('HGET', KEYS[1], 'current')
-local expectedMetaRaw = ARGV[2]
-if (currentRaw or '') ~= expectedMetaRaw then return {2} end
-local expectedTiles = cjson.decode(ARGV[3])
-local expectedTileCount = 0
-for field, raw in pairs(expectedTiles) do
-  expectedTileCount = expectedTileCount + 1
-  if redis.call('HGET', KEYS[2], field) ~= raw then return {2} end
-end
-if redis.call('HLEN', KEYS[2]) ~= expectedTileCount then return {2} end
-local replacementTiles = cjson.decode(ARGV[4])
 local function ascii(value)
   if type(value) ~= 'string' or #value < 1 or #value > 128 then return false end
   for i = 1, #value do
@@ -141,7 +145,8 @@ end
 if current and not newer(incoming, current) then return {0, currentRaw} end
 local oldDef = current and current.definition or nil
 local newDef = incoming.definition
-if oldDef and newDef and oldDef.generation == newDef.generation
+local sameGeneration = oldDef ~= nil and newDef ~= nil and oldDef.generation == newDef.generation
+if sameGeneration
   and (oldDef.cellSize ~= newDef.cellSize or oldDef.tileCells ~= newDef.tileCells
     or oldDef.base ~= newDef.base or newDef.bounds.x > oldDef.bounds.x
     or newDef.bounds.y > oldDef.bounds.y
@@ -151,11 +156,18 @@ if oldDef and newDef and oldDef.generation == newDef.generation
 end
 
 redis.call('HSET', KEYS[1], 'current', incomingRaw)
-redis.call('DEL', KEYS[2])
-if newDef and oldDef and oldDef.generation == newDef.generation then
-  for i = 1, #replacementTiles do
-    local tile = replacementTiles[i]
-    redis.call('HSET', KEYS[2], tostring(tile.x) .. ',' .. tostring(tile.y), cjson.encode(tile))
+if not sameGeneration then
+  redis.call('DEL', KEYS[2])
+else
+  for i = 1, #replacements do
+    local replacement = replacements[i]
+    if redis.call('HGET', KEYS[2], replacement.field) == replacement.expectedRaw then
+      if replacement.tile then
+        redis.call('HSET', KEYS[2], replacement.field, cjson.encode(replacement.tile))
+      else
+        redis.call('HDEL', KEYS[2], replacement.field)
+      end
+    end
   end
 end
 return {1}

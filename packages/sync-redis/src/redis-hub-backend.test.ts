@@ -10,8 +10,15 @@ import type { CanvasElement } from '@fieldnotes/core';
 import { RedisHubBackend, type RedisHashClient } from './index';
 import type { FogMetaRecord, FogTileRecord, LayerRecord } from '@fieldnotes/sync';
 
+interface MetaTileReplacement {
+  field: string;
+  expectedRaw: string;
+  tile?: FogTileRecord;
+}
+
 class FakeRedis implements RedisHashClient {
   store = new Map<string, Map<string, string>>();
+  beforeEval?: (tilesKey: string) => void;
   beforeFogPatchEval?: (tilesKey: string) => void;
   private hash(key: string): Map<string, string> {
     let m = this.store.get(key);
@@ -48,6 +55,7 @@ class FakeRedis implements RedisHashClient {
       | FogTileRecord
       | FogTileRecord[];
     if (!metaKey || !tilesKey) throw new Error('missing keys');
+    this.beforeEval?.(tilesKey);
     if (Array.isArray(incoming)) {
       this.beforeFogPatchEval?.(tilesKey);
       const invalidStored = JSON.parse(options.arguments[2] ?? '{}') as Record<string, string>;
@@ -58,7 +66,7 @@ class FakeRedis implements RedisHashClient {
       return this.applyFogPatch(metaKey, tilesKey, incoming);
     }
     if ('x' in incoming) return this.applyFogTile(metaKey, tilesKey, incoming);
-    return this.applyFogMeta(metaKey, tilesKey, incoming, options.arguments[3]);
+    return this.applyFogMeta(metaKey, tilesKey, incoming, options.arguments[1]);
   }
 
   private applyFogMeta(
@@ -92,11 +100,15 @@ class FakeRedis implements RedisHashClient {
       current.definition.generation !== incoming.definition.generation
     ) {
       this.store.delete(tilesKey);
-    } else if (replacementsRaw) {
-      this.store.delete(tilesKey);
-      for (const tile of JSON.parse(replacementsRaw) as FogTileRecord[]) {
-        this.hash(tilesKey).set(`${tile.x},${tile.y}`, JSON.stringify(tile));
-      }
+      return [1];
+    }
+    // Same generation: each replacement applies only while its field is unchanged.
+    const replacements = JSON.parse(replacementsRaw ?? '[]') as MetaTileReplacement[];
+    for (const replacement of replacements) {
+      const tiles = this.store.get(tilesKey);
+      if (tiles?.get(replacement.field) !== replacement.expectedRaw) continue;
+      if (replacement.tile) tiles.set(replacement.field, JSON.stringify(replacement.tile));
+      else tiles.delete(replacement.field);
     }
     return [1];
   }
@@ -525,6 +537,34 @@ describe('RedisHubBackend fog records', () => {
       },
       tiles: [],
     });
+  });
+
+  it('applies a newer meta while a concurrent paint changes the tiles hash', async () => {
+    const fake = new FakeRedis();
+    const backend = fogBackend(fake);
+    const tilesKey = 'fieldnotes:room:R:fog:tiles';
+    await backend.applyMeta('R', { version: 1, editor: 'A', definition });
+    const painted = { generation: 'gen-1', x: 0, y: 0, version: 1, editor: 'A', data };
+    await backend.applyTile('R', painted);
+
+    // Every attempt sees a different tiles hash: a painter keeps working during the update.
+    let concurrent = 0;
+    fake.beforeEval = (key) => {
+      concurrent += 1;
+      const tile = { generation: 'gen-1', x: concurrent, y: 0, version: 1, editor: 'B', data };
+      fake.store.get(key)?.set(`${tile.x},${tile.y}`, JSON.stringify(tile));
+    };
+    const grown = { ...definition, bounds: { x: 0, y: 0, w: 384, h: 128 } };
+
+    expect(await backend.applyMeta('R', { version: 2, editor: 'A', definition: grown })).toEqual({
+      accepted: true,
+    });
+    expect(concurrent).toBe(1);
+    expect((await backend.snapshot('R'))?.tiles).toEqual([
+      painted,
+      { generation: 'gen-1', x: 1, y: 0, version: 1, editor: 'B', data },
+    ]);
+    expect(fake.store.get(tilesKey)?.size).toBe(2);
   });
 
   it('removes a semantically invalid stored tile while applying a valid patch', async () => {
