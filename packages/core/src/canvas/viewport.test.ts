@@ -608,6 +608,38 @@ describe('Viewport', () => {
       }
       viewport.destroy();
     });
+
+    it('a remote removal unbinds arrows with the same meta and records no undo step', () => {
+      const viewport = new Viewport(container);
+      const note = createNote({
+        position: { x: 100, y: 100 },
+        size: { w: 200, h: 100 },
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(note);
+      const arrow = createArrow({
+        from: { x: 200, y: 150 },
+        to: { x: 400, y: 300 },
+        fromBinding: { elementId: note.id },
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(arrow);
+      viewport.history.clear();
+
+      const seen: (string | undefined)[] = [];
+      viewport.store.on('update', (_data, meta) => seen.push(meta.origin));
+
+      viewport.store.remove(note.id, { origin: 'remote' });
+
+      const updated = viewport.store.getById(arrow.id);
+      expect(updated).toBeDefined();
+      if (updated?.type === 'arrow') {
+        expect(updated.fromBinding).toBeUndefined();
+      }
+      expect(seen).toEqual(['remote']);
+      expect(viewport.history.undoCount).toBe(0);
+      viewport.destroy();
+    });
   });
 
   describe('onTextEditStop', () => {
