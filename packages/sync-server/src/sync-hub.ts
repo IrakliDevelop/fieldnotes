@@ -397,8 +397,10 @@ export class SyncHub {
       ) {
         // Publish-then-apply (S7): nothing is persisted until fanout has taken the op, so a
         // failed publication can never leave this instance holding state its peers lack.
-        // Either failure leaves only the sender optimistically ahead, so it is resynced from
-        // authoritative state and the rejection still propagates for observability.
+        // The guarantee is one-sided: local peers are told nothing and the sender is resynced
+        // from authoritative state, but a publish that succeeded before apply failed has
+        // already reached the other instances, whose members hold a phantom until their next
+        // authoritative read converges them. The rejection propagates for observability.
         try {
           if (result.locality !== 'local') {
             await this.fanout.publish(
@@ -513,10 +515,20 @@ export class SyncHub {
       this.sendToConnection(conn, HUB_FROM, layerRecordToOp(current));
       return;
     }
-    await this.applyLayerRecord(conn.room, record);
-    await this.fanout.publish(
-      JSON.stringify({ o: this.instanceId, room: conn.room, from: conn.id, op }),
-    );
+    // Publish-then-apply (S7): nothing is stored until fanout has taken the op, so a failed
+    // publication can never leave this instance holding a record its peers lack.
+    try {
+      await this.fanout.publish(
+        JSON.stringify({ o: this.instanceId, room: conn.room, from: conn.id, op }),
+      );
+      await this.applyLayerRecord(conn.room, record);
+    } catch (error) {
+      // Same correction the denied path sends: the room's record, or a tombstone when there
+      // is none, so the sender's optimistic edit disappears instead of lingering unshared.
+      const correction = current ?? { id: record.id, version: record.version, editor: HUB_FROM };
+      this.sendToConnection(conn, HUB_FROM, layerRecordToOp(correction));
+      throw error;
+    }
     this.relayOpToRoom(conn.room, conn.id, conn.id, op);
   }
 
@@ -859,14 +871,24 @@ export class SyncHub {
    * may read it. Used wherever a sender's optimistic op did not survive.
    */
   private async sendSnapshotCorrection(conn: Connection, from: string): Promise<void> {
-    const all = this.normalizeElements(await this.backend.snapshot(conn.room));
+    let all: OwnedElement[];
+    try {
+      all = this.normalizeElements(await this.backend.snapshot(conn.room));
+    } catch {
+      // Best effort: the correction is a courtesy resync, so a backend that also fails the
+      // read must not replace the caller's original publish/apply error with this secondary
+      // one. The sender stays optimistically ahead until its next snapshot request.
+      return;
+    }
     const elements = this.canRead ? all.filter((el) => this.mayRead(conn, el.audience)) : all;
     this.sendToConnection(conn, HUB_FROM, { kind: 'snapshot', to: from, elements });
   }
 
   private onFanout(payload: string): void {
-    // Off the serial queue on purpose: forward-only (the origin already applied to the SHARED backend),
-    // and delivery is already ordered. Re-filter per local member (canRead runs on EVERY instance).
+    // Off the serial queue on purpose: element delivery here is forward-only. The origin
+    // publishes before it applies (S7), so a receiver never reads backing state to decide what
+    // to send — it relays exactly what it was handed, and delivery is already ordered.
+    // Re-filter per local member (canRead runs on EVERY instance).
     // The channel is a trust boundary of its own: anyone who can publish to it reaches every
     // instance, so a fanout op passes the same shape validation as a client frame.
     if (!hasJsonDepthAtMost(payload, this.maxJsonDepth)) return;

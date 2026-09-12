@@ -8,7 +8,12 @@ import {
 } from '@fieldnotes/vtt';
 import { createFogServerPlugin } from '@fieldnotes/vtt/server';
 import type { CanvasElement, Layer } from '@fieldnotes/core';
-import { createCurrentCapabilities, createExtensionKind, type SyncOp } from '@fieldnotes/sync';
+import {
+  createCurrentCapabilities,
+  createExtensionKind,
+  type SyncOp,
+  type WireSyncElement,
+} from '@fieldnotes/sync';
 import { SyncHub } from './sync-hub';
 import type { Connection } from './sync-hub';
 import type { HubBackend } from './hub-backend';
@@ -677,6 +682,68 @@ describe('SyncHub', () => {
       await expect(h.handleMessage('a', upsert('ca', 'e2'))).resolves.toBeUndefined();
       expect((await backend.snapshot('R')).map((element) => element.id)).toEqual(['e2']);
       expect(localPeer.sent).toHaveLength(1);
+    });
+
+    it('a failing correction read does not mask the original error', async () => {
+      const error = new Error('fanout unavailable');
+      const snapshotError = new Error('snapshot unavailable');
+      class SnapshotFailsBackend extends MemoryHubBackend {
+        override snapshot(): Promise<WireSyncElement[]> {
+          return Promise.reject(snapshotError);
+        }
+      }
+      const backend = new SnapshotFailsBackend();
+      const fanout = {
+        publish: vi.fn(() => Promise.reject(error)),
+        subscribe: () => () => undefined,
+      };
+      const origin = makeConn('a', 'R');
+      const h = new SyncHub({ backend, fanout, instanceId: 'A' });
+      h.addConnection(origin);
+
+      // The caller must still see why the op failed, not why the resync failed.
+      await expect(h.handleMessage('a', upsert('ca', 'e1'))).rejects.toBe(error);
+      expect(origin.sent).toEqual([]);
+    });
+
+    it('filters the failure-path correction by what the sender may read', async () => {
+      const error = new Error('fanout unavailable');
+      let failPublish = false;
+      const fanout = {
+        publish: vi.fn(() => (failPublish ? Promise.reject(error) : Promise.resolve())),
+        subscribe: () => () => undefined,
+      };
+      const backend = new MemoryHubBackend();
+      const h = new SyncHub({
+        backend,
+        fanout,
+        instanceId: 'A',
+        canRead: ({ role, audience }) => audience === undefined || role === 'dm',
+      });
+      const dm: FakeConn = { ...makeConn('dm', 'R'), role: 'dm' };
+      const player: FakeConn = { ...makeConn('pl', 'R'), role: 'player' };
+      h.addConnection(dm);
+      h.addConnection(player);
+
+      const secret = { ...sampleEl(), id: 'secret', audience: 'dm' } as CanvasElement;
+      await h.handleMessage(
+        'dm',
+        JSON.stringify({ from: 'dmUser', op: { kind: 'upsert', element: secret } }),
+      );
+      await h.handleMessage('dm', upsert('dmUser', 'open'));
+      player.sent.length = 0;
+      failPublish = true;
+
+      await expect(h.handleMessage('pl', upsert('plUser', 'e1'))).rejects.toBe(error);
+
+      // The resync is still a read-filtered view: a failure path must not leak dm-only bytes.
+      expect(player.sent).toHaveLength(1);
+      const correction = JSON.parse(player.sent[0] ?? '') as {
+        op: { kind: string; elements: { id: string }[] };
+      };
+      expect(correction.op.kind).toBe('snapshot');
+      expect(correction.op.elements.map((element) => element.id)).toEqual(['open']);
+      expect(player.sent[0]).not.toContain('secret');
     });
 
     it('publishes before applying', async () => {
@@ -2540,6 +2607,33 @@ describe('layer-definition sync', () => {
       .find((e) => e.op.kind === 'snapshot');
     expect(snapshotFrame?.op.elements).toEqual([]);
     expect(snapshotFrame?.op.layers).toHaveLength(1);
+    hub.close();
+  });
+
+  it('a failed layer publish persists nothing and corrects the sender', async () => {
+    const error = new Error('fanout unavailable');
+    const fanout = {
+      publish: vi.fn(() => Promise.reject(error)),
+      subscribe: () => () => undefined,
+    };
+    const backend = new MemoryHubBackend();
+    const hub = new SyncHub({ backend, fanout, instanceId: 'i1' });
+    const a = makeConn('A', 'R');
+    const b = makeConn('B', 'R');
+    hub.addConnection(a);
+    hub.addConnection(b);
+
+    await expect(
+      hub.handleMessage('A', envelope('clientA', layerUpsert(1, 'clientA'))),
+    ).rejects.toBe(error);
+
+    // Publish-then-apply (S7): a rejected publication stores nothing, so the sender is
+    // reverted to a hub tombstone exactly as a denied edit would be.
+    expect(await backend.layerRecords('R')).toEqual([]);
+    expect(parsed(a)).toEqual([
+      { from: 'hub', op: { kind: 'layer-remove', id: 'layer-x', version: 1, editor: 'hub' } },
+    ]);
+    expect(b.sent).toEqual([]);
     hub.close();
   });
 
