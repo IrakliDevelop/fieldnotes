@@ -2256,6 +2256,32 @@ describe('SyncClient layer sync', () => {
     expect(ledger.get('layer-y')?.version).toBe(2);
   });
 
+  it('never re-pushes a hub-authored layer record after a snapshot', () => {
+    const bus = makeBus();
+    const ledger = new LayerLedger();
+    ledger.recordUpsert(layerDef(), 'zoe');
+    const a = layerPeer(bus, 'zoe', { ledger });
+    const hub = bus.endpoint();
+    const layerOps: SyncOp[] = [];
+    hub.onMessage((m) => {
+      const env = JSON.parse(m) as { op: SyncOp };
+      if (env.op.kind === 'layer-upsert' || env.op.kind === 'layer-remove') layerOps.push(env.op);
+    });
+
+    a.client.start();
+    // The hub answered the local edit with an authoritative tombstone: that record is a
+    // correction the hub owns, never a local edit awaiting publication.
+    hub.send(envelope('hub', { kind: 'layer-remove', id: 'layer-x', version: 1, editor: 'hub' }));
+    expect(ledger.get('layer-x')?.editor).toBe('hub');
+    layerOps.length = 0;
+
+    // A snapshot that omits the layer must not make the client push the hub's own record
+    // back, which would persist a room-wide delete nobody asked for.
+    hub.send(envelope('hub', { kind: 'snapshot', to: 'zoe', elements: [] }));
+
+    expect(layerOps).toEqual([]);
+  });
+
   it('keeps syncing after the applyLayer hook throws', () => {
     const bus = makeBus();
     let calls = 0;

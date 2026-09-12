@@ -614,7 +614,7 @@ describe('SyncHub', () => {
       expect(b.sent).toEqual([]);
     });
 
-    it('surfaces publication failure, withholds local delivery, and keeps the room queue usable', async () => {
+    it('a failed upsert publish corrects only that element', async () => {
       const error = new Error('fanout unavailable');
       let publishCount = 0;
       const fanout = {
@@ -633,22 +633,66 @@ describe('SyncHub', () => {
       h.addConnection(localPeer);
 
       await expect(h.handleMessage('a', upsert('ca', 'e1'))).rejects.toBe(error);
-      // Publish-then-apply (S7): a rejected publication persists nothing, so the
-      // sender is resynced from authoritative state instead of keeping a phantom.
+      // Publish-then-apply (S7): a rejected publication persists nothing, so the sender is
+      // corrected on that one element instead of being handed a whole-room snapshot.
       expect((await backend.snapshot('R')).map((element) => element.id)).toEqual([]);
       expect(origin.sent).toHaveLength(1);
       expect(JSON.parse(origin.sent[0] ?? '')).toEqual({
         from: 'hub',
-        op: { kind: 'snapshot', to: 'ca', elements: [] },
+        op: { kind: 'remove', id: 'e1' },
       });
       expect(localPeer.sent).toEqual([]);
 
+      // The room queue stays usable and the next op is unaffected by the correction.
       await expect(h.handleMessage('a', upsert('ca', 'e2'))).resolves.toBeUndefined();
+      expect((await backend.snapshot('R')).map((element) => element.id)).toEqual(['e2']);
+      expect(origin.sent).toHaveLength(1);
       expect(localPeer.sent).toHaveLength(1);
       expect(JSON.parse(localPeer.sent[0] ?? '').op.element.id).toBe('e2');
     });
 
-    it('sends the sender a snapshot correction when backend.apply rejects after publish', async () => {
+    it('a failed remove publish re-upserts the current element', async () => {
+      const error = new Error('fanout unavailable');
+      let failPublish = false;
+      const fanout = {
+        publish: vi.fn(() => (failPublish ? Promise.reject(error) : Promise.resolve())),
+        subscribe: () => () => undefined,
+      };
+      const backend = new MemoryHubBackend();
+      const h = new SyncHub({
+        backend,
+        fanout,
+        instanceId: 'A',
+        canRead: ({ role, audience }) => audience === undefined || role === 'dm',
+      });
+      const dm: FakeConn = { ...makeConn('dm', 'R'), role: 'dm' };
+      h.addConnection(dm);
+
+      const secret = { ...sampleEl(), id: 'secret', audience: 'dm' } as CanvasElement;
+      await h.handleMessage(
+        'dm',
+        JSON.stringify({ from: 'dmUser', op: { kind: 'upsert', element: secret } }),
+      );
+      dm.sent.length = 0;
+      failPublish = true;
+
+      await expect(
+        h.handleMessage(
+          'dm',
+          JSON.stringify({ from: 'dmUser', op: { kind: 'remove', id: 'secret' } }),
+        ),
+      ).rejects.toBe(error);
+
+      // Nothing was deleted, so the sender's optimistic removal is undone element-wise.
+      expect((await backend.snapshot('R')).map((element) => element.id)).toEqual(['secret']);
+      expect(dm.sent).toHaveLength(1);
+      expect(JSON.parse(dm.sent[0] ?? '')).toEqual({
+        from: 'hub',
+        op: { kind: 'upsert', element: secret },
+      });
+    });
+
+    it('corrects the sender on that element alone when backend.apply rejects after publish', async () => {
       const error = new Error('backend unavailable');
       class ApplyFailsOnceBackend extends MemoryHubBackend {
         pendingFailure: Error | undefined = error;
@@ -675,7 +719,7 @@ describe('SyncHub', () => {
       expect(origin.sent).toHaveLength(1);
       expect(JSON.parse(origin.sent[0] ?? '')).toEqual({
         from: 'hub',
-        op: { kind: 'snapshot', to: 'ca', elements: [] },
+        op: { kind: 'remove', id: 'e1' },
       });
       expect(localPeer.sent).toEqual([]);
 
@@ -686,13 +730,17 @@ describe('SyncHub', () => {
 
     it('a failing correction read does not mask the original error', async () => {
       const error = new Error('fanout unavailable');
-      const snapshotError = new Error('snapshot unavailable');
-      class SnapshotFailsBackend extends MemoryHubBackend {
+      const readError = new Error('read unavailable');
+      class CorrectionReadFailsBackend extends MemoryHubBackend {
         override snapshot(): Promise<WireSyncElement[]> {
-          return Promise.reject(snapshotError);
+          return Promise.reject(readError);
+        }
+
+        override get(): Promise<WireSyncElement | undefined> {
+          return Promise.reject(readError);
         }
       }
-      const backend = new SnapshotFailsBackend();
+      const backend = new CorrectionReadFailsBackend();
       const fanout = {
         publish: vi.fn(() => Promise.reject(error)),
         subscribe: () => () => undefined,
@@ -706,7 +754,7 @@ describe('SyncHub', () => {
       expect(origin.sent).toEqual([]);
     });
 
-    it('filters the failure-path correction by what the sender may read', async () => {
+    it('filters the failure-path clear correction by what the sender may read', async () => {
       const error = new Error('fanout unavailable');
       let failPublish = false;
       const fanout = {
@@ -734,7 +782,9 @@ describe('SyncHub', () => {
       player.sent.length = 0;
       failPublish = true;
 
-      await expect(h.handleMessage('pl', upsert('plUser', 'e1'))).rejects.toBe(error);
+      await expect(
+        h.handleMessage('pl', JSON.stringify({ from: 'plUser', op: { kind: 'clear' } })),
+      ).rejects.toBe(error);
 
       // The resync is still a read-filtered view: a failure path must not leak dm-only bytes.
       expect(player.sent).toHaveLength(1);
@@ -1252,6 +1302,69 @@ describe('SyncHub', () => {
           op: { kind: 'snapshot', to: 'cp-clr', elements: canonical.map(publicView) },
         });
         expect(await backend.snapshot('R')).toEqual(canonical);
+      });
+
+      it('a clear correction carries layers and plugin snapshots', async () => {
+        const backend = new MemoryHubBackend();
+        const hub = new SyncHub({
+          authorize: policy,
+          backend,
+          plugins: [createFogServerPlugin()],
+        });
+        const dm = roleConn('dm', 'R', 'dm1', 'dm');
+        const p = roleConn('p', 'R', 'player1', 'player');
+        hub.addConnection(dm);
+        hub.addConnection(p);
+
+        const layer: Layer = {
+          id: 'layer-x',
+          name: 'Layer X',
+          visible: true,
+          locked: false,
+          order: 100,
+          opacity: 1,
+        };
+        await hub.handleMessage(
+          'dm',
+          envelope('cdm', { kind: 'layer-upsert', layer, version: 1, editor: 'cdm' }),
+        );
+        await hub.handleMessage(
+          'dm',
+          envelope('cdm', {
+            kind: 'fog-meta',
+            record: {
+              version: 1,
+              editor: 'cdm',
+              definition: {
+                version: 1,
+                generation: 'gen-1',
+                bounds: { x: 0, y: 0, w: 256, h: 128 },
+                cellSize: 1,
+                tileCells: 128,
+                base: 'covered',
+              },
+            },
+          }),
+        );
+        p.sent.length = 0;
+
+        await hub.handleMessage('p', envelope('cp-clr', { kind: 'clear' }));
+
+        // The clear correction is the sender's whole authoritative view, so it must carry
+        // everything a requested snapshot carries — not elements alone.
+        const correction = JSON.parse(p.sent[p.sent.length - 1] ?? '') as {
+          op: {
+            kind: string;
+            to?: string;
+            layers?: { id: string }[];
+            fog?: { meta?: { definition?: unknown } };
+          };
+        };
+        expect(correction.op.kind).toBe('snapshot');
+        expect(correction.op.to).toBe('cp-clr');
+        expect(correction.op.layers?.map((record) => record.id)).toEqual(['layer-x']);
+        expect(correction.op.fog?.meta?.definition).toBeDefined();
+        hub.close();
       });
 
       it('a denied clear whose correction read fails still rejects', async () => {
@@ -2520,6 +2633,24 @@ describe('layer-definition sync', () => {
       from: 'hub',
       op: { kind: 'layer-remove', id: 'layer-new', version: 1, editor: 'hub' },
     });
+    hub.close();
+  });
+
+  it('drops a client layer op claiming the hub editor', async () => {
+    const backend = new MemoryHubBackend();
+    const hub = new SyncHub({ backend });
+    const a = makeConn('A', 'R');
+    const b = makeConn('B', 'R');
+    hub.addConnection(a);
+    hub.addConnection(b);
+
+    // `editor: 'hub'` is the hub's own correction marker: clients apply it authoritatively,
+    // bypassing the (version, editor) tie-break, so a client must never be able to claim it.
+    await hub.handleMessage('A', envelope('clientA', layerUpsert(1, 'hub')));
+
+    expect(await backend.layerRecords('R')).toEqual([]);
+    expect(b.sent).toEqual([]);
+    expect(a.sent).toEqual([]);
     hub.close();
   });
 

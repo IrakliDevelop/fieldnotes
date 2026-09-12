@@ -299,32 +299,7 @@ export class SyncHub {
       op = { ...op, element };
     }
     if (op.kind === 'request-snapshot') {
-      const all = this.normalizeElements(await this.backend.snapshot(conn.room));
-      const elements = this.canRead ? all.filter((el) => this.mayRead(conn, el.audience)) : all;
-      // Layer records are presentation-only and carry no element bytes, so no
-      // audience filter applies; the field is omitted while a room has never
-      // used layer sync, keeping snapshot frames byte-identical to before.
-      const layers = await this.getLayerRecords(conn.room);
-      const snapshotOp: Record<string, unknown> = {
-        kind: 'snapshot',
-        to: env.from,
-        elements,
-      };
-      if (layers.length > 0) snapshotOp['layers'] = layers;
-      const extensions: Record<string, PluginSnapshot> = {};
-      for (const plugin of this.pluginRegistry.plugins) {
-        let snapshot = await plugin.snapshot?.(conn.room, this.backend);
-        if (!snapshot) continue;
-        if (plugin.filterSnapshot) {
-          snapshot =
-            plugin.filterSnapshot(snapshot, { userId: conn.userId, role: conn.role }) ?? undefined;
-        }
-        if (!snapshot) continue;
-        if (plugin.legacySnapshotKey) snapshotOp[plugin.legacySnapshotKey] = snapshot.data;
-        else extensions[plugin.name] = snapshot;
-      }
-      if (Object.keys(extensions).length > 0) snapshotOp['extensions'] = extensions;
-      this.sendToConnection(conn, HUB_FROM, snapshotOp as WireSyncOp);
+      this.sendToConnection(conn, HUB_FROM, await this.buildSnapshotOp(conn, env.from));
     } else if (op.kind === 'layer-upsert' || op.kind === 'layer-remove') {
       await this.processLayerOp(conn, op);
     } else if (op.kind === 'extension') {
@@ -342,7 +317,10 @@ export class SyncHub {
     } else if (op.kind === 'upsert' || op.kind === 'remove' || op.kind === 'clear') {
       const id = op.kind === 'upsert' ? op.element.id : op.kind === 'remove' ? op.id : undefined;
       const needCurrent =
-        (this.authorize || this.canRead || this.resolveAudience) && id !== undefined;
+        (this.authorize !== undefined ||
+          this.canRead !== undefined ||
+          this.resolveAudience !== undefined) &&
+        id !== undefined;
       const storedCurrent = needCurrent ? await this.backend.get(conn.room, id) : undefined;
       const current = storedCurrent
         ? (this.normalizeElement(storedCurrent) ?? undefined)
@@ -397,7 +375,7 @@ export class SyncHub {
       ) {
         // Publish-then-apply (S7): nothing is persisted until fanout has taken the op, so a
         // failed publication can never leave this instance holding state its peers lack.
-        // The guarantee is one-sided: local peers are told nothing and the sender is resynced
+        // The guarantee is one-sided: local peers are told nothing and the sender is corrected
         // from authoritative state, but a publish that succeeded before apply failed has
         // already reached the other instances, whose members hold a phantom until their next
         // authoritative read converges them. The rejection propagates for observability.
@@ -416,10 +394,10 @@ export class SyncHub {
           }
           await this.backend.apply(conn.room, accepted);
         } catch (error) {
-          await this.sendSnapshotCorrection(conn, env.from).catch(() => {
-            // Best effort: the resync is a courtesy, so a backend that also fails this read
-            // must not replace the original publish/apply error with the secondary one. The
-            // sender stays optimistically ahead until its next snapshot request.
+          await this.sendFailureCorrection(conn, env.from, op, current, needCurrent).catch(() => {
+            // Best effort: the correction is a courtesy, so a backend that also fails this
+            // read must not replace the original publish/apply error with the secondary one.
+            // The sender stays optimistically ahead until its next snapshot request.
           });
           throw error;
         }
@@ -496,6 +474,10 @@ export class SyncHub {
    * sender only.
    */
   private async processLayerOp(conn: Connection, op: LayerOp): Promise<void> {
+    // `editor: 'hub'` marks a correction the hub authored: clients apply those
+    // authoritatively, skipping the (version, editor) tie-break, so a client claiming it
+    // could push a record every peer obeys. Dropped like any invalid frame.
+    if (op.editor === HUB_FROM) return;
     const record = layerOpToRecord(op);
     const current = await this.getLayerRecord(conn.room, record.id);
     if (this.authorizeLayer) {
@@ -891,13 +873,63 @@ export class SyncHub {
   }
 
   /**
+   * Corrects the sender of an op that did not survive publication or persistence, with the
+   * same targeted correction the denied path sends. `current` is fetched on the accept path
+   * only when a policy hook needs it, so it is read here otherwise; nothing has been
+   * persisted yet, so that read still yields the pre-op state the correction must describe.
+   */
+  private async sendFailureCorrection(
+    conn: Connection,
+    from: string,
+    op: Extract<WireSyncOp, { kind: 'upsert' | 'remove' | 'clear' }>,
+    current: OwnedElement | undefined,
+    currentFetched: boolean,
+  ): Promise<void> {
+    if (op.kind === 'clear' || currentFetched) {
+      await this.sendCorrection(conn, from, op, current);
+      return;
+    }
+    const stored = await this.backend.get(conn.room, op.kind === 'upsert' ? op.element.id : op.id);
+    const latest = stored ? (this.normalizeElement(stored) ?? undefined) : undefined;
+    await this.sendCorrection(conn, from, op, latest);
+  }
+
+  /**
    * Resyncs one sender from authoritative state: the whole room as that connection
    * may read it. Used wherever a sender's optimistic op did not survive.
    */
   private async sendSnapshotCorrection(conn: Connection, from: string): Promise<void> {
+    this.sendToConnection(conn, HUB_FROM, await this.buildSnapshotOp(conn, from));
+  }
+
+  /**
+   * The authoritative view of a room for one connection: readable elements, the layer
+   * records, and each plugin's filtered snapshot. Requested snapshots and clear corrections
+   * share it so a corrected sender is never left with less state than a joiner receives.
+   */
+  private async buildSnapshotOp(conn: Connection, to: string): Promise<WireSyncOp> {
     const all = this.normalizeElements(await this.backend.snapshot(conn.room));
     const elements = this.canRead ? all.filter((el) => this.mayRead(conn, el.audience)) : all;
-    this.sendToConnection(conn, HUB_FROM, { kind: 'snapshot', to: from, elements });
+    // Layer records are presentation-only and carry no element bytes, so no
+    // audience filter applies; the field is omitted while a room has never
+    // used layer sync, keeping snapshot frames byte-identical to before.
+    const layers = await this.getLayerRecords(conn.room);
+    const snapshotOp: Record<string, unknown> = { kind: 'snapshot', to, elements };
+    if (layers.length > 0) snapshotOp['layers'] = layers;
+    const extensions: Record<string, PluginSnapshot> = {};
+    for (const plugin of this.pluginRegistry.plugins) {
+      let snapshot = await plugin.snapshot?.(conn.room, this.backend);
+      if (!snapshot) continue;
+      if (plugin.filterSnapshot) {
+        snapshot =
+          plugin.filterSnapshot(snapshot, { userId: conn.userId, role: conn.role }) ?? undefined;
+      }
+      if (!snapshot) continue;
+      if (plugin.legacySnapshotKey) snapshotOp[plugin.legacySnapshotKey] = snapshot.data;
+      else extensions[plugin.name] = snapshot;
+    }
+    if (Object.keys(extensions).length > 0) snapshotOp['extensions'] = extensions;
+    return snapshotOp as WireSyncOp;
   }
 
   private onFanout(payload: string): void {

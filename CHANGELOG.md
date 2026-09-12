@@ -11,14 +11,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 - The hub publishes an accepted element or layer operation to the fanout channel **before**
   persisting it, then delivers it locally. When either the publish or the backend write fails,
   nothing is persisted on that path, local peers receive nothing, the sender gets an authoritative
-  correction (a `canRead`-filtered snapshot for element ops, the current record or a tombstone for
-  layer ops), and `handleMessage` still rejects for observability. Previously a failed publish left
+  correction (the element's authoritative state for `upsert`/`remove`, a `canRead`-filtered snapshot
+  for `clear`, the current record or a tombstone for layer ops), and `handleMessage` still rejects
+  for observability. Previously a failed publish left
   the operation persisted but undelivered until the next resync. Other relay instances may briefly
-  relay an operation whose write then failed; that converges on resync.
+  relay an operation whose write then failed; that converges on resync. A server plugin that reads
+  the backend after calling `next()` now observes pre-apply state, because the terminal step returns
+  the accepted operation without persisting it. With a backend shared across relay instances, a
+  client that joins another instance between the relay and the write can miss that operation until
+  its next resync.
+- A failed `upsert` or `remove` corrects the sender on that element alone (the stored element, or a
+  `remove` when there is none) instead of resending the whole room; only `clear` still answers with a
+  snapshot. That snapshot is now the same full view a requested snapshot carries — elements, layer
+  records, and plugin snapshots — so a corrected sender is not left without layers or fog.
+- A layer operation from a client claiming `editor: 'hub'` is dropped, and a client never re-pushes a
+  hub-authored layer record after a snapshot. Clients apply `from: 'hub'` layer operations
+  authoritatively, so either path could have turned a per-connection correction into a room-wide
+  delete.
 
 ### Package versions
 
 - `@fieldnotes/sync-server` 0.19.0 → 0.19.1
+- `@fieldnotes/sync` 0.20.0 → 0.20.1 — hub-authored layer corrections are never re-pushed
 
 ## [@fieldnotes/sync-server 0.19.0] — 2026-09-11
 

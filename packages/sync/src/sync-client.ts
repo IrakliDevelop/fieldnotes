@@ -389,6 +389,10 @@ export class SyncClient {
       if (isValidLayerRecord(raw)) snapshotRecords.set(raw.id, raw);
     }
     for (const record of this.layerLedger.records()) {
+      // A hub-authored record is a correction this client received, not a local edit
+      // awaiting publication. Re-pushing one would hand the room an edit the hub minted
+      // for this connection alone — a tombstone becomes a room-wide delete.
+      if (record.editor === HUB_FROM) continue;
       const known = snapshotRecords.get(record.id);
       if (known && !isNewerLayerRecord(record, known)) continue;
       this.sendOp(
