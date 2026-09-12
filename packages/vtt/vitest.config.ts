@@ -14,5 +14,14 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'lcov'],
+      thresholds: {
+        lines: 54,
+        branches: 48,
+        functions: 66,
+      },
+    },
   },
 });
