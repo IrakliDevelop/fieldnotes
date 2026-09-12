@@ -28,7 +28,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 ### Package versions
 
 - `@fieldnotes/sync-redis` 0.10.0 → 0.11.0
-- `@fieldnotes/vtt` 0.9.0 → 0.9.1 (peer `@fieldnotes/sync-redis >= 0.11.0`)
+- `@fieldnotes/vtt` 0.9.0 → 0.10.0 (peer `@fieldnotes/sync-redis >= 0.11.0`; `@fieldnotes/vtt/redis` now imports the script runner from sync-redis at module load, so that optional peer must be installed to load the subpath)
 
 ## [@fieldnotes/sync-server 0.19.0] — 2026-09-11
 
