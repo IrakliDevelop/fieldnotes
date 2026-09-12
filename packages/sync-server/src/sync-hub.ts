@@ -395,17 +395,27 @@ export class SyncHub {
         accepted &&
         (accepted.kind === 'upsert' || accepted.kind === 'remove' || accepted.kind === 'clear')
       ) {
-        if (result.locality !== 'local') {
-          await this.fanout.publish(
-            JSON.stringify({
-              o: this.instanceId,
-              room: conn.room,
-              from: conn.id,
-              op: accepted,
-              prev: prevAudience,
-              existed: prevExisted,
-            }),
-          );
+        // Publish-then-apply (S7): nothing is persisted until fanout has taken the op, so a
+        // failed publication can never leave this instance holding state its peers lack.
+        // Either failure leaves only the sender optimistically ahead, so it is resynced from
+        // authoritative state and the rejection still propagates for observability.
+        try {
+          if (result.locality !== 'local') {
+            await this.fanout.publish(
+              JSON.stringify({
+                o: this.instanceId,
+                room: conn.room,
+                from: conn.id,
+                op: accepted,
+                prev: prevAudience,
+                existed: prevExisted,
+              }),
+            );
+          }
+          await this.backend.apply(conn.room, accepted);
+        } catch (error) {
+          await this.sendSnapshotCorrection(conn, env.from);
+          throw error;
         }
         this.deliverToRoom(conn.room, conn.id, conn.id, accepted, prevAudience, prevExisted);
       }
@@ -433,7 +443,7 @@ export class SyncHub {
     const dispatch = async (index: number, current: WireSyncOp): Promise<ApplyResult> => {
       const plugin = middleware[index];
       if (!plugin?.process) {
-        await this.backend.apply(conn.room, current);
+        // Persistence is the caller's job now (publish-then-apply, S7).
         return { accepted: current, corrections: [] };
       }
       let called = false;
@@ -838,11 +848,20 @@ export class SyncHub {
           : { kind: 'remove', id: current.id }
         : undefined;
     } else if (op.kind === 'clear') {
-      const all = this.normalizeElements(await this.backend.snapshot(conn.room));
-      const elements = this.canRead ? all.filter((el) => this.mayRead(conn, el.audience)) : all;
-      correction = { kind: 'snapshot', to: from, elements };
+      await this.sendSnapshotCorrection(conn, from);
+      return;
     }
     if (correction) this.sendToConnection(conn, HUB_FROM, correction);
+  }
+
+  /**
+   * Resyncs one sender from authoritative state: the whole room as that connection
+   * may read it. Used wherever a sender's optimistic op did not survive.
+   */
+  private async sendSnapshotCorrection(conn: Connection, from: string): Promise<void> {
+    const all = this.normalizeElements(await this.backend.snapshot(conn.room));
+    const elements = this.canRead ? all.filter((el) => this.mayRead(conn, el.audience)) : all;
+    this.sendToConnection(conn, HUB_FROM, { kind: 'snapshot', to: from, elements });
   }
 
   private onFanout(payload: string): void {
