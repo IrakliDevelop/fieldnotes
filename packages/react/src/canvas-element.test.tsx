@@ -246,6 +246,36 @@ describe('CanvasElement', () => {
     expect(vp.history.undoCount).toBe(undoCountAfterClear);
   });
 
+  it('stays mounted and rendered after viewport.loadState', async () => {
+    let vp: Viewport | null = null;
+    render(
+      <FieldNotesCanvas
+        onReady={(v) => {
+          vp = v;
+        }}
+      >
+        <CanvasElement position={{ x: 10, y: 20 }}>
+          <span data-testid="load-state-survivor">Survivor</span>
+        </CanvasElement>
+      </FieldNotesCanvas>,
+    );
+    expect(vp).not.toBeNull();
+    if (!vp) return;
+    expect(vp.store.getElementsByType('html').length).toBe(1);
+
+    // The exported state deliberately omits the transient element, so loading it back drops the
+    // embed from the store. `loadState` runs inside `suspendNotifications`, so the store emits a
+    // single coalesced `batch` event rather than `clear`.
+    vp.loadState(vp.exportState());
+    const undoCountAfterLoad = vp.history.undoCount;
+    await Promise.resolve();
+
+    const after = vp.store.getElementsByType('html');
+    expect(after.length).toBe(1);
+    expect(document.querySelector('[data-testid="load-state-survivor"]')).not.toBeNull();
+    expect(vp.history.undoCount).toBe(undoCountAfterLoad);
+  });
+
   it('mounts exactly one element under StrictMode', () => {
     let vp: Viewport | null = null;
     render(
@@ -266,5 +296,9 @@ describe('CanvasElement', () => {
     expect(vp.store.getElementsByType('html').length).toBe(1);
     expect(vp.history.undoCount).toBe(0);
     expect(document.querySelector('[data-testid="strict-child"]')).not.toBeNull();
+    // No orphan container: core adopts the container out of `domLayer` into its own paint stack
+    // synchronously on `add`, so any child left directly under `domLayer` is a container whose
+    // effect run was discarded (StrictMode's double invocation) and never cleaned up.
+    expect(vp.domLayer.children.length).toBe(0);
   });
 });

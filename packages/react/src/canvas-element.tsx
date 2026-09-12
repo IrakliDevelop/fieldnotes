@@ -61,7 +61,7 @@ export function CanvasElement({ position, size, children }: CanvasElementProps) 
     // deferred to a microtask because a remote clear is followed — synchronously, by the sync
     // client — by re-adding the transient elements: reading the store inside the event would
     // always report this element gone and add a duplicate.
-    const unsubscribeClear = viewport.store.on('clear', () => {
+    const handleStoreReplacement = () => {
       const clearedId = elementIdRef.current;
       if (clearedId === null) return;
       queueMicrotask(() => {
@@ -75,16 +75,26 @@ export function CanvasElement({ position, size, children }: CanvasElementProps) 
         }
         viewport.requestRender();
       });
-    });
+    };
+    // `clear` covers a clear-canvas gesture and a remote clear. A wholesale state replacement
+    // (`loadState`/`loadJSON`) runs inside `suspendNotifications`, so the store coalesces its
+    // events into a single `batch` instead: the same recovery applies.
+    const unsubscribeClear = viewport.store.on('clear', handleStoreReplacement);
+    const unsubscribeBatch = viewport.store.on('batch', handleStoreReplacement);
 
     return () => {
       disposed = true;
       unsubscribeClear();
+      unsubscribeBatch();
       if (elementIdRef.current) {
         viewport.store.remove(elementIdRef.current, { origin: HOST_ORIGIN });
         viewport.requestRender();
         elementIdRef.current = null;
       }
+      // Removing the element usually detaches the container, but when no render pass ran between
+      // this effect and its cleanup (StrictMode's double invocation) the node is still parented
+      // in the DOM layer as an empty div.
+      if (container.parentNode === viewport.domLayer) container.remove();
       setPortalTarget(null);
     };
   }, [viewport]);

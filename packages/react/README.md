@@ -122,7 +122,7 @@ Embedded components use a **two-mode interaction model**: by default they can be
 
 `position` is required; `size` is optional — omit it to let the element size to its content. Both props are reactive: updating them moves or resizes the element on the canvas.
 
-`<CanvasElement>` is **host-owned**: React is the source of truth for its element. Its store mutations carry `origin: 'host'`, so mounting, moving, resizing and unmounting never create undo steps and are never sent to a sync relay (the DOM subtree exists only in this document). The element is **transient**: `exportState()` / `exportJSON()` omit it, so a saved canvas never contains a ghost of a React embed. After a store `clear` (a user's clear-canvas gesture or a remote one) the component re-registers itself, so the embed survives. To persist an embed across reloads, use the viewport's `registerHtmlRenderer` with an `htmlType` and serializable `data` instead.
+`<CanvasElement>` is **host-owned**: React is the source of truth for its element. Its store mutations carry `origin: 'host'`, so mounting, moving, resizing and unmounting never create undo steps and are never sent to a sync relay (the DOM subtree exists only in this document). The element is **transient**: `exportState()` / `exportJSON()` omit it, so a saved canvas never contains a ghost of a React embed. After a store `clear` (a user's clear-canvas gesture or a remote one) or a `loadState()` the component re-registers itself, so the embed survives. To persist an embed across reloads, use the viewport's `registerHtmlRenderer` with an `htmlType` and serializable `data` instead.
 
 ## Undo / Redo
 
