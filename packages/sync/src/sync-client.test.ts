@@ -2138,6 +2138,23 @@ describe('SyncClient layer sync', () => {
     expect(lastSent.op.version).toBe(2);
   });
 
+  it('applies a hub layer-remove correction at the same version regardless of editor ordering', () => {
+    const bus = makeBus();
+    const ledger = new LayerLedger();
+    // Local record at version 1 whose editor sorts after 'hub' under the (version, editor)
+    // tie-break, so an equal-version tombstone would lose if it went through `applyRemote`.
+    ledger.recordUpsert(layerDef(), 'zoe');
+    const a = layerPeer(bus, 'zoe', { ledger });
+    a.client.start();
+
+    const hub = bus.endpoint();
+    hub.send(envelope('hub', { kind: 'layer-remove', id: 'layer-x', version: 1, editor: 'hub' }));
+
+    // The hub path is authoritative: parity with the rejected record is enough to delete.
+    expect(ledger.get('layer-x')).toEqual({ id: 'layer-x', version: 1, editor: 'hub' });
+    expect(a.updates.map((u) => u.record.definition)).toEqual([undefined]);
+  });
+
   it('a client without the layers option ignores layer traffic and answers snapshots without layers', () => {
     const bus = makeBus();
     const store = new ElementStore();
