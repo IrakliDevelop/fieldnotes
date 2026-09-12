@@ -630,6 +630,38 @@ describe('RedisHubBackend fog records', () => {
     expect(hGetAll).not.toHaveBeenCalled();
   });
 
+  it('corrects an invalid incoming tile with the stored record, not a tombstone', async () => {
+    const fake = new FakeRedis();
+    const backend = fogBackend(fake);
+    const tilesKey = 'fieldnotes:room:R:fog:tiles';
+    await backend.applyMeta('R', { version: 1, editor: 'A', definition });
+    const stored = { generation: 'gen-1', x: 0, y: 0, version: 2, editor: 'A', data };
+    const hGet = vi.spyOn(fake, 'hGet');
+
+    expect(await backend.applyPatch('R', [stored])).toEqual({
+      accepted: [stored],
+      corrections: [],
+    });
+    expect(hGet.mock.calls.filter(([key]) => key === tilesKey)).toEqual([]);
+    const storedRaw = fake.store.get(tilesKey)?.get('0,0');
+
+    // Base-fill data must be omitted, so this tile fails the JS validity gate.
+    const invalid = {
+      generation: 'gen-1',
+      x: 0,
+      y: 0,
+      version: 3,
+      editor: 'B',
+      data: fogEncodeBase64(new Uint8Array(2048)),
+    };
+
+    expect(await backend.applyPatch('R', [invalid])).toEqual({
+      accepted: [],
+      corrections: [stored],
+    });
+    expect(fake.store.get(tilesKey)?.get('0,0')).toBe(storedRaw);
+  });
+
   // rewritten in V2 Task 4: the patch path no longer pre-reads or repairs the tiles hash.
   it.skip('removes a semantically invalid stored tile while applying a valid patch', async () => {
     const fake = new FakeRedis();

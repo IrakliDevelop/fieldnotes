@@ -133,19 +133,45 @@ class RedisFogBackend implements FogBackendService {
     // The script re-checks generation, bounds, LWW and capacity against the state
     // it reads itself, so this read of the meta record never needs to be a CAS.
     if (records.some((tile) => !isValidFogSnapshot({ meta, tiles: [tile] }))) {
-      return {
-        accepted: [],
-        corrections: records.map((tile) => ({
-          generation: definition.generation,
-          x: tile.x,
-          y: tile.y,
-          version: 1,
-          editor: 'hub',
-        })),
-      };
+      // Only this path reads the tiles hash: a rejected patch must not report a
+      // coordinate as empty while Redis holds a valid record for it.
+      const corrections = await Promise.all(
+        records.map(async (tile) => {
+          const stored = await this.storedTile(room, meta, tile.x, tile.y);
+          return (
+            stored ?? {
+              generation: definition.generation,
+              x: tile.x,
+              y: tile.y,
+              version: 1,
+              editor: 'hub',
+            }
+          );
+        }),
+      );
+      return { accepted: [], corrections };
     }
     const result = await this.eval(FOG_PATCH_LWW_SCRIPT, room, records, []);
     return parseFogRedisPatchResult(result);
+  }
+
+  /** The record stored at a coordinate, when it is valid under the current meta. */
+  private async storedTile(
+    room: string,
+    meta: FogMetaRecord,
+    x: number,
+    y: number,
+  ): Promise<FogTileRecord | undefined> {
+    const raw = await this.client.hGet(this.tilesKey(room), `${x},${y}`);
+    if (raw === null) return undefined;
+    let stored: unknown;
+    try {
+      stored = JSON.parse(raw);
+    } catch {
+      return undefined;
+    }
+    if (!isValidFogSnapshot({ meta, tiles: [stored] })) return undefined;
+    return stored as FogTileRecord;
   }
 
   private async eval(
