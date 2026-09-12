@@ -173,39 +173,27 @@ end
 return {1}
 `;
 
+/**
+ * Validates a whole fog patch against Redis state without a caller-side read of
+ * the tiles hash: the script reads the meta record itself, so a meta write that
+ * lands between the caller's read and this call cannot produce a conflict, and
+ * per-tile LWW runs against the value stored at that moment. ARGV[1] is the
+ * incoming tile array as JSON; there is no compare-and-set argument and no
+ * retry result. The tiles hash is scanned only when the patch would otherwise
+ * overflow capacity, to reclaim records the current definition no longer admits.
+ */
 export const FOG_PATCH_LWW_SCRIPT = `
-local incomingRaws = cjson.decode(ARGV[1])
-local metaRaw = redis.call('HGET', KEYS[1], 'current')
-if (metaRaw or '') ~= ARGV[2] then return {2} end
-local invalidStored = cjson.decode(ARGV[3])
-for field, raw in pairs(invalidStored) do
-  if redis.call('HGET', KEYS[2], field) == raw then redis.call('HDEL', KEYS[2], field) end
-end
-if not metaRaw then return {0, 0} end
-local metaOk, meta = pcall(cjson.decode, metaRaw)
-if not metaOk or type(meta) ~= 'table' or type(meta.definition) ~= 'table'
-  or type(meta.definition.generation) ~= 'string' then return {0, 0} end
-local def = meta.definition
-local tileSize = 128 * def.cellSize
-local function intersects(tile)
-  local tx = tile.x * tileSize
-  local ty = tile.y * tileSize
-  return tx + tileSize > def.bounds.x and ty + tileSize > def.bounds.y
-    and tx < def.bounds.x + def.bounds.w and ty < def.bounds.y + def.bounds.h
-end
-local function newer(a, b)
-  return a.version > b.version or (a.version == b.version and a.editor > b.editor)
+local incomingTiles = cjson.decode(ARGV[1])
+local function ascii(value)
+  if type(value) ~= 'string' or #value < 1 or #value > 128 then return false end
+  for i = 1, #value do
+    local b = string.byte(value, i)
+    if b < 32 or b > 126 then return false end
+  end
+  return true
 end
 local function validTile(tile)
   if type(tile) ~= 'table' then return false end
-  local function ascii(value)
-    if type(value) ~= 'string' or #value < 1 or #value > 128 then return false end
-    for i = 1, #value do
-      local b = string.byte(value, i)
-      if b < 32 or b > 126 then return false end
-    end
-    return true
-  end
   local dataOk = tile.data == nil or (type(tile.data) == 'string' and #tile.data == 2732
     and string.match(tile.data, '^[A-Za-z0-9+/]+[AEIMQUYcgkosw048]=$') ~= nil)
   return ascii(tile.generation)
@@ -217,54 +205,87 @@ local function validTile(tile)
     and tile.version <= 9007199254740991 and tile.version == math.floor(tile.version)
     and ascii(tile.editor) and dataOk
 end
-local stored = redis.call('HGETALL', KEYS[2])
-local validCount = 0
-for i = 1, #stored, 2 do
-  local ok, tile = pcall(cjson.decode, stored[i + 1])
-  if not ok or not validTile(tile) or stored[i] ~= tostring(tile.x) .. ',' .. tostring(tile.y)
-    or tile.generation ~= def.generation or not intersects(tile) then
-    redis.call('HDEL', KEYS[2], stored[i])
-  else
-    validCount = validCount + 1
+local function tombstone(generation, x, y)
+  return cjson.encode({generation = generation, x = x, y = y, version = 1, editor = 'hub'})
+end
+local metaRaw = redis.call('HGET', KEYS[1], 'current')
+local def = nil
+if metaRaw then
+  local metaOk, meta = pcall(cjson.decode, metaRaw)
+  if metaOk and type(meta) == 'table' and type(meta.definition) == 'table'
+    and type(meta.definition.generation) == 'string' and type(meta.definition.cellSize) == 'number'
+    and type(meta.definition.bounds) == 'table' then
+    def = meta.definition
   end
+end
+if not def then
+  local orphaned = {0, #incomingTiles}
+  for i = 1, #incomingTiles do
+    local tile = incomingTiles[i]
+    orphaned[#orphaned + 1] = tombstone(tile.generation, tile.x, tile.y)
+  end
+  return orphaned
+end
+local tileSize = 128 * def.cellSize
+local function intersects(x, y)
+  local tx = x * tileSize
+  local ty = y * tileSize
+  return tx + tileSize > def.bounds.x and ty + tileSize > def.bounds.y
+    and tx < def.bounds.x + def.bounds.w and ty < def.bounds.y + def.bounds.h
+end
+local function newer(a, b)
+  return a.version > b.version or (a.version == b.version and a.editor > b.editor)
+end
+local function admitted(field, raw)
+  if not raw then return nil end
+  local ok, tile = pcall(cjson.decode, raw)
+  if not ok or not validTile(tile) then return nil end
+  if field ~= tostring(tile.x) .. ',' .. tostring(tile.y) then return nil end
+  if tile.generation ~= def.generation or not intersects(tile.x, tile.y) then return nil end
+  return tile
 end
 local accepted = {}
 local corrections = {}
-local newCount = 0
 local currents = {}
-for i = 1, #incomingRaws do
-  local incomingRaw = cjson.encode(incomingRaws[i])
-  local incoming = incomingRaws[i]
+local newCount = 0
+for i = 1, #incomingTiles do
+  local incoming = incomingTiles[i]
   local field = tostring(incoming.x) .. ',' .. tostring(incoming.y)
   local currentRaw = redis.call('HGET', KEYS[2], field)
-  local current = nil
-  if currentRaw then
-    local ok, decoded = pcall(cjson.decode, currentRaw)
-    if ok and validTile(decoded) then current = decoded else currentRaw = nil end
-  end
-  currents[i] = currentRaw or false
-  if incoming.generation ~= def.generation or not intersects(incoming)
+  local current = admitted(field, currentRaw)
+  if not current then currentRaw = false end
+  currents[i] = currentRaw
+  if incoming.generation ~= def.generation or not intersects(incoming.x, incoming.y)
     or (current and not newer(incoming, current)) then
-    corrections[#corrections + 1] = currentRaw or cjson.encode({generation=def.generation,
-      x=incoming.x, y=incoming.y, version=1, editor='hub'})
+    corrections[#corrections + 1] = currentRaw or tombstone(def.generation, incoming.x, incoming.y)
   else
-    accepted[#accepted + 1] = incomingRaw
+    accepted[#accepted + 1] = cjson.encode(incoming)
     if not current then newCount = newCount + 1 end
   end
 end
-if validCount + newCount > 256 then
-  accepted = {}
-  corrections = {}
-  for i = 1, #incomingRaws do
-    local incoming = incomingRaws[i]
-    corrections[#corrections + 1] = currents[i] or cjson.encode({generation=def.generation,
-      x=incoming.x, y=incoming.y, version=1, editor='hub'})
+local count = redis.call('HLEN', KEYS[2])
+if count + newCount > 256 then
+  local stored = redis.call('HGETALL', KEYS[2])
+  count = 0
+  for i = 1, #stored, 2 do
+    if admitted(stored[i], stored[i + 1]) then
+      count = count + 1
+    else
+      redis.call('HDEL', KEYS[2], stored[i])
+    end
   end
-else
-  for i = 1, #accepted do
-    local record = cjson.decode(accepted[i])
-    redis.call('HSET', KEYS[2], tostring(record.x) .. ',' .. tostring(record.y), accepted[i])
+end
+if count + newCount > 256 then
+  local overflow = {0, #incomingTiles}
+  for i = 1, #incomingTiles do
+    local incoming = incomingTiles[i]
+    overflow[#overflow + 1] = currents[i] or tombstone(def.generation, incoming.x, incoming.y)
   end
+  return overflow
+end
+for i = 1, #accepted do
+  local record = cjson.decode(accepted[i])
+  redis.call('HSET', KEYS[2], tostring(record.x) .. ',' .. tostring(record.y), accepted[i])
 end
 local result = {#accepted}
 for i = 1, #accepted do result[#result + 1] = accepted[i] end

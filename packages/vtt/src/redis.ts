@@ -118,59 +118,34 @@ class RedisFogBackend implements FogBackendService {
   }
 
   async applyPatch(room: string, records: readonly FogTileRecord[]): Promise<FogPatchApplyResult> {
-    for (let attempt = 0; attempt < 4; attempt++) {
-      const metaRaw = await this.client.hGet(this.metaKey(room), 'current');
-      if (metaRaw === null) return { accepted: [], corrections: [] };
-      let meta: unknown;
-      try {
-        meta = JSON.parse(metaRaw);
-      } catch {
-        return { accepted: [], corrections: [] };
-      }
-      if (!isValidFogMetaRecord(meta) || !meta.definition) {
-        return { accepted: [], corrections: [] };
-      }
-      const stored = await this.client.hGetAll(this.tilesKey(room));
-      const invalidStored: Record<string, string> = {};
-      for (const [field, raw] of Object.entries(stored)) {
-        try {
-          const parsed: unknown = JSON.parse(raw);
-          if (!isValidFogSnapshot({ meta, tiles: [parsed] })) invalidStored[field] = raw;
-        } catch {
-          invalidStored[field] = raw;
-        }
-      }
-      if (records.some((tile) => !isValidFogSnapshot({ meta, tiles: [tile] }))) {
-        return {
-          accepted: [],
-          corrections: records.map((tile) => {
-            const raw = stored[`${tile.x},${tile.y}`];
-            if (raw) {
-              try {
-                const parsed: unknown = JSON.parse(raw);
-                if (isValidFogSnapshot({ meta, tiles: [parsed] })) return parsed as FogTileRecord;
-              } catch {
-                // Fall through to an authoritative tombstone.
-              }
-            }
-            return {
-              generation: meta.definition?.generation ?? tile.generation,
-              x: tile.x,
-              y: tile.y,
-              version: 1,
-              editor: 'hub',
-            };
-          }),
-        };
-      }
-      const result = await this.eval(FOG_PATCH_LWW_SCRIPT, room, records, [
-        metaRaw,
-        JSON.stringify(invalidStored),
-      ]);
-      if (Array.isArray(result) && result[0] === 2) continue;
-      return parseFogRedisPatchResult(result);
+    const metaRaw = await this.client.hGet(this.metaKey(room), 'current');
+    if (metaRaw === null) return { accepted: [], corrections: [] };
+    let meta: unknown;
+    try {
+      meta = JSON.parse(metaRaw);
+    } catch {
+      return { accepted: [], corrections: [] };
     }
-    throw new Error('Redis fog patch did not converge after concurrent definition writes');
+    if (!isValidFogMetaRecord(meta)) return { accepted: [], corrections: [] };
+    const definition = meta.definition;
+    if (!definition) return { accepted: [], corrections: [] };
+    // Semantic tile validation the script cannot do (base fill, edge padding).
+    // The script re-checks generation, bounds, LWW and capacity against the state
+    // it reads itself, so this read of the meta record never needs to be a CAS.
+    if (records.some((tile) => !isValidFogSnapshot({ meta, tiles: [tile] }))) {
+      return {
+        accepted: [],
+        corrections: records.map((tile) => ({
+          generation: definition.generation,
+          x: tile.x,
+          y: tile.y,
+          version: 1,
+          editor: 'hub',
+        })),
+      };
+    }
+    const result = await this.eval(FOG_PATCH_LWW_SCRIPT, room, records, []);
+    return parseFogRedisPatchResult(result);
   }
 
   private async eval(
