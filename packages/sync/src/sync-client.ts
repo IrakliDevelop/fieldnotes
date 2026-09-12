@@ -153,6 +153,15 @@ export interface SyncClientOptions {
 
 const REMOTE_ORIGIN = 'remote';
 /**
+ * A transient html element belongs to the embedding host, not the document: it
+ * is never broadcast, never served in a snapshot, and survives both a remote
+ * clear and an authoritative reconcile.
+ */
+function isTransientHtml(el: { readonly type: string; readonly transient?: boolean }): boolean {
+  return el.type === 'html' && el.transient === true;
+}
+
+/**
  * Server-owned sender identity. The hub never forwards a client-stamped
  * `from`, so a layer op arriving from `hub` is an authoritative correction
  * and overrides the ledger even against a locally-newer version.
@@ -515,7 +524,7 @@ export class SyncClient {
     if (isExternal(origin)) return; // applied remote ops must not re-broadcast
     // Transient elements belong to the embedding host, not the document: the hub must never
     // learn about them. Removes need no guard — the hub never knew the element existed.
-    if (op.kind === 'upsert' && (op.element as { transient?: boolean }).transient === true) return;
+    if (op.kind === 'upsert' && isTransientHtml(op.element)) return;
     const outgoing = this.stampAudience(op);
     if (this.resyncPending || !this.joined) {
       if (outgoing.kind === 'upsert') this.touchedDuringResync.add(outgoing.element.id);
@@ -574,7 +583,7 @@ export class SyncClient {
   private handleRemoteEnvelope(env: WireSyncEnvelope): void {
     const op = env.op;
     if (op.kind === 'request-snapshot') {
-      const elements = this.store.snapshot();
+      const elements = this.store.snapshot().filter((el) => !isTransientHtml(el));
       const snapshotOp: Record<string, unknown> = { kind: 'snapshot', to: env.from, elements };
       if (this.layerLedger) snapshotOp['layers'] = this.layerLedger.records();
       const extensions: Record<string, PluginSnapshot> = {};
@@ -704,7 +713,11 @@ export class SyncClient {
     } else if (op.kind === 'remove') {
       this.store.remove(op.id, { origin: REMOTE_ORIGIN });
     } else if (op.kind === 'clear') {
+      // The hub never knew about host-owned transient elements, so its clear does
+      // not speak for them: re-add them under the remote origin so no op is sent.
+      const transients = this.store.snapshot().filter((el) => isTransientHtml(el));
       this.store.clear({ origin: REMOTE_ORIGIN });
+      for (const el of transients) this.store.add(el, { origin: REMOTE_ORIGIN });
     }
     // applyOp handles the data ops only (upsert/remove/clear). The control ops
     // (request-snapshot/snapshot) are dispatched in onRemote; unknown kinds are filtered by
@@ -725,7 +738,7 @@ export class SyncClient {
       if (snapshotIds.has(local.id) || this.touchedDuringResync.has(local.id)) continue;
       // A transient element is host-owned and was never sent, so its absence from the
       // authoritative set is expected: keep it without consulting the host hook.
-      if ((local as { transient?: boolean }).transient === true) continue;
+      if (isTransientHtml(local)) continue;
       localOnly.push({ element: local, hubKnown: this.hubKnownIds.has(local.id) });
     }
     const { preserve, discard } = this.resolveLocalOnlyDecision(phase, snapshot, localOnly);
