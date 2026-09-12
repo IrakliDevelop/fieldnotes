@@ -8,20 +8,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ### Tooling
 
-- Test files are type-checked: each package has a `typecheck` script and the root `pnpm typecheck`
-  runs them all, wired into `pnpm verify` after `build` so `tsc` resolves sibling packages
-  through `dist`.
+- Test files under `src` are type-checked: each package has a `typecheck` script and the root
+  `pnpm typecheck` runs them all, wired into `pnpm verify` after `build` so `tsc` resolves sibling
+  packages through `dist`. Playwright e2e specs under `packages/core/e2e` are not type-checked yet.
 - Coverage thresholds are enforced in all six packages through `pnpm test:coverage`; the root
   `pnpm verify:ci` runs the full gate with coverage instead of a plain test run. Examples run their
   tests under `verify:ci` without coverage.
+- `pnpm format:check` runs inside `pnpm verify` and `pnpm verify:ci`, immediately after `pnpm lint`.
 - CI runs `pnpm verify:ci` on Node 20 and 22 and uploads each matrix leg's `lcov.info` as a
   build artifact.
 - The five non-core packages adopt core's per-condition `types` exports shape, so `import` and
   `require` consumers each resolve their own declaration file.
 - `@fieldnotes/vtt` now ships a `LICENSE` file.
 - `onlyBuiltDependencies` moved from `package.json` to `pnpm-workspace.yaml`.
-- `engines.node` is now `>=20.19` across the workspace.
-- The empty `packages/contract-spike/` scaffold was removed.
+- The root `engines.node` is raised to `>=20.19`; the published packages declare no `engines` field.
+- The retired `packages/contract-spike` workspace directory no longer exists on disk.
+
+### Package versions
+
+The coordinated Phase 0 release set, including the publish-affecting packaging changes above,
+resolves to:
+
+- `@fieldnotes/react` 0.12.0 → 0.13.0
+- `@fieldnotes/sync` 0.20.0 → 0.20.1
+- `@fieldnotes/sync-server` 0.19.0 → 0.19.1
+- `@fieldnotes/sync-redis` 0.10.0 → 0.11.0
+- `@fieldnotes/vtt` 0.9.0 → 0.10.0
 
 ## [@fieldnotes/sync-redis 0.11.0] — 2026-09-12
 

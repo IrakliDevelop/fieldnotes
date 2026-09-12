@@ -14,8 +14,8 @@
     "lint:fix": "eslint --fix 'packages/*/src/**/*.{ts,tsx}'",
     "format": "prettier --write 'packages/*/src/**/*.{ts,tsx}'",
     "format:check": "prettier --check 'packages/*/src/**/*.{ts,tsx}'",
-    "verify": "pnpm agent:check && pnpm agent:format:check && pnpm lint && pnpm build && pnpm typecheck && pnpm test",
-    "verify:ci": "pnpm agent:check && pnpm agent:format:check && pnpm lint && pnpm build && pnpm typecheck && pnpm test:coverage",
+    "verify": "pnpm agent:check && pnpm agent:format:check && pnpm lint && pnpm format:check && pnpm build && pnpm typecheck && pnpm test",
+    "verify:ci": "pnpm agent:check && pnpm agent:format:check && pnpm lint && pnpm format:check && pnpm build && pnpm typecheck && pnpm test:coverage",
     "dev": "pnpm --filter fieldnotes-demo dev",
     "prepare": "husky"
   },
