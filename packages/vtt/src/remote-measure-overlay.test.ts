@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import type { OverlayRenderer } from '@fieldnotes/core';
 import {
   isMeasurePresence,
@@ -98,6 +98,7 @@ function makeHost(): RemoteMeasureOverlayHost & {
   drawFrame: () => void;
   unregistered: boolean;
   lastContext: Record<string, unknown> | null;
+  requestRender: Mock<() => void>;
 } {
   let renderer: OverlayRenderer | null = null;
   const host = {

@@ -28,6 +28,7 @@ describe('VTT adapter — legacy grid conversion', () => {
   it('decodes legacy grid fields into extension envelope', () => {
     const adapter = registry.getAdapterByLegacyType('grid');
     expect(adapter).toBeDefined();
+    if (!adapter) throw new Error('adapter is not registered');
 
     const legacy = {
       id: 'grid-1',
@@ -57,6 +58,7 @@ describe('VTT adapter — legacy grid conversion', () => {
   it('encodes extension envelope back to legacy grid format', () => {
     const adapter = registry.getAdapter('vtt:grid');
     expect(adapter).toBeDefined();
+    if (!adapter) throw new Error('adapter is not registered');
 
     const envelope = {
       id: 'grid-1',
@@ -85,6 +87,7 @@ describe('VTT adapter — legacy grid conversion', () => {
   it('round-trips square grid through legacy → envelope → legacy', () => {
     const adapter = registry.getAdapterByLegacyType('grid');
     expect(adapter).toBeDefined();
+    if (!adapter) throw new Error('adapter is not registered');
 
     const original = {
       id: 'grid-1',
@@ -121,6 +124,7 @@ describe('VTT adapter — legacy template conversion', () => {
   it('decodes legacy template fields into extension envelope', () => {
     const adapter = registry.getAdapterByLegacyType('template');
     expect(adapter).toBeDefined();
+    if (!adapter) throw new Error('adapter is not registered');
 
     const legacy = {
       id: 'tpl-1',
@@ -154,6 +158,7 @@ describe('VTT adapter — legacy template conversion', () => {
   it('encodes extension envelope back to legacy template format', () => {
     const adapter = registry.getAdapter('vtt:template');
     expect(adapter).toBeDefined();
+    if (!adapter) throw new Error('adapter is not registered');
 
     const envelope = {
       id: 'tpl-1',
@@ -183,6 +188,7 @@ describe('VTT adapter — legacy template conversion', () => {
   it('round-trips template through legacy → envelope → legacy', () => {
     const adapter = registry.getAdapterByLegacyType('template');
     expect(adapter).toBeDefined();
+    if (!adapter) throw new Error('adapter is not registered');
 
     const original = {
       id: 'tpl-1',
@@ -219,6 +225,7 @@ describe('VTT adapter — validation', () => {
   it('validates well-formed grid envelope', () => {
     const adapter = registry.getAdapter('vtt:grid');
     expect(adapter).toBeDefined();
+    if (!adapter) throw new Error('adapter is not registered');
 
     const envelope = {
       id: 'grid-1',
@@ -243,6 +250,7 @@ describe('VTT adapter — validation', () => {
   it('rejects malformed grid envelope data', () => {
     const adapter = registry.getAdapter('vtt:grid');
     expect(adapter).toBeDefined();
+    if (!adapter) throw new Error('adapter is not registered');
 
     const envelope = {
       id: 'grid-1',

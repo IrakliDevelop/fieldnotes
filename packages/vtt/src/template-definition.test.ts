@@ -2,7 +2,8 @@
 import { describe, it, expect } from 'vitest';
 import { templateElementTypeDefinition } from './template/template-definition';
 import { ElementRegistry } from '@fieldnotes/core';
-import type { TemplateElement, ExtensionElementEnvelope } from './elements/types';
+import type { ExtensionElementEnvelope } from '@fieldnotes/core';
+import type { TemplateElement } from './elements/types';
 
 function makeTemplate(overrides: Partial<TemplateElement> = {}): TemplateElement {
   return {

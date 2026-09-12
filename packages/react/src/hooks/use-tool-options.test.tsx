@@ -5,6 +5,11 @@ import { useToolOptions } from './use-tool-options';
 import { PencilTool, HandTool } from '@fieldnotes/core';
 import type { PencilToolOptions } from '@fieldnotes/core';
 
+// `useToolOptions` constrains its type parameter to `Record<string, unknown>`.
+// `PencilToolOptions` is an interface, so it has no implicit index signature;
+// this homomorphic mapped type keeps every property type and supplies one.
+type PencilOptions = { [K in keyof PencilToolOptions]: PencilToolOptions[K] };
+
 describe('useToolOptions', () => {
   afterEach(cleanup);
 
@@ -13,7 +18,7 @@ describe('useToolOptions', () => {
     let options: PencilToolOptions | null = null;
 
     function Consumer() {
-      const [opts] = useToolOptions<PencilToolOptions>('pencil');
+      const [opts] = useToolOptions<PencilOptions>('pencil');
       options = opts;
       return null;
     }
@@ -69,12 +74,12 @@ describe('useToolOptions', () => {
 
   it('updates when setOptions is called via the hook', () => {
     const pencil = new PencilTool({ color: '#ff0000' });
-    let options: PencilToolOptions | null = null;
-    let setOpts: ((opts: Partial<PencilToolOptions>) => void) | null = null;
+    const seen: { options: PencilOptions | null } = { options: null };
+    let setOpts: ((opts: Partial<PencilOptions>) => void) | null = null;
 
     function Consumer() {
-      const [opts, set] = useToolOptions<PencilToolOptions>('pencil');
-      options = opts;
+      const [opts, set] = useToolOptions<PencilOptions>('pencil');
+      seen.options = opts;
       setOpts = set;
       return null;
     }
@@ -84,21 +89,21 @@ describe('useToolOptions', () => {
         <Consumer />
       </FieldNotesCanvas>,
     );
-    expect(options?.color).toBe('#ff0000');
+    expect(seen.options?.color).toBe('#ff0000');
 
     act(() => {
       setOpts?.({ color: '#00ff00' });
     });
-    expect(options?.color).toBe('#00ff00');
+    expect(seen.options?.color).toBe('#00ff00');
   });
 
   it('updates when setOptions is called externally on the tool', () => {
     const pencil = new PencilTool({ color: '#ff0000' });
-    let options: PencilToolOptions | null = null;
+    const seen: { options: PencilOptions | null } = { options: null };
 
     function Consumer() {
-      const [opts] = useToolOptions<PencilToolOptions>('pencil');
-      options = opts;
+      const [opts] = useToolOptions<PencilOptions>('pencil');
+      seen.options = opts;
       return null;
     }
 
@@ -107,12 +112,12 @@ describe('useToolOptions', () => {
         <Consumer />
       </FieldNotesCanvas>,
     );
-    expect(options?.color).toBe('#ff0000');
+    expect(seen.options?.color).toBe('#ff0000');
 
     act(() => {
       pencil.setOptions({ color: '#0000ff' });
     });
-    expect(options?.color).toBe('#0000ff');
+    expect(seen.options?.color).toBe('#0000ff');
   });
 
   it('setOptions is a no-op for tools without setOptions', () => {
