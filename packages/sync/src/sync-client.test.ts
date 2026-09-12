@@ -5,6 +5,7 @@ import {
   createNote,
   createStroke,
   createShape,
+  createHtmlElement,
   type CanvasElement,
   type Layer,
 } from '@fieldnotes/core';
@@ -1915,6 +1916,100 @@ describe('authoritative bootstrap/reconcile hooks (resolveLocalOnly)', () => {
     expect(contexts[0]?.phase).toBe('reconcile');
     expect(contexts[0]?.localOnly).toEqual([{ element: x, hubKnown: true }]);
     expect(store.getById(x.id)).toBeUndefined();
+  });
+});
+
+describe('transient elements stay local', () => {
+  function transientHtml(): CanvasElement {
+    return createHtmlElement({
+      position: { x: 3, y: 4 },
+      size: { w: 20, h: 20 },
+      transient: true,
+    });
+  }
+
+  function upsertIds(sent: string[]): (string | undefined)[] {
+    return sent
+      .map((m) => JSON.parse(m) as { op: { kind: string; element?: CanvasElement } })
+      .filter((e) => e.op.kind === 'upsert')
+      .map((e) => e.op.element?.id);
+  }
+
+  it('does not send ops for transient elements', () => {
+    const store = new ElementStore();
+    const transport = makeReconnectTransport();
+    const client = new SyncClient({ store, transport, clientId: 'B' });
+    client.start();
+    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'B', elements: [] }));
+
+    const el = transientHtml();
+    store.add(el); // no meta on purpose: a local-origin write the client would normally broadcast
+    store.update(el.id, { position: { x: 9, y: 9 } });
+
+    expect(upsertIds(transport.sent)).not.toContain(el.id);
+  });
+
+  it('keeps a transient element across an authoritative snapshot reconcile', () => {
+    const store = new ElementStore();
+    const transport = makeReconnectTransport();
+    const client = new SyncClient({ store, transport, clientId: 'B' });
+    client.start();
+
+    const x = shape(1);
+    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'B', elements: [x] }));
+
+    const el = transientHtml();
+    store.add(el);
+
+    // The hub's authoritative set never contained the transient element.
+    transport.triggerReconnect();
+    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'B', elements: [x] }));
+
+    expect(store.getById(el.id)).toBeDefined();
+    expect(store.getById(x.id)).toBeDefined();
+  });
+
+  it('omits transient elements from the snapshot it serves to a peer', () => {
+    const bus = makeBus();
+    const storeA = new ElementStore();
+    const transportA = bus.endpoint();
+    const transportX = bus.endpoint();
+    const normal = shape(1);
+    const el = transientHtml();
+    storeA.add(normal);
+    storeA.add(el);
+    new SyncClient({ store: storeA, transport: transportA, clientId: 'A' }).start();
+
+    const before = transportA.sent.length;
+    transportX.send(envelope('X', { kind: 'request-snapshot' }));
+
+    const served = transportA.sent
+      .slice(before)
+      .map((m) => JSON.parse(m) as { op: { kind: string; elements?: CanvasElement[] } })
+      .filter((e) => e.op.kind === 'snapshot')
+      .map((e) => e.op.elements ?? []);
+    expect(served).toHaveLength(1);
+    expect(served[0]?.map((e) => e.id)).toEqual([normal.id]);
+  });
+
+  it('keeps transient elements across a remote clear', () => {
+    const store = new ElementStore();
+    const transport = makeReconnectTransport();
+    const client = new SyncClient({ store, transport, clientId: 'B' });
+    client.start();
+
+    const normal = shape(1);
+    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'B', elements: [normal] }));
+
+    const el = transientHtml();
+    store.add(el);
+
+    const before = transport.sent.length;
+    transport.deliver(envelope('hub', { kind: 'clear' }));
+
+    expect(store.getById(el.id)).toBeDefined();
+    expect(store.getById(normal.id)).toBeUndefined();
+    expect(upsertIds(transport.sent.slice(before))).not.toContain(el.id);
   });
 });
 
