@@ -28,12 +28,7 @@
   },
   "packageManager": "pnpm@10.28.2",
   "engines": {
-    "node": ">=18"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild"
-    ]
+    "node": ">=20.19"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
