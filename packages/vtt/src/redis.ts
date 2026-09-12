@@ -171,7 +171,10 @@ class RedisFogBackend implements FogBackendService {
       return undefined;
     }
     if (!isValidFogSnapshot({ meta, tiles: [stored] })) return undefined;
-    return stored as FogTileRecord;
+    const valid = stored as FogTileRecord;
+    // A raw filed under another coordinate must never stand in for this one.
+    if (valid.x !== x || valid.y !== y) return undefined;
+    return valid;
   }
 
   private async eval(
