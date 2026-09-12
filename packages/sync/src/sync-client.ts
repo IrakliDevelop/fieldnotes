@@ -513,6 +513,9 @@ export class SyncClient {
 
   private onLocal(op: SyncOp, origin: string | undefined): void {
     if (isExternal(origin)) return; // applied remote ops must not re-broadcast
+    // Transient elements belong to the embedding host, not the document: the hub must never
+    // learn about them. Removes need no guard — the hub never knew the element existed.
+    if (op.kind === 'upsert' && (op.element as { transient?: boolean }).transient === true) return;
     const outgoing = this.stampAudience(op);
     if (this.resyncPending || !this.joined) {
       if (outgoing.kind === 'upsert') this.touchedDuringResync.add(outgoing.element.id);
@@ -720,6 +723,9 @@ export class SyncClient {
     const localOnly: LocalOnlyElement[] = [];
     for (const local of this.store.snapshot()) {
       if (snapshotIds.has(local.id) || this.touchedDuringResync.has(local.id)) continue;
+      // A transient element is host-owned and was never sent, so its absence from the
+      // authoritative set is expected: keep it without consulting the host hook.
+      if ((local as { transient?: boolean }).transient === true) continue;
       localOnly.push({ element: local, hubKnown: this.hubKnownIds.has(local.id) });
     }
     const { preserve, discard } = this.resolveLocalOnlyDecision(phase, snapshot, localOnly);
