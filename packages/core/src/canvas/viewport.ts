@@ -907,7 +907,14 @@ export class Viewport {
     dom: HTMLElement,
     position: { x: number; y: number },
     size = { w: 200, h: 150 },
-    opts?: { htmlType?: string; data?: Record<string, unknown> },
+    opts?: {
+      htmlType?: string;
+      data?: Record<string, unknown>;
+      /** Host-owned element: excluded from exported state and never sent to the sync hub. */
+      transient?: boolean;
+      /** Non-'local' origin marks the add as external: no undo step, tagged for observers. */
+      origin?: string;
+    },
   ): string {
     const domId = dom.id || undefined;
     const el = createHtmlElement({
@@ -916,12 +923,18 @@ export class Viewport {
       domId,
       htmlType: opts?.htmlType,
       data: opts?.data,
+      transient: opts?.transient,
       layerId: this.layerManager.activeLayerId,
     });
     this.domNodeManager.storeHtmlContent(el.id, dom);
-    this.historyRecorder.begin();
-    this.store.add(el);
-    this.historyRecorder.commit();
+    const external = opts?.origin !== undefined && opts.origin !== 'local';
+    if (external) {
+      this.store.add(el, { origin: opts.origin });
+    } else {
+      this.historyRecorder.begin();
+      this.store.add(el);
+      this.historyRecorder.commit();
+    }
     this.requestRender();
     return el.id;
   }

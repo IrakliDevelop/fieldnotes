@@ -72,6 +72,12 @@ export interface HtmlElement extends BaseElement {
   htmlType?: string;
   /** Serializable payload passed to the registered renderer to rebuild the embed on load. */
   data?: Record<string, unknown>;
+  /**
+   * Host-owned element whose lifetime belongs to the embedding application, not the document.
+   * Transient elements are excluded from exported state and never sent to the sync hub; a loaded
+   * state may still carry the field, so it stays part of the persisted contract.
+   */
+  transient?: boolean;
 }
 
 export interface TextElement extends BaseElement {

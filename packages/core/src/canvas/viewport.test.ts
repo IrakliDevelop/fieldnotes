@@ -141,6 +141,38 @@ describe('Viewport', () => {
     viewport.destroy();
   });
 
+  it('addHtmlElement with an external origin records no undo step and stamps transient', () => {
+    const viewport = new Viewport(container);
+    viewport.history.clear();
+    const origins: (string | undefined)[] = [];
+    viewport.store.on('add', (_el, meta) => origins.push(meta.origin));
+    const dom = document.createElement('div');
+
+    const id = viewport.addHtmlElement(
+      dom,
+      { x: 0, y: 0 },
+      { w: 100, h: 100 },
+      { transient: true, origin: 'host' },
+    );
+
+    expect(viewport.history.undoCount).toBe(0);
+    const el = viewport.store.getById(id);
+    expect(el?.type === 'html' && el.transient).toBe(true);
+    expect(origins).toEqual(['host']);
+    viewport.destroy();
+  });
+
+  it('addHtmlElement without opts still records one undo step', () => {
+    const viewport = new Viewport(container);
+    viewport.history.clear();
+    const dom = document.createElement('div');
+
+    viewport.addHtmlElement(dom, { x: 0, y: 0 });
+
+    expect(viewport.history.undoCount).toBe(1);
+    viewport.destroy();
+  });
+
   it('loadState reattaches HTML elements by domId', () => {
     const viewport = new Viewport(container);
     const dom = document.createElement('div');
