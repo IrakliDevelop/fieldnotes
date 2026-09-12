@@ -20,14 +20,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 - React `<CanvasElement>` is host-owned and transient: mount, prop updates (one combined update)
   and unmount carry `origin: 'host'`, so they no longer create undo steps (Ctrl+Z no longer deletes
   a mounted React embed), are not broadcast by the sync client, do not leak a ghost html element into
-  saved state, and the component re-registers its DOM content after any store `clear`.
+  saved state, and the component re-registers its DOM content after a store `clear` or a `loadState`.
 - Sync client: transient elements are excluded from outgoing ops and from snapshots served to peers,
   are kept across authoritative snapshot reconciles and remote clears.
 
 ### Package versions
 
 - `@fieldnotes/core` 0.82.1 → 0.83.0
-- `@fieldnotes/react` 0.12.0 → 0.12.1 (peer `@fieldnotes/core >= 0.83.0`)
+- `@fieldnotes/react` 0.12.0 → 0.13.0 (peer `@fieldnotes/core >= 0.83.0`)
 - `@fieldnotes/sync` 0.20.0 → 0.20.1
 
 ## [@fieldnotes/sync-server 0.19.0] — 2026-09-11
