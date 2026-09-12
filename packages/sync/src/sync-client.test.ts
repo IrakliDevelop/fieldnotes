@@ -789,6 +789,7 @@ describe('SyncClient snapshot-on-join', () => {
       .filter((op: SyncOp) => op.kind === 'snapshot');
     expect(responses).toHaveLength(1);
     const resp = responses[0];
+    if (!resp) throw new Error('expected a snapshot response');
     expect(resp.to).toBe('X');
     expect(resp.elements).toHaveLength(2);
     expect(resp.elements).toEqual(storeA.snapshot());

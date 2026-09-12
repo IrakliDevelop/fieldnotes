@@ -12,6 +12,7 @@ import {
   translateOpForPeer,
 } from './capabilities';
 import { createExtensionKind } from './sync-plugin';
+import type { ExtensionKind } from './sync-plugin';
 
 interface LegacyGrid extends BaseElement {
   type: 'grid';
@@ -153,7 +154,12 @@ describe('translateOpForPeer', () => {
         decode: () => null,
       },
     });
-    const definitions = new Map<string, typeof kind>([[kind.extensionKind, kind]]);
+    // ExtensionKind is invariant in its payload, so widening to the map's
+    // ExtensionKind<unknown> repeats the assertion ClientPluginRegistry makes
+    // when it stores a registered kind (sync-plugin.ts).
+    const definitions = new Map<string, ExtensionKind<unknown>>([
+      [kind.extensionKind, kind as ExtensionKind<unknown>],
+    ]);
     const translated = translateOpForPeer(
       { kind: 'extension', extensionKind: kind.extensionKind, payload: { generation: 'g' } },
       createLegacyCapabilities(),

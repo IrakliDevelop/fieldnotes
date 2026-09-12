@@ -18,9 +18,10 @@ describe('createFogClientPlugin', () => {
     expect(offlineState).not.toBeNull();
 
     const send = vi.fn<(op: SyncOp) => void>();
+    if (!plugin.start) throw new Error('fog client plugin must expose start()');
     plugin.start({ clientId: 'dm', send });
     // The hub has no fog for this room: the offline edits are the truth.
-    plugin.applySnapshot?.({ pluginName: 'fog', version: 1, data: null }, { phase: 'bootstrap' });
+    plugin.applySnapshot?.({ pluginName: 'fog', version: 1, data: null }, { phase: 'initial' });
 
     expect(manager.getState()?.definition.generation).toBe(offlineState?.definition.generation);
     const kinds = send.mock.calls.map(([op]) => op.kind);

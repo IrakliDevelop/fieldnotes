@@ -8,11 +8,11 @@ describe('CanvasElement', () => {
   afterEach(cleanup);
 
   it('adds an html element to the store on mount', () => {
-    let vp: Viewport | null = null;
+    const captured: { vp: Viewport | null } = { vp: null };
     render(
       <FieldNotesCanvas
         onReady={(v) => {
-          vp = v;
+          captured.vp = v;
         }}
       >
         <CanvasElement position={{ x: 10, y: 20 }}>
@@ -20,6 +20,7 @@ describe('CanvasElement', () => {
         </CanvasElement>
       </FieldNotesCanvas>,
     );
+    const vp = captured.vp;
     expect(vp).not.toBeNull();
     if (!vp) return;
     const elements = vp.store.getElementsByType('html');
@@ -41,7 +42,7 @@ describe('CanvasElement', () => {
   });
 
   it('removes element from store on unmount', () => {
-    let vp: Viewport | null = null;
+    const captured: { vp: Viewport | null } = { vp: null };
     let showChild = true;
 
     function Inner() {
@@ -56,12 +57,13 @@ describe('CanvasElement', () => {
     const { rerender } = render(
       <FieldNotesCanvas
         onReady={(v) => {
-          vp = v;
+          captured.vp = v;
         }}
       >
         <Inner />
       </FieldNotesCanvas>,
     );
+    const vp = captured.vp;
     expect(vp).not.toBeNull();
     if (!vp) return;
     expect(vp.store.getElementsByType('html').length).toBe(1);
@@ -70,7 +72,7 @@ describe('CanvasElement', () => {
     rerender(
       <FieldNotesCanvas
         onReady={(v) => {
-          vp = v;
+          captured.vp = v;
         }}
       >
         <Inner />
@@ -80,11 +82,11 @@ describe('CanvasElement', () => {
   });
 
   it('uses custom size when provided', () => {
-    let vp: Viewport | null = null;
+    const captured: { vp: Viewport | null } = { vp: null };
     render(
       <FieldNotesCanvas
         onReady={(v) => {
-          vp = v;
+          captured.vp = v;
         }}
       >
         <CanvasElement position={{ x: 0, y: 0 }} size={{ w: 400, h: 300 }}>
@@ -92,6 +94,7 @@ describe('CanvasElement', () => {
         </CanvasElement>
       </FieldNotesCanvas>,
     );
+    const vp = captured.vp;
     expect(vp).not.toBeNull();
     if (!vp) return;
     const elements = vp.store.getElementsByType('html');

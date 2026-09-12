@@ -1,6 +1,6 @@
 {
   "name": "@fieldnotes/vtt",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "VTT domain tools and overlays for Field Notes canvas SDK",
   "type": "module",
   "sideEffects": false,
@@ -9,24 +9,44 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     },
     "./sync": {
-      "types": "./dist/sync.d.ts",
-      "import": "./dist/sync.js",
-      "require": "./dist/sync.cjs"
+      "import": {
+        "types": "./dist/sync.d.ts",
+        "default": "./dist/sync.js"
+      },
+      "require": {
+        "types": "./dist/sync.d.cts",
+        "default": "./dist/sync.cjs"
+      }
     },
     "./server": {
-      "types": "./dist/server.d.ts",
-      "import": "./dist/server.js",
-      "require": "./dist/server.cjs"
+      "import": {
+        "types": "./dist/server.d.ts",
+        "default": "./dist/server.js"
+      },
+      "require": {
+        "types": "./dist/server.d.cts",
+        "default": "./dist/server.cjs"
+      }
     },
     "./redis": {
-      "types": "./dist/redis.d.ts",
-      "import": "./dist/redis.js",
-      "require": "./dist/redis.cjs"
+      "import": {
+        "types": "./dist/redis.d.ts",
+        "default": "./dist/redis.js"
+      },
+      "require": {
+        "types": "./dist/redis.d.cts",
+        "default": "./dist/redis.cjs"
+      }
     }
   },
   "files": [
@@ -35,7 +55,9 @@
   ],
   "scripts": {
     "build": "tsup",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "test:watch": "vitest"
   },
   "license": "MIT",

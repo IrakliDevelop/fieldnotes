@@ -10,9 +10,9 @@ describe('useSelectionStyle', () => {
   afterEach(cleanup);
 
   it('returns null when nothing is selected', () => {
-    let style: ElementStyle | null = undefined as unknown as ElementStyle | null;
+    const seen: { style: ElementStyle | null | undefined } = { style: undefined };
     function Consumer() {
-      [style] = useSelectionStyle();
+      [seen.style] = useSelectionStyle();
       return null;
     }
 
@@ -21,14 +21,14 @@ describe('useSelectionStyle', () => {
         <Consumer />
       </FieldNotesCanvas>,
     );
-    expect(style).toBeNull();
+    expect(seen.style).toBeNull();
   });
 
   it('reflects normalized style of the selected element', () => {
-    let style: ElementStyle | null = null;
+    const seen: { style: ElementStyle | null } = { style: null };
     let vp: Viewport | null = null;
     function Consumer() {
-      [style] = useSelectionStyle();
+      [seen.style] = useSelectionStyle();
       return null;
     }
 
@@ -64,13 +64,13 @@ describe('useSelectionStyle', () => {
       sel?.setSelection([strokeId]);
     });
 
-    expect(style?.color).toBe('#123456');
-    expect(style?.strokeWidth).toBe(3);
+    expect(seen.style?.color).toBe('#123456');
+    expect(seen.style?.strokeWidth).toBe(3);
   });
 
   it('applies style patch to the selected element when setter is called', () => {
     let applyStyle: ((s: ElementStyle) => void) | null = null;
-    let vp: Viewport | null = null;
+    const captured: { vp: Viewport | null } = { vp: null };
     function Consumer() {
       const [, set] = useSelectionStyle();
       applyStyle = set;
@@ -82,7 +82,7 @@ describe('useSelectionStyle', () => {
         tools={[new SelectTool()]}
         defaultTool="select"
         onReady={(v) => {
-          vp = v;
+          captured.vp = v;
         }}
       >
         <Consumer />
@@ -98,14 +98,14 @@ describe('useSelectionStyle', () => {
         ],
         color: '#000000',
         width: 1,
-        layerId: vp?.layerManager.activeLayerId ?? '',
+        layerId: captured.vp?.layerManager.activeLayerId ?? '',
       });
-      vp?.store.add(stroke);
+      captured.vp?.store.add(stroke);
       strokeId = stroke.id;
     });
 
     act(() => {
-      const sel = vp?.toolManager.getTool<SelectTool>('select');
+      const sel = captured.vp?.toolManager.getTool<SelectTool>('select');
       sel?.setSelection([strokeId]);
     });
 
@@ -113,16 +113,16 @@ describe('useSelectionStyle', () => {
       applyStyle?.({ color: '#ff0000' });
     });
 
-    const updated = vp?.store.getById(strokeId);
+    const updated = captured.vp?.store.getById(strokeId);
     // stroke.color maps to ElementStyle.color
     expect((updated as { color?: string } | undefined)?.color).toBe('#ff0000');
   });
 
   it('updates reactively when the store changes under a stable selection', () => {
-    let style: ElementStyle | null = null;
+    const seen: { style: ElementStyle | null } = { style: null };
     let vp: Viewport | null = null;
     function Consumer() {
-      [style] = useSelectionStyle();
+      [seen.style] = useSelectionStyle();
       return null;
     }
 
@@ -158,20 +158,20 @@ describe('useSelectionStyle', () => {
       sel?.setSelection([strokeId]);
     });
 
-    expect(style?.color).toBe('#aabbcc');
+    expect(seen.style?.color).toBe('#aabbcc');
 
     act(() => {
       vp?.store.update(strokeId, { color: '#ddeeff' });
     });
 
-    expect(style?.color).toBe('#ddeeff');
+    expect(seen.style?.color).toBe('#ddeeff');
   });
 
   it('re-renders when only strokeStyle changes', () => {
-    let style: ElementStyle | null = null;
+    const seen: { style: ElementStyle | null } = { style: null };
     let vp: Viewport | null = null;
     function Consumer() {
-      [style] = useSelectionStyle();
+      [seen.style] = useSelectionStyle();
       return null;
     }
 
@@ -205,12 +205,12 @@ describe('useSelectionStyle', () => {
       sel?.setSelection([arrowId]);
     });
 
-    expect(style?.strokeStyle).toBeUndefined();
+    expect(seen.style?.strokeStyle).toBeUndefined();
 
     act(() => {
       vp?.applyStyleToSelection({ strokeStyle: 'dashed' });
     });
 
-    expect(style?.strokeStyle).toBe('dashed');
+    expect(seen.style?.strokeStyle).toBe('dashed');
   });
 });

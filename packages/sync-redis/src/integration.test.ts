@@ -56,9 +56,9 @@ class FakeRedis implements RedisHashClient {
       }
       return [
         accepted.length,
-        ...accepted.map(JSON.stringify),
+        ...accepted.map((record) => JSON.stringify(record)),
         corrections.length,
-        ...corrections.map(JSON.stringify),
+        ...corrections.map((record) => JSON.stringify(record)),
       ];
     }
     if ('x' in incoming) {

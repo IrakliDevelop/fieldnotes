@@ -457,13 +457,13 @@ describe('Viewport', () => {
       const priv = (viewport as unknown as { interactions: { onDrop: (e: unknown) => void } })
         .interactions;
       const mockFile = { type: 'image/png' };
-      let capturedOnload: (() => void) | null = null;
+      const captured: { onload: (() => void) | null } = { onload: null };
       const OrigFileReader = globalThis.FileReader;
       globalThis.FileReader = class {
         result: unknown = 'data:image/png;base64,abc';
         readAsDataURL = vi.fn();
         set onload(fn: (() => void) | null) {
-          capturedOnload = fn;
+          captured.onload = fn;
         }
       } as unknown as typeof FileReader;
 
@@ -475,8 +475,8 @@ describe('Viewport', () => {
       };
       priv.onDrop(mockEvent);
 
-      if (capturedOnload) {
-        capturedOnload();
+      if (captured.onload) {
+        captured.onload();
       }
       expect(viewport.store.getElementsByType('image').length).toBe(1);
 
@@ -489,13 +489,13 @@ describe('Viewport', () => {
       const priv = (viewport as unknown as { interactions: { onDrop: (e: unknown) => void } })
         .interactions;
       const mockFile = { type: 'image/png' };
-      let capturedOnload: (() => void) | null = null;
+      const captured: { onload: (() => void) | null } = { onload: null };
       const OrigFileReader = globalThis.FileReader;
       globalThis.FileReader = class {
         result: unknown = new ArrayBuffer(0);
         readAsDataURL = vi.fn();
         set onload(fn: (() => void) | null) {
-          capturedOnload = fn;
+          captured.onload = fn;
         }
       } as unknown as typeof FileReader;
 
@@ -506,8 +506,8 @@ describe('Viewport', () => {
         clientY: 100,
       };
       priv.onDrop(mockEvent);
-      if (capturedOnload) {
-        capturedOnload();
+      if (captured.onload) {
+        captured.onload();
       }
       expect(viewport.store.getElementsByType('image').length).toBe(0);
 

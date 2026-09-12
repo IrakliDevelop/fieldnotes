@@ -135,12 +135,12 @@ describe('useSelectionOps', () => {
 
   it('does not re-render when an unrelated store change leaves the selection unchanged', () => {
     let renders = 0;
-    let result: UseSelectionOpsResult | null = null;
+    const seen: { result: UseSelectionOpsResult | null } = { result: null };
     let vp: Viewport | null = null;
 
     function Consumer() {
       renders++;
-      result = useSelectionOps();
+      seen.result = useSelectionOps();
       return null;
     }
 
@@ -165,7 +165,7 @@ describe('useSelectionOps', () => {
       }
     });
     select(vp, ids);
-    expect(result?.selectedCount).toBe(2);
+    expect(seen.result?.selectedCount).toBe(2);
 
     const before = renders;
     act(() => {
@@ -173,8 +173,8 @@ describe('useSelectionOps', () => {
     });
 
     expect(renders - before).toBe(0);
-    expect(result?.selectedCount).toBe(2);
-    expect(result?.selectedIds).toEqual(ids);
+    expect(seen.result?.selectedCount).toBe(2);
+    expect(seen.result?.selectedIds).toEqual(ids);
   });
 
   it('align(left) snaps selected elements to the min x', () => {

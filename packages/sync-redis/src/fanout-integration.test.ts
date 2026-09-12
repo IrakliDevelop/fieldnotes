@@ -34,6 +34,9 @@ class FakeRedis implements RedisHashClient {
     const m = this.store.get(key);
     return m ? Object.fromEntries(m) : {};
   }
+  async hGet(key: string, field: string): Promise<string | null> {
+    return this.store.get(key)?.get(field) ?? null;
+  }
   async hSet(key: string, field: string, value: string): Promise<number> {
     this.hash(key).set(field, value);
     return 1;
@@ -45,6 +48,11 @@ class FakeRedis implements RedisHashClient {
   async del(key: string): Promise<number> {
     this.store.delete(key);
     return 1;
+  }
+  // This suite drives only the plain hash paths; a scripted update would be a
+  // silent no-op here, so fail loudly instead.
+  async eval(_script: string, options: { keys: string[]; arguments: string[] }): Promise<unknown> {
+    throw new Error(`FakeRedis has no eval support (keys: ${options.keys.join(', ')})`);
   }
 }
 

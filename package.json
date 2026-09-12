@@ -8,11 +8,14 @@
     "agent:format:check": "prettier --check AGENTS.md CLAUDE.md package.json 'docs/agents/*.md' '.agents/**/*.{md,yaml}' scripts/check-agent-docs.mjs",
     "build": "pnpm -r --workspace-concurrency=1 build",
     "test": "pnpm -r test",
+    "test:coverage": "pnpm -r --workspace-concurrency=1 test:coverage",
+    "typecheck": "pnpm -r typecheck",
     "lint": "eslint 'packages/*/src/**/*.{ts,tsx}'",
     "lint:fix": "eslint --fix 'packages/*/src/**/*.{ts,tsx}'",
     "format": "prettier --write 'packages/*/src/**/*.{ts,tsx}'",
     "format:check": "prettier --check 'packages/*/src/**/*.{ts,tsx}'",
-    "verify": "pnpm agent:check && pnpm agent:format:check && pnpm lint && pnpm test && pnpm build",
+    "verify": "pnpm agent:check && pnpm agent:format:check && pnpm lint && pnpm format:check && pnpm build && pnpm typecheck && pnpm test",
+    "verify:ci": "pnpm agent:check && pnpm agent:format:check && pnpm lint && pnpm format:check && pnpm build && pnpm typecheck && pnpm test:coverage",
     "dev": "pnpm --filter fieldnotes-demo dev",
     "prepare": "husky"
   },
@@ -27,12 +30,7 @@
   },
   "packageManager": "pnpm@10.28.2",
   "engines": {
-    "node": ">=18"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild"
-    ]
+    "node": ">=20.19"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

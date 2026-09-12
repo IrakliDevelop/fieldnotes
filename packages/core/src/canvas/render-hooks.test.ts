@@ -4,10 +4,11 @@ import { TypedHookRegistry, createRenderHooks } from './render-hooks';
 
 // ─── Test fixture: a simple hook shape ───────────────────────────────────────
 
-interface TestHooks {
+// eslint-disable-next-line @typescript-eslint/consistent-type-definitions -- type alias required for Record<string, unknown> constraint
+type TestHooks = {
   beforeRender?(ctx: { frame: number }): void;
   afterRender?(ctx: { frame: number }): void;
-}
+};
 
 describe('TypedHookRegistry', () => {
   describe('register and iterate', () => {

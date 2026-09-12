@@ -10,6 +10,13 @@ import type { ArrowElement, CanvasElement } from '../elements/types';
 import { HistoryRecorder } from '../history/history-recorder';
 import { HistoryStack } from '../history/history-stack';
 
+function heightOf(element: CanvasElement | undefined): number {
+  if (!element || !('size' in element)) {
+    throw new Error('expected a sized element');
+  }
+  return element.size.h;
+}
+
 function nodeWithHeight(h: number): HTMLDivElement {
   const node = document.createElement('div');
   Object.defineProperty(node, 'scrollHeight', { value: h, configurable: true });
@@ -107,7 +114,7 @@ describe('ViewportInteractions', () => {
       const { deps, nodes } = makeDeps(store);
       nodes.set(note.id, nodeWithHeight(120));
       new ViewportInteractions(deps).liveFitHeight(note.id);
-      expect(store.getById(note.id)?.size.h).toBe(120);
+      expect(heightOf(store.getById(note.id))).toBe(120);
     });
 
     it('shrinks a note to the measured scrollHeight', () => {
@@ -117,7 +124,7 @@ describe('ViewportInteractions', () => {
       const { deps, nodes } = makeDeps(store);
       nodes.set(note.id, nodeWithHeight(20));
       new ViewportInteractions(deps).liveFitHeight(note.id);
-      expect(store.getById(note.id)?.size.h).toBe(20);
+      expect(heightOf(store.getById(note.id))).toBe(20);
     });
 
     it('grows a text element to the measured scrollHeight', () => {
@@ -127,7 +134,7 @@ describe('ViewportInteractions', () => {
       const { deps, nodes } = makeDeps(store);
       nodes.set(text.id, nodeWithHeight(120));
       new ViewportInteractions(deps).liveFitHeight(text.id);
-      expect(store.getById(text.id)?.size.h).toBe(120);
+      expect(heightOf(store.getById(text.id))).toBe(120);
     });
 
     it('shrinks a text element to the measured scrollHeight', () => {
@@ -137,7 +144,7 @@ describe('ViewportInteractions', () => {
       const { deps, nodes } = makeDeps(store);
       nodes.set(text.id, nodeWithHeight(20));
       new ViewportInteractions(deps).liveFitHeight(text.id);
-      expect(store.getById(text.id)?.size.h).toBe(20);
+      expect(heightOf(store.getById(text.id))).toBe(20);
     });
 
     it('is a no-op when scrollHeight equals current height', () => {
@@ -149,7 +156,7 @@ describe('ViewportInteractions', () => {
       const spy = vi.spyOn(store, 'update');
       new ViewportInteractions(deps).liveFitHeight(note.id);
       expect(spy).not.toHaveBeenCalled();
-      expect(store.getById(note.id)?.size.h).toBe(40);
+      expect(heightOf(store.getById(note.id))).toBe(40);
     });
 
     it('is a no-op when scrollHeight is 0', () => {
@@ -161,7 +168,7 @@ describe('ViewportInteractions', () => {
       const spy = vi.spyOn(store, 'update');
       new ViewportInteractions(deps).liveFitHeight(note.id);
       expect(spy).not.toHaveBeenCalled();
-      expect(store.getById(note.id)?.size.h).toBe(40);
+      expect(heightOf(store.getById(note.id))).toBe(40);
     });
 
     it('is a no-op for a non-note/text element', () => {
@@ -173,7 +180,7 @@ describe('ViewportInteractions', () => {
       const spy = vi.spyOn(store, 'update');
       new ViewportInteractions(deps).liveFitHeight(shape.id);
       expect(spy).not.toHaveBeenCalled();
-      expect(store.getById(shape.id)?.size.h).toBe(40);
+      expect(heightOf(store.getById(shape.id))).toBe(40);
     });
 
     it('is a no-op when there is no DOM node', () => {
@@ -184,7 +191,7 @@ describe('ViewportInteractions', () => {
       const spy = vi.spyOn(store, 'update');
       new ViewportInteractions(deps).liveFitHeight(note.id);
       expect(spy).not.toHaveBeenCalled();
-      expect(store.getById(note.id)?.size.h).toBe(40);
+      expect(heightOf(store.getById(note.id))).toBe(40);
     });
   });
 
@@ -196,7 +203,7 @@ describe('ViewportInteractions', () => {
       const { deps, nodes } = makeDeps(store);
       nodes.set(note.id, nodeWithHeight(120));
       new ViewportInteractions(deps).fitNoteHeight(note.id);
-      expect(store.getById(note.id)?.size.h).toBe(120);
+      expect(heightOf(store.getById(note.id))).toBe(120);
     });
 
     it('does not shrink a note below its dragged height', () => {
@@ -208,7 +215,7 @@ describe('ViewportInteractions', () => {
       const spy = vi.spyOn(store, 'update');
       new ViewportInteractions(deps).fitNoteHeight(note.id);
       expect(spy).not.toHaveBeenCalled();
-      expect(store.getById(note.id)?.size.h).toBe(200);
+      expect(heightOf(store.getById(note.id))).toBe(200);
     });
 
     it('editing a note (liveFitHeight) shrinks it where manual resize would not', () => {
@@ -219,9 +226,9 @@ describe('ViewportInteractions', () => {
       nodes.set(note.id, nodeWithHeight(30));
       const interactions = new ViewportInteractions(deps);
       interactions.fitNoteHeight(note.id);
-      expect(store.getById(note.id)?.size.h).toBe(200);
+      expect(heightOf(store.getById(note.id))).toBe(200);
       interactions.liveFitHeight(note.id);
-      expect(store.getById(note.id)?.size.h).toBe(30);
+      expect(heightOf(store.getById(note.id))).toBe(30);
     });
   });
 
@@ -250,7 +257,7 @@ describe('ViewportInteractions', () => {
       stack.undo(store);
       const restored = store.getById(note.id);
       expect(restored && 'text' in restored ? restored.text : '').toBe('before');
-      expect(restored?.size.h).toBe(40);
+      expect(heightOf(restored)).toBe(40);
     });
   });
 

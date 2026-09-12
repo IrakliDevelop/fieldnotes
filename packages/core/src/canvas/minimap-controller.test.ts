@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { Viewport } from './viewport';
 import { MinimapController } from './minimap-controller';
 import type { MinimapControllerOptions } from './minimap-controller';
@@ -173,7 +173,7 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 function canvasCreations(): number {
-  return createElementSpy.mock.calls.filter((call) => call[0] === 'canvas').length;
+  return createElementSpy.mock.calls.filter((call: unknown[]) => call[0] === 'canvas').length;
 }
 
 function compositeCalls(): DrawImageEntry[] {
@@ -220,7 +220,7 @@ function makeViewportHarness(): ViewportHarness {
 interface FrameQueue {
   frames: (() => void)[];
   requestFrame: (cb: () => void) => number;
-  cancelFrame: ReturnType<typeof vi.fn>;
+  cancelFrame: Mock<(id: number) => void>;
   flush: () => void;
 }
 
@@ -232,7 +232,7 @@ function makeFrameQueue(): FrameQueue {
       frames.push(cb);
       return frames.length;
     },
-    cancelFrame: vi.fn(),
+    cancelFrame: vi.fn<(id: number) => void>(),
     flush: (): void => {
       const pending = frames.splice(0, frames.length);
       for (const cb of pending) cb();
@@ -1072,9 +1072,7 @@ describe('MinimapController canvas-routed html painters', () => {
   // elsewhere).
   function expectedFitScale(viewport: Viewport): number {
     const content = getElementsBoundingBox(
-      viewport.store
-        .getAll()
-        .filter((el) => el.type !== 'grid' && viewport.layerManager.isLayerVisible(el.layerId)),
+      viewport.store.getAll().filter((el) => viewport.layerManager.isLayerVisible(el.layerId)),
     );
     const viewportRect = viewport.getVisibleRect();
     const mapping = content ? unionBounds(content, viewportRect) : viewportRect;

@@ -228,7 +228,7 @@ describe('Viewport save/load roundtrip', () => {
     const v2 = new Viewport(container);
     v2.loadState(state);
 
-    expect(v2.layerManager.layers).toHaveLength(3);
+    expect(v2.layerManager.getLayers()).toHaveLength(3);
     expect(v2.layerManager.activeLayerId).toBe(layer2.id);
 
     const rDefault = v2.store.getById(noteOnDefault.id);
