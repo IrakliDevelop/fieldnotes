@@ -1,4 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
+import { StrictMode } from 'react';
 import { render, cleanup } from '@testing-library/react';
 import { FieldNotesCanvas } from './field-notes-canvas';
 import { CanvasElement } from './canvas-element';
@@ -184,5 +185,86 @@ describe('CanvasElement', () => {
 
     expect(origins.length).toBeGreaterThanOrEqual(3);
     expect(origins.every((origin) => origin === 'host')).toBe(true);
+  });
+
+  it('stays mounted and rendered after a remote clear', async () => {
+    let vp: Viewport | null = null;
+    render(
+      <FieldNotesCanvas
+        onReady={(v) => {
+          vp = v;
+        }}
+      >
+        <CanvasElement position={{ x: 10, y: 20 }}>
+          <span data-testid="clear-survivor">Survivor</span>
+        </CanvasElement>
+      </FieldNotesCanvas>,
+    );
+    expect(vp).not.toBeNull();
+    if (!vp) return;
+    const before = vp.store.getElementsByType('html');
+    expect(before.length).toBe(1);
+    const id = before[0]?.id;
+
+    // Replay what the sync client does on a remote clear: transient elements are snapshotted,
+    // the store is cleared, and they are re-added with the remote origin.
+    const transients = vp.store.snapshot().filter((el) => el.type === 'html' && el.transient);
+    vp.store.clear({ origin: 'remote' });
+    for (const el of transients) vp.store.add(el, { origin: 'remote' });
+    await Promise.resolve();
+
+    const after = vp.store.getElementsByType('html');
+    expect(after.length).toBe(1);
+    expect(after[0]?.id).toBe(id);
+    expect(document.querySelector('[data-testid="clear-survivor"]')).not.toBeNull();
+  });
+
+  it('is re-added after a local clear', async () => {
+    let vp: Viewport | null = null;
+    render(
+      <FieldNotesCanvas
+        onReady={(v) => {
+          vp = v;
+        }}
+      >
+        <CanvasElement position={{ x: 10, y: 20 }}>
+          <span data-testid="local-clear-survivor">Survivor</span>
+        </CanvasElement>
+      </FieldNotesCanvas>,
+    );
+    expect(vp).not.toBeNull();
+    if (!vp) return;
+    expect(vp.store.getElementsByType('html').length).toBe(1);
+
+    vp.store.clear();
+    const undoCountAfterClear = vp.history.undoCount;
+    await Promise.resolve();
+
+    const after = vp.store.getElementsByType('html');
+    expect(after.length).toBe(1);
+    expect(document.querySelector('[data-testid="local-clear-survivor"]')).not.toBeNull();
+    expect(vp.history.undoCount).toBe(undoCountAfterClear);
+  });
+
+  it('mounts exactly one element under StrictMode', () => {
+    let vp: Viewport | null = null;
+    render(
+      <StrictMode>
+        <FieldNotesCanvas
+          onReady={(v) => {
+            vp = v;
+          }}
+        >
+          <CanvasElement position={{ x: 5, y: 6 }}>
+            <span data-testid="strict-child">Strict</span>
+          </CanvasElement>
+        </FieldNotesCanvas>
+      </StrictMode>,
+    );
+    expect(vp).not.toBeNull();
+    if (!vp) return;
+    expect(vp.store.getElementsByType('html').length).toBe(1);
+    expect(vp.history.undoCount).toBe(0);
+    expect(document.querySelector('[data-testid="strict-child"]')).not.toBeNull();
   });
 });

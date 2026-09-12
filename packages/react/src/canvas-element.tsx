@@ -27,6 +27,12 @@ export function CanvasElement({ position, size, children }: CanvasElementProps) 
   const viewport = useViewport();
   const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
   const elementIdRef = useRef<string | null>(null);
+  // Latest geometry, so a re-registration after a store clear uses current props rather than
+  // the values captured when the mount effect ran.
+  const geometryRef = useRef<{
+    position: { x: number; y: number };
+    size?: { w: number; h: number };
+  }>({ position, size });
 
   useEffect(() => {
     const container = document.createElement('div');
@@ -35,18 +41,45 @@ export function CanvasElement({ position, size, children }: CanvasElementProps) 
       height: '100%',
     });
 
-    // Append to domLayer immediately so portal children are queryable in the document
-    // before the viewport render loop fires via requestAnimationFrame.
-    viewport.domLayer.appendChild(container);
+    const register = () => {
+      // Append to domLayer immediately so portal children are queryable in the document
+      // before the viewport render loop fires via requestAnimationFrame.
+      viewport.domLayer.appendChild(container);
+      const { position: current, size: currentSize } = geometryRef.current;
+      return viewport.addHtmlElement(container, current, currentSize, {
+        transient: true,
+        origin: HOST_ORIGIN,
+      });
+    };
 
-    const id = viewport.addHtmlElement(container, position, size, {
-      transient: true,
-      origin: HOST_ORIGIN,
-    });
-    elementIdRef.current = id;
+    elementIdRef.current = register();
     setPortalTarget(container);
 
+    let disposed = false;
+    // A store clear detaches every canvas-owned DOM node and forgets the content registered
+    // for it, so this component has to hand its container back afterwards. The decision is
+    // deferred to a microtask because a remote clear is followed — synchronously, by the sync
+    // client — by re-adding the transient elements: reading the store inside the event would
+    // always report this element gone and add a duplicate.
+    const unsubscribeClear = viewport.store.on('clear', () => {
+      const clearedId = elementIdRef.current;
+      if (clearedId === null) return;
+      queueMicrotask(() => {
+        if (disposed || elementIdRef.current !== clearedId) return;
+        if (viewport.store.getById(clearedId)?.type === 'html') {
+          // Survived the clear (the sync client re-adds transient elements after a remote
+          // clear): restore the container as that element's content instead of adding a second.
+          viewport.updateHtmlElement(clearedId, container);
+        } else {
+          elementIdRef.current = register();
+        }
+        viewport.requestRender();
+      });
+    });
+
     return () => {
+      disposed = true;
+      unsubscribeClear();
       if (elementIdRef.current) {
         viewport.store.remove(elementIdRef.current, { origin: HOST_ORIGIN });
         viewport.requestRender();
@@ -57,6 +90,7 @@ export function CanvasElement({ position, size, children }: CanvasElementProps) 
   }, [viewport]);
 
   useEffect(() => {
+    geometryRef.current = { position, size };
     const id = elementIdRef.current;
     if (!id) return;
     viewport.store.update(id, { position, ...(size ? { size } : {}) }, { origin: HOST_ORIGIN });
