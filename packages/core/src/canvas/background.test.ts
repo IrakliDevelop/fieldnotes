@@ -218,7 +218,8 @@ describe('Background', () => {
     bg.render(ctx, camera);
 
     const drawImageMock = (ctx as unknown as Record<string, ReturnType<typeof vi.fn>>)['drawImage'];
-    const usedCache = (drawImageMock?.mock.calls.length ?? 0) > 0;
+    if (!drawImageMock) throw new Error('ctx.drawImage mock missing');
+    const usedCache = drawImageMock.mock.calls.length > 0;
     const usedFallback = (ctx.arc as ReturnType<typeof vi.fn>).mock.calls.length > 0;
     expect(usedCache || usedFallback).toBe(true);
   });

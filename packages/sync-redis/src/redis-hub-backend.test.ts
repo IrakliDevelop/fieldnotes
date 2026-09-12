@@ -141,7 +141,7 @@ class FakeRedis implements RedisHashClient {
               editor: 'hub',
             },
       );
-      return [0, corrections.length, ...corrections.map(JSON.stringify)];
+      return [0, corrections.length, ...corrections.map((record) => JSON.stringify(record))];
     }
     const accepted: FogTileRecord[] = [];
     const corrections: FogTileRecord[] = [];
@@ -152,9 +152,9 @@ class FakeRedis implements RedisHashClient {
     }
     return [
       accepted.length,
-      ...accepted.map(JSON.stringify),
+      ...accepted.map((record) => JSON.stringify(record)),
       corrections.length,
-      ...corrections.map(JSON.stringify),
+      ...corrections.map((record) => JSON.stringify(record)),
     ];
   }
 }

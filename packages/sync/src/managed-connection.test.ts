@@ -352,17 +352,18 @@ describe('createManagedSyncConnection', () => {
   });
 
   it('stop during async URL resolution invalidates the in-flight result', async () => {
-    let resolvePending: ((url: string) => void) | null = null;
+    const pending: { resolve?: (url: string) => void } = {};
     resolveUrl.mockImplementation(
       () =>
         new Promise<string>((resolve) => {
-          resolvePending = resolve;
+          pending.resolve = resolve;
         }),
     );
     const managed = start();
     managed.stop();
 
-    resolvePending?.('ws://relay/late');
+    if (!pending.resolve) throw new Error('resolveUrl never started resolving a URL');
+    pending.resolve('ws://relay/late');
     await flushAsync();
     expect(transports).toHaveLength(0);
     expect(statuses).toEqual(['connecting']);
