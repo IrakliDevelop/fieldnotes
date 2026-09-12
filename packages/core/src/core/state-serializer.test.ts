@@ -122,6 +122,25 @@ describe('exportState', () => {
       expect('cachedControlPoint' in exported).toBe(false);
     }
   });
+
+  it('exportState omits transient html elements', () => {
+    const normal = createHtmlElement({
+      position: { x: 0, y: 0 },
+      size: { w: 10, h: 10 },
+      layerId: 'default-layer',
+    });
+    const transient = createHtmlElement({
+      position: { x: 20, y: 20 },
+      size: { w: 10, h: 10 },
+      layerId: 'default-layer',
+      transient: true,
+    });
+
+    const state = exportState([normal, transient], makeCamera());
+
+    expect(state.elements).toHaveLength(1);
+    expect(state.elements[0]?.id).toBe(normal.id);
+  });
 });
 
 describe('parseState', () => {
@@ -152,6 +171,37 @@ describe('parseState', () => {
     expect(state.version).toBe(4);
     expect(state.camera.zoom).toBe(1);
     expect(state.elements).toHaveLength(1);
+  });
+
+  it('parseState accepts an html element carrying transient', () => {
+    const data = validState();
+    const html = createHtmlElement({
+      position: { x: 0, y: 0 },
+      size: { w: 10, h: 10 },
+      layerId: 'default-layer',
+      transient: true,
+    });
+    data.elements = [html];
+
+    const state = parseState(JSON.stringify(data));
+
+    expect(state.elements).toHaveLength(1);
+    const parsed = state.elements[0];
+    expect(parsed?.type).toBe('html');
+    expect(parsed?.type === 'html' && parsed.transient).toBe(true);
+  });
+
+  it('rejects an html element whose transient is not a boolean', () => {
+    const data = validState();
+    const html = createHtmlElement({
+      position: { x: 0, y: 0 },
+      size: { w: 10, h: 10 },
+      layerId: 'default-layer',
+    }) as unknown as Record<string, unknown>;
+    html['transient'] = 'yes';
+    data.elements = [html as unknown as CanvasState['elements'][number]];
+
+    expect(() => parseState(JSON.stringify(data))).toThrow('malformed html data');
   });
 
   it('migrates registered legacy element types without domain knowledge in core', () => {

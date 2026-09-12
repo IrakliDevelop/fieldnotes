@@ -183,6 +183,21 @@ describe('element factories', () => {
       expect(el.domId).toBe('my-widget');
     });
 
+    it('copies transient only when true', () => {
+      const on = createHtmlElement({
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 100 },
+        transient: true,
+      });
+      const off = createHtmlElement({
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 100 },
+        transient: false,
+      });
+      expect(on.transient).toBe(true);
+      expect('transient' in off).toBe(false);
+    });
+
     it('sets interactive when provided', () => {
       const el = createHtmlElement({
         position: { x: 0, y: 0 },
