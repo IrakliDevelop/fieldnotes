@@ -4,6 +4,25 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [Unreleased]
+
+### Tooling
+
+- Test files are type-checked: each package has a `typecheck` script and the root `pnpm typecheck`
+  runs them all, wired into `pnpm verify` after `build` so `tsc` resolves sibling packages
+  through `dist`.
+- Coverage thresholds are enforced in all six packages through `pnpm test:coverage`; the root
+  `pnpm verify:ci` runs the full gate with coverage instead of a plain test run. Examples run their
+  tests under `verify:ci` without coverage.
+- CI runs `pnpm verify:ci` on Node 20 and 22 and uploads each matrix leg's `lcov.info` as a
+  build artifact.
+- The five non-core packages adopt core's per-condition `types` exports shape, so `import` and
+  `require` consumers each resolve their own declaration file.
+- `@fieldnotes/vtt` now ships a `LICENSE` file.
+- `onlyBuiltDependencies` moved from `package.json` to `pnpm-workspace.yaml`.
+- `engines.node` is now `>=20.19` across the workspace.
+- The empty `packages/contract-spike/` scaffold was removed.
+
 ## [@fieldnotes/sync-server 0.19.0] — 2026-09-11
 
 Sync security batch (Phase 0 §2.5). No persisted-canvas or wire-protocol change, but hosts must read
