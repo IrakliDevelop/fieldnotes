@@ -11,8 +11,10 @@ import type { CanvasElement, Layer } from '@fieldnotes/core';
 import {
   createCurrentCapabilities,
   createExtensionKind,
+  type SyncElement,
   type SyncOp,
   type WireSyncElement,
+  type WireSyncOp,
 } from '@fieldnotes/sync';
 import { SyncHub } from './sync-hub';
 import type { Connection } from './sync-hub';
@@ -431,12 +433,19 @@ describe('SyncHub', () => {
         return new Promise<void>((res) => this.resolvers.push(res));
       }
 
-      async snapshot(room: string): Promise<CanvasElement[]> {
+      async snapshot(room: string): Promise<WireSyncElement[]> {
         await this.gate(`snapshot:${room}`);
         return [];
       }
 
-      async apply(room: string, op: SyncOp): Promise<void> {
+      // Not on the paths this suite drives; recorded without a gate so an
+      // unexpected lookup shows up in `calls` instead of deadlocking the queue.
+      async get(room: string, id: string): Promise<WireSyncElement | undefined> {
+        this.calls.push(`get:${room}:${id}`);
+        return undefined;
+      }
+
+      async apply(room: string, op: WireSyncOp): Promise<void> {
         await this.gate(`apply:${room}:${op.kind}`);
       }
     }
@@ -2738,7 +2747,7 @@ describe('layer-definition sync', () => {
     hub.addConnection(dm);
     hub.addConnection(player);
 
-    const secret = { ...sampleEl(), audience: 'dm' } as CanvasElement;
+    const secret: SyncElement = { ...sampleEl(), audience: 'dm' };
     await hub.handleMessage('dm', envelope('dmUser', { kind: 'upsert', element: secret }));
     await hub.handleMessage(
       'dm',
