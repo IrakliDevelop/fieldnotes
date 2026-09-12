@@ -5,6 +5,7 @@ import type { ShortcutOptions, ShortcutsApi } from './shortcut-map';
 import { Background } from './background';
 import type { BackgroundOptions } from './background';
 import { ElementStore } from '../elements/element-store';
+import type { ElementChangeMeta } from '../elements/element-store';
 import { ElementRenderer } from '../elements/element-renderer';
 import { NoteEditor } from '../elements/note-editor';
 import type { FontSizePreset } from '../elements/note-toolbar';
@@ -446,8 +447,8 @@ export class Viewport {
         this.renderLoop.markLayerDirty(el.layerId);
         this.requestRender();
       }),
-      this.store.on('remove', (el) => {
-        this.unbindArrowsFrom(el);
+      this.store.on('remove', (el, meta) => {
+        this.unbindArrowsFrom(el, meta);
         this.domNodeManager.removeDomNode(el.id);
         this.htmlDiagnostics.forget(el.id);
         this.renderLoop.markLayerDirty(el.layerId);
@@ -1311,7 +1312,7 @@ export class Viewport {
     this.interactMode.stopInteracting();
   }
 
-  private unbindArrowsFrom(removedElement: CanvasElement): void {
+  private unbindArrowsFrom(removedElement: CanvasElement, meta?: ElementChangeMeta): void {
     const boundArrows = findBoundArrows(removedElement.id, this.store);
     const bounds = getElementBounds(removedElement);
 
@@ -1345,7 +1346,7 @@ export class Viewport {
       }
 
       if (Object.keys(updates).length > 0) {
-        this.store.update(arrow.id, updates);
+        this.store.update(arrow.id, updates, meta);
       }
     }
   }
