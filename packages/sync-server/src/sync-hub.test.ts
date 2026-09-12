@@ -11,6 +11,8 @@ import type { CanvasElement, Layer } from '@fieldnotes/core';
 import {
   createCurrentCapabilities,
   createExtensionKind,
+  isNewerLayerRecord,
+  type LayerRecord,
   type SyncOp,
   type WireSyncElement,
 } from '@fieldnotes/sync';
@@ -1252,6 +1254,26 @@ describe('SyncHub', () => {
           op: { kind: 'snapshot', to: 'cp-clr', elements: canonical.map(publicView) },
         });
         expect(await backend.snapshot('R')).toEqual(canonical);
+      });
+
+      it('a denied clear whose correction read fails still rejects', async () => {
+        const snapshotError = new Error('snapshot unavailable');
+        class SnapshotFailsBackend extends MemoryHubBackend {
+          override snapshot(): Promise<WireSyncElement[]> {
+            return Promise.reject(snapshotError);
+          }
+        }
+        const backend = new SnapshotFailsBackend();
+        const hub = new SyncHub({ authorize: policy, backend });
+        const p = roleConn('p', 'R', 'player1', 'player');
+        hub.addConnection(p);
+
+        // The denied path has no original error to protect, so a backend read that fails
+        // while building the correction must still surface to the caller.
+        await expect(hub.handleMessage('p', envelope('cp-clr', { kind: 'clear' }))).rejects.toBe(
+          snapshotError,
+        );
+        expect(p.sent).toEqual([]);
       });
 
       it('an ALLOWED op sends the sender no hub correction', async () => {
@@ -2498,7 +2520,7 @@ describe('layer-definition sync', () => {
     const second = parsed(player)[1];
     expect(second).toEqual({
       from: 'hub',
-      op: { kind: 'layer-remove', id: 'layer-new', version: 1, editor: 'hub' },
+      op: { kind: 'layer-remove', id: 'layer-new', version: 2, editor: 'hub' },
     });
     hub.close();
   });
@@ -2631,9 +2653,43 @@ describe('layer-definition sync', () => {
     // reverted to a hub tombstone exactly as a denied edit would be.
     expect(await backend.layerRecords('R')).toEqual([]);
     expect(parsed(a)).toEqual([
-      { from: 'hub', op: { kind: 'layer-remove', id: 'layer-x', version: 1, editor: 'hub' } },
+      { from: 'hub', op: { kind: 'layer-remove', id: 'layer-x', version: 2, editor: 'hub' } },
     ]);
     expect(b.sent).toEqual([]);
+    hub.close();
+  });
+
+  it('a tombstone correction is accepted by a sender whose editor sorts after hub', async () => {
+    const error = new Error('fanout unavailable');
+    const fanout = {
+      publish: vi.fn(() => Promise.reject(error)),
+      subscribe: () => () => undefined,
+    };
+    const hub = new SyncHub({ fanout, instanceId: 'i1' });
+    const a = makeConn('A', 'R');
+    hub.addConnection(a);
+
+    const sent = layerUpsert(1, 'zoe');
+    await expect(hub.handleMessage('A', envelope('zoe', sent))).rejects.toBe(error);
+
+    const correction = parsed(a)[0];
+    expect(correction).toEqual({
+      from: 'hub',
+      op: { kind: 'layer-remove', id: 'layer-x', version: 2, editor: 'hub' },
+    });
+
+    // The tie-break is (version, editor), and 'hub' < 'zoe': a tombstone at the sender's own
+    // version would lose and the denied edit would linger, so the hub bumps the version.
+    const op = correction?.op;
+    if (op?.kind !== 'layer-remove') throw new Error('expected a tombstone correction');
+    const tombstone: LayerRecord = { id: op.id, version: op.version, editor: op.editor };
+    const sentRecord: LayerRecord = {
+      id: 'layer-x',
+      version: 1,
+      editor: 'zoe',
+      definition: layerDef(),
+    };
+    expect(isNewerLayerRecord(tombstone, sentRecord)).toBe(true);
     hub.close();
   });
 
