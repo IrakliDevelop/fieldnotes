@@ -4,6 +4,22 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [@fieldnotes/sync-server 0.19.1] — 2026-09-12
+
+### Fixed
+
+- The hub publishes an accepted element or layer operation to the fanout channel **before**
+  persisting it, then delivers it locally. When either the publish or the backend write fails,
+  nothing is persisted on that path, local peers receive nothing, the sender gets an authoritative
+  correction (a `canRead`-filtered snapshot for element ops, the current record or a tombstone for
+  layer ops), and `handleMessage` still rejects for observability. Previously a failed publish left
+  the operation persisted but undelivered until the next resync. Other relay instances may briefly
+  relay an operation whose write then failed; that converges on resync.
+
+### Package versions
+
+- `@fieldnotes/sync-server` 0.19.0 → 0.19.1
+
 ## [@fieldnotes/sync-server 0.19.0] — 2026-09-11
 
 Sync security batch (Phase 0 §2.5). No persisted-canvas or wire-protocol change, but hosts must read
