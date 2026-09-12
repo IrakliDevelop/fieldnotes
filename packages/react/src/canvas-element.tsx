@@ -12,7 +12,15 @@ export interface CanvasElementProps {
 }
 
 /**
+ * Marks every store mutation this component makes as host-owned: external origin, so it
+ * neither creates an undo step nor is re-broadcast to the sync hub.
+ */
+const HOST_ORIGIN = 'host';
+
+/**
  * Renders a React subtree as an HTML element embedded in the canvas coordinate space.
+ * The element is host-owned and transient: it is driven entirely by props, never appears
+ * in exported state, and never records an undo step.
  * Must be used inside a `<FieldNotesCanvas>`.
  */
 export function CanvasElement({ position, size, children }: CanvasElementProps) {
@@ -31,13 +39,16 @@ export function CanvasElement({ position, size, children }: CanvasElementProps) 
     // before the viewport render loop fires via requestAnimationFrame.
     viewport.domLayer.appendChild(container);
 
-    const id = viewport.addHtmlElement(container, position, size);
+    const id = viewport.addHtmlElement(container, position, size, {
+      transient: true,
+      origin: HOST_ORIGIN,
+    });
     elementIdRef.current = id;
     setPortalTarget(container);
 
     return () => {
       if (elementIdRef.current) {
-        viewport.store.remove(elementIdRef.current);
+        viewport.store.remove(elementIdRef.current, { origin: HOST_ORIGIN });
         viewport.requestRender();
         elementIdRef.current = null;
       }
@@ -48,10 +59,7 @@ export function CanvasElement({ position, size, children }: CanvasElementProps) 
   useEffect(() => {
     const id = elementIdRef.current;
     if (!id) return;
-    viewport.store.update(id, { position });
-    if (size) {
-      viewport.store.update(id, { size });
-    }
+    viewport.store.update(id, { position, ...(size ? { size } : {}) }, { origin: HOST_ORIGIN });
     viewport.requestRender();
     // Primitive deps (position.x/y, size?.w/h) are intentional: the effect re-runs on VALUE change,
     // not object identity — so inline { x, y } literals and memoized-but-unchanged objects both behave
