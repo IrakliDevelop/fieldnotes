@@ -51,6 +51,7 @@
     "@fieldnotes/core": "workspace:*",
     "@fieldnotes/vtt": "workspace:*",
     "@vitest/coverage-v8": "^4.1.0",
+    "redis": "^5.12.1",
     "tsup": "^8.5.1",
     "vitest": "^4.1.0"
   }
