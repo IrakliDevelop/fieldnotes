@@ -71,6 +71,13 @@ Report: <path>
   verdicts, stats, and the specific lines a review names.
 - Fix loops are capped at two per task. A third failure is a plan problem.
 
+## Worktrees
+
+Parallel branches run in sibling git worktrees (`git worktree add ../<repo>-<name> -b <branch>
+master`, then `pnpm install --frozen-lockfile --offline`). Sibling packages resolve through `dist`
+at build and typecheck time, so a fresh worktree needs `pnpm build` (or the dependency packages
+built in order) once before a package build succeeds; briefs for worktree tasks say so.
+
 ## Claude Code
 
 Agent definitions live in `.claude/agents/` with pinned models and tool sets:
