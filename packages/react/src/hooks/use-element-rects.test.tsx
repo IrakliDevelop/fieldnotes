@@ -175,9 +175,10 @@ describe('useElementRects', () => {
     // directly.
     const getRectsSpy = vi.spyOn(ElementRectTracker.prototype, 'getRects');
 
-    const { rerender } = renderHook(() => useElementRects((el) => el.type === 'arrow'), {
-      wrapper,
-    });
+    const { rerender } = renderHook(
+      () => useElementRects((el) => (el.type === 'arrow' ? el.id : null)),
+      { wrapper },
+    );
     // Mount work (the initial subscribe) is already flushed by the time
     // `renderHook` returns.
     const callsAfterMount = getRectsSpy.mock.calls.length;

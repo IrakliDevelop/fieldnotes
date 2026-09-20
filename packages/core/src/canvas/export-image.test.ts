@@ -1007,7 +1007,8 @@ describe('exportImage — rendering paths', () => {
     expect(lastToBlobArgs).toEqual(['image/jpeg', 0.85]);
     // fit clamps 4x on a 400-wide region to the 1000px dimension cap (2.5x)
     const canvasCall = lastCreateSpy?.mock.results.find(
-      (r) => r.type === 'return' && r.value instanceof HTMLCanvasElement,
+      (r: { type: string; value: unknown }) =>
+        r.type === 'return' && r.value instanceof HTMLCanvasElement,
     );
     expect(canvasCall).toBeDefined();
     if (canvasCall && canvasCall.type === 'return') {

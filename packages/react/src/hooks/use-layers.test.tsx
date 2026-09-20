@@ -247,19 +247,20 @@ describe('useLayers', () => {
       </FieldNotesCanvas>,
     );
 
-    let newLayer: Layer | null = null;
+    const created: { layer: Layer | null } = { layer: null };
     act(() => {
-      newLayer = create?.('Layer 2') ?? null;
+      created.layer = create?.('Layer 2') ?? null;
     });
 
     act(() => {
-      if (newLayer) setActive?.(newLayer.id);
+      const layer = created.layer;
+      if (layer) setActive?.(layer.id);
     });
-    expect(activeId).toBe(newLayer?.id);
+    expect(activeId).toBe(created.layer?.id);
   });
 
   it('moveElement moves element to another layer', () => {
-    let vp: Viewport | null = null;
+    const captured: { vp: Viewport | null } = { vp: null };
     let create: ((name?: string) => Layer) | null = null;
     let moveEl: ((elId: string, layerId: string) => void) | null = null;
     function Consumer() {
@@ -272,16 +273,16 @@ describe('useLayers', () => {
     render(
       <FieldNotesCanvas
         onReady={(v) => {
-          vp = v;
+          captured.vp = v;
         }}
       >
         <Consumer />
       </FieldNotesCanvas>,
     );
 
-    let newLayer: Layer | null = null;
+    const created: { layer: Layer | null } = { layer: null };
     act(() => {
-      newLayer = create?.('Layer 2') ?? null;
+      created.layer = create?.('Layer 2') ?? null;
     });
 
     let elId = '';
@@ -293,18 +294,19 @@ describe('useLayers', () => {
         size: { w: 100, h: 100 },
         zIndex: 0,
         locked: false,
-        layerId: vp?.layerManager.activeLayerId ?? '',
+        layerId: captured.vp?.layerManager.activeLayerId ?? '',
         text: '',
         backgroundColor: '#ffeb3b',
         textColor: '#000000',
       };
-      vp?.store.add(el);
+      captured.vp?.store.add(el);
       elId = el.id;
     });
 
     act(() => {
-      if (newLayer) moveEl?.(elId, newLayer.id);
+      const layer = created.layer;
+      if (layer) moveEl?.(elId, layer.id);
     });
-    expect(vp?.store.getById(elId)?.layerId).toBe(newLayer?.id);
+    expect(captured.vp?.store.getById(elId)?.layerId).toBe(created.layer?.id);
   });
 });

@@ -10,7 +10,7 @@ const sourceContext = {
 const sourceCanvas = {
   width: 0,
   height: 0,
-  getContext: vi.fn(() => sourceContext),
+  getContext: vi.fn<() => typeof sourceContext | null>(() => sourceContext),
 };
 
 beforeEach(() => {

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { PathTool } from './path-tool';
-import type { PathEmission } from './path-tool';
+import type { PathEmission, PathToolOptions } from './path-tool';
 import { ElementStore } from '../elements/element-store';
 import { Camera } from '../canvas/camera';
 import { snapToCellCenter, snapToHexCenter } from '../core/snap';
@@ -823,7 +823,7 @@ describe('PathTool', () => {
     const camera = new Camera();
     camera.moveTo(30, -50);
     camera.setZoom(2);
-    const resolveStart = vi.fn(() => null);
+    const resolveStart = vi.fn<NonNullable<PathToolOptions['resolveStart']>>(() => null);
     const tool = new PathTool({ resolveStart });
     const ctx = makeCtx({ camera });
 

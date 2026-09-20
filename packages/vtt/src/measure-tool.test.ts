@@ -304,7 +304,9 @@ describe('MeasureTool', () => {
 
       const fillTextCalls = (canvas.fillText as ReturnType<typeof vi.fn>).mock.calls;
       expect(fillTextCalls.length).toBe(1);
-      expect(fillTextCalls[0][0]).toBe('10 ft');
+      const firstCall = fillTextCalls[0];
+      if (!firstCall) throw new Error('fillText was never called');
+      expect(firstCall[0]).toBe('10 ft');
     });
 
     it('clears line dash after drawing the line', () => {
