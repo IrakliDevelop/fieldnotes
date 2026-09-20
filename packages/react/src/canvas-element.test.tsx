@@ -103,13 +103,13 @@ describe('CanvasElement', () => {
   });
 
   it('never records undo steps', () => {
-    let vp: Viewport | null = null;
+    const captured: { vp: Viewport | null } = { vp: null };
 
     function Tree({ x, w }: { x: number; w: number }) {
       return (
         <FieldNotesCanvas
           onReady={(v) => {
-            vp = v;
+            captured.vp = v;
           }}
         >
           <CanvasElement position={{ x, y: 0 }} size={{ w, h: 100 }}>
@@ -120,6 +120,7 @@ describe('CanvasElement', () => {
     }
 
     const { rerender, unmount } = render(<Tree x={10} w={200} />);
+    const vp = captured.vp;
     expect(vp).not.toBeNull();
     if (!vp) return;
     expect(vp.history.undoCount).toBe(0);
@@ -135,11 +136,11 @@ describe('CanvasElement', () => {
   });
 
   it('is excluded from exported state', () => {
-    let vp: Viewport | null = null;
+    const captured: { vp: Viewport | null } = { vp: null };
     render(
       <FieldNotesCanvas
         onReady={(v) => {
-          vp = v;
+          captured.vp = v;
         }}
       >
         <CanvasElement position={{ x: 10, y: 20 }} size={{ w: 200, h: 100 }}>
@@ -147,6 +148,7 @@ describe('CanvasElement', () => {
         </CanvasElement>
       </FieldNotesCanvas>,
     );
+    const vp = captured.vp;
     expect(vp).not.toBeNull();
     if (!vp) return;
     expect(vp.store.getElementsByType('html').length).toBe(1);
@@ -191,11 +193,11 @@ describe('CanvasElement', () => {
   });
 
   it('stays mounted and rendered after a remote clear', async () => {
-    let vp: Viewport | null = null;
+    const captured: { vp: Viewport | null } = { vp: null };
     render(
       <FieldNotesCanvas
         onReady={(v) => {
-          vp = v;
+          captured.vp = v;
         }}
       >
         <CanvasElement position={{ x: 10, y: 20 }}>
@@ -203,6 +205,7 @@ describe('CanvasElement', () => {
         </CanvasElement>
       </FieldNotesCanvas>,
     );
+    const vp = captured.vp;
     expect(vp).not.toBeNull();
     if (!vp) return;
     const before = vp.store.getElementsByType('html');
@@ -223,11 +226,11 @@ describe('CanvasElement', () => {
   });
 
   it('is re-added after a local clear', async () => {
-    let vp: Viewport | null = null;
+    const captured: { vp: Viewport | null } = { vp: null };
     render(
       <FieldNotesCanvas
         onReady={(v) => {
-          vp = v;
+          captured.vp = v;
         }}
       >
         <CanvasElement position={{ x: 10, y: 20 }}>
@@ -235,6 +238,7 @@ describe('CanvasElement', () => {
         </CanvasElement>
       </FieldNotesCanvas>,
     );
+    const vp = captured.vp;
     expect(vp).not.toBeNull();
     if (!vp) return;
     expect(vp.store.getElementsByType('html').length).toBe(1);
@@ -250,11 +254,11 @@ describe('CanvasElement', () => {
   });
 
   it('stays mounted and rendered after viewport.loadState', async () => {
-    let vp: Viewport | null = null;
+    const captured: { vp: Viewport | null } = { vp: null };
     render(
       <FieldNotesCanvas
         onReady={(v) => {
-          vp = v;
+          captured.vp = v;
         }}
       >
         <CanvasElement position={{ x: 10, y: 20 }}>
@@ -262,6 +266,7 @@ describe('CanvasElement', () => {
         </CanvasElement>
       </FieldNotesCanvas>,
     );
+    const vp = captured.vp;
     expect(vp).not.toBeNull();
     if (!vp) return;
     expect(vp.store.getElementsByType('html').length).toBe(1);
@@ -280,12 +285,12 @@ describe('CanvasElement', () => {
   });
 
   it('mounts exactly one element under StrictMode', () => {
-    let vp: Viewport | null = null;
+    const captured: { vp: Viewport | null } = { vp: null };
     render(
       <StrictMode>
         <FieldNotesCanvas
           onReady={(v) => {
-            vp = v;
+            captured.vp = v;
           }}
         >
           <CanvasElement position={{ x: 5, y: 6 }}>
@@ -294,6 +299,7 @@ describe('CanvasElement', () => {
         </FieldNotesCanvas>
       </StrictMode>,
     );
+    const vp = captured.vp;
     expect(vp).not.toBeNull();
     if (!vp) return;
     expect(vp.store.getElementsByType('html').length).toBe(1);
