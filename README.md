@@ -20,6 +20,7 @@ The `@fieldnotes/core` engine has zero framework dependencies and drops into any
 | ------------------------------------------------- | -------------------------------------------------------------------- |
 | [`@fieldnotes/core`](packages/core)               | Vanilla TypeScript canvas engine — zero framework deps               |
 | [`@fieldnotes/react`](packages/react)             | React bindings — components, hooks, portal embedding                 |
+| [`@fieldnotes/vtt`](packages/vtt)                 | VTT domain package — fog of war, grids, templates, measurement       |
 | [`@fieldnotes/sync`](packages/sync)               | Real-time sync client — observe/apply ops over a pluggable transport |
 | [`@fieldnotes/sync-server`](packages/sync-server) | Authoritative WebSocket relay — rooms, auth, write-authorization     |
 | [`@fieldnotes/sync-redis`](packages/sync-redis)   | Redis persistence + cross-instance fan-out for the relay             |
@@ -127,8 +128,6 @@ The model is authoritative op-broadcast with last-write-wins (not CRDT). Add [`@
 - Infinite canvas with pan & zoom (scroll, pinch, two-finger drag, pan inertia)
 - Freehand drawing with stroke smoothing and pressure-sensitive width
 - Sticky notes, text, curved arrows (element-binding, labels), images, shapes (rectangle, ellipse, line)
-- Square and hex grid overlays with snapping (D&D combat maps, alignment)
-- AoE spell templates (circle / cone / line / square) with hex-cell queries
 - Interactive HTML element embedding (custom renderer registry, double-click to interact)
 - Real-time collaboration — multi-device sync via an authoritative relay (`@fieldnotes/sync`)
 - Layers with visibility, locking, ordering, and per-layer opacity
@@ -137,13 +136,110 @@ The model is authoritative op-broadcast with last-write-wins (not CRDT). Add [`@
 - Minimap overview, laser pointer, fit-to-content, zoom presets
 - Runtime tool configuration (color, width, smoothing)
 - Undo / redo (one step per drag)
-- State serialization (versioned JSON export/import)
+- State serialization (versioned JSON export/import, CanvasState v4 with extension envelopes)
 - Pluggable persistence (IndexedDB / localStorage storage adapters)
 - PNG and SVG export with scale, padding, and background options
+- **Extension system** — register custom element types, viewport plugins, render hooks, constraint services, and sync plugins
 - Custom tool API and HTML renderer registry (public extension points)
 - Performance instrumentation (`getRenderStats()`, `logPerformance()`)
 - Touch, tablet, and Apple Pencil native (Pointer Events API)
 - Core has zero framework dependencies, tree-shakeable ESM + CJS
+
+### VTT domain features (`@fieldnotes/vtt`)
+
+- Fog of war with tile-based CRDT sync, undo/redo integration, and solid/procedural rendering
+- Square and hex grid overlays with snapping (D&D combat maps, alignment)
+- AoE spell templates (circle / cone / line / square) with hex-cell queries
+- Distance measurement with ruler overlays and shared presence
+- Grid constraint service for snap-to-grid tool integration
+
+## Extension System
+
+Core provides a plugin architecture for domain-specific packages. Register custom element types,
+viewport plugins, render hooks, constraint services, and sync plugins — all through typed, versioned
+extension points.
+
+```typescript
+import { getDefaultElementRegistry } from '@fieldnotes/core';
+import type {
+  ElementTypeDefinition,
+  ExtensionElementEnvelope,
+  BaseElement,
+} from '@fieldnotes/core';
+
+// Define a custom element type
+interface MarkerElement extends BaseElement {
+  readonly data: { label: string; color: string; size: { w: number; h: number } };
+}
+
+const markerDefinition: ElementTypeDefinition<MarkerElement> = {
+  type: 'my-app:marker',
+  validateData: (data) => typeof data['label'] === 'string' && typeof data['color'] === 'string',
+  unwrap: (el) => ({ ...el, data: el.data as MarkerElement['data'] }),
+  wrap: (el) => ({
+    ...el,
+    type: 'extension',
+    extensionType: 'my-app:marker',
+    data: el.data as Record<string, unknown>,
+  }),
+  bounds: (el) => ({ x: el.position.x, y: el.position.y, w: el.data.size.w, h: el.data.size.h }),
+  hitTest: (el, point) => {
+    const b = markerDefinition.bounds(el)!;
+    return point.x >= b.x && point.y >= b.y && point.x <= b.x + b.w && point.y <= b.y + b.h;
+  },
+  render: (ctx, el) => {
+    ctx.fillStyle = el.data.color;
+    ctx.beginPath();
+    ctx.arc(el.position.x, el.position.y, el.data.size.w / 2, 0, Math.PI * 2);
+    ctx.fill();
+  },
+  legacyTypes: [],
+  decodeLegacy: (raw) => raw as unknown as MarkerElement,
+  encodeLegacy: (el) => structuredClone(el) as unknown as Record<string, unknown>,
+};
+
+// Register with the default registry
+const registry = getDefaultElementRegistry();
+const markerKey = registry.register(markerDefinition);
+```
+
+```typescript
+import { Viewport, createServiceKey } from '@fieldnotes/core';
+import type { ViewportPlugin } from '@fieldnotes/core';
+
+// Create a viewport plugin with a typed service
+const CounterKey = createServiceKey<{ count: number }>('my-app:counter');
+
+const counterPlugin: ViewportPlugin = {
+  name: 'counter',
+  configure(ctx) {
+    // Register element types, tools, and render hooks here
+  },
+  start(ctx) {
+    let count = 0;
+    ctx.registerService(CounterKey, {
+      get count() {
+        return count;
+      },
+    });
+    ctx.store.on('add', () => {
+      count++;
+    });
+    return {
+      dispose() {
+        /* cleanup */
+      },
+    };
+  },
+};
+
+// Install plugins when creating a viewport
+const viewport = new Viewport(container, { plugins: [counterPlugin] });
+```
+
+See [`@fieldnotes/core` README](packages/core/README.md) for the full extension API, and
+[`@fieldnotes/vtt`](packages/vtt) for a production-grade domain package built on these primitives.
+The `examples/` directory contains runnable reference applications.
 
 ## Development
 
@@ -151,7 +247,14 @@ The model is authoritative op-broadcast with last-write-wins (not CRDT). Add [`@
 pnpm install          # install dependencies
 pnpm build            # build all packages
 pnpm test             # run all tests
-pnpm dev              # start demo dev server (from demo/)
+pnpm bench            # run performance benchmarks
+```
+
+Example applications are in `examples/`:
+
+```bash
+cd examples/react-app && pnpm dev    # React integration example
+cd examples/live-play && pnpm dev    # Real-time collaboration example
 ```
 
 ## Architecture
