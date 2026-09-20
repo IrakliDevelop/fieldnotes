@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Field Notes — Extension API Example</title>
+    <style>
+      body { margin: 0; font-family: system-ui, sans-serif; }
+      #canvas { width: 100vw; height: 100vh; }
+      .toolbar {
+        position: fixed; top: 12px; left: 12px; z-index: 10;
+        display: flex; gap: 4px; background: white; padding: 6px;
+        border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+      }
+      .toolbar button {
+        padding: 6px 10px; border: 1px solid #ddd; background: white;
+        border-radius: 4px; cursor: pointer; font-size: 13px;
+      }
+      .toolbar button.active { background: #2196f3; color: white; border-color: #2196f3; }
+      .info {
+        position: fixed; bottom: 12px; left: 12px; z-index: 10;
+        background: white; padding: 8px 12px; border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15); font-size: 13px;
+        max-width: 400px;
+      }
+      .info code { background: #f0f0f0; padding: 1px 4px; border-radius: 3px; }
+    </style>
+  </head>
+  <body>
+    <div class="toolbar">
+      <button data-tool="select" class="active">Select</button>
+      <button data-tool="hand">Hand</button>
+      <button data-tool="pencil">Pencil</button>
+      <button data-tool="annotation">★ Annotation</button>
+    </div>
+    <div class="info">
+      <strong>Extension API Example</strong><br />
+      This app demonstrates: custom element types via <code>ElementRegistry</code>,
+      viewport plugins with <code>configure</code>/<code>start</code>,
+      typed services via <code>ServiceKey</code>, and custom render hooks.
+      <br /><br />
+      Click the <strong>★ Annotation</strong> tool and click on the canvas to place custom markers.
+    </div>
+    <div id="canvas"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

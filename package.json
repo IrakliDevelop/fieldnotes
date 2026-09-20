@@ -8,6 +8,7 @@
     "agent:format:check": "prettier --check AGENTS.md CLAUDE.md package.json 'docs/agents/*.md' '.agents/**/*.{md,yaml}' scripts/check-agent-docs.mjs",
     "build": "pnpm -r --workspace-concurrency=1 build",
     "test": "pnpm -r test",
+    "bench": "pnpm --filter @fieldnotes/core bench",
     "test:coverage": "pnpm -r --workspace-concurrency=1 test:coverage",
     "typecheck": "pnpm -r typecheck",
     "lint": "eslint 'packages/*/src/**/*.{ts,tsx}'",

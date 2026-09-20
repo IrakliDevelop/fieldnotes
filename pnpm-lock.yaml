@@ -51,6 +51,19 @@ importers:
         specifier: ^8.0.0
         version: 8.0.0(@types/node@26.0.1)(esbuild@0.27.4)(tsx@4.23.0)(yaml@2.8.2)
 
+  examples/extension-api:
+    dependencies:
+      '@fieldnotes/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+    devDependencies:
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+      vite:
+        specifier: ^8.0.0
+        version: 8.0.0(@types/node@26.0.1)(esbuild@0.27.4)(tsx@4.23.0)(yaml@2.8.2)
+
   examples/live-play:
     dependencies:
       '@fieldnotes/core':
