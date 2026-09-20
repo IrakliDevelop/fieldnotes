@@ -18,6 +18,12 @@ export interface ServerOpContext {
   backendPlugin<T>(key: ServiceKey<T>): T | undefined;
 }
 
+/**
+ * Passes an operation to the next server plugin, then to the terminal step. The terminal step
+ * returns the accepted operation **without persisting it**: the hub publishes an accepted core
+ * operation to the fanout channel and only then writes it to the backend. A plugin that reads
+ * the backend after `next()` therefore observes pre-apply state.
+ */
 export type ServerNext = (op: WireSyncOp, context: ServerOpContext) => Promise<ApplyResult>;
 
 export interface ServerExtensionRegistry {
