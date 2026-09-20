@@ -1235,16 +1235,13 @@ describe('SyncHub', () => {
             kind: string;
             to?: string;
             layers?: { id: string }[];
-            fog?: { meta?: { definition?: unknown } };
+            extensions?: Record<string, { data?: { meta?: { definition?: unknown } } }>;
           };
         };
         expect(correction.op.kind).toBe('snapshot');
         expect(correction.op.to).toBe('cp-clr');
         expect(correction.op.layers?.map((record) => record.id)).toEqual(['layer-x']);
-        expect(
-          (correction.op.extensions?.['fog'] as { data?: { meta?: { definition?: unknown } } })
-            ?.data?.meta?.definition,
-        ).toBeDefined();
+        expect(correction.op.extensions?.['fog']?.data?.meta?.definition).toBeDefined();
         hub.close();
       });
 
