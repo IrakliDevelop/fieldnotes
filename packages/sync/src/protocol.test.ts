@@ -125,6 +125,33 @@ describe('isValidEnvelope', () => {
     expect(isValidEnvelope({ from: 'A', op: { kind: 'request-snapshot' } })).toBe(true);
   });
 
+  it('accepts the preceding v4 capability shape and requires its envelope marker', () => {
+    expect(
+      isValidEnvelope({
+        from: 'A',
+        op: {
+          kind: 'capabilities',
+          capabilities: { protocolVersion: 1, extensionKinds: [], elementEnvelope: true },
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isValidEnvelope({
+        from: 'A',
+        op: { kind: 'capabilities', capabilities: { protocolVersion: 1, extensionKinds: [] } },
+      }),
+    ).toBe(false);
+    expect(
+      isValidEnvelope({
+        from: 'A',
+        op: {
+          kind: 'capabilities',
+          capabilities: { protocolVersion: 1, extensionKinds: [], elementEnvelope: false },
+        },
+      }),
+    ).toBe(false);
+  });
+
   it('accepts snapshot by shape only (even with a bad element inside)', () => {
     expect(isValidEnvelope({ from: 'A', op: { kind: 'snapshot', to: 'B', elements: [{}] } })).toBe(
       true,
@@ -438,5 +465,14 @@ describe('applyOpToMap', () => {
 
     expect(map.size).toBe(1);
     expect(map.get(el.id)).toBe(el);
+  });
+});
+
+describe('SyncOp public contract', () => {
+  it('does not expose the removed top-level fog slot on snapshot operations', () => {
+    type SnapshotOp = Extract<SyncOp, { kind: 'snapshot' }>;
+    type SnapshotHasNoTopLevelFog = 'fog' extends keyof SnapshotOp ? false : true;
+    const snapshotHasNoTopLevelFog: SnapshotHasNoTopLevelFog = true;
+    expect(snapshotHasNoTopLevelFog).toBe(true);
   });
 });

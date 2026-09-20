@@ -1,10 +1,9 @@
 import type { SyncCapabilities, SyncOp } from './protocol';
 
-export const DEFAULT_CAPABILITY_TIMEOUT_MS = 5_000;
 export const DEFAULT_CAPABILITY_QUEUE_LIMIT = 1_000;
 
 export function createCurrentCapabilities(extensionKinds: readonly string[]): SyncCapabilities {
-  return { protocolVersion: 1, extensionKinds: [...extensionKinds] };
+  return { protocolVersion: 1, extensionKinds: [...extensionKinds], elementEnvelope: true };
 }
 
 /**

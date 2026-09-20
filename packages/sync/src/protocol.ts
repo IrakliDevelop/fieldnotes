@@ -24,6 +24,7 @@ export type SyncElement = CanvasElement & { audience?: string; ownerId?: string 
 export interface SyncCapabilities {
   protocolVersion: number;
   extensionKinds: string[];
+  elementEnvelope: true;
 }
 
 /**
@@ -61,7 +62,6 @@ type ElementSyncOp<TElement> =
       to: string;
       elements: TElement[];
       layers?: LayerRecord[];
-      fog?: FogSnapshot;
       extensions?: Record<string, { pluginName: string; version: number; data: unknown }>;
     };
 
@@ -390,5 +390,9 @@ function isValidCapabilities(value: unknown): value is SyncCapabilities {
     return false;
   }
   const kinds = value['extensionKinds'] as unknown[];
-  return kinds.length <= 256 && kinds.every((kind) => isBoundedString(kind, 128));
+  return (
+    value['elementEnvelope'] === true &&
+    kinds.length <= 256 &&
+    kinds.every((kind) => isBoundedString(kind, 128))
+  );
 }

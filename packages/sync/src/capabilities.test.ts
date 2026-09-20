@@ -2,6 +2,16 @@ import { describe, expect, it } from 'vitest';
 import type { ExtensionElementEnvelope } from '@fieldnotes/core';
 import { CapabilityHandshake, createCurrentCapabilities, translateOpForPeer } from './capabilities';
 
+describe('createCurrentCapabilities', () => {
+  it('advertises the v4 element envelope marker', () => {
+    expect(createCurrentCapabilities(['test:cursor'])).toEqual({
+      protocolVersion: 1,
+      extensionKinds: ['test:cursor'],
+      elementEnvelope: true,
+    });
+  });
+});
+
 describe('CapabilityHandshake', () => {
   it('drains a bounded queue when capabilities arrive', () => {
     const handshake = new CapabilityHandshake<string>(2);

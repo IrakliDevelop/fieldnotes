@@ -71,6 +71,5 @@ export {
   CapabilityHandshake,
   createCurrentCapabilities,
   translateOpForPeer,
-  DEFAULT_CAPABILITY_TIMEOUT_MS,
   DEFAULT_CAPABILITY_QUEUE_LIMIT,
 } from './capabilities';
