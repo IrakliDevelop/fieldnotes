@@ -677,7 +677,7 @@ describe('SyncHub', () => {
       const dm: FakeConn = { ...makeConn('dm', 'R'), role: 'dm' };
       h.addConnection(dm);
 
-      const secret = { ...sampleEl(), id: 'secret', audience: 'dm' } as CanvasElement;
+      const secret: SyncElement = { ...sampleEl(), id: 'secret', audience: 'dm' };
       await h.handleMessage(
         'dm',
         JSON.stringify({ from: 'dmUser', op: { kind: 'upsert', element: secret } }),
@@ -782,7 +782,7 @@ describe('SyncHub', () => {
       h.addConnection(dm);
       h.addConnection(player);
 
-      const secret = { ...sampleEl(), id: 'secret', audience: 'dm' } as CanvasElement;
+      const secret: SyncElement = { ...sampleEl(), id: 'secret', audience: 'dm' };
       await h.handleMessage(
         'dm',
         JSON.stringify({ from: 'dmUser', op: { kind: 'upsert', element: secret } }),
