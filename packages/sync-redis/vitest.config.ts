@@ -12,6 +12,7 @@ export default defineConfig({
       '@fieldnotes/vtt': path.resolve(__dirname, '../vtt/src/index.ts'),
       '@fieldnotes/sync': path.resolve(__dirname, '../sync/src/index.ts'),
       '@fieldnotes/sync-server': path.resolve(__dirname, '../sync-server/src/index.ts'),
+      '@fieldnotes/sync-redis': path.resolve(__dirname, 'src/index.ts'),
     },
   },
   test: {
