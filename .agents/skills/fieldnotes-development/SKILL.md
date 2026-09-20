@@ -10,6 +10,7 @@ Read `AGENTS.md` from the repository root. Then read only the relevant handbook 
 - Use `docs/agents/architecture.md` to locate ownership and contracts.
 - Use `docs/agents/workflow.md` for implementation, refactoring, releases, and verification.
 - Use `docs/agents/review.md` for code review or pre-handoff self-review.
+- Use `docs/agents/delegation.md` to split planning, coding, and review across model tiers.
 
 ## Execute
 

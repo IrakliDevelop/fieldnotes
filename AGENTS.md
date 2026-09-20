@@ -9,10 +9,15 @@ then open only the handbook pages relevant to the task.
 2. Read `docs/agents/architecture.md` for code changes.
 3. Read `docs/agents/workflow.md` before implementation or release work.
 4. Read `docs/agents/review.md` when reviewing or before handoff.
-5. Use `.agents/skills/fieldnotes-development/SKILL.md` when repository-local skills are supported.
+5. Read `docs/agents/delegation.md` before implementing: the tier that plans and judges does
+   not edit code.
+6. Use `.agents/skills/fieldnotes-development/SKILL.md` when repository-local skills are supported.
 
 ## Non-negotiable invariants
 
+- Work is tiered by model: a thinking tier plans, reviews verdicts, and decides; a coding
+  tier edits source and tests from written task briefs; a review tier gates each task from
+  a diff. See `docs/agents/delegation.md`. The session model does not edit `packages/*/src`.
 - `@fieldnotes/core` stays framework-free. React belongs in `@fieldnotes/react`.
 - Preserve mouse, touch, and stylus behavior. Input uses Pointer Events; one pointer operates the
   tool, two pointers navigate, and pressure, cancellation, and pointer capture matter.
