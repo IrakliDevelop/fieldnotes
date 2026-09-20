@@ -917,7 +917,13 @@ describe('createManagedSyncConnection fog lifecycle', () => {
         kind: 'snapshot',
         to: CLIENT_ID,
         elements: [],
-        fog: { meta: { version: 1, editor: 'hub', definition }, tiles: [] },
+        extensions: {
+          fog: {
+            pluginName: 'fog',
+            version: 1,
+            data: { meta: { version: 1, editor: 'hub', definition }, tiles: [] },
+          },
+        },
       } as SyncOp),
     );
 
@@ -931,9 +937,15 @@ describe('createManagedSyncConnection fog lifecycle', () => {
         kind: 'snapshot',
         to: CLIENT_ID,
         elements: [],
-        fog: {
-          meta: { version: 1, editor: 'hub', definition },
-          tiles: [{ generation: 'gen-1', x: 0, y: 0, version: 10, editor: 'hub', data }],
+        extensions: {
+          fog: {
+            pluginName: 'fog',
+            version: 1,
+            data: {
+              meta: { version: 1, editor: 'hub', definition },
+              tiles: [{ generation: 'gen-1', x: 0, y: 0, version: 10, editor: 'hub', data }],
+            },
+          },
         },
       } as SyncOp),
     );
@@ -948,7 +960,19 @@ describe('createManagedSyncConnection fog lifecycle', () => {
     rebuilt?.emitClose(4401);
     await vi.advanceTimersByTimeAsync(10);
     const third = transports[2];
-    third?.emitMessage(snapshotFor(CLIENT_ID));
+    // Deliver a snapshot with an explicit null fog extension to signal the hub
+    // has no fog state — the plugin's applySnapshot is called with null data,
+    // which clears the manager.
+    third?.emitMessage(
+      envelope('hub', {
+        kind: 'snapshot',
+        to: CLIENT_ID,
+        elements: [],
+        extensions: {
+          fog: { pluginName: 'fog', version: 1, data: null },
+        },
+      } as SyncOp),
+    );
     expect(manager.getState()).toBeNull();
     expect(third?.sent.some((raw) => (JSON.parse(raw).op as SyncOp).kind === 'fog-meta')).toBe(
       false,

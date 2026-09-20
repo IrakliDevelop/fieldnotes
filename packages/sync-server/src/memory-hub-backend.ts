@@ -1,16 +1,11 @@
-import {
-  applyOpToMap,
-  type LayerRecord,
-  type WireSyncElement,
-  type WireSyncOp,
-} from '@fieldnotes/sync';
+import { applyOpToMap, type LayerRecord, type SyncElement, type SyncOp } from '@fieldnotes/sync';
 import type { HubBackend } from './hub-backend';
 
 export class MemoryHubBackend implements HubBackend {
-  private rooms = new Map<string, Map<string, WireSyncElement>>();
+  private rooms = new Map<string, Map<string, SyncElement>>();
   private roomLayers = new Map<string, Map<string, LayerRecord>>();
 
-  private room(id: string): Map<string, WireSyncElement> {
+  private room(id: string): Map<string, SyncElement> {
     let r = this.rooms.get(id);
     if (!r) {
       r = new Map();
@@ -28,15 +23,15 @@ export class MemoryHubBackend implements HubBackend {
     return r;
   }
 
-  async snapshot(room: string): Promise<WireSyncElement[]> {
+  async snapshot(room: string): Promise<SyncElement[]> {
     return [...this.room(room).values()];
   }
 
-  async get(room: string, id: string): Promise<WireSyncElement | undefined> {
+  async get(room: string, id: string): Promise<SyncElement | undefined> {
     return this.room(room).get(id);
   }
 
-  async apply(room: string, op: WireSyncOp): Promise<void> {
+  async apply(room: string, op: SyncOp): Promise<void> {
     if (op.kind === 'clear') {
       // Clears elements only; layer records are a separate, longer-lived ledger.
       this.rooms.delete(room);

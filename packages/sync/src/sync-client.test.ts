@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import {
   ElementStore,
   ElementRegistry,
@@ -220,235 +220,147 @@ describe('SyncClient', () => {
     targetClient.stop();
   });
 
-  it('holds extension upserts until timeout, then sends a lossless legacy encoding', () => {
-    vi.useFakeTimers();
-    try {
-      const bus = makeBus();
-      const registry = new ElementRegistry();
-      registerVttElementTypes(registry);
-      const store = new ElementStore();
-      const transport = bus.endpoint();
-      const client = new SyncClient({
-        store,
-        transport,
-        clientId: 'modern',
-        elementRegistry: registry,
-        capabilityTimeoutMs: 25,
-      });
-      client.start();
-
-      store.add(
-        templateElementTypeDefinition.wrap(
-          createTemplate({ position: { x: 10, y: 20 }, templateShape: 'circle', radius: 30 }),
-        ),
-      );
-      expect(sentKinds(transport.sent)).toEqual(['request-snapshot']);
-
-      vi.advanceTimersByTime(25);
-      const upsert = transport.sent
-        .map((message) => JSON.parse(message) as { op: Record<string, unknown> })
-        .find(({ op }) => op['kind'] === 'upsert');
-      expect((upsert?.op['element'] as { type?: string } | undefined)?.type).toBe('template');
-      client.dispose();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('keeps a remove behind the held extension upsert it undoes', () => {
-    vi.useFakeTimers();
-    try {
-      const registry = new ElementRegistry();
-      registerVttElementTypes(registry);
-      const store = new ElementStore();
-      const transport = makeBus().endpoint();
-      const client = new SyncClient({
-        store,
-        transport,
-        clientId: 'modern',
-        elementRegistry: registry,
-        capabilityTimeoutMs: 25,
-      });
-      client.start();
-
-      const template = templateElementTypeDefinition.wrap(
-        createTemplate({ position: { x: 10, y: 20 }, templateShape: 'circle', radius: 30 }),
-      );
-      store.add(template);
-      store.remove(template.id);
-      // Neither op may leave before negotiation: a remove overtaking its
-      // upsert would resurrect the element on the hub.
-      expect(sentKinds(transport.sent)).toEqual(['request-snapshot']);
-
-      vi.advanceTimersByTime(25);
-      expect(sentKinds(transport.sent)).toEqual(['request-snapshot', 'upsert', 'remove']);
-      client.dispose();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
   it('applies a buffered remote remove after the held upsert it targets', () => {
-    vi.useFakeTimers();
-    try {
-      const registry = new ElementRegistry();
-      registerVttElementTypes(registry);
-      const store = new ElementStore();
-      const transport = makeReconnectTransport();
-      const client = new SyncClient({
-        store,
-        transport,
-        clientId: 'modern',
-        elementRegistry: registry,
-        capabilityTimeoutMs: 25,
-      });
-      client.start();
+    const registry = new ElementRegistry();
+    registerVttElementTypes(registry);
+    const store = new ElementStore();
+    const transport = makeReconnectTransport();
+    const client = new SyncClient({
+      store,
+      transport,
+      clientId: 'modern',
+      elementRegistry: registry,
+    });
+    client.start();
 
-      const template = templateElementTypeDefinition.wrap(
-        createTemplate({ position: { x: 10, y: 20 }, templateShape: 'circle', radius: 30 }),
-      );
-      transport.deliver(envelope('peer', { kind: 'upsert', element: template }));
-      transport.deliver(envelope('peer', { kind: 'remove', id: template.id }));
-      vi.advanceTimersByTime(25);
+    const template = templateElementTypeDefinition.wrap(
+      createTemplate({ position: { x: 10, y: 20 }, templateShape: 'circle', radius: 30 }),
+    );
+    transport.deliver(envelope('peer', { kind: 'upsert', element: template }));
+    transport.deliver(envelope('peer', { kind: 'remove', id: template.id }));
+    // Settle the handshake — the queued upsert+remove are drained in order.
+    transport.deliver(
+      envelope('peer', { kind: 'capabilities', capabilities: createCurrentCapabilities([]) }),
+    );
 
-      expect(store.getById(template.id)).toBeUndefined();
-      client.dispose();
-    } finally {
-      vi.useRealTimers();
-    }
+    expect(store.getById(template.id)).toBeUndefined();
+    client.dispose();
   });
 
   it('carries held upserts across a reconnect and shields them from the reconcile snapshot', () => {
-    vi.useFakeTimers();
-    try {
-      const registry = new ElementRegistry();
-      registerVttElementTypes(registry);
-      const store = new ElementStore();
-      const transport = makeReconnectTransport();
-      const client = new SyncClient({
-        store,
-        transport,
-        clientId: 'modern',
-        elementRegistry: registry,
-        capabilityTimeoutMs: 25,
-      });
-      client.start();
-      transport.deliver(envelope('hub', { kind: 'snapshot', to: 'modern', elements: [] }));
+    const registry = new ElementRegistry();
+    registerVttElementTypes(registry);
+    const store = new ElementStore();
+    const transport = makeReconnectTransport();
+    const client = new SyncClient({
+      store,
+      transport,
+      clientId: 'modern',
+      elementRegistry: registry,
+    });
+    client.start();
+    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'modern', elements: [] }));
 
-      const template = templateElementTypeDefinition.wrap(
-        createTemplate({ position: { x: 10, y: 20 }, templateShape: 'circle', radius: 30 }),
-      );
-      store.add(template); // held: handshake still open
-      transport.triggerReconnect();
-      // The hub never received the template, so its reconcile snapshot lacks it.
-      transport.deliver(envelope('hub', { kind: 'snapshot', to: 'modern', elements: [] }));
-      expect(store.getById(template.id)).toBeDefined();
+    const template = templateElementTypeDefinition.wrap(
+      createTemplate({ position: { x: 10, y: 20 }, templateShape: 'circle', radius: 30 }),
+    );
+    store.add(template); // held: handshake still open
+    transport.triggerReconnect();
+    // The hub never received the template, so its reconcile snapshot lacks it.
+    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'modern', elements: [] }));
+    expect(store.getById(template.id)).toBeDefined();
 
-      transport.deliver(
-        envelope('hub', { kind: 'capabilities', capabilities: createCurrentCapabilities([]) }),
-      );
-      const upserts = transport.sent
-        .map((m) => JSON.parse(m) as { op: SyncOp })
-        .filter(({ op }) => op.kind === 'upsert');
-      expect(upserts).toHaveLength(1);
-      expect(upserts[0]?.op.kind === 'upsert' && upserts[0].op.element.type).toBe('extension');
-      client.dispose();
-    } finally {
-      vi.useRealTimers();
-    }
+    transport.deliver(
+      envelope('hub', { kind: 'capabilities', capabilities: createCurrentCapabilities([]) }),
+    );
+    const upserts = transport.sent
+      .map((m) => JSON.parse(m) as { op: SyncOp })
+      .filter(({ op }) => op.kind === 'upsert');
+    expect(upserts).toHaveLength(1);
+    expect(upserts[0]?.op.kind === 'upsert' && upserts[0].op.element.type).toBe('extension');
+    client.dispose();
   });
 
   it('does not resurrect snapshot elements after carrying a held clear across reconnect', () => {
-    vi.useFakeTimers();
-    try {
-      const registry = new ElementRegistry();
-      registerVttElementTypes(registry);
-      const store = new ElementStore();
-      const transport = makeReconnectTransport();
-      const client = new SyncClient({
-        store,
-        transport,
-        clientId: 'modern',
-        elementRegistry: registry,
-        capabilityTimeoutMs: 25,
-      });
-      client.start();
-      transport.deliver(envelope('hub', { kind: 'snapshot', to: 'modern', elements: [] }));
+    const registry = new ElementRegistry();
+    registerVttElementTypes(registry);
+    const store = new ElementStore();
+    const transport = makeReconnectTransport();
+    const client = new SyncClient({
+      store,
+      transport,
+      clientId: 'modern',
+      elementRegistry: registry,
+    });
+    client.start();
+    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'modern', elements: [] }));
 
-      const template = templateElementTypeDefinition.wrap(
-        createTemplate({ position: { x: 10, y: 20 }, templateShape: 'circle', radius: 30 }),
-      );
-      store.add(template);
-      store.clear();
-      transport.triggerReconnect();
+    const template = templateElementTypeDefinition.wrap(
+      createTemplate({ position: { x: 10, y: 20 }, templateShape: 'circle', radius: 30 }),
+    );
+    store.add(template);
+    store.clear();
+    transport.triggerReconnect();
 
-      const serverNote = createNote({ position: { x: 30, y: 40 } });
-      transport.deliver(
-        envelope('hub', { kind: 'snapshot', to: 'modern', elements: [serverNote] }),
-      );
-      transport.deliver(
-        envelope('hub', { kind: 'capabilities', capabilities: createCurrentCapabilities([]) }),
-      );
+    const serverNote = createNote({ position: { x: 30, y: 40 } });
+    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'modern', elements: [serverNote] }));
+    transport.deliver(
+      envelope('hub', { kind: 'capabilities', capabilities: createCurrentCapabilities([]) }),
+    );
 
-      expect(sentKinds(transport.sent).slice(-2)).toEqual(['upsert', 'clear']);
-      expect(store.snapshot()).toEqual([]);
-      client.dispose();
-    } finally {
-      vi.useRealTimers();
-    }
+    expect(sentKinds(transport.sent).slice(-2)).toEqual(['upsert', 'clear']);
+    expect(store.snapshot()).toEqual([]);
+    client.dispose();
   });
 
   it('skips an untranslatable held op without dropping the ops queued behind it', () => {
-    vi.useFakeTimers();
-    try {
-      const registry = new ElementRegistry();
-      registerVttElementTypes(registry);
-      const store = new ElementStore();
-      const transport = makeReconnectTransport();
-      const lossyKind = createExtensionKind<{ x: number }>({
-        extensionKind: 'test:lossy',
-        codec: { validate: (payload): payload is { x: number } => typeof payload === 'object' },
-      });
-      let send: ((op: SyncOp) => void) | undefined;
-      const client = new SyncClient({
-        store,
-        transport,
-        clientId: 'modern',
-        elementRegistry: registry,
-        capabilityTimeoutMs: 25,
-        plugins: [
-          {
-            name: 'lossy',
-            registerExtensionKinds(kinds) {
-              kinds.register(lossyKind, () => undefined);
-            },
-            start(context) {
-              send = context.send;
-              return () => undefined;
-            },
+    const registry = new ElementRegistry();
+    registerVttElementTypes(registry);
+    const store = new ElementStore();
+    const transport = makeReconnectTransport();
+    const lossyKind = createExtensionKind<{ x: number }>({
+      extensionKind: 'test:lossy',
+      codec: { validate: (payload): payload is { x: number } => typeof payload === 'object' },
+    });
+    let send: ((op: SyncOp) => void) | undefined;
+    const client = new SyncClient({
+      store,
+      transport,
+      clientId: 'modern',
+      elementRegistry: registry,
+      plugins: [
+        {
+          name: 'lossy',
+          registerExtensionKinds(kinds) {
+            kinds.register(lossyKind, () => undefined);
           },
-        ],
-      });
-      client.start();
-      send?.({ kind: 'extension', extensionKind: 'test:lossy', payload: { x: 1 } });
-      const template = templateElementTypeDefinition.wrap(
-        createTemplate({ position: { x: 10, y: 20 }, templateShape: 'circle', radius: 30 }),
-      );
-      store.add(template);
-      transport.deliver(envelope('peer', { kind: 'upsert', element: template }));
+          start(context) {
+            send = context.send;
+            return () => undefined;
+          },
+        },
+      ],
+    });
+    client.start();
+    send?.({ kind: 'extension', extensionKind: 'test:lossy', payload: { x: 1 } });
+    const template = templateElementTypeDefinition.wrap(
+      createTemplate({ position: { x: 10, y: 20 }, templateShape: 'circle', radius: 30 }),
+    );
+    store.add(template);
+    transport.deliver(envelope('peer', { kind: 'upsert', element: template }));
 
-      expect(() => vi.advanceTimersByTime(25)).not.toThrow();
-      // The lossy extension op is skipped for the legacy peer; the template still ships...
-      expect(sentKinds(transport.sent)).toEqual(['request-snapshot', 'upsert']);
-      // ...and the inbound queue is still drained.
-      expect(store.getById(template.id)).toBeDefined();
-      client.dispose();
-    } finally {
-      vi.useRealTimers();
-    }
+    // Settle the handshake with a capabilities frame that advertises no
+    // extension kinds — the lossy op is skipped, the template still ships.
+    transport.deliver(
+      envelope('peer', { kind: 'capabilities', capabilities: createCurrentCapabilities([]) }),
+    );
+    expect(sentKinds(transport.sent)).toEqual(['request-snapshot', 'upsert']);
+    // ...and the inbound queue is still drained.
+    expect(store.getById(template.id)).toBeDefined();
+    client.dispose();
   });
 
-  it('drops a legacy-typed element it has no adapter for instead of admitting it', () => {
+  it('drops an unwrapped VTT element it has no adapter for instead of admitting it', () => {
     const store = new ElementStore();
     const transport = makeReconnectTransport();
     const client = new SyncClient({
@@ -458,9 +370,13 @@ describe('SyncClient', () => {
       elementRegistry: new ElementRegistry(),
     });
     client.start();
-    const legacy = templateElementTypeDefinition.encodeLegacy(
-      createTemplate({ position: { x: 10, y: 20 }, templateShape: 'circle', radius: 30 }),
-    ) as unknown as CanvasElement;
+    // An unwrapped VTT element (type: 'template') is not a valid CanvasElement
+    // variant, so isValidElement rejects it and the client drops it silently.
+    const legacy = createTemplate({
+      position: { x: 10, y: 20 },
+      templateShape: 'circle',
+      radius: 30,
+    }) as unknown as CanvasElement;
 
     transport.deliver(envelope('peer', { kind: 'upsert', element: legacy }));
     transport.deliver(envelope('hub', { kind: 'snapshot', to: 'plain', elements: [legacy] }));
@@ -468,51 +384,6 @@ describe('SyncClient', () => {
     // Admitting it would let a v4 save stamp an element the serializer rejects on load.
     expect(store.count).toBe(0);
     client.dispose();
-  });
-
-  it('upgrades and acknowledges a capabilities frame that arrives after the legacy timeout', () => {
-    vi.useFakeTimers();
-    try {
-      const registry = new ElementRegistry();
-      registerVttElementTypes(registry);
-      const store = new ElementStore();
-      const transport = makeReconnectTransport();
-      const client = new SyncClient({
-        store,
-        transport,
-        clientId: 'modern',
-        elementRegistry: registry,
-        capabilityTimeoutMs: 25,
-      });
-      client.start();
-      vi.advanceTimersByTime(25); // slow connect: timed out into legacy
-      const capabilityFrames = () =>
-        transport.sent.filter((m) => (JSON.parse(m) as { op: SyncOp }).op.kind === 'capabilities');
-      expect(capabilityFrames()).toHaveLength(1);
-
-      transport.deliver(
-        envelope('hub', { kind: 'capabilities', capabilities: createCurrentCapabilities([]) }),
-      );
-      expect(capabilityFrames()).toHaveLength(2); // acknowledged
-      // A repeated frame from the same peer is not re-acknowledged (no ping-pong).
-      transport.deliver(
-        envelope('hub', { kind: 'capabilities', capabilities: createCurrentCapabilities([]) }),
-      );
-      expect(capabilityFrames()).toHaveLength(2);
-
-      store.add(
-        templateElementTypeDefinition.wrap(
-          createTemplate({ position: { x: 10, y: 20 }, templateShape: 'circle', radius: 30 }),
-        ),
-      );
-      const upsert = transport.sent
-        .map((m) => JSON.parse(m) as { op: SyncOp })
-        .find(({ op }) => op.kind === 'upsert');
-      expect(upsert?.op.kind === 'upsert' && upsert.op.element.type).toBe('extension');
-      client.dispose();
-    } finally {
-      vi.useRealTimers();
-    }
   });
 
   it('propagates a cleared optional field (ungroup, unbind) to the remote store', () => {
@@ -1048,6 +919,10 @@ describe('SyncClient fog convergence', () => {
     return { meta, tiles };
   }
 
+  function fogExt(fog: FogSnapshot): Record<string, unknown> {
+    return { extensions: { fog: { pluginName: 'fog', version: 1, data: fog } } };
+  }
+
   function fogClient() {
     const store = new ElementStore();
     const transport = makeReconnectTransport();
@@ -1082,9 +957,11 @@ describe('SyncClient fog convergence', () => {
         kind: 'snapshot',
         to: 'A',
         elements: [],
-        fog: fogSnapshot(meta, [
-          { generation: 'gen-1', x: 0, y: 0, version: 1, editor: 'hub', data: dataA },
-        ]),
+        ...fogExt(
+          fogSnapshot(meta, [
+            { generation: 'gen-1', x: 0, y: 0, version: 1, editor: 'hub', data: dataA },
+          ]),
+        ),
       }),
     );
 
@@ -1105,10 +982,12 @@ describe('SyncClient fog convergence', () => {
         kind: 'snapshot',
         to: 'A',
         elements: [],
-        fog: fogSnapshot(meta, [
-          { generation: 'gen-1', x: 0, y: 0, version: 10, editor: 'hub', data: dataA },
-          { generation: 'gen-1', x: 1, y: 0, version: 1, editor: 'hub', data: dataA },
-        ]),
+        ...fogExt(
+          fogSnapshot(meta, [
+            { generation: 'gen-1', x: 0, y: 0, version: 10, editor: 'hub', data: dataA },
+            { generation: 'gen-1', x: 1, y: 0, version: 1, editor: 'hub', data: dataA },
+          ]),
+        ),
       }),
     );
 
@@ -1136,10 +1015,12 @@ describe('SyncClient fog convergence', () => {
         kind: 'snapshot',
         to: 'A',
         elements: [],
-        fog: fogSnapshot({ version: 1, editor: 'hub', definition }, [
-          { generation: 'gen-1', x: 0, y: 0, version: 1, editor: 'hub', data: dataA },
-          { generation: 'gen-1', x: 1, y: 0, version: 1, editor: 'hub', data: dataB },
-        ]),
+        ...fogExt(
+          fogSnapshot({ version: 1, editor: 'hub', definition }, [
+            { generation: 'gen-1', x: 0, y: 0, version: 1, editor: 'hub', data: dataA },
+            { generation: 'gen-1', x: 1, y: 0, version: 1, editor: 'hub', data: dataB },
+          ]),
+        ),
       }),
     );
 
@@ -1166,7 +1047,7 @@ describe('SyncClient fog convergence', () => {
     const { transport, manager } = fogClient();
     const meta = { version: 1, editor: 'hub', definition };
     transport.deliver(
-      envelope('hub', { kind: 'snapshot', to: 'A', elements: [], fog: fogSnapshot(meta) }),
+      envelope('hub', { kind: 'snapshot', to: 'A', elements: [], ...fogExt(fogSnapshot(meta)) }),
     );
     transport.triggerReconnect();
     manager.applyPatchDirect({ tiles: [{ x: 0, y: 0, data: dataA }] });
@@ -1177,7 +1058,7 @@ describe('SyncClient fog convergence', () => {
         kind: 'snapshot',
         to: 'A',
         elements: [],
-        fog: fogSnapshot({ version: 2, editor: 'hub', definition: resetDefinition }),
+        ...fogExt(fogSnapshot({ version: 2, editor: 'hub', definition: resetDefinition })),
       }),
     );
     expect(manager.getState()?.definition.generation).toBe('gen-2');
@@ -1195,9 +1076,11 @@ describe('SyncClient fog convergence', () => {
         kind: 'snapshot',
         to: 'A',
         elements: [],
-        fog: fogSnapshot(meta, [
-          { generation: 'gen-1', x: 0, y: 0, version: 1, editor: 'hub', data: dataA },
-        ]),
+        ...fogExt(
+          fogSnapshot(meta, [
+            { generation: 'gen-1', x: 0, y: 0, version: 1, editor: 'hub', data: dataA },
+          ]),
+        ),
       }),
     );
     manager.applyPatchDirect({ tiles: [{ x: 0, y: 0, data: dataB }] });
@@ -1220,7 +1103,7 @@ describe('SyncClient fog convergence', () => {
         kind: 'snapshot',
         to: 'A',
         elements: [],
-        fog: fogSnapshot(meta, [peerRecord]),
+        ...fogExt(fogSnapshot(meta, [peerRecord])),
       }),
     );
 
@@ -1246,7 +1129,7 @@ describe('SyncClient fog convergence', () => {
         kind: 'snapshot',
         to: 'A',
         elements: [],
-        fog: fogSnapshot(meta, [original]),
+        ...fogExt(fogSnapshot(meta, [original])),
       }),
     );
     manager.applyPatchDirect({ tiles: [{ x: 0, y: 0, data: dataB }] });
@@ -1258,7 +1141,7 @@ describe('SyncClient fog convergence', () => {
         kind: 'snapshot',
         to: 'A',
         elements: [],
-        fog: fogSnapshot(meta, [peerRecord]),
+        ...fogExt(fogSnapshot(meta, [peerRecord])),
       }),
     );
 
@@ -1275,7 +1158,7 @@ describe('SyncClient fog convergence', () => {
         kind: 'snapshot',
         to: 'A',
         elements: [],
-        fog: fogSnapshot({ version: 1, editor: 'hub', definition }),
+        ...fogExt(fogSnapshot({ version: 1, editor: 'hub', definition })),
       }),
     );
     manager.setBounds({ x: 0, y: 0, w: 100, h: 128 });
@@ -1290,7 +1173,7 @@ describe('SyncClient fog convergence', () => {
         kind: 'snapshot',
         to: 'A',
         elements: [],
-        fog: fogSnapshot(peerMeta),
+        ...fogExt(fogSnapshot(peerMeta)),
       }),
     );
 
@@ -1308,7 +1191,7 @@ describe('SyncClient fog convergence', () => {
         kind: 'snapshot',
         to: 'A',
         elements: [],
-        fog: fogSnapshot({ version: 1, editor: 'hub', definition }),
+        ...fogExt(fogSnapshot({ version: 1, editor: 'hub', definition })),
       }),
     );
     manager.setBounds({ x: 0, y: 0, w: 100, h: 128 });
@@ -1320,7 +1203,7 @@ describe('SyncClient fog convergence', () => {
         kind: 'snapshot',
         to: 'A',
         elements: [],
-        fog: fogSnapshot({ version: 3, editor: 'B', definition: peerDefinition }),
+        ...fogExt(fogSnapshot({ version: 3, editor: 'B', definition: peerDefinition })),
       }),
     );
 
@@ -1347,7 +1230,7 @@ describe('SyncClient fog convergence', () => {
         kind: 'snapshot',
         to: 'A',
         elements: [],
-        fog: fogSnapshot(meta, [original]),
+        ...fogExt(fogSnapshot(meta, [original])),
       }),
     );
     manager.applyPatchDirect({ tiles: [{ x: 0, y: 0, data: dataB }] });
@@ -1372,7 +1255,7 @@ describe('SyncClient fog convergence', () => {
         kind: 'snapshot',
         to: 'A',
         elements: [],
-        fog: fogSnapshot(meta, [original]),
+        ...fogExt(fogSnapshot(meta, [original])),
       }),
     );
 
@@ -1391,9 +1274,11 @@ describe('SyncClient fog convergence', () => {
         kind: 'snapshot',
         to: 'A',
         elements: [],
-        fog: fogSnapshot({ version: 1, editor: 'hub', definition }, [
-          { generation: 'gen-1', x: 0, y: 0, version: 1, editor: 'hub', data: dataA },
-        ]),
+        ...fogExt(
+          fogSnapshot({ version: 1, editor: 'hub', definition }, [
+            { generation: 'gen-1', x: 0, y: 0, version: 1, editor: 'hub', data: dataA },
+          ]),
+        ),
       }),
     );
     const before = transport.sent.length;
@@ -1418,7 +1303,7 @@ describe('SyncClient fog convergence', () => {
         kind: 'snapshot',
         to: 'A',
         elements: [],
-        fog: fogSnapshot({ ...meta, version: 10 }),
+        ...fogExt(fogSnapshot({ ...meta, version: 10 })),
       }),
     );
     transport.triggerReconnect();
@@ -1430,7 +1315,7 @@ describe('SyncClient fog convergence', () => {
         kind: 'snapshot',
         to: 'A',
         elements: [],
-        fog: fogSnapshot(meta),
+        ...fogExt(fogSnapshot(meta)),
       }),
     );
 
@@ -1448,7 +1333,7 @@ describe('SyncClient fog convergence', () => {
         kind: 'snapshot',
         to: 'A',
         elements: [],
-        fog: fogSnapshot(authoritative),
+        ...fogExt(fogSnapshot(authoritative)),
       }),
     );
     manager.disable();
@@ -1461,7 +1346,7 @@ describe('SyncClient fog convergence', () => {
         kind: 'snapshot',
         to: 'A',
         elements: [],
-        fog: fogSnapshot(authoritative),
+        ...fogExt(fogSnapshot(authoritative)),
       }),
     );
 
@@ -1478,7 +1363,7 @@ describe('SyncClient fog convergence', () => {
         kind: 'snapshot',
         to: 'A',
         elements: [],
-        fog: fogSnapshot({ version: 1, editor: 'server', definition }),
+        ...fogExt(fogSnapshot({ version: 1, editor: 'server', definition })),
       }),
     );
     manager.setBounds({ x: 0, y: 0, w: 200, h: 128 }); // optimistic v2
@@ -1505,9 +1390,11 @@ describe('SyncClient fog convergence', () => {
         kind: 'snapshot',
         to: 'A',
         elements: [],
-        fog: fogSnapshot(authoritative, [
-          { generation: 'gen-1', x: 0, y: 0, version: 4, editor: 'server', data: dataA },
-        ]),
+        ...fogExt(
+          fogSnapshot(authoritative, [
+            { generation: 'gen-1', x: 0, y: 0, version: 4, editor: 'server', data: dataA },
+          ]),
+        ),
       }),
     );
     manager.disable();

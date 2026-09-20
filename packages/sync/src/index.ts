@@ -31,15 +31,8 @@ export type {
 } from './managed-connection';
 export type {
   SyncOp,
-  WireSyncOp,
   SyncEnvelope,
-  WireSyncEnvelope,
   SyncElement,
-  WireSyncElement,
-  WireElement,
-  LegacyWireElement,
-  LegacyGridWireElement,
-  LegacyTemplateWireElement,
   LayerRecord,
   FogMetaRecord,
   FogTileRecord,
@@ -49,7 +42,6 @@ export type {
 export {
   isValidEnvelope,
   isValidElement,
-  isValidWireElement,
   isValidLayerDefinition,
   isValidLayerRecord,
   isNewerLayerRecord,
@@ -78,8 +70,6 @@ export { createExtensionKind } from './sync-plugin';
 export {
   CapabilityHandshake,
   createCurrentCapabilities,
-  createLegacyCapabilities,
   translateOpForPeer,
-  DEFAULT_CAPABILITY_TIMEOUT_MS,
   DEFAULT_CAPABILITY_QUEUE_LIMIT,
 } from './capabilities';

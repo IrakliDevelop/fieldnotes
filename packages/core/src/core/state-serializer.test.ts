@@ -35,7 +35,6 @@ const markerDefinition: ElementTypeDefinition<LegacyMarker> = {
     layerId: raw['layerId'] as string,
     label: raw['label'] as string,
   }),
-  encodeLegacy: (element) => ({ ...element }),
   validateData: (data) => typeof data['label'] === 'string',
   unwrap: (envelope) => ({
     id: envelope.id,

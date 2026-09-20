@@ -130,10 +130,8 @@ export const annotationDefinition: ElementTypeDefinition<AnnotationElement> = {
     );
   },
 
-  // ── Legacy codecs ────────────────────────────────────────────────────────
-  // Not needed when legacyTypes is empty, but the interface requires them.
+  // ── Legacy decode (needed when legacyTypes is non-empty for v3→v4 migration) ──
   decodeLegacy: (raw) => raw as unknown as AnnotationElement,
-  encodeLegacy: (el) => ({ ...el }) as unknown as Record<string, unknown>,
 };
 
 // ─── Helper: draw a 5-pointed star ─────────────────────────────────────────────

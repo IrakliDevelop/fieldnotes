@@ -4,14 +4,12 @@ import type { SyncTransport } from './sync-transport';
 import {
   parseEnvelope,
   isValidElement,
-  isValidWireElement,
   isValidLayerDefinition,
   isValidLayerRecord,
   isNewerLayerRecord,
   type LayerRecord,
   type SyncOp,
   type SyncElement,
-  type WireSyncElement,
 } from './protocol';
 import { LayerLedger } from './layer-ledger';
 import { ClientPluginRegistry } from './sync-plugin';
@@ -20,10 +18,9 @@ import {
   CapabilityHandshake,
   createCurrentCapabilities,
   DEFAULT_CAPABILITY_QUEUE_LIMIT,
-  DEFAULT_CAPABILITY_TIMEOUT_MS,
   translateOpForPeer,
 } from './capabilities';
-import type { SyncCapabilities, WireSyncEnvelope, WireSyncOp } from './protocol';
+import type { SyncCapabilities, SyncEnvelope } from './protocol';
 
 /**
  * Which authoritative-snapshot merge is being applied:
@@ -141,12 +138,10 @@ export interface SyncClientOptions {
   firstSnapshot?: 'merge' | 'reconcile';
   /** Enables versioned layer-definition sync for this client. */
   layers?: LayerSyncOptions;
-  /** Domain sync plugins. Legacy v3 kinds remain on the wire during the migration window. */
+  /** Domain sync plugins. */
   plugins?: readonly ClientSyncPlugin[];
-  /** Converts registered runtime extension envelopes at the v3 wire boundary. */
+  /** Registry for extension element types (used by the store for state migration). */
   elementRegistry?: ElementRegistry;
-  /** Maximum time to wait for capability negotiation before locking into legacy mode. */
-  capabilityTimeoutMs?: number;
   /** Maximum number of inbound and outbound messages retained during negotiation. */
   capabilityQueueLimit?: number;
 }
@@ -191,10 +186,9 @@ export class SyncClient {
   private readonly elementRegistry: ElementRegistry;
   private readonly pluginRegistry: ClientPluginRegistry;
   private readonly localCapabilities: SyncCapabilities;
-  private readonly capabilityTimeoutMs: number;
   private readonly capabilityQueueLimit: number;
   private handshake: CapabilityHandshake<SyncOp>;
-  private readonly pendingIncoming: WireSyncEnvelope[] = [];
+  private readonly pendingIncoming: SyncEnvelope[] = [];
   /** Peers already answered with our capabilities during the current handshake. */
   private readonly acknowledgedPeers = new Set<string>();
   private pluginCleanups: (() => void)[] = [];
@@ -219,7 +213,6 @@ export class SyncClient {
     this.elementRegistry = options.elementRegistry ?? getDefaultElementRegistry();
     this.pluginRegistry = new ClientPluginRegistry(options.plugins ?? []);
     this.localCapabilities = createCurrentCapabilities(this.pluginRegistry.extensionKinds);
-    this.capabilityTimeoutMs = options.capabilityTimeoutMs ?? DEFAULT_CAPABILITY_TIMEOUT_MS;
     this.capabilityQueueLimit = options.capabilityQueueLimit ?? DEFAULT_CAPABILITY_QUEUE_LIMIT;
     this.handshake = new CapabilityHandshake<SyncOp>(this.capabilityQueueLimit);
     for (const plugin of this.pluginRegistry.plugins) plugin.validateClientId?.(this.clientId);
@@ -469,9 +462,6 @@ export class SyncClient {
         op: { kind: 'capabilities', capabilities: this.localCapabilities },
       }),
     );
-    this.handshake.startTimeout(this.capabilityTimeoutMs, (pending) => {
-      this.flushNegotiated(pending);
-    });
   }
 
   /**
@@ -493,27 +483,8 @@ export class SyncClient {
   private sendNegotiated(op: SyncOp): void {
     const capabilities = this.handshake.capabilities;
     if (!capabilities) throw new Error('Capability handshake completed without peer capabilities');
-    const wire = translateOpForPeer(
-      op,
-      capabilities,
-      this.elementRegistry,
-      this.pluginRegistry.extensionDefinitions,
-    );
+    const wire = translateOpForPeer(op, capabilities);
     this.transport.send(JSON.stringify({ from: this.clientId, op: wire }));
-  }
-
-  /**
-   * Converts a wire element to its runtime form. A legacy-typed element with
-   * no registered adapter is dropped (`null`): admitting it would let a v4
-   * save stamp an element the serializer can never load back.
-   */
-  private toRuntimeElement(element: WireSyncElement): CanvasElement | null {
-    if (isValidElement(element)) return element;
-    const adapter = this.elementRegistry.getAdapterByLegacyType(element.type);
-    if (!adapter) return null;
-    return adapter.decodeLegacy(
-      structuredClone(element) as unknown as Record<string, unknown>,
-    ) as CanvasElement;
   }
 
   private stampAudience(op: SyncOp): SyncOp {
@@ -584,7 +555,7 @@ export class SyncClient {
     for (const env of this.pendingIncoming.splice(0)) this.handleRemoteEnvelope(env);
   }
 
-  private handleRemoteEnvelope(env: WireSyncEnvelope): void {
+  private handleRemoteEnvelope(env: SyncEnvelope): void {
     const op = env.op;
     if (op.kind === 'request-snapshot') {
       const elements = this.store.snapshot().filter((el) => !isTransientHtml(el));
@@ -594,14 +565,11 @@ export class SyncClient {
       for (const plugin of this.pluginRegistry.plugins) {
         const data = plugin.createSnapshot?.();
         if (data === undefined) continue;
-        if (plugin.legacySnapshotKey) snapshotOp[plugin.legacySnapshotKey] = data;
-        else {
-          extensions[plugin.name] = {
-            pluginName: plugin.name,
-            version: plugin.snapshotVersion ?? 1,
-            data,
-          };
-        }
+        extensions[plugin.name] = {
+          pluginName: plugin.name,
+          version: plugin.snapshotVersion ?? 1,
+          data,
+        };
       }
       if (Object.keys(extensions).length > 0) snapshotOp['extensions'] = extensions;
       this.sendOp(snapshotOp as SyncOp);
@@ -614,9 +582,8 @@ export class SyncClient {
       const phase: AuthoritativeSnapshotPhase = this.joined ? 'reconcile' : 'bootstrap';
       const runtimeElements: CanvasElement[] = [];
       for (const element of op.elements) {
-        if (!isValidWireElement(element)) continue;
-        const runtime = this.toRuntimeElement(element);
-        if (runtime) runtimeElements.push(runtime);
+        if (!isValidElement(element)) continue;
+        runtimeElements.push(element);
       }
       const preserved = this.applyAuthoritativeSnapshot(phase, runtimeElements);
       this.joined = true;
@@ -660,20 +627,14 @@ export class SyncClient {
   }
 
   private applyPluginSnapshots(
-    op: Extract<WireSyncOp, { kind: 'snapshot' }>,
+    op: Extract<SyncOp, { kind: 'snapshot' }>,
     phase: 'initial' | 'reconnect',
   ): void {
     const raw = op as unknown as Record<string, unknown>;
     const extensions = raw['extensions'];
     for (const plugin of this.pluginRegistry.plugins) {
       let snapshot: PluginSnapshot | undefined;
-      if (plugin.legacySnapshotKey) {
-        snapshot = {
-          pluginName: plugin.name,
-          version: plugin.snapshotVersion ?? 1,
-          data: raw[plugin.legacySnapshotKey],
-        };
-      } else if (typeof extensions === 'object' && extensions !== null) {
+      if (typeof extensions === 'object' && extensions !== null) {
         const candidate = (extensions as Record<string, unknown>)[plugin.name];
         if (typeof candidate === 'object' && candidate !== null) {
           snapshot = candidate as PluginSnapshot;
@@ -695,10 +656,9 @@ export class SyncClient {
     }
   }
 
-  private applyOp(op: Extract<WireSyncOp, { kind: 'upsert' | 'remove' | 'clear' }>): void {
+  private applyOp(op: Extract<SyncOp, { kind: 'upsert' | 'remove' | 'clear' }>): void {
     if (op.kind === 'upsert') {
-      const el = this.toRuntimeElement(op.element);
-      if (!el) return; // unknown legacy type: not representable in this client
+      const el = op.element;
       this.hubKnownIds.add(el.id); // remote/snapshot upserts are hub evidence
       const existing = this.store.getById(el.id);
       if (existing) {
@@ -796,7 +756,7 @@ export class SyncClient {
   }
 }
 
-function requiresCapabilityNegotiation(op: WireSyncOp): boolean {
+function requiresCapabilityNegotiation(op: SyncOp): boolean {
   if (op.kind === 'extension') return true;
   if (op.kind === 'upsert') return op.element.type === 'extension';
   if (op.kind === 'snapshot') return op.elements.some((element) => element.type === 'extension');
@@ -804,7 +764,7 @@ function requiresCapabilityNegotiation(op: WireSyncOp): boolean {
 }
 
 /** Ops whose relative order against element upserts is load-bearing. */
-function isElementDataOp(op: WireSyncOp): boolean {
+function isElementDataOp(op: SyncOp): boolean {
   return (
     op.kind === 'upsert' || op.kind === 'remove' || op.kind === 'clear' || op.kind === 'snapshot'
   );

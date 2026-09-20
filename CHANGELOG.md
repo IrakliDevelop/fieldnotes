@@ -35,6 +35,27 @@ resolves to:
 - `@fieldnotes/sync-redis` 0.10.0 → 0.11.0
 - `@fieldnotes/vtt` 0.9.0 → 0.10.0
 
+## [0.84.0] — 2026-09-20
+
+### Changed
+
+- Closed the legacy v3/v4 compatibility window. Core no longer exposes legacy element encoders;
+  sync no longer exposes legacy wire element/operation/envelope types, translation codecs, or the
+  timeout-based v3 fallback; sync-server no longer accepts an element registry for wire translation;
+  and VTT plugins no longer provide legacy element or snapshot encodings. Persisted v1–v3 canvas
+  state remains readable and migrates to v4.
+- The v4 capability handshake retains `elementEnvelope: true` as a rolling-upgrade marker for the
+  immediately preceding v4 release. Missing or false markers are rejected, and plugin snapshot
+  state is carried only under the snapshot `extensions` map.
+
+### Package versions
+
+- `@fieldnotes/core` 0.83.0 → 0.84.0
+- `@fieldnotes/sync` 0.20.1 → 0.21.0
+- `@fieldnotes/sync-server` 0.19.1 → 0.20.0
+- `@fieldnotes/sync-redis` 0.11.0 → 0.12.0
+- `@fieldnotes/vtt` 0.10.0 → 0.11.0
+
 ## [@fieldnotes/sync-redis 0.11.0] — 2026-09-12
 
 ### Fixed

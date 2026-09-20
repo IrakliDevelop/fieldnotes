@@ -195,7 +195,6 @@ const markerDefinition: ElementTypeDefinition<MarkerElement> = {
   },
   legacyTypes: [],
   decodeLegacy: (raw) => raw as unknown as MarkerElement,
-  encodeLegacy: (el) => structuredClone(el) as unknown as Record<string, unknown>,
 };
 
 // Register with the default registry

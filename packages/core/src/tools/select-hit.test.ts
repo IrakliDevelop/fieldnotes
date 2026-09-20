@@ -53,7 +53,6 @@ describe('isInsideBounds', () => {
       type: 'test:selectable',
       legacyTypes: [],
       decodeLegacy: (raw) => raw as unknown as ExtensionElementEnvelope,
-      encodeLegacy: (el) => structuredClone(el) as unknown as Record<string, unknown>,
       validateData: () => true,
       unwrap: (el) => el,
       wrap: (el) => el,

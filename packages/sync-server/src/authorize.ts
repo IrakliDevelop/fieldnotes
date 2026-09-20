@@ -1,12 +1,12 @@
-import type { LayerRecord, WireSyncElement, WireSyncOp } from '@fieldnotes/sync';
+import type { LayerRecord, SyncElement, SyncOp } from '@fieldnotes/sync';
 
-export type OwnedElement = WireSyncElement;
+export type OwnedElement = SyncElement;
 
 export interface AuthorizeContext {
   userId?: string;
   role?: string;
   room: string;
-  op: WireSyncOp;
+  op: SyncOp;
   currentElement?: OwnedElement;
 }
 
@@ -16,7 +16,7 @@ export interface AuthorizeLayerContext {
   userId?: string;
   role?: string;
   room: string;
-  op: Extract<WireSyncOp, { kind: 'layer-upsert' | 'layer-remove' }>;
+  op: Extract<SyncOp, { kind: 'layer-upsert' | 'layer-remove' }>;
   /** The hub's current record for the target layer, tombstones included. */
   currentRecord?: LayerRecord;
 }
@@ -56,7 +56,7 @@ export interface ResolveAudienceContext {
   role?: string;
   room: string;
   /** The incoming element as the client sent it, client-asserted `audience` included. */
-  element: WireSyncElement;
+  element: SyncElement;
   /** The hub's stored element for the same id, if any. */
   currentElement?: OwnedElement;
 }

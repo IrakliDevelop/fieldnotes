@@ -160,7 +160,6 @@ export interface ElementTypeDefinition<T extends BaseElement> {
   readonly type: string;
   readonly legacyTypes: readonly string[];
   decodeLegacy(raw: Record<string, unknown>): T;
-  encodeLegacy(el: T): Record<string, unknown>;
   validateData(data: Record<string, unknown>): boolean;
   unwrap(el: ExtensionElementEnvelope): T;
   wrap(el: T): ExtensionElementEnvelope;
@@ -192,7 +191,6 @@ export interface ElementTypeAdapter {
   readonly fullCanvas: boolean;
   validateEnvelope(el: ExtensionElementEnvelope): boolean;
   decodeLegacy(raw: Record<string, unknown>): ExtensionElementEnvelope;
-  encodeLegacy(el: ExtensionElementEnvelope): Record<string, unknown>;
   wrap(el: BaseElement): ExtensionElementEnvelope;
   unwrap(el: ExtensionElementEnvelope): BaseElement;
   bounds(el: ExtensionElementEnvelope): Bounds | null;

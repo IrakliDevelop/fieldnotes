@@ -229,13 +229,13 @@ authorize(ctx) => boolean | Promise<boolean>
   userId?: string;          // the connection's authenticated user (from authenticate)
   role?: string;            // the connection's role (from authenticate)
   room: string;
-  op: WireSyncOp;           // the incoming upsert / remove / clear
+  op: SyncOp;               // the incoming upsert / remove / clear
   currentElement?: OwnedElement; // the STORED element, if this id already exists
 }
 ```
 
 `currentElement` is the element currently in room state for an `upsert`/`remove` of an
-**existing** id (typed `OwnedElement = WireSyncElement`), and
+**existing** id (typed `OwnedElement = SyncElement`), and
 `undefined` for a new/absent id.
 
 **Ownership is server-stamped and un-forgeable.** A new element's `ownerId` is set to the
@@ -244,7 +244,7 @@ authenticated creator; on edit the stored owner is **preserved**; a client-suppl
 to enforce "own elements only".
 
 **`ownerId` stays on the server.** It is stripped from every outbound frame (live ops,
-snapshots, corrections, legacy translations) so a viewer's save file never records who
+snapshots, corrections) so a viewer's save file never records who
 created what. Pass `canReadOwnerId({ userId, role, room }) => boolean` to reveal it to
 privileged viewers, e.g. `canReadOwnerId: ({ role }) => role === 'dm'`.
 
@@ -347,8 +347,8 @@ A Redis `HubBackend` and cross-instance fan-out ship in [`@fieldnotes/sync-redis
 
 ## Domain plugins
 
-`SyncHubOptions.plugins` installs ordered `ServerSyncPlugin` middleware. Plugins can own legacy v3
-kinds, register codec-validated extension kinds, provide versioned snapshots, return sender-only
-corrections, and choose local or shared fanout per accepted operation. Fog authorization and state
-application are supplied by `createFogServerPlugin()` from `@fieldnotes/vtt/server`; the generic
-server has no runtime VTT dependency.
+`SyncHubOptions.plugins` installs ordered `ServerSyncPlugin` middleware. Plugins can register
+codec-validated extension kinds, provide versioned snapshots, return sender-only corrections, and
+choose local or shared fanout per accepted operation. Fog authorization and state application are
+supplied by `createFogServerPlugin()` from `@fieldnotes/vtt/server`; the generic server has no
+runtime VTT dependency.

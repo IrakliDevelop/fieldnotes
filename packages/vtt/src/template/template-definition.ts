@@ -108,31 +108,6 @@ export const templateElementTypeDefinition: ElementTypeDefinition<TemplateElemen
     return el;
   },
 
-  encodeLegacy(el: TemplateElement): Record<string, unknown> {
-    const result: Record<string, unknown> = {
-      id: el.id,
-      type: 'template',
-      position: el.position,
-      zIndex: el.zIndex,
-      locked: el.locked,
-      layerId: el.layerId,
-      templateShape: el.templateShape,
-      radius: el.radius,
-      angle: el.angle,
-      fillColor: el.fillColor,
-      strokeColor: el.strokeColor,
-      strokeWidth: el.strokeWidth,
-      opacity: el.opacity,
-    };
-    if (el.width !== undefined) result['width'] = el.width;
-    if (el.groupId !== undefined) result['groupId'] = el.groupId;
-    if (el.rotation !== undefined) result['rotation'] = el.rotation;
-    if (el.feetPerCell !== undefined) result['feetPerCell'] = el.feetPerCell;
-    if (el.radiusFeet !== undefined) result['radiusFeet'] = el.radiusFeet;
-    if (el.renderStyle !== undefined) result['renderStyle'] = el.renderStyle;
-    return result;
-  },
-
   validateData(data: Record<string, unknown>): boolean {
     return (
       isEnum(data['templateShape'], TEMPLATE_SHAPES) &&

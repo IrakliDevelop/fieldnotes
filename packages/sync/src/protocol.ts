@@ -1,4 +1,4 @@
-import type { BaseElement, CanvasElement, ElementType, Layer } from '@fieldnotes/core';
+import type { CanvasElement, ElementType, Layer } from '@fieldnotes/core';
 import {
   FOG_SYNC_PROTOCOL_VERSION,
   FOG_PATCH_MAX_TILES,
@@ -6,10 +6,9 @@ import {
   isValidFogTileRecord,
   isValidFogSnapshot,
   isNewerFogRecord,
-} from './legacy-fog-wire';
-import type { FogMetaRecord, FogTileRecord, FogSnapshot } from './legacy-fog-wire';
+} from './fog-wire';
+import type { FogMetaRecord, FogTileRecord, FogSnapshot } from './fog-wire';
 
-// Re-export fog sync types for backward compatibility
 export {
   FOG_SYNC_PROTOCOL_VERSION,
   FOG_PATCH_MAX_TILES,
@@ -20,43 +19,12 @@ export {
 };
 export type { FogMetaRecord, FogTileRecord, FogSnapshot };
 
-export type SyncElement = CanvasElement & { audience?: string };
-
-/** V3-only grid shape retained at the compatibility wire and persistence boundary. */
-export interface LegacyGridWireElement extends BaseElement {
-  type: 'grid';
-  gridType: 'square' | 'hex';
-  hexOrientation: 'pointy' | 'flat';
-  cellSize: number;
-  strokeColor: string;
-  strokeWidth: number;
-  opacity: number;
-}
-
-/** V3-only template shape retained at the compatibility wire and persistence boundary. */
-export interface LegacyTemplateWireElement extends BaseElement {
-  type: 'template';
-  templateShape: 'circle' | 'cone' | 'line' | 'square' | 'rectangle';
-  radius: number;
-  angle: number;
-  width?: number;
-  fillColor: string;
-  strokeColor: string;
-  strokeWidth: number;
-  opacity: number;
-  feetPerCell?: number;
-  radiusFeet?: number;
-  renderStyle?: 'cells' | 'geometric';
-}
-
-export type LegacyWireElement = LegacyGridWireElement | LegacyTemplateWireElement;
-export type WireElement = CanvasElement | LegacyWireElement;
-export type WireSyncElement = WireElement & { audience?: string; ownerId?: string };
+export type SyncElement = CanvasElement & { audience?: string; ownerId?: string };
 
 export interface SyncCapabilities {
   protocolVersion: number;
   extensionKinds: string[];
-  elementEnvelope: boolean;
+  elementEnvelope: true;
 }
 
 /**
@@ -94,7 +62,6 @@ type ElementSyncOp<TElement> =
       to: string;
       elements: TElement[];
       layers?: LayerRecord[];
-      fog?: FogSnapshot;
       extensions?: Record<string, { pluginName: string; version: number; data: unknown }>;
     };
 
@@ -111,23 +78,14 @@ type NonElementSyncOp =
   | { kind: 'fog-patch'; generation: string; tiles: FogTileRecord[] }
   | { kind: 'extension'; extensionKind: string; payload: unknown };
 
-/** Operations after legacy element shapes have been normalized for a v4 runtime. */
 export type SyncOp = ElementSyncOp<SyncElement> | NonElementSyncOp;
-
-/** Operations accepted or emitted at the mixed-v3/v4 transport boundary. */
-export type WireSyncOp = ElementSyncOp<WireSyncElement> | NonElementSyncOp;
 
 export interface SyncEnvelope {
   from: string;
   op: SyncOp;
 }
 
-export interface WireSyncEnvelope {
-  from: string;
-  op: WireSyncOp;
-}
-
-const WIRE_ELEMENT_TYPES = [
+const ELEMENT_TYPES = [
   'stroke',
   'note',
   'arrow',
@@ -135,26 +93,26 @@ const WIRE_ELEMENT_TYPES = [
   'html',
   'text',
   'shape',
-  'grid',
-  'template',
   'extension',
 ] as const;
 // Compile-time exhaustiveness: errors if a core ElementType is missing from the allowlist above.
-type _ExhaustiveCheck = ElementType extends (typeof WIRE_ELEMENT_TYPES)[number] ? true : never;
+type _ExhaustiveCheck = ElementType extends (typeof ELEMENT_TYPES)[number] ? true : never;
 const _elementTypesCoverAll: _ExhaustiveCheck = true;
 void _elementTypesCoverAll;
 
-export function isValidWireElement(el: unknown): el is WireSyncElement {
+export function isValidElement(el: unknown): el is SyncElement {
   if (!isRecord(el)) return false;
   if (
     typeof el['id'] !== 'string' ||
-    !(WIRE_ELEMENT_TYPES as readonly unknown[]).includes(el['type']) ||
+    !(ELEMENT_TYPES as readonly unknown[]).includes(el['type']) ||
     !isPoint(el['position']) ||
     !isFiniteNumber(el['zIndex']) ||
     typeof el['locked'] !== 'boolean' ||
     typeof el['layerId'] !== 'string' ||
     !isOptional(el['groupId'], isString) ||
-    !isOptional(el['rotation'], isFiniteNumber)
+    !isOptional(el['rotation'], isFiniteNumber) ||
+    !isOptional(el['audience'], isString) ||
+    !isOptional(el['ownerId'], isString)
   ) {
     return false;
   }
@@ -198,7 +156,8 @@ export function isValidWireElement(el: unknown): el is WireSyncElement {
         isOptional(el['domId'], isString) &&
         isOptional(el['interactive'], isBoolean) &&
         isOptional(el['htmlType'], isString) &&
-        isOptional(el['data'], isRecord)
+        isOptional(el['data'], isRecord) &&
+        isOptional(el['transient'], isBoolean)
       );
     case 'text':
       return (
@@ -217,39 +176,11 @@ export function isValidWireElement(el: unknown): el is WireSyncElement {
         typeof el['fillColor'] === 'string' &&
         isOptional(el['flip'], isBoolean)
       );
-    case 'grid':
-      return (
-        isEnum(el['gridType'], ['square', 'hex']) &&
-        isEnum(el['hexOrientation'], ['pointy', 'flat']) &&
-        isFiniteNumber(el['cellSize']) &&
-        typeof el['strokeColor'] === 'string' &&
-        isFiniteNumber(el['strokeWidth']) &&
-        isFiniteNumber(el['opacity'])
-      );
-    case 'template':
-      return (
-        isEnum(el['templateShape'], ['circle', 'cone', 'line', 'square', 'rectangle']) &&
-        isFiniteNumber(el['radius']) &&
-        isFiniteNumber(el['angle']) &&
-        isOptional(el['width'], isFiniteNumber) &&
-        typeof el['fillColor'] === 'string' &&
-        typeof el['strokeColor'] === 'string' &&
-        isFiniteNumber(el['strokeWidth']) &&
-        isFiniteNumber(el['opacity']) &&
-        isOptional(el['feetPerCell'], isFiniteNumber) &&
-        isOptional(el['radiusFeet'], isFiniteNumber) &&
-        isOptionalEnum(el['renderStyle'], ['cells', 'geometric'])
-      );
     case 'extension':
       return typeof el['extensionType'] === 'string' && isRecord(el['data']);
     default:
       return false;
   }
-}
-
-/** Validates only elements representable by the current core runtime. */
-export function isValidElement(el: unknown): el is CanvasElement {
-  return isValidWireElement(el) && el.type !== 'grid' && el.type !== 'template';
 }
 
 type Validator = (value: unknown) => boolean;
@@ -337,7 +268,7 @@ function isBoundedString(value: unknown, maxLen: number): value is string {
   );
 }
 
-export function isValidEnvelope(env: unknown): env is WireSyncEnvelope {
+export function isValidEnvelope(env: unknown): env is SyncEnvelope {
   if (typeof env !== 'object' || env === null) return false;
   const e = env as {
     from?: unknown;
@@ -357,7 +288,7 @@ export function isValidEnvelope(env: unknown): env is WireSyncEnvelope {
   const op = e.op;
   switch (op.kind) {
     case 'upsert':
-      return isValidWireElement(op.element);
+      return isValidElement(op.element);
     case 'remove':
       return typeof op.id === 'string';
     case 'clear':
@@ -368,7 +299,6 @@ export function isValidEnvelope(env: unknown): env is WireSyncEnvelope {
     case 'capabilities':
       return isValidCapabilities((op as Record<string, unknown>)['capabilities']);
     case 'snapshot':
-      // SHAPE only; per-element and per-record filtered in the handler
       return (
         typeof op.to === 'string' &&
         Array.isArray(op.elements) &&
@@ -414,7 +344,7 @@ export function isValidEnvelope(env: unknown): env is WireSyncEnvelope {
   }
 }
 
-export function parseEnvelope(message: string): WireSyncEnvelope | null {
+export function parseEnvelope(message: string): SyncEnvelope | null {
   try {
     const env: unknown = JSON.parse(message);
     return isValidEnvelope(env) ? env : null;
@@ -423,7 +353,7 @@ export function parseEnvelope(message: string): WireSyncEnvelope | null {
   }
 }
 
-export function applyOpToMap<TElement extends WireSyncElement>(
+export function applyOpToMap<TElement extends SyncElement>(
   map: Map<string, TElement>,
   op: ElementSyncOp<TElement> | NonElementSyncOp,
 ): void {
@@ -456,9 +386,13 @@ function isValidCapabilities(value: unknown): value is SyncCapabilities {
   if (!Number.isSafeInteger(value['protocolVersion']) || (value['protocolVersion'] as number) < 1) {
     return false;
   }
-  if (typeof value['elementEnvelope'] !== 'boolean' || !Array.isArray(value['extensionKinds'])) {
+  if (!Array.isArray(value['extensionKinds'])) {
     return false;
   }
   const kinds = value['extensionKinds'] as unknown[];
-  return kinds.length <= 256 && kinds.every((kind) => isBoundedString(kind, 128));
+  return (
+    value['elementEnvelope'] === true &&
+    kinds.length <= 256 &&
+    kinds.every((kind) => isBoundedString(kind, 128))
+  );
 }

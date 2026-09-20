@@ -42,26 +42,6 @@ export const gridElementTypeDefinition: ElementTypeDefinition<GridElement> = {
     };
   },
 
-  encodeLegacy(el: GridElement): Record<string, unknown> {
-    const result: Record<string, unknown> = {
-      id: el.id,
-      type: 'grid',
-      position: el.position,
-      zIndex: el.zIndex,
-      locked: el.locked,
-      layerId: el.layerId,
-      gridType: el.gridType,
-      hexOrientation: el.hexOrientation,
-      cellSize: el.cellSize,
-      strokeColor: el.strokeColor,
-      strokeWidth: el.strokeWidth,
-      opacity: el.opacity,
-    };
-    if (el.groupId !== undefined) result['groupId'] = el.groupId;
-    if (el.rotation !== undefined) result['rotation'] = el.rotation;
-    return result;
-  },
-
   validateData(data: Record<string, unknown>): boolean {
     return (
       isEnum(data['gridType'], ['square', 'hex']) &&
