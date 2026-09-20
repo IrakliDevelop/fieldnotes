@@ -20,11 +20,6 @@ export interface OpCodec<TPayload> {
 export interface ExtensionKind<TPayload> {
   readonly extensionKind: string;
   readonly codec: OpCodec<TPayload>;
-  readonly legacy?: {
-    readonly kinds: readonly string[];
-    readonly encode: (payload: TPayload) => SyncOp;
-    readonly decode: (op: SyncOp) => TPayload | null;
-  };
 }
 
 export function createExtensionKind<TPayload>(
@@ -60,7 +55,6 @@ export interface ClientSyncPluginContext {
 export interface ClientSyncPlugin {
   readonly name: string;
   readonly ownedLegacyKinds?: readonly string[];
-  readonly legacySnapshotKey?: string;
   readonly snapshotVersion?: number;
   validateClientId?(clientId: string): void;
   start?(context: ClientSyncPluginContext): (() => void) | undefined;

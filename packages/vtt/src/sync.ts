@@ -28,7 +28,6 @@ export function createFogClientPlugin(options: FogClientPluginOptions): ClientSy
   return {
     name: 'fog',
     ownedLegacyKinds: ['fog-meta', 'fog-patch'],
-    legacySnapshotKey: 'fog',
     snapshotVersion: 1,
     validateClientId: assertValidFogClientId,
     start(context) {

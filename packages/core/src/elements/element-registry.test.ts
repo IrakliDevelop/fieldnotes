@@ -45,16 +45,6 @@ const markerDefinition: ElementTypeDefinition<MarkerElement> = {
     label: raw['label'] as string,
     color: raw['color'] as string,
   }),
-  encodeLegacy: (el) => ({
-    id: el.id,
-    type: 'marker',
-    position: el.position,
-    zIndex: el.zIndex,
-    locked: el.locked,
-    layerId: el.layerId,
-    label: el.label,
-    color: el.color,
-  }),
   validateData: (data) => typeof data['label'] === 'string' && typeof data['color'] === 'string',
   unwrap: (env) => ({
     id: env.id,
@@ -184,19 +174,6 @@ describe('ElementRegistry', () => {
       expect(envelope.extensionType).toBe('test:marker');
       expect(envelope.data['label']).toBe('test');
       expect(envelope.data['color']).toBe('#00ff00');
-    });
-
-    it('encodeLegacy converts envelope to legacy wire fields', () => {
-      const registry = new ElementRegistry();
-      registry.register(markerDefinition);
-      const adapter = registry.getAdapter('test:marker')!;
-
-      const envelope = makeMarkerEnvelope();
-      const legacy = adapter.encodeLegacy(envelope);
-
-      expect(legacy['type']).toBe('marker');
-      expect(legacy['label']).toBe('hello');
-      expect(legacy['color']).toBe('#ff0000');
     });
 
     it('bounds delegates through unwrap', () => {
@@ -392,7 +369,7 @@ describe('ElementRegistry', () => {
       expect(restored).toEqual(original);
     });
 
-    it('decodeLegacy → encodeLegacy preserves legacy fields', () => {
+    it('decodeLegacy converts legacy fields to envelope', () => {
       const registry = new ElementRegistry();
       registry.register(markerDefinition);
       const adapter = registry.getAdapter('test:marker')!;
@@ -409,9 +386,11 @@ describe('ElementRegistry', () => {
       };
 
       const envelope = adapter.decodeLegacy(legacy);
-      const reencoded = adapter.encodeLegacy(envelope);
 
-      expect(reencoded).toEqual(legacy);
+      expect(envelope.type).toBe('extension');
+      expect(envelope.extensionType).toBe('test:marker');
+      expect(envelope.data['label']).toBe('legacy');
+      expect(envelope.data['color']).toBe('#123456');
     });
   });
 });

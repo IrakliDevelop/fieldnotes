@@ -12,7 +12,6 @@ import type {
   ResolveAudience,
 } from './authorize';
 import type { ServerSyncPlugin } from './sync-plugin';
-import type { ElementRegistry } from '@fieldnotes/core';
 import { startHeartbeat } from './heartbeat';
 import { BEARER_SUBPROTOCOL_PREFIX, SYNC_WS_SUBPROTOCOL } from '@fieldnotes/sync';
 import {
@@ -70,12 +69,6 @@ export interface CreateSyncServerOptions {
    */
   clientAddress?: (req: IncomingMessage) => string | undefined;
   shutdownGraceMs?: number;
-  /**
-   * Registry used to translate extension envelopes for legacy peers. Without
-   * it the hub relays unknown legacy element types verbatim and cannot encode
-   * envelopes for pre-envelope clients.
-   */
-  elementRegistry?: ElementRegistry;
 }
 
 class ConcurrencyCounter {
@@ -167,7 +160,6 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
     presenceThrottleMs: options.presenceThrottleMs ?? DEFAULT_PRESENCE_THROTTLE_MS,
     maxPresenceLanes: options.maxPresenceLanes,
     maxPresenceBytes: options.maxPresenceBytes,
-    elementRegistry: options.elementRegistry,
   });
   const maxMessageBytes = options.maxMessageBytes ?? DEFAULT_MAX_MESSAGE_BYTES;
   // A browser fails the handshake unless one offered subprotocol is selected, so select the

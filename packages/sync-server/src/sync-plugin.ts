@@ -1,11 +1,11 @@
 import type { ServiceKey } from '@fieldnotes/core';
-import type { ExtensionKind, PluginSnapshot, TypedExtensionOp, WireSyncOp } from '@fieldnotes/sync';
+import type { ExtensionKind, PluginSnapshot, TypedExtensionOp, SyncOp } from '@fieldnotes/sync';
 import type { HubBackend } from './hub-backend';
 
 export interface ApplyResult {
-  readonly accepted: WireSyncOp | null;
-  readonly corrections: WireSyncOp[];
-  readonly broadcast?: WireSyncOp[];
+  readonly accepted: SyncOp | null;
+  readonly corrections: SyncOp[];
+  readonly broadcast?: SyncOp[];
   readonly locality?: 'shared' | 'local';
 }
 
@@ -24,7 +24,7 @@ export interface ServerOpContext {
  * operation to the fanout channel and only then writes it to the backend. A plugin that reads
  * the backend after `next()` therefore observes pre-apply state.
  */
-export type ServerNext = (op: WireSyncOp, context: ServerOpContext) => Promise<ApplyResult>;
+export type ServerNext = (op: SyncOp, context: ServerOpContext) => Promise<ApplyResult>;
 
 export interface ServerExtensionRegistry {
   register<TPayload>(
@@ -36,9 +36,8 @@ export interface ServerExtensionRegistry {
 export interface ServerSyncPlugin {
   readonly name: string;
   readonly ownedLegacyKinds?: readonly string[];
-  readonly legacySnapshotKey?: string;
-  process?(op: WireSyncOp, context: ServerOpContext, next: ServerNext): Promise<ApplyResult>;
-  applyFanout?(op: WireSyncOp, context: ServerOpContext): Promise<WireSyncOp | null>;
+  process?(op: SyncOp, context: ServerOpContext, next: ServerNext): Promise<ApplyResult>;
+  applyFanout?(op: SyncOp, context: ServerOpContext): Promise<SyncOp | null>;
   registerExtensionKinds?(registry: ServerExtensionRegistry): void;
   snapshot?(room: string, backend: HubBackend): Promise<PluginSnapshot | undefined>;
   filterSnapshot?(

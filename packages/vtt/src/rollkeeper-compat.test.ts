@@ -55,36 +55,7 @@ describe('VTT adapter — legacy grid conversion', () => {
     expect(envelope.data.strokeColor).toBe('#aabbcc');
   });
 
-  it('encodes extension envelope back to legacy grid format', () => {
-    const adapter = registry.getAdapter('vtt:grid');
-    expect(adapter).toBeDefined();
-    if (!adapter) throw new Error('adapter is not registered');
-
-    const envelope = {
-      id: 'grid-1',
-      type: 'extension' as const,
-      extensionType: 'vtt:grid',
-      position: { x: 0, y: 0 },
-      zIndex: -1,
-      locked: true,
-      layerId: 'default-layer',
-      data: {
-        gridType: 'square',
-        hexOrientation: 'pointy',
-        cellSize: 24,
-        strokeColor: '#cccccc',
-        strokeWidth: 1,
-        opacity: 0.5,
-      },
-    };
-
-    const legacy = adapter.encodeLegacy(envelope);
-    expect(legacy.type).toBe('grid');
-    expect(legacy.gridType).toBe('square');
-    expect(legacy.cellSize).toBe(24);
-  });
-
-  it('round-trips square grid through legacy → envelope → legacy', () => {
+  it('decodeLegacy preserves all grid fields', () => {
     const adapter = registry.getAdapterByLegacyType('grid');
     expect(adapter).toBeDefined();
     if (!adapter) throw new Error('adapter is not registered');
@@ -105,12 +76,12 @@ describe('VTT adapter — legacy grid conversion', () => {
     };
 
     const envelope = adapter.decodeLegacy(structuredClone(original));
-    const roundTripped = adapter.encodeLegacy(envelope);
 
-    expect(roundTripped.type).toBe('grid');
-    expect(roundTripped.gridType).toBe('square');
-    expect(roundTripped.cellSize).toBe(24);
-    expect(roundTripped.strokeColor).toBe('#ccc');
+    expect(envelope.type).toBe('extension');
+    expect(envelope.extensionType).toBe('vtt:grid');
+    expect(envelope.data.gridType).toBe('square');
+    expect(envelope.data.cellSize).toBe(24);
+    expect(envelope.data.strokeColor).toBe('#ccc');
   });
 });
 
@@ -155,37 +126,7 @@ describe('VTT adapter — legacy template conversion', () => {
     expect(envelope.data.renderStyle).toBe('cells');
   });
 
-  it('encodes extension envelope back to legacy template format', () => {
-    const adapter = registry.getAdapter('vtt:template');
-    expect(adapter).toBeDefined();
-    if (!adapter) throw new Error('adapter is not registered');
-
-    const envelope = {
-      id: 'tpl-1',
-      type: 'extension' as const,
-      extensionType: 'vtt:template',
-      position: { x: 100, y: 200 },
-      zIndex: 10,
-      locked: false,
-      layerId: 'default-layer',
-      data: {
-        templateShape: 'cone',
-        radius: 30,
-        angle: 1.57,
-        fillColor: '#ff000040',
-        strokeColor: '#ff0000',
-        strokeWidth: 1,
-        opacity: 1,
-      },
-    };
-
-    const legacy = adapter.encodeLegacy(envelope);
-    expect(legacy.type).toBe('template');
-    expect(legacy.templateShape).toBe('cone');
-    expect(legacy.radius).toBe(30);
-  });
-
-  it('round-trips template through legacy → envelope → legacy', () => {
+  it('decodeLegacy preserves all template fields including optionals', () => {
     const adapter = registry.getAdapterByLegacyType('template');
     expect(adapter).toBeDefined();
     if (!adapter) throw new Error('adapter is not registered');
@@ -211,13 +152,13 @@ describe('VTT adapter — legacy template conversion', () => {
     };
 
     const envelope = adapter.decodeLegacy(structuredClone(original));
-    const roundTripped = adapter.encodeLegacy(envelope);
 
-    expect(roundTripped.type).toBe('template');
-    expect(roundTripped.templateShape).toBe('rectangle');
-    expect(roundTripped.radius).toBe(45);
-    expect(roundTripped.width).toBe(30);
-    expect(roundTripped.renderStyle).toBe('geometric');
+    expect(envelope.type).toBe('extension');
+    expect(envelope.extensionType).toBe('vtt:template');
+    expect(envelope.data.templateShape).toBe('rectangle');
+    expect(envelope.data.radius).toBe(45);
+    expect(envelope.data.width).toBe(30);
+    expect(envelope.data.renderStyle).toBe('geometric');
   });
 });
 

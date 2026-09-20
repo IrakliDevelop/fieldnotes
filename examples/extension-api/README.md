@@ -36,8 +36,7 @@ const myDefinition: ElementTypeDefinition<MyElement> = {
   hitTest(el, point) { ... },   // point-in-element test
   render(ctx, el) { ... },      // canvas rendering
   emitSvg(el) { ... },          // SVG export
-  decodeLegacy(raw) { ... },    // v3 wire → typed
-  encodeLegacy(el) { ... },     // typed → v3 wire
+  decodeLegacy(raw) { ... },    // v3 wire → typed (for file migration)
 };
 ```
 

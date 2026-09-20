@@ -1,10 +1,10 @@
 import type { ServiceKey } from '@fieldnotes/core';
 import {
-  isValidWireElement,
+  isValidElement,
   isValidLayerRecord,
   type LayerRecord,
-  type WireSyncElement,
-  type WireSyncOp,
+  type SyncElement,
+  type SyncOp,
 } from '@fieldnotes/sync';
 import type { HubBackend } from '@fieldnotes/sync-server';
 import type { RedisHashClient } from './redis-hash-client';
@@ -41,13 +41,13 @@ export class RedisHubBackend implements HubBackend {
     return `${this.key(room)}:layers`;
   }
 
-  async snapshot(room: string): Promise<WireSyncElement[]> {
+  async snapshot(room: string): Promise<SyncElement[]> {
     const map = await this.client.hGetAll(this.key(room));
-    const out: WireSyncElement[] = [];
+    const out: SyncElement[] = [];
     for (const value of Object.values(map)) {
       try {
         const parsed: unknown = JSON.parse(value);
-        if (isValidWireElement(parsed)) out.push(parsed);
+        if (isValidElement(parsed)) out.push(parsed);
       } catch {
         // Corrupt fields are isolated from the rest of the room snapshot.
       }
@@ -55,18 +55,18 @@ export class RedisHubBackend implements HubBackend {
     return out;
   }
 
-  async get(room: string, id: string): Promise<WireSyncElement | undefined> {
+  async get(room: string, id: string): Promise<SyncElement | undefined> {
     const value = await this.client.hGet(this.key(room), id);
     if (value == null) return undefined;
     try {
       const parsed: unknown = JSON.parse(value);
-      return isValidWireElement(parsed) ? parsed : undefined;
+      return isValidElement(parsed) ? parsed : undefined;
     } catch {
       return undefined;
     }
   }
 
-  async apply(room: string, op: WireSyncOp): Promise<void> {
+  async apply(room: string, op: SyncOp): Promise<void> {
     const key = this.key(room);
     if (op.kind === 'upsert')
       await this.client.hSet(key, op.element.id, JSON.stringify(op.element));

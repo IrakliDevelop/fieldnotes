@@ -135,7 +135,6 @@ export function createFogServerPlugin(options: FogServerPluginOptions = {}): Ser
   return {
     name: 'fog',
     ownedLegacyKinds: ['fog-meta', 'fog-patch'],
-    legacySnapshotKey: 'fog',
     async process(op, context, next) {
       if (op.kind !== 'fog-meta' && op.kind !== 'fog-patch') return next(op, context);
       return process(op, context);

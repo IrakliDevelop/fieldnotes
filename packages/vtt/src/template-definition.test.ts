@@ -141,17 +141,13 @@ describe('TemplateElementTypeDefinition', () => {
       expect(tmpl.radius).toBe(40);
     });
 
-    it('encodeLegacy converts typed element to wire fields', () => {
-      const tmpl = makeTemplate({ radius: 55 });
-      const legacy = templateElementTypeDefinition.encodeLegacy(tmpl);
-
-      expect(legacy['type']).toBe('template');
-      expect(legacy['radius']).toBe(55);
-      expect(legacy['templateShape']).toBe('circle');
-    });
-
-    it('legacy round-trip preserves fields', () => {
-      const original = makeTemplate({
+    it('decodeLegacy restores all expected fields', () => {
+      const raw = {
+        id: 't-2',
+        position: { x: 10, y: 20 },
+        zIndex: 3,
+        locked: true,
+        layerId: 'default',
         templateShape: 'line',
         radius: 35,
         angle: 2.0,
@@ -159,12 +155,21 @@ describe('TemplateElementTypeDefinition', () => {
         strokeColor: '#123456',
         strokeWidth: 4,
         opacity: 0.3,
-      });
+      };
 
-      const encoded = templateElementTypeDefinition.encodeLegacy(original);
-      const decoded = templateElementTypeDefinition.decodeLegacy(encoded);
+      const tmpl = templateElementTypeDefinition.decodeLegacy(raw);
 
-      expect(decoded).toEqual(original);
+      expect(tmpl.type).toBe('template');
+      expect(tmpl.templateShape).toBe('line');
+      expect(tmpl.radius).toBe(35);
+      expect(tmpl.angle).toBe(2.0);
+      expect(tmpl.fillColor).toBe('#abcdef');
+      expect(tmpl.strokeColor).toBe('#123456');
+      expect(tmpl.strokeWidth).toBe(4);
+      expect(tmpl.opacity).toBe(0.3);
+      expect(tmpl.position).toEqual({ x: 10, y: 20 });
+      expect(tmpl.zIndex).toBe(3);
+      expect(tmpl.locked).toBe(true);
     });
   });
 

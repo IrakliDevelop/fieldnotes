@@ -35,10 +35,6 @@ export class ElementRegistry {
         const typed = def.decodeLegacy(raw);
         return def.wrap(typed);
       },
-      encodeLegacy: (el) => {
-        const typed = def.unwrap(el);
-        return def.encodeLegacy(typed);
-      },
       wrap: (el) => def.wrap(el as never),
       unwrap: (el) => def.unwrap(el),
       bounds: (el) => {

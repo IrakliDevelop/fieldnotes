@@ -1,11 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { createShape, ElementRegistry } from '@fieldnotes/core';
-import {
-  createTemplate,
-  fogEncodeBase64,
-  registerVttElementTypes,
-  templateElementTypeDefinition,
-} from '@fieldnotes/vtt';
+import { createShape } from '@fieldnotes/core';
+import { fogEncodeBase64 } from '@fieldnotes/vtt';
 import { createFogServerPlugin } from '@fieldnotes/vtt/server';
 import type { CanvasElement, Layer } from '@fieldnotes/core';
 import {
@@ -13,8 +8,6 @@ import {
   createExtensionKind,
   type SyncElement,
   type SyncOp,
-  type WireSyncElement,
-  type WireSyncOp,
 } from '@fieldnotes/sync';
 import { SyncHub } from './sync-hub';
 import type { Connection } from './sync-hub';
@@ -134,11 +127,6 @@ describe('SyncHub', () => {
         validate: (payload): payload is Record<string, never> =>
           typeof payload === 'object' && payload !== null,
       },
-      legacy: {
-        kinds: ['clear'],
-        encode: () => ({ kind: 'clear' }),
-        decode: () => null,
-      },
     });
     hub = new SyncHub({
       plugins: [
@@ -178,7 +166,7 @@ describe('SyncHub', () => {
       envelope(A.id, { kind: 'extension', extensionKind: 'a', payload: {} }),
     );
 
-    expect(JSON.parse(B.sent[0] ?? '').op.kind).toBe('clear');
+    expect(B.sent).toEqual([]);
     expect(JSON.parse(C.sent[0] ?? '').op).toEqual({
       kind: 'extension',
       extensionKind: 'a',
@@ -197,125 +185,6 @@ describe('SyncHub', () => {
     });
     expect(A.sent).toEqual([]); // not echoed to sender
     expect(C.sent).toEqual([]); // cross-room isolated
-  });
-
-  it('translates envelope upserts and snapshots independently for each peer', async () => {
-    hub.close();
-    const registry = new ElementRegistry();
-    registerVttElementTypes(registry);
-    const backend = new MemoryHubBackend();
-    hub = new SyncHub({ elementRegistry: registry, backend });
-    A = makeConn('A', 'R');
-    B = makeConn('B', 'R'); // no handshake: legacy fallback
-    const modern = makeConn('modern', 'R');
-    hub.addConnection(A);
-    hub.addConnection(B);
-    hub.addConnection(modern);
-    await hub.handleMessage(
-      modern.id,
-      envelope(modern.id, {
-        kind: 'capabilities',
-        capabilities: createCurrentCapabilities([]),
-      }),
-    );
-    modern.sent.length = 0;
-
-    const template = templateElementTypeDefinition.wrap(
-      createTemplate({ position: { x: 10, y: 20 }, templateShape: 'cone', radius: 30 }),
-    );
-    await hub.handleMessage(A.id, envelope(A.id, { kind: 'upsert', element: template }));
-
-    expect(JSON.parse(B.sent[0] ?? '').op.element).toMatchObject({
-      type: 'template',
-      templateShape: 'cone',
-    });
-    expect(JSON.parse(modern.sent[0] ?? '').op.element).toMatchObject({
-      type: 'extension',
-      extensionType: 'vtt:template',
-    });
-
-    B.sent.length = 0;
-    modern.sent.length = 0;
-    await hub.handleMessage(B.id, envelope('legacy-client', { kind: 'request-snapshot' }));
-    await hub.handleMessage(modern.id, envelope('modern-client', { kind: 'request-snapshot' }));
-
-    expect(JSON.parse(B.sent[0] ?? '').op.elements[0].type).toBe('template');
-    expect(JSON.parse(modern.sent[0] ?? '').op.elements[0]).toMatchObject({
-      type: 'extension',
-      extensionType: 'vtt:template',
-    });
-
-    A.sent.length = 0;
-    modern.sent.length = 0;
-    const legacyTemplate = templateElementTypeDefinition.encodeLegacy(
-      createTemplate({ position: { x: 40, y: 50 }, templateShape: 'square', radius: 20 }),
-    );
-    legacyTemplate['audience'] = 'table';
-    legacyTemplate['ownerId'] = 'legacy-owner';
-    await hub.handleMessage(
-      B.id,
-      JSON.stringify({ from: B.id, op: { kind: 'upsert', element: legacyTemplate } }),
-    );
-
-    expect(JSON.parse(A.sent[0] ?? '').op.element.type).toBe('template');
-    expect(JSON.parse(modern.sent[0] ?? '').op.element).toMatchObject({
-      type: 'extension',
-      extensionType: 'vtt:template',
-    });
-    expect((await backend.snapshot('R')).at(-1)).toMatchObject({
-      type: 'extension',
-      extensionType: 'vtt:template',
-      audience: 'table',
-      ownerId: 'legacy-owner',
-    });
-  });
-
-  it('relays and stores legacy element types it has no adapter for', async () => {
-    // A hub deployed without domain adapters is still a relay: existing grids
-    // and templates must survive the upgrade, and peers decide what they understand.
-    const legacyTemplate = templateElementTypeDefinition.encodeLegacy(
-      createTemplate({ position: { x: 40, y: 50 }, templateShape: 'square', radius: 20 }),
-    );
-    await hub.handleMessage(
-      A.id,
-      JSON.stringify({ from: A.id, op: { kind: 'upsert', element: legacyTemplate } }),
-    );
-    expect(JSON.parse(B.sent[0] ?? '').op.element).toMatchObject({ type: 'template' });
-
-    B.sent.length = 0;
-    await hub.handleMessage(B.id, envelope('clientB', { kind: 'request-snapshot' }));
-    expect(JSON.parse(B.sent[0] ?? '').op.elements).toEqual([legacyTemplate]);
-  });
-
-  it('answers a legacy peer request-snapshot even when an element has no legacy encoding', async () => {
-    const modern = makeConn('modern', 'R');
-    hub.addConnection(modern);
-    await hub.handleMessage(
-      modern.id,
-      envelope(modern.id, { kind: 'capabilities', capabilities: createCurrentCapabilities([]) }),
-    );
-    const orphan: CanvasElement = {
-      id: 'orphan',
-      type: 'extension',
-      extensionType: 'app:unknown',
-      position: { x: 0, y: 0 },
-      zIndex: 0,
-      locked: false,
-      layerId: 'default-layer',
-      data: {},
-    };
-    const el = sampleEl();
-    await hub.handleMessage(modern.id, envelope(modern.id, { kind: 'upsert', element: orphan }));
-    await hub.handleMessage(modern.id, envelope(modern.id, { kind: 'upsert', element: el }));
-    B.sent.length = 0;
-
-    await expect(
-      hub.handleMessage(B.id, envelope('legacy-client', { kind: 'request-snapshot' })),
-    ).resolves.toBeUndefined();
-
-    const reply = JSON.parse(B.sent[0] ?? '');
-    expect(reply.op.kind).toBe('snapshot');
-    expect(reply.op.elements).toEqual([el]);
   });
 
   it('applies forwarded ops to the backend (snapshot reflects it)', async () => {
@@ -433,19 +302,19 @@ describe('SyncHub', () => {
         return new Promise<void>((res) => this.resolvers.push(res));
       }
 
-      async snapshot(room: string): Promise<WireSyncElement[]> {
+      async snapshot(room: string): Promise<SyncElement[]> {
         await this.gate(`snapshot:${room}`);
         return [];
       }
 
       // Not on the paths this suite drives; recorded without a gate so an
       // unexpected lookup shows up in `calls` instead of deadlocking the queue.
-      async get(room: string, id: string): Promise<WireSyncElement | undefined> {
+      async get(room: string, id: string): Promise<SyncElement | undefined> {
         this.calls.push(`get:${room}:${id}`);
         return undefined;
       }
 
-      async apply(room: string, op: WireSyncOp): Promise<void> {
+      async apply(room: string, op: SyncOp): Promise<void> {
         await this.gate(`apply:${room}:${op.kind}`);
       }
     }
@@ -741,11 +610,11 @@ describe('SyncHub', () => {
       const error = new Error('fanout unavailable');
       const readError = new Error('read unavailable');
       class CorrectionReadFailsBackend extends MemoryHubBackend {
-        override snapshot(): Promise<WireSyncElement[]> {
+        override snapshot(): Promise<SyncElement[]> {
           return Promise.reject(readError);
         }
 
-        override get(): Promise<WireSyncElement | undefined> {
+        override get(): Promise<SyncElement | undefined> {
           return Promise.reject(readError);
         }
       }
@@ -1372,14 +1241,17 @@ describe('SyncHub', () => {
         expect(correction.op.kind).toBe('snapshot');
         expect(correction.op.to).toBe('cp-clr');
         expect(correction.op.layers?.map((record) => record.id)).toEqual(['layer-x']);
-        expect(correction.op.fog?.meta?.definition).toBeDefined();
+        expect(
+          (correction.op.extensions?.['fog'] as { data?: { meta?: { definition?: unknown } } })
+            ?.data?.meta?.definition,
+        ).toBeDefined();
         hub.close();
       });
 
       it('a denied clear whose correction read fails still rejects', async () => {
         const snapshotError = new Error('snapshot unavailable');
         class SnapshotFailsBackend extends MemoryHubBackend {
-          override snapshot(): Promise<WireSyncElement[]> {
+          override snapshot(): Promise<SyncElement[]> {
             return Promise.reject(snapshotError);
           }
         }
@@ -1542,9 +1414,11 @@ describe('SyncHub fog authority', () => {
     hubB.addConnection(late);
     await hubB.handleMessage('late', envelope('late', { kind: 'request-snapshot' }));
     const snapshot = JSON.parse(late.sent[0] ?? '') as {
-      op: { fog?: { meta?: { definition?: unknown } } };
+      op: {
+        extensions?: Record<string, { data?: { meta?: { definition?: unknown } } }>;
+      };
     };
-    expect(snapshot.op.fog?.meta?.definition).toEqual(definition);
+    expect(snapshot.op.extensions?.['fog']?.data?.meta?.definition).toEqual(definition);
     hubA.close();
     hubB.close();
   });
@@ -1585,7 +1459,7 @@ describe('SyncHub fog authority', () => {
 
     a.sent.length = 0;
     await fogHub.handleMessage('A', envelope('A', { kind: 'request-snapshot' }));
-    const snapshot = JSON.parse(a.sent[0] ?? '').op.fog;
+    const snapshot = JSON.parse(a.sent[0] ?? '').op.extensions['fog'].data;
     expect(snapshot.meta.definition.bounds.w).toBe(256);
     expect(snapshot.tiles.map((tile: { x: number }) => tile.x)).toEqual([0, 1]);
     expect(JSON.parse(a.sent[a.sent.length - 1] ?? '').from).toBe('hub');
@@ -1640,7 +1514,9 @@ describe('SyncHub fog authority', () => {
       }),
     );
     await fogHub.handleMessage('A', envelope('A', { kind: 'request-snapshot' }));
-    expect(JSON.parse(a.sent[a.sent.length - 1] ?? '').op.fog.tiles).toHaveLength(255);
+    expect(
+      JSON.parse(a.sent[a.sent.length - 1] ?? '').op.extensions['fog'].data.tiles,
+    ).toHaveLength(255);
     expect(b.sent).toEqual([]);
     expect(JSON.parse(a.sent[0] ?? '').op.tiles).toHaveLength(2);
     fogHub.close();
