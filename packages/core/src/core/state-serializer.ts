@@ -43,13 +43,16 @@ export function exportState(
       position: { ...camera.position },
       zoom: camera.zoom,
     },
-    elements: elements.map((el) => {
-      const clone = structuredClone(el);
-      if (clone.type === 'arrow') {
-        delete clone.cachedControlPoint;
-      }
-      return clone;
-    }),
+    elements: elements
+      // Host-owned transient html elements belong to the embedding app, not the document.
+      .filter((el) => !(el.type === 'html' && el.transient === true))
+      .map((el) => {
+        const clone = structuredClone(el);
+        if (clone.type === 'arrow') {
+          delete clone.cachedControlPoint;
+        }
+        return clone;
+      }),
     layers: layers.map((l) => ({ ...l })),
   };
   if (activeLayerId) state.activeLayerId = activeLayerId;
@@ -327,7 +330,8 @@ function validateTypeFields(
         isOptional(el['domId'], isString) &&
         isOptional(el['interactive'], isBoolean) &&
         isOptional(el['htmlType'], isString) &&
-        isOptional(el['data'], isRecord)
+        isOptional(el['data'], isRecord) &&
+        isOptional(el['transient'], isBoolean)
       );
     case 'text':
       return (

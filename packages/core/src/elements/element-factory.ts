@@ -66,6 +66,7 @@ interface HtmlInput extends BaseDefaults {
   interactive?: boolean;
   htmlType?: string;
   data?: Record<string, unknown>;
+  transient?: boolean;
   rotation?: number;
 }
 
@@ -161,6 +162,7 @@ export function createHtmlElement(input: HtmlInput): HtmlElement {
   if (input.interactive) el.interactive = input.interactive;
   if (input.htmlType) el.htmlType = input.htmlType;
   if (input.data) el.data = input.data;
+  if (input.transient) el.transient = input.transient;
   if (input.rotation !== undefined) el.rotation = input.rotation;
   return el;
 }
