@@ -4,6 +4,18 @@ All notable changes to Field Notes are documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
 
+## [0.82.2] — 2026-09-12
+
+### Fixed
+
+- Arrow auto-unbind on element removal forwards the removal's change meta to the arrow update.
+  A remote removal no longer records a local undo step for the unbind, and the sync client no
+  longer re-broadcasts it; the originating peer already publishes its own unbind.
+
+### Package versions
+
+- `@fieldnotes/core` 0.82.1 → 0.82.2
+
 ## [@fieldnotes/sync-server 0.19.0] — 2026-09-11
 
 Sync security batch (Phase 0 §2.5). No persisted-canvas or wire-protocol change, but hosts must read
