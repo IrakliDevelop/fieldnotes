@@ -17,9 +17,47 @@ import {
 } from '../elements/element-factory';
 import { lineEndpoints } from '../elements/shape-geometry';
 import { rotatePoint } from '../core/geometry';
+import { ConstraintServiceProxy } from '../core/constraint-service';
+import { snapPoint } from '../core/snap';
 import type { ToolContext, PointerState } from './types';
 import type { NoteElement, ImageElement, ShapeElement } from '../elements/types';
 import type { Point } from '../core/types';
+
+function makeSnapProxy(
+  gridSize: number,
+  type = 'square',
+  hexOrientation?: string,
+): ConstraintServiceProxy {
+  const proxy = new ConstraintServiceProxy();
+  proxy.setImplementation({
+    constrainPoint: (p, opts) => {
+      if (type === 'hex') {
+        const orientation = hexOrientation || 'pointy';
+        if (orientation === 'pointy') {
+          const hexW = Math.sqrt(3) * gridSize;
+          const rowH = 1.5 * gridSize;
+          const row = Math.round(p.y / rowH);
+          const offsetX = row % 2 !== 0 ? hexW / 2 : 0;
+          const col = Math.round((p.x - offsetX) / hexW);
+          return { x: col * hexW + offsetX || 0, y: row * rowH || 0 };
+        }
+        const hexH = Math.sqrt(3) * gridSize;
+        const colW = 1.5 * gridSize;
+        const col = Math.round(p.x / colW);
+        const offsetY = col % 2 !== 0 ? hexH / 2 : 0;
+        const row = Math.round((p.y - offsetY) / hexH);
+        return { x: col * colW || 0, y: row * hexH + offsetY || 0 };
+      }
+      // Square grid: plain snapPoint for pointer positions; passthrough for footprint calls
+      if (opts?.footprint) return p;
+      return snapPoint(p, gridSize);
+    },
+    getConstraintInfo: () => ({ type, gridSize }),
+    hasCapability: () => true,
+  });
+  proxy.setActive(true);
+  return proxy;
+}
 
 function makeCtx(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
@@ -751,8 +789,7 @@ describe('SelectTool', () => {
     it('snaps element position when dragging with snap enabled', () => {
       const tool = new SelectTool();
       const ctx = makeCtx();
-      ctx.snapToGrid = true;
-      ctx.gridSize = 24;
+      ctx.constraintService = makeSnapProxy(24);
 
       const note = createNote({ position: { x: 10, y: 10 }, size: { w: 200, h: 100 } });
       ctx.store.add(note);
@@ -772,9 +809,7 @@ describe('SelectTool', () => {
     it('snaps element center to grid when gridType is set', () => {
       const tool = new SelectTool();
       const ctx = makeCtx();
-      ctx.snapToGrid = true;
-      ctx.gridSize = 50;
-      ctx.gridType = 'square';
+      ctx.constraintService = makeSnapProxy(50, 'square');
 
       const note = createNote({ position: { x: 10, y: 10 }, size: { w: 100, h: 80 } });
       ctx.store.add(note);
@@ -790,7 +825,6 @@ describe('SelectTool', () => {
     it('does not snap when snap is disabled', () => {
       const tool = new SelectTool();
       const ctx = makeCtx();
-      ctx.snapToGrid = false;
 
       const note = createNote({ position: { x: 10, y: 10 }, size: { w: 200, h: 100 } });
       ctx.store.add(note);
@@ -804,7 +838,7 @@ describe('SelectTool', () => {
     });
 
     describe('grid drag keeps the cell footprint centred', () => {
-      const grid = { snapToGrid: true, gridSize: 40, gridType: 'square' as const };
+      const grid: Partial<ToolContext> = { constraintService: makeSnapProxy(40, 'square') };
       function dragImage(
         size: { w: number; h: number },
         from: Point,
@@ -855,10 +889,7 @@ describe('SelectTool', () => {
           { x: 0, y: 0 },
           { x: 140, y: 0 },
           {
-            snapToGrid: true,
-            gridSize: 40,
-            gridType: 'hex',
-            hexOrientation: 'pointy',
+            constraintService: makeSnapProxy(40, 'hex', 'pointy'),
           },
         );
         // Pointy hex, cellSize 40: hexW = √3·40 ≈ 69.28. The first move re-snaps the centre (20,20) to hex
@@ -876,7 +907,7 @@ describe('SelectTool', () => {
             { w: 40, h: 40 },
             { x: 25, y: 25 },
             { x: 100, y: 60 },
-            { snapToGrid: true, gridSize: 40 },
+            { constraintService: makeSnapProxy(40) },
             { x: 5, y: 5 },
           ),
         ).toEqual({ x: 85, y: 45 });

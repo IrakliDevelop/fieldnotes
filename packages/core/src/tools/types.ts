@@ -1,6 +1,5 @@
 import type { Camera } from '../canvas/camera';
 import type { ElementStore } from '../elements/element-store';
-import type { HexOrientation } from '../elements/types';
 import type { Bounds } from '../core/types';
 import type { ConstraintServiceAccess } from '../core/constraint-service';
 import type { ElementRegistry } from '../elements/element-registry';
@@ -13,10 +12,6 @@ export interface ToolContext {
   editElement?: (id: string) => void;
   fitNoteHeight?: (id: string) => void;
   setCursor?: (cursor: string) => void;
-  snapToGrid?: boolean;
-  gridSize?: number;
-  gridType?: 'square' | 'hex';
-  hexOrientation?: HexOrientation;
   activeLayerId?: string;
   isLayerVisible?: (layerId: string) => boolean;
   isLayerLocked?: (layerId: string) => boolean;
@@ -76,7 +71,5 @@ export type ToolName =
   | 'image'
   | 'text'
   | 'shape'
-  | 'path'
-  | 'template'
   | 'laser'
   | 'ping';

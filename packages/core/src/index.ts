@@ -1,15 +1,7 @@
-export const VERSION = '0.84.0';
+export const VERSION = '0.85.0';
 
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
-export {
-  snapPoint,
-  smartSnap,
-  snapToHexCenter,
-  snapToCellCenter,
-  snapFootprintCenter,
-  footprintFromSize,
-} from './core/snap';
-export type { Footprint } from './core/snap';
+export { snapPoint } from './core/snap';
 export { CANVAS_STATE_VERSION } from './core/state-serializer';
 export type { CanvasState, ImportableCanvasState } from './core/state-serializer';
 export { AutoSave } from './core/auto-save';
@@ -92,18 +84,6 @@ export type {
   RemotePingOverlayHost,
   RemotePingOverlayOptions,
 } from './canvas/remote-ping-overlay';
-export {
-  RemotePathOverlay,
-  isPathPresence,
-  toPathPresence,
-  PATH_PRESENCE_KIND,
-  PATH_PRESENCE_MAX_POINTS,
-} from './canvas/remote-path-overlay';
-export type {
-  PathPresence,
-  RemotePathOverlayHost,
-  RemotePathOverlayOptions,
-} from './canvas/remote-path-overlay';
 export { PingInput } from './canvas/ping-input';
 export type { PingInputHost, PingInputOptions } from './canvas/ping-input';
 export { MinimapController } from './canvas/minimap-controller';
@@ -205,17 +185,6 @@ export { styleToPatch, getElementStyle } from './elements/element-style';
 export type { ElementStyle } from './elements/element-style';
 export type { SelectionStyleDetails } from './canvas/selection-ops';
 export { getElementsBoundingBox } from './elements/bounds';
-export {
-  getHexDistance,
-  getHexCellsInRadius,
-  getHexCellsInCone,
-  getHexCellsInLine,
-  getHexCellsInSquare,
-  getHexCellsInRectangle,
-  drawHexPath,
-} from './elements/hex-fill';
-export { pathDistanceCells, gridDistanceCells } from './core/grid-metric';
-export type { DiagonalRule, GridMetric, PathDistance } from './core/grid-metric';
 export type {
   BaseElement,
   Binding,
@@ -230,7 +199,6 @@ export type {
   TextElement,
   ShapeElement,
   ShapeKind,
-  HexOrientation,
   ExtensionElementEnvelope,
   ExtensionInteractionHandle,
   ExtensionInteractionContext,
@@ -298,14 +266,6 @@ export { ImageTool } from './tools/image-tool';
 export type { ImageToolOptions } from './tools/image-tool';
 export { ShapeTool } from './tools/shape-tool';
 export type { ShapeToolOptions } from './tools/shape-tool';
-export { PathTool } from './tools/path-tool';
-export type {
-  PathToolOptions,
-  PathAnchor,
-  PathRangeBand,
-  PathSegment,
-  PathEmission,
-} from './tools/path-tool';
 export { LaserTool } from './tools/laser-tool';
 export type { LaserToolOptions, LaserTrailEmission } from './tools/laser-tool';
 export { PingTool } from './tools/ping-tool';

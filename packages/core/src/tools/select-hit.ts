@@ -110,7 +110,12 @@ export function hitTestExtensionHandle(
       zoom: ctx.camera.zoom,
       shiftKey: false,
       selectedCount: selectedIds.length,
-      snap: { enabled: ctx.snapToGrid === true, size: ctx.gridSize, mode: ctx.gridType },
+      snap: (() => {
+        const cs = ctx.constraintService;
+        if (!cs?.isActive) return { enabled: false };
+        const info = cs.getConstraintInfo();
+        return { enabled: true, size: info?.['gridSize'] as number | undefined, mode: info?.type };
+      })(),
     });
     if (handle) return { elementId: id, handleId: handle.id, cursor: handle.cursor };
   }

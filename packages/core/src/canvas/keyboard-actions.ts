@@ -61,7 +61,11 @@ export class KeyboardActions {
     if (!sel) return false;
     if (sel.tool.selectedIds.length === 0) return false;
 
-    const step = byCell ? (sel.ctx.gridSize ?? 10) : 1;
+    const cs = sel.ctx.constraintService;
+    const gridSize = cs?.isActive
+      ? (cs.getConstraintInfo()?.['gridSize'] as number | undefined)
+      : undefined;
+    const step = byCell ? (gridSize ?? 10) : 1;
     if (this.nudgeTimer === null) {
       const recorder = this.deps.getHistoryRecorder();
       recorder?.begin();

@@ -2,7 +2,6 @@ import type { Point } from '../core/types';
 import type { ShapeKind } from '../elements/types';
 import type { Tool, ToolContext, PointerState } from './types';
 import { createShape } from '../elements/element-factory';
-import { smartSnap } from '../core/snap';
 
 function snapTo45(start: Point, end: Point): Point {
   const dx = end.x - start.x;
@@ -187,7 +186,8 @@ export class ShapeTool implements Tool {
   }
 
   private snap(point: Point, ctx: ToolContext): Point {
-    return smartSnap(point, ctx);
+    const cs = ctx.constraintService;
+    return cs?.isActive ? cs.constrainPoint(point) : point;
   }
 
   // Deliberately NOT migrated to `Tool.onKeyDown`: that hook is gated by

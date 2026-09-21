@@ -3,9 +3,9 @@ import type {
   ConstraintOptions,
   ConstraintInfo,
   PointConstraintService,
-  Footprint,
 } from '@fieldnotes/core';
-import { snapPoint, snapToHexCenter, snapToCellCenter } from '@fieldnotes/core';
+import { snapPoint, snapToHexCenter, snapToCellCenter } from './snap';
+import type { Footprint } from './snap';
 import type { GridInfo } from './grid-controller';
 
 export class GridConstraintService implements PointConstraintService {

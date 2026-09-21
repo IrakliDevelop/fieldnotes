@@ -65,6 +65,40 @@ export { createGrid, createTemplate } from './elements/element-factory';
 // Registration
 export { registerVttElementTypes } from './register';
 
+// Movement path
+export { PathTool } from './path-tool';
+export type {
+  PathToolOptions,
+  PathAnchor,
+  PathRangeBand,
+  PathSegment,
+  PathEmission,
+} from './path-tool';
+export { drawPath, resolveSegmentColors } from './path-render';
+export type { PathRenderModel } from './path-render';
+export {
+  RemotePathOverlay,
+  isPathPresence,
+  toPathPresence,
+  PATH_PRESENCE_KIND,
+  PATH_PRESENCE_MAX_POINTS,
+} from './remote-path-overlay';
+export type {
+  PathPresence,
+  RemotePathOverlayHost,
+  RemotePathOverlayOptions,
+} from './remote-path-overlay';
+
+// Snap utilities (domain-aware, previously in core)
+export {
+  snapToHexCenter,
+  snapToCellCenter,
+  snapFootprintCenter,
+  footprintFromSize,
+  smartSnap,
+} from './grid/snap';
+export type { Footprint } from './grid/snap';
+
 // Fog (Phase 5)
 export { createFogPlugin, FogManagerKey } from './fog/fog-plugin';
 export type { FogPlugin, CreateFogPluginOptions } from './fog/fog-plugin';

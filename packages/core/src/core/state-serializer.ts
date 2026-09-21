@@ -202,9 +202,6 @@ function validateState(
   if (obj['extensions'] !== undefined) {
     validateExtensions(obj['extensions']);
   }
-  if (obj['fog'] !== undefined && obj['fog'] !== null && !isRecord(obj['fog'])) {
-    throw new Error('Invalid state: fog must be an object or null');
-  }
 }
 
 function validateExtensions(value: unknown): asserts value is Record<string, PersistedPluginState> {

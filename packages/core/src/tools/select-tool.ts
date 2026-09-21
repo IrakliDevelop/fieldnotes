@@ -1,6 +1,5 @@
 import type { Bounds, Point } from '../core/types';
 import type { Tool, ToolContext, PointerState } from './types';
-import { smartSnap, snapFootprintCenter, footprintFromSize } from '../core/snap';
 import { normalizeAngle } from '../core/geometry';
 import type { CanvasElement } from '../elements/types';
 import { updateArrowsBoundToElements } from '../elements/arrow-binding';
@@ -124,7 +123,15 @@ export class SelectTool implements Tool {
   }
 
   private snap(point: Point, ctx: ToolContext): Point {
-    return smartSnap(point, ctx);
+    const cs = ctx.constraintService;
+    return cs?.isActive ? cs.constrainPoint(point) : point;
+  }
+
+  private deriveSnapContext(ctx: ToolContext): { enabled: boolean; size?: number; mode?: string } {
+    const cs = ctx.constraintService;
+    if (!cs?.isActive) return { enabled: false };
+    const info = cs.getConstraintInfo();
+    return { enabled: true, size: info?.['gridSize'] as number | undefined, mode: info?.type };
   }
 
   onPointerDown(state: PointerState, ctx: ToolContext): void {
@@ -259,7 +266,7 @@ export class SelectTool implements Tool {
           zoom: ctx.camera.zoom,
           shiftKey: state.shiftKey,
           selectedCount: this._selectedIds.length,
-          snap: { enabled: ctx.snapToGrid === true, size: ctx.gridSize, mode: ctx.gridType },
+          snap: this.deriveSnapContext(ctx),
         });
         if (updated) ctx.store.update(stored.id, updated);
         ctx.requestRender();
@@ -337,17 +344,26 @@ export class SelectTool implements Tool {
             from: { x: el.from.x + adjDx, y: el.from.y + adjDy },
             to: { x: el.to.x + adjDx, y: el.to.y + adjDy },
           });
-        } else if (!ctx.smartGuides && ctx.gridType && 'size' in el) {
-          const centerX = el.position.x + el.size.w / 2 + adjDx;
-          const centerY = el.position.y + el.size.h / 2 + adjDy;
-          const footprint = footprintFromSize(el.size, ctx.gridSize ?? 0);
-          const snappedCenter = snapFootprintCenter({ x: centerX, y: centerY }, footprint, ctx);
-          ctx.store.update(id, {
-            position: {
-              x: snappedCenter.x - el.size.w / 2,
-              y: snappedCenter.y - el.size.h / 2,
-            },
-          });
+        } else if (!ctx.smartGuides && 'size' in el) {
+          const cs = ctx.constraintService;
+          if (cs?.isActive) {
+            const centerX = el.position.x + el.size.w / 2 + adjDx;
+            const centerY = el.position.y + el.size.h / 2 + adjDy;
+            const snappedCenter = cs.constrainPoint(
+              { x: centerX, y: centerY },
+              { footprint: { width: el.size.w, height: el.size.h } },
+            );
+            ctx.store.update(id, {
+              position: {
+                x: snappedCenter.x - el.size.w / 2,
+                y: snappedCenter.y - el.size.h / 2,
+              },
+            });
+          } else {
+            ctx.store.update(id, {
+              position: { x: el.position.x + adjDx, y: el.position.y + adjDy },
+            });
+          }
         } else {
           ctx.store.update(id, {
             position: { x: el.position.x + adjDx, y: el.position.y + adjDy },

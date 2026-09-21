@@ -102,8 +102,6 @@ export interface ShapeElement extends BaseElement {
   flip?: boolean;
 }
 
-export type HexOrientation = 'pointy' | 'flat';
-
 export type CanvasElement =
   | StrokeElement
   | NoteElement

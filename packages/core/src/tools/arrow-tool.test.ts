@@ -3,8 +3,21 @@ import { ArrowTool } from './arrow-tool';
 import { ElementStore } from '../elements/element-store';
 import { Camera } from '../canvas/camera';
 import { createNote } from '../elements/element-factory';
+import { ConstraintServiceProxy } from '../core/constraint-service';
+import { snapPoint } from '../core/snap';
 import type { ToolContext, PointerState } from './types';
 import type { ArrowElement } from '../elements/types';
+
+function makeSnapProxy(gridSize: number): ConstraintServiceProxy {
+  const proxy = new ConstraintServiceProxy();
+  proxy.setImplementation({
+    constrainPoint: (p) => snapPoint(p, gridSize),
+    getConstraintInfo: () => ({ type: 'square', gridSize }),
+    hasCapability: () => true,
+  });
+  proxy.setActive(true);
+  return proxy;
+}
 
 function makeCtx(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
@@ -98,8 +111,7 @@ describe('ArrowTool', () => {
   it('snaps start and end to grid when not binding', () => {
     const tool = new ArrowTool();
     const ctx = makeCtx();
-    ctx.snapToGrid = true;
-    ctx.gridSize = 24;
+    ctx.constraintService = makeSnapProxy(24);
 
     tool.onPointerDown(pt(10, 10), ctx);
     tool.onPointerMove(pt(110, 85), ctx);

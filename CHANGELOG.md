@@ -6,6 +6,55 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### Core 0.85.0 — purity pass (F6)
+
+**Breaking changes (pre-1.0):**
+
+- Removed VTT-domain exports: `smartSnap`, `snapToHexCenter`, `snapToCellCenter`,
+  `snapFootprintCenter`, `footprintFromSize`, `Footprint`, `HexOrientation`,
+  `getHexDistance`, `getHexCellsInRadius`, `getHexCellsInCone`, `getHexCellsInLine`,
+  `getHexCellsInSquare`, `getHexCellsInRectangle`, `drawHexPath`, `pathDistanceCells`,
+  `gridDistanceCells`, `DiagonalRule`, `GridMetric`, `PathDistance`. These now live in
+  `@fieldnotes/vtt`.
+- Removed `PathTool`, `RemotePathOverlay`, `isPathPresence`, `toPathPresence`,
+  `PATH_PRESENCE_KIND`, `PATH_PRESENCE_MAX_POINTS`, `PathPresence`, `RemotePathOverlayHost`,
+  `RemotePathOverlayOptions` from core. Now exported by `@fieldnotes/vtt`.
+- Removed grid fields from `ToolContext`: `snapToGrid`, `gridSize`, `gridType`, `hexOrientation`.
+  All snapping is now constraint-service-only (`ctx.constraintService.constrainPoint`).
+- Removed `'template'` from `ToolName` union.
+- Removed `tool:measure` (`m`) and `tool:template` (`g`) default shortcut bindings.
+- Removed fog-specific validation from `validateState` (fog migration still handled by
+  `migrateState`).
+
+**Internal:**
+
+- Core tools (`select`, `arrow`, `shape`, `note`, `text`, `image`) now snap exclusively through
+  the constraint service proxy — no fallback to `smartSnap`.
+- `Viewport.setSnapToGrid` only toggles the constraint proxy; no longer sets `toolContext.snapToGrid`.
+- `SelectTool` derives `ExtensionInteractionContext.snap` from the constraint service.
+- Nudge-by-cell reads grid size from the constraint service info instead of `toolContext.gridSize`.
+
+### VTT 0.12.0 — new exports from core purity pass
+
+**Added:**
+
+- `PathTool`, `PathToolOptions`, `PathAnchor`, `PathRangeBand`, `PathSegment`, `PathEmission`
+  (movement path tool, moved from core).
+- `RemotePathOverlay`, `isPathPresence`, `toPathPresence`, `PATH_PRESENCE_KIND`,
+  `PATH_PRESENCE_MAX_POINTS`, `PathPresence`, `RemotePathOverlayHost`, `RemotePathOverlayOptions`
+  (remote path presence overlay, moved from core).
+- `drawPath`, `resolveSegmentColors`, `PathRenderModel` (path rendering utilities).
+- `snapToHexCenter`, `snapToCellCenter`, `snapFootprintCenter`, `footprintFromSize`, `smartSnap`,
+  `Footprint` (grid-aware snap utilities, moved from core).
+- `grid/snap.ts` — consolidated snap module with constraint-service-aware `smartSnap` and
+  `snapFootprintCenter`.
+
+**Changed:**
+
+- `MeasureTool`, `TemplateTool`, `PathTool` now read grid state from the constraint service's
+  `getConstraintInfo()` instead of removed `ToolContext` grid fields.
+- `GridConstraintService` imports snap functions from local `grid/snap` instead of `@fieldnotes/core`.
+
 ### Tooling
 
 - Test files under `src` are type-checked: each package has a `typecheck` script and the root

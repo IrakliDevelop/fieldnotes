@@ -1,7 +1,6 @@
 import type { Size } from '../core/types';
 import type { Tool, ToolContext, PointerState } from './types';
 import { createNote, DEFAULT_NOTE_FONT_SIZE } from '../elements/element-factory';
-import { smartSnap } from '../core/snap';
 
 export interface NoteToolOptions {
   backgroundColor?: string;
@@ -61,7 +60,8 @@ export class NoteTool implements Tool {
 
   onPointerUp(state: PointerState, ctx: ToolContext): void {
     let world = ctx.camera.screenToWorld({ x: state.x, y: state.y });
-    world = smartSnap(world, ctx);
+    const cs = ctx.constraintService;
+    if (cs?.isActive) world = cs.constrainPoint(world);
     const note = createNote({
       position: world,
       size: { ...this.size },

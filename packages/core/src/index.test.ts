@@ -3,7 +3,7 @@ import * as FN from './index';
 
 describe('core public surface', () => {
   it('exports the current version', () => {
-    expect(FN.VERSION).toBe('0.84.0');
+    expect(FN.VERSION).toBe('0.85.0');
   });
 
   it('exports the camera view, animator, and focus presence surface', () => {
@@ -138,11 +138,6 @@ describe('core public surface', () => {
       'createNote',
       'createArrow',
       'snapPoint',
-      'smartSnap',
-      'snapToHexCenter',
-      'getHexCellsInRadius',
-      'getHexCellsInRectangle',
-      'drawHexPath',
       'getArrowControlPoint',
       'getArrowBounds',
       'getElementBounds',
@@ -187,25 +182,32 @@ describe('core public surface', () => {
     expect(typeof FN.elementRectsEqual).toBe('function');
   });
 
-  it('reports VERSION 0.84.0', async () => {
+  it('reports VERSION 0.85.0', async () => {
     const { VERSION } = await import('./index');
-    expect(VERSION).toBe('0.84.0');
+    expect(VERSION).toBe('0.85.0');
   });
 
-  it('exports the movement-path surface', () => {
-    expect(FN.PathTool).toBeTypeOf('function');
-    // pathDistanceCells and gridDistanceCells moved to @fieldnotes/vtt
-    expect(FN.snapToCellCenter).toBeTypeOf('function');
-    expect(FN.snapFootprintCenter).toBeTypeOf('function');
-    expect(FN.footprintFromSize).toBeTypeOf('function');
-    expect(FN.RemotePathOverlay).toBeTypeOf('function');
-    expect(FN.isPathPresence).toBeTypeOf('function');
-    expect(FN.toPathPresence).toBeTypeOf('function');
-    expect(FN.PATH_PRESENCE_KIND).toBe('path');
-  });
-
-  it('keeps the path renderer internal', () => {
-    expect((FN as Record<string, unknown>).drawPath).toBeUndefined();
+  it('does not re-export VTT-domain symbols (moved to @fieldnotes/vtt)', () => {
+    const vttOnly = [
+      'PathTool',
+      'RemotePathOverlay',
+      'isPathPresence',
+      'toPathPresence',
+      'PATH_PRESENCE_KIND',
+      'smartSnap',
+      'snapToHexCenter',
+      'snapToCellCenter',
+      'snapFootprintCenter',
+      'footprintFromSize',
+      'getHexDistance',
+      'getHexCellsInRadius',
+      'drawHexPath',
+      'pathDistanceCells',
+      'gridDistanceCells',
+    ];
+    for (const name of vttOnly) {
+      expect(name in FN, `${name} should not be in core`).toBe(false);
+    }
   });
 
   it('exports LingerOverlay as a public utility', () => {

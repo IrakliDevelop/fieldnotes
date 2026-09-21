@@ -10,8 +10,21 @@ import { SelectTool } from '../tools/select-tool';
 import { createNote, createArrow } from '../elements/element-factory';
 import type { ToolManager } from '../tools/tool-manager';
 import type { ToolContext } from '../tools/types';
+import { ConstraintServiceProxy } from '../core/constraint-service';
+import { snapPoint } from '../core/snap';
 import { HistoryRecorder } from '../history/history-recorder';
 import { HistoryStack } from '../history/history-stack';
+
+function makeSnapProxy(gridSize: number): ConstraintServiceProxy {
+  const proxy = new ConstraintServiceProxy();
+  proxy.setImplementation({
+    constrainPoint: (p) => snapPoint(p, gridSize),
+    getConstraintInfo: () => ({ type: 'square', gridSize }),
+    hasCapability: () => true,
+  });
+  proxy.setActive(true);
+  return proxy;
+}
 
 function makeCtx(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
@@ -434,7 +447,7 @@ describe('KeyboardActions.nudge', () => {
   });
 
   it('moves selection 1 unit, or one grid cell with the cell multiplier', () => {
-    const ctx = makeCtx({ gridSize: 40 });
+    const ctx = makeCtx({ constraintService: makeSnapProxy(40) });
     const { actions, tool } = makeActions({ ctx });
     const note = createNote({ position: { x: 100, y: 100 }, size: { w: 100, h: 50 } });
     ctx.store.add(note);

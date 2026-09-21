@@ -1,8 +1,7 @@
-import type { Point } from '../core/types';
-import type { PathEmission } from '../tools/path-tool';
-import type { OverlayRenderer } from './render-loop';
+import type { Point, OverlayRenderer } from '@fieldnotes/core';
+import { LingerOverlay } from '@fieldnotes/core';
+import type { PathEmission } from './path-tool';
 import { drawPath, resolveSegmentColors } from './path-render';
-import { LingerOverlay } from './linger-overlay';
 
 /**
  * The wire shape of a movement-path presence payload. Presence data is untyped

@@ -1,5 +1,7 @@
-import type { Point, HexOrientation, Tool, ToolContext, PointerState } from '@fieldnotes/core';
-import { snapPoint, snapToHexCenter, getHexDistance } from '@fieldnotes/core';
+import type { Point, Tool, ToolContext, PointerState } from '@fieldnotes/core';
+import type { HexOrientation } from './elements/types';
+import { getHexDistance } from './grid/hex-fill';
+import { snapPoint, snapToHexCenter } from './grid/snap';
 import { drawMeasurement } from './measure-render';
 
 export interface MeasureToolOptions {
@@ -78,9 +80,17 @@ export class MeasureTool implements Tool {
   }
 
   onPointerDown(state: PointerState, ctx: ToolContext): void {
-    this.gridSize = ctx.gridSize ?? 1;
-    this.gridType = ctx.gridType;
-    this.hexOrientation = ctx.hexOrientation;
+    const cs = ctx.constraintService;
+    if (cs?.isActive) {
+      const info = cs.getConstraintInfo();
+      this.gridSize = (info?.cellSize as number) ?? 1;
+      this.gridType = (info?.gridType as 'square' | 'hex') ?? undefined;
+      this.hexOrientation = info?.hexOrientation as HexOrientation | undefined;
+    } else {
+      this.gridSize = 1;
+      this.gridType = undefined;
+      this.hexOrientation = undefined;
+    }
     const world = ctx.camera.screenToWorld({ x: state.x, y: state.y });
     this.start = this.snapToGrid(world, ctx);
     this.end = { ...this.start };
@@ -140,20 +150,13 @@ export class MeasureTool implements Tool {
     drawMeasurement(ctx, { start: m.start, end: m.end, feet: m.feet, color: this.color });
   }
 
-  private snapToGrid(point: Point, ctx: ToolContext): Point {
-    const cs = ctx.constraintService;
-    if (cs && cs.getConstraintInfo()) {
-      return cs.constrainPoint(point);
+  private snapToGrid(point: Point, _ctx: ToolContext): Point {
+    if (!this.gridSize) return point;
+    if (this.gridType === 'hex' && this.hexOrientation) {
+      return snapToHexCenter(point, this.gridSize, this.hexOrientation);
     }
-    if (!ctx.gridSize) return point;
-    if (ctx.gridType === 'hex' && ctx.hexOrientation) {
-      return snapToHexCenter(point, ctx.gridSize, ctx.hexOrientation);
-    }
-    if (ctx.gridType === 'square') {
-      return snapPoint(point, ctx.gridSize);
-    }
-    if (ctx.snapToGrid) {
-      return snapPoint(point, ctx.gridSize);
+    if (this.gridType === 'square') {
+      return snapPoint(point, this.gridSize);
     }
     return point;
   }

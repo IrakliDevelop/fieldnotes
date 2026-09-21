@@ -1,7 +1,6 @@
 import type { Size } from '../core/types';
 import type { Tool, ToolContext, PointerState } from './types';
 import { createImage } from '../elements/element-factory';
-import { smartSnap } from '../core/snap';
 
 export interface ImageToolOptions {
   size?: Size;
@@ -32,7 +31,8 @@ export class ImageTool implements Tool {
     if (!this.src) return;
 
     const world = ctx.camera.screenToWorld({ x: state.x, y: state.y });
-    const snapped = smartSnap(world, ctx);
+    const cs = ctx.constraintService;
+    const snapped = cs?.isActive ? cs.constrainPoint(world) : world;
     const image = createImage({
       position: {
         x: snapped.x - this.size.w / 2,
