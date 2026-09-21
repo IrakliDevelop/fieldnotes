@@ -804,14 +804,14 @@ describe('parseState', () => {
       expect('fog' in state).toBe(false);
     });
 
-    it('calls registered legacy state migrators during v3→v4 upgrade', () => {
+    it('lets registered legacy state migrators inspect and remove arbitrary primitive fields', () => {
       const migrated: unknown[] = [];
       const migrator: LegacyStateMigrator = (legacy) => {
         migrated.push(legacy);
-        if ('testField' in legacy) {
+        if ('legacyMarker' in legacy) {
           legacy.extensions ??= {};
-          legacy.extensions['test'] = { version: 1, data: legacy['testField'] };
-          delete legacy['testField'];
+          legacy.extensions['test'] = { version: 1, data: legacy.legacyMarker };
+          delete legacy.legacyMarker;
         }
       };
 
@@ -822,13 +822,13 @@ describe('parseState', () => {
             version: 3,
             camera: { position: { x: 0, y: 0 }, zoom: 1 },
             elements: [],
-            testField: { value: 42 },
+            legacyMarker: 42,
           }),
         );
 
         expect(migrated).toHaveLength(1);
-        expect(state.extensions?.['test']).toEqual({ version: 1, data: { value: 42 } });
-        expect('testField' in state).toBe(false);
+        expect(state.extensions?.['test']).toEqual({ version: 1, data: 42 });
+        expect('legacyMarker' in state).toBe(false);
       } finally {
         unregisterLegacyStateMigrator(migrator);
       }

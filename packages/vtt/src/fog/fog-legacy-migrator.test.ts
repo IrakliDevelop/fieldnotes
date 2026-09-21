@@ -1,6 +1,11 @@
-import { describe, it, expect } from 'vitest';
+// @vitest-environment jsdom
+import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { Viewport } from '@fieldnotes/core';
 import { fogLegacyMigrator } from './fog-legacy-migrator';
 import type { LegacyCanvasState } from '@fieldnotes/core';
+import { FogManager } from './fog-manager';
+import { createFogPlugin } from './fog-plugin';
+import { registerVttElementTypes } from '../register';
 
 function makeLegacy(overrides: Record<string, unknown> = {}): LegacyCanvasState {
   return {
@@ -82,7 +87,17 @@ describe('fogLegacyMigrator', () => {
 
   it('preserves existing extensions.fog when both exist', () => {
     const legacy = makeLegacy({
-      fog: { source: 'legacy' },
+      fog: {
+        definition: {
+          version: 1,
+          generation: 'legacy-generation',
+          bounds: { x: 0, y: 0, w: 128, h: 128 },
+          cellSize: 1,
+          tileCells: 128,
+          base: 'covered',
+        },
+        tiles: [],
+      },
       extensions: { fog: { version: 1, data: { source: 'plugin' } } },
     });
     fogLegacyMigrator(legacy);
@@ -94,5 +109,80 @@ describe('fogLegacyMigrator', () => {
     const legacy = makeLegacy({ fog: null });
     fogLegacyMigrator(legacy);
     expect('fog' in legacy).toBe(false);
+  });
+});
+
+describe('registered legacy fog migration', () => {
+  const viewports: Viewport[] = [];
+  const containers: HTMLDivElement[] = [];
+
+  afterEach(() => {
+    for (const viewport of viewports.splice(0)) viewport.destroy();
+    for (const container of containers.splice(0)) container.remove();
+  });
+
+  beforeAll(() => {
+    registerVttElementTypes();
+  });
+
+  function loadLegacyFog(fog: unknown): FogManager {
+    const container = document.createElement('div');
+    Object.defineProperty(container, 'getBoundingClientRect', {
+      value: () => ({ left: 0, top: 0, width: 800, height: 600, right: 800, bottom: 600 }),
+    });
+    document.body.appendChild(container);
+    containers.push(container);
+    const manager = new FogManager();
+    const viewport = new Viewport(container, { plugins: [createFogPlugin({ manager })] });
+    viewports.push(viewport);
+    viewport.loadJSON(
+      JSON.stringify({
+        version: 3,
+        camera: { position: { x: 0, y: 0 }, zoom: 1 },
+        elements: [],
+        fog,
+      }),
+    );
+    return manager;
+  }
+
+  it('migrates canonical v3 fog through registered parsing and plugin loading', () => {
+    const fog = {
+      definition: {
+        version: 1,
+        generation: 'legacy-generation',
+        bounds: { x: 0, y: 0, w: 128, h: 128 },
+        cellSize: 1,
+        tileCells: 128,
+        base: 'covered',
+      },
+      tiles: [],
+    };
+
+    expect(loadLegacyFog(fog).getState()).toEqual(fog);
+  });
+
+  it('discards primitive legacy fog without aborting canvas load', () => {
+    const manager = loadLegacyFog('invalid');
+
+    expect(manager.getState()).toBeNull();
+  });
+
+  it('discards deeply malformed legacy fog without aborting canvas load', () => {
+    const malformedFog = {
+      definition: {
+        version: 1,
+        generation: 'legacy-generation',
+        bounds: { x: 0, y: 0, w: 128, h: 128 },
+        cellSize: 1,
+        tileCells: 128,
+        base: 'covered',
+      },
+      tiles: [{ x: 0, y: 0, data: 'not-base64' }],
+    };
+
+    const manager = loadLegacyFog(malformedFog);
+
+    expect(manager.getState()).toBeNull();
   });
 });

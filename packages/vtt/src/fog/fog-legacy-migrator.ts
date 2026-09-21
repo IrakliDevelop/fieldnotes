@@ -1,8 +1,5 @@
 import type { LegacyCanvasState, LegacyStateMigrator } from '@fieldnotes/core';
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
+import { validateFogState } from './tile-codec';
 
 /**
  * Migrates a legacy top-level `fog` field into `extensions.fog`.
@@ -13,24 +10,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export const fogLegacyMigrator: LegacyStateMigrator = (legacy: LegacyCanvasState) => {
   if (!Object.hasOwn(legacy, 'fog')) return;
 
-  const fog = legacy.fog;
-  const def = isRecord(fog) ? fog['definition'] : null;
-  const tiles = isRecord(fog) ? fog['tiles'] : null;
-  const wellFormed =
-    isRecord(fog) &&
-    isRecord(def) &&
-    typeof def['version'] === 'number' &&
-    isRecord(def['bounds']) &&
-    typeof def['cellSize'] === 'number' &&
-    Array.isArray(tiles);
-
-  if (wellFormed) {
+  const fog = legacy['fog'];
+  try {
+    validateFogState(fog);
     legacy.extensions ??= {};
     legacy.extensions['fog'] ??= {
       version: 1,
       data: structuredClone(fog),
     };
+  } catch {
+    // Invalid legacy payloads are discarded so load can continue safely.
+  } finally {
+    delete legacy['fog'];
   }
-
-  delete legacy.fog;
 };

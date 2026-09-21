@@ -80,7 +80,7 @@
     "fieldnotes"
   ],
   "peerDependencies": {
-    "@fieldnotes/core": ">=0.84.0 <1.0.0",
+    "@fieldnotes/core": ">=0.85.0 <1.0.0",
     "@fieldnotes/sync": ">=0.21.0 <1.0.0",
     "@fieldnotes/sync-server": ">=0.20.0 <1.0.0",
     "@fieldnotes/sync-redis": ">=0.12.0 <1.0.0"

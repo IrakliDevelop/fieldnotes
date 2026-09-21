@@ -21,7 +21,7 @@ export interface CanvasState {
 export interface LegacyCanvasState extends Omit<CanvasState, 'version' | 'elements'> {
   version: 1 | 2 | 3;
   elements: unknown[];
-  fog?: unknown;
+  [key: string]: unknown;
 }
 
 export type ImportableCanvasState = CanvasState | LegacyCanvasState;
@@ -215,9 +215,6 @@ function validateState(
 
   if (obj['extensions'] !== undefined) {
     validateExtensions(obj['extensions']);
-  }
-  if (obj['fog'] !== undefined && obj['fog'] !== null && !isRecord(obj['fog'])) {
-    throw new Error('Invalid state: fog must be an object or null');
   }
 }
 
