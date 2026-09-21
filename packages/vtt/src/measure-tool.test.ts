@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { ElementStore, Camera } from '@fieldnotes/core';
+import { ElementStore, Camera, ConstraintServiceProxy } from '@fieldnotes/core';
 import type { ToolContext, PointerState } from '@fieldnotes/core';
 import { MeasureTool } from './measure-tool';
 import type { MeasureEmission } from './measure-tool';
+import type { HexOrientation } from './elements/types';
+import { snapPoint, snapToHexCenter } from './grid/snap';
 
 function makeCtx(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
@@ -18,6 +20,27 @@ function pt(x: number, y: number): PointerState {
   return { x, y, pressure: 0.5, pointerType: 'mouse', shiftKey: false };
 }
 
+function makeGridProxy(
+  gridSize: number,
+  gridType: 'square' | 'hex' = 'square',
+  hexOrientation?: HexOrientation,
+): ConstraintServiceProxy {
+  const proxy = new ConstraintServiceProxy();
+  proxy.setImplementation({
+    constrainPoint: (point) => {
+      if (gridSize <= 0) return point;
+      if (gridType === 'hex' && hexOrientation) {
+        return snapToHexCenter(point, gridSize, hexOrientation);
+      }
+      return snapPoint(point, gridSize);
+    },
+    getConstraintInfo: () => ({ type: gridType, gridType, cellSize: gridSize, hexOrientation }),
+    hasCapability: () => true,
+  });
+  proxy.setActive(true);
+  return proxy;
+}
+
 describe('MeasureTool', () => {
   it('has name "measure"', () => {
     expect(new MeasureTool().name).toBe('measure');
@@ -25,7 +48,7 @@ describe('MeasureTool', () => {
 
   it('computes distance in feet correctly', () => {
     const tool = new MeasureTool();
-    const ctx = makeCtx({ gridSize: 50 });
+    const ctx = makeCtx({ constraintService: makeGridProxy(50) });
 
     tool.onPointerDown(pt(0, 0), ctx);
     tool.onPointerMove(pt(150, 0), ctx);
@@ -39,7 +62,7 @@ describe('MeasureTool', () => {
 
   it('uses custom feetPerCell', () => {
     const tool = new MeasureTool({ feetPerCell: 10 });
-    const ctx = makeCtx({ gridSize: 50 });
+    const ctx = makeCtx({ constraintService: makeGridProxy(50) });
 
     tool.onPointerDown(pt(0, 0), ctx);
     tool.onPointerMove(pt(100, 0), ctx);
@@ -51,7 +74,7 @@ describe('MeasureTool', () => {
 
   it('clears measurement on pointer up', () => {
     const tool = new MeasureTool();
-    const ctx = makeCtx({ gridSize: 50 });
+    const ctx = makeCtx({ constraintService: makeGridProxy(50) });
 
     tool.onPointerDown(pt(0, 0), ctx);
     tool.onPointerMove(pt(100, 0), ctx);
@@ -63,7 +86,7 @@ describe('MeasureTool', () => {
 
   it('requests render on pointer move', () => {
     const tool = new MeasureTool();
-    const ctx = makeCtx({ gridSize: 50 });
+    const ctx = makeCtx({ constraintService: makeGridProxy(50) });
 
     tool.onPointerDown(pt(0, 0), ctx);
     tool.onPointerMove(pt(50, 50), ctx);
@@ -73,7 +96,7 @@ describe('MeasureTool', () => {
 
   it('snaps when snapToGrid is true', () => {
     const tool = new MeasureTool();
-    const ctx = makeCtx({ snapToGrid: true, gridSize: 50 });
+    const ctx = makeCtx({ constraintService: makeGridProxy(50) });
 
     tool.onPointerDown(pt(10, 10), ctx);
     tool.onPointerMove(pt(110, 10), ctx);
@@ -88,7 +111,7 @@ describe('MeasureTool', () => {
 
   it('does not snap when snapToGrid is false', () => {
     const tool = new MeasureTool();
-    const ctx = makeCtx({ snapToGrid: false, gridSize: 50 });
+    const ctx = makeCtx();
 
     tool.onPointerDown(pt(10, 10), ctx);
     tool.onPointerMove(pt(110, 10), ctx);
@@ -98,9 +121,28 @@ describe('MeasureTool', () => {
     expect(m?.end).toEqual({ x: 110, y: 10 });
   });
 
+  it('uses a custom active constraint service for both measurement endpoints', () => {
+    const proxy = new ConstraintServiceProxy();
+    proxy.setImplementation({
+      constrainPoint: (point) => ({ x: point.x + 101, y: point.y - 47 }),
+      getConstraintInfo: () => ({ type: 'custom' }),
+      hasCapability: () => false,
+    });
+    proxy.setActive(true);
+    const tool = new MeasureTool();
+    const ctx = makeCtx({ constraintService: proxy });
+
+    tool.onPointerDown(pt(10, 20), ctx);
+    tool.onPointerMove(pt(30, 40), ctx);
+
+    const measurement = tool.getMeasurement();
+    expect(measurement?.start).toEqual({ x: 111, y: -27 });
+    expect(measurement?.end).toEqual({ x: 131, y: -7 });
+  });
+
   it('setOptions updates feetPerCell', () => {
     const tool = new MeasureTool();
-    const ctx = makeCtx({ gridSize: 50 });
+    const ctx = makeCtx({ constraintService: makeGridProxy(50) });
 
     tool.setOptions({ feetPerCell: 10 });
 
@@ -140,7 +182,7 @@ describe('MeasureTool', () => {
 
   it('computes diagonal distance correctly', () => {
     const tool = new MeasureTool();
-    const ctx = makeCtx({ gridSize: 50 });
+    const ctx = makeCtx({ constraintService: makeGridProxy(50) });
 
     tool.onPointerDown(pt(0, 0), ctx);
     tool.onPointerMove(pt(300, 400), ctx);
@@ -153,7 +195,7 @@ describe('MeasureTool', () => {
 
   it('does not create any elements', () => {
     const tool = new MeasureTool();
-    const ctx = makeCtx({ gridSize: 50 });
+    const ctx = makeCtx({ constraintService: makeGridProxy(50) });
 
     tool.onPointerDown(pt(0, 0), ctx);
     tool.onPointerMove(pt(100, 100), ctx);
@@ -162,22 +204,22 @@ describe('MeasureTool', () => {
     expect(ctx.store.getAll()).toHaveLength(0);
   });
 
-  it('defaults gridSize to 1 when not provided', () => {
+  it('defaults to the 24-unit fallback cell size when no constraint service is active', () => {
     const tool = new MeasureTool();
     const ctx = makeCtx();
 
     tool.onPointerDown(pt(0, 0), ctx);
-    tool.onPointerMove(pt(100, 0), ctx);
+    tool.onPointerMove(pt(120, 0), ctx);
 
     const m = tool.getMeasurement();
-    expect(m?.worldDistance).toBe(100);
-    expect(m?.cells).toBe(100);
-    expect(m?.feet).toBe(500);
+    expect(m?.worldDistance).toBe(120);
+    expect(m?.cells).toBe(5);
+    expect(m?.feet).toBe(25);
   });
 
   it('clears measurement on deactivate (mid-drag tool switch)', () => {
     const tool = new MeasureTool();
-    const ctx = makeCtx({ gridSize: 40 });
+    const ctx = makeCtx({ constraintService: makeGridProxy(40) });
 
     tool.onPointerDown(pt(0, 0), ctx);
     tool.onPointerMove(pt(80, 0), ctx);
@@ -189,7 +231,7 @@ describe('MeasureTool', () => {
 
   it('requests render on pointer up to clear overlay', () => {
     const tool = new MeasureTool();
-    const ctx = makeCtx({ gridSize: 50 });
+    const ctx = makeCtx({ constraintService: makeGridProxy(50) });
 
     tool.onPointerDown(pt(0, 0), ctx);
     tool.onPointerMove(pt(100, 0), ctx);
@@ -203,7 +245,7 @@ describe('MeasureTool', () => {
     const tool = new MeasureTool();
     const cellSize = 40;
     const hexSpacing = Math.sqrt(3) * cellSize;
-    const ctx = makeCtx({ gridSize: cellSize, gridType: 'hex', hexOrientation: 'pointy' });
+    const ctx = makeCtx({ constraintService: makeGridProxy(cellSize, 'hex', 'pointy') });
 
     tool.onPointerDown(pt(0, 0), ctx);
     tool.onPointerMove(pt(Math.round(hexSpacing), 0), ctx);
@@ -247,7 +289,7 @@ describe('MeasureTool', () => {
 
     it('renders measurement line and dots during drag', () => {
       const tool = new MeasureTool();
-      const ctx = makeCtx({ gridSize: 50 });
+      const ctx = makeCtx({ constraintService: makeGridProxy(50) });
 
       tool.onPointerDown(pt(0, 0), ctx);
       tool.onPointerMove(pt(100, 0), ctx);
@@ -264,7 +306,7 @@ describe('MeasureTool', () => {
 
     it('renders start and end dots', () => {
       const tool = new MeasureTool();
-      const ctx = makeCtx({ gridSize: 50 });
+      const ctx = makeCtx({ constraintService: makeGridProxy(50) });
 
       tool.onPointerDown(pt(0, 0), ctx);
       tool.onPointerMove(pt(100, 0), ctx);
@@ -278,7 +320,7 @@ describe('MeasureTool', () => {
 
     it('renders distance label with background pill', () => {
       const tool = new MeasureTool();
-      const ctx = makeCtx({ gridSize: 50 });
+      const ctx = makeCtx({ constraintService: makeGridProxy(50) });
 
       tool.onPointerDown(pt(0, 0), ctx);
       tool.onPointerMove(pt(100, 0), ctx);
@@ -294,7 +336,7 @@ describe('MeasureTool', () => {
 
     it('renders correct feet label text', () => {
       const tool = new MeasureTool({ feetPerCell: 5 });
-      const ctx = makeCtx({ gridSize: 50 });
+      const ctx = makeCtx({ constraintService: makeGridProxy(50) });
 
       tool.onPointerDown(pt(0, 0), ctx);
       tool.onPointerMove(pt(100, 0), ctx);
@@ -311,7 +353,7 @@ describe('MeasureTool', () => {
 
     it('clears line dash after drawing the line', () => {
       const tool = new MeasureTool();
-      const ctx = makeCtx({ gridSize: 50 });
+      const ctx = makeCtx({ constraintService: makeGridProxy(50) });
 
       tool.onPointerDown(pt(0, 0), ctx);
       tool.onPointerMove(pt(100, 0), ctx);
@@ -328,10 +370,7 @@ describe('MeasureTool', () => {
   describe('snapToGrid', () => {
     it('snaps to square grid centers on square grid type', () => {
       const tool = new MeasureTool();
-      const ctx = makeCtx({
-        gridSize: 50,
-        gridType: 'square',
-      });
+      const ctx = makeCtx({ constraintService: makeGridProxy(50) });
 
       tool.onPointerDown(pt(23, 27), ctx);
       tool.onPointerMove(pt(110, 10), ctx);
@@ -343,11 +382,7 @@ describe('MeasureTool', () => {
 
     it('snaps to hex centers on hex grid type', () => {
       const tool = new MeasureTool();
-      const ctx = makeCtx({
-        gridSize: 40,
-        gridType: 'hex',
-        hexOrientation: 'pointy',
-      });
+      const ctx = makeCtx({ constraintService: makeGridProxy(40, 'hex', 'pointy') });
 
       tool.onPointerDown(pt(10, 10), ctx);
 
@@ -358,7 +393,7 @@ describe('MeasureTool', () => {
 
     it('does not snap when gridSize is zero', () => {
       const tool = new MeasureTool();
-      const ctx = makeCtx({ gridSize: 0 });
+      const ctx = makeCtx({ constraintService: makeGridProxy(0) });
 
       tool.onPointerDown(pt(13, 17), ctx);
       tool.onPointerMove(pt(113, 117), ctx);

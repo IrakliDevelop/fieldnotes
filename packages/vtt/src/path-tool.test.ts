@@ -2,20 +2,54 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { PathTool } from './path-tool';
 import type { PathEmission, PathToolOptions } from './path-tool';
-import { ElementStore } from '../elements/element-store';
-import { Camera } from '../canvas/camera';
-import { snapToCellCenter, snapToHexCenter } from '../core/snap';
-import { getHexDistance } from '../elements/hex-fill';
-import type { ToolContext, PointerState } from './types';
+import { ElementStore } from '@fieldnotes/core';
+import { Camera, ConstraintServiceProxy } from '@fieldnotes/core';
+import { snapPoint, snapToCellCenter, snapToHexCenter } from './grid/snap';
+import { getHexDistance } from './grid/hex-fill';
+import type { ToolContext, PointerState } from '@fieldnotes/core';
+
+function makeGridProxy(
+  gridSize: number,
+  gridType?: 'square' | 'hex',
+  hexOrientation?: string,
+): ConstraintServiceProxy {
+  const effectiveGridType = gridType ?? 'square';
+  const proxy = new ConstraintServiceProxy();
+  proxy.setImplementation({
+    constrainPoint: (p, options) => {
+      if (effectiveGridType === 'hex' && hexOrientation) {
+        return snapToHexCenter(p, gridSize, hexOrientation as 'pointy' | 'flat');
+      }
+      const fp = options?.footprint;
+      // A 1×1 footprint is the PathTool default — treat as "no special
+      // footprint". Larger or non-square footprints route through cell-centre
+      // snapping; a square grid always snaps to cell centres regardless.
+      if (fp && (fp.width > 1 || fp.height > 1 || effectiveGridType === 'square')) {
+        return snapToCellCenter(p, gridSize, { w: fp?.width ?? 1, h: fp?.height ?? 1 });
+      }
+      if (effectiveGridType === 'square') {
+        return snapToCellCenter(p, gridSize);
+      }
+      return snapPoint(p, gridSize);
+    },
+    getConstraintInfo: () => ({
+      type: effectiveGridType,
+      gridType: effectiveGridType,
+      cellSize: gridSize,
+      hexOrientation,
+    }),
+    hasCapability: () => true,
+  });
+  proxy.setActive(true);
+  return proxy;
+}
 
 function makeCtx(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
     camera: new Camera(),
     store: new ElementStore(),
     requestRender: vi.fn(),
-    snapToGrid: true,
-    gridSize: 40,
-    gridType: 'square',
+    constraintService: makeGridProxy(40, 'square'),
     ...overrides,
   };
 }
@@ -412,7 +446,7 @@ describe('PathTool', () => {
 
   it('hex grids snap to hex centres and use hex distance', () => {
     const tool = new PathTool({ diagonalRule: 'chebyshev' });
-    const ctx = makeCtx({ gridType: 'hex', hexOrientation: 'pointy' });
+    const ctx = makeCtx({ constraintService: makeGridProxy(40, 'hex', 'pointy') });
 
     tool.onPointerDown(pt(0, 0), ctx);
     tool.onPointerMove(pt(200, 120), ctx);
@@ -559,7 +593,7 @@ describe('PathTool', () => {
 
     it('commits on a tap NEAR the last waypoint on a gridless canvas', () => {
       const tool = new PathTool();
-      const ctx = makeCtx({ gridSize: 0 });
+      const ctx = makeCtx({ constraintService: undefined });
       const commits: PathEmission[] = [];
       tool.onCommit((e) => commits.push(e));
 
@@ -578,7 +612,7 @@ describe('PathTool', () => {
 
     it('adds a waypoint on a tap OUTSIDE the radius', () => {
       const tool = new PathTool();
-      const ctx = makeCtx({ gridSize: 0 });
+      const ctx = makeCtx({ constraintService: undefined });
       const commits: PathEmission[] = [];
       tool.onCommit((e) => commits.push(e));
 
@@ -599,7 +633,7 @@ describe('PathTool', () => {
       const camera = new Camera();
       camera.setZoom(2);
       const farTool = new PathTool();
-      const farCtx = makeCtx({ gridSize: 0, camera });
+      const farCtx = makeCtx({ camera, constraintService: undefined });
       const farCommits: PathEmission[] = [];
       farTool.onCommit((e) => farCommits.push(e));
 
@@ -612,7 +646,7 @@ describe('PathTool', () => {
       expect(farTool.isOpen).toBe(true);
 
       const nearTool = new PathTool();
-      const nearCtx = makeCtx({ gridSize: 0, camera });
+      const nearCtx = makeCtx({ camera, constraintService: undefined });
       const nearCommits: PathEmission[] = [];
       nearTool.onCommit((e) => nearCommits.push(e));
 
@@ -627,7 +661,7 @@ describe('PathTool', () => {
 
     it('an armed commit pins the cursor to the last waypoint (no rubber-banding inside the radius)', () => {
       const tool = new PathTool();
-      const ctx = makeCtx({ gridSize: 0 });
+      const ctx = makeCtx({ constraintService: undefined });
 
       openGridlessLeg(tool, ctx);
       tool.onPointerDown(pt(105, 0), ctx);
@@ -645,7 +679,7 @@ describe('PathTool', () => {
 
     it('commitTapRadiusPx 0 restores exact-match-only commits', () => {
       const tool = new PathTool({ commitTapRadiusPx: 0 });
-      const ctx = makeCtx({ gridSize: 0 });
+      const ctx = makeCtx({ constraintService: undefined });
       const commits: PathEmission[] = [];
       tool.onCommit((e) => commits.push(e));
 
@@ -665,7 +699,7 @@ describe('PathTool', () => {
       const camera = new Camera();
       camera.setZoom(0.25);
       const tool = new PathTool();
-      const ctx = makeCtx({ gridSize: 40, gridType: 'square', camera });
+      const ctx = makeCtx({ camera, constraintService: makeGridProxy(40, 'square') });
       const commits: PathEmission[] = [];
       tool.onCommit((e) => commits.push(e));
 
@@ -689,7 +723,7 @@ describe('PathTool', () => {
       const camera = new Camera();
       camera.setZoom(0.25);
       const tool = new PathTool();
-      const ctx = makeCtx({ gridSize: 40, gridType: 'square', camera });
+      const ctx = makeCtx({ camera, constraintService: makeGridProxy(40, 'square') });
       const commits: PathEmission[] = [];
       tool.onCommit((e) => commits.push(e));
 
@@ -708,7 +742,7 @@ describe('PathTool', () => {
 
     it('gridSize 10 at zoom 1: a tap on the adjacent cell centre adds a waypoint instead of committing', () => {
       const tool = new PathTool();
-      const ctx = makeCtx({ gridSize: 10, gridType: 'square' });
+      const ctx = makeCtx({ constraintService: makeGridProxy(10, 'square') });
       const commits: PathEmission[] = [];
       tool.onCommit((e) => commits.push(e));
 
@@ -839,9 +873,9 @@ describe('PathTool', () => {
     expect(resolveStart.mock.calls[0]?.[1]).toBe(ctx);
   });
 
-  it('does not snap without a grid size', () => {
+  it('does not snap without a constraint service', () => {
     const tool = new PathTool();
-    const ctx = makeCtx({ gridSize: 0 });
+    const ctx = makeCtx({ constraintService: undefined });
 
     tool.onPointerDown(pt(13, 17), ctx);
     tool.onPointerMove(pt(113, 117), ctx);
@@ -854,15 +888,15 @@ describe('PathTool', () => {
 
   it('captures the grid at the opening pointer-down and keeps it for the whole path, even if ctx is mutated mid-gesture', () => {
     const tool = new PathTool({ diagonalRule: 'chebyshev' });
-    const ctx = makeCtx(); // snapToGrid: true, gridSize: 40, gridType: 'square'
+    const ctx = makeCtx(); // constraintService: makeGridProxy(40, 'square')
 
     tool.onPointerDown(pt(55, 70), ctx);
     expect(tool.getEmission()?.waypoints).toEqual([{ x: 60, y: 60 }]);
 
-    // Reconfigure the grid mid-gesture; the already-open path must ignore this
-    // and keep measuring on the grid captured at pointer-down.
-    ctx.gridSize = 100;
-    ctx.gridType = undefined;
+    // Reconfigure the grid mid-gesture by replacing the constraint proxy on
+    // ctx; the already-open path must ignore this and keep measuring on the
+    // grid captured at pointer-down (the tool holds its own proxy reference).
+    ctx.constraintService = makeGridProxy(100, undefined);
 
     tool.onPointerMove(pt(140, 60), ctx);
     tool.onPointerUp(pt(140, 60), ctx);
@@ -876,18 +910,27 @@ describe('PathTool', () => {
     expect(e?.segments).toEqual([{ cells: 2, feet: 10 }]);
   });
 
-  it('snaps through snapPoint (intersections) when snapToGrid is true but gridType is unset', () => {
+  it('snaps through snapPoint (intersections) when constraint info has no gridType', () => {
     const tool = new PathTool();
-    const ctx = makeCtx({ gridType: undefined });
+    // Build a proxy whose getConstraintInfo reports gridType: undefined,
+    // so PathTool falls through to the snapPoint (intersection) branch.
+    const proxy = new ConstraintServiceProxy();
+    proxy.setImplementation({
+      constrainPoint: (p) => snapPoint(p, 40),
+      getConstraintInfo: () => ({ type: '', gridType: undefined, cellSize: 40 }),
+      hasCapability: () => true,
+    });
+    proxy.setActive(true);
+    const ctx = makeCtx({ constraintService: proxy });
 
     tool.onPointerDown(pt(55, 70), ctx);
 
     expect(tool.getEmission()?.waypoints).toEqual([{ x: 40, y: 80 }]);
   });
 
-  it('does not snap (identity) when snapToGrid is false and gridType is unset', () => {
+  it('does not snap (identity) when no constraint service is present', () => {
     const tool = new PathTool();
-    const ctx = makeCtx({ snapToGrid: false, gridType: undefined });
+    const ctx = makeCtx({ constraintService: undefined });
 
     tool.onPointerDown(pt(55, 70), ctx);
 

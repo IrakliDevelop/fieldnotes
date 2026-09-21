@@ -1,4 +1,4 @@
-import type { Point } from '../core/types';
+import type { Point } from '@fieldnotes/core';
 
 function formatDistanceLabel(feet: number): string {
   return `${Math.round(feet)} ft`;

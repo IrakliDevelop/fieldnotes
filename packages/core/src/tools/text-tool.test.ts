@@ -3,8 +3,26 @@ import { TextTool } from './text-tool';
 import { ToolManager } from './tool-manager';
 import { ElementStore } from '../elements/element-store';
 import { Camera } from '../canvas/camera';
+import { ConstraintServiceProxy } from '../core/constraint-service';
+import { snapPoint } from '../core/snap';
 import type { ToolContext, PointerState } from './types';
 import type { TextElement } from '../elements/types';
+
+function makeSnapProxy(gridSize: number): ConstraintServiceProxy {
+  const proxy = new ConstraintServiceProxy();
+  proxy.setImplementation({
+    constrainPoint: (p) => snapPoint(p, gridSize),
+    getConstraintInfo: () => ({
+      type: 'square',
+      cellSize: gridSize,
+      snapStep: gridSize,
+      nudgeStep: gridSize,
+    }),
+    hasCapability: () => true,
+  });
+  proxy.setActive(true);
+  return proxy;
+}
 
 function makeCtx(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
@@ -100,8 +118,7 @@ describe('TextTool', () => {
   it('snaps placement position to grid', () => {
     const tool = new TextTool();
     const ctx = makeCtx();
-    ctx.snapToGrid = true;
-    ctx.gridSize = 24;
+    ctx.constraintService = makeSnapProxy(24);
 
     tool.onPointerDown(pt(37, 55), ctx);
     tool.onPointerUp(pt(37, 55), ctx);

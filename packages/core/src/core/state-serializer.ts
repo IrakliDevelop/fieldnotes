@@ -18,13 +18,32 @@ export interface CanvasState {
   extensions?: Record<string, PersistedPluginState>;
 }
 
-interface LegacyCanvasState extends Omit<CanvasState, 'version' | 'elements'> {
+export interface LegacyCanvasState extends Omit<CanvasState, 'version' | 'elements'> {
   version: 1 | 2 | 3;
   elements: unknown[];
-  fog?: unknown;
+  [key: string]: unknown;
 }
 
 export type ImportableCanvasState = CanvasState | LegacyCanvasState;
+
+/**
+ * A domain-package hook that migrates legacy top-level fields into the
+ * extension state map before core finalises the v4 upgrade. Core calls every
+ * registered migrator in registration order; each one may mutate `legacy`
+ * (typically moving a domain field into `legacy.extensions`).
+ */
+export type LegacyStateMigrator = (legacy: LegacyCanvasState) => void;
+
+const legacyStateMigrators: LegacyStateMigrator[] = [];
+
+export function registerLegacyStateMigrator(m: LegacyStateMigrator): void {
+  legacyStateMigrators.push(m);
+}
+
+export function unregisterLegacyStateMigrator(m: LegacyStateMigrator): void {
+  const i = legacyStateMigrators.indexOf(m);
+  if (i >= 0) legacyStateMigrators.splice(i, 1);
+}
 
 export const CANVAS_STATE_VERSION = 4;
 const CORE_ELEMENT_TYPES = ['stroke', 'note', 'arrow', 'image', 'html', 'text', 'shape'] as const;
@@ -80,13 +99,8 @@ export function migrateState(
   if (state.version === CANVAS_STATE_VERSION) return state;
   const legacy = state as LegacyCanvasState;
   convertLegacyToEnvelopes(legacy.elements, registry);
-  if (Object.hasOwn(legacy, 'fog')) {
-    legacy.extensions ??= {};
-    legacy.extensions['fog'] ??= {
-      version: 1,
-      data: structuredClone(legacy.fog),
-    };
-    delete legacy.fog;
+  for (const migrator of legacyStateMigrators) {
+    migrator(legacy);
   }
   (legacy as { version: number }).version = CANVAS_STATE_VERSION;
   return legacy as unknown as CanvasState;
@@ -201,9 +215,6 @@ function validateState(
 
   if (obj['extensions'] !== undefined) {
     validateExtensions(obj['extensions']);
-  }
-  if (obj['fog'] !== undefined && obj['fog'] !== null && !isRecord(obj['fog'])) {
-    throw new Error('Invalid state: fog must be an object or null');
   }
 }
 

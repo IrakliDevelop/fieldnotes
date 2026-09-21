@@ -1,6 +1,10 @@
-import type { Point, HexOrientation, Tool, ToolContext, PointerState } from '@fieldnotes/core';
-import { snapPoint, snapToHexCenter, getHexDistance } from '@fieldnotes/core';
+import type { Point, Tool, ToolContext, PointerState } from '@fieldnotes/core';
+import type { HexOrientation } from './elements/types';
+import { getHexDistance } from './grid/hex-fill';
 import { drawMeasurement } from './measure-render';
+
+/** Default cell size (world units) when no constraint service is active. Matches the demo's default grid size. */
+const FALLBACK_CELL_SIZE = 24;
 
 export interface MeasureToolOptions {
   feetPerCell?: number;
@@ -78,11 +82,19 @@ export class MeasureTool implements Tool {
   }
 
   onPointerDown(state: PointerState, ctx: ToolContext): void {
-    this.gridSize = ctx.gridSize ?? 1;
-    this.gridType = ctx.gridType;
-    this.hexOrientation = ctx.hexOrientation;
+    const cs = ctx.constraintService;
+    if (cs?.isActive) {
+      const info = cs.getConstraintInfo();
+      this.gridSize = (info?.cellSize as number) ?? FALLBACK_CELL_SIZE;
+      this.gridType = (info?.gridType as 'square' | 'hex') ?? undefined;
+      this.hexOrientation = info?.hexOrientation as HexOrientation | undefined;
+    } else {
+      this.gridSize = FALLBACK_CELL_SIZE;
+      this.gridType = undefined;
+      this.hexOrientation = undefined;
+    }
     const world = ctx.camera.screenToWorld({ x: state.x, y: state.y });
-    this.start = this.snapToGrid(world, ctx);
+    this.start = cs?.isActive ? cs.constrainPoint(world) : world;
     this.end = { ...this.start };
     this.scheduleEmission();
   }
@@ -90,7 +102,9 @@ export class MeasureTool implements Tool {
   onPointerMove(state: PointerState, ctx: ToolContext): void {
     if (!this.start) return;
     const world = ctx.camera.screenToWorld({ x: state.x, y: state.y });
-    this.end = this.snapToGrid(world, ctx);
+    this.end = ctx.constraintService?.isActive
+      ? ctx.constraintService.constrainPoint(world)
+      : world;
     ctx.requestRender();
     this.scheduleEmission();
   }
@@ -138,24 +152,6 @@ export class MeasureTool implements Tool {
     const m = this.getMeasurement();
     if (!m) return;
     drawMeasurement(ctx, { start: m.start, end: m.end, feet: m.feet, color: this.color });
-  }
-
-  private snapToGrid(point: Point, ctx: ToolContext): Point {
-    const cs = ctx.constraintService;
-    if (cs && cs.getConstraintInfo()) {
-      return cs.constrainPoint(point);
-    }
-    if (!ctx.gridSize) return point;
-    if (ctx.gridType === 'hex' && ctx.hexOrientation) {
-      return snapToHexCenter(point, ctx.gridSize, ctx.hexOrientation);
-    }
-    if (ctx.gridType === 'square') {
-      return snapPoint(point, ctx.gridSize);
-    }
-    if (ctx.snapToGrid) {
-      return snapPoint(point, ctx.gridSize);
-    }
-    return point;
   }
 
   private notifyOptionsChange(): void {

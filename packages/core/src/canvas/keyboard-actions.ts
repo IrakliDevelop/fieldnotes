@@ -5,6 +5,7 @@ import type { HistoryRecorder } from '../history/history-recorder';
 import type { HistoryStack } from '../history/history-stack';
 import type { CanvasElement } from '../elements/types';
 import type { Point } from '../core/types';
+import { normalizeConstraintStep } from '../core/constraint-service';
 import { createId } from '../elements/create-id';
 import { getElementsBoundingBox } from '../elements/bounds';
 import type { RotateDirection } from './selection-rotate';
@@ -61,7 +62,11 @@ export class KeyboardActions {
     if (!sel) return false;
     if (sel.tool.selectedIds.length === 0) return false;
 
-    const step = byCell ? (sel.ctx.gridSize ?? 10) : 1;
+    const cs = sel.ctx.constraintService;
+    const nudgeStep = cs?.isActive
+      ? normalizeConstraintStep(cs.getConstraintInfo()?.nudgeStep)
+      : undefined;
+    const step = byCell ? (nudgeStep ?? 10) : 1;
     if (this.nudgeTimer === null) {
       const recorder = this.deps.getHistoryRecorder();
       recorder?.begin();

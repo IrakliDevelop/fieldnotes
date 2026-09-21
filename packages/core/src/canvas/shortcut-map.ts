@@ -58,8 +58,6 @@ const DEFAULT_BINDINGS: readonly (readonly [string, readonly string[]])[] = [
   ['tool:note', ['n']],
   ['tool:text', ['t']],
   ['tool:shape', ['s']],
-  ['tool:measure', ['m']],
-  ['tool:template', ['g']],
 ];
 
 const ALLOW_SHIFT = new Set(['nudge-left', 'nudge-right', 'nudge-up', 'nudge-down']);

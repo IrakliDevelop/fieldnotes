@@ -1,5 +1,6 @@
-import type { Point, HexOrientation } from '@fieldnotes/core';
-import { getHexDistance } from '@fieldnotes/core';
+import type { Point } from '@fieldnotes/core';
+import type { HexOrientation } from '../elements/types';
+import { getHexDistance } from './hex-fill';
 
 /**
  * How diagonal steps are costed on a SQUARE grid, in cells.

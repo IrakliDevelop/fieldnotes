@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Point } from '../core/types';
-import type { PathEmission } from '../tools/path-tool';
+import type { Point } from '@fieldnotes/core';
+import type { PathEmission } from './path-tool';
 import {
   isPathPresence,
   toPathPresence,

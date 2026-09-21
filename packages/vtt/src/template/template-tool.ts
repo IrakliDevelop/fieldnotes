@@ -1,5 +1,5 @@
 import type { Point, Tool, ToolContext, PointerState } from '@fieldnotes/core';
-import { getDefaultElementRegistry, snapPoint, snapToHexCenter } from '@fieldnotes/core';
+import { getDefaultElementRegistry } from '@fieldnotes/core';
 import type { TemplateShape, HexOrientation, TemplateRenderStyle } from '../elements/types';
 import { createTemplate } from '../elements/element-factory';
 import {
@@ -11,6 +11,9 @@ import {
   drawHexPath,
 } from '../grid/hex-fill';
 import { renderTemplateFeetLabel } from './template-measure';
+
+/** Default cell size (world units) when no constraint service is active. Matches the demo's default grid size. */
+const FALLBACK_CELL_SIZE = 24;
 
 const MIN_RECT_WIDTH = 20;
 
@@ -88,22 +91,30 @@ export class TemplateTool implements Tool {
 
   onPointerDown(state: PointerState, ctx: ToolContext): void {
     this.drawing = true;
-    this.gridSize = ctx.gridSize ?? 1;
-    this.gridType = ctx.gridType;
-    this.hexOrientation = ctx.hexOrientation;
-    this.snapEnabled = !!(
-      ctx.constraintService?.getConstraintInfo() ||
-      ctx.gridType ||
-      (ctx.snapToGrid ?? false)
-    );
+    const cs = ctx.constraintService;
+    if (cs?.isActive) {
+      const info = cs.getConstraintInfo();
+      this.gridSize = (info?.cellSize as number) ?? FALLBACK_CELL_SIZE;
+      this.gridType = (info?.gridType as 'square' | 'hex') ?? undefined;
+      this.hexOrientation = info?.hexOrientation as HexOrientation | undefined;
+      this.snapEnabled =
+        (this.gridType === 'square' || this.gridType === 'hex') &&
+        Number.isFinite(this.gridSize) &&
+        this.gridSize > 0;
+    } else {
+      this.gridSize = FALLBACK_CELL_SIZE;
+      this.gridType = undefined;
+      this.hexOrientation = undefined;
+      this.snapEnabled = false;
+    }
     this.feetScaleUnit =
-      ctx.gridSize && ctx.gridSize > 0
-        ? ctx.gridType === 'hex'
-          ? Math.sqrt(3) * ctx.gridSize
-          : ctx.gridSize
+      this.gridSize > 0
+        ? this.gridType === 'hex'
+          ? Math.sqrt(3) * this.gridSize
+          : this.gridSize
         : 0;
     const world = ctx.camera.screenToWorld({ x: state.x, y: state.y });
-    this.origin = this.snapToGrid(world, ctx);
+    this.origin = cs?.isActive ? cs.constrainPoint(world) : world;
     this.current = { ...this.origin };
   }
 
@@ -121,9 +132,12 @@ export class TemplateTool implements Tool {
     if (radius <= 0) return;
 
     const angle = this.computeAngle();
-    const gridSize = ctx.gridSize;
     const snapUnit =
-      gridSize && gridSize > 0 ? (ctx.gridType === 'hex' ? Math.sqrt(3) * gridSize : gridSize) : 0;
+      this.gridSize > 0
+        ? this.gridType === 'hex'
+          ? Math.sqrt(3) * this.gridSize
+          : this.gridSize
+        : 0;
     const cells = snapUnit > 0 ? radius / snapUnit : 0;
     const radiusFeet = cells * this.feetPerCell;
     const width =
@@ -354,24 +368,6 @@ export class TemplateTool implements Tool {
       feet,
       color: this.strokeColor,
     });
-  }
-
-  private snapToGrid(point: Point, ctx: ToolContext): Point {
-    const cs = ctx.constraintService;
-    if (cs && cs.getConstraintInfo()) {
-      return cs.constrainPoint(point);
-    }
-    if (!ctx.gridSize) return point;
-    if (ctx.gridType === 'hex' && ctx.hexOrientation) {
-      return snapToHexCenter(point, ctx.gridSize, ctx.hexOrientation);
-    }
-    if (ctx.gridType === 'square') {
-      return snapPoint(point, ctx.gridSize);
-    }
-    if (ctx.snapToGrid) {
-      return snapPoint(point, ctx.gridSize);
-    }
-    return point;
   }
 
   private notifyOptionsChange(): void {

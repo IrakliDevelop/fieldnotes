@@ -1,7 +1,12 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from 'vitest';
-import { exportState, parseState } from './state-serializer';
-import type { CanvasState } from './state-serializer';
+import {
+  exportState,
+  parseState,
+  registerLegacyStateMigrator,
+  unregisterLegacyStateMigrator,
+} from './state-serializer';
+import type { CanvasState, LegacyStateMigrator } from './state-serializer';
 import {
   createArrow,
   createHtmlElement,
@@ -799,34 +804,34 @@ describe('parseState', () => {
       expect('fog' in state).toBe(false);
     });
 
-    it('migrates a legacy top-level fog field into plugin state', () => {
-      const fog = { definition: { version: 1 }, tiles: [] };
-      const state = parseState(
-        JSON.stringify({
-          version: 3,
-          camera: { position: { x: 0, y: 0 }, zoom: 1 },
-          elements: [],
-          fog,
-        }),
-      );
+    it('lets registered legacy state migrators inspect and remove arbitrary primitive fields', () => {
+      const migrated: unknown[] = [];
+      const migrator: LegacyStateMigrator = (legacy) => {
+        migrated.push(legacy);
+        if ('legacyMarker' in legacy) {
+          legacy.extensions ??= {};
+          legacy.extensions['test'] = { version: 1, data: legacy.legacyMarker };
+          delete legacy.legacyMarker;
+        }
+      };
 
-      expect(state.extensions?.['fog']).toEqual({ version: 1, data: fog });
-      expect(state.version).toBe(4);
-      expect('fog' in state).toBe(false);
-    });
+      registerLegacyStateMigrator(migrator);
+      try {
+        const state = parseState(
+          JSON.stringify({
+            version: 3,
+            camera: { position: { x: 0, y: 0 }, zoom: 1 },
+            elements: [],
+            legacyMarker: 42,
+          }),
+        );
 
-    it('prefers plugin fog state when both representations exist', () => {
-      const state = parseState(
-        JSON.stringify({
-          version: 3,
-          camera: { position: { x: 0, y: 0 }, zoom: 1 },
-          elements: [],
-          fog: { source: 'legacy' },
-          extensions: { fog: { version: 1, data: { source: 'plugin' } } },
-        }),
-      );
-
-      expect(state.extensions?.['fog']?.data).toEqual({ source: 'plugin' });
+        expect(migrated).toHaveLength(1);
+        expect(state.extensions?.['test']).toEqual({ version: 1, data: 42 });
+        expect('legacyMarker' in state).toBe(false);
+      } finally {
+        unregisterLegacyStateMigrator(migrator);
+      }
     });
   });
 });

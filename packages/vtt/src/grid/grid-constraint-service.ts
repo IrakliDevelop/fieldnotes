@@ -3,9 +3,9 @@ import type {
   ConstraintOptions,
   ConstraintInfo,
   PointConstraintService,
-  Footprint,
 } from '@fieldnotes/core';
-import { snapPoint, snapToHexCenter, snapToCellCenter } from '@fieldnotes/core';
+import { snapPoint, snapToHexCenter, snapToCellCenter } from './snap';
+import type { Footprint } from './snap';
 import type { GridInfo } from './grid-controller';
 
 export class GridConstraintService implements PointConstraintService {
@@ -19,10 +19,20 @@ export class GridConstraintService implements PointConstraintService {
       return snapToHexCenter(point, info.cellSize, info.hexOrientation);
     }
 
-    if (options?.mode === 'cell-center' || options?.footprint) {
-      const raw = options?.footprint;
-      const footprint: Footprint = raw ? { w: raw.width, h: raw.height } : 1;
-      return snapToCellCenter(point, info.cellSize, footprint);
+    // Derive a footprint from element pixel dimensions so callers do not
+    // need to know the grid cell size.
+    let footprint: Footprint | undefined;
+    if (options?.footprint) {
+      footprint = { w: options.footprint.width, h: options.footprint.height };
+    } else if (options?.elementSize && info.cellSize > 0) {
+      footprint = {
+        w: Math.max(1, Math.round(options.elementSize.w / info.cellSize)),
+        h: Math.max(1, Math.round(options.elementSize.h / info.cellSize)),
+      };
+    }
+
+    if (options?.mode === 'cell-center' || footprint) {
+      return snapToCellCenter(point, info.cellSize, footprint ?? 1);
     }
 
     return snapPoint(point, info.cellSize);
@@ -36,6 +46,8 @@ export class GridConstraintService implements PointConstraintService {
       gridType: info.gridType,
       cellSize: info.cellSize,
       hexOrientation: info.hexOrientation,
+      snapStep: info.cellSize,
+      nudgeStep: info.cellSize,
     };
   };
 

@@ -7,9 +7,9 @@ import {
   snapFootprintCenter,
   footprintFromSize,
 } from './snap';
-import type { ToolContext } from '../tools/types';
-import { Camera } from '../canvas/camera';
-import { ElementStore } from '../elements/element-store';
+import type { ToolContext } from '@fieldnotes/core';
+import { Camera, ConstraintServiceProxy } from '@fieldnotes/core';
+import { ElementStore } from '@fieldnotes/core';
 
 function ctxWith(overrides: Partial<ToolContext>): ToolContext {
   return {
@@ -18,6 +18,30 @@ function ctxWith(overrides: Partial<ToolContext>): ToolContext {
     requestRender: () => undefined,
     ...overrides,
   };
+}
+
+function makeGridProxy(
+  gridSize: number,
+  gridType: 'square' | 'hex' = 'square',
+  hexOrientation?: string,
+): ConstraintServiceProxy {
+  const proxy = new ConstraintServiceProxy();
+  proxy.setImplementation({
+    constrainPoint: (p, options) => {
+      if (gridType === 'hex' && hexOrientation) {
+        return snapToHexCenter(p, gridSize, hexOrientation as 'pointy' | 'flat');
+      }
+      const fp = options?.footprint;
+      if (fp) {
+        return snapToCellCenter(p, gridSize, { w: fp.width, h: fp.height });
+      }
+      return snapPoint(p, gridSize);
+    },
+    getConstraintInfo: () => ({ type: gridType, gridType, cellSize: gridSize, hexOrientation }),
+    hasCapability: () => true,
+  });
+  proxy.setActive(true);
+  return proxy;
 }
 
 describe('snapPoint', () => {
@@ -105,47 +129,37 @@ describe('snapToHexCenter', () => {
 });
 
 describe('smartSnap', () => {
-  const baseCtx = {
-    camera: {} as ToolContext['camera'],
-    store: {} as ToolContext['store'],
-    requestRender: () => undefined,
-  };
-
-  it('returns unchanged point when snapToGrid is false', () => {
-    const ctx: ToolContext = { ...baseCtx, snapToGrid: false, gridSize: 24 };
+  it('returns unchanged point when constraintService is inactive', () => {
+    const proxy = makeGridProxy(24);
+    proxy.setActive(false);
+    const ctx = ctxWith({ constraintService: proxy });
     expect(smartSnap({ x: 37, y: 55 }, ctx)).toEqual({ x: 37, y: 55 });
   });
 
-  it('returns unchanged point when gridSize is undefined', () => {
-    const ctx: ToolContext = { ...baseCtx, snapToGrid: true };
+  it('returns unchanged point when no constraintService is present', () => {
+    const ctx = ctxWith({});
     expect(smartSnap({ x: 37, y: 55 }, ctx)).toEqual({ x: 37, y: 55 });
   });
 
   it('snaps to square grid when gridType is square', () => {
-    const ctx: ToolContext = { ...baseCtx, snapToGrid: true, gridSize: 24, gridType: 'square' };
+    const ctx = ctxWith({ constraintService: makeGridProxy(24, 'square') });
     expect(smartSnap({ x: 37, y: 55 }, ctx)).toEqual({ x: 48, y: 48 });
   });
 
   it('snaps to hex grid when gridType is hex', () => {
-    const ctx: ToolContext = {
-      ...baseCtx,
-      snapToGrid: true,
-      gridSize: 24,
-      gridType: 'hex',
-      hexOrientation: 'pointy',
-    };
+    const ctx = ctxWith({ constraintService: makeGridProxy(24, 'hex', 'pointy') });
     const result = smartSnap({ x: 2, y: 3 }, ctx);
     expect(result.x).toBeCloseTo(0);
     expect(result.y).toBeCloseTo(0);
   });
 
-  it('falls back to square grid when gridType is undefined', () => {
-    const ctx: ToolContext = { ...baseCtx, snapToGrid: true, gridSize: 24 };
+  it('snaps to intersections when gridType is undefined', () => {
+    const ctx = ctxWith({ constraintService: makeGridProxy(24, undefined) });
     expect(smartSnap({ x: 37, y: 55 }, ctx)).toEqual({ x: 48, y: 48 });
   });
 
-  it('falls back to square snap when gridType is hex but hexOrientation is absent', () => {
-    const ctx: ToolContext = { ...baseCtx, snapToGrid: true, gridSize: 24, gridType: 'hex' };
+  it('snaps to intersections when gridType is hex but hexOrientation is absent', () => {
+    const ctx = ctxWith({ constraintService: makeGridProxy(24, 'hex') });
     expect(smartSnap({ x: 37, y: 55 }, ctx)).toEqual({ x: 48, y: 48 });
   });
 });
@@ -174,26 +188,19 @@ describe('snapToCellCenter', () => {
 });
 
 describe('snapFootprintCenter', () => {
-  it('is identity when snapping is off or gridSize is missing', () => {
+  it('is identity when constraint service is inactive or absent', () => {
+    const inactiveProxy = makeGridProxy(40, 'square');
+    inactiveProxy.setActive(false);
     expect(
-      snapFootprintCenter(
-        { x: 55, y: 70 },
-        1,
-        ctxWith({ snapToGrid: false, gridSize: 40, gridType: 'square' }),
-      ),
+      snapFootprintCenter({ x: 55, y: 70 }, 1, ctxWith({ constraintService: inactiveProxy })),
     ).toEqual({ x: 55, y: 70 });
-    expect(snapFootprintCenter({ x: 55, y: 70 }, 1, ctxWith({ snapToGrid: true }))).toEqual({
+    expect(snapFootprintCenter({ x: 55, y: 70 }, 1, ctxWith({}))).toEqual({
       x: 55,
       y: 70,
     });
   });
   it('routes hex to snapToHexCenter regardless of footprint', () => {
-    const ctx = ctxWith({
-      snapToGrid: true,
-      gridSize: 40,
-      gridType: 'hex',
-      hexOrientation: 'pointy',
-    });
+    const ctx = ctxWith({ constraintService: makeGridProxy(40, 'hex', 'pointy') });
     expect(snapFootprintCenter({ x: 55, y: 70 }, 2, ctx)).toEqual(
       snapToHexCenter({ x: 55, y: 70 }, 40, 'pointy'),
     );
@@ -203,11 +210,15 @@ describe('snapFootprintCenter', () => {
       snapFootprintCenter(
         { x: 55, y: 70 },
         { w: 1, h: 2 },
-        ctxWith({ snapToGrid: true, gridSize: 40, gridType: 'square' }),
+        ctxWith({ constraintService: makeGridProxy(40, 'square') }),
       ),
     ).toEqual({ x: 60, y: 80 });
     expect(
-      snapFootprintCenter({ x: 55, y: 70 }, 1, ctxWith({ snapToGrid: true, gridSize: 40 })),
+      snapFootprintCenter(
+        { x: 55, y: 70 },
+        1,
+        ctxWith({ constraintService: makeGridProxy(40, undefined) }),
+      ),
     ).toEqual({ x: 60, y: 60 });
   });
 });

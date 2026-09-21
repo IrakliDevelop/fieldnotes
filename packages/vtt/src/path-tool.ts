@@ -1,12 +1,19 @@
-import type { Point } from '../core/types';
-import type { HexOrientation } from '../elements/types';
-import type { Tool, ToolContext, PointerState } from './types';
-import type { ConstraintServiceAccess } from '../core/constraint-service';
-import { snapPoint, snapToHexCenter, snapToCellCenter } from '../core/snap';
-import type { Footprint } from '../core/snap';
-import { pathDistanceCells } from '../core/grid-metric';
-import type { DiagonalRule } from '../core/grid-metric';
-import { drawPath, resolveSegmentColors } from '../canvas/path-render';
+import type {
+  Point,
+  Tool,
+  ToolContext,
+  PointerState,
+  ConstraintServiceAccess,
+} from '@fieldnotes/core';
+import type { HexOrientation } from './elements/types';
+import { snapPoint, snapToHexCenter, snapToCellCenter } from './grid/snap';
+import type { Footprint } from './grid/snap';
+import { pathDistanceCells } from './grid/grid-metric';
+import type { DiagonalRule } from './grid/grid-metric';
+import { drawPath, resolveSegmentColors } from './path-render';
+
+/** Default cell size (world units) when no constraint service is active. Matches the demo's default grid size. */
+const FALLBACK_CELL_SIZE = 24;
 
 /** A running-total threshold: segments up to `feet` are drawn in `color`. */
 export interface PathRangeBand {
@@ -196,11 +203,20 @@ export class PathTool implements Tool {
     if (!this.isOpen) {
       const anchor = this.resolveStart ? this.resolveStart(world, ctx) : { origin: world };
       if (!anchor) return;
-      this.gridSize = ctx.gridSize ?? 0;
-      this.gridType = ctx.gridType;
-      this.hexOrientation = ctx.hexOrientation;
-      this.snapEnabled = ctx.snapToGrid === true;
-      this.constraintService = ctx.constraintService ?? null;
+      const cs = ctx.constraintService;
+      this.constraintService = cs ?? null;
+      if (cs?.isActive) {
+        const info = cs.getConstraintInfo();
+        this.gridSize = (info?.cellSize as number) ?? FALLBACK_CELL_SIZE;
+        this.gridType = (info?.gridType as 'square' | 'hex') ?? undefined;
+        this.hexOrientation = info?.hexOrientation as HexOrientation | undefined;
+        this.snapEnabled = true;
+      } else {
+        this.gridSize = FALLBACK_CELL_SIZE;
+        this.gridType = undefined;
+        this.hexOrientation = undefined;
+        this.snapEnabled = false;
+      }
       this.footprint = anchor.footprint ?? this.footprintOption;
       const origin = this.snap(anchor.origin);
       this.waypoints = [origin];

@@ -1,4 +1,5 @@
 import type { Bounds, Point } from '../core/types';
+import { normalizeConstraintStep } from '../core/constraint-service';
 import type { ToolContext } from './types';
 import { distSqToSegment, rotatePoint, rotatedAABB } from '../core/geometry';
 import type { CanvasElement } from '../elements/types';
@@ -110,7 +111,12 @@ export function hitTestExtensionHandle(
       zoom: ctx.camera.zoom,
       shiftKey: false,
       selectedCount: selectedIds.length,
-      snap: { enabled: ctx.snapToGrid === true, size: ctx.gridSize, mode: ctx.gridType },
+      snap: (() => {
+        const cs = ctx.constraintService;
+        if (!cs?.isActive) return { enabled: false };
+        const info = cs.getConstraintInfo();
+        return { enabled: true, size: normalizeConstraintStep(info?.snapStep), mode: info?.type };
+      })(),
     });
     if (handle) return { elementId: id, handleId: handle.id, cursor: handle.cursor };
   }

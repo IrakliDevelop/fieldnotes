@@ -61,7 +61,7 @@ describe('ShortcutMap defaults', () => {
     const map = new ShortcutMap();
     expect(map.match(kbd({ key: 'v' }))).toBe('tool:select');
     expect(map.match(kbd({ key: 'P' }))).toBe('tool:pencil');
-    expect(map.match(kbd({ key: 'g' }))).toBe('tool:template');
+    expect(map.match(kbd({ key: 'g' }))).toBeNull(); // tool:template removed (VTT)
   });
 
   it('returns null for unbound keys', () => {

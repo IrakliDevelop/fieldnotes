@@ -15,9 +15,6 @@ import {
   PingInput,
   RemotePingOverlay,
   toPingPresence,
-  PathTool,
-  RemotePathOverlay,
-  toPathPresence,
   CameraAnimator,
   RemoteFocusReceiver,
   toFocusPresence,
@@ -29,18 +26,14 @@ import {
   PeerRoster,
   RemoteCursorOverlay,
 } from '@fieldnotes/core';
-import type {
-  AlignEdge,
-  DistributeAxis,
-  PathPresence,
-  PathEmission,
-  CameraView,
-  FocusAudience,
-} from '@fieldnotes/core';
+import type { AlignEdge, DistributeAxis, CameraView, FocusAudience } from '@fieldnotes/core';
 import {
   MeasureTool,
   RemoteMeasureOverlay,
   toMeasurePresence,
+  PathTool,
+  RemotePathOverlay,
+  toPathPresence,
   registerVttElementTypes,
   createFogPlugin,
   TemplateTool,
@@ -48,7 +41,7 @@ import {
   createGrid,
   gridElementTypeDefinition,
 } from '@fieldnotes/vtt';
-import type { MeasurePresence } from '@fieldnotes/vtt';
+import type { MeasurePresence, PathPresence, PathEmission } from '@fieldnotes/vtt';
 
 // Register VTT element types (grid, template) before creating the viewport
 registerVttElementTypes();

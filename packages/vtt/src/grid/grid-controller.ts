@@ -122,17 +122,6 @@ export class GridController {
   }
 
   syncContext(): void {
-    const envelope = this.getGridEnvelope();
-    const grid = envelope ? this.unwrapGrid(envelope) : null;
-    if (grid) {
-      this.deps.toolContext.gridSize = grid.cellSize;
-      this.deps.toolContext.gridType = grid.gridType;
-      this.deps.toolContext.hexOrientation = grid.hexOrientation;
-    } else {
-      this.deps.toolContext.gridSize = this.deps.defaultGridSize;
-      this.deps.toolContext.gridType = undefined;
-      this.deps.toolContext.hexOrientation = undefined;
-    }
     this.notify();
   }
 

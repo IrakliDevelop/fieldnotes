@@ -10,8 +10,26 @@ import { SelectTool } from '../tools/select-tool';
 import { createNote, createArrow } from '../elements/element-factory';
 import type { ToolManager } from '../tools/tool-manager';
 import type { ToolContext } from '../tools/types';
+import { ConstraintServiceProxy } from '../core/constraint-service';
+import { snapPoint } from '../core/snap';
 import { HistoryRecorder } from '../history/history-recorder';
 import { HistoryStack } from '../history/history-stack';
+
+function makeSnapProxy(gridSize: number): ConstraintServiceProxy {
+  const proxy = new ConstraintServiceProxy();
+  proxy.setImplementation({
+    constrainPoint: (p) => snapPoint(p, gridSize),
+    getConstraintInfo: () => ({
+      type: 'square',
+      cellSize: gridSize,
+      snapStep: gridSize,
+      nudgeStep: gridSize,
+    }),
+    hasCapability: () => true,
+  });
+  proxy.setActive(true);
+  return proxy;
+}
 
 function makeCtx(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
@@ -434,7 +452,7 @@ describe('KeyboardActions.nudge', () => {
   });
 
   it('moves selection 1 unit, or one grid cell with the cell multiplier', () => {
-    const ctx = makeCtx({ gridSize: 40 });
+    const ctx = makeCtx({ constraintService: makeSnapProxy(40) });
     const { actions, tool } = makeActions({ ctx });
     const note = createNote({ position: { x: 100, y: 100 }, size: { w: 100, h: 50 } });
     ctx.store.add(note);
@@ -457,6 +475,28 @@ describe('KeyboardActions.nudge', () => {
 
     expect(ctx.store.getById(note.id)?.position.x).toBe(10);
   });
+
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, 0, -40])(
+    'falls back to 10 units for invalid cell nudge step %s',
+    (nudgeStep) => {
+      const constraintService = new ConstraintServiceProxy();
+      constraintService.setImplementation({
+        constrainPoint: (point) => point,
+        getConstraintInfo: () => ({ type: 'test-mode', nudgeStep }),
+        hasCapability: () => false,
+      });
+      constraintService.setActive(true);
+      const ctx = makeCtx({ constraintService });
+      const { actions, tool } = makeActions({ ctx });
+      const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+      ctx.store.add(note);
+      tool.setSelection([note.id]);
+
+      actions.nudge(1, 0, true);
+
+      expect(ctx.store.getById(note.id)?.position.x).toBe(10);
+    },
+  );
 
   it('returns false when nothing is selected', () => {
     const { actions } = makeActions();

@@ -165,7 +165,6 @@ export class Viewport {
   private resizeObserver: ResizeObserver | null = null;
   private _snapToGrid = false;
   private _smartGuides = false;
-  private readonly _gridSize: number;
   private readonly renderLoop: RenderLoop;
   private readonly _renderHooks: RenderHooks;
   private readonly pluginStateManager: PluginStateManager;
@@ -225,7 +224,6 @@ export class Viewport {
   ) {
     this.camera = new Camera(options.camera);
     this.background = new Background(options.background);
-    this._gridSize = options.background?.spacing ?? 24;
     this.elementRegistry = options.elementRegistry ?? getDefaultElementRegistry();
     this.store = new ElementStore(this.elementRegistry);
     this.layerManager = new LayerManager(this.store);
@@ -313,8 +311,6 @@ export class Viewport {
       setCursor: (cursor: string) => {
         this.wrapper.style.cursor = cursor;
       },
-      snapToGrid: false,
-      gridSize: this._gridSize,
       activeLayerId: this.layerManager.activeLayerId,
       isLayerVisible: (id: string) => this.layerManager.isLayerVisible(id),
       isLayerLocked: (id: string) => this.layerManager.isLayerLocked(id),
@@ -592,7 +588,6 @@ export class Viewport {
 
   setSnapToGrid(enabled: boolean): void {
     this._snapToGrid = enabled;
-    this.toolContext.snapToGrid = enabled;
     this.constraintProxy.setActive(enabled);
   }
 
