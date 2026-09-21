@@ -13,7 +13,15 @@ export interface ConstraintOptions {
 
 export interface ConstraintInfo {
   type: string;
+  /** Domain-neutral world-unit snap hint; consumers accept only finite, positive values. */
+  snapStep?: number;
+  /** Domain-neutral world-unit nudge hint; consumers accept only finite, positive values. */
+  nudgeStep?: number;
   [key: string]: unknown;
+}
+
+export function normalizeConstraintStep(value: number | undefined): number | undefined {
+  return value !== undefined && Number.isFinite(value) && value > 0 ? value : undefined;
 }
 
 export interface PointConstraintService {

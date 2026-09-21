@@ -1,4 +1,5 @@
 import type { Bounds, Point } from '../core/types';
+import { normalizeConstraintStep } from '../core/constraint-service';
 import type { ToolContext } from './types';
 import { distSqToSegment, rotatePoint, rotatedAABB } from '../core/geometry';
 import type { CanvasElement } from '../elements/types';
@@ -114,7 +115,7 @@ export function hitTestExtensionHandle(
         const cs = ctx.constraintService;
         if (!cs?.isActive) return { enabled: false };
         const info = cs.getConstraintInfo();
-        return { enabled: true, size: info?.snapStep as number | undefined, mode: info?.type };
+        return { enabled: true, size: normalizeConstraintStep(info?.snapStep), mode: info?.type };
       })(),
     });
     if (handle) return { elementId: id, handleId: handle.id, cursor: handle.cursor };

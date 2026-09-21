@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ConstraintServiceProxy } from './constraint-service';
+import { ConstraintServiceProxy, normalizeConstraintStep } from './constraint-service';
 import type { PointConstraintService } from './constraint-service';
 import type { Point } from './types';
 
@@ -95,5 +95,19 @@ describe('ConstraintServiceProxy', () => {
       y: 50,
     });
     expect(proxy.constrainPoint({ x: 23, y: 47 })).toEqual({ x: 23, y: 47 });
+  });
+});
+
+describe('normalizeConstraintStep', () => {
+  it.each([
+    [24, 24],
+    [undefined, undefined],
+    [Number.NaN, undefined],
+    [Number.POSITIVE_INFINITY, undefined],
+    [Number.NEGATIVE_INFINITY, undefined],
+    [0, undefined],
+    [-24, undefined],
+  ])('normalizes %s to %s', (value, expected) => {
+    expect(normalizeConstraintStep(value)).toBe(expected);
   });
 });

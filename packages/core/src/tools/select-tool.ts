@@ -1,4 +1,5 @@
 import type { Bounds, Point } from '../core/types';
+import { normalizeConstraintStep } from '../core/constraint-service';
 import type { Tool, ToolContext, PointerState } from './types';
 import { normalizeAngle } from '../core/geometry';
 import type { CanvasElement } from '../elements/types';
@@ -131,7 +132,7 @@ export class SelectTool implements Tool {
     const cs = ctx.constraintService;
     if (!cs?.isActive) return { enabled: false };
     const info = cs.getConstraintInfo();
-    return { enabled: true, size: info?.snapStep as number | undefined, mode: info?.type };
+    return { enabled: true, size: normalizeConstraintStep(info?.snapStep), mode: info?.type };
   }
 
   onPointerDown(state: PointerState, ctx: ToolContext): void {

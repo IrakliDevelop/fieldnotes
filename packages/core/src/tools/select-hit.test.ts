@@ -1,12 +1,19 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi } from 'vitest';
-import { rectsOverlap, isInsideBounds, hitTestResizeHandle, hitTest } from './select-hit';
+import {
+  rectsOverlap,
+  isInsideBounds,
+  hitTestResizeHandle,
+  hitTest,
+  hitTestExtensionHandle,
+} from './select-hit';
 import { ElementStore } from '../elements/element-store';
 import { Camera } from '../canvas/camera';
 import { createNote, createStroke, createArrow } from '../elements/element-factory';
 import type { ToolContext } from './types';
 import { ElementRegistry } from '../elements/element-registry';
 import type { ExtensionElementEnvelope } from '../elements/types';
+import { ConstraintServiceProxy } from '../core/constraint-service';
 
 function makeCtx(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
@@ -122,5 +129,62 @@ describe('hitTestResizeHandle', () => {
       );
       expect(hitTest({ x: 50, y: 50 }, ctx)).not.toBeNull();
     });
+  });
+});
+
+describe('hitTestExtensionHandle', () => {
+  it.each([
+    [24, 24],
+    [Number.NaN, undefined],
+    [Number.POSITIVE_INFINITY, undefined],
+    [0, undefined],
+    [-24, undefined],
+  ])('passes normalized snap size %s to extension handles', (snapStep, expectedSize) => {
+    const registry = new ElementRegistry();
+    const hitTestHandle = vi.fn(() => ({ id: 'resize', cursor: 'nwse-resize' }));
+    registry.register<ExtensionElementEnvelope>({
+      type: 'test:handles',
+      legacyTypes: [],
+      decodeLegacy: (raw) => raw as unknown as ExtensionElementEnvelope,
+      validateData: () => true,
+      unwrap: (element) => element,
+      wrap: (element) => element,
+      bounds: () => ({ x: 0, y: 0, w: 100, h: 100 }),
+      interaction: { hitTestHandle },
+      renderMode: 'canvas',
+    });
+    const constraintService = new ConstraintServiceProxy();
+    constraintService.setImplementation({
+      constrainPoint: (point) => point,
+      getConstraintInfo: () => ({ type: 'test-mode', snapStep }),
+      hasCapability: () => false,
+    });
+    constraintService.setActive(true);
+    const element: ExtensionElementEnvelope = {
+      id: 'ext',
+      type: 'extension',
+      extensionType: 'test:handles',
+      position: { x: 0, y: 0 },
+      zIndex: 0,
+      locked: false,
+      layerId: '',
+      data: {},
+    };
+    const ctx = makeCtx({ elementRegistry: registry, constraintService });
+    ctx.store.setElementRegistry(registry);
+    ctx.store.add(element);
+
+    expect(hitTestExtensionHandle({ x: 0, y: 0 }, ctx, [element.id])).toEqual({
+      elementId: element.id,
+      handleId: 'resize',
+      cursor: 'nwse-resize',
+    });
+    expect(hitTestHandle).toHaveBeenCalledWith(
+      element,
+      { x: 0, y: 0 },
+      expect.objectContaining({
+        snap: { enabled: true, size: expectedSize, mode: 'test-mode' },
+      }),
+    );
   });
 });

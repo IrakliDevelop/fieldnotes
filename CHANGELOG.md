@@ -47,6 +47,8 @@ No automated codemod is provided (pre-1.0). Manual migration:
 - `ConstraintOptions.elementSize?: { w: number; h: number }` — lets callers pass element
   pixel dimensions to the constraint service, which derives the cell footprint internally.
   Core tools no longer read `cellSize` from constraint info to compute footprints.
+- `ConstraintInfo.snapStep?: number` and `ConstraintInfo.nudgeStep?: number` — domain-neutral
+  world-unit scalar hints. Consumers accept each only when it is finite and greater than zero.
 - `registerLegacyStateMigrator()` / `unregisterLegacyStateMigrator()` — hook for domain
   packages to migrate legacy top-level state fields during v3→v4 upgrade.
 
@@ -56,10 +58,10 @@ No automated codemod is provided (pre-1.0). Manual migration:
   the constraint service proxy — no fallback to `smartSnap`.
 - `SelectTool` drag passes `elementSize` to `constrainPoint`; the VTT `GridConstraintService`
   computes the cell footprint from the element's pixel dimensions and its own `cellSize`.
-- Nudge-by-cell reads `nudgeStep` and extension-handle snap reads `snapStep` from the constraint
-  service info — domain-neutral fields set by the VTT service.
-- `validateState` retains a shallow object-shape check on `fog`; structural validation and
-  migration are owned by the registered VTT legacy migrator.
+- Nudge-by-cell and extension-handle snapping use finite, positive `nudgeStep` and `snapStep`
+  hints from constraint service info; invalid or missing hints use existing fallbacks.
+- Core has no fog-specific validation; registered domain migrators validate and remove their
+  legacy fields before v4 finalization.
 
 ### VTT 0.12.0 — VTT extraction and purity pass
 
