@@ -81,11 +81,26 @@ export function migrateState(
   const legacy = state as LegacyCanvasState;
   convertLegacyToEnvelopes(legacy.elements, registry);
   if (Object.hasOwn(legacy, 'fog')) {
-    legacy.extensions ??= {};
-    legacy.extensions['fog'] ??= {
-      version: 1,
-      data: structuredClone(legacy.fog),
-    };
+    // Only carry a structurally-valid legacy fog payload forward.
+    // Malformed data (strings, arrays, partial objects) is discarded so it
+    // cannot reach the VTT fog plugin and crash on load.
+    const fog = legacy.fog;
+    const def = isRecord(fog) ? fog['definition'] : null;
+    const tiles = isRecord(fog) ? fog['tiles'] : null;
+    const wellFormed =
+      isRecord(fog) &&
+      isRecord(def) &&
+      typeof def['version'] === 'number' &&
+      isRecord(def['bounds']) &&
+      typeof def['cellSize'] === 'number' &&
+      Array.isArray(tiles);
+    if (wellFormed) {
+      legacy.extensions ??= {};
+      legacy.extensions['fog'] ??= {
+        version: 1,
+        data: structuredClone(fog),
+      };
+    }
     delete legacy.fog;
   }
   (legacy as { version: number }).version = CANVAS_STATE_VERSION;
@@ -201,6 +216,9 @@ function validateState(
 
   if (obj['extensions'] !== undefined) {
     validateExtensions(obj['extensions']);
+  }
+  if (obj['fog'] !== undefined && obj['fog'] !== null && !isRecord(obj['fog'])) {
+    throw new Error('Invalid state: fog must be an object or null');
   }
 }
 

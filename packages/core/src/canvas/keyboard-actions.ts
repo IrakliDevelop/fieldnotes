@@ -63,7 +63,7 @@ export class KeyboardActions {
 
     const cs = sel.ctx.constraintService;
     const gridSize = cs?.isActive
-      ? (cs.getConstraintInfo()?.['gridSize'] as number | undefined)
+      ? (cs.getConstraintInfo()?.cellSize as number | undefined)
       : undefined;
     const step = byCell ? (gridSize ?? 10) : 1;
     if (this.nudgeTimer === null) {

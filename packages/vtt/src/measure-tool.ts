@@ -4,6 +4,9 @@ import { getHexDistance } from './grid/hex-fill';
 import { snapPoint, snapToHexCenter } from './grid/snap';
 import { drawMeasurement } from './measure-render';
 
+/** Default cell size (world units) when no constraint service is active. */
+const FALLBACK_CELL_SIZE = 50;
+
 export interface MeasureToolOptions {
   feetPerCell?: number;
   color?: string;
@@ -83,11 +86,11 @@ export class MeasureTool implements Tool {
     const cs = ctx.constraintService;
     if (cs?.isActive) {
       const info = cs.getConstraintInfo();
-      this.gridSize = (info?.cellSize as number) ?? 1;
+      this.gridSize = (info?.cellSize as number) ?? FALLBACK_CELL_SIZE;
       this.gridType = (info?.gridType as 'square' | 'hex') ?? undefined;
       this.hexOrientation = info?.hexOrientation as HexOrientation | undefined;
     } else {
-      this.gridSize = 1;
+      this.gridSize = FALLBACK_CELL_SIZE;
       this.gridType = undefined;
       this.hexOrientation = undefined;
     }

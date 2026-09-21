@@ -12,6 +12,9 @@ import { pathDistanceCells } from './grid/grid-metric';
 import type { DiagonalRule } from './grid/grid-metric';
 import { drawPath, resolveSegmentColors } from './path-render';
 
+/** Default cell size (world units) when no constraint service is active. */
+const FALLBACK_CELL_SIZE = 50;
+
 /** A running-total threshold: segments up to `feet` are drawn in `color`. */
 export interface PathRangeBand {
   readonly feet: number;
@@ -204,12 +207,12 @@ export class PathTool implements Tool {
       this.constraintService = cs ?? null;
       if (cs?.isActive) {
         const info = cs.getConstraintInfo();
-        this.gridSize = (info?.cellSize as number) ?? 0;
+        this.gridSize = (info?.cellSize as number) ?? FALLBACK_CELL_SIZE;
         this.gridType = (info?.gridType as 'square' | 'hex') ?? undefined;
         this.hexOrientation = info?.hexOrientation as HexOrientation | undefined;
         this.snapEnabled = true;
       } else {
-        this.gridSize = 0;
+        this.gridSize = FALLBACK_CELL_SIZE;
         this.gridType = undefined;
         this.hexOrientation = undefined;
         this.snapEnabled = false;

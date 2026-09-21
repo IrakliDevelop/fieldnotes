@@ -48,11 +48,20 @@ function makeSnapProxy(
         const row = Math.round((p.y - offsetY) / hexH);
         return { x: col * colW || 0, y: row * hexH + offsetY || 0 };
       }
-      // Square grid: plain snapPoint for pointer positions; passthrough for footprint calls
-      if (opts?.footprint) return p;
+      // Square grid with footprint: snap centre so the cell-count footprint
+      // fills whole cells (odd axis → cell centre; even axis → intersection).
+      if (opts?.footprint) {
+        const fw = Math.max(1, Math.round(opts.footprint.width));
+        const fh = Math.max(1, Math.round(opts.footprint.height));
+        const snapAxis = (v: number, cells: number) =>
+          cells % 2 === 0
+            ? Math.round(v / gridSize) * gridSize || 0
+            : (Math.round((v - gridSize / 2) / gridSize) + 0.5) * gridSize || 0;
+        return { x: snapAxis(p.x, fw), y: snapAxis(p.y, fh) };
+      }
       return snapPoint(p, gridSize);
     },
-    getConstraintInfo: () => ({ type, gridSize }),
+    getConstraintInfo: () => ({ type, cellSize: gridSize }),
     hasCapability: () => true,
   });
   proxy.setActive(true);
@@ -786,7 +795,7 @@ describe('SelectTool', () => {
   });
 
   describe('snap-to-grid dragging', () => {
-    it('snaps element position when dragging with snap enabled', () => {
+    it('drags with footprint-aware snap (8×4 cell note on a 24-unit grid)', () => {
       const tool = new SelectTool();
       const ctx = makeCtx();
       ctx.constraintService = makeSnapProxy(24);
@@ -800,10 +809,11 @@ describe('SelectTool', () => {
       tool.onPointerUp(pt(60, 60), ctx);
 
       const moved = ctx.store.getById(note.id);
-      // lastWorld snaps (10,10) → snapPoint(10,10,24) = (0,0) [Math.round(10/24)=0]
-      // world snaps (60,60) → snapPoint(60,60,24) = (72,72) [Math.round(60/24)=Math.round(2.5)=3, 3*24=72]
-      // delta = (72, 72), new position = (10+72, 10+72) = (82, 82)
-      expect(moved?.position).toEqual({ x: 82, y: 82 });
+      // lastWorld snapPoint(10,10,24)=(0,0); world snapPoint(60,60,24)=(72,72); delta=(72,72).
+      // Centre before re-snap: (110+72, 60+72)=(182,132). Footprint cells: round(200/24)=8, round(100/24)=4.
+      // Both even → intersection snap: round(182/24)=8 → 192; round(132/24)=6 → 144.
+      // Snapped centre=(192,144), position=(192-100, 144-50)=(92, 94).
+      expect(moved?.position).toEqual({ x: 92, y: 94 });
     });
 
     it('snaps element center to grid when gridType is set', () => {
@@ -898,10 +908,10 @@ describe('SelectTool', () => {
         expect(pos.x).toBeCloseTo(118.56, 1);
         expect(pos.y).toBeCloseTo(-20, 1);
       });
-      it('without a gridType the plain delta path is unchanged (off-centre element stays off-centre)', () => {
-        // Element centre starts at (25,25) — NOT a cell centre. Plain snapped delta is (80,40)
-        // (lastWorld snapPoint(25,25)=(40,40), pointer (100,60) → (120,80)), so it lands at (85,45).
-        // The footprint branch would re-centre it to (80,40); no snapping at all would give (80,40) too.
+      it('without a gridType the constraint service still re-centres 1×1 elements', () => {
+        // Element centre starts at (25,25) — NOT a cell centre. Pointer-delta snap gives (80,40),
+        // landing the centre at (105,65). The footprint branch then re-snaps the centre to the
+        // cell centre (100,60) → position (80,40).
         expect(
           dragImage(
             { w: 40, h: 40 },
@@ -910,7 +920,7 @@ describe('SelectTool', () => {
             { constraintService: makeSnapProxy(40) },
             { x: 5, y: 5 },
           ),
-        ).toEqual({ x: 85, y: 45 });
+        ).toEqual({ x: 80, y: 40 });
       });
     });
   });

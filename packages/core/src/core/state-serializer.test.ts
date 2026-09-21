@@ -800,7 +800,17 @@ describe('parseState', () => {
     });
 
     it('migrates a legacy top-level fog field into plugin state', () => {
-      const fog = { definition: { version: 1 }, tiles: [] };
+      const fog = {
+        definition: {
+          version: 1,
+          generation: 'g',
+          bounds: { x: 0, y: 0, w: 100, h: 100 },
+          cellSize: 50,
+          tileCells: 128,
+          base: 'covered',
+        },
+        tiles: [],
+      };
       const state = parseState(
         JSON.stringify({
           version: 3,
@@ -811,6 +821,21 @@ describe('parseState', () => {
       );
 
       expect(state.extensions?.['fog']).toEqual({ version: 1, data: fog });
+      expect(state.version).toBe(4);
+      expect('fog' in state).toBe(false);
+    });
+
+    it('discards a malformed legacy fog payload instead of migrating it', () => {
+      const state = parseState(
+        JSON.stringify({
+          version: 3,
+          camera: { position: { x: 0, y: 0 }, zoom: 1 },
+          elements: [],
+          fog: { source: 'legacy' },
+        }),
+      );
+
+      expect(state.extensions?.['fog']).toBeUndefined();
       expect(state.version).toBe(4);
       expect('fog' in state).toBe(false);
     });

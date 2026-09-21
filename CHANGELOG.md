@@ -6,6 +6,47 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### Core 0.86.0 — F6 review fixes
+
+**Fixed (regressions from 0.85.0 purity pass):**
+
+- `SelectTool` drag now passes element **cell counts** (not pixel dimensions) to the
+  constraint service's `footprint` option. A 40×40 one-cell token on a 40-unit grid
+  now snaps to cell centres instead of treating its 40×40-pixel footprint as 40×40
+  cells and parking on an intersection.
+- Nudge-by-cell, `SelectTool.deriveSnapContext`, and `hitTestExtensionHandle` now read
+  `cellSize` (the key emitted by VTT's `GridConstraintService`) instead of the stale
+  `gridSize` key. Cell nudging and extension-handle snap size now resolve correctly.
+- `migrateState` now validates legacy top-level `fog` payloads against the VTT fog
+  schema (`definition.version`, `definition.bounds`, `definition.cellSize`, `tiles`)
+  before carrying them into `extensions.fog`; malformed fog is discarded instead of
+  reaching the plugin and crashing on load. `validateState`'s `fog` object-shape
+  check (removed in 0.85.0) is restored.
+
+**Tests:**
+
+- `select-tool.test.ts` mock now implements footprint-aware cell-centre snapping and
+  emits `cellSize` from `getConstraintInfo()`, matching the real VTT constraint service
+  contract. Grid-drag expectations updated to the corrected footprint behaviour.
+- `state-serializer.test.ts` legacy-fog migration fixture now uses a structurally
+  complete fog payload; added a new test asserting malformed fog is discarded.
+
+### VTT 0.13.0 — F6 review fixes
+
+**Fixed (regressions from 0.12.0):**
+
+- `MeasureTool`, `TemplateTool`, and `PathTool` now use a 50-unit fallback cell size
+  when no constraint service is active, instead of 1 unit. A 144-unit measurement
+  without a grid now reads as ~14 ft instead of 720 ft.
+- Restored the six test suites (path tool, path render, remote path overlay, snap,
+  hex-fill, rollkeeper core-side compat) that were deleted in the purity pass instead
+  of moved — ~137 test cases, now under `packages/vtt/src/`.
+
+**Tests:**
+
+- `measure-tool.test.ts` "defaults gridSize" assertion updated to the new 50-unit
+  fallback (cells=2, feet=10 for a 100-unit distance).
+
 ### Core 0.85.0 — purity pass (F6)
 
 **Breaking changes (pre-1.0):**

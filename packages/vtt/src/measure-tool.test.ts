@@ -177,7 +177,7 @@ describe('MeasureTool', () => {
     expect(ctx.store.getAll()).toHaveLength(0);
   });
 
-  it('defaults gridSize to 1 when not provided', () => {
+  it('defaults to the 50-unit fallback cell size when no constraint service is active', () => {
     const tool = new MeasureTool();
     const ctx = makeCtx();
 
@@ -186,8 +186,8 @@ describe('MeasureTool', () => {
 
     const m = tool.getMeasurement();
     expect(m?.worldDistance).toBe(100);
-    expect(m?.cells).toBe(100);
-    expect(m?.feet).toBe(500);
+    expect(m?.cells).toBe(2);
+    expect(m?.feet).toBe(10);
   });
 
   it('clears measurement on deactivate (mid-drag tool switch)', () => {

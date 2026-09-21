@@ -131,7 +131,7 @@ export class SelectTool implements Tool {
     const cs = ctx.constraintService;
     if (!cs?.isActive) return { enabled: false };
     const info = cs.getConstraintInfo();
-    return { enabled: true, size: info?.['gridSize'] as number | undefined, mode: info?.type };
+    return { enabled: true, size: info?.cellSize as number | undefined, mode: info?.type };
   }
 
   onPointerDown(state: PointerState, ctx: ToolContext): void {
@@ -349,9 +349,18 @@ export class SelectTool implements Tool {
           if (cs?.isActive) {
             const centerX = el.position.x + el.size.w / 2 + adjDx;
             const centerY = el.position.y + el.size.h / 2 + adjDy;
+            // Footprint is in cell counts — convert from element pixel size.
+            const cellSize = (cs.getConstraintInfo()?.cellSize as number | undefined) ?? 0;
+            const footprint =
+              cellSize > 0
+                ? {
+                    width: Math.max(1, Math.round(el.size.w / cellSize)),
+                    height: Math.max(1, Math.round(el.size.h / cellSize)),
+                  }
+                : undefined;
             const snappedCenter = cs.constrainPoint(
               { x: centerX, y: centerY },
-              { footprint: { width: el.size.w, height: el.size.h } },
+              footprint ? { footprint } : undefined,
             );
             ctx.store.update(id, {
               position: {
