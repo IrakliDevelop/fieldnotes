@@ -11,7 +11,12 @@ function makeSnapProxy(gridSize: number): ConstraintServiceProxy {
   const proxy = new ConstraintServiceProxy();
   proxy.setImplementation({
     constrainPoint: (p) => snapPoint(p, gridSize),
-    getConstraintInfo: () => ({ type: 'square', cellSize: gridSize }),
+    getConstraintInfo: () => ({
+      type: 'square',
+      cellSize: gridSize,
+      snapStep: gridSize,
+      nudgeStep: gridSize,
+    }),
     hasCapability: () => true,
   });
   proxy.setActive(true);

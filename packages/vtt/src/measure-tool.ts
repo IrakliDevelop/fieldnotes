@@ -4,8 +4,8 @@ import { getHexDistance } from './grid/hex-fill';
 import { snapPoint, snapToHexCenter } from './grid/snap';
 import { drawMeasurement } from './measure-render';
 
-/** Default cell size (world units) when no constraint service is active. */
-const FALLBACK_CELL_SIZE = 50;
+/** Default cell size (world units) when no constraint service is active. Matches the demo's default grid size. */
+const FALLBACK_CELL_SIZE = 24;
 
 export interface MeasureToolOptions {
   feetPerCell?: number;

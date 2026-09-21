@@ -18,13 +18,32 @@ export interface CanvasState {
   extensions?: Record<string, PersistedPluginState>;
 }
 
-interface LegacyCanvasState extends Omit<CanvasState, 'version' | 'elements'> {
+export interface LegacyCanvasState extends Omit<CanvasState, 'version' | 'elements'> {
   version: 1 | 2 | 3;
   elements: unknown[];
   fog?: unknown;
 }
 
 export type ImportableCanvasState = CanvasState | LegacyCanvasState;
+
+/**
+ * A domain-package hook that migrates legacy top-level fields into the
+ * extension state map before core finalises the v4 upgrade. Core calls every
+ * registered migrator in registration order; each one may mutate `legacy`
+ * (typically moving a domain field into `legacy.extensions`).
+ */
+export type LegacyStateMigrator = (legacy: LegacyCanvasState) => void;
+
+const legacyStateMigrators: LegacyStateMigrator[] = [];
+
+export function registerLegacyStateMigrator(m: LegacyStateMigrator): void {
+  legacyStateMigrators.push(m);
+}
+
+export function unregisterLegacyStateMigrator(m: LegacyStateMigrator): void {
+  const i = legacyStateMigrators.indexOf(m);
+  if (i >= 0) legacyStateMigrators.splice(i, 1);
+}
 
 export const CANVAS_STATE_VERSION = 4;
 const CORE_ELEMENT_TYPES = ['stroke', 'note', 'arrow', 'image', 'html', 'text', 'shape'] as const;
@@ -80,28 +99,8 @@ export function migrateState(
   if (state.version === CANVAS_STATE_VERSION) return state;
   const legacy = state as LegacyCanvasState;
   convertLegacyToEnvelopes(legacy.elements, registry);
-  if (Object.hasOwn(legacy, 'fog')) {
-    // Only carry a structurally-valid legacy fog payload forward.
-    // Malformed data (strings, arrays, partial objects) is discarded so it
-    // cannot reach the VTT fog plugin and crash on load.
-    const fog = legacy.fog;
-    const def = isRecord(fog) ? fog['definition'] : null;
-    const tiles = isRecord(fog) ? fog['tiles'] : null;
-    const wellFormed =
-      isRecord(fog) &&
-      isRecord(def) &&
-      typeof def['version'] === 'number' &&
-      isRecord(def['bounds']) &&
-      typeof def['cellSize'] === 'number' &&
-      Array.isArray(tiles);
-    if (wellFormed) {
-      legacy.extensions ??= {};
-      legacy.extensions['fog'] ??= {
-        version: 1,
-        data: structuredClone(fog),
-      };
-    }
-    delete legacy.fog;
+  for (const migrator of legacyStateMigrators) {
+    migrator(legacy);
   }
   (legacy as { version: number }).version = CANVAS_STATE_VERSION;
   return legacy as unknown as CanvasState;

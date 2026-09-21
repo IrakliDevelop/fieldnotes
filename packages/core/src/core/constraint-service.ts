@@ -3,6 +3,12 @@ import type { Point } from './types';
 export interface ConstraintOptions {
   mode?: string;
   footprint?: { width: number; height: number };
+  /**
+   * Element dimensions in world units. The constraint service may use this to
+   * derive a footprint for cell-aware snapping, so callers do not need to know
+   * the grid cell size.
+   */
+  elementSize?: { w: number; h: number };
 }
 
 export interface ConstraintInfo {

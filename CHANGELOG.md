@@ -6,48 +6,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
-### Core 0.86.0 — F6 review fixes
-
-**Fixed (regressions from 0.85.0 purity pass):**
-
-- `SelectTool` drag now passes element **cell counts** (not pixel dimensions) to the
-  constraint service's `footprint` option. A 40×40 one-cell token on a 40-unit grid
-  now snaps to cell centres instead of treating its 40×40-pixel footprint as 40×40
-  cells and parking on an intersection.
-- Nudge-by-cell, `SelectTool.deriveSnapContext`, and `hitTestExtensionHandle` now read
-  `cellSize` (the key emitted by VTT's `GridConstraintService`) instead of the stale
-  `gridSize` key. Cell nudging and extension-handle snap size now resolve correctly.
-- `migrateState` now validates legacy top-level `fog` payloads against the VTT fog
-  schema (`definition.version`, `definition.bounds`, `definition.cellSize`, `tiles`)
-  before carrying them into `extensions.fog`; malformed fog is discarded instead of
-  reaching the plugin and crashing on load. `validateState`'s `fog` object-shape
-  check (removed in 0.85.0) is restored.
-
-**Tests:**
-
-- `select-tool.test.ts` mock now implements footprint-aware cell-centre snapping and
-  emits `cellSize` from `getConstraintInfo()`, matching the real VTT constraint service
-  contract. Grid-drag expectations updated to the corrected footprint behaviour.
-- `state-serializer.test.ts` legacy-fog migration fixture now uses a structurally
-  complete fog payload; added a new test asserting malformed fog is discarded.
-
-### VTT 0.13.0 — F6 review fixes
-
-**Fixed (regressions from 0.12.0):**
-
-- `MeasureTool`, `TemplateTool`, and `PathTool` now use a 50-unit fallback cell size
-  when no constraint service is active, instead of 1 unit. A 144-unit measurement
-  without a grid now reads as ~14 ft instead of 720 ft.
-- Restored the six test suites (path tool, path render, remote path overlay, snap,
-  hex-fill, rollkeeper core-side compat) that were deleted in the purity pass instead
-  of moved — ~137 test cases, now under `packages/vtt/src/`.
-
-**Tests:**
-
-- `measure-tool.test.ts` "defaults gridSize" assertion updated to the new 50-unit
-  fallback (cells=2, feet=10 for a 100-unit distance).
-
-### Core 0.85.0 — purity pass (F6)
+### Core 0.85.0 — core purity pass (F6)
 
 **Breaking changes (pre-1.0):**
 
@@ -64,31 +23,72 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
   All snapping is now constraint-service-only (`ctx.constraintService.constrainPoint`).
 - Removed `'template'` from `ToolName` union.
 - Removed `tool:measure` (`m`) and `tool:template` (`g`) default shortcut bindings.
-- Removed fog-specific validation from `validateState` (fog migration still handled by
-  `migrateState`).
+- `LegacyCanvasState` is now exported; legacy top-level `fog` migration is delegated to
+  domain packages via `registerLegacyStateMigrator()`.
+
+**Migration guide for removed exports:**
+
+No automated codemod is provided (pre-1.0). Manual migration:
+
+1. **Snap utilities** — replace `import { smartSnap, snapToHexCenter, ... } from '@fieldnotes/core'`
+   with `import { smartSnap, snapToHexCenter, ... } from '@fieldnotes/vtt'`.
+2. **Path tool & overlay** — replace `import { PathTool, RemotePathOverlay, ... } from '@fieldnotes/core'`
+   with `import { PathTool, RemotePathOverlay, ... } from '@fieldnotes/vtt'`.
+3. **Hex/grid helpers** — replace `import { getHexCellsInRadius, getHexDistance, ... } from '@fieldnotes/core'`
+   with `import { getHexCellsInRadius, getHexDistance, ... } from '@fieldnotes/vtt'`.
+4. **ToolContext grid fields** — replace `ctx.gridSize` / `ctx.gridType` / `ctx.snapToGrid` /
+   `ctx.hexOrientation` with `ctx.constraintService.constrainPoint(point)` for snapping,
+   or `ctx.constraintService.getConstraintInfo()` for grid metadata.
+5. **Fog migration** — if you load v1–v3 canvas state with a top-level `fog` field, call
+   `registerVttElementTypes()` before `parseState()` so the VTT fog legacy migrator is active.
+
+**Added:**
+
+- `ConstraintOptions.elementSize?: { w: number; h: number }` — lets callers pass element
+  pixel dimensions to the constraint service, which derives the cell footprint internally.
+  Core tools no longer read `cellSize` from constraint info to compute footprints.
+- `registerLegacyStateMigrator()` / `unregisterLegacyStateMigrator()` — hook for domain
+  packages to migrate legacy top-level state fields during v3→v4 upgrade.
 
 **Internal:**
 
 - Core tools (`select`, `arrow`, `shape`, `note`, `text`, `image`) now snap exclusively through
   the constraint service proxy — no fallback to `smartSnap`.
-- `Viewport.setSnapToGrid` only toggles the constraint proxy; no longer sets `toolContext.snapToGrid`.
-- `SelectTool` derives `ExtensionInteractionContext.snap` from the constraint service.
-- Nudge-by-cell reads grid size from the constraint service info instead of `toolContext.gridSize`.
+- `SelectTool` drag passes `elementSize` to `constrainPoint`; the VTT `GridConstraintService`
+  computes the cell footprint from the element's pixel dimensions and its own `cellSize`.
+- Nudge-by-cell reads `nudgeStep` and extension-handle snap reads `snapStep` from the constraint
+  service info — domain-neutral fields set by the VTT service.
+- `validateState` retains a shallow object-shape check on `fog`; structural validation and
+  migration are owned by the registered VTT legacy migrator.
 
-### VTT 0.12.0 — new exports from core purity pass
+### VTT 0.12.0 — VTT extraction and purity pass
 
-**Added:**
+**Added (moved from core):**
 
 - `PathTool`, `PathToolOptions`, `PathAnchor`, `PathRangeBand`, `PathSegment`, `PathEmission`
-  (movement path tool, moved from core).
+  (movement path tool).
 - `RemotePathOverlay`, `isPathPresence`, `toPathPresence`, `PATH_PRESENCE_KIND`,
   `PATH_PRESENCE_MAX_POINTS`, `PathPresence`, `RemotePathOverlayHost`, `RemotePathOverlayOptions`
-  (remote path presence overlay, moved from core).
+  (remote path presence overlay).
 - `drawPath`, `resolveSegmentColors`, `PathRenderModel` (path rendering utilities).
 - `snapToHexCenter`, `snapToCellCenter`, `snapFootprintCenter`, `footprintFromSize`, `smartSnap`,
-  `Footprint` (grid-aware snap utilities, moved from core).
+  `Footprint` (grid-aware snap utilities).
 - `grid/snap.ts` — consolidated snap module with constraint-service-aware `smartSnap` and
   `snapFootprintCenter`.
+
+**Fixed:**
+
+- `MeasureTool`, `TemplateTool`, and `PathTool` now use a 24-unit fallback cell size (matching
+  the demo's default grid) when no constraint service is active, instead of 1 unit. A 144-unit
+  gridless measurement now reads 30 ft instead of 720 ft.
+- `GridConstraintService.constrainPoint` now derives a cell footprint from
+  `ConstraintOptions.elementSize` when no explicit `footprint` is provided, so core tools
+  do not need to read `cellSize` to compute cell counts.
+- `GridConstraintService.getConstraintInfo` now includes `snapStep` and `nudgeStep` fields
+  for domain-neutral consumers.
+- `registerVttElementTypes()` now also registers the fog legacy state migrator, which
+  validates and migrates v1–v3 top-level `fog` payloads into `extensions.fog`. Malformed
+  payloads are discarded.
 
 **Changed:**
 
@@ -96,34 +96,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
   `getConstraintInfo()` instead of removed `ToolContext` grid fields.
 - `GridConstraintService` imports snap functions from local `grid/snap` instead of `@fieldnotes/core`.
 
-### Tooling
-
-- Test files under `src` are type-checked: each package has a `typecheck` script and the root
-  `pnpm typecheck` runs them all, wired into `pnpm verify` after `build` so `tsc` resolves sibling
-  packages through `dist`. Playwright e2e specs under `packages/core/e2e` are not type-checked yet.
-- Coverage thresholds are enforced in all six packages through `pnpm test:coverage`; the root
-  `pnpm verify:ci` runs the full gate with coverage instead of a plain test run. Examples run their
-  tests under `verify:ci` without coverage.
-- `pnpm format:check` runs inside `pnpm verify` and `pnpm verify:ci`, immediately after `pnpm lint`.
-- CI runs `pnpm verify:ci` on Node 20 and 22 and uploads each matrix leg's `lcov.info` as a
-  build artifact.
-- The five non-core packages adopt core's per-condition `types` exports shape, so `import` and
-  `require` consumers each resolve their own declaration file.
-- `@fieldnotes/vtt` now ships a `LICENSE` file.
-- `onlyBuiltDependencies` moved from `package.json` to `pnpm-workspace.yaml`.
-- The root `engines.node` is raised to `>=20.19`; the published packages declare no `engines` field.
-- The retired `packages/contract-spike` workspace directory no longer exists on disk.
-
 ### Package versions
 
-The coordinated Phase 0 release set, including the publish-affecting packaging changes above,
-resolves to:
-
-- `@fieldnotes/react` 0.12.0 → 0.13.0
-- `@fieldnotes/sync` 0.20.0 → 0.20.1
-- `@fieldnotes/sync-server` 0.19.0 → 0.19.1
-- `@fieldnotes/sync-redis` 0.10.0 → 0.11.0
-- `@fieldnotes/vtt` 0.9.0 → 0.10.0
+- `@fieldnotes/core` 0.84.0 → 0.85.0
+- `@fieldnotes/vtt` 0.11.0 → 0.12.0
 
 ## [0.84.0] — 2026-09-20
 

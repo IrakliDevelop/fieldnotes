@@ -12,8 +12,8 @@ import { pathDistanceCells } from './grid/grid-metric';
 import type { DiagonalRule } from './grid/grid-metric';
 import { drawPath, resolveSegmentColors } from './path-render';
 
-/** Default cell size (world units) when no constraint service is active. */
-const FALLBACK_CELL_SIZE = 50;
+/** Default cell size (world units) when no constraint service is active. Matches the demo's default grid size. */
+const FALLBACK_CELL_SIZE = 24;
 
 /** A running-total threshold: segments up to `feet` are drawn in `color`. */
 export interface PathRangeBand {

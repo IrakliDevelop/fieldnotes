@@ -48,11 +48,19 @@ function makeSnapProxy(
         const row = Math.round((p.y - offsetY) / hexH);
         return { x: col * colW || 0, y: row * hexH + offsetY || 0 };
       }
+      // Derive footprint from elementSize (production GridConstraintService does this).
+      let fp = opts?.footprint;
+      if (!fp && opts?.elementSize && gridSize > 0) {
+        fp = {
+          width: Math.max(1, Math.round(opts.elementSize.w / gridSize)),
+          height: Math.max(1, Math.round(opts.elementSize.h / gridSize)),
+        };
+      }
       // Square grid with footprint: snap centre so the cell-count footprint
       // fills whole cells (odd axis → cell centre; even axis → intersection).
-      if (opts?.footprint) {
-        const fw = Math.max(1, Math.round(opts.footprint.width));
-        const fh = Math.max(1, Math.round(opts.footprint.height));
+      if (fp) {
+        const fw = Math.max(1, Math.round(fp.width));
+        const fh = Math.max(1, Math.round(fp.height));
         const snapAxis = (v: number, cells: number) =>
           cells % 2 === 0
             ? Math.round(v / gridSize) * gridSize || 0
@@ -61,7 +69,12 @@ function makeSnapProxy(
       }
       return snapPoint(p, gridSize);
     },
-    getConstraintInfo: () => ({ type, cellSize: gridSize }),
+    getConstraintInfo: () => ({
+      type,
+      cellSize: gridSize,
+      snapStep: gridSize,
+      nudgeStep: gridSize,
+    }),
     hasCapability: () => true,
   });
   proxy.setActive(true);

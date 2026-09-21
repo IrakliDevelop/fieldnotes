@@ -1,7 +1,12 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from 'vitest';
-import { exportState, parseState } from './state-serializer';
-import type { CanvasState } from './state-serializer';
+import {
+  exportState,
+  parseState,
+  registerLegacyStateMigrator,
+  unregisterLegacyStateMigrator,
+} from './state-serializer';
+import type { CanvasState, LegacyStateMigrator } from './state-serializer';
 import {
   createArrow,
   createHtmlElement,
@@ -799,59 +804,34 @@ describe('parseState', () => {
       expect('fog' in state).toBe(false);
     });
 
-    it('migrates a legacy top-level fog field into plugin state', () => {
-      const fog = {
-        definition: {
-          version: 1,
-          generation: 'g',
-          bounds: { x: 0, y: 0, w: 100, h: 100 },
-          cellSize: 50,
-          tileCells: 128,
-          base: 'covered',
-        },
-        tiles: [],
+    it('calls registered legacy state migrators during v3→v4 upgrade', () => {
+      const migrated: unknown[] = [];
+      const migrator: LegacyStateMigrator = (legacy) => {
+        migrated.push(legacy);
+        if ('testField' in legacy) {
+          legacy.extensions ??= {};
+          legacy.extensions['test'] = { version: 1, data: legacy['testField'] };
+          delete legacy['testField'];
+        }
       };
-      const state = parseState(
-        JSON.stringify({
-          version: 3,
-          camera: { position: { x: 0, y: 0 }, zoom: 1 },
-          elements: [],
-          fog,
-        }),
-      );
 
-      expect(state.extensions?.['fog']).toEqual({ version: 1, data: fog });
-      expect(state.version).toBe(4);
-      expect('fog' in state).toBe(false);
-    });
+      registerLegacyStateMigrator(migrator);
+      try {
+        const state = parseState(
+          JSON.stringify({
+            version: 3,
+            camera: { position: { x: 0, y: 0 }, zoom: 1 },
+            elements: [],
+            testField: { value: 42 },
+          }),
+        );
 
-    it('discards a malformed legacy fog payload instead of migrating it', () => {
-      const state = parseState(
-        JSON.stringify({
-          version: 3,
-          camera: { position: { x: 0, y: 0 }, zoom: 1 },
-          elements: [],
-          fog: { source: 'legacy' },
-        }),
-      );
-
-      expect(state.extensions?.['fog']).toBeUndefined();
-      expect(state.version).toBe(4);
-      expect('fog' in state).toBe(false);
-    });
-
-    it('prefers plugin fog state when both representations exist', () => {
-      const state = parseState(
-        JSON.stringify({
-          version: 3,
-          camera: { position: { x: 0, y: 0 }, zoom: 1 },
-          elements: [],
-          fog: { source: 'legacy' },
-          extensions: { fog: { version: 1, data: { source: 'plugin' } } },
-        }),
-      );
-
-      expect(state.extensions?.['fog']?.data).toEqual({ source: 'plugin' });
+        expect(migrated).toHaveLength(1);
+        expect(state.extensions?.['test']).toEqual({ version: 1, data: { value: 42 } });
+        expect('testField' in state).toBe(false);
+      } finally {
+        unregisterLegacyStateMigrator(migrator);
+      }
     });
   });
 });

@@ -114,7 +114,7 @@ export function hitTestExtensionHandle(
         const cs = ctx.constraintService;
         if (!cs?.isActive) return { enabled: false };
         const info = cs.getConstraintInfo();
-        return { enabled: true, size: info?.cellSize as number | undefined, mode: info?.type };
+        return { enabled: true, size: info?.snapStep as number | undefined, mode: info?.type };
       })(),
     });
     if (handle) return { elementId: id, handleId: handle.id, cursor: handle.cursor };

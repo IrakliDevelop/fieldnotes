@@ -1,9 +1,18 @@
-export const VERSION = '0.86.0';
+export const VERSION = '0.85.0';
 
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
 export { snapPoint } from './core/snap';
-export { CANVAS_STATE_VERSION } from './core/state-serializer';
-export type { CanvasState, ImportableCanvasState } from './core/state-serializer';
+export {
+  CANVAS_STATE_VERSION,
+  registerLegacyStateMigrator,
+  unregisterLegacyStateMigrator,
+} from './core/state-serializer';
+export type {
+  CanvasState,
+  ImportableCanvasState,
+  LegacyCanvasState,
+  LegacyStateMigrator,
+} from './core/state-serializer';
 export { AutoSave } from './core/auto-save';
 export type { AutoSaveOptions } from './core/auto-save';
 export { MemoryAdapter } from './core/storage/memory-adapter';

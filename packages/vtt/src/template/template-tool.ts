@@ -13,8 +13,8 @@ import {
 } from '../grid/hex-fill';
 import { renderTemplateFeetLabel } from './template-measure';
 
-/** Default cell size (world units) when no constraint service is active. */
-const FALLBACK_CELL_SIZE = 50;
+/** Default cell size (world units) when no constraint service is active. Matches the demo's default grid size. */
+const FALLBACK_CELL_SIZE = 24;
 
 const MIN_RECT_WIDTH = 20;
 

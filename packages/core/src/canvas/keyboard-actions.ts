@@ -62,10 +62,10 @@ export class KeyboardActions {
     if (sel.tool.selectedIds.length === 0) return false;
 
     const cs = sel.ctx.constraintService;
-    const gridSize = cs?.isActive
-      ? (cs.getConstraintInfo()?.cellSize as number | undefined)
+    const nudgeStep = cs?.isActive
+      ? (cs.getConstraintInfo()?.nudgeStep as number | undefined)
       : undefined;
-    const step = byCell ? (gridSize ?? 10) : 1;
+    const step = byCell ? (nudgeStep ?? 10) : 1;
     if (this.nudgeTimer === null) {
       const recorder = this.deps.getHistoryRecorder();
       recorder?.begin();
