@@ -21,7 +21,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
   `RemotePathOverlayOptions` from core. Now exported by `@fieldnotes/vtt`.
 - Removed grid fields from `ToolContext`: `snapToGrid`, `gridSize`, `gridType`, `hexOrientation`.
   All snapping is now constraint-service-only (`ctx.constraintService.constrainPoint`).
-- Removed `'template'` from `ToolName` union.
+- Removed `'path'` and `'template'` from the `ToolName` union. Use and register `PathTool` and
+  `TemplateTool` from `@fieldnotes/vtt` instead of treating those names as core built-ins.
 - Removed `tool:measure` (`m`) and `tool:template` (`g`) default shortcut bindings.
 - `LegacyCanvasState` is now exported; legacy top-level `fog` migration is delegated to
   domain packages via `registerLegacyStateMigrator()`.

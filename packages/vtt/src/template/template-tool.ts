@@ -1,6 +1,5 @@
 import type { Point, Tool, ToolContext, PointerState } from '@fieldnotes/core';
 import { getDefaultElementRegistry } from '@fieldnotes/core';
-import { snapPoint, snapToHexCenter } from '../grid/snap';
 import type { TemplateShape, HexOrientation, TemplateRenderStyle } from '../elements/types';
 import { createTemplate } from '../elements/element-factory';
 import {
@@ -98,7 +97,10 @@ export class TemplateTool implements Tool {
       this.gridSize = (info?.cellSize as number) ?? FALLBACK_CELL_SIZE;
       this.gridType = (info?.gridType as 'square' | 'hex') ?? undefined;
       this.hexOrientation = info?.hexOrientation as HexOrientation | undefined;
-      this.snapEnabled = true;
+      this.snapEnabled =
+        (this.gridType === 'square' || this.gridType === 'hex') &&
+        Number.isFinite(this.gridSize) &&
+        this.gridSize > 0;
     } else {
       this.gridSize = FALLBACK_CELL_SIZE;
       this.gridType = undefined;
@@ -112,7 +114,7 @@ export class TemplateTool implements Tool {
           : this.gridSize
         : 0;
     const world = ctx.camera.screenToWorld({ x: state.x, y: state.y });
-    this.origin = this.snapToGrid(world);
+    this.origin = cs?.isActive ? cs.constrainPoint(world) : world;
     this.current = { ...this.origin };
   }
 
@@ -366,17 +368,6 @@ export class TemplateTool implements Tool {
       feet,
       color: this.strokeColor,
     });
-  }
-
-  private snapToGrid(point: Point): Point {
-    if (!this.gridSize) return point;
-    if (this.gridType === 'hex' && this.hexOrientation) {
-      return snapToHexCenter(point, this.gridSize, this.hexOrientation);
-    }
-    if (this.gridType === 'square') {
-      return snapPoint(point, this.gridSize);
-    }
-    return point;
   }
 
   private notifyOptionsChange(): void {

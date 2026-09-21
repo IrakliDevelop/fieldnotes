@@ -4,6 +4,8 @@ import { ElementStore, Camera, ConstraintServiceProxy } from '@fieldnotes/core';
 import type { ToolContext, PointerState } from '@fieldnotes/core';
 import { MeasureTool } from './measure-tool';
 import type { MeasureEmission } from './measure-tool';
+import type { HexOrientation } from './elements/types';
+import { snapPoint, snapToHexCenter } from './grid/snap';
 
 function makeCtx(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
@@ -21,11 +23,17 @@ function pt(x: number, y: number): PointerState {
 function makeGridProxy(
   gridSize: number,
   gridType: 'square' | 'hex' = 'square',
-  hexOrientation?: string,
+  hexOrientation?: HexOrientation,
 ): ConstraintServiceProxy {
   const proxy = new ConstraintServiceProxy();
   proxy.setImplementation({
-    constrainPoint: (p) => p,
+    constrainPoint: (point) => {
+      if (gridSize <= 0) return point;
+      if (gridType === 'hex' && hexOrientation) {
+        return snapToHexCenter(point, gridSize, hexOrientation);
+      }
+      return snapPoint(point, gridSize);
+    },
     getConstraintInfo: () => ({ type: gridType, gridType, cellSize: gridSize, hexOrientation }),
     hasCapability: () => true,
   });
@@ -111,6 +119,25 @@ describe('MeasureTool', () => {
     const m = tool.getMeasurement();
     expect(m?.start).toEqual({ x: 10, y: 10 });
     expect(m?.end).toEqual({ x: 110, y: 10 });
+  });
+
+  it('uses a custom active constraint service for both measurement endpoints', () => {
+    const proxy = new ConstraintServiceProxy();
+    proxy.setImplementation({
+      constrainPoint: (point) => ({ x: point.x + 101, y: point.y - 47 }),
+      getConstraintInfo: () => ({ type: 'custom' }),
+      hasCapability: () => false,
+    });
+    proxy.setActive(true);
+    const tool = new MeasureTool();
+    const ctx = makeCtx({ constraintService: proxy });
+
+    tool.onPointerDown(pt(10, 20), ctx);
+    tool.onPointerMove(pt(30, 40), ctx);
+
+    const measurement = tool.getMeasurement();
+    expect(measurement?.start).toEqual({ x: 111, y: -27 });
+    expect(measurement?.end).toEqual({ x: 131, y: -7 });
   });
 
   it('setOptions updates feetPerCell', () => {

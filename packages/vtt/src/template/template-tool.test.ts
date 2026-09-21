@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
-import { Camera, ElementRegistry, ElementStore, SelectTool } from '@fieldnotes/core';
+import {
+  Camera,
+  ConstraintServiceProxy,
+  ElementRegistry,
+  ElementStore,
+  SelectTool,
+} from '@fieldnotes/core';
 import type { PointerState, ToolContext } from '@fieldnotes/core';
 import { registerVttElementTypes } from '../register';
 import { TemplateTool } from './template-tool';
@@ -13,6 +19,37 @@ const pointer = (x: number, y: number): PointerState => ({
 });
 
 describe('TemplateTool', () => {
+  it('uses a type-only custom constraint service for its origin without grid radius rounding', () => {
+    const registry = new ElementRegistry();
+    registerVttElementTypes(registry);
+    const store = new ElementStore();
+    const constraintService = new ConstraintServiceProxy();
+    constraintService.setImplementation({
+      constrainPoint: () => ({ x: 314, y: 159 }),
+      getConstraintInfo: () => ({ type: 'custom' }),
+      hasCapability: () => false,
+    });
+    constraintService.setActive(true);
+    const ctx: ToolContext = {
+      camera: new Camera(),
+      store,
+      requestRender: vi.fn(),
+      elementRegistry: registry,
+      constraintService,
+    };
+    const tool = new TemplateTool({ templateShape: 'circle' });
+
+    tool.onPointerDown(pointer(10, 10), ctx);
+    tool.onPointerMove(pointer(324, 159), ctx);
+    tool.onPointerUp(pointer(324, 159), ctx);
+
+    const created = store.getAll()[0];
+    expect(created).toMatchObject({
+      position: { x: 314, y: 159 },
+      data: { radius: 10 },
+    });
+  });
+
   it('adds a registered extension envelope that the core renderer can dispatch', () => {
     const registry = new ElementRegistry();
     registerVttElementTypes(registry);

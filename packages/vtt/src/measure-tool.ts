@@ -1,7 +1,6 @@
 import type { Point, Tool, ToolContext, PointerState } from '@fieldnotes/core';
 import type { HexOrientation } from './elements/types';
 import { getHexDistance } from './grid/hex-fill';
-import { snapPoint, snapToHexCenter } from './grid/snap';
 import { drawMeasurement } from './measure-render';
 
 /** Default cell size (world units) when no constraint service is active. Matches the demo's default grid size. */
@@ -95,7 +94,7 @@ export class MeasureTool implements Tool {
       this.hexOrientation = undefined;
     }
     const world = ctx.camera.screenToWorld({ x: state.x, y: state.y });
-    this.start = this.snapToGrid(world, ctx);
+    this.start = cs?.isActive ? cs.constrainPoint(world) : world;
     this.end = { ...this.start };
     this.scheduleEmission();
   }
@@ -103,7 +102,9 @@ export class MeasureTool implements Tool {
   onPointerMove(state: PointerState, ctx: ToolContext): void {
     if (!this.start) return;
     const world = ctx.camera.screenToWorld({ x: state.x, y: state.y });
-    this.end = this.snapToGrid(world, ctx);
+    this.end = ctx.constraintService?.isActive
+      ? ctx.constraintService.constrainPoint(world)
+      : world;
     ctx.requestRender();
     this.scheduleEmission();
   }
@@ -151,17 +152,6 @@ export class MeasureTool implements Tool {
     const m = this.getMeasurement();
     if (!m) return;
     drawMeasurement(ctx, { start: m.start, end: m.end, feet: m.feet, color: this.color });
-  }
-
-  private snapToGrid(point: Point, _ctx: ToolContext): Point {
-    if (!this.gridSize) return point;
-    if (this.gridType === 'hex' && this.hexOrientation) {
-      return snapToHexCenter(point, this.gridSize, this.hexOrientation);
-    }
-    if (this.gridType === 'square') {
-      return snapPoint(point, this.gridSize);
-    }
-    return point;
   }
 
   private notifyOptionsChange(): void {
