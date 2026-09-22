@@ -15,6 +15,9 @@
     "lint:fix": "eslint --fix 'packages/*/src/**/*.{ts,tsx}'",
     "format": "prettier --write 'packages/*/src/**/*.{ts,tsx}'",
     "format:check": "prettier --check 'packages/*/src/**/*.{ts,tsx}'",
+    "audit:prod": "pnpm audit --prod --audit-level=moderate",
+    "audit:dev": "pnpm audit --dev --audit-level=high",
+    "audit:ci": "pnpm audit:prod && pnpm audit:dev",
     "verify": "pnpm agent:check && pnpm agent:format:check && pnpm lint && pnpm format:check && pnpm build && pnpm typecheck && pnpm test",
     "verify:ci": "pnpm agent:check && pnpm agent:format:check && pnpm lint && pnpm format:check && pnpm build && pnpm typecheck && pnpm test:coverage",
     "dev": "pnpm --filter fieldnotes-demo dev",
@@ -35,12 +38,12 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "eslint": "^10.0.3",
+    "eslint": "^10.11.0",
     "eslint-config-prettier": "^10.1.8",
     "husky": "^9.1.7",
     "lint-staged": "^16.4.0",
     "prettier": "^3.8.1",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.57.0"
+    "typescript-eslint": "^8.70.1"
   }
 }

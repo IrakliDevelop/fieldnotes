@@ -54,8 +54,8 @@
   "devDependencies": {
     "@fieldnotes/core": "workspace:*",
     "@fieldnotes/vtt": "workspace:*",
-    "@vitest/coverage-v8": "^4.1.0",
+    "@vitest/coverage-v8": "^4.1.11",
     "tsup": "^8.5.1",
-    "vitest": "^4.1.0"
+    "vitest": "^4.1.11"
   }
 }
