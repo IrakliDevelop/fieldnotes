@@ -69,7 +69,7 @@ describe('ContextMenu', () => {
     expect(sep.tagName).toBe('DIV');
     expect(sep.classList.contains('fieldnotes-context-menu-separator')).toBe(true);
     expect(sep.getAttribute('role')).toBe('separator');
-    expect(sep.tabIndex).toBe(-1);
+    expect(sep.hasAttribute('tabindex')).toBe(false);
 
     // Clicking the separator should not fire onCommand
     sep.click();

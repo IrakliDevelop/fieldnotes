@@ -476,7 +476,6 @@ describe('Viewport plugin lifecycle', () => {
     });
     expect(viewport.actions.get('disposable.action')).toBeDefined();
     viewport.destroy();
-    // After destroy, actions are no longer accessible
-    // (The registry is gone with the viewport)
+    expect(viewport.actions.get('disposable.action')).toBeUndefined();
   });
 });

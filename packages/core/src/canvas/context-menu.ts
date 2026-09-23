@@ -37,7 +37,12 @@ export class ContextMenu {
         const sep = document.createElement('div');
         sep.className = 'fieldnotes-context-menu-separator';
         sep.setAttribute('role', 'separator');
-        sep.tabIndex = -1;
+        Object.assign(sep.style, {
+          height: '1px',
+          margin: '4px 0',
+          background: 'currentColor',
+          opacity: '0.2',
+        });
         el.appendChild(sep);
         continue;
       }
