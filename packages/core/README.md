@@ -339,7 +339,11 @@ viewport.shortcuts.reset(); // back to defaults
 viewport.shortcuts.getBindings(); // current table (canonical ids) — render a settings UI
 ```
 
-> Legacy flat ids (e.g. `'undo'`, `'tool:pencil'`) still resolve until 0.88.0; prefer the canonical namespaced form above.
+> **0.86 migration (pre-1.0):** `getBindings()` returns canonical map keys immediately. Legacy
+> inputs remain temporarily accepted by `ViewportOptions.shortcuts.bindings`,
+> `rebind`/`disable`/`reset`, and action `get`/`run`/`isEnabled`, but they do not preserve legacy
+> keys in returned maps. Migrate persisted maps and key comparisons now: `undo` → `edit.undo` and
+> `tool:pencil` → `tool.pencil`. Input aliases are removed in 0.88.0.
 
 ## Actions
 
@@ -380,6 +384,10 @@ configure(ctx) {
   });
 }
 ```
+
+> New action definitions passed to `viewport.actions.register()` or `ctx.registerAction()` must
+> use canonical ids. Recognized legacy aliases are rejected with their canonical replacement;
+> legacy lookup and input compatibility remains available until 0.88.0.
 
 ## Changing Tool Options at Runtime
 

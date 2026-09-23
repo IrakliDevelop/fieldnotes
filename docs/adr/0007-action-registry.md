@@ -8,9 +8,10 @@
 
 ## Context
 
-`KeyboardHandler.runAction` is a closed `switch` over 31 string action ids.
+`KeyboardHandler.runAction` is a closed `switch` over 28 literal non-tool action ids plus a
+dynamic `tool:` fallback.
 `ShortcutMap` hard-codes `DEFAULT_BINDINGS` and `ALLOW_SHIFT` maps alongside the switch.
-`Viewport.openContextMenu` hard-codes 13 menu items. Plugins cannot register commands,
+`Viewport.openContextMenu` hard-codes at most 12 command items. Plugins cannot register commands,
 add keyboard shortcuts, or place items in the context menu. There are zero action
 references from `@fieldnotes/react` or `@fieldnotes/vtt`.
 
@@ -61,7 +62,10 @@ scheduled for 0.88.0 (spec section 3).
 
 `resolveActionId(id)` maps legacy ids to canonical and returns unknown ids unchanged.
 It is applied in `ActionsApi.run/get/isEnabled`, `ShortcutsApi.rebind/disable/reset`,
-and in `ViewportOptions.shortcuts.bindings`. `getBindings()` returns canonical ids only.
+and in `ViewportOptions.shortcuts.bindings`. `getBindings()` returns canonical ids only. New
+definitions passed to `ActionsApi.register` and `PluginConfigureContext.registerAction` must use
+canonical ids: recognized legacy aliases are rejected with their canonical replacement. This does
+not remove legacy lookup or input compatibility.
 No console warning is emitted; the CHANGELOG carries the migration table and the removal
 schedule.
 
@@ -98,7 +102,7 @@ convenience alias that delegates to `this.actions.run(id, { source: 'api' })`.
 
 `Viewport` constructs the `ActionRegistry` before `InputHandler`. `KeyboardHandler`
 creates a `ShortcutMap`, attaches it as the registry's shortcut sink, and registers
-the 27 built-in (non-tool) actions. The `runAction` switch is deleted. Key dispatch
+the 28 built-in (non-tool) actions. The `runAction` switch is deleted. Key dispatch
 flows through `shortcutMap.match(e)` into `registry.run(id, ...)`. `ShortcutMap` loses
 its hard-coded `DEFAULT_BINDINGS` and `ALLOW_SHIFT`; defaults are injected per-action
 via `setDefault(action, bindings, allowShift)` and respected only when the user has not
@@ -138,8 +142,6 @@ by the current use cases.
 
 ### Neutral
 
-- `getBindings()` keys change from legacy flat ids to namespaced canonical ids. Consumers
-  that store or compare binding keys must update.
 - Separators are added between context menu groups. Visual appearance changes but item
   order and content are preserved.
 - The Paste visibility rule is unchanged: `edit.paste` uses its `enabled` predicate to
@@ -147,6 +149,11 @@ by the current use cases.
 
 ### Negative
 
+- **Intentional pre-1.0 public-output break.** `getBindings()` returns namespaced canonical keys,
+  not legacy flat keys. Aliases remain accepted for `ViewportOptions.shortcuts.bindings`,
+  shortcut `rebind`/`disable`/`reset`, and action `get`/`run`/`isEnabled`, but do not preserve
+  legacy keys in returned maps. Consumers that persist or compare binding keys must migrate them
+  (for example, `undo` to `edit.undo` and `tool:pencil` to `tool.pencil`).
 - The refactor touches `KeyboardHandler`, `ShortcutMap`, `InputHandler`, `Viewport`,
   context menu rendering, and the plugin configure context. All existing keyboard and
   context menu Playwright tests must pass.

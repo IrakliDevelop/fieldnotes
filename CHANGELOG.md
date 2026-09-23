@@ -6,6 +6,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+## [0.86.0] — 2026-09-23
+
 ### Core 0.86.0 — action registry (F2)
 
 **Added**
@@ -17,6 +19,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
   groups (`clipboard`, `arrange`, `transform`, `lock`, then plugin groups).
 - Exported types: `ActionDefinition`, `ActionContext`, `ActionInvocation`,
   `ActionMenuPlacement`, `ActionSource`, `ActionsApi`.
+
+**Breaking changes (pre-1.0):**
+
+- `viewport.shortcuts.getBindings()` now returns canonical action ids as map keys immediately.
+  Compatibility aliases remain accepted only as inputs to `ViewportOptions.shortcuts.bindings`,
+  `rebind`/`disable`/`reset`, and action `get`/`run`/`isEnabled`; they do not preserve legacy
+  keys in returned maps. Migrate persisted binding maps and key comparisons now (for example,
+  `undo` becomes `edit.undo` and `tool:pencil` becomes `tool.pencil`).
 
 **Changed**
 
@@ -57,6 +67,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 - Plugin `enabled()` and function labels that throw are logged and treated as disabled / fall back to the id instead of breaking the context menu or keyboard dispatch.
 - `viewport.shortcuts.getBindings()` keys are now canonical ids.
 - `ShortcutOptions.bindings` keys should use canonical ids.
+- New definitions registered through `ActionsApi.register` or
+  `PluginConfigureContext.registerAction` must use canonical ids. Recognized legacy aliases are
+  rejected with their canonical replacement; this does not remove compatibility for legacy lookup
+  or input methods.
 - Paste behavior unchanged (system paste event drives it; `edit.paste` has no default shortcut).
 
 **Deprecated**
@@ -65,7 +79,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
   `viewport.runAction`, `viewport.actions.run`, and `viewport.shortcuts.rebind/disable/reset`,
   but will be removed in 0.88.0.
 
-### Core 0.85.0 — core purity pass (F6)
+## [0.85.0] — 2026-09-21
+
+### Core purity pass (F6)
 
 **Breaking changes (pre-1.0):**
 
