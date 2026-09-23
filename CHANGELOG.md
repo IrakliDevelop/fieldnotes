@@ -6,6 +6,64 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### Core 0.86.0 — action registry (F2)
+
+**Added**
+
+- `viewport.actions` (`ActionsApi`) — register, inspect, run, and listen for named actions.
+- `PluginConfigureContext.registerAction(definition)` — plugins can add actions that appear
+  in the keyboard shortcut table and context menu.
+- Context menu now built from the action registry with `{ separator: true }` entries between
+  groups (`clipboard`, `arrange`, `transform`, `lock`, then plugin groups).
+- Exported types: `ActionDefinition`, `ActionContext`, `ActionInvocation`,
+  `ActionMenuPlacement`, `ActionSource`, `ActionsApi`.
+
+**Changed**
+
+- All action ids are now namespaced. The full legacy-to-canonical mapping:
+
+  | Legacy id                 | Canonical id             |
+  | ------------------------- | ------------------------ |
+  | `undo`                    | `edit.undo`              |
+  | `redo`                    | `edit.redo`              |
+  | `cut`                     | `edit.cut`               |
+  | `copy`                    | `edit.copy`              |
+  | `paste`                   | `edit.paste`             |
+  | `duplicate`               | `edit.duplicate`         |
+  | `delete`                  | `edit.delete`            |
+  | `select-all`              | `select.all`             |
+  | `deselect`                | `select.none`            |
+  | `cycle-selection`         | `select.cycle`           |
+  | `cycle-selection-reverse` | `select.cycle-reverse`   |
+  | `z-front`                 | `arrange.bring-to-front` |
+  | `z-forward`               | `arrange.bring-forward`  |
+  | `z-backward`              | `arrange.send-backward`  |
+  | `z-back`                  | `arrange.send-to-back`   |
+  | `group`                   | `arrange.group`          |
+  | `ungroup`                 | `arrange.ungroup`        |
+  | `toggle-lock`             | `arrange.toggle-lock`    |
+  | `rotate-cw`               | `arrange.rotate-cw`      |
+  | `rotate-ccw`              | `arrange.rotate-ccw`     |
+  | `nudge-left`              | `arrange.nudge-left`     |
+  | `nudge-right`             | `arrange.nudge-right`    |
+  | `nudge-up`                | `arrange.nudge-up`       |
+  | `nudge-down`              | `arrange.nudge-down`     |
+  | `zoom-in`                 | `view.zoom-in`           |
+  | `zoom-out`                | `view.zoom-out`          |
+  | `zoom-reset`              | `view.zoom-reset`        |
+  | `zoom-fit`                | `view.zoom-to-fit`       |
+  | `tool:<name>`             | `tool.<name>`            |
+
+- `viewport.shortcuts.getBindings()` keys are now canonical ids.
+- `ShortcutOptions.bindings` keys should use canonical ids.
+- Paste behavior unchanged (system paste event drives it; `edit.paste` has no default shortcut).
+
+**Deprecated**
+
+- Legacy flat action ids (e.g. `'undo'`, `'tool:pencil'`). They still resolve through
+  `viewport.runAction`, `viewport.actions.run`, and `viewport.shortcuts.rebind/disable/reset`,
+  but will be removed in 0.88.0.
+
 ### Core 0.85.0 — core purity pass (F6)
 
 **Breaking changes (pre-1.0):**

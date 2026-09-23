@@ -626,13 +626,21 @@ const lockBtn = document.getElementById('lock-btn') as HTMLButtonElement | null;
 
 const zorderPanel = document.getElementById('zorder-panel');
 const zMap: Record<string, string> = {
-  'z-front-btn': 'z-front',
-  'z-forward-btn': 'z-forward',
-  'z-backward-btn': 'z-backward',
-  'z-back-btn': 'z-back',
+  'z-front-btn': 'arrange.bring-to-front',
+  'z-forward-btn': 'arrange.bring-forward',
+  'z-backward-btn': 'arrange.send-backward',
+  'z-back-btn': 'arrange.send-to-back',
 };
-for (const [btnId, action] of Object.entries(zMap)) {
-  document.getElementById(btnId)?.addEventListener('click', () => viewport.runAction(action));
+for (const [btnId, actionId] of Object.entries(zMap)) {
+  const btn = document.getElementById(btnId);
+  if (!btn) continue;
+  const def = viewport.actions.get(actionId);
+  if (def) {
+    const bindings = viewport.shortcuts.getBindings()[actionId];
+    const label = typeof def.label === 'string' ? def.label : actionId;
+    btn.title = bindings?.[0] ? `${label} (${bindings[0]})` : label;
+  }
+  btn.addEventListener('click', () => viewport.actions.run(actionId, { source: 'api' }));
 }
 
 function updateAlignPanel(): void {

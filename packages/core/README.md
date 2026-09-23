@@ -325,18 +325,56 @@ pass `shortcuts: { scope: 'window' }` for page-wide handling.
 const viewport = new Viewport(el, {
   shortcuts: {
     bindings: {
-      duplicate: 'mod+shift+d', // remap
-      'tool:pencil': ['p', 'b'], // multiple bindings
-      copy: null, // disable
-      'tool:my-custom-tool': 'f', // any registered tool works
+      'edit.duplicate': 'mod+shift+d', // remap
+      'tool.pencil': ['p', 'b'], // multiple bindings
+      'edit.copy': null, // disable
+      'tool.my-custom-tool': 'f', // any registered tool works
     },
   },
 });
 
-viewport.shortcuts.rebind('undo', 'mod+u');
-viewport.shortcuts.disable('select-all');
+viewport.shortcuts.rebind('edit.undo', 'mod+u');
+viewport.shortcuts.disable('select.all');
 viewport.shortcuts.reset(); // back to defaults
-viewport.shortcuts.getBindings(); // current table — render a settings UI
+viewport.shortcuts.getBindings(); // current table (canonical ids) — render a settings UI
+```
+
+> Legacy flat ids (e.g. `'undo'`, `'tool:pencil'`) still resolve until 0.88.0; prefer the canonical namespaced form above.
+
+## Actions
+
+Every keyboard shortcut and context-menu entry is backed by a named **action** in the registry. Use `viewport.actions` to inspect, run, or extend them.
+
+| Field      | Type                                   | Description                                               |
+| ---------- | -------------------------------------- | --------------------------------------------------------- |
+| `id`       | `string`                               | Namespaced unique id, e.g. `'edit.undo'`, `'tool.pencil'` |
+| `label`    | `string \| (ctx) => string`            | Human-readable label                                      |
+| `shortcut` | `string[]`                             | Default key bindings (user rebinding overrides)           |
+| `menu`     | `{ group, order }`                     | Context-menu placement (omit to hide from menu)           |
+| `enabled`  | `(ctx) => boolean`                     | Guard; disabled actions are hidden from the menu          |
+| `perform`  | `(ctx, invocation) => void \| boolean` | The action body                                           |
+
+```ts
+viewport.actions.list(); // all registered actions
+viewport.actions.run('edit.undo', { source: 'api' }); // programmatic trigger
+viewport.actions.onChange(() => {
+  /* rebuild UI */
+});
+```
+
+Plugins register actions through the configure context:
+
+```ts
+configure(ctx) {
+  ctx.registerAction({
+    id: 'stamp.apply',
+    label: 'Apply stamp',
+    shortcut: ['mod+shift+s'],
+    menu: { group: 'stamp', order: 10 },
+    enabled: (a) => a.selectedIds.length > 0,
+    perform: (a) => { /* ... */ },
+  });
+}
 ```
 
 ## Changing Tool Options at Runtime
@@ -461,7 +499,7 @@ new Viewport(container, {
 - `fontSizePresets?: FontSizePreset[]` — custom font-size steps for the note toolbar.
 - `toolbar?: boolean` — show/hide the note formatting toolbar (default `true`).
 - `placeholder?: string` — placeholder text shown in empty notes.
-- `shortcuts?: ShortcutOptions` — seed the keyboard shortcut table with custom bindings.
+- `shortcuts?: ShortcutOptions` — seed the keyboard shortcut table with custom bindings (use canonical action ids like `'edit.undo'`, `'tool.pencil'`).
 - `onHtmlElementMount?` — called after `loadState` for HTML elements that need content injected.
 - `onDrop?` — called for every drop event; replaces the built-in image-drop handling.
 - `onImageError?` — called when an image element fails to load.
@@ -639,7 +677,7 @@ viewport.groupSelection(); // Ctrl/Cmd+G
 viewport.ungroupSelection(); // Ctrl/Cmd+Shift+G
 ```
 
-The shortcuts are rebindable as `group` and `ungroup`.
+The shortcuts are rebindable as `arrange.group` and `arrange.ungroup`.
 
 ## Rotation
 
@@ -651,9 +689,9 @@ Hit-testing, marquee selection, and resize are all rotation-aware: resizing a ro
 
 Right-click (desktop) or touch long-press (tablet) opens a context menu over the canvas with Cut/Copy/Paste/Duplicate/Delete, z-order (to front / forward / backward / to back), and Lock/Unlock. The menu is core-provided (plain DOM) and selects the element under the pointer if it isn't already selected. Opt out with `new Viewport(el, { contextMenu: false })`.
 
-Lock with **`viewport.toggleLockSelection()`** or **Ctrl/Cmd+Shift+L**; a lock badge appears on the selection. Locked elements stay selectable but can't be moved, resized, or rotated. **Ctrl/Cmd+X** cuts the selection. The shortcuts are rebindable as `toggle-lock` and `cut`.
+Lock with **`viewport.toggleLockSelection()`** or **Ctrl/Cmd+Shift+L**; a lock badge appears on the selection. Locked elements stay selectable but can't be moved, resized, or rotated. **Ctrl/Cmd+X** cuts the selection. The shortcuts are rebindable as `arrange.toggle-lock` and `edit.cut`.
 
-You can drive any menu action programmatically with **`viewport.runAction(name)`** (e.g. `'cut'`, `'paste'`, `'toggle-lock'`), and **`viewport.canPaste()`** reports whether the clipboard has content.
+You can drive any menu action programmatically with **`viewport.runAction(name)`** (e.g. `'edit.cut'`, `'edit.paste'`, `'arrange.toggle-lock'`), or through the actions API: `viewport.actions.run('edit.cut', { source: 'api' })`. **`viewport.canPaste()`** reports whether the clipboard has content.
 
 ## Built-in Interactions
 
