@@ -10,6 +10,7 @@ ADRs for the VTT extraction and extension system design. These decisions gate th
 | [ADR-0004](0004-serialization-compatibility.md) | Serialization Compatibility Strategy | **Accepted; v4 pending**     | 2026-09-05 |
 | [ADR-0005](0005-plugin-lifecycle.md)            | Plugin Lifecycle & Installation      | **Accepted and implemented** | 2026-09-05 |
 | [ADR-0006](0006-snapping-as-service.md)         | Snapping as Opt-In Service           | **Accepted and implemented** | 2026-09-05 |
+| [ADR-0007](0007-action-registry.md)             | Action Registry                      | **Accepted**                 | 2026-09-23 |
 
 ## Context
 
