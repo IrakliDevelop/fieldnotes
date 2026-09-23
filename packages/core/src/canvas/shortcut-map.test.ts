@@ -171,7 +171,8 @@ describe('ShortcutMap setDefault', () => {
   });
 
   it('setDefault does not override a prior rebind; reset(id) then restores the default', () => {
-    const map = new ShortcutMap({ 'edit.undo': 'mod+u' });
+    const map = new ShortcutMap();
+    map.rebind('edit.undo', 'mod+u');
     map.setDefault('edit.undo', ['mod+z'], false);
     // user rebind should win
     expect(map.match(kbd({ key: 'u', ctrlKey: true }))).toBe('edit.undo');
@@ -214,41 +215,72 @@ describe('ShortcutMap setDefault', () => {
   });
 });
 
-describe('ShortcutMap constructor overrides', () => {
-  it('applies binding overrides', () => {
-    const map = new ShortcutMap({ duplicate: 'mod+shift+d' });
+describe('ShortcutMap rebind overrides applied after defaults', () => {
+  it('a new plugin id binding that conflicts with a built-in default keeps the built-in winning', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const map = new ShortcutMap();
+    seedAllDefaults(map);
+    // 'r' is already bound to arrange.rotate-cw by seedAllDefaults
+    // A plugin tool bound to 'r' via user overrides should not displace it;
+    // the first-registered action (arrange.rotate-cw) wins and a warning is emitted.
+    map.rebind('tool.dm-fog', 'r');
+    expect(map.match(kbd({ key: 'r' }))).toBe('arrange.rotate-cw');
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('conflicts'));
+    warn.mockRestore();
+  });
+
+  it('rebind with a legacy key rebinds the canonical id', () => {
+    const map = new ShortcutMap();
+    seedAllDefaults(map);
+    map.rebind('undo', 'mod+u');
+    const bindings = map.getBindings();
+    expect(bindings['edit.undo']).toEqual(['mod+u']);
+  });
+
+  it('applies binding overrides via rebind', () => {
+    const map = new ShortcutMap();
+    map.rebind('duplicate', 'mod+shift+d');
     seedAllDefaults(map);
     expect(map.match(kbd({ key: 'd', ctrlKey: true }))).toBeNull();
     expect(map.match(kbd({ key: 'D', ctrlKey: true, shiftKey: true }))).toBe('edit.duplicate');
   });
 
-  it('disables an action with null', () => {
-    const map = new ShortcutMap({ copy: null });
+  it('disables an action with null via rebind', () => {
+    const map = new ShortcutMap();
+    map.rebind('copy', null);
     seedAllDefaults(map);
     expect(map.match(kbd({ key: 'c', ctrlKey: true }))).toBeNull();
   });
 
-  it('accepts arrays and custom tool ids', () => {
-    const map = new ShortcutMap({ 'tool:pencil': ['p', 'b'], 'tool:dm-fog': 'f' });
+  it('accepts arrays and custom tool ids via rebind', () => {
+    const map = new ShortcutMap();
+    map.rebind('tool:pencil', ['p', 'b']);
+    map.rebind('tool:dm-fog', 'f');
     seedAllDefaults(map);
     expect(map.match(kbd({ key: 'b' }))).toBe('tool.pencil');
     expect(map.match(kbd({ key: 'f' }))).toBe('tool.dm-fog');
   });
 
-  it('throws on malformed bindings at construction', () => {
-    expect(() => new ShortcutMap({ undo: 'mod+' })).toThrow(/binding/i);
-    expect(() => new ShortcutMap({ undo: 'bogus+z' })).toThrow(/bogus/i);
+  it('throws on malformed bindings via rebind', () => {
+    const map = new ShortcutMap();
+    expect(() => map.rebind('edit.undo', 'mod+')).toThrow(/binding/i);
+    expect(() => map.rebind('edit.undo', 'bogus+z')).toThrow(/bogus/i);
   });
 
   it('throws when mod is combined with ctrl or meta', () => {
-    expect(() => new ShortcutMap({ undo: 'mod+ctrl+z' })).toThrow(/mod/i);
-    expect(() => new ShortcutMap({ undo: 'mod+meta+z' })).toThrow(/mod/i);
+    const map = new ShortcutMap();
+    expect(() => map.rebind('edit.undo', 'mod+ctrl+z')).toThrow(/mod/i);
+    expect(() => map.rebind('edit.undo', 'mod+meta+z')).toThrow(/mod/i);
   });
 
   it('still accepts mod with shift/alt and bare ctrl/meta', () => {
-    expect(
-      () => new ShortcutMap({ a: 'mod+shift+z', b: 'mod+alt+z', c: 'ctrl+z', d: 'meta+z' }),
-    ).not.toThrow();
+    const map = new ShortcutMap();
+    expect(() => {
+      map.rebind('a', 'mod+shift+z');
+      map.rebind('b', 'mod+alt+z');
+      map.rebind('c', 'ctrl+z');
+      map.rebind('d', 'meta+z');
+    }).not.toThrow();
   });
 });
 
@@ -271,7 +303,8 @@ describe('ShortcutMap runtime API', () => {
   });
 
   it('reset() restores everything, removing custom ids', () => {
-    const map = new ShortcutMap({ 'tool:dm-fog': 'f' });
+    const map = new ShortcutMap();
+    map.rebind('tool:dm-fog', 'f');
     seedAllDefaults(map);
     map.rebind('edit.undo', 'mod+u');
     map.reset();

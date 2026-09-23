@@ -105,13 +105,7 @@ export class ShortcutMap implements ShortcutsApi {
   private userOverridden = new Set<string>();
   private allowShiftSet = new Set<string>();
 
-  constructor(overrides?: ShortcutBindings) {
-    if (overrides) {
-      for (const [action, bindings] of Object.entries(overrides)) {
-        this.rebind(action, bindings);
-      }
-    }
-  }
+  // No constructor overrides — user bindings are applied after defaults via rebind().
 
   /** First matching action in registration order wins when bindings conflict. */
   match(e: KeyboardEvent): string | null {

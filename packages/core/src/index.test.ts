@@ -190,7 +190,7 @@ describe('core public surface', () => {
     expect(typeof FN.elementRectsEqual).toBe('function');
   });
 
-  it('reports VERSION 0.85.0', async () => {
+  it('reports VERSION 0.86.0', async () => {
     const { VERSION } = await import('./index');
     expect(VERSION).toBe('0.86.0');
   });

@@ -345,14 +345,18 @@ viewport.shortcuts.getBindings(); // current table (canonical ids) — render a 
 
 Every keyboard shortcut and context-menu entry is backed by a named **action** in the registry. Use `viewport.actions` to inspect, run, or extend them.
 
-| Field      | Type                                   | Description                                               |
-| ---------- | -------------------------------------- | --------------------------------------------------------- |
-| `id`       | `string`                               | Namespaced unique id, e.g. `'edit.undo'`, `'tool.pencil'` |
-| `label`    | `string \| (ctx) => string`            | Human-readable label                                      |
-| `shortcut` | `string[]`                             | Default key bindings (user rebinding overrides)           |
-| `menu`     | `{ group, order }`                     | Context-menu placement (omit to hide from menu)           |
-| `enabled`  | `(ctx) => boolean`                     | Guard; disabled actions are hidden from the menu          |
-| `perform`  | `(ctx, invocation) => void \| boolean` | The action body                                           |
+| Field            | Type                                   | Description                                                                                                  |
+| ---------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `id`             | `string`                               | Namespaced unique id, e.g. `'edit.undo'`, `'tool.pencil'`                                                    |
+| `label`          | `string \| (ctx) => string`            | Human-readable label                                                                                         |
+| `keywords`       | `readonly string[]`                    | Search terms for command palette or filtering (optional)                                                     |
+| `icon`           | `string`                               | Identifier only (e.g. `'undo'`); UI layers map it to a glyph. Core never renders it (optional)               |
+| `shortcut`       | `readonly string[]`                    | Default key bindings (user rebinding overrides) (optional)                                                   |
+| `allowShift`     | `boolean`                              | Match with or without Shift held (e.g. nudge). Default `false` (optional)                                    |
+| `menu`           | `{ group, order }`                     | Context-menu placement (omit to hide from menu) (optional)                                                   |
+| `enabled`        | `(ctx) => boolean`                     | Guard; disabled actions are hidden from the menu (optional)                                                  |
+| `preventDefault` | `boolean`                              | Call `preventDefault` on the triggering keyboard event. Default `true` (optional)                            |
+| `perform`        | `(ctx, invocation) => void \| boolean` | The action body. Returning `false` means "nothing happened" (keyboard then leaves the browser default alone) |
 
 ```ts
 viewport.actions.list(); // all registered actions

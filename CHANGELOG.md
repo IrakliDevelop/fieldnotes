@@ -54,6 +54,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
   | `zoom-fit`                | `view.zoom-to-fit`       |
   | `tool:<name>`             | `tool.<name>`            |
 
+- Plugin `enabled()` and function labels that throw are logged and treated as disabled / fall back to the id instead of breaking the context menu or keyboard dispatch.
 - `viewport.shortcuts.getBindings()` keys are now canonical ids.
 - `ShortcutOptions.bindings` keys should use canonical ids.
 - Paste behavior unchanged (system paste event drives it; `edit.paste` has no default shortcut).

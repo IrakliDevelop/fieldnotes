@@ -69,7 +69,17 @@ export function buildContextMenuItems(actions: ActionsApi, ctx: ActionContext): 
     }
 
     for (const entry of groupEntries) {
-      const label = typeof entry.def.label === 'function' ? entry.def.label(ctx) : entry.def.label;
+      let label: string;
+      if (typeof entry.def.label === 'function') {
+        try {
+          label = entry.def.label(ctx);
+        } catch (error) {
+          console.error(`[fieldnotes] action label() failed for "${entry.def.id}"`, error);
+          label = entry.def.id;
+        }
+      } else {
+        label = entry.def.label;
+      }
       items.push({ label, action: entry.def.id });
     }
   }

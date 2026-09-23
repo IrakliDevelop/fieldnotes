@@ -61,7 +61,12 @@ export class ActionRegistry implements ActionsApi {
     const def = this.get(id);
     if (!def) return false;
     if (def.enabled) {
-      return def.enabled(this.getContext());
+      try {
+        return def.enabled(this.getContext());
+      } catch (error) {
+        console.error(`[fieldnotes] action enabled() failed for "${def.id}"`, error);
+        return false;
+      }
     }
     return true;
   }
@@ -72,7 +77,14 @@ export class ActionRegistry implements ActionsApi {
     if (!def) return false;
 
     const ctx = this.getContext();
-    if (def.enabled && !def.enabled(ctx)) return false;
+    if (def.enabled) {
+      try {
+        if (!def.enabled(ctx)) return false;
+      } catch (error) {
+        console.error(`[fieldnotes] action enabled() failed for "${resolved}"`, error);
+        return false;
+      }
+    }
 
     const fullInvocation: ActionInvocation = {
       source: invocation?.source ?? 'api',

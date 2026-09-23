@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { buildContextMenuItems } from './context-menu-items';
 import type { ActionDefinition, ActionContext, ActionsApi } from './types';
 import type { Viewport } from '../canvas/viewport';
@@ -22,7 +22,13 @@ function fakeRegistry(definitions: ActionDefinition[], ctx: ActionContext): Acti
     isEnabled: (id: string) => {
       const def = map.get(id);
       if (!def) return false;
-      if (def.enabled) return def.enabled(ctx);
+      if (def.enabled) {
+        try {
+          return def.enabled(ctx);
+        } catch {
+          return false;
+        }
+      }
       return true;
     },
     run: () => true,
@@ -127,6 +133,56 @@ describe('buildContextMenuItems', () => {
       { label: 'M', action: 'a.m' },
       { label: 'Z', action: 'a.z' },
     ]);
+  });
+
+  it('a throwing enabled() omits only that item; other items are unaffected', () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const ctx = fakeContext();
+    const defs: ActionDefinition[] = [
+      {
+        id: 'clip.ok',
+        label: 'OK Action',
+        menu: { group: 'clipboard', order: 10 },
+        perform: () => undefined,
+      },
+      {
+        id: 'clip.boom',
+        label: 'Boom',
+        menu: { group: 'clipboard', order: 20 },
+        enabled: () => {
+          throw new Error('plugin bug');
+        },
+        perform: () => undefined,
+      },
+    ];
+    const api = fakeRegistry(defs, ctx);
+    const items = buildContextMenuItems(api, ctx);
+    // The throwing action should be treated as disabled and omitted
+    expect(items).toEqual([{ label: 'OK Action', action: 'clip.ok' }]);
+    errorSpy.mockRestore();
+  });
+
+  it('a throwing function label falls back to the action id', () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const ctx = fakeContext();
+    const defs: ActionDefinition[] = [
+      {
+        id: 'clip.bad-label',
+        label: () => {
+          throw new Error('label bug');
+        },
+        menu: { group: 'clipboard', order: 10 },
+        perform: () => undefined,
+      },
+    ];
+    const api = fakeRegistry(defs, ctx);
+    const items = buildContextMenuItems(api, ctx);
+    expect(items).toEqual([{ label: 'clip.bad-label', action: 'clip.bad-label' }]);
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('[fieldnotes]'),
+      expect.any(Error),
+    );
+    errorSpy.mockRestore();
   });
 
   it('omits disabled actions and drops a group that becomes empty (no double separators)', () => {

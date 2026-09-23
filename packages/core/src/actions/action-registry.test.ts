@@ -208,6 +208,34 @@ describe('ActionRegistry', () => {
     expect(calls).toBe(1);
   });
 
+  it('throwing enabled() makes isEnabled return false and run return false without calling perform', () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const registry = new ActionRegistry(createContextFactory());
+    const performSpy = vi.fn();
+    registry.register(
+      createAction({
+        id: 'boom.enabled',
+        enabled: () => {
+          throw new Error('plugin bug');
+        },
+        perform: performSpy,
+      }),
+    );
+
+    expect(registry.isEnabled('boom.enabled')).toBe(false);
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('[fieldnotes]'),
+      expect.any(Error),
+    );
+    errorSpy.mockClear();
+
+    expect(registry.run('boom.enabled')).toBe(false);
+    expect(performSpy).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalled();
+
+    errorSpy.mockRestore();
+  });
+
   it('register without shortcut never calls the sink', () => {
     const registry = new ActionRegistry(createContextFactory());
     const sink: ShortcutDefaultsSink = {

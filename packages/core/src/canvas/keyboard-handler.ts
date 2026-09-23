@@ -30,7 +30,7 @@ export class KeyboardHandler {
   private readonly shortcutMap: ShortcutMap;
 
   constructor(private readonly deps: KeyboardHandlerDeps) {
-    this.shortcutMap = new ShortcutMap(deps.shortcuts?.bindings);
+    this.shortcutMap = new ShortcutMap();
 
     deps.actions.attachShortcuts(this.shortcutMap);
     const ka = deps.keyboardActions;
@@ -41,6 +41,14 @@ export class KeyboardHandler {
       canPaste: () => ka.hasClipboard(),
     })) {
       deps.actions.register(def);
+    }
+
+    // Apply user overrides after defaults so first-registered wins on conflicts.
+    const userBindings = deps.shortcuts?.bindings;
+    if (userBindings) {
+      for (const [action, bindings] of Object.entries(userBindings)) {
+        this.shortcutMap.rebind(action, bindings);
+      }
     }
 
     window.addEventListener('keydown', this.onKeyDown, { signal: deps.abortSignal });
