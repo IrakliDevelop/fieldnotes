@@ -160,6 +160,21 @@ describe('ShortcutMap defaults', () => {
 });
 
 describe('ShortcutMap setDefault', () => {
+  it('rejects invalid defaults atomically, including for user-overridden actions', () => {
+    const map = new ShortcutMap();
+    map.setDefault('existing.action', ['mod+e'], false);
+    map.rebind('overridden.action', 'mod+o');
+    const bindingsBefore = map.getBindings();
+
+    expect(() => map.setDefault('rejected.action', ['ctrl+'], true)).toThrow(/binding/i);
+    expect(() => map.setDefault('overridden.action', ['ctrl+'], true)).toThrow(/binding/i);
+
+    expect(map.getBindings()).toEqual(bindingsBefore);
+    expect(map.getBindings()['rejected.action']).toBeUndefined();
+    expect(() => map.reset()).not.toThrow();
+    expect(map.getBindings()).toEqual({ 'existing.action': ['mod+e'] });
+  });
+
   it('setDefault applies bindings and reset(id) restores them', () => {
     const map = new ShortcutMap();
     map.setDefault('edit.undo', ['mod+z'], false);

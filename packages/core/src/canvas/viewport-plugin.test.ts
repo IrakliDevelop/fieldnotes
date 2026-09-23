@@ -459,6 +459,28 @@ describe('Viewport plugin lifecycle', () => {
     viewport.destroy();
   });
 
+  it('continues after an optional plugin registers an action with an invalid shortcut without retaining it', () => {
+    const viewport = new Viewport(container, {
+      plugins: [
+        {
+          name: 'invalid-shortcut-plugin',
+          configure(context) {
+            context.registerAction({
+              id: 'invalid-shortcut-plugin.action',
+              label: 'Invalid shortcut',
+              shortcut: ['ctrl+'],
+              perform: () => undefined,
+            });
+          },
+        },
+      ],
+    });
+
+    expect(viewport.actions.get('invalid-shortcut-plugin.action')).toBeUndefined();
+    expect(viewport.shortcuts.getBindings()['invalid-shortcut-plugin.action']).toBeUndefined();
+    viewport.destroy();
+  });
+
   it('dispose removes plugin actions', () => {
     const viewport = new Viewport(container, {
       plugins: [

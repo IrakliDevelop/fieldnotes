@@ -23,18 +23,24 @@ export class ActionRegistry implements ActionsApi {
   }
 
   register(definition: ActionDefinition): () => void {
+    const canonicalId = resolveActionId(definition.id);
+    if (canonicalId !== definition.id) {
+      throw new Error(
+        `Action "${definition.id}" is a legacy alias; register the canonical id "${canonicalId}" instead`,
+      );
+    }
     if (definition.id.length === 0) {
       throw new Error('Action id must not be empty');
     }
     if (this.definitions.has(definition.id)) {
       throw new Error(`Action "${definition.id}" is already registered`);
     }
-    this.definitions.set(definition.id, definition);
 
     if (this.sink && definition.shortcut) {
       this.sink.setDefault(definition.id, definition.shortcut, definition.allowShift === true);
     }
 
+    this.definitions.set(definition.id, definition);
     this.emitChange();
 
     let removed = false;

@@ -120,6 +120,8 @@ export class ShortcutMap implements ShortcutsApi {
 
   /** Record a default binding from the action registry. */
   setDefault(action: string, bindings: readonly string[], allowShift: boolean): void {
+    // Validate before changing any state, even if a user override currently masks this default.
+    bindings.forEach((binding) => parseBinding(binding));
     this.defaults.set(action, { bindings, allowShift });
     if (allowShift) {
       this.allowShiftSet.add(action);

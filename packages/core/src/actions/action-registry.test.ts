@@ -48,6 +48,48 @@ describe('ActionRegistry', () => {
     expect(() => registry.register(createAction({ id: '' }))).toThrowError();
   });
 
+  it.each([
+    ['undo', 'edit.undo'],
+    ['tool:pencil', 'tool.pencil'],
+  ])('register rejects legacy id %s in favor of %s before mutation', (id, canonicalId) => {
+    const registry = new ActionRegistry(createContextFactory());
+    const sink: ShortcutDefaultsSink = {
+      setDefault: vi.fn(),
+      clearDefault: vi.fn(),
+    };
+    const onChange = vi.fn();
+    registry.attachShortcuts(sink);
+    registry.onChange(onChange);
+
+    expect(() => registry.register(createAction({ id, shortcut: ['mod+k'] }))).toThrow(
+      new RegExp(`${id}.*${canonicalId}`),
+    );
+
+    expect(registry.get(id)).toBeUndefined();
+    expect(registry.get(canonicalId)).toBeUndefined();
+    expect(registry.list()).toEqual([]);
+    expect(sink.setDefault).not.toHaveBeenCalled();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('does not retain or announce an action when shortcut installation throws', () => {
+    const registry = new ActionRegistry(createContextFactory());
+    const setDefault = vi.fn(() => {
+      throw new Error('invalid shortcut');
+    });
+    const onChange = vi.fn();
+    registry.attachShortcuts({ setDefault, clearDefault: vi.fn() });
+    registry.onChange(onChange);
+
+    expect(() =>
+      registry.register(createAction({ id: 'plugin.bad', shortcut: ['ctrl+'] })),
+    ).toThrow('invalid shortcut');
+
+    expect(registry.get('plugin.bad')).toBeUndefined();
+    expect(registry.list()).toEqual([]);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
   it('run passes a fresh context and full invocation defaults', () => {
     const registry = new ActionRegistry(createContextFactory());
     const spy = vi.fn();
