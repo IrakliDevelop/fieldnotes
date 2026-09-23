@@ -19,6 +19,7 @@ import type { ImageElement, HtmlElement } from '../elements/types';
 import type { HtmlPaintDiagnostic } from './html-paint-diagnostics';
 import { HtmlPainterRegistry } from './html-painter-registry';
 import type { ElementActivationEvent } from './element-activation';
+import { LEGACY_ACTION_IDS } from '../actions/legacy-action-ids';
 
 function wrapperOf(container: HTMLElement): HTMLDivElement {
   const w = container.firstElementChild;
@@ -2172,19 +2173,26 @@ describe('Viewport', () => {
         position: { x: 0, y: 0 },
         text: 'a',
         layerId: viewport.layerManager.activeLayerId,
+        zIndex: 0,
       });
       const b = createNote({
         position: { x: 100, y: 0 },
         text: 'b',
         layerId: viewport.layerManager.activeLayerId,
+        zIndex: 1,
       });
       viewport.store.add(a);
       viewport.store.add(b);
-      select([a.id, b.id]);
-      // Legacy id 'z-front' should work and behave identically to actions.run('arrange.bring-to-front')
+      // a starts below b (zIndex 0 < 1). Select a and use the legacy id 'z-front'.
+      select([a.id]);
       viewport.runAction('z-front');
-      // Just verify it ran without error and actions.run with canonical id also works
-      viewport.actions.run('arrange.bring-to-front');
+      // After bring-to-front via legacy id, a should sit above b.
+      const aAfter = viewport.store.getById(a.id);
+      const bAfter = viewport.store.getById(b.id);
+      expect(aAfter).toBeDefined();
+      expect(bAfter).toBeDefined();
+      if (!aAfter || !bAfter) return;
+      expect(aAfter.zIndex).toBeGreaterThan(bAfter.zIndex);
       viewport.destroy();
     });
 
@@ -2197,12 +2205,15 @@ describe('Viewport', () => {
       expect(builtins).toHaveLength(28);
       const tools = list.filter((a) => a.id.startsWith('tool.'));
       expect(tools.some((t) => t.id === 'tool.select')).toBe(true);
-      // getBindings has only canonical keys
+      // getBindings has only canonical keys (every key contains '.')
       const bindings = viewport.shortcuts.getBindings();
-      for (const key of Object.keys(bindings)) {
-        // No legacy keys like 'undo', 'delete', 'tool:select' etc
-        expect(key).toMatch(/\.|^[a-z]+-/); // canonical format: contains '.' or is a canonical compound id
-        expect(key).not.toContain(':');
+      const bindingKeys = Object.keys(bindings);
+      for (const key of bindingKeys) {
+        expect(key).toContain('.');
+      }
+      // None of the 28 legacy ids is present
+      for (const legacyId of Object.keys(LEGACY_ACTION_IDS)) {
+        expect(bindingKeys).not.toContain(legacyId);
       }
       viewport.destroy();
     });

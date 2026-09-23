@@ -10,12 +10,11 @@ export interface KeyboardHandlerDeps {
   element: HTMLElement;
   camera: Camera;
   keyboardActions: KeyboardActions;
-  actions?: ActionRegistry;
+  actions: ActionRegistry;
   scope: 'focus' | 'window';
   shortcuts?: ShortcutOptions;
   abortSignal: AbortSignal;
   getToolContext: () => ToolContext | null;
-  getIsToolActive: () => boolean;
   getActiveTool: () => Tool | null;
   getLastPointerEvent: () => PointerEvent | null;
   setSpaceHeld: (v: boolean) => void;
@@ -28,22 +27,20 @@ export interface KeyboardHandlerDeps {
 }
 
 export class KeyboardHandler {
-  readonly shortcutMap: ShortcutMap;
+  private readonly shortcutMap: ShortcutMap;
 
   constructor(private readonly deps: KeyboardHandlerDeps) {
     this.shortcutMap = new ShortcutMap(deps.shortcuts?.bindings);
 
-    if (deps.actions) {
-      deps.actions.attachShortcuts(this.shortcutMap);
-      const ka = deps.keyboardActions;
-      for (const def of createBuiltinActions({
-        keyboardActions: ka,
-        zoomByFactor: (f) => this.zoomByFactor(f),
-        zoomToLevel: (l) => this.zoomToLevel(l),
-        canPaste: () => ka.hasClipboard(),
-      })) {
-        deps.actions.register(def);
-      }
+    deps.actions.attachShortcuts(this.shortcutMap);
+    const ka = deps.keyboardActions;
+    for (const def of createBuiltinActions({
+      keyboardActions: ka,
+      zoomByFactor: (f) => this.zoomByFactor(f),
+      zoomToLevel: (l) => this.zoomToLevel(l),
+      canPaste: () => ka.hasClipboard(),
+    })) {
+      deps.actions.register(def);
     }
 
     window.addEventListener('keydown', this.onKeyDown, { signal: deps.abortSignal });
@@ -91,13 +88,14 @@ export class KeyboardHandler {
     }
 
     const id = this.shortcutMap.match(e);
-    if (id !== null && this.deps.actions) {
-      const handled = this.deps.actions.run(id, { source: 'keyboard', shiftKey: e.shiftKey });
-      if (handled) {
-        const def = this.deps.actions.get(id);
-        if (def?.preventDefault !== false) {
-          e.preventDefault();
-        }
+    if (id !== null) {
+      const def = this.deps.actions.get(id);
+      if (!def) return;
+      const enabled = this.deps.actions.isEnabled(id);
+      const handled =
+        enabled && this.deps.actions.run(id, { source: 'keyboard', shiftKey: e.shiftKey });
+      if (def.preventDefault !== false && (handled || !enabled)) {
+        e.preventDefault();
       }
     }
   };

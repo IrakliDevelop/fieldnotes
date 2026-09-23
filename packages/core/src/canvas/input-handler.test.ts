@@ -453,6 +453,7 @@ describe('InputHandler', () => {
         toolManager: tm,
         toolContext: stubToolContext(),
         historyRecorder: recorder,
+        actions: stubActionRegistry(),
       });
       pointerDown(element, {
         pointerId: 1,
@@ -474,6 +475,7 @@ describe('InputHandler', () => {
         toolManager: tm,
         toolContext: stubToolContext(),
         historyRecorder: recorder,
+        actions: stubActionRegistry(),
       });
       // A touch press is deferred until it moves past the tap threshold, so no
       // begin() has happened yet when the platform cancels the pointer.
@@ -981,6 +983,68 @@ describe('InputHandler', () => {
       // Shift held = nudge by cell step (10), so dx = -10
       expect(dx).toBe(-10);
     });
+
+    it('disabled action still preventDefaults for mod+d on empty selection', () => {
+      handler.destroy();
+      handler = new InputHandler(element, camera, { actions: stubActionRegistry() });
+      const e = new KeyboardEvent('keydown', {
+        key: 'd',
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+      });
+      window.dispatchEvent(e);
+      expect(e.defaultPrevented).toBe(true);
+    });
+
+    it('disabled action still preventDefaults for mod+[ on empty selection', () => {
+      handler.destroy();
+      handler = new InputHandler(element, camera, { actions: stubActionRegistry() });
+      const e = new KeyboardEvent('keydown', {
+        key: '[',
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+      });
+      window.dispatchEvent(e);
+      expect(e.defaultPrevented).toBe(true);
+    });
+
+    it('disabled action still preventDefaults for Backspace on empty selection', () => {
+      handler.destroy();
+      handler = new InputHandler(element, camera, { actions: stubActionRegistry() });
+      const e = new KeyboardEvent('keydown', {
+        key: 'Backspace',
+        bubbles: true,
+        cancelable: true,
+      });
+      window.dispatchEvent(e);
+      expect(e.defaultPrevented).toBe(true);
+    });
+
+    it('Escape still does not preventDefault even on empty selection', () => {
+      handler.destroy();
+      handler = new InputHandler(element, camera, { actions: stubActionRegistry() });
+      const e = new KeyboardEvent('keydown', {
+        key: 'Escape',
+        bubbles: true,
+        cancelable: true,
+      });
+      window.dispatchEvent(e);
+      expect(e.defaultPrevented).toBe(false);
+    });
+
+    it('nudge on empty selection (nudge returns false) does not preventDefault', () => {
+      handler.destroy();
+      handler = new InputHandler(element, camera, { actions: stubActionRegistry() });
+      const e = new KeyboardEvent('keydown', {
+        key: 'ArrowLeft',
+        bubbles: true,
+        cancelable: true,
+      });
+      window.dispatchEvent(e);
+      expect(e.defaultPrevented).toBe(false);
+    });
   });
 
   describe('tool hover', () => {
@@ -1429,6 +1493,7 @@ describe('InputHandler', () => {
         toolManager: tm,
         toolContext: tc,
         historyRecorder: hr,
+        actions: stubActionRegistry(),
       });
 
       pointerDown(element, {
@@ -1710,6 +1775,7 @@ describe('InputHandler', () => {
       const h = new InputHandler(element, camera, {
         addImage,
         getCenteredWorld: () => ({ x: 7, y: 9 }),
+        actions: stubActionRegistry(),
       });
       // Replace the real actions paste with a spy so the no-image branch is observable.
       (h as unknown as { actions: { paste: () => void } }).actions.paste = paste;
@@ -2370,6 +2436,7 @@ describe('InputHandler', () => {
         toolManager: tm,
         toolContext: tc,
         openContextMenu,
+        actions: stubActionRegistry(),
       });
 
       const e = contextmenu(element, { clientX: 30, clientY: 40 });
@@ -2390,6 +2457,7 @@ describe('InputHandler', () => {
         toolManager: tm,
         toolContext: tc,
         openContextMenu,
+        actions: stubActionRegistry(),
       });
 
       const e = contextmenu(element, { clientX: 30, clientY: 40 });
@@ -2403,7 +2471,7 @@ describe('InputHandler', () => {
     it('removes the tabindex and outline it set in focus scope', () => {
       const el = document.createElement('div');
       document.body.appendChild(el);
-      const h = new InputHandler(el, new Camera());
+      const h = new InputHandler(el, new Camera(), { actions: stubActionRegistry() });
       expect(el.tabIndex).toBe(0);
       h.destroy();
       expect(el.hasAttribute('tabindex')).toBe(false);
@@ -2414,7 +2482,10 @@ describe('InputHandler', () => {
     it('leaves the element untouched in window scope', () => {
       const el = document.createElement('div');
       document.body.appendChild(el);
-      const h = new InputHandler(el, new Camera(), { shortcuts: { scope: 'window' } });
+      const h = new InputHandler(el, new Camera(), {
+        shortcuts: { scope: 'window' },
+        actions: stubActionRegistry(),
+      });
       expect(el.hasAttribute('tabindex')).toBe(false);
       h.destroy();
       expect(el.hasAttribute('tabindex')).toBe(false);
@@ -2436,6 +2507,7 @@ describe('InputHandler', () => {
         toolManager: tm,
         toolContext: tc,
         openContextMenu,
+        actions: stubActionRegistry(),
       });
     }
 
@@ -2540,7 +2612,7 @@ describe('InputHandler', () => {
 
     it('coasts (extra camera.pan calls) after a mouse-pan flick by default', () => {
       handler.destroy();
-      handler = new InputHandler(element, camera);
+      handler = new InputHandler(element, camera, { actions: stubActionRegistry() });
       const panSpy = vi.spyOn(camera, 'pan');
 
       flickMousePan();
@@ -2553,7 +2625,10 @@ describe('InputHandler', () => {
 
     it('does not coast when panInertia is disabled', () => {
       handler.destroy();
-      handler = new InputHandler(element, camera, { panInertia: false });
+      handler = new InputHandler(element, camera, {
+        panInertia: false,
+        actions: stubActionRegistry(),
+      });
       const panSpy = vi.spyOn(camera, 'pan');
 
       flickMousePan();
@@ -2565,7 +2640,7 @@ describe('InputHandler', () => {
 
     it('cancels an in-flight coast on the next pointer down', () => {
       handler.destroy();
-      handler = new InputHandler(element, camera);
+      handler = new InputHandler(element, camera, { actions: stubActionRegistry() });
       const panSpy = vi.spyOn(camera, 'pan');
 
       flickMousePan();
@@ -2581,7 +2656,7 @@ describe('InputHandler', () => {
 
     it('reports the camera as coasting until the pointer that stopped it lifts', () => {
       handler.destroy();
-      handler = new InputHandler(element, camera);
+      handler = new InputHandler(element, camera, { actions: stubActionRegistry() });
       expect(handler.isCameraCoasting()).toBe(false);
 
       flickMousePan();
@@ -2635,7 +2710,7 @@ describe('InputHandler', () => {
         () => document.dispatchEvent(new Event('visibilitychange')),
       ]) {
         handler.destroy();
-        handler = new InputHandler(element, camera);
+        handler = new InputHandler(element, camera, { actions: stubActionRegistry() });
 
         flickMousePan();
         expect(handler.isCameraCoasting()).toBe(true);

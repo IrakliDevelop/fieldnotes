@@ -322,10 +322,6 @@ describe('createBuiltinActions', () => {
       'arrange.toggle-lock',
       'arrange.rotate-cw',
       'arrange.rotate-ccw',
-      'arrange.nudge-left',
-      'arrange.nudge-right',
-      'arrange.nudge-up',
-      'arrange.nudge-down',
     ];
 
     const alwaysEnabled = [
@@ -338,6 +334,10 @@ describe('createBuiltinActions', () => {
       'view.zoom-out',
       'view.zoom-reset',
       'view.zoom-to-fit',
+      'arrange.nudge-left',
+      'arrange.nudge-right',
+      'arrange.nudge-up',
+      'arrange.nudge-down',
     ];
 
     const ctxWithSelection = makeCtx({ selectedIds: ['el-1'] });

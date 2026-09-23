@@ -32,7 +32,7 @@ export interface InputHandlerOptions {
   getCenteredWorld?: () => { x: number; y: number };
   onPaste?: (event: ClipboardEvent, worldPosition: { x: number; y: number }) => void;
   panInertia?: boolean;
-  actions?: ActionRegistry;
+  actions: ActionRegistry;
 }
 
 export class InputHandler {
@@ -66,7 +66,7 @@ export class InputHandler {
   constructor(
     private readonly element: HTMLElement,
     private readonly camera: Camera,
-    options: InputHandlerOptions = {},
+    options: InputHandlerOptions,
   ) {
     this.toolManager = options.toolManager ?? null;
     this.toolContext = options.toolContext ?? null;
@@ -107,7 +107,6 @@ export class InputHandler {
       shortcuts: options.shortcuts,
       abortSignal: this.abortController.signal,
       getToolContext: () => this.toolContext,
-      getIsToolActive: () => this.isToolActive,
       getActiveTool: () => this.toolManager?.activeTool ?? null,
       getLastPointerEvent: () => this.lastPointerEvent,
       setSpaceHeld: (v) => {

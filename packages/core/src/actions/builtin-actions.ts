@@ -329,7 +329,6 @@ export function createBuiltinActions(deps: BuiltinActionDeps): ActionDefinition[
       icon: 'nudge-left',
       shortcut: ['arrowleft'],
       allowShift: true,
-      enabled: hasSelection,
       perform: (_ctx, inv) => {
         const d = NUDGE_DELTAS['arrange.nudge-left'];
         return ka.nudge(d[0], d[1], inv.shiftKey);
@@ -343,7 +342,6 @@ export function createBuiltinActions(deps: BuiltinActionDeps): ActionDefinition[
       icon: 'nudge-right',
       shortcut: ['arrowright'],
       allowShift: true,
-      enabled: hasSelection,
       perform: (_ctx, inv) => {
         const d = NUDGE_DELTAS['arrange.nudge-right'];
         return ka.nudge(d[0], d[1], inv.shiftKey);
@@ -357,7 +355,6 @@ export function createBuiltinActions(deps: BuiltinActionDeps): ActionDefinition[
       icon: 'nudge-up',
       shortcut: ['arrowup'],
       allowShift: true,
-      enabled: hasSelection,
       perform: (_ctx, inv) => {
         const d = NUDGE_DELTAS['arrange.nudge-up'];
         return ka.nudge(d[0], d[1], inv.shiftKey);
@@ -371,7 +368,6 @@ export function createBuiltinActions(deps: BuiltinActionDeps): ActionDefinition[
       icon: 'nudge-down',
       shortcut: ['arrowdown'],
       allowShift: true,
-      enabled: hasSelection,
       perform: (_ctx, inv) => {
         const d = NUDGE_DELTAS['arrange.nudge-down'];
         return ka.nudge(d[0], d[1], inv.shiftKey);
