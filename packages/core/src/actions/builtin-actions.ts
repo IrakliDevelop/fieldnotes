@@ -34,8 +34,15 @@ export const DEFAULT_TOOL_SHORTCUTS: Readonly<Record<string, readonly string[]>>
 /** Zoom step used by the base keyboard handler. */
 const ZOOM_STEP = 1.2;
 
+/** Nudge action ids. */
+export type NudgeActionId =
+  | 'arrange.nudge-left'
+  | 'arrange.nudge-right'
+  | 'arrange.nudge-up'
+  | 'arrange.nudge-down';
+
 /** Nudge deltas per canonical id, mirroring the base handler's NUDGE_DELTAS. */
-export const NUDGE_DELTAS: Readonly<Record<string, readonly [number, number]>> = {
+export const NUDGE_DELTAS: Readonly<Record<NudgeActionId, readonly [number, number]>> = {
   'arrange.nudge-left': [-1, 0],
   'arrange.nudge-right': [1, 0],
   'arrange.nudge-up': [0, -1],
@@ -323,7 +330,10 @@ export function createBuiltinActions(deps: BuiltinActionDeps): ActionDefinition[
       shortcut: ['arrowleft'],
       allowShift: true,
       enabled: hasSelection,
-      perform: (_ctx, inv) => ka.nudge(-1, 0, inv.shiftKey),
+      perform: (_ctx, inv) => {
+        const d = NUDGE_DELTAS['arrange.nudge-left'];
+        return ka.nudge(d[0], d[1], inv.shiftKey);
+      },
     },
     // --- arrange.nudge-right ---
     {
@@ -334,7 +344,10 @@ export function createBuiltinActions(deps: BuiltinActionDeps): ActionDefinition[
       shortcut: ['arrowright'],
       allowShift: true,
       enabled: hasSelection,
-      perform: (_ctx, inv) => ka.nudge(1, 0, inv.shiftKey),
+      perform: (_ctx, inv) => {
+        const d = NUDGE_DELTAS['arrange.nudge-right'];
+        return ka.nudge(d[0], d[1], inv.shiftKey);
+      },
     },
     // --- arrange.nudge-up ---
     {
@@ -345,7 +358,10 @@ export function createBuiltinActions(deps: BuiltinActionDeps): ActionDefinition[
       shortcut: ['arrowup'],
       allowShift: true,
       enabled: hasSelection,
-      perform: (_ctx, inv) => ka.nudge(0, -1, inv.shiftKey),
+      perform: (_ctx, inv) => {
+        const d = NUDGE_DELTAS['arrange.nudge-up'];
+        return ka.nudge(d[0], d[1], inv.shiftKey);
+      },
     },
     // --- arrange.nudge-down ---
     {
@@ -356,7 +372,10 @@ export function createBuiltinActions(deps: BuiltinActionDeps): ActionDefinition[
       shortcut: ['arrowdown'],
       allowShift: true,
       enabled: hasSelection,
-      perform: (_ctx, inv) => ka.nudge(0, 1, inv.shiftKey),
+      perform: (_ctx, inv) => {
+        const d = NUDGE_DELTAS['arrange.nudge-down'];
+        return ka.nudge(d[0], d[1], inv.shiftKey);
+      },
     },
   ];
 }

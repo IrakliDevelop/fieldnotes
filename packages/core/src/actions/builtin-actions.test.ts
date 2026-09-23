@@ -9,12 +9,34 @@ import {
   createToolAction,
   DEFAULT_TOOL_SHORTCUTS,
   BUILTIN_MENU_GROUPS,
+  NUDGE_DELTAS,
 } from './builtin-actions';
 import type { BuiltinActionDeps, ToolActionDeps } from './builtin-actions';
 
 // ---------- helpers ----------
 
-function makeSpyKeyboardActions(): Record<string, ReturnType<typeof vi.fn>> {
+/** Every KeyboardActions method the built-in table calls, as concrete spy fns. */
+interface SpyKeyboardActions {
+  deleteSelected: ReturnType<typeof vi.fn>;
+  deselect: ReturnType<typeof vi.fn>;
+  undo: ReturnType<typeof vi.fn>;
+  redo: ReturnType<typeof vi.fn>;
+  selectAll: ReturnType<typeof vi.fn>;
+  cycleSelection: ReturnType<typeof vi.fn>;
+  copy: ReturnType<typeof vi.fn>;
+  paste: ReturnType<typeof vi.fn>;
+  duplicate: ReturnType<typeof vi.fn>;
+  zOrder: ReturnType<typeof vi.fn>;
+  zoomToFit: ReturnType<typeof vi.fn>;
+  group: ReturnType<typeof vi.fn>;
+  ungroup: ReturnType<typeof vi.fn>;
+  cut: ReturnType<typeof vi.fn>;
+  toggleLock: ReturnType<typeof vi.fn>;
+  rotate: ReturnType<typeof vi.fn>;
+  nudge: ReturnType<typeof vi.fn>;
+}
+
+function makeSpyKeyboardActions(): SpyKeyboardActions {
   return {
     deleteSelected: vi.fn(),
     deselect: vi.fn(),
@@ -152,7 +174,7 @@ describe('createBuiltinActions', () => {
   });
 
   // ---------- perform calls correct KeyboardActions methods ----------
-  const PERFORM_TABLE: [string, string, unknown[]][] = [
+  const PERFORM_TABLE: [string, keyof SpyKeyboardActions, unknown[]][] = [
     ['edit.delete', 'deleteSelected', []],
     ['select.none', 'deselect', []],
     ['edit.undo', 'undo', []],
@@ -219,15 +241,9 @@ describe('createBuiltinActions', () => {
   });
 
   it('nudge actions have allowShift true, forward invocation.shiftKey, and return nudge() boolean', () => {
-    const NUDGE_DELTAS: Record<string, readonly [number, number]> = {
-      'arrange.nudge-left': [-1, 0],
-      'arrange.nudge-right': [1, 0],
-      'arrange.nudge-up': [0, -1],
-      'arrange.nudge-down': [0, 1],
-    };
-
     const spies = makeSpyKeyboardActions();
-    spies.nudge.mockReturnValue(true);
+    const nudge = spies.nudge;
+    nudge.mockReturnValue(true);
     const deps = makeDeps({ keyboardActions: spies as unknown as KeyboardActions });
     const actions = createBuiltinActions(deps);
     const ctx = makeCtx();
@@ -237,19 +253,19 @@ describe('createBuiltinActions', () => {
       expect(action.allowShift).toBe(true);
 
       // With shiftKey = true
-      spies.nudge.mockClear();
+      nudge.mockClear();
       const result = action.perform(ctx, { source: 'keyboard', shiftKey: true });
-      expect(spies.nudge).toHaveBeenCalledWith(dx, dy, true);
+      expect(nudge).toHaveBeenCalledWith(dx, dy, true);
       expect(result).toBe(true);
 
       // With shiftKey = false
-      spies.nudge.mockReturnValue(false);
-      spies.nudge.mockClear();
+      nudge.mockReturnValue(false);
+      nudge.mockClear();
       const result2 = action.perform(ctx, { source: 'keyboard', shiftKey: false });
-      expect(spies.nudge).toHaveBeenCalledWith(dx, dy, false);
+      expect(nudge).toHaveBeenCalledWith(dx, dy, false);
       expect(result2).toBe(false);
 
-      spies.nudge.mockReturnValue(true);
+      nudge.mockReturnValue(true);
     }
   });
 
