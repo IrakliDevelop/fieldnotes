@@ -154,6 +154,44 @@ describe('ActionRegistry', () => {
     expect(sink.clearDefault).toHaveBeenCalledWith('third.action');
   });
 
+  it('run passes the same context to enabled and perform', () => {
+    const registry = new ActionRegistry(createContextFactory());
+    let enabledCtx: unknown;
+    let performCtx: unknown;
+    registry.register(
+      createAction({
+        id: 'ctx.shared',
+        enabled: (ctx) => {
+          enabledCtx = ctx;
+          return true;
+        },
+        perform: (ctx) => {
+          performCtx = ctx;
+        },
+      }),
+    );
+
+    registry.run('ctx.shared');
+
+    expect(enabledCtx).toBeDefined();
+    expect(performCtx).toBeDefined();
+    // Both callbacks must have received the identical context object
+    expect(enabledCtx).toBe(performCtx);
+  });
+
+  it('unregister without shortcut does not call clearDefault', () => {
+    const registry = new ActionRegistry(createContextFactory());
+    const sink: ShortcutDefaultsSink = {
+      setDefault: vi.fn(),
+      clearDefault: vi.fn(),
+    };
+    registry.attachShortcuts(sink);
+
+    const unreg = registry.register(createAction({ id: 'no.keys' }));
+    unreg();
+    expect(sink.clearDefault).not.toHaveBeenCalled();
+  });
+
   it('accepts a perform callback that returns nothing', () => {
     const registry = new ActionRegistry(createContextFactory());
     let calls = 0;

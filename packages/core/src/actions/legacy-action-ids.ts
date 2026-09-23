@@ -39,9 +39,8 @@ export const LEGACY_ACTION_IDS: Readonly<Record<string, string>> = {
  * already-canonical ids are returned unchanged.
  */
 export function resolveActionId(id: string): string {
-  const exact = LEGACY_ACTION_IDS[id];
-  if (exact !== undefined) {
-    return exact;
+  if (Object.prototype.hasOwnProperty.call(LEGACY_ACTION_IDS, id)) {
+    return LEGACY_ACTION_IDS[id] as string;
   }
   if (id.startsWith('tool:')) {
     return 'tool.' + id.slice(5);

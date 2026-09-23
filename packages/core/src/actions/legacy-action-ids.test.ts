@@ -52,4 +52,13 @@ describe('legacy action ids', () => {
   it('LEGACY_ACTION_IDS has exactly 28 exact entries', () => {
     expect(Object.keys(LEGACY_ACTION_IDS)).toHaveLength(28);
   });
+
+  it('ignores Object.prototype keys', () => {
+    expect(resolveActionId('toString')).toBe('toString');
+    expect(typeof resolveActionId('toString')).toBe('string');
+    expect(resolveActionId('constructor')).toBe('constructor');
+    expect(typeof resolveActionId('constructor')).toBe('string');
+    expect(resolveActionId('hasOwnProperty')).toBe('hasOwnProperty');
+    expect(typeof resolveActionId('hasOwnProperty')).toBe('string');
+  });
 });

@@ -42,7 +42,7 @@ export class ActionRegistry implements ActionsApi {
       if (removed) return;
       removed = true;
       this.definitions.delete(definition.id);
-      if (this.sink) {
+      if (this.sink && definition.shortcut) {
         this.sink.clearDefault(definition.id);
       }
       this.emitChange();
@@ -70,14 +70,16 @@ export class ActionRegistry implements ActionsApi {
     const resolved = resolveActionId(id);
     const def = this.definitions.get(resolved);
     if (!def) return false;
-    if (def.enabled && !def.enabled(this.getContext())) return false;
+
+    const ctx = this.getContext();
+    if (def.enabled && !def.enabled(ctx)) return false;
 
     const fullInvocation: ActionInvocation = {
       source: invocation?.source ?? 'api',
       shiftKey: invocation?.shiftKey ?? false,
     };
 
-    const result = def.perform(this.getContext(), fullInvocation);
+    const result = def.perform(ctx, fullInvocation);
     return result !== false;
   }
 
