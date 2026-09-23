@@ -25,6 +25,14 @@ export { Camera } from './canvas/camera';
 export type { CameraOptions, CameraChangeInfo } from './canvas/camera';
 export type { BackgroundOptions, BackgroundPattern } from './canvas/background';
 export type { ShortcutOptions, ShortcutBindings, ShortcutsApi } from './canvas/shortcut-map';
+export type {
+  ActionsApi,
+  ActionContext,
+  ActionDefinition,
+  ActionInvocation,
+  ActionMenuPlacement,
+  ActionSource,
+} from './actions/types';
 export { Viewport } from './canvas/viewport';
 export type {
   ViewportOptions,

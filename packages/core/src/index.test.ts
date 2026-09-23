@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import * as FN from './index';
+import type {
+  ActionsApi,
+  ActionContext,
+  ActionDefinition,
+  ActionInvocation,
+  ActionMenuPlacement,
+  ActionSource,
+} from './index';
 
 describe('core public surface', () => {
   it('exports the current version', () => {
@@ -232,5 +240,24 @@ describe('core public surface', () => {
     expect(typeof FN.ConstraintServiceProxy).toBe('function');
     expect(typeof FN.createRenderHooks).toBe('function');
     expect(typeof FN.TypedHookRegistry).toBe('function');
+  });
+
+  it('exports action registry types', () => {
+    // Type-only exports: verify they resolve at the type level.
+    // The DTS build will fail if any of these are missing from index.ts.
+    const _apiCheck: ActionsApi | undefined = undefined;
+    const _ctxCheck: ActionContext | undefined = undefined;
+    const _defCheck: ActionDefinition | undefined = undefined;
+    const _invCheck: ActionInvocation | undefined = undefined;
+    const _menuCheck: ActionMenuPlacement | undefined = undefined;
+    const _srcCheck: ActionSource | undefined = undefined;
+
+    // Suppress unused-variable warnings while still asserting presence.
+    expect(_apiCheck).toBeUndefined();
+    expect(_ctxCheck).toBeUndefined();
+    expect(_defCheck).toBeUndefined();
+    expect(_invCheck).toBeUndefined();
+    expect(_menuCheck).toBeUndefined();
+    expect(_srcCheck).toBeUndefined();
   });
 });
