@@ -3,8 +3,9 @@ import type { CameraOptions } from './camera';
 import { InputHandler } from './input-handler';
 import type { ShortcutOptions, ShortcutsApi } from './shortcut-map';
 import { ActionRegistry } from '../actions/action-registry';
-import type { ActionsApi } from '../actions/types';
+import type { ActionContext, ActionsApi } from '../actions/types';
 import { createToolAction } from '../actions/builtin-actions';
+import { buildContextMenuItems } from '../actions/context-menu-items';
 import { Background } from './background';
 import type { BackgroundOptions } from './background';
 import { ElementStore } from '../elements/element-store';
@@ -15,7 +16,6 @@ import type { FontSizePreset } from '../elements/note-toolbar';
 import type { CanvasElement, ArrowElement, HtmlElement, ShapeKind } from '../elements/types';
 import type { Point, Bounds } from '../core/types';
 import { ContextMenu } from './context-menu';
-import type { ContextMenuItem } from './context-menu';
 import { Minimap } from './minimap';
 import { createWrapper, createCanvas, createDomLayer, createPaintStack } from './viewport-dom';
 import { HybridRenderSurface } from './hybrid-render-surface';
@@ -232,11 +232,7 @@ export class Viewport {
     this.store = new ElementStore(this.elementRegistry);
     this.layerManager = new LayerManager(this.store);
     this.toolManager = new ToolManager();
-    this.actionRegistry = new ActionRegistry(() => ({
-      viewport: this,
-      store: this.store,
-      selectedIds: this.getSelectedIds(),
-    }));
+    this.actionRegistry = new ActionRegistry(() => this.currentActionContext());
     this.unsubToolRegister = this.toolManager.onRegister((tool) => {
       if (Viewport.isSelectionSource(tool)) this.attachSelectionSource(tool);
       if (!this.actionRegistry.get('tool.' + tool.name)) {
@@ -363,7 +359,9 @@ export class Viewport {
 
     if (options.contextMenu !== false) {
       this.contextMenu = new ContextMenu({
-        onCommand: (action) => this.runAction(action),
+        onCommand: (id) => {
+          this.actionRegistry.run(id, { source: 'menu' });
+        },
         onClose: noop,
       });
     }
@@ -860,6 +858,14 @@ export class Viewport {
     return this.actionRegistry;
   }
 
+  private currentActionContext(): ActionContext {
+    return {
+      viewport: this,
+      store: this.store,
+      selectedIds: this.getSelectedIds(),
+    };
+  }
+
   get shortcuts(): ShortcutsApi {
     return this.inputHandler.shortcuts;
   }
@@ -1214,25 +1220,7 @@ export class Viewport {
 
   openContextMenu(screenPos: Point): void {
     if (!this.contextMenu) return;
-    const ids = this.getSelectedIds();
-    const items: ContextMenuItem[] = [];
-    if (ids.length > 0) {
-      items.push({ label: 'Cut', action: 'cut' });
-      items.push({ label: 'Copy', action: 'copy' });
-      if (this.canPaste()) items.push({ label: 'Paste', action: 'paste' });
-      items.push({ label: 'Duplicate', action: 'duplicate' });
-      items.push({ label: 'Delete', action: 'delete' });
-      items.push({ label: 'Bring to Front', action: 'z-front' });
-      items.push({ label: 'Bring Forward', action: 'z-forward' });
-      items.push({ label: 'Send Backward', action: 'z-backward' });
-      items.push({ label: 'Send to Back', action: 'z-back' });
-      items.push({ label: 'Rotate 90° CW', action: 'rotate-cw' });
-      items.push({ label: 'Rotate 90° CCW', action: 'rotate-ccw' });
-      const allLocked = ids.every((id) => this.store.getById(id)?.locked);
-      items.push({ label: allLocked ? 'Unlock' : 'Lock', action: 'toggle-lock' });
-    } else if (this.canPaste()) {
-      items.push({ label: 'Paste', action: 'paste' });
-    }
+    const items = buildContextMenuItems(this.actionRegistry, this.currentActionContext());
     if (items.length === 0) return;
     this.contextMenu.open(items, screenPos);
   }
@@ -1431,6 +1419,7 @@ export class Viewport {
           track(this._renderHooks.imageExport.register(hooks, options)),
         registerSvgExportHooks: (hooks, options) =>
           track(this._renderHooks.svgExport.register(hooks, options)),
+        registerAction: (definition) => track(this.actionRegistry.register(definition)),
       };
       try {
         plugin.configure?.(context);

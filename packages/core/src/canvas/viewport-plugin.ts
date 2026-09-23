@@ -1,6 +1,7 @@
 import type { Bounds } from '../core/types';
 import type { ServiceKey } from '../core/service-key';
 import type { PluginHandle } from '../core/plugin-state-manager';
+import type { ActionDefinition } from '../actions/types';
 import type { ElementTypeDefinition, BaseElement } from '../elements/types';
 import type { ElementRegistry } from '../elements/element-registry';
 import type { Tool } from '../tools/types';
@@ -33,6 +34,8 @@ export interface PluginConfigureContext {
     options?: HookRegistrationOptions,
   ): void;
   registerSvgExportHooks(hooks: Partial<SvgExportHooks>, options?: HookRegistrationOptions): void;
+  /** Register an action. Registered in configure; removed on rollback and dispose. Throws on duplicate id. */
+  registerAction(definition: ActionDefinition): void;
 }
 
 export interface PluginStartContext {

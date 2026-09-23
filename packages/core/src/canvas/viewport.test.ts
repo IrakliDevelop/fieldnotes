@@ -2279,7 +2279,17 @@ describe('Viewport', () => {
       );
     }
 
-    it('openContextMenu builds the full item set for a selection', () => {
+    /** Returns label strings for buttons and '---' for separator divs. */
+    function menuEntries(): string[] {
+      const root = document.querySelector('.fieldnotes-context-menu');
+      if (!root) return [];
+      return Array.from(root.children).map((el) => {
+        if (el.getAttribute('role') === 'separator') return '---';
+        return el.textContent ?? '';
+      });
+    }
+
+    it('with a selection the menu shows the 12 base items in base order with separators after Delete, Send to Back, Rotate 90° CCW', () => {
       const viewport = new Viewport(container);
       const select = setupSelect(viewport);
       const a = createNote({
@@ -2289,18 +2299,30 @@ describe('Viewport', () => {
       });
       viewport.store.add(a);
       select([a.id]);
+      // Copy to fill clipboard so Paste is visible
+      viewport.runAction('edit.copy');
       viewport.openContextMenu({ x: 5, y: 5 });
-      const labels = menuLabels();
-      expect(labels).toContain('Cut');
-      expect(labels).toContain('Copy');
-      expect(labels).toContain('Duplicate');
-      expect(labels).toContain('Delete');
-      expect(labels).toContain('Bring to Front');
-      expect(labels).toContain('Lock');
+      expect(menuEntries()).toEqual([
+        'Cut',
+        'Copy',
+        'Paste',
+        'Duplicate',
+        'Delete',
+        '---',
+        'Bring to Front',
+        'Bring Forward',
+        'Send Backward',
+        'Send to Back',
+        '---',
+        'Rotate 90° CW',
+        'Rotate 90° CCW',
+        '---',
+        'Lock',
+      ]);
       viewport.destroy();
     });
 
-    it('includes rotate items when selection is non-empty', () => {
+    it('with a selection and no clipboard, Paste is absent', () => {
       const viewport = new Viewport(container);
       const select = setupSelect(viewport);
       const a = createNote({
@@ -2312,8 +2334,52 @@ describe('Viewport', () => {
       select([a.id]);
       viewport.openContextMenu({ x: 5, y: 5 });
       const labels = menuLabels();
-      expect(labels).toContain('Rotate 90° CW');
-      expect(labels).toContain('Rotate 90° CCW');
+      expect(labels).not.toContain('Paste');
+      expect(labels).toContain('Cut');
+      expect(labels).toContain('Delete');
+      viewport.destroy();
+    });
+
+    it('empty canvas with clipboard shows only Paste; without clipboard does not open', () => {
+      const viewport = new Viewport(container);
+      const select = setupSelect(viewport);
+
+      // Empty canvas, no clipboard → no menu
+      viewport.openContextMenu({ x: 5, y: 5 });
+      expect(document.querySelector('.fieldnotes-context-menu')).toBeNull();
+
+      // Copy an element to fill the clipboard, then deselect
+      const a = createNote({
+        position: { x: 0, y: 0 },
+        text: 'a',
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(a);
+      select([a.id]);
+      viewport.runAction('edit.copy');
+      select([]);
+      viewport.openContextMenu({ x: 5, y: 5 });
+      expect(menuLabels()).toEqual(['Paste']);
+      viewport.destroy();
+    });
+
+    it('clicking an item runs the action with source menu', () => {
+      const viewport = new Viewport(container);
+      const select = setupSelect(viewport);
+      const a = createNote({
+        position: { x: 0, y: 0 },
+        text: 'a',
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(a);
+      select([a.id]);
+      const runSpy = vi.spyOn(viewport.actions, 'run');
+      viewport.openContextMenu({ x: 5, y: 5 });
+      // Click the first button (Cut)
+      const firstButton = document.querySelector('.fieldnotes-context-menu-item') as HTMLElement;
+      firstButton.click();
+      expect(runSpy).toHaveBeenCalledWith('edit.cut', { source: 'menu' });
+      runSpy.mockRestore();
       viewport.destroy();
     });
 
@@ -2332,14 +2398,6 @@ describe('Viewport', () => {
       const labels = menuLabels();
       expect(labels).toContain('Unlock');
       expect(labels).not.toContain('Lock');
-      viewport.destroy();
-    });
-
-    it('empty selection + empty clipboard yields no menu', () => {
-      const viewport = new Viewport(container);
-      setupSelect(viewport);
-      viewport.openContextMenu({ x: 5, y: 5 });
-      expect(document.querySelector('.fieldnotes-context-menu')).toBeNull();
       viewport.destroy();
     });
 

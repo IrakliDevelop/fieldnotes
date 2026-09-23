@@ -50,4 +50,34 @@ describe('ContextMenu', () => {
     expect(document.querySelectorAll('.fieldnotes-context-menu').length).toBe(1);
     menu.dispose();
   });
+
+  it('renders a separator item as div.fieldnotes-context-menu-separator[role=separator] that is not focusable and has no click handler', () => {
+    const onCommand = vi.fn();
+    const menu = new ContextMenu({ onCommand, onClose: vi.fn() });
+    menu.open(
+      [
+        { label: 'Cut', action: 'cut' },
+        { separator: true },
+        { label: 'Bring to Front', action: 'z-front' },
+      ],
+      { x: 0, y: 0 },
+    );
+    const root = document.querySelector('.fieldnotes-context-menu') as HTMLElement;
+    expect(root.children.length).toBe(3);
+
+    const sep = root.children[1] as HTMLElement;
+    expect(sep.tagName).toBe('DIV');
+    expect(sep.classList.contains('fieldnotes-context-menu-separator')).toBe(true);
+    expect(sep.getAttribute('role')).toBe('separator');
+    expect(sep.tabIndex).toBe(-1);
+
+    // Clicking the separator should not fire onCommand
+    sep.click();
+    expect(onCommand).not.toHaveBeenCalled();
+
+    // Buttons still work
+    const buttons = root.querySelectorAll('.fieldnotes-context-menu-item');
+    expect(buttons.length).toBe(2);
+    menu.dispose();
+  });
 });
