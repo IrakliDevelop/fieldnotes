@@ -39,7 +39,8 @@ export interface ActionDefinition {
   /** Call preventDefault on the triggering keyboard event. Default true. */
   readonly preventDefault?: boolean;
   /** Return false to report "nothing happened" (keyboard then does not preventDefault). */
-  readonly perform: (ctx: ActionContext, invocation: ActionInvocation) => boolean | undefined;
+  // eslint-disable-next-line @typescript-eslint/no-invalid-void-type -- callbacks may omit the return; false means "nothing happened"
+  readonly perform: (ctx: ActionContext, invocation: ActionInvocation) => void | boolean;
 }
 
 export interface ActionsApi {

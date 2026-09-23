@@ -154,6 +154,22 @@ describe('ActionRegistry', () => {
     expect(sink.clearDefault).toHaveBeenCalledWith('third.action');
   });
 
+  it('accepts a perform callback that returns nothing', () => {
+    const registry = new ActionRegistry(createContextFactory());
+    let calls = 0;
+    registry.register({
+      id: 'probe.void',
+      label: 'Probe',
+      perform: () => {
+        calls += 1;
+      },
+    });
+
+    const result = registry.run('probe.void');
+    expect(result).toBe(true);
+    expect(calls).toBe(1);
+  });
+
   it('register without shortcut never calls the sink', () => {
     const registry = new ActionRegistry(createContextFactory());
     const sink: ShortcutDefaultsSink = {
