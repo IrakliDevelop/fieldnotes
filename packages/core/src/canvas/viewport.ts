@@ -2,6 +2,9 @@ import { Camera } from './camera';
 import type { CameraOptions } from './camera';
 import { InputHandler } from './input-handler';
 import type { ShortcutOptions, ShortcutsApi } from './shortcut-map';
+import { ActionRegistry } from '../actions/action-registry';
+import type { ActionsApi } from '../actions/types';
+import { createToolAction } from '../actions/builtin-actions';
 import { Background } from './background';
 import type { BackgroundOptions } from './background';
 import { ElementStore } from '../elements/element-store';
@@ -152,6 +155,7 @@ export class Viewport {
   private readonly unsubLayers: () => void;
   private readonly unsubToolChange: () => void;
   private readonly unsubStore: (() => void)[];
+  private readonly actionRegistry: ActionRegistry;
   private readonly inputHandler: InputHandler;
   private readonly background: Background;
   private readonly renderer: ElementRenderer;
@@ -228,8 +232,22 @@ export class Viewport {
     this.store = new ElementStore(this.elementRegistry);
     this.layerManager = new LayerManager(this.store);
     this.toolManager = new ToolManager();
+    this.actionRegistry = new ActionRegistry(() => ({
+      viewport: this,
+      store: this.store,
+      selectedIds: this.getSelectedIds(),
+    }));
     this.unsubToolRegister = this.toolManager.onRegister((tool) => {
       if (Viewport.isSelectionSource(tool)) this.attachSelectionSource(tool);
+      if (!this.actionRegistry.get('tool.' + tool.name)) {
+        this.actionRegistry.register(
+          createToolAction(tool.name, {
+            switchTool: (n: string) => this.toolContext.switchTool?.(n),
+            isToolActive: () => this.inputHandler.isToolGestureActive,
+            hasTool: (n: string) => this.toolManager.getTool(n) !== undefined,
+          }),
+        );
+      }
     });
     const existingSelect = this.getSelectTool();
     if (existingSelect && Viewport.isSelectionSource(existingSelect)) {
@@ -340,6 +358,7 @@ export class Viewport {
       getCenteredWorld: () => this.centeredPosition({ w: 300, h: 200 }),
       onPaste: options.onPaste,
       panInertia: options.panInertia,
+      actions: this.actionRegistry,
     });
 
     if (options.contextMenu !== false) {
@@ -837,6 +856,10 @@ export class Viewport {
     this.toolManager.setTool(name, this.toolContext);
   }
 
+  get actions(): ActionsApi {
+    return this.actionRegistry;
+  }
+
   get shortcuts(): ShortcutsApi {
     return this.inputHandler.shortcuts;
   }
@@ -1182,7 +1205,7 @@ export class Viewport {
   }
 
   runAction(action: string): void {
-    this.inputHandler.runAction(action);
+    this.actionRegistry.run(action, { source: 'api' });
   }
 
   canPaste(): boolean {

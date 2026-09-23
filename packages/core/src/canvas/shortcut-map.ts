@@ -1,3 +1,5 @@
+import { resolveActionId } from '../actions/legacy-action-ids';
+
 export type ShortcutBindings = Record<string, string | string[] | null>;
 
 export interface ShortcutOptions {
@@ -22,45 +24,6 @@ interface ParsedBinding {
   digit: boolean;
 }
 
-const DEFAULT_BINDINGS: readonly (readonly [string, readonly string[]])[] = [
-  ['delete', ['delete', 'backspace']],
-  ['deselect', ['escape']],
-  ['undo', ['mod+z']],
-  ['redo', ['mod+y', 'mod+shift+z']],
-  ['select-all', ['mod+a']],
-  ['cycle-selection', ['tab']],
-  ['cycle-selection-reverse', ['shift+tab']],
-  ['copy', ['mod+c']],
-  ['duplicate', ['mod+d']],
-  ['z-forward', [']']],
-  ['z-backward', ['[']],
-  ['z-front', ['mod+]']],
-  ['z-back', ['mod+[']],
-  ['zoom-fit', ['shift+1']],
-  ['zoom-in', ['mod+=']],
-  ['zoom-out', ['mod+-']],
-  ['zoom-reset', ['mod+0']],
-  ['group', ['mod+g']],
-  ['ungroup', ['mod+shift+g']],
-  ['cut', ['mod+x']],
-  ['toggle-lock', ['mod+shift+l']],
-  ['rotate-cw', ['r']],
-  ['rotate-ccw', ['shift+r']],
-  ['nudge-left', ['arrowleft']],
-  ['nudge-right', ['arrowright']],
-  ['nudge-up', ['arrowup']],
-  ['nudge-down', ['arrowdown']],
-  ['tool:select', ['v']],
-  ['tool:hand', ['h']],
-  ['tool:pencil', ['p']],
-  ['tool:eraser', ['e']],
-  ['tool:arrow', ['a']],
-  ['tool:note', ['n']],
-  ['tool:text', ['t']],
-  ['tool:shape', ['s']],
-];
-
-const ALLOW_SHIFT = new Set(['nudge-left', 'nudge-right', 'nudge-up', 'nudge-down']);
 const MODIFIERS = new Set(['mod', 'ctrl', 'meta', 'shift', 'alt']);
 
 function parseBinding(binding: string): ParsedBinding {
@@ -138,9 +101,11 @@ function toArray(bindings: string | string[] | null): string[] {
 export class ShortcutMap implements ShortcutsApi {
   private raw = new Map<string, string[]>();
   private parsed = new Map<string, ParsedBinding[]>();
+  private defaults = new Map<string, { bindings: readonly string[]; allowShift: boolean }>();
+  private userOverridden = new Set<string>();
+  private allowShiftSet = new Set<string>();
 
   constructor(overrides?: ShortcutBindings) {
-    this.applyDefaults();
     if (overrides) {
       for (const [action, bindings] of Object.entries(overrides)) {
         this.rebind(action, bindings);
@@ -151,7 +116,7 @@ export class ShortcutMap implements ShortcutsApi {
   /** First matching action in registration order wins when bindings conflict. */
   match(e: KeyboardEvent): string | null {
     for (const [action, parsedList] of this.parsed) {
-      const allowShift = ALLOW_SHIFT.has(action);
+      const allowShift = this.allowShiftSet.has(action);
       for (const p of parsedList) {
         if (bindingMatches(p, e, allowShift)) return action;
       }
@@ -159,8 +124,80 @@ export class ShortcutMap implements ShortcutsApi {
     return null;
   }
 
+  /** Record a default binding from the action registry. */
+  setDefault(action: string, bindings: readonly string[], allowShift: boolean): void {
+    this.defaults.set(action, { bindings, allowShift });
+    if (allowShift) {
+      this.allowShiftSet.add(action);
+    } else {
+      this.allowShiftSet.delete(action);
+    }
+    if (!this.userOverridden.has(action)) {
+      this.apply(action, [...bindings]);
+    }
+  }
+
+  /** Remove a default binding when an action is unregistered. */
+  clearDefault(action: string): void {
+    this.defaults.delete(action);
+    this.allowShiftSet.delete(action);
+    if (!this.userOverridden.has(action)) {
+      this.raw.delete(action);
+      this.parsed.delete(action);
+    }
+  }
+
   rebind(action: string, bindings: string | string[] | null): void {
-    const list = toArray(bindings);
+    const canonical = resolveActionId(action);
+    this.userOverridden.add(canonical);
+    this.apply(canonical, toArray(bindings));
+  }
+
+  disable(action: string): void {
+    this.rebind(action, null);
+  }
+
+  reset(action?: string): void {
+    if (action === undefined) {
+      this.raw.clear();
+      this.parsed.clear();
+      this.userOverridden.clear();
+      this.allowShiftSet.clear();
+      for (const [id, def] of this.defaults) {
+        if (def.allowShift) this.allowShiftSet.add(id);
+        this.apply(id, [...def.bindings]);
+      }
+      return;
+    }
+    const canonical = resolveActionId(action);
+    this.userOverridden.delete(canonical);
+    const def = this.defaults.get(canonical);
+    if (def) {
+      if (def.allowShift) {
+        this.allowShiftSet.add(canonical);
+      } else {
+        this.allowShiftSet.delete(canonical);
+      }
+      this.apply(canonical, [...def.bindings]);
+    } else if (this.raw.has(canonical)) {
+      this.raw.delete(canonical);
+      this.parsed.delete(canonical);
+    }
+  }
+
+  getBindings(): Record<string, string[]> {
+    const out: Record<string, string[]> = {};
+    for (const [action, list] of this.raw) {
+      out[action] = [...list];
+    }
+    return out;
+  }
+
+  /**
+   * Internal apply: sets the binding in raw/parsed maps and warns on
+   * conflicts. Does NOT mark as user-overridden.
+   */
+  private apply(action: string, list: string[]): void {
     const parsedList = list.map(parseBinding);
     for (const p of parsedList) {
       for (const [otherAction, otherList] of this.parsed) {
@@ -174,39 +211,5 @@ export class ShortcutMap implements ShortcutsApi {
     }
     this.raw.set(action, list);
     this.parsed.set(action, parsedList);
-  }
-
-  disable(action: string): void {
-    this.rebind(action, null);
-  }
-
-  reset(action?: string): void {
-    if (action === undefined) {
-      this.raw.clear();
-      this.parsed.clear();
-      this.applyDefaults();
-      return;
-    }
-    const def = DEFAULT_BINDINGS.find(([name]) => name === action);
-    if (def) {
-      this.rebind(action, [...def[1]]);
-    } else if (this.raw.has(action)) {
-      this.raw.delete(action);
-      this.parsed.delete(action);
-    }
-  }
-
-  getBindings(): Record<string, string[]> {
-    const out: Record<string, string[]> = {};
-    for (const [action, list] of this.raw) {
-      out[action] = [...list];
-    }
-    return out;
-  }
-
-  private applyDefaults(): void {
-    for (const [action, bindings] of DEFAULT_BINDINGS) {
-      this.rebind(action, [...bindings]);
-    }
   }
 }

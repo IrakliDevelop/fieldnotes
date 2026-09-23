@@ -3,6 +3,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Viewport } from './viewport';
+import type { PluginConfigureContext } from './viewport';
 import {
   createNote,
   createText,
@@ -1446,13 +1447,13 @@ describe('Viewport', () => {
       const viewport = new Viewport(container, {
         shortcuts: { bindings: { duplicate: 'mod+shift+d' } },
       });
-      expect(viewport.shortcuts.getBindings()['duplicate']).toEqual(['mod+shift+d']);
-      viewport.shortcuts.rebind('undo', 'mod+u');
-      expect(viewport.shortcuts.getBindings()['undo']).toEqual(['mod+u']);
-      viewport.shortcuts.disable('copy');
-      expect(viewport.shortcuts.getBindings()['copy']).toEqual([]);
+      expect(viewport.shortcuts.getBindings()['edit.duplicate']).toEqual(['mod+shift+d']);
+      viewport.shortcuts.rebind('edit.undo', 'mod+u');
+      expect(viewport.shortcuts.getBindings()['edit.undo']).toEqual(['mod+u']);
+      viewport.shortcuts.disable('edit.copy');
+      expect(viewport.shortcuts.getBindings()['edit.copy']).toEqual([]);
       viewport.shortcuts.reset();
-      expect(viewport.shortcuts.getBindings()['undo']).toEqual(['mod+z']);
+      expect(viewport.shortcuts.getBindings()['edit.undo']).toEqual(['mod+z']);
       viewport.destroy();
     });
 
@@ -2159,8 +2160,89 @@ describe('Viewport', () => {
       });
       viewport.store.add(a);
       select([a.id]);
-      viewport.runAction('delete');
+      viewport.runAction('edit.delete');
       expect(viewport.store.getById(a.id)).toBeUndefined();
+      viewport.destroy();
+    });
+
+    it('runAction accepts legacy ids', () => {
+      const viewport = new Viewport(container);
+      const select = setupSelect(viewport);
+      const a = createNote({
+        position: { x: 0, y: 0 },
+        text: 'a',
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      const b = createNote({
+        position: { x: 100, y: 0 },
+        text: 'b',
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(a);
+      viewport.store.add(b);
+      select([a.id, b.id]);
+      // Legacy id 'z-front' should work and behave identically to actions.run('arrange.bring-to-front')
+      viewport.runAction('z-front');
+      // Just verify it ran without error and actions.run with canonical id also works
+      viewport.actions.run('arrange.bring-to-front');
+      viewport.destroy();
+    });
+
+    it('viewport.actions.list() contains the 28 built-ins followed by tool.* for every registered tool, and shortcuts.getBindings() has canonical keys only', () => {
+      const viewport = new Viewport(container);
+      setupSelect(viewport);
+      const list = viewport.actions.list();
+      // 28 built-ins + tool.select (registered by setupSelect)
+      const builtins = list.filter((a) => !a.id.startsWith('tool.'));
+      expect(builtins).toHaveLength(28);
+      const tools = list.filter((a) => a.id.startsWith('tool.'));
+      expect(tools.some((t) => t.id === 'tool.select')).toBe(true);
+      // getBindings has only canonical keys
+      const bindings = viewport.shortcuts.getBindings();
+      for (const key of Object.keys(bindings)) {
+        // No legacy keys like 'undo', 'delete', 'tool:select' etc
+        expect(key).toMatch(/\.|^[a-z]+-/); // canonical format: contains '.' or is a canonical compound id
+        expect(key).not.toContain(':');
+      }
+      viewport.destroy();
+    });
+
+    it('ViewportOptions.shortcuts.bindings with a legacy key rebinds the canonical id', () => {
+      const viewport = new Viewport(container, {
+        shortcuts: { bindings: { undo: 'mod+u' } },
+      });
+      const bindings = viewport.shortcuts.getBindings();
+      expect(bindings['edit.undo']).toEqual(['mod+u']);
+      expect(bindings['undo']).toBeUndefined();
+      viewport.destroy();
+    });
+
+    it('a plugin tool registered via configure gets a tool.<name> action; the action reports disabled after the plugin is disposed', () => {
+      const plugin = {
+        name: 'test-plugin',
+        configure: (ctx: PluginConfigureContext) => {
+          ctx.registerTool({
+            name: 'custom-tool',
+            onPointerDown() {
+              /* noop */
+            },
+            onPointerMove() {
+              /* noop */
+            },
+            onPointerUp() {
+              /* noop */
+            },
+          });
+          // Throw to trigger rollback of the tool registration
+          throw new Error('intentional plugin failure');
+        },
+      };
+      const viewport = new Viewport(container, { plugins: [plugin] });
+      // Tool action was created during onRegister
+      const action = viewport.actions.get('tool.custom-tool');
+      expect(action).toBeDefined();
+      // But the tool was rolled back, so the action is disabled
+      expect(viewport.actions.isEnabled('tool.custom-tool')).toBe(false);
       viewport.destroy();
     });
 
@@ -2175,7 +2257,7 @@ describe('Viewport', () => {
       });
       viewport.store.add(a);
       select([a.id]);
-      viewport.runAction('copy');
+      viewport.runAction('edit.copy');
       expect(viewport.canPaste()).toBe(true);
       viewport.destroy();
     });

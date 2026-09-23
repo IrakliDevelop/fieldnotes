@@ -153,7 +153,7 @@ describe('viewport selection emitter', () => {
       select.setSelection([a, b]);
       let fired = 0;
       viewport.onSelectionChange(() => fired++);
-      viewport.runAction('delete');
+      viewport.runAction('edit.delete');
       expect(fired).toBe(1);
       expect(viewport.getSelectedIds()).toEqual([]);
     });

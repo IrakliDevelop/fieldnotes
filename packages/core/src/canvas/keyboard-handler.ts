@@ -3,20 +3,14 @@ import type { Tool, ToolContext } from '../tools/types';
 import type { ShortcutOptions, ShortcutsApi } from './shortcut-map';
 import { ShortcutMap } from './shortcut-map';
 import type { KeyboardActions } from './keyboard-actions';
-
-const ZOOM_STEP = 1.2;
-
-const NUDGE_DELTAS: Record<string, readonly [number, number]> = {
-  'nudge-left': [-1, 0],
-  'nudge-right': [1, 0],
-  'nudge-up': [0, -1],
-  'nudge-down': [0, 1],
-};
+import type { ActionRegistry } from '../actions/action-registry';
+import { createBuiltinActions } from '../actions/builtin-actions';
 
 export interface KeyboardHandlerDeps {
   element: HTMLElement;
   camera: Camera;
-  actions: KeyboardActions;
+  keyboardActions: KeyboardActions;
+  actions?: ActionRegistry;
   scope: 'focus' | 'window';
   shortcuts?: ShortcutOptions;
   abortSignal: AbortSignal;
@@ -34,10 +28,24 @@ export interface KeyboardHandlerDeps {
 }
 
 export class KeyboardHandler {
-  private readonly shortcutMap: ShortcutMap;
+  readonly shortcutMap: ShortcutMap;
 
   constructor(private readonly deps: KeyboardHandlerDeps) {
     this.shortcutMap = new ShortcutMap(deps.shortcuts?.bindings);
+
+    if (deps.actions) {
+      deps.actions.attachShortcuts(this.shortcutMap);
+      const ka = deps.keyboardActions;
+      for (const def of createBuiltinActions({
+        keyboardActions: ka,
+        zoomByFactor: (f) => this.zoomByFactor(f),
+        zoomToLevel: (l) => this.zoomToLevel(l),
+        canPaste: () => ka.hasClipboard(),
+      })) {
+        deps.actions.register(def);
+      }
+    }
+
     window.addEventListener('keydown', this.onKeyDown, { signal: deps.abortSignal });
     window.addEventListener('keyup', this.onKeyUp, { signal: deps.abortSignal });
     window.addEventListener('paste', this.onPaste, { signal: deps.abortSignal });
@@ -82,9 +90,15 @@ export class KeyboardHandler {
       return;
     }
 
-    const action = this.shortcutMap.match(e);
-    if (action !== null) {
-      this.runAction(action, e);
+    const id = this.shortcutMap.match(e);
+    if (id !== null && this.deps.actions) {
+      const handled = this.deps.actions.run(id, { source: 'keyboard', shiftKey: e.shiftKey });
+      if (handled) {
+        const def = this.deps.actions.get(id);
+        if (def?.preventDefault !== false) {
+          e.preventDefault();
+        }
+      }
     }
   };
 
@@ -128,126 +142,8 @@ export class KeyboardHandler {
       reader.readAsDataURL(file);
       return;
     }
-    this.deps.actions.paste();
+    this.deps.keyboardActions.paste();
   };
-
-  runAction(action: string, e?: KeyboardEvent): void {
-    switch (action) {
-      case 'delete':
-        e?.preventDefault();
-        this.deps.actions.deleteSelected();
-        return;
-      case 'deselect':
-        this.deps.actions.deselect();
-        return;
-      case 'undo':
-        e?.preventDefault();
-        this.deps.actions.undo();
-        return;
-      case 'redo':
-        e?.preventDefault();
-        this.deps.actions.redo();
-        return;
-      case 'select-all':
-        e?.preventDefault();
-        this.deps.actions.selectAll();
-        return;
-      case 'cycle-selection':
-        e?.preventDefault();
-        this.deps.actions.cycleSelection(1);
-        return;
-      case 'cycle-selection-reverse':
-        e?.preventDefault();
-        this.deps.actions.cycleSelection(-1);
-        return;
-      case 'copy':
-        e?.preventDefault();
-        this.deps.actions.copy();
-        return;
-      case 'paste':
-        e?.preventDefault();
-        this.deps.actions.paste();
-        return;
-      case 'duplicate':
-        e?.preventDefault();
-        this.deps.actions.duplicate();
-        return;
-      case 'z-forward':
-        e?.preventDefault();
-        this.deps.actions.zOrder('forward');
-        return;
-      case 'z-backward':
-        e?.preventDefault();
-        this.deps.actions.zOrder('backward');
-        return;
-      case 'z-front':
-        e?.preventDefault();
-        this.deps.actions.zOrder('front');
-        return;
-      case 'z-back':
-        e?.preventDefault();
-        this.deps.actions.zOrder('back');
-        return;
-      case 'zoom-fit':
-        e?.preventDefault();
-        this.deps.actions.zoomToFit();
-        return;
-      case 'group':
-        e?.preventDefault();
-        this.deps.actions.group();
-        return;
-      case 'ungroup':
-        e?.preventDefault();
-        this.deps.actions.ungroup();
-        return;
-      case 'cut':
-        e?.preventDefault();
-        this.deps.actions.cut();
-        return;
-      case 'toggle-lock':
-        e?.preventDefault();
-        this.deps.actions.toggleLock();
-        return;
-      case 'rotate-cw':
-        e?.preventDefault();
-        this.deps.actions.rotate('cw');
-        return;
-      case 'rotate-ccw':
-        e?.preventDefault();
-        this.deps.actions.rotate('ccw');
-        return;
-      case 'zoom-in':
-        e?.preventDefault();
-        this.zoomByFactor(ZOOM_STEP);
-        return;
-      case 'zoom-out':
-        e?.preventDefault();
-        this.zoomByFactor(1 / ZOOM_STEP);
-        return;
-      case 'zoom-reset':
-        e?.preventDefault();
-        this.zoomToLevel(1);
-        return;
-      case 'nudge-left':
-      case 'nudge-right':
-      case 'nudge-up':
-      case 'nudge-down': {
-        const delta = NUDGE_DELTAS[action];
-        if (delta && this.deps.actions.nudge(delta[0], delta[1], e?.shiftKey ?? false)) {
-          e?.preventDefault();
-        }
-        return;
-      }
-      default:
-        if (action.startsWith('tool:')) {
-          if (this.deps.getIsToolActive()) return;
-          e?.preventDefault();
-          this.deps.getToolContext()?.switchTool?.(action.slice('tool:'.length));
-          return;
-        }
-        console.warn(`[fieldnotes] unknown shortcut action "${action}"`);
-    }
-  }
 
   private isInScope(): boolean {
     if (this.deps.scope === 'window') return true;

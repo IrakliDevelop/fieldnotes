@@ -6,6 +6,7 @@ import type { HistoryRecorder } from '../history/history-recorder';
 import type { HistoryStack } from '../history/history-stack';
 import type { ShortcutOptions, ShortcutsApi } from './shortcut-map';
 import type { RotateDirection } from './selection-rotate';
+import type { ActionRegistry } from '../actions/action-registry';
 import { InputFilter } from './input-filter';
 import { KeyboardActions } from './keyboard-actions';
 import { KeyboardHandler } from './keyboard-handler';
@@ -31,6 +32,7 @@ export interface InputHandlerOptions {
   getCenteredWorld?: () => { x: number; y: number };
   onPaste?: (event: ClipboardEvent, worldPosition: { x: number; y: number }) => void;
   panInertia?: boolean;
+  actions?: ActionRegistry;
 }
 
 export class InputHandler {
@@ -99,7 +101,8 @@ export class InputHandler {
     this.keyboard = new KeyboardHandler({
       element: this.element,
       camera: this.camera,
-      actions: this.actions,
+      keyboardActions: this.actions,
+      actions: options.actions,
       scope: this.scope,
       shortcuts: options.shortcuts,
       abortSignal: this.abortController.signal,
@@ -347,8 +350,8 @@ export class InputHandler {
     }
   }
 
-  runAction(action: string, e?: KeyboardEvent): void {
-    this.keyboard.runAction(action, e);
+  get isToolGestureActive(): boolean {
+    return this.isToolActive;
   }
 
   hasClipboard(): boolean {
