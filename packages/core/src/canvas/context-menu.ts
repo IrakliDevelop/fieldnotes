@@ -1,10 +1,8 @@
 import type { Point } from '../core/types';
 
-export interface ContextMenuItem {
-  label: string;
-  action: string;
-  disabled?: boolean;
-}
+export type ContextMenuItem =
+  | { label: string; action: string; disabled?: boolean }
+  | { separator: true };
 
 export interface ContextMenuOptions {
   onCommand: (action: string) => void;
@@ -35,6 +33,19 @@ export class ContextMenu {
       flexDirection: 'column',
     });
     for (const item of items) {
+      if ('separator' in item) {
+        const sep = document.createElement('div');
+        sep.className = 'fieldnotes-context-menu-separator';
+        sep.setAttribute('role', 'separator');
+        Object.assign(sep.style, {
+          height: '1px',
+          margin: '4px 0',
+          background: 'currentColor',
+          opacity: '0.2',
+        });
+        el.appendChild(sep);
+        continue;
+      }
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className =

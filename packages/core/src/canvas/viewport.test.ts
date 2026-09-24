@@ -3,6 +3,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Viewport } from './viewport';
+import type { PluginConfigureContext } from './viewport';
 import {
   createNote,
   createText,
@@ -18,6 +19,7 @@ import type { ImageElement, HtmlElement } from '../elements/types';
 import type { HtmlPaintDiagnostic } from './html-paint-diagnostics';
 import { HtmlPainterRegistry } from './html-painter-registry';
 import type { ElementActivationEvent } from './element-activation';
+import { LEGACY_ACTION_IDS } from '../actions/legacy-action-ids';
 
 function wrapperOf(container: HTMLElement): HTMLDivElement {
   const w = container.firstElementChild;
@@ -1446,13 +1448,13 @@ describe('Viewport', () => {
       const viewport = new Viewport(container, {
         shortcuts: { bindings: { duplicate: 'mod+shift+d' } },
       });
-      expect(viewport.shortcuts.getBindings()['duplicate']).toEqual(['mod+shift+d']);
-      viewport.shortcuts.rebind('undo', 'mod+u');
-      expect(viewport.shortcuts.getBindings()['undo']).toEqual(['mod+u']);
-      viewport.shortcuts.disable('copy');
-      expect(viewport.shortcuts.getBindings()['copy']).toEqual([]);
+      expect(viewport.shortcuts.getBindings()['edit.duplicate']).toEqual(['mod+shift+d']);
+      viewport.shortcuts.rebind('edit.undo', 'mod+u');
+      expect(viewport.shortcuts.getBindings()['edit.undo']).toEqual(['mod+u']);
+      viewport.shortcuts.disable('edit.copy');
+      expect(viewport.shortcuts.getBindings()['edit.copy']).toEqual([]);
       viewport.shortcuts.reset();
-      expect(viewport.shortcuts.getBindings()['undo']).toEqual(['mod+z']);
+      expect(viewport.shortcuts.getBindings()['edit.undo']).toEqual(['mod+z']);
       viewport.destroy();
     });
 
@@ -2159,8 +2161,99 @@ describe('Viewport', () => {
       });
       viewport.store.add(a);
       select([a.id]);
-      viewport.runAction('delete');
+      viewport.runAction('edit.delete');
       expect(viewport.store.getById(a.id)).toBeUndefined();
+      viewport.destroy();
+    });
+
+    it('runAction accepts legacy ids', () => {
+      const viewport = new Viewport(container);
+      const select = setupSelect(viewport);
+      const a = createNote({
+        position: { x: 0, y: 0 },
+        text: 'a',
+        layerId: viewport.layerManager.activeLayerId,
+        zIndex: 0,
+      });
+      const b = createNote({
+        position: { x: 100, y: 0 },
+        text: 'b',
+        layerId: viewport.layerManager.activeLayerId,
+        zIndex: 1,
+      });
+      viewport.store.add(a);
+      viewport.store.add(b);
+      // a starts below b (zIndex 0 < 1). Select a and use the legacy id 'z-front'.
+      select([a.id]);
+      viewport.runAction('z-front');
+      // After bring-to-front via legacy id, a should sit above b.
+      const aAfter = viewport.store.getById(a.id);
+      const bAfter = viewport.store.getById(b.id);
+      expect(aAfter).toBeDefined();
+      expect(bAfter).toBeDefined();
+      if (!aAfter || !bAfter) return;
+      expect(aAfter.zIndex).toBeGreaterThan(bAfter.zIndex);
+      viewport.destroy();
+    });
+
+    it('viewport.actions.list() contains the 28 built-ins followed by tool.* for every registered tool, and shortcuts.getBindings() has canonical keys only', () => {
+      const viewport = new Viewport(container);
+      setupSelect(viewport);
+      const list = viewport.actions.list();
+      // 28 built-ins + tool.select (registered by setupSelect)
+      const builtins = list.filter((a) => !a.id.startsWith('tool.'));
+      expect(builtins).toHaveLength(28);
+      const tools = list.filter((a) => a.id.startsWith('tool.'));
+      expect(tools.some((t) => t.id === 'tool.select')).toBe(true);
+      // getBindings has only canonical keys (every key contains '.')
+      const bindings = viewport.shortcuts.getBindings();
+      const bindingKeys = Object.keys(bindings);
+      for (const key of bindingKeys) {
+        expect(key).toContain('.');
+      }
+      // None of the 28 legacy ids is present
+      for (const legacyId of Object.keys(LEGACY_ACTION_IDS)) {
+        expect(bindingKeys).not.toContain(legacyId);
+      }
+      viewport.destroy();
+    });
+
+    it('ViewportOptions.shortcuts.bindings with a legacy key rebinds the canonical id', () => {
+      const viewport = new Viewport(container, {
+        shortcuts: { bindings: { undo: 'mod+u' } },
+      });
+      const bindings = viewport.shortcuts.getBindings();
+      expect(bindings['edit.undo']).toEqual(['mod+u']);
+      expect(bindings['undo']).toBeUndefined();
+      viewport.destroy();
+    });
+
+    it('a plugin tool registered via configure gets a tool.<name> action; the action reports disabled after the plugin is disposed', () => {
+      const plugin = {
+        name: 'test-plugin',
+        configure: (ctx: PluginConfigureContext) => {
+          ctx.registerTool({
+            name: 'custom-tool',
+            onPointerDown() {
+              /* noop */
+            },
+            onPointerMove() {
+              /* noop */
+            },
+            onPointerUp() {
+              /* noop */
+            },
+          });
+          // Throw to trigger rollback of the tool registration
+          throw new Error('intentional plugin failure');
+        },
+      };
+      const viewport = new Viewport(container, { plugins: [plugin] });
+      // Tool action was created during onRegister
+      const action = viewport.actions.get('tool.custom-tool');
+      expect(action).toBeDefined();
+      // But the tool was rolled back, so the action is disabled
+      expect(viewport.actions.isEnabled('tool.custom-tool')).toBe(false);
       viewport.destroy();
     });
 
@@ -2175,7 +2268,7 @@ describe('Viewport', () => {
       });
       viewport.store.add(a);
       select([a.id]);
-      viewport.runAction('copy');
+      viewport.runAction('edit.copy');
       expect(viewport.canPaste()).toBe(true);
       viewport.destroy();
     });
@@ -2186,7 +2279,17 @@ describe('Viewport', () => {
       );
     }
 
-    it('openContextMenu builds the full item set for a selection', () => {
+    /** Returns label strings for buttons and '---' for separator divs. */
+    function menuEntries(): string[] {
+      const root = document.querySelector('.fieldnotes-context-menu');
+      if (!root) return [];
+      return Array.from(root.children).map((el) => {
+        if (el.getAttribute('role') === 'separator') return '---';
+        return el.textContent ?? '';
+      });
+    }
+
+    it('with a selection the menu shows the 12 base items in base order with separators after Delete, Send to Back, Rotate 90° CCW', () => {
       const viewport = new Viewport(container);
       const select = setupSelect(viewport);
       const a = createNote({
@@ -2196,18 +2299,30 @@ describe('Viewport', () => {
       });
       viewport.store.add(a);
       select([a.id]);
+      // Copy to fill clipboard so Paste is visible
+      viewport.runAction('edit.copy');
       viewport.openContextMenu({ x: 5, y: 5 });
-      const labels = menuLabels();
-      expect(labels).toContain('Cut');
-      expect(labels).toContain('Copy');
-      expect(labels).toContain('Duplicate');
-      expect(labels).toContain('Delete');
-      expect(labels).toContain('Bring to Front');
-      expect(labels).toContain('Lock');
+      expect(menuEntries()).toEqual([
+        'Cut',
+        'Copy',
+        'Paste',
+        'Duplicate',
+        'Delete',
+        '---',
+        'Bring to Front',
+        'Bring Forward',
+        'Send Backward',
+        'Send to Back',
+        '---',
+        'Rotate 90° CW',
+        'Rotate 90° CCW',
+        '---',
+        'Lock',
+      ]);
       viewport.destroy();
     });
 
-    it('includes rotate items when selection is non-empty', () => {
+    it('with a selection and no clipboard, Paste is absent', () => {
       const viewport = new Viewport(container);
       const select = setupSelect(viewport);
       const a = createNote({
@@ -2219,8 +2334,52 @@ describe('Viewport', () => {
       select([a.id]);
       viewport.openContextMenu({ x: 5, y: 5 });
       const labels = menuLabels();
-      expect(labels).toContain('Rotate 90° CW');
-      expect(labels).toContain('Rotate 90° CCW');
+      expect(labels).not.toContain('Paste');
+      expect(labels).toContain('Cut');
+      expect(labels).toContain('Delete');
+      viewport.destroy();
+    });
+
+    it('empty canvas with clipboard shows only Paste; without clipboard does not open', () => {
+      const viewport = new Viewport(container);
+      const select = setupSelect(viewport);
+
+      // Empty canvas, no clipboard → no menu
+      viewport.openContextMenu({ x: 5, y: 5 });
+      expect(document.querySelector('.fieldnotes-context-menu')).toBeNull();
+
+      // Copy an element to fill the clipboard, then deselect
+      const a = createNote({
+        position: { x: 0, y: 0 },
+        text: 'a',
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(a);
+      select([a.id]);
+      viewport.runAction('edit.copy');
+      select([]);
+      viewport.openContextMenu({ x: 5, y: 5 });
+      expect(menuLabels()).toEqual(['Paste']);
+      viewport.destroy();
+    });
+
+    it('clicking an item runs the action with source menu', () => {
+      const viewport = new Viewport(container);
+      const select = setupSelect(viewport);
+      const a = createNote({
+        position: { x: 0, y: 0 },
+        text: 'a',
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(a);
+      select([a.id]);
+      const runSpy = vi.spyOn(viewport.actions, 'run');
+      viewport.openContextMenu({ x: 5, y: 5 });
+      // Click the first button (Cut)
+      const firstButton = document.querySelector('.fieldnotes-context-menu-item') as HTMLElement;
+      firstButton.click();
+      expect(runSpy).toHaveBeenCalledWith('edit.cut', { source: 'menu' });
+      runSpy.mockRestore();
       viewport.destroy();
     });
 
@@ -2239,14 +2398,6 @@ describe('Viewport', () => {
       const labels = menuLabels();
       expect(labels).toContain('Unlock');
       expect(labels).not.toContain('Lock');
-      viewport.destroy();
-    });
-
-    it('empty selection + empty clipboard yields no menu', () => {
-      const viewport = new Viewport(container);
-      setupSelect(viewport);
-      viewport.openContextMenu({ x: 5, y: 5 });
-      expect(document.querySelector('.fieldnotes-context-menu')).toBeNull();
       viewport.destroy();
     });
 

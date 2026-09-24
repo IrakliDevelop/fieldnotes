@@ -1,4 +1,4 @@
-export const VERSION = '0.85.0';
+export const VERSION = '0.86.0';
 
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
 export { snapPoint } from './core/snap';
@@ -25,6 +25,14 @@ export { Camera } from './canvas/camera';
 export type { CameraOptions, CameraChangeInfo } from './canvas/camera';
 export type { BackgroundOptions, BackgroundPattern } from './canvas/background';
 export type { ShortcutOptions, ShortcutBindings, ShortcutsApi } from './canvas/shortcut-map';
+export type {
+  ActionsApi,
+  ActionContext,
+  ActionDefinition,
+  ActionInvocation,
+  ActionMenuPlacement,
+  ActionSource,
+} from './actions/types';
 export { Viewport } from './canvas/viewport';
 export type {
   ViewportOptions,

@@ -14,6 +14,10 @@ import { HistoryStack as RealHistoryStack } from '../history/history-stack';
 import { ElementStore } from '../elements/element-store';
 import { createNote, createArrow } from '../elements/element-factory';
 import type { ArrowElement } from '../elements/types';
+import { ActionRegistry } from '../actions/action-registry';
+import type { ActionContext } from '../actions/types';
+import type { Viewport } from './viewport';
+import { createToolAction, DEFAULT_TOOL_SHORTCUTS } from '../actions/builtin-actions';
 
 function wheel(
   el: HTMLElement,
@@ -85,6 +89,16 @@ function stubToolContext(): ToolContext {
   };
 }
 
+function stubActionRegistry(getSelectedIds: () => readonly string[] = () => []): ActionRegistry {
+  return new ActionRegistry(
+    (): ActionContext => ({
+      viewport: null as unknown as Viewport,
+      store: null as unknown as ActionContext['store'],
+      selectedIds: getSelectedIds(),
+    }),
+  );
+}
+
 describe('InputHandler', () => {
   let element: HTMLDivElement;
   let camera: Camera;
@@ -94,7 +108,7 @@ describe('InputHandler', () => {
     element = document.createElement('div');
     document.body.appendChild(element);
     camera = new Camera();
-    handler = new InputHandler(element, camera);
+    handler = new InputHandler(element, camera, { actions: stubActionRegistry() });
     element.focus();
   });
 
@@ -439,6 +453,7 @@ describe('InputHandler', () => {
         toolManager: tm,
         toolContext: stubToolContext(),
         historyRecorder: recorder,
+        actions: stubActionRegistry(),
       });
       pointerDown(element, {
         pointerId: 1,
@@ -460,6 +475,7 @@ describe('InputHandler', () => {
         toolManager: tm,
         toolContext: stubToolContext(),
         historyRecorder: recorder,
+        actions: stubActionRegistry(),
       });
       // A touch press is deferred until it moves past the tap threshold, so no
       // begin() has happened yet when the platform cancels the pointer.
@@ -526,6 +542,7 @@ describe('InputHandler', () => {
         toolManager: tm,
         toolContext: tc,
         historyRecorder: hr as unknown as HistoryRecorder,
+        actions: stubActionRegistry(() => ['el-1']),
       });
 
       keyDown('Delete');
@@ -554,6 +571,7 @@ describe('InputHandler', () => {
         toolManager: tm,
         toolContext: tc,
         historyRecorder: hr as unknown as HistoryRecorder,
+        actions: stubActionRegistry(() => ['el-2']),
       });
 
       keyDown('Backspace');
@@ -598,6 +616,7 @@ describe('InputHandler', () => {
         toolContext: tc,
         historyStack: hs as unknown as HistoryStack,
         historyRecorder: hr as unknown as HistoryRecorder,
+        actions: stubActionRegistry(),
       });
 
       const event = new KeyboardEvent('keydown', {
@@ -621,6 +640,7 @@ describe('InputHandler', () => {
         toolContext: tc,
         historyStack: hs as unknown as HistoryStack,
         historyRecorder: hr as unknown as HistoryRecorder,
+        actions: stubActionRegistry(),
       });
 
       const event = new KeyboardEvent('keydown', {
@@ -643,6 +663,7 @@ describe('InputHandler', () => {
         toolContext: tc,
         historyStack: hs as unknown as HistoryStack,
         historyRecorder: hr as unknown as HistoryRecorder,
+        actions: stubActionRegistry(),
       });
 
       const event = new KeyboardEvent('keydown', {
@@ -677,6 +698,7 @@ describe('InputHandler', () => {
       handler = new InputHandler(element, camera, {
         toolManager: tm,
         toolContext: tc,
+        actions: stubActionRegistry(() => [note.id]),
       });
 
       keyDown('Escape');
@@ -706,6 +728,7 @@ describe('InputHandler', () => {
       handler = new InputHandler(element, camera, {
         toolManager: tm,
         toolContext: tc,
+        actions: stubActionRegistry(() => [note.id]),
       });
 
       const inputEl = document.createElement('input');
@@ -741,6 +764,7 @@ describe('InputHandler', () => {
       handler = new InputHandler(element, camera, {
         toolManager: tm,
         toolContext: tc,
+        actions: stubActionRegistry(() => [note.id]),
       });
 
       window.dispatchEvent(
@@ -778,6 +802,7 @@ describe('InputHandler', () => {
       handler = new InputHandler(element, camera, {
         toolManager: tm,
         toolContext: tc,
+        actions: stubActionRegistry(),
       });
 
       window.dispatchEvent(
@@ -828,7 +853,11 @@ describe('InputHandler', () => {
         store,
       } as unknown as ToolContext;
 
-      handler = new InputHandler(element, camera, { toolManager: tm, toolContext: tc });
+      handler = new InputHandler(element, camera, {
+        toolManager: tm,
+        toolContext: tc,
+        actions: stubActionRegistry(() => [note.id]),
+      });
 
       const event = new KeyboardEvent('keydown', {
         key: 'ArrowRight',
@@ -857,12 +886,164 @@ describe('InputHandler', () => {
         store,
       } as unknown as ToolContext;
 
-      handler = new InputHandler(element, camera, { toolManager: tm, toolContext: tc });
+      handler = new InputHandler(element, camera, {
+        toolManager: tm,
+        toolContext: tc,
+        actions: stubActionRegistry(),
+      });
 
       const event = new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true });
       window.dispatchEvent(event);
 
       expect(event.defaultPrevented).toBe(false);
+    });
+
+    it('keydown Delete runs edit.delete and preventDefaults', () => {
+      const store = new ElementStore();
+      const note = createNote({ position: { x: 0, y: 0 }, size: { w: 50, h: 50 } });
+      store.add(note);
+      const tm = {
+        ...stubToolManager(),
+        activeTool: { name: 'select', selectedIds: [note.id] },
+      } as unknown as ToolManager;
+      const tc = { ...stubToolContext(), store } as unknown as ToolContext;
+      const hr = { begin: vi.fn(), commit: vi.fn() };
+      handler = new InputHandler(element, camera, {
+        toolManager: tm,
+        toolContext: tc,
+        historyRecorder: hr as unknown as HistoryRecorder,
+        actions: stubActionRegistry(() => [note.id]),
+      });
+      const event = new KeyboardEvent('keydown', {
+        key: 'Delete',
+        bubbles: true,
+        cancelable: true,
+      });
+      window.dispatchEvent(event);
+      expect(store.getById(note.id)).toBeUndefined();
+      expect(event.defaultPrevented).toBe(true);
+    });
+
+    it('keydown Escape runs select.none without preventDefault', () => {
+      const store = new ElementStore();
+      const note = createNote({ position: { x: 0, y: 0 }, size: { w: 50, h: 50 } });
+      store.add(note);
+      const setSelection = vi.fn();
+      const tm = {
+        ...stubToolManager(),
+        activeTool: { name: 'select', selectedIds: [note.id], setSelection },
+      } as unknown as ToolManager;
+      const tc = { ...stubToolContext(), store } as unknown as ToolContext;
+      handler = new InputHandler(element, camera, {
+        toolManager: tm,
+        toolContext: tc,
+        actions: stubActionRegistry(() => [note.id]),
+      });
+      const event = new KeyboardEvent('keydown', {
+        key: 'Escape',
+        bubbles: true,
+        cancelable: true,
+      });
+      window.dispatchEvent(event);
+      expect(setSelection).toHaveBeenCalledWith([]);
+      expect(event.defaultPrevented).toBe(false);
+    });
+
+    it('shift+ArrowLeft passes shiftKey true to arrange.nudge-left', () => {
+      const store = new ElementStore();
+      const note = createNote({ position: { x: 100, y: 100 }, size: { w: 50, h: 50 } });
+      store.add(note);
+      const nudgeSpy = vi.fn(() => true);
+      const tm = {
+        ...stubToolManager(),
+        activeTool: {
+          name: 'select',
+          selectedIds: [note.id],
+          setSelection: vi.fn(),
+          nudgeSelection: nudgeSpy,
+        },
+      } as unknown as ToolManager;
+      const tc = { ...stubToolContext(), store } as unknown as ToolContext;
+      handler = new InputHandler(element, camera, {
+        toolManager: tm,
+        toolContext: tc,
+        actions: stubActionRegistry(() => [note.id]),
+      });
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'ArrowLeft',
+          shiftKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      // nudge was called with shift-scaled dx (10 = default constraint step)
+      expect(nudgeSpy).toHaveBeenCalled();
+      const [dx] = nudgeSpy.mock.calls[0] as unknown as [number, number];
+      // Shift held = nudge by cell step (10), so dx = -10
+      expect(dx).toBe(-10);
+    });
+
+    it('disabled action still preventDefaults for mod+d on empty selection', () => {
+      handler.destroy();
+      handler = new InputHandler(element, camera, { actions: stubActionRegistry() });
+      const e = new KeyboardEvent('keydown', {
+        key: 'd',
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+      });
+      window.dispatchEvent(e);
+      expect(e.defaultPrevented).toBe(true);
+    });
+
+    it('disabled action still preventDefaults for mod+[ on empty selection', () => {
+      handler.destroy();
+      handler = new InputHandler(element, camera, { actions: stubActionRegistry() });
+      const e = new KeyboardEvent('keydown', {
+        key: '[',
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+      });
+      window.dispatchEvent(e);
+      expect(e.defaultPrevented).toBe(true);
+    });
+
+    it('disabled action still preventDefaults for Backspace on empty selection', () => {
+      handler.destroy();
+      handler = new InputHandler(element, camera, { actions: stubActionRegistry() });
+      const e = new KeyboardEvent('keydown', {
+        key: 'Backspace',
+        bubbles: true,
+        cancelable: true,
+      });
+      window.dispatchEvent(e);
+      expect(e.defaultPrevented).toBe(true);
+    });
+
+    it('Escape still does not preventDefault even on empty selection', () => {
+      handler.destroy();
+      handler = new InputHandler(element, camera, { actions: stubActionRegistry() });
+      const e = new KeyboardEvent('keydown', {
+        key: 'Escape',
+        bubbles: true,
+        cancelable: true,
+      });
+      window.dispatchEvent(e);
+      expect(e.defaultPrevented).toBe(false);
+    });
+
+    it('nudge on empty selection (nudge returns false) does not preventDefault', () => {
+      handler.destroy();
+      handler = new InputHandler(element, camera, { actions: stubActionRegistry() });
+      const e = new KeyboardEvent('keydown', {
+        key: 'ArrowLeft',
+        bubbles: true,
+        cancelable: true,
+      });
+      window.dispatchEvent(e);
+      expect(e.defaultPrevented).toBe(false);
     });
   });
 
@@ -1312,6 +1493,7 @@ describe('InputHandler', () => {
         toolManager: tm,
         toolContext: tc,
         historyRecorder: hr,
+        actions: stubActionRegistry(),
       });
 
       pointerDown(element, {
@@ -1355,13 +1537,19 @@ describe('InputHandler', () => {
       } as unknown as ToolContext;
       const hr = { begin: vi.fn(), commit: vi.fn(), pause: vi.fn(), resume: vi.fn() };
 
+      const actions = stubActionRegistry(
+        () =>
+          (tm as unknown as { activeTool?: { selectedIds?: string[] } }).activeTool?.selectedIds ??
+          [],
+      );
       const h = new InputHandler(element, camera, {
         toolManager: tm,
         toolContext: tc,
         historyRecorder: hr as unknown as HistoryRecorder,
+        actions,
       });
 
-      return { store, note, tm, tc, hr, h, setSelection };
+      return { store, note, tm, tc, hr, h, setSelection, actions };
     }
 
     function ctrlKey(key: string) {
@@ -1478,6 +1666,7 @@ describe('InputHandler', () => {
         toolManager: tm,
         toolContext: tc,
         historyRecorder: hr as unknown as HistoryRecorder,
+        actions: stubActionRegistry(() => [note.id, arrow.id]),
       });
 
       ctrlKey('c');
@@ -1534,6 +1723,7 @@ describe('InputHandler', () => {
         toolManager: tm,
         toolContext: tc,
         historyRecorder: hr as unknown as HistoryRecorder,
+        actions: stubActionRegistry(() => [arrow.id]),
       });
 
       ctrlKey('c');
@@ -1562,10 +1752,10 @@ describe('InputHandler', () => {
       h.destroy();
     });
 
-    it('runAction("paste") still triggers in-memory paste (context-menu path)', () => {
-      const { store, note, h } = setupCopyPaste();
+    it('registry run("edit.paste") still triggers in-memory paste (context-menu path)', () => {
+      const { store, note, h, actions } = setupCopyPaste();
       ctrlKey('c');
-      h.runAction('paste');
+      actions.run('edit.paste', { source: 'menu' });
 
       expect(store.count).toBe(2);
       const pasted = store.getAll().find((el) => el.id !== note.id);
@@ -1585,6 +1775,7 @@ describe('InputHandler', () => {
       const h = new InputHandler(element, camera, {
         addImage,
         getCenteredWorld: () => ({ x: 7, y: 9 }),
+        actions: stubActionRegistry(),
       });
       // Replace the real actions paste with a spy so the no-image branch is observable.
       (h as unknown as { actions: { paste: () => void } }).actions.paste = paste;
@@ -1676,6 +1867,7 @@ describe('InputHandler', () => {
         toolManager: tm,
         toolContext: tc,
         historyRecorder: hr as unknown as HistoryRecorder,
+        actions: stubActionRegistry(() => [note1.id]),
       });
 
       return { store, note1, note2, tm, tc, hr, h };
@@ -1747,7 +1939,10 @@ describe('InputHandler', () => {
   describe('Shift+1 zoom-to-fit shortcut', () => {
     it('calls the injected fitToContent option on Shift+1', () => {
       const fit = vi.fn();
-      const h = new InputHandler(element, camera, { fitToContent: fit });
+      const h = new InputHandler(element, camera, {
+        fitToContent: fit,
+        actions: stubActionRegistry(),
+      });
 
       const event = new KeyboardEvent('keydown', {
         code: 'Digit1',
@@ -1764,7 +1959,10 @@ describe('InputHandler', () => {
 
     it('does not call fitToContent when Ctrl+Shift+1 is pressed', () => {
       const fit = vi.fn();
-      const h = new InputHandler(element, camera, { fitToContent: fit });
+      const h = new InputHandler(element, camera, {
+        fitToContent: fit,
+        actions: stubActionRegistry(),
+      });
 
       window.dispatchEvent(
         new KeyboardEvent('keydown', {
@@ -1781,7 +1979,10 @@ describe('InputHandler', () => {
 
     it('does not call fitToContent when only 1 is pressed (no Shift)', () => {
       const fit = vi.fn();
-      const h = new InputHandler(element, camera, { fitToContent: fit });
+      const h = new InputHandler(element, camera, {
+        fitToContent: fit,
+        actions: stubActionRegistry(),
+      });
 
       window.dispatchEvent(
         new KeyboardEvent('keydown', { code: 'Digit1', shiftKey: false, bubbles: true }),
@@ -1880,6 +2081,7 @@ describe('InputHandler', () => {
         toolManager: tm,
         toolContext: tc,
         historyRecorder: hr,
+        actions: stubActionRegistry(() => [note.id]),
       });
 
       // ArrowRight nudge: opens a transaction, moves the note, 400ms timer pending
@@ -1934,11 +2136,24 @@ describe('InputHandler', () => {
       const tm = stubToolManager();
       const switchTool = vi.fn();
       const ctx: ToolContext = { ...stubToolContext(), switchTool };
+      const registry = stubActionRegistry();
+      // Register tool actions so tool shortcut keys are dispatched.
+      // isToolActive reads from handler lazily to mirror the real Viewport wiring.
+      for (const name of Object.keys(DEFAULT_TOOL_SHORTCUTS)) {
+        registry.register(
+          createToolAction(name, {
+            switchTool: (n: string) => ctx.switchTool?.(n),
+            isToolActive: () => handler.isToolGestureActive,
+            hasTool: () => true,
+          }),
+        );
+      }
       handler.destroy();
       handler = new InputHandler(element, camera, {
         toolManager: tm,
         toolContext: ctx,
         shortcuts,
+        actions: registry,
       });
       return { switchTool };
     }
@@ -1979,18 +2194,34 @@ describe('InputHandler', () => {
     });
 
     it('delete shortcut prevents default (Backspace back-nav)', () => {
-      setupWithTools();
+      const store = new ElementStore();
+      const note = createNote({ position: { x: 0, y: 0 }, size: { w: 50, h: 50 } });
+      store.add(note);
+      const tm = {
+        ...stubToolManager(),
+        activeTool: { name: 'select', selectedIds: [note.id] },
+      } as unknown as ToolManager;
+      const tc = { ...stubToolContext(), store } as unknown as ToolContext;
+      const hr = { begin: vi.fn(), commit: vi.fn() };
+      handler.destroy();
+      handler = new InputHandler(element, camera, {
+        toolManager: tm,
+        toolContext: tc,
+        historyRecorder: hr as unknown as HistoryRecorder,
+        actions: stubActionRegistry(() => [note.id]),
+      });
       const e = new KeyboardEvent('keydown', { key: 'Backspace', cancelable: true });
       window.dispatchEvent(e);
       expect(e.defaultPrevented).toBe(true);
     });
 
-    it('warns on unknown non-tool action ids', () => {
+    it('unknown action id bound to a key is silently ignored', () => {
       setupWithTools();
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(vi.fn());
       handler.shortcuts.rebind('my-typo-action', 'k');
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k' }));
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('my-typo-action'));
+      // Registry returns false for unknown ids; no console.warn
+      expect(warnSpy).not.toHaveBeenCalled();
       warnSpy.mockRestore();
     });
 
@@ -2007,10 +2238,22 @@ describe('InputHandler', () => {
       function setupWithActiveTool(tool: ReturnType<typeof toolWith>) {
         const tm = { ...stubToolManager(), activeTool: tool } as unknown as ToolManager;
         const switchTool = vi.fn();
+        const ctx: ToolContext = { ...stubToolContext(), switchTool };
+        const registry = stubActionRegistry();
+        for (const name of Object.keys(DEFAULT_TOOL_SHORTCUTS)) {
+          registry.register(
+            createToolAction(name, {
+              switchTool: (n: string) => ctx.switchTool?.(n),
+              isToolActive: () => false,
+              hasTool: () => true,
+            }),
+          );
+        }
         handler.destroy();
         handler = new InputHandler(element, camera, {
           toolManager: tm,
-          toolContext: { ...stubToolContext(), switchTool },
+          toolContext: ctx,
+          actions: registry,
         });
         return { switchTool };
       }
@@ -2054,10 +2297,22 @@ describe('InputHandler', () => {
           },
         } as unknown as ToolManager;
         const switchTool = vi.fn();
+        const ctx: ToolContext = { ...stubToolContext(), switchTool };
+        const registry = stubActionRegistry();
+        for (const name of Object.keys(DEFAULT_TOOL_SHORTCUTS)) {
+          registry.register(
+            createToolAction(name, {
+              switchTool: (n: string) => ctx.switchTool?.(n),
+              isToolActive: () => false,
+              hasTool: () => true,
+            }),
+          );
+        }
         handler.destroy();
         handler = new InputHandler(element, camera, {
           toolManager: tm,
-          toolContext: { ...stubToolContext(), switchTool },
+          toolContext: ctx,
+          actions: registry,
         });
         window.dispatchEvent(new KeyboardEvent('keydown', { key: 'p' }));
         expect(switchTool).toHaveBeenCalledWith('pencil');
@@ -2066,6 +2321,21 @@ describe('InputHandler', () => {
   });
 
   describe('focus scoping', () => {
+    function toolRegistry(switchTool: (name: string) => void): ActionRegistry {
+      const ctx: ToolContext = { ...stubToolContext(), switchTool };
+      const registry = stubActionRegistry();
+      for (const name of Object.keys(DEFAULT_TOOL_SHORTCUTS)) {
+        registry.register(
+          createToolAction(name, {
+            switchTool: (n: string) => ctx.switchTool?.(n),
+            isToolActive: () => false,
+            hasTool: () => true,
+          }),
+        );
+      }
+      return registry;
+    }
+
     it('shortcuts are ignored when focus is outside the canvas (default scope)', () => {
       const tm = stubToolManager();
       const switchTool = vi.fn();
@@ -2073,6 +2343,7 @@ describe('InputHandler', () => {
       handler = new InputHandler(element, camera, {
         toolManager: tm,
         toolContext: { ...stubToolContext(), switchTool },
+        actions: toolRegistry(switchTool),
       });
       const outside = document.createElement('button');
       document.body.appendChild(outside);
@@ -2095,6 +2366,7 @@ describe('InputHandler', () => {
         toolManager: tm,
         toolContext: { ...stubToolContext(), switchTool },
         shortcuts: { scope: 'window' },
+        actions: toolRegistry(switchTool),
       });
       const outside = document.createElement('button');
       document.body.appendChild(outside);
@@ -2164,6 +2436,7 @@ describe('InputHandler', () => {
         toolManager: tm,
         toolContext: tc,
         openContextMenu,
+        actions: stubActionRegistry(),
       });
 
       const e = contextmenu(element, { clientX: 30, clientY: 40 });
@@ -2184,6 +2457,7 @@ describe('InputHandler', () => {
         toolManager: tm,
         toolContext: tc,
         openContextMenu,
+        actions: stubActionRegistry(),
       });
 
       const e = contextmenu(element, { clientX: 30, clientY: 40 });
@@ -2197,7 +2471,7 @@ describe('InputHandler', () => {
     it('removes the tabindex and outline it set in focus scope', () => {
       const el = document.createElement('div');
       document.body.appendChild(el);
-      const h = new InputHandler(el, new Camera());
+      const h = new InputHandler(el, new Camera(), { actions: stubActionRegistry() });
       expect(el.tabIndex).toBe(0);
       h.destroy();
       expect(el.hasAttribute('tabindex')).toBe(false);
@@ -2208,7 +2482,10 @@ describe('InputHandler', () => {
     it('leaves the element untouched in window scope', () => {
       const el = document.createElement('div');
       document.body.appendChild(el);
-      const h = new InputHandler(el, new Camera(), { shortcuts: { scope: 'window' } });
+      const h = new InputHandler(el, new Camera(), {
+        shortcuts: { scope: 'window' },
+        actions: stubActionRegistry(),
+      });
       expect(el.hasAttribute('tabindex')).toBe(false);
       h.destroy();
       expect(el.hasAttribute('tabindex')).toBe(false);
@@ -2230,6 +2507,7 @@ describe('InputHandler', () => {
         toolManager: tm,
         toolContext: tc,
         openContextMenu,
+        actions: stubActionRegistry(),
       });
     }
 
@@ -2334,7 +2612,7 @@ describe('InputHandler', () => {
 
     it('coasts (extra camera.pan calls) after a mouse-pan flick by default', () => {
       handler.destroy();
-      handler = new InputHandler(element, camera);
+      handler = new InputHandler(element, camera, { actions: stubActionRegistry() });
       const panSpy = vi.spyOn(camera, 'pan');
 
       flickMousePan();
@@ -2347,7 +2625,10 @@ describe('InputHandler', () => {
 
     it('does not coast when panInertia is disabled', () => {
       handler.destroy();
-      handler = new InputHandler(element, camera, { panInertia: false });
+      handler = new InputHandler(element, camera, {
+        panInertia: false,
+        actions: stubActionRegistry(),
+      });
       const panSpy = vi.spyOn(camera, 'pan');
 
       flickMousePan();
@@ -2359,7 +2640,7 @@ describe('InputHandler', () => {
 
     it('cancels an in-flight coast on the next pointer down', () => {
       handler.destroy();
-      handler = new InputHandler(element, camera);
+      handler = new InputHandler(element, camera, { actions: stubActionRegistry() });
       const panSpy = vi.spyOn(camera, 'pan');
 
       flickMousePan();
@@ -2375,7 +2656,7 @@ describe('InputHandler', () => {
 
     it('reports the camera as coasting until the pointer that stopped it lifts', () => {
       handler.destroy();
-      handler = new InputHandler(element, camera);
+      handler = new InputHandler(element, camera, { actions: stubActionRegistry() });
       expect(handler.isCameraCoasting()).toBe(false);
 
       flickMousePan();
@@ -2429,7 +2710,7 @@ describe('InputHandler', () => {
         () => document.dispatchEvent(new Event('visibilitychange')),
       ]) {
         handler.destroy();
-        handler = new InputHandler(element, camera);
+        handler = new InputHandler(element, camera, { actions: stubActionRegistry() });
 
         flickMousePan();
         expect(handler.isCameraCoasting()).toBe(true);

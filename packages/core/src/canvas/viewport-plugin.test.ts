@@ -4,6 +4,7 @@ import { createServiceKey } from '../core/service-key';
 import type { PluginHandle } from '../core/plugin-state-manager';
 import { Viewport } from './viewport';
 import type { ViewportPlugin } from './viewport-plugin';
+import { SelectTool } from '../tools/select-tool';
 
 function createContainer(): HTMLDivElement {
   const container = document.createElement('div');
@@ -383,5 +384,120 @@ describe('Viewport plugin lifecycle', () => {
     expect(observations).toEqual(observations.map(() => ({ x: 300, zoom: 2, count: 9, undo: 0 })));
     unsubscribers.forEach((unsubscribe) => unsubscribe());
     viewport.destroy();
+  });
+
+  it('registerAction makes the action visible in viewport.actions and in the context menu under its own group after the built-ins', () => {
+    const viewport = new Viewport(container, {
+      plugins: [
+        {
+          name: 'my-plugin',
+          configure(context) {
+            context.registerAction({
+              id: 'my-plugin.frobnicate',
+              label: 'Frobnicate',
+              menu: { group: 'my-plugin', order: 10 },
+              perform: () => undefined,
+            });
+          },
+        },
+      ],
+    });
+    // Action is visible in the registry
+    expect(viewport.actions.get('my-plugin.frobnicate')).toBeDefined();
+    expect(viewport.actions.get('my-plugin.frobnicate')?.label).toBe('Frobnicate');
+
+    // Action appears in context menu under its own group after built-ins
+    const sel = new SelectTool();
+    viewport.toolManager.register(sel);
+    viewport.toolManager.setTool('select', viewport.toolContext);
+    (sel as unknown as { setSelection: (ids: string[]) => void }).setSelection(['dummy']);
+
+    viewport.openContextMenu({ x: 5, y: 5 });
+    const root = document.querySelector('.fieldnotes-context-menu');
+    const entries = root
+      ? Array.from(root.children).map((el) => {
+          if (el.getAttribute('role') === 'separator') return '---';
+          return el.textContent ?? '';
+        })
+      : [];
+    // Frobnicate should appear after the Lock built-in group's separator
+    const frobIdx = entries.indexOf('Frobnicate');
+    const lockIdx = entries.indexOf('Lock');
+    expect(frobIdx).toBeGreaterThan(-1);
+    expect(lockIdx).toBeGreaterThan(-1);
+    expect(frobIdx).toBeGreaterThan(lockIdx);
+    viewport.destroy();
+  });
+
+  it("registerAction with a duplicate id throws inside configure and rolls back the plugin's other registrations", () => {
+    const viewport = new Viewport(container, {
+      plugins: [
+        {
+          name: 'dup-plugin',
+          configure(context) {
+            // Register a tool first (to verify rollback)
+            context.registerTool({
+              name: 'dup-tool',
+              onPointerDown: () => undefined,
+              onPointerMove: () => undefined,
+              onPointerUp: () => undefined,
+              onActivate: () => undefined,
+              onDeactivate: () => undefined,
+            });
+            // Then register a duplicate action (edit.cut is a built-in)
+            context.registerAction({
+              id: 'edit.cut',
+              label: 'Duplicate Cut',
+              perform: () => undefined,
+            });
+          },
+        },
+      ],
+    });
+    // Tool was rolled back because configure threw
+    expect(viewport.toolManager.getTool('dup-tool')).toBeUndefined();
+    viewport.destroy();
+  });
+
+  it('continues after an optional plugin registers an action with an invalid shortcut without retaining it', () => {
+    const viewport = new Viewport(container, {
+      plugins: [
+        {
+          name: 'invalid-shortcut-plugin',
+          configure(context) {
+            context.registerAction({
+              id: 'invalid-shortcut-plugin.action',
+              label: 'Invalid shortcut',
+              shortcut: ['ctrl+'],
+              perform: () => undefined,
+            });
+          },
+        },
+      ],
+    });
+
+    expect(viewport.actions.get('invalid-shortcut-plugin.action')).toBeUndefined();
+    expect(viewport.shortcuts.getBindings()['invalid-shortcut-plugin.action']).toBeUndefined();
+    viewport.destroy();
+  });
+
+  it('dispose removes plugin actions', () => {
+    const viewport = new Viewport(container, {
+      plugins: [
+        {
+          name: 'disposable',
+          configure(context) {
+            context.registerAction({
+              id: 'disposable.action',
+              label: 'Disposable',
+              perform: () => undefined,
+            });
+          },
+        },
+      ],
+    });
+    expect(viewport.actions.get('disposable.action')).toBeDefined();
+    viewport.destroy();
+    expect(viewport.actions.get('disposable.action')).toBeUndefined();
   });
 });

@@ -6,7 +6,82 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
-### Core 0.85.0 — core purity pass (F6)
+## [0.86.0] — 2026-09-23
+
+### Core 0.86.0 — action registry (F2)
+
+**Added**
+
+- `viewport.actions` (`ActionsApi`) — register, inspect, run, and listen for named actions.
+- `PluginConfigureContext.registerAction(definition)` — plugins can add actions that appear
+  in the keyboard shortcut table and context menu.
+- Context menu now built from the action registry with `{ separator: true }` entries between
+  groups (`clipboard`, `arrange`, `transform`, `lock`, then plugin groups).
+- Exported types: `ActionDefinition`, `ActionContext`, `ActionInvocation`,
+  `ActionMenuPlacement`, `ActionSource`, `ActionsApi`.
+
+**Breaking changes (pre-1.0):**
+
+- `viewport.shortcuts.getBindings()` now returns canonical action ids as map keys immediately.
+  Compatibility aliases remain accepted only as inputs to `ViewportOptions.shortcuts.bindings`,
+  `rebind`/`disable`/`reset`, and action `get`/`run`/`isEnabled`; they do not preserve legacy
+  keys in returned maps. Migrate persisted binding maps and key comparisons now (for example,
+  `undo` becomes `edit.undo` and `tool:pencil` becomes `tool.pencil`).
+
+**Changed**
+
+- All action ids are now namespaced. The full legacy-to-canonical mapping:
+
+  | Legacy id                 | Canonical id             |
+  | ------------------------- | ------------------------ |
+  | `undo`                    | `edit.undo`              |
+  | `redo`                    | `edit.redo`              |
+  | `cut`                     | `edit.cut`               |
+  | `copy`                    | `edit.copy`              |
+  | `paste`                   | `edit.paste`             |
+  | `duplicate`               | `edit.duplicate`         |
+  | `delete`                  | `edit.delete`            |
+  | `select-all`              | `select.all`             |
+  | `deselect`                | `select.none`            |
+  | `cycle-selection`         | `select.cycle`           |
+  | `cycle-selection-reverse` | `select.cycle-reverse`   |
+  | `z-front`                 | `arrange.bring-to-front` |
+  | `z-forward`               | `arrange.bring-forward`  |
+  | `z-backward`              | `arrange.send-backward`  |
+  | `z-back`                  | `arrange.send-to-back`   |
+  | `group`                   | `arrange.group`          |
+  | `ungroup`                 | `arrange.ungroup`        |
+  | `toggle-lock`             | `arrange.toggle-lock`    |
+  | `rotate-cw`               | `arrange.rotate-cw`      |
+  | `rotate-ccw`              | `arrange.rotate-ccw`     |
+  | `nudge-left`              | `arrange.nudge-left`     |
+  | `nudge-right`             | `arrange.nudge-right`    |
+  | `nudge-up`                | `arrange.nudge-up`       |
+  | `nudge-down`              | `arrange.nudge-down`     |
+  | `zoom-in`                 | `view.zoom-in`           |
+  | `zoom-out`                | `view.zoom-out`          |
+  | `zoom-reset`              | `view.zoom-reset`        |
+  | `zoom-fit`                | `view.zoom-to-fit`       |
+  | `tool:<name>`             | `tool.<name>`            |
+
+- Plugin `enabled()` and function labels that throw are logged and treated as disabled / fall back to the id instead of breaking the context menu or keyboard dispatch.
+- `viewport.shortcuts.getBindings()` keys are now canonical ids.
+- `ShortcutOptions.bindings` keys should use canonical ids.
+- New definitions registered through `ActionsApi.register` or
+  `PluginConfigureContext.registerAction` must use canonical ids. Recognized legacy aliases are
+  rejected with their canonical replacement; this does not remove compatibility for legacy lookup
+  or input methods.
+- Paste behavior unchanged (system paste event drives it; `edit.paste` has no default shortcut).
+
+**Deprecated**
+
+- Legacy flat action ids (e.g. `'undo'`, `'tool:pencil'`). They still resolve through
+  `viewport.runAction`, `viewport.actions.run`, and `viewport.shortcuts.rebind/disable/reset`,
+  but will be removed in 0.88.0.
+
+## [0.85.0] — 2026-09-21
+
+### Core purity pass (F6)
 
 **Breaking changes (pre-1.0):**
 
