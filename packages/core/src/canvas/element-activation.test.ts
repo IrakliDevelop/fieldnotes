@@ -553,6 +553,64 @@ describe('ElementActivation', () => {
     });
   });
 
+  describe('per-element gesture resolver', () => {
+    const TOKEN_ID = 'token-double';
+
+    function mixedHarness(): Harness {
+      return createHarness({
+        gesture: (el) => (el.id === TOKEN_ID ? 'double' : 'single'),
+      });
+    }
+
+    it('fires a single-gesture element on the first tap', () => {
+      const h = mixedHarness();
+      const marker = addMarker(h.store, MARKER_A_WORLD);
+
+      tap(h.wrapper, centreClient(MARKER_A_WORLD));
+
+      expect(h.events.map((e) => [e.element.id, e.gesture])).toEqual([[marker.id, 'single']]);
+      h.dispose();
+    });
+
+    it('requires two taps on a double-gesture element', () => {
+      const h = mixedHarness();
+      addMarker(h.store, MARKER_B_WORLD, { id: TOKEN_ID });
+      const centre = centreClient(MARKER_B_WORLD);
+
+      tap(h.wrapper, centre);
+      expect(h.events).toEqual([]);
+      tap(h.wrapper, centre);
+
+      expect(h.events.map((e) => [e.element.id, e.gesture])).toEqual([[TOKEN_ID, 'double']]);
+      h.dispose();
+    });
+
+    it('a single-gesture tap between two halves breaks the pending double', () => {
+      const h = mixedHarness();
+      const marker = addMarker(h.store, MARKER_A_WORLD);
+      addMarker(h.store, MARKER_B_WORLD, { id: TOKEN_ID });
+
+      tap(h.wrapper, centreClient(MARKER_B_WORLD));
+      tap(h.wrapper, centreClient(MARKER_A_WORLD));
+      tap(h.wrapper, centreClient(MARKER_B_WORLD));
+
+      expect(h.events.map((e) => [e.element.id, e.gesture])).toEqual([[marker.id, 'single']]);
+      h.dispose();
+    });
+
+    it('treats a null resolution as not activatable', () => {
+      const h = createHarness({ gesture: () => null });
+      addMarker(h.store, MARKER_A_WORLD);
+      const centre = centreClient(MARKER_A_WORLD);
+
+      tap(h.wrapper, centre);
+      tap(h.wrapper, centre);
+
+      expect(h.events).toEqual([]);
+      h.dispose();
+    });
+  });
+
   it('rejects non-primary buttons', () => {
     const h = createHarness({ gesture: 'single' });
     addMarker(h.store, MARKER_A_WORLD);

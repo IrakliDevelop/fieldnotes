@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+## [0.87.0] — 2026-09-24
+
+### Core 0.87.0
+
+**Added**
+
+- `setActivation` accepts a per-element gesture resolver: `ActivationOptions.gesture` may now
+  be a function `(el) => 'single' | 'double' | null` in addition to a single `'single' |
+'double'` value for every element. A resolver returning `null` makes that element inert,
+  exactly like `isActivatable` returning `false`. This lets one activation slot mix
+  single-tap markers with double-tap tokens. `ElementActivationEvent.gesture` still reports
+  the gesture that fired. Exported type: `ActivationGesture`.
+
 ## [0.86.0] — 2026-09-23
 
 ### Core 0.86.0 — action registry (F2)

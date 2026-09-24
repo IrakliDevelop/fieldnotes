@@ -6,6 +6,8 @@ import type { HtmlRouting } from './html-painter-registry';
 import type { ToolContext } from '../tools/types';
 import { hitTest } from '../tools/select-hit';
 
+export type ActivationGesture = 'single' | 'double';
+
 export interface ElementActivationEvent {
   element: Readonly<CanvasElement>;
   /** Pointerup location converted through the pointerup camera snapshot. */
@@ -16,11 +18,17 @@ export interface ElementActivationEvent {
    * NOT normalised.
    */
   pointerType: string;
-  gesture: 'single' | 'double';
+  gesture: ActivationGesture;
 }
 
 export interface ActivationOptions {
-  gesture: 'single' | 'double';
+  /**
+   * `'single' | 'double'` for every element, or a resolver choosing per
+   * element. A resolver returning `null` makes that element inert, exactly
+   * like `isActivatable` returning false. Lets one `setActivation` slot mix
+   * single-tap markers with double-tap tokens.
+   */
+  gesture: ActivationGesture | ((el: Readonly<CanvasElement>) => ActivationGesture | null);
   /** Additional host filter, applied on top of the core canvas-routing gate. */
   isActivatable?: (el: Readonly<CanvasElement>) => boolean;
   /** Host-owned camera animators the viewport cannot see. */
@@ -225,7 +233,13 @@ export class ElementActivation {
     if (hit.type === 'note' || hit.type === 'text') return null;
     if (hit.type === 'html' && this.deps.resolveHtmlRouting(hit) !== 'canvas') return null;
     if (this.options.isActivatable && !this.options.isActivatable(hit)) return null;
+    if (this.gestureFor(hit) === null) return null;
     return hit;
+  }
+
+  private gestureFor(el: Readonly<CanvasElement>): ActivationGesture | null {
+    const g = this.options.gesture;
+    return typeof g === 'function' ? g(el) : g;
   }
 
   private beyondSlop(from: Point, to: Point): boolean {
@@ -313,7 +327,7 @@ export class ElementActivation {
       return;
     }
 
-    if (this.options.gesture === 'single') {
+    if (this.gestureFor(target) === 'single') {
       this.clearPending();
       this.emit({ element: target, world, pointerType: e.pointerType, gesture: 'single' });
       return;
