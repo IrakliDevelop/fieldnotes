@@ -1,4 +1,4 @@
-export const VERSION = '0.86.0';
+export const VERSION = '0.87.0';
 
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
 export { snapPoint } from './core/snap';
@@ -164,7 +164,11 @@ export {
 } from './canvas/html-painter-registry';
 export type { HtmlPaintContext, HtmlPainter, HtmlRouting } from './canvas/html-painter-registry';
 export type { HtmlPaintDiagnostic, HtmlRenderTarget } from './canvas/html-paint-diagnostics';
-export type { ElementActivationEvent, ActivationOptions } from './canvas/element-activation';
+export type {
+  ActivationGesture,
+  ElementActivationEvent,
+  ActivationOptions,
+} from './canvas/element-activation';
 
 export { ElementStore } from './elements/element-store';
 export type { ElementUpdateEvent } from './elements/element-store';
