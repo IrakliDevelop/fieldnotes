@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### Sync server 0.21.0
+
+**Added**
+
+- Authenticated sockets can carry immutable, server-only JSON claims and an absolute expiry.
+  The reference WebSocket server closes idle expired sockets and rejects traffic observed at
+  or after the deadline.
+
 ## [0.87.0] — 2026-09-24
 
 ### Core 0.87.0

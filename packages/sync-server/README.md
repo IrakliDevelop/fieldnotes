@@ -157,6 +157,23 @@ socket is closed with WS code `4401` and the connection is never admitted to the
 no membership, no snapshot. A resolved result admits the connection carrying its
 `userId` and optional `role`.
 
+The hook may also return `authContext` (JSON claims) and `expiresAt` (a positive safe integer
+absolute Unix millisecond timestamp). The server copies and deeply freezes admitted claims;
+later changes to the hook's object cannot change what plugins receive as
+`ServerOpContext.authContext`. The claims and deadline are server-only and never enter sync
+envelopes or presence. Invalid claims, invalid deadlines, and deadlines already reached at
+admission close with `4401`. Claims are limited to 16 KiB of UTF-8 JSON, 16 levels of nesting,
+and 1024 visited entries. Getters, cycles, unsupported values and prototypes are rejected.
+
+`createSyncServer` closes an idle socket when its deadline arrives and checks the deadline before
+each inbound dispatch and outbound WebSocket send. The Node event loop must run before a timer can
+close the socket. Work already dispatched or queued in the legacy room queue is not cancellable or
+transactional; expiry prevents new dispatch and physical sends observed after the deadline, but
+does not roll back earlier backend work. A later authoritative driver will enforce commit deadlines.
+`SyncHub.addConnection` also copies and validates claims for direct callers, but custom transports
+must enforce `expiresAt` themselves. Received cross-instance fanout has no authenticated claims:
+its payload and `from` field do not create a `ServerOpContext.authContext`.
+
 With **no hook**, rooms stay open: every connection is admitted anonymously with
 `userId = connId`. `role` is captured now and enforced in an upcoming release
 (role-based authorization and per-viewer visibility filtering).

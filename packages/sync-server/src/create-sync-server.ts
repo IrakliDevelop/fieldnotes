@@ -30,6 +30,9 @@ import {
 } from './resource-limits';
 import { DEFAULT_SHUTDOWN_GRACE_MS, drainWebSocketServer } from './shutdown';
 import { isValidRoomName } from './room-name';
+import { validateExpiresAt } from './auth-context';
+
+const MAX_TIMEOUT_MS = 2_147_483_647;
 
 export interface CreateSyncServerOptions {
   port?: number;
@@ -223,6 +226,8 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
     let state: 'pending' | 'ready' | 'rejected' = 'pending';
     let closed = false;
     let admitted = false;
+    let expiresAt: number | undefined;
+    let expiryTimer: ReturnType<typeof setTimeout> | undefined;
     const queue: string[] = [];
     let queuedBytes = 0;
     const maxPendingAuthMessages =
@@ -231,7 +236,39 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
     const limiter = new MessageRateLimiter(messagesPerSecond, messageBurst);
     const byteLimiter = new MessageRateLimiter(bytesPerSecond, byteBurst);
 
+    const expire = () => {
+      if (closed || state === 'rejected') return;
+      state = 'rejected';
+      queue.length = 0;
+      queuedBytes = 0;
+      if (expiryTimer) clearTimeout(expiryTimer);
+      expiryTimer = undefined;
+      if (admitted) {
+        hub.removeConnection(connId);
+        admitted = false;
+      }
+      ws.close(4401, 'unauthorized');
+    };
+    const isExpired = () => {
+      if (expiresAt === undefined || Date.now() < expiresAt) return false;
+      expire();
+      return true;
+    };
+    const scheduleExpiry = () => {
+      if (expiresAt === undefined || closed || state === 'rejected') return;
+      const remaining = expiresAt - Date.now();
+      if (remaining <= 0) {
+        expire();
+        return;
+      }
+      expiryTimer = setTimeout(scheduleExpiry, Math.min(remaining, MAX_TIMEOUT_MS));
+    };
+    const dispatch = (message: string) => {
+      if (closed || state !== 'ready' || isExpired()) return;
+      void hub.handleMessage(connId, message).catch((err) => console.error('[sync-server]', err));
+    };
     const send = (m: string) => {
+      if (closed || state !== 'ready' || isExpired()) return;
       try {
         ws.send(m);
       } catch {
@@ -240,7 +277,7 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
     };
 
     ws.on('message', (data) => {
-      if (state === 'rejected') return;
+      if (closed || state === 'rejected' || isExpired()) return;
       const messageBytes = rawDataByteLength(data);
       if (messageBytes > maxMessageBytes) {
         state = 'rejected';
@@ -267,10 +304,14 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
         queuedBytes += messageBytes;
         return;
       }
-      void hub.handleMessage(connId, msg).catch((err) => console.error('[sync-server]', err));
+      dispatch(msg);
     });
     ws.on('close', () => {
       closed = true;
+      if (expiryTimer) clearTimeout(expiryTimer);
+      expiryTimer = undefined;
+      queue.length = 0;
+      queuedBytes = 0;
       releaseIp();
       releaseRoom();
       if (admitted) hub.removeConnection(connId);
@@ -288,11 +329,22 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
           ws.close(4401, 'unauthorized');
           return;
         }
-        state = 'ready';
+        expiresAt = validateExpiresAt(result.expiresAt);
+        if (isExpired()) return;
+        hub.addConnection({
+          id: connId,
+          room,
+          userId: result.userId,
+          role: result.role,
+          authContext: result.authContext,
+          expiresAt,
+          send,
+        });
         admitted = true;
-        hub.addConnection({ id: connId, room, userId: result.userId, role: result.role, send });
+        state = 'ready';
+        scheduleExpiry();
         for (const m of queue) {
-          void hub.handleMessage(connId, m).catch((err) => console.error('[sync-server]', err));
+          dispatch(m);
         }
         queue.length = 0;
         queuedBytes = 0;

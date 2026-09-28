@@ -25,6 +25,7 @@ import type {
 } from './authorize';
 import { ServerPluginRegistry } from './sync-plugin';
 import type { ApplyResult, ServerOpContext, ServerSyncPlugin } from './sync-plugin';
+import { snapshotAuthContext, validateExpiresAt, type AuthContext } from './auth-context';
 import {
   DEFAULT_MAX_JSON_DEPTH,
   DEFAULT_MAX_PRESENCE_BYTES,
@@ -38,6 +39,8 @@ export interface Connection {
   room: string;
   userId?: string;
   role?: string;
+  readonly authContext?: AuthContext;
+  readonly expiresAt?: number;
   send(message: string): void;
 }
 
@@ -200,7 +203,16 @@ export class SyncHub {
   }
 
   addConnection(conn: Connection): void {
-    this.conns.set(conn.id, conn);
+    const admitted: Connection = {
+      id: conn.id,
+      room: conn.room,
+      userId: conn.userId,
+      role: conn.role,
+      send: (message) => conn.send(message),
+      authContext: snapshotAuthContext(conn.authContext),
+      expiresAt: validateExpiresAt(conn.expiresAt),
+    };
+    this.conns.set(conn.id, admitted);
     let set = this.rooms.get(conn.room);
     if (!set) {
       set = new Set();
@@ -401,6 +413,8 @@ export class SyncHub {
       connectionId: conn.id,
       userId: conn.userId,
       role: conn.role,
+      authContext: conn.authContext,
+      expiresAt: conn.expiresAt,
       backend: this.backend,
       backendPlugin: (key) => this.backend.getService?.(key),
     };

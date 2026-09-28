@@ -1,6 +1,7 @@
 import type { ServiceKey } from '@fieldnotes/core';
 import type { ExtensionKind, PluginSnapshot, TypedExtensionOp, SyncOp } from '@fieldnotes/sync';
 import type { HubBackend } from './hub-backend';
+import type { AuthContext } from './auth-context';
 
 export interface ApplyResult {
   readonly accepted: SyncOp | null;
@@ -14,6 +15,9 @@ export interface ServerOpContext {
   readonly connectionId: string;
   readonly userId?: string;
   readonly role?: string;
+  /** Admitted server-only claims; absent for remote fanout operations. */
+  readonly authContext?: AuthContext;
+  readonly expiresAt?: number;
   readonly backend: HubBackend;
   backendPlugin<T>(key: ServiceKey<T>): T | undefined;
 }
