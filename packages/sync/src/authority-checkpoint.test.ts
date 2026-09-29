@@ -663,6 +663,7 @@ describe('authority checkpoint', () => {
     ).toEqual({ status: 'failed', reason: 'invalid' });
   });
 
+  // Coverage instrumentation makes the 20 MiB encode/decode boundary slower on hosted Node.
   it('permits the exact byte budget and rejects one byte over', async () => {
     const required = [requirement('large')];
     const makePayload = (length: number): AuthorityCheckpointPayload => ({
@@ -684,7 +685,7 @@ describe('authority checkpoint', () => {
     await expect(
       prepare(makePayload(MAX_AUTHORITY_CHECKPOINT_BYTES - overhead + 1), required),
     ).rejects.toThrow(RangeError);
-  });
+  }, 30_000);
 
   it('accepts depth 64 and rejects depth 65 in extension data', async () => {
     const nested = (count: number): unknown => {
