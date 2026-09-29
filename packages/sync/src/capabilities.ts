@@ -6,6 +6,15 @@ export function createCurrentCapabilities(extensionKinds: readonly string[]): Sy
   return { protocolVersion: 1, extensionKinds: [...extensionKinds], elementEnvelope: true };
 }
 
+/** Explicit opt-in only; existing connections continue to advertise legacy capabilities. */
+export function createAuthorityCapabilities(extensionKinds: readonly string[]): SyncCapabilities {
+  return { ...createCurrentCapabilities(extensionKinds), authority: 1 };
+}
+
+export function supportsAuthority(capabilities: SyncCapabilities): boolean {
+  return capabilities.authority === 1;
+}
+
 /**
  * Translates an op for a peer that may not support every extension kind.
  * Extension ops the peer doesn't advertise are dropped (throws so callers
