@@ -101,3 +101,15 @@ export {
   serializeAuthorityFrame,
 } from './authority-protocol';
 export { classifyAuthorityCursor } from './authority-cursor';
+export { prepareAuthorityCheckpoint, AuthorityCheckpointAssembler } from './authority-checkpoint';
+export type {
+  AuthorityCheckpointPayload,
+  AuthorityCheckpointExtension,
+  AuthorityCheckpointRequirement,
+  AuthorityCheckpointFrame,
+  PreparedAuthorityCheckpoint,
+  AuthorityCheckpointPrepareOptions,
+  AuthorityCheckpointAssemblerOptions,
+  AuthorityCheckpointFailure,
+  AuthorityCheckpointResult,
+} from './authority-checkpoint';

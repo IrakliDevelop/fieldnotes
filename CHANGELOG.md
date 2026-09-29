@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### Sync 0.23.0
+
+**Added**
+
+- Bounded browser-safe authority checkpoint preparation and complete assembly with SHA-256,
+  exact trusted extension inventory, and a fixed receive deadline. These APIs remain unused by
+  live connections.
+
 ### Sync 0.22.0
 
 **Added**

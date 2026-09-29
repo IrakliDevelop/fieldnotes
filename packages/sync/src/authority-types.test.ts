@@ -4,8 +4,16 @@ import type {
   AuthorityFrame,
   AuthorityCursor,
   AuthorityCheckpointManifest,
+  AuthorityCheckpointPayload,
+  AuthorityCheckpointFrame,
+  AuthorityCheckpointResult,
 } from './index';
-import { parseAuthorityFrame, classifyAuthorityCursor } from './index';
+import {
+  parseAuthorityFrame,
+  classifyAuthorityCursor,
+  prepareAuthorityCheckpoint,
+  AuthorityCheckpointAssembler,
+} from './index';
 
 type Equal<A, B> =
   (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
@@ -33,6 +41,17 @@ const nestedReadonly: ReadonlyKey<
   Extract<AuthorityMutation, { kind: 'upsert' }>['element']['position'],
   'x'
 > = true;
+const payloadReadonly: ReadonlyKey<AuthorityCheckpointPayload, 'elements'> = true;
+const payloadNestedReadonly: ReadonlyKey<
+  AuthorityCheckpointPayload['elements'][number]['position'],
+  'x'
+> = true;
+const checkpointFrameKinds: Equal<
+  AuthorityCheckpointFrame['kind'],
+  'checkpoint-begin' | 'checkpoint-chunk' | 'checkpoint-end'
+> = true;
+const resultKinds: Equal<AuthorityCheckpointResult['status'], 'pending' | 'complete' | 'failed'> =
+  true;
 
 it('exports the intentional readonly authority surface', () => {
   expect([
@@ -42,7 +61,13 @@ it('exports the intentional readonly authority surface', () => {
     frameReadonly,
     tilesReadonly,
     nestedReadonly,
-  ]).toEqual(Array(6).fill(true));
+    payloadReadonly,
+    payloadNestedReadonly,
+    checkpointFrameKinds,
+    resultKinds,
+  ]).toEqual(Array(10).fill(true));
+  expect(typeof prepareAuthorityCheckpoint).toBe('function');
+  expect(typeof AuthorityCheckpointAssembler).toBe('function');
   expect(
     parseAuthorityFrame(
       '{"protocol":"authority:1","kind":"upgrade-required","required":"authority:1"}',
