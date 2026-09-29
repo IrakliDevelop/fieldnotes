@@ -419,6 +419,32 @@ describe('isValidEnvelope layer ops', () => {
 });
 
 describe('parseEnvelope', () => {
+  it('rejects an unsupported authority capability while accepting legacy omission', () => {
+    const legacy = {
+      from: 'A',
+      op: {
+        kind: 'capabilities',
+        capabilities: {
+          protocolVersion: 1,
+          extensionKinds: [],
+          elementEnvelope: true,
+        },
+      },
+    };
+    expect(parseEnvelope(JSON.stringify(legacy))).toEqual(legacy);
+    expect(
+      parseEnvelope(
+        JSON.stringify({
+          ...legacy,
+          op: {
+            ...legacy.op,
+            capabilities: { ...legacy.op.capabilities, authority: 2 },
+          },
+        }),
+      ),
+    ).toBeNull();
+  });
+
   it('returns null for malformed JSON', () => {
     expect(parseEnvelope('{bad')).toBeNull();
     expect(parseEnvelope('')).toBeNull();

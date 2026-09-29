@@ -70,6 +70,34 @@ export { createExtensionKind } from './sync-plugin';
 export {
   CapabilityHandshake,
   createCurrentCapabilities,
+  createAuthorityCapabilities,
+  supportsAuthority,
   translateOpForPeer,
   DEFAULT_CAPABILITY_QUEUE_LIMIT,
 } from './capabilities';
+export type {
+  AuthorityMutation,
+  AuthorityCursor,
+  AuthorityReceipt,
+  AuthorityExtensionManifestEntry,
+  AuthorityCheckpointManifest,
+  AuthorityRejectionReason,
+  AuthorityResyncReason,
+  AuthorityClientFrame,
+  AuthorityServerFrame,
+  AuthorityFrame,
+} from './authority-protocol';
+export {
+  AUTHORITY_PROTOCOL_VERSION,
+  MAX_AUTHORITY_FRAME_BYTES,
+  MAX_AUTHORITY_CHECKPOINT_BYTES,
+  MAX_AUTHORITY_CHUNK_BYTES,
+  AUTHORITY_CHECKPOINT_TIMEOUT_MS,
+  MAX_AUTHORITY_JSON_DEPTH,
+  MAX_AUTHORITY_JSON_NODES,
+  parseAuthorityFrame,
+  parseAuthorityClientFrame,
+  parseAuthorityServerFrame,
+  serializeAuthorityFrame,
+} from './authority-protocol';
+export { classifyAuthorityCursor } from './authority-cursor';

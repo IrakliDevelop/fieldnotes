@@ -25,6 +25,7 @@ export interface SyncCapabilities {
   protocolVersion: number;
   extensionKinds: string[];
   elementEnvelope: true;
+  readonly authority?: 1;
 }
 
 /**
@@ -392,6 +393,7 @@ function isValidCapabilities(value: unknown): value is SyncCapabilities {
   const kinds = value['extensionKinds'] as unknown[];
   return (
     value['elementEnvelope'] === true &&
+    (!Object.prototype.hasOwnProperty.call(value, 'authority') || value['authority'] === 1) &&
     kinds.length <= 256 &&
     kinds.every((kind) => isBoundedString(kind, 128))
   );

@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### Sync 0.22.0
+
+**Added**
+
+- Browser-safe authority wire types, bounded strict codecs, projection cursor classification, and
+  explicit authority capability helpers. These primitives do not activate authoritative sync.
+
 ### Sync server 0.22.0
 
 **Added**

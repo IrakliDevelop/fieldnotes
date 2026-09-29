@@ -40,3 +40,29 @@ advertise their extension kind; an unsupported kind fails explicitly rather than
 domain data. `SyncOp`, `SyncEnvelope`, and `SyncElement` describe both runtime and transport values.
 Use `isValidEnvelope` and `isValidElement` at transport boundaries. Plugin snapshot state lives under
 the snapshot operation's `extensions` map.
+
+## Authority wire primitives (0.22.0)
+
+`createAuthorityCapabilities(extensionKinds)` explicitly adds `authority: 1` to the current
+capability shape. `supportsAuthority` checks that marker. Existing connections continue to call
+`createCurrentCapabilities` and do not advertise or negotiate authority automatically.
+
+`parseAuthorityClientFrame`, `parseAuthorityServerFrame`, and `parseAuthorityFrame` validate
+direction-specific `authority:1` frames and return frozen values or `null`. The matching
+`serializeAuthorityFrame` writes deterministic, UTF-16-key-sorted JSON within the 1 MiB frame
+limit. These codecs validate wire structure only; they do not authorize a mutation or apply it.
+Legacy `parseEnvelope` and authority parsing remain separate.
+
+`AuthorityCursor` tracks a contiguous visible projection within one generation and stream.
+`classifyAuthorityCursor` reports next, stale, gap, or reset without comparing revisions across
+streams. A durable `AuthorityReceipt` has no applied-state cursor. Whole-room compare-and-swap
+uses the separate opaque `expectedState` token; a clear proposal requires it. Checkpoint manifests
+and chunks are syntax-validated here, but complete hash-checked checkpoint assembly and live
+client/server adoption are later work.
+
+The serializer budgets output and the enumerable keys it retains before sorting. JavaScript
+reflection has no bounded way to enumerate nonenumerable or symbol-only own keys, so the final
+exact rejection check may allocate their full inventory; arbitrary Proxy traps have the same
+language-level limitation. Do not pass untrusted live JavaScript objects directly to the
+serializer without an application-level input boundary. Parsed JSON frames remain byte, depth,
+and node bounded before validation.
