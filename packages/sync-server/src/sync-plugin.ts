@@ -18,6 +18,10 @@ export interface ServerOpContext {
   /** Admitted server-only claims; absent for remote fanout operations. */
   readonly authContext?: AuthContext;
   readonly expiresAt?: number;
+  /** Guarded dispatch deadline; absent for legacy calls and remote fanout. */
+  readonly deadlineAt?: number;
+  /** Cooperative cancellation for guarded dispatch; absent for legacy calls and remote fanout. */
+  readonly signal?: AbortSignal;
   readonly backend: HubBackend;
   backendPlugin<T>(key: ServiceKey<T>): T | undefined;
 }

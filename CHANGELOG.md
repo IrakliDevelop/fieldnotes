@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### Sync server 0.22.0
+
+**Added**
+
+- Optional `framePolicy` authorizes each admitted inbound and outbound application frame with
+  frozen server-owned identity. Opted-in sockets use bounded per-connection and per-room queues,
+  five-second frame deadlines, and cooperative cancellation. The wire protocol is unchanged.
+
 ### Sync server 0.21.0
 
 **Added**

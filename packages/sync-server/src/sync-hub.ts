@@ -26,6 +26,7 @@ import type {
 import { ServerPluginRegistry } from './sync-plugin';
 import type { ApplyResult, ServerOpContext, ServerSyncPlugin } from './sync-plugin';
 import { snapshotAuthContext, validateExpiresAt, type AuthContext } from './auth-context';
+import { SerialRoomQueue } from './serial-room-queue';
 import {
   DEFAULT_MAX_JSON_DEPTH,
   DEFAULT_MAX_PRESENCE_BYTES,
@@ -59,6 +60,13 @@ export interface SyncHubOptions {
   maxPresenceLanes?: number;
   /** Largest `presence.data` payload relayed, in UTF-8 bytes of its JSON encoding. */
   maxPresenceBytes?: number;
+}
+
+/** Trusted server-side lifecycle for an admitted frame. Direct callers schedule timeout/abort. */
+export interface MessageDispatchOptions {
+  readonly deadlineAt: number;
+  readonly signal: AbortSignal;
+  readonly beforeProcess: () => boolean | Promise<boolean>;
 }
 
 const HUB_FROM = 'hub';
@@ -149,7 +157,7 @@ export class SyncHub {
   private readonly backend: HubBackend;
   private readonly conns = new Map<string, Connection>();
   private readonly rooms = new Map<string, Set<string>>(); // room → connIds
-  private readonly roomQueues = new Map<string, Promise<void>>(); // room → serial tail
+  private readonly roomQueues = new Map<string, SerialRoomQueue>();
   private readonly presenceConnections = new Set<string>();
   private readonly instanceId: string;
   private readonly fanout: HubFanout;
@@ -234,7 +242,9 @@ export class SyncHub {
       members.delete(connId);
       if (members.size === 0) {
         this.rooms.delete(room);
-        this.roomQueues.delete(room);
+        // An active room operation retains the lane across disconnect/reconnect.
+        const queue = this.roomQueues.get(room);
+        if (queue?.idle) this.roomQueues.delete(room);
       }
     }
     if (hadPresence) this.broadcastLeave(room, conn.id);
@@ -246,8 +256,8 @@ export class SyncHub {
 
   /**
    * Broadcasts ephemeral server-owned presence data to every connection in a room.
-   * The returned count covers successful delivery on this hub instance only; configured fan-out
-   * forwards the same event to other instances on a best-effort basis.
+   * The returned count covers accepted synchronous send admission on this hub instance,
+   * not completed physical delivery. Async frame policy can subsequently deny a frame.
    */
   broadcastPresence<T>(room: string, data: T): number {
     if (!this.isPresenceWithinLimit(data)) return 0;
@@ -257,42 +267,66 @@ export class SyncHub {
     return sent;
   }
 
-  handleMessage(connId: string, message: string): Promise<void> {
+  /**
+   * Dispatches a frame on its room queue. Existing two-argument callers retain legacy behavior.
+   * With options, the caller owns timeout and abort scheduling: an aborted/expired queued frame or
+   * a false `beforeProcess` result resolves without processing. Aborting active work is cooperative;
+   * its promise settles only when the actual hook or process settles. Active exceptions reject the
+   * caller, and the room queue recovers for subsequent frames.
+   */
+  handleMessage(connId: string, message: string, options?: MessageDispatchOptions): Promise<void> {
     const conn = this.conns.get(connId);
     if (!conn) return Promise.resolve();
     if (!hasJsonDepthAtMost(message, this.maxJsonDepth)) return Promise.resolve();
     const env = parseEnvelope(message);
     if (!env) return Promise.resolve();
-    if (env.op.kind === 'capabilities') {
-      this.peerCapabilities.set(conn.id, env.op.capabilities);
-      this.sendToConnection(conn, HUB_FROM, {
-        kind: 'capabilities',
-        capabilities: createCurrentCapabilities(this.pluginRegistry.extensionKinds),
-      });
-      return Promise.resolve();
+    const perform = async () => {
+      if (options) {
+        if (!this.isCurrent(conn) || options.signal.aborted || Date.now() >= options.deadlineAt)
+          return;
+        if ((await options.beforeProcess()) !== true) return;
+        if (!this.isCurrent(conn) || options.signal.aborted || Date.now() >= options.deadlineAt)
+          return;
+      }
+      if (env.op.kind === 'capabilities') {
+        this.peerCapabilities.set(conn.id, env.op.capabilities);
+        this.sendToConnection(conn, HUB_FROM, {
+          kind: 'capabilities',
+          capabilities: createCurrentCapabilities(this.pluginRegistry.extensionKinds),
+        });
+      } else if (env.op.kind === 'presence') {
+        if (this.isPresenceWithinLimit(env.op.data)) this.schedulePresence(conn, env.op.data);
+      } else {
+        await this.process(conn, env, options);
+      }
+    };
+    // Preserve the fast-path timing of legacy capabilities and presence.
+    if (!options && (env.op.kind === 'capabilities' || env.op.kind === 'presence')) {
+      return perform();
     }
-    if (env.op.kind === 'presence') {
-      // Presence is relayed to every member verbatim, so its size is the amplification factor.
-      if (!this.isPresenceWithinLimit(env.op.data)) return Promise.resolve();
-      this.schedulePresence(conn, env.op.data); // off-queue, throttled independently
-      return Promise.resolve();
-    }
-    const room = conn.room;
-    // The per-room serial queue is the single total-order authority: ops apply in arrival order
-    // (arrival-order LWW — no per-element seq; see D3 / TD-12). Different rooms run independently.
-    const prev = this.roomQueues.get(room) ?? Promise.resolve();
-    const operation = prev.then(() => this.process(conn, env));
-    this.roomQueues.set(
-      room,
-      operation.catch(() => {
-        // Recover only the internal tail so one failed message never wedges the room queue.
-        // The caller still receives the operation rejection for observability.
-      }),
-    );
-    return operation;
+    return this.roomQueue(conn.room).enqueue(perform, options);
   }
 
-  private async process(conn: Connection, env: SyncEnvelope): Promise<void> {
+  private isCurrent(conn: Connection): boolean {
+    return this.conns.get(conn.id) === conn;
+  }
+
+  private roomQueue(room: string): SerialRoomQueue {
+    let queue = this.roomQueues.get(room);
+    if (!queue) {
+      queue = new SerialRoomQueue(() => {
+        if (this.roomQueues.get(room) === queue) this.roomQueues.delete(room);
+      });
+      this.roomQueues.set(room, queue);
+    }
+    return queue;
+  }
+
+  private async process(
+    conn: Connection,
+    env: SyncEnvelope,
+    options?: MessageDispatchOptions,
+  ): Promise<void> {
     let op = env.op;
     if (op.kind === 'upsert') {
       if (!isValidElement(op.element)) return;
@@ -304,11 +338,14 @@ export class SyncHub {
     } else if (op.kind === 'extension') {
       const entry = this.pluginRegistry.extension(op.extensionKind);
       if (!entry || !entry.kind.codec.validate(op.payload)) return;
-      await this.deliverPluginResult(conn, await entry.handler(op, this.pluginContext(conn)));
+      await this.deliverPluginResult(
+        conn,
+        await entry.handler(op, this.pluginContext(conn, options)),
+      );
     } else if (this.pluginRegistry.ownerOf(op.kind)) {
       const owner = this.pluginRegistry.ownerOf(op.kind);
       if (!owner?.process) return;
-      const result = await owner.process(op, this.pluginContext(conn), async () => ({
+      const result = await owner.process(op, this.pluginContext(conn, options), async () => ({
         accepted: null,
         corrections: [],
       }));
@@ -361,7 +398,7 @@ export class SyncHub {
 
       const prevExisted = current !== undefined;
       const prevAudience = current?.audience;
-      const result = await this.runCorePlugins(conn, outboundOp);
+      const result = await this.runCorePlugins(conn, outboundOp, options);
       for (const correction of result.corrections) {
         this.sendToConnection(conn, HUB_FROM, correction);
       }
@@ -407,7 +444,7 @@ export class SyncHub {
     // 'snapshot' from a client → ignored
   }
 
-  private pluginContext(conn: Connection): ServerOpContext {
+  private pluginContext(conn: Connection, options?: MessageDispatchOptions): ServerOpContext {
     return {
       room: conn.room,
       connectionId: conn.id,
@@ -415,14 +452,19 @@ export class SyncHub {
       role: conn.role,
       authContext: conn.authContext,
       expiresAt: conn.expiresAt,
+      ...(options ? { deadlineAt: options.deadlineAt, signal: options.signal } : {}),
       backend: this.backend,
       backendPlugin: (key) => this.backend.getService?.(key),
     };
   }
 
-  private async runCorePlugins(conn: Connection, op: SyncOp): Promise<ApplyResult> {
+  private async runCorePlugins(
+    conn: Connection,
+    op: SyncOp,
+    options?: MessageDispatchOptions,
+  ): Promise<ApplyResult> {
     const middleware = this.pluginRegistry.plugins.filter((plugin) => plugin.process);
-    const context = this.pluginContext(conn);
+    const context = this.pluginContext(conn, options);
     const dispatch = async (index: number, current: SyncOp): Promise<ApplyResult> => {
       const plugin = middleware[index];
       if (!plugin?.process) {
@@ -946,25 +988,22 @@ export class SyncHub {
     }
     if (plugin) {
       const owner = plugin;
-      const previous = this.roomQueues.get(env.room) ?? Promise.resolve();
-      const operation = previous.then(async () => {
-        const context: ServerOpContext = {
-          room: env.room as string,
-          connectionId: env.from as string,
-          backend: this.backend,
-          backendPlugin: (key) => this.backend.getService?.(key),
-        };
-        const accepted = owner.applyFanout ? await owner.applyFanout(op, context) : op;
-        if (accepted) {
-          this.relayOpToRoom(env.room as string, undefined, env.from as string, accepted);
-        }
-      });
-      this.roomQueues.set(
-        env.room,
-        operation.catch(() => {
+      void this.roomQueue(env.room)
+        .enqueue(async () => {
+          const context: ServerOpContext = {
+            room: env.room as string,
+            connectionId: env.from as string,
+            backend: this.backend,
+            backendPlugin: (key) => this.backend.getService?.(key),
+          };
+          const accepted = owner.applyFanout ? await owner.applyFanout(op, context) : op;
+          if (accepted) {
+            this.relayOpToRoom(env.room as string, undefined, env.from as string, accepted);
+          }
+        })
+        .catch(() => {
           /* a broken backend must not wedge the room queue */
-        }),
-      );
+        });
       return;
     }
     if (!isFanoutOp(op)) return;

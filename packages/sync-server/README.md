@@ -61,8 +61,9 @@ const localDeliveries = hub.broadcastPresence('my-room', {
 Recipients receive the existing presence envelope with the server-owned identity
 `{ from: 'hub', op: { kind: 'presence', data } }`. The event is delivered to every local room
 member and published to the configured `HubFanout`, so other relay instances deliver it to their
-local members too. The return value counts successful sends on the originating hub only; it is not a
-cluster-wide acknowledgement.
+local members too. The return value counts frames accepted for sending on the originating hub only;
+it is neither a completed physical delivery count nor a cluster-wide acknowledgement. An async
+`framePolicy` can subsequently deny an accepted frame.
 
 Server presence is best-effort, is not persisted, does not enter a room's durable operation queue,
 and is not filtered by `authorize` or `canRead`. Validate and authorize application requests before
@@ -133,6 +134,43 @@ sockets; behind a trusted proxy supply `clientAddress` to read the forwarded add
 `undefined` to exempt a connection from the per-address cap. Rate and burst values must be positive
 finite numbers; connection caps must be positive safe integers, or `Infinity` to disable a cap.
 Invalid values throw during `createSyncServer` construction.
+
+### Per-frame policy
+
+Pass `framePolicy` to opt admitted sockets into bounded transport. Its optional `authorize` hook
+receives a frozen context for every valid inbound application frame and every final encoded outbound
+application frame, including snapshots, capabilities, presence, corrections, plugin output, and
+cross-instance fanout. The context contains the admitted `connectionId`, `room`, `userId`, `role`,
+immutable `authContext`, optional `expiresAt`, `direction`, exact wire `message`, `deadlineAt`, and
+an `AbortSignal`. An empty policy object enables the bounds without a hook. Authentication is
+optional; anonymous sockets retain their admitted connection identity.
+
+```ts
+createSyncServer({
+  port: 8080,
+  framePolicy: {
+    authorize: async ({ room, role, direction, message, signal }) => {
+      return myPolicy.canSendOrReceive({ room, role, direction, message, signal });
+    },
+  },
+});
+```
+
+Only an exact `true` allows a frame. `false` closes that socket with `4403` (`forbidden`);
+exceptions and nonboolean results close it with `1013` (`resync required`). Expiry closes with
+`4401` (`unauthorized`). Each frame has a five-second deadline, including queue wait, policy work,
+processing, and the outbound `ws.send` callback. The fixed shared budget counts queued and active
+inbound and outbound frames: 64 frames / 4 MiB per connection and 256 frames / 16 MiB per room.
+Overflow closes the offending socket with `1013`. Control ping, pong, and close frames bypass the
+policy. No claims or lifecycle metadata are added to the wire envelope.
+
+Direct `SyncHub.handleMessage(connId, message, options?)` callers may supply a trusted
+`MessageDispatchOptions` with `deadlineAt`, `signal`, and `beforeProcess`. The caller schedules its
+own timeout and abort. Queued cancellation resolves without processing; aborting active work is
+cooperative and its promise settles only when the actual hook or operation settles. For guarded
+plugin operations, `ServerOpContext` carries the same optional deadline and signal. Existing
+two-argument hub calls retain their behavior. Already-running legacy backend/plugin work cannot be
+rolled back by frame cancellation.
 
 ## Authentication
 

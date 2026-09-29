@@ -30,7 +30,10 @@ import {
 } from './resource-limits';
 import { DEFAULT_SHUTDOWN_GRACE_MS, drainWebSocketServer } from './shutdown';
 import { isValidRoomName } from './room-name';
-import { validateExpiresAt } from './auth-context';
+import { snapshotAuthContext, validateExpiresAt } from './auth-context';
+import type { FramePolicy } from './frame-policy';
+import { FrameBudget } from './bounded-frame-queue';
+import { FrameTransport } from './frame-transport';
 
 const MAX_TIMEOUT_MS = 2_147_483_647;
 
@@ -41,6 +44,8 @@ export interface CreateSyncServerOptions {
   fanout?: HubFanout;
   instanceId?: string;
   authenticate?: Authenticate;
+  /** Opts admitted sockets into bounded frame transport and optional per-frame authorization. */
+  framePolicy?: FramePolicy;
   authorize?: Authorize;
   authorizeLayer?: AuthorizeLayer;
   plugins?: readonly ServerSyncPlugin[];
@@ -119,6 +124,18 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
   wss: WebSocketServer;
   close: () => Promise<void>;
 } {
+  const framePolicy = options.framePolicy;
+  if (framePolicy !== undefined) {
+    if (
+      framePolicy === null ||
+      typeof framePolicy !== 'object' ||
+      (Object.getPrototypeOf(framePolicy) !== Object.prototype &&
+        Object.getPrototypeOf(framePolicy) !== null) ||
+      (framePolicy.authorize !== undefined && typeof framePolicy.authorize !== 'function')
+    ) {
+      throw new TypeError('framePolicy must be a plain object with an optional authorize function');
+    }
+  }
   const shutdownGraceMs = options.shutdownGraceMs ?? DEFAULT_SHUTDOWN_GRACE_MS;
   if (!Number.isFinite(shutdownGraceMs) || shutdownGraceMs < 0) {
     throw new RangeError('shutdownGraceMs must be a non-negative finite number');
@@ -188,6 +205,8 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
   let counter = 0;
   const perIp = new ConcurrencyCounter(maxConnectionsPerIp);
   const perRoom = new ConcurrencyCounter(maxConnectionsPerRoom);
+  const frameBudget = framePolicy ? new FrameBudget() : undefined;
+  const guardedDisposers = new Set<() => void>();
   const clientAddress = options.clientAddress ?? ((req) => req.socket.remoteAddress);
   wss.on('connection', (ws, req) => {
     if (shuttingDown) {
@@ -228,6 +247,7 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
     let admitted = false;
     let expiresAt: number | undefined;
     let expiryTimer: ReturnType<typeof setTimeout> | undefined;
+    let frameTransport: FrameTransport | undefined;
     const queue: string[] = [];
     let queuedBytes = 0;
     const maxPendingAuthMessages =
@@ -243,11 +263,42 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
       queuedBytes = 0;
       if (expiryTimer) clearTimeout(expiryTimer);
       expiryTimer = undefined;
+      frameTransport?.dispose();
       if (admitted) {
         hub.removeConnection(connId);
         admitted = false;
       }
       ws.close(4401, 'unauthorized');
+    };
+    const rejectGuarded = (code: 4401 | 4403 | 1013) => {
+      if (closed || state === 'rejected') return;
+      if (code !== 4401 && expiresAt !== undefined && Date.now() >= expiresAt) code = 4401;
+      state = 'rejected';
+      queue.length = 0;
+      queuedBytes = 0;
+      if (expiryTimer) clearTimeout(expiryTimer);
+      expiryTimer = undefined;
+      frameTransport?.dispose();
+      if (admitted) {
+        hub.removeConnection(connId);
+        admitted = false;
+      }
+      ws.close(
+        code,
+        code === 4401 ? 'unauthorized' : code === 4403 ? 'forbidden' : 'resync required',
+      );
+    };
+    const disposeGuarded = () => {
+      frameTransport?.dispose();
+      if (expiryTimer) clearTimeout(expiryTimer);
+      expiryTimer = undefined;
+      state = 'rejected';
+      queue.length = 0;
+      queuedBytes = 0;
+      if (admitted) {
+        hub.removeConnection(connId);
+        admitted = false;
+      }
     };
     const isExpired = () => {
       if (expiresAt === undefined || Date.now() < expiresAt) return false;
@@ -265,10 +316,21 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
     };
     const dispatch = (message: string) => {
       if (closed || state !== 'ready' || isExpired()) return;
+      if (frameTransport) {
+        frameTransport.receive(message);
+        return;
+      }
       void hub.handleMessage(connId, message).catch((err) => console.error('[sync-server]', err));
     };
     const send = (m: string) => {
-      if (closed || state !== 'ready' || isExpired()) return;
+      if (closed || state !== 'ready' || isExpired()) {
+        if (framePolicy) throw new Error('frame admission failed');
+        return;
+      }
+      if (frameTransport) {
+        frameTransport.send(m);
+        return;
+      }
       try {
         ws.send(m);
       } catch {
@@ -281,12 +343,14 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
       const messageBytes = rawDataByteLength(data);
       if (messageBytes > maxMessageBytes) {
         state = 'rejected';
+        if (frameTransport) disposeGuarded();
         ws.close(1009, 'message too large');
         return;
       }
       const now = Date.now();
       if (!limiter.take(now) || !byteLimiter.take(now, messageBytes)) {
         state = 'rejected';
+        if (frameTransport) disposeGuarded();
         ws.close(4408, 'rate limit exceeded');
         return;
       }
@@ -308,6 +372,8 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
     });
     ws.on('close', () => {
       closed = true;
+      frameTransport?.dispose();
+      guardedDisposers.delete(disposeGuarded);
       if (expiryTimer) clearTimeout(expiryTimer);
       expiryTimer = undefined;
       queue.length = 0;
@@ -331,12 +397,33 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
         }
         expiresAt = validateExpiresAt(result.expiresAt);
         if (isExpired()) return;
+        const userId = result.userId;
+        const role = result.role;
+        const authContext = snapshotAuthContext(result.authContext);
+        if (framePolicy && frameBudget) {
+          frameTransport = new FrameTransport(
+            ws,
+            hub,
+            Object.freeze({
+              connectionId: connId,
+              room,
+              userId,
+              role,
+              authContext,
+              expiresAt,
+            }),
+            framePolicy,
+            frameBudget,
+            rejectGuarded,
+          );
+          guardedDisposers.add(disposeGuarded);
+        }
         hub.addConnection({
           id: connId,
           room,
-          userId: result.userId,
-          role: result.role,
-          authContext: result.authContext,
+          userId,
+          role,
+          authContext,
           expiresAt,
           send,
         });
@@ -359,6 +446,7 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
   const close = (): Promise<void> => {
     if (closePromise) return closePromise;
     shuttingDown = true;
+    for (const dispose of guardedDisposers) dispose();
     closePromise = drainWebSocketServer(wss, shutdownGraceMs).then(() => {
       heartbeat.stop();
       hub.close();
