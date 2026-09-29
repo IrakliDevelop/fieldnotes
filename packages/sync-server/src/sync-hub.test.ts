@@ -15,6 +15,7 @@ import type { HubBackend } from './hub-backend';
 import { MemoryHubBackend } from './memory-hub-backend';
 import type { Authorize, OwnedElement, ResolveAudience } from './authorize';
 import { InMemoryHubFanout } from './hub-fanout';
+import type { ServerOpContext } from './sync-plugin';
 
 interface FakeConn extends Connection {
   sent: string[];
@@ -53,6 +54,51 @@ describe('SyncHub', () => {
     hub.addConnection(A);
     hub.addConnection(B);
     hub.addConnection(C);
+  });
+
+  it('normalizes direct connection claims before plugins receive them', async () => {
+    hub.close();
+    let received: ServerOpContext | undefined;
+    hub = new SyncHub({
+      plugins: [
+        {
+          name: 'claims',
+          async process(op, context, next) {
+            received = context;
+            return next(op, context);
+          },
+        },
+      ],
+    });
+    const claims = { owner: { id: 'u1' } };
+    const conn = { ...makeConn('direct', 'R'), authContext: claims, expiresAt: Date.now() + 10000 };
+    hub.addConnection(conn);
+    claims.owner.id = 'changed';
+    conn.authContext = { owner: { id: 'replacement' } };
+    await hub.handleMessage('direct', envelope('forged', { kind: 'clear' }));
+    expect(received?.authContext).toEqual({ owner: { id: 'u1' } });
+    expect(received?.expiresAt).toBe(conn.expiresAt);
+    expect(Object.isFrozen(received?.authContext)).toBe(true);
+    expect(Object.isFrozen((received?.authContext as { owner: object }).owner)).toBe(true);
+    expect(Object.isFrozen(claims)).toBe(false);
+  });
+
+  it('preserves prototype-backed transport send methods', async () => {
+    class TransportConnection implements Connection {
+      readonly id = 'class-transport';
+      readonly room = 'R';
+      readonly #sent: string[] = [];
+      get sent(): readonly string[] {
+        return this.#sent;
+      }
+      send(message: string): void {
+        this.#sent.push(message);
+      }
+    }
+    const conn = new TransportConnection();
+    hub.addConnection(conn);
+    await hub.handleMessage(conn.id, envelope(conn.id, { kind: 'request-snapshot' }));
+    expect(conn.sent).toHaveLength(1);
   });
 
   it('validates and routes extension operations through their server plugin', async () => {
@@ -367,6 +413,51 @@ describe('SyncHub', () => {
       await hubA.handleMessage('a', msg);
 
       expect(JSON.parse(b.sent[0] ?? '')).toMatchObject({ from: 'a', op: { kind: 'upsert' } });
+    });
+
+    it('does not invent authentication claims for received fanout', async () => {
+      const bus = new InMemoryHubFanout();
+      const contexts: ServerOpContext[] = [];
+      const kind = createExtensionKind<{ value: string }>({
+        extensionKind: 'test:remote',
+        codec: {
+          validate: (payload): payload is { value: string } =>
+            typeof payload === 'object' &&
+            payload !== null &&
+            'value' in payload &&
+            typeof payload.value === 'string',
+        },
+      });
+      const remote = new SyncHub({
+        instanceId: 'B',
+        fanout: bus,
+        plugins: [
+          {
+            name: 'remote',
+            registerExtensionKinds(registry) {
+              registry.register(kind, async () => ({ accepted: null, corrections: [] }));
+            },
+            async applyFanout(op, context) {
+              contexts.push(context);
+              return op;
+            },
+          },
+        ],
+      });
+      remote.addConnection({ ...makeConn('recipient', 'R'), authContext: { identity: 'local' } });
+      bus.publish(
+        JSON.stringify({
+          o: 'A',
+          room: 'R',
+          from: 'forged',
+          authContext: { identity: 'forged' },
+          op: { kind: 'extension', extensionKind: 'test:remote', payload: { value: 'x' } },
+        }),
+      );
+      await vi.waitFor(() => expect(contexts).toHaveLength(1));
+      expect(contexts[0]?.authContext).toBeUndefined();
+      expect(contexts[0]?.expiresAt).toBeUndefined();
+      remote.close();
     });
 
     it('does not double-forward to the origin instance own conns', async () => {
