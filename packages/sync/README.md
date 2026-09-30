@@ -57,8 +57,28 @@ Legacy `parseEnvelope` and authority parsing remain separate.
 `classifyAuthorityCursor` reports next, stale, gap, or reset without comparing revisions across
 streams. A durable `AuthorityReceipt` has no applied-state cursor. Whole-room compare-and-swap
 uses the separate opaque `expectedState` token; a clear proposal requires it. Checkpoint manifests
-and chunks are syntax-validated here, but complete hash-checked checkpoint assembly and live
-client/server adoption are later work.
+and chunks are syntax-validated here.
+
+## Authority checkpoints (0.23.0)
+
+`prepareAuthorityCheckpoint` captures supplied state before its first await, validates the exact
+trusted extension inventory, and returns a frozen manifest plus a one-shot lazy frame iterator.
+The caller must capture a coherent projection and await each physical transport send before pulling
+the next frame. Call `dispose()` or `frames.return()` when abandoning iteration without aborting.
+An `AbortSignal` also releases retained bytes. Preparation uses browser WebCrypto SHA-256 and fails
+closed when unavailable.
+
+`AuthorityCheckpointAssembler` accepts serialized server frames for one checkpoint lifetime. It
+returns a complete, deeply frozen value only after exact chunk sizes, hash, canonical JSON, cursor,
+CAS token, inventory, and extension validators pass. A missing or invalid frame fails the instance;
+retry with a new assembler. The ten-second deadline starts at the accepted begin frame and never
+resets. The trusted requirement list is independent of peer data: even if both manifest and payload
+omit a required extension, assembly fails. Validators must be synchronous pure predicates because
+the library cannot undo their external effects. These APIs verify supplied correspondence and do
+not authorize, atomically capture, apply, or activate a checkpoint in a live connection.
+
+The serializer budgets bytes, depth, nodes, and enumerable keys. Native reflection of hidden or
+symbol-only keys and arbitrary Proxy traps remains outside the application-level allocation bound.
 
 The serializer budgets output and the enumerable keys it retains before sorting. JavaScript
 reflection has no bounded way to enumerate nonenumerable or symbol-only own keys, so the final
