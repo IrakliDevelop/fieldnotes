@@ -7,12 +7,14 @@ import type {
   AuthorityCheckpointPayload,
   AuthorityCheckpointFrame,
   AuthorityCheckpointResult,
+  SyncCapabilities,
 } from './index';
 import {
   parseAuthorityFrame,
   classifyAuthorityCursor,
   prepareAuthorityCheckpoint,
   AuthorityCheckpointAssembler,
+  createAuthorityOperationId,
 } from './index';
 
 type Equal<A, B> =
@@ -52,6 +54,7 @@ const checkpointFrameKinds: Equal<
 > = true;
 const resultKinds: Equal<AuthorityCheckpointResult['status'], 'pending' | 'complete' | 'failed'> =
   true;
+const inventoryReadonly: ReadonlyKey<SyncCapabilities, 'authorityExtensions'> = true;
 
 it('exports the intentional readonly authority surface', () => {
   expect([
@@ -65,7 +68,9 @@ it('exports the intentional readonly authority surface', () => {
     payloadNestedReadonly,
     checkpointFrameKinds,
     resultKinds,
-  ]).toEqual(Array(10).fill(true));
+    inventoryReadonly,
+  ]).toEqual(Array(11).fill(true));
+  expect(createAuthorityOperationId(1_700_000_000_000)).toMatch(/^fn1:[0-9]{13}:[0-9a-f]{32}$/);
   expect(typeof prepareAuthorityCheckpoint).toBe('function');
   expect(typeof AuthorityCheckpointAssembler).toBe('function');
   expect(

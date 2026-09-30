@@ -41,6 +41,21 @@ describe('createCurrentCapabilities', () => {
       ),
     ).not.toBeNull();
   });
+
+  it('copies and sorts an exact authority extension inventory', () => {
+    const entries = [
+      { key: 'z', pluginName: 'plugin-z', version: 2 },
+      { key: 'a', pluginName: 'plugin-a', version: 1 },
+    ];
+    const capabilities = createAuthorityCapabilities([], entries);
+    entries[0] = { key: 'changed', pluginName: 'plugin-z', version: 2 };
+    expect(capabilities.authorityExtensions).toEqual([
+      { key: 'a', pluginName: 'plugin-a', version: 1 },
+      { key: 'z', pluginName: 'plugin-z', version: 2 },
+    ]);
+    const repeated = { key: 'a', pluginName: 'plugin-a', version: 1 };
+    expect(() => createAuthorityCapabilities([], [repeated, repeated])).toThrow();
+  });
 });
 
 describe('CapabilityHandshake', () => {
