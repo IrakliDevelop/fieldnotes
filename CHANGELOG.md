@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### Sync server 0.24.0
+
+**Added**
+
+- `prepareAuthorityProposal` validates and freezes an admitted actor's original authority
+  proposal, with a reconnect-stable canonical SHA-256 digest and a fixed preparation deadline.
+  The helper does not authorize, commit, deduplicate, or enable authoritative rooms.
+
 ### Sync server 0.23.1
 
 **Fixed**
