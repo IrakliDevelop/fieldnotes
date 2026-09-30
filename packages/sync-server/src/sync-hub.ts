@@ -43,6 +43,12 @@ export interface Connection {
   readonly authContext?: AuthContext;
   readonly expiresAt?: number;
   send(message: string): void;
+  /**
+   * Optional on guarded connections and custom adapters. Resolves after a local socket-write
+   * callback, not peer receipt or durable commit. Callers must await/catch rejection; a failed
+   * caller may leave active native work occupying bounded transport capacity until it settles.
+   */
+  sendAsync?(message: string): Promise<void>;
 }
 
 export interface SyncHubOptions {
@@ -211,12 +217,14 @@ export class SyncHub {
   }
 
   addConnection(conn: Connection): void {
+    const sendAsync = conn.sendAsync;
     const admitted: Connection = {
       id: conn.id,
       room: conn.room,
       userId: conn.userId,
       role: conn.role,
       send: (message) => conn.send(message),
+      ...(sendAsync ? { sendAsync: (message: string) => sendAsync.call(conn, message) } : {}),
       authContext: snapshotAuthContext(conn.authContext),
       expiresAt: validateExpiresAt(conn.expiresAt),
     };

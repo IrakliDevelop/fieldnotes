@@ -145,6 +145,22 @@ immutable `authContext`, optional `expiresAt`, `direction`, exact wire `message`
 an `AbortSignal`. An empty policy object enables the bounds without a hook. Authentication is
 optional; anonymous sockets retain their admitted connection identity.
 
+Guarded connections also expose optional `Connection.sendAsync(message): Promise<void>`.
+It uses the same per-socket FIFO, authorization, and shared frame budgets as legacy
+`send(message): void`. The promise resolves after the local WebSocket send callback succeeds;
+it does not confirm peer receipt, application, a durable commit, or an entire checkpoint.
+Callers must await or catch rejection. Failure rejects with a generic
+`Error('frame delivery failed')` without exposing message, claims, policy, or socket errors.
+The fixed five-second frame deadline, socket expiry, and disposal reject caller waits promptly.
+If a guard or native callback remains hung, its active queue slot and budget reservation stay
+occupied until that work actually settles. This deliberate bounded saturation prevents a failed
+caller from admitting another physical write on the same lane. Canceled queued frames release
+capacity immediately. Unguarded factory connections omit `sendAsync`; custom `Connection`
+adapters may implement it. A future authoritative checkpoint sender must require this real
+capability and await each chunk before pulling the next. Existing `send` and
+`broadcastPresence` keep their admission-only behavior; the presence count is not a delivery
+acknowledgment.
+
 ```ts
 createSyncServer({
   port: 8080,
