@@ -11,7 +11,7 @@
     "@fieldnotes/core": "workspace:*"
   },
   "devDependencies": {
-    "typescript": "^5.9.0",
+    "typescript": "^6.0.3",
     "vite": "^8.3.0"
   }
 }
