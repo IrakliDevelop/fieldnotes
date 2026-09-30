@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### Sync server 0.23.1
+
+**Fixed**
+
+- Rebuild the server and its workspace dependencies before packing so the archive contains the
+  `sendAsync` runtime and declarations missing from the immutable 0.23.0 package.
+
 ### Sync server 0.23.0
 
 **Added**

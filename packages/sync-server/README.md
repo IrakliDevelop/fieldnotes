@@ -423,3 +423,16 @@ codec-validated extension kinds, provide versioned snapshots, return sender-only
 choose local or shared fanout per accepted operation. Fog authorization and state application are
 supplied by `createFogServerPlugin()` from `@fieldnotes/vtt/server`; the generic server has no
 runtime VTT dependency.
+
+## Maintainer release check
+
+From an installed workspace, pack the server into a release directory:
+
+```bash
+pnpm --filter @fieldnotes/sync-server pack --pack-destination <directory>
+```
+
+The `prepack` script rebuilds core, sync, then the server. Inspect the resulting
+archive's runtime files and type declarations, then publish that exact verified archive. Do not
+bypass lifecycle scripts or republish a pre-existing archive. Version 0.23.1 corrects the missing
+`sendAsync` runtime and declarations in the immutable 0.23.0 package.
