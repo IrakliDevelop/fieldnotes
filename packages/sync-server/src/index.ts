@@ -10,6 +10,13 @@ export { InMemoryHubFanout } from './hub-fanout';
 export type { HubFanout } from './hub-fanout';
 export type { AuthInfo, AuthResult, Authenticate } from './authenticate';
 export type { AuthContext, AuthContextValue } from './auth-context';
+export { prepareAuthorityProposal } from './authority-proposal';
+export type {
+  AuthorityProposalActor,
+  AuthorityProposalContext,
+  AuthorityProposalFrame,
+  PreparedAuthorityProposal,
+} from './authority-proposal';
 export { readBearerToken } from './authenticate';
 export type {
   Authorize,

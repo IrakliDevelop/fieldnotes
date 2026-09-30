@@ -21,6 +21,8 @@ applies and forwards.
 - **`createSyncServer`** — a runnable `ws` reference server. Connect with
   `?room=<id>` in the query string; a missing room closes the socket with WS code
   `4400`.
+- **`prepareAuthorityProposal`** — validates an admitted server actor and an `authority:1`
+  proposal into an immutable original request for a future authoritative driver.
 - **`HubFanout`** — cross-instance live fan-out seam. `SyncHub` publishes each live
   op to the fanout and forwards ops it receives from other instances to its local
   connections. The default `InMemoryHubFanout` is in-process (a no-op for a single
@@ -43,6 +45,33 @@ import { createSyncServer } from '@fieldnotes/sync-server';
 const { close } = createSyncServer({ port: 8080 });
 // ws://localhost:8080?room=my-room
 ```
+
+## Authority proposal preparation
+
+`prepareAuthorityProposal(actor, message)` is a synchronous building block for a future
+authoritative room driver. Pass a server-supplied admitted actor and a raw client `authority:1`
+proposal string. The actor must be an ordinary plain or null-prototype record with enumerable
+own data properties. `room` must be an admitted room name; `actorId` is a required stable opaque
+principal scope that the application must namespace consistently across instances and reconnects.
+It must not fall back to a connection or display identity. Identity strings are limited to 1024
+UTF-8 bytes. `signal` must be a native `AbortSignal` from the same Node realm.
+
+The returned context copies only declared identity and lifecycle fields, snapshots and freezes
+claims, retains the caller's live signal, and clamps `deadlineAt` to the earliest of the input
+deadline, expiry, or five seconds from entry. The helper checks cancellation and the fixed
+deadline again before returning. It installs no timer and cannot enforce a later driver commit
+deadline. The proposal is the parsed and frozen **original client request**; its claimed owner
+or audience fields remain untrusted. A future driver must separately stamp authorized intents,
+recheck current authority, ownership, generation, deadline and CAS at its atomic commit, and
+persist dedupe under stable actor, room, generation and operation ID scope. An attempted commit
+that times out may have an unknown outcome.
+
+`operationDigest` is a server-only lowercase SHA-256 conflict key over the versioned domain,
+JSON-encoded `[room, actorId]`, and the canonical parsed proposal, separated by NUL bytes.
+Equivalent JSON key order or whitespace produces the same digest across reconnects. The digest
+is neither an authorization token nor proof of durable acceptance. Invalid input throws the
+generic `TypeError('Invalid authority proposal')`; cancellation or an elapsed deadline throws
+`Error('Authority proposal expired')`.
 
 ## Server-originated presence
 
