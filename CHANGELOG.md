@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### Sync server 0.23.0
+
+**Added**
+
+- Guarded connections expose optional `sendAsync`, which awaits the local WebSocket write
+  callback with the existing frame policy, FIFO, budgets, and deadline. Legacy sends and wire
+  behavior remain unchanged.
+
 ### Sync 0.23.0
 
 **Added**

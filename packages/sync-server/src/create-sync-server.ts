@@ -337,6 +337,12 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
         /* socket closed mid-send */
       }
     };
+    const sendAsync = (m: string): Promise<void> => {
+      if (closed || state !== 'ready' || isExpired() || !frameTransport) {
+        return Promise.reject(new Error('frame delivery failed'));
+      }
+      return frameTransport.sendAsync(m);
+    };
 
     ws.on('message', (data) => {
       if (closed || state === 'rejected' || isExpired()) return;
@@ -426,6 +432,7 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
           authContext,
           expiresAt,
           send,
+          ...(frameTransport ? { sendAsync } : {}),
         });
         admitted = true;
         state = 'ready';

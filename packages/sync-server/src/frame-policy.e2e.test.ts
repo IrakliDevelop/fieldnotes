@@ -5,6 +5,7 @@ import { createSyncServer } from './create-sync-server';
 import type { FrameAuthorizationContext } from './frame-policy';
 import type { ServerOpContext } from './sync-plugin';
 import { MemoryHubBackend } from './memory-hub-backend';
+import type { Connection } from './sync-hub';
 
 async function waitFor(predicate: () => boolean, timeout = 1000): Promise<void> {
   const start = Date.now();
@@ -35,6 +36,102 @@ describe('frame policy over real WebSockets', () => {
     await new Promise<void>((resolve) => socket.once('open', resolve));
     return { socket, frames };
   }
+
+  it('exposes awaitable guarded writes through the admitted connection on a real socket', async () => {
+    let allow: ((value: boolean) => void) | undefined;
+    let admitted: Connection | undefined;
+    const server = createSyncServer({
+      port: 0,
+      framePolicy: {
+        authorize: ({ direction }) =>
+          direction === 'outbound' ? new Promise<boolean>((resolve) => (allow = resolve)) : true,
+      },
+    });
+    servers.push(server);
+    const add = server.hub.addConnection.bind(server.hub);
+    server.hub.addConnection = (conn) => {
+      admitted = conn;
+      add(conn);
+    };
+    const { frames } = await connect((server.wss.address() as AddressInfo).port);
+    await waitFor(() => admitted !== undefined);
+    expect(admitted?.sendAsync).toBeTypeOf('function');
+    let settled = false;
+    const delivery = admitted?.sendAsync?.('real-wire-frame').then(() => {
+      settled = true;
+    });
+    await waitFor(() => allow !== undefined);
+    expect(settled).toBe(false);
+    expect(frames).toEqual([]);
+    allow?.(true);
+    await delivery;
+    await waitFor(() => frames.length === 1);
+    expect(frames).toEqual(['real-wire-frame']);
+    await server.close();
+    await expect(admitted?.sendAsync?.('after-shutdown')).rejects.toThrow('frame delivery failed');
+  });
+
+  it('keeps the capability absent by default and rejects denied guarded output', async () => {
+    let plain: Connection | undefined;
+    const unguarded = createSyncServer({ port: 0 });
+    servers.push(unguarded);
+    const addPlain = unguarded.hub.addConnection.bind(unguarded.hub);
+    unguarded.hub.addConnection = (conn) => {
+      plain = conn;
+      addPlain(conn);
+    };
+    await connect((unguarded.wss.address() as AddressInfo).port);
+    await waitFor(() => plain !== undefined);
+    expect(plain?.sendAsync).toBeUndefined();
+
+    let guarded: Connection | undefined;
+    const server = createSyncServer({
+      port: 0,
+      framePolicy: { authorize: () => false },
+    });
+    servers.push(server);
+    const addGuarded = server.hub.addConnection.bind(server.hub);
+    server.hub.addConnection = (conn) => {
+      guarded = conn;
+      addGuarded(conn);
+    };
+    const { socket, frames } = await connect((server.wss.address() as AddressInfo).port);
+    await waitFor(() => guarded !== undefined);
+    const closed = new Promise<number>((resolve) => socket.once('close', resolve));
+    await expect(guarded?.sendAsync?.('denied-wire-frame')).rejects.toThrow(
+      'frame delivery failed',
+    );
+    expect(await closed).toBe(4403);
+    expect(frames).toEqual([]);
+    await expect(guarded?.sendAsync?.('after-disconnect')).rejects.toThrow('frame delivery failed');
+  });
+
+  it('provides sendAsync with an empty policy and rejects a retained connection after expiry', async () => {
+    let admitted: Connection | undefined;
+    const expiresAt = Date.now() + 60_000;
+    const server = createSyncServer({
+      port: 0,
+      authenticate: () => ({ userId: 'u', expiresAt }),
+      framePolicy: {},
+    });
+    servers.push(server);
+    const add = server.hub.addConnection.bind(server.hub);
+    server.hub.addConnection = (conn) => {
+      admitted = conn;
+      add(conn);
+    };
+    const { socket } = await connect((server.wss.address() as AddressInfo).port);
+    await waitFor(() => admitted !== undefined);
+    expect(admitted?.sendAsync).toBeTypeOf('function');
+    const closed = new Promise<number>((resolve) => socket.once('close', resolve));
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(expiresAt);
+    try {
+      await expect(admitted?.sendAsync?.('expired')).rejects.toThrow('frame delivery failed');
+    } finally {
+      clock.mockRestore();
+    }
+    expect(await closed).toBe(4401);
+  });
 
   it('denies asynchronous inbound authorization before mutation and relay', async () => {
     let decide: ((allowed: boolean) => void) | undefined;

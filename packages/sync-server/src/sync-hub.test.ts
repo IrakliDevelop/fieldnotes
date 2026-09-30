@@ -83,7 +83,7 @@ describe('SyncHub', () => {
     expect(Object.isFrozen(claims)).toBe(false);
   });
 
-  it('preserves prototype-backed transport send methods', async () => {
+  it('preserves prototype-backed transport send and optional sendAsync receivers', async () => {
     class TransportConnection implements Connection {
       readonly id = 'class-transport';
       readonly room = 'R';
@@ -94,11 +94,21 @@ describe('SyncHub', () => {
       send(message: string): void {
         this.#sent.push(message);
       }
+      async sendAsync(message: string): Promise<void> {
+        this.#sent.push(`async:${message}`);
+      }
     }
     const conn = new TransportConnection();
     hub.addConnection(conn);
     await hub.handleMessage(conn.id, envelope(conn.id, { kind: 'request-snapshot' }));
     expect(conn.sent).toHaveLength(1);
+    const snapshot = (hub as unknown as { conns: Map<string, Connection> }).conns.get(conn.id);
+    const capability: Promise<void> | undefined = snapshot?.sendAsync?.('probe');
+    await capability;
+    expect(conn.sent[1]).toBe('async:probe');
+    expect(
+      (hub as unknown as { conns: Map<string, Connection> }).conns.get('A')?.sendAsync,
+    ).toBeUndefined();
   });
 
   it('validates and routes extension operations through their server plugin', async () => {

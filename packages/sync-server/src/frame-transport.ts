@@ -20,6 +20,11 @@ interface Job {
   readonly deadlineAt: number;
   timer: ReturnType<typeof setTimeout> | undefined;
   started: boolean;
+  settle?: (delivered: boolean) => void;
+}
+
+function deliveryFailure(): Error {
+  return new Error('frame delivery failed');
 }
 
 /** One admitted socket's guarded frames. Inbound uses the hub's room queue directly. */
@@ -38,17 +43,14 @@ export class FrameTransport {
   ) {}
 
   private current(job: Job): boolean {
-    if (this.disposed || job.controller.signal.aborted || this.ws.readyState !== WebSocket.OPEN) {
-      return false;
-    }
+    if (this.disposed || job.controller.signal.aborted) return false;
+    if (this.ws.readyState !== WebSocket.OPEN) return this.invalidate(job, 1013);
     const now = Date.now();
     if (this.identity.expiresAt !== undefined && now >= this.identity.expiresAt) {
-      this.close(4401);
-      return false;
+      return this.invalidate(job, 4401);
     }
     if (now >= job.deadlineAt) {
-      this.close(1013);
-      return false;
+      return this.invalidate(job, 1013);
     }
     return true;
   }
@@ -65,11 +67,12 @@ export class FrameTransport {
     this.jobs.add(job);
     job.timer = setTimeout(
       () => {
-        if (this.identity.expiresAt !== undefined && Date.now() >= this.identity.expiresAt) {
-          this.close(4401);
-        } else {
-          this.close(1013);
-        }
+        this.invalidate(
+          job,
+          this.identity.expiresAt !== undefined && Date.now() >= this.identity.expiresAt
+            ? 4401
+            : 1013,
+        );
       },
       Math.max(0, deadlineAt - Date.now()),
     );
@@ -81,6 +84,15 @@ export class FrameTransport {
     if (job.timer !== undefined) clearTimeout(job.timer);
     job.controller.abort();
     job.release();
+  }
+
+  /** Caller failure precedes close; active work retains its queue slot and reservation. */
+  private invalidate(job: Job, code: 4401 | 4403 | 1013): false {
+    job.settle?.(false);
+    job.controller.abort();
+    if (!job.started) this.finish(job);
+    this.close(code);
+    return false;
   }
 
   private async authorize(
@@ -101,9 +113,9 @@ export class FrameTransport {
       const result = this.policy.authorize ? await this.policy.authorize(context) : true;
       if (!this.current(job)) return false;
       if (result === true) return true;
-      this.close(result === false ? 4403 : 1013);
+      this.invalidate(job, result === false ? 4403 : 1013);
     } catch {
-      if (this.current(job)) this.close(1013);
+      if (this.current(job)) this.invalidate(job, 1013);
     }
     return false;
   }
@@ -129,28 +141,61 @@ export class FrameTransport {
     if (this.disposed) return;
     const job = this.admit(message);
     if (!job) throw new Error('frame admission failed');
+    void this.enqueueOutbound(message, job).catch(() => undefined);
+  }
+
+  /** Resolves only after this guarded socket's local WebSocket send callback succeeds. */
+  sendAsync(message: string): Promise<void> {
+    if (this.disposed) return Promise.reject(deliveryFailure());
+    const job = this.admit(message);
+    if (!job) return Promise.reject(deliveryFailure());
+    return this.enqueueOutbound(message, job);
+  }
+
+  private enqueueOutbound(message: string, job: Job): Promise<void> {
+    const completion = new Promise<void>((resolve, reject) => {
+      job.settle = (delivered) => {
+        job.settle = undefined;
+        if (delivered) resolve();
+        else reject(deliveryFailure());
+      };
+    });
     void this.outbound
       .enqueue(
         async () => {
           if (!(await this.authorize('outbound', message, job)) || !this.current(job)) return;
           await new Promise<void>((resolve) => {
-            try {
-              this.ws.send(message, (error) => {
-                if (error && this.current(job)) this.close(1013);
-                resolve();
-              });
-            } catch {
-              if (this.current(job)) this.close(1013);
+            let observed = false;
+            const complete = (error?: Error) => {
+              if (observed) return;
+              observed = true;
+              if (error) {
+                if (this.current(job)) this.invalidate(job, 1013);
+              } else if (this.current(job)) {
+                // Release before waking the caller, so its next frame can be admitted.
+                this.finish(job);
+                job.settle?.(true);
+              }
               resolve();
+            };
+            try {
+              this.ws.send(message, complete);
+            } catch {
+              complete(deliveryFailure());
             }
           });
         },
         { signal: job.controller.signal, deadlineAt: job.deadlineAt },
       )
       .catch(() => {
-        if (this.current(job)) this.close(1013);
+        if (this.current(job)) this.invalidate(job, 1013);
       })
-      .finally(() => this.finish(job));
+      .finally(() => {
+        // SerialRoomQueue also resolves canceled/skipped entries; that is never delivery.
+        job.settle?.(false);
+        this.finish(job);
+      });
+    return completion;
   }
 
   /** Abort immediately; active hooks and send callbacks keep their reservations until settlement. */
@@ -160,6 +205,7 @@ export class FrameTransport {
     for (const job of this.jobs) {
       if (job.timer !== undefined) clearTimeout(job.timer);
       job.timer = undefined;
+      job.settle?.(false);
       job.controller.abort();
       // Queue abort unlinks a waiting payload synchronously. Its promise settles on a later
       // microtask; release that queued reservation now so close/leave fanout cannot see stale
