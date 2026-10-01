@@ -23,6 +23,12 @@ interface Job {
   settle?: (delivered: boolean) => void;
 }
 
+/** Internal authority accounting: caller completion can precede physical settlement. */
+export interface AuthorityTrackedSend {
+  readonly completion: Promise<void>;
+  readonly settled: Promise<void>;
+}
+
 function deliveryFailure(): Error {
   return new Error('frame delivery failed');
 }
@@ -141,18 +147,28 @@ export class FrameTransport {
     if (this.disposed) return;
     const job = this.admit(message);
     if (!job) throw new Error('frame admission failed');
-    void this.enqueueOutbound(message, job).catch(() => undefined);
+    void this.enqueueOutbound(message, job).completion.catch(() => undefined);
   }
 
   /** Resolves only after this guarded socket's local WebSocket send callback succeeds. */
   sendAsync(message: string): Promise<void> {
-    if (this.disposed) return Promise.reject(deliveryFailure());
+    return this.sendTracked(message).completion;
+  }
+
+  /** Kept package-internal through the guarded connection binding. */
+  sendTracked(message: string): AuthorityTrackedSend {
+    if (this.disposed)
+      return { completion: Promise.reject(deliveryFailure()), settled: Promise.resolve() };
     const job = this.admit(message);
-    if (!job) return Promise.reject(deliveryFailure());
+    if (!job) return { completion: Promise.reject(deliveryFailure()), settled: Promise.resolve() };
     return this.enqueueOutbound(message, job);
   }
 
-  private enqueueOutbound(message: string, job: Job): Promise<void> {
+  private enqueueOutbound(message: string, job: Job): AuthorityTrackedSend {
+    let resolveSettled: () => void = () => undefined;
+    const settled = new Promise<void>((resolve) => {
+      resolveSettled = resolve;
+    });
     const completion = new Promise<void>((resolve, reject) => {
       job.settle = (delivered) => {
         job.settle = undefined;
@@ -194,8 +210,9 @@ export class FrameTransport {
         // SerialRoomQueue also resolves canceled/skipped entries; that is never delivery.
         job.settle?.(false);
         this.finish(job);
+        resolveSettled();
       });
-    return completion;
+    return { completion, settled };
   }
 
   /** Abort immediately; active hooks and send callbacks keep their reservations until settlement. */

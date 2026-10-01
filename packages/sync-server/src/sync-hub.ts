@@ -27,6 +27,14 @@ import { ServerPluginRegistry } from './sync-plugin';
 import type { ApplyResult, ServerOpContext, ServerSyncPlugin } from './sync-plugin';
 import { snapshotAuthContext, validateExpiresAt, type AuthContext } from './auth-context';
 import { SerialRoomQueue } from './serial-room-queue';
+import { AuthorityRuntime } from './authority-runtime';
+import {
+  authorityConnectionBinding,
+  copyAuthorityConnectionBinding,
+  unregisterAuthorityConnection,
+} from './authority-connection';
+import { resolveAuthorityDefinition } from './authority-admission';
+import type { AuthorityOptions } from './authority-types';
 import {
   DEFAULT_MAX_JSON_DEPTH,
   DEFAULT_MAX_PRESENCE_BYTES,
@@ -49,9 +57,13 @@ export interface Connection {
    * caller may leave active native work occupying bounded transport capacity until it settles.
    */
   sendAsync?(message: string): Promise<void>;
+  /** Factory-owned lifetime and close hooks required for isolated authority connections. */
+  readonly signal?: AbortSignal;
+  close?(code: 4401 | 4403 | 4406 | 1013): void;
 }
 
 export interface SyncHubOptions {
+  authority?: AuthorityOptions;
   backend?: HubBackend;
   fanout?: HubFanout;
   instanceId?: string;
@@ -190,6 +202,9 @@ export class SyncHub {
    * cannot mint timers by varying `kind`.
    */
   private readonly presenceLanes = new Map<string, Map<string, PresenceLane>>();
+  private readonly authority?: AuthorityRuntime;
+  private readonly authorityOptions?: AuthorityOptions;
+  private readonly authorityPeers = new Set<string>();
 
   constructor(options: SyncHubOptions = {}) {
     this.backend = options.backend ?? new MemoryHubBackend();
@@ -214,20 +229,57 @@ export class SyncHub {
     }
     this.maxPresenceBytes = maxPresenceBytes;
     this.fanoutUnsub = this.fanout.subscribe((payload) => this.onFanout(payload));
+    this.authorityOptions = options.authority;
+    if (options.authority)
+      this.authority = new AuthorityRuntime(options.authority, this.fanout, this.instanceId);
   }
 
   addConnection(conn: Connection): void {
+    let authorityDefinition;
+    try {
+      authorityDefinition = this.authorityOptions
+        ? resolveAuthorityDefinition(this.authorityOptions, conn.room)
+        : null;
+      const pinned = this.authority?.pinnedDefinitionId(conn.room);
+      if (pinned && authorityDefinition?.id !== pinned)
+        throw new Error('Authority definition changed');
+    } catch {
+      conn.close?.(1013);
+      return;
+    }
+    if (
+      authorityDefinition &&
+      (!authorityConnectionBinding(conn) ||
+        !conn.signal ||
+        !conn.close ||
+        this.rooms.has(conn.room))
+    ) {
+      conn.close?.(1013);
+      return;
+    }
     const sendAsync = conn.sendAsync;
-    const admitted: Connection = {
+    const admitted: Connection = Object.freeze({
       id: conn.id,
       room: conn.room,
       userId: conn.userId,
       role: conn.role,
-      send: (message) => conn.send(message),
+      send: (message: string) => conn.send(message),
       ...(sendAsync ? { sendAsync: (message: string) => sendAsync.call(conn, message) } : {}),
       authContext: snapshotAuthContext(conn.authContext),
       expiresAt: validateExpiresAt(conn.expiresAt),
-    };
+      ...(conn.signal ? { signal: conn.signal } : {}),
+      ...(conn.close ? { close: (code: 4401 | 4403 | 4406 | 1013) => conn.close?.(code) } : {}),
+    });
+    copyAuthorityConnectionBinding(conn, admitted);
+    if (authorityDefinition) {
+      if (!this.authority?.admit(admitted, authorityDefinition)) {
+        unregisterAuthorityConnection(admitted);
+        return;
+      }
+      this.conns.set(conn.id, admitted);
+      this.authorityPeers.add(conn.id);
+      return;
+    }
     this.conns.set(conn.id, admitted);
     let set = this.rooms.get(conn.room);
     if (!set) {
@@ -241,6 +293,11 @@ export class SyncHub {
     const conn = this.conns.get(connId);
     if (!conn) return;
     this.conns.delete(connId);
+    unregisterAuthorityConnection(conn);
+    if (this.authorityPeers.delete(connId)) {
+      this.authority?.remove(connId);
+      return;
+    }
     this.peerCapabilities.delete(connId);
     const room = conn.room;
     const hadPresence = this.presenceConnections.delete(connId);
@@ -268,6 +325,7 @@ export class SyncHub {
    * not completed physical delivery. Async frame policy can subsequently deny a frame.
    */
   broadcastPresence<T>(room: string, data: T): number {
+    if (this.isAuthorityRoom(room)) return 0;
     if (!this.isPresenceWithinLimit(data)) return 0;
     const op = { kind: 'presence' as const, data };
     const sent = this.relayToRoom(room, undefined, JSON.stringify({ from: HUB_FROM, op }));
@@ -285,6 +343,13 @@ export class SyncHub {
   handleMessage(connId: string, message: string, options?: MessageDispatchOptions): Promise<void> {
     const conn = this.conns.get(connId);
     if (!conn) return Promise.resolve();
+    if (this.authorityPeers.has(connId))
+      return this.authority?.handleMessage(connId, message, options) ?? Promise.resolve();
+    if (this.isAuthorityRoom(conn.room)) {
+      conn.close?.(1013);
+      this.removeConnection(connId);
+      return Promise.resolve();
+    }
     if (!hasJsonDepthAtMost(message, this.maxJsonDepth)) return Promise.resolve();
     const env = parseEnvelope(message);
     if (!env) return Promise.resolve();
@@ -317,6 +382,19 @@ export class SyncHub {
 
   private isCurrent(conn: Connection): boolean {
     return this.conns.get(conn.id) === conn;
+  }
+
+  private isAuthorityRoom(room: string): boolean {
+    if (this.authority?.pinnedDefinitionId(room)) return true;
+    if (!this.authorityOptions) return false;
+    try {
+      const definition = resolveAuthorityDefinition(this.authorityOptions, room);
+      if (!definition) return false;
+      return true;
+    } catch {
+      // A throwing trusted resolver fails closed, even on cross-instance fanout.
+      return true;
+    }
   }
 
   private roomQueue(room: string): SerialRoomQueue {
@@ -968,6 +1046,7 @@ export class SyncHub {
     }
     if (typeof env.o !== 'string' || typeof env.room !== 'string' || typeof env.from !== 'string')
       return;
+    if (this.isAuthorityRoom(env.room)) return;
     if (env.o === this.instanceId) return; // our own publish — already delivered locally
     const envelope = { from: env.from, op: env.op };
     if (!isValidEnvelope(envelope)) return;
@@ -1035,6 +1114,7 @@ export class SyncHub {
   }
 
   close(): void {
+    this.authority?.close();
     for (const connId of [...this.presenceLanes.keys()]) this.clearPresenceLanes(connId);
     this.fanoutUnsub();
   }

@@ -8,6 +8,121 @@ import { SyncHub } from './sync-hub';
 const tick = () => new Promise<void>((resolve) => setImmediate(resolve));
 
 describe('outbound send callback lifecycle', () => {
+  it('tracks actual native settlement after caller failure and disposal', async () => {
+    let callback: ((error?: Error) => void) | undefined;
+    const ws = {
+      readyState: WebSocket.OPEN,
+      send: (_message: string, done: (error?: Error) => void) => {
+        callback = done;
+      },
+    } as unknown as WebSocket;
+    const budget = new FrameBudget(1, 1024, 1, 1024);
+    const hub = new SyncHub();
+    const transport = new FrameTransport(
+      ws,
+      hub,
+      { connectionId: 'A', room: 'R' },
+      {},
+      budget,
+      vi.fn(),
+    );
+    const tracked = transport.sendTracked('one');
+    const actuallySettled = vi.fn();
+    void tracked.settled.then(actuallySettled);
+    await vi.waitFor(() => expect(callback).toBeDefined());
+    transport.dispose();
+    await expect(tracked.completion).rejects.toThrow('frame delivery failed');
+    expect(actuallySettled).not.toHaveBeenCalled();
+    expect(budget.reserve('B', 'R', 'two')).toBeNull();
+    callback?.();
+    await tracked.settled;
+    expect(actuallySettled).toHaveBeenCalledTimes(1);
+    expect(budget.reserve('B', 'R', 'two')).toBeTypeOf('function');
+    hub.close();
+  });
+
+  it('keeps tracked native callback work charged after timeout until the late callback', async () => {
+    let callback: ((error?: Error) => void) | undefined;
+    const ws = {
+      readyState: WebSocket.OPEN,
+      send: (_message: string, done: (error?: Error) => void) => {
+        callback = done;
+      },
+    } as unknown as WebSocket;
+    const budget = new FrameBudget(1, 1024, 1, 1024);
+    const hub = new SyncHub();
+    const transport = new FrameTransport(
+      ws,
+      hub,
+      { connectionId: 'A', room: 'R' },
+      {},
+      budget,
+      vi.fn(),
+    );
+    const timer = vi.spyOn(globalThis, 'setTimeout');
+    try {
+      const tracked = transport.sendTracked('one');
+      const settled = vi.fn();
+      void tracked.settled.then(settled);
+      await vi.waitFor(() => expect(callback).toBeDefined());
+      const expiry = timer.mock.calls.find(
+        (call) => typeof call[1] === 'number' && call[1] > 4900 && call[1] <= 5000,
+      );
+      expect(expiry).toBeDefined();
+      const deadline = Date.now() + 5000;
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(deadline);
+      try {
+        expiry?.[0]();
+      } finally {
+        clock.mockRestore();
+      }
+      await expect(tracked.completion).rejects.toThrow('frame delivery failed');
+      expect(settled).not.toHaveBeenCalled();
+      expect(budget.reserve('B', 'R', 'two')).toBeNull();
+      callback?.();
+      await tracked.settled;
+      expect(settled).toHaveBeenCalledTimes(1);
+      expect(budget.reserve('B', 'R', 'two')).toBeTypeOf('function');
+    } finally {
+      timer.mockRestore();
+      transport.dispose();
+      hub.close();
+    }
+  });
+
+  it('settles rejected admission and canceled queued work without a native callback', async () => {
+    let callback: ((error?: Error) => void) | undefined;
+    const ws = {
+      readyState: WebSocket.OPEN,
+      send: (_message: string, done: (error?: Error) => void) => {
+        callback = done;
+      },
+    } as unknown as WebSocket;
+    const hub = new SyncHub();
+    const budget = new FrameBudget(2, 1024, 2, 1024);
+    const transport = new FrameTransport(
+      ws,
+      hub,
+      { connectionId: 'A', room: 'R' },
+      {},
+      budget,
+      vi.fn(),
+    );
+    const active = transport.sendTracked('one');
+    await vi.waitFor(() => expect(callback).toBeDefined());
+    const queued = transport.sendTracked('two');
+    const denied = transport.sendTracked('three');
+    await expect(denied.completion).rejects.toThrow('frame delivery failed');
+    await denied.settled;
+    transport.dispose();
+    await expect(queued.completion).rejects.toThrow('frame delivery failed');
+    await queued.settled;
+    await expect(active.completion).rejects.toThrow('frame delivery failed');
+    expect(budget.reserve('B', 'R', 'two')).toBeTypeOf('function');
+    callback?.();
+    await active.settled;
+    hub.close();
+  });
   it('waits for the native callback after admission and authorization', async () => {
     const callbacks: ((error?: Error) => void)[] = [];
     const ws = {
@@ -210,7 +325,10 @@ describe('outbound send callback lifecycle', () => {
     );
     const timer = vi.spyOn(globalThis, 'setTimeout');
     try {
-      const outcome = transport.sendAsync('first').catch((error: Error) => error.message);
+      const tracked = transport.sendTracked('first');
+      const settled = vi.fn();
+      void tracked.settled.then(settled);
+      const outcome = tracked.completion.catch((error: Error) => error.message);
       await vi.waitFor(() => expect(allow).toBeDefined());
       const deadlineTimer = timer.mock.calls.find(
         (call) => typeof call[1] === 'number' && call[1] > 4900 && call[1] <= 5000,
@@ -224,9 +342,11 @@ describe('outbound send callback lifecycle', () => {
       }
       expect(await outcome).toBe('frame delivery failed');
       expect(close).toHaveBeenCalledWith(1013);
+      expect(settled).not.toHaveBeenCalled();
       expect(budget.reserve('B', 'R', 'next')).toBeNull();
       allow?.(true);
-      await tick();
+      await tracked.settled;
+      expect(settled).toHaveBeenCalledTimes(1);
       expect(send).not.toHaveBeenCalled();
       expect(budget.reserve('B', 'R', 'next')).toBeTypeOf('function');
     } finally {

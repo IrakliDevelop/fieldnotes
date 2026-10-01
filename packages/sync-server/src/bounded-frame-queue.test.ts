@@ -1,6 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import { FrameBudget } from './bounded-frame-queue';
 
+it('charges the authority factory aggregate across rooms until actual release', () => {
+  const budget = new FrameBudget(10, 1024, 10, 1024, 2, 8);
+  const first = budget.reserve('a', 'one', '1234');
+  const second = budget.reserve('b', 'two', '5678');
+  expect(first).toBeTypeOf('function');
+  expect(second).toBeTypeOf('function');
+  expect(budget.reserve('c', 'three', 'x')).toBeNull();
+  first?.();
+  first?.();
+  expect(budget.reserve('c', 'three', 'x')).toBeTypeOf('function');
+  second?.();
+});
+
 describe('shared frame budget', () => {
   it('counts exact UTF-8 bytes and active reservations across both directions', () => {
     const budget = new FrameBudget(2, 6, 3, 8);
