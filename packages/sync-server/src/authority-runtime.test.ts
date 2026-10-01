@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { WebSocket } from 'ws';
 import {
+  AuthorityCheckpointAssembler,
   createAuthorityCapabilities,
   createAuthorityOperationId,
   parseEnvelope,
@@ -51,6 +52,3958 @@ const proposal = (id: string, mutation: AuthorityMutation) =>
 const emptyAuthorityState = { elements: [], layers: [], extensions: {} };
 const initialAuthorityPosition = { generation: 'g', revision: 'start' };
 const authorityReference = { id: 'ref', byteLength: 1, nodes: 1 };
+
+it.each([4999, 5000, 5001])(
+  'admits replay only while its original deadline survives the last configuration callback at %i ms',
+  async (elapsed) => {
+    let now = 1_000_000;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const sent: string[] = [];
+    const close = vi.fn();
+    let released = false;
+    let afterReleaseResolutions = 0;
+    let inDispatchChanges = false;
+    const release = vi.fn(async () => {
+      released = true;
+    });
+    const next = { generation: 'g', revision: 'next' };
+    const driver = {
+      readAfter: async () => ({ status: 'ok', head: initialAuthorityPosition, records: [] }),
+      readEvidence: async () => ({
+        status: 'available',
+        lease: {
+          before: emptyAuthorityState,
+          after: { ...emptyAuthorityState, elements: [element] },
+          token: 'evidence',
+          expiresAt: now + 5000,
+          release,
+        },
+      }),
+      head: async () => initialAuthorityPosition,
+      claimPublications: async () => [],
+      markPublished: async () => undefined,
+    } as unknown as AuthorityDriver;
+    const connection: Connection = {
+      id: `last-replay-${elapsed}`,
+      room: 'table',
+      signal: new AbortController().signal,
+      close,
+      send: vi.fn(),
+    };
+    const hub = new SyncHub();
+    const transport = new FrameTransport(
+      {
+        readyState: WebSocket.OPEN,
+        send: (message: string, done: (error?: Error) => void) => {
+          sent.push(message);
+          done();
+        },
+      } as unknown as WebSocket,
+      hub,
+      { connectionId: connection.id, room: connection.room },
+      { authorize: () => true },
+      new FrameBudget(),
+      close,
+    );
+    registerAuthorityConnection(connection, {
+      sendTracked: (message, options) => transport.sendTracked(message, options),
+    });
+    const runtime = new AuthorityRuntime(
+      {
+        driver,
+        resolveRoom: () => {
+          if (released) {
+            afterReleaseResolutions++;
+            if (inDispatchChanges) now += elapsed;
+          }
+          return definition;
+        },
+        resolveIdentity: () => ({ actorId: 'reader', ownershipId: 'reader' }),
+      },
+      new InMemoryHubFanout(),
+      'worker',
+    );
+    try {
+      const dispatchChanges = runtime['dispatchChanges'].bind(runtime);
+      runtime['dispatchChanges'] = (...args) => {
+        inDispatchChanges = true;
+        try {
+          return dispatchChanges(...args);
+        } finally {
+          inDispatchChanges = false;
+        }
+      };
+      expect(runtime.admit(connection, definition)).toBe(true);
+      await runtime.handleMessage(
+        connection.id,
+        JSON.stringify({
+          from: connection.id,
+          op: { kind: 'capabilities', capabilities: createAuthorityCapabilities([]) },
+        }),
+      );
+      sent.length = 0;
+      runtime.activate(connection.id, initialAuthorityPosition, emptyAuthorityState);
+      const peer = runtime['peers'].get(connection.id);
+      if (!peer) throw new Error('missing replay peer');
+      await runtime['processPage'](peer, initialAuthorityPosition, {
+        status: 'ok',
+        head: next,
+        records: [
+          {
+            previous: initialAuthorityPosition,
+            position: next,
+            before: authorityReference,
+            after: authorityReference,
+          },
+        ],
+      });
+      await vi.waitFor(() => expect(release).toHaveBeenCalledTimes(1));
+      if (elapsed < 5000)
+        await vi.waitFor(() =>
+          expect(sent.some((message) => JSON.parse(message).kind === 'changes')).toBe(true),
+        );
+      const changes = sent.filter((message) => JSON.parse(message).kind === 'changes');
+      expect(changes).toHaveLength(elapsed < 5000 ? 1 : 0);
+      expect(afterReleaseResolutions).toBeGreaterThanOrEqual(3);
+      if (elapsed >= 5000) {
+        expect(runtime['peers'].get(connection.id)?.sendToken).toBeUndefined();
+        expect(close).toHaveBeenCalledWith(1013);
+      }
+    } finally {
+      runtime.close();
+      transport.dispose();
+      hub.close();
+      clock.mockRestore();
+    }
+  },
+);
+
+it.each([
+  ['receipt', 'configuration', 4999],
+  ['receipt', 'configuration', 5000],
+  ['receipt', 'configuration', 5001],
+  ['receipt', 'serialization', 4999],
+  ['receipt', 'serialization', 5000],
+  ['receipt', 'serialization', 5001],
+  ['rejected', 'configuration', 4999],
+  ['rejected', 'configuration', 5000],
+  ['rejected', 'configuration', 5001],
+] as const)(
+  'admits an operation-owned %s only before its %s boundary at %i ms',
+  async (responseKind, boundary, elapsed) => {
+    let now = 1_000_000;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    let crossConfiguration = false;
+    const driver = {
+      head: async () => initialAuthorityPosition,
+      readAfter: async () => ({ status: 'ok', head: initialAuthorityPosition, records: [] }),
+      claimPublications: async () => [],
+      markPublished: async () => undefined,
+    } as unknown as AuthorityDriver;
+    const { runtime, connection, close, sent } = await startResultBoundaryRuntime(
+      driver,
+      definition,
+      () => {
+        if (crossConfiguration) {
+          now += elapsed;
+          crossConfiguration = false;
+        }
+        return definition;
+      },
+    );
+    try {
+      const peer = runtime['peers'].get(connection.id);
+      if (!peer) throw new Error('missing response peer');
+      let crossedSerialization = false;
+      const receipt = new Proxy(
+        {
+          generation: 'g',
+          clientOperationId: 'operation',
+          receiptId: 'receipt',
+        },
+        {
+          getOwnPropertyDescriptor(target, key) {
+            if (key === 'receiptId' && boundary === 'serialization' && !crossedSerialization) {
+              now += elapsed;
+              crossedSerialization = true;
+            }
+            return Reflect.getOwnPropertyDescriptor(target, key);
+          },
+        },
+      );
+      crossConfiguration = boundary === 'configuration';
+      await runtime['send'](
+        peer,
+        responseKind === 'receipt'
+          ? { protocol: 'authority:1', kind: 'receipt', receipt }
+          : {
+              protocol: 'authority:1',
+              kind: 'rejected',
+              generation: 'g',
+              clientOperationId: 'operation',
+              reason: 'forbidden',
+            },
+        { deadlineAt: now + 5000, signal: peer.lifetime },
+      ).catch(() => undefined);
+      expect(sent.some((message) => JSON.parse(message).kind === responseKind)).toBe(
+        elapsed < 5000,
+      );
+      if (elapsed >= 5000) {
+        expect(close).toHaveBeenCalledWith(1013);
+        expect(runtime['peers'].has(connection.id)).toBe(false);
+      } else expect(close).not.toHaveBeenCalled();
+    } finally {
+      runtime.close();
+      clock.mockRestore();
+    }
+  },
+);
+
+it.each([4999, 5000, 5001])(
+  'keeps recovery in its source phase until the final configuration callback at %i ms',
+  async (elapsed) => {
+    let now = 1_000_000;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    let crossConfiguration = false;
+    const driver = {
+      head: async () => initialAuthorityPosition,
+      readAfter: async () => ({ status: 'ok', head: initialAuthorityPosition, records: [] }),
+      claimPublications: async () => [],
+      markPublished: async () => undefined,
+    } as unknown as AuthorityDriver;
+    const { runtime, connection, close, sent } = await startResultBoundaryRuntime(
+      driver,
+      definition,
+      () => {
+        if (crossConfiguration) {
+          now += elapsed;
+          crossConfiguration = false;
+        }
+        return definition;
+      },
+    );
+    try {
+      const peer = runtime['peers'].get(connection.id);
+      if (!peer) throw new Error('missing recovery peer');
+      const streamToken = peer.streamToken;
+      crossConfiguration = true;
+      runtime['dispatchRecovery'](
+        peer,
+        'replacement',
+        { deadlineAt: now + 5000, signal: peer.lifetime },
+        { phase: 'live', streamToken },
+      );
+      expect(sent.some((message) => JSON.parse(message).kind === 'resync-required')).toBe(
+        elapsed < 5000,
+      );
+      if (elapsed < 5000) {
+        expect(peer.phase).toBe('awaiting-request');
+        expect(peer.requestEpisode).toBeDefined();
+        expect(peer.resetTimes).toHaveLength(1);
+        expect(close).not.toHaveBeenCalled();
+      } else {
+        expect(peer.requestEpisode).toBeUndefined();
+        expect(peer.resetTimes).toHaveLength(0);
+        expect(peer.sendToken).toBeUndefined();
+        expect(close).toHaveBeenCalledWith(1013);
+      }
+    } finally {
+      runtime.close();
+      clock.mockRestore();
+    }
+  },
+);
+
+it.each([
+  ['silent', 4999],
+  ['silent', 5000],
+  ['silent', 5001],
+  ['visible', 4999],
+  ['visible', 5000],
+  ['visible', 5001],
+] as const)(
+  'guards %s reconciliation after release and its final configuration callback at %i ms',
+  async (visibility, elapsed) => {
+    let now = 1_000_000;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    let inFinalEligibility = false;
+    let released = false;
+    let crossed = false;
+    const next = { generation: 'g', revision: 'next' };
+    const release = vi.fn(async () => {
+      released = true;
+    });
+    const driver = {
+      head: async () => initialAuthorityPosition,
+      readAfter: async () => ({ status: 'ok', head: initialAuthorityPosition, records: [] }),
+      checkpoint: async () => ({
+        position: next,
+        state:
+          visibility === 'silent'
+            ? emptyAuthorityState
+            : { ...emptyAuthorityState, elements: [element] },
+        token: 'capture',
+        expiresAt: now + 5000,
+        release,
+      }),
+      claimPublications: async () => [],
+      markPublished: async () => undefined,
+    } as unknown as AuthorityDriver;
+    const { runtime, connection, close, sent } = await startResultBoundaryRuntime(
+      driver,
+      definition,
+      () => {
+        if (released && inFinalEligibility && !crossed) {
+          now += elapsed;
+          crossed = true;
+        }
+        return definition;
+      },
+    );
+    try {
+      const peer = runtime['peers'].get(connection.id);
+      if (!peer) throw new Error('missing reconcile peer');
+      const effectEligible = runtime['effectEligible'].bind(runtime);
+      runtime['effectEligible'] = (...args) => {
+        inFinalEligibility = true;
+        try {
+          return effectEligible(...args);
+        } finally {
+          inFinalEligibility = false;
+        }
+      };
+      await runtime['reconcile'](peer);
+      expect(release).toHaveBeenCalledTimes(1);
+      if (elapsed < 5000) {
+        expect(close).not.toHaveBeenCalled();
+        if (visibility === 'silent') {
+          expect(peer.position).toEqual(next);
+          expect(sent).toEqual([]);
+        } else {
+          expect(peer.phase).toBe('awaiting-request');
+          expect(sent.some((message) => JSON.parse(message).kind === 'resync-required')).toBe(true);
+          expect(peer.resetTimes).toHaveLength(1);
+        }
+      } else {
+        expect(peer.position).toEqual(initialAuthorityPosition);
+        expect(peer.requestEpisode).toBeUndefined();
+        expect(peer.resetTimes).toHaveLength(0);
+        expect(peer.sendToken).toBeUndefined();
+        expect(sent).toEqual([]);
+        expect(close).toHaveBeenCalledWith(1013);
+      }
+    } finally {
+      runtime.close();
+      clock.mockRestore();
+    }
+  },
+);
+
+it.each([4999, 5000, 5001])(
+  'preserves capture generation recovery deadline through the final callback at %i ms',
+  async (elapsed) => {
+    let now = 1_000_000;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    let inRecovery = false;
+    let crossed = false;
+    const release = vi.fn(async () => undefined);
+    const driver = {
+      head: async () => initialAuthorityPosition,
+      checkpoint: async () => ({
+        position: { generation: 'replacement', revision: 'cut' },
+        state: emptyAuthorityState,
+        token: 'capture',
+        expiresAt: now + 5000,
+        release,
+      }),
+      readAfter: async () => ({ status: 'ok', head: initialAuthorityPosition, records: [] }),
+      claimPublications: async () => [],
+      markPublished: async () => undefined,
+    } as unknown as AuthorityDriver;
+    const sent: string[] = [];
+    const close = vi.fn();
+    const connection: Connection = {
+      id: `capture-final-${elapsed}`,
+      room: 'table',
+      signal: new AbortController().signal,
+      close,
+      send: vi.fn(),
+    };
+    registerAuthorityConnection(connection, {
+      sendTracked: (message) => {
+        sent.push(message);
+        return { completion: Promise.resolve(), settled: Promise.resolve() };
+      },
+    });
+    const runtime = new AuthorityRuntime(
+      {
+        driver,
+        resolveRoom: () => {
+          if (inRecovery && !crossed) {
+            now += elapsed;
+            crossed = true;
+          }
+          return definition;
+        },
+        resolveIdentity: () => ({ actorId: 'reader', ownershipId: 'reader' }),
+      },
+      new InMemoryHubFanout(),
+      'worker',
+    );
+    try {
+      const dispatchRecovery = runtime['dispatchRecovery'].bind(runtime);
+      runtime['dispatchRecovery'] = (...args) => {
+        inRecovery = true;
+        try {
+          return dispatchRecovery(...args);
+        } finally {
+          inRecovery = false;
+        }
+      };
+      expect(runtime.admit(connection, definition)).toBe(true);
+      await runtime.handleMessage(
+        connection.id,
+        JSON.stringify({
+          from: connection.id,
+          op: { kind: 'capabilities', capabilities: createAuthorityCapabilities([]) },
+        }),
+      );
+      sent.length = 0;
+      await runtime.handleMessage(
+        connection.id,
+        JSON.stringify({
+          protocol: 'authority:1',
+          kind: 'checkpoint-request',
+          requestId: 'capture',
+          generation: 'g',
+        }),
+      );
+      await vi.waitFor(() => expect(release).toHaveBeenCalledTimes(1));
+      await vi.waitFor(() => expect(crossed).toBe(true));
+      const peer = runtime['peers'].get(connection.id);
+      if (elapsed < 5000) {
+        expect(sent.some((message) => JSON.parse(message).reason === 'gap')).toBe(true);
+        expect(peer?.phase).toBe('awaiting-request');
+        expect(peer?.resetTimes).toHaveLength(1);
+        expect(close).not.toHaveBeenCalled();
+      } else {
+        expect(sent).toEqual([]);
+        expect(peer?.requestEpisode).toBeUndefined();
+        expect(peer?.resetTimes ?? []).toHaveLength(0);
+        expect(close).toHaveBeenCalledWith(1013);
+      }
+      await vi.waitFor(() => expect(runtime['scheduler'].accountedUsage().streamSlots).toBe(0));
+    } finally {
+      runtime.close();
+      clock.mockRestore();
+    }
+  },
+);
+
+it.each([4999, 5000, 5001])(
+  'rejects expired reconciliation before projection after the last configuration callback at %i ms',
+  async (elapsed) => {
+    const startedAt = 1_000_000;
+    let now = startedAt;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    let captureReturned = false;
+    let postCaptureResolutions = 0;
+    let inFinalEligibility = false;
+    let crossed = false;
+    let settleRelease: (() => void) | undefined;
+    const releaseGate = new Promise<void>((resolve) => {
+      settleRelease = resolve;
+    });
+    const release = vi.fn(() => releaseGate);
+    const project = vi.fn((_context: unknown, state: typeof emptyAuthorityState) => state);
+    const localDefinition = { ...definition, project } as AuthorityRoomDefinition;
+    const next = { generation: 'g', revision: 'next' };
+    const checkpoint = vi.fn(async () => {
+      now = startedAt + 1000;
+      captureReturned = true;
+      return {
+        position: next,
+        state: { ...emptyAuthorityState, elements: [element] },
+        token: 'capture',
+        expiresAt: now + 5000,
+        release,
+      };
+    });
+    const driver = {
+      head: async () => initialAuthorityPosition,
+      readAfter: async () => ({ status: 'gap' as const, head: next }),
+      checkpoint,
+      claimPublications: async () => [],
+      markPublished: async () => undefined,
+    } as unknown as AuthorityDriver;
+    const sent: string[] = [];
+    const close = vi.fn();
+    const connection: Connection = {
+      id: `projection-final-${elapsed}`,
+      room: 'table',
+      signal: new AbortController().signal,
+      close,
+      send: vi.fn(),
+    };
+    const hub = new SyncHub();
+    const transport = new FrameTransport(
+      {
+        readyState: WebSocket.OPEN,
+        send: (message: string, done: (error?: Error) => void) => {
+          sent.push(message);
+          done();
+        },
+      } as unknown as WebSocket,
+      hub,
+      { connectionId: connection.id, room: connection.room },
+      { authorize: () => true },
+      new FrameBudget(),
+      close,
+    );
+    registerAuthorityConnection(connection, {
+      sendTracked: (message, options) => transport.sendTracked(message, options),
+    });
+    const runtime = new AuthorityRuntime(
+      {
+        driver,
+        resolveRoom: () => {
+          if (captureReturned) {
+            postCaptureResolutions++;
+            if (!crossed && (postCaptureResolutions === 2 || inFinalEligibility)) {
+              now = startedAt + elapsed;
+              crossed = true;
+            }
+          }
+          return localDefinition;
+        },
+        resolveIdentity: () => ({ actorId: 'reader', ownershipId: 'reader' }),
+      },
+      new InMemoryHubFanout(),
+      'worker',
+    );
+    try {
+      expect(runtime.admit(connection, localDefinition)).toBe(true);
+      await runtime.handleMessage(
+        connection.id,
+        JSON.stringify({
+          from: connection.id,
+          op: { kind: 'capabilities', capabilities: createAuthorityCapabilities([]) },
+        }),
+      );
+      sent.length = 0;
+      runtime.activate(connection.id, initialAuthorityPosition, emptyAuthorityState);
+      const peer = runtime['peers'].get(connection.id);
+      if (!peer) throw new Error('missing reconcile peer');
+      const baselineProjectionCalls = project.mock.calls.length;
+      const effectEligible = runtime['effectEligible'].bind(runtime);
+      runtime['effectEligible'] = (...args) => {
+        inFinalEligibility = true;
+        try {
+          return effectEligible(...args);
+        } finally {
+          inFinalEligibility = false;
+        }
+      };
+      await vi.waitFor(() => expect(release).toHaveBeenCalledTimes(1));
+      expect(checkpoint).toHaveBeenCalledTimes(1);
+      expect(crossed).toBe(true);
+      expect(now).toBe(startedAt + elapsed);
+      expect(startedAt + 1000 + 5000).toBeGreaterThan(now);
+      expect(runtime['scheduler'].accountedUsage().heavySlots).toBe(1);
+      expect(project.mock.calls.length - baselineProjectionCalls).toBe(elapsed < 5000 ? 1 : 0);
+      expect(peer.position).toEqual(initialAuthorityPosition);
+      expect(peer.requestEpisode).toBeUndefined();
+      expect(peer.resetTimes).toHaveLength(0);
+      expect(sent).toEqual([]);
+      settleRelease?.();
+      await vi.waitFor(() => expect(runtime['scheduler'].accountedUsage().heavySlots).toBe(0));
+      expect(release).toHaveBeenCalledTimes(1);
+      if (elapsed < 5000) {
+        await vi.waitFor(() =>
+          expect(sent.some((frame) => JSON.parse(frame).kind === 'resync-required')).toBe(true),
+        );
+        expect(peer.phase).toBe('awaiting-request');
+        expect(peer.resetTimes).toHaveLength(1);
+        expect(close).not.toHaveBeenCalled();
+      } else {
+        expect(close).toHaveBeenCalledWith(1013);
+        expect(runtime['peers'].has(connection.id)).toBe(false);
+        expect(peer.position).toEqual(initialAuthorityPosition);
+        expect(peer.requestEpisode).toBeUndefined();
+        expect(peer.resetTimes).toHaveLength(0);
+        expect(sent).toEqual([]);
+      }
+      expect(runtime['scheduler'].accountedUsage().streamSlots).toBe(0);
+    } finally {
+      settleRelease?.();
+      runtime.close();
+      transport.dispose();
+      hub.close();
+      clock.mockRestore();
+    }
+  },
+);
+
+it.each([
+  ['begin', 4999],
+  ['begin', 5000],
+  ['begin', 5001],
+  ['end', 4999],
+  ['end', 5000],
+  ['end', 5001],
+] as const)(
+  'preserves pre-%s head generation recovery deadline through the final callback at %i ms',
+  async (boundary, elapsed) => {
+    let now = 1_000_000;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    let headCalls = 0;
+    let inRecovery = false;
+    let crossed = false;
+    const release = vi.fn(async () => undefined);
+    const driver = {
+      head: async () => {
+        headCalls++;
+        return headCalls === (boundary === 'begin' ? 2 : 3)
+          ? { generation: 'replacement', revision: 'cut' }
+          : initialAuthorityPosition;
+      },
+      checkpoint: async () => ({
+        position: initialAuthorityPosition,
+        state: emptyAuthorityState,
+        token: 'capture',
+        expiresAt: now + 5000,
+        release,
+      }),
+      readAfter: async () => ({ status: 'ok', head: initialAuthorityPosition, records: [] }),
+      claimPublications: async () => [],
+      markPublished: async () => undefined,
+    } as unknown as AuthorityDriver;
+    const sent: string[] = [];
+    const close = vi.fn();
+    const connection: Connection = {
+      id: `head-final-${boundary}-${elapsed}`,
+      room: 'table',
+      signal: new AbortController().signal,
+      close,
+      send: vi.fn(),
+    };
+    registerAuthorityConnection(connection, {
+      sendTracked: (message) => {
+        sent.push(message);
+        return { completion: Promise.resolve(), settled: Promise.resolve() };
+      },
+    });
+    const runtime = new AuthorityRuntime(
+      {
+        driver,
+        resolveRoom: () => {
+          if (inRecovery && !crossed) {
+            now += elapsed;
+            crossed = true;
+          }
+          return definition;
+        },
+        resolveIdentity: () => ({ actorId: 'reader', ownershipId: 'reader' }),
+      },
+      new InMemoryHubFanout(),
+      'worker',
+    );
+    try {
+      const dispatchRecovery = runtime['dispatchRecovery'].bind(runtime);
+      runtime['dispatchRecovery'] = (...args) => {
+        inRecovery = true;
+        try {
+          return dispatchRecovery(...args);
+        } finally {
+          inRecovery = false;
+        }
+      };
+      expect(runtime.admit(connection, definition)).toBe(true);
+      await runtime.handleMessage(
+        connection.id,
+        JSON.stringify({
+          from: connection.id,
+          op: { kind: 'capabilities', capabilities: createAuthorityCapabilities([]) },
+        }),
+      );
+      sent.length = 0;
+      await runtime.handleMessage(
+        connection.id,
+        JSON.stringify({
+          protocol: 'authority:1',
+          kind: 'checkpoint-request',
+          requestId: 'head',
+          generation: 'g',
+        }),
+      );
+      await vi.waitFor(() => expect(crossed).toBe(true));
+      await vi.waitFor(() => expect(runtime['scheduler'].accountedUsage().streamSlots).toBe(0));
+      const kinds = sent.map((message) => JSON.parse(message).kind);
+      const peer = runtime['peers'].get(connection.id);
+      expect(release).toHaveBeenCalledTimes(1);
+      expect(kinds.includes('checkpoint-end')).toBe(false);
+      if (elapsed < 5000) {
+        expect(kinds.includes('resync-required')).toBe(true);
+        expect(peer?.phase).toBe('awaiting-request');
+        expect(peer?.resetTimes).toHaveLength(1);
+        expect(close).not.toHaveBeenCalled();
+      } else {
+        expect(kinds.includes('resync-required')).toBe(false);
+        expect(peer?.requestEpisode).toBeUndefined();
+        expect(peer?.resetTimes ?? []).toHaveLength(0);
+        expect(close).toHaveBeenCalledWith(1013);
+      }
+    } finally {
+      runtime.close();
+      clock.mockRestore();
+    }
+  },
+);
+
+it.each([4999, 5000, 5001])(
+  'enforces the fixed negotiation admission deadline at %i ms with due timers withheld',
+  async (elapsed) => {
+    let now = 1_000_000;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const head = vi.fn(async () => initialAuthorityPosition);
+    const sent: string[] = [];
+    const close = vi.fn();
+    const connection: Connection = {
+      id: `negotiation-${elapsed}`,
+      room: 'table',
+      signal: new AbortController().signal,
+      close,
+      send: vi.fn(),
+    };
+    const hub = new SyncHub();
+    const transport = new FrameTransport(
+      {
+        readyState: WebSocket.OPEN,
+        send: (message: string, done: (error?: Error) => void) => {
+          sent.push(message);
+          done();
+        },
+      } as unknown as WebSocket,
+      hub,
+      { connectionId: connection.id, room: connection.room },
+      { authorize: () => true },
+      new FrameBudget(),
+      close,
+    );
+    registerAuthorityConnection(connection, {
+      sendTracked: (message, options) => transport.sendTracked(message, options),
+    });
+    const runtime = new AuthorityRuntime(
+      {
+        driver: {
+          head,
+          claimPublications: async () => [],
+          markPublished: async () => undefined,
+        } as unknown as AuthorityDriver,
+        resolveRoom: () => definition,
+        resolveIdentity: () => ({ actorId: 'reader', ownershipId: 'reader' }),
+      },
+      new InMemoryHubFanout(),
+      'worker',
+    );
+    try {
+      expect(runtime.admit(connection, definition)).toBe(true);
+      now += elapsed;
+      await runtime.handleMessage(
+        connection.id,
+        JSON.stringify({
+          from: connection.id,
+          op: { kind: 'capabilities', capabilities: createAuthorityCapabilities([]) },
+        }),
+      );
+      expect(head).toHaveBeenCalledTimes(elapsed < 5000 ? 1 : 0);
+      expect(sent.map((frame) => JSON.parse(frame).kind ?? JSON.parse(frame).op?.kind)).toEqual(
+        elapsed < 5000 ? ['capabilities', 'resync-required'] : [],
+      );
+      expect(close).toHaveBeenCalledTimes(elapsed < 5000 ? 0 : 1);
+      if (elapsed >= 5000) expect(close).toHaveBeenCalledWith(4406);
+    } finally {
+      runtime.close();
+      transport.dispose();
+      hub.close();
+      clock.mockRestore();
+    }
+  },
+);
+
+it.each([4999, 5000])(
+  'does not admit evidence from a readAfter result returned at %i ms',
+  async (elapsed) => {
+    let now = 1_000_000;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const next = { generation: 'g', revision: 'next' };
+    const readEvidence = vi.fn(async () => ({
+      status: 'available' as const,
+      lease: {
+        before: emptyAuthorityState,
+        after: { ...emptyAuthorityState, elements: [element] },
+        token: 'evidence',
+        expiresAt: now + 5000,
+        release: async () => undefined,
+      },
+    }));
+    const driver = {
+      head: async () => initialAuthorityPosition,
+      readAfter: async (_context: unknown, cut: { revision: string }) => {
+        if (cut.revision !== 'start') return { status: 'ok' as const, head: next, records: [] };
+        now += elapsed;
+        return {
+          status: 'ok' as const,
+          head: next,
+          records: [
+            {
+              previous: initialAuthorityPosition,
+              position: next,
+              before: authorityReference,
+              after: authorityReference,
+            },
+          ],
+        };
+      },
+      readEvidence,
+      claimPublications: async () => [],
+      markPublished: async () => undefined,
+    } as unknown as AuthorityDriver;
+    const { runtime, connection, close, sent } = await startResultBoundaryRuntime(driver);
+    try {
+      await vi.waitFor(() => expect(readEvidence).toHaveBeenCalledTimes(elapsed < 5000 ? 1 : 0));
+      if (elapsed < 5000) {
+        await vi.waitFor(() =>
+          expect(sent.some((frame) => JSON.parse(frame).kind === 'changes')).toBe(true),
+        );
+        expect(close).not.toHaveBeenCalled();
+      } else {
+        expect(sent).toEqual([]);
+        expect(close).toHaveBeenCalledWith(1013);
+        expect(runtime['peers'].has(connection.id)).toBe(false);
+      }
+    } finally {
+      runtime.close();
+      clock.mockRestore();
+    }
+  },
+);
+
+it.each([4999, 5000])(
+  'rejects a negotiation head returned at %i ms before promotion or delivery',
+  async (elapsed) => {
+    let now = 1_000_000;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const head = vi.fn(async () => {
+      now += elapsed;
+      return initialAuthorityPosition;
+    });
+    const sent: string[] = [];
+    const close = vi.fn();
+    const connection: Connection = {
+      id: `head-return-${elapsed}`,
+      room: 'table',
+      signal: new AbortController().signal,
+      close,
+      send: vi.fn(),
+    };
+    registerAuthorityConnection(connection, {
+      sendTracked: (frame) => {
+        sent.push(frame);
+        return { completion: Promise.resolve(), settled: Promise.resolve() };
+      },
+    });
+    const runtime = new AuthorityRuntime(
+      {
+        driver: {
+          head,
+          claimPublications: async () => [],
+          markPublished: async () => undefined,
+        } as unknown as AuthorityDriver,
+        resolveRoom: () => definition,
+        resolveIdentity: () => ({ actorId: 'reader', ownershipId: 'reader' }),
+      },
+      new InMemoryHubFanout(),
+      'worker',
+    );
+    try {
+      runtime.admit(connection, definition);
+      await runtime.handleMessage(
+        connection.id,
+        JSON.stringify({
+          from: connection.id,
+          op: { kind: 'capabilities', capabilities: createAuthorityCapabilities([]) },
+        }),
+      );
+      expect(head).toHaveBeenCalledTimes(1);
+      expect(sent).toHaveLength(elapsed < 5000 ? 2 : 0);
+      expect(close).toHaveBeenCalledTimes(elapsed < 5000 ? 0 : 1);
+      if (elapsed >= 5000) expect(close).toHaveBeenCalledWith(4406);
+    } finally {
+      runtime.close();
+      clock.mockRestore();
+    }
+  },
+);
+
+it.each([
+  ['return', 4999],
+  ['return', 5000],
+  ['release', 4999],
+  ['release', 5000],
+] as const)(
+  'settles evidence lease before %s boundary at %i ms without late cursor effects',
+  async (boundary, elapsed) => {
+    let now = 1_000_000;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const next = { generation: 'g', revision: 'next' };
+    const release = vi.fn(async () => {
+      if (boundary === 'release') now += elapsed;
+    });
+    const readEvidence = vi.fn(async () => {
+      if (boundary === 'return') now += elapsed;
+      return {
+        status: 'available' as const,
+        lease: {
+          before: emptyAuthorityState,
+          after: { ...emptyAuthorityState, elements: [element] },
+          token: 'evidence',
+          expiresAt: now + 5000,
+          release,
+        },
+      };
+    });
+    const driver = {
+      head: async () => initialAuthorityPosition,
+      readAfter: async (_context: unknown, cut: { revision: string }) =>
+        cut.revision === 'start'
+          ? {
+              status: 'ok' as const,
+              head: next,
+              records: [
+                {
+                  previous: initialAuthorityPosition,
+                  position: next,
+                  before: authorityReference,
+                  after: authorityReference,
+                },
+              ],
+            }
+          : { status: 'ok' as const, head: next, records: [] },
+      readEvidence,
+      claimPublications: async () => [],
+      markPublished: async () => undefined,
+    } as unknown as AuthorityDriver;
+    const { runtime, connection, close, sent } = await startResultBoundaryRuntime(driver);
+    try {
+      await vi.waitFor(() => expect(release).toHaveBeenCalledTimes(1));
+      if (elapsed < 5000) {
+        await vi.waitFor(() =>
+          expect(sent.some((frame) => JSON.parse(frame).kind === 'changes')).toBe(true),
+        );
+        expect(close).not.toHaveBeenCalled();
+      } else {
+        expect(sent).toEqual([]);
+        expect(close).toHaveBeenCalledWith(1013);
+        expect(runtime['peers'].has(connection.id)).toBe(false);
+      }
+      expect(readEvidence).toHaveBeenCalledTimes(1);
+      expect(runtime['scheduler'].accountedUsage().heavySlots).toBe(0);
+    } finally {
+      runtime.close();
+      clock.mockRestore();
+    }
+  },
+);
+
+it.each([4999, 5000])(
+  'checks reconciliation after actual capture release at %i ms',
+  async (elapsed) => {
+    let now = 1_000_000;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const next = { generation: 'g', revision: 'next' };
+    const release = vi.fn(async () => {
+      now += elapsed;
+    });
+    const checkpoint = vi.fn(async () => ({
+      position: next,
+      state: { ...emptyAuthorityState, elements: [element] },
+      token: 'capture',
+      expiresAt: now + 5000,
+      release,
+    }));
+    const driver = {
+      head: async () => initialAuthorityPosition,
+      readAfter: async () => ({ status: 'gap' as const, head: next }),
+      checkpoint,
+      claimPublications: async () => [],
+      markPublished: async () => undefined,
+    } as unknown as AuthorityDriver;
+    const { runtime, connection, close, sent } = await startResultBoundaryRuntime(driver);
+    try {
+      await vi.waitFor(() => expect(release).toHaveBeenCalledTimes(1));
+      if (elapsed < 5000) {
+        await vi.waitFor(() =>
+          expect(sent.some((frame) => JSON.parse(frame).kind === 'resync-required')).toBe(true),
+        );
+        expect(runtime['peers'].get(connection.id)?.phase).toBe('awaiting-request');
+        expect(close).not.toHaveBeenCalled();
+      } else {
+        expect(sent).toEqual([]);
+        expect(close).toHaveBeenCalledWith(1013);
+      }
+      expect(checkpoint).toHaveBeenCalledTimes(1);
+      await vi.waitFor(() => expect(runtime['scheduler'].accountedUsage().heavySlots).toBe(0));
+    } finally {
+      runtime.close();
+      clock.mockRestore();
+    }
+  },
+);
+
+it.each([
+  ['committed', 'driver'],
+  ['rejected', 'driver'],
+  ['committed', 'response'],
+  ['rejected', 'response'],
+] as const)(
+  'withholds a late %s caller response at %s while preserving durable commit publication',
+  async (outcome, crossing) => {
+    let now = 1_700_000_000_000;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const store = new AuthorityFixtureStore();
+    store.now = now;
+    store.provision('table');
+    if (outcome === 'rejected') store.policy.canWrite = () => false;
+    const actual = new AuthorityFixtureDriver(store);
+    const claimPublications = vi.fn(actual.claimPublications.bind(actual));
+    const commit = vi.fn(async (...args: Parameters<AuthorityDriver['commit']>) => {
+      const result = await actual.commit(...args);
+      if (crossing === 'driver') now += 5000;
+      return result;
+    });
+    let inResponseSend = false;
+    let crossedResponse = false;
+    const driver = {
+      head: actual.head.bind(actual),
+      checkpoint: actual.checkpoint.bind(actual),
+      readAfter: actual.readAfter.bind(actual),
+      readEvidence: actual.readEvidence.bind(actual),
+      commit,
+      claimPublications,
+      markPublished: actual.markPublished.bind(actual),
+    } as AuthorityDriver;
+    const sent: string[] = [];
+    const close = vi.fn();
+    const connection: Connection = {
+      id: `late-${outcome}`,
+      room: 'table',
+      signal: new AbortController().signal,
+      close,
+      send: vi.fn(),
+    };
+    registerAuthorityConnection(connection, {
+      sendTracked: (frame) => {
+        sent.push(frame);
+        return { completion: Promise.resolve(), settled: Promise.resolve() };
+      },
+    });
+    const runtime = new AuthorityRuntime(
+      {
+        driver,
+        resolveRoom: () => {
+          if (inResponseSend && !crossedResponse) {
+            now += 5000;
+            crossedResponse = true;
+          }
+          return definition;
+        },
+        resolveIdentity: () => ({ actorId: 'actor', ownershipId: 'owner' }),
+      },
+      new InMemoryHubFanout(),
+      'worker',
+    );
+    try {
+      const send = runtime['send'].bind(runtime);
+      runtime['send'] = (...args) => {
+        if (args[1].kind !== 'receipt' && args[1].kind !== 'rejected') return send(...args);
+        inResponseSend = true;
+        try {
+          return send(...args);
+        } finally {
+          inResponseSend = false;
+        }
+      };
+      runtime.admit(connection, definition);
+      await runtime.handleMessage(
+        connection.id,
+        JSON.stringify({
+          from: connection.id,
+          op: { kind: 'capabilities', capabilities: createAuthorityCapabilities([]) },
+        }),
+      );
+      const initial = store.getRoom('table');
+      if (!initial) throw new Error('missing fixture room');
+      runtime.activate(connection.id, initial.position, initial.state);
+      sent.length = 0;
+      await vi.waitFor(() => expect(claimPublications).toHaveBeenCalled());
+      const wakePublisher = vi.spyOn(runtime['publisher'], 'wake');
+      await runtime.handleMessage(
+        connection.id,
+        proposal(createAuthorityOperationId(store.now), { kind: 'upsert', element }),
+      );
+      expect(commit).toHaveBeenCalledTimes(1);
+      if (crossing === 'response') expect(crossedResponse).toBe(true);
+      expect(close).toHaveBeenCalledWith(1013);
+      expect(sent.some((frame) => ['receipt', 'rejected'].includes(JSON.parse(frame).kind))).toBe(
+        false,
+      );
+      expect(store.getRoom('table')?.state.elements).toHaveLength(outcome === 'committed' ? 1 : 0);
+      expect(wakePublisher).toHaveBeenCalledTimes(outcome === 'committed' ? 1 : 0);
+    } finally {
+      runtime.close();
+      clock.mockRestore();
+    }
+  },
+);
+
+it.each(['projection', 'history-unavailable', 'forbidden', 'generation-changed'] as const)(
+  'rejects expired %s evidence before downstream effects',
+  async (outcome) => {
+    let now = 1_000_000;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const next = { generation: 'g', revision: 'next' };
+    const release = vi.fn(async () => undefined);
+    const checkpoint = vi.fn();
+    const localDefinition: AuthorityRoomDefinition = {
+      ...definition,
+      project: (_context, state) => {
+        if (outcome === 'projection' && state.elements.length) now += 5000;
+        return state;
+      },
+    };
+    const driver = {
+      head: async () => initialAuthorityPosition,
+      readAfter: async (_context: unknown, cut: { revision: string }) =>
+        cut.revision === 'start'
+          ? {
+              status: 'ok' as const,
+              head: next,
+              records: [
+                {
+                  previous: initialAuthorityPosition,
+                  position: next,
+                  before: authorityReference,
+                  after: authorityReference,
+                },
+              ],
+            }
+          : { status: 'ok' as const, head: next, records: [] },
+      readEvidence: async () => {
+        if (outcome === 'projection')
+          return {
+            status: 'available' as const,
+            lease: {
+              before: emptyAuthorityState,
+              after: { ...emptyAuthorityState, elements: [element] },
+              token: 'evidence',
+              expiresAt: now + 5000,
+              release,
+            },
+          };
+        now += 5000;
+        return outcome === 'generation-changed'
+          ? { status: outcome, head: next }
+          : { status: outcome };
+      },
+      checkpoint,
+      claimPublications: async () => [],
+      markPublished: async () => undefined,
+    } as unknown as AuthorityDriver;
+    const { runtime, connection, close, sent } = await startResultBoundaryRuntime(
+      driver,
+      localDefinition,
+    );
+    try {
+      await vi.waitFor(() => expect(close).toHaveBeenCalledWith(1013));
+      expect(sent).toEqual([]);
+      expect(checkpoint).not.toHaveBeenCalled();
+      expect(release).toHaveBeenCalledTimes(outcome === 'projection' ? 1 : 0);
+      expect(runtime['peers'].has(connection.id)).toBe(false);
+    } finally {
+      runtime.close();
+      clock.mockRestore();
+    }
+  },
+);
+
+it('starts a fresh reconciliation deadline after passive heavy-capacity waiting', async () => {
+  let now = 1_000_000;
+  const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+  const next = { generation: 'g', revision: 'next' };
+  let resumeEvidence: (() => void) | undefined;
+  const evidenceGate = new Promise<void>((resolve) => {
+    resumeEvidence = resolve;
+  });
+  const readEvidence = vi.fn(async () => {
+    await evidenceGate;
+    return { status: 'history-unavailable' as const };
+  });
+  const checkpoint = vi.fn(
+    async (_context: { connectionId: string }, options: { deadlineAt: number }) => ({
+      position: next,
+      state: emptyAuthorityState,
+      token: 'capture',
+      expiresAt: now + 5000,
+      release: async () => undefined,
+      observedDeadline: options.deadlineAt,
+    }),
+  );
+  const readAfter = vi.fn(async (context: { connectionId: string }, cut: { revision: string }) =>
+    cut.revision !== 'start'
+      ? { status: 'ok' as const, head: next, records: [] }
+      : context.connectionId === 'waiter'
+        ? { status: 'gap' as const, head: next }
+        : {
+            status: 'ok' as const,
+            head: next,
+            records: [
+              {
+                previous: initialAuthorityPosition,
+                position: next,
+                before: authorityReference,
+                after: authorityReference,
+              },
+            ],
+          },
+  );
+  const driver = {
+    head: async () => initialAuthorityPosition,
+    readAfter,
+    readEvidence,
+    checkpoint,
+    claimPublications: async () => [],
+    markPublished: async () => undefined,
+  } as unknown as AuthorityDriver;
+  const runtime = new AuthorityRuntime(
+    {
+      driver,
+      resolveRoom: () => definition,
+      resolveIdentity: () => ({ actorId: 'reader', ownershipId: 'reader' }),
+    },
+    new InMemoryHubFanout(),
+    'worker',
+  );
+  const peers = ['blocker-one', 'blocker-two', 'waiter'].map((id) => {
+    const sent: string[] = [];
+    const close = vi.fn();
+    const connection: Connection = {
+      id,
+      room: 'table',
+      signal: new AbortController().signal,
+      close,
+      send: vi.fn(),
+    };
+    registerAuthorityConnection(connection, {
+      sendTracked: (frame) => {
+        sent.push(frame);
+        return { completion: Promise.resolve(), settled: Promise.resolve() };
+      },
+    });
+    return { connection, sent, close };
+  });
+  try {
+    for (const { connection } of peers) {
+      expect(runtime.admit(connection, definition)).toBe(true);
+      await runtime.handleMessage(
+        connection.id,
+        JSON.stringify({
+          from: connection.id,
+          op: { kind: 'capabilities', capabilities: createAuthorityCapabilities([]) },
+        }),
+      );
+    }
+    for (const peer of peers.slice(0, 2))
+      runtime.activate(peer.connection.id, initialAuthorityPosition, emptyAuthorityState);
+    await vi.waitFor(() => expect(readEvidence).toHaveBeenCalledTimes(2));
+    expect(runtime['scheduler'].accountedUsage().heavySlots).toBe(2);
+    const waiter = peers[2];
+    if (!waiter) throw new Error('missing waiter');
+    waiter.sent.length = 0;
+    runtime.activate(waiter.connection.id, initialAuthorityPosition, emptyAuthorityState);
+    await vi.waitFor(() =>
+      expect(readAfter.mock.calls.some((call) => call[0].connectionId === 'waiter')).toBe(true),
+    );
+    await vi.waitFor(() =>
+      expect(runtime['peers'].get(waiter.connection.id)?.reconciling).toBe(true),
+    );
+    expect(checkpoint).not.toHaveBeenCalled();
+    now += 5000;
+    resumeEvidence?.();
+    await vi.waitFor(() => expect(checkpoint).toHaveBeenCalledTimes(1));
+    expect(checkpoint.mock.calls[0]?.[1].deadlineAt).toBe(now + 5000);
+    await vi.waitFor(() =>
+      expect(runtime['peers'].get(waiter.connection.id)?.position).toEqual(next),
+    );
+    expect(waiter.sent).toEqual([]);
+    expect(waiter.close).not.toHaveBeenCalled();
+  } finally {
+    resumeEvidence?.();
+    runtime.close();
+    clock.mockRestore();
+  }
+});
+
+it.each([4999, 5000])(
+  'rechecks a poll continuation after its room callback reaches %i ms',
+  async (elapsed) => {
+    let now = 1_000_000;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const next = { generation: 'h', revision: 'next' };
+    let afterHead = false;
+    let callbacks = 0;
+    const checkpoint = vi.fn(async () => ({
+      position: next,
+      state: emptyAuthorityState,
+      token: 'capture',
+      expiresAt: now + 5000,
+      release: async () => undefined,
+    }));
+    const readAfter = vi.fn(async () => ({
+      status: 'ok' as const,
+      head: initialAuthorityPosition,
+      records: [],
+    }));
+    const driver = {
+      head: async () => {
+        if (afterHead) return next;
+        return initialAuthorityPosition;
+      },
+      readAfter,
+      checkpoint,
+      claimPublications: async () => [],
+      markPublished: async () => undefined,
+    } as unknown as AuthorityDriver;
+    const { runtime, connection, close, sent } = await startResultBoundaryRuntime(
+      driver,
+      definition,
+      () => {
+        if (afterHead && ++callbacks === 5) now += elapsed;
+        return definition;
+      },
+    );
+    try {
+      await vi.waitFor(() => expect(readAfter).toHaveBeenCalledTimes(1));
+      await vi.waitFor(() => expect(runtime['scheduler']['ready'].has(connection.id)).toBe(false));
+      afterHead = true;
+      const peer = runtime['peers'].get(connection.id);
+      if (!peer) throw new Error('missing peer');
+      await runtime['pollHead'](peer);
+      if (elapsed < 5000) {
+        expect(close).not.toHaveBeenCalled();
+        await vi.waitFor(() => expect(checkpoint).toHaveBeenCalledTimes(1));
+        expect(close).not.toHaveBeenCalled();
+      } else {
+        expect(checkpoint).not.toHaveBeenCalled();
+        expect(sent).toEqual([]);
+        expect(close).toHaveBeenCalledWith(1013);
+      }
+    } finally {
+      runtime.close();
+      clock.mockRestore();
+    }
+  },
+);
+
+it('does not wake peer replay after an admitted receipt settles beyond its caller deadline', async () => {
+  let now = 1_700_000_000_000;
+  const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+  const store = new AuthorityFixtureStore();
+  store.now = now;
+  store.provision('table');
+  const actual = new AuthorityFixtureDriver(store);
+  const readAfter = vi.fn(actual.readAfter.bind(actual));
+  const sent: string[] = [];
+  let resumeReceipt: (() => void) | undefined;
+  const receiptGate = new Promise<void>((resolve) => {
+    resumeReceipt = resolve;
+  });
+  const close = vi.fn();
+  const connection: Connection = {
+    id: 'receipt-boundary',
+    room: 'table',
+    signal: new AbortController().signal,
+    close,
+    send: vi.fn(),
+  };
+  registerAuthorityConnection(connection, {
+    sendTracked: (frame) => {
+      sent.push(frame);
+      const completion = JSON.parse(frame).kind === 'receipt' ? receiptGate : Promise.resolve();
+      return { completion, settled: completion };
+    },
+  });
+  const runtime = new AuthorityRuntime(
+    {
+      driver: {
+        head: actual.head.bind(actual),
+        checkpoint: actual.checkpoint.bind(actual),
+        readAfter,
+        readEvidence: actual.readEvidence.bind(actual),
+        commit: actual.commit.bind(actual),
+        claimPublications: actual.claimPublications.bind(actual),
+        markPublished: actual.markPublished.bind(actual),
+      },
+      resolveRoom: () => definition,
+      resolveIdentity: () => ({ actorId: 'actor', ownershipId: 'owner' }),
+    },
+    new InMemoryHubFanout(),
+    'worker',
+  );
+  try {
+    runtime.admit(connection, definition);
+    await runtime.handleMessage(
+      connection.id,
+      JSON.stringify({
+        from: connection.id,
+        op: { kind: 'capabilities', capabilities: createAuthorityCapabilities([]) },
+      }),
+    );
+    const initial = store.getRoom('table');
+    if (!initial) throw new Error('missing fixture room');
+    runtime.activate(connection.id, initial.position, initial.state);
+    await vi.waitFor(() => expect(readAfter).toHaveBeenCalled());
+    sent.length = 0;
+    const wake = vi.spyOn(runtime as unknown as { wake: (peer: unknown) => void }, 'wake');
+    const doing = runtime.handleMessage(
+      connection.id,
+      proposal(createAuthorityOperationId(store.now), { kind: 'upsert', element }),
+    );
+    await vi.waitFor(() =>
+      expect(sent.some((frame) => JSON.parse(frame).kind === 'receipt')).toBe(true),
+    );
+    now += 5000;
+    resumeReceipt?.();
+    await doing;
+    expect(wake).not.toHaveBeenCalled();
+    expect(close).toHaveBeenCalledWith(1013);
+    expect(store.getRoom('table')?.state.elements).toHaveLength(1);
+  } finally {
+    resumeReceipt?.();
+    runtime.close();
+    clock.mockRestore();
+  }
+});
+
+it.each([
+  ['initial', 9999, true],
+  ['initial', 10000, false],
+  ['initial', 10001, false],
+  ['recovery', 9999, true],
+  ['recovery', 10000, false],
+  ['recovery', 10001, false],
+] as const)(
+  'enforces the %s request window at %i ms before its timer runs',
+  async (path, elapsed, timely) => {
+    let now = 1_000_000;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const initial = { generation: 'g', revision: 'initial' };
+    const changed = { generation: 'g', revision: 'changed' };
+    let gap = false;
+    const capture = vi.fn(async () => ({
+      position: changed,
+      state: { ...emptyAuthorityState, elements: [element] },
+      token: 'lease',
+      expiresAt: now + 5000,
+      release: async () => undefined,
+    }));
+    const driver = {
+      head: async () => initial,
+      checkpoint: capture,
+      readAfter: async () => {
+        if (gap) {
+          gap = false;
+          return { status: 'gap' as const, head: changed };
+        }
+        return {
+          status: 'ok' as const,
+          head: capture.mock.calls.length ? changed : initial,
+          records: [],
+        };
+      },
+      claimPublications: async () => [],
+      markPublished: async () => undefined,
+    } as unknown as AuthorityDriver;
+    const native: string[] = [];
+    const close = vi.fn();
+    const connection: Connection = {
+      id: `window-${path}-${elapsed}`,
+      room: 'table',
+      signal: new AbortController().signal,
+      close,
+      send: vi.fn(),
+    };
+    const ws = {
+      readyState: WebSocket.OPEN,
+      send: (message: string, done: (error?: Error) => void) => {
+        native.push(message);
+        done();
+      },
+    } as unknown as WebSocket;
+    const hub = new SyncHub();
+    const transport = new FrameTransport(
+      ws,
+      hub,
+      { connectionId: connection.id, room: connection.room },
+      { authorize: () => true },
+      new FrameBudget(),
+      close,
+    );
+    registerAuthorityConnection(connection, {
+      sendTracked: (message, options) => transport.sendTracked(message, options),
+    });
+    const runtime = new AuthorityRuntime(
+      {
+        driver,
+        resolveRoom: () => definition,
+        resolveIdentity: () => ({ actorId: 'actor', ownershipId: 'owner' }),
+      },
+      new InMemoryHubFanout(),
+      'worker',
+    );
+    try {
+      expect(runtime.admit(connection, definition)).toBe(true);
+      await runtime.handleMessage(
+        connection.id,
+        JSON.stringify({
+          from: connection.id,
+          op: { kind: 'capabilities', capabilities: createAuthorityCapabilities([]) },
+        }),
+      );
+      if (path === 'recovery') {
+        runtime.activate(connection.id, initial, emptyAuthorityState);
+        gap = true;
+        const peer = runtime['peers'].get(connection.id);
+        if (!peer) throw new Error('missing peer');
+        runtime['wake'](peer);
+      }
+      await vi.waitFor(() =>
+        expect(native.filter((frame) => JSON.parse(frame).kind === 'resync-required')).toHaveLength(
+          path === 'initial' ? 1 : 2,
+        ),
+      );
+      const peer = runtime['peers'].get(connection.id);
+      expect(peer?.phase).toBe('awaiting-request');
+      await vi.waitFor(() => expect(peer?.requestTimer).toBeDefined());
+      const capturesBeforeRequest = capture.mock.calls.length;
+      const resyncAt = now;
+      now = resyncAt + elapsed;
+      const inbound = new AbortController();
+      await runtime.handleMessage(
+        connection.id,
+        JSON.stringify({
+          protocol: 'authority:1',
+          kind: 'checkpoint-request',
+          requestId: `request-${path}`,
+          generation: 'g',
+        }),
+        { signal: inbound.signal, deadlineAt: now + 5000, beforeProcess: async () => true },
+      );
+      if (timely) {
+        await vi.waitFor(() => expect(peer?.phase).toBe('live'));
+        const checkpointFrames = native.filter((frame) =>
+          JSON.parse(frame).kind?.startsWith('checkpoint-'),
+        );
+        expect(checkpointFrames.map((frame) => JSON.parse(frame).kind)).toEqual([
+          'checkpoint-begin',
+          'checkpoint-chunk',
+          'checkpoint-end',
+        ]);
+        const assembler = new AuthorityCheckpointAssembler({
+          requestId: `request-${path}`,
+          generation: 'g',
+          requiredExtensions: [],
+        });
+        let completed = false;
+        for (const frame of checkpointFrames) {
+          const result = await assembler.accept(frame);
+          if (result.status === 'complete') {
+            expect(result.checkpoint.elements).toEqual([element]);
+            completed = true;
+          }
+        }
+        assembler.dispose();
+        expect(completed).toBe(true);
+        expect(capture).toHaveBeenCalledTimes(capturesBeforeRequest + 1);
+        expect(close).not.toHaveBeenCalled();
+      } else {
+        expect(close).toHaveBeenCalledWith(1013);
+        expect(capture).toHaveBeenCalledTimes(capturesBeforeRequest);
+        expect(native.filter((frame) => JSON.parse(frame).kind?.startsWith('checkpoint-'))).toEqual(
+          [],
+        );
+        expect(runtime['peers'].has(connection.id)).toBe(false);
+      }
+      await vi.waitFor(() =>
+        expect(runtime['scheduler'].accountedUsage()).toMatchObject({
+          heavySlots: 0,
+          streamSlots: 0,
+        }),
+      );
+    } finally {
+      transport.dispose();
+      runtime.close();
+      hub.close();
+      clock.mockRestore();
+    }
+  },
+);
+
+it.each(['held-resync', 'held-reconcile'] as const)(
+  'revokes the old request episode across %s and preserves actual settlement',
+  async (mode) => {
+    const initial = { generation: 'g', revision: 'initial' };
+    const changed = { generation: 'g', revision: 'changed' };
+    let gap = false;
+    let releaseReconcile: (() => void) | undefined;
+    let releaseRequest: (() => void) | undefined;
+    let finishResync: (() => void) | undefined;
+    const releases = [vi.fn(), vi.fn()];
+    const checkpoint = vi.fn(async () => {
+      const index = checkpoint.mock.calls.length - 1;
+      return {
+        position: changed,
+        state: { ...emptyAuthorityState, elements: [element] },
+        token: `lease-${index}`,
+        expiresAt: Date.now() + 5000,
+        release: async () => {
+          releases[index]?.();
+          await new Promise<void>((resolve) => {
+            if (index === 0 && mode === 'held-reconcile') releaseReconcile = resolve;
+            else if (index === 1) releaseRequest = resolve;
+            else resolve();
+          });
+        },
+      };
+    });
+    const driver = {
+      head: async () => initial,
+      checkpoint,
+      readAfter: async () => {
+        if (gap) {
+          gap = false;
+          return { status: 'gap' as const, head: changed };
+        }
+        return {
+          status: 'ok' as const,
+          head: checkpoint.mock.calls.length >= 2 ? changed : initial,
+          records: [],
+        };
+      },
+      claimPublications: async () => [],
+      markPublished: async () => undefined,
+    } as unknown as AuthorityDriver;
+    const native: string[] = [];
+    const close = vi.fn();
+    const connection: Connection = {
+      id: `episode-${mode}`,
+      room: 'table',
+      signal: new AbortController().signal,
+      close,
+      send: vi.fn(),
+    };
+    const ws = {
+      readyState: WebSocket.OPEN,
+      send: (message: string, done: (error?: Error) => void) => {
+        native.push(message);
+        if (mode === 'held-resync' && JSON.parse(message).reason === 'gap') finishResync = done;
+        else done();
+      },
+    } as unknown as WebSocket;
+    const hub = new SyncHub();
+    const transport = new FrameTransport(
+      ws,
+      hub,
+      { connectionId: connection.id, room: connection.room },
+      { authorize: () => true },
+      new FrameBudget(),
+      close,
+    );
+    registerAuthorityConnection(connection, {
+      sendTracked: (message, options) => transport.sendTracked(message, options),
+    });
+    const runtime = new AuthorityRuntime(
+      {
+        driver,
+        resolveRoom: () => definition,
+        resolveIdentity: () => ({ actorId: 'actor', ownershipId: 'owner' }),
+      },
+      new InMemoryHubFanout(),
+      'worker',
+    );
+    const timers = vi.spyOn(globalThis, 'setTimeout');
+    try {
+      expect(runtime.admit(connection, definition)).toBe(true);
+      await runtime.handleMessage(
+        connection.id,
+        JSON.stringify({
+          from: connection.id,
+          op: { kind: 'capabilities', capabilities: createAuthorityCapabilities([]) },
+        }),
+      );
+      const peer = runtime['peers'].get(connection.id);
+      if (!peer) throw new Error('missing peer');
+      const initialTimer = peer.requestTimer;
+      const initialIndex = timers.mock.results.findIndex((result) => result.value === initialTimer);
+      const obsoleteCallback = timers.mock.calls[initialIndex]?.[0];
+      expect(obsoleteCallback).toBeTypeOf('function');
+      runtime.activate(connection.id, initial, emptyAuthorityState);
+      gap = true;
+      runtime['wake'](peer);
+      if (mode === 'held-resync') {
+        await vi.waitFor(() => expect(finishResync).toBeDefined());
+        expect(peer.requestTimer).toBeUndefined();
+      } else {
+        await vi.waitFor(() => expect(releaseReconcile).toBeDefined());
+        expect(native.filter((frame) => JSON.parse(frame).reason === 'gap')).toHaveLength(0);
+        expect(peer.phase).toBe('live');
+      }
+      if (mode === 'held-resync') expect(peer.phase).toBe('awaiting-request');
+      const inbound = new AbortController();
+      await runtime.handleMessage(
+        connection.id,
+        JSON.stringify({
+          protocol: 'authority:1',
+          kind: 'checkpoint-request',
+          requestId: 'early',
+          generation: 'g',
+        }),
+        {
+          signal: inbound.signal,
+          deadlineAt: Date.now() + 5000,
+          beforeProcess: async () => true,
+        },
+      );
+      if (mode === 'held-reconcile') {
+        expect(peer.phase).toBe('preparing');
+        expect(runtime['scheduler'].accountedUsage().streamSlots).toBe(1);
+        releaseReconcile?.();
+      }
+      await vi.waitFor(() => expect(releaseRequest).toBeDefined());
+      expect(peer.phase).toBe('preparing');
+      expect(peer.requestTimer).toBeUndefined();
+      expect(runtime['scheduler'].accountedUsage().streamSlots).toBe(1);
+      if (mode === 'held-resync') finishResync?.();
+      await vi.waitFor(() => expect(runtime['scheduler'].accountedUsage().heavySlots).toBe(1));
+      expect(peer.requestTimer).toBeUndefined();
+      expect(native.filter((frame) => JSON.parse(frame).reason === 'gap')).toHaveLength(
+        mode === 'held-resync' ? 1 : 0,
+      );
+      releaseRequest?.();
+      await vi.waitFor(() => expect(peer.phase).toBe('live'));
+      obsoleteCallback?.();
+      expect(close).not.toHaveBeenCalled();
+      expect(peer.requestTimer).toBeUndefined();
+      expect(releases[0]).toHaveBeenCalledTimes(1);
+      expect(releases[1]).toHaveBeenCalledTimes(1);
+      await vi.waitFor(() =>
+        expect(runtime['scheduler'].accountedUsage()).toMatchObject({
+          heavySlots: 0,
+          streamSlots: 0,
+        }),
+      );
+    } finally {
+      finishResync?.();
+      releaseReconcile?.();
+      releaseRequest?.();
+      timers.mockRestore();
+      transport.dispose();
+      runtime.close();
+      hub.close();
+    }
+  },
+);
+
+it.each(['owned', 'replacement', 'expiry'] as const)(
+  'binds the request timer to its %s episode and connection expiry',
+  async (mode) => {
+    let now = 2_000_000;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const timers = vi.spyOn(globalThis, 'setTimeout');
+    const close = vi.fn();
+    const connection: Connection = {
+      id: `timer-${mode}`,
+      room: 'table',
+      signal: new AbortController().signal,
+      close,
+      send: vi.fn(),
+      ...(mode === 'expiry' ? { expiresAt: now + 3000 } : {}),
+    };
+    const driver = {
+      head: async () => initialAuthorityPosition,
+      claimPublications: async () => [],
+      markPublished: async () => undefined,
+    } as unknown as AuthorityDriver;
+    const runtime = new AuthorityRuntime(
+      {
+        driver,
+        resolveRoom: () => definition,
+        resolveIdentity: () => ({ actorId: 'actor', ownershipId: 'owner' }),
+      },
+      new InMemoryHubFanout(),
+      'worker',
+    );
+    try {
+      registerAuthorityConnection(connection, {
+        sendTracked: () => ({ completion: Promise.resolve(), settled: Promise.resolve() }),
+      });
+      expect(runtime.admit(connection, definition)).toBe(true);
+      await runtime.handleMessage(
+        connection.id,
+        JSON.stringify({
+          from: connection.id,
+          op: { kind: 'capabilities', capabilities: createAuthorityCapabilities([]) },
+        }),
+      );
+      const peer = runtime['peers'].get(connection.id);
+      if (!peer) throw new Error('missing peer');
+      expect(peer.requestDeadlineAt).toBe(now + (mode === 'expiry' ? 3000 : 10_000));
+      const index = timers.mock.results.findIndex((result) => result.value === peer.requestTimer);
+      const callback = timers.mock.calls[index]?.[0];
+      expect(callback).toBeTypeOf('function');
+      if (mode === 'replacement') {
+        runtime.remove(connection.id);
+        const replacementClose = vi.fn();
+        const replacement: Connection = {
+          ...connection,
+          signal: new AbortController().signal,
+          close: replacementClose,
+        };
+        registerAuthorityConnection(replacement, {
+          sendTracked: () => ({ completion: Promise.resolve(), settled: Promise.resolve() }),
+        });
+        expect(runtime.admit(replacement, definition)).toBe(true);
+        now += 10_000;
+        callback?.();
+        expect(close).not.toHaveBeenCalled();
+        expect(replacementClose).not.toHaveBeenCalled();
+        expect(runtime['peers'].get(connection.id)?.connection).toBe(replacement);
+      } else {
+        now += mode === 'expiry' ? 3000 : 10_000;
+        callback?.();
+        expect(close).toHaveBeenCalledWith(mode === 'expiry' ? 4401 : 1013);
+        expect(runtime['peers'].has(connection.id)).toBe(false);
+        expect(peer.requestTimer).toBeUndefined();
+        expect(peer.requestDeadlineAt).toBeUndefined();
+        expect(peer.requestEpisode).toBeUndefined();
+      }
+    } finally {
+      runtime.close();
+      timers.mockRestore();
+      clock.mockRestore();
+    }
+  },
+);
+
+it.each(['capture', 'release'] as const)(
+  'rejects a %s crossing the preparation deadline before its timer runs',
+  async (boundary) => {
+    let now = 1_000_000;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const cut = { generation: 'g', revision: 'cut' };
+    const release = vi.fn(async () => {
+      if (boundary === 'release') now += 5000;
+    });
+    const driver = {
+      head: async () => cut,
+      checkpoint: async () => {
+        if (boundary === 'capture') now += 5000;
+        return {
+          position: boundary === 'capture' ? { generation: 'replacement', revision: 'cut' } : cut,
+          state: emptyAuthorityState,
+          token: 'lease',
+          expiresAt: now + 10_000,
+          release,
+        };
+      },
+      readAfter: async () => ({ status: 'ok', head: cut, records: [] }),
+      claimPublications: async () => [],
+      markPublished: async () => undefined,
+    } as unknown as AuthorityDriver;
+    const native: string[] = [];
+    const close = vi.fn();
+    const connection: Connection = {
+      id: 'late-release',
+      room: 'table',
+      signal: new AbortController().signal,
+      close,
+      send: vi.fn(),
+    };
+    registerAuthorityConnection(connection, {
+      sendTracked: (message) => {
+        native.push(message);
+        return { completion: Promise.resolve(), settled: Promise.resolve() };
+      },
+    });
+    const runtime = new AuthorityRuntime(
+      {
+        driver,
+        resolveRoom: () => definition,
+        resolveIdentity: () => ({ actorId: 'actor', ownershipId: 'owner' }),
+      },
+      new InMemoryHubFanout(),
+      'worker',
+    );
+    try {
+      expect(runtime.admit(connection, definition)).toBe(true);
+      await runtime.handleMessage(
+        connection.id,
+        JSON.stringify({
+          from: connection.id,
+          op: { kind: 'capabilities', capabilities: createAuthorityCapabilities([]) },
+        }),
+      );
+      native.length = 0;
+      await runtime.handleMessage(
+        connection.id,
+        JSON.stringify({
+          protocol: 'authority:1',
+          kind: 'checkpoint-request',
+          requestId: 'request',
+          generation: 'g',
+        }),
+      );
+      await vi.waitFor(() => expect(close).toHaveBeenCalledWith(1013));
+      expect(release).toHaveBeenCalledTimes(1);
+      expect(native).toEqual([]);
+      expect(runtime['peers'].has(connection.id)).toBe(false);
+    } finally {
+      runtime.close();
+      clock.mockRestore();
+    }
+  },
+);
+
+it.each(['authorization', 'physical-head', 'native-completion'] as const)(
+  'enforces the fixed stream deadline across end %s with actual frame transport',
+  async (boundary) => {
+    let now = 2_000_000;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const cut = { generation: 'g', revision: 'cut' };
+    const native: string[] = [];
+    let headCalls = 0;
+    const ws = {
+      readyState: WebSocket.OPEN,
+      send: (message: string, done: (error?: Error) => void) => {
+        const kind = JSON.parse(message).kind;
+        native.push(kind);
+        if (kind === 'checkpoint-chunk') now += 3000;
+        if (kind === 'checkpoint-end' && boundary === 'native-completion') now += 1500;
+        done();
+      },
+    } as unknown as WebSocket;
+    const driver = {
+      head: async () => {
+        headCalls++;
+        if (boundary === 'physical-head' && headCalls === 8) now += 1500;
+        return cut;
+      },
+      checkpoint: async () => ({
+        position: cut,
+        state: {
+          elements: [{ ...element, text: 'x'.repeat(1_100_000) }],
+          layers: [],
+          extensions: {},
+        },
+        token: 'lease',
+        expiresAt: now + 20_000,
+        release: async () => undefined,
+      }),
+      readAfter: async () => ({ status: 'ok', head: cut, records: [] }),
+      claimPublications: async () => [],
+      markPublished: async () => undefined,
+    } as unknown as AuthorityDriver;
+    const close = vi.fn();
+    const connection: Connection = {
+      id: `end-${boundary}`,
+      room: 'table',
+      signal: new AbortController().signal,
+      close,
+      send: vi.fn(),
+    };
+    const hub = new SyncHub();
+    const transport = new FrameTransport(
+      ws,
+      hub,
+      { connectionId: connection.id, room: connection.room },
+      {
+        authorize: ({ direction, message }) => {
+          if (
+            direction === 'outbound' &&
+            JSON.parse(message).kind === 'checkpoint-end' &&
+            boundary === 'authorization'
+          )
+            now += 1500;
+          return true;
+        },
+      },
+      new FrameBudget(),
+      close,
+    );
+    registerAuthorityConnection(connection, {
+      sendTracked: (message, options) => transport.sendTracked(message, options),
+    });
+    const runtime = new AuthorityRuntime(
+      {
+        driver,
+        resolveRoom: () => definition,
+        resolveIdentity: () => ({ actorId: 'actor', ownershipId: 'owner' }),
+      },
+      new InMemoryHubFanout(),
+      'worker',
+    );
+    try {
+      expect(runtime.admit(connection, definition)).toBe(true);
+      await runtime.handleMessage(
+        connection.id,
+        JSON.stringify({
+          from: connection.id,
+          op: { kind: 'capabilities', capabilities: createAuthorityCapabilities([]) },
+        }),
+      );
+      native.length = 0;
+      await runtime.handleMessage(
+        connection.id,
+        JSON.stringify({
+          protocol: 'authority:1',
+          kind: 'checkpoint-request',
+          requestId: 'request',
+          generation: 'g',
+        }),
+      );
+      await vi.waitFor(() =>
+        expect(native.filter((kind) => kind === 'checkpoint-chunk')).toHaveLength(3),
+      );
+      await vi.waitFor(() => expect(close).toHaveBeenCalledWith(1013));
+      expect(now).toBe(2_010_500);
+      expect(native.includes('checkpoint-end')).toBe(boundary === 'native-completion');
+      expect(runtime['peers'].has(connection.id)).toBe(false);
+    } finally {
+      transport.dispose();
+      runtime.close();
+      hub.close();
+      clock.mockRestore();
+    }
+  },
+);
+
+it.each([
+  ['connection', 3999, true, undefined],
+  ['connection', 4000, false, 4401],
+  ['connection', 4001, false, 4401],
+  ['job', 4999, true, undefined],
+  ['job', 5000, false, 1013],
+  ['job', 5001, false, 1013],
+] as const)(
+  'keeps physical checkpoint-end out of C2 after the final room callback crosses %s at %i ms',
+  async (boundary, elapsed, delivered, code) => {
+    const start = 2_000_000;
+    let now = start;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const cut = { generation: 'g', revision: 'cut' };
+    const native: string[] = [];
+    const close = vi.fn();
+    const release = vi.fn(async () => undefined);
+    const driver = {
+      head: async () => cut,
+      checkpoint: async () => ({
+        position: cut,
+        state: emptyAuthorityState,
+        token: 'lease',
+        expiresAt: start + 6000,
+        release,
+      }),
+      readAfter: async () => ({ status: 'ok', head: cut, records: [] }),
+      claimPublications: async () => [],
+      markPublished: async () => undefined,
+    } as unknown as AuthorityDriver;
+    const connection: Connection = {
+      id: `final-${boundary}-${elapsed}`,
+      room: 'table',
+      signal: new AbortController().signal,
+      expiresAt: start + (boundary === 'connection' ? 4000 : 10_000),
+      close,
+      send: vi.fn(),
+    };
+    let inFinalCurrent = false;
+    let advanced = false;
+    const hub = new SyncHub();
+    const budget = new FrameBudget();
+    const transport = new FrameTransport(
+      {
+        readyState: WebSocket.OPEN,
+        send: (message: string, done: (error?: Error) => void) => {
+          native.push(message);
+          done();
+        },
+      } as unknown as WebSocket,
+      hub,
+      { connectionId: connection.id, room: connection.room, expiresAt: connection.expiresAt },
+      {},
+      budget,
+      close,
+    );
+    registerAuthorityConnection(connection, {
+      sendTracked: (message, options) =>
+        transport.sendTracked(message, {
+          ...options,
+          current: () => {
+            inFinalCurrent = JSON.parse(message).kind === 'checkpoint-end';
+            try {
+              return options?.current?.() ?? true;
+            } finally {
+              inFinalCurrent = false;
+            }
+          },
+        }),
+    });
+    const runtime = new AuthorityRuntime(
+      {
+        driver,
+        resolveRoom: () => {
+          if (inFinalCurrent && !advanced) {
+            advanced = true;
+            now = start + elapsed;
+          }
+          return definition;
+        },
+        resolveIdentity: () => ({ actorId: 'actor', ownershipId: 'owner' }),
+      },
+      new InMemoryHubFanout(),
+      'worker',
+    );
+    const assembler = new AuthorityCheckpointAssembler({
+      requestId: 'request',
+      generation: 'g',
+      requiredExtensions: [],
+    });
+    try {
+      expect(runtime.admit(connection, definition)).toBe(true);
+      await runtime.handleMessage(
+        connection.id,
+        JSON.stringify({
+          from: connection.id,
+          op: { kind: 'capabilities', capabilities: createAuthorityCapabilities([]) },
+        }),
+      );
+      native.length = 0;
+      await runtime.handleMessage(
+        connection.id,
+        JSON.stringify({
+          protocol: 'authority:1',
+          kind: 'checkpoint-request',
+          requestId: 'request',
+          generation: 'g',
+        }),
+      );
+      await vi.waitFor(() => expect(advanced).toBe(true));
+      await vi.waitFor(() =>
+        expect(runtime['scheduler'].accountedUsage()).toMatchObject({
+          heavySlots: 0,
+          streamSlots: 0,
+        }),
+      );
+      const kinds = native.map((message) => JSON.parse(message).kind as string);
+      expect(kinds).toContain('checkpoint-begin');
+      expect(kinds).toContain('checkpoint-chunk');
+      expect(kinds.includes('checkpoint-end')).toBe(delivered);
+      let assembly: Awaited<ReturnType<typeof assembler.accept>> | undefined;
+      for (const message of native) assembly = await assembler.accept(message);
+      expect(assembly?.status).toBe(delivered ? 'complete' : 'pending');
+      expect(runtime['peers'].get(connection.id)?.phase === 'live').toBe(delivered);
+      if (code === undefined) expect(close).not.toHaveBeenCalled();
+      else expect(close).toHaveBeenCalledWith(code);
+      expect(release).toHaveBeenCalledTimes(1);
+      expect(budget['connections'].size).toBe(0);
+      expect(budget['rooms'].size).toBe(0);
+      expect(budget['global']).toEqual({ count: 0, bytes: 0 });
+    } finally {
+      assembler.dispose();
+      transport.dispose();
+      runtime.close();
+      hub.close();
+      clock.mockRestore();
+    }
+  },
+);
+
+it.each(['expiry', 'removal', 'replacement'] as const)(
+  'rejects an old peer when resolveRoom crosses %s during currentness',
+  (mode) => {
+    const start = 3_000_000;
+    let now = start;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const close = vi.fn();
+    const old: Connection = {
+      id: 'same',
+      room: 'table',
+      signal: new AbortController().signal,
+      expiresAt: start + 4000,
+      close,
+      send: vi.fn(),
+    };
+    const successor: Connection = {
+      id: 'same',
+      room: 'table',
+      signal: new AbortController().signal,
+      expiresAt: start + 10_000,
+      close: vi.fn(),
+      send: vi.fn(),
+    };
+    registerAuthorityConnection(old, {
+      sendTracked: () => ({ completion: Promise.resolve(), settled: Promise.resolve() }),
+    });
+    registerAuthorityConnection(successor, {
+      sendTracked: () => ({ completion: Promise.resolve(), settled: Promise.resolve() }),
+    });
+    let crossed = false;
+    const runtime = new AuthorityRuntime(
+      {
+        driver: {} as AuthorityDriver,
+        resolveRoom: () => {
+          if (!crossed) {
+            crossed = true;
+            if (mode === 'expiry') now = start + 4000;
+            else {
+              runtime.remove(old.id);
+              if (mode === 'replacement') expect(runtime.admit(successor, definition)).toBe(true);
+            }
+          }
+          return definition;
+        },
+        resolveIdentity: () => ({ actorId: 'actor', ownershipId: 'owner' }),
+      },
+      new InMemoryHubFanout(),
+      'worker',
+    );
+    try {
+      expect(runtime.admit(old, definition)).toBe(true);
+      const oldPeer = runtime['peers'].get(old.id);
+      if (!oldPeer) throw new Error('missing old peer');
+      expect(runtime['current'](oldPeer)).toBe(false);
+      if (mode === 'expiry') expect(close).toHaveBeenCalledWith(4401);
+      if (mode === 'replacement') {
+        expect(runtime['peers'].get(old.id)?.connection).toBe(successor);
+        expect(successor.close).not.toHaveBeenCalled();
+      }
+    } finally {
+      runtime.close();
+      clock.mockRestore();
+    }
+  },
+);
+
+it.each(['disconnect', 'deadline', 'shutdown'] as const)(
+  'releases queued checkpoint ownership on %s while both heavy slots stay held',
+  async (mode) => {
+    const cut = { generation: 'g', revision: 'cut' };
+    const checkpoint = vi.fn();
+    const driver = {
+      head: async () => cut,
+      checkpoint,
+      claimPublications: async () => [],
+      markPublished: async () => undefined,
+    } as unknown as AuthorityDriver;
+    const runtime = new AuthorityRuntime(
+      {
+        driver,
+        resolveRoom: () => definition,
+        resolveIdentity: () => ({ actorId: 'actor', ownershipId: 'owner' }),
+      },
+      new InMemoryHubFanout(),
+      'worker',
+    );
+    const firstHeavy = runtime['scheduler'].reserve('heavy');
+    const secondHeavy = runtime['scheduler'].reserve('heavy');
+    expect(firstHeavy).toBeTypeOf('function');
+    expect(secondHeavy).toBeTypeOf('function');
+    const timers = vi.spyOn(globalThis, 'setTimeout');
+    try {
+      for (let index = 0; index < 6; index++) {
+        if (mode === 'shutdown' && index > 0) break;
+        const controller = new AbortController();
+        const id = `queued-${index}`;
+        const connection: Connection = {
+          id,
+          room: 'table',
+          signal: controller.signal,
+          close: vi.fn(),
+          send: vi.fn(),
+        };
+        registerAuthorityConnection(connection, {
+          sendTracked: () => ({ completion: Promise.resolve(), settled: Promise.resolve() }),
+        });
+        expect(runtime.admit(connection, definition)).toBe(true);
+        await runtime.handleMessage(
+          id,
+          JSON.stringify({
+            from: id,
+            op: { kind: 'capabilities', capabilities: createAuthorityCapabilities([]) },
+          }),
+        );
+        const previousTimers = timers.mock.calls.length;
+        await runtime.handleMessage(
+          id,
+          JSON.stringify({
+            protocol: 'authority:1',
+            kind: 'checkpoint-request',
+            requestId: `req-${index}`,
+            generation: 'g',
+          }),
+        );
+        expect(runtime['scheduler'].accountedUsage().streamSlots).toBe(1);
+        if (mode === 'disconnect') controller.abort();
+        else if (mode === 'deadline') {
+          const deadline = timers.mock.calls
+            .slice(previousTimers)
+            .find((call) => typeof call[1] === 'number' && call[1] > 4900 && call[1] <= 5000);
+          expect(deadline).toBeDefined();
+          deadline?.[0]();
+        } else runtime.close();
+        expect(runtime['scheduler'].accountedUsage().streamSlots).toBe(0);
+        expect(runtime.pinnedDefinitionId('table')).toBeUndefined();
+      }
+      expect(checkpoint).not.toHaveBeenCalled();
+      expect(runtime['scheduler'].accountedUsage().heavySlots).toBe(2);
+    } finally {
+      timers.mockRestore();
+      firstHeavy?.();
+      secondHeavy?.();
+      runtime.close();
+    }
+  },
+);
+
+it.each([
+  ['absent', undefined, true],
+  ['lowercase', 'a'.repeat(64), true],
+  ['uppercase', 'A'.repeat(64), true],
+  ['empty', '', false],
+  ['short', 'a'.repeat(63), false],
+  ['long', 'a'.repeat(65), false],
+  ['nonhex', `${'a'.repeat(63)}z`, false],
+  ['number', 42, false],
+  ['null', null, false],
+] as const)(
+  'validates capture CAS %s before any checkpoint frame',
+  async (_label, casToken, valid) => {
+    const cut = { generation: 'g', revision: 'cut' };
+    const release = vi.fn(async () => undefined);
+    const driver = {
+      head: async () => cut,
+      checkpoint: async () => ({
+        position: cut,
+        state: emptyAuthorityState,
+        token: 'lease',
+        expiresAt: Date.now() + 5000,
+        release,
+        ...(casToken === undefined ? {} : { casToken }),
+      }),
+      readAfter: async () => ({ status: 'ok', head: cut, records: [] }),
+      claimPublications: async () => [],
+      markPublished: async () => undefined,
+    } as unknown as AuthorityDriver;
+    const sent: string[] = [];
+    const close = vi.fn();
+    const connection: Connection = {
+      id: 'cas',
+      room: 'table',
+      signal: new AbortController().signal,
+      close,
+      send: vi.fn(),
+    };
+    registerAuthorityConnection(connection, {
+      sendTracked: (message) => {
+        sent.push(message);
+        return { completion: Promise.resolve(), settled: Promise.resolve() };
+      },
+    });
+    const runtime = new AuthorityRuntime(
+      {
+        driver,
+        resolveRoom: () => definition,
+        resolveIdentity: () => ({ actorId: 'actor', ownershipId: 'owner' }),
+      },
+      new InMemoryHubFanout(),
+      'worker',
+    );
+    try {
+      expect(runtime.admit(connection, definition)).toBe(true);
+      await runtime.handleMessage(
+        'cas',
+        JSON.stringify({
+          from: 'cas',
+          op: { kind: 'capabilities', capabilities: createAuthorityCapabilities([]) },
+        }),
+      );
+      sent.length = 0;
+      await runtime.handleMessage(
+        'cas',
+        JSON.stringify({
+          protocol: 'authority:1',
+          kind: 'checkpoint-request',
+          requestId: 'request',
+          generation: 'g',
+        }),
+      );
+      await vi.waitFor(() => expect(release).toHaveBeenCalledTimes(1));
+      if (valid) {
+        await vi.waitFor(() =>
+          expect(sent.some((message) => JSON.parse(message).kind === 'checkpoint-end')).toBe(true),
+        );
+        expect(close).not.toHaveBeenCalled();
+      } else {
+        await vi.waitFor(() => expect(close).toHaveBeenCalledWith(1013));
+        expect(sent).toEqual([]);
+      }
+      expect(release).toHaveBeenCalledTimes(1);
+    } finally {
+      runtime.close();
+    }
+  },
+);
+
+it.each([
+  ['checkpoint-begin', 'definition'],
+  ['checkpoint-begin', 'capacity'],
+  ['checkpoint-chunk', 'generation'],
+  ['checkpoint-end', 'definition'],
+  ['checkpoint-end', 'generation'],
+] as const)(
+  'blocks a stale physical %s after outbound authorization on %s replacement',
+  async (targetKind, replacement) => {
+    const cut = { generation: 'g', revision: 'cut' };
+    let head = cut;
+    let room: AuthorityRoomDefinition | null = definition;
+    let heldMetadata: (() => void)[] = [];
+    let allow: ((value: boolean) => void) | undefined;
+    const native: string[] = [];
+    const ws = {
+      readyState: WebSocket.OPEN,
+      send: (message: string, done: (error?: Error) => void) => {
+        native.push(message);
+        done();
+      },
+    } as unknown as WebSocket;
+    const driver = {
+      head: async () => head,
+      checkpoint: async () => ({
+        position: cut,
+        state: emptyAuthorityState,
+        token: 'lease',
+        expiresAt: Date.now() + 5000,
+        release: async () => undefined,
+      }),
+      readAfter: async () => ({ status: 'ok', head, records: [] }),
+      claimPublications: async () => [],
+      markPublished: async () => undefined,
+    } as unknown as AuthorityDriver;
+    const close = vi.fn();
+    const controller = new AbortController();
+    const connection: Connection = {
+      id: 'physical',
+      room: 'table',
+      signal: controller.signal,
+      close,
+      send: vi.fn(),
+    };
+    const hub = new SyncHub();
+    const transport = new FrameTransport(
+      ws,
+      hub,
+      { connectionId: connection.id, room: connection.room },
+      {
+        authorize: ({ direction, message }) => {
+          if (direction === 'outbound' && JSON.parse(message).kind === targetKind)
+            return new Promise<boolean>((resolve) => {
+              allow = resolve;
+            });
+          return true;
+        },
+      },
+      new FrameBudget(),
+      close,
+    );
+    registerAuthorityConnection(connection, {
+      sendTracked: (message, options) => transport.sendTracked(message, options),
+    });
+    const runtime = new AuthorityRuntime(
+      {
+        driver,
+        resolveRoom: () => room,
+        resolveIdentity: () => ({ actorId: 'actor', ownershipId: 'owner' }),
+      },
+      new InMemoryHubFanout(),
+      'worker',
+    );
+    try {
+      expect(runtime.admit(connection, definition)).toBe(true);
+      await runtime.handleMessage(
+        'physical',
+        JSON.stringify({
+          from: 'physical',
+          op: { kind: 'capabilities', capabilities: createAuthorityCapabilities([]) },
+        }),
+      );
+      native.length = 0;
+      await runtime.handleMessage(
+        'physical',
+        JSON.stringify({
+          protocol: 'authority:1',
+          kind: 'checkpoint-request',
+          requestId: 'request',
+          generation: 'g',
+        }),
+      );
+      await vi.waitFor(() => expect(allow).toBeDefined());
+      if (replacement === 'definition') room = null;
+      else if (replacement === 'generation') head = { generation: 'other', revision: 'new' };
+      else {
+        heldMetadata = Array.from({ length: 8 }, () => {
+          const release = runtime['scheduler'].reserve('metadata');
+          if (!release) throw new Error('missing metadata reservation');
+          return release;
+        });
+      }
+      allow?.(true);
+      await vi.waitFor(() => expect(close).toHaveBeenCalledWith(1013));
+      expect(native.some((message) => JSON.parse(message).kind === targetKind)).toBe(false);
+      expect(runtime['peers'].has('physical')).toBe(false);
+    } finally {
+      allow?.(true);
+      heldMetadata.forEach((release) => release());
+      transport.dispose();
+      runtime.close();
+      hub.close();
+    }
+  },
+);
+
+it.each(['preparing', 'streaming'] as const)(
+  'commits proposals during a subsequent %s checkpoint and replays the cut afterward',
+  async (phase) => {
+    const store = new AuthorityFixtureStore();
+    store.now = Date.now();
+    store.provision('table');
+    const actual = new AuthorityFixtureDriver(store);
+    const initial = store.getRoom('table');
+    if (!initial) throw new Error('missing fixture room');
+    let releaseCapture: (() => void) | undefined;
+    let releaseChunk: (() => void) | undefined;
+    const captureGate = new Promise<void>((resolve) => {
+      releaseCapture = resolve;
+    });
+    const chunkGate = new Promise<void>((resolve) => {
+      releaseChunk = resolve;
+    });
+    const checkpoint = vi.fn(async (...args: Parameters<AuthorityDriver['checkpoint']>) => {
+      const captured = await actual.checkpoint(...args);
+      if (phase === 'preparing') await captureGate;
+      return captured;
+    });
+    const commit = vi.fn(actual.commit.bind(actual));
+    const readAfter = vi.fn(actual.readAfter.bind(actual));
+    const driver: AuthorityDriver = {
+      head: actual.head.bind(actual),
+      checkpoint,
+      commit,
+      readAfter,
+      readEvidence: actual.readEvidence.bind(actual),
+      claimPublications: async () => [],
+      markPublished: async () => undefined,
+    };
+    const sent: string[] = [];
+    const close = vi.fn();
+    const connection: Connection = {
+      id: `later-${phase}`,
+      room: 'table',
+      signal: new AbortController().signal,
+      close,
+      send: vi.fn(),
+    };
+    registerAuthorityConnection(connection, {
+      sendTracked: (message) => {
+        sent.push(message);
+        if (phase === 'streaming' && JSON.parse(message).kind === 'checkpoint-chunk')
+          return { completion: chunkGate, settled: chunkGate };
+        return { completion: Promise.resolve(), settled: Promise.resolve() };
+      },
+    });
+    const runtime = new AuthorityRuntime(
+      {
+        driver,
+        resolveRoom: () => definition,
+        resolveIdentity: () => ({ actorId: 'actor', ownershipId: 'owner' }),
+      },
+      new InMemoryHubFanout(),
+      'worker',
+    );
+    try {
+      expect(runtime.admit(connection, definition)).toBe(true);
+      await runtime.handleMessage(
+        connection.id,
+        JSON.stringify({
+          from: connection.id,
+          op: { kind: 'capabilities', capabilities: createAuthorityCapabilities([]) },
+        }),
+      );
+      runtime.activate(connection.id, initial.position, initial.state);
+      sent.length = 0;
+      await runtime.handleMessage(
+        connection.id,
+        JSON.stringify({
+          protocol: 'authority:1',
+          kind: 'checkpoint-request',
+          requestId: 'later',
+          generation: 'g',
+        }),
+      );
+      if (phase === 'preparing')
+        await vi.waitFor(() => expect(checkpoint).toHaveBeenCalledTimes(1));
+      else
+        await vi.waitFor(() =>
+          expect(sent.some((message) => JSON.parse(message).kind === 'checkpoint-chunk')).toBe(
+            true,
+          ),
+        );
+      const operationId = createAuthorityOperationId(store.now);
+      await runtime.handleMessage(
+        connection.id,
+        proposal(operationId, { kind: 'upsert', element }),
+      );
+      expect(commit).toHaveBeenCalledTimes(1);
+      expect(sent.some((message) => JSON.parse(message).kind === 'receipt')).toBe(true);
+      expect(sent.some((message) => JSON.parse(message).kind === 'changes')).toBe(false);
+      expect(close).not.toHaveBeenCalled();
+      releaseCapture?.();
+      releaseChunk?.();
+      await vi.waitFor(() =>
+        expect(sent.some((message) => JSON.parse(message).kind === 'changes')).toBe(true),
+      );
+      const frames = sent.map((message) => JSON.parse(message));
+      expect(frames.filter((frame) => frame.kind === 'changes')).toHaveLength(1);
+      expect(frames.findIndex((frame) => frame.kind === 'changes')).toBeGreaterThan(
+        frames.findIndex((frame) => frame.kind === 'checkpoint-end'),
+      );
+      expect(
+        readAfter.mock.calls.some((call) => call[1].revision === initial.position.revision),
+      ).toBe(true);
+      expect(close).not.toHaveBeenCalled();
+    } finally {
+      releaseCapture?.();
+      releaseChunk?.();
+      runtime.close();
+    }
+  },
+);
+
+it.each(['preparing', 'streaming'] as const)(
+  'rejects an initial proposal during %s before successful activation',
+  async (phase) => {
+    const cut = { generation: 'g', revision: 'cut' };
+    let releaseCapture: (() => void) | undefined;
+    let releaseChunk: (() => void) | undefined;
+    const captureGate = new Promise<void>((resolve) => {
+      releaseCapture = resolve;
+    });
+    const chunkGate = new Promise<void>((resolve) => {
+      releaseChunk = resolve;
+    });
+    const checkpoint = vi.fn(async () => {
+      if (phase === 'preparing') await captureGate;
+      return {
+        position: cut,
+        state: emptyAuthorityState,
+        token: 'lease',
+        expiresAt: Date.now() + 5000,
+        release: async () => undefined,
+      };
+    });
+    const commit = vi.fn();
+    const driver = {
+      head: async () => cut,
+      checkpoint,
+      commit,
+      claimPublications: async () => [],
+      markPublished: async () => undefined,
+    } as unknown as AuthorityDriver;
+    const sent: string[] = [];
+    const close = vi.fn();
+    const connection: Connection = {
+      id: `initial-${phase}`,
+      room: 'table',
+      signal: new AbortController().signal,
+      close,
+      send: vi.fn(),
+    };
+    registerAuthorityConnection(connection, {
+      sendTracked: (message) => {
+        sent.push(message);
+        if (phase === 'streaming' && JSON.parse(message).kind === 'checkpoint-chunk')
+          return { completion: chunkGate, settled: chunkGate };
+        return { completion: Promise.resolve(), settled: Promise.resolve() };
+      },
+    });
+    const runtime = new AuthorityRuntime(
+      {
+        driver,
+        resolveRoom: () => definition,
+        resolveIdentity: () => ({ actorId: 'actor', ownershipId: 'owner' }),
+      },
+      new InMemoryHubFanout(),
+      'worker',
+    );
+    try {
+      expect(runtime.admit(connection, definition)).toBe(true);
+      await runtime.handleMessage(
+        connection.id,
+        JSON.stringify({
+          from: connection.id,
+          op: { kind: 'capabilities', capabilities: createAuthorityCapabilities([]) },
+        }),
+      );
+      await runtime.handleMessage(
+        connection.id,
+        JSON.stringify({
+          protocol: 'authority:1',
+          kind: 'checkpoint-request',
+          requestId: 'initial',
+          generation: 'g',
+        }),
+      );
+      if (phase === 'preparing')
+        await vi.waitFor(() => expect(checkpoint).toHaveBeenCalledTimes(1));
+      else
+        await vi.waitFor(() =>
+          expect(sent.some((message) => JSON.parse(message).kind === 'checkpoint-chunk')).toBe(
+            true,
+          ),
+        );
+      await runtime.handleMessage(
+        connection.id,
+        proposal(createAuthorityOperationId(), { kind: 'upsert', element }),
+      );
+      expect(commit).not.toHaveBeenCalled();
+      expect(sent.some((message) => JSON.parse(message).kind === 'upgrade-required')).toBe(true);
+      expect(close).toHaveBeenCalledWith(4406);
+    } finally {
+      releaseCapture?.();
+      releaseChunk?.();
+      runtime.close();
+    }
+  },
+);
+
+it.each(['abort', 'deadline'] as const)(
+  'retains physical-head metadata, stream, frame, and peer pins through ignored %s settlement',
+  async (mode) => {
+    const cut = { generation: 'g', revision: 'cut' };
+    let settleHead: ((position: typeof cut) => void) | undefined;
+    let calls = 0;
+    const head = vi.fn(() => {
+      calls++;
+      if (calls === 3)
+        return new Promise<typeof cut>((resolve) => {
+          settleHead = resolve;
+        });
+      return Promise.resolve(cut);
+    });
+    const driver = {
+      head,
+      checkpoint: async () => ({
+        position: cut,
+        state: emptyAuthorityState,
+        token: 'lease',
+        expiresAt: Date.now() + 5000,
+        release: async () => undefined,
+      }),
+      claimPublications: async () => [],
+      markPublished: async () => undefined,
+    } as unknown as AuthorityDriver;
+    const controller = new AbortController();
+    const connection: Connection = {
+      id: 'held-head',
+      room: 'table',
+      signal: controller.signal,
+      close: vi.fn(),
+      send: vi.fn(),
+    };
+    const nativeSend = vi.fn((_message: string, done: (error?: Error) => void) => done());
+    const ws = { readyState: WebSocket.OPEN, send: nativeSend } as unknown as WebSocket;
+    const budget = new FrameBudget(1, 2 * 1024 * 1024, 1, 2 * 1024 * 1024);
+    const hub = new SyncHub();
+    const transport = new FrameTransport(
+      ws,
+      hub,
+      { connectionId: connection.id, room: connection.room },
+      {},
+      budget,
+      vi.fn(),
+    );
+    registerAuthorityConnection(connection, {
+      sendTracked: (message, options) => transport.sendTracked(message, options),
+    });
+    const runtime = new AuthorityRuntime(
+      {
+        driver,
+        resolveRoom: () => definition,
+        resolveIdentity: () => ({ actorId: 'actor', ownershipId: 'owner' }),
+      },
+      new InMemoryHubFanout(),
+      'worker',
+    );
+    let timers: ReturnType<typeof vi.spyOn> | undefined;
+    try {
+      expect(runtime.admit(connection, definition)).toBe(true);
+      await runtime.handleMessage(
+        connection.id,
+        JSON.stringify({
+          from: connection.id,
+          op: { kind: 'capabilities', capabilities: createAuthorityCapabilities([]) },
+        }),
+      );
+      timers = vi.spyOn(globalThis, 'setTimeout');
+      await runtime.handleMessage(
+        connection.id,
+        JSON.stringify({
+          protocol: 'authority:1',
+          kind: 'checkpoint-request',
+          requestId: 'request',
+          generation: 'g',
+        }),
+      );
+      await vi.waitFor(() => expect(settleHead).toBeDefined());
+      expect(runtime['scheduler']['usage'].metadata).toBe(1);
+      expect(runtime['scheduler'].accountedUsage().streamSlots).toBe(1);
+      expect(budget.reserve('another', 'table', 'small')).toBeNull();
+      if (mode === 'abort') {
+        controller.abort();
+        transport.dispose();
+      } else {
+        const job = [...transport['jobs']][0];
+        if (!job) throw new Error('missing physical job');
+        const index = timers.mock.results.findIndex(
+          (result: { value: unknown }) => result.value === job.timer,
+        );
+        const fire = timers.mock.calls[index]?.[0];
+        if (!fire) throw new Error('missing physical deadline');
+        const clock = vi.spyOn(Date, 'now').mockReturnValue(job.deadlineAt);
+        try {
+          fire();
+        } finally {
+          clock.mockRestore();
+        }
+      }
+      expect(runtime['scheduler']['usage'].metadata).toBe(1);
+      expect(runtime['scheduler'].accountedUsage().streamSlots).toBe(1);
+      expect(runtime.pinnedDefinitionId('table')).toBe('definition');
+      const healthy: Connection = {
+        id: 'healthy',
+        room: 'healthy',
+        signal: new AbortController().signal,
+        close: vi.fn(),
+        send: vi.fn(),
+      };
+      registerAuthorityConnection(healthy, {
+        sendTracked: () => ({ completion: Promise.resolve(), settled: Promise.resolve() }),
+      });
+      expect(runtime.admit(healthy, definition)).toBe(true);
+      await runtime.handleMessage(
+        healthy.id,
+        JSON.stringify({
+          from: healthy.id,
+          op: { kind: 'capabilities', capabilities: createAuthorityCapabilities([]) },
+        }),
+      );
+      expect(head).toHaveBeenCalledTimes(4);
+      expect(runtime['scheduler']['usage'].metadata).toBe(1);
+      settleHead?.(cut);
+      await vi.waitFor(() => expect(runtime['scheduler'].accountedUsage().streamSlots).toBe(0));
+      expect(runtime['scheduler']['usage'].metadata).toBe(0);
+      expect(runtime.pinnedDefinitionId('table')).toBeUndefined();
+      const release = budget.reserve('another', 'table', 'small');
+      expect(release).toBeTypeOf('function');
+      release?.();
+      expect(
+        nativeSend.mock.calls.some((call) => JSON.parse(call[0]).kind === 'checkpoint-begin'),
+      ).toBe(false);
+    } finally {
+      settleHead?.(cut);
+      timers?.mockRestore();
+      transport.dispose();
+      runtime.close();
+      hub.close();
+    }
+  },
+);
+
+it.each([
+  ['begin', 'deadline', false],
+  ['begin', 'expiry', false],
+  ['begin', 'disconnect', true],
+  ['end', 'deadline', true],
+  ['end', 'shutdown', false],
+] as const)(
+  'owns the pre-%s second head through %s and late settlement',
+  async (phase, interruption, rejectLate) => {
+    const cut = { generation: 'g', revision: 'cut' };
+    let callCount = 0;
+    let settleHead: ((reject: boolean) => void) | undefined;
+    let callerTimer: (() => void) | undefined;
+    let callerDeadline = 0;
+    let timers: ReturnType<typeof vi.spyOn> | undefined;
+    const stalledCall = phase === 'begin' ? 2 : 5;
+    const head = vi.fn((_context: unknown, options: { deadlineAt: number }) => {
+      callCount++;
+      if (callCount !== stalledCall) return Promise.resolve(cut);
+      callerDeadline = options.deadlineAt;
+      const callback = timers?.mock.calls.at(-1)?.[0];
+      if (typeof callback === 'function') callerTimer = callback;
+      return new Promise<typeof cut>((resolve, reject) => {
+        settleHead = (shouldReject) =>
+          shouldReject
+            ? reject(new Error('late head'))
+            : resolve({ generation: 'replacement', revision: 'late' });
+      });
+    });
+    const driver = {
+      head,
+      checkpoint: async () => ({
+        position: cut,
+        state: emptyAuthorityState,
+        token: 'lease',
+        expiresAt: Date.now() + 5000,
+        release: async () => undefined,
+      }),
+      readAfter: async () => ({ status: 'ok', head: cut, records: [] }),
+      claimPublications: async () => [],
+      markPublished: async () => undefined,
+    } as unknown as AuthorityDriver;
+    const controller = new AbortController();
+    const close = vi.fn();
+    const connection: Connection = {
+      id: `pre-${phase}`,
+      room: 'table',
+      signal: controller.signal,
+      close,
+      send: vi.fn(),
+      ...(interruption === 'expiry' ? { expiresAt: Date.now() + 2000 } : {}),
+    };
+    const kinds: string[] = [];
+    let beginAdmission = 0;
+    const nativeSend = vi.fn((message: string, done: (error?: Error) => void) => {
+      const kind = JSON.parse(message).kind as string;
+      kinds.push(kind);
+      if (kind === 'checkpoint-begin') beginAdmission = Date.now();
+      done();
+    });
+    const ws = { readyState: WebSocket.OPEN, send: nativeSend } as unknown as WebSocket;
+    const budget = new FrameBudget(4, 4 * 1024 * 1024, 4, 4 * 1024 * 1024);
+    const hub = new SyncHub();
+    const transport = new FrameTransport(
+      ws,
+      hub,
+      { connectionId: connection.id, room: connection.room },
+      {},
+      budget,
+      vi.fn(),
+    );
+    registerAuthorityConnection(connection, {
+      sendTracked: (message, options) => transport.sendTracked(message, options),
+    });
+    const runtime = new AuthorityRuntime(
+      {
+        driver,
+        resolveRoom: () => definition,
+        resolveIdentity: () => ({ actorId: 'actor', ownershipId: 'owner' }),
+      },
+      new InMemoryHubFanout(),
+      'worker',
+    );
+    try {
+      expect(runtime.admit(connection, definition)).toBe(true);
+      await runtime.handleMessage(
+        connection.id,
+        JSON.stringify({
+          from: connection.id,
+          op: { kind: 'capabilities', capabilities: createAuthorityCapabilities([]) },
+        }),
+      );
+      timers = vi.spyOn(globalThis, 'setTimeout');
+      await runtime.handleMessage(
+        connection.id,
+        JSON.stringify({
+          protocol: 'authority:1',
+          kind: 'checkpoint-request',
+          requestId: 'request',
+          generation: 'g',
+        }),
+      );
+      await vi.waitFor(() => expect(settleHead).toBeDefined());
+      expect(head).toHaveBeenCalledTimes(stalledCall); // second pre-enqueue head, not the physical third
+      expect(callerTimer).toBeTypeOf('function');
+      expect(runtime['scheduler']['usage'].metadata).toBe(1);
+      expect(runtime['scheduler'].accountedUsage().streamSlots).toBe(1);
+      if (phase === 'begin' && interruption !== 'expiry')
+        expect(callerDeadline - Date.now()).toBeGreaterThan(4500);
+      if (interruption === 'expiry') expect(callerDeadline - Date.now()).toBeLessThanOrEqual(2000);
+      if (phase === 'end') {
+        expect(beginAdmission).toBeGreaterThan(0);
+        expect(callerDeadline).toBeLessThanOrEqual(beginAdmission + 10_000);
+      }
+      if (interruption === 'deadline' || interruption === 'expiry') {
+        const clock = vi.spyOn(Date, 'now').mockReturnValue(callerDeadline);
+        try {
+          callerTimer?.();
+        } finally {
+          clock.mockRestore();
+        }
+        expect(close).toHaveBeenCalledWith(interruption === 'expiry' ? 4401 : 1013);
+      } else if (interruption === 'disconnect') controller.abort();
+      else runtime.close();
+      expect(runtime['scheduler']['usage'].metadata).toBe(1);
+      expect(runtime['scheduler'].accountedUsage().streamSlots).toBe(1);
+      expect(runtime.pinnedDefinitionId('table')).toBe('definition');
+      const previousKinds = [...kinds];
+      settleHead?.(rejectLate);
+      await vi.waitFor(() => expect(runtime['scheduler'].accountedUsage().streamSlots).toBe(0));
+      expect(runtime['scheduler']['usage'].metadata).toBe(0);
+      expect(runtime.pinnedDefinitionId('table')).toBeUndefined();
+      expect(kinds).toEqual(previousKinds);
+      expect(kinds).not.toContain('checkpoint-end');
+      expect(kinds.filter((kind) => kind === 'resync-required')).toHaveLength(1);
+    } finally {
+      settleHead?.(true);
+      timers?.mockRestore();
+      transport.dispose();
+      runtime.close();
+      hub.close();
+    }
+  },
+);
+
+it('streams a near-limit captured cut and then replays a concurrent visible commit without holding inbound work', async () => {
+  const cut = { generation: 'g', revision: 'cut' };
+  const next = { generation: 'g', revision: 'next' };
+  const large = {
+    id: 'large',
+    type: 'note' as const,
+    position: { x: 0, y: 0 },
+    zIndex: 0,
+    locked: false,
+    layerId: 'default',
+    size: { w: 1, h: 1 },
+    text: 'x'.repeat(18_500_000),
+    backgroundColor: 'white',
+    textColor: 'black',
+  };
+  const captured = { elements: [large], layers: [], extensions: {} };
+  const after = { elements: [large, element], layers: [], extensions: {} };
+  const sent: string[] = [];
+  let releaseChunk: (() => void) | undefined;
+  let resumeCapture: (() => void) | undefined;
+  let committed = false;
+  const captureGate = new Promise<void>((resolve) => {
+    resumeCapture = resolve;
+  });
+  const checkpoint = vi.fn(async () => {
+    await captureGate;
+    return {
+      position: cut,
+      state: captured,
+      token: 'lease',
+      expiresAt: Date.now() + 5000,
+      release: async () => undefined,
+    };
+  });
+  const readAfter = vi.fn(async (_context: unknown, position: typeof cut) =>
+    position.revision === 'cut' && committed
+      ? {
+          status: 'ok' as const,
+          head: next,
+          records: [
+            {
+              previous: cut,
+              position: next,
+              before: authorityReference,
+              after: authorityReference,
+            },
+          ],
+        }
+      : { status: 'ok' as const, head: next, records: [] },
+  );
+  const driver = {
+    head: async () => cut,
+    checkpoint,
+    readAfter,
+    readEvidence: async () => ({
+      status: 'available',
+      lease: {
+        before: captured,
+        after,
+        token: 'evidence',
+        expiresAt: Date.now() + 5000,
+        release: async () => undefined,
+      },
+    }),
+    claimPublications: async () => [],
+    markPublished: async () => undefined,
+  } as unknown as AuthorityDriver;
+  const connection: Connection = {
+    id: 'paced',
+    room: 'table',
+    signal: new AbortController().signal,
+    close: vi.fn(),
+    send: vi.fn(),
+  };
+  registerAuthorityConnection(connection, {
+    sendTracked: (message) => {
+      sent.push(message);
+      if (JSON.parse(message).kind === 'checkpoint-chunk' && !releaseChunk) {
+        const completion = new Promise<void>((resolve) => {
+          releaseChunk = resolve;
+        });
+        return { completion, settled: completion };
+      }
+      return { completion: Promise.resolve(), settled: Promise.resolve() };
+    },
+  });
+  const fanout = new InMemoryHubFanout();
+  const runtime = new AuthorityRuntime(
+    {
+      driver,
+      resolveRoom: () => definition,
+      resolveIdentity: () => ({ actorId: 'reader', ownershipId: 'reader' }),
+    },
+    fanout,
+    'worker',
+  );
+  try {
+    expect(runtime.admit(connection, definition)).toBe(true);
+    await runtime.handleMessage(
+      'paced',
+      JSON.stringify({
+        from: 'paced',
+        op: { kind: 'capabilities', capabilities: createAuthorityCapabilities([]) },
+      }),
+    );
+    sent.length = 0;
+    const requestedAt = performance.now();
+    await runtime.handleMessage(
+      'paced',
+      JSON.stringify({
+        protocol: 'authority:1',
+        kind: 'checkpoint-request',
+        requestId: 'req',
+        generation: 'g',
+      }),
+    );
+    await vi.waitFor(() => expect(checkpoint).toHaveBeenCalledTimes(1));
+    committed = true;
+    await fanout.publish(
+      JSON.stringify({
+        authority: 1,
+        room: 'table',
+        definitionId: definition.id,
+        position: next,
+      }),
+    );
+    resumeCapture?.();
+    await vi.waitFor(() => expect(releaseChunk).toBeTypeOf('function'), { timeout: 10_000 });
+    const firstChunkAt = performance.now();
+    expect(runtime['scheduler'].accountedUsage()).toMatchObject({
+      heavySlots: 0,
+      heavyBytes: 0,
+      streamSlots: 1,
+      streamBytes: 24 * 1024 * 1024,
+    });
+    expect(readAfter).not.toHaveBeenCalled();
+    expect(sent.filter((message) => JSON.parse(message).kind === 'checkpoint-begin')).toHaveLength(
+      1,
+    );
+    releaseChunk?.();
+    await vi.waitFor(() =>
+      expect(sent.some((message) => JSON.parse(message).kind === 'changes')).toBe(true),
+    );
+    const replayAt = performance.now();
+    const kinds = sent.map((message) => JSON.parse(message).kind);
+    expect(kinds[0]).toBe('checkpoint-begin');
+    expect(kinds.filter((kind) => kind === 'checkpoint-chunk').length).toBeGreaterThan(30);
+    expect(kinds.slice(-2)).toEqual(['checkpoint-end', 'changes']);
+    expect(checkpoint).toHaveBeenCalledTimes(1);
+    expect(readAfter.mock.calls[0]?.[1]).toEqual(cut);
+    console.info(
+      `near-limit runtime: capture-to-first-chunk ${Math.round(firstChunkAt - requestedAt)} ms, capture-to-replay ${Math.round(replayAt - requestedAt)} ms, stream reservation ${24 * 1024 * 1024} bytes`,
+    );
+  } finally {
+    resumeCapture?.();
+    releaseChunk?.();
+    runtime.close();
+  }
+}, 30_000);
+
+it('retains four stream slots after checkpoint-end completion until actual settlement', async () => {
+  const cut = { generation: 'g', revision: 'cut' };
+  const pending: (() => void)[] = [];
+  const closes: ReturnType<typeof vi.fn>[] = [];
+  const driver = {
+    head: async () => cut,
+    checkpoint: async () => ({
+      position: cut,
+      state: emptyAuthorityState,
+      token: 'lease',
+      expiresAt: Date.now() + 5000,
+      release: async () => undefined,
+    }),
+    readAfter: async () => ({ status: 'ok', head: cut, records: [] }),
+    claimPublications: async () => [],
+    markPublished: async () => undefined,
+  } as unknown as AuthorityDriver;
+  const runtime = new AuthorityRuntime(
+    {
+      driver,
+      resolveRoom: () => definition,
+      resolveIdentity: () => ({ actorId: 'reader', ownershipId: 'reader' }),
+    },
+    new InMemoryHubFanout(),
+    'worker',
+  );
+  try {
+    for (let index = 0; index < 5; index++) {
+      const id = `stream-${index}`;
+      const close = vi.fn();
+      closes.push(close);
+      const connection: Connection = {
+        id,
+        room: id,
+        signal: new AbortController().signal,
+        close,
+        send: vi.fn(),
+      };
+      registerAuthorityConnection(connection, {
+        sendTracked: (message) => {
+          if (JSON.parse(message).kind === 'checkpoint-end') {
+            let finish: (() => void) | undefined;
+            const settled = new Promise<void>((resolve) => {
+              finish = resolve;
+            });
+            pending.push(() => finish?.());
+            return { completion: Promise.resolve(), settled };
+          }
+          return { completion: Promise.resolve(), settled: Promise.resolve() };
+        },
+      });
+      expect(runtime.admit(connection, definition)).toBe(true);
+      await runtime.handleMessage(
+        id,
+        JSON.stringify({
+          from: id,
+          op: { kind: 'capabilities', capabilities: createAuthorityCapabilities([]) },
+        }),
+      );
+      await runtime.handleMessage(
+        id,
+        JSON.stringify({
+          protocol: 'authority:1',
+          kind: 'checkpoint-request',
+          requestId: id,
+          generation: 'g',
+        }),
+      );
+      if (index < 4) await vi.waitFor(() => expect(pending).toHaveLength(index + 1));
+    }
+    expect(closes[4]).toHaveBeenCalledWith(1013);
+    expect(runtime['scheduler'].accountedUsage()).toMatchObject({
+      heavySlots: 0,
+      streamSlots: 4,
+      streamBytes: 96 * 1024 * 1024,
+    });
+    const first = runtime['peers'].get('stream-0');
+    if (!first) throw new Error('missing stream peer');
+    first.lastClientRequestAt = Date.now() - 10_001;
+    await runtime.handleMessage(
+      'stream-0',
+      JSON.stringify({
+        protocol: 'authority:1',
+        kind: 'checkpoint-request',
+        requestId: 'second',
+        generation: 'g',
+      }),
+    );
+    expect(closes[0]).toHaveBeenCalledWith(1013);
+    expect(runtime['scheduler'].accountedUsage().streamSlots).toBe(4);
+    expect(runtime['scheduler'].reserve('stream')).toBeNull();
+    pending.forEach((finish) => finish());
+    await vi.waitFor(() => {
+      const release = runtime['scheduler'].reserve('stream');
+      expect(release).toBeTypeOf('function');
+      release?.();
+    });
+  } finally {
+    pending.forEach((finish) => finish());
+    runtime.close();
+  }
+});
+
+it('holds heavy ownership through encoded replay and sends only after evidence release', async () => {
+  const next = { generation: 'g', revision: 'next' };
+  const record = {
+    previous: initialAuthorityPosition,
+    position: next,
+    before: authorityReference,
+    after: authorityReference,
+  };
+  let resolveRelease: (() => void) | undefined;
+  const releaseGate = new Promise<void>((resolve) => {
+    resolveRelease = resolve;
+  });
+  const release = vi.fn(() => releaseGate);
+  const marker = 'encoded-under-heavy-marker';
+  const after = { elements: [{ ...element, fillColor: marker }], layers: [], extensions: {} };
+  const driver = {
+    head: async () => initialAuthorityPosition,
+    readAfter: async (_context: unknown, position: typeof next) =>
+      position.revision === 'start'
+        ? { status: 'ok' as const, head: next, records: [record] }
+        : { status: 'ok' as const, head: next, records: [] },
+    readEvidence: async () => ({
+      status: 'available' as const,
+      lease: {
+        before: emptyAuthorityState,
+        after,
+        token: 'lease',
+        expiresAt: Date.now() + 5000,
+        release,
+      },
+    }),
+    claimPublications: async () => [],
+    markPublished: async () => undefined,
+  } as unknown as AuthorityDriver;
+  const connection: Connection = {
+    id: 'encoded-replay',
+    room: 'table',
+    signal: new AbortController().signal,
+    close: vi.fn(),
+    send: vi.fn(),
+  };
+  let heavyAtSend = -1;
+  const sent: string[] = [];
+  const runtime = new AuthorityRuntime(
+    {
+      driver,
+      resolveRoom: () => definition,
+      resolveIdentity: () => ({ actorId: 'actor', ownershipId: 'owner' }),
+    },
+    new InMemoryHubFanout(),
+    'worker',
+  );
+  registerAuthorityConnection(connection, {
+    sendTracked: (message) => {
+      if (JSON.parse(message).kind === 'changes')
+        heavyAtSend = runtime['scheduler'].accountedUsage().heavySlots;
+      sent.push(message);
+      return { completion: Promise.resolve(), settled: Promise.resolve() };
+    },
+  });
+  const stringify = vi.spyOn(JSON, 'stringify');
+  try {
+    expect(runtime.admit(connection, definition)).toBe(true);
+    await runtime.handleMessage(
+      connection.id,
+      JSON.stringify({
+        from: connection.id,
+        op: { kind: 'capabilities', capabilities: createAuthorityCapabilities([]) },
+      }),
+    );
+    runtime.activate(connection.id, initialAuthorityPosition, emptyAuthorityState);
+    await vi.waitFor(() => expect(release).toHaveBeenCalledTimes(1));
+    expect(runtime['scheduler'].accountedUsage().heavySlots).toBe(1);
+    expect(sent.some((message) => JSON.parse(message).kind === 'changes')).toBe(false);
+    const markerQuotesAtRelease = stringify.mock.calls.filter(([value]) => value === marker).length;
+    expect(markerQuotesAtRelease).toBeGreaterThan(0);
+    resolveRelease?.();
+    await vi.waitFor(() =>
+      expect(sent.some((message) => JSON.parse(message).kind === 'changes')).toBe(true),
+    );
+    expect(heavyAtSend).toBe(0);
+    expect(stringify.mock.calls.filter(([value]) => value === marker)).toHaveLength(
+      markerQuotesAtRelease,
+    );
+  } finally {
+    resolveRelease?.();
+    stringify.mockRestore();
+    runtime.close();
+  }
+});
+
+it.each(['checkpoint', 'live', 'disconnect', 'shutdown', 'token'] as const)(
+  'keeps staged replay bound to its stream after evidence release: %s',
+  async (mode) => {
+    const next = { generation: 'g', revision: 'next' };
+    const post = { generation: 'g', revision: 'post' };
+    const before = emptyAuthorityState;
+    const changed = { elements: [element], layers: [], extensions: {} };
+    const afterPost = {
+      elements: [{ ...element, fillColor: 'post-cut' }],
+      layers: [],
+      extensions: {},
+    };
+    const first = {
+      previous: initialAuthorityPosition,
+      position: next,
+      before: authorityReference,
+      after: authorityReference,
+    };
+    const second = { ...first, previous: next, position: post };
+    let settleRelease: (() => void) | undefined;
+    const releaseGate = new Promise<void>((resolve) => {
+      settleRelease = resolve;
+    });
+    const release = vi.fn(() => releaseGate);
+    const checkpoint = vi.fn(async () => ({
+      position: next,
+      state: changed,
+      token: 'capture',
+      expiresAt: Date.now() + 5000,
+      release: async () => undefined,
+    }));
+    const driver = {
+      head: async () => next,
+      readAfter: async (_context: unknown, position: typeof next) => {
+        if (position.revision === 'start')
+          return { status: 'ok' as const, head: next, records: [first] };
+        if (mode === 'checkpoint' && position.revision === 'next' && checkpoint.mock.calls.length)
+          return { status: 'ok' as const, head: post, records: [second] };
+        return { status: 'ok' as const, head: position, records: [] };
+      },
+      readEvidence: async (_context: unknown, record: typeof first) => ({
+        status: 'available' as const,
+        lease: {
+          before: record.position.revision === 'next' ? before : changed,
+          after: record.position.revision === 'next' ? changed : afterPost,
+          token: 'evidence',
+          expiresAt: Date.now() + 5000,
+          release: record.position.revision === 'next' ? release : async () => undefined,
+        },
+      }),
+      checkpoint,
+      claimPublications: async () => [],
+      markPublished: async () => undefined,
+    } as unknown as AuthorityDriver;
+    const offered: string[] = [];
+    const native: string[] = [];
+    const close = vi.fn();
+    const controller = new AbortController();
+    const connection: Connection = {
+      id: `staged-${mode}`,
+      room: 'table',
+      signal: controller.signal,
+      close,
+      send: vi.fn(),
+    };
+    const ws = {
+      readyState: WebSocket.OPEN,
+      send: (message: string, done: (error?: Error) => void) => {
+        native.push(message);
+        done();
+      },
+    } as unknown as WebSocket;
+    const hub = new SyncHub();
+    const transport = new FrameTransport(
+      ws,
+      hub,
+      { connectionId: connection.id, room: connection.room },
+      { authorize: () => true },
+      new FrameBudget(),
+      close,
+    );
+    registerAuthorityConnection(connection, {
+      sendTracked: (message, options) => {
+        offered.push(message);
+        return transport.sendTracked(message, options);
+      },
+    });
+    const runtime = new AuthorityRuntime(
+      {
+        driver,
+        resolveRoom: () => definition,
+        resolveIdentity: () => ({ actorId: 'actor', ownershipId: 'owner' }),
+      },
+      new InMemoryHubFanout(),
+      'worker',
+    );
+    try {
+      expect(runtime.admit(connection, definition)).toBe(true);
+      await runtime.handleMessage(
+        connection.id,
+        JSON.stringify({
+          from: connection.id,
+          op: { kind: 'capabilities', capabilities: createAuthorityCapabilities([]) },
+        }),
+      );
+      await vi.waitFor(() =>
+        expect(runtime['peers'].get(connection.id)?.phase).toBe('awaiting-request'),
+      );
+      offered.length = 0;
+      native.length = 0;
+      runtime.activate(connection.id, initialAuthorityPosition, before);
+      await vi.waitFor(() => expect(release).toHaveBeenCalledTimes(1));
+      const peer = runtime['peers'].get(connection.id);
+      if (!peer) throw new Error('missing replay peer');
+      const oldCursor = peer.cursor;
+      const oldHash = peer.visibleHash;
+      const oldToken = peer.sendToken;
+      const oldStreamToken = peer.streamToken;
+      expect(runtime['scheduler'].accountedUsage().heavySlots).toBe(1);
+      expect(offered).toEqual([]);
+      expect(native).toEqual([]);
+      if (mode === 'checkpoint') {
+        await runtime.handleMessage(
+          connection.id,
+          JSON.stringify({
+            protocol: 'authority:1',
+            kind: 'checkpoint-request',
+            requestId: 'later',
+            generation: 'g',
+          }),
+        );
+        expect(peer.phase).toBe('preparing');
+        expect(peer.streamToken).toBe(oldStreamToken + 1);
+        expect(runtime['scheduler'].accountedUsage().streamSlots).toBe(1);
+        expect(checkpoint).not.toHaveBeenCalled();
+      } else if (mode === 'token') {
+        peer.streamToken++;
+        expect(peer.phase).toBe('live');
+      } else if (mode === 'disconnect') {
+        controller.abort();
+      } else if (mode === 'shutdown') {
+        runtime.close();
+      }
+      expect(runtime['scheduler'].accountedUsage().heavySlots).toBe(1);
+      expect(release).toHaveBeenCalledTimes(1);
+      expect(offered).toEqual([]);
+      expect(native).toEqual([]);
+      settleRelease?.();
+      await vi.waitFor(() => expect(runtime['scheduler'].accountedUsage().heavySlots).toBe(0));
+      expect(release).toHaveBeenCalledTimes(1);
+      if (mode === 'checkpoint') {
+        await vi.waitFor(() => expect(peer.phase).toBe('live'));
+        await vi.waitFor(() => expect(native).toHaveLength(4));
+        const offeredFrames = offered.map((message) => JSON.parse(message));
+        const nativeFrames = native.map((message) => JSON.parse(message));
+        expect(offeredFrames.map((frame) => frame.kind)).toEqual([
+          'checkpoint-begin',
+          'checkpoint-chunk',
+          'checkpoint-end',
+          'changes',
+        ]);
+        expect(nativeFrames.map((frame) => frame.kind)).toEqual(
+          offeredFrames.map((frame) => frame.kind),
+        );
+        const assembler = new AuthorityCheckpointAssembler({
+          requestId: 'later',
+          generation: 'g',
+          requiredExtensions: [],
+        });
+        for (const message of native.slice(0, 3)) {
+          const result = await assembler.accept(message);
+          if (message === native[2]) {
+            expect(result.status).toBe('complete');
+            if (result.status === 'complete') {
+              expect(result.checkpoint.elements).toEqual([element]);
+              expect(result.checkpoint.cursor.revision).toBe(0);
+            }
+          }
+        }
+        assembler.dispose();
+        expect(offeredFrames[3]?.cursor.revision).toBe(1);
+        expect(offeredFrames[3]?.mutations).toContainEqual({
+          kind: 'upsert',
+          element: afterPost.elements[0],
+        });
+        expect(peer.position).toEqual(post);
+        expect(peer.cursor?.revision).toBe(1);
+        expect(peer.cursor?.streamId).not.toBe(oldCursor?.streamId);
+        expect(peer.cursor?.streamId).toBe(offeredFrames[3]?.cursor.streamId);
+        expect(peer.visibleHash).not.toBe(oldHash);
+        expect(peer.sendToken).toBeUndefined();
+        expect(runtime['scheduler'].accountedUsage().streamSlots).toBe(0);
+      } else if (mode === 'live') {
+        await vi.waitFor(() => expect(native).toHaveLength(1));
+        expect(offered.map((message) => JSON.parse(message).kind)).toEqual(['changes']);
+        expect(JSON.parse(native[0] ?? '').cursor.revision).toBe(1);
+        await vi.waitFor(() => expect(peer.position).toEqual(next));
+        expect(peer.cursor?.revision).toBe(1);
+        expect(peer.sendToken).toBeUndefined();
+      } else {
+        expect(offered).toEqual([]);
+        expect(native).toEqual([]);
+        expect(peer.cursor).toEqual(oldCursor);
+        expect(peer.position).toEqual(initialAuthorityPosition);
+        expect(peer.visibleHash).toBe(oldHash);
+        expect(peer.sendToken).toBe(oldToken);
+        if (mode === 'shutdown') expect(close).toHaveBeenCalledWith(1013);
+        else expect(close).not.toHaveBeenCalled();
+      }
+    } finally {
+      settleRelease?.();
+      transport.dispose();
+      runtime.close();
+      hub.close();
+    }
+  },
+);
+
+it.each(['generation', 'definition'] as const)(
+  'abandons an incomplete stream when %s changes before checkpoint-end',
+  async (change) => {
+    let generation = 'g';
+    let currentDefinition: AuthorityRoomDefinition | null = definition;
+    let releaseChunk: (() => void) | undefined;
+    const sent: string[] = [];
+    const close = vi.fn();
+    const driver = {
+      head: async () => ({ generation, revision: 'cut' }),
+      checkpoint: async () => ({
+        position: { generation: 'g', revision: 'cut' },
+        state: emptyAuthorityState,
+        token: 'lease',
+        expiresAt: Date.now() + 5000,
+        release: async () => undefined,
+      }),
+      claimPublications: async () => [],
+      markPublished: async () => undefined,
+    } as unknown as AuthorityDriver;
+    const connection: Connection = {
+      id: 'replacement',
+      room: 'table',
+      signal: new AbortController().signal,
+      close,
+      send: vi.fn(),
+    };
+    registerAuthorityConnection(connection, {
+      sendTracked: (message) => {
+        sent.push(message);
+        if (JSON.parse(message).kind === 'checkpoint-chunk') {
+          const completion = new Promise<void>((resolve) => {
+            releaseChunk = resolve;
+          });
+          return { completion, settled: completion };
+        }
+        return { completion: Promise.resolve(), settled: Promise.resolve() };
+      },
+    });
+    const runtime = new AuthorityRuntime(
+      {
+        driver,
+        resolveRoom: () => currentDefinition,
+        resolveIdentity: () => ({ actorId: 'reader', ownershipId: 'reader' }),
+      },
+      new InMemoryHubFanout(),
+      'worker',
+    );
+    try {
+      runtime.admit(connection, definition);
+      await runtime.handleMessage(
+        'replacement',
+        JSON.stringify({
+          from: 'replacement',
+          op: { kind: 'capabilities', capabilities: createAuthorityCapabilities([]) },
+        }),
+      );
+      sent.length = 0;
+      await runtime.handleMessage(
+        'replacement',
+        JSON.stringify({
+          protocol: 'authority:1',
+          kind: 'checkpoint-request',
+          requestId: 'req',
+          generation: 'g',
+        }),
+      );
+      await vi.waitFor(() => expect(releaseChunk).toBeDefined());
+      if (change === 'generation') generation = 'new-generation';
+      else currentDefinition = null;
+      releaseChunk?.();
+      if (change === 'generation')
+        await vi.waitFor(() =>
+          expect(sent.some((frame) => JSON.parse(frame).kind === 'resync-required')).toBe(true),
+        );
+      else await vi.waitFor(() => expect(close).toHaveBeenCalledWith(1013));
+      expect(sent.some((frame) => JSON.parse(frame).kind === 'checkpoint-end')).toBe(false);
+      if (change === 'generation') expect(close).not.toHaveBeenCalled();
+    } finally {
+      releaseChunk?.();
+      runtime.close();
+    }
+  },
+);
+
+it('keeps a failed chunk stream charged after caller rejection until tracked settlement', async () => {
+  let rejectChunk: ((error: Error) => void) | undefined;
+  let settleChunk: (() => void) | undefined;
+  const close = vi.fn();
+  const cut = { generation: 'g', revision: 'cut' };
+  const driver = {
+    head: async () => cut,
+    checkpoint: async () => ({
+      position: cut,
+      state: emptyAuthorityState,
+      token: 'lease',
+      expiresAt: Date.now() + 5000,
+      release: async () => undefined,
+    }),
+    claimPublications: async () => [],
+    markPublished: async () => undefined,
+  } as unknown as AuthorityDriver;
+  const connection: Connection = {
+    id: 'failed-chunk',
+    room: 'table',
+    signal: new AbortController().signal,
+    close,
+    send: vi.fn(),
+  };
+  registerAuthorityConnection(connection, {
+    sendTracked: (message) => {
+      if (JSON.parse(message).kind === 'checkpoint-chunk') {
+        const completion = new Promise<void>((_resolve, reject) => {
+          rejectChunk = reject;
+        });
+        const settled = new Promise<void>((resolve) => {
+          settleChunk = resolve;
+        });
+        return { completion, settled };
+      }
+      return { completion: Promise.resolve(), settled: Promise.resolve() };
+    },
+  });
+  const runtime = new AuthorityRuntime(
+    {
+      driver,
+      resolveRoom: () => definition,
+      resolveIdentity: () => ({ actorId: 'reader', ownershipId: 'reader' }),
+    },
+    new InMemoryHubFanout(),
+    'worker',
+  );
+  try {
+    runtime.admit(connection, definition);
+    await runtime.handleMessage(
+      connection.id,
+      JSON.stringify({
+        from: connection.id,
+        op: { kind: 'capabilities', capabilities: createAuthorityCapabilities([]) },
+      }),
+    );
+    await runtime.handleMessage(
+      connection.id,
+      JSON.stringify({
+        protocol: 'authority:1',
+        kind: 'checkpoint-request',
+        requestId: 'req',
+        generation: 'g',
+      }),
+    );
+    await vi.waitFor(() => expect(rejectChunk).toBeDefined());
+    rejectChunk?.(new Error('native send failed'));
+    await vi.waitFor(() => expect(close).toHaveBeenCalledWith(1013));
+    const slots = Array.from({ length: 3 }, () => runtime['scheduler'].reserve('stream'));
+    expect(slots.every((release) => typeof release === 'function')).toBe(true);
+    expect(runtime['scheduler'].reserve('stream')).toBeNull();
+    settleChunk?.();
+    await vi.waitFor(() => {
+      const release = runtime['scheduler'].reserve('stream');
+      expect(release).toBeTypeOf('function');
+      release?.();
+    });
+    slots.forEach((release) => release?.());
+  } finally {
+    settleChunk?.();
+    runtime.close();
+  }
+});
+
+it('charges ignored-abort checkpoint release work while an unrelated negotiation progresses', async () => {
+  const cut = { generation: 'g', revision: 'cut' };
+  const releases: (() => void)[] = [];
+  const head = vi.fn(async (_context: { connectionId: string }) => cut);
+  const checkpoint = vi.fn(async (context: { connectionId: string }) => ({
+    position: cut,
+    state: emptyAuthorityState,
+    token: 'lease',
+    expiresAt: Date.now() + 5000,
+    release: context.connectionId.startsWith('held-')
+      ? () =>
+          new Promise<void>((resolve) => {
+            releases.push(resolve);
+          })
+      : async () => undefined,
+  }));
+  const driver = {
+    head,
+    checkpoint,
+    readAfter: async () => ({ status: 'ok', head: cut, records: [] }),
+    claimPublications: async () => [],
+    markPublished: async () => undefined,
+  } as unknown as AuthorityDriver;
+  const runtime = new AuthorityRuntime(
+    {
+      driver,
+      resolveRoom: () => definition,
+      resolveIdentity: () => ({ actorId: 'reader', ownershipId: 'reader' }),
+    },
+    new InMemoryHubFanout(),
+    'worker',
+  );
+  const join = async (id: string) => {
+    const connection: Connection = {
+      id,
+      room: id,
+      signal: new AbortController().signal,
+      close: vi.fn(),
+      send: vi.fn(),
+    };
+    registerAuthorityConnection(connection, {
+      sendTracked: () => ({
+        completion: Promise.resolve(),
+        settled: Promise.resolve(),
+      }),
+    });
+    expect(runtime.admit(connection, definition)).toBe(true);
+    await runtime.handleMessage(
+      id,
+      JSON.stringify({
+        from: id,
+        op: { kind: 'capabilities', capabilities: createAuthorityCapabilities([]) },
+      }),
+    );
+  };
+  try {
+    for (const id of ['held-a', 'held-b']) {
+      await join(id);
+      await runtime.handleMessage(
+        id,
+        JSON.stringify({
+          protocol: 'authority:1',
+          kind: 'checkpoint-request',
+          requestId: id,
+          generation: 'g',
+        }),
+      );
+    }
+    await vi.waitFor(() => expect(releases).toHaveLength(2));
+    expect(runtime['scheduler'].accountedUsage()).toMatchObject({
+      heavySlots: 2,
+      heavyBytes: 512 * 1024 * 1024,
+      heavyNodes: 16_000_000,
+      streamSlots: 2,
+      streamBytes: 48 * 1024 * 1024,
+    });
+    await join('waiting');
+    await runtime.handleMessage(
+      'waiting',
+      JSON.stringify({
+        protocol: 'authority:1',
+        kind: 'checkpoint-request',
+        requestId: 'waiting',
+        generation: 'g',
+      }),
+    );
+    await join('unrelated');
+    expect(head.mock.calls.some((call) => call[0].connectionId === 'unrelated')).toBe(true);
+    expect(checkpoint).toHaveBeenCalledTimes(2);
+    releases[0]?.();
+    await vi.waitFor(() => expect(checkpoint).toHaveBeenCalledTimes(3));
+    runtime.close();
+    expect(runtime['scheduler'].accountedUsage().heavySlots).toBeGreaterThanOrEqual(1);
+    expect(runtime.pinnedDefinitionId('held-b')).toBe('definition');
+    releases[1]?.();
+    await vi.waitFor(() => expect(runtime['scheduler'].accountedUsage().heavySlots).toBe(0));
+    expect(runtime.pinnedDefinitionId('held-b')).toBeUndefined();
+  } finally {
+    releases.forEach((release) => release());
+    runtime.close();
+  }
+});
+
+it('bounds automatic checkpoint resets to two in sixty seconds', async () => {
+  const cut = { generation: 'g', revision: 'cut' };
+  const sent: string[] = [];
+  const close = vi.fn();
+  const connection: Connection = {
+    id: 'resets',
+    room: 'table',
+    signal: new AbortController().signal,
+    close,
+    send: vi.fn(),
+  };
+  registerAuthorityConnection(connection, {
+    sendTracked: (message) => {
+      sent.push(message);
+      return { completion: Promise.resolve(), settled: Promise.resolve() };
+    },
+  });
+  const driver = {
+    head: async () => cut,
+    readAfter: async () => ({ status: 'ok', head: cut, records: [] }),
+    claimPublications: async () => [],
+    markPublished: async () => undefined,
+  } as unknown as AuthorityDriver;
+  const runtime = new AuthorityRuntime(
+    {
+      driver,
+      resolveRoom: () => definition,
+      resolveIdentity: () => ({ actorId: 'reader', ownershipId: 'reader' }),
+    },
+    new InMemoryHubFanout(),
+    'worker',
+  );
+  try {
+    runtime.admit(connection, definition);
+    await runtime.handleMessage(
+      connection.id,
+      JSON.stringify({
+        from: connection.id,
+        op: { kind: 'capabilities', capabilities: createAuthorityCapabilities([]) },
+      }),
+    );
+    runtime.activate(connection.id, cut, emptyAuthorityState);
+    sent.length = 0;
+    const peer = runtime['peers'].get(connection.id);
+    if (!peer) throw new Error('missing peer');
+    const recover = () => {
+      runtime.activate(connection.id, cut, emptyAuthorityState);
+      runtime['dispatchRecovery'](
+        peer,
+        'g',
+        { deadlineAt: Date.now() + 5000, signal: peer.lifetime },
+        { phase: 'live', streamToken: peer.streamToken },
+      );
+    };
+    recover();
+    recover();
+    expect(sent.filter((message) => JSON.parse(message).kind === 'resync-required')).toHaveLength(
+      2,
+    );
+    recover();
+    expect(close).toHaveBeenCalledWith(1013);
+    expect(sent.filter((message) => JSON.parse(message).kind === 'resync-required')).toHaveLength(
+      2,
+    );
+  } finally {
+    runtime.close();
+  }
+});
 
 it.each(['capabilities', 'resync-required'] as const)(
   'frees metadata for live replay, publisher claims, and a ninth head while native %s stalls',
@@ -481,7 +4434,11 @@ it('closes generically after a synchronous capabilities send throw without deliv
   }
 });
 
-async function startResultBoundaryRuntime(driver: AuthorityDriver) {
+async function startResultBoundaryRuntime(
+  driver: AuthorityDriver,
+  localDefinition: AuthorityRoomDefinition = definition,
+  resolveRoom: () => AuthorityRoomDefinition = () => localDefinition,
+) {
   const sent: string[] = [];
   const close = vi.fn();
   const connection: Connection = {
@@ -500,13 +4457,13 @@ async function startResultBoundaryRuntime(driver: AuthorityDriver) {
   const runtime = new AuthorityRuntime(
     {
       driver,
-      resolveRoom: () => definition,
+      resolveRoom,
       resolveIdentity: () => ({ actorId: 'reader', ownershipId: 'reader' }),
     },
     new InMemoryHubFanout(),
     'boundary-worker',
   );
-  expect(runtime.admit(connection, definition)).toBe(true);
+  expect(runtime.admit(connection, localDefinition)).toBe(true);
   await runtime.handleMessage(
     connection.id,
     JSON.stringify({

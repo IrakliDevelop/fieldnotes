@@ -29,6 +29,15 @@ export interface AuthorityTrackedSend {
   readonly settled: Promise<void>;
 }
 
+/** Private checkpoint delivery guard; it runs after policy authorization for this job. */
+export interface AuthorityTrackedSendOptions {
+  readonly validate?: (job: {
+    readonly deadlineAt: number;
+    readonly signal: AbortSignal;
+  }) => boolean | Promise<boolean>;
+  readonly current?: () => boolean;
+}
+
 function deliveryFailure(): Error {
   return new Error('frame delivery failed');
 }
@@ -156,15 +165,19 @@ export class FrameTransport {
   }
 
   /** Kept package-internal through the guarded connection binding. */
-  sendTracked(message: string): AuthorityTrackedSend {
+  sendTracked(message: string, options?: AuthorityTrackedSendOptions): AuthorityTrackedSend {
     if (this.disposed)
       return { completion: Promise.reject(deliveryFailure()), settled: Promise.resolve() };
     const job = this.admit(message);
     if (!job) return { completion: Promise.reject(deliveryFailure()), settled: Promise.resolve() };
-    return this.enqueueOutbound(message, job);
+    return this.enqueueOutbound(message, job, options);
   }
 
-  private enqueueOutbound(message: string, job: Job): AuthorityTrackedSend {
+  private enqueueOutbound(
+    message: string,
+    job: Job,
+    options?: AuthorityTrackedSendOptions,
+  ): AuthorityTrackedSend {
     let resolveSettled: () => void = () => undefined;
     const settled = new Promise<void>((resolve) => {
       resolveSettled = resolve;
@@ -180,6 +193,33 @@ export class FrameTransport {
       .enqueue(
         async () => {
           if (!(await this.authorize('outbound', message, job)) || !this.current(job)) return;
+          if (options?.validate) {
+            try {
+              if (
+                (await options.validate({
+                  deadlineAt: job.deadlineAt,
+                  signal: job.controller.signal,
+                })) !== true
+              ) {
+                if (this.current(job)) this.invalidate(job, 1013);
+                return;
+              }
+            } catch {
+              if (this.current(job)) this.invalidate(job, 1013);
+              return;
+            }
+          }
+          if (!this.current(job)) return;
+          try {
+            if (options?.current && !options.current()) {
+              this.invalidate(job, 1013);
+              return;
+            }
+          } catch {
+            this.invalidate(job, 1013);
+            return;
+          }
+          if (!this.current(job)) return;
           await new Promise<void>((resolve) => {
             let observed = false;
             const complete = (error?: Error) => {

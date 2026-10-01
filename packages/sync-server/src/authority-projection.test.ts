@@ -1,11 +1,13 @@
 import { createHash } from 'node:crypto';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { serializeAuthorityFrame } from '@fieldnotes/sync';
 import type {
   AuthorityRoomDefinition,
   AuthorityReadContext,
   AuthorityState,
 } from './authority-types';
 import { projectAuthorityChange, projectAuthorityState } from './authority-projection';
+import { measureAuthorityJson } from './authority-json';
 
 const element = (id: string, audience = 'public') => ({
   id,
@@ -86,6 +88,39 @@ const canonicalBytes = (value: unknown): string => {
 };
 
 describe('commit-coherent authority projection', () => {
+  it('accepts independent small callback output after a large cloned input is enlarged', () => {
+    const largeInput: AuthorityState = {
+      elements: [],
+      layers: [],
+      extensions: { synthetic: { pluginName: 'test', version: 1, data: 'x'.repeat(18_000_000) } },
+    };
+    const independent: AuthorityState = state([], 0);
+    let invoked = false;
+    const projecting: AuthorityRoomDefinition = {
+      ...definition,
+      extensions: [
+        { ...extension, requirement: { ...extension.requirement, validate: () => true } },
+      ],
+      project: (_context, input) => {
+        invoked = true;
+        expect(input).not.toBe(largeInput);
+        const mutable = input as {
+          extensions: Record<string, { pluginName: string; version: number; data: unknown }>;
+        };
+        mutable.extensions.synthetic = {
+          pluginName: 'test',
+          version: 1,
+          data: 'z'.repeat(19_000_000),
+        };
+        return independent;
+      },
+    };
+    const visible = projectAuthorityState(projecting, context, largeInput);
+    expect(visible.state).toEqual(independent);
+    expect(visible.state).not.toBe(independent);
+    expect(invoked).toBe(true);
+    expect(largeInput.extensions.synthetic?.data).toBe('x'.repeat(18_000_000));
+  }, 30_000);
   it('preserves exact Unicode identities and canonicalizes every element/layer permutation', () => {
     const ids = ['\u00e9', 'e\u0301', '\u{10000}', '\ue000'];
     const expectedIds = ['e\u0301', '\u00e9', '\u{10000}', '\ue000'];
@@ -472,4 +507,243 @@ describe('commit-coherent authority projection', () => {
       ).status,
     ).toBe('checkpoint');
   });
+
+  it('validates later changed extensions after an earlier empty or oversized result', () => {
+    const first = {
+      ...extension,
+      requirement: { ...extension.requirement, key: 'first', validate: () => true },
+    };
+    const second = {
+      ...extension,
+      requirement: { ...extension.requirement, key: 'second', validate: () => true },
+      changes: () => [{ kind: 'extension' as const, extensionKind: 'wrong', payload: 1 }],
+    };
+    const make = (data: string): AuthorityState => ({
+      elements: [],
+      layers: [],
+      extensions: {
+        first: { pluginName: 'test', version: 1, data },
+        second: { pluginName: 'test', version: 1, data },
+      },
+    });
+    for (const changes of [
+      () => [],
+      () => [
+        {
+          kind: 'extension' as const,
+          extensionKind: 'synthetic-change',
+          payload: 'x'.repeat(1_100_000),
+        },
+      ],
+    ]) {
+      const checked = { ...definition, extensions: [{ ...first, changes }, second] };
+      expect(() =>
+        projectAuthorityChange(checked, context, make('old'), make('new'), cursor),
+      ).toThrow('Invalid authority extension mutation');
+    }
+  });
+
+  it('falls back before serializing a near-limit changed element or oversized extension payload', () => {
+    const large = { ...element('large'), id: 'large', strokeColor: 'x'.repeat(19_000_000) };
+    const stringify = vi.spyOn(JSON, 'stringify');
+    try {
+      const moved = { ...large, position: { x: 1, y: 0 } };
+      expect(
+        projectAuthorityChange(definition, context, state([large]), state([moved]), cursor).status,
+      ).toBe('checkpoint');
+      const largeExtension = {
+        ...definition,
+        extensions: [
+          {
+            ...extension,
+            requirement: { ...extension.requirement, validate: () => true },
+            changes: () => [
+              {
+                kind: 'extension' as const,
+                extensionKind: 'synthetic-change',
+                payload: 'x'.repeat(19_000_000),
+              },
+            ],
+          },
+        ],
+      };
+      expect(
+        projectAuthorityChange(
+          largeExtension,
+          context,
+          state([], 'old' as unknown as number),
+          state([], 'new' as unknown as number),
+          cursor,
+        ).status,
+      ).toBe('checkpoint');
+      expect(
+        stringify.mock.calls.every(([value]) => typeof value !== 'string' || value.length <= 8192),
+      ).toBe(true);
+    } finally {
+      stringify.mockRestore();
+    }
+  }, 30_000);
+
+  it('keeps the candidate batch at 1024 mutations and recovers at 1025', () => {
+    const make = (count: number) => ({
+      ...definition,
+      extensions: [
+        {
+          ...extension,
+          changes: () =>
+            Array.from({ length: count }, (_, index) => ({
+              kind: 'extension' as const,
+              extensionKind: 'synthetic-change',
+              payload: index,
+            })),
+        },
+      ],
+    });
+    const fitting = projectAuthorityChange(make(1024), context, state([], 0), state([], 1), cursor);
+    expect(fitting.status).toBe('changes');
+    if (fitting.status === 'changes') expect(fitting.mutations).toHaveLength(1024);
+    expect(
+      projectAuthorityChange(make(1025), context, state([], 0), state([], 1), cursor).status,
+    ).toBe('checkpoint');
+  });
+
+  it('matches additive byte/node preflight to whole Unicode and escaped envelopes', () => {
+    const candidates = [
+      { kind: 'extension' as const, extensionKind: 'synthetic-change', payload: { é: '\n🪐' } },
+      { kind: 'extension' as const, extensionKind: 'synthetic-change', payload: '"\\\u0000' },
+      { kind: 'extension' as const, extensionKind: 'synthetic-change', payload: 17 },
+    ];
+    const empty = measureAuthorityJson({
+      protocol: 'authority:1',
+      kind: 'changes',
+      cursor,
+      mutations: [],
+    });
+    for (const count of [0, 1, 3]) {
+      const mutations = candidates.slice(0, count);
+      const parts = mutations.map((mutation) => measureAuthorityJson(mutation));
+      const additiveBytes =
+        empty.bytes + parts.reduce((sum, part) => sum + part.bytes, 0) + Math.max(0, count - 1);
+      const additiveNodes = empty.nodes + parts.reduce((sum, part) => sum + part.nodes, 0);
+      const frame = {
+        protocol: 'authority:1' as const,
+        kind: 'changes' as const,
+        cursor,
+        mutations,
+      };
+      const whole = measureAuthorityJson(frame);
+      expect([additiveBytes, additiveNodes]).toEqual([whole.bytes, whole.nodes]);
+      if (count > 0)
+        expect(Buffer.byteLength(serializeAuthorityFrame(frame), 'utf8')).toBe(additiveBytes);
+    }
+  });
+
+  it('admits exact F escaped Unicode changes and recovers one byte over', () => {
+    const changed: AuthorityRoomDefinition = {
+      ...definition,
+      extensions: [
+        { ...extension, requirement: { ...extension.requirement, validate: () => true } },
+      ],
+    };
+    const make = (data: string): AuthorityState => ({
+      elements: [],
+      layers: [],
+      extensions: { synthetic: { pluginName: 'test', version: 1, data } },
+    });
+    const before = make('old');
+    const base = projectAuthorityChange(changed, context, before, make(''), cursor);
+    expect(base.status).toBe('changes');
+    if (base.status !== 'changes') return;
+    const baseFrame = {
+      protocol: 'authority:1' as const,
+      kind: 'changes' as const,
+      cursor,
+      mutations: base.mutations,
+    };
+    const prefix = '🪐\n'; // 4 UTF-8 bytes plus a two-byte JSON escape
+    const exactPayload = prefix + 'x'.repeat(1_048_576 - measureAuthorityJson(baseFrame).bytes - 6);
+    const exact = projectAuthorityChange(changed, context, before, make(exactPayload), cursor);
+    expect(exact.status).toBe('changes');
+    if (exact.status === 'changes') {
+      const frame = { ...baseFrame, mutations: exact.mutations };
+      expect(measureAuthorityJson(frame, 1_048_576, 524_289).bytes).toBe(1_048_576);
+      expect(Buffer.byteLength(serializeAuthorityFrame(frame), 'utf8')).toBe(1_048_576);
+    }
+    expect(
+      projectAuthorityChange(changed, context, before, make(`${exactPayload}x`), cursor).status,
+    ).toBe('checkpoint');
+  }, 30_000);
+
+  it('projects two independent near-B evidence images while retaining both source roots', () => {
+    const make = (text: string): AuthorityState => ({
+      elements: [
+        {
+          id: 'large',
+          type: 'note',
+          position: { x: 0, y: 0 },
+          zIndex: 0,
+          locked: false,
+          layerId: 'default',
+          size: { w: 1, h: 1 },
+          text,
+          backgroundColor: 'white',
+          textColor: 'black',
+        },
+      ],
+      layers: [],
+      extensions: { synthetic: { pluginName: 'test', version: 1, data: 0 } },
+    });
+    const before = make('a'.repeat(20_900_000));
+    const after = make('b'.repeat(20_900_000));
+    const old = measureAuthorityJson(before);
+    const next = measureAuthorityJson(after);
+    expect(before).not.toBe(after);
+    expect(old.bytes).toBeGreaterThan(20_899_000);
+    expect(next.bytes).toBeGreaterThan(20_899_000);
+    expect(old.nodes).toBe(next.nodes);
+    const roots: AuthorityState[] = [];
+    const projecting: AuthorityRoomDefinition = {
+      ...definition,
+      project: (_context, input) => {
+        roots.push(input);
+        return input;
+      },
+    };
+    const projected = projectAuthorityChange(projecting, context, before, after, cursor);
+    expect(projected.status).toBe('checkpoint');
+    expect(roots).toHaveLength(2);
+    expect(roots[0]).not.toBe(before);
+    expect(roots[1]).not.toBe(after);
+    expect(roots[0]).not.toBe(roots[1]);
+    console.info(
+      `independent replay: before ${old.bytes} bytes/${old.nodes} nodes, after ${next.bytes} bytes/${next.nodes} nodes`,
+    );
+  }, 30_000);
+
+  it('keeps an independent near-B hidden-only evidence change silent', () => {
+    const make = (text: string): AuthorityState => ({
+      elements: [
+        {
+          id: 'hidden',
+          type: 'note',
+          audience: 'hidden',
+          position: { x: 0, y: 0 },
+          zIndex: 0,
+          locked: false,
+          layerId: 'default',
+          size: { w: 1, h: 1 },
+          text,
+          backgroundColor: 'white',
+          textColor: 'black',
+        },
+      ],
+      layers: [],
+      extensions: { synthetic: { pluginName: 'test', version: 1, data: 0 } },
+    });
+    const before = make('a'.repeat(20_900_000));
+    const after = make('b'.repeat(20_900_000));
+    expect(projectAuthorityChange(definition, context, before, after, cursor).status).toBe(
+      'silent',
+    );
+  }, 30_000);
 });

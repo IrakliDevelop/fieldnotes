@@ -1,11 +1,11 @@
-import { isValidElement, isValidLayerRecord, parseAuthorityServerFrame } from '@fieldnotes/sync';
+import { isValidElement, isValidLayerRecord } from '@fieldnotes/sync';
 import type {
   AuthorityCursor,
   AuthorityMutation,
   LayerRecord,
   SyncElement,
 } from '@fieldnotes/sync';
-import { hashAuthorityJson } from './authority-json';
+import { hashAuthorityJson, measureAuthorityJson } from './authority-json';
 import type {
   AuthorityReadContext,
   AuthorityRoomDefinition,
@@ -26,6 +26,8 @@ function validState(state: AuthorityState, definition: AuthorityRoomDefinition):
     Array.isArray(state.extensions)
   )
     throw new TypeError('Invalid authority state');
+  // Bound the complete returned tree before ID sets, Object.keys, or SDK-owned copies.
+  hashAuthorityJson(state);
   const ids = new Set<string>();
   for (const element of state.elements) {
     if (!isValidElement(element) || ids.has(element.id))
@@ -52,7 +54,6 @@ function validState(state: AuthorityState, definition: AuthorityRoomDefinition):
     )
       throw new TypeError('Invalid authority extension');
   }
-  hashAuthorityJson(state);
 }
 
 export interface AuthorityVisibleState {
@@ -60,25 +61,12 @@ export interface AuthorityVisibleState {
   readonly hash: string;
 }
 
-/** Consume a complete pinned image, never a later backend read. */
-export function projectAuthorityState(
-  definition: AuthorityRoomDefinition,
-  context: AuthorityReadContext,
-  source: AuthorityState,
-): AuthorityVisibleState {
-  validState(source, definition);
-  const input = structuredClone(source);
-  let output: AuthorityState;
-  let ownerVisible: boolean;
-  try {
-    output = definition.project(context, input);
-    ownerVisible = definition.canReadOwnerId(context);
-  } catch {
-    throw new TypeError('Authority projection failed');
-  }
-  validState(output, definition);
-  const originals = new Map(source.elements.map((element) => [element.id, element]));
-  const originalLayers = new Map(source.layers.map((layer) => [layer.id, layer]));
+/** Source lookup maps leave scope before the fifth independent visible image is cloned. */
+function validateProjectedSubset(source: AuthorityState, output: AuthorityState): void {
+  const originals = new Map<string, AuthorityState['elements'][number]>();
+  for (const element of source.elements) originals.set(element.id, element);
+  const originalLayers = new Map<string, AuthorityState['layers'][number]>();
+  for (const layer of source.layers) originalLayers.set(layer.id, layer);
   for (const element of output.elements) {
     const original = originals.get(element.id);
     if (!original || hashAuthorityJson(original) !== hashAuthorityJson(element))
@@ -89,6 +77,34 @@ export function projectAuthorityState(
     if (!original || hashAuthorityJson(original) !== hashAuthorityJson(layer))
       throw new TypeError('Authority projection introduced layer');
   }
+}
+
+/** The callback input clone leaves this frame before the independent output is checked/copied. */
+function invokeProjection(
+  definition: AuthorityRoomDefinition,
+  context: AuthorityReadContext,
+  source: AuthorityState,
+): AuthorityState {
+  return definition.project(context, structuredClone(source));
+}
+
+/** Consume a complete pinned image, never a later backend read. */
+export function projectAuthorityState(
+  definition: AuthorityRoomDefinition,
+  context: AuthorityReadContext,
+  source: AuthorityState,
+): AuthorityVisibleState {
+  validState(source, definition);
+  let output: AuthorityState;
+  let ownerVisible: boolean;
+  try {
+    output = invokeProjection(definition, context, source);
+    ownerVisible = definition.canReadOwnerId(context);
+  } catch {
+    throw new TypeError('Authority projection failed');
+  }
+  validState(output, definition);
+  validateProjectedSubset(source, output);
   const elements: SyncElement[] = output.elements
     .map((element) => {
       const clone = structuredClone(element) as SyncElement;
@@ -140,6 +156,60 @@ function layerMutation(layer: LayerRecord): AuthorityMutation {
     : { kind: 'layer-remove', id: layer.id, version: layer.version, editor: layer.editor };
 }
 
+/** The full-after tombstone lookup ends before any extension callback is entered. */
+function diffLayerRemovals(
+  before: readonly LayerRecord[],
+  after: readonly LayerRecord[],
+  fullAfter: readonly LayerRecord[],
+  add: (mutation: AuthorityMutation) => void,
+): boolean {
+  const full = new Map<string, AuthorityState['layers'][number]>();
+  for (const layer of fullAfter) full.set(layer.id, layer);
+  let next = 0;
+  let missingTombstone = false;
+  for (const layer of before) {
+    for (;;) {
+      const candidate = after[next];
+      if (!candidate || candidate.id >= layer.id) break;
+      next++;
+    }
+    if (after[next]?.id === layer.id) continue;
+    const tombstone = full.get(layer.id);
+    if (!tombstone || tombstone.definition) missingTombstone = true;
+    else add(layerMutation(tombstone));
+  }
+  return missingTombstone;
+}
+
+function validatedExtensionChanges(
+  extension: AuthorityRoomDefinition['extensions'][number],
+  oldData: unknown,
+  newData: unknown,
+  add: (mutation: AuthorityMutation) => void,
+): boolean {
+  let changes: readonly AuthorityMutation[];
+  try {
+    changes = extension.changes(oldData, newData);
+  } catch {
+    throw new TypeError('Authority extension projection failed');
+  }
+  if (!Array.isArray(changes)) throw new TypeError('Invalid authority extension changes');
+  hashAuthorityJson(changes);
+  for (const mutation of changes) {
+    if (
+      !mutation ||
+      typeof mutation !== 'object' ||
+      Object.keys(mutation).length !== 3 ||
+      !Object.hasOwn(mutation, 'payload') ||
+      mutation.kind !== 'extension' ||
+      !extension.extensionKinds.includes(mutation.extensionKind)
+    )
+      throw new TypeError('Invalid authority extension mutation');
+    add(mutation);
+  }
+  return changes.length === 0;
+}
+
 export function projectAuthorityChange(
   definition: AuthorityRoomDefinition,
   context: AuthorityReadContext,
@@ -151,69 +221,88 @@ export function projectAuthorityChange(
   const newVisible = projectAuthorityState(definition, context, after);
   if (oldVisible.hash === newVisible.hash)
     return { status: 'silent', before: oldVisible, after: newVisible };
-  const mutations: AuthorityMutation[] = [];
-  const oldElements = new Map(oldVisible.state.elements.map((element) => [element.id, element]));
-  const newElements = new Map(newVisible.state.elements.map((element) => [element.id, element]));
-  for (const id of [...oldElements.keys()].sort(compareAuthorityIds))
-    if (!newElements.has(id)) mutations.push({ kind: 'remove', id });
-  for (const [id, element] of [...newElements].sort(([a], [b]) => compareAuthorityIds(a, b))) {
-    if (!oldElements.has(id) || !equivalent(oldElements.get(id), element))
-      mutations.push({ kind: 'upsert', element });
-  }
-  const oldLayers = new Map(oldVisible.state.layers.map((layer) => [layer.id, layer]));
-  const newLayers = new Map(newVisible.state.layers.map((layer) => [layer.id, layer]));
-  const fullAfterLayers = new Map(after.layers.map((layer) => [layer.id, layer]));
-  for (const [id] of [...oldLayers].sort(([a], [b]) => compareAuthorityIds(a, b))) {
-    if (!newLayers.has(id)) {
-      const tombstone = fullAfterLayers.get(id);
-      if (!tombstone || tombstone.definition)
-        return { status: 'checkpoint', before: oldVisible, after: newVisible };
-      mutations.push(layerMutation(tombstone));
+  let mutations: AuthorityMutation[] = [];
+  let recovery = false;
+  const emptyEnvelope = measureAuthorityJson(
+    { protocol: 'authority:1', kind: 'changes', cursor, mutations: [] },
+    1_048_576,
+    524_289,
+  );
+  let completeBytes = emptyEnvelope.bytes;
+  let completeNodes = emptyEnvelope.nodes;
+  const add = (mutation: AuthorityMutation): void => {
+    if (recovery) return;
+    if (mutations.length >= 1024) {
+      mutations = [];
+      recovery = true;
+      return;
     }
+    const comma = mutations.length === 0 ? 0 : 1;
+    try {
+      const measured = measureAuthorityJson(
+        mutation,
+        1_048_576 - completeBytes - comma,
+        524_289 - completeNodes,
+      );
+      completeBytes += measured.bytes + comma;
+      completeNodes += measured.nodes;
+    } catch (error) {
+      if (!(error instanceof RangeError)) throw error;
+      mutations = [];
+      recovery = true;
+      return;
+    }
+    mutations.push(mutation);
+  };
+  const oldElements = oldVisible.state.elements;
+  const newElements = newVisible.state.elements;
+  let next = 0;
+  for (const element of oldElements) {
+    for (;;) {
+      const candidate = newElements[next];
+      if (!candidate || candidate.id >= element.id) break;
+      next++;
+    }
+    if (newElements[next]?.id !== element.id) add({ kind: 'remove', id: element.id });
   }
-  for (const [id, layer] of [...newLayers].sort(([a], [b]) => compareAuthorityIds(a, b))) {
-    if (!oldLayers.has(id) || !equivalent(oldLayers.get(id), layer))
-      mutations.push(layerMutation(layer));
+  next = 0;
+  for (const element of newElements) {
+    for (;;) {
+      const candidate = oldElements[next];
+      if (!candidate || candidate.id >= element.id) break;
+      next++;
+    }
+    if (oldElements[next]?.id !== element.id || !equivalent(oldElements[next], element))
+      add({ kind: 'upsert', element });
+  }
+  const oldLayers = oldVisible.state.layers;
+  const newLayers = newVisible.state.layers;
+  if (diffLayerRemovals(oldLayers, newLayers, after.layers, add)) recovery = true;
+  next = 0;
+  for (const layer of newLayers) {
+    for (;;) {
+      const candidate = oldLayers[next];
+      if (!candidate || candidate.id >= layer.id) break;
+      next++;
+    }
+    if (oldLayers[next]?.id !== layer.id || !equivalent(oldLayers[next], layer))
+      add(layerMutation(layer));
   }
   for (const extension of definition.extensions) {
     const key = extension.requirement.key;
     const oldData = oldVisible.state.extensions[key]?.data;
     const newData = newVisible.state.extensions[key]?.data;
     if (equivalent(oldData, newData)) continue;
-    let changes: readonly AuthorityMutation[];
-    try {
-      changes = extension.changes(oldData, newData);
-    } catch {
-      throw new TypeError('Authority extension projection failed');
-    }
-    if (!Array.isArray(changes)) throw new TypeError('Invalid authority extension changes');
-    // Validate the complete callback result before deciding whether it fits a wire frame.
-    hashAuthorityJson(changes);
-    if (changes.length === 0)
-      return { status: 'checkpoint', before: oldVisible, after: newVisible };
-    for (const mutation of changes) {
-      if (
-        !mutation ||
-        typeof mutation !== 'object' ||
-        Object.keys(mutation).length !== 3 ||
-        !Object.hasOwn(mutation, 'payload') ||
-        mutation.kind !== 'extension' ||
-        !extension.extensionKinds.includes(mutation.extensionKind)
-      )
-        throw new TypeError('Invalid authority extension mutation');
-      mutations.push(mutation);
-    }
+    if (validatedExtensionChanges(extension, oldData, newData, add)) recovery = true;
   }
-  if (mutations.length > 1024)
-    return { status: 'checkpoint', before: oldVisible, after: newVisible };
-  const encoded = JSON.stringify({
-    protocol: 'authority:1',
-    kind: 'changes',
-    cursor,
-    mutations,
-  });
-  if (Buffer.byteLength(encoded, 'utf8') > 1_048_576)
-    return { status: 'checkpoint', before: oldVisible, after: newVisible };
-  if (!parseAuthorityServerFrame(encoded)) throw new TypeError('Invalid authority changes frame');
+  if (recovery) return { status: 'checkpoint', before: oldVisible, after: newVisible };
+  // The additive preflight is exact; one complete traversal checks the final inert envelope.
+  const complete = measureAuthorityJson(
+    { protocol: 'authority:1', kind: 'changes', cursor, mutations },
+    1_048_576,
+    524_289,
+  );
+  if (complete.bytes !== completeBytes || complete.nodes !== completeNodes)
+    throw new Error('Authority changes measurement mismatch');
   return { status: 'changes', before: oldVisible, after: newVisible, mutations };
 }

@@ -71,7 +71,7 @@ describe('authority admission', () => {
     expect(() => resolveAuthorityIdentity(options, connection)).toThrow();
   });
 
-  it('fails closed on resolver faults and keeps factory authority explicitly incomplete', () => {
+  it('fails closed on resolver faults and requires guarded factory authority', async () => {
     const options = {
       driver: {},
       resolveRoom: () => {
@@ -83,12 +83,11 @@ describe('authority admission', () => {
     expect(() => createSyncServer({ authority: options })).toThrow(
       'requires framePolicy and authenticate',
     );
-    expect(() =>
-      createSyncServer({
-        authority: options,
-        framePolicy: {},
-        authenticate: async () => ({ userId: 'actor' }),
-      }),
-    ).toThrow('not complete');
+    const server = createSyncServer({
+      authority: options,
+      framePolicy: {},
+      authenticate: async () => ({ userId: 'actor' }),
+    });
+    await server.close();
   });
 });

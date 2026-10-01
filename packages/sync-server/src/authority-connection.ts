@@ -1,8 +1,11 @@
 import type { Connection } from './sync-hub';
-import type { AuthorityTrackedSend } from './frame-transport';
+import type { AuthorityTrackedSend, AuthorityTrackedSendOptions } from './frame-transport';
 
 export interface AuthorityConnectionBinding {
-  readonly sendTracked: (message: string) => AuthorityTrackedSend;
+  readonly sendTracked: (
+    message: string,
+    options?: AuthorityTrackedSendOptions,
+  ) => AuthorityTrackedSend;
 }
 
 const bindings = new WeakMap<Connection, AuthorityConnectionBinding>();

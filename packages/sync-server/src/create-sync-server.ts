@@ -138,7 +138,6 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
   if (options.authority) {
     if (!options.framePolicy || !options.authenticate)
       throw new Error('createSyncServer: authority requires framePolicy and authenticate');
-    throw new Error('createSyncServer: authority runtime not complete until checkpoint streaming');
   }
   const framePolicy = options.framePolicy;
   if (framePolicy !== undefined) {
@@ -183,6 +182,7 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
     throw new Error('createSyncServer: `authorize` requires an `authenticate` hook');
   }
   const hub = new SyncHub({
+    authority: options.authority,
     backend: options.backend,
     fanout: options.fanout,
     instanceId: options.instanceId,
@@ -474,14 +474,14 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
         };
         if (frameTransport) {
           registerAuthorityConnection(connection, {
-            sendTracked: (message) => {
+            sendTracked: (message, options) => {
               if (closed || state !== 'ready' || isExpired() || !frameTransport) {
                 return {
                   completion: Promise.reject(new Error('frame delivery failed')),
                   settled: Promise.resolve(),
                 };
               }
-              return frameTransport.sendTracked(message);
+              return frameTransport.sendTracked(message, options);
             },
           });
         }

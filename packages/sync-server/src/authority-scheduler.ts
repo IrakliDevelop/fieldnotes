@@ -1,5 +1,8 @@
 type WorkKind = 'metadata' | 'heavy' | 'commit';
 const PUBLISHER = Symbol('authority-publisher');
+const HEAVY_RESERVED_BYTES = 256 * 1024 * 1024;
+const HEAVY_RESERVED_NODES = 8_000_000;
+const STREAM_RESERVED_BYTES = 24 * 1024 * 1024;
 interface Descriptor {
   kind: WorkKind;
   run: () => Promise<void>;
@@ -24,6 +27,23 @@ export class AuthorityScheduler {
   private readonly ready = new Map<string | typeof PUBLISHER, Descriptor>();
   private prospective = 0;
   private closed = false;
+
+  /** Fixed upper-bound charge, retained until each reserved operation actually settles. */
+  accountedUsage(): {
+    readonly heavySlots: number;
+    readonly heavyBytes: number;
+    readonly heavyNodes: number;
+    readonly streamSlots: number;
+    readonly streamBytes: number;
+  } {
+    return {
+      heavySlots: this.usage.heavy,
+      heavyBytes: this.usage.heavy * HEAVY_RESERVED_BYTES,
+      heavyNodes: this.usage.heavy * HEAVY_RESERVED_NODES,
+      streamSlots: this.usage.stream,
+      streamBytes: this.usage.stream * STREAM_RESERVED_BYTES,
+    };
+  }
 
   admitPeer(
     id: string,
