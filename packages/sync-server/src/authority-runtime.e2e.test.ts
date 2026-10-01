@@ -6,10 +6,18 @@ import {
   createAuthorityCapabilities,
   createAuthorityOperationId,
   parseAuthorityServerFrame,
+  prepareAuthorityCheckpoint,
 } from '@fieldnotes/sync';
 import { createSyncServer } from './create-sync-server';
+import { prepareAuthorityProposal } from './authority-proposal';
+import { prepareAuthorityIntent } from './authority-intent';
+import { projectAuthorityState } from './authority-projection';
 import { AuthorityFixtureDriver, AuthorityFixtureStore } from './test-support/authority-driver';
-import type { AuthorityDriver, AuthorityRoomDefinition } from './authority-types';
+import type {
+  AuthorityDriver,
+  AuthorityExtension,
+  AuthorityRoomDefinition,
+} from './authority-types';
 
 const definition: AuthorityRoomDefinition = {
   id: 'definition',
@@ -26,6 +34,151 @@ afterEach(async () => {
   for (const server of servers) await server.close();
   servers.length = 0;
 });
+
+it('delivers a committed depth-64 Unicode extension after atomic depth-65 rejection', async () => {
+  const nested = (arrayCount: number): unknown => {
+    let value: unknown = { ['😀']: 'é😀' };
+    for (let index = 0; index < arrayCount; index++) value = [value];
+    return value;
+  };
+  let arrayCount = 60;
+  const extension: AuthorityExtension = {
+    requirement: { key: 'unicode', pluginName: 'vtt', version: 1, validate: () => true },
+    extensionKinds: ['unicode:update'],
+    prepare: () => nested(arrayCount) as never,
+    changes: () => [],
+  };
+  const roomDefinition: AuthorityRoomDefinition = { ...definition, extensions: [extension] };
+  const store = new AuthorityFixtureStore();
+  store.now = Date.now();
+  store.provision('table');
+  store.policy.extensions = [extension];
+  store.policy.canUseExtension = () => true;
+  const driver = new AuthorityFixtureDriver(store);
+  const read = {
+    room: 'table',
+    actorId: 'actor',
+    ownershipId: 'owner',
+    connectionId: 'connection',
+    definitionId: 'definition',
+    deadlineAt: store.now + 60_000,
+    signal: new AbortController().signal,
+  };
+  const commit = async (issuedAt: number) => {
+    const prepared = prepareAuthorityProposal(
+      read,
+      JSON.stringify({
+        protocol: 'authority:1',
+        kind: 'propose',
+        generation: 'g',
+        clientOperationId: createAuthorityOperationId(issuedAt),
+        mutation: { kind: 'extension', extensionKind: 'unicode:update', payload: {} },
+      }),
+    );
+    return driver.commit(
+      { ...prepared.context, ownershipId: 'owner', definitionId: 'definition' },
+      {
+        proposal: prepared.proposal,
+        intent: prepareAuthorityIntent(prepared.proposal, [extension]),
+      },
+    );
+  };
+  expect((await commit(store.now)).status).toBe('committed');
+  const room = store.getRoom('table');
+  if (!room) throw new Error('Expected room');
+  const before = {
+    state: room.state,
+    position: room.position,
+    cas: room.casToken,
+    dedupe: room.dedupe.size,
+    floor: room.retiredIssuedAtFloor,
+    images: room.images.size,
+    entries: room.entries.length,
+  };
+  arrayCount = 61;
+  expect(await commit(store.now + 1)).toEqual({ status: 'rejected', reason: 'overloaded' });
+  expect(room.state).toBe(before.state);
+  expect(room.position).toBe(before.position);
+  expect(room.casToken).toBe(before.cas);
+  expect(room.dedupe.size).toBe(before.dedupe);
+  expect(room.retiredIssuedAtFloor).toBe(before.floor);
+  expect(room.images.size).toBe(before.images);
+  expect(room.entries).toHaveLength(before.entries);
+
+  const visible = projectAuthorityState(roomDefinition, read, room.state);
+  expect(visible.state.extensions.unicode?.data).toEqual(nested(60));
+  const capture = await driver.checkpoint(read, read);
+  const c2 = await prepareAuthorityCheckpoint(
+    {
+      cursor: { generation: 'g', streamId: '0'.repeat(32), revision: 0 },
+      ...capture.state,
+    },
+    { requestId: 'direct', checkpointId: 'direct', requiredExtensions: [extension.requirement] },
+  );
+  c2.dispose();
+  await capture.release();
+
+  const server = createSyncServer({
+    port: 0,
+    authenticate: () => ({ userId: 'actor' }),
+    framePolicy: { authorize: () => true },
+    authority: {
+      driver,
+      resolveRoom: (roomName) => (roomName === 'table' ? roomDefinition : null),
+      resolveIdentity: () => ({ actorId: 'actor', ownershipId: 'owner' }),
+    },
+  });
+  servers.push(server);
+  const port = (server.wss.address() as AddressInfo).port;
+  const socket = new WebSocket(`ws://127.0.0.1:${port}?room=table`);
+  sockets.push(socket);
+  const frames: string[] = [];
+  socket.on('message', (data) => frames.push(String(data)));
+  await new Promise<void>((resolve) => socket.once('open', resolve));
+  socket.send(
+    JSON.stringify({
+      from: 'actor',
+      op: {
+        kind: 'capabilities',
+        capabilities: createAuthorityCapabilities(['unicode:update'], [extension.requirement]),
+      },
+    }),
+  );
+  await vi.waitFor(() =>
+    expect(
+      frames.some((frame) => parseAuthorityServerFrame(frame)?.kind === 'resync-required'),
+    ).toBe(true),
+  );
+  const assembler = new AuthorityCheckpointAssembler({
+    requestId: 'depth64',
+    generation: 'g',
+    requiredExtensions: [extension.requirement],
+  });
+  socket.send(
+    JSON.stringify({
+      protocol: 'authority:1',
+      kind: 'checkpoint-request',
+      requestId: 'depth64',
+      generation: 'g',
+    }),
+  );
+  await vi.waitFor(() =>
+    expect(
+      frames.some((frame) => parseAuthorityServerFrame(frame)?.kind === 'checkpoint-end'),
+    ).toBe(true),
+  );
+  let received = false;
+  for (const frame of frames) {
+    if (!parseAuthorityServerFrame(frame)?.kind.startsWith('checkpoint-')) continue;
+    const result = await assembler.accept(frame);
+    if (result.status === 'complete') {
+      received = true;
+      expect(result.checkpoint.extensions.unicode?.data).toEqual(nested(60));
+    }
+  }
+  expect(received).toBe(true);
+  expect(socket.readyState).toBe(WebSocket.OPEN);
+}, 10_000);
 
 it('negotiates over real sockets, installs a complete checkpoint, and delivers author state', async () => {
   const store = new AuthorityFixtureStore();

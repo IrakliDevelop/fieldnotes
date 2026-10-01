@@ -1,6 +1,7 @@
 import type { AuthorityMutation } from '@fieldnotes/sync';
 import type { AuthorityProposalFrame } from './authority-proposal';
 import type { AuthorityExtension, AuthorityIntent, JsonValue } from './authority-types';
+import { measureAuthorityJson } from './authority-json';
 
 const INVALID = 'Invalid authority intent';
 const UNSUPPORTED = 'Unsupported authority extension';
@@ -81,11 +82,11 @@ function extensionIntent(
   if (prepared === null) throw new TypeError(UNSUPPORTED);
   let payload: JsonValue;
   try {
+    measureAuthorityJson(prepared, 1_048_576, 1_000_000);
     payload = copyJson(prepared);
   } catch {
     throw new TypeError(INVALID);
   }
-  if (Buffer.byteLength(JSON.stringify(payload), 'utf8') > 1_048_576) throw new TypeError(INVALID);
   return Object.freeze({
     schema: 1,
     kind: 'extension',

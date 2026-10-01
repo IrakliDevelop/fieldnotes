@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { AuthorityMutation } from '@fieldnotes/sync';
 import { prepareAuthorityProposal } from './authority-proposal';
 import { prepareAuthorityIntent } from './authority-intent';
@@ -24,6 +24,65 @@ const proposal = (mutation: AuthorityMutation) =>
   );
 
 describe('prepareAuthorityIntent', () => {
+  const returned = (value: unknown) => {
+    const source = proposal({ kind: 'extension', extensionKind: 'x', payload: {} }).proposal;
+    const extension: AuthorityExtension = {
+      requirement: { key: 'x', pluginName: 'plugin', version: 1, validate: () => true },
+      extensionKinds: ['x'],
+      prepare: () => value as never,
+      changes: () => [],
+    };
+    return () => prepareAuthorityIntent(source, [extension]);
+  };
+
+  it('admits exact serialized extension bytes and rejects one byte over, including escapes', () => {
+    const exact = 'x'.repeat(1_048_574);
+    expect(returned(exact)()).toMatchObject({ kind: 'extension', payload: exact });
+    expect(returned(`${exact}x`)).toThrow('Invalid authority intent');
+    const escaped = `${'\u0000'.repeat(174_762)}xx`;
+    expect(returned(escaped)()).toMatchObject({ kind: 'extension', payload: escaped });
+    expect(returned(`${escaped}x`)).toThrow('Invalid authority intent');
+    const key = '\u0000'.repeat(174_762);
+    expect(returned({ [key]: null })).toThrow('Invalid authority intent');
+    expect(returned(['x'.repeat(1_048_574)])).toThrow('Invalid authority intent');
+  });
+
+  it('rejects oversized callback output before SDK serialization or ordinary inventories', () => {
+    const expanded = '\u0000'.repeat(300_000);
+    const repeated = Array.from({ length: 300 }, () => expanded);
+    const wide = Object.fromEntries(
+      Array.from({ length: 120_000 }, (_, index) => [`k${index}`, null]),
+    );
+    const array = Array.from({ length: 600_000 }, () => null);
+    const originalStringify = JSON.stringify;
+    const stringify = vi.spyOn(JSON, 'stringify').mockImplementation((value) => {
+      if (value === expanded || (Array.isArray(value) && value.length === repeated.length))
+        throw new TypeError('Invalid authority intent');
+      return originalStringify(value);
+    });
+    const originalOwnKeys = Reflect.ownKeys;
+    const ownKeys = vi.spyOn(Reflect, 'ownKeys').mockImplementation((value) => {
+      if (value === wide || value === array) throw new TypeError('Invalid authority intent');
+      return originalOwnKeys(value);
+    });
+    try {
+      for (const value of [expanded, repeated, wide, array]) {
+        expect(returned(value)).toThrow('Invalid authority intent');
+      }
+      expect(stringify.mock.calls.some(([value]) => value === expanded)).toBe(false);
+      expect(
+        stringify.mock.calls.some(([value]) => Array.isArray(value) && value.length === 300),
+      ).toBe(false);
+      expect(
+        ownKeys.mock.calls
+          .filter(([value]) => value === wide || value === array)
+          .map(([value]) => (value === wide ? 'wide' : 'array')),
+      ).toEqual([]);
+    } finally {
+      ownKeys.mockRestore();
+      stringify.mockRestore();
+    }
+  });
   it('strips a claimed owner without changing the original proposal or digest', () => {
     const original = proposal({
       kind: 'upsert',
@@ -93,7 +152,11 @@ describe('prepareAuthorityIntent', () => {
       version: 1,
       payload: { nested: { value: 1 } },
     });
-    if (intent.kind === 'extension') expect(Object.isFrozen(intent.payload)).toBe(true);
+    if (intent.kind === 'extension') {
+      expect(Object.isFrozen(intent.payload)).toBe(true);
+      expect(Object.isFrozen((intent.payload as { nested: object }).nested)).toBe(true);
+      expect(Object.getPrototypeOf(intent.payload)).toBe(null);
+    }
   });
 
   it('rejects invalid prepared JSON and throwing callbacks with generic errors', () => {
@@ -149,5 +212,14 @@ describe('prepareAuthorityIntent', () => {
     }
     const intent = prepareAuthorityIntent(source, [extension({ ['😀']: 'é\ud83d\ude00' })]);
     expect(intent.kind === 'extension' && intent.payload).toEqual({ ['😀']: 'é😀' });
+    const nullProto = Object.assign(Object.create(null) as Record<string, unknown>, {
+      ['😀']: 'é😀',
+    });
+    const accepted = prepareAuthorityIntent(source, [extension(nullProto)]);
+    expect(accepted.kind).toBe('extension');
+    if (accepted.kind === 'extension') {
+      expect(accepted.payload).toEqual(nullProto);
+      expect(Object.getPrototypeOf(accepted.payload)).toBe(null);
+    }
   });
 });

@@ -39,6 +39,22 @@ describe('authority visible hash', () => {
     expect(() => hashAuthorityJson({ unsupported: undefined })).toThrow(TypeError);
   });
 
+  it('counts container depth while charging primitive leaves and object keys as nodes', () => {
+    expect(measureAuthorityJson('leaf')).toMatchObject({ nodes: 1, maxDepth: 0 });
+    expect(measureAuthorityJson({ leaf: true })).toMatchObject({ nodes: 3, maxDepth: 1 });
+    for (const containerDepth of [63, 64]) {
+      let value: unknown = { leaf: 'é😀' };
+      for (let index = 1; index < containerDepth; index++) value = [value];
+      expect(measureAuthorityJson(value)).toMatchObject({
+        nodes: containerDepth + 2,
+        maxDepth: containerDepth,
+      });
+    }
+    let tooDeep: unknown = { leaf: 'é😀' };
+    for (let index = 1; index < 65; index++) tooDeep = [tooDeep];
+    expect(() => measureAuthorityJson(tooDeep)).toThrow(RangeError);
+  });
+
   it('rejects hidden enumerable inventory and non-plain prototypes', () => {
     const symbolKey = { safe: 1 } as Record<string | symbol, unknown>;
     symbolKey[Symbol('secret')] = 2;

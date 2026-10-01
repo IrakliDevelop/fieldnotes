@@ -104,15 +104,15 @@ function visitAuthorityJson(
     if (hash) hashQuoted(hash, part);
   };
   const walk = (item: unknown, depth: number): void => {
-    if (++nodes > maxNodes || depth > MAX_DEPTH)
-      throw new RangeError('Authority JSON resource limit');
-    maxDepth = Math.max(maxDepth, depth);
+    if (++nodes > maxNodes) throw new RangeError('Authority JSON resource limit');
     if (item === null) return append('null');
     if (typeof item === 'string') return quote(item);
     if (typeof item === 'boolean') return append(item ? 'true' : 'false');
     if (typeof item === 'number' && Number.isFinite(item)) return append(JSON.stringify(item));
     if (typeof item !== 'object' || seen.has(item))
       throw new TypeError('Invalid authority JSON value');
+    if (depth > MAX_DEPTH) throw new RangeError('Authority JSON resource limit');
+    maxDepth = Math.max(maxDepth, depth);
     seen.add(item);
     try {
       if (Array.isArray(item)) {
