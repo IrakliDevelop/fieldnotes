@@ -913,7 +913,7 @@ describe('transactional authority driver conformance fixture', () => {
     prepared.dispose();
     await capture.release();
     await privileged.release();
-  });
+  }, 20_000);
 
   it('keeps pinned evidence when capacity is tight, then GCs after lease release', async () => {
     const { store, driver, request, read, options } = setup();

@@ -167,8 +167,9 @@ describe('authority checkpoint stream', () => {
       layers: [],
       extensions: {},
     };
+    const realNow = performance.now.bind(performance);
+    const started = realNow();
     const offered: { frame: string; complete: () => void }[] = [];
-    const started = performance.now();
     let maxOutstanding = 0;
     let maxFrameBytes = 0;
     let consumed = 0;
@@ -177,89 +178,151 @@ describe('authority checkpoint stream', () => {
       generation: 'g',
       requiredExtensions: [],
     });
-    const running = streamAuthorityCheckpoint(
-      source,
-      { requestId: 'request', checkpointId: 'checkpoint', requiredExtensions: [] },
-      (frame) => {
-        maxFrameBytes = Math.max(maxFrameBytes, Buffer.byteLength(frame, 'utf8'));
-        let complete: (() => void) | undefined;
-        const completion = new Promise<void>((resolve) => {
-          complete = resolve;
-        });
-        offered.push({ frame, complete: () => complete?.() });
-        maxOutstanding = Math.max(maxOutstanding, offered.length - consumed);
-        return { completion, settled: completion };
-      },
-    );
-    await vi.waitFor(() => expect(offered).toHaveLength(1));
-    expect(offered).toHaveLength(1);
-    expect(parseAuthorityServerFrame(offered[0]?.frame ?? '')?.kind).toBe('checkpoint-begin');
-    while (true) {
-      await vi.waitFor(() => expect(offered.length).toBeGreaterThan(consumed));
-      const item = offered[consumed];
-      if (!item) break;
-      await assembler.accept(item.frame);
-      item.complete();
-      consumed++;
-      for (let index = 0; index < 20; index++) await Promise.resolve();
-      expect(offered.length).toBeLessThanOrEqual(consumed + 1);
-      if (parseAuthorityServerFrame(item.frame)?.kind === 'checkpoint-end') break;
+    const abort = new AbortController();
+    let signalOffer: (() => void) | undefined;
+    const waitForOffer = () =>
+      new Promise<void>((resolve) => {
+        signalOffer = resolve;
+      });
+    let nextOffer = waitForOffer();
+    let runningSettled: Promise<void> = Promise.resolve();
+    try {
+      vi.useFakeTimers({ toFake: ['Date', 'performance', 'setTimeout', 'clearTimeout'] });
+      vi.setSystemTime(1_000_000);
+      const running = streamAuthorityCheckpoint(
+        source,
+        {
+          requestId: 'request',
+          checkpointId: 'checkpoint',
+          requiredExtensions: [],
+          signal: abort.signal,
+        },
+        (frame) => {
+          expect(offered.length - consumed).toBe(0);
+          maxFrameBytes = Math.max(maxFrameBytes, Buffer.byteLength(frame, 'utf8'));
+          let complete: (() => void) | undefined;
+          const completion = new Promise<void>((resolve) => {
+            complete = resolve;
+          });
+          offered.push({ frame, complete: () => complete?.() });
+          maxOutstanding = Math.max(maxOutstanding, offered.length - consumed);
+          signalOffer?.();
+          signalOffer = undefined;
+          return { completion, settled: completion };
+        },
+      );
+      runningSettled = running.then(
+        () => undefined,
+        () => undefined,
+      );
+      const awaitNextOffer = () =>
+        Promise.race([
+          nextOffer,
+          running.then(
+            () => {
+              throw new Error('checkpoint stream ended before the next frame');
+            },
+            (error: unknown) => {
+              throw error;
+            },
+          ),
+        ]);
+      await awaitNextOffer();
+      expect(offered).toHaveLength(1);
+      expect(parseAuthorityServerFrame(offered[0]?.frame ?? '')?.kind).toBe('checkpoint-begin');
+      // A physical send remains unsettled across an explicit clock step.
+      const beforeDate = Date.now();
+      const beforePerformance = performance.now();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(Date.now()).toBe(beforeDate + 1);
+      expect(performance.now()).toBe(beforePerformance + 1);
+      expect(offered).toHaveLength(1);
+      while (true) {
+        const item = offered[consumed];
+        if (!item) throw new Error('missing offered checkpoint frame');
+        const kind = parseAuthorityServerFrame(item.frame)?.kind;
+        if (kind !== 'checkpoint-end') nextOffer = waitForOffer();
+        await assembler.accept(item.frame);
+        item.complete();
+        consumed++;
+        vi.advanceTimersByTime(1);
+        for (let index = 0; index < 20; index++) await Promise.resolve();
+        expect(offered.length).toBeLessThanOrEqual(consumed + 1);
+        if (kind === 'checkpoint-end') break;
+        await awaitNextOffer();
+      }
+      const result = await running;
+      expect(result.manifest.byteLength).toBeGreaterThan(18_000_000);
+      expect(result.manifest.byteLength).toBeLessThanOrEqual(20_971_520);
+      expect(consumed).toBe(result.manifest.chunkCount + 2);
+      expect(maxOutstanding).toBe(1);
+      expect(maxFrameBytes).toBeLessThanOrEqual(1_048_576);
+      expect(20_971_520 + 4 * 524_288 + 2 * 699_052 + 32 * 1024 + 256 * 1024).toBe(24_761_688);
+      expect(24_761_688).toBeLessThan(24 * 1024 * 1024);
+      expect(assembler.status).toBe('complete');
+      console.info(
+        `near-limit checkpoint: ${result.manifest.byteLength} bytes, ${result.manifest.chunkCount} chunks, ${Math.round(realNow() - started)} ms local observational duration, peak ${maxOutstanding} offered frame, max wire ${maxFrameBytes} bytes`,
+      );
+      const definition: AuthorityRoomDefinition = {
+        id: 'definition',
+        extensions: [],
+        project: (_context, state) => state,
+        canReadOwnerId: () => false,
+      };
+      const context: AuthorityReadContext = {
+        room: 'table',
+        connectionId: 'reader',
+        actorId: 'reader',
+        ownershipId: 'reader',
+        definitionId: 'definition',
+        deadlineAt: Date.now() + 5000,
+        signal: new AbortController().signal,
+      };
+      const large = source.elements[0];
+      if (!large) throw new Error('missing large element');
+      const before = { elements: [large], layers: [], extensions: {} };
+      const moved = {
+        elements: [{ ...large, position: { x: 1, y: 0 } }],
+        layers: [],
+        extensions: {},
+      };
+      const nearStarted = realNow();
+      const largeChange = projectAuthorityChange(definition, context, before, moved, {
+        ...cursor,
+        revision: 1,
+      });
+      const nearMs = Math.round(realNow() - nearStarted);
+      const small = { elements: [{ ...large, text: 'small' }], layers: [], extensions: {} };
+      const smallMoved = {
+        elements: [{ ...large, text: 'small', position: { x: 1, y: 0 } }],
+        layers: [],
+        extensions: {},
+      };
+      const smallStarted = realNow();
+      const smallChange = projectAuthorityChange(definition, context, small, smallMoved, {
+        ...cursor,
+        revision: 1,
+      });
+      const smallMs = Math.round(realNow() - smallStarted);
+      expect(largeChange.status).toBe('checkpoint');
+      expect(smallChange.status).toBe('changes');
+      console.info(
+        `movement projection: small ${smallMs} ms, near-limit ${nearMs} ms local observational duration`,
+      );
+    } finally {
+      abort.abort();
+      for (const item of offered) item.complete();
+      signalOffer?.();
+      let pendingTimers: number;
+      try {
+        await runningSettled;
+        assembler.dispose();
+        pendingTimers = vi.getTimerCount();
+      } finally {
+        vi.clearAllTimers();
+        vi.useRealTimers();
+      }
+      expect(pendingTimers).toBe(0);
     }
-    const result = await running;
-    expect(result.manifest.byteLength).toBeGreaterThan(18_000_000);
-    expect(result.manifest.byteLength).toBeLessThanOrEqual(20_971_520);
-    expect(consumed).toBe(result.manifest.chunkCount + 2);
-    expect(maxOutstanding).toBe(1);
-    expect(maxFrameBytes).toBeLessThanOrEqual(1_048_576);
-    expect(20_971_520 + 4 * 524_288 + 2 * 699_052 + 32 * 1024 + 256 * 1024).toBe(24_761_688);
-    expect(24_761_688).toBeLessThan(24 * 1024 * 1024);
-    expect(assembler.status).toBe('complete');
-    console.info(
-      `near-limit checkpoint: ${result.manifest.byteLength} bytes, ${result.manifest.chunkCount} chunks, ${Math.round(performance.now() - started)} ms, peak ${maxOutstanding} offered frame, max wire ${maxFrameBytes} bytes`,
-    );
-    const definition: AuthorityRoomDefinition = {
-      id: 'definition',
-      extensions: [],
-      project: (_context, state) => state,
-      canReadOwnerId: () => false,
-    };
-    const context: AuthorityReadContext = {
-      room: 'table',
-      connectionId: 'reader',
-      actorId: 'reader',
-      ownershipId: 'reader',
-      definitionId: 'definition',
-      deadlineAt: Date.now() + 5000,
-      signal: new AbortController().signal,
-    };
-    const large = source.elements[0];
-    if (!large) throw new Error('missing large element');
-    const before = { elements: [large], layers: [], extensions: {} };
-    const moved = {
-      elements: [{ ...large, position: { x: 1, y: 0 } }],
-      layers: [],
-      extensions: {},
-    };
-    const nearStarted = performance.now();
-    const largeChange = projectAuthorityChange(definition, context, before, moved, {
-      ...cursor,
-      revision: 1,
-    });
-    const nearMs = Math.round(performance.now() - nearStarted);
-    const small = { elements: [{ ...large, text: 'small' }], layers: [], extensions: {} };
-    const smallMoved = {
-      elements: [{ ...large, text: 'small', position: { x: 1, y: 0 } }],
-      layers: [],
-      extensions: {},
-    };
-    const smallStarted = performance.now();
-    const smallChange = projectAuthorityChange(definition, context, small, smallMoved, {
-      ...cursor,
-      revision: 1,
-    });
-    const smallMs = Math.round(performance.now() - smallStarted);
-    expect(largeChange.status).toBe('checkpoint');
-    expect(smallChange.status).toBe('changes');
-    console.info(`movement projection: small ${smallMs} ms, near-limit ${nearMs} ms`);
   }, 30_000);
 });
