@@ -121,31 +121,36 @@ describe('authority checkpoint stream', () => {
     },
   );
   it('passes the same absolute admitted stream deadline to the pre-end read', async () => {
-    const source = { cursor, elements: [], layers: [], extensions: {} };
-    const prepared = await (
-      await import('@fieldnotes/sync')
-    ).prepareAuthorityCheckpoint(source, {
-      requestId: 'request',
-      checkpointId: 'checkpoint',
-      requiredExtensions: [],
-    });
-    const seen: (number | undefined)[] = [];
-    let admittedAt = 0;
-    await sendPreparedAuthorityCheckpoint(
-      prepared,
-      (_frame, kind) => {
-        if (kind === 'checkpoint-begin') admittedAt = Date.now();
-        return { completion: Promise.resolve(), settled: Promise.resolve() };
-      },
-      undefined,
-      undefined,
-      async (_kind, deadline) => {
-        seen.push(deadline);
-      },
-    );
-    expect(seen[0]).toBeUndefined();
-    expect(admittedAt).toBeGreaterThan(0);
-    expect(seen[1]).toBe(admittedAt + 10_000);
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    try {
+      const source = { cursor, elements: [], layers: [], extensions: {} };
+      const prepared = await (
+        await import('@fieldnotes/sync')
+      ).prepareAuthorityCheckpoint(source, {
+        requestId: 'request',
+        checkpointId: 'checkpoint',
+        requiredExtensions: [],
+      });
+      const seen: (number | undefined)[] = [];
+      let admittedAt = 0;
+      await sendPreparedAuthorityCheckpoint(
+        prepared,
+        (_frame, kind) => {
+          if (kind === 'checkpoint-begin') admittedAt = Date.now();
+          return { completion: Promise.resolve(), settled: Promise.resolve() };
+        },
+        undefined,
+        undefined,
+        async (_kind, deadline) => {
+          seen.push(deadline);
+        },
+      );
+      expect(seen[0]).toBeUndefined();
+      expect(admittedAt).toBeGreaterThan(0);
+      expect(seen[1]).toBe(admittedAt + 10_000);
+    } finally {
+      clock.mockRestore();
+    }
   });
   it('paces a near-limit complete cut through physical sends without accumulating chunks', async () => {
     const source = {
