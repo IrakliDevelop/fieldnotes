@@ -3093,6 +3093,46 @@ it.each([
 );
 
 it('streams a near-limit captured cut and then replays a concurrent visible commit without holding inbound work', async () => {
+  const realNow = () => Number(process.hrtime.bigint()) / 1_000_000;
+  vi.useFakeTimers({
+    toFake: ['Date', 'performance', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'],
+  });
+  vi.setSystemTime(1_000_000);
+  const timeoutHandles = new Set<ReturnType<typeof setTimeout>>();
+  const timeoutSpy = vi.spyOn(AbortSignal, 'timeout').mockImplementation((duration) => {
+    const controller = new AbortController();
+    const handle = setTimeout(() => {
+      timeoutHandles.delete(handle);
+      controller.abort(
+        new DOMException('The operation was aborted due to timeout', 'TimeoutError'),
+      );
+    }, duration);
+    timeoutHandles.add(handle);
+    return controller.signal;
+  });
+  const event = () => {
+    let resolve: () => void = () => undefined;
+    const promise = new Promise<void>((done) => {
+      resolve = done;
+    });
+    return { promise, resolve };
+  };
+  const captureStarted = event();
+  const firstChunkSent = event();
+  const changesSent = event();
+  const captureReleased = event();
+  const evidenceReleased = event();
+  let closeResult: (outcome: { kind: 'closed'; code: number }) => void = () => undefined;
+  const closed = new Promise<{ kind: 'closed'; code: number }>((resolve) => {
+    closeResult = resolve;
+  });
+  const reached = async (milestone: Promise<void>, name: string): Promise<void> => {
+    const outcome = await Promise.race([
+      milestone.then(() => ({ kind: 'reached' as const })),
+      closed,
+    ]);
+    if (outcome.kind === 'closed') throw new Error(`${name} closed with code ${outcome.code}`);
+  };
   const cut = { generation: 'g', revision: 'cut' };
   const next = { generation: 'g', revision: 'next' };
   const large = {
@@ -3113,17 +3153,26 @@ it('streams a near-limit captured cut and then replays a concurrent visible comm
   let releaseChunk: (() => void) | undefined;
   let resumeCapture: (() => void) | undefined;
   let committed = false;
+  let captureReturned = false;
+  let evidenceReturned = false;
+  let captureReleaseDone = false;
+  let evidenceReleaseDone = false;
   const captureGate = new Promise<void>((resolve) => {
     resumeCapture = resolve;
   });
   const checkpoint = vi.fn(async () => {
+    captureStarted.resolve();
     await captureGate;
+    captureReturned = true;
     return {
       position: cut,
       state: captured,
       token: 'lease',
       expiresAt: Date.now() + 5000,
-      release: async () => undefined,
+      release: async () => {
+        captureReleaseDone = true;
+        captureReleased.resolve();
+      },
     };
   });
   const readAfter = vi.fn(async (_context: unknown, position: typeof cut) =>
@@ -3146,16 +3195,22 @@ it('streams a near-limit captured cut and then replays a concurrent visible comm
     head: async () => cut,
     checkpoint,
     readAfter,
-    readEvidence: async () => ({
-      status: 'available',
-      lease: {
-        before: captured,
-        after,
-        token: 'evidence',
-        expiresAt: Date.now() + 5000,
-        release: async () => undefined,
-      },
-    }),
+    readEvidence: async () => {
+      evidenceReturned = true;
+      return {
+        status: 'available',
+        lease: {
+          before: captured,
+          after,
+          token: 'evidence',
+          expiresAt: Date.now() + 5000,
+          release: async () => {
+            evidenceReleaseDone = true;
+            evidenceReleased.resolve();
+          },
+        },
+      };
+    },
     claimPublications: async () => [],
     markPublished: async () => undefined,
   } as unknown as AuthorityDriver;
@@ -3163,18 +3218,21 @@ it('streams a near-limit captured cut and then replays a concurrent visible comm
     id: 'paced',
     room: 'table',
     signal: new AbortController().signal,
-    close: vi.fn(),
+    close: vi.fn((code: number) => closeResult({ kind: 'closed', code })),
     send: vi.fn(),
   };
   registerAuthorityConnection(connection, {
     sendTracked: (message) => {
       sent.push(message);
-      if (JSON.parse(message).kind === 'checkpoint-chunk' && !releaseChunk) {
+      const kind = JSON.parse(message).kind;
+      if (kind === 'checkpoint-chunk' && !releaseChunk) {
         const completion = new Promise<void>((resolve) => {
           releaseChunk = resolve;
         });
+        firstChunkSent.resolve();
         return { completion, settled: completion };
       }
+      if (kind === 'changes') changesSent.resolve();
       return { completion: Promise.resolve(), settled: Promise.resolve() };
     },
   });
@@ -3189,6 +3247,12 @@ it('streams a near-limit captured cut and then replays a concurrent visible comm
     'worker',
   );
   try {
+    const probe = AbortSignal.timeout(7);
+    await vi.advanceTimersByTimeAsync(6);
+    expect(probe.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(probe.aborted).toBe(true);
+    expect(timeoutHandles.size).toBe(0);
     expect(runtime.admit(connection, definition)).toBe(true);
     await runtime.handleMessage(
       'paced',
@@ -3199,6 +3263,7 @@ it('streams a near-limit captured cut and then replays a concurrent visible comm
     );
     sent.length = 0;
     const requestedAt = performance.now();
+    const requestedRealAt = realNow();
     await runtime.handleMessage(
       'paced',
       JSON.stringify({
@@ -3208,7 +3273,8 @@ it('streams a near-limit captured cut and then replays a concurrent visible comm
         generation: 'g',
       }),
     );
-    await vi.waitFor(() => expect(checkpoint).toHaveBeenCalledTimes(1));
+    await reached(captureStarted.promise, 'checkpoint start');
+    expect(checkpoint).toHaveBeenCalledTimes(1);
     committed = true;
     await fanout.publish(
       JSON.stringify({
@@ -3219,8 +3285,10 @@ it('streams a near-limit captured cut and then replays a concurrent visible comm
       }),
     );
     resumeCapture?.();
-    await vi.waitFor(() => expect(releaseChunk).toBeTypeOf('function'), { timeout: 10_000 });
+    await reached(firstChunkSent.promise, 'first checkpoint chunk');
+    expect(releaseChunk).toBeTypeOf('function');
     const firstChunkAt = performance.now();
+    const firstChunkRealAt = realNow();
     expect(runtime['scheduler'].accountedUsage()).toMatchObject({
       heavySlots: 0,
       heavyBytes: 0,
@@ -3231,24 +3299,59 @@ it('streams a near-limit captured cut and then replays a concurrent visible comm
     expect(sent.filter((message) => JSON.parse(message).kind === 'checkpoint-begin')).toHaveLength(
       1,
     );
+    await vi.advanceTimersByTimeAsync(1);
+    expect(readAfter).not.toHaveBeenCalled();
+    expect(sent.some((message) => JSON.parse(message).kind === 'changes')).toBe(false);
     releaseChunk?.();
-    await vi.waitFor(() =>
-      expect(sent.some((message) => JSON.parse(message).kind === 'changes')).toBe(true),
-    );
+    await reached(changesSent.promise, 'visible replay');
     const replayAt = performance.now();
+    const replayRealAt = realNow();
     const kinds = sent.map((message) => JSON.parse(message).kind);
     expect(kinds[0]).toBe('checkpoint-begin');
     expect(kinds.filter((kind) => kind === 'checkpoint-chunk').length).toBeGreaterThan(30);
     expect(kinds.slice(-2)).toEqual(['checkpoint-end', 'changes']);
     expect(checkpoint).toHaveBeenCalledTimes(1);
     expect(readAfter.mock.calls[0]?.[1]).toEqual(cut);
+    expect(connection.close).not.toHaveBeenCalled();
     console.info(
-      `near-limit runtime: capture-to-first-chunk ${Math.round(firstChunkAt - requestedAt)} ms, capture-to-replay ${Math.round(replayAt - requestedAt)} ms, stream reservation ${24 * 1024 * 1024} bytes`,
+      `near-limit runtime local observation: first chunk ${Math.round(firstChunkRealAt - requestedRealAt)} real ms, replay ${Math.round(replayRealAt - requestedRealAt)} real ms; logical ${Math.round(firstChunkAt - requestedAt)}/${Math.round(replayAt - requestedAt)} ms; stream reservation ${24 * 1024 * 1024} bytes`,
     );
   } finally {
-    resumeCapture?.();
-    releaseChunk?.();
-    runtime.close();
+    try {
+      resumeCapture?.();
+      releaseChunk?.();
+      runtime.close();
+      for (let attempt = 0; attempt < 1000; attempt++) {
+        const usage = runtime['scheduler'].accountedUsage();
+        if (
+          usage.heavySlots === 0 &&
+          usage.streamSlots === 0 &&
+          (!captureReturned || captureReleaseDone) &&
+          (!evidenceReturned || evidenceReleaseDone)
+        )
+          break;
+        await Promise.resolve();
+      }
+      if (captureReturned) {
+        expect(captureReleaseDone).toBe(true);
+        await captureReleased.promise;
+      }
+      if (evidenceReturned) {
+        expect(evidenceReleaseDone).toBe(true);
+        await evidenceReleased.promise;
+      }
+      expect(runtime['scheduler'].accountedUsage()).toMatchObject({
+        heavySlots: 0,
+        heavyBytes: 0,
+        streamSlots: 0,
+        streamBytes: 0,
+      });
+    } finally {
+      for (const handle of timeoutHandles) clearTimeout(handle);
+      timeoutHandles.clear();
+      timeoutSpy.mockRestore();
+      vi.useRealTimers();
+    }
   }
 }, 30_000);
 
