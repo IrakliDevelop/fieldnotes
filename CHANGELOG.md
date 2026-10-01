@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### Sync server 0.25.0
+
+**Added**
+
+- Explicit factory-only `authority:1` rooms commit through an application-provided atomic driver, publish durable receipts, project per-viewer ordered changes, and stream complete paced checkpoints with catch-up. Legacy rooms remain on their existing path.
+- Exported driver, identity, extension, evidence, and room-definition contracts. A loopback synthetic browser fixture exercises the runtime without providing a production driver or managed client.
+
+### Sync 0.24.0
+
+**Added**
+
+- `createAuthorityOperationId` generates timestamp-profile IDs for recoverable authoritative proposals. Existing C1 codecs remain compatible with their prior lexical ID grammar.
+
 ### Sync server 0.24.0
 
 **Added**

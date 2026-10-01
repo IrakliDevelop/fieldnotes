@@ -22,7 +22,8 @@ applies and forwards.
   `?room=<id>` in the query string; a missing room closes the socket with WS code
   `4400`.
 - **`prepareAuthorityProposal`** — validates an admitted server actor and an `authority:1`
-  proposal into an immutable original request for a future authoritative driver.
+  proposal into an immutable original request. The opt-in runtime then delegates atomic
+  acceptance to an application-provided driver.
 - **`HubFanout`** — cross-instance live fan-out seam. `SyncHub` publishes each live
   op to the fanout and forwards ops it receives from other instances to its local
   connections. The default `InMemoryHubFanout` is in-process (a no-op for a single
@@ -48,8 +49,8 @@ const { close } = createSyncServer({ port: 8080 });
 
 ## Authority proposal preparation
 
-`prepareAuthorityProposal(actor, message)` is a synchronous building block for a future
-authoritative room driver. Pass a server-supplied admitted actor and a raw client `authority:1`
+`prepareAuthorityProposal(actor, message)` is a synchronous building block used by the
+authoritative room runtime. Pass a server-supplied admitted actor and a raw client `authority:1`
 proposal string. The actor must be an ordinary plain or null-prototype record with enumerable
 own data properties. `room` must be an admitted room name; `actorId` is a required stable opaque
 principal scope that the application must namespace consistently across instances and reconnects.
@@ -61,7 +62,7 @@ claims, retains the caller's live signal, and clamps `deadlineAt` to the earlies
 deadline, expiry, or five seconds from entry. The helper checks cancellation and the fixed
 deadline again before returning. It installs no timer and cannot enforce a later driver commit
 deadline. The proposal is the parsed and frozen **original client request**; its claimed owner
-or audience fields remain untrusted. A future driver must separately stamp authorized intents,
+or audience fields remain untrusted. The configured driver must separately stamp authorized intents,
 recheck current authority, ownership, generation, deadline and CAS at its atomic commit, and
 persist dedupe under stable actor, room, generation and operation ID scope. An attempted commit
 that times out may have an unknown outcome.
@@ -72,6 +73,129 @@ Equivalent JSON key order or whitespace produces the same digest across reconnec
 is neither an authorization token nor proof of durable acceptance. Invalid input throws the
 generic `TypeError('Invalid authority proposal')`; cancellation or an elapsed deadline throws
 `Error('Authority proposal expired')`.
+
+## Opt-in authoritative rooms (0.25.0)
+
+`createSyncServer({ authority })` selects a room before legacy admission, mutation, snapshot,
+presence, plugin, backend or fanout handling. `resolveRoom` returning `null` keeps that room on
+the existing legacy path. A non-null definition enables only `authority:1` for that room;
+incapable peers receive `upgrade-required` and close. The factory requires both `authenticate`
+and `framePolicy`. Direct `SyncHub.addConnection` adapters cannot enable authority because the
+runtime requires the factory's guarded, tracked send binding and lifetime signal.
+
+The following is the host configuration shape. `provisionedDriver` must be a real implementation
+of `AuthorityDriver`; the SDK deliberately does not provide production room storage. The
+browser fixture below uses `AuthorityFixtureDriver` only for local acceptance.
+
+```ts
+import {
+  createSyncServer,
+  type AuthorityDriver,
+  type AuthorityRoomDefinition,
+} from '@fieldnotes/sync-server';
+
+declare const provisionedDriver: AuthorityDriver;
+declare function myMembershipLookup(
+  req: unknown,
+  room: string,
+): Promise<{ stableId: string; role: string } | null>;
+declare function myFramePolicy(frame: unknown): Promise<boolean>;
+const synthetic = {
+  requirement: {
+    key: 'synthetic',
+    pluginName: 'my-host',
+    version: 1,
+    validate: (data: unknown) => typeof data === 'string',
+  },
+  extensionKinds: ['synthetic-change'],
+  prepare: (mutation: { kind: string; payload?: unknown }) =>
+    mutation.kind === 'extension' && typeof mutation.payload === 'string' ? mutation.payload : null,
+  changes: (before: unknown, after: unknown) =>
+    before === after
+      ? []
+      : [{ kind: 'extension' as const, extensionKind: 'synthetic-change', payload: after }],
+};
+const definition: AuthorityRoomDefinition = {
+  id: 'my-table-schema-v1',
+  extensions: [synthetic],
+  project: (context, state) => ({
+    ...state,
+    elements: state.elements.filter(
+      (element) => element.audience !== 'private' || context.role === 'dm',
+    ),
+  }),
+  canReadOwnerId: (context) => context.role === 'dm',
+};
+createSyncServer({
+  port: 8080,
+  authenticate: async ({ req, room }) => {
+    const member = await myMembershipLookup(req, room); // host-owned, current policy
+    return member ? { userId: member.stableId, role: member.role } : null;
+  },
+  framePolicy: { authorize: async (frame) => (await myFramePolicy(frame)) === true },
+  authority: {
+    driver: provisionedDriver,
+    resolveRoom: (room) => (room === 'table' ? definition : null),
+    resolveIdentity: (connection) => {
+      if (!connection.userId) throw new Error('stable identity required');
+      return { actorId: connection.userId, ownershipId: connection.userId };
+    },
+  },
+});
+```
+
+The host must provision each room and unique generation outside the wire protocol; a missing
+room does not auto-create. The driver must atomically check current room definition, generation,
+read and write authorization, store-time deadline/expiry, ownership, audience, extension schema
+and optional room CAS before applying a whole intent. Element owners are stamped from trusted
+`ownershipId` and retained across removal and elements-only clear. Layers use version/editor LWW;
+elements use commit order. Clear retains layers, extensions, ownership, dedupe, and generation.
+Generation replacement, whole-room reset and external membership administration belong to the
+host control plane. A trusted `project` function must return a subset of the captured image;
+the runtime validates its shape, strips owner IDs for unprivileged readers, and sends only
+their visible differences. Extension inventory (key, plugin, version and kinds) must match
+exactly at negotiation and complete checkpoint assembly.
+
+The driver's `commit` must persist state, a random opaque receipt, a separate random whole-room
+CAS token, stable-actor dedupe record and immutable before/after publication evidence in one
+transaction. A retained duplicate with the original digest returns its original receipt after
+current read admission, even when CAS has moved. New IDs use the `fn1:` timestamp profile;
+the driver checks store time, the 24-hour retry window and a persistent generation-scoped
+eviction floor. An exception or timeout after invoking `commit` is an **unknown outcome**:
+the caller keeps the original proposal and operation ID for retry. A definitive rejection says
+only that this invocation did not mutate; `retry-window-expired` does not prove an earlier
+uncertain attempt failed. A managed client must checkpoint and ask for explicit reconciliation
+before reminting a separate logical operation.
+
+`readAfter` returns linked opaque private positions; `readEvidence` leases immutable committed
+images. Outbox claims/marking must recover globally without a connected peer and survive worker
+crash. A metadata-to-evidence eviction returns typed `history-unavailable`; equal visible state
+reconciles silently, while a real visible difference starts a complete checkpoint recovery.
+Every driver read rechecks current authorization; capture leases are coherent and bounded. A
+durable receipt proves commit, not delivery or client application. The author receives state
+through the same ordered reader as other peers. A public cursor counts visible batches only;
+private internal positions and hidden commits never enter public frames. Checkpoint completion
+installs a new stream at revision zero, then reads changes committed during the stream.
+
+The runtime caps 128 peers (32 prospective), 32 rooms, eight metadata tasks, two heavy workers,
+four prepared streams, 20 MiB complete state, and 1024 queued/active physical frames across
+authority factory connections (64 MiB total, with lower per-peer/room caps). The driver contract
+caps its publication metadata ring at 1024 records/8 MiB, separately from a 64 MiB immutable
+evidence arena per generation. Ownership retains at most 65,536 IDs/8 MiB, layers at most 4096
+records/4 MiB, and successful dedupe at most 1024 records for up to 24 hours. Leases are
+store-time fenced, at most eight per room and 128 per driver, and last at most five seconds.
+One changes frame holds at most 1024 mutations/1 MiB; larger visible changes recover through a
+complete checkpoint. Physical frames are paced through guarded sends. These are application
+accounting bounds, not an RSS guarantee; full-state projection remains O(room size). The host
+driver must enforce its own transaction, evidence, lease, retirement and provisioning limits.
+The included fixture caps 64 live plus retiring generations; it is not Redis durability.
+
+Authority presence, the production managed client, real VTT/fog extensions, production Redis
+driver, administration and RollKeeper adoption are intentionally deferred. Existing managed
+clients do not advertise authority; use a protocol-aware host client only after implementing its
+pending/receipt/applied-cursor barrier and uncertain-outcome recovery responsibilities.
+
+For local synthetic inspection, see [the authority browser fixture](test-fixtures/authority-browser/README.md).
 
 ## Server-originated presence
 
@@ -463,5 +587,8 @@ pnpm --filter @fieldnotes/sync-server pack --pack-destination <directory>
 
 The `prepack` script rebuilds core, sync, then the server. Inspect the resulting
 archive's runtime files and type declarations, then publish that exact verified archive. Do not
-bypass lifecycle scripts or republish a pre-existing archive. Version 0.23.1 corrects the missing
-`sendAsync` runtime and declarations in the immutable 0.23.0 package.
+bypass lifecycle scripts or republish a pre-existing archive. The server 0.25.0 archive declares a
+concrete `@fieldnotes/sync` 0.24.0-compatible dependency. Publish sync 0.24.0 before server
+0.25.0, only with owner approval; packing locally does not publish or establish registry
+availability. Version 0.23.1 corrected the missing `sendAsync` runtime and declarations in
+the immutable 0.23.0 package.
