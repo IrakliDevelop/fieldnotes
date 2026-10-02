@@ -87,6 +87,10 @@ export class AuthorityClientDocument {
     return this.#extensions.requirements;
   }
 
+  get extensionKinds(): readonly string[] {
+    return this.#extensions.extensionKinds;
+  }
+
   getSnapshot(): Snapshot | null {
     return this.#document;
   }

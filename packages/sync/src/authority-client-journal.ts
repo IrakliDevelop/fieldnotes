@@ -28,6 +28,7 @@ export const MAX_AUTHORITY_WAIT_TIMEOUT_MS = 60_000;
 
 const encoder = new TextEncoder();
 const idPattern = /^[\x21-\x7e]{1,128}$/;
+const scopePattern = /^[\x20-\x7e]{1,128}$/;
 
 export interface AuthorityClientJournalOptions {
   readonly scopeId: string;
@@ -201,7 +202,9 @@ export class AuthorityClientJournal {
   #stopped = false;
 
   constructor(options: AuthorityClientJournalOptions) {
-    if (!validId(options.scopeId)) throw new TypeError('Invalid authority scope ID');
+    if (typeof options.scopeId !== 'string' || !scopePattern.test(options.scopeId)) {
+      throw new TypeError('Invalid authority scope ID');
+    }
     if (
       options.createOperationId !== undefined &&
       typeof options.createOperationId !== 'function'

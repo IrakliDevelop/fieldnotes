@@ -198,6 +198,43 @@ describe('authority client extension definitions', () => {
     ).toEqual({ counter: { total: 3, nested: { values: [] } } });
   });
 
+  it('exposes a frozen UTF-16-sorted snapshot of generic reducer kinds only', () => {
+    const zeta = createAuthorityExtensionReducer({
+      kind: createExtensionKind<null>({
+        extensionKind: 'zeta',
+        codec: { validate: (value): value is null => value === null },
+      }),
+      reduce: (state: AuthorityReadonly<number>) => state,
+    });
+    const alpha = createAuthorityExtensionReducer({
+      kind: createExtensionKind<null>({
+        extensionKind: 'Alpha',
+        codec: { validate: (value): value is null => value === null },
+      }),
+      reduce: (state: AuthorityReadonly<number>) => state,
+    });
+    const registry = new AuthorityClientExtensionRegistry([
+      createAuthorityClientExtension({
+        key: 'owned',
+        pluginName: 'owned',
+        version: 1,
+        validate: (value): value is number => typeof value === 'number',
+        reducers: [zeta, alpha],
+        legacyReducers: [
+          createAuthorityLegacyExtensionReducer({
+            kind: 'fog-meta',
+            reduce: (state: AuthorityReadonly<number>) => state,
+          }),
+        ],
+      }),
+    ]);
+
+    expect(registry.extensionKinds).toEqual(['Alpha', 'zeta']);
+    expect(Object.isFrozen(registry.extensionKinds)).toBe(true);
+    expect(registry.extensionKinds).toBe(registry.extensionKinds);
+    expect(registry.extensionKinds).not.toContain('fog-meta');
+  });
+
   it('rejects duplicate keys, generic kinds, legacy owners, and more than 256 owned kinds', () => {
     expect(
       () => new AuthorityClientExtensionRegistry([counterExtension(), counterExtension()]),

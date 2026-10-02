@@ -1,9 +1,12 @@
 import type { AuthorityCheckpointPayload } from './authority-checkpoint';
 import type {
   AuthorityClientFrame,
+  AuthorityMutation,
   AuthorityReceipt,
   AuthorityRejectionReason,
 } from './authority-protocol';
+import type { AuthorityClientExtension } from './authority-client-extension';
+import type { ManagedSyncEndpoint } from './managed-connection';
 
 export type AuthorityReadonly<T> = T extends (...args: never[]) => unknown
   ? T
@@ -113,3 +116,49 @@ export type AuthorityClientCheckpointResult =
         | 'recovery'
         | 'crypto';
     };
+
+export interface AuthorityClientTransportHandlers {
+  onOpen(): void;
+  onMessage(raw: string): void;
+  onClose(code: number, reason: string): void;
+}
+
+export interface AuthorityClientTransport {
+  start(handlers: AuthorityClientTransportHandlers): void;
+  trySend(raw: string): boolean;
+  close(): void;
+}
+
+export interface ManagedAuthorityOptions {
+  readonly scopeId: string;
+  readonly clientId: string;
+  readonly resolveUrl: () => ManagedSyncEndpoint | null | Promise<ManagedSyncEndpoint | null>;
+  readonly extensions?: readonly AuthorityClientExtension[];
+  readonly transportFactory?: (endpoint: ManagedSyncEndpoint) => AuthorityClientTransport;
+}
+
+export interface ManagedAuthorityConnection {
+  getState(): AuthorityClientState;
+  subscribe(listener: () => void): () => void;
+  stop(): void;
+  submit(
+    mutation: AuthorityMutation,
+    options?: { readonly expectedState?: string },
+  ): AuthoritySubmitResult;
+  retryOperation(clientOperationId: string): AuthorityRetryResult;
+  releaseOperation(
+    clientOperationId: string,
+    options?: { readonly discardDraft?: boolean },
+  ): boolean;
+  captureBarrier(): AuthorityBarrier | null;
+  releaseBarrier(barrier: AuthorityBarrier): boolean;
+  waitForAcknowledgements(
+    barrier: AuthorityBarrier,
+    options?: { readonly signal?: AbortSignal; readonly timeoutMs?: number },
+  ): Promise<AuthorityBarrierResult>;
+  requestCheckpoint(options?: {
+    readonly barrier?: AuthorityBarrier;
+    readonly signal?: AbortSignal;
+    readonly timeoutMs?: number;
+  }): Promise<AuthorityClientCheckpointResult>;
+}

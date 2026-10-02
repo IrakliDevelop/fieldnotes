@@ -279,6 +279,7 @@ export class AuthorityClientExtensionRegistry {
   readonly #reducers: ReadonlyMap<string, OwnedReducer>;
   readonly #legacyReducers: ReadonlyMap<LegacyKind, OwnedLegacyReducer>;
   readonly #requirements: readonly AuthorityCheckpointRequirement[];
+  readonly #extensionKinds: readonly string[];
 
   constructor(definitions: readonly AuthorityClientExtension[]) {
     if (!Array.isArray(definitions) || definitions.length > MAX_AUTHORITY_EXTENSION_KINDS) {
@@ -339,6 +340,9 @@ export class AuthorityClientExtensionRegistry {
     this.#extensions = Object.freeze(extensions);
     this.#reducers = reducers;
     this.#legacyReducers = legacyReducers;
+    this.#extensionKinds = Object.freeze(
+      [...reducers.keys()].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
+    );
     this.#requirements = Object.freeze(
       extensions.map((entry) =>
         Object.freeze({
@@ -353,6 +357,10 @@ export class AuthorityClientExtensionRegistry {
 
   get requirements(): readonly AuthorityCheckpointRequirement[] {
     return this.#requirements;
+  }
+
+  get extensionKinds(): readonly string[] {
+    return this.#extensionKinds;
   }
 
   validateAndCopy(value: unknown): Readonly<Record<string, AuthorityCheckpointExtension>> {
