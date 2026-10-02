@@ -86,3 +86,22 @@ exact rejection check may allocate their full inventory; arbitrary Proxy traps h
 language-level limitation. Do not pass untrusted live JavaScript objects directly to the
 serializer without an application-level input boundary. Parsed JSON frames remain byte, depth,
 and node bounded before validation.
+
+## Authority operation IDs (0.24.0)
+
+`createAuthorityOperationId(issuedAt = Date.now())` generates
+`fn1:<13-digit Unix milliseconds>:<32 lowercase hex>` using browser Web Crypto random bytes.
+It throws if the timestamp is outside the required 13-digit integer range or secure random
+bytes are unavailable. The enabled server authority runtime accepts this profile and checks
+it against backing-store time (at most 60 seconds ahead, at most 24 hours old, and newer than
+the generation's retired-ID floor). The general C1 parser still accepts its earlier printable
+operation-ID grammar for compatibility; generating a C1-valid ID does not make it admissible
+to an authority room.
+
+Keep the original complete proposal and ID after a send with an uncertain outcome. Retry the
+same bytes and ID to recover a retained durable receipt. An expired retry is unresolved,
+not permission to automatically create a fresh ID for the same logical action. Checkpoint
+and reconcile the draft explicitly. Receipts prove durable commit but carry no applied-state
+cursor. Complete checkpoints and `changes` advance the applied cursor; a managed authority
+client with pending, barrier and recovery semantics is a later delivery slice. The current
+managed client does not negotiate `authority:1`.

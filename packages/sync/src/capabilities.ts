@@ -1,4 +1,5 @@
 import type { SyncCapabilities, SyncOp } from './protocol';
+import type { AuthorityExtensionManifestEntry } from './authority-protocol';
 
 export const DEFAULT_CAPABILITY_QUEUE_LIMIT = 1_000;
 
@@ -7,8 +8,49 @@ export function createCurrentCapabilities(extensionKinds: readonly string[]): Sy
 }
 
 /** Explicit opt-in only; existing connections continue to advertise legacy capabilities. */
-export function createAuthorityCapabilities(extensionKinds: readonly string[]): SyncCapabilities {
-  return { ...createCurrentCapabilities(extensionKinds), authority: 1 };
+export function createAuthorityCapabilities(
+  extensionKinds: readonly string[],
+  extensions: readonly AuthorityExtensionManifestEntry[] = [],
+): SyncCapabilities {
+  if (
+    extensionKinds.length > 256 ||
+    new Set(extensionKinds).size !== extensionKinds.length ||
+    extensionKinds.some((kind) => !bounded(kind))
+  )
+    throw new TypeError('Invalid authority capabilities');
+  const inventory = extensions.map((entry) => ({
+    key: entry.key,
+    pluginName: entry.pluginName,
+    version: entry.version,
+  }));
+  if (
+    inventory.length > 256 ||
+    inventory.some(
+      (entry) =>
+        !bounded(entry.key) ||
+        !bounded(entry.pluginName) ||
+        !Number.isSafeInteger(entry.version) ||
+        entry.version < 1,
+    )
+  )
+    throw new TypeError('Invalid authority capabilities');
+  inventory.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  if (inventory.some((entry, index) => index > 0 && entry.key === inventory[index - 1]?.key))
+    throw new TypeError('Invalid authority capabilities');
+  return {
+    ...createCurrentCapabilities(extensionKinds),
+    authority: 1,
+    ...(inventory.length ? { authorityExtensions: inventory } : {}),
+  };
+}
+
+function bounded(value: string): boolean {
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    value.length <= 128 &&
+    /^[\x20-\x7e]+$/.test(value)
+  );
 }
 
 export function supportsAuthority(capabilities: SyncCapabilities): boolean {

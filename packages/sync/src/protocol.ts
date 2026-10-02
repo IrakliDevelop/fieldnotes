@@ -1,4 +1,5 @@
 import type { CanvasElement, ElementType, Layer } from '@fieldnotes/core';
+import type { AuthorityExtensionManifestEntry } from './authority-protocol';
 import {
   FOG_SYNC_PROTOCOL_VERSION,
   FOG_PATCH_MAX_TILES,
@@ -26,6 +27,7 @@ export interface SyncCapabilities {
   extensionKinds: string[];
   elementEnvelope: true;
   readonly authority?: 1;
+  readonly authorityExtensions?: readonly AuthorityExtensionManifestEntry[];
 }
 
 /**
@@ -391,6 +393,26 @@ function isValidCapabilities(value: unknown): value is SyncCapabilities {
     return false;
   }
   const kinds = value['extensionKinds'] as unknown[];
+  const inventory = value['authorityExtensions'];
+  if (inventory !== undefined) {
+    if (value['authority'] !== 1 || !Array.isArray(inventory) || inventory.length > 256)
+      return false;
+    const seen = new Set<string>();
+    for (const entry of inventory) {
+      if (
+        !isRecord(entry) ||
+        Object.keys(entry).length !== 3 ||
+        !isBoundedString(entry['key'], 128) ||
+        !isBoundedString(entry['pluginName'], 128) ||
+        typeof entry['version'] !== 'number' ||
+        !Number.isSafeInteger(entry['version']) ||
+        entry['version'] < 1 ||
+        seen.has(entry['key'])
+      )
+        return false;
+      seen.add(entry['key']);
+    }
+  }
   return (
     value['elementEnvelope'] === true &&
     (!Object.prototype.hasOwnProperty.call(value, 'authority') || value['authority'] === 1) &&

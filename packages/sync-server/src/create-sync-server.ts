@@ -1,6 +1,6 @@
 import { WebSocketServer, type RawData } from 'ws';
 import type { IncomingMessage, Server } from 'http';
-import { SyncHub } from './sync-hub';
+import { SyncHub, type Connection } from './sync-hub';
 import type { HubBackend } from './hub-backend';
 import type { HubFanout } from './hub-fanout';
 import { readBearerToken, type Authenticate } from './authenticate';
@@ -32,12 +32,23 @@ import { DEFAULT_SHUTDOWN_GRACE_MS, drainWebSocketServer } from './shutdown';
 import { isValidRoomName } from './room-name';
 import { snapshotAuthContext, validateExpiresAt } from './auth-context';
 import type { FramePolicy } from './frame-policy';
-import { FrameBudget } from './bounded-frame-queue';
+import {
+  FrameBudget,
+  MAX_AUTHORITY_FACTORY_BYTES,
+  MAX_AUTHORITY_FACTORY_FRAMES,
+  MAX_CONNECTION_BYTES,
+  MAX_CONNECTION_FRAMES,
+  MAX_ROOM_BYTES,
+  MAX_ROOM_FRAMES,
+} from './bounded-frame-queue';
 import { FrameTransport } from './frame-transport';
+import { registerAuthorityConnection } from './authority-connection';
+import type { AuthorityOptions } from './authority-types';
 
 const MAX_TIMEOUT_MS = 2_147_483_647;
 
 export interface CreateSyncServerOptions {
+  authority?: AuthorityOptions;
   port?: number;
   server?: Server;
   backend?: HubBackend;
@@ -124,6 +135,10 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
   wss: WebSocketServer;
   close: () => Promise<void>;
 } {
+  if (options.authority) {
+    if (!options.framePolicy || !options.authenticate)
+      throw new Error('createSyncServer: authority requires framePolicy and authenticate');
+  }
   const framePolicy = options.framePolicy;
   if (framePolicy !== undefined) {
     if (
@@ -167,6 +182,7 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
     throw new Error('createSyncServer: `authorize` requires an `authenticate` hook');
   }
   const hub = new SyncHub({
+    authority: options.authority,
     backend: options.backend,
     fanout: options.fanout,
     instanceId: options.instanceId,
@@ -205,7 +221,16 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
   let counter = 0;
   const perIp = new ConcurrencyCounter(maxConnectionsPerIp);
   const perRoom = new ConcurrencyCounter(maxConnectionsPerRoom);
-  const frameBudget = framePolicy ? new FrameBudget() : undefined;
+  const frameBudget = framePolicy
+    ? new FrameBudget(
+        MAX_CONNECTION_FRAMES,
+        MAX_CONNECTION_BYTES,
+        MAX_ROOM_FRAMES,
+        MAX_ROOM_BYTES,
+        options.authority ? MAX_AUTHORITY_FACTORY_FRAMES : Infinity,
+        options.authority ? MAX_AUTHORITY_FACTORY_BYTES : Infinity,
+      )
+    : undefined;
   const guardedDisposers = new Set<() => void>();
   const clientAddress = options.clientAddress ?? ((req) => req.socket.remoteAddress);
   wss.on('connection', (ws, req) => {
@@ -248,6 +273,7 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
     let expiresAt: number | undefined;
     let expiryTimer: ReturnType<typeof setTimeout> | undefined;
     let frameTransport: FrameTransport | undefined;
+    const lifetime = new AbortController();
     const queue: string[] = [];
     let queuedBytes = 0;
     const maxPendingAuthMessages =
@@ -258,6 +284,7 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
 
     const expire = () => {
       if (closed || state === 'rejected') return;
+      lifetime.abort();
       state = 'rejected';
       queue.length = 0;
       queuedBytes = 0;
@@ -270,8 +297,9 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
       }
       ws.close(4401, 'unauthorized');
     };
-    const rejectGuarded = (code: 4401 | 4403 | 1013) => {
+    const rejectGuarded = (code: 4401 | 4403 | 4406 | 1013) => {
       if (closed || state === 'rejected') return;
+      lifetime.abort();
       if (code !== 4401 && expiresAt !== undefined && Date.now() >= expiresAt) code = 4401;
       state = 'rejected';
       queue.length = 0;
@@ -285,10 +313,17 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
       }
       ws.close(
         code,
-        code === 4401 ? 'unauthorized' : code === 4403 ? 'forbidden' : 'resync required',
+        code === 4401
+          ? 'unauthorized'
+          : code === 4403
+            ? 'forbidden'
+            : code === 4406
+              ? 'upgrade required'
+              : 'resync required',
       );
     };
     const disposeGuarded = () => {
+      lifetime.abort();
       frameTransport?.dispose();
       if (expiryTimer) clearTimeout(expiryTimer);
       expiryTimer = undefined;
@@ -378,6 +413,7 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
     });
     ws.on('close', () => {
       closed = true;
+      lifetime.abort();
       frameTransport?.dispose();
       guardedDisposers.delete(disposeGuarded);
       if (expiryTimer) clearTimeout(expiryTimer);
@@ -424,7 +460,7 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
           );
           guardedDisposers.add(disposeGuarded);
         }
-        hub.addConnection({
+        const connection: Connection = {
           id: connId,
           room,
           userId,
@@ -433,7 +469,23 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
           expiresAt,
           send,
           ...(frameTransport ? { sendAsync } : {}),
-        });
+          signal: lifetime.signal,
+          close: rejectGuarded,
+        };
+        if (frameTransport) {
+          registerAuthorityConnection(connection, {
+            sendTracked: (message, options) => {
+              if (closed || state !== 'ready' || isExpired() || !frameTransport) {
+                return {
+                  completion: Promise.reject(new Error('frame delivery failed')),
+                  settled: Promise.resolve(),
+                };
+              }
+              return frameTransport.sendTracked(message, options);
+            },
+          });
+        }
+        hub.addConnection(connection);
         admitted = true;
         state = 'ready';
         scheduleExpiry();

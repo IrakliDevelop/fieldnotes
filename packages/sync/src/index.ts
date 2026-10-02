@@ -101,6 +101,7 @@ export {
   serializeAuthorityFrame,
 } from './authority-protocol';
 export { classifyAuthorityCursor } from './authority-cursor';
+export { createAuthorityOperationId } from './authority-operation-id';
 export { prepareAuthorityCheckpoint, AuthorityCheckpointAssembler } from './authority-checkpoint';
 export type {
   AuthorityCheckpointPayload,

@@ -445,6 +445,45 @@ describe('parseEnvelope', () => {
     ).toBeNull();
   });
 
+  it('accepts exact authority extension inventory only with authority opt-in', () => {
+    const capabilities = {
+      protocolVersion: 1,
+      extensionKinds: [],
+      elementEnvelope: true,
+      authority: 1,
+      authorityExtensions: [{ key: 'fog', pluginName: 'vtt', version: 1 }],
+    };
+    const frame = { from: 'actor', op: { kind: 'capabilities', capabilities } };
+    expect(isValidEnvelope(frame)).toBe(true);
+    expect(
+      isValidEnvelope({
+        ...frame,
+        op: {
+          ...frame.op,
+          capabilities: {
+            ...capabilities,
+            authority: undefined,
+          },
+        },
+      }),
+    ).toBe(false);
+    expect(
+      isValidEnvelope({
+        ...frame,
+        op: {
+          ...frame.op,
+          capabilities: {
+            ...capabilities,
+            authorityExtensions: [
+              ...capabilities.authorityExtensions,
+              capabilities.authorityExtensions[0],
+            ],
+          },
+        },
+      }),
+    ).toBe(false);
+  });
+
   it('returns null for malformed JSON', () => {
     expect(parseEnvelope('{bad')).toBeNull();
     expect(parseEnvelope('')).toBeNull();

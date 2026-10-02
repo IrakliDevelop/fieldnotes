@@ -17,6 +17,29 @@ export type {
   AuthorityProposalFrame,
   PreparedAuthorityProposal,
 } from './authority-proposal';
+export type {
+  JsonValue,
+  AuthorityState,
+  AuthorityPosition,
+  AuthorityReadOptions,
+  AuthorityIdentity,
+  AuthorityReadContext,
+  AuthorityCommitContext,
+  AuthorityIntent,
+  AuthorityCommitRequest,
+  AuthorityCommitResult,
+  AuthorityEvidenceRef,
+  AuthorityPublication,
+  AuthorityReadPage,
+  AuthorityEvidenceLease,
+  AuthorityEvidenceResult,
+  AuthorityCaptureLease,
+  AuthorityPublicationClaim,
+  AuthorityDriver,
+  AuthorityExtension,
+  AuthorityRoomDefinition,
+  AuthorityOptions,
+} from './authority-types';
 export { readBearerToken } from './authenticate';
 export type {
   Authorize,
