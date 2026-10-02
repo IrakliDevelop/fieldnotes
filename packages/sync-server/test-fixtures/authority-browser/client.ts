@@ -5,6 +5,7 @@ import {
   createAuthorityCapabilities,
   createAuthorityOperationId,
   parseAuthorityServerFrame,
+  parseEnvelope,
   serializeAuthorityFrame,
 } from '@fieldnotes/sync';
 import type {
@@ -189,6 +190,11 @@ function applyMutation(mutation: AuthorityMutation): void {
 
 async function receive(owner: Episode, raw: string): Promise<void> {
   if (!current(owner)) return;
+  const envelope = parseEnvelope(raw);
+  if (envelope?.op.kind === 'capabilities') {
+    event('capabilities received');
+    return;
+  }
   const frame = parseAuthorityServerFrame(raw);
   if (!frame) {
     event('invalid server frame');

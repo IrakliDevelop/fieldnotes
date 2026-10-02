@@ -1,5 +1,9 @@
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
-import { prepareAuthorityCheckpoint, serializeAuthorityFrame } from '@fieldnotes/sync';
+import {
+  createAuthorityCapabilities,
+  prepareAuthorityCheckpoint,
+  serializeAuthorityFrame,
+} from '@fieldnotes/sync';
 import type {
   AuthorityCheckpointPayload,
   AuthorityServerFrame,
@@ -151,8 +155,9 @@ const checkpointFrames = async (
   socket: FakeSocket,
   elements: SyncElement[] = [],
   streamId = 'stream',
+  requestCheckpoint = true,
 ) => {
-  node('checkpoint').click();
+  if (requestCheckpoint) node('checkpoint').click();
   const request = socket
     .frames()
     .reverse()
@@ -202,6 +207,52 @@ const connect = (identity = 'dm') => {
   socket.open();
   return socket;
 };
+
+it('accepts the legacy capability reply before resync and preserves checkpoint bootstrap', async () => {
+  const socket = connect();
+  socket.message(
+    JSON.stringify({
+      from: 'hub',
+      op: {
+        kind: 'capabilities',
+        capabilities: createAuthorityCapabilities(
+          ['synthetic-change'],
+          [
+            {
+              key: 'synthetic',
+              pluginName: 'authority-browser-fixture',
+              version: 1,
+              validate: (value): value is string => typeof value === 'string',
+            },
+          ],
+        ),
+      },
+    }),
+  );
+  server(socket, {
+    protocol: 'authority:1',
+    kind: 'resync-required',
+    generation: 'fixture-generation',
+    reason: 'checkpoint-required',
+  });
+  await tick();
+
+  expect(node('events').textContent).toContain('capabilities received');
+  expect(node('events').textContent).not.toContain('invalid server frame');
+  expect(socket.frames().filter((frame) => frame.kind === 'checkpoint-request')).toHaveLength(1);
+
+  for (const frame of await checkpointFrames(socket, [shape('negotiated')], 'negotiated', false))
+    socket.message(frame);
+  await vi.waitFor(() => expect(status().appliedCursor?.streamId).toBe('negotiated'));
+  expect(status()).toMatchObject({
+    visibleIds: ['negotiated'],
+    appliedCursor: { streamId: 'negotiated', revision: 0 },
+  });
+
+  socket.message('{bad');
+  await tick();
+  expect(node('events').textContent).toContain('invalid server frame');
+});
 
 beforeEach(async () => {
   vi.resetModules();
