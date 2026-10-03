@@ -82,6 +82,7 @@ const PAYLOAD_LIMITS = {
 const encoder = new TextEncoder();
 const idPattern = /^[\x21-\x7e]{1,128}$/;
 const pending: AuthorityCheckpointResult = Object.freeze({ status: 'pending' });
+const alreadySettled = Promise.resolve();
 
 function id(value: unknown): value is string {
   return typeof value === 'string' && idPattern.test(value);
@@ -419,6 +420,7 @@ export class AuthorityCheckpointAssembler {
   private timer?: ReturnType<typeof setTimeout>;
   private token = 0;
   private settle?: (result: AuthorityCheckpointResult) => void;
+  private verificationSettlement: Promise<void> = alreadySettled;
   private readonly onAbort = (): void => {
     this.fail('aborted');
   };
@@ -440,6 +442,10 @@ export class AuthorityCheckpointAssembler {
   }
   get status(): 'idle' | 'receiving' | 'verifying' | 'complete' | 'failed' | 'disposed' {
     return this.state;
+  }
+  /** Observes verification already started at call time; it never rejects or starts work. */
+  whenSettled(): Promise<void> {
+    return this.verificationSettlement;
   }
   private cleanup(): void {
     if (this.timer !== undefined) clearTimeout(this.timer);
@@ -522,7 +528,11 @@ export class AuthorityCheckpointAssembler {
     const token = ++this.token;
     return new Promise<AuthorityCheckpointResult>((resolve) => {
       this.settle = resolve;
-      void this.verify(bytes, manifest, token);
+      const work = this.verify(bytes, manifest, token);
+      this.verificationSettlement = work.then(
+        () => undefined,
+        () => undefined,
+      );
     });
   }
   private async verify(

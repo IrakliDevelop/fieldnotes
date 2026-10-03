@@ -458,12 +458,19 @@ describe('authority checkpoint', () => {
     await receiver.accept(wire(frameAt(frames, 0)));
     await receiver.accept(wire(frameAt(frames, 1)));
     const finishing = receiver.accept(wire(frameAt(frames, 2)));
+    const settlement = receiver.whenSettled();
     expect(receiver.status).toBe('verifying');
     receiver.dispose();
     expect(await finishing).toEqual({ status: 'failed', reason: 'disposed' });
     expect(receiver.status).toBe('disposed');
+    let physicallySettled = false;
+    void settlement.then(() => {
+      physicallySettled = true;
+    });
+    await nextTurn();
+    expect(physicallySettled).toBe(false);
     gate.reject(new Error('late crypto rejection'));
-    await Promise.resolve();
+    await settlement;
     expect(receiver.status).toBe('disposed');
     vi.stubGlobal('crypto', real);
   });
@@ -496,10 +503,17 @@ describe('authority checkpoint', () => {
     await vi.advanceTimersByTimeAsync(9_999);
     expect(await receiver.accept(wire(frameAt(frames, 1)))).toEqual({ status: 'pending' });
     const finishing = receiver.accept(wire(frameAt(frames, 2)));
+    const settlement = receiver.whenSettled();
     await vi.advanceTimersByTimeAsync(1);
     expect(await finishing).toEqual({ status: 'failed', reason: 'timeout' });
-    gate.resolve(new ArrayBuffer(32));
+    let physicallySettled = false;
+    void settlement.then(() => {
+      physicallySettled = true;
+    });
     await Promise.resolve();
+    expect(physicallySettled).toBe(false);
+    gate.resolve(new ArrayBuffer(32));
+    await settlement;
     expect(receiver.status).toBe('failed');
     expect(vi.getTimerCount()).toBe(0);
   });
@@ -546,6 +560,7 @@ describe('authority checkpoint', () => {
     await receiver.accept(wire(frameAt(frames, 0)));
     await receiver.accept(wire(frameAt(frames, 1)));
     const finishing = receiver.accept(wire(frameAt(frames, 2)));
+    const settlement = receiver.whenSettled();
     controller.abort();
     expect(await finishing).toEqual({ status: 'failed', reason: 'aborted' });
     expect(await receiver.accept(wire(frameAt(frames, 2)))).toEqual({
@@ -553,7 +568,7 @@ describe('authority checkpoint', () => {
       reason: 'aborted',
     });
     gate.reject(new Error('late rejection'));
-    await Promise.resolve();
+    await settlement;
     expect(receiver.status).toBe('failed');
   });
 
@@ -766,5 +781,61 @@ describe('authority checkpoint', () => {
     const receiver = assembler();
     expect(await deliver(frames, receiver)).toEqual({ status: 'failed', reason: 'crypto' });
     expect(receiver.status).toBe('failed');
+    await expect(receiver.whenSettled()).resolves.toBeUndefined();
+  });
+
+  it('settles after successful and hash-mismatched verification with stable promise identity', async () => {
+    const frames = [...(await prepare()).frames];
+    const success = assembler();
+    await success.accept(wire(frameAt(frames, 0)));
+    await success.accept(wire(frameAt(frames, 1)));
+    const successful = success.accept(wire(frameAt(frames, 2)));
+    const successSettlement = success.whenSettled();
+    await expect(successful).resolves.toMatchObject({ status: 'complete' });
+    await expect(successSettlement).resolves.toBeUndefined();
+    expect(success.whenSettled()).toBe(successSettlement);
+
+    const begin = frameAt(frames, 0);
+    if (begin.kind !== 'checkpoint-begin') throw new Error('fixture');
+    const mismatchFrames = [
+      { ...begin, manifest: { ...begin.manifest, sha256: '0'.repeat(64) } },
+      frameAt(frames, 1),
+      frameAt(frames, 2),
+    ];
+    const mismatch = assembler();
+    await mismatch.accept(wire(mismatchFrames[0] as AuthorityCheckpointFrame));
+    await mismatch.accept(wire(mismatchFrames[1] as AuthorityCheckpointFrame));
+    const mismatched = mismatch.accept(wire(mismatchFrames[2] as AuthorityCheckpointFrame));
+    const mismatchSettlement = mismatch.whenSettled();
+    await expect(mismatched).resolves.toEqual({ status: 'failed', reason: 'invalid' });
+    await expect(mismatchSettlement).resolves.toBeUndefined();
+    expect(mismatch.whenSettled()).toBe(mismatchSettlement);
+  });
+
+  it('keeps a stable non-rejecting settlement pending until disposed verification actually exits', async () => {
+    const frames = [...(await prepare()).frames];
+    const gate = deferred<ArrayBuffer>();
+    const real = globalThis.crypto;
+    vi.stubGlobal('crypto', { subtle: { digest: () => gate.promise } });
+    const receiver = assembler();
+    expect(receiver.whenSettled()).toBe(receiver.whenSettled());
+    expect(await receiver.whenSettled()).toBeUndefined();
+    expect(await receiver.accept(wire(frameAt(frames, 0)))).toEqual({ status: 'pending' });
+    expect(await receiver.accept(wire(frameAt(frames, 1)))).toEqual({ status: 'pending' });
+    const accepting = receiver.accept(wire(frameAt(frames, 2)));
+    const settlement = receiver.whenSettled();
+    expect(receiver.whenSettled()).toBe(settlement);
+    receiver.dispose();
+    await expect(accepting).resolves.toEqual({ status: 'failed', reason: 'disposed' });
+    let exited = false;
+    void settlement.then(() => {
+      exited = true;
+    });
+    await nextTurn();
+    expect(exited).toBe(false);
+    vi.stubGlobal('crypto', real);
+    gate.resolve(await real.subtle.digest('SHA-256', new Uint8Array()));
+    await expect(settlement).resolves.toBeUndefined();
+    expect(receiver.whenSettled()).toBe(settlement);
   });
 });

@@ -100,8 +100,104 @@ to an authority room.
 
 Keep the original complete proposal and ID after a send with an uncertain outcome. Retry the
 same bytes and ID to recover a retained durable receipt. An expired retry is unresolved,
-not permission to automatically create a fresh ID for the same logical action. Checkpoint
-and reconcile the draft explicitly. Receipts prove durable commit but carry no applied-state
-cursor. Complete checkpoints and `changes` advance the applied cursor; a managed authority
-client with pending, barrier and recovery semantics is a later delivery slice. The current
-managed client does not negotiate `authority:1`.
+not permission to automatically create a fresh ID for the same logical action. Receipts prove
+durable commit but carry no applied-state cursor.
+
+## Managed authoritative client (0.25.0)
+
+`createManagedAuthorityConnection` is the opt-in high-level authority client. It owns capability
+negotiation, credentials/endpoints, one socket episode at a time, recovery, exact retained proposal
+wires, a deeply frozen canonical document, receipt barriers, and coherent checkpoints. The legacy
+`createManagedSyncConnection`, `SyncClient`, plugin path, and `WebSocketTransport` remain unchanged.
+
+```ts
+import {
+  createAuthorityClientExtension,
+  createAuthorityExtensionReducer,
+  createExtensionKind,
+  createManagedAuthorityConnection,
+} from '@fieldnotes/sync';
+
+const labelKind = createExtensionKind({
+  extensionKind: 'labels:set',
+  codec: { validate: (value: unknown): value is string => typeof value === 'string' },
+});
+const labelReducer = createAuthorityExtensionReducer<string, string>({
+  kind: labelKind,
+  reduce: (_state, label) => label,
+});
+const labels = createAuthorityClientExtension({
+  key: 'labels',
+  pluginName: 'my-presentation',
+  version: 1,
+  validate: (value: unknown): value is string => typeof value === 'string',
+  reducers: [labelReducer],
+});
+
+const connection = createManagedAuthorityConnection({
+  scopeId: 'principal-42/room-7',
+  clientId: crypto.randomUUID(),
+  extensions: [labels],
+  resolveUrl: async () => ({ url: await getShortLivedWebSocketUrl() }),
+});
+
+const unsubscribe = connection.subscribe(() => {
+  const state = connection.getState();
+  renderCanonical(state.document); // presentation only
+});
+```
+
+Options are captured synchronously. `scopeId` identifies one principal/room authority scope; create
+a new manager when that identity changes. `resolveUrl` may refresh a short-lived endpoint within the
+same scope. The manager does not retain credentials or URLs in public state. A custom
+`transportFactory` may supply the small non-buffering `AuthorityClientTransport` interface;
+otherwise `createAuthorityWebSocketTransport` is used. The default adapter requires browser
+`WebSocket`, accepts text only, and does not reconnect or queue on its own. In SSR it fails closed to
+an offline manager; construct client connections in browser lifecycle code and always call
+`stop()` during teardown.
+
+`getState()` returns the same deeply frozen reference until a real transition. Status is
+`connecting`, `recovering`, `live`, `offline`, `denied`, `upgrade-required`, or `stopped`.
+`document` is either `null` or the SDK-owned canonical `{ cursor, casToken?, elements, layers,
+extensions }`. It becomes available only after exact capabilities, generation, and a fully
+validated fresh checkpoint. Layer tombstones and extension state are preserved. Project canonical
+elements into a UI/store with that store's remote origin, if available. Canonical replacement is
+atomic inside this SDK; arbitrary projection callbacks and destination stores are not claimed to be
+atomic, and presentation failures cannot change canonical state.
+
+`submit(mutation, { expectedState? })` retains an immutable parsed proposal and its exact serialized
+wire. A clear requires an explicit checkpoint CAS token. Submitting while not live may retain a
+`draft`; a handed-off operation is `pending`; outcomes become `accepted`, `rejected`, or
+`uncertain`. A receipt changes only the operation record to durable `accepted`: **it does not mean
+the mutation has reached `state.document`, a viewport, or application storage, and it is not a
+save confirmation**. Ordered `changes` or a complete checkpoint advance canonical state.
+
+There is no automatic replay on reconnect, recovery, or generation replacement. Call
+`retryOperation(id)` only for a same-generation retained draft/uncertain operation; it sends the
+exact original ID, CAS, and wire. To intentionally make a new logical edit, call `submit()` with the
+retained `operation.proposal.mutation` and warn users that uncertain work may already have committed,
+so reapplication can duplicate an effect. `releaseOperation(id, { discardDraft: true })` explicitly
+abandons tracking of unaccepted work; it does not prove that a prior attempt failed. Accepted work
+may be released when no barrier pins it.
+
+`captureBarrier()` freezes the currently retained operation IDs and edit cut. Await
+`waitForAcknowledgements(barrier)` and require `status === 'acknowledged'` before treating all IDs as
+durably receipted. Even then, the result says nothing about applied cursor or saving. Pass that same
+barrier to `requestCheckpoint({ barrier })` to issue a coherent checkpoint request only after the
+receipt cut. A later local edit remains beyond the barrier even if server timing includes its effect
+in the returned checkpoint. Release finished barriers explicitly.
+
+Barrier/checkpoint promises report typed expected failures (`blocked`, `timeout`, `aborted`,
+`stopped`, `invalid`, `capacity`, `recovery`, `crypto`, and access/upgrade outcomes) rather than
+throwing. Caller timeouts are integers from 1–60,000 ms. Cancellation detaches only that caller.
+Fixed safety bounds include 1 MiB frames, 20 MiB checkpoints, 64 retained operations/4 MiB wire,
+64 inbox frames/4 MiB, 16 barriers/1,024 pinned references, 32 shared waiters, 64 listeners, and one
+transport, credential resolution, and checkpoint verification at a time. Subscriber and trusted
+synchronous extension callback exceptions are contained, but applications should still keep them
+small and side-effect aware.
+
+Typed extensions are required capabilities, not optional migrations. Every registered key,
+plugin/version, generic kind, and legacy reducer owner must match the server inventory exactly.
+Inputs are bounded-copied and deeply frozen; invalid, throwing, thenable, oversized, or missing
+extension results reject the whole candidate and preserve the prior canonical document. The helper
+types retain payload inference without exporting the internal registry.

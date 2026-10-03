@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Managed authority client fixture</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #eef2ff;
+        --panel: #ffffff;
+        --text: #172033;
+        --muted: #53627a;
+        --border: #9aa9c2;
+        --accent: #175cd3;
+        --button: #e6efff;
+        --code: #f4f7fb;
+      }
+      :root[data-theme='dark'] {
+        color-scheme: dark;
+        --bg: #0d1424;
+        --panel: #172033;
+        --text: #f1f5ff;
+        --muted: #b5c2d8;
+        --border: #50617d;
+        --accent: #7cb1ff;
+        --button: #263958;
+        --code: #111a2b;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font:
+          15px/1.45 system-ui,
+          sans-serif;
+      }
+      header {
+        padding: 18px clamp(16px, 4vw, 36px);
+        background: var(--panel);
+        border-bottom: 1px solid var(--border);
+      }
+      h1 {
+        font-size: 22px;
+        margin: 0 0 4px;
+      }
+      h2 {
+        font-size: 17px;
+        margin: 0 0 10px;
+      }
+      p {
+        margin: 4px 0;
+        color: var(--muted);
+      }
+      main {
+        display: grid;
+        grid-template-columns: minmax(360px, 1.15fr) minmax(330px, 0.85fr);
+        gap: 14px;
+        padding: 14px;
+      }
+      section {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 14px;
+      }
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 7px;
+        margin: 8px 0 14px;
+      }
+      button,
+      input {
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--button);
+        color: var(--text);
+        padding: 7px 10px;
+      }
+      input {
+        background: var(--panel);
+        min-width: 12rem;
+      }
+      button {
+        cursor: pointer;
+      }
+      button:focus-visible,
+      input:focus-visible {
+        outline: 3px solid var(--accent);
+        outline-offset: 2px;
+      }
+      #viewport {
+        height: 360px;
+        border: 2px solid var(--accent);
+        border-radius: 7px;
+        overflow: hidden;
+        background: var(--panel);
+      }
+      pre {
+        min-height: 120px;
+        max-height: 310px;
+        overflow: auto;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        background: var(--code);
+        border: 1px solid var(--border);
+        border-radius: 7px;
+        padding: 10px;
+        font-size: 12px;
+      }
+      .warning {
+        border-left: 4px solid #d97706;
+        padding: 7px 10px;
+        background: color-mix(in srgb, #f59e0b 15%, var(--panel));
+      }
+      .full {
+        grid-column: 1 / -1;
+      }
+      @media (max-width: 850px) {
+        main {
+          grid-template-columns: 1fr;
+        }
+        .full {
+          grid-column: auto;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Managed authority client · synthetic acceptance fixture</h1>
+      <p>
+        Real public manager + real loopback server. In-memory test durability only; no accounts,
+        cookies, storage, or application data.
+      </p>
+      <button id="theme" type="button">Toggle light/dark theme</button>
+    </header>
+    <main>
+      <section aria-labelledby="edit-heading">
+        <h2 id="edit-heading">Draft and operation controls</h2>
+        <label>Element ID <input id="draft-id" value="fixture-shape" /></label>
+        <label>Extension value <input id="extension-value" value="synthetic value" /></label>
+        <div class="controls">
+          <button id="draft-element">Create element draft</button>
+          <button id="draft-extension">Create extension draft</button>
+          <button id="submit">Submit draft</button>
+          <button id="retry">Retry exact ID/wire</button>
+          <button id="reapply">Reapply as new ID</button>
+          <button id="discard">Explicitly discard</button>
+        </div>
+        <p id="duplicate-warning" class="warning" role="alert" hidden>
+          Reapplying uncertain work creates a new operation ID and can duplicate an effect that
+          already committed.
+        </p>
+        <h2>Receipt barrier and checkpoint</h2>
+        <div class="controls">
+          <button id="capture-barrier">Capture barrier</button>
+          <button id="wait-ack">Wait for acknowledgements</button>
+          <button id="checkpoint">Request checkpoint after barrier</button>
+          <button id="release-barrier">Release barrier</button>
+        </div>
+        <h2>Core presentation projection</h2>
+        <div id="viewport" aria-label="History-transparent Field Notes core presentation"></div>
+        <p>
+          Canonical elements are copied with <code>origin: remote</code>. Only SDK canonical state
+          is atomic; this presentation callback is not claimed to be atomic.
+        </p>
+      </section>
+      <section aria-labelledby="failure-heading">
+        <h2 id="failure-heading">Deterministic lifecycle/failure controls</h2>
+        <div class="controls">
+          <button id="disconnect">Disconnect socket</button>
+          <button id="reconnect">Reconnect episode</button>
+          <button id="lose-response">Lose next durable response</button>
+          <button id="reject-next">Definitely reject next operation</button>
+          <button id="replace-generation">Replace generation</button>
+          <button id="corrupt-checkpoint">Corrupt next checkpoint hash</button>
+          <button id="fail-extension">Fail next checkpoint extension</button>
+          <button id="reset">Reset fixture</button>
+        </div>
+        <h2>Automation-readable status</h2>
+        <pre id="status" role="status" aria-live="polite" data-status="connecting"></pre>
+        <h2>Client events</h2>
+        <pre id="events" aria-live="polite"></pre>
+      </section>
+      <section class="full" aria-labelledby="canonical-heading">
+        <h2 id="canonical-heading">SDK-owned canonical document</h2>
+        <pre id="canonical"></pre>
+      </section>
+    </main>
+    <script type="module" src="/client.js"></script>
+  </body>
+</html>

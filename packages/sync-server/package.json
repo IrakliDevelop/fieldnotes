@@ -1,6 +1,6 @@
 {
   "name": "@fieldnotes/sync-server",
-  "version": "0.25.0",
+  "version": "0.25.1",
   "description": "Authoritative WebSocket relay server for Field Notes real-time sync",
   "type": "module",
   "sideEffects": false,
@@ -29,6 +29,9 @@
     "fixture:build": "node test-fixtures/authority-browser/server.mjs --build",
     "fixture:start": "node test-fixtures/authority-browser/server.mjs",
     "fixture:smoke": "node test-fixtures/authority-browser/server.mjs --smoke",
+    "authority-client:build": "node test-fixtures/authority-client-browser/server.mjs --build",
+    "authority-client:start": "node test-fixtures/authority-client-browser/server.mjs",
+    "authority-client:smoke": "node test-fixtures/authority-client-browser/server.mjs --smoke",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
@@ -54,7 +57,7 @@
   ],
   "dependencies": {
     "ws": "^8.18.0",
-    "@fieldnotes/sync": "workspace:*"
+    "@fieldnotes/sync": "workspace:0.25.0"
   },
   "peerDependencies": {
     "@fieldnotes/core": ">=0.82.0 <1.0.0"

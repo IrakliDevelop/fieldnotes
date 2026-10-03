@@ -114,3 +114,30 @@ export type {
   AuthorityCheckpointFailure,
   AuthorityCheckpointResult,
 } from './authority-checkpoint';
+export {
+  createAuthorityClientExtension,
+  createAuthorityExtensionReducer,
+  createAuthorityLegacyExtensionReducer,
+} from './authority-client-extension';
+export type {
+  AuthorityClientExtension,
+  AuthorityExtensionReducer,
+  AuthorityLegacyExtensionReducer,
+} from './authority-client-extension';
+export { createManagedAuthorityConnection } from './managed-authority-connection';
+export { createAuthorityWebSocketTransport } from './authority-websocket-transport';
+export type {
+  AuthorityReadonly,
+  AuthorityClientStatus,
+  AuthorityClientOperation,
+  AuthorityClientState,
+  AuthoritySubmitResult,
+  AuthorityRetryResult,
+  AuthorityBarrier,
+  AuthorityBarrierResult,
+  AuthorityClientCheckpointResult,
+  AuthorityClientTransportHandlers,
+  AuthorityClientTransport,
+  ManagedAuthorityOptions,
+  ManagedAuthorityConnection,
+} from './authority-client-types';
