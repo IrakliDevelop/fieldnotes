@@ -53,6 +53,130 @@ const emptyAuthorityState = { elements: [], layers: [], extensions: {} };
 const initialAuthorityPosition = { generation: 'g', revision: 'start' };
 const authorityReference = { id: 'ref', byteLength: 1, nodes: 1 };
 
+it('negotiates the combined pinned legacy inventory and rejects an unowned fog kind before commit', async () => {
+  const extension = {
+    requirement: {
+      key: 'fog',
+      pluginName: 'fog',
+      version: 1,
+      validate: (data: unknown) => typeof data === 'number',
+    },
+    extensionKinds: ['zeta'],
+    legacyKinds: ['fog-meta'] as const,
+    prepare: () => ({ operation: 'meta' }),
+    changes: () => [],
+  };
+  const localDefinition: AuthorityRoomDefinition = {
+    ...definition,
+    extensions: [extension],
+  };
+  const position = { generation: 'g', revision: 'start' };
+  const commit = vi.fn();
+  const driver = {
+    head: async () => position,
+    commit,
+    readAfter: async () => ({ status: 'ok', head: position, records: [] }),
+    claimPublications: async () => [],
+    markPublished: async () => undefined,
+  } as unknown as AuthorityDriver;
+  const sent: string[] = [];
+  const close = vi.fn();
+  const connection: Connection = {
+    id: 'legacy-negotiation',
+    room: 'table',
+    signal: new AbortController().signal,
+    close,
+    send: vi.fn(),
+  };
+  registerAuthorityConnection(connection, {
+    sendTracked: (message) => {
+      sent.push(message);
+      return { completion: Promise.resolve(), settled: Promise.resolve() };
+    },
+  });
+  const runtime = new AuthorityRuntime(
+    {
+      driver,
+      resolveRoom: () => localDefinition,
+      resolveIdentity: () => ({ actorId: 'actor', ownershipId: 'owner' }),
+    },
+    new InMemoryHubFanout(),
+    'worker',
+  );
+  try {
+    expect(runtime.admit(connection, localDefinition)).toBe(true);
+    await runtime.handleMessage(
+      connection.id,
+      JSON.stringify({
+        from: connection.id,
+        op: {
+          kind: 'capabilities',
+          capabilities: createAuthorityCapabilities(['fog-meta', 'zeta'], [extension.requirement]),
+        },
+      }),
+    );
+    const capabilities = sent
+      .map((message) => parseEnvelope(message))
+      .find((envelope) => envelope?.op.kind === 'capabilities');
+    expect(
+      capabilities?.op.kind === 'capabilities' && capabilities.op.capabilities.extensionKinds,
+    ).toEqual(['fog-meta', 'zeta']);
+    runtime.activate(connection.id, position, {
+      elements: [],
+      layers: [],
+      extensions: { fog: { pluginName: 'fog', version: 1, data: 0 } },
+    });
+    await runtime.handleMessage(
+      connection.id,
+      proposal('unowned-fog', { kind: 'fog-patch', generation: 'g', tiles: [] }),
+    );
+    expect(commit).not.toHaveBeenCalled();
+    expect(close).toHaveBeenCalledWith(1013);
+
+    const malformedClose = vi.fn();
+    const malformedConnection: Connection = {
+      id: 'malformed-legacy',
+      room: 'table',
+      signal: new AbortController().signal,
+      close: malformedClose,
+      send: vi.fn(),
+    };
+    registerAuthorityConnection(malformedConnection, {
+      sendTracked: () => ({ completion: Promise.resolve(), settled: Promise.resolve() }),
+    });
+    expect(runtime.admit(malformedConnection, localDefinition)).toBe(true);
+    await runtime.handleMessage(
+      malformedConnection.id,
+      JSON.stringify({
+        from: malformedConnection.id,
+        op: {
+          kind: 'capabilities',
+          capabilities: createAuthorityCapabilities(['fog-meta', 'zeta'], [extension.requirement]),
+        },
+      }),
+    );
+    runtime.activate(malformedConnection.id, position, {
+      elements: [],
+      layers: [],
+      extensions: { fog: { pluginName: 'fog', version: 1, data: 0 } },
+    });
+    await runtime.handleMessage(
+      malformedConnection.id,
+      JSON.stringify({
+        protocol: 'authority:1',
+        kind: 'propose',
+        generation: 'g',
+        clientOperationId: 'malformed-fog',
+        mutation: { kind: 'fog-meta', record: { version: 0, editor: 'actor' } },
+      }),
+    );
+    expect(commit).not.toHaveBeenCalled();
+    expect(malformedClose).toHaveBeenCalledWith(4406);
+  } finally {
+    runtime.close();
+  }
+});
+
 it.each([4999, 5000, 5001])(
   'admits replay only while its original deadline survives the last configuration callback at %i ms',
   async (elapsed) => {

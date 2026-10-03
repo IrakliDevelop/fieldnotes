@@ -5,6 +5,7 @@ import {
   createExtensionKind,
   createManagedAuthorityConnection,
 } from '@fieldnotes/sync';
+import { createFogAuthorityClientExtension } from '@fieldnotes/vtt/sync';
 import type {
   AuthorityBarrier,
   AuthorityClientOperation,
@@ -42,7 +43,7 @@ const syntheticReducer = createAuthorityExtensionReducer<string, string>({
 });
 const syntheticExtension = createAuthorityClientExtension({
   key: 'synthetic',
-  pluginName: 'sdk-e-browser-fixture',
+  pluginName: 'sdk-f-browser-fixture',
   version: 1,
   validate: (value: unknown): value is string => typeof value === 'string',
   reducers: [syntheticReducer],
@@ -543,6 +544,7 @@ function bootstrap(): void {
   });
   const status = node<HTMLElement>('status');
   const canonical = node<HTMLElement>('canonical');
+  const peer = node<HTMLElement>('peer');
   const events = node<HTMLElement>('events');
   const draftId = node<HTMLInputElement>('draft-id');
   const extensionValue = node<HTMLInputElement>('extension-value');
@@ -572,6 +574,7 @@ function bootstrap(): void {
   let failureSnapshot: FailureSnapshot | null = null;
   let failureError: string | null = null;
   let resetResult = 'none';
+  let peerConvergence = 'not checked';
   let idSequence = 0;
   let startQueuedReset: () => void = () => undefined;
 
@@ -631,6 +634,7 @@ function bootstrap(): void {
     for (const operation of visibleOperations) retained.set(operation.clientOperationId, operation);
     const buckets = operationBuckets(visibleOperations);
     const extension = visibleDocument?.extensions.synthetic?.data ?? null;
+    const fog = visibleDocument?.extensions.fog?.data ?? null;
     status.dataset.status = state.status;
     status.dataset.generation = state.generation ?? 'none';
     status.dataset.pending = String(buckets.pending.length);
@@ -643,6 +647,14 @@ function bootstrap(): void {
     status.dataset.failureControl = phase();
     status.dataset.failureControlCommand = failureSnapshot?.mode ?? selectedFailure ?? 'none';
     status.dataset.reset = resetResult;
+    status.dataset.fog = fog ? 'defined' : 'missing';
+    status.dataset.fogTiles = String(
+      fog && typeof fog === 'object' && 'tiles' in fog && Array.isArray(fog.tiles)
+        ? fog.tiles.length
+        : 0,
+    );
+    status.dataset.layerRecords = String(visibleDocument?.layers.length ?? 0);
+    status.dataset.peerConvergence = peerConvergence;
     const transportDiagnostics = transportGate.diagnostics();
     status.dataset.transportOpenedEpisode = String(transportDiagnostics.openedEpisode);
     status.dataset.transportRegistrations = String(transportDiagnostics.registrations);
@@ -676,6 +688,12 @@ function bootstrap(): void {
           : { phase: phase(), mode: selectedFailure, error: failureError },
         transportGate: transportDiagnostics,
         resetResult,
+        authorityVtt: {
+          checkpointInventory: ['fog/fog/1'],
+          kinds: ['fog-meta', 'fog-patch'],
+          deterministicDriver: 'in-memory test code; not Redis durability',
+        },
+        peerConvergence,
       },
       null,
       2,
@@ -685,6 +703,7 @@ function bootstrap(): void {
         elements: visibleDocument?.elements ?? [],
         layersAndTombstones: visibleDocument?.layers ?? [],
         extension,
+        fog,
         projectedIds: projectionIds(viewport.store.getAll()),
       },
       null,
@@ -696,11 +715,11 @@ function bootstrap(): void {
     managerActive = true;
     const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const value = createManagedAuthorityConnection({
-      scopeId: 'fixture-user/sdk-e-table',
-      clientId: 'sdk-e-browser',
-      extensions: [syntheticExtension],
+      scopeId: 'fixture-user/sdk-f-table',
+      clientId: 'sdk-f-browser',
+      extensions: [syntheticExtension, createFogAuthorityClientExtension()],
       resolveUrl: () => ({
-        url: `${scheme}//${location.host}/?room=sdk-e-table${
+        url: `${scheme}//${location.host}/?room=sdk-f-table${
           checkpointEpisode ? `&fixtureEpisode=${encodeURIComponent(checkpointEpisode)}` : ''
         }`,
       }),
@@ -1138,6 +1157,8 @@ function bootstrap(): void {
     warning.hidden = true;
     viewport.store.clear({ origin: 'remote' });
     canonical.textContent = '';
+    peer.textContent = '';
+    peerConvergence = 'not checked';
   };
 
   const completedReset = (
@@ -1299,6 +1320,78 @@ function bootstrap(): void {
     event('extension draft created');
     render();
   });
+  node('draft-layer').addEventListener('click', () => {
+    if (actionBusy || resetRequested || admissionFenced())
+      return event('draft refused: action gate is occupied');
+    draft = {
+      kind: 'layer-upsert',
+      layer: { id: 'tokens', name: 'Tokens', visible: true, locked: false, order: 1, opacity: 1 },
+      version: 1,
+      editor: 'sdk-f-browser',
+    };
+    event('layer upsert draft created');
+    render();
+  });
+  node('remove-layer').addEventListener('click', () => {
+    if (actionBusy || resetRequested || admissionFenced())
+      return event('draft refused: action gate is occupied');
+    draft = { kind: 'layer-remove', id: 'tokens', version: 2, editor: 'sdk-f-browser' };
+    event('layer tombstone draft created');
+    render();
+  });
+  node('define-fog').addEventListener('click', () => {
+    if (actionBusy || resetRequested || admissionFenced())
+      return event('draft refused: action gate is occupied');
+    draft = {
+      kind: 'fog-meta',
+      record: {
+        version: 2,
+        editor: 'sdk-f-browser',
+        definition: {
+          version: 1,
+          generation: 'fog-g1',
+          bounds: { x: 0, y: 0, w: 256, h: 256 },
+          cellSize: 1,
+          tileCells: 128,
+          base: 'covered',
+        },
+      },
+    };
+    event('fog definition draft created');
+    render();
+  });
+  node('reveal-fog').addEventListener('click', () => {
+    if (actionBusy || resetRequested || admissionFenced())
+      return event('draft refused: action gate is occupied');
+    draft = {
+      kind: 'fog-patch',
+      generation: 'fog-g1',
+      tiles: [{ generation: 'fog-g1', x: 0, y: 0, version: 1, editor: 'sdk-f-browser' }],
+    };
+    event('fog reveal/hide patch draft created');
+    render();
+  });
+  node('reset-fog-generation').addEventListener('click', () => {
+    if (actionBusy || resetRequested || admissionFenced())
+      return event('draft refused: action gate is occupied');
+    draft = {
+      kind: 'fog-meta',
+      record: {
+        version: 3,
+        editor: 'sdk-f-browser',
+        definition: {
+          version: 1,
+          generation: 'fog-g2',
+          bounds: { x: 0, y: 0, w: 256, h: 256 },
+          cellSize: 1,
+          tileCells: 128,
+          base: 'covered',
+        },
+      },
+    };
+    event('fog generation replacement draft created');
+    render();
+  });
   node('submit').addEventListener('click', () =>
     runAction('submit', () => proposalAction('submit')),
   );
@@ -1354,6 +1447,39 @@ function bootstrap(): void {
         return event('checkpoint continuation stale');
       checkpointResult = result.status === 'complete' ? 'complete' : `failed/${result.reason}`;
       event(`checkpoint: ${checkpointResult}`);
+      render();
+    }),
+  );
+  node('refresh-peer').addEventListener('click', () =>
+    runAction('refresh second peer', async (epoch) => {
+      const response = await fetch('/events');
+      const value: unknown = await response.json();
+      if (epoch !== lifecycleEpoch || !isObject(value) || !isObject(value.peer))
+        return event('second peer response invalid or stale');
+      const peerDocument = value.peer.document;
+      const canonicalDocument = manager.getState().document;
+      const peerComparable = isObject(peerDocument)
+        ? {
+            elements: peerDocument.elements,
+            layers: peerDocument.layers,
+            extensions: peerDocument.extensions,
+            revision: isObject(peerDocument.cursor) ? peerDocument.cursor.revision : null,
+          }
+        : null;
+      const canonicalComparable = canonicalDocument
+        ? {
+            elements: canonicalDocument.elements,
+            layers: canonicalDocument.layers,
+            extensions: canonicalDocument.extensions,
+            revision: canonicalDocument.cursor.revision,
+          }
+        : null;
+      peerConvergence =
+        JSON.stringify(peerComparable) === JSON.stringify(canonicalComparable)
+          ? 'converged'
+          : 'pending';
+      peer.textContent = JSON.stringify(value.peer, null, 2);
+      event(`second peer: ${peerConvergence}`);
       render();
     }),
   );

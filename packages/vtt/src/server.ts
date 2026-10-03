@@ -1,10 +1,43 @@
-import type { PluginSnapshot, SyncOp } from '@fieldnotes/sync';
-import type { ApplyResult, ServerOpContext, ServerSyncPlugin } from '@fieldnotes/sync-server';
+import type { AuthorityMutation, PluginSnapshot, SyncOp } from '@fieldnotes/sync';
+import type {
+  ApplyResult,
+  AuthorityExtension,
+  JsonValue,
+  ServerOpContext,
+  ServerSyncPlugin,
+} from '@fieldnotes/sync-server';
+import {
+  diffFogAuthorityStates,
+  isValidFogAuthorityState,
+  prepareFogAuthorityIntent,
+} from './fog/fog-authority';
 import { FogLedger } from './fog/fog-ledger';
 import type { FogMetaRecord, FogSnapshot, FogTileRecord } from './fog/fog-sync-types';
 import { FogBackendServiceKey } from './sync/fog-backend-service';
 
+export { applyFogAuthorityIntent, prepareFogAuthorityIntent } from './fog/fog-authority';
+export type { FogAuthorityIntent, FogAuthorityTransitionResult } from './fog/fog-authority';
+
 export { FogLedger } from './fog/fog-ledger';
+
+export function createFogAuthorityServerExtension(): AuthorityExtension {
+  return Object.freeze({
+    requirement: Object.freeze({
+      key: 'fog',
+      pluginName: 'fog',
+      version: 1,
+      validate: isValidFogAuthorityState,
+    }),
+    extensionKinds: Object.freeze([]),
+    legacyKinds: Object.freeze(['fog-meta' as const, 'fog-patch' as const]),
+    prepare(mutation: AuthorityMutation): JsonValue | null {
+      return prepareFogAuthorityIntent(mutation) as unknown as JsonValue | null;
+    },
+    changes(before: unknown, after: unknown): readonly AuthorityMutation[] {
+      return diffFogAuthorityStates(before, after);
+    },
+  });
+}
 
 type FogOp = Extract<SyncOp, { kind: 'fog-meta' | 'fog-patch' }>;
 

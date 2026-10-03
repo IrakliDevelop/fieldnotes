@@ -9,6 +9,16 @@ import type {
 } from './authority-types';
 
 const printable = /^[\x21-\x7e]{1,128}$/;
+const reservedAuthorityMutationKinds: readonly string[] = [
+  'upsert',
+  'remove',
+  'clear',
+  'layer-upsert',
+  'layer-remove',
+  'fog-meta',
+  'fog-patch',
+  'extension',
+];
 
 function validIdentity(value: unknown): value is string {
   if (typeof value !== 'string' || value.length === 0 || value.length > 1024) return false;
@@ -47,6 +57,7 @@ export function pinAuthorityDefinition(
       requirement.version < 1 ||
       typeof requirement.validate !== 'function' ||
       !Array.isArray(extension.extensionKinds) ||
+      (extension.legacyKinds !== undefined && !Array.isArray(extension.legacyKinds)) ||
       typeof extension.prepare !== 'function' ||
       typeof extension.changes !== 'function' ||
       keys.has(requirement.key)
@@ -54,7 +65,13 @@ export function pinAuthorityDefinition(
       throw new TypeError('Invalid authority extension');
     keys.add(requirement.key);
     const extensionKinds = extension.extensionKinds.map((kind: string) => {
-      if (!printable.test(kind) || kinds.has(kind))
+      if (!printable.test(kind) || reservedAuthorityMutationKinds.includes(kind) || kinds.has(kind))
+        throw new TypeError('Invalid authority extension');
+      kinds.add(kind);
+      return kind;
+    });
+    const legacyKinds = extension.legacyKinds?.map((kind: 'fog-meta' | 'fog-patch') => {
+      if ((kind !== 'fog-meta' && kind !== 'fog-patch') || kinds.has(kind))
         throw new TypeError('Invalid authority extension');
       kinds.add(kind);
       return kind;
@@ -63,10 +80,21 @@ export function pinAuthorityDefinition(
       ...extension,
       requirement: Object.freeze({ ...requirement }),
       extensionKinds: Object.freeze(extensionKinds),
+      ...(legacyKinds === undefined ? {} : { legacyKinds: Object.freeze(legacyKinds) }),
     });
   });
   if (kinds.size > 256) throw new TypeError('Invalid authority extension');
   return Object.freeze({ ...definition, extensions: Object.freeze(extensions) });
+}
+
+export function authorityExtensionCapabilityKinds(
+  extensions: readonly AuthorityRoomDefinition['extensions'][number][],
+): readonly string[] {
+  return Object.freeze(
+    extensions
+      .flatMap((extension) => [...extension.extensionKinds, ...(extension.legacyKinds ?? [])])
+      .sort(),
+  );
 }
 
 export function resolveAuthorityDefinition(
@@ -125,12 +153,12 @@ export function authorityCapabilitiesMatch(
 ): boolean {
   if (capabilities.authority !== 1) return false;
   const expected = createAuthorityCapabilities(
-    definition.extensions.flatMap((extension) => extension.extensionKinds),
+    authorityExtensionCapabilityKinds(definition.extensions),
     definition.extensions.map((extension) => extension.requirement),
   );
   return (
     JSON.stringify(capabilities.authorityExtensions ?? []) ===
       JSON.stringify(expected.authorityExtensions ?? []) &&
-    expected.extensionKinds.every((kind) => capabilities.extensionKinds.includes(kind))
+    JSON.stringify(capabilities.extensionKinds) === JSON.stringify(expected.extensionKinds)
   );
 }

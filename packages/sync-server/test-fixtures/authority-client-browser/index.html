@@ -132,10 +132,11 @@
   </head>
   <body>
     <header>
-      <h1>Managed authority client · synthetic acceptance fixture</h1>
+      <h1>Managed authority client · VTT acceptance fixture</h1>
       <p>
-        Real public manager + real loopback server. In-memory test durability only; no accounts,
-        cookies, storage, or application data.
+        Real public manager + real loopback server + real VTT authority adapters. The deterministic
+        driver is in-memory test code, not Redis durability; no accounts, cookies, storage, or
+        application data.
       </p>
       <button id="theme" type="button">Toggle light/dark theme</button>
     </header>
@@ -147,6 +148,11 @@
         <div class="controls">
           <button id="draft-element">Create element draft</button>
           <button id="draft-extension">Create extension draft</button>
+          <button id="draft-layer">Create layer upsert draft</button>
+          <button id="remove-layer">Create layer tombstone draft</button>
+          <button id="define-fog">Create fog definition draft</button>
+          <button id="reveal-fog">Create fog reveal/hide patch</button>
+          <button id="reset-fog-generation">Create fog generation reset</button>
           <button id="submit">Submit draft</button>
           <button id="retry">Retry exact ID/wire</button>
           <button id="reapply">Reapply as new ID</button>
@@ -162,6 +168,7 @@
           <button id="wait-ack">Wait for acknowledgements</button>
           <button id="checkpoint">Request checkpoint after barrier</button>
           <button id="release-barrier">Release barrier</button>
+          <button id="refresh-peer">Refresh second-peer convergence</button>
         </div>
         <h2>Core presentation projection</h2>
         <div id="viewport" aria-label="History-transparent Field Notes core presentation"></div>
@@ -190,6 +197,10 @@
       <section class="full" aria-labelledby="canonical-heading">
         <h2 id="canonical-heading">SDK-owned canonical document</h2>
         <pre id="canonical"></pre>
+      </section>
+      <section class="full" aria-labelledby="peer-heading">
+        <h2 id="peer-heading">Second managed peer</h2>
+        <pre id="peer" data-peer-convergence="not-checked"></pre>
       </section>
     </main>
     <script type="module" src="/client.js"></script>

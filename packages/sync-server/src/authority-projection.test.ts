@@ -449,6 +449,50 @@ describe('commit-coherent authority projection', () => {
     expect(() => projectAuthorityChange(wrong, context, state([]), state([], 1), cursor)).toThrow();
   });
 
+  it('projects legacy fog changes only for the extension that explicitly owns their kind', () => {
+    const legacy = {
+      ...extension,
+      legacyKinds: ['fog-meta', 'fog-patch'] as const,
+      changes: () => [{ kind: 'fog-meta' as const, record: { version: 1, editor: 'dm' } }],
+    };
+    const owned = { ...definition, extensions: [legacy] };
+    const projected = projectAuthorityChange(owned, context, state([], 0), state([], 1), cursor);
+    expect(projected.status).toBe('changes');
+    if (projected.status === 'changes') {
+      expect(projected.mutations).toEqual([
+        { kind: 'fog-meta', record: { version: 1, editor: 'dm' } },
+      ]);
+    }
+    expect(() =>
+      projectAuthorityChange(
+        { ...definition, extensions: [{ ...legacy, legacyKinds: [] }] },
+        context,
+        state([], 0),
+        state([], 1),
+        cursor,
+      ),
+    ).toThrow('Invalid authority extension mutation');
+    expect(() =>
+      projectAuthorityChange(
+        {
+          ...definition,
+          extensions: [
+            {
+              ...legacy,
+              changes: () => [
+                { kind: 'fog-patch' as const, generation: 'g', tiles: [], extra: true },
+              ],
+            },
+          ],
+        } as unknown as AuthorityRoomDefinition,
+        context,
+        state([], 0),
+        state([], 1),
+        cursor,
+      ),
+    ).toThrow('Invalid authority extension mutation');
+  });
+
   it('rejects malformed owned extension output while retaining valid checkpoint recovery', () => {
     let getterCalls = 0;
     const projection = (changes: () => unknown) => ({

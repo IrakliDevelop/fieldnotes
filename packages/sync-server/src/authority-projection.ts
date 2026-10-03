@@ -1,4 +1,4 @@
-import { isValidElement, isValidLayerRecord } from '@fieldnotes/sync';
+import { isValidElement, isValidEnvelope, isValidLayerRecord } from '@fieldnotes/sync';
 import type {
   AuthorityCursor,
   AuthorityMutation,
@@ -196,15 +196,31 @@ function validatedExtensionChanges(
   if (!Array.isArray(changes)) throw new TypeError('Invalid authority extension changes');
   hashAuthorityJson(changes);
   for (const mutation of changes) {
-    if (
-      !mutation ||
-      typeof mutation !== 'object' ||
-      Object.keys(mutation).length !== 3 ||
-      !Object.hasOwn(mutation, 'payload') ||
-      mutation.kind !== 'extension' ||
-      !extension.extensionKinds.includes(mutation.extensionKind)
-    )
+    if (!mutation || typeof mutation !== 'object')
       throw new TypeError('Invalid authority extension mutation');
+    const keys = Object.keys(mutation);
+    if (mutation.kind === 'extension') {
+      if (
+        keys.length !== 3 ||
+        !Object.hasOwn(mutation, 'payload') ||
+        !extension.extensionKinds.includes(mutation.extensionKind)
+      )
+        throw new TypeError('Invalid authority extension mutation');
+    } else if (mutation.kind === 'fog-meta' || mutation.kind === 'fog-patch') {
+      const expectedKeys =
+        mutation.kind === 'fog-meta'
+          ? (['kind', 'record'] as const)
+          : (['kind', 'generation', 'tiles'] as const);
+      if (
+        keys.length !== expectedKeys.length ||
+        !expectedKeys.every((key) => Object.hasOwn(mutation, key)) ||
+        !extension.legacyKinds?.includes(mutation.kind) ||
+        !isValidEnvelope({ from: 'authority', op: mutation })
+      )
+        throw new TypeError('Invalid authority extension mutation');
+    } else {
+      throw new TypeError('Invalid authority extension mutation');
+    }
     add(mutation);
   }
   return changes.length === 0;

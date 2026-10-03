@@ -72,6 +72,23 @@ Server and Redis deployments use `createFogServerPlugin()` from `@fieldnotes/vtt
 `createFogBackendPlugin()` from `@fieldnotes/vtt/redis` respectively. These retain the v3
 `fog-meta`/`fog-patch` wire format.
 
+### Managed authority fog
+
+Managed authority rooms opt in with `createFogAuthorityClientExtension()` from
+`@fieldnotes/vtt/sync` and `createFogAuthorityServerExtension()` from
+`@fieldnotes/vtt/server`. These adapters require the managed-authority APIs shipped by
+`@fieldnotes/sync` and `@fieldnotes/sync-server` 0.26.0; the package peer ranges remain broad so
+legacy VTT integrations continue to work. The exact checkpoint requirement is `fog/fog/1`, and the
+server owns `fog-meta` and `fog-patch` only when the factory is installed.
+
+`prepareFogAuthorityIntent()` and `applyFogAuthorityIntent()` expose immutable, bounded pure
+transitions for an application driver. Patches are atomic, contain at most 64 unique canonical
+tiles, and the stored snapshot contains at most 256 tiles. Wrong generations, stale/equal LWW
+records, malformed or out-of-bounds tiles, and capacity overflow reject without changing state.
+Generation replacement clears prior tiles. Rejections do not replay a local draft; applications
+must offer explicit retry, reapply-as-new, or discard behavior. A checkpoint must contain the full
+validated fog extension state; partial deltas fall back to checkpoint recovery.
+
 ### Fog rendering
 
 Fog supports solid and procedural rendering styles:
@@ -125,6 +142,18 @@ import {
   parseFogRedisPatchResult,
 } from '@fieldnotes/vtt/redis';
 ```
+
+For authority mode, `assembleFogAuthorityRedisScriptV1()` prepends the fixed planner/apply library
+to trusted host Lua. The SDK does **not** provide a production authority driver. The application
+must assemble the library into its one guarded `EVAL`, pass the complete assembled source unchanged
+to its script runner, and keep every final `KEYS` entry in one Redis Cluster hash slot. Invoking fog
+as a separate script is not an authority commit.
+
+The host must finish authorization, fencing, deadline, type, generation, dedupe, and plan validation
+before its first write. Its Redis ACL must allow the fixed planner reads, including exact
+`MEMORY USAGE <key> SAMPLES 0`, `HLEN`, `HEXISTS`, `HKEYS`, `HSTRLEN`, and bounded `HGET`, plus the
+fixed `HSET`, `HDEL`, and `DEL` writes used by the approved plan. Application revision, receipt,
+outbox, provisioning, ownership, and same-authority proof remain application responsibilities.
 
 ## License
 

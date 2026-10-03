@@ -6,6 +6,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### Sync 0.26.0
+
+**Added**
+
+- Managed authority extensions can explicitly own the legacy `fog-meta` and `fog-patch` kinds with
+  exact duplicate-free capability negotiation and fail-closed client reduction.
+
+### Sync server 0.26.0
+
+**Added**
+
+- Authority admission, intent preparation, and projection support explicit legacy fog-kind owners;
+  an aggregate real-socket compatibility test covers core, layer, and VTT fog convergence.
+
+### VTT 0.13.0
+
+**Added**
+
+- Opt-in managed-authority fog client/server factories, immutable bounded transition helpers, and a
+  composable Redis Lua planner/apply library for application-owned guarded transactions.
+
 ### Sync 0.25.0
 
 **Added**

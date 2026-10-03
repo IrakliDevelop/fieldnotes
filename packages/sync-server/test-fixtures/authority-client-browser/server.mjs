@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -11,6 +12,8 @@ import {
   createAuthorityOperationId,
   serializeAuthorityFrame,
 } from '@fieldnotes/sync';
+import { createFogAuthorityClientExtension } from '@fieldnotes/vtt/sync';
+import { applyFogAuthorityIntent, createFogAuthorityServerExtension } from '@fieldnotes/vtt/server';
 import {
   DropControlAcknowledgement,
   FailureControlOwner,
@@ -27,9 +30,9 @@ const requestedPort = Number(process.env.AUTHORITY_CLIENT_FIXTURE_PORT ?? 4179);
 if (!Number.isSafeInteger(requestedPort) || requestedPort < 1024 || requestedPort > 65535)
   throw new RangeError('AUTHORITY_CLIENT_FIXTURE_PORT must be an integer from 1024 to 65535');
 const port = requestedPort;
-const origin = `http://sdk-e.localhost:${port}`;
-const room = 'sdk-e-table';
-const definitionId = 'sdk-e-definition';
+const origin = `http://sdk-f.localhost:${port}`;
+const room = 'sdk-f-table';
+const definitionId = 'sdk-f-definition';
 let generationNumber = 1;
 const events = [];
 const record = (kind, detail = {}) => {
@@ -47,7 +50,7 @@ async function build() {
     target: 'es2022',
     bundle: true,
     splitting: false,
-    noExternal: ['@fieldnotes/core', '@fieldnotes/sync'],
+    noExternal: ['@fieldnotes/core', '@fieldnotes/sync', '@fieldnotes/vtt'],
     config: false,
     silent: true,
   });
@@ -79,6 +82,56 @@ const store = new AuthorityFixtureStore();
 store.now = Date.now();
 store.provision(room, `fixture-g${generationNumber}`, definitionId);
 const baseDriver = new AuthorityFixtureDriver(store);
+const fogExtension = createFogAuthorityServerExtension();
+const fogStorageKind = 'sdk-f:fog-state';
+const fogStorage = {
+  requirement: fogExtension.requirement,
+  extensionKinds: [fogStorageKind],
+  prepare: (mutation) =>
+    mutation.kind === 'extension' && mutation.extensionKind === fogStorageKind
+      ? mutation.payload
+      : null,
+  changes: fogExtension.changes,
+};
+const digest = (context, request) =>
+  createHash('sha256')
+    .update('fieldnotes.authority-proposal.v1\0', 'utf8')
+    .update(JSON.stringify([context.room, context.actorId]), 'utf8')
+    .update('\0', 'utf8')
+    .update(serializeAuthorityFrame(request.proposal), 'utf8')
+    .digest('hex');
+let fogCommits = 0;
+const authorityDriver = {
+  head: (...args) => baseDriver.head(...args),
+  checkpoint: (...args) => baseDriver.checkpoint(...args),
+  readAfter: (...args) => baseDriver.readAfter(...args),
+  readEvidence: (...args) => baseDriver.readEvidence(...args),
+  claimPublications: (...args) => baseDriver.claimPublications(...args),
+  markPublished: (...args) => baseDriver.markPublished(...args),
+  async commit(context, request) {
+    const mutation = request.proposal.mutation;
+    if (mutation.kind !== 'fog-meta' && mutation.kind !== 'fog-patch')
+      return baseDriver.commit(context, request);
+    if (request.intent.kind !== 'extension' || request.intent.key !== 'fog')
+      return { status: 'rejected', reason: 'invalid' };
+    const current = store.getRoom(context.room)?.state.extensions.fog?.data ?? null;
+    const transition = applyFogAuthorityIntent(current, mutation, request.intent.payload);
+    if (transition.status === 'rejected') return transition;
+    const translated = {
+      proposal: {
+        ...request.proposal,
+        mutation: { kind: 'extension', extensionKind: fogStorageKind, payload: transition.state },
+      },
+      intent: { schema: 1, kind: 'extension', key: 'fog', version: 1, payload: transition.state },
+    };
+    const result = await baseDriver.commit(
+      { ...context, operationDigest: digest(context, translated) },
+      translated,
+    );
+    if (result.status === 'committed' && !result.replayed) fogCommits++;
+    return result;
+  },
+};
 const failureControl = createFailureControlRuntime({
   owner: new FailureControlOwner(),
   ledger: new ResetTransactionLedger(),
@@ -87,12 +140,13 @@ const failureControl = createFailureControlRuntime({
     generationNumber++;
     store.replace(room, `fixture-g${generationNumber}`, definitionId);
     await seedExtension('ready');
+    await seedFog();
     return store.getRoom(room).generation;
   },
 });
 const requirement = {
   key: 'synthetic',
-  pluginName: 'sdk-e-browser-fixture',
+  pluginName: 'sdk-f-browser-fixture',
   version: 1,
   validate: (data) => typeof data === 'string',
 };
@@ -106,13 +160,13 @@ const extension = {
   changes: (before, after) =>
     before === after ? [] : [{ kind: 'extension', extensionKind: 'synthetic:set', payload: after }],
 };
-store.policy.extensions = [extension];
+store.policy.extensions = [extension, fogStorage];
 store.policy.canUseExtension = () => true;
 const timedBaseDriver = {
   head: (...args) => baseDriver.head(...args),
   commit: (...args) => {
     store.now = Date.now();
-    return baseDriver.commit(...args);
+    return authorityDriver.commit(...args);
   },
   checkpoint: (...args) => {
     store.now = Date.now();
@@ -126,7 +180,7 @@ const timedBaseDriver = {
 const driver = createFailureControlledDriver(timedBaseDriver, failureControl, { record });
 const definition = {
   id: definitionId,
-  extensions: [extension],
+  extensions: [extension, fogExtension],
   project: (_context, state) => state,
   canReadOwnerId: () => false,
 };
@@ -173,6 +227,58 @@ async function seedExtension(value) {
   if (result.status !== 'committed') throw new Error(`Extension seed rejected: ${result.reason}`);
 }
 await seedExtension('ready');
+async function seedFog() {
+  store.now = Date.now();
+  const generation = store.getRoom(room).generation;
+  const record = {
+    version: 1,
+    editor: 'fixture-seed',
+    definition: {
+      version: 1,
+      generation: 'fog-g1',
+      bounds: { x: 0, y: 0, w: 256, h: 256 },
+      cellSize: 1,
+      tileCells: 128,
+      base: 'covered',
+    },
+  };
+  const proposal = {
+    protocol: 'authority:1',
+    kind: 'propose',
+    generation,
+    clientOperationId: createAuthorityOperationId(store.now),
+    mutation: { kind: 'fog-meta', record },
+  };
+  const prepared = prepareAuthorityProposal(
+    {
+      room,
+      actorId: 'fixture-seed',
+      connectionId: 'fixture-seed',
+      userId: 'fixture-seed',
+      deadlineAt: Date.now() + 5_000,
+      signal: new AbortController().signal,
+    },
+    serializeAuthorityFrame(proposal),
+  );
+  const result = await authorityDriver.commit(
+    { ...prepared.context, ownershipId: 'fixture-seed', definitionId },
+    {
+      proposal: prepared.proposal,
+      intent: {
+        schema: 1,
+        kind: 'extension',
+        key: 'fog',
+        version: 1,
+        payload: fogExtension.prepare(prepared.proposal.mutation),
+      },
+    },
+  );
+  if (result.status !== 'committed') throw new Error(`Fog seed rejected: ${result.reason}`);
+}
+await seedFog();
+
+let peerManager = null;
+const peerSockets = new Set();
 
 function reply(response, status, data, type = 'application/json; charset=utf-8') {
   response.writeHead(status, {
@@ -186,8 +292,8 @@ function reply(response, status, data, type = 'application/json; charset=utf-8')
 const http = createServer(async (request, response) => {
   const host = request.headers.host;
   const requestOrigin = request.headers.origin;
-  if (host !== `sdk-e.localhost:${port}` || (requestOrigin && requestOrigin !== origin)) {
-    reply(response, 403, { error: 'sdk-e.localhost isolated origin required' });
+  if (host !== `sdk-f.localhost:${port}` || (requestOrigin && requestOrigin !== origin)) {
+    reply(response, 403, { error: 'sdk-f.localhost isolated origin required' });
     return;
   }
   const url = new URL(request.url ?? '/', origin);
@@ -210,6 +316,14 @@ const http = createServer(async (request, response) => {
       events,
       generation: store.getRoom(room)?.generation,
       elements: store.getRoom(room)?.state.elements.length ?? 0,
+      fogCommits,
+      peer: peerManager
+        ? {
+            status: peerManager.getState().status,
+            generation: peerManager.getState().generation,
+            document: peerManager.getState().document,
+          }
+        : null,
     });
   else if (request.method === 'POST' && url.pathname === '/control') {
     if (requestOrigin !== origin) {
@@ -244,7 +358,7 @@ const http = createServer(async (request, response) => {
 const sdk = createSyncServer({
   server: http,
   authenticate: ({ req }) => {
-    if (req.headers.host !== `sdk-e.localhost:${port}` || req.headers.origin !== origin)
+    if (req.headers.host !== `sdk-f.localhost:${port}` || req.headers.origin !== origin)
       return null;
     const url = new URL(req.url ?? '/', origin);
     const targetEpisodeId = url.searchParams.get('fixtureEpisode');
@@ -267,7 +381,53 @@ await new Promise((resolve, reject) =>
 );
 console.log(`Managed authority fixture ready at ${origin} (PID ${process.pid})`);
 
+const { WebSocket: NodeWebSocket } = await import('ws');
+const peerKind = createExtensionKind({
+  extensionKind: 'synthetic:set',
+  codec: { validate: (value) => typeof value === 'string' },
+});
+const peerReducer = createAuthorityExtensionReducer({
+  kind: peerKind,
+  reduce: (_state, value) => value,
+});
+const peerExtension = createAuthorityClientExtension({
+  key: 'synthetic',
+  pluginName: 'sdk-f-browser-fixture',
+  version: 1,
+  validate: (value) => typeof value === 'string',
+  reducers: [peerReducer],
+});
+peerManager = createManagedAuthorityConnection({
+  scopeId: 'fixture-user/sdk-f-table',
+  clientId: 'sdk-f-second-peer',
+  extensions: [peerExtension, createFogAuthorityClientExtension()],
+  resolveUrl: () => ({ url: `ws://sdk-f.localhost:${port}/?room=${room}` }),
+  transportFactory: (endpoint) => {
+    const socket = new NodeWebSocket(endpoint.url, { headers: { Origin: origin } });
+    peerSockets.add(socket);
+    let handlers;
+    return {
+      start(value) {
+        handlers = value;
+        socket.on('open', handlers.onOpen);
+        socket.on('message', (data) => handlers.onMessage(String(data)));
+        socket.on('close', (code, reason) => handlers.onClose(code, String(reason)));
+      },
+      trySend(raw) {
+        if (socket.readyState !== NodeWebSocket.OPEN) return false;
+        socket.send(raw);
+        return true;
+      },
+      close() {
+        socket.close();
+      },
+    };
+  },
+});
+
 const shutdown = async () => {
+  peerManager?.stop();
+  for (const socket of peerSockets) socket.close();
   await sdk.close();
   await new Promise((resolve) => http.close(resolve));
 };
@@ -283,17 +443,17 @@ if (process.argv.includes('--smoke')) {
   const reducer = createAuthorityExtensionReducer({ kind, reduce: (_state, value) => value });
   const clientExtension = createAuthorityClientExtension({
     key: 'synthetic',
-    pluginName: 'sdk-e-browser-fixture',
+    pluginName: 'sdk-f-browser-fixture',
     version: 1,
     validate: (value) => typeof value === 'string',
     reducers: [reducer],
   });
   const transports = [];
   const manager = createManagedAuthorityConnection({
-    scopeId: 'fixture-user/sdk-e-table',
+    scopeId: 'fixture-user/sdk-f-table',
     clientId: 'fixture-smoke',
-    extensions: [clientExtension],
-    resolveUrl: () => ({ url: `ws://sdk-e.localhost:${port}/?room=${room}` }),
+    extensions: [clientExtension, createFogAuthorityClientExtension()],
+    resolveUrl: () => ({ url: `ws://sdk-f.localhost:${port}/?room=${room}` }),
     transportFactory: (endpoint) => {
       const socket = new WebSocket(endpoint.url, { headers: { Origin: origin } });
       transports.push(socket);

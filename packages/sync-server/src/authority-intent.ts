@@ -70,8 +70,17 @@ function extensionIntent(
   mutation: AuthorityMutation,
   extensions: readonly AuthorityExtension[],
 ): AuthorityIntent {
-  if (mutation.kind !== 'extension') throw new TypeError(INVALID);
-  const extension = extensions.find((item) => item.extensionKinds.includes(mutation.extensionKind));
+  if (
+    mutation.kind !== 'extension' &&
+    mutation.kind !== 'fog-meta' &&
+    mutation.kind !== 'fog-patch'
+  )
+    throw new TypeError(INVALID);
+  const extension = extensions.find((item) =>
+    mutation.kind === 'extension'
+      ? item.extensionKinds.includes(mutation.extensionKind)
+      : item.legacyKinds?.includes(mutation.kind),
+  );
   if (!extension) throw new TypeError(UNSUPPORTED);
   let prepared: JsonValue | null;
   try {
@@ -136,6 +145,8 @@ export function prepareAuthorityIntent(
         }),
       });
     case 'extension':
+    case 'fog-meta':
+    case 'fog-patch':
       return extensionIntent(mutation, extensions);
     default:
       throw new TypeError(UNSUPPORTED);
