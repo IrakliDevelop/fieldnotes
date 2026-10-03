@@ -378,6 +378,7 @@ describe('AuthorityClientDocument atomic staging', () => {
     ).toEqual({ status: 'recovery', reason: 'invalid', document: before });
   });
 
+  // Coverage instrumentation makes the 4 MiB exact-boundary checks slower on hosted Node.
   it('accepts the exact C2 byte ceiling and rejects one byte beyond it', () => {
     const bytes = createAuthorityClientExtension({
       key: 'bytes',
@@ -413,7 +414,7 @@ describe('AuthorityClientDocument atomic staging', () => {
         extensions: { bytes: { pluginName: 'bytes', version: 1, data: `${exactData}x` } },
       }),
     ).toEqual({ status: 'recovery', reason: 'invalid', document: null });
-  });
+  }, 20_000);
 
   it('notifies a bounded listener snapshot after swap, isolating throws and reentrancy', () => {
     const target = new AuthorityClientDocument([extension()]);
