@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### VTT 0.13.1
+
+**Fixed**
+
+- Rebuild VTT during packing so published archives contain the current authority fog client,
+  server, and Redis entry points instead of stale generated output.
+
 ### Sync 0.26.0
 
 **Added**
