@@ -229,7 +229,7 @@ importers:
   packages/sync-server:
     dependencies:
       '@fieldnotes/sync':
-        specifier: workspace:*
+        specifier: workspace:0.25.0
         version: link:../sync
       ws:
         specifier: ^8.18.0

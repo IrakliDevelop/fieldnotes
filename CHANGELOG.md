@@ -6,6 +6,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### Sync 0.25.0
+
+**Added**
+
+- Public managed authority client, immutable canonical documents, typed extension reducers,
+  explicit exact-wire retry/discard, receipt barriers, coherent checkpoints, and the default
+  browser WebSocket transport. Receipts prove durable commit only; they do not prove application
+  or application-level saving.
+
+### Sync server 0.25.1
+
+**Added**
+
+- Real-socket managed-client coverage and an isolated synthetic browser acceptance fixture using
+  the public manager and real authoritative server.
+
 ### Sync server 0.25.0
 
 **Added**
