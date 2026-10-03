@@ -152,6 +152,7 @@ export interface AuthorityDriver {
 export interface AuthorityExtension {
   readonly requirement: AuthorityCheckpointRequirement;
   readonly extensionKinds: readonly string[];
+  readonly legacyKinds?: readonly ('fog-meta' | 'fog-patch')[];
   prepare(mutation: AuthorityMutation): JsonValue | null;
   changes(before: unknown, after: unknown): readonly AuthorityMutation[];
 }

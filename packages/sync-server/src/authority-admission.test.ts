@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { createAuthorityCapabilities } from '@fieldnotes/sync';
 import {
   authorityCapabilitiesMatch,
+  authorityExtensionCapabilityKinds,
   pinAuthorityDefinition,
   resolveAuthorityDefinition,
   resolveAuthorityIdentity,
@@ -54,6 +55,116 @@ describe('authority admission', () => {
         extensions: [{ ...extension, requirement: { ...extension.requirement, version: 0 } }],
       }),
     ).toThrow();
+  });
+
+  it('pins one sorted generic and legacy inventory and rejects namespace collisions', () => {
+    const extension = definition.extensions[0];
+    if (!extension) throw new Error('missing test extension');
+    const legacyKinds: ('fog-meta' | 'fog-patch')[] = ['fog-patch', 'fog-meta'];
+    const pinned = pinAuthorityDefinition({
+      ...definition,
+      extensions: [{ ...extension, extensionKinds: ['zeta'], legacyKinds }],
+    });
+    legacyKinds.length = 0;
+    expect(pinned.extensions[0]?.legacyKinds).toEqual(['fog-patch', 'fog-meta']);
+    expect(Object.isFrozen(pinned.extensions[0]?.legacyKinds)).toBe(true);
+    expect(authorityExtensionCapabilityKinds(pinned.extensions)).toEqual([
+      'fog-meta',
+      'fog-patch',
+      'zeta',
+    ]);
+    expect(
+      authorityCapabilitiesMatch(
+        createAuthorityCapabilities(
+          ['fog-meta', 'fog-patch', 'zeta'],
+          [{ key: 'synthetic', pluginName: 'test', version: 1 }],
+        ),
+        pinned,
+      ),
+    ).toBe(true);
+    expect(
+      authorityCapabilitiesMatch(
+        createAuthorityCapabilities(
+          ['zeta'],
+          [{ key: 'synthetic', pluginName: 'test', version: 1 }],
+        ),
+        pinned,
+      ),
+    ).toBe(false);
+    expect(
+      authorityCapabilitiesMatch(
+        createAuthorityCapabilities(
+          ['fog-patch', 'fog-meta', 'zeta'],
+          [{ key: 'synthetic', pluginName: 'test', version: 1 }],
+        ),
+        pinned,
+      ),
+    ).toBe(false);
+    expect(
+      authorityCapabilitiesMatch(
+        createAuthorityCapabilities(
+          ['fog-meta', 'fog-patch', 'unowned', 'zeta'],
+          [{ key: 'synthetic', pluginName: 'test', version: 1 }],
+        ),
+        pinned,
+      ),
+    ).toBe(false);
+
+    for (const extensionKind of [
+      'upsert',
+      'remove',
+      'clear',
+      'layer-upsert',
+      'layer-remove',
+      'fog-meta',
+      'fog-patch',
+      'extension',
+    ]) {
+      expect(() =>
+        pinAuthorityDefinition({
+          ...definition,
+          extensions: [{ ...extension, extensionKinds: [extensionKind] }],
+        }),
+      ).toThrow(TypeError);
+    }
+    expect(() =>
+      pinAuthorityDefinition({
+        ...definition,
+        extensions: [
+          { ...extension, extensionKinds: ['generic'], legacyKinds: ['fog-meta'] },
+          {
+            ...extension,
+            requirement: { ...extension.requirement, key: 'other' },
+            extensionKinds: ['other'],
+            legacyKinds: ['fog-meta'],
+          },
+        ],
+      }),
+    ).toThrow(TypeError);
+    expect(() =>
+      pinAuthorityDefinition({
+        ...definition,
+        extensions: [
+          {
+            ...extension,
+            extensionKinds: ['fog-meta'],
+            legacyKinds: ['fog-meta'],
+          },
+        ],
+      }),
+    ).toThrow(TypeError);
+    expect(() =>
+      pinAuthorityDefinition({
+        ...definition,
+        extensions: [
+          {
+            ...extension,
+            extensionKinds: Array.from({ length: 255 }, (_, index) => `kind-${index}`),
+            legacyKinds: ['fog-meta', 'fog-patch'],
+          },
+        ],
+      }),
+    ).toThrow(TypeError);
   });
 
   it('copies stable resolver identity and rejects invalid UTF-8 or connection fallback', () => {

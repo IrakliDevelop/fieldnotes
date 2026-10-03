@@ -15,6 +15,7 @@ import type {
 import { authorityConnectionBinding } from './authority-connection';
 import {
   authorityCapabilitiesMatch,
+  authorityExtensionCapabilityKinds,
   authorityReadContext,
   pinAuthorityDefinition,
   resolveAuthorityIdentity,
@@ -501,7 +502,7 @@ export class AuthorityRuntime {
       generation: head.generation,
       requestEpisode,
       capabilities: createAuthorityCapabilities(
-        peer.definition.extensions.flatMap((extension) => extension.extensionKinds),
+        authorityExtensionCapabilityKinds(peer.definition.extensions),
         peer.definition.extensions.map((extension) => extension.requirement),
       ),
     };

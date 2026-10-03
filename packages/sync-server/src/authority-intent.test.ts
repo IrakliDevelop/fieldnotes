@@ -134,6 +134,50 @@ describe('prepareAuthorityIntent', () => {
     ).toThrow('Unsupported authority extension');
   });
 
+  it('prepares owned legacy fog mutations through only their explicit owner', () => {
+    const prepare = vi.fn((mutation: AuthorityMutation) => ({ operation: mutation.kind }));
+    const extension: AuthorityExtension = {
+      requirement: { key: 'fog', pluginName: 'fog', version: 1, validate: () => true },
+      extensionKinds: ['fog.generic'],
+      legacyKinds: ['fog-meta', 'fog-patch'],
+      prepare,
+      changes: () => [],
+    };
+    const source = proposal({ kind: 'fog-meta', record: { version: 1, editor: 'actor' } });
+    expect(prepareAuthorityIntent(source.proposal, [extension])).toEqual({
+      schema: 1,
+      kind: 'extension',
+      key: 'fog',
+      version: 1,
+      payload: { operation: 'fog-meta' },
+    });
+    expect(prepare).toHaveBeenCalledWith(source.proposal.mutation);
+    expect(Object.isFrozen(prepare.mock.calls[0]?.[0])).toBe(true);
+    if (source.proposal.mutation.kind !== 'fog-meta') throw new Error('missing fog meta');
+    expect(Object.isFrozen(source.proposal.mutation.record)).toBe(true);
+    expect(
+      prepareAuthorityIntent(proposal({ kind: 'fog-patch', generation: 'g', tiles: [] }).proposal, [
+        extension,
+      ]),
+    ).toEqual({
+      schema: 1,
+      kind: 'extension',
+      key: 'fog',
+      version: 1,
+      payload: { operation: 'fog-patch' },
+    });
+    expect(() =>
+      prepareAuthorityIntent(proposal({ kind: 'fog-patch', generation: 'g', tiles: [] }).proposal, [
+        { ...extension, legacyKinds: ['fog-meta'] },
+      ]),
+    ).toThrow('Unsupported authority extension');
+    expect(() =>
+      prepareAuthorityIntent(source.proposal, [
+        { ...extension, legacyKinds: [], prepare: () => null },
+      ]),
+    ).toThrow('Unsupported authority extension');
+  });
+
   it('copies and freezes prepared extension payload without exposing caller mutation', () => {
     const preparedPayload = { nested: { value: 1 } };
     const extension: AuthorityExtension = {

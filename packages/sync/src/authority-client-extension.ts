@@ -13,6 +13,16 @@ import type { AuthorityReadonly } from './authority-client-types';
 import type { ExtensionKind } from './sync-plugin';
 
 const MAX_AUTHORITY_EXTENSION_KINDS = 256;
+const RESERVED_AUTHORITY_MUTATION_KINDS: readonly string[] = [
+  'upsert',
+  'remove',
+  'clear',
+  'layer-upsert',
+  'layer-remove',
+  'fog-meta',
+  'fog-patch',
+  'extension',
+];
 const idPattern = /^[\x21-\x7e]{1,128}$/;
 const jsonLimits = {
   bytes: MAX_AUTHORITY_CHECKPOINT_BYTES,
@@ -289,6 +299,7 @@ export class AuthorityClientExtensionRegistry {
     const byKey = new Map<string, RegisteredExtension>();
     const reducers = new Map<string, OwnedReducer>();
     const legacyReducers = new Map<LegacyKind, OwnedLegacyReducer>();
+    const ownedKindNames = new Set<string>();
     let ownedKinds = 0;
     for (const supplied of definitions) {
       const definition = isRecord(supplied) ? clientExtensionDefinitions.get(supplied) : undefined;
@@ -319,20 +330,27 @@ export class AuthorityClientExtensionRegistry {
       byKey.set(owner.key, owner);
       for (const handle of definition.reducers) {
         const reducer = isRecord(handle) ? reducerDefinitions.get(handle) : undefined;
-        if (!reducer || reducers.has(reducer.extensionKind)) invalid();
+        if (
+          !reducer ||
+          RESERVED_AUTHORITY_MUTATION_KINDS.includes(reducer.extensionKind) ||
+          ownedKindNames.has(reducer.extensionKind)
+        )
+          invalid();
         ownedKinds += 1;
         if (ownedKinds > MAX_AUTHORITY_EXTENSION_KINDS) {
           throw new RangeError('Authority extension kind limit exceeded');
         }
+        ownedKindNames.add(reducer.extensionKind);
         reducers.set(reducer.extensionKind, Object.freeze({ ...reducer, owner }));
       }
       for (const handle of definition.legacyReducers) {
         const reducer = isRecord(handle) ? legacyReducerDefinitions.get(handle) : undefined;
-        if (!reducer || legacyReducers.has(reducer.kind)) invalid();
+        if (!reducer || ownedKindNames.has(reducer.kind)) invalid();
         ownedKinds += 1;
         if (ownedKinds > MAX_AUTHORITY_EXTENSION_KINDS) {
           throw new RangeError('Authority extension kind limit exceeded');
         }
+        ownedKindNames.add(reducer.kind);
         legacyReducers.set(reducer.kind, Object.freeze({ ...reducer, owner }));
       }
     }
@@ -341,7 +359,7 @@ export class AuthorityClientExtensionRegistry {
     this.#reducers = reducers;
     this.#legacyReducers = legacyReducers;
     this.#extensionKinds = Object.freeze(
-      [...reducers.keys()].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
+      [...ownedKindNames].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
     );
     this.#requirements = Object.freeze(
       extensions.map((entry) =>

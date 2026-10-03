@@ -198,7 +198,7 @@ describe('authority client extension definitions', () => {
     ).toEqual({ counter: { total: 3, nested: { values: [] } } });
   });
 
-  it('exposes a frozen UTF-16-sorted snapshot of generic reducer kinds only', () => {
+  it('exposes a frozen UTF-16-sorted snapshot of generic and legacy reducer kinds', () => {
     const zeta = createAuthorityExtensionReducer({
       kind: createExtensionKind<null>({
         extensionKind: 'zeta',
@@ -229,13 +229,12 @@ describe('authority client extension definitions', () => {
       }),
     ]);
 
-    expect(registry.extensionKinds).toEqual(['Alpha', 'zeta']);
+    expect(registry.extensionKinds).toEqual(['Alpha', 'fog-meta', 'zeta']);
     expect(Object.isFrozen(registry.extensionKinds)).toBe(true);
     expect(registry.extensionKinds).toBe(registry.extensionKinds);
-    expect(registry.extensionKinds).not.toContain('fog-meta');
   });
 
-  it('rejects duplicate keys, generic kinds, legacy owners, and more than 256 owned kinds', () => {
+  it('rejects duplicate keys, reserved generic kinds, cross-namespace owners, and oversized inventories', () => {
     expect(
       () => new AuthorityClientExtensionRegistry([counterExtension(), counterExtension()]),
     ).toThrow(TypeError);
@@ -270,6 +269,51 @@ describe('authority client extension definitions', () => {
       () => new AuthorityClientExtensionRegistry([fogOwner('fog-a'), fogOwner('fog-b')]),
     ).toThrow(TypeError);
 
+    const generic = (kind: string) =>
+      createAuthorityExtensionReducer({
+        kind: createExtensionKind<null>({
+          extensionKind: kind,
+          codec: { validate: (value): value is null => value === null },
+        }),
+        reduce: (state: AuthorityReadonly<number>) => state,
+      });
+    for (const kind of [
+      'upsert',
+      'remove',
+      'clear',
+      'layer-upsert',
+      'layer-remove',
+      'fog-meta',
+      'fog-patch',
+      'extension',
+    ]) {
+      expect(
+        () =>
+          new AuthorityClientExtensionRegistry([
+            createAuthorityClientExtension({
+              key: `reserved-${kind}`,
+              pluginName: 'reserved',
+              version: 1,
+              validate: (value): value is number => typeof value === 'number',
+              reducers: [generic(kind)],
+            }),
+          ]),
+      ).toThrow(TypeError);
+    }
+    expect(
+      () =>
+        new AuthorityClientExtensionRegistry([
+          createAuthorityClientExtension({
+            key: 'generic-fog',
+            pluginName: 'generic-fog',
+            version: 1,
+            validate: (value): value is number => typeof value === 'number',
+            reducers: [generic('fog-meta')],
+          }),
+          fogOwner('legacy-fog'),
+        ]),
+    ).toThrow(TypeError);
+
     const tooMany = Array.from({ length: 257 }, (_, index) =>
       createAuthorityExtensionReducer({
         kind: createExtensionKind<{ value: number }>({
@@ -291,6 +335,28 @@ describe('authority client extension definitions', () => {
           }),
         ]),
     ).not.toThrow();
+    expect(
+      () =>
+        new AuthorityClientExtensionRegistry([
+          createAuthorityClientExtension({
+            key: 'combined-limit',
+            pluginName: 'combined-limit',
+            version: 1,
+            validate: (value): value is number => typeof value === 'number',
+            reducers: tooMany.slice(0, 255),
+            legacyReducers: [
+              createAuthorityLegacyExtensionReducer({
+                kind: 'fog-meta',
+                reduce: (state: AuthorityReadonly<number>) => state,
+              }),
+              createAuthorityLegacyExtensionReducer({
+                kind: 'fog-patch',
+                reduce: (state: AuthorityReadonly<number>) => state,
+              }),
+            ],
+          }),
+        ]),
+    ).toThrow(RangeError);
     expect(
       () =>
         new AuthorityClientExtensionRegistry([
