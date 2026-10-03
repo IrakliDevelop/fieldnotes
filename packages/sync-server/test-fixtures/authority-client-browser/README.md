@@ -18,8 +18,8 @@ pnpm --filter @fieldnotes/sync-server authority-client:start
 
 The default is loopback-only port `4179`; an explicit bounded port can be selected with
 `AUTHORITY_CLIENT_FIXTURE_PORT=4180`. Open the exact isolated origin
-`http://sdk-e.localhost:4179` (or the selected port). If local name resolution does not map
-`sdk-e.localhost` to loopback, add only that loopback mapping. Stop with Ctrl-C. State is discarded
+`http://sdk-f.localhost:4179` (or the selected port). If local name resolution does not map
+`sdk-f.localhost` to loopback, add only that loopback mapping. Stop with Ctrl-C. State is discarded
 and no log/storage artifact is written. Generated bundles remain under ignored
 `packages/sync-server/dist/authority-client-browser` and normal package builds clean them.
 
@@ -120,3 +120,12 @@ entry point.
 
 `authority-client:smoke` is supplemental automation for build/start/socket/manager behavior. It is
 not a substitute for the coordinator-owned in-app Browser manual acceptance matrix.
+
+SDK F adds the real `@fieldnotes/vtt/sync` and `@fieldnotes/vtt/server` fog authority factories to
+this fixture, plus visible layer upsert/tombstone and fog definition/patch/generation controls. The
+status and canonical panels expose the exact `fog/fog/1` checkpoint inventory, legacy fog kinds,
+layer records, fog state, and tile count. The transaction driver is deterministic in-memory test
+code only: it consumes and revalidates the public fog intent helper, but it is not Redis durability
+or a production authority driver. Capability mismatch and corrupt-checkpoint controls must remain
+fail closed, while rejection or generation replacement retains local work for explicit retry,
+reapply-as-new, or discard.

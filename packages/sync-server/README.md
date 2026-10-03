@@ -569,6 +569,14 @@ gets a synthetic **remove**, one who gains it gets an **add**.
 
 A Redis `HubBackend` and cross-instance fan-out ship in [`@fieldnotes/sync-redis`](../sync-redis).
 
+### Authority legacy-kind ownership
+
+An `AuthorityExtension` may explicitly own `fog-meta` and `fog-patch` through `legacyKinds`.
+Ownership is opt-in, immutable after room admission, included in exact capability negotiation, and
+cannot overlap another extension or a generic kind. Unowned, malformed, oversized, throwing, or
+foreign fog proposals fail before driver invocation; projected changes are accepted only from the
+extension that owns that exact legacy kind. This does not activate a legacy VTT plugin or backend.
+
 ## Domain plugins
 
 `SyncHubOptions.plugins` installs ordered `ServerSyncPlugin` middleware. Plugins can register

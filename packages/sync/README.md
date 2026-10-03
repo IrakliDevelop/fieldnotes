@@ -201,3 +201,9 @@ plugin/version, generic kind, and legacy reducer owner must match the server inv
 Inputs are bounded-copied and deeply frozen; invalid, throwing, thenable, oversized, or missing
 extension results reject the whole candidate and preserve the prior canonical document. The helper
 types retain payload inference without exporting the internal registry.
+
+Authority extensions may also opt in to legacy fog ownership with `legacyKinds: ['fog-meta',
+'fog-patch']`. This inventory is separate from generic `extensionKinds`, is snapshotted during
+registration, and must be duplicate-free across the room. The managed client advertises the exact
+combined inventory and applies a legacy fog change only through its registered authority reducer.
+Legacy plugins remain unchanged and are not an authority-room mutation path.

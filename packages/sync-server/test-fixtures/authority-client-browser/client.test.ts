@@ -486,7 +486,7 @@ function fakeManager(
       layers: Object.freeze([]),
       extensions: Object.freeze({
         synthetic: Object.freeze({
-          pluginName: 'sdk-e-browser-fixture',
+          pluginName: 'sdk-f-browser-fixture',
           version: 1,
           data: 'ready',
         }),
@@ -687,12 +687,18 @@ beforeEach(() => {
       'viewport',
       'status',
       'canonical',
+      'peer',
       'events',
       'draft-id',
       'extension-value',
       'duplicate-warning',
       'draft-element',
       'draft-extension',
+      'draft-layer',
+      'remove-layer',
+      'define-fog',
+      'reveal-fog',
+      'reset-fog-generation',
       'submit',
       'retry',
       'reapply',
@@ -701,6 +707,7 @@ beforeEach(() => {
       'release-barrier',
       'wait-ack',
       'checkpoint',
+      'refresh-peer',
       'disconnect',
       'reconnect',
       'corrupt-checkpoint',
@@ -719,7 +726,7 @@ beforeEach(() => {
     getElementById: (id: string) => nodes.get(id),
   });
   vi.stubGlobal('window', fakeWindow);
-  vi.stubGlobal('location', { protocol: 'http:', host: 'sdk-e.localhost:4179' });
+  vi.stubGlobal('location', { protocol: 'http:', host: 'sdk-f.localhost:4179' });
   vi.stubGlobal('WebSocket', FakeSocket);
   vi.stubGlobal('fetch', vi.fn(controlServer.fetch.bind(controlServer)));
 });
@@ -730,6 +737,71 @@ afterEach(() => {
 });
 
 describe('managed authority browser fixture', () => {
+  it('exposes deterministic layer and fog authority drafts through stable controls', async () => {
+    await import('./client');
+
+    for (const control of [
+      'draft-layer',
+      'remove-layer',
+      'define-fog',
+      'reveal-fog',
+      'reset-fog-generation',
+    ]) {
+      await node(control).click();
+      await node('submit').click();
+    }
+
+    expect(fixture.managers[0]?.submittedMutations.map((mutation) => mutation.kind)).toEqual([
+      'layer-upsert',
+      'layer-remove',
+      'fog-meta',
+      'fog-patch',
+      'fog-meta',
+    ]);
+    expect(node('status').dataset.layerRecords).toBe('0');
+    expect(node('status').dataset.fog).toBe('missing');
+  });
+
+  it('reports second-peer convergence without comparing viewer-local stream IDs', async () => {
+    await import('./client');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          ({
+            ok: true,
+            json: async () => ({
+              peer: {
+                status: 'live',
+                generation: controlServer.generation,
+                document: {
+                  cursor: {
+                    generation: controlServer.generation,
+                    streamId: 'different-viewer-stream',
+                    revision: 0,
+                  },
+                  casToken: 'different-viewer-cas',
+                  elements: [shape('confirmed')],
+                  layers: [],
+                  extensions: {
+                    synthetic: {
+                      pluginName: 'sdk-f-browser-fixture',
+                      version: 1,
+                      data: 'ready',
+                    },
+                  },
+                },
+              },
+            }),
+          }) as Response,
+      ),
+    );
+
+    await node('refresh-peer').click();
+
+    expect(node('status').dataset.peerConvergence).toBe('converged');
+    expect(node('peer').textContent).toContain('different-viewer-stream');
+  });
   it('exposes stable automation buckets and projection IDs', async () => {
     vi.unstubAllGlobals();
     const { operationBuckets, projectionIds } = await import('./client');
@@ -1504,7 +1576,7 @@ describe('managed authority browser fixture', () => {
         status: 'acknowledged',
         barrier: Object.freeze({
           barrierId: 'barrier',
-          scopeId: 'fixture-user/sdk-e-table',
+          scopeId: 'fixture-user/sdk-f-table',
           generation: 'g',
           throughLocalSequence: 0,
           localEditGeneration: 1,
