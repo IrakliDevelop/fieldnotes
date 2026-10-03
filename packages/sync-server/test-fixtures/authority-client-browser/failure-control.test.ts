@@ -25,6 +25,20 @@ const lease = () => ({
   release: vi.fn(async () => undefined),
 });
 
+const deferred = <T>() => {
+  let resolve: (value: T | PromiseLike<T>) => void = () => {
+    throw new Error('deferred promise was not initialized');
+  };
+  let reject: (reason?: unknown) => void = () => {
+    throw new Error('deferred promise was not initialized');
+  };
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, resolve, reject };
+};
+
 function harness() {
   let generation = 'g1';
   let replacements = 0;
@@ -333,7 +347,7 @@ describe('fixture failure-control protocol', () => {
 
   it('does not synthesize response loss when Reset invalidates an in-flight durable commit', async () => {
     const value = harness();
-    const pending = Promise.withResolvers<ReturnType<typeof committed>>();
+    const pending = deferred<ReturnType<typeof committed>>();
     const base = {
       head: vi.fn(),
       commit: vi.fn(() => pending.promise),
@@ -360,9 +374,7 @@ describe('fixture failure-control protocol', () => {
 
   it('recognizes the oldest durable proposal as Reset-stale after more than the retention bound', async () => {
     const value = harness();
-    const pending = Array.from({ length: 40 }, () =>
-      Promise.withResolvers<ReturnType<typeof committed>>(),
-    );
+    const pending = Array.from({ length: 40 }, () => deferred<ReturnType<typeof committed>>());
     let index = 0;
     const base = {
       head: vi.fn(),
@@ -393,9 +405,7 @@ describe('fixture failure-control protocol', () => {
 
   it('releases the oldest Reset-stale checkpoint once after more than the retention bound', async () => {
     const value = harness();
-    const pending = Array.from({ length: 40 }, () =>
-      Promise.withResolvers<ReturnType<typeof lease>>(),
-    );
+    const pending = Array.from({ length: 40 }, () => deferred<ReturnType<typeof lease>>());
     let index = 0;
     const base = {
       head: vi.fn(),
@@ -559,7 +569,7 @@ describe('fixture failure-control protocol', () => {
 
   it('rejects a concurrent same-target proposal before base while one response-loss commit is reserved', async () => {
     const value = harness();
-    const pending = Promise.withResolvers<ReturnType<typeof committed>>();
+    const pending = deferred<ReturnType<typeof committed>>();
     const commit = vi.fn(() => pending.promise);
     const base = {
       head: vi.fn(),
@@ -590,7 +600,7 @@ describe('fixture failure-control protocol', () => {
 
   it('corrupts one matching checkpoint, blocks same-episode concurrency, and restores on base throw', async () => {
     const value = harness();
-    const pending = Promise.withResolvers<ReturnType<typeof lease>>();
+    const pending = deferred<ReturnType<typeof lease>>();
     const checkpoint = vi.fn(() => pending.promise);
     const base = {
       head: vi.fn(),
@@ -639,7 +649,7 @@ describe('fixture failure-control protocol', () => {
 
   it('binds checkpoint failure to auth episode and releases a lease invalidated by Reset', async () => {
     const value = harness();
-    const pending = Promise.withResolvers<ReturnType<typeof lease>>();
+    const pending = deferred<ReturnType<typeof lease>>();
     const baseLease = lease();
     const base = {
       head: vi.fn(),
@@ -665,7 +675,7 @@ describe('fixture failure-control protocol', () => {
     await expect(unaffected).resolves.toBe(baseLease);
     expect(value.owner.snapshot()).toMatchObject({ phase: 'armed' });
 
-    const next = Promise.withResolvers<ReturnType<typeof lease>>();
+    const next = deferred<ReturnType<typeof lease>>();
     base.checkpoint.mockImplementationOnce(() => next.promise);
     const controlled = driver.checkpoint({
       authContext: { synthetic: { targetEpisodeId: 'episode' } },
@@ -730,7 +740,7 @@ describe('fixture failure-control protocol', () => {
 
   it('holds one mutation lane across delayed Reset seed and serializes status and same-ID replay', async () => {
     let generation = 'g1';
-    const replacement = Promise.withResolvers<string>();
+    const replacement = deferred<string>();
     const runtime = createFailureControlRuntime({
       owner: new FailureControlOwner(),
       ledger: new ResetTransactionLedger(),
@@ -804,7 +814,7 @@ describe('fixture failure-control protocol', () => {
 
   it('distinguishes Reset transaction identity while preserving same-ID waiter semantics', async () => {
     let generation = 'g1';
-    const replacement = Promise.withResolvers<string>();
+    const replacement = deferred<string>();
     const runtime = createFailureControlRuntime({
       owner: new FailureControlOwner(),
       ledger: new ResetTransactionLedger(),
@@ -960,7 +970,7 @@ describe('fixture failure-control protocol', () => {
 
   it('queues one exact Reset behind generation replacement even after both callers stop waiting', async () => {
     let generation = 'g1';
-    const seed = Promise.withResolvers<undefined>();
+    const seed = deferred<undefined>();
     let replacements = 0;
     const runtime = createFailureControlRuntime({
       owner: new FailureControlOwner(),
