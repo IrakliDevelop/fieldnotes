@@ -175,10 +175,10 @@ async function bootstrap(
     transport.message(serializeAuthorityFrame(frame));
     await turn();
   }
-  for (let attempt = 0; attempt < 3 && target.getState().status !== 'live'; attempt += 1) {
-    await turn();
-  }
-  expect(target.getState().status).toBe('live');
+  await vi.waitFor(() => expect(target.getState().status).toBe('live'), {
+    timeout: 5_000,
+    interval: 1,
+  });
 }
 
 afterEach(() => {
