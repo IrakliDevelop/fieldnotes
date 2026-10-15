@@ -5,6 +5,7 @@ import { SyncClient, WebSocketTransport, bearerSubprotocols } from '@fieldnotes/
 import { ElementStore, createShape } from '@fieldnotes/core';
 import { createSyncServer, type CreateSyncServerOptions } from './create-sync-server';
 import type { Authenticate } from './authenticate';
+import type { AuthContext } from './auth-context';
 
 type Server = ReturnType<typeof createSyncServer>;
 
@@ -73,6 +74,280 @@ describe('sync-server authentication (end-to-end)', () => {
     await waitFor(() => b.store.getById('e1') !== undefined);
     expect(b.store.getById('e1')).toBeDefined();
   }, 10000);
+
+  it('gives plugins an immutable copy of admitted claims', async () => {
+    const claims = { campaign: { id: 'original', secret: 'private-sentinel' } };
+    const seen: unknown[] = [];
+    const frames: string[] = [];
+    const { port } = startServer(() => ({ userId: 'u1', authContext: claims }), {
+      plugins: [
+        {
+          name: 'claims',
+          async process(op, context, next) {
+            seen.push(context.authContext);
+            return next(op, context);
+          },
+        },
+      ],
+    });
+    const socket = new WsClient(`ws://127.0.0.1:${port}?room=R`);
+    rawSockets.push(socket);
+    socket.on('message', (data) => frames.push(String(data)));
+    await new Promise<void>((resolve) => socket.once('open', resolve));
+    claims.campaign.id = 'changed';
+    socket.send(
+      JSON.stringify({
+        from: 'forged',
+        authContext: { campaign: { id: 'forged' } },
+        op: { kind: 'clear' },
+      }),
+    );
+    await waitFor(() => seen.length > 0);
+    socket.send(JSON.stringify({ from: 'forged', op: { kind: 'request-snapshot' } }));
+    await waitFor(() => frames.length > 0);
+    expect(seen[0]).toEqual({ campaign: { id: 'original', secret: 'private-sentinel' } });
+    expect(Object.isFrozen(seen[0])).toBe(true);
+    expect(Object.isFrozen((seen[0] as { campaign: object }).campaign)).toBe(true);
+    expect(Object.isFrozen(claims)).toBe(false);
+    expect(frames.join('')).not.toContain('private-sentinel');
+    expect(frames.join('')).not.toContain('authContext');
+  });
+
+  it('closes an idle socket at its authentication deadline', async () => {
+    const { port, server } = startServer(() => ({ userId: 'u1', expiresAt: Date.now() + 80 }), {
+      heartbeatIntervalMs: 0,
+    });
+    const socket = new WsClient(`ws://127.0.0.1:${port}?room=R`);
+    rawSockets.push(socket);
+    const code = await new Promise<number>((resolve) => socket.once('close', resolve));
+    expect(code).toBe(4401);
+    expect(server.hub.roomCount()).toBe(0);
+  }, 10000);
+
+  it('checks the deadline at inbound dispatch and every outbound send, even before the timer runs', async () => {
+    const deadline = Date.now() + 60_000;
+    const processed = vi.fn();
+    const { port, server } = startServer(() => ({ userId: 'u1', expiresAt: deadline }), {
+      heartbeatIntervalMs: 0,
+      plugins: [
+        {
+          name: 'watch',
+          async process(op, context, next) {
+            processed();
+            return next(op, context);
+          },
+        },
+      ],
+    });
+    const socket = new WsClient(`ws://127.0.0.1:${port}?room=R`);
+    rawSockets.push(socket);
+    const frames: string[] = [];
+    socket.on('message', (data) => frames.push(String(data)));
+    await new Promise<void>((resolve) => socket.once('open', resolve));
+    await waitFor(() => server.hub.roomCount() === 1);
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(deadline);
+    try {
+      server.hub.broadcastPresence('R', { visible: false });
+      socket.send(JSON.stringify({ from: 'x', op: { kind: 'clear' } }));
+      const code = await new Promise<number>((resolve) => socket.once('close', resolve));
+      expect(code).toBe(4401);
+      expect(frames).toEqual([]);
+      expect(processed).not.toHaveBeenCalled();
+      expect(server.hub.roomCount()).toBe(0);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it('rejects an inbound frame at the deadline before the idle timer callback', async () => {
+    const deadline = Date.now() + 60_000;
+    const { port, server } = startServer(() => ({ userId: 'u1', expiresAt: deadline }), {
+      heartbeatIntervalMs: 0,
+    });
+    const dispatch = vi.spyOn(server.hub, 'handleMessage');
+    const socket = new WsClient(`ws://127.0.0.1:${port}?room=R`);
+    rawSockets.push(socket);
+    await new Promise<void>((resolve) => socket.once('open', resolve));
+    await waitFor(() => server.hub.roomCount() === 1);
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(deadline);
+    try {
+      socket.send(JSON.stringify({ from: 'x', op: { kind: 'clear' } }));
+      const code = await new Promise<number>((resolve) => socket.once('close', resolve));
+      expect(code).toBe(4401);
+      expect(dispatch).not.toHaveBeenCalled();
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it('releases room and address slots after expiry', async () => {
+    const { port, server } = startServer(() => ({ userId: 'u1', expiresAt: Date.now() + 70 }), {
+      heartbeatIntervalMs: 0,
+      maxConnectionsPerIp: 1,
+      maxConnectionsPerRoom: 1,
+    });
+    const first = new WsClient(`ws://127.0.0.1:${port}?room=R`);
+    rawSockets.push(first);
+    await new Promise<void>((resolve) => first.once('close', resolve));
+    const second = new WsClient(`ws://127.0.0.1:${port}?room=R`);
+    rawSockets.push(second);
+    await new Promise<void>((resolve) => second.once('open', resolve));
+    await waitFor(() => server.hub.roomCount() === 1);
+  }, 10000);
+
+  it('chunks a distant expiry timer and clears it on ordinary close', async () => {
+    const deadline = Date.now() + 2_147_483_647 + 60_000;
+    const timer = vi.spyOn(globalThis, 'setTimeout');
+    const clearTimer = vi.spyOn(globalThis, 'clearTimeout');
+    try {
+      const { port } = startServer(() => ({ userId: 'u1', expiresAt: deadline }), {
+        heartbeatIntervalMs: 0,
+      });
+      const socket = new WsClient(`ws://127.0.0.1:${port}?room=R`);
+      rawSockets.push(socket);
+      await new Promise<void>((resolve) => socket.once('open', resolve));
+      await waitFor(() => timer.mock.calls.some((call) => call[1] === 2_147_483_647));
+      const expiryIndex = timer.mock.calls.findIndex((call) => call[1] === 2_147_483_647);
+      const expiryHandle = timer.mock.results[expiryIndex]?.value;
+      const callback = timer.mock.calls[expiryIndex]?.[0];
+      expect(socket.readyState).toBe(WsClient.OPEN);
+      clearTimeout(expiryHandle);
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(deadline - 60_000);
+      try {
+        callback?.();
+        expect(timer.mock.calls.some((call) => call[1] === 60_000)).toBe(true);
+      } finally {
+        clock.mockRestore();
+      }
+      const nextExpiryIndex = timer.mock.calls.findIndex((call) => call[1] === 60_000);
+      const nextExpiryHandle = timer.mock.results[nextExpiryIndex]?.value;
+      socket.close();
+      await new Promise<void>((resolve) => socket.once('close', resolve));
+      expect(clearTimer).toHaveBeenCalledWith(nextExpiryHandle);
+    } finally {
+      timer.mockRestore();
+      clearTimer.mockRestore();
+    }
+  });
+
+  it('rejects expired asynchronous authentication before draining queued messages', async () => {
+    let resolveAuth: (value: { userId: string; expiresAt: number }) => void = () => undefined;
+    const pending = new Promise<{ userId: string; expiresAt: number }>((resolve) => {
+      resolveAuth = resolve;
+    });
+    const process = vi.fn(async (op, context, next) => next(op, context));
+    const { port, server } = startServer(() => pending, { plugins: [{ name: 'watch', process }] });
+    const buffered = new Promise<void>((resolve) => {
+      server.wss.once('connection', (ws) => ws.once('message', () => resolve()));
+    });
+    const socket = new WsClient(`ws://127.0.0.1:${port}?room=R`);
+    rawSockets.push(socket);
+    await new Promise<void>((resolve) => socket.once('open', resolve));
+    socket.send(JSON.stringify({ from: 'x', op: { kind: 'clear' } }));
+    await buffered;
+    resolveAuth({ userId: 'u1', expiresAt: Date.now() - 1 });
+    const code = await new Promise<number>((resolve) => socket.once('close', resolve));
+    expect(code).toBe(4401);
+    expect(server.hub.roomCount()).toBe(0);
+    expect(process).not.toHaveBeenCalled();
+  });
+
+  it('checks each queued authentication message before hub dispatch', async () => {
+    let resolveAuth: (value: { userId: string; expiresAt: number }) => void = () => undefined;
+    const pending = new Promise<{ userId: string; expiresAt: number }>((resolve) => {
+      resolveAuth = resolve;
+    });
+    const { port, server } = startServer(() => pending);
+    const buffered = new Promise<void>((resolve) => {
+      server.wss.once('connection', (ws) => {
+        let count = 0;
+        ws.on('message', () => {
+          if (++count === 2) resolve();
+        });
+      });
+    });
+    const socket = new WsClient(`ws://127.0.0.1:${port}?room=R`);
+    rawSockets.push(socket);
+    await new Promise<void>((resolve) => socket.once('open', resolve));
+    socket.send(JSON.stringify({ from: 'x', op: { kind: 'clear' } }));
+    socket.send(JSON.stringify({ from: 'x', op: { kind: 'clear' } }));
+    await buffered;
+    const deadline = Date.now() + 60_000;
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(deadline - 1);
+    const dispatch = vi.spyOn(server.hub, 'handleMessage').mockImplementationOnce(async () => {
+      clock.mockReturnValue(deadline);
+    });
+    try {
+      resolveAuth({ userId: 'u1', expiresAt: deadline });
+      const code = await new Promise<number>((resolve) => socket.once('close', resolve));
+      expect(code).toBe(4401);
+      expect(dispatch).toHaveBeenCalledTimes(1);
+      expect(server.hub.roomCount()).toBe(0);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it('rejects malformed claims and deadlines before admission with a generic close', async () => {
+    let getterCalls = 0;
+    const accessor = Object.defineProperty({}, 'secret', {
+      enumerable: true,
+      get() {
+        getterCalls++;
+        return 'private-sentinel';
+      },
+    });
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+    for (const result of [
+      { authContext: accessor },
+      { authContext: cyclic },
+      { expiresAt: 0 },
+      { expiresAt: Number.MAX_SAFE_INTEGER + 1 },
+    ]) {
+      const { port, server } = startServer(() => ({
+        userId: 'u1',
+        authContext: result.authContext as AuthContext | undefined,
+        expiresAt: result.expiresAt,
+      }));
+      const socket = new WsClient(`ws://127.0.0.1:${port}?room=R`);
+      rawSockets.push(socket);
+      const closed = new Promise<{ code: number; reason: string }>((resolve) => {
+        socket.once('close', (code, reason) => resolve({ code, reason: reason.toString() }));
+      });
+      socket.once('open', () =>
+        socket.send(JSON.stringify({ from: 'x', op: { kind: 'request-snapshot' } })),
+      );
+      expect(await closed).toEqual({ code: 4401, reason: 'unauthorized' });
+      expect(server.hub.roomCount()).toBe(0);
+    }
+    expect(getterCalls).toBe(0);
+  });
+
+  it('clears an admitted deadline timer on server shutdown', async () => {
+    const deadline = Date.now() + 60_000;
+    const timer = vi.spyOn(globalThis, 'setTimeout');
+    const clearTimer = vi.spyOn(globalThis, 'clearTimeout');
+    try {
+      const { port, server } = startServer(() => ({ userId: 'u1', expiresAt: deadline }), {
+        heartbeatIntervalMs: 0,
+      });
+      const socket = new WsClient(`ws://127.0.0.1:${port}?room=R`);
+      rawSockets.push(socket);
+      await new Promise<void>((resolve) => socket.once('open', resolve));
+      await waitFor(() => server.hub.roomCount() === 1);
+      const expiryIndex = timer.mock.calls.findIndex((call) => call[0].name === 'scheduleExpiry');
+      expect(expiryIndex).toBeGreaterThanOrEqual(0);
+      const expiryHandle = timer.mock.results[expiryIndex]?.value;
+      const socketClosed = new Promise<void>((resolve) => socket.once('close', () => resolve()));
+      await server.close();
+      await socketClosed;
+      await waitFor(() => clearTimer.mock.calls.some((call) => call[0] === expiryHandle));
+    } finally {
+      timer.mockRestore();
+      clearTimer.mockRestore();
+    }
+  });
 
   it('rejects with close code 4401 and never admits (no snapshot served)', async () => {
     const { port } = startServer(() => null);

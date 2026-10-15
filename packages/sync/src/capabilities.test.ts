@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { ExtensionElementEnvelope } from '@fieldnotes/core';
-import { CapabilityHandshake, createCurrentCapabilities, translateOpForPeer } from './capabilities';
+import {
+  CapabilityHandshake,
+  createAuthorityCapabilities,
+  createCurrentCapabilities,
+  supportsAuthority,
+  translateOpForPeer,
+} from './capabilities';
+import { isValidEnvelope, parseEnvelope } from './protocol';
 
 describe('createCurrentCapabilities', () => {
   it('advertises the v4 element envelope marker', () => {
@@ -9,6 +16,45 @@ describe('createCurrentCapabilities', () => {
       extensionKinds: ['test:cursor'],
       elementEnvelope: true,
     });
+  });
+
+  it('keeps the legacy bytes and requires explicit authority opt-in', () => {
+    const legacy = createCurrentCapabilities(['e']);
+    expect(JSON.stringify(legacy)).toBe(
+      '{"protocolVersion":1,"extensionKinds":["e"],"elementEnvelope":true}',
+    );
+    expect(supportsAuthority(legacy)).toBe(false);
+    const optedIn = createAuthorityCapabilities(['e']);
+    expect(optedIn).toEqual({ ...legacy, authority: 1 });
+    expect(supportsAuthority(optedIn)).toBe(true);
+    for (const authority of [undefined, 0, 2, '1', null]) {
+      const frame = {
+        from: 'a',
+        op: { kind: 'capabilities', capabilities: { ...legacy, authority } },
+      };
+      expect(isValidEnvelope(frame)).toBe(false);
+      if (authority !== undefined) expect(parseEnvelope(JSON.stringify(frame))).toBeNull();
+    }
+    expect(
+      parseEnvelope(
+        JSON.stringify({ from: 'a', op: { kind: 'capabilities', capabilities: optedIn } }),
+      ),
+    ).not.toBeNull();
+  });
+
+  it('copies and sorts an exact authority extension inventory', () => {
+    const entries = [
+      { key: 'z', pluginName: 'plugin-z', version: 2 },
+      { key: 'a', pluginName: 'plugin-a', version: 1 },
+    ];
+    const capabilities = createAuthorityCapabilities([], entries);
+    entries[0] = { key: 'changed', pluginName: 'plugin-z', version: 2 };
+    expect(capabilities.authorityExtensions).toEqual([
+      { key: 'a', pluginName: 'plugin-a', version: 1 },
+      { key: 'z', pluginName: 'plugin-z', version: 2 },
+    ]);
+    const repeated = { key: 'a', pluginName: 'plugin-a', version: 1 };
+    expect(() => createAuthorityCapabilities([], [repeated, repeated])).toThrow();
   });
 });
 

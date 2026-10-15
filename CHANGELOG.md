@@ -6,6 +6,117 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### VTT 0.13.1
+
+**Fixed**
+
+- Rebuild VTT during packing so published archives contain the current authority fog client,
+  server, and Redis entry points instead of stale generated output.
+
+### Sync 0.26.0
+
+**Added**
+
+- Managed authority extensions can explicitly own the legacy `fog-meta` and `fog-patch` kinds with
+  exact duplicate-free capability negotiation and fail-closed client reduction.
+
+### Sync server 0.26.0
+
+**Added**
+
+- Authority admission, intent preparation, and projection support explicit legacy fog-kind owners;
+  an aggregate real-socket compatibility test covers core, layer, and VTT fog convergence.
+
+### VTT 0.13.0
+
+**Added**
+
+- Opt-in managed-authority fog client/server factories, immutable bounded transition helpers, and a
+  composable Redis Lua planner/apply library for application-owned guarded transactions.
+
+### Sync 0.25.0
+
+**Added**
+
+- Public managed authority client, immutable canonical documents, typed extension reducers,
+  explicit exact-wire retry/discard, receipt barriers, coherent checkpoints, and the default
+  browser WebSocket transport. Receipts prove durable commit only; they do not prove application
+  or application-level saving.
+
+### Sync server 0.25.1
+
+**Added**
+
+- Real-socket managed-client coverage and an isolated synthetic browser acceptance fixture using
+  the public manager and real authoritative server.
+
+### Sync server 0.25.0
+
+**Added**
+
+- Explicit factory-only `authority:1` rooms commit through an application-provided atomic driver, publish durable receipts, project per-viewer ordered changes, and stream complete paced checkpoints with catch-up. Legacy rooms remain on their existing path.
+- Exported driver, identity, extension, evidence, and room-definition contracts. A loopback synthetic browser fixture exercises the runtime without providing a production driver or managed client.
+
+### Sync 0.24.0
+
+**Added**
+
+- `createAuthorityOperationId` generates timestamp-profile IDs for recoverable authoritative proposals. Existing C1 codecs remain compatible with their prior lexical ID grammar.
+
+### Sync server 0.24.0
+
+**Added**
+
+- `prepareAuthorityProposal` validates and freezes an admitted actor's original authority
+  proposal, with a reconnect-stable canonical SHA-256 digest and a fixed preparation deadline.
+  The helper does not authorize, commit, deduplicate, or enable authoritative rooms.
+
+### Sync server 0.23.1
+
+**Fixed**
+
+- Rebuild the server and its workspace dependencies before packing so the archive contains the
+  `sendAsync` runtime and declarations missing from the immutable 0.23.0 package.
+
+### Sync server 0.23.0
+
+**Added**
+
+- Guarded connections expose optional `sendAsync`, which awaits the local WebSocket write
+  callback with the existing frame policy, FIFO, budgets, and deadline. Legacy sends and wire
+  behavior remain unchanged.
+
+### Sync 0.23.0
+
+**Added**
+
+- Bounded browser-safe authority checkpoint preparation and complete assembly with SHA-256,
+  exact trusted extension inventory, and a fixed receive deadline. These APIs remain unused by
+  live connections.
+
+### Sync 0.22.0
+
+**Added**
+
+- Browser-safe authority wire types, bounded strict codecs, projection cursor classification, and
+  explicit authority capability helpers. These primitives do not activate authoritative sync.
+
+### Sync server 0.22.0
+
+**Added**
+
+- Optional `framePolicy` authorizes each admitted inbound and outbound application frame with
+  frozen server-owned identity. Opted-in sockets use bounded per-connection and per-room queues,
+  five-second frame deadlines, and cooperative cancellation. The wire protocol is unchanged.
+
+### Sync server 0.21.0
+
+**Added**
+
+- Authenticated sockets can carry immutable, server-only JSON claims and an absolute expiry.
+  The reference WebSocket server closes idle expired sockets and rejects traffic observed at
+  or after the deadline.
+
 ## [0.87.1] — 2026-10-15
 
 ### Core 0.87.1

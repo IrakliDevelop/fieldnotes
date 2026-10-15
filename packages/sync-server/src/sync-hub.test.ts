@@ -4,6 +4,7 @@ import { fogEncodeBase64 } from '@fieldnotes/vtt';
 import { createFogServerPlugin } from '@fieldnotes/vtt/server';
 import type { CanvasElement, Layer } from '@fieldnotes/core';
 import {
+  createAuthorityCapabilities,
   createCurrentCapabilities,
   createExtensionKind,
   type SyncElement,
@@ -15,6 +16,9 @@ import type { HubBackend } from './hub-backend';
 import { MemoryHubBackend } from './memory-hub-backend';
 import type { Authorize, OwnedElement, ResolveAudience } from './authorize';
 import { InMemoryHubFanout } from './hub-fanout';
+import type { ServerOpContext } from './sync-plugin';
+import { registerAuthorityConnection } from './authority-connection';
+import type { AuthorityDriver, AuthorityRoomDefinition } from './authority-types';
 
 interface FakeConn extends Connection {
   sent: string[];
@@ -53,6 +57,61 @@ describe('SyncHub', () => {
     hub.addConnection(A);
     hub.addConnection(B);
     hub.addConnection(C);
+  });
+
+  it('normalizes direct connection claims before plugins receive them', async () => {
+    hub.close();
+    let received: ServerOpContext | undefined;
+    hub = new SyncHub({
+      plugins: [
+        {
+          name: 'claims',
+          async process(op, context, next) {
+            received = context;
+            return next(op, context);
+          },
+        },
+      ],
+    });
+    const claims = { owner: { id: 'u1' } };
+    const conn = { ...makeConn('direct', 'R'), authContext: claims, expiresAt: Date.now() + 10000 };
+    hub.addConnection(conn);
+    claims.owner.id = 'changed';
+    conn.authContext = { owner: { id: 'replacement' } };
+    await hub.handleMessage('direct', envelope('forged', { kind: 'clear' }));
+    expect(received?.authContext).toEqual({ owner: { id: 'u1' } });
+    expect(received?.expiresAt).toBe(conn.expiresAt);
+    expect(Object.isFrozen(received?.authContext)).toBe(true);
+    expect(Object.isFrozen((received?.authContext as { owner: object }).owner)).toBe(true);
+    expect(Object.isFrozen(claims)).toBe(false);
+  });
+
+  it('preserves prototype-backed transport send and optional sendAsync receivers', async () => {
+    class TransportConnection implements Connection {
+      readonly id = 'class-transport';
+      readonly room = 'R';
+      readonly #sent: string[] = [];
+      get sent(): readonly string[] {
+        return this.#sent;
+      }
+      send(message: string): void {
+        this.#sent.push(message);
+      }
+      async sendAsync(message: string): Promise<void> {
+        this.#sent.push(`async:${message}`);
+      }
+    }
+    const conn = new TransportConnection();
+    hub.addConnection(conn);
+    await hub.handleMessage(conn.id, envelope(conn.id, { kind: 'request-snapshot' }));
+    expect(conn.sent).toHaveLength(1);
+    const snapshot = (hub as unknown as { conns: Map<string, Connection> }).conns.get(conn.id);
+    const capability: Promise<void> | undefined = snapshot?.sendAsync?.('probe');
+    await capability;
+    expect(conn.sent[1]).toBe('async:probe');
+    expect(
+      (hub as unknown as { conns: Map<string, Connection> }).conns.get('A')?.sendAsync,
+    ).toBeUndefined();
   });
 
   it('validates and routes extension operations through their server plugin', async () => {
@@ -367,6 +426,51 @@ describe('SyncHub', () => {
       await hubA.handleMessage('a', msg);
 
       expect(JSON.parse(b.sent[0] ?? '')).toMatchObject({ from: 'a', op: { kind: 'upsert' } });
+    });
+
+    it('does not invent authentication claims for received fanout', async () => {
+      const bus = new InMemoryHubFanout();
+      const contexts: ServerOpContext[] = [];
+      const kind = createExtensionKind<{ value: string }>({
+        extensionKind: 'test:remote',
+        codec: {
+          validate: (payload): payload is { value: string } =>
+            typeof payload === 'object' &&
+            payload !== null &&
+            'value' in payload &&
+            typeof payload.value === 'string',
+        },
+      });
+      const remote = new SyncHub({
+        instanceId: 'B',
+        fanout: bus,
+        plugins: [
+          {
+            name: 'remote',
+            registerExtensionKinds(registry) {
+              registry.register(kind, async () => ({ accepted: null, corrections: [] }));
+            },
+            async applyFanout(op, context) {
+              contexts.push(context);
+              return op;
+            },
+          },
+        ],
+      });
+      remote.addConnection({ ...makeConn('recipient', 'R'), authContext: { identity: 'local' } });
+      bus.publish(
+        JSON.stringify({
+          o: 'A',
+          room: 'R',
+          from: 'forged',
+          authContext: { identity: 'forged' },
+          op: { kind: 'extension', extensionKind: 'test:remote', payload: { value: 'x' } },
+        }),
+      );
+      await vi.waitFor(() => expect(contexts).toHaveLength(1));
+      expect(contexts[0]?.authContext).toBeUndefined();
+      expect(contexts[0]?.expiresAt).toBeUndefined();
+      remote.close();
     });
 
     it('does not double-forward to the origin instance own conns', async () => {
@@ -1289,6 +1393,246 @@ describe('SyncHub', () => {
         expect(p.sent).toEqual([]);
       });
     });
+  });
+});
+
+describe('authority legacy isolation', () => {
+  it('keeps an occupied authority pin until a disconnected head actually settles', async () => {
+    const definition: AuthorityRoomDefinition = {
+      id: 'definition',
+      extensions: [],
+      project: (_context, state) => state,
+      canReadOwnerId: () => false,
+    };
+    let authority = true;
+    let finishHead: (() => void) | undefined;
+    const head = vi.fn(
+      () =>
+        new Promise<{ generation: string; revision: string }>((resolve) => {
+          finishHead = () => resolve({ generation: 'g', revision: 'r' });
+        }),
+    );
+    const driver = {
+      head,
+      claimPublications: async () => [],
+      markPublished: async () => undefined,
+    } as unknown as AuthorityDriver;
+    const hub = new SyncHub({
+      authority: {
+        driver,
+        resolveRoom: () => (authority ? definition : null),
+        resolveIdentity: () => ({ actorId: 'a', ownershipId: 'o' }),
+      },
+    });
+    try {
+      const connection: Connection = {
+        id: 'occupied',
+        room: 'table',
+        signal: new AbortController().signal,
+        send: vi.fn(),
+        close: vi.fn(),
+      };
+      registerAuthorityConnection(connection, {
+        sendTracked: () => ({ completion: Promise.resolve(), settled: Promise.resolve() }),
+      });
+      hub.addConnection(connection);
+      const handling = hub.handleMessage(
+        connection.id,
+        JSON.stringify({
+          from: connection.id,
+          op: { kind: 'capabilities', capabilities: createAuthorityCapabilities([]) },
+        }),
+      );
+      await vi.waitFor(() => expect(head).toHaveBeenCalledTimes(1));
+      hub.removeConnection(connection.id);
+      await handling;
+      authority = false;
+      const blocked = { id: 'blocked', room: 'table', send: vi.fn(), close: vi.fn() };
+      hub.addConnection(blocked);
+      expect(blocked.close).toHaveBeenCalledWith(1013);
+      finishHead?.();
+      await vi.waitFor(() => {
+        const admitted = { id: 'new', room: 'table', send: vi.fn(), close: vi.fn() };
+        hub.addConnection(admitted);
+        expect(admitted.close).not.toHaveBeenCalled();
+        hub.removeConnection(admitted.id);
+      });
+    } finally {
+      finishHead?.();
+      hub.close();
+    }
+  });
+  it('does not retain routing-only or rejected authority rooms after cleanup', () => {
+    const definition: AuthorityRoomDefinition = {
+      id: 'definition',
+      extensions: [],
+      project: (_context, state) => state,
+      canReadOwnerId: () => false,
+    };
+    let authority = true;
+    const driver = {
+      claimPublications: async () => [],
+      markPublished: async () => undefined,
+    } as unknown as AuthorityDriver;
+    const hub = new SyncHub({
+      authority: {
+        driver,
+        resolveRoom: () => (authority ? definition : null),
+        resolveIdentity: () => ({ actorId: 'a', ownershipId: 'o' }),
+      },
+    });
+    try {
+      for (let index = 0; index < 200; index++)
+        expect(hub.broadcastPresence(`routing-${index}`, { kind: 'ping' })).toBe(0);
+      authority = false;
+      const legacy = { id: 'legacy', room: 'routing-0', send: vi.fn(), close: vi.fn() };
+      hub.addConnection(legacy);
+      expect(legacy.close).not.toHaveBeenCalled();
+      hub.removeConnection(legacy.id);
+      authority = true;
+      const connections: Connection[] = [];
+      for (let index = 0; index < 40; index++) {
+        const connection: Connection = {
+          id: `a${index}`,
+          room: `room-${index}`,
+          signal: new AbortController().signal,
+          send: vi.fn(),
+          close: vi.fn(),
+        };
+        connections.push(connection);
+        registerAuthorityConnection(connection, {
+          sendTracked: () => ({ completion: Promise.resolve(), settled: Promise.resolve() }),
+        });
+        hub.addConnection(connection);
+      }
+      expect(
+        connections.filter(
+          (connection) => (connection.close as ReturnType<typeof vi.fn>).mock.calls.length,
+        ),
+      ).toHaveLength(8);
+      connections.forEach((connection) => hub.removeConnection(connection.id));
+      authority = false;
+      const afterChurn = { id: 'after', room: 'room-39', send: vi.fn(), close: vi.fn() };
+      hub.addConnection(afterChurn);
+      expect(afterChurn.close).not.toHaveBeenCalled();
+      hub.removeConnection(afterChurn.id);
+    } finally {
+      hub.close();
+    }
+  });
+  it('routes a guarded authority room before legacy backend, plugin, and fanout paths', async () => {
+    const backend = {
+      get: vi.fn(),
+      apply: vi.fn(),
+      snapshot: vi.fn(),
+      getService: vi.fn(),
+    } as unknown as HubBackend;
+    const publish = vi.fn();
+    const definition: AuthorityRoomDefinition = {
+      id: 'definition',
+      extensions: [],
+      project: (_context, state) => state,
+      canReadOwnerId: () => false,
+    };
+    const driver = {
+      claimPublications: vi.fn(async () => []),
+      markPublished: vi.fn(),
+    } as unknown as AuthorityDriver;
+    const process = vi.fn();
+    const hub = new SyncHub({
+      backend,
+      fanout: { publish, subscribe: () => () => undefined },
+      plugins: [{ name: 'trap', process }],
+      authority: {
+        driver,
+        resolveRoom: () => definition,
+        resolveIdentity: () => ({ actorId: 'actor', ownershipId: 'owner' }),
+      },
+    });
+    const close = vi.fn();
+    const connection: Connection = {
+      id: 'guarded',
+      room: 'table',
+      signal: new AbortController().signal,
+      close,
+      send: vi.fn(),
+    };
+    registerAuthorityConnection(connection, {
+      sendTracked: () => ({
+        completion: Promise.resolve(),
+        settled: Promise.resolve(),
+      }),
+    });
+    hub.addConnection(connection);
+    await hub.handleMessage(connection.id, envelope(connection.id, { kind: 'clear' }));
+    expect(close).toHaveBeenCalledWith(4406);
+    expect(backend.get).not.toHaveBeenCalled();
+    expect(backend.apply).not.toHaveBeenCalled();
+    expect(backend.getService).not.toHaveBeenCalled();
+    expect(process).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
+    hub.close();
+  });
+
+  it('refuses an unregistered direct adapter and blocks legacy fanout into authority rooms', async () => {
+    const backend = {
+      get: vi.fn(),
+      apply: vi.fn(),
+      snapshot: vi.fn(),
+      applyLayerRecord: vi.fn(),
+    } as unknown as HubBackend;
+    let subscriber: ((payload: string) => void) | undefined;
+    const fanout = {
+      publish: vi.fn(),
+      subscribe: (handler: (payload: string) => void) => {
+        subscriber = handler;
+        return () => undefined;
+      },
+    };
+    const driver = {
+      claimPublications: vi.fn(async () => []),
+      markPublished: vi.fn(),
+    } as unknown as AuthorityDriver;
+    const close = vi.fn();
+    const hub = new SyncHub({
+      backend,
+      fanout,
+      authority: {
+        driver,
+        resolveRoom: (room) =>
+          room === 'table'
+            ? {
+                id: 'definition',
+                extensions: [],
+                project: (_context, state) => state,
+                canReadOwnerId: () => false,
+              }
+            : null,
+        resolveIdentity: () => ({ actorId: 'actor', ownershipId: 'owner' }),
+      },
+    });
+    const connection: Connection = {
+      id: 'unregistered',
+      room: 'table',
+      signal: new AbortController().signal,
+      close,
+      send: vi.fn(),
+    };
+    hub.addConnection(connection);
+    expect(close).toHaveBeenCalledWith(1013);
+    subscriber?.(
+      JSON.stringify({
+        o: 'other',
+        room: 'table',
+        from: 'other',
+        op: { kind: 'layer-remove', id: 'layer', version: 1, editor: 'other' },
+      }),
+    );
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(backend.applyLayerRecord).not.toHaveBeenCalled();
+    expect(backend.apply).not.toHaveBeenCalled();
+    expect(fanout.publish).not.toHaveBeenCalled();
+    hub.close();
   });
 });
 

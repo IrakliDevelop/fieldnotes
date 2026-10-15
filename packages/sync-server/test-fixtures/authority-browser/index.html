@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Field Notes authority fixture</title>
+    <style>
+      body {
+        font:
+          15px system-ui,
+          sans-serif;
+        margin: 0;
+        background: #f4f6fa;
+        color: #152238;
+      }
+      header {
+        padding: 14px 20px;
+        background: #173153;
+        color: white;
+      }
+      h1 {
+        font-size: 19px;
+        margin: 0 0 4px;
+      }
+      p {
+        margin: 4px 0;
+      }
+      main {
+        display: grid;
+        grid-template-columns: minmax(380px, 1fr) 390px;
+        gap: 14px;
+        padding: 14px;
+      }
+      section {
+        background: white;
+        border: 1px solid #bcc7d6;
+        border-radius: 8px;
+        padding: 12px;
+      }
+      #viewport {
+        height: 530px;
+        border: 2px solid #5887bb;
+        background: white;
+        position: relative;
+        overflow: hidden;
+      }
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 7px;
+        margin: 10px 0;
+      }
+      button,
+      select {
+        padding: 6px 9px;
+        border: 1px solid #7590ad;
+        border-radius: 5px;
+        background: #eef4fb;
+        color: #17283d;
+        cursor: pointer;
+      }
+      button:hover {
+        background: #d8e8fa;
+      }
+      button:focus-visible,
+      select:focus-visible {
+        outline: 3px solid #145ca1;
+      }
+      pre {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        background: #eef3f8;
+        border: 1px solid #d1dbe6;
+        border-radius: 5px;
+        padding: 8px;
+        min-height: 90px;
+        max-height: 200px;
+        overflow: auto;
+        font-size: 12px;
+      }
+      small {
+        color: #465d75;
+      }
+      @media (max-width: 900px) {
+        main {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Authority runtime · synthetic browser fixture</h1>
+      <p>
+        Loopback-only test driver and test client. No account, storage, Redis, or production
+        endpoint.
+      </p>
+    </header>
+    <main>
+      <section>
+        <label for="identity">Synthetic peer</label>
+        <select id="identity">
+          <option value="dm">DM</option>
+          <option value="public">Public</option>
+          <option value="legacy">Legacy incapable</option>
+          <option value="stalled">Stalled public</option>
+        </select>
+        <div class="controls">
+          <button id="connect">Connect</button><button id="disconnect">Disconnect</button
+          ><button id="reconnect">Reconnect</button
+          ><button id="checkpoint">Request checkpoint</button>
+        </div>
+        <div class="controls">
+          <button id="create">Create public shape</button
+          ><button id="move">Move public shape</button
+          ><button id="remove">Delete public shape</button
+          ><button id="retry">Retry original ID</button>
+        </div>
+        <div class="controls">
+          <button id="shapeTool">Draw shape on canvas</button
+          ><button id="selectTool">Select</button>
+        </div>
+        <div id="viewport" aria-label="Field Notes viewport"></div>
+        <small
+          >The private sentinel appears only to the DM. Drawing, creating, moving and deleting use
+          the actual core viewport and authority protocol.</small
+        >
+      </section>
+      <section>
+        <h2>Failure controls</h2>
+        <div class="controls">
+          <button data-command="lose-response">Lose next committed response</button
+          ><button data-command="pause-commit">Pause next commit</button
+          ><button data-command="release-commit">Release commit</button
+          ><button data-command="pause-checkpoint">Pause next checkpoint</button
+          ><button data-command="release-checkpoint">Release checkpoint</button
+          ><button data-command="revoke-public">Revoke public access</button
+          ><button data-command="restore-public">Restore public access</button
+          ><button data-command="near-limit">Load near-limit private state</button
+          ><button data-command="release-stalled">Release stalled peer</button>
+        </div>
+        <h2>Client status</h2>
+        <pre id="status"></pre>
+        <h2>Client events (latest 35)</h2>
+        <pre id="events"></pre>
+        <h2>Server evidence (latest 20 of 80)</h2>
+        <pre id="server-events"></pre>
+      </section>
+    </main>
+    <script type="module" src="/client.js"></script>
+  </body>
+</html>

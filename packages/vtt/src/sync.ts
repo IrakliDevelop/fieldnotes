@@ -3,6 +3,8 @@ import { FogSyncController } from './fog/fog-sync-controller';
 import type { FogSyncManager } from './fog/fog-sync-types';
 import { assertValidFogClientId, isValidFogSnapshot } from './fog/fog-sync-types';
 
+export { createFogAuthorityClientExtension } from './fog/fog-authority';
+
 export { FogSyncController } from './fog/fog-sync-controller';
 
 export interface FogClientPluginOptions {

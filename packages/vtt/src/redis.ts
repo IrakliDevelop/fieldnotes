@@ -31,6 +31,13 @@ export {
   tileIntersectsDefinition,
 } from './fog/fog-redis-scripts';
 export type { FogRedisApplyResult, FogRedisPatchApplyResult } from './fog/fog-redis-scripts';
+export {
+  FOG_AUTHORITY_REDIS_LIBRARY_V1,
+  assembleFogAuthorityRedisScriptV1,
+  encodeFogAuthorityRedisIntentV1,
+  parseFogAuthorityRedisPlanResultV1,
+} from './fog/fog-authority-redis';
+export type { FogAuthorityRedisPlanResultV1 } from './fog/fog-authority-redis';
 
 class RedisFogBackend implements FogBackendService {
   private readonly run: ScriptRunner;

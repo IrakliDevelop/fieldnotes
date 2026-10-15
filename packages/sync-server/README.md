@@ -21,6 +21,9 @@ applies and forwards.
 - **`createSyncServer`** — a runnable `ws` reference server. Connect with
   `?room=<id>` in the query string; a missing room closes the socket with WS code
   `4400`.
+- **`prepareAuthorityProposal`** — validates an admitted server actor and an `authority:1`
+  proposal into an immutable original request. The opt-in runtime then delegates atomic
+  acceptance to an application-provided driver.
 - **`HubFanout`** — cross-instance live fan-out seam. `SyncHub` publishes each live
   op to the fanout and forwards ops it receives from other instances to its local
   connections. The default `InMemoryHubFanout` is in-process (a no-op for a single
@@ -44,6 +47,156 @@ const { close } = createSyncServer({ port: 8080 });
 // ws://localhost:8080?room=my-room
 ```
 
+## Authority proposal preparation
+
+`prepareAuthorityProposal(actor, message)` is a synchronous building block used by the
+authoritative room runtime. Pass a server-supplied admitted actor and a raw client `authority:1`
+proposal string. The actor must be an ordinary plain or null-prototype record with enumerable
+own data properties. `room` must be an admitted room name; `actorId` is a required stable opaque
+principal scope that the application must namespace consistently across instances and reconnects.
+It must not fall back to a connection or display identity. Identity strings are limited to 1024
+UTF-8 bytes. `signal` must be a native `AbortSignal` from the same Node realm.
+
+The returned context copies only declared identity and lifecycle fields, snapshots and freezes
+claims, retains the caller's live signal, and clamps `deadlineAt` to the earliest of the input
+deadline, expiry, or five seconds from entry. The helper checks cancellation and the fixed
+deadline again before returning. It installs no timer and cannot enforce a later driver commit
+deadline. The proposal is the parsed and frozen **original client request**; its claimed owner
+or audience fields remain untrusted. The configured driver must separately stamp authorized intents,
+recheck current authority, ownership, generation, deadline and CAS at its atomic commit, and
+persist dedupe under stable actor, room, generation and operation ID scope. An attempted commit
+that times out may have an unknown outcome.
+
+`operationDigest` is a server-only lowercase SHA-256 conflict key over the versioned domain,
+JSON-encoded `[room, actorId]`, and the canonical parsed proposal, separated by NUL bytes.
+Equivalent JSON key order or whitespace produces the same digest across reconnects. The digest
+is neither an authorization token nor proof of durable acceptance. Invalid input throws the
+generic `TypeError('Invalid authority proposal')`; cancellation or an elapsed deadline throws
+`Error('Authority proposal expired')`.
+
+## Opt-in authoritative rooms (0.25.0)
+
+`createSyncServer({ authority })` selects a room before legacy admission, mutation, snapshot,
+presence, plugin, backend or fanout handling. `resolveRoom` returning `null` keeps that room on
+the existing legacy path. A non-null definition enables only `authority:1` for that room;
+incapable peers receive `upgrade-required` and close. The factory requires both `authenticate`
+and `framePolicy`. Direct `SyncHub.addConnection` adapters cannot enable authority because the
+runtime requires the factory's guarded, tracked send binding and lifetime signal.
+
+The following is the host configuration shape. `provisionedDriver` must be a real implementation
+of `AuthorityDriver`; the SDK deliberately does not provide production room storage. The
+browser fixture below uses `AuthorityFixtureDriver` only for local acceptance.
+
+```ts
+import {
+  createSyncServer,
+  type AuthorityDriver,
+  type AuthorityRoomDefinition,
+} from '@fieldnotes/sync-server';
+
+declare const provisionedDriver: AuthorityDriver;
+declare function myMembershipLookup(
+  req: unknown,
+  room: string,
+): Promise<{ stableId: string; role: string } | null>;
+declare function myFramePolicy(frame: unknown): Promise<boolean>;
+const synthetic = {
+  requirement: {
+    key: 'synthetic',
+    pluginName: 'my-host',
+    version: 1,
+    validate: (data: unknown) => typeof data === 'string',
+  },
+  extensionKinds: ['synthetic-change'],
+  prepare: (mutation: { kind: string; payload?: unknown }) =>
+    mutation.kind === 'extension' && typeof mutation.payload === 'string' ? mutation.payload : null,
+  changes: (before: unknown, after: unknown) =>
+    before === after
+      ? []
+      : [{ kind: 'extension' as const, extensionKind: 'synthetic-change', payload: after }],
+};
+const definition: AuthorityRoomDefinition = {
+  id: 'my-table-schema-v1',
+  extensions: [synthetic],
+  project: (context, state) => ({
+    ...state,
+    elements: state.elements.filter(
+      (element) => element.audience !== 'private' || context.role === 'dm',
+    ),
+  }),
+  canReadOwnerId: (context) => context.role === 'dm',
+};
+createSyncServer({
+  port: 8080,
+  authenticate: async ({ req, room }) => {
+    const member = await myMembershipLookup(req, room); // host-owned, current policy
+    return member ? { userId: member.stableId, role: member.role } : null;
+  },
+  framePolicy: { authorize: async (frame) => (await myFramePolicy(frame)) === true },
+  authority: {
+    driver: provisionedDriver,
+    resolveRoom: (room) => (room === 'table' ? definition : null),
+    resolveIdentity: (connection) => {
+      if (!connection.userId) throw new Error('stable identity required');
+      return { actorId: connection.userId, ownershipId: connection.userId };
+    },
+  },
+});
+```
+
+The host must provision each room and unique generation outside the wire protocol; a missing
+room does not auto-create. The driver must atomically check current room definition, generation,
+read and write authorization, store-time deadline/expiry, ownership, audience, extension schema
+and optional room CAS before applying a whole intent. Element owners are stamped from trusted
+`ownershipId` and retained across removal and elements-only clear. Layers use version/editor LWW;
+elements use commit order. Clear retains layers, extensions, ownership, dedupe, and generation.
+Generation replacement, whole-room reset and external membership administration belong to the
+host control plane. A trusted `project` function must return a subset of the captured image;
+the runtime validates its shape, strips owner IDs for unprivileged readers, and sends only
+their visible differences. Extension inventory (key, plugin, version and kinds) must match
+exactly at negotiation and complete checkpoint assembly.
+
+The driver's `commit` must persist state, a random opaque receipt, a separate random whole-room
+CAS token, stable-actor dedupe record and immutable before/after publication evidence in one
+transaction. A retained duplicate with the original digest returns its original receipt after
+current read admission, even when CAS has moved. New IDs use the `fn1:` timestamp profile;
+the driver checks store time, the 24-hour retry window and a persistent generation-scoped
+eviction floor. An exception or timeout after invoking `commit` is an **unknown outcome**:
+the caller keeps the original proposal and operation ID for retry. A definitive rejection says
+only that this invocation did not mutate; `retry-window-expired` does not prove an earlier
+uncertain attempt failed. A managed client must checkpoint and ask for explicit reconciliation
+before reminting a separate logical operation.
+
+`readAfter` returns linked opaque private positions; `readEvidence` leases immutable committed
+images. Outbox claims/marking must recover globally without a connected peer and survive worker
+crash. A metadata-to-evidence eviction returns typed `history-unavailable`; equal visible state
+reconciles silently, while a real visible difference starts a complete checkpoint recovery.
+Every driver read rechecks current authorization; capture leases are coherent and bounded. A
+durable receipt proves commit, not delivery or client application. The author receives state
+through the same ordered reader as other peers. A public cursor counts visible batches only;
+private internal positions and hidden commits never enter public frames. Checkpoint completion
+installs a new stream at revision zero, then reads changes committed during the stream.
+
+The runtime caps 128 peers (32 prospective), 32 rooms, eight metadata tasks, two heavy workers,
+four prepared streams, 20 MiB complete state, and 1024 queued/active physical frames across
+authority factory connections (64 MiB total, with lower per-peer/room caps). The driver contract
+caps its publication metadata ring at 1024 records/8 MiB, separately from a 64 MiB immutable
+evidence arena per generation. Ownership retains at most 65,536 IDs/8 MiB, layers at most 4096
+records/4 MiB, and successful dedupe at most 1024 records for up to 24 hours. Leases are
+store-time fenced, at most eight per room and 128 per driver, and last at most five seconds.
+One changes frame holds at most 1024 mutations/1 MiB; larger visible changes recover through a
+complete checkpoint. Physical frames are paced through guarded sends. These are application
+accounting bounds, not an RSS guarantee; full-state projection remains O(room size). The host
+driver must enforce its own transaction, evidence, lease, retirement and provisioning limits.
+The included fixture caps 64 live plus retiring generations; it is not Redis durability.
+
+Authority presence, the production managed client, real VTT/fog extensions, production Redis
+driver, administration and RollKeeper adoption are intentionally deferred. Existing managed
+clients do not advertise authority; use a protocol-aware host client only after implementing its
+pending/receipt/applied-cursor barrier and uncertain-outcome recovery responsibilities.
+
+For local synthetic inspection, see [the authority browser fixture](test-fixtures/authority-browser/README.md).
+
 ## Server-originated presence
 
 Trusted server integrations can broadcast ephemeral data without accessing the hub's connection
@@ -61,8 +214,9 @@ const localDeliveries = hub.broadcastPresence('my-room', {
 Recipients receive the existing presence envelope with the server-owned identity
 `{ from: 'hub', op: { kind: 'presence', data } }`. The event is delivered to every local room
 member and published to the configured `HubFanout`, so other relay instances deliver it to their
-local members too. The return value counts successful sends on the originating hub only; it is not a
-cluster-wide acknowledgement.
+local members too. The return value counts frames accepted for sending on the originating hub only;
+it is neither a completed physical delivery count nor a cluster-wide acknowledgement. An async
+`framePolicy` can subsequently deny an accepted frame.
 
 Server presence is best-effort, is not persisted, does not enter a room's durable operation queue,
 and is not filtered by `authorize` or `canRead`. Validate and authorize application requests before
@@ -134,6 +288,59 @@ sockets; behind a trusted proxy supply `clientAddress` to read the forwarded add
 finite numbers; connection caps must be positive safe integers, or `Infinity` to disable a cap.
 Invalid values throw during `createSyncServer` construction.
 
+### Per-frame policy
+
+Pass `framePolicy` to opt admitted sockets into bounded transport. Its optional `authorize` hook
+receives a frozen context for every valid inbound application frame and every final encoded outbound
+application frame, including snapshots, capabilities, presence, corrections, plugin output, and
+cross-instance fanout. The context contains the admitted `connectionId`, `room`, `userId`, `role`,
+immutable `authContext`, optional `expiresAt`, `direction`, exact wire `message`, `deadlineAt`, and
+an `AbortSignal`. An empty policy object enables the bounds without a hook. Authentication is
+optional; anonymous sockets retain their admitted connection identity.
+
+Guarded connections also expose optional `Connection.sendAsync(message): Promise<void>`.
+It uses the same per-socket FIFO, authorization, and shared frame budgets as legacy
+`send(message): void`. The promise resolves after the local WebSocket send callback succeeds;
+it does not confirm peer receipt, application, a durable commit, or an entire checkpoint.
+Callers must await or catch rejection. Failure rejects with a generic
+`Error('frame delivery failed')` without exposing message, claims, policy, or socket errors.
+The fixed five-second frame deadline, socket expiry, and disposal reject caller waits promptly.
+If a guard or native callback remains hung, its active queue slot and budget reservation stay
+occupied until that work actually settles. This deliberate bounded saturation prevents a failed
+caller from admitting another physical write on the same lane. Canceled queued frames release
+capacity immediately. Unguarded factory connections omit `sendAsync`; custom `Connection`
+adapters may implement it. A future authoritative checkpoint sender must require this real
+capability and await each chunk before pulling the next. Existing `send` and
+`broadcastPresence` keep their admission-only behavior; the presence count is not a delivery
+acknowledgment.
+
+```ts
+createSyncServer({
+  port: 8080,
+  framePolicy: {
+    authorize: async ({ room, role, direction, message, signal }) => {
+      return myPolicy.canSendOrReceive({ room, role, direction, message, signal });
+    },
+  },
+});
+```
+
+Only an exact `true` allows a frame. `false` closes that socket with `4403` (`forbidden`);
+exceptions and nonboolean results close it with `1013` (`resync required`). Expiry closes with
+`4401` (`unauthorized`). Each frame has a five-second deadline, including queue wait, policy work,
+processing, and the outbound `ws.send` callback. The fixed shared budget counts queued and active
+inbound and outbound frames: 64 frames / 4 MiB per connection and 256 frames / 16 MiB per room.
+Overflow closes the offending socket with `1013`. Control ping, pong, and close frames bypass the
+policy. No claims or lifecycle metadata are added to the wire envelope.
+
+Direct `SyncHub.handleMessage(connId, message, options?)` callers may supply a trusted
+`MessageDispatchOptions` with `deadlineAt`, `signal`, and `beforeProcess`. The caller schedules its
+own timeout and abort. Queued cancellation resolves without processing; aborting active work is
+cooperative and its promise settles only when the actual hook or operation settles. For guarded
+plugin operations, `ServerOpContext` carries the same optional deadline and signal. Existing
+two-argument hub calls retain their behavior. Already-running legacy backend/plugin work cannot be
+rolled back by frame cancellation.
+
 ## Authentication
 
 Pass an `authenticate` hook to gate connections:
@@ -156,6 +363,23 @@ may be sync or async. Returning `null` (or throwing) **rejects** the connection:
 socket is closed with WS code `4401` and the connection is never admitted to the room —
 no membership, no snapshot. A resolved result admits the connection carrying its
 `userId` and optional `role`.
+
+The hook may also return `authContext` (JSON claims) and `expiresAt` (a positive safe integer
+absolute Unix millisecond timestamp). The server copies and deeply freezes admitted claims;
+later changes to the hook's object cannot change what plugins receive as
+`ServerOpContext.authContext`. The claims and deadline are server-only and never enter sync
+envelopes or presence. Invalid claims, invalid deadlines, and deadlines already reached at
+admission close with `4401`. Claims are limited to 16 KiB of UTF-8 JSON, 16 levels of nesting,
+and 1024 visited entries. Getters, cycles, unsupported values and prototypes are rejected.
+
+`createSyncServer` closes an idle socket when its deadline arrives and checks the deadline before
+each inbound dispatch and outbound WebSocket send. The Node event loop must run before a timer can
+close the socket. Work already dispatched or queued in the legacy room queue is not cancellable or
+transactional; expiry prevents new dispatch and physical sends observed after the deadline, but
+does not roll back earlier backend work. A later authoritative driver will enforce commit deadlines.
+`SyncHub.addConnection` also copies and validates claims for direct callers, but custom transports
+must enforce `expiresAt` themselves. Received cross-instance fanout has no authenticated claims:
+its payload and `from` field do not create a `ServerOpContext.authContext`.
 
 With **no hook**, rooms stay open: every connection is admitted anonymously with
 `userId = connId`. `role` is captured now and enforced in an upcoming release
@@ -345,6 +569,14 @@ gets a synthetic **remove**, one who gains it gets an **add**.
 
 A Redis `HubBackend` and cross-instance fan-out ship in [`@fieldnotes/sync-redis`](../sync-redis).
 
+### Authority legacy-kind ownership
+
+An `AuthorityExtension` may explicitly own `fog-meta` and `fog-patch` through `legacyKinds`.
+Ownership is opt-in, immutable after room admission, included in exact capability negotiation, and
+cannot overlap another extension or a generic kind. Unowned, malformed, oversized, throwing, or
+foreign fog proposals fail before driver invocation; projected changes are accepted only from the
+extension that owns that exact legacy kind. This does not activate a legacy VTT plugin or backend.
+
 ## Domain plugins
 
 `SyncHubOptions.plugins` installs ordered `ServerSyncPlugin` middleware. Plugins can register
@@ -352,3 +584,19 @@ codec-validated extension kinds, provide versioned snapshots, return sender-only
 choose local or shared fanout per accepted operation. Fog authorization and state application are
 supplied by `createFogServerPlugin()` from `@fieldnotes/vtt/server`; the generic server has no
 runtime VTT dependency.
+
+## Maintainer release check
+
+From an installed workspace, pack the server into a release directory:
+
+```bash
+pnpm --filter @fieldnotes/sync-server pack --pack-destination <directory>
+```
+
+The `prepack` script rebuilds core, sync, then the server. Inspect the resulting
+archive's runtime files and type declarations, then publish that exact verified archive. Do not
+bypass lifecycle scripts or republish a pre-existing archive. The server 0.25.0 archive declares a
+concrete `@fieldnotes/sync` 0.24.0-compatible dependency. Publish sync 0.24.0 before server
+0.25.0, only with owner approval; packing locally does not publish or establish registry
+availability. Version 0.23.1 corrected the missing `sendAsync` runtime and declarations in
+the immutable 0.23.0 package.

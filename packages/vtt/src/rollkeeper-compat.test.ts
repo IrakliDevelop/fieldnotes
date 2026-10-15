@@ -9,7 +9,23 @@
  */
 import { describe, it, expect, beforeAll } from 'vitest';
 import { ElementRegistry } from '@fieldnotes/core';
+import { createFogAuthorityClientExtension } from './sync';
+import {
+  createFogAuthorityServerExtension,
+  prepareFogAuthorityIntent,
+  type FogAuthorityIntent,
+  type FogAuthorityTransitionResult,
+} from './server';
 import { registerVttElementTypes } from './register';
+
+const authorityClientInference = createFogAuthorityClientExtension();
+const authorityServerInference = createFogAuthorityServerExtension();
+const authorityIntentInference: FogAuthorityIntent | null = prepareFogAuthorityIntent({
+  kind: 'fog-meta',
+  record: { version: 1, editor: 'compat' },
+});
+const authorityResultInference: FogAuthorityTransitionResult | undefined = undefined;
+void authorityResultInference;
 
 let registry: ElementRegistry;
 
@@ -204,5 +220,15 @@ describe('VTT adapter — validation', () => {
       data: { gridType: 'invalid' },
     };
     expect(adapter.validateEnvelope(envelope)).toBe(false);
+  });
+});
+
+describe('VTT authority subpath compatibility', () => {
+  it('preserves concrete client and server factory inference', () => {
+    expect(authorityClientInference).toMatchObject({ key: 'fog', pluginName: 'fog', version: 1 });
+    expect(authorityServerInference).toMatchObject({
+      requirement: { key: 'fog', pluginName: 'fog', version: 1 },
+    });
+    expect(authorityIntentInference).toMatchObject({ schema: 1, kind: 'meta' });
   });
 });

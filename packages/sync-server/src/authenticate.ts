@@ -1,5 +1,6 @@
 import type { IncomingMessage } from 'http';
 import { readBearerSubprotocol } from '@fieldnotes/sync';
+import type { AuthContext } from './auth-context';
 
 export interface AuthInfo {
   req: IncomingMessage; // the raw WS upgrade request — read a token from req.url query or req.headers
@@ -16,6 +17,10 @@ export interface AuthInfo {
 export interface AuthResult {
   userId: string;
   role?: string; // captured now; enforced in a later release (D2/D3)
+  /** Server-only immutable JSON claims; never sent to clients. */
+  readonly authContext?: AuthContext;
+  /** Absolute Unix millisecond deadline for this socket. */
+  readonly expiresAt?: number;
 }
 
 export type Authenticate = (info: AuthInfo) => AuthResult | null | Promise<AuthResult | null>;

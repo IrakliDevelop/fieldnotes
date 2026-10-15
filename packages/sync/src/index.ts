@@ -70,6 +70,74 @@ export { createExtensionKind } from './sync-plugin';
 export {
   CapabilityHandshake,
   createCurrentCapabilities,
+  createAuthorityCapabilities,
+  supportsAuthority,
   translateOpForPeer,
   DEFAULT_CAPABILITY_QUEUE_LIMIT,
 } from './capabilities';
+export type {
+  AuthorityMutation,
+  AuthorityCursor,
+  AuthorityReceipt,
+  AuthorityExtensionManifestEntry,
+  AuthorityCheckpointManifest,
+  AuthorityRejectionReason,
+  AuthorityResyncReason,
+  AuthorityClientFrame,
+  AuthorityServerFrame,
+  AuthorityFrame,
+} from './authority-protocol';
+export {
+  AUTHORITY_PROTOCOL_VERSION,
+  MAX_AUTHORITY_FRAME_BYTES,
+  MAX_AUTHORITY_CHECKPOINT_BYTES,
+  MAX_AUTHORITY_CHUNK_BYTES,
+  AUTHORITY_CHECKPOINT_TIMEOUT_MS,
+  MAX_AUTHORITY_JSON_DEPTH,
+  MAX_AUTHORITY_JSON_NODES,
+  parseAuthorityFrame,
+  parseAuthorityClientFrame,
+  parseAuthorityServerFrame,
+  serializeAuthorityFrame,
+} from './authority-protocol';
+export { classifyAuthorityCursor } from './authority-cursor';
+export { createAuthorityOperationId } from './authority-operation-id';
+export { prepareAuthorityCheckpoint, AuthorityCheckpointAssembler } from './authority-checkpoint';
+export type {
+  AuthorityCheckpointPayload,
+  AuthorityCheckpointExtension,
+  AuthorityCheckpointRequirement,
+  AuthorityCheckpointFrame,
+  PreparedAuthorityCheckpoint,
+  AuthorityCheckpointPrepareOptions,
+  AuthorityCheckpointAssemblerOptions,
+  AuthorityCheckpointFailure,
+  AuthorityCheckpointResult,
+} from './authority-checkpoint';
+export {
+  createAuthorityClientExtension,
+  createAuthorityExtensionReducer,
+  createAuthorityLegacyExtensionReducer,
+} from './authority-client-extension';
+export type {
+  AuthorityClientExtension,
+  AuthorityExtensionReducer,
+  AuthorityLegacyExtensionReducer,
+} from './authority-client-extension';
+export { createManagedAuthorityConnection } from './managed-authority-connection';
+export { createAuthorityWebSocketTransport } from './authority-websocket-transport';
+export type {
+  AuthorityReadonly,
+  AuthorityClientStatus,
+  AuthorityClientOperation,
+  AuthorityClientState,
+  AuthoritySubmitResult,
+  AuthorityRetryResult,
+  AuthorityBarrier,
+  AuthorityBarrierResult,
+  AuthorityClientCheckpointResult,
+  AuthorityClientTransportHandlers,
+  AuthorityClientTransport,
+  ManagedAuthorityOptions,
+  ManagedAuthorityConnection,
+} from './authority-client-types';

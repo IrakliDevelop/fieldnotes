@@ -1,13 +1,45 @@
 export { SyncHub } from './sync-hub';
-export type { SyncHubOptions, Connection } from './sync-hub';
+export type { SyncHubOptions, Connection, MessageDispatchOptions } from './sync-hub';
 export { MemoryHubBackend } from './memory-hub-backend';
 export type { HubBackend } from './hub-backend';
 export { createSyncServer } from './create-sync-server';
 export { ROOM_NAME_PATTERN, isValidRoomName } from './room-name';
 export type { CreateSyncServerOptions } from './create-sync-server';
+export type { FramePolicy, AuthorizeFrame, FrameAuthorizationContext } from './frame-policy';
 export { InMemoryHubFanout } from './hub-fanout';
 export type { HubFanout } from './hub-fanout';
 export type { AuthInfo, AuthResult, Authenticate } from './authenticate';
+export type { AuthContext, AuthContextValue } from './auth-context';
+export { prepareAuthorityProposal } from './authority-proposal';
+export type {
+  AuthorityProposalActor,
+  AuthorityProposalContext,
+  AuthorityProposalFrame,
+  PreparedAuthorityProposal,
+} from './authority-proposal';
+export type {
+  JsonValue,
+  AuthorityState,
+  AuthorityPosition,
+  AuthorityReadOptions,
+  AuthorityIdentity,
+  AuthorityReadContext,
+  AuthorityCommitContext,
+  AuthorityIntent,
+  AuthorityCommitRequest,
+  AuthorityCommitResult,
+  AuthorityEvidenceRef,
+  AuthorityPublication,
+  AuthorityReadPage,
+  AuthorityEvidenceLease,
+  AuthorityEvidenceResult,
+  AuthorityCaptureLease,
+  AuthorityPublicationClaim,
+  AuthorityDriver,
+  AuthorityExtension,
+  AuthorityRoomDefinition,
+  AuthorityOptions,
+} from './authority-types';
 export { readBearerToken } from './authenticate';
 export type {
   Authorize,
