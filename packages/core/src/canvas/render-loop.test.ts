@@ -541,6 +541,15 @@ describe('RenderLoop', () => {
     expect(setViewportSpy).toHaveBeenCalledWith(1600, 1200, 1);
   });
 
+  it('setCanvasSize clamps the buffer to at least 1x1 and rounds fractional sizes', () => {
+    renderLoop.setCanvasSize(0, 0);
+    expect(deps.canvasEl.width).toBe(1);
+    expect(deps.canvasEl.height).toBe(1);
+    renderLoop.setCanvasSize(0.4, 333.6);
+    expect(deps.canvasEl.width).toBe(1);
+    expect(deps.canvasEl.height).toBe(334);
+  });
+
   it('start and stop control the rAF loop', () => {
     const rafSpy = vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(1);
     const cafSpy = vi.spyOn(window, 'cancelAnimationFrame').mockReturnValue(undefined);
@@ -550,6 +559,68 @@ describe('RenderLoop', () => {
     expect(cafSpy).toHaveBeenCalled();
     rafSpy.mockRestore();
     cafSpy.mockRestore();
+  });
+
+  describe('frame loop resilience', () => {
+    it('keeps scheduling frames after render() throws and renders the next frame', () => {
+      const frames: FrameRequestCallback[] = [];
+      const rafSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
+        frames.push(cb);
+        return frames.length;
+      });
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      const bgRender = deps.background.render as ReturnType<typeof vi.fn>;
+      bgRender.mockImplementationOnce(() => {
+        throw new DOMException('zero-size source', 'InvalidStateError');
+      });
+      try {
+        renderLoop.start();
+        renderLoop.requestRender();
+        const first = frames.shift();
+        if (!first) throw new Error('no frame scheduled');
+        first(0);
+        expect(frames).toHaveLength(1);
+        expect(errorSpy).toHaveBeenCalledTimes(1);
+
+        renderLoop.requestRender();
+        const second = frames.shift();
+        if (!second) throw new Error('loop stopped after a throwing frame');
+        second(16);
+        expect(bgRender).toHaveBeenCalledTimes(2);
+        expect(frames).toHaveLength(1);
+      } finally {
+        renderLoop.stop();
+        rafSpy.mockRestore();
+        errorSpy.mockRestore();
+      }
+    });
+
+    it('reports a persistently failing render once, not every frame', () => {
+      const frames: FrameRequestCallback[] = [];
+      const rafSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
+        frames.push(cb);
+        return frames.length;
+      });
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      (deps.background.render as ReturnType<typeof vi.fn>).mockImplementation(() => {
+        throw new Error('boom');
+      });
+      try {
+        renderLoop.start();
+        for (let i = 0; i < 5; i++) {
+          renderLoop.requestRender();
+          const next = frames.shift();
+          if (!next) throw new Error('loop stopped');
+          next(i * 16);
+        }
+        expect(frames).toHaveLength(1);
+        expect(errorSpy).toHaveBeenCalledTimes(1);
+      } finally {
+        renderLoop.stop();
+        rafSpy.mockRestore();
+        errorSpy.mockRestore();
+      }
+    });
   });
 
   describe('viewport culling', () => {

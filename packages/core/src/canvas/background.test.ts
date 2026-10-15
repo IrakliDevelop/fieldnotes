@@ -245,4 +245,73 @@ describe('Background', () => {
     bg.render(ctx, camera);
     expect(ctx.arc).toHaveBeenCalled();
   });
+
+  describe('zero-size canvas', () => {
+    // Browsers throw InvalidStateError when a zero-width or zero-height canvas is
+    // used as a drawImage source; emulate that so the cached path is exercised.
+    class FakeOffscreenCanvas {
+      constructor(
+        public width: number,
+        public height: number,
+      ) {}
+      getContext(): unknown {
+        return {
+          scale: vi.fn(),
+          clearRect: vi.fn(),
+          beginPath: vi.fn(),
+          arc: vi.fn(),
+          moveTo: vi.fn(),
+          fill: vi.fn(),
+          fillRect: vi.fn(),
+          fillStyle: '',
+        };
+      }
+    }
+
+    function strictDrawImage(source: { width: number; height: number }): void {
+      if (source.width === 0 || source.height === 0) {
+        throw new DOMException('zero-size source', 'InvalidStateError');
+      }
+    }
+
+    function zeroCtx(width: number, height: number): CanvasRenderingContext2D {
+      const ctx = mockCtx();
+      (ctx as unknown as { canvas: { width: number; height: number } }).canvas = { width, height };
+      (ctx as unknown as Record<string, unknown>).drawImage = vi.fn(strictDrawImage);
+      return ctx;
+    }
+
+    it.each([
+      [0, 600],
+      [800, 0],
+      [0, 0],
+    ])('does not throw or draw for a %ix%i canvas', (width, height) => {
+      vi.stubGlobal('OffscreenCanvas', FakeOffscreenCanvas);
+      try {
+        const bg = new Background();
+        const ctx = zeroCtx(width, height);
+        expect(() => bg.render(ctx, mockCamera())).not.toThrow();
+        // Second render takes the cached path when keys match.
+        expect(() => bg.render(ctx, mockCamera())).not.toThrow();
+        expect(ctx.clearRect).toHaveBeenCalled();
+        expect((ctx as unknown as Record<string, unknown>).drawImage).not.toHaveBeenCalled();
+        expect(ctx.arc).not.toHaveBeenCalled();
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it('resumes drawing once the canvas regains a size', () => {
+      vi.stubGlobal('OffscreenCanvas', FakeOffscreenCanvas);
+      try {
+        const bg = new Background();
+        bg.render(zeroCtx(0, 600), mockCamera());
+        const ctx = zeroCtx(800, 600);
+        bg.render(ctx, mockCamera());
+        expect((ctx as unknown as Record<string, unknown>).drawImage).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+  });
 });

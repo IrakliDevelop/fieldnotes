@@ -60,6 +60,7 @@ export class RenderLoop {
   private readonly overlays = new Set<OverlayRenderer>();
   private htmlScratchCanvas: HTMLCanvasElement | null = null;
   private htmlScratchCtx: CanvasRenderingContext2D | null = null;
+  private renderErrorReported = false;
 
   constructor(deps: RenderLoopDeps) {
     this.canvasEl = deps.canvasEl;
@@ -89,11 +90,24 @@ export class RenderLoop {
 
   start(): void {
     const loop = (): void => {
-      if (this.needsRender) {
-        this.render();
-        this.needsRender = false;
+      // A throwing frame must not end the loop: rAF only continues if we reschedule.
+      try {
+        if (this.needsRender) {
+          try {
+            this.render();
+            this.renderErrorReported = false;
+          } catch (error) {
+            // Report the first failure of a streak instead of spamming every frame.
+            if (!this.renderErrorReported) {
+              this.renderErrorReported = true;
+              console.error('[fieldnotes] render failed', error);
+            }
+          }
+          this.needsRender = false;
+        }
+      } finally {
+        this.animFrameId = requestAnimationFrame(loop);
       }
-      this.animFrameId = requestAnimationFrame(loop);
     };
     this.animFrameId = requestAnimationFrame(loop);
   }
@@ -103,10 +117,14 @@ export class RenderLoop {
   }
 
   setCanvasSize(width: number, height: number): void {
-    this.canvasEl.width = width;
-    this.canvasEl.height = height;
+    // A zero-dimension canvas throws InvalidStateError when used as a drawImage source,
+    // and a hidden or collapsed container reports 0; keep the buffer at least 1x1.
+    const w = Math.max(1, Math.round(width));
+    const h = Math.max(1, Math.round(height));
+    this.canvasEl.width = w;
+    this.canvasEl.height = h;
     const dpr = typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1;
-    this.marginViewport.setViewport(width / dpr, height / dpr, dpr);
+    this.marginViewport.setViewport(w / dpr, h / dpr, dpr);
     this.layerCache.resize();
   }
 
