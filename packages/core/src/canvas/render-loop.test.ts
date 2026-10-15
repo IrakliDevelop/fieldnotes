@@ -766,6 +766,85 @@ describe('RenderLoop', () => {
       }
     });
 
+    it('unwinds both main context saves when a main-canvas tool overlay throws', () => {
+      const ctx = depthCtx();
+      const getContextSpy = vi
+        .spyOn(HTMLCanvasElement.prototype, 'getContext')
+        .mockReturnValue(ctx as never);
+      const depthAtBackground: number[] = [];
+      (deps.background.render as ReturnType<typeof vi.fn>).mockImplementation(() => {
+        depthAtBackground.push(ctx.depth);
+      });
+      const depthAtOverlay: number[] = [];
+      let shouldThrow = true;
+      (deps.toolManager as { activeTool: unknown }).activeTool = {
+        renderOverlay: (overlayCtx: unknown) => {
+          // No hybrid stratum is active here, so the overlay draws on the main canvas
+          // under both of the frame's saves (dpr scale, then camera transform).
+          expect(overlayCtx).toBe(ctx);
+          depthAtOverlay.push(ctx.depth);
+          if (shouldThrow) throw new Error('overlay failed');
+        },
+      };
+      const loop = new RenderLoop(deps);
+      const { rafSpy, runFrame } = captureFrames();
+      try {
+        loop.start();
+        runFrame(loop); // throwing frame
+        expect(depthAtOverlay).toEqual([2]);
+        expect(ctx.depth).toBe(0);
+        shouldThrow = false;
+        runFrame(loop); // recovered frame
+        expect(ctx.depth).toBe(0);
+        expect(depthAtBackground).toEqual([1, 1]);
+        expect(depthAtOverlay).toEqual([2, 2]);
+      } finally {
+        loop.stop();
+        rafSpy.mockRestore();
+        getContextSpy.mockReturnValue(mockCtx() as never);
+      }
+    });
+
+    it('a re-entrant flush that throws unwinds only its own saves, not the outer frame', () => {
+      const ctx = depthCtx();
+      const getContextSpy = vi
+        .spyOn(HTMLCanvasElement.prototype, 'getContext')
+        .mockReturnValue(ctx as never);
+      const hooks: RenderHooks = createRenderHooks();
+      let nesting = 0;
+      const loop = new RenderLoop({ ...deps, hooks });
+      hooks.viewport.register({
+        beforeElements: () => {
+          nesting++;
+          try {
+            if (nesting === 1) {
+              // needsRender is still set while the outer frame renders, so this re-enters.
+              expect(() => loop.flush()).toThrow('inner failed');
+            } else {
+              throw new Error('inner failed');
+            }
+          } finally {
+            nesting--;
+          }
+        },
+      });
+      const depthAtOverlay: number[] = [];
+      (deps.toolManager as { activeTool: unknown }).activeTool = {
+        renderOverlay: () => {
+          depthAtOverlay.push(ctx.depth);
+        },
+      };
+      try {
+        loop.requestRender();
+        loop.flush();
+        // The outer frame still holds both of its saves when it reaches the overlay.
+        expect(depthAtOverlay).toEqual([2]);
+        expect(ctx.depth).toBe(0);
+      } finally {
+        getContextSpy.mockReturnValue(mockCtx() as never);
+      }
+    });
+
     it('leaves contexts balanced when flush() throws, and still rethrows to the caller', () => {
       const ctx = depthCtx();
       const getContextSpy = vi

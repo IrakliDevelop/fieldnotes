@@ -326,10 +326,12 @@ export class RenderLoop {
    * later frame draws with compounded scale and translation.
    */
   private render(): void {
+    // A hook can re-enter via flush(); unwind only the saves this call took.
+    const depth = this.savedContexts.length;
     try {
       this.renderFrame();
     } finally {
-      this.unwindSavedContexts();
+      this.unwindSavedContexts(depth);
     }
   }
 
@@ -343,10 +345,13 @@ export class RenderLoop {
     ctx.restore();
   }
 
-  /** Restores, innermost first, any saves an aborted frame left open. No-op after a clean frame. */
-  private unwindSavedContexts(): void {
-    for (let ctx = this.savedContexts.pop(); ctx; ctx = this.savedContexts.pop()) {
-      ctx.restore();
+  /**
+   * Restores, innermost first, the saves an aborted frame left open above `depth`.
+   * No-op after a clean frame.
+   */
+  private unwindSavedContexts(depth: number): void {
+    while (this.savedContexts.length > depth) {
+      this.savedContexts.pop()?.restore();
     }
   }
 
