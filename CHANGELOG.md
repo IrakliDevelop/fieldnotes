@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+## [0.87.1] — 2026-10-15
+
+### Core 0.87.1
+
+**Fixed**
+
+- A viewport whose container is 0 wide or 0 high (hidden, collapsed, or mid-layout) no longer
+  stops rendering permanently. The background skips drawing for a zero-size canvas instead of
+  passing a zero-size cache canvas to `drawImage` (which throws `InvalidStateError`), the main
+  canvas buffer is clamped to at least 1x1 device pixels, and the frame loop now reschedules the
+  next frame even when a render throws, reporting the first failure of a streak once via
+  `console.error`.
+
 ## [0.87.0] — 2026-09-24
 
 ### Core 0.87.0
