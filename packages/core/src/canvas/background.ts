@@ -52,7 +52,9 @@ export class Background {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, cssWidth, cssHeight);
 
-    if (this.pattern === 'none') {
+    // A zero-size cache canvas throws InvalidStateError as a drawImage source, and there
+    // is nothing to draw into anyway (hidden or collapsed viewport).
+    if (this.pattern === 'none' || width < 1 || height < 1) {
       ctx.restore();
       return;
     }

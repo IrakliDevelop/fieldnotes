@@ -24,6 +24,12 @@ import type { RenderHooks } from './render-hooks';
  */
 export type OverlayRenderer = (ctx: CanvasRenderingContext2D) => void;
 
+/** The save/restore surface shared by on-screen and offscreen 2d contexts. */
+interface SavableContext {
+  save(): void;
+  restore(): void;
+}
+
 export interface RenderLoopDeps {
   canvasEl: HTMLCanvasElement;
   camera: Camera;
@@ -60,6 +66,8 @@ export class RenderLoop {
   private readonly overlays = new Set<OverlayRenderer>();
   private htmlScratchCanvas: HTMLCanvasElement | null = null;
   private htmlScratchCtx: CanvasRenderingContext2D | null = null;
+  private renderErrorReported = false;
+  private readonly savedContexts: SavableContext[] = [];
 
   constructor(deps: RenderLoopDeps) {
     this.canvasEl = deps.canvasEl;
@@ -89,11 +97,26 @@ export class RenderLoop {
 
   start(): void {
     const loop = (): void => {
-      if (this.needsRender) {
-        this.render();
-        this.needsRender = false;
+      // A throwing frame must not end the loop: rAF only continues if we reschedule.
+      try {
+        if (this.needsRender) {
+          try {
+            this.render();
+            this.renderErrorReported = false;
+          } catch (error) {
+            // Report the first failure of a streak instead of spamming every frame.
+            // reportError reaches window 'error' listeners, so host monitoring still sees it.
+            if (!this.renderErrorReported) {
+              this.renderErrorReported = true;
+              if (typeof reportError === 'function') reportError(error);
+              else console.error('[fieldnotes] render failed', error);
+            }
+          }
+          this.needsRender = false;
+        }
+      } finally {
+        this.animFrameId = requestAnimationFrame(loop);
       }
-      this.animFrameId = requestAnimationFrame(loop);
     };
     this.animFrameId = requestAnimationFrame(loop);
   }
@@ -103,10 +126,14 @@ export class RenderLoop {
   }
 
   setCanvasSize(width: number, height: number): void {
-    this.canvasEl.width = width;
-    this.canvasEl.height = height;
+    // A zero-dimension canvas throws InvalidStateError when used as a drawImage source,
+    // and a hidden or collapsed container reports 0; keep the buffer at least 1x1.
+    const w = Math.max(1, Math.round(width));
+    const h = Math.max(1, Math.round(height));
+    this.canvasEl.width = w;
+    this.canvasEl.height = h;
     const dpr = typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1;
-    this.marginViewport.setViewport(width / dpr, height / dpr, dpr);
+    this.marginViewport.setViewport(w / dpr, h / dpr, dpr);
     this.layerCache.resize();
   }
 
@@ -162,11 +189,11 @@ export class RenderLoop {
       this.camera.position.x,
       this.camera.position.y,
     );
-    ctx.save();
+    this.saveTracked(ctx);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalAlpha = opacity;
     ctx.drawImage(cached as CanvasImageSource, offset.x, offset.y);
-    ctx.restore();
+    this.restoreTracked(ctx);
   }
 
   /**
@@ -204,12 +231,11 @@ export class RenderLoop {
    * the hybrid context uses, snapped OUT to whole pixels (so the clip edge's antialiased
    * pixel is included) and intersected with the surface.
    *
-   * Null when nothing of the element lands on the surface. That includes the case where
-   * the surface has no pixels at all: a host hiding the viewport (`display: none`) drives
-   * `canvasEl.width` to 0 via `syncCanvasSize`, culling does not go degenerate with it,
-   * and a zero-dimension canvas throws `InvalidStateError` when used as a `drawImage`
-   * SOURCE — which would escape `render()` and kill the frame loop permanently.
-   * Non-finite bounds fail the same `>= 1` test and are rejected here too.
+   * Null when nothing of the element lands on the surface. `setCanvasSize` keeps the
+   * buffer at least 1x1, but a host can still assign `canvasEl.width`/`height` directly,
+   * and a zero-dimension scratch canvas throws `InvalidStateError` when used as a
+   * `drawImage` SOURCE, so the surface is not trusted to have pixels here. Non-finite
+   * bounds fail the same `>= 1` test and are rejected too.
    */
   private htmlScratchRect(bounds: Bounds | null, dpr: number): Bounds | null {
     let left = 0;
@@ -258,25 +284,25 @@ export class RenderLoop {
     if (!scratchCtx || !scratchCanvas) {
       // No scratch surface available: drawing the element pre-multiplied still beats
       // dropping it, and this is the same fallback shape the grid cache uses.
-      hybridCtx.save();
+      this.saveTracked(hybridCtx);
       hybridCtx.globalAlpha = layerOpacity;
       this.renderer.renderCanvasElement(hybridCtx, element);
-      hybridCtx.restore();
+      this.restoreTracked(hybridCtx);
       return;
     }
 
     scratchCtx.setTransform(1, 0, 0, 1, 0, 0);
     scratchCtx.clearRect(0, 0, rect.w, rect.h);
-    scratchCtx.save();
+    this.saveTracked(scratchCtx);
     scratchCtx.globalAlpha = 1;
     scratchCtx.translate(-rect.x, -rect.y);
     scratchCtx.scale(dpr, dpr);
     scratchCtx.translate(this.camera.position.x, this.camera.position.y);
     scratchCtx.scale(this.camera.zoom, this.camera.zoom);
     this.renderer.renderCanvasElement(scratchCtx, element);
-    scratchCtx.restore();
+    this.restoreTracked(scratchCtx);
 
-    hybridCtx.save();
+    this.saveTracked(hybridCtx);
     hybridCtx.setTransform(1, 0, 0, 1, 0, 0);
     hybridCtx.globalAlpha = layerOpacity;
     hybridCtx.drawImage(
@@ -290,10 +316,46 @@ export class RenderLoop {
       rect.w,
       rect.h,
     );
-    hybridCtx.restore();
+    this.restoreTracked(hybridCtx);
   }
 
+  /**
+   * Renders one frame and guarantees every context save the frame took is restored, even
+   * when a hook, tool overlay, extension, or painter throws mid-frame. Without this a
+   * caught throw leaves the main and stratum contexts with stacked transforms, so every
+   * later frame draws with compounded scale and translation.
+   */
   private render(): void {
+    // A hook can re-enter via flush(); unwind only the saves this call took.
+    const depth = this.savedContexts.length;
+    try {
+      this.renderFrame();
+    } finally {
+      this.unwindSavedContexts(depth);
+    }
+  }
+
+  private saveTracked(ctx: SavableContext): void {
+    ctx.save();
+    this.savedContexts.push(ctx);
+  }
+
+  private restoreTracked(ctx: SavableContext): void {
+    this.savedContexts.pop();
+    ctx.restore();
+  }
+
+  /**
+   * Restores, innermost first, the saves an aborted frame left open above `depth`.
+   * No-op after a clean frame.
+   */
+  private unwindSavedContexts(depth: number): void {
+    while (this.savedContexts.length > depth) {
+      this.savedContexts.pop()?.restore();
+    }
+  }
+
+  private renderFrame(): void {
     const t0 = performance.now();
     const ctx = this.canvasEl.getContext('2d');
     if (!ctx) return;
@@ -316,7 +378,7 @@ export class RenderLoop {
       this.layerCache.markAllDirty();
     }
 
-    ctx.save();
+    this.saveTracked(ctx);
     ctx.scale(dpr, dpr);
 
     this.renderer.setCanvasSize(cssWidth, cssHeight);
@@ -330,7 +392,7 @@ export class RenderLoop {
       }
     }
 
-    ctx.save();
+    this.saveTracked(ctx);
     ctx.translate(this.camera.position.x, this.camera.position.y);
     ctx.scale(this.camera.zoom, this.camera.zoom);
 
@@ -446,14 +508,14 @@ export class RenderLoop {
         const layerT0 = performance.now();
         const offCanvas = this.layerCache.getCanvas(layerId);
         offCtx.clearRect(0, 0, offCanvas.width, offCanvas.height);
-        offCtx.save();
+        this.saveTracked(offCtx);
         this.marginViewport.applyRenderTransform(offCtx);
         for (const element of elements) {
           const elBounds = getElementVisualBounds(element);
           if (elBounds && !boundsIntersect(elBounds, cullingRect)) continue;
           this.renderer.renderCanvasElement(offCtx as CanvasRenderingContext2D, element);
         }
-        offCtx.restore();
+        this.restoreTracked(offCtx);
         this.layerCache.markClean(layerId);
         layersMs += performance.now() - layerT0;
 
@@ -474,10 +536,10 @@ export class RenderLoop {
         maxY: cb.y + cb.h,
       };
       for (const el of fullCanvasElements) {
-        ctx.save();
+        this.saveTracked(ctx);
         ctx.globalAlpha = this.layerManager.getLayer?.(el.layerId)?.opacity ?? 1;
         this.renderer.renderExtensionWithBounds(ctx, el, worldBounds, allElements);
-        ctx.restore();
+        this.restoreTracked(ctx);
       }
     }
 
@@ -485,7 +547,7 @@ export class RenderLoop {
       const hybridCtx = this.hybridSurface.getContext(order);
       if (!hybridCtx) continue;
       hybridCtx.clearRect(0, 0, this.canvasEl.width, this.canvasEl.height);
-      hybridCtx.save();
+      this.saveTracked(hybridCtx);
       hybridCtx.scale(dpr, dpr);
       hybridCtx.translate(this.camera.position.x, this.camera.position.y);
       hybridCtx.scale(this.camera.zoom, this.camera.zoom);
@@ -514,12 +576,12 @@ export class RenderLoop {
         }
         // html only reaches here with layerOpacity >= 1, so this is the pre-multiplied
         // path for every other element type and a no-op assignment for html.
-        hybridCtx.save();
+        this.saveTracked(hybridCtx);
         hybridCtx.globalAlpha = layerOpacity;
         this.renderer.renderCanvasElement(hybridCtx, element);
-        hybridCtx.restore();
+        this.restoreTracked(hybridCtx);
       }
-      hybridCtx.restore();
+      this.restoreTracked(hybridCtx);
     }
 
     // Post-scene surfaces must live above every canvas and DOM paint stratum. The
@@ -529,12 +591,12 @@ export class RenderLoop {
       const hookCtx = this.hybridSurface.getContext(afterElementsOrder);
       if (hookCtx) {
         hookCtx.clearRect(0, 0, this.canvasEl.width, this.canvasEl.height);
-        hookCtx.save();
+        this.saveTracked(hookCtx);
         hookCtx.scale(dpr, dpr);
         for (const fn of this.hooks.viewport.iterate('afterElements')) {
           fn(hookCtx, this.camera, { width: cssWidth, height: cssHeight, dpr });
         }
-        hookCtx.restore();
+        this.restoreTracked(hookCtx);
       }
     }
 
@@ -543,13 +605,13 @@ export class RenderLoop {
       const overlayCtx = this.hybridSurface.getContext(overlayOrder);
       if (overlayCtx) {
         overlayCtx.clearRect(0, 0, this.canvasEl.width, this.canvasEl.height);
-        overlayCtx.save();
+        this.saveTracked(overlayCtx);
         overlayCtx.scale(dpr, dpr);
         overlayCtx.translate(this.camera.position.x, this.camera.position.y);
         overlayCtx.scale(this.camera.zoom, this.camera.zoom);
         this.drawRegisteredOverlays(overlayCtx);
         if (activeTool?.renderOverlay) activeTool.renderOverlay(overlayCtx);
-        overlayCtx.restore();
+        this.restoreTracked(overlayCtx);
       }
     } else if (hasOverlay) {
       this.drawRegisteredOverlays(ctx);
@@ -560,19 +622,19 @@ export class RenderLoop {
       const hookCtx = this.hybridSurface.getContext(afterAllOrder);
       if (hookCtx) {
         hookCtx.clearRect(0, 0, this.canvasEl.width, this.canvasEl.height);
-        hookCtx.save();
+        this.saveTracked(hookCtx);
         hookCtx.scale(dpr, dpr);
         for (const fn of this.hooks.viewport.iterate('afterAll')) {
           fn(hookCtx, this.camera, { width: cssWidth, height: cssHeight, dpr });
         }
-        hookCtx.restore();
+        this.restoreTracked(hookCtx);
       }
     }
 
     const overlayMs = performance.now() - overlayT0;
 
-    ctx.restore();
-    ctx.restore();
+    this.restoreTracked(ctx);
+    this.restoreTracked(ctx);
 
     this.stats.recordFrame(performance.now() - t0, {
       layersMs,
