@@ -2531,6 +2531,25 @@ describe('Viewport', () => {
       vp.destroy();
     });
 
+    it('syncCanvasSize keeps the canvas buffer at least 1x1 for a zero-height container', () => {
+      const collapsed = document.createElement('div');
+      Object.defineProperty(collapsed, 'getBoundingClientRect', {
+        value: () => ({ left: 0, top: 0, width: 800, height: 0 }),
+      });
+      document.body.appendChild(collapsed);
+      const vp = new Viewport(collapsed);
+      try {
+        (vp as unknown as { syncCanvasSize(): void }).syncCanvasSize();
+        const canvas = collapsed.querySelector('canvas');
+        if (!(canvas instanceof HTMLCanvasElement)) throw new Error('canvas not found');
+        expect(canvas.width).toBeGreaterThanOrEqual(1);
+        expect(canvas.height).toBeGreaterThanOrEqual(1);
+      } finally {
+        vp.destroy();
+        document.body.removeChild(collapsed);
+      }
+    });
+
     it('onResize notifies after syncCanvasSize and unsubscribes cleanly', () => {
       const vp = new Viewport(container);
       const listener = vi.fn();

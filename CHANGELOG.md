@@ -6,6 +6,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+## [0.87.1] — 2026-10-15
+
+### Core 0.87.1
+
+**Fixed**
+
+- A viewport whose container is 0 wide or 0 high (hidden, collapsed, or mid-layout) no longer
+  stops rendering permanently. The background skips drawing for a zero-size canvas instead of
+  passing a zero-size cache canvas to `drawImage` (which throws `InvalidStateError`), the main
+  canvas buffer is clamped to at least 1x1 device pixels, and the frame loop now reschedules the
+  next frame even when a render throws.
+- A render that throws (for example from a render hook, tool overlay, or extension) no longer
+  leaves the render loop's context saves open, so later frames do not draw with compounded
+  transforms.
+
+**Changed**
+
+- Render errors from the frame loop are now caught so the loop survives. The first failure of a
+  streak is passed to `reportError` (which dispatches a window `error` event, so host error
+  monitoring still sees it), falling back to `console.error` where `reportError` is unavailable.
+  Later failures are suppressed until a frame renders successfully. Previously the error escaped
+  the `requestAnimationFrame` callback uncaught on every throw and stopped the loop.
+
 ## [0.87.0] — 2026-09-24
 
 ### Core 0.87.0
