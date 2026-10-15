@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { describe, it, expect, beforeEach, beforeAll, vi } from 'vitest';
+import { describe, it, expect, beforeEach, beforeAll, afterEach, vi } from 'vitest';
 import { RenderLoop } from './render-loop';
 import { MarginViewport } from './margin-viewport';
 import type { Camera } from './camera';
@@ -562,63 +562,228 @@ describe('RenderLoop', () => {
   });
 
   describe('frame loop resilience', () => {
-    it('keeps scheduling frames after render() throws and renders the next frame', () => {
+    // Drives the rAF loop by hand: each call runs one scheduled frame.
+    function captureFrames() {
       const frames: FrameRequestCallback[] = [];
       const rafSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
         frames.push(cb);
         return frames.length;
       });
-      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      const runFrame = (loop: RenderLoop): void => {
+        loop.requestRender();
+        const next = frames.shift();
+        if (!next) throw new Error('loop stopped scheduling frames');
+        next(0);
+      };
+      return { frames, rafSpy, runFrame };
+    }
+
+    // A 2d context that tracks its save-stack depth, the way a real context does.
+    function depthCtx(): CanvasRenderingContext2D & { depth: number } {
+      const ctx = {
+        ...mockCtx(),
+        depth: 0,
+        save: vi.fn(() => {
+          ctx.depth++;
+        }),
+        restore: vi.fn(() => {
+          if (ctx.depth > 0) ctx.depth--;
+        }),
+      };
+      return ctx as unknown as CanvasRenderingContext2D & { depth: number };
+    }
+
+    let reportSpy: ReturnType<typeof vi.fn>;
+    let errorSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      reportSpy = vi.fn();
+      vi.stubGlobal('reportError', reportSpy);
+      errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      errorSpy.mockRestore();
+    });
+
+    it('keeps scheduling frames after render() throws and renders the next frame', () => {
+      const { frames, rafSpy, runFrame } = captureFrames();
       const bgRender = deps.background.render as ReturnType<typeof vi.fn>;
       bgRender.mockImplementationOnce(() => {
         throw new DOMException('zero-size source', 'InvalidStateError');
       });
       try {
         renderLoop.start();
-        renderLoop.requestRender();
-        const first = frames.shift();
-        if (!first) throw new Error('no frame scheduled');
-        first(0);
+        runFrame(renderLoop);
         expect(frames).toHaveLength(1);
-        expect(errorSpy).toHaveBeenCalledTimes(1);
+        expect(reportSpy).toHaveBeenCalledTimes(1);
 
-        renderLoop.requestRender();
-        const second = frames.shift();
-        if (!second) throw new Error('loop stopped after a throwing frame');
-        second(16);
+        runFrame(renderLoop);
         expect(bgRender).toHaveBeenCalledTimes(2);
         expect(frames).toHaveLength(1);
       } finally {
         renderLoop.stop();
         rafSpy.mockRestore();
-        errorSpy.mockRestore();
       }
     });
 
     it('reports a persistently failing render once, not every frame', () => {
-      const frames: FrameRequestCallback[] = [];
-      const rafSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
-        frames.push(cb);
-        return frames.length;
-      });
-      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      const { frames, rafSpy, runFrame } = captureFrames();
       (deps.background.render as ReturnType<typeof vi.fn>).mockImplementation(() => {
         throw new Error('boom');
       });
       try {
         renderLoop.start();
-        for (let i = 0; i < 5; i++) {
-          renderLoop.requestRender();
-          const next = frames.shift();
-          if (!next) throw new Error('loop stopped');
-          next(i * 16);
-        }
+        for (let i = 0; i < 5; i++) runFrame(renderLoop);
         expect(frames).toHaveLength(1);
-        expect(errorSpy).toHaveBeenCalledTimes(1);
+        expect(reportSpy).toHaveBeenCalledTimes(1);
       } finally {
         renderLoop.stop();
         rafSpy.mockRestore();
-        errorSpy.mockRestore();
+      }
+    });
+
+    it('reports again after a successful frame ends the failure streak', () => {
+      const { rafSpy, runFrame } = captureFrames();
+      const first = new Error('first');
+      const second = new Error('second');
+      const bgRender = deps.background.render as ReturnType<typeof vi.fn>;
+      bgRender
+        .mockImplementationOnce(() => {
+          throw first;
+        })
+        .mockImplementationOnce(() => undefined)
+        .mockImplementationOnce(() => {
+          throw second;
+        });
+      try {
+        renderLoop.start();
+        runFrame(renderLoop);
+        runFrame(renderLoop);
+        runFrame(renderLoop);
+        expect(reportSpy).toHaveBeenCalledTimes(2);
+        expect(reportSpy).toHaveBeenNthCalledWith(1, first);
+        expect(reportSpy).toHaveBeenNthCalledWith(2, second);
+      } finally {
+        renderLoop.stop();
+        rafSpy.mockRestore();
+      }
+    });
+
+    it('routes the error through reportError so host error monitoring sees it', () => {
+      const { rafSpy, runFrame } = captureFrames();
+      const error = new Error('boom');
+      (deps.background.render as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
+        throw error;
+      });
+      try {
+        renderLoop.start();
+        runFrame(renderLoop);
+        expect(reportSpy).toHaveBeenCalledWith(error);
+        expect(errorSpy).not.toHaveBeenCalled();
+      } finally {
+        renderLoop.stop();
+        rafSpy.mockRestore();
+      }
+    });
+
+    it('falls back to console.error when reportError is unavailable', () => {
+      vi.stubGlobal('reportError', undefined);
+      const { rafSpy, runFrame } = captureFrames();
+      const error = new Error('boom');
+      (deps.background.render as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
+        throw error;
+      });
+      try {
+        renderLoop.start();
+        runFrame(renderLoop);
+        expect(errorSpy).toHaveBeenCalledTimes(1);
+        expect(errorSpy).toHaveBeenCalledWith('[fieldnotes] render failed', error);
+      } finally {
+        renderLoop.stop();
+        rafSpy.mockRestore();
+      }
+    });
+
+    it('unwinds the main context save stack when a beforeElements hook throws', () => {
+      const ctx = depthCtx();
+      const getContextSpy = vi
+        .spyOn(HTMLCanvasElement.prototype, 'getContext')
+        .mockReturnValue(ctx as never);
+      const depthAtBackground: number[] = [];
+      (deps.background.render as ReturnType<typeof vi.fn>).mockImplementation(() => {
+        depthAtBackground.push(ctx.depth);
+      });
+      const hooks: RenderHooks = createRenderHooks();
+      let shouldThrow = false;
+      hooks.viewport.register({
+        beforeElements: () => {
+          if (shouldThrow) throw new Error('hook failed');
+        },
+      });
+      const loop = new RenderLoop({ ...deps, hooks });
+      const { rafSpy, runFrame } = captureFrames();
+      try {
+        loop.start();
+        runFrame(loop); // clean frame
+        expect(ctx.depth).toBe(0);
+        shouldThrow = true;
+        runFrame(loop); // throwing frame
+        expect(ctx.depth).toBe(0);
+        shouldThrow = false;
+        runFrame(loop); // recovered frame
+        expect(ctx.depth).toBe(0);
+        // The recovered frame starts from the same state as the clean one.
+        expect(depthAtBackground).toEqual([1, 1, 1]);
+      } finally {
+        loop.stop();
+        rafSpy.mockRestore();
+        getContextSpy.mockReturnValue(mockCtx() as never);
+      }
+    });
+
+    it('unwinds a hybrid stratum context when an afterElements hook throws', () => {
+      const hookCtx = depthCtx();
+      vi.mocked(deps.hybridSurface.getContext).mockReturnValue(hookCtx);
+      const hooks: RenderHooks = createRenderHooks();
+      hooks.viewport.register({
+        afterElements: () => {
+          throw new Error('fog failed');
+        },
+      });
+      const loop = new RenderLoop({ ...deps, hooks });
+      const { rafSpy, runFrame } = captureFrames();
+      try {
+        loop.start();
+        runFrame(loop);
+        expect(hookCtx.depth).toBe(0);
+        runFrame(loop);
+        expect(hookCtx.depth).toBe(0);
+      } finally {
+        loop.stop();
+        rafSpy.mockRestore();
+      }
+    });
+
+    it('leaves contexts balanced when flush() throws, and still rethrows to the caller', () => {
+      const ctx = depthCtx();
+      const getContextSpy = vi
+        .spyOn(HTMLCanvasElement.prototype, 'getContext')
+        .mockReturnValue(ctx as never);
+      const hooks: RenderHooks = createRenderHooks();
+      hooks.viewport.register({
+        beforeElements: () => {
+          throw new Error('hook failed');
+        },
+      });
+      const loop = new RenderLoop({ ...deps, hooks });
+      try {
+        loop.requestRender();
+        expect(() => loop.flush()).toThrow('hook failed');
+        expect(ctx.depth).toBe(0);
+      } finally {
+        getContextSpy.mockReturnValue(mockCtx() as never);
       }
     });
   });
