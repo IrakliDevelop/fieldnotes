@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   exportState,
   parseState,
@@ -301,6 +301,34 @@ describe('parseState', () => {
     ];
 
     expect(parseState(JSON.stringify(data), new ElementRegistry()).elements).toHaveLength(1);
+  });
+
+  it('warns once per unknown extension type per parse and keeps the elements', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const unknown = (id: string, extensionType: string) => ({
+      id,
+      type: 'extension' as const,
+      extensionType,
+      position: { x: 0, y: 0 },
+      zIndex: 1,
+      locked: false,
+      layerId: 'default-layer',
+      data: {},
+    });
+    const data = validState();
+    data.elements = [unknown('a', 'app:one'), unknown('b', 'app:one'), unknown('c', 'app:two')];
+    const json = JSON.stringify(data);
+
+    expect(parseState(json, new ElementRegistry()).elements).toHaveLength(3);
+    parseState(json, new ElementRegistry());
+
+    expect(warn.mock.calls.map((call) => call[0])).toEqual([
+      '[fieldnotes] Unknown extension element type "app:one" kept without validation',
+      '[fieldnotes] Unknown extension element type "app:two" kept without validation',
+      '[fieldnotes] Unknown extension element type "app:one" kept without validation',
+      '[fieldnotes] Unknown extension element type "app:two" kept without validation',
+    ]);
+    warn.mockRestore();
   });
 
   it('sanitizes text-element HTML during import', () => {

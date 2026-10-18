@@ -193,10 +193,11 @@ function validateState(
   }
 
   const elementIds = new Set<string>();
+  const unknownTypes = new Set<string>();
   for (let i = 0; i < elements.length; i++) {
     // Validation already decodes a legacy element to prove it well-formed;
     // keep that envelope so migration need not decode it a second time.
-    const el = validateElement(elements[i], version, registry);
+    const el = validateElement(elements[i], version, registry, unknownTypes);
     elements[i] = el;
     if (elementIds.has(el.id)) throw new Error(`Invalid state: duplicate element id "${el.id}"`);
     elementIds.add(el.id);
@@ -237,7 +238,12 @@ function validateExtensions(value: unknown): asserts value is Record<string, Per
  * itself for core and v4 extension types, or the decoded envelope for a
  * registered legacy type.
  */
-function validateElement(el: unknown, version: number, registry: ElementRegistry): CanvasElement {
+function validateElement(
+  el: unknown,
+  version: number,
+  registry: ElementRegistry,
+  unknownTypes: Set<string>,
+): CanvasElement {
   if (!isRecord(el)) {
     throw new Error('Invalid element: expected an object');
   }
@@ -269,6 +275,12 @@ function validateElement(el: unknown, version: number, registry: ElementRegistry
       // domain data so a malformed payload cannot reach the store and index.
       const extensionType = el['extensionType'] as string;
       const adapter = registry.getAdapter(extensionType);
+      if (!adapter && !unknownTypes.has(extensionType)) {
+        unknownTypes.add(extensionType);
+        console.warn(
+          `[fieldnotes] Unknown extension element type "${extensionType}" kept without validation`,
+        );
+      }
       if (adapter && !adapter.validateEnvelope(el as unknown as ExtensionElementEnvelope)) {
         throw new Error(`Invalid element "${el['id']}": malformed ${extensionType} data`);
       }

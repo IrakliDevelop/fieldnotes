@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { ElementRegistry } from './element-registry';
 import type { ElementTypeDefinition, ExtensionElementEnvelope } from './types';
 
@@ -391,6 +391,89 @@ describe('ElementRegistry', () => {
       expect(envelope.extensionType).toBe('test:marker');
       expect(envelope.data['label']).toBe('legacy');
       expect(envelope.data['color']).toBe('#123456');
+    });
+  });
+
+  describe('parent registry', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('has() is true for own and parent types and false otherwise', () => {
+      const parent = new ElementRegistry();
+      parent.register(markerDefinition);
+      const child = new ElementRegistry(parent);
+      child.register({ ...markerDefinition, type: 'test:own', legacyTypes: [] });
+
+      expect(child.has('test:marker')).toBe(true);
+      expect(child.has('test:own')).toBe(true);
+      expect(child.has('test:missing')).toBe(false);
+      expect(parent.has('test:own')).toBe(false);
+    });
+
+    it('falls back to the parent for getAdapter and getAdapterByLegacyType', () => {
+      const parent = new ElementRegistry();
+      parent.register(markerDefinition);
+      const child = new ElementRegistry(parent);
+
+      expect(child.getAdapter('test:marker')?.type).toBe('test:marker');
+      expect(child.getAdapterByLegacyType('marker')?.type).toBe('test:marker');
+    });
+
+    it('getTypes() returns own and parent types without duplicates', () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const parent = new ElementRegistry();
+      parent.register(markerDefinition);
+      parent.register({ ...markerDefinition, type: 'test:parent', legacyTypes: [] });
+      const child = new ElementRegistry(parent);
+      child.register({ ...markerDefinition, type: 'test:own', legacyTypes: [] });
+      child.register({ ...markerDefinition, legacyTypes: [] });
+
+      expect(child.getTypes()).toEqual(['test:own', 'test:marker', 'test:parent']);
+    });
+
+    it('unregister on the child never removes a parent type', () => {
+      const parent = new ElementRegistry();
+      parent.register(markerDefinition);
+      const child = new ElementRegistry(parent);
+
+      child.unregister('test:marker');
+
+      expect(parent.has('test:marker')).toBe(true);
+      expect(child.getAdapter('test:marker')?.type).toBe('test:marker');
+    });
+
+    it('shadows a parent type with the child adapter and warns once', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const parent = new ElementRegistry();
+      parent.register(markerDefinition);
+      const child = new ElementRegistry(parent);
+
+      child.register({ ...markerDefinition, renderMode: 'dom' });
+
+      expect(child.getAdapter('test:marker')?.renderMode).toBe('dom');
+      expect(parent.getAdapter('test:marker')?.renderMode).toBe('canvas');
+      expect(warn).toHaveBeenCalledOnce();
+      expect(warn.mock.calls[0]?.[0]).toContain('"test:marker"');
+    });
+
+    it('still throws when the child already owns the type', () => {
+      const child = new ElementRegistry(new ElementRegistry());
+      child.register(markerDefinition);
+
+      expect(() => child.register(markerDefinition)).toThrow(
+        'ElementType "test:marker" is already registered',
+      );
+    });
+
+    it('sees types registered on the parent after the child was created', () => {
+      const parent = new ElementRegistry();
+      const child = new ElementRegistry(parent);
+
+      parent.register(markerDefinition);
+
+      expect(child.has('test:marker')).toBe(true);
+      expect(child.getAdapter('test:marker')?.type).toBe('test:marker');
     });
   });
 });

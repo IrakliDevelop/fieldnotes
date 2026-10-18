@@ -48,7 +48,7 @@ import { HtmlPainterRegistry, resolveHtmlRouting } from './html-painter-registry
 import type { HtmlPainter, HtmlRouting } from './html-painter-registry';
 import { HtmlPaintDiagnosticDeduper } from '../canvas/html-paint-diagnostics';
 import type { HtmlPaintDiagnostic } from '../canvas/html-paint-diagnostics';
-import type { ElementRegistry } from '../elements/element-registry';
+import { ElementRegistry } from '../elements/element-registry';
 import { getDefaultElementRegistry } from '../elements/default-registry';
 import type { RenderStatsSnapshot } from './render-stats';
 import { LayerCache } from './layer-cache';
@@ -108,7 +108,7 @@ export interface ViewportOptions {
   panInertia?: boolean;
   /** Show an overview minimap (bottom-right) with tap/drag-to-navigate. Default `false`. */
   minimap?: boolean;
-  /** Element type registry for extension support. Domain types require explicit registration. */
+  /** Element type registry; defaults to a per-viewport registry layered over the global default. */
   elementRegistry?: ElementRegistry;
   /** Domain plugins to install. Each plugin self-wires via the host API. */
   plugins?: ViewportPlugin[];
@@ -203,7 +203,8 @@ export class Viewport {
   ) {
     this.camera = new Camera(options.camera);
     this.background = new Background(options.background);
-    this.elementRegistry = options.elementRegistry ?? getDefaultElementRegistry();
+    this.elementRegistry =
+      options.elementRegistry ?? new ElementRegistry(getDefaultElementRegistry());
     this.store = new ElementStore(this.elementRegistry);
     this.layerManager = new LayerManager(this.store);
     this.toolManager = new ToolManager();

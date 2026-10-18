@@ -10,9 +10,17 @@ export class ElementRegistry {
   private readonly adapters = new Map<string, ElementTypeAdapter>();
   private readonly legacyIndex = new Map<string, ElementTypeAdapter>();
 
+  /** Lookups fall back to `parent`; registration and removal touch only this registry. */
+  constructor(private readonly parent?: ElementRegistry) {}
+
   register<T extends BaseElement>(def: ElementTypeDefinition<T>): ElementTypeKey<T> {
     if (this.definitions.has(def.type)) {
       throw new Error(`ElementType "${def.type}" is already registered`);
+    }
+    if (this.parent?.has(def.type)) {
+      console.warn(
+        `[fieldnotes] ElementType "${def.type}" shadows a type registered on the parent registry`,
+      );
     }
 
     const erased = def as unknown as ElementTypeDefinition<BaseElement>;
@@ -127,15 +135,21 @@ export class ElementRegistry {
     }
   }
 
+  has(type: string): boolean {
+    return this.adapters.has(type) || (this.parent?.has(type) ?? false);
+  }
+
   getAdapter(type: string): ElementTypeAdapter | undefined {
-    return this.adapters.get(type);
+    return this.adapters.get(type) ?? this.parent?.getAdapter(type);
   }
 
   getAdapterByLegacyType(legacyType: string): ElementTypeAdapter | undefined {
-    return this.legacyIndex.get(legacyType);
+    return this.legacyIndex.get(legacyType) ?? this.parent?.getAdapterByLegacyType(legacyType);
   }
 
   getTypes(): string[] {
-    return [...this.adapters.keys()];
+    const own = [...this.adapters.keys()];
+    const inherited = this.parent?.getTypes().filter((type) => !this.adapters.has(type)) ?? [];
+    return [...own, ...inherited];
   }
 }
