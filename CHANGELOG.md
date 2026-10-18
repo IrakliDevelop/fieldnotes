@@ -162,6 +162,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
   the mask while fog is off or has no state.
 - Culling, the minimap, hover, snapping, selection bounds, paste centering, `fitToContent` and
   element rects use the viewport's registry instead of the global default.
+- Adding an extension element to a store stamps the type's current `dataVersion` when the element
+  has none, so saved and synced data always carries its version. `AutoSave` defaults to the
+  store's registry. Paste and duplicate build every clone (including `cloneRemap`) before adding
+  any, so a throwing remap leaves the board unchanged.
+- `parseState` now rejects an extension element whose top-level `size` is not a size or whose
+  `dataVersion` is not a positive integer.
 
 **Removed**
 
@@ -175,6 +181,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
   the global default, which dropped a viewport's plugin-registered element types.
 - Wire validation checks an extension element's optional `dataVersion` (positive integer) and
   `size`.
+
+### Sync server 0.26.1
+
+**Fixed**
+
+- Depends on `@fieldnotes/sync` 0.26.1, so the hub rejects extension elements with a malformed
+  `dataVersion` or `size`.
 
 ## [0.89.0] — 2026-10-18
 
