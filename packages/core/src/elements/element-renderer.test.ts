@@ -681,6 +681,25 @@ describe('ElementRenderer', () => {
       expect(cache.size).toBe(0);
     });
 
+    it('notifies onImageLoad once with the src when an image decodes', async () => {
+      vi.stubGlobal(
+        'createImageBitmap',
+        vi.fn(() => Promise.resolve({ close: vi.fn() })),
+      );
+      const onLoad = vi.fn();
+      const renderer = new ElementRenderer();
+      renderer.setOnImageLoad(onLoad);
+      renderer.renderCanvasElement(mockCtx(), makeImage({ src: 'ok.png' }));
+      const img = (renderer as unknown as { imageCache: Map<string, unknown> }).imageCache.get(
+        'ok.png',
+      );
+      if (img instanceof HTMLImageElement) img.onload?.(new Event('load'));
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(onLoad.mock.calls).toEqual([['ok.png']]);
+    });
+
     function failImage(renderer: ElementRenderer, src: string): void {
       const cache = (renderer as unknown as { imageCache: Map<string, unknown> }).imageCache;
       const img = cache.get(src);

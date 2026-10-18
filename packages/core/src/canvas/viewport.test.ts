@@ -11,6 +11,7 @@ import {
   createShape,
   createArrow,
   createHtmlElement,
+  createImage,
 } from '../elements/element-factory';
 import { SelectTool } from '../tools/select-tool';
 import { PencilTool } from '../tools/pencil-tool';
@@ -1694,6 +1695,45 @@ describe('Viewport', () => {
       expect(onImageError).toHaveBeenCalledWith(expect.objectContaining({ src, cause: event }));
       viewport.destroy();
     });
+
+    function twoImageLayers(viewport: Viewport) {
+      const layerA = viewport.layerManager.activeLayerId;
+      const layerB = viewport.layerManager.createLayer('B').id;
+      const size = { w: 10, h: 10 };
+      viewport.store.add(
+        createImage({ src: 'a.png', position: { x: 0, y: 0 }, size, layerId: layerA }),
+      );
+      viewport.store.add(
+        createImage({ src: 'b.png', position: { x: 0, y: 0 }, size, layerId: layerB }),
+      );
+      const layerCache = (
+        viewport as unknown as {
+          layerCache: { markClean(id: string): void; isDirty(id: string): boolean };
+        }
+      ).layerCache;
+      layerCache.markClean(layerA);
+      layerCache.markClean(layerB);
+      return { layerA, layerB, layerCache };
+    }
+
+    it.each(['load', 'error'] as const)(
+      'an image %s marks dirty only layers holding an image with that src',
+      (outcome) => {
+        const viewport = new Viewport(container);
+        const { layerA, layerB, layerCache } = twoImageLayers(viewport);
+        loadImage(viewport, 'a.png');
+        const img = (
+          viewport as unknown as { renderer: { imageCache: Map<string, unknown> } }
+        ).renderer.imageCache.get('a.png');
+        if (!(img instanceof HTMLImageElement)) throw new Error('expected a pending image');
+
+        if (outcome === 'load') img.onload?.(new Event('load'));
+        else img.onerror?.(new Event('error') as never);
+
+        expect([layerCache.isDirty(layerA), layerCache.isDirty(layerB)]).toEqual([true, false]);
+        viewport.destroy();
+      },
+    );
   });
 
   describe('store events trigger re-render', () => {

@@ -255,8 +255,10 @@ export class Viewport {
     this.renderer.setStore(this.store);
     this.renderer.setCamera(this.camera);
     this.renderer.setElementRegistry(this.elementRegistry);
-    this.renderer.setOnImageLoad(() => {
-      this.renderLoop.markAllLayersDirty();
+    this.renderer.setOnImageLoad((src) => {
+      for (const el of this.store.getAll()) {
+        if (el.type === 'image' && el.src === src) this.renderLoop.markLayerDirty(el.layerId);
+      }
       this.requestRender();
     });
     this.renderer.setOnImageError((src, cause) => {

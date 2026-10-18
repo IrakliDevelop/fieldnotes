@@ -4,7 +4,7 @@ export function renderImage(
   ctx: CanvasRenderingContext2D,
   image: ImageElement,
   imageCache: Map<string, ImageBitmap | HTMLImageElement | 'failed'>,
-  onImageLoad: (() => void) | null,
+  onImageLoad: ((src: string) => void) | null,
   onImageError: ((src: string, cause?: unknown) => void) | null,
 ): void {
   if (imageCache.get(image.src) === 'failed') {
@@ -48,7 +48,7 @@ function renderImagePlaceholder(ctx: CanvasRenderingContext2D, image: ImageEleme
 function getImage(
   src: string,
   imageCache: Map<string, ImageBitmap | HTMLImageElement | 'failed'>,
-  onImageLoad: (() => void) | null,
+  onImageLoad: ((src: string) => void) | null,
   onImageError: ((src: string, cause?: unknown) => void) | null,
 ): ImageBitmap | HTMLImageElement | null {
   const cached = imageCache.get(src);
@@ -62,29 +62,29 @@ function getImage(
   img.src = src;
   imageCache.set(src, img);
   img.onload = () => {
-    onImageLoad?.();
-    // Decode from already-loaded image in memory, not a re-fetch
-    if (typeof createImageBitmap !== 'undefined') {
-      createImageBitmap(img)
-        .then((bitmap) => {
-          // The cache was cleared (viewport destroyed) while decoding; do not leak the bitmap.
-          if (imageCache.get(src) !== img) {
-            bitmap.close();
-            return;
-          }
-          imageCache.set(src, bitmap);
-          onImageLoad?.();
-        })
-        .catch(() => {
-          /* keep HTMLImageElement fallback — handles CORS rejection */
-        });
+    if (typeof createImageBitmap === 'undefined') {
+      onImageLoad?.(src);
+      return;
     }
+    // Decode from already-loaded image in memory, not a re-fetch
+    createImageBitmap(img)
+      .then((bitmap) => {
+        // The cache was cleared (viewport destroyed) while decoding; do not leak the bitmap.
+        if (imageCache.get(src) !== img) {
+          bitmap.close();
+          return;
+        }
+        imageCache.set(src, bitmap);
+        onImageLoad?.(src);
+      })
+      // keep HTMLImageElement fallback — handles CORS rejection
+      .catch(() => onImageLoad?.(src));
   };
   img.onerror = (event) => {
     // failed srcs stay failed for the session; pointing the element at a new src loads fresh
     imageCache.set(src, 'failed');
     onImageError?.(src, event);
-    onImageLoad?.();
+    onImageLoad?.(src);
   };
   return null;
 }

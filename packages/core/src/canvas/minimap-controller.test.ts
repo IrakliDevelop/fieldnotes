@@ -960,7 +960,7 @@ describe('MinimapController navigation, resize, dispose, image reload', () => {
       if (!onImageLoad) throw new Error('expected setOnImageLoad to have been called');
 
       createElementSpy.mockClear();
-      onImageLoad();
+      onImageLoad('image.png');
 
       // Debounced: no synchronous re-render.
       expect(canvasCreations()).toBe(0);
