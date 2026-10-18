@@ -3362,6 +3362,26 @@ describe('Viewport tools option and onStateChange', () => {
       viewport.destroy();
     });
 
+    it('isolates a throwing listener and reports its error', () => {
+      const reportSpy = vi.fn();
+      vi.stubGlobal('reportError', reportSpy);
+      const viewport = new Viewport(container);
+      const boom = new Error('listener failed');
+      viewport.onStateChange(() => {
+        throw boom;
+      });
+      viewport.onStateChange(listener);
+      const n = note(viewport);
+      viewport.store.add(n);
+      viewport.camera.pan(10, 0);
+      expect(listener).toHaveBeenCalledTimes(2);
+      expect(reportSpy).toHaveBeenCalledWith(boom);
+      expect(viewport.undo()).toBe(true);
+      expect(viewport.store.getById(n.id)).toBeUndefined();
+      viewport.destroy();
+      vi.unstubAllGlobals();
+    });
+
     it('does not fire after its disposer is called', () => {
       const viewport = new Viewport(container, { plugins: [plugin] });
       viewport.onStateChange(listener)();

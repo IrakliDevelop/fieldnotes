@@ -537,7 +537,17 @@ export class Viewport {
       throw error;
     }
 
-    const emitStateChange = () => this.stateChangeListeners.forEach((fn) => fn());
+    const emitStateChange = () => {
+      for (const listener of [...this.stateChangeListeners]) {
+        try {
+          listener();
+        } catch (error) {
+          // A host listener's fault must not starve the remaining listeners.
+          if (typeof reportError === 'function') reportError(error);
+          else console.error('[fieldnotes] onStateChange listener failed', error);
+        }
+      }
+    };
     this.disposers.push(
       this.store.onChange(emitStateChange),
       this.camera.onChange(emitStateChange),
