@@ -364,8 +364,13 @@ export class KeyboardActions {
           clone.layerId = sel.ctx.activeLayerId;
         }
 
-        sel.ctx.store.add(clone);
-        newIds.push(clone.id);
+        let added: CanvasElement = clone;
+        if (clone.type === 'extension') {
+          const adapter = sel.ctx.elementRegistry?.getAdapter(clone.extensionType);
+          if (adapter?.cloneRemap) added = adapter.cloneRemap(clone, idMap);
+        }
+        sel.ctx.store.add(added);
+        newIds.push(added.id);
       }
     });
     sel.tool.setSelection(newIds);

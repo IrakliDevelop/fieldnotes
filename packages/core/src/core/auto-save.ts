@@ -141,6 +141,7 @@ export class AutoSave {
         layers,
         this.layerManager?.activeLayerId,
         extensions,
+        this.elementRegistry,
       );
       await this.adapter.save(this.key, JSON.stringify(state));
     } catch (e) {

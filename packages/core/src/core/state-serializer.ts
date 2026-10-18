@@ -55,6 +55,7 @@ export function exportState(
   layers: Layer[] = [],
   activeLayerId?: string,
   extensions?: Record<string, PersistedPluginState>,
+  registry?: ElementRegistry,
 ): CanvasState {
   const state: CanvasState = {
     version: CANVAS_STATE_VERSION,
@@ -69,6 +70,10 @@ export function exportState(
         const clone = structuredClone(el);
         if (clone.type === 'arrow') {
           delete clone.cachedControlPoint;
+        }
+        if (clone.type === 'extension' && clone.dataVersion === undefined) {
+          const dataVersion = registry?.getAdapter(clone.extensionType)?.dataVersion;
+          if (dataVersion !== undefined) return { ...clone, dataVersion };
         }
         return clone;
       }),
@@ -281,9 +286,22 @@ function validateElement(
           `[fieldnotes] Unknown extension element type "${extensionType}" kept without validation`,
         );
       }
-      if (adapter && !adapter.validateEnvelope(el as unknown as ExtensionElementEnvelope)) {
+      if (!isOptional(el['dataVersion'], isPositiveInteger)) {
+        throw new Error(`Invalid element "${el['id']}": invalid dataVersion`);
+      }
+      let envelope = el as unknown as ExtensionElementEnvelope;
+      const stored = envelope.dataVersion ?? 1;
+      if (adapter?.migrate && adapter.dataVersion !== undefined && stored < adapter.dataVersion) {
+        envelope = {
+          ...envelope,
+          data: adapter.migrate(envelope.data, stored),
+          dataVersion: adapter.dataVersion,
+        };
+      }
+      if (adapter && !adapter.validateEnvelope(envelope)) {
         throw new Error(`Invalid element "${el['id']}": malformed ${extensionType} data`);
       }
+      return envelope;
     }
     return el as unknown as CanvasElement;
   }
@@ -459,6 +477,10 @@ function isString(value: unknown): value is string {
 
 function isBoolean(value: unknown): value is boolean {
   return typeof value === 'boolean';
+}
+
+function isPositiveInteger(value: unknown): boolean {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 1;
 }
 
 function isOptional(value: unknown, validate: Validator): boolean {

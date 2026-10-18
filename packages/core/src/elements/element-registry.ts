@@ -22,6 +22,14 @@ export class ElementRegistry {
         `[fieldnotes] ElementType "${def.type}" shadows a type registered on the parent registry`,
       );
     }
+    if (def.dataVersion !== undefined) {
+      if (!Number.isSafeInteger(def.dataVersion) || def.dataVersion < 1) {
+        throw new Error(`ElementType "${def.type}": dataVersion must be a positive integer`);
+      }
+      if (def.dataVersion > 1 && !def.migrate) {
+        throw new Error(`ElementType "${def.type}": dataVersion above 1 requires migrate`);
+      }
+    }
 
     const erased = def as unknown as ElementTypeDefinition<BaseElement>;
     this.definitions.set(def.type, erased);
@@ -95,6 +103,15 @@ export class ElementRegistry {
             const fn = def.emitSvg;
             if (fn) return fn(def.unwrap(envelope), allElements, viewBox);
             return '';
+          }
+        : undefined,
+      dataVersion: def.dataVersion,
+      migrate: def.migrate?.bind(def),
+      cloneRemap: def.cloneRemap
+        ? (el, idMap) => {
+            const fn = def.cloneRemap;
+            // Base fields come from the clone; the def only owns the ids inside `data`.
+            return fn ? { ...el, data: def.wrap(fn(def.unwrap(el), idMap)).data } : el;
           }
         : undefined,
     };

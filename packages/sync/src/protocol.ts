@@ -180,7 +180,11 @@ export function isValidElement(el: unknown): el is SyncElement {
         isOptional(el['flip'], isBoolean)
       );
     case 'extension':
-      return typeof el['extensionType'] === 'string' && isRecord(el['data']);
+      return (
+        typeof el['extensionType'] === 'string' &&
+        isRecord(el['data']) &&
+        isOptional(el['dataVersion'], isPositiveInteger)
+      );
     default:
       return false;
   }
@@ -202,6 +206,10 @@ function isString(value: unknown): value is string {
 
 function isBoolean(value: unknown): value is boolean {
   return typeof value === 'boolean';
+}
+
+function isPositiveInteger(value: unknown): boolean {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 1;
 }
 
 function isOptional(value: unknown, validate: Validator): boolean {

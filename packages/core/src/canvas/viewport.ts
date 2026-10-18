@@ -722,6 +722,7 @@ export class Viewport {
       this.layerManager.snapshot(),
       this.layerManager.activeLayerId,
       this.pluginStateManager.exportState(),
+      this.elementRegistry,
     );
   }
 

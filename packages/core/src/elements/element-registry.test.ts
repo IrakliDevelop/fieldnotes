@@ -107,6 +107,61 @@ describe('ElementRegistry', () => {
 
       expect(() => registry.register(markerDefinition)).toThrow(/already registered/i);
     });
+
+    it.each([0, -1, 1.5, Number.NaN])('throws when dataVersion is %s', (dataVersion) => {
+      const registry = new ElementRegistry();
+      expect(() => registry.register({ ...markerDefinition, dataVersion })).toThrow(
+        /"test:marker".*dataVersion/,
+      );
+    });
+
+    it('throws when dataVersion is above 1 without migrate', () => {
+      const registry = new ElementRegistry();
+      expect(() => registry.register({ ...markerDefinition, dataVersion: 2 })).toThrow(
+        /"test:marker".*migrate/,
+      );
+    });
+
+    it('accepts dataVersion 1 without migrate and dataVersion 3 with migrate', () => {
+      const registry = new ElementRegistry();
+      registry.register({ ...markerDefinition, dataVersion: 1 });
+      registry.register({
+        ...markerDefinition,
+        type: 'test:marker3',
+        legacyTypes: [],
+        dataVersion: 3,
+        migrate: (data) => data,
+      });
+      expect(registry.getAdapter('test:marker3')?.dataVersion).toBe(3);
+    });
+  });
+
+  describe('cloneRemap adapter', () => {
+    it('replaces data with the remapped data and keeps the clone base fields', () => {
+      const registry = new ElementRegistry();
+      registry.register({
+        ...markerDefinition,
+        cloneRemap: (el, idMap) => ({ ...el, label: idMap.get(el.label) ?? 'unmapped' }),
+      });
+      const adapter = registry.getAdapter('test:marker');
+      const clone = makeMarkerEnvelope({
+        id: 'clone-1',
+        groupId: 'g2',
+        position: { x: 20, y: 20 },
+        data: { label: 'src', color: '#00f', extra: 1 },
+      });
+
+      expect(adapter?.cloneRemap?.(clone, new Map([['src', 'dst']]))).toEqual({
+        ...clone,
+        data: { label: 'dst', color: '#00f' },
+      });
+    });
+
+    it('is absent when the definition has no cloneRemap', () => {
+      const registry = new ElementRegistry();
+      registry.register(markerDefinition);
+      expect(registry.getAdapter('test:marker')?.cloneRemap).toBeUndefined();
+    });
   });
 
   describe('getAdapter', () => {

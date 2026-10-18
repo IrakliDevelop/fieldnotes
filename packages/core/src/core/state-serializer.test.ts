@@ -863,3 +863,146 @@ describe('parseState', () => {
     });
   });
 });
+
+describe('extension dataVersion', () => {
+  const layer: Layer = {
+    id: 'default-layer',
+    name: 'Layer 1',
+    visible: true,
+    locked: false,
+    order: 0,
+    opacity: 1,
+  };
+
+  function envelope(data: Record<string, unknown>, dataVersion?: unknown) {
+    return {
+      id: 'm1',
+      type: 'extension',
+      extensionType: 'test:marker',
+      position: { x: 0, y: 0 },
+      zIndex: 0,
+      locked: false,
+      layerId: 'default-layer',
+      data,
+      ...(dataVersion === undefined ? {} : { dataVersion }),
+    };
+  }
+
+  function stateJson(el: unknown): string {
+    return JSON.stringify({
+      version: 4,
+      camera: { position: { x: 0, y: 0 }, zoom: 1 },
+      elements: [el],
+      layers: [layer],
+    });
+  }
+
+  // v1/v2 data stored `name`; v3 renamed it to `label`, which validateData requires.
+  function versionedRegistry() {
+    const migrate = vi.fn((data: Record<string, unknown>, from: number) => ({
+      label: `${String(data['name'])}@${from}`,
+    }));
+    const registry = new ElementRegistry();
+    registry.register({ ...markerDefinition, dataVersion: 3, migrate });
+    return { registry, migrate };
+  }
+
+  it('migrates an envelope without dataVersion from 1 and stamps the current version', () => {
+    const { registry, migrate } = versionedRegistry();
+
+    const state = parseState(stateJson(envelope({ name: 'a' })), registry);
+
+    expect(migrate.mock.calls).toEqual([[{ name: 'a' }, 1]]);
+    expect(state.elements[0]).toMatchObject({ dataVersion: 3, data: { label: 'a@1' } });
+  });
+
+  it('migrates an envelope at dataVersion 2 from 2', () => {
+    const { registry, migrate } = versionedRegistry();
+
+    const state = parseState(stateJson(envelope({ name: 'b' }, 2)), registry);
+
+    expect(migrate.mock.calls).toEqual([[{ name: 'b' }, 2]]);
+    expect(state.elements[0]).toMatchObject({ dataVersion: 3, data: { label: 'b@2' } });
+  });
+
+  it.each([3, 4])('leaves an envelope at dataVersion %s untouched', (dataVersion) => {
+    const { registry, migrate } = versionedRegistry();
+
+    const state = parseState(stateJson(envelope({ label: 'c' }, dataVersion)), registry);
+
+    expect(migrate).not.toHaveBeenCalled();
+    expect(state.elements[0]).toMatchObject({ dataVersion, data: { label: 'c' } });
+  });
+
+  it('throws when migrate throws', () => {
+    const registry = new ElementRegistry();
+    registry.register({
+      ...markerDefinition,
+      dataVersion: 2,
+      migrate: () => {
+        throw new Error('cannot migrate');
+      },
+    });
+
+    expect(() => parseState(stateJson(envelope({ name: 'a' })), registry)).toThrow(
+      'cannot migrate',
+    );
+  });
+
+  it.each([0, 1.5, '2', -1])('rejects dataVersion %j as an invalid element', (dataVersion) => {
+    const { registry } = versionedRegistry();
+
+    expect(() => parseState(stateJson(envelope({ label: 'x' }, dataVersion)), registry)).toThrow(
+      'Invalid element "m1"',
+    );
+  });
+
+  it('leaves unversioned types unchanged and unstamped', () => {
+    const registry = new ElementRegistry();
+    registry.register(markerDefinition);
+
+    const state = parseState(stateJson(envelope({ label: 'x' })), registry);
+
+    expect(state.elements[0]).toEqual(envelope({ label: 'x' }));
+  });
+
+  it('exportState stamps the current dataVersion without mutating the input', () => {
+    const { registry } = versionedRegistry();
+    const input = envelope({ label: 'x' }) as CanvasElement;
+
+    const state = exportState([input], makeCamera(), [layer], undefined, undefined, registry);
+
+    expect(state.elements[0]).toEqual({ ...envelope({ label: 'x' }), dataVersion: 3 });
+    expect(input).toEqual(envelope({ label: 'x' }));
+  });
+
+  it('exportState keeps an existing dataVersion and leaves unversioned or unregistered envelopes unchanged', () => {
+    const { registry } = versionedRegistry();
+    registry.register({ ...markerDefinition, type: 'test:plain', legacyTypes: [] });
+    const own = envelope({ label: 'x' }, 4) as CanvasElement;
+    const plain = { ...envelope({ label: 'y' }), id: 'p1', extensionType: 'test:plain' };
+    const unknown = { ...envelope({ any: 1 }), id: 'u1', extensionType: 'app:unknown' };
+
+    const state = exportState(
+      [own, plain as CanvasElement, unknown as CanvasElement],
+      makeCamera(),
+      [layer],
+      undefined,
+      undefined,
+      registry,
+    );
+
+    expect(state.elements).toEqual([own, plain, unknown]);
+  });
+
+  it('a parse of an exported in-memory envelope does not migrate it', () => {
+    const { registry, migrate } = versionedRegistry();
+    const current = envelope({ label: 'x' }) as CanvasElement;
+
+    const exported = exportState([current], makeCamera(), [layer], undefined, undefined, registry);
+    const reparsed = parseState(JSON.stringify(exported), registry);
+
+    expect(migrate).not.toHaveBeenCalled();
+    expect(reparsed.elements[0]).toMatchObject({ dataVersion: 3, data: { label: 'x' } });
+  });
+});

@@ -120,6 +120,8 @@ export interface ExtensionElementEnvelope extends BaseElement {
   readonly type: 'extension';
   readonly extensionType: string;
   readonly data: Record<string, unknown>;
+  /** Version of `data` in the owning type's schema; absent means 1. */
+  readonly dataVersion?: number;
 }
 
 export interface ExtensionInteractionHandle {
@@ -180,6 +182,12 @@ export interface ElementTypeDefinition<T extends BaseElement> {
     allElements: readonly CanvasElement[],
     viewBox: { x: number; y: number; w: number; h: number },
   ): string;
+  /** Current version of `data` (positive integer, default 1); above 1 requires `migrate`. */
+  dataVersion?: number;
+  /** Upgrades persisted `data` stored at `fromVersion` to the current `dataVersion`. */
+  migrate?(data: Record<string, unknown>, fromVersion: number): Record<string, unknown>;
+  /** Rewrites ids embedded in a pasted or duplicated clone through the source-to-clone `idMap`. */
+  cloneRemap?(el: T, idMap: ReadonlyMap<string, string>): T;
 }
 
 export interface ElementTypeAdapter {
@@ -221,6 +229,12 @@ export interface ElementTypeAdapter {
     allElements: readonly CanvasElement[],
     viewBox: { x: number; y: number; w: number; h: number },
   ): string;
+  readonly dataVersion?: number;
+  migrate?(data: Record<string, unknown>, fromVersion: number): Record<string, unknown>;
+  cloneRemap?(
+    el: ExtensionElementEnvelope,
+    idMap: ReadonlyMap<string, string>,
+  ): ExtensionElementEnvelope;
 }
 
 export interface ElementTypeKey<T extends BaseElement> {
