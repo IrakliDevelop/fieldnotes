@@ -133,10 +133,8 @@ export class Viewport {
   private readonly canvasEl: HTMLCanvasElement;
   private readonly paintStack: HTMLDivElement;
   private readonly wrapper: HTMLDivElement;
-  private readonly unsubCamera: () => void;
-  private readonly unsubLayers: () => void;
-  private readonly unsubToolChange: () => void;
-  private readonly unsubStore: (() => void)[];
+  private readonly disposers: (() => void)[] = [];
+  private isDestroyed = false;
   private readonly actionRegistry: ActionRegistry;
   private readonly inputHandler: InputHandler;
   private readonly background: Background;
@@ -150,7 +148,6 @@ export class Viewport {
   private readonly marginViewport: MarginViewport;
   private readonly layerCache: LayerCache;
   private readonly hybridSurface: HybridRenderSurface;
-  private resizeObserver: ResizeObserver | null = null;
   private _snapToGrid = false;
   private _smartGuides = false;
   private readonly renderLoop: RenderLoop;
@@ -186,20 +183,13 @@ export class Viewport {
   });
   private readonly resolveRouting = (el: HtmlElement): HtmlRouting =>
     resolveHtmlRouting(el, this.htmlPainters);
-  private readonly unsubHtmlPainters: () => void;
   private activation: ElementActivation | null = null;
   private activationGeneration = 0;
   private readonly activationListeners = new Set<(e: ElementActivationEvent) => void>();
   private readonly resizeListeners = new Set<() => void>();
   private readonly selectionListeners = new Set<() => void>();
   private detachSelectionSource: (() => void) | null = null;
-  private unsubToolRegister: () => void = () => {
-    // Replaced synchronously in the constructor below.
-  };
   private pendingSelectionPrune = false;
-  private unsubRecorderEnd: () => void = () => {
-    // Replaced synchronously in the constructor below.
-  };
 
   constructor(
     private readonly container: HTMLElement,
@@ -212,7 +202,7 @@ export class Viewport {
     this.layerManager = new LayerManager(this.store);
     this.toolManager = new ToolManager();
     this.actionRegistry = new ActionRegistry(() => this.currentActionContext());
-    this.unsubToolRegister = this.toolManager.onRegister((tool) => {
+    const unsubToolRegister = this.toolManager.onRegister((tool) => {
       if (Viewport.isSelectionSource(tool)) this.attachSelectionSource(tool);
       if (!this.actionRegistry.get('tool.' + tool.name)) {
         this.actionRegistry.register(
@@ -224,11 +214,17 @@ export class Viewport {
         );
       }
     });
+    this.disposers.push(unsubToolRegister, () => {
+      this.detachSelectionSource?.();
+      this.detachSelectionSource = null;
+      this.selectionListeners.clear();
+    });
     const existingSelect = this.getSelectTool();
     if (existingSelect && Viewport.isSelectionSource(existingSelect)) {
       this.attachSelectionSource(existingSelect);
     }
     this.renderer = new ElementRenderer();
+    this.disposers.push(() => this.renderer.clearImageCache());
     this.renderer.setStore(this.store);
     this.renderer.setCamera(this.camera);
     this.renderer.setElementRegistry(this.elementRegistry);
@@ -272,7 +268,7 @@ export class Viewport {
     this.dropHandler = options.onDrop;
     this.history = new HistoryStack();
     this.historyRecorder = new HistoryRecorder(this.store, this.history, this.layerManager);
-    this.unsubRecorderEnd = this.historyRecorder.onTransactionEnd(() => {
+    const unsubRecorderEnd = this.historyRecorder.onTransactionEnd(() => {
       if (!this.pendingSelectionPrune) return;
       this.pendingSelectionPrune = false;
       this.pruneSelection();
@@ -295,6 +291,24 @@ export class Viewport {
     this.wrapper.appendChild(this.paintStack);
     this.wrapper.appendChild(this.domLayer);
     this.container.appendChild(this.wrapper);
+    this.disposers.push(() => this.wrapper.remove());
+
+    this._renderHooks = createRenderHooks();
+    this.pluginStateManager = new PluginStateManager(() => this.suspendNotifications());
+    this.pluginHost = new PluginHost({
+      viewport: this,
+      elementRegistry: this.elementRegistry,
+      toolManager: this.toolManager,
+      renderHooks: this._renderHooks,
+      actionRegistry: this.actionRegistry,
+      store: this.store,
+      history: this.history,
+      requestRender: () => this.renderLoop.requestRender(),
+      pluginStateManager: this.pluginStateManager,
+      getMinimap: () => this.minimap,
+    });
+    // Plugins dispose after the input handler and minimap release them.
+    this.disposers.push(() => this.pluginHost.disposePlugins());
 
     this.toolContext = {
       camera: this.camera,
@@ -337,6 +351,7 @@ export class Viewport {
       panInertia: options.panInertia,
       actions: this.actionRegistry,
     });
+    this.disposers.push(() => this.inputHandler.destroy());
 
     if (options.contextMenu !== false) {
       this.contextMenu = new ContextMenu({
@@ -346,34 +361,18 @@ export class Viewport {
         onClose: noop,
       });
     }
-    this.unsubToolChange = this.toolManager.onChange(() => this.contextMenu?.close());
+    this.disposers.push(
+      () => this.contextMenu?.dispose(),
+      this.toolManager.onChange(() => this.contextMenu?.close()),
+      // The recorder detaches before plugins dispose so their teardown is not recorded.
+      unsubRecorderEnd,
+      () => this.historyRecorder.destroy(),
+    );
 
-    this._renderHooks = createRenderHooks();
-    this.pluginStateManager = new PluginStateManager(() => this.suspendNotifications());
-    this.pluginHost = new PluginHost({
-      viewport: this,
-      elementRegistry: this.elementRegistry,
-      toolManager: this.toolManager,
-      renderHooks: this._renderHooks,
-      actionRegistry: this.actionRegistry,
-      store: this.store,
-      history: this.history,
-      requestRender: () => this.renderLoop.requestRender(),
-      pluginStateManager: this.pluginStateManager,
-      getMinimap: () => this.minimap,
-    });
     try {
       this.pluginHost.configurePlugins(options.plugins);
     } catch (error) {
-      this.inputHandler.destroy();
-      this.contextMenu?.dispose();
-      this.historyRecorder.destroy();
-      this.noteEditor.destroy(this.store);
-      this.arrowLabelEditor.cancel();
-      this.unsubToolChange();
-      this.unsubToolRegister();
-      this.unsubRecorderEnd();
-      this.wrapper.remove();
+      this.teardown();
       throw error;
     }
 
@@ -383,6 +382,7 @@ export class Viewport {
         getExtraBounds: () => this.pluginHost.getExtraBounds(),
       });
     }
+    this.disposers.push(() => this.minimap?.destroy());
 
     this.domNodeManager = new DomNodeManager({
       domLayer: this.paintStack,
@@ -392,10 +392,12 @@ export class Viewport {
       getVersion: (id) => this.store.getVersion(id),
     });
     this.domNodeManager.setCameraTransform(this.camera.toCSSTransform());
+    this.disposers.push(() => this.domNodeManager.clearDomNodes());
 
     this.interactMode = new InteractMode({
       getNode: (id) => this.domNodeManager.getNode(id),
     });
+    this.disposers.push(() => this.interactMode.destroy());
 
     this.marginViewport = new MarginViewport(options.panBufferMargin ?? 256);
     this.marginViewport.setViewport(
@@ -405,6 +407,10 @@ export class Viewport {
     );
     this.layerCache = new LayerCache(this.marginViewport);
     this.hybridSurface = new HybridRenderSurface(this.paintStack);
+    this.disposers.push(
+      () => this.layerCache.clear(),
+      () => this.hybridSurface.clear(),
+    );
 
     this.renderLoop = new RenderLoop({
       canvasEl: this.canvasEl,
@@ -420,17 +426,18 @@ export class Viewport {
       hybridSurface: this.hybridSurface,
       hooks: this._renderHooks,
     });
+    this.disposers.push(
+      () => this.renderLoop.stop(),
+      this.htmlPainters.onChange(() => this.onHtmlRegistryChanged()),
+    );
 
-    this.unsubHtmlPainters = this.htmlPainters.onChange(() => this.onHtmlRegistryChanged());
-
-    this.unsubCamera = this.camera.onChange(() => {
-      this.applyCameraTransform();
-      this.noteEditor.updateToolbarPosition();
-      this.contextMenu?.close();
-      this.requestRender();
-    });
-
-    this.unsubStore = [
+    this.disposers.push(
+      this.camera.onChange(() => {
+        this.applyCameraTransform();
+        this.noteEditor.updateToolbarPosition();
+        this.contextMenu?.close();
+        this.requestRender();
+      }),
       this.store.on('add', (el) => {
         if (el.type === 'html') {
           this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
@@ -470,15 +477,17 @@ export class Viewport {
         this.requestRender();
         this.pruneSelection();
       }),
-    ];
+    );
 
-    this.unsubLayers = this.layerManager.on('change', () => {
-      this.toolContext.activeLayerId = this.layerManager.activeLayerId;
-      // Snapshot loads replace layers without per-layer remove events, so prune on every change.
-      this.layerCache.retain((id) => this.layerManager.getLayer(id) !== undefined);
-      this.renderLoop.markAllLayersDirty();
-      this.requestRender();
-    });
+    this.disposers.push(
+      this.layerManager.on('change', () => {
+        this.toolContext.activeLayerId = this.layerManager.activeLayerId;
+        // Snapshot loads replace layers without per-layer remove events, so prune on every change.
+        this.layerCache.retain((id) => this.layerManager.getLayer(id) !== undefined);
+        this.renderLoop.markAllLayersDirty();
+        this.requestRender();
+      }),
+    );
 
     this.interactions = new ViewportInteractions({
       store: this.store,
@@ -497,36 +506,39 @@ export class Viewport {
       addImage: (src, position) => this.addImage(src, position),
       dropHandler: this.dropHandler,
     });
+    // Editing commits while the recorder and store listeners are still attached.
+    this.disposers.push(
+      () => {
+        this.noteEditor.destroy(this.store);
+        this.arrowLabelEditor.cancel();
+      },
+      () => {
+        this.activation?.dispose();
+        this.activation = null;
+        this.activationListeners.clear();
+        this.htmlDiagnosticListeners.clear();
+      },
+    );
 
     try {
       this.pluginHost.startPlugins();
       this.pluginHost.validateRequiredCapabilities(options.requiredCapabilities);
     } catch (error) {
-      this.pluginHost.disposePlugins();
-      this.domNodeManager.clearDomNodes();
-      this.renderLoop.stop();
-      this.interactMode.destroy();
-      this.noteEditor.destroy(this.store);
-      this.arrowLabelEditor.cancel();
-      this.historyRecorder.destroy();
-      this.contextMenu?.dispose();
-      this.minimap?.destroy();
-      this.inputHandler.destroy();
-      this.unsubCamera();
-      this.unsubLayers();
-      this.unsubToolChange();
-      this.unsubToolRegister();
-      this.unsubRecorderEnd();
-      this.unsubHtmlPainters();
-      this.unsubStore.forEach((unsubscribe) => unsubscribe());
-      this.wrapper.remove();
+      this.teardown();
       throw error;
     }
 
-    this.wrapper.addEventListener('pointerdown', this.interactions.onTapDown);
-    this.wrapper.addEventListener('pointerup', this.interactions.onDoubleTap);
-    this.wrapper.addEventListener('dragover', this.interactions.onDragOver);
-    this.wrapper.addEventListener('drop', this.interactions.onDrop);
+    const { onTapDown, onDoubleTap, onDragOver, onDrop } = this.interactions;
+    this.wrapper.addEventListener('pointerdown', onTapDown);
+    this.wrapper.addEventListener('pointerup', onDoubleTap);
+    this.wrapper.addEventListener('dragover', onDragOver);
+    this.wrapper.addEventListener('drop', onDrop);
+    this.disposers.push(() => {
+      this.wrapper.removeEventListener('pointerdown', onTapDown);
+      this.wrapper.removeEventListener('pointerup', onDoubleTap);
+      this.wrapper.removeEventListener('dragover', onDragOver);
+      this.wrapper.removeEventListener('drop', onDrop);
+    });
     this.observeResize();
     this.syncCanvasSize();
     this.renderLoop.start();
@@ -1258,40 +1270,13 @@ export class Viewport {
   }
 
   destroy(): void {
-    this.renderLoop.stop();
-    this.interactMode.destroy();
-    this.noteEditor.destroy(this.store);
-    this.arrowLabelEditor.cancel();
-    this.historyRecorder.destroy();
-    this.contextMenu?.dispose();
-    this.minimap?.destroy();
-    this.wrapper.removeEventListener('pointerdown', this.interactions.onTapDown);
-    this.wrapper.removeEventListener('pointerup', this.interactions.onDoubleTap);
-    this.wrapper.removeEventListener('dragover', this.interactions.onDragOver);
-    this.wrapper.removeEventListener('drop', this.interactions.onDrop);
-    this.inputHandler.destroy();
-    this.unsubCamera();
-    this.unsubLayers();
-    this.unsubToolChange();
-    this.unsubToolRegister();
-    this.unsubRecorderEnd();
-    this.unsubHtmlPainters();
-    this.pluginHost.disposePlugins();
-    this.activation?.dispose();
-    this.activation = null;
-    this.activationListeners.clear();
-    this.htmlDiagnosticListeners.clear();
-    this.detachSelectionSource?.();
-    this.detachSelectionSource = null;
-    this.selectionListeners.clear();
-    this.unsubStore.forEach((fn) => fn());
-    this.resizeObserver?.disconnect();
-    this.resizeObserver = null;
-    this.resizeListeners.clear();
-    this.layerCache.clear();
-    this.hybridSurface.clear();
-    this.renderer.clearImageCache();
-    this.wrapper.remove();
+    if (this.isDestroyed) return;
+    this.isDestroyed = true;
+    this.teardown();
+  }
+
+  private teardown(): void {
+    for (const dispose of this.disposers.splice(0).reverse()) dispose();
   }
 
   stopInteracting(): void {
@@ -1315,8 +1300,10 @@ export class Viewport {
   }
 
   private observeResize(): void {
+    this.disposers.push(() => this.resizeListeners.clear());
     if (typeof ResizeObserver === 'undefined') return;
-    this.resizeObserver = new ResizeObserver(() => this.syncCanvasSize());
-    this.resizeObserver.observe(this.container);
+    const observer = new ResizeObserver(() => this.syncCanvasSize());
+    observer.observe(this.container);
+    this.disposers.push(() => observer.disconnect());
   }
 }

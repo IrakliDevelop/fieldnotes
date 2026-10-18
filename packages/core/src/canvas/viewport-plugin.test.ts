@@ -5,6 +5,7 @@ import type { PluginHandle } from '../core/plugin-state-manager';
 import { Viewport } from './viewport';
 import type { ViewportPlugin } from './viewport-plugin';
 import { SelectTool } from '../tools/select-tool';
+import { createNote } from '../elements/element-factory';
 
 function createContainer(): HTMLDivElement {
   const container = document.createElement('div');
@@ -152,6 +153,33 @@ describe('Viewport plugin lifecycle', () => {
     ).toThrow('required start failed');
     expect(disposed).toHaveBeenCalledOnce();
     expect(container.childElementCount).toBe(0);
+  });
+
+  it('leaves no DOM and no live store subscriptions when a required plugin fails to start', () => {
+    let failed: Viewport | undefined;
+    expect(
+      () =>
+        new Viewport(container, {
+          plugins: [
+            {
+              name: 'required',
+              required: true,
+              start(context) {
+                failed = context.viewport;
+                throw new Error('required start failed');
+              },
+            },
+          ],
+        }),
+    ).toThrow('required start failed');
+    if (!failed) throw new Error('plugin did not start');
+    const render = vi.spyOn(failed, 'requestRender');
+
+    failed.store.add(createNote({ position: { x: 0, y: 0 } }));
+
+    expect(container.childElementCount).toBe(0);
+    expect(failed.history.canUndo).toBe(false);
+    expect(render).not.toHaveBeenCalled();
   });
 
   it('validates required capabilities after optional rollback', () => {

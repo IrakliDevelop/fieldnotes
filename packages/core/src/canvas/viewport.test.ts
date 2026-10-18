@@ -112,6 +112,20 @@ describe('Viewport', () => {
     expect(container.querySelector('canvas')).toBeNull();
   });
 
+  it('destroy twice is a no-op', () => {
+    const dispose = vi.fn();
+    const viewport = new Viewport(container, {
+      plugins: [{ name: 'p', start: () => ({ dispose }) }],
+    });
+    const remove = vi.spyOn(wrapperOf(container), 'remove');
+
+    viewport.destroy();
+    viewport.destroy();
+
+    expect(dispose).toHaveBeenCalledOnce();
+    expect(remove).toHaveBeenCalledOnce();
+  });
+
   it('drops the layer cache entry of a removed layer', () => {
     const viewport = new Viewport(container);
     const layerCache = layerCacheOf(viewport);
