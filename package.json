@@ -21,6 +21,7 @@
     "verify": "pnpm agent:check && pnpm agent:format:check && pnpm lint && pnpm format:check && pnpm build && pnpm typecheck && pnpm test",
     "verify:ci": "pnpm agent:check && pnpm agent:format:check && pnpm lint && pnpm format:check && pnpm build && pnpm typecheck && pnpm test:coverage",
     "dev": "pnpm --filter fieldnotes-demo dev",
+    "docs:api": "typedoc",
     "prepare": "husky"
   },
   "lint-staged": {
@@ -43,6 +44,7 @@
     "husky": "^9.1.7",
     "lint-staged": "^16.4.0",
     "prettier": "^3.8.1",
+    "typedoc": "^0.28.20",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.70.1"
   }

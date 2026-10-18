@@ -247,6 +247,7 @@ pnpm install          # install dependencies
 pnpm build            # build all packages
 pnpm test             # run all tests
 pnpm bench            # run performance benchmarks
+pnpm docs:api         # TypeDoc API reference into website/public/api (run after pnpm build)
 ```
 
 Example applications are in `examples/`:

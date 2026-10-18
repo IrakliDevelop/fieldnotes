@@ -54,6 +54,11 @@ jobs:
 
       - run: pnpm verify:ci
 
+      # verify:ci builds first; TypeDoc resolves sibling packages through dist.
+      - name: Build API reference
+        if: matrix.node == '22'
+        run: pnpm docs:api
+
       - name: Upload coverage
         if: always()
         uses: actions/upload-artifact@v4

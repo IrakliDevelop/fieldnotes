@@ -1,0 +1,20 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "name": "Field Notes",
+  "entryPointStrategy": "packages",
+  "entryPoints": [
+    "packages/core",
+    "packages/react",
+    "packages/sync",
+    "packages/sync-server",
+    "packages/sync-redis",
+    "packages/vtt"
+  ],
+  "packageOptions": {
+    "entryPoints": ["src/index.ts"],
+    "readme": "README.md",
+    "excludePrivate": true,
+    "excludeInternal": true
+  },
+  "out": "website/public/api"
+}
