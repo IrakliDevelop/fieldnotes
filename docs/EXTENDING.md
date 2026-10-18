@@ -181,9 +181,8 @@ const autoSave = new AutoSave(viewport.store, viewport.camera, {
 const svg = await exportSvg(viewport.store, { elementRegistry: viewport.elementRegistry });
 ```
 
-Without it, AutoSave and the standalone exports fall back to the global registry: plugin elements
-load as unknown types (kept, unvalidated, unmigrated, with one warning per type), saves are not
-stamped with `dataVersion`, and standalone exports skip their bounds and rendering.
+Without it, the standalone exports fall back to the global registry and skip plugin elements' bounds
+and rendering. AutoSave defaults to the registry of the store it is given.
 `viewport.loadJSON`, `viewport.exportState` and `viewport.exportImage`/`exportSVG` use the viewport
 registry automatically. In `@fieldnotes/sync`, `SyncClient` uses the registry of the store it is
 given, so `store: viewport.store` is enough; if you pass `elementRegistry` (also on
@@ -209,7 +208,8 @@ const definition: ElementTypeDefinition<Marker> = {
   `parseState`/`loadJSON`/`AutoSave.load`; `loadState` trusts its input and only checks the result
   is a record. The envelope is stamped with the current version. A throw fails the load with the
   element id. Higher stored versions are left alone.
-- `exportState` stamps elements that lack `dataVersion` with the current version.
+- Elements are stamped with the current `dataVersion` when added to a store whose registry knows
+  the type, so saved and synced data always carries its version.
 - Sync never migrates: elements in memory are always current. Every peer in a room should run the
   same definition version.
 
@@ -361,6 +361,8 @@ whenever its hook is disabled.
 The registries are reachable as `viewport.renderHooks` (`RenderHooks`, created by
 `createRenderHooks()`); each is a `TypedHookRegistry` with `register`, `call`,
 `getMissingCapabilities`, `isFailClosed` and `setRequiredCapabilities`.
+`setRequiredCapabilities` and `clear` are public on `viewport.renderHooks`, so trusted host code can
+lower the requirement.
 
 ## 8. Services, actions and tools
 

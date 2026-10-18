@@ -5,7 +5,13 @@ import * as strokeCache from './stroke-cache';
 import { getElementBounds } from './element-bounds';
 import { ElementRegistry } from './element-registry';
 import { createStroke, createArrow } from './element-factory';
-import type { CanvasElement, NoteElement, StrokeElement, TextElement } from './types';
+import type {
+  CanvasElement,
+  ExtensionElementEnvelope,
+  NoteElement,
+  StrokeElement,
+  TextElement,
+} from './types';
 
 function makeNote(overrides: Partial<NoteElement> = {}): NoteElement {
   return {
@@ -1046,5 +1052,73 @@ describe('ElementStore', () => {
         expect(strokeCache.getStrokeRenderData(after)).not.toBe(segsBefore);
       }
     });
+  });
+});
+
+describe('ElementStore extension dataVersion stamping', () => {
+  function makeRegistry(): ElementRegistry {
+    const registry = new ElementRegistry();
+    for (const [type, dataVersion] of [
+      ['test:versioned', 3],
+      ['test:plain', undefined],
+    ] as const) {
+      registry.register<ExtensionElementEnvelope>({
+        type,
+        legacyTypes: [],
+        decodeLegacy: (raw) => raw as unknown as ExtensionElementEnvelope,
+        validateData: () => true,
+        unwrap: (element) => element,
+        wrap: (element) => element,
+        bounds: (element) => ({ x: element.position.x, y: element.position.y, w: 10, h: 10 }),
+        dataVersion,
+        migrate: (data) => data,
+      });
+    }
+    return registry;
+  }
+
+  function envelope(
+    extensionType: string,
+    overrides: Partial<ExtensionElementEnvelope> = {},
+  ): ExtensionElementEnvelope {
+    return {
+      id: `${extensionType}-1`,
+      type: 'extension',
+      extensionType,
+      position: { x: 0, y: 0 },
+      zIndex: 0,
+      locked: false,
+      layerId: '',
+      data: { value: 1 },
+      ...overrides,
+    };
+  }
+
+  it('add stamps the registered dataVersion on an envelope without one', () => {
+    const store = new ElementStore(makeRegistry());
+    store.add(envelope('test:versioned'));
+    expect(store.getById('test:versioned-1')).toMatchObject({ dataVersion: 3, data: { value: 1 } });
+  });
+
+  it('add keeps an existing dataVersion unchanged', () => {
+    const store = new ElementStore(makeRegistry());
+    store.add(envelope('test:versioned', { dataVersion: 1 }));
+    expect(store.getById('test:versioned-1')).toMatchObject({ dataVersion: 1 });
+  });
+
+  it('loadSnapshot stamps the registered dataVersion on an envelope without one', () => {
+    const store = new ElementStore(makeRegistry());
+    store.loadSnapshot([envelope('test:versioned')]);
+    expect(store.getById('test:versioned-1')).toMatchObject({ dataVersion: 3 });
+  });
+
+  it.each([
+    ['an unversioned type', envelope('test:plain')],
+    ['an unregistered type', envelope('test:unknown')],
+    ['a core element', makeNote()],
+  ])('add leaves %s without a dataVersion', (_label, element: CanvasElement) => {
+    const store = new ElementStore(makeRegistry());
+    store.add(element);
+    expect(store.getById(element.id)).not.toHaveProperty('dataVersion');
   });
 });

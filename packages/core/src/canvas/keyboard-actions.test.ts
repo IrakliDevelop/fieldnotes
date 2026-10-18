@@ -1126,6 +1126,41 @@ describe('KeyboardActions extension cloneRemap', () => {
     expect(linkClone).toMatchObject({ data: { targetId: targetClone?.id } });
   });
 
+  it('a throwing cloneRemap on the second clone adds nothing and records no undo step', () => {
+    let calls = 0;
+    const registry = new ElementRegistry();
+    registry.register<LinkElement>({
+      ...linkDefinition,
+      cloneRemap: (el) => {
+        calls++;
+        if (calls === 2) throw new Error('remap failed');
+        return el;
+      },
+    });
+    const ctx = makeCtx({ store: new ElementStore(registry), elementRegistry: registry });
+    const stack = new HistoryStack();
+    const recorder = new HistoryRecorder(ctx.store, stack);
+    const { actions, tool } = makeActions({ ctx, recorder, stack });
+    const links: ExtensionElementEnvelope[] = ['link-a', 'link-b'].map((id) => ({
+      id,
+      type: 'extension',
+      extensionType: 'test:link',
+      position: { x: 0, y: 0 },
+      zIndex: 0,
+      locked: false,
+      layerId: 'layer-1',
+      data: { targetId: 'none' },
+    }));
+    for (const link of links) ctx.store.add(link);
+    stack.clear();
+    tool.setSelection(links.map((link) => link.id));
+
+    expect(() => actions.duplicate()).toThrow('remap failed');
+
+    expect(ctx.store.getAll().map((el) => el.id)).toEqual(['link-a', 'link-b']);
+    expect(stack.undoCount).toBe(0);
+  });
+
   it('a def without cloneRemap keeps the clone data unchanged', () => {
     const { actions, ctx, tool, target, link } = setup(linkDefinition);
     tool.setSelection([target.id, link.id]);

@@ -329,54 +329,56 @@ export class KeyboardActions {
       if (el.groupId && !groupIdMap.has(el.groupId)) groupIdMap.set(el.groupId, createId('group'));
     }
 
-    const newIds: string[] = [];
-    this.inHistory(() => {
-      for (const el of source) {
-        const clone = structuredClone(el);
-        const newId = idMap.get(el.id);
-        if (!newId) continue;
-        clone.id = newId;
-        if (clone.groupId) clone.groupId = groupIdMap.get(clone.groupId) ?? clone.groupId;
-        clone.position = { x: clone.position.x + offset.x, y: clone.position.y + offset.y };
+    // Build every clone before adding any, so a throwing cloneRemap leaves no partial paste.
+    const clones: CanvasElement[] = [];
+    for (const el of source) {
+      const clone = structuredClone(el);
+      const newId = idMap.get(el.id);
+      if (!newId) continue;
+      clone.id = newId;
+      if (clone.groupId) clone.groupId = groupIdMap.get(clone.groupId) ?? clone.groupId;
+      clone.position = { x: clone.position.x + offset.x, y: clone.position.y + offset.y };
 
-        if (clone.type === 'arrow') {
-          const arrow = clone;
-          arrow.from = { x: arrow.from.x + offset.x, y: arrow.from.y + offset.y };
-          arrow.to = { x: arrow.to.x + offset.x, y: arrow.to.y + offset.y };
-          delete arrow.cachedControlPoint;
+      if (clone.type === 'arrow') {
+        const arrow = clone;
+        arrow.from = { x: arrow.from.x + offset.x, y: arrow.from.y + offset.y };
+        arrow.to = { x: arrow.to.x + offset.x, y: arrow.to.y + offset.y };
+        delete arrow.cachedControlPoint;
 
-          if (arrow.fromBinding) {
-            const newTarget = idMap.get(arrow.fromBinding.elementId);
-            if (newTarget) {
-              arrow.fromBinding = { elementId: newTarget };
-            } else {
-              delete arrow.fromBinding;
-            }
-          }
-          if (arrow.toBinding) {
-            const newTarget = idMap.get(arrow.toBinding.elementId);
-            if (newTarget) {
-              arrow.toBinding = { elementId: newTarget };
-            } else {
-              delete arrow.toBinding;
-            }
+        if (arrow.fromBinding) {
+          const newTarget = idMap.get(arrow.fromBinding.elementId);
+          if (newTarget) {
+            arrow.fromBinding = { elementId: newTarget };
+          } else {
+            delete arrow.fromBinding;
           }
         }
-
-        if (sel.ctx.activeLayerId) {
-          clone.layerId = sel.ctx.activeLayerId;
+        if (arrow.toBinding) {
+          const newTarget = idMap.get(arrow.toBinding.elementId);
+          if (newTarget) {
+            arrow.toBinding = { elementId: newTarget };
+          } else {
+            delete arrow.toBinding;
+          }
         }
-
-        let added: CanvasElement = clone;
-        if (clone.type === 'extension') {
-          const adapter = sel.ctx.elementRegistry?.getAdapter(clone.extensionType);
-          if (adapter?.cloneRemap) added = adapter.cloneRemap(clone, idMap);
-        }
-        sel.ctx.store.add(added);
-        newIds.push(added.id);
       }
+
+      if (sel.ctx.activeLayerId) {
+        clone.layerId = sel.ctx.activeLayerId;
+      }
+
+      let added: CanvasElement = clone;
+      if (clone.type === 'extension') {
+        const adapter = sel.ctx.elementRegistry?.getAdapter(clone.extensionType);
+        if (adapter?.cloneRemap) added = adapter.cloneRemap(clone, idMap);
+      }
+      clones.push(added);
+    }
+
+    this.inHistory(() => {
+      for (const clone of clones) sel.ctx.store.add(clone);
     });
-    sel.tool.setSelection(newIds);
+    sel.tool.setSelection(clones.map((clone) => clone.id));
     sel.ctx.requestRender();
   }
 }
