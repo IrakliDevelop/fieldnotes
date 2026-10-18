@@ -45,6 +45,13 @@ export class ElementRenderer {
     this.onImageError = callback;
   }
 
+  clearImageCache(): void {
+    for (const cached of this.imageCache.values()) {
+      if (cached !== 'failed' && !(cached instanceof HTMLImageElement)) cached.close();
+    }
+    this.imageCache.clear();
+  }
+
   setCamera(camera: Camera): void {
     this.camera = camera;
   }

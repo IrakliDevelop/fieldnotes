@@ -166,6 +166,8 @@ export class Viewport {
   private readonly selectionOps: SelectionOps;
   readonly toolContext: ToolContext;
   private readonly marginViewport: MarginViewport;
+  private readonly layerCache: LayerCache;
+  private readonly hybridSurface: HybridRenderSurface;
   private resizeObserver: ResizeObserver | null = null;
   private _snapToGrid = false;
   private _smartGuides = false;
@@ -426,7 +428,8 @@ export class Viewport {
       this.canvasEl.clientHeight || 600,
       typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1,
     );
-    const layerCache = new LayerCache(this.marginViewport);
+    this.layerCache = new LayerCache(this.marginViewport);
+    this.hybridSurface = new HybridRenderSurface(this.paintStack);
 
     this.renderLoop = new RenderLoop({
       canvasEl: this.canvasEl,
@@ -437,9 +440,9 @@ export class Viewport {
       toolManager: this.toolManager,
       layerManager: this.layerManager,
       domNodeManager: this.domNodeManager,
-      layerCache,
+      layerCache: this.layerCache,
       marginViewport: this.marginViewport,
-      hybridSurface: new HybridRenderSurface(this.paintStack),
+      hybridSurface: this.hybridSurface,
       hooks: this._renderHooks,
     });
 
@@ -494,11 +497,18 @@ export class Viewport {
       }),
     ];
 
-    this.unsubLayers = this.layerManager.on('change', () => {
+    const unsubLayerChange = this.layerManager.on('change', () => {
       this.toolContext.activeLayerId = this.layerManager.activeLayerId;
       this.renderLoop.markAllLayersDirty();
       this.requestRender();
     });
+    const unsubLayerRemove = this.layerManager.on('remove', (layer) =>
+      this.layerCache.delete(layer.id),
+    );
+    this.unsubLayers = () => {
+      unsubLayerChange();
+      unsubLayerRemove();
+    };
 
     this.interactions = new ViewportInteractions({
       store: this.store,
@@ -1313,6 +1323,9 @@ export class Viewport {
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
     this.resizeListeners.clear();
+    this.layerCache.clear();
+    this.hybridSurface.clear();
+    this.renderer.clearImageCache();
     this.wrapper.remove();
   }
 

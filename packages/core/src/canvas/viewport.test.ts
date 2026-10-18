@@ -101,6 +101,44 @@ describe('Viewport', () => {
     expect(container.querySelector('canvas')).toBeNull();
   });
 
+  it('drops the layer cache entry of a removed layer', () => {
+    const viewport = new Viewport(container);
+    const layerCache = (
+      viewport as unknown as {
+        layerCache: { getCanvas(id: string): unknown; canvases: Map<string, unknown> };
+      }
+    ).layerCache;
+    const layer = viewport.layerManager.createLayer('extra');
+    layerCache.getCanvas(layer.id);
+    viewport.removeLayer(layer.id);
+    expect(layerCache.canvases.has(layer.id)).toBe(false);
+    viewport.destroy();
+  });
+
+  it('destroy releases layer, paint-stack, and image caches, closing bitmaps once', () => {
+    const viewport = new Viewport(container);
+    const priv = viewport as unknown as {
+      layerCache: { getCanvas(id: string): unknown; canvases: Map<string, unknown> };
+      hybridSurface: { beginFrame(orders: Set<number>, w: number, h: number): void };
+      renderer: { imageCache: Map<string, unknown> };
+    };
+    const wrapper = wrapperOf(container);
+    priv.layerCache.getCanvas('some-layer');
+    priv.hybridSurface.beginFrame(new Set([1]), 10, 10);
+    const bitmap = { close: vi.fn() };
+    priv.renderer.imageCache.set('bitmap.png', bitmap);
+    priv.renderer.imageCache.set('pending.png', new Image());
+    priv.renderer.imageCache.set('broken.png', 'failed');
+
+    viewport.destroy();
+    viewport.destroy();
+
+    expect(priv.layerCache.canvases.size).toBe(0);
+    expect(wrapper.querySelector('[data-paint-order]')).toBeNull();
+    expect(priv.renderer.imageCache.size).toBe(0);
+    expect(bitmap.close).toHaveBeenCalledTimes(1);
+  });
+
   it('applies camera transform to the public DOM overlay on camera change', () => {
     const viewport = new Viewport(container);
     viewport.camera.pan(50, 100);

@@ -62,6 +62,11 @@ export class LayerCache {
     }
   }
 
+  delete(layerId: string): void {
+    this.canvases.delete(layerId);
+    this.dirtyFlags.delete(layerId);
+  }
+
   clear(): void {
     this.canvases.clear();
     this.dirtyFlags.clear();
