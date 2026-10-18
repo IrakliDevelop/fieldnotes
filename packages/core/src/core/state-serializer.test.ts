@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import {
   exportState,
   parseState,
@@ -18,6 +18,7 @@ import {
 } from '../elements/element-factory';
 import type { Layer } from '../layers/types';
 import { ElementRegistry } from '../elements/element-registry';
+import { getDefaultElementRegistry, setDefaultElementRegistry } from '../elements/default-registry';
 import type { BaseElement, CanvasElement, ElementTypeDefinition } from '../elements/types';
 
 /** A version-3 state fixture: legacy version number with fully typed v4 element payloads. */
@@ -1004,5 +1005,50 @@ describe('extension dataVersion', () => {
 
     expect(migrate).not.toHaveBeenCalled();
     expect(reparsed.elements[0]).toMatchObject({ dataVersion: 3, data: { label: 'x' } });
+  });
+
+  it('rejects a migrate result that is not a record as malformed data', () => {
+    const registry = new ElementRegistry();
+    registry.register({
+      ...markerDefinition,
+      dataVersion: 2,
+      migrate: () => 'oops' as unknown as Record<string, unknown>,
+      validateData: () => true,
+    });
+
+    expect(() => parseState(stateJson(envelope({ name: 'a' })), registry)).toThrow(
+      'Invalid element "m1": malformed test:marker data',
+    );
+  });
+
+  it('names the element when migrate throws', () => {
+    const registry = new ElementRegistry();
+    registry.register({
+      ...markerDefinition,
+      dataVersion: 2,
+      migrate: () => {
+        throw new Error('boom');
+      },
+    });
+
+    expect(() => parseState(stateJson(envelope({ name: 'a' })), registry)).toThrow(
+      /Invalid element "m1".*boom/,
+    );
+  });
+
+  describe('with the default registry', () => {
+    const previous = getDefaultElementRegistry();
+    afterEach(() => setDefaultElementRegistry(previous));
+
+    it('an export and parse that both omit the registry do not migrate a current element', () => {
+      const { registry, migrate } = versionedRegistry();
+      setDefaultElementRegistry(registry);
+      const current = envelope({ label: 'x' }) as CanvasElement;
+
+      const reparsed = parseState(JSON.stringify(exportState([current], makeCamera(), [layer])));
+
+      expect(migrate).not.toHaveBeenCalled();
+      expect(reparsed.elements[0]).toMatchObject({ dataVersion: 3, data: { label: 'x' } });
+    });
   });
 });

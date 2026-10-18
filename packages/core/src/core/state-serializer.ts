@@ -55,7 +55,7 @@ export function exportState(
   layers: Layer[] = [],
   activeLayerId?: string,
   extensions?: Record<string, PersistedPluginState>,
-  registry?: ElementRegistry,
+  registry: ElementRegistry = getDefaultElementRegistry(),
 ): CanvasState {
   const state: CanvasState = {
     version: CANVAS_STATE_VERSION,
@@ -72,7 +72,7 @@ export function exportState(
           delete clone.cachedControlPoint;
         }
         if (clone.type === 'extension' && clone.dataVersion === undefined) {
-          const dataVersion = registry?.getAdapter(clone.extensionType)?.dataVersion;
+          const dataVersion = registry.getAdapter(clone.extensionType)?.dataVersion;
           if (dataVersion !== undefined) return { ...clone, dataVersion };
         }
         return clone;
@@ -292,11 +292,20 @@ function validateElement(
       let envelope = el as unknown as ExtensionElementEnvelope;
       const stored = envelope.dataVersion ?? 1;
       if (adapter?.migrate && adapter.dataVersion !== undefined && stored < adapter.dataVersion) {
-        envelope = {
-          ...envelope,
-          data: adapter.migrate(envelope.data, stored),
-          dataVersion: adapter.dataVersion,
-        };
+        let migrated: unknown;
+        try {
+          migrated = adapter.migrate(envelope.data, stored);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          throw new Error(
+            `Invalid element "${el['id']}": ${extensionType} migrate failed: ${message}`,
+            { cause: error },
+          );
+        }
+        if (!isRecord(migrated)) {
+          throw new Error(`Invalid element "${el['id']}": malformed ${extensionType} data`);
+        }
+        envelope = { ...envelope, data: migrated, dataVersion: adapter.dataVersion };
       }
       if (adapter && !adapter.validateEnvelope(envelope)) {
         throw new Error(`Invalid element "${el['id']}": malformed ${extensionType} data`);
