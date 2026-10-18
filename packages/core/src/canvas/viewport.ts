@@ -791,6 +791,11 @@ export class Viewport {
       const pluginResult = this.pluginStateManager.commitPrepared(preparedPlugins.prepared);
       if (!pluginResult.success) throw new Error(pluginResult.error);
       pluginsCommitted = true;
+      for (const name of pluginResult.droppedPlugins ?? []) {
+        console.warn(
+          `[fieldnotes] dropped saved state of plugin "${name}": version could not be migrated`,
+        );
+      }
       notifications.resume();
       this.historyRecorder.resume();
     } catch (error) {
@@ -1402,7 +1407,10 @@ export class Viewport {
       .map((plugin, index) => ({ plugin, index }))
       .sort((a, b) => (a.plugin.priority ?? 0) - (b.plugin.priority ?? 0) || a.index - b.index);
     for (const { plugin } of ordered) {
-      if (names.has(plugin.name)) continue;
+      if (names.has(plugin.name)) {
+        console.warn(`[fieldnotes] skipping duplicate plugin "${plugin.name}"`);
+        continue;
+      }
       names.add(plugin.name);
       const configureDisposers: (() => void)[] = [];
       const track = (dispose: () => void): void => {
@@ -1435,6 +1443,11 @@ export class Viewport {
           this.disposePlugins();
           throw error;
         }
+        console.warn(
+          `[fieldnotes] optional plugin "${plugin.name}" failed to configure: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
       }
     }
   }
@@ -1507,6 +1520,11 @@ export class Viewport {
           this.disposePlugins();
           throw error;
         }
+        console.warn(
+          `[fieldnotes] optional plugin "${configured.plugin.name}" failed to start: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
       }
     }
   }

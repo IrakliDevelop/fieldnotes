@@ -501,3 +501,86 @@ describe('Viewport plugin lifecycle', () => {
     expect(viewport.actions.get('disposable.action')).toBeUndefined();
   });
 });
+
+describe('Viewport plugin warnings', () => {
+  let container: HTMLDivElement;
+  let warn: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    container = createContainer();
+    warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    warn.mockRestore();
+    container.remove();
+  });
+
+  it('warns when a duplicate plugin name is skipped', () => {
+    const definition: ViewportPlugin = { name: 'twin' };
+    const viewport = new Viewport(container, { plugins: [definition, definition] });
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/^\[fieldnotes\].*twin/));
+    viewport.destroy();
+  });
+
+  it('warns with the plugin name and error when an optional configure fails', () => {
+    const viewport = new Viewport(container, {
+      plugins: [
+        {
+          name: 'bad-configure',
+          configure() {
+            throw new Error('configure exploded');
+          },
+        },
+      ],
+    });
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringMatching(/^\[fieldnotes\].*bad-configure.*configure exploded/),
+    );
+    viewport.destroy();
+  });
+
+  it('warns with the plugin name and error when an optional start fails', () => {
+    const viewport = new Viewport(container, {
+      plugins: [
+        {
+          name: 'bad-start',
+          start() {
+            throw new Error('start exploded');
+          },
+        },
+      ],
+    });
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringMatching(/^\[fieldnotes\].*bad-start.*start exploded/),
+    );
+    viewport.destroy();
+  });
+
+  it('warns for each plugin whose saved state is dropped on load', () => {
+    let state: unknown = { count: 1 };
+    const viewport = new Viewport(container, {
+      plugins: [
+        {
+          name: 'versioned',
+          start: () => ({
+            dispose: () => undefined,
+            stateVersion: 2,
+            exportState: () => state,
+            loadState: (data) => {
+              state = data;
+            },
+          }),
+        },
+      ],
+    });
+    const saved = viewport.exportState();
+    viewport.loadState({
+      ...saved,
+      extensions: { versioned: { version: 1, data: { count: 9 } } },
+    });
+    expect(state).toBeUndefined();
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/^\[fieldnotes\].*versioned/));
+    viewport.destroy();
+  });
+});
