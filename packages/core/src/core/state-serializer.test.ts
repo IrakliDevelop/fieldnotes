@@ -2,6 +2,7 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import {
   exportState,
+  migrateState,
   parseState,
   registerLegacyStateMigrator,
   unregisterLegacyStateMigrator,
@@ -990,6 +991,18 @@ describe('extension dataVersion', () => {
     );
   });
 
+  it.each([0, 1.5, '2', -1])(
+    'migrateState rejects dataVersion %j as an invalid element',
+    (dataVersion) => {
+      const { registry } = versionedRegistry();
+      const state = JSON.parse(stateJson(envelope({ label: 'x' }, dataVersion))) as CanvasState;
+
+      expect(() => migrateState(state, registry)).toThrow(
+        'Invalid element "m1": invalid dataVersion',
+      );
+    },
+  );
+
   it('leaves unversioned types unchanged and unstamped', () => {
     const registry = new ElementRegistry();
     registry.register(markerDefinition);
@@ -1112,6 +1125,29 @@ describe('extension dataVersion', () => {
       };
 
       viewport.loadJSON(JSON.stringify({ ...stateObject(legacy), version: 3, elements: [legacy] }));
+
+      expect(migrate).not.toHaveBeenCalled();
+      expect(viewport.store.getById('m1')).toMatchObject({
+        dataVersion: 3,
+        data: { label: 'old' },
+      });
+      viewport.destroy();
+    });
+
+    it('loadState of a raw legacy element stamps the current dataVersion without migrating', () => {
+      const { registry, migrate } = versionedRegistry();
+      const viewport = new Viewport(document.createElement('div'), { elementRegistry: registry });
+      const legacy = {
+        id: 'm1',
+        type: 'marker',
+        position: { x: 0, y: 0 },
+        zIndex: 0,
+        locked: false,
+        layerId: 'default-layer',
+        label: 'old',
+      };
+
+      viewport.loadState({ ...stateObject(legacy), version: 3, elements: [legacy] });
 
       expect(migrate).not.toHaveBeenCalled();
       expect(viewport.store.getById('m1')).toMatchObject({

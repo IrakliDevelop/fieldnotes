@@ -48,8 +48,11 @@ export class ElementRegistry {
       fullCanvas: def.fullCanvas ?? false,
       validateEnvelope: (el) => el.extensionType === def.type && def.validateData(el.data),
       decodeLegacy: (raw) => {
-        const typed = def.decodeLegacy(raw);
-        return def.wrap(typed);
+        const wrapped = def.wrap(def.decodeLegacy(raw));
+        // Decoded legacy data is current; stamp it so no load path migrates it again.
+        return def.dataVersion === undefined
+          ? wrapped
+          : { ...wrapped, dataVersion: def.dataVersion };
       },
       wrap: (el) => def.wrap(el as never),
       unwrap: (el) => def.unwrap(el),

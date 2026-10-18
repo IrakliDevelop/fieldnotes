@@ -110,6 +110,9 @@ export function migrateState(
   for (let i = 0; i < elements.length; i++) {
     const el = elements[i];
     if (!isRecord(el) || el['type'] !== 'extension' || !isString(el['extensionType'])) continue;
+    if (!isOptional(el['dataVersion'], isPositiveInteger)) {
+      throw new Error(`Invalid element "${el['id']}": invalid dataVersion`);
+    }
     const adapter = registry.getAdapter(el['extensionType']);
     elements[i] = migrateEnvelope(el as unknown as ExtensionElementEnvelope, adapter);
   }
@@ -329,10 +332,7 @@ function validateElement(
   if (!adapter.validateEnvelope(envelope)) {
     throw new Error(`Invalid element "${el['id']}": malformed ${el['type']} data`);
   }
-  // Decoded legacy data is current; stamp it so a later loadState does not migrate it.
-  return adapter.dataVersion === undefined
-    ? envelope
-    : { ...envelope, dataVersion: adapter.dataVersion };
+  return envelope;
 }
 
 function migrateEnvelope(

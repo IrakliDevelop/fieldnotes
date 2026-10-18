@@ -352,9 +352,11 @@ These contracts were proven in `packages/contract-spike`:
 - **`has(type)`** checks the registry and its parents.
 - **Data versioning.** `ElementTypeDefinition.dataVersion` (positive integer, default 1) and
   `migrate(data, fromVersion)`; `register` throws when `dataVersion > 1` has no `migrate`. The
-  envelope carries an optional `dataVersion` (absent means 1). `parseState` runs `migrate` once for
-  lower stored versions, requires a record result, validates it, and stamps the current version;
-  `exportState` stamps a missing `dataVersion`. Sync paths do not migrate.
+  envelope carries an optional `dataVersion` (absent means 1). Migration runs on `parseState`,
+  `loadJSON`, `loadState` and `AutoSave.load`: `migrate` runs once for lower stored versions, the
+  result must be a record, and the current version is stamped; every path but `loadState` also
+  validates the result. Legacy decodes are stamped current. `exportState` stamps a missing
+  `dataVersion`. Sync paths do not migrate.
 - **`cloneRemap(el, idMap)`** is called on paste and duplicate with the full source-to-clone id map;
   core keeps the clone's base fields and replaces `data` with the result's `data`.
 - **Envelope `size`.** An optional `size` on `ExtensionElementEnvelope` opts the element into the

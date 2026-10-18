@@ -231,6 +231,16 @@ describe('ElementRegistry', () => {
       expect(envelope.data['color']).toBe('#00ff00');
     });
 
+    it('decodeLegacy stamps the definition dataVersion', () => {
+      const registry = new ElementRegistry();
+      registry.register({ ...markerDefinition, dataVersion: 2, migrate: (data) => data });
+      const adapter = registry.getAdapter('test:marker')!;
+
+      const envelope = adapter.decodeLegacy({ id: 'm-1', label: 'test', color: '#00ff00' });
+
+      expect(envelope.dataVersion).toBe(2);
+    });
+
     it('bounds delegates through unwrap', () => {
       const registry = new ElementRegistry();
       registry.register(markerDefinition);
