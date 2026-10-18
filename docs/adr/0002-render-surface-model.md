@@ -1,6 +1,6 @@
 # ADR-0002: Render Surface Model
 
-- **Status:** Accepted and implemented; render-time fail-closed enforcement since core 0.90.0 (see Implementation notes)
+- **Status:** Accepted and implemented; render-time fail-closed enforcement since core 0.90.0; overlay stratum and `afterLayer` since core 0.91.0 (see Implementation notes)
 - **Deciders:** Project maintainer
 - **Date:** 2026-09-05
 - **Supersedes:** —
@@ -308,6 +308,26 @@ from or sharpens the decision above. Where they conflict, the notes describe the
 
 Standalone `exportImage` and `exportSvg` accept `requiredCapabilities`, unioned with the registry's
 stored set; without `renderHooks` every listed capability is missing.
+
+## Implementation notes (0.91.0)
+
+- **Overlay stratum.** The tool overlay and `overlay` hooks always draw on their own stratum above
+  the `afterElements` stratum and all DOM content, never on the base canvas. It exists only while
+  the active tool has `renderOverlay` or an `overlay` hook is live.
+- **Overlay-only frames.** `Viewport.requestOverlayRender()` and `ToolContext.requestOverlayRender()`
+  repaint only that stratum. A pending full render wins, and a frame that left stale canvases or no
+  overlay stratum falls back to a full frame.
+- **`overlay` hook.** World space: the context arrives with dpr and the camera transform applied. It
+  runs before the active tool's `renderOverlay` on full and overlay-only frames.
+- **`afterLayer(ctx, camera, dimensions, layerId)`.** Screen space on the base canvas, after each
+  visible layer's content, including empty layers. Canvas elements on hybrid strata draw above it.
+  Viewport only, like `overlay`.
+- **`registerOverlay(draw)`** registers an `overlay` hook that isolates `draw` in
+  `save`/`restore` and swallows its errors, so a failing overlay is skipped for that frame and never
+  quarantined.
+- **Live elements.** An element updated twice within 250 ms on a layer at full opacity is drawn
+  directly each frame until idle for 250 ms. Its layer's cache splits into an `under` and an `over`
+  part around the range of live elements, so the rest of the layer is not re-rasterised per update.
 
 ## Options Considered
 
