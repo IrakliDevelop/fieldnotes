@@ -576,6 +576,8 @@ interface BaseElement {
 | `text`   | `size`, `text`, `fontSize`, `color`, `textAlign`                                                                                             |
 | `html`   | `size`                                                                                                                                       |
 
+Custom element types, plugins, render hooks, and services are covered in [Extending Field Notes](../../docs/EXTENDING.md).
+
 ## Styling the Selection
 
 A normalized `ElementStyle` interface lets you read and apply visual properties across all element types through a single, consistent shape. The `SelectTool` emits a selection-change event; `Viewport` exposes four methods that together cover reactive UIs.
