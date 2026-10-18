@@ -18,6 +18,7 @@ function stubContext(): ToolContext {
     camera: {} as ToolContext['camera'],
     store: {} as ToolContext['store'],
     requestRender: vi.fn(),
+    requestOverlayRender: vi.fn(),
   };
 }
 

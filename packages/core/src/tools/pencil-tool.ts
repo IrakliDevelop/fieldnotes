@@ -118,7 +118,7 @@ export class PencilTool implements Tool {
       this.nextSimplifyAt = this.points.length + this.progressiveThreshold;
     }
 
-    ctx.requestRender();
+    ctx.requestOverlayRender();
   }
 
   onPointerUp(_state: PointerState, ctx: ToolContext): void {
@@ -150,7 +150,7 @@ export class PencilTool implements Tool {
     if (!this.drawing) return;
     this.drawing = false;
     this.points = [];
-    ctx.requestRender();
+    ctx.requestOverlayRender();
   }
 
   private notifyOptionsChange(): void {

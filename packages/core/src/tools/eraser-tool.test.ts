@@ -14,6 +14,7 @@ function makeCtx(overrides: Partial<ToolContext> = {}): ToolContext {
     camera: new Camera(),
     store: new ElementStore(),
     requestRender: vi.fn(),
+    requestOverlayRender: vi.fn(),
     ...overrides,
   };
 }
@@ -28,6 +29,7 @@ function makeEraser(options: EraserToolOptions): {
     camera: new Camera(),
     store,
     requestRender: vi.fn(),
+    requestOverlayRender: vi.fn(),
     isLayerVisible: () => true,
     isLayerLocked: () => false,
   };
@@ -123,6 +125,7 @@ describe('EraserTool', () => {
       camera: new Camera(),
       store,
       requestRender: vi.fn(),
+      requestOverlayRender: vi.fn(),
       isLayerVisible: (id: string) => id !== 'hidden-layer',
       isLayerLocked: () => false,
     };
@@ -144,6 +147,7 @@ describe('EraserTool', () => {
       camera: new Camera(),
       store,
       requestRender: vi.fn(),
+      requestOverlayRender: vi.fn(),
       isLayerVisible: () => true,
       isLayerLocked: (id: string) => id === 'locked-layer',
     };

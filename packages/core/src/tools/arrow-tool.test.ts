@@ -29,6 +29,7 @@ function makeCtx(overrides: Partial<ToolContext> = {}): ToolContext {
     camera: new Camera(),
     store: new ElementStore(),
     requestRender: vi.fn(),
+    requestOverlayRender: vi.fn(),
     switchTool: vi.fn(),
     ...overrides,
   };
@@ -171,14 +172,15 @@ describe('ArrowTool', () => {
     });
   });
 
-  it('requests render during drag', () => {
+  it('requests an overlay-only render during drag', () => {
     const tool = new ArrowTool();
     const ctx = makeCtx();
 
     tool.onPointerDown(pt(0, 0), ctx);
     tool.onPointerMove(pt(50, 50), ctx);
 
-    expect(ctx.requestRender).toHaveBeenCalled();
+    expect(ctx.requestOverlayRender).toHaveBeenCalled();
+    expect(ctx.requestRender).not.toHaveBeenCalled();
   });
 
   describe('renderOverlay', () => {
@@ -256,6 +258,7 @@ describe('ArrowTool binding', () => {
       camera: new Camera(),
       store,
       requestRender: vi.fn(),
+      requestOverlayRender: vi.fn(),
       switchTool: vi.fn(),
       editElement: vi.fn(),
       setCursor: vi.fn(),

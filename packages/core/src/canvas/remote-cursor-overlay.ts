@@ -5,8 +5,15 @@ import type { Peer, PeerRoster } from './awareness-roster';
 export interface RemoteCursorOverlayHost {
   registerOverlay(draw: OverlayRenderer): () => void;
   requestRender(): void;
+  /** Repaints only overlays; the overlay falls back to requestRender when absent. */
+  requestOverlayRender?(): void;
   /** Read at draw time so glyph and label keep a constant screen size. */
   readonly camera: { readonly zoom: number };
+}
+
+function repaint(host: RemoteCursorOverlayHost): void {
+  if (host.requestOverlayRender) host.requestOverlayRender();
+  else host.requestRender();
 }
 
 export interface RemoteCursorOverlayOptions {
@@ -96,7 +103,7 @@ export class RemoteCursorOverlay {
       // outright once it grows past a small bound keeps this O(1) and
       // deterministic, at the cost of re-measuring after a burst of new peers.
       if (this.labelWidths.size > MAX_LABEL_WIDTH_CACHE) this.labelWidths.clear();
-      host.requestRender();
+      repaint(this.host);
     });
   }
 
@@ -116,7 +123,7 @@ export class RemoteCursorOverlay {
     this.unregister?.();
     this.unregister = null;
     this.labelWidths.clear();
-    this.host.requestRender();
+    repaint(this.host);
   }
 
   private render(ctx: CanvasRenderingContext2D): void {

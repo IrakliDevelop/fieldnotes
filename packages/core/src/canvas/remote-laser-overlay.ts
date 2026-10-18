@@ -69,6 +69,13 @@ export function toLaserTrailPresence(emission: LaserTrailEmission): LaserTrailPr
 export interface RemoteLaserOverlayHost {
   registerOverlay(draw: OverlayRenderer): () => void;
   requestRender(): void;
+  /** Repaints only overlays; the overlay falls back to requestRender when absent. */
+  requestOverlayRender?(): void;
+}
+
+function repaint(host: RemoteLaserOverlayHost): void {
+  if (host.requestOverlayRender) host.requestOverlayRender();
+  else host.requestRender();
 }
 
 export interface RemoteLaserOverlayOptions {
@@ -152,20 +159,20 @@ export class RemoteLaserOverlay {
     const excess = trail.points.length - this.maxPointsPerSender;
     if (excess > 0) trail.points.splice(0, excess);
     this.ensureAnimating();
-    this.host.requestRender();
+    repaint(this.host);
     return true;
   }
 
   /** Removes a sender's trail immediately (presence-leave/disconnect). */
   remove(sender: string): void {
-    if (this.trails.delete(sender)) this.host.requestRender();
+    if (this.trails.delete(sender)) repaint(this.host);
   }
 
   /** Removes every trail immediately. */
   clear(): void {
     if (this.trails.size === 0) return;
     this.trails.clear();
-    this.host.requestRender();
+    repaint(this.host);
   }
 
   /** Number of senders with a live (unfaded) trail. */
@@ -200,7 +207,7 @@ export class RemoteLaserOverlay {
       trail.points = trail.points.filter((point) => point.t >= cutoff);
       if (trail.points.length === 0) this.trails.delete(sender);
     }
-    this.host.requestRender();
+    repaint(this.host);
     this.rafId = this.trails.size > 0 ? requestAnimationFrame(() => this.tick()) : null;
   }
 

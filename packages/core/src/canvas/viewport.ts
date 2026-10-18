@@ -325,6 +325,7 @@ export class Viewport {
       camera: this.camera,
       store: this.store,
       requestRender: () => this.requestRender(),
+      requestOverlayRender: () => this.requestOverlayRender(),
       switchTool: (name: string) => this.toolManager.setTool(name, this.toolContext),
       editElement: (id: string) => this.interactions.startEditingElement(id),
       fitNoteHeight: (id: string) => this.interactions.fitNoteHeight(id),

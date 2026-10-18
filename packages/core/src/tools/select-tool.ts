@@ -381,7 +381,7 @@ export class SelectTool implements Tool {
 
     if (this.mode.type === 'marquee') {
       ctx.setCursor?.('crosshair');
-      ctx.requestRender();
+      ctx.requestOverlayRender();
       return;
     }
 
@@ -548,7 +548,7 @@ export class SelectTool implements Tool {
   private setHovered(id: string | null, ctx: ToolContext): void {
     if (this.hoveredId === id) return;
     this.hoveredId = id;
-    ctx.requestRender();
+    ctx.requestOverlayRender();
   }
 
   private handleResize(world: Point, ctx: ToolContext, shiftKey = false): void {

@@ -169,6 +169,17 @@ describe('RemoteMeasureOverlay', () => {
     expect(host.requestRender).toHaveBeenCalled();
   });
 
+  it('uses requestOverlayRender when the host provides it, else requestRender', () => {
+    const host = makeHost();
+    const requestOverlayRender = vi.fn();
+    new RemoteMeasureOverlay({ ...host, requestOverlayRender }).apply('a', active);
+    expect(requestOverlayRender).toHaveBeenCalledTimes(1);
+    expect(host.requestRender).not.toHaveBeenCalled();
+
+    new RemoteMeasureOverlay(host).apply('a', active);
+    expect(host.requestRender).toHaveBeenCalledTimes(1);
+  });
+
   it('ignores malformed and foreign payloads', () => {
     const host = makeHost();
     const overlay = new RemoteMeasureOverlay(host);

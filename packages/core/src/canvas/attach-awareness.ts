@@ -48,6 +48,8 @@ export interface AwarenessViewport {
   };
   registerOverlay(draw: OverlayRenderer): () => void;
   requestRender(): void;
+  /** Repaints only overlays; the overlay falls back to requestRender when absent. */
+  requestOverlayRender?(): void;
 }
 
 export interface AttachAwarenessOptions extends Omit<LocalAwarenessOptions, 'send'> {

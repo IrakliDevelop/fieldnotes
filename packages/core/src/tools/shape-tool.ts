@@ -88,7 +88,7 @@ export class ShapeTool implements Tool {
     if (this.shape === 'line' && this.shiftHeld) {
       this.end = snapTo45(this.start, this.end);
     }
-    ctx.requestRender();
+    ctx.requestOverlayRender();
   }
 
   onPointerUp(_state: PointerState, ctx: ToolContext): void {
@@ -118,7 +118,7 @@ export class ShapeTool implements Tool {
   onPointerCancel(_state: PointerState, ctx: ToolContext): void {
     if (!this.drawing) return;
     this.drawing = false;
-    ctx.requestRender();
+    ctx.requestOverlayRender();
   }
 
   renderOverlay(ctx: CanvasRenderingContext2D): void {

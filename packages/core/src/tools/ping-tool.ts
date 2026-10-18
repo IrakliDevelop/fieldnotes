@@ -141,7 +141,7 @@ export class PingTool implements Tool {
       }
     }
     this.ensureAnimating(ctx);
-    ctx.requestRender();
+    ctx.requestOverlayRender();
   }
 
   onPointerMove(_state: PointerState, _ctx: ToolContext): void {
@@ -173,7 +173,7 @@ export class PingTool implements Tool {
   private tick(ctx: ToolContext): void {
     const cutoff = this.now() - this.durationMs;
     this.pings = this.pings.filter((ping) => ping.t > cutoff);
-    ctx.requestRender();
+    ctx.requestOverlayRender();
     this.rafId = this.pings.length > 0 ? requestAnimationFrame(() => this.tick(ctx)) : null;
   }
 

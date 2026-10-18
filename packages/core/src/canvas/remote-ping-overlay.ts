@@ -72,6 +72,13 @@ export function toPingPresence(emission: PingEmission): PingPresence {
 export interface RemotePingOverlayHost {
   registerOverlay(draw: OverlayRenderer): () => void;
   requestRender(): void;
+  /** Repaints only overlays; the overlay falls back to requestRender when absent. */
+  requestOverlayRender?(): void;
+}
+
+function repaint(host: RemotePingOverlayHost): void {
+  if (host.requestOverlayRender) host.requestOverlayRender();
+  else host.requestRender();
 }
 
 export interface RemotePingOverlayOptions {
@@ -153,20 +160,20 @@ export class RemotePingOverlay {
     const excess = senderPings.length - this.maxPingsPerSender;
     if (excess > 0) senderPings.splice(0, excess);
     this.ensureAnimating();
-    this.host.requestRender();
+    repaint(this.host);
     return true;
   }
 
   /** Removes a sender's pings immediately (presence-leave/disconnect). */
   remove(sender: string): void {
-    if (this.pings.delete(sender)) this.host.requestRender();
+    if (this.pings.delete(sender)) repaint(this.host);
   }
 
   /** Removes every ping immediately. */
   clear(): void {
     if (this.pings.size === 0) return;
     this.pings.clear();
-    this.host.requestRender();
+    repaint(this.host);
   }
 
   /** Number of senders with a live (unexpired) ping. */
@@ -204,7 +211,7 @@ export class RemotePingOverlay {
         this.pings.set(sender, live);
       }
     }
-    this.host.requestRender();
+    repaint(this.host);
     this.rafId = this.pings.size > 0 ? requestAnimationFrame(() => this.tick()) : null;
   }
 

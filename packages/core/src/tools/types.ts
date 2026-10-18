@@ -8,6 +8,8 @@ export interface ToolContext {
   camera: Camera;
   store: ElementStore;
   requestRender: () => void;
+  /** Repaints only the overlay (this tool's renderOverlay and registered overlays). Use requestRender when the scene changed. */
+  requestOverlayRender: () => void;
   switchTool?: (name: string) => void;
   editElement?: (id: string) => void;
   fitNoteHeight?: (id: string) => void;

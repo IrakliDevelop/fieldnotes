@@ -150,6 +150,7 @@ export class ElementActivation {
       camera: deps.camera,
       store: deps.store,
       requestRender: noop,
+      requestOverlayRender: noop,
       isLayerVisible: deps.isLayerVisible,
     };
 

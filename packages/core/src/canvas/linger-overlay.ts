@@ -4,6 +4,13 @@ import type { OverlayRenderer } from './render-loop';
 export interface LingerOverlayHost {
   registerOverlay(draw: OverlayRenderer): () => void;
   requestRender(): void;
+  /** Repaints only overlays; the overlay falls back to requestRender when absent. */
+  requestOverlayRender?(): void;
+}
+
+function repaint(host: LingerOverlayHost): void {
+  if (host.requestOverlayRender) host.requestOverlayRender();
+  else host.requestRender();
 }
 
 export interface LingerOverlayOptions {
@@ -96,7 +103,7 @@ export class LingerOverlay<T> {
       clearedAt: null,
       expiryTimer: setTimeout(() => this.linger(sender), this.maxAgeMs),
     });
-    this.host.requestRender();
+    repaint(this.host);
   }
 
   /** Starts the hold-then-fade lifetime for `sender`'s entry. */
@@ -109,7 +116,7 @@ export class LingerOverlay<T> {
     }
     entry.clearedAt = this.now();
     this.ensureAnimating();
-    this.host.requestRender();
+    repaint(this.host);
   }
 
   /** Removes a sender's entry immediately (presence-leave/disconnect). */
@@ -118,7 +125,7 @@ export class LingerOverlay<T> {
     if (!entry) return;
     if (entry.expiryTimer != null) clearTimeout(entry.expiryTimer);
     this.entries.delete(sender);
-    this.host.requestRender();
+    repaint(this.host);
   }
 
   /** Removes every entry immediately. */
@@ -128,7 +135,7 @@ export class LingerOverlay<T> {
       if (entry.expiryTimer != null) clearTimeout(entry.expiryTimer);
     }
     this.entries.clear();
-    this.host.requestRender();
+    repaint(this.host);
   }
 
   /** Number of senders with a visible (active or lingering) entry. */
@@ -155,7 +162,7 @@ export class LingerOverlay<T> {
     this.entries.clear();
     this.unregister?.();
     this.unregister = null;
-    this.host.requestRender();
+    repaint(this.host);
   }
 
   private ensureAnimating(): void {
@@ -176,7 +183,7 @@ export class LingerOverlay<T> {
         lingering += 1;
       }
     }
-    this.host.requestRender();
+    repaint(this.host);
     this.rafId = lingering > 0 ? requestAnimationFrame(() => this.tick()) : null;
   }
 

@@ -180,10 +180,10 @@ export class LaserTool implements Tool {
     const cutoff = this.now() - this.fadeMs;
     this.trail = this.trail.filter((p) => p.t >= cutoff);
     if (this.trail.length > 0) {
-      ctx.requestRender();
+      ctx.requestOverlayRender();
       this.rafId = requestAnimationFrame(() => this.tick(ctx));
     } else {
-      ctx.requestRender();
+      ctx.requestOverlayRender();
       this.rafId = null;
     }
   }

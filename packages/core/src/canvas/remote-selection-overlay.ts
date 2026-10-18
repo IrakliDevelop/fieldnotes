@@ -10,9 +10,16 @@ import { defaultPeerColor } from './remote-cursor-overlay';
 export interface RemoteSelectionOverlayHost {
   registerOverlay(draw: OverlayRenderer): () => void;
   requestRender(): void;
+  /** Repaints only overlays; the overlay falls back to requestRender when absent. */
+  requestOverlayRender?(): void;
   readonly camera: { readonly zoom: number };
   readonly store: ElementStore;
   readonly layerManager: LayerManager;
+}
+
+function repaint(host: RemoteSelectionOverlayHost): void {
+  if (host.requestOverlayRender) host.requestOverlayRender();
+  else host.requestRender();
 }
 
 export interface RemoteSelectionOverlayOptions {
@@ -75,10 +82,10 @@ export class RemoteSelectionOverlay {
     this.unregister = host.registerOverlay((ctx) => this.render(ctx));
     const invalidate = (): void => {
       this.storeDirty = true;
-      host.requestRender();
+      repaint(this.host);
     };
     this.unsubscribers.push(
-      roster.onChange(() => host.requestRender()),
+      roster.onChange(() => repaint(this.host)),
       host.store.onChange(invalidate),
       host.layerManager.on('change', invalidate),
     );
@@ -97,7 +104,7 @@ export class RemoteSelectionOverlay {
     this.unregister = null;
     this.signatures = [];
     this.outlines = [];
-    this.host.requestRender();
+    repaint(this.host);
   }
 
   private resolveColor(peer: Peer): string {

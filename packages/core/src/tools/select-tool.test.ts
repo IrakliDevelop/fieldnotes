@@ -95,6 +95,7 @@ function makeCtx(overrides: Partial<ToolContext> = {}): ToolContext {
     camera: new Camera(),
     store: new ElementStore(),
     requestRender: vi.fn(),
+    requestOverlayRender: vi.fn(),
     ...overrides,
   };
 }
@@ -209,6 +210,19 @@ describe('SelectTool', () => {
       const updated = ctx.store.getById(note.id);
       expect(updated?.position.x).toBe(120);
       expect(updated?.position.y).toBe(120);
+    });
+
+    it('dragging elements still requests a full render', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      ctx.store.add(createNote({ position: { x: 100, y: 100 }, size: { w: 200, h: 100 } }));
+
+      tool.onPointerDown(pt(150, 130), ctx);
+      vi.mocked(ctx.requestRender).mockClear();
+      tool.onPointerMove(pt(170, 150), ctx);
+
+      expect(ctx.requestRender).toHaveBeenCalledTimes(1);
+      expect(ctx.requestOverlayRender).not.toHaveBeenCalled();
     });
 
     it('does not move locked elements', () => {
@@ -429,6 +443,19 @@ describe('SelectTool', () => {
       tool.onPointerMove(pt(100, 100), ctx);
 
       expect(ctx.requestRender).toHaveBeenCalled();
+    });
+
+    it('marquee drag requests overlay-only renders', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+
+      tool.onPointerDown(pt(0, 0), ctx);
+      vi.mocked(ctx.requestRender).mockClear();
+      tool.onPointerMove(pt(50, 50), ctx);
+      tool.onPointerMove(pt(100, 100), ctx);
+
+      expect(ctx.requestOverlayRender).toHaveBeenCalledTimes(2);
+      expect(ctx.requestRender).not.toHaveBeenCalled();
     });
 
     it('clears marquee state after pointer up', () => {
@@ -1035,6 +1062,7 @@ describe('SelectTool', () => {
         camera: new Camera(),
         store,
         requestRender: vi.fn(),
+        requestOverlayRender: vi.fn(),
         isLayerVisible: (id: string) => id !== 'hidden-layer',
         isLayerLocked: () => false,
         activeLayerId: 'visible-layer',
@@ -1055,6 +1083,7 @@ describe('SelectTool', () => {
         camera: new Camera(),
         store,
         requestRender: vi.fn(),
+        requestOverlayRender: vi.fn(),
         isLayerVisible: () => true,
         isLayerLocked: (id: string) => id === 'locked-layer',
         activeLayerId: 'other-layer',
@@ -1894,10 +1923,10 @@ describe('SelectTool', () => {
       return { tool, ctx, note };
     }
 
-    it('requests a render when hover enters an element and strokes its bounds', () => {
+    it('requests an overlay render when hover enters an element and strokes its bounds', () => {
       const { tool, ctx, note } = hoverSetup();
       tool.onHover?.(pt(150, 130), ctx);
-      expect(ctx.requestRender).toHaveBeenCalledTimes(1);
+      expect(ctx.requestOverlayRender).toHaveBeenCalledTimes(1);
 
       const canvas = mockCanvas();
       tool.renderOverlay?.(canvas);
@@ -1908,14 +1937,14 @@ describe('SelectTool', () => {
       const { tool, ctx } = hoverSetup();
       tool.onHover?.(pt(150, 130), ctx);
       tool.onHover?.(pt(160, 140), ctx);
-      expect(ctx.requestRender).toHaveBeenCalledTimes(1);
+      expect(ctx.requestOverlayRender).toHaveBeenCalledTimes(1);
     });
 
-    it('requests a render when hover leaves the element', () => {
+    it('requests an overlay render when hover leaves the element', () => {
       const { tool, ctx } = hoverSetup();
       tool.onHover?.(pt(150, 130), ctx);
       tool.onHover?.(pt(500, 500), ctx);
-      expect(ctx.requestRender).toHaveBeenCalledTimes(2);
+      expect(ctx.requestOverlayRender).toHaveBeenCalledTimes(2);
       const canvas = mockCanvas();
       tool.renderOverlay?.(canvas);
       expect(canvas.strokeRect).not.toHaveBeenCalled();

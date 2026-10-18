@@ -10,6 +10,7 @@ function makeCtx(overrides: Partial<ToolContext> = {}): ToolContext {
     camera: new Camera(),
     store: new ElementStore(),
     requestRender: vi.fn(),
+    requestOverlayRender: vi.fn(),
     ...overrides,
   };
 }
@@ -22,6 +23,15 @@ describe('PencilTool', () => {
   it('has name "pencil"', () => {
     const tool = new PencilTool();
     expect(tool.name).toBe('pencil');
+  });
+
+  it('pointer move during a stroke requests an overlay-only render', () => {
+    const tool = new PencilTool();
+    const ctx = makeCtx();
+    tool.onPointerDown(pt(0, 0), ctx);
+    tool.onPointerMove(pt(10, 10), ctx);
+    expect(ctx.requestOverlayRender).toHaveBeenCalledTimes(1);
+    expect(ctx.requestRender).not.toHaveBeenCalled();
   });
 
   it('uses a configurable name', () => {
@@ -95,16 +105,6 @@ describe('PencilTool', () => {
 
     const stroke = ctx.store.getAll()[0] as StrokeElement;
     expect(stroke.points[0]?.x).not.toBe(50);
-  });
-
-  it('requests render on pointer move', () => {
-    const tool = new PencilTool();
-    const ctx = makeCtx();
-
-    tool.onPointerDown(pt(0, 0), ctx);
-    tool.onPointerMove(pt(10, 10), ctx);
-
-    expect(ctx.requestRender).toHaveBeenCalled();
   });
 
   it('uses configured color and width', () => {
