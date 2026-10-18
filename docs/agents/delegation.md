@@ -22,17 +22,24 @@ The session model is the thinking tier. The cheapest tier never touches code.
 2. **Spec and plan** go to `docs/superpowers/specs/` and `docs/superpowers/plans/`
    (gitignored working context, like the root planning documents). A plan is a list of
    task briefs; each brief is self-contained (see template).
+   Working files live under `.work/` (gitignored): briefs in `.work/briefs/task-N.md`,
+   reports in `.work/reports/task-N.md`, diffs in `.work/diffs/task-N.diff` built from
+   `git log --oneline BASE..HEAD`, `git diff --stat BASE..HEAD`, and `git diff -U10 BASE..HEAD`.
 3. **Execute** one brief per fresh coding-tier agent. Record the base commit before
    dispatch. The agent gets the brief file and the handbook pages it names, never the
    conversation transcript.
 4. **Review** each finished task with a review-tier agent that reads the brief, the
    implementer's report and a single diff file for `BASE..HEAD`. Critical and Important
    findings go back to a coding-tier agent; at most two fix rounds, then the thinking
-   tier decides. Minor findings are recorded for the branch review.
-5. **Branch review** by the review tier once every task passed. The thinking tier reads
-   the verdicts and `git diff --stat`, spot-checks the risk areas the reviews named, runs
-   the verification matrix from [workflow.md](workflow.md), opens the PR, updates the
-   roadmap progress log.
+   tier decides. Minor findings are appended to `.work/minor-findings.md`.
+5. **Deslop** once every task passed: one coding-tier task runs the deslop pass from the
+   `fieldnotes-concise-code` skill over `BASE..HEAD`, then a task review as usual.
+6. **Branch review** by the review tier, which reads the spec, the plan, the branch diff
+   file, and `.work/minor-findings.md`. The thinking tier reads the verdicts and
+   `git diff --stat`, spot-checks the risk areas the reviews named, runs the verification
+   matrix from [workflow.md](workflow.md), and for render, input, or demo changes runs the
+   `fieldnotes-browser-check` skill and puts its evidence blocks in the PR. Then it opens
+   the PR and updates the roadmap progress log.
 
 ## Task brief template
 
@@ -78,16 +85,37 @@ master`, then `pnpm install --frozen-lockfile --offline`). Sibling packages reso
 at build and typecheck time, so a fresh worktree needs `pnpm build` (or the dependency packages
 built in order) once before a package build succeeds; briefs for worktree tasks say so.
 
+## Autonomous run
+
+When the owner hands an approved spec and plan to an unattended session, there is no human
+approval gate:
+
+- The spec and plan are approved; do not reopen their decisions.
+- A coding agent's NEEDS_CONTEXT goes to the thinking tier, which decides from the AGENTS.md
+  invariants and the spec, records the decision in the PR body, and re-dispatches.
+- Stop and leave a draft PR describing the blocker only if a decision would break an AGENTS.md
+  invariant.
+- Commit and push after each approved task so progress survives an interrupted session.
+
 ## Claude Code
 
 Agent definitions live in `.claude/agents/` with pinned models and tool sets:
-`fn-implementer` (coding, Opus 4.6 1M), `fn-transcriber` (Sonnet 5), `fn-task-reviewer`
-and `fn-branch-reviewer` (Opus 5, no edit tools). The session runs Fable 5.1 as the
-thinking tier. Process skills: `superpowers:brainstorming` → `superpowers:writing-plans`
-→ `superpowers:subagent-driven-development`, dispatching the agents above by name. Edits to
-existing definitions load within seconds; a session started before `.claude/agents/` existed
-must be restarted to see them. Until then dispatch `general-purpose` with an explicit `model`
-and paste the definition body as the prompt preamble.
+
+| Agent                | Tier            | Model                            |
+| -------------------- | --------------- | -------------------------------- |
+| `fn-implementer`     | Coding          | `claude-opus-5-5`                |
+| `fn-transcriber`     | Transcription   | `claude-sonnet-5-5`              |
+| `fn-task-reviewer`   | Review (task)   | `claude-opus-5-5`, no edit tools |
+| `fn-branch-reviewer` | Review (branch) | `claude-opus-5-5`, no edit tools |
+
+The session model is the thinking tier. Process skills: `superpowers:brainstorming` →
+`superpowers:writing-plans` → `superpowers:subagent-driven-development`, dispatching the agents
+above by name. Repository skills live in `.agents/skills/` and are linked into `.claude/skills/`;
+the coding tier loads `fieldnotes-concise-code`, `fieldnotes-typescript`, and `fieldnotes-testing`
+on every task. Only the session model uses Claude in Chrome. Edits to existing definitions load
+within seconds; a session started before `.claude/agents/` existed must be restarted to see them.
+Until then dispatch `general-purpose` with an explicit `model` and paste the definition body as
+the prompt preamble.
 
 ## Codex
 

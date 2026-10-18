@@ -3,14 +3,14 @@
 This is the durable, tool-neutral knowledge base for AI-assisted work on Field Notes. `AGENTS.md` is
 the mandatory short entry point; these pages provide detail on demand.
 
-| Need                                  | Read                                                                      |
-| ------------------------------------- | ------------------------------------------------------------------------- |
-| First time here? Start with the wiki  | [Agent Wiki](../wiki/README.md)                                           |
-| Find the owning package or subsystem  | [Architecture map](architecture.md)                                       |
-| Implement, test, refactor, or release | [Workflow and verification](workflow.md)                                  |
-| Review a change or prepare a handoff  | [Review playbook](review.md)                                              |
-| Split work across model tiers         | [Tiered delegation](delegation.md)                                        |
-| Invoke a reusable procedure           | [Field Notes skill](../../.agents/skills/fieldnotes-development/SKILL.md) |
+| Need                                        | Read                                                                       |
+| ------------------------------------------- | -------------------------------------------------------------------------- |
+| First time here? Start with the wiki        | [Agent Wiki](../wiki/README.md)                                            |
+| Find the owning package or subsystem        | [Architecture map](architecture.md)                                        |
+| Implement, test, refactor, or release       | [Workflow and verification](workflow.md)                                   |
+| Review a change or prepare a handoff        | [Review playbook](review.md)                                               |
+| Split work across model tiers               | [Tiered delegation](delegation.md)                                         |
+| Invoke a reusable procedure or domain rules | [Field Notes skills](../../.agents/skills/fieldnotes-development/SKILL.md) |
 
 ## Wiki vs Handbook
 

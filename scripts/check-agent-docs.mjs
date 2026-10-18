@@ -62,6 +62,24 @@ for (const entry of await readdir(resolve(root, skillsRoot), { withFileTypes: tr
   }
 }
 
+const requiredSkills = [
+  'fieldnotes-development',
+  'fieldnotes-concise-code',
+  'fieldnotes-typescript',
+  'fieldnotes-testing',
+  'fieldnotes-visual-tests',
+  'fieldnotes-pointer-input',
+  'fieldnotes-sync-security',
+  'fieldnotes-browser-check',
+];
+for (const skill of requiredSkills) {
+  if (!skillNames.includes(skill)) errors.push(`Missing required skill: ${skill}`);
+}
+const router = contents.get('.agents/skills/fieldnotes-development/SKILL.md') ?? '';
+for (const skill of requiredSkills.slice(1)) {
+  if (!router.includes(`\`${skill}\``)) errors.push(`Router skill does not list: ${skill}`);
+}
+
 const markdownLink = /\[[^\]]+\]\((?!https?:|#)([^)]+\.md)(?:#[^)]+)?\)/g;
 for (const [source, content] of contents) {
   for (const match of content.matchAll(markdownLink)) {
