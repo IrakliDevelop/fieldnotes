@@ -2001,8 +2001,10 @@ describe('RenderLoop', () => {
         const l1 = layers.activeLayerId;
         const l2 = layers.createLayer().id;
         const l3 = layers.createLayer().id;
+        const l4 = layers.createLayer().id;
         layers.setLayerVisible(l3, false);
         store.add(shapeOn('a', l1));
+        store.add(shapeOn('b', l2));
         store.add(shapeOn('hidden', l3));
         const events: string[] = [];
         vi.mocked(deps.renderer.renderCanvasElement).mockImplementation((_ctx, el) => {
@@ -2016,7 +2018,20 @@ describe('RenderLoop', () => {
 
         frame();
 
-        expect(events).toEqual(['draw a', `hook ${l1}`, `hook ${l2}`]);
+        expect(events).toEqual(['draw a', `hook ${l1}`, 'draw b', `hook ${l2}`, `hook ${l4}`]);
+      });
+
+      it('draws elements on an unlisted layer before the first listed layer', () => {
+        store.add(shapeOn('orphan', 'unknown-layer'));
+        store.add(shapeOn('a', layers.activeLayerId));
+        const drawn: string[] = [];
+        vi.mocked(deps.renderer.renderCanvasElement).mockImplementation((_ctx, el) => {
+          drawn.push(el.id);
+        });
+
+        frame();
+
+        expect(drawn).toEqual(['orphan', 'a']);
       });
 
       it('afterLayer draws in screen space', () => {

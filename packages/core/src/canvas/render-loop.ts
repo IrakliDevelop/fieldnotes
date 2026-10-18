@@ -34,6 +34,11 @@ interface SavableContext {
   restore(): void;
 }
 
+interface FrameTimers {
+  layersMs: number;
+  compositeMs: number;
+}
+
 /** Reassigning width clears the pixels and drops the whole save, clip and transform stack. */
 function resetCanvas(canvas: HTMLCanvasElement): void {
   const { width } = canvas;
@@ -89,9 +94,6 @@ export class RenderLoop {
   // id -> last update time: `warm` saw one recent update, `live` is drawn outside the layer cache.
   private readonly warm = new Map<string, number>();
   private readonly live = new Map<string, number>();
-  // Per-frame stats accumulators, reset at the start of each frame.
-  private layersMs = 0;
-  private compositeMs = 0;
 
   constructor(deps: RenderLoopDeps) {
     this.canvasEl = deps.canvasEl;
@@ -286,6 +288,7 @@ export class RenderLoop {
     layerId: string,
     elements: readonly CanvasElement[],
     cullingRect: Bounds,
+    timers: FrameTimers,
   ): void {
     const layerOpacity = this.layerOpacities.get(layerId) ?? 1;
 
@@ -307,7 +310,7 @@ export class RenderLoop {
           if (element) this.renderCulled(ctx, element, cullingRect);
         }
         this.drawLayerPart(ctx, layerId, 'over', elements, hi + 1, elements.length, cullingRect);
-        this.layersMs += performance.now() - layerT0;
+        timers.layersMs += performance.now() - layerT0;
         return;
       }
     }
@@ -315,7 +318,7 @@ export class RenderLoop {
     if (!this.layerCache.isDirty(layerId)) {
       const compT0 = performance.now();
       this.compositeLayerCache(ctx, this.layerCache.getCanvas(layerId), layerOpacity);
-      this.compositeMs += performance.now() - compT0;
+      timers.compositeMs += performance.now() - compT0;
       return;
     }
 
@@ -331,11 +334,11 @@ export class RenderLoop {
       }
       this.restoreTracked(offCtx);
       this.layerCache.markClean(layerId);
-      this.layersMs += performance.now() - layerT0;
+      timers.layersMs += performance.now() - layerT0;
 
       const compT0 = performance.now();
       this.compositeLayerCache(ctx, offCanvas, layerOpacity);
-      this.compositeMs += performance.now() - compT0;
+      timers.compositeMs += performance.now() - compT0;
     }
   }
 
@@ -524,8 +527,8 @@ export class RenderLoop {
     for (const canvas of this.staleCanvases) resetCanvas(canvas);
     this.staleCanvases.length = 0;
 
-    this.layersMs = 0;
-    this.compositeMs = 0;
+    // Frame-local so a reentrant flush() from a hook cannot reset this frame's timers.
+    const timers: FrameTimers = { layersMs: 0, compositeMs: 0 };
 
     const dpr = typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1;
     const cssWidth = this.canvasEl.clientWidth;
@@ -672,13 +675,15 @@ export class RenderLoop {
     this.hybridSurface.beginFrame(hybridOrders, this.canvasEl.width, this.canvasEl.height);
 
     const hasAfterLayerHook = this.hooks?.viewport.has('afterLayer') ?? false;
-    let drawnGroups = 0;
+    // Unlisted layers sort as order 0 in the store, so their groups paint first.
+    for (const [layerId, elements] of this.layerGroups) {
+      if (!this.layerOpacities.has(layerId)) {
+        this.drawLayerGroup(ctx, layerId, elements, cullingRect, timers);
+      }
+    }
     for (const layer of layers) {
       const elements = this.layerGroups.get(layer.id);
-      if (elements) {
-        this.drawLayerGroup(ctx, layer.id, elements, cullingRect);
-        drawnGroups++;
-      }
+      if (elements) this.drawLayerGroup(ctx, layer.id, elements, cullingRect, timers);
       if (!this.hooks || !hasAfterLayerHook || !layer.visible) continue;
       this.saveTracked(ctx);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -691,14 +696,6 @@ export class RenderLoop {
       );
       this.restoreTracked(ctx);
       if (failed) this.staleCanvases.push(this.canvasEl);
-    }
-    // Groups of layers the manager does not list still draw, in their existing order.
-    if (drawnGroups < this.layerGroups.size) {
-      for (const [layerId, elements] of this.layerGroups) {
-        if (!this.layerOpacities.has(layerId)) {
-          this.drawLayerGroup(ctx, layerId, elements, cullingRect);
-        }
-      }
     }
 
     // Render full-canvas extensions (e.g. grids) with explicit world bounds.
@@ -839,9 +836,9 @@ export class RenderLoop {
     }
 
     this.stats.recordFrame(performance.now() - t0, {
-      layersMs: this.layersMs,
+      layersMs: timers.layersMs,
       backgroundMs,
-      compositeMs: this.compositeMs,
+      compositeMs: timers.compositeMs,
       overlayMs,
     });
   }
