@@ -116,17 +116,24 @@ export const FieldNotesCanvas = forwardRef<FieldNotesCanvasRef, FieldNotesCanvas
         timer = setTimeout(emit, changeRef.current.changeDebounceMs);
       });
 
-      setViewport(vp);
-      onReady?.(vp);
+      try {
+        onReady?.(vp);
 
-      // Hosts that register their own tools in onReady keep exactly those (0.13 behaviour).
-      if (deferDefaults) {
-        const registerDefaults = vp.toolManager.toolNames.length === 0;
-        if (registerDefaults) {
-          for (const t of createDefaultTools()) vp.toolManager.register(t);
+        // Hosts that register their own tools in onReady keep exactly those (0.13 behaviour).
+        if (deferDefaults) {
+          const registerDefaults = vp.toolManager.toolNames.length === 0;
+          if (registerDefaults) {
+            for (const t of createDefaultTools()) vp.toolManager.register(t);
+          }
+          activate(registerDefaults ? 'select' : undefined);
         }
-        activate(registerDefaults ? 'select' : undefined);
+      } catch (error) {
+        clearTimeout(timer);
+        unsubscribe();
+        vp.destroy();
+        throw error;
       }
+      setViewport(vp);
 
       return () => {
         if (timer !== undefined) {

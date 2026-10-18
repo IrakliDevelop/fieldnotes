@@ -362,6 +362,31 @@ describe('FieldNotesCanvas initialData and onChange', () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
+  it('destroys the viewport and surfaces the error when onReady throws', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const destroy = vi.spyOn(Viewport.prototype, 'destroy');
+    class Boundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+      state = { failed: false };
+      static getDerivedStateFromError() {
+        return { failed: true };
+      }
+      render() {
+        return this.state.failed ? <p>ready failed</p> : this.props.children;
+      }
+    }
+    const { getByText } = render(
+      <Boundary>
+        <FieldNotesCanvas
+          onReady={() => {
+            throw new Error('host setup failed');
+          }}
+        />
+      </Boundary>,
+    );
+    expect(getByText('ready failed')).not.toBeNull();
+    expect(destroy).toHaveBeenCalledTimes(1);
+  });
+
   it('debounces rapid changes into one onChange with the exported state', () => {
     vi.useFakeTimers();
     const onReady = vi.fn<(viewport: Viewport) => void>();
