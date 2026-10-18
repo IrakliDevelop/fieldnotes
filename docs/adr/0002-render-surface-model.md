@@ -1,6 +1,6 @@
 # ADR-0002: Render Surface Model
 
-- **Status:** Accepted and implemented
+- **Status:** Accepted and implemented; render-time fail-closed enforcement since core 0.90.0 (see Implementation notes)
 - **Deciders:** Project maintainer
 - **Date:** 2026-09-05
 - **Supersedes:** —
@@ -273,6 +273,41 @@ viewport.renderHooks.svgExport.register(
 If a required export hook is not registered, image export throws (or returns a masked image) and SVG export emits an opaque `<rect>` covering the content area.
 
 Standalone export functions (`exportImage()`, `exportSvg()`) accept the same `RenderHooks` registry — not viewport-only hooks. They also accept `requiredCapabilities`. If a required capability is not satisfied at export time, the export throws or returns a masked result. This solves the "standalone export" problem — the export function doesn't need to know which plugins exist; it checks capabilities.
+
+## Implementation notes (0.90.0)
+
+These notes record where the implementation in `packages/core/src/canvas/render-hooks.ts` differs
+from or sharpens the decision above. Where they conflict, the notes describe the shipped behaviour.
+
+- **Hook signatures.** Viewport hooks receive `(ctx, camera, dimensions)`. Minimap, image export and
+  SVG export hooks receive one mapping object each (`MinimapMapping`, `ImageExportMapping`,
+  `SvgExportMapping`); SVG hooks write markup through `mapping.appendSvg`.
+- **Slots.** `ViewportSlot` is an ordering key (slot, then ascending `priority`, then registration
+  order). It does not move a hook to another stratum, and the slot/hook pairing constraint is not
+  enforced.
+- **`call(hookName, ...args)`** runs each live entry in try/catch. A throwing entry is
+  **quarantined**: reported once through `reportError` (or `console.error` when it is missing) and
+  never called again until its registration is disposed and made anew. Quarantine, not retry,
+  bounds report spam and context state leaked by a hook that throws mid-draw.
+- **Satisfaction at render time.** A capability is active when at least one entry that satisfies it
+  is registered, its `enabled` predicate returns true, and it is not quarantined. Construction-time
+  validation still counts registrations only. A host requiring a capability therefore sees the
+  fail-closed state while the satisfying hook is disabled.
+- **`setRequiredCapabilities(caps)`** stores the host requirement per surface; the viewport sets it
+  from `requiredCapabilities` after the construction check passes.
+- **`getMissingCapabilities(extra?)`** lists required (stored plus `extra`) capabilities that are not
+  active.
+- **`isFailClosed(extra?)`** is true when a requirement is not active, or a quarantined entry is
+  `required` or satisfies a required capability (the auto-required rule above).
+
+| Surface                     | Fail-closed behaviour as implemented                                                                                                                                                                                               |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Viewport                    | Remaining hooks run, then an opaque `#000` mask fills the `afterElements` stratum, above all canvas and DOM content. Overlays and `afterAll` still draw.                                                                           |
+| Minimap                     | Blank: no scene content is drawn.                                                                                                                                                                                                  |
+| Image export and SVG export | Throw `Required render capabilities are missing on <surface>: ...` before drawing, or `Required render hook failed on <surface>` when a fail-closed hook throws during the export. No masked image or opaque `<rect>` is produced. |
+
+Standalone `exportImage` and `exportSvg` accept `requiredCapabilities`, unioned with the registry's
+stored set; without `renderHooks` every listed capability is missing.
 
 ## Options Considered
 

@@ -226,7 +226,7 @@ export class MinimapController {
 
   private currentMapping(): Bounds {
     const viewportRect = this.viewport.getVisibleRect();
-    let mapping = getElementsBoundingBox(this.sceneElements());
+    let mapping = getElementsBoundingBox(this.sceneElements(), this.viewport.elementRegistry);
     mapping = mapping ? unionBounds(mapping, viewportRect) : viewportRect;
     const extra = this.getExtraBounds?.();
     if (extra) {
@@ -268,6 +268,12 @@ export class MinimapController {
     sceneCanvas.height = Math.max(1, Math.round(this.height * dpr));
     const ctx = sceneCanvas.getContext('2d');
     if (!ctx) return;
+    // Atomic swap: bitmap, transform, and mapping replace together.
+    const scene = { canvas: sceneCanvas, transform, mapping };
+    if (this.minimapHooks?.isFailClosed()) {
+      this.scene = scene;
+      return;
+    }
 
     const byLayer = new Map<string, CanvasElement[]>();
     for (const el of this.sceneElements()) {
@@ -311,13 +317,16 @@ export class MinimapController {
         offsetX: transform.offsetX,
         offsetY: transform.offsetY,
       };
-      for (const fn of this.minimapHooks.iterate('afterElements')) {
-        fn(miniMapping);
+      this.minimapHooks.call('afterElements', miniMapping);
+      // A satisfying hook that just threw must not leave unmasked content in the scene.
+      if (this.minimapHooks.isFailClosed()) {
+        // Reassigning width also drops any clip or save the hook left behind.
+        const { width } = sceneCanvas;
+        sceneCanvas.width = width;
       }
     }
 
-    // Atomic swap: bitmap, transform, and mapping replace together.
-    this.scene = { canvas: sceneCanvas, transform, mapping };
+    this.scene = scene;
   }
 
   private renderLayerElements(
@@ -332,7 +341,7 @@ export class MinimapController {
       // it) — the SAME routing decision the main renderer and export make,
       // via the registry this controller forwarded in setHtmlPainters().
       if (this.renderer.isDomElement(el)) {
-        const b = getElementBounds(el);
+        const b = getElementBounds(el, this.viewport.elementRegistry);
         if (!b) continue;
         const tl = worldToMini(t, { x: b.x, y: b.y });
         ctx.save();

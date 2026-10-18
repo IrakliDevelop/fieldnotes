@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   ElementStore,
   ElementRegistry,
@@ -358,6 +358,30 @@ describe('SyncClient', () => {
     // ...and the inbound queue is still drained.
     expect(store.getById(template.id)).toBeDefined();
     client.dispose();
+  });
+
+  it('keeps the store registry when no elementRegistry is given', () => {
+    const store = new ElementStore(new ElementRegistry());
+    const setRegistry = vi.spyOn(store, 'setElementRegistry');
+
+    new SyncClient({ store, transport: makeReconnectTransport(), clientId: 'own' }).dispose();
+
+    expect(setRegistry).not.toHaveBeenCalled();
+  });
+
+  it('sets the given elementRegistry on the store', () => {
+    const store = new ElementStore(new ElementRegistry());
+    const setRegistry = vi.spyOn(store, 'setElementRegistry');
+    const registry = new ElementRegistry();
+
+    new SyncClient({
+      store,
+      transport: makeReconnectTransport(),
+      clientId: 'given',
+      elementRegistry: registry,
+    }).dispose();
+
+    expect(setRegistry).toHaveBeenCalledWith(registry);
   });
 
   it('drops an unwrapped VTT element it has no adapter for instead of admitting it', () => {

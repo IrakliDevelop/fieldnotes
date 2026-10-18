@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import {
   computeBounds,
   getElementRect,
@@ -19,6 +19,7 @@ import { ElementStore } from '../elements/element-store';
 import { HtmlPainterRegistry, HtmlPainterMissingError } from './html-painter-registry';
 import type { ExtensionElementEnvelope, HtmlElement } from '../elements/types';
 import { ElementRegistry } from '../elements/element-registry';
+import { createRenderHooks } from './render-hooks';
 
 function extensionFixture(): {
   element: ExtensionElementEnvelope;
@@ -1029,6 +1030,89 @@ describe('exportImage — rendering paths', () => {
     expect(blob?.type).toBe('image/png');
     expect(lastToBlobArgs).toEqual(['image/png', undefined]);
     vi.restoreAllMocks();
+  });
+
+  describe('exportImage — required render capabilities', () => {
+    function shapeStore(): ElementStore {
+      const store = new ElementStore();
+      store.add(createShape({ position: { x: 0, y: 0 }, size: { w: 50, h: 50 } }));
+      return store;
+    }
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      vi.restoreAllMocks();
+    });
+
+    it.each([
+      ['a store with content', shapeStore()],
+      ['an empty store', new ElementStore()],
+    ])('rejects a missing required capability without render hooks for %s', async (_, store) => {
+      mockGetContext();
+      await expect(exportImage(store, { requiredCapabilities: ['x', 'y'] })).rejects.toThrow(
+        'Required render capabilities are missing on imageExport: x, y',
+      );
+    });
+
+    it('rejects a requirement stored on the registry, as a viewport export inherits it', async () => {
+      mockGetContext();
+      const renderHooks = createRenderHooks();
+      renderHooks.imageExport.setRequiredCapabilities(['x']);
+
+      await expect(exportImage(shapeStore(), { renderHooks })).rejects.toThrow(
+        'Required render capabilities are missing on imageExport: x',
+      );
+    });
+
+    it('resolves when a registered, enabled hook satisfies the requirement', async () => {
+      mockGetContext();
+      const renderHooks = createRenderHooks();
+      const afterElements = vi.fn();
+      renderHooks.imageExport.register({ afterElements }, { satisfies: ['x'] });
+
+      const blob = await exportImage(shapeStore(), { renderHooks, requiredCapabilities: ['x'] });
+
+      expect(blob).toBeInstanceOf(Blob);
+      expect(afterElements).toHaveBeenCalledTimes(1);
+    });
+
+    it('reports a throwing optional hook and still resolves', async () => {
+      const reportSpy = vi.fn();
+      vi.stubGlobal('reportError', reportSpy);
+      mockGetContext();
+      const renderHooks = createRenderHooks();
+      const later = vi.fn();
+      renderHooks.imageExport.register({
+        afterElements: () => {
+          throw new Error('decor failed');
+        },
+      });
+      renderHooks.imageExport.register({ afterElements: later });
+
+      const blob = await exportImage(shapeStore(), { renderHooks });
+
+      expect(blob).toBeInstanceOf(Blob);
+      expect(later).toHaveBeenCalledTimes(1);
+      expect(reportSpy).toHaveBeenCalledWith(new Error('decor failed'));
+    });
+
+    it('rejects when the hook satisfying a required capability throws', async () => {
+      vi.stubGlobal('reportError', vi.fn());
+      mockGetContext();
+      const renderHooks = createRenderHooks();
+      renderHooks.imageExport.register(
+        {
+          afterElements: () => {
+            throw new Error('fog failed');
+          },
+        },
+        { satisfies: ['x'] },
+      );
+
+      await expect(
+        exportImage(shapeStore(), { renderHooks, requiredCapabilities: ['x'] }),
+      ).rejects.toThrow('Required render capabilities are missing on imageExport: x');
+    });
   });
 
   describe('exportImage canvas-routed html', () => {

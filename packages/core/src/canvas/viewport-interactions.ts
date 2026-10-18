@@ -138,7 +138,7 @@ export class ViewportInteractions {
     const hit = hitTest(
       world,
       { ...this.deps.toolContext, isLayerLocked: () => false },
-      (el) => 'size' in el,
+      (el) => 'size' in el && el.type !== 'extension',
     );
     if (hit?.type === 'html') {
       this.deps.interactMode.startInteracting(hit.id);

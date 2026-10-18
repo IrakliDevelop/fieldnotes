@@ -34,9 +34,9 @@ export const annotationPlugin: ViewportPlugin = {
     // all know how to handle 'example:annotation' elements.
     ctx.registerElementType(annotationDefinition);
 
-    // Register viewport render hooks to draw an overlay behind all elements.
+    // Register viewport render hooks to draw an overlay above all elements.
     ctx.registerViewportHooks({
-      afterElements(ctx2d, _elements, dims) {
+      afterElements(ctx2d, _camera, dims) {
         // Draw a subtle watermark at the bottom-right corner
         ctx2d.save();
         ctx2d.font = '12px system-ui';

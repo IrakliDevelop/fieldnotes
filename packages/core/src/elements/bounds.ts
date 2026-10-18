@@ -1,8 +1,13 @@
 import type { Bounds } from '../core/types';
 import type { CanvasElement } from './types';
 import { getElementBounds } from './element-bounds';
+import type { ElementRegistry } from './element-registry';
+import { getDefaultElementRegistry } from './default-registry';
 
-export function getElementsBoundingBox(elements: CanvasElement[]): Bounds | null {
+export function getElementsBoundingBox(
+  elements: CanvasElement[],
+  registry: ElementRegistry = getDefaultElementRegistry(),
+): Bounds | null {
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
@@ -10,7 +15,7 @@ export function getElementsBoundingBox(elements: CanvasElement[]): Bounds | null
   let found = false;
 
   for (const el of elements) {
-    const b = getElementBounds(el);
+    const b = getElementBounds(el, registry);
     if (!b) continue;
     found = true;
     if (b.x < minX) minX = b.x;

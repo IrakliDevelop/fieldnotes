@@ -245,7 +245,7 @@ const counterPlugin: ViewportPlugin = {
 const viewport = new Viewport(container, { plugins: [counterPlugin] });
 ```
 
-See [`@fieldnotes/core` README](packages/core/README.md) for the full extension API, and
+See [Extending Field Notes](docs/EXTENDING.md) for the full extension API, and
 [`@fieldnotes/vtt`](packages/vtt) for a production-grade domain package built on these primitives.
 The `examples/` directory contains runnable reference applications.
 

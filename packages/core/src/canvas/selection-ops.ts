@@ -254,7 +254,7 @@ export class SelectionOps {
     for (const id of this.deps.getSelectedIds()) {
       const el = this.deps.store.getById(id);
       if (!el) continue;
-      const bounds = getElementBounds(el);
+      const bounds = getElementBounds(el, this.deps.elementRegistry);
       if (bounds) out.push({ id, el, bounds });
     }
     return out;

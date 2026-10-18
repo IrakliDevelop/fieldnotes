@@ -7,6 +7,9 @@ import { LayerManager } from '../layers/layer-manager';
 import { createNote } from '../elements/element-factory';
 import { MemoryAdapter } from './storage/memory-adapter';
 import type { StorageAdapter } from './storage/storage-adapter';
+import { migrateState } from './state-serializer';
+import { ElementRegistry } from '../elements/element-registry';
+import type { ExtensionElementEnvelope } from '../elements/types';
 
 function makeNote(text = 'test') {
   return createNote({
@@ -399,5 +402,52 @@ describe('AutoSave', () => {
       expect(saved).not.toBeNull();
       expect(JSON.parse(saved ?? '{}')).toHaveProperty('elements');
     });
+  });
+});
+
+describe('AutoSave with a store-owned registry', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('a runtime element saved without an explicit registry is not migrated again on load', async () => {
+    vi.useFakeTimers();
+    const migrate = vi.fn((data: Record<string, unknown>) => ({ ...data, migrated: true }));
+    const registry = new ElementRegistry();
+    registry.register<ExtensionElementEnvelope>({
+      type: 'test:versioned',
+      legacyTypes: [],
+      decodeLegacy: (raw) => raw as unknown as ExtensionElementEnvelope,
+      validateData: () => true,
+      unwrap: (element) => element,
+      wrap: (element) => element,
+      bounds: (element) => ({ x: element.position.x, y: element.position.y, w: 10, h: 10 }),
+      dataVersion: 2,
+      migrate,
+    });
+    const store = new ElementStore(registry);
+    const autoSave = new AutoSave(store, new Camera(), { adapter: new MemoryAdapter() });
+    autoSave.start();
+
+    store.add({
+      id: 'v-1',
+      type: 'extension',
+      extensionType: 'test:versioned',
+      position: { x: 0, y: 0 },
+      zIndex: 0,
+      locked: false,
+      layerId: '',
+      data: { value: 'current' },
+    });
+    await vi.advanceTimersByTimeAsync(1000);
+    autoSave.stop();
+    const loaded = await autoSave.load();
+    if (!loaded) throw new Error('nothing saved');
+    const state = migrateState(structuredClone(loaded), registry);
+
+    expect(migrate).not.toHaveBeenCalled();
+    expect(state.elements).toEqual([
+      expect.objectContaining({ id: 'v-1', dataVersion: 2, data: { value: 'current' } }),
+    ]);
   });
 });

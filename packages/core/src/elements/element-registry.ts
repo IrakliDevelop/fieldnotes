@@ -10,9 +10,25 @@ export class ElementRegistry {
   private readonly adapters = new Map<string, ElementTypeAdapter>();
   private readonly legacyIndex = new Map<string, ElementTypeAdapter>();
 
+  /** Lookups fall back to `parent`; registration and removal touch only this registry. */
+  constructor(private readonly parent?: ElementRegistry) {}
+
   register<T extends BaseElement>(def: ElementTypeDefinition<T>): ElementTypeKey<T> {
     if (this.definitions.has(def.type)) {
       throw new Error(`ElementType "${def.type}" is already registered`);
+    }
+    if (this.parent?.has(def.type)) {
+      console.warn(
+        `[fieldnotes] ElementType "${def.type}" shadows a type registered on the parent registry`,
+      );
+    }
+    if (def.dataVersion !== undefined) {
+      if (!Number.isSafeInteger(def.dataVersion) || def.dataVersion < 1) {
+        throw new Error(`ElementType "${def.type}": dataVersion must be a positive integer`);
+      }
+      if (def.dataVersion > 1 && !def.migrate) {
+        throw new Error(`ElementType "${def.type}": dataVersion above 1 requires migrate`);
+      }
     }
 
     const erased = def as unknown as ElementTypeDefinition<BaseElement>;
@@ -32,8 +48,11 @@ export class ElementRegistry {
       fullCanvas: def.fullCanvas ?? false,
       validateEnvelope: (el) => el.extensionType === def.type && def.validateData(el.data),
       decodeLegacy: (raw) => {
-        const typed = def.decodeLegacy(raw);
-        return def.wrap(typed);
+        const wrapped = def.wrap(def.decodeLegacy(raw));
+        // Decoded legacy data is current; stamp it so no load path migrates it again.
+        return def.dataVersion === undefined
+          ? wrapped
+          : { ...wrapped, dataVersion: def.dataVersion };
       },
       wrap: (el) => def.wrap(el as never),
       unwrap: (el) => def.unwrap(el),
@@ -89,6 +108,15 @@ export class ElementRegistry {
             return '';
           }
         : undefined,
+      dataVersion: def.dataVersion,
+      migrate: def.migrate?.bind(def),
+      cloneRemap: def.cloneRemap
+        ? (el, idMap) => {
+            const fn = def.cloneRemap;
+            // Base fields come from the clone; the def only owns the ids inside `data`.
+            return fn ? { ...el, data: def.wrap(fn(def.unwrap(el), idMap)).data } : el;
+          }
+        : undefined,
     };
 
     this.adapters.set(def.type, adapter);
@@ -127,15 +155,21 @@ export class ElementRegistry {
     }
   }
 
+  has(type: string): boolean {
+    return this.adapters.has(type) || (this.parent?.has(type) ?? false);
+  }
+
   getAdapter(type: string): ElementTypeAdapter | undefined {
-    return this.adapters.get(type);
+    return this.adapters.get(type) ?? this.parent?.getAdapter(type);
   }
 
   getAdapterByLegacyType(legacyType: string): ElementTypeAdapter | undefined {
-    return this.legacyIndex.get(legacyType);
+    return this.legacyIndex.get(legacyType) ?? this.parent?.getAdapterByLegacyType(legacyType);
   }
 
   getTypes(): string[] {
-    return [...this.adapters.keys()];
+    const own = [...this.adapters.keys()];
+    const inherited = this.parent?.getTypes().filter((type) => !this.adapters.has(type)) ?? [];
+    return [...own, ...inherited];
   }
 }

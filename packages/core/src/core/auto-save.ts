@@ -48,7 +48,7 @@ export class AutoSave {
     this.layerManager = options.layerManager;
     this.adapter = options.adapter ?? new LocalStorageAdapter();
     this.onError = options.onError;
-    this.elementRegistry = options.elementRegistry;
+    this.elementRegistry = options.elementRegistry ?? store.elementRegistry;
     this.pluginStateManager = options.pluginStateManager;
     this.changeEmitters = options.changeEmitters;
   }
@@ -141,6 +141,7 @@ export class AutoSave {
         layers,
         this.layerManager?.activeLayerId,
         extensions,
+        this.elementRegistry,
       );
       await this.adapter.save(this.key, JSON.stringify(state));
     } catch (e) {

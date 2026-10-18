@@ -15,6 +15,13 @@ function sanitizeRichText(element: CanvasElement): CanvasElement {
   return text === element.text ? element : { ...element, text };
 }
 
+// Elements entering the store hold current data, so saves and sync never migrate them again.
+function stampDataVersion(element: CanvasElement, registry: ElementRegistry): CanvasElement {
+  if (element.type !== 'extension' || element.dataVersion !== undefined) return element;
+  const dataVersion = registry.getAdapter(element.extensionType)?.dataVersion;
+  return dataVersion === undefined ? element : { ...element, dataVersion };
+}
+
 export interface ElementUpdateEvent {
   previous: CanvasElement;
   current: CanvasElement;
@@ -47,15 +54,20 @@ export class ElementStore {
   private spatialIndex = new Quadtree({ x: -100000, y: -100000, w: 200000, h: 200000 });
   private sortedCache: CanvasElement[] | null = null;
   private _versions = new Map<string, number>();
-  private elementRegistry: ElementRegistry;
+  private registry: ElementRegistry;
 
   constructor(elementRegistry: ElementRegistry = getDefaultElementRegistry()) {
-    this.elementRegistry = elementRegistry;
+    this.registry = elementRegistry;
+  }
+
+  /** The registry that resolves bounds for this store's elements. */
+  get elementRegistry(): ElementRegistry {
+    return this.registry;
   }
 
   setElementRegistry(elementRegistry: ElementRegistry): void {
-    if (elementRegistry === this.elementRegistry) return;
-    this.elementRegistry = elementRegistry;
+    if (elementRegistry === this.registry) return;
+    this.registry = elementRegistry;
     this.spatialIndex.clear();
     for (const element of this.elements.values()) {
       const bounds = this.indexBounds(element);
@@ -100,11 +112,11 @@ export class ElementStore {
   // Spatial index stores the rotation-expanded AABB so rotated elements remain
   // broad-phase hit-test/marquee candidates; precise tests run against local bounds.
   private indexBounds(element: CanvasElement): Bounds | null {
-    return getElementVisualBounds(element, this.elementRegistry);
+    return getElementVisualBounds(element, this.registry);
   }
 
   add(element: CanvasElement, meta?: ElementChangeMeta): void {
-    element = sanitizeRichText(element);
+    element = stampDataVersion(sanitizeRichText(element), this.registry);
     this.sortedCache = null;
     this._versions.set(element.id, 0);
     this.elements.set(element.id, element);
@@ -178,7 +190,9 @@ export class ElementStore {
   }
 
   loadSnapshot(elements: CanvasElement[], meta?: ElementChangeMeta): void {
-    const sanitizedElements = elements.map(sanitizeRichText);
+    const sanitizedElements = elements.map((el) =>
+      stampDataVersion(sanitizeRichText(el), this.registry),
+    );
     this.sortedCache = null;
     this._versions.clear();
     this.elements.clear();

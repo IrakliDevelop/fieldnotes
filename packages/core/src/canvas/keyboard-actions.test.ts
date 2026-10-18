@@ -14,6 +14,13 @@ import { ConstraintServiceProxy } from '../core/constraint-service';
 import { snapPoint } from '../core/snap';
 import { HistoryRecorder } from '../history/history-recorder';
 import { HistoryStack } from '../history/history-stack';
+import { ElementRegistry } from '../elements/element-registry';
+import type {
+  BaseElement,
+  ElementTypeDefinition,
+  ExtensionElementEnvelope,
+} from '../elements/types';
+import { createTestBoxRegistry } from '../test-helpers/test-box-type';
 
 function makeSnapProxy(gridSize: number): ConstraintServiceProxy {
   const proxy = new ConstraintServiceProxy();
@@ -695,6 +702,32 @@ describe('KeyboardActions.paste cursor-centering', () => {
     const pasted = ctx.store.getAll().find((el) => el.id !== note.id && el.type === 'note');
     expect(pasted?.position).toEqual({ x: 120, y: 120 });
   });
+
+  it('centers pasted extension clones with the bounds of the context registry', () => {
+    const elementRegistry = createTestBoxRegistry();
+    const ctx = makeCtx({ elementRegistry, store: new ElementStore(elementRegistry) });
+    const { actions, tool } = makeActions({ ctx });
+    ctx.store.add({
+      id: 'box',
+      type: 'extension',
+      extensionType: 'test:box',
+      position: { x: 100, y: 100 },
+      zIndex: 0,
+      locked: false,
+      layerId: '',
+      data: {},
+    });
+    tool.setSelection(['box']);
+    actions.copy();
+    (
+      actions as unknown as { deps: { getLastPointerWorld: () => { x: number; y: number } } }
+    ).deps.getLastPointerWorld = () => ({ x: 500, y: 500 });
+
+    actions.paste();
+
+    const pasted = ctx.store.getAll().find((el) => el.id !== 'box');
+    expect(pasted?.position).toEqual({ x: 480, y: 490 });
+  });
 });
 
 describe('KeyboardActions guards during active tool input', () => {
@@ -982,5 +1015,159 @@ describe('KeyboardActions.cycleSelection', () => {
 
     expect(ctx.switchTool).toHaveBeenCalledWith('select');
     expect(selectTool.selectedIds).toEqual([note.id]);
+  });
+});
+
+interface LinkElement extends BaseElement {
+  type: 'link';
+  targetId: string;
+}
+
+const linkDefinition: ElementTypeDefinition<LinkElement> = {
+  type: 'test:link',
+  legacyTypes: [],
+  decodeLegacy: () => {
+    throw new Error('no legacy');
+  },
+  validateData: (data) => typeof data['targetId'] === 'string',
+  unwrap: ({ data, ...base }) => ({ ...base, type: 'link', targetId: String(data['targetId']) }),
+  wrap: ({ targetId, ...base }) => ({
+    ...base,
+    type: 'extension',
+    extensionType: 'test:link',
+    data: { targetId },
+  }),
+  bounds: (el) => ({ x: el.position.x, y: el.position.y, w: 10, h: 10 }),
+};
+
+describe('KeyboardActions extension cloneRemap', () => {
+  const idMaps: ReadonlyMap<string, string>[] = [];
+  const remapping: ElementTypeDefinition<LinkElement> = {
+    ...linkDefinition,
+    cloneRemap: (el, idMap) => {
+      idMaps.push(new Map(idMap));
+      return { ...el, targetId: idMap.get(el.targetId) ?? 'dangling' };
+    },
+  };
+
+  function setup(def: ElementTypeDefinition<LinkElement>) {
+    idMaps.length = 0;
+    const registry = new ElementRegistry();
+    registry.register(def);
+    const ctx = makeCtx({
+      store: new ElementStore(registry),
+      elementRegistry: registry,
+      activeLayerId: 'layer-2',
+    });
+    const made = makeActions({ ctx });
+    const target = createNote({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } });
+    const link: ExtensionElementEnvelope = {
+      id: 'link-1',
+      type: 'extension',
+      extensionType: 'test:link',
+      position: { x: 5, y: 5 },
+      zIndex: 1,
+      locked: false,
+      layerId: 'layer-1',
+      data: { targetId: target.id },
+    };
+    ctx.store.add(target);
+    ctx.store.add(link);
+    return { ...made, target, link };
+  }
+
+  function cloneOf(ctx: ToolContext, source: { id: string; type: string }) {
+    return ctx.store.getAll().find((el) => el.type === source.type && el.id !== source.id);
+  }
+
+  it('duplicate with the target remaps data.targetId to the target clone', () => {
+    const { actions, ctx, tool, target, link } = setup(remapping);
+    tool.setSelection([target.id, link.id]);
+
+    actions.duplicate();
+
+    const targetClone = cloneOf(ctx, target);
+    const linkClone = cloneOf(ctx, link);
+    expect(targetClone).toBeDefined();
+    expect(linkClone).toMatchObject({
+      position: { x: 25, y: 25 },
+      layerId: 'layer-2',
+      data: { targetId: targetClone?.id },
+    });
+    expect(linkClone?.id).not.toBe(link.id);
+    expect(idMaps).toEqual([
+      new Map([
+        [target.id, targetClone?.id],
+        [link.id, linkClone?.id],
+      ]),
+    ]);
+  });
+
+  it('duplicate alone passes the map without the target to the def', () => {
+    const { actions, ctx, tool, link } = setup(remapping);
+    tool.setSelection([link.id]);
+
+    actions.duplicate();
+
+    const linkClone = cloneOf(ctx, link);
+    expect(linkClone).toMatchObject({ data: { targetId: 'dangling' } });
+    expect(idMaps).toEqual([new Map([[link.id, linkClone?.id]])]);
+  });
+
+  it('paste with the target remaps data.targetId to the target clone', () => {
+    const { actions, ctx, tool, target, link } = setup(remapping);
+    tool.setSelection([target.id, link.id]);
+    actions.copy();
+
+    actions.paste();
+
+    const targetClone = cloneOf(ctx, target);
+    const linkClone = cloneOf(ctx, link);
+    expect(linkClone).toMatchObject({ data: { targetId: targetClone?.id } });
+  });
+
+  it('a throwing cloneRemap on the second clone adds nothing and records no undo step', () => {
+    let calls = 0;
+    const registry = new ElementRegistry();
+    registry.register<LinkElement>({
+      ...linkDefinition,
+      cloneRemap: (el) => {
+        calls++;
+        if (calls === 2) throw new Error('remap failed');
+        return el;
+      },
+    });
+    const ctx = makeCtx({ store: new ElementStore(registry), elementRegistry: registry });
+    const stack = new HistoryStack();
+    const recorder = new HistoryRecorder(ctx.store, stack);
+    const { actions, tool } = makeActions({ ctx, recorder, stack });
+    const links: ExtensionElementEnvelope[] = ['link-a', 'link-b'].map((id) => ({
+      id,
+      type: 'extension',
+      extensionType: 'test:link',
+      position: { x: 0, y: 0 },
+      zIndex: 0,
+      locked: false,
+      layerId: 'layer-1',
+      data: { targetId: 'none' },
+    }));
+    for (const link of links) ctx.store.add(link);
+    stack.clear();
+    tool.setSelection(links.map((link) => link.id));
+
+    expect(() => actions.duplicate()).toThrow('remap failed');
+
+    expect(ctx.store.getAll().map((el) => el.id)).toEqual(['link-a', 'link-b']);
+    expect(stack.undoCount).toBe(0);
+  });
+
+  it('a def without cloneRemap keeps the clone data unchanged', () => {
+    const { actions, ctx, tool, target, link } = setup(linkDefinition);
+    tool.setSelection([target.id, link.id]);
+
+    actions.duplicate();
+
+    const linkClone = cloneOf(ctx, link);
+    expect(linkClone).toMatchObject({ data: { targetId: target.id } });
   });
 });

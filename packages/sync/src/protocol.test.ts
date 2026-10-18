@@ -91,6 +91,49 @@ describe('isValidElement', () => {
     for (const element of malformed) expect(isValidElement(element)).toBe(false);
   });
 
+  it.each([
+    [undefined, true],
+    [2, true],
+    [0, false],
+    [-1, false],
+    [1.5, false],
+    ['2', false],
+  ])('extension dataVersion %j is valid: %s', (dataVersion, expected) => {
+    const extension = {
+      id: 'e1',
+      type: 'extension',
+      extensionType: 'app:thing',
+      position: { x: 0, y: 0 },
+      zIndex: 0,
+      locked: false,
+      layerId: 'layer-1',
+      data: {},
+      ...(dataVersion === undefined ? {} : { dataVersion }),
+    };
+    expect(isValidElement(extension)).toBe(expected);
+  });
+
+  it.each([
+    [undefined, true],
+    [{ w: 10, h: 5 }, true],
+    [{ w: 'a' }, false],
+    [{ w: 10 }, false],
+    [null, false],
+  ])('extension size %j is valid: %s', (size, expected) => {
+    const extension = {
+      id: 'e1',
+      type: 'extension',
+      extensionType: 'app:thing',
+      position: { x: 0, y: 0 },
+      zIndex: 0,
+      locked: false,
+      layerId: 'layer-1',
+      data: {},
+      size,
+    };
+    expect(isValidElement(extension)).toBe(expected);
+  });
+
   it('rejects an object with no id', () => {
     expect(isValidElement({})).toBe(false);
   });

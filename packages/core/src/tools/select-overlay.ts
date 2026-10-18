@@ -3,6 +3,7 @@ import type { CanvasElement, ArrowElement } from '../elements/types';
 import type { ElementStore } from '../elements/element-store';
 import type { SnapGuide } from '../elements/snap-guides';
 import { getElementBounds } from '../elements/element-bounds';
+import { hasSize } from '../elements/element-size';
 import { rotatePoint } from '../core/geometry';
 import { lineEndpoints } from '../elements/shape-geometry';
 import { renderArrowHandles } from './arrow-handles';
@@ -205,7 +206,7 @@ export function renderSelectionBoxes(
     }
 
     if (!locked) {
-      if ('size' in el) {
+      if (hasSize(el)) {
         ctx.setLineDash([]);
         ctx.fillStyle = '#ffffff';
         const corners = layout.angle === 0 ? getHandlePositions(bounds) : layout.corners;
@@ -224,8 +225,11 @@ export function renderSelectionBoxes(
           );
         }
         ctx.setLineDash([4 / zoom, 4 / zoom]);
-      } else {
-        if (el.type !== 'extension') continue;
+      } else if (el.type !== 'extension') {
+        continue;
+      }
+      // Adapter handles win the hit test, so they must be drawn even over core handles.
+      if (el.type === 'extension') {
         p.elementRegistry?.getAdapter(el.extensionType)?.renderSelection?.(ctx, el, {
           zoom,
           selectedCount: p.selectedIds.length,

@@ -1,4 +1,3 @@
-import { getDefaultElementRegistry } from '@fieldnotes/core';
 import type { CanvasElement, ElementRegistry, ElementStore, Layer } from '@fieldnotes/core';
 import type { SyncTransport } from './sync-transport';
 import {
@@ -140,7 +139,7 @@ export interface SyncClientOptions {
   layers?: LayerSyncOptions;
   /** Domain sync plugins. */
   plugins?: readonly ClientSyncPlugin[];
-  /** Registry for extension element types (used by the store for state migration). */
+  /** Registry for the store; omit to keep the store's own (the viewport's). */
   elementRegistry?: ElementRegistry;
   /** Maximum number of inbound and outbound messages retained during negotiation. */
   capabilityQueueLimit?: number;
@@ -183,7 +182,6 @@ export class SyncClient {
   private readonly hubKnownIds: Set<string>;
   private readonly applyLayer?: (update: RemoteLayerUpdate) => void;
   private readonly layerLedger?: LayerLedger;
-  private readonly elementRegistry: ElementRegistry;
   private readonly pluginRegistry: ClientPluginRegistry;
   private readonly localCapabilities: SyncCapabilities;
   private readonly capabilityQueueLimit: number;
@@ -210,13 +208,12 @@ export class SyncClient {
     this.resolveAudience = options.resolveAudience;
     this.resolveLocalOnly = options.resolveLocalOnly;
     this.hubKnownIds = options.hubKnownIds ?? new Set();
-    this.elementRegistry = options.elementRegistry ?? getDefaultElementRegistry();
     this.pluginRegistry = new ClientPluginRegistry(options.plugins ?? []);
     this.localCapabilities = createCurrentCapabilities(this.pluginRegistry.extensionKinds);
     this.capabilityQueueLimit = options.capabilityQueueLimit ?? DEFAULT_CAPABILITY_QUEUE_LIMIT;
     this.handshake = new CapabilityHandshake<SyncOp>(this.capabilityQueueLimit);
     for (const plugin of this.pluginRegistry.plugins) plugin.validateClientId?.(this.clientId);
-    this.store.setElementRegistry(this.elementRegistry);
+    if (options.elementRegistry) this.store.setElementRegistry(options.elementRegistry);
     if (options.layers) {
       this.applyLayer = options.layers.applyLayer;
       this.layerLedger = options.layers.ledger ?? new LayerLedger();

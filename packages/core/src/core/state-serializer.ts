@@ -1,4 +1,8 @@
-import type { CanvasElement, ExtensionElementEnvelope } from '../elements/types';
+import type {
+  CanvasElement,
+  ElementTypeAdapter,
+  ExtensionElementEnvelope,
+} from '../elements/types';
 import type { Point } from './types';
 import type { Layer } from '../layers/types';
 import { sanitizeNoteHtml } from '../elements/note-sanitizer';
@@ -55,6 +59,7 @@ export function exportState(
   layers: Layer[] = [],
   activeLayerId?: string,
   extensions?: Record<string, PersistedPluginState>,
+  registry: ElementRegistry = getDefaultElementRegistry(),
 ): CanvasState {
   const state: CanvasState = {
     version: CANVAS_STATE_VERSION,
@@ -69,6 +74,10 @@ export function exportState(
         const clone = structuredClone(el);
         if (clone.type === 'arrow') {
           delete clone.cachedControlPoint;
+        }
+        if (clone.type === 'extension' && clone.dataVersion === undefined) {
+          const dataVersion = registry.getAdapter(clone.extensionType)?.dataVersion;
+          if (dataVersion !== undefined) return { ...clone, dataVersion };
         }
         return clone;
       }),
@@ -96,6 +105,17 @@ export function migrateState(
   state: ImportableCanvasState,
   registry: ElementRegistry = getDefaultElementRegistry(),
 ): CanvasState {
+  // Runs before legacy decoding: decoded envelopes are already current.
+  const elements: unknown[] = state.elements;
+  for (let i = 0; i < elements.length; i++) {
+    const el = elements[i];
+    if (!isRecord(el) || el['type'] !== 'extension' || !isString(el['extensionType'])) continue;
+    if (!isOptional(el['dataVersion'], isPositiveInteger)) {
+      throw new Error(`Invalid element "${el['id']}": invalid dataVersion`);
+    }
+    const adapter = registry.getAdapter(el['extensionType']);
+    elements[i] = migrateEnvelope(el as unknown as ExtensionElementEnvelope, adapter);
+  }
   if (state.version === CANVAS_STATE_VERSION) return state;
   const legacy = state as LegacyCanvasState;
   convertLegacyToEnvelopes(legacy.elements, registry);
@@ -193,10 +213,11 @@ function validateState(
   }
 
   const elementIds = new Set<string>();
+  const unknownTypes = new Set<string>();
   for (let i = 0; i < elements.length; i++) {
     // Validation already decodes a legacy element to prove it well-formed;
     // keep that envelope so migration need not decode it a second time.
-    const el = validateElement(elements[i], version, registry);
+    const el = validateElement(elements[i], version, registry, unknownTypes);
     elements[i] = el;
     if (elementIds.has(el.id)) throw new Error(`Invalid state: duplicate element id "${el.id}"`);
     elementIds.add(el.id);
@@ -237,7 +258,12 @@ function validateExtensions(value: unknown): asserts value is Record<string, Per
  * itself for core and v4 extension types, or the decoded envelope for a
  * registered legacy type.
  */
-function validateElement(el: unknown, version: number, registry: ElementRegistry): CanvasElement {
+function validateElement(
+  el: unknown,
+  version: number,
+  registry: ElementRegistry,
+  unknownTypes: Set<string>,
+): CanvasElement {
   if (!isRecord(el)) {
     throw new Error('Invalid element: expected an object');
   }
@@ -269,9 +295,20 @@ function validateElement(el: unknown, version: number, registry: ElementRegistry
       // domain data so a malformed payload cannot reach the store and index.
       const extensionType = el['extensionType'] as string;
       const adapter = registry.getAdapter(extensionType);
-      if (adapter && !adapter.validateEnvelope(el as unknown as ExtensionElementEnvelope)) {
+      if (!adapter && !unknownTypes.has(extensionType)) {
+        unknownTypes.add(extensionType);
+        console.warn(
+          `[fieldnotes] Unknown extension element type "${extensionType}" kept without validation`,
+        );
+      }
+      if (!isOptional(el['dataVersion'], isPositiveInteger)) {
+        throw new Error(`Invalid element "${el['id']}": invalid dataVersion`);
+      }
+      const envelope = migrateEnvelope(el as unknown as ExtensionElementEnvelope, adapter);
+      if (adapter && !adapter.validateEnvelope(envelope)) {
         throw new Error(`Invalid element "${el['id']}": malformed ${extensionType} data`);
       }
+      return envelope;
     }
     return el as unknown as CanvasElement;
   }
@@ -296,6 +333,30 @@ function validateElement(el: unknown, version: number, registry: ElementRegistry
     throw new Error(`Invalid element "${el['id']}": malformed ${el['type']} data`);
   }
   return envelope;
+}
+
+function migrateEnvelope(
+  envelope: ExtensionElementEnvelope,
+  adapter: ElementTypeAdapter | undefined,
+): ExtensionElementEnvelope {
+  const stored = envelope.dataVersion ?? 1;
+  if (!adapter?.migrate || adapter.dataVersion === undefined || stored >= adapter.dataVersion) {
+    return envelope;
+  }
+  const { id, extensionType } = envelope;
+  let migrated: unknown;
+  try {
+    migrated = adapter.migrate(envelope.data, stored);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Invalid element "${id}": ${extensionType} migrate failed: ${message}`, {
+      cause: error,
+    });
+  }
+  if (!isRecord(migrated)) {
+    throw new Error(`Invalid element "${id}": malformed ${extensionType} data`);
+  }
+  return { ...envelope, data: migrated, dataVersion: adapter.dataVersion };
 }
 
 function validateTypeFields(
@@ -362,7 +423,9 @@ function validateTypeFields(
         isOptional(el['flip'], isBoolean)
       );
     case 'extension':
-      return isString(el['extensionType']) && isRecord(el['data']);
+      return (
+        isString(el['extensionType']) && isRecord(el['data']) && isOptional(el['size'], isSize)
+      );
   }
 }
 
@@ -447,6 +510,10 @@ function isString(value: unknown): value is string {
 
 function isBoolean(value: unknown): value is boolean {
   return typeof value === 'boolean';
+}
+
+function isPositiveInteger(value: unknown): boolean {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 1;
 }
 
 function isOptional(value: unknown, validate: Validator): boolean {

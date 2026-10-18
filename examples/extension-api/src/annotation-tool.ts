@@ -17,13 +17,13 @@ export class AnnotationTool implements Tool {
     const element: AnnotationElement = {
       id: crypto.randomUUID(),
       type: 'example:annotation',
-      position: { x: world.x, y: world.y },
+      position: { x: world.x - 20, y: world.y - 20 },
       zIndex: ctx.store.getAll().length,
       locked: false,
       layerId: ctx.activeLayerId ?? '',
       label: `Note ${this.colorIndex + 1}`,
       color: COLORS[this.colorIndex % COLORS.length] ?? '#e74c3c',
-      radius: 20,
+      size: { w: 40, h: 40 },
     };
 
     // wrap() converts the typed element to an ExtensionElementEnvelope for storage.

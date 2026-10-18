@@ -21,6 +21,7 @@ import { renderTextOnCanvas } from './text-canvas-renderer';
 import { getDefaultElementRegistry } from '../elements/default-registry';
 import {
   assertExportSize,
+  assertRenderCapabilities,
   loadImages,
   computeBounds,
   nonNegativeOption,
@@ -49,6 +50,8 @@ export interface ExportSvgOptions extends ExportResourceOptions, HtmlExportOptio
   elementRegistry?: ElementRegistry;
   /** Per-surface hooks installed by viewport plugins. */
   renderHooks?: RenderHooks;
+  /** Render capabilities the export must satisfy, added to the registry's stored requirement. */
+  requiredCapabilities?: readonly string[];
   afterElements?: (ctx: CanvasRenderingContext2D, width: number, height: number) => void;
 }
 
@@ -265,6 +268,11 @@ export async function exportSvg(
   options: ExportSvgOptions = {},
   layerManager?: LayerManager,
 ): Promise<string> {
+  assertRenderCapabilities(
+    options.renderHooks?.svgExport,
+    'svgExport',
+    options.requiredCapabilities,
+  );
   const padding = nonNegativeOption(options.padding, 0, 'padding');
   const rasterScale = positiveOption(options.rasterScale, 2, 'rasterScale');
   validateExportResourceOptions(options);
@@ -385,15 +393,18 @@ export async function exportSvg(
   }
 
   if (options.renderHooks) {
-    for (const fn of options.renderHooks.svgExport.iterate('afterElements')) {
-      fn({
-        appendSvg: (fragment: string) => {
-          body += fragment;
-        },
-        viewBox: bounds,
-        rasterScale,
-      });
-    }
+    options.renderHooks.svgExport.call('afterElements', {
+      appendSvg: (fragment: string) => {
+        body += fragment;
+      },
+      viewBox: bounds,
+      rasterScale,
+    });
+    assertRenderCapabilities(
+      options.renderHooks.svgExport,
+      'svgExport',
+      options.requiredCapabilities,
+    );
   }
 
   return (

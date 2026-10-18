@@ -3,6 +3,7 @@ import type { ArrowElement, CanvasElement } from './types';
 import type { ElementChangeMeta, ElementStore } from './element-store';
 import { getArrowTangentAngle } from './arrow-geometry';
 import { getElementBounds } from './element-bounds';
+import type { ElementRegistry } from './element-registry';
 
 const BINDABLE_TYPES = new Set(['note', 'text', 'image', 'html', 'shape']);
 
@@ -11,7 +12,7 @@ export function isBindable(element: CanvasElement): boolean {
 }
 
 export function getElementCenter(element: CanvasElement): Point {
-  if (!('size' in element)) {
+  if (!('size' in element) || element.type === 'extension') {
     throw new Error(`getElementCenter: element type "${element.type}" has no size`);
   }
   return {
@@ -189,9 +190,10 @@ export function unbindArrowsFrom(
   store: ElementStore,
   removed: CanvasElement,
   meta: ElementChangeMeta | undefined,
+  registry: ElementRegistry,
 ): void {
   const boundArrows = findBoundArrows(removed.id, store);
-  const bounds = getElementBounds(removed);
+  const bounds = getElementBounds(removed, registry);
 
   for (const arrow of boundArrows) {
     const updates: Partial<ArrowElement> = {};

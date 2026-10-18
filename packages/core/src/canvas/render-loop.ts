@@ -14,6 +14,7 @@ import { RenderStats } from './render-stats';
 import type { RenderStatsSnapshot } from './render-stats';
 import type { HybridRenderSurface } from './hybrid-render-surface';
 import type { RenderHooks } from './render-hooks';
+import { reportFailure } from '../core/report-failure';
 
 /**
  * A world-space draw callback rendered above elements on every frame,
@@ -28,6 +29,12 @@ export type OverlayRenderer = (ctx: CanvasRenderingContext2D) => void;
 interface SavableContext {
   save(): void;
   restore(): void;
+}
+
+/** Reassigning width clears the pixels and drops the whole save, clip and transform stack. */
+function resetCanvas(canvas: HTMLCanvasElement): void {
+  const { width } = canvas;
+  canvas.width = width;
 }
 
 export interface RenderLoopDeps {
@@ -68,6 +75,8 @@ export class RenderLoop {
   private htmlScratchCtx: CanvasRenderingContext2D | null = null;
   private renderErrorReported = false;
   private readonly savedContexts: SavableContext[] = [];
+  // Canvases a throwing hook left with stray clips or saves; reset before the next frame.
+  private readonly staleCanvases: HTMLCanvasElement[] = [];
   private readonly layerOpacities = new Map<string, number>();
   // Frame structure, recomputed only when the store array or layer state changes.
   private structureSource: readonly CanvasElement[] | null = null;
@@ -97,8 +106,8 @@ export class RenderLoop {
 
   flush(): void {
     if (this.needsRender) {
-      this.render();
       this.needsRender = false;
+      this.render();
     }
   }
 
@@ -107,19 +116,17 @@ export class RenderLoop {
       // A throwing frame must not end the loop: rAF only continues if we reschedule.
       try {
         if (this.needsRender) {
+          this.needsRender = false;
           try {
             this.render();
             this.renderErrorReported = false;
           } catch (error) {
             // Report the first failure of a streak instead of spamming every frame.
-            // reportError reaches window 'error' listeners, so host monitoring still sees it.
             if (!this.renderErrorReported) {
               this.renderErrorReported = true;
-              if (typeof reportError === 'function') reportError(error);
-              else console.error('[fieldnotes] render failed', error);
+              reportFailure(error, 'render failed');
             }
           }
-          this.needsRender = false;
         }
       } finally {
         this.animFrameId = requestAnimationFrame(loop);
@@ -368,6 +375,8 @@ export class RenderLoop {
     const t0 = performance.now();
     const ctx = this.canvasEl.getContext('2d');
     if (!ctx) return;
+    for (const canvas of this.staleCanvases) resetCanvas(canvas);
+    this.staleCanvases.length = 0;
 
     let layersMs = 0;
     let compositeMs = 0;
@@ -396,9 +405,14 @@ export class RenderLoop {
     const backgroundMs = performance.now() - bgT0;
 
     if (this.hooks) {
-      for (const fn of this.hooks.viewport.iterate('beforeElements')) {
-        fn(ctx, this.camera, { width: cssWidth, height: cssHeight, dpr });
-      }
+      this.saveTracked(ctx);
+      const failed = this.hooks.viewport.call('beforeElements', ctx, this.camera, {
+        width: cssWidth,
+        height: cssHeight,
+        dpr,
+      });
+      this.restoreTracked(ctx);
+      if (failed) this.staleCanvases.push(this.canvasEl);
     }
 
     this.saveTracked(ctx);
@@ -413,6 +427,7 @@ export class RenderLoop {
       w: cullBounds.w + cullPad * 2,
       h: cullBounds.h + cullPad * 2,
     };
+    const registry = this.store.elementRegistry;
 
     const allElements = this.store.getAll();
     if (allElements !== this.structureSource || this.structureDirty) {
@@ -459,7 +474,7 @@ export class RenderLoop {
       if (this.renderer.isDomElement(element)) {
         activeHybridOrder = null;
         const layerOpacity = this.layerOpacities.get(element.layerId) ?? 1;
-        const elBounds = getElementVisualBounds(element);
+        const elBounds = getElementVisualBounds(element, registry);
         if (elBounds && !boundsIntersect(elBounds, cullingRect)) {
           this.domNodeManager.hideDomNode(element.id);
         } else {
@@ -498,12 +513,14 @@ export class RenderLoop {
     const activeTool = this.toolManager.activeTool;
     const hasAfterElementsHook = this.hooks?.viewport.has('afterElements') ?? false;
     const hasAfterAllHook = this.hooks?.viewport.has('afterAll') ?? false;
+    const masked = this.hooks?.viewport.isFailClosed() ?? false;
+    const hasAfterElementsStratum = hasAfterElementsHook || masked;
     const afterElementsOrder = this.visibleCount + 1;
-    const overlayOrder = afterElementsOrder + (hasAfterElementsHook ? 1 : 0);
+    const overlayOrder = afterElementsOrder + (hasAfterElementsStratum ? 1 : 0);
     const afterAllOrder = overlayOrder + 1;
     const hasOverlay = activeTool?.renderOverlay !== undefined || this.overlays.size > 0;
-    if (hasAfterElementsHook) hybridOrders.add(afterElementsOrder);
-    if (hasOverlay && (hybridActive || hasAfterElementsHook)) hybridOrders.add(overlayOrder);
+    if (hasAfterElementsStratum) hybridOrders.add(afterElementsOrder);
+    if (hasOverlay && (hybridActive || hasAfterElementsStratum)) hybridOrders.add(overlayOrder);
     if (hasAfterAllHook) hybridOrders.add(afterAllOrder);
     this.hybridSurface.beginFrame(hybridOrders, this.canvasEl.width, this.canvasEl.height);
 
@@ -533,7 +550,7 @@ export class RenderLoop {
         this.saveTracked(offCtx);
         this.marginViewport.applyRenderTransform(offCtx);
         for (const element of elements) {
-          const elBounds = getElementVisualBounds(element);
+          const elBounds = getElementVisualBounds(element, registry);
           if (elBounds && !boundsIntersect(elBounds, cullingRect)) continue;
           this.renderer.renderCanvasElement(offCtx as CanvasRenderingContext2D, element);
         }
@@ -574,7 +591,7 @@ export class RenderLoop {
       hybridCtx.translate(this.camera.position.x, this.camera.position.y);
       hybridCtx.scale(this.camera.zoom, this.camera.zoom);
       for (const element of elements) {
-        const elBounds = getElementVisualBounds(element);
+        const elBounds = getElementVisualBounds(element, registry);
         if (elBounds && !boundsIntersect(elBounds, cullingRect)) continue;
         const layerOpacity = this.layerOpacities.get(element.layerId) ?? 1;
         // Canvas-routed html gets the painter's ALPHA BOUNDARY that every other surface
@@ -609,21 +626,35 @@ export class RenderLoop {
     // Post-scene surfaces must live above every canvas and DOM paint stratum. The
     // base canvas is below the DOM stack, so drawing privacy surfaces such as fog
     // there would expose DOM-backed notes and interleaved hybrid elements.
-    if (this.hooks && hasAfterElementsHook) {
+    if (this.hooks && hasAfterElementsStratum) {
       const hookCtx = this.hybridSurface.getContext(afterElementsOrder);
       if (hookCtx) {
         hookCtx.clearRect(0, 0, this.canvasEl.width, this.canvasEl.height);
         this.saveTracked(hookCtx);
         hookCtx.scale(dpr, dpr);
-        for (const fn of this.hooks.viewport.iterate('afterElements')) {
-          fn(hookCtx, this.camera, { width: cssWidth, height: cssHeight, dpr });
-        }
+        const failed = this.hooks.viewport.call('afterElements', hookCtx, this.camera, {
+          width: cssWidth,
+          height: cssHeight,
+          dpr,
+        });
         this.restoreTracked(hookCtx);
+        // Re-checked so the frame in which a satisfying hook throws is masked too.
+        if (masked || this.hooks.viewport.isFailClosed()) {
+          // A thrower may leave clips and saves the bracket cannot undo.
+          if (failed) resetCanvas(hookCtx.canvas);
+          hookCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+          hookCtx.fillStyle = '#000';
+          hookCtx.fillRect(0, 0, cssWidth, cssHeight);
+          hookCtx.setTransform(1, 0, 0, 1, 0, 0);
+        } else if (failed) {
+          // Resetting now would erase sibling hooks' pixels (fog) for this frame.
+          this.staleCanvases.push(hookCtx.canvas);
+        }
       }
     }
 
     const overlayT0 = performance.now();
-    if ((hybridActive || hasAfterElementsHook) && hasOverlay) {
+    if ((hybridActive || hasAfterElementsStratum) && hasOverlay) {
       const overlayCtx = this.hybridSurface.getContext(overlayOrder);
       if (overlayCtx) {
         overlayCtx.clearRect(0, 0, this.canvasEl.width, this.canvasEl.height);
@@ -646,10 +677,13 @@ export class RenderLoop {
         hookCtx.clearRect(0, 0, this.canvasEl.width, this.canvasEl.height);
         this.saveTracked(hookCtx);
         hookCtx.scale(dpr, dpr);
-        for (const fn of this.hooks.viewport.iterate('afterAll')) {
-          fn(hookCtx, this.camera, { width: cssWidth, height: cssHeight, dpr });
-        }
+        const failed = this.hooks.viewport.call('afterAll', hookCtx, this.camera, {
+          width: cssWidth,
+          height: cssHeight,
+          dpr,
+        });
         this.restoreTracked(hookCtx);
+        if (failed) this.staleCanvases.push(hookCtx.canvas);
       }
     }
 
@@ -657,6 +691,10 @@ export class RenderLoop {
 
     this.restoreTracked(ctx);
     this.restoreTracked(ctx);
+    // A hook that failed mid-frame needs a masked or reset frame without waiting for input.
+    if ((!masked && this.hooks?.viewport.isFailClosed()) || this.staleCanvases.length > 0) {
+      this.requestRender();
+    }
 
     this.stats.recordFrame(performance.now() - t0, {
       layersMs,

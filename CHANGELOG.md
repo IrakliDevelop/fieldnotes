@@ -117,6 +117,78 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
   The reference WebSocket server closes idle expired sockets and rejects traffic observed at
   or after the deadline.
 
+## [0.90.0] — 2026-10-18
+
+### Core 0.90.0 — extension API completion, first slice (F5)
+
+**Added**
+
+- Fail-closed render hooks (ADR-0002). A hook that throws is quarantined: reported once through
+  `reportError` (falling back to `console.error`) and not called again until it is disposed and
+  registered anew; the rest of the frame keeps drawing. `TypedHookRegistry` gains `call`,
+  `setRequiredCapabilities`, `getMissingCapabilities` and `isFailClosed`.
+- Required capabilities are enforced at render time on every surface: when a required capability
+  has no enabled, healthy satisfier, or a hook that is `required` or satisfies a required
+  capability has thrown, the viewport draws an opaque mask above all content strata, the minimap
+  draws blank, and exports throw `Required render capabilities are missing on <surface>: ...`.
+- `exportImage` / `exportSvg` accept `requiredCapabilities`, enforced even for an empty store.
+  Viewport exports inherit the viewport's requirement.
+- Per-type data versioning (ADR-0001): `ElementTypeDefinition.dataVersion` and
+  `migrate(data, fromVersion)`, with `ExtensionElementEnvelope.dataVersion` (absent means 1).
+  Migration runs once when loading through `parseState`, `loadJSON`, `loadState` and
+  `AutoSave.load`; saved state is stamped with the current version. Sync paths do not migrate.
+- `ElementTypeDefinition.cloneRemap(el, idMap)` rewrites ids inside extension data on paste and
+  duplicate.
+- `ExtensionElementEnvelope.size`: an extension element with a `size` gets the core corner resize
+  handles; adapter handles are drawn on top and keep hit-test priority.
+- `ElementRegistry.has(type)`, `new ElementRegistry(parent?)` and the read-only
+  `ElementStore.elementRegistry`. `getElementsBoundingBox(elements, registry?)` takes an optional
+  registry like `getElementBounds`.
+- `parseState` warns once per unknown extension type (elements are kept); registering a type that
+  shadows a parent registry's type warns.
+- `docs/EXTENDING.md`: element types, registries, data versioning, plugins, render hooks and
+  capabilities, services, actions and tools.
+
+**Changed**
+
+- Each `Viewport` without an `elementRegistry` option now owns a registry layered over
+  `getDefaultElementRegistry()`. Types registered globally (for example
+  `registerVttElementTypes()`) stay visible; types registered by plugins are per viewport, so two
+  viewports can install the same element-type plugin and destroying one no longer unregisters the
+  type for the other. Code that calls `parseState`, `AutoSave` or the standalone exports for
+  plugin-registered types must pass `viewport.elementRegistry`.
+- A render hook whose `enabled` predicate returns false no longer satisfies a required capability
+  at render time (construction-time validation is unchanged). A host that requires `vtt:fog` sees
+  the mask while fog is off or has no state.
+- Culling, the minimap, hover, snapping, selection bounds, paste centering, `fitToContent` and
+  element rects use the viewport's registry instead of the global default.
+- Adding an extension element to a store stamps the type's current `dataVersion` when the element
+  has none, so saved and synced data always carries its version. `AutoSave` defaults to the
+  store's registry. Paste and duplicate build every clone (including `cloneRemap`) before adding
+  any, so a throwing remap leaves the board unchanged.
+- `parseState` now rejects an extension element whose top-level `size` is not a size or whose
+  `dataVersion` is not a positive integer.
+
+**Removed**
+
+- `TypedHookRegistry.iterateRequired()` (unused).
+
+### Sync 0.26.1
+
+**Fixed**
+
+- `SyncClient` without `elementRegistry` keeps the store's registry instead of replacing it with
+  the global default, which dropped a viewport's plugin-registered element types.
+- Wire validation checks an extension element's optional `dataVersion` (positive integer) and
+  `size`.
+
+### Sync server 0.26.1
+
+**Fixed**
+
+- Depends on `@fieldnotes/sync` 0.26.1, so the hub rejects extension elements with a malformed
+  `dataVersion` or `size`.
+
 ## [0.89.0] — 2026-10-18
 
 ### Core 0.89.0 — default tool bundle (A5)

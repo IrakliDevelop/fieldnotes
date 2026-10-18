@@ -5,6 +5,7 @@ import { normalizeAngle } from '../core/geometry';
 import type { CanvasElement } from '../elements/types';
 import { updateArrowsBoundToElements } from '../elements/arrow-binding';
 import { getElementBounds } from '../elements/element-bounds';
+import { hasSize } from '../elements/element-size';
 import { expandToGroups } from '../elements/group';
 import { getElementsBoundingBox } from '../elements/bounds';
 import { lineFromEndpoints } from '../elements/shape-geometry';
@@ -189,7 +190,7 @@ export class SelectTool implements Tool {
     const resizeHit = hitTestResizeHandle(world, ctx, this._selectedIds);
     if (resizeHit) {
       const el = ctx.store.getById(resizeHit.elementId);
-      if (el && 'size' in el) {
+      if (el && hasSize(el)) {
         this.resizeAspectRatio = el.size.h > 0 ? el.size.w / el.size.h : 0;
         this.mode = {
           type: 'resizing',
@@ -313,7 +314,7 @@ export class SelectTool implements Tool {
           ).filter((el) => !selSet.has(el.id));
           const targets: Bounds[] = [];
           for (const el of candidates) {
-            const b = getElementBounds(el);
+            const b = getElementBounds(el, ctx.elementRegistry);
             if (b) targets.push(b);
           }
           this.dragSnapTargets = targets;
@@ -321,7 +322,7 @@ export class SelectTool implements Tool {
         const selectedEls = this._selectedIds
           .map((id) => ctx.store.getById(id))
           .filter((el): el is CanvasElement => !!el && !el.locked);
-        const base = getElementsBoundingBox(selectedEls);
+        const base = getElementsBoundingBox(selectedEls, ctx.elementRegistry);
         if (base) {
           const moving: Bounds = { x: base.x + dx, y: base.y + dy, w: base.w, h: base.h };
           const res = computeSnapGuides(moving, this.dragSnapTargets, SNAP_PX / ctx.camera.zoom);
@@ -345,7 +346,7 @@ export class SelectTool implements Tool {
             from: { x: el.from.x + adjDx, y: el.from.y + adjDy },
             to: { x: el.to.x + adjDx, y: el.to.y + adjDy },
           });
-        } else if (!ctx.smartGuides && 'size' in el) {
+        } else if (!ctx.smartGuides && 'size' in el && el.type !== 'extension') {
           const cs = ctx.constraintService;
           if (cs?.isActive) {
             const centerX = el.position.x + el.size.w / 2 + adjDx;
@@ -466,7 +467,7 @@ export class SelectTool implements Tool {
           renderArrowHoverHandle(canvasCtx, el, this.ctx.camera.zoom);
           canvasCtx.restore();
         } else if (el) {
-          const b = getElementBounds(el);
+          const b = getElementBounds(el, this.ctx.elementRegistry);
           if (b) {
             canvasCtx.save();
             canvasCtx.strokeStyle = '#2196F3';
@@ -554,7 +555,7 @@ export class SelectTool implements Tool {
     if (this.mode.type !== 'resizing') return;
 
     const el = ctx.store.getById(this.mode.elementId);
-    if (!el || !('size' in el) || el.locked) return;
+    if (!el || !hasSize(el) || el.locked) return;
 
     const lockAspect = shiftKey !== (el.type === 'image');
 

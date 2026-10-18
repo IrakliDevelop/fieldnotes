@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
-import { describe, it, expect } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import {
   exportState,
+  migrateState,
   parseState,
   registerLegacyStateMigrator,
   unregisterLegacyStateMigrator,
@@ -18,6 +19,8 @@ import {
 } from '../elements/element-factory';
 import type { Layer } from '../layers/types';
 import { ElementRegistry } from '../elements/element-registry';
+import { Viewport } from '../canvas/viewport';
+import { getDefaultElementRegistry, setDefaultElementRegistry } from '../elements/default-registry';
 import type { BaseElement, CanvasElement, ElementTypeDefinition } from '../elements/types';
 
 /** A version-3 state fixture: legacy version number with fully typed v4 element payloads. */
@@ -300,7 +303,70 @@ describe('parseState', () => {
       },
     ];
 
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
     expect(parseState(JSON.stringify(data), new ElementRegistry()).elements).toHaveLength(1);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('"app:unknown"'));
+    warn.mockRestore();
+  });
+
+  it.each([
+    ['absent', undefined, true],
+    ['{w: 10, h: 5}', { w: 10, h: 5 }, true],
+    ["{w: 'a'}", { w: 'a' }, false],
+    ['{w: 10} without h', { w: 10 }, false],
+    ['null', null, false],
+  ])('validates an extension envelope size that is %s', (_, size, valid) => {
+    const registry = new ElementRegistry();
+    registry.register(markerDefinition);
+    const data = {
+      ...validState(),
+      elements: [
+        {
+          id: 'marker-1',
+          type: 'extension',
+          extensionType: 'test:marker',
+          position: { x: 10, y: 20 },
+          zIndex: 1,
+          locked: false,
+          layerId: 'default-layer',
+          data: { label: 'hi' },
+          size,
+        },
+      ],
+    };
+
+    const parse = () => parseState(JSON.stringify(data), registry);
+    if (valid) expect(parse().elements).toHaveLength(1);
+    else expect(parse).toThrow('malformed extension data');
+  });
+
+  it('warns once per unknown extension type per parse and keeps the elements', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const unknown = (id: string, extensionType: string) => ({
+      id,
+      type: 'extension' as const,
+      extensionType,
+      position: { x: 0, y: 0 },
+      zIndex: 1,
+      locked: false,
+      layerId: 'default-layer',
+      data: {},
+    });
+    const data = validState();
+    data.elements = [unknown('a', 'app:one'), unknown('b', 'app:one'), unknown('c', 'app:two')];
+    const json = JSON.stringify(data);
+
+    expect(parseState(json, new ElementRegistry()).elements).toHaveLength(3);
+    parseState(json, new ElementRegistry());
+
+    expect(warn.mock.calls.map((call) => call[0])).toEqual([
+      '[fieldnotes] Unknown extension element type "app:one" kept without validation',
+      '[fieldnotes] Unknown extension element type "app:two" kept without validation',
+      '[fieldnotes] Unknown extension element type "app:one" kept without validation',
+      '[fieldnotes] Unknown extension element type "app:two" kept without validation',
+    ]);
+    warn.mockRestore();
   });
 
   it('sanitizes text-element HTML during import', () => {
@@ -832,6 +898,303 @@ describe('parseState', () => {
       } finally {
         unregisterLegacyStateMigrator(migrator);
       }
+    });
+  });
+});
+
+describe('extension dataVersion', () => {
+  const layer: Layer = {
+    id: 'default-layer',
+    name: 'Layer 1',
+    visible: true,
+    locked: false,
+    order: 0,
+    opacity: 1,
+  };
+
+  function envelope(data: Record<string, unknown>, dataVersion?: unknown) {
+    return {
+      id: 'm1',
+      type: 'extension',
+      extensionType: 'test:marker',
+      position: { x: 0, y: 0 },
+      zIndex: 0,
+      locked: false,
+      layerId: 'default-layer',
+      data,
+      ...(dataVersion === undefined ? {} : { dataVersion }),
+    };
+  }
+
+  function stateJson(el: unknown): string {
+    return JSON.stringify({
+      version: 4,
+      camera: { position: { x: 0, y: 0 }, zoom: 1 },
+      elements: [el],
+      layers: [layer],
+    });
+  }
+
+  // v1/v2 data stored `name`; v3 renamed it to `label`, which validateData requires.
+  function versionedRegistry() {
+    const migrate = vi.fn((data: Record<string, unknown>, from: number) => ({
+      label: `${String(data['name'])}@${from}`,
+    }));
+    const registry = new ElementRegistry();
+    registry.register({ ...markerDefinition, dataVersion: 3, migrate });
+    return { registry, migrate };
+  }
+
+  it('migrates an envelope without dataVersion from 1 and stamps the current version', () => {
+    const { registry, migrate } = versionedRegistry();
+
+    const state = parseState(stateJson(envelope({ name: 'a' })), registry);
+
+    expect(migrate.mock.calls).toEqual([[{ name: 'a' }, 1]]);
+    expect(state.elements[0]).toMatchObject({ dataVersion: 3, data: { label: 'a@1' } });
+  });
+
+  it('migrates an envelope at dataVersion 2 from 2', () => {
+    const { registry, migrate } = versionedRegistry();
+
+    const state = parseState(stateJson(envelope({ name: 'b' }, 2)), registry);
+
+    expect(migrate.mock.calls).toEqual([[{ name: 'b' }, 2]]);
+    expect(state.elements[0]).toMatchObject({ dataVersion: 3, data: { label: 'b@2' } });
+  });
+
+  it.each([3, 4])('leaves an envelope at dataVersion %s untouched', (dataVersion) => {
+    const { registry, migrate } = versionedRegistry();
+
+    const state = parseState(stateJson(envelope({ label: 'c' }, dataVersion)), registry);
+
+    expect(migrate).not.toHaveBeenCalled();
+    expect(state.elements[0]).toMatchObject({ dataVersion, data: { label: 'c' } });
+  });
+
+  it('throws when migrate throws', () => {
+    const registry = new ElementRegistry();
+    registry.register({
+      ...markerDefinition,
+      dataVersion: 2,
+      migrate: () => {
+        throw new Error('cannot migrate');
+      },
+    });
+
+    expect(() => parseState(stateJson(envelope({ name: 'a' })), registry)).toThrow(
+      'cannot migrate',
+    );
+  });
+
+  it.each([0, 1.5, '2', -1])('rejects dataVersion %j as an invalid element', (dataVersion) => {
+    const { registry } = versionedRegistry();
+
+    expect(() => parseState(stateJson(envelope({ label: 'x' }, dataVersion)), registry)).toThrow(
+      'Invalid element "m1"',
+    );
+  });
+
+  it.each([0, 1.5, '2', -1])(
+    'migrateState rejects dataVersion %j as an invalid element',
+    (dataVersion) => {
+      const { registry } = versionedRegistry();
+      const state = JSON.parse(stateJson(envelope({ label: 'x' }, dataVersion))) as CanvasState;
+
+      expect(() => migrateState(state, registry)).toThrow(
+        'Invalid element "m1": invalid dataVersion',
+      );
+    },
+  );
+
+  it('leaves unversioned types unchanged and unstamped', () => {
+    const registry = new ElementRegistry();
+    registry.register(markerDefinition);
+
+    const state = parseState(stateJson(envelope({ label: 'x' })), registry);
+
+    expect(state.elements[0]).toEqual(envelope({ label: 'x' }));
+  });
+
+  it('exportState stamps the current dataVersion without mutating the input', () => {
+    const { registry } = versionedRegistry();
+    const input = envelope({ label: 'x' }) as CanvasElement;
+
+    const state = exportState([input], makeCamera(), [layer], undefined, undefined, registry);
+
+    expect(state.elements[0]).toEqual({ ...envelope({ label: 'x' }), dataVersion: 3 });
+    expect(input).toEqual(envelope({ label: 'x' }));
+  });
+
+  it('exportState keeps an existing dataVersion and leaves unversioned or unregistered envelopes unchanged', () => {
+    const { registry } = versionedRegistry();
+    registry.register({ ...markerDefinition, type: 'test:plain', legacyTypes: [] });
+    const own = envelope({ label: 'x' }, 4) as CanvasElement;
+    const plain = { ...envelope({ label: 'y' }), id: 'p1', extensionType: 'test:plain' };
+    const unknown = { ...envelope({ any: 1 }), id: 'u1', extensionType: 'app:unknown' };
+
+    const state = exportState(
+      [own, plain as CanvasElement, unknown as CanvasElement],
+      makeCamera(),
+      [layer],
+      undefined,
+      undefined,
+      registry,
+    );
+
+    expect(state.elements).toEqual([own, plain, unknown]);
+  });
+
+  it('a parse of an exported in-memory envelope does not migrate it', () => {
+    const { registry, migrate } = versionedRegistry();
+    const current = envelope({ label: 'x' }) as CanvasElement;
+
+    const exported = exportState([current], makeCamera(), [layer], undefined, undefined, registry);
+    const reparsed = parseState(JSON.stringify(exported), registry);
+
+    expect(migrate).not.toHaveBeenCalled();
+    expect(reparsed.elements[0]).toMatchObject({ dataVersion: 3, data: { label: 'x' } });
+  });
+
+  it('rejects a migrate result that is not a record as malformed data', () => {
+    const registry = new ElementRegistry();
+    registry.register({
+      ...markerDefinition,
+      dataVersion: 2,
+      migrate: () => 'oops' as unknown as Record<string, unknown>,
+      validateData: () => true,
+    });
+
+    expect(() => parseState(stateJson(envelope({ name: 'a' })), registry)).toThrow(
+      'Invalid element "m1": malformed test:marker data',
+    );
+  });
+
+  it('names the element when migrate throws', () => {
+    const registry = new ElementRegistry();
+    registry.register({
+      ...markerDefinition,
+      dataVersion: 2,
+      migrate: () => {
+        throw new Error('boom');
+      },
+    });
+
+    expect(() => parseState(stateJson(envelope({ name: 'a' })), registry)).toThrow(
+      /Invalid element "m1".*boom/,
+    );
+  });
+
+  describe('viewport.loadState', () => {
+    function stateObject(el: unknown) {
+      return JSON.parse(stateJson(el)) as CanvasState;
+    }
+
+    it('migrates an envelope without dataVersion once from 1', () => {
+      const { registry, migrate } = versionedRegistry();
+      const viewport = new Viewport(document.createElement('div'), { elementRegistry: registry });
+
+      viewport.loadState(stateObject(envelope({ name: 'a' })));
+
+      expect(migrate.mock.calls).toEqual([[{ name: 'a' }, 1]]);
+      expect(viewport.store.getById('m1')).toMatchObject({
+        dataVersion: 3,
+        data: { label: 'a@1' },
+      });
+      viewport.destroy();
+    });
+
+    it('loadJSON migrates an envelope exactly once', () => {
+      const { registry, migrate } = versionedRegistry();
+      const viewport = new Viewport(document.createElement('div'), { elementRegistry: registry });
+
+      viewport.loadJSON(stateJson(envelope({ name: 'a' })));
+
+      expect(migrate).toHaveBeenCalledTimes(1);
+      expect(viewport.store.getById('m1')).toMatchObject({ data: { label: 'a@1' } });
+      viewport.destroy();
+    });
+
+    it('loadJSON of a legacy element does not migrate the decoded envelope', () => {
+      const { registry, migrate } = versionedRegistry();
+      const viewport = new Viewport(document.createElement('div'), { elementRegistry: registry });
+      const legacy = {
+        id: 'm1',
+        type: 'marker',
+        position: { x: 0, y: 0 },
+        zIndex: 0,
+        locked: false,
+        layerId: 'default-layer',
+        label: 'old',
+      };
+
+      viewport.loadJSON(JSON.stringify({ ...stateObject(legacy), version: 3, elements: [legacy] }));
+
+      expect(migrate).not.toHaveBeenCalled();
+      expect(viewport.store.getById('m1')).toMatchObject({
+        dataVersion: 3,
+        data: { label: 'old' },
+      });
+      viewport.destroy();
+    });
+
+    it('loadState of a raw legacy element stamps the current dataVersion without migrating', () => {
+      const { registry, migrate } = versionedRegistry();
+      const viewport = new Viewport(document.createElement('div'), { elementRegistry: registry });
+      const legacy = {
+        id: 'm1',
+        type: 'marker',
+        position: { x: 0, y: 0 },
+        zIndex: 0,
+        locked: false,
+        layerId: 'default-layer',
+        label: 'old',
+      };
+
+      viewport.loadState({ ...stateObject(legacy), version: 3, elements: [legacy] });
+
+      expect(migrate).not.toHaveBeenCalled();
+      expect(viewport.store.getById('m1')).toMatchObject({
+        dataVersion: 3,
+        data: { label: 'old' },
+      });
+      viewport.destroy();
+    });
+
+    it('rejects a migrate result that is not a record and keeps the current state', () => {
+      const registry = new ElementRegistry();
+      registry.register({
+        ...markerDefinition,
+        dataVersion: 2,
+        migrate: () => 'oops' as unknown as Record<string, unknown>,
+      });
+      const viewport = new Viewport(document.createElement('div'), { elementRegistry: registry });
+      viewport.loadState(stateObject({ ...envelope({ label: 'kept' }, 2), id: 'm0' }));
+
+      expect(() => viewport.loadState(stateObject(envelope({ name: 'a' })))).toThrow(
+        'Invalid element "m1": malformed test:marker data',
+      );
+      expect(viewport.store.getAll().map((el) => el.id)).toEqual(['m0']);
+      viewport.destroy();
+    });
+  });
+
+  describe('with the default registry', () => {
+    let previous: ElementRegistry;
+    beforeEach(() => {
+      previous = getDefaultElementRegistry();
+    });
+    afterEach(() => setDefaultElementRegistry(previous));
+
+    it('an export and parse that both omit the registry do not migrate a current element', () => {
+      const { registry, migrate } = versionedRegistry();
+      setDefaultElementRegistry(registry);
+      const current = envelope({ label: 'x' }) as CanvasElement;
+
+      const reparsed = parseState(JSON.stringify(exportState([current], makeCamera(), [layer])));
+
+      expect(migrate).not.toHaveBeenCalled();
+      expect(reparsed.elements[0]).toMatchObject({ dataVersion: 3, data: { label: 'x' } });
     });
   });
 });

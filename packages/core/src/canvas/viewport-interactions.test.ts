@@ -18,7 +18,7 @@ import { HistoryRecorder } from '../history/history-recorder';
 import { HistoryStack } from '../history/history-stack';
 
 function heightOf(element: CanvasElement | undefined): number {
-  if (!element || !('size' in element)) {
+  if (!element || !('size' in element) || element.type === 'extension') {
     throw new Error('expected a sized element');
   }
   return element.size.h;

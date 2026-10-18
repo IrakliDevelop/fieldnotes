@@ -6,12 +6,12 @@ public extension points.
 
 ## Patterns demonstrated
 
-| File                                                     | Pattern                                                                                                                                                   |
-| -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`src/annotation-element.ts`](src/annotation-element.ts) | **Custom element type** — `ElementTypeDefinition` with validation, wrap/unwrap envelope conversion, bounds, hit-testing, canvas rendering, and SVG export |
-| [`src/annotation-plugin.ts`](src/annotation-plugin.ts)   | **Viewport plugin** — `configure`/`start` lifecycle, element type registration, render hook registration, typed service via `ServiceKey`                  |
-| [`src/annotation-tool.ts`](src/annotation-tool.ts)       | **Custom tool** — placing extension elements via `wrap()` and `store.add()`                                                                               |
-| [`src/main.ts`](src/main.ts)                             | **Host wiring** — installing plugins at viewport construction, accessing services via `viewport.getService()`                                             |
+| File                                                     | Pattern                                                                                                                                                                                            |
+| -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`src/annotation-element.ts`](src/annotation-element.ts) | **Custom element type** — `ElementTypeDefinition` with validation, wrap/unwrap envelope conversion, envelope `size` for core resize handles, bounds, hit-testing, canvas rendering, and SVG export |
+| [`src/annotation-plugin.ts`](src/annotation-plugin.ts)   | **Viewport plugin** — `configure`/`start` lifecycle, element type registration, render hook registration, typed service via `ServiceKey`                                                           |
+| [`src/annotation-tool.ts`](src/annotation-tool.ts)       | **Custom tool** — placing extension elements via `wrap()` and `store.add()`                                                                                                                        |
+| [`src/main.ts`](src/main.ts)                             | **Host wiring** — installing plugins at viewport construction, accessing services via `viewport.getService()`                                                                                      |
 
 ## Run
 
@@ -32,7 +32,7 @@ const myDefinition: ElementTypeDefinition<MyElement> = {
   validateData(data) { ... },   // called on deserialization
   wrap(el) { ... },             // typed → ExtensionElementEnvelope
   unwrap(el) { ... },           // ExtensionElementEnvelope → typed
-  bounds(el) { ... },           // axis-aligned bounding box
+  bounds(el) { ... },           // axis-aligned bounding box (read `size` when the envelope has one)
   hitTest(el, point) { ... },   // point-in-element test
   render(ctx, el) { ... },      // canvas rendering
   emitSvg(el) { ... },          // SVG export
@@ -47,7 +47,7 @@ const myPlugin: ViewportPlugin = {
   name: 'my-plugin',
   configure(ctx) {
     ctx.registerElementType(myDefinition);
-    ctx.registerViewportHooks({ afterElements(ctx2d, elements, dims) { ... } });
+    ctx.registerViewportHooks({ afterElements(ctx2d, camera, dims) { ... } });
     ctx.registerTool(myTool);
   },
   start(ctx) {
@@ -72,7 +72,8 @@ const svc = viewport.getService(MyKey);
 
 ## Further reading
 
-- [`@fieldnotes/core` README](../../packages/core/README.md) — full API reference
+- [Extending Field Notes](../../docs/EXTENDING.md) — the complete extension guide
+- [`@fieldnotes/core` README](../../packages/core/README.md) — core API reference
 - [`@fieldnotes/vtt`](../../packages/vtt/) — production-grade domain package built on these primitives
 - [ADR-0001](../../docs/adr/0001-element-extensibility.md) — element extensibility design
 - [ADR-0005](../../docs/adr/0005-plugin-lifecycle.md) — plugin lifecycle design

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { exportSvg } from './export-svg';
 import {
   createStroke,
@@ -12,6 +12,7 @@ import {
 import { ElementStore } from '../elements/element-store';
 import { HtmlPainterRegistry, HtmlPainterMissingError } from './html-painter-registry';
 import type { HtmlElement } from '../elements/types';
+import { createRenderHooks } from './render-hooks';
 
 const HTML_MARKER = 'data-distinctive-html-marker-xyz';
 
@@ -547,6 +548,84 @@ function layersWithOpacity(opacity: number): {
     getLayer: () => ({ opacity }),
   };
 }
+
+describe('exportSvg — required render capabilities', () => {
+  function shapeStore(): ElementStore {
+    const store = new ElementStore();
+    store.add(createShape({ position: { x: 0, y: 0 }, size: { w: 50, h: 50 } }));
+    return store;
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it.each([
+    ['a store with content', shapeStore()],
+    ['an empty store', new ElementStore()],
+  ])('rejects a missing required capability without render hooks for %s', async (_, store) => {
+    await expect(exportSvg(store, { requiredCapabilities: ['x', 'y'] })).rejects.toThrow(
+      'Required render capabilities are missing on svgExport: x, y',
+    );
+  });
+
+  it('rejects a requirement stored on the registry, as a viewport export inherits it', async () => {
+    const renderHooks = createRenderHooks();
+    renderHooks.svgExport.setRequiredCapabilities(['x']);
+
+    await expect(exportSvg(shapeStore(), { renderHooks })).rejects.toThrow(
+      'Required render capabilities are missing on svgExport: x',
+    );
+  });
+
+  it('resolves when a registered, enabled hook satisfies the requirement', async () => {
+    const renderHooks = createRenderHooks();
+    renderHooks.svgExport.register(
+      { afterElements: ({ appendSvg }) => appendSvg('<g id="fog"/>') },
+      { satisfies: ['x'] },
+    );
+
+    const svg = await exportSvg(shapeStore(), { renderHooks, requiredCapabilities: ['x'] });
+
+    expect(svg).toContain('<g id="fog"/>');
+  });
+
+  it('reports a throwing optional hook and still resolves', async () => {
+    const reportSpy = vi.fn();
+    vi.stubGlobal('reportError', reportSpy);
+    const renderHooks = createRenderHooks();
+    renderHooks.svgExport.register({
+      afterElements: () => {
+        throw new Error('decor failed');
+      },
+    });
+    renderHooks.svgExport.register({
+      afterElements: ({ appendSvg }) => appendSvg('<g id="later"/>'),
+    });
+
+    const svg = await exportSvg(shapeStore(), { renderHooks });
+
+    expect(svg).toContain('<g id="later"/>');
+    expect(reportSpy).toHaveBeenCalledWith(new Error('decor failed'));
+  });
+
+  it('rejects when the hook satisfying a required capability throws', async () => {
+    vi.stubGlobal('reportError', vi.fn());
+    const renderHooks = createRenderHooks();
+    renderHooks.svgExport.register(
+      {
+        afterElements: () => {
+          throw new Error('fog failed');
+        },
+      },
+      { satisfies: ['x'] },
+    );
+
+    await expect(
+      exportSvg(shapeStore(), { renderHooks, requiredCapabilities: ['x'] }),
+    ).rejects.toThrow('Required render capabilities are missing on svgExport: x');
+  });
+});
 
 describe('exportSvg canvas-routed html', () => {
   it('rasterises a marker at a NONZERO position into non-blank pixels', async () => {

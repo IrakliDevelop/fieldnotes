@@ -48,7 +48,7 @@ import { HtmlPainterRegistry, resolveHtmlRouting } from './html-painter-registry
 import type { HtmlPainter, HtmlRouting } from './html-painter-registry';
 import { HtmlPaintDiagnosticDeduper } from '../canvas/html-paint-diagnostics';
 import type { HtmlPaintDiagnostic } from '../canvas/html-paint-diagnostics';
-import type { ElementRegistry } from '../elements/element-registry';
+import { ElementRegistry } from '../elements/element-registry';
 import { getDefaultElementRegistry } from '../elements/default-registry';
 import type { RenderStatsSnapshot } from './render-stats';
 import { LayerCache } from './layer-cache';
@@ -69,6 +69,7 @@ import type { NotificationController, PersistedPluginState } from '../core/plugi
 import { PluginHost } from './plugin-host';
 import type { RequiredCapabilities, ViewportPlugin } from './viewport-plugin';
 import type { ServiceKey } from '../core/service-key';
+import { reportFailure } from '../core/report-failure';
 export type {
   PluginConfigureContext,
   PluginStartContext,
@@ -108,7 +109,7 @@ export interface ViewportOptions {
   panInertia?: boolean;
   /** Show an overview minimap (bottom-right) with tap/drag-to-navigate. Default `false`. */
   minimap?: boolean;
-  /** Element type registry for extension support. Domain types require explicit registration. */
+  /** Element type registry; defaults to a per-viewport registry layered over the global default. */
   elementRegistry?: ElementRegistry;
   /** Domain plugins to install. Each plugin self-wires via the host API. */
   plugins?: ViewportPlugin[];
@@ -203,7 +204,8 @@ export class Viewport {
   ) {
     this.camera = new Camera(options.camera);
     this.background = new Background(options.background);
-    this.elementRegistry = options.elementRegistry ?? getDefaultElementRegistry();
+    this.elementRegistry =
+      options.elementRegistry ?? new ElementRegistry(getDefaultElementRegistry());
     this.store = new ElementStore(this.elementRegistry);
     this.layerManager = new LayerManager(this.store);
     this.toolManager = new ToolManager();
@@ -457,7 +459,7 @@ export class Viewport {
         this.requestRender();
       }),
       this.store.on('remove', (el, meta) => {
-        unbindArrowsFrom(this.store, el, meta);
+        unbindArrowsFrom(this.store, el, meta, this.elementRegistry);
         this.domNodeManager.removeDomNode(el.id);
         this.htmlDiagnostics.forget(el.id);
         this.renderLoop.markLayerDirty(el.layerId);
@@ -545,8 +547,7 @@ export class Viewport {
         try {
           listener();
         } catch (error) {
-          if (typeof reportError === 'function') reportError(error);
-          else console.error('[fieldnotes] onStateChange listener failed', error);
+          reportFailure(error, 'onStateChange listener failed');
         }
       }
     };
@@ -641,7 +642,7 @@ export class Viewport {
     const visibleElements = this.store
       .getAll()
       .filter((el) => this.layerManager.isLayerVisible(el.layerId));
-    const bbox = getElementsBoundingBox(visibleElements);
+    const bbox = getElementsBoundingBox(visibleElements, this.elementRegistry);
     if (!bbox) return;
     this.camera.fitToContent(bbox, this.wrapper.clientWidth, this.wrapper.clientHeight, padding);
   }
@@ -721,6 +722,7 @@ export class Viewport {
       this.layerManager.snapshot(),
       this.layerManager.activeLayerId,
       this.pluginStateManager.exportState(),
+      this.elementRegistry,
     );
   }
 

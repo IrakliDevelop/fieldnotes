@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { Viewport } from './viewport';
+import type { ViewportOptions } from './viewport';
 import { MinimapController } from './minimap-controller';
 import type { MinimapControllerOptions } from './minimap-controller';
 import {
@@ -19,8 +20,10 @@ import {
 } from '../elements/element-factory';
 import type { CanvasElement } from '../elements/types';
 import type { HtmlPainterRegistry } from './html-painter-registry';
+import { createRenderHooks } from './render-hooks';
 import type { Camera } from './camera';
 import type { LayerManager } from '../layers/layer-manager';
+import { createTestBoxRegistry } from '../test-helpers/test-box-type';
 
 // ---------------------------------------------------------------------------
 // Recorder: a shared fake CanvasRenderingContext2D returned for every canvas
@@ -198,7 +201,7 @@ interface ViewportHarness {
   canvasEl: HTMLCanvasElement;
 }
 
-function makeViewportHarness(): ViewportHarness {
+function makeViewportHarness(options: ViewportOptions = {}): ViewportHarness {
   const container = document.createElement('div');
   Object.defineProperty(container, 'getBoundingClientRect', {
     value: () => ({ left: 0, top: 0, width: 800, height: 600 }),
@@ -206,7 +209,7 @@ function makeViewportHarness(): ViewportHarness {
   });
   document.body.appendChild(container);
 
-  const viewport = new Viewport(container, {});
+  const viewport = new Viewport(container, options);
   const canvasEl = container.querySelector('canvas');
   if (!canvasEl) throw new Error('viewport canvas not found');
   // Camera.getVisibleRect reads canvasEl.clientWidth/clientHeight, which jsdom
@@ -695,6 +698,147 @@ describe('MinimapController', () => {
 
     controller2.dispose();
     viewport.destroy();
+  });
+
+  it('11. the mapping includes extension elements bounded by the viewport element registry', () => {
+    const elementRegistry = createTestBoxRegistry({ w: 100, h: 100 });
+    const { viewport } = makeViewportHarness({ elementRegistry });
+    viewport.store.add({
+      id: 'box',
+      type: 'extension',
+      extensionType: 'test:box',
+      position: { x: 5000, y: 5000 },
+      zIndex: 0,
+      locked: false,
+      layerId: viewport.layerManager.activeLayerId,
+      data: {},
+    });
+    const minimapHooks = createRenderHooks().minimap;
+    const afterElements = vi.fn();
+    minimapHooks.register({ afterElements });
+    const queue = makeFrameQueue();
+
+    const controller = makeController(viewport, document.createElement('canvas'), queue, {
+      minimapHooks,
+    });
+    queue.flush();
+
+    expect(afterElements).toHaveBeenCalledWith(
+      expect.objectContaining({ worldBounds: { x: 0, y: 0, w: 5100, h: 5100 } }),
+    );
+
+    controller.dispose();
+    viewport.destroy();
+  });
+});
+
+describe('MinimapController fail-closed hooks', () => {
+  function addContent(viewport: Viewport): void {
+    const layerId = viewport.layerManager.activeLayerId;
+    viewport.store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 80 }, layerId }));
+    viewport.store.add(
+      createStroke({
+        points: [
+          { x: 0, y: 0, pressure: 0.5 },
+          { x: 50, y: 50, pressure: 0.5 },
+        ],
+        layerId,
+      }),
+    );
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('draws no element content into the scene while a required capability is missing', () => {
+    const { viewport } = makeViewportHarness();
+    addContent(viewport);
+    const minimapHooks = createRenderHooks().minimap;
+    minimapHooks.setRequiredCapabilities(['x']);
+    const afterElements = vi.fn();
+    minimapHooks.register({ afterElements });
+    const queue = makeFrameQueue();
+
+    const controller = makeController(viewport, document.createElement('canvas'), queue, {
+      minimapHooks,
+    });
+    queue.flush();
+
+    expect(rendererSpy).not.toHaveBeenCalled();
+    expect(recorder.fillRectLog).toEqual([]);
+    expect(afterElements).not.toHaveBeenCalled();
+    expect(compositeCalls().length).toBe(1);
+
+    controller.dispose();
+    viewport.destroy();
+  });
+
+  it('draws element content when the required capability has an enabled satisfier', () => {
+    const { viewport } = makeViewportHarness();
+    addContent(viewport);
+    const minimapHooks = createRenderHooks().minimap;
+    minimapHooks.setRequiredCapabilities(['x']);
+    minimapHooks.register({ afterElements: vi.fn() }, { satisfies: ['x'] });
+
+    const controller = makeController(
+      viewport,
+      document.createElement('canvas'),
+      makeFrameQueue(),
+      {
+        minimapHooks,
+      },
+    );
+
+    expect(rendererSpy).toHaveBeenCalled();
+    expect(recorder.fillRectLog.length).toBe(1);
+    expect(recorder.clearRect).not.toHaveBeenCalled();
+
+    controller.dispose();
+    viewport.destroy();
+  });
+
+  it('resets the scene canvas when a satisfying hook clips then throws', () => {
+    vi.stubGlobal('reportError', vi.fn());
+    const { viewport } = makeViewportHarness();
+    addContent(viewport);
+    const minimapHooks = createRenderHooks().minimap;
+    minimapHooks.setRequiredCapabilities(['x']);
+    let threw = false;
+    minimapHooks.register(
+      {
+        afterElements: ({ ctx }) => {
+          ctx.save();
+          ctx.rect(0, 0, 1, 1);
+          ctx.clip();
+          threw = true;
+          throw new Error('fog failed');
+        },
+      },
+      { satisfies: ['x'] },
+    );
+    const widthSetter = Object.getOwnPropertyDescriptor(HTMLCanvasElement.prototype, 'width')?.set;
+    if (!widthSetter) throw new Error('canvas width setter not found');
+    const resetAfterThrow: unknown[] = [];
+    const widthSpy = vi
+      .spyOn(HTMLCanvasElement.prototype, 'width', 'set')
+      .mockImplementation(function (this: HTMLCanvasElement, value: number) {
+        if (threw) resetAfterThrow.push(this);
+        widthSetter.call(this, value);
+      });
+    const queue = makeFrameQueue();
+
+    try {
+      const controller = makeController(viewport, document.createElement('canvas'), queue, {
+        minimapHooks,
+      });
+      queue.flush();
+      expect(resetAfterThrow).toContain(lastComposite().args[0]);
+      controller.dispose();
+    } finally {
+      widthSpy.mockRestore();
+      viewport.destroy();
+    }
   });
 });
 

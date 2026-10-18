@@ -6,6 +6,8 @@ import { Viewport } from './viewport';
 import type { ViewportPlugin } from './viewport-plugin';
 import { SelectTool } from '../tools/select-tool';
 import { createArrow, createNote } from '../elements/element-factory';
+import { getDefaultElementRegistry } from '../elements/default-registry';
+import type { BaseElement, ElementTypeDefinition } from '../elements/types';
 
 function createContainer(): HTMLDivElement {
   const container = document.createElement('div');
@@ -259,6 +261,34 @@ describe('Viewport plugin lifecycle', () => {
         }),
     ).toThrow('viewport:vtt:fog');
     expect(container.childElementCount).toBe(0);
+  });
+
+  it('rejects exports once the only satisfier of a required capability is disposed', async () => {
+    let disposeSatisfiers = (): void => undefined;
+    const viewport = new Viewport(container, {
+      requiredCapabilities: { imageExport: ['x'], svgExport: ['x'] },
+      plugins: [
+        {
+          name: 'fog',
+          start(context) {
+            const hooks = context.viewport.renderHooks;
+            const offImage = hooks.imageExport.register({}, { satisfies: ['x'] });
+            const offSvg = hooks.svgExport.register({}, { satisfies: ['x'] });
+            disposeSatisfiers = () => {
+              offImage();
+              offSvg();
+            };
+            return undefined;
+          },
+        },
+      ],
+    });
+
+    disposeSatisfiers();
+
+    await expect(viewport.exportImage()).rejects.toThrow('missing on imageExport: x');
+    await expect(viewport.exportSVG()).rejects.toThrow('missing on svgExport: x');
+    viewport.destroy();
   });
 
   it('disposes handles and start resources in reverse plugin order', () => {
@@ -667,6 +697,53 @@ describe('Viewport plugin warnings', () => {
     });
     expect(state).toBeUndefined();
     expect(warn).toHaveBeenCalledWith(expect.stringMatching(/^\[fieldnotes\].*versioned/));
+    viewport.destroy();
+  });
+});
+
+describe('Viewport element registry', () => {
+  const pinDefinition: ElementTypeDefinition<BaseElement> = {
+    type: 'test:pin',
+    legacyTypes: [],
+    decodeLegacy: () => {
+      throw new Error('unused');
+    },
+    validateData: () => true,
+    unwrap: (env) => ({ ...env, type: 'pin' }),
+    wrap: (el) => ({ ...el, type: 'extension', extensionType: 'test:pin', data: {} }),
+    bounds: (el) => ({ x: el.position.x, y: el.position.y, w: 1, h: 1 }),
+  };
+  let container: HTMLDivElement;
+
+  beforeEach(() => {
+    container = createContainer();
+  });
+
+  afterEach(() => {
+    container.remove();
+    getDefaultElementRegistry().unregister(pinDefinition.type);
+  });
+
+  it('keeps a plugin element type on one viewport when another installing it is destroyed', () => {
+    const plugin: ViewportPlugin = {
+      name: 'pin',
+      configure: (ctx) => ctx.registerElementType(pinDefinition),
+    };
+    const first = new Viewport(container, { plugins: [plugin] });
+    const second = new Viewport(container, { plugins: [plugin] });
+    expect(getDefaultElementRegistry().has(pinDefinition.type)).toBe(false);
+
+    first.destroy();
+
+    expect(second.elementRegistry.has(pinDefinition.type)).toBe(true);
+    expect(getDefaultElementRegistry().has(pinDefinition.type)).toBe(false);
+    second.destroy();
+  });
+
+  it('sees types registered on the global default registry before construction', () => {
+    getDefaultElementRegistry().register(pinDefinition);
+    const viewport = new Viewport(container);
+    expect(viewport.elementRegistry.has(pinDefinition.type)).toBe(true);
     viewport.destroy();
   });
 });

@@ -42,7 +42,7 @@ export function computeElementRects(
       continue;
     }
     if (typeof key !== 'string') continue;
-    const bounds = getElementBounds(element);
+    const bounds = getElementBounds(element, store.elementRegistry);
     if (!bounds) continue;
     rects.push({
       id: element.id,

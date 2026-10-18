@@ -138,7 +138,7 @@ export class DomNodeManager {
       this.lastSyncedOpacity.set(element.id, opacity);
     }
 
-    const size = 'size' in element ? element.size : null;
+    const size = 'size' in element && element.type !== 'extension' ? element.size : null;
     Object.assign(node.style, {
       display: 'block',
       left: `${element.position.x}px`,

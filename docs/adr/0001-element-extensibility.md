@@ -342,6 +342,27 @@ These contracts were proven in `packages/contract-spike`:
 - `unwrap()` validates envelope data before returning T — runtime tests confirm throw on mismatch
 - v3/v4 round-trip preserves element data through serialize→parse cycle
 
+## Implementation notes (0.90.0)
+
+- **Registry ownership.** `new ElementRegistry(parent?)` looks up types in itself, then in `parent`;
+  `getTypes()` returns the union and `unregister` touches only the registry itself. A `Viewport`
+  without `elementRegistry` creates `new ElementRegistry(getDefaultElementRegistry())`, so globally
+  registered types stay visible and plugin types are per viewport. Registering a type the parent
+  holds shadows it with a warning; registering one the registry already holds throws.
+- **`has(type)`** checks the registry and its parents.
+- **Data versioning.** `ElementTypeDefinition.dataVersion` (positive integer, default 1) and
+  `migrate(data, fromVersion)`; `register` throws when `dataVersion > 1` has no `migrate`. The
+  envelope carries an optional `dataVersion` (absent means 1). Migration runs on `parseState`,
+  `loadJSON`, `loadState` and `AutoSave.load`: `migrate` runs once for lower stored versions, the
+  result must be a record, and the current version is stamped; every path but `loadState` also
+  validates the result. Legacy decodes are stamped current. `exportState` stamps a missing
+  `dataVersion`. Sync paths do not migrate.
+- **`cloneRemap(el, idMap)`** is called on paste and duplicate with the full source-to-clone id map;
+  core keeps the clone's base fields and replaces `data` with the result's `data`.
+- **Envelope `size`.** An optional `size` on `ExtensionElementEnvelope` opts the element into the
+  select tool's corner resize handles. The serializer and sync wire validation check it when
+  present. Adapter handles are drawn over the core handles and hit-tested first.
+
 ## Options Considered
 
 ### Option A: Full element-type registry with extension envelope (chosen)

@@ -22,6 +22,7 @@ import type { HtmlPaintDiagnostic } from './html-paint-diagnostics';
 import { HtmlPainterRegistry } from './html-painter-registry';
 import type { ElementActivationEvent } from './element-activation';
 import { LEGACY_ACTION_IDS } from '../actions/legacy-action-ids';
+import { createTestBoxRegistry } from '../test-helpers/test-box-type';
 
 function wrapperOf(container: HTMLElement): HTMLDivElement {
   const w = container.firstElementChild;
@@ -1448,6 +1449,31 @@ describe('Viewport', () => {
   });
 
   describe('fitToContent', () => {
+    it('frames extension elements with the viewport element registry bounds', () => {
+      const elementRegistry = createTestBoxRegistry({ w: 200, h: 100 });
+      const viewport = new Viewport(container, { elementRegistry });
+      const wrapper = wrapperOf(container);
+      Object.defineProperty(wrapper, 'clientWidth', { value: 800, configurable: true });
+      Object.defineProperty(wrapper, 'clientHeight', { value: 600, configurable: true });
+      viewport.store.add({
+        id: 'box',
+        type: 'extension',
+        extensionType: 'test:box',
+        position: { x: 1000, y: 1000 },
+        zIndex: 0,
+        locked: false,
+        layerId: viewport.layerManager.activeLayerId,
+        data: {},
+      });
+
+      viewport.fitToContent();
+
+      const cam = viewport.camera;
+      expect(cam.position.x + 1100 * cam.zoom).toBeCloseTo(400, 0);
+      expect(cam.position.y + 1050 * cam.zoom).toBeCloseTo(300, 0);
+      viewport.destroy();
+    });
+
     it('frames all elements (content center maps to canvas center)', () => {
       const viewport = new Viewport(container);
       const wrapper = wrapperOf(container);
