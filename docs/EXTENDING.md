@@ -201,12 +201,11 @@ const definition: ElementTypeDefinition<Marker> = {
 ```
 
 - `register` throws when `dataVersion` is not a positive integer, or is above 1 without `migrate`.
-- `migrate` runs once per element while parsing JSON (`viewport.loadJSON`, `AutoSave.load`) when
-  the stored `dataVersion` (absent means 1) is lower than the current one. It must return a plain
-  object; the result is validated with `validateData` and the envelope is stamped with the current
-  version. A throw fails the load with the element id. Higher stored versions are left alone.
-- `viewport.loadState(object)` does not run `migrate`; feed persisted data through `loadJSON` or
-  `AutoSave.load`.
+- `migrate` runs once per element on `parseState`, `viewport.loadJSON`, `viewport.loadState` and
+  `AutoSave.load` when the stored `dataVersion` (absent means 1) is lower than the current one. It
+  must return a plain object; the result is validated with `validateData` and the envelope is
+  stamped with the current version. A throw fails the load with the element id. Higher stored
+  versions are left alone.
 - `exportState` stamps elements that lack `dataVersion` with the current version.
 - Sync never migrates: elements in memory are always current. Every peer in a room should run the
   same definition version.

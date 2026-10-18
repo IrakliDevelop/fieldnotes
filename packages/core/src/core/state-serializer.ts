@@ -1,4 +1,8 @@
-import type { CanvasElement, ExtensionElementEnvelope } from '../elements/types';
+import type {
+  CanvasElement,
+  ElementTypeAdapter,
+  ExtensionElementEnvelope,
+} from '../elements/types';
 import type { Point } from './types';
 import type { Layer } from '../layers/types';
 import { sanitizeNoteHtml } from '../elements/note-sanitizer';
@@ -101,6 +105,14 @@ export function migrateState(
   state: ImportableCanvasState,
   registry: ElementRegistry = getDefaultElementRegistry(),
 ): CanvasState {
+  // Runs before legacy decoding: decoded envelopes are already current.
+  const elements: unknown[] = state.elements;
+  for (let i = 0; i < elements.length; i++) {
+    const el = elements[i];
+    if (!isRecord(el) || el['type'] !== 'extension' || !isString(el['extensionType'])) continue;
+    const adapter = registry.getAdapter(el['extensionType']);
+    elements[i] = migrateEnvelope(el as unknown as ExtensionElementEnvelope, adapter);
+  }
   if (state.version === CANVAS_STATE_VERSION) return state;
   const legacy = state as LegacyCanvasState;
   convertLegacyToEnvelopes(legacy.elements, registry);
@@ -289,24 +301,7 @@ function validateElement(
       if (!isOptional(el['dataVersion'], isPositiveInteger)) {
         throw new Error(`Invalid element "${el['id']}": invalid dataVersion`);
       }
-      let envelope = el as unknown as ExtensionElementEnvelope;
-      const stored = envelope.dataVersion ?? 1;
-      if (adapter?.migrate && adapter.dataVersion !== undefined && stored < adapter.dataVersion) {
-        let migrated: unknown;
-        try {
-          migrated = adapter.migrate(envelope.data, stored);
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          throw new Error(
-            `Invalid element "${el['id']}": ${extensionType} migrate failed: ${message}`,
-            { cause: error },
-          );
-        }
-        if (!isRecord(migrated)) {
-          throw new Error(`Invalid element "${el['id']}": malformed ${extensionType} data`);
-        }
-        envelope = { ...envelope, data: migrated, dataVersion: adapter.dataVersion };
-      }
+      const envelope = migrateEnvelope(el as unknown as ExtensionElementEnvelope, adapter);
       if (adapter && !adapter.validateEnvelope(envelope)) {
         throw new Error(`Invalid element "${el['id']}": malformed ${extensionType} data`);
       }
@@ -334,7 +329,34 @@ function validateElement(
   if (!adapter.validateEnvelope(envelope)) {
     throw new Error(`Invalid element "${el['id']}": malformed ${el['type']} data`);
   }
-  return envelope;
+  // Decoded legacy data is current; stamp it so a later loadState does not migrate it.
+  return adapter.dataVersion === undefined
+    ? envelope
+    : { ...envelope, dataVersion: adapter.dataVersion };
+}
+
+function migrateEnvelope(
+  envelope: ExtensionElementEnvelope,
+  adapter: ElementTypeAdapter | undefined,
+): ExtensionElementEnvelope {
+  const stored = envelope.dataVersion ?? 1;
+  if (!adapter?.migrate || adapter.dataVersion === undefined || stored >= adapter.dataVersion) {
+    return envelope;
+  }
+  const { id, extensionType } = envelope;
+  let migrated: unknown;
+  try {
+    migrated = adapter.migrate(envelope.data, stored);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Invalid element "${id}": ${extensionType} migrate failed: ${message}`, {
+      cause: error,
+    });
+  }
+  if (!isRecord(migrated)) {
+    throw new Error(`Invalid element "${id}": malformed ${extensionType} data`);
+  }
+  return { ...envelope, data: migrated, dataVersion: adapter.dataVersion };
 }
 
 function validateTypeFields(

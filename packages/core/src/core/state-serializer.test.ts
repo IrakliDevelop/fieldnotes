@@ -18,6 +18,7 @@ import {
 } from '../elements/element-factory';
 import type { Layer } from '../layers/types';
 import { ElementRegistry } from '../elements/element-registry';
+import { Viewport } from '../canvas/viewport';
 import { getDefaultElementRegistry, setDefaultElementRegistry } from '../elements/default-registry';
 import type { BaseElement, CanvasElement, ElementTypeDefinition } from '../elements/types';
 
@@ -1065,6 +1066,77 @@ describe('extension dataVersion', () => {
     expect(() => parseState(stateJson(envelope({ name: 'a' })), registry)).toThrow(
       /Invalid element "m1".*boom/,
     );
+  });
+
+  describe('viewport.loadState', () => {
+    function stateObject(el: unknown) {
+      return JSON.parse(stateJson(el)) as CanvasState;
+    }
+
+    it('migrates an envelope without dataVersion once from 1', () => {
+      const { registry, migrate } = versionedRegistry();
+      const viewport = new Viewport(document.createElement('div'), { elementRegistry: registry });
+
+      viewport.loadState(stateObject(envelope({ name: 'a' })));
+
+      expect(migrate.mock.calls).toEqual([[{ name: 'a' }, 1]]);
+      expect(viewport.store.getById('m1')).toMatchObject({
+        dataVersion: 3,
+        data: { label: 'a@1' },
+      });
+      viewport.destroy();
+    });
+
+    it('loadJSON migrates an envelope exactly once', () => {
+      const { registry, migrate } = versionedRegistry();
+      const viewport = new Viewport(document.createElement('div'), { elementRegistry: registry });
+
+      viewport.loadJSON(stateJson(envelope({ name: 'a' })));
+
+      expect(migrate).toHaveBeenCalledTimes(1);
+      expect(viewport.store.getById('m1')).toMatchObject({ data: { label: 'a@1' } });
+      viewport.destroy();
+    });
+
+    it('loadJSON of a legacy element does not migrate the decoded envelope', () => {
+      const { registry, migrate } = versionedRegistry();
+      const viewport = new Viewport(document.createElement('div'), { elementRegistry: registry });
+      const legacy = {
+        id: 'm1',
+        type: 'marker',
+        position: { x: 0, y: 0 },
+        zIndex: 0,
+        locked: false,
+        layerId: 'default-layer',
+        label: 'old',
+      };
+
+      viewport.loadJSON(JSON.stringify({ ...stateObject(legacy), version: 3, elements: [legacy] }));
+
+      expect(migrate).not.toHaveBeenCalled();
+      expect(viewport.store.getById('m1')).toMatchObject({
+        dataVersion: 3,
+        data: { label: 'old' },
+      });
+      viewport.destroy();
+    });
+
+    it('rejects a migrate result that is not a record and keeps the current state', () => {
+      const registry = new ElementRegistry();
+      registry.register({
+        ...markerDefinition,
+        dataVersion: 2,
+        migrate: () => 'oops' as unknown as Record<string, unknown>,
+      });
+      const viewport = new Viewport(document.createElement('div'), { elementRegistry: registry });
+      viewport.loadState(stateObject({ ...envelope({ label: 'kept' }, 2), id: 'm0' }));
+
+      expect(() => viewport.loadState(stateObject(envelope({ name: 'a' })))).toThrow(
+        'Invalid element "m1": malformed test:marker data',
+      );
+      expect(viewport.store.getAll().map((el) => el.id)).toEqual(['m0']);
+      viewport.destroy();
+    });
   });
 
   describe('with the default registry', () => {
