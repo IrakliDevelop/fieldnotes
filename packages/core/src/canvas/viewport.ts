@@ -436,7 +436,6 @@ export class Viewport {
       marginViewport: this.marginViewport,
       hybridSurface: this.hybridSurface,
       hooks: this._renderHooks,
-      elementRegistry: this.elementRegistry,
     });
     this.disposers.push(
       () => this.renderLoop.stop(),

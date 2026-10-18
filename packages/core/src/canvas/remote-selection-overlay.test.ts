@@ -73,7 +73,7 @@ const frame = (id: string, extra: Record<string, unknown> = {}) => ({
 });
 
 describe('RemoteSelectionOverlay', () => {
-  it('outlines an extension element with the host element registry bounds', () => {
+  it('outlines an extension element with the store element registry bounds', () => {
     const elementRegistry = new ElementRegistry();
     elementRegistry.register<ExtensionElementEnvelope>({
       type: 'test:box',
@@ -98,7 +98,7 @@ describe('RemoteSelectionOverlay', () => {
       data: {},
     });
     const roster = new PeerRoster();
-    const overlay = new RemoteSelectionOverlay({ ...host, elementRegistry }, roster);
+    const overlay = new RemoteSelectionOverlay(host, roster);
 
     roster.apply('c1', frame('ada', { selection: ['box'] }));
     const { ctx, strokes } = makeCtx();

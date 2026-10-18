@@ -47,15 +47,20 @@ export class ElementStore {
   private spatialIndex = new Quadtree({ x: -100000, y: -100000, w: 200000, h: 200000 });
   private sortedCache: CanvasElement[] | null = null;
   private _versions = new Map<string, number>();
-  private elementRegistry: ElementRegistry;
+  private registry: ElementRegistry;
 
   constructor(elementRegistry: ElementRegistry = getDefaultElementRegistry()) {
-    this.elementRegistry = elementRegistry;
+    this.registry = elementRegistry;
+  }
+
+  /** The registry that resolves bounds for this store's elements. */
+  get elementRegistry(): ElementRegistry {
+    return this.registry;
   }
 
   setElementRegistry(elementRegistry: ElementRegistry): void {
-    if (elementRegistry === this.elementRegistry) return;
-    this.elementRegistry = elementRegistry;
+    if (elementRegistry === this.registry) return;
+    this.registry = elementRegistry;
     this.spatialIndex.clear();
     for (const element of this.elements.values()) {
       const bounds = this.indexBounds(element);
@@ -100,7 +105,7 @@ export class ElementStore {
   // Spatial index stores the rotation-expanded AABB so rotated elements remain
   // broad-phase hit-test/marquee candidates; precise tests run against local bounds.
   private indexBounds(element: CanvasElement): Bounds | null {
-    return getElementVisualBounds(element, this.elementRegistry);
+    return getElementVisualBounds(element, this.registry);
   }
 
   add(element: CanvasElement, meta?: ElementChangeMeta): void {

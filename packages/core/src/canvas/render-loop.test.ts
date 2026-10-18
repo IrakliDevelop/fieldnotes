@@ -1681,7 +1681,7 @@ describe('RenderLoop', () => {
       expect(alphas).toEqual([1, 0.25]);
     });
 
-    it('culls extension elements with the bounds of the viewport element registry', () => {
+    it('culls extension elements with the bounds of the store element registry', () => {
       const registry = new ElementRegistry();
       registry.register<ExtensionElementEnvelope>({
         type: 'test:box',
@@ -1706,12 +1706,7 @@ describe('RenderLoop', () => {
       store.setElementRegistry(registry);
       store.add(box('inside', 10));
       store.add(box('outside', 100_000));
-      renderLoop = new RenderLoop({
-        ...deps,
-        store,
-        layerManager: layers,
-        elementRegistry: registry,
-      });
+      renderLoop = new RenderLoop({ ...deps, store, layerManager: layers });
 
       frame();
 

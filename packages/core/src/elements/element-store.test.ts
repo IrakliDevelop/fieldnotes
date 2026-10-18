@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { ElementStore } from './element-store';
 import * as strokeCache from './stroke-cache';
 import { getElementBounds } from './element-bounds';
+import { ElementRegistry } from './element-registry';
 import { createStroke, createArrow } from './element-factory';
 import type { CanvasElement, NoteElement, StrokeElement, TextElement } from './types';
 
@@ -59,6 +60,15 @@ function makeText(overrides: Partial<TextElement> = {}): TextElement {
 }
 
 describe('ElementStore', () => {
+  it('elementRegistry returns the constructor registry, then the one set later', () => {
+    const initial = new ElementRegistry();
+    const next = new ElementRegistry();
+    const store = new ElementStore(initial);
+    expect(store.elementRegistry).toBe(initial);
+    store.setElementRegistry(next);
+    expect(store.elementRegistry).toBe(next);
+  });
+
   describe('CRUD', () => {
     it('starts empty', () => {
       const store = new ElementStore();

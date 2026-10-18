@@ -347,7 +347,7 @@ describe('unbindArrowsFrom', () => {
     const metas: unknown[] = [];
     store.on('update', (_change, meta) => metas.push(meta));
 
-    unbindArrowsFrom(store, note, { origin: 'remote' });
+    unbindArrowsFrom(store, note, { origin: 'remote' }, store.elementRegistry);
 
     const updated = store.getById(arrow.id);
     expect(updated?.type === 'arrow' && updated.fromBinding).toBeUndefined();

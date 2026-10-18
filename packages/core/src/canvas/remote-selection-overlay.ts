@@ -1,7 +1,6 @@
 import type { OverlayRenderer } from './render-loop';
 import type { ElementStore } from '../elements/element-store';
 import type { LayerManager } from '../layers/layer-manager';
-import type { ElementRegistry } from '../elements/element-registry';
 import { computeElementRects } from './element-rect-tracker';
 import type { ElementRect } from './element-rect-tracker';
 import type { Peer, PeerRoster } from './awareness-roster';
@@ -14,7 +13,6 @@ export interface RemoteSelectionOverlayHost {
   readonly camera: { readonly zoom: number };
   readonly store: ElementStore;
   readonly layerManager: LayerManager;
-  readonly elementRegistry?: ElementRegistry;
 }
 
 export interface RemoteSelectionOverlayOptions {
@@ -141,12 +139,8 @@ export class RemoteSelectionOverlay {
       for (const id of sig.selection) if (!colorById.has(id)) colorById.set(id, sig.color);
     }
     const layers = this.host.layerManager;
-    const rects = computeElementRects(
-      this.host.store,
-      (element) =>
-        colorById.has(element.id) && layers.isLayerVisible(element.layerId) ? element.id : null,
-      undefined,
-      this.host.elementRegistry,
+    const rects = computeElementRects(this.host.store, (element) =>
+      colorById.has(element.id) && layers.isLayerVisible(element.layerId) ? element.id : null,
     );
     this.outlines = rects.map((rect) => ({ rect, color: colorById.get(rect.id) ?? '#2563eb' }));
   }

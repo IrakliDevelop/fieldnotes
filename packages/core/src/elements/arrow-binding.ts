@@ -190,7 +190,7 @@ export function unbindArrowsFrom(
   store: ElementStore,
   removed: CanvasElement,
   meta: ElementChangeMeta | undefined,
-  registry?: ElementRegistry,
+  registry: ElementRegistry,
 ): void {
   const boundArrows = findBoundArrows(removed.id, store);
   const bounds = getElementBounds(removed, registry);

@@ -497,7 +497,7 @@ describe('ElementRectTracker', () => {
 });
 
 describe('ElementRectTracker extension bounds', () => {
-  it('tracks extension elements with the host element registry', () => {
+  it('tracks extension elements with the store element registry', () => {
     const elementRegistry = new ElementRegistry();
     elementRegistry.register<ExtensionElementEnvelope>({
       type: 'test:box',
@@ -521,10 +521,7 @@ describe('ElementRectTracker extension bounds', () => {
       data: {},
     });
 
-    const tracker = new ElementRectTracker(
-      { store, elementRegistry },
-      { match: () => 'k', frames: inlineFrames() },
-    );
+    const tracker = new ElementRectTracker({ store }, { match: () => 'k', frames: inlineFrames() });
 
     expect(tracker.getRects()).toEqual([
       { id: 'box', key: 'k', x: 10, y: 30, w: 40, h: 20, rotation: 0 },
