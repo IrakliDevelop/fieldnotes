@@ -40,35 +40,31 @@ npm install @fieldnotes/vtt
 ## Quick Start
 
 ```typescript
-import {
-  Viewport,
-  HandTool,
-  SelectTool,
-  PencilTool,
-  EraserTool,
-  ArrowTool,
-  NoteTool,
-} from '@fieldnotes/core';
+import { Viewport } from '@fieldnotes/core';
 
-// Mount on any container element
+// Mount on any container element; 'default' registers hand, select, pencil, eraser,
+// arrow, note, text and shape tools and activates select
 const viewport = new Viewport(document.getElementById('canvas'), {
   background: { pattern: 'dots', spacing: 24 },
+  tools: 'default',
 });
 
-// Register tools
-viewport.toolManager.register(new HandTool());
-viewport.toolManager.register(new SelectTool());
-viewport.toolManager.register(new PencilTool({ color: '#1a1a1a', width: 2 }));
-viewport.toolManager.register(new EraserTool());
-viewport.toolManager.register(new ArrowTool({ color: '#1a1a1a', width: 2 }));
-viewport.toolManager.register(new NoteTool());
-
-// Activate a tool
-viewport.setTool('select');
+// Restore and persist the board
+const saved = localStorage.getItem('board');
+if (saved) viewport.loadJSON(saved);
+let saveTimer: ReturnType<typeof setTimeout> | undefined;
+viewport.onStateChange(() => {
+  // Fires on every change, including each camera move; save once changes settle
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => localStorage.setItem('board', viewport.exportJSON()), 250);
+});
 
 // Clean up when done
 viewport.destroy();
 ```
+
+Pass `tools: [...]` instead (for example `[...createDefaultTools(), new ImageTool()]`) to
+choose your own set, or register tools later with `viewport.toolManager.register(tool)`.
 
 Your container element needs a defined size (width/height). The canvas fills its container.
 

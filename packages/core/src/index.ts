@@ -1,4 +1,4 @@
-export const VERSION = '0.88.1';
+export const VERSION = '0.89.0';
 
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
 export { snapPoint } from './core/snap';
@@ -268,6 +268,7 @@ export { HistoryStack } from './history/history-stack';
 export type { HistoryStackOptions } from './history/history-stack';
 
 export { ToolManager } from './tools/tool-manager';
+export { createDefaultTools } from './tools/default-tools';
 export { HandTool } from './tools/hand-tool';
 export { PencilTool } from './tools/pencil-tool';
 export type { PencilToolOptions } from './tools/pencil-tool';

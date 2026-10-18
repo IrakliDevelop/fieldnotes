@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, afterEach, type Mock } from 'vitest';
 import { render, cleanup, act } from '@testing-library/react';
-import { useContext, useState, StrictMode } from 'react';
-import { FieldNotesCanvas } from './field-notes-canvas';
+import { Component, createRef, useContext, useState, StrictMode, type ReactNode } from 'react';
+import { FieldNotesCanvas, type FieldNotesCanvasRef } from './field-notes-canvas';
 import { ViewportContext } from './context';
-import { HandTool, SelectTool, PencilTool } from '@fieldnotes/core';
-import type { Viewport } from '@fieldnotes/core';
+import { HandTool, SelectTool, PencilTool, Viewport, createShape } from '@fieldnotes/core';
+import type { CanvasState } from '@fieldnotes/core';
 
 type OnReady = Mock<(viewport: Viewport) => void>;
 
@@ -177,5 +177,320 @@ describe('FieldNotesCanvas', () => {
     expect(container.querySelectorAll('canvas').length).toBe(1);
     const viewport = viewportAt(onReady, -1);
     expect(viewport.toolManager.activeTool?.name).toBe('select');
+  });
+
+  it('a bare canvas registers the default bundle with select active', () => {
+    const ref = createRef<FieldNotesCanvasRef>();
+    render(<FieldNotesCanvas ref={ref} />);
+    const viewport = ref.current?.viewport;
+    if (!viewport) throw new Error('viewport not mounted');
+    expect(viewport.toolManager.toolNames).toEqual([
+      'hand',
+      'select',
+      'pencil',
+      'eraser',
+      'arrow',
+      'note',
+      'text',
+      'shape',
+    ]);
+    expect(viewport.toolManager.activeTool?.name).toBe('select');
+  });
+
+  it('tools={[]} registers nothing and activates no tool', () => {
+    const onReady = vi.fn<(viewport: Viewport) => void>();
+    render(<FieldNotesCanvas tools={[]} onReady={onReady} />);
+    const viewport = viewportAt(onReady, 0);
+    expect(viewport.toolManager.toolNames).toEqual([]);
+    expect(viewport.toolManager.activeTool).toBeNull();
+  });
+
+  it("tools='default' registers the default bundle even with options.tools set", () => {
+    const onReady = vi.fn<(viewport: Viewport) => void>();
+    render(
+      <FieldNotesCanvas tools="default" options={{ tools: [new HandTool()] }} onReady={onReady} />,
+    );
+    const viewport = viewportAt(onReady, 0);
+    expect(viewport.toolManager.toolNames).toEqual([
+      'hand',
+      'select',
+      'pencil',
+      'eraser',
+      'arrow',
+      'note',
+      'text',
+      'shape',
+    ]);
+    expect(viewport.toolManager.activeTool?.name).toBe('select');
+  });
+
+  it('omitted tools register no defaults when onReady registered a tool', () => {
+    const onReady = vi.fn((vp: Viewport) => {
+      vp.toolManager.register(new HandTool());
+    });
+    render(<FieldNotesCanvas onReady={onReady} />);
+    const viewport = viewportAt(onReady, 0);
+    expect(viewport.toolManager.toolNames).toEqual(['hand']);
+    expect(viewport.toolManager.activeTool).toBeNull();
+  });
+
+  it('omitted tools activate the tool prop after onReady registered it', () => {
+    const onReady = vi.fn((vp: Viewport) => {
+      vp.toolManager.register(new HandTool());
+    });
+    const warn = vi.spyOn(console, 'warn');
+    render(<FieldNotesCanvas tool="hand" onReady={onReady} />);
+    const viewport = viewportAt(onReady, 0);
+    expect(viewport.toolManager.toolNames).toEqual(['hand']);
+    expect(viewport.toolManager.activeTool?.name).toBe('hand');
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("tools='default' registers the bundle before onReady", () => {
+    let namesAtReady: string[] = [];
+    render(
+      <FieldNotesCanvas
+        tools="default"
+        onReady={(vp) => {
+          namesAtReady = [...vp.toolManager.toolNames];
+        }}
+      />,
+    );
+    expect(namesAtReady).toEqual([
+      'hand',
+      'select',
+      'pencil',
+      'eraser',
+      'arrow',
+      'note',
+      'text',
+      'shape',
+    ]);
+  });
+
+  it('omitted tools defer to options.tools instead of the default bundle', () => {
+    const onReady = vi.fn<(viewport: Viewport) => void>();
+    render(<FieldNotesCanvas options={{ tools: [new HandTool()] }} onReady={onReady} />);
+    expect(viewportAt(onReady, 0).toolManager.toolNames).toEqual(['hand']);
+  });
+
+  it('defaultTool wins over select with the default bundle', () => {
+    const onReady = vi.fn<(viewport: Viewport) => void>();
+    render(<FieldNotesCanvas defaultTool="pencil" onReady={onReady} />);
+    expect(viewportAt(onReady, 0).toolManager.activeTool?.name).toBe('pencil');
+  });
+});
+
+describe('FieldNotesCanvas initialData and onChange', () => {
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  const saved = {
+    version: 4,
+    camera: { position: { x: 0, y: 0 }, zoom: 1 },
+    elements: [
+      { ...createShape({ position: { x: 10, y: 20 }, size: { w: 30, h: 40 } }), id: 's1' },
+    ],
+  } satisfies CanvasState;
+
+  function addShape(viewport: Viewport, id: string) {
+    viewport.store.add({
+      ...createShape({ position: { x: 0, y: 0 }, size: { w: 5, h: 5 } }),
+      id,
+      layerId: viewport.layerManager.activeLayerId,
+    });
+  }
+
+  it.each([
+    ['object', saved],
+    ['JSON string', JSON.stringify(saved)],
+  ])('loads initialData given as %s before onReady without calling onChange', (_, data) => {
+    vi.useFakeTimers();
+    const onChange = vi.fn<(state: CanvasState) => void>();
+    let idsAtReady: string[] = [];
+    render(
+      <FieldNotesCanvas
+        initialData={data}
+        onChange={onChange}
+        onReady={(vp) => {
+          idsAtReady = vp.store.getAll().map((e) => e.id);
+        }}
+      />,
+    );
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(idsAtReady).toEqual(['s1']);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('destroys the viewport and surfaces the error when initialData fails to load', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const destroy = vi.spyOn(Viewport.prototype, 'destroy');
+    class Boundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+      state = { failed: false };
+      static getDerivedStateFromError() {
+        return { failed: true };
+      }
+      render() {
+        return this.state.failed ? <p>load failed</p> : this.props.children;
+      }
+    }
+    const { getByText } = render(
+      <Boundary>
+        <FieldNotesCanvas initialData="{" />
+      </Boundary>,
+    );
+    expect(getByText('load failed')).not.toBeNull();
+    expect(destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it('registering deferred defaults after onReady does not fire onChange', () => {
+    vi.useFakeTimers();
+    const onReady = vi.fn<(viewport: Viewport) => void>();
+    const onChange = vi.fn<(state: CanvasState) => void>();
+    render(<FieldNotesCanvas onChange={onChange} onReady={onReady} />);
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(viewportAt(onReady, 0).toolManager.activeTool?.name).toBe('select');
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('destroys the viewport and surfaces the error when onReady throws', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const destroy = vi.spyOn(Viewport.prototype, 'destroy');
+    class Boundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+      state = { failed: false };
+      static getDerivedStateFromError() {
+        return { failed: true };
+      }
+      render() {
+        return this.state.failed ? <p>ready failed</p> : this.props.children;
+      }
+    }
+    const { getByText } = render(
+      <Boundary>
+        <FieldNotesCanvas
+          onReady={() => {
+            throw new Error('host setup failed');
+          }}
+        />
+      </Boundary>,
+    );
+    expect(getByText('ready failed')).not.toBeNull();
+    expect(destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it('debounces rapid changes into one onChange with the exported state', () => {
+    vi.useFakeTimers();
+    const onReady = vi.fn<(viewport: Viewport) => void>();
+    const onChange = vi.fn<(state: CanvasState) => void>();
+    render(<FieldNotesCanvas onChange={onChange} onReady={onReady} />);
+    const viewport = viewportAt(onReady, 0);
+    addShape(viewport, 'a');
+    act(() => {
+      vi.advanceTimersByTime(100);
+    });
+    addShape(viewport, 'b');
+    act(() => {
+      vi.advanceTimersByTime(249);
+    });
+    expect(onChange).not.toHaveBeenCalled();
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(onChange).toHaveBeenCalledTimes(1);
+    const state = onChange.mock.calls[0]?.[0];
+    expect(state?.elements.map((e) => e.id)).toEqual(['a', 'b']);
+    expect(state).toEqual(viewport.exportState());
+  });
+
+  it('changeDebounceMs={0} fires on the next timer, not synchronously', () => {
+    vi.useFakeTimers();
+    const onReady = vi.fn<(viewport: Viewport) => void>();
+    const onChange = vi.fn<(state: CanvasState) => void>();
+    render(<FieldNotesCanvas onChange={onChange} changeDebounceMs={0} onReady={onReady} />);
+    addShape(viewportAt(onReady, 0), 'a');
+    expect(onChange).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(0);
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
+  it('flushes a pending change exactly once on unmount, before destroy', () => {
+    vi.useFakeTimers();
+    const onReady = vi.fn<(viewport: Viewport) => void>();
+    const destroy = vi.spyOn(Viewport.prototype, 'destroy');
+    let destroysBeforeFlush = -1;
+    const onChange = vi.fn<(state: CanvasState) => void>(() => {
+      destroysBeforeFlush = destroy.mock.calls.length;
+    });
+    const { unmount } = render(<FieldNotesCanvas onChange={onChange} onReady={onReady} />);
+    addShape(viewportAt(onReady, 0), 'a');
+    unmount();
+    vi.advanceTimersByTime(1000);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange.mock.calls[0]?.[0].elements.map((e) => e.id)).toEqual(['a']);
+    expect(destroysBeforeFlush).toBe(0);
+    expect(destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it('destroys the viewport and reports the error when the unmount flush throws', () => {
+    vi.useFakeTimers();
+    const reportError = vi.fn<(error: unknown) => void>();
+    vi.stubGlobal('reportError', reportError);
+    const onReady = vi.fn<(viewport: Viewport) => void>();
+    const destroy = vi.spyOn(Viewport.prototype, 'destroy');
+    const quota = new Error('quota exceeded');
+    const { unmount } = render(
+      <FieldNotesCanvas
+        onChange={() => {
+          throw quota;
+        }}
+        onReady={onReady}
+      />,
+    );
+    addShape(viewportAt(onReady, 0), 'a');
+    expect(() => unmount()).not.toThrow();
+    expect(destroy).toHaveBeenCalledTimes(1);
+    expect(reportError).toHaveBeenCalledWith(quota);
+  });
+
+  it('StrictMode fires onChange once per change and destroys each viewport once', () => {
+    vi.useFakeTimers();
+    const onReady = vi.fn<(viewport: Viewport) => void>();
+    const onChange = vi.fn<(state: CanvasState) => void>();
+    const destroy = vi.spyOn(Viewport.prototype, 'destroy');
+    const { unmount } = render(
+      <StrictMode>
+        <FieldNotesCanvas onChange={onChange} onReady={onReady} />
+      </StrictMode>,
+    );
+    addShape(viewportAt(onReady, -1), 'a');
+    vi.advanceTimersByTime(1000);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    unmount();
+    expect(onChange).toHaveBeenCalledTimes(1);
+    const created = onReady.mock.calls.map(([vp]) => vp);
+    expect(destroy.mock.contexts).toHaveLength(created.length);
+    expect(new Set(destroy.mock.contexts)).toEqual(new Set(created));
+  });
+
+  it('uses a replaced onChange without duplicate calls', () => {
+    vi.useFakeTimers();
+    const onReady = vi.fn<(viewport: Viewport) => void>();
+    const first = vi.fn<(state: CanvasState) => void>();
+    const second = vi.fn<(state: CanvasState) => void>();
+    const { rerender } = render(<FieldNotesCanvas onChange={first} onReady={onReady} />);
+    rerender(<FieldNotesCanvas onChange={second} onReady={onReady} />);
+    addShape(viewportAt(onReady, 0), 'a');
+    vi.advanceTimersByTime(1000);
+    expect(first).not.toHaveBeenCalled();
+    expect(second).toHaveBeenCalledTimes(1);
   });
 });

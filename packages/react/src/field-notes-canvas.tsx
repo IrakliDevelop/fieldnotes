@@ -7,19 +7,27 @@ import {
   type ReactNode,
   type CSSProperties,
 } from 'react';
-import { Viewport } from '@fieldnotes/core';
-import type { ViewportOptions, Tool } from '@fieldnotes/core';
+import { Viewport, createDefaultTools } from '@fieldnotes/core';
+import type { ViewportOptions, Tool, CanvasState, ImportableCanvasState } from '@fieldnotes/core';
 import { ViewportContext } from './context';
 
 export interface FieldNotesCanvasProps {
   /** Constructor-only: changes after mount are ignored (the canvas is stateful). */
   options?: ViewportOptions;
   /**
-   * Reactive (append-only): tools present here are registered; removal is not supported.
-   * Hoist the array out of render — inline arrays reconstruct Tool instances and re-run
-   * registration on every render.
+   * `'default'` (mount-only): `createDefaultTools()` registered before `onReady`, `select` active.
+   * Omitted: the same bundle after `onReady`, only if no tools are registered by then.
+   * An array is reactive (append-only): tools present here are registered; removal is not
+   * supported, and `[]` registers nothing. Hoist the array out of render — inline arrays
+   * reconstruct Tool instances and re-run registration on every render.
    */
-  tools?: Tool[];
+  tools?: Tool[] | 'default';
+  /** Mount-only: a saved state (object or JSON string) loaded before `onReady`. */
+  initialData?: ImportableCanvasState | string;
+  /** Trailing-debounced with the exported state after any change; flushed on unmount. */
+  onChange?: (state: CanvasState) => void;
+  /** Debounce window for `onChange` in milliseconds (default 250). */
+  changeDebounceMs?: number;
   /** Uncontrolled initial tool. Ignored when `tool` is set. */
   defaultTool?: string;
   /** Controlled active tool. Pair with `onToolChange`. */
@@ -53,6 +61,9 @@ export const FieldNotesCanvas = forwardRef<FieldNotesCanvasRef, FieldNotesCanvas
       defaultTool,
       tool,
       onToolChange,
+      initialData,
+      onChange,
+      changeDebounceMs = 250,
       snapToGrid,
       className,
       style,
@@ -63,6 +74,8 @@ export const FieldNotesCanvas = forwardRef<FieldNotesCanvasRef, FieldNotesCanvas
   ) {
     const containerRef = useRef<HTMLDivElement>(null);
     const [viewport, setViewport] = useState<Viewport | null>(null);
+    const changeRef = useRef({ onChange, changeDebounceMs });
+    changeRef.current = { onChange, changeDebounceMs };
 
     useImperativeHandle(ref, () => ({ viewport }), [viewport]);
 
@@ -72,25 +85,72 @@ export const FieldNotesCanvas = forwardRef<FieldNotesCanvasRef, FieldNotesCanvas
 
       const vp = new Viewport(el, options);
 
-      if (tools) {
-        for (const t of tools) {
-          vp.toolManager.register(t);
+      const activate = (fallback?: string) => {
+        const name = tool ?? defaultTool ?? fallback;
+        if (name) vp.setTool(name);
+      };
+      // An explicit `options.tools` is the host's choice; core registers it and activates select.
+      const deferDefaults = tools === undefined && options?.tools === undefined;
+      for (const t of tools === 'default' ? createDefaultTools() : (tools ?? [])) {
+        vp.toolManager.register(t);
+      }
+      if (!deferDefaults) activate(tools === 'default' ? 'select' : undefined);
+
+      try {
+        if (typeof initialData === 'string') vp.loadJSON(initialData);
+        else if (initialData) vp.loadState(initialData);
+      } catch (error) {
+        // No cleanup is registered yet, so release the viewport before the error boundary sees it.
+        vp.destroy();
+        throw error;
+      }
+
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const emit = () => {
+        timer = undefined;
+        changeRef.current.onChange?.(vp.exportState());
+      };
+      // Subscribed after initialData so the initial load is not reported as a change.
+      const unsubscribe = vp.onStateChange(() => {
+        clearTimeout(timer);
+        timer = setTimeout(emit, changeRef.current.changeDebounceMs);
+      });
+
+      try {
+        onReady?.(vp);
+
+        // Hosts that register their own tools in onReady keep exactly those (0.13 behaviour).
+        if (deferDefaults) {
+          const registerDefaults = vp.toolManager.toolNames.length === 0;
+          if (registerDefaults) {
+            for (const t of createDefaultTools()) vp.toolManager.register(t);
+          }
+          activate(registerDefaults ? 'select' : undefined);
         }
+      } catch (error) {
+        clearTimeout(timer);
+        unsubscribe();
+        vp.destroy();
+        throw error;
       }
-
-      const initialTool = tool ?? defaultTool;
-      if (initialTool) {
-        vp.setTool(initialTool);
-      }
-
       setViewport(vp);
-      onReady?.(vp);
 
       return () => {
+        if (timer !== undefined) {
+          clearTimeout(timer);
+          try {
+            emit();
+          } catch (error) {
+            // A failing host save must not leak the viewport or throw out of unmount.
+            if (typeof reportError === 'function') reportError(error);
+            else console.error('[fieldnotes] onChange failed during unmount', error);
+          }
+        }
+        unsubscribe();
         vp.destroy();
         setViewport(null);
       };
-      // Constructor effect: options/tools/defaultTool are mount-only by design.
+      // Constructor effect: options/tools/defaultTool/initialData are mount-only by design.
     }, []);
 
     useEffect(() => {
@@ -111,7 +171,7 @@ export const FieldNotesCanvas = forwardRef<FieldNotesCanvasRef, FieldNotesCanvas
     }, [viewport, snapToGrid]);
 
     useEffect(() => {
-      if (!viewport || !tools) return;
+      if (!viewport || !Array.isArray(tools)) return;
       for (const t of tools) {
         if (!viewport.toolManager.getTool(t.name)) {
           viewport.toolManager.register(t);

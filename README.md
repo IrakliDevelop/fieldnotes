@@ -66,6 +66,15 @@ See [`@fieldnotes/core` README](packages/core/README.md) for the full API docume
 npm install @fieldnotes/core @fieldnotes/react
 ```
 
+With no `tools` prop (and no tools registered in `onReady`) the canvas registers the default tool
+bundle, so a persisting board is one component ([details](packages/react/README.md#quick-start)):
+
+```tsx
+<FieldNotesCanvas initialData={saved} onChange={save} style={{ width: '100%', height: '100%' }} />
+```
+
+Pass your own tools and embed React components:
+
 ```tsx
 import { FieldNotesCanvas, CanvasElement, useCamera } from '@fieldnotes/react';
 import { SelectTool, PencilTool, HandTool } from '@fieldnotes/core';
@@ -247,6 +256,7 @@ pnpm install          # install dependencies
 pnpm build            # build all packages
 pnpm test             # run all tests
 pnpm bench            # run performance benchmarks
+pnpm docs:api         # TypeDoc API reference into website/public/api (run after pnpm build)
 ```
 
 Example applications are in `examples/`:

@@ -243,6 +243,12 @@ export class PluginHost {
     this.services.clear();
   }
 
+  /** Host-level listener for plugin `notifyChange` calls. */
+  onChange(listener: () => void): () => void {
+    this.pluginChangeListeners.add(listener);
+    return () => this.pluginChangeListeners.delete(listener);
+  }
+
   private emitChange(): void {
     for (const listener of this.pluginChangeListeners) {
       try {

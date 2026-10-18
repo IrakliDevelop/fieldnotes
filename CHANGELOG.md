@@ -117,6 +117,43 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
   The reference WebSocket server closes idle expired sockets and rejects traffic observed at
   or after the deadline.
 
+## [0.89.0] — 2026-10-18
+
+### Core 0.89.0 — default tool bundle (A5)
+
+**Added**
+
+- `createDefaultTools()` returns fresh hand, select, pencil, eraser, arrow, note, text and shape
+  tools. Image, laser and ping are not included; register them yourself.
+- `ViewportOptions.tools: 'default' | Tool[]` registers tools after plugins start (a same-named
+  tool replaces a plugin's) and activates `select` when nothing is active.
+- `viewport.onStateChange(listener)` fires after any change `exportState()` would reflect:
+  elements, camera, layers and plugin state. A throwing listener is reported via `reportError`
+  and does not stop the others.
+
+### `@fieldnotes/react` 0.14.0
+
+**Added**
+
+- `initialData` (a `CanvasState`, legacy state or JSON string) is loaded once at mount, before
+  `onReady`, without triggering `onChange`.
+- `onChange(state)` receives `viewport.exportState()` after changes, debounced by
+  `changeDebounceMs` (default 250); a pending call is flushed on unmount.
+- A bare `<FieldNotesCanvas />` is usable: when neither `tools` nor `options.tools` is given and no
+  tools are registered by the end of `onReady`, the default tool bundle is registered and `tool`,
+  `defaultTool` or `select` is activated. Hosts that register tools in `onReady` see no change. Pass
+  `tools="default"` to get the bundle at mount (for example to customise it in `onReady`), or
+  `tools={[]}` to never get it.
+
+**Changed**
+
+- Peer dependency `@fieldnotes/core >= 0.89.0`.
+
+### Docs
+
+- `pnpm docs:api` builds a TypeDoc API reference for all six packages into the website under
+  `/api/` (run `pnpm build` first); CI builds it on Node 22.
+
 ## [0.88.1] — 2026-10-18
 
 ### Core 0.88.1 — viewport decomposition (F9), render and sanitize perf

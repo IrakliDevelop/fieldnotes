@@ -14,7 +14,36 @@ Requires React 18+.
 
 Full runnable example: `examples/react-app` — `pnpm --filter fieldnotes-react-example dev`
 
-The canvas needs a container with a defined size — it fills whatever it's given:
+The canvas needs a container with a defined size — it fills whatever it's given. With no `tools`
+prop and no tools registered in `onReady`, it registers the default tool bundle
+(`createDefaultTools()`: hand, select, pencil, eraser, arrow, note, text, shape) with `select`
+active, so a persisting board is one line:
+
+```tsx
+import { FieldNotesCanvas } from '@fieldnotes/react';
+import type { CanvasState } from '@fieldnotes/core';
+
+const saved = localStorage.getItem('board') ?? undefined;
+const save = (state: CanvasState) => localStorage.setItem('board', JSON.stringify(state));
+
+export function App() {
+  return (
+    <div style={{ width: '100vw', height: '100vh' }}>
+      <FieldNotesCanvas
+        initialData={saved}
+        onChange={save}
+        style={{ width: '100%', height: '100%' }}
+      />
+    </div>
+  );
+}
+```
+
+`initialData` takes a saved state object or JSON string. `onChange` receives `viewport.exportState()`,
+trailing-debounced by `changeDebounceMs` (default 250); a pending call is flushed on unmount, and
+the initial load is not reported as a change.
+
+For your own toolbar, pass an explicit tool array and control the active tool:
 
 ```tsx
 import { useState } from 'react';
@@ -80,14 +109,22 @@ function Toolbar({ tool, onSelect }: { tool: string; onSelect: (name: string) =>
 
 Not all props are reactive — the canvas is stateful. Changing a mount-only prop after mount has no effect:
 
-| Prop                               | Reactivity                                                                          |
-| ---------------------------------- | ----------------------------------------------------------------------------------- |
-| `options`                          | Mount-only — the canvas is stateful; construct with the right options               |
-| `tools`                            | Reactive, append-only (tools cannot be unregistered). Hoist the array out of render |
-| `tool` / `onToolChange`            | Reactive (controlled). Memoize the callback                                         |
-| `defaultTool`                      | Mount-only (uncontrolled initial tool)                                              |
-| `snapToGrid` (deprecated)          | Reactive compatibility prop; prefer a domain constraint service                     |
-| `className` / `style` / `children` | Reactive (plain React)                                                              |
+| Prop                               | Reactivity                                                                   |
+| ---------------------------------- | ---------------------------------------------------------------------------- |
+| `options`                          | Mount-only — the canvas is stateful; construct with the right options        |
+| `tools`                            | Array: reactive, append-only. Omitted or `'default'`: mount-only (see below) |
+| `initialData`                      | Mount-only — loaded once before `onReady`                                    |
+| `onChange` / `changeDebounceMs`    | Reactive — the latest callback is used without resubscribing                 |
+| `tool` / `onToolChange`            | Reactive (controlled). Memoize the callback                                  |
+| `defaultTool`                      | Mount-only (uncontrolled initial tool)                                       |
+| `snapToGrid` (deprecated)          | Reactive compatibility prop; prefer a domain constraint service              |
+| `className` / `style` / `children` | Reactive (plain React)                                                       |
+
+`tools` as an array registers each tool once (tools cannot be unregistered); hoist it out of render.
+`tools="default"` registers `createDefaultTools()` at mount, before `onReady` (so you can customise
+them there). Omitted registers the same bundle after `onReady` only when neither `options.tools` is
+set nor any tool was registered by then, then activates `tool`, `defaultTool` or `select`; hosts
+that register tools in `onReady` get no defaults. `tools={[]}` registers nothing.
 
 Runtime changes beyond these go through the viewport — access it via `useViewport()` or the ref. Grid snapping is domain behavior; VTT consumers should configure `GridController` and its constraint service rather than adopting the deprecated React prop. The background pattern is constructor-only (`options.background`).
 
@@ -352,11 +389,11 @@ export class StampTool implements Tool {
 Register alongside the built-in tools:
 
 ```tsx
-import { HandTool, SelectTool } from '@fieldnotes/core';
+import { createDefaultTools } from '@fieldnotes/core';
 import { StampTool } from './StampTool';
 
 // Hoisted — stable reference across renders
-const TOOLS = [new HandTool(), new SelectTool(), new StampTool()];
+const TOOLS = [...createDefaultTools(), new StampTool()];
 
 function App() {
   const [tool, setTool] = useState('select');
