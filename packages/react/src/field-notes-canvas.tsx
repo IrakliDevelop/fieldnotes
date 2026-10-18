@@ -1,7 +1,6 @@
 import {
   useRef,
   useEffect,
-  useLayoutEffect,
   useState,
   forwardRef,
   useImperativeHandle,
@@ -75,10 +74,7 @@ export const FieldNotesCanvas = forwardRef<FieldNotesCanvasRef, FieldNotesCanvas
     const containerRef = useRef<HTMLDivElement>(null);
     const [viewport, setViewport] = useState<Viewport | null>(null);
     const changeRef = useRef({ onChange, changeDebounceMs });
-
-    useLayoutEffect(() => {
-      changeRef.current = { onChange, changeDebounceMs };
-    });
+    changeRef.current = { onChange, changeDebounceMs };
 
     useImperativeHandle(ref, () => ({ viewport }), [viewport]);
 
