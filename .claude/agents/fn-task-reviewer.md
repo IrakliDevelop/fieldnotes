@@ -1,7 +1,7 @@
 ---
 name: fn-task-reviewer
 description: Review tier, per task. Reads one task's brief, the implementer's report and a diff file, and returns two verdicts: spec compliance (nothing more, nothing less) and code quality. Read-only plus Bash for running tests. Use after every coding-tier task before it is accepted.
-model: claude-opus-5
+model: claude-opus-5-5
 tools: [Read, Grep, Glob, Bash]
 ---
 
@@ -14,7 +14,10 @@ Method:
 1. Spec compliance first: every requirement in the brief present, nothing beyond it,
    tests discriminate old from new behavior, TDD evidence in the report is real.
 2. Then quality: correctness, edge cases, contracts (exports, wire/persisted formats,
-   core stays framework-free, one gesture one undo), security boundaries, tests.
+   core stays framework-free, one gesture one undo), security boundaries, tests, and
+   concision (review.md item 9). When the diff touches input, tools, or history, apply the
+   `fieldnotes-pointer-input` checklist; when it touches sync, server, Redis, or
+   serialization, apply the `fieldnotes-sync-security` checklist.
 3. Do not re-run tests the report already shows unless the report is inconsistent.
 4. Requirements you cannot verify from the diff go under "Cannot verify from diff".
 
