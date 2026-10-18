@@ -14,6 +14,11 @@ export class ElementRegistry {
   constructor(private readonly parent?: ElementRegistry) {}
 
   register<T extends BaseElement>(def: ElementTypeDefinition<T>): ElementTypeKey<T> {
+    if (def.renderMode === 'dom') {
+      throw new Error(
+        `Element type "${def.type}": renderMode 'dom' is not supported for extension elements; draw it on the canvas or use an html element`,
+      );
+    }
     if (this.definitions.has(def.type)) {
       throw new Error(`ElementType "${def.type}" is already registered`);
     }

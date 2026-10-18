@@ -90,6 +90,15 @@ const markerDefinition: ElementTypeDefinition<MarkerElement> = {
 
 describe('ElementRegistry', () => {
   describe('register', () => {
+    it("register throws for renderMode 'dom' and registers nothing", () => {
+      const registry = new ElementRegistry();
+
+      expect(() => registry.register({ ...markerDefinition, renderMode: 'dom' })).toThrow(
+        `Element type "test:marker": renderMode 'dom' is not supported for extension elements; draw it on the canvas or use an html element`,
+      );
+      expect(registry.has('test:marker')).toBe(false);
+    });
+
     it('returns a typed ElementTypeKey', () => {
       const registry = new ElementRegistry();
       const key = registry.register(markerDefinition);
@@ -514,9 +523,9 @@ describe('ElementRegistry', () => {
       parent.register(markerDefinition);
       const child = new ElementRegistry(parent);
 
-      child.register({ ...markerDefinition, renderMode: 'dom' });
+      child.register({ ...markerDefinition, renderMode: 'hybrid' });
 
-      expect(child.getAdapter('test:marker')?.renderMode).toBe('dom');
+      expect(child.getAdapter('test:marker')?.renderMode).toBe('hybrid');
       expect(parent.getAdapter('test:marker')?.renderMode).toBe('canvas');
       expect(warn).toHaveBeenCalledOnce();
       expect(warn.mock.calls[0]?.[0]).toContain('"test:marker"');
