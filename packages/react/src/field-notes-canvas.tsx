@@ -97,8 +97,14 @@ export const FieldNotesCanvas = forwardRef<FieldNotesCanvasRef, FieldNotesCanvas
         vp.setTool(initialTool);
       }
 
-      if (typeof initialData === 'string') vp.loadJSON(initialData);
-      else if (initialData) vp.loadState(initialData);
+      try {
+        if (typeof initialData === 'string') vp.loadJSON(initialData);
+        else if (initialData) vp.loadState(initialData);
+      } catch (error) {
+        // No cleanup is registered yet, so release the viewport before the error boundary sees it.
+        vp.destroy();
+        throw error;
+      }
 
       let timer: ReturnType<typeof setTimeout> | undefined;
       const emit = () => {

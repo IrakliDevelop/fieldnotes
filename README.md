@@ -66,6 +66,15 @@ See [`@fieldnotes/core` README](packages/core/README.md) for the full API docume
 npm install @fieldnotes/core @fieldnotes/react
 ```
 
+With no `tools` prop the canvas registers the default tool bundle, so a persisting board is one
+component ([details](packages/react/README.md#quick-start)):
+
+```tsx
+<FieldNotesCanvas initialData={saved} onChange={save} style={{ width: '100%', height: '100%' }} />
+```
+
+Pass your own tools and embed React components:
+
 ```tsx
 import { FieldNotesCanvas, CanvasElement, useCamera } from '@fieldnotes/react';
 import { SelectTool, PencilTool, HandTool } from '@fieldnotes/core';

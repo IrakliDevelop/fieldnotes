@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach, type Mock } from 'vitest';
 import { render, cleanup, act } from '@testing-library/react';
-import { useContext, useState, StrictMode } from 'react';
+import { Component, useContext, useState, StrictMode, type ReactNode } from 'react';
 import { FieldNotesCanvas } from './field-notes-canvas';
 import { ViewportContext } from './context';
 import { HandTool, SelectTool, PencilTool, Viewport, createShape } from '@fieldnotes/core';
@@ -281,6 +281,27 @@ describe('FieldNotesCanvas initialData and onChange', () => {
     });
     expect(idsAtReady).toEqual(['s1']);
     expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('destroys the viewport and surfaces the error when initialData fails to load', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const destroy = vi.spyOn(Viewport.prototype, 'destroy');
+    class Boundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+      state = { failed: false };
+      static getDerivedStateFromError() {
+        return { failed: true };
+      }
+      render() {
+        return this.state.failed ? <p>load failed</p> : this.props.children;
+      }
+    }
+    const { getByText } = render(
+      <Boundary>
+        <FieldNotesCanvas initialData="{" />
+      </Boundary>,
+    );
+    expect(getByText('load failed')).not.toBeNull();
+    expect(destroy).toHaveBeenCalledTimes(1);
   });
 
   it('debounces rapid changes into one onChange with the exported state', () => {
