@@ -83,6 +83,19 @@ describe('Quadtree', () => {
       expect(qt.query({ x: 0, y: 0, w: 50, h: 50 })).toEqual(['b']);
     });
 
+    it('replaces the entry when an existing id is inserted again', () => {
+      const qt = new Quadtree(worldBounds);
+      qt.insert('a', { x: 0, y: 0, w: 10, h: 10 });
+      qt.insert('a', { x: 500, y: 500, w: 10, h: 10 });
+      expect([qt.size, qt.queryPoint({ x: 5, y: 5 }), qt.queryPoint({ x: 505, y: 505 })]).toEqual([
+        1,
+        [],
+        ['a'],
+      ]);
+      qt.remove('a');
+      expect(qt.query({ x: -1000, y: -1000, w: 2000, h: 2000 })).toEqual([]);
+    });
+
     it('is a no-op for non-existent id', () => {
       const qt = new Quadtree(worldBounds);
       qt.insert('a', { x: 0, y: 0, w: 10, h: 10 });

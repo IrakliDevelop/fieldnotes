@@ -158,6 +158,7 @@ export class Quadtree {
   }
 
   insert(id: string, bounds: Bounds): void {
+    this.remove(id);
     this.expandToFit(bounds);
     this.root.insert({ id, bounds });
     this._size++;
@@ -186,7 +187,6 @@ export class Quadtree {
     ) {
       return;
     }
-    this.remove(id);
     this.insert(id, newBounds);
   }
 
