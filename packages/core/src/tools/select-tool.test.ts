@@ -20,7 +20,13 @@ import { rotatePoint } from '../core/geometry';
 import { ConstraintServiceProxy } from '../core/constraint-service';
 import { snapPoint } from '../core/snap';
 import type { ToolContext, PointerState } from './types';
-import type { NoteElement, ImageElement, ShapeElement } from '../elements/types';
+import type {
+  NoteElement,
+  ImageElement,
+  ShapeElement,
+  ExtensionElementEnvelope,
+} from '../elements/types';
+import { ElementRegistry } from '../elements/element-registry';
 import type { Point } from '../core/types';
 
 function makeSnapProxy(
@@ -2506,4 +2512,48 @@ describe('SelectTool', () => {
       expect(hitTestRotateHandle(layout.rotateHandle, ctx, tool.selectedIds)).toBeNull();
     });
   });
+});
+
+describe('SelectTool extension handles', () => {
+  it.each(['onPointerDown', 'onPointerMove', 'onHover'] as const)(
+    '%s passes the held shift key to the extension handle hit test',
+    (method) => {
+      const registry = new ElementRegistry();
+      const hitTestHandle = vi.fn(() => null);
+      registry.register<ExtensionElementEnvelope>({
+        type: 'test:handles',
+        legacyTypes: [],
+        decodeLegacy: (raw) => raw as unknown as ExtensionElementEnvelope,
+        validateData: () => true,
+        unwrap: (element) => element,
+        wrap: (element) => element,
+        bounds: () => ({ x: 0, y: 0, w: 100, h: 100 }),
+        interaction: { hitTestHandle },
+        renderMode: 'canvas',
+      });
+      const element: ExtensionElementEnvelope = {
+        id: 'ext',
+        type: 'extension',
+        extensionType: 'test:handles',
+        position: { x: 0, y: 0 },
+        zIndex: 0,
+        locked: false,
+        layerId: '',
+        data: {},
+      };
+      const ctx = makeCtx({ elementRegistry: registry });
+      ctx.store.setElementRegistry(registry);
+      ctx.store.add(element);
+      const tool = new SelectTool();
+      tool.setSelection([element.id]);
+
+      tool[method](shiftPt(10, 10), ctx);
+
+      expect(hitTestHandle).toHaveBeenCalledWith(
+        element,
+        { x: 10, y: 10 },
+        expect.objectContaining({ shiftKey: true }),
+      );
+    },
+  );
 });

@@ -162,7 +162,7 @@ export class SelectTool implements Tool {
       return;
     }
 
-    const extensionHandle = hitTestExtensionHandle(world, ctx, this._selectedIds);
+    const extensionHandle = hitTestExtensionHandle(world, ctx, this._selectedIds, state.shiftKey);
     if (extensionHandle) {
       this.mode = { type: 'extension-handle', ...extensionHandle };
       ctx.requestRender();
@@ -384,7 +384,7 @@ export class SelectTool implements Tool {
       return;
     }
 
-    this.updateHoverCursor(world, ctx);
+    this.updateHoverCursor(world, ctx, state.shiftKey);
   }
 
   onPointerUp(_state: PointerState, ctx: ToolContext): void {
@@ -421,7 +421,7 @@ export class SelectTool implements Tool {
 
   onHover(state: PointerState, ctx: ToolContext): void {
     const world = ctx.camera.screenToWorld({ x: state.x, y: state.y });
-    const hoverId = this.updateHoverCursor(world, ctx);
+    const hoverId = this.updateHoverCursor(world, ctx, state.shiftKey);
     this.setHovered(hoverId, ctx);
   }
 
@@ -510,7 +510,7 @@ export class SelectTool implements Tool {
     return moved;
   }
 
-  private updateHoverCursor(world: Point, ctx: ToolContext): string | null {
+  private updateHoverCursor(world: Point, ctx: ToolContext, shiftKey: boolean): string | null {
     const arrowHit = hitTestArrowHandles(world, this._selectedIds, ctx);
     if (arrowHit) {
       ctx.setCursor?.(getArrowHandleCursor(arrowHit.handle, false));
@@ -522,7 +522,7 @@ export class SelectTool implements Tool {
       return null;
     }
 
-    const extensionHandle = hitTestExtensionHandle(world, ctx, this._selectedIds);
+    const extensionHandle = hitTestExtensionHandle(world, ctx, this._selectedIds, shiftKey);
     if (extensionHandle) {
       ctx.setCursor?.(extensionHandle.cursor);
       return null;
