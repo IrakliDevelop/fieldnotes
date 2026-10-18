@@ -11,6 +11,7 @@ coverage/
 .claude/settings.local.json
 docs/superpowers/
 .superpowers/
+.work/
 
 test_data/
 

@@ -1,4 +1,4 @@
-import { readFile, readdir } from 'node:fs/promises';
+import { readFile, readdir, realpath } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import process from 'node:process';
 
@@ -19,6 +19,45 @@ for (const path of required) {
     contents.set(path, await readFile(resolve(root, path), 'utf8'));
   } catch {
     errors.push(`Missing required agent file: ${path}`);
+  }
+}
+
+const skillsRoot = '.agents/skills';
+const skillNames = [];
+for (const entry of await readdir(resolve(root, skillsRoot), { withFileTypes: true })) {
+  if (!entry.isDirectory()) continue;
+  const path = `${skillsRoot}/${entry.name}/SKILL.md`;
+  let content;
+  try {
+    content = await readFile(resolve(root, path), 'utf8');
+  } catch {
+    continue;
+  }
+  skillNames.push(entry.name);
+  contents.set(path, content);
+
+  const frontmatter = content.match(/^---\n([\s\S]*?)\n---\n/)?.[1] ?? '';
+  const field = (key) =>
+    frontmatter.match(new RegExp(`^${key}:[ \\t]*(.*)$`, 'm'))?.[1]?.trim() ?? '';
+  const name = field('name');
+  const description = field('description');
+  if (name !== entry.name) {
+    errors.push(`Skill name mismatch in ${path}: ${name || 'missing'}`);
+  }
+  if (!description) {
+    errors.push(`Skill description missing in ${path}`);
+  } else if (!/^['"]/.test(description) && description.includes(': ')) {
+    errors.push(`Unquoted ": " in skill description (invalid YAML): ${path}`);
+  }
+
+  const link = `.claude/skills/${entry.name}`;
+  try {
+    const target = await realpath(resolve(root, link));
+    if (target !== (await realpath(resolve(root, skillsRoot, entry.name)))) {
+      errors.push(`Claude Code skill link points elsewhere: ${link}`);
+    }
+  } catch {
+    errors.push(`Missing Claude Code skill link: ${link}`);
   }
 }
 
@@ -69,5 +108,7 @@ if (errors.length) {
   console.error(errors.join('\n'));
   process.exitCode = 1;
 } else {
-  console.log(`Agent tooling OK: ${required.length} files, ${packageNames.length} packages.`);
+  console.log(
+    `Agent tooling OK: ${required.length} files, ${skillNames.length} skills, ${packageNames.length} packages.`,
+  );
 }
