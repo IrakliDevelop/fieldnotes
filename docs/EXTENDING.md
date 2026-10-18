@@ -124,8 +124,8 @@ const markerDefinition: ElementTypeDefinition<Marker> = {
   text. `viewBox` is the export rectangle for `fullCanvas` types; other types receive a zero box.
 - `renderMode`: `'canvas'`, `'hybrid'` and `'none'` all draw through `render`. `register` throws
   for `'dom'`; extension elements are never DOM elements.
-- An element updated again within 250 ms (a drag, remote moves, an animation) is drawn directly
-  every frame instead of from its layer cache, until it has been idle for 250 ms. `render` must
+- An element updated again within 250 ms (a drag, remote moves, an animation) on a layer at full
+  opacity is drawn directly every frame instead of from its layer cache, until it has been idle for 250 ms. `render` must
   therefore depend only on its arguments, which the layer cache already requires.
 
 ### Resize and the interaction adapter
@@ -495,5 +495,4 @@ Not yet available:
 - Parent/child elements and clipping (frames).
 - Camera constraint providers.
 - Field schemas for generic property editing of extension data.
-- `afterLayer` on other surfaces or above hybrid strata: it runs on the viewport only and below
-  hybrid strata.
+- `afterLayer` on the minimap, in exports, or above hybrid strata.

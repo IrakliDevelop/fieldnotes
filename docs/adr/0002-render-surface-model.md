@@ -328,6 +328,7 @@ stored set; without `renderHooks` every listed capability is missing.
 - **Live elements.** An element updated twice within 250 ms on a layer at full opacity is drawn
   directly each frame until idle for 250 ms. Its layer's cache splits into an `under` and an `over`
   part around the range of live elements, so the rest of the layer is not re-rasterised per update.
+  A layer or z-order change, DOM elements and full-canvas elements re-rasterise instead.
 
 ## Options Considered
 
