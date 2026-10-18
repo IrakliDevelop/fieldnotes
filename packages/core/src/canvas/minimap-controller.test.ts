@@ -19,6 +19,7 @@ import {
 } from '../elements/element-factory';
 import type { CanvasElement } from '../elements/types';
 import type { HtmlPainterRegistry } from './html-painter-registry';
+import { createRenderHooks } from './render-hooks';
 import type { Camera } from './camera';
 import type { LayerManager } from '../layers/layer-manager';
 
@@ -694,6 +695,99 @@ describe('MinimapController', () => {
     expect(recorder.fillRectLog.length).toBe(1);
 
     controller2.dispose();
+    viewport.destroy();
+  });
+});
+
+describe('MinimapController fail-closed hooks', () => {
+  function addContent(viewport: Viewport): void {
+    const layerId = viewport.layerManager.activeLayerId;
+    viewport.store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 80 }, layerId }));
+    viewport.store.add(
+      createStroke({
+        points: [
+          { x: 0, y: 0, pressure: 0.5 },
+          { x: 50, y: 50, pressure: 0.5 },
+        ],
+        layerId,
+      }),
+    );
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('draws no element content into the scene while a required capability is missing', () => {
+    const { viewport } = makeViewportHarness();
+    addContent(viewport);
+    const minimapHooks = createRenderHooks().minimap;
+    minimapHooks.setRequiredCapabilities(['x']);
+    const afterElements = vi.fn();
+    minimapHooks.register({ afterElements });
+    const queue = makeFrameQueue();
+
+    const controller = makeController(viewport, document.createElement('canvas'), queue, {
+      minimapHooks,
+    });
+    queue.flush();
+
+    expect(rendererSpy).not.toHaveBeenCalled();
+    expect(recorder.fillRectLog).toEqual([]);
+    expect(afterElements).not.toHaveBeenCalled();
+    expect(compositeCalls().length).toBe(1);
+
+    controller.dispose();
+    viewport.destroy();
+  });
+
+  it('draws element content when the required capability has an enabled satisfier', () => {
+    const { viewport } = makeViewportHarness();
+    addContent(viewport);
+    const minimapHooks = createRenderHooks().minimap;
+    minimapHooks.setRequiredCapabilities(['x']);
+    minimapHooks.register({ afterElements: vi.fn() }, { satisfies: ['x'] });
+
+    const controller = makeController(
+      viewport,
+      document.createElement('canvas'),
+      makeFrameQueue(),
+      {
+        minimapHooks,
+      },
+    );
+
+    expect(rendererSpy).toHaveBeenCalled();
+    expect(recorder.fillRectLog.length).toBe(1);
+    expect(recorder.clearRect).not.toHaveBeenCalled();
+
+    controller.dispose();
+    viewport.destroy();
+  });
+
+  it('blanks the scene when a satisfying hook throws while it renders', () => {
+    vi.stubGlobal('reportError', vi.fn());
+    const { viewport } = makeViewportHarness();
+    addContent(viewport);
+    const minimapHooks = createRenderHooks().minimap;
+    minimapHooks.setRequiredCapabilities(['x']);
+    minimapHooks.register(
+      {
+        afterElements: () => {
+          throw new Error('fog failed');
+        },
+      },
+      { satisfies: ['x'] },
+    );
+    const canvas = document.createElement('canvas');
+
+    const controller = makeController(viewport, canvas, makeFrameQueue(), { minimapHooks });
+
+    expect(minimapHooks.isFailClosed()).toBe(true);
+    expect(recorder.setTransform).toHaveBeenLastCalledWith(1, 0, 0, 1, 0, 0);
+    expect(recorder.clearRect).toHaveBeenCalledTimes(1);
+
+    controller.dispose();
     viewport.destroy();
   });
 });

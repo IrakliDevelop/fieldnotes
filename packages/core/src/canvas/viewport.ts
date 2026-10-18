@@ -69,6 +69,7 @@ import type { NotificationController, PersistedPluginState } from '../core/plugi
 import { PluginHost } from './plugin-host';
 import type { RequiredCapabilities, ViewportPlugin } from './viewport-plugin';
 import type { ServiceKey } from '../core/service-key';
+import { reportFailure } from '../core/report-failure';
 export type {
   PluginConfigureContext,
   PluginStartContext,
@@ -546,8 +547,7 @@ export class Viewport {
         try {
           listener();
         } catch (error) {
-          if (typeof reportError === 'function') reportError(error);
-          else console.error('[fieldnotes] onStateChange listener failed', error);
+          reportFailure(error, 'onStateChange listener failed');
         }
       }
     };

@@ -268,6 +268,12 @@ export class MinimapController {
     sceneCanvas.height = Math.max(1, Math.round(this.height * dpr));
     const ctx = sceneCanvas.getContext('2d');
     if (!ctx) return;
+    // Atomic swap: bitmap, transform, and mapping replace together.
+    const scene = { canvas: sceneCanvas, transform, mapping };
+    if (this.minimapHooks?.isFailClosed()) {
+      this.scene = scene;
+      return;
+    }
 
     const byLayer = new Map<string, CanvasElement[]>();
     for (const el of this.sceneElements()) {
@@ -311,13 +317,15 @@ export class MinimapController {
         offsetX: transform.offsetX,
         offsetY: transform.offsetY,
       };
-      for (const fn of this.minimapHooks.iterate('afterElements')) {
-        fn(miniMapping);
+      this.minimapHooks.call('afterElements', miniMapping);
+      // A satisfying hook that just threw must not leave unmasked content in the scene.
+      if (this.minimapHooks.isFailClosed()) {
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, sceneCanvas.width, sceneCanvas.height);
       }
     }
 
-    // Atomic swap: bitmap, transform, and mapping replace together.
-    this.scene = { canvas: sceneCanvas, transform, mapping };
+    this.scene = scene;
   }
 
   private renderLayerElements(

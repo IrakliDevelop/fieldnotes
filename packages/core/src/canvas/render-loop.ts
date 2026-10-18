@@ -14,6 +14,7 @@ import { RenderStats } from './render-stats';
 import type { RenderStatsSnapshot } from './render-stats';
 import type { HybridRenderSurface } from './hybrid-render-surface';
 import type { RenderHooks } from './render-hooks';
+import { reportFailure } from '../core/report-failure';
 
 /**
  * A world-space draw callback rendered above elements on every frame,
@@ -112,11 +113,9 @@ export class RenderLoop {
             this.renderErrorReported = false;
           } catch (error) {
             // Report the first failure of a streak instead of spamming every frame.
-            // reportError reaches window 'error' listeners, so host monitoring still sees it.
             if (!this.renderErrorReported) {
               this.renderErrorReported = true;
-              if (typeof reportError === 'function') reportError(error);
-              else console.error('[fieldnotes] render failed', error);
+              reportFailure(error, 'render failed');
             }
           }
           this.needsRender = false;
@@ -396,9 +395,13 @@ export class RenderLoop {
     const backgroundMs = performance.now() - bgT0;
 
     if (this.hooks) {
-      for (const fn of this.hooks.viewport.iterate('beforeElements')) {
-        fn(ctx, this.camera, { width: cssWidth, height: cssHeight, dpr });
-      }
+      this.saveTracked(ctx);
+      this.hooks.viewport.call('beforeElements', ctx, this.camera, {
+        width: cssWidth,
+        height: cssHeight,
+        dpr,
+      });
+      this.restoreTracked(ctx);
     }
 
     this.saveTracked(ctx);
@@ -498,12 +501,14 @@ export class RenderLoop {
     const activeTool = this.toolManager.activeTool;
     const hasAfterElementsHook = this.hooks?.viewport.has('afterElements') ?? false;
     const hasAfterAllHook = this.hooks?.viewport.has('afterAll') ?? false;
+    const masked = this.hooks?.viewport.isFailClosed() ?? false;
+    const hasAfterElementsStratum = hasAfterElementsHook || masked;
     const afterElementsOrder = this.visibleCount + 1;
-    const overlayOrder = afterElementsOrder + (hasAfterElementsHook ? 1 : 0);
+    const overlayOrder = afterElementsOrder + (hasAfterElementsStratum ? 1 : 0);
     const afterAllOrder = overlayOrder + 1;
     const hasOverlay = activeTool?.renderOverlay !== undefined || this.overlays.size > 0;
-    if (hasAfterElementsHook) hybridOrders.add(afterElementsOrder);
-    if (hasOverlay && (hybridActive || hasAfterElementsHook)) hybridOrders.add(overlayOrder);
+    if (hasAfterElementsStratum) hybridOrders.add(afterElementsOrder);
+    if (hasOverlay && (hybridActive || hasAfterElementsStratum)) hybridOrders.add(overlayOrder);
     if (hasAfterAllHook) hybridOrders.add(afterAllOrder);
     this.hybridSurface.beginFrame(hybridOrders, this.canvasEl.width, this.canvasEl.height);
 
@@ -609,21 +614,32 @@ export class RenderLoop {
     // Post-scene surfaces must live above every canvas and DOM paint stratum. The
     // base canvas is below the DOM stack, so drawing privacy surfaces such as fog
     // there would expose DOM-backed notes and interleaved hybrid elements.
-    if (this.hooks && hasAfterElementsHook) {
+    if (this.hooks && hasAfterElementsStratum) {
       const hookCtx = this.hybridSurface.getContext(afterElementsOrder);
       if (hookCtx) {
         hookCtx.clearRect(0, 0, this.canvasEl.width, this.canvasEl.height);
         this.saveTracked(hookCtx);
         hookCtx.scale(dpr, dpr);
-        for (const fn of this.hooks.viewport.iterate('afterElements')) {
-          fn(hookCtx, this.camera, { width: cssWidth, height: cssHeight, dpr });
+        this.hooks.viewport.call('afterElements', hookCtx, this.camera, {
+          width: cssWidth,
+          height: cssHeight,
+          dpr,
+        });
+        // Re-checked so the frame in which a satisfying hook throws is masked too.
+        if (masked || this.hooks.viewport.isFailClosed()) {
+          // A hook that threw may have left transform or alpha changed.
+          hookCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+          hookCtx.globalAlpha = 1;
+          hookCtx.globalCompositeOperation = 'source-over';
+          hookCtx.fillStyle = '#000';
+          hookCtx.fillRect(0, 0, cssWidth, cssHeight);
         }
         this.restoreTracked(hookCtx);
       }
     }
 
     const overlayT0 = performance.now();
-    if ((hybridActive || hasAfterElementsHook) && hasOverlay) {
+    if ((hybridActive || hasAfterElementsStratum) && hasOverlay) {
       const overlayCtx = this.hybridSurface.getContext(overlayOrder);
       if (overlayCtx) {
         overlayCtx.clearRect(0, 0, this.canvasEl.width, this.canvasEl.height);
@@ -646,9 +662,11 @@ export class RenderLoop {
         hookCtx.clearRect(0, 0, this.canvasEl.width, this.canvasEl.height);
         this.saveTracked(hookCtx);
         hookCtx.scale(dpr, dpr);
-        for (const fn of this.hooks.viewport.iterate('afterAll')) {
-          fn(hookCtx, this.camera, { width: cssWidth, height: cssHeight, dpr });
-        }
+        this.hooks.viewport.call('afterAll', hookCtx, this.camera, {
+          width: cssWidth,
+          height: cssHeight,
+          dpr,
+        });
         this.restoreTracked(hookCtx);
       }
     }

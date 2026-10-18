@@ -113,4 +113,40 @@ describe('PluginHost', () => {
     host.disposePlugins();
     warn.mockRestore();
   });
+
+  it('stores a validated array requirement on every surface registry', () => {
+    const host = createHost(viewport);
+    const hooks = viewport.renderHooks;
+    const disposers = [
+      hooks.viewport.register({ afterElements: vi.fn() }, { satisfies: ['x'] }),
+      hooks.minimap.register({ afterElements: vi.fn() }, { satisfies: ['x'] }),
+      hooks.imageExport.register({ afterElements: vi.fn() }, { satisfies: ['x'] }),
+      hooks.svgExport.register({ afterElements: vi.fn() }, { satisfies: ['x'] }),
+    ];
+
+    host.validateRequiredCapabilities(['x']);
+    const surfaces = [hooks.viewport, hooks.minimap, hooks.imageExport, hooks.svgExport];
+    expect(surfaces.map((registry) => registry.isFailClosed())).toEqual([
+      false,
+      false,
+      false,
+      false,
+    ]);
+
+    for (const dispose of disposers) dispose();
+
+    expect(surfaces.map((registry) => registry.isFailClosed())).toEqual([true, true, true, true]);
+  });
+
+  it('stores a per-surface requirement only on the surfaces it names', () => {
+    const host = createHost(viewport);
+    const hooks = viewport.renderHooks;
+    const disposeMinimap = hooks.minimap.register({ afterElements: vi.fn() }, { satisfies: ['x'] });
+
+    host.validateRequiredCapabilities({ minimap: ['x'] });
+    disposeMinimap();
+
+    expect(hooks.minimap.isFailClosed()).toBe(true);
+    expect(hooks.viewport.isFailClosed()).toBe(false);
+  });
 });

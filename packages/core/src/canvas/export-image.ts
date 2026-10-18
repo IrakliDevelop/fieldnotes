@@ -16,7 +16,12 @@ import type { HtmlPainterRegistry } from './html-painter-registry';
 import { paintHtmlElement } from './html-paint';
 import type { HtmlPaintDiagnostic } from './html-paint-diagnostics';
 import type { ElementRegistry } from '../elements/element-registry';
-import type { RenderHooks } from './render-hooks';
+import type {
+  ImageExportHooks,
+  RenderHooks,
+  SvgExportHooks,
+  TypedHookRegistry,
+} from './render-hooks';
 
 export interface ExportImageOptions extends ExportResourceOptions, HtmlExportOptions {
   scale?: number;
@@ -62,6 +67,8 @@ export interface ExportImageOptions extends ExportResourceOptions, HtmlExportOpt
   elementRegistry?: ElementRegistry;
   /** Per-surface hooks installed by viewport plugins. */
   renderHooks?: RenderHooks;
+  /** Render capabilities the export must satisfy, added to the registry's stored requirement. */
+  requiredCapabilities?: readonly string[];
   afterElements?: (ctx: CanvasRenderingContext2D, width: number, height: number) => void;
 }
 
@@ -94,6 +101,22 @@ interface Rect {
   y: number;
   w: number;
   h: number;
+}
+
+function assertRenderCapabilities(
+  registry: TypedHookRegistry<ImageExportHooks> | TypedHookRegistry<SvgExportHooks> | undefined,
+  surface: 'imageExport' | 'svgExport',
+  required: readonly string[] | undefined,
+): void {
+  const missing = registry ? registry.getMissingCapabilities(required) : [...(required ?? [])];
+  if (missing.length > 0) {
+    throw new Error(
+      `Required render capabilities are missing on ${surface}: ${missing.join(', ')}`,
+    );
+  }
+  if (registry?.isFailClosed(required)) {
+    throw new Error(`Required render hook failed on ${surface}`);
+  }
 }
 
 const center = (b: Rect): { x: number; y: number } => ({ x: b.x + b.w / 2, y: b.y + b.h / 2 });
@@ -355,6 +378,11 @@ export async function exportImage(
   options: ExportImageOptions = {},
   layerManager?: LayerManager,
 ): Promise<Blob | null> {
+  assertRenderCapabilities(
+    options.renderHooks?.imageExport,
+    'imageExport',
+    options.requiredCapabilities,
+  );
   const requestedScale = positiveOption(options.scale, 2, 'scale');
   const scaleMode = options.scaleMode ?? 'exact';
   if (scaleMode !== 'exact' && scaleMode !== 'fit') {
@@ -576,9 +604,17 @@ export async function exportImage(
     options.afterElements(ctx, bounds.w, bounds.h);
   }
   if (options.renderHooks) {
-    for (const fn of options.renderHooks.imageExport.iterate('afterElements')) {
-      fn({ ctx, width: bounds.w, height: bounds.h, scale });
-    }
+    options.renderHooks.imageExport.call('afterElements', {
+      ctx,
+      width: bounds.w,
+      height: bounds.h,
+      scale,
+    });
+    assertRenderCapabilities(
+      options.renderHooks.imageExport,
+      'imageExport',
+      options.requiredCapabilities,
+    );
   }
 
   const mimeType = format === 'jpeg' ? 'image/jpeg' : 'image/png';
@@ -589,6 +625,7 @@ export async function exportImage(
 
 export {
   assertExportSize,
+  assertRenderCapabilities,
   computeBounds,
   fitExportScale,
   getElementRect,

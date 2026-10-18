@@ -228,6 +228,9 @@ export class PluginHost {
     if (missing.length > 0) {
       throw new Error(`Required plugin capabilities are missing: ${missing.join(', ')}`);
     }
+    for (const surface of surfaces) {
+      this.deps.renderHooks[surface].setRequiredCapabilities(bySurface[surface] ?? []);
+    }
   }
 
   disposePlugins(): void {

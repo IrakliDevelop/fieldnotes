@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-empty-function */
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { TypedHookRegistry, createRenderHooks } from './render-hooks';
 
 // ─── Test fixture: a simple hook shape ───────────────────────────────────────
@@ -180,25 +180,198 @@ describe('TypedHookRegistry', () => {
     });
   });
 
-  describe('required hooks', () => {
-    it('tracks which hooks are marked required', () => {
-      const registry = new TypedHookRegistry<TestHooks>();
-      registry.register({ afterRender: () => {} }, { required: true });
-      registry.register({ afterRender: () => {} });
-
-      const required = [...registry.iterateRequired()];
-      expect(required).toHaveLength(1);
+  describe('call', () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
     });
 
-    it('required hook dispose removes it from required iteration', () => {
+    it('runs every enabled hook in slot and priority order with the given arguments', () => {
       const registry = new TypedHookRegistry<TestHooks>();
-      const dispose = registry.register({ afterRender: () => {} }, { required: true });
+      const order: string[] = [];
+      const frame = { frame: 7 };
+      registry.register(
+        { afterRender: (ctx) => order.push(`overlay:${ctx.frame}`) },
+        { slot: 'afterOverlay' },
+      );
+      registry.register({ afterRender: (ctx) => order.push(`late:${ctx.frame}`) }, { priority: 5 });
+      registry.register({ afterRender: (ctx) => order.push(`early:${ctx.frame}`) });
+      registry.register({ afterRender: () => order.push('disabled') }, { enabled: () => false });
 
-      expect([...registry.iterateRequired()]).toHaveLength(1);
+      registry.call('afterRender', frame);
+
+      expect(order).toEqual(['early:7', 'late:7', 'overlay:7']);
+    });
+
+    it('quarantines a throwing hook: later hooks still run, it is reported once and skipped next call', () => {
+      const reportSpy = vi.fn();
+      vi.stubGlobal('reportError', reportSpy);
+      const registry = new TypedHookRegistry<TestHooks>();
+      const error = new Error('fog failed');
+      const failing = vi.fn(() => {
+        throw error;
+      });
+      const later = vi.fn();
+      registry.register({ afterRender: failing });
+      registry.register({ afterRender: later });
+
+      registry.call('afterRender', { frame: 1 });
+      registry.call('afterRender', { frame: 2 });
+
+      expect(failing).toHaveBeenCalledTimes(1);
+      expect(later).toHaveBeenCalledTimes(2);
+      expect(reportSpy).toHaveBeenCalledTimes(1);
+      expect(reportSpy).toHaveBeenCalledWith(error);
+      expect(registry.has('afterRender')).toBe(true);
+      expect([...registry.iterate('afterRender')]).toHaveLength(1);
+    });
+
+    it('gives a disposed and re-registered hook a fresh, unquarantined entry', () => {
+      vi.stubGlobal('reportError', vi.fn());
+      const registry = new TypedHookRegistry<TestHooks>();
+      let shouldThrow = true;
+      const hook = vi.fn(() => {
+        if (shouldThrow) throw new Error('boom');
+      });
+      const dispose = registry.register({ afterRender: hook });
+      registry.call('afterRender', { frame: 1 });
+      dispose();
+      shouldThrow = false;
+      registry.register({ afterRender: hook });
+
+      registry.call('afterRender', { frame: 2 });
+
+      expect(hook).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('render-time capability enforcement', () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    function quarantine(registry: TypedHookRegistry<TestHooks>): void {
+      vi.stubGlobal('reportError', vi.fn());
+      registry.call('afterRender', { frame: 0 });
+    }
+
+    const throwing = (): void => {
+      throw new Error('boom');
+    };
+
+    it('is not fail-closed without requirements', () => {
+      const registry = new TypedHookRegistry<TestHooks>();
+      expect(registry.getMissingCapabilities()).toEqual([]);
+      expect(registry.isFailClosed()).toBe(false);
+    });
+
+    it('treats a required capability with a registered, enabled satisfier as satisfied', () => {
+      const registry = new TypedHookRegistry<TestHooks>();
+      registry.register({ afterRender: () => {} }, { satisfies: ['x'] });
+      registry.setRequiredCapabilities(['x']);
+
+      expect(registry.getMissingCapabilities()).toEqual([]);
+      expect(registry.isFailClosed()).toBe(false);
+    });
+
+    it('reports a capability missing when its only satisfier is disabled', () => {
+      const registry = new TypedHookRegistry<TestHooks>();
+      registry.register({ afterRender: () => {} }, { satisfies: ['x'], enabled: () => false });
+      registry.setRequiredCapabilities(['x']);
+
+      expect(registry.getSatisfiedCapabilities()).toContain('x');
+      expect(registry.getMissingCapabilities()).toEqual(['x']);
+      expect(registry.isFailClosed()).toBe(true);
+    });
+
+    it('reports a capability missing once its only satisfier is disposed', () => {
+      const registry = new TypedHookRegistry<TestHooks>();
+      const dispose = registry.register({ afterRender: () => {} }, { satisfies: ['x'] });
+      registry.setRequiredCapabilities(['x']);
 
       dispose();
 
-      expect([...registry.iterateRequired()]).toHaveLength(0);
+      expect(registry.getMissingCapabilities()).toEqual(['x']);
+      expect(registry.isFailClosed()).toBe(true);
+    });
+
+    it('reports a capability missing and fails closed when its satisfier is quarantined', () => {
+      const registry = new TypedHookRegistry<TestHooks>();
+      registry.register({ afterRender: throwing }, { satisfies: ['x'] });
+      registry.setRequiredCapabilities(['x']);
+
+      quarantine(registry);
+
+      expect(registry.getMissingCapabilities()).toEqual(['x']);
+      expect(registry.isFailClosed()).toBe(true);
+    });
+
+    it('fails closed when a quarantined satisfier has an active sibling satisfier', () => {
+      const registry = new TypedHookRegistry<TestHooks>();
+      registry.register({ afterRender: throwing }, { satisfies: ['x'] });
+      registry.register({ afterRender: () => {} }, { satisfies: ['x'] });
+      registry.setRequiredCapabilities(['x']);
+
+      quarantine(registry);
+
+      expect(registry.getMissingCapabilities()).toEqual([]);
+      expect(registry.isFailClosed()).toBe(true);
+    });
+
+    it('fails closed when a quarantined entry is marked required, even without capabilities', () => {
+      const registry = new TypedHookRegistry<TestHooks>();
+      registry.register({ afterRender: throwing }, { required: true });
+
+      quarantine(registry);
+
+      expect(registry.getMissingCapabilities()).toEqual([]);
+      expect(registry.isFailClosed()).toBe(true);
+    });
+
+    it('stays open when a quarantined entry is neither required nor satisfies a requirement', () => {
+      const registry = new TypedHookRegistry<TestHooks>();
+      registry.register({ afterRender: throwing }, { satisfies: ['y'] });
+      registry.setRequiredCapabilities(['x']);
+      registry.register({ afterRender: () => {} }, { satisfies: ['x'] });
+
+      quarantine(registry);
+
+      expect(registry.isFailClosed()).toBe(false);
+    });
+
+    it('adds the extra argument to the stored requirement, deduplicated in order', () => {
+      const registry = new TypedHookRegistry<TestHooks>();
+      registry.register({ afterRender: () => {} }, { satisfies: ['b'] });
+      registry.setRequiredCapabilities(['a', 'b']);
+
+      expect(registry.getMissingCapabilities(['c', 'a', 'b'])).toEqual(['a', 'c']);
+      expect(registry.isFailClosed(['b'])).toBe(true);
+    });
+
+    it('fails closed for an extra requirement alone', () => {
+      const registry = new TypedHookRegistry<TestHooks>();
+      expect(registry.getMissingCapabilities(['x'])).toEqual(['x']);
+      expect(registry.isFailClosed(['x'])).toBe(true);
+      expect(registry.isFailClosed()).toBe(false);
+    });
+
+    it('fails closed when a quarantined entry satisfies an extra requirement', () => {
+      const registry = new TypedHookRegistry<TestHooks>();
+      registry.register({ afterRender: throwing }, { satisfies: ['x'] });
+      registry.register({ afterRender: () => {} }, { satisfies: ['x'] });
+
+      quarantine(registry);
+
+      expect(registry.isFailClosed()).toBe(false);
+      expect(registry.isFailClosed(['x'])).toBe(true);
+    });
+
+    it('copies the stored requirement', () => {
+      const registry = new TypedHookRegistry<TestHooks>();
+      const required = ['x'];
+      registry.setRequiredCapabilities(required);
+      required.length = 0;
+
+      expect(registry.getMissingCapabilities()).toEqual(['x']);
     });
   });
 
@@ -214,12 +387,10 @@ describe('TypedHookRegistry', () => {
       expect(registry.getSatisfiedCapabilities()).toContain('vtt:fog');
       expect(registry.has('afterRender')).toBe(false);
       expect([...registry.iterate('afterRender')]).toEqual([]);
-      expect([...registry.iterateRequired()]).toEqual([]);
 
       enabled = true;
       expect(registry.has('afterRender')).toBe(true);
       expect([...registry.iterate('afterRender')]).toHaveLength(1);
-      expect([...registry.iterateRequired()]).toHaveLength(1);
     });
 
     it('isolates a throwing enablement predicate as disabled', () => {
@@ -257,6 +428,15 @@ describe('TypedHookRegistry', () => {
       registry.clear();
 
       expect(registry.getSatisfiedCapabilities()).not.toContain('vtt:fog');
+    });
+
+    it('clears the stored requirement', () => {
+      const registry = new TypedHookRegistry<TestHooks>();
+      registry.setRequiredCapabilities(['vtt:fog']);
+
+      registry.clear();
+
+      expect(registry.isFailClosed()).toBe(false);
     });
   });
 });

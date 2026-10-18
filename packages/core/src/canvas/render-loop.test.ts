@@ -823,21 +823,21 @@ describe('RenderLoop', () => {
       const getContextSpy = vi
         .spyOn(HTMLCanvasElement.prototype, 'getContext')
         .mockReturnValue(ctx as never);
+      (deps.background.render as ReturnType<typeof vi.fn>)
+        .mockImplementationOnce(() => undefined)
+        .mockImplementationOnce(() => {
+          throw new Error('inner failed');
+        });
       const hooks: RenderHooks = createRenderHooks();
-      let nesting = 0;
       const loop = new RenderLoop({ ...deps, hooks });
+      let innerError: unknown;
       hooks.viewport.register({
         beforeElements: () => {
-          nesting++;
+          // needsRender is still set while the outer frame renders, so this re-enters.
           try {
-            if (nesting === 1) {
-              // needsRender is still set while the outer frame renders, so this re-enters.
-              expect(() => loop.flush()).toThrow('inner failed');
-            } else {
-              throw new Error('inner failed');
-            }
-          } finally {
-            nesting--;
+            loop.flush();
+          } catch (error) {
+            innerError = error;
           }
         },
       });
@@ -850,6 +850,7 @@ describe('RenderLoop', () => {
       try {
         loop.requestRender();
         loop.flush();
+        expect(innerError).toEqual(new Error('inner failed'));
         // The outer frame still holds both of its saves when it reaches the overlay.
         expect(depthAtOverlay).toEqual([2]);
         expect(ctx.depth).toBe(0);
@@ -863,20 +864,131 @@ describe('RenderLoop', () => {
       const getContextSpy = vi
         .spyOn(HTMLCanvasElement.prototype, 'getContext')
         .mockReturnValue(ctx as never);
-      const hooks: RenderHooks = createRenderHooks();
-      hooks.viewport.register({
-        beforeElements: () => {
-          throw new Error('hook failed');
+      (deps.toolManager as { activeTool: unknown }).activeTool = {
+        renderOverlay: () => {
+          throw new Error('overlay failed');
         },
-      });
-      const loop = new RenderLoop({ ...deps, hooks });
+      };
       try {
-        loop.requestRender();
-        expect(() => loop.flush()).toThrow('hook failed');
+        renderLoop.requestRender();
+        expect(() => renderLoop.flush()).toThrow('overlay failed');
         expect(ctx.depth).toBe(0);
       } finally {
         getContextSpy.mockReturnValue(mockCtx() as never);
       }
+    });
+
+    it('keeps rendering the frame when an afterElements hook throws, reporting it once', () => {
+      const { rafSpy, runFrame } = captureFrames();
+      const hooks: RenderHooks = createRenderHooks();
+      hooks.viewport.register({
+        afterElements: () => {
+          throw new Error('fog failed');
+        },
+      });
+      const afterAll = vi.fn();
+      hooks.viewport.register({ afterAll });
+      const renderOverlay = vi.fn();
+      (deps.toolManager as { activeTool: unknown }).activeTool = { renderOverlay };
+      const loop = new RenderLoop({ ...deps, hooks });
+      try {
+        loop.start();
+        runFrame(loop);
+        runFrame(loop);
+        expect(afterAll).toHaveBeenCalledTimes(2);
+        expect(renderOverlay).toHaveBeenCalledTimes(2);
+        expect(reportSpy).toHaveBeenCalledTimes(1);
+        expect(reportSpy).toHaveBeenCalledWith(new Error('fog failed'));
+      } finally {
+        loop.stop();
+        rafSpy.mockRestore();
+      }
+    });
+  });
+
+  describe('fail-closed mask', () => {
+    function stratumContexts(): Map<number, CanvasRenderingContext2D & { fillStyle: string }> {
+      const contexts = new Map<number, CanvasRenderingContext2D & { fillStyle: string }>();
+      vi.mocked(deps.hybridSurface.getContext).mockImplementation((order: number) => {
+        let ctx = contexts.get(order);
+        if (!ctx) {
+          const fillRect = vi.fn(() => {
+            fillStyles.push(ctx?.fillStyle ?? '');
+          });
+          const fillStyles: string[] = [];
+          ctx = { ...mockCtx(), fillStyle: '', fillRect, fillStyles } as never;
+          contexts.set(order, ctx as CanvasRenderingContext2D & { fillStyle: string });
+        }
+        return ctx as CanvasRenderingContext2D;
+      });
+      return contexts;
+    }
+
+    beforeEach(() => {
+      Object.defineProperty(deps.canvasEl, 'clientWidth', { value: 640, configurable: true });
+      Object.defineProperty(deps.canvasEl, 'clientHeight', { value: 480, configurable: true });
+    });
+
+    it('fills the afterElements stratum opaque when a required capability is missing', () => {
+      const contexts = stratumContexts();
+      const hooks: RenderHooks = createRenderHooks();
+      hooks.viewport.setRequiredCapabilities(['x']);
+      const afterAll = vi.fn();
+      hooks.viewport.register({ afterAll });
+      const loop = new RenderLoop({ ...deps, hooks });
+
+      loop.requestRender();
+      loop.flush();
+
+      // Two visible elements: afterElements is order 3, afterAll order 5.
+      expect(deps.hybridSurface.beginFrame).toHaveBeenCalledWith(new Set([3, 5]), 300, 150);
+      const stratum = contexts.get(3) as unknown as {
+        fillRect: ReturnType<typeof vi.fn>;
+        fillStyles: string[];
+      };
+      expect(stratum.fillRect).toHaveBeenCalledWith(0, 0, 640, 480);
+      expect(stratum.fillStyles).toEqual(['#000']);
+      expect(afterAll).toHaveBeenCalledTimes(1);
+    });
+
+    it('draws no mask when the required capability has an enabled satisfier', () => {
+      const contexts = stratumContexts();
+      const hooks: RenderHooks = createRenderHooks();
+      hooks.viewport.setRequiredCapabilities(['x']);
+      hooks.viewport.register({ afterElements: vi.fn() }, { satisfies: ['x'] });
+      const loop = new RenderLoop({ ...deps, hooks });
+
+      loop.requestRender();
+      loop.flush();
+
+      const stratum = contexts.get(3) as unknown as { fillRect: ReturnType<typeof vi.fn> };
+      expect(stratum.fillRect).not.toHaveBeenCalled();
+    });
+
+    it('masks the frame in which a satisfying hook first throws', () => {
+      vi.stubGlobal('reportError', vi.fn());
+      const contexts = stratumContexts();
+      const hooks: RenderHooks = createRenderHooks();
+      hooks.viewport.setRequiredCapabilities(['x']);
+      hooks.viewport.register(
+        {
+          afterElements: () => {
+            throw new Error('fog failed');
+          },
+        },
+        { satisfies: ['x'] },
+      );
+      const loop = new RenderLoop({ ...deps, hooks });
+
+      try {
+        loop.requestRender();
+        loop.flush();
+      } finally {
+        vi.unstubAllGlobals();
+      }
+
+      const stratum = contexts.get(3) as unknown as { fillRect: ReturnType<typeof vi.fn> };
+      expect(stratum.fillRect).toHaveBeenCalledWith(0, 0, 640, 480);
     });
   });
 
