@@ -9,20 +9,17 @@ import { buildContextMenuItems } from '../actions/context-menu-items';
 import { Background } from './background';
 import type { BackgroundOptions } from './background';
 import { ElementStore } from '../elements/element-store';
-import type { ElementChangeMeta } from '../elements/element-store';
 import { ElementRenderer } from '../elements/element-renderer';
 import { NoteEditor } from '../elements/note-editor';
 import type { FontSizePreset } from '../elements/note-toolbar';
-import type { CanvasElement, ArrowElement, HtmlElement, ShapeKind } from '../elements/types';
+import type { CanvasElement, HtmlElement, ShapeKind } from '../elements/types';
 import type { Point, Bounds } from '../core/types';
 import { ContextMenu } from './context-menu';
 import { Minimap } from './minimap';
 import { createWrapper, createCanvas, createDomLayer, createPaintStack } from './viewport-dom';
 import { HybridRenderSurface } from './hybrid-render-surface';
-import { findBoundArrows, getEdgeIntersection } from '../elements/arrow-binding';
-import { getElementBounds } from '../elements/element-bounds';
+import { unbindArrowsFrom } from '../elements/arrow-binding';
 import { getElementsBoundingBox } from '../elements/bounds';
-import { getArrowTangentAngle } from '../elements/arrow-geometry';
 import { ArrowLabelEditor } from '../elements/arrow-label-editor';
 import { ToolManager } from '../tools/tool-manager';
 import type { ToolContext, Tool } from '../tools/types';
@@ -67,17 +64,9 @@ import type { ActivationOptions, ElementActivationEvent } from './element-activa
 import { createRenderHooks } from './render-hooks';
 import type { RenderHooks } from './render-hooks';
 import { PluginStateManager } from '../core/plugin-state-manager';
-import type {
-  NotificationController,
-  PersistedPluginState,
-  PluginHandle,
-} from '../core/plugin-state-manager';
-import type {
-  PluginConfigureContext,
-  PluginStartContext,
-  RequiredCapabilities,
-  ViewportPlugin,
-} from './viewport-plugin';
+import type { NotificationController, PersistedPluginState } from '../core/plugin-state-manager';
+import { PluginHost } from './plugin-host';
+import type { RequiredCapabilities, ViewportPlugin } from './viewport-plugin';
 import type { ServiceKey } from '../core/service-key';
 export type {
   PluginConfigureContext,
@@ -126,13 +115,6 @@ export interface ViewportOptions {
   requiredCapabilities?: RequiredCapabilities;
 }
 
-interface ConfiguredPlugin {
-  readonly plugin: ViewportPlugin;
-  readonly configureDisposers: (() => void)[];
-  startDisposers: (() => void)[];
-  handle?: PluginHandle;
-}
-
 export interface HitTestOptions {
   /** Skip elements on locked layers. Default `true` (selection semantics). */
   respectLayerLock?: boolean;
@@ -151,10 +133,7 @@ export class Viewport {
   private readonly canvasEl: HTMLCanvasElement;
   private readonly paintStack: HTMLDivElement;
   private readonly wrapper: HTMLDivElement;
-  private readonly unsubCamera: () => void;
-  private readonly unsubLayers: () => void;
-  private readonly unsubToolChange: () => void;
-  private readonly unsubStore: (() => void)[];
+  private readonly disposers: (() => void)[] = [];
   private readonly actionRegistry: ActionRegistry;
   private readonly inputHandler: InputHandler;
   private readonly background: Background;
@@ -168,18 +147,12 @@ export class Viewport {
   private readonly marginViewport: MarginViewport;
   private readonly layerCache: LayerCache;
   private readonly hybridSurface: HybridRenderSurface;
-  private resizeObserver: ResizeObserver | null = null;
   private _snapToGrid = false;
   private _smartGuides = false;
   private readonly renderLoop: RenderLoop;
   private readonly _renderHooks: RenderHooks;
   private readonly pluginStateManager: PluginStateManager;
-  private readonly installedPlugins: ConfiguredPlugin[] = [];
-  private readonly services = new Map<symbol, unknown>();
-  private readonly extraBoundsProviders = new Set<() => Bounds | null>();
-  private readonly pluginChangeListeners = new Set<() => void>();
-  private pluginNotificationDepth = 0;
-  private pluginChangePending = false;
+  private readonly pluginHost: PluginHost;
   private readonly domNodeManager: DomNodeManager;
   private readonly interactMode: InteractMode;
   private readonly onHtmlElementMount?: (
@@ -209,20 +182,13 @@ export class Viewport {
   });
   private readonly resolveRouting = (el: HtmlElement): HtmlRouting =>
     resolveHtmlRouting(el, this.htmlPainters);
-  private readonly unsubHtmlPainters: () => void;
   private activation: ElementActivation | null = null;
   private activationGeneration = 0;
   private readonly activationListeners = new Set<(e: ElementActivationEvent) => void>();
   private readonly resizeListeners = new Set<() => void>();
   private readonly selectionListeners = new Set<() => void>();
   private detachSelectionSource: (() => void) | null = null;
-  private unsubToolRegister: () => void = () => {
-    // Replaced synchronously in the constructor below.
-  };
   private pendingSelectionPrune = false;
-  private unsubRecorderEnd: () => void = () => {
-    // Replaced synchronously in the constructor below.
-  };
 
   constructor(
     private readonly container: HTMLElement,
@@ -235,7 +201,7 @@ export class Viewport {
     this.layerManager = new LayerManager(this.store);
     this.toolManager = new ToolManager();
     this.actionRegistry = new ActionRegistry(() => this.currentActionContext());
-    this.unsubToolRegister = this.toolManager.onRegister((tool) => {
+    const unsubToolRegister = this.toolManager.onRegister((tool) => {
       if (Viewport.isSelectionSource(tool)) this.attachSelectionSource(tool);
       if (!this.actionRegistry.get('tool.' + tool.name)) {
         this.actionRegistry.register(
@@ -247,11 +213,17 @@ export class Viewport {
         );
       }
     });
+    this.disposers.push(unsubToolRegister, () => {
+      this.detachSelectionSource?.();
+      this.detachSelectionSource = null;
+      this.selectionListeners.clear();
+    });
     const existingSelect = this.getSelectTool();
     if (existingSelect && Viewport.isSelectionSource(existingSelect)) {
       this.attachSelectionSource(existingSelect);
     }
     this.renderer = new ElementRenderer();
+    this.disposers.push(() => this.renderer.clearImageCache());
     this.renderer.setStore(this.store);
     this.renderer.setCamera(this.camera);
     this.renderer.setElementRegistry(this.elementRegistry);
@@ -295,7 +267,7 @@ export class Viewport {
     this.dropHandler = options.onDrop;
     this.history = new HistoryStack();
     this.historyRecorder = new HistoryRecorder(this.store, this.history, this.layerManager);
-    this.unsubRecorderEnd = this.historyRecorder.onTransactionEnd(() => {
+    const unsubRecorderEnd = this.historyRecorder.onTransactionEnd(() => {
       if (!this.pendingSelectionPrune) return;
       this.pendingSelectionPrune = false;
       this.pruneSelection();
@@ -318,6 +290,27 @@ export class Viewport {
     this.wrapper.appendChild(this.paintStack);
     this.wrapper.appendChild(this.domLayer);
     this.container.appendChild(this.wrapper);
+    this.disposers.push(() => this.wrapper.remove());
+
+    this._renderHooks = createRenderHooks();
+    this.pluginStateManager = new PluginStateManager(() => this.suspendNotifications());
+    this.pluginHost = new PluginHost({
+      viewport: this,
+      elementRegistry: this.elementRegistry,
+      toolManager: this.toolManager,
+      renderHooks: this._renderHooks,
+      actionRegistry: this.actionRegistry,
+      store: this.store,
+      history: this.history,
+      requestRender: () => this.renderLoop.requestRender(),
+      pluginStateManager: this.pluginStateManager,
+      getMinimap: () => this.minimap,
+    });
+    // Store listeners outlive plugin disposal so plugin removals still unbind arrows.
+    const unsubStore: (() => void)[] = [];
+    this.disposers.push(() => unsubStore.forEach((unsubscribe) => unsubscribe()));
+    // Plugins dispose after the input handler and minimap release them.
+    this.disposers.push(() => this.pluginHost.disposePlugins());
 
     this.toolContext = {
       camera: this.camera,
@@ -360,6 +353,7 @@ export class Viewport {
       panInertia: options.panInertia,
       actions: this.actionRegistry,
     });
+    this.disposers.push(() => this.inputHandler.destroy());
 
     if (options.contextMenu !== false) {
       this.contextMenu = new ContextMenu({
@@ -369,47 +363,28 @@ export class Viewport {
         onClose: noop,
       });
     }
-    this.unsubToolChange = this.toolManager.onChange(() => this.contextMenu?.close());
+    this.disposers.push(
+      () => this.contextMenu?.dispose(),
+      this.toolManager.onChange(() => this.contextMenu?.close()),
+      // The recorder detaches before plugins dispose so their teardown is not recorded.
+      unsubRecorderEnd,
+      () => this.historyRecorder.destroy(),
+    );
 
-    this._renderHooks = createRenderHooks();
-    this.pluginStateManager = new PluginStateManager(() => this.suspendNotifications());
     try {
-      this.configurePlugins(options.plugins);
+      this.pluginHost.configurePlugins(options.plugins);
     } catch (error) {
-      this.inputHandler.destroy();
-      this.contextMenu?.dispose();
-      this.historyRecorder.destroy();
-      this.noteEditor.destroy(this.store);
-      this.arrowLabelEditor.cancel();
-      this.unsubToolChange();
-      this.unsubToolRegister();
-      this.unsubRecorderEnd();
-      this.wrapper.remove();
+      this.destroy();
       throw error;
     }
 
     if (options.minimap) {
       this.minimap = new Minimap(this.wrapper, this, {
         minimapHooks: this._renderHooks.minimap,
-        getExtraBounds: () => {
-          let combined: Bounds | null = null;
-          for (const provider of this.extraBoundsProviders) {
-            const b = provider();
-            if (!b) continue;
-            if (!combined) {
-              combined = { ...b };
-            } else {
-              const minX = Math.min(combined.x, b.x);
-              const minY = Math.min(combined.y, b.y);
-              const maxR = Math.max(combined.x + combined.w, b.x + b.w);
-              const maxB = Math.max(combined.y + combined.h, b.y + b.h);
-              combined = { x: minX, y: minY, w: maxR - minX, h: maxB - minY };
-            }
-          }
-          return combined;
-        },
+        getExtraBounds: () => this.pluginHost.getExtraBounds(),
       });
     }
+    this.disposers.push(() => this.minimap?.destroy());
 
     this.domNodeManager = new DomNodeManager({
       domLayer: this.paintStack,
@@ -419,10 +394,12 @@ export class Viewport {
       getVersion: (id) => this.store.getVersion(id),
     });
     this.domNodeManager.setCameraTransform(this.camera.toCSSTransform());
+    this.disposers.push(() => this.domNodeManager.clearDomNodes());
 
     this.interactMode = new InteractMode({
       getNode: (id) => this.domNodeManager.getNode(id),
     });
+    this.disposers.push(() => this.interactMode.destroy());
 
     this.marginViewport = new MarginViewport(options.panBufferMargin ?? 256);
     this.marginViewport.setViewport(
@@ -432,6 +409,10 @@ export class Viewport {
     );
     this.layerCache = new LayerCache(this.marginViewport);
     this.hybridSurface = new HybridRenderSurface(this.paintStack);
+    this.disposers.push(
+      () => this.layerCache.clear(),
+      () => this.hybridSurface.clear(),
+    );
 
     this.renderLoop = new RenderLoop({
       canvasEl: this.canvasEl,
@@ -447,17 +428,20 @@ export class Viewport {
       hybridSurface: this.hybridSurface,
       hooks: this._renderHooks,
     });
+    this.disposers.push(
+      () => this.renderLoop.stop(),
+      this.htmlPainters.onChange(() => this.onHtmlRegistryChanged()),
+    );
 
-    this.unsubHtmlPainters = this.htmlPainters.onChange(() => this.onHtmlRegistryChanged());
-
-    this.unsubCamera = this.camera.onChange(() => {
-      this.applyCameraTransform();
-      this.noteEditor.updateToolbarPosition();
-      this.contextMenu?.close();
-      this.requestRender();
-    });
-
-    this.unsubStore = [
+    this.disposers.push(
+      this.camera.onChange(() => {
+        this.applyCameraTransform();
+        this.noteEditor.updateToolbarPosition();
+        this.contextMenu?.close();
+        this.requestRender();
+      }),
+    );
+    unsubStore.push(
       this.store.on('add', (el) => {
         if (el.type === 'html') {
           this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
@@ -466,7 +450,7 @@ export class Viewport {
         this.requestRender();
       }),
       this.store.on('remove', (el, meta) => {
-        this.unbindArrowsFrom(el, meta);
+        unbindArrowsFrom(this.store, el, meta);
         this.domNodeManager.removeDomNode(el.id);
         this.htmlDiagnostics.forget(el.id);
         this.renderLoop.markLayerDirty(el.layerId);
@@ -497,15 +481,17 @@ export class Viewport {
         this.requestRender();
         this.pruneSelection();
       }),
-    ];
+    );
 
-    this.unsubLayers = this.layerManager.on('change', () => {
-      this.toolContext.activeLayerId = this.layerManager.activeLayerId;
-      // Snapshot loads replace layers without per-layer remove events, so prune on every change.
-      this.layerCache.retain((id) => this.layerManager.getLayer(id) !== undefined);
-      this.renderLoop.markAllLayersDirty();
-      this.requestRender();
-    });
+    this.disposers.push(
+      this.layerManager.on('change', () => {
+        this.toolContext.activeLayerId = this.layerManager.activeLayerId;
+        // Snapshot loads replace layers without per-layer remove events, so prune on every change.
+        this.layerCache.retain((id) => this.layerManager.getLayer(id) !== undefined);
+        this.renderLoop.markAllLayersDirty();
+        this.requestRender();
+      }),
+    );
 
     this.interactions = new ViewportInteractions({
       store: this.store,
@@ -524,36 +510,40 @@ export class Viewport {
       addImage: (src, position) => this.addImage(src, position),
       dropHandler: this.dropHandler,
     });
+    // Editing commits while the recorder and store listeners are still attached.
+    this.disposers.push(
+      () => {
+        this.noteEditor.destroy(this.store);
+        this.arrowLabelEditor.cancel();
+      },
+      () => {
+        this.activation?.dispose();
+        this.activation = null;
+        this.activationListeners.clear();
+        this.htmlDiagnosticListeners.clear();
+        this.resizeListeners.clear();
+      },
+    );
 
     try {
-      this.startPlugins();
-      this.validateRequiredCapabilities(options.requiredCapabilities);
+      this.pluginHost.startPlugins();
+      this.pluginHost.validateRequiredCapabilities(options.requiredCapabilities);
     } catch (error) {
-      this.disposePlugins();
-      this.domNodeManager.clearDomNodes();
-      this.renderLoop.stop();
-      this.interactMode.destroy();
-      this.noteEditor.destroy(this.store);
-      this.arrowLabelEditor.cancel();
-      this.historyRecorder.destroy();
-      this.contextMenu?.dispose();
-      this.minimap?.destroy();
-      this.inputHandler.destroy();
-      this.unsubCamera();
-      this.unsubLayers();
-      this.unsubToolChange();
-      this.unsubToolRegister();
-      this.unsubRecorderEnd();
-      this.unsubHtmlPainters();
-      this.unsubStore.forEach((unsubscribe) => unsubscribe());
-      this.wrapper.remove();
+      this.destroy();
       throw error;
     }
 
-    this.wrapper.addEventListener('pointerdown', this.interactions.onTapDown);
-    this.wrapper.addEventListener('pointerup', this.interactions.onDoubleTap);
-    this.wrapper.addEventListener('dragover', this.interactions.onDragOver);
-    this.wrapper.addEventListener('drop', this.interactions.onDrop);
+    const { onTapDown, onDoubleTap, onDragOver, onDrop } = this.interactions;
+    this.wrapper.addEventListener('pointerdown', onTapDown);
+    this.wrapper.addEventListener('pointerup', onDoubleTap);
+    this.wrapper.addEventListener('dragover', onDragOver);
+    this.wrapper.addEventListener('drop', onDrop);
+    this.disposers.push(() => {
+      this.wrapper.removeEventListener('pointerdown', onTapDown);
+      this.wrapper.removeEventListener('pointerup', onDoubleTap);
+      this.wrapper.removeEventListener('dragover', onDragOver);
+      this.wrapper.removeEventListener('drop', onDrop);
+    });
     this.observeResize();
     this.syncCanvasSize();
     this.renderLoop.start();
@@ -572,7 +562,7 @@ export class Viewport {
   }
 
   getService<T>(key: ServiceKey<T>): T | undefined {
-    return this.services.get(key.id) as T | undefined;
+    return this.pluginHost.getService(key);
   }
 
   /** Mutations in the window arrive as one `batch` event, unrecorded in history and without origin. */
@@ -583,7 +573,7 @@ export class Viewport {
       this.camera.suspendNotifications(),
       this.history.suspendNotifications(),
     ];
-    this.pluginNotificationDepth += 1;
+    this.pluginHost.beginNotificationSuspend();
     let settled = false;
     const settle = (flush: boolean): void => {
       if (settled) return;
@@ -592,18 +582,7 @@ export class Viewport {
         if (flush) controller.resume();
         else controller.discard();
       }
-      this.pluginNotificationDepth = Math.max(0, this.pluginNotificationDepth - 1);
-      if (!flush) this.pluginChangePending = false;
-      if (flush && this.pluginNotificationDepth === 0 && this.pluginChangePending) {
-        this.pluginChangePending = false;
-        for (const listener of this.pluginChangeListeners) {
-          try {
-            listener();
-          } catch (error) {
-            console.error('[fieldnotes] plugin change listener failed', error);
-          }
-        }
-      }
+      this.pluginHost.endNotificationSuspend(flush);
     };
     return { resume: () => settle(true), discard: () => settle(false) };
   }
@@ -738,22 +717,20 @@ export class Viewport {
     return { ...base, htmlPainters: registry, expectedCanvasTypes: expected };
   }
 
-  async exportImage(options?: ExportImageOptions): Promise<Blob | null> {
-    const opts = {
+  private exportOptions<T extends ExportImageOptions | ExportSvgOptions>(options?: T): T {
+    return {
       ...this.withHtmlDefaults(options),
       elementRegistry: options?.elementRegistry ?? this.elementRegistry,
       renderHooks: options?.renderHooks ?? this._renderHooks,
     };
-    return exportImage(this.store, opts, this.layerManager);
+  }
+
+  async exportImage(options?: ExportImageOptions): Promise<Blob | null> {
+    return exportImage(this.store, this.exportOptions(options), this.layerManager);
   }
 
   async exportSVG(options?: ExportSvgOptions): Promise<string> {
-    const opts = {
-      ...this.withHtmlDefaults(options),
-      elementRegistry: options?.elementRegistry ?? this.elementRegistry,
-      renderHooks: options?.renderHooks ?? this._renderHooks,
-    };
-    return exportSvg(this.store, opts, this.layerManager);
+    return exportSvg(this.store, this.exportOptions(options), this.layerManager);
   }
 
   loadState(state: ImportableCanvasState): void {
@@ -1296,83 +1273,11 @@ export class Viewport {
   }
 
   destroy(): void {
-    this.renderLoop.stop();
-    this.interactMode.destroy();
-    this.noteEditor.destroy(this.store);
-    this.arrowLabelEditor.cancel();
-    this.historyRecorder.destroy();
-    this.contextMenu?.dispose();
-    this.minimap?.destroy();
-    this.wrapper.removeEventListener('pointerdown', this.interactions.onTapDown);
-    this.wrapper.removeEventListener('pointerup', this.interactions.onDoubleTap);
-    this.wrapper.removeEventListener('dragover', this.interactions.onDragOver);
-    this.wrapper.removeEventListener('drop', this.interactions.onDrop);
-    this.inputHandler.destroy();
-    this.unsubCamera();
-    this.unsubLayers();
-    this.unsubToolChange();
-    this.unsubToolRegister();
-    this.unsubRecorderEnd();
-    this.unsubHtmlPainters();
-    this.disposePlugins();
-    this.activation?.dispose();
-    this.activation = null;
-    this.activationListeners.clear();
-    this.htmlDiagnosticListeners.clear();
-    this.detachSelectionSource?.();
-    this.detachSelectionSource = null;
-    this.selectionListeners.clear();
-    this.unsubStore.forEach((fn) => fn());
-    this.resizeObserver?.disconnect();
-    this.resizeObserver = null;
-    this.resizeListeners.clear();
-    this.layerCache.clear();
-    this.hybridSurface.clear();
-    this.renderer.clearImageCache();
-    this.wrapper.remove();
+    for (const dispose of this.disposers.splice(0).reverse()) dispose();
   }
 
   stopInteracting(): void {
     this.interactMode.stopInteracting();
-  }
-
-  private unbindArrowsFrom(removedElement: CanvasElement, meta?: ElementChangeMeta): void {
-    const boundArrows = findBoundArrows(removedElement.id, this.store);
-    const bounds = getElementBounds(removedElement);
-
-    for (const arrow of boundArrows) {
-      const updates: Partial<ArrowElement> = {};
-
-      if (arrow.fromBinding?.elementId === removedElement.id) {
-        updates.fromBinding = undefined;
-        if (bounds) {
-          const angle = getArrowTangentAngle(arrow.from, arrow.to, arrow.bend, 0);
-          const rayTarget = {
-            x: arrow.from.x + Math.cos(angle) * 1000,
-            y: arrow.from.y + Math.sin(angle) * 1000,
-          };
-          const edge = getEdgeIntersection(bounds, rayTarget);
-          updates.from = edge;
-          updates.position = edge;
-        }
-      }
-
-      if (arrow.toBinding?.elementId === removedElement.id) {
-        updates.toBinding = undefined;
-        if (bounds) {
-          const angle = getArrowTangentAngle(arrow.from, arrow.to, arrow.bend, 1);
-          const rayTarget = {
-            x: arrow.to.x - Math.cos(angle) * 1000,
-            y: arrow.to.y - Math.sin(angle) * 1000,
-          };
-          updates.to = getEdgeIntersection(bounds, rayTarget);
-        }
-      }
-
-      if (Object.keys(updates).length > 0) {
-        this.store.update(arrow.id, updates, meta);
-      }
-    }
   }
 
   private applyCameraTransform(): void {
@@ -1393,180 +1298,8 @@ export class Viewport {
 
   private observeResize(): void {
     if (typeof ResizeObserver === 'undefined') return;
-    this.resizeObserver = new ResizeObserver(() => this.syncCanvasSize());
-    this.resizeObserver.observe(this.container);
-  }
-
-  private configurePlugins(plugins?: ViewportPlugin[]): void {
-    if (!plugins?.length) return;
-    const names = new Set<string>();
-    const ordered = plugins
-      .map((plugin, index) => ({ plugin, index }))
-      .sort((a, b) => (a.plugin.priority ?? 0) - (b.plugin.priority ?? 0) || a.index - b.index);
-    for (const { plugin } of ordered) {
-      if (names.has(plugin.name)) {
-        console.warn(`[fieldnotes] skipping duplicate plugin "${plugin.name}"`);
-        continue;
-      }
-      names.add(plugin.name);
-      const configureDisposers: (() => void)[] = [];
-      const track = (dispose: () => void): void => {
-        configureDisposers.push(dispose);
-      };
-      const context: PluginConfigureContext = {
-        elementRegistry: this.elementRegistry,
-        toolManager: this.toolManager,
-        registerElementType: (definition) => {
-          this.elementRegistry.register(definition);
-          track(() => this.elementRegistry.unregister(definition.type));
-        },
-        registerTool: (tool) => track(this.toolManager.register(tool)),
-        registerViewportHooks: (hooks, options) =>
-          track(this._renderHooks.viewport.register(hooks, options)),
-        registerMinimapHooks: (hooks, options) =>
-          track(this._renderHooks.minimap.register(hooks, options)),
-        registerImageExportHooks: (hooks, options) =>
-          track(this._renderHooks.imageExport.register(hooks, options)),
-        registerSvgExportHooks: (hooks, options) =>
-          track(this._renderHooks.svgExport.register(hooks, options)),
-        registerAction: (definition) => track(this.actionRegistry.register(definition)),
-      };
-      try {
-        plugin.configure?.(context);
-        this.installedPlugins.push({ plugin, configureDisposers, startDisposers: [] });
-      } catch (error) {
-        for (const dispose of configureDisposers.reverse()) safelyDispose(dispose);
-        if (plugin.required) {
-          this.disposePlugins();
-          throw error;
-        }
-        console.warn(
-          `[fieldnotes] optional plugin "${plugin.name}" failed to configure: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        );
-      }
-    }
-  }
-
-  private startPlugins(): void {
-    for (const configured of [...this.installedPlugins]) {
-      const startDisposers: (() => void)[] = [];
-      const registeredServices: { key: symbol; previous: unknown; hadPrevious: boolean }[] = [];
-      const context: PluginStartContext = {
-        viewport: this,
-        store: this.store,
-        pushHistory: (command) => this.history.push(command),
-        requestRender: () => this.renderLoop.requestRender(),
-        invalidateMinimap: () => this.minimap?.invalidateScene(),
-        registerService: (key, service) => {
-          registeredServices.push({
-            key: key.id,
-            previous: this.services.get(key.id),
-            hadPrevious: this.services.has(key.id),
-          });
-          this.services.set(key.id, service);
-        },
-        addDisposer: (dispose) => startDisposers.push(dispose),
-        registerExtraBounds: (provider) => {
-          this.extraBoundsProviders.add(provider);
-          this.minimap?.invalidateScene();
-          const dispose = () => {
-            this.extraBoundsProviders.delete(provider);
-            this.minimap?.invalidateScene();
-          };
-          startDisposers.push(dispose);
-          return dispose;
-        },
-        onChange: (listener) => {
-          this.pluginChangeListeners.add(listener);
-          const dispose = () => this.pluginChangeListeners.delete(listener);
-          startDisposers.push(dispose);
-          return dispose;
-        },
-        notifyChange: () => {
-          if (this.pluginNotificationDepth > 0) {
-            this.pluginChangePending = true;
-            return;
-          }
-          for (const listener of this.pluginChangeListeners) {
-            try {
-              listener();
-            } catch (error) {
-              console.error('[fieldnotes] plugin change listener failed', error);
-            }
-          }
-        },
-      };
-      try {
-        const handle = configured.plugin.start?.(context);
-        configured.startDisposers = startDisposers;
-        if (handle) {
-          configured.handle = handle;
-          this.pluginStateManager.registerPlugin(configured.plugin.name, handle);
-        }
-      } catch (error) {
-        for (const dispose of startDisposers.reverse()) safelyDispose(dispose);
-        for (const service of registeredServices.reverse()) {
-          if (service.hadPrevious) this.services.set(service.key, service.previous);
-          else this.services.delete(service.key);
-        }
-        for (const dispose of configured.configureDisposers.reverse()) safelyDispose(dispose);
-        this.installedPlugins.splice(this.installedPlugins.indexOf(configured), 1);
-        if (configured.plugin.required) {
-          this.disposePlugins();
-          throw error;
-        }
-        console.warn(
-          `[fieldnotes] optional plugin "${configured.plugin.name}" failed to start: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        );
-      }
-    }
-  }
-
-  private validateRequiredCapabilities(required?: RequiredCapabilities): void {
-    if (!required) return;
-    const bySurface: Exclude<RequiredCapabilities, readonly string[]> = Array.isArray(required)
-      ? {
-          viewport: required,
-          minimap: required,
-          imageExport: required,
-          svgExport: required,
-        }
-      : (required as Exclude<RequiredCapabilities, readonly string[]>);
-    const surfaces = ['viewport', 'minimap', 'imageExport', 'svgExport'] as const;
-    const missing: string[] = [];
-    for (const surface of surfaces) {
-      const satisfied = new Set(this._renderHooks[surface].getSatisfiedCapabilities());
-      for (const capability of bySurface[surface] ?? []) {
-        if (!satisfied.has(capability)) missing.push(`${surface}:${capability}`);
-      }
-    }
-    if (missing.length > 0) {
-      throw new Error(`Required plugin capabilities are missing: ${missing.join(', ')}`);
-    }
-  }
-
-  private disposePlugins(): void {
-    for (const configured of [...this.installedPlugins].reverse()) {
-      if (configured.handle) {
-        this.pluginStateManager.unregisterPlugin(configured.plugin.name, configured.handle);
-        safelyDispose(() => configured.handle?.dispose());
-      }
-      for (const dispose of [...configured.startDisposers].reverse()) safelyDispose(dispose);
-      for (const dispose of [...configured.configureDisposers].reverse()) safelyDispose(dispose);
-    }
-    this.installedPlugins.length = 0;
-    this.services.clear();
-  }
-}
-
-function safelyDispose(dispose: () => void): void {
-  try {
-    dispose();
-  } catch {
-    // Cleanup remains best-effort so later resources are still released.
+    const observer = new ResizeObserver(() => this.syncCanvasSize());
+    observer.observe(this.container);
+    this.disposers.push(() => observer.disconnect());
   }
 }

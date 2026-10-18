@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { sanitizeNoteHtml, parseStyledRuns, isNoteContentEmpty } from './note-sanitizer';
 
 describe('sanitizeNoteHtml', () => {
@@ -85,6 +85,69 @@ describe('sanitizeNoteHtml', () => {
 
   it('returns empty string for empty input', () => {
     expect(sanitizeNoteHtml('')).toBe('');
+  });
+});
+
+describe('sanitizeNoteHtml memo', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  // Pushes every earlier output out of the bounded memo so the next call really parses.
+  function evictMemo(): void {
+    for (let i = 0; i < 300; i++) sanitizeNoteHtml(`filler ${i}`);
+  }
+
+  it.each([
+    'hello world',
+    '<b>bold</b>',
+    '<strong>bold</strong>',
+    '<i>italic</i>',
+    '<em>italic</em>',
+    '<u>underline</u>',
+    '<s>struck</s>',
+    '<strike>struck</strike>',
+    '<del>deleted</del>',
+    'line1<br>line2',
+    '<div>paragraph</div>',
+    '<span style="font-size: 18px;">big</span>',
+    '<script>alert("xss")</script>hello',
+    '<b onclick="alert(1)">bold</b>',
+    '<img src="x.png">hello',
+    '<a href="http://evil.com">link</a>',
+    '<span style="color: red; font-size: 18px;">text</span>',
+    '<b style="color: red;">bold</b>',
+    '<b><i>bold italic</i></b>',
+    '<span style="font-size: 1.5em">em</span>',
+    '<span style="font-size: calc(10px + 2em)">calc</span>',
+    '<span style="font-size: 12px; font-weight: bold">px</span>',
+    '<section><article><a href="x"><img src="y">deep</a></article></section>',
+    '<b>keep<!-- hidden --></b><!-- top -->',
+    '<div><script>bad()</script><span onclick="x()">ok</span></div>',
+    '&lt;script&gt;alert(1)&lt;/script&gt;',
+  ])('sanitizing the output of %s again yields the same string', (input) => {
+    const once = sanitizeNoteHtml(input);
+    evictMemo();
+    expect(sanitizeNoteHtml(once)).toBe(once);
+  });
+
+  it('returns an already sanitized string without parsing it again', () => {
+    const once = sanitizeNoteHtml(
+      '<b onclick="x()">memo</b> <span style="font-size: 20px;">hit</span>',
+    );
+    const parse = vi.spyOn(DOMParser.prototype, 'parseFromString');
+
+    expect(sanitizeNoteHtml(once)).toBe(once);
+    expect(parse).not.toHaveBeenCalled();
+  });
+
+  it('forgets the oldest output once 300 newer inputs were sanitized', () => {
+    const first = sanitizeNoteHtml('<i>oldest entry</i>');
+    for (let i = 0; i < 300; i++) sanitizeNoteHtml(`<b>${i}</b>`);
+    const parse = vi.spyOn(DOMParser.prototype, 'parseFromString');
+
+    expect(sanitizeNoteHtml(first)).toBe('<i>oldest entry</i>');
+    expect(parse).toHaveBeenCalledTimes(1);
   });
 });
 

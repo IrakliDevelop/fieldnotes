@@ -9,6 +9,7 @@ import {
   clearStaleBindings,
   isBindable,
   unbindArrow,
+  unbindArrowsFrom,
 } from './arrow-binding';
 import { getElementBounds } from './element-bounds';
 import {
@@ -327,5 +328,29 @@ describe('updateArrowsBoundToElements', () => {
     expect(() => updateArrowsBoundToElements([arrow.id], store)).not.toThrow();
     const after = store.getById(arrow.id) as { to: { x: number; y: number } };
     expect(after.to).toEqual({ x: 10, y: 10 }); // unchanged
+  });
+});
+
+describe('unbindArrowsFrom', () => {
+  it('detaches arrows from a removed element to its edge and forwards the change meta', () => {
+    const store = new ElementStore();
+    const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
+    const arrow = createArrow({
+      from: { x: 50, y: 50 },
+      to: { x: 300, y: 50 },
+      fromBinding: { elementId: note.id },
+    });
+    store.add(note);
+    store.add(arrow);
+    store.remove(note.id);
+    const metas: unknown[] = [];
+    store.on('update', (_change, meta) => metas.push(meta));
+
+    unbindArrowsFrom(store, note, { origin: 'remote' });
+
+    const updated = store.getById(arrow.id);
+    expect(updated?.type === 'arrow' && updated.fromBinding).toBeUndefined();
+    expect(updated?.position).toEqual({ x: 100, y: 50 });
+    expect(metas).toEqual([{ origin: 'remote' }]);
   });
 });

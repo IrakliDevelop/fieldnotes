@@ -5,6 +5,7 @@ import type { PluginHandle } from '../core/plugin-state-manager';
 import { Viewport } from './viewport';
 import type { ViewportPlugin } from './viewport-plugin';
 import { SelectTool } from '../tools/select-tool';
+import { createArrow, createNote } from '../elements/element-factory';
 
 function createContainer(): HTMLDivElement {
   const container = document.createElement('div');
@@ -152,6 +153,91 @@ describe('Viewport plugin lifecycle', () => {
     ).toThrow('required start failed');
     expect(disposed).toHaveBeenCalledOnce();
     expect(container.childElementCount).toBe(0);
+  });
+
+  it('leaves no DOM and no live store subscriptions when a required plugin fails to start', () => {
+    let failed: Viewport | undefined;
+    expect(
+      () =>
+        new Viewport(container, {
+          plugins: [
+            {
+              name: 'required',
+              required: true,
+              start(context) {
+                failed = context.viewport;
+                throw new Error('required start failed');
+              },
+            },
+          ],
+        }),
+    ).toThrow('required start failed');
+    if (!failed) throw new Error('plugin did not start');
+    const render = vi.spyOn(failed, 'requestRender');
+
+    failed.store.add(createNote({ position: { x: 0, y: 0 } }));
+
+    expect(container.childElementCount).toBe(0);
+    expect(failed.history.canUndo).toBe(false);
+    expect(render).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['destroy()', undefined],
+    ['a required-capability failure', { viewport: ['missing'] }],
+  ])('unbinds arrows from elements a plugin removes on dispose during %s', (_, required) => {
+    let store: Viewport['store'] | undefined;
+    let arrowId = '';
+    const plugin: ViewportPlugin = {
+      name: 'remover',
+      start(context) {
+        store = context.store;
+        const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
+        const arrow = createArrow({
+          from: { x: 50, y: 50 },
+          to: { x: 300, y: 300 },
+          fromBinding: { elementId: note.id },
+        });
+        arrowId = arrow.id;
+        context.store.add(note);
+        context.store.add(arrow);
+        context.addDisposer(() => context.store.remove(note.id));
+        return undefined;
+      },
+    };
+    const create = () =>
+      new Viewport(container, { plugins: [plugin], requiredCapabilities: required });
+    if (required) expect(create).toThrow('viewport:missing');
+    else create().destroy();
+
+    const arrow = store?.getById(arrowId);
+    expect(arrow?.type).toBe('arrow');
+    expect(arrow?.type === 'arrow' && arrow.fromBinding).toBeFalsy();
+  });
+
+  it('clears resize listeners registered by a required plugin that fails to start', () => {
+    let failed: Viewport | undefined;
+    expect(
+      () =>
+        new Viewport(container, {
+          plugins: [
+            {
+              name: 'required',
+              required: true,
+              start(context) {
+                failed = context.viewport;
+                context.viewport.onResize(() => undefined);
+                throw new Error('required start failed');
+              },
+            },
+          ],
+        }),
+    ).toThrow('required start failed');
+    if (!failed) throw new Error('plugin did not start');
+
+    expect((failed as unknown as { resizeListeners: Set<() => void> }).resizeListeners.size).toBe(
+      0,
+    );
   });
 
   it('validates required capabilities after optional rollback', () => {

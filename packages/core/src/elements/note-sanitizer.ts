@@ -91,12 +91,23 @@ const ALLOWED_TAGS = new Set([
   'div',
 ]);
 
+// Recent outputs; sanitizing is idempotent, so an output passes through unparsed.
+const SANITIZED_MEMO_SIZE = 256;
+const sanitizedMemo = new Set<string>();
+
 export function sanitizeNoteHtml(html: string): string {
   if (!html) return '';
+  if (sanitizedMemo.has(html)) return html;
 
   const doc = new DOMParser().parseFromString(html, 'text/html');
   sanitizeNode(doc.body);
-  return doc.body.innerHTML;
+  const sanitized = doc.body.innerHTML;
+  sanitizedMemo.add(sanitized);
+  if (sanitizedMemo.size > SANITIZED_MEMO_SIZE) {
+    const oldest = sanitizedMemo.values().next().value;
+    if (oldest !== undefined) sanitizedMemo.delete(oldest);
+  }
+  return sanitized;
 }
 
 function sanitizeNode(node: Node): void {

@@ -117,6 +117,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
   The reference WebSocket server closes idle expired sockets and rejects traffic observed at
   or after the deadline.
 
+## [0.88.1] — 2026-10-18
+
+### Core 0.88.1 — viewport decomposition (F9), render and sanitize perf
+
+**Fixed**
+
+- `destroy()` is idempotent: a second call is a no-op. Construction failures (a required plugin
+  failing in configure or start) and `destroy()` now share one teardown path, so a failed
+  construction releases the same listeners, DOM, caches and plugin state as `destroy()`.
+
+**Performance**
+
+- Each render frame makes one pass over the elements to find visibility and DOM routing,
+  cached until the store or a layer changes, and reads layer opacity from one per-frame map
+  instead of filtering, slicing and copying layers per element.
+- Note and text HTML that is already sanitized is not parsed again, so creating or loading a
+  note sanitizes its HTML once instead of twice.
+
+**Internal**
+
+- Plugin lifecycle moved from `Viewport` into an internal `PluginHost`; arrow auto-unbind is a
+  standalone helper; image and SVG export share one options builder. No public API change.
+- Benchmarks for a 10,000-element render frame and note creation; refreshed `bench-baseline.md`.
+
 ## [0.88.0] — 2026-10-18
 
 ### Core 0.88.0 — history unification (F3), lifecycle fixes, perf quick wins

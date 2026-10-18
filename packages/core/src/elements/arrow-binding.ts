@@ -1,6 +1,6 @@
 import type { Bounds, Point } from '../core/types';
 import type { ArrowElement, CanvasElement } from './types';
-import type { ElementStore } from './element-store';
+import type { ElementChangeMeta, ElementStore } from './element-store';
 import { getArrowTangentAngle } from './arrow-geometry';
 import { getElementBounds } from './element-bounds';
 
@@ -182,4 +182,48 @@ export function unbindArrow(arrow: ArrowElement, store: ElementStore): Partial<A
   }
 
   return updates;
+}
+
+/** Detaches arrows bound to a removed element, leaving each endpoint on the element's former edge. */
+export function unbindArrowsFrom(
+  store: ElementStore,
+  removed: CanvasElement,
+  meta: ElementChangeMeta | undefined,
+): void {
+  const boundArrows = findBoundArrows(removed.id, store);
+  const bounds = getElementBounds(removed);
+
+  for (const arrow of boundArrows) {
+    const updates: Partial<ArrowElement> = {};
+
+    if (arrow.fromBinding?.elementId === removed.id) {
+      updates.fromBinding = undefined;
+      if (bounds) {
+        const angle = getArrowTangentAngle(arrow.from, arrow.to, arrow.bend, 0);
+        const rayTarget = {
+          x: arrow.from.x + Math.cos(angle) * 1000,
+          y: arrow.from.y + Math.sin(angle) * 1000,
+        };
+        const edge = getEdgeIntersection(bounds, rayTarget);
+        updates.from = edge;
+        updates.position = edge;
+      }
+    }
+
+    if (arrow.toBinding?.elementId === removed.id) {
+      updates.toBinding = undefined;
+      if (bounds) {
+        const angle = getArrowTangentAngle(arrow.from, arrow.to, arrow.bend, 1);
+        const rayTarget = {
+          x: arrow.to.x - Math.cos(angle) * 1000,
+          y: arrow.to.y - Math.sin(angle) * 1000,
+        };
+        updates.to = getEdgeIntersection(bounds, rayTarget);
+      }
+    }
+
+    if (Object.keys(updates).length > 0) {
+      store.update(arrow.id, updates, meta);
+    }
+  }
 }
