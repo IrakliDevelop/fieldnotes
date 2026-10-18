@@ -38,7 +38,10 @@ For mouse input, visual inspection, and console errors.
   on the canvas.
 - Read state with `javascript_tool`, for example `window.__fieldnotes_viewport.store.count` or
   `window.__fieldnotes_viewport.camera.zoom`.
-- Read errors with `read_console_messages` and a `pattern` such as `error|Error`.
+- Console tracking starts at the first `read_console_messages` call: call it once right after
+  opening the tab, reload, then read errors with a `pattern` such as `error|Error` after driving.
+- The demo may restore saved state, so read counts before and after an action rather than
+  expecting a fixed number.
 - Record a GIF for multi-step flows, with extra frames before and after each action.
 - Never trigger `alert` or `confirm` dialogs; they block the extension.
 - Session model only. Never from subagents, never two sessions at once: there is one shared browser.
