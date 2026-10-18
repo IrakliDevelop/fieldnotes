@@ -43,6 +43,7 @@ describe('Viewport', () => {
 
   afterEach(() => {
     document.body.removeChild(container);
+    vi.unstubAllGlobals();
   });
 
   it('sets overscroll-behavior: none on wrapper', () => {
@@ -137,6 +138,22 @@ describe('Viewport', () => {
     expect(wrapper.querySelector('[data-paint-order]')).toBeNull();
     expect(priv.renderer.imageCache.size).toBe(0);
     expect(bitmap.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('sizes the canvas backing store from client size, not the transformed rect', () => {
+    vi.stubGlobal('devicePixelRatio', 2);
+    const scaled = document.createElement('div');
+    Object.defineProperties(scaled, {
+      getBoundingClientRect: { value: () => ({ left: 0, top: 0, width: 400, height: 300 }) },
+      clientWidth: { value: 800 },
+      clientHeight: { value: 600 },
+    });
+    document.body.appendChild(scaled);
+    const viewport = new Viewport(scaled);
+    const canvas = scaled.querySelector('canvas');
+    expect([canvas?.width, canvas?.height]).toEqual([1600, 1200]);
+    viewport.destroy();
+    scaled.remove();
   });
 
   it('applies camera transform to the public DOM overlay on camera change', () => {
@@ -1181,15 +1198,17 @@ describe('Viewport', () => {
 
   describe('panBufferMargin option', () => {
     it('respects panBufferMargin: 0 (exact-viewport caches, no margin)', () => {
+      Object.defineProperty(container, 'clientWidth', { value: 800 });
       const viewport = new Viewport(container, { panBufferMargin: 0 });
       const mv = (viewport as unknown as { marginViewport: { physicalWidth: () => number } })
         .marginViewport;
-      // cssW = 800 (clientWidth is 0 in jsdom, fallback is 800), dpr = 1, margin = 0
+      // cssW = 800 (container clientWidth), dpr = 1, margin = 0
       expect(mv.physicalWidth()).toBe(800);
       viewport.destroy();
     });
 
     it('defaults panBufferMargin to 256', () => {
+      Object.defineProperty(container, 'clientWidth', { value: 800 });
       const viewport = new Viewport(container);
       const mv = (viewport as unknown as { marginViewport: { physicalWidth: () => number } })
         .marginViewport;

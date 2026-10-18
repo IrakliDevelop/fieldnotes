@@ -1380,9 +1380,11 @@ export class Viewport {
   }
 
   private syncCanvasSize(): void {
-    const rect = this.container.getBoundingClientRect();
     const dpr = typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1;
-    this.renderLoop.setCanvasSize(rect.width * dpr, rect.height * dpr);
+    this.renderLoop.setCanvasSize(
+      this.container.clientWidth * dpr,
+      this.container.clientHeight * dpr,
+    );
     this.requestRender();
     this.resizeListeners.forEach((fn) => fn());
   }
