@@ -108,16 +108,16 @@ function Toolbar({ tool, onSelect }: { tool: string; onSelect: (name: string) =>
 
 Not all props are reactive — the canvas is stateful. Changing a mount-only prop after mount has no effect:
 
-| Prop                               | Reactivity                                                                                                                                                     |
-| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `options`                          | Mount-only — the canvas is stateful; construct with the right options                                                                                          |
-| `tools`                            | Array: reactive, append-only (tools cannot be unregistered); hoist it out of render. Omitted or `'default'`: mount-only default bundle; `[]` registers nothing |
-| `initialData`                      | Mount-only — loaded once before `onReady`                                                                                                                      |
-| `onChange` / `changeDebounceMs`    | Reactive — the latest callback is used without resubscribing                                                                                                   |
-| `tool` / `onToolChange`            | Reactive (controlled). Memoize the callback                                                                                                                    |
-| `defaultTool`                      | Mount-only (uncontrolled initial tool)                                                                                                                         |
-| `snapToGrid` (deprecated)          | Reactive compatibility prop; prefer a domain constraint service                                                                                                |
-| `className` / `style` / `children` | Reactive (plain React)                                                                                                                                         |
+| Prop                               | Reactivity                                                                                                                                                                                                  |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `options`                          | Mount-only — the canvas is stateful; construct with the right options                                                                                                                                       |
+| `tools`                            | Array: reactive, append-only (tools cannot be unregistered); hoist it out of render. Omitted or `'default'`: mount-only default bundle (omitted defers to `options.tools` when set); `[]` registers nothing |
+| `initialData`                      | Mount-only — loaded once before `onReady`                                                                                                                                                                   |
+| `onChange` / `changeDebounceMs`    | Reactive — the latest callback is used without resubscribing                                                                                                                                                |
+| `tool` / `onToolChange`            | Reactive (controlled). Memoize the callback                                                                                                                                                                 |
+| `defaultTool`                      | Mount-only (uncontrolled initial tool)                                                                                                                                                                      |
+| `snapToGrid` (deprecated)          | Reactive compatibility prop; prefer a domain constraint service                                                                                                                                             |
+| `className` / `style` / `children` | Reactive (plain React)                                                                                                                                                                                      |
 
 Runtime changes beyond these go through the viewport — access it via `useViewport()` or the ref. Grid snapping is domain behavior; VTT consumers should configure `GridController` and its constraint service rather than adopting the deprecated React prop. The background pattern is constructor-only (`options.background`).
 

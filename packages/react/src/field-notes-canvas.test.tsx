@@ -204,6 +204,12 @@ describe('FieldNotesCanvas', () => {
     expect(viewport.toolManager.activeTool).toBeNull();
   });
 
+  it('omitted tools defer to options.tools instead of the default bundle', () => {
+    const onReady = vi.fn<(viewport: Viewport) => void>();
+    render(<FieldNotesCanvas options={{ tools: [new HandTool()] }} onReady={onReady} />);
+    expect(viewportAt(onReady, 0).toolManager.toolNames).toEqual(['hand']);
+  });
+
   it('defaultTool wins over select with the default bundle', () => {
     const onReady = vi.fn<(viewport: Viewport) => void>();
     render(<FieldNotesCanvas defaultTool="pencil" onReady={onReady} />);

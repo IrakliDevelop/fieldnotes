@@ -87,8 +87,11 @@ export const FieldNotesCanvas = forwardRef<FieldNotesCanvasRef, FieldNotesCanvas
 
       const vp = new Viewport(el, options);
 
-      const useDefaults = !Array.isArray(tools);
-      for (const t of useDefaults ? createDefaultTools() : tools) {
+      // An explicit `options.tools` is the host's choice; core registers it and activates select.
+      const useDefaults =
+        tools === 'default' || (tools === undefined && options?.tools === undefined);
+      const mountTools = Array.isArray(tools) ? tools : [];
+      for (const t of useDefaults ? createDefaultTools() : mountTools) {
         vp.toolManager.register(t);
       }
 
