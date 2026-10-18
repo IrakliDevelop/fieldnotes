@@ -182,6 +182,31 @@ describe('Viewport plugin lifecycle', () => {
     expect(render).not.toHaveBeenCalled();
   });
 
+  it('clears resize listeners registered by a required plugin that fails to start', () => {
+    let failed: Viewport | undefined;
+    expect(
+      () =>
+        new Viewport(container, {
+          plugins: [
+            {
+              name: 'required',
+              required: true,
+              start(context) {
+                failed = context.viewport;
+                context.viewport.onResize(() => undefined);
+                throw new Error('required start failed');
+              },
+            },
+          ],
+        }),
+    ).toThrow('required start failed');
+    if (!failed) throw new Error('plugin did not start');
+
+    expect((failed as unknown as { resizeListeners: Set<() => void> }).resizeListeners.size).toBe(
+      0,
+    );
+  });
+
   it('validates required capabilities after optional rollback', () => {
     expect(
       () =>

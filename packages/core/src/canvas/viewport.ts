@@ -516,6 +516,7 @@ export class Viewport {
         this.activation = null;
         this.activationListeners.clear();
         this.htmlDiagnosticListeners.clear();
+        this.resizeListeners.clear();
       },
     );
 
@@ -1291,7 +1292,6 @@ export class Viewport {
   }
 
   private observeResize(): void {
-    this.disposers.push(() => this.resizeListeners.clear());
     if (typeof ResizeObserver === 'undefined') return;
     const observer = new ResizeObserver(() => this.syncCanvasSize());
     observer.observe(this.container);
