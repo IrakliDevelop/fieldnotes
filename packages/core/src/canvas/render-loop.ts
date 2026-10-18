@@ -254,13 +254,12 @@ export class RenderLoop {
   /** Redraws only the overlay stratum, or a full frame when the last one left no stratum. */
   private renderOverlayOnly(): void {
     const order = this.lastOverlayOrder;
-    if (order === null || !this.hasOverlay()) {
+    // Stale canvases from an aborted frame need the full frame's reset and repaint.
+    if (order === null || this.staleCanvases.length > 0 || !this.hasOverlay()) {
       this.renderFrame();
       return;
     }
     const t0 = performance.now();
-    for (const canvas of this.staleCanvases) resetCanvas(canvas);
-    this.staleCanvases.length = 0;
     const dpr = typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1;
     this.drawOverlayStratum(order, dpr, this.canvasEl.clientWidth, this.canvasEl.clientHeight);
     if (

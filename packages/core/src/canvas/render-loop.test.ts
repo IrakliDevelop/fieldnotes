@@ -1068,6 +1068,23 @@ describe('RenderLoop', () => {
       }
     });
 
+    it('runs a full frame for an overlay request after an aborted frame left a stale canvas', () => {
+      const hooks: RenderHooks = createRenderHooks();
+      hooks.viewport.register({ beforeElements: clipThenThrow });
+      let shouldThrow = true;
+      const renderOverlay = vi.fn(() => {
+        if (shouldThrow) throw new Error('overlay failed');
+      });
+      (deps.toolManager as { activeTool: unknown }).activeTool = { renderOverlay };
+      const loop = new RenderLoop({ ...deps, hooks });
+      loop.requestRender();
+      expect(() => loop.flush()).toThrow('overlay failed');
+      shouldThrow = false;
+      loop.requestOverlayRender();
+      loop.flush();
+      expect(deps.background.render).toHaveBeenCalledTimes(2);
+    });
+
     it('keeps rendering the frame when an afterElements hook throws, reporting it once', () => {
       const { rafSpy, runFrame } = captureFrames();
       const hooks: RenderHooks = createRenderHooks();

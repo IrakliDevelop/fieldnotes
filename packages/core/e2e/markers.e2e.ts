@@ -128,12 +128,13 @@ async function samplePixel(page: Page, world: WorldPoint): Promise<number[]> {
     const vp = (window as unknown as Record<string, unknown>).__fieldnotes_viewport as {
       camera: { worldToScreen: (p: WorldPoint) => PagePoint };
     };
-    const canvas = document.querySelector('#canvas canvas');
-    if (!(canvas instanceof HTMLCanvasElement)) throw new Error('canvas not found');
+    const base = document.querySelector('#canvas canvas');
+    if (!(base instanceof HTMLCanvasElement)) throw new Error('canvas not found');
+    const canvas = window.__fnCompositeCanvas();
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('canvas has no 2d context');
     const screen = vp.camera.worldToScreen(w);
-    const dpr = canvas.width / canvas.clientWidth;
+    const dpr = canvas.width / base.clientWidth;
     const px = Math.max(0, Math.min(canvas.width - 1, Math.round(screen.x * dpr)));
     const py = Math.max(0, Math.min(canvas.height - 1, Math.round(screen.y * dpr)));
     return [...ctx.getImageData(px, py, 1, 1).data];

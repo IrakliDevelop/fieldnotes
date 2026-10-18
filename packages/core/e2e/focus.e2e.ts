@@ -88,7 +88,7 @@ async function focusTo(
 /** Counts strongly red pixels — the arrival pulse's default color (#ff3b30). */
 async function redPixelCount(page: Page): Promise<number> {
   return page.evaluate(() => {
-    const canvas = document.querySelector('#canvas canvas') as HTMLCanvasElement;
+    const canvas = window.__fnCompositeCanvas();
     const ctx = canvas.getContext('2d');
     if (!ctx) return -1;
     const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
@@ -109,10 +109,11 @@ async function redPixelCountInRegion(
   region: { x: number; y: number; w: number; h: number },
 ): Promise<number> {
   return page.evaluate((r) => {
-    const canvas = document.querySelector('#canvas canvas') as HTMLCanvasElement;
+    const base = document.querySelector('#canvas canvas') as HTMLCanvasElement;
+    const canvas = window.__fnCompositeCanvas();
     const ctx = canvas.getContext('2d');
     if (!ctx) return -1;
-    const dpr = canvas.width / canvas.clientWidth;
+    const dpr = canvas.width / base.clientWidth;
     const data = ctx.getImageData(r.x * dpr, r.y * dpr, r.w * dpr, r.h * dpr).data;
     let count = 0;
     for (let i = 0; i < data.length; i += 4) {

@@ -1,5 +1,6 @@
 import { test as base, expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
+import { installCompositeCanvas } from './composite-canvas';
 
 interface CanvasPageFixtures {
   canvasPage: CanvasPage;
@@ -48,6 +49,11 @@ export class CanvasPage {
 }
 
 export const test = base.extend<CanvasPageFixtures>({
+  // Overriding `page` also covers specs that navigate without the `canvasPage` fixture.
+  page: async ({ page }, use) => {
+    await installCompositeCanvas(page);
+    await use(page);
+  },
   canvasPage: async ({ page }, use) => {
     const cp = new CanvasPage(page);
     await cp.goto();
