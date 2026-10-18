@@ -15,6 +15,9 @@ import type { LayerCache } from './layer-cache';
 import type { HybridRenderSurface } from './hybrid-render-surface';
 import { createRenderHooks } from './render-hooks';
 import type { RenderHooks } from './render-hooks';
+import { ElementStore as RealElementStore } from '../elements/element-store';
+import { LayerManager as RealLayerManager } from '../layers/layer-manager';
+import { createNote, createShape } from '../elements/element-factory';
 
 function createMockDeps() {
   const canvasEl = document.createElement('canvas');
@@ -67,7 +70,7 @@ function createMockDeps() {
 
   const layerManager = {
     isLayerVisible: vi.fn().mockReturnValue(true),
-    getLayer: vi.fn().mockReturnValue({ opacity: 1 }),
+    getLayers: vi.fn().mockReturnValue([{ id: 'default', opacity: 1 }]),
   } as unknown as LayerManager;
 
   const domNodeManager = {
@@ -280,7 +283,9 @@ describe('RenderLoop', () => {
       vi.mocked(deps.renderer.isDomElement).mockImplementation(
         (el: { type: string }) => el.type === 'note',
       );
-      vi.mocked(deps.layerManager.getLayer).mockReturnValue({ opacity: 0.5 } as never);
+      vi.mocked(deps.layerManager.getLayers).mockReturnValue([
+        { id: 'default', opacity: 0.5 },
+      ] as never);
       const { ctx: hybridCtx, drawImageAlphas } = recordingCtx();
       vi.mocked(deps.hybridSurface.getContext).mockReturnValue(hybridCtx);
       const paintedAlphas: unknown[] = [];
@@ -311,7 +316,9 @@ describe('RenderLoop', () => {
       vi.mocked(deps.renderer.isDomElement).mockImplementation(
         (el: { type: string }) => el.type === 'note',
       );
-      vi.mocked(deps.layerManager.getLayer).mockReturnValue({ opacity: 0.5 } as never);
+      vi.mocked(deps.layerManager.getLayers).mockReturnValue([
+        { id: 'default', opacity: 0.5 },
+      ] as never);
       const { ctx: hybridCtx, drawImageAlphas } = recordingCtx();
       vi.mocked(deps.hybridSurface.getContext).mockReturnValue(hybridCtx);
       const paintedAlphas: unknown[] = [];
@@ -334,7 +341,9 @@ describe('RenderLoop', () => {
       vi.mocked(deps.renderer.isDomElement).mockImplementation(
         (el: { type: string }) => el.type === 'note',
       );
-      vi.mocked(deps.layerManager.getLayer).mockReturnValue({ opacity: 1 } as never);
+      vi.mocked(deps.layerManager.getLayers).mockReturnValue([
+        { id: 'default', opacity: 1 },
+      ] as never);
       const { ctx: hybridCtx, drawImageAlphas } = recordingCtx();
       vi.mocked(deps.hybridSurface.getContext).mockReturnValue(hybridCtx);
       const targets: unknown[] = [];
@@ -373,7 +382,9 @@ describe('RenderLoop', () => {
       vi.mocked(deps.renderer.isDomElement).mockImplementation(
         (el: { type: string }) => el.type === 'note',
       );
-      vi.mocked(deps.layerManager.getLayer).mockReturnValue({ opacity: 0.5 } as never);
+      vi.mocked(deps.layerManager.getLayers).mockReturnValue([
+        { id: 'default', opacity: 0.5 },
+      ] as never);
       const { ctx: hybridCtx, drawImageArgs } = recordingCtx();
       vi.mocked(deps.hybridSurface.getContext).mockReturnValue(hybridCtx);
       // Every canvas in this file shares one mocked 2D context, so the scratch context is
@@ -408,7 +419,9 @@ describe('RenderLoop', () => {
       vi.mocked(deps.renderer.isDomElement).mockImplementation(
         (el: { type: string }) => el.type === 'note',
       );
-      vi.mocked(deps.layerManager.getLayer).mockReturnValue({ opacity: 0.5 } as never);
+      vi.mocked(deps.layerManager.getLayers).mockReturnValue([
+        { id: 'default', opacity: 0.5 },
+      ] as never);
       const { ctx: hybridCtx, drawImageAlphas, drawImageArgs } = recordingCtx();
       vi.mocked(deps.hybridSurface.getContext).mockReturnValue(hybridCtx);
 
@@ -1048,7 +1061,9 @@ describe('RenderLoop', () => {
 
     it('applies layer opacity while compositing the cached layer', () => {
       vi.mocked(deps.layerCache.isDirty).mockReturnValue(false);
-      vi.mocked(deps.layerManager.getLayer).mockReturnValue({ opacity: 0.4 } as never);
+      vi.mocked(deps.layerManager.getLayers).mockReturnValue([
+        { id: 'default', opacity: 0.4 },
+      ] as never);
       vi.mocked(deps.store.getAll).mockReturnValue([
         {
           id: 'on-1',
@@ -1260,6 +1275,102 @@ describe('RenderLoop', () => {
       renderLoop.requestRender();
       renderLoop.flush();
       expect(deps.layerCache.markAllDirty).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('frame structure cache', () => {
+    let store: RealElementStore;
+    let layers: RealLayerManager;
+    let layerId: string;
+
+    beforeEach(() => {
+      Object.defineProperty(deps.canvasEl, 'clientWidth', { value: 800, configurable: true });
+      Object.defineProperty(deps.canvasEl, 'clientHeight', { value: 600, configurable: true });
+      store = new RealElementStore();
+      layers = new RealLayerManager(store);
+      layerId = layers.activeLayerId;
+      layers.createLayer(); // a fallback layer, so the active layer can be hidden
+      renderLoop = new RenderLoop({ ...deps, store, layerManager: layers });
+    });
+
+    function frame(): void {
+      renderLoop.requestRender();
+      renderLoop.flush();
+    }
+
+    function shape(id: string, zIndex: number) {
+      return {
+        ...createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 }, layerId, zIndex }),
+        id,
+      };
+    }
+
+    function note(id: string, zIndex: number) {
+      return {
+        ...createNote({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 }, layerId, zIndex }),
+        id,
+      };
+    }
+
+    it('checks layer visibility at most once per element on a frame with an unchanged store', () => {
+      store.add(shape('a', 1));
+      store.add(note('b', 2));
+      store.add(shape('c', 3));
+      frame();
+      const spy = vi.spyOn(layers, 'isLayerVisible');
+
+      frame();
+
+      expect(spy).toHaveBeenCalledTimes(3);
+    });
+
+    it('stops drawing a layer hidden between frames once layers are marked dirty', () => {
+      store.add(shape('a', 1));
+      store.add(note('b', 2));
+      store.add(shape('c', 3));
+      frame();
+      vi.mocked(deps.renderer.renderCanvasElement).mockClear();
+      vi.mocked(deps.hybridSurface.beginFrame).mockClear();
+
+      layers.setLayerVisible(layerId, false);
+      renderLoop.markAllLayersDirty();
+      frame();
+
+      expect(deps.renderer.renderCanvasElement).not.toHaveBeenCalled();
+      expect(deps.domNodeManager.hideDomNode).toHaveBeenCalledWith('b');
+      expect(deps.hybridSurface.beginFrame).toHaveBeenCalledWith(new Set(), 300, 150);
+    });
+
+    it('activates the hybrid stratum when a DOM element is added beneath canvas content', () => {
+      store.add(shape('a', 2));
+      frame();
+      expect(deps.hybridSurface.beginFrame).toHaveBeenLastCalledWith(new Set(), 300, 150);
+
+      store.add(note('b', 1));
+      frame();
+
+      expect(deps.hybridSurface.beginFrame).toHaveBeenLastCalledWith(new Set([2]), 300, 150);
+      expect(deps.domNodeManager.syncDomNode).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'b' }),
+        1,
+        1,
+      );
+    });
+
+    it('composites each layer at its current opacity', () => {
+      store.add(shape('a', 1));
+      layers.setLayerOpacity(layerId, 0.25);
+      vi.mocked(deps.layerCache.isDirty).mockReturnValue(false);
+      const ctx = mockCtx();
+      const alphas: number[] = [];
+      vi.mocked(ctx.drawImage).mockImplementation(() => {
+        alphas.push(ctx.globalAlpha);
+      });
+      vi.spyOn(deps.canvasEl, 'getContext').mockReturnValue(ctx as never);
+
+      frame();
+
+      expect(alphas).toEqual([0.25]);
     });
   });
 

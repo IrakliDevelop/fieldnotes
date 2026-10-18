@@ -68,6 +68,13 @@ export class RenderLoop {
   private htmlScratchCtx: CanvasRenderingContext2D | null = null;
   private renderErrorReported = false;
   private readonly savedContexts: SavableContext[] = [];
+  private readonly layerOpacities = new Map<string, number>();
+  // Frame structure, recomputed only when the store array or layer state changes.
+  private structureSource: readonly CanvasElement[] | null = null;
+  private structureDirty = true;
+  private visibleCount = 0;
+  private firstDomIndex = -1;
+  private hybridActive = false;
 
   constructor(deps: RenderLoopDeps) {
     this.canvasEl = deps.canvasEl;
@@ -142,10 +149,12 @@ export class RenderLoop {
   }
 
   markLayerDirty(layerId: string): void {
+    this.structureDirty = true;
     this.layerCache.markDirty(layerId);
   }
 
   markAllLayersDirty(): void {
+    this.structureDirty = true;
     this.layerCache.markAllDirty();
   }
 
@@ -406,17 +415,30 @@ export class RenderLoop {
     };
 
     const allElements = this.store.getAll();
-    const visibleElements = allElements.filter((element) =>
-      this.layerManager.isLayerVisible(element.layerId),
-    );
-    const firstDomIndex = visibleElements.findIndex((element) =>
-      this.renderer.isDomElement(element),
-    );
-    const hybridActive =
-      firstDomIndex >= 0 &&
-      visibleElements
-        .slice(firstDomIndex + 1)
-        .some((element) => !this.renderer.isDomElement(element));
+    if (allElements !== this.structureSource || this.structureDirty) {
+      this.structureSource = allElements;
+      this.structureDirty = false;
+      let visibleCount = 0;
+      let firstDomIndex = -1;
+      let hybridActive = false;
+      for (const element of allElements) {
+        if (!this.layerManager.isLayerVisible(element.layerId)) continue;
+        if (!hybridActive) {
+          const isDom = this.renderer.isDomElement(element);
+          if (firstDomIndex < 0 && isDom) firstDomIndex = visibleCount;
+          else if (firstDomIndex >= 0 && !isDom) hybridActive = true;
+        }
+        visibleCount++;
+      }
+      this.visibleCount = visibleCount;
+      this.firstDomIndex = firstDomIndex;
+      this.hybridActive = hybridActive;
+    }
+    const { firstDomIndex, hybridActive } = this;
+    this.layerOpacities.clear();
+    for (const layer of this.layerManager.getLayers()) {
+      this.layerOpacities.set(layer.id, layer.opacity);
+    }
     const hybridCanvasRuns = new Map<number, CanvasElement[]>();
     const hybridOrders = new Set<number>();
     let activeHybridOrder: number | null = null;
@@ -436,7 +458,7 @@ export class RenderLoop {
 
       if (this.renderer.isDomElement(element)) {
         activeHybridOrder = null;
-        const layerOpacity = this.layerManager.getLayer?.(element.layerId)?.opacity ?? 1;
+        const layerOpacity = this.layerOpacities.get(element.layerId) ?? 1;
         const elBounds = getElementVisualBounds(element);
         if (elBounds && !boundsIntersect(elBounds, cullingRect)) {
           this.domNodeManager.hideDomNode(element.id);
@@ -476,7 +498,7 @@ export class RenderLoop {
     const activeTool = this.toolManager.activeTool;
     const hasAfterElementsHook = this.hooks?.viewport.has('afterElements') ?? false;
     const hasAfterAllHook = this.hooks?.viewport.has('afterAll') ?? false;
-    const afterElementsOrder = visibleElements.length + 1;
+    const afterElementsOrder = this.visibleCount + 1;
     const overlayOrder = afterElementsOrder + (hasAfterElementsHook ? 1 : 0);
     const afterAllOrder = overlayOrder + 1;
     const hasOverlay = activeTool?.renderOverlay !== undefined || this.overlays.size > 0;
@@ -487,7 +509,7 @@ export class RenderLoop {
 
     for (const [layerId, elements] of this.layerGroups) {
       const isActiveDrawingLayer = layerId === this.activeDrawingLayerId;
-      const layerOpacity = this.layerManager.getLayer?.(layerId)?.opacity ?? 1;
+      const layerOpacity = this.layerOpacities.get(layerId) ?? 1;
 
       if (!this.layerCache.isDirty(layerId)) {
         const compT0 = performance.now();
@@ -537,7 +559,7 @@ export class RenderLoop {
       };
       for (const el of fullCanvasElements) {
         this.saveTracked(ctx);
-        ctx.globalAlpha = this.layerManager.getLayer?.(el.layerId)?.opacity ?? 1;
+        ctx.globalAlpha = this.layerOpacities.get(el.layerId) ?? 1;
         this.renderer.renderExtensionWithBounds(ctx, el, worldBounds, allElements);
         this.restoreTracked(ctx);
       }
@@ -554,7 +576,7 @@ export class RenderLoop {
       for (const element of elements) {
         const elBounds = getElementVisualBounds(element);
         if (elBounds && !boundsIntersect(elBounds, cullingRect)) continue;
-        const layerOpacity = this.layerManager.getLayer?.(element.layerId)?.opacity ?? 1;
+        const layerOpacity = this.layerOpacities.get(element.layerId) ?? 1;
         // Canvas-routed html gets the painter's ALPHA BOUNDARY that every other surface
         // honours (cached-layer composite, minimap, image export, svg export): the painter
         // is handed globalAlpha 1 and layer opacity is applied to the painted RESULT.
