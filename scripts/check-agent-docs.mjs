@@ -10,6 +10,7 @@ const required = [
   'docs/agents/workflow.md',
   'docs/agents/review.md',
   '.agents/skills/fieldnotes-development/SKILL.md',
+  '.agents/skills/THIRD_PARTY.md',
 ];
 const errors = [];
 const contents = new Map();
