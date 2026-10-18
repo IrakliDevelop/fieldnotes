@@ -306,6 +306,9 @@ export class Viewport {
       pluginStateManager: this.pluginStateManager,
       getMinimap: () => this.minimap,
     });
+    // Store listeners outlive plugin disposal so plugin removals still unbind arrows.
+    const unsubStore: (() => void)[] = [];
+    this.disposers.push(() => unsubStore.forEach((unsubscribe) => unsubscribe()));
     // Plugins dispose after the input handler and minimap release them.
     this.disposers.push(() => this.pluginHost.disposePlugins());
 
@@ -437,6 +440,8 @@ export class Viewport {
         this.contextMenu?.close();
         this.requestRender();
       }),
+    );
+    unsubStore.push(
       this.store.on('add', (el) => {
         if (el.type === 'html') {
           this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
