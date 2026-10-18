@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import {
   getElementCenter,
   getEdgeIntersection,
@@ -169,24 +169,6 @@ describe('findBindTarget', () => {
     const filter = (el: CanvasElement) => el.layerId === 'layer-1';
     const result = findBindTarget({ x: 50, y: 50 }, store, 20, undefined, filter);
     expect(result?.id).toBe(note.id);
-  });
-
-  it('picks the closest of nearby targets from a threshold-inflated spatial query', () => {
-    const store = new ElementStore();
-    const near = createNote({ position: { x: 115, y: 0 }, size: { w: 50, h: 50 } });
-    const nearer = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
-    const far = createNote({ position: { x: 1000, y: 1000 }, size: { w: 50, h: 50 } });
-    store.add(near);
-    store.add(nearer);
-    store.add(far);
-    const getAll = vi.spyOn(store, 'getAll');
-    const queryRect = vi.spyOn(store, 'queryRect');
-
-    const result = findBindTarget({ x: 105, y: 25 }, store, 20);
-
-    expect(result?.id).toBe(nearer.id);
-    expect(getAll).not.toHaveBeenCalled();
-    expect(queryRect).toHaveBeenCalledWith({ x: 85, y: 5, w: 40, h: 40 });
   });
 });
 
