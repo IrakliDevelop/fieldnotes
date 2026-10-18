@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AutoSave } from './auto-save';
 import { ElementStore } from '../elements/element-store';
 import { Camera } from '../canvas/camera';
+import { LayerManager } from '../layers/layer-manager';
 import { createNote } from '../elements/element-factory';
 import { MemoryAdapter } from './storage/memory-adapter';
 import type { StorageAdapter } from './storage/storage-adapter';
@@ -50,6 +51,30 @@ describe('AutoSave', () => {
 
     const saved = readSaved('test-save');
     expect(saved.elements).toHaveLength(1);
+  });
+
+  it('saves after a store clear', async () => {
+    store.add(makeNote());
+    autoSave = new AutoSave(store, camera, { key: 'test-save' });
+    autoSave.start();
+
+    store.clear();
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(readSaved('test-save').elements).toEqual([]);
+  });
+
+  it('saves the layer manager active layer id', async () => {
+    const layerManager = new LayerManager(store);
+    const second = layerManager.createLayer('second');
+    layerManager.setActiveLayer(second.id);
+    autoSave = new AutoSave(store, camera, { key: 'test-save', layerManager });
+    autoSave.start();
+
+    store.add(makeNote());
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(readSaved('test-save').activeLayerId).toBe(second.id);
   });
 
   it('debounces multiple rapid changes into one save', async () => {
