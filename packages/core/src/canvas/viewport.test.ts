@@ -27,6 +27,15 @@ function wrapperOf(container: HTMLElement): HTMLDivElement {
   if (!(w instanceof HTMLDivElement)) throw new Error('viewport wrapper not found');
   return w;
 }
+
+function layerCacheOf(viewport: Viewport) {
+  return (
+    viewport as unknown as {
+      layerCache: { getCanvas(id: string): unknown; canvases: Map<string, unknown> };
+    }
+  ).layerCache;
+}
+
 function focusCanvas(container: HTMLElement): void {
   wrapperOf(container).focus();
 }
@@ -105,11 +114,7 @@ describe('Viewport', () => {
 
   it('drops the layer cache entry of a removed layer', () => {
     const viewport = new Viewport(container);
-    const layerCache = (
-      viewport as unknown as {
-        layerCache: { getCanvas(id: string): unknown; canvases: Map<string, unknown> };
-      }
-    ).layerCache;
+    const layerCache = layerCacheOf(viewport);
     const layer = viewport.layerManager.createLayer('extra');
     layerCache.getCanvas(layer.id);
     viewport.removeLayer(layer.id);
@@ -119,11 +124,7 @@ describe('Viewport', () => {
 
   it('drops layer cache entries of layers replaced by a state load', () => {
     const viewport = new Viewport(container);
-    const layerCache = (
-      viewport as unknown as {
-        layerCache: { getCanvas(id: string): unknown; canvases: Map<string, unknown> };
-      }
-    ).layerCache;
+    const layerCache = layerCacheOf(viewport);
     const saved = viewport.exportState();
     const layer = viewport.layerManager.createLayer('extra');
     layerCache.getCanvas(layer.id);
@@ -950,25 +951,10 @@ describe('Viewport', () => {
         viewport.destroy();
       });
 
-      it('a host transaction wrapping addShape and applyStyle is one undo step', () => {
-        const viewport = new Viewport(container);
-        const selectTool = new SelectTool();
-        viewport.toolManager.register(selectTool);
-        viewport.history.clear();
-
-        viewport.transaction(() => {
-          const id = viewport.addShape({ position: { x: 0, y: 0 } });
-          selectTool.setSelection([id]);
-          viewport.applyStyleToSelection({ color: '#ff0000' });
-        });
-
-        expect(viewport.history.undoCount).toBe(1);
-        expect(viewport.undo()).toBe(true);
-        expect(viewport.store.count).toBe(0);
-        viewport.destroy();
-      });
-
-      it('a host transaction wrapping addShape and groupSelection is one undo step', () => {
+      it.each([
+        ['applyStyleToSelection', (v: Viewport) => v.applyStyleToSelection({ color: '#ff0000' })],
+        ['groupSelection', (v: Viewport) => v.groupSelection()],
+      ])('a host transaction wrapping addShape and %s is one undo step', (_name, action) => {
         const viewport = new Viewport(container);
         const selectTool = new SelectTool();
         viewport.toolManager.register(selectTool);
@@ -978,7 +964,7 @@ describe('Viewport', () => {
           const a = viewport.addShape({ position: { x: 0, y: 0 } });
           const b = viewport.addShape({ position: { x: 200, y: 0 } });
           selectTool.setSelection([a, b]);
-          viewport.groupSelection();
+          action(viewport);
         });
 
         expect(viewport.history.undoCount).toBe(1);
