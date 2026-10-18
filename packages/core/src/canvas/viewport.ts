@@ -567,6 +567,9 @@ export class Viewport {
     return this.services.get(key.id) as T | undefined;
   }
 
+  /**
+   * Mutations in the window are delivered as one `batch` event, are not recorded in history, and carry no origin.
+   */
   suspendNotifications(): NotificationController {
     const controllers = [
       this.store.suspendNotifications(),
@@ -876,17 +879,12 @@ export class Viewport {
    * already applied remain undoable and the original error is rethrown.
    */
   transaction<T>(operation: () => T): T {
-    const isOuterTransaction = this.transactionDepth === 0;
-    if (isOuterTransaction) {
-      this.inputHandler.flushPendingHistory();
-      this.historyRecorder.begin();
-    }
+    if (this.transactionDepth === 0) this.inputHandler.flushPendingHistory();
     this.transactionDepth += 1;
     try {
-      return operation();
+      return this.historyRecorder.run(operation);
     } finally {
       this.transactionDepth -= 1;
-      if (isOuterTransaction) this.historyRecorder.commit();
     }
   }
 
@@ -921,9 +919,7 @@ export class Viewport {
 
   addImage(src: string, position: { x: number; y: number }, size = { w: 300, h: 200 }): string {
     const image = createImage({ position, size, src, layerId: this.layerManager.activeLayerId });
-    this.historyRecorder.begin();
-    this.store.add(image);
-    this.historyRecorder.commit();
+    this.historyRecorder.run(() => this.store.add(image));
     this.requestRender();
     return image.id;
   }
@@ -956,9 +952,7 @@ export class Viewport {
     if (external) {
       this.store.add(el, { origin: opts.origin });
     } else {
-      this.historyRecorder.begin();
-      this.store.add(el);
-      this.historyRecorder.commit();
+      this.historyRecorder.run(() => this.store.add(el));
     }
     this.requestRender();
     return el.id;
@@ -985,9 +979,7 @@ export class Viewport {
       fillColor: opts.fillColor,
       layerId: this.layerManager.activeLayerId,
     });
-    this.historyRecorder.begin();
-    this.store.add(shape);
-    this.historyRecorder.commit();
+    this.historyRecorder.run(() => this.store.add(shape));
     this.getSelectTool()?.setSelection([shape.id]);
     this.requestRender();
     return shape.id;
@@ -1002,9 +994,7 @@ export class Viewport {
   }
 
   removeLayer(id: string): void {
-    this.historyRecorder.begin();
-    this.layerManager.removeLayer(id);
-    this.historyRecorder.commit();
+    this.historyRecorder.run(() => this.layerManager.removeLayer(id));
   }
 
   registerHtmlRenderer(htmlType: string, factory: (el: HtmlElement) => HTMLElement): void {

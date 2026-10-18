@@ -114,38 +114,38 @@ export class SelectionOps {
   applyStyle(style: ElementStyle): void {
     const ids = this.deps.getSelectedIds();
     if (ids.length === 0) return;
-    this.deps.recorder.begin();
-    for (const id of ids) {
-      const el = this.deps.store.getById(id);
-      if (!el) continue;
-      const patch = styleToPatch(el, style);
-      if (Object.keys(patch).length > 0) {
-        this.deps.store.update(id, patch);
+    this.deps.recorder.run(() => {
+      for (const id of ids) {
+        const el = this.deps.store.getById(id);
+        if (!el) continue;
+        const patch = styleToPatch(el, style);
+        if (Object.keys(patch).length > 0) {
+          this.deps.store.update(id, patch);
+        }
       }
-    }
-    this.deps.recorder.commit();
+    });
   }
 
   group(): void {
     const ids = this.deps.getSelectedIds();
     if (ids.length < 2) return;
     const groupId = createId('group');
-    this.deps.recorder.begin();
-    for (const id of ids) {
-      if (this.deps.store.getById(id)) this.deps.store.update(id, { groupId });
-    }
-    this.deps.recorder.commit();
+    this.deps.recorder.run(() => {
+      for (const id of ids) {
+        if (this.deps.store.getById(id)) this.deps.store.update(id, { groupId });
+      }
+    });
   }
 
   ungroup(): void {
     const ids = this.deps.getSelectedIds();
     if (ids.length === 0) return;
-    this.deps.recorder.begin();
-    for (const id of ids) {
-      const el = this.deps.store.getById(id);
-      if (el && el.groupId !== undefined) this.deps.store.update(id, { groupId: undefined });
-    }
-    this.deps.recorder.commit();
+    this.deps.recorder.run(() => {
+      for (const id of ids) {
+        const el = this.deps.store.getById(id);
+        if (el && el.groupId !== undefined) this.deps.store.update(id, { groupId: undefined });
+      }
+    });
   }
 
   toggleLock(): void {
@@ -155,50 +155,50 @@ export class SelectionOps {
       const el = this.deps.store.getById(id);
       return el ? !el.locked : false;
     });
-    this.deps.recorder.begin();
-    for (const id of ids) {
-      const el = this.deps.store.getById(id);
-      if (el && el.locked !== anyUnlocked) this.deps.store.update(id, { locked: anyUnlocked });
-    }
-    this.deps.recorder.commit();
+    this.deps.recorder.run(() => {
+      for (const id of ids) {
+        const el = this.deps.store.getById(id);
+        if (el && el.locked !== anyUnlocked) this.deps.store.update(id, { locked: anyUnlocked });
+      }
+    });
   }
 
   align(edge: AlignEdge): void {
     const bounded = this.boundedSelection();
     if (bounded.length < 2) return;
     const B = unionBounds(bounded.map((e) => e.bounds));
-    this.deps.recorder.begin();
-    const moved: string[] = [];
-    for (const { id, el, bounds: b } of bounded) {
-      if (!this.isMovable(el)) continue;
-      let dx = 0;
-      let dy = 0;
-      switch (edge) {
-        case 'left':
-          dx = B.x - b.x;
-          break;
-        case 'right':
-          dx = B.x + B.w - (b.x + b.w);
-          break;
-        case 'center-x':
-          dx = B.x + B.w / 2 - (b.x + b.w / 2);
-          break;
-        case 'top':
-          dy = B.y - b.y;
-          break;
-        case 'bottom':
-          dy = B.y + B.h - (b.y + b.h);
-          break;
-        case 'middle':
-          dy = B.y + B.h / 2 - (b.y + b.h / 2);
-          break;
+    this.deps.recorder.run(() => {
+      const moved: string[] = [];
+      for (const { id, el, bounds: b } of bounded) {
+        if (!this.isMovable(el)) continue;
+        let dx = 0;
+        let dy = 0;
+        switch (edge) {
+          case 'left':
+            dx = B.x - b.x;
+            break;
+          case 'right':
+            dx = B.x + B.w - (b.x + b.w);
+            break;
+          case 'center-x':
+            dx = B.x + B.w / 2 - (b.x + b.w / 2);
+            break;
+          case 'top':
+            dy = B.y - b.y;
+            break;
+          case 'bottom':
+            dy = B.y + B.h - (b.y + b.h);
+            break;
+          case 'middle':
+            dy = B.y + B.h / 2 - (b.y + b.h / 2);
+            break;
+        }
+        if (dx === 0 && dy === 0) continue;
+        this.deps.store.update(id, translateElementPatch(el, dx, dy));
+        moved.push(id);
       }
-      if (dx === 0 && dy === 0) continue;
-      this.deps.store.update(id, translateElementPatch(el, dx, dy));
-      moved.push(id);
-    }
-    updateArrowsBoundToElements(moved, this.deps.store);
-    this.deps.recorder.commit();
+      updateArrowsBoundToElements(moved, this.deps.store);
+    });
     this.deps.requestRender();
   }
 
@@ -213,20 +213,20 @@ export class SelectionOps {
     const c0 = center(first.bounds);
     const cN = center(last.bounds);
     const n = sorted.length;
-    this.deps.recorder.begin();
-    const moved: string[] = [];
-    for (let i = 1; i < n - 1; i++) {
-      const item = sorted[i];
-      if (!item || !this.isMovable(item.el)) continue;
-      const target = c0 + (i * (cN - c0)) / (n - 1);
-      const delta = target - center(item.bounds);
-      if (delta === 0) continue;
-      const [dx, dy] = axis === 'horizontal' ? [delta, 0] : [0, delta];
-      this.deps.store.update(item.id, translateElementPatch(item.el, dx, dy));
-      moved.push(item.id);
-    }
-    updateArrowsBoundToElements(moved, this.deps.store);
-    this.deps.recorder.commit();
+    this.deps.recorder.run(() => {
+      const moved: string[] = [];
+      for (let i = 1; i < n - 1; i++) {
+        const item = sorted[i];
+        if (!item || !this.isMovable(item.el)) continue;
+        const target = c0 + (i * (cN - c0)) / (n - 1);
+        const delta = target - center(item.bounds);
+        if (delta === 0) continue;
+        const [dx, dy] = axis === 'horizontal' ? [delta, 0] : [0, delta];
+        this.deps.store.update(item.id, translateElementPatch(item.el, dx, dy));
+        moved.push(item.id);
+      }
+      updateArrowsBoundToElements(moved, this.deps.store);
+    });
     this.deps.requestRender();
   }
 
@@ -235,17 +235,17 @@ export class SelectionOps {
     if (eligible.length === 0) return;
     const delta = direction === 'cw' ? Math.PI / 2 : -Math.PI / 2;
     const pivot = rotationPivot(eligible);
-    this.deps.recorder.begin();
-    const moved: string[] = [];
-    for (const { id, el, bounds } of eligible) {
-      this.deps.store.update(
-        id,
-        rotateElementPatch(el, bounds, pivot, delta, this.deps.elementRegistry),
-      );
-      moved.push(id);
-    }
-    updateArrowsBoundToElements(moved, this.deps.store);
-    this.deps.recorder.commit();
+    this.deps.recorder.run(() => {
+      const moved: string[] = [];
+      for (const { id, el, bounds } of eligible) {
+        this.deps.store.update(
+          id,
+          rotateElementPatch(el, bounds, pivot, delta, this.deps.elementRegistry),
+        );
+        moved.push(id);
+      }
+      updateArrowsBoundToElements(moved, this.deps.store);
+    });
     this.deps.requestRender();
   }
 

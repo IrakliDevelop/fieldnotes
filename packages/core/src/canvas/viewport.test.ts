@@ -879,6 +879,43 @@ describe('Viewport', () => {
         viewport.destroy();
       });
 
+      it('a host transaction wrapping addShape and applyStyle is one undo step', () => {
+        const viewport = new Viewport(container);
+        const selectTool = new SelectTool();
+        viewport.toolManager.register(selectTool);
+        viewport.history.clear();
+
+        viewport.transaction(() => {
+          const id = viewport.addShape({ position: { x: 0, y: 0 } });
+          selectTool.setSelection([id]);
+          viewport.applyStyleToSelection({ color: '#ff0000' });
+        });
+
+        expect(viewport.history.undoCount).toBe(1);
+        expect(viewport.undo()).toBe(true);
+        expect(viewport.store.count).toBe(0);
+        viewport.destroy();
+      });
+
+      it('a host transaction wrapping addShape and groupSelection is one undo step', () => {
+        const viewport = new Viewport(container);
+        const selectTool = new SelectTool();
+        viewport.toolManager.register(selectTool);
+        viewport.history.clear();
+
+        viewport.transaction(() => {
+          const a = viewport.addShape({ position: { x: 0, y: 0 } });
+          const b = viewport.addShape({ position: { x: 200, y: 0 } });
+          selectTool.setSelection([a, b]);
+          viewport.groupSelection();
+        });
+
+        expect(viewport.history.undoCount).toBe(1);
+        expect(viewport.undo()).toBe(true);
+        expect(viewport.store.count).toBe(0);
+        viewport.destroy();
+      });
+
       it('commits mutations for undo before rethrowing a callback error', () => {
         const viewport = new Viewport(container);
         const shape = createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } });

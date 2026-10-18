@@ -1,4 +1,5 @@
 import { EventBus } from '../core/event-bus';
+import type { EventMeta } from '../core/event-bus';
 import type { ElementStore } from '../elements/element-store';
 import type { Layer } from './types';
 import { createId } from '../elements/create-id';
@@ -152,7 +153,7 @@ export class LayerManager {
 
   on<K extends keyof LayerManagerEvents>(
     event: K,
-    callback: (data: LayerManagerEvents[K]) => void,
+    callback: (data: LayerManagerEvents[K], meta: EventMeta) => void,
   ): () => void {
     return this.bus.on(event, callback);
   }
@@ -161,28 +162,28 @@ export class LayerManager {
     return this.bus.suspendNotifications(() => ({ event: 'change', data: null }));
   }
 
-  addLayerDirect(layer: Layer): void {
+  addLayerDirect(layer: Layer, meta?: EventMeta): void {
     this.layers.set(layer.id, { ...layer });
     this.syncLayerOrder();
-    this.bus.emit('create', { ...layer });
+    this.bus.emit('create', { ...layer }, meta);
     this.bus.emit('change', null);
   }
 
-  removeLayerDirect(id: string): void {
+  removeLayerDirect(id: string, meta?: EventMeta): void {
     const layer = this.layers.get(id);
     this.layers.delete(id);
     this.syncLayerOrder();
-    if (layer) this.bus.emit('remove', { ...layer });
+    if (layer) this.bus.emit('remove', { ...layer }, meta);
     this.bus.emit('change', null);
   }
 
-  updateLayerDirect(id: string, props: Omit<Partial<Layer>, 'id'>): void {
+  updateLayerDirect(id: string, props: Omit<Partial<Layer>, 'id'>, meta?: EventMeta): void {
     const layer = this.layers.get(id);
     if (!layer) return;
     const previous = { ...layer };
     Object.assign(layer, props);
     if ('order' in props) this.syncLayerOrder();
-    this.bus.emit('update', { previous, current: { ...layer } });
+    this.bus.emit('update', { previous, current: { ...layer } }, meta);
     this.bus.emit('change', null);
   }
 

@@ -102,13 +102,18 @@ export class KeyboardActions {
     if (!sel) return;
     const ids = sel.tool.selectedIds;
     if (ids.length === 0) return;
-    const recorder = this.deps.getHistoryRecorder();
-    recorder?.begin();
-    for (const id of ids) {
-      sel.ctx.store.remove(id);
-    }
-    recorder?.commit();
+    this.inHistory(() => {
+      for (const id of ids) {
+        sel.ctx.store.remove(id);
+      }
+    });
     sel.ctx.requestRender();
+  }
+
+  private inHistory(fn: () => void): void {
+    const recorder = this.deps.getHistoryRecorder();
+    if (recorder) recorder.run(fn);
+    else fn();
   }
 
   undo(): void {
@@ -285,25 +290,24 @@ export class KeyboardActions {
     if (!sel) return;
     const ids = sel.tool.selectedIds;
     if (ids.length === 0) return;
-    const recorder = this.deps.getHistoryRecorder();
-    recorder?.begin();
-    for (const id of ids) {
-      switch (operation) {
-        case 'forward':
-          sel.ctx.store.bringForward(id);
-          break;
-        case 'backward':
-          sel.ctx.store.sendBackward(id);
-          break;
-        case 'front':
-          sel.ctx.store.bringToFront(id);
-          break;
-        case 'back':
-          sel.ctx.store.sendToBack(id);
-          break;
+    this.inHistory(() => {
+      for (const id of ids) {
+        switch (operation) {
+          case 'forward':
+            sel.ctx.store.bringForward(id);
+            break;
+          case 'backward':
+            sel.ctx.store.sendBackward(id);
+            break;
+          case 'front':
+            sel.ctx.store.bringToFront(id);
+            break;
+          case 'back':
+            sel.ctx.store.sendToBack(id);
+            break;
+        }
       }
-    }
-    recorder?.commit();
+    });
     sel.ctx.requestRender();
   }
 
@@ -323,50 +327,47 @@ export class KeyboardActions {
     }
 
     const newIds: string[] = [];
-    const recorder = this.deps.getHistoryRecorder();
-    recorder?.begin();
+    this.inHistory(() => {
+      for (const el of source) {
+        const clone = structuredClone(el);
+        const newId = idMap.get(el.id);
+        if (!newId) continue;
+        clone.id = newId;
+        if (clone.groupId) clone.groupId = groupIdMap.get(clone.groupId) ?? clone.groupId;
+        clone.position = { x: clone.position.x + offset.x, y: clone.position.y + offset.y };
 
-    for (const el of source) {
-      const clone = structuredClone(el);
-      const newId = idMap.get(el.id);
-      if (!newId) continue;
-      clone.id = newId;
-      if (clone.groupId) clone.groupId = groupIdMap.get(clone.groupId) ?? clone.groupId;
-      clone.position = { x: clone.position.x + offset.x, y: clone.position.y + offset.y };
+        if (clone.type === 'arrow') {
+          const arrow = clone;
+          arrow.from = { x: arrow.from.x + offset.x, y: arrow.from.y + offset.y };
+          arrow.to = { x: arrow.to.x + offset.x, y: arrow.to.y + offset.y };
+          delete arrow.cachedControlPoint;
 
-      if (clone.type === 'arrow') {
-        const arrow = clone;
-        arrow.from = { x: arrow.from.x + offset.x, y: arrow.from.y + offset.y };
-        arrow.to = { x: arrow.to.x + offset.x, y: arrow.to.y + offset.y };
-        delete arrow.cachedControlPoint;
-
-        if (arrow.fromBinding) {
-          const newTarget = idMap.get(arrow.fromBinding.elementId);
-          if (newTarget) {
-            arrow.fromBinding = { elementId: newTarget };
-          } else {
-            delete arrow.fromBinding;
+          if (arrow.fromBinding) {
+            const newTarget = idMap.get(arrow.fromBinding.elementId);
+            if (newTarget) {
+              arrow.fromBinding = { elementId: newTarget };
+            } else {
+              delete arrow.fromBinding;
+            }
+          }
+          if (arrow.toBinding) {
+            const newTarget = idMap.get(arrow.toBinding.elementId);
+            if (newTarget) {
+              arrow.toBinding = { elementId: newTarget };
+            } else {
+              delete arrow.toBinding;
+            }
           }
         }
-        if (arrow.toBinding) {
-          const newTarget = idMap.get(arrow.toBinding.elementId);
-          if (newTarget) {
-            arrow.toBinding = { elementId: newTarget };
-          } else {
-            delete arrow.toBinding;
-          }
+
+        if (sel.ctx.activeLayerId) {
+          clone.layerId = sel.ctx.activeLayerId;
         }
+
+        sel.ctx.store.add(clone);
+        newIds.push(clone.id);
       }
-
-      if (sel.ctx.activeLayerId) {
-        clone.layerId = sel.ctx.activeLayerId;
-      }
-
-      sel.ctx.store.add(clone);
-      newIds.push(clone.id);
-    }
-
-    recorder?.commit();
+    });
     sel.tool.setSelection(newIds);
     sel.ctx.requestRender();
   }

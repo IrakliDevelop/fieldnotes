@@ -51,9 +51,7 @@ export class ArrowLabelEditor {
       this.done = true;
       const next = input.value.trim() || undefined;
       if (next !== arrow.label) {
-        recorder.begin();
-        store.update(arrow.id, { label: next });
-        recorder.commit();
+        recorder.run(() => store.update(arrow.id, { label: next }));
       }
       this.cleanup();
       onDone();

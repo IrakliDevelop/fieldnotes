@@ -162,6 +162,20 @@ describe('HistoryRecorder', () => {
     expect(store.count).toBe(0);
   });
 
+  it('undo of update-then-remove in one transaction restores the pre-update element', () => {
+    const { store, stack, recorder } = setup();
+    const note = createNote({ position: { x: 0, y: 0 } });
+    store.add(note);
+
+    recorder.begin();
+    store.update(note.id, { position: { x: 50, y: 0 } });
+    store.remove(note.id);
+    recorder.commit();
+    stack.undo(store);
+
+    expect(store.getById(note.id)?.position).toEqual({ x: 0, y: 0 });
+  });
+
   describe('external (origin-tagged) changes', () => {
     it('does not record a remote update', () => {
       const { store, stack } = setup();
@@ -391,6 +405,29 @@ describe('HistoryRecorder', () => {
 
       lm2.loadSnapshot(snap);
       expect(stack2.undoCount).toBe(0);
+    });
+
+    it('layer changes with external origin are not recorded', () => {
+      const { stack, layerManager } = setupWithLayers();
+      const remote = { origin: 'remote' };
+      const layer = {
+        id: 'remote-layer',
+        name: 'R',
+        visible: true,
+        locked: false,
+        order: 5,
+        opacity: 1,
+      };
+
+      layerManager.addLayerDirect(layer, remote);
+      layerManager.updateLayerDirect(layer.id, { name: 'x' }, remote);
+      layerManager.removeLayerDirect(layer.id, remote);
+      expect(stack.canUndo).toBe(false);
+
+      layerManager.addLayerDirect(layer);
+      layerManager.updateLayerDirect(layer.id, { name: 'x' });
+      layerManager.removeLayerDirect(layer.id);
+      expect(stack.undoCount).toBe(3);
     });
 
     it('destroy unsubscribes from layer events', () => {
