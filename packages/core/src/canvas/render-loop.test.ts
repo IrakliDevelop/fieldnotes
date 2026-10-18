@@ -1324,21 +1324,29 @@ describe('RenderLoop', () => {
       expect(spy).toHaveBeenCalledTimes(3);
     });
 
-    it('stops drawing a layer hidden between frames once layers are marked dirty', () => {
+    it('routes canvas content to the layer cache once the only DOM layer is hidden between frames', () => {
+      const noteLayerId = layers.createLayer().id;
+      const topLayerId = layers.createLayer().id;
       store.add(shape('a', 1));
-      store.add(note('b', 2));
-      store.add(shape('c', 3));
+      store.add({ ...note('b', 1), layerId: noteLayerId });
+      store.add({ ...shape('c', 1), layerId: topLayerId });
+      store.add({ ...shape('d', 2), layerId: topLayerId });
       frame();
+      expect(deps.hybridSurface.beginFrame).toHaveBeenLastCalledWith(new Set([3]), 300, 150);
       vi.mocked(deps.renderer.renderCanvasElement).mockClear();
-      vi.mocked(deps.hybridSurface.beginFrame).mockClear();
 
-      layers.setLayerVisible(layerId, false);
+      layers.setLayerVisible(noteLayerId, false);
       renderLoop.markAllLayersDirty();
       frame();
 
-      expect(deps.renderer.renderCanvasElement).not.toHaveBeenCalled();
+      expect(deps.hybridSurface.beginFrame).toHaveBeenLastCalledWith(new Set(), 300, 150);
+      const offCtx = deps.layerCache.getContext(topLayerId);
+      expect(vi.mocked(deps.renderer.renderCanvasElement).mock.calls).toEqual([
+        [offCtx, expect.objectContaining({ id: 'a' })],
+        [offCtx, expect.objectContaining({ id: 'c' })],
+        [offCtx, expect.objectContaining({ id: 'd' })],
+      ]);
       expect(deps.domNodeManager.hideDomNode).toHaveBeenCalledWith('b');
-      expect(deps.hybridSurface.beginFrame).toHaveBeenCalledWith(new Set(), 300, 150);
     });
 
     it('activates the hybrid stratum when a DOM element is added beneath canvas content', () => {
@@ -1357,9 +1365,8 @@ describe('RenderLoop', () => {
       );
     });
 
-    it('composites each layer at its current opacity', () => {
+    it('composites a layer at the opacity it was changed to between frames', () => {
       store.add(shape('a', 1));
-      layers.setLayerOpacity(layerId, 0.25);
       vi.mocked(deps.layerCache.isDirty).mockReturnValue(false);
       const ctx = mockCtx();
       const alphas: number[] = [];
@@ -1369,8 +1376,11 @@ describe('RenderLoop', () => {
       vi.spyOn(deps.canvasEl, 'getContext').mockReturnValue(ctx as never);
 
       frame();
+      layers.setLayerOpacity(layerId, 0.25);
+      renderLoop.markAllLayersDirty();
+      frame();
 
-      expect(alphas).toEqual([0.25]);
+      expect(alphas).toEqual([1, 0.25]);
     });
   });
 
