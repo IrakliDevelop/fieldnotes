@@ -1,4 +1,5 @@
 import type { OverlayRenderer } from './render-loop';
+import { repaint } from './overlay-repaint';
 
 /** The two viewport capabilities the overlay needs; `Viewport` satisfies it. */
 export interface LingerOverlayHost {
@@ -6,11 +7,6 @@ export interface LingerOverlayHost {
   requestRender(): void;
   /** Repaints only overlays; the overlay falls back to requestRender when absent. */
   requestOverlayRender?(): void;
-}
-
-function repaint(host: LingerOverlayHost): void {
-  if (host.requestOverlayRender) host.requestOverlayRender();
-  else host.requestRender();
 }
 
 export interface LingerOverlayOptions {

@@ -200,11 +200,13 @@ export class RenderLoop {
       this.live.set(id, now);
       return;
     }
-    for (const [warmId, at] of this.warm) {
-      if (now - at >= LIVE_IDLE_MS) this.warm.delete(warmId);
+    const warmAt = this.warm.get(id);
+    if (warmAt !== undefined && now - warmAt < LIVE_IDLE_MS) {
+      this.warm.delete(id);
+      this.live.set(id, now);
+    } else {
+      this.warm.set(id, now);
     }
-    if (this.warm.delete(id)) this.live.set(id, now);
-    else this.warm.set(id, now);
     this.markLayerDirty(current.layerId);
   }
 
@@ -553,7 +555,12 @@ export class RenderLoop {
 
   private renderFrame(): void {
     const t0 = performance.now();
-    // Size guard: iterating even an empty Map allocates an iterator every frame.
+    // Size guards: iterating even an empty Map allocates an iterator every frame.
+    if (this.warm.size > 0) {
+      for (const [id, at] of this.warm) {
+        if (t0 - at >= LIVE_IDLE_MS) this.warm.delete(id);
+      }
+    }
     if (this.live.size > 0) {
       for (const [id, at] of this.live) {
         if (t0 - at < LIVE_IDLE_MS) continue;
@@ -650,6 +657,7 @@ export class RenderLoop {
     this.layerGroups.clear();
     const fullCanvasElements: CanvasElement[] = [];
     let paintOrder = 0;
+    let orphanGroups = 0;
 
     for (const element of allElements) {
       if (!this.layerManager.isLayerVisible(element.layerId)) {
@@ -696,6 +704,7 @@ export class RenderLoop {
       if (!group) {
         group = [];
         this.layerGroups.set(element.layerId, group);
+        if (!this.layerOpacities.has(element.layerId)) orphanGroups++;
       }
       group.push(element);
     }
@@ -717,9 +726,11 @@ export class RenderLoop {
 
     const hasAfterLayerHook = this.hooks?.viewport.has('afterLayer') ?? false;
     // Unlisted layers sort as order 0 in the store, so their groups paint first.
-    for (const [layerId, elements] of this.layerGroups) {
-      if (!this.layerOpacities.has(layerId)) {
-        this.drawLayerGroup(ctx, layerId, elements, cullingRect, timers);
+    if (orphanGroups > 0) {
+      for (const [layerId, elements] of this.layerGroups) {
+        if (!this.layerOpacities.has(layerId)) {
+          this.drawLayerGroup(ctx, layerId, elements, cullingRect, timers);
+        }
       }
     }
     for (const layer of layers) {

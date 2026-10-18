@@ -5,6 +5,7 @@ import { computeElementRects } from './element-rect-tracker';
 import type { ElementRect } from './element-rect-tracker';
 import type { Peer, PeerRoster } from './awareness-roster';
 import { defaultPeerColor } from './remote-cursor-overlay';
+import { repaint } from './overlay-repaint';
 
 /** The viewport capabilities the overlay needs; `Viewport` satisfies it. */
 export interface RemoteSelectionOverlayHost {
@@ -15,11 +16,6 @@ export interface RemoteSelectionOverlayHost {
   readonly camera: { readonly zoom: number };
   readonly store: ElementStore;
   readonly layerManager: LayerManager;
-}
-
-function repaint(host: RemoteSelectionOverlayHost): void {
-  if (host.requestOverlayRender) host.requestOverlayRender();
-  else host.requestRender();
 }
 
 export interface RemoteSelectionOverlayOptions {

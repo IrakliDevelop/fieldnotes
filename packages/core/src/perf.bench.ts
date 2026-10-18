@@ -112,7 +112,11 @@ function createFrameLoop(elementCount: number): RenderLoop {
 }
 
 /** 10k strokes on one layer behind a real layer cache, wired to store updates like the viewport. */
-function createDragFixture(): { loop: RenderLoop; drag: () => void } {
+function createDragFixture(): {
+  loop: RenderLoop;
+  drag: () => void;
+  ctx: CanvasRenderingContext2D;
+} {
   const store = new ElementStore();
   const layerManager = new LayerManager(store);
   const layerId = layerManager.activeLayerId;
@@ -121,9 +125,6 @@ function createDragFixture(): { loop: RenderLoop; drag: () => void } {
     store.add(createStroke({ points: randomStrokePoints(30, origin), position: origin, layerId }));
   }
   const ctx = stubCtx();
-  // The cache allocates its own canvases, so every canvas gets the stub context.
-  HTMLCanvasElement.prototype.getContext = (() =>
-    ctx) as unknown as HTMLCanvasElement['getContext'];
   const marginViewport = new MarginViewport(256);
   marginViewport.setViewport(800, 600, 1);
   const loop = new RenderLoop({
@@ -158,7 +159,7 @@ function createDragFixture(): { loop: RenderLoop; drag: () => void } {
   };
   drag();
   drag();
-  return { loop, drag };
+  return { loop, drag, ctx };
 }
 
 describe('ElementStore spatial queries', () => {
@@ -243,12 +244,26 @@ describe('RenderLoop frame', () => {
   });
 
   const dragFixture = createDragFixture();
+  const getContext = HTMLCanvasElement.prototype.getContext;
 
-  bench('drag one element in a 10k-element layer (per frame)', () => {
-    dragFixture.drag();
-    dragFixture.loop.requestRender();
-    dragFixture.loop.flush();
-  });
+  bench(
+    'drag one element in a 10k-element layer (per frame)',
+    () => {
+      dragFixture.drag();
+      dragFixture.loop.requestRender();
+      dragFixture.loop.flush();
+    },
+    {
+      // The cache allocates its own canvases, so every canvas gets the stub context while this runs.
+      setup: () => {
+        HTMLCanvasElement.prototype.getContext = (() =>
+          dragFixture.ctx) as unknown as HTMLCanvasElement['getContext'];
+      },
+      teardown: () => {
+        HTMLCanvasElement.prototype.getContext = getContext;
+      },
+    },
+  );
 });
 
 describe('note creation', () => {

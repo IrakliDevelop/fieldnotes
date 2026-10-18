@@ -3523,3 +3523,32 @@ describe('Viewport overlays', () => {
     expect(draw).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('Viewport live element wiring', () => {
+  it('passes store updates to noteElementUpdate and removals to forgetElement', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const vp = new Viewport(container);
+    const { renderLoop } = vp as unknown as {
+      renderLoop: {
+        noteElementUpdate(previous: unknown, current: unknown): void;
+        forgetElement(id: string, layerId: string): void;
+      };
+    };
+    const noteElementUpdate = vi.spyOn(renderLoop, 'noteElementUpdate');
+    const forgetElement = vi.spyOn(renderLoop, 'forgetElement');
+    const shape = createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } });
+    vp.store.add(shape);
+
+    vp.store.update(shape.id, { position: { x: 5, y: 0 } });
+    vp.store.remove(shape.id);
+
+    expect(noteElementUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ id: shape.id, position: { x: 0, y: 0 } }),
+      expect.objectContaining({ id: shape.id, position: { x: 5, y: 0 } }),
+    );
+    expect(forgetElement).toHaveBeenCalledWith(shape.id, shape.layerId);
+    vp.destroy();
+    container.remove();
+  });
+});

@@ -1,5 +1,6 @@
 import type { OverlayRenderer } from './render-loop';
 import type { Peer, PeerRoster } from './awareness-roster';
+import { repaint } from './overlay-repaint';
 
 /** The viewport capabilities the overlay needs; `Viewport` satisfies it. */
 export interface RemoteCursorOverlayHost {
@@ -9,11 +10,6 @@ export interface RemoteCursorOverlayHost {
   requestOverlayRender?(): void;
   /** Read at draw time so glyph and label keep a constant screen size. */
   readonly camera: { readonly zoom: number };
-}
-
-function repaint(host: RemoteCursorOverlayHost): void {
-  if (host.requestOverlayRender) host.requestOverlayRender();
-  else host.requestRender();
 }
 
 export interface RemoteCursorOverlayOptions {

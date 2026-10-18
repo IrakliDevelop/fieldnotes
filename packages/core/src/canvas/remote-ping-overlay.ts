@@ -1,6 +1,7 @@
 import type { OverlayRenderer } from './render-loop';
 import { renderPingPulse } from './ping-pulse';
 import type { PingEmission } from '../tools/ping-tool';
+import { repaint } from './overlay-repaint';
 
 /**
  * The wire shape of a map-ping presence payload. Presence data is untyped on
@@ -74,11 +75,6 @@ export interface RemotePingOverlayHost {
   requestRender(): void;
   /** Repaints only overlays; the overlay falls back to requestRender when absent. */
   requestOverlayRender?(): void;
-}
-
-function repaint(host: RemotePingOverlayHost): void {
-  if (host.requestOverlayRender) host.requestOverlayRender();
-  else host.requestRender();
 }
 
 export interface RemotePingOverlayOptions {

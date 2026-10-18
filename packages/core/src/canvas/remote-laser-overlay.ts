@@ -1,6 +1,7 @@
 import type { Point } from '../core/types';
 import type { OverlayRenderer } from './render-loop';
 import type { LaserTrailEmission } from '../tools/laser-tool';
+import { repaint } from './overlay-repaint';
 
 /**
  * The wire shape of a laser-trail presence payload. Presence data is untyped
@@ -71,11 +72,6 @@ export interface RemoteLaserOverlayHost {
   requestRender(): void;
   /** Repaints only overlays; the overlay falls back to requestRender when absent. */
   requestOverlayRender?(): void;
-}
-
-function repaint(host: RemoteLaserOverlayHost): void {
-  if (host.requestOverlayRender) host.requestOverlayRender();
-  else host.requestRender();
 }
 
 export interface RemoteLaserOverlayOptions {

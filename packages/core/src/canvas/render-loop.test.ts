@@ -14,7 +14,7 @@ import type { DomNodeManager } from './dom-node-manager';
 import type { LayerCache } from './layer-cache';
 import type { HybridRenderSurface } from './hybrid-render-surface';
 import { createRenderHooks } from './render-hooks';
-import type { RenderHooks } from './render-hooks';
+import type { RenderHooks, ViewportRenderHooks } from './render-hooks';
 import { ElementStore as RealElementStore } from '../elements/element-store';
 import { LayerManager as RealLayerManager } from '../layers/layer-manager';
 import { LayerCache as RealLayerCache } from './layer-cache';
@@ -536,7 +536,7 @@ describe('RenderLoop', () => {
   });
 
   describe('overlay stratum', () => {
-    function loopWithOverlayHook(overlay: ReturnType<typeof vi.fn>): RenderLoop {
+    function loopWithOverlayHook(overlay: NonNullable<ViewportRenderHooks['overlay']>): RenderLoop {
       const hooks: RenderHooks = createRenderHooks();
       hooks.viewport.register({ overlay });
       return new RenderLoop({ ...deps, hooks });
@@ -1960,6 +1960,36 @@ describe('RenderLoop', () => {
       }
       expect(rasterFrames).toEqual([true, true, true, true]);
       expect(drawnIds(deps.canvasEl.getContext('2d'))).toEqual([]);
+    });
+
+    it('a second update after the warm window has passed is not lifted', () => {
+      store.add(shape('A', 1));
+      store.add(shape('B', 2));
+      frame();
+      move('B', 1);
+      now += 250;
+      move('B', 2);
+      vi.mocked(deps.renderer.renderCanvasElement).mockClear();
+
+      frame();
+
+      expect(drawnIds(deps.canvasEl.getContext('2d'))).toEqual([]);
+    });
+
+    it('an opacity drop on a layer with a live element draws it through the base cache', () => {
+      store.add(shape('A', 1));
+      store.add(shape('B', 2));
+      frame();
+      move('B', 1);
+      move('B', 2);
+      frame();
+      layers.setLayerOpacity(layerId, 0.5);
+      vi.mocked(deps.renderer.renderCanvasElement).mockClear();
+
+      frame();
+
+      expect(drawnIds(deps.canvasEl.getContext('2d'))).toEqual([]);
+      expect(drawnIds(cache.getContext(layerId))).toEqual(['A', 'B']);
     });
 
     it('DOM element not lifted', () => {
