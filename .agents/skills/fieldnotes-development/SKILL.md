@@ -12,6 +12,16 @@ Read `AGENTS.md` from the repository root. Then read only the relevant handbook 
 - Use `docs/agents/review.md` for code review or pre-handoff self-review.
 - Use `docs/agents/delegation.md` to split planning, coding, and review across model tiers.
 
+Domain skills (load the ones matching the task):
+
+- `fieldnotes-concise-code`: always, while writing code, and for the deslop task.
+- `fieldnotes-typescript`: always, for any `.ts` or `.tsx` file.
+- `fieldnotes-testing`: always, for any test.
+- `fieldnotes-pointer-input`: input handling, tools, keyboard routing, element activation, history.
+- `fieldnotes-sync-security`: sync, server, Redis, VTT sync subpaths, serialization, sanitization.
+- `fieldnotes-visual-tests`: anything under `packages/core/e2e`.
+- `fieldnotes-browser-check`: verifying render, input, export, demo, or example changes in a browser.
+
 ## Execute
 
 1. Inspect `git status --short`, the owning package manifest, nearby tests, exports, and every caller

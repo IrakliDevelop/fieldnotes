@@ -11,7 +11,9 @@ then open only the handbook pages relevant to the task.
 4. Read `docs/agents/review.md` when reviewing or before handoff.
 5. Read `docs/agents/delegation.md` before implementing: the tier that plans and judges does
    not edit code.
-6. Use `.agents/skills/fieldnotes-development/SKILL.md` when repository-local skills are supported.
+6. Use `.agents/skills/fieldnotes-development/SKILL.md` (linked into `.claude/skills/`) when
+   repository-local skills are supported; it routes to the concise-code, TypeScript, testing,
+   pointer-input, sync-security, visual-test, and browser-check skills.
 
 ## Non-negotiable invariants
 

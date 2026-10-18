@@ -1,4 +1,4 @@
-import { readFile, readdir } from 'node:fs/promises';
+import { readFile, readdir, readlink } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import process from 'node:process';
 
@@ -10,6 +10,7 @@ const required = [
   'docs/agents/workflow.md',
   'docs/agents/review.md',
   '.agents/skills/fieldnotes-development/SKILL.md',
+  '.agents/skills/THIRD_PARTY.md',
 ];
 const errors = [];
 const contents = new Map();
@@ -20,6 +21,64 @@ for (const path of required) {
   } catch {
     errors.push(`Missing required agent file: ${path}`);
   }
+}
+
+const skillsRoot = '.agents/skills';
+const skillNames = [];
+for (const entry of await readdir(resolve(root, skillsRoot), { withFileTypes: true })) {
+  if (!entry.isDirectory()) continue;
+  const path = `${skillsRoot}/${entry.name}/SKILL.md`;
+  let content;
+  try {
+    content = await readFile(resolve(root, path), 'utf8');
+  } catch {
+    continue;
+  }
+  skillNames.push(entry.name);
+  contents.set(path, content);
+
+  const frontmatter = content.match(/^---\n([\s\S]*?)\n---\n/)?.[1] ?? '';
+  const field = (key) =>
+    frontmatter.match(new RegExp(`^${key}:[ \\t]*(.*)$`, 'm'))?.[1]?.trim() ?? '';
+  const name = field('name');
+  const description = field('description');
+  if (name !== entry.name) {
+    errors.push(`Skill name mismatch in ${path}: ${name || 'missing'}`);
+  }
+  if (!description) {
+    errors.push(`Skill description missing in ${path}`);
+  } else if (!/^['"]/.test(description) && description.includes(': ')) {
+    errors.push(`Unquoted ": " in skill description (invalid YAML): ${path}`);
+  }
+
+  const link = `.claude/skills/${entry.name}`;
+  const expected = `../../${skillsRoot}/${entry.name}`;
+  try {
+    const target = await readlink(resolve(root, link));
+    if (target !== expected) {
+      errors.push(`Claude Code skill link must be ${expected}: ${link} -> ${target}`);
+    }
+  } catch {
+    errors.push(`Missing Claude Code skill link: ${link}`);
+  }
+}
+
+const requiredSkills = [
+  'fieldnotes-development',
+  'fieldnotes-concise-code',
+  'fieldnotes-typescript',
+  'fieldnotes-testing',
+  'fieldnotes-visual-tests',
+  'fieldnotes-pointer-input',
+  'fieldnotes-sync-security',
+  'fieldnotes-browser-check',
+];
+for (const skill of requiredSkills) {
+  if (!skillNames.includes(skill)) errors.push(`Missing required skill: ${skill}`);
+}
+const router = contents.get('.agents/skills/fieldnotes-development/SKILL.md') ?? '';
+for (const skill of requiredSkills.slice(1)) {
+  if (!router.includes(`\`${skill}\``)) errors.push(`Router skill does not list: ${skill}`);
 }
 
 const markdownLink = /\[[^\]]+\]\((?!https?:|#)([^)]+\.md)(?:#[^)]+)?\)/g;
@@ -69,5 +128,7 @@ if (errors.length) {
   console.error(errors.join('\n'));
   process.exitCode = 1;
 } else {
-  console.log(`Agent tooling OK: ${required.length} files, ${packageNames.length} packages.`);
+  console.log(
+    `Agent tooling OK: ${required.length} files, ${skillNames.length} skills, ${packageNames.length} packages.`,
+  );
 }

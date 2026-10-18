@@ -9,24 +9,25 @@
    task brief; a coding-tier agent makes the change (see [delegation.md](delegation.md)).
 5. Run the narrow test, then the affected package build. DTS builds catch errors Vitest misses.
 6. Review the diff, public surface, generated artifacts, docs, and version implications.
-7. Run the appropriate verification tier and provide an evidence-based handoff.
+7. Run the appropriate verification tier and provide an evidence-based handoff. On multi-task
+   branches the deslop task runs first (see [delegation.md](delegation.md)).
 
 Pure refactors move behavior mechanically. Do not combine a refactor and behavior fix. Existing tests
 must remain unchanged; compare public declarations and relevant visual output when applicable.
 
 ## Verification matrix
 
-| Change class           | Required minimum                                                                              |
-| ---------------------- | --------------------------------------------------------------------------------------------- |
-| Docs/agent tooling     | `pnpm agent:check`, `pnpm agent:format:check`                                                 |
-| One package internals  | focused test, package test/build, lint, format check                                          |
-| Core public API/model  | core tests/build, export assertions, affected wrapper/sync builds                             |
-| Rendering/input/export | core tests/build, relevant Playwright test; manual device smoke if automation cannot cover it |
-| Sync protocol/client   | sync tests/build plus server tests/build                                                      |
-| Server/auth/filtering  | server tests/build plus shared sync tests and adversarial authorization cases                 |
-| Redis adapter          | redis tests/build; state if Redis integration was unavailable                                 |
-| React binding          | react tests/build plus core build and React example build                                     |
-| Cross-cutting/release  | `pnpm verify`, then relevant e2e/integration environments                                     |
+| Change class           | Required minimum                                                                                                                            |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Docs/agent tooling     | `pnpm agent:check`, `pnpm agent:format:check`                                                                                               |
+| One package internals  | focused test, package test/build, lint, format check                                                                                        |
+| Core public API/model  | core tests/build, export assertions, affected wrapper/sync builds                                                                           |
+| Rendering/input/export | core tests/build, relevant Playwright test, `fieldnotes-browser-check` smoke; manual device smoke if automation cannot cover it (pen input) |
+| Sync protocol/client   | sync tests/build plus server tests/build                                                                                                    |
+| Server/auth/filtering  | server tests/build plus shared sync tests and adversarial authorization cases                                                               |
+| Redis adapter          | redis tests/build; state if Redis integration was unavailable                                                                               |
+| React binding          | react tests/build plus core build and React example build                                                                                   |
+| Cross-cutting/release  | `pnpm verify`, then relevant e2e/integration environments                                                                                   |
 
 ```bash
 pnpm agent:check
