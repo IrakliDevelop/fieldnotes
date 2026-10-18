@@ -1,6 +1,7 @@
 import {
   useRef,
   useEffect,
+  useLayoutEffect,
   useState,
   forwardRef,
   useImperativeHandle,
@@ -75,7 +76,7 @@ export const FieldNotesCanvas = forwardRef<FieldNotesCanvasRef, FieldNotesCanvas
     const [viewport, setViewport] = useState<Viewport | null>(null);
     const changeRef = useRef({ onChange, changeDebounceMs });
 
-    useEffect(() => {
+    useLayoutEffect(() => {
       changeRef.current = { onChange, changeDebounceMs };
     });
 
@@ -120,7 +121,13 @@ export const FieldNotesCanvas = forwardRef<FieldNotesCanvasRef, FieldNotesCanvas
       return () => {
         if (timer !== undefined) {
           clearTimeout(timer);
-          emit();
+          try {
+            emit();
+          } catch (error) {
+            // A failing host save must not leak the viewport or throw out of unmount.
+            if (typeof reportError === 'function') reportError(error);
+            else console.error('[fieldnotes] onChange failed during unmount', error);
+          }
         }
         unsubscribe();
         vp.destroy();

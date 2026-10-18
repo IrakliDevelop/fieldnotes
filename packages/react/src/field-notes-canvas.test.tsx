@@ -204,6 +204,25 @@ describe('FieldNotesCanvas', () => {
     expect(viewport.toolManager.activeTool).toBeNull();
   });
 
+  it("tools='default' registers the default bundle even with options.tools set", () => {
+    const onReady = vi.fn<(viewport: Viewport) => void>();
+    render(
+      <FieldNotesCanvas tools="default" options={{ tools: [new HandTool()] }} onReady={onReady} />,
+    );
+    const viewport = viewportAt(onReady, 0);
+    expect(viewport.toolManager.toolNames).toEqual([
+      'hand',
+      'select',
+      'pencil',
+      'eraser',
+      'arrow',
+      'note',
+      'text',
+      'shape',
+    ]);
+    expect(viewport.toolManager.activeTool?.name).toBe('select');
+  });
+
   it('omitted tools defer to options.tools instead of the default bundle', () => {
     const onReady = vi.fn<(viewport: Viewport) => void>();
     render(<FieldNotesCanvas options={{ tools: [new HandTool()] }} onReady={onReady} />);
@@ -222,6 +241,7 @@ describe('FieldNotesCanvas initialData and onChange', () => {
     cleanup();
     vi.useRealTimers();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   const saved = {
@@ -270,11 +290,17 @@ describe('FieldNotesCanvas initialData and onChange', () => {
     render(<FieldNotesCanvas onChange={onChange} onReady={onReady} />);
     const viewport = viewportAt(onReady, 0);
     addShape(viewport, 'a');
-    vi.advanceTimersByTime(100);
+    act(() => {
+      vi.advanceTimersByTime(100);
+    });
     addShape(viewport, 'b');
-    vi.advanceTimersByTime(249);
+    act(() => {
+      vi.advanceTimersByTime(249);
+    });
     expect(onChange).not.toHaveBeenCalled();
-    vi.advanceTimersByTime(1);
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
     expect(onChange).toHaveBeenCalledTimes(1);
     const state = onChange.mock.calls[0]?.[0];
     expect(state?.elements.map((e) => e.id)).toEqual(['a', 'b']);
@@ -308,6 +334,27 @@ describe('FieldNotesCanvas initialData and onChange', () => {
     expect(onChange.mock.calls[0]?.[0].elements.map((e) => e.id)).toEqual(['a']);
     expect(destroysBeforeFlush).toBe(0);
     expect(destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it('destroys the viewport and reports the error when the unmount flush throws', () => {
+    vi.useFakeTimers();
+    const reportError = vi.fn<(error: unknown) => void>();
+    vi.stubGlobal('reportError', reportError);
+    const onReady = vi.fn<(viewport: Viewport) => void>();
+    const destroy = vi.spyOn(Viewport.prototype, 'destroy');
+    const quota = new Error('quota exceeded');
+    const { unmount } = render(
+      <FieldNotesCanvas
+        onChange={() => {
+          throw quota;
+        }}
+        onReady={onReady}
+      />,
+    );
+    addShape(viewportAt(onReady, 0), 'a');
+    expect(() => unmount()).not.toThrow();
+    expect(destroy).toHaveBeenCalledTimes(1);
+    expect(reportError).toHaveBeenCalledWith(quota);
   });
 
   it('StrictMode fires onChange once per change and destroys each viewport once', () => {
