@@ -114,7 +114,10 @@ export interface ViewportOptions {
   plugins?: ViewportPlugin[];
   /** Render capabilities that must remain installed after optional-plugin rollback. */
   requiredCapabilities?: RequiredCapabilities;
-  /** Tools registered after plugins start, replacing same-named plugin tools; activates `select` when present. */
+  /**
+   * Tools registered after plugins start, replacing same-named plugin tools; activates `select` when present.
+   * If a plugin activated a tool that an option tool replaces, the plugin's instance stays active.
+   */
   tools?: 'default' | Tool[];
 }
 

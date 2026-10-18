@@ -52,7 +52,12 @@ const viewport = new Viewport(document.getElementById('canvas'), {
 // Restore and persist the board
 const saved = localStorage.getItem('board');
 if (saved) viewport.loadJSON(saved);
-viewport.onStateChange(() => localStorage.setItem('board', viewport.exportJSON()));
+let saveTimer: ReturnType<typeof setTimeout> | undefined;
+viewport.onStateChange(() => {
+  // Fires on every change, including each camera move; save once changes settle
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => localStorage.setItem('board', viewport.exportJSON()), 250);
+});
 
 // Clean up when done
 viewport.destroy();
