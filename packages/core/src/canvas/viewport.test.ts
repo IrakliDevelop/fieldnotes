@@ -3,7 +3,8 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Viewport } from './viewport';
-import type { PluginConfigureContext } from './viewport';
+import type { PluginConfigureContext, ViewportPlugin } from './viewport';
+import type { Tool } from '../tools/types';
 import {
   createNote,
   createText,
@@ -3261,5 +3262,124 @@ describe('Viewport element activation', () => {
     events.length = 0;
     tapMarker(wrapper);
     expect(events).toEqual([]);
+  });
+});
+
+describe('Viewport tools option and onStateChange', () => {
+  let container: HTMLDivElement;
+
+  beforeEach(() => {
+    container = document.createElement('div');
+    document.body.appendChild(container);
+  });
+
+  afterEach(() => {
+    container.remove();
+  });
+
+  const fooTool: Tool = {
+    name: 'foo',
+    onPointerDown: () => undefined,
+    onPointerMove: () => undefined,
+    onPointerUp: () => undefined,
+  };
+
+  it("tools: 'default' registers the default bundle and activates select", () => {
+    const viewport = new Viewport(container, { tools: 'default' });
+    expect(viewport.toolManager.toolNames).toEqual([
+      'hand',
+      'select',
+      'pencil',
+      'eraser',
+      'arrow',
+      'note',
+      'text',
+      'shape',
+    ]);
+    expect(viewport.toolManager.activeTool?.name).toBe('select');
+    viewport.destroy();
+  });
+
+  it('a tools array without select registers it and leaves no tool active', () => {
+    const viewport = new Viewport(container, { tools: [fooTool] });
+    expect(viewport.toolManager.toolNames).toEqual(['foo']);
+    expect(viewport.toolManager.activeTool).toBeNull();
+    viewport.destroy();
+  });
+
+  it('omitting tools registers nothing', () => {
+    const viewport = new Viewport(container);
+    expect(viewport.toolManager.toolNames).toEqual([]);
+    viewport.destroy();
+  });
+
+  describe('onStateChange', () => {
+    const listener = vi.fn();
+    let notifyPlugin: () => void = () => undefined;
+    const plugin: ViewportPlugin = {
+      name: 'state-change-probe',
+      start: (ctx) => {
+        notifyPlugin = () => ctx.notifyChange();
+        return undefined;
+      },
+    };
+    const note = (v: Viewport) =>
+      createNote({
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 100 },
+        layerId: v.layerManager.activeLayerId,
+      });
+
+    beforeEach(() => listener.mockClear());
+
+    it.each<[string, (viewport: Viewport) => void]>([
+      ['store add', (v) => v.store.add(note(v))],
+      [
+        'element update',
+        (v) => {
+          const n = note(v);
+          v.store.add(n);
+          listener.mockClear();
+          v.store.update(n.id, { position: { x: 5, y: 5 } });
+        },
+      ],
+      [
+        'store clear',
+        (v) => {
+          v.store.add(note(v));
+          listener.mockClear();
+          v.store.clear();
+        },
+      ],
+      ['camera move', (v) => v.camera.pan(10, 0)],
+      ['layer create', (v) => v.layerManager.createLayer('Layer 2')],
+      ['plugin notifyChange', () => notifyPlugin()],
+    ])('fires once on %s', (_name, mutate) => {
+      const viewport = new Viewport(container, { plugins: [plugin] });
+      viewport.onStateChange(listener);
+      mutate(viewport);
+      expect(listener).toHaveBeenCalledTimes(1);
+      viewport.destroy();
+    });
+
+    it('does not fire after its disposer is called', () => {
+      const viewport = new Viewport(container, { plugins: [plugin] });
+      viewport.onStateChange(listener)();
+      viewport.store.add(note(viewport));
+      viewport.camera.pan(10, 0);
+      notifyPlugin();
+      expect(listener).not.toHaveBeenCalled();
+      viewport.destroy();
+    });
+
+    it('does not fire after destroy()', () => {
+      const viewport = new Viewport(container, { plugins: [plugin] });
+      viewport.onStateChange(listener);
+      viewport.destroy();
+      viewport.store.add(note(viewport));
+      viewport.camera.pan(10, 0);
+      notifyPlugin();
+      expect(listener).not.toHaveBeenCalled();
+    });
   });
 });

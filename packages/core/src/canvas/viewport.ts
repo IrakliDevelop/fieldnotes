@@ -24,6 +24,7 @@ import { ArrowLabelEditor } from '../elements/arrow-label-editor';
 import { ToolManager } from '../tools/tool-manager';
 import type { ToolContext, Tool } from '../tools/types';
 import type { SelectTool } from '../tools/select-tool';
+import { createDefaultTools } from '../tools/default-tools';
 import { hitTest } from '../tools/select-hit';
 import { HistoryStack } from '../history/history-stack';
 import { HistoryRecorder } from '../history/history-recorder';
@@ -113,6 +114,8 @@ export interface ViewportOptions {
   plugins?: ViewportPlugin[];
   /** Render capabilities that must remain installed after optional-plugin rollback. */
   requiredCapabilities?: RequiredCapabilities;
+  /** Tools registered after plugins start, replacing same-named plugin tools; activates `select` when present. */
+  tools?: 'default' | Tool[];
 }
 
 export interface HitTestOptions {
@@ -187,6 +190,7 @@ export class Viewport {
   private readonly activationListeners = new Set<(e: ElementActivationEvent) => void>();
   private readonly resizeListeners = new Set<() => void>();
   private readonly selectionListeners = new Set<() => void>();
+  private readonly stateChangeListeners = new Set<() => void>();
   private detachSelectionSource: (() => void) | null = null;
   private pendingSelectionPrune = false;
 
@@ -531,6 +535,21 @@ export class Viewport {
     } catch (error) {
       this.destroy();
       throw error;
+    }
+
+    const emitStateChange = () => this.stateChangeListeners.forEach((fn) => fn());
+    this.disposers.push(
+      this.store.onChange(emitStateChange),
+      this.camera.onChange(emitStateChange),
+      this.layerManager.on('change', emitStateChange),
+      this.pluginHost.onChange(emitStateChange),
+      () => this.stateChangeListeners.clear(),
+    );
+
+    const tools = options.tools === 'default' ? createDefaultTools() : (options.tools ?? []);
+    for (const tool of tools) this.toolManager.register(tool);
+    if (!this.toolManager.activeTool && this.toolManager.getTool('select')) {
+      this.toolManager.setTool('select', this.toolContext);
     }
 
     const { onTapDown, onDoubleTap, onDragOver, onDrop } = this.interactions;
@@ -1270,6 +1289,12 @@ export class Viewport {
       );
     }, intervalMs);
     return () => clearInterval(id);
+  }
+
+  /** Fires synchronously after any change `exportState()` would reflect; returns a disposer. */
+  onStateChange(listener: () => void): () => void {
+    this.stateChangeListeners.add(listener);
+    return () => this.stateChangeListeners.delete(listener);
   }
 
   destroy(): void {

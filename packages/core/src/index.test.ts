@@ -218,6 +218,10 @@ describe('core public surface', () => {
     }
   });
 
+  it('exports createDefaultTools', () => {
+    expect(FN.createDefaultTools).toBeTypeOf('function');
+  });
+
   it('exports LingerOverlay as a public utility', () => {
     expect(FN.LingerOverlay).toBeTypeOf('function');
   });
