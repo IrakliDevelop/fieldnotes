@@ -20,12 +20,7 @@ type ReadonlyDeep<T> = T extends readonly (infer U)[]
     ? { readonly [K in keyof T]: ReadonlyDeep<T[K]> }
     : T;
 export type JsonValue =
-  | null
-  | boolean
-  | number
-  | string
-  | readonly JsonValue[]
-  | { readonly [key: string]: JsonValue };
+  null | boolean | number | string | readonly JsonValue[] | { readonly [key: string]: JsonValue };
 export type AuthorityState = Omit<AuthorityCheckpointPayload, 'cursor' | 'casToken'>;
 export interface AuthorityPosition {
   readonly generation: string;

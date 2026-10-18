@@ -38,9 +38,7 @@ class FakeRedis implements RedisHashClient {
   async eval(_script: string, options: { keys: string[]; arguments: string[] }): Promise<unknown> {
     const [metaKey, tilesKey] = options.keys;
     const incoming = JSON.parse(options.arguments[0] ?? '') as
-      | FogMetaRecord
-      | FogTileRecord
-      | FogTileRecord[];
+      FogMetaRecord | FogTileRecord | FogTileRecord[];
     if (!metaKey || !tilesKey) throw new Error('missing keys');
     if (Array.isArray(incoming)) {
       const accepted: FogTileRecord[] = [];

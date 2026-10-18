@@ -52,10 +52,7 @@ export interface ManagedSyncConnectionOptions {
    * retries with exponential backoff.
    */
   resolveUrl: () =>
-    | string
-    | ManagedSyncEndpoint
-    | null
-    | Promise<string | ManagedSyncEndpoint | null>;
+    string | ManagedSyncEndpoint | null | Promise<string | ManagedSyncEndpoint | null>;
   resolveAudience?: (element: CanvasElement) => string | undefined;
   /**
    * Authoritative bootstrap/reconcile hook, forwarded to every `SyncClient`

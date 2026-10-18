@@ -58,7 +58,7 @@ function hashQuotedSlice(
 
 function hashQuoted(hash: ReturnType<typeof createHash>, value: string): void {
   hash.update('"', 'utf8');
-  for (let start = 0; start < value.length; ) {
+  for (let start = 0; start < value.length;) {
     let end = Math.min(value.length, start + QUOTE_SLICE_UNITS);
     if (end < value.length && end > start) {
       const last = value.charCodeAt(end - 1);

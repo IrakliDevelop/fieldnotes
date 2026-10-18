@@ -1,8 +1,7 @@
 import type { Point } from '../core/types';
 
 export type ContextMenuItem =
-  | { label: string; action: string; disabled?: boolean }
-  | { separator: true };
+  { label: string; action: string; disabled?: boolean } | { separator: true };
 
 export interface ContextMenuOptions {
   onCommand: (action: string) => void;

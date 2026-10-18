@@ -36,10 +36,7 @@ const ZOOM_STEP = 1.2;
 
 /** Nudge action ids. */
 export type NudgeActionId =
-  | 'arrange.nudge-left'
-  | 'arrange.nudge-right'
-  | 'arrange.nudge-up'
-  | 'arrange.nudge-down';
+  'arrange.nudge-left' | 'arrange.nudge-right' | 'arrange.nudge-up' | 'arrange.nudge-down';
 
 /** Nudge deltas per canonical id, mirroring the base handler's NUDGE_DELTAS. */
 export const NUDGE_DELTAS: Readonly<Record<NudgeActionId, readonly [number, number]>> = {

@@ -105,13 +105,11 @@ function stubToolContext(): ToolContext {
 }
 
 function stubActionRegistry(getSelectedIds: () => readonly string[] = () => []): ActionRegistry {
-  return new ActionRegistry(
-    (): ActionContext => ({
-      viewport: null as unknown as Viewport,
-      store: null as unknown as ActionContext['store'],
-      selectedIds: getSelectedIds(),
-    }),
-  );
+  return new ActionRegistry((): ActionContext => ({
+    viewport: null as unknown as Viewport,
+    store: null as unknown as ActionContext['store'],
+    selectedIds: getSelectedIds(),
+  }));
 }
 
 describe('InputHandler', () => {
