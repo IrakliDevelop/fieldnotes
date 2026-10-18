@@ -193,11 +193,13 @@ describe('RenderLoop frame', () => {
 });
 
 describe('note creation', () => {
-  const text = '<b>Session</b> notes <span style="font-size: 18px;">loot</span><div>next</div>';
+  // A counter across iterations keeps every text distinct, so no input repeats.
+  let seq = 0;
 
   bench('createNote + store.add x100', () => {
     const store = new ElementStore();
     for (let i = 0; i < 100; i++) {
+      const text = `<b>Session ${seq++}</b> notes <span style="font-size: 18px;">loot</span><div>next</div>`;
       store.add(createNote({ position: randomPoint(5000), size: { w: 200, h: 100 }, text }));
     }
   });
