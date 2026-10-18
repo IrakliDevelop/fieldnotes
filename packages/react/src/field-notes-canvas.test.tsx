@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach, type Mock } from 'vitest';
 import { render, cleanup, act } from '@testing-library/react';
-import { Component, useContext, useState, StrictMode, type ReactNode } from 'react';
-import { FieldNotesCanvas } from './field-notes-canvas';
+import { Component, createRef, useContext, useState, StrictMode, type ReactNode } from 'react';
+import { FieldNotesCanvas, type FieldNotesCanvasRef } from './field-notes-canvas';
 import { ViewportContext } from './context';
 import { HandTool, SelectTool, PencilTool, Viewport, createShape } from '@fieldnotes/core';
 import type { CanvasState } from '@fieldnotes/core';
@@ -179,10 +179,11 @@ describe('FieldNotesCanvas', () => {
     expect(viewport.toolManager.activeTool?.name).toBe('select');
   });
 
-  it('omitted tools register the default bundle with select active', () => {
-    const onReady = vi.fn<(viewport: Viewport) => void>();
-    render(<FieldNotesCanvas onReady={onReady} />);
-    const viewport = viewportAt(onReady, 0);
+  it('a bare canvas registers the default bundle with select active', () => {
+    const ref = createRef<FieldNotesCanvasRef>();
+    render(<FieldNotesCanvas ref={ref} />);
+    const viewport = ref.current?.viewport;
+    if (!viewport) throw new Error('viewport not mounted');
     expect(viewport.toolManager.toolNames).toEqual([
       'hand',
       'select',
@@ -221,6 +222,51 @@ describe('FieldNotesCanvas', () => {
       'shape',
     ]);
     expect(viewport.toolManager.activeTool?.name).toBe('select');
+  });
+
+  it('omitted tools register no defaults when onReady registered a tool', () => {
+    const onReady = vi.fn((vp: Viewport) => {
+      vp.toolManager.register(new HandTool());
+    });
+    render(<FieldNotesCanvas onReady={onReady} />);
+    const viewport = viewportAt(onReady, 0);
+    expect(viewport.toolManager.toolNames).toEqual(['hand']);
+    expect(viewport.toolManager.activeTool).toBeNull();
+  });
+
+  it('omitted tools activate the tool prop after onReady registered it', () => {
+    const onReady = vi.fn((vp: Viewport) => {
+      vp.toolManager.register(new HandTool());
+    });
+    const warn = vi.spyOn(console, 'warn');
+    render(<FieldNotesCanvas tool="hand" onReady={onReady} />);
+    const viewport = viewportAt(onReady, 0);
+    expect(viewport.toolManager.toolNames).toEqual(['hand']);
+    expect(viewport.toolManager.activeTool?.name).toBe('hand');
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("tools='default' registers the bundle before onReady", () => {
+    let namesAtReady: string[] = [];
+    render(
+      <FieldNotesCanvas
+        tools="default"
+        onReady={(vp) => {
+          namesAtReady = [...vp.toolManager.toolNames];
+        }}
+      />,
+    );
+    expect(namesAtReady).toEqual([
+      'hand',
+      'select',
+      'pencil',
+      'eraser',
+      'arrow',
+      'note',
+      'text',
+      'shape',
+    ]);
   });
 
   it('omitted tools defer to options.tools instead of the default bundle', () => {
@@ -302,6 +348,18 @@ describe('FieldNotesCanvas initialData and onChange', () => {
     );
     expect(getByText('load failed')).not.toBeNull();
     expect(destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it('registering deferred defaults after onReady does not fire onChange', () => {
+    vi.useFakeTimers();
+    const onReady = vi.fn<(viewport: Viewport) => void>();
+    const onChange = vi.fn<(state: CanvasState) => void>();
+    render(<FieldNotesCanvas onChange={onChange} onReady={onReady} />);
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(viewportAt(onReady, 0).toolManager.activeTool?.name).toBe('select');
+    expect(onChange).not.toHaveBeenCalled();
   });
 
   it('debounces rapid changes into one onChange with the exported state', () => {

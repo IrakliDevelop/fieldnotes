@@ -15,7 +15,8 @@ export interface FieldNotesCanvasProps {
   /** Constructor-only: changes after mount are ignored (the canvas is stateful). */
   options?: ViewportOptions;
   /**
-   * Omitted or `'default'` (mount-only): `createDefaultTools()` with `select` active.
+   * `'default'` (mount-only): `createDefaultTools()` registered before `onReady`, `select` active.
+   * Omitted: the same bundle after `onReady`, only if no tools are registered by then.
    * An array is reactive (append-only): tools present here are registered; removal is not
    * supported, and `[]` registers nothing. Hoist the array out of render — inline arrays
    * reconstruct Tool instances and re-run registration on every render.
@@ -84,18 +85,16 @@ export const FieldNotesCanvas = forwardRef<FieldNotesCanvasRef, FieldNotesCanvas
 
       const vp = new Viewport(el, options);
 
+      const activate = (fallback?: string) => {
+        const name = tool ?? defaultTool ?? fallback;
+        if (name) vp.setTool(name);
+      };
       // An explicit `options.tools` is the host's choice; core registers it and activates select.
-      const useDefaults =
-        tools === 'default' || (tools === undefined && options?.tools === undefined);
-      const mountTools = Array.isArray(tools) ? tools : [];
-      for (const t of useDefaults ? createDefaultTools() : mountTools) {
+      const deferDefaults = tools === undefined && options?.tools === undefined;
+      for (const t of tools === 'default' ? createDefaultTools() : (tools ?? [])) {
         vp.toolManager.register(t);
       }
-
-      const initialTool = tool ?? defaultTool ?? (useDefaults ? 'select' : undefined);
-      if (initialTool) {
-        vp.setTool(initialTool);
-      }
+      if (!deferDefaults) activate(tools === 'default' ? 'select' : undefined);
 
       try {
         if (typeof initialData === 'string') vp.loadJSON(initialData);
@@ -119,6 +118,15 @@ export const FieldNotesCanvas = forwardRef<FieldNotesCanvasRef, FieldNotesCanvas
 
       setViewport(vp);
       onReady?.(vp);
+
+      // Hosts that register their own tools in onReady keep exactly those (0.13 behaviour).
+      if (deferDefaults) {
+        const registerDefaults = vp.toolManager.toolNames.length === 0;
+        if (registerDefaults) {
+          for (const t of createDefaultTools()) vp.toolManager.register(t);
+        }
+        activate(registerDefaults ? 'select' : undefined);
+      }
 
       return () => {
         if (timer !== undefined) {

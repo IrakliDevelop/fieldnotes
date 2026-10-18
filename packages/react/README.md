@@ -15,8 +15,9 @@ Requires React 18+.
 Full runnable example: `examples/react-app` — `pnpm --filter fieldnotes-react-example dev`
 
 The canvas needs a container with a defined size — it fills whatever it's given. With no `tools`
-prop it registers the default tool bundle (`createDefaultTools()`: hand, select, pencil, eraser,
-arrow, note, text, shape) with `select` active, so a persisting board is one line:
+prop and no tools registered in `onReady`, it registers the default tool bundle
+(`createDefaultTools()`: hand, select, pencil, eraser, arrow, note, text, shape) with `select`
+active, so a persisting board is one line:
 
 ```tsx
 import { FieldNotesCanvas } from '@fieldnotes/react';
@@ -120,8 +121,10 @@ Not all props are reactive — the canvas is stateful. Changing a mount-only pro
 | `className` / `style` / `children` | Reactive (plain React)                                                       |
 
 `tools` as an array registers each tool once (tools cannot be unregistered); hoist it out of render.
-Omitted or `'default'` registers `createDefaultTools()` at mount; omitted defers to
-`options.tools` when that is set, and `tools={[]}` registers nothing.
+`tools="default"` registers `createDefaultTools()` at mount, before `onReady` (so you can customise
+them there). Omitted registers the same bundle after `onReady` only when neither `options.tools` is
+set nor any tool was registered by then, then activates `tool`, `defaultTool` or `select`; hosts
+that register tools in `onReady` get no defaults. `tools={[]}` registers nothing.
 
 Runtime changes beyond these go through the viewport — access it via `useViewport()` or the ref. Grid snapping is domain behavior; VTT consumers should configure `GridController` and its constraint service rather than adopting the deprecated React prop. The background pattern is constructor-only (`options.background`).
 

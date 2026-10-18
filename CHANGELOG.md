@@ -139,13 +139,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
   `onReady`, without triggering `onChange`.
 - `onChange(state)` receives `viewport.exportState()` after changes, debounced by
   `changeDebounceMs` (default 250); a pending call is flushed on unmount.
+- A bare `<FieldNotesCanvas />` is usable: when neither `tools` nor `options.tools` is given and no
+  tools are registered by the end of `onReady`, the default tool bundle is registered and `tool`,
+  `defaultTool` or `select` is activated. Hosts that register tools in `onReady` see no change. Pass
+  `tools="default"` to get the bundle at mount (for example to customise it in `onReady`), or
+  `tools={[]}` to never get it.
 
 **Changed**
 
-- Omitting `tools` now registers `createDefaultTools()` and activates `select` unless `tool` or
-  `defaultTool` says otherwise. Pass `tools={[]}` to register nothing, as before. Hosts that
-  registered tools manually in `onReady` keep their tools (same names replace the defaults) but
-  also get the remaining defaults and their shortcuts.
 - Peer dependency `@fieldnotes/core >= 0.89.0`.
 
 ### Docs
