@@ -1,4 +1,3 @@
-/** @vitest-environment jsdom */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ActionRegistry } from '../actions/action-registry';
 import { createServiceKey } from '../core/service-key';
@@ -111,6 +110,7 @@ describe('PluginHost', () => {
     expect(viewport.toolManager.getTool('bad-tool')).toBeUndefined();
     expect(stopped).toEqual(['bad']);
     expect(warn).toHaveBeenCalledWith('[fieldnotes] optional plugin "bad" failed to start: boom');
+    host.disposePlugins();
     warn.mockRestore();
   });
 });
