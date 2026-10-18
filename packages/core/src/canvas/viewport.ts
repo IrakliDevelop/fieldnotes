@@ -497,18 +497,13 @@ export class Viewport {
       }),
     ];
 
-    const unsubLayerChange = this.layerManager.on('change', () => {
+    this.unsubLayers = this.layerManager.on('change', () => {
       this.toolContext.activeLayerId = this.layerManager.activeLayerId;
+      // Snapshot loads replace layers without per-layer remove events, so prune on every change.
+      this.layerCache.retain((id) => this.layerManager.getLayer(id) !== undefined);
       this.renderLoop.markAllLayersDirty();
       this.requestRender();
     });
-    const unsubLayerRemove = this.layerManager.on('remove', (layer) =>
-      this.layerCache.delete(layer.id),
-    );
-    this.unsubLayers = () => {
-      unsubLayerChange();
-      unsubLayerRemove();
-    };
 
     this.interactions = new ViewportInteractions({
       store: this.store,
@@ -791,13 +786,13 @@ export class Viewport {
       const pluginResult = this.pluginStateManager.commitPrepared(preparedPlugins.prepared);
       if (!pluginResult.success) throw new Error(pluginResult.error);
       pluginsCommitted = true;
+      notifications.resume();
+      this.historyRecorder.resume();
       for (const name of pluginResult.droppedPlugins ?? []) {
         console.warn(
           `[fieldnotes] dropped saved state of plugin "${name}": version could not be migrated`,
         );
       }
-      notifications.resume();
-      this.historyRecorder.resume();
     } catch (error) {
       const rollbackErrors: string[] = [];
       if (pluginsCommitted) {

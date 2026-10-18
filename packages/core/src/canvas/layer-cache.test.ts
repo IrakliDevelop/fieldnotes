@@ -59,11 +59,11 @@ describe('LayerCache', () => {
     expect(cache.isDirty('layer1')).toBe(true);
   });
 
-  it('delete drops only that layer canvas', () => {
+  it('retain drops only the canvases of rejected layers', () => {
     const removed = cache.getCanvas('layer1');
     const kept = cache.getCanvas('layer2');
     cache.markClean('layer2');
-    cache.delete('layer1');
+    cache.retain((id) => id === 'layer2');
     expect(cache.getCanvas('layer1')).not.toBe(removed);
     expect(cache.getCanvas('layer2')).toBe(kept);
     expect(cache.isDirty('layer2')).toBe(false);

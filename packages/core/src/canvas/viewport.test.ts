@@ -116,6 +116,21 @@ describe('Viewport', () => {
     viewport.destroy();
   });
 
+  it('drops layer cache entries of layers replaced by a state load', () => {
+    const viewport = new Viewport(container);
+    const layerCache = (
+      viewport as unknown as {
+        layerCache: { getCanvas(id: string): unknown; canvases: Map<string, unknown> };
+      }
+    ).layerCache;
+    const saved = viewport.exportState();
+    const layer = viewport.layerManager.createLayer('extra');
+    layerCache.getCanvas(layer.id);
+    viewport.loadState(saved);
+    expect(layerCache.canvases.has(layer.id)).toBe(false);
+    viewport.destroy();
+  });
+
   it('destroy releases layer, paint-stack, and image caches, closing bitmaps once', () => {
     const viewport = new Viewport(container);
     const priv = viewport as unknown as {

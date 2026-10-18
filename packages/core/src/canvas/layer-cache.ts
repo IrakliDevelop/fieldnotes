@@ -62,9 +62,12 @@ export class LayerCache {
     }
   }
 
-  delete(layerId: string): void {
-    this.canvases.delete(layerId);
-    this.dirtyFlags.delete(layerId);
+  retain(keep: (layerId: string) => boolean): void {
+    for (const id of this.canvases.keys()) {
+      if (keep(id)) continue;
+      this.canvases.delete(id);
+      this.dirtyFlags.delete(id);
+    }
   }
 
   clear(): void {
