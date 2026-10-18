@@ -81,9 +81,10 @@ describe('ViewportInteractions', () => {
       }
     }
 
-    function setup(html: HtmlElement) {
+    function setup(html: HtmlElement, ...above: CanvasElement[]) {
       const store = new ElementStore();
       store.add(html);
+      above.forEach((el) => store.add(el));
       const camera = { zoom: 1, screenToWorld: (p: { x: number; y: number }) => p } as never;
       const toolContext: ToolContext = {
         camera,
@@ -118,6 +119,15 @@ describe('ViewportInteractions', () => {
       const { interactions, deps } = setup(html);
       doubleTap(interactions, 50, 50);
       expect(deps.interactMode.startInteracting).toHaveBeenCalledWith(html.id);
+    });
+
+    it('activates an html element under an arrow passing near the tap', () => {
+      const html = createHtmlElement({ position: { x: 0, y: 0 }, size: { w: 200, h: 100 } });
+      const arrow = { ...createArrow({ from: { x: 0, y: 55 }, to: { x: 200, y: 55 } }), zIndex: 1 };
+      const { interactions, deps } = setup(html, arrow);
+      doubleTap(interactions, 50, 50);
+      expect(deps.interactMode.startInteracting).toHaveBeenCalledWith(html.id);
+      expect(deps.arrowLabelEditor.startEditing).not.toHaveBeenCalled();
     });
 
     it('does not activate an html element on a hidden layer', () => {
