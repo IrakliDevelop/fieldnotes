@@ -76,12 +76,13 @@ export const annotationDefinition: ElementTypeDefinition<AnnotationElement> = {
   },
 
   // ── Geometry ──────────────────────────────────────────────────────────────
-  // Includes the label below the box so it is not culled and stays hit-testable.
-  bounds: annotationBounds,
+  bounds(el: AnnotationElement): Bounds {
+    return { ...el.position, w: el.size.w, h: el.size.h };
+  },
 
   hitTest(el: AnnotationElement, point: Point): boolean {
-    const { x, y, w, h } = annotationBounds(el);
-    return point.x >= x && point.x <= x + w && point.y >= y && point.y <= y + h;
+    const { x, y } = el.position;
+    return point.x >= x && point.x <= x + el.size.w && point.y >= y && point.y <= y + el.size.h;
   },
 
   // ── Rendering ─────────────────────────────────────────────────────────────
@@ -99,12 +100,12 @@ export const annotationDefinition: ElementTypeDefinition<AnnotationElement> = {
     drawStar(ctx, 0, 0, 5, r, r * 0.4);
     ctx.fill();
 
-    // Draw the label below the star
+    // Label sits inside the box (top-left) so bounds, hit test, and handles stay the box.
     ctx.fillStyle = '#333';
-    ctx.font = `${labelFontSize(el)}px system-ui`;
-    ctx.textAlign = 'center';
+    ctx.font = `${LABEL_FONT_SIZE}px system-ui`;
+    ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
-    ctx.fillText(el.label, 0, h / 2 + 2);
+    ctx.fillText(el.label, -w / 2 + LABEL_PAD, -h / 2 + LABEL_PAD, Math.max(0, w - 2 * LABEL_PAD));
 
     ctx.restore();
   },
@@ -117,7 +118,7 @@ export const annotationDefinition: ElementTypeDefinition<AnnotationElement> = {
     const y = el.position.y + h / 2;
     return (
       `<circle cx="${x}" cy="${y}" r="${r}" fill="${escapeXml(el.color)}" />` +
-      `<text x="${x}" y="${y + h / 2 + 12}" text-anchor="middle" font-size="${labelFontSize(el)}">${escapeXml(el.label)}</text>`
+      `<text x="${el.position.x + LABEL_PAD}" y="${el.position.y + LABEL_PAD}" dominant-baseline="hanging" font-size="${LABEL_FONT_SIZE}">${escapeXml(el.label)}</text>`
     );
   },
 
@@ -125,14 +126,8 @@ export const annotationDefinition: ElementTypeDefinition<AnnotationElement> = {
   decodeLegacy: (raw) => raw as unknown as AnnotationElement,
 };
 
-function labelFontSize(el: AnnotationElement): number {
-  return Math.max(10, (Math.min(el.size.w, el.size.h) / 2) * 0.6);
-}
-
-function annotationBounds(el: AnnotationElement): Bounds {
-  // The label is drawn 2px below the box, one font-size tall.
-  return { ...el.position, w: el.size.w, h: el.size.h + 2 + labelFontSize(el) };
-}
+const LABEL_FONT_SIZE = 12;
+const LABEL_PAD = 4;
 
 // User text goes into SVG markup, so it must not be able to inject elements or attributes.
 function escapeXml(text: string): string {
