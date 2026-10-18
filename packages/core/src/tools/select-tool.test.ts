@@ -2577,7 +2577,7 @@ describe('SelectTool sized extension resize', () => {
         w: el.size?.w ?? 100,
         h: el.size?.h ?? 50,
       }),
-      interaction: { renderSelection },
+      interaction: { renderSelection, hitTestHandle: () => null },
       renderMode: 'canvas',
     });
     const element: ExtensionElementEnvelope = {
@@ -2628,13 +2628,23 @@ describe('SelectTool sized extension resize', () => {
     } as unknown as CanvasRenderingContext2D;
   }
 
-  it('draws four corner handles for a sized extension', () => {
+  it('draws the core corner handles and the adapter handles for a sized extension', () => {
     const { tool, renderSelection } = setup({ size: { w: 100, h: 50 } });
     const canvas = overlayCanvas();
 
     tool.renderOverlay?.(canvas);
 
     expect(canvas.fillRect).toHaveBeenCalledTimes(4);
+    expect(renderSelection).toHaveBeenCalledTimes(1);
+  });
+
+  it('draws neither core nor adapter handles for a locked sized extension', () => {
+    const { tool, renderSelection } = setup({ size: { w: 100, h: 50 }, locked: true });
+    const canvas = overlayCanvas();
+
+    tool.renderOverlay?.(canvas);
+
+    expect(canvas.fillRect).not.toHaveBeenCalledWith(expect.any(Number), expect.any(Number), 8, 8);
     expect(renderSelection).not.toHaveBeenCalled();
   });
 

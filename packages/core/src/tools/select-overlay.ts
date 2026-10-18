@@ -225,8 +225,11 @@ export function renderSelectionBoxes(
           );
         }
         ctx.setLineDash([4 / zoom, 4 / zoom]);
-      } else {
-        if (el.type !== 'extension') continue;
+      } else if (el.type !== 'extension') {
+        continue;
+      }
+      // Adapter handles win the hit test, so they must be drawn even over core handles.
+      if (el.type === 'extension') {
         p.elementRegistry?.getAdapter(el.extensionType)?.renderSelection?.(ctx, el, {
           zoom,
           selectedCount: p.selectedIds.length,

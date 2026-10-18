@@ -76,13 +76,12 @@ export const annotationDefinition: ElementTypeDefinition<AnnotationElement> = {
   },
 
   // ── Geometry ──────────────────────────────────────────────────────────────
-  bounds(el: AnnotationElement): Bounds {
-    return { ...el.position, w: el.size.w, h: el.size.h };
-  },
+  // Includes the label below the box so it is not culled and stays hit-testable.
+  bounds: annotationBounds,
 
   hitTest(el: AnnotationElement, point: Point): boolean {
-    const { x, y } = el.position;
-    return point.x >= x && point.x <= x + el.size.w && point.y >= y && point.y <= y + el.size.h;
+    const { x, y, w, h } = annotationBounds(el);
+    return point.x >= x && point.x <= x + w && point.y >= y && point.y <= y + h;
   },
 
   // ── Rendering ─────────────────────────────────────────────────────────────
@@ -102,7 +101,7 @@ export const annotationDefinition: ElementTypeDefinition<AnnotationElement> = {
 
     // Draw the label below the star
     ctx.fillStyle = '#333';
-    ctx.font = `${Math.max(10, r * 0.6)}px system-ui`;
+    ctx.font = `${labelFontSize(el)}px system-ui`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
     ctx.fillText(el.label, 0, h / 2 + 2);
@@ -117,14 +116,33 @@ export const annotationDefinition: ElementTypeDefinition<AnnotationElement> = {
     const x = el.position.x + w / 2;
     const y = el.position.y + h / 2;
     return (
-      `<circle cx="${x}" cy="${y}" r="${r}" fill="${el.color}" />` +
-      `<text x="${x}" y="${y + h / 2 + 12}" text-anchor="middle" font-size="${Math.max(10, r * 0.6)}">${el.label}</text>`
+      `<circle cx="${x}" cy="${y}" r="${r}" fill="${escapeXml(el.color)}" />` +
+      `<text x="${x}" y="${y + h / 2 + 12}" text-anchor="middle" font-size="${labelFontSize(el)}">${escapeXml(el.label)}</text>`
     );
   },
 
   // ── Legacy decode (needed when legacyTypes is non-empty for v3→v4 migration) ──
   decodeLegacy: (raw) => raw as unknown as AnnotationElement,
 };
+
+function labelFontSize(el: AnnotationElement): number {
+  return Math.max(10, (Math.min(el.size.w, el.size.h) / 2) * 0.6);
+}
+
+function annotationBounds(el: AnnotationElement): Bounds {
+  // The label is drawn 2px below the box, one font-size tall.
+  return { ...el.position, w: el.size.w, h: el.size.h + 2 + labelFontSize(el) };
+}
+
+// User text goes into SVG markup, so it must not be able to inject elements or attributes.
+function escapeXml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
 
 // ─── Helper: draw a 5-pointed star ─────────────────────────────────────────────
 
