@@ -27,8 +27,9 @@ frame policy, authority runtime), `packages/sync-redis/src`, the VTT `/sync`, `/
 - A denied edit gets a correction (`sendCorrection`) to the sender only, never a broadcast.
 - `ownerId` is stripped from every outbound frame (`stripOwnerId`) unless the `CanReadOwnerId` hook
   allows it for that viewer.
-- Authentication comes before authorization: `Authorize` and `AuthorizeLayer` require an
-  `Authenticate` hook (see `security.e2e.test.ts`).
+- Authentication comes before authorization: `createSyncServer` refuses an `authorize` hook
+  without an `authenticate` hook (see `security.e2e.test.ts`). `authorizeLayer` has no such guard;
+  without `authenticate` its `userId` is the per-socket connection id.
 
 **Snapshots**
 
@@ -47,14 +48,15 @@ frame policy, authority runtime), `packages/sync-redis/src`, the VTT `/sync`, `/
   `packages/vtt/src/fog/fog-sync-types.ts`; keep the two equal), `AUTHORITY_PROTOCOL_VERSION`
   (`packages/sync/src/authority-protocol.ts`).
 - Capabilities negotiate features (`CapabilityHandshake`, `translateOpForPeer` in
-  `capabilities.ts`). Ops a peer does not support are translated or withheld.
+  `capabilities.ts`). `translateOpForPeer` throws for an extension kind the peer does not
+  advertise, so the caller skips the op; element ops pass through unchanged.
 - An old `isValidEnvelope` rejects new op kinds, so old clients drop them. Adding fields is
   compatible; changing the meaning of an existing field is not.
 
 **Persistence**
 
-- `CANVAS_STATE_VERSION` versions persisted state. `parseState` runs `migrateState`, then rejects a
-  version newer than current.
+- `CANVAS_STATE_VERSION` versions persisted state. `parseState` validates first (rejecting a
+  version newer than `CANVAS_STATE_VERSION`), then `migrateState` upgrades older versions.
 - Rich text passes through `sanitizeNoteHtml` (tag allowlist, attributes stripped) on add, update,
   load, and parse.
 

@@ -1,4 +1,4 @@
-import { readFile, readdir, realpath } from 'node:fs/promises';
+import { readFile, readdir, readlink } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import process from 'node:process';
 
@@ -52,10 +52,11 @@ for (const entry of await readdir(resolve(root, skillsRoot), { withFileTypes: tr
   }
 
   const link = `.claude/skills/${entry.name}`;
+  const expected = `../../${skillsRoot}/${entry.name}`;
   try {
-    const target = await realpath(resolve(root, link));
-    if (target !== (await realpath(resolve(root, skillsRoot, entry.name)))) {
-      errors.push(`Claude Code skill link points elsewhere: ${link}`);
+    const target = await readlink(resolve(root, link));
+    if (target !== expected) {
+      errors.push(`Claude Code skill link must be ${expected}: ${link} -> ${target}`);
     }
   } catch {
     errors.push(`Missing Claude Code skill link: ${link}`);

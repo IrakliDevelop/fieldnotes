@@ -58,7 +58,8 @@ import { createRequire } from 'node:module';
 const require = createRequire('/ABS/PATH/fieldnotes/packages/core/package.json');
 const { chromium, devices } = require('@playwright/test');
 
-const url = process.argv[2] ?? 'http://localhost:5173';
+const url = process.argv[2];
+if (!url) throw new Error('Pass the Local: URL printed by the dev server');
 const browser = await chromium.launch();
 const context = await browser.newContext({ ...devices['iPad Pro 11'] });
 const page = await context.newPage();
