@@ -176,6 +176,23 @@ describe('HistoryRecorder', () => {
     expect(store.getById(note.id)?.position).toEqual({ x: 0, y: 0 });
   });
 
+  it('undo and redo of add-update-remove in one transaction leave the element absent', () => {
+    const { store, stack, recorder } = setup();
+    const note = createNote({ position: { x: 0, y: 0 } });
+
+    recorder.begin();
+    store.add(note);
+    store.update(note.id, { position: { x: 50, y: 0 } });
+    store.remove(note.id);
+    recorder.commit();
+
+    stack.undo(store);
+    expect(store.getById(note.id)).toBeUndefined();
+    stack.redo(store);
+    expect(store.getById(note.id)).toBeUndefined();
+    expect(store.count).toBe(0);
+  });
+
   describe('external (origin-tagged) changes', () => {
     it('does not record a remote update', () => {
       const { store, stack } = setup();
