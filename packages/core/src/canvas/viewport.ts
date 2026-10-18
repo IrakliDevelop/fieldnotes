@@ -567,9 +567,7 @@ export class Viewport {
     return this.services.get(key.id) as T | undefined;
   }
 
-  /**
-   * Mutations in the window are delivered as one `batch` event, are not recorded in history, and carry no origin.
-   */
+  /** Mutations in the window arrive as one `batch` event, unrecorded in history and without origin. */
   suspendNotifications(): NotificationController {
     const controllers = [
       this.store.suspendNotifications(),
@@ -875,7 +873,8 @@ export class Viewport {
 
   /**
    * Groups synchronous local store and layer mutations into one undo step.
-   * Nested calls join the outer transaction. If the callback throws, mutations
+   * Joins any open transaction (a nested call or a live tool gesture); a pending
+   * keyboard nudge is committed first. If the callback throws, mutations
    * already applied remain undoable and the original error is rethrown.
    */
   transaction<T>(operation: () => T): T {
@@ -919,7 +918,7 @@ export class Viewport {
 
   addImage(src: string, position: { x: number; y: number }, size = { w: 300, h: 200 }): string {
     const image = createImage({ position, size, src, layerId: this.layerManager.activeLayerId });
-    this.historyRecorder.run(() => this.store.add(image));
+    this.transaction(() => this.store.add(image));
     this.requestRender();
     return image.id;
   }
@@ -952,7 +951,7 @@ export class Viewport {
     if (external) {
       this.store.add(el, { origin: opts.origin });
     } else {
-      this.historyRecorder.run(() => this.store.add(el));
+      this.transaction(() => this.store.add(el));
     }
     this.requestRender();
     return el.id;
@@ -979,7 +978,7 @@ export class Viewport {
       fillColor: opts.fillColor,
       layerId: this.layerManager.activeLayerId,
     });
-    this.historyRecorder.run(() => this.store.add(shape));
+    this.transaction(() => this.store.add(shape));
     this.getSelectTool()?.setSelection([shape.id]);
     this.requestRender();
     return shape.id;
@@ -994,7 +993,7 @@ export class Viewport {
   }
 
   removeLayer(id: string): void {
-    this.historyRecorder.run(() => this.layerManager.removeLayer(id));
+    this.transaction(() => this.layerManager.removeLayer(id));
   }
 
   registerHtmlRenderer(htmlType: string, factory: (el: HtmlElement) => HTMLElement): void {
@@ -1242,31 +1241,31 @@ export class Viewport {
   }
 
   applyStyleToSelection(style: ElementStyle): void {
-    this.selectionOps.applyStyle(style);
+    this.transaction(() => this.selectionOps.applyStyle(style));
   }
 
   groupSelection(): void {
-    this.selectionOps.group();
+    this.transaction(() => this.selectionOps.group());
   }
 
   ungroupSelection(): void {
-    this.selectionOps.ungroup();
+    this.transaction(() => this.selectionOps.ungroup());
   }
 
   toggleLockSelection(): void {
-    this.selectionOps.toggleLock();
+    this.transaction(() => this.selectionOps.toggleLock());
   }
 
   alignSelection(edge: AlignEdge): void {
-    this.selectionOps.align(edge);
+    this.transaction(() => this.selectionOps.align(edge));
   }
 
   distributeSelection(axis: DistributeAxis): void {
-    this.selectionOps.distribute(axis);
+    this.transaction(() => this.selectionOps.distribute(axis));
   }
 
   rotateSelection(direction: RotateDirection): void {
-    this.selectionOps.rotateSelection(direction);
+    this.transaction(() => this.selectionOps.rotateSelection(direction));
   }
 
   getRenderStats(): RenderStatsSnapshot {

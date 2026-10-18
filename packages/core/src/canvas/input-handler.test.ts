@@ -72,6 +72,21 @@ function pasteEvent(target?: EventTarget) {
   window.dispatchEvent(clipboardWith([], target));
 }
 
+function fakeRecorder() {
+  const hr = {
+    begin: vi.fn(),
+    commit: vi.fn(),
+    pause: vi.fn(),
+    resume: vi.fn(),
+    run: (fn: () => void): void => {
+      hr.begin();
+      fn();
+      hr.commit();
+    },
+  };
+  return hr;
+}
+
 function stubToolManager() {
   return {
     handlePointerDown: vi.fn(),
@@ -536,15 +551,7 @@ describe('InputHandler', () => {
         ...stubToolContext(),
         store,
       } as unknown as ToolContext;
-      const hr = {
-        begin: vi.fn(),
-        commit: vi.fn(),
-        run: (fn: () => void): void => {
-          hr.begin();
-          fn();
-          hr.commit();
-        },
-      };
+      const hr = fakeRecorder();
 
       handler = new InputHandler(element, camera, {
         toolManager: tm,
@@ -573,15 +580,7 @@ describe('InputHandler', () => {
         ...stubToolContext(),
         store,
       } as unknown as ToolContext;
-      const hr = {
-        begin: vi.fn(),
-        commit: vi.fn(),
-        run: (fn: () => void): void => {
-          hr.begin();
-          fn();
-          hr.commit();
-        },
-      };
+      const hr = fakeRecorder();
 
       handler = new InputHandler(element, camera, {
         toolManager: tm,
@@ -923,15 +922,7 @@ describe('InputHandler', () => {
         activeTool: { name: 'select', selectedIds: [note.id] },
       } as unknown as ToolManager;
       const tc = { ...stubToolContext(), store } as unknown as ToolContext;
-      const hr = {
-        begin: vi.fn(),
-        commit: vi.fn(),
-        run: (fn: () => void): void => {
-          hr.begin();
-          fn();
-          hr.commit();
-        },
-      };
+      const hr = fakeRecorder();
       handler = new InputHandler(element, camera, {
         toolManager: tm,
         toolContext: tc,
@@ -1511,15 +1502,7 @@ describe('InputHandler', () => {
     it('wraps confirmed tap in history begin/commit', () => {
       const tm = stubToolManager();
       const tc = stubToolContext();
-      const hr = {
-        begin: vi.fn(),
-        commit: vi.fn(),
-        run: (fn: () => void): void => {
-          hr.begin();
-          fn();
-          hr.commit();
-        },
-      } as unknown as HistoryRecorder;
+      const hr = fakeRecorder() as unknown as HistoryRecorder;
 
       handler = new InputHandler(element, camera, {
         toolManager: tm,
@@ -1567,17 +1550,7 @@ describe('InputHandler', () => {
         store,
         activeLayerId: 'layer-1',
       } as unknown as ToolContext;
-      const hr = {
-        begin: vi.fn(),
-        commit: vi.fn(),
-        run: (fn: () => void): void => {
-          hr.begin();
-          fn();
-          hr.commit();
-        },
-        pause: vi.fn(),
-        resume: vi.fn(),
-      };
+      const hr = fakeRecorder();
 
       const actions = stubActionRegistry(
         () =>
@@ -1702,17 +1675,7 @@ describe('InputHandler', () => {
         ...stubToolContext(),
         store,
       } as unknown as ToolContext;
-      const hr = {
-        begin: vi.fn(),
-        commit: vi.fn(),
-        run: (fn: () => void): void => {
-          hr.begin();
-          fn();
-          hr.commit();
-        },
-        pause: vi.fn(),
-        resume: vi.fn(),
-      };
+      const hr = fakeRecorder();
 
       const h = new InputHandler(element, camera, {
         toolManager: tm,
@@ -1769,17 +1732,7 @@ describe('InputHandler', () => {
         ...stubToolContext(),
         store,
       } as unknown as ToolContext;
-      const hr = {
-        begin: vi.fn(),
-        commit: vi.fn(),
-        run: (fn: () => void): void => {
-          hr.begin();
-          fn();
-          hr.commit();
-        },
-        pause: vi.fn(),
-        resume: vi.fn(),
-      };
+      const hr = fakeRecorder();
 
       const h = new InputHandler(element, camera, {
         toolManager: tm,
@@ -1923,15 +1876,7 @@ describe('InputHandler', () => {
         ...stubToolContext(),
         store,
       } as unknown as ToolContext;
-      const hr = {
-        begin: vi.fn(),
-        commit: vi.fn(),
-        run: (fn: () => void): void => {
-          hr.begin();
-          fn();
-          hr.commit();
-        },
-      };
+      const hr = fakeRecorder();
 
       const h = new InputHandler(element, camera, {
         toolManager: tm,
@@ -2272,15 +2217,7 @@ describe('InputHandler', () => {
         activeTool: { name: 'select', selectedIds: [note.id] },
       } as unknown as ToolManager;
       const tc = { ...stubToolContext(), store } as unknown as ToolContext;
-      const hr = {
-        begin: vi.fn(),
-        commit: vi.fn(),
-        run: (fn: () => void): void => {
-          hr.begin();
-          fn();
-          hr.commit();
-        },
-      };
+      const hr = fakeRecorder();
       handler.destroy();
       handler = new InputHandler(element, camera, {
         toolManager: tm,

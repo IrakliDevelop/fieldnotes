@@ -1022,6 +1022,32 @@ describe('Viewport', () => {
       viewport.destroy();
     });
 
+    it.each([
+      ['alignSelection', (v: Viewport) => v.alignSelection('left')],
+      ['addShape', (v: Viewport) => void v.addShape({ position: { x: 500, y: 500 } })],
+    ])('%s during a pending nudge is a separate undo step', (_name, action) => {
+      vi.useFakeTimers();
+      const viewport = new Viewport(container);
+      const selectTool = new SelectTool();
+      viewport.toolManager.register(selectTool);
+      viewport.toolManager.setTool('select', viewport.toolContext);
+      const layerId = viewport.layerManager.activeLayerId;
+      const a = createNote({ position: { x: 100, y: 100 }, size: { w: 100, h: 50 }, layerId });
+      const b = createNote({ position: { x: 300, y: 300 }, size: { w: 100, h: 50 }, layerId });
+      viewport.store.add(a);
+      viewport.store.add(b);
+      viewport.history.clear();
+      selectTool.setSelection([a.id, b.id]);
+      focusCanvas(container);
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+      action(viewport);
+
+      expect(viewport.history.undoCount).toBe(2);
+      vi.useRealTimers();
+      viewport.destroy();
+    });
+
     it('redo flushes a pending nudge transaction before re-applying history', () => {
       vi.useFakeTimers();
       const viewport = new Viewport(container);
