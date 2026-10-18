@@ -89,6 +89,9 @@ export class RenderLoop {
   // id -> last update time: `warm` saw one recent update, `live` is drawn outside the layer cache.
   private readonly warm = new Map<string, number>();
   private readonly live = new Map<string, number>();
+  // Per-frame stats accumulators, reset at the start of each frame.
+  private layersMs = 0;
+  private compositeMs = 0;
 
   constructor(deps: RenderLoopDeps) {
     this.canvasEl = deps.canvasEl;
@@ -277,6 +280,65 @@ export class RenderLoop {
     this.compositeLayerCache(ctx, this.layerCache.getCanvas(layerId, part), 1);
   }
 
+  /** Draws one layer's base-pass group: its cache, or a split cache around live elements. */
+  private drawLayerGroup(
+    ctx: CanvasRenderingContext2D,
+    layerId: string,
+    elements: readonly CanvasElement[],
+    cullingRect: Bounds,
+  ): void {
+    const layerOpacity = this.layerOpacities.get(layerId) ?? 1;
+
+    // Opacity is re-checked here because it can drop below 1 while an element is still live.
+    if (this.live.size > 0 && layerOpacity === 1) {
+      let lo = -1;
+      let hi = -1;
+      for (let i = 0; i < elements.length; i++) {
+        const element = elements[i];
+        if (!element || !this.live.has(element.id)) continue;
+        if (lo < 0) lo = i;
+        hi = i;
+      }
+      if (lo >= 0) {
+        const layerT0 = performance.now();
+        this.drawLayerPart(ctx, layerId, 'under', elements, 0, lo, cullingRect);
+        for (let i = lo; i <= hi; i++) {
+          const element = elements[i];
+          if (element) this.renderCulled(ctx, element, cullingRect);
+        }
+        this.drawLayerPart(ctx, layerId, 'over', elements, hi + 1, elements.length, cullingRect);
+        this.layersMs += performance.now() - layerT0;
+        return;
+      }
+    }
+
+    if (!this.layerCache.isDirty(layerId)) {
+      const compT0 = performance.now();
+      this.compositeLayerCache(ctx, this.layerCache.getCanvas(layerId), layerOpacity);
+      this.compositeMs += performance.now() - compT0;
+      return;
+    }
+
+    const offCtx = this.layerCache.getContext(layerId);
+    if (offCtx) {
+      const layerT0 = performance.now();
+      const offCanvas = this.layerCache.getCanvas(layerId);
+      offCtx.clearRect(0, 0, offCanvas.width, offCanvas.height);
+      this.saveTracked(offCtx);
+      this.marginViewport.applyRenderTransform(offCtx);
+      for (const element of elements) {
+        this.renderCulled(offCtx as CanvasRenderingContext2D, element, cullingRect);
+      }
+      this.restoreTracked(offCtx);
+      this.layerCache.markClean(layerId);
+      this.layersMs += performance.now() - layerT0;
+
+      const compT0 = performance.now();
+      this.compositeLayerCache(ctx, offCanvas, layerOpacity);
+      this.compositeMs += performance.now() - compT0;
+    }
+  }
+
   private renderCulled(
     ctx: CanvasRenderingContext2D,
     element: CanvasElement,
@@ -462,8 +524,8 @@ export class RenderLoop {
     for (const canvas of this.staleCanvases) resetCanvas(canvas);
     this.staleCanvases.length = 0;
 
-    let layersMs = 0;
-    let compositeMs = 0;
+    this.layersMs = 0;
+    this.compositeMs = 0;
 
     const dpr = typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1;
     const cssWidth = this.canvasEl.clientWidth;
@@ -535,7 +597,8 @@ export class RenderLoop {
     }
     const { firstDomIndex, hybridActive } = this;
     this.layerOpacities.clear();
-    for (const layer of this.layerManager.getLayers()) {
+    const layers = this.layerManager.getLayers();
+    for (const layer of layers) {
       this.layerOpacities.set(layer.id, layer.opacity);
     }
     const hybridCanvasRuns = new Map<number, CanvasElement[]>();
@@ -608,58 +671,33 @@ export class RenderLoop {
     if (hasAfterAllHook) hybridOrders.add(afterAllOrder);
     this.hybridSurface.beginFrame(hybridOrders, this.canvasEl.width, this.canvasEl.height);
 
-    for (const [layerId, elements] of this.layerGroups) {
-      const layerOpacity = this.layerOpacities.get(layerId) ?? 1;
-
-      // Opacity is re-checked here because it can drop below 1 while an element is still live.
-      if (this.live.size > 0 && layerOpacity === 1) {
-        let lo = -1;
-        let hi = -1;
-        for (let i = 0; i < elements.length; i++) {
-          const element = elements[i];
-          if (!element || !this.live.has(element.id)) continue;
-          if (lo < 0) lo = i;
-          hi = i;
-        }
-        if (lo >= 0) {
-          const layerT0 = performance.now();
-          this.drawLayerPart(ctx, layerId, 'under', elements, 0, lo, cullingRect);
-          for (let i = lo; i <= hi; i++) {
-            const element = elements[i];
-            if (element) this.renderCulled(ctx, element, cullingRect);
-          }
-          this.drawLayerPart(ctx, layerId, 'over', elements, hi + 1, elements.length, cullingRect);
-          layersMs += performance.now() - layerT0;
-          continue;
-        }
+    const hasAfterLayerHook = this.hooks?.viewport.has('afterLayer') ?? false;
+    let drawnGroups = 0;
+    for (const layer of layers) {
+      const elements = this.layerGroups.get(layer.id);
+      if (elements) {
+        this.drawLayerGroup(ctx, layer.id, elements, cullingRect);
+        drawnGroups++;
       }
-
-      if (!this.layerCache.isDirty(layerId)) {
-        const compT0 = performance.now();
-        this.compositeLayerCache(ctx, this.layerCache.getCanvas(layerId), layerOpacity);
-        compositeMs += performance.now() - compT0;
-        continue;
-      }
-
-      const offCtx = this.layerCache.getContext(layerId);
-      if (offCtx) {
-        const layerT0 = performance.now();
-        const offCanvas = this.layerCache.getCanvas(layerId);
-        offCtx.clearRect(0, 0, offCanvas.width, offCanvas.height);
-        this.saveTracked(offCtx);
-        this.marginViewport.applyRenderTransform(offCtx);
-        for (const element of elements) {
-          const elBounds = getElementVisualBounds(element, registry);
-          if (elBounds && !boundsIntersect(elBounds, cullingRect)) continue;
-          this.renderer.renderCanvasElement(offCtx as CanvasRenderingContext2D, element);
+      if (!this.hooks || !hasAfterLayerHook || !layer.visible) continue;
+      this.saveTracked(ctx);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const failed = this.hooks.viewport.call(
+        'afterLayer',
+        ctx,
+        this.camera,
+        { width: cssWidth, height: cssHeight, dpr },
+        layer.id,
+      );
+      this.restoreTracked(ctx);
+      if (failed) this.staleCanvases.push(this.canvasEl);
+    }
+    // Groups of layers the manager does not list still draw, in their existing order.
+    if (drawnGroups < this.layerGroups.size) {
+      for (const [layerId, elements] of this.layerGroups) {
+        if (!this.layerOpacities.has(layerId)) {
+          this.drawLayerGroup(ctx, layerId, elements, cullingRect);
         }
-        this.restoreTracked(offCtx);
-        this.layerCache.markClean(layerId);
-        layersMs += performance.now() - layerT0;
-
-        const compT0 = performance.now();
-        this.compositeLayerCache(ctx, offCanvas, layerOpacity);
-        compositeMs += performance.now() - compT0;
       }
     }
 
@@ -801,9 +839,9 @@ export class RenderLoop {
     }
 
     this.stats.recordFrame(performance.now() - t0, {
-      layersMs,
+      layersMs: this.layersMs,
       backgroundMs,
-      compositeMs,
+      compositeMs: this.compositeMs,
       overlayMs,
     });
   }

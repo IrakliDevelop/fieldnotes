@@ -1967,6 +1967,117 @@ describe('RenderLoop', () => {
       expect(order).toEqual(['afterElements', 'afterAll']);
     });
 
+    describe('afterLayer hook', () => {
+      let store: RealElementStore;
+      let layers: RealLayerManager;
+      let hooks: RenderHooks;
+
+      beforeEach(() => {
+        Object.defineProperty(deps.canvasEl, 'clientWidth', { value: 800, configurable: true });
+        Object.defineProperty(deps.canvasEl, 'clientHeight', { value: 600, configurable: true });
+        store = new RealElementStore();
+        layers = new RealLayerManager(store);
+        hooks = createRenderHooks();
+      });
+
+      afterEach(() => {
+        vi.unstubAllGlobals();
+      });
+
+      function frame(): void {
+        const loop = new RenderLoop({ ...deps, store, layerManager: layers, hooks });
+        loop.requestRender();
+        loop.flush();
+      }
+
+      function shapeOn(id: string, layerId: string) {
+        return {
+          ...createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 }, layerId }),
+          id,
+        };
+      }
+
+      it('calls afterLayer after each visible layer in paint order, including empty layers', () => {
+        const l1 = layers.activeLayerId;
+        const l2 = layers.createLayer().id;
+        const l3 = layers.createLayer().id;
+        layers.setLayerVisible(l3, false);
+        store.add(shapeOn('a', l1));
+        store.add(shapeOn('hidden', l3));
+        const events: string[] = [];
+        vi.mocked(deps.renderer.renderCanvasElement).mockImplementation((_ctx, el) => {
+          events.push(`draw ${el.id}`);
+        });
+        hooks.viewport.register({
+          afterLayer: (_ctx, _camera, _dims, layerId) => {
+            events.push(`hook ${layerId}`);
+          },
+        });
+
+        frame();
+
+        expect(events).toEqual(['draw a', `hook ${l1}`, `hook ${l2}`]);
+      });
+
+      it('afterLayer draws in screen space', () => {
+        vi.stubGlobal('devicePixelRatio', 2);
+        Object.assign(deps.camera, { position: { x: 30, y: 40 }, zoom: 3 });
+        // Tracks an axis-aligned transform (scale a/d, translation e/f) through save/restore.
+        let m = { a: 1, d: 1, e: 0, f: 0 };
+        const stack: (typeof m)[] = [];
+        const ctx = {
+          ...mockCtx(),
+          save: () => stack.push({ ...m }),
+          restore: () => {
+            m = stack.pop() ?? m;
+          },
+          scale: (x: number, y: number) => {
+            m = { ...m, a: m.a * x, d: m.d * y };
+          },
+          translate: (x: number, y: number) => {
+            m = { ...m, e: m.e + m.a * x, f: m.f + m.d * y };
+          },
+          setTransform: (a: number, _b: number, _c: number, d: number, e: number, f: number) => {
+            m = { a, d, e, f };
+          },
+        } as unknown as CanvasRenderingContext2D;
+        const getContextSpy = vi
+          .spyOn(HTMLCanvasElement.prototype, 'getContext')
+          .mockReturnValue(ctx as never);
+        const seen: (typeof m)[] = [];
+        hooks.viewport.register({ afterLayer: () => seen.push({ ...m }) });
+        try {
+          frame();
+        } finally {
+          getContextSpy.mockReturnValue(mockCtx() as never);
+        }
+
+        expect(seen).toEqual([{ a: 2, d: 2, e: 0, f: 0 }]);
+      });
+
+      it('a throwing afterLayer hook is quarantined and the base canvas is reset next frame', () => {
+        vi.stubGlobal('reportError', vi.fn());
+        const main = statefulCtx(deps.canvasEl);
+        const getContextSpy = vi
+          .spyOn(HTMLCanvasElement.prototype, 'getContext')
+          .mockReturnValue(main.ctx as never);
+        const afterLayer = vi.fn(clipThenThrow);
+        hooks.viewport.register({ afterLayer });
+        const loop = new RenderLoop({ ...deps, store, layerManager: layers, hooks });
+        try {
+          loop.requestRender();
+          loop.flush();
+          expect(main.resets()).toBe(0);
+          loop.flush();
+          expect(main.resets()).toBe(1);
+          expect(afterLayer).toHaveBeenCalledTimes(1);
+          expect(main.depth()).toBe(0);
+        } finally {
+          getContextSpy.mockReturnValue(mockCtx() as never);
+        }
+      });
+    });
+
     it('does not fire hooks when no hooks provided', () => {
       const loop = new RenderLoop(deps);
       loop.requestRender();
