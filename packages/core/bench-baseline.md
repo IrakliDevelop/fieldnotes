@@ -49,4 +49,4 @@
 ## Acceptance criteria
 
 Per the migration plan: **no more than 5% performance degradation** from the pre-extension baseline.
-The roadmap targets a 10,000-element perf gate (Phase 5); the current bench uses 500 elements.
+The roadmap targets a 10,000-element perf gate (Phase 5); the store benches use 500 elements and the render-frame bench uses 10,000.
