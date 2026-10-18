@@ -1,6 +1,6 @@
 # Performance Baseline
 
-> Generated: 2026-09-20 against `@fieldnotes/core@0.83.0`
+> Generated: 2026-10-18 against `@fieldnotes/core@0.88.1`
 > Environment: Node 22, Linux (development machine)
 > Run: `pnpm bench`
 
@@ -8,31 +8,43 @@
 
 | Benchmark                  | ops/s       | Mean (ms) | P99 (ms) |
 | -------------------------- | ----------- | --------- | -------- |
-| queryRect (viewport-sized) | ~424,000    | 0.0024    | 0.0028   |
-| queryPoint (single point)  | ~507,000    | 0.0020    | 0.0025   |
-| getAll (baseline linear)   | ~39,200,000 | 0.0000    | 0.0000   |
+| queryRect (viewport-sized) | ~265,000    | 0.0038    | 0.0061   |
+| queryPoint (single point)  | ~380,000    | 0.0026    | 0.0042   |
+| getAll (baseline linear)   | ~29,600,000 | 0.0000    | 0.0000   |
 
 ## getElementBounds
 
 | Benchmark                       | ops/s       | Mean (ms) | P99 (ms) |
 | ------------------------------- | ----------- | --------- | -------- |
-| bounds for note (sized element) | ~23,100,000 | 0.0000    | 0.0001   |
-| bounds for stroke (cached)      | ~23,300,000 | 0.0000    | 0.0000   |
-| bounds for arrow (bezier)       | ~16,200,000 | 0.0001    | 0.0001   |
+| bounds for note (sized element) | ~12,200,000 | 0.0001    | 0.0009   |
+| bounds for stroke (cached)      | ~18,500,000 | 0.0001    | 0.0001   |
+| bounds for arrow (bezier)       | ~12,700,000 | 0.0001    | 0.0001   |
 
 ## boundsIntersect
 
 | Benchmark        | ops/s       | Mean (ms) | P99 (ms) |
 | ---------------- | ----------- | --------- | -------- |
-| intersecting     | ~31,600,000 | 0.0000    | 0.0001   |
-| non-intersecting | ~30,200,000 | 0.0000    | 0.0000   |
+| intersecting     | ~25,400,000 | 0.0000    | 0.0000   |
+| non-intersecting | ~25,200,000 | 0.0000    | 0.0001   |
 
 ## Store mutations with spatial index
 
-| Benchmark                 | ops/s   | Mean (ms) | P99 (ms) |
-| ------------------------- | ------- | --------- | -------- |
-| add 100 elements          | ~15,800 | 0.063     | 0.080    |
-| loadSnapshot 500 elements | ~3,100  | 0.322     | 0.673    |
+| Benchmark                 | ops/s  | Mean (ms) | P99 (ms) |
+| ------------------------- | ------ | --------- | -------- |
+| add 100 elements          | ~9,800 | 0.102     | 0.372    |
+| loadSnapshot 500 elements | ~2,100 | 0.478     | 1.442    |
+
+## RenderLoop frame
+
+| Benchmark                           | ops/s | Mean (ms) | P99 (ms) |
+| ----------------------------------- | ----- | --------- | -------- |
+| 10,000 mixed elements over 4 layers | ~971  | 1.029     | 1.795    |
+
+## Note creation
+
+| Benchmark                   | ops/s | Mean (ms) | P99 (ms) |
+| --------------------------- | ----- | --------- | -------- |
+| createNote + store.add x100 | ~116  | 8.622     | 13.646   |
 
 ## Acceptance criteria
 
