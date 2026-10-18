@@ -320,8 +320,9 @@ export class MinimapController {
       this.minimapHooks.call('afterElements', miniMapping);
       // A satisfying hook that just threw must not leave unmasked content in the scene.
       if (this.minimapHooks.isFailClosed()) {
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
-        ctx.clearRect(0, 0, sceneCanvas.width, sceneCanvas.height);
+        // Reassigning width also drops any clip or save the hook left behind.
+        const { width } = sceneCanvas;
+        sceneCanvas.width = width;
       }
     }
 

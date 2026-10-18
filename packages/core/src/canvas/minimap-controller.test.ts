@@ -765,30 +765,47 @@ describe('MinimapController fail-closed hooks', () => {
     viewport.destroy();
   });
 
-  it('blanks the scene when a satisfying hook throws while it renders', () => {
+  it('resets the scene canvas when a satisfying hook clips then throws', () => {
     vi.stubGlobal('reportError', vi.fn());
     const { viewport } = makeViewportHarness();
     addContent(viewport);
     const minimapHooks = createRenderHooks().minimap;
     minimapHooks.setRequiredCapabilities(['x']);
+    let threw = false;
     minimapHooks.register(
       {
-        afterElements: () => {
+        afterElements: ({ ctx }) => {
+          ctx.save();
+          ctx.rect(0, 0, 1, 1);
+          ctx.clip();
+          threw = true;
           throw new Error('fog failed');
         },
       },
       { satisfies: ['x'] },
     );
-    const canvas = document.createElement('canvas');
+    const widthSetter = Object.getOwnPropertyDescriptor(HTMLCanvasElement.prototype, 'width')?.set;
+    if (!widthSetter) throw new Error('canvas width setter not found');
+    const resetAfterThrow: unknown[] = [];
+    const widthSpy = vi
+      .spyOn(HTMLCanvasElement.prototype, 'width', 'set')
+      .mockImplementation(function (this: HTMLCanvasElement, value: number) {
+        if (threw) resetAfterThrow.push(this);
+        widthSetter.call(this, value);
+      });
+    const queue = makeFrameQueue();
 
-    const controller = makeController(viewport, canvas, makeFrameQueue(), { minimapHooks });
-
-    expect(minimapHooks.isFailClosed()).toBe(true);
-    expect(recorder.setTransform).toHaveBeenLastCalledWith(1, 0, 0, 1, 0, 0);
-    expect(recorder.clearRect).toHaveBeenCalledTimes(1);
-
-    controller.dispose();
-    viewport.destroy();
+    try {
+      const controller = makeController(viewport, document.createElement('canvas'), queue, {
+        minimapHooks,
+      });
+      queue.flush();
+      expect(resetAfterThrow).toContain(lastComposite().args[0]);
+      controller.dispose();
+    } finally {
+      widthSpy.mockRestore();
+      viewport.destroy();
+    }
   });
 });
 

@@ -133,7 +133,70 @@ function mockCtx(): CanvasRenderingContext2D {
     clearRect: vi.fn(),
     drawImage: vi.fn(),
     setTransform: vi.fn(),
+    canvas: { width: 300, height: 150 },
   } as unknown as CanvasRenderingContext2D;
+}
+
+interface ClipState {
+  clips: number;
+  scale: number;
+}
+
+// A 2d context modelling the clip/scale state stack; reassigning its canvas width resets it.
+function statefulCtx(canvas: { width: number; height: number } = { width: 300, height: 150 }) {
+  let state: ClipState = { clips: 0, scale: 1 };
+  const stack: ClipState[] = [];
+  const fills: ClipState[] = [];
+  let resets = 0;
+  const reset = (): void => {
+    resets++;
+    state = { clips: 0, scale: 1 };
+    stack.length = 0;
+  };
+  let width = canvas.width;
+  Object.defineProperty(canvas, 'width', {
+    configurable: true,
+    get: () => width,
+    set: (value: number) => {
+      width = value;
+      reset();
+    },
+  });
+  const ctx = {
+    ...mockCtx(),
+    canvas,
+    fillStyle: '',
+    save: () => stack.push({ ...state }),
+    restore: () => {
+      state = stack.pop() ?? state;
+    },
+    rect: vi.fn(),
+    clip: () => {
+      state.clips++;
+    },
+    scale: (x: number) => {
+      state.scale *= x;
+    },
+    setTransform: (a: number) => {
+      state.scale = a;
+    },
+    fillRect: () => fills.push({ ...state }),
+  } as unknown as CanvasRenderingContext2D;
+  return {
+    ctx,
+    fills,
+    depth: () => stack.length,
+    state: () => ({ ...state }),
+    resets: () => resets,
+  };
+}
+
+function clipThenThrow(ctx: CanvasRenderingContext2D): never {
+  ctx.save();
+  ctx.rect(0, 0, 1, 1);
+  ctx.clip();
+  ctx.save();
+  throw new Error('hook failed');
 }
 
 describe('RenderLoop', () => {
@@ -833,8 +896,8 @@ describe('RenderLoop', () => {
       let innerError: unknown;
       hooks.viewport.register({
         beforeElements: () => {
-          // needsRender is still set while the outer frame renders, so this re-enters.
           try {
+            loop.requestRender();
             loop.flush();
           } catch (error) {
             innerError = error;
@@ -873,6 +936,33 @@ describe('RenderLoop', () => {
         renderLoop.requestRender();
         expect(() => renderLoop.flush()).toThrow('overlay failed');
         expect(ctx.depth).toBe(0);
+      } finally {
+        getContextSpy.mockReturnValue(mockCtx() as never);
+      }
+    });
+
+    it('resets the main context and re-renders after a beforeElements hook clips then throws', () => {
+      vi.stubGlobal('devicePixelRatio', 2);
+      const main = statefulCtx(deps.canvasEl);
+      const getContextSpy = vi
+        .spyOn(HTMLCanvasElement.prototype, 'getContext')
+        .mockReturnValue(main.ctx as never);
+      const atBackground: ClipState[] = [];
+      (deps.background.render as ReturnType<typeof vi.fn>).mockImplementation(() => {
+        atBackground.push(main.state());
+      });
+      const hooks: RenderHooks = createRenderHooks();
+      hooks.viewport.register({ beforeElements: clipThenThrow });
+      const loop = new RenderLoop({ ...deps, hooks });
+      try {
+        loop.requestRender();
+        loop.flush();
+        loop.flush();
+        expect(atBackground).toEqual([
+          { clips: 0, scale: 2 },
+          { clips: 0, scale: 2 },
+        ]);
+        expect(main.depth()).toBe(0);
       } finally {
         getContextSpy.mockReturnValue(mockCtx() as never);
       }
@@ -984,6 +1074,100 @@ describe('RenderLoop', () => {
         loop.requestRender();
         loop.flush();
       } finally {
+        vi.unstubAllGlobals();
+      }
+
+      const stratum = contexts.get(3) as unknown as { fillRect: ReturnType<typeof vi.fn> };
+      expect(stratum.fillRect).toHaveBeenCalledWith(0, 0, 640, 480);
+    });
+    it('masks an afterElements clip-then-throw with a full unclipped fill and leaks nothing', () => {
+      vi.stubGlobal('reportError', vi.fn());
+      vi.stubGlobal('devicePixelRatio', 2);
+      const stratum = statefulCtx();
+      vi.mocked(deps.hybridSurface.getContext).mockReturnValue(stratum.ctx);
+      const hooks: RenderHooks = createRenderHooks();
+      hooks.viewport.setRequiredCapabilities(['x']);
+      hooks.viewport.register({ afterElements: clipThenThrow }, { satisfies: ['x'] });
+      const probed: ClipState[] = [];
+      hooks.viewport.register(
+        { afterElements: () => probed.push(stratum.state()) },
+        { priority: 1 },
+      );
+      const loop = new RenderLoop({ ...deps, hooks });
+
+      try {
+        loop.requestRender();
+        loop.flush();
+        expect(stratum.depth()).toBe(0);
+        loop.requestRender();
+        loop.flush();
+      } finally {
+        vi.unstubAllGlobals();
+      }
+
+      expect(stratum.fills).toEqual([
+        { clips: 0, scale: 2 },
+        { clips: 0, scale: 2 },
+      ]);
+      expect(probed.at(-1)).toEqual({ clips: 0, scale: 2 });
+      expect(stratum.depth()).toBe(0);
+    });
+
+    it('keeps sibling fog pixels for the frame a non-satisfying afterElements hook throws', () => {
+      vi.stubGlobal('reportError', vi.fn());
+      const stratum = statefulCtx();
+      vi.mocked(deps.hybridSurface.getContext).mockReturnValue(stratum.ctx);
+      const hooks: RenderHooks = createRenderHooks();
+      hooks.viewport.setRequiredCapabilities(['x']);
+      hooks.viewport.register(
+        { afterElements: (ctx) => ctx.fillRect(0, 0, 1, 1) },
+        { satisfies: ['x'] },
+      );
+      hooks.viewport.register({ afterElements: clipThenThrow }, { priority: 1 });
+      const loop = new RenderLoop({ ...deps, hooks });
+
+      try {
+        loop.requestRender();
+        loop.flush();
+        expect(stratum.resets()).toBe(0);
+        loop.flush();
+      } finally {
+        vi.unstubAllGlobals();
+      }
+
+      expect(stratum.resets()).toBe(1);
+      expect(stratum.fills).toHaveLength(2);
+      expect(stratum.depth()).toBe(0);
+    });
+
+    it('masks the next rAF tick without a request after an afterAll satisfier throws', () => {
+      vi.stubGlobal('reportError', vi.fn());
+      const frames: FrameRequestCallback[] = [];
+      const rafSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
+        frames.push(cb);
+        return frames.length;
+      });
+      const contexts = stratumContexts();
+      const hooks: RenderHooks = createRenderHooks();
+      hooks.viewport.setRequiredCapabilities(['x']);
+      hooks.viewport.register(
+        {
+          afterAll: () => {
+            throw new Error('fog failed');
+          },
+        },
+        { satisfies: ['x'] },
+      );
+      const loop = new RenderLoop({ ...deps, hooks });
+
+      try {
+        loop.start();
+        loop.requestRender();
+        frames.shift()?.(0);
+        frames.shift()?.(0);
+      } finally {
+        loop.stop();
+        rafSpy.mockRestore();
         vi.unstubAllGlobals();
       }
 

@@ -263,6 +263,34 @@ describe('Viewport plugin lifecycle', () => {
     expect(container.childElementCount).toBe(0);
   });
 
+  it('rejects exports once the only satisfier of a required capability is disposed', async () => {
+    let disposeSatisfiers = (): void => undefined;
+    const viewport = new Viewport(container, {
+      requiredCapabilities: { imageExport: ['x'], svgExport: ['x'] },
+      plugins: [
+        {
+          name: 'fog',
+          start(context) {
+            const hooks = context.viewport.renderHooks;
+            const offImage = hooks.imageExport.register({}, { satisfies: ['x'] });
+            const offSvg = hooks.svgExport.register({}, { satisfies: ['x'] });
+            disposeSatisfiers = () => {
+              offImage();
+              offSvg();
+            };
+            return undefined;
+          },
+        },
+      ],
+    });
+
+    disposeSatisfiers();
+
+    await expect(viewport.exportImage()).rejects.toThrow('missing on imageExport: x');
+    await expect(viewport.exportSVG()).rejects.toThrow('missing on svgExport: x');
+    viewport.destroy();
+  });
+
   it('disposes handles and start resources in reverse plugin order', () => {
     const order: string[] = [];
     const plugin = (name: string): ViewportPlugin => ({

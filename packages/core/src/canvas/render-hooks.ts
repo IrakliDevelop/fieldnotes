@@ -89,8 +89,12 @@ export class TypedHookRegistry<T extends Record<string, unknown>> {
     }
   }
 
-  /** Runs each live hook in order; a throwing hook is quarantined and reported once. */
-  call<K extends keyof T & string>(hookName: K, ...args: HookArgs<T[K]>): void {
+  /**
+   * Runs each live hook in order; a throwing hook is quarantined and reported once.
+   * Returns true when this call quarantined a hook.
+   */
+  call<K extends keyof T & string>(hookName: K, ...args: HookArgs<T[K]>): boolean {
+    let failed = false;
     for (const entry of this.sortedEntries()) {
       if (!this.isLive(entry)) continue;
       const fn = entry.hooks[hookName];
@@ -99,9 +103,11 @@ export class TypedHookRegistry<T extends Record<string, unknown>> {
         fn(...args);
       } catch (error) {
         entry.quarantined = true;
+        failed = true;
         reportFailure(error, `render hook "${hookName}" failed`);
       }
     }
+    return failed;
   }
 
   has(hookName: keyof T & string): boolean {

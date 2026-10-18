@@ -31,6 +31,12 @@ interface SavableContext {
   restore(): void;
 }
 
+/** Reassigning width clears the pixels and drops the whole save, clip and transform stack. */
+function resetCanvas(canvas: HTMLCanvasElement): void {
+  const { width } = canvas;
+  canvas.width = width;
+}
+
 export interface RenderLoopDeps {
   canvasEl: HTMLCanvasElement;
   camera: Camera;
@@ -69,6 +75,8 @@ export class RenderLoop {
   private htmlScratchCtx: CanvasRenderingContext2D | null = null;
   private renderErrorReported = false;
   private readonly savedContexts: SavableContext[] = [];
+  // Canvases a throwing hook left with stray clips or saves; reset before the next frame.
+  private readonly staleCanvases: HTMLCanvasElement[] = [];
   private readonly layerOpacities = new Map<string, number>();
   // Frame structure, recomputed only when the store array or layer state changes.
   private structureSource: readonly CanvasElement[] | null = null;
@@ -98,8 +106,8 @@ export class RenderLoop {
 
   flush(): void {
     if (this.needsRender) {
-      this.render();
       this.needsRender = false;
+      this.render();
     }
   }
 
@@ -108,6 +116,7 @@ export class RenderLoop {
       // A throwing frame must not end the loop: rAF only continues if we reschedule.
       try {
         if (this.needsRender) {
+          this.needsRender = false;
           try {
             this.render();
             this.renderErrorReported = false;
@@ -118,7 +127,6 @@ export class RenderLoop {
               reportFailure(error, 'render failed');
             }
           }
-          this.needsRender = false;
         }
       } finally {
         this.animFrameId = requestAnimationFrame(loop);
@@ -367,6 +375,8 @@ export class RenderLoop {
     const t0 = performance.now();
     const ctx = this.canvasEl.getContext('2d');
     if (!ctx) return;
+    for (const canvas of this.staleCanvases) resetCanvas(canvas);
+    this.staleCanvases.length = 0;
 
     let layersMs = 0;
     let compositeMs = 0;
@@ -396,12 +406,13 @@ export class RenderLoop {
 
     if (this.hooks) {
       this.saveTracked(ctx);
-      this.hooks.viewport.call('beforeElements', ctx, this.camera, {
+      const failed = this.hooks.viewport.call('beforeElements', ctx, this.camera, {
         width: cssWidth,
         height: cssHeight,
         dpr,
       });
       this.restoreTracked(ctx);
+      if (failed) this.staleCanvases.push(this.canvasEl);
     }
 
     this.saveTracked(ctx);
@@ -620,21 +631,24 @@ export class RenderLoop {
         hookCtx.clearRect(0, 0, this.canvasEl.width, this.canvasEl.height);
         this.saveTracked(hookCtx);
         hookCtx.scale(dpr, dpr);
-        this.hooks.viewport.call('afterElements', hookCtx, this.camera, {
+        const failed = this.hooks.viewport.call('afterElements', hookCtx, this.camera, {
           width: cssWidth,
           height: cssHeight,
           dpr,
         });
+        this.restoreTracked(hookCtx);
         // Re-checked so the frame in which a satisfying hook throws is masked too.
         if (masked || this.hooks.viewport.isFailClosed()) {
-          // A hook that threw may have left transform or alpha changed.
+          // A thrower may leave clips and saves the bracket cannot undo.
+          if (failed) resetCanvas(hookCtx.canvas);
           hookCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-          hookCtx.globalAlpha = 1;
-          hookCtx.globalCompositeOperation = 'source-over';
           hookCtx.fillStyle = '#000';
           hookCtx.fillRect(0, 0, cssWidth, cssHeight);
+          hookCtx.setTransform(1, 0, 0, 1, 0, 0);
+        } else if (failed) {
+          // Resetting now would erase sibling hooks' pixels (fog) for this frame.
+          this.staleCanvases.push(hookCtx.canvas);
         }
-        this.restoreTracked(hookCtx);
       }
     }
 
@@ -662,12 +676,13 @@ export class RenderLoop {
         hookCtx.clearRect(0, 0, this.canvasEl.width, this.canvasEl.height);
         this.saveTracked(hookCtx);
         hookCtx.scale(dpr, dpr);
-        this.hooks.viewport.call('afterAll', hookCtx, this.camera, {
+        const failed = this.hooks.viewport.call('afterAll', hookCtx, this.camera, {
           width: cssWidth,
           height: cssHeight,
           dpr,
         });
         this.restoreTracked(hookCtx);
+        if (failed) this.staleCanvases.push(hookCtx.canvas);
       }
     }
 
@@ -675,6 +690,10 @@ export class RenderLoop {
 
     this.restoreTracked(ctx);
     this.restoreTracked(ctx);
+    // A hook that failed mid-frame needs a masked or reset frame without waiting for input.
+    if ((!masked && this.hooks?.viewport.isFailClosed()) || this.staleCanvases.length > 0) {
+      this.requestRender();
+    }
 
     this.stats.recordFrame(performance.now() - t0, {
       layersMs,
