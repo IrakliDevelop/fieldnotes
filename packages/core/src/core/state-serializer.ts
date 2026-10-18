@@ -401,7 +401,9 @@ function validateTypeFields(
         isOptional(el['flip'], isBoolean)
       );
     case 'extension':
-      return isString(el['extensionType']) && isRecord(el['data']);
+      return (
+        isString(el['extensionType']) && isRecord(el['data']) && isOptional(el['size'], isSize)
+      );
   }
 }
 

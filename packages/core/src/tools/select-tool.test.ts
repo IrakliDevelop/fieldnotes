@@ -27,6 +27,8 @@ import type {
   ExtensionElementEnvelope,
 } from '../elements/types';
 import { ElementRegistry } from '../elements/element-registry';
+import { HistoryStack } from '../history/history-stack';
+import { HistoryRecorder } from '../history/history-recorder';
 import type { Point } from '../core/types';
 
 function makeSnapProxy(
@@ -2554,6 +2556,133 @@ describe('SelectTool extension handles', () => {
         { x: 10, y: 10 },
         expect.objectContaining({ shiftKey: true }),
       );
+    },
+  );
+});
+
+describe('SelectTool sized extension resize', () => {
+  function setup(extra: Partial<ExtensionElementEnvelope> = {}) {
+    const registry = new ElementRegistry();
+    const renderSelection = vi.fn();
+    registry.register<ExtensionElementEnvelope>({
+      type: 'test:box',
+      legacyTypes: [],
+      decodeLegacy: (raw) => raw as unknown as ExtensionElementEnvelope,
+      validateData: () => true,
+      unwrap: (element) => element,
+      wrap: (element) => element,
+      bounds: (el) => ({
+        x: el.position.x,
+        y: el.position.y,
+        w: el.size?.w ?? 100,
+        h: el.size?.h ?? 50,
+      }),
+      interaction: { renderSelection },
+      renderMode: 'canvas',
+    });
+    const element: ExtensionElementEnvelope = {
+      id: 'box',
+      type: 'extension',
+      extensionType: 'test:box',
+      position: { x: 100, y: 100 },
+      zIndex: 0,
+      locked: false,
+      layerId: '',
+      data: {},
+      ...extra,
+    };
+    const store = new ElementStore();
+    store.setElementRegistry(registry);
+    store.add(element);
+    const stack = new HistoryStack();
+    const recorder = new HistoryRecorder(store, stack);
+    const ctx = makeCtx({ store, elementRegistry: registry });
+    const tool = new SelectTool();
+    tool.onActivate(ctx);
+    tool.setSelection([element.id]);
+    const drag = (from: Point, to: Point) => {
+      recorder.begin();
+      tool.onPointerDown(pt(from.x, from.y), ctx);
+      tool.onPointerMove(pt(to.x, to.y), ctx);
+      tool.onPointerUp(pt(to.x, to.y), ctx);
+      recorder.commit();
+    };
+    const box = () => store.getById(element.id) as ExtensionElementEnvelope;
+    return { ctx, tool, stack, store, renderSelection, drag, box };
+  }
+
+  function overlayCanvas(): CanvasRenderingContext2D {
+    return {
+      save: vi.fn(),
+      restore: vi.fn(),
+      strokeRect: vi.fn(),
+      fillRect: vi.fn(),
+      beginPath: vi.fn(),
+      moveTo: vi.fn(),
+      lineTo: vi.fn(),
+      closePath: vi.fn(),
+      arc: vi.fn(),
+      fill: vi.fn(),
+      stroke: vi.fn(),
+      setLineDash: vi.fn(),
+    } as unknown as CanvasRenderingContext2D;
+  }
+
+  it('draws four corner handles for a sized extension', () => {
+    const { tool, renderSelection } = setup({ size: { w: 100, h: 50 } });
+    const canvas = overlayCanvas();
+
+    tool.renderOverlay?.(canvas);
+
+    expect(canvas.fillRect).toHaveBeenCalledTimes(4);
+    expect(renderSelection).not.toHaveBeenCalled();
+  });
+
+  it('bottom-right handle drag grows size and keeps position in one undo step', () => {
+    const { drag, box, stack, store } = setup({ size: { w: 100, h: 50 } });
+
+    drag({ x: 200, y: 150 }, { x: 220, y: 160 });
+
+    expect(box().size).toEqual({ w: 120, h: 60 });
+    expect(box().position).toEqual({ x: 100, y: 100 });
+    expect(stack.undoCount).toBe(1);
+    stack.undo(store);
+    expect(box().size).toEqual({ w: 100, h: 50 });
+  });
+
+  it('top-left handle drag moves position and shrinks size; one undo restores both', () => {
+    const { drag, box, stack, store } = setup({ size: { w: 100, h: 50 } });
+
+    drag({ x: 100, y: 100 }, { x: 110, y: 105 });
+
+    expect(box().position).toEqual({ x: 110, y: 105 });
+    expect(box().size).toEqual({ w: 90, h: 45 });
+    expect(stack.undoCount).toBe(1);
+    stack.undo(store);
+    expect(box().position).toEqual({ x: 100, y: 100 });
+    expect(box().size).toEqual({ w: 100, h: 50 });
+  });
+
+  it('a locked sized extension exposes no resize handles', () => {
+    const { ctx, tool } = setup({ size: { w: 100, h: 50 }, locked: true });
+
+    expect(hitTestResizeHandle({ x: 200, y: 150 }, ctx, tool.selectedIds)).toBeNull();
+  });
+
+  it.each([
+    ['without a size key', {}],
+    ['with size undefined', { size: undefined }],
+  ])(
+    'an extension %s gets no core handles and keeps its adapter selection rendering',
+    (_, extra) => {
+      const { ctx, tool, renderSelection } = setup(extra);
+      const canvas = overlayCanvas();
+
+      tool.renderOverlay?.(canvas);
+
+      expect(hitTestResizeHandle({ x: 200, y: 150 }, ctx, tool.selectedIds)).toBeNull();
+      expect(canvas.fillRect).not.toHaveBeenCalled();
+      expect(renderSelection).toHaveBeenCalledTimes(1);
     },
   );
 });

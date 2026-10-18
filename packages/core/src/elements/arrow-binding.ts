@@ -11,7 +11,7 @@ export function isBindable(element: CanvasElement): boolean {
 }
 
 export function getElementCenter(element: CanvasElement): Point {
-  if (!('size' in element)) {
+  if (!('size' in element) || element.type === 'extension') {
     throw new Error(`getElementCenter: element type "${element.type}" has no size`);
   }
   return {

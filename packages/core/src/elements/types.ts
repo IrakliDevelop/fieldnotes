@@ -122,6 +122,8 @@ export interface ExtensionElementEnvelope extends BaseElement {
   readonly data: Record<string, unknown>;
   /** Version of `data` in the owning type's schema; absent means 1. */
   readonly dataVersion?: number;
+  /** Opts the element into core resize handles; the definition's `bounds` should read it. */
+  readonly size?: Size;
 }
 
 export interface ExtensionInteractionHandle {

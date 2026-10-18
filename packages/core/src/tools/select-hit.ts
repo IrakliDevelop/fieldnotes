@@ -5,6 +5,7 @@ import { distSqToSegment, rotatePoint, rotatedAABB } from '../core/geometry';
 import type { CanvasElement } from '../elements/types';
 import { isNearBezier } from '../elements/arrow-geometry';
 import { getElementBounds } from '../elements/element-bounds';
+import { hasSize } from '../elements/element-size';
 import { hitTestStroke } from '../elements/stroke-hit';
 import { lineEndpoints } from '../elements/shape-geometry';
 import type { HandlePosition } from './select-overlay';
@@ -136,7 +137,7 @@ export function hitTestResizeHandle(
 
   for (const id of selectedIds) {
     const el = ctx.store.getById(id);
-    if (!el || !('size' in el)) continue;
+    if (!el || !hasSize(el)) continue;
     if (el.locked) continue;
     if (el.type === 'shape' && el.shape === 'line') continue;
 

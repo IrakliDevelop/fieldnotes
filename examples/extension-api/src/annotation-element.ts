@@ -4,6 +4,7 @@ import type {
   BaseElement,
   Bounds,
   Point,
+  Size,
 } from '@fieldnotes/core';
 
 // ─── 1. Define the typed element ──────────────────────────────────────────────
@@ -15,7 +16,8 @@ export interface AnnotationElement extends BaseElement {
   type: 'example:annotation';
   label: string;
   color: string;
-  radius: number;
+  // Carried on the envelope (not in `data`) so core draws resize handles for it.
+  size: Size;
 }
 
 // ─── 2. Define the element type definition ────────────────────────────────────
@@ -32,12 +34,7 @@ export const annotationDefinition: ElementTypeDefinition<AnnotationElement> = {
   // ── Validation ────────────────────────────────────────────────────────────
   // Called on deserialization and when receiving envelopes from peers.
   validateData(data: Record<string, unknown>): boolean {
-    return (
-      typeof data['label'] === 'string' &&
-      typeof data['color'] === 'string' &&
-      typeof data['radius'] === 'number' &&
-      Number.isFinite(data['radius'])
-    );
+    return typeof data['label'] === 'string' && typeof data['color'] === 'string';
   },
 
   // ── Envelope ↔ typed conversion ──────────────────────────────────────────
@@ -54,10 +51,10 @@ export const annotationDefinition: ElementTypeDefinition<AnnotationElement> = {
       layerId: el.layerId,
       groupId: el.groupId,
       rotation: el.rotation,
+      size: el.size,
       data: {
         label: el.label,
         color: el.color,
-        radius: el.radius,
       },
     };
   },
@@ -74,35 +71,28 @@ export const annotationDefinition: ElementTypeDefinition<AnnotationElement> = {
       rotation: el.rotation,
       label: el.data['label'] as string,
       color: el.data['color'] as string,
-      radius: el.data['radius'] as number,
+      size: el.size ?? { w: 40, h: 40 },
     };
   },
 
   // ── Geometry ──────────────────────────────────────────────────────────────
   bounds(el: AnnotationElement): Bounds {
-    const r = el.radius;
-    return {
-      x: el.position.x - r,
-      y: el.position.y - r,
-      w: r * 2,
-      h: r * 2,
-    };
+    return { ...el.position, w: el.size.w, h: el.size.h };
   },
 
   hitTest(el: AnnotationElement, point: Point): boolean {
-    const dx = point.x - el.position.x;
-    const dy = point.y - el.position.y;
-    return dx * dx + dy * dy <= el.radius * el.radius;
+    const { x, y } = el.position;
+    return point.x >= x && point.x <= x + el.size.w && point.y >= y && point.y <= y + el.size.h;
   },
 
   // ── Rendering ─────────────────────────────────────────────────────────────
   render(ctx: CanvasRenderingContext2D, el: AnnotationElement): void {
-    const { x, y } = el.position;
-    const r = el.radius;
+    const { w, h } = el.size;
+    const r = Math.min(w, h) / 2;
 
-    // Draw a filled star
+    // Draw a filled star centred in the box
     ctx.save();
-    ctx.translate(x, y);
+    ctx.translate(el.position.x + w / 2, el.position.y + h / 2);
     if (el.rotation) ctx.rotate(el.rotation);
 
     ctx.fillStyle = el.color;
@@ -115,18 +105,20 @@ export const annotationDefinition: ElementTypeDefinition<AnnotationElement> = {
     ctx.font = `${Math.max(10, r * 0.6)}px system-ui`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
-    ctx.fillText(el.label, 0, r + 2);
+    ctx.fillText(el.label, 0, h / 2 + 2);
 
     ctx.restore();
   },
 
   // ── SVG export ────────────────────────────────────────────────────────────
   emitSvg(el: AnnotationElement): string {
-    const { x, y } = el.position;
-    const r = el.radius;
+    const { w, h } = el.size;
+    const r = Math.min(w, h) / 2;
+    const x = el.position.x + w / 2;
+    const y = el.position.y + h / 2;
     return (
       `<circle cx="${x}" cy="${y}" r="${r}" fill="${el.color}" />` +
-      `<text x="${x}" y="${y + r + 12}" text-anchor="middle" font-size="${Math.max(10, r * 0.6)}">${el.label}</text>`
+      `<text x="${x}" y="${y + h / 2 + 12}" text-anchor="middle" font-size="${Math.max(10, r * 0.6)}">${el.label}</text>`
     );
   },
 

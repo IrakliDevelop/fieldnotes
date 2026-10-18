@@ -183,7 +183,8 @@ export function isValidElement(el: unknown): el is SyncElement {
       return (
         typeof el['extensionType'] === 'string' &&
         isRecord(el['data']) &&
-        isOptional(el['dataVersion'], isPositiveInteger)
+        isOptional(el['dataVersion'], isPositiveInteger) &&
+        isOptional(el['size'], isSize)
       );
     default:
       return false;

@@ -304,6 +304,37 @@ describe('parseState', () => {
     expect(parseState(JSON.stringify(data), new ElementRegistry()).elements).toHaveLength(1);
   });
 
+  it.each([
+    ['absent', undefined, true],
+    ['{w: 10, h: 5}', { w: 10, h: 5 }, true],
+    ["{w: 'a'}", { w: 'a' }, false],
+    ['{w: 10} without h', { w: 10 }, false],
+    ['null', null, false],
+  ])('validates an extension envelope size that is %s', (_, size, valid) => {
+    const registry = new ElementRegistry();
+    registry.register(markerDefinition);
+    const data = {
+      ...validState(),
+      elements: [
+        {
+          id: 'marker-1',
+          type: 'extension',
+          extensionType: 'test:marker',
+          position: { x: 10, y: 20 },
+          zIndex: 1,
+          locked: false,
+          layerId: 'default-layer',
+          data: { label: 'hi' },
+          size,
+        },
+      ],
+    };
+
+    const parse = () => parseState(JSON.stringify(data), registry);
+    if (valid) expect(parse().elements).toHaveLength(1);
+    else expect(parse).toThrow('malformed extension data');
+  });
+
   it('warns once per unknown extension type per parse and keeps the elements', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const unknown = (id: string, extensionType: string) => ({
