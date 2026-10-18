@@ -134,7 +134,8 @@ export class ViewportInteractions {
 
     // HTML embeds keep double-tap priority: you double-tapped inside the embed even if an
     // arrow's curve passes nearby. Arrow-label editing only when no embed is hit.
-    const hit = hitTest(world, this.deps.toolContext);
+    // Locked layers stay activatable (pointer-input invariant); only hidden layers are skipped.
+    const hit = hitTest(world, { ...this.deps.toolContext, isLayerLocked: () => false });
     if (hit?.type === 'html') {
       this.deps.interactMode.startInteracting(hit.id);
       return;

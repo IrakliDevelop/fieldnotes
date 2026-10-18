@@ -90,6 +90,7 @@ describe('ViewportInteractions', () => {
         store,
         requestRender: vi.fn(),
         isLayerVisible: (id) => id !== 'hidden',
+        isLayerLocked: (id) => id === 'locked',
       };
       const { deps } = makeDeps(store, { camera, toolContext });
       return { interactions: new ViewportInteractions(deps), deps };
@@ -102,6 +103,20 @@ describe('ViewportInteractions', () => {
       };
       const { interactions, deps } = setup(html);
       doubleTap(interactions, 100, 80);
+      expect(deps.interactMode.startInteracting).toHaveBeenCalledWith(html.id);
+    });
+
+    it.each([
+      ['on a locked layer', { layerId: 'locked' }],
+      ['that is itself locked', { locked: true }],
+    ])('activates an html element %s', (_label, input) => {
+      const html = createHtmlElement({
+        position: { x: 0, y: 0 },
+        size: { w: 200, h: 100 },
+        ...input,
+      });
+      const { interactions, deps } = setup(html);
+      doubleTap(interactions, 50, 50);
       expect(deps.interactMode.startInteracting).toHaveBeenCalledWith(html.id);
     });
 
