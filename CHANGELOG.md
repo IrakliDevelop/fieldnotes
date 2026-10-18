@@ -149,9 +149,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
   never quarantine it.
 - **Breaking for code that builds a `ToolContext` by hand** (usually test doubles):
   `requestOverlayRender` is a required member.
-- **Breaking:** `ElementTypeDefinition.renderMode: 'dom'` now throws in `ElementRegistry.register`. Such
-  elements were never drawn. Extension elements are never DOM elements; `'hybrid'` and `'none'`
-  draw like `'canvas'`.
+- **Breaking:** `ElementTypeDefinition.renderMode: 'dom'` now throws in
+  `ElementRegistry.register`. Such elements were never drawn. Extension elements are never DOM
+  elements; `'hybrid'` and `'none'` draw like `'canvas'`.
 - The base layer pass follows `layerManager.getLayers()` order; elements whose layer id is unknown
   draw first, where the store sorts them.
 
