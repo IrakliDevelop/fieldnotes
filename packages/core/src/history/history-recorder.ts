@@ -38,9 +38,11 @@ export class HistoryRecorder {
 
     if (layerManager) {
       this.unsubscribers.push(
-        layerManager.on('create', (layer) => this.onLayerCreate(layer)),
-        layerManager.on('remove', (layer) => this.onLayerRemove(layer)),
-        layerManager.on('update', ({ previous, current }) => this.onLayerUpdate(previous, current)),
+        layerManager.on('create', (layer, meta) => this.onLayerCreate(layer, meta)),
+        layerManager.on('remove', (layer, meta) => this.onLayerRemove(layer, meta)),
+        layerManager.on('update', ({ previous, current }, meta) =>
+          this.onLayerUpdate(previous, current, meta),
+        ),
       );
     }
   }
@@ -60,6 +62,17 @@ export class HistoryRecorder {
     this.transaction = [];
     this.updateSnapshots.clear();
     this.generation += 1;
+  }
+
+  /** Runs `fn` inside the open transaction, or in a new one committed when `fn` returns or throws. */
+  run<T>(fn: () => T): T {
+    if (this.transaction !== null) return fn();
+    this.begin();
+    try {
+      return fn();
+    } finally {
+      this.commit();
+    }
   }
 
   get currentTransactionId(): number | null {
@@ -125,11 +138,11 @@ export class HistoryRecorder {
     if (isExternalChange(meta)) return;
     if (!this.recording) return;
 
-    if (this.transaction && this.updateSnapshots.has(element.id)) {
-      this.updateSnapshots.delete(element.id);
-    }
+    // Undo must restore the element as it was before this transaction's updates.
+    const snapshot = this.transaction ? this.updateSnapshots.get(element.id) : undefined;
+    this.updateSnapshots.delete(element.id);
 
-    this.record(new RemoveElementCommand(element));
+    this.record(new RemoveElementCommand(snapshot ?? element));
   }
 
   private onUpdate(previous: CanvasElement, current: CanvasElement, meta: EventMeta): void {
@@ -145,19 +158,22 @@ export class HistoryRecorder {
     }
   }
 
-  private onLayerCreate(layer: Layer): void {
+  private onLayerCreate(layer: Layer, meta: EventMeta): void {
+    if (isExternalChange(meta)) return;
     if (!this.recording) return;
     if (!this.layerManager) return;
     this.record(new CreateLayerCommand(this.layerManager, layer));
   }
 
-  private onLayerRemove(layer: Layer): void {
+  private onLayerRemove(layer: Layer, meta: EventMeta): void {
+    if (isExternalChange(meta)) return;
     if (!this.recording) return;
     if (!this.layerManager) return;
     this.record(new RemoveLayerCommand(this.layerManager, layer));
   }
 
-  private onLayerUpdate(previous: Layer, current: Layer): void {
+  private onLayerUpdate(previous: Layer, current: Layer, meta: EventMeta): void {
+    if (isExternalChange(meta)) return;
     if (!this.recording) return;
     if (!this.layerManager) return;
     this.record(new UpdateLayerCommand(this.layerManager, current.id, previous, current));

@@ -1,5 +1,10 @@
-import { describe, it, expect } from 'vitest';
-import { getElementBounds, getElementVisualBounds, boundsIntersect } from './element-bounds';
+import { describe, it, expect, vi } from 'vitest';
+import {
+  getElementBounds,
+  getElementVisualBounds,
+  boundsIntersect,
+  transferStrokeBounds,
+} from './element-bounds';
 import {
   createNote,
   createImage,
@@ -164,5 +169,25 @@ describe('boundsIntersect', () => {
     expect(boundsIntersect({ x: 0, y: 0, w: 100, h: 100 }, { x: 10, y: 10, w: 20, h: 20 })).toBe(
       true,
     );
+  });
+});
+
+describe('transferStrokeBounds', () => {
+  it('translates cached bounds of a moved stroke without walking its points', () => {
+    const stroke = createStroke({
+      position: { x: 0, y: 0 },
+      points: [
+        { x: 10, y: 20, pressure: 0.5 },
+        { x: 50, y: 80, pressure: 0.5 },
+      ],
+    });
+    expect(getElementBounds(stroke)).toEqual({ x: 10, y: 20, w: 40, h: 60 });
+    const moved = { ...stroke, position: { x: 30, y: -20 } };
+    const walk = vi.spyOn(stroke.points, Symbol.iterator);
+
+    transferStrokeBounds(stroke, moved);
+
+    expect(getElementBounds(moved)).toEqual({ x: 40, y: 0, w: 40, h: 60 });
+    expect(walk).not.toHaveBeenCalled();
   });
 });

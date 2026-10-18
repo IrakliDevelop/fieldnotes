@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { Quadtree } from './quadtree';
 
 describe('Quadtree', () => {
@@ -81,6 +81,19 @@ describe('Quadtree', () => {
       qt.insert('b', { x: 5, y: 5, w: 10, h: 10 });
       qt.remove('a');
       expect(qt.query({ x: 0, y: 0, w: 50, h: 50 })).toEqual(['b']);
+    });
+
+    it('replaces the entry when an existing id is inserted again', () => {
+      const qt = new Quadtree(worldBounds);
+      qt.insert('a', { x: 0, y: 0, w: 10, h: 10 });
+      qt.insert('a', { x: 500, y: 500, w: 10, h: 10 });
+      expect([qt.size, qt.queryPoint({ x: 5, y: 5 }), qt.queryPoint({ x: 505, y: 505 })]).toEqual([
+        1,
+        [],
+        ['a'],
+      ]);
+      qt.remove('a');
+      expect(qt.query({ x: -1000, y: -1000, w: 2000, h: 2000 })).toEqual([]);
     });
 
     it('is a no-op for non-existent id', () => {
@@ -169,6 +182,75 @@ describe('Quadtree', () => {
       const results = qt.query({ x: -510, y: -510, w: 30, h: 30 });
       expect(results.length).toBeLessThan(50);
       expect(results.length).toBeGreaterThan(0);
+    });
+  });
+  describe('index consistency', () => {
+    function lcg(seed: number): () => number {
+      let state = seed;
+      return () => {
+        state = (state * 1664525 + 1013904223) % 4294967296;
+        return state / 4294967296;
+      };
+    }
+
+    it('matches a brute-force filter after many inserts, updates, and removes', () => {
+      const rand = lcg(42);
+      const randomBounds = () => ({
+        x: rand() * 4000 - 2000,
+        y: rand() * 4000 - 2000,
+        w: rand() * 100,
+        h: rand() * 100,
+      });
+      const qt = new Quadtree(worldBounds);
+      const truth = new Map<string, { x: number; y: number; w: number; h: number }>();
+      for (let i = 0; i < 500; i++) {
+        const b = randomBounds();
+        qt.insert(`el-${i}`, b);
+        truth.set(`el-${i}`, b);
+      }
+      for (let i = 0; i < 200; i++) {
+        const id = `el-${Math.floor(rand() * 500)}`;
+        const b = randomBounds();
+        qt.update(id, b);
+        truth.set(id, b);
+      }
+      for (let i = 0; i < 100; i++) {
+        const id = `el-${Math.floor(rand() * 500)}`;
+        qt.remove(id);
+        truth.delete(id);
+      }
+
+      expect(qt.size).toBe(truth.size);
+      for (let i = 0; i < 50; i++) {
+        const rect = { x: rand() * 4000 - 2000, y: rand() * 4000 - 2000, w: 300, h: 300 };
+        const expected = [...truth]
+          .filter(
+            ([, b]) =>
+              b.x <= rect.x + rect.w &&
+              b.x + b.w >= rect.x &&
+              b.y <= rect.y + rect.h &&
+              b.y + b.h >= rect.y,
+          )
+          .map(([id]) => id)
+          .sort();
+        expect(qt.query(rect).sort()).toEqual(expected);
+      }
+    });
+
+    it('update with identical bounds keeps the entry in place without remove or reinsert', () => {
+      const qt = new Quadtree(worldBounds);
+      for (let i = 0; i < 20; i++) {
+        qt.insert(`el-${i}`, { x: i * 40 - 400, y: i * 40 - 400, w: 10, h: 10 });
+      }
+      const removeSpy = vi.spyOn(qt, 'remove');
+      const insertSpy = vi.spyOn(qt, 'insert');
+
+      qt.update('el-3', { x: -280, y: -280, w: 10, h: 10 });
+
+      expect(removeSpy).not.toHaveBeenCalled();
+      expect(insertSpy).not.toHaveBeenCalled();
+      expect(qt.queryPoint({ x: -275, y: -275 })).toEqual(['el-3']);
+      expect(qt.size).toBe(20);
     });
   });
 });

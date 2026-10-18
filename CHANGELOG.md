@@ -117,6 +117,49 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
   The reference WebSocket server closes idle expired sockets and rejects traffic observed at
   or after the deadline.
 
+## [0.88.0] — 2026-10-18
+
+### Core 0.88.0 — history unification (F3), lifecycle fixes, perf quick wins
+
+**Added**
+
+- `LayerManager.addLayerDirect`, `removeLayerDirect` and `updateLayerDirect` accept an optional
+  trailing `meta`; pass a remote origin from a sync `applyLayer` hook.
+
+**Fixed**
+
+- A host `viewport.transaction()` that wraps built-in operations (`addShape`, `addImage`,
+  `addHtmlElement`, `removeLayer`, style, group, align, distribute, rotate, lock, delete, z-order,
+  duplicate/paste, arrow labels) is now one undo step. Previously each inner operation committed
+  the open transaction, producing two or three steps. A keyboard nudge still pending its commit
+  is closed before these operations start, so it stays its own step.
+- Undoing an update followed by a removal of the same element in one transaction restores the
+  element as it was before the update.
+- Remote layer changes stay out of the local undo stack: changes whose `meta.origin` is not
+  local are not recorded.
+- `destroy()` releases layer caches, the paint stack and cached images (closing `ImageBitmap`s);
+  removed layers and layers dropped by `loadState` no longer keep their cache canvases.
+- Double-tap activation of html elements uses the rotation-aware hit test and skips hidden
+  layers; locked layers still activate, and html keeps priority over arrows and strokes.
+- AutoSave saves after a store `clear` and persists the real `activeLayerId`.
+- The canvas is sized from the container's `clientWidth`/`clientHeight`, matching the render
+  loop, so transformed or fractional containers no longer resize every tick.
+- Extension element handles receive the real `shiftKey` during hit testing.
+
+**Changed**
+
+- `[fieldnotes]` console warnings for a skipped duplicate plugin name, an optional plugin whose
+  configure or start failed, and plugin state dropped by `loadState`.
+- `viewport.transaction()` joins any open transaction, including a live tool gesture.
+- `LayerManager.on` listeners receive the event meta as a second argument.
+
+**Performance**
+
+- Quadtree removal and update are O(depth) via an id index; unchanged bounds skip the update.
+- Moving an element no longer re-sorts the element cache; only `zIndex` or `layerId` changes do.
+- Moving a stroke translates its cached bounds instead of recomputing them from points.
+- An image load notifies once and re-renders only the layers containing that image.
+
 ## [0.87.1] — 2026-10-15
 
 ### Core 0.87.1

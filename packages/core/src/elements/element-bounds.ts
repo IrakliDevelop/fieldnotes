@@ -123,9 +123,11 @@ function getArrowBoundsAnalytical(
 export function transferStrokeBounds(prev: CanvasElement, next: CanvasElement): void {
   if (prev.type !== 'stroke' || next.type !== 'stroke') return;
   if (prev.points !== next.points) return;
-  if (prev.position.x !== next.position.x || prev.position.y !== next.position.y) return;
   const bounds = strokeBoundsCache.get(prev);
-  if (bounds) strokeBoundsCache.set(next, bounds);
+  if (!bounds) return;
+  const dx = next.position.x - prev.position.x;
+  const dy = next.position.y - prev.position.y;
+  strokeBoundsCache.set(next, { ...bounds, x: bounds.x + dx, y: bounds.y + dy });
 }
 
 export function boundsIntersect(a: Bounds, b: Bounds): boolean {

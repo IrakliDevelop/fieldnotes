@@ -96,6 +96,7 @@ export function hitTestExtensionHandle(
   world: Point,
   ctx: ToolContext,
   selectedIds: string[],
+  shiftKey: boolean,
 ): { elementId: string; handleId: string; cursor: string } | null {
   for (const id of selectedIds) {
     const element = ctx.store.getById(id);
@@ -109,7 +110,7 @@ export function hitTestExtensionHandle(
     const adapter = ctx.elementRegistry?.getAdapter(element.extensionType);
     const handle = adapter?.hitTestHandle?.(element, world, {
       zoom: ctx.camera.zoom,
-      shiftKey: false,
+      shiftKey,
       selectedCount: selectedIds.length,
       snap: (() => {
         const cs = ctx.constraintService;

@@ -595,6 +595,10 @@ describe('ElementRenderer', () => {
   });
 
   describe('renderImage', () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
     function makeImage(overrides: Partial<ImageElement> = {}): ImageElement {
       return {
         id: 'img-1',
@@ -655,6 +659,70 @@ describe('ElementRenderer', () => {
       expect(ctx.drawImage).toHaveBeenCalled();
     });
 
+    it('closes a bitmap that finishes decoding after the image cache is cleared', async () => {
+      let resolveBitmap: (bitmap: unknown) => void = () => undefined;
+      vi.stubGlobal(
+        'createImageBitmap',
+        vi.fn(() => new Promise((resolve) => (resolveBitmap = resolve))),
+      );
+      const renderer = new ElementRenderer();
+      renderer.renderCanvasElement(mockCtx(), makeImage({ src: 'late.png' }));
+      const cache = (renderer as unknown as { imageCache: Map<string, unknown> }).imageCache;
+      const img = cache.get('late.png');
+      if (img instanceof HTMLImageElement) img.onload?.(new Event('load'));
+
+      renderer.clearImageCache();
+      const bitmap = { close: vi.fn() };
+      resolveBitmap(bitmap);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(bitmap.close).toHaveBeenCalledTimes(1);
+      expect(cache.size).toBe(0);
+    });
+
+    it('notifies onImageLoad once with the src when an image decodes', async () => {
+      vi.stubGlobal(
+        'createImageBitmap',
+        vi.fn(() => Promise.resolve({ close: vi.fn() })),
+      );
+      const onLoad = vi.fn();
+      const renderer = new ElementRenderer();
+      renderer.setOnImageLoad(onLoad);
+      renderer.renderCanvasElement(mockCtx(), makeImage({ src: 'ok.png' }));
+      const img = (renderer as unknown as { imageCache: Map<string, unknown> }).imageCache.get(
+        'ok.png',
+      );
+      if (img instanceof HTMLImageElement) img.onload?.(new Event('load'));
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(onLoad.mock.calls).toEqual([['ok.png']]);
+    });
+
+    it('does not notify again when onImageLoad throws after a successful decode', async () => {
+      // Keep the decode chain so the listener error is asserted here, not reported as unhandled.
+      let decoded: Promise<unknown> | undefined;
+      const bitmap = Promise.resolve({ close: vi.fn() });
+      vi.stubGlobal('createImageBitmap', () => ({
+        then: (onOk: (b: unknown) => unknown, onErr?: (e: unknown) => unknown) =>
+          (decoded = bitmap.then(onOk, onErr)),
+      }));
+      const onLoad = vi.fn().mockImplementationOnce(() => {
+        throw new Error('listener failed');
+      });
+      const renderer = new ElementRenderer();
+      renderer.setOnImageLoad(onLoad);
+      renderer.renderCanvasElement(mockCtx(), makeImage({ src: 'ok.png' }));
+      const img = (renderer as unknown as { imageCache: Map<string, unknown> }).imageCache.get(
+        'ok.png',
+      );
+      if (img instanceof HTMLImageElement) img.onload?.(new Event('load'));
+
+      await expect(decoded).rejects.toThrow('listener failed');
+      expect(onLoad).toHaveBeenCalledTimes(1);
+    });
+
     function failImage(renderer: ElementRenderer, src: string): void {
       const cache = (renderer as unknown as { imageCache: Map<string, unknown> }).imageCache;
       const img = cache.get(src);
@@ -662,6 +730,24 @@ describe('ElementRenderer', () => {
         img.onerror?.(new Event('error') as never);
       }
     }
+
+    it('ignores an image error that arrives after the image cache is cleared', () => {
+      const onLoad = vi.fn();
+      const onError = vi.fn();
+      const renderer = new ElementRenderer();
+      renderer.setOnImageLoad(onLoad);
+      renderer.setOnImageError(onError);
+      renderer.renderCanvasElement(mockCtx(), makeImage({ src: 'late.png' }));
+      const cache = (renderer as unknown as { imageCache: Map<string, unknown> }).imageCache;
+      const img = cache.get('late.png');
+
+      renderer.clearImageCache();
+      if (img instanceof HTMLImageElement) img.onerror?.(new Event('error') as never);
+
+      expect(onLoad).not.toHaveBeenCalled();
+      expect(onError).not.toHaveBeenCalled();
+      expect(cache.size).toBe(0);
+    });
 
     it('fires onImageError and renders a placeholder after a failed load', () => {
       const onError = vi.fn();

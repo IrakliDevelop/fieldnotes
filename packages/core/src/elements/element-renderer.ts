@@ -18,7 +18,7 @@ const DOM_ELEMENT_TYPES = new Set(['note', 'html', 'text']);
 export class ElementRenderer {
   private store: ElementStore | null = null;
   private imageCache = new Map<string, ImageBitmap | HTMLImageElement | 'failed'>();
-  private onImageLoad: (() => void) | null = null;
+  private onImageLoad: ((src: string) => void) | null = null;
   private onImageError: ((src: string, cause?: unknown) => void) | null = null;
   private camera: Camera | null = null;
   private labelEditingId: string | null = null;
@@ -37,12 +37,19 @@ export class ElementRenderer {
     this.elementRegistry = registry;
   }
 
-  setOnImageLoad(callback: () => void): void {
+  setOnImageLoad(callback: (src: string) => void): void {
     this.onImageLoad = callback;
   }
 
   setOnImageError(callback: (src: string, cause?: unknown) => void): void {
     this.onImageError = callback;
+  }
+
+  clearImageCache(): void {
+    for (const cached of this.imageCache.values()) {
+      if (cached !== 'failed' && !(cached instanceof HTMLImageElement)) cached.close();
+    }
+    this.imageCache.clear();
   }
 
   setCamera(camera: Camera): void {

@@ -61,6 +61,7 @@ export class AutoSave {
       this.store.on('remove', schedule),
       this.store.on('update', schedule),
       this.store.on('batch', schedule),
+      this.store.on('clear', schedule),
       this.camera.onChange(schedule),
     ];
     if (this.layerManager) {
@@ -134,7 +135,13 @@ export class AutoSave {
     try {
       const layers = this.layerManager?.snapshot() ?? [];
       const extensions = this.pluginStateManager?.exportState();
-      const state = exportState(this.store.snapshot(), this.camera, layers, undefined, extensions);
+      const state = exportState(
+        this.store.snapshot(),
+        this.camera,
+        layers,
+        this.layerManager?.activeLayerId,
+        extensions,
+      );
       await this.adapter.save(this.key, JSON.stringify(state));
     } catch (e) {
       this.onError?.(e instanceof Error ? e : new Error(String(e)));

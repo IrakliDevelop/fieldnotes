@@ -296,12 +296,18 @@ describe('KeyboardActions.duplicate', () => {
   });
 
   it('duplicate with recorder is exactly one begin + one commit', () => {
-    const recorder: HistoryRecorder = {
+    const fake = {
       begin: vi.fn(),
       commit: vi.fn(),
       pause: vi.fn(),
       resume: vi.fn(),
-    } as unknown as HistoryRecorder;
+      run: (fn: () => void): void => {
+        fake.begin();
+        fn();
+        fake.commit();
+      },
+    };
+    const recorder = fake as unknown as HistoryRecorder;
     const { actions, ctx, tool } = makeActions({ recorder });
     const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
     ctx.store.add(note);

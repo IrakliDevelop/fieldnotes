@@ -166,6 +166,8 @@ export class Viewport {
   private readonly selectionOps: SelectionOps;
   readonly toolContext: ToolContext;
   private readonly marginViewport: MarginViewport;
+  private readonly layerCache: LayerCache;
+  private readonly hybridSurface: HybridRenderSurface;
   private resizeObserver: ResizeObserver | null = null;
   private _snapToGrid = false;
   private _smartGuides = false;
@@ -253,8 +255,10 @@ export class Viewport {
     this.renderer.setStore(this.store);
     this.renderer.setCamera(this.camera);
     this.renderer.setElementRegistry(this.elementRegistry);
-    this.renderer.setOnImageLoad(() => {
-      this.renderLoop.markAllLayersDirty();
+    this.renderer.setOnImageLoad((src) => {
+      for (const el of this.store.getAll()) {
+        if (el.type === 'image' && el.src === src) this.renderLoop.markLayerDirty(el.layerId);
+      }
       this.requestRender();
     });
     this.renderer.setOnImageError((src, cause) => {
@@ -426,7 +430,8 @@ export class Viewport {
       this.canvasEl.clientHeight || 600,
       typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1,
     );
-    const layerCache = new LayerCache(this.marginViewport);
+    this.layerCache = new LayerCache(this.marginViewport);
+    this.hybridSurface = new HybridRenderSurface(this.paintStack);
 
     this.renderLoop = new RenderLoop({
       canvasEl: this.canvasEl,
@@ -437,9 +442,9 @@ export class Viewport {
       toolManager: this.toolManager,
       layerManager: this.layerManager,
       domNodeManager: this.domNodeManager,
-      layerCache,
+      layerCache: this.layerCache,
       marginViewport: this.marginViewport,
-      hybridSurface: new HybridRenderSurface(this.paintStack),
+      hybridSurface: this.hybridSurface,
       hooks: this._renderHooks,
     });
 
@@ -496,6 +501,8 @@ export class Viewport {
 
     this.unsubLayers = this.layerManager.on('change', () => {
       this.toolContext.activeLayerId = this.layerManager.activeLayerId;
+      // Snapshot loads replace layers without per-layer remove events, so prune on every change.
+      this.layerCache.retain((id) => this.layerManager.getLayer(id) !== undefined);
       this.renderLoop.markAllLayersDirty();
       this.requestRender();
     });
@@ -512,6 +519,7 @@ export class Viewport {
       interactMode: this.interactMode,
       renderer: this.renderer,
       recorder: this.historyRecorder,
+      toolContext: this.toolContext,
       requestRender: () => this.requestRender(),
       addImage: (src, position) => this.addImage(src, position),
       dropHandler: this.dropHandler,
@@ -567,6 +575,7 @@ export class Viewport {
     return this.services.get(key.id) as T | undefined;
   }
 
+  /** Mutations in the window arrive as one `batch` event, unrecorded in history and without origin. */
   suspendNotifications(): NotificationController {
     const controllers = [
       this.store.suspendNotifications(),
@@ -781,6 +790,11 @@ export class Viewport {
       pluginsCommitted = true;
       notifications.resume();
       this.historyRecorder.resume();
+      for (const name of pluginResult.droppedPlugins ?? []) {
+        console.warn(
+          `[fieldnotes] dropped saved state of plugin "${name}": version could not be migrated`,
+        );
+      }
     } catch (error) {
       const rollbackErrors: string[] = [];
       if (pluginsCommitted) {
@@ -872,21 +886,17 @@ export class Viewport {
 
   /**
    * Groups synchronous local store and layer mutations into one undo step.
-   * Nested calls join the outer transaction. If the callback throws, mutations
+   * Joins any open transaction (a nested call or a live tool gesture); a pending
+   * keyboard nudge is committed first. If the callback throws, mutations
    * already applied remain undoable and the original error is rethrown.
    */
   transaction<T>(operation: () => T): T {
-    const isOuterTransaction = this.transactionDepth === 0;
-    if (isOuterTransaction) {
-      this.inputHandler.flushPendingHistory();
-      this.historyRecorder.begin();
-    }
+    if (this.transactionDepth === 0) this.inputHandler.flushPendingHistory();
     this.transactionDepth += 1;
     try {
-      return operation();
+      return this.historyRecorder.run(operation);
     } finally {
       this.transactionDepth -= 1;
-      if (isOuterTransaction) this.historyRecorder.commit();
     }
   }
 
@@ -921,9 +931,7 @@ export class Viewport {
 
   addImage(src: string, position: { x: number; y: number }, size = { w: 300, h: 200 }): string {
     const image = createImage({ position, size, src, layerId: this.layerManager.activeLayerId });
-    this.historyRecorder.begin();
-    this.store.add(image);
-    this.historyRecorder.commit();
+    this.transaction(() => this.store.add(image));
     this.requestRender();
     return image.id;
   }
@@ -956,9 +964,7 @@ export class Viewport {
     if (external) {
       this.store.add(el, { origin: opts.origin });
     } else {
-      this.historyRecorder.begin();
-      this.store.add(el);
-      this.historyRecorder.commit();
+      this.transaction(() => this.store.add(el));
     }
     this.requestRender();
     return el.id;
@@ -985,9 +991,7 @@ export class Viewport {
       fillColor: opts.fillColor,
       layerId: this.layerManager.activeLayerId,
     });
-    this.historyRecorder.begin();
-    this.store.add(shape);
-    this.historyRecorder.commit();
+    this.transaction(() => this.store.add(shape));
     this.getSelectTool()?.setSelection([shape.id]);
     this.requestRender();
     return shape.id;
@@ -1002,9 +1006,7 @@ export class Viewport {
   }
 
   removeLayer(id: string): void {
-    this.historyRecorder.begin();
-    this.layerManager.removeLayer(id);
-    this.historyRecorder.commit();
+    this.transaction(() => this.layerManager.removeLayer(id));
   }
 
   registerHtmlRenderer(htmlType: string, factory: (el: HtmlElement) => HTMLElement): void {
@@ -1252,31 +1254,31 @@ export class Viewport {
   }
 
   applyStyleToSelection(style: ElementStyle): void {
-    this.selectionOps.applyStyle(style);
+    this.transaction(() => this.selectionOps.applyStyle(style));
   }
 
   groupSelection(): void {
-    this.selectionOps.group();
+    this.transaction(() => this.selectionOps.group());
   }
 
   ungroupSelection(): void {
-    this.selectionOps.ungroup();
+    this.transaction(() => this.selectionOps.ungroup());
   }
 
   toggleLockSelection(): void {
-    this.selectionOps.toggleLock();
+    this.transaction(() => this.selectionOps.toggleLock());
   }
 
   alignSelection(edge: AlignEdge): void {
-    this.selectionOps.align(edge);
+    this.transaction(() => this.selectionOps.align(edge));
   }
 
   distributeSelection(axis: DistributeAxis): void {
-    this.selectionOps.distribute(axis);
+    this.transaction(() => this.selectionOps.distribute(axis));
   }
 
   rotateSelection(direction: RotateDirection): void {
-    this.selectionOps.rotateSelection(direction);
+    this.transaction(() => this.selectionOps.rotateSelection(direction));
   }
 
   getRenderStats(): RenderStatsSnapshot {
@@ -1324,6 +1326,9 @@ export class Viewport {
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
     this.resizeListeners.clear();
+    this.layerCache.clear();
+    this.hybridSurface.clear();
+    this.renderer.clearImageCache();
     this.wrapper.remove();
   }
 
@@ -1377,9 +1382,11 @@ export class Viewport {
   }
 
   private syncCanvasSize(): void {
-    const rect = this.container.getBoundingClientRect();
     const dpr = typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1;
-    this.renderLoop.setCanvasSize(rect.width * dpr, rect.height * dpr);
+    this.renderLoop.setCanvasSize(
+      this.container.clientWidth * dpr,
+      this.container.clientHeight * dpr,
+    );
     this.requestRender();
     this.resizeListeners.forEach((fn) => fn());
   }
@@ -1397,7 +1404,10 @@ export class Viewport {
       .map((plugin, index) => ({ plugin, index }))
       .sort((a, b) => (a.plugin.priority ?? 0) - (b.plugin.priority ?? 0) || a.index - b.index);
     for (const { plugin } of ordered) {
-      if (names.has(plugin.name)) continue;
+      if (names.has(plugin.name)) {
+        console.warn(`[fieldnotes] skipping duplicate plugin "${plugin.name}"`);
+        continue;
+      }
       names.add(plugin.name);
       const configureDisposers: (() => void)[] = [];
       const track = (dispose: () => void): void => {
@@ -1430,6 +1440,11 @@ export class Viewport {
           this.disposePlugins();
           throw error;
         }
+        console.warn(
+          `[fieldnotes] optional plugin "${plugin.name}" failed to configure: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
       }
     }
   }
@@ -1502,6 +1517,11 @@ export class Viewport {
           this.disposePlugins();
           throw error;
         }
+        console.warn(
+          `[fieldnotes] optional plugin "${configured.plugin.name}" failed to start: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
       }
     }
   }

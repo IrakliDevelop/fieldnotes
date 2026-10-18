@@ -174,7 +174,7 @@ describe('hitTestExtensionHandle', () => {
     ctx.store.setElementRegistry(registry);
     ctx.store.add(element);
 
-    expect(hitTestExtensionHandle({ x: 0, y: 0 }, ctx, [element.id])).toEqual({
+    expect(hitTestExtensionHandle({ x: 0, y: 0 }, ctx, [element.id], false)).toEqual({
       elementId: element.id,
       handleId: 'resize',
       cursor: 'nwse-resize',

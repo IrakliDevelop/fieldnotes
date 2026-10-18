@@ -1,12 +1,19 @@
 /**
  * @vitest-environment jsdom
  */
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ViewportInteractions } from './viewport-interactions';
 import type { ViewportInteractionsDeps } from './viewport-interactions';
 import { ElementStore } from '../elements/element-store';
-import { createNote, createArrow, createShape, createText } from '../elements/element-factory';
-import type { ArrowElement, CanvasElement } from '../elements/types';
+import {
+  createNote,
+  createArrow,
+  createShape,
+  createText,
+  createHtmlElement,
+} from '../elements/element-factory';
+import type { ArrowElement, CanvasElement, HtmlElement } from '../elements/types';
+import type { ToolContext } from '../tools/types';
 import { HistoryRecorder } from '../history/history-recorder';
 import { HistoryStack } from '../history/history-stack';
 
@@ -25,9 +32,10 @@ function nodeWithHeight(h: number): HTMLDivElement {
 
 function makeDeps(store: ElementStore, overrides: Partial<ViewportInteractionsDeps> = {}) {
   const nodes = new Map<string, HTMLElement>();
+  const camera = { zoom: 1, screenToWorld: (p: { x: number; y: number }) => p } as never;
   const deps: ViewportInteractionsDeps = {
     store,
-    camera: { zoom: 1, screenToWorld: (p: { x: number; y: number }) => p } as never,
+    camera,
     wrapper: document.createElement('div') as HTMLDivElement,
     domLayer: document.createElement('div') as HTMLDivElement,
     renderLoop: { flush: vi.fn() } as never,
@@ -39,6 +47,7 @@ function makeDeps(store: ElementStore, overrides: Partial<ViewportInteractionsDe
     interactMode: { startInteracting: vi.fn(), stopInteracting: vi.fn() } as never,
     renderer: { setLabelEditingId: vi.fn() } as never,
     recorder: { begin: vi.fn(), commit: vi.fn() } as never,
+    toolContext: { camera, store, requestRender: vi.fn() },
     requestRender: vi.fn(),
     addImage: vi.fn(() => 'img-id'),
     ...overrides,
@@ -47,28 +56,89 @@ function makeDeps(store: ElementStore, overrides: Partial<ViewportInteractionsDe
 }
 
 interface Priv {
-  hitTestWorld: (w: { x: number; y: number }) => CanvasElement | null;
   findArrowAt: (w: { x: number; y: number }) => ArrowElement | undefined;
 }
 
 describe('ViewportInteractions', () => {
-  describe('hitTestWorld', () => {
-    it('returns a sized element under the point', () => {
-      const store = new ElementStore();
-      const shape = createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
-      store.add(shape);
-      const { deps } = makeDeps(store);
-      const interactions = new ViewportInteractions(deps) as unknown as Priv;
-      expect(interactions.hitTestWorld({ x: 50, y: 50 })?.id).toBe(shape.id);
+  describe('onDoubleTap html activation', () => {
+    const originalElementFromPoint = document.elementFromPoint;
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+      document.elementFromPoint = () => null;
     });
 
-    it('returns null when the point misses every element', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+      document.elementFromPoint = originalElementFromPoint;
+    });
+
+    function doubleTap(interactions: ViewportInteractions, x: number, y: number): void {
+      const event = { clientX: x, clientY: y } as PointerEvent;
+      for (let i = 0; i < 2; i++) {
+        interactions.onTapDown(event);
+        interactions.onDoubleTap(event);
+      }
+    }
+
+    function setup(html: HtmlElement, ...above: CanvasElement[]) {
       const store = new ElementStore();
-      const shape = createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
-      store.add(shape);
-      const { deps } = makeDeps(store);
-      const interactions = new ViewportInteractions(deps) as unknown as Priv;
-      expect(interactions.hitTestWorld({ x: 500, y: 500 })).toBeNull();
+      store.add(html);
+      above.forEach((el) => store.add(el));
+      const camera = { zoom: 1, screenToWorld: (p: { x: number; y: number }) => p } as never;
+      const toolContext: ToolContext = {
+        camera,
+        store,
+        requestRender: vi.fn(),
+        isLayerVisible: (id) => id !== 'hidden',
+        isLayerLocked: (id) => id === 'locked',
+      };
+      const { deps } = makeDeps(store, { camera, toolContext });
+      return { interactions: new ViewportInteractions(deps), deps };
+    }
+
+    it('activates a rotated html element tapped inside its visual area', () => {
+      const html = {
+        ...createHtmlElement({ position: { x: 0, y: 0 }, size: { w: 200, h: 20 } }),
+        rotation: Math.PI / 2,
+      };
+      const { interactions, deps } = setup(html);
+      doubleTap(interactions, 100, 80);
+      expect(deps.interactMode.startInteracting).toHaveBeenCalledWith(html.id);
+    });
+
+    it.each([
+      ['on a locked layer', { layerId: 'locked' }],
+      ['that is itself locked', { locked: true }],
+    ])('activates an html element %s', (_label, input) => {
+      const html = createHtmlElement({
+        position: { x: 0, y: 0 },
+        size: { w: 200, h: 100 },
+        ...input,
+      });
+      const { interactions, deps } = setup(html);
+      doubleTap(interactions, 50, 50);
+      expect(deps.interactMode.startInteracting).toHaveBeenCalledWith(html.id);
+    });
+
+    it('activates an html element under an arrow passing near the tap', () => {
+      const html = createHtmlElement({ position: { x: 0, y: 0 }, size: { w: 200, h: 100 } });
+      const arrow = { ...createArrow({ from: { x: 0, y: 55 }, to: { x: 200, y: 55 } }), zIndex: 1 };
+      const { interactions, deps } = setup(html, arrow);
+      doubleTap(interactions, 50, 50);
+      expect(deps.interactMode.startInteracting).toHaveBeenCalledWith(html.id);
+      expect(deps.arrowLabelEditor.startEditing).not.toHaveBeenCalled();
+    });
+
+    it('does not activate an html element on a hidden layer', () => {
+      const html = createHtmlElement({
+        position: { x: 0, y: 0 },
+        size: { w: 200, h: 100 },
+        layerId: 'hidden',
+      });
+      const { interactions, deps } = setup(html);
+      doubleTap(interactions, 50, 50);
+      expect(deps.interactMode.startInteracting).not.toHaveBeenCalled();
     });
   });
 

@@ -11,6 +11,7 @@ import {
   createShape,
   createArrow,
   createHtmlElement,
+  createImage,
 } from '../elements/element-factory';
 import { SelectTool } from '../tools/select-tool';
 import { PencilTool } from '../tools/pencil-tool';
@@ -26,6 +27,15 @@ function wrapperOf(container: HTMLElement): HTMLDivElement {
   if (!(w instanceof HTMLDivElement)) throw new Error('viewport wrapper not found');
   return w;
 }
+
+function layerCacheOf(viewport: Viewport) {
+  return (
+    viewport as unknown as {
+      layerCache: { getCanvas(id: string): unknown; canvases: Map<string, unknown> };
+    }
+  ).layerCache;
+}
+
 function focusCanvas(container: HTMLElement): void {
   wrapperOf(container).focus();
 }
@@ -43,6 +53,7 @@ describe('Viewport', () => {
 
   afterEach(() => {
     document.body.removeChild(container);
+    vi.unstubAllGlobals();
   });
 
   it('sets overscroll-behavior: none on wrapper', () => {
@@ -99,6 +110,67 @@ describe('Viewport', () => {
     const viewport = new Viewport(container);
     viewport.destroy();
     expect(container.querySelector('canvas')).toBeNull();
+  });
+
+  it('drops the layer cache entry of a removed layer', () => {
+    const viewport = new Viewport(container);
+    const layerCache = layerCacheOf(viewport);
+    const layer = viewport.layerManager.createLayer('extra');
+    layerCache.getCanvas(layer.id);
+    viewport.removeLayer(layer.id);
+    expect(layerCache.canvases.has(layer.id)).toBe(false);
+    viewport.destroy();
+  });
+
+  it('drops layer cache entries of layers replaced by a state load', () => {
+    const viewport = new Viewport(container);
+    const layerCache = layerCacheOf(viewport);
+    const saved = viewport.exportState();
+    const layer = viewport.layerManager.createLayer('extra');
+    layerCache.getCanvas(layer.id);
+    viewport.loadState(saved);
+    expect(layerCache.canvases.has(layer.id)).toBe(false);
+    viewport.destroy();
+  });
+
+  it('destroy releases layer, paint-stack, and image caches, closing bitmaps once', () => {
+    const viewport = new Viewport(container);
+    const priv = viewport as unknown as {
+      layerCache: { getCanvas(id: string): unknown; canvases: Map<string, unknown> };
+      hybridSurface: { beginFrame(orders: Set<number>, w: number, h: number): void };
+      renderer: { imageCache: Map<string, unknown> };
+    };
+    const wrapper = wrapperOf(container);
+    priv.layerCache.getCanvas('some-layer');
+    priv.hybridSurface.beginFrame(new Set([1]), 10, 10);
+    const bitmap = { close: vi.fn() };
+    priv.renderer.imageCache.set('bitmap.png', bitmap);
+    priv.renderer.imageCache.set('pending.png', new Image());
+    priv.renderer.imageCache.set('broken.png', 'failed');
+
+    viewport.destroy();
+    viewport.destroy();
+
+    expect(priv.layerCache.canvases.size).toBe(0);
+    expect(wrapper.querySelector('[data-paint-order]')).toBeNull();
+    expect(priv.renderer.imageCache.size).toBe(0);
+    expect(bitmap.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('sizes the canvas backing store from client size, not the transformed rect', () => {
+    vi.stubGlobal('devicePixelRatio', 2);
+    const scaled = document.createElement('div');
+    Object.defineProperties(scaled, {
+      getBoundingClientRect: { value: () => ({ left: 0, top: 0, width: 400, height: 300 }) },
+      clientWidth: { value: 800 },
+      clientHeight: { value: 600 },
+    });
+    document.body.appendChild(scaled);
+    const viewport = new Viewport(scaled);
+    const canvas = scaled.querySelector('canvas');
+    expect([canvas?.width, canvas?.height]).toEqual([1600, 1200]);
+    viewport.destroy();
+    scaled.remove();
   });
 
   it('applies camera transform to the public DOM overlay on camera change', () => {
@@ -879,6 +951,28 @@ describe('Viewport', () => {
         viewport.destroy();
       });
 
+      it.each([
+        ['applyStyleToSelection', (v: Viewport) => v.applyStyleToSelection({ color: '#ff0000' })],
+        ['groupSelection', (v: Viewport) => v.groupSelection()],
+      ])('a host transaction wrapping addShape and %s is one undo step', (_name, action) => {
+        const viewport = new Viewport(container);
+        const selectTool = new SelectTool();
+        viewport.toolManager.register(selectTool);
+        viewport.history.clear();
+
+        viewport.transaction(() => {
+          const a = viewport.addShape({ position: { x: 0, y: 0 } });
+          const b = viewport.addShape({ position: { x: 200, y: 0 } });
+          selectTool.setSelection([a, b]);
+          action(viewport);
+        });
+
+        expect(viewport.history.undoCount).toBe(1);
+        expect(viewport.undo()).toBe(true);
+        expect(viewport.store.count).toBe(0);
+        viewport.destroy();
+      });
+
       it('commits mutations for undo before rethrowing a callback error', () => {
         const viewport = new Viewport(container);
         const shape = createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } });
@@ -985,6 +1079,32 @@ describe('Viewport', () => {
       viewport.destroy();
     });
 
+    it.each([
+      ['alignSelection', (v: Viewport) => v.alignSelection('left')],
+      ['addShape', (v: Viewport) => void v.addShape({ position: { x: 500, y: 500 } })],
+    ])('%s during a pending nudge is a separate undo step', (_name, action) => {
+      vi.useFakeTimers();
+      const viewport = new Viewport(container);
+      const selectTool = new SelectTool();
+      viewport.toolManager.register(selectTool);
+      viewport.toolManager.setTool('select', viewport.toolContext);
+      const layerId = viewport.layerManager.activeLayerId;
+      const a = createNote({ position: { x: 100, y: 100 }, size: { w: 100, h: 50 }, layerId });
+      const b = createNote({ position: { x: 300, y: 300 }, size: { w: 100, h: 50 }, layerId });
+      viewport.store.add(a);
+      viewport.store.add(b);
+      viewport.history.clear();
+      selectTool.setSelection([a.id, b.id]);
+      focusCanvas(container);
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+      action(viewport);
+
+      expect(viewport.history.undoCount).toBe(2);
+      vi.useRealTimers();
+      viewport.destroy();
+    });
+
     it('redo flushes a pending nudge transaction before re-applying history', () => {
       vi.useFakeTimers();
       const viewport = new Viewport(container);
@@ -1080,15 +1200,17 @@ describe('Viewport', () => {
 
   describe('panBufferMargin option', () => {
     it('respects panBufferMargin: 0 (exact-viewport caches, no margin)', () => {
+      Object.defineProperty(container, 'clientWidth', { value: 800 });
       const viewport = new Viewport(container, { panBufferMargin: 0 });
       const mv = (viewport as unknown as { marginViewport: { physicalWidth: () => number } })
         .marginViewport;
-      // cssW = 800 (clientWidth is 0 in jsdom, fallback is 800), dpr = 1, margin = 0
+      // cssW = 800 (container clientWidth), dpr = 1, margin = 0
       expect(mv.physicalWidth()).toBe(800);
       viewport.destroy();
     });
 
     it('defaults panBufferMargin to 256', () => {
+      Object.defineProperty(container, 'clientWidth', { value: 800 });
       const viewport = new Viewport(container);
       const mv = (viewport as unknown as { marginViewport: { physicalWidth: () => number } })
         .marginViewport;
@@ -1559,6 +1681,45 @@ describe('Viewport', () => {
       expect(onImageError).toHaveBeenCalledWith(expect.objectContaining({ src, cause: event }));
       viewport.destroy();
     });
+
+    function twoImageLayers(viewport: Viewport) {
+      const layerA = viewport.layerManager.activeLayerId;
+      const layerB = viewport.layerManager.createLayer('B').id;
+      const size = { w: 10, h: 10 };
+      viewport.store.add(
+        createImage({ src: 'a.png', position: { x: 0, y: 0 }, size, layerId: layerA }),
+      );
+      viewport.store.add(
+        createImage({ src: 'b.png', position: { x: 0, y: 0 }, size, layerId: layerB }),
+      );
+      const layerCache = (
+        viewport as unknown as {
+          layerCache: { markClean(id: string): void; isDirty(id: string): boolean };
+        }
+      ).layerCache;
+      layerCache.markClean(layerA);
+      layerCache.markClean(layerB);
+      return { layerA, layerB, layerCache };
+    }
+
+    it.each(['load', 'error'] as const)(
+      'an image %s marks dirty only layers holding an image with that src',
+      (outcome) => {
+        const viewport = new Viewport(container);
+        const { layerA, layerB, layerCache } = twoImageLayers(viewport);
+        loadImage(viewport, 'a.png');
+        const img = (
+          viewport as unknown as { renderer: { imageCache: Map<string, unknown> } }
+        ).renderer.imageCache.get('a.png');
+        if (!(img instanceof HTMLImageElement)) throw new Error('expected a pending image');
+
+        if (outcome === 'load') img.onload?.(new Event('load'));
+        else img.onerror?.(new Event('error') as never);
+
+        expect([layerCache.isDirty(layerA), layerCache.isDirty(layerB)]).toEqual([true, false]);
+        viewport.destroy();
+      },
+    );
   });
 
   describe('store events trigger re-render', () => {

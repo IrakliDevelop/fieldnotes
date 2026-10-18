@@ -28,6 +28,8 @@ class QuadNode {
   constructor(
     readonly bounds: Bounds,
     readonly depth: number,
+    readonly parent: QuadNode | null,
+    private readonly owners: Map<string, QuadNode>,
   ) {}
 
   insert(entry: Entry): void {
@@ -38,34 +40,20 @@ class QuadNode {
         if (child) child.insert(entry);
         return;
       }
-      this.items.push(entry);
+      this.push(entry);
       return;
     }
 
-    this.items.push(entry);
+    this.push(entry);
 
     if (this.items.length > MAX_ITEMS && this.depth < MAX_DEPTH) {
       this.split();
     }
   }
 
-  remove(id: string): boolean {
-    const idx = this.items.findIndex((e) => e.id === id);
-    if (idx !== -1) {
-      this.items.splice(idx, 1);
-      return true;
-    }
-
-    if (this.children) {
-      for (const child of this.children) {
-        if (child.remove(id)) {
-          this.collapseIfEmpty();
-          return true;
-        }
-      }
-    }
-
-    return false;
+  private push(entry: Entry): void {
+    this.items.push(entry);
+    this.owners.set(entry.id, this);
   }
 
   query(rect: Bounds, result: string[]): void {
@@ -119,10 +107,10 @@ class QuadNode {
     const d = this.depth + 1;
 
     this.children = [
-      new QuadNode({ x, y, w: halfW, h: halfH }, d),
-      new QuadNode({ x: x + halfW, y, w: halfW, h: halfH }, d),
-      new QuadNode({ x, y: y + halfH, w: halfW, h: halfH }, d),
-      new QuadNode({ x: x + halfW, y: y + halfH, w: halfW, h: halfH }, d),
+      new QuadNode({ x, y, w: halfW, h: halfH }, d, this, this.owners),
+      new QuadNode({ x: x + halfW, y, w: halfW, h: halfH }, d, this, this.owners),
+      new QuadNode({ x, y: y + halfH, w: halfW, h: halfH }, d, this, this.owners),
+      new QuadNode({ x: x + halfW, y: y + halfH, w: halfW, h: halfH }, d, this, this.owners),
     ];
 
     const remaining: Entry[] = [];
@@ -138,7 +126,7 @@ class QuadNode {
     this.items = remaining;
   }
 
-  private collapseIfEmpty(): void {
+  collapseIfEmpty(): void {
     if (!this.children) return;
     let totalItems = this.items.length;
     for (const child of this.children) {
@@ -147,7 +135,7 @@ class QuadNode {
     }
     if (totalItems <= MAX_ITEMS) {
       for (const child of this.children) {
-        this.items.push(...child.items);
+        for (const item of child.items) this.push(item);
       }
       this.children = null;
     }
@@ -158,10 +146,11 @@ export class Quadtree {
   private root: QuadNode;
   private _size = 0;
   private readonly worldBounds: Bounds;
+  private readonly owners = new Map<string, QuadNode>();
 
   constructor(worldBounds: Bounds) {
     this.worldBounds = worldBounds;
-    this.root = new QuadNode(worldBounds, 0);
+    this.root = new QuadNode(worldBounds, 0, null, this.owners);
   }
 
   get size(): number {
@@ -169,19 +158,34 @@ export class Quadtree {
   }
 
   insert(id: string, bounds: Bounds): void {
+    this.remove(id);
     this.expandToFit(bounds);
     this.root.insert({ id, bounds });
     this._size++;
   }
 
   remove(id: string): void {
-    if (this.root.remove(id)) {
-      this._size--;
-    }
+    const node = this.owners.get(id);
+    if (!node) return;
+    const index = node.items.findIndex((e) => e.id === id);
+    if (index === -1) return;
+    this.owners.delete(id);
+    node.items.splice(index, 1);
+    this._size--;
+    for (let n = node.parent; n; n = n.parent) n.collapseIfEmpty();
   }
 
   update(id: string, newBounds: Bounds): void {
-    this.remove(id);
+    const current = this.owners.get(id)?.items.find((e) => e.id === id)?.bounds;
+    if (
+      current &&
+      current.x === newBounds.x &&
+      current.y === newBounds.y &&
+      current.w === newBounds.w &&
+      current.h === newBounds.h
+    ) {
+      return;
+    }
     this.insert(id, newBounds);
   }
 
@@ -196,7 +200,8 @@ export class Quadtree {
   }
 
   clear(): void {
-    this.root = new QuadNode(this.worldBounds, 0);
+    this.owners.clear();
+    this.root = new QuadNode(this.worldBounds, 0, null, this.owners);
     this._size = 0;
   }
 
@@ -217,7 +222,7 @@ export class Quadtree {
 
     const entries: Entry[] = [];
     this.root.collect(entries);
-    this.root = new QuadNode({ x, y, w: width, h: height }, 0);
+    this.root = new QuadNode({ x, y, w: width, h: height }, 0, null, this.owners);
     for (const entry of entries) {
       this.root.insert(entry);
     }
