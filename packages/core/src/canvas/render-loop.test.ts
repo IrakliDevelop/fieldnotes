@@ -535,57 +535,25 @@ describe('RenderLoop', () => {
     expect(renderOverlay).toHaveBeenCalled();
   });
 
-  describe('registered overlays', () => {
-    it('draws a registered overlay even when no tool is active', () => {
-      const draw = vi.fn();
-      renderLoop.registerOverlay(draw);
-      renderLoop.flush(); // registerOverlay itself requests a render
-      expect(draw).toHaveBeenCalledTimes(1);
-    });
+  describe('overlay stratum', () => {
+    function loopWithOverlayHook(overlay: ReturnType<typeof vi.fn>): RenderLoop {
+      const hooks: RenderHooks = createRenderHooks();
+      hooks.viewport.register({ overlay });
+      return new RenderLoop({ ...deps, hooks });
+    }
 
-    it('draws registered overlays beneath the active tool overlay', () => {
+    it('runs overlay hooks before the active tool overlay', () => {
       const order: string[] = [];
-      const draw = vi.fn(() => order.push('registered'));
+      const overlay = vi.fn(() => order.push('hook'));
       const renderOverlay = vi.fn(() => order.push('tool'));
       (deps.toolManager as { activeTool: unknown }).activeTool = { renderOverlay };
-      renderLoop.registerOverlay(draw);
-      renderLoop.flush();
-      expect(order).toEqual(['registered', 'tool']);
+      const loop = loopWithOverlayHook(overlay);
+      loop.requestRender();
+      loop.flush();
+      expect(order).toEqual(['hook', 'tool']);
     });
 
-    it('unsubscribe stops drawing, requests an erasing render, and is idempotent', () => {
-      const draw = vi.fn();
-      const unsubscribe = renderLoop.registerOverlay(draw);
-      renderLoop.flush();
-      expect(draw).toHaveBeenCalledTimes(1);
-
-      unsubscribe();
-      renderLoop.flush(); // erasing frame triggered by unsubscribe
-      unsubscribe(); // second call is a no-op
-      renderLoop.flush(); // no render pending — flush does nothing
-      expect(draw).toHaveBeenCalledTimes(1);
-      expect(deps.background.render).toHaveBeenCalledTimes(2);
-    });
-
-    it('isolates a throwing overlay from its siblings and the tool overlay', () => {
-      const bad = vi.fn(() => {
-        throw new Error('boom');
-      });
-      const good = vi.fn();
-      const renderOverlay = vi.fn();
-      (deps.toolManager as { activeTool: unknown }).activeTool = { renderOverlay };
-      renderLoop.registerOverlay(bad);
-      renderLoop.registerOverlay(good);
-      renderLoop.flush();
-      expect(good).toHaveBeenCalledTimes(1);
-      expect(renderOverlay).toHaveBeenCalledTimes(1);
-      // The next frame still renders (loop not wedged by the throw).
-      renderLoop.requestRender();
-      renderLoop.flush();
-      expect(good).toHaveBeenCalledTimes(2);
-    });
-
-    it('routes registered overlays through the hybrid overlay stratum without a tool overlay', () => {
+    it('routes overlay hooks through the hybrid overlay stratum without a tool overlay', () => {
       vi.mocked(deps.store.getAll).mockReturnValue([
         {
           id: 'dom-low',
@@ -602,13 +570,136 @@ describe('RenderLoop', () => {
           size: { w: 10, h: 10 },
         },
       ] as never);
-      const draw = vi.fn();
-      renderLoop.registerOverlay(draw);
-      renderLoop.flush();
+      const overlay = vi.fn();
+      const loop = loopWithOverlayHook(overlay);
+      loop.requestRender();
+      loop.flush();
       // overlayOrder = visibleElements.length + 1 = 3 joins the strata set
       expect(deps.hybridSurface.beginFrame).toHaveBeenCalledWith(new Set([2, 3]), 300, 150);
       expect(deps.hybridSurface.getContext).toHaveBeenCalledWith(3);
-      expect(draw).toHaveBeenCalledTimes(1);
+      expect(overlay).toHaveBeenCalledTimes(1);
+    });
+
+    it('overlay stratum exists without hybrid content', () => {
+      const baseCtx = mockCtx();
+      const getContextSpy = vi
+        .spyOn(HTMLCanvasElement.prototype, 'getContext')
+        .mockReturnValue(baseCtx as never);
+      const stratumCtx = mockCtx();
+      vi.mocked(deps.hybridSurface.getContext).mockReturnValue(stratumCtx);
+      const renderOverlay = vi.fn();
+      (deps.toolManager as { activeTool: unknown }).activeTool = { renderOverlay };
+      try {
+        renderLoop.requestRender();
+        renderLoop.flush();
+        // stroke + note, no canvas content above the note: the overlay alone is order 3
+        expect(deps.hybridSurface.beginFrame).toHaveBeenCalledWith(new Set([3]), 300, 150);
+        expect(deps.hybridSurface.getContext).toHaveBeenCalledWith(3);
+        expect(renderOverlay).toHaveBeenCalledTimes(1);
+        expect(renderOverlay).toHaveBeenCalledWith(stratumCtx);
+        expect(renderOverlay).not.toHaveBeenCalledWith(baseCtx);
+      } finally {
+        getContextSpy.mockReturnValue(mockCtx() as never);
+      }
+    });
+
+    it('overlay-only frame does not touch the base canvas or layer caches', () => {
+      vi.mocked(deps.store.getAll).mockReturnValue([
+        {
+          id: 'stroke',
+          type: 'stroke',
+          layerId: 'default',
+          position: { x: 0, y: 0 },
+          points: [{ x: 0, y: 0, pressure: 1 }],
+        },
+        { id: 'grid', type: 'grid', layerId: 'default', position: { x: 0, y: 0 } },
+      ] as never);
+      vi.mocked(deps.renderer.isFullCanvasElement).mockImplementation(
+        (el: { type: string }) => el.type === 'grid',
+      );
+      const overlay = vi.fn();
+      const renderOverlay = vi.fn();
+      (deps.toolManager as { activeTool: unknown }).activeTool = { renderOverlay };
+      const loop = loopWithOverlayHook(overlay);
+      loop.requestRender();
+      loop.flush();
+      expect(deps.background.render).toHaveBeenCalledTimes(1);
+      expect(deps.layerCache.getCanvas).toHaveBeenCalled();
+      expect(deps.renderer.renderExtensionWithBounds).toHaveBeenCalledTimes(1);
+      vi.mocked(deps.layerCache.getCanvas).mockClear();
+      vi.mocked(deps.layerCache.isDirty).mockClear();
+
+      loop.requestOverlayRender();
+      loop.flush();
+
+      expect(deps.background.render).toHaveBeenCalledTimes(1);
+      expect(deps.layerCache.isDirty).not.toHaveBeenCalled();
+      expect(deps.layerCache.getCanvas).not.toHaveBeenCalled();
+      expect(deps.renderer.renderExtensionWithBounds).toHaveBeenCalledTimes(1);
+      expect(overlay).toHaveBeenCalledTimes(2);
+      expect(renderOverlay).toHaveBeenCalledTimes(2);
+    });
+
+    it('overlay-only request before any full frame renders a full frame', () => {
+      const renderOverlay = vi.fn();
+      (deps.toolManager as { activeTool: unknown }).activeTool = { renderOverlay };
+      renderLoop.requestOverlayRender();
+      renderLoop.flush();
+      expect(deps.background.render).toHaveBeenCalledTimes(1);
+      expect(renderOverlay).toHaveBeenCalledTimes(1);
+    });
+
+    it('a pending full render wins over a pending overlay render', () => {
+      const renderOverlay = vi.fn();
+      (deps.toolManager as { activeTool: unknown }).activeTool = { renderOverlay };
+      renderLoop.requestRender();
+      renderLoop.flush();
+      renderLoop.requestRender();
+      renderLoop.requestOverlayRender();
+      renderLoop.flush();
+      renderLoop.flush();
+      expect(deps.background.render).toHaveBeenCalledTimes(2);
+      expect(renderOverlay).toHaveBeenCalledTimes(2);
+    });
+
+    it('overlay hook runs in world space', () => {
+      vi.stubGlobal('devicePixelRatio', 2);
+      (deps.camera as { position: { x: number; y: number }; zoom: number }).position = {
+        x: 10,
+        y: 20,
+      };
+      (deps.camera as { zoom: number }).zoom = 3;
+      // Axis-aligned transform model: [scale, translateX, translateY].
+      let m: [number, number, number] = [1, 0, 0];
+      const stack: [number, number, number][] = [];
+      const stratumCtx = {
+        ...mockCtx(),
+        save: () => stack.push([...m]),
+        restore: () => {
+          m = stack.pop() ?? m;
+        },
+        scale: (s: number) => {
+          m = [m[0] * s, m[1], m[2]];
+        },
+        translate: (x: number, y: number) => {
+          m = [m[0], m[1] + m[0] * x, m[2] + m[0] * y];
+        },
+      } as unknown as CanvasRenderingContext2D;
+      vi.mocked(deps.hybridSurface.getContext).mockReturnValue(stratumCtx);
+      const seen: [number, number, number][] = [];
+      const loop = loopWithOverlayHook(vi.fn(() => seen.push([...m])));
+      try {
+        loop.requestRender();
+        loop.flush();
+        loop.requestOverlayRender();
+        loop.flush();
+        expect(seen).toEqual([
+          [6, 20, 40],
+          [6, 20, 40],
+        ]);
+      } finally {
+        vi.unstubAllGlobals();
+      }
     });
   });
 
@@ -845,23 +936,24 @@ describe('RenderLoop', () => {
       }
     });
 
-    it('unwinds both main context saves when a main-canvas tool overlay throws', () => {
+    it('unwinds the main and overlay stratum saves when a tool overlay throws', () => {
       const ctx = depthCtx();
       const getContextSpy = vi
         .spyOn(HTMLCanvasElement.prototype, 'getContext')
         .mockReturnValue(ctx as never);
+      const stratumCtx = depthCtx();
+      vi.mocked(deps.hybridSurface.getContext).mockReturnValue(stratumCtx);
       const depthAtBackground: number[] = [];
       (deps.background.render as ReturnType<typeof vi.fn>).mockImplementation(() => {
         depthAtBackground.push(ctx.depth);
       });
-      const depthAtOverlay: number[] = [];
+      const depthAtOverlay: number[][] = [];
       let shouldThrow = true;
       (deps.toolManager as { activeTool: unknown }).activeTool = {
         renderOverlay: (overlayCtx: unknown) => {
-          // No hybrid stratum is active here, so the overlay draws on the main canvas
-          // under both of the frame's saves (dpr scale, then camera transform).
-          expect(overlayCtx).toBe(ctx);
-          depthAtOverlay.push(ctx.depth);
+          // The overlay draws on its own stratum while the main canvas holds both frame saves.
+          expect(overlayCtx).toBe(stratumCtx);
+          depthAtOverlay.push([ctx.depth, stratumCtx.depth]);
           if (shouldThrow) throw new Error('overlay failed');
         },
       };
@@ -870,13 +962,18 @@ describe('RenderLoop', () => {
       try {
         loop.start();
         runFrame(loop); // throwing frame
-        expect(depthAtOverlay).toEqual([2]);
+        expect(depthAtOverlay).toEqual([[2, 1]]);
         expect(ctx.depth).toBe(0);
+        expect(stratumCtx.depth).toBe(0);
         shouldThrow = false;
         runFrame(loop); // recovered frame
         expect(ctx.depth).toBe(0);
+        expect(stratumCtx.depth).toBe(0);
         expect(depthAtBackground).toEqual([1, 1]);
-        expect(depthAtOverlay).toEqual([2, 2]);
+        expect(depthAtOverlay).toEqual([
+          [2, 1],
+          [2, 1],
+        ]);
       } finally {
         loop.stop();
         rafSpy.mockRestore();

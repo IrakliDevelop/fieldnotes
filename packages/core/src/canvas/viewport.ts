@@ -704,15 +704,43 @@ export class Viewport {
   }
 
   /**
-   * Registers a world-space overlay drawn above elements on every frame,
-   * regardless of the active tool — the surface for remote presence visuals
-   * such as laser trails, cursors, pings, and shared rulers. Overlays draw
-   * beneath the active tool's own `renderOverlay` and never touch elements,
-   * history, or persisted state. Returns an idempotent unsubscribe that also
-   * erases the overlay's last frame.
+   * Repaints only the overlay stratum (tool overlay, registered overlays, `overlay` hooks) on the
+   * next frame. Use `requestRender` for anything that changes elements, layers, the camera or
+   * other hooks.
+   */
+  requestOverlayRender(): void {
+    this.renderLoop.requestOverlayRender();
+  }
+
+  /**
+   * Registers a world-space overlay drawn on every frame, regardless of the
+   * active tool — the surface for remote presence visuals such as laser
+   * trails, cursors, pings, and shared rulers. Overlays draw above elements
+   * and DOM content, beneath the active tool's own `renderOverlay`, and never
+   * touch elements, history, or persisted state. Returns an idempotent
+   * unsubscribe that also erases the overlay's last frame.
    */
   registerOverlay(draw: OverlayRenderer): () => void {
-    return this.renderLoop.registerOverlay(draw);
+    const dispose = this._renderHooks.viewport.register({
+      overlay: (ctx) => {
+        ctx.save();
+        try {
+          draw(ctx);
+        } catch {
+          // One faulty overlay must not take down the frame or its siblings.
+        } finally {
+          ctx.restore();
+        }
+      },
+    });
+    this.requestOverlayRender();
+    let disposed = false;
+    return () => {
+      if (disposed) return;
+      disposed = true;
+      dispose();
+      this.requestOverlayRender();
+    };
   }
 
   exportState(): CanvasState {
