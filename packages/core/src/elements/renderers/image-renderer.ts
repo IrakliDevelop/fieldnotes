@@ -84,6 +84,7 @@ function getImage(
     );
   };
   img.onerror = (event) => {
+    if (imageCache.get(src) !== img) return;
     // failed srcs stay failed for the session; pointing the element at a new src loads fresh
     imageCache.set(src, 'failed');
     onImageError?.(src, event);

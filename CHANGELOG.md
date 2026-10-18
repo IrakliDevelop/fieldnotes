@@ -121,6 +121,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ### Core 0.88.0 — history unification (F3), lifecycle fixes, perf quick wins
 
+**Added**
+
+- `LayerManager.addLayerDirect`, `removeLayerDirect` and `updateLayerDirect` accept an optional
+  trailing `meta`; pass a remote origin from a sync `applyLayer` hook.
+
 **Fixed**
 
 - A host `viewport.transaction()` that wraps built-in operations (`addShape`, `addImage`,
@@ -130,9 +135,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
   is closed before these operations start, so it stays its own step.
 - Undoing an update followed by a removal of the same element in one transaction restores the
   element as it was before the update.
-- Remote layer changes stay out of the local undo stack: `LayerManager.addLayerDirect`,
-  `removeLayerDirect` and `updateLayerDirect` accept an optional trailing `meta`, and changes
-  whose `meta.origin` is not local are not recorded. Use this from a sync `applyLayer` hook.
+- Remote layer changes stay out of the local undo stack: changes whose `meta.origin` is not
+  local are not recorded.
 - `destroy()` releases layer caches, the paint stack and cached images (closing `ImageBitmap`s);
   removed layers and layers dropped by `loadState` no longer keep their cache canvases.
 - Double-tap activation of html elements uses the rotation-aware hit test and skips hidden

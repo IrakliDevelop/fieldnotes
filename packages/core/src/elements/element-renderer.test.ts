@@ -731,6 +731,24 @@ describe('ElementRenderer', () => {
       }
     }
 
+    it('ignores an image error that arrives after the image cache is cleared', () => {
+      const onLoad = vi.fn();
+      const onError = vi.fn();
+      const renderer = new ElementRenderer();
+      renderer.setOnImageLoad(onLoad);
+      renderer.setOnImageError(onError);
+      renderer.renderCanvasElement(mockCtx(), makeImage({ src: 'late.png' }));
+      const cache = (renderer as unknown as { imageCache: Map<string, unknown> }).imageCache;
+      const img = cache.get('late.png');
+
+      renderer.clearImageCache();
+      if (img instanceof HTMLImageElement) img.onerror?.(new Event('error') as never);
+
+      expect(onLoad).not.toHaveBeenCalled();
+      expect(onError).not.toHaveBeenCalled();
+      expect(cache.size).toBe(0);
+    });
+
     it('fires onImageError and renders a placeholder after a failed load', () => {
       const onError = vi.fn();
       const renderer = new ElementRenderer();
