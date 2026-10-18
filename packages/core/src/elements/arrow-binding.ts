@@ -51,7 +51,13 @@ export function findBindTarget(
   let closest: CanvasElement | null = null;
   let closestDist = Infinity;
 
-  for (const el of store.getAll()) {
+  const near = store.queryRect({
+    x: point.x - threshold,
+    y: point.y - threshold,
+    w: threshold * 2,
+    h: threshold * 2,
+  });
+  for (const el of near) {
     if (!isBindable(el)) continue;
     if (excludeId && el.id === excludeId) continue;
     if (filter && !filter(el)) continue;
