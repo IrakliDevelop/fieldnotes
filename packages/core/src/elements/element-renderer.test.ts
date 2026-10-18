@@ -700,6 +700,29 @@ describe('ElementRenderer', () => {
       expect(onLoad.mock.calls).toEqual([['ok.png']]);
     });
 
+    it('does not notify again when onImageLoad throws after a successful decode', async () => {
+      // Keep the decode chain so the listener error is asserted here, not reported as unhandled.
+      let decoded: Promise<unknown> | undefined;
+      const bitmap = Promise.resolve({ close: vi.fn() });
+      vi.stubGlobal('createImageBitmap', () => ({
+        then: (onOk: (b: unknown) => unknown, onErr?: (e: unknown) => unknown) =>
+          (decoded = bitmap.then(onOk, onErr)),
+      }));
+      const onLoad = vi.fn().mockImplementationOnce(() => {
+        throw new Error('listener failed');
+      });
+      const renderer = new ElementRenderer();
+      renderer.setOnImageLoad(onLoad);
+      renderer.renderCanvasElement(mockCtx(), makeImage({ src: 'ok.png' }));
+      const img = (renderer as unknown as { imageCache: Map<string, unknown> }).imageCache.get(
+        'ok.png',
+      );
+      if (img instanceof HTMLImageElement) img.onload?.(new Event('load'));
+
+      await expect(decoded).rejects.toThrow('listener failed');
+      expect(onLoad).toHaveBeenCalledTimes(1);
+    });
+
     function failImage(renderer: ElementRenderer, src: string): void {
       const cache = (renderer as unknown as { imageCache: Map<string, unknown> }).imageCache;
       const img = cache.get(src);

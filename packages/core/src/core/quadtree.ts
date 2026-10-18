@@ -167,11 +167,10 @@ export class Quadtree {
   remove(id: string): void {
     const node = this.owners.get(id);
     if (!node) return;
+    const index = node.items.findIndex((e) => e.id === id);
+    if (index === -1) return;
     this.owners.delete(id);
-    node.items.splice(
-      node.items.findIndex((e) => e.id === id),
-      1,
-    );
+    node.items.splice(index, 1);
     this._size--;
     for (let n = node.parent; n; n = n.parent) n.collapseIfEmpty();
   }

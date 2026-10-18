@@ -67,8 +67,8 @@ function getImage(
       return;
     }
     // Decode from already-loaded image in memory, not a re-fetch
-    createImageBitmap(img)
-      .then((bitmap) => {
+    createImageBitmap(img).then(
+      (bitmap) => {
         // The cache was cleared (viewport destroyed) while decoding; do not leak the bitmap.
         if (imageCache.get(src) !== img) {
           bitmap.close();
@@ -76,9 +76,12 @@ function getImage(
         }
         imageCache.set(src, bitmap);
         onImageLoad?.(src);
-      })
+      },
       // keep HTMLImageElement fallback — handles CORS rejection
-      .catch(() => onImageLoad?.(src));
+      () => {
+        if (imageCache.get(src) === img) onImageLoad?.(src);
+      },
+    );
   };
   img.onerror = (event) => {
     // failed srcs stay failed for the session; pointing the element at a new src loads fresh
