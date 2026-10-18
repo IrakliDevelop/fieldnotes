@@ -130,9 +130,9 @@ const markerDefinition: ElementTypeDefinition<Marker> = {
 
 When the envelope carries `size` and the element is not locked, the select tool shows the core
 corner handles and resizes `position` and `size` as it does for notes. Your `bounds` must read
-`size`, or culling and selection disagree with the handles. Core offers neither its rotation
-handle for extension elements, and they are not snapped by the move constraint; rotation goes
-through `interaction.rotate`.
+`size`, or culling and selection disagree with the handles. Core draws no rotation handle for
+extension elements; rotation goes through `interaction.rotate`. A constrained move steps them by
+the snapped pointer delta but does not snap their centre the way it does for sized core elements.
 
 `interaction` adds custom behaviour:
 
