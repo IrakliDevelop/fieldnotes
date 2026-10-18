@@ -15,6 +15,8 @@ import type { RenderStatsSnapshot } from './render-stats';
 import type { HybridRenderSurface } from './hybrid-render-surface';
 import type { RenderHooks } from './render-hooks';
 import { reportFailure } from '../core/report-failure';
+import type { ElementRegistry } from '../elements/element-registry';
+import { getDefaultElementRegistry } from '../elements/default-registry';
 
 /**
  * A world-space draw callback rendered above elements on every frame,
@@ -50,6 +52,7 @@ export interface RenderLoopDeps {
   marginViewport: MarginViewport;
   hybridSurface: HybridRenderSurface;
   hooks?: RenderHooks;
+  elementRegistry?: ElementRegistry;
 }
 
 export class RenderLoop {
@@ -67,6 +70,7 @@ export class RenderLoop {
   private readonly marginViewport: MarginViewport;
   private readonly hybridSurface: HybridRenderSurface;
   private readonly hooks?: RenderHooks;
+  private readonly elementRegistry: ElementRegistry;
   private activeDrawingLayerId: string | null = null;
   private readonly stats = new RenderStats();
   private layerGroups = new Map<string, CanvasElement[]>();
@@ -98,6 +102,7 @@ export class RenderLoop {
     this.marginViewport = deps.marginViewport;
     this.hybridSurface = deps.hybridSurface;
     this.hooks = deps.hooks;
+    this.elementRegistry = deps.elementRegistry ?? getDefaultElementRegistry();
   }
 
   requestRender(): void {
@@ -473,7 +478,7 @@ export class RenderLoop {
       if (this.renderer.isDomElement(element)) {
         activeHybridOrder = null;
         const layerOpacity = this.layerOpacities.get(element.layerId) ?? 1;
-        const elBounds = getElementVisualBounds(element);
+        const elBounds = getElementVisualBounds(element, this.elementRegistry);
         if (elBounds && !boundsIntersect(elBounds, cullingRect)) {
           this.domNodeManager.hideDomNode(element.id);
         } else {
@@ -549,7 +554,7 @@ export class RenderLoop {
         this.saveTracked(offCtx);
         this.marginViewport.applyRenderTransform(offCtx);
         for (const element of elements) {
-          const elBounds = getElementVisualBounds(element);
+          const elBounds = getElementVisualBounds(element, this.elementRegistry);
           if (elBounds && !boundsIntersect(elBounds, cullingRect)) continue;
           this.renderer.renderCanvasElement(offCtx as CanvasRenderingContext2D, element);
         }
@@ -590,7 +595,7 @@ export class RenderLoop {
       hybridCtx.translate(this.camera.position.x, this.camera.position.y);
       hybridCtx.scale(this.camera.zoom, this.camera.zoom);
       for (const element of elements) {
-        const elBounds = getElementVisualBounds(element);
+        const elBounds = getElementVisualBounds(element, this.elementRegistry);
         if (elBounds && !boundsIntersect(elBounds, cullingRect)) continue;
         const layerOpacity = this.layerOpacities.get(element.layerId) ?? 1;
         // Canvas-routed html gets the painter's ALPHA BOUNDARY that every other surface

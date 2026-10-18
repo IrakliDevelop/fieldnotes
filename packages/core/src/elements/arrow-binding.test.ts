@@ -21,7 +21,8 @@ import {
   createStroke,
 } from './element-factory';
 import { ElementStore } from './element-store';
-import type { CanvasElement } from './types';
+import type { CanvasElement, ExtensionElementEnvelope } from './types';
+import { ElementRegistry } from './element-registry';
 
 describe('getElementCenter', () => {
   it('returns center of a note', () => {
@@ -352,5 +353,41 @@ describe('unbindArrowsFrom', () => {
     expect(updated?.type === 'arrow' && updated.fromBinding).toBeUndefined();
     expect(updated?.position).toEqual({ x: 100, y: 50 });
     expect(metas).toEqual([{ origin: 'remote' }]);
+  });
+
+  it('leaves the endpoint on the edge of a removed extension bounded by the given registry', () => {
+    const registry = new ElementRegistry();
+    registry.register<ExtensionElementEnvelope>({
+      type: 'test:box',
+      legacyTypes: [],
+      decodeLegacy: (raw) => raw as unknown as ExtensionElementEnvelope,
+      validateData: () => true,
+      unwrap: (element) => element,
+      wrap: (element) => element,
+      bounds: (element) => ({ x: element.position.x, y: element.position.y, w: 40, h: 20 }),
+      renderMode: 'canvas',
+    });
+    const store = new ElementStore(registry);
+    const box: ExtensionElementEnvelope = {
+      id: 'box',
+      type: 'extension',
+      extensionType: 'test:box',
+      position: { x: 100, y: 100 },
+      zIndex: 0,
+      locked: false,
+      layerId: '',
+      data: {},
+    };
+    const arrow = createArrow({
+      from: { x: 0, y: 110 },
+      to: { x: 120, y: 110 },
+      toBinding: { elementId: box.id },
+    });
+    store.add(arrow);
+
+    unbindArrowsFrom(store, box, undefined, registry);
+
+    const updated = store.getById(arrow.id);
+    expect(updated?.type === 'arrow' && updated.to).toEqual({ x: 100, y: 110 });
   });
 });

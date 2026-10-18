@@ -17,7 +17,8 @@ import {
 import { SelectTool } from '../tools/select-tool';
 import { PencilTool } from '../tools/pencil-tool';
 import { renderImage } from '../elements/renderers/image-renderer';
-import type { ImageElement, HtmlElement } from '../elements/types';
+import type { ImageElement, HtmlElement, ExtensionElementEnvelope } from '../elements/types';
+import { ElementRegistry } from '../elements/element-registry';
 import type { HtmlPaintDiagnostic } from './html-paint-diagnostics';
 import { HtmlPainterRegistry } from './html-painter-registry';
 import type { ElementActivationEvent } from './element-activation';
@@ -1448,6 +1449,41 @@ describe('Viewport', () => {
   });
 
   describe('fitToContent', () => {
+    it('frames extension elements with the viewport element registry bounds', () => {
+      const elementRegistry = new ElementRegistry();
+      elementRegistry.register<ExtensionElementEnvelope>({
+        type: 'test:box',
+        legacyTypes: [],
+        decodeLegacy: (raw) => raw as unknown as ExtensionElementEnvelope,
+        validateData: () => true,
+        unwrap: (element) => element,
+        wrap: (element) => element,
+        bounds: (element) => ({ x: element.position.x, y: element.position.y, w: 200, h: 100 }),
+        renderMode: 'canvas',
+      });
+      const viewport = new Viewport(container, { elementRegistry });
+      const wrapper = wrapperOf(container);
+      Object.defineProperty(wrapper, 'clientWidth', { value: 800, configurable: true });
+      Object.defineProperty(wrapper, 'clientHeight', { value: 600, configurable: true });
+      viewport.store.add({
+        id: 'box',
+        type: 'extension',
+        extensionType: 'test:box',
+        position: { x: 1000, y: 1000 },
+        zIndex: 0,
+        locked: false,
+        layerId: viewport.layerManager.activeLayerId,
+        data: {},
+      });
+
+      viewport.fitToContent();
+
+      const cam = viewport.camera;
+      expect(cam.position.x + 1100 * cam.zoom).toBeCloseTo(400, 0);
+      expect(cam.position.y + 1050 * cam.zoom).toBeCloseTo(300, 0);
+      viewport.destroy();
+    });
+
     it('frames all elements (content center maps to canvas center)', () => {
       const viewport = new Viewport(container);
       const wrapper = wrapperOf(container);

@@ -701,6 +701,42 @@ describe('KeyboardActions.paste cursor-centering', () => {
     const pasted = ctx.store.getAll().find((el) => el.id !== note.id && el.type === 'note');
     expect(pasted?.position).toEqual({ x: 120, y: 120 });
   });
+
+  it('centers pasted extension clones with the bounds of the context registry', () => {
+    const elementRegistry = new ElementRegistry();
+    elementRegistry.register<ExtensionElementEnvelope>({
+      type: 'test:box',
+      legacyTypes: [],
+      decodeLegacy: (raw) => raw as unknown as ExtensionElementEnvelope,
+      validateData: () => true,
+      unwrap: (element) => element,
+      wrap: (element) => element,
+      bounds: (element) => ({ x: element.position.x, y: element.position.y, w: 40, h: 20 }),
+      renderMode: 'canvas',
+    });
+    const ctx = makeCtx({ elementRegistry, store: new ElementStore(elementRegistry) });
+    const { actions, tool } = makeActions({ ctx });
+    ctx.store.add({
+      id: 'box',
+      type: 'extension',
+      extensionType: 'test:box',
+      position: { x: 100, y: 100 },
+      zIndex: 0,
+      locked: false,
+      layerId: '',
+      data: {},
+    });
+    tool.setSelection(['box']);
+    actions.copy();
+    (
+      actions as unknown as { deps: { getLastPointerWorld: () => { x: number; y: number } } }
+    ).deps.getLastPointerWorld = () => ({ x: 500, y: 500 });
+
+    actions.paste();
+
+    const pasted = ctx.store.getAll().find((el) => el.id !== 'box');
+    expect(pasted?.position).toEqual({ x: 480, y: 490 });
+  });
 });
 
 describe('KeyboardActions guards during active tool input', () => {

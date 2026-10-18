@@ -436,6 +436,7 @@ export class Viewport {
       marginViewport: this.marginViewport,
       hybridSurface: this.hybridSurface,
       hooks: this._renderHooks,
+      elementRegistry: this.elementRegistry,
     });
     this.disposers.push(
       () => this.renderLoop.stop(),
@@ -459,7 +460,7 @@ export class Viewport {
         this.requestRender();
       }),
       this.store.on('remove', (el, meta) => {
-        unbindArrowsFrom(this.store, el, meta);
+        unbindArrowsFrom(this.store, el, meta, this.elementRegistry);
         this.domNodeManager.removeDomNode(el.id);
         this.htmlDiagnostics.forget(el.id);
         this.renderLoop.markLayerDirty(el.layerId);
@@ -642,7 +643,7 @@ export class Viewport {
     const visibleElements = this.store
       .getAll()
       .filter((el) => this.layerManager.isLayerVisible(el.layerId));
-    const bbox = getElementsBoundingBox(visibleElements);
+    const bbox = getElementsBoundingBox(visibleElements, this.elementRegistry);
     if (!bbox) return;
     this.camera.fitToContent(bbox, this.wrapper.clientWidth, this.wrapper.clientHeight, padding);
   }

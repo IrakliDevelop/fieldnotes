@@ -7,6 +7,8 @@ import { ElementStore } from '../elements/element-store';
 import { LayerManager } from '../layers/layer-manager';
 import { createShape } from '../elements/element-factory';
 import type { OverlayRenderer } from './render-loop';
+import { ElementRegistry } from '../elements/element-registry';
+import type { ExtensionElementEnvelope } from '../elements/types';
 
 function makeCtx(): {
   ctx: CanvasRenderingContext2D;
@@ -71,6 +73,41 @@ const frame = (id: string, extra: Record<string, unknown> = {}) => ({
 });
 
 describe('RemoteSelectionOverlay', () => {
+  it('outlines an extension element with the host element registry bounds', () => {
+    const elementRegistry = new ElementRegistry();
+    elementRegistry.register<ExtensionElementEnvelope>({
+      type: 'test:box',
+      legacyTypes: [],
+      decodeLegacy: (raw) => raw as unknown as ExtensionElementEnvelope,
+      validateData: () => true,
+      unwrap: (element) => element,
+      wrap: (element) => element,
+      bounds: (element) => ({ x: element.position.x, y: element.position.y, w: 40, h: 20 }),
+      renderMode: 'canvas',
+    });
+    const { host, store, layers, getRenderer } = makeHost();
+    store.setElementRegistry(elementRegistry);
+    store.add({
+      id: 'box',
+      type: 'extension',
+      extensionType: 'test:box',
+      position: { x: 10, y: 10 },
+      zIndex: 0,
+      locked: false,
+      layerId: layers.activeLayerId,
+      data: {},
+    });
+    const roster = new PeerRoster();
+    const overlay = new RemoteSelectionOverlay({ ...host, elementRegistry }, roster);
+
+    roster.apply('c1', frame('ada', { selection: ['box'] }));
+    const { ctx, strokes } = makeCtx();
+    getRenderer()?.(ctx);
+
+    expect(strokes).toEqual([[-20, -10, 40, 20]]);
+    overlay.dispose();
+  });
+
   it('outlines only ids present in the local store, and only on visible layers', () => {
     const { host, store, layers, getRenderer } = makeHost();
     const roster = new PeerRoster();

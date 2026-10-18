@@ -2696,3 +2696,61 @@ describe('SelectTool sized extension resize', () => {
     },
   );
 });
+
+describe('SelectTool extension bounds from the context registry', () => {
+  function boxSetup() {
+    const elementRegistry = new ElementRegistry();
+    elementRegistry.register<ExtensionElementEnvelope>({
+      type: 'test:box',
+      legacyTypes: [],
+      decodeLegacy: (raw) => raw as unknown as ExtensionElementEnvelope,
+      validateData: () => true,
+      unwrap: (element) => element,
+      wrap: (element) => element,
+      bounds: (element) => ({ x: element.position.x, y: element.position.y, w: 50, h: 50 }),
+      renderMode: 'canvas',
+    });
+    const box: ExtensionElementEnvelope = {
+      id: 'box',
+      type: 'extension',
+      extensionType: 'test:box',
+      position: { x: 200, y: 100 },
+      zIndex: 0,
+      locked: false,
+      layerId: '',
+      data: {},
+    };
+    const ctx = makeCtx({ elementRegistry, store: new ElementStore(elementRegistry) });
+    ctx.store.add(box);
+    const tool = new SelectTool();
+    tool.onActivate(ctx);
+    return { tool, ctx };
+  }
+
+  it('outlines a hovered extension with its registry bounds', () => {
+    const { tool, ctx } = boxSetup();
+    tool.onHover?.(pt(220, 120), ctx);
+    const canvas = {
+      save: vi.fn(),
+      restore: vi.fn(),
+      strokeRect: vi.fn(),
+      setLineDash: vi.fn(),
+    } as unknown as CanvasRenderingContext2D;
+
+    tool.renderOverlay?.(canvas);
+
+    expect(canvas.strokeRect).toHaveBeenCalledWith(200, 100, 50, 50);
+  });
+
+  it('snaps a dragged selection to an extension edge', () => {
+    const { tool, ctx } = boxSetup();
+    ctx.smartGuides = true;
+    const drag = createNote({ position: { x: 100, y: 0 }, size: { w: 50, h: 50 } });
+    ctx.store.add(drag);
+
+    tool.onPointerDown(pt(125, 25), ctx);
+    tool.onPointerMove(pt(222, 25), ctx);
+
+    expect(ctx.store.getById(drag.id)?.position.x).toBe(200);
+  });
+});

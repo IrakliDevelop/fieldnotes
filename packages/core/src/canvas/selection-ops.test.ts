@@ -4,6 +4,8 @@ import { SelectionOps } from './selection-ops';
 import { ElementStore } from '../elements/element-store';
 import { HistoryStack } from '../history/history-stack';
 import { HistoryRecorder } from '../history/history-recorder';
+import { ElementRegistry } from '../elements/element-registry';
+import type { ExtensionElementEnvelope } from '../elements/types';
 import {
   createShape,
   createArrow,
@@ -27,6 +29,44 @@ function setup(selectedIds: string[] = []) {
 }
 
 describe('SelectionOps', () => {
+  it('align() moves extension elements by the bounds of its element registry', () => {
+    const elementRegistry = new ElementRegistry();
+    elementRegistry.register<ExtensionElementEnvelope>({
+      type: 'test:box',
+      legacyTypes: [],
+      decodeLegacy: (raw) => raw as unknown as ExtensionElementEnvelope,
+      validateData: () => true,
+      unwrap: (element) => element,
+      wrap: (element) => element,
+      bounds: (element) => ({ x: element.position.x, y: element.position.y, w: 40, h: 20 }),
+      renderMode: 'canvas',
+    });
+    const box = (id: string, x: number): ExtensionElementEnvelope => ({
+      id,
+      type: 'extension',
+      extensionType: 'test:box',
+      position: { x, y: 0 },
+      zIndex: 0,
+      locked: false,
+      layerId: '',
+      data: {},
+    });
+    const store = new ElementStore(elementRegistry);
+    const ops = new SelectionOps({
+      store,
+      recorder: new HistoryRecorder(store, new HistoryStack()),
+      getSelectedIds: () => ['a', 'b'],
+      requestRender: vi.fn(),
+      elementRegistry,
+    });
+    store.add(box('a', 10));
+    store.add(box('b', 50));
+
+    ops.align('left');
+
+    expect(store.getById('b')?.position).toEqual({ x: 10, y: 0 });
+  });
+
   it('group() sets a shared groupId on selected elements in one undo step', () => {
     const a = createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } });
     const b = createShape({ position: { x: 50, y: 0 }, size: { w: 10, h: 10 } });

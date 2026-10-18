@@ -226,7 +226,7 @@ export class MinimapController {
 
   private currentMapping(): Bounds {
     const viewportRect = this.viewport.getVisibleRect();
-    let mapping = getElementsBoundingBox(this.sceneElements());
+    let mapping = getElementsBoundingBox(this.sceneElements(), this.viewport.elementRegistry);
     mapping = mapping ? unionBounds(mapping, viewportRect) : viewportRect;
     const extra = this.getExtraBounds?.();
     if (extra) {
@@ -341,7 +341,7 @@ export class MinimapController {
       // it) — the SAME routing decision the main renderer and export make,
       // via the registry this controller forwarded in setHtmlPainters().
       if (this.renderer.isDomElement(el)) {
-        const b = getElementBounds(el);
+        const b = getElementBounds(el, this.viewport.elementRegistry);
         if (!b) continue;
         const tl = worldToMini(t, { x: b.x, y: b.y });
         ctx.save();

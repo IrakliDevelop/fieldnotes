@@ -314,7 +314,7 @@ export class SelectTool implements Tool {
           ).filter((el) => !selSet.has(el.id));
           const targets: Bounds[] = [];
           for (const el of candidates) {
-            const b = getElementBounds(el);
+            const b = getElementBounds(el, ctx.elementRegistry);
             if (b) targets.push(b);
           }
           this.dragSnapTargets = targets;
@@ -322,7 +322,7 @@ export class SelectTool implements Tool {
         const selectedEls = this._selectedIds
           .map((id) => ctx.store.getById(id))
           .filter((el): el is CanvasElement => !!el && !el.locked);
-        const base = getElementsBoundingBox(selectedEls);
+        const base = getElementsBoundingBox(selectedEls, ctx.elementRegistry);
         if (base) {
           const moving: Bounds = { x: base.x + dx, y: base.y + dy, w: base.w, h: base.h };
           const res = computeSnapGuides(moving, this.dragSnapTargets, SNAP_PX / ctx.camera.zoom);
@@ -467,7 +467,7 @@ export class SelectTool implements Tool {
           renderArrowHoverHandle(canvasCtx, el, this.ctx.camera.zoom);
           canvasCtx.restore();
         } else if (el) {
-          const b = getElementBounds(el);
+          const b = getElementBounds(el, this.ctx.elementRegistry);
           if (b) {
             canvasCtx.save();
             canvasCtx.strokeStyle = '#2196F3';

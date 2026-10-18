@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { Viewport } from './viewport';
+import type { ViewportOptions } from './viewport';
 import { MinimapController } from './minimap-controller';
 import type { MinimapControllerOptions } from './minimap-controller';
 import {
@@ -17,7 +18,8 @@ import {
   createStroke,
   createText,
 } from '../elements/element-factory';
-import type { CanvasElement } from '../elements/types';
+import type { CanvasElement, ExtensionElementEnvelope } from '../elements/types';
+import { ElementRegistry } from '../elements/element-registry';
 import type { HtmlPainterRegistry } from './html-painter-registry';
 import { createRenderHooks } from './render-hooks';
 import type { Camera } from './camera';
@@ -199,7 +201,7 @@ interface ViewportHarness {
   canvasEl: HTMLCanvasElement;
 }
 
-function makeViewportHarness(): ViewportHarness {
+function makeViewportHarness(options: ViewportOptions = {}): ViewportHarness {
   const container = document.createElement('div');
   Object.defineProperty(container, 'getBoundingClientRect', {
     value: () => ({ left: 0, top: 0, width: 800, height: 600 }),
@@ -207,7 +209,7 @@ function makeViewportHarness(): ViewportHarness {
   });
   document.body.appendChild(container);
 
-  const viewport = new Viewport(container, {});
+  const viewport = new Viewport(container, options);
   const canvasEl = container.querySelector('canvas');
   if (!canvasEl) throw new Error('viewport canvas not found');
   // Camera.getVisibleRect reads canvasEl.clientWidth/clientHeight, which jsdom
@@ -695,6 +697,47 @@ describe('MinimapController', () => {
     expect(recorder.fillRectLog.length).toBe(1);
 
     controller2.dispose();
+    viewport.destroy();
+  });
+
+  it('11. the mapping includes extension elements bounded by the viewport element registry', () => {
+    const elementRegistry = new ElementRegistry();
+    elementRegistry.register<ExtensionElementEnvelope>({
+      type: 'test:box',
+      legacyTypes: [],
+      decodeLegacy: (raw) => raw as unknown as ExtensionElementEnvelope,
+      validateData: () => true,
+      unwrap: (element) => element,
+      wrap: (element) => element,
+      bounds: (element) => ({ x: element.position.x, y: element.position.y, w: 100, h: 100 }),
+      renderMode: 'canvas',
+    });
+    const { viewport } = makeViewportHarness({ elementRegistry });
+    viewport.store.add({
+      id: 'box',
+      type: 'extension',
+      extensionType: 'test:box',
+      position: { x: 5000, y: 5000 },
+      zIndex: 0,
+      locked: false,
+      layerId: viewport.layerManager.activeLayerId,
+      data: {},
+    });
+    const minimapHooks = createRenderHooks().minimap;
+    const afterElements = vi.fn();
+    minimapHooks.register({ afterElements });
+    const queue = makeFrameQueue();
+
+    const controller = makeController(viewport, document.createElement('canvas'), queue, {
+      minimapHooks,
+    });
+    queue.flush();
+
+    expect(afterElements).toHaveBeenCalledWith(
+      expect.objectContaining({ worldBounds: { x: 0, y: 0, w: 5100, h: 5100 } }),
+    );
+
+    controller.dispose();
     viewport.destroy();
   });
 });

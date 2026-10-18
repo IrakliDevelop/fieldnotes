@@ -1,4 +1,6 @@
 import { getElementBounds } from '../elements/element-bounds';
+import { getDefaultElementRegistry } from '../elements/default-registry';
+import type { ElementRegistry } from '../elements/element-registry';
 
 import type { FrameScheduler } from './camera-animator';
 import type { ElementStore } from '../elements/element-store';
@@ -31,6 +33,7 @@ export function computeElementRects(
   store: ElementStore,
   match: ElementRectMatch,
   onError?: ElementRectMatchError,
+  registry: ElementRegistry = getDefaultElementRegistry(),
 ): ElementRect[] {
   const rects: ElementRect[] = [];
   for (const element of store.getAll()) {
@@ -42,7 +45,7 @@ export function computeElementRects(
       continue;
     }
     if (typeof key !== 'string') continue;
-    const bounds = getElementBounds(element);
+    const bounds = getElementBounds(element, registry);
     if (!bounds) continue;
     rects.push({
       id: element.id,
@@ -80,9 +83,11 @@ export function elementRectsEqual(a: readonly ElementRect[], b: readonly Element
   return true;
 }
 
-/** Narrow structural host: the tracker needs the element store and nothing else. */
+/** Narrow structural host: the element store, plus the registry that bounds its extensions. */
 export interface RectTrackerHost {
   store: ElementStore;
+  /** Bounds source for extension elements; `Viewport` supplies its own. */
+  elementRegistry?: ElementRegistry;
 }
 
 export interface ElementRectTrackerOptions {
@@ -106,6 +111,7 @@ const defaultFrames: FrameScheduler = {
  */
 export class ElementRectTracker {
   private readonly store: ElementStore;
+  private readonly elementRegistry?: ElementRegistry;
   private readonly frames: FrameScheduler;
   private readonly onError?: ElementRectMatchError;
   private readonly listeners = new Set<(rects: readonly ElementRect[]) => void>();
@@ -117,12 +123,13 @@ export class ElementRectTracker {
 
   constructor(host: RectTrackerHost, options: ElementRectTrackerOptions) {
     this.store = host.store;
+    this.elementRegistry = host.elementRegistry;
     this.match = options.match;
     this.frames = options.frames ?? defaultFrames;
     this.onError = options.onError;
     // Synchronous: getRects() is valid before any frame, and this snapshot is
     // the change baseline, so the first dirty frame cannot emit spuriously.
-    this.rects = computeElementRects(this.store, this.match, this.onError);
+    this.rects = computeElementRects(this.store, this.match, this.onError, this.elementRegistry);
     this.unsubscribe = this.store.onChange(() => this.schedule());
   }
 
@@ -184,7 +191,7 @@ export class ElementRectTracker {
 
   private flush(): void {
     if (this.disposed) return;
-    const next = computeElementRects(this.store, this.match, this.onError);
+    const next = computeElementRects(this.store, this.match, this.onError, this.elementRegistry);
     if (elementRectsEqual(this.rects, next)) return;
     this.rects = next;
     for (const listener of [...this.listeners]) {

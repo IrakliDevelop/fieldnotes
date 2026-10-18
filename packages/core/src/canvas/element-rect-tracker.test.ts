@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { ElementStore } from '../elements/element-store';
 import { createArrow, createImage, createStroke } from '../elements/element-factory';
 import { computeElementRects, elementRectsEqual, ElementRectTracker } from './element-rect-tracker';
-import type { CanvasElement } from '../elements/types';
+import type { CanvasElement, ExtensionElementEnvelope } from '../elements/types';
+import { ElementRegistry } from '../elements/element-registry';
 
 function storeWith(...elements: CanvasElement[]): ElementStore {
   const store = new ElementStore();
@@ -492,5 +493,41 @@ describe('ElementRectTracker', () => {
     // But the tracker is now disposed: a later mutation schedules nothing.
     store.add(image('b', 10, 10));
     expect(frames.pendingCount).toBe(0);
+  });
+});
+
+describe('ElementRectTracker extension bounds', () => {
+  it('tracks extension elements with the host element registry', () => {
+    const elementRegistry = new ElementRegistry();
+    elementRegistry.register<ExtensionElementEnvelope>({
+      type: 'test:box',
+      legacyTypes: [],
+      decodeLegacy: (raw) => raw as unknown as ExtensionElementEnvelope,
+      validateData: () => true,
+      unwrap: (element) => element,
+      wrap: (element) => element,
+      bounds: (element) => ({ x: element.position.x, y: element.position.y, w: 40, h: 20 }),
+      renderMode: 'canvas',
+    });
+    const store = new ElementStore(elementRegistry);
+    store.add({
+      id: 'box',
+      type: 'extension',
+      extensionType: 'test:box',
+      position: { x: 10, y: 30 },
+      zIndex: 0,
+      locked: false,
+      layerId: '',
+      data: {},
+    });
+
+    const tracker = new ElementRectTracker(
+      { store, elementRegistry },
+      { match: () => 'k', frames: inlineFrames() },
+    );
+
+    expect(tracker.getRects()).toEqual([
+      { id: 'box', key: 'k', x: 10, y: 30, w: 40, h: 20, rotation: 0 },
+    ]);
   });
 });

@@ -175,7 +175,10 @@ export class KeyboardActions {
 
     const cursor = this.deps.getLastPointerWorld?.() ?? null;
     if (cursor) {
-      const bbox = getElementsBoundingBox(this.clipboard);
+      const bbox = getElementsBoundingBox(
+        this.clipboard,
+        this.deps.getToolContext()?.elementRegistry,
+      );
       if (bbox) {
         const centerX = bbox.x + bbox.w / 2;
         const centerY = bbox.y + bbox.h / 2;

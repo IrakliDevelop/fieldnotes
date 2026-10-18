@@ -18,6 +18,8 @@ import type { RenderHooks } from './render-hooks';
 import { ElementStore as RealElementStore } from '../elements/element-store';
 import { LayerManager as RealLayerManager } from '../layers/layer-manager';
 import { createNote, createShape } from '../elements/element-factory';
+import { ElementRegistry } from '../elements/element-registry';
+import type { ExtensionElementEnvelope } from '../elements/types';
 
 function createMockDeps() {
   const canvasEl = document.createElement('canvas');
@@ -1677,6 +1679,45 @@ describe('RenderLoop', () => {
       frame();
 
       expect(alphas).toEqual([1, 0.25]);
+    });
+
+    it('culls extension elements with the bounds of the viewport element registry', () => {
+      const registry = new ElementRegistry();
+      registry.register<ExtensionElementEnvelope>({
+        type: 'test:box',
+        legacyTypes: [],
+        decodeLegacy: (raw) => raw as unknown as ExtensionElementEnvelope,
+        validateData: () => true,
+        unwrap: (element) => element,
+        wrap: (element) => element,
+        bounds: (element) => ({ x: element.position.x, y: element.position.y, w: 40, h: 20 }),
+        renderMode: 'canvas',
+      });
+      const box = (id: string, x: number): ExtensionElementEnvelope => ({
+        id,
+        type: 'extension',
+        extensionType: 'test:box',
+        position: { x, y: 0 },
+        zIndex: 0,
+        locked: false,
+        layerId,
+        data: {},
+      });
+      store.setElementRegistry(registry);
+      store.add(box('inside', 10));
+      store.add(box('outside', 100_000));
+      renderLoop = new RenderLoop({
+        ...deps,
+        store,
+        layerManager: layers,
+        elementRegistry: registry,
+      });
+
+      frame();
+
+      expect(vi.mocked(deps.renderer.renderCanvasElement).mock.calls).toEqual([
+        [deps.layerCache.getContext(layerId), expect.objectContaining({ id: 'inside' })],
+      ]);
     });
   });
 
