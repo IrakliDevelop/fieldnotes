@@ -3,6 +3,7 @@ import { ElementStore } from './elements/element-store';
 import { LayerManager } from './layers/layer-manager';
 import { RenderLoop } from './canvas/render-loop';
 import { MarginViewport } from './canvas/margin-viewport';
+import { LayerCache } from './canvas/layer-cache';
 import type { RenderLoopDeps } from './canvas/render-loop';
 import { createStroke, createNote, createArrow, createShape } from './elements/element-factory';
 import { getElementBounds, boundsIntersect } from './elements/element-bounds';
@@ -110,6 +111,56 @@ function createFrameLoop(elementCount: number): RenderLoop {
   return new RenderLoop(deps);
 }
 
+/** 10k strokes on one layer behind a real layer cache, wired to store updates like the viewport. */
+function createDragFixture(): { loop: RenderLoop; drag: () => void } {
+  const store = new ElementStore();
+  const layerManager = new LayerManager(store);
+  const layerId = layerManager.activeLayerId;
+  for (let i = 0; i < 10_000; i++) {
+    const origin = randomPoint(5000);
+    store.add(createStroke({ points: randomStrokePoints(30, origin), position: origin, layerId }));
+  }
+  const ctx = stubCtx();
+  // The cache allocates its own canvases, so every canvas gets the stub context.
+  HTMLCanvasElement.prototype.getContext = (() =>
+    ctx) as unknown as HTMLCanvasElement['getContext'];
+  const marginViewport = new MarginViewport(256);
+  marginViewport.setViewport(800, 600, 1);
+  const loop = new RenderLoop({
+    canvasEl: document.createElement('canvas'),
+    camera: { position: { x: 0, y: 0 }, zoom: 1 } as unknown as RenderLoopDeps['camera'],
+    background: { render: noop } as unknown as RenderLoopDeps['background'],
+    store,
+    renderer: {
+      setCanvasSize: noop,
+      isDomElement: () => false,
+      isFullCanvasElement: () => false,
+      renderCanvasElement: noop,
+    } as unknown as RenderLoopDeps['renderer'],
+    toolManager: { activeTool: null } as unknown as RenderLoopDeps['toolManager'],
+    layerManager,
+    domNodeManager: {
+      syncDomNode: noop,
+      hideDomNode: noop,
+    } as unknown as RenderLoopDeps['domNodeManager'],
+    layerCache: new LayerCache(marginViewport),
+    marginViewport,
+    hybridSurface: {
+      beginFrame: noop,
+      getContext: () => ctx,
+    } as unknown as RenderLoopDeps['hybridSurface'],
+  });
+  store.on('update', ({ previous, current }) => loop.noteElementUpdate(previous, current));
+  const dragged = store.getAll()[5_000];
+  let x = 0;
+  const drag = (): void => {
+    if (dragged) store.update(dragged.id, { position: { x: x++, y: 0 } });
+  };
+  drag();
+  drag();
+  return { loop, drag };
+}
+
 describe('ElementStore spatial queries', () => {
   const store = new ElementStore();
   populateStore(store, 500);
@@ -189,6 +240,14 @@ describe('RenderLoop frame', () => {
   bench('10,000 mixed elements over 4 layers', () => {
     loop.requestRender();
     loop.flush();
+  });
+
+  const dragFixture = createDragFixture();
+
+  bench('drag one element in a 10k-element layer (per frame)', () => {
+    dragFixture.drag();
+    dragFixture.loop.requestRender();
+    dragFixture.loop.flush();
   });
 });
 

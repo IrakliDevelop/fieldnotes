@@ -36,9 +36,11 @@
 
 ## RenderLoop frame
 
-| Benchmark                           | ops/s | Mean (ms) | P99 (ms) |
-| ----------------------------------- | ----- | --------- | -------- |
-| 10,000 mixed elements over 4 layers | ~971  | 1.029     | 1.795    |
+| Benchmark                                                          | ops/s  | Mean (ms) | P99 (ms) |
+| ------------------------------------------------------------------ | ------ | --------- | -------- |
+| 10,000 mixed elements over 4 layers                                | ~971   | 1.029     | 1.795    |
+| drag one element in a 10k-element layer (per frame), 0.90.0 base   | ~948   | 1.055     | 3.255    |
+| drag one element in a 10k-element layer (per frame), live elements | ~1,495 | 0.669     | 3.449    |
 
 ## Note creation
 

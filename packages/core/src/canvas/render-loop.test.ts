@@ -17,6 +17,7 @@ import { createRenderHooks } from './render-hooks';
 import type { RenderHooks } from './render-hooks';
 import { ElementStore as RealElementStore } from '../elements/element-store';
 import { LayerManager as RealLayerManager } from '../layers/layer-manager';
+import { LayerCache as RealLayerCache } from './layer-cache';
 import { createNote, createShape } from '../elements/element-factory';
 import type { ExtensionElementEnvelope } from '../elements/types';
 import { createTestBoxRegistry } from '../test-helpers/test-box-type';
@@ -1423,26 +1424,6 @@ describe('RenderLoop', () => {
       expect(deps.layerCache.markAllDirty).toHaveBeenCalled();
     });
 
-    it('freezes active drawing layer by compositing cache', () => {
-      vi.mocked(deps.layerCache.isDirty).mockReturnValue(true);
-      renderLoop.setActiveDrawingLayer('default');
-
-      const stroke = {
-        id: 'stroke-1',
-        type: 'stroke',
-        layerId: 'default',
-        position: { x: 0, y: 0 },
-        points: [{ x: 0, y: 0, pressure: 1 }],
-      };
-      vi.mocked(deps.store.getAll).mockReturnValue([stroke] as never);
-
-      renderLoop.requestRender();
-      renderLoop.flush();
-
-      expect(deps.renderer.renderCanvasElement).not.toHaveBeenCalled();
-      expect(deps.layerCache.getCanvas).toHaveBeenCalledWith('default');
-    });
-
     it('setCanvasSize resizes the layer cache', () => {
       renderLoop.setCanvasSize(1600, 1200);
       expect(deps.layerCache.resize).toHaveBeenCalled();
@@ -1718,6 +1699,192 @@ describe('RenderLoop', () => {
       expect(vi.mocked(deps.renderer.renderCanvasElement).mock.calls).toEqual([
         [deps.layerCache.getContext(layerId), expect.objectContaining({ id: 'inside' })],
       ]);
+    });
+  });
+
+  describe('live elements', () => {
+    let store: RealElementStore;
+    let layers: RealLayerManager;
+    let layerId: string;
+    let cache: RealLayerCache;
+    let now: number;
+    let restoreGetContext: () => void;
+
+    beforeEach(() => {
+      Object.defineProperty(deps.canvasEl, 'clientWidth', { value: 800, configurable: true });
+      Object.defineProperty(deps.canvasEl, 'clientHeight', { value: 600, configurable: true });
+      now = 1000;
+      vi.spyOn(performance, 'now').mockImplementation(() => now);
+      // One distinct context per canvas, so cache parts and the main canvas are told apart.
+      const getContext = vi.mocked(HTMLCanvasElement.prototype.getContext);
+      const previous = getContext.getMockImplementation();
+      const contexts = new WeakMap<object, CanvasRenderingContext2D>();
+      getContext.mockImplementation(function (this: HTMLCanvasElement) {
+        let ctx = contexts.get(this);
+        if (!ctx) {
+          ctx = mockCtx();
+          contexts.set(this, ctx);
+        }
+        return ctx as never;
+      });
+      restoreGetContext = () => getContext.mockImplementation(previous ?? (() => null));
+      store = new RealElementStore();
+      layers = new RealLayerManager(store);
+      layerId = layers.activeLayerId;
+      cache = new RealLayerCache(deps.marginViewport);
+      renderLoop = new RenderLoop({ ...deps, store, layerManager: layers, layerCache: cache });
+      store.on('update', ({ previous: before, current }) =>
+        renderLoop.noteElementUpdate(before, current),
+      );
+    });
+
+    afterEach(() => {
+      vi.mocked(performance.now).mockRestore();
+      restoreGetContext();
+    });
+
+    function shape(id: string, zIndex: number, onLayer = layerId) {
+      return {
+        ...createShape({
+          position: { x: 0, y: 0 },
+          size: { w: 10, h: 10 },
+          layerId: onLayer,
+          zIndex,
+        }),
+        id,
+      };
+    }
+
+    /** Renders one frame and reports whether it rasterised any layer cache part. */
+    function frame(): boolean {
+      const clean = vi.spyOn(cache, 'markClean');
+      renderLoop.requestRender();
+      renderLoop.flush();
+      const rasterised = clean.mock.calls.length > 0;
+      clean.mockRestore();
+      return rasterised;
+    }
+
+    function move(id: string, x: number): void {
+      store.update(id, { position: { x, y: 0 } });
+    }
+
+    function drawnIds(ctx: unknown): string[] {
+      return vi
+        .mocked(deps.renderer.renderCanvasElement)
+        .mock.calls.filter(([target]) => target === ctx)
+        .map(([, el]) => el.id);
+    }
+
+    it('re-rasterises the layer only on lift and on cool-down while an element is dragged', () => {
+      for (let i = 0; i < 5; i++) store.add(shape(`s${i}`, i));
+      const rasterFrames: boolean[] = [frame()];
+      for (let i = 1; i <= 10; i++) {
+        move('s2', i);
+        now += 16;
+        rasterFrames.push(frame());
+      }
+      expect(rasterFrames.filter(Boolean)).toHaveLength(3);
+
+      now += 250;
+      const clean = vi.spyOn(cache, 'markClean');
+      renderLoop.flush();
+      expect(clean).toHaveBeenCalledTimes(1);
+      expect(clean).toHaveBeenCalledWith(layerId);
+      clean.mockRestore();
+      expect(frame()).toBe(false);
+    });
+
+    it('keeps paint order', () => {
+      store.add(shape('A', 1));
+      store.add(shape('B', 2));
+      store.add(shape('C', 3));
+      frame();
+      move('B', 1);
+      move('B', 2);
+      vi.mocked(deps.renderer.renderCanvasElement).mockClear();
+
+      frame();
+
+      const main = deps.canvasEl.getContext('2d');
+      const under = cache.getContext(layerId, 'under');
+      const over = cache.getContext(layerId, 'over');
+      expect(vi.mocked(deps.renderer.renderCanvasElement).mock.calls).toEqual([
+        [under, expect.objectContaining({ id: 'A' })],
+        [main, expect.objectContaining({ id: 'B' })],
+        [over, expect.objectContaining({ id: 'C' })],
+      ]);
+    });
+
+    it('zIndex or layer change is not lifted', () => {
+      const otherLayerId = layers.createLayer().id;
+      store.add(shape('A', 1));
+      store.add(shape('B', 2));
+      frame();
+      const rasterFrames: boolean[] = [];
+      for (let i = 3; i < 7; i++) {
+        store.update('B', { zIndex: i });
+        rasterFrames.push(frame());
+      }
+      for (let i = 0; i < 4; i++) {
+        store.update('B', { layerId: i % 2 === 0 ? otherLayerId : layerId });
+        rasterFrames.push(frame());
+      }
+      expect(rasterFrames).toEqual(Array(8).fill(true));
+      expect(drawnIds(deps.canvasEl.getContext('2d'))).toEqual([]);
+    });
+
+    it('layer opacity < 1 is not lifted', () => {
+      layers.setLayerOpacity(layerId, 0.5);
+      store.add(shape('A', 1));
+      store.add(shape('B', 2));
+      frame();
+      const rasterFrames: boolean[] = [];
+      for (let i = 1; i <= 4; i++) {
+        move('B', i);
+        rasterFrames.push(frame());
+      }
+      expect(rasterFrames).toEqual([true, true, true, true]);
+      expect(drawnIds(deps.canvasEl.getContext('2d'))).toEqual([]);
+    });
+
+    it('DOM element not lifted', () => {
+      store.add(shape('A', 1));
+      store.add({
+        ...createNote({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 }, layerId, zIndex: 2 }),
+        id: 'N',
+      });
+      frame();
+      const rasterFrames: boolean[] = [];
+      for (let i = 1; i <= 4; i++) {
+        move('N', i);
+        rasterFrames.push(frame());
+      }
+      expect(rasterFrames).toEqual([true, true, true, true]);
+    });
+
+    it('removing a live element drops it and re-merges', () => {
+      store.on('remove', (el) => renderLoop.forgetElement(el.id, el.layerId));
+      store.add(shape('A', 1));
+      store.add(shape('B', 2));
+      store.add(shape('C', 3));
+      frame();
+      move('B', 1);
+      move('B', 2);
+      frame();
+      vi.mocked(deps.renderer.renderCanvasElement).mockClear();
+
+      store.remove('B');
+      frame();
+
+      const base = cache.getContext(layerId);
+      expect(vi.mocked(deps.renderer.renderCanvasElement).mock.calls).toEqual([
+        [base, expect.objectContaining({ id: 'A' })],
+        [base, expect.objectContaining({ id: 'C' })],
+      ]);
+      vi.mocked(deps.background.render).mockClear();
+      renderLoop.flush();
+      expect(deps.background.render).not.toHaveBeenCalled();
     });
   });
 

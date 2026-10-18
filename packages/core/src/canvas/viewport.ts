@@ -463,6 +463,7 @@ export class Viewport {
         this.domNodeManager.removeDomNode(el.id);
         this.htmlDiagnostics.forget(el.id);
         this.renderLoop.markLayerDirty(el.layerId);
+        this.renderLoop.forgetElement(el.id, el.layerId);
         this.requestRender();
         this.handleRemovedElement(el.id);
       }),
@@ -470,15 +471,13 @@ export class Viewport {
         if (current.type === 'html') {
           this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
         }
-        this.renderLoop.markLayerDirty(current.layerId);
-        if (previous.layerId !== current.layerId) {
-          this.renderLoop.markLayerDirty(previous.layerId);
-        }
+        this.renderLoop.noteElementUpdate(previous, current);
         this.requestRender();
       }),
       this.store.on('clear', () => {
         this.domNodeManager.clearDomNodes();
         this.htmlDiagnostics.reset();
+        this.renderLoop.clearLive();
         this.renderLoop.markAllLayersDirty();
         this.requestRender();
         this.pruneSelection();
@@ -486,6 +485,7 @@ export class Viewport {
       this.store.on('batch', () => {
         this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
         this.htmlDiagnostics.reset();
+        this.renderLoop.clearLive();
         this.renderLoop.markAllLayersDirty();
         this.requestRender();
         this.pruneSelection();

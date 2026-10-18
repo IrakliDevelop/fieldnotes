@@ -88,6 +88,43 @@ describe('LayerCache', () => {
     expect(cache.isDirty('layer1')).toBe(true);
   });
 
+  it('keeps a separate canvas and dirty flag per part', () => {
+    const under = cache.getCanvas('layer1', 'under');
+    const over = cache.getCanvas('layer1', 'over');
+    expect(under).not.toBe(over);
+    expect(under).not.toBe(cache.getCanvas('layer1'));
+    cache.markClean('layer1', 'under');
+    expect(cache.isDirty('layer1', 'under')).toBe(false);
+    expect(cache.isDirty('layer1', 'over')).toBe(true);
+  });
+
+  it('markDirty dirties every part of the layer', () => {
+    cache.getCanvas('layer1', 'under');
+    cache.getCanvas('layer1', 'over');
+    cache.markClean('layer1', 'under');
+    cache.markClean('layer1', 'over');
+    cache.markDirty('layer1');
+    expect(cache.isDirty('layer1', 'under')).toBe(true);
+    expect(cache.isDirty('layer1', 'over')).toBe(true);
+  });
+
+  it('frees the split parts once the whole layer is rasterised again', () => {
+    const under = cache.getCanvas('layer1', 'under');
+    cache.markClean('layer1', 'under');
+    cache.markClean('layer1');
+    expect(cache.isDirty('layer1', 'under')).toBe(true);
+    expect(cache.getCanvas('layer1', 'under')).not.toBe(under);
+  });
+
+  it('retain and clear drop every part', () => {
+    const under = cache.getCanvas('layer1', 'under');
+    cache.retain(() => false);
+    expect(cache.getCanvas('layer1', 'under')).not.toBe(under);
+    const over = cache.getCanvas('layer1', 'over');
+    cache.clear();
+    expect(cache.getCanvas('layer1', 'over')).not.toBe(over);
+  });
+
   it('allocates canvases at the MarginViewport physical size', () => {
     const testMv = new MarginViewport(256);
     testMv.setViewport(800, 600, 1);

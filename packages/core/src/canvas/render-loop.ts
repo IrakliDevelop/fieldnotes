@@ -5,7 +5,7 @@ import type { ElementRenderer } from '../elements/element-renderer';
 import type { ToolManager } from '../tools/tool-manager';
 import type { LayerManager } from '../layers/layer-manager';
 import type { DomNodeManager } from './dom-node-manager';
-import type { LayerCache } from './layer-cache';
+import type { LayerCache, LayerCachePart } from './layer-cache';
 import type { MarginViewport } from './margin-viewport';
 import type { Bounds } from '../core/types';
 import type { CanvasElement } from '../elements/types';
@@ -24,6 +24,9 @@ import { reportFailure } from '../core/report-failure';
  * per frame and must not break the render loop.
  */
 export type OverlayRenderer = (ctx: CanvasRenderingContext2D) => void;
+
+// An element updated again within this window is drawn live instead of re-rasterising its layer.
+const LIVE_IDLE_MS = 250;
 
 /** The save/restore surface shared by on-screen and offscreen 2d contexts. */
 interface SavableContext {
@@ -67,7 +70,6 @@ export class RenderLoop {
   private readonly marginViewport: MarginViewport;
   private readonly hybridSurface: HybridRenderSurface;
   private readonly hooks?: RenderHooks;
-  private activeDrawingLayerId: string | null = null;
   private readonly stats = new RenderStats();
   private layerGroups = new Map<string, CanvasElement[]>();
   private readonly overlays = new Set<OverlayRenderer>();
@@ -84,6 +86,9 @@ export class RenderLoop {
   private visibleCount = 0;
   private firstDomIndex = -1;
   private hybridActive = false;
+  // id -> last update time: `warm` saw one recent update, `live` is drawn outside the layer cache.
+  private readonly warm = new Map<string, number>();
+  private readonly live = new Map<string, number>();
 
   constructor(deps: RenderLoopDeps) {
     this.canvasEl = deps.canvasEl;
@@ -151,10 +156,6 @@ export class RenderLoop {
     this.layerCache.resize();
   }
 
-  setActiveDrawingLayer(layerId: string | null): void {
-    this.activeDrawingLayerId = layerId;
-  }
-
   markLayerDirty(layerId: string): void {
     this.structureDirty = true;
     this.layerCache.markDirty(layerId);
@@ -163,6 +164,43 @@ export class RenderLoop {
   markAllLayersDirty(): void {
     this.structureDirty = true;
     this.layerCache.markAllDirty();
+  }
+
+  noteElementUpdate(previous: CanvasElement, current: CanvasElement): void {
+    const { id } = current;
+    if (
+      previous.layerId !== current.layerId ||
+      previous.zIndex !== current.zIndex ||
+      this.renderer.isDomElement(current) ||
+      this.renderer.isFullCanvasElement(current) ||
+      (this.layerManager.getLayer(current.layerId)?.opacity ?? 1) !== 1
+    ) {
+      this.live.delete(id);
+      this.markLayerDirty(previous.layerId);
+      this.markLayerDirty(current.layerId);
+      return;
+    }
+    const now = performance.now();
+    if (this.live.has(id)) {
+      this.live.set(id, now);
+      return;
+    }
+    for (const [warmId, at] of this.warm) {
+      if (now - at >= LIVE_IDLE_MS) this.warm.delete(warmId);
+    }
+    if (this.warm.delete(id)) this.live.set(id, now);
+    else this.warm.set(id, now);
+    this.markLayerDirty(current.layerId);
+  }
+
+  forgetElement(id: string, layerId: string): void {
+    this.warm.delete(id);
+    if (this.live.delete(id)) this.markLayerDirty(layerId);
+  }
+
+  clearLive(): void {
+    this.warm.clear();
+    this.live.clear();
   }
 
   getStats(): RenderStatsSnapshot {
@@ -197,10 +235,9 @@ export class RenderLoop {
 
   private compositeLayerCache(
     ctx: CanvasRenderingContext2D,
-    layerId: string,
+    cached: HTMLCanvasElement | OffscreenCanvas,
     opacity: number,
   ): void {
-    const cached = this.layerCache.getCanvas(layerId);
     const offset = this.marginViewport.compositeOffset(
       this.camera.position.x,
       this.camera.position.y,
@@ -210,6 +247,44 @@ export class RenderLoop {
     ctx.globalAlpha = opacity;
     ctx.drawImage(cached as CanvasImageSource, offset.x, offset.y);
     this.restoreTracked(ctx);
+  }
+
+  /** Rasterises `elements[start..end)` into a cache part when dirty, then composites it at opacity 1. */
+  private drawLayerPart(
+    ctx: CanvasRenderingContext2D,
+    layerId: string,
+    part: LayerCachePart,
+    elements: readonly CanvasElement[],
+    start: number,
+    end: number,
+    cullingRect: Bounds,
+  ): void {
+    if (start >= end) return;
+    if (this.layerCache.isDirty(layerId, part)) {
+      const offCtx = this.layerCache.getContext(layerId, part);
+      if (!offCtx) return;
+      const offCanvas = this.layerCache.getCanvas(layerId, part);
+      offCtx.clearRect(0, 0, offCanvas.width, offCanvas.height);
+      this.saveTracked(offCtx);
+      this.marginViewport.applyRenderTransform(offCtx);
+      for (let i = start; i < end; i++) {
+        const element = elements[i];
+        if (element) this.renderCulled(offCtx as CanvasRenderingContext2D, element, cullingRect);
+      }
+      this.restoreTracked(offCtx);
+      this.layerCache.markClean(layerId, part);
+    }
+    this.compositeLayerCache(ctx, this.layerCache.getCanvas(layerId, part), 1);
+  }
+
+  private renderCulled(
+    ctx: CanvasRenderingContext2D,
+    element: CanvasElement,
+    cullingRect: Bounds,
+  ): void {
+    const elBounds = getElementVisualBounds(element, this.store.elementRegistry);
+    if (elBounds && !boundsIntersect(elBounds, cullingRect)) return;
+    this.renderer.renderCanvasElement(ctx, element);
   }
 
   /**
@@ -373,6 +448,15 @@ export class RenderLoop {
 
   private renderFrame(): void {
     const t0 = performance.now();
+    // Size guard: iterating even an empty Map allocates an iterator every frame.
+    if (this.live.size > 0) {
+      for (const [id, at] of this.live) {
+        if (t0 - at < LIVE_IDLE_MS) continue;
+        this.live.delete(id);
+        const element = this.store.getById(id);
+        if (element) this.markLayerDirty(element.layerId);
+      }
+    }
     const ctx = this.canvasEl.getContext('2d');
     if (!ctx) return;
     for (const canvas of this.staleCanvases) resetCanvas(canvas);
@@ -525,19 +609,34 @@ export class RenderLoop {
     this.hybridSurface.beginFrame(hybridOrders, this.canvasEl.width, this.canvasEl.height);
 
     for (const [layerId, elements] of this.layerGroups) {
-      const isActiveDrawingLayer = layerId === this.activeDrawingLayerId;
       const layerOpacity = this.layerOpacities.get(layerId) ?? 1;
+
+      // Opacity is re-checked here because it can drop below 1 while an element is still live.
+      if (this.live.size > 0 && layerOpacity === 1) {
+        let lo = -1;
+        let hi = -1;
+        for (let i = 0; i < elements.length; i++) {
+          const element = elements[i];
+          if (!element || !this.live.has(element.id)) continue;
+          if (lo < 0) lo = i;
+          hi = i;
+        }
+        if (lo >= 0) {
+          const layerT0 = performance.now();
+          this.drawLayerPart(ctx, layerId, 'under', elements, 0, lo, cullingRect);
+          for (let i = lo; i <= hi; i++) {
+            const element = elements[i];
+            if (element) this.renderCulled(ctx, element, cullingRect);
+          }
+          this.drawLayerPart(ctx, layerId, 'over', elements, hi + 1, elements.length, cullingRect);
+          layersMs += performance.now() - layerT0;
+          continue;
+        }
+      }
 
       if (!this.layerCache.isDirty(layerId)) {
         const compT0 = performance.now();
-        this.compositeLayerCache(ctx, layerId, layerOpacity);
-        compositeMs += performance.now() - compT0;
-        continue;
-      }
-
-      if (isActiveDrawingLayer) {
-        const compT0 = performance.now();
-        this.compositeLayerCache(ctx, layerId, layerOpacity);
+        this.compositeLayerCache(ctx, this.layerCache.getCanvas(layerId), layerOpacity);
         compositeMs += performance.now() - compT0;
         continue;
       }
@@ -559,7 +658,7 @@ export class RenderLoop {
         layersMs += performance.now() - layerT0;
 
         const compT0 = performance.now();
-        this.compositeLayerCache(ctx, layerId, layerOpacity);
+        this.compositeLayerCache(ctx, offCanvas, layerOpacity);
         compositeMs += performance.now() - compT0;
       }
     }
@@ -692,7 +791,12 @@ export class RenderLoop {
     this.restoreTracked(ctx);
     this.restoreTracked(ctx);
     // A hook that failed mid-frame needs a masked or reset frame without waiting for input.
-    if ((!masked && this.hooks?.viewport.isFailClosed()) || this.staleCanvases.length > 0) {
+    // Live elements must cool back into their layer cache without waiting for input.
+    if (
+      (!masked && this.hooks?.viewport.isFailClosed()) ||
+      this.staleCanvases.length > 0 ||
+      this.live.size > 0
+    ) {
       this.requestRender();
     }
 
