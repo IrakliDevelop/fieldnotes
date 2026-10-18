@@ -542,7 +542,6 @@ export class Viewport {
         try {
           listener();
         } catch (error) {
-          // A host listener's fault must not starve the remaining listeners.
           if (typeof reportError === 'function') reportError(error);
           else console.error('[fieldnotes] onStateChange listener failed', error);
         }

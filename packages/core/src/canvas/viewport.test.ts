@@ -3331,6 +3331,7 @@ describe('Viewport tools option and onStateChange', () => {
       });
 
     beforeEach(() => listener.mockClear());
+    afterEach(() => vi.unstubAllGlobals());
 
     it.each<[string, (viewport: Viewport) => void]>([
       ['store add', (v) => v.store.add(note(v))],
@@ -3379,7 +3380,6 @@ describe('Viewport tools option and onStateChange', () => {
       expect(viewport.undo()).toBe(true);
       expect(viewport.store.getById(n.id)).toBeUndefined();
       viewport.destroy();
-      vi.unstubAllGlobals();
     });
 
     it('does not fire after its disposer is called', () => {
