@@ -712,22 +712,20 @@ export class Viewport {
     return { ...base, htmlPainters: registry, expectedCanvasTypes: expected };
   }
 
-  async exportImage(options?: ExportImageOptions): Promise<Blob | null> {
-    const opts = {
+  private exportOptions<T extends ExportImageOptions | ExportSvgOptions>(options?: T): T {
+    return {
       ...this.withHtmlDefaults(options),
       elementRegistry: options?.elementRegistry ?? this.elementRegistry,
       renderHooks: options?.renderHooks ?? this._renderHooks,
     };
-    return exportImage(this.store, opts, this.layerManager);
+  }
+
+  async exportImage(options?: ExportImageOptions): Promise<Blob | null> {
+    return exportImage(this.store, this.exportOptions(options), this.layerManager);
   }
 
   async exportSVG(options?: ExportSvgOptions): Promise<string> {
-    const opts = {
-      ...this.withHtmlDefaults(options),
-      elementRegistry: options?.elementRegistry ?? this.elementRegistry,
-      renderHooks: options?.renderHooks ?? this._renderHooks,
-    };
-    return exportSvg(this.store, opts, this.layerManager);
+    return exportSvg(this.store, this.exportOptions(options), this.layerManager);
   }
 
   loadState(state: ImportableCanvasState): void {
