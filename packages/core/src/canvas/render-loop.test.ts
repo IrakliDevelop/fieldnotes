@@ -18,8 +18,8 @@ import type { RenderHooks } from './render-hooks';
 import { ElementStore as RealElementStore } from '../elements/element-store';
 import { LayerManager as RealLayerManager } from '../layers/layer-manager';
 import { createNote, createShape } from '../elements/element-factory';
-import { ElementRegistry } from '../elements/element-registry';
 import type { ExtensionElementEnvelope } from '../elements/types';
+import { createTestBoxRegistry } from '../test-helpers/test-box-type';
 
 function createMockDeps() {
   const canvasEl = document.createElement('canvas');
@@ -1057,6 +1057,21 @@ describe('RenderLoop', () => {
       expect(stratum.fillRect).not.toHaveBeenCalled();
     });
 
+    it('requests no further frame after a healthy frame with hooks registered', () => {
+      stratumContexts();
+      const hooks: RenderHooks = createRenderHooks();
+      hooks.viewport.setRequiredCapabilities(['x']);
+      const afterElements = vi.fn();
+      hooks.viewport.register({ afterElements }, { satisfies: ['x'] });
+      const loop = new RenderLoop({ ...deps, hooks });
+
+      loop.requestRender();
+      loop.flush();
+      loop.flush();
+
+      expect(afterElements).toHaveBeenCalledTimes(1);
+    });
+
     it('masks the frame in which a satisfying hook first throws', () => {
       vi.stubGlobal('reportError', vi.fn());
       const contexts = stratumContexts();
@@ -1682,17 +1697,7 @@ describe('RenderLoop', () => {
     });
 
     it('culls extension elements with the bounds of the store element registry', () => {
-      const registry = new ElementRegistry();
-      registry.register<ExtensionElementEnvelope>({
-        type: 'test:box',
-        legacyTypes: [],
-        decodeLegacy: (raw) => raw as unknown as ExtensionElementEnvelope,
-        validateData: () => true,
-        unwrap: (element) => element,
-        wrap: (element) => element,
-        bounds: (element) => ({ x: element.position.x, y: element.position.y, w: 40, h: 20 }),
-        renderMode: 'canvas',
-      });
+      const registry = createTestBoxRegistry();
       const box = (id: string, x: number): ExtensionElementEnvelope => ({
         id,
         type: 'extension',

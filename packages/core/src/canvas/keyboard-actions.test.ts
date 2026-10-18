@@ -20,6 +20,7 @@ import type {
   ElementTypeDefinition,
   ExtensionElementEnvelope,
 } from '../elements/types';
+import { createTestBoxRegistry } from '../test-helpers/test-box-type';
 
 function makeSnapProxy(gridSize: number): ConstraintServiceProxy {
   const proxy = new ConstraintServiceProxy();
@@ -703,17 +704,7 @@ describe('KeyboardActions.paste cursor-centering', () => {
   });
 
   it('centers pasted extension clones with the bounds of the context registry', () => {
-    const elementRegistry = new ElementRegistry();
-    elementRegistry.register<ExtensionElementEnvelope>({
-      type: 'test:box',
-      legacyTypes: [],
-      decodeLegacy: (raw) => raw as unknown as ExtensionElementEnvelope,
-      validateData: () => true,
-      unwrap: (element) => element,
-      wrap: (element) => element,
-      bounds: (element) => ({ x: element.position.x, y: element.position.y, w: 40, h: 20 }),
-      renderMode: 'canvas',
-    });
+    const elementRegistry = createTestBoxRegistry();
     const ctx = makeCtx({ elementRegistry, store: new ElementStore(elementRegistry) });
     const { actions, tool } = makeActions({ ctx });
     ctx.store.add({

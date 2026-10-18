@@ -22,7 +22,7 @@ import {
 } from './element-factory';
 import { ElementStore } from './element-store';
 import type { CanvasElement, ExtensionElementEnvelope } from './types';
-import { ElementRegistry } from './element-registry';
+import { createTestBoxRegistry } from '../test-helpers/test-box-type';
 
 describe('getElementCenter', () => {
   it('returns center of a note', () => {
@@ -356,17 +356,7 @@ describe('unbindArrowsFrom', () => {
   });
 
   it('leaves the endpoint on the edge of a removed extension bounded by the given registry', () => {
-    const registry = new ElementRegistry();
-    registry.register<ExtensionElementEnvelope>({
-      type: 'test:box',
-      legacyTypes: [],
-      decodeLegacy: (raw) => raw as unknown as ExtensionElementEnvelope,
-      validateData: () => true,
-      unwrap: (element) => element,
-      wrap: (element) => element,
-      bounds: (element) => ({ x: element.position.x, y: element.position.y, w: 40, h: 20 }),
-      renderMode: 'canvas',
-    });
+    const registry = createTestBoxRegistry();
     const store = new ElementStore(registry);
     const box: ExtensionElementEnvelope = {
       id: 'box',

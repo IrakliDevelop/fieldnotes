@@ -705,14 +705,9 @@ describe('Viewport element registry', () => {
   const pinDefinition: ElementTypeDefinition<BaseElement> = {
     type: 'test:pin',
     legacyTypes: [],
-    decodeLegacy: () => ({
-      id: 'p',
-      type: 'pin',
-      position: { x: 0, y: 0 },
-      zIndex: 0,
-      locked: false,
-      layerId: 'l',
-    }),
+    decodeLegacy: () => {
+      throw new Error('unused');
+    },
     validateData: () => true,
     unwrap: (env) => ({ ...env, type: 'pin' }),
     wrap: (el) => ({ ...el, type: 'extension', extensionType: 'test:pin', data: {} }),

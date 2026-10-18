@@ -18,12 +18,12 @@ import {
   createStroke,
   createText,
 } from '../elements/element-factory';
-import type { CanvasElement, ExtensionElementEnvelope } from '../elements/types';
-import { ElementRegistry } from '../elements/element-registry';
+import type { CanvasElement } from '../elements/types';
 import type { HtmlPainterRegistry } from './html-painter-registry';
 import { createRenderHooks } from './render-hooks';
 import type { Camera } from './camera';
 import type { LayerManager } from '../layers/layer-manager';
+import { createTestBoxRegistry } from '../test-helpers/test-box-type';
 
 // ---------------------------------------------------------------------------
 // Recorder: a shared fake CanvasRenderingContext2D returned for every canvas
@@ -701,17 +701,7 @@ describe('MinimapController', () => {
   });
 
   it('11. the mapping includes extension elements bounded by the viewport element registry', () => {
-    const elementRegistry = new ElementRegistry();
-    elementRegistry.register<ExtensionElementEnvelope>({
-      type: 'test:box',
-      legacyTypes: [],
-      decodeLegacy: (raw) => raw as unknown as ExtensionElementEnvelope,
-      validateData: () => true,
-      unwrap: (element) => element,
-      wrap: (element) => element,
-      bounds: (element) => ({ x: element.position.x, y: element.position.y, w: 100, h: 100 }),
-      renderMode: 'canvas',
-    });
+    const elementRegistry = createTestBoxRegistry({ w: 100, h: 100 });
     const { viewport } = makeViewportHarness({ elementRegistry });
     viewport.store.add({
       id: 'box',

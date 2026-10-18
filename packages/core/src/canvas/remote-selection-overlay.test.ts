@@ -7,8 +7,7 @@ import { ElementStore } from '../elements/element-store';
 import { LayerManager } from '../layers/layer-manager';
 import { createShape } from '../elements/element-factory';
 import type { OverlayRenderer } from './render-loop';
-import { ElementRegistry } from '../elements/element-registry';
-import type { ExtensionElementEnvelope } from '../elements/types';
+import { createTestBoxRegistry } from '../test-helpers/test-box-type';
 
 function makeCtx(): {
   ctx: CanvasRenderingContext2D;
@@ -74,17 +73,7 @@ const frame = (id: string, extra: Record<string, unknown> = {}) => ({
 
 describe('RemoteSelectionOverlay', () => {
   it('outlines an extension element with the store element registry bounds', () => {
-    const elementRegistry = new ElementRegistry();
-    elementRegistry.register<ExtensionElementEnvelope>({
-      type: 'test:box',
-      legacyTypes: [],
-      decodeLegacy: (raw) => raw as unknown as ExtensionElementEnvelope,
-      validateData: () => true,
-      unwrap: (element) => element,
-      wrap: (element) => element,
-      bounds: (element) => ({ x: element.position.x, y: element.position.y, w: 40, h: 20 }),
-      renderMode: 'canvas',
-    });
+    const elementRegistry = createTestBoxRegistry();
     const { host, store, layers, getRenderer } = makeHost();
     store.setElementRegistry(elementRegistry);
     store.add({

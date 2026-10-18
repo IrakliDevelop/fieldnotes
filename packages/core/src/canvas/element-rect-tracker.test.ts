@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { ElementStore } from '../elements/element-store';
 import { createArrow, createImage, createStroke } from '../elements/element-factory';
 import { computeElementRects, elementRectsEqual, ElementRectTracker } from './element-rect-tracker';
-import type { CanvasElement, ExtensionElementEnvelope } from '../elements/types';
-import { ElementRegistry } from '../elements/element-registry';
+import type { CanvasElement } from '../elements/types';
+import { createTestBoxRegistry } from '../test-helpers/test-box-type';
 
 function storeWith(...elements: CanvasElement[]): ElementStore {
   const store = new ElementStore();
@@ -498,17 +498,7 @@ describe('ElementRectTracker', () => {
 
 describe('ElementRectTracker extension bounds', () => {
   it('tracks extension elements with the store element registry', () => {
-    const elementRegistry = new ElementRegistry();
-    elementRegistry.register<ExtensionElementEnvelope>({
-      type: 'test:box',
-      legacyTypes: [],
-      decodeLegacy: (raw) => raw as unknown as ExtensionElementEnvelope,
-      validateData: () => true,
-      unwrap: (element) => element,
-      wrap: (element) => element,
-      bounds: (element) => ({ x: element.position.x, y: element.position.y, w: 40, h: 20 }),
-      renderMode: 'canvas',
-    });
+    const elementRegistry = createTestBoxRegistry();
     const store = new ElementStore(elementRegistry);
     store.add({
       id: 'box',

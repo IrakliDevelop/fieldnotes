@@ -30,6 +30,7 @@ import { ElementRegistry } from '../elements/element-registry';
 import { HistoryStack } from '../history/history-stack';
 import { HistoryRecorder } from '../history/history-recorder';
 import type { Point } from '../core/types';
+import { createTestBoxRegistry } from '../test-helpers/test-box-type';
 
 function makeSnapProxy(
   gridSize: number,
@@ -2699,17 +2700,7 @@ describe('SelectTool sized extension resize', () => {
 
 describe('SelectTool extension bounds from the context registry', () => {
   function boxSetup() {
-    const elementRegistry = new ElementRegistry();
-    elementRegistry.register<ExtensionElementEnvelope>({
-      type: 'test:box',
-      legacyTypes: [],
-      decodeLegacy: (raw) => raw as unknown as ExtensionElementEnvelope,
-      validateData: () => true,
-      unwrap: (element) => element,
-      wrap: (element) => element,
-      bounds: (element) => ({ x: element.position.x, y: element.position.y, w: 50, h: 50 }),
-      renderMode: 'canvas',
-    });
+    const elementRegistry = createTestBoxRegistry({ w: 50, h: 50 });
     const box: ExtensionElementEnvelope = {
       id: 'box',
       type: 'extension',

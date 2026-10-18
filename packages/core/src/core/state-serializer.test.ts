@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import {
   exportState,
   migrateState,
@@ -303,7 +303,11 @@ describe('parseState', () => {
       },
     ];
 
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
     expect(parseState(JSON.stringify(data), new ElementRegistry()).elements).toHaveLength(1);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('"app:unknown"'));
+    warn.mockRestore();
   });
 
   it.each([
@@ -1176,7 +1180,10 @@ describe('extension dataVersion', () => {
   });
 
   describe('with the default registry', () => {
-    const previous = getDefaultElementRegistry();
+    let previous: ElementRegistry;
+    beforeEach(() => {
+      previous = getDefaultElementRegistry();
+    });
     afterEach(() => setDefaultElementRegistry(previous));
 
     it('an export and parse that both omit the registry do not migrate a current element', () => {
