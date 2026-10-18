@@ -1,6 +1,6 @@
 # Extending Field Notes
 
-This guide covers the extension API of `@fieldnotes/core` 0.90.0. Every name below is exported
+This guide covers the extension API of `@fieldnotes/core` 0.91.0. Every name below is exported
 from `@fieldnotes/core` unless stated otherwise. A runnable version of most snippets lives in
 [`examples/extension-api`](../examples/extension-api/).
 
@@ -125,8 +125,9 @@ const markerDefinition: ElementTypeDefinition<Marker> = {
 - `renderMode`: `'canvas'`, `'hybrid'` and `'none'` all draw through `render`. `register` throws
   for `'dom'`; extension elements are never DOM elements.
 - An element updated again within 250 ms (a drag, remote moves, an animation) on a layer at full
-  opacity is drawn directly every frame instead of from its layer cache, until it has been idle for 250 ms. `render` must
-  therefore depend only on its arguments, which the layer cache already requires.
+  opacity is drawn directly every frame instead of from its layer cache, until it has been idle for
+  250 ms. `render` must therefore depend only on its arguments, which the layer cache already
+  requires.
 
 ### Resize and the interaction adapter
 
