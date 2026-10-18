@@ -522,6 +522,7 @@ export class Viewport {
       interactMode: this.interactMode,
       renderer: this.renderer,
       recorder: this.historyRecorder,
+      toolContext: this.toolContext,
       requestRender: () => this.requestRender(),
       addImage: (src, position) => this.addImage(src, position),
       dropHandler: this.dropHandler,

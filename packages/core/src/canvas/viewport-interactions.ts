@@ -7,10 +7,12 @@ import type { InteractMode } from './interact-mode';
 import type { DomNodeManager } from './dom-node-manager';
 import type { RenderLoop } from './render-loop';
 import type { HistoryRecorder } from '../history/history-recorder';
-import type { CanvasElement, ArrowElement } from '../elements/types';
+import type { ArrowElement } from '../elements/types';
+import type { ToolContext } from '../tools/types';
 import { DoubleTapDetector } from './double-tap-detector';
 import { isNearBezier } from '../elements/arrow-geometry';
 import { isNoteContentEmpty } from '../elements/note-sanitizer';
+import { hitTest } from '../tools/select-hit';
 
 /** Screen pixels; converted to world units per zoom at the call site. */
 const ARROW_HIT_THRESHOLD_PX = 10;
@@ -27,6 +29,7 @@ export interface ViewportInteractionsDeps {
   interactMode: InteractMode;
   renderer: ElementRenderer;
   recorder: HistoryRecorder;
+  toolContext: ToolContext;
   requestRender: () => void;
   addImage: (src: string, position: { x: number; y: number }) => string;
   dropHandler?: (event: DragEvent, worldPosition: { x: number; y: number }) => void;
@@ -131,7 +134,7 @@ export class ViewportInteractions {
 
     // HTML embeds keep double-tap priority: you double-tapped inside the embed even if an
     // arrow's curve passes nearby. Arrow-label editing only when no embed is hit.
-    const hit = this.hitTestWorld(world);
+    const hit = hitTest(world, this.deps.toolContext);
     if (hit?.type === 'html') {
       this.deps.interactMode.startInteracting(hit.id);
       return;
@@ -175,19 +178,6 @@ export class ViewportInteractions {
     // Set AFTER startEditing: starting a new edit cleans up any prior session, whose onDone
     // synchronously clears the editing id — so claim suppression for this arrow last.
     this.deps.renderer.setLabelEditingId(arrow.id);
-  }
-
-  private hitTestWorld(world: { x: number; y: number }): CanvasElement | null {
-    const candidates = this.deps.store.queryPoint(world).reverse();
-    for (const el of candidates) {
-      if (!('size' in el)) continue;
-      const { x, y } = el.position;
-      const { w, h } = el.size;
-      if (world.x >= x && world.x <= x + w && world.y >= y && world.y <= y + h) {
-        return el;
-      }
-    }
-    return null;
   }
 
   onDragOver = (e: DragEvent): void => {
