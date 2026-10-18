@@ -3307,6 +3307,24 @@ describe('Viewport tools option and onStateChange', () => {
     viewport.destroy();
   });
 
+  it('an option tool replaces a same-named plugin tool', () => {
+    const pluginFoo: Tool = { ...fooTool };
+    const plugin: ViewportPlugin = {
+      name: 'foo-tool-plugin',
+      configure: (ctx) => ctx.registerTool(pluginFoo),
+    };
+    const viewport = new Viewport(container, { plugins: [plugin], tools: [fooTool] });
+    expect(viewport.toolManager.getTool('foo')).toBe(fooTool);
+    viewport.destroy();
+  });
+
+  it('an option tool gets a tool.<name> action that activates it', () => {
+    const viewport = new Viewport(container, { tools: [fooTool] });
+    expect(viewport.actions.run('tool.foo')).toBe(true);
+    expect(viewport.toolManager.activeTool?.name).toBe('foo');
+    viewport.destroy();
+  });
+
   it('omitting tools registers nothing', () => {
     const viewport = new Viewport(container);
     expect(viewport.toolManager.toolNames).toEqual([]);
