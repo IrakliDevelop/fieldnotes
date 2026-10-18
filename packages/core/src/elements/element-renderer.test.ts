@@ -595,6 +595,10 @@ describe('ElementRenderer', () => {
   });
 
   describe('renderImage', () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
     function makeImage(overrides: Partial<ImageElement> = {}): ImageElement {
       return {
         id: 'img-1',
@@ -653,6 +657,28 @@ describe('ElementRenderer', () => {
 
       renderer.renderCanvasElement(ctx, makeImage({ src: 'cached.png' }));
       expect(ctx.drawImage).toHaveBeenCalled();
+    });
+
+    it('closes a bitmap that finishes decoding after the image cache is cleared', async () => {
+      let resolveBitmap: (bitmap: unknown) => void = () => undefined;
+      vi.stubGlobal(
+        'createImageBitmap',
+        vi.fn(() => new Promise((resolve) => (resolveBitmap = resolve))),
+      );
+      const renderer = new ElementRenderer();
+      renderer.renderCanvasElement(mockCtx(), makeImage({ src: 'late.png' }));
+      const cache = (renderer as unknown as { imageCache: Map<string, unknown> }).imageCache;
+      const img = cache.get('late.png');
+      if (img instanceof HTMLImageElement) img.onload?.(new Event('load'));
+
+      renderer.clearImageCache();
+      const bitmap = { close: vi.fn() };
+      resolveBitmap(bitmap);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(bitmap.close).toHaveBeenCalledTimes(1);
+      expect(cache.size).toBe(0);
     });
 
     function failImage(renderer: ElementRenderer, src: string): void {

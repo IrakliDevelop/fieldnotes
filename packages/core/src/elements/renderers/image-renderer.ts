@@ -67,6 +67,11 @@ function getImage(
     if (typeof createImageBitmap !== 'undefined') {
       createImageBitmap(img)
         .then((bitmap) => {
+          // The cache was cleared (viewport destroyed) while decoding; do not leak the bitmap.
+          if (imageCache.get(src) !== img) {
+            bitmap.close();
+            return;
+          }
           imageCache.set(src, bitmap);
           onImageLoad?.();
         })
