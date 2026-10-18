@@ -521,6 +521,45 @@ describe('ElementStore', () => {
       expect(before).not.toBe(after);
     });
 
+    it('swaps a position-only update into a fresh array without re-sorting', () => {
+      const store = new ElementStore();
+      store.add(makeNote({ id: 'a', zIndex: 2 }));
+      store.add(makeNote({ id: 'b', zIndex: 0 }));
+      store.add(makeNote({ id: 'c', zIndex: 1 }));
+      const before = store.getAll();
+      const sort = vi.spyOn(Array.prototype, 'sort');
+
+      store.update('c', { position: { x: 40, y: 50 } });
+      const after = store.getAll();
+      const sorts = sort.mock.calls.length;
+      sort.mockRestore();
+
+      expect(after).not.toBe(before);
+      expect(sorts).toBe(0);
+      expect(after.map((el) => el.id)).toEqual(['b', 'c', 'a']);
+      expect(after[1]).toBe(store.getById('c'));
+      expect(before[1]?.position).toEqual({ x: 0, y: 0 });
+    });
+
+    it.each([{ zIndex: 5 }, { layerId: 'L0' }])('re-sorts after an update with %o', (patch) => {
+      const store = new ElementStore();
+      store.setLayerOrder(
+        new Map([
+          ['L0', 0],
+          ['L1', 1],
+        ]),
+      );
+      store.add(makeNote({ id: 'a', zIndex: 1, layerId: 'L1' }));
+      store.add(makeNote({ id: 'b', zIndex: 2, layerId: 'L1' }));
+      store.getAll();
+
+      store.update('a', patch);
+
+      expect(store.getAll().map((el) => el.id)).toEqual(
+        'zIndex' in patch ? ['b', 'a'] : ['a', 'b'],
+      );
+    });
+
     it('invalidates cache after clear', () => {
       const store = new ElementStore();
       store.add(makeNote({ id: 'a' }));

@@ -116,7 +116,7 @@ export class ElementStore {
   update(id: string, partial: Partial<CanvasElement>, meta?: ElementChangeMeta): void {
     const existing = this.elements.get(id);
     if (!existing) return;
-    this.sortedCache = null;
+    if ('zIndex' in partial || 'layerId' in partial) this.sortedCache = null;
     this._versions.set(id, (this._versions.get(id) ?? 0) + 1);
 
     // Shallow spread preserves the points array identity when `partial` omits points;
@@ -143,6 +143,8 @@ export class ElementStore {
     }
 
     this.elements.set(id, updated);
+    // Fresh array keeps getAll() identity-sensitive consumers (React useElements) updating.
+    this.sortedCache = this.sortedCache?.map((el) => (el === existing ? updated : el)) ?? null;
 
     const newBounds = this.indexBounds(updated);
     if (newBounds) {
