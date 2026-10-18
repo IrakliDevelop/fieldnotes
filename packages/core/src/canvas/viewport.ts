@@ -134,7 +134,6 @@ export class Viewport {
   private readonly paintStack: HTMLDivElement;
   private readonly wrapper: HTMLDivElement;
   private readonly disposers: (() => void)[] = [];
-  private isDestroyed = false;
   private readonly actionRegistry: ActionRegistry;
   private readonly inputHandler: InputHandler;
   private readonly background: Background;
@@ -372,7 +371,7 @@ export class Viewport {
     try {
       this.pluginHost.configurePlugins(options.plugins);
     } catch (error) {
-      this.teardown();
+      this.destroy();
       throw error;
     }
 
@@ -524,7 +523,7 @@ export class Viewport {
       this.pluginHost.startPlugins();
       this.pluginHost.validateRequiredCapabilities(options.requiredCapabilities);
     } catch (error) {
-      this.teardown();
+      this.destroy();
       throw error;
     }
 
@@ -1268,12 +1267,6 @@ export class Viewport {
   }
 
   destroy(): void {
-    if (this.isDestroyed) return;
-    this.isDestroyed = true;
-    this.teardown();
-  }
-
-  private teardown(): void {
     for (const dispose of this.disposers.splice(0).reverse()) dispose();
   }
 
