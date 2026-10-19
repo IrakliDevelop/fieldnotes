@@ -6,6 +6,7 @@ import {
   createAuthorityCapabilities,
   createCurrentCapabilities,
   createExtensionKind,
+  parseLegacyEnvelope,
   type SyncElement,
   type SyncOp,
 } from '@fieldnotes/sync';
@@ -292,6 +293,18 @@ describe('SyncHub', () => {
       from: 'A',
       op: { kind: 'clear', tombstones: [] },
     });
+  });
+
+  it('relays a clear and snapshot that parse when the sender and element ids are empty', async () => {
+    const el = { ...sampleEl(), id: '' };
+    await hub.handleMessage('A', envelope('clientA', { kind: 'upsert', element: el }));
+    await hub.handleMessage('A', envelope('', { kind: 'clear' }));
+    const clear = parseLegacyEnvelope(B.sent[1] ?? '');
+    expect(clear?.op).toEqual({ kind: 'clear', tombstones: [{ id: '', version: 2, editor: '' }] });
+
+    await hub.handleMessage('B', envelope('clientB', { kind: 'request-snapshot' }));
+    const snapshot = parseLegacyEnvelope(B.sent[2] ?? '');
+    expect(snapshot?.op).toMatchObject({ kind: 'snapshot', tombstones: [{ id: '', editor: '' }] });
   });
 
   it('replaces a forged sender on relayed data operations', async () => {

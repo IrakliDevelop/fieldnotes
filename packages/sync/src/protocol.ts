@@ -501,7 +501,7 @@ function isValidTombstones(value: unknown): boolean {
 }
 
 function isBoundedId(value: unknown): boolean {
-  return typeof value === 'string' && value.length > 0 && value.length <= maxIdLength;
+  return typeof value === 'string' && value.length <= maxIdLength;
 }
 
 /** `parseEnvelope` plus the protocol-2 legacy wire rules: v2 elements, versioned removes, valid tombstones. */
@@ -513,7 +513,7 @@ export function parseLegacyEnvelope(message: string): SyncEnvelope | null {
     case 'upsert':
       return 'index' in op.element ? env : null;
     case 'remove':
-      return op.id !== '' && isPositiveInteger(op.version) && isBoundedId(op.editor) ? env : null;
+      return isPositiveInteger(op.version) && isBoundedId(op.editor) ? env : null;
     case 'clear':
     case 'snapshot':
       return isValidTombstones(op.tombstones) ? env : null;

@@ -576,9 +576,8 @@ createSyncServer({
   no-hook anonymous default is `userId = connId`, which changes on every reconnect — a
   user would lose access to their own elements after reconnecting. `createSyncServer`
   therefore **throws** when `authorize` is configured without `authenticate`.
-- Every element op reads the stored record (`backend.getRecord`, one or two Redis `HGET`s) before
-  it is authorized, whether or not `authorize` is configured, and re-reads it on each of up to 3
-  compare-and-set attempts.
+- Every element op reads the stored record (`backend.getRecord`, one or two Redis `HGET`s) once per
+  compare-and-set attempt (up to 3) before it is authorized, whether or not `authorize` is configured.
 - Reads / visibility (a player not **receiving** hidden content) are a separate, upcoming
   concern (D3). `authorize` gates writes only.
 - When `authorize` denies an op, the hub sends the offending client a **corrective op** so its

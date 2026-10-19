@@ -479,7 +479,7 @@ export class SyncHub {
     // 'snapshot' from a client → ignored
   }
 
-  // Write-then-publish: a failed publish leaves other instances stale only until their next snapshot.
+  // Write-then-publish, so authorization judges the state the compare-and-set write replaces.
   private async processElementOp(
     conn: Connection,
     from: string,
