@@ -51,6 +51,18 @@ export function renderMenu(root: HTMLElement): () => void {
     if (event.target instanceof Element && event.target.closest('button')) event.preventDefault();
   });
   let popover: HTMLElement | null = null;
+  let previousFocus: Element | null = null;
+
+  // Focus inside the menu (keyboard open) or on body falls back to the canvas so undo keys work.
+  const restoreFocus = (): void => {
+    const target =
+      previousFocus instanceof HTMLElement &&
+      previousFocus !== document.body &&
+      !root.contains(previousFocus)
+        ? previousFocus
+        : document.querySelector<HTMLElement>('#stage [tabindex]');
+    target?.focus();
+  };
 
   const close = (): void => {
     if (!popover) return;
@@ -64,7 +76,7 @@ export function renderMenu(root: HTMLElement): () => void {
   const onKeyDown = (event: KeyboardEvent): void => {
     if (event.key !== 'Escape') return;
     close();
-    toggle.focus();
+    restoreFocus();
   };
 
   const onOutside = (event: PointerEvent): void => {
@@ -73,6 +85,7 @@ export function renderMenu(root: HTMLElement): () => void {
   };
 
   const open = (): void => {
+    previousFocus = document.activeElement;
     const el = document.createElement('div');
     el.className = 'island menu-popover';
     for (const items of Object.values(groups)) {
@@ -86,6 +99,7 @@ export function renderMenu(root: HTMLElement): () => void {
           entry.append(icon(item.icon), item.label);
           entry.addEventListener('click', () => {
             close();
+            restoreFocus();
             item.run();
           });
           return entry;

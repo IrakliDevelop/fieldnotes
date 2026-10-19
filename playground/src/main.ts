@@ -98,20 +98,26 @@ function attach(instance: SceneInstance, sceneId: SceneId): () => void {
         id: 'export-png',
         label: 'Export PNG',
         icon: 'image',
-        run: async () => {
-          const blob = await viewport.exportImage({ scale: 2, padding: 32, background: '#ffffff' });
-          if (blob) download(`fieldnotes-${sceneId}.png`, blob);
-          else shell.toast('Nothing to export');
-        },
+        run: () =>
+          viewport
+            .exportImage({ scale: 2, padding: 32, background: '#ffffff' })
+            .then((blob) => {
+              if (blob) download(`fieldnotes-${sceneId}.png`, blob);
+              else shell.toast('Nothing to export');
+            })
+            .catch(() => shell.toast('Export failed')),
       },
       {
         id: 'export-svg',
         label: 'Export SVG',
         icon: 'file',
-        run: async () => {
-          const svg = await viewport.exportSVG({ padding: 32 });
-          download(`fieldnotes-${sceneId}.svg`, new Blob([svg], { type: 'image/svg+xml' }));
-        },
+        run: () =>
+          viewport
+            .exportSVG({ padding: 32 })
+            .then((svg) =>
+              download(`fieldnotes-${sceneId}.svg`, new Blob([svg], { type: 'image/svg+xml' })),
+            )
+            .catch(() => shell.toast('Export failed')),
       },
     ]),
     addMenuItems('board', [

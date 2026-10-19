@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import type { Page, TestInfo } from '@playwright/test';
+import { gotoBlank } from './helpers/board';
 import { singleFingerDraw } from './helpers/touch';
 
 const SAMPLE = { text: 1, note: 4, shape: 2, arrow: 1, stroke: 1 } as const;
@@ -61,6 +62,7 @@ async function runMenuItem(page: Page, id: string): Promise<void> {
 
 test('first visit loads the sample', async ({ page }) => {
   await open(page);
+  expect(await page.evaluate(() => window.__playground.sceneId)).toBe('whiteboard');
   await expectSample(page);
 });
 
@@ -299,4 +301,63 @@ test('switching scenes while the board is loading stays clean', async ({ page })
   await page.waitForTimeout(1000);
   expect(await page.locator('#stage > *').count()).toBe(1);
   expect(errors).toEqual([]);
+});
+
+test('an edit right before a scene switch is saved', async ({ page }, testInfo) => {
+  await open(page);
+  await expectSample(page);
+  const before = await count(page);
+  await drawStroke(page, testInfo);
+  await expect.poll(() => count(page)).toBe(before + 1);
+
+  const topRight = page.locator('[data-chrome="top-right"]');
+  for (const [id, label] of [
+    ['tabletop', 'Tabletop'],
+    ['whiteboard', 'Whiteboard'],
+  ] as const) {
+    await topRight.getByRole('button', { name: label, exact: true }).click();
+    await expect.poll(() => page.evaluate(() => window.__playground.sceneId)).toBe(id);
+  }
+  await expect.poll(() => count(page)).toBe(before + 1);
+});
+
+test('keyboard Reset board can be undone right away', async ({ page }, testInfo) => {
+  await open(page);
+  await expectSample(page);
+  const before = await count(page);
+  await drawStroke(page, testInfo);
+  await expect.poll(() => count(page)).toBe(before + 1);
+
+  const button = page.locator('[data-chrome="menu"]').getByRole('button', { name: 'Menu' });
+  await button.focus();
+  await page.keyboard.press('Enter');
+  await page.locator('[data-menu-item="reset-board"]').focus();
+  await page.keyboard.press('Enter');
+  await expect.poll(() => count(page)).toBe(before);
+
+  await page.keyboard.press('Control+z');
+  await expect.poll(() => count(page)).toBe(before + 1);
+});
+
+test('opening an invalid JSON file toasts', async ({ page }) => {
+  await open(page);
+  await expectSample(page);
+  const before = await count(page);
+  const choosing = page.waitForEvent('filechooser');
+  await runMenuItem(page, 'open-json');
+  // No Node types here, so build the file in the page instead of from a buffer.
+  await (await choosing).element().evaluate((input) => {
+    const transfer = new DataTransfer();
+    transfer.items.add(new File(['{ not json'], 'broken.json', { type: 'application/json' }));
+    if (input instanceof HTMLInputElement) input.files = transfer.files;
+    input.dispatchEvent(new Event('change'));
+  });
+  await expect(page.locator('[data-chrome="toast"]')).toContainText("Couldn't open that file");
+  expect(await count(page)).toBe(before);
+});
+
+test('exporting an empty board toasts', async ({ page }) => {
+  await gotoBlank(page);
+  await runMenuItem(page, 'export-png');
+  await expect(page.locator('[data-chrome="toast"]')).toContainText('Nothing to export');
 });

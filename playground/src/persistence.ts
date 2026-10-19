@@ -48,6 +48,11 @@ export async function attachPersistence(
     }
   }
   viewport.history.clear();
-  if (opts.autosave) autoSave.start();
-  return () => autoSave.stop();
+  if (!opts.autosave) return () => autoSave.stop();
+  autoSave.start();
+  return () => {
+    autoSave.stop();
+    // stop() drops the debounced save, so write the board once before the viewport goes away.
+    void adapter.save(key, viewport.exportJSON()).catch(warn);
+  };
 }

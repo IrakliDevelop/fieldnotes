@@ -20,6 +20,11 @@ export function buildWhiteboardSample(viewport: Viewport): void {
     layerManager.renameLayer(sketchId, 'Sketch');
     const notesId = second?.id ?? layerManager.createLayer('Notes').id;
     layerManager.renameLayer(notesId, 'Notes');
+    for (const id of [sketchId, notesId]) {
+      layerManager.setLayerVisible(id, true);
+      layerManager.setLayerLocked(id, false);
+      layerManager.setLayerOpacity(id, 1);
+    }
 
     const rect = createShape({
       position: { x: 0, y: 360 },
