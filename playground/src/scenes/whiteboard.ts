@@ -69,79 +69,86 @@ export const whiteboard: Scene = {
         new LaserTool(),
       ],
     });
-    const unregisterWidgets = registerWidgets(viewport, shell.toast);
-
+    let unregisterWidgets: () => void = () => undefined;
     // iOS Safari only delivers change events to a file input that is in the document.
     const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'image/*';
-    input.hidden = true;
-    document.body.append(input);
-    input.addEventListener('cancel', () => viewport.setTool('select'));
-    input.addEventListener('change', () => {
-      const file = input.files?.[0];
-      if (!file) {
-        viewport.setTool('select');
-        return;
-      }
-      const reader = new FileReader();
-      reader.addEventListener('load', () => {
-        if (typeof reader.result === 'string') imageTool.setSrc(reader.result);
+    try {
+      unregisterWidgets = registerWidgets(viewport, shell.toast);
+      input.type = 'file';
+      input.accept = 'image/*';
+      input.hidden = true;
+      document.body.append(input);
+      input.addEventListener('cancel', () => viewport.setTool('select'));
+      input.addEventListener('change', () => {
+        const file = input.files?.[0];
+        if (!file) {
+          viewport.setTool('select');
+          return;
+        }
+        const reader = new FileReader();
+        reader.addEventListener('load', () => {
+          if (typeof reader.result === 'string') imageTool.setSrc(reader.result);
+        });
+        reader.readAsDataURL(file);
+        // Reset so picking the same file again still fires change.
+        input.value = '';
       });
-      reader.readAsDataURL(file);
-      // Reset so picking the same file again still fires change.
-      input.value = '';
-    });
-    const pickImage = (): void => input.click();
+      const pickImage = (): void => input.click();
 
-    const tools: readonly ToolSpec[] = [
-      ...NAVIGATION_TOOLS,
-      { name: 'pencil', label: 'Pencil', icon: 'pencil', key: '3' },
-      { name: 'highlighter', label: 'Highlighter', icon: 'highlighter', key: '4' },
-      { name: 'eraser', label: 'Eraser', icon: 'eraser', key: '5' },
-      { name: 'arrow', label: 'Arrow', icon: 'arrow', key: '6' },
-      {
-        name: 'shape',
-        label: 'Shape',
-        icon: 'shape',
-        key: '7',
-        flyout: [
-          {
-            id: 'rectangle',
-            label: 'Rectangle',
-            icon: 'rectangle',
-            select: () => shapeTool.setOptions({ shape: 'rectangle' }),
-          },
-          {
-            id: 'ellipse',
-            label: 'Ellipse',
-            icon: 'ellipse',
-            select: () => shapeTool.setOptions({ shape: 'ellipse' }),
-          },
-          {
-            id: 'line',
-            label: 'Line',
-            icon: 'line',
-            select: () => shapeTool.setOptions({ shape: 'line' }),
-          },
-        ],
-      },
-      { name: 'note', label: 'Note', icon: 'note', key: '8' },
-      { name: 'text', label: 'Text', icon: 'text', key: '9' },
-      { name: 'image', label: 'Image', icon: 'image', key: '0', beforeActivate: pickImage },
-      { name: 'laser', label: 'Laser', icon: 'laser', key: 'l' },
-    ];
+      const tools: readonly ToolSpec[] = [
+        ...NAVIGATION_TOOLS,
+        { name: 'pencil', label: 'Pencil', icon: 'pencil', key: '3' },
+        { name: 'highlighter', label: 'Highlighter', icon: 'highlighter', key: '4' },
+        { name: 'eraser', label: 'Eraser', icon: 'eraser', key: '5' },
+        { name: 'arrow', label: 'Arrow', icon: 'arrow', key: '6' },
+        {
+          name: 'shape',
+          label: 'Shape',
+          icon: 'shape',
+          key: '7',
+          flyout: [
+            {
+              id: 'rectangle',
+              label: 'Rectangle',
+              icon: 'rectangle',
+              select: () => shapeTool.setOptions({ shape: 'rectangle' }),
+            },
+            {
+              id: 'ellipse',
+              label: 'Ellipse',
+              icon: 'ellipse',
+              select: () => shapeTool.setOptions({ shape: 'ellipse' }),
+            },
+            {
+              id: 'line',
+              label: 'Line',
+              icon: 'line',
+              select: () => shapeTool.setOptions({ shape: 'line' }),
+            },
+          ],
+        },
+        { name: 'note', label: 'Note', icon: 'note', key: '8' },
+        { name: 'text', label: 'Text', icon: 'text', key: '9' },
+        { name: 'image', label: 'Image', icon: 'image', key: '0', beforeActivate: pickImage },
+        { name: 'laser', label: 'Laser', icon: 'laser', key: 'l' },
+      ];
 
-    return {
-      viewport,
-      tools,
-      styles: { controlsFor: (toolName) => CONTROLS[toolName] ?? [] },
-      loadSample: () => buildWhiteboardSample(viewport),
-      dispose: () => {
-        unregisterWidgets();
-        input.remove();
-        viewport.destroy();
-      },
-    };
+      return {
+        viewport,
+        tools,
+        styles: { controlsFor: (toolName) => CONTROLS[toolName] ?? [] },
+        loadSample: () => buildWhiteboardSample(viewport),
+        dispose: () => {
+          unregisterWidgets();
+          input.remove();
+          viewport.destroy();
+        },
+      };
+    } catch (error) {
+      unregisterWidgets();
+      input.remove();
+      viewport.destroy();
+      throw error;
+    }
   },
 };
