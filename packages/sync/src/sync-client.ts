@@ -1,14 +1,16 @@
 import type { CanvasElement, ElementRegistry, ElementStore, Layer } from '@fieldnotes/core';
 import type { SyncTransport } from './sync-transport';
 import {
-  parseEnvelope,
+  parseLegacyEnvelope,
   isValidElement,
   isValidLayerDefinition,
   isValidLayerRecord,
   isNewerLayerRecord,
+  isNewerVersion,
   type LayerRecord,
   type SyncOp,
   type SyncElement,
+  type Tombstone,
 } from './protocol';
 import { LayerLedger } from './layer-ledger';
 import { ClientPluginRegistry } from './sync-plugin';
@@ -198,6 +200,11 @@ export class SyncClient {
   private readonly touchedDuringResync = new Set<string>();
   /** A local clear supersedes every element in the in-flight authoritative snapshot. */
   private clearedBeforeSnapshot = false;
+  private readonly tombstones = new Map<string, Tombstone>();
+  /** Non-transient store versions, kept so a clear can tombstone elements the store already dropped. */
+  private readonly liveVersions = new Map<string, number>();
+  /** A hub computes its own clear tombstones; peers need ours. */
+  private peerIsHub = false;
   private readonly presenceHandlers = new Set<(from: string, data: unknown) => void>();
   private readonly presenceLeaveHandlers = new Set<(from: string) => void>();
 
@@ -229,19 +236,26 @@ export class SyncClient {
     // snapshot IS a resync: shield local ops made before it arrives.
     if (this.joined) this.resyncPending = true;
     this.unsubscribers = [
-      this.store.on('add', (el, meta) =>
-        this.onLocal({ kind: 'upsert', element: el }, meta.origin),
-      ),
-      this.store.on('update', ({ current }, meta) =>
-        this.onLocal({ kind: 'upsert', element: current }, meta.origin),
-      ),
-      this.store.on('remove', (el, meta) =>
-        this.onLocal({ kind: 'remove', id: el.id }, meta.origin),
-      ),
-      this.store.on('clear', (_data, meta) => this.onLocal({ kind: 'clear' }, meta.origin)),
+      this.store.on('add', (el, meta) => {
+        this.trackLive(el);
+        this.onLocal({ kind: 'upsert', element: el }, meta.origin);
+      }),
+      this.store.on('update', ({ current }, meta) => {
+        this.trackLive(current);
+        this.onLocal({ kind: 'upsert', element: current }, meta.origin);
+      }),
+      this.store.on('remove', (el, meta) => {
+        this.liveVersions.delete(el.id);
+        this.onLocal(
+          { kind: 'remove', id: el.id, version: el.version + 1, editor: this.clientId },
+          meta.origin,
+        );
+      }),
+      this.store.on('clear', (_data, meta) => this.onStoreCleared(meta.origin)),
       this.store.on('batch', (_data, meta) => {
-        this.onLocal({ kind: 'clear' }, meta.origin);
+        this.onStoreCleared(meta.origin);
         for (const element of this.store.snapshot()) {
+          this.trackLive(element);
           this.onLocal({ kind: 'upsert', element }, meta.origin);
         }
       }),
@@ -492,11 +506,51 @@ export class SyncClient {
     return { kind: 'upsert', element };
   }
 
+  private trackLive(element: CanvasElement): void {
+    if (!isTransientHtml(element)) this.liveVersions.set(element.id, element.version);
+  }
+
+  /** The store is already empty here, so tombstones come from the last seen live versions. */
+  private onStoreCleared(origin: string | undefined): void {
+    const live = [...this.liveVersions];
+    this.liveVersions.clear();
+    if (isExternal(origin)) return;
+    const tombstones = live.map(([id, version]) => {
+      const tombstone = { id, version: version + 1, editor: this.clientId };
+      this.recordTombstone(tombstone);
+      return tombstone;
+    });
+    this.onLocal(this.peerIsHub ? { kind: 'clear' } : { kind: 'clear', tombstones }, origin);
+  }
+
+  private recordTombstone(tombstone: Tombstone): void {
+    if (isNewerVersion(tombstone, this.tombstones.get(tombstone.id))) {
+      this.tombstones.set(tombstone.id, tombstone);
+    }
+  }
+
+  /** Lifts a resurrected element above its tombstone; the editor is never written back. */
+  private stampVersion(element: CanvasElement): SyncElement {
+    const tombstone = this.tombstones.get(element.id);
+    this.tombstones.delete(element.id);
+    let version = element.version;
+    if (tombstone && tombstone.version >= version) {
+      version = tombstone.version + 1;
+      // Fires inside the store's add emission; the remote origin keeps it out of history.
+      this.store.update(element.id, { version }, { origin: REMOTE_ORIGIN });
+    }
+    return { ...element, version, editor: this.clientId };
+  }
+
   private onLocal(op: SyncOp, origin: string | undefined): void {
     if (isExternal(origin)) return; // applied remote ops must not re-broadcast
     // Transient elements belong to the embedding host, not the document: the hub must never
     // learn about them. Removes need no guard — the hub never knew the element existed.
     if (op.kind === 'upsert' && isTransientHtml(op.element)) return;
+    if (op.kind === 'upsert') op = { kind: 'upsert', element: this.stampVersion(op.element) };
+    else if (op.kind === 'remove' && op.version !== undefined && op.editor !== undefined) {
+      this.recordTombstone({ id: op.id, version: op.version, editor: op.editor });
+    }
     const outgoing = this.stampAudience(op);
     if (this.resyncPending || !this.joined) {
       if (outgoing.kind === 'upsert') this.touchedDuringResync.add(outgoing.element.id);
@@ -510,12 +564,18 @@ export class SyncClient {
   }
 
   private onRemote(message: string): void {
-    const env = parseEnvelope(message);
+    const env = parseLegacyEnvelope(message);
     // clientId is STABLE across transport reconnects, so this guard also drops our own ops that the
     // relay echoes back after a reconnect (the reconnected socket is a NEW hub connection, so the hub's
     // connId echo-suppression does not cover them). Do NOT key this guard off the connection.
     if (!env || env.from === this.clientId) return; // malformed/invalid + own echo
     if (env.op.kind === 'capabilities') {
+      if (env.op.capabilities.protocolVersion < 2) {
+        this.stop();
+        this.transport.close();
+        return;
+      }
+      if (env.from === HUB_FROM) this.peerIsHub = true;
       const pending = this.handshake.receive(env.op.capabilities);
       // Answer each peer once per handshake: a late joiner on a shared bus
       // still learns our capabilities, while a reply to our own reply stops.
@@ -558,6 +618,7 @@ export class SyncClient {
       const elements = this.store.snapshot().filter((el) => !isTransientHtml(el));
       const snapshotOp: Record<string, unknown> = { kind: 'snapshot', to: env.from, elements };
       if (this.layerLedger) snapshotOp['layers'] = this.layerLedger.records();
+      if (this.tombstones.size > 0) snapshotOp['tombstones'] = [...this.tombstones.values()];
       const extensions: Record<string, PluginSnapshot> = {};
       for (const plugin of this.pluginRegistry.plugins) {
         const data = plugin.createSnapshot?.();
@@ -579,10 +640,12 @@ export class SyncClient {
       const phase: AuthoritativeSnapshotPhase = this.joined ? 'reconcile' : 'bootstrap';
       const runtimeElements: CanvasElement[] = [];
       for (const element of op.elements) {
-        if (!isValidElement(element)) continue;
+        // parseLegacyEnvelope leaves snapshot elements to us: skip invalid and pre-v2 ones alone.
+        if (!isValidElement(element) || !('index' in element)) continue;
         runtimeElements.push(element);
       }
-      const preserved = this.applyAuthoritativeSnapshot(phase, runtimeElements);
+      for (const tombstone of op.tombstones ?? []) this.recordTombstone(tombstone);
+      const pushed = this.applyAuthoritativeSnapshot(phase, runtimeElements);
       this.joined = true;
       this.resyncPending = false; // TD-1: finalize after ANY snapshot (merge OR reconcile)
       this.touchedDuringResync.clear();
@@ -590,7 +653,7 @@ export class SyncClient {
       // Re-push AFTER the resync finalizes, through the normal local-upsert
       // path (audience stamping, hub-knowledge marking) — synchronously, so
       // hosts never need deferred-macrotask timing around snapshots.
-      for (const id of preserved) {
+      for (const id of pushed) {
         const element = this.store.getById(id);
         if (element) this.onLocal({ kind: 'upsert', element }, 'local');
       }
@@ -607,7 +670,7 @@ export class SyncClient {
         phase: this.resyncPending ? 'reconnect' : 'live',
       });
     } else if (op.kind === 'upsert' || op.kind === 'remove' || op.kind === 'clear') {
-      this.applyOp(op);
+      this.applyOp(op, env.from === HUB_FROM);
     } else if (this.pluginRegistry.ownerOf(op.kind)) {
       this.pluginRegistry.ownerOf(op.kind)?.handleOp?.(op, {
         sender: env.from,
@@ -653,11 +716,17 @@ export class SyncClient {
     }
   }
 
-  private applyOp(op: Extract<SyncOp, { kind: 'upsert' | 'remove' | 'clear' }>): void {
+  /** `authoritative` (hub corrections) applies upserts and removes regardless of version. */
+  private applyOp(
+    op: Extract<SyncOp, { kind: 'upsert' | 'remove' | 'clear' }>,
+    authoritative: boolean,
+  ): void {
     if (op.kind === 'upsert') {
       const el = op.element;
       this.hubKnownIds.add(el.id); // remote/snapshot upserts are hub evidence
       const existing = this.store.getById(el.id);
+      if (!authoritative && !isNewerVersion(el, existing ?? this.tombstones.get(el.id))) return;
+      this.tombstones.delete(el.id);
       if (existing) {
         if (existing.type === el.type) {
           this.store.update(el.id, replacementPatch(existing, el), { origin: REMOTE_ORIGIN });
@@ -672,13 +741,20 @@ export class SyncClient {
         this.store.add(el, { origin: REMOTE_ORIGIN });
       }
     } else if (op.kind === 'remove') {
+      if (op.version === undefined || op.editor === undefined) return; // parseLegacyEnvelope requires both
+      const tombstone = { id: op.id, version: op.version, editor: op.editor };
+      const current = this.store.getById(op.id) ?? this.tombstones.get(op.id);
+      if (!authoritative && !isNewerVersion(tombstone, current)) return;
+      this.tombstones.set(op.id, tombstone);
       this.store.remove(op.id, { origin: REMOTE_ORIGIN });
     } else if (op.kind === 'clear') {
-      // The hub never knew about host-owned transient elements, so its clear does
-      // not speak for them: re-add them under the remote origin so no op is sent.
-      const transients = this.store.snapshot().filter((el) => isTransientHtml(el));
-      this.store.clear({ origin: REMOTE_ORIGIN });
-      for (const el of transients) this.store.add(el, { origin: REMOTE_ORIGIN });
+      // A clear removes only what its tombstones supersede, so transient and newer elements survive.
+      for (const tombstone of op.tombstones ?? []) {
+        const local = this.store.getById(tombstone.id);
+        if (local && isNewerVersion(local, tombstone)) continue;
+        this.recordTombstone(tombstone);
+        this.store.remove(tombstone.id, { origin: REMOTE_ORIGIN });
+      }
     }
     // applyOp handles the data ops only (upsert/remove/clear). The control ops
     // (request-snapshot/snapshot) are dispatched in onRemote; unknown kinds are filtered by
@@ -687,7 +763,7 @@ export class SyncClient {
 
   /**
    * Applies an authoritative snapshot under explicit bootstrap/reconcile
-   * semantics and returns the ids the host chose to preserve and re-push.
+   * semantics and returns the ids to re-push: host-preserved and locally newer.
    */
   private applyAuthoritativeSnapshot(
     phase: AuthoritativeSnapshotPhase,
@@ -695,12 +771,21 @@ export class SyncClient {
   ): string[] {
     const snapshotIds = new Set(snapshot.map((e) => e.id));
     const localOnly: LocalOnlyElement[] = [];
+    const newer: string[] = [];
     for (const local of this.store.snapshot()) {
-      if (snapshotIds.has(local.id) || this.touchedDuringResync.has(local.id)) continue;
+      if (snapshotIds.has(local.id)) continue;
       // A transient element is host-owned and was never sent, so its absence from the
       // authoritative set is expected: keep it without consulting the host hook.
       if (isTransientHtml(local)) continue;
-      localOnly.push({ element: local, hubKnown: this.hubKnownIds.has(local.id) });
+      const tombstone = this.tombstones.get(local.id);
+      if (tombstone && isNewerVersion(tombstone, local)) {
+        this.store.remove(local.id, { origin: REMOTE_ORIGIN });
+        continue;
+      }
+      if (this.touchedDuringResync.has(local.id)) continue;
+      // Live elements carry no tombstone of their own, so this one is the snapshot's, and older.
+      if (tombstone) newer.push(local.id);
+      else localOnly.push({ element: local, hubKnown: this.hubKnownIds.has(local.id) });
     }
     const { preserve, discard } = this.resolveLocalOnlyDecision(phase, snapshot, localOnly);
     for (const entry of localOnly) {
@@ -712,17 +797,17 @@ export class SyncClient {
       }
     }
     for (const el of snapshot) {
-      // A local clear supersedes the complete in-flight snapshot. Otherwise,
-      // on reconcile, a touched local edit is newer and already sent to the hub.
-      if (
-        this.clearedBeforeSnapshot ||
-        (phase === 'reconcile' && this.touchedDuringResync.has(el.id))
-      ) {
+      // A local clear supersedes the complete in-flight snapshot.
+      if (this.clearedBeforeSnapshot) continue;
+      const local = this.store.getById(el.id);
+      if (local && isNewerVersion(local, el)) {
+        // A touched local edit is already sent to the hub.
+        if (!this.touchedDuringResync.has(el.id)) newer.push(el.id);
         continue;
       }
-      this.applyOp({ kind: 'upsert', element: el });
+      this.applyOp({ kind: 'upsert', element: el }, false);
     }
-    return [...preserve];
+    return [...preserve, ...newer];
   }
 
   private resolveLocalOnlyDecision(

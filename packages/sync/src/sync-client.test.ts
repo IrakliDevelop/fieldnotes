@@ -431,6 +431,7 @@ describe('SyncClient', () => {
     const stroke = {
       ...createStroke({
         index: 'a0',
+        version: 2,
         points: [
           { x: 0, y: 0, pressure: 0.5 },
           { x: 10, y: 0, pressure: 0.5 },
@@ -471,7 +472,11 @@ describe('SyncClient', () => {
     expect(storeB.getById(note.id)).toBeDefined();
 
     // Deliver a second upsert for the same id with a changed field -> update.
-    const changed: CanvasElement = { ...note, backgroundColor: '#222222' } as CanvasElement;
+    const changed: CanvasElement = {
+      ...note,
+      version: 2,
+      backgroundColor: '#222222',
+    } as CanvasElement;
     transportA.send(envelope('A', { kind: 'upsert', element: changed }));
 
     const remote = storeB.getById(note.id);
@@ -1921,7 +1926,12 @@ describe('transient elements stay local', () => {
     store.add(el);
 
     const before = transport.sent.length;
-    transport.deliver(envelope('hub', { kind: 'clear' }));
+    transport.deliver(
+      envelope('hub', {
+        kind: 'clear',
+        tombstones: [{ id: normal.id, version: 2, editor: 'hub' }],
+      }),
+    );
 
     expect(store.getById(el.id)).toBeDefined();
     expect(store.getById(normal.id)).toBeUndefined();
