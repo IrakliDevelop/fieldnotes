@@ -211,10 +211,14 @@ const autoSave = new AutoSave(viewport.store, viewport.camera, {
 });
 if (!benchCount) {
   void (async () => {
+    if (sampleParam) {
+      // runs after the await: loadSampleBoard reads grid-panel consts declared further down
+      await Promise.resolve();
+      loadSampleBoard();
+      return;
+    }
     const savedState = await autoSave.load();
-    // runs after the await: loadSampleBoard reads grid-panel consts declared further down
-    if (sampleParam) loadSampleBoard();
-    else if (savedState) {
+    if (savedState) {
       for (const el of savedState.elements) {
         if (el.type === 'html' && 'domId' in el && typeof el.domId === 'string') {
           if (!document.getElementById(el.domId)) {
