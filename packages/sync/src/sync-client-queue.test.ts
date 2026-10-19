@@ -13,6 +13,8 @@ import type { SyncOp } from './protocol';
 import type { SyncTransport } from './sync-transport';
 
 const REMOTE = { origin: 'remote' };
+/** Loses an equal-version tie to this client, whose id is 'A'. */
+const LOSING_EDITOR = '0';
 
 function shape(id: string, version = 1, editor = 'B'): CanvasElement {
   const base = createShape({
@@ -37,6 +39,7 @@ function setup(
   const frames: Frame[] = [];
   let receive: (message: string) => void = () => undefined;
   let reconnect: () => void = () => undefined;
+  let closed: () => void = () => undefined;
   const echoes: string[] = [];
   const transport: SyncTransport = {
     send: (raw) => {
@@ -50,6 +53,10 @@ function setup(
     },
     onReconnect: (handler) => {
       reconnect = handler;
+      return () => undefined;
+    },
+    onClose: (handler) => {
+      closed = handler;
       return () => undefined;
     },
     close: () => undefined,
@@ -82,6 +89,7 @@ function setup(
     elementFrames,
     sentKinds,
     reconnect: () => reconnect(),
+    socketClosed: () => closed(),
     queueEcho: (from: string, op: SyncOp) => echoes.push(JSON.stringify({ from, op })),
   };
 }
@@ -249,29 +257,38 @@ describe('SyncClient outgoing queue', () => {
   });
 
   it('keeps an edit queued just before a reconcile snapshot by the live tie-break', () => {
-    const { store, deliver, capabilities, reconnect } = setup();
+    const { store, deliver, capabilities, reconnect, elementFrames } = setup();
     capabilities('hub');
     deliver('hub', { kind: 'snapshot', to: 'A', elements: [shape('x', 5, 'B')] });
     reconnect();
     capabilities('hub');
 
     store.update('x', { position: { x: 9, y: 0 } });
-    deliver('hub', { kind: 'snapshot', to: 'A', elements: [shape('x', 6, '0')] });
+    deliver('hub', { kind: 'snapshot', to: 'A', elements: [shape('x', 6, LOSING_EDITOR)] });
+    vi.advanceTimersByTime(50);
 
     expect(store.getById('x')).toMatchObject({ version: 6, position: { x: 9, y: 0 } });
+    expect(elementFrames().at(-1)?.op).toMatchObject({
+      kind: 'upsert',
+      element: { id: 'x', version: 6, editor: 'A', position: { x: 9, y: 0 } },
+    });
   });
 
   it('shields an upsert queued before a reconnect from the reconcile snapshot', () => {
-    const { store, deliver, capabilities, reconnect } = setup();
+    const { store, deliver, capabilities, reconnect, elementFrames } = setup();
     capabilities('hub');
     deliver('hub', { kind: 'snapshot', to: 'A', elements: [shape('x', 5, 'B')] });
 
     store.update('x', { position: { x: 9, y: 0 } });
     reconnect();
     capabilities('hub');
-    deliver('hub', { kind: 'snapshot', to: 'A', elements: [shape('x', 6, '0')] });
+    deliver('hub', { kind: 'snapshot', to: 'A', elements: [shape('x', 6, LOSING_EDITOR)] });
 
     expect(store.getById('x')).toMatchObject({ version: 6, position: { x: 9, y: 0 } });
+    expect(elementFrames().at(-1)?.op).toMatchObject({
+      kind: 'upsert',
+      element: { id: 'x', version: 6, editor: 'A', position: { x: 9, y: 0 } },
+    });
   });
 
   it('sends individual ops after reconnecting to a hub without opBatching', () => {
@@ -290,6 +307,55 @@ describe('SyncClient outgoing queue', () => {
     expect(elementFrames().map(({ op }) => op.kind)).toEqual(['batch', 'upsert']);
   });
 
+  it('sends an element created while the socket is down as a single upsert a 0.28 hub keeps', () => {
+    const { store, deliver, capabilities, reconnect, socketClosed, elementFrames } = setup();
+    capabilities('hub', true);
+    deliver('hub', { kind: 'snapshot', to: 'A', elements: [] });
+
+    socketClosed();
+    store.add(shape('n', 1, 'A'));
+    vi.advanceTimersByTime(50);
+    reconnect();
+    capabilities('hub', false);
+    // A 0.28 hub drops batch frames, so its snapshot holds only the single upserts.
+    const accepted = elementFrames().flatMap(({ op }) =>
+      op.kind === 'upsert' ? [op.element] : [],
+    );
+    deliver('hub', { kind: 'snapshot', to: 'A', elements: accepted });
+
+    expect(elementFrames().map(({ op }) => op.kind)).toEqual(['upsert']);
+    expect(store.getById('n')).toBeDefined();
+  });
+
+  it('batches again once a reconnected hub confirms opBatching', () => {
+    const { store, capabilities, reconnect, socketClosed, elementFrames } = setup();
+    capabilities('hub', true);
+    store.add(shape('x'), REMOTE);
+
+    socketClosed();
+    reconnect();
+    capabilities('hub', true);
+    store.update('x', { position: { x: 1, y: 0 } });
+    vi.advanceTimersByTime(50);
+
+    expect(elementFrames().map(({ op }) => op.kind)).toEqual(['batch']);
+  });
+
+  it('drops the queue instead of flushing it to a peer below protocol 2', () => {
+    const { store, deliver, capabilities, elementFrames } = setup();
+    capabilities('P');
+    store.add(shape('x'), REMOTE);
+
+    store.update('x', { position: { x: 1, y: 0 } });
+    deliver('Q', {
+      kind: 'capabilities',
+      capabilities: { ...createCurrentCapabilities([]), protocolVersion: 1 },
+    });
+    vi.advanceTimersByTime(50);
+
+    expect(elementFrames()).toEqual([]);
+  });
+
   it('does not batch for a peer that advertised opBatching', () => {
     const { store, capabilities, elementFrames } = setup();
     capabilities('P', true);
@@ -302,7 +368,7 @@ describe('SyncClient outgoing queue', () => {
   });
 
   it('never applies a queued op to the store twice', () => {
-    const { store, capabilities } = setup();
+    const { store, capabilities, elementFrames } = setup();
     capabilities('hub', true);
     store.add(shape('x'), REMOTE);
     let updates = 0;
@@ -312,9 +378,23 @@ describe('SyncClient outgoing queue', () => {
     vi.advanceTimersByTime(50);
     store.update('x', { position: { x: 2, y: 0 } });
     vi.advanceTimersByTime(50);
-
     expect(updates).toBe(2);
-    expect(store.getById('x')).toMatchObject({ version: 3 });
+
+    // Re-adding over the remove's tombstone takes the flush-time version lift: one store write.
+    store.remove('x');
+    store.add(shape('x', 1, 'A'));
+    vi.advanceTimersByTime(50);
+    vi.advanceTimersByTime(50);
+
+    expect(updates).toBe(3);
+    expect(store.getById('x')).toMatchObject({ version: 5 });
+    expect(elementFrames().at(-1)?.op).toEqual({
+      kind: 'batch',
+      ops: [
+        { kind: 'remove', id: 'x', version: 4, editor: 'A' },
+        { kind: 'upsert', element: expect.objectContaining({ id: 'x', version: 5, editor: 'A' }) },
+      ],
+    });
   });
 
   it('splits a batch by UTF-8 bytes and sends an op too large for a batch alone', () => {

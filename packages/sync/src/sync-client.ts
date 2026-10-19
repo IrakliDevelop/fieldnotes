@@ -295,6 +295,10 @@ export class SyncClient {
     if (this.transport.onReconnect) {
       this.unsubscribers.push(this.transport.onReconnect(() => this.onReconnect()));
     }
+    if (this.transport.onClose) {
+      // Frames buffered while down may reach a hub without opBatching; send them singly.
+      this.unsubscribers.push(this.transport.onClose(() => (this.batchingPeer = false)));
+    }
     try {
       for (const plugin of this.pluginRegistry.plugins) {
         const cleanup = plugin.start?.({ clientId: this.clientId, send: (op) => this.sendOp(op) });
@@ -711,6 +715,7 @@ export class SyncClient {
     if (!env || env.from === this.clientId) return; // malformed/invalid + own echo
     if (env.op.kind === 'capabilities') {
       if (env.op.capabilities.protocolVersion < 2) {
+        this.queue.length = 0; // never flush element ops to an incompatible peer
         this.stop();
         this.transport.close();
         return;
@@ -799,8 +804,7 @@ export class SyncClient {
       this.touchedDuringResync.clear();
       this.clearedBeforeSnapshot = false;
       // Re-push AFTER the resync finalizes, through the normal local-upsert
-      // path (audience stamping, hub-knowledge marking) — synchronously, so
-      // hosts never need deferred-macrotask timing around snapshots.
+      // path (audience stamping, hub-knowledge marking); it leaves with the next flush.
       for (const id of pushed) {
         const element = this.store.getById(id);
         if (element) this.onLocal({ kind: 'upsert', element }, 'local');
