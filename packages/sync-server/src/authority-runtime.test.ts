@@ -6168,8 +6168,7 @@ describe('authority runtime commit gate', () => {
       const initial = { generation: 'g', revision: 'first' };
       const next = { generation: 'g', revision: 'second' };
       let provideEvidence:
-        | ((result: Awaited<ReturnType<AuthorityDriver['readEvidence']>>) => void)
-        | undefined;
+        ((result: Awaited<ReturnType<AuthorityDriver['readEvidence']>>) => void) | undefined;
       const evidence = new Promise<Awaited<ReturnType<AuthorityDriver['readEvidence']>>>(
         (resolve) => {
           provideEvidence = resolve;

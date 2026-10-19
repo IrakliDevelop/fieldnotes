@@ -17,13 +17,7 @@ export type AuthorityReadonly<T> = T extends (...args: never[]) => unknown
       : T;
 
 export type AuthorityClientStatus =
-  | 'connecting'
-  | 'recovering'
-  | 'live'
-  | 'offline'
-  | 'denied'
-  | 'upgrade-required'
-  | 'stopped';
+  'connecting' | 'recovering' | 'live' | 'offline' | 'denied' | 'upgrade-required' | 'stopped';
 
 export interface AuthorityClientOperation {
   readonly clientOperationId: string;
@@ -82,13 +76,7 @@ export interface AuthorityBarrier {
 
 export interface AuthorityBarrierResult {
   readonly status:
-    | 'acknowledged'
-    | 'blocked'
-    | 'timeout'
-    | 'aborted'
-    | 'stopped'
-    | 'invalid'
-    | 'capacity';
+    'acknowledged' | 'blocked' | 'timeout' | 'aborted' | 'stopped' | 'invalid' | 'capacity';
   readonly barrier: AuthorityBarrier;
   readonly accepted: readonly AuthorityReceipt[];
   readonly rejectedIds: readonly string[];

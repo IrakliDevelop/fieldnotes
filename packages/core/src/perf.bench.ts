@@ -1,4 +1,4 @@
-import { bench, describe } from 'vitest';
+import { test } from 'vitest';
 import { ElementStore } from './elements/element-store';
 import { LayerManager } from './layers/layer-manager';
 import { RenderLoop } from './canvas/render-loop';
@@ -162,27 +162,27 @@ function createDragFixture(): {
   return { loop, drag, ctx };
 }
 
-describe('ElementStore spatial queries', () => {
+test('ElementStore spatial queries', async ({ bench }) => {
   const store = new ElementStore();
   populateStore(store, 500);
 
   const viewportRect: Bounds = { x: -400, y: -300, w: 800, h: 600 };
   const point = { x: 0, y: 0 };
 
-  bench('queryRect (viewport-sized)', () => {
-    store.queryRect(viewportRect);
-  });
-
-  bench('queryPoint (single point)', () => {
-    store.queryPoint(point);
-  });
-
-  bench('getAll (baseline linear)', () => {
-    store.getAll();
-  });
+  await bench.compare(
+    bench('queryRect (viewport-sized)', () => {
+      store.queryRect(viewportRect);
+    }),
+    bench('queryPoint (single point)', () => {
+      store.queryPoint(point);
+    }),
+    bench('getAll (baseline linear)', () => {
+      store.getAll();
+    }),
+  );
 });
 
-describe('getElementBounds', () => {
+test('getElementBounds', async ({ bench }) => {
   const note = createNote({ position: { x: 10, y: 20 }, size: { w: 100, h: 50 } });
   const stroke = createStroke({
     points: randomStrokePoints(50, { x: 0, y: 0 }),
@@ -190,91 +190,96 @@ describe('getElementBounds', () => {
   });
   const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 100 }, bend: 30 });
 
-  bench('bounds for note (sized element)', () => {
-    getElementBounds(note);
-  });
-
-  bench('bounds for stroke (cached)', () => {
-    getElementBounds(stroke);
-  });
-
-  bench('bounds for arrow (bezier)', () => {
-    getElementBounds(arrow);
-  });
+  await bench.compare(
+    bench('bounds for note (sized element)', () => {
+      getElementBounds(note);
+    }),
+    bench('bounds for stroke (cached)', () => {
+      getElementBounds(stroke);
+    }),
+    bench('bounds for arrow (bezier)', () => {
+      getElementBounds(arrow);
+    }),
+  );
 });
 
-describe('boundsIntersect', () => {
+test('boundsIntersect', async ({ bench }) => {
   const a: Bounds = { x: 0, y: 0, w: 100, h: 100 };
   const bHit: Bounds = { x: 50, y: 50, w: 100, h: 100 };
   const bMiss: Bounds = { x: 500, y: 500, w: 10, h: 10 };
 
-  bench('intersecting', () => {
-    boundsIntersect(a, bHit);
-  });
-
-  bench('non-intersecting', () => {
-    boundsIntersect(a, bMiss);
-  });
+  await bench.compare(
+    bench('intersecting', () => {
+      boundsIntersect(a, bHit);
+    }),
+    bench('non-intersecting', () => {
+      boundsIntersect(a, bMiss);
+    }),
+  );
 });
 
-describe('store mutations with spatial index', () => {
-  bench('add 100 elements', () => {
-    const store = new ElementStore();
-    for (let i = 0; i < 100; i++) {
-      store.add(createNote({ position: randomPoint(5000), size: { w: 200, h: 100 } }));
-    }
-  });
-
-  bench('loadSnapshot 500 elements', () => {
-    const elements = [];
-    for (let i = 0; i < 500; i++) {
-      elements.push(createNote({ position: randomPoint(5000), size: { w: 200, h: 100 } }));
-    }
-    const store = new ElementStore();
-    store.loadSnapshot(elements);
-  });
+test('store mutations with spatial index', async ({ bench }) => {
+  await bench.compare(
+    bench('add 100 elements', () => {
+      const store = new ElementStore();
+      for (let i = 0; i < 100; i++) {
+        store.add(createNote({ position: randomPoint(5000), size: { w: 200, h: 100 } }));
+      }
+    }),
+    bench('loadSnapshot 500 elements', () => {
+      const elements = [];
+      for (let i = 0; i < 500; i++) {
+        elements.push(createNote({ position: randomPoint(5000), size: { w: 200, h: 100 } }));
+      }
+      const store = new ElementStore();
+      store.loadSnapshot(elements);
+    }),
+  );
 });
 
-describe('RenderLoop frame', () => {
+test('RenderLoop frame', async ({ bench }) => {
   const loop = createFrameLoop(10_000);
-
-  bench('10,000 mixed elements over 4 layers', () => {
-    loop.requestRender();
-    loop.flush();
-  });
 
   const dragFixture = createDragFixture();
   const getContext = HTMLCanvasElement.prototype.getContext;
 
-  bench(
-    'drag one element in a 10k-element layer (per frame)',
-    () => {
-      dragFixture.drag();
-      dragFixture.loop.requestRender();
-      dragFixture.loop.flush();
-    },
-    {
-      // The cache allocates its own canvases, so every canvas gets the stub context while this runs.
-      setup: () => {
-        HTMLCanvasElement.prototype.getContext = (() =>
-          dragFixture.ctx) as unknown as HTMLCanvasElement['getContext'];
+  await bench.compare(
+    bench('10,000 mixed elements over 4 layers', () => {
+      loop.requestRender();
+      loop.flush();
+    }),
+    bench(
+      'drag one element in a 10k-element layer (per frame)',
+      {
+        // Skips tinybench's async-detection call, which would run before beforeAll installs the stub.
+        async: false,
+        // The cache allocates its own canvases, so every canvas gets the stub context while this runs.
+        beforeAll: () => {
+          HTMLCanvasElement.prototype.getContext = (() =>
+            dragFixture.ctx) as unknown as HTMLCanvasElement['getContext'];
+        },
+        afterAll: () => {
+          HTMLCanvasElement.prototype.getContext = getContext;
+        },
       },
-      teardown: () => {
-        HTMLCanvasElement.prototype.getContext = getContext;
+      () => {
+        dragFixture.drag();
+        dragFixture.loop.requestRender();
+        dragFixture.loop.flush();
       },
-    },
+    ),
   );
 });
 
-describe('note creation', () => {
+test('note creation', async ({ bench }) => {
   // A counter across iterations keeps every text distinct, so no input repeats.
   let seq = 0;
 
-  bench('createNote + store.add x100', () => {
+  await bench('createNote + store.add x100', () => {
     const store = new ElementStore();
     for (let i = 0; i < 100; i++) {
       const text = `<b>Session ${seq++}</b> notes <span style="font-size: 18px;">loot</span><div>next</div>`;
       store.add(createNote({ position: randomPoint(5000), size: { w: 200, h: 100 }, text }));
     }
-  });
+  }).run();
 });

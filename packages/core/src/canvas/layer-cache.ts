@@ -67,9 +67,7 @@ export class LayerCache {
   ): CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null {
     const canvas = this.getCanvas(layerId, part);
     return canvas.getContext('2d') as
-      | CanvasRenderingContext2D
-      | OffscreenCanvasRenderingContext2D
-      | null;
+      CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
   }
 
   resize(): void {

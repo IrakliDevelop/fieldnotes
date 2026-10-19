@@ -63,12 +63,7 @@ export interface AuthorityCheckpointAssemblerOptions {
   readonly signal?: AbortSignal;
 }
 export type AuthorityCheckpointFailure =
-  | 'invalid'
-  | 'timeout'
-  | 'aborted'
-  | 'disposed'
-  | 'closed'
-  | 'crypto';
+  'invalid' | 'timeout' | 'aborted' | 'disposed' | 'closed' | 'crypto';
 export type AuthorityCheckpointResult =
   | { readonly status: 'pending' }
   | { readonly status: 'complete'; readonly checkpoint: AuthorityCheckpointPayload }

@@ -17,8 +17,8 @@
   },
   "devDependencies": {
     "tsx": "^4.19.0",
-    "typescript": "^5.9.0",
-    "vite": "^8.3.0",
-    "vitest": "^4.1.11"
+    "typescript": "~6.0.3",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.5"
   }
 }

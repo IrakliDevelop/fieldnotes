@@ -5,6 +5,8 @@
     "moduleResolution": "bundler",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "strict": true,
+    // tsup 8 always passes baseUrl to its d.ts build, deprecated in TS 6; remove when tsup stops or before TS 7.
+    "ignoreDeprecations": "6.0",
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
