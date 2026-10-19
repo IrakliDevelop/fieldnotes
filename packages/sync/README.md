@@ -27,6 +27,13 @@ Domain operations are installed through `ClientSyncPlugin`. A plugin may registe
 extension kinds and versioned snapshot state. For fog, install `createFogClientPlugin()` from
 `@fieldnotes/vtt/sync`; this package does not depend on VTT at runtime.
 
+## Wire limits
+
+`SYNC_LIMITS` lists the caps `parseEnvelope` enforces on received frames: JSON depth 64,
+identifiers and short strings 256 characters, text and arrow labels 1 MiB, image `src` 16 MiB,
+100 000 stroke points, and 1 000 000 snapshot elements. Over-limit frames are dropped.
+`isWithinSyncLimits(envelope)` applies the same checks to an already parsed envelope.
+
 ## v4 capability handshake
 
 The client advertises `{ protocolVersion: 1, extensionKinds, elementEnvelope: true }` when a

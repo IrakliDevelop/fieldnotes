@@ -341,6 +341,20 @@ plugin operations, `ServerOpContext` carries the same optional deadline and sign
 two-argument hub calls retain their behavior. Already-running legacy backend/plugin work cannot be
 rolled back by frame cancellation.
 
+### Idle rooms
+
+`roomIdleTimeoutMs` (off by default) frees per-room memory once a room has had no local connection
+for that long: the hub's in-memory layer ledger, `MemoryHubBackend` data, and any server plugin
+state through `ServerSyncPlugin.evictRoom`. With `MemoryHubBackend` this deletes the board, so set
+it only where rooms are disposable or persisted elsewhere. For Redis use `ttlSeconds` on
+`RedisHubBackend` instead.
+
+```ts
+createSyncServer({ port: 8080, roomIdleTimeoutMs: 30 * 60 * 1000 });
+```
+
+The wire caps in `SYNC_LIMITS` (`@fieldnotes/sync`) apply to every frame the hub parses.
+
 ## Authentication
 
 Pass an `authenticate` hook to gate connections:

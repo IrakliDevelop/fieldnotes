@@ -46,6 +46,7 @@ const client = {
   hSet: (k: string, f: string, v: string) => io.hset(k, f, v),
   hDel: (k: string, f: string) => io.hdel(k, f),
   del: (k: string) => io.del(k),
+  expire: (k: string, seconds: number) => io.expire(k, seconds),
   eval: (script: string, options: { keys: string[]; arguments: string[] }) =>
     io.eval(script, options.keys.length, ...options.keys, ...options.arguments),
 };
@@ -78,6 +79,19 @@ import { createFogBackendPlugin } from '@fieldnotes/vtt/redis';
 
 new RedisHubBackend(client, { plugins: [createFogBackendPlugin()] });
 ```
+
+### Expiry
+
+Pass `ttlSeconds` to expire abandoned rooms:
+
+```ts
+new RedisHubBackend(client, { ttlSeconds: 7 * 24 * 60 * 60, plugins: [createFogBackendPlugin()] });
+```
+
+Every element or layer write, every room snapshot (each join) and every fog write refreshes
+`EXPIRE` on the room's hash, `:layers` hash and plugin keys. A room with no writes and no joins for
+`ttlSeconds` is deleted, so pick a value well above the longest pause between sessions. The client
+needs `expire(key, seconds)`; node-redis v4 has it.
 
 ## Single vs. multiple relay instances
 
