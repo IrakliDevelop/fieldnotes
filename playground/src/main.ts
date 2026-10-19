@@ -1,5 +1,5 @@
 import type { Viewport } from '@fieldnotes/core';
-import type { Scene, SceneId } from './scene';
+import type { Scene, SceneId, SceneInstance } from './scene';
 import { createShell } from './shell/shell';
 import type { Mounted } from './shell/shell';
 import { embeds } from './scenes/embeds';
@@ -34,12 +34,16 @@ const mount = (id: string | null): void => {
   firstMount = false;
   current?.instance?.dispose();
   stage.replaceChildren();
+  let instance: SceneInstance | undefined;
   try {
-    const instance = scene.mount({ stage, shell, room: null });
+    instance = scene.mount({ stage, shell, room: null });
     current = { id: scene.id, instance };
     window.__playground = { sceneId: scene.id, viewport: instance.viewport };
     history.replaceState(null, '', `?scene=${scene.id}`);
   } catch {
+    // Drop a half-built viewport's DOM and listeners with the failed scene.
+    instance?.dispose();
+    stage.replaceChildren();
     current = { id: scene.id, instance: null };
     Reflect.deleteProperty(window, '__playground');
     shell.toast("Couldn't open that scene");

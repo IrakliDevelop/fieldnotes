@@ -150,3 +150,110 @@ test('layers', async ({ page }) => {
   await expect.poll(layerNames).toEqual(['Layer 1']);
   await expect(drawer.getByRole('button', { name: 'Delete Layer 1' })).toBeDisabled();
 });
+
+for (const [width, height] of [
+  [1024, 768],
+  [960, 720],
+] as const) {
+  test(`header row never overlaps when the pill is wide at ${width}×${height}`, async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'desktop-chrome', 'wide layout needs a fine pointer');
+    await page.setViewportSize({ width, height });
+    await open(page);
+    await page.evaluate(() => {
+      const pill = document.querySelector('[data-chrome="tools"]');
+      const first = pill?.querySelector('button');
+      if (!pill || !first) throw new Error('No tool pill');
+      for (let i = 0; i < 8; i++) pill.append(first.cloneNode(true));
+    });
+    await expectNoOverlap(page);
+    expect(
+      await page
+        .locator('[data-chrome="tools"]')
+        .evaluate((pill) => pill.scrollWidth > pill.clientWidth),
+    ).toBe(true);
+  });
+}
+
+test('style panel reflects undo', async ({ page }, testInfo) => {
+  await open(page);
+  await page.keyboard.press('7');
+  await drag(page, testInfo.project.name === 'ipad', { x: 300, y: 300 }, { x: 500, y: 450 });
+  const original = await page.evaluate(() => {
+    const shape = window.__playground.viewport.store.getAll().find((el) => el.type === 'shape');
+    return shape?.type === 'shape' ? shape.strokeColor : undefined;
+  });
+  await page.keyboard.press('1');
+  await page.mouse.click(300, 375);
+  await expect
+    .poll(() => page.evaluate(() => window.__playground.viewport.getSelectedIds().length))
+    .toBe(1);
+  const stroke = page.locator('[data-chrome="style"]').getByRole('group', { name: 'Stroke' });
+  const red = stroke.getByRole('button', { name: '#e03131' });
+  await red.click();
+  await expect(red).toHaveAttribute('aria-pressed', 'true');
+
+  await page.keyboard.press('Control+z');
+  await expect(red).toHaveAttribute('aria-pressed', 'false');
+  const originalSwatch = stroke.getByRole('button', { name: original ?? '', exact: true });
+  if ((await originalSwatch.count()) > 0) {
+    await expect(originalSwatch).toHaveAttribute('aria-pressed', 'true');
+  }
+});
+
+async function openLayers(page: Page): Promise<ReturnType<Page['locator']>> {
+  await page.locator('[data-chrome="top-right"]').getByRole('button', { name: 'Layers' }).click();
+  return page.locator('[data-chrome="layers"]');
+}
+
+const layerNames = (page: Page): Promise<string[]> =>
+  page.evaluate(() => window.__playground.viewport.layerManager.getLayers().map((l) => l.name));
+
+test('layer names stay unique', async ({ page }) => {
+  await open(page);
+  const drawer = await openLayers(page);
+  const add = drawer.getByRole('button', { name: 'Add layer' });
+  await add.click();
+  await add.click();
+  await expect.poll(() => layerNames(page)).toEqual(['Layer 1', 'Layer 2', 'Layer 3']);
+  await drawer.getByRole('button', { name: 'Delete Layer 2' }).click();
+  await add.click();
+  await expect.poll(async () => (await layerNames(page)).length).toBe(3);
+  const names = await layerNames(page);
+  expect(new Set(names).size).toBe(names.length);
+});
+
+test('rename an inactive layer with the keyboard', async ({ page }) => {
+  await open(page);
+  const drawer = await openLayers(page);
+  await drawer.getByRole('button', { name: 'Add layer' }).click();
+  await expect.poll(() => layerNames(page)).toEqual(['Layer 1', 'Layer 2']);
+
+  const name = drawer.getByRole('button', { name: 'Layer 1', exact: true });
+  await name.focus();
+  await page.keyboard.press('F2');
+  const input = drawer.getByRole('textbox', { name: 'Layer name' });
+  await expect(input).toBeFocused();
+  await input.fill('Ink');
+  await page.keyboard.press('Enter');
+  await expect.poll(() => layerNames(page)).toEqual(['Ink', 'Layer 2']);
+
+  await drawer.getByRole('button', { name: 'Ink', exact: true }).focus();
+  await page.keyboard.press('F2');
+  await expect(input).toBeFocused();
+  await input.fill('x');
+  await page.keyboard.press('Escape');
+  await expect(input).toHaveCount(0);
+  expect(await layerNames(page)).toEqual(['Ink', 'Layer 2']);
+});
+
+test('undo right after a layer action', async ({ page }) => {
+  await open(page);
+  await page.mouse.click(400, 400);
+  const drawer = await openLayers(page);
+  await drawer.getByRole('button', { name: 'Add layer' }).click();
+  await expect.poll(() => layerNames(page)).toEqual(['Layer 1', 'Layer 2']);
+  await page.keyboard.press('Control+z');
+  await expect.poll(() => layerNames(page)).toEqual(['Layer 1']);
+});

@@ -9,6 +9,8 @@ function button(label: string, name: IconName, run: () => void): HTMLButtonEleme
   el.setAttribute('aria-label', label);
   el.title = label;
   el.append(icon(name));
+  // Keep focus on the canvas so core's undo/redo keys still apply after a click.
+  el.addEventListener('mousedown', (event) => event.preventDefault());
   el.addEventListener('click', run);
   return el;
 }
@@ -47,16 +49,25 @@ export function renderLayersPanel(root: HTMLElement, viewport: Viewport): () => 
     const el = document.createElement('li');
     el.className = 'layer-row';
     el.setAttribute('aria-current', String(id === layerManager.activeLayerId));
-    const label = document.createElement('span');
+    const label = document.createElement('button');
+    label.type = 'button';
     label.className = 'layer-name';
     label.textContent = name;
+    label.addEventListener('mousedown', (event) => event.preventDefault());
+    label.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== 'F2') return;
+      // Enter would otherwise also click (activate) the layer.
+      event.preventDefault();
+      editName(label, layer);
+    });
     // Activating re-renders the list, so a dblclick listener on the old label would never fire.
     el.addEventListener('click', (event) => {
       if (event.target === label && event.detail === 2) {
         editName(label, layer);
         return;
       }
-      if (event.target instanceof Element && event.target.closest('button, input')) return;
+      const control = event.target instanceof Element && event.target.closest('button, input');
+      if (control && control !== label) return;
       if (id !== layerManager.activeLayerId) layerManager.setActiveLayer(id);
     });
 
@@ -112,7 +123,10 @@ export function renderLayersPanel(root: HTMLElement, viewport: Viewport): () => 
     const title = document.createElement('span');
     title.textContent = 'Layers';
     const add = button('Add layer', 'plus', () => {
-      const layer = layerManager.createLayer(`Layer ${layers.length + 1}`);
+      const names = new Set(layers.map((layer) => layer.name));
+      let n = 1;
+      while (names.has(`Layer ${n}`)) n++;
+      const layer = layerManager.createLayer(`Layer ${n}`);
       layerManager.setActiveLayer(layer.id);
     });
     header.append(title, add);

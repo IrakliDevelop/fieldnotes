@@ -15,11 +15,11 @@ export interface Mounted {
   readonly instance: SceneInstance | null;
 }
 
-function zone(chrome: HTMLElement, name: string, island = true): HTMLElement {
+function zone(parent: HTMLElement, name: string, island = true): HTMLElement {
   const root = document.createElement('div');
   if (island) root.className = 'island';
   root.dataset['chrome'] = name;
-  chrome.append(root);
+  parent.append(root);
   return root;
 }
 
@@ -30,8 +30,11 @@ export function createShell(
   current: () => Mounted | null,
   switchScene: (id: SceneId) => void,
 ): Shell {
-  const closeMenu = renderMenu(zone(chrome, 'menu'));
-  const tools = zone(chrome, 'tools');
+  const header = document.createElement('div');
+  header.className = 'header-row';
+  chrome.append(header);
+  const closeMenu = renderMenu(zone(header, 'menu'));
+  const tools = zone(header, 'tools');
   const switcher = document.createElement('div');
   switcher.className = 'scene-switcher';
   const layersToggle = document.createElement('button');
@@ -41,7 +44,9 @@ export function createShell(
   layersToggle.title = 'Layers';
   layersToggle.setAttribute('aria-expanded', 'false');
   layersToggle.append(icon('layers'));
-  zone(chrome, 'top-right').append(switcher, layersToggle);
+  // Keep focus on the canvas so core's undo/redo keys still apply after a click.
+  layersToggle.addEventListener('mousedown', (event) => event.preventDefault());
+  zone(header, 'top-right').append(switcher, layersToggle);
   const zoom = zone(chrome, 'zoom');
   const style = zone(chrome, 'style');
   const layers = zone(chrome, 'layers');

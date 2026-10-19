@@ -20,7 +20,9 @@ body {
   overflow: hidden;
   background: var(--bg);
   color: var(--ink);
-  font: 14px/1.4 system-ui, sans-serif;
+  font:
+    14px/1.4 system-ui,
+    sans-serif;
 }
 
 #stage {
@@ -167,6 +169,11 @@ body {
   font: inherit;
 }
 
+/* Narrow: the header row's zones keep their own fixed positions. */
+.header-row {
+  display: contents;
+}
+
 [data-chrome='tools'] {
   left: 0;
   right: 0;
@@ -307,14 +314,62 @@ body {
   font: inherit;
 }
 
+.layer-name {
+  min-height: 40px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.layer-name:focus-visible {
+  outline: 2px solid var(--accent-ink);
+  outline-offset: 2px;
+}
+
 [data-fieldnotes-minimap] {
   display: none;
 }
 
 @media (min-width: 901px) and (pointer: fine) {
-  [data-chrome='tools'] {
+  .header-row {
+    position: fixed;
+    z-index: 20;
     top: var(--gap);
+    left: var(--gap);
+    right: var(--gap);
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: var(--gap);
+    align-items: start;
+    pointer-events: none;
+  }
+
+  .header-row > [data-chrome] {
+    position: relative;
+    pointer-events: auto;
+  }
+
+  .header-row > [data-chrome='menu'] {
+    top: auto;
+    left: auto;
+    grid-column: 1;
+  }
+
+  .header-row > [data-chrome='tools'] {
     bottom: auto;
+    grid-column: 2;
+    justify-self: center;
+    max-width: 100%;
+    margin: 0;
+  }
+
+  .header-row > [data-chrome='top-right'] {
+    top: auto;
+    right: auto;
+    grid-column: 3;
   }
 
   [data-chrome='zoom'] {
@@ -351,14 +406,6 @@ body {
     left: auto;
     width: 300px;
     max-height: none;
-  }
-}
-
-/* Too narrow to centre the pill on the page: centre it between the menu and the ~300px top-right group. */
-@media (min-width: 901px) and (max-width: 1140px) and (pointer: fine) {
-  [data-chrome='tools'] {
-    left: calc(var(--gap) + 50px + var(--gap));
-    right: calc(var(--gap) + 300px + var(--gap));
   }
 }
 

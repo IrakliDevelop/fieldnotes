@@ -132,19 +132,33 @@ function button(label: string, run: () => void): HTMLButtonElement {
   return el;
 }
 
-function control(def: ControlDef, current: unknown, apply: (value: Value) => void): HTMLElement {
+/** A control element and a function that shows `value` as its current state. */
+interface Control {
+  readonly el: HTMLElement;
+  readonly show: (value: unknown) => void;
+}
+
+function control(def: ControlDef, current: unknown, apply: (value: Value) => void): Control {
   const el = group(def.label);
   const choiceButtons = new Map<HTMLButtonElement, Value>();
-  const setValue = (value: Value): void => {
-    apply(value);
+  const input = document.createElement('input');
+  const show = (value: unknown): void => {
     for (const [entry, choice] of choiceButtons) {
       entry.setAttribute('aria-pressed', String(choice === value));
     }
+    if (def.picker === 'range') {
+      input.value = String(typeof value === 'number' ? Math.round(value * 100) : 100);
+    } else if (typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value)) {
+      input.value = value;
+    }
+  };
+  const setValue = (value: Value): void => {
+    apply(value);
+    show(value);
   };
   for (const choice of def.choices) {
     const choiceButton = button(choice.label, () => setValue(choice.value));
     choiceButtons.set(choiceButton, choice.value);
-    choiceButton.setAttribute('aria-pressed', String(choice.value === current));
     if (def.picker === 'color') {
       const swatch = document.createElement('span');
       swatch.className = choice.value === 'none' ? 'swatch swatch-none' : 'swatch';
@@ -155,22 +169,21 @@ function control(def: ControlDef, current: unknown, apply: (value: Value) => voi
     }
     el.append(choiceButton);
   }
-  if (!def.picker) return el;
-  const input = document.createElement('input');
-  input.type = def.picker;
-  input.setAttribute('aria-label', `${def.label} ${def.picker === 'color' ? 'colour' : 'value'}`);
-  if (def.picker === 'range') {
-    input.min = '10';
-    input.max = '100';
-    input.step = '10';
-    input.value = String(typeof current === 'number' ? Math.round(current * 100) : 100);
-    input.addEventListener('change', () => setValue(Number(input.value) / 100));
-  } else {
-    if (typeof current === 'string' && /^#[0-9a-f]{6}$/i.test(current)) input.value = current;
-    input.addEventListener('change', () => setValue(input.value));
+  if (def.picker) {
+    input.type = def.picker;
+    input.setAttribute('aria-label', `${def.label} ${def.picker === 'color' ? 'colour' : 'value'}`);
+    if (def.picker === 'range') {
+      input.min = '10';
+      input.max = '100';
+      input.step = '10';
+      input.addEventListener('change', () => setValue(Number(input.value) / 100));
+    } else {
+      input.addEventListener('change', () => setValue(input.value));
+    }
+    el.append(input);
   }
-  el.append(input);
-  return el;
+  show(current);
+  return { el, show };
 }
 
 function arrange(viewport: Viewport, count: number): HTMLElement {
@@ -212,9 +225,13 @@ export function renderStylePanel(
 ): () => void {
   root.setAttribute('aria-label', 'Style');
 
+  // Selection controls by style key, re-synced when undo/redo or a peer changes a selected element.
+  let shown: (readonly [keyof ElementStyle, Control['show']])[] = [];
+
   const render = (): void => {
     const toolName = viewport.toolManager.activeTool?.name ?? '';
     const children: HTMLElement[] = [];
+    shown = [];
     if (toolName === 'select') {
       const ids = viewport.getSelectedIds();
       const details = viewport.getSelectionStyleDetails();
@@ -222,11 +239,11 @@ export function renderStylePanel(
         for (const name of VALUE_CONTROLS) {
           const def = CONTROLS[name];
           if (!details?.applicable.includes(def.style)) continue;
-          children.push(
-            control(def, details.common[def.style], (value) =>
-              viewport.applyStyleToSelection({ [def.style]: value }),
-            ),
+          const { el, show } = control(def, details.common[def.style], (value) =>
+            viewport.applyStyleToSelection({ [def.style]: value }),
           );
+          children.push(el);
+          shown.push([def.style, show]);
         }
         children.push(arrange(viewport, ids.length));
       }
@@ -238,7 +255,7 @@ export function renderStylePanel(
         const key = def.options[toolName];
         if (!tool || key === undefined) continue;
         children.push(
-          control(def, tool.getOptions()[key], (value) => tool.setOptions({ [key]: value })),
+          control(def, tool.getOptions()[key], (value) => tool.setOptions({ [key]: value })).el,
         );
       }
     }
@@ -251,8 +268,14 @@ export function renderStylePanel(
   render();
   const offSelection = viewport.onSelectionChange(render);
   const offTool = viewport.toolManager.onChange(render);
+  const offUpdate = viewport.store.on('update', ({ current }) => {
+    if (shown.length === 0 || !viewport.getSelectedIds().includes(current.id)) return;
+    const common = viewport.getSelectionStyleDetails()?.common;
+    for (const [style, show] of shown) show(common?.[style]);
+  });
   return () => {
     offSelection();
     offTool();
+    offUpdate();
   };
 }
