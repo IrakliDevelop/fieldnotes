@@ -125,6 +125,12 @@ export const tabletop: Scene = {
     });
     let unregisterWidgets: () => void = () => undefined;
     const unsubscribers: (() => void)[] = [];
+    const dispose = (): void => {
+      for (const unsubscribe of unsubscribers) unsubscribe();
+      unregisterWidgets();
+      fog = null;
+      viewport.destroy();
+    };
     try {
       const gridController = new GridController({
         store: viewport.store,
@@ -266,18 +272,10 @@ export const tabletop: Scene = {
           },
         },
         loadSample: () => buildTabletopSample(viewport, gridController, manager),
-        dispose: () => {
-          for (const unsubscribe of unsubscribers) unsubscribe();
-          unregisterWidgets();
-          fog = null;
-          viewport.destroy();
-        },
+        dispose,
       };
     } catch (error) {
-      for (const unsubscribe of unsubscribers) unsubscribe();
-      unregisterWidgets();
-      fog = null;
-      viewport.destroy();
+      dispose();
       throw error;
     }
   },

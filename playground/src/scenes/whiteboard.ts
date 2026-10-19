@@ -72,6 +72,11 @@ export const whiteboard: Scene = {
     let unregisterWidgets: () => void = () => undefined;
     // iOS Safari only delivers change events to a file input that is in the document.
     const input = document.createElement('input');
+    const dispose = (): void => {
+      unregisterWidgets();
+      input.remove();
+      viewport.destroy();
+    };
     try {
       unregisterWidgets = registerWidgets(viewport, shell.toast);
       input.type = 'file';
@@ -138,16 +143,10 @@ export const whiteboard: Scene = {
         tools,
         styles: { controlsFor: (toolName) => CONTROLS[toolName] ?? [] },
         loadSample: () => buildWhiteboardSample(viewport),
-        dispose: () => {
-          unregisterWidgets();
-          input.remove();
-          viewport.destroy();
-        },
+        dispose,
       };
     } catch (error) {
-      unregisterWidgets();
-      input.remove();
-      viewport.destroy();
+      dispose();
       throw error;
     }
   },

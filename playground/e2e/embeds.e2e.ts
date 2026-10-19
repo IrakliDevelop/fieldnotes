@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import type { Page, TestInfo } from '@playwright/test';
-import { gotoBlank } from './helpers/board';
+import { captureExportedBlobs, gotoBlank } from './helpers/board';
 import { openStyle } from './helpers/layout';
 import { singleFingerDraw } from './helpers/touch';
 
@@ -247,16 +247,7 @@ test('embeds smoke', async ({ page }, testInfo) => {
 
 test('export includes widgets', async ({ page }) => {
   const errors = collectErrors(page);
-  // No Node types here, so read the exported blob in the page instead of from disk.
-  await page.addInitScript(() => {
-    const blobs: Blob[] = [];
-    Object.assign(window, { exportedBlobs: blobs });
-    const create = URL.createObjectURL.bind(URL);
-    URL.createObjectURL = (blob: Blob | MediaSource) => {
-      if (blob instanceof Blob) blobs.push(blob);
-      return create(blob);
-    };
-  });
+  await captureExportedBlobs(page);
   await page.goto('/?scene=embeds');
   await page.waitForFunction(() => window.__playground !== undefined);
   await expect.poll(async () => (await widgets(page, 'pg:chart')).length).toBe(1);
@@ -273,15 +264,7 @@ test('export includes widgets', async ({ page }) => {
 });
 
 test('PNG export paints widget pixels', async ({ page }) => {
-  await page.addInitScript(() => {
-    const blobs: Blob[] = [];
-    Object.assign(window, { exportedBlobs: blobs });
-    const create = URL.createObjectURL.bind(URL);
-    URL.createObjectURL = (blob: Blob | MediaSource) => {
-      if (blob instanceof Blob) blobs.push(blob);
-      return create(blob);
-    };
-  });
+  await captureExportedBlobs(page);
   await gotoBlank(page, 'embeds');
   await insert(page, 'Checklist', 'pg:checklist');
 
@@ -304,7 +287,6 @@ test('PNG export paints widget pixels', async ({ page }) => {
     return { width: bitmap.width, painted, total: data.length / 4 };
   });
   expect(width).toBe(648);
-  // The card fill covers the whole inset rect.
   expect(painted / total).toBeGreaterThanOrEqual(0.9);
 });
 

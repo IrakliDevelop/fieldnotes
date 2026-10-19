@@ -15,6 +15,10 @@ export const embeds: Scene = {
       tools: [new SelectTool(), new HandTool(), new NoteTool(), new TextTool(), new PencilTool()],
     });
     let unregister: () => void = () => undefined;
+    const dispose = (): void => {
+      unregister();
+      viewport.destroy();
+    };
     try {
       const [firstWidget] = WIDGETS;
       if (!firstWidget) throw new Error('No widgets registered');
@@ -46,14 +50,10 @@ export const embeds: Scene = {
         tools,
         styles: { controlsFor: (toolName) => CONTROLS[toolName] ?? [] },
         loadSample: () => buildEmbedsSample(viewport),
-        dispose: () => {
-          unregister();
-          viewport.destroy();
-        },
+        dispose,
       };
     } catch (error) {
-      unregister();
-      viewport.destroy();
+      dispose();
       throw error;
     }
   },
