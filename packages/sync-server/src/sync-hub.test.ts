@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 import { fogEncodeBase64 } from '@fieldnotes/vtt';
 import { createFogServerPlugin } from '@fieldnotes/vtt/server';
 import type { CanvasElement, Layer } from '@fieldnotes/core';
@@ -626,7 +626,7 @@ describe('SyncHub', () => {
       expect(origin.sent).toHaveLength(1);
       expect(JSON.parse(origin.sent[0] ?? '')).toEqual({
         from: 'hub',
-        op: { kind: 'remove', id: 'e1' },
+        op: { kind: 'remove', id: 'e1', version: 1, editor: 'hub' },
       });
       expect(localPeer.sent).toEqual([]);
 
@@ -707,7 +707,7 @@ describe('SyncHub', () => {
       expect(origin.sent).toHaveLength(1);
       expect(JSON.parse(origin.sent[0] ?? '')).toEqual({
         from: 'hub',
-        op: { kind: 'remove', id: 'e1' },
+        op: { kind: 'remove', id: 'e1', version: 1, editor: 'hub' },
       });
       expect(localPeer.sent).toEqual([]);
 
@@ -875,7 +875,7 @@ describe('SyncHub', () => {
       });
       const hidden = JSON.stringify({
         from: 'cdm',
-        op: { kind: 'upsert', element: { ...sampleEl(), id: 'e1', audience: 'dm' } },
+        op: { kind: 'upsert', element: { ...sampleEl(), id: 'e1', audience: 'dm', version: 2 } },
       });
       await hubA.handleMessage('dm', shared);
       player.sent.length = 0;
@@ -887,7 +887,7 @@ describe('SyncHub', () => {
         op: { kind: string; id: string };
       };
       expect(env.from).toBe('hub');
-      expect(env.op).toEqual({ kind: 'remove', id: 'e1' });
+      expect(env.op).toEqual({ kind: 'remove', id: 'e1', version: 2, editor: 'hub' });
     });
 
     it('close() unsubscribes the hub from the shared bus', async () => {
@@ -1225,7 +1225,10 @@ describe('SyncHub', () => {
         const E = el('E');
         await hub.handleMessage('d', envelope('cd', { kind: 'upsert', element: E }));
 
-        expect(lastCorrection(d)).toEqual({ from: 'hub', op: { kind: 'remove', id: 'E' } });
+        expect(lastCorrection(d)).toEqual({
+          from: 'hub',
+          op: { kind: 'remove', id: 'E', version: 1, editor: 'hub' },
+        });
         expect(peer.sent).toEqual([]);
         expect(await storedElement(backend, 'R', 'E')).toBeUndefined();
       });
@@ -1957,15 +1960,15 @@ describe('read filtering (canRead)', () => {
       'pl',
       envelope('player-upsert', {
         kind: 'upsert',
-        element: { ...secret, position: { x: 999, y: 999 } },
+        element: { ...secret, position: { x: 999, y: 999 }, version: 7 },
       }),
     );
     await hub.handleMessage('pl', envelope('player-remove', v2Remove(secret.id)));
     await hub.handleMessage('pl', envelope('player-clear', { kind: 'clear' }));
 
     expect(player.sent.map((message) => JSON.parse(message))).toEqual([
-      { from: 'hub', op: { kind: 'remove', id: secret.id } },
-      { from: 'hub', op: { kind: 'remove', id: secret.id } },
+      { from: 'hub', op: { kind: 'remove', id: secret.id, version: 1, editor: 'hub' } },
+      { from: 'hub', op: { kind: 'remove', id: secret.id, version: 1, editor: 'hub' } },
       {
         from: 'hub',
         op: { kind: 'snapshot', to: 'player-clear', elements: [publicView(shared)] },
@@ -2027,7 +2030,7 @@ describe('read filtering (canRead)', () => {
       op: { kind: string; id: string };
     };
     expect(env.from).toBe('hub');
-    expect(env.op).toEqual({ kind: 'remove', id: 'e1' });
+    expect(env.op).toEqual({ kind: 'remove', id: 'e1', version: 1, editor: 'hub' });
   });
 
   it('sends a normal add when an element goes dm → shared', async () => {
@@ -2115,7 +2118,12 @@ describe('read filtering (canRead)', () => {
       await hub.handleMessage('dm', upsertMsg('cdm', 'e1', 'shared'));
       expect((await storedElement(backend, 'R', 'e1'))?.audience).toBe('dm');
       // The player who could see it gets a synthetic remove, not the retagged bytes.
-      expect(JSON.parse(other.sent[0] ?? '').op).toEqual({ kind: 'remove', id: 'e1' });
+      expect(JSON.parse(other.sent[0] ?? '').op).toEqual({
+        kind: 'remove',
+        id: 'e1',
+        version: 1,
+        editor: 'hub',
+      });
     });
 
     it('clears the audience when the resolver returns undefined', async () => {
@@ -3377,5 +3385,163 @@ describe('idle-room eviction', () => {
 
   it('accepts roomIdleTimeoutMs 2_147_483_647', () => {
     expect(() => new SyncHub({ roomIdleTimeoutMs: 2_147_483_647 }).close()).not.toThrow();
+  });
+});
+
+describe('protocol 2 wire', () => {
+  const v1Shape = {
+    id: 'v1',
+    type: 'shape',
+    position: { x: 0, y: 0 },
+    zIndex: 0,
+    locked: false,
+    layerId: '',
+    shape: 'rectangle',
+    size: { w: 1, h: 1 },
+    strokeColor: '#000000',
+    strokeWidth: 1,
+    fillColor: 'none',
+  };
+  let hub: SyncHub;
+  let backend: MemoryHubBackend;
+  let A: FakeConn;
+  let close: Mock<NonNullable<Connection['close']>>;
+  let B: FakeConn;
+
+  beforeEach(() => {
+    backend = new MemoryHubBackend();
+    hub = new SyncHub({ backend });
+    close = vi.fn();
+    A = { ...makeConn('A', 'R'), close };
+    B = makeConn('B', 'R');
+    hub.addConnection(A);
+    hub.addConnection(B);
+  });
+
+  it('refuses protocol 1 capabilities with 4406 and ignores the connection afterwards', async () => {
+    const capabilities = { ...createCurrentCapabilities([]), protocolVersion: 1 };
+    await hub.handleMessage('A', envelope('A', { kind: 'capabilities', capabilities }));
+    await hub.handleMessage('A', envelope('A', { kind: 'upsert', element: sampleEl() }));
+
+    expect(close).toHaveBeenCalledWith(4406);
+    expect(A.sent).toEqual([]);
+    expect(B.sent).toEqual([]);
+  });
+
+  it('applies and relays a protocol-2 upsert sent before any capabilities', async () => {
+    const el = sampleEl();
+    await hub.handleMessage('A', envelope('A', { kind: 'upsert', element: el }));
+
+    expect(JSON.parse(B.sent[0] ?? '')).toEqual({ from: 'A', op: { kind: 'upsert', element: el } });
+    expect(await storedElement(backend, 'R', el.id)).toEqual(el);
+  });
+
+  it('drops a v1-shaped upsert sent before any capabilities without closing', async () => {
+    await hub.handleMessage(
+      'A',
+      JSON.stringify({ from: 'A', op: { kind: 'upsert', element: v1Shape } }),
+    );
+
+    expect(B.sent).toEqual([]);
+    expect(close).not.toHaveBeenCalled();
+    expect(await backend.getRecord('R', 'v1')).toBeUndefined();
+  });
+
+  it('drops an unversioned remove', async () => {
+    const el = sampleEl();
+    await hub.handleMessage('A', envelope('A', { kind: 'upsert', element: el }));
+    B.sent.length = 0;
+    await hub.handleMessage('A', envelope('A', { kind: 'remove', id: el.id }));
+
+    expect(B.sent).toEqual([]);
+    expect(await storedElement(backend, 'R', el.id)).toEqual(el);
+  });
+
+  it.each([
+    ['upsert', { kind: 'upsert', element: { ...sampleEl(), id: 'e1', editor: 'hub' } }],
+    ['remove', v2Remove('e1', 2, 'hub')],
+  ] as const)('drops a client %s claiming editor hub', async (_kind, op) => {
+    await hub.handleMessage(
+      'B',
+      envelope('B', { kind: 'upsert', element: { ...sampleEl(), id: 'e1' } }),
+    );
+    A.sent.length = 0;
+    await hub.handleMessage('B', envelope('B', op));
+
+    expect(A.sent).toEqual([]);
+    expect((await storedElement(backend, 'R', 'e1'))?.editor).toBeUndefined();
+  });
+
+  it('relays a client envelope claiming from hub under the connection id', async () => {
+    const el = sampleEl();
+    await hub.handleMessage('A', envelope('hub', { kind: 'upsert', element: el }));
+
+    expect(JSON.parse(B.sent[0] ?? '')).toEqual({ from: 'A', op: { kind: 'upsert', element: el } });
+  });
+
+  it('corrects a denied upsert of a tombstoned id with the tombstone version', async () => {
+    const hub = new SyncHub({ authorize: () => false, backend });
+    const p = makeConn('p', 'R');
+    hub.addConnection(p);
+    const el = { ...sampleEl(), id: 'gone' };
+    await backend.applyElement('R', { kind: 'upsert', element: el }, null);
+    const tombstone = { id: 'gone', version: 4, editor: 'dm', removedAt: Date.now() };
+    await backend.applyElement('R', { kind: 'remove', tombstone }, 1);
+
+    await hub.handleMessage('p', envelope('p', { kind: 'upsert', element: { ...el, version: 9 } }));
+
+    expect(JSON.parse(p.sent[0] ?? '')).toEqual({
+      from: 'hub',
+      op: { kind: 'remove', id: 'gone', version: 4, editor: 'hub' },
+    });
+  });
+});
+
+describe('authority connections and the protocol 2 gate', () => {
+  it('admits an authority peer advertising protocol 1 without a 4406', async () => {
+    const definition: AuthorityRoomDefinition = {
+      id: 'definition',
+      extensions: [],
+      project: (_context, state) => state,
+      canReadOwnerId: () => false,
+    };
+    const head = vi.fn(async () => ({ generation: 'g', revision: 'r' }));
+    const driver = {
+      head,
+      claimPublications: async () => [],
+      markPublished: async () => undefined,
+    } as unknown as AuthorityDriver;
+    const hub = new SyncHub({
+      authority: {
+        driver,
+        resolveRoom: () => definition,
+        resolveIdentity: () => ({ actorId: 'a', ownershipId: 'o' }),
+      },
+    });
+    const close = vi.fn();
+    const connection: Connection = {
+      id: 'authority',
+      room: 'table',
+      signal: new AbortController().signal,
+      send: vi.fn(),
+      close,
+    };
+    registerAuthorityConnection(connection, {
+      sendTracked: () => ({ completion: Promise.resolve(), settled: Promise.resolve() }),
+    });
+    hub.addConnection(connection);
+    try {
+      await hub.handleMessage(
+        connection.id,
+        envelope(connection.id, {
+          kind: 'capabilities',
+          capabilities: createAuthorityCapabilities([]),
+        }),
+      );
+      expect(head).toHaveBeenCalled();
+      expect(close).not.toHaveBeenCalledWith(4406);
+    } finally {
+      hub.close();
+    }
   });
 });

@@ -400,7 +400,7 @@ describe('sync-server WebSocket relay (end-to-end)', () => {
         from: 'hub',
         op: { kind: 'snapshot', to: 'clear', elements: [{ ...shared, ownerId: undefined }] },
       },
-      { from: 'hub', op: { kind: 'remove', id: hidden.id } },
+      { from: 'hub', op: { kind: 'remove', id: hidden.id, version: 1, editor: 'hub' } },
     ]);
     expect(JSON.stringify(received)).not.toContain('"audience":"dm"');
   });

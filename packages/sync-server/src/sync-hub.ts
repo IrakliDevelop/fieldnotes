@@ -1,6 +1,6 @@
 import {
   createCurrentCapabilities,
-  parseEnvelope,
+  parseLegacyEnvelope,
   isValidEnvelope,
   isWithinSyncLimits,
   isValidElement,
@@ -371,8 +371,13 @@ export class SyncHub {
       return Promise.resolve();
     }
     if (!hasJsonDepthAtMost(message, this.maxJsonDepth)) return Promise.resolve();
-    const env = parseEnvelope(message);
+    const env = parseLegacyEnvelope(message);
     if (!env) return Promise.resolve();
+    if (env.op.kind === 'capabilities' && env.op.capabilities.protocolVersion < 2) {
+      conn.close?.(4406);
+      this.removeConnection(connId);
+      return Promise.resolve();
+    }
     const perform = async () => {
       if (options) {
         if (!this.isCurrent(conn) || options.signal.aborted || Date.now() >= options.deadlineAt)
@@ -437,6 +442,9 @@ export class SyncHub {
     if (op.kind === 'upsert') {
       if (!isValidElement(op.element)) return;
     }
+    // Clients apply editor 'hub' ops authoritatively, so no client may claim it (as for layer ops).
+    if (op.kind === 'upsert' && op.element.editor === HUB_FROM) return;
+    if (op.kind === 'remove' && op.editor === HUB_FROM) return;
     if (op.kind === 'request-snapshot') {
       this.sendToConnection(conn, HUB_FROM, await this.buildSnapshotOp(conn, env.from));
     } else if (op.kind === 'layer-upsert' || op.kind === 'layer-remove') {
@@ -492,7 +500,7 @@ export class SyncHub {
           currentElement: current,
         });
         if (!allowed) {
-          await this.sendCorrection(conn, env.from, op, current);
+          await this.sendCorrection(conn, env.from, op, record);
           return;
         }
         if (op.kind === 'upsert') {
@@ -577,7 +585,7 @@ export class SyncHub {
             : undefined;
           if (outcome && !outcome.ok) conflict = outcome;
         } catch (error) {
-          await this.sendFailureCorrection(conn, env.from, op, current, needCurrent).catch(() => {
+          await this.sendFailureCorrection(conn, env.from, op, record, needCurrent).catch(() => {
             // Best effort: the correction is a courtesy, so a backend that also fails this
             // read must not replace the original publish/apply error with the secondary one.
             // The sender stays optimistically ahead until its next snapshot request.
@@ -585,9 +593,7 @@ export class SyncHub {
           throw error;
         }
         if (conflict) {
-          const latest =
-            conflict.current?.kind === 'element' ? conflict.current.element : undefined;
-          await this.sendFailureCorrection(conn, env.from, op, latest, true);
+          await this.sendFailureCorrection(conn, env.from, op, conflict.current, true);
         } else {
           this.deliverToRoom(conn.room, conn.id, conn.id, accepted, prevAudience, prevExisted);
         }
@@ -975,7 +981,12 @@ export class SyncHub {
     const encoded: EncodedFrames = new Map();
     if (op.kind === 'upsert') {
       const audience = (op.element as OwnedElement).audience;
-      const removeOp: SyncOp = { kind: 'remove', id: op.element.id };
+      const removeOp: SyncOp = {
+        kind: 'remove',
+        id: op.element.id,
+        version: op.element.version,
+        editor: HUB_FROM,
+      };
       const encodedRemove: EncodedFrames = new Map();
       for (const cid of members) {
         if (cid === excludeId) continue;
@@ -1009,31 +1020,28 @@ export class SyncHub {
     conn: Connection,
     from: string,
     op: SyncOp,
-    current: OwnedElement | undefined,
+    record: HubRecord | undefined,
   ): Promise<void> {
-    let correction: SyncOp | undefined;
-    if (op.kind === 'upsert') {
-      correction = current
-        ? this.mayRead(conn, current.audience)
-          ? { kind: 'upsert', element: current }
-          : { kind: 'remove', id: current.id }
-        : { kind: 'remove', id: op.element.id };
-    } else if (op.kind === 'remove') {
-      correction = current
-        ? this.mayRead(conn, current.audience)
-          ? { kind: 'upsert', element: current }
-          : { kind: 'remove', id: current.id }
-        : undefined;
-    } else if (op.kind === 'clear') {
+    if (op.kind === 'clear') {
       await this.sendSnapshotCorrection(conn, from);
       return;
+    }
+    let correction: SyncOp | undefined;
+    if (record?.kind === 'element') {
+      const current = record.element;
+      correction = this.mayRead(conn, current.audience)
+        ? { kind: 'upsert', element: current }
+        : { kind: 'remove', id: current.id, version: current.version, editor: HUB_FROM };
+    } else if (op.kind === 'upsert') {
+      const version = record ? record.tombstone.version : op.element.version;
+      correction = { kind: 'remove', id: op.element.id, version, editor: HUB_FROM };
     }
     if (correction) this.sendToConnection(conn, HUB_FROM, correction);
   }
 
   /**
    * Corrects the sender of an op that did not survive publication or persistence, with the
-   * same targeted correction the denied path sends. `current` is fetched on the accept path
+   * same targeted correction the denied path sends. `record` is fetched on the accept path
    * only when a policy hook needs it, so it is read here otherwise; nothing has been
    * persisted yet, so that read still yields the pre-op state the correction must describe.
    */
@@ -1041,19 +1049,18 @@ export class SyncHub {
     conn: Connection,
     from: string,
     op: Extract<SyncOp, { kind: 'upsert' | 'remove' | 'clear' }>,
-    current: OwnedElement | undefined,
-    currentFetched: boolean,
+    record: HubRecord | undefined,
+    recordFetched: boolean,
   ): Promise<void> {
-    if (op.kind === 'clear' || currentFetched) {
-      await this.sendCorrection(conn, from, op, current);
+    if (op.kind === 'clear' || recordFetched) {
+      await this.sendCorrection(conn, from, op, record);
       return;
     }
     const stored = await this.backend.getRecord(
       conn.room,
       op.kind === 'upsert' ? op.element.id : op.id,
     );
-    const latest = stored?.kind === 'element' ? stored.element : undefined;
-    await this.sendCorrection(conn, from, op, latest);
+    await this.sendCorrection(conn, from, op, stored);
   }
 
   /**
