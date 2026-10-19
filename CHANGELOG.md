@@ -6,6 +6,153 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### Core 0.93.0 — element versioning and fractional order (F1)
+
+**Added**
+
+- `generateKeyBetween(a, b)`, `generateNKeysBetween(a, b, n)` and `isValidIndexKey(key)`: base-62
+  fractional order keys.
+- `pickBaseFields(element)` copies every `BaseElement` field, so adapters stop listing them.
+- `assignLegacyOrder(elements)` gives pre-0.93 elements `index` keys in (`zIndex`, input position)
+  order and `version: 1`, and drops `zIndex`. Elements that already have a valid `index` pass
+  through.
+
+**Changed (breaking)**
+
+- `BaseElement.zIndex` is removed. Elements gain `index: string` (fractional order key),
+  `version: number` and `editor?: string`. Elements stack by layer, then `index`, then `id`.
+- Factories take `index?: string` instead of `zIndex`. The default `''` places the element on top of
+  its layer when it is added; `''` is never stored or saved. `version` defaults to 1.
+- `bringToFront`, `sendToBack`, `bringForward` and `sendBackward` keep their names and now write
+  one element's `index`.
+- Local updates, including undo and redo, set `version` to the current version + 1 and drop
+  `editor`. Remote updates that carry a `version` take `version` and `editor` as sent.
+- Saved state is version 5. Version 1–4 files load automatically with the stacking order they had.
+  Version 5 files need core 0.93 or later.
+- Pasted and duplicated elements get a fresh `index` and `version: 1`; eraser fragments keep their
+  parent's `index`.
+
+**Migration guide**
+
+1. Replace `zIndex` in element literals and factory calls with `index`. Pass `index: ''` (or omit
+   it) to place an element on top, or `generateKeyBetween(below, above)` for a specific slot.
+2. Sort with layer order, then `a.index < b.index`, then `id`, instead of comparing `zIndex`.
+3. In custom adapters (`wrap`, `unwrap`, `decodeLegacy`), copy base fields with
+   `...pickBaseFields(el)` so `index`, `version` and `editor` survive.
+4. Do not write `version` or `editor` from tools; the store sets them.
+5. Elements from elsewhere that still carry `zIndex` (old exports, authority documents): run
+   `assignLegacyOrder` over the whole set before loading it into a store.
+
+### Sync 0.28.0 — legacy protocol 2 (F1)
+
+**Added**
+
+- `isNewerVersion(a, b)`: higher `version` wins; on a tie, the `editor` that sorts later.
+- `parseLegacyEnvelope(message)`: `parseEnvelope` plus the protocol 2 element checks.
+  `parseEnvelope` and `isValidEnvelope` are unchanged.
+- `Tombstone` type `{ id, version, editor }`.
+- `ManagedSyncStatus` `'unsupported'`.
+
+**Changed (breaking)**
+
+- Legacy capabilities advertise `protocolVersion: 2`. Elements carry `index` and `version`;
+  `remove` carries `version` and `editor`; `clear` and `snapshot` may carry tombstones. Authority
+  capabilities stay at `protocolVersion: 1`.
+- `SyncClient` applies an incoming upsert or remove only when it is newer than the local element
+  or tombstone, both through a hub and peer to peer. It keeps tombstones from removes, clears and
+  snapshots, so a late upsert no longer resurrects a deleted element. Peer snapshots include
+  tombstones.
+- On reconnect, a newer snapshot element replaces the local copy, a newer local element is pushed,
+  and a newer tombstone removes the local copy. Equal versions take the room's copy, except for
+  elements edited during the resync.
+- An incoming `clear` removes only elements not newer than its tombstones; a clear without
+  tombstones removes nothing.
+- When a hub or peer advertises `protocolVersion` below 2, `SyncClient` stops and closes its
+  transport. A managed connection treats that, or a `4406` close, as terminal: status
+  `'unsupported'`, no reconnect.
+- `isValidElement` accepts both the protocol 2 shape and the stored pre-0.28 shape (`zIndex`, no
+  `index`), so stored authority state still validates.
+- Peer floor `@fieldnotes/core` raised to `>=0.93.0` (sync now imports core at runtime).
+
+**Migration guide**
+
+Protocol 1 and 2 peers cannot share a room. Upgrade every client and hub of a room together,
+including authority rooms (pre-0.28 authority peers reject protocol 2 elements). Show users a
+"please reload" message on `'unsupported'`.
+
+### Sync server 0.28.0 — versioned hub (F1)
+
+**Added**
+
+- `HubRecord`, `StoredTombstone` and `ElementWrite` types.
+- `tombstoneRetentionMs` on `createSyncServer` (default 7 days) for the default
+  `MemoryHubBackend`; passing it together with `backend` throws. `MemoryHubBackend` takes the same
+  option. Non-positive or non-finite values throw a `RangeError`.
+
+**Changed (breaking)**
+
+- `HubBackend` replaces `get` and `apply` with `getRecord(room, id)` (element, tombstone or
+  `undefined`) and `applyElement(room, write, expectedVersion)`, an atomic compare-and-set that
+  returns `{ ok: true }` or `{ ok: false, current }`. `snapshot(room)` returns
+  `{ elements, tombstones }`.
+- Connections that send `capabilities` with `protocolVersion` below 2 are closed with `4406`.
+  Frames sent before `capabilities` are validated as protocol 2. Authority connections are
+  unaffected.
+- Element ops are now written, then published, then delivered (previously published, then
+  applied). A conflicting concurrent write restarts the op from the read, up to 3 attempts, so a
+  server plugin's `process` may run up to 3 times for one op; keep side effects in `broadcast` and
+  `corrections`. If publishing fails after the write, the op is still delivered locally and
+  `handleMessage` rejects.
+- Stale ops, and versions more than 1,000,000 above the stored one, get a correction sent to the
+  sender only.
+- Removes and clears leave tombstones that keep the element's owner, audience and remover on the
+  server. When `authorize` is configured, only the owner or the remover may re-create a tombstoned
+  id (so the remover can undo); without `authorize`, ownership is not enforced.
+- `clear` tombstones every element at its version + 1; each recipient gets only the tombstones it
+  may read. Snapshots carry the tombstones the viewer may read.
+- Client element ops claiming `editor: 'hub'`, and clears sent as `from: 'hub'`, are dropped.
+- Hub-authored removes (hide on audience change, corrections) carry `editor: 'hub'` and a version.
+- Peer floor `@fieldnotes/core` raised to `>=0.93.0`; depends on `@fieldnotes/sync` 0.28.0.
+
+**Migration guide**
+
+Custom `HubBackend` implementations must implement `getRecord`, `applyElement` and the new
+`snapshot` shape, write atomically against `expectedVersion` (`null`: no record may exist), store
+tombstones, and drop expired ones when building a snapshot. Server plugins must tolerate `process`
+running more than once per op.
+
+### Sync Redis 0.14.0 — versioned Redis backend (F1)
+
+**Added**
+
+- `RedisHubBackend` `tombstoneRetentionMs` option (default 7 days).
+
+**Changed (breaking)**
+
+- Element writes, removes and clears run as one Lua compare-and-set over the room hash and a new
+  `{keyPrefix}{room}:tombstones` hash, so two relay instances on one Redis never overwrite a newer
+  element. The snapshot reads both hashes atomically. `ttlSeconds` also refreshes the tombstone
+  hash. The plugin key prefix `tombstones` is reserved.
+- Implements the new `HubBackend` contract (`getRecord`, `applyElement`, `snapshot` with
+  tombstones); `get` and `apply` are removed.
+- Peer floors: `@fieldnotes/core` `>=0.93.0`, new peer `@fieldnotes/sync-server` `>=0.28.0`.
+
+**Migration guide**
+
+Rooms written before 0.14 migrate on first access in each process: elements without `index` get
+keys in `HGETALL` order, the order joining clients saw. No manual step is needed. `HGETALL` returns
+insertion order only for small (listpack-encoded) hashes.
+
+### VTT 0.16.0
+
+**Changed (breaking)**
+
+- Element factories take `index` instead of `zIndex`; adapters copy `index`, `version` and
+  `editor` through `pickBaseFields`.
+- Version 4 boards with VTT legacy types load in their original stacking order.
+- Peer floors: `@fieldnotes/core` `>=0.93.0`, `@fieldnotes/sync` `>=0.28.0`,
+  `@fieldnotes/sync-server` `>=0.28.0`, `@fieldnotes/sync-redis` `>=0.14.0`.
+
 ### Core 0.92.0 — html widgets for remote peers (TD-16)
 
 **Changed**

@@ -54,7 +54,7 @@ The `ElementStore` is the **single source of truth** for all canvas elements. It
 - **Spatial indexing:** Quadtree for fast hit testing and viewport culling
 - **Event bus:** `on('add')`, `on('remove')`, `on('update')`, `on('clear')`
 - **Versioning:** Per-element version counter for sync conflict resolution
-- **Layer ordering:** Sorts elements by layer then zIndex
+- **Layer ordering:** Sorts elements by layer, then fractional `index`, then `id`
 
 ```typescript
 store.add(element);
@@ -115,7 +115,9 @@ interface BaseElement {
   id: string;
   type: string;
   position: Point;
-  zIndex: number;
+  index: string; // fractional order key
+  version: number; // bumped on every local update
+  editor?: string; // set by sync
   locked: boolean;
   layerId: string;
   groupId?: string; // group membership
@@ -236,7 +238,7 @@ interface Layer {
 }
 ```
 
-**LayerManager:** Manages layer CRUD and state. Elements are sorted by layer order then zIndex.
+**LayerManager:** Manages layer CRUD and state. Elements are sorted by layer order, then `index`.
 
 **Sync:** Layers sync via versioned records (`LayerRecord`). Higher version wins; ties broken by editor ID.
 

@@ -274,7 +274,7 @@ cd examples/live-play && pnpm dev    # Real-time collaboration example
 
 Hybrid rendering: Canvas API for strokes/shapes/arrows, DOM for notes/images/HTML embeds. Shared
 camera and paint-stack systems keep both renderers synchronized and correctly interleaved by layer
-and `zIndex`. See [PROJECT.md](PROJECT.md) for full architecture details.
+and `index`. See [PROJECT.md](PROJECT.md) for full architecture details.
 
 ## License
 

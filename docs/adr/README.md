@@ -2,15 +2,16 @@
 
 ADRs for the VTT extraction and extension system design. These decisions gate the migration plan in `MIGRATION_VTT_EXTRACTION.md`.
 
-| ADR                                             | Title                                | Status                                                                                                                                  | Date       |
-| ----------------------------------------------- | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
-| [ADR-0001](0001-element-extensibility.md)       | Element Extensibility Model          | **Accepted and implemented; legacy types removed from core in the v4 release**                                                          | 2026-09-05 |
-| [ADR-0002](0002-render-surface-model.md)        | Render Surface Model                 | **Accepted and implemented; render-time fail-closed enforcement since core 0.90.0; overlay stratum and `afterLayer` since core 0.91.0** | 2026-09-05 |
-| [ADR-0003](0003-sync-plugin-ownership.md)       | Sync/Server Plugin Ownership         | **Accepted; v3 implemented**                                                                                                            | 2026-09-05 |
-| [ADR-0004](0004-serialization-compatibility.md) | Serialization Compatibility Strategy | **Accepted; v4 pending**                                                                                                                | 2026-09-05 |
-| [ADR-0005](0005-plugin-lifecycle.md)            | Plugin Lifecycle & Installation      | **Accepted and implemented**                                                                                                            | 2026-09-05 |
-| [ADR-0006](0006-snapping-as-service.md)         | Snapping as Opt-In Service           | **Accepted and implemented**                                                                                                            | 2026-09-05 |
-| [ADR-0007](0007-action-registry.md)             | Action Registry                      | **Accepted**                                                                                                                            | 2026-09-23 |
+| ADR                                             | Title                                               | Status                                                                                                                                  | Date       |
+| ----------------------------------------------- | --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| [ADR-0001](0001-element-extensibility.md)       | Element Extensibility Model                         | **Accepted and implemented; legacy types removed from core in the v4 release**                                                          | 2026-09-05 |
+| [ADR-0002](0002-render-surface-model.md)        | Render Surface Model                                | **Accepted and implemented; render-time fail-closed enforcement since core 0.90.0; overlay stratum and `afterLayer` since core 0.91.0** | 2026-09-05 |
+| [ADR-0003](0003-sync-plugin-ownership.md)       | Sync/Server Plugin Ownership                        | **Accepted; v3 implemented**                                                                                                            | 2026-09-05 |
+| [ADR-0004](0004-serialization-compatibility.md) | Serialization Compatibility Strategy                | **Accepted; v4 pending**                                                                                                                | 2026-09-05 |
+| [ADR-0005](0005-plugin-lifecycle.md)            | Plugin Lifecycle & Installation                     | **Accepted and implemented**                                                                                                            | 2026-09-05 |
+| [ADR-0006](0006-snapping-as-service.md)         | Snapping as Opt-In Service                          | **Accepted and implemented**                                                                                                            | 2026-09-05 |
+| [ADR-0007](0007-action-registry.md)             | Action Registry                                     | **Accepted**                                                                                                                            | 2026-09-23 |
+| [ADR-0008](0008-element-versioning.md)          | Element Versioning, Tombstones and Fractional Order | **Accepted; implemented in core 0.93.0 and sync 0.28.0**                                                                                | 2026-10-19 |
 
 ## Context
 

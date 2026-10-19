@@ -13,11 +13,10 @@ applies and forwards.
   an async `HubBackend`; each room processes messages on its own serial queue so
   concurrent edits to the same room never race, while different rooms run
   independently.
-- **`MemoryHubBackend`** — in-memory `HubBackend` (the default). Redis-backed and
-  authenticated backends are planned. It reclaims a room's memory on `clear`, but
-  **retains** state for uncleared / abandoned rooms — fine for dev / single-instance
-  use. For a long-lived production process, use a Redis backend with a key TTL, or
-  `clear` rooms you're done with.
+- **`MemoryHubBackend`** — in-memory `HubBackend` (the default). It **retains** state for
+  abandoned rooms, and `clear` replaces elements with tombstones that are dropped only after
+  `tombstoneRetentionMs` — fine for dev / single-instance use. For a long-lived production
+  process, use `RedisHubBackend` with a key TTL, or `roomIdleTimeoutMs`.
 - **`createSyncServer`** — a runnable `ws` reference server. Connect with
   `?room=<id>` in the query string; a missing room closes the socket with WS code
   `4400`.
@@ -32,9 +31,9 @@ applies and forwards.
   [`@fieldnotes/sync-redis`](../sync-redis)) **together with a shared backend** — a
   shared fanout alone leaves a new joiner's snapshot stale.
 
-`HubFanout.publish()` may return a promise. `SyncHub` awaits durable mutation publication before
-notifying other local connections, and `handleMessage()` rejects if publication fails after the
-backend commit. Custom server integrations must observe that rejection; `createSyncServer` reports
+`HubFanout.publish()` may return a promise. `SyncHub` writes an op to the backend first, then
+publishes it, then delivers it to other local connections. If publication fails after the backend
+write, the op is still delivered locally and `handleMessage()` rejects. Custom server integrations must observe that rejection; `createSyncServer` reports
 it through its relay error path. The room queue recovers so later messages can continue. Presence
 publication remains best-effort because presence is ephemeral.
 
@@ -46,6 +45,56 @@ import { createSyncServer } from '@fieldnotes/sync-server';
 const { close } = createSyncServer({ port: 8080 });
 // ws://localhost:8080?room=my-room
 ```
+
+## Element versions and tombstones (0.28.0)
+
+Legacy rooms speak protocol 2. Every element carries a `version` and an optional `editor`, and the
+hub keeps the newer write per element (higher version; on a tie, the editor that sorts later):
+
+- A connection that sends `capabilities` with `protocolVersion` below 2 is closed with `4406`.
+  Frames sent before `capabilities` are validated as protocol 2. Authority rooms are unaffected.
+- Each element op is a compare-and-set against the stored record: read, `resolveAudience`,
+  tombstone ownership check, `authorize`, plugins, version check, write, publish, deliver. On a
+  conflicting concurrent write the op restarts from the read, up to 3 attempts; then the sender
+  gets a correction.
+- A stale op (not newer than the stored record) or one whose version jumps more than 1,000,000
+  past it gets a correction, sent only to the sender.
+- Removes and clears leave tombstones. A late upsert cannot resurrect a deleted element unless it is
+  newer, and snapshots carry the tombstones the viewer may read.
+- With `authorize` configured, only the deleted element's owner, or the user who removed it, may
+  re-create a tombstoned id. Without `authorize`, ownership is not enforced.
+- `clear` tombstones every element at its version + 1. Each recipient receives only the tombstones
+  whose stored audience it may read.
+- Element ops that claim `editor: 'hub'`, and clears sent as `from: 'hub'`, are dropped; only the
+  hub authors those.
+
+Tombstones are kept for 7 days by default. Set `tombstoneRetentionMs` on `createSyncServer` (for
+the default backend) or on your backend's constructor; passing it together with `backend` throws.
+
+```ts
+createSyncServer({ port: 8080, tombstoneRetentionMs: 24 * 60 * 60 * 1000 });
+```
+
+### `HubBackend` contract
+
+Custom backends implement an atomic compare-and-set:
+
+```ts
+interface HubBackend {
+  snapshot(room: string): Promise<{ elements: SyncElement[]; tombstones: StoredTombstone[] }>;
+  getRecord(room: string, id: string): Promise<HubRecord | undefined>; // element or tombstone
+  applyElement(
+    room: string,
+    write: ElementWrite, // upsert, remove (tombstone) or clear
+    expectedVersion: number | null, // null: no record may exist
+  ): Promise<{ ok: true } | { ok: false; current: HubRecord | undefined }>;
+  // optional layer, service and evictRoom methods unchanged
+}
+```
+
+`applyElement` writes only when the stored record's version equals `expectedVersion`; a `clear`
+instead requires its `expected` map to match every stored element. Drop expired tombstones when
+building a snapshot. `get` and `apply` are gone.
 
 ## Authority proposal preparation
 
@@ -482,7 +531,7 @@ authorize(ctx) => boolean | Promise<boolean>
 
 `currentElement` is the element currently in room state for an `upsert`/`remove` of an
 **existing** id (typed `OwnedElement = SyncElement`), and
-`undefined` for a new/absent id.
+`undefined` for a new, absent or deleted (tombstoned) id.
 
 **Ownership is server-stamped and un-forgeable.** A new element's `ownerId` is set to the
 authenticated creator; on edit the stored owner is **preserved**; a client-supplied
@@ -526,8 +575,8 @@ createSyncServer({
   no-hook anonymous default is `userId = connId`, which changes on every reconnect — a
   user would lose access to their own elements after reconnecting. `createSyncServer`
   therefore **throws** when `authorize` is configured without `authenticate`.
-- The authz path adds one `backend.get` (a Redis `HGET`) per data op — negligible for
-  low-write use.
+- Every element op reads the stored record once (`backend.getRecord`, one or two Redis `HGET`s)
+  before it is authorized, whether or not `authorize` is configured.
 - Reads / visibility (a player not **receiving** hidden content) are a separate, upcoming
   concern (D3). `authorize` gates writes only.
 - When `authorize` denies an op, the hub sends the offending client a **corrective op** so its
@@ -603,7 +652,9 @@ extension that owns that exact legacy kind. This does not activate a legacy VTT 
 
 `SyncHubOptions.plugins` installs ordered `ServerSyncPlugin` middleware. Plugins can register
 codec-validated extension kinds, provide versioned snapshots, return sender-only corrections, and
-choose local or shared fanout per accepted operation. Fog authorization and state application are
+choose local or shared fanout per accepted operation. The hub writes before it publishes, and
+`process` may run up to 3 times for one op when a concurrent write conflicts, so keep side effects
+in `broadcast` and `corrections`. Fog authorization and state application are
 supplied by `createFogServerPlugin()` from `@fieldnotes/vtt/server`; the generic server has no
 runtime VTT dependency.
 

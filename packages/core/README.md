@@ -84,7 +84,7 @@ card.querySelector('button').addEventListener('click', () => {
 const elementId = viewport.addHtmlElement(card, { x: 100, y: 200 }, { w: 250, h: 150 });
 ```
 
-HTML elements pan, zoom, resize, and interleave by layer/`zIndex` with canvas-rendered content. They
+HTML elements pan, zoom, resize, and interleave by layer/`index` with canvas-rendered content. They
 use a **two-mode interaction model**:
 
 - **Default** — the element can be selected, dragged, and resized like any other element
@@ -210,7 +210,7 @@ Direct access to canvas elements:
 ```typescript
 const { store } = viewport;
 
-const all = store.getAll(); // sorted by zIndex
+const all = store.getAll(); // sorted by layer, then index
 const el = store.getById('some-id');
 const strokes = store.getElementsByType('stroke');
 
@@ -560,7 +560,9 @@ interface BaseElement {
   id: string;
   type: string;
   position: { x: number; y: number };
-  zIndex: number;
+  index: string; // fractional order key; pass '' to factories to place on top
+  version: number; // bumped by the store on every local update
+  editor?: string; // set by sync
   locked: boolean;
   layerId: string;
 }

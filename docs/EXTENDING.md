@@ -62,10 +62,12 @@ interface ExtensionElementEnvelope extends BaseElement {
 }
 ```
 
-`BaseElement` fields (`id`, `position`, `zIndex`, `locked`, `layerId`, `groupId`, `rotation`) live
-on the envelope, not in `data`. `wrap` and `unwrap` move your fields in and out of `data`:
+`BaseElement` fields (`id`, `position`, `index`, `version`, `editor`, `locked`, `layerId`,
+`groupId`, `rotation`) live on the envelope, not in `data`. `wrap` and `unwrap` move your fields in
+and out of `data`; copy the base fields with `pickBaseFields` so new ones are never dropped:
 
 ```typescript
+import { pickBaseFields } from '@fieldnotes/core';
 import type {
   BaseElement,
   ElementTypeDefinition,
@@ -85,25 +87,15 @@ const markerDefinition: ElementTypeDefinition<Marker> = {
   decodeLegacy: (raw) => raw as unknown as Marker,
   validateData: (data) => typeof data['label'] === 'string',
   wrap: (el): ExtensionElementEnvelope => ({
-    id: el.id,
+    ...pickBaseFields(el),
     type: 'extension',
     extensionType: 'my-app:marker',
-    position: el.position,
-    zIndex: el.zIndex,
-    locked: el.locked,
-    layerId: el.layerId,
-    groupId: el.groupId,
     size: el.size,
     data: { label: el.label },
   }),
   unwrap: (el) => ({
-    id: el.id,
+    ...pickBaseFields(el),
     type: 'my-app:marker',
-    position: el.position,
-    zIndex: el.zIndex,
-    locked: el.locked,
-    layerId: el.layerId,
-    groupId: el.groupId,
     label: String(el.data['label']),
     size: el.size ?? { w: 40, h: 40 },
   }),
@@ -114,6 +106,11 @@ const markerDefinition: ElementTypeDefinition<Marker> = {
   },
 };
 ```
+
+`index` is a fractional order key: elements stack by layer, then `index` (plain string `<`), then
+`id`. Pass `index: ''` to place a new element on top of its layer; use `generateKeyBetween` for a
+specific slot. `version` starts at 1 and the store bumps it on every local update; `editor` is set
+only by sync. Never write `version` or `editor` from a tool.
 
 ### Rendering
 
@@ -461,7 +458,8 @@ onPointerDown(state, ctx) {
       id: crypto.randomUUID(),
       type: 'my-app:marker',
       position: world,
-      zIndex: ctx.store.getAll().length,
+      index: '', // '' = place on top of the layer
+      version: 1,
       locked: false,
       layerId: ctx.activeLayerId ?? '',
       label: 'New',

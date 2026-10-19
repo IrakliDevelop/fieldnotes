@@ -250,25 +250,30 @@ Presence is categorized into lanes (by `kind` field):
 
 ## HubBackend Interface
 
-Storage backend interface:
+Storage backend interface. Element writes are an atomic compare-and-set; removes and clears
+leave tombstones that expire after `tombstoneRetentionMs` (default 7 days):
 
 ```typescript
 interface HubBackend {
-  // Elements
-  getElements(room: string): Promise<CanvasElement[]>;
-  upsertElement(room: string, element: CanvasElement): Promise<void>;
-  removeElement(room: string, id: string): Promise<void>;
-  clearElements(room: string): Promise<void>;
+  sharedAcrossInstances?: boolean;
+
+  // Elements: live elements and unexpired tombstones
+  snapshot(room: string): Promise<{ elements: SyncElement[]; tombstones: StoredTombstone[] }>;
+  getRecord(room: string, id: string): Promise<HubRecord | undefined>;
+  // Writes only when the stored version equals expectedVersion (null: no record may exist)
+  applyElement(
+    room: string,
+    write: ElementWrite,
+    expectedVersion: number | null,
+  ): Promise<{ ok: true } | { ok: false; current: HubRecord | undefined }>;
 
   // Layers
-  getLayerRecords(room: string): Promise<LayerRecord[]>;
-  upsertLayerRecord(room: string, record: LayerRecord): Promise<void>;
-  removeLayerRecord(room: string, id: string): Promise<void>;
+  layerRecords?(room: string): Promise<LayerRecord[]>;
+  getLayerRecord?(room: string, id: string): Promise<LayerRecord | undefined>;
+  applyLayerRecord?(room: string, record: LayerRecord): Promise<void>;
 
-  // Fog
-  getFogSnapshot(room: string): Promise<FogSnapshot | null>;
-  applyFogMeta(room: string, record: FogMetaRecord): Promise<void>;
-  applyFogPatch(room: string, tiles: FogTileRecord[]): Promise<FogApplyResult>;
+  getService?<T>(key: ServiceKey<T>): T | undefined;
+  evictRoom?(room: string): Promise<void>;
 }
 ```
 
