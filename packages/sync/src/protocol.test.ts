@@ -18,6 +18,8 @@ import {
   isValidLayerRecord,
   isNewerLayerRecord,
   parseEnvelope,
+  parseLegacyEnvelope,
+  isNewerVersion,
   isWithinSyncLimits,
   applyOpToMap,
   type LayerRecord,
@@ -28,18 +30,23 @@ import {
 } from './protocol';
 
 function shape(x = 0): CanvasElement {
-  return createShape({ position: { x, y: x }, size: { w: 10, h: 10 } });
+  return createShape({ index: 'a0', position: { x, y: x }, size: { w: 10, h: 10 } });
 }
 
 describe('isValidElement', () => {
   it('accepts every runtime element variant including extension envelopes', () => {
     const elements: CanvasElement[] = [
-      createStroke({ points: [{ x: 0, y: 0, pressure: 0.5 }] }),
-      createNote({ position: { x: 0, y: 0 } }),
-      createArrow({ from: { x: 0, y: 0 }, to: { x: 10, y: 10 } }),
-      createImage({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 }, src: '/map.png' }),
-      createHtmlElement({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } }),
-      createText({ position: { x: 0, y: 0 } }),
+      createStroke({ index: 'a0', points: [{ x: 0, y: 0, pressure: 0.5 }] }),
+      createNote({ index: 'a0', position: { x: 0, y: 0 } }),
+      createArrow({ index: 'a0', from: { x: 0, y: 0 }, to: { x: 10, y: 10 } }),
+      createImage({
+        index: 'a0',
+        position: { x: 0, y: 0 },
+        size: { w: 10, h: 10 },
+        src: '/map.png',
+      }),
+      createHtmlElement({ index: 'a0', position: { x: 0, y: 0 }, size: { w: 10, h: 10 } }),
+      createText({ index: 'a0', position: { x: 0, y: 0 } }),
       shape(),
     ];
 
@@ -68,24 +75,29 @@ describe('isValidElement', () => {
     const valid = shape();
     expect(isValidElement({ ...valid, position: { x: '0', y: 0 } })).toBe(false);
     expect(isValidElement({ ...valid, locked: 'false' })).toBe(false);
-    expect(isValidElement({ ...valid, zIndex: Number.NaN })).toBe(false);
+    expect(isValidElement({ ...valid, index: undefined, zIndex: Number.NaN })).toBe(false);
     expect(isValidElement({ ...valid, size: { w: Number.POSITIVE_INFINITY, h: 10 } })).toBe(false);
   });
 
   it('rejects malformed fields specific to each element variant', () => {
     const malformed: unknown[] = [
-      { ...createStroke({ points: [{ x: 0, y: 0, pressure: 0.5 }] }), points: [{}] },
-      { ...createNote({ position: { x: 0, y: 0 } }), textColor: 42 },
-      { ...createArrow({ from: { x: 0, y: 0 }, to: { x: 10, y: 10 } }), from: null },
+      { ...createStroke({ index: 'a0', points: [{ x: 0, y: 0, pressure: 0.5 }] }), points: [{}] },
+      { ...createNote({ index: 'a0', position: { x: 0, y: 0 } }), textColor: 42 },
+      { ...createArrow({ index: 'a0', from: { x: 0, y: 0 }, to: { x: 10, y: 10 } }), from: null },
       {
-        ...createImage({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 }, src: '/map.png' }),
+        ...createImage({
+          index: 'a0',
+          position: { x: 0, y: 0 },
+          size: { w: 10, h: 10 },
+          src: '/map.png',
+        }),
         src: 42,
       },
       {
-        ...createHtmlElement({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } }),
+        ...createHtmlElement({ index: 'a0', position: { x: 0, y: 0 }, size: { w: 10, h: 10 } }),
         interactive: 'yes',
       },
-      { ...createText({ position: { x: 0, y: 0 } }), textAlign: 'justify' },
+      { ...createText({ index: 'a0', position: { x: 0, y: 0 } }), textAlign: 'justify' },
       { ...shape(), shape: 'triangle' },
     ];
 
@@ -553,10 +565,11 @@ describe('SYNC_LIMITS', () => {
   const at = (n: number) => 'a'.repeat(n);
   const parse = (env: unknown) => parseEnvelope(JSON.stringify(env));
   const upsert = (element: unknown) => ({ from: 'A', op: { kind: 'upsert', element } });
-  const arrow = () => createArrow({ from: { x: 0, y: 0 }, to: { x: 1, y: 1 } });
-  const html = () => createHtmlElement({ position: { x: 0, y: 0 }, size: { w: 1, h: 1 } });
-  const note = () => createNote({ position: { x: 0, y: 0 } });
-  const text = () => createText({ position: { x: 0, y: 0 } });
+  const arrow = () => createArrow({ index: 'a0', from: { x: 0, y: 0 }, to: { x: 1, y: 1 } });
+  const html = () =>
+    createHtmlElement({ index: 'a0', position: { x: 0, y: 0 }, size: { w: 1, h: 1 } });
+  const note = () => createNote({ index: 'a0', position: { x: 0, y: 0 } });
+  const text = () => createText({ index: 'a0', position: { x: 0, y: 0 } });
 
   it.each([
     ['element id', ID, (s: string) => ({ ...shape(), id: s })],
@@ -570,7 +583,11 @@ describe('SYNC_LIMITS', () => {
     ],
     ['audience', SHORT, (s: string) => ({ ...shape(), audience: s })],
     ['ownerId', SHORT, (s: string) => ({ ...shape(), ownerId: s })],
-    ['stroke color', SHORT, (s: string) => ({ ...createStroke({ points: [] }), color: s })],
+    [
+      'stroke color',
+      SHORT,
+      (s: string) => ({ ...createStroke({ index: 'a0', points: [] }), color: s }),
+    ],
     ['shape fillColor', SHORT, (s: string) => ({ ...shape(), fillColor: s })],
     ['shape strokeColor', SHORT, (s: string) => ({ ...shape(), strokeColor: s })],
     ['note backgroundColor', SHORT, (s: string) => ({ ...note(), backgroundColor: s })],
@@ -593,7 +610,12 @@ describe('SYNC_LIMITS', () => {
 
   it('isWithinSyncLimits bounds image src at 16_777_216 code units', () => {
     const src = at(SRC);
-    const image = createImage({ position: { x: 0, y: 0 }, size: { w: 1, h: 1 }, src: '' });
+    const image = createImage({
+      index: 'a0',
+      position: { x: 0, y: 0 },
+      size: { w: 1, h: 1 },
+      src: '',
+    });
     expect(
       isWithinSyncLimits({ from: 'A', op: { kind: 'upsert', element: { ...image, src } } }),
     ).toBe(true);
@@ -607,7 +629,7 @@ describe('SYNC_LIMITS', () => {
 
   it('parseEnvelope bounds stroke points at 100_000', () => {
     const points = new Array(STROKE_POINTS).fill({ x: 0, y: 0, pressure: 0.5 });
-    const stroke = createStroke({ points: [] });
+    const stroke = createStroke({ index: 'a0', points: [] });
     expect(parse(upsert({ ...stroke, points }))).not.toBeNull();
     expect(parse(upsert({ ...stroke, points: [...points, points[0]] }))).toBeNull();
   });
@@ -717,5 +739,99 @@ describe('SyncOp public contract', () => {
     type SnapshotHasNoTopLevelFog = 'fog' extends keyof SnapshotOp ? false : true;
     const snapshotHasNoTopLevelFog: SnapshotHasNoTopLevelFog = true;
     expect(snapshotHasNoTopLevelFog).toBe(true);
+  });
+});
+
+describe('protocol 2 element and tombstone contracts', () => {
+  const v2 = () => ({ ...shape(), index: 'a0', version: 3, editor: 'peer-b' });
+  const legacy = () => ({ ...shape(), index: undefined, version: undefined, zIndex: 4 });
+  const frame = (op: unknown) => JSON.stringify({ from: 'A', op });
+  const tomb = (id = 't1') => ({ id, version: 2, editor: 'peer-a' });
+
+  it('isValidElement accepts the v2 shape and the stored legacy shape', () => {
+    expect(isValidElement(v2())).toBe(true);
+    expect(isValidElement({ ...v2(), editor: undefined })).toBe(true);
+    expect(isValidElement(legacy())).toBe(true);
+  });
+
+  it.each([
+    ['empty index', { index: '' }],
+    ['129-char index', { index: 'a' + '1'.repeat(128) }],
+    ['malformed index', { index: 'a00' }],
+    ['missing version', { version: undefined }],
+    ['zero version', { version: 0 }],
+    ['fractional version', { version: 1.5 }],
+    ['non-string editor', { editor: 7 }],
+  ])('isValidElement rejects a v2 element with %s', (_name, patch) => {
+    expect(isValidElement({ ...v2(), ...patch })).toBe(false);
+  });
+
+  it('parseLegacyEnvelope accepts a v2 upsert but rejects a legacy-shaped one', () => {
+    expect(parseLegacyEnvelope(frame({ kind: 'upsert', element: v2() }))).not.toBeNull();
+    expect(parseEnvelope(frame({ kind: 'upsert', element: legacy() }))).not.toBeNull();
+    expect(parseLegacyEnvelope(frame({ kind: 'upsert', element: legacy() }))).toBeNull();
+  });
+
+  it('bounds element editor at 256 code units', () => {
+    const at = (n: number) =>
+      frame({ kind: 'upsert', element: { ...v2(), editor: 'e'.repeat(n) } });
+    expect(parseLegacyEnvelope(at(256))).not.toBeNull();
+    expect(parseLegacyEnvelope(at(257))).toBeNull();
+  });
+
+  it('parseLegacyEnvelope requires version and editor on remove; parseEnvelope does not', () => {
+    const bare = frame({ kind: 'remove', id: 'x' });
+    expect(parseEnvelope(bare)).not.toBeNull();
+    expect(parseLegacyEnvelope(bare)).toBeNull();
+    expect(parseLegacyEnvelope(frame({ kind: 'remove', id: 'x', version: 2 }))).toBeNull();
+    expect(parseLegacyEnvelope(frame({ kind: 'remove', id: 'x', editor: 'a' }))).toBeNull();
+    expect(
+      parseLegacyEnvelope(frame({ kind: 'remove', id: 'x', version: 0, editor: 'a' })),
+    ).toBeNull();
+    expect(
+      parseLegacyEnvelope(frame({ kind: 'remove', id: 'x', version: 2, editor: 'a' })),
+    ).not.toBeNull();
+    expect(
+      parseLegacyEnvelope(frame({ kind: 'remove', id: 'x', version: 2, editor: 'e'.repeat(257) })),
+    ).toBeNull();
+  });
+
+  it('parseLegacyEnvelope validates clear and snapshot tombstones when present', () => {
+    const snapshot = (tombstones: unknown) =>
+      frame({ kind: 'snapshot', to: 'B', elements: [], tombstones });
+    expect(parseLegacyEnvelope(frame({ kind: 'clear' }))).not.toBeNull();
+    expect(parseLegacyEnvelope(frame({ kind: 'clear', tombstones: [tomb()] }))).not.toBeNull();
+    expect(parseLegacyEnvelope(snapshot([tomb()]))).not.toBeNull();
+    for (const bad of [
+      'nope',
+      [{ id: 't1', version: 2 }],
+      [{ id: 't1', version: 0, editor: 'a' }],
+      [{ ...tomb(), extra: true }],
+      [{ ...tomb(), id: 'i'.repeat(257) }],
+      [{ ...tomb(), editor: 'e'.repeat(257) }],
+    ]) {
+      expect(parseLegacyEnvelope(frame({ kind: 'clear', tombstones: bad }))).toBeNull();
+      expect(parseLegacyEnvelope(snapshot(bad))).toBeNull();
+    }
+  });
+
+  it('parseLegacyEnvelope bounds tombstone lists at 1_000_000 entries', () => {
+    const full = new Array(1_000_000).fill(tomb());
+    expect(parseLegacyEnvelope(frame({ kind: 'clear', tombstones: full }))).not.toBeNull();
+    expect(parseLegacyEnvelope(frame({ kind: 'clear', tombstones: [...full, tomb()] }))).toBeNull();
+  });
+
+  it.each([
+    [{ version: 2, editor: 'a' }, { version: 1, editor: 'z' }, true],
+    [{ version: 1, editor: 'z' }, { version: 2, editor: 'a' }, false],
+    [{ version: 1, editor: 'b' }, { version: 1, editor: 'a' }, true],
+    [{ version: 1, editor: 'a' }, { version: 1, editor: 'b' }, false],
+    [{ version: 1, editor: 'a' }, { version: 1 }, true],
+    [{ version: 1 }, { version: 1, editor: 'a' }, false],
+    [{ version: 1, editor: 'a' }, { version: 1, editor: 'a' }, false],
+    [{ version: 1 }, { version: 1 }, false],
+    [{ version: 1 }, undefined, true],
+  ])('isNewerVersion(%j, %j) is %s', (a, b, expected) => {
+    expect(isNewerVersion(a, b)).toBe(expected);
   });
 });

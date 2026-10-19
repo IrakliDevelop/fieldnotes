@@ -335,7 +335,8 @@ describe('authority checkpoint', () => {
       id: 'a',
       type: 'shape' as const,
       position: { x: 0, y: 0 },
-      zIndex: 0,
+      index: 'a0',
+      version: 1,
       locked: false,
       layerId: 'missing',
       shape: 'rectangle' as const,
@@ -351,6 +352,27 @@ describe('authority checkpoint', () => {
     });
     await expect(prepare({ ...value, elements: [shape, shape] })).rejects.toThrow(TypeError);
     await expect(prepare({ ...value, layers: [tombstone, tombstone] })).rejects.toThrow(TypeError);
+  });
+
+  it('accepts pre-F1 zIndex elements next to v2 elements in one checkpoint', async () => {
+    const base = {
+      type: 'shape' as const,
+      position: { x: 0, y: 0 },
+      locked: false,
+      layerId: 'base',
+      shape: 'rectangle' as const,
+      size: { w: 1, h: 1 },
+      strokeColor: 'red',
+      strokeWidth: 1,
+      fillColor: 'blue',
+    };
+    const legacy = { ...base, id: 'old', zIndex: 3 };
+    const v2 = { ...base, id: 'new', index: 'a0', version: 2, editor: 'dm' };
+    const value = { ...empty, elements: [legacy, v2] } as unknown as AuthorityCheckpointPayload;
+    expect(await deliver([...(await prepare(value)).frames])).toEqual({
+      status: 'complete',
+      checkpoint: value,
+    });
   });
 
   it('uses exact contiguous chunks and each serialized frame remains within one MiB', async () => {

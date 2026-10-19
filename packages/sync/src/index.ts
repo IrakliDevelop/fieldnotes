@@ -38,6 +38,7 @@ export type {
   FogTileRecord,
   FogSnapshot,
   SyncCapabilities,
+  Tombstone,
 } from './protocol';
 export {
   isValidEnvelope,
@@ -50,6 +51,8 @@ export {
   isValidFogSnapshot,
   isNewerFogRecord,
   parseEnvelope,
+  parseLegacyEnvelope,
+  isNewerVersion,
   isWithinSyncLimits,
   applyOpToMap,
   LAYER_SYNC_PROTOCOL_VERSION,

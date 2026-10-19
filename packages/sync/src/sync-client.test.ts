@@ -154,7 +154,7 @@ describe('SyncClient', () => {
       captured = meta;
     });
 
-    const note = createNote({ position: { x: 10, y: 20 } });
+    const note = createNote({ index: 'a0', position: { x: 10, y: 20 } });
     storeA.add(note);
 
     expect(storeB.getById(note.id)).toBeDefined();
@@ -167,7 +167,7 @@ describe('SyncClient', () => {
   });
 
   it('propagates a local update to the remote store', () => {
-    const note = createNote({ position: { x: 0, y: 0 }, backgroundColor: '#aaaaaa' });
+    const note = createNote({ index: 'a0', position: { x: 0, y: 0 }, backgroundColor: '#aaaaaa' });
     storeA.add(note);
 
     storeA.update(note.id, { backgroundColor: '#bbbbbb' });
@@ -302,7 +302,7 @@ describe('SyncClient', () => {
     store.clear();
     transport.triggerReconnect();
 
-    const serverNote = createNote({ position: { x: 30, y: 40 } });
+    const serverNote = createNote({ index: 'a0', position: { x: 30, y: 40 } });
     transport.deliver(envelope('hub', { kind: 'snapshot', to: 'modern', elements: [serverNote] }));
     transport.deliver(
       envelope('hub', { kind: 'capabilities', capabilities: createCurrentCapabilities([]) }),
@@ -411,7 +411,10 @@ describe('SyncClient', () => {
   });
 
   it('propagates a cleared optional field (ungroup, unbind) to the remote store', () => {
-    const note: CanvasElement = { ...createNote({ position: { x: 0, y: 0 } }), groupId: 'g1' };
+    const note: CanvasElement = {
+      ...createNote({ index: 'a0', position: { x: 0, y: 0 } }),
+      groupId: 'g1',
+    };
     storeA.add(note);
     expect(storeB.getById(note.id)?.groupId).toBe('g1');
 
@@ -423,10 +426,11 @@ describe('SyncClient', () => {
   });
 
   it('replaces a same-id element whose remote type changed', () => {
-    const note = { ...createNote({ position: { x: 0, y: 0 } }), id: 'same-id' };
+    const note = { ...createNote({ index: 'a0', position: { x: 0, y: 0 } }), id: 'same-id' };
     storeB.add(note);
     const stroke = {
       ...createStroke({
+        index: 'a0',
         points: [
           { x: 0, y: 0, pressure: 0.5 },
           { x: 10, y: 0, pressure: 0.5 },
@@ -440,7 +444,7 @@ describe('SyncClient', () => {
   });
 
   it('propagates a local remove to the remote store', () => {
-    const note = createNote({ position: { x: 0, y: 0 } });
+    const note = createNote({ index: 'a0', position: { x: 0, y: 0 } });
     storeA.add(note);
     expect(storeB.getById(note.id)).toBeDefined();
 
@@ -450,8 +454,8 @@ describe('SyncClient', () => {
   });
 
   it('propagates a local clear to the remote store', () => {
-    storeA.add(createNote({ position: { x: 0, y: 0 } }));
-    storeA.add(createNote({ position: { x: 5, y: 5 } }));
+    storeA.add(createNote({ index: 'a0', position: { x: 0, y: 0 } }));
+    storeA.add(createNote({ index: 'a0', position: { x: 5, y: 5 } }));
     expect(storeB.count).toBe(2);
 
     storeA.clear();
@@ -460,7 +464,7 @@ describe('SyncClient', () => {
   });
 
   it('applyOp adds when the id is unknown and updates when it exists', () => {
-    const note = createNote({ position: { x: 1, y: 2 }, backgroundColor: '#111111' });
+    const note = createNote({ index: 'a0', position: { x: 1, y: 2 }, backgroundColor: '#111111' });
 
     // Deliver an upsert for an id storeB lacks -> add.
     transportA.send(envelope('A', { kind: 'upsert', element: note }));
@@ -478,7 +482,7 @@ describe('SyncClient', () => {
   });
 
   it('does not re-broadcast a change applied with a non-local origin', () => {
-    const note = createNote({ position: { x: 0, y: 0 }, backgroundColor: '#abcabc' });
+    const note = createNote({ index: 'a0', position: { x: 0, y: 0 }, backgroundColor: '#abcabc' });
     storeA.add(note);
     const before = transportA.sent.length;
 
@@ -501,7 +505,7 @@ describe('SyncClient', () => {
     store.on('add', markRemote);
     store.on('update', markRemote);
 
-    expect(() => store.add(createNote({ position: { x: 0, y: 0 } }))).not.toThrow();
+    expect(() => store.add(createNote({ index: 'a0', position: { x: 0, y: 0 } }))).not.toThrow();
 
     // With the from===clientId guard, A never re-applies its own echo as remote.
     expect(ownEchoApplied).toBe(false);
@@ -509,7 +513,7 @@ describe('SyncClient', () => {
   });
 
   it('ignores valid-JSON envelopes with an unknown op kind or wrong shape (never clears)', () => {
-    const existing = createNote({ position: { x: 0, y: 0 } });
+    const existing = createNote({ index: 'a0', position: { x: 0, y: 0 } });
     storeA.add(existing);
     expect(storeB.getById(existing.id)).toBeDefined();
     const before = storeB.count;
@@ -538,7 +542,7 @@ describe('SyncClient', () => {
     clientA.stop();
     const before = transportA.sent.length;
 
-    storeA.add(createNote({ position: { x: 0, y: 0 } }));
+    storeA.add(createNote({ index: 'a0', position: { x: 0, y: 0 } }));
 
     expect(transportA.sent.length).toBe(before);
     expect(() => clientA.stop()).not.toThrow();
@@ -556,7 +560,7 @@ describe('SyncClient', () => {
 
 // createShape needs no DOMParser/jsdom, so these stay pure node.
 function shape(x: number): CanvasElement {
-  return createShape({ position: { x, y: x }, size: { w: 10, h: 10 } });
+  return createShape({ index: 'a0', position: { x, y: x }, size: { w: 10, h: 10 } });
 }
 
 describe('SyncClient snapshot-on-join', () => {
@@ -1947,7 +1951,7 @@ describe('audience stamping (resolveAudience)', () => {
     const transport = bus.endpoint();
     const client = new SyncClient({ store, transport, clientId: 'A' });
     client.start();
-    store.add(createShape({ position: { x: 0, y: 0 }, size: { w: 1, h: 1 } }));
+    store.add(createShape({ index: 'a0', position: { x: 0, y: 0 }, size: { w: 1, h: 1 } }));
     const up = lastUpsert(transport.sent);
     expect(up).toBeDefined();
     expect(up && 'audience' in up.element).toBe(false);
@@ -1959,7 +1963,7 @@ describe('audience stamping (resolveAudience)', () => {
     const transport = bus.endpoint();
     const client = new SyncClient({ store, transport, clientId: 'A', resolveAudience: () => 'dm' });
     client.start();
-    store.add(createShape({ position: { x: 0, y: 0 }, size: { w: 1, h: 1 } }));
+    store.add(createShape({ index: 'a0', position: { x: 0, y: 0 }, size: { w: 1, h: 1 } }));
     const up = lastUpsert(transport.sent);
     expect(up?.element.audience).toBe('dm');
   });
@@ -1975,7 +1979,7 @@ describe('audience stamping (resolveAudience)', () => {
       resolveAudience: () => undefined,
     });
     client.start();
-    store.add(createShape({ position: { x: 0, y: 0 }, size: { w: 1, h: 1 } }));
+    store.add(createShape({ index: 'a0', position: { x: 0, y: 0 }, size: { w: 1, h: 1 } }));
     const up = lastUpsert(transport.sent);
     expect(up && 'audience' in up.element).toBe(false);
   });
@@ -1986,7 +1990,7 @@ describe('audience stamping (resolveAudience)', () => {
     const transport = bus.endpoint();
     const client = new SyncClient({ store, transport, clientId: 'A', resolveAudience: () => 'dm' });
     client.start();
-    const el = createShape({ position: { x: 0, y: 0 }, size: { w: 1, h: 1 } });
+    const el = createShape({ index: 'a0', position: { x: 0, y: 0 }, size: { w: 1, h: 1 } });
     store.add(el);
     store.remove(el.id);
     const removeEnv = transport.sent
@@ -2207,7 +2211,7 @@ describe('SyncClient layer sync', () => {
 
     const hub = bus.endpoint();
     a.client.start(); // sends request-snapshot
-    const el = createShape({ position: { x: 0, y: 0 }, size: { w: 1, h: 1 } });
+    const el = createShape({ index: 'a0', position: { x: 0, y: 0 }, size: { w: 1, h: 1 } });
     hub.send(
       envelope('hub', {
         kind: 'snapshot',
@@ -2313,7 +2317,7 @@ describe('SyncClient layer sync', () => {
     );
     expect(calls).toBe(2);
 
-    const el = createShape({ position: { x: 0, y: 0 }, size: { w: 1, h: 1 } });
+    const el = createShape({ index: 'a0', position: { x: 0, y: 0 }, size: { w: 1, h: 1 } });
     remote.send(envelope('R', { kind: 'upsert', element: el }));
     expect(a.store.getById(el.id)).toBeDefined();
   });

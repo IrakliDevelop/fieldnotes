@@ -8,11 +8,12 @@ import {
   translateOpForPeer,
 } from './capabilities';
 import { isValidEnvelope, parseEnvelope } from './protocol';
+import { createManagedAuthorityConnection } from './managed-authority-connection';
 
 describe('createCurrentCapabilities', () => {
-  it('advertises the v4 element envelope marker', () => {
+  it('advertises legacy protocol 2 with the v4 element envelope marker', () => {
     expect(createCurrentCapabilities(['test:cursor'])).toEqual({
-      protocolVersion: 1,
+      protocolVersion: 2,
       extensionKinds: ['test:cursor'],
       elementEnvelope: true,
     });
@@ -21,11 +22,11 @@ describe('createCurrentCapabilities', () => {
   it('keeps the legacy bytes and requires explicit authority opt-in', () => {
     const legacy = createCurrentCapabilities(['e']);
     expect(JSON.stringify(legacy)).toBe(
-      '{"protocolVersion":1,"extensionKinds":["e"],"elementEnvelope":true}',
+      '{"protocolVersion":2,"extensionKinds":["e"],"elementEnvelope":true}',
     );
     expect(supportsAuthority(legacy)).toBe(false);
     const optedIn = createAuthorityCapabilities(['e']);
-    expect(optedIn).toEqual({ ...legacy, authority: 1 });
+    expect(optedIn).toEqual({ ...legacy, protocolVersion: 1, authority: 1 });
     expect(supportsAuthority(optedIn)).toBe(true);
     for (const authority of [undefined, 0, 2, '1', null]) {
       const frame = {
@@ -40,6 +41,16 @@ describe('createCurrentCapabilities', () => {
         JSON.stringify({ from: 'a', op: { kind: 'capabilities', capabilities: optedIn } }),
       ),
     ).not.toBeNull();
+  });
+
+  it('keeps authority capabilities at protocol 1 so a managed authority connection constructs', () => {
+    expect(createAuthorityCapabilities([]).protocolVersion).toBe(1);
+    const connection = createManagedAuthorityConnection({
+      scopeId: 'scope',
+      clientId: 'client',
+      resolveUrl: () => null,
+    });
+    connection.stop();
   });
 
   it('copies and sorts an exact authority extension inventory', () => {
@@ -90,7 +101,8 @@ describe('translateOpForPeer', () => {
     type: 'extension',
     extensionType: 'vtt:grid',
     position: { x: 0, y: 0 },
-    zIndex: 0,
+    index: 'a0',
+    version: 1,
     locked: false,
     layerId: 'default-layer',
     data: { cellSize: 50 },
