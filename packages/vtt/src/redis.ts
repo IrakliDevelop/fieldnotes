@@ -47,6 +47,7 @@ class RedisFogBackend implements FogBackendService {
   constructor(
     private readonly client: RedisHashClient,
     private readonly roomKey: (room: string) => string,
+    private readonly touchRoom: (room: string) => Promise<void>,
   ) {
     if (!client.eval) {
       throw new Error('Redis fog persistence requires a Redis client with EVAL support');
@@ -116,6 +117,7 @@ class RedisFogBackend implements FogBackendService {
     const result = await this.eval(FOG_META_LWW_SCRIPT, room, record, [
       JSON.stringify(replacements),
     ]);
+    await this.touchRoom(room);
     return parseFogRedisMetaResult(result, isValidFogMetaRecord);
   }
 
@@ -161,6 +163,8 @@ class RedisFogBackend implements FogBackendService {
       return { accepted: [], corrections };
     }
     const result = await this.eval(FOG_PATCH_LWW_SCRIPT, room, records, []);
+    // The tiles DEL on a generation change clears its expiry, so every write restores it.
+    await this.touchRoom(room);
     return parseFogRedisPatchResult(result);
   }
 
@@ -248,7 +252,7 @@ export function createFogBackendPlugin(): BackendSyncPlugin {
     start(context) {
       context.registerService(
         FogBackendServiceKey,
-        new RedisFogBackend(context.client, context.roomKey),
+        new RedisFogBackend(context.client, context.roomKey, context.touchRoom),
       );
     },
   };

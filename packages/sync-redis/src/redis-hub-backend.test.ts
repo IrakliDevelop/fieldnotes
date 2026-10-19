@@ -9,7 +9,7 @@ import {
   type FogBackendService,
 } from '@fieldnotes/vtt/redis';
 import type { CanvasElement } from '@fieldnotes/core';
-import { RedisHubBackend, type RedisHashClient } from './index';
+import { RedisHubBackend, type BackendPluginContext, type RedisHashClient } from './index';
 import type { FogMetaRecord, FogTileRecord, LayerRecord } from '@fieldnotes/sync';
 
 interface MetaTileReplacement {
@@ -471,6 +471,57 @@ describe('RedisHubBackend ttlSeconds', () => {
     for (const [, run] of operations) await run(b);
     expect(fake.expires).toEqual([]);
   });
+
+  it.each([3600, undefined])(
+    'context.touchRoom refreshes the same keys as a write (ttlSeconds %s)',
+    async (ttlSeconds) => {
+      const fake = new FakeRedis();
+      let context: BackendPluginContext | undefined;
+      const touching = { ...plugin, start: (c: BackendPluginContext) => (context = c) };
+      new RedisHubBackend(fake, { keyPrefix: 'p:', ttlSeconds, plugins: [touching] });
+      await context?.touchRoom('R');
+      expect(fake.expires.sort()).toEqual(
+        ttlSeconds === undefined
+          ? []
+          : [
+              ['p:R', 3600],
+              ['p:R:layers', 3600],
+              ['p:R:x', 3600],
+            ],
+      );
+    },
+  );
+
+  it('a failing EXPIRE does not reject a persisted write, snapshot or touchRoom', async () => {
+    const fake = new FakeRedis();
+    fake.expire = async () => {
+      throw new Error('EXPIRE failed');
+    };
+    let context: BackendPluginContext | undefined;
+    const touching = { ...plugin, start: (c: BackendPluginContext) => (context = c) };
+    const b = new RedisHubBackend(fake, { keyPrefix: 'p:', ttlSeconds: 60, plugins: [touching] });
+    for (const [, run] of operations) await run(b);
+    await context?.touchRoom('R');
+    expect(await b.getLayerRecord('R', 'layer-a')).toEqual(layer);
+  });
+
+  it('snapshot reads and refreshes expiry concurrently', async () => {
+    const fake = new FakeRedis();
+    let expired: (() => void) | undefined;
+    const expireCalled = new Promise<void>((resolve) => (expired = resolve));
+    const expire = fake.expire.bind(fake);
+    fake.expire = async (key, seconds) => {
+      expired?.();
+      return expire(key, seconds);
+    };
+    const hGetAll = fake.hGetAll.bind(fake);
+    fake.hGetAll = async (key) => {
+      await expireCalled;
+      return hGetAll(key);
+    };
+    const b = new RedisHubBackend(fake, { keyPrefix: 'p:', ttlSeconds: 60 });
+    expect(await b.snapshot('R')).toEqual([]);
+  }, 1_000);
 
   it('ttlSeconds requires client.expire and a positive safe integer', () => {
     const noExpire: RedisHashClient = {

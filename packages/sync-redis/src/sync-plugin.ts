@@ -11,6 +11,8 @@ export interface BackendPluginContext {
    * room name alias another room's sub-key hashes.
    */
   roomKey(room: string): string;
+  /** Refreshes the room's expiry when the backend sets `ttlSeconds`; a no-op otherwise. Never rejects. */
+  touchRoom(room: string): Promise<void>;
   registerService<T>(key: ServiceKey<T>, service: NoInfer<T>): void;
   addDisposer(dispose: () => void): void;
 }

@@ -237,4 +237,31 @@ describe.skipIf(!redisUrl)('fog persistence against a real Redis', () => {
       expect(ttl, key).toBeLessThanOrEqual(120);
     }
   });
+
+  it('fog-only writes put a TTL on the fog keys, including after a generation change', async () => {
+    const hub = new RedisHubBackend(fogHashClient(client()), {
+      keyPrefix,
+      ttlSeconds: 120,
+      plugins: [createFogBackendPlugin()],
+    });
+    const ttlFog = hub.getService(FogBackendServiceKey);
+    const [metaKey, tilesKey] = [':fog:meta', ':fog:tiles'].map((s) => `${keyPrefix}R${s}`);
+    const expectTtl = async (key: string | undefined) => {
+      const ttl = await client().ttl(key ?? '');
+      expect(ttl, key).toBeGreaterThan(0);
+      expect(ttl, key).toBeLessThanOrEqual(120);
+    };
+    await ttlFog?.applyMeta('R', { version: 1, editor: 'A', definition });
+    await ttlFog?.applyPatch('R', [paintedTile(0, 1, 'A')]);
+    await expectTtl(metaKey);
+    await expectTtl(tilesKey);
+
+    await ttlFog?.applyMeta('R', {
+      version: 2,
+      editor: 'A',
+      definition: { ...definition, generation: 'gen-2' },
+    });
+    await ttlFog?.applyPatch('R', [{ ...paintedTile(0, 1, 'A'), generation: 'gen-2' }]);
+    await expectTtl(tilesKey);
+  });
 });
