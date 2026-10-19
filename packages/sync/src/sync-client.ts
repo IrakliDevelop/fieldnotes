@@ -839,8 +839,9 @@ export class SyncClient {
       const tombstone = local ? undefined : this.tombstones.get(el.id);
       const localDelete =
         tombstone && isNewerVersion(tombstone, roomTombstones.get(el.id)) ? tombstone : undefined;
+      // Only this client's own deletes are replayed; a hub or peer tombstone the room lacks yields.
       if (
-        localDelete &&
+        localDelete?.editor === this.clientId &&
         (touched ? isNewerVersion(localDelete, el) : localDelete.version > el.version)
       ) {
         unseenRemoves.push(localDelete);

@@ -96,8 +96,8 @@ hub before its protocol 1 `capabilities` are processed before the `4406` close; 
 
 - `HubBackend` replaces `get` and `apply` with `getRecord(room, id)` (element, tombstone or
   `undefined`) and `applyElement(room, write, expected)`, an atomic compare-and-set on the stored
-  record's `{ version, editor }` that returns `{ ok: true }` or `{ ok: false, current }`. `snapshot(room)` returns
-  `{ elements, tombstones }`.
+  record's `{ version, editor }` that returns `{ ok: true }` or `{ ok: false, current }`.
+  `snapshot(room)` returns `{ elements, tombstones }`.
 - Connections that send `capabilities` with `protocolVersion` below 2 are closed with `4406`.
   Frames sent before `capabilities` are validated as protocol 2. Authority connections are
   unaffected.
@@ -122,9 +122,8 @@ hub before its protocol 1 `capabilities` are processed before the `4406` close; 
 Custom `HubBackend` implementations must implement `getRecord`, `applyElement` and the new
 `snapshot` shape, write atomically only when the stored record's version and editor equal
 `expected` (absent editor equals absent; `null`: no record may exist; a clear's `expected` map
-holds `{ version, editor }` per element), store
-tombstones, and drop expired ones when building a snapshot. Server plugins must tolerate `process`
-running more than once per op.
+holds `{ version, editor }` per element), store tombstones, and drop expired ones when building a
+snapshot. Server plugins must tolerate `process` running more than once per op.
 
 ### Sync Redis 0.14.0 — versioned Redis backend (F1)
 

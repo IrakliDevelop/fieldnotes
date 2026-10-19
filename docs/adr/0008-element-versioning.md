@@ -63,8 +63,7 @@ Stale ops and version jumps over 1,000,000 get a correction. Tombstones keep `ow
 and `removedBy` server-side and are filtered per viewer. `HubBackend` becomes `getRecord`,
 `applyElement(room, write, expected)`, a compare-and-set on the stored `{ version, editor }` (so
 two instances cannot both win an equal-version race), and `snapshot` returning elements and
-tombstones, with
-a `tombstoneRetentionMs` option (default 7 days).
+tombstones, with a `tombstoneRetentionMs` option (default 7 days).
 
 ### D6 Redis
 

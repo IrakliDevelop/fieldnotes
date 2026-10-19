@@ -400,6 +400,18 @@ describe('SyncClient snapshot reconcile by version', () => {
     expect(resent).toEqual([{ kind: 'remove', id: 'x', version: 4, editor: 'A' }]);
   });
 
+  it('does not re-send a newer hub-authored tombstone and takes the room copy instead', () => {
+    const { store, sent, deliver, reconcile } = joined();
+    deliver('hub', { kind: 'remove', id: 'x', version: 4, editor: 'hub' });
+    reconcile();
+    const before = sent.length;
+
+    deliver('hub', { kind: 'snapshot', to: 'A', elements: [shape('x', 3, 'B', '#333333')] });
+
+    expect(sent.slice(before).some((m) => m.includes('"remove"'))).toBe(false);
+    expect(store.getById('x')).toMatchObject({ version: 3, fillColor: '#333333' });
+  });
+
   it('takes an equal-version room copy over an unsent delete from a later-sorting editor', () => {
     const { store, sent, deliver, reconcile } = setup('hub', 'm');
     deliver('hub', { kind: 'snapshot', to: 'm', elements: [shape('x', 3, 'B')] });
