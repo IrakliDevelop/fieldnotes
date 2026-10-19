@@ -231,6 +231,7 @@ describe('createManagedSyncConnection', () => {
 
     const before = transport.sent.length;
     store.add(createNote({ position: { x: 1, y: 2 } }));
+    vi.advanceTimersByTime(50);
     expect(transport.sent.length).toBe(before + 1);
     const upsert = JSON.parse(transport.sent[before] ?? '') as { op: { kind: string } };
     expect(upsert.op.kind).toBe('upsert');
@@ -516,6 +517,7 @@ describe('createManagedSyncConnection', () => {
 
     expect(phases).toEqual(['bootstrap']);
     expect(store.getById(seed.id)).toBeDefined();
+    vi.advanceTimersByTime(50);
     const upserts = currentTransport()
       .sent.map((m) => JSON.parse(m) as { op: { kind: string; element?: { id: string } } })
       .filter((e) => e.op.kind === 'upsert');
@@ -566,6 +568,7 @@ describe('createManagedSyncConnection', () => {
     );
     expect(store.getById(known.id)).toBeUndefined(); // deleted-while-away, even across a rebuild
     expect(store.getById(offline.id)).toBeDefined(); // preserved and re-pushed
+    vi.advanceTimersByTime(50);
     const upserts = currentTransport()
       .sent.map((m) => JSON.parse(m) as { op: { kind: string; element?: { id: string } } })
       .filter((e) => e.op.kind === 'upsert');

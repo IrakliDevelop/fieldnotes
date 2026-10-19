@@ -426,7 +426,7 @@ describe('sync-server WebSocket relay (end-to-end)', () => {
       });
       transports.push(transport);
       const store = new ElementStore();
-      const client = new SyncClient({ store, transport, resolveAudience });
+      const client = new SyncClient({ store, transport, resolveAudience, flushIntervalMs: 0 });
       client.start();
       return { store, client, transport };
     };

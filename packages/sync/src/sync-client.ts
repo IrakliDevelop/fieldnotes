@@ -7,6 +7,7 @@ import {
   isValidLayerRecord,
   isNewerLayerRecord,
   isNewerVersion,
+  type BatchOp,
   type LayerRecord,
   type SyncOp,
   type SyncElement,
@@ -22,6 +23,7 @@ import {
   translateOpForPeer,
 } from './capabilities';
 import type { SyncCapabilities, SyncEnvelope } from './protocol';
+import { SYNC_LIMITS, hasJsonDepthAtMost } from './limits';
 
 /**
  * Which authoritative-snapshot merge is being applied:
@@ -145,9 +147,22 @@ export interface SyncClientOptions {
   elementRegistry?: ElementRegistry;
   /** Maximum number of inbound and outbound messages retained during negotiation. */
   capabilityQueueLimit?: number;
+  /** Minimum gap between outgoing element-op flushes; 0 sends every op synchronously. Default 50. */
+  flushIntervalMs?: number;
 }
 
+/** A queued local element op: an upsert reads the element from the store at flush time. */
+type QueuedOp = { kind: 'upsert'; id: string } | Extract<BatchOp, { kind: 'remove' }>;
+
+type LocalOp =
+  | { kind: 'upsert'; element: CanvasElement }
+  | Extract<BatchOp, { kind: 'remove' }>
+  | Extract<SyncOp, { kind: 'clear' }>;
+
 const REMOTE_ORIGIN = 'remote';
+const utf8 = new TextEncoder();
+/** Envelope, op and ops array wrap each batched op three levels deep. */
+const BATCH_OP_MAX_DEPTH = SYNC_LIMITS.maxFrameJsonDepth - 3;
 /**
  * A transient html element belongs to the embedding host, not the document: it
  * is never broadcast, never served in a snapshot, and survives both a remote
@@ -207,6 +222,13 @@ export class SyncClient {
   private peerIsHub = false;
   private readonly presenceHandlers = new Set<(from: string, data: unknown) => void>();
   private readonly presenceLeaveHandlers = new Set<(from: string) => void>();
+  private readonly flushIntervalMs: number;
+  private readonly queue: QueuedOp[] = [];
+  private flushTimer: ReturnType<typeof setTimeout> | undefined;
+  private lastFlushStart = Number.NEGATIVE_INFINITY;
+  private flushing = false;
+  /** Set when the hub settles the current handshake advertising opBatching. */
+  private batchingPeer = false;
 
   constructor(options: SyncClientOptions) {
     this.store = options.store;
@@ -216,7 +238,14 @@ export class SyncClient {
     this.resolveLocalOnly = options.resolveLocalOnly;
     this.hubKnownIds = options.hubKnownIds ?? new Set();
     this.pluginRegistry = new ClientPluginRegistry(options.plugins ?? []);
-    this.localCapabilities = createCurrentCapabilities(this.pluginRegistry.extensionKinds);
+    this.localCapabilities = {
+      ...createCurrentCapabilities(this.pluginRegistry.extensionKinds),
+      opBatching: 1,
+    };
+    this.flushIntervalMs = options.flushIntervalMs ?? 50;
+    if (!Number.isFinite(this.flushIntervalMs) || this.flushIntervalMs < 0) {
+      throw new RangeError('flushIntervalMs must be a finite number >= 0');
+    }
     this.capabilityQueueLimit = options.capabilityQueueLimit ?? DEFAULT_CAPABILITY_QUEUE_LIMIT;
     this.handshake = new CapabilityHandshake<SyncOp>(this.capabilityQueueLimit);
     for (const plugin of this.pluginRegistry.plugins) plugin.validateClientId?.(this.clientId);
@@ -289,6 +318,10 @@ export class SyncClient {
     this.resyncPending = true;
     for (const plugin of this.pluginRegistry.plugins) plugin.onReconnect?.();
     this.touchedDuringResync.clear();
+    // The hub has not seen queued edits yet, so they keep the live tie-break.
+    for (const entry of this.queue) {
+      this.touchedDuringResync.add(entry.id);
+    }
     this.clearedBeforeSnapshot = false;
     this.beginCapabilityHandshake();
     this.sendOp({ kind: 'request-snapshot' });
@@ -296,6 +329,9 @@ export class SyncClient {
 
   stop(): void {
     if (!this.started) return;
+    this.flush();
+    clearTimeout(this.flushTimer);
+    this.flushTimer = undefined;
     this.started = false;
     for (const cleanup of this.pluginCleanups.reverse()) cleanup();
     this.pluginCleanups = [];
@@ -432,7 +468,99 @@ export class SyncClient {
     }
   }
 
+  /** Sends every queued local element op now. */
+  flush(): void {
+    if (this.flushing) return;
+    clearTimeout(this.flushTimer);
+    this.flushTimer = undefined;
+    const entries = this.queue.splice(0);
+    if (entries.length === 0) return;
+    this.lastFlushStart = Date.now();
+    this.flushing = true;
+    try {
+      const ops: BatchOp[] = [];
+      for (const entry of entries) {
+        if (entry.kind === 'remove') {
+          ops.push(entry);
+          continue;
+        }
+        const element = this.store.getById(entry.id);
+        // Gone at flush: a remote remove, clear or correction deleted it and wins.
+        if (!element || isTransientHtml(element)) continue;
+        ops.push({ kind: 'upsert', element: this.stampAudience(this.stampVersion(element)) });
+      }
+      if (this.handshake.complete && this.batchingPeer) this.sendBatches(ops);
+      else for (const op of ops) this.sendQueued(op);
+    } finally {
+      this.flushing = false;
+    }
+    // Ops queued during the flush (store listeners, synchronous transports) go next.
+    if (this.queue.length > 0) this.requestFlush();
+  }
+
+  private enqueue(op: QueuedOp): void {
+    const upsertAt = this.queue.findIndex((entry) => entry.kind === 'upsert' && entry.id === op.id);
+    if (op.kind === 'remove' && upsertAt >= 0) this.queue.splice(upsertAt, 1);
+    if (op.kind === 'remove' || upsertAt < 0) this.queue.push(op);
+    this.requestFlush();
+  }
+
+  private requestFlush(): void {
+    if (this.flushIntervalMs === 0) {
+      this.flush();
+      return;
+    }
+    if (this.flushTimer !== undefined) return;
+    const delay = Math.max(0, this.lastFlushStart + this.flushIntervalMs - Date.now());
+    this.flushTimer = setTimeout(() => this.flush(), delay);
+  }
+
+  /** Packs ops into batch frames within the frame byte, depth and op caps; misfits go alone. */
+  private sendBatches(ops: readonly BatchOp[]): void {
+    const prefix = `{"from":${JSON.stringify(this.clientId)},"op":{"kind":"batch","ops":[`;
+    const suffix = ']}}';
+    const overhead = utf8.encode(prefix + suffix).length;
+    let frame: string[] = [];
+    let bytes = overhead;
+    const sendFrame = (): void => {
+      if (frame.length > 0) this.transport.send(prefix + frame.join(',') + suffix);
+      frame = [];
+      bytes = overhead;
+    };
+    for (const op of ops) {
+      const json = JSON.stringify(op);
+      const size = utf8.encode(json).length + 1; // + separating comma
+      if (
+        overhead + size > SYNC_LIMITS.maxFrameBytes ||
+        !hasJsonDepthAtMost(json, BATCH_OP_MAX_DEPTH)
+      ) {
+        sendFrame();
+        this.sendQueued(op);
+        continue;
+      }
+      if (bytes + size > SYNC_LIMITS.maxFrameBytes || frame.length >= SYNC_LIMITS.maxBatchOps) {
+        sendFrame();
+      }
+      frame.push(json);
+      bytes += size;
+    }
+    sendFrame();
+  }
+
+  private dropQueuedUpsert(id: string): void {
+    const at = this.queue.findIndex((entry) => entry.kind === 'upsert' && entry.id === id);
+    if (at >= 0) this.queue.splice(at, 1);
+  }
+
+  /** Every op except presence keeps its order behind queued element ops. */
   private sendOp(op: SyncOp): void {
+    if (op.kind !== 'presence' && op.kind !== 'presence-leave' && op.kind !== 'capabilities') {
+      this.flush();
+    }
+    this.sendQueued(op);
+  }
+
+  private sendQueued(op: SyncOp): void {
     if (!this.handshake.complete) {
       // Element ops must leave in store order: once anything is held for
       // negotiation, later element ops queue behind it so a remove/clear can
@@ -456,6 +584,7 @@ export class SyncClient {
     const carried = this.handshake.takePending();
     this.handshake.dispose();
     this.handshake = new CapabilityHandshake<SyncOp>(this.capabilityQueueLimit);
+    this.batchingPeer = false;
     this.pendingIncoming.length = 0;
     this.acknowledgedPeers.clear();
     for (const op of carried) {
@@ -500,12 +629,9 @@ export class SyncClient {
     this.transport.send(JSON.stringify({ from: this.clientId, op: wire }));
   }
 
-  private stampAudience(op: SyncOp): SyncOp {
-    if (op.kind !== 'upsert' || !this.resolveAudience) return op;
-    const audience = this.resolveAudience(op.element);
-    if (audience === undefined) return op;
-    const element: SyncElement = { ...op.element, audience };
-    return { kind: 'upsert', element };
+  private stampAudience(element: SyncElement): SyncElement {
+    const audience = this.resolveAudience?.(element);
+    return audience === undefined ? element : { ...element, audience };
   }
 
   private trackLive(element: CanvasElement): void {
@@ -550,25 +676,31 @@ export class SyncClient {
     return { ...element, version, editor: this.clientId };
   }
 
-  private onLocal(op: SyncOp, origin: string | undefined): void {
+  private onLocal(op: LocalOp, origin: string | undefined): void {
     if (isExternal(origin)) return; // applied remote ops must not re-broadcast
     // Transient elements belong to the embedding host, not the document: the hub must never
     // learn about them. Removes need no guard — the hub never knew the element existed.
     if (op.kind === 'upsert' && isTransientHtml(op.element)) return;
-    if (op.kind === 'upsert') op = { kind: 'upsert', element: this.stampVersion(op.element) };
-    else if (op.kind === 'remove' && op.version !== undefined && op.editor !== undefined) {
+    if (op.kind === 'remove') {
       this.recordTombstone({ id: op.id, version: op.version, editor: op.editor });
     }
-    const outgoing = this.stampAudience(op);
     if (this.resyncPending || !this.joined) {
-      if (outgoing.kind === 'upsert') this.touchedDuringResync.add(outgoing.element.id);
-      else if (outgoing.kind === 'remove') this.touchedDuringResync.add(outgoing.id);
-      else if (outgoing.kind === 'clear') this.clearedBeforeSnapshot = true;
+      if (op.kind === 'upsert') this.touchedDuringResync.add(op.element.id);
+      else if (op.kind === 'remove') this.touchedDuringResync.add(op.id);
+      else this.clearedBeforeSnapshot = true;
+    }
+    if (op.kind === 'clear') {
+      this.sendOp(op);
+      return;
     }
     // Fire-and-forget delivery: a sent upsert is assumed to reach the hub, the
     // same assumption the resync shield already makes.
-    if (outgoing.kind === 'upsert') this.hubKnownIds.add(outgoing.element.id);
-    this.sendOp(outgoing);
+    if (op.kind === 'upsert') {
+      this.hubKnownIds.add(op.element.id);
+      this.enqueue({ kind: 'upsert', id: op.element.id });
+    } else {
+      this.enqueue(op);
+    }
   }
 
   private onRemote(message: string): void {
@@ -584,6 +716,9 @@ export class SyncClient {
         return;
       }
       if (env.from === HUB_FROM) this.peerIsHub = true;
+      if (!this.handshake.complete) {
+        this.batchingPeer = env.from === HUB_FROM && env.op.capabilities.opBatching === 1;
+      }
       const pending = this.handshake.receive(env.op.capabilities);
       // Answer each peer once per handshake: a late joiner on a shared bus
       // still learns our capabilities, while a reply to our own reply stops.
@@ -687,6 +822,8 @@ export class SyncClient {
       });
     } else if (op.kind === 'upsert' || op.kind === 'remove' || op.kind === 'clear') {
       this.applyOp(op, env.from === HUB_FROM);
+    } else if (op.kind === 'batch') {
+      for (const inner of op.ops) this.applyOp(inner, env.from === HUB_FROM);
     } else if (this.pluginRegistry.ownerOf(op.kind)) {
       this.pluginRegistry.ownerOf(op.kind)?.handleOp?.(op, {
         sender: env.from,
@@ -747,6 +884,7 @@ export class SyncClient {
       )
         return;
       this.tombstones.delete(el.id);
+      this.dropQueuedUpsert(el.id);
       if (existing) {
         if (existing.type === el.type) {
           this.store.update(el.id, replacementPatch(existing, el), { origin: REMOTE_ORIGIN });
@@ -886,6 +1024,9 @@ export class SyncClient {
 function requiresCapabilityNegotiation(op: SyncOp): boolean {
   if (op.kind === 'extension') return true;
   if (op.kind === 'upsert') return op.element.type === 'extension';
+  if (op.kind === 'batch') {
+    return op.ops.some((inner) => inner.kind === 'upsert' && inner.element.type === 'extension');
+  }
   if (op.kind === 'snapshot') return op.elements.some((element) => element.type === 'extension');
   return false;
 }
@@ -893,7 +1034,11 @@ function requiresCapabilityNegotiation(op: SyncOp): boolean {
 /** Ops whose relative order against element upserts is load-bearing. */
 function isElementDataOp(op: SyncOp): boolean {
   return (
-    op.kind === 'upsert' || op.kind === 'remove' || op.kind === 'clear' || op.kind === 'snapshot'
+    op.kind === 'upsert' ||
+    op.kind === 'remove' ||
+    op.kind === 'clear' ||
+    op.kind === 'snapshot' ||
+    op.kind === 'batch'
   );
 }
 

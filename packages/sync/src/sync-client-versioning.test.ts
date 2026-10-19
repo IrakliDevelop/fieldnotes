@@ -47,7 +47,7 @@ function setup(peer: string | null = 'P', clientId = 'A', seed: readonly CanvasE
       closed = true;
     },
   };
-  const client = new SyncClient({ store, transport, clientId });
+  const client = new SyncClient({ flushIntervalMs: 0, store, transport, clientId });
   client.start();
   const deliver = (from: string, op: SyncOp | Record<string, unknown>): void =>
     receive(JSON.stringify({ from, op }));
