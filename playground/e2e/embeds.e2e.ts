@@ -308,6 +308,19 @@ test('PNG export paints widget pixels', async ({ page }) => {
   expect(painted / total).toBeGreaterThanOrEqual(0.9);
 });
 
+test('palette swatch copies the colour', async ({ page, context }, testInfo) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await gotoBlank(page, 'embeds');
+  const id = await insert(page, 'Palette', 'pg:palette');
+  await interact(page, testInfo, id);
+  await page
+    .locator(`[data-element-id="${id}"]`)
+    .getByRole('button', { name: 'Copy #1e88e5' })
+    .click();
+  await expect(page.locator('[data-chrome="toast"]')).toHaveText('Copied #1e88e5');
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('#1e88e5');
+});
+
 async function pickWidget(page: Page, label: string): Promise<void> {
   const tools = page.locator('[data-chrome="tools"]');
   await tools.getByRole('button', { name: 'Insert', exact: true }).click();
