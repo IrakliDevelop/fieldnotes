@@ -19,6 +19,7 @@ declare global {
       viewport: Viewport;
       fog?: FogManager;
       laserSenders?: () => number;
+      strokePreviews?: () => number;
     };
   }
 }
@@ -118,13 +119,14 @@ function attach(instance: SceneInstance, sceneId: SceneId): Attached {
     // Published once the board is loaded so tests never race the initial restore.
     const publish = (): void => {
       const fog = sceneId === 'tabletop' ? currentFog() : null;
-      // A room joined before the load finished already installed its laser hook.
-      const { laserSenders } = window.__playground ?? {};
+      // A room joined before the load finished already installed its presence hooks.
+      const { laserSenders, strokePreviews } = window.__playground ?? {};
       window.__playground = {
         sceneId,
         viewport,
         ...(fog && { fog }),
         ...(laserSenders && { laserSenders }),
+        ...(strokePreviews && { strokePreviews }),
       };
     };
     const joining = room;

@@ -2,16 +2,18 @@ import {
   attachAwareness,
   RemoteLaserOverlay,
   RemotePingOverlay,
+  RemoteStrokeOverlay,
   toLaserTrailPresence,
   toPingPresence,
+  toStrokePreviewPresence,
 } from '@fieldnotes/core';
-import type { LaserTool, PingTool, Viewport } from '@fieldnotes/core';
+import type { LaserTool, PencilTool, PingTool, Viewport } from '@fieldnotes/core';
 import type { SyncClient } from '@fieldnotes/sync';
 import type { Peer } from './scene';
 
 const HEX = /^#[0-9a-f]{3,8}$/i;
 
-/** Publishes this tab's cursor, laser and pings to the room and reports the other peers. */
+/** Publishes this tab's cursor, laser, pings and stroke previews to the room and reports the other peers. */
 export function attachPresence(
   viewport: Viewport,
   client: SyncClient,
@@ -19,6 +21,7 @@ export function attachPresence(
     identity: { id: string; name: string; color: string; role?: string };
     laser?: LaserTool;
     ping?: PingTool;
+    pencils?: readonly PencilTool[];
     onPeers: (peers: Peer[]) => void;
   },
 ): () => void {
@@ -31,6 +34,7 @@ export function attachPresence(
   });
   const remoteLaser = new RemoteLaserOverlay(viewport);
   const remotePing = new RemotePingOverlay(viewport);
+  const remoteStroke = new RemoteStrokeOverlay(viewport);
   // Peer names and colours are remote input: colours must be hex before they reach a style.
   const reportPeers = (): void =>
     opts.onPeers(
@@ -52,25 +56,37 @@ export function attachPresence(
     awareness.roster.onChange(reportPeers),
     opts.laser?.onTrail((em) => client.sendPresence(toLaserTrailPresence(em))),
     opts.ping?.onPing((em) => client.sendPresence(toPingPresence(em))),
+    ...(opts.pencils ?? []).map((pencil) =>
+      pencil.onPreview((preview) => client.sendPresence(toStrokePreviewPresence(preview))),
+    ),
     client.onPresence((from, data) => {
       remoteLaser.apply(from, data);
       remotePing.apply(from, data);
+      remoteStroke.apply(from, data);
     }),
     client.onPresenceLeave((from) => {
       remoteLaser.remove(from);
       remotePing.remove(from);
+      remoteStroke.remove(from);
     }),
   ];
   awareness.announce();
   // Absent only if Collaborate is clicked before the first board load publishes the hook.
-  if (window.__playground) window.__playground.laserSenders = () => remoteLaser.activeSenderCount;
+  if (window.__playground) {
+    window.__playground.laserSenders = () => remoteLaser.activeSenderCount;
+    window.__playground.strokePreviews = () => remoteStroke.activeSenderCount;
+  }
   return () => {
     window.removeEventListener('pagehide', onPageHide);
     for (const unsubscribe of unsubscribers) unsubscribe?.();
     awareness.dispose();
     remoteLaser.dispose();
     remotePing.dispose();
-    if (window.__playground) delete window.__playground.laserSenders;
+    remoteStroke.dispose();
+    if (window.__playground) {
+      delete window.__playground.laserSenders;
+      delete window.__playground.strokePreviews;
+    }
     opts.onPeers([]);
   };
 }

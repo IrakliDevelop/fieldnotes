@@ -1,4 +1,4 @@
-import { LaserTool, PingTool } from '@fieldnotes/core';
+import { LaserTool, PencilTool, PingTool } from '@fieldnotes/core';
 import type { Viewport } from '@fieldnotes/core';
 import { BroadcastChannelTransport, SyncClient } from '@fieldnotes/sync';
 import type { ClientSyncPlugin, RemoteLayerUpdate } from '@fieldnotes/sync';
@@ -124,6 +124,9 @@ export function connectRoom(
     },
     laser: laser instanceof LaserTool ? laser : undefined,
     ping: ping instanceof PingTool ? ping : undefined,
+    pencils: ['pencil', 'highlighter']
+      .map((name) => viewport.toolManager.getTool(name))
+      .filter((tool) => tool instanceof PencilTool),
     onPeers: opts.onPeers,
   });
   return {

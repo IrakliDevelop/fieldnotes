@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { PencilTool } from './pencil-tool';
+import type { StrokePreview } from './pencil-tool';
+import { toStrokePreviewPresence } from '../canvas/remote-stroke-overlay';
 import { ElementStore } from '../elements/element-store';
 import { Camera } from '../canvas/camera';
 import type { ToolContext, PointerState } from './types';
@@ -402,5 +404,145 @@ describe('PencilTool', () => {
     tool.onPointerMove(pt(30, 30), ctx);
     tool.onPointerUp(pt(30, 30), ctx);
     expect(ctx.store.count).toBe(0);
+  });
+
+  describe('onPreview', () => {
+    function record(tool: PencilTool): StrokePreview[] {
+      const previews: StrokePreview[] = [];
+      tool.onPreview((preview) => previews.push(preview));
+      return previews;
+    }
+
+    function at(ms: number): void {
+      vi.spyOn(performance, 'now').mockReturnValue(ms);
+    }
+
+    it('emits at most once per 50 ms with the id the committed stroke gets', () => {
+      const tool = new PencilTool({ color: '#ff0000', width: 4 });
+      const ctx = makeCtx();
+      const previews = record(tool);
+      at(1000);
+      tool.onPointerDown(pt(0, 0), ctx);
+      expect(previews).toEqual([]);
+      tool.onPointerMove(pt(10, 10), ctx);
+      at(1020);
+      tool.onPointerMove(pt(20, 20), ctx);
+      at(1050);
+      tool.onPointerMove(pt(30, 30), ctx);
+      tool.onPointerUp(pt(30, 30), ctx);
+      vi.restoreAllMocks();
+
+      expect(previews).toHaveLength(2);
+      const [first, second] = previews;
+      expect(first).toEqual({
+        id: expect.any(String),
+        points: [
+          [0, 0, 0.5],
+          [10, 10, 0.5],
+        ],
+        color: '#ff0000',
+        width: 4,
+        opacity: 1,
+      });
+      expect(second && 'points' in second ? second.points : []).toHaveLength(4);
+      expect(second?.id).toBe(first?.id);
+      expect(ctx.store.getAll().map((el) => el.id)).toEqual([first?.id]);
+    });
+
+    it('uses a fresh id for each stroke', () => {
+      const tool = new PencilTool();
+      const ctx = makeCtx();
+      const previews = record(tool);
+      at(0);
+      for (const t of [0, 100]) {
+        at(t);
+        tool.onPointerDown(pt(0, 0), ctx);
+        tool.onPointerMove(pt(10, 10), ctx);
+        tool.onPointerUp(pt(10, 10), ctx);
+      }
+      vi.restoreAllMocks();
+      expect(previews).toHaveLength(2);
+      expect(previews[0]?.id).not.toBe(previews[1]?.id);
+    });
+
+    it('quantises to 0.1 world units and windows the last 120 points', () => {
+      const tool = new PencilTool({ minPointDistance: 0 });
+      const ctx = makeCtx();
+      const previews = record(tool);
+      at(0);
+      tool.onPointerDown(pt(0.04, 0.06, 0.123), ctx);
+      for (let i = 1; i <= 150; i++) tool.onPointerMove(pt(i + 0.04, i * 2 + 0.06, 0.123), ctx);
+      at(100);
+      tool.onPointerMove(pt(151.04, 302.06, 0.123), ctx);
+      vi.restoreAllMocks();
+
+      const last = previews[previews.length - 1];
+      const points = last && 'points' in last ? last.points : [];
+      expect(points).toHaveLength(120);
+      expect(points[0]).toEqual([32, 64.1, 0.12]);
+      expect(points[119]).toEqual([151, 302.1, 0.12]);
+    });
+
+    it('keeps a long pressure stroke payload under 4096 bytes', () => {
+      const tool = new PencilTool({ minPointDistance: 0, progressiveSimplifyThreshold: 100000 });
+      const ctx = makeCtx();
+      const previews = record(tool);
+      at(0);
+      tool.onPointerDown(pt(-12345.678, -12345.678, 0.987654), ctx);
+      for (let i = 1; i <= 1000; i++) {
+        at(i * 60);
+        tool.onPointerMove(
+          pt(-12345.678 - i * 3.33, -12345.678 - i * 7.77, 0.123456 + i / 2000),
+          ctx,
+        );
+      }
+      vi.restoreAllMocks();
+
+      const last = previews[previews.length - 1];
+      expect(last && 'points' in last ? last.points : []).toHaveLength(120);
+      for (const preview of previews) {
+        expect(JSON.stringify(toStrokePreviewPresence(preview)).length).toBeLessThan(4096);
+      }
+    });
+
+    it('carries the highlighter blend mode and opacity', () => {
+      const tool = new PencilTool({ name: 'highlighter', opacity: 0.4, blendMode: 'multiply' });
+      const ctx = makeCtx();
+      const previews = record(tool);
+      tool.onPointerDown(pt(0, 0), ctx);
+      tool.onPointerMove(pt(10, 10), ctx);
+      expect(previews[0]).toMatchObject({ opacity: 0.4, blendMode: 'multiply' });
+    });
+
+    it('emits cleared on cancel and never on pointer up', () => {
+      const tool = new PencilTool();
+      const ctx = makeCtx();
+      const previews = record(tool);
+      at(0);
+      tool.onPointerDown(pt(0, 0), ctx);
+      tool.onPointerMove(pt(10, 10), ctx);
+      tool.onPointerUp(pt(10, 10), ctx);
+      expect(previews.some((preview) => 'cleared' in preview)).toBe(false);
+
+      at(100);
+      tool.onPointerDown(pt(0, 0), ctx);
+      tool.onPointerMove(pt(10, 10), ctx);
+      tool.onPointerCancel?.(pt(10, 10), ctx);
+      vi.restoreAllMocks();
+      const cancelledId = previews[previews.length - 2]?.id;
+      expect(previews[previews.length - 1]).toEqual({ id: cancelledId, cleared: true });
+      expect(ctx.store.count).toBe(1);
+    });
+
+    it('stops emitting after unsubscribe', () => {
+      const tool = new PencilTool();
+      const ctx = makeCtx();
+      const previews: StrokePreview[] = [];
+      const off = tool.onPreview((preview) => previews.push(preview));
+      off();
+      tool.onPointerDown(pt(0, 0), ctx);
+      tool.onPointerMove(pt(10, 10), ctx);
+      expect(previews).toEqual([]);
+    });
   });
 });

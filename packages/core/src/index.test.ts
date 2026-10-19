@@ -190,6 +190,22 @@ describe('core public surface', () => {
     expect(typeof FN.elementRectsEqual).toBe('function');
   });
 
+  it('exports the live stroke preview surface', () => {
+    expect(FN.RemoteStrokeOverlay).toBeTypeOf('function');
+    expect(FN.isStrokePreviewPresence).toBeTypeOf('function');
+    expect(FN.toStrokePreviewPresence({ id: 's', cleared: true })).toEqual({
+      kind: 'stroke',
+      id: 's',
+      cleared: true,
+    });
+    expect(FN.STROKE_PREVIEW_PRESENCE_KIND).toBe('stroke');
+    const preview: FN.StrokePreview = { id: 's', cleared: true };
+    const presence: FN.StrokePreviewPresence = { ...preview, kind: 'stroke' };
+    const options: FN.RemoteStrokeOverlayOptions = { staleMs: 1 };
+    const host: FN.RemoteStrokeOverlayHost | null = null;
+    expect([presence.kind, options.staleMs, host]).toEqual(['stroke', 1, null]);
+  });
+
   it('reports VERSION 0.93.0', async () => {
     const { VERSION } = await import('./index');
     expect(VERSION).toBe('0.93.0');

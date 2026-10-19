@@ -1,6 +1,7 @@
 import type { StrokePoint } from '../core/types';
 import type { Tool, ToolContext, PointerState } from './types';
 import { createStroke } from '../elements/element-factory';
+import { createId } from '../elements/create-id';
 import { simplifyPoints, smoothToSegments, pressureToWidth } from '../elements/stroke-smoothing';
 import { computeStrokeSegments } from '../elements/stroke-cache';
 
@@ -15,7 +16,25 @@ export interface PencilToolOptions {
   blendMode?: 'multiply';
 }
 
+/**
+ * A full-state preview of the stroke being drawn, keyed by the id its committed
+ * element will have, or `cleared` when the gesture was cancelled.
+ */
+export type StrokePreview =
+  | {
+      readonly id: string;
+      /** The newest points as `[x, y, pressure]`, oldest first. */
+      readonly points: readonly (readonly [number, number, number?])[];
+      readonly color: string;
+      readonly width: number;
+      readonly opacity?: number;
+      readonly blendMode?: 'multiply';
+    }
+  | { readonly id: string; readonly cleared: true };
+
 const MIN_POINTS_FOR_STROKE = 2;
+const PREVIEW_INTERVAL_MS = 50;
+const PREVIEW_MAX_POINTS = 120;
 const DEFAULT_SMOOTHING = 1.5;
 const DEFAULT_PRESSURE = 0.5;
 const DEFAULT_MIN_POINT_DISTANCE = 3;
@@ -35,6 +54,9 @@ export class PencilTool implements Tool {
   private opacity: number;
   private blendMode: 'multiply' | undefined;
   private optionListeners = new Set<() => void>();
+  private previewListeners = new Set<(preview: StrokePreview) => void>();
+  private strokeId = '';
+  private lastPreviewAt = -Infinity;
 
   constructor(options: PencilToolOptions = {}) {
     this.name = options.name ?? 'pencil';
@@ -74,6 +96,15 @@ export class PencilTool implements Tool {
     return () => this.optionListeners.delete(listener);
   }
 
+  /**
+   * Subscribes to previews of the stroke in progress, at most one per 50 ms,
+   * windowed to the newest 120 points; `cleared` follows a cancelled gesture.
+   */
+  onPreview(listener: (preview: StrokePreview) => void): () => void {
+    this.previewListeners.add(listener);
+    return () => this.previewListeners.delete(listener);
+  }
+
   setOptions(options: PencilToolOptions): void {
     if (options.color !== undefined) this.color = options.color;
     if (options.width !== undefined) this.width = options.width;
@@ -92,6 +123,8 @@ export class PencilTool implements Tool {
     const pressure = state.pressure === 0 ? DEFAULT_PRESSURE : state.pressure;
     this.points = [{ x: world.x, y: world.y, pressure }];
     this.nextSimplifyAt = this.progressiveThreshold;
+    this.strokeId = createId('stroke');
+    this.lastPreviewAt = -Infinity;
   }
 
   onPointerMove(state: PointerState, ctx: ToolContext): void {
@@ -118,6 +151,7 @@ export class PencilTool implements Tool {
       this.nextSimplifyAt = this.points.length + this.progressiveThreshold;
     }
 
+    this.emitPreview();
     ctx.requestOverlayRender();
   }
 
@@ -131,14 +165,17 @@ export class PencilTool implements Tool {
     }
 
     const simplified = simplifyPoints(this.points, this.smoothing);
-    const stroke = createStroke({
-      points: simplified,
-      color: this.color,
-      width: this.width,
-      layerId: ctx.activeLayerId ?? '',
-      opacity: this.opacity,
-      blendMode: this.blendMode,
-    });
+    const stroke = {
+      ...createStroke({
+        points: simplified,
+        color: this.color,
+        width: this.width,
+        layerId: ctx.activeLayerId ?? '',
+        opacity: this.opacity,
+        blendMode: this.blendMode,
+      }),
+      id: this.strokeId,
+    };
     ctx.store.add(stroke);
     // add() stores a placed copy, so warm the stored element rather than `stroke`.
     const stored = ctx.store.getById(stroke.id);
@@ -152,11 +189,42 @@ export class PencilTool implements Tool {
     if (!this.drawing) return;
     this.drawing = false;
     this.points = [];
+    this.notifyPreview({ id: this.strokeId, cleared: true });
     ctx.requestOverlayRender();
   }
 
   private notifyOptionsChange(): void {
     for (const listener of this.optionListeners) listener();
+  }
+
+  private emitPreview(): void {
+    if (this.previewListeners.size === 0 || this.points.length < MIN_POINTS_FOR_STROKE) return;
+    const now = performance.now();
+    if (now - this.lastPreviewAt < PREVIEW_INTERVAL_MS) return;
+    this.lastPreviewAt = now;
+    // 0.1 world units and 0.01 pressure keep 120 points under a 4 KiB presence frame.
+    const points = this.points
+      .slice(-PREVIEW_MAX_POINTS)
+      .map(
+        (p) =>
+          [
+            Math.round(p.x * 10) / 10,
+            Math.round(p.y * 10) / 10,
+            Math.round(p.pressure * 100) / 100,
+          ] as const,
+      );
+    this.notifyPreview({
+      id: this.strokeId,
+      points,
+      color: this.color,
+      width: this.width,
+      opacity: this.opacity,
+      ...(this.blendMode && { blendMode: this.blendMode }),
+    });
+  }
+
+  private notifyPreview(preview: StrokePreview): void {
+    for (const listener of this.previewListeners) listener(preview);
   }
 
   renderOverlay(ctx: CanvasRenderingContext2D): void {

@@ -93,6 +93,17 @@ export type {
   RemoteLaserOverlayOptions,
 } from './canvas/remote-laser-overlay';
 export {
+  RemoteStrokeOverlay,
+  isStrokePreviewPresence,
+  toStrokePreviewPresence,
+  STROKE_PREVIEW_PRESENCE_KIND,
+} from './canvas/remote-stroke-overlay';
+export type {
+  StrokePreviewPresence,
+  RemoteStrokeOverlayHost,
+  RemoteStrokeOverlayOptions,
+} from './canvas/remote-stroke-overlay';
+export {
   RemotePingOverlay,
   isPingPresence,
   toPingPresence,
@@ -274,7 +285,7 @@ export { ToolManager } from './tools/tool-manager';
 export { createDefaultTools } from './tools/default-tools';
 export { HandTool } from './tools/hand-tool';
 export { PencilTool } from './tools/pencil-tool';
-export type { PencilToolOptions } from './tools/pencil-tool';
+export type { PencilToolOptions, StrokePreview } from './tools/pencil-tool';
 export { EraserTool } from './tools/eraser-tool';
 export type { EraserToolOptions } from './tools/eraser-tool';
 export { SelectTool } from './tools/select-tool';
