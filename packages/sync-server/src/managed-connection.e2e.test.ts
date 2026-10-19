@@ -260,7 +260,7 @@ describe('managed sync connection (end-to-end)', () => {
 
     // Bootstrap: the empty hub learns both seeds through the preserve re-push.
     await waitFor(() => connection.getStatus() === 'live');
-    await waitFor(async () => (await backend.get('R', 'seed-2')) !== undefined);
+    await waitFor(async () => (await backend.getRecord('R', 'seed-2'))?.kind === 'element');
     expect(phases).toEqual(['bootstrap']);
 
     const peer = connectPeer(port, 'u-peer', 'peer-token');
@@ -283,7 +283,7 @@ describe('managed sync connection (end-to-end)', () => {
       id: 'dm-offline',
     });
     peer.store.remove('seed-2');
-    await waitFor(async () => (await backend.get('R', 'seed-2')) === undefined);
+    await waitFor(async () => (await backend.getRecord('R', 'seed-2'))?.kind !== 'element');
 
     allowMint = true;
     await waitFor(() => connection.getStatus() === 'live');
@@ -296,7 +296,7 @@ describe('managed sync connection (end-to-end)', () => {
     // re-pushed through the normal upsert path to the hub and the peer.
     expect(dmStore.getById('seed-1')).toBeDefined();
     expect(dmStore.getById('dm-offline')).toBeDefined();
-    await waitFor(async () => (await backend.get('R', 'dm-offline')) !== undefined);
+    await waitFor(async () => (await backend.getRecord('R', 'dm-offline'))?.kind === 'element');
     await waitFor(() => peer.store.getById('dm-offline') !== undefined);
     expect(peer.store.getById('seed-2')).toBeUndefined();
   }, 10000);

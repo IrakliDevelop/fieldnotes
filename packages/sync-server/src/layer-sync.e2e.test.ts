@@ -126,7 +126,7 @@ describe('layer-definition sync (end-to-end)', () => {
       id: 'token-1',
       layerId: 'layer-annotations',
     });
-    await waitFor(async () => (await backend.get('R', 'token-1')) !== undefined);
+    await waitFor(async () => (await backend.getRecord('R', 'token-1'))?.kind === 'element');
 
     const late = connectPeer(port, 'p2');
     await waitFor(() => late.store.getById('token-1') !== undefined);

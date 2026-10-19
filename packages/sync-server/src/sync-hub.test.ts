@@ -29,6 +29,15 @@ function makeConn(id: string, room: string): FakeConn {
   return { id, room, sent, send: (m) => sent.push(m) };
 }
 
+async function storedElement(
+  backend: HubBackend,
+  room: string,
+  id: string,
+): Promise<SyncElement | undefined> {
+  const record = await backend.getRecord(room, id);
+  return record?.kind === 'element' ? record.element : undefined;
+}
+
 function envelope(from: string, op: SyncOp): string {
   return JSON.stringify({ from, op });
 }
@@ -361,20 +370,17 @@ describe('SyncHub', () => {
         return new Promise<void>((res) => this.resolvers.push(res));
       }
 
-      async snapshot(room: string): Promise<SyncElement[]> {
+      async snapshot(room: string): Promise<{ elements: SyncElement[]; tombstones: [] }> {
         await this.gate(`snapshot:${room}`);
-        return [];
+        return { elements: [], tombstones: [] };
       }
 
-      // Not on the paths this suite drives; recorded without a gate so an
-      // unexpected lookup shows up in `calls` instead of deadlocking the queue.
-      async get(room: string, id: string): Promise<SyncElement | undefined> {
-        this.calls.push(`get:${room}:${id}`);
-        return undefined;
+      async getRecord(room: string, id: string): Promise<undefined> {
+        await this.gate(`getRecord:${room}:${id}`);
       }
 
-      async apply(room: string, op: SyncOp): Promise<void> {
-        await this.gate(`apply:${room}:${op.kind}`);
+      async applyElement(): Promise<{ ok: true }> {
+        return { ok: true };
       }
     }
 
@@ -396,13 +402,13 @@ describe('SyncHub', () => {
       // Room R's snapshot started; the second R message is queued behind it.
       // Room R2 was NOT blocked by room R.
       expect(backend.calls).toContain('snapshot:R');
-      expect(backend.calls).toContain('apply:R2:remove');
-      expect(backend.calls).not.toContain('apply:R:remove');
+      expect(backend.calls).toContain('getRecord:R2:y');
+      expect(backend.calls).not.toContain('getRecord:R:x');
 
       // Resolve the first R op; only now does the queued R op run.
       backend.resolvers[0]?.();
       await flush();
-      expect(backend.calls).toContain('apply:R:remove');
+      expect(backend.calls).toContain('getRecord:R:x');
     });
   });
 
@@ -617,7 +623,7 @@ describe('SyncHub', () => {
       await expect(h.handleMessage('a', upsert('ca', 'e1'))).rejects.toBe(error);
       // Publish-then-apply (S7): a rejected publication persists nothing, so the sender is
       // corrected on that one element instead of being handed a whole-room snapshot.
-      expect((await backend.snapshot('R')).map((element) => element.id)).toEqual([]);
+      expect((await backend.snapshot('R')).elements.map((element) => element.id)).toEqual([]);
       expect(origin.sent).toHaveLength(1);
       expect(JSON.parse(origin.sent[0] ?? '')).toEqual({
         from: 'hub',
@@ -627,7 +633,7 @@ describe('SyncHub', () => {
 
       // The room queue stays usable and the next op is unaffected by the correction.
       await expect(h.handleMessage('a', upsert('ca', 'e2'))).resolves.toBeUndefined();
-      expect((await backend.snapshot('R')).map((element) => element.id)).toEqual(['e2']);
+      expect((await backend.snapshot('R')).elements.map((element) => element.id)).toEqual(['e2']);
       expect(origin.sent).toHaveLength(1);
       expect(localPeer.sent).toHaveLength(1);
       expect(JSON.parse(localPeer.sent[0] ?? '').op.element.id).toBe('e2');
@@ -666,7 +672,9 @@ describe('SyncHub', () => {
       ).rejects.toBe(error);
 
       // Nothing was deleted, so the sender's optimistic removal is undone element-wise.
-      expect((await backend.snapshot('R')).map((element) => element.id)).toEqual(['secret']);
+      expect((await backend.snapshot('R')).elements.map((element) => element.id)).toEqual([
+        'secret',
+      ]);
       expect(dm.sent).toHaveLength(1);
       expect(JSON.parse(dm.sent[0] ?? '')).toEqual({
         from: 'hub',
@@ -679,13 +687,15 @@ describe('SyncHub', () => {
       class ApplyFailsOnceBackend extends MemoryHubBackend {
         pendingFailure: Error | undefined = error;
 
-        override async apply(...args: Parameters<HubBackend['apply']>): Promise<void> {
+        override async applyElement(
+          ...args: Parameters<HubBackend['applyElement']>
+        ): ReturnType<HubBackend['applyElement']> {
           const failure = this.pendingFailure;
           if (failure) {
             this.pendingFailure = undefined;
             throw failure;
           }
-          await super.apply(...args);
+          return super.applyElement(...args);
         }
       }
       const backend = new ApplyFailsOnceBackend();
@@ -697,7 +707,7 @@ describe('SyncHub', () => {
       h.addConnection(localPeer);
 
       await expect(h.handleMessage('a', upsert('ca', 'e1'))).rejects.toBe(error);
-      expect((await backend.snapshot('R')).map((element) => element.id)).toEqual([]);
+      expect((await backend.snapshot('R')).elements.map((element) => element.id)).toEqual([]);
       expect(origin.sent).toHaveLength(1);
       expect(JSON.parse(origin.sent[0] ?? '')).toEqual({
         from: 'hub',
@@ -706,7 +716,7 @@ describe('SyncHub', () => {
       expect(localPeer.sent).toEqual([]);
 
       await expect(h.handleMessage('a', upsert('ca', 'e2'))).resolves.toBeUndefined();
-      expect((await backend.snapshot('R')).map((element) => element.id)).toEqual(['e2']);
+      expect((await backend.snapshot('R')).elements.map((element) => element.id)).toEqual(['e2']);
       expect(localPeer.sent).toHaveLength(1);
     });
 
@@ -714,12 +724,18 @@ describe('SyncHub', () => {
       const error = new Error('fanout unavailable');
       const readError = new Error('read unavailable');
       class CorrectionReadFailsBackend extends MemoryHubBackend {
-        override snapshot(): Promise<SyncElement[]> {
+        private reads = 0;
+
+        override snapshot(): ReturnType<HubBackend['snapshot']> {
           return Promise.reject(readError);
         }
 
-        override get(): Promise<SyncElement | undefined> {
-          return Promise.reject(readError);
+        // The op's own read succeeds; only the correction's read fails.
+        override getRecord(
+          ...args: Parameters<HubBackend['getRecord']>
+        ): ReturnType<HubBackend['getRecord']> {
+          this.reads++;
+          return this.reads > 1 ? Promise.reject(readError) : super.getRecord(...args);
         }
       }
       const backend = new CorrectionReadFailsBackend();
@@ -783,7 +799,7 @@ describe('SyncHub', () => {
       let idsWhenPublished: string[] | undefined;
       const fanout = {
         publish: vi.fn(async () => {
-          idsWhenPublished = (await backend.snapshot('R')).map((element) => element.id);
+          idsWhenPublished = (await backend.snapshot('R')).elements.map((element) => element.id);
         }),
         subscribe: () => () => undefined,
       };
@@ -794,7 +810,7 @@ describe('SyncHub', () => {
       await h.handleMessage('a', upsert('ca', 'e1'));
 
       expect(idsWhenPublished).toEqual([]);
-      expect((await backend.snapshot('R')).map((element) => element.id)).toEqual(['e1']);
+      expect((await backend.snapshot('R')).elements.map((element) => element.id)).toEqual(['e1']);
     });
 
     it('isolates rooms across instances', async () => {
@@ -932,9 +948,9 @@ describe('SyncHub', () => {
         hub.addConnection(obs);
 
         await hub.handleMessage('p', envelope('cp', { kind: 'upsert', element: el('e1') }));
-        expect(((await backend.get('R', 'e1')) as OwnedElement | undefined)?.ownerId).toBe(
-          'player1',
-        );
+        expect(
+          ((await storedElement(backend, 'R', 'e1')) as OwnedElement | undefined)?.ownerId,
+        ).toBe('player1');
         expect(JSON.parse(obs.sent[0] ?? '').op.element).toEqual(withoutOwner(el('e1')));
         expect(JSON.parse(p2.sent[0] ?? '').op.element).not.toHaveProperty('ownerId');
 
@@ -954,7 +970,11 @@ describe('SyncHub', () => {
 
       it('strips a persisted ownerId even when no authorize hook is configured', async () => {
         const backend = new MemoryHubBackend();
-        await backend.apply('R', { kind: 'upsert', element: { ...el('e1'), ownerId: 'dm1' } });
+        await backend.applyElement(
+          'R',
+          { kind: 'upsert', element: { ...el('e1'), ownerId: 'dm1' } },
+          null,
+        );
         const bus = new InMemoryHubFanout();
         const hubA = new SyncHub({ backend, instanceId: 'A', fanout: bus });
         const hubB = new SyncHub({ backend, instanceId: 'B', fanout: bus });
@@ -1037,7 +1057,7 @@ describe('SyncHub', () => {
       const fwd = JSON.parse(obs.sent[0] ?? '');
       expect(fwd.op.element.id).toBe('e1');
       expect(fwd.op.element.ownerId).toBeUndefined(); // stamped server-side, never relayed (S4)
-      const stored = (await backend.get('R', 'e1')) as OwnedElement | undefined;
+      const stored = (await storedElement(backend, 'R', 'e1')) as OwnedElement | undefined;
       expect(stored?.ownerId).toBe('player1');
     });
 
@@ -1056,7 +1076,7 @@ describe('SyncHub', () => {
 
       await hub.handleMessage('p', envelope('cp', { kind: 'upsert', element: el('X') }));
 
-      const stored = (await backend.get('R', 'X')) as OwnedElement | undefined;
+      const stored = (await storedElement(backend, 'R', 'X')) as OwnedElement | undefined;
       expect(stored?.ownerId).toBe('dm1');
       expect(obs.sent).toEqual([]);
     });
@@ -1076,7 +1096,7 @@ describe('SyncHub', () => {
 
       await hub.handleMessage('p', envelope('cp', { kind: 'remove', id: 'X' }));
 
-      expect(await backend.get('R', 'X')).toBeDefined();
+      expect(await storedElement(backend, 'R', 'X')).toBeDefined();
       expect(obs.sent).toEqual([]);
     });
 
@@ -1095,7 +1115,7 @@ describe('SyncHub', () => {
 
       await hub.handleMessage('p', envelope('cp', { kind: 'clear' }));
 
-      expect(await backend.get('R', 'X')).toBeDefined();
+      expect(await storedElement(backend, 'R', 'X')).toBeDefined();
       expect(obs.sent).toEqual([]);
     });
 
@@ -1109,7 +1129,7 @@ describe('SyncHub', () => {
 
       await hub.handleMessage('d', envelope('cd', { kind: 'upsert', element: el('e1') }));
 
-      expect(await backend.get('R', 'e1')).toBeUndefined();
+      expect(await storedElement(backend, 'R', 'e1')).toBeUndefined();
       expect(obs.sent).toEqual([]);
     });
 
@@ -1124,14 +1144,16 @@ describe('SyncHub', () => {
       await hub.handleMessage('dm', envelope('cdm', { kind: 'upsert', element: el('X') }));
       const fwd = JSON.parse(obs.sent[0] ?? '');
       expect(fwd.op.element.id).toBe('X');
-      expect(((await backend.get('R', 'X')) as OwnedElement | undefined)?.ownerId).toBe('dm1');
+      expect(((await storedElement(backend, 'R', 'X')) as OwnedElement | undefined)?.ownerId).toBe(
+        'dm1',
+      );
 
       await hub.handleMessage('dm', envelope('cdm', { kind: 'remove', id: 'X' }));
-      expect(await backend.get('R', 'X')).toBeUndefined();
+      expect(await storedElement(backend, 'R', 'X')).toBeUndefined();
 
       await hub.handleMessage('dm', envelope('cdm', { kind: 'upsert', element: el('Y') }));
       await hub.handleMessage('dm', envelope('cdm', { kind: 'clear' }));
-      expect(await backend.snapshot('R')).toEqual([]);
+      expect((await backend.snapshot('R')).elements).toEqual([]);
     });
 
     it('is forge-proof: server stamps ownerId, ignoring a client-supplied ownerId', async () => {
@@ -1146,11 +1168,15 @@ describe('SyncHub', () => {
       await hub.handleMessage('p', envelope('cp', { kind: 'upsert', element: forgedNew }));
       const fwdNew = JSON.parse(obs.sent[0] ?? '');
       expect(fwdNew.op.element.ownerId).toBeUndefined(); // the forged value never reaches a peer
-      expect(((await backend.get('R', 'f')) as OwnedElement | undefined)?.ownerId).toBe('player1');
+      expect(((await storedElement(backend, 'R', 'f')) as OwnedElement | undefined)?.ownerId).toBe(
+        'player1',
+      );
 
       const forgedOwn: OwnedElement = { ...sampleEl(), id: 'f', ownerId: 'zzz' };
       await hub.handleMessage('p', envelope('cp', { kind: 'upsert', element: forgedOwn }));
-      expect(((await backend.get('R', 'f')) as OwnedElement | undefined)?.ownerId).toBe('player1');
+      expect(((await storedElement(backend, 'R', 'f')) as OwnedElement | undefined)?.ownerId).toBe(
+        'player1',
+      );
     });
 
     it('passes currentElement (undefined for new, stored for existing) to the policy', async () => {
@@ -1182,7 +1208,7 @@ describe('SyncHub', () => {
 
       await hub.handleMessage('p', envelope('cp', { kind: 'upsert', element: el('e1') }));
 
-      expect(await backend.get('R', 'e1')).toBeUndefined();
+      expect(await storedElement(backend, 'R', 'e1')).toBeUndefined();
       expect(obs.sent).toEqual([]);
     });
 
@@ -1205,7 +1231,7 @@ describe('SyncHub', () => {
 
         expect(lastCorrection(d)).toEqual({ from: 'hub', op: { kind: 'remove', id: 'E' } });
         expect(peer.sent).toEqual([]);
-        expect(await backend.get('R', 'E')).toBeUndefined();
+        expect(await storedElement(backend, 'R', 'E')).toBeUndefined();
       });
 
       it('denied upsert of an EXISTING element → sends the sender the canonical upsert', async () => {
@@ -1219,7 +1245,7 @@ describe('SyncHub', () => {
         hub.addConnection(peer);
 
         await hub.handleMessage('dm', envelope('cdm', { kind: 'upsert', element: el('X') }));
-        const canonical = (await backend.get('R', 'X')) as OwnedElement;
+        const canonical = (await storedElement(backend, 'R', 'X')) as OwnedElement;
         peer.sent.length = 0;
 
         const changed = { ...el('X'), position: { x: 999, y: 999 } };
@@ -1230,7 +1256,7 @@ describe('SyncHub', () => {
           op: { kind: 'upsert', element: publicView(canonical) },
         });
         expect(canonical.ownerId).toBe('dm1');
-        expect(await backend.get('R', 'X')).toEqual(canonical);
+        expect(await storedElement(backend, 'R', 'X')).toEqual(canonical);
         expect(peer.sent).toEqual([]);
       });
 
@@ -1243,7 +1269,7 @@ describe('SyncHub', () => {
         hub.addConnection(p);
 
         await hub.handleMessage('dm', envelope('cdm', { kind: 'upsert', element: el('X') }));
-        const canonical = (await backend.get('R', 'X')) as OwnedElement;
+        const canonical = (await storedElement(backend, 'R', 'X')) as OwnedElement;
 
         await hub.handleMessage('p', envelope('cp', { kind: 'remove', id: 'X' }));
 
@@ -1251,7 +1277,7 @@ describe('SyncHub', () => {
           from: 'hub',
           op: { kind: 'upsert', element: publicView(canonical) },
         });
-        expect(await backend.get('R', 'X')).toEqual(canonical);
+        expect(await storedElement(backend, 'R', 'X')).toEqual(canonical);
       });
 
       it('denied remove of a NON-EXISTENT element → sends nothing', async () => {
@@ -1275,7 +1301,7 @@ describe('SyncHub', () => {
 
         await hub.handleMessage('dm', envelope('cdm', { kind: 'upsert', element: el('X') }));
         await hub.handleMessage('dm', envelope('cdm', { kind: 'upsert', element: el('Y') }));
-        const canonical = await backend.snapshot('R');
+        const canonical = (await backend.snapshot('R')).elements;
 
         await hub.handleMessage('p', envelope('cp-clr', { kind: 'clear' }));
 
@@ -1283,7 +1309,7 @@ describe('SyncHub', () => {
           from: 'hub',
           op: { kind: 'snapshot', to: 'cp-clr', elements: canonical.map(publicView) },
         });
-        expect(await backend.snapshot('R')).toEqual(canonical);
+        expect((await backend.snapshot('R')).elements).toEqual(canonical);
       });
 
       it('a clear correction carries layers and plugin snapshots', async () => {
@@ -1352,7 +1378,7 @@ describe('SyncHub', () => {
       it('a denied clear whose correction read fails still rejects', async () => {
         const snapshotError = new Error('snapshot unavailable');
         class SnapshotFailsBackend extends MemoryHubBackend {
-          override snapshot(): Promise<SyncElement[]> {
+          override snapshot(): ReturnType<HubBackend['snapshot']> {
             return Promise.reject(snapshotError);
           }
         }
@@ -1522,8 +1548,8 @@ describe('authority legacy isolation', () => {
   });
   it('routes a guarded authority room before legacy backend, plugin, and fanout paths', async () => {
     const backend = {
-      get: vi.fn(),
-      apply: vi.fn(),
+      getRecord: vi.fn(),
+      applyElement: vi.fn(),
       snapshot: vi.fn(),
       getService: vi.fn(),
     } as unknown as HubBackend;
@@ -1566,8 +1592,8 @@ describe('authority legacy isolation', () => {
     hub.addConnection(connection);
     await hub.handleMessage(connection.id, envelope(connection.id, { kind: 'clear' }));
     expect(close).toHaveBeenCalledWith(4406);
-    expect(backend.get).not.toHaveBeenCalled();
-    expect(backend.apply).not.toHaveBeenCalled();
+    expect(backend.getRecord).not.toHaveBeenCalled();
+    expect(backend.applyElement).not.toHaveBeenCalled();
     expect(backend.getService).not.toHaveBeenCalled();
     expect(process).not.toHaveBeenCalled();
     expect(publish).not.toHaveBeenCalled();
@@ -1576,8 +1602,8 @@ describe('authority legacy isolation', () => {
 
   it('refuses an unregistered direct adapter and blocks legacy fanout into authority rooms', async () => {
     const backend = {
-      get: vi.fn(),
-      apply: vi.fn(),
+      getRecord: vi.fn(),
+      applyElement: vi.fn(),
       snapshot: vi.fn(),
       applyLayerRecord: vi.fn(),
     } as unknown as HubBackend;
@@ -1630,7 +1656,7 @@ describe('authority legacy isolation', () => {
     );
     await new Promise<void>((resolve) => setImmediate(resolve));
     expect(backend.applyLayerRecord).not.toHaveBeenCalled();
-    expect(backend.apply).not.toHaveBeenCalled();
+    expect(backend.applyElement).not.toHaveBeenCalled();
     expect(fanout.publish).not.toHaveBeenCalled();
     hub.close();
   });
@@ -1928,8 +1954,8 @@ describe('read filtering (canRead)', () => {
 
     const shared = { ...sampleEl(), id: 'shared', audience: 'shared', ownerId: 'dm1' };
     const secret = { ...sampleEl(), id: 'secret', audience: 'dm', ownerId: 'dm1' };
-    await backend.apply('R', { kind: 'upsert', element: shared });
-    await backend.apply('R', { kind: 'upsert', element: secret });
+    await backend.applyElement('R', { kind: 'upsert', element: shared }, null);
+    await backend.applyElement('R', { kind: 'upsert', element: secret }, null);
 
     await hub.handleMessage(
       'pl',
@@ -1950,7 +1976,7 @@ describe('read filtering (canRead)', () => {
       },
     ]);
     expect(player.sent.join('')).not.toContain('"audience":"dm"');
-    expect(await backend.snapshot('R')).toEqual([shared, secret]);
+    expect((await backend.snapshot('R')).elements).toEqual([shared, secret]);
   });
 
   it('keeps canonical correction behavior for viewers allowed to read the element', async () => {
@@ -1959,7 +1985,7 @@ describe('read filtering (canRead)', () => {
     const dm = conn('dm', 'R', 'dm');
     hub.addConnection(dm);
     const secret = { ...sampleEl(), id: 'secret', audience: 'dm', ownerId: 'dm1' };
-    await backend.apply('R', { kind: 'upsert', element: secret });
+    await backend.applyElement('R', { kind: 'upsert', element: secret }, null);
 
     await hub.handleMessage('dm', envelope('dm-remove', { kind: 'remove', id: secret.id }));
 
@@ -2086,12 +2112,12 @@ describe('read filtering (canRead)', () => {
       // A player tags an upsert 'dm' to hide it from the table.
       await hub.handleMessage('pl', upsertMsg('cpl', 'e1', 'dm'));
       expect(JSON.parse(other.sent[0] ?? '').op.element.audience).toBe('shared');
-      expect((await backend.get('R', 'e1'))?.audience).toBe('shared');
+      expect((await storedElement(backend, 'R', 'e1'))?.audience).toBe('shared');
 
       // The DM's edit of the same element keeps the DM-resolved audience.
       other.sent.length = 0;
       await hub.handleMessage('dm', upsertMsg('cdm', 'e1', 'shared'));
-      expect((await backend.get('R', 'e1'))?.audience).toBe('dm');
+      expect((await storedElement(backend, 'R', 'e1'))?.audience).toBe('dm');
       // The player who could see it gets a synthetic remove, not the retagged bytes.
       expect(JSON.parse(other.sent[0] ?? '').op).toEqual({ kind: 'remove', id: 'e1' });
     });
@@ -2104,7 +2130,7 @@ describe('read filtering (canRead)', () => {
 
       await hub.handleMessage('pl', upsertMsg('cpl', 'e1', 'dm'));
 
-      expect(await backend.get('R', 'e1')).not.toHaveProperty('audience');
+      expect(await storedElement(backend, 'R', 'e1')).not.toHaveProperty('audience');
     });
 
     it('passes the resolved audience and the stored element to authorize', async () => {
@@ -2621,13 +2647,13 @@ describe('presence (ephemeral)', () => {
         calls++;
         return inner.snapshot(r);
       },
-      apply: (r, op) => {
+      applyElement: (r, write, expected) => {
         calls++;
-        return inner.apply(r, op);
+        return inner.applyElement(r, write, expected);
       },
-      get: (r, id) => {
+      getRecord: (r, id) => {
         calls++;
-        return inner.get(r, id);
+        return inner.getRecord(r, id);
       },
     };
     const hub = new SyncHub({ backend });
@@ -2915,9 +2941,9 @@ describe('layer-definition sync', () => {
 
   it('falls back to hub memory for backends without layer persistence', async () => {
     const minimal: HubBackend = {
-      snapshot: async () => [],
-      get: async () => undefined,
-      apply: async () => undefined,
+      snapshot: async () => ({ elements: [], tombstones: [] }),
+      getRecord: async () => undefined,
+      applyElement: async () => ({ ok: true }),
     };
     const hub = new SyncHub({ backend: minimal });
     const a = makeConn('A', 'R');
@@ -2943,7 +2969,7 @@ describe('layer-definition sync', () => {
     await hub.handleMessage('A', envelope('clientA', layerUpsert(1, 'clientA')));
 
     await hub.handleMessage('A', envelope('clientA', { kind: 'clear' }));
-    expect(await backend.snapshot('R')).toEqual([]);
+    expect((await backend.snapshot('R')).elements).toEqual([]);
     expect(await backend.layerRecords('R')).toHaveLength(1);
     hub.close();
   });
@@ -3121,7 +3147,7 @@ describe('idle-room eviction', () => {
     const hub = await seeded({ backend, roomIdleTimeoutMs: 1000 });
 
     await vi.advanceTimersByTimeAsync(999);
-    expect((await backend.snapshot('R')).map((el) => el.id)).toEqual(['e1']);
+    expect((await backend.snapshot('R')).elements.map((el) => el.id)).toEqual(['e1']);
 
     await vi.advanceTimersByTimeAsync(1);
     const snapshot = await snapshotFor(hub, 'late');
@@ -3135,8 +3161,8 @@ describe('idle-room eviction', () => {
     const hub = await seeded({
       backend: {
         snapshot: (room) => memory.snapshot(room),
-        get: (room, id) => memory.get(room, id),
-        apply: (room, op) => memory.apply(room, op),
+        getRecord: (room, id) => memory.getRecord(room, id),
+        applyElement: (room, write, expected) => memory.applyElement(room, write, expected),
       },
       roomIdleTimeoutMs: 1000,
     });
@@ -3155,7 +3181,7 @@ describe('idle-room eviction', () => {
     hub.addConnection(makeConn('A2', 'R'));
     await vi.advanceTimersByTimeAsync(5000);
 
-    expect((await backend.snapshot('R')).map((el) => el.id)).toEqual(['e1']);
+    expect((await backend.snapshot('R')).elements.map((el) => el.id)).toEqual(['e1']);
     hub.close();
   });
 
@@ -3165,7 +3191,7 @@ describe('idle-room eviction', () => {
 
     await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
 
-    expect((await backend.snapshot('R')).map((el) => el.id)).toEqual(['e1']);
+    expect((await backend.snapshot('R')).elements.map((el) => el.id)).toEqual(['e1']);
     expect((await snapshotFor(hub, 'late'))['layers']).toHaveLength(1);
     hub.close();
   });
@@ -3236,8 +3262,8 @@ describe('idle-room eviction', () => {
       fanout: bus,
       backend: {
         snapshot: (room) => memory.snapshot(room),
-        get: (room, id) => memory.get(room, id),
-        apply: (room, op) => memory.apply(room, op),
+        getRecord: (room, id) => memory.getRecord(room, id),
+        applyElement: (room, write, expected) => memory.applyElement(room, write, expected),
       },
       plugins: [createFogServerPlugin()],
       roomIdleTimeoutMs: 1000,

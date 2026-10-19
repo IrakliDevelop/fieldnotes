@@ -15,7 +15,7 @@ import {
 } from '@fieldnotes/sync';
 import { MemoryHubBackend } from './memory-hub-backend';
 import { InMemoryHubFanout, type HubFanout } from './hub-fanout';
-import type { HubBackend } from './hub-backend';
+import type { ElementWrite, HubBackend, HubRecord } from './hub-backend';
 import type {
   Authorize,
   AuthorizeLayer,
@@ -463,8 +463,8 @@ export class SyncHub {
           this.canRead !== undefined ||
           this.resolveAudience !== undefined) &&
         id !== undefined;
-      const storedCurrent = needCurrent ? await this.backend.get(conn.room, id) : undefined;
-      const current = storedCurrent ?? undefined;
+      const record = id === undefined ? undefined : await this.backend.getRecord(conn.room, id);
+      const current = record?.kind === 'element' ? record.element : undefined;
 
       if (op.kind === 'upsert' && this.resolveAudience) {
         // The hub, not the client, decides the audience; it runs before authorize so a
@@ -519,6 +519,7 @@ export class SyncHub {
         // from authoritative state, but a publish that succeeded before apply failed has
         // already reached the other instances, whose members hold a phantom until their next
         // authoritative read converges them. The rejection propagates for observability.
+        let conflict: { current: HubRecord | undefined } | undefined;
         try {
           if (result.locality !== 'local') {
             await this.fanout.publish(
@@ -532,7 +533,49 @@ export class SyncHub {
               }),
             );
           }
-          await this.backend.apply(conn.room, accepted);
+          let write: ElementWrite | undefined;
+          if (accepted.kind === 'upsert') {
+            write = { kind: 'upsert', element: accepted.element };
+          } else if (accepted.kind === 'remove') {
+            // Interim until the versioned pipeline: an unknown id is relayed but not written.
+            if (current) {
+              write = {
+                kind: 'remove',
+                tombstone: {
+                  id: accepted.id,
+                  version: accepted.version ?? current.version + 1,
+                  editor: accepted.editor ?? 'hub',
+                  removedAt: Date.now(),
+                  ownerId: current.ownerId,
+                  audience: current.audience,
+                },
+              };
+            }
+          } else {
+            const { elements } = await this.backend.snapshot(conn.room);
+            const removedAt = Date.now();
+            write = {
+              kind: 'clear',
+              tombstones: elements.map((element) => ({
+                id: element.id,
+                version: element.version + 1,
+                editor: env.from,
+                removedAt,
+                ownerId: element.ownerId,
+                audience: element.audience,
+              })),
+              expected: new Map(elements.map((element) => [element.id, element.version])),
+            };
+          }
+          let expectedVersion: number | null = null;
+          if (record) {
+            expectedVersion =
+              record.kind === 'element' ? record.element.version : record.tombstone.version;
+          }
+          const outcome = write
+            ? await this.backend.applyElement(conn.room, write, expectedVersion)
+            : undefined;
+          if (outcome && !outcome.ok) conflict = outcome;
         } catch (error) {
           await this.sendFailureCorrection(conn, env.from, op, current, needCurrent).catch(() => {
             // Best effort: the correction is a courtesy, so a backend that also fails this
@@ -541,7 +584,13 @@ export class SyncHub {
           });
           throw error;
         }
-        this.deliverToRoom(conn.room, conn.id, conn.id, accepted, prevAudience, prevExisted);
+        if (conflict) {
+          const latest =
+            conflict.current?.kind === 'element' ? conflict.current.element : undefined;
+          await this.sendFailureCorrection(conn, env.from, op, latest, true);
+        } else {
+          this.deliverToRoom(conn.room, conn.id, conn.id, accepted, prevAudience, prevExisted);
+        }
       }
       for (const broadcast of result.broadcast ?? []) {
         await this.publishPluginOp(conn, broadcast, result.locality);
@@ -999,8 +1048,11 @@ export class SyncHub {
       await this.sendCorrection(conn, from, op, current);
       return;
     }
-    const stored = await this.backend.get(conn.room, op.kind === 'upsert' ? op.element.id : op.id);
-    const latest = stored ?? undefined;
+    const stored = await this.backend.getRecord(
+      conn.room,
+      op.kind === 'upsert' ? op.element.id : op.id,
+    );
+    const latest = stored?.kind === 'element' ? stored.element : undefined;
     await this.sendCorrection(conn, from, op, latest);
   }
 
@@ -1018,7 +1070,7 @@ export class SyncHub {
    * share it so a corrected sender is never left with less state than a joiner receives.
    */
   private async buildSnapshotOp(conn: Connection, to: string): Promise<SyncOp> {
-    const all = await this.backend.snapshot(conn.room);
+    const { elements: all } = await this.backend.snapshot(conn.room);
     const elements = this.canRead ? all.filter((el) => this.mayRead(conn, el.audience)) : all;
     // Layer records are presentation-only and carry no element bytes, so no
     // audience filter applies; the field is omitted while a room has never

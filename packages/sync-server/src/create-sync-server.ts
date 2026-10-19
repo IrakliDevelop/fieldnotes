@@ -2,6 +2,7 @@ import { WebSocketServer, type RawData } from 'ws';
 import type { IncomingMessage, Server } from 'http';
 import { SyncHub, type Connection } from './sync-hub';
 import type { HubBackend } from './hub-backend';
+import { MemoryHubBackend } from './memory-hub-backend';
 import type { HubFanout } from './hub-fanout';
 import { readBearerToken, type Authenticate } from './authenticate';
 import type {
@@ -52,6 +53,8 @@ export interface CreateSyncServerOptions {
   port?: number;
   server?: Server;
   backend?: HubBackend;
+  /** Tombstone retention of the default `MemoryHubBackend`; a custom backend takes its own. */
+  tombstoneRetentionMs?: number;
   fanout?: HubFanout;
   instanceId?: string;
   authenticate?: Authenticate;
@@ -141,6 +144,9 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
     if (!options.framePolicy || !options.authenticate)
       throw new Error('createSyncServer: authority requires framePolicy and authenticate');
   }
+  if (options.backend && options.tombstoneRetentionMs !== undefined) {
+    throw new Error('createSyncServer: tombstoneRetentionMs applies only to the default backend');
+  }
   const framePolicy = options.framePolicy;
   if (framePolicy !== undefined) {
     if (
@@ -185,7 +191,9 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
   }
   const hub = new SyncHub({
     authority: options.authority,
-    backend: options.backend,
+    backend:
+      options.backend ??
+      new MemoryHubBackend({ tombstoneRetentionMs: options.tombstoneRetentionMs }),
     fanout: options.fanout,
     instanceId: options.instanceId,
     authorize: options.authorize,
