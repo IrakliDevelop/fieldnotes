@@ -433,8 +433,7 @@ export class SyncHub {
     if (env.op.kind === 'capabilities' && env.op.capabilities.protocolVersion < 2) {
       return this.refuseProtocol(conn);
     }
-    let opCost = isFanoutOp(env.op) ? 1 : 0;
-    if (env.op.kind === 'batch') opCost = env.op.ops.length;
+    const opCost = env.op.kind === 'batch' ? env.op.ops.length : Number(isFanoutOp(env.op));
     if (opCost > 0 && !this.opLimiters.get(connId)?.take(Date.now(), opCost)) {
       conn.close?.(4408);
       this.removeConnection(connId);
@@ -569,6 +568,7 @@ export class SyncHub {
     const delivered: Delivery[] = [];
     try {
       for (const op of ops) {
+        if (options && (options.signal.aborted || !this.isCurrent(conn))) break;
         if (isAdmissibleElementOp(op))
           await this.processElementOp(conn, from, op, options, delivered);
       }

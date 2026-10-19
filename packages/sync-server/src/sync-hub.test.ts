@@ -4129,6 +4129,36 @@ describe('element op batches', () => {
     expect(await backend.getRecord('R', 'h')).toBeUndefined();
   });
 
+  it('stops a batch when its sender is aborted and delivers the ops already written', async () => {
+    const backend = new MemoryHubBackend();
+    const controller = new AbortController();
+    const hub = new SyncHub({
+      backend,
+      plugins: [
+        {
+          name: 'abort-after-a',
+          async process(op, context, next) {
+            const result = await next(op, context);
+            if (op.kind === 'upsert' && op.element.id === 'a') controller.abort();
+            return result;
+          },
+        },
+      ],
+    });
+    await join(hub, 'S', batching);
+    const peer = await join(hub, 'N', batching);
+
+    await hub.handleMessage(
+      'S',
+      envelope('S', batch(up(shape('a')), up(shape('b')), up(shape('c')))),
+      { deadlineAt: Date.now() + 10_000, signal: controller.signal, beforeProcess: () => true },
+    );
+
+    expect(frames(peer)).toEqual([{ from: 'S', op: { kind: 'batch', ops: [up(shape('a'))] } }]);
+    expect(await backend.getRecord('R', 'b')).toBeUndefined();
+    expect(await backend.getRecord('R', 'c')).toBeUndefined();
+  });
+
   it('delivers ops already written when a later op of the batch fails to publish', async () => {
     const error = new Error('fanout unavailable');
     const fanout = {

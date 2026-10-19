@@ -178,7 +178,15 @@ describe('unsupported reply (end-to-end)', () => {
 
   it.each([
     ['without a frame policy', {}],
-    ['with a frame policy', { framePolicy: {} }],
+    // A slow outbound authorize: the reply arrives only if the hub awaits the guarded send.
+    [
+      'with a slow frame policy',
+      {
+        framePolicy: {
+          authorize: () => new Promise<boolean>((resolve) => setTimeout(() => resolve(true), 200)),
+        },
+      },
+    ],
   ])('arrives before the 4406 close %s', async (_name, options) => {
     const port = startServer(options);
     const { socket, frames } = await connectRaw(port);
