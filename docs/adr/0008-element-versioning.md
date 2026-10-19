@@ -61,7 +61,9 @@ resolves the audience, checks tombstone ownership, authorizes, runs plugins, che
 then writes with compare-and-set and only then publishes; a conflict restarts it, up to 3 attempts.
 Stale ops and version jumps over 1,000,000 get a correction. Tombstones keep `ownerId`, `audience`
 and `removedBy` server-side and are filtered per viewer. `HubBackend` becomes `getRecord`,
-`applyElement(room, write, expectedVersion)` and `snapshot` returning elements and tombstones, with
+`applyElement(room, write, expected)`, a compare-and-set on the stored `{ version, editor }` (so
+two instances cannot both win an equal-version race), and `snapshot` returning elements and
+tombstones, with
 a `tombstoneRetentionMs` option (default 7 days).
 
 ### D6 Redis
@@ -117,3 +119,8 @@ room. Rejected: upgrades are coordinated, and incompatible peers are refused ins
   clients already saw on join.
 - Element editors are client-chosen ids, so a client can bias equal-version ties. Ownership and
   `authorize` are unaffected.
+- A file whose element versions exceed 1,000,000, loaded into a hub room, has its next edit
+  corrected by the version jump limit: the hub has no record for those ids and answers with a
+  remove.
+- Client tombstones are never pruned, so a long peer-to-peer session keeps every deleted id in
+  memory (tracked with F8 / 5.1).

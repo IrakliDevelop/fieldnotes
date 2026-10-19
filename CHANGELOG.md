@@ -63,8 +63,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
   snapshots, so a late upsert no longer resurrects a deleted element. Peer snapshots include
   tombstones.
 - On reconnect, a newer snapshot element replaces the local copy, a newer local element is pushed,
-  and a newer tombstone removes the local copy. Equal versions take the room's copy, except for
-  elements edited during the resync.
+  and a newer tombstone removes the local copy. A local delete newer than a snapshot element is
+  sent again, so a remove lost with the old connection still reaches the room. Equal versions take
+  the room's copy, except for elements edited during the resync.
 - An incoming `clear` removes only elements not newer than its tombstones; a clear without
   tombstones removes nothing.
 - When a hub or peer advertises `protocolVersion` below 2, `SyncClient` stops and closes its
@@ -78,7 +79,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 Protocol 1 and 2 peers cannot share a room. Upgrade every client and hub of a room together,
 including authority rooms (pre-0.28 authority peers reject protocol 2 elements). Show users a
-"please reload" message on `'unsupported'`.
+"please reload" message on `'unsupported'`. A pre-0.28 client's buffered frames that reach a 0.28
+hub before its protocol 1 `capabilities` are processed before the `4406` close; a buffered
+`clear` is identical in both protocols and runs.
 
 ### Sync server 0.28.0 — versioned hub (F1)
 
@@ -92,8 +95,8 @@ including authority rooms (pre-0.28 authority peers reject protocol 2 elements).
 **Changed (breaking)**
 
 - `HubBackend` replaces `get` and `apply` with `getRecord(room, id)` (element, tombstone or
-  `undefined`) and `applyElement(room, write, expectedVersion)`, an atomic compare-and-set that
-  returns `{ ok: true }` or `{ ok: false, current }`. `snapshot(room)` returns
+  `undefined`) and `applyElement(room, write, expected)`, an atomic compare-and-set on the stored
+  record's `{ version, editor }` that returns `{ ok: true }` or `{ ok: false, current }`. `snapshot(room)` returns
   `{ elements, tombstones }`.
 - Connections that send `capabilities` with `protocolVersion` below 2 are closed with `4406`.
   Frames sent before `capabilities` are validated as protocol 2. Authority connections are
@@ -117,7 +120,9 @@ including authority rooms (pre-0.28 authority peers reject protocol 2 elements).
 **Migration guide**
 
 Custom `HubBackend` implementations must implement `getRecord`, `applyElement` and the new
-`snapshot` shape, write atomically against `expectedVersion` (`null`: no record may exist), store
+`snapshot` shape, write atomically only when the stored record's version and editor equal
+`expected` (absent editor equals absent; `null`: no record may exist; a clear's `expected` map
+holds `{ version, editor }` per element), store
 tombstones, and drop expired ones when building a snapshot. Server plugins must tolerate `process`
 running more than once per op.
 
@@ -130,8 +135,9 @@ running more than once per op.
 **Changed (breaking)**
 
 - Element writes, removes and clears run as one Lua compare-and-set over the room hash and a new
-  `{keyPrefix}{room}:tombstones` hash, so two relay instances on one Redis never overwrite a newer
-  element. The snapshot reads both hashes atomically. `ttlSeconds` also refreshes the tombstone
+  `{keyPrefix}{room}:tombstones` hash. It compares both version and editor, so two relay instances
+  on one Redis never overwrite a newer element, including equal-version writes from different
+  editors. The snapshot reads both hashes atomically. `ttlSeconds` also refreshes the tombstone
   hash. The plugin key prefix `tombstones` is reserved.
 - Implements the new `HubBackend` contract (`getRecord`, `applyElement`, `snapshot` with
   tombstones); `get` and `apply` are removed.
