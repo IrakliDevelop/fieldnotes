@@ -140,7 +140,9 @@ export class PencilTool implements Tool {
       blendMode: this.blendMode,
     });
     ctx.store.add(stroke);
-    computeStrokeSegments(stroke);
+    // add() stores a placed copy, so warm the stored element rather than `stroke`.
+    const stored = ctx.store.getById(stroke.id);
+    if (stored?.type === 'stroke') computeStrokeSegments(stored);
     this.points = [];
     ctx.requestRender();
   }

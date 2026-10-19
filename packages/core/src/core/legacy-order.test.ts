@@ -42,7 +42,7 @@ describe('assignLegacyOrder', () => {
     const out = assignLegacyOrder(input);
     expect(out[1]).toBe(placed);
     expect(out[2]).toEqual({ id: 'm', index: 'a2', version: 2 });
-    expect(String(out[0]?.['index']) > 'a5').toBe(true);
+    expect(String((out[0] as Record<string, unknown> | undefined)?.['index']) > 'a5').toBe(true);
   });
 
   it.each(['', 'a00', '!x'])('reassigns an invalid index %j and ignores it as the max', (bad) => {

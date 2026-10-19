@@ -4,6 +4,7 @@ import { ElementStore } from '../elements/element-store';
 import { Camera } from '../canvas/camera';
 import type { ToolContext, PointerState } from './types';
 import type { StrokeElement } from '../elements/types';
+import * as strokeCache from '../elements/stroke-cache';
 
 function makeCtx(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
@@ -54,6 +55,20 @@ describe('PencilTool', () => {
     const stroke = ctx.store.getAll()[0] as StrokeElement;
     expect(stroke.opacity).toBe(0.4);
     expect(stroke.blendMode).toBe('multiply');
+  });
+
+  it('warms the segment cache of the stored stroke on commit', () => {
+    const spy = vi.spyOn(strokeCache, 'computeStrokeSegments');
+    const tool = new PencilTool();
+    const ctx = makeCtx();
+    tool.onPointerDown(pt(0, 0), ctx);
+    tool.onPointerMove(pt(10, 10), ctx);
+    tool.onPointerMove(pt(20, 20), ctx);
+    tool.onPointerUp(pt(20, 20), ctx);
+    const warmed = spy.mock.calls.map((call) => call[0]);
+    spy.mockRestore();
+    expect(warmed).toEqual([ctx.store.getAll()[0]]);
+    expect(warmed[0]).toBe(ctx.store.getAll()[0]);
   });
 
   it('default pencil strokes have opacity 1 and no blendMode', () => {
