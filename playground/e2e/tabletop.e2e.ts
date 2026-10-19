@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import type { Page, TestInfo } from '@playwright/test';
 import type { TemplateTool } from '@fieldnotes/vtt';
 import { gotoBlank } from './helpers/board';
+import { openStyle } from './helpers/layout';
 import { singleFingerDraw } from './helpers/touch';
 
 async function openSample(page: Page): Promise<void> {
@@ -127,9 +128,7 @@ test('View as player', async ({ page }) => {
     .locator('[data-chrome="tools"]')
     .getByRole('button', { name: 'Fog', exact: true })
     .click();
-  const toggle = page
-    .locator('[data-chrome="style"]')
-    .getByRole('switch', { name: 'View as player' });
+  const toggle = (await openStyle(page)).getByRole('switch', { name: 'View as player' });
   await toggle.click();
   await expect.poll(() => viewMode(page)).toBe('player');
   await toggle.click();
@@ -170,7 +169,7 @@ test('token HP', async ({ page }, testInfo) => {
 
 test('grid type', async ({ page }) => {
   await openSample(page);
-  await page.locator('[data-chrome="style"]').getByRole('button', { name: 'Square grid' }).click();
+  await (await openStyle(page)).getByRole('button', { name: 'Square grid' }).click();
   await expect
     .poll(async () => {
       const [grid] = await gridData(page);
@@ -239,7 +238,7 @@ test('picking a flyout item returns focus to the canvas', async ({ page }) => {
 
 test('grid section shows only with select or hand', async ({ page }) => {
   await gotoBlank(page, 'tabletop');
-  const grid = page.locator('[data-chrome="style"]').getByRole('group', { name: 'Grid' });
+  const grid = (await openStyle(page)).getByRole('group', { name: 'Grid' });
   await expect(grid).toHaveCount(1);
   await page.keyboard.press('3');
   await expect.poll(() => activeTool(page)).toBe('pencil');
@@ -258,7 +257,7 @@ test('template fill colour comes from the style panel', async ({ page }) => {
         window.__playground.viewport.toolManager.getTool<TemplateTool>('template')?.getOptions()
           .fillColor,
     );
-  const style = page.locator('[data-chrome="style"]');
+  const style = await openStyle(page);
   await style.getByRole('button', { name: '#ffc9c9' }).click();
   await expect.poll(fill).toBe('#ffc9c9');
   await style.getByRole('button', { name: 'none' }).click();
@@ -295,10 +294,7 @@ test('View as player keeps tool shortcuts working', async ({ page }) => {
   await openSample(page);
   await page.keyboard.press('6');
   await expect.poll(() => activeTool(page)).toBe('fog');
-  await page
-    .locator('[data-chrome="style"]')
-    .getByRole('switch', { name: 'View as player' })
-    .click();
+  await (await openStyle(page)).getByRole('switch', { name: 'View as player' }).click();
   await expect.poll(() => viewMode(page)).toBe('player');
   await page.keyboard.press('1');
   await expect.poll(() => activeTool(page)).toBe('select');

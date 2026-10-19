@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import type { Page, TestInfo } from '@playwright/test';
 import { gotoBlank } from './helpers/board';
+import { openStyle } from './helpers/layout';
 import { singleFingerDraw } from './helpers/touch';
 
 function collectErrors(page: Page): string[] {
@@ -280,7 +281,5 @@ test('pencil in embeds shows the stroke colour control', async ({ page }) => {
   await gotoBlank(page, 'embeds');
   await page.keyboard.press('6');
   await expect.poll(() => activeTool(page)).toBe('pencil');
-  await expect(
-    page.locator('[data-chrome="style"]').getByRole('group', { name: 'Stroke' }),
-  ).toBeVisible();
+  await expect((await openStyle(page)).getByRole('group', { name: 'Stroke' })).toBeVisible();
 });

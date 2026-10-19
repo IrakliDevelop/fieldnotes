@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import type { Page, TestInfo } from '@playwright/test';
 import { gotoBlank } from './helpers/board';
-import { expectNoOverlap, zoneBoxes } from './helpers/layout';
+import { expectNoOverlap, openStyle, zoneBoxes } from './helpers/layout';
 import { singleFingerDraw } from './helpers/touch';
 
 /** Clicks Collaborate and returns the guest tab it opens. */
@@ -118,7 +118,7 @@ test('avatars do not break the layout', async ({ page }) => {
   ] as const) {
     await page.setViewportSize({ width, height });
     await page.keyboard.press('3');
-    await expect(page.locator('[data-chrome="style"]')).toBeVisible();
+    await expect(await openStyle(page)).toBeVisible();
     await expectNoOverlap(page);
   }
 });

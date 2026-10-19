@@ -313,6 +313,30 @@ body {
 
 /* Narrow: the two bottom sheets are mutually exclusive; an open layers sheet wins. */
 @media not all and (min-width: 901px) and (pointer: fine) {
+  [data-chrome='style']:not([data-open]) {
+    display: none;
+  }
+
+  /* Pinned while the tools scroll beneath it; the shadow covers the pill's left padding. */
+  [data-style-toggle] {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    margin-right: 5px;
+    background: var(--island);
+    box-shadow: -4px 0 0 var(--island);
+  }
+
+  [data-style-toggle]::after {
+    content: '';
+    position: absolute;
+    top: 8px;
+    right: -5px;
+    bottom: 8px;
+    width: 1px;
+    background: var(--island-border);
+  }
+
   #chrome:has(> [data-chrome='layers']:not([hidden])) > [data-chrome='style'] {
     display: none;
   }
@@ -466,6 +490,10 @@ body {
 
   [data-chrome='zoom'] .wide-only {
     display: inline-flex;
+  }
+
+  [data-style-toggle] {
+    display: none;
   }
 
   [data-chrome='toast'] {

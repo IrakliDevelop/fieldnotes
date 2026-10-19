@@ -1,5 +1,6 @@
 import type { Scene, SceneId, SceneInstance, Shell } from '../scene';
 import { icon } from './icons';
+import type { IconName } from './icons';
 import { renderLayersPanel } from './layers-panel';
 import { renderMenu } from './menu';
 import { renderSceneSwitcher } from './scene-switcher';
@@ -34,6 +35,19 @@ const initials = (name: string): string =>
     .slice(0, 2)
     .toUpperCase();
 
+function sheetToggle(label: string, name: IconName): HTMLButtonElement {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'icon-button';
+  button.setAttribute('aria-label', label);
+  button.title = label;
+  button.setAttribute('aria-expanded', 'false');
+  button.append(icon(name));
+  // Keep focus on the canvas so core's undo/redo keys still apply after a click.
+  button.addEventListener('mousedown', (event) => event.preventDefault());
+  return button;
+}
+
 function zone(parent: HTMLElement, name: string, island = true): HTMLElement {
   const root = document.createElement('div');
   if (island) root.className = 'island';
@@ -56,15 +70,10 @@ export function createShell(
   const tools = zone(header, 'tools');
   const switcher = document.createElement('div');
   switcher.className = 'scene-switcher';
-  const layersToggle = document.createElement('button');
-  layersToggle.type = 'button';
-  layersToggle.className = 'icon-button';
-  layersToggle.setAttribute('aria-label', 'Layers');
-  layersToggle.title = 'Layers';
-  layersToggle.setAttribute('aria-expanded', 'false');
-  layersToggle.append(icon('layers'));
-  // Keep focus on the canvas so core's undo/redo keys still apply after a click.
-  layersToggle.addEventListener('mousedown', (event) => event.preventDefault());
+  // Narrow layouts only, pinned at the start of the tool pill: the sheet opens on demand.
+  const styleToggle = sheetToggle('Style', 'palette');
+  styleToggle.dataset['styleToggle'] = '';
+  const layersToggle = sheetToggle('Layers', 'layers');
   const avatars = document.createElement('div');
   avatars.className = 'avatars';
   const topRight = zone(header, 'top-right');
@@ -72,11 +81,20 @@ export function createShell(
   const zoom = zone(chrome, 'zoom');
   const style = zone(chrome, 'style');
   const layers = zone(chrome, 'layers');
+  const setStyleOpen = (open: boolean): void => {
+    style.toggleAttribute('data-open', open);
+    styleToggle.setAttribute('aria-expanded', String(open));
+    if (open) setLayersOpen(false);
+  };
   const setLayersOpen = (open: boolean): void => {
     layers.hidden = !open;
     layersToggle.setAttribute('aria-expanded', String(open));
+    if (open) setStyleOpen(false);
   };
   setLayersOpen(false);
+  styleToggle.addEventListener('click', () =>
+    setStyleOpen(styleToggle.getAttribute('aria-expanded') !== 'true'),
+  );
   layersToggle.addEventListener('click', () =>
     setLayersOpen(layersToggle.getAttribute('aria-expanded') !== 'true'),
   );
@@ -113,6 +131,7 @@ export function createShell(
       for (const el of [tools, zoom, layersToggle]) el.hidden = !instance;
       if (!instance) {
         style.hidden = true;
+        setStyleOpen(false);
         setLayersOpen(false);
         return;
       }
@@ -120,9 +139,14 @@ export function createShell(
       unbinders = [
         renderToolbar(tools, viewport, instance.tools),
         renderZoomBar(zoom, viewport),
-        renderStylePanel(style, viewport, instance.styles),
+        renderStylePanel(style, viewport, instance.styles, (hasControls) => {
+          styleToggle.disabled = !hasControls;
+          if (!hasControls) setStyleOpen(false);
+        }),
         renderLayersPanel(layers, viewport),
       ];
+      // renderToolbar replaces the pill's children, so the toggle goes back in after it.
+      tools.prepend(styleToggle);
     },
   };
 }

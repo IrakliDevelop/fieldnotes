@@ -222,6 +222,7 @@ export function renderStylePanel(
   root: HTMLElement,
   viewport: Viewport,
   styles: StyleSpec,
+  onRender: (hasControls: boolean) => void,
 ): () => void {
   root.setAttribute('aria-label', 'Style');
 
@@ -272,6 +273,7 @@ export function renderStylePanel(
     if (extra) children.push(extra);
     root.replaceChildren(...children);
     root.hidden = children.length === 0;
+    onRender(!root.hidden);
   };
 
   render();

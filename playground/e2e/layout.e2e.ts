@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { singleFingerDraw } from './helpers/touch';
 import { gotoBlank } from './helpers/board';
-import { expectNoOverlap } from './helpers/layout';
+import { expectNoOverlap, openStyle } from './helpers/layout';
 
 const activeTool = (page: Page): Promise<string | undefined> =>
   page.evaluate(() => window.__playground.viewport.toolManager.activeTool?.name);
@@ -38,7 +38,7 @@ for (const [width, height] of [
     await page.setViewportSize({ width, height });
     await gotoBlank(page);
     await page.keyboard.press('3');
-    const style = page.locator('[data-chrome="style"]');
+    const style = await openStyle(page);
     await expect(style).toBeVisible();
     await expectNoOverlap(page);
 
@@ -70,8 +70,9 @@ test('style applies to selection', async ({ page }, testInfo) => {
   await expect
     .poll(() => page.evaluate(() => window.__playground.viewport.getSelectedIds().length))
     .toBe(1);
-  await page
-    .locator('[data-chrome="style"]')
+  await (
+    await openStyle(page)
+  )
     .getByRole('group', { name: 'Stroke' })
     .getByRole('button', { name: '#e03131' })
     .click();
@@ -130,7 +131,7 @@ for (const [width, height] of [
     await gotoBlank(page);
     await page.evaluate(() => {
       const pill = document.querySelector('[data-chrome="tools"]');
-      const first = pill?.querySelector('button');
+      const first = pill?.querySelector('button:not([data-style-toggle])');
       if (!pill || !first) throw new Error('No tool pill');
       for (let i = 0; i < 8; i++) pill.append(first.cloneNode(true));
     });
@@ -156,7 +157,7 @@ test('style panel reflects undo', async ({ page }, testInfo) => {
   await expect
     .poll(() => page.evaluate(() => window.__playground.viewport.getSelectedIds().length))
     .toBe(1);
-  const stroke = page.locator('[data-chrome="style"]').getByRole('group', { name: 'Stroke' });
+  const stroke = (await openStyle(page)).getByRole('group', { name: 'Stroke' });
   const red = stroke.getByRole('button', { name: '#e03131' });
   await red.click();
   await expect(red).toHaveAttribute('aria-pressed', 'true');
@@ -271,4 +272,21 @@ test('undo right after a layer action', async ({ page }) => {
   await expect.poll(() => layerNames(page)).toEqual(['Layer 1', 'Layer 2']);
   await page.keyboard.press('Control+z');
   await expect.poll(() => layerNames(page)).toEqual(['Layer 1']);
+});
+
+test.describe('phone', () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
+
+  test('narrow: picking pencil does not cover the canvas', async ({ page }) => {
+    await gotoBlank(page);
+    await page.locator('[data-chrome="tools"]').getByRole('button', { name: 'Pencil' }).tap();
+    await expect.poll(() => activeTool(page)).toBe('pencil');
+    await expect(page.locator('[data-chrome="style"]')).toBeHidden();
+
+    await singleFingerDraw(
+      page,
+      [0, 1, 2, 3, 4, 5].map((i) => ({ x: 100 + i * 40, y: 560 + i * 20 })),
+    );
+    await expect.poll(() => page.evaluate(() => window.__playground.viewport.store.count)).toBe(1);
+  });
 });

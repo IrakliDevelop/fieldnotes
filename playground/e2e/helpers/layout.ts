@@ -1,5 +1,5 @@
 import { expect } from '@playwright/test';
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 
 interface Box {
   readonly name: string;
@@ -36,4 +36,13 @@ export async function expectNoOverlap(page: Page): Promise<void> {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
     true,
   );
+}
+
+/** The style sheet, opened through its toggle on narrow layouts (wide layouts always show it). */
+export async function openStyle(page: Page): Promise<Locator> {
+  const toggle = page.locator('[data-style-toggle]');
+  if ((await toggle.isVisible()) && (await toggle.getAttribute('aria-expanded')) !== 'true') {
+    await toggle.click();
+  }
+  return page.locator('[data-chrome="style"]');
 }
