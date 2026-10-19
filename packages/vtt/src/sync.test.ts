@@ -28,4 +28,55 @@ describe('createFogClientPlugin', () => {
     expect(kinds).toContain('fog-meta');
     expect(kinds).toContain('fog-patch');
   });
+
+  it('serves fog that existed before the plugin was created in its snapshot', () => {
+    const manager = new FogManager();
+    manager.initialize({ bounds: { x: 0, y: 0, w: 256, h: 128 }, cellSize: 1 });
+    manager.applyRegion(
+      { kind: 'rectangle', from: { x: 0, y: 0 }, to: { x: 10, y: 10 } },
+      'reveal',
+    );
+    const existing = manager.getState();
+    if (!existing) throw new Error('fog not initialised');
+
+    const plugin = createFogClientPlugin({ manager });
+    plugin.start?.({ clientId: 'host', send: vi.fn() });
+    const data = plugin.createSnapshot?.();
+    expect(data).toMatchObject({
+      meta: { definition: { generation: existing.definition.generation } },
+    });
+    expect(JSON.stringify(data)).toContain(existing.tiles[0]?.data);
+
+    const peer = new FogManager();
+    const peerPlugin = createFogClientPlugin({ manager: peer });
+    peerPlugin.start?.({ clientId: 'guest', send: vi.fn() });
+    peerPlugin.applySnapshot?.({ pluginName: 'fog', version: 1, data }, { phase: 'initial' });
+    expect(peer.getState()).toEqual(existing);
+  });
+
+  it('seeds its first snapshot from the fog state at start(), not at creation', () => {
+    const manager = new FogManager();
+    manager.initialize({ bounds: { x: 0, y: 0, w: 128, h: 128 }, cellSize: 1 });
+    const plugin = createFogClientPlugin({ manager });
+
+    const restored = new FogManager();
+    restored.initialize({ bounds: { x: 0, y: 0, w: 256, h: 128 }, cellSize: 1 });
+    restored.applyRegion(
+      { kind: 'rectangle', from: { x: 0, y: 0 }, to: { x: 10, y: 10 } },
+      'reveal',
+    );
+    const current = restored.getState();
+    if (!current) throw new Error('fog not initialised');
+    manager.loadState(current, { origin: 'storage' });
+
+    plugin.start?.({ clientId: 'host', send: vi.fn() });
+    const peer = new FogManager();
+    const peerPlugin = createFogClientPlugin({ manager: peer });
+    peerPlugin.start?.({ clientId: 'guest', send: vi.fn() });
+    peerPlugin.applySnapshot?.(
+      { pluginName: 'fog', version: 1, data: plugin.createSnapshot?.() },
+      { phase: 'initial' },
+    );
+    expect(peer.getState()).toEqual(current);
+  });
 });

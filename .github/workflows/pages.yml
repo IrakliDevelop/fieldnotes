@@ -32,14 +32,17 @@ jobs:
       - run: pnpm build
 
       - name: Build playground under the Pages base path
-        run: pnpm --filter fieldnotes-demo exec vite build --base "/${{ github.event.repository.name }}/"
+        run: pnpm --filter fieldnotes-playground exec vite build --base "/${{ github.event.repository.name }}/"
 
-      - name: Build API reference into the playground
-        run: pnpm exec typedoc --out demo/dist/api
+      - name: Build dev playground under /dev/
+        run: pnpm --filter fieldnotes-demo exec vite build --base "/${{ github.event.repository.name }}/dev/" --outDir ../playground/dist/dev --emptyOutDir
+
+      - name: Build API reference
+        run: pnpm exec typedoc --out playground/dist/api
 
       - uses: actions/upload-pages-artifact@v5
         with:
-          path: demo/dist
+          path: playground/dist
 
   deploy:
     needs: build

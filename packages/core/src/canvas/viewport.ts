@@ -402,6 +402,8 @@ export class Viewport {
       isEditingElement: (id) =>
         this.noteEditor.isEditing && this.noteEditor.editingElementId === id,
       getVersion: (id) => this.store.getVersion(id),
+      isInteracting: (id) => this.interactMode.interactingId === id,
+      htmlPlaceholders: !options.onHtmlElementMount,
     });
     this.domNodeManager.setCameraTransform(this.camera.toCSSTransform());
     this.disposers.push(() => this.domNodeManager.clearDomNodes());
@@ -454,6 +456,14 @@ export class Viewport {
     unsubStore.push(
       this.store.on('add', (el) => {
         if (el.type === 'html') {
+          // Remote adds and undo re-adds arrive without DOM; rebuild it from the renderer.
+          if (!this.domNodeManager.hasContent(el.id)) {
+            try {
+              this.buildHtmlContent(el);
+            } catch (error) {
+              reportFailure(error, 'html renderer failed');
+            }
+          }
           this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
         }
         this.renderLoop.markLayerDirty(el.layerId);
@@ -875,12 +885,8 @@ export class Viewport {
     this.domNodeManager.reattachHtmlContent(this.store);
     for (const el of this.store.getElementsByType('html')) {
       if (this.domNodeManager.hasContent(el.id)) continue;
-      const factory = el.htmlType ? this.htmlRenderers.get(el.htmlType) : undefined;
-      const rebuilt = factory ? factory(el) : null;
-      if (rebuilt) {
-        this.domNodeManager.storeHtmlContent(el.id, rebuilt);
-        this.domNodeManager.syncDomNode(el);
-      }
+      const rebuilt = this.buildHtmlContent(el);
+      if (rebuilt) this.domNodeManager.syncDomNode(el);
       if (!this.onHtmlElementMount) continue;
       if (!rebuilt) this.domNodeManager.syncDomNode(el);
       const node = this.domNodeManager.getNode(el.id);
@@ -893,6 +899,14 @@ export class Viewport {
         pointerEvents: el.interactive ? 'auto' : 'none',
       });
     }
+  }
+
+  private buildHtmlContent(el: HtmlElement): HTMLElement | null {
+    const factory = el.htmlType ? this.htmlRenderers.get(el.htmlType) : undefined;
+    if (!factory) return null;
+    const content = factory(el);
+    this.domNodeManager.storeHtmlContent(el.id, content);
+    return content;
   }
 
   loadJSON(json: string): void {

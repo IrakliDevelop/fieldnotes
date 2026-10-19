@@ -1,6 +1,7 @@
 packages:
   - 'packages/*'
   - 'demo'
+  - 'playground'
   - 'website'
   - 'examples/*'
 

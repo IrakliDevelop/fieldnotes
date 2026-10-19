@@ -37,6 +37,10 @@ export class InteractMode {
     window.removeEventListener('pointerdown', this.onPointerDown);
   }
 
+  get interactingId(): string | null {
+    return this.interactingElementId;
+  }
+
   isInteracting(): boolean {
     return this.interactingElementId !== null;
   }

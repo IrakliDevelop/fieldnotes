@@ -6,6 +6,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### Core 0.92.0 — html widgets for remote peers (TD-16)
+
+**Changed**
+
+- An `html` element added without DOM content now gets it from the renderer registered for its
+  `htmlType` (`registerHtmlRenderer`) on each individual store add, such as a remote peer's add or
+  an undone delete, not only in `loadState`. Elements added inside a
+  `viewport.suspendNotifications()` batch are not rebuilt and show the placeholder. Elements added
+  with `addHtmlElement` keep their supplied content and do not call the renderer.
+- Registered renderers now run on data received from remote peers at add time; treat `el.data` as
+  untrusted (validate, use `textContent`).
+- An `html` element with no content and no renderer shows a labelled placeholder
+  (`<htmlType> widget`, or `HTML widget`) instead of an empty box. Hosts that pass
+  `onHtmlElementMount` own their nodes and get no placeholder. Undoing the delete of a host widget
+  without a renderer now shows the placeholder.
+- A renderer that throws on this path is reported with `reportError` and leaves the placeholder;
+  it no longer reaches the code that added the element (for example `SyncClient`).
+- An element the user is interacting with keeps pointer events while its data is updated, so
+  repeated edits inside a widget no longer drop out of interact mode.
+- An `htmlType` with both a canvas painter and a renderer builds its (detached) DOM on add, as
+  `loadState` already did.
+
+### VTT 0.15.1
+
+**Fixed**
+
+- `createFogClientPlugin` includes fog that existed before the plugin was created in its first
+  snapshot, so a peer joining a room receives the board's existing fog definition and tiles.
+
 ### Sync 0.27.0 — sync hygiene (F8, first slice)
 
 **Added**
