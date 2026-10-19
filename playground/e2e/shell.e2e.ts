@@ -70,8 +70,12 @@ test('shortcut guard', async ({ page }) => {
   await page.mouse.click(400, 400);
   await expect.poll(() => elementCount(page)).toBe(1);
   const afterPlacement = await activeTool(page);
+  // Core focuses the note editor a frame after placement; typing earlier hits the shortcuts.
+  const editor = page.locator('[data-element-id][contenteditable="true"]');
+  await expect(editor).toBeFocused();
 
   await page.keyboard.type('123');
+  await expect(editor).toHaveText('123');
   expect(await activeTool(page)).toBe(afterPlacement);
 });
 
