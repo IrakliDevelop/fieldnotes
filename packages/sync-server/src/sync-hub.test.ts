@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { createShape } from '@fieldnotes/core';
 import { fogEncodeBase64 } from '@fieldnotes/vtt';
 import { createFogServerPlugin } from '@fieldnotes/vtt/server';
 import type { CanvasElement, Layer } from '@fieldnotes/core';
@@ -18,6 +17,7 @@ import type { Authorize, OwnedElement, ResolveAudience } from './authorize';
 import { InMemoryHubFanout } from './hub-fanout';
 import type { ServerOpContext } from './sync-plugin';
 import { registerAuthorityConnection } from './authority-connection';
+import { v2Remove, v2Shape } from './test-support/v2-ops';
 import type { AuthorityDriver, AuthorityRoomDefinition } from './authority-types';
 
 interface FakeConn extends Connection {
@@ -42,8 +42,7 @@ function envelope(from: string, op: SyncOp): string {
   return JSON.stringify({ from, op });
 }
 
-const sampleEl = (): CanvasElement =>
-  createShape({ position: { x: 1, y: 2 }, size: { w: 10, h: 20 } });
+const sampleEl = (): CanvasElement => v2Shape({ position: { x: 1, y: 2 }, size: { w: 10, h: 20 } });
 
 /** What a non-privileged reader receives: the element minus the server-stamped ownerId (S4). */
 function publicView<T extends { ownerId?: string }>(element: T): Omit<T, 'ownerId'> {
@@ -282,9 +281,9 @@ describe('SyncHub', () => {
   });
 
   it('forwards remove and clear to peers', async () => {
-    const removeMsg = envelope('clientA', { kind: 'remove', id: 'x' });
+    const removeMsg = envelope('clientA', v2Remove('x'));
     await hub.handleMessage('A', removeMsg);
-    expect(JSON.parse(B.sent[0] ?? '')).toEqual({ from: 'A', op: { kind: 'remove', id: 'x' } });
+    expect(JSON.parse(B.sent[0] ?? '')).toEqual({ from: 'A', op: v2Remove('x') });
 
     const clearMsg = envelope('clientA', { kind: 'clear' });
     await hub.handleMessage('A', clearMsg);
@@ -346,7 +345,7 @@ describe('SyncHub', () => {
 
   it('does not forward to a removed connection', async () => {
     hub.removeConnection('B');
-    const msg = envelope('clientA', { kind: 'remove', id: 'x' });
+    const msg = envelope('clientA', v2Remove('x'));
     await hub.handleMessage('A', msg);
     expect(B.sent).toEqual([]);
   });
@@ -395,8 +394,8 @@ describe('SyncHub', () => {
 
       // Fire two same-room messages and one cross-room message; do NOT await.
       void h.handleMessage('B', envelope('clientB', { kind: 'request-snapshot' }));
-      void h.handleMessage('A', envelope('clientA', { kind: 'remove', id: 'x' }));
-      void h.handleMessage('C', envelope('clientC', { kind: 'remove', id: 'y' }));
+      void h.handleMessage('A', envelope('clientA', v2Remove('x')));
+      void h.handleMessage('C', envelope('clientC', v2Remove('y')));
       await flush();
 
       // Room R's snapshot started; the second R message is queued behind it.
@@ -665,10 +664,7 @@ describe('SyncHub', () => {
       failPublish = true;
 
       await expect(
-        h.handleMessage(
-          'dm',
-          JSON.stringify({ from: 'dmUser', op: { kind: 'remove', id: 'secret' } }),
-        ),
+        h.handleMessage('dm', JSON.stringify({ from: 'dmUser', op: v2Remove('secret') })),
       ).rejects.toBe(error);
 
       // Nothing was deleted, so the sender's optimistic removal is undone element-wise.
@@ -1094,7 +1090,7 @@ describe('SyncHub', () => {
       await hub.handleMessage('dm', envelope('cdm', { kind: 'upsert', element: el('X') }));
       obs.sent.length = 0;
 
-      await hub.handleMessage('p', envelope('cp', { kind: 'remove', id: 'X' }));
+      await hub.handleMessage('p', envelope('cp', v2Remove('X')));
 
       expect(await storedElement(backend, 'R', 'X')).toBeDefined();
       expect(obs.sent).toEqual([]);
@@ -1148,7 +1144,7 @@ describe('SyncHub', () => {
         'dm1',
       );
 
-      await hub.handleMessage('dm', envelope('cdm', { kind: 'remove', id: 'X' }));
+      await hub.handleMessage('dm', envelope('cdm', v2Remove('X')));
       expect(await storedElement(backend, 'R', 'X')).toBeUndefined();
 
       await hub.handleMessage('dm', envelope('cdm', { kind: 'upsert', element: el('Y') }));
@@ -1271,7 +1267,7 @@ describe('SyncHub', () => {
         await hub.handleMessage('dm', envelope('cdm', { kind: 'upsert', element: el('X') }));
         const canonical = (await storedElement(backend, 'R', 'X')) as OwnedElement;
 
-        await hub.handleMessage('p', envelope('cp', { kind: 'remove', id: 'X' }));
+        await hub.handleMessage('p', envelope('cp', v2Remove('X')));
 
         expect(lastCorrection(p)).toEqual({
           from: 'hub',
@@ -1286,7 +1282,7 @@ describe('SyncHub', () => {
         const p = roleConn('p', 'R', 'player1', 'player');
         hub.addConnection(p);
 
-        await hub.handleMessage('p', envelope('cp', { kind: 'remove', id: 'ghost' }));
+        await hub.handleMessage('p', envelope('cp', v2Remove('ghost')));
 
         expect(p.sent).toEqual([]);
       });
@@ -1414,7 +1410,7 @@ describe('SyncHub', () => {
         const p = roleConn('p', 'R', 'player1', 'player');
         hub.addConnection(p);
 
-        await hub.handleMessage('p', envelope('cp', { kind: 'remove', id: 'ghost' }));
+        await hub.handleMessage('p', envelope('cp', v2Remove('ghost')));
 
         expect(p.sent).toEqual([]);
       });
@@ -1964,7 +1960,7 @@ describe('read filtering (canRead)', () => {
         element: { ...secret, position: { x: 999, y: 999 } },
       }),
     );
-    await hub.handleMessage('pl', envelope('player-remove', { kind: 'remove', id: secret.id }));
+    await hub.handleMessage('pl', envelope('player-remove', v2Remove(secret.id)));
     await hub.handleMessage('pl', envelope('player-clear', { kind: 'clear' }));
 
     expect(player.sent.map((message) => JSON.parse(message))).toEqual([
@@ -1987,7 +1983,7 @@ describe('read filtering (canRead)', () => {
     const secret = { ...sampleEl(), id: 'secret', audience: 'dm', ownerId: 'dm1' };
     await backend.applyElement('R', { kind: 'upsert', element: secret }, null);
 
-    await hub.handleMessage('dm', envelope('dm-remove', { kind: 'remove', id: secret.id }));
+    await hub.handleMessage('dm', envelope('dm-remove', v2Remove(secret.id)));
 
     expect(JSON.parse(dm.sent[0] ?? '')).toEqual({
       from: 'hub',
@@ -2056,12 +2052,12 @@ describe('read filtering (canRead)', () => {
     await hub.handleMessage('dm', upsertMsg('cdm', 'secret', 'dm'));
     await hub.handleMessage('dm', upsertMsg('cdm', 'open', 'shared'));
     player.sent.length = 0;
-    await hub.handleMessage('dm', envelope('cdm', { kind: 'remove', id: 'secret' }));
-    await hub.handleMessage('dm', envelope('cdm', { kind: 'remove', id: 'nope' }));
+    await hub.handleMessage('dm', envelope('cdm', v2Remove('secret')));
+    await hub.handleMessage('dm', envelope('cdm', v2Remove('nope')));
     expect(player.sent).toEqual([]);
-    await hub.handleMessage('dm', envelope('cdm', { kind: 'remove', id: 'open' }));
+    await hub.handleMessage('dm', envelope('cdm', v2Remove('open')));
     expect(player.sent.length).toBe(1);
-    expect(JSON.parse(player.sent[0] as string).op).toEqual({ kind: 'remove', id: 'open' });
+    expect(JSON.parse(player.sent[0] as string).op).toEqual(v2Remove('open'));
   });
 
   it('without canRead, every recipient receives the op incl. removes (default unchanged)', async () => {
@@ -2078,9 +2074,9 @@ describe('read filtering (canRead)', () => {
     expect(env.from).toBe('a');
     expect(env.op.element.id).toBe('e1');
     b.sent.length = 0;
-    await hub.handleMessage('a', envelope('ca', { kind: 'remove', id: 'e1' }));
+    await hub.handleMessage('a', envelope('ca', v2Remove('e1')));
     expect(b.sent.length).toBe(1);
-    expect(JSON.parse(b.sent[0] as string).op).toEqual({ kind: 'remove', id: 'e1' });
+    expect(JSON.parse(b.sent[0] as string).op).toEqual(v2Remove('e1'));
   });
 
   it('forwards clear to every recipient even with a read filter', async () => {

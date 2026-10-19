@@ -3,10 +3,11 @@ import { WebSocket as WsClient } from 'ws';
 import type { AddressInfo } from 'net';
 import { SyncClient, WebSocketTransport } from '@fieldnotes/sync';
 import type { WebSocketTransportOptions } from '@fieldnotes/sync';
-import { ElementStore, createShape } from '@fieldnotes/core';
+import { ElementStore } from '@fieldnotes/core';
 import { MemoryHubBackend } from './memory-hub-backend';
 import { createSyncServer } from './create-sync-server';
 import type { CanRead } from './authorize';
+import { v2Remove, v2Shape } from './test-support/v2-ops';
 
 type Server = ReturnType<typeof createSyncServer>;
 
@@ -28,7 +29,7 @@ async function waitFor(cond: () => boolean | Promise<boolean>, timeoutMs = 2000)
 }
 
 function shape() {
-  return createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } });
+  return v2Shape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } });
 }
 
 describe('sync-server WebSocket relay (end-to-end)', () => {
@@ -343,7 +344,7 @@ describe('sync-server WebSocket relay (end-to-end)', () => {
     const player = roleConnect('player');
 
     dm.store.add({
-      ...createShape({ position: { x: 1, y: 2 }, size: { w: 3, h: 4 } }),
+      ...v2Shape({ position: { x: 1, y: 2 }, size: { w: 3, h: 4 } }),
       id: 'X',
     });
     await waitFor(() => player.store.getById('X') !== undefined);
@@ -391,7 +392,7 @@ describe('sync-server WebSocket relay (end-to-end)', () => {
 
     player.send(JSON.stringify({ from: 'clear', op: { kind: 'clear' } }));
     await waitFor(() => received.some(({ op }) => op.kind === 'snapshot' && op.to === 'clear'));
-    player.send(JSON.stringify({ from: 'remove', op: { kind: 'remove', id: hidden.id } }));
+    player.send(JSON.stringify({ from: 'remove', op: v2Remove(hidden.id) }));
     await waitFor(() => received.some(({ op }) => op.kind === 'remove' && op.id === hidden.id));
 
     expect(received).toEqual([
