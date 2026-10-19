@@ -23,8 +23,6 @@ export function createFogClientPlugin(options: FogClientPluginOptions): ClientSy
   // yet; buffer and replay them so offline fog is published, not wiped.
   type FogChangeEvent = Parameters<Parameters<FogSyncManager['on']>[1]>[0];
   const preStartEdits: FogChangeEvent[] = [];
-  // Fog already on the board is the base state the first snapshot serves, not an edit to replay.
-  const initialState = options.manager.getState();
   const offlineUnsubscribe = options.manager.on('change', (event) => {
     if (active) return;
     if (controller) controller.captureOfflineChange(event);
@@ -46,6 +44,8 @@ export function createFogClientPlugin(options: FogClientPluginOptions): ClientSy
           manager: options.manager,
           preserveLocalWhenRemoteMissing: options.preserveLocalWhenRemoteMissing,
         });
+        // Fog on the board at start is the base the first snapshot serves; replays below bump it.
+        const initialState = options.manager.getState();
         if (initialState) seedLedger(controller.getLedger(), initialState, context.clientId);
         for (const event of preStartEdits.splice(0)) controller.captureOfflineChange(event);
       } else if (controllerClientId !== context.clientId) {
