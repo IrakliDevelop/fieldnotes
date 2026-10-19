@@ -236,3 +236,74 @@ test('picking a flyout item returns focus to the canvas', async ({ page }) => {
   ).toBe('cone');
   expect(await count(page)).toBe(0);
 });
+
+test('grid section shows only with select or hand', async ({ page }) => {
+  await gotoBlank(page, 'tabletop');
+  const grid = page.locator('[data-chrome="style"]').getByRole('group', { name: 'Grid' });
+  await expect(grid).toHaveCount(1);
+  await page.keyboard.press('3');
+  await expect.poll(() => activeTool(page)).toBe('pencil');
+  await expect(grid).toHaveCount(0);
+  await page.keyboard.press('2');
+  await expect(grid).toHaveCount(1);
+});
+
+test('template fill colour comes from the style panel', async ({ page }) => {
+  await gotoBlank(page, 'tabletop');
+  await page.keyboard.press('5');
+  await expect.poll(() => activeTool(page)).toBe('template');
+  const fill = (): Promise<string | undefined> =>
+    page.evaluate(
+      () =>
+        window.__playground.viewport.toolManager.getTool<TemplateTool>('template')?.getOptions()
+          .fillColor,
+    );
+  const style = page.locator('[data-chrome="style"]');
+  await style.getByRole('button', { name: '#ffc9c9' }).click();
+  await expect.poll(fill).toBe('#ffc9c9');
+  await style.getByRole('button', { name: 'none' }).click();
+  await expect.poll(fill).toBe('transparent');
+});
+
+test('View as player keeps tool shortcuts working', async ({ page }) => {
+  await openSample(page);
+  await page.keyboard.press('6');
+  await expect.poll(() => activeTool(page)).toBe('fog');
+  await page
+    .locator('[data-chrome="style"]')
+    .getByRole('switch', { name: 'View as player' })
+    .click();
+  await expect.poll(() => viewMode(page)).toBe('player');
+  await page.keyboard.press('1');
+  await expect.poll(() => activeTool(page)).toBe('select');
+});
+
+test('token HP is clamped to maxHp', async ({ page }) => {
+  await gotoBlank(page, 'tabletop');
+  await page.evaluate(() => {
+    const { viewport } = window.__playground;
+    const state: unknown = JSON.parse(viewport.exportJSON());
+    if (typeof state !== 'object' || state === null) throw new Error('bad state');
+    viewport.loadJSON(
+      JSON.stringify({
+        ...state,
+        elements: [
+          {
+            id: 'html-big-token',
+            type: 'html',
+            position: { x: 100, y: 100 },
+            size: { w: 160, h: 180 },
+            zIndex: 0,
+            locked: false,
+            layerId: viewport.layerManager.activeLayerId,
+            htmlType: 'pg:token',
+            data: { name: 'Ogre', initials: 'O', color: '#e03131', hp: 99, maxHp: 10 },
+          },
+        ],
+      }),
+    );
+  });
+  await expect(page.locator('[data-element-id="html-big-token"] .pg-token-hp')).toHaveText(
+    '10 / 10',
+  );
+});

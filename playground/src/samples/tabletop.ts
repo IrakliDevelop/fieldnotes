@@ -26,6 +26,10 @@ export function buildTabletopSample(
   const layerId = viewport.layerManager.activeLayerId;
   viewport.transaction(() => {
     for (const el of store.getAll()) store.remove(el.id);
+    const { layerManager } = viewport;
+    layerManager.setLayerVisible(layerId, true);
+    layerManager.setLayerLocked(layerId, false);
+    layerManager.setLayerOpacity(layerId, 1);
     // GridController.add would open its own history step inside this transaction.
     store.add(
       gridElementTypeDefinition.wrap(

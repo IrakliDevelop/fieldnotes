@@ -33,3 +33,6 @@ export function h<K extends keyof HTMLElementTagNameMap>(
   if (text !== undefined) el.textContent = text;
   return el;
 }
+
+/** Colours from widget data are applied only when they match this. */
+export const HEX_COLOR = /^#[0-9a-f]{3,8}$/i;

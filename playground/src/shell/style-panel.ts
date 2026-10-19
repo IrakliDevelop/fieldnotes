@@ -42,7 +42,7 @@ const CONTROLS: Record<ValueControl, ControlDef> = {
   'fill-color': {
     label: 'Fill',
     style: 'fillColor',
-    options: { shape: 'fillColor', note: 'backgroundColor' },
+    options: { shape: 'fillColor', note: 'backgroundColor', template: 'fillColor' },
     choices: swatches(['none', '#ffc9c9', '#b2f2bb', '#a5d8ff', '#ffec99', '#eebefa']),
     picker: 'color',
   },
@@ -257,8 +257,13 @@ export function renderStylePanel(
         const def = CONTROLS[name];
         const key = def.options[toolName];
         if (!tool || key === undefined) continue;
+        // Canvas ignores fillStyle 'none', so a template would keep the previous fill.
+        const toOption = (value: Value): Value =>
+          value === 'none' && toolName === 'template' ? 'transparent' : value;
         children.push(
-          control(def, tool.getOptions()[key], (value) => tool.setOptions({ [key]: value })).el,
+          control(def, tool.getOptions()[key], (value) =>
+            tool.setOptions({ [key]: toOption(value) }),
+          ).el,
         );
       }
     }

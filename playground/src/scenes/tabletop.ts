@@ -214,8 +214,9 @@ export const tabletop: Scene = {
         viewport.requestRender();
       });
       const label = document.createElement('label');
-      label.className = 'style-control';
-      label.style.minHeight = '40px';
+      label.className = 'style-control style-switch';
+      // Keep focus on the canvas so tool keys still work; Tab and Space still reach the switch.
+      label.addEventListener('mousedown', (event) => event.preventDefault());
       label.append(toggle, 'View as player');
       el.append(label);
       return el;
@@ -248,12 +249,9 @@ export const tabletop: Scene = {
       styles: {
         controlsFor: (toolName) => STYLE_CONTROLS[toolName] ?? [],
         extraSection: (toolName) => {
-          const section = document.createElement('div');
-          // Lets the groups sit in the panel's own flex column.
-          section.style.display = 'contents';
-          section.append(gridSection());
-          if (toolName === 'fog') section.append(fogSection());
-          return section;
+          if (toolName === 'fog') return fogSection();
+          // Board setup, so it stays out of the way of the drawing tools' controls.
+          return toolName === 'select' || toolName === 'hand' ? gridSection() : null;
         },
       },
       loadSample: () => buildTabletopSample(viewport, gridController, manager),

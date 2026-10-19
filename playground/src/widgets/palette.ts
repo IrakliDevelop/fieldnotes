@@ -1,11 +1,10 @@
-import { h, isRecord, TOAST_EVENT } from './shared';
+import { h, HEX_COLOR, isRecord, TOAST_EVENT } from './shared';
 import type { WidgetDef } from './shared';
 
 interface PaletteData {
   colors: string[];
 }
 
-const HEX = /^#[0-9a-f]{3,8}$/i;
 const DEFAULT_COLOR = '#e4e4e7';
 
 const initialData = (): PaletteData => ({
@@ -21,7 +20,7 @@ function refresh(dom: HTMLElement, data: PaletteData): void {
   if (!grid) return;
   grid.replaceChildren(
     ...data.colors.map((value) => {
-      const color = HEX.test(value) ? value : DEFAULT_COLOR;
+      const color = HEX_COLOR.test(value) ? value : DEFAULT_COLOR;
       const swatch = h('button', 'pg-palette-swatch');
       swatch.type = 'button';
       swatch.style.background = color;

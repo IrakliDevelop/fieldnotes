@@ -1,4 +1,4 @@
-import { h, isRecord } from './shared';
+import { h, HEX_COLOR, isRecord } from './shared';
 import type { WidgetDef } from './shared';
 
 interface TokenData {
@@ -9,7 +9,6 @@ interface TokenData {
   maxHp: number;
 }
 
-const HEX = /^#[0-9a-f]{3,8}$/i;
 const DEFAULT_COLOR = '#1971c2';
 
 const initialData = (): TokenData => ({
@@ -27,10 +26,10 @@ function refresh(dom: HTMLElement, data: TokenData): void {
   const hp = dom.querySelector('.pg-token-hp');
   if (avatar) {
     avatar.textContent = data.initials;
-    avatar.style.background = HEX.test(data.color) ? data.color : DEFAULT_COLOR;
+    avatar.style.background = HEX_COLOR.test(data.color) ? data.color : DEFAULT_COLOR;
   }
   if (name) name.textContent = data.name;
-  if (fill) fill.style.width = `${data.maxHp > 0 ? (100 * data.hp) / data.maxHp : 0}%`;
+  if (fill) fill.style.width = `${(100 * data.hp) / data.maxHp}%`;
   if (hp) hp.textContent = `${data.hp} / ${data.maxHp}`;
 }
 
@@ -55,7 +54,9 @@ export const token: WidgetDef<TokenData> = {
     ) {
       return initialData();
     }
-    return { name, initials, color, hp, maxHp };
+    // Imported or peer data may break the 0..maxHp invariant the bar and buttons rely on.
+    const max = Math.max(1, maxHp);
+    return { name, initials, color, hp: Math.min(max, Math.max(0, hp)), maxHp: max };
   },
   render(data, commit) {
     const step = (text: string, label: string, delta: number): HTMLButtonElement => {
@@ -70,26 +71,8 @@ export const token: WidgetDef<TokenData> = {
       );
       return button;
     };
-    // widget.css has no token rules, so the circle and bar are styled inline.
-    const avatar = h('div', 'pg-token-avatar');
-    Object.assign(avatar.style, {
-      alignSelf: 'center',
-      display: 'grid',
-      placeItems: 'center',
-      width: '48px',
-      height: '48px',
-      borderRadius: '50%',
-      color: '#ffffff',
-      fontWeight: '700',
-      fontSize: '20px',
-    });
     const bar = h('div', 'pg-token-bar');
-    Object.assign(bar.style, { height: '6px', borderRadius: '3px', background: '#e9ecef' });
-    const fill = h('div', 'pg-token-fill');
-    Object.assign(fill.style, { height: '100%', borderRadius: '3px', background: '#2f9e44' });
-    bar.append(fill);
-    const name = h('div', 'pg-widget-title');
-    name.style.textAlign = 'center';
+    bar.append(h('div', 'pg-token-fill'));
     const row = h('div', 'pg-counter-row');
     row.append(
       step('−', 'Decrease HP', -1),
@@ -97,7 +80,7 @@ export const token: WidgetDef<TokenData> = {
       step('+', 'Increase HP', 1),
     );
     const root = h('div', 'pg-widget pg-token');
-    root.append(avatar, name, bar, row);
+    root.append(h('div', 'pg-token-avatar'), h('div', 'pg-widget-title'), bar, row);
     refresh(root, data);
     return root;
   },

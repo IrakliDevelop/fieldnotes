@@ -245,6 +245,10 @@ body {
   gap: 4px;
 }
 
+.style-switch {
+  min-height: 40px;
+}
+
 .style-label {
   flex: 1 0 100%;
   padding: 0 4px;
