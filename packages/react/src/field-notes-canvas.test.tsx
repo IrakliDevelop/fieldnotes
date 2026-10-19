@@ -291,10 +291,13 @@ describe('FieldNotesCanvas initialData and onChange', () => {
   });
 
   const saved = {
-    version: 4,
+    version: 5,
     camera: { position: { x: 0, y: 0 }, zoom: 1 },
     elements: [
-      { ...createShape({ position: { x: 10, y: 20 }, size: { w: 30, h: 40 } }), id: 's1' },
+      {
+        ...createShape({ position: { x: 10, y: 20 }, size: { w: 30, h: 40 }, index: 'a0' }),
+        id: 's1',
+      },
     ],
   } satisfies CanvasState;
 

@@ -1,5 +1,5 @@
-import { HANDLE_SIZE, HANDLE_HIT_PADDING } from '@fieldnotes/core';
-import type { Bounds, CanvasElement } from '@fieldnotes/core';
+import { HANDLE_SIZE, HANDLE_HIT_PADDING, pickBaseFields } from '@fieldnotes/core';
+import type { BaseElement, Bounds, CanvasElement } from '@fieldnotes/core';
 import type {
   ElementTypeDefinition,
   ExtensionElementEnvelope,
@@ -84,14 +84,8 @@ export const templateElementTypeDefinition: ElementTypeDefinition<TemplateElemen
 
   decodeLegacy(raw: Record<string, unknown>): TemplateElement {
     const el: TemplateElement = {
-      id: raw['id'] as string,
+      ...pickBaseFields(raw as unknown as BaseElement),
       type: 'template',
-      position: raw['position'] as { x: number; y: number },
-      zIndex: raw['zIndex'] as number,
-      locked: raw['locked'] as boolean,
-      layerId: raw['layerId'] as string,
-      groupId: raw['groupId'] as string | undefined,
-      rotation: raw['rotation'] as number | undefined,
       templateShape: raw['templateShape'] as TemplateShape,
       radius: raw['radius'] as number,
       angle: raw['angle'] as number,
@@ -126,14 +120,8 @@ export const templateElementTypeDefinition: ElementTypeDefinition<TemplateElemen
 
   unwrap(el: ExtensionElementEnvelope): TemplateElement {
     const tmpl: TemplateElement = {
-      id: el.id,
+      ...pickBaseFields(el),
       type: 'template',
-      position: el.position,
-      zIndex: el.zIndex,
-      locked: el.locked,
-      layerId: el.layerId,
-      groupId: el.groupId,
-      rotation: el.rotation,
       templateShape: el.data['templateShape'] as TemplateShape,
       radius: el.data['radius'] as number,
       angle: el.data['angle'] as number,
@@ -166,15 +154,9 @@ export const templateElementTypeDefinition: ElementTypeDefinition<TemplateElemen
     if (el.renderStyle !== undefined) data['renderStyle'] = el.renderStyle;
 
     return {
-      id: el.id,
+      ...pickBaseFields(el),
       type: 'extension',
       extensionType: 'vtt:template',
-      position: el.position,
-      zIndex: el.zIndex,
-      locked: el.locked,
-      layerId: el.layerId,
-      groupId: el.groupId,
-      rotation: el.rotation,
       data,
     };
   },

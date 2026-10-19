@@ -10,7 +10,8 @@ function makeTemplate(overrides: Partial<TemplateElement> = {}): TemplateElement
     id: 'tmpl-1',
     type: 'template',
     position: { x: 100, y: 200 },
-    zIndex: 1,
+    index: 'a1',
+    version: 1,
     locked: false,
     layerId: 'default',
     templateShape: 'circle',
@@ -30,7 +31,8 @@ function makeEnvelope(overrides: Partial<ExtensionElementEnvelope> = {}): Extens
     type: 'extension',
     extensionType: 'vtt:template',
     position: { x: 100, y: 200 },
-    zIndex: 1,
+    index: 'a1',
+    version: 1,
     locked: false,
     layerId: 'default',
     data: {
@@ -105,6 +107,15 @@ describe('TemplateElementTypeDefinition', () => {
       expect(restored).toEqual(original);
     });
 
+    it('wrap(unwrap(envelope)) preserves index, version and editor', () => {
+      const envelope = makeEnvelope({ index: 'a5', version: 7, editor: 'peer-2' });
+      const rewrapped = templateElementTypeDefinition.wrap(
+        templateElementTypeDefinition.unwrap(envelope),
+      );
+
+      expect(rewrapped).toMatchObject({ index: 'a5', version: 7, editor: 'peer-2' });
+    });
+
     it('round-trip preserves absence of optional fields', () => {
       const original = makeTemplate();
       const envelope = templateElementTypeDefinition.wrap(original);
@@ -122,7 +133,8 @@ describe('TemplateElementTypeDefinition', () => {
       const raw = {
         id: 't-1',
         position: { x: 5, y: 10 },
-        zIndex: 2,
+        index: 'a0',
+        version: 1,
         locked: false,
         layerId: 'tokens',
         templateShape: 'cone',
@@ -145,7 +157,8 @@ describe('TemplateElementTypeDefinition', () => {
       const raw = {
         id: 't-2',
         position: { x: 10, y: 20 },
-        zIndex: 3,
+        index: 'a3',
+        version: 2,
         locked: true,
         layerId: 'default',
         templateShape: 'line',
@@ -168,7 +181,8 @@ describe('TemplateElementTypeDefinition', () => {
       expect(tmpl.strokeWidth).toBe(4);
       expect(tmpl.opacity).toBe(0.3);
       expect(tmpl.position).toEqual({ x: 10, y: 20 });
-      expect(tmpl.zIndex).toBe(3);
+      expect(tmpl.index).toBe('a3');
+      expect(tmpl.version).toBe(2);
       expect(tmpl.locked).toBe(true);
     });
   });

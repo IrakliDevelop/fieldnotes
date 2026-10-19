@@ -6,6 +6,7 @@ import type {
   Point,
   Size,
 } from '@fieldnotes/core';
+import { pickBaseFields } from '@fieldnotes/core';
 
 // ─── 1. Define the typed element ──────────────────────────────────────────────
 // Extension elements extend BaseElement with domain-specific fields.
@@ -42,15 +43,10 @@ export const annotationDefinition: ElementTypeDefinition<AnnotationElement> = {
   // unwrap: ExtensionElementEnvelope → typed element (for rendering/logic).
   wrap(el: AnnotationElement): ExtensionElementEnvelope {
     return {
-      id: el.id,
+      // pickBaseFields copies id, position, index, version and the other base fields.
+      ...pickBaseFields(el),
       type: 'extension',
       extensionType: 'example:annotation',
-      position: el.position,
-      zIndex: el.zIndex,
-      locked: el.locked,
-      layerId: el.layerId,
-      groupId: el.groupId,
-      rotation: el.rotation,
       size: el.size,
       data: {
         label: el.label,
@@ -61,14 +57,8 @@ export const annotationDefinition: ElementTypeDefinition<AnnotationElement> = {
 
   unwrap(el: ExtensionElementEnvelope): AnnotationElement {
     return {
-      id: el.id,
+      ...pickBaseFields(el),
       type: 'example:annotation',
-      position: el.position,
-      zIndex: el.zIndex,
-      locked: el.locked,
-      layerId: el.layerId,
-      groupId: el.groupId,
-      rotation: el.rotation,
       label: el.data['label'] as string,
       color: el.data['color'] as string,
       size: el.size ?? { w: 40, h: 40 },

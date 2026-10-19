@@ -50,7 +50,8 @@ describe('VTT adapter — legacy grid conversion', () => {
       id: 'grid-1',
       type: 'grid',
       position: { x: 0, y: 0 },
-      zIndex: -1,
+      index: 'a0',
+      version: 1,
       locked: true,
       layerId: 'default-layer',
       gridType: 'hex',
@@ -80,7 +81,8 @@ describe('VTT adapter — legacy grid conversion', () => {
       id: 'grid-1',
       type: 'grid',
       position: { x: 0, y: 0 },
-      zIndex: -1,
+      index: 'a0',
+      version: 1,
       locked: true,
       layerId: 'default-layer',
       gridType: 'square',
@@ -117,7 +119,8 @@ describe('VTT adapter — legacy template conversion', () => {
       id: 'tpl-1',
       type: 'template',
       position: { x: 100, y: 200 },
-      zIndex: 10,
+      index: 'a1',
+      version: 1,
       locked: false,
       layerId: 'default-layer',
       templateShape: 'circle',
@@ -151,7 +154,8 @@ describe('VTT adapter — legacy template conversion', () => {
       id: 'tpl-1',
       type: 'template',
       position: { x: 50, y: 50 },
-      zIndex: 5,
+      index: 'a2',
+      version: 1,
       locked: false,
       layerId: 'default-layer',
       templateShape: 'rectangle',
@@ -178,6 +182,52 @@ describe('VTT adapter — legacy template conversion', () => {
   });
 });
 
+describe('VTT adapter — legacy base fields', () => {
+  // The serializer assigns index/version (assignLegacyOrder) before decodeLegacy runs.
+  it.each([
+    [
+      'grid',
+      {
+        gridType: 'square',
+        hexOrientation: 'pointy',
+        cellSize: 24,
+        strokeColor: '#ccc',
+        strokeWidth: 1,
+        opacity: 0.5,
+      },
+    ],
+    [
+      'template',
+      {
+        templateShape: 'circle',
+        radius: 30,
+        angle: 0,
+        fillColor: '#fff',
+        strokeColor: '#000',
+        strokeWidth: 1,
+        opacity: 1,
+      },
+    ],
+  ])('legacy %s loads with index and version', (type, fields) => {
+    const adapter = registry.getAdapterByLegacyType(type);
+    if (!adapter) throw new Error('adapter is not registered');
+
+    const envelope = adapter.decodeLegacy({
+      id: `${type}-legacy`,
+      type,
+      position: { x: 0, y: 0 },
+      index: 'a7',
+      version: 1,
+      locked: false,
+      layerId: 'default-layer',
+      ...fields,
+    });
+
+    expect(envelope).toMatchObject({ index: 'a7', version: 1 });
+    expect(adapter.validateEnvelope(envelope)).toBe(true);
+  });
+});
+
 describe('VTT adapter — validation', () => {
   it('validates well-formed grid envelope', () => {
     const adapter = registry.getAdapter('vtt:grid');
@@ -189,7 +239,8 @@ describe('VTT adapter — validation', () => {
       type: 'extension' as const,
       extensionType: 'vtt:grid',
       position: { x: 0, y: 0 },
-      zIndex: -1,
+      index: 'a0',
+      version: 1,
       locked: true,
       layerId: 'default-layer',
       data: {
@@ -214,7 +265,8 @@ describe('VTT adapter — validation', () => {
       type: 'extension' as const,
       extensionType: 'vtt:grid',
       position: { x: 0, y: 0 },
-      zIndex: -1,
+      index: 'a0',
+      version: 1,
       locked: true,
       layerId: 'default-layer',
       data: { gridType: 'invalid' },
