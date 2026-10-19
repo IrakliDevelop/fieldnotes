@@ -158,6 +158,30 @@ test('guest is a guest', async ({ page }) => {
   expect(await hostFlags(guest)).toEqual([]);
 });
 
+test('the tab Collaborate opens is marked guest in its URL; the host URL is not', async ({
+  page,
+}) => {
+  await open(page);
+  const guest = await collaborate(page);
+  expect(new URL(guest.url()).searchParams.has('guest')).toBe(true);
+  expect(new URL(page.url()).searchParams.has('guest')).toBe(false);
+});
+
+test('a guest URL wins over a host flag copied into the tab', async ({ page }) => {
+  await page.addInitScript(() => {
+    sessionStorage.setItem('fieldnotes-playground:host:dup1', '1');
+  });
+  await page.goto('/?scene=tabletop&room=dup1&guest');
+  await page.waitForFunction(() => window.__playground !== undefined);
+  expect(await page.evaluate(() => window.__playground.fog?.getViewMode())).toBe('player');
+  await expect(
+    page.locator('[data-chrome="tools"]').getByRole('button', { name: 'Fog', exact: true }),
+  ).toHaveCount(0);
+  expect(
+    await page.evaluate(() => sessionStorage.getItem('fieldnotes-playground:host:dup1')),
+  ).toBeNull();
+});
+
 test('guest reload keeps the board', async ({ page }) => {
   await open(page);
   const guest = await collaborate(page);

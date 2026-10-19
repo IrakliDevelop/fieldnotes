@@ -14,10 +14,13 @@ const randomId = (): string =>
     '',
   );
 
-/** The room in `?room=`, or null when absent or malformed; host iff this tab started it. */
+/** The room in `?room=`, or null when absent or malformed; host iff this tab started it and has no `guest` param. */
 export function readRoom(): Room | null {
-  const id = new URLSearchParams(location.search).get('room');
+  const params = new URLSearchParams(location.search);
+  const id = params.get('room');
   if (id === null || !/^[a-z0-9]{4,12}$/.test(id)) return null;
+  // A duplicated host tab copies sessionStorage; the guest marker must still win.
+  if (params.has('guest')) sessionStorage.removeItem(hostKey(id));
   return { id, role: sessionStorage.getItem(hostKey(id)) === '1' ? 'host' : 'guest' };
 }
 

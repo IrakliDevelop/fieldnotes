@@ -260,7 +260,9 @@ const mount = (id: string | null): void => {
     history.replaceState(
       null,
       '',
-      room ? `?scene=${scene.id}&room=${room.id}` : `?scene=${scene.id}${blank ? '&blank' : ''}`,
+      room
+        ? `?scene=${scene.id}&room=${room.id}${room.role === 'guest' ? '&guest' : ''}`
+        : `?scene=${scene.id}${blank ? '&blank' : ''}`,
     );
   } catch {
     stage.replaceChildren();

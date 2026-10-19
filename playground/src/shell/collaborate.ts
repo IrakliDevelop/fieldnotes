@@ -106,7 +106,7 @@ export function renderCollaborate(
     if (!room) {
       room = createRoom();
       opts.start(room);
-      window.open(location.href, '_blank', 'noopener');
+      window.open(`${location.href}&guest`, '_blank', 'noopener');
     }
     open(room);
   });
