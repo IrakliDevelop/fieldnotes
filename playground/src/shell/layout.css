@@ -139,6 +139,39 @@ body {
   font-size: 12px;
 }
 
+.collab {
+  position: relative;
+}
+
+.collab-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  flex-direction: column;
+  align-items: stretch;
+  width: min(280px, calc(100vw - 24px));
+}
+
+.collab-title,
+.collab-link,
+.collab-note {
+  margin: 4px 8px;
+}
+
+.collab-title {
+  font-weight: 600;
+}
+
+.collab-link {
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+
+.collab-note {
+  color: var(--ink-2);
+  font-size: 12px;
+}
+
 .icon-button[aria-checked='true'] {
   background: var(--accent);
   color: var(--accent-ink);
@@ -160,13 +193,29 @@ body {
   gap: 4px;
 }
 
-.scene-select {
+.scene-select-wrap {
+  position: relative;
   display: none;
+  align-items: center;
+}
+
+.scene-select {
   min-height: 40px;
+  padding: 0 14px 0 2px;
   border: 0;
+  appearance: none;
   background: transparent;
   color: var(--ink);
   font: inherit;
+  font-size: 13px;
+}
+
+.scene-select-wrap svg {
+  position: absolute;
+  right: 0;
+  width: 16px;
+  height: 16px;
+  pointer-events: none;
 }
 
 /* Narrow: the header row's zones keep their own fixed positions. */
@@ -420,8 +469,8 @@ body {
     display: none;
   }
 
-  .scene-select {
-    display: block;
+  .scene-select-wrap {
+    display: inline-flex;
   }
 }
 

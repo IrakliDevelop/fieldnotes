@@ -1,5 +1,6 @@
 import { HandTool, LaserTool, PencilTool, PingTool, SelectTool, Viewport } from '@fieldnotes/core';
 import type { CanvasElement } from '@fieldnotes/core';
+import type { ClientSyncPlugin } from '@fieldnotes/sync';
 import {
   createFogPlugin,
   FogTool,
@@ -9,6 +10,7 @@ import {
   TemplateTool,
 } from '@fieldnotes/vtt';
 import type { FogManager, TemplateShape } from '@fieldnotes/vtt';
+import { createFogClientPlugin } from '@fieldnotes/vtt/sync';
 import { buildTabletopSample } from '../samples/tabletop';
 import type { FlyoutItem, Scene, StyleControl, ToolSpec } from '../scene';
 import { registerWidgets } from '../widgets';
@@ -21,6 +23,11 @@ let fog: FogManager | null = null;
 /** The mounted Tabletop scene's fog manager, or null when it is not mounted. */
 export function currentFog(): FogManager | null {
   return fog;
+}
+
+/** Sync plugins for a room on the mounted Tabletop scene; none when it is not mounted. */
+export function fogClientPlugins(): ClientSyncPlugin[] {
+  return fog ? [createFogClientPlugin({ manager: fog })] : [];
 }
 
 const SHAPES: readonly (readonly [TemplateShape, string, FlyoutItem['icon']])[] = [

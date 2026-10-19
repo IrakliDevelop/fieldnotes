@@ -1,12 +1,14 @@
 import type { Viewport } from '@fieldnotes/core';
 import type { FogManager } from '@fieldnotes/vtt';
 import { attachPersistence } from './persistence';
-import type { Scene, SceneId, SceneInstance } from './scene';
+import { connectRoom, leaveRoom, readRoom } from './room';
+import type { Room, Scene, SceneId, SceneInstance } from './scene';
+import { renderCollaborate } from './shell/collaborate';
 import { addMenuItems } from './shell/menu';
 import { createShell } from './shell/shell';
 import type { Mounted } from './shell/shell';
 import { embeds } from './scenes/embeds';
-import { currentFog, tabletop } from './scenes/tabletop';
+import { currentFog, fogClientPlugins, tabletop } from './scenes/tabletop';
 import { whiteboard } from './scenes/whiteboard';
 
 declare global {
@@ -22,17 +24,66 @@ const chrome = document.getElementById('chrome');
 if (!stage || !chrome) throw new Error('Missing #stage or #chrome');
 
 let current: Mounted | null = null;
+let room: Room | null = readRoom();
 const shell = createShell(
   chrome,
   SCENES,
   () => current,
-  (id) => mount(id),
+  (id) => {
+    leave();
+    mount(id);
+  },
 );
 
 let firstMount = true;
 // Test and demo hook: a scene with nothing saved starts empty instead of with its sample.
 const blank = new URLSearchParams(location.search).has('blank');
-let teardown: (() => void) | null = null;
+
+/** A mounted scene's persistence, room connection and menu items. */
+interface Attached {
+  /** Hands the live board to `room`: autosave stops, the board stays. */
+  enter(room: Room): void;
+  dispose(): void;
+}
+let attached: Attached | null = null;
+
+const leave = (): void => {
+  if (!room) return;
+  leaveRoom(room);
+  room = null;
+};
+
+// Leave room reloads the scene with its own saved board.
+const leaveAndRemount = (): void => {
+  leave();
+  mount(current?.id ?? null);
+};
+
+const enterRoom = (next: Room): void => {
+  if (!current) return;
+  room = next;
+  history.replaceState(null, '', `?scene=${current.id}&room=${next.id}`);
+  attached?.enter(next);
+  refreshCollaborate();
+};
+
+const topRight = chrome.querySelector<HTMLElement>('[data-chrome="top-right"]');
+if (!topRight) throw new Error('Missing top-right zone');
+const refreshCollaborate = renderCollaborate(topRight, {
+  room: () => room,
+  start: enterRoom,
+  leave: leaveAndRemount,
+  toast: shell.toast,
+});
+addMenuItems('room', [
+  {
+    id: 'leave-room',
+    label: 'Leave room',
+    icon: 'x',
+    run: leaveAndRemount,
+    hidden: () => room === null,
+  },
+]);
 
 function download(filename: string, blob: Blob): void {
   const url = URL.createObjectURL(blob);
@@ -43,28 +94,46 @@ function download(filename: string, blob: Blob): void {
   setTimeout(() => URL.revokeObjectURL(url));
 }
 
-/** Wires autosave and the file/board menu to a mounted scene; returns its teardown. */
-function attach(instance: SceneInstance, sceneId: SceneId): () => void {
+/** Wires persistence, the room and the file/board menu to a mounted scene. */
+function attach(instance: SceneInstance, sceneId: SceneId): Attached {
   const { viewport } = instance;
   const disposed = new AbortController();
   let detach: (() => void) | null = null;
-  void attachPersistence(viewport, sceneId, {
-    onFirstVisit: () => {
-      if (!blank) instance.loadSample();
-    },
-    toast: shell.toast,
-    autosave: true,
-    signal: disposed.signal,
-  }).then((dispose) => {
-    if (disposed.signal.aborted) {
-      dispose();
-      return;
-    }
-    detach = dispose;
-    // Published once the board is loaded so tests never race the initial restore.
+  let connection: { dispose(): void } | null = null;
+  const join = (joined: Room): void => {
+    connection = connectRoom(viewport, sceneId, joined, { plugins: fogClientPlugins() });
+  };
+  // Published once the board is loaded so tests never race the initial restore.
+  const publish = (): void => {
     const fog = sceneId === 'tabletop' ? currentFog() : null;
     window.__playground = fog ? { sceneId, viewport, fog } : { sceneId, viewport };
-  });
+  };
+  const joining = room;
+  if (joining?.role === 'guest') {
+    // A guest starts empty; the room's snapshot fills the board.
+    join(joining);
+    publish();
+  } else {
+    void attachPersistence(viewport, sceneId, {
+      onFirstVisit: () => {
+        if (!blank) instance.loadSample();
+      },
+      toast: shell.toast,
+      // In a room the board belongs to the room; the saved board stays as it was.
+      autosave: joining === null,
+      signal: disposed.signal,
+    }).then((dispose) => {
+      if (disposed.signal.aborted) {
+        dispose();
+        return;
+      }
+      // Collaborate clicked before the load finished: the room already owns the board.
+      if (connection) dispose();
+      else detach = dispose;
+      if (joining) join(joining);
+      publish();
+    });
+  }
 
   // iOS Safari only delivers change events to a file input that is in the document.
   const input = document.createElement('input');
@@ -85,7 +154,14 @@ function attach(instance: SceneInstance, sceneId: SceneId): () => void {
 
   const removers = [
     addMenuItems('file', [
-      { id: 'open-json', label: 'Open JSON', icon: 'upload', run: () => input.click() },
+      {
+        id: 'open-json',
+        label: 'Open JSON',
+        icon: 'upload',
+        run: () => input.click(),
+        // Replacing layers wholesale emits no per-layer events, so peers would never see it.
+        hidden: () => room !== null,
+      },
       {
         id: 'save-json',
         label: 'Save JSON',
@@ -137,11 +213,19 @@ function attach(instance: SceneInstance, sceneId: SceneId): () => void {
       },
     ]),
   ];
-  return () => {
-    disposed.abort();
-    detach?.();
-    input.remove();
-    for (const remove of removers) remove();
+  return {
+    enter: (next) => {
+      detach?.();
+      detach = null;
+      join(next);
+    },
+    dispose: () => {
+      disposed.abort();
+      detach?.();
+      connection?.dispose();
+      input.remove();
+      for (const remove of removers) remove();
+    },
   };
 }
 
@@ -149,15 +233,19 @@ const mount = (id: string | null): void => {
   const scene = SCENES.find((s) => s.id === id) ?? whiteboard;
   const isFirst = firstMount;
   firstMount = false;
-  teardown?.();
-  teardown = null;
+  attached?.dispose();
+  attached = null;
   current?.instance?.dispose();
   stage.replaceChildren();
   try {
     const instance = scene.mount({ stage, shell, room: null });
     current = { id: scene.id, instance };
-    teardown = attach(instance, scene.id);
-    history.replaceState(null, '', `?scene=${scene.id}${blank ? '&blank' : ''}`);
+    attached = attach(instance, scene.id);
+    history.replaceState(
+      null,
+      '',
+      room ? `?scene=${scene.id}&room=${room.id}` : `?scene=${scene.id}${blank ? '&blank' : ''}`,
+    );
   } catch {
     stage.replaceChildren();
     current = { id: scene.id, instance: null };
@@ -169,6 +257,7 @@ const mount = (id: string | null): void => {
     }
   }
   shell.refresh();
+  refreshCollaborate();
 };
 
 mount(new URLSearchParams(location.search).get('scene'));
