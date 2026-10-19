@@ -10,6 +10,7 @@ import {
   type SyncOp,
   type SyncEnvelope,
   type SyncCapabilities,
+  type BatchOp,
   type PluginSnapshot,
   type Tombstone,
 } from '@fieldnotes/sync';
@@ -40,7 +41,10 @@ import {
   DEFAULT_MAX_JSON_DEPTH,
   DEFAULT_MAX_PRESENCE_BYTES,
   DEFAULT_MAX_PRESENCE_LANES,
+  DEFAULT_OP_BURST,
+  DEFAULT_OPS_PER_SECOND,
   DEFAULT_PRESENCE_THROTTLE_MS,
+  MessageRateLimiter,
   hasJsonDepthAtMost,
 } from './resource-limits';
 
@@ -60,7 +64,7 @@ export interface Connection {
   sendAsync?(message: string): Promise<void>;
   /** Factory-owned lifetime and close hooks required for isolated authority connections. */
   readonly signal?: AbortSignal;
-  close?(code: 4401 | 4403 | 4406 | 1013): void;
+  close?(code: 4401 | 4403 | 4406 | 4408 | 1013): void;
 }
 
 export interface SyncHubOptions {
@@ -79,6 +83,10 @@ export interface SyncHubOptions {
   maxPresenceLanes?: number;
   /** Largest `presence.data` payload relayed, in UTF-8 bytes of its JSON encoding. */
   maxPresenceBytes?: number;
+  /** Sustained element ops per second per connection, single or batched; over budget closes 4408. */
+  opsPerSecond?: number;
+  /** Element op spike allowance per connection. */
+  opBurst?: number;
   /** Opt-in: drops hub, backend and plugin per-room memory after a room has had no local connection for this long. */
   roomIdleTimeoutMs?: number;
 }
@@ -105,6 +113,27 @@ type ElementOp = Extract<SyncOp, { kind: 'upsert' | 'remove' }>;
 
 function isFanoutOp(op: SyncOp): op is ElementOp {
   return op.kind === 'upsert' || op.kind === 'remove';
+}
+
+// Clients apply editor 'hub' ops authoritatively, so no client may claim it (as for layer ops).
+function isAdmissibleElementOp(op: ElementOp): boolean {
+  if (op.kind === 'remove') return op.editor !== HUB_FROM;
+  return isValidElement(op.element) && op.element.editor !== HUB_FROM;
+}
+
+function asBatchOp(op: ElementOp): BatchOp | undefined {
+  if (op.kind === 'upsert') return op;
+  const { id, version, editor } = op;
+  return version === undefined || editor === undefined
+    ? undefined
+    : { kind: 'remove', id, version, editor };
+}
+
+/** An accepted element op and the stored audience it replaced, for per-recipient delivery. */
+interface Delivery {
+  readonly op: ElementOp;
+  readonly prevAudience: string | undefined;
+  readonly existed: boolean;
 }
 
 const MAX_VERSION_JUMP = 1_000_000;
@@ -158,7 +187,7 @@ function layerRecordToOp(record: LayerRecord): LayerOp {
 type EncodedFrames = Map<string, string | null>;
 
 function encodingProfile(capabilities: SyncCapabilities, revealOwner: boolean): string {
-  return JSON.stringify([capabilities.extensionKinds, revealOwner]);
+  return JSON.stringify([capabilities.extensionKinds, capabilities.opBatching === 1, revealOwner]);
 }
 
 function withoutOwnerId(element: SyncElement): SyncElement {
@@ -172,6 +201,12 @@ function withoutOwnerId(element: SyncElement): SyncElement {
 function stripOwnerId(op: SyncOp): SyncOp {
   if (op.kind === 'upsert') return { ...op, element: withoutOwnerId(op.element) };
   if (op.kind === 'snapshot') return { ...op, elements: op.elements.map(withoutOwnerId) };
+  if (op.kind === 'batch') {
+    const ops = op.ops.map((inner): BatchOp =>
+      inner.kind === 'upsert' ? { ...inner, element: withoutOwnerId(inner.element) } : inner,
+    );
+    return { ...op, ops };
+  }
   return op;
 }
 
@@ -200,6 +235,9 @@ export class SyncHub {
   private readonly presenceThrottleMs: number;
   private readonly maxPresenceLanes: number;
   private readonly maxPresenceBytes: number;
+  private readonly opsPerSecond: number;
+  private readonly opBurst: number;
+  private readonly opLimiters = new Map<string, MessageRateLimiter>();
   /**
    * Presence throttle state keyed by connection, then by lane. A lane is the
    * payload's `kind` (a non-empty string of at most 64 chars) or the reserved
@@ -239,6 +277,16 @@ export class SyncHub {
       throw new RangeError('maxPresenceBytes must be a non-negative finite number');
     }
     this.maxPresenceBytes = maxPresenceBytes;
+    const opsPerSecond = options.opsPerSecond ?? DEFAULT_OPS_PER_SECOND;
+    if (!Number.isFinite(opsPerSecond) || opsPerSecond <= 0) {
+      throw new RangeError('opsPerSecond must be a positive finite number');
+    }
+    this.opsPerSecond = opsPerSecond;
+    const opBurst = options.opBurst ?? DEFAULT_OP_BURST;
+    if (!Number.isFinite(opBurst) || opBurst <= 0) {
+      throw new RangeError('opBurst must be a positive finite number');
+    }
+    this.opBurst = opBurst;
     const roomIdleTimeoutMs = options.roomIdleTimeoutMs;
     if (
       roomIdleTimeoutMs !== undefined &&
@@ -290,7 +338,9 @@ export class SyncHub {
       authContext: snapshotAuthContext(conn.authContext),
       expiresAt: validateExpiresAt(conn.expiresAt),
       ...(conn.signal ? { signal: conn.signal } : {}),
-      ...(conn.close ? { close: (code: 4401 | 4403 | 4406 | 1013) => conn.close?.(code) } : {}),
+      ...(conn.close
+        ? { close: (code: 4401 | 4403 | 4406 | 4408 | 1013) => conn.close?.(code) }
+        : {}),
     });
     copyAuthorityConnectionBinding(conn, admitted);
     if (authorityDefinition) {
@@ -303,6 +353,7 @@ export class SyncHub {
       return;
     }
     this.conns.set(conn.id, admitted);
+    this.opLimiters.set(conn.id, new MessageRateLimiter(this.opsPerSecond, this.opBurst));
     clearTimeout(this.idleTimers.get(conn.room));
     this.idleTimers.delete(conn.room);
     let set = this.rooms.get(conn.room);
@@ -323,6 +374,7 @@ export class SyncHub {
       return;
     }
     this.peerCapabilities.delete(connId);
+    this.opLimiters.delete(connId);
     const room = conn.room;
     const hadPresence = this.presenceConnections.delete(connId);
     this.clearPresenceLanes(connId);
@@ -379,7 +431,12 @@ export class SyncHub {
     const env = parseLegacyEnvelope(message);
     if (!env) return Promise.resolve();
     if (env.op.kind === 'capabilities' && env.op.capabilities.protocolVersion < 2) {
-      conn.close?.(4406);
+      return this.refuseProtocol(conn);
+    }
+    let opCost = isFanoutOp(env.op) ? 1 : 0;
+    if (env.op.kind === 'batch') opCost = env.op.ops.length;
+    if (opCost > 0 && !this.opLimiters.get(connId)?.take(Date.now(), opCost)) {
+      conn.close?.(4408);
       this.removeConnection(connId);
       return Promise.resolve();
     }
@@ -395,7 +452,10 @@ export class SyncHub {
         this.peerCapabilities.set(conn.id, env.op.capabilities);
         this.sendToConnection(conn, HUB_FROM, {
           kind: 'capabilities',
-          capabilities: createCurrentCapabilities(this.pluginRegistry.extensionKinds),
+          capabilities: {
+            ...createCurrentCapabilities(this.pluginRegistry.extensionKinds),
+            opBatching: 1,
+          },
         });
       } else if (env.op.kind === 'presence') {
         if (this.isPresenceWithinLimit(env.op.data)) this.schedulePresence(conn, env.op.data);
@@ -408,6 +468,29 @@ export class SyncHub {
       return perform();
     }
     return this.roomQueue(conn.room).enqueue(perform, options);
+  }
+
+  /** Explains the refusal before 4406; a guarded send gets up to 1 s to reach the socket. */
+  private async refuseProtocol(conn: Connection): Promise<void> {
+    const reply: SyncOp = {
+      kind: 'unsupported',
+      protocolVersion: 2,
+      minProtocolVersion: 2,
+      reason: 'protocol version 2 required',
+    };
+    if (conn.sendAsync) {
+      this.removeConnection(conn.id);
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([
+        conn.sendAsync(JSON.stringify({ from: HUB_FROM, op: reply })).catch(() => undefined),
+        new Promise<void>((resolve) => (timer = setTimeout(resolve, 1000))),
+      ]);
+      clearTimeout(timer);
+    } else {
+      this.sendToConnection(conn, HUB_FROM, reply);
+      this.removeConnection(conn.id);
+    }
+    conn.close?.(4406);
   }
 
   private isCurrent(conn: Connection): boolean {
@@ -444,12 +527,7 @@ export class SyncHub {
     options?: MessageDispatchOptions,
   ): Promise<void> {
     const op = env.op;
-    if (op.kind === 'upsert') {
-      if (!isValidElement(op.element)) return;
-    }
-    // Clients apply editor 'hub' ops authoritatively, so no client may claim it (as for layer ops).
-    if (op.kind === 'upsert' && op.element.editor === HUB_FROM) return;
-    if (op.kind === 'remove' && op.editor === HUB_FROM) return;
+    if (isFanoutOp(op) && !isAdmissibleElementOp(op)) return;
     // A clear's tombstones take the sender id as editor, so the same rule applies.
     if (op.kind === 'clear' && env.from === HUB_FROM) return;
     if (op.kind === 'request-snapshot') {
@@ -473,18 +551,40 @@ export class SyncHub {
       await this.deliverPluginResult(conn, result);
     } else if (op.kind === 'upsert' || op.kind === 'remove') {
       await this.processElementOp(conn, env.from, op, options);
+    } else if (op.kind === 'batch') {
+      await this.processBatch(conn, env.from, op.ops, options);
     } else if (op.kind === 'clear') {
       await this.processClear(conn, env.from, options);
     }
     // 'snapshot' from a client → ignored
   }
 
+  /** Each op runs the single-op pipeline; accepted ops reach local peers together, even after a throw. */
+  private async processBatch(
+    conn: Connection,
+    from: string,
+    ops: readonly BatchOp[],
+    options?: MessageDispatchOptions,
+  ): Promise<void> {
+    const delivered: Delivery[] = [];
+    try {
+      for (const op of ops) {
+        if (isAdmissibleElementOp(op))
+          await this.processElementOp(conn, from, op, options, delivered);
+      }
+    } finally {
+      this.deliverToRoom(conn.room, conn.id, conn.id, delivered, true);
+    }
+  }
+
   // Write-then-publish, so authorization judges the state the compare-and-set write replaces.
+  // With `batch`, local delivery is left to the caller.
   private async processElementOp(
     conn: Connection,
     from: string,
     op: ElementOp,
     options?: MessageDispatchOptions,
+    batch?: Delivery[],
   ): Promise<void> {
     const id = op.kind === 'upsert' ? op.element.id : op.id;
     const opVersion = op.kind === 'upsert' ? op.element.version : op.version;
@@ -606,7 +706,9 @@ export class SyncHub {
           );
         }
       } finally {
-        this.deliverToRoom(conn.room, conn.id, conn.id, accepted, prevAudience, existed);
+        const delivery = { op: accepted, prevAudience, existed };
+        if (batch) batch.push(delivery);
+        else this.deliverToRoom(conn.room, conn.id, conn.id, [delivery]);
       }
       await this.deliverPluginResult(conn, pluginOutput, opVersion);
       return;
@@ -1073,44 +1175,68 @@ export class SyncHub {
     );
   }
 
+  /**
+   * Sends each member the ops it may read, in order. With `batched`, a member that advertised
+   * opBatching gets each run of relayed ops as one `batch`; a hide-on-retag remove ends a run.
+   */
   private deliverToRoom(
     room: string,
     excludeId: string | undefined,
     from: string,
-    op: SyncOp,
-    prevAudience: string | undefined,
-    prevExisted: boolean,
+    deliveries: readonly Delivery[],
+    batched = false,
   ): void {
     const members = this.rooms.get(room);
     if (!members) return;
-    const encoded: EncodedFrames = new Map();
-    if (op.kind === 'upsert') {
-      const audience = (op.element as OwnedElement).audience;
-      const removeOp: SyncOp = {
-        kind: 'remove',
-        id: op.element.id,
-        version: op.element.version,
-        editor: HUB_FROM,
-      };
-      const encodedRemove: EncodedFrames = new Map();
-      for (const cid of members) {
-        if (cid === excludeId) continue;
-        const conn = this.conns.get(cid);
-        if (!conn) continue;
-        if (this.mayRead(conn, audience)) this.sendToConnection(conn, from, op, encoded);
-        else if (prevExisted && this.mayRead(conn, prevAudience)) {
-          this.sendToConnection(conn, HUB_FROM, removeOp, encodedRemove);
+    const relayed = deliveries.map((): EncodedFrames => new Map());
+    const hidden = deliveries.map((): EncodedFrames => new Map());
+    // Keyed by the selected op indices: equal profiles alone do not mean equal batches.
+    const batches = new Map<string, EncodedFrames>();
+    for (const cid of members) {
+      if (cid === excludeId) continue;
+      const conn = this.conns.get(cid);
+      if (!conn) continue;
+      const grouped = batched && this.peerCapabilities.get(cid)?.opBatching === 1;
+      let indices: number[] = [];
+      let ops: BatchOp[] = [];
+      const sendRun = () => {
+        if (ops.length === 0) return;
+        const key = indices.join(',');
+        let encoded = batches.get(key);
+        if (!encoded) {
+          encoded = new Map();
+          batches.set(key, encoded);
         }
-      }
-    } else if (op.kind === 'remove') {
-      for (const cid of members) {
-        if (cid === excludeId) continue;
-        const conn = this.conns.get(cid);
-        if (!conn) continue;
+        this.sendToConnection(conn, from, { kind: 'batch', ops }, encoded);
+        indices = [];
+        ops = [];
+      };
+      deliveries.forEach(({ op, prevAudience, existed }, index) => {
+        if (op.kind === 'upsert' && !this.mayRead(conn, op.element.audience)) {
+          if (!existed || !this.mayRead(conn, prevAudience)) return;
+          sendRun();
+          const { id, version } = op.element;
+          this.sendToConnection(
+            conn,
+            HUB_FROM,
+            { kind: 'remove', id, version, editor: HUB_FROM },
+            hidden[index],
+          );
+          return;
+        }
         // With canRead, only recipients who could see the removed element get it.
-        const wasVisible = !this.canRead || (prevExisted && this.mayRead(conn, prevAudience));
-        if (wasVisible) this.sendToConnection(conn, from, op, encoded);
-      }
+        if (op.kind === 'remove' && this.canRead && (!existed || !this.mayRead(conn, prevAudience)))
+          return;
+        const batchOp = grouped ? asBatchOp(op) : undefined;
+        if (batchOp) {
+          indices.push(index);
+          ops.push(batchOp);
+          return;
+        }
+        sendRun();
+        this.sendToConnection(conn, from, op, relayed[index]);
+      });
+      sendRun();
     }
   }
 
@@ -1289,7 +1415,7 @@ export class SyncHub {
     if (!isFanoutOp(op)) return;
     const prevAudience = typeof env.prev === 'string' ? env.prev : undefined;
     const prevExisted = env.existed === true;
-    this.deliverToRoom(env.room, undefined, env.from, op, prevAudience, prevExisted);
+    this.deliverToRoom(env.room, undefined, env.from, [{ op, prevAudience, existed: prevExisted }]);
   }
 
   private scheduleIdleEviction(room: string): void {

@@ -471,6 +471,23 @@ describe('isValidEnvelope layer ops', () => {
         op: { kind: 'snapshot', to: 'B', elements: [], layers: [] },
       }),
     ).toBe(true);
+    expect(
+      legacyIsValidEnvelope({
+        from: 'A',
+        op: { kind: 'batch', ops: [{ kind: 'remove', id: 'e', version: 2, editor: 'A' }] },
+      }),
+    ).toBe(false);
+    expect(
+      legacyIsValidEnvelope({
+        from: 'hub',
+        op: {
+          kind: 'unsupported',
+          protocolVersion: 2,
+          minProtocolVersion: 2,
+          reason: 'protocol version 2 required',
+        },
+      }),
+    ).toBe(false);
   });
 });
 

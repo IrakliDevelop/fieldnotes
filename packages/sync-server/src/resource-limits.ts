@@ -6,6 +6,9 @@ export const DEFAULT_MAX_PENDING_AUTH_MESSAGES = 100;
 export const DEFAULT_MAX_PENDING_AUTH_BYTES = 2 * 1024 * 1024;
 export const DEFAULT_MESSAGES_PER_SECOND = 120;
 export const DEFAULT_MESSAGE_BURST = 240;
+/** Sustained element ops per connection, counting each op of a batch. */
+export const DEFAULT_OPS_PER_SECOND = 2000;
+export const DEFAULT_OP_BURST = 4000;
 export const DEFAULT_PRESENCE_THROTTLE_MS = 50;
 /** Largest `presence.data` payload (UTF-8 bytes of its JSON) the hub relays. */
 export const DEFAULT_MAX_PRESENCE_BYTES = SYNC_LIMITS.maxPresenceBytes;

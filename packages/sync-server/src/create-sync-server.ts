@@ -26,6 +26,8 @@ import {
   DEFAULT_MAX_PENDING_AUTH_MESSAGES,
   DEFAULT_MESSAGE_BURST,
   DEFAULT_MESSAGES_PER_SECOND,
+  DEFAULT_OP_BURST,
+  DEFAULT_OPS_PER_SECOND,
   DEFAULT_PRESENCE_THROTTLE_MS,
   MessageRateLimiter,
 } from './resource-limits';
@@ -77,6 +79,10 @@ export interface CreateSyncServerOptions {
   bytesPerSecond?: number;
   /** Inbound byte spike allowance per connection; a frame larger than this is never admitted. */
   byteBurst?: number;
+  /** Sustained element ops per second per connection, each op of a batch counted; over budget closes 4408. */
+  opsPerSecond?: number;
+  /** Element op spike allowance per connection. */
+  opBurst?: number;
   presenceThrottleMs?: number;
   maxPresenceLanes?: number;
   maxPresenceBytes?: number;
@@ -176,6 +182,11 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
     options.bytesPerSecond ?? DEFAULT_BYTES_PER_SECOND,
   );
   const byteBurst = requirePositiveFinite('byteBurst', options.byteBurst ?? DEFAULT_BYTE_BURST);
+  const opsPerSecond = requirePositiveFinite(
+    'opsPerSecond',
+    options.opsPerSecond ?? DEFAULT_OPS_PER_SECOND,
+  );
+  const opBurst = requirePositiveFinite('opBurst', options.opBurst ?? DEFAULT_OP_BURST);
   const maxConnectionsPerIp = requirePositiveIntegerOrInfinity(
     'maxConnectionsPerIp',
     options.maxConnectionsPerIp ?? DEFAULT_MAX_CONNECTIONS_PER_IP,
@@ -206,6 +217,8 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
     presenceThrottleMs: options.presenceThrottleMs ?? DEFAULT_PRESENCE_THROTTLE_MS,
     maxPresenceLanes: options.maxPresenceLanes,
     maxPresenceBytes: options.maxPresenceBytes,
+    opsPerSecond,
+    opBurst,
     roomIdleTimeoutMs: options.roomIdleTimeoutMs,
   });
   const maxMessageBytes = options.maxMessageBytes ?? DEFAULT_MAX_MESSAGE_BYTES;
@@ -308,7 +321,7 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
       }
       ws.close(4401, 'unauthorized');
     };
-    const rejectGuarded = (code: 4401 | 4403 | 4406 | 1013) => {
+    const rejectGuarded = (code: 4401 | 4403 | 4406 | 4408 | 1013) => {
       if (closed || state === 'rejected') return;
       lifetime.abort();
       if (code !== 4401 && expiresAt !== undefined && Date.now() >= expiresAt) code = 4401;
@@ -330,7 +343,9 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
             ? 'forbidden'
             : code === 4406
               ? 'upgrade required'
-              : 'resync required',
+              : code === 4408
+                ? 'rate limit exceeded'
+                : 'resync required',
       );
     };
     const disposeGuarded = () => {

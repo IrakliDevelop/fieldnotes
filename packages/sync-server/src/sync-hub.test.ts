@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vitest';
 import { fogEncodeBase64 } from '@fieldnotes/vtt';
 import { createFogServerPlugin } from '@fieldnotes/vtt/server';
 import type { CanvasElement, Layer } from '@fieldnotes/core';
@@ -7,6 +7,8 @@ import {
   createCurrentCapabilities,
   createExtensionKind,
   parseLegacyEnvelope,
+  type BatchOp,
+  type SyncCapabilities,
   type SyncElement,
   type SyncOp,
 } from '@fieldnotes/sync';
@@ -3347,7 +3349,7 @@ describe('protocol 2 wire', () => {
     await hub.handleMessage('A', envelope('A', { kind: 'upsert', element: sampleEl() }));
 
     expect(close).toHaveBeenCalledWith(4406);
-    expect(A.sent).toEqual([]);
+    expect(A.sent.map((m) => (JSON.parse(m) as { op: SyncOp }).op.kind)).toEqual(['unsupported']);
     expect(B.sent).toEqual([]);
   });
 
@@ -3974,5 +3976,316 @@ describe('versioned element pipeline (D5)', () => {
     expect((await backend.getRecord('R', 'e'))?.kind).toBe('tombstone');
     expect(a.sent).toEqual([]);
     expect(frames(b)).toEqual([{ from: 'a', op: v2Remove('e') }]);
+  });
+});
+
+describe('element op batches', () => {
+  const batching = { ...createCurrentCapabilities([]), opBatching: 1 as const };
+  const shape = (id: string, version = 1, audience?: string): SyncElement => ({
+    ...v2Shape({ position: { x: version, y: 0 }, size: { w: 1, h: 1 } }),
+    id,
+    version,
+    ...(audience === undefined ? {} : { audience }),
+  });
+  const batch = (...ops: BatchOp[]): SyncOp => ({ kind: 'batch', ops });
+  const up = (element: SyncElement): BatchOp => ({ kind: 'upsert', element });
+  const gone = (id: string, version = 2): BatchOp => ({
+    kind: 'remove',
+    id,
+    version,
+    editor: 'client',
+  });
+  const frames = (conn: FakeConn): unknown[] => conn.sent.map((m) => JSON.parse(m) as unknown);
+
+  async function join(hub: SyncHub, id: string, capabilities?: SyncCapabilities, role?: string) {
+    const conn: FakeConn = { ...makeConn(id, 'R'), role, userId: id };
+    hub.addConnection(conn);
+    if (capabilities) {
+      await hub.handleMessage(id, envelope(id, { kind: 'capabilities', capabilities }));
+    }
+    conn.sent.length = 0;
+    return conn;
+  }
+
+  it('advertises opBatching in the capabilities reply', async () => {
+    const hub = new SyncHub();
+    const conn = makeConn('A', 'R');
+    hub.addConnection(conn);
+    await hub.handleMessage('A', envelope('A', { kind: 'capabilities', capabilities: batching }));
+    expect(frames(conn)).toEqual([
+      { from: 'hub', op: { kind: 'capabilities', capabilities: batching } },
+    ]);
+  });
+
+  it('relays accepted ops in order and corrects a stale middle op only to the sender', async () => {
+    const backend = new MemoryHubBackend();
+    const hub = new SyncHub({ backend });
+    const sender = await join(hub, 'S', batching);
+    await hub.handleMessage('S', envelope('S', up(shape('m', 5))));
+    const modern = await join(hub, 'N', batching);
+    const legacy = await join(hub, 'L', createCurrentCapabilities([]));
+    const silent = await join(hub, 'Q');
+    sender.sent.length = 0;
+
+    await hub.handleMessage(
+      'S',
+      envelope('S', batch(up(shape('a')), up(shape('m', 3)), up(shape('b')))),
+    );
+
+    expect(frames(modern)).toEqual([
+      { from: 'S', op: { kind: 'batch', ops: [up(shape('a')), up(shape('b'))] } },
+    ]);
+    for (const peer of [legacy, silent]) {
+      expect(frames(peer)).toEqual([
+        { from: 'S', op: up(shape('a')) },
+        { from: 'S', op: up(shape('b')) },
+      ]);
+    }
+    expect(frames(sender)).toEqual([{ from: 'hub', op: up(shape('m', 5)) }]);
+    expect(await storedElement(backend, 'R', 'b')).toEqual(shape('b'));
+  });
+
+  it('fans out one payload per accepted op', async () => {
+    const fanout = new InMemoryHubFanout();
+    const published: { op: SyncOp }[] = [];
+    fanout.subscribe((payload) => published.push(JSON.parse(payload) as { op: SyncOp }));
+    const hub = new SyncHub({ fanout });
+    await join(hub, 'S', batching);
+    await hub.handleMessage('S', envelope('S', up(shape('m', 5))));
+    published.length = 0;
+
+    await hub.handleMessage(
+      'S',
+      envelope('S', batch(up(shape('a')), up(shape('m', 3)), gone('m', 6))),
+    );
+
+    expect(published.map((payload) => payload.op)).toEqual([up(shape('a')), v2Remove('m', 6)]);
+  });
+
+  it('filters every batch per recipient: audience, ownerId and hide-on-retag removes', async () => {
+    const hub = new SyncHub({
+      authorize: () => true,
+      canRead: ({ role, userId, audience }) =>
+        audience === undefined || role === 'gm' || audience === userId,
+      canReadOwnerId: ({ role }) => role === 'gm',
+    });
+    const gm = await join(hub, 'gm', batching, 'gm');
+    await hub.handleMessage('gm', envelope('gm', up(shape('z'))));
+    const watcher = await join(hub, 'gm2', batching, 'gm');
+    const p1 = await join(hub, 'p1', batching, 'player');
+    const p2 = await join(hub, 'p2', batching, 'player');
+
+    await hub.handleMessage(
+      'gm',
+      envelope(
+        'gm',
+        batch(
+          up(shape('open')),
+          up(shape('secret', 1, 'gm')),
+          up(shape('note', 1, 'p1')),
+          up(shape('z', 2, 'gm')),
+          up(shape('tail')),
+        ),
+      ),
+    );
+
+    const run = (...ids: string[]) => ({
+      from: 'gm',
+      op: {
+        kind: 'batch',
+        ops: ids.map((id) => up(id === 'note' ? shape(id, 1, 'p1') : shape(id))),
+      },
+    });
+    const hide = { from: 'hub', op: { kind: 'remove', id: 'z', version: 2, editor: 'hub' } };
+    expect(frames(p1)).toEqual([run('open', 'note'), hide, run('tail')]);
+    expect(frames(p2)).toEqual([run('open'), hide, run('tail')]);
+    expect(p2.sent.join('')).not.toMatch(/secret|note|ownerId/);
+    expect(p1.sent.join('')).not.toMatch(/secret|ownerId/);
+    const gmOps = (frames(watcher)[0] as { op: { ops: { element: SyncElement }[] } }).op.ops;
+    expect(gmOps.map(({ element }) => [element.id, element.ownerId])).toEqual([
+      ['open', 'gm'],
+      ['secret', 'gm'],
+      ['note', 'gm'],
+      ['z', 'gm'],
+      ['tail', 'gm'],
+    ]);
+    expect(gm.sent).toEqual([]);
+  });
+
+  it('drops a batch op claiming the hub editor without stopping the others', async () => {
+    const backend = new MemoryHubBackend();
+    const hub = new SyncHub({ backend });
+    await join(hub, 'S', batching);
+    const peer = await join(hub, 'N', batching);
+
+    await hub.handleMessage(
+      'S',
+      envelope('S', batch(up(shape('a')), up({ ...shape('h'), editor: 'hub' }), up(shape('b')))),
+    );
+
+    expect(frames(peer)).toEqual([
+      { from: 'S', op: { kind: 'batch', ops: [up(shape('a')), up(shape('b'))] } },
+    ]);
+    expect(await backend.getRecord('R', 'h')).toBeUndefined();
+  });
+
+  it('delivers ops already written when a later op of the batch fails to publish', async () => {
+    const error = new Error('fanout unavailable');
+    const fanout = {
+      publish: vi.fn((payload: string) =>
+        payload.includes('"id":"b"') ? Promise.reject(error) : Promise.resolve(),
+      ),
+      subscribe: () => () => undefined,
+    };
+    const hub = new SyncHub({ fanout });
+    await join(hub, 'S', batching);
+    const peer = await join(hub, 'N', batching);
+
+    await expect(
+      hub.handleMessage('S', envelope('S', batch(up(shape('a')), up(shape('b')), up(shape('c'))))),
+    ).rejects.toBe(error);
+
+    expect(frames(peer)).toEqual([
+      { from: 'S', op: { kind: 'batch', ops: [up(shape('a')), up(shape('b'))] } },
+    ]);
+  });
+});
+
+describe('element op budget', () => {
+  const shape = (id: string, version = 1): SyncElement => ({ ...sampleEl(), id, version });
+  const gone = (id: string): BatchOp => ({ kind: 'remove', id, version: 2, editor: 'client' });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('counts batched and single element ops against one per-connection budget', async () => {
+    const hub = new SyncHub({ opsPerSecond: 1, opBurst: 3 });
+    const close = vi.fn();
+    hub.addConnection({ ...makeConn('A', 'R'), close });
+    const B = makeConn('B', 'R');
+    hub.addConnection(B);
+
+    await hub.handleMessage('A', envelope('A', { kind: 'batch', ops: [gone('x'), gone('y')] }));
+    await hub.handleMessage('A', envelope('A', { kind: 'request-snapshot' }));
+    await hub.handleMessage('A', envelope('A', { kind: 'upsert', element: shape('a') }));
+    expect(close).not.toHaveBeenCalled();
+    await hub.handleMessage('A', envelope('A', { kind: 'upsert', element: shape('b') }));
+
+    expect(close).toHaveBeenCalledWith(4408);
+    expect(
+      B.sent.map((m) => (JSON.parse(m) as { op: { element: SyncElement } }).op.element.id),
+    ).toEqual(['a']);
+  });
+
+  it('closes a batch storm over the default budget with 4408', async () => {
+    vi.useFakeTimers();
+    const hub = new SyncHub();
+    const close = vi.fn();
+    hub.addConnection({ ...makeConn('A', 'R'), close });
+    const storm = {
+      kind: 'batch' as const,
+      ops: Array.from({ length: 1000 }, (_, i) => gone(`gone-${i}`)),
+    };
+    for (let i = 0; i < 4; i++) await hub.handleMessage('A', envelope('A', storm));
+    expect(close).not.toHaveBeenCalled();
+    await hub.handleMessage('A', envelope('A', storm));
+    expect(close).toHaveBeenCalledWith(4408);
+  });
+
+  it('admits a 50-element drag flushed at 20 Hz under the default budget', async () => {
+    vi.useFakeTimers();
+    const hub = new SyncHub();
+    const close = vi.fn();
+    hub.addConnection({ ...makeConn('A', 'R'), close });
+    for (let flush = 1; flush <= 100; flush++) {
+      const ops = Array.from({ length: 50 }, (_, i) => ({
+        kind: 'upsert' as const,
+        element: shape(`e${i}`, flush),
+      }));
+      await hub.handleMessage('A', envelope('A', { kind: 'batch', ops }));
+      vi.advanceTimersByTime(50);
+    }
+    expect(close).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['opsPerSecond', { opsPerSecond: 0 }],
+    ['opBurst', { opBurst: Infinity }],
+  ])('rejects a non-positive or infinite %s', (_name, options) => {
+    expect(() => new SyncHub(options)).toThrow(RangeError);
+  });
+});
+
+describe('unsupported reply', () => {
+  const v1 = envelope('A', {
+    kind: 'capabilities',
+    capabilities: { ...createCurrentCapabilities([]), protocolVersion: 1 },
+  });
+  const reply = {
+    from: 'hub',
+    op: {
+      kind: 'unsupported',
+      protocolVersion: 2,
+      minProtocolVersion: 2,
+      reason: 'protocol version 2 required',
+    },
+  };
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('sends the reply before closing 4406 without a frame policy', async () => {
+    const hub = new SyncHub();
+    const events: unknown[] = [];
+    hub.addConnection({
+      id: 'A',
+      room: 'R',
+      send: (m) => events.push(JSON.parse(m)),
+      close: (code) => events.push(code),
+    });
+    await hub.handleMessage('A', v1);
+    expect(events).toEqual([reply, 4406]);
+  });
+
+  it('awaits the guarded send before closing 4406', async () => {
+    const hub = new SyncHub();
+    const events: unknown[] = [];
+    let delivered: () => void = () => undefined;
+    hub.addConnection({
+      id: 'A',
+      room: 'R',
+      send: () => events.push('sync send'),
+      sendAsync: (m) => {
+        events.push(JSON.parse(m));
+        return new Promise<void>((resolve) => (delivered = resolve));
+      },
+      close: (code) => events.push(code),
+    });
+    const done = hub.handleMessage('A', v1);
+    await vi.waitFor(() => expect(events).toEqual([reply]));
+    delivered();
+    await done;
+    expect(events).toEqual([reply, 4406]);
+  });
+
+  it('closes 4406 after 1000 ms when the guarded send never settles', async () => {
+    vi.useFakeTimers();
+    const hub = new SyncHub();
+    const close = vi.fn();
+    hub.addConnection({
+      id: 'A',
+      room: 'R',
+      send: () => undefined,
+      sendAsync: () => new Promise<void>(() => undefined),
+      close,
+    });
+    const done = hub.handleMessage('A', v1);
+    await vi.advanceTimersByTimeAsync(999);
+    expect(close).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    await done;
+    expect(close).toHaveBeenCalledWith(4406);
   });
 });
