@@ -12,7 +12,7 @@
     "test:coverage": "pnpm -r --workspace-concurrency=1 test:coverage",
     "typecheck": "pnpm -r typecheck",
     "lint": "eslint 'packages/*/src/**/*.{ts,tsx}' 'playground/src/**/*.ts' 'playground/e2e/**/*.ts'",
-    "lint:fix": "eslint --fix 'packages/*/src/**/*.{ts,tsx}'",
+    "lint:fix": "eslint --fix 'packages/*/src/**/*.{ts,tsx}' 'playground/src/**/*.ts' 'playground/e2e/**/*.ts'",
     "format": "prettier --write 'packages/*/src/**/*.{ts,tsx}' 'playground/src/**/*.ts' 'playground/e2e/**/*.ts'",
     "format:check": "prettier --check 'packages/*/src/**/*.{ts,tsx}' 'playground/src/**/*.ts' 'playground/e2e/**/*.ts'",
     "audit:prod": "pnpm audit --prod --audit-level=moderate",

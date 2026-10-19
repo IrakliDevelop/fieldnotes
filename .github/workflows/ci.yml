@@ -143,6 +143,7 @@ jobs:
         run: pnpm --filter @fieldnotes/core e2e
 
       - name: Run playground E2E tests
+        if: ${{ !cancelled() }}
         run: pnpm --filter fieldnotes-playground e2e
 
       - name: Upload test results
