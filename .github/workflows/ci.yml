@@ -67,6 +67,41 @@ jobs:
           path: packages/*/coverage/lcov.info
           retention-days: 14
 
+  redis:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      redis:
+        image: redis:7
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      REDIS_URL: redis://localhost:6379
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm --filter "@fieldnotes/sync-redis..." --filter "@fieldnotes/vtt..." build
+
+      - run: pnpm --filter @fieldnotes/sync-redis test
+
+      - run: pnpm --filter @fieldnotes/vtt test
+
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 30
