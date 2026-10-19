@@ -387,6 +387,32 @@ describe('SyncClient snapshot reconcile by version', () => {
     expect(last('upsert')?.element).toMatchObject({ id: 'x', version: 3, editor: 'A' });
   });
 
+  it('re-sends a delete the hub never received and does not re-add the element', () => {
+    const { store, sent, deliver, reconcile } = joined();
+    store.remove('x');
+    reconcile();
+    const before = sent.length;
+
+    deliver('hub', { kind: 'snapshot', to: 'A', elements: [shape('x', 3, 'B')] });
+
+    expect(store.getById('x')).toBeUndefined();
+    const resent = sent.slice(before).map((m) => (JSON.parse(m) as { op: SyncOp }).op);
+    expect(resent).toEqual([{ kind: 'remove', id: 'x', version: 4, editor: 'A' }]);
+  });
+
+  it('takes an equal-version room copy over an unsent delete from a later-sorting editor', () => {
+    const { store, sent, deliver, reconcile } = setup('hub', 'm');
+    deliver('hub', { kind: 'snapshot', to: 'm', elements: [shape('x', 3, 'B')] });
+    store.remove('x');
+    reconcile();
+    const before = sent.length;
+
+    deliver('hub', { kind: 'snapshot', to: 'm', elements: [shape('x', 4, 'a', '#0000ff')] });
+
+    expect(store.getById('x')).toMatchObject({ version: 4, editor: 'a', fillColor: '#0000ff' });
+    expect(sent.slice(before).some((m) => m.includes('"remove"'))).toBe(false);
+  });
+
   it('removes a hub-known element absent from the snapshot without a tombstone', () => {
     const { store, deliver, reconcile } = joined();
     reconcile();

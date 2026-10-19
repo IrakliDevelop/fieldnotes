@@ -653,7 +653,12 @@ export class SyncClient {
         runtimeElements.push(element);
       }
       for (const tombstone of op.tombstones ?? []) this.recordTombstone(tombstone);
-      const pushed = this.applyAuthoritativeSnapshot(phase, runtimeElements);
+      const roomTombstones = new Map((op.tombstones ?? []).map((t) => [t.id, t]));
+      const { pushed, unseenRemoves } = this.applyAuthoritativeSnapshot(
+        phase,
+        runtimeElements,
+        roomTombstones,
+      );
       this.joined = true;
       this.resyncPending = false; // TD-1: finalize after ANY snapshot (merge OR reconcile)
       this.touchedDuringResync.clear();
@@ -664,6 +669,9 @@ export class SyncClient {
       for (const id of pushed) {
         const element = this.store.getById(id);
         if (element) this.onLocal({ kind: 'upsert', element }, 'local');
+      }
+      for (const { id, version, editor } of unseenRemoves) {
+        this.onLocal({ kind: 'remove', id, version, editor }, 'local');
       }
       // Snapshot merge is non-destructive for layers: records the snapshot
       // lacks (or carries only older versions of) are re-pushed so the sender
@@ -775,15 +783,18 @@ export class SyncClient {
 
   /**
    * Applies an authoritative snapshot under explicit bootstrap/reconcile
-   * semantics and returns the ids to re-push: host-preserved and locally newer.
+   * semantics and returns what to re-send: host-preserved and locally newer ids, and local
+   * deletes of snapshot elements the room has not seen.
    */
   private applyAuthoritativeSnapshot(
     phase: AuthoritativeSnapshotPhase,
     snapshot: CanvasElement[],
-  ): string[] {
+    roomTombstones: ReadonlyMap<string, Tombstone>,
+  ): { pushed: string[]; unseenRemoves: Tombstone[] } {
     const snapshotIds = new Set(snapshot.map((e) => e.id));
     const localOnly: LocalOnlyElement[] = [];
     const newer: string[] = [];
+    const unseenRemoves: Tombstone[] = [];
     for (const local of this.store.snapshot()) {
       if (snapshotIds.has(local.id)) continue;
       // A transient element is host-owned and was never sent, so its absence from the
@@ -825,9 +836,22 @@ export class SyncClient {
         newer.push(el.id);
         continue;
       }
-      this.applyOp({ kind: 'upsert', element: el }, !touched && local !== undefined);
+      const tombstone = local ? undefined : this.tombstones.get(el.id);
+      const localDelete =
+        tombstone && isNewerVersion(tombstone, roomTombstones.get(el.id)) ? tombstone : undefined;
+      if (
+        localDelete &&
+        (touched ? isNewerVersion(localDelete, el) : localDelete.version > el.version)
+      ) {
+        unseenRemoves.push(localDelete);
+        continue;
+      }
+      this.applyOp(
+        { kind: 'upsert', element: el },
+        !touched && (local !== undefined || localDelete !== undefined),
+      );
     }
-    return [...preserve, ...newer];
+    return { pushed: [...preserve, ...newer], unseenRemoves };
   }
 
   private resolveLocalOnlyDecision(
