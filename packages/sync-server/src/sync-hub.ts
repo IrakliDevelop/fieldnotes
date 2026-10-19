@@ -2,6 +2,7 @@ import {
   createCurrentCapabilities,
   parseEnvelope,
   isValidEnvelope,
+  isWithinSyncLimits,
   isValidElement,
   isNewerLayerRecord,
   translateOpForPeer,
@@ -78,6 +79,8 @@ export interface SyncHubOptions {
   maxPresenceLanes?: number;
   /** Largest `presence.data` payload relayed, in UTF-8 bytes of its JSON encoding. */
   maxPresenceBytes?: number;
+  /** Opt-in: drops hub, backend and plugin per-room memory after a room has had no local connection for this long. */
+  roomIdleTimeoutMs?: number;
 }
 
 /** Trusted server-side lifecycle for an admitted frame. Direct callers schedule timeout/abort. */
@@ -205,6 +208,8 @@ export class SyncHub {
   private readonly authority?: AuthorityRuntime;
   private readonly authorityOptions?: AuthorityOptions;
   private readonly authorityPeers = new Set<string>();
+  private readonly roomIdleTimeoutMs?: number;
+  private readonly idleTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   constructor(options: SyncHubOptions = {}) {
     this.backend = options.backend ?? new MemoryHubBackend();
@@ -228,6 +233,14 @@ export class SyncHub {
       throw new RangeError('maxPresenceBytes must be a non-negative finite number');
     }
     this.maxPresenceBytes = maxPresenceBytes;
+    const roomIdleTimeoutMs = options.roomIdleTimeoutMs;
+    if (
+      roomIdleTimeoutMs !== undefined &&
+      (!Number.isFinite(roomIdleTimeoutMs) || roomIdleTimeoutMs <= 0)
+    ) {
+      throw new RangeError('roomIdleTimeoutMs must be a positive finite number');
+    }
+    this.roomIdleTimeoutMs = roomIdleTimeoutMs;
     this.fanoutUnsub = this.fanout.subscribe((payload) => this.onFanout(payload));
     this.authorityOptions = options.authority;
     if (options.authority)
@@ -281,6 +294,8 @@ export class SyncHub {
       return;
     }
     this.conns.set(conn.id, admitted);
+    clearTimeout(this.idleTimers.get(conn.room));
+    this.idleTimers.delete(conn.room);
     let set = this.rooms.get(conn.room);
     if (!set) {
       set = new Set();
@@ -310,6 +325,7 @@ export class SyncHub {
         // An active room operation retains the lane across disconnect/reconnect.
         const queue = this.roomQueues.get(room);
         if (queue?.idle) this.roomQueues.delete(room);
+        this.scheduleIdleEviction(room);
       }
     }
     if (hadPresence) this.broadcastLeave(room, conn.id);
@@ -1049,7 +1065,7 @@ export class SyncHub {
     if (this.isAuthorityRoom(env.room)) return;
     if (env.o === this.instanceId) return; // our own publish — already delivered locally
     const envelope = { from: env.from, op: env.op };
-    if (!isValidEnvelope(envelope)) return;
+    if (!isValidEnvelope(envelope) || !isWithinSyncLimits(envelope)) return;
     const op = envelope.op;
     if (isPresenceOp(op)) {
       if (op.kind === 'presence' && !this.isPresenceWithinLimit(op.data)) return;
@@ -1102,6 +1118,25 @@ export class SyncHub {
     this.deliverToRoom(env.room, undefined, env.from, runtimeOp, prevAudience, prevExisted);
   }
 
+  private scheduleIdleEviction(room: string): void {
+    if (this.roomIdleTimeoutMs === undefined) return;
+    const timer = setTimeout(() => {
+      this.idleTimers.delete(room);
+      void this.roomQueue(room)
+        .enqueue(async () => {
+          // A connection may have joined while the eviction waited behind queued work.
+          if (this.rooms.has(room)) return;
+          this.memoryLayers.delete(room);
+          for (const plugin of this.pluginRegistry.plugins) plugin.evictRoom?.(room);
+          await this.backend.evictRoom?.(room);
+        })
+        .catch(() => {
+          /* a broken backend must not wedge the room queue */
+        });
+    }, this.roomIdleTimeoutMs);
+    this.idleTimers.set(room, timer);
+  }
+
   private isPresenceWithinLimit(data: unknown): boolean {
     return utf8ByteLength(JSON.stringify(data) ?? '') <= this.maxPresenceBytes;
   }
@@ -1116,6 +1151,8 @@ export class SyncHub {
   close(): void {
     this.authority?.close();
     for (const connId of [...this.presenceLanes.keys()]) this.clearPresenceLanes(connId);
+    for (const timer of this.idleTimers.values()) clearTimeout(timer);
+    this.idleTimers.clear();
     this.fanoutUnsub();
   }
 }

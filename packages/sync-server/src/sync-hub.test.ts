@@ -1862,6 +1862,26 @@ describe('SyncHub fog authority', () => {
     expect(JSON.parse(a.sent[0] ?? '').op.tiles).toHaveLength(2);
     fogHub.close();
   });
+  it('evictRoom drops one room of the plugin memory ledger', async () => {
+    const plugin = createFogServerPlugin();
+    const fogHub = new SyncHub({ plugins: [plugin] });
+    const backend = new MemoryHubBackend();
+    fogHub.addConnection(makeConn('A', 'R'));
+    fogHub.addConnection(makeConn('B', 'R2'));
+    const meta = { kind: 'fog-meta' as const, record: { version: 1, editor: 'A', definition } };
+    await fogHub.handleMessage('A', envelope('A', meta));
+    await fogHub.handleMessage('B', envelope('B', meta));
+
+    plugin.evictRoom?.('R');
+
+    expect(await plugin.snapshot?.('R', backend)).toBeUndefined();
+    expect(await plugin.snapshot?.('R2', backend)).toEqual({
+      pluginName: 'fog',
+      version: 1,
+      data: { meta: meta.record, tiles: [] },
+    });
+    fogHub.close();
+  });
 });
 
 describe('read filtering (canRead)', () => {
@@ -3038,4 +3058,217 @@ describe('layer-definition sync', () => {
     expect(b.sent).toEqual([]);
     hub.close();
   });
+});
+
+describe('fanout sync limits', () => {
+  it('drops a fanout upsert whose element id exceeds SYNC_LIMITS', async () => {
+    const bus = new InMemoryHubFanout();
+    const hub = new SyncHub({ instanceId: 'B', fanout: bus });
+    const b = makeConn('b', 'R');
+    hub.addConnection(b);
+    const publish = (id: string) =>
+      bus.publish(
+        JSON.stringify({
+          o: 'A',
+          room: 'R',
+          from: 'a',
+          op: { kind: 'upsert', element: { ...sampleEl(), id } },
+        }),
+      );
+
+    publish('x'.repeat(257));
+    publish('x'.repeat(256));
+
+    expect(b.sent.map((m) => JSON.parse(m).op.element.id)).toEqual(['x'.repeat(256)]);
+    hub.close();
+  });
+});
+
+describe('idle-room eviction', () => {
+  const upsertMsg = (id: string): string =>
+    envelope('client', { kind: 'upsert', element: { ...sampleEl(), id } });
+  const layerMsg = envelope('client', {
+    kind: 'layer-upsert',
+    layer: { id: 'L1', name: 'L', visible: true, locked: false, order: 1, opacity: 1 },
+    version: 1,
+    editor: 'client',
+  });
+
+  async function snapshotFor(hub: SyncHub, id: string): Promise<Record<string, unknown>> {
+    const conn = makeConn(id, 'R');
+    hub.addConnection(conn);
+    await hub.handleMessage(id, envelope(id, { kind: 'request-snapshot' }));
+    hub.removeConnection(id);
+    return JSON.parse(conn.sent[0] ?? '').op;
+  }
+
+  async function seeded(options: ConstructorParameters<typeof SyncHub>[0]): Promise<SyncHub> {
+    const hub = new SyncHub(options);
+    hub.addConnection(makeConn('A', 'R'));
+    await hub.handleMessage('A', upsertMsg('e1'));
+    await hub.handleMessage('A', layerMsg);
+    hub.removeConnection('A');
+    return hub;
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    return () => vi.useRealTimers();
+  });
+
+  it('evicts an idle room after roomIdleTimeoutMs', async () => {
+    const backend = new MemoryHubBackend();
+    const hub = await seeded({ backend, roomIdleTimeoutMs: 1000 });
+
+    await vi.advanceTimersByTimeAsync(999);
+    expect((await backend.snapshot('R')).map((el) => el.id)).toEqual(['e1']);
+
+    await vi.advanceTimersByTimeAsync(1);
+    const snapshot = await snapshotFor(hub, 'late');
+    expect(snapshot['elements']).toEqual([]);
+    expect(snapshot['layers']).toBeUndefined();
+    hub.close();
+  });
+
+  it('evicts hub-held layer memory when the backend keeps no layer records', async () => {
+    const memory = new MemoryHubBackend();
+    const hub = await seeded({
+      backend: {
+        snapshot: (room) => memory.snapshot(room),
+        get: (room, id) => memory.get(room, id),
+        apply: (room, op) => memory.apply(room, op),
+      },
+      roomIdleTimeoutMs: 1000,
+    });
+    expect((await snapshotFor(hub, 'early'))['layers']).toHaveLength(1);
+
+    await vi.advanceTimersByTimeAsync(1000);
+    expect((await snapshotFor(hub, 'late'))['layers']).toBeUndefined();
+    hub.close();
+  });
+
+  it('a reconnect before the timeout cancels eviction', async () => {
+    const backend = new MemoryHubBackend();
+    const hub = await seeded({ backend, roomIdleTimeoutMs: 1000 });
+
+    await vi.advanceTimersByTimeAsync(500);
+    hub.addConnection(makeConn('A2', 'R'));
+    await vi.advanceTimersByTimeAsync(5000);
+
+    expect((await backend.snapshot('R')).map((el) => el.id)).toEqual(['e1']);
+    hub.close();
+  });
+
+  it('no option, no eviction', async () => {
+    const backend = new MemoryHubBackend();
+    const hub = await seeded({ backend });
+
+    await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
+
+    expect((await backend.snapshot('R')).map((el) => el.id)).toEqual(['e1']);
+    expect((await snapshotFor(hub, 'late'))['layers']).toHaveLength(1);
+    hub.close();
+  });
+
+  it('evicts server-plugin memory', async () => {
+    const evictRoom = vi.fn();
+    const hub = await seeded({ plugins: [{ name: 'probe', evictRoom }], roomIdleTimeoutMs: 1000 });
+
+    await vi.advanceTimersByTimeAsync(999);
+    expect(evictRoom).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(evictRoom.mock.calls).toEqual([['R']]);
+    hub.close();
+  });
+
+  it('skips a queued eviction when a connection joined while it waited', async () => {
+    let release: (() => void) | undefined;
+    const evictRoom = vi.fn();
+    const hub = new SyncHub({
+      roomIdleTimeoutMs: 1000,
+      plugins: [
+        {
+          name: 'blocker',
+          evictRoom,
+          async process(op, context, next) {
+            await new Promise<void>((resolve) => (release = resolve));
+            return next(op, context);
+          },
+        },
+      ],
+    });
+    hub.addConnection(makeConn('A', 'R'));
+    const pending = hub.handleMessage('A', upsertMsg('e1'));
+    hub.removeConnection('A');
+    await vi.advanceTimersByTimeAsync(1000);
+    hub.addConnection(makeConn('B', 'R'));
+
+    release?.();
+    await pending;
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(evictRoom).not.toHaveBeenCalled();
+    hub.close();
+  });
+
+  it('authority rooms are never scheduled', async () => {
+    const backend = new MemoryHubBackend();
+    const evictRoom = vi.spyOn(backend, 'evictRoom');
+    const definition: AuthorityRoomDefinition = {
+      id: 'definition',
+      extensions: [],
+      project: (_context, state) => state,
+      canReadOwnerId: () => false,
+    };
+    const driver = {
+      claimPublications: async () => [],
+      markPublished: async () => undefined,
+    } as unknown as AuthorityDriver;
+    const hub = new SyncHub({
+      backend,
+      roomIdleTimeoutMs: 1000,
+      authority: {
+        driver,
+        resolveRoom: () => definition,
+        resolveIdentity: () => ({ actorId: 'a', ownershipId: 'o' }),
+      },
+    });
+    const connection: Connection = {
+      id: 'guarded',
+      room: 'table',
+      signal: new AbortController().signal,
+      send: vi.fn(),
+      close: vi.fn(),
+    };
+    registerAuthorityConnection(connection, {
+      sendTracked: () => ({ completion: Promise.resolve(), settled: Promise.resolve() }),
+    });
+    hub.addConnection(connection);
+    hub.removeConnection(connection.id);
+
+    await vi.advanceTimersByTimeAsync(5000);
+
+    expect(connection.close).not.toHaveBeenCalled();
+    expect(evictRoom).not.toHaveBeenCalled();
+    hub.close();
+  });
+
+  it('close() cancels pending evictions', async () => {
+    const backend = new MemoryHubBackend();
+    const evictRoom = vi.spyOn(backend, 'evictRoom');
+    const hub = await seeded({ backend, roomIdleTimeoutMs: 1000 });
+
+    hub.close();
+    await vi.advanceTimersByTimeAsync(5000);
+
+    expect(evictRoom).not.toHaveBeenCalled();
+  });
+
+  it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])(
+    'rejects roomIdleTimeoutMs %s',
+    (roomIdleTimeoutMs) => {
+      expect(() => new SyncHub({ roomIdleTimeoutMs })).toThrow(RangeError);
+    },
+  );
 });

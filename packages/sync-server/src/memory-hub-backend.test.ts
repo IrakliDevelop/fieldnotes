@@ -58,4 +58,26 @@ describe('MemoryHubBackend', () => {
     const backend = new MemoryHubBackend();
     expect(await backend.get('R', 'missing')).toBeUndefined();
   });
+
+  it('evictRoom drops elements and layer records of that room only', async () => {
+    const backend = new MemoryHubBackend();
+    const el = createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } });
+    const layer = {
+      id: 'L1',
+      version: 1,
+      editor: 'c',
+      definition: { id: 'L1', name: 'L', visible: true, locked: false, order: 1, opacity: 1 },
+    };
+    for (const room of ['R', 'R2']) {
+      await backend.apply(room, { kind: 'upsert', element: el });
+      await backend.applyLayerRecord(room, layer);
+    }
+
+    await backend.evictRoom('R');
+
+    expect(await backend.snapshot('R')).toEqual([]);
+    expect(await backend.layerRecords('R')).toEqual([]);
+    expect(await backend.snapshot('R2')).toEqual([el]);
+    expect(await backend.layerRecords('R2')).toEqual([layer]);
+  });
 });
