@@ -417,6 +417,22 @@ describe.skipIf(!redisUrl)('RedisHubBackend elements against a real Redis', () =
     expect(await client().hGetAll(roomKey)).toEqual(migrated);
   });
 
+  it('expires old tombstones in Lua and keeps fresh ones', async () => {
+    const hub = new RedisHubBackend(hashClient(client()), {
+      keyPrefix,
+      tombstoneRetentionMs: 60_000,
+    });
+    const now = Date.now();
+    const old = { id: 'old', version: 2, editor: 'gm', removedAt: now - 120_000 };
+    const fresh = { id: 'fresh', version: 2, editor: 'gm', removedAt: now };
+    for (const tombstone of [old, fresh]) {
+      await hub.applyElement('R', { kind: 'remove', tombstone }, null);
+    }
+
+    expect(await hub.snapshot('R')).toEqual({ elements: [], tombstones: [fresh] });
+    expect(Object.keys(await client().hGetAll(`${keyPrefix}R:tombstones`))).toEqual(['fresh']);
+  });
+
   it('ttlSeconds refreshes the tombstone key', async () => {
     const hub = backend({ ttlSeconds: 120 });
     const removedAt = Date.now();
