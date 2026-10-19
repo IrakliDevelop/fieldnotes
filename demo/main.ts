@@ -42,6 +42,7 @@ import {
   gridElementTypeDefinition,
 } from '@fieldnotes/vtt';
 import type { MeasurePresence, PathPresence, PathEmission } from '@fieldnotes/vtt';
+import { createSampleBoard } from './sample-board';
 
 // Register VTT element types (grid, template) before creating the viewport
 registerVttElementTypes();
@@ -94,7 +95,9 @@ const gridController = new GridController({
   constraintService: viewport.constraintProxy,
 });
 
-const benchParam = new URLSearchParams(location.search).get('bench');
+const searchParams = new URLSearchParams(location.search);
+const benchParam = searchParams.get('bench');
+const sampleParam = searchParams.has('sample');
 const benchCount = benchParam ? Math.max(1, parseInt(benchParam, 10) || 500) : 0;
 
 const hand = new HandTool();
@@ -209,7 +212,9 @@ const autoSave = new AutoSave(viewport.store, viewport.camera, {
 if (!benchCount) {
   void (async () => {
     const savedState = await autoSave.load();
-    if (savedState) {
+    // runs after the await: loadSampleBoard reads grid-panel consts declared further down
+    if (sampleParam) loadSampleBoard();
+    else if (savedState) {
       for (const el of savedState.elements) {
         if (el.type === 'html' && 'domId' in el && typeof el.domId === 'string') {
           if (!document.getElementById(el.domId)) {
@@ -798,6 +803,18 @@ document.getElementById('load')?.addEventListener('click', async () => {
   syncGridPanelFromStore();
   console.log('State restored from auto-save');
 });
+
+function loadSampleBoard(): void {
+  const elements = createSampleBoard(viewport.layerManager.activeLayerId);
+  viewport.transaction(() => {
+    viewport.removeElements(viewport.store.getAll().map((element) => element.id));
+    for (const element of elements) viewport.store.add(element);
+  });
+  viewport.fitToContent();
+  syncGridPanelFromStore();
+}
+
+document.getElementById('sample')?.addEventListener('click', loadSampleBoard);
 
 const exportPaddingCheckbox = document.getElementById('export-padding') as HTMLInputElement | null;
 
