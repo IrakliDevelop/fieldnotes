@@ -537,8 +537,14 @@ body {
     gap: 2px;
   }
 
+  /* Fixed width so the header fits regardless of the label font. */
   .scene-select {
-    padding-right: 12px;
+    width: 58px;
+    padding: 0 12px 0 0;
+    overflow: hidden;
+    font-size: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .collab-label {
