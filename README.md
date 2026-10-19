@@ -2,7 +2,7 @@
 
 A lightweight, framework-agnostic infinite canvas SDK for the web — with first-class support for embedding interactive HTML elements.
 
-**[Playground](https://iraklidevelop.github.io/fieldnotes/)** · [Sample board](https://iraklidevelop.github.io/fieldnotes/?sample) · [Bench](https://iraklidevelop.github.io/fieldnotes/?bench=2000) · [API reference](https://iraklidevelop.github.io/fieldnotes/api/)
+**[Playground](https://iraklidevelop.github.io/fieldnotes/)** · [Tabletop](https://iraklidevelop.github.io/fieldnotes/?scene=tabletop) · [Embeds](https://iraklidevelop.github.io/fieldnotes/?scene=embeds) · [Dev playground](https://iraklidevelop.github.io/fieldnotes/dev/) · [Bench](https://iraklidevelop.github.io/fieldnotes/dev/?bench=2000) · [API reference](https://iraklidevelop.github.io/fieldnotes/api/)
 
 ## Why Field Notes?
 
@@ -256,6 +256,8 @@ The `examples/` directory contains runnable reference applications.
 ```bash
 pnpm install          # install dependencies
 pnpm build            # build all packages
+pnpm dev              # dev playground (demo) on http://localhost:5173
+pnpm dev:playground   # showcase app on http://localhost:5174
 pnpm test             # run all tests
 pnpm bench            # run performance benchmarks
 pnpm docs:api         # TypeDoc API reference into website/public/api (run after pnpm build); deployed with the playground on push to master

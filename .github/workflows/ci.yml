@@ -142,10 +142,21 @@ jobs:
       - name: Run E2E tests
         run: pnpm --filter @fieldnotes/core e2e
 
+      - name: Run playground E2E tests
+        run: pnpm --filter fieldnotes-playground e2e
+
       - name: Upload test results
         if: failure()
         uses: actions/upload-artifact@v7
         with:
           name: e2e-test-results
           path: packages/core/test-results/
+          retention-days: 7
+
+      - name: Upload playground test results
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-playground-test-results
+          path: playground/test-results/
           retention-days: 7
