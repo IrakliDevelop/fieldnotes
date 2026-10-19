@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-ADRs for the VTT extraction and extension system design. These decisions gate the migration plan in `MIGRATION_VTT_EXTRACTION.md`.
+ADRs for Field Notes architecture decisions. ADR-0001 to ADR-0006 cover the VTT extraction and extension system and gate the migration plan in `MIGRATION_VTT_EXTRACTION.md`; later ADRs record subsequent decisions such as element versioning.
 
 | ADR                                             | Title                                               | Status                                                                                                                                  | Date       |
 | ----------------------------------------------- | --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ---------- |

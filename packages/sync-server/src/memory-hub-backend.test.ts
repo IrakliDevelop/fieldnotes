@@ -199,6 +199,6 @@ describe('createSyncServer tombstoneRetentionMs', () => {
   it('throws when both a backend and tombstoneRetentionMs are given', () => {
     expect(() =>
       createSyncServer({ backend: new MemoryHubBackend(), tombstoneRetentionMs: 1_000 }),
-    ).toThrow();
+    ).toThrow('tombstoneRetentionMs applies only to the default backend');
   });
 });

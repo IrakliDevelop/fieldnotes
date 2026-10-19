@@ -185,9 +185,9 @@ extensions }`. It becomes available only after exact capabilities, generation, a
 validated fresh checkpoint. Layer tombstones and extension state are preserved. Project canonical
 elements into a UI/store with that store's remote origin, if available. Elements written before
 core 0.93 still carry `zIndex` instead of `index`; run `assignLegacyOrder(elements)` from
-`@fieldnotes/core` over the whole document's elements before loading them into a core store. Canonical replacement is
-atomic inside this SDK; arbitrary projection callbacks and destination stores are not claimed to be
-atomic, and presentation failures cannot change canonical state.
+`@fieldnotes/core` over the whole document's elements before loading them into a core store.
+Canonical replacement is atomic inside this SDK; arbitrary projection callbacks and destination
+stores are not claimed to be atomic, and presentation failures cannot change canonical state.
 
 `submit(mutation, { expectedState? })` retains an immutable parsed proposal and its exact serialized
 wire. A clear requires an explicit checkpoint CAS token. Submitting while not live may retain a

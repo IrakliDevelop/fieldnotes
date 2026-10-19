@@ -43,7 +43,6 @@ export const annotationDefinition: ElementTypeDefinition<AnnotationElement> = {
   // unwrap: ExtensionElementEnvelope → typed element (for rendering/logic).
   wrap(el: AnnotationElement): ExtensionElementEnvelope {
     return {
-      // pickBaseFields copies id, position, index, version and the other base fields.
       ...pickBaseFields(el),
       type: 'extension',
       extensionType: 'example:annotation',

@@ -479,11 +479,7 @@ export class SyncHub {
     // 'snapshot' from a client → ignored
   }
 
-  /**
-   * Write-then-publish: authorization judges the state the compare-and-set write actually
-   * replaces (S11), and a publish failure after the write only leaves other instances stale until
-   * their next snapshot, which per-element LWW at receivers makes safer than S7's phantom.
-   */
+  // Write-then-publish: a failed publish leaves other instances stale only until their next snapshot.
   private async processElementOp(
     conn: Connection,
     from: string,
@@ -743,10 +739,7 @@ export class SyncHub {
     }
   }
 
-  /**
-   * Clients drop a remove without version and editor, so a plugin's bare remove gets the stored
-   * record's version (else the processed op's) and editor 'hub'; with neither it is not sent.
-   */
+  // Clients drop versionless removes: stamp a plugin's with the stored (else op) version and 'hub'.
   private async stampHubRemove(
     room: string,
     op: SyncOp,

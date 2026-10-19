@@ -50,7 +50,6 @@ class FakeRedis implements RedisHashClient {
     this.store.delete(key);
     return 1;
   }
-  // Only the element scripts are emulated; any other script fails loudly.
   async eval(script: string, options: { keys: string[]; arguments: string[] }): Promise<unknown> {
     const result = emulateElementScript(this.store, script, options);
     if (result === undefined) {

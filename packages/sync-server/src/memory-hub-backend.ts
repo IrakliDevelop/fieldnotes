@@ -75,12 +75,8 @@ export class MemoryHubBackend implements HubBackend {
     }
     const id = write.kind === 'upsert' ? write.element.id : write.tombstone.id;
     const current = records.get(id);
-    let currentVersion: number | null = null;
-    if (current) {
-      currentVersion =
-        current.kind === 'element' ? current.element.version : current.tombstone.version;
-    }
-    if (currentVersion !== expectedVersion) return { ok: false, current };
+    const stored = current?.kind === 'element' ? current.element : current?.tombstone;
+    if ((stored?.version ?? null) !== expectedVersion) return { ok: false, current };
     records.set(
       id,
       write.kind === 'upsert'

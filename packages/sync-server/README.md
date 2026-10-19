@@ -33,9 +33,10 @@ applies and forwards.
 
 `HubFanout.publish()` may return a promise. `SyncHub` writes an op to the backend first, then
 publishes it, then delivers it to other local connections. If publication fails after the backend
-write, the op is still delivered locally and `handleMessage()` rejects. Custom server integrations must observe that rejection; `createSyncServer` reports
-it through its relay error path. The room queue recovers so later messages can continue. Presence
-publication remains best-effort because presence is ephemeral.
+write, the op is still delivered locally and `handleMessage()` rejects. Custom server integrations
+must observe that rejection; `createSyncServer` reports it through its relay error path. The room
+queue recovers so later messages can continue. Presence publication remains best-effort because
+presence is ephemeral.
 
 ## Usage
 
@@ -575,8 +576,9 @@ createSyncServer({
   no-hook anonymous default is `userId = connId`, which changes on every reconnect — a
   user would lose access to their own elements after reconnecting. `createSyncServer`
   therefore **throws** when `authorize` is configured without `authenticate`.
-- Every element op reads the stored record once (`backend.getRecord`, one or two Redis `HGET`s)
-  before it is authorized, whether or not `authorize` is configured.
+- Every element op reads the stored record (`backend.getRecord`, one or two Redis `HGET`s) before
+  it is authorized, whether or not `authorize` is configured, and re-reads it on each of up to 3
+  compare-and-set attempts.
 - Reads / visibility (a player not **receiving** hidden content) are a separate, upcoming
   concern (D3). `authorize` gates writes only.
 - When `authorize` denies an op, the hub sends the offending client a **corrective op** so its

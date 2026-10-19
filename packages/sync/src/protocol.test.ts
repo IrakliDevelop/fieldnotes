@@ -796,6 +796,15 @@ describe('protocol 2 element and tombstone contracts', () => {
     ).toBeNull();
   });
 
+  it('parseEnvelope rejects a remove whose editor is not a string', () => {
+    expect(parseEnvelope(frame({ kind: 'remove', id: 'x', editor: { length: 1 } }))).toBeNull();
+  });
+
+  it.each([{ id: '' }, { editor: '' }])('parseLegacyEnvelope rejects a remove with %o', (patch) => {
+    const remove = { kind: 'remove', id: 'x', version: 2, editor: 'a', ...patch };
+    expect(parseLegacyEnvelope(frame(remove))).toBeNull();
+  });
+
   it('parseLegacyEnvelope validates clear and snapshot tombstones when present', () => {
     const snapshot = (tombstones: unknown) =>
       frame({ kind: 'snapshot', to: 'B', elements: [], tombstones });
@@ -809,6 +818,8 @@ describe('protocol 2 element and tombstone contracts', () => {
       [{ ...tomb(), extra: true }],
       [{ ...tomb(), id: 'i'.repeat(257) }],
       [{ ...tomb(), editor: 'e'.repeat(257) }],
+      [{ ...tomb(), id: '' }],
+      [{ ...tomb(), editor: '' }],
     ]) {
       expect(parseLegacyEnvelope(frame({ kind: 'clear', tombstones: bad }))).toBeNull();
       expect(parseLegacyEnvelope(snapshot(bad))).toBeNull();

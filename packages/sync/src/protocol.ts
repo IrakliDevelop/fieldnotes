@@ -345,7 +345,7 @@ export function isValidEnvelope(env: unknown): env is SyncEnvelope {
     case 'upsert':
       return isValidElement(op.element);
     case 'remove':
-      return typeof op.id === 'string';
+      return typeof op.id === 'string' && isOptional(op.editor, isString);
     case 'clear':
     case 'request-snapshot':
     case 'presence':
@@ -409,7 +409,6 @@ function elementWithinLimits(el: SyncElement): boolean {
     !isAtMost(el.id, maxIdLength) ||
     !isAtMost(el.layerId, maxIdLength) ||
     !isAtMost(el.groupId, maxIdLength) ||
-    !isAtMost(el.index, 128) ||
     !isAtMost(el.editor, maxShortStringLength) ||
     !isAtMost(el.audience, maxShortStringLength) ||
     !isAtMost(el.ownerId, maxShortStringLength)
@@ -502,7 +501,7 @@ function isValidTombstones(value: unknown): boolean {
 }
 
 function isBoundedId(value: unknown): boolean {
-  return typeof value === 'string' && value.length <= maxIdLength;
+  return typeof value === 'string' && value.length > 0 && value.length <= maxIdLength;
 }
 
 /** `parseEnvelope` plus the protocol-2 legacy wire rules: v2 elements, versioned removes, valid tombstones. */
@@ -514,7 +513,7 @@ export function parseLegacyEnvelope(message: string): SyncEnvelope | null {
     case 'upsert':
       return 'index' in op.element ? env : null;
     case 'remove':
-      return isPositiveInteger(op.version) && isBoundedId(op.editor) ? env : null;
+      return op.id !== '' && isPositiveInteger(op.version) && isBoundedId(op.editor) ? env : null;
     case 'clear':
     case 'snapshot':
       return isValidTombstones(op.tombstones) ? env : null;

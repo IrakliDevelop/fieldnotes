@@ -2392,7 +2392,6 @@ describe('Viewport', () => {
       });
       viewport.store.add(a);
       viewport.store.add(b);
-      // a starts below b (index a0 < a1). Select a and use the legacy id 'z-front'.
       select([a.id]);
       viewport.runAction('z-front');
       expect(viewport.store.getAll().map((el) => el.id)).toEqual([b.id, a.id]);

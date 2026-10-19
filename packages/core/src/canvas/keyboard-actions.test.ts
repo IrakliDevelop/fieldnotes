@@ -851,7 +851,6 @@ describe('KeyboardActions.zOrder single-undo', () => {
     recorder.resume();
 
     expect(ctx.store.getAll().map((el) => el.id)).toEqual([a.id, b.id]);
-    // nothing left to undo: the reorder was a single step
     expect(stack.canUndo).toBe(false);
   });
 });
