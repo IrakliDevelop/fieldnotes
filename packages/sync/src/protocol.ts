@@ -9,6 +9,9 @@ import {
   isNewerFogRecord,
 } from './fog-wire';
 import type { FogMetaRecord, FogTileRecord, FogSnapshot } from './fog-wire';
+import { SYNC_LIMITS, hasJsonDepthAtMost } from './limits';
+
+const { maxIdLength, maxShortStringLength, maxTextLength, maxSnapshotElements } = SYNC_LIMITS;
 
 export {
   FOG_SYNC_PROTOCOL_VERSION,
@@ -356,10 +359,90 @@ export function isValidEnvelope(env: unknown): env is SyncEnvelope {
   }
 }
 
+// Lengths are UTF-16 code units, not bytes; undefined is an absent optional field.
+function isAtMost(value: string | undefined, max: number): boolean {
+  return value === undefined || value.length <= max;
+}
+
+function elementWithinLimits(el: SyncElement): boolean {
+  if (
+    !isAtMost(el.id, maxIdLength) ||
+    !isAtMost(el.layerId, maxIdLength) ||
+    !isAtMost(el.groupId, maxIdLength) ||
+    !isAtMost(el.audience, maxShortStringLength) ||
+    !isAtMost(el.ownerId, maxShortStringLength)
+  ) {
+    return false;
+  }
+  switch (el.type) {
+    case 'stroke':
+      return (
+        el.points.length <= SYNC_LIMITS.maxStrokePoints && isAtMost(el.color, maxShortStringLength)
+      );
+    case 'note':
+      return (
+        isAtMost(el.text, maxTextLength) &&
+        isAtMost(el.backgroundColor, maxShortStringLength) &&
+        isAtMost(el.textColor, maxShortStringLength)
+      );
+    case 'arrow':
+      return (
+        isAtMost(el.color, maxShortStringLength) &&
+        isAtMost(el.label, maxTextLength) &&
+        isAtMost(el.fromBinding?.elementId, maxIdLength) &&
+        isAtMost(el.toBinding?.elementId, maxIdLength)
+      );
+    case 'image':
+      return isAtMost(el.src, SYNC_LIMITS.maxSrcLength);
+    case 'html':
+      return (
+        isAtMost(el.domId, maxShortStringLength) && isAtMost(el.htmlType, maxShortStringLength)
+      );
+    case 'text':
+      return isAtMost(el.text, maxTextLength) && isAtMost(el.color, maxShortStringLength);
+    case 'shape':
+      return (
+        isAtMost(el.strokeColor, maxShortStringLength) &&
+        isAtMost(el.fillColor, maxShortStringLength)
+      );
+    case 'extension':
+      return isAtMost(el.extensionType, maxShortStringLength);
+  }
+}
+
+/** Whether an already-valid legacy envelope stays within `SYNC_LIMITS`; authority:1 does not use it. */
+export function isWithinSyncLimits(env: SyncEnvelope): boolean {
+  if (!isAtMost(env.from, maxIdLength)) return false;
+  const op = env.op;
+  switch (op.kind) {
+    case 'upsert':
+      return elementWithinLimits(op.element);
+    case 'remove':
+      return isAtMost(op.id, maxIdLength);
+    case 'snapshot':
+      return (
+        isAtMost(op.to, maxIdLength) &&
+        op.elements.length <= maxSnapshotElements &&
+        (op.layers === undefined || op.layers.length <= maxSnapshotElements)
+      );
+    case 'layer-upsert':
+      return (
+        isAtMost(op.layer.id, maxIdLength) &&
+        isAtMost(op.layer.name, maxShortStringLength) &&
+        isAtMost(op.editor, maxIdLength)
+      );
+    case 'layer-remove':
+      return isAtMost(op.id, maxIdLength) && isAtMost(op.editor, maxIdLength);
+    default:
+      return true;
+  }
+}
+
 export function parseEnvelope(message: string): SyncEnvelope | null {
+  if (!hasJsonDepthAtMost(message, SYNC_LIMITS.maxReceivedJsonDepth)) return null;
   try {
     const env: unknown = JSON.parse(message);
-    return isValidEnvelope(env) ? env : null;
+    return isValidEnvelope(env) && isWithinSyncLimits(env) ? env : null;
   } catch {
     return null;
   }
