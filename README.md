@@ -2,6 +2,8 @@
 
 A lightweight, framework-agnostic infinite canvas SDK for the web — with first-class support for embedding interactive HTML elements.
 
+**[Playground](https://iraklidevelop.github.io/fieldnotes/)** · [Sample board](https://iraklidevelop.github.io/fieldnotes/?sample) · [Bench](https://iraklidevelop.github.io/fieldnotes/?bench=2000) · [API reference](https://iraklidevelop.github.io/fieldnotes/api/)
+
 ## Why Field Notes?
 
 **tldraw — the leading canvas SDK — now requires a commercial license.** Field Notes is MIT-licensed, framework-agnostic, and treats embedded HTML elements as first-class citizens alongside freehand drawing, shapes, and annotations. It's the open canvas SDK you can actually ship on.
@@ -256,7 +258,7 @@ pnpm install          # install dependencies
 pnpm build            # build all packages
 pnpm test             # run all tests
 pnpm bench            # run performance benchmarks
-pnpm docs:api         # TypeDoc API reference into website/public/api (run after pnpm build)
+pnpm docs:api         # TypeDoc API reference into website/public/api (run after pnpm build); deployed with the playground on push to master
 ```
 
 Example applications are in `examples/`:
