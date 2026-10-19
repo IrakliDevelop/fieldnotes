@@ -108,8 +108,7 @@ describe('note-formatting', () => {
       expect(range.extractContents).toHaveBeenCalled();
       expect(range.insertNode).toHaveBeenCalled();
       const insertedSpan = (range.insertNode as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as
-        | HTMLSpanElement
-        | undefined;
+        HTMLSpanElement | undefined;
       expect(insertedSpan?.style.fontSize).toBe('18px');
     });
   });

@@ -80,10 +80,7 @@ export type AuthorityRejectionReason =
   | 'operation-id-reused'
   | 'retry-window-expired';
 export type AuthorityResyncReason =
-  | 'delivery-failed'
-  | 'gap'
-  | 'stream-reset'
-  | 'checkpoint-required';
+  'delivery-failed' | 'gap' | 'stream-reset' | 'checkpoint-required';
 
 export type AuthorityClientFrame =
   | {

@@ -48,21 +48,12 @@ export type AuthorityJournalRetryAdmission =
   | Exclude<AuthorityRetryResult, { readonly status: 'sent' }>;
 
 export type AuthorityJournalAttemptResult =
-  | 'draft'
-  | 'pending'
-  | 'rejected'
-  | 'uncertain'
-  | 'invalid';
+  'draft' | 'pending' | 'rejected' | 'uncertain' | 'invalid';
 
 export type AuthorityJournalReceiptResult = 'accepted' | 'duplicate' | 'conflict' | 'ignored';
 
 export type AuthorityJournalRejectionResult =
-  | 'rejected'
-  | 'uncertain'
-  | 'duplicate'
-  | 'conflict'
-  | 'ignored'
-  | 'invalid';
+  'rejected' | 'uncertain' | 'duplicate' | 'conflict' | 'ignored' | 'invalid';
 
 export interface AuthorityJournalStats {
   readonly operationCount: number;
