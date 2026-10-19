@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import type { Page, TestInfo } from '@playwright/test';
-import { gotoBlank } from './helpers/board';
+import { captureExportedBlobs, gotoBlank } from './helpers/board';
 import { openStyle } from './helpers/layout';
 import { singleFingerDraw } from './helpers/touch';
 
@@ -121,6 +121,39 @@ test('widgets survive reload', async ({ page }, testInfo) => {
   ).toBeChecked();
 });
 
+test('checklist keeps checkbox focus when a remote edit removes the row above', async ({
+  page,
+}) => {
+  await gotoBlank(page, 'embeds');
+  const id = await insert(page, 'Checklist', 'pg:checklist');
+  const node = page.locator(`[data-element-id="${id}"]`);
+  const [a, b] = await node
+    .locator('[data-item-id]')
+    .evaluateAll((rows) => rows.map((row) => row.getAttribute('data-item-id')));
+  if (!a || !b) throw new Error('expected two checklist items');
+  const boxB = node.locator(`[data-item-id="${b}"] input[type="checkbox"]`);
+  await boxB.focus();
+  await expect(boxB).toBeFocused();
+
+  await page.evaluate(
+    ({ id, a }) => {
+      const store = window.__playground.viewport.store;
+      const el = store.getById(id);
+      if (el?.type !== 'html' || typeof el.data !== 'object' || el.data === null) {
+        throw new Error('no checklist');
+      }
+      const items: unknown = Reflect.get(el.data, 'items');
+      if (!Array.isArray(items)) throw new Error('no items');
+      const kept = items.filter((item: unknown) => Reflect.get(Object(item), 'id') !== a);
+      store.update(id, { data: { ...el.data, items: kept } });
+    },
+    { id, a },
+  );
+
+  await expect(node.locator('[data-item-id]')).toHaveCount(1);
+  await expect(boxB).toBeFocused();
+});
+
 test('typing in a widget never switches tools', async ({ page }, testInfo) => {
   await gotoBlank(page, 'embeds');
   const id = await insert(page, 'Text card', 'pg:text');
@@ -214,16 +247,7 @@ test('embeds smoke', async ({ page }, testInfo) => {
 
 test('export includes widgets', async ({ page }) => {
   const errors = collectErrors(page);
-  // No Node types here, so read the exported blob in the page instead of from disk.
-  await page.addInitScript(() => {
-    const blobs: Blob[] = [];
-    Object.assign(window, { exportedBlobs: blobs });
-    const create = URL.createObjectURL.bind(URL);
-    URL.createObjectURL = (blob: Blob | MediaSource) => {
-      if (blob instanceof Blob) blobs.push(blob);
-      return create(blob);
-    };
-  });
+  await captureExportedBlobs(page);
   await page.goto('/?scene=embeds');
   await page.waitForFunction(() => window.__playground !== undefined);
   await expect.poll(async () => (await widgets(page, 'pg:chart')).length).toBe(1);
@@ -237,6 +261,46 @@ test('export includes widgets', async ({ page }) => {
   );
   expect(size).toBeGreaterThan(0);
   expect(errors).toEqual([]);
+});
+
+test('PNG export paints widget pixels', async ({ page }) => {
+  await captureExportedBlobs(page);
+  await gotoBlank(page, 'embeds');
+  await insert(page, 'Checklist', 'pg:checklist');
+
+  const download = page.waitForEvent('download');
+  await page.locator('[data-chrome="menu"]').getByRole('button', { name: 'Menu' }).click();
+  await page.locator('[data-menu-item="export-png"]').click();
+  await download;
+  const { width, painted, total } = await page.evaluate(async () => {
+    const blob = (Reflect.get(window, 'exportedBlobs') as Blob[]).at(-1);
+    if (!blob) throw new Error('no export');
+    const bitmap = await createImageBitmap(blob);
+    const ctx = new OffscreenCanvas(bitmap.width, bitmap.height).getContext('2d');
+    if (!ctx) throw new Error('no 2d context');
+    ctx.drawImage(bitmap, 0, 0);
+    const { data } = ctx.getImageData(80, 80, 488, 488);
+    let painted = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i] !== 255 || data[i + 1] !== 255 || data[i + 2] !== 255) painted++;
+    }
+    return { width: bitmap.width, painted, total: data.length / 4 };
+  });
+  expect(width).toBe(648);
+  expect(painted / total).toBeGreaterThanOrEqual(0.9);
+});
+
+test('palette swatch copies the colour', async ({ page, context }, testInfo) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await gotoBlank(page, 'embeds');
+  const id = await insert(page, 'Palette', 'pg:palette');
+  await interact(page, testInfo, id);
+  await page
+    .locator(`[data-element-id="${id}"]`)
+    .getByRole('button', { name: 'Copy #1e88e5' })
+    .click();
+  await expect(page.locator('[data-chrome="toast"]')).toHaveText('Copied #1e88e5');
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('#1e88e5');
 });
 
 async function pickWidget(page: Page, label: string): Promise<void> {

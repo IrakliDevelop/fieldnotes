@@ -10,6 +10,7 @@ import type { Mounted } from './shell/shell';
 import { embeds } from './scenes/embeds';
 import { currentFog, fogClientPlugins, tabletop } from './scenes/tabletop';
 import { whiteboard } from './scenes/whiteboard';
+import { renderWidgetForExport } from './widgets';
 
 declare global {
   interface Window {
@@ -104,145 +105,156 @@ function download(filename: string, blob: Blob): void {
 function attach(instance: SceneInstance, sceneId: SceneId): Attached {
   const { viewport } = instance;
   const disposed = new AbortController();
-  let detach: (() => void) | null = null;
-  let connection: { dispose(): void } | null = null;
-  const join = (joined: Room): void => {
-    connection = connectRoom(viewport, sceneId, joined, {
-      plugins: fogClientPlugins(),
-      onPeers: shell.setPeers,
-    });
-  };
-  // Published once the board is loaded so tests never race the initial restore.
-  const publish = (): void => {
-    const fog = sceneId === 'tabletop' ? currentFog() : null;
-    // A room joined before the load finished already installed its laser hook.
-    const { laserSenders } = window.__playground ?? {};
-    window.__playground = {
-      sceneId,
-      viewport,
-      ...(fog && { fog }),
-      ...(laserSenders && { laserSenders }),
+  // An abort also stops the pending persistence load from republishing a destroyed viewport.
+  try {
+    let detach: (() => void) | null = null;
+    let connection: { dispose(): void } | null = null;
+    const join = (joined: Room): void => {
+      connection = connectRoom(viewport, sceneId, joined, {
+        plugins: fogClientPlugins(),
+        onPeers: shell.setPeers,
+      });
     };
-  };
-  const joining = room;
-  if (joining?.role === 'guest') {
-    // A guest starts empty; the room's snapshot fills the board.
-    publish();
-    join(joining);
-  } else {
-    void attachPersistence(viewport, sceneId, {
-      onFirstVisit: () => {
-        if (!blank) instance.loadSample();
-      },
-      toast: shell.toast,
-      // In a room the board belongs to the room; the saved board stays as it was.
-      autosave: joining === null,
-      signal: disposed.signal,
-    }).then((dispose) => {
-      if (disposed.signal.aborted) {
-        dispose();
-        return;
-      }
-      // Collaborate clicked before the load finished: the room already owns the board.
-      if (connection) dispose();
-      else detach = dispose;
+    // Published once the board is loaded so tests never race the initial restore.
+    const publish = (): void => {
+      const fog = sceneId === 'tabletop' ? currentFog() : null;
+      // A room joined before the load finished already installed its laser hook.
+      const { laserSenders } = window.__playground ?? {};
+      window.__playground = {
+        sceneId,
+        viewport,
+        ...(fog && { fog }),
+        ...(laserSenders && { laserSenders }),
+      };
+    };
+    const joining = room;
+    if (joining?.role === 'guest') {
+      // A guest starts empty; the room's snapshot fills the board.
       publish();
-      if (joining) join(joining);
-    });
-  }
-
-  // iOS Safari only delivers change events to a file input that is in the document.
-  const input = document.createElement('input');
-  input.type = 'file';
-  input.accept = '.json,application/json';
-  input.hidden = true;
-  document.body.append(input);
-  input.addEventListener('change', async () => {
-    const file = input.files?.[0];
-    input.value = '';
-    if (!file) return;
-    try {
-      viewport.loadJSON(await file.text());
-    } catch {
-      shell.toast("Couldn't open that file");
+      join(joining);
+    } else {
+      void attachPersistence(viewport, sceneId, {
+        onFirstVisit: () => {
+          if (!blank) instance.loadSample();
+        },
+        toast: shell.toast,
+        // In a room the board belongs to the room; the saved board stays as it was.
+        autosave: joining === null,
+        signal: disposed.signal,
+      }).then((dispose) => {
+        if (disposed.signal.aborted) {
+          dispose();
+          return;
+        }
+        // Collaborate clicked before the load finished: the room already owns the board.
+        if (connection) dispose();
+        else detach = dispose;
+        publish();
+        if (joining) join(joining);
+      });
     }
-  });
 
-  const removers = [
-    addMenuItems('file', [
-      {
-        id: 'open-json',
-        label: 'Open JSON',
-        icon: 'upload',
-        run: () => input.click(),
-        // Replacing layers wholesale emits no per-layer events, so peers would never see it.
-        hidden: () => room !== null,
+    // iOS Safari only delivers change events to a file input that is in the document.
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json,application/json';
+    input.hidden = true;
+    document.body.append(input);
+    input.addEventListener('change', async () => {
+      const file = input.files?.[0];
+      input.value = '';
+      if (!file) return;
+      try {
+        viewport.loadJSON(await file.text());
+      } catch {
+        shell.toast("Couldn't open that file");
+      }
+    });
+
+    const removers = [
+      addMenuItems('file', [
+        {
+          id: 'open-json',
+          label: 'Open JSON',
+          icon: 'upload',
+          run: () => input.click(),
+          // Replacing layers wholesale emits no per-layer events, so peers would never see it.
+          hidden: () => room !== null,
+        },
+        {
+          id: 'save-json',
+          label: 'Save JSON',
+          icon: 'download',
+          run: () =>
+            download(
+              `fieldnotes-${sceneId}.json`,
+              new Blob([viewport.exportJSON()], { type: 'application/json' }),
+            ),
+        },
+        {
+          id: 'export-png',
+          label: 'Export PNG',
+          icon: 'image',
+          run: () =>
+            viewport
+              .exportImage({
+                scale: 2,
+                padding: 32,
+                background: '#ffffff',
+                renderHtml: renderWidgetForExport,
+              })
+              .then((blob) => {
+                if (blob) download(`fieldnotes-${sceneId}.png`, blob);
+                else shell.toast('Nothing to export');
+              })
+              .catch(() => shell.toast('Export failed')),
+        },
+        {
+          id: 'export-svg',
+          label: 'Export SVG',
+          icon: 'file',
+          run: () =>
+            viewport
+              .exportSVG({ padding: 32, renderHtml: renderWidgetForExport })
+              .then((svg) =>
+                download(`fieldnotes-${sceneId}.svg`, new Blob([svg], { type: 'image/svg+xml' })),
+              )
+              .catch(() => shell.toast('Export failed')),
+        },
+      ]),
+      addMenuItems('board', [
+        {
+          id: 'load-sample',
+          label: 'Load sample',
+          icon: 'template',
+          run: () => instance.loadSample(),
+        },
+        {
+          id: 'reset-board',
+          label: 'Reset board',
+          icon: 'refresh',
+          run: () => instance.loadSample(),
+        },
+      ]),
+    ];
+    return {
+      enter: (next) => {
+        detach?.();
+        detach = null;
+        join(next);
       },
-      {
-        id: 'save-json',
-        label: 'Save JSON',
-        icon: 'download',
-        run: () =>
-          download(
-            `fieldnotes-${sceneId}.json`,
-            new Blob([viewport.exportJSON()], { type: 'application/json' }),
-          ),
+      dispose: () => {
+        disposed.abort();
+        detach?.();
+        connection?.dispose();
+        input.remove();
+        for (const remove of removers) remove();
       },
-      {
-        id: 'export-png',
-        label: 'Export PNG',
-        icon: 'image',
-        run: () =>
-          viewport
-            .exportImage({ scale: 2, padding: 32, background: '#ffffff' })
-            .then((blob) => {
-              if (blob) download(`fieldnotes-${sceneId}.png`, blob);
-              else shell.toast('Nothing to export');
-            })
-            .catch(() => shell.toast('Export failed')),
-      },
-      {
-        id: 'export-svg',
-        label: 'Export SVG',
-        icon: 'file',
-        run: () =>
-          viewport
-            .exportSVG({ padding: 32 })
-            .then((svg) =>
-              download(`fieldnotes-${sceneId}.svg`, new Blob([svg], { type: 'image/svg+xml' })),
-            )
-            .catch(() => shell.toast('Export failed')),
-      },
-    ]),
-    addMenuItems('board', [
-      {
-        id: 'load-sample',
-        label: 'Load sample',
-        icon: 'template',
-        run: () => instance.loadSample(),
-      },
-      {
-        id: 'reset-board',
-        label: 'Reset board',
-        icon: 'refresh',
-        run: () => instance.loadSample(),
-      },
-    ]),
-  ];
-  return {
-    enter: (next) => {
-      detach?.();
-      detach = null;
-      join(next);
-    },
-    dispose: () => {
-      disposed.abort();
-      detach?.();
-      connection?.dispose();
-      input.remove();
-      for (const remove of removers) remove();
-    },
-  };
+    };
+  } catch (error) {
+    disposed.abort();
+    throw error;
+  }
 }
 
 const mount = (id: string | null): void => {
@@ -256,7 +268,12 @@ const mount = (id: string | null): void => {
   try {
     const instance = scene.mount({ stage, shell, room });
     current = { id: scene.id, instance };
-    attached = attach(instance, scene.id);
+    try {
+      attached = attach(instance, scene.id);
+    } catch (error) {
+      instance.dispose();
+      throw error;
+    }
     history.replaceState(
       null,
       '',

@@ -41,12 +41,13 @@ function row(id: string): HTMLLIElement {
   return li;
 }
 
-// Rows are keyed by item id and patched in place so a focused checkbox keeps its focus.
+// Rows are keyed by item id and patched in place; a moved row gets its focus back.
 function refresh(dom: HTMLElement, data: ChecklistData): void {
   const title = dom.querySelector('.pg-widget-title');
   const list = dom.querySelector('.pg-checklist-list');
   if (title) title.textContent = data.title;
   if (!list) return;
+  const focused = list.contains(document.activeElement) ? document.activeElement : null;
   const rows = new Map<string, Element>();
   for (const li of list.children) {
     if (li instanceof HTMLElement && li.dataset['itemId']) rows.set(li.dataset['itemId'], li);
@@ -61,6 +62,9 @@ function refresh(dom: HTMLElement, data: ChecklistData): void {
     if (text) text.textContent = item.text;
   });
   for (const stale of rows.values()) stale.remove();
+  if (focused instanceof HTMLElement && focused.isConnected && focused !== document.activeElement) {
+    focused.focus({ preventScroll: true });
+  }
 }
 
 const itemIdOf = (target: EventTarget | null): string | undefined =>
