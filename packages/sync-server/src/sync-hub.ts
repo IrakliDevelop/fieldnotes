@@ -210,6 +210,7 @@ export class SyncHub {
   private readonly authorityPeers = new Set<string>();
   private readonly roomIdleTimeoutMs?: number;
   private readonly idleTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private closed = false;
 
   constructor(options: SyncHubOptions = {}) {
     this.backend = options.backend ?? new MemoryHubBackend();
@@ -236,9 +237,12 @@ export class SyncHub {
     const roomIdleTimeoutMs = options.roomIdleTimeoutMs;
     if (
       roomIdleTimeoutMs !== undefined &&
-      (!Number.isFinite(roomIdleTimeoutMs) || roomIdleTimeoutMs <= 0)
+      (!Number.isFinite(roomIdleTimeoutMs) ||
+        roomIdleTimeoutMs <= 0 ||
+        // Node clamps larger setTimeout delays to 1 ms, which would evict every room at once.
+        roomIdleTimeoutMs > 2_147_483_647)
     ) {
-      throw new RangeError('roomIdleTimeoutMs must be a positive finite number');
+      throw new RangeError('roomIdleTimeoutMs must be a positive number up to 2147483647');
     }
     this.roomIdleTimeoutMs = roomIdleTimeoutMs;
     this.fanoutUnsub = this.fanout.subscribe((payload) => this.onFanout(payload));
@@ -1121,7 +1125,7 @@ export class SyncHub {
   }
 
   private scheduleIdleEviction(room: string): void {
-    if (this.roomIdleTimeoutMs === undefined) return;
+    if (this.roomIdleTimeoutMs === undefined || this.closed) return;
     clearTimeout(this.idleTimers.get(room));
     const timer = setTimeout(() => {
       this.idleTimers.delete(room);
@@ -1158,6 +1162,7 @@ export class SyncHub {
   }
 
   close(): void {
+    this.closed = true;
     this.authority?.close();
     for (const connId of [...this.presenceLanes.keys()]) this.clearPresenceLanes(connId);
     for (const timer of this.idleTimers.values()) clearTimeout(timer);

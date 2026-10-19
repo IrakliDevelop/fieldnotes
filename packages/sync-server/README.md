@@ -349,11 +349,19 @@ state through `ServerSyncPlugin.evictRoom`. With `MemoryHubBackend` this deletes
 it only where rooms are disposable or persisted elsewhere. For Redis use `ttlSeconds` on
 `RedisHubBackend` instead.
 
+The timeout must be a positive number of milliseconds up to 2 147 483 647 (about 24.8 days);
+larger values throw. Backends without layer methods keep layers in the hub's memory, so eviction
+forgets them too.
+
 ```ts
 createSyncServer({ port: 8080, roomIdleTimeoutMs: 30 * 60 * 1000 });
 ```
 
 The wire caps in `SYNC_LIMITS` (`@fieldnotes/sync`) apply to every frame the hub parses.
+
+Clients from `@fieldnotes/sync` 0.27 drop received frames nested deeper than 64. If you raise
+`maxJsonDepth` above 62, deeply nested element data can be stored but not delivered, and a join
+snapshot that contains it is dropped whole. Text and `src` caps count UTF-16 code units.
 
 ## Authentication
 

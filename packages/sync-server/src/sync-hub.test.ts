@@ -3333,10 +3333,27 @@ describe('idle-room eviction', () => {
     expect(evictRoom).not.toHaveBeenCalled();
   });
 
-  it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])(
+  it('close() then a disconnect does not schedule eviction', async () => {
+    const backend = new MemoryHubBackend();
+    const evictRoom = vi.spyOn(backend, 'evictRoom');
+    const hub = new SyncHub({ backend, roomIdleTimeoutMs: 1000 });
+    hub.addConnection(makeConn('A', 'R'));
+
+    hub.close();
+    hub.removeConnection('A');
+    await vi.advanceTimersByTimeAsync(5000);
+
+    expect(evictRoom).not.toHaveBeenCalled();
+  });
+
+  it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY, 2_147_483_648])(
     'rejects roomIdleTimeoutMs %s',
     (roomIdleTimeoutMs) => {
       expect(() => new SyncHub({ roomIdleTimeoutMs })).toThrow(RangeError);
     },
   );
+
+  it('accepts roomIdleTimeoutMs 2_147_483_647', () => {
+    expect(() => new SyncHub({ roomIdleTimeoutMs: 2_147_483_647 }).close()).not.toThrow();
+  });
 });

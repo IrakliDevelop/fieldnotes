@@ -28,7 +28,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 - `roomIdleTimeoutMs` (opt-in): once a room has had no local connection for this long, the hub
   drops its in-memory layer ledger and calls the new optional `HubBackend.evictRoom` and
   `ServerSyncPlugin.evictRoom`. `MemoryHubBackend` forgets the room's elements and layers.
-  Reconnecting before the timeout cancels it. `authority:1` rooms are never evicted.
+  Reconnecting before the timeout cancels it. `authority:1` rooms are never evicted. Values above
+  2 147 483 647 ms throw.
 
 **Changed**
 
