@@ -9,7 +9,12 @@ import type { ElementWrite, HubBackend, HubRecord, StoredTombstone } from '@fiel
 import type { RedisHashClient } from './redis-hash-client';
 import type { BackendSyncPlugin } from './sync-plugin';
 import { encodeRoomKey } from './room-key';
-import { ELEMENT_MIGRATE_SCRIPT, ELEMENT_WRITE_SCRIPT } from './element-scripts';
+import {
+  ELEMENT_MIGRATE_SCRIPT,
+  ELEMENT_SNAPSHOT_SCRIPT,
+  ELEMENT_WRITE_SCRIPT,
+  TOMBSTONE_EXPIRE_SCRIPT,
+} from './element-scripts';
 import { createScriptRunner, type ScriptRunner } from './script-runner';
 
 export interface RedisHubBackendOptions {
@@ -91,23 +96,30 @@ export class RedisHubBackend implements HubBackend {
     room: string,
   ): Promise<{ elements: SyncElement[]; tombstones: StoredTombstone[] }> {
     const tombstonesKey = this.tombstonesKey(room);
-    const [[elementMap, tombstoneMap]] = await Promise.all([
+    const keys = [this.key(room), tombstonesKey];
+    const [read] = await Promise.all([
       this.migrate(room).then(() =>
-        Promise.all([this.client.hGetAll(this.key(room)), this.client.hGetAll(tombstonesKey)]),
+        this.runScript(ELEMENT_SNAPSHOT_SCRIPT, { keys, arguments: [] }),
       ),
       this.touch(room),
     ]);
+    if (!Array.isArray(read) || read.length !== 2) {
+      throw new Error('Redis returned an invalid element snapshot');
+    }
+    const [elementMap, tombstoneMap] = read.map(fieldsToRecord);
     const cutoff = Date.now() - this.tombstoneRetentionMs;
     const tombstones: StoredTombstone[] = [];
     const expired: string[] = [];
-    for (const [id, raw] of Object.entries(tombstoneMap)) {
+    for (const [id, raw] of Object.entries(tombstoneMap ?? {})) {
       const tombstone = decode(raw, isStoredTombstone);
       if (!tombstone) continue;
-      if (tombstone.removedAt < cutoff) expired.push(id);
+      if (tombstone.removedAt < cutoff) expired.push(id, raw);
       else tombstones.push(tombstone);
     }
-    await Promise.all(expired.map((id) => this.client.hDel(tombstonesKey, id)));
-    return { elements: decodeElements(elementMap), tombstones };
+    if (expired.length > 0) {
+      await this.runScript(TOMBSTONE_EXPIRE_SCRIPT, { keys: [tombstonesKey], arguments: expired });
+    }
+    return { elements: decodeElements(elementMap ?? {}), tombstones };
   }
 
   async getRecord(room: string, id: string): Promise<HubRecord | undefined> {
@@ -274,6 +286,17 @@ function decode<T>(raw: string | null | undefined, guard: (value: unknown) => va
     // A corrupt field reads as absent, isolated from the rest of the room.
     return undefined;
   }
+}
+
+/** A flat HGETALL reply from a script, `[field, value, ...]`, as a record. */
+function fieldsToRecord(reply: unknown): Record<string, string> {
+  if (!Array.isArray(reply)) throw new Error('Redis returned an invalid element snapshot');
+  const record: Record<string, string> = {};
+  for (let i = 0; i + 1 < reply.length; i += 2) {
+    const [field, value]: unknown[] = [reply[i], reply[i + 1]];
+    if (typeof field === 'string' && typeof value === 'string') record[field] = value;
+  }
+  return record;
 }
 
 function decodeElements(map: Record<string, string>): SyncElement[] {

@@ -1,4 +1,9 @@
-import { ELEMENT_MIGRATE_SCRIPT, ELEMENT_WRITE_SCRIPT } from '../element-scripts';
+import {
+  ELEMENT_MIGRATE_SCRIPT,
+  ELEMENT_SNAPSHOT_SCRIPT,
+  ELEMENT_WRITE_SCRIPT,
+  TOMBSTONE_EXPIRE_SCRIPT,
+} from '../element-scripts';
 
 type Store = Map<string, Map<string, string>>;
 
@@ -87,5 +92,16 @@ export function emulateElementScript(
 ): unknown {
   if (script === ELEMENT_WRITE_SCRIPT) return write(store, options.keys, options.arguments);
   if (script === ELEMENT_MIGRATE_SCRIPT) return migrate(store, options.keys, options.arguments);
+  if (script === ELEMENT_SNAPSHOT_SCRIPT) {
+    return options.keys.map((key) => [...(store.get(key) ?? [])].flat());
+  }
+  if (script === TOMBSTONE_EXPIRE_SCRIPT) {
+    const tombstones = store.get(options.keys[0] ?? '');
+    const argv = options.arguments;
+    for (let i = 0; i < argv.length; i += 2) {
+      if (tombstones?.get(argv[i] ?? '') === argv[i + 1]) tombstones?.delete(argv[i] ?? '');
+    }
+    return 1;
+  }
   return undefined;
 }

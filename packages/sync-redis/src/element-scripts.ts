@@ -80,3 +80,18 @@ for i = 1, #ARGV, 2 do
 end
 return 1
 `;
+
+/** Reads KEYS[1] (elements) and KEYS[2] (tombstones) in one step: {elements HGETALL, tombstones HGETALL}. */
+export const ELEMENT_SNAPSHOT_SCRIPT = `
+return {redis.call('HGETALL', KEYS[1]), redis.call('HGETALL', KEYS[2])}
+`;
+
+/** Deletes expired tombstones from KEYS[1]; ARGV holds id and read value pairs, deleted only if unchanged. */
+export const TOMBSTONE_EXPIRE_SCRIPT = `
+for i = 1, #ARGV, 2 do
+  if redis.call('HGET', KEYS[1], ARGV[i]) == ARGV[i + 1] then
+    redis.call('HDEL', KEYS[1], ARGV[i])
+  end
+end
+return 1
+`;

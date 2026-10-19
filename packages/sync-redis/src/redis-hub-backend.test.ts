@@ -13,6 +13,7 @@ import { RedisHubBackend, type BackendPluginContext, type RedisHashClient } from
 import type { FogMetaRecord, FogTileRecord, LayerRecord, SyncElement } from '@fieldnotes/sync';
 import type { StoredTombstone } from '@fieldnotes/sync-server';
 import { emulateElementScript } from './test-support/element-scripts-fake';
+import { ELEMENT_MIGRATE_SCRIPT } from './element-scripts';
 
 interface MetaTileReplacement {
   field: string;
@@ -596,6 +597,55 @@ describe('RedisHubBackend element contract', () => {
     expect(await backend.snapshot('R')).toEqual({ elements: [], tombstones: [] });
   });
 
+  it('keeps an expired tombstone that is rewritten between the snapshot read and its deletion', async () => {
+    const fake = new FakeRedis();
+    const tombstonesKey = 'fieldnotes:room:R:tombstones';
+    await fake.hSet(tombstonesKey, 't', JSON.stringify(tomb('t', 2, 8_000)));
+    const fresh = tomb('t', 4, 10_000);
+    let rewritten = false;
+    const rewrite = () => {
+      if (rewritten) return;
+      rewritten = true;
+      fake.store.get(tombstonesKey)?.set('t', JSON.stringify(fresh));
+    };
+    const [hGetAll, evaluate] = [fake.hGetAll.bind(fake), fake.eval.bind(fake)];
+    fake.hGetAll = async (key) => {
+      const result = await hGetAll(key);
+      if (key === tombstonesKey) rewrite();
+      return result;
+    };
+    fake.eval = async (script, options) => {
+      const result = await evaluate(script, options);
+      if (options.keys.includes(tombstonesKey)) rewrite();
+      return result;
+    };
+    const backend = new RedisHubBackend(fake, { tombstoneRetentionMs: 1_000 });
+
+    await backend.snapshot('R');
+
+    expect(await backend.getRecord('R', 't')).toEqual({ kind: 'tombstone', tombstone: fresh });
+  });
+
+  it('a recreate interleaved with the snapshot read never hides the id from both lists', async () => {
+    const fake = new FakeRedis();
+    const backend = new RedisHubBackend(fake);
+    await backend.applyElement('R', { kind: 'remove', tombstone: tomb('t', 2) }, null);
+    await backend.snapshot('R');
+    const hGetAll = fake.hGetAll.bind(fake);
+    fake.hGetAll = (key) => {
+      // The recreate lands after the element hash was read and before the tombstone hash is.
+      if (key === 'fieldnotes:room:R:tombstones') {
+        fake.store.get(key)?.delete('t');
+        void fake.hSet('fieldnotes:room:R', 't', JSON.stringify(shape('t', 3)));
+      }
+      return hGetAll(key);
+    };
+
+    const { elements, tombstones } = await backend.snapshot('R');
+
+    expect([...elements, ...tombstones].map((record) => record.id)).toEqual(['t']);
+  });
+
   it('keeps a tombstone within the default seven-day retention', async () => {
     const backend = new RedisHubBackend(new FakeRedis());
     await backend.applyElement('R', { kind: 'remove', tombstone: tomb('t', 1) }, null);
@@ -668,7 +718,7 @@ describe('RedisHubBackend room migration', () => {
     await new RedisHubBackend(fake).snapshot('R');
 
     expect(fake.store.get(roomKey)).toEqual(migrated);
-    expect(scripts).toEqual([]);
+    expect(scripts).not.toContain(ELEMENT_MIGRATE_SCRIPT);
   });
 
   it('does not overwrite an element that gained an index after the migration read', async () => {
