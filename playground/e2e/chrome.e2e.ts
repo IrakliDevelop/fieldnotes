@@ -2,17 +2,13 @@ import { test, expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import type { ShapeTool } from '@fieldnotes/core';
 import { singleFingerDraw } from './helpers/touch';
-
-async function open(page: Page): Promise<void> {
-  await page.goto('/');
-  await page.waitForFunction(() => window.__playground !== undefined);
-}
+import { gotoBlank } from './helpers/board';
 
 const zoom = (page: Page): Promise<number> =>
   page.evaluate(() => window.__playground.viewport.camera.zoom);
 
 test('zoom buttons change zoom and undo button reflects history', async ({ page }, testInfo) => {
-  await open(page);
+  await gotoBlank(page);
   const bar = page.locator('[data-chrome="zoom"]');
   const zoomIn = bar.getByRole('button', { name: 'Zoom in' });
   const undo = bar.getByRole('button', { name: 'Undo' });
@@ -47,7 +43,7 @@ test('zoom buttons change zoom and undo button reflects history', async ({ page 
 });
 
 test('menu opens, closes on Escape and links resolve', async ({ page }) => {
-  await open(page);
+  await gotoBlank(page);
   const menu = page.locator('[data-chrome="menu"]');
   const button = menu.getByRole('button', { name: 'Menu' });
   await button.click();
@@ -68,14 +64,14 @@ test('menu opens, closes on Escape and links resolve', async ({ page }) => {
 });
 
 test('toast zone is present and empty at start', async ({ page }) => {
-  await open(page);
+  await gotoBlank(page);
   const toast = page.locator('[data-chrome="toast"]');
   await expect(toast).toHaveCount(1);
   await expect(toast).toHaveText('');
 });
 
 test('flyout keyboard', async ({ page }) => {
-  await open(page);
+  await gotoBlank(page);
   const tools = page.locator('[data-chrome="tools"]');
   await expect(tools).toHaveAttribute('role', 'toolbar');
   const shape = tools.getByRole('button', { name: 'Shape', exact: true });

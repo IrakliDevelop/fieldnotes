@@ -12,6 +12,7 @@ import {
   Viewport,
 } from '@fieldnotes/core';
 import type { ViewportOptions } from '@fieldnotes/core';
+import { buildWhiteboardSample } from '../samples/whiteboard';
 import type { Scene, StyleControl, ToolSpec } from '../scene';
 
 /** Viewport options every playground scene shares. */
@@ -132,9 +133,7 @@ export const whiteboard: Scene = {
       viewport,
       tools,
       styles: { controlsFor: (toolName) => CONTROLS[toolName] ?? [] },
-      loadSample: () => {
-        // This scene has no sample board yet.
-      },
+      loadSample: () => buildWhiteboardSample(viewport),
       dispose: () => {
         input.remove();
         viewport.destroy();

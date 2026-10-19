@@ -46,6 +46,10 @@ export function renderMenu(root: HTMLElement): () => void {
   toggle.setAttribute('aria-expanded', 'false');
   toggle.append(icon('menu'));
   root.append(toggle);
+  // Keep focus on the canvas so core's undo/redo keys apply right after an item runs.
+  root.addEventListener('mousedown', (event) => {
+    if (event.target instanceof Element && event.target.closest('button')) event.preventDefault();
+  });
   let popover: HTMLElement | null = null;
 
   const close = (): void => {

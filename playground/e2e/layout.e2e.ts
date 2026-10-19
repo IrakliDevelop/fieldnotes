@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { singleFingerDraw } from './helpers/touch';
+import { gotoBlank } from './helpers/board';
 
 interface Box {
   readonly name: string;
@@ -8,11 +9,6 @@ interface Box {
   readonly y: number;
   readonly width: number;
   readonly height: number;
-}
-
-async function open(page: Page): Promise<void> {
-  await page.goto('/');
-  await page.waitForFunction(() => window.__playground !== undefined);
 }
 
 const activeTool = (page: Page): Promise<string | undefined> =>
@@ -69,7 +65,7 @@ for (const [width, height] of [
 ] as const) {
   test(`chrome zones do not overlap at ${width}×${height}`, async ({ page }) => {
     await page.setViewportSize({ width, height });
-    await open(page);
+    await gotoBlank(page);
     await page.keyboard.press('3');
     const style = page.locator('[data-chrome="style"]');
     await expect(style).toBeVisible();
@@ -86,7 +82,7 @@ for (const [width, height] of [
 }
 
 test('style applies to selection', async ({ page }, testInfo) => {
-  await open(page);
+  await gotoBlank(page);
   const isTouch = testInfo.project.name === 'ipad';
   await page.keyboard.press('7');
   await drag(page, isTouch, { x: 300, y: 300 }, { x: 500, y: 450 });
@@ -115,7 +111,7 @@ test('style applies to selection', async ({ page }, testInfo) => {
 });
 
 test('layers', async ({ page }) => {
-  await open(page);
+  await gotoBlank(page);
   await page.keyboard.press('4');
   await expect.poll(() => activeTool(page)).toBe('highlighter');
   const layerNames = (): Promise<string[]> =>
@@ -160,7 +156,7 @@ for (const [width, height] of [
   }, testInfo) => {
     test.skip(testInfo.project.name !== 'desktop-chrome', 'wide layout needs a fine pointer');
     await page.setViewportSize({ width, height });
-    await open(page);
+    await gotoBlank(page);
     await page.evaluate(() => {
       const pill = document.querySelector('[data-chrome="tools"]');
       const first = pill?.querySelector('button');
@@ -177,7 +173,7 @@ for (const [width, height] of [
 }
 
 test('style panel reflects undo', async ({ page }, testInfo) => {
-  await open(page);
+  await gotoBlank(page);
   await page.keyboard.press('7');
   await drag(page, testInfo.project.name === 'ipad', { x: 300, y: 300 }, { x: 500, y: 450 });
   const original = await page.evaluate(() => {
@@ -206,7 +202,7 @@ test('style panel resyncs at most once per frame while dragging a large selectio
   page,
 }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop-chrome', 'mouse drag');
-  await open(page);
+  await gotoBlank(page);
   await page.keyboard.press('7');
   await drag(page, false, { x: 300, y: 300 }, { x: 500, y: 450 });
   await page.keyboard.press('1');
@@ -259,7 +255,7 @@ const layerNames = (page: Page): Promise<string[]> =>
   page.evaluate(() => window.__playground.viewport.layerManager.getLayers().map((l) => l.name));
 
 test('layer names stay unique', async ({ page }) => {
-  await open(page);
+  await gotoBlank(page);
   const drawer = await openLayers(page);
   const add = drawer.getByRole('button', { name: 'Add layer' });
   await add.click();
@@ -273,7 +269,7 @@ test('layer names stay unique', async ({ page }) => {
 });
 
 test('rename an inactive layer with the keyboard', async ({ page }) => {
-  await open(page);
+  await gotoBlank(page);
   const drawer = await openLayers(page);
   await drawer.getByRole('button', { name: 'Add layer' }).click();
   await expect.poll(() => layerNames(page)).toEqual(['Layer 1', 'Layer 2']);
@@ -297,7 +293,7 @@ test('rename an inactive layer with the keyboard', async ({ page }) => {
 });
 
 test('undo right after a layer action', async ({ page }) => {
-  await open(page);
+  await gotoBlank(page);
   await page.mouse.click(400, 400);
   const drawer = await openLayers(page);
   await drawer.getByRole('button', { name: 'Add layer' }).click();

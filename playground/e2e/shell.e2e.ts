@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { singleFingerDraw } from './helpers/touch';
+import { gotoBlank } from './helpers/board';
 
 function collectErrors(page: Page): string[] {
   const errors: string[] = [];
@@ -11,11 +12,6 @@ function collectErrors(page: Page): string[] {
   return errors;
 }
 
-async function open(page: Page, query = ''): Promise<void> {
-  await page.goto(`/${query}`);
-  await page.waitForFunction(() => window.__playground !== undefined);
-}
-
 const activeTool = (page: Page): Promise<string | undefined> =>
   page.evaluate(() => window.__playground.viewport.toolManager.activeTool?.name);
 
@@ -24,13 +20,13 @@ const elementCount = (page: Page): Promise<number> =>
 
 test('loads the whiteboard with zero console errors', async ({ page }) => {
   const errors = collectErrors(page);
-  await open(page);
+  await gotoBlank(page);
   expect(await page.evaluate(() => window.__playground.sceneId)).toBe('whiteboard');
   expect(errors).toEqual([]);
 });
 
 test('keys switch tools', async ({ page }) => {
-  await open(page);
+  await gotoBlank(page);
   for (const [key, name, label] of [
     ['3', 'pencil', 'Pencil'],
     ['7', 'shape', 'Shape'],
@@ -45,7 +41,7 @@ test('keys switch tools', async ({ page }) => {
 });
 
 test('draw then undo', async ({ page }, testInfo) => {
-  await open(page);
+  await gotoBlank(page);
   await page.keyboard.press('3');
   await expect.poll(() => activeTool(page)).toBe('pencil');
   const before = await elementCount(page);
@@ -68,7 +64,7 @@ test('draw then undo', async ({ page }, testInfo) => {
 });
 
 test('shortcut guard', async ({ page }) => {
-  await open(page);
+  await gotoBlank(page);
   await page.keyboard.press('8');
   await expect.poll(() => activeTool(page)).toBe('note');
   await page.mouse.click(400, 400);
@@ -81,7 +77,7 @@ test('shortcut guard', async ({ page }) => {
 
 test('scene switching does not leak', async ({ page }) => {
   const errors = collectErrors(page);
-  await open(page);
+  await gotoBlank(page);
   const topRight = page.locator('[data-chrome="top-right"]');
   for (let round = 0; round < 2; round++) {
     for (const [id, label] of [
