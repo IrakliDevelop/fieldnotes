@@ -14,6 +14,7 @@ import {
 import type { ViewportOptions } from '@fieldnotes/core';
 import { buildWhiteboardSample } from '../samples/whiteboard';
 import type { Scene, StyleControl, ToolSpec } from '../scene';
+import { registerWidgets } from '../widgets';
 
 /** Viewport options every playground scene shares. */
 export const VIEWPORT_OPTIONS = {
@@ -42,7 +43,7 @@ const CONTROLS: Readonly<Record<string, readonly StyleControl[]>> = {
 export const whiteboard: Scene = {
   id: 'whiteboard',
   label: 'Whiteboard',
-  mount({ stage }) {
+  mount({ stage, shell }) {
     const shapeTool = new ShapeTool();
     const imageTool = new ImageTool();
     const viewport = new Viewport(stage, {
@@ -67,6 +68,7 @@ export const whiteboard: Scene = {
         new LaserTool(),
       ],
     });
+    const unregisterWidgets = registerWidgets(viewport, shell.toast);
 
     // iOS Safari only delivers change events to a file input that is in the document.
     const input = document.createElement('input');
@@ -135,6 +137,7 @@ export const whiteboard: Scene = {
       styles: { controlsFor: (toolName) => CONTROLS[toolName] ?? [] },
       loadSample: () => buildWhiteboardSample(viewport),
       dispose: () => {
+        unregisterWidgets();
         input.remove();
         viewport.destroy();
       },

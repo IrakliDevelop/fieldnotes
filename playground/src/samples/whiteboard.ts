@@ -1,5 +1,6 @@
 import { createArrow, createNote, createShape, createStroke, createText } from '@fieldnotes/core';
 import type { Viewport } from '@fieldnotes/core';
+import { insertWidget, WIDGETS } from '../widgets';
 
 const NOTES = [
   'Pick a tool from the bar above — or press 1–9.',
@@ -81,6 +82,22 @@ export function buildWhiteboardSample(viewport: Viewport): void {
     ]) {
       store.add(el);
     }
+    const checklist = WIDGETS.find((def) => def.htmlType === 'pg:checklist');
+    if (!checklist) throw new Error('Checklist widget is not registered');
+    layerManager.setActiveLayer(notesId);
+    insertWidget(
+      viewport,
+      checklist,
+      { x: 720, y: 360 },
+      {
+        title: 'Try me',
+        items: [
+          { id: 'try-1', text: 'Double-click this card', done: true },
+          { id: 'try-2', text: 'Tick me', done: false },
+          { id: 'try-3', text: 'Add your own item below', done: false },
+        ],
+      },
+    );
   });
   viewport.fitToContent();
 }
