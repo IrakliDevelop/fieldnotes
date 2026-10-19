@@ -1,7 +1,9 @@
 import type { ClientSyncPlugin, SyncOp } from '@fieldnotes/sync';
 import { FogSyncController } from './fog/fog-sync-controller';
+import type { FogLedger } from './fog/fog-ledger';
 import type { FogSyncManager } from './fog/fog-sync-types';
 import { assertValidFogClientId, isValidFogSnapshot } from './fog/fog-sync-types';
+import type { FogStateV1 } from './fog/types';
 
 export { createFogAuthorityClientExtension } from './fog/fog-authority';
 
@@ -21,6 +23,8 @@ export function createFogClientPlugin(options: FogClientPluginOptions): ClientSy
   // yet; buffer and replay them so offline fog is published, not wiped.
   type FogChangeEvent = Parameters<Parameters<FogSyncManager['on']>[1]>[0];
   const preStartEdits: FogChangeEvent[] = [];
+  // Fog already on the board is the base state the first snapshot serves, not an edit to replay.
+  const initialState = options.manager.getState();
   const offlineUnsubscribe = options.manager.on('change', (event) => {
     if (active) return;
     if (controller) controller.captureOfflineChange(event);
@@ -42,6 +46,7 @@ export function createFogClientPlugin(options: FogClientPluginOptions): ClientSy
           manager: options.manager,
           preserveLocalWhenRemoteMissing: options.preserveLocalWhenRemoteMissing,
         });
+        if (initialState) seedLedger(controller.getLedger(), initialState, context.clientId);
         for (const event of preStartEdits.splice(0)) controller.captureOfflineChange(event);
       } else if (controllerClientId !== context.clientId) {
         throw new Error('Fog client plugin cannot be reused with a different clientId');
@@ -79,4 +84,10 @@ export function createFogClientPlugin(options: FogClientPluginOptions): ClientSy
       controller = undefined;
     },
   };
+}
+
+function seedLedger(ledger: FogLedger, state: FogStateV1, editor: string): void {
+  const { generation } = state.definition;
+  ledger.applyMeta({ version: 1, editor, definition: state.definition });
+  for (const tile of state.tiles) ledger.applyTile({ generation, ...tile, version: 1, editor });
 }
