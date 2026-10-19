@@ -1,5 +1,5 @@
 import type { Viewport } from '@fieldnotes/core';
-import type { Scene, SceneId } from './scene';
+import type { Scene, SceneId, SceneInstance } from './scene';
 import { createShell } from './shell/shell';
 import type { Mounted } from './shell/shell';
 import { embeds } from './scenes/embeds';
@@ -29,8 +29,15 @@ const shell = createShell(
 const mount = (id: string | null): void => {
   const scene = SCENES.find((s) => s.id === id) ?? whiteboard;
   current?.instance.dispose();
+  current = null;
   stage.replaceChildren();
-  const instance = scene.mount({ stage, shell, room: null });
+  let instance: SceneInstance;
+  try {
+    instance = scene.mount({ stage, shell, room: null });
+  } catch {
+    shell.toast("Couldn't open that scene");
+    return;
+  }
   current = { id: scene.id, instance };
   window.__playground = { sceneId: scene.id, viewport: instance.viewport };
   history.replaceState(null, '', `?scene=${scene.id}`);

@@ -90,6 +90,69 @@ body {
   z-index: 20;
 }
 
+.menu-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  flex-direction: column;
+  align-items: stretch;
+  min-width: 220px;
+}
+
+.menu-group {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--island-border);
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.menu-item:hover {
+  background: var(--bg);
+}
+
+.menu-item:focus-visible {
+  outline: 2px solid var(--accent-ink);
+  outline-offset: 2px;
+}
+
+.menu-version {
+  margin: 4px 8px;
+  color: var(--ink-2);
+  font-size: 12px;
+}
+
+.icon-button[aria-checked='true'] {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.icon-button:disabled {
+  color: var(--ink-2);
+  opacity: 0.5;
+  cursor: default;
+}
+
+.toast {
+  justify-content: center;
+  padding: 8px 16px;
+}
+
 .scene-switcher {
   display: flex;
   gap: 4px;
@@ -119,6 +182,31 @@ body {
   right: var(--gap);
 }
 
+[data-chrome='menu'] {
+  top: var(--gap);
+  left: var(--gap);
+  z-index: 20;
+}
+
+/* Narrow: directly right of the menu island (40px button + 2 × 4px padding + 2 × 1px border). */
+[data-chrome='zoom'] {
+  top: var(--gap);
+  left: calc(var(--gap) + 50px + var(--gap));
+}
+
+[data-chrome='zoom'] .wide-only {
+  display: none;
+}
+
+[data-chrome='toast'] {
+  top: 76px;
+  left: 0;
+  right: 0;
+  width: max-content;
+  max-width: min(360px, calc(100vw - 24px));
+  margin: 0 auto;
+}
+
 [data-fieldnotes-minimap] {
   display: none;
 }
@@ -127,6 +215,22 @@ body {
   [data-chrome='tools'] {
     top: var(--gap);
     bottom: auto;
+  }
+
+  [data-chrome='zoom'] {
+    top: auto;
+    bottom: var(--gap);
+    left: var(--gap);
+  }
+
+  [data-chrome='zoom'] .wide-only {
+    display: inline-flex;
+  }
+
+  [data-chrome='toast'] {
+    top: auto;
+    bottom: 24px;
+    max-width: 360px;
   }
 
   [data-fieldnotes-minimap] {

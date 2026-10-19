@@ -57,25 +57,28 @@ export const whiteboard: Scene = {
       ],
     });
 
-    const pickImage = (): void => {
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.accept = 'image/*';
-      input.addEventListener('cancel', () => viewport.setTool('select'));
-      input.addEventListener('change', () => {
-        const file = input.files?.[0];
-        if (!file) {
-          viewport.setTool('select');
-          return;
-        }
-        const reader = new FileReader();
-        reader.addEventListener('load', () => {
-          if (typeof reader.result === 'string') imageTool.setSrc(reader.result);
-        });
-        reader.readAsDataURL(file);
+    // iOS Safari only delivers change events to a file input that is in the document.
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.hidden = true;
+    document.body.append(input);
+    input.addEventListener('cancel', () => viewport.setTool('select'));
+    input.addEventListener('change', () => {
+      const file = input.files?.[0];
+      if (!file) {
+        viewport.setTool('select');
+        return;
+      }
+      const reader = new FileReader();
+      reader.addEventListener('load', () => {
+        if (typeof reader.result === 'string') imageTool.setSrc(reader.result);
       });
-      input.click();
-    };
+      reader.readAsDataURL(file);
+      // Reset so picking the same file again still fires change.
+      input.value = '';
+    });
+    const pickImage = (): void => input.click();
 
     const tools: readonly ToolSpec[] = [
       ...NAVIGATION_TOOLS,
@@ -122,7 +125,10 @@ export const whiteboard: Scene = {
       loadSample: () => {
         // This scene has no sample board yet.
       },
-      dispose: () => viewport.destroy(),
+      dispose: () => {
+        input.remove();
+        viewport.destroy();
+      },
     };
   },
 };
