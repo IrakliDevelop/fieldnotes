@@ -281,13 +281,17 @@ describe('SyncHub', () => {
   });
 
   it('forwards remove and clear to peers', async () => {
-    const removeMsg = envelope('clientA', v2Remove('x'));
-    await hub.handleMessage('A', removeMsg);
-    expect(JSON.parse(B.sent[0] ?? '')).toEqual({ from: 'A', op: v2Remove('x') });
+    const el = sampleEl();
+    await hub.handleMessage('A', envelope('clientA', { kind: 'upsert', element: el }));
+    await hub.handleMessage('A', envelope('clientA', v2Remove(el.id)));
+    expect(JSON.parse(B.sent[1] ?? '')).toEqual({ from: 'A', op: v2Remove(el.id) });
 
     const clearMsg = envelope('clientA', { kind: 'clear' });
     await hub.handleMessage('A', clearMsg);
-    expect(JSON.parse(B.sent[1] ?? '')).toEqual({ from: 'A', op: { kind: 'clear' } });
+    expect(JSON.parse(B.sent[2] ?? '')).toEqual({
+      from: 'A',
+      op: { kind: 'clear', tombstones: [] },
+    });
   });
 
   it('replaces a forged sender on relayed data operations', async () => {
@@ -601,84 +605,7 @@ describe('SyncHub', () => {
       expect(b.sent).toEqual([]);
     });
 
-    it('a failed upsert publish corrects only that element', async () => {
-      const error = new Error('fanout unavailable');
-      let publishCount = 0;
-      const fanout = {
-        publish: vi.fn(() => {
-          publishCount += 1;
-          if (publishCount === 1) return Promise.reject(error);
-          return Promise.resolve();
-        }),
-        subscribe: () => () => undefined,
-      };
-      const backend = new MemoryHubBackend();
-      const origin = makeConn('a', 'R');
-      const localPeer = makeConn('b', 'R');
-      const h = new SyncHub({ backend, fanout, instanceId: 'A' });
-      h.addConnection(origin);
-      h.addConnection(localPeer);
-
-      await expect(h.handleMessage('a', upsert('ca', 'e1'))).rejects.toBe(error);
-      // Publish-then-apply (S7): a rejected publication persists nothing, so the sender is
-      // corrected on that one element instead of being handed a whole-room snapshot.
-      expect((await backend.snapshot('R')).elements.map((element) => element.id)).toEqual([]);
-      expect(origin.sent).toHaveLength(1);
-      expect(JSON.parse(origin.sent[0] ?? '')).toEqual({
-        from: 'hub',
-        op: { kind: 'remove', id: 'e1', version: 1, editor: 'hub' },
-      });
-      expect(localPeer.sent).toEqual([]);
-
-      // The room queue stays usable and the next op is unaffected by the correction.
-      await expect(h.handleMessage('a', upsert('ca', 'e2'))).resolves.toBeUndefined();
-      expect((await backend.snapshot('R')).elements.map((element) => element.id)).toEqual(['e2']);
-      expect(origin.sent).toHaveLength(1);
-      expect(localPeer.sent).toHaveLength(1);
-      expect(JSON.parse(localPeer.sent[0] ?? '').op.element.id).toBe('e2');
-    });
-
-    it('a failed remove publish re-upserts the current element', async () => {
-      const error = new Error('fanout unavailable');
-      let failPublish = false;
-      const fanout = {
-        publish: vi.fn(() => (failPublish ? Promise.reject(error) : Promise.resolve())),
-        subscribe: () => () => undefined,
-      };
-      const backend = new MemoryHubBackend();
-      const h = new SyncHub({
-        backend,
-        fanout,
-        instanceId: 'A',
-        canRead: ({ role, audience }) => audience === undefined || role === 'dm',
-      });
-      const dm: FakeConn = { ...makeConn('dm', 'R'), role: 'dm' };
-      h.addConnection(dm);
-
-      const secret: SyncElement = { ...sampleEl(), id: 'secret', audience: 'dm' };
-      await h.handleMessage(
-        'dm',
-        JSON.stringify({ from: 'dmUser', op: { kind: 'upsert', element: secret } }),
-      );
-      dm.sent.length = 0;
-      failPublish = true;
-
-      await expect(
-        h.handleMessage('dm', JSON.stringify({ from: 'dmUser', op: v2Remove('secret') })),
-      ).rejects.toBe(error);
-
-      // Nothing was deleted, so the sender's optimistic removal is undone element-wise.
-      expect((await backend.snapshot('R')).elements.map((element) => element.id)).toEqual([
-        'secret',
-      ]);
-      expect(dm.sent).toHaveLength(1);
-      expect(JSON.parse(dm.sent[0] ?? '')).toEqual({
-        from: 'hub',
-        op: { kind: 'upsert', element: secret },
-      });
-    });
-
-    it('corrects the sender on that element alone when backend.apply rejects after publish', async () => {
+    it('corrects the sender on that element alone when backend.apply rejects', async () => {
       const error = new Error('backend unavailable');
       class ApplyFailsOnceBackend extends MemoryHubBackend {
         pendingFailure: Error | undefined = error;
@@ -716,49 +643,45 @@ describe('SyncHub', () => {
       expect(localPeer.sent).toHaveLength(1);
     });
 
-    it('a failing correction read does not mask the original error', async () => {
-      const error = new Error('fanout unavailable');
+    it('a failing clear correction read does not mask the original write error', async () => {
+      const error = new Error('backend unavailable');
       const readError = new Error('read unavailable');
-      class CorrectionReadFailsBackend extends MemoryHubBackend {
+      class ClearFailsBackend extends MemoryHubBackend {
         private reads = 0;
 
-        override snapshot(): ReturnType<HubBackend['snapshot']> {
-          return Promise.reject(readError);
+        // The clear's own read succeeds; only the correction's read fails.
+        override snapshot(
+          ...args: Parameters<HubBackend['snapshot']>
+        ): ReturnType<HubBackend['snapshot']> {
+          this.reads++;
+          return this.reads > 1 ? Promise.reject(readError) : super.snapshot(...args);
         }
 
-        // The op's own read succeeds; only the correction's read fails.
-        override getRecord(
-          ...args: Parameters<HubBackend['getRecord']>
-        ): ReturnType<HubBackend['getRecord']> {
-          this.reads++;
-          return this.reads > 1 ? Promise.reject(readError) : super.getRecord(...args);
+        override applyElement(): ReturnType<HubBackend['applyElement']> {
+          return Promise.reject(error);
         }
       }
-      const backend = new CorrectionReadFailsBackend();
-      const fanout = {
-        publish: vi.fn(() => Promise.reject(error)),
-        subscribe: () => () => undefined,
-      };
       const origin = makeConn('a', 'R');
-      const h = new SyncHub({ backend, fanout, instanceId: 'A' });
+      const h = new SyncHub({ backend: new ClearFailsBackend(), instanceId: 'A' });
       h.addConnection(origin);
 
       // The caller must still see why the op failed, not why the resync failed.
-      await expect(h.handleMessage('a', upsert('ca', 'e1'))).rejects.toBe(error);
+      await expect(h.handleMessage('a', envelope('ca', { kind: 'clear' }))).rejects.toBe(error);
       expect(origin.sent).toEqual([]);
     });
 
     it('filters the failure-path clear correction by what the sender may read', async () => {
-      const error = new Error('fanout unavailable');
-      let failPublish = false;
-      const fanout = {
-        publish: vi.fn(() => (failPublish ? Promise.reject(error) : Promise.resolve())),
-        subscribe: () => () => undefined,
-      };
-      const backend = new MemoryHubBackend();
+      const error = new Error('backend unavailable');
+      let failWrite = false;
+      class ClearWriteFailsBackend extends MemoryHubBackend {
+        override applyElement(
+          ...args: Parameters<HubBackend['applyElement']>
+        ): ReturnType<HubBackend['applyElement']> {
+          return failWrite ? Promise.reject(error) : super.applyElement(...args);
+        }
+      }
       const h = new SyncHub({
-        backend,
-        fanout,
+        backend: new ClearWriteFailsBackend(),
         instanceId: 'A',
         canRead: ({ role, audience }) => audience === undefined || role === 'dm',
       });
@@ -774,7 +697,7 @@ describe('SyncHub', () => {
       );
       await h.handleMessage('dm', upsert('dmUser', 'open'));
       player.sent.length = 0;
-      failPublish = true;
+      failWrite = true;
 
       await expect(
         h.handleMessage('pl', JSON.stringify({ from: 'plUser', op: { kind: 'clear' } })),
@@ -788,25 +711,6 @@ describe('SyncHub', () => {
       expect(correction.op.kind).toBe('snapshot');
       expect(correction.op.elements.map((element) => element.id)).toEqual(['open']);
       expect(player.sent[0]).not.toContain('secret');
-    });
-
-    it('publishes before applying', async () => {
-      const backend = new MemoryHubBackend();
-      let idsWhenPublished: string[] | undefined;
-      const fanout = {
-        publish: vi.fn(async () => {
-          idsWhenPublished = (await backend.snapshot('R')).elements.map((element) => element.id);
-        }),
-        subscribe: () => () => undefined,
-      };
-      const origin = makeConn('a', 'R');
-      const h = new SyncHub({ backend, fanout, instanceId: 'A' });
-      h.addConnection(origin);
-
-      await h.handleMessage('a', upsert('ca', 'e1'));
-
-      expect(idsWhenPublished).toEqual([]);
-      expect((await backend.snapshot('R')).elements.map((element) => element.id)).toEqual(['e1']);
     });
 
     it('isolates rooms across instances', async () => {
@@ -1913,10 +1817,13 @@ describe('read filtering (canRead)', () => {
   const canRead = ({ role, audience }: { role?: string; audience: string | undefined }): boolean =>
     audience !== 'dm' || role === 'dm';
 
-  const upsertMsg = (from: string, id: string, audience?: string): string =>
+  const upsertMsg = (from: string, id: string, audience?: string, version = 1): string =>
     JSON.stringify({
       from,
-      op: { kind: 'upsert', element: { ...sampleEl(), id, ...(audience ? { audience } : {}) } },
+      op: {
+        kind: 'upsert',
+        element: { ...sampleEl(), id, version, ...(audience ? { audience } : {}) },
+      },
     });
 
   function conn(id: string, room: string, role?: string): FakeConn {
@@ -2023,14 +1930,14 @@ describe('read filtering (canRead)', () => {
     hub.addConnection(player);
     await hub.handleMessage('dm', upsertMsg('cdm', 'e1', 'shared'));
     player.sent.length = 0;
-    await hub.handleMessage('dm', upsertMsg('cdm', 'e1', 'dm'));
+    await hub.handleMessage('dm', upsertMsg('cdm', 'e1', 'dm', 2));
     expect(player.sent.length).toBe(1);
     const env = JSON.parse(player.sent[0] as string) as {
       from: string;
       op: { kind: string; id: string };
     };
     expect(env.from).toBe('hub');
-    expect(env.op).toEqual({ kind: 'remove', id: 'e1', version: 1, editor: 'hub' });
+    expect(env.op).toEqual({ kind: 'remove', id: 'e1', version: 2, editor: 'hub' });
   });
 
   it('sends a normal add when an element goes dm → shared', async () => {
@@ -2041,7 +1948,7 @@ describe('read filtering (canRead)', () => {
     hub.addConnection(player);
     await hub.handleMessage('dm', upsertMsg('cdm', 'e1', 'dm'));
     expect(player.sent).toEqual([]);
-    await hub.handleMessage('dm', upsertMsg('cdm', 'e1', 'shared'));
+    await hub.handleMessage('dm', upsertMsg('cdm', 'e1', 'shared', 2));
     expect(player.sent.length).toBe(1);
     expect(JSON.parse(player.sent[0] as string).op.element.id).toBe('e1');
   });
@@ -2082,7 +1989,7 @@ describe('read filtering (canRead)', () => {
     expect(JSON.parse(b.sent[0] as string).op).toEqual(v2Remove('e1'));
   });
 
-  it('forwards clear to every recipient even with a read filter', async () => {
+  it('relays a clear to a player with the tombstones of the elements it could read', async () => {
     const hub = new SyncHub({ canRead });
     const dm = conn('dm', 'R', 'dm');
     const player = conn('pl', 'R', 'player');
@@ -2092,7 +1999,10 @@ describe('read filtering (canRead)', () => {
     player.sent.length = 0;
     await hub.handleMessage('dm', envelope('cdm', { kind: 'clear' }));
     expect(player.sent.length).toBe(1);
-    expect(JSON.parse(player.sent[0] as string).op).toEqual({ kind: 'clear' });
+    expect(JSON.parse(player.sent[0] as string).op).toEqual({
+      kind: 'clear',
+      tombstones: [{ id: 's1', version: 2, editor: 'dm' }],
+    });
   });
 
   describe('hub-side audience resolution (S2)', () => {
@@ -2115,13 +2025,13 @@ describe('read filtering (canRead)', () => {
 
       // The DM's edit of the same element keeps the DM-resolved audience.
       other.sent.length = 0;
-      await hub.handleMessage('dm', upsertMsg('cdm', 'e1', 'shared'));
+      await hub.handleMessage('dm', upsertMsg('cdm', 'e1', 'shared', 2));
       expect((await storedElement(backend, 'R', 'e1'))?.audience).toBe('dm');
       // The player who could see it gets a synthetic remove, not the retagged bytes.
       expect(JSON.parse(other.sent[0] ?? '').op).toEqual({
         kind: 'remove',
         id: 'e1',
-        version: 1,
+        version: 2,
         editor: 'hub',
       });
     });
@@ -3543,5 +3453,390 @@ describe('authority connections and the protocol 2 gate', () => {
     } finally {
       hub.close();
     }
+  });
+});
+
+describe('versioned element pipeline (D5)', () => {
+  const canRead = ({ role, audience }: { role?: string; audience: string | undefined }): boolean =>
+    audience !== 'gm' || role === 'gm';
+  const gmOrOwner: Authorize = ({ role, op, currentElement, userId }) => {
+    if (role === 'gm') return true;
+    if (op.kind === 'clear') return false;
+    return !currentElement || currentElement.ownerId === userId;
+  };
+  const user = (id: string, role: string): FakeConn => ({ ...makeConn(id, 'R'), userId: id, role });
+  const frames = (conn: FakeConn): { from: string; op: SyncOp }[] =>
+    conn.sent.map((message) => JSON.parse(message));
+  const el = (
+    id: string,
+    version = 1,
+    extra: { audience?: string; position?: { x: number; y: number } } = {},
+  ): SyncElement => ({
+    ...sampleEl(),
+    id,
+    version,
+    ...extra,
+  });
+  const upsert = (element: SyncElement): string => envelope('client', { kind: 'upsert', element });
+
+  let backend: MemoryHubBackend;
+  let hub: SyncHub;
+  let gm: FakeConn;
+  let p1: FakeConn;
+  let p2: FakeConn;
+
+  beforeEach(() => {
+    backend = new MemoryHubBackend();
+    hub = new SyncHub({ backend, authorize: gmOrOwner, canRead });
+    gm = user('gm', 'gm');
+    p1 = user('p1', 'player');
+    p2 = user('p2', 'player');
+    hub.addConnection(gm);
+    hub.addConnection(p1);
+    hub.addConnection(p2);
+  });
+
+  const reset = (): void => {
+    for (const conn of [gm, p1, p2]) conn.sent.length = 0;
+  };
+
+  it('answers a stale upsert with a correction to the sender only and relays nothing', async () => {
+    await hub.handleMessage('p1', upsert(el('e', 3)));
+    reset();
+
+    await hub.handleMessage('p1', upsert(el('e', 3, { position: { x: 9, y: 9 } })));
+
+    expect(frames(p1)).toEqual([
+      { from: 'hub', op: { kind: 'upsert', element: publicView(el('e', 3)) } },
+    ]);
+    expect(gm.sent).toEqual([]);
+    expect(p2.sent).toEqual([]);
+    expect((await storedElement(backend, 'R', 'e'))?.position).toEqual({ x: 1, y: 2 });
+  });
+
+  it.each([
+    ['above current + 1_000_000', 2, 1_000_003],
+    ['above 1_000_000 with no record', undefined, 1_000_001],
+  ])('corrects a version jump %s', async (_name, existing, version) => {
+    if (existing !== undefined) await hub.handleMessage('p1', upsert(el('e', existing)));
+    reset();
+
+    await hub.handleMessage('p1', upsert(el('e', version)));
+
+    expect(frames(p1)).toEqual([
+      {
+        from: 'hub',
+        op:
+          existing === undefined
+            ? { kind: 'remove', id: 'e', version, editor: 'hub' }
+            : { kind: 'upsert', element: publicView(el('e', existing)) },
+      },
+    ]);
+    expect(gm.sent).toEqual([]);
+  });
+
+  it('accepts a version exactly 1_000_000 above the current one', async () => {
+    await hub.handleMessage('p1', upsert(el('e', 2)));
+    reset();
+
+    await hub.handleMessage('p1', upsert(el('e', 1_000_002)));
+
+    expect(p1.sent).toEqual([]);
+    expect((await storedElement(backend, 'R', 'e'))?.version).toBe(1_000_002);
+  });
+
+  it('does not relay or store a remove of an unknown id', async () => {
+    await hub.handleMessage('gm', envelope('client', v2Remove('ghost')));
+
+    expect(frames(gm)).toEqual([]);
+    expect(p1.sent).toEqual([]);
+    expect(await backend.getRecord('R', 'ghost')).toBeUndefined();
+  });
+
+  it('stores a remove as a tombstone carrying owner, audience and remover', async () => {
+    await hub.handleMessage('p1', upsert(el('t')));
+    await hub.handleMessage('gm', envelope('client', v2Remove('t', 2, 'gmPeer')));
+
+    expect(await backend.getRecord('R', 't')).toEqual({
+      kind: 'tombstone',
+      tombstone: {
+        id: 't',
+        version: 2,
+        editor: 'gmPeer',
+        removedAt: expect.any(Number),
+        ownerId: 'p1',
+        audience: undefined,
+        removedBy: 'gm',
+      },
+    });
+  });
+
+  it('answers a remove of a tombstoned id with the tombstone and relays nothing', async () => {
+    await hub.handleMessage('gm', upsert(el('t')));
+    await hub.handleMessage('gm', envelope('client', v2Remove('t', 2)));
+    reset();
+
+    await hub.handleMessage('gm', envelope('client', v2Remove('t', 5)));
+
+    expect(frames(gm)).toEqual([
+      { from: 'hub', op: { kind: 'remove', id: 't', version: 2, editor: 'hub' } },
+    ]);
+    expect(p1.sent).toEqual([]);
+  });
+
+  it('rejects a player recreating a GM-deleted GM-owned id', async () => {
+    await hub.handleMessage('gm', upsert(el('x')));
+    await hub.handleMessage('gm', envelope('client', v2Remove('x', 2)));
+    reset();
+
+    await hub.handleMessage('p1', upsert(el('x', 3)));
+
+    expect(frames(p1)).toEqual([
+      { from: 'hub', op: { kind: 'remove', id: 'x', version: 2, editor: 'hub' } },
+    ]);
+    expect(gm.sent).toEqual([]);
+    expect((await backend.getRecord('R', 'x'))?.kind).toBe('tombstone');
+  });
+
+  it('restores a player token on GM undo of its deletion, still owned by the player', async () => {
+    await hub.handleMessage('p1', upsert(el('tok')));
+    await hub.handleMessage('gm', envelope('client', v2Remove('tok', 2)));
+    reset();
+
+    await hub.handleMessage('gm', upsert(el('tok', 3)));
+
+    expect(frames(p1)).toEqual([{ from: 'gm', op: { kind: 'upsert', element: el('tok', 3) } }]);
+    expect((await storedElement(backend, 'R', 'tok'))?.ownerId).toBe('p1');
+  });
+
+  it('lets the owner recreate its own token after a GM deleted it', async () => {
+    await hub.handleMessage('p1', upsert(el('tok')));
+    await hub.handleMessage('gm', envelope('client', v2Remove('tok', 2)));
+    reset();
+
+    await hub.handleMessage('p1', upsert(el('tok', 3)));
+
+    expect(p1.sent).toEqual([]);
+    expect((await storedElement(backend, 'R', 'tok'))?.ownerId).toBe('p1');
+  });
+
+  it('relays a clear to each reader with only the tombstones it may read', async () => {
+    await hub.handleMessage('gm', upsert(el('open', 4)));
+    await hub.handleMessage('gm', upsert(el('secret', 2, { audience: 'gm' })));
+    reset();
+
+    await hub.handleMessage('gm', envelope('hub', { kind: 'clear', tombstones: [] }));
+
+    expect(frames(p1)).toEqual([
+      { from: 'gm', op: { kind: 'clear', tombstones: [{ id: 'open', version: 5, editor: 'gm' }] } },
+    ]);
+    expect(p1.sent.join('')).not.toContain('secret');
+    expect(await backend.getRecord('R', 'secret')).toEqual({
+      kind: 'tombstone',
+      tombstone: {
+        id: 'secret',
+        version: 3,
+        editor: 'gm',
+        removedAt: expect.any(Number),
+        ownerId: 'gm',
+        audience: 'gm',
+        removedBy: 'gm',
+      },
+    });
+  });
+
+  it('filters a fanned-out clear per member on the receiving instance', async () => {
+    const bus = new InMemoryHubFanout();
+    const shared = new MemoryHubBackend();
+    const origin = new SyncHub({ backend: shared, fanout: bus, instanceId: 'A', canRead });
+    const remote = new SyncHub({ backend: shared, fanout: bus, instanceId: 'B', canRead });
+    const host = user('gm', 'gm');
+    const player = user('p1', 'player');
+    const remoteGm = user('gm2', 'gm');
+    origin.addConnection(host);
+    remote.addConnection(player);
+    remote.addConnection(remoteGm);
+    await origin.handleMessage('gm', upsert(el('open')));
+    await origin.handleMessage('gm', upsert(el('secret', 1, { audience: 'gm' })));
+    player.sent.length = 0;
+    remoteGm.sent.length = 0;
+
+    await origin.handleMessage('gm', envelope('gm', { kind: 'clear' }));
+
+    expect(frames(player)).toEqual([
+      { from: 'gm', op: { kind: 'clear', tombstones: [{ id: 'open', version: 2, editor: 'gm' }] } },
+    ]);
+    expect(player.sent.join('')).not.toContain('secret');
+    expect(frames(remoteGm)[0]?.op).toEqual({
+      kind: 'clear',
+      tombstones: [
+        { id: 'open', version: 2, editor: 'gm' },
+        { id: 'secret', version: 2, editor: 'gm' },
+      ],
+    });
+  });
+
+  it.each([
+    ['without audiences', undefined],
+    ['with mismatched audiences', [null, null]],
+    ['with a non-string audience', [7]],
+  ])('drops a fanout clear %s', async (_name, audiences) => {
+    const bus = new InMemoryHubFanout();
+    const remote = new SyncHub({ fanout: bus, instanceId: 'B', canRead });
+    const player = user('p1', 'player');
+    remote.addConnection(player);
+
+    bus.publish(
+      JSON.stringify({
+        o: 'A',
+        room: 'R',
+        from: 'x',
+        op: { kind: 'clear', tombstones: [{ id: 'secret', version: 2, editor: 'x' }] },
+        audiences,
+      }),
+    );
+
+    expect(player.sent).toEqual([]);
+  });
+
+  it('drops a versionless remove from the fanout channel', async () => {
+    const bus = new InMemoryHubFanout();
+    const remote = new SyncHub({ fanout: bus, instanceId: 'B' });
+    const peer = makeConn('b', 'R');
+    remote.addConnection(peer);
+
+    bus.publish(
+      JSON.stringify({
+        o: 'A',
+        room: 'R',
+        from: 'x',
+        op: { kind: 'remove', id: 'e' },
+        existed: true,
+      }),
+    );
+    bus.publish(JSON.stringify({ o: 'A', room: 'R', from: 'x', op: v2Remove('e'), existed: true }));
+
+    expect(frames(peer)).toEqual([{ from: 'x', op: v2Remove('e') }]);
+  });
+
+  it('stamps a version and editor hub on a plugin bare-remove correction', async () => {
+    const rejecting = new SyncHub({
+      backend,
+      plugins: [
+        {
+          name: 'reject',
+          async process(op) {
+            const id = op.kind === 'upsert' ? op.element.id : '';
+            return { accepted: null, corrections: [{ kind: 'remove', id }] };
+          },
+        },
+      ],
+    });
+    const sender = makeConn('s', 'R');
+    rejecting.addConnection(sender);
+    await backend.applyElement('R', { kind: 'upsert', element: el('e', 4) }, null);
+
+    await rejecting.handleMessage('s', upsert(el('e', 5)));
+
+    expect(frames(sender)).toEqual([
+      { from: 'hub', op: { kind: 'remove', id: 'e', version: 4, editor: 'hub' } },
+    ]);
+  });
+
+  it('sends a reader only the tombstones it may read in a snapshot, without server fields', async () => {
+    await hub.handleMessage('gm', upsert(el('open')));
+    await hub.handleMessage('gm', upsert(el('secret', 1, { audience: 'gm' })));
+    await hub.handleMessage('gm', envelope('client', v2Remove('open', 2, 'gmPeer')));
+    await hub.handleMessage('gm', envelope('client', v2Remove('secret', 2, 'gmPeer')));
+    reset();
+
+    await hub.handleMessage('p1', envelope('p1c', { kind: 'request-snapshot' }));
+    await hub.handleMessage('gm', envelope('gmc', { kind: 'request-snapshot' }));
+
+    expect(frames(p1)[0]?.op).toEqual({
+      kind: 'snapshot',
+      to: 'p1c',
+      elements: [],
+      tombstones: [{ id: 'open', version: 2, editor: 'gmPeer' }],
+    });
+    expect(p1.sent[0]).not.toContain('secret');
+    expect(frames(gm)[0]?.op).toMatchObject({
+      tombstones: [
+        { id: 'open', version: 2, editor: 'gmPeer' },
+        { id: 'secret', version: 2, editor: 'gmPeer' },
+      ],
+    });
+    expect(gm.sent[0]).not.toMatch(/ownerId|removedBy|removedAt|audience/);
+  });
+
+  describe('compare-and-set conflicts', () => {
+    class ConflictingBackend extends MemoryHubBackend {
+      calls = 0;
+      constructor(private conflicts: number) {
+        super();
+      }
+      override async applyElement(
+        ...args: Parameters<HubBackend['applyElement']>
+      ): ReturnType<HubBackend['applyElement']> {
+        this.calls++;
+        if (this.conflicts-- > 0) return { ok: false, current: undefined };
+        return super.applyElement(...args);
+      }
+    }
+
+    it('retries a conflicting write once and succeeds', async () => {
+      const conflicting = new ConflictingBackend(1);
+      const h = new SyncHub({ backend: conflicting });
+      const a = makeConn('a', 'R');
+      const b = makeConn('b', 'R');
+      h.addConnection(a);
+      h.addConnection(b);
+
+      await h.handleMessage('a', upsert(el('e')));
+
+      expect(conflicting.calls).toBe(2);
+      expect(a.sent).toEqual([]);
+      expect(frames(b)).toEqual([{ from: 'a', op: { kind: 'upsert', element: el('e') } }]);
+    });
+
+    it('corrects the sender after the third conflict', async () => {
+      const conflicting = new ConflictingBackend(5);
+      const h = new SyncHub({ backend: conflicting });
+      const a = makeConn('a', 'R');
+      const b = makeConn('b', 'R');
+      h.addConnection(a);
+      h.addConnection(b);
+
+      await h.handleMessage('a', upsert(el('e')));
+
+      expect(conflicting.calls).toBe(3);
+      expect(frames(a)).toEqual([
+        { from: 'hub', op: { kind: 'remove', id: 'e', version: 1, editor: 'hub' } },
+      ]);
+      expect(b.sent).toEqual([]);
+    });
+  });
+
+  it('writes before publishing and delivers locally without a correction when publish fails', async () => {
+    const error = new Error('fanout unavailable');
+    let storedWhenPublished: SyncElement | undefined;
+    const fanout = {
+      publish: vi.fn(async () => {
+        storedWhenPublished = await storedElement(backend, 'R', 'e');
+        throw error;
+      }),
+      subscribe: () => () => undefined,
+    };
+    const h = new SyncHub({ backend, fanout, instanceId: 'A' });
+    const a = makeConn('a', 'R');
+    const b = makeConn('b', 'R');
+    h.addConnection(a);
+    h.addConnection(b);
+
+    await expect(h.handleMessage('a', upsert(el('e')))).rejects.toBe(error);
+
+    expect(storedWhenPublished).toEqual(el('e'));
+    expect(a.sent).toEqual([]);
+    expect(frames(b)).toEqual([{ from: 'a', op: { kind: 'upsert', element: el('e') } }]);
   });
 });
