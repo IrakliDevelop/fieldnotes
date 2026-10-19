@@ -11,9 +11,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 **Changed**
 
 - An `html` element added without DOM content now gets it from the renderer registered for its
-  `htmlType` (`registerHtmlRenderer`), whatever the origin: a remote peer's add or an undone
-  delete, not only `loadState`. Elements added with `addHtmlElement` keep their supplied content
-  and do not call the renderer.
+  `htmlType` (`registerHtmlRenderer`) on each individual store add, such as a remote peer's add or
+  an undone delete, not only in `loadState`. Elements added inside a
+  `viewport.suspendNotifications()` batch are not rebuilt and show the placeholder. Elements added
+  with `addHtmlElement` keep their supplied content and do not call the renderer.
+- Registered renderers now run on data received from remote peers at add time; treat `el.data` as
+  untrusted (validate, use `textContent`).
 - An `html` element with no content and no renderer shows a labelled placeholder
   (`<htmlType> widget`, or `HTML widget`) instead of an empty box. Hosts that pass
   `onHtmlElementMount` own their nodes and get no placeholder. Undoing the delete of a host widget
