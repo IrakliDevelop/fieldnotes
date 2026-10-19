@@ -10,16 +10,16 @@ async function gotoDemo(page: Page, query = ''): Promise<CanvasPage> {
   return new CanvasPage(page);
 }
 
-async function waitForCount(page: Page, count: number): Promise<void> {
-  await page.waitForFunction(
-    (n) =>
-      (
-        (window as unknown as Record<string, unknown>).__fieldnotes_viewport as {
-          store: { count: number };
-        }
-      ).store.count === n,
-    count,
-  );
+async function drawShape(canvasPage: CanvasPage): Promise<void> {
+  const { page } = canvasPage;
+  const box = await canvasPage.wrapper().boundingBox();
+  if (!box) throw new Error('Wrapper not found');
+  await canvasPage.selectTool('shape');
+  await page.mouse.move(box.x + box.width / 2 - 80, box.y + box.height * 0.7 - 40);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + 80, box.y + box.height * 0.7 + 40, { steps: 5 });
+  await page.mouse.up();
+  await expect.poll(() => canvasPage.getElementCount()).toBe(1);
 }
 
 async function storeIds(page: Page): Promise<string[]> {
@@ -64,52 +64,34 @@ async function expectSampleCounts(canvasPage: CanvasPage): Promise<void> {
 test.describe('sample board', () => {
   test('Sample button replaces the board in one undo step', async ({ canvasPage }) => {
     const { page } = canvasPage;
-    const box = await canvasPage.wrapper().boundingBox();
-    if (!box) throw new Error('Wrapper not found');
-    await canvasPage.selectTool('shape');
-    await page.mouse.move(box.x + box.width / 2 - 80, box.y + box.height * 0.7 - 40);
-    await page.mouse.down();
-    await page.mouse.move(box.x + box.width / 2 + 80, box.y + box.height * 0.7 + 40, {
-      steps: 5,
-    });
-    await page.mouse.up();
-    await waitForCount(page, 1);
+    await drawShape(canvasPage);
     const original = await storeIds(page);
 
     await page.click('#sample');
-    await waitForCount(page, SAMPLE_TOTAL);
+    await expect.poll(() => canvasPage.getElementCount()).toBe(SAMPLE_TOTAL);
     await expectSampleCounts(canvasPage);
     expect(await storeIds(page)).not.toContain(original[0]);
 
     await page.click('#undo');
-    await waitForCount(page, 1);
+    await expect.poll(() => canvasPage.getElementCount()).toBe(1);
     expect(await storeIds(page)).toEqual(original);
   });
 
   test('?sample loads the sample at start', async ({ page }) => {
     const canvasPage = await gotoDemo(page, '?sample');
-    await waitForCount(page, SAMPLE_TOTAL);
+    await expect.poll(() => canvasPage.getElementCount()).toBe(SAMPLE_TOTAL);
     await expectSampleCounts(canvasPage);
   });
 
   test('?sample leaves the saved board intact', async ({ canvasPage }) => {
     const { page } = canvasPage;
-    const box = await canvasPage.wrapper().boundingBox();
-    if (!box) throw new Error('Wrapper not found');
-    await canvasPage.selectTool('shape');
-    await page.mouse.move(box.x + box.width / 2 - 80, box.y + box.height * 0.7 - 40);
-    await page.mouse.down();
-    await page.mouse.move(box.x + box.width / 2 + 80, box.y + box.height * 0.7 + 40, {
-      steps: 5,
-    });
-    await page.mouse.up();
-    await waitForCount(page, 1);
+    await drawShape(canvasPage);
     const original = await storeIds(page);
     await expect.poll(() => savedBoard(page)).toContain(original[0]);
 
     await page.clock.install();
     const samplePage = await gotoDemo(page, '?sample');
-    await waitForCount(page, SAMPLE_TOTAL);
+    await expect.poll(() => canvasPage.getElementCount()).toBe(SAMPLE_TOTAL);
     await expectSampleCounts(samplePage);
     const sampleBox = await samplePage.wrapper().boundingBox();
     if (!sampleBox) throw new Error('Wrapper not found');
@@ -119,7 +101,7 @@ test.describe('sample board', () => {
     expect(await savedBoard(page)).toContain(original[0]);
 
     await gotoDemo(page);
-    await waitForCount(page, 1);
+    await expect.poll(() => canvasPage.getElementCount()).toBe(1);
     expect(await storeIds(page)).toEqual(original);
   });
 });
