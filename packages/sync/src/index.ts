@@ -101,6 +101,7 @@ export {
   AUTHORITY_CHECKPOINT_TIMEOUT_MS,
   MAX_AUTHORITY_JSON_DEPTH,
   MAX_AUTHORITY_JSON_NODES,
+  AUTHORITY_ELEMENT_LIMITS,
   parseAuthorityFrame,
   parseAuthorityClientFrame,
   parseAuthorityServerFrame,

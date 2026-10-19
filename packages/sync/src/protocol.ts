@@ -1,6 +1,6 @@
 import { isValidIndexKey } from '@fieldnotes/core';
 import type { CanvasElement, ElementType, Layer } from '@fieldnotes/core';
-import type { AuthorityExtensionManifestEntry } from './authority-protocol';
+import type { AuthorityExtensionManifestEntry, DeepReadonly } from './authority-protocol';
 import {
   FOG_SYNC_PROTOCOL_VERSION,
   FOG_PATCH_MAX_TILES,
@@ -15,9 +15,6 @@ import { SYNC_LIMITS, hasJsonDepthAtMost } from './limits';
 const {
   maxIdLength,
   maxShortStringLength,
-  maxTextLength,
-  maxSrcLength,
-  maxStrokePoints,
   maxSnapshotElements,
   maxReceivedJsonDepth,
   maxBatchOps,
@@ -447,7 +444,16 @@ function isAtMost(value: string | undefined, max: number): boolean {
   return value === undefined || value.length <= max;
 }
 
-function elementWithinLimits(el: SyncElement): boolean {
+type ElementLimits = Readonly<
+  Record<
+    'maxIdLength' | 'maxShortStringLength' | 'maxTextLength' | 'maxSrcLength' | 'maxStrokePoints',
+    number
+  >
+>;
+
+export function elementWithinLimits(el: DeepReadonly<SyncElement>, limits: ElementLimits): boolean {
+  const { maxIdLength, maxShortStringLength, maxTextLength, maxSrcLength, maxStrokePoints } =
+    limits;
   if (
     !isAtMost(el.id, maxIdLength) ||
     !isAtMost(el.layerId, maxIdLength) ||
@@ -498,7 +504,7 @@ export function isWithinSyncLimits(env: SyncEnvelope): boolean {
   const op = env.op;
   switch (op.kind) {
     case 'upsert':
-      return elementWithinLimits(op.element);
+      return elementWithinLimits(op.element, SYNC_LIMITS);
     case 'remove':
       return isAtMost(op.id, maxIdLength) && isAtMost(op.editor, maxIdLength);
     case 'batch':
@@ -506,7 +512,7 @@ export function isWithinSyncLimits(env: SyncEnvelope): boolean {
         op.ops.length <= maxBatchOps &&
         op.ops.every((inner) =>
           inner.kind === 'upsert'
-            ? elementWithinLimits(inner.element)
+            ? elementWithinLimits(inner.element, SYNC_LIMITS)
             : isAtMost(inner.id, maxIdLength) && isAtMost(inner.editor, maxIdLength),
         )
       );

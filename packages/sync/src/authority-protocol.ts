@@ -1,4 +1,4 @@
-import { isValidEnvelope } from './protocol';
+import { elementWithinLimits, isValidEnvelope } from './protocol';
 import type { SyncOp } from './protocol';
 import { freezeJson, parseBoundedJson, serializeBoundedJson } from './authority-json';
 
@@ -9,6 +9,20 @@ export const MAX_AUTHORITY_CHUNK_BYTES = 524_288;
 export const AUTHORITY_CHECKPOINT_TIMEOUT_MS = 10_000;
 export const MAX_AUTHORITY_JSON_DEPTH = 64;
 export const MAX_AUTHORITY_JSON_NODES = 1_000_000;
+const MAX_AUTHORITY_ELEMENT_ID_LENGTH = 256;
+const MAX_AUTHORITY_ELEMENT_SHORT_STRING_LENGTH = 256;
+const MAX_AUTHORITY_ELEMENT_TEXT_LENGTH = 1_048_576;
+const MAX_AUTHORITY_ELEMENT_SRC_LENGTH = 16_777_216;
+const MAX_AUTHORITY_ELEMENT_STROKE_POINTS = 100_000;
+
+/** Per-field caps on proposed element upserts; `changes` frames and checkpoints are not capped. */
+export const AUTHORITY_ELEMENT_LIMITS = {
+  maxIdLength: MAX_AUTHORITY_ELEMENT_ID_LENGTH,
+  maxShortStringLength: MAX_AUTHORITY_ELEMENT_SHORT_STRING_LENGTH,
+  maxTextLength: MAX_AUTHORITY_ELEMENT_TEXT_LENGTH,
+  maxSrcLength: MAX_AUTHORITY_ELEMENT_SRC_LENGTH,
+  maxStrokePoints: MAX_AUTHORITY_ELEMENT_STROKE_POINTS,
+} as const;
 
 const FRAME_LIMITS = {
   bytes: MAX_AUTHORITY_FRAME_BYTES,
@@ -30,7 +44,7 @@ type DurableSyncOp = Extract<
       | 'extension';
   }
 >;
-type DeepReadonly<T> = T extends readonly (infer U)[]
+export type DeepReadonly<T> = T extends readonly (infer U)[]
   ? readonly DeepReadonly<U>[]
   : T extends object
     ? { readonly [K in keyof T]: DeepReadonly<T[K]> }
@@ -297,6 +311,8 @@ function clientFrame(value: unknown): value is AuthorityClientFrame {
         id(value['generation']) &&
         id(value['clientOperationId']) &&
         mutation(value['mutation']) &&
+        (value['mutation'].kind !== 'upsert' ||
+          elementWithinLimits(value['mutation'].element, AUTHORITY_ELEMENT_LIMITS)) &&
         (!Object.hasOwn(value, 'expectedState') || id(value['expectedState'])) &&
         (value['mutation'].kind !== 'clear' || id(value['expectedState']))
       );
