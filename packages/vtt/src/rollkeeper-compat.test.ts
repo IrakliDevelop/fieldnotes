@@ -8,7 +8,7 @@
  * round-trips) are tested in packages/core/src/integration/rollkeeper-compat.test.ts.
  */
 import { describe, it, expect, beforeAll } from 'vitest';
-import { ElementRegistry } from '@fieldnotes/core';
+import { ElementRegistry, Viewport, createShape, isValidIndexKey } from '@fieldnotes/core';
 import { createFogAuthorityClientExtension } from './sync';
 import {
   createFogAuthorityServerExtension,
@@ -225,6 +225,71 @@ describe('VTT adapter — legacy base fields', () => {
 
     expect(envelope).toMatchObject({ index: 'a7', version: 1 });
     expect(adapter.validateEnvelope(envelope)).toBe(true);
+  });
+});
+
+describe('VTT legacy v4 board load', () => {
+  it('assigns index and version in (zIndex, file position) order', () => {
+    // A pre-F1 shape: drop the v5 base fields, keep only zIndex.
+    const shape: Record<string, unknown> = {
+      ...createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } }),
+      id: 's',
+      zIndex: 1,
+    };
+    delete shape['index'];
+    delete shape['version'];
+    const grid = {
+      id: 'g',
+      type: 'grid',
+      position: { x: 0, y: 0 },
+      zIndex: 0,
+      locked: false,
+      layerId: '',
+      gridType: 'square',
+      hexOrientation: 'pointy',
+      cellSize: 24,
+      strokeColor: '#ccc',
+      strokeWidth: 1,
+      opacity: 0.5,
+    };
+    const template = {
+      id: 't',
+      type: 'template',
+      position: { x: 0, y: 0 },
+      zIndex: 2,
+      locked: false,
+      layerId: '',
+      templateShape: 'circle',
+      radius: 30,
+      angle: 0,
+      fillColor: '#fff',
+      strokeColor: '#000',
+      strokeWidth: 1,
+      opacity: 1,
+    };
+    const container = document.createElement('div');
+    const viewport = new Viewport(container, { elementRegistry: registry });
+    try {
+      viewport.loadJSON(
+        JSON.stringify({
+          version: 4,
+          camera: { position: { x: 0, y: 0 }, zoom: 1 },
+          // File order differs from zIndex order.
+          elements: [template, shape, grid],
+        }),
+      );
+
+      const elements = viewport.store.getAll();
+      expect(elements.map((el) => el.id)).toEqual(['g', 's', 't']);
+      for (const el of elements) {
+        expect(isValidIndexKey(el.index)).toBe(true);
+        expect(el.version).toBe(1);
+        expect(el).not.toHaveProperty('zIndex');
+      }
+      expect(new Set(elements.map((el) => el.layerId)).size).toBe(1);
+    } finally {
+      viewport.destroy();
+    }
   });
 });
 
