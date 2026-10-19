@@ -10,6 +10,7 @@ import type { Mounted } from './shell/shell';
 import { embeds } from './scenes/embeds';
 import { currentFog, fogClientPlugins, tabletop } from './scenes/tabletop';
 import { whiteboard } from './scenes/whiteboard';
+import { renderWidgetForExport } from './widgets';
 
 declare global {
   interface Window {
@@ -196,7 +197,12 @@ function attach(instance: SceneInstance, sceneId: SceneId): Attached {
           icon: 'image',
           run: () =>
             viewport
-              .exportImage({ scale: 2, padding: 32, background: '#ffffff' })
+              .exportImage({
+                scale: 2,
+                padding: 32,
+                background: '#ffffff',
+                renderHtml: renderWidgetForExport,
+              })
               .then((blob) => {
                 if (blob) download(`fieldnotes-${sceneId}.png`, blob);
                 else shell.toast('Nothing to export');
@@ -209,7 +215,7 @@ function attach(instance: SceneInstance, sceneId: SceneId): Attached {
           icon: 'file',
           run: () =>
             viewport
-              .exportSVG({ padding: 32 })
+              .exportSVG({ padding: 32, renderHtml: renderWidgetForExport })
               .then((svg) =>
                 download(`fieldnotes-${sceneId}.svg`, new Blob([svg], { type: 'image/svg+xml' })),
               )

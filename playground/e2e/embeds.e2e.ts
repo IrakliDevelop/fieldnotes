@@ -272,6 +272,42 @@ test('export includes widgets', async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+test('PNG export paints widget pixels', async ({ page }) => {
+  await page.addInitScript(() => {
+    const blobs: Blob[] = [];
+    Object.assign(window, { exportedBlobs: blobs });
+    const create = URL.createObjectURL.bind(URL);
+    URL.createObjectURL = (blob: Blob | MediaSource) => {
+      if (blob instanceof Blob) blobs.push(blob);
+      return create(blob);
+    };
+  });
+  await gotoBlank(page, 'embeds');
+  await insert(page, 'Checklist', 'pg:checklist');
+
+  const download = page.waitForEvent('download');
+  await page.locator('[data-chrome="menu"]').getByRole('button', { name: 'Menu' }).click();
+  await page.locator('[data-menu-item="export-png"]').click();
+  await download;
+  const { width, painted, total } = await page.evaluate(async () => {
+    const blob = (Reflect.get(window, 'exportedBlobs') as Blob[]).at(-1);
+    if (!blob) throw new Error('no export');
+    const bitmap = await createImageBitmap(blob);
+    const ctx = new OffscreenCanvas(bitmap.width, bitmap.height).getContext('2d');
+    if (!ctx) throw new Error('no 2d context');
+    ctx.drawImage(bitmap, 0, 0);
+    const { data } = ctx.getImageData(80, 80, 488, 488);
+    let painted = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i] !== 255 || data[i + 1] !== 255 || data[i + 2] !== 255) painted++;
+    }
+    return { width: bitmap.width, painted, total: data.length / 4 };
+  });
+  expect(width).toBe(648);
+  // The card fill covers the whole inset rect.
+  expect(painted / total).toBeGreaterThanOrEqual(0.9);
+});
+
 async function pickWidget(page: Page, label: string): Promise<void> {
   const tools = page.locator('[data-chrome="tools"]');
   await tools.getByRole('button', { name: 'Insert', exact: true }).click();
