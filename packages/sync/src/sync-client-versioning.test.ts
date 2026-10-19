@@ -22,8 +22,9 @@ function tomb(id: string, version: number, editor: string): Tombstone {
 }
 
 /** One client on a fake transport; `peer` has already completed the capability handshake. */
-function setup(peer: string | null = 'P', clientId = 'A') {
+function setup(peer: string | null = 'P', clientId = 'A', seed: readonly CanvasElement[] = []) {
   const store = new ElementStore();
+  for (const element of seed) store.add(element);
   const sent: string[] = [];
   let receive: (message: string) => void = () => undefined;
   let reconnect: () => void = () => undefined;
@@ -200,6 +201,25 @@ describe('SyncClient versioned last-writer-wins', () => {
     expect(store.getById('b')?.version).toBe(5);
   });
 
+  it('tombstones elements the store held before start when it clears', () => {
+    const a = setup('B', 'A', [shape('x', 1)]);
+    const b = setup('A', 'B');
+    a.deliver('B', { kind: 'request-snapshot' });
+    const answer = a.last('snapshot');
+    if (!answer) throw new Error('A must answer the snapshot request');
+    b.deliver('A', answer);
+    expect(b.store.getById('x')).toBeDefined();
+
+    a.store.clear();
+    const clear = a.last('clear');
+    if (!clear) throw new Error('A must send the clear');
+    b.deliver('A', clear);
+    a.deliver('C', { kind: 'upsert', element: shape('x', 1, 'C') });
+
+    expect(b.store.getById('x')).toBeUndefined();
+    expect(a.store.getById('x')).toBeUndefined();
+  });
+
   it('sends a batch replacement as a tombstoned clear followed by upserts stamped above it', () => {
     const { store, sent } = setup();
     store.add(shape('a', 1));
@@ -315,6 +335,28 @@ describe('SyncClient snapshot reconcile by version', () => {
 
     expect(store.getById('x')?.version).toBe(1);
     expect(sent.slice(before).some((m) => m.includes('"upsert"'))).toBe(false);
+  });
+
+  it('takes an equal-version room copy over an unsent edit from before the reconnect', () => {
+    const { store, deliver, reconcile } = setup('hub', 'm');
+    deliver('hub', { kind: 'snapshot', to: 'm', elements: [shape('x', 5, 'a')] });
+    store.update('x', { fillColor: '#ff0000' });
+    reconcile();
+
+    deliver('hub', { kind: 'snapshot', to: 'm', elements: [shape('x', 6, 'a', '#0000ff')] });
+
+    expect(store.getById('x')).toMatchObject({ version: 6, editor: 'a', fillColor: '#0000ff' });
+  });
+
+  it('keeps an element edited during the resync against an equal-version tombstone from an earlier editor', () => {
+    const { store, deliver, reconcile } = setup('hub', 'm');
+    deliver('hub', { kind: 'snapshot', to: 'm', elements: [shape('x', 5, 'a')] });
+    reconcile();
+    store.update('x', { fillColor: '#ff0000' });
+
+    deliver('hub', { kind: 'snapshot', to: 'm', elements: [], tombstones: [tomb('x', 6, 'a')] });
+
+    expect(store.getById('x')).toMatchObject({ version: 6, fillColor: '#ff0000' });
   });
 
   it('takes a snapshot element newer than the local copy', () => {

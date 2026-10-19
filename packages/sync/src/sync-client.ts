@@ -235,6 +235,8 @@ export class SyncClient {
     // A reconcile-first client resumes an already-synced store, so its first
     // snapshot IS a resync: shield local ops made before it arrives.
     if (this.joined) this.resyncPending = true;
+    this.liveVersions.clear();
+    for (const element of this.store.getAll()) this.trackLive(element);
     this.unsubscribers = [
       this.store.on('add', (el, meta) => {
         this.trackLive(el);
@@ -788,12 +790,18 @@ export class SyncClient {
       // authoritative set is expected: keep it without consulting the host hook.
       if (isTransientHtml(local)) continue;
       const tombstone = this.tombstones.get(local.id);
-      // Reconcile ties go to the room's copy, unlike live ops.
-      if (tombstone && tombstone.version >= local.version) {
+      const touched = this.touchedDuringResync.has(local.id);
+      // Ties go to the room, except for an edit sent during the resync, which the hub tie-breaks live.
+      const superseded =
+        tombstone !== undefined &&
+        (touched
+          ? isNewerVersion(tombstone, this.localVersion(local.id))
+          : tombstone.version >= local.version);
+      if (superseded) {
         this.store.remove(local.id, { origin: REMOTE_ORIGIN });
         continue;
       }
-      if (this.touchedDuringResync.has(local.id)) continue;
+      if (touched) continue;
       // Live elements carry no tombstone of their own, so this one is the snapshot's, and older.
       if (tombstone) newer.push(local.id);
       else localOnly.push({ element: local, hubKnown: this.hubKnownIds.has(local.id) });
@@ -811,12 +819,13 @@ export class SyncClient {
       // A local clear supersedes the complete in-flight snapshot.
       if (this.clearedBeforeSnapshot) continue;
       const local = this.store.getById(el.id);
-      if (local && local.version > el.version) {
-        // A touched local edit is already sent to the hub.
-        if (!this.touchedDuringResync.has(el.id)) newer.push(el.id);
+      // A touched local edit is already sent, so it keeps the live tie-break; otherwise ties go to the room.
+      const touched = this.touchedDuringResync.has(el.id);
+      if (!touched && local && local.version > el.version) {
+        newer.push(el.id);
         continue;
       }
-      this.applyOp({ kind: 'upsert', element: el }, false);
+      this.applyOp({ kind: 'upsert', element: el }, !touched && local !== undefined);
     }
     return [...preserve, ...newer];
   }
