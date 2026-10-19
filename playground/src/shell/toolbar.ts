@@ -53,7 +53,8 @@ export function renderToolbar(
         picked.set(spec.name, item.id);
         item.select();
         viewport.setTool(spec.name);
-        button.focus();
+        // Back to the canvas, like style buttons, so Escape and shortcuts reach the tool.
+        document.querySelector<HTMLElement>('#stage [tabindex]')?.focus();
       });
       entries.push(entry);
       menu.append(entry);

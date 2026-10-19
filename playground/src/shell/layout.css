@@ -175,6 +175,8 @@ body {
 }
 
 [data-chrome='tools'] {
+  /* Above the style sheet so a tool flyout is never hidden behind it. */
+  z-index: 11;
   left: 0;
   right: 0;
   bottom: calc(12px + env(safe-area-inset-bottom));

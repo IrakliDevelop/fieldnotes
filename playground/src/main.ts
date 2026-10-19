@@ -1,16 +1,17 @@
 import type { Viewport } from '@fieldnotes/core';
+import type { FogManager } from '@fieldnotes/vtt';
 import { attachPersistence } from './persistence';
 import type { Scene, SceneId, SceneInstance } from './scene';
 import { addMenuItems } from './shell/menu';
 import { createShell } from './shell/shell';
 import type { Mounted } from './shell/shell';
 import { embeds } from './scenes/embeds';
-import { tabletop } from './scenes/tabletop';
+import { currentFog, tabletop } from './scenes/tabletop';
 import { whiteboard } from './scenes/whiteboard';
 
 declare global {
   interface Window {
-    __playground: { sceneId: SceneId; viewport: Viewport };
+    __playground: { sceneId: SceneId; viewport: Viewport; fog?: FogManager };
   }
 }
 
@@ -61,7 +62,8 @@ function attach(instance: SceneInstance, sceneId: SceneId): () => void {
     }
     detach = dispose;
     // Published once the board is loaded so tests never race the initial restore.
-    window.__playground = { sceneId, viewport };
+    const fog = sceneId === 'tabletop' ? currentFog() : null;
+    window.__playground = fog ? { sceneId, viewport, fog } : { sceneId, viewport };
   });
 
   // iOS Safari only delivers change events to a file input that is in the document.

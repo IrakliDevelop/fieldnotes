@@ -7,6 +7,7 @@ import { palette } from './palette';
 import { isRecord, TOAST_EVENT } from './shared';
 import type { WidgetDef } from './shared';
 import { textCard } from './text-card';
+import { token } from './token';
 
 export type { WidgetDef } from './shared';
 
@@ -27,6 +28,7 @@ export const WIDGETS: readonly WidgetDef<unknown>[] = [
   erase(palette),
   erase(chart),
   erase(textCard),
+  erase(token),
 ];
 
 function toData(value: unknown): Record<string, unknown> {
