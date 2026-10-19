@@ -45,6 +45,17 @@ describe('assignLegacyOrder', () => {
     expect(String(out[0]?.['index']) > 'a5').toBe(true);
   });
 
+  it.each(['', 'a00', '!x'])('reassigns an invalid index %j and ignores it as the max', (bad) => {
+    const input = [
+      { id: 'bad', index: bad, zIndex: 1 },
+      { id: 'new', zIndex: 0 },
+      { id: 'ok', index: 'a5', version: 1 },
+    ];
+    const out = assignLegacyOrder(input);
+    expect(order(out)).toEqual(['ok', 'new', 'bad']);
+    expect(String(out[1]?.['index']) > 'a5').toBe(true);
+  });
+
   it.each([
     [undefined, 1],
     [0, 1],

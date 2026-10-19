@@ -1,6 +1,6 @@
 const DIGITS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
 const MAX_KEY_LENGTH = 128;
-// The smallest integer has no key below it, so it is never issued.
+// The smallest integer has no key below it, so it is never issued as a bare integer.
 const SMALLEST_INTEGER = 'A' + '0'.repeat(26);
 
 function integerLength(head: string): number | null {
@@ -61,7 +61,7 @@ function step(integer: string, delta: 1 | -1): string | null {
   if (head === (delta === 1 ? 'z' : 'A')) return null;
   const nextHead = String.fromCharCode(head.charCodeAt(0) + delta);
   // Positive integers grow by a digit moving up; negative ones grow moving down.
-  if (nextHead > 'a' === (delta === 1)) digits.push(wrapTo);
+  if (nextHead >= 'a' === (delta === 1)) digits.push(wrapTo);
   else digits.pop();
   return nextHead + digits.join('');
 }
@@ -74,7 +74,7 @@ function between(a: string | null, b: string | null): string {
     if (fracB) return intB;
     const lower = step(intB, -1);
     if (lower === null) throw new RangeError('Cannot generate a key below the smallest integer');
-    return lower;
+    return lower === SMALLEST_INTEGER ? lower + midpoint('', null) : lower;
   }
   const [intA, fracA] = split(a);
   const higher = step(intA, 1);
@@ -98,7 +98,8 @@ export function generateKeyBetween(a: string | null, b: string | null): string {
 
 /** Returns `n` strictly increasing order keys between `a` and `b`. */
 export function generateNKeysBetween(a: string | null, b: string | null, n: number): string[] {
-  if (n <= 0) return [];
+  if (!Number.isSafeInteger(n) || n < 0) throw new RangeError(`Invalid key count: ${n}`);
+  if (n === 0) return [];
   if (n === 1) return [generateKeyBetween(a, b)];
   if (b === null) {
     const keys: string[] = [];

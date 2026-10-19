@@ -1,4 +1,4 @@
-import { generateNKeysBetween } from './fractional-index';
+import { generateNKeysBetween, isValidIndexKey } from './fractional-index';
 
 function legacyZ(element: Record<string, unknown> | undefined): number {
   const z = element?.['zIndex'];
@@ -11,7 +11,7 @@ export function assignLegacyOrder<T extends Record<string, unknown>>(elements: r
   const unplaced: number[] = [];
   elements.forEach((element, position) => {
     const index = element['index'];
-    if (typeof index !== 'string') unplaced.push(position);
+    if (typeof index !== 'string' || !isValidIndexKey(index)) unplaced.push(position);
     else if (maxIndex === null || index > maxIndex) maxIndex = index;
   });
   unplaced.sort((x, y) => legacyZ(elements[x]) - legacyZ(elements[y]) || x - y);

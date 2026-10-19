@@ -60,6 +60,16 @@ describe('generateKeyBetween', () => {
     expect(keys.every((k) => k.length <= 128)).toBe(true);
   });
 
+  it('decrements across the b to a head to the largest two-char integer', () => {
+    expect(generateKeyBetween(null, 'b00')).toBe('az');
+  });
+
+  it('never returns the reserved smallest integer', () => {
+    const key = generateKeyBetween(null, 'A' + '0'.repeat(25) + '1');
+    expect(key).toBe('A' + '0'.repeat(26) + 'V');
+    expect(isValidIndexKey(key)).toBe(true);
+  });
+
   it('throws RangeError when a is not below b', () => {
     expect(() => generateKeyBetween('a1', 'a0')).toThrow(RangeError);
     expect(() => generateKeyBetween('a0', 'a0')).toThrow(RangeError);
@@ -96,6 +106,10 @@ describe('generateNKeysBetween', () => {
     const keys = generateNKeysBetween(a, b, 4);
     expect(keys).toHaveLength(4);
     expectStrictlyIncreasing([...(a === null ? [] : [a]), ...keys, ...(b === null ? [] : [b])]);
+  });
+
+  it.each([-1, 1.5])('throws RangeError for n = %s', (n) => {
+    expect(() => generateNKeysBetween(null, null, n)).toThrow(RangeError);
   });
 
   it('returns an empty array for n = 0', () => {
