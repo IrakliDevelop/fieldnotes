@@ -101,3 +101,11 @@ test('flyout keyboard', async ({ page }) => {
   await expect(shape).toHaveAttribute('aria-expanded', 'false');
   await expect(shape).toBeFocused();
 });
+
+test('flyout ArrowUp with nothing focused wraps to the last item', async ({ page }) => {
+  await gotoBlank(page);
+  await page.getByRole('button', { name: 'Shape', exact: true }).click();
+  await page.evaluate(() => (document.activeElement as HTMLElement).blur());
+  await page.getByRole('menu').dispatchEvent('keydown', { key: 'ArrowUp' });
+  await expect(page.getByRole('menuitemradio', { name: 'Line' })).toBeFocused();
+});
