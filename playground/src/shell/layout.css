@@ -207,6 +207,106 @@ body {
   margin: 0 auto;
 }
 
+[data-chrome][hidden] {
+  display: none;
+}
+
+[data-chrome='style'],
+[data-chrome='layers'] {
+  left: var(--gap);
+  right: var(--gap);
+  bottom: 76px;
+  max-height: 45vh;
+  flex-direction: column;
+  align-items: stretch;
+  overflow-y: auto;
+}
+
+/* Narrow: the two bottom sheets are mutually exclusive; an open layers sheet wins. */
+@media not all and (min-width: 901px) and (pointer: fine) {
+  #chrome:has(> [data-chrome='layers']:not([hidden])) > [data-chrome='style'] {
+    display: none;
+  }
+}
+
+.style-control {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.style-label {
+  flex: 1 0 100%;
+  padding: 0 4px;
+  color: var(--ink-2);
+  font-size: 12px;
+}
+
+.swatch {
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--island-border);
+  border-radius: 50%;
+}
+
+.swatch-none {
+  background: linear-gradient(135deg, transparent 45%, var(--ink-2) 45% 55%, transparent 55%);
+}
+
+.style-control input[type='color'] {
+  width: 40px;
+  height: 40px;
+  padding: 4px;
+  border: 0;
+  background: transparent;
+}
+
+.style-control input[type='range'],
+.layer-row input[type='range'] {
+  flex: 1;
+  min-width: 60px;
+  min-height: 40px;
+}
+
+.layers-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-left: 8px;
+  font-weight: 600;
+}
+
+.layers-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.layer-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.layer-row[aria-current='true'] {
+  background: var(--accent);
+}
+
+.layer-name,
+.layer-name-input {
+  flex: 1 0 100%;
+  padding: 4px;
+  font: inherit;
+}
+
 [data-fieldnotes-minimap] {
   display: none;
 }
@@ -235,6 +335,30 @@ body {
 
   [data-fieldnotes-minimap] {
     display: block;
+  }
+
+  [data-chrome='style'] {
+    top: calc(var(--gap) + 52px + var(--gap));
+    bottom: auto;
+    right: auto;
+    width: 232px;
+    max-height: calc(100vh - 152px);
+  }
+
+  [data-chrome='layers'] {
+    top: calc(var(--gap) + 52px + var(--gap));
+    bottom: 164px;
+    left: auto;
+    width: 300px;
+    max-height: none;
+  }
+}
+
+/* Too narrow to centre the pill on the page: centre it between the menu and the ~300px top-right group. */
+@media (min-width: 901px) and (max-width: 1140px) and (pointer: fine) {
+  [data-chrome='tools'] {
+    left: calc(var(--gap) + 50px + var(--gap));
+    right: calc(var(--gap) + 300px + var(--gap));
   }
 }
 

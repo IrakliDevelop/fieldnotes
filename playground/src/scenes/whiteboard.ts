@@ -12,7 +12,7 @@ import {
   Viewport,
 } from '@fieldnotes/core';
 import type { ViewportOptions } from '@fieldnotes/core';
-import type { Scene, ToolSpec } from '../scene';
+import type { Scene, StyleControl, ToolSpec } from '../scene';
 
 /** Viewport options every playground scene shares. */
 export const VIEWPORT_OPTIONS = {
@@ -26,6 +26,16 @@ export const NAVIGATION_TOOLS: readonly ToolSpec[] = [
   { name: 'select', label: 'Select', icon: 'select', key: '1' },
   { name: 'hand', label: 'Hand', icon: 'hand', key: '2' },
 ];
+
+const CONTROLS: Readonly<Record<string, readonly StyleControl[]>> = {
+  pencil: ['stroke-color', 'stroke-width', 'opacity'],
+  highlighter: ['stroke-color', 'opacity'],
+  arrow: ['stroke-color', 'stroke-width', 'arrow-style'],
+  shape: ['stroke-color', 'fill-color', 'stroke-width'],
+  note: ['fill-color', 'stroke-color', 'font-size'],
+  text: ['stroke-color', 'font-size'],
+  laser: ['stroke-color'],
+};
 
 /** Freehand drawing, shapes, notes, text, images and the laser pointer. */
 export const whiteboard: Scene = {
@@ -121,7 +131,7 @@ export const whiteboard: Scene = {
     return {
       viewport,
       tools,
-      styles: { controlsFor: () => [] },
+      styles: { controlsFor: (toolName) => CONTROLS[toolName] ?? [] },
       loadSample: () => {
         // This scene has no sample board yet.
       },

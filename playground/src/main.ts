@@ -1,5 +1,5 @@
 import type { Viewport } from '@fieldnotes/core';
-import type { Scene, SceneId, SceneInstance } from './scene';
+import type { Scene, SceneId } from './scene';
 import { createShell } from './shell/shell';
 import type { Mounted } from './shell/shell';
 import { embeds } from './scenes/embeds';
@@ -26,21 +26,28 @@ const shell = createShell(
   (id) => mount(id),
 );
 
+let firstMount = true;
+
 const mount = (id: string | null): void => {
   const scene = SCENES.find((s) => s.id === id) ?? whiteboard;
-  current?.instance.dispose();
-  current = null;
+  const isFirst = firstMount;
+  firstMount = false;
+  current?.instance?.dispose();
   stage.replaceChildren();
-  let instance: SceneInstance;
   try {
-    instance = scene.mount({ stage, shell, room: null });
+    const instance = scene.mount({ stage, shell, room: null });
+    current = { id: scene.id, instance };
+    window.__playground = { sceneId: scene.id, viewport: instance.viewport };
+    history.replaceState(null, '', `?scene=${scene.id}`);
   } catch {
+    current = { id: scene.id, instance: null };
+    Reflect.deleteProperty(window, '__playground');
     shell.toast("Couldn't open that scene");
-    return;
+    if (isFirst && scene !== whiteboard) {
+      mount(whiteboard.id);
+      return;
+    }
   }
-  current = { id: scene.id, instance };
-  window.__playground = { sceneId: scene.id, viewport: instance.viewport };
-  history.replaceState(null, '', `?scene=${scene.id}`);
   shell.refresh();
 };
 

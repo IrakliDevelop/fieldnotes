@@ -36,8 +36,8 @@ function section(children: readonly HTMLElement[]): HTMLElement {
   return el;
 }
 
-/** Renders the ☰ button and its popover into `root`. */
-export function renderMenu(root: HTMLElement): void {
+/** Renders the ☰ button and its popover into `root`; returns a function that closes the popover. */
+export function renderMenu(root: HTMLElement): () => void {
   const toggle = document.createElement('button');
   toggle.type = 'button';
   toggle.className = 'icon-button';
@@ -112,4 +112,5 @@ export function renderMenu(root: HTMLElement): void {
   };
 
   toggle.addEventListener('click', () => (popover ? close() : open()));
+  return close;
 }
