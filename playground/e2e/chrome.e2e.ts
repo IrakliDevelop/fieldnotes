@@ -73,7 +73,7 @@ test('toast zone is present and empty at start', async ({ page }) => {
 test('flyout keyboard', async ({ page }) => {
   await gotoBlank(page);
   const tools = page.locator('[data-chrome="tools"]');
-  await expect(tools).toHaveAttribute('role', 'toolbar');
+  await expect(tools.getByRole('toolbar', { name: 'Tools' })).toHaveClass('tool-strip');
   const shape = tools.getByRole('button', { name: 'Shape', exact: true });
   await expect(shape).toHaveAttribute('aria-haspopup', 'menu');
   await shape.focus();
@@ -108,4 +108,16 @@ test('flyout ArrowUp with nothing focused wraps to the last item', async ({ page
   await page.evaluate(() => (document.activeElement as HTMLElement).blur());
   await page.getByRole('menu').dispatchEvent('keydown', { key: 'ArrowUp' });
   await expect(page.getByRole('menuitemradio', { name: 'Line' })).toBeFocused();
+});
+
+test.describe('narrow', () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test('Style toggle is not inside the Tools toolbar', async ({ page }) => {
+    await gotoBlank(page);
+    await expect(
+      page.getByRole('toolbar', { name: 'Tools' }).locator('[data-style-toggle]'),
+    ).toHaveCount(0);
+    await expect(page.locator('[data-style-toggle]')).toBeVisible();
+  });
 });
