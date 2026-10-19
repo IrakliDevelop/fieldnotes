@@ -73,6 +73,9 @@ export function createShell(
   // Narrow layouts only, pinned at the start of the tool pill: the sheet opens on demand.
   const styleToggle = sheetToggle('Style', 'palette');
   styleToggle.dataset['styleToggle'] = '';
+  const toolbar = document.createElement('div');
+  toolbar.className = 'tool-strip';
+  tools.append(styleToggle, toolbar);
   const layersToggle = sheetToggle('Layers', 'layers');
   const avatars = document.createElement('div');
   avatars.className = 'avatars';
@@ -137,7 +140,7 @@ export function createShell(
       }
       const { viewport } = instance;
       unbinders = [
-        renderToolbar(tools, viewport, instance.tools),
+        renderToolbar(toolbar, viewport, instance.tools),
         renderZoomBar(zoom, viewport),
         renderStylePanel(style, viewport, instance.styles, (hasControls) => {
           styleToggle.disabled = !hasControls;
@@ -145,8 +148,6 @@ export function createShell(
         }),
         renderLayersPanel(layers, viewport),
       ];
-      // renderToolbar replaces the pill's children, so the toggle goes back in after it.
-      tools.prepend(styleToggle);
     },
   };
 }

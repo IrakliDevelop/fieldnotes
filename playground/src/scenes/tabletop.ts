@@ -123,152 +123,160 @@ export const tabletop: Scene = {
         new LaserTool(),
       ],
     });
-    const gridController = new GridController({
-      store: viewport.store,
-      recorder: viewport.historyRecorder,
-      requestRender: () => viewport.requestRender(),
-      getActiveLayerId: () => viewport.layerManager.activeLayerId,
-      toolContext: viewport.toolContext,
-      defaultGridSize: 24,
-      elementRegistry: viewport.elementRegistry,
-      constraintService: viewport.constraintProxy,
-    });
-    const unregisterWidgets = registerWidgets(viewport, shell.toast);
-    // A guest previews the player view locally; the fog state itself is still synced in full.
-    const isGuest = room?.role === 'guest';
-    manager.setViewMode(isGuest ? 'player' : 'editor');
-    fog = manager;
-
-    // Restores, undo and peers change the grid without going through the controller.
-    const isGrid = (el: CanvasElement): boolean =>
-      el.type === 'extension' && el.extensionType === 'vtt:grid';
-    const syncGrid = (el: CanvasElement): void => {
-      if (isGrid(el)) gridController.syncContext();
+    let unregisterWidgets: () => void = () => undefined;
+    const unsubscribers: (() => void)[] = [];
+    const dispose = (): void => {
+      for (const unsubscribe of unsubscribers) unsubscribe();
+      unregisterWidgets();
+      fog = null;
+      viewport.destroy();
     };
-    let syncGridSection: (() => void) | null = null;
-    const unsubscribers = [
-      viewport.store.on('add', syncGrid),
-      viewport.store.on('update', ({ current }) => syncGrid(current)),
-      viewport.store.on('remove', syncGrid),
-      viewport.store.on('clear', () => gridController.syncContext()),
-      gridController.onChange(() => syncGridSection?.()),
-    ];
-
-    const gridSection = (): HTMLElement => {
-      const info = () => gridController.getInfo();
-      const { el, sync } = choices('Grid', [
-        [
-          'Square',
-          'Square grid',
-          () => info()?.gridType === 'square',
-          () => gridController.update({ gridType: 'square' }),
-        ],
-        [
-          'Hex',
-          'Hex grid',
-          () => info()?.gridType === 'hex',
-          () => gridController.update({ gridType: 'hex' }),
-        ],
-        ...[24, 32, 48].map((cellSize): Choice => [
-          String(cellSize),
-          `Cell size ${cellSize}`,
-          () => info()?.cellSize === cellSize,
-          () => gridController.update({ cellSize }),
-        ]),
-        [
-          'Show',
-          'Show grid',
-          () => info() !== null,
-          () => {
-            if (!info())
-              gridController.add({ gridType: 'hex', hexOrientation: 'pointy', cellSize: 48 });
-          },
-        ],
-        ['Hide', 'Hide grid', () => info() === null, () => gridController.remove()],
-      ]);
-      syncGridSection = sync;
-      return el;
-    };
-
-    const fogSection = (): HTMLElement => {
-      const options = () => fogTool.getOptions();
-      const { el } = choices('Fog', [
-        [
-          'Reveal',
-          'Reveal fog',
-          () => options().operation === 'reveal',
-          () => fogTool.setOptions({ operation: 'reveal' }),
-        ],
-        [
-          'Conceal',
-          'Conceal fog',
-          () => options().operation === 'conceal',
-          () => fogTool.setOptions({ operation: 'conceal' }),
-        ],
-        ...[20, 40, 80].map((radius): Choice => [
-          String(radius),
-          `Brush ${radius}`,
-          () => options().radius === radius,
-          () => fogTool.setOptions({ radius }),
-        ]),
-      ]);
-      const toggle = document.createElement('input');
-      toggle.type = 'checkbox';
-      toggle.setAttribute('role', 'switch');
-      toggle.setAttribute('aria-label', 'View as player');
-      toggle.checked = manager.getViewMode() === 'player';
-      toggle.addEventListener('change', () => {
-        manager.setViewMode(toggle.checked ? 'player' : 'editor');
-        viewport.requestRender();
+    try {
+      const gridController = new GridController({
+        store: viewport.store,
+        recorder: viewport.historyRecorder,
+        requestRender: () => viewport.requestRender(),
+        getActiveLayerId: () => viewport.layerManager.activeLayerId,
+        toolContext: viewport.toolContext,
+        defaultGridSize: 24,
+        elementRegistry: viewport.elementRegistry,
+        constraintService: viewport.constraintProxy,
       });
-      const label = document.createElement('label');
-      label.className = 'style-control style-switch';
-      // Keep focus on the canvas so tool keys still work; Tab and Space still reach the switch.
-      label.addEventListener('mousedown', (event) => event.preventDefault());
-      label.append(toggle, 'View as player');
-      el.append(label);
-      return el;
-    };
+      unregisterWidgets = registerWidgets(viewport, shell.toast);
+      // A guest previews the player view locally; the fog state itself is still synced in full.
+      const isGuest = room?.role === 'guest';
+      manager.setViewMode(isGuest ? 'player' : 'editor');
+      fog = manager;
 
-    const tools: readonly ToolSpec[] = [
-      ...NAVIGATION_TOOLS,
-      { name: 'pencil', label: 'Pencil', icon: 'pencil', key: '3' },
-      { name: 'measure', label: 'Measure', icon: 'measure', key: '4' },
-      {
-        name: 'template',
-        label: 'Template',
-        icon: 'template',
-        key: '5',
-        flyout: SHAPES.map(([templateShape, label, icon]) => ({
-          id: templateShape,
-          label,
-          icon,
-          select: () => templateTool.setOptions({ templateShape }),
-        })),
-      },
-      ...(isGuest ? [] : [{ name: 'fog', label: 'Fog', icon: 'fog', key: '6' } as const]),
-      { name: 'ping', label: 'Ping', icon: 'ping', key: '7' },
-      { name: 'laser', label: 'Laser', icon: 'laser', key: 'l' },
-    ];
+      // Restores, undo and peers change the grid without going through the controller.
+      const isGrid = (el: CanvasElement): boolean =>
+        el.type === 'extension' && el.extensionType === 'vtt:grid';
+      const syncGrid = (el: CanvasElement): void => {
+        if (isGrid(el)) gridController.syncContext();
+      };
+      let syncGridSection: (() => void) | null = null;
+      unsubscribers.push(
+        viewport.store.on('add', syncGrid),
+        viewport.store.on('update', ({ current }) => syncGrid(current)),
+        viewport.store.on('remove', syncGrid),
+        viewport.store.on('clear', () => gridController.syncContext()),
+        gridController.onChange(() => syncGridSection?.()),
+      );
 
-    return {
-      viewport,
-      tools,
-      styles: {
-        controlsFor: (toolName) => STYLE_CONTROLS[toolName] ?? [],
-        extraSection: (toolName) => {
-          if (toolName === 'fog') return fogSection();
-          // Board setup, so it stays out of the way of the drawing tools' controls.
-          return toolName === 'select' || toolName === 'hand' ? gridSection() : null;
+      const gridSection = (): HTMLElement => {
+        const info = () => gridController.getInfo();
+        const { el, sync } = choices('Grid', [
+          [
+            'Square',
+            'Square grid',
+            () => info()?.gridType === 'square',
+            () => gridController.update({ gridType: 'square' }),
+          ],
+          [
+            'Hex',
+            'Hex grid',
+            () => info()?.gridType === 'hex',
+            () => gridController.update({ gridType: 'hex' }),
+          ],
+          ...[24, 32, 48].map((cellSize): Choice => [
+            String(cellSize),
+            `Cell size ${cellSize}`,
+            () => info()?.cellSize === cellSize,
+            () => gridController.update({ cellSize }),
+          ]),
+          [
+            'Show',
+            'Show grid',
+            () => info() !== null,
+            () => {
+              if (!info())
+                gridController.add({ gridType: 'hex', hexOrientation: 'pointy', cellSize: 48 });
+            },
+          ],
+          ['Hide', 'Hide grid', () => info() === null, () => gridController.remove()],
+        ]);
+        syncGridSection = sync;
+        return el;
+      };
+
+      const fogSection = (): HTMLElement => {
+        const options = () => fogTool.getOptions();
+        const { el } = choices('Fog', [
+          [
+            'Reveal',
+            'Reveal fog',
+            () => options().operation === 'reveal',
+            () => fogTool.setOptions({ operation: 'reveal' }),
+          ],
+          [
+            'Conceal',
+            'Conceal fog',
+            () => options().operation === 'conceal',
+            () => fogTool.setOptions({ operation: 'conceal' }),
+          ],
+          ...[20, 40, 80].map((radius): Choice => [
+            String(radius),
+            `Brush ${radius}`,
+            () => options().radius === radius,
+            () => fogTool.setOptions({ radius }),
+          ]),
+        ]);
+        const toggle = document.createElement('input');
+        toggle.type = 'checkbox';
+        toggle.setAttribute('role', 'switch');
+        toggle.setAttribute('aria-label', 'View as player');
+        toggle.checked = manager.getViewMode() === 'player';
+        toggle.addEventListener('change', () => {
+          manager.setViewMode(toggle.checked ? 'player' : 'editor');
+          viewport.requestRender();
+        });
+        const label = document.createElement('label');
+        label.className = 'style-control style-switch';
+        // Keep focus on the canvas so tool keys still work; Tab and Space still reach the switch.
+        label.addEventListener('mousedown', (event) => event.preventDefault());
+        label.append(toggle, 'View as player');
+        el.append(label);
+        return el;
+      };
+
+      const tools: readonly ToolSpec[] = [
+        ...NAVIGATION_TOOLS,
+        { name: 'pencil', label: 'Pencil', icon: 'pencil', key: '3' },
+        { name: 'measure', label: 'Measure', icon: 'measure', key: '4' },
+        {
+          name: 'template',
+          label: 'Template',
+          icon: 'template',
+          key: '5',
+          flyout: SHAPES.map(([templateShape, label, icon]) => ({
+            id: templateShape,
+            label,
+            icon,
+            select: () => templateTool.setOptions({ templateShape }),
+          })),
         },
-      },
-      loadSample: () => buildTabletopSample(viewport, gridController, manager),
-      dispose: () => {
-        for (const unsubscribe of unsubscribers) unsubscribe();
-        unregisterWidgets();
-        fog = null;
-        viewport.destroy();
-      },
-    };
+        ...(isGuest ? [] : [{ name: 'fog', label: 'Fog', icon: 'fog', key: '6' } as const]),
+        { name: 'ping', label: 'Ping', icon: 'ping', key: '7' },
+        { name: 'laser', label: 'Laser', icon: 'laser', key: 'l' },
+      ];
+
+      return {
+        viewport,
+        tools,
+        styles: {
+          controlsFor: (toolName) => STYLE_CONTROLS[toolName] ?? [],
+          extraSection: (toolName) => {
+            if (toolName === 'fog') return fogSection();
+            // Board setup, so it stays out of the way of the drawing tools' controls.
+            return toolName === 'select' || toolName === 'hand' ? gridSection() : null;
+          },
+        },
+        loadSample: () => buildTabletopSample(viewport, gridController, manager),
+        dispose,
+      };
+    } catch (error) {
+      dispose();
+      throw error;
+    }
   },
 };

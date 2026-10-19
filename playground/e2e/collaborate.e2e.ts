@@ -266,3 +266,20 @@ test('leave room restores and does not leak', async ({ page }) => {
   expect(await page.locator('#stage > *').count()).toBe(1);
   expect(errors).toEqual([]);
 });
+
+test('Copy link shows Link copied and writes the room URL', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await open(page);
+  await collaborate(page);
+  const copy = page.getByRole('button', { name: 'Copy link' });
+  const toast = page.locator('[data-chrome="toast"]');
+  await copy.click();
+  await expect(toast).toHaveText('Link copied');
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(page.url());
+
+  await page.evaluate(() => {
+    navigator.clipboard.writeText = () => Promise.reject(new Error('denied'));
+  });
+  await copy.click();
+  await expect(toast).toHaveText("Couldn't copy the link");
+});

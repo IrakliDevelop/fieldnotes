@@ -1,5 +1,5 @@
 import { createHtmlElement } from '@fieldnotes/core';
-import type { Viewport } from '@fieldnotes/core';
+import type { HtmlElement, Viewport } from '@fieldnotes/core';
 import { chart } from './chart';
 import { checklist } from './checklist';
 import { counter } from './counter';
@@ -30,6 +30,29 @@ export const WIDGETS: readonly WidgetDef<unknown>[] = [
   erase(textCard),
   erase(token),
 ];
+
+/** Draws a static labelled card for `element`, or null for an unknown widget type. */
+export function renderWidgetForExport(element: HtmlElement): HTMLCanvasElement | null {
+  const def = WIDGETS.find((w) => w.htmlType === element.htmlType);
+  if (!def) return null;
+  const canvas = document.createElement('canvas');
+  canvas.width = element.size.w;
+  canvas.height = element.size.h;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  ctx.beginPath();
+  // Inset by half the 1px border so the stroke stays inside the canvas.
+  ctx.roundRect(0.5, 0.5, element.size.w - 1, element.size.h - 1, 8);
+  ctx.fillStyle = '#f4f4f5';
+  ctx.fill();
+  ctx.strokeStyle = '#e4e4e7';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.fillStyle = '#18181b';
+  ctx.font = '13px system-ui, sans-serif';
+  ctx.fillText(def.label, 12, 20);
+  return canvas;
+}
 
 function toData(value: unknown): Record<string, unknown> {
   if (!isRecord(value)) throw new Error('Widget data must be an object');

@@ -66,7 +66,8 @@ export function renderToolbar(
         closeFlyout();
         button.focus();
       } else if (step !== undefined) {
-        entries.at((index + step) % entries.length)?.focus();
+        // Nothing focused: ArrowUp starts at the last item (ArrowDown already lands on the first).
+        entries.at(index === -1 && step === -1 ? -1 : (index + step) % entries.length)?.focus();
       } else {
         return;
       }

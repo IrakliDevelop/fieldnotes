@@ -266,6 +266,12 @@ body {
   overflow-x: auto;
 }
 
+.tool-strip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 [data-chrome='top-right'] {
   top: var(--gap);
   right: var(--gap);
