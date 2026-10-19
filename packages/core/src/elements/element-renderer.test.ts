@@ -10,6 +10,7 @@ import type {
   ImageElement,
   HtmlElement,
   TextElement,
+  ExtensionElementEnvelope,
 } from './types';
 import {
   createArrow,
@@ -19,6 +20,7 @@ import {
   createNote,
   createText,
 } from './element-factory';
+import { ElementRegistry } from './element-registry';
 import { ElementStore } from './element-store';
 import { Camera } from '../canvas/camera';
 import { HtmlPainterRegistry } from '../canvas/html-painter-registry';
@@ -316,6 +318,39 @@ describe('ElementRenderer', () => {
         layerId: '',
       };
       expect(renderer.isDomElement(text)).toBe(true);
+    });
+
+    it('an extension is never a DOM element', () => {
+      const registry = new ElementRegistry();
+      registry.register<ExtensionElementEnvelope>({
+        type: 'test:box',
+        legacyTypes: [],
+        decodeLegacy: (raw) => raw as unknown as ExtensionElementEnvelope,
+        validateData: () => true,
+        unwrap: (element) => element,
+        wrap: (element) => element,
+        bounds: () => null,
+        renderMode: 'hybrid',
+      });
+      const renderer = new ElementRenderer();
+      renderer.setElementRegistry(registry);
+      const box: ExtensionElementEnvelope = {
+        id: 'box-1',
+        type: 'extension',
+        extensionType: 'test:box',
+        position: { x: 0, y: 0 },
+        zIndex: 0,
+        locked: false,
+        layerId: '',
+        data: {},
+      };
+      expect(renderer.isDomElement(box)).toBe(false);
+
+      const adapter = registry.getAdapter('test:box');
+      if (!adapter) throw new Error('test:box not registered');
+      // register rejects 'dom', so hand-build the adapter an older registry could have produced.
+      vi.spyOn(registry, 'getAdapter').mockReturnValue({ ...adapter, renderMode: 'dom' });
+      expect(renderer.isDomElement(box)).toBe(false);
     });
   });
 

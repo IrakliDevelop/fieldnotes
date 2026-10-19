@@ -180,6 +180,23 @@ describe('RemoteCursorOverlay', () => {
     overlay.dispose();
   });
 
+  it('uses requestOverlayRender when the host provides it, else requestRender', () => {
+    const roster = new PeerRoster();
+    const { host, requestRender } = makeHost();
+    const requestOverlayRender = vi.fn();
+    const overlay = new RemoteCursorOverlay({ ...host, requestOverlayRender }, roster);
+    roster.apply('c1', frame('ada', { cursor: { x: 1, y: 1 } }));
+    expect(requestOverlayRender).toHaveBeenCalledTimes(1);
+    expect(requestRender).not.toHaveBeenCalled();
+    overlay.dispose();
+
+    const fallback = makeHost();
+    const plain = new RemoteCursorOverlay(fallback.host, roster);
+    roster.apply('c1', frame('ada', { cursor: { x: 2, y: 2 } }));
+    expect(fallback.requestRender).toHaveBeenCalledTimes(1);
+    plain.dispose();
+  });
+
   it('clears the label-width cache once it grows past 64 entries, instead of caching unboundedly', () => {
     const roster = new PeerRoster();
     const { host, getRenderer } = makeHost();

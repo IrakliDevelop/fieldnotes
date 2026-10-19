@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-empty-function */
-import { afterEach, describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, expectTypeOf, vi } from 'vitest';
 import { TypedHookRegistry, createRenderHooks } from './render-hooks';
 
 // ─── Test fixture: a simple hook shape ───────────────────────────────────────
@@ -464,6 +464,23 @@ describe('createRenderHooks', () => {
     }
 
     expect(fn).toHaveBeenCalledWith(ctx, camera, dims);
+  });
+
+  it('types the afterLayer layer id as a string', () => {
+    const hooks = createRenderHooks();
+    const fn = vi.fn();
+    hooks.viewport.register({
+      afterLayer: (_ctx, _camera, _dims, layerId) => {
+        expectTypeOf(layerId).toEqualTypeOf<string>();
+        fn(layerId);
+      },
+    });
+
+    for (const hook of hooks.viewport.iterate('afterLayer')) {
+      hook({} as CanvasRenderingContext2D, {} as never, { width: 1, height: 1, dpr: 1 }, 'L1');
+    }
+
+    expect(fn).toHaveBeenCalledWith('L1');
   });
 
   it('minimap hooks receive mapping', () => {

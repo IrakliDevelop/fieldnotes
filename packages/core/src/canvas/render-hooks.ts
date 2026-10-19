@@ -215,6 +215,27 @@ export type ViewportRenderHooks = {
     camera: Camera,
     dimensions: RenderSurfaceDimensions,
   ): void;
+  /**
+   * Overlay stratum in world space: the context arrives with dpr and the camera transform applied.
+   * Runs before the active tool's overlay, on full frames and on overlay-only frames
+   * (`Viewport.requestOverlayRender`).
+   */
+  overlay?(
+    ctx: CanvasRenderingContext2D,
+    camera: Camera,
+    dimensions: RenderSurfaceDimensions,
+  ): void;
+  /**
+   * Base canvas, screen space (dpr-scaled, like `beforeElements`), after one visible layer's
+   * cached and live content. Called for every visible layer in layer order, including empty ones.
+   * Elements painted on hybrid strata (above the first DOM element) draw above every call.
+   */
+  afterLayer?(
+    ctx: CanvasRenderingContext2D,
+    camera: Camera,
+    dimensions: RenderSurfaceDimensions,
+    layerId: string,
+  ): void;
 };
 
 export interface MinimapMapping {

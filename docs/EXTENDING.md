@@ -1,6 +1,6 @@
 # Extending Field Notes
 
-This guide covers the extension API of `@fieldnotes/core` 0.90.0. Every name below is exported
+This guide covers the extension API of `@fieldnotes/core` 0.91.0. Every name below is exported
 from `@fieldnotes/core` unless stated otherwise. A runnable version of most snippets lives in
 [`examples/extension-api`](../examples/extension-api/).
 
@@ -43,7 +43,7 @@ The model in five sentences:
 | `hitTest`      | no       | Point-in-element test. Default: inside `bounds`.                                           |
 | `render`       | no       | Draws on a world-space canvas context.                                                     |
 | `emitSvg`      | no       | Returns an SVG fragment for `exportSvg`.                                                   |
-| `renderMode`   | no       | `'canvas'` (default), `'dom'`, `'hybrid'`, `'none'`. See below.                            |
+| `renderMode`   | no       | `'canvas'` (default), `'hybrid'`, `'none'` all draw through `render`; `'dom'` throws.      |
 | `fullCanvas`   | no       | Renders in a separate full-viewport pass (grids). Not hit-testable.                        |
 | `interaction`  | no       | `ElementInteractionAdapter` for custom handles, selection drawing and rotation.            |
 | `dataVersion`  | no       | Current version of `data`, positive integer, default 1. See section 4.                     |
@@ -122,9 +122,12 @@ const markerDefinition: ElementTypeDefinition<Marker> = {
   rectangle (`minX`, `minY`, `maxX`, `maxY`).
 - `emitSvg(el, allElements, viewBox)` returns markup that is inserted verbatim, so escape any user
   text. `viewBox` is the export rectangle for `fullCanvas` types; other types receive a zero box.
-- `renderMode`: only `'dom'` changes behaviour today. It moves the element to the DOM stratum and
-  skips `render`, but core creates no DOM content for extension types, so treat it as reserved.
-  `'hybrid'` and `'none'` draw through `render` like `'canvas'`.
+- `renderMode`: `'canvas'`, `'hybrid'` and `'none'` all draw through `render`. `register` throws
+  for `'dom'`; extension elements are never DOM elements.
+- An element updated again within 250 ms (a drag, remote moves, an animation) on a layer at full
+  opacity is drawn directly every frame instead of from its layer cache, until it has been idle for
+  250 ms. `render` must therefore depend only on its arguments, which the layer cache already
+  requires.
 
 ### Resize and the interaction adapter
 
@@ -296,18 +299,47 @@ preserved and written back on export.
 
 ## 7. Render hooks
 
-| Surface       | Register with              | Hooks and arguments                                                  |
-| ------------- | -------------------------- | -------------------------------------------------------------------- |
-| `viewport`    | `registerViewportHooks`    | `beforeElements`, `afterElements`, `afterAll`: `(ctx, camera, dims)` |
-| `minimap`     | `registerMinimapHooks`     | `afterElements(mapping: MinimapMapping)`                             |
-| `imageExport` | `registerImageExportHooks` | `afterElements(mapping: ImageExportMapping)`                         |
-| `svgExport`   | `registerSvgExportHooks`   | `afterElements(mapping: SvgExportMapping)`, write with `appendSvg`   |
+| Surface       | Register with              | Hooks and arguments                                                                                                           |
+| ------------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `viewport`    | `registerViewportHooks`    | `beforeElements`, `afterElements`, `overlay`, `afterAll`: `(ctx, camera, dims)`; `afterLayer`: `(ctx, camera, dims, layerId)` |
+| `minimap`     | `registerMinimapHooks`     | `afterElements(mapping: MinimapMapping)`                                                                                      |
+| `imageExport` | `registerImageExportHooks` | `afterElements(mapping: ImageExportMapping)`                                                                                  |
+| `svgExport`   | `registerSvgExportHooks`   | `afterElements(mapping: SvgExportMapping)`, write with `appendSvg`                                                            |
 
-Viewport hooks get a context scaled for device pixels only, so they draw in CSS pixels in screen
-space; use `camera.worldToScreen` or apply `camera.position` and `camera.zoom` yourself. `dims` is
-`RenderSurfaceDimensions` (`width`, `height`, `dpr`). `beforeElements` draws on the base canvas
-above the background; `afterElements` draws on a stratum above all canvas and DOM content;
-`afterAll` draws above overlays and the active tool's overlay.
+One viewport frame paints in this order:
+
+1. Background, then `beforeElements` (base canvas).
+2. For each visible layer in layer order: the layer's elements, then `afterLayer(…, layerId)` (base
+   canvas; called for empty layers too).
+3. `fullCanvas` elements, then hybrid strata.
+4. The `afterElements` stratum, above all canvas and DOM content.
+5. The overlay stratum: `overlay` hooks, then the active tool's `renderOverlay`.
+6. `afterAll`.
+
+Every hook except `overlay` gets a context scaled for device pixels only, so it draws in CSS pixels
+in screen space; use `camera.worldToScreen` or apply `camera.position` and `camera.zoom` yourself.
+`overlay` draws in world space: the camera transform is already applied. `dims` is
+`RenderSurfaceDimensions` (`width`, `height`, `dpr`). Canvas elements painted after the first DOM
+element go to hybrid strata, so they are above all `afterLayer` drawing. `afterLayer` and `overlay`
+run on the viewport only; the minimap and exports have no equivalent. Hooks get no store or layer
+manager argument: capture `PluginStartContext.store` and `viewport.layerManager` in `start` and close
+over them.
+
+`afterLayer` draws between layers. This one darkens a map layer and everything below it, while
+later layers such as tokens stay bright:
+
+```typescript
+// in configure(ctx); mapLayerId is the host's map layer id
+ctx.registerViewportHooks({
+  afterLayer(ctx2d, camera, dims, layerId) {
+    if (layerId !== mapLayerId) return;
+    ctx2d.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx2d.fillRect(0, 0, dims.width, dims.height);
+  },
+});
+```
+
+This `afterElements` hook satisfies a capability while `shadeOn` is true:
 
 ```typescript
 let shadeOn = true;
@@ -336,6 +368,17 @@ ctx.registerViewportHooks(
 | `enabled`   | Predicate checked every call; when false the entry neither runs nor satisfies anything. |
 
 Slots order entries; they do not move a hook to another point in the frame.
+
+### Overlays and overlay-only repaints
+
+The overlay stratum always sits above DOM content. `viewport.registerOverlay(draw)` registers an
+`overlay` hook that wraps `draw` in `save`/`restore` and swallows its errors, so one faulty overlay
+skips its own drawing for that frame and is never quarantined. It returns an idempotent disposer.
+
+`viewport.requestOverlayRender()` and `ToolContext.requestOverlayRender()` repaint only the overlay
+stratum. Use them when only overlay drawing changed; use `requestRender()` for anything else. The
+overlay host interfaces (`RemoteCursorOverlayHost`, `LingerOverlayHost` and the others) accept an
+optional `requestOverlayRender` and fall back to `requestRender` without it.
 
 ### Capabilities and fail-closed rendering
 
@@ -403,6 +446,9 @@ it with `ctx.registerTool(tool)` in `configure`, or `viewport.toolManager.regist
 host, then `viewport.setTool(name)`. Tools in `ViewportOptions.tools` replace same-named plugin
 tools.
 
+Call `ctx.requestOverlayRender()` when only `renderOverlay` output changed: an in-progress preview,
+hover feedback, a marquee. A full frame also repaints the overlay.
+
 Each pointer gesture is one history transaction, so store mutations made between pointer down and
 up undo as one step. `ToolContext.elementRegistry` is the viewport registry; use it to look up
 adapters, and use your definition's `wrap` to create envelopes:
@@ -426,6 +472,9 @@ onPointerDown(state, ctx) {
 },
 ```
 
+Store mutations already schedule a full frame, so the `requestRender()` above is redundant but
+harmless; `requestOverlayRender()` alone never repaints elements.
+
 Implement `onPointerCancel` when a pinch or platform cancel must not count as input.
 
 ## 9. Exports
@@ -445,7 +494,6 @@ render hooks. The standalone `exportImage(store, options, layerManager?)` and
 Not yet available:
 
 - Parent/child elements and clipping (frames).
-- Hook slots between layers; hooks run at the fixed points in section 7.
 - Camera constraint providers.
 - Field schemas for generic property editing of extension data.
-- DOM rendering for extension types (`renderMode: 'dom'`).
+- `afterLayer` on the minimap, in exports, or above hybrid strata.

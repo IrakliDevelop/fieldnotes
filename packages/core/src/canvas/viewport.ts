@@ -325,6 +325,7 @@ export class Viewport {
       camera: this.camera,
       store: this.store,
       requestRender: () => this.requestRender(),
+      requestOverlayRender: () => this.requestOverlayRender(),
       switchTool: (name: string) => this.toolManager.setTool(name, this.toolContext),
       editElement: (id: string) => this.interactions.startEditingElement(id),
       fitNoteHeight: (id: string) => this.interactions.fitNoteHeight(id),
@@ -463,6 +464,7 @@ export class Viewport {
         this.domNodeManager.removeDomNode(el.id);
         this.htmlDiagnostics.forget(el.id);
         this.renderLoop.markLayerDirty(el.layerId);
+        this.renderLoop.forgetElement(el.id, el.layerId);
         this.requestRender();
         this.handleRemovedElement(el.id);
       }),
@@ -470,15 +472,13 @@ export class Viewport {
         if (current.type === 'html') {
           this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
         }
-        this.renderLoop.markLayerDirty(current.layerId);
-        if (previous.layerId !== current.layerId) {
-          this.renderLoop.markLayerDirty(previous.layerId);
-        }
+        this.renderLoop.noteElementUpdate(previous, current);
         this.requestRender();
       }),
       this.store.on('clear', () => {
         this.domNodeManager.clearDomNodes();
         this.htmlDiagnostics.reset();
+        this.renderLoop.clearLive();
         this.renderLoop.markAllLayersDirty();
         this.requestRender();
         this.pruneSelection();
@@ -486,6 +486,7 @@ export class Viewport {
       this.store.on('batch', () => {
         this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
         this.htmlDiagnostics.reset();
+        this.renderLoop.clearLive();
         this.renderLoop.markAllLayersDirty();
         this.requestRender();
         this.pruneSelection();
@@ -704,15 +705,43 @@ export class Viewport {
   }
 
   /**
-   * Registers a world-space overlay drawn above elements on every frame,
-   * regardless of the active tool — the surface for remote presence visuals
-   * such as laser trails, cursors, pings, and shared rulers. Overlays draw
-   * beneath the active tool's own `renderOverlay` and never touch elements,
-   * history, or persisted state. Returns an idempotent unsubscribe that also
-   * erases the overlay's last frame.
+   * Repaints only the overlay stratum (tool overlay, registered overlays, `overlay` hooks) on the
+   * next frame. Use `requestRender` for anything that changes elements, layers, the camera or
+   * other hooks.
+   */
+  requestOverlayRender(): void {
+    this.renderLoop.requestOverlayRender();
+  }
+
+  /**
+   * Registers a world-space overlay drawn on every frame, regardless of the
+   * active tool — the surface for remote presence visuals such as laser
+   * trails, cursors, pings, and shared rulers. Overlays draw above elements
+   * and DOM content, beneath the active tool's own `renderOverlay`, and never
+   * touch elements, history, or persisted state. Returns an idempotent
+   * unsubscribe that also erases the overlay's last frame.
    */
   registerOverlay(draw: OverlayRenderer): () => void {
-    return this.renderLoop.registerOverlay(draw);
+    const dispose = this._renderHooks.viewport.register({
+      overlay: (ctx) => {
+        ctx.save();
+        try {
+          draw(ctx);
+        } catch {
+          // One faulty overlay must not take down the frame or its siblings.
+        } finally {
+          ctx.restore();
+        }
+      },
+    });
+    this.requestOverlayRender();
+    let disposed = false;
+    return () => {
+      if (disposed) return;
+      disposed = true;
+      dispose();
+      this.requestOverlayRender();
+    };
   }
 
   exportState(): CanvasState {

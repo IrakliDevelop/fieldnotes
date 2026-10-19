@@ -16,7 +16,7 @@ const REMOTE_COLOR = '#e11d48';
 async function countColorPixels(page: Page, hex: string, tolerance = 40): Promise<number> {
   return page.evaluate(
     ({ hex, tolerance }) => {
-      const canvas = document.querySelector('#canvas canvas') as HTMLCanvasElement;
+      const canvas = window.__fnCompositeCanvas();
       const ctx = canvas.getContext('2d');
       if (!ctx) return -1;
       const r0 = parseInt(hex.slice(1, 3), 16);

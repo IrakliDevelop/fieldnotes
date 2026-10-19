@@ -105,10 +105,6 @@ export class ElementRenderer {
   }
 
   isDomElement(element: CanvasElement): boolean {
-    if (element.type === 'extension' && this.elementRegistry) {
-      const adapter = this.elementRegistry.getAdapter(element.extensionType);
-      return adapter?.renderMode === 'dom';
-    }
     if (element.type !== 'html') return DOM_ELEMENT_TYPES.has(element.type);
     // canvas and missing are NOT DOM-participating; dom is.
     return resolveHtmlRouting(element, this.htmlPainters, this.expectedCanvasTypes) === 'dom';

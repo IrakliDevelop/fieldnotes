@@ -363,6 +363,11 @@ These contracts were proven in `packages/contract-spike`:
   select tool's corner resize handles. The serializer and sync wire validation check it when
   present. Adapter handles are drawn over the core handles and hit-tested first.
 
+## Implementation notes (0.91.0)
+
+- **`renderMode: 'dom'`** is rejected: `ElementRegistry.register` throws for it. Extension elements
+  are never DOM elements; `'canvas'`, `'hybrid'` and `'none'` all draw through `render`.
+
 ## Options Considered
 
 ### Option A: Full element-type registry with extension envelope (chosen)

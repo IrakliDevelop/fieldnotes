@@ -11,6 +11,7 @@ function makeToolContext(): ToolContext {
     camera: new Camera(),
     store: new ElementStore(),
     requestRender: vi.fn(),
+    requestOverlayRender: vi.fn(),
     setCursor: vi.fn(),
   };
 }

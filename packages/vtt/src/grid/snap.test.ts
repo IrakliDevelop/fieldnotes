@@ -16,6 +16,7 @@ function ctxWith(overrides: Partial<ToolContext>): ToolContext {
     camera: new Camera(),
     store: new ElementStore(),
     requestRender: () => undefined,
+    requestOverlayRender: () => undefined,
     ...overrides,
   };
 }

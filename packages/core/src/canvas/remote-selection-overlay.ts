@@ -5,11 +5,14 @@ import { computeElementRects } from './element-rect-tracker';
 import type { ElementRect } from './element-rect-tracker';
 import type { Peer, PeerRoster } from './awareness-roster';
 import { defaultPeerColor } from './remote-cursor-overlay';
+import { repaint } from './overlay-repaint';
 
 /** The viewport capabilities the overlay needs; `Viewport` satisfies it. */
 export interface RemoteSelectionOverlayHost {
   registerOverlay(draw: OverlayRenderer): () => void;
   requestRender(): void;
+  /** Repaints only overlays; the overlay falls back to requestRender when absent. */
+  requestOverlayRender?(): void;
   readonly camera: { readonly zoom: number };
   readonly store: ElementStore;
   readonly layerManager: LayerManager;
@@ -75,10 +78,10 @@ export class RemoteSelectionOverlay {
     this.unregister = host.registerOverlay((ctx) => this.render(ctx));
     const invalidate = (): void => {
       this.storeDirty = true;
-      host.requestRender();
+      repaint(this.host);
     };
     this.unsubscribers.push(
-      roster.onChange(() => host.requestRender()),
+      roster.onChange(() => repaint(this.host)),
       host.store.onChange(invalidate),
       host.layerManager.on('change', invalidate),
     );
@@ -97,7 +100,7 @@ export class RemoteSelectionOverlay {
     this.unregister = null;
     this.signatures = [];
     this.outlines = [];
-    this.host.requestRender();
+    repaint(this.host);
   }
 
   private resolveColor(peer: Peer): string {

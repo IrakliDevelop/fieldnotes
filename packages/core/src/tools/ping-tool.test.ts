@@ -19,6 +19,7 @@ function makeCtx(overrides: Partial<ToolContext> = {}): ToolContext {
       remove: vi.fn(),
     } as unknown as ToolContext['store'],
     requestRender: vi.fn(),
+    requestOverlayRender: vi.fn(),
     ...overrides,
   };
 }
@@ -228,7 +229,7 @@ describe('PingTool', () => {
     flushFrame();
     expect((tool as unknown as PingsLike).pings.length).toBe(0);
     expect((tool as unknown as PingsLike).rafId).toBeNull();
-    expect(ctx.requestRender).toHaveBeenCalled();
+    expect(ctx.requestOverlayRender).toHaveBeenCalled();
   });
 
   it('ensureAnimating schedules only one rAF at a time', () => {

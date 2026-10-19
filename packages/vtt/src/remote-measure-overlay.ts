@@ -73,6 +73,8 @@ export function toMeasurePresence(emission: MeasureEmission | null): MeasurePres
 export interface RemoteMeasureOverlayHost {
   registerOverlay(draw: OverlayRenderer): () => void;
   requestRender(): void;
+  /** Repaints only overlays; the overlay falls back to requestRender when absent. */
+  requestOverlayRender?(): void;
 }
 
 export interface RemoteMeasureOverlayOptions {

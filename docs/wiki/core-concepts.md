@@ -177,7 +177,8 @@ interface Tool {
 interface ToolContext {
   camera: Camera;
   store: ElementStore;
-  requestRender: () => void;
+  requestRender: () => void; // full frame
+  requestOverlayRender: () => void; // overlay stratum only (previews, hover, marquee)
   switchTool?: (name: string) => void;
   snapToGrid?: boolean;
   gridSize?: number;
@@ -277,15 +278,16 @@ The `RenderLoop` schedules and executes frame rendering.
 
 **Render pipeline:**
 
-1. Clear canvas
-2. Apply camera transform
-3. Draw background (grid, pattern)
-4. For each visible layer:
-   - Draw canvas-rendered elements (strokes, shapes, arrows)
-   - Update DOM-rendered elements (notes, HTML, text)
-5. Draw fog mask (if enabled)
-6. Draw tool overlays
-7. Draw registered overlay renderers
+1. Draw background (grid, pattern) and `beforeElements` hooks on the base canvas
+2. For each visible layer: composite its cache (elements being dragged or animated are drawn
+   directly between the cached parts below and above them), then `afterLayer` hooks
+3. Full-canvas extension elements; DOM elements (notes, HTML, text) are positioned, and canvas
+   elements above the first DOM element draw on hybrid strata
+4. `afterElements` stratum (fog; the fail-closed mask)
+5. Overlay stratum: `overlay` hooks and registered overlays, then the active tool's overlay
+6. `afterAll` stratum
+
+`requestOverlayRender()` repaints only step 5.
 
 **Dirty flag:** Rendering only happens when `needsRender = true`. Mutations set the dirty flag; the next animation frame renders.
 

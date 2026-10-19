@@ -100,7 +100,7 @@ export class ArrowTool implements Tool {
       this.end = cs?.isActive ? cs.constrainPoint(world) : world;
       this.toTarget = null;
     }
-    ctx.requestRender();
+    ctx.requestOverlayRender();
   }
 
   onPointerUp(_state: PointerState, ctx: ToolContext): void {
@@ -134,7 +134,7 @@ export class ArrowTool implements Tool {
     this.fromTarget = null;
     this.toTarget = null;
     this.fromBinding = undefined;
-    ctx.requestRender();
+    ctx.requestOverlayRender();
   }
 
   renderOverlay(ctx: CanvasRenderingContext2D): void {

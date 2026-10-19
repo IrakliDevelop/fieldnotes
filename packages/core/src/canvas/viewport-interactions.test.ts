@@ -47,7 +47,7 @@ function makeDeps(store: ElementStore, overrides: Partial<ViewportInteractionsDe
     interactMode: { startInteracting: vi.fn(), stopInteracting: vi.fn() } as never,
     renderer: { setLabelEditingId: vi.fn() } as never,
     recorder: { begin: vi.fn(), commit: vi.fn() } as never,
-    toolContext: { camera, store, requestRender: vi.fn() },
+    toolContext: { camera, store, requestRender: vi.fn(), requestOverlayRender: vi.fn() },
     requestRender: vi.fn(),
     addImage: vi.fn(() => 'img-id'),
     ...overrides,
@@ -90,6 +90,7 @@ describe('ViewportInteractions', () => {
         camera,
         store,
         requestRender: vi.fn(),
+        requestOverlayRender: vi.fn(),
         isLayerVisible: (id) => id !== 'hidden',
         isLayerLocked: (id) => id === 'locked',
       };

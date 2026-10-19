@@ -18,6 +18,7 @@ function makeCtx(store: ElementStore): ToolContext {
     camera: new Camera(),
     store,
     requestRender: vi.fn(),
+    requestOverlayRender: vi.fn(),
     switchTool: vi.fn(),
     editElement: vi.fn(),
     setCursor: vi.fn(),

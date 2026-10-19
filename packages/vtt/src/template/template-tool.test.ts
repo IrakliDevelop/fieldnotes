@@ -34,6 +34,7 @@ describe('TemplateTool', () => {
       camera: new Camera(),
       store,
       requestRender: vi.fn(),
+      requestOverlayRender: vi.fn(),
       elementRegistry: registry,
       constraintService,
     };
@@ -58,6 +59,7 @@ describe('TemplateTool', () => {
       camera: new Camera(),
       store,
       requestRender: vi.fn(),
+      requestOverlayRender: vi.fn(),
       elementRegistry: registry,
       activeLayerId: 'default',
     };
@@ -81,6 +83,7 @@ describe('TemplateTool', () => {
       camera: new Camera(),
       store: new ElementStore(),
       requestRender: vi.fn(),
+      requestOverlayRender: vi.fn(),
       elementRegistry: new ElementRegistry(),
     };
     const tool = new TemplateTool();
@@ -101,6 +104,7 @@ describe('TemplateTool', () => {
       camera: new Camera(),
       store,
       requestRender: vi.fn(),
+      requestOverlayRender: vi.fn(),
       elementRegistry: registry,
     };
     const template = new TemplateTool();
@@ -129,6 +133,7 @@ describe('TemplateTool', () => {
       camera: new Camera(),
       store,
       requestRender: vi.fn(),
+      requestOverlayRender: vi.fn(),
       elementRegistry: registry,
     };
     const template = new TemplateTool({ templateShape: 'cone' });
@@ -161,6 +166,7 @@ describe('TemplateTool', () => {
       camera: new Camera(),
       store,
       requestRender: vi.fn(),
+      requestOverlayRender: vi.fn(),
       elementRegistry: registry,
     };
     const template = new TemplateTool({ templateShape: 'circle' });

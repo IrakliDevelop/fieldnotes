@@ -117,6 +117,51 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
   The reference WebSocket server closes idle expired sockets and rejects traffic observed at
   or after the deadline.
 
+## [0.91.0] — 2026-10-18
+
+### Core 0.91.0 — interactive surface (F4), render slots (F5), renderMode 'dom' (C20)
+
+**Added**
+
+- Live elements: an element updated again within 250 ms on a layer at full opacity is drawn
+  directly each frame instead of re-rasterising its whole layer on every update. The layer cache
+  splits into the parts below and above the live elements, so paint order is unchanged. Drags,
+  remote moves and animations on large layers no longer re-rasterise the layer per pointer move.
+  The element returns to the cache after 250 ms idle. No API.
+- Overlay-only frames: `Viewport.requestOverlayRender()` and `ToolContext.requestOverlayRender()`
+  repaint only the overlay stratum (tool overlay, registered overlays, `overlay` hooks). Built-in
+  tool previews, hover, marquee, laser and ping use it, and so do the presence overlays when their
+  host provides it (new optional `requestOverlayRender` on `RemoteCursorOverlayHost`,
+  `RemoteSelectionOverlayHost`, `LingerOverlayHost`, `RemoteLaserOverlayHost`,
+  `RemotePingOverlayHost`).
+- `ViewportRenderHooks.overlay(ctx, camera, dimensions)`: draws on the overlay stratum in world
+  space, before the active tool's overlay.
+- `ViewportRenderHooks.afterLayer(ctx, camera, dimensions, layerId)`: draws on the base canvas after
+  each visible layer, in layer order, including empty layers. Viewport only; elements painted on
+  hybrid strata stay above it.
+
+**Changed**
+
+- Overlays always draw on their own stratum above DOM content. Before, they drew on the base canvas
+  below DOM notes unless a hybrid or `afterElements` stratum existed, so selection handles of a DOM
+  note could be hidden under it.
+- `Viewport.registerOverlay(draw)` registers an `overlay` hook. Errors stay isolated per frame and
+  never quarantine it.
+- **Breaking for code that builds a `ToolContext` by hand** (usually test doubles):
+  `requestOverlayRender` is a required member.
+- **Breaking:** `ElementTypeDefinition.renderMode: 'dom'` now throws in
+  `ElementRegistry.register`. Such elements were never drawn. Extension elements are never DOM
+  elements; `'hybrid'` and `'none'` draw like `'canvas'`.
+- The base layer pass follows `layerManager.getLayers()` order; elements whose layer id is unknown
+  draw first, where the store sorts them.
+
+### VTT 0.14.0
+
+**Added**
+
+- `RemoteMeasureOverlayHost` and `RemotePathOverlayHost` accept an optional
+  `requestOverlayRender`, so shared rulers and movement paths repaint only the overlay.
+
 ## [0.90.0] — 2026-10-18
 
 ### Core 0.90.0 — extension API completion, first slice (F5)

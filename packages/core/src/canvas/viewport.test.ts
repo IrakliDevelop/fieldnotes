@@ -3447,3 +3447,108 @@ describe('Viewport tools option and onStateChange', () => {
     });
   });
 });
+
+describe('Viewport overlays', () => {
+  let getContextSpy: ReturnType<typeof vi.spyOn>;
+  let container: HTMLDivElement;
+  let vp: Viewport;
+
+  beforeEach(() => {
+    getContextSpy = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockImplementation(function (this: HTMLCanvasElement) {
+        const ctx: Record<string, unknown> = { canvas: this };
+        return new Proxy(ctx, {
+          get: (target, prop) => (prop in target ? target[prop as string] : () => undefined),
+        });
+      } as never);
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    vp = new Viewport(container);
+  });
+
+  afterEach(() => {
+    vp.destroy();
+    container.remove();
+    getContextSpy.mockRestore();
+  });
+
+  function flush(): void {
+    (vp as unknown as { renderLoop: { flush(): void } }).renderLoop.flush();
+  }
+
+  it('registerOverlay draws via the overlay hook, isolates a throwing overlay every frame without quarantining it', () => {
+    let frame = 0;
+    const flaky = vi.fn(() => {
+      if (frame === 1) throw new Error('boom');
+    });
+    const sibling = vi.fn();
+    const renderOverlay = vi.fn();
+    vp.toolManager.register({
+      name: 'overlay-tool',
+      onPointerDown: () => undefined,
+      onPointerMove: () => undefined,
+      onPointerUp: () => undefined,
+      renderOverlay,
+    });
+    vp.setTool('overlay-tool');
+    vp.registerOverlay(flaky);
+    vp.registerOverlay(sibling);
+
+    frame = 1;
+    flush();
+    expect(flaky).toHaveBeenCalledTimes(1);
+    expect(sibling).toHaveBeenCalledTimes(1);
+    expect(renderOverlay).toHaveBeenCalledTimes(1);
+
+    frame = 2;
+    vp.requestOverlayRender();
+    flush();
+    expect(flaky).toHaveBeenCalledTimes(2);
+    expect(flaky).toHaveLastReturnedWith(undefined);
+    expect(sibling).toHaveBeenCalledTimes(2);
+  });
+
+  it('registerOverlay unsubscribe stops drawing and is idempotent', () => {
+    const draw = vi.fn();
+    const unsubscribe = vp.registerOverlay(draw);
+    flush();
+    expect(draw).toHaveBeenCalledTimes(1);
+
+    unsubscribe();
+    unsubscribe();
+    flush();
+    vp.requestRender();
+    flush();
+    expect(draw).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('Viewport live element wiring', () => {
+  it('passes store updates to noteElementUpdate and removals to forgetElement', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const vp = new Viewport(container);
+    const { renderLoop } = vp as unknown as {
+      renderLoop: {
+        noteElementUpdate(previous: unknown, current: unknown): void;
+        forgetElement(id: string, layerId: string): void;
+      };
+    };
+    const noteElementUpdate = vi.spyOn(renderLoop, 'noteElementUpdate');
+    const forgetElement = vi.spyOn(renderLoop, 'forgetElement');
+    const shape = createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } });
+    vp.store.add(shape);
+
+    vp.store.update(shape.id, { position: { x: 5, y: 0 } });
+    vp.store.remove(shape.id);
+
+    expect(noteElementUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ id: shape.id, position: { x: 0, y: 0 } }),
+      expect.objectContaining({ id: shape.id, position: { x: 5, y: 0 } }),
+    );
+    expect(forgetElement).toHaveBeenCalledWith(shape.id, shape.layerId);
+    vp.destroy();
+    container.remove();
+  });
+});

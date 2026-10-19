@@ -34,7 +34,7 @@ const REMOTE_COLOR = '#00AA00';
 async function countColorPixels(page: Page, hex: string, tolerance = 40): Promise<number> {
   return page.evaluate(
     ({ hex, tolerance }) => {
-      const canvas = document.querySelector('#canvas canvas') as HTMLCanvasElement;
+      const canvas = window.__fnCompositeCanvas();
       const ctx = canvas.getContext('2d');
       if (!ctx) return -1;
       const r0 = parseInt(hex.slice(1, 3), 16);
@@ -65,7 +65,7 @@ async function countColorPixels(page: Page, hex: string, tolerance = 40): Promis
 /** Counts near-black canvas pixels — the measurement label's dark pill. */
 async function countDarkPixels(page: Page): Promise<number> {
   return page.evaluate(() => {
-    const canvas = document.querySelector('#canvas canvas') as HTMLCanvasElement;
+    const canvas = window.__fnCompositeCanvas();
     const ctx = canvas.getContext('2d');
     if (!ctx) return -1;
     const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;

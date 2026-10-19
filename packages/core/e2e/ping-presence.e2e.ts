@@ -11,7 +11,7 @@ import type { Page } from '@playwright/test';
 /** Counts strongly red pixels on the main canvas (background dots are gray). */
 async function redPixelCount(page: Page): Promise<number> {
   return page.evaluate(() => {
-    const canvas = document.querySelector('#canvas canvas') as HTMLCanvasElement;
+    const canvas = window.__fnCompositeCanvas();
     const ctx = canvas.getContext('2d');
     if (!ctx) return -1;
     const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;

@@ -168,6 +168,8 @@ export interface ElementTypeDefinition<T extends BaseElement> {
   bounds(el: T): Bounds | null;
   hitTest?(el: T, point: Point): boolean;
   interaction?: ElementInteractionAdapter<T>;
+  /** `'canvas'` and `'hybrid'` draw with `render` on the canvas; `'none'` is treated the same
+   *  (the canvas pass still calls `render` if defined); `'dom'` is rejected by `register`. */
   renderMode?: 'canvas' | 'dom' | 'hybrid' | 'none';
   /** When true, the element renders on a separate full-viewport pass with explicit
    *  world bounds rather than inline with layer elements. Used for viewport-filling
@@ -195,6 +197,8 @@ export interface ElementTypeDefinition<T extends BaseElement> {
 export interface ElementTypeAdapter {
   readonly type: string;
   readonly legacyTypes: readonly string[];
+  /** `'canvas'` and `'hybrid'` draw with `render` on the canvas; `'none'` is treated the same
+   *  (the canvas pass still calls `render` if defined); `'dom'` is rejected by `register`. */
   readonly renderMode: 'canvas' | 'dom' | 'hybrid' | 'none';
   readonly fullCanvas: boolean;
   validateEnvelope(el: ExtensionElementEnvelope): boolean;
