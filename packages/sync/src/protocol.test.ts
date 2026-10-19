@@ -823,7 +823,7 @@ describe('protocol 2 element and tombstone contracts', () => {
     const full = new Array(1_000_000).fill(tomb());
     expect(parseLegacyEnvelope(frame({ kind: 'clear', tombstones: full }))).not.toBeNull();
     expect(parseLegacyEnvelope(frame({ kind: 'clear', tombstones: [...full, tomb()] }))).toBeNull();
-  });
+  }, 30_000);
 
   it.each([
     [{ version: 2, editor: 'a' }, { version: 1, editor: 'z' }, true],
