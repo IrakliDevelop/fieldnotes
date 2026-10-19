@@ -1,9 +1,10 @@
 /**
  * Versioned element compare-and-set. KEYS[1] is the room element hash, KEYS[2] its tombstone hash.
- * upsert/remove ARGV: mode, id, expected version ('' = no record), JSON to store. The current record
- * is the decodable element, else the decodable tombstone; returns {1}, {0, kind, raw} or {0}.
- * clear ARGV: 'clear', JSON {id: version} that must match every decodable element, then id and
- * tombstone JSON pairs whose ids must equal the expected ids.
+ * upsert/remove ARGV: mode, id, expected JSON {version, editor?} ('' = no record), JSON to store.
+ * The current record is the decodable element, else the decodable tombstone; it must match the
+ * expected version and editor. Returns {1}, {0, kind, raw} or {0}.
+ * clear ARGV: 'clear', JSON {id: {version, editor?}} that must match every decodable element, then
+ * id and tombstone JSON pairs whose ids must equal the expected ids.
  */
 export const ELEMENT_WRITE_SCRIPT = `
 local function decode(raw)
@@ -34,7 +35,10 @@ if ARGV[1] == 'clear' then
     local element = decode(fields[i + 1])
     if element then
       elements = elements + 1
-      if expected[fields[i]] ~= element.version then return {0, 'element', fields[i + 1]} end
+      local want = expected[fields[i]]
+      if not want or want.version ~= element.version or want.editor ~= element.editor then
+        return {0, 'element', fields[i + 1]}
+      end
     end
   end
   if elements ~= count then return {0} end
@@ -50,8 +54,13 @@ if not current then
   kind, raw = 'tombstone', redis.call('HGET', KEYS[2], id)
   current = decode(raw)
 end
-if (current and current.version) ~= tonumber(ARGV[3]) then
-  if current then return {0, kind, raw} end
+local expected = nil
+if ARGV[3] ~= '' then expected = cjson.decode(ARGV[3]) end
+if current then
+  if not expected or current.version ~= expected.version or current.editor ~= expected.editor then
+    return {0, kind, raw}
+  end
+elseif expected then
   return {0}
 end
 if ARGV[1] == 'upsert' then

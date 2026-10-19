@@ -56,7 +56,7 @@ export class MemoryHubBackend implements HubBackend {
   async applyElement(
     room: string,
     write: ElementWrite,
-    expectedVersion: number | null,
+    expected: { version: number; editor?: string } | null,
   ): Promise<{ ok: true } | { ok: false; current: HubRecord | undefined }> {
     const records = this.room(room);
     if (write.kind === 'clear') {
@@ -64,7 +64,8 @@ export class MemoryHubBackend implements HubBackend {
       for (const [id, record] of records) {
         if (record.kind !== 'element') continue;
         elementCount++;
-        if (write.expected.get(id) !== record.element.version)
+        const want = write.expected.get(id);
+        if (want?.version !== record.element.version || want.editor !== record.element.editor)
           return { ok: false, current: record };
       }
       if (elementCount !== write.expected.size) return { ok: false, current: undefined };
@@ -76,7 +77,8 @@ export class MemoryHubBackend implements HubBackend {
     const id = write.kind === 'upsert' ? write.element.id : write.tombstone.id;
     const current = records.get(id);
     const stored = current?.kind === 'element' ? current.element : current?.tombstone;
-    if ((stored?.version ?? null) !== expectedVersion) return { ok: false, current };
+    if (stored?.version !== expected?.version || stored?.editor !== expected?.editor)
+      return { ok: false, current };
     records.set(
       id,
       write.kind === 'upsert'

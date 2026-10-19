@@ -337,12 +337,32 @@ describe.skipIf(!redisUrl)('RedisHubBackend elements against a real Redis', () =
       ]);
       expect(created.filter((r) => r.ok)).toHaveLength(1);
       const edited = await Promise.all([
-        a.applyElement('R', { kind: 'upsert', element: realShape(id, 2, 3) }, 1),
-        b.applyElement('R', { kind: 'upsert', element: realShape(id, 2, 4) }, 1),
+        a.applyElement('R', { kind: 'upsert', element: realShape(id, 2, 3) }, { version: 1 }),
+        b.applyElement('R', { kind: 'upsert', element: realShape(id, 2, 4) }, { version: 1 }),
       ]);
       expect(edited.filter((r) => r.ok)).toHaveLength(1);
       const stored = await a.getRecord('R', id);
       expect(edited.find((r) => !r.ok)).toEqual({ ok: false, current: stored });
+    }
+  });
+
+  it('lets exactly one of two backends racing equal-version writes with different editors win', async () => {
+    const [a, b] = [backend(), backend()];
+    const stamped = (id: string, editor: string): SyncElement => ({
+      ...realShape(id, 5),
+      editor,
+    });
+    const base = { version: 5, editor: 'a' };
+    for (let round = 0; round < 20; round++) {
+      const id = `e${round}`;
+      await a.applyElement('R', { kind: 'upsert', element: stamped(id, 'a') }, null);
+      const results = await Promise.all([
+        a.applyElement('R', { kind: 'upsert', element: stamped(id, 'z') }, base),
+        b.applyElement('R', { kind: 'upsert', element: stamped(id, 'm') }, base),
+      ]);
+      expect(results.filter((r) => r.ok)).toHaveLength(1);
+      const winner = results[0]?.ok ? 'z' : 'm';
+      expect(await a.getRecord('R', id)).toEqual({ kind: 'element', element: stamped(id, winner) });
     }
   });
 
@@ -360,7 +380,9 @@ describe.skipIf(!redisUrl)('RedisHubBackend elements against a real Redis', () =
       removedBy: 'gm',
       audience: 'gm',
     });
-    expect(await hub.applyElement('R', { kind: 'remove', tombstone: tomb('a', 2) }, 1)).toEqual({
+    expect(
+      await hub.applyElement('R', { kind: 'remove', tombstone: tomb('a', 2) }, { version: 1 }),
+    ).toEqual({
       ok: true,
     });
     expect(await hub.getRecord('R', 'a')).toEqual({ kind: 'tombstone', tombstone: tomb('a', 2) });
@@ -371,21 +393,21 @@ describe.skipIf(!redisUrl)('RedisHubBackend elements against a real Redis', () =
     await expect(
       hub.applyElement(
         'R',
-        { kind: 'clear', tombstones: [tomb('a', 4)], expected: new Map([['b', 3]]) },
+        { kind: 'clear', tombstones: [tomb('a', 4)], expected: new Map([['b', { version: 3 }]]) },
         null,
       ),
     ).rejects.toThrow('clear tombstones must match the expected ids');
     expect(
       await hub.applyElement(
         'R',
-        { kind: 'clear', tombstones: [tomb('b', 3)], expected: new Map([['b', 2]]) },
+        { kind: 'clear', tombstones: [tomb('b', 3)], expected: new Map([['b', { version: 2 }]]) },
         null,
       ),
     ).toEqual({ ok: false, current: { kind: 'element', element: realShape('b', 3) } });
     expect(
       await hub.applyElement(
         'R',
-        { kind: 'clear', tombstones: [tomb('b', 4)], expected: new Map([['b', 3]]) },
+        { kind: 'clear', tombstones: [tomb('b', 4)], expected: new Map([['b', { version: 3 }]]) },
         null,
       ),
     ).toEqual({ ok: true });
@@ -533,6 +555,38 @@ describe.skipIf(!redisUrl)('RedisHubBackend elements against a real Redis', () =
       const stored = await hub.getRecord('R', 'e');
       expect(stored?.kind === 'element' && stored.element.version).toBe(Number(base) + 1);
       expect([10, 20]).toContain(stored?.kind === 'element' && stored.element.position.x);
+    });
+
+    it('converges every client on Redis when two instances race equal-version writes with different editors', async () => {
+      const [portA, portB] = await startHubs();
+      const watchers = [connect(portA, 'gm'), connect(portB, 'gm')];
+      const writerA = await connectRaw(portA, 'gm');
+      const writerB = await connectRaw(portB, 'gm');
+      const send = (socket: WebSocket, id: string, editor: string, x: number): void =>
+        socket.send(
+          JSON.stringify({
+            from: 'gm-raw',
+            op: { kind: 'upsert', element: { ...realShape(id, 5, x), editor } },
+          }),
+        );
+      const hub = backend();
+      const ids = Array.from({ length: 10 }, (_, i) => `r${i}`);
+      for (const id of ids) send(writerA, id, 'a', 1);
+      await waitFor(async () => (await hub.snapshot('R')).elements.length === ids.length);
+
+      for (const id of ids) {
+        send(writerA, id, 'z', 26);
+        send(writerB, id, 'm', 13);
+      }
+
+      await waitFor(async () => {
+        const { elements } = await hub.snapshot('R');
+        return elements.every(
+          (stored) =>
+            stored.editor === 'z' &&
+            watchers.every((store) => store.getById(stored.id)?.position.x === 26),
+        );
+      });
     });
 
     it('never leaves a player-owned element when a player recreate races a GM delete', async () => {

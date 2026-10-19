@@ -6,6 +6,10 @@ import {
 } from '../element-scripts';
 
 type Store = Map<string, Map<string, string>>;
+interface Stamp {
+  version: number;
+  editor?: string;
+}
 
 function decode(raw: string | undefined): Record<string, unknown> | undefined {
   if (raw === undefined) return undefined;
@@ -32,7 +36,7 @@ function write(store: Store, [elementsKey, tombstonesKey]: string[], argv: strin
   if (!elementsKey || !tombstonesKey) throw new Error('element write takes two keys');
   const [mode = '', id = '', expectedRaw = '', payload = ''] = argv;
   if (mode === 'clear') {
-    const expected = JSON.parse(argv[1] ?? '') as Record<string, number>;
+    const expected = JSON.parse(argv[1] ?? '') as Record<string, Stamp>;
     const pairs = argv.slice(2);
     const ids = pairs.filter((_, i) => i % 2 === 0);
     if (
@@ -48,7 +52,10 @@ function write(store: Store, [elementsKey, tombstonesKey]: string[], argv: strin
       const element = decode(raw);
       if (!element) continue;
       elements++;
-      if (expected[field] !== element['version']) return [0, 'element', raw];
+      const want = expected[field];
+      if (want?.version !== element['version'] || want?.editor !== element['editor']) {
+        return [0, 'element', raw];
+      }
     }
     if (elements !== ids.length) return [0];
     store.delete(elementsKey);
@@ -65,8 +72,10 @@ function write(store: Store, [elementsKey, tombstonesKey]: string[], argv: strin
     raw = store.get(tombstonesKey)?.get(id);
     current = decode(raw);
   }
-  const expected = expectedRaw === '' ? undefined : Number(expectedRaw);
-  if (current?.['version'] !== expected) return current ? [0, kind, raw] : [0];
+  const expected = expectedRaw === '' ? undefined : (JSON.parse(expectedRaw) as Stamp);
+  if (current?.['version'] !== expected?.version || current?.['editor'] !== expected?.editor) {
+    return current ? [0, kind, raw] : [0];
+  }
   const [target, other] =
     mode === 'upsert' ? [elementsKey, tombstonesKey] : [tombstonesKey, elementsKey];
   hash(store, target).set(id, payload);

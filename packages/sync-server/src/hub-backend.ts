@@ -17,7 +17,11 @@ export type HubRecord =
 export type ElementWrite =
   | { kind: 'upsert'; element: SyncElement }
   | { kind: 'remove'; tombstone: StoredTombstone }
-  | { kind: 'clear'; tombstones: StoredTombstone[]; expected: ReadonlyMap<string, number> };
+  | {
+      kind: 'clear';
+      tombstones: StoredTombstone[];
+      expected: ReadonlyMap<string, { version: number; editor?: string }>;
+    };
 
 export interface HubBackend {
   /** True when every hub instance addresses the same atomic backing state (for example Redis). */
@@ -26,14 +30,16 @@ export interface HubBackend {
   snapshot(room: string): Promise<{ elements: SyncElement[]; tombstones: StoredTombstone[] }>;
   getRecord(room: string, id: string): Promise<HubRecord | undefined>;
   /**
-   * Writes atomically when the stored record's version equals `expectedVersion` (`null`: no record
-   * may exist). `clear` ignores it and requires its `expected` map to match every element exactly.
+   * Writes atomically when the stored record's version and editor equal `expected` (absent equals
+   * absent; `null`: no record may exist). Comparing the editor keeps two instances from both winning
+   * an equal-version race. `clear` ignores it and requires its `expected` map to match every element
+   * exactly.
    * A clear's tombstone ids equal its `expected` keys; backends should reject one where they differ.
    */
   applyElement(
     room: string,
     write: ElementWrite,
-    expectedVersion: number | null,
+    expected: { version: number; editor?: string } | null,
   ): Promise<{ ok: true } | { ok: false; current: HubRecord | undefined }>;
   layerRecords?(room: string): Promise<LayerRecord[]>;
   getLayerRecord?(room: string, id: string): Promise<LayerRecord | undefined>;

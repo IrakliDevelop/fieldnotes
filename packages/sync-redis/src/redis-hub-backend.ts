@@ -136,10 +136,10 @@ export class RedisHubBackend implements HubBackend {
   async applyElement(
     room: string,
     write: ElementWrite,
-    expectedVersion: number | null,
+    expected: { version: number; editor?: string } | null,
   ): Promise<{ ok: true } | { ok: false; current: HubRecord | undefined }> {
     await this.migrate(room);
-    const expected = expectedVersion === null ? '' : String(expectedVersion);
+    const want = expected === null ? '' : JSON.stringify(expected);
     let args: string[];
     if (write.kind === 'clear') {
       args = [
@@ -148,9 +148,9 @@ export class RedisHubBackend implements HubBackend {
         ...write.tombstones.flatMap((t) => [t.id, JSON.stringify(t)]),
       ];
     } else if (write.kind === 'upsert') {
-      args = ['upsert', write.element.id, expected, JSON.stringify(write.element)];
+      args = ['upsert', write.element.id, want, JSON.stringify(write.element)];
     } else {
-      args = ['remove', write.tombstone.id, expected, JSON.stringify(write.tombstone)];
+      args = ['remove', write.tombstone.id, want, JSON.stringify(write.tombstone)];
     }
     const result = await this.runScript(ELEMENT_WRITE_SCRIPT, {
       keys: [this.key(room), this.tombstonesKey(room)],

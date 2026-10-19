@@ -3409,7 +3409,7 @@ describe('protocol 2 wire', () => {
     const el = { ...sampleEl(), id: 'gone' };
     await backend.applyElement('R', { kind: 'upsert', element: el }, null);
     const tombstone = { id: 'gone', version: 4, editor: 'dm', removedAt: Date.now() };
-    await backend.applyElement('R', { kind: 'remove', tombstone }, 1);
+    await backend.applyElement('R', { kind: 'remove', tombstone }, { version: 1 });
 
     await hub.handleMessage('p', envelope('p', { kind: 'upsert', element: { ...el, version: 9 } }));
 
@@ -3548,6 +3548,32 @@ describe('versioned element pipeline (D5)', () => {
     expect(gm.sent).toEqual([]);
   });
 
+  it('an equal-version write that lost a race to another instance is corrected, not stored', async () => {
+    await backend.applyElement(
+      'R',
+      { kind: 'upsert', element: { ...el('e', 5), editor: 'a' } },
+      null,
+    );
+    const winner = { ...el('e', 5), editor: 'z' };
+    const read = backend.getRecord.bind(backend);
+    backend.getRecord = async (room, id) => {
+      const record = await read(room, id);
+      backend.getRecord = read;
+      await backend.applyElement(
+        room,
+        { kind: 'upsert', element: winner },
+        { version: 5, editor: 'a' },
+      );
+      return record;
+    };
+
+    await hub.handleMessage('gm', upsert({ ...el('e', 5), editor: 'm' }));
+
+    expect(await storedElement(backend, 'R', 'e')).toEqual(winner);
+    expect(frames(gm)).toEqual([{ from: 'hub', op: { kind: 'upsert', element: winner } }]);
+    expect(p1.sent).toEqual([]);
+  });
+
   it('accepts a version exactly 1_000_000 above the current one', async () => {
     await hub.handleMessage('p1', upsert(el('e', 2)));
     reset();
@@ -3683,7 +3709,7 @@ describe('versioned element pipeline (D5)', () => {
     open.addConnection(peer);
     const tombstone = { id: 't', version: 2, editor: 'x', removedAt: Date.now(), ownerId: 'p1' };
     await backend.applyElement('R', { kind: 'upsert', element: el('t') }, null);
-    await backend.applyElement('R', { kind: 'remove', tombstone }, 1);
+    await backend.applyElement('R', { kind: 'remove', tombstone }, { version: 1 });
 
     await open.handleMessage('p2x', upsert(el('t', 3)));
 
@@ -3697,7 +3723,7 @@ describe('versioned element pipeline (D5)', () => {
     hub.addConnection(anonymous);
     const tombstone = { id: 't', version: 2, editor: 'x', removedAt: Date.now(), ownerId: 'p1' };
     await backend.applyElement('R', { kind: 'upsert', element: el('t') }, null);
-    await backend.applyElement('R', { kind: 'remove', tombstone }, 1);
+    await backend.applyElement('R', { kind: 'remove', tombstone }, { version: 1 });
 
     await hub.handleMessage('anon', upsert(el('t', 3)));
 

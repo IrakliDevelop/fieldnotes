@@ -40,10 +40,14 @@ describe('MemoryHubBackend', () => {
     const backend = new MemoryHubBackend();
     await backend.applyElement('R', { kind: 'upsert', element: shape('a', 1) }, null);
     const v2 = shape('a', 2);
-    expect(await backend.applyElement('R', { kind: 'upsert', element: v2 }, 1)).toEqual({
+    expect(
+      await backend.applyElement('R', { kind: 'upsert', element: v2 }, { version: 1 }),
+    ).toEqual({
       ok: true,
     });
-    expect(await backend.applyElement('R', { kind: 'upsert', element: shape('a', 3) }, 1)).toEqual({
+    expect(
+      await backend.applyElement('R', { kind: 'upsert', element: shape('a', 3) }, { version: 1 }),
+    ).toEqual({
       ok: false,
       current: { kind: 'element', element: v2 },
     });
@@ -52,7 +56,9 @@ describe('MemoryHubBackend', () => {
 
   it('a numeric expected version conflicts when no record exists', async () => {
     const backend = new MemoryHubBackend();
-    expect(await backend.applyElement('R', { kind: 'upsert', element: shape('a', 2) }, 1)).toEqual({
+    expect(
+      await backend.applyElement('R', { kind: 'upsert', element: shape('a', 2) }, { version: 1 }),
+    ).toEqual({
       ok: false,
       current: undefined,
     });
@@ -62,12 +68,12 @@ describe('MemoryHubBackend', () => {
   it('remove replaces the element with a tombstone; a stale remove conflicts', async () => {
     const backend = new MemoryHubBackend({ now: () => 0 });
     await backend.applyElement('R', { kind: 'upsert', element: shape('a', 3) }, null);
-    expect(await backend.applyElement('R', { kind: 'remove', tombstone: tomb('a', 4) }, 2)).toEqual(
-      { ok: false, current: { kind: 'element', element: shape('a', 3) } },
-    );
-    expect(await backend.applyElement('R', { kind: 'remove', tombstone: tomb('a', 4) }, 3)).toEqual(
-      { ok: true },
-    );
+    expect(
+      await backend.applyElement('R', { kind: 'remove', tombstone: tomb('a', 4) }, { version: 2 }),
+    ).toEqual({ ok: false, current: { kind: 'element', element: shape('a', 3) } });
+    expect(
+      await backend.applyElement('R', { kind: 'remove', tombstone: tomb('a', 4) }, { version: 3 }),
+    ).toEqual({ ok: true });
     expect(await backend.getRecord('R', 'a')).toEqual({
       kind: 'tombstone',
       tombstone: tomb('a', 4),
@@ -81,7 +87,13 @@ describe('MemoryHubBackend', () => {
     expect(
       await backend.applyElement('R', { kind: 'upsert', element: shape('a', 5) }, null),
     ).toEqual({ ok: false, current: { kind: 'tombstone', tombstone: tomb('a', 4) } });
-    expect(await backend.applyElement('R', { kind: 'upsert', element: shape('a', 5) }, 4)).toEqual({
+    expect(
+      await backend.applyElement(
+        'R',
+        { kind: 'upsert', element: shape('a', 5) },
+        { version: 4, editor: 'c1' },
+      ),
+    ).toEqual({
       ok: true,
     });
     expect(await backend.snapshot('R')).toEqual({ elements: [shape('a', 5)], tombstones: [] });
@@ -95,8 +107,8 @@ describe('MemoryHubBackend', () => {
       kind: 'clear' as const,
       tombstones: [tomb('a', 2), tomb('b', 8)],
       expected: new Map([
-        ['a', 1],
-        ['b', 7],
+        ['a', { version: 1 }],
+        ['b', { version: 7 }],
       ]),
     };
     expect(await backend.applyElement('R', write, null)).toEqual({ ok: true });
@@ -132,7 +144,7 @@ describe('MemoryHubBackend', () => {
       {
         kind: 'clear',
         tombstones: entries.map(([id, v]) => tomb(id, v + 1)),
-        expected: new Map(entries),
+        expected: new Map(entries.map(([id, version]) => [id, { version }])),
       },
       null,
     );
@@ -141,6 +153,50 @@ describe('MemoryHubBackend', () => {
       elements: [shape('a', 1), shape('b', 7)],
       tombstones: [],
     });
+  });
+
+  it('two equal-version writes expecting the same (version, editor) succeed only once', async () => {
+    const backend = new MemoryHubBackend();
+    const stored = { ...shape('a', 5), editor: 'a' };
+    await backend.applyElement('R', { kind: 'upsert', element: stored }, null);
+    const z = { ...shape('a', 5), editor: 'z' };
+    const m = { ...shape('a', 5), editor: 'm' };
+    const expected = { version: 5, editor: 'a' };
+    expect(await backend.applyElement('R', { kind: 'upsert', element: z }, expected)).toEqual({
+      ok: true,
+    });
+    expect(await backend.applyElement('R', { kind: 'upsert', element: m }, expected)).toEqual({
+      ok: false,
+      current: { kind: 'element', element: z },
+    });
+  });
+
+  it.each([
+    ['a different editor', { version: 5, editor: 'b' }],
+    ['an absent editor', { version: 5 }],
+  ])('a write expecting %s conflicts with the stored editor', async (_name, expected) => {
+    const backend = new MemoryHubBackend();
+    const stored = { ...shape('a', 5), editor: 'a' };
+    await backend.applyElement('R', { kind: 'upsert', element: stored }, null);
+    expect(
+      await backend.applyElement('R', { kind: 'upsert', element: shape('a', 6) }, expected),
+    ).toEqual({ ok: false, current: { kind: 'element', element: stored } });
+  });
+
+  it('clear conflicts when an expected editor differs from the stored one', async () => {
+    const backend = new MemoryHubBackend();
+    const stored = { ...shape('a', 1), editor: 'a' };
+    await backend.applyElement('R', { kind: 'upsert', element: stored }, null);
+    const result = await backend.applyElement(
+      'R',
+      {
+        kind: 'clear',
+        tombstones: [tomb('a', 2)],
+        expected: new Map([['a', { version: 1, editor: 'b' }]]),
+      },
+      null,
+    );
+    expect(result).toEqual({ ok: false, current: { kind: 'element', element: stored } });
   });
 
   it('snapshot omits tombstones older than the retention', async () => {

@@ -575,7 +575,11 @@ export class SyncHub {
             };
       let outcome: Awaited<ReturnType<HubBackend['applyElement']>>;
       try {
-        outcome = await this.backend.applyElement(conn.room, write, stored?.version ?? null);
+        outcome = await this.backend.applyElement(
+          conn.room,
+          write,
+          stored ? { version: stored.version, editor: stored.editor } : null,
+        );
       } catch (error) {
         await this.sendCorrection(conn, from, candidate, record);
         throw error;
@@ -641,7 +645,9 @@ export class SyncHub {
         audience: element.audience,
         removedBy: conn.userId,
       }));
-      const expected = new Map(elements.map((element) => [element.id, element.version]));
+      const expected = new Map(
+        elements.map(({ id, version, editor }) => [id, { version, editor }]),
+      );
       let outcome: Awaited<ReturnType<HubBackend['applyElement']>>;
       try {
         outcome = await this.backend.applyElement(
