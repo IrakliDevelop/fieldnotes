@@ -569,6 +569,35 @@ describe('DomNodeManager', () => {
     });
   });
 
+  describe('html placeholder', () => {
+    it('is replaced by content once content is stored', () => {
+      const placeholdered = new DomNodeManager({
+        domLayer,
+        onEditRequest,
+        isEditingElement,
+        htmlPlaceholders: true,
+      });
+      const el = createHtmlElement({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
+      placeholdered.syncDomNode(el);
+      placeholdered.syncDomNode(el);
+      const node = placeholdered.getNode(el.id);
+      expect(node?.querySelectorAll('.fn-html-placeholder')).toHaveLength(1);
+
+      const content = document.createElement('span');
+      placeholdered.storeHtmlContent(el.id, content);
+      placeholdered.syncDomNode(el);
+
+      expect(node?.querySelector('.fn-html-placeholder')).toBeNull();
+      expect(node?.firstChild).toBe(content);
+    });
+
+    it('is absent by default', () => {
+      const el = createHtmlElement({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
+      manager.syncDomNode(el);
+      expect(manager.getNode(el.id)?.childNodes).toHaveLength(0);
+    });
+  });
+
   describe('hasContent', () => {
     it('returns false when no content is stored', () => {
       expect(manager.hasContent('nonexistent')).toBe(false);

@@ -7,6 +7,9 @@ export interface DomNodeManagerDeps {
   onEditRequest: (id: string) => void;
   isEditingElement: (id: string) => boolean;
   getVersion?: (id: string) => number;
+  isInteracting?: (id: string) => boolean;
+  /** Show a labelled placeholder in contentless html nodes; off when the host mounts its own. */
+  htmlPlaceholders?: boolean;
 }
 
 export class DomNodeManager {
@@ -21,6 +24,8 @@ export class DomNodeManager {
   private readonly onEditRequest: (id: string) => void;
   private readonly isEditingElement: (id: string) => boolean;
   private readonly getVersion: ((id: string) => number) | null;
+  private readonly isInteracting: (id: string) => boolean;
+  private readonly htmlPlaceholders: boolean;
   private lastSyncedVersion = new Map<string, number>();
   private lastSyncedZIndex = new Map<string, number>();
   private lastSyncedOpacity = new Map<string, number>();
@@ -31,6 +36,8 @@ export class DomNodeManager {
     this.onEditRequest = deps.onEditRequest;
     this.isEditingElement = deps.isEditingElement;
     this.getVersion = deps.getVersion ?? null;
+    this.isInteracting = deps.isInteracting ?? (() => false);
+    this.htmlPlaceholders = deps.htmlPlaceholders ?? false;
   }
 
   getNode(id: string): HTMLDivElement | undefined {
@@ -315,21 +322,24 @@ export class DomNodeManager {
 
     if (element.type === 'html') {
       const content = this.htmlContent.get(element.id);
+      // A data update mid-interaction must not drop the pointer events InteractMode granted.
+      const pointerEvents = element.interactive || this.isInteracting(element.id) ? 'auto' : 'none';
       if (!node.dataset['initialized']) {
         if (content) {
           node.dataset['initialized'] = 'true';
-          Object.assign(node.style, {
-            overflow: 'hidden',
-            pointerEvents: element.interactive ? 'auto' : 'none',
-          });
+          node.querySelector(':scope > .fn-html-placeholder')?.remove();
+          Object.assign(node.style, { overflow: 'hidden', pointerEvents });
           node.appendChild(content);
         } else {
           // G2: a contentless html node must not swallow pointer events. This is what an
           // unknown htmlType on an older client produces.
           node.style.pointerEvents = 'none';
+          if (this.htmlPlaceholders && !node.firstChild) {
+            node.appendChild(createHtmlPlaceholder(element.htmlType));
+          }
         }
       } else {
-        node.style.pointerEvents = element.interactive ? 'auto' : 'none';
+        node.style.pointerEvents = pointerEvents;
       }
     }
 
@@ -376,4 +386,24 @@ export class DomNodeManager {
       }
     }
   }
+}
+
+function createHtmlPlaceholder(htmlType: string | undefined): HTMLDivElement {
+  const placeholder = document.createElement('div');
+  placeholder.className = 'fn-html-placeholder';
+  placeholder.textContent = htmlType ? `${htmlType} widget` : 'HTML widget';
+  Object.assign(placeholder.style, {
+    boxSizing: 'border-box',
+    width: '100%',
+    height: '100%',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    border: '1px dashed #a1a1aa',
+    borderRadius: '4px',
+    color: '#71717a',
+    font: '12px sans-serif',
+    pointerEvents: 'none',
+  });
+  return placeholder;
 }

@@ -84,6 +84,15 @@ describe('InteractMode', () => {
     expect(node2.style.pointerEvents).toBe('auto');
   });
 
+  it('interactingId names the element being interacted with until it stops', () => {
+    createNode('el-1');
+    expect(interactMode.interactingId).toBeNull();
+    interactMode.startInteracting('el-1');
+    expect(interactMode.interactingId).toBe('el-1');
+    interactMode.stopInteracting();
+    expect(interactMode.interactingId).toBeNull();
+  });
+
   it('destroy calls stopInteracting', () => {
     const node = createNode('el-1');
     interactMode.startInteracting('el-1');
