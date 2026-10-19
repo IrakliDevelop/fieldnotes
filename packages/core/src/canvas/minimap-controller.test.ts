@@ -602,7 +602,7 @@ describe('MinimapController', () => {
     const queue = makeFrameQueue();
     const controller = makeController(viewport, canvas, queue);
 
-    // Stable-sort tie on zIndex=0 preserves insertion order: note, then text.
+    // Unplaced elements are added on top in insertion order: note, then text.
     expect(recorder.fillRectLog.length).toBe(2);
     expect(recorder.fillRectLog[0]?.fillStyle).toBe('#ff0000');
     expect(recorder.fillRectLog[1]?.fillStyle).toBe('rgba(100,116,139,0.6)');
@@ -708,7 +708,8 @@ describe('MinimapController', () => {
       type: 'extension',
       extensionType: 'test:box',
       position: { x: 5000, y: 5000 },
-      zIndex: 0,
+      index: 'a0',
+      version: 1,
       locked: false,
       layerId: viewport.layerManager.activeLayerId,
       data: {},

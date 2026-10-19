@@ -1,4 +1,5 @@
-import { EventBus } from '../core/event-bus';
+import { EventBus, isExternalChange } from '../core/event-bus';
+import { generateKeyBetween } from '../core/fractional-index';
 import type { Bounds, Point } from '../core/types';
 import { Quadtree } from '../core/quadtree';
 import { getElementVisualBounds, transferStrokeBounds } from './element-bounds';
@@ -79,6 +80,7 @@ export class ElementStore {
     return this.elements.size;
   }
 
+  /** DOM refresh counter; not element.version. */
   getVersion(id: string): number {
     return this._versions.get(id) ?? -1;
   }
@@ -90,13 +92,25 @@ export class ElementStore {
 
   getAll(): CanvasElement[] {
     if (this.sortedCache) return this.sortedCache;
-    this.sortedCache = [...this.elements.values()].sort((a, b) => {
-      const layerA = this.layerOrderMap.get(a.layerId) ?? 0;
-      const layerB = this.layerOrderMap.get(b.layerId) ?? 0;
-      if (layerA !== layerB) return layerA - layerB;
-      return a.zIndex - b.zIndex;
-    });
+    this.sortedCache = [...this.elements.values()].sort(this.compare);
     return this.sortedCache;
+  }
+
+  private compare = (a: CanvasElement, b: CanvasElement): number => {
+    const layerA = this.layerOrderMap.get(a.layerId) ?? 0;
+    const layerB = this.layerOrderMap.get(b.layerId) ?? 0;
+    if (layerA !== layerB) return layerA - layerB;
+    if (a.index !== b.index) return a.index < b.index ? -1 : 1;
+    if (a.id !== b.id) return a.id < b.id ? -1 : 1;
+    return 0;
+  };
+
+  private topIndex(layerId: string): string | null {
+    let top: string | null = null;
+    for (const el of this.elements.values()) {
+      if (el.layerId === layerId && (top === null || el.index > top)) top = el.index;
+    }
+    return top;
   }
 
   getById(id: string): CanvasElement | undefined {
@@ -117,6 +131,9 @@ export class ElementStore {
 
   add(element: CanvasElement, meta?: ElementChangeMeta): void {
     element = stampDataVersion(sanitizeRichText(element), this.registry);
+    if (element.index === '') {
+      element = { ...element, index: generateKeyBetween(this.topIndex(element.layerId), null) };
+    }
     this.sortedCache = null;
     this._versions.set(element.id, 0);
     this.elements.set(element.id, element);
@@ -128,7 +145,7 @@ export class ElementStore {
   update(id: string, partial: Partial<CanvasElement>, meta?: ElementChangeMeta): void {
     const existing = this.elements.get(id);
     if (!existing) return;
-    if ('zIndex' in partial || 'layerId' in partial) this.sortedCache = null;
+    if ('index' in partial || 'layerId' in partial) this.sortedCache = null;
     this._versions.set(id, (this._versions.get(id) ?? 0) + 1);
 
     // Shallow spread preserves the points array identity when `partial` omits points;
@@ -139,6 +156,18 @@ export class ElementStore {
       id: existing.id,
       type: existing.type,
     } as CanvasElement;
+
+    // Local edits (including undo/redo) always move forward; remote ones carry the accepted version.
+    if (!isExternalChange(meta)) {
+      updated.version = existing.version + 1;
+      delete updated.editor;
+    } else if (!('version' in partial)) {
+      updated.version = existing.version;
+      if (existing.editor === undefined) delete updated.editor;
+      else updated.editor = existing.editor;
+    } else if (partial.editor === undefined) {
+      delete updated.editor;
+    }
 
     if (updated.type === 'stroke' && existing.type === 'stroke') {
       transferStrokeRenderData(existing, updated);
@@ -190,9 +219,18 @@ export class ElementStore {
   }
 
   loadSnapshot(elements: CanvasElement[], meta?: ElementChangeMeta): void {
-    const sanitizedElements = elements.map((el) =>
-      stampDataVersion(sanitizeRichText(el), this.registry),
-    );
+    const tops = new Map<string, string>();
+    for (const el of elements) {
+      const top = tops.get(el.layerId);
+      if (el.index !== '' && (top === undefined || el.index > top)) tops.set(el.layerId, el.index);
+    }
+    const sanitizedElements = elements.map((el) => {
+      const element = stampDataVersion(sanitizeRichText(el), this.registry);
+      if (element.index !== '') return element;
+      const index = generateKeyBetween(tops.get(element.layerId) ?? null, null);
+      tops.set(element.layerId, index);
+      return { ...element, index };
+    });
     this.sortedCache = null;
     this._versions.clear();
     this.elements.clear();
@@ -216,59 +254,48 @@ export class ElementStore {
   }
 
   bringToFront(id: string): void {
-    const el = this.elements.get(id);
-    if (!el) return;
-    const siblings = [...this.elements.values()].filter(
-      (e) => e.layerId === el.layerId && e.id !== id,
-    );
-    if (siblings.length === 0) return;
-    const maxZ = Math.max(...siblings.map((e) => e.zIndex));
-    if (el.zIndex >= maxZ) return;
-    this.update(id, { zIndex: maxZ + 1 });
+    const siblings = this.layerSiblings(id);
+    const top = siblings.at(-1);
+    if (!top || top.id === id) return;
+    this.reorder(id, top.index, null);
   }
 
   sendToBack(id: string): void {
-    const el = this.elements.get(id);
-    if (!el) return;
-    const siblings = [...this.elements.values()].filter(
-      (e) => e.layerId === el.layerId && e.id !== id,
-    );
-    if (siblings.length === 0) return;
-    const minZ = Math.min(...siblings.map((e) => e.zIndex));
-    if (el.zIndex <= minZ) return;
-    this.update(id, { zIndex: minZ - 1 });
+    const bottom = this.layerSiblings(id)[0];
+    if (!bottom || bottom.id === id) return;
+    this.reorder(id, null, bottom.index);
   }
 
   bringForward(id: string): void {
-    const el = this.elements.get(id);
-    if (!el) return;
-    const sorted = [...this.elements.values()]
-      .filter((e) => e.layerId === el.layerId)
-      .sort((a, b) => a.zIndex - b.zIndex);
-    const idx = sorted.findIndex((e) => e.id === id);
-    if (idx < 0 || idx >= sorted.length - 1) return;
-    const next = sorted[idx + 1];
+    const siblings = this.layerSiblings(id);
+    const next = siblings[siblings.findIndex((e) => e.id === id) + 1];
     if (!next) return;
-    const myZ = el.zIndex;
-    const nextZ = next.zIndex;
-    this.update(id, { zIndex: nextZ });
-    this.update(next.id, { zIndex: myZ });
+    const upper = siblings.find((e) => e.index > next.index);
+    this.reorder(id, next.index, upper?.index ?? null);
   }
 
   sendBackward(id: string): void {
-    const el = this.elements.get(id);
-    if (!el) return;
-    const sorted = [...this.elements.values()]
-      .filter((e) => e.layerId === el.layerId)
-      .sort((a, b) => a.zIndex - b.zIndex);
-    const idx = sorted.findIndex((e) => e.id === id);
-    if (idx <= 0) return;
-    const prev = sorted[idx - 1];
+    const siblings = this.layerSiblings(id);
+    const prev = siblings[siblings.findIndex((e) => e.id === id) - 1];
     if (!prev) return;
-    const myZ = el.zIndex;
-    const prevZ = prev.zIndex;
-    this.update(id, { zIndex: prevZ });
-    this.update(prev.id, { zIndex: myZ });
+    const lower = siblings.filter((e) => e.index < prev.index).at(-1);
+    this.reorder(id, lower?.index ?? null, prev.index);
+  }
+
+  // Sorted elements sharing the layer of `id`; empty when `id` is unknown.
+  private layerSiblings(id: string): CanvasElement[] {
+    const el = this.elements.get(id);
+    return el ? this.getAll().filter((e) => e.layerId === el.layerId) : [];
+  }
+
+  private reorder(id: string, below: string | null, above: string | null): void {
+    let index: string;
+    try {
+      index = generateKeyBetween(below, above);
+    } catch {
+      return; // no key fits (128-character limit): leave the order unchanged
+    }
+    this.update(id, { index });
   }
 
   queryRect(rect: Bounds): CanvasElement[] {
@@ -278,12 +305,7 @@ export class ElementStore {
       const el = this.elements.get(id);
       if (el) elements.push(el);
     }
-    return elements.sort((a, b) => {
-      const layerA = this.layerOrderMap.get(a.layerId) ?? 0;
-      const layerB = this.layerOrderMap.get(b.layerId) ?? 0;
-      if (layerA !== layerB) return layerA - layerB;
-      return a.zIndex - b.zIndex;
-    });
+    return elements.sort(this.compare);
   }
 
   queryPoint(point: Point): CanvasElement[] {

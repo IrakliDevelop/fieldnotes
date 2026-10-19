@@ -336,6 +336,10 @@ export class KeyboardActions {
       const newId = idMap.get(el.id);
       if (!newId) continue;
       clone.id = newId;
+      // A clone is a new element: placed on top by the store, starting its own history.
+      clone.index = '';
+      clone.version = 1;
+      delete clone.editor;
       if (clone.groupId) clone.groupId = groupIdMap.get(clone.groupId) ?? clone.groupId;
       clone.position = { x: clone.position.x + offset.x, y: clone.position.y + offset.y };
 

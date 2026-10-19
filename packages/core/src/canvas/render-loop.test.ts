@@ -1706,16 +1706,26 @@ describe('RenderLoop', () => {
       renderLoop.flush();
     }
 
-    function shape(id: string, zIndex: number) {
+    function shape(id: string, z: number) {
       return {
-        ...createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 }, layerId, zIndex }),
+        ...createShape({
+          position: { x: 0, y: 0 },
+          size: { w: 10, h: 10 },
+          layerId,
+          index: `a${z}`,
+        }),
         id,
       };
     }
 
-    function note(id: string, zIndex: number) {
+    function note(id: string, z: number) {
       return {
-        ...createNote({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 }, layerId, zIndex }),
+        ...createNote({
+          position: { x: 0, y: 0 },
+          size: { w: 10, h: 10 },
+          layerId,
+          index: `a${z}`,
+        }),
         id,
       };
     }
@@ -1798,7 +1808,8 @@ describe('RenderLoop', () => {
         type: 'extension',
         extensionType: 'test:box',
         position: { x, y: 0 },
-        zIndex: 0,
+        index: 'a0',
+        version: 1,
         locked: false,
         layerId,
         data: {},
@@ -1857,13 +1868,13 @@ describe('RenderLoop', () => {
       restoreGetContext();
     });
 
-    function shape(id: string, zIndex: number, onLayer = layerId) {
+    function shape(id: string, z: number, onLayer = layerId) {
       return {
         ...createShape({
           position: { x: 0, y: 0 },
           size: { w: 10, h: 10 },
           layerId: onLayer,
-          zIndex,
+          index: `a${z}`,
         }),
         id,
       };
@@ -1930,14 +1941,14 @@ describe('RenderLoop', () => {
       ]);
     });
 
-    it('zIndex or layer change is not lifted', () => {
+    it('index or layer change is not lifted', () => {
       const otherLayerId = layers.createLayer().id;
       store.add(shape('A', 1));
       store.add(shape('B', 2));
       frame();
       const rasterFrames: boolean[] = [];
       for (let i = 3; i < 7; i++) {
-        store.update('B', { zIndex: i });
+        store.update('B', { index: `a${i}` });
         rasterFrames.push(frame());
       }
       for (let i = 0; i < 4; i++) {
@@ -1995,7 +2006,7 @@ describe('RenderLoop', () => {
     it('DOM element not lifted', () => {
       store.add(shape('A', 1));
       store.add({
-        ...createNote({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 }, layerId, zIndex: 2 }),
+        ...createNote({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 }, layerId, index: 'a2' }),
         id: 'N',
       });
       frame();

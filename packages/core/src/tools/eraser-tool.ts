@@ -110,7 +110,7 @@ export class EraserTool implements Tool {
             opacity: el.opacity,
             blendMode: el.blendMode,
             layerId: el.layerId,
-            zIndex: el.zIndex,
+            index: el.index,
             position: el.position,
           }),
         };

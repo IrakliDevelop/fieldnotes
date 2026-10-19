@@ -31,7 +31,7 @@ describe('Viewport plugin lifecycle', () => {
 
   it('keeps plugin-free construction backward compatible', () => {
     const viewport = new Viewport(container, { plugins: [] });
-    expect(viewport.exportState().version).toBe(4);
+    expect(viewport.exportState().version).toBe(5);
     viewport.destroy();
   });
 

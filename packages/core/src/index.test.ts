@@ -225,6 +225,10 @@ describe('core public surface', () => {
     expect(FN.assignLegacyOrder).toBeTypeOf('function');
   });
 
+  it('exports pickBaseFields', () => {
+    expect(FN.pickBaseFields).toBeTypeOf('function');
+  });
+
   it('exports createDefaultTools', () => {
     expect(FN.createDefaultTools).toBeTypeOf('function');
   });

@@ -113,8 +113,8 @@ describe('Viewport.getElementAt', () => {
   });
 
   it('returns the topmost element that PASSES match, not null, when a non-matching element covers it', () => {
-    vp.store.add({ ...imageAt('wanted', 0, 0, targetLayerId), zIndex: 1 });
-    vp.store.add({ ...imageAt('cover', 0, 0, targetLayerId), zIndex: 999 });
+    vp.store.add({ ...imageAt('wanted', 0, 0, targetLayerId), index: 'a1' });
+    vp.store.add({ ...imageAt('cover', 0, 0, targetLayerId), index: 'b00' });
 
     // Positive control: without a filter the cover wins, so the assertion below
     // cannot pass by construction.

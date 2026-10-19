@@ -1852,13 +1852,15 @@ describe('InputHandler', () => {
       const note1 = createNote({
         position: { x: 100, y: 100 },
         size: { w: 200, h: 100 },
-        zIndex: 0,
+        index: 'a0',
+        version: 1,
         layerId: 'L1',
       });
       const note2 = createNote({
         position: { x: 200, y: 200 },
         size: { w: 200, h: 100 },
-        zIndex: 1,
+        index: 'a1',
+        version: 1,
         layerId: 'L1',
       });
       store.add(note1);
@@ -1890,8 +1892,7 @@ describe('InputHandler', () => {
     it('] brings selected element forward', () => {
       const { store, note1, note2, h } = setupZOrder();
       window.dispatchEvent(new KeyboardEvent('keydown', { key: ']', bubbles: true }));
-      expect(store.getById(note1.id)?.zIndex).toBe(1);
-      expect(store.getById(note2.id)?.zIndex).toBe(0);
+      expect(store.getAll().map((el) => el.id)).toEqual([note2.id, note1.id]);
       h.destroy();
     });
 
@@ -1899,27 +1900,26 @@ describe('InputHandler', () => {
       const { store, note1, note2, tm, h } = setupZOrder();
       (tm.activeTool as unknown as { selectedIds: string[] }).selectedIds = [note2.id];
       window.dispatchEvent(new KeyboardEvent('keydown', { key: '[', bubbles: true }));
-      expect(store.getById(note2.id)?.zIndex).toBe(0);
-      expect(store.getById(note1.id)?.zIndex).toBe(1);
+      expect(store.getAll().map((el) => el.id)).toEqual([note2.id, note1.id]);
       h.destroy();
     });
 
     it('Ctrl+] brings selected element to front', () => {
-      const { store, note1, h } = setupZOrder();
+      const { store, note1, note2, h } = setupZOrder();
       window.dispatchEvent(
         new KeyboardEvent('keydown', { key: ']', ctrlKey: true, bubbles: true }),
       );
-      expect(store.getById(note1.id)?.zIndex).toBe(2);
+      expect(store.getAll().map((el) => el.id)).toEqual([note2.id, note1.id]);
       h.destroy();
     });
 
     it('Ctrl+[ sends selected element to back', () => {
-      const { store, note2, tm, h } = setupZOrder();
+      const { store, note1, note2, tm, h } = setupZOrder();
       (tm.activeTool as unknown as { selectedIds: string[] }).selectedIds = [note2.id];
       window.dispatchEvent(
         new KeyboardEvent('keydown', { key: '[', ctrlKey: true, bubbles: true }),
       );
-      expect(store.getById(note2.id)?.zIndex).toBe(-1);
+      expect(store.getAll().map((el) => el.id)).toEqual([note2.id, note1.id]);
       h.destroy();
     });
 
@@ -1933,19 +1933,19 @@ describe('InputHandler', () => {
 
     it('no-ops when tool is not select', () => {
       const { store, note1, h, tm } = setupZOrder();
-      const originalZ = store.getById(note1.id)?.zIndex;
+      const originalIndex = store.getById(note1.id)?.index;
       (tm as unknown as { activeTool: { name: string } }).activeTool.name = 'pencil';
       window.dispatchEvent(new KeyboardEvent('keydown', { key: ']', bubbles: true }));
-      expect(store.getById(note1.id)?.zIndex).toBe(originalZ);
+      expect(store.getById(note1.id)?.index).toBe(originalIndex);
       h.destroy();
     });
 
     it('no-ops when selection is empty', () => {
       const { store, note1, tm, h } = setupZOrder();
-      const originalZ = store.getById(note1.id)?.zIndex;
+      const originalIndex = store.getById(note1.id)?.index;
       (tm.activeTool as unknown as { selectedIds: string[] }).selectedIds = [];
       window.dispatchEvent(new KeyboardEvent('keydown', { key: ']', bubbles: true }));
-      expect(store.getById(note1.id)?.zIndex).toBe(originalZ);
+      expect(store.getById(note1.id)?.index).toBe(originalIndex);
       h.destroy();
     });
   });

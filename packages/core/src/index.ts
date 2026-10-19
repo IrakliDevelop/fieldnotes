@@ -195,6 +195,7 @@ export {
   createShape,
   DEFAULT_NOTE_FONT_SIZE,
 } from './elements/element-factory';
+export { pickBaseFields } from './elements/base-fields';
 export {
   getArrowControlPoint,
   getArrowMidpoint,

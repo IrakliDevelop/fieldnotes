@@ -4,7 +4,12 @@ export interface BaseElement {
   id: string;
   type: string;
   position: Point;
-  zIndex: number;
+  /** Fractional order key within the layer; `''` only on input, meaning "place on top". */
+  index: string;
+  /** Per-element revision: local edits bump it, remote edits carry the accepted value. */
+  version: number;
+  /** Peer that wrote the accepted remote version; absent after a local edit. */
+  editor?: string;
   locked: boolean;
   layerId: string;
   /** Optional flat group membership. Elements sharing a groupId select/move/delete as a unit. */

@@ -2,6 +2,11 @@ export interface EventMeta {
   origin?: string;
 }
 
+/** True for changes applied from outside this client: not recorded to history, versions taken as given. */
+export function isExternalChange(meta: EventMeta | undefined): boolean {
+  return meta?.origin !== undefined && meta.origin !== 'local';
+}
+
 const EMPTY_META: EventMeta = Object.freeze({});
 
 type Listener<T> = (data: T, meta: EventMeta) => void;

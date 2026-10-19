@@ -4,6 +4,7 @@ import type {
   ElementTypeDefinition,
   ElementTypeKey,
 } from './types';
+import { pickBaseFields } from './base-fields';
 
 export class ElementRegistry {
   private readonly definitions = new Map<string, ElementTypeDefinition<BaseElement>>();
@@ -43,7 +44,7 @@ export class ElementRegistry {
       typed: T,
     ): ReturnType<ElementTypeAdapter['wrap']> => {
       const wrapped = def.wrap(typed);
-      return { ...wrapped, data: { ...original.data, ...wrapped.data } };
+      return { ...pickBaseFields(typed), ...wrapped, data: { ...original.data, ...wrapped.data } };
     };
 
     const adapter: ElementTypeAdapter = {

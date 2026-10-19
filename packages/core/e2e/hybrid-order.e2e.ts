@@ -12,7 +12,7 @@ test.describe('hybrid paint order', () => {
         addShape: (options: Record<string, unknown>) => string;
         requestRender: () => void;
         store: {
-          update: (id: string, patch: { zIndex: number }) => void;
+          update: (id: string, patch: { index: string }) => void;
         };
       };
 
@@ -27,9 +27,9 @@ test.describe('hybrid paint order', () => {
       const high = document.createElement('div');
       high.style.background = 'blue';
       const highId = vp.addHtmlElement(high, { x: 20, y: 20 }, { w: 100, h: 100 });
-      vp.store.update(lowId, { zIndex: 0 });
-      vp.store.update(shapeId, { zIndex: 1 });
-      vp.store.update(highId, { zIndex: 2 });
+      vp.store.update(lowId, { index: 'a0' });
+      vp.store.update(shapeId, { index: 'a1' });
+      vp.store.update(highId, { index: 'a2' });
       vp.requestRender();
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 
@@ -45,7 +45,7 @@ test.describe('hybrid paint order', () => {
           .sort((a, b) => a.order - b.order);
       const initial = read();
 
-      vp.store.update(shapeId, { zIndex: 3 });
+      vp.store.update(shapeId, { index: 'a3' });
       vp.requestRender();
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       return { initial, reordered: read() };

@@ -4,6 +4,8 @@ import { ElementStore } from './element-store';
 import * as strokeCache from './stroke-cache';
 import { getElementBounds } from './element-bounds';
 import { ElementRegistry } from './element-registry';
+import { HistoryRecorder } from '../history/history-recorder';
+import { HistoryStack } from '../history/history-stack';
 import { createStroke, createArrow } from './element-factory';
 import type {
   CanvasElement,
@@ -22,7 +24,8 @@ function makeNote(overrides: Partial<NoteElement> = {}): NoteElement {
     text: 'Hello',
     backgroundColor: '#ffeb3b',
     textColor: '#000000',
-    zIndex: 0,
+    index: 'a0',
+    version: 1,
     locked: false,
     layerId: '',
     ...overrides,
@@ -41,7 +44,8 @@ function makeStroke(overrides: Partial<StrokeElement> = {}): StrokeElement {
     color: '#000',
     width: 2,
     opacity: 1,
-    zIndex: 0,
+    index: 'a0',
+    version: 1,
     locked: false,
     layerId: '',
     ...overrides,
@@ -58,7 +62,8 @@ function makeText(overrides: Partial<TextElement> = {}): TextElement {
     fontSize: 16,
     color: '#000000',
     textAlign: 'left',
-    zIndex: 0,
+    index: 'a0',
+    version: 1,
     locked: false,
     layerId: '',
     ...overrides,
@@ -182,11 +187,11 @@ describe('ElementStore', () => {
   });
 
   describe('ordering', () => {
-    it('returns elements sorted by zIndex', () => {
+    it('returns elements sorted by index', () => {
       const store = new ElementStore();
-      store.add(makeNote({ id: 'a', zIndex: 2 }));
-      store.add(makeStroke({ id: 'b', zIndex: 0 }));
-      store.add(makeNote({ id: 'c', zIndex: 1 }));
+      store.add(makeNote({ id: 'a', index: 'a2' }));
+      store.add(makeStroke({ id: 'b', index: 'a0' }));
+      store.add(makeNote({ id: 'c', index: 'a1' }));
 
       const ids = store.getAll().map((el) => el.id);
       expect(ids).toEqual(['b', 'c', 'a']);
@@ -194,7 +199,7 @@ describe('ElementStore', () => {
   });
 
   describe('layer-aware sorting', () => {
-    it('sorts by layer order then zIndex', () => {
+    it('sorts by layer order then index', () => {
       const store = new ElementStore();
       store.setLayerOrder(
         new Map([
@@ -203,18 +208,18 @@ describe('ElementStore', () => {
         ]),
       );
 
-      store.add(makeNote({ id: 'fg-z0', zIndex: 0, layerId: 'fg' }));
-      store.add(makeNote({ id: 'bg-z1', zIndex: 1, layerId: 'bg' }));
-      store.add(makeNote({ id: 'bg-z0', zIndex: 0, layerId: 'bg' }));
+      store.add(makeNote({ id: 'fg-z0', index: 'a0', layerId: 'fg' }));
+      store.add(makeNote({ id: 'bg-z1', index: 'a1', layerId: 'bg' }));
+      store.add(makeNote({ id: 'bg-z0', index: 'a0', layerId: 'bg' }));
 
       const ids = store.getAll().map((e) => e.id);
       expect(ids).toEqual(['bg-z0', 'bg-z1', 'fg-z0']);
     });
 
-    it('falls back to zIndex-only when no layer order set', () => {
+    it('falls back to index-only when no layer order set', () => {
       const store = new ElementStore();
-      store.add(makeNote({ id: 'a', zIndex: 2, layerId: 'x' }));
-      store.add(makeNote({ id: 'b', zIndex: 1, layerId: 'y' }));
+      store.add(makeNote({ id: 'a', index: 'a2', layerId: 'x' }));
+      store.add(makeNote({ id: 'b', index: 'a1', layerId: 'y' }));
       const ids = store.getAll().map((e) => e.id);
       expect(ids).toEqual(['b', 'a']);
     });
@@ -375,10 +380,10 @@ describe('ElementStore', () => {
     it('returns results sorted by z-order', () => {
       const store = new ElementStore();
       store.add(
-        makeNote({ id: 'low', position: { x: 0, y: 0 }, size: { w: 50, h: 50 }, zIndex: 1 }),
+        makeNote({ id: 'low', position: { x: 0, y: 0 }, size: { w: 50, h: 50 }, index: 'a1' }),
       );
       store.add(
-        makeNote({ id: 'high', position: { x: 0, y: 0 }, size: { w: 50, h: 50 }, zIndex: 10 }),
+        makeNote({ id: 'high', position: { x: 0, y: 0 }, size: { w: 50, h: 50 }, index: 'aA' }),
       );
       const results = store.queryRect({ x: 0, y: 0, w: 100, h: 100 });
       expect(results.map((e) => e.id)).toEqual(['low', 'high']);
@@ -423,7 +428,8 @@ describe('ElementStore', () => {
         strokeColor: '#ccc',
         strokeWidth: 1,
         opacity: 0.5,
-        zIndex: 0,
+        index: 'a0',
+        version: 1,
         locked: false,
         layerId: 'default',
       });
@@ -502,8 +508,8 @@ describe('ElementStore', () => {
   describe('getAll caching', () => {
     it('returns same array reference on consecutive calls', () => {
       const store = new ElementStore();
-      store.add(makeNote({ id: 'a', zIndex: 1 }));
-      store.add(makeStroke({ id: 'b', zIndex: 0 }));
+      store.add(makeNote({ id: 'a', index: 'a1' }));
+      store.add(makeStroke({ id: 'b', index: 'a0' }));
 
       const first = store.getAll();
       const second = store.getAll();
@@ -532,16 +538,16 @@ describe('ElementStore', () => {
       const store = new ElementStore();
       store.add(makeNote({ id: 'a' }));
       const before = store.getAll();
-      store.update('a', { zIndex: 5 });
+      store.update('a', { index: 'a5' });
       const after = store.getAll();
       expect(before).not.toBe(after);
     });
 
     it('swaps a position-only update into a fresh array without re-sorting', () => {
       const store = new ElementStore();
-      store.add(makeNote({ id: 'a', zIndex: 2 }));
-      store.add(makeNote({ id: 'b', zIndex: 0 }));
-      store.add(makeNote({ id: 'c', zIndex: 1 }));
+      store.add(makeNote({ id: 'a', index: 'a2' }));
+      store.add(makeNote({ id: 'b', index: 'a0' }));
+      store.add(makeNote({ id: 'c', index: 'a1' }));
       const before = store.getAll();
       const sort = vi.spyOn(Array.prototype, 'sort');
 
@@ -557,7 +563,7 @@ describe('ElementStore', () => {
       expect(before[1]?.position).toEqual({ x: 0, y: 0 });
     });
 
-    it.each([{ zIndex: 5 }, { layerId: 'L0' }])('re-sorts after an update with %o', (patch) => {
+    it.each([{ index: 'a5' }, { layerId: 'L0' }])('re-sorts after an update with %o', (patch) => {
       const store = new ElementStore();
       store.setLayerOrder(
         new Map([
@@ -565,15 +571,13 @@ describe('ElementStore', () => {
           ['L1', 1],
         ]),
       );
-      store.add(makeNote({ id: 'a', zIndex: 1, layerId: 'L1' }));
-      store.add(makeNote({ id: 'b', zIndex: 2, layerId: 'L1' }));
+      store.add(makeNote({ id: 'a', index: 'a1', layerId: 'L1' }));
+      store.add(makeNote({ id: 'b', index: 'a2', layerId: 'L1' }));
       store.getAll();
 
       store.update('a', patch);
 
-      expect(store.getAll().map((el) => el.id)).toEqual(
-        'zIndex' in patch ? ['b', 'a'] : ['a', 'b'],
-      );
+      expect(store.getAll().map((el) => el.id)).toEqual('index' in patch ? ['b', 'a'] : ['a', 'b']);
     });
 
     it('invalidates cache after clear', () => {
@@ -823,22 +827,24 @@ describe('ElementStore', () => {
   });
 
   describe('z-order', () => {
+    const order = (store: ElementStore) => store.getAll().map((el) => el.id);
+
     describe('bringToFront', () => {
-      it('sets zIndex to max + 1 within layer', () => {
+      it('moves the element above every sibling in its layer', () => {
         const store = new ElementStore();
-        store.add(makeNote({ id: 'a', zIndex: 0, layerId: 'L1' }));
-        store.add(makeNote({ id: 'b', zIndex: 5, layerId: 'L1' }));
-        store.add(makeNote({ id: 'c', zIndex: 2, layerId: 'L1' }));
+        store.add(makeNote({ id: 'a', index: 'a0', layerId: 'L1' }));
+        store.add(makeNote({ id: 'b', index: 'a5', layerId: 'L1' }));
+        store.add(makeNote({ id: 'c', index: 'a2', layerId: 'L1' }));
         store.bringToFront('a');
-        expect(store.getById('a')?.zIndex).toBe(6);
+        expect(order(store)).toEqual(['c', 'b', 'a']);
       });
 
       it('no-ops when element is already at front', () => {
         const store = new ElementStore();
-        store.add(makeNote({ id: 'a', zIndex: 10, layerId: 'L1' }));
-        store.add(makeNote({ id: 'b', zIndex: 5, layerId: 'L1' }));
+        store.add(makeNote({ id: 'a', index: 'aA', layerId: 'L1' }));
+        store.add(makeNote({ id: 'b', index: 'a5', layerId: 'L1' }));
         store.bringToFront('a');
-        expect(store.getById('a')?.zIndex).toBe(10);
+        expect(store.getById('a')?.index).toBe('aA');
       });
 
       it('no-ops for unknown id', () => {
@@ -849,36 +855,36 @@ describe('ElementStore', () => {
 
       it('no-ops for only element in layer', () => {
         const store = new ElementStore();
-        store.add(makeNote({ id: 'a', zIndex: 0, layerId: 'L1' }));
+        store.add(makeNote({ id: 'a', index: 'a0', layerId: 'L1' }));
         store.bringToFront('a');
-        expect(store.getById('a')?.zIndex).toBe(0);
+        expect(store.getById('a')?.index).toBe('a0');
       });
 
       it('only considers elements in same layer', () => {
         const store = new ElementStore();
-        store.add(makeNote({ id: 'a', zIndex: 0, layerId: 'L1' }));
-        store.add(makeNote({ id: 'b', zIndex: 100, layerId: 'L2' }));
+        store.add(makeNote({ id: 'a', index: 'a0', layerId: 'L1' }));
+        store.add(makeNote({ id: 'b', index: 'b10', layerId: 'L2' }));
         store.bringToFront('a');
-        expect(store.getById('a')?.zIndex).toBe(0);
+        expect(store.getById('a')?.index).toBe('a0');
       });
     });
 
     describe('sendToBack', () => {
-      it('sets zIndex to min - 1 within layer', () => {
+      it('moves the element below every sibling in its layer', () => {
         const store = new ElementStore();
-        store.add(makeNote({ id: 'a', zIndex: 5, layerId: 'L1' }));
-        store.add(makeNote({ id: 'b', zIndex: 0, layerId: 'L1' }));
-        store.add(makeNote({ id: 'c', zIndex: 2, layerId: 'L1' }));
+        store.add(makeNote({ id: 'a', index: 'a5', layerId: 'L1' }));
+        store.add(makeNote({ id: 'b', index: 'a0', layerId: 'L1' }));
+        store.add(makeNote({ id: 'c', index: 'a2', layerId: 'L1' }));
         store.sendToBack('a');
-        expect(store.getById('a')?.zIndex).toBe(-1);
+        expect(order(store)).toEqual(['a', 'b', 'c']);
       });
 
       it('no-ops when element is already at back', () => {
         const store = new ElementStore();
-        store.add(makeNote({ id: 'a', zIndex: 0, layerId: 'L1' }));
-        store.add(makeNote({ id: 'b', zIndex: 5, layerId: 'L1' }));
+        store.add(makeNote({ id: 'a', index: 'a0', layerId: 'L1' }));
+        store.add(makeNote({ id: 'b', index: 'a5', layerId: 'L1' }));
         store.sendToBack('a');
-        expect(store.getById('a')?.zIndex).toBe(0);
+        expect(store.getById('a')?.index).toBe('a0');
       });
 
       it('no-ops for unknown id', () => {
@@ -889,22 +895,21 @@ describe('ElementStore', () => {
     });
 
     describe('bringForward', () => {
-      it('swaps zIndex with next higher element in same layer', () => {
+      it('moves above the next higher element in the same layer', () => {
         const store = new ElementStore();
-        store.add(makeNote({ id: 'a', zIndex: 0, layerId: 'L1' }));
-        store.add(makeNote({ id: 'b', zIndex: 1, layerId: 'L1' }));
-        store.add(makeNote({ id: 'c', zIndex: 2, layerId: 'L1' }));
+        store.add(makeNote({ id: 'a', index: 'a0', layerId: 'L1' }));
+        store.add(makeNote({ id: 'b', index: 'a1', layerId: 'L1' }));
+        store.add(makeNote({ id: 'c', index: 'a2', layerId: 'L1' }));
         store.bringForward('a');
-        expect(store.getById('a')?.zIndex).toBe(1);
-        expect(store.getById('b')?.zIndex).toBe(0);
+        expect(order(store)).toEqual(['b', 'a', 'c']);
       });
 
       it('no-ops when element is already at front', () => {
         const store = new ElementStore();
-        store.add(makeNote({ id: 'a', zIndex: 0, layerId: 'L1' }));
-        store.add(makeNote({ id: 'b', zIndex: 5, layerId: 'L1' }));
+        store.add(makeNote({ id: 'a', index: 'a0', layerId: 'L1' }));
+        store.add(makeNote({ id: 'b', index: 'a5', layerId: 'L1' }));
         store.bringForward('b');
-        expect(store.getById('b')?.zIndex).toBe(5);
+        expect(store.getById('b')?.index).toBe('a5');
       });
 
       it('no-ops for unknown id', () => {
@@ -915,30 +920,29 @@ describe('ElementStore', () => {
 
       it('only considers elements in same layer', () => {
         const store = new ElementStore();
-        store.add(makeNote({ id: 'a', zIndex: 0, layerId: 'L1' }));
-        store.add(makeNote({ id: 'b', zIndex: 1, layerId: 'L2' }));
+        store.add(makeNote({ id: 'a', index: 'a0', layerId: 'L1' }));
+        store.add(makeNote({ id: 'b', index: 'a1', layerId: 'L2' }));
         store.bringForward('a');
-        expect(store.getById('a')?.zIndex).toBe(0);
+        expect(store.getById('a')?.index).toBe('a0');
       });
     });
 
     describe('sendBackward', () => {
-      it('swaps zIndex with next lower element in same layer', () => {
+      it('moves below the next lower element in the same layer', () => {
         const store = new ElementStore();
-        store.add(makeNote({ id: 'a', zIndex: 0, layerId: 'L1' }));
-        store.add(makeNote({ id: 'b', zIndex: 1, layerId: 'L1' }));
-        store.add(makeNote({ id: 'c', zIndex: 2, layerId: 'L1' }));
+        store.add(makeNote({ id: 'a', index: 'a0', layerId: 'L1' }));
+        store.add(makeNote({ id: 'b', index: 'a1', layerId: 'L1' }));
+        store.add(makeNote({ id: 'c', index: 'a2', layerId: 'L1' }));
         store.sendBackward('c');
-        expect(store.getById('c')?.zIndex).toBe(1);
-        expect(store.getById('b')?.zIndex).toBe(2);
+        expect(order(store)).toEqual(['a', 'c', 'b']);
       });
 
       it('no-ops when element is already at back', () => {
         const store = new ElementStore();
-        store.add(makeNote({ id: 'a', zIndex: 0, layerId: 'L1' }));
-        store.add(makeNote({ id: 'b', zIndex: 5, layerId: 'L1' }));
+        store.add(makeNote({ id: 'a', index: 'a0', layerId: 'L1' }));
+        store.add(makeNote({ id: 'b', index: 'a5', layerId: 'L1' }));
         store.sendBackward('a');
-        expect(store.getById('a')?.zIndex).toBe(0);
+        expect(store.getById('a')?.index).toBe('a0');
       });
 
       it('no-ops for unknown id', () => {
@@ -995,6 +999,7 @@ describe('ElementStore', () => {
     it('color-only update keeps the stroke render-data cache', () => {
       const store = new ElementStore();
       const s = createStroke({
+        index: 'a0',
         points: [
           { x: 0, y: 0, pressure: 0.5 },
           { x: 10, y: 0, pressure: 0.5 },
@@ -1013,6 +1018,7 @@ describe('ElementStore', () => {
     it('position-only update keeps segments but recomputes bounds', () => {
       const store = new ElementStore();
       const s = createStroke({
+        index: 'a0',
         points: [
           { x: 0, y: 0, pressure: 0.5 },
           { x: 10, y: 0, pressure: 0.5 },
@@ -1086,7 +1092,8 @@ describe('ElementStore extension dataVersion stamping', () => {
       type: 'extension',
       extensionType,
       position: { x: 0, y: 0 },
-      zIndex: 0,
+      index: 'a0',
+      version: 1,
       locked: false,
       layerId: '',
       data: { value: 1 },
@@ -1120,5 +1127,193 @@ describe('ElementStore extension dataVersion stamping', () => {
     const store = new ElementStore(makeRegistry());
     store.add(element);
     expect(store.getById(element.id)).not.toHaveProperty('dataVersion');
+  });
+});
+
+describe('ElementStore order keys and versions', () => {
+  function ids(store: ElementStore): string[] {
+    return store.getAll().map((el) => el.id);
+  }
+
+  it("add places an unplaced element above the layer's top", () => {
+    const store = new ElementStore();
+    store.add(makeNote({ id: 'first', index: '' }));
+    store.add(makeNote({ id: 'second', index: '' }));
+    const first = store.getById('first')?.index ?? '';
+    const second = store.getById('second')?.index ?? '';
+    expect(first).not.toBe('');
+    expect(second > first).toBe(true);
+  });
+
+  it('add keeps a placed index and the given version', () => {
+    const store = new ElementStore();
+    store.add(makeNote({ id: 'n', index: 'a5', version: 7 }));
+    expect(store.getById('n')).toMatchObject({ index: 'a5', version: 7 });
+  });
+
+  it('local update bumps version and drops editor', () => {
+    const store = new ElementStore();
+    store.add(makeNote({ id: 'n', index: 'a0', version: 3, editor: 'x' }));
+    store.update('n', { position: { x: 1, y: 0 } });
+    expect(store.getById('n')?.version).toBe(4);
+    expect(store.getById('n')).not.toHaveProperty('editor');
+    store.update('n', { version: 99, editor: 'y' });
+    expect(store.getById('n')?.version).toBe(5);
+    expect(store.getById('n')).not.toHaveProperty('editor');
+    store.update('n', { version: 99 }, { origin: 'local' });
+    expect(store.getById('n')?.version).toBe(6);
+  });
+
+  it('undo never lowers version', () => {
+    const store = new ElementStore();
+    const stack = new HistoryStack();
+    const recorder = new HistoryRecorder(store, stack);
+    recorder.pause();
+    store.add(makeNote({ id: 'n', index: 'a0', version: 1 }));
+    recorder.resume();
+    recorder.begin();
+    store.update('n', { position: { x: 10, y: 0 } });
+    recorder.commit();
+    expect(store.getById('n')?.version).toBe(2);
+    recorder.pause();
+    stack.undo(store);
+    expect(store.getById('n')?.version).toBe(3);
+    expect(store.getById('n')?.position).toEqual({ x: 0, y: 0 });
+    stack.redo(store);
+    expect(store.getById('n')?.version).toBe(4);
+    expect(store.getById('n')?.position).toEqual({ x: 10, y: 0 });
+  });
+
+  it('remote update takes version verbatim, including lower and equal', () => {
+    const store = new ElementStore();
+    store.add(makeNote({ id: 'n', index: 'a0', version: 5, editor: 'a' }));
+    store.update('n', { version: 2, editor: 'b' }, { origin: 'remote' });
+    expect(store.getById('n')).toMatchObject({ version: 2, editor: 'b' });
+    store.update('n', { version: 2 }, { origin: 'host' });
+    expect(store.getById('n')?.version).toBe(2);
+    expect(store.getById('n')).not.toHaveProperty('editor');
+  });
+
+  it('remote update without version keeps version and editor', () => {
+    const store = new ElementStore();
+    store.add(makeNote({ id: 'n', index: 'a0', version: 5, editor: 'a' }));
+    store.update('n', { position: { x: 3, y: 3 }, editor: 'z' }, { origin: 'remote' });
+    expect(store.getById('n')).toMatchObject({ version: 5, editor: 'a', position: { x: 3, y: 3 } });
+  });
+
+  it('ties order by id', () => {
+    const store = new ElementStore();
+    store.add(makeNote({ id: 'b', index: 'a0' }));
+    store.add(makeNote({ id: 'a', index: 'a0' }));
+    expect(ids(store)).toEqual(['a', 'b']);
+  });
+
+  it('orders by layer, then index, then id in queryRect', () => {
+    const store = new ElementStore();
+    store.setLayerOrder(
+      new Map([
+        ['bg', 0],
+        ['fg', 1],
+      ]),
+    );
+    store.add(makeNote({ id: 'fg', index: 'a0', layerId: 'fg' }));
+    store.add(makeNote({ id: 'bg-top', index: 'a2', layerId: 'bg' }));
+    store.add(makeNote({ id: 'bg-b', index: 'a1', layerId: 'bg' }));
+    store.add(makeNote({ id: 'bg-a', index: 'a1', layerId: 'bg' }));
+    const expected = ['bg-a', 'bg-b', 'bg-top', 'fg'];
+    expect(ids(store)).toEqual(expected);
+    expect(store.queryPoint({ x: 10, y: 10 }).map((el) => el.id)).toEqual(expected);
+  });
+
+  it('a remote index update re-sorts getAll', () => {
+    const store = new ElementStore();
+    store.add(makeNote({ id: 'a', index: 'a0' }));
+    store.add(makeNote({ id: 'b', index: 'a1' }));
+    expect(ids(store)).toEqual(['a', 'b']);
+    store.update('a', { index: 'a2' }, { origin: 'remote' });
+    expect(ids(store)).toEqual(['b', 'a']);
+  });
+
+  function reorderStore(): ElementStore {
+    const store = new ElementStore();
+    store.add(makeNote({ id: 'a', index: 'a0' }));
+    store.add(makeNote({ id: 'b', index: 'a1' }));
+    store.add(makeNote({ id: 'c', index: 'a2' }));
+    store.add(makeNote({ id: 'other', index: 'Zz', layerId: 'other' }));
+    return store;
+  }
+
+  it.each([
+    ['bringToFront', 'a', ['b', 'c', 'a']],
+    ['sendToBack', 'c', ['c', 'a', 'b']],
+    ['bringForward', 'a', ['b', 'a', 'c']],
+    ['sendBackward', 'c', ['a', 'c', 'b']],
+  ] as const)('%s writes exactly one element', (op, id, expected) => {
+    const store = reorderStore();
+    const updated: string[] = [];
+    store.on('update', ({ current }) => updated.push(current.id));
+    store[op](id);
+    expect(updated).toEqual([id]);
+    expect(
+      store
+        .getAll()
+        .filter((el) => el.layerId === '')
+        .map((el) => el.id),
+    ).toEqual(expected);
+  });
+
+  it.each([
+    ['bringToFront', 'c'],
+    ['bringForward', 'c'],
+    ['sendToBack', 'a'],
+    ['sendBackward', 'a'],
+  ] as const)('%s at the end of the layer is a no-op', (op, id) => {
+    const store = reorderStore();
+    const updated: string[] = [];
+    store.on('update', ({ current }) => updated.push(current.id));
+    store[op](id);
+    expect(updated).toEqual([]);
+  });
+
+  it('bringForward over two siblings with equal keys moves above both', () => {
+    const store = new ElementStore();
+    store.add(makeNote({ id: 'x', index: 'a0' }));
+    store.add(makeNote({ id: 'y', index: 'a1' }));
+    store.add(makeNote({ id: 'z', index: 'a1' }));
+    store.add(makeNote({ id: 'w', index: 'a2' }));
+    store.bringForward('x');
+    expect(ids(store)).toEqual(['y', 'z', 'x', 'w']);
+  });
+
+  it('sendBackward under two siblings with equal keys moves below both', () => {
+    const store = new ElementStore();
+    store.add(makeNote({ id: 'w', index: 'a0' }));
+    store.add(makeNote({ id: 'y', index: 'a1' }));
+    store.add(makeNote({ id: 'z', index: 'a1' }));
+    store.add(makeNote({ id: 'x', index: 'a2' }));
+    store.sendBackward('x');
+    expect(ids(store)).toEqual(['w', 'x', 'y', 'z']);
+  });
+
+  it('bringToFront is a no-op when no key fits above the layer top', () => {
+    const store = new ElementStore();
+    const top = 'z'.repeat(27 + 101);
+    store.add(makeNote({ id: 'a', index: 'a0' }));
+    store.add(makeNote({ id: 'b', index: top }));
+    store.bringToFront('a');
+    expect(ids(store)).toEqual(['a', 'b']);
+  });
+
+  it("loadSnapshot places '' elements in array order", () => {
+    const store = new ElementStore();
+    store.loadSnapshot([
+      makeNote({ id: 'c', index: '' }),
+      makeNote({ id: 'placed', index: 'a5' }),
+      makeNote({ id: 'a', index: '' }),
+      makeNote({ id: 'b', index: '', layerId: 'other' }),
+    ]);
+    expect(ids(store).filter((id) => id !== 'b')).toEqual(['placed', 'c', 'a']);
+    expect(store.getById('b')?.index).not.toBe('');
+    expect(store.getAll().every((el) => el.index !== '')).toBe(true);
   });
 });

@@ -179,7 +179,7 @@ test.describe('marker painting', () => {
             size: { w: number; h: number },
             opts?: { htmlType?: string },
           ) => string;
-          store: { update: (id: string, patch: { zIndex: number }) => void };
+          store: { update: (id: string, patch: { index: string }) => void };
           requestRender: () => void;
         };
         const square = (half: number) => ({
@@ -206,9 +206,9 @@ test.describe('marker painting', () => {
           strokeWidth: 0,
         });
 
-        vp.store.update(bottomId, { zIndex: 0 });
-        vp.store.update(markerId, { zIndex: 1 });
-        vp.store.update(topId, { zIndex: 2 });
+        vp.store.update(bottomId, { index: 'a0' });
+        vp.store.update(markerId, { index: 'a1' });
+        vp.store.update(topId, { index: 'a2' });
         vp.requestRender();
         return { bottomId, markerId, topId };
       },
