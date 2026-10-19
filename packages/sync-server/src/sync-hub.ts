@@ -1078,6 +1078,7 @@ export class SyncHub {
       void this.applyFanoutLayerOp(env.room, op).catch(() => {
         /* a broken backend must not break the fanout relay */
       });
+      if (!this.rooms.has(env.room)) this.scheduleIdleEviction(env.room);
       this.relayOpToRoom(env.room, undefined, env.from, op);
       return;
     }
@@ -1107,6 +1108,7 @@ export class SyncHub {
         .catch(() => {
           /* a broken backend must not wedge the room queue */
         });
+      if (!this.rooms.has(env.room)) this.scheduleIdleEviction(env.room);
       return;
     }
     if (!isFanoutOp(op)) return;
@@ -1120,6 +1122,7 @@ export class SyncHub {
 
   private scheduleIdleEviction(room: string): void {
     if (this.roomIdleTimeoutMs === undefined) return;
+    clearTimeout(this.idleTimers.get(room));
     const timer = setTimeout(() => {
       this.idleTimers.delete(room);
       void this.roomQueue(room)
@@ -1127,7 +1130,13 @@ export class SyncHub {
           // A connection may have joined while the eviction waited behind queued work.
           if (this.rooms.has(room)) return;
           this.memoryLayers.delete(room);
-          for (const plugin of this.pluginRegistry.plugins) plugin.evictRoom?.(room);
+          for (const plugin of this.pluginRegistry.plugins) {
+            try {
+              plugin.evictRoom?.(room);
+            } catch {
+              /* one broken evictor must not keep the rest of the room resident */
+            }
+          }
           await this.backend.evictRoom?.(room);
         })
         .catch(() => {

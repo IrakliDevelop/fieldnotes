@@ -3182,6 +3182,74 @@ describe('idle-room eviction', () => {
     hub.close();
   });
 
+  it('a throwing evictor does not skip the others', async () => {
+    const backend = new MemoryHubBackend();
+    const backendEvict = vi.spyOn(backend, 'evictRoom');
+    const second = vi.fn();
+    const hub = await seeded({
+      backend,
+      plugins: [
+        {
+          name: 'broken',
+          evictRoom: () => {
+            throw new Error('evict failed');
+          },
+        },
+        { name: 'probe', evictRoom: second },
+      ],
+      roomIdleTimeoutMs: 1000,
+    });
+
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(second.mock.calls).toEqual([['R']]);
+    expect(backendEvict.mock.calls).toEqual([['R']]);
+    hub.close();
+  });
+
+  it.each([
+    ['layer', 'layers', JSON.parse(layerMsg).op],
+    [
+      'fog',
+      'extensions',
+      {
+        kind: 'fog-meta',
+        record: {
+          version: 1,
+          editor: 'a',
+          definition: {
+            version: 1,
+            generation: 'gen-1',
+            bounds: { x: 0, y: 0, w: 256, h: 128 },
+            cellSize: 1,
+            tileCells: 128,
+            base: 'covered',
+          },
+        },
+      },
+    ],
+  ])('%s fanout into a room with no local connection schedules eviction', async (_, field, op) => {
+    const bus = new InMemoryHubFanout();
+    const memory = new MemoryHubBackend();
+    const hub = new SyncHub({
+      instanceId: 'B',
+      fanout: bus,
+      backend: {
+        snapshot: (room) => memory.snapshot(room),
+        get: (room, id) => memory.get(room, id),
+        apply: (room, op) => memory.apply(room, op),
+      },
+      plugins: [createFogServerPlugin()],
+      roomIdleTimeoutMs: 1000,
+    });
+    bus.publish(JSON.stringify({ o: 'A', room: 'R', from: 'a', op }));
+
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect((await snapshotFor(hub, 'late'))[field]).toBeUndefined();
+    hub.close();
+  });
+
   it('skips a queued eviction when a connection joined while it waited', async () => {
     let release: (() => void) | undefined;
     const evictRoom = vi.fn();
