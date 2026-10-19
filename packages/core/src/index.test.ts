@@ -218,6 +218,13 @@ describe('core public surface', () => {
     }
   });
 
+  it('exports the fractional order key and legacy order surface', () => {
+    expect(FN.generateKeyBetween).toBeTypeOf('function');
+    expect(FN.generateNKeysBetween).toBeTypeOf('function');
+    expect(FN.isValidIndexKey).toBeTypeOf('function');
+    expect(FN.assignLegacyOrder).toBeTypeOf('function');
+  });
+
   it('exports createDefaultTools', () => {
     expect(FN.createDefaultTools).toBeTypeOf('function');
   });

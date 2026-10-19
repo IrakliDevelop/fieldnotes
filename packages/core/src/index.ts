@@ -13,6 +13,8 @@ export type {
   LegacyCanvasState,
   LegacyStateMigrator,
 } from './core/state-serializer';
+export { generateKeyBetween, generateNKeysBetween, isValidIndexKey } from './core/fractional-index';
+export { assignLegacyOrder } from './core/legacy-order';
 export { AutoSave } from './core/auto-save';
 export type { AutoSaveOptions } from './core/auto-save';
 export { MemoryAdapter } from './core/storage/memory-adapter';
