@@ -776,10 +776,9 @@ describe('SyncClient resync-on-reconnect', () => {
   it('RECONCILES later snapshots — removes locals absent from the authoritative set, upserts canonical, origin remote, no re-broadcast', () => {
     const store = new ElementStore();
     const transport = makeReconnectTransport();
-    // Room copies carry an editor; an editor-less local copy competes as this peer's own edit.
-    const x = { ...shape(1), editor: 'C' };
-    const y = { ...shape(99), editor: 'C' }; // deleted-while-away
-    const z = { ...shape(2), editor: 'C' }; // added-while-away
+    const x = shape(1);
+    const y = shape(99); // deleted-while-away
+    const z = shape(2); // added-while-away
 
     const client = new SyncClient({ store, transport, clientId: 'B' });
     client.start();
@@ -1601,8 +1600,8 @@ describe('authoritative bootstrap/reconcile hooks (resolveLocalOnly)', () => {
     });
     client.start();
 
-    const x = { ...shape(1), editor: 'C' };
-    const w = { ...shape(77), editor: 'C' }; // hub-known, deleted while away
+    const x = shape(1);
+    const w = shape(77); // hub-known, deleted while away
     transport.deliver(envelope('hub', { kind: 'snapshot', to: 'B', elements: [x, w] }));
     expect(store.count).toBe(3);
 

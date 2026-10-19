@@ -305,6 +305,18 @@ describe('SyncClient snapshot reconcile by version', () => {
     expect(last('upsert')?.element).toMatchObject({ id: 'x', version: 3, editor: 'A' });
   });
 
+  it('does not re-push an editor-less room element at the same version', () => {
+    const { store, deliver, sent, reconcile } = setup('hub');
+    deliver('hub', { kind: 'snapshot', to: 'A', elements: [shape('x', 1)] });
+    reconcile();
+    const before = sent.length;
+
+    deliver('hub', { kind: 'snapshot', to: 'A', elements: [shape('x', 1)] });
+
+    expect(store.getById('x')?.version).toBe(1);
+    expect(sent.slice(before).some((m) => m.includes('"upsert"'))).toBe(false);
+  });
+
   it('takes a snapshot element newer than the local copy', () => {
     const { store, deliver, reconcile } = joined();
     reconcile();

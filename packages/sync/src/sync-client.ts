@@ -788,7 +788,8 @@ export class SyncClient {
       // authoritative set is expected: keep it without consulting the host hook.
       if (isTransientHtml(local)) continue;
       const tombstone = this.tombstones.get(local.id);
-      if (tombstone && isNewerVersion(tombstone, this.localVersion(local.id))) {
+      // Reconcile ties go to the room's copy, unlike live ops.
+      if (tombstone && tombstone.version >= local.version) {
         this.store.remove(local.id, { origin: REMOTE_ORIGIN });
         continue;
       }
@@ -809,8 +810,8 @@ export class SyncClient {
     for (const el of snapshot) {
       // A local clear supersedes the complete in-flight snapshot.
       if (this.clearedBeforeSnapshot) continue;
-      const local = this.localVersion(el.id);
-      if (local && isNewerVersion(local, el)) {
+      const local = this.store.getById(el.id);
+      if (local && local.version > el.version) {
         // A touched local edit is already sent to the hub.
         if (!this.touchedDuringResync.has(el.id)) newer.push(el.id);
         continue;
