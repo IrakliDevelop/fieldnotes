@@ -96,9 +96,13 @@ const gridController = new GridController({
 });
 
 const searchParams = new URLSearchParams(location.search);
-const benchParam = searchParams.get('bench');
+const MAX_BENCH = 20_000;
 const sampleParam = searchParams.has('sample');
-const benchCount = benchParam ? Math.max(1, parseInt(benchParam, 10) || 500) : 0;
+let benchCount = 0;
+if (searchParams.has('bench')) {
+  const value = parseInt(searchParams.get('bench') ?? '', 10);
+  benchCount = Number.isNaN(value) ? 500 : Math.min(MAX_BENCH, Math.max(1, value));
+}
 
 const hand = new HandTool();
 const pencil = new PencilTool({ color: '#1a1a1a', width: 2 });
@@ -1270,6 +1274,14 @@ function seedBench(count: number): void {
   viewport.fitToContent();
   console.log(`[bench] seeded ${count} strokes + 10 notes + 1 hex grid`);
   viewport.logPerformance();
+
+  const hud = document.getElementById('bench-hud');
+  if (!hud) return;
+  hud.hidden = false;
+  setInterval(() => {
+    const { fps, avgFrameMs, p95FrameMs } = viewport.getRenderStats();
+    hud.textContent = `${viewport.store.count} elements · ${fps} fps · avg ${avgFrameMs} ms · p95 ${p95FrameMs} ms`;
+  }, 500);
 }
 
 if (benchCount) seedBench(benchCount);

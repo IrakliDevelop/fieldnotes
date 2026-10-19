@@ -243,6 +243,18 @@
       z-index: 1000;
       align-items: center;
     }
+    #bench-hud {
+      position: fixed;
+      top: 70px;
+      right: 252px;
+      padding: 4px 8px;
+      background: rgba(0,0,0,0.7);
+      color: white;
+      border-radius: 6px;
+      font: 12px ui-monospace, monospace;
+      pointer-events: none;
+      z-index: 10;
+    }
     .demo-toast {
       background: #d32f2f;
       color: white;
@@ -314,6 +326,7 @@
   <div id="canvas"></div>
   <div id="empty-hint">Draw with <b>P</b> · Pan with <b>Space</b> · Add a note with <b>N</b> · Label an arrow by <b>double-click</b></div>
   <div id="toast-container"></div>
+  <div id="bench-hud" hidden></div>
   <div id="toolbar" role="toolbar" aria-label="Tools">
     <button data-tool="hand" aria-label="Hand tool (H)" aria-pressed="false">Hand<span class="shortcut">H</span></button>
     <button data-tool="select" class="active" aria-label="Select tool (V)" aria-pressed="true">Select<span class="shortcut">V</span></button>
