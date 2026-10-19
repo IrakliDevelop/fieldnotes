@@ -76,7 +76,8 @@ export function renderMenu(root: HTMLElement): () => void {
   const onKeyDown = (event: KeyboardEvent): void => {
     if (event.key !== 'Escape') return;
     close();
-    restoreFocus();
+    if (previousFocus === toggle) toggle.focus();
+    else restoreFocus();
   };
 
   const onOutside = (event: PointerEvent): void => {

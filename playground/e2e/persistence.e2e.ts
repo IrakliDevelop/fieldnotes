@@ -361,3 +361,41 @@ test('exporting an empty board toasts', async ({ page }) => {
   await runMenuItem(page, 'export-png');
   await expect(page.locator('[data-chrome="toast"]')).toContainText('Nothing to export');
 });
+
+test('Escape after a keyboard open returns focus to the menu button', async ({ page }) => {
+  await open(page);
+  const button = page.locator('[data-chrome="menu"]').getByRole('button', { name: 'Menu' });
+  await button.focus();
+  await page.keyboard.press('Enter');
+  await expect(button).toHaveAttribute('aria-expanded', 'true');
+  await page.keyboard.press('Escape');
+  await expect(button).toHaveAttribute('aria-expanded', 'false');
+  await expect(button).toBeFocused();
+});
+
+test('Reset restores layer visibility, lock and opacity', async ({ page }) => {
+  await open(page);
+  await expectSample(page);
+  await page.evaluate(() => {
+    const { layerManager } = window.__playground.viewport;
+    for (const layer of layerManager.getLayers()) {
+      layerManager.setLayerOpacity(layer.id, 0.3);
+      layerManager.setLayerLocked(layer.id, true);
+    }
+    const [bottom] = layerManager.getLayers();
+    if (bottom) layerManager.setLayerVisible(bottom.id, false);
+  });
+
+  await runMenuItem(page, 'reset-board');
+  await expectSample(page);
+  expect(
+    await page.evaluate(() =>
+      window.__playground.viewport.layerManager
+        .getLayers()
+        .map(({ visible, locked, opacity }) => ({ visible, locked, opacity })),
+    ),
+  ).toEqual([
+    { visible: true, locked: false, opacity: 1 },
+    { visible: true, locked: false, opacity: 1 },
+  ]);
+});
