@@ -98,11 +98,10 @@ const gridController = new GridController({
 const searchParams = new URLSearchParams(location.search);
 const MAX_BENCH = 20_000;
 const sampleParam = searchParams.has('sample');
-let benchCount = 0;
-if (searchParams.has('bench')) {
-  const value = parseInt(searchParams.get('bench') ?? '', 10);
-  benchCount = Number.isNaN(value) ? 500 : Math.min(MAX_BENCH, Math.max(1, value));
-}
+// Math.max(1, NaN) is NaN, so a missing or unparsable value falls back to 500.
+const benchCount = searchParams.has('bench')
+  ? Math.min(MAX_BENCH, Math.max(1, parseInt(searchParams.get('bench') ?? '', 10)) || 500)
+  : 0;
 
 const hand = new HandTool();
 const pencil = new PencilTool({ color: '#1a1a1a', width: 2 });
@@ -1278,10 +1277,12 @@ function seedBench(count: number): void {
   const hud = document.getElementById('bench-hud');
   if (!hud) return;
   hud.hidden = false;
-  setInterval(() => {
+  const writeHud = (): void => {
     const { fps, avgFrameMs, p95FrameMs } = viewport.getRenderStats();
     hud.textContent = `${viewport.store.count} elements · ${fps} fps · avg ${avgFrameMs} ms · p95 ${p95FrameMs} ms`;
-  }, 500);
+  };
+  writeHud();
+  setInterval(writeHud, 500);
 }
 
 if (benchCount) seedBench(benchCount);

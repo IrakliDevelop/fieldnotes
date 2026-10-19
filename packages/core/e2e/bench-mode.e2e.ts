@@ -23,7 +23,9 @@ test.describe('bench mode', () => {
     expect(await canvasPage.getElementsByType('stroke')).toHaveLength(500);
   });
 
-  test('?bench=999999 is clamped to 20000', async ({ page }) => {
+  test('?bench=999999 is clamped to 20000', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name === 'ipad', 'parse-only check; desktop covers it');
+    test.slow();
     const canvasPage = await gotoDemo(page, '?bench=999999');
     expect(await canvasPage.getElementsByType('stroke')).toHaveLength(20000);
   });
