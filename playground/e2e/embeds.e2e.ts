@@ -121,6 +121,39 @@ test('widgets survive reload', async ({ page }, testInfo) => {
   ).toBeChecked();
 });
 
+test('checklist keeps checkbox focus when a remote edit removes the row above', async ({
+  page,
+}) => {
+  await gotoBlank(page, 'embeds');
+  const id = await insert(page, 'Checklist', 'pg:checklist');
+  const node = page.locator(`[data-element-id="${id}"]`);
+  const [a, b] = await node
+    .locator('[data-item-id]')
+    .evaluateAll((rows) => rows.map((row) => row.getAttribute('data-item-id')));
+  if (!a || !b) throw new Error('expected two checklist items');
+  const boxB = node.locator(`[data-item-id="${b}"] input[type="checkbox"]`);
+  await boxB.focus();
+  await expect(boxB).toBeFocused();
+
+  await page.evaluate(
+    ({ id, a }) => {
+      const store = window.__playground.viewport.store;
+      const el = store.getById(id);
+      if (el?.type !== 'html' || typeof el.data !== 'object' || el.data === null) {
+        throw new Error('no checklist');
+      }
+      const items: unknown = Reflect.get(el.data, 'items');
+      if (!Array.isArray(items)) throw new Error('no items');
+      const kept = items.filter((item: unknown) => Reflect.get(Object(item), 'id') !== a);
+      store.update(id, { data: { ...el.data, items: kept } });
+    },
+    { id, a },
+  );
+
+  await expect(node.locator('[data-item-id]')).toHaveCount(1);
+  await expect(boxB).toBeFocused();
+});
+
 test('typing in a widget never switches tools', async ({ page }, testInfo) => {
   await gotoBlank(page, 'embeds');
   const id = await insert(page, 'Text card', 'pg:text');
