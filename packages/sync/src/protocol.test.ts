@@ -18,6 +18,7 @@ import {
   isValidLayerRecord,
   isNewerLayerRecord,
   parseEnvelope,
+  isWithinSyncLimits,
   applyOpToMap,
   type LayerRecord,
   type SyncOp,
@@ -539,6 +540,140 @@ describe('parseEnvelope', () => {
   it('returns the envelope for valid input', () => {
     const env = { from: 'A', op: { kind: 'clear' as const } };
     expect(parseEnvelope(JSON.stringify(env))).toEqual(env);
+  });
+});
+
+describe('SYNC_LIMITS', () => {
+  const ID = 256;
+  const SHORT = 256;
+  const TEXT = 1_048_576;
+  const SRC = 16_777_216;
+  const STROKE_POINTS = 100_000;
+  const SNAPSHOT_ELEMENTS = 1_000_000;
+  const at = (n: number) => 'a'.repeat(n);
+  const parse = (env: unknown) => parseEnvelope(JSON.stringify(env));
+  const upsert = (element: unknown) => ({ from: 'A', op: { kind: 'upsert', element } });
+  const arrow = () => createArrow({ from: { x: 0, y: 0 }, to: { x: 1, y: 1 } });
+  const html = () => createHtmlElement({ position: { x: 0, y: 0 }, size: { w: 1, h: 1 } });
+  const note = () => createNote({ position: { x: 0, y: 0 } });
+  const text = () => createText({ position: { x: 0, y: 0 } });
+
+  it.each([
+    ['element id', ID, (s: string) => ({ ...shape(), id: s })],
+    ['layerId', ID, (s: string) => ({ ...shape(), layerId: s })],
+    ['groupId', ID, (s: string) => ({ ...shape(), groupId: s })],
+    ['arrow binding elementId', ID, (s: string) => ({ ...arrow(), toBinding: { elementId: s } })],
+    [
+      'arrow fromBinding elementId',
+      ID,
+      (s: string) => ({ ...arrow(), fromBinding: { elementId: s } }),
+    ],
+    ['audience', SHORT, (s: string) => ({ ...shape(), audience: s })],
+    ['ownerId', SHORT, (s: string) => ({ ...shape(), ownerId: s })],
+    ['stroke color', SHORT, (s: string) => ({ ...createStroke({ points: [] }), color: s })],
+    ['shape fillColor', SHORT, (s: string) => ({ ...shape(), fillColor: s })],
+    ['shape strokeColor', SHORT, (s: string) => ({ ...shape(), strokeColor: s })],
+    ['note backgroundColor', SHORT, (s: string) => ({ ...note(), backgroundColor: s })],
+    ['note textColor', SHORT, (s: string) => ({ ...note(), textColor: s })],
+    ['text color', SHORT, (s: string) => ({ ...text(), color: s })],
+    ['html htmlType', SHORT, (s: string) => ({ ...html(), htmlType: s })],
+    ['html domId', SHORT, (s: string) => ({ ...html(), domId: s })],
+    [
+      'extension extensionType',
+      SHORT,
+      (s: string) => ({ ...shape(), type: 'extension', extensionType: s, data: {} }),
+    ],
+    ['note text', TEXT, (s: string) => ({ ...note(), text: s })],
+    ['text text', TEXT, (s: string) => ({ ...text(), text: s })],
+    ['arrow label', TEXT, (s: string) => ({ ...arrow(), label: s })],
+  ])('parseEnvelope bounds upsert %s at %i UTF-16 code units', (_name, limit, build) => {
+    expect(parse(upsert(build(at(limit))))).not.toBeNull();
+    expect(parse(upsert(build(at(limit + 1))))).toBeNull();
+  });
+
+  it('isWithinSyncLimits bounds image src at 16_777_216 code units', () => {
+    const src = at(SRC);
+    const image = createImage({ position: { x: 0, y: 0 }, size: { w: 1, h: 1 }, src: '' });
+    expect(
+      isWithinSyncLimits({ from: 'A', op: { kind: 'upsert', element: { ...image, src } } }),
+    ).toBe(true);
+    expect(
+      isWithinSyncLimits({
+        from: 'A',
+        op: { kind: 'upsert', element: { ...image, src: `${src}a` } },
+      }),
+    ).toBe(false);
+  });
+
+  it('parseEnvelope bounds stroke points at 100_000', () => {
+    const points = new Array(STROKE_POINTS).fill({ x: 0, y: 0, pressure: 0.5 });
+    const stroke = createStroke({ points: [] });
+    expect(parse(upsert({ ...stroke, points }))).not.toBeNull();
+    expect(parse(upsert({ ...stroke, points: [...points, points[0]] }))).toBeNull();
+  });
+
+  it.each([
+    ['remove.id', (s: string) => ({ from: 'A', op: { kind: 'remove', id: s } })],
+    ['envelope from', (s: string) => ({ from: s, op: { kind: 'clear' } })],
+    ['snapshot.to', (s: string) => ({ from: 'A', op: { kind: 'snapshot', to: s, elements: [] } })],
+    [
+      'layer-upsert.editor',
+      (s: string) => ({
+        from: 'A',
+        op: { kind: 'layer-upsert', layer: layerDef(), version: 1, editor: s },
+      }),
+    ],
+    [
+      'layer-upsert layer id',
+      (s: string) => ({
+        from: 'A',
+        op: { kind: 'layer-upsert', layer: layerDef({ id: s }), version: 1, editor: 'A' },
+      }),
+    ],
+    [
+      'layer-upsert layer name',
+      (s: string) => ({
+        from: 'A',
+        op: { kind: 'layer-upsert', layer: layerDef({ name: s }), version: 1, editor: 'A' },
+      }),
+    ],
+    [
+      'layer-remove.id',
+      (s: string) => ({ from: 'A', op: { kind: 'layer-remove', id: s, version: 1, editor: 'A' } }),
+    ],
+    [
+      'layer-remove.editor',
+      (s: string) => ({ from: 'A', op: { kind: 'layer-remove', id: 'l', version: 1, editor: s } }),
+    ],
+  ])('parseEnvelope bounds %s at 256 code units', (_name, build) => {
+    expect(parse(build(at(ID)))).not.toBeNull();
+    expect(parse(build(at(ID + 1)))).toBeNull();
+  });
+
+  it('parseEnvelope bounds snapshot elements and layers at 1_000_000 entries', () => {
+    const items = new Array(SNAPSHOT_ELEMENTS).fill(null);
+    const over = [...items, null];
+    const snapshot = (op: Record<string, unknown>) => ({
+      from: 'A',
+      op: { kind: 'snapshot', to: 'B', elements: [], ...op },
+    });
+    expect(parse(snapshot({ elements: items }))).not.toBeNull();
+    expect(parse(snapshot({ elements: over }))).toBeNull();
+    expect(parse(snapshot({ layers: items }))).not.toBeNull();
+    expect(parse(snapshot({ layers: over }))).toBeNull();
+  });
+
+  it('parseEnvelope accepts JSON depth 64 and rejects 65 (envelope + op + nested data arrays)', () => {
+    const frame = (dataDepth: number) =>
+      `{"from":"A","op":{"kind":"presence","data":${'['.repeat(dataDepth)}${']'.repeat(dataDepth)}}}`;
+    expect(parseEnvelope(frame(62))).not.toBeNull();
+    expect(parseEnvelope(frame(63))).toBeNull();
+  });
+
+  it('leaves the shared validators uncapped (authority:1 reuses them)', () => {
+    const long = { ...note(), text: at(TEXT + 1) };
+    expect(isValidElement(long)).toBe(true);
+    expect(isValidEnvelope(upsert(long))).toBe(true);
   });
 });
 

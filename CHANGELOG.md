@@ -6,6 +6,56 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### Sync 0.27.0 — sync hygiene (F8, first slice)
+
+**Added**
+
+- `SYNC_LIMITS`: one table of wire caps (frame bytes and depth, presence bytes, identifier and
+  short-string lengths, text and image `src` lengths, stroke points, snapshot sizes).
+- `isWithinSyncLimits(envelope)` and `hasJsonDepthAtMost(message, depth)` (moved from the server).
+
+**Changed**
+
+- `parseEnvelope` rejects JSON nested deeper than 64 and envelopes over any `SYNC_LIMITS` cap, so
+  `SyncClient` and `ManagedConnection` drop such frames, including BroadcastChannel peers that have
+  no server in between. `isValidElement` and `isValidEnvelope` are unchanged, so `authority:1`
+  validation is unaffected.
+
+### Sync server 0.27.0
+
+**Added**
+
+- `roomIdleTimeoutMs` (opt-in): once a room has had no local connection for this long, the hub
+  drops its in-memory layer ledger and calls the new optional `HubBackend.evictRoom` and
+  `ServerSyncPlugin.evictRoom`. `MemoryHubBackend` forgets the room's elements and layers.
+  Reconnecting before the timeout cancels it. `authority:1` rooms are never evicted. Values above
+  2 147 483 647 ms throw.
+
+**Changed**
+
+- Default `maxMessageBytes`, `maxJsonDepth` and `maxPresenceBytes` come from `SYNC_LIMITS` (same
+  values). Fanout envelopes from sibling instances must also pass `isWithinSyncLimits`.
+
+### Sync Redis 0.13.0
+
+**Added**
+
+- `RedisHubBackend` `ttlSeconds` (opt-in): every element or layer write, every snapshot, and every
+  plugin write that calls the new `BackendPluginContext.touchRoom` refreshes `EXPIRE` on the room's
+  element hash, layer hash and plugin-declared keys (new optional `BackendSyncPlugin.roomKeys`).
+  Requires the new optional `RedisHashClient.expire`. Expiry refresh is best-effort: a failed
+  `EXPIRE` never fails a persisted write.
+- CI runs the real-Redis suites (and the fog Lua) against a `redis:7` service.
+
+### VTT 0.15.0
+
+**Changed**
+
+- The fog Redis plugin declares its `fog:meta` and `fog:tiles` keys and refreshes the room TTL
+  after each fog write; the fog server plugin forgets its in-memory ledger on `evictRoom`.
+- Peer floor `@fieldnotes/sync-redis` raised to `>=0.13.0` (the fog Redis backend calls
+  `touchRoom`).
+
 ### VTT 0.13.1
 
 **Fixed**

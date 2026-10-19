@@ -11,4 +11,6 @@ export interface HubBackend {
   getLayerRecord?(room: string, id: string): Promise<LayerRecord | undefined>;
   applyLayerRecord?(room: string, record: LayerRecord): Promise<void>;
   getService?<T>(key: ServiceKey<T>): T | undefined;
+  /** Called after `roomIdleTimeoutMs` with no local connection; drops only state held in process memory. */
+  evictRoom?(room: string): Promise<void>;
 }

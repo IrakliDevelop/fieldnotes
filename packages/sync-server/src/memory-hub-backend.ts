@@ -51,4 +51,9 @@ export class MemoryHubBackend implements HubBackend {
   async applyLayerRecord(room: string, record: LayerRecord): Promise<void> {
     this.layers(room).set(record.id, record);
   }
+
+  async evictRoom(room: string): Promise<void> {
+    this.rooms.delete(room);
+    this.roomLayers.delete(room);
+  }
 }

@@ -52,6 +52,8 @@ export interface ServerSyncPlugin {
     snapshot: PluginSnapshot,
     viewer: { userId?: string; role?: string },
   ): PluginSnapshot | null;
+  /** Called after `roomIdleTimeoutMs` with no local connection; drops this plugin's per-room memory. */
+  evictRoom?(room: string): void;
 }
 
 interface ServerExtensionEntry {

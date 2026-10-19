@@ -77,6 +77,8 @@ export interface CreateSyncServerOptions {
   presenceThrottleMs?: number;
   maxPresenceLanes?: number;
   maxPresenceBytes?: number;
+  /** Opt-in: drops a room's in-process memory after it has had no local connection for this long. */
+  roomIdleTimeoutMs?: number;
   /** Concurrent sockets per client address; `Infinity` disables the cap. */
   maxConnectionsPerIp?: number;
   /** Concurrent sockets per room, pending-auth sockets included; `Infinity` disables the cap. */
@@ -196,6 +198,7 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
     presenceThrottleMs: options.presenceThrottleMs ?? DEFAULT_PRESENCE_THROTTLE_MS,
     maxPresenceLanes: options.maxPresenceLanes,
     maxPresenceBytes: options.maxPresenceBytes,
+    roomIdleTimeoutMs: options.roomIdleTimeoutMs,
   });
   const maxMessageBytes = options.maxMessageBytes ?? DEFAULT_MAX_MESSAGE_BYTES;
   // A browser fails the handshake unless one offered subprotocol is selected, so select the

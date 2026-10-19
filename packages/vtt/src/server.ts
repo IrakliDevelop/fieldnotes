@@ -197,5 +197,8 @@ export function createFogServerPlugin(options: FogServerPluginOptions = {}): Ser
       return data ? { pluginName: 'fog', version: 1, data } : undefined;
     },
     filterSnapshot: options.filterSnapshot,
+    evictRoom(room) {
+      memory.delete(room);
+    },
   };
 }

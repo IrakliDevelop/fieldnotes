@@ -1,12 +1,14 @@
-export const DEFAULT_MAX_MESSAGE_BYTES = 1024 * 1024;
-export const DEFAULT_MAX_JSON_DEPTH = 32;
+import { SYNC_LIMITS } from '@fieldnotes/sync';
+
+export const DEFAULT_MAX_MESSAGE_BYTES = SYNC_LIMITS.maxFrameBytes;
+export const DEFAULT_MAX_JSON_DEPTH = SYNC_LIMITS.maxFrameJsonDepth;
 export const DEFAULT_MAX_PENDING_AUTH_MESSAGES = 100;
 export const DEFAULT_MAX_PENDING_AUTH_BYTES = 2 * 1024 * 1024;
 export const DEFAULT_MESSAGES_PER_SECOND = 120;
 export const DEFAULT_MESSAGE_BURST = 240;
 export const DEFAULT_PRESENCE_THROTTLE_MS = 50;
 /** Largest `presence.data` payload (UTF-8 bytes of its JSON) the hub relays. */
-export const DEFAULT_MAX_PRESENCE_BYTES = 4 * 1024;
+export const DEFAULT_MAX_PRESENCE_BYTES = SYNC_LIMITS.maxPresenceBytes;
 /** Sustained inbound byte budget per connection; bounds relay amplification, not just frame count. */
 export const DEFAULT_BYTES_PER_SECOND = 4 * 1024 * 1024;
 export const DEFAULT_BYTE_BURST = 8 * 1024 * 1024;
@@ -17,30 +19,7 @@ export const DEFAULT_MAX_CONNECTIONS_PER_ROOM = 256;
 /** Per-connection presence throttle lanes, INCLUDING the reserved fallback lane. */
 export const DEFAULT_MAX_PRESENCE_LANES = 16;
 
-export function hasJsonDepthAtMost(message: string, maxDepth: number): boolean {
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-
-  for (const char of message) {
-    if (inString) {
-      if (escaped) escaped = false;
-      else if (char === '\\') escaped = true;
-      else if (char === '"') inString = false;
-      continue;
-    }
-    if (char === '"') inString = true;
-    else if (char === '{' || char === '[') {
-      depth += 1;
-      if (depth > maxDepth) return false;
-    } else if (char === '}' || char === ']') {
-      depth -= 1;
-      if (depth < 0) return false;
-    }
-  }
-
-  return depth === 0 && !inString;
-}
+export { hasJsonDepthAtMost } from '@fieldnotes/sync';
 
 export class MessageRateLimiter {
   private tokens: number;

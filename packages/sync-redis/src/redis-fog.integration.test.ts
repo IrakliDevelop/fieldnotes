@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { createShape } from '@fieldnotes/core';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createClient } from 'redis';
 import { fogEncodeBase64 } from '@fieldnotes/vtt';
@@ -66,6 +67,7 @@ function fogHashClient(client: NodeRedisClient): RedisHashClient {
     eval: (script, options) => client.eval(script, options),
     scriptLoad: async (script) => String(await client.scriptLoad(script)),
     evalSha: (sha, options) => client.evalSha(sha, options),
+    expire: (key, seconds) => client.expire(key, seconds),
   };
 }
 
@@ -211,4 +213,55 @@ describe.skipIf(!redisUrl)('fog persistence against a real Redis', () => {
       paintedTile(1, 21, 'P'),
     ]);
   }, 30_000);
+
+  it('ttlSeconds puts a sliding expiry on element, layer and fog keys', async () => {
+    const hub = new RedisHubBackend(fogHashClient(client()), {
+      keyPrefix,
+      ttlSeconds: 120,
+      plugins: [createFogBackendPlugin()],
+    });
+    const ttlFog = hub.getService(FogBackendServiceKey);
+    await hub.apply('R', {
+      kind: 'upsert',
+      element: { ...createShape({ position: { x: 0, y: 0 }, size: { w: 1, h: 1 } }), id: 'e1' },
+    });
+    await hub.applyLayerRecord('R', { id: 'layer-a', version: 1, editor: 'A' });
+    await ttlFog?.applyMeta('R', { version: 1, editor: 'A', definition });
+    await ttlFog?.applyPatch('R', [paintedTile(0, 1, 'A')]);
+    await hub.snapshot('R');
+
+    const keys = ['', ':layers', ':fog:meta', ':fog:tiles'].map((s) => `${keyPrefix}R${s}`);
+    for (const key of keys) {
+      const ttl = await client().ttl(key);
+      expect(ttl, key).toBeGreaterThan(0);
+      expect(ttl, key).toBeLessThanOrEqual(120);
+    }
+  });
+
+  it('fog-only writes put a TTL on the fog keys, including after a generation change', async () => {
+    const hub = new RedisHubBackend(fogHashClient(client()), {
+      keyPrefix,
+      ttlSeconds: 120,
+      plugins: [createFogBackendPlugin()],
+    });
+    const ttlFog = hub.getService(FogBackendServiceKey);
+    const [metaKey, tilesKey] = [':fog:meta', ':fog:tiles'].map((s) => `${keyPrefix}R${s}`);
+    const expectTtl = async (key: string | undefined) => {
+      const ttl = await client().ttl(key ?? '');
+      expect(ttl, key).toBeGreaterThan(0);
+      expect(ttl, key).toBeLessThanOrEqual(120);
+    };
+    await ttlFog?.applyMeta('R', { version: 1, editor: 'A', definition });
+    await ttlFog?.applyPatch('R', [paintedTile(0, 1, 'A')]);
+    await expectTtl(metaKey);
+    await expectTtl(tilesKey);
+
+    await ttlFog?.applyMeta('R', {
+      version: 2,
+      editor: 'A',
+      definition: { ...definition, generation: 'gen-2' },
+    });
+    await ttlFog?.applyPatch('R', [{ ...paintedTile(0, 1, 'A'), generation: 'gen-2' }]);
+    await expectTtl(tilesKey);
+  });
 });

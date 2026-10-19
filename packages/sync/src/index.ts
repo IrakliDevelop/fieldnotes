@@ -50,11 +50,13 @@ export {
   isValidFogSnapshot,
   isNewerFogRecord,
   parseEnvelope,
+  isWithinSyncLimits,
   applyOpToMap,
   LAYER_SYNC_PROTOCOL_VERSION,
   FOG_SYNC_PROTOCOL_VERSION,
   FOG_PATCH_MAX_TILES,
 } from './protocol';
+export { SYNC_LIMITS, hasJsonDepthAtMost } from './limits';
 export type {
   ClientSyncPlugin,
   ClientSyncPluginContext,
