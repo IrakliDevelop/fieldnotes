@@ -4,6 +4,7 @@ import type { Connection } from '@fieldnotes/sync-server';
 import { createShape } from '@fieldnotes/core';
 import { RedisHubBackend, RedisHubFanout } from './index';
 import type { RedisHashClient, RedisPublisher, RedisSubscriber } from './index';
+import { emulateElementScript } from './test-support/element-scripts-fake';
 
 class FakeBus {
   private channels = new Map<string, Set<(m: string) => void>>();
@@ -49,10 +50,13 @@ class FakeRedis implements RedisHashClient {
     this.store.delete(key);
     return 1;
   }
-  // This suite drives only the plain hash paths; a scripted update would be a
-  // silent no-op here, so fail loudly instead.
-  async eval(_script: string, options: { keys: string[]; arguments: string[] }): Promise<unknown> {
-    throw new Error(`FakeRedis has no eval support (keys: ${options.keys.join(', ')})`);
+  // Only the element scripts are emulated; any other script fails loudly.
+  async eval(script: string, options: { keys: string[]; arguments: string[] }): Promise<unknown> {
+    const result = emulateElementScript(this.store, script, options);
+    if (result === undefined) {
+      throw new Error(`FakeRedis has no eval support (keys: ${options.keys.join(', ')})`);
+    }
+    return result;
   }
 }
 
@@ -89,7 +93,10 @@ describe('RedisHubFanout + RedisHubBackend cross-instance integration', () => {
     hubA.addConnection(connA);
     hubB.addConnection(connB);
 
-    const el = { ...createShape({ position: { x: 1, y: 2 }, size: { w: 3, h: 4 } }), id: 'e1' };
+    const el = {
+      ...createShape({ index: 'a0', position: { x: 1, y: 2 }, size: { w: 3, h: 4 } }),
+      id: 'e1',
+    };
     const msg = JSON.stringify({ from: 'ca', op: { kind: 'upsert', element: el } });
 
     await hubA.handleMessage('ca', msg);
@@ -100,7 +107,7 @@ describe('RedisHubFanout + RedisHubBackend cross-instance integration', () => {
 
     // Shared-backend snapshot consistency: a fresh backend over the same Redis sees e1.
     const snap = await new RedisHubBackend(redis).snapshot('R');
-    expect(snap.map((e) => e.id)).toContain('e1');
+    expect(snap.elements.map((e) => e.id)).toContain('e1');
   });
 
   it('delivers server-owned presence across instances without persisting it', async () => {
@@ -131,6 +138,9 @@ describe('RedisHubFanout + RedisHubBackend cross-instance integration', () => {
         op: { kind: 'presence', data: { kind: 'poke', feature: 'initiative' } },
       },
     ]);
-    expect(await new RedisHubBackend(redis).snapshot('R')).toEqual([]);
+    expect(await new RedisHubBackend(redis).snapshot('R')).toEqual({
+      elements: [],
+      tombstones: [],
+    });
   });
 });

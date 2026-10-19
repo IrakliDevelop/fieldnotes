@@ -221,10 +221,17 @@ describe.skipIf(!redisUrl)('fog persistence against a real Redis', () => {
       plugins: [createFogBackendPlugin()],
     });
     const ttlFog = hub.getService(FogBackendServiceKey);
-    await hub.apply('R', {
-      kind: 'upsert',
-      element: { ...createShape({ position: { x: 0, y: 0 }, size: { w: 1, h: 1 } }), id: 'e1' },
-    });
+    await hub.applyElement(
+      'R',
+      {
+        kind: 'upsert',
+        element: {
+          ...createShape({ index: 'a0', position: { x: 0, y: 0 }, size: { w: 1, h: 1 } }),
+          id: 'e1',
+        },
+      },
+      null,
+    );
     await hub.applyLayerRecord('R', { id: 'layer-a', version: 1, editor: 'A' });
     await ttlFog?.applyMeta('R', { version: 1, editor: 'A', definition });
     await ttlFog?.applyPatch('R', [paintedTile(0, 1, 'A')]);

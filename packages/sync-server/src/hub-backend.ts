@@ -28,6 +28,7 @@ export interface HubBackend {
   /**
    * Writes atomically when the stored record's version equals `expectedVersion` (`null`: no record
    * may exist). `clear` ignores it and requires its `expected` map to match every element exactly.
+   * A clear's tombstone ids equal its `expected` keys; backends should reject one where they differ.
    */
   applyElement(
     room: string,
