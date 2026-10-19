@@ -2001,7 +2001,7 @@ describe('read filtering (canRead)', () => {
     expect(player.sent.length).toBe(1);
     expect(JSON.parse(player.sent[0] as string).op).toEqual({
       kind: 'clear',
-      tombstones: [{ id: 's1', version: 2, editor: 'dm' }],
+      tombstones: [{ id: 's1', version: 2, editor: 'cdm' }],
     });
   });
 
@@ -3621,28 +3621,77 @@ describe('versioned element pipeline (D5)', () => {
   });
 
   it('relays a clear to each reader with only the tombstones it may read', async () => {
+    const host: FakeConn = { ...makeConn('c7', 'R'), userId: 'gm', role: 'gm' };
+    hub.addConnection(host);
     await hub.handleMessage('gm', upsert(el('open', 4)));
     await hub.handleMessage('gm', upsert(el('secret', 2, { audience: 'gm' })));
     reset();
 
-    await hub.handleMessage('gm', envelope('hub', { kind: 'clear', tombstones: [] }));
+    const bogus = [{ id: 'bogus', version: 9, editor: 'x' }];
+    await hub.handleMessage('c7', envelope('gmPeer', { kind: 'clear', tombstones: bogus }));
 
     expect(frames(p1)).toEqual([
-      { from: 'gm', op: { kind: 'clear', tombstones: [{ id: 'open', version: 5, editor: 'gm' }] } },
+      {
+        from: 'c7',
+        op: { kind: 'clear', tombstones: [{ id: 'open', version: 5, editor: 'gmPeer' }] },
+      },
     ]);
-    expect(p1.sent.join('')).not.toContain('secret');
+    expect(p1.sent.join('')).not.toMatch(/secret|bogus/);
+    expect(await backend.getRecord('R', 'bogus')).toBeUndefined();
     expect(await backend.getRecord('R', 'secret')).toEqual({
       kind: 'tombstone',
       tombstone: {
         id: 'secret',
         version: 3,
-        editor: 'gm',
+        editor: 'gmPeer',
         removedAt: expect.any(Number),
         ownerId: 'gm',
         audience: 'gm',
         removedBy: 'gm',
       },
     });
+  });
+
+  it('drops a clear whose sender claims the hub id', async () => {
+    await hub.handleMessage('gm', upsert(el('open')));
+    reset();
+
+    await hub.handleMessage('gm', envelope('hub', { kind: 'clear' }));
+
+    expect(p1.sent).toEqual([]);
+    expect((await backend.getRecord('R', 'open'))?.kind).toBe('element');
+  });
+
+  it('lets anyone recreate a deleted owned element when no authorize hook is set', async () => {
+    const open = new SyncHub({ backend });
+    const other = user('p2x', 'player');
+    const peer = user('peer', 'player');
+    open.addConnection(other);
+    open.addConnection(peer);
+    const tombstone = { id: 't', version: 2, editor: 'x', removedAt: Date.now(), ownerId: 'p1' };
+    await backend.applyElement('R', { kind: 'upsert', element: el('t') }, null);
+    await backend.applyElement('R', { kind: 'remove', tombstone }, 1);
+
+    await open.handleMessage('p2x', upsert(el('t', 3)));
+
+    expect(other.sent).toEqual([]);
+    expect(frames(peer)).toEqual([{ from: 'p2x', op: { kind: 'upsert', element: el('t', 3) } }]);
+    expect((await storedElement(backend, 'R', 't'))?.ownerId).toBeUndefined();
+  });
+
+  it('denies recreating an owned tombstone to a connection without a userId', async () => {
+    const anonymous = makeConn('anon', 'R');
+    hub.addConnection(anonymous);
+    const tombstone = { id: 't', version: 2, editor: 'x', removedAt: Date.now(), ownerId: 'p1' };
+    await backend.applyElement('R', { kind: 'upsert', element: el('t') }, null);
+    await backend.applyElement('R', { kind: 'remove', tombstone }, 1);
+
+    await hub.handleMessage('anon', upsert(el('t', 3)));
+
+    expect(frames(anonymous)).toEqual([
+      { from: 'hub', op: { kind: 'remove', id: 't', version: 2, editor: 'hub' } },
+    ]);
+    expect(gm.sent).toEqual([]);
   });
 
   it('filters a fanned-out clear per member on the receiving instance', async () => {
@@ -3661,17 +3710,20 @@ describe('versioned element pipeline (D5)', () => {
     player.sent.length = 0;
     remoteGm.sent.length = 0;
 
-    await origin.handleMessage('gm', envelope('gm', { kind: 'clear' }));
+    await origin.handleMessage('gm', envelope('gmPeer', { kind: 'clear' }));
 
     expect(frames(player)).toEqual([
-      { from: 'gm', op: { kind: 'clear', tombstones: [{ id: 'open', version: 2, editor: 'gm' }] } },
+      {
+        from: 'gm',
+        op: { kind: 'clear', tombstones: [{ id: 'open', version: 2, editor: 'gmPeer' }] },
+      },
     ]);
     expect(player.sent.join('')).not.toContain('secret');
     expect(frames(remoteGm)[0]?.op).toEqual({
       kind: 'clear',
       tombstones: [
-        { id: 'open', version: 2, editor: 'gm' },
-        { id: 'secret', version: 2, editor: 'gm' },
+        { id: 'open', version: 2, editor: 'gmPeer' },
+        { id: 'secret', version: 2, editor: 'gmPeer' },
       ],
     });
   });
@@ -3772,6 +3824,13 @@ describe('versioned element pipeline (D5)', () => {
   describe('compare-and-set conflicts', () => {
     class ConflictingBackend extends MemoryHubBackend {
       calls = 0;
+      reads = 0;
+      override async getRecord(
+        ...args: Parameters<HubBackend['getRecord']>
+      ): ReturnType<HubBackend['getRecord']> {
+        this.reads++;
+        return super.getRecord(...args);
+      }
       constructor(private conflicts: number) {
         super();
       }
@@ -3786,7 +3845,21 @@ describe('versioned element pipeline (D5)', () => {
 
     it('retries a conflicting write once and succeeds', async () => {
       const conflicting = new ConflictingBackend(1);
-      const h = new SyncHub({ backend: conflicting });
+      let authorized = 0;
+      let processed = 0;
+      const h = new SyncHub({
+        backend: conflicting,
+        authorize: () => ++authorized > 0,
+        plugins: [
+          {
+            name: 'count',
+            process: (op, context, next) => {
+              processed++;
+              return next(op, context);
+            },
+          },
+        ],
+      });
       const a = makeConn('a', 'R');
       const b = makeConn('b', 'R');
       h.addConnection(a);
@@ -3795,6 +3868,7 @@ describe('versioned element pipeline (D5)', () => {
       await h.handleMessage('a', upsert(el('e')));
 
       expect(conflicting.calls).toBe(2);
+      expect([conflicting.reads, authorized, processed]).toEqual([2, 2, 2]);
       expect(a.sent).toEqual([]);
       expect(frames(b)).toEqual([{ from: 'a', op: { kind: 'upsert', element: el('e') } }]);
     });
@@ -3838,5 +3912,28 @@ describe('versioned element pipeline (D5)', () => {
     expect(storedWhenPublished).toEqual(el('e'));
     expect(a.sent).toEqual([]);
     expect(frames(b)).toEqual([{ from: 'a', op: { kind: 'upsert', element: el('e') } }]);
+  });
+
+  it('delivers a written remove locally and rethrows without a correction when publish fails', async () => {
+    const error = new Error('fanout unavailable');
+    let failPublish = false;
+    const fanout = {
+      publish: vi.fn(() => (failPublish ? Promise.reject(error) : Promise.resolve())),
+      subscribe: () => () => undefined,
+    };
+    const h = new SyncHub({ backend, fanout, instanceId: 'A' });
+    const a = makeConn('a', 'R');
+    const b = makeConn('b', 'R');
+    h.addConnection(a);
+    h.addConnection(b);
+    await h.handleMessage('a', upsert(el('e')));
+    b.sent.length = 0;
+    failPublish = true;
+
+    await expect(h.handleMessage('a', envelope('a', v2Remove('e')))).rejects.toBe(error);
+
+    expect((await backend.getRecord('R', 'e'))?.kind).toBe('tombstone');
+    expect(a.sent).toEqual([]);
+    expect(frames(b)).toEqual([{ from: 'a', op: v2Remove('e') }]);
   });
 });

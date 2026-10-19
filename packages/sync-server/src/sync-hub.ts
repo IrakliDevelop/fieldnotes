@@ -450,6 +450,8 @@ export class SyncHub {
     // Clients apply editor 'hub' ops authoritatively, so no client may claim it (as for layer ops).
     if (op.kind === 'upsert' && op.element.editor === HUB_FROM) return;
     if (op.kind === 'remove' && op.editor === HUB_FROM) return;
+    // A clear's tombstones take the sender id as editor, so the same rule applies.
+    if (op.kind === 'clear' && env.from === HUB_FROM) return;
     if (op.kind === 'request-snapshot') {
       this.sendToConnection(conn, HUB_FROM, await this.buildSnapshotOp(conn, env.from));
     } else if (op.kind === 'layer-upsert' || op.kind === 'layer-remove') {
@@ -516,6 +518,7 @@ export class SyncHub {
       }
       const userId = conn.userId;
       const mayRecreate =
+        !this.authorize ||
         !tombstone?.ownerId ||
         (userId !== undefined && (userId === tombstone.ownerId || userId === tombstone.removedBy));
       if (!mayRecreate) {
@@ -535,7 +538,7 @@ export class SyncHub {
         await this.sendCorrection(conn, from, candidate, record);
         return;
       }
-      if (candidate.kind === 'upsert' && (this.authorize || tombstone)) {
+      if (candidate.kind === 'upsert' && this.authorize) {
         const ownerId = current?.ownerId ?? tombstone?.ownerId ?? userId;
         candidate = { kind: 'upsert', element: { ...candidate.element, ownerId } };
       }
@@ -610,7 +613,7 @@ export class SyncHub {
     }
   }
 
-  /** Authorized once; tombstones every element under the hub-assigned connection id. */
+  /** Authorized once; tombstones every element under the sender's own id, as its client does. */
   private async processClear(
     conn: Connection,
     from: string,
@@ -636,7 +639,7 @@ export class SyncHub {
       const stored: StoredTombstone[] = elements.map((element) => ({
         id: element.id,
         version: element.version + 1,
-        editor: conn.id,
+        editor: from,
         removedAt,
         ownerId: element.ownerId,
         audience: element.audience,
