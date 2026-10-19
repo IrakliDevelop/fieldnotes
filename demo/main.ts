@@ -42,6 +42,7 @@ import {
   gridElementTypeDefinition,
 } from '@fieldnotes/vtt';
 import type { MeasurePresence, PathPresence, PathEmission } from '@fieldnotes/vtt';
+import { createSampleBoard } from './sample-board';
 
 // Register VTT element types (grid, template) before creating the viewport
 registerVttElementTypes();
@@ -94,8 +95,13 @@ const gridController = new GridController({
   constraintService: viewport.constraintProxy,
 });
 
-const benchParam = new URLSearchParams(location.search).get('bench');
-const benchCount = benchParam ? Math.max(1, parseInt(benchParam, 10) || 500) : 0;
+const searchParams = new URLSearchParams(location.search);
+const MAX_BENCH = 20_000;
+const sampleParam = searchParams.has('sample');
+// Math.max(1, NaN) is NaN, so a missing or unparsable value falls back to 500.
+const benchCount = searchParams.has('bench')
+  ? Math.min(MAX_BENCH, Math.max(1, parseInt(searchParams.get('bench') ?? '', 10)) || 500)
+  : 0;
 
 const hand = new HandTool();
 const pencil = new PencilTool({ color: '#1a1a1a', width: 2 });
@@ -208,6 +214,12 @@ const autoSave = new AutoSave(viewport.store, viewport.camera, {
 });
 if (!benchCount) {
   void (async () => {
+    if (sampleParam) {
+      // runs after the await: loadSampleBoard reads grid-panel consts declared further down
+      await Promise.resolve();
+      loadSampleBoard();
+      return;
+    }
     const savedState = await autoSave.load();
     if (savedState) {
       for (const el of savedState.elements) {
@@ -799,6 +811,18 @@ document.getElementById('load')?.addEventListener('click', async () => {
   console.log('State restored from auto-save');
 });
 
+function loadSampleBoard(): void {
+  const elements = createSampleBoard(viewport.layerManager.activeLayerId);
+  viewport.transaction(() => {
+    viewport.removeElements(viewport.store.getAll().map((element) => element.id));
+    for (const element of elements) viewport.store.add(element);
+  });
+  viewport.fitToContent();
+  syncGridPanelFromStore();
+}
+
+document.getElementById('sample')?.addEventListener('click', loadSampleBoard);
+
 const exportPaddingCheckbox = document.getElementById('export-padding') as HTMLInputElement | null;
 
 document.getElementById('export-png')?.addEventListener('click', async () => {
@@ -1249,6 +1273,16 @@ function seedBench(count: number): void {
   viewport.fitToContent();
   console.log(`[bench] seeded ${count} strokes + 10 notes + 1 hex grid`);
   viewport.logPerformance();
+
+  const hud = document.getElementById('bench-hud');
+  if (!hud) return;
+  hud.hidden = false;
+  const writeHud = (): void => {
+    const { fps, avgFrameMs, p95FrameMs } = viewport.getRenderStats();
+    hud.textContent = `${viewport.store.count} elements · ${fps} fps · avg ${avgFrameMs} ms · p95 ${p95FrameMs} ms`;
+  };
+  writeHud();
+  setInterval(writeHud, 500);
 }
 
 if (benchCount) seedBench(benchCount);
