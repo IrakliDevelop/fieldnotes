@@ -202,6 +202,54 @@ test('style panel reflects undo', async ({ page }, testInfo) => {
   }
 });
 
+test('style panel resyncs at most once per frame while dragging a large selection', async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-chrome', 'mouse drag');
+  await open(page);
+  await page.keyboard.press('7');
+  await drag(page, false, { x: 300, y: 300 }, { x: 500, y: 450 });
+  await page.keyboard.press('1');
+  await page.evaluate(() => {
+    const { viewport } = window.__playground;
+    const shape = viewport.store.getAll().find((el) => el.type === 'shape');
+    if (!shape) throw new Error('No shape');
+    viewport.transaction(() => {
+      for (let i = 0; i < 200; i++) {
+        viewport.store.add({
+          ...shape,
+          id: `bulk-${i}`,
+          position: { x: 600 + (i % 20) * 30, y: 100 + Math.floor(i / 20) * 30 },
+        });
+      }
+    });
+    viewport.actions.run('select.all', { source: 'api' });
+  });
+  await expect
+    .poll(() => page.evaluate(() => window.__playground.viewport.getSelectedIds().length))
+    .toBe(201);
+  const calls = await page.evaluateHandle(() => {
+    const { viewport } = window.__playground;
+    const counter = { n: 0 };
+    const original = viewport.getSelectionStyleDetails.bind(viewport);
+    viewport.getSelectionStyleDetails = () => {
+      counter.n++;
+      return original();
+    };
+    return counter;
+  });
+  await page.mouse.move(300, 375);
+  await page.mouse.down();
+  for (let i = 1; i <= 10; i++) await page.mouse.move(300 + i * 4, 375);
+  await page.mouse.up();
+  await expect
+    .poll(() =>
+      page.evaluate(() => window.__playground.viewport.store.getById('bulk-0')?.position.x ?? 0),
+    )
+    .toBeGreaterThan(600);
+  expect(await calls.evaluate((counter) => counter.n)).toBeLessThan(50);
+});
+
 async function openLayers(page: Page): Promise<ReturnType<Page['locator']>> {
   await page.locator('[data-chrome="top-right"]').getByRole('button', { name: 'Layers' }).click();
   return page.locator('[data-chrome="layers"]');

@@ -225,10 +225,13 @@ export function renderStylePanel(
 ): () => void {
   root.setAttribute('aria-label', 'Style');
 
-  // Selection controls by style key, re-synced when undo/redo or a peer changes a selected element.
+  // Selection controls by style key, re-synced when undo/redo or a peer changes an element.
   let shown: (readonly [keyof ElementStyle, Control['show']])[] = [];
+  let frame = 0;
 
   const render = (): void => {
+    cancelAnimationFrame(frame);
+    frame = 0;
     const toolName = viewport.toolManager.activeTool?.name ?? '';
     const children: HTMLElement[] = [];
     shown = [];
@@ -268,12 +271,17 @@ export function renderStylePanel(
   render();
   const offSelection = viewport.onSelectionChange(render);
   const offTool = viewport.toolManager.onChange(render);
-  const offUpdate = viewport.store.on('update', ({ current }) => {
-    if (shown.length === 0 || !viewport.getSelectedIds().includes(current.id)) return;
-    const common = viewport.getSelectionStyleDetails()?.common;
-    for (const [style, show] of shown) show(common?.[style]);
+  // A selection drag updates every selected element per move; resync once per frame.
+  const offUpdate = viewport.store.on('update', () => {
+    if (shown.length === 0 || frame !== 0) return;
+    frame = requestAnimationFrame(() => {
+      frame = 0;
+      const common = viewport.getSelectionStyleDetails()?.common;
+      for (const [style, show] of shown) show(common?.[style]);
+    });
   });
   return () => {
+    cancelAnimationFrame(frame);
     offSelection();
     offTool();
     offUpdate();
