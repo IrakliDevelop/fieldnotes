@@ -96,7 +96,7 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - run: pnpm --filter "@fieldnotes/sync-redis..." --filter "@fieldnotes/vtt..." build
+      - run: pnpm -r --workspace-concurrency=1 --filter "./packages/**" build
 
       - run: pnpm --filter @fieldnotes/sync-redis test
 
