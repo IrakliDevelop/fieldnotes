@@ -1,7 +1,7 @@
 export { SyncHub } from './sync-hub';
 export type { SyncHubOptions, Connection, MessageDispatchOptions } from './sync-hub';
 export { MemoryHubBackend } from './memory-hub-backend';
-export type { HubBackend } from './hub-backend';
+export type { HubBackend, HubRecord, StoredTombstone, ElementWrite } from './hub-backend';
 export { createSyncServer } from './create-sync-server';
 export { ROOM_NAME_PATTERN, isValidRoomName } from './room-name';
 export type { CreateSyncServerOptions } from './create-sync-server';

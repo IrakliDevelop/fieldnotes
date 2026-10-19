@@ -1,10 +1,9 @@
 import {
   createCurrentCapabilities,
-  parseEnvelope,
-  isValidEnvelope,
-  isWithinSyncLimits,
+  parseLegacyEnvelope,
   isValidElement,
   isNewerLayerRecord,
+  isNewerVersion,
   translateOpForPeer,
   type LayerRecord,
   type SyncElement,
@@ -12,10 +11,11 @@ import {
   type SyncEnvelope,
   type SyncCapabilities,
   type PluginSnapshot,
+  type Tombstone,
 } from '@fieldnotes/sync';
 import { MemoryHubBackend } from './memory-hub-backend';
 import { InMemoryHubFanout, type HubFanout } from './hub-fanout';
-import type { HubBackend } from './hub-backend';
+import type { ElementWrite, HubBackend, HubRecord, StoredTombstone } from './hub-backend';
 import type {
   Authorize,
   AuthorizeLayer,
@@ -101,9 +101,14 @@ function generateInstanceId(): string {
   return `i-${Math.random().toString(36).slice(2)}`;
 }
 
-function isFanoutOp(op: SyncOp): op is Extract<SyncOp, { kind: 'upsert' | 'remove' | 'clear' }> {
-  return op.kind === 'upsert' || op.kind === 'remove' || op.kind === 'clear';
+type ElementOp = Extract<SyncOp, { kind: 'upsert' | 'remove' }>;
+
+function isFanoutOp(op: SyncOp): op is ElementOp {
+  return op.kind === 'upsert' || op.kind === 'remove';
 }
+
+const MAX_VERSION_JUMP = 1_000_000;
+const MAX_WRITE_ATTEMPTS = 3;
 
 type LayerOp = Extract<SyncOp, { kind: 'layer-upsert' | 'layer-remove' }>;
 
@@ -371,8 +376,13 @@ export class SyncHub {
       return Promise.resolve();
     }
     if (!hasJsonDepthAtMost(message, this.maxJsonDepth)) return Promise.resolve();
-    const env = parseEnvelope(message);
+    const env = parseLegacyEnvelope(message);
     if (!env) return Promise.resolve();
+    if (env.op.kind === 'capabilities' && env.op.capabilities.protocolVersion < 2) {
+      conn.close?.(4406);
+      this.removeConnection(connId);
+      return Promise.resolve();
+    }
     const perform = async () => {
       if (options) {
         if (!this.isCurrent(conn) || options.signal.aborted || Date.now() >= options.deadlineAt)
@@ -433,10 +443,15 @@ export class SyncHub {
     env: SyncEnvelope,
     options?: MessageDispatchOptions,
   ): Promise<void> {
-    let op = env.op;
+    const op = env.op;
     if (op.kind === 'upsert') {
       if (!isValidElement(op.element)) return;
     }
+    // Clients apply editor 'hub' ops authoritatively, so no client may claim it (as for layer ops).
+    if (op.kind === 'upsert' && op.element.editor === HUB_FROM) return;
+    if (op.kind === 'remove' && op.editor === HUB_FROM) return;
+    // A clear's tombstones take the sender id as editor, so the same rule applies.
+    if (op.kind === 'clear' && env.from === HUB_FROM) return;
     if (op.kind === 'request-snapshot') {
       this.sendToConnection(conn, HUB_FROM, await this.buildSnapshotOp(conn, env.from));
     } else if (op.kind === 'layer-upsert' || op.kind === 'layer-remove') {
@@ -456,16 +471,32 @@ export class SyncHub {
         corrections: [],
       }));
       await this.deliverPluginResult(conn, result);
-    } else if (op.kind === 'upsert' || op.kind === 'remove' || op.kind === 'clear') {
-      const id = op.kind === 'upsert' ? op.element.id : op.kind === 'remove' ? op.id : undefined;
-      const needCurrent =
-        (this.authorize !== undefined ||
-          this.canRead !== undefined ||
-          this.resolveAudience !== undefined) &&
-        id !== undefined;
-      const storedCurrent = needCurrent ? await this.backend.get(conn.room, id) : undefined;
-      const current = storedCurrent ?? undefined;
+    } else if (op.kind === 'upsert' || op.kind === 'remove') {
+      await this.processElementOp(conn, env.from, op, options);
+    } else if (op.kind === 'clear') {
+      await this.processClear(conn, env.from, options);
+    }
+    // 'snapshot' from a client → ignored
+  }
 
+  // Write-then-publish, so authorization judges the state the compare-and-set write replaces.
+  private async processElementOp(
+    conn: Connection,
+    from: string,
+    op: ElementOp,
+    options?: MessageDispatchOptions,
+  ): Promise<void> {
+    const id = op.kind === 'upsert' ? op.element.id : op.id;
+    const opVersion = op.kind === 'upsert' ? op.element.version : op.version;
+    for (let attempt = 1; ; attempt++) {
+      const record = await this.backend.getRecord(conn.room, id);
+      const current = record?.kind === 'element' ? record.element : undefined;
+      const tombstone = record?.kind === 'tombstone' ? record.tombstone : undefined;
+      if (op.kind === 'remove' && !current) {
+        if (tombstone) await this.sendCorrection(conn, from, op, record);
+        return;
+      }
+      let candidate: ElementOp = op;
       if (op.kind === 'upsert' && this.resolveAudience) {
         // The hub, not the client, decides the audience; it runs before authorize so a
         // policy sees the authoritative tag.
@@ -479,75 +510,183 @@ export class SyncHub {
         const element: OwnedElement = { ...op.element };
         if (audience === undefined) delete element.audience;
         else element.audience = audience;
-        op = { kind: 'upsert', element };
+        candidate = { kind: 'upsert', element };
       }
-
-      let outboundOp: SyncOp = op;
-      if (this.authorize) {
-        const allowed = await this.authorize({
-          userId: conn.userId,
+      const userId = conn.userId;
+      const mayRecreate =
+        !this.authorize ||
+        !tombstone?.ownerId ||
+        (userId !== undefined && (userId === tombstone.ownerId || userId === tombstone.removedBy));
+      if (!mayRecreate) {
+        await this.sendCorrection(conn, from, candidate, record);
+        return;
+      }
+      if (
+        this.authorize &&
+        !(await this.authorize({
+          userId,
           role: conn.role,
           room: conn.room,
-          op,
+          op: candidate,
           currentElement: current,
-        });
-        if (!allowed) {
-          await this.sendCorrection(conn, env.from, op, current);
-          return;
-        }
-        if (op.kind === 'upsert') {
-          const ownerId = current?.ownerId ?? conn.userId;
-          const stampedElement: OwnedElement = { ...op.element, ownerId };
-          outboundOp = { kind: 'upsert', element: stampedElement };
-        }
+        }))
+      ) {
+        await this.sendCorrection(conn, from, candidate, record);
+        return;
+      }
+      if (candidate.kind === 'upsert' && this.authorize) {
+        const ownerId = current?.ownerId ?? tombstone?.ownerId ?? userId;
+        candidate = { kind: 'upsert', element: { ...candidate.element, ownerId } };
       }
 
-      const prevExisted = current !== undefined;
-      const prevAudience = current?.audience;
-      const result = await this.runCorePlugins(conn, outboundOp, options);
-      for (const correction of result.corrections) {
-        this.sendToConnection(conn, HUB_FROM, correction);
-      }
+      const result = await this.runCorePlugins(conn, candidate, options);
+      const pluginOutput = { ...result, accepted: null };
       const accepted = result.accepted;
+      if (accepted?.kind !== 'upsert' && accepted?.kind !== 'remove') {
+        await this.deliverPluginResult(conn, pluginOutput, opVersion);
+        return;
+      }
+      const version = accepted.kind === 'upsert' ? accepted.element.version : accepted.version;
+      const editor = accepted.kind === 'upsert' ? accepted.element.editor : accepted.editor;
+      const stored = current ?? tombstone;
       if (
-        accepted &&
-        (accepted.kind === 'upsert' || accepted.kind === 'remove' || accepted.kind === 'clear')
+        version === undefined ||
+        !isNewerVersion({ version, editor }, stored) ||
+        version > (stored?.version ?? 0) + MAX_VERSION_JUMP
       ) {
-        // Publish-then-apply (S7): nothing is persisted until fanout has taken the op, so a
-        // failed publication can never leave this instance holding state its peers lack.
-        // The guarantee is one-sided: local peers are told nothing and the sender is corrected
-        // from authoritative state, but a publish that succeeded before apply failed has
-        // already reached the other instances, whose members hold a phantom until their next
-        // authoritative read converges them. The rejection propagates for observability.
-        try {
-          if (result.locality !== 'local') {
-            await this.fanout.publish(
-              JSON.stringify({
-                o: this.instanceId,
-                room: conn.room,
-                from: conn.id,
-                op: accepted,
-                prev: prevAudience,
-                existed: prevExisted,
-              }),
-            );
-          }
-          await this.backend.apply(conn.room, accepted);
-        } catch (error) {
-          await this.sendFailureCorrection(conn, env.from, op, current, needCurrent).catch(() => {
-            // Best effort: the correction is a courtesy, so a backend that also fails this
-            // read must not replace the original publish/apply error with the secondary one.
-            // The sender stays optimistically ahead until its next snapshot request.
-          });
-          throw error;
+        await this.sendCorrection(conn, from, candidate, record);
+        await this.deliverPluginResult(conn, pluginOutput, opVersion);
+        return;
+      }
+      const write: ElementWrite =
+        accepted.kind === 'upsert'
+          ? { kind: 'upsert', element: accepted.element }
+          : {
+              kind: 'remove',
+              tombstone: {
+                id: accepted.id,
+                version,
+                editor: editor ?? HUB_FROM,
+                removedAt: Date.now(),
+                ownerId: current?.ownerId,
+                audience: current?.audience,
+                removedBy: userId,
+              },
+            };
+      let outcome: Awaited<ReturnType<HubBackend['applyElement']>>;
+      try {
+        outcome = await this.backend.applyElement(
+          conn.room,
+          write,
+          stored ? { version: stored.version, editor: stored.editor } : null,
+        );
+      } catch (error) {
+        await this.sendCorrection(conn, from, candidate, record);
+        throw error;
+      }
+      if (!outcome.ok) {
+        if (attempt < MAX_WRITE_ATTEMPTS) continue;
+        await this.sendCorrection(conn, from, candidate, outcome.current);
+        await this.deliverPluginResult(conn, pluginOutput, opVersion);
+        return;
+      }
+      const prevAudience = current?.audience;
+      const existed = current !== undefined;
+      try {
+        if (result.locality !== 'local') {
+          await this.fanout.publish(
+            JSON.stringify({
+              o: this.instanceId,
+              room: conn.room,
+              from: conn.id,
+              op: accepted,
+              prev: prevAudience,
+              existed,
+            }),
+          );
         }
-        this.deliverToRoom(conn.room, conn.id, conn.id, accepted, prevAudience, prevExisted);
+      } finally {
+        this.deliverToRoom(conn.room, conn.id, conn.id, accepted, prevAudience, existed);
       }
-      for (const broadcast of result.broadcast ?? []) {
-        await this.publishPluginOp(conn, broadcast, result.locality);
-      }
+      await this.deliverPluginResult(conn, pluginOutput, opVersion);
+      return;
     }
-    // 'snapshot' from a client → ignored
+  }
+
+  /** Authorized once; tombstones every element under the sender's own id, as its client does. */
+  private async processClear(
+    conn: Connection,
+    from: string,
+    options?: MessageDispatchOptions,
+  ): Promise<void> {
+    const op: SyncOp = { kind: 'clear' };
+    if (
+      this.authorize &&
+      !(await this.authorize({ userId: conn.userId, role: conn.role, room: conn.room, op }))
+    ) {
+      await this.sendSnapshotCorrection(conn, from);
+      return;
+    }
+    for (let attempt = 1; ; attempt++) {
+      const result = await this.runCorePlugins(conn, op, options);
+      const pluginOutput = { ...result, accepted: null };
+      if (result.accepted?.kind !== 'clear') {
+        await this.deliverPluginResult(conn, pluginOutput);
+        return;
+      }
+      const { elements } = await this.backend.snapshot(conn.room);
+      const removedAt = Date.now();
+      const stored: StoredTombstone[] = elements.map((element) => ({
+        id: element.id,
+        version: element.version + 1,
+        editor: from,
+        removedAt,
+        ownerId: element.ownerId,
+        audience: element.audience,
+        removedBy: conn.userId,
+      }));
+      const expected = new Map(
+        elements.map(({ id, version, editor }) => [id, { version, editor }]),
+      );
+      let outcome: Awaited<ReturnType<HubBackend['applyElement']>>;
+      try {
+        outcome = await this.backend.applyElement(
+          conn.room,
+          { kind: 'clear', tombstones: stored, expected },
+          null,
+        );
+      } catch (error) {
+        await this.sendSnapshotCorrection(conn, from).catch(() => {
+          // Best effort: a failing correction read must not replace the original write error.
+        });
+        throw error;
+      }
+      if (!outcome.ok) {
+        if (attempt < MAX_WRITE_ATTEMPTS) continue;
+        await this.sendSnapshotCorrection(conn, from);
+        await this.deliverPluginResult(conn, pluginOutput);
+        return;
+      }
+      const tombstones = stored.map(({ id, version, editor }) => ({ id, version, editor }));
+      const audiences = stored.map((tombstone) => tombstone.audience);
+      try {
+        if (result.locality !== 'local') {
+          await this.fanout.publish(
+            JSON.stringify({
+              o: this.instanceId,
+              room: conn.room,
+              from: conn.id,
+              op: { kind: 'clear', tombstones },
+              audiences,
+            }),
+          );
+        }
+      } finally {
+        this.deliverClear(conn.room, conn.id, conn.id, tombstones, audiences);
+      }
+      await this.deliverPluginResult(conn, pluginOutput);
+      return;
+    }
   }
 
   private pluginContext(conn: Connection, options?: MessageDispatchOptions): ServerOpContext {
@@ -574,7 +713,7 @@ export class SyncHub {
     const dispatch = async (index: number, current: SyncOp): Promise<ApplyResult> => {
       const plugin = middleware[index];
       if (!plugin?.process) {
-        // Persistence is the caller's job now (publish-then-apply, S7).
+        // The caller writes, then publishes.
         return { accepted: current, corrections: [] };
       }
       let called = false;
@@ -590,14 +729,35 @@ export class SyncHub {
     return dispatch(0, op);
   }
 
-  private async deliverPluginResult(conn: Connection, result: ApplyResult): Promise<void> {
+  private async deliverPluginResult(
+    conn: Connection,
+    result: ApplyResult,
+    fallbackVersion?: number,
+  ): Promise<void> {
     for (const correction of result.corrections) {
-      this.sendToConnection(conn, HUB_FROM, correction);
+      const stamped = await this.stampHubRemove(conn.room, correction, fallbackVersion);
+      if (stamped) this.sendToConnection(conn, HUB_FROM, stamped);
     }
     if (result.accepted) await this.publishPluginOp(conn, result.accepted, result.locality);
     for (const broadcast of result.broadcast ?? []) {
-      await this.publishPluginOp(conn, broadcast, result.locality);
+      const stamped = await this.stampHubRemove(conn.room, broadcast, fallbackVersion);
+      if (stamped) await this.publishPluginOp(conn, stamped, result.locality);
     }
+  }
+
+  // Clients drop versionless removes: stamp a plugin's with the stored (else op) version and 'hub'.
+  private async stampHubRemove(
+    room: string,
+    op: SyncOp,
+    fallbackVersion: number | undefined,
+  ): Promise<SyncOp | undefined> {
+    if (op.kind !== 'remove' || (op.version !== undefined && op.editor !== undefined)) return op;
+    const record = await this.backend.getRecord(room, op.id);
+    const stored = record?.kind === 'element' ? record.element : record?.tombstone;
+    const version = op.version ?? stored?.version ?? fallbackVersion;
+    return version === undefined
+      ? undefined
+      : { kind: 'remove', id: op.id, version, editor: HUB_FROM };
   }
 
   private async publishPluginOp(
@@ -926,7 +1086,12 @@ export class SyncHub {
     const encoded: EncodedFrames = new Map();
     if (op.kind === 'upsert') {
       const audience = (op.element as OwnedElement).audience;
-      const removeOp: SyncOp = { kind: 'remove', id: op.element.id };
+      const removeOp: SyncOp = {
+        kind: 'remove',
+        id: op.element.id,
+        version: op.element.version,
+        editor: HUB_FROM,
+      };
       const encodedRemove: EncodedFrames = new Map();
       for (const cid of members) {
         if (cid === excludeId) continue;
@@ -942,17 +1107,27 @@ export class SyncHub {
         if (cid === excludeId) continue;
         const conn = this.conns.get(cid);
         if (!conn) continue;
-        // No read filter → forward to all (today's behavior; current/prevExisted aren't fetched without
-        // a hook). With canRead, only recipients who could see the removed element get it.
+        // With canRead, only recipients who could see the removed element get it.
         const wasVisible = !this.canRead || (prevExisted && this.mayRead(conn, prevAudience));
         if (wasVisible) this.sendToConnection(conn, from, op, encoded);
       }
-    } else if (op.kind === 'clear') {
-      for (const cid of members) {
-        if (cid === excludeId) continue;
-        const conn = this.conns.get(cid);
-        if (conn) this.sendToConnection(conn, from, op, encoded);
-      }
+    }
+  }
+
+  /** Each member receives only the clear tombstones whose stored audience it may read. */
+  private deliverClear(
+    room: string,
+    excludeId: string | undefined,
+    from: string,
+    tombstones: readonly Tombstone[],
+    audiences: readonly (string | undefined)[],
+  ): void {
+    for (const cid of this.rooms.get(room) ?? []) {
+      if (cid === excludeId) continue;
+      const conn = this.conns.get(cid);
+      if (!conn) continue;
+      const readable = tombstones.filter((_, index) => this.mayRead(conn, audiences[index]));
+      this.sendToConnection(conn, from, { kind: 'clear', tombstones: readable });
     }
   }
 
@@ -960,48 +1135,30 @@ export class SyncHub {
     conn: Connection,
     from: string,
     op: SyncOp,
-    current: OwnedElement | undefined,
+    record: HubRecord | undefined,
   ): Promise<void> {
-    let correction: SyncOp | undefined;
-    if (op.kind === 'upsert') {
-      correction = current
-        ? this.mayRead(conn, current.audience)
-          ? { kind: 'upsert', element: current }
-          : { kind: 'remove', id: current.id }
-        : { kind: 'remove', id: op.element.id };
-    } else if (op.kind === 'remove') {
-      correction = current
-        ? this.mayRead(conn, current.audience)
-          ? { kind: 'upsert', element: current }
-          : { kind: 'remove', id: current.id }
-        : undefined;
-    } else if (op.kind === 'clear') {
+    if (op.kind === 'clear') {
       await this.sendSnapshotCorrection(conn, from);
       return;
     }
-    if (correction) this.sendToConnection(conn, HUB_FROM, correction);
-  }
-
-  /**
-   * Corrects the sender of an op that did not survive publication or persistence, with the
-   * same targeted correction the denied path sends. `current` is fetched on the accept path
-   * only when a policy hook needs it, so it is read here otherwise; nothing has been
-   * persisted yet, so that read still yields the pre-op state the correction must describe.
-   */
-  private async sendFailureCorrection(
-    conn: Connection,
-    from: string,
-    op: Extract<SyncOp, { kind: 'upsert' | 'remove' | 'clear' }>,
-    current: OwnedElement | undefined,
-    currentFetched: boolean,
-  ): Promise<void> {
-    if (op.kind === 'clear' || currentFetched) {
-      await this.sendCorrection(conn, from, op, current);
-      return;
+    let correction: SyncOp | undefined;
+    if (record?.kind === 'element') {
+      const current = record.element;
+      correction = this.mayRead(conn, current.audience)
+        ? { kind: 'upsert', element: current }
+        : { kind: 'remove', id: current.id, version: current.version, editor: HUB_FROM };
+    } else if (record) {
+      const { id, version } = record.tombstone;
+      correction = { kind: 'remove', id, version, editor: HUB_FROM };
+    } else if (op.kind === 'upsert') {
+      correction = {
+        kind: 'remove',
+        id: op.element.id,
+        version: op.element.version,
+        editor: HUB_FROM,
+      };
     }
-    const stored = await this.backend.get(conn.room, op.kind === 'upsert' ? op.element.id : op.id);
-    const latest = stored ?? undefined;
-    await this.sendCorrection(conn, from, op, latest);
+    if (correction) this.sendToConnection(conn, HUB_FROM, correction);
   }
 
   /**
@@ -1018,14 +1175,18 @@ export class SyncHub {
    * share it so a corrected sender is never left with less state than a joiner receives.
    */
   private async buildSnapshotOp(conn: Connection, to: string): Promise<SyncOp> {
-    const all = await this.backend.snapshot(conn.room);
+    const { elements: all, tombstones: stored } = await this.backend.snapshot(conn.room);
     const elements = this.canRead ? all.filter((el) => this.mayRead(conn, el.audience)) : all;
+    const tombstones = stored
+      .filter((tombstone) => this.mayRead(conn, tombstone.audience))
+      .map(({ id, version, editor }) => ({ id, version, editor }));
     // Layer records are presentation-only and carry no element bytes, so no
     // audience filter applies; the field is omitted while a room has never
     // used layer sync, keeping snapshot frames byte-identical to before.
     const layers = await this.getLayerRecords(conn.room);
     const snapshotOp: Record<string, unknown> = { kind: 'snapshot', to, elements };
     if (layers.length > 0) snapshotOp['layers'] = layers;
+    if (tombstones.length > 0) snapshotOp['tombstones'] = tombstones;
     const extensions: Record<string, PluginSnapshot> = {};
     for (const plugin of this.pluginRegistry.plugins) {
       let snapshot = await plugin.snapshot?.(conn.room, this.backend);
@@ -1042,35 +1203,29 @@ export class SyncHub {
   }
 
   private onFanout(payload: string): void {
-    // Off the serial queue on purpose: element delivery here is forward-only. The origin
-    // publishes before it applies (S7), so a receiver never reads backing state to decide what
-    // to send — it relays exactly what it was handed, and delivery is already ordered.
+    // Off the serial queue on purpose: element delivery here is forward-only. The origin writes,
+    // then publishes, so a receiver never reads backing state to decide what to send; it relays
+    // exactly what it was handed and clients order it by per-element (version, editor).
     // Layer and plugin fanout do still write the backend from here, off the queue, but that
     // write only converges this instance's own copy; the relay never depends on it.
     // Re-filter per local member (canRead runs on EVERY instance).
     // The channel is a trust boundary of its own: anyone who can publish to it reaches every
     // instance, so a fanout op passes the same shape validation as a client frame.
+    // Element ops pass the protocol-2 rules too, so no versionless remove leaves this hub.
     if (!hasJsonDepthAtMost(payload, this.maxJsonDepth)) return;
-    let env: {
+    const parsed = parseLegacyEnvelope(payload);
+    if (!parsed) return;
+    const env: SyncEnvelope & {
       o?: unknown;
       room?: unknown;
-      from?: unknown;
-      op?: unknown;
       prev?: unknown;
       existed?: unknown;
-    };
-    try {
-      env = JSON.parse(payload);
-    } catch {
-      return;
-    }
-    if (typeof env.o !== 'string' || typeof env.room !== 'string' || typeof env.from !== 'string')
-      return;
+      audiences?: unknown;
+    } = parsed;
+    if (typeof env.o !== 'string' || typeof env.room !== 'string') return;
     if (this.isAuthorityRoom(env.room)) return;
     if (env.o === this.instanceId) return; // our own publish — already delivered locally
-    const envelope = { from: env.from, op: env.op };
-    if (!isValidEnvelope(envelope) || !isWithinSyncLimits(envelope)) return;
-    const op = envelope.op;
+    const op = env.op;
     if (isPresenceOp(op)) {
       if (op.kind === 'presence' && !this.isPresenceWithinLimit(op.data)) return;
       // presence/leave: raw forward to all local members (the sender lives on the origin instance),
@@ -1115,13 +1270,26 @@ export class SyncHub {
       if (!this.rooms.has(env.room)) this.scheduleIdleEviction(env.room);
       return;
     }
+    if (op.kind === 'clear') {
+      const tombstones = op.tombstones ?? [];
+      const audiences: unknown = env.audiences;
+      if (
+        !Array.isArray(audiences) ||
+        audiences.length !== tombstones.length ||
+        !audiences.every(
+          (audience: unknown): audience is string | null =>
+            audience === null || typeof audience === 'string',
+        )
+      )
+        return;
+      const readable = audiences.map((audience) => audience ?? undefined);
+      this.deliverClear(env.room, undefined, env.from, tombstones, readable);
+      return;
+    }
     if (!isFanoutOp(op)) return;
-    const runtimeOp: SyncOp | null =
-      op.kind === 'upsert' ? (isValidElement(op.element) ? op : null) : op;
-    if (!runtimeOp) return;
     const prevAudience = typeof env.prev === 'string' ? env.prev : undefined;
     const prevExisted = env.existed === true;
-    this.deliverToRoom(env.room, undefined, env.from, runtimeOp, prevAudience, prevExisted);
+    this.deliverToRoom(env.room, undefined, env.from, op, prevAudience, prevExisted);
   }
 
   private scheduleIdleEviction(room: string): void {

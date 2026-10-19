@@ -67,11 +67,13 @@ describe('Integration: html element added by a remote peer (TD-16)', () => {
     const diagnostics: HtmlPaintDiagnostic[] = [];
     vp.onHtmlPaintDiagnostic((d) => diagnostics.push(d));
     const typed = createHtmlElement({
+      index: 'a0',
       position: { x: 0, y: 0 },
       size: { w: 50, h: 50 },
       htmlType: 'chart',
     });
     const untyped = createHtmlElement({
+      index: 'a0',
       position: { x: 100, y: 0 },
       size: { w: 50, h: 50 },
       domId: 'not-in-this-document',
@@ -94,6 +96,7 @@ describe('Integration: html element added by a remote peer (TD-16)', () => {
     const factory = vi.fn(() => built);
     vp.registerHtmlRenderer('embed', factory);
     const el = createHtmlElement({
+      index: 'a0',
       position: { x: 0, y: 0 },
       size: { w: 50, h: 50 },
       htmlType: 'embed',
@@ -157,6 +160,7 @@ describe('Integration: html element added by a remote peer (TD-16)', () => {
     const factory = vi.fn(() => document.createElement('span'));
     vp.registerHtmlRenderer('chart', factory);
     const el = createHtmlElement({
+      index: 'a0',
       position: { x: 0, y: 0 },
       size: { w: 50, h: 50 },
       htmlType: 'chart',
@@ -178,6 +182,7 @@ describe('Integration: html element added by a remote peer (TD-16)', () => {
       throw failure;
     });
     const el = createHtmlElement({
+      index: 'a0',
       position: { x: 0, y: 0 },
       size: { w: 50, h: 50 },
       htmlType: 'chart',
@@ -195,6 +200,7 @@ describe('Integration: html element added by a remote peer (TD-16)', () => {
     document.body.appendChild(other);
     const hosted = new Viewport(other, { onHtmlElementMount: () => undefined });
     const el = createHtmlElement({
+      index: 'a0',
       position: { x: 0, y: 0 },
       size: { w: 50, h: 50 },
       htmlType: 'chart',
@@ -261,6 +267,7 @@ describe('Integration: html element added by a remote peer (TD-16)', () => {
     const painted: string[] = [];
     vp.registerHtmlPainter('marker', ({ element }) => painted.push(element.id));
     const el = createHtmlElement({
+      index: 'a0',
       position: { x: 0, y: 0 },
       size: { w: 50, h: 50 },
       htmlType: 'marker',

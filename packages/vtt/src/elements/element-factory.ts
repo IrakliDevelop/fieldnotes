@@ -10,7 +10,8 @@ import type {
 
 interface BaseDefaults {
   position?: Point;
-  zIndex?: number;
+  index?: string;
+  version?: number;
   locked?: boolean;
   layerId?: string;
 }
@@ -29,7 +30,8 @@ export function createGrid(input: GridInput): GridElement {
     id: createId('grid'),
     type: 'grid',
     position: input.position ?? { x: 0, y: 0 },
-    zIndex: input.zIndex ?? 0,
+    index: input.index ?? '',
+    version: input.version ?? 1,
     locked: input.locked ?? false,
     layerId: input.layerId ?? '',
     gridType: input.gridType ?? 'square',
@@ -61,7 +63,8 @@ export function createTemplate(input: TemplateInput): TemplateElement {
     id: createId('template'),
     type: 'template',
     position: input.position,
-    zIndex: input.zIndex ?? 0,
+    index: input.index ?? '',
+    version: input.version ?? 1,
     locked: input.locked ?? false,
     layerId: input.layerId ?? '',
     templateShape: input.templateShape,

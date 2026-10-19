@@ -1,3 +1,4 @@
+import { pickBaseFields } from '@fieldnotes/core';
 import type { CanvasElement } from '@fieldnotes/core';
 import type { GridElement, TemplateElement, HexOrientation } from '../elements/types';
 import {
@@ -26,12 +27,8 @@ function findGridInStore(allElements: readonly CanvasElement[]): GridElement | n
   for (const el of allElements) {
     if (el.type === 'extension' && el.extensionType === 'vtt:grid') {
       return {
+        ...pickBaseFields(el),
         type: 'grid',
-        id: el.id,
-        position: el.position,
-        zIndex: el.zIndex,
-        locked: el.locked,
-        layerId: el.layerId,
         gridType: el.data['gridType'] as GridElement['gridType'],
         hexOrientation: el.data['hexOrientation'] as HexOrientation,
         cellSize: el.data['cellSize'] as number,

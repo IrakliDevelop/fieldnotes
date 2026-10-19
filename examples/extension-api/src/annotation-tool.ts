@@ -18,7 +18,8 @@ export class AnnotationTool implements Tool {
       id: crypto.randomUUID(),
       type: 'example:annotation',
       position: { x: world.x - 20, y: world.y - 20 },
-      zIndex: ctx.store.getAll().length,
+      index: '', // '' = unplaced: the store puts it on top of its layer
+      version: 1,
       locked: false,
       layerId: ctx.activeLayerId ?? '',
       label: `Note ${this.colorIndex + 1}`,

@@ -19,7 +19,8 @@ export const DEFAULT_NOTE_FONT_SIZE = 18;
 
 interface BaseDefaults {
   position?: Point;
-  zIndex?: number;
+  index?: string;
+  version?: number;
   locked?: boolean;
   layerId?: string;
 }
@@ -84,7 +85,8 @@ export function createStroke(input: StrokeInput): StrokeElement {
     id: createId('stroke'),
     type: 'stroke',
     position: input.position ?? { x: 0, y: 0 },
-    zIndex: input.zIndex ?? 0,
+    index: input.index ?? '',
+    version: input.version ?? 1,
     locked: input.locked ?? false,
     layerId: input.layerId ?? '',
     points: input.points,
@@ -101,7 +103,8 @@ export function createNote(input: NoteInput): NoteElement {
     id: createId('note'),
     type: 'note',
     position: input.position,
-    zIndex: input.zIndex ?? 0,
+    index: input.index ?? '',
+    version: input.version ?? 1,
     locked: input.locked ?? false,
     layerId: input.layerId ?? '',
     size: input.size ?? { w: 200, h: 100 },
@@ -118,7 +121,8 @@ export function createArrow(input: ArrowInput): ArrowElement {
     id: createId('arrow'),
     type: 'arrow',
     position: input.position ?? { x: 0, y: 0 },
-    zIndex: input.zIndex ?? 0,
+    index: input.index ?? '',
+    version: input.version ?? 1,
     locked: input.locked ?? false,
     layerId: input.layerId ?? '',
     from: input.from,
@@ -140,7 +144,8 @@ export function createImage(input: ImageInput): ImageElement {
     id: createId('image'),
     type: 'image',
     position: input.position,
-    zIndex: input.zIndex ?? 0,
+    index: input.index ?? '',
+    version: input.version ?? 1,
     locked: input.locked ?? false,
     layerId: input.layerId ?? '',
     size: input.size,
@@ -153,7 +158,8 @@ export function createHtmlElement(input: HtmlInput): HtmlElement {
     id: createId('html'),
     type: 'html',
     position: input.position,
-    zIndex: input.zIndex ?? 0,
+    index: input.index ?? '',
+    version: input.version ?? 1,
     locked: input.locked ?? false,
     layerId: input.layerId ?? '',
     size: input.size,
@@ -182,7 +188,8 @@ export function createShape(input: ShapeInput): ShapeElement {
     id: createId('shape'),
     type: 'shape',
     position: input.position,
-    zIndex: input.zIndex ?? 0,
+    index: input.index ?? '',
+    version: input.version ?? 1,
     locked: input.locked ?? false,
     layerId: input.layerId ?? '',
     shape: input.shape ?? 'rectangle',
@@ -200,7 +207,8 @@ export function createText(input: TextInput): TextElement {
     id: createId('text'),
     type: 'text',
     position: input.position,
-    zIndex: input.zIndex ?? 0,
+    index: input.index ?? '',
+    version: input.version ?? 1,
     locked: input.locked ?? false,
     layerId: input.layerId ?? '',
     size: input.size ?? { w: 200, h: 28 },

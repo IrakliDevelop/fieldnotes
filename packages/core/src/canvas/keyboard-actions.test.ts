@@ -197,6 +197,24 @@ describe('KeyboardActions.selectAll', () => {
 });
 
 describe('KeyboardActions.duplicate', () => {
+  it('duplicate places clones on top with version 1', () => {
+    const { actions, ctx, tool } = makeActions();
+    const low = { ...createNote({ position: { x: 0, y: 0 } }), id: 'low', index: 'a0' };
+    const top = { ...createNote({ position: { x: 0, y: 0 } }), id: 'top', index: 'a5' };
+    ctx.store.add({ ...low, version: 4, editor: 'peer' });
+    ctx.store.add({ ...top, version: 9 });
+    tool.setSelection(['top', 'low']);
+
+    actions.duplicate();
+
+    const order = ctx.store.getAll().map((el) => el.id);
+    expect(order.slice(0, 2)).toEqual(['low', 'top']);
+    const clones = order.slice(2).map((id) => ctx.store.getById(id));
+    expect(clones.map((el) => el?.version)).toEqual([1, 1]);
+    expect(clones.every((el) => el !== undefined && !('editor' in el))).toBe(true);
+    expect(clones.map((el) => el?.index ?? '').every((index) => index > 'a5')).toBe(true);
+  });
+
   it('clones the selection at +20px and selects the clones', () => {
     const { actions, ctx, tool } = makeActions();
     const note = createNote({ position: { x: 100, y: 100 }, size: { w: 100, h: 50 } });
@@ -713,7 +731,8 @@ describe('KeyboardActions.paste cursor-centering', () => {
       type: 'extension',
       extensionType: 'test:box',
       position: { x: 100, y: 100 },
-      zIndex: 0,
+      index: 'a0',
+      version: 1,
       locked: false,
       layerId: '',
       data: {},
@@ -770,10 +789,10 @@ describe('KeyboardActions guards during active tool input', () => {
 
   it('zOrder is a no-op mid-gesture', () => {
     const { actions, ctx, note } = activeSetup();
-    const second = createNote({ position: { x: 10, y: 10 }, size: { w: 100, h: 50 }, zIndex: 1 });
+    const second = createNote({ position: { x: 10, y: 10 }, size: { w: 100, h: 50 }, index: 'a1' });
     ctx.store.add(second);
     actions.zOrder('front');
-    expect(ctx.store.getById(note.id)?.zIndex).toBe(0);
+    expect(ctx.store.getById(note.id)?.index).toBe('a0');
   });
 
   it('duplicate is a no-op mid-gesture', () => {
@@ -807,15 +826,14 @@ describe('KeyboardActions guards during active tool input', () => {
 });
 
 describe('KeyboardActions.zOrder single-undo', () => {
-  it('bringForward swaps two elements as ONE undo step restoring both', () => {
+  it('bringForward is ONE undo step restoring the order', () => {
     const ctx = makeCtx();
     const stack = new HistoryStack();
     const recorder = new HistoryRecorder(ctx.store, stack);
     const { actions, tool } = makeActions({ ctx, recorder, stack });
 
-    // same layer (default ''), distinct zIndex so bringForward has a neighbour to swap with
-    const a = createNote({ position: { x: 0, y: 0 }, size: { w: 50, h: 50 }, zIndex: 0 });
-    const b = createNote({ position: { x: 10, y: 10 }, size: { w: 50, h: 50 }, zIndex: 1 });
+    const a = createNote({ position: { x: 0, y: 0 }, size: { w: 50, h: 50 }, index: 'a0' });
+    const b = createNote({ position: { x: 10, y: 10 }, size: { w: 50, h: 50 }, index: 'a1' });
     ctx.store.add(a);
     ctx.store.add(b);
     stack.clear();
@@ -824,11 +842,7 @@ describe('KeyboardActions.zOrder single-undo', () => {
     const undoCountBefore = stack.undoCount;
     actions.zOrder('forward');
 
-    // both zIndexes swapped: a moved up, b moved down
-    expect(ctx.store.getById(a.id)?.zIndex).toBe(1);
-    expect(ctx.store.getById(b.id)?.zIndex).toBe(0);
-
-    // the two store.update calls collapsed into exactly ONE undo step
+    expect(ctx.store.getAll().map((el) => el.id)).toEqual([b.id, a.id]);
     expect(stack.undoCount).toBe(undoCountBefore + 1);
 
     expect(stack.canUndo).toBe(true);
@@ -836,17 +850,14 @@ describe('KeyboardActions.zOrder single-undo', () => {
     stack.undo(ctx.store);
     recorder.resume();
 
-    // one undo restores BOTH elements...
-    expect(ctx.store.getById(a.id)?.zIndex).toBe(0);
-    expect(ctx.store.getById(b.id)?.zIndex).toBe(1);
-    // ...and there is nothing left to undo (proving it was a single step)
+    expect(ctx.store.getAll().map((el) => el.id)).toEqual([a.id, b.id]);
     expect(stack.canUndo).toBe(false);
   });
 });
 
 describe('KeyboardActions.cycleSelection', () => {
-  function makeNote(x: number, zIndex: number, extra: Record<string, unknown> = {}) {
-    return createNote({ position: { x, y: 0 }, size: { w: 50, h: 50 }, zIndex, ...extra });
+  function makeNote(x: number, z: number, extra: Record<string, unknown> = {}) {
+    return createNote({ position: { x, y: 0 }, size: { w: 50, h: 50 }, index: `a${z}`, ...extra });
   }
 
   it('selects the first eligible (lowest render order) from an empty selection on +1', () => {
@@ -1067,7 +1078,8 @@ describe('KeyboardActions extension cloneRemap', () => {
       type: 'extension',
       extensionType: 'test:link',
       position: { x: 5, y: 5 },
-      zIndex: 1,
+      index: 'a1',
+      version: 1,
       locked: false,
       layerId: 'layer-1',
       data: { targetId: target.id },
@@ -1147,7 +1159,8 @@ describe('KeyboardActions extension cloneRemap', () => {
       type: 'extension',
       extensionType: 'test:link',
       position: { x: 0, y: 0 },
-      zIndex: 0,
+      index: 'a0',
+      version: 1,
       locked: false,
       layerId: 'layer-1',
       data: { targetId: 'none' },

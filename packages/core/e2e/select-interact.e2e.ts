@@ -30,7 +30,8 @@ test.describe('select and interact', () => {
         type: 'extension',
         extensionType: 'vtt:template',
         position: center,
-        zIndex: 1,
+        index: 'a1',
+        version: 1,
         locked: false,
         layerId: vp.layerManager.activeLayerId,
         data: {
@@ -80,7 +81,8 @@ test.describe('select and interact', () => {
         type: 'extension',
         extensionType: 'vtt:template',
         position: circleCenter,
-        zIndex: 2,
+        index: 'a2',
+        version: 1,
         locked: false,
         layerId: vp.layerManager.activeLayerId,
         data: {

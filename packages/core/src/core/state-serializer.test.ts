@@ -7,7 +7,9 @@ import {
   registerLegacyStateMigrator,
   unregisterLegacyStateMigrator,
 } from './state-serializer';
-import type { CanvasState, LegacyStateMigrator } from './state-serializer';
+import type { CanvasState, ImportableCanvasState, LegacyStateMigrator } from './state-serializer';
+import { ElementStore } from '../elements/element-store';
+import { pickBaseFields } from '../elements/base-fields';
 import {
   createArrow,
   createHtmlElement,
@@ -23,9 +25,6 @@ import { Viewport } from '../canvas/viewport';
 import { getDefaultElementRegistry, setDefaultElementRegistry } from '../elements/default-registry';
 import type { BaseElement, CanvasElement, ElementTypeDefinition } from '../elements/types';
 
-/** A version-3 state fixture: legacy version number with fully typed v4 element payloads. */
-type ValidStateFixture = Omit<CanvasState, 'version'> & { version: 3 };
-
 interface LegacyMarker extends BaseElement {
   type: 'marker';
   label: string;
@@ -35,32 +34,20 @@ const markerDefinition: ElementTypeDefinition<LegacyMarker> = {
   type: 'test:marker',
   legacyTypes: ['marker'],
   decodeLegacy: (raw) => ({
-    id: String(raw['id']),
+    ...pickBaseFields(raw as unknown as BaseElement),
     type: 'marker',
-    position: raw['position'] as { x: number; y: number },
-    zIndex: raw['zIndex'] as number,
-    locked: raw['locked'] as boolean,
-    layerId: raw['layerId'] as string,
     label: raw['label'] as string,
   }),
   validateData: (data) => typeof data['label'] === 'string',
   unwrap: (envelope) => ({
-    id: envelope.id,
+    ...pickBaseFields(envelope),
     type: 'marker',
-    position: envelope.position,
-    zIndex: envelope.zIndex,
-    locked: envelope.locked,
-    layerId: envelope.layerId,
     label: envelope.data['label'] as string,
   }),
   wrap: (element) => ({
-    id: element.id,
+    ...pickBaseFields(element),
     type: 'extension',
     extensionType: 'test:marker',
-    position: element.position,
-    zIndex: element.zIndex,
-    locked: element.locked,
-    layerId: element.layerId,
     data: { label: element.label },
   }),
   bounds: () => null,
@@ -76,7 +63,7 @@ describe('exportState', () => {
     const note = createNote({ position: { x: 10, y: 20 } });
     const state = exportState([stroke, note], makeCamera(100, 200, 1.5));
 
-    expect(state.version).toBe(4);
+    expect(state.version).toBe(5);
     expect(state.camera).toEqual({ position: { x: 100, y: 200 }, zoom: 1.5 });
     expect(state.elements).toHaveLength(2);
     expect(state.elements[0]?.type).toBe('stroke');
@@ -154,12 +141,16 @@ describe('exportState', () => {
 });
 
 describe('parseState', () => {
-  function validState(): ValidStateFixture {
+  function validState(): CanvasState {
     return {
-      version: 3,
+      version: 5,
       camera: { position: { x: 0, y: 0 }, zoom: 1 },
       elements: [
-        createStroke({ points: [{ x: 0, y: 0, pressure: 0.5 }], layerId: 'default-layer' }),
+        createStroke({
+          index: 'a0',
+          points: [{ x: 0, y: 0, pressure: 0.5 }],
+          layerId: 'default-layer',
+        }),
       ],
       layers: [
         {
@@ -178,7 +169,7 @@ describe('parseState', () => {
     const json = JSON.stringify(validState());
     const state = parseState(json);
 
-    expect(state.version).toBe(4);
+    expect(state.version).toBe(5);
     expect(state.camera.zoom).toBe(1);
     expect(state.elements).toHaveLength(1);
   });
@@ -186,6 +177,7 @@ describe('parseState', () => {
   it('parseState accepts an html element carrying transient', () => {
     const data = validState();
     const html = createHtmlElement({
+      index: 'a0',
       position: { x: 0, y: 0 },
       size: { w: 10, h: 10 },
       layerId: 'default-layer',
@@ -204,6 +196,7 @@ describe('parseState', () => {
   it('rejects an html element whose transient is not a boolean', () => {
     const data = validState();
     const html = createHtmlElement({
+      index: 'a0',
       position: { x: 0, y: 0 },
       size: { w: 10, h: 10 },
       layerId: 'default-layer',
@@ -219,6 +212,7 @@ describe('parseState', () => {
     registry.register(markerDefinition);
     const data = {
       ...validState(),
+      version: 4,
       elements: [
         {
           id: 'marker-1',
@@ -235,7 +229,7 @@ describe('parseState', () => {
     const state = parseState(JSON.stringify(data), registry);
 
     expect(state).toMatchObject({
-      version: 4,
+      version: 5,
       elements: [
         {
           id: 'marker-1',
@@ -252,6 +246,7 @@ describe('parseState', () => {
     registry.register(markerDefinition);
     const data = {
       ...validState(),
+      version: 4,
       elements: [
         {
           id: 'marker-1',
@@ -278,7 +273,8 @@ describe('parseState', () => {
         type: 'extension',
         extensionType: 'test:marker',
         position: { x: 10, y: 20 },
-        zIndex: 1,
+        index: 'a1',
+        version: 1,
         locked: false,
         layerId: 'default-layer',
         data: { label: 42 },
@@ -296,7 +292,8 @@ describe('parseState', () => {
         type: 'extension',
         extensionType: 'app:unknown',
         position: { x: 10, y: 20 },
-        zIndex: 1,
+        index: 'a1',
+        version: 1,
         locked: false,
         layerId: 'default-layer',
         data: { anything: true },
@@ -327,7 +324,8 @@ describe('parseState', () => {
           type: 'extension',
           extensionType: 'test:marker',
           position: { x: 10, y: 20 },
-          zIndex: 1,
+          index: 'a1',
+          version: 1,
           locked: false,
           layerId: 'default-layer',
           data: { label: 'hi' },
@@ -348,7 +346,8 @@ describe('parseState', () => {
       type: 'extension' as const,
       extensionType,
       position: { x: 0, y: 0 },
-      zIndex: 1,
+      index: 'a1',
+      version: 1,
       locked: false,
       layerId: 'default-layer',
       data: {},
@@ -372,6 +371,7 @@ describe('parseState', () => {
   it('sanitizes text-element HTML during import', () => {
     const state = validState();
     const text = createText({
+      index: 'a0',
       position: { x: 0, y: 0 },
       text: '<b>placeholder</b>',
       layerId: 'default-layer',
@@ -410,6 +410,7 @@ describe('parseState', () => {
       opacity: 1,
     };
     const stroke = createStroke({
+      index: 'a0',
       points: [
         { x: 1, y: 2, pressure: 0.5 },
         { x: 3, y: 4, pressure: 0.8 },
@@ -417,11 +418,13 @@ describe('parseState', () => {
       layerId: 'default-layer',
     });
     const note = createNote({
+      index: 'a0',
       position: { x: 10, y: 20 },
       text: 'hello',
       layerId: 'default-layer',
     });
     const arrow = createArrow({
+      index: 'a0',
       from: { x: 0, y: 0 },
       to: { x: 50, y: 50 },
       layerId: 'default-layer',
@@ -474,8 +477,8 @@ describe('parseState', () => {
 
   it('rejects unsupported future versions', () => {
     const data = validState();
-    (data as { version: number }).version = 5;
-    expect(() => parseState(JSON.stringify(data))).toThrow('unsupported version 5');
+    (data as { version: number }).version = 6;
+    expect(() => parseState(JSON.stringify(data))).toThrow('unsupported version 6');
   });
 
   it.each([0, -1, 1.5])('rejects invalid version %s', (version) => {
@@ -553,22 +556,34 @@ describe('parseState', () => {
   it('accepts valid data for every element type', () => {
     const data = validState();
     data.elements = [
-      createStroke({ points: [{ x: 0, y: 0, pressure: 0.5 }], layerId: 'default-layer' }),
-      createNote({ position: { x: 0, y: 0 }, layerId: 'default-layer' }),
-      createArrow({ from: { x: 0, y: 0 }, to: { x: 1, y: 1 }, layerId: 'default-layer' }),
+      createStroke({
+        index: 'a0',
+        points: [{ x: 0, y: 0, pressure: 0.5 }],
+        layerId: 'default-layer',
+      }),
+      createNote({ index: 'a0', position: { x: 0, y: 0 }, layerId: 'default-layer' }),
+      createArrow({
+        index: 'a0',
+        from: { x: 0, y: 0 },
+        to: { x: 1, y: 1 },
+        layerId: 'default-layer',
+      }),
       createImage({
+        index: 'a0',
         position: { x: 0, y: 0 },
         size: { w: 10, h: 10 },
         src: 'data:image/png;base64,',
         layerId: 'default-layer',
       }),
       createHtmlElement({
+        index: 'a0',
         position: { x: 0, y: 0 },
         size: { w: 10, h: 10 },
         layerId: 'default-layer',
       }),
-      createText({ position: { x: 0, y: 0 }, layerId: 'default-layer' }),
+      createText({ index: 'a0', position: { x: 0, y: 0 }, layerId: 'default-layer' }),
       createShape({
+        index: 'a0',
         position: { x: 0, y: 0 },
         size: { w: 10, h: 10 },
         layerId: 'default-layer',
@@ -589,22 +604,34 @@ describe('parseState', () => {
   ])('rejects malformed %s-specific data', (type, field) => {
     const data = validState();
     const elements = {
-      stroke: createStroke({ points: [{ x: 0, y: 0, pressure: 0.5 }], layerId: 'default-layer' }),
-      note: createNote({ position: { x: 0, y: 0 }, layerId: 'default-layer' }),
-      arrow: createArrow({ from: { x: 0, y: 0 }, to: { x: 1, y: 1 }, layerId: 'default-layer' }),
+      stroke: createStroke({
+        index: 'a0',
+        points: [{ x: 0, y: 0, pressure: 0.5 }],
+        layerId: 'default-layer',
+      }),
+      note: createNote({ index: 'a0', position: { x: 0, y: 0 }, layerId: 'default-layer' }),
+      arrow: createArrow({
+        index: 'a0',
+        from: { x: 0, y: 0 },
+        to: { x: 1, y: 1 },
+        layerId: 'default-layer',
+      }),
       image: createImage({
+        index: 'a0',
         position: { x: 0, y: 0 },
         size: { w: 10, h: 10 },
         src: 'image.png',
         layerId: 'default-layer',
       }),
       html: createHtmlElement({
+        index: 'a0',
         position: { x: 0, y: 0 },
         size: { w: 10, h: 10 },
         layerId: 'default-layer',
       }),
-      text: createText({ position: { x: 0, y: 0 }, layerId: 'default-layer' }),
+      text: createText({ index: 'a0', position: { x: 0, y: 0 }, layerId: 'default-layer' }),
       shape: createShape({
+        index: 'a0',
         position: { x: 0, y: 0 },
         size: { w: 10, h: 10 },
         layerId: 'default-layer',
@@ -618,7 +645,12 @@ describe('parseState', () => {
   });
 
   it('preserves an arrow label across an export → parse round-trip', () => {
-    const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 20, y: 5 }, label: 'flows to' });
+    const arrow = createArrow({
+      index: 'a0',
+      from: { x: 0, y: 0 },
+      to: { x: 20, y: 5 },
+      label: 'flows to',
+    });
     const json = JSON.stringify(exportState([arrow], makeCamera()));
     const restored = parseState(json);
     const a = restored.elements.find((e) => e.type === 'arrow');
@@ -627,6 +659,7 @@ describe('parseState', () => {
 
   it('preserves stroke blendMode across an export → parse round-trip', () => {
     const stroke = createStroke({
+      index: 'a0',
       points: [
         { x: 0, y: 0, pressure: 1 },
         { x: 10, y: 0, pressure: 1 },
@@ -641,7 +674,7 @@ describe('parseState', () => {
   });
 
   it('round-trips groupId on elements', () => {
-    const note = createNote({ position: { x: 10, y: 20 }, layerId: 'default-layer' });
+    const note = createNote({ index: 'a0', position: { x: 10, y: 20 }, layerId: 'default-layer' });
     note.groupId = 'group_abc';
     const json = JSON.stringify(exportState([note], makeCamera()));
     const restored = parseState(json);
@@ -649,7 +682,7 @@ describe('parseState', () => {
   });
 
   it('round-trips rotation on elements', () => {
-    const note = createNote({ position: { x: 10, y: 20 }, layerId: 'default-layer' });
+    const note = createNote({ index: 'a0', position: { x: 10, y: 20 }, layerId: 'default-layer' });
     note.rotation = Math.PI / 4;
     const json = JSON.stringify(exportState([note], makeCamera()));
     const restored = parseState(json);
@@ -775,7 +808,7 @@ describe('parseState', () => {
 
     it('exportState with empty store produces valid state', () => {
       const state = exportState([], makeCamera());
-      expect(state.version).toBe(4);
+      expect(state.version).toBe(5);
       expect(state.elements).toEqual([]);
       expect(state.camera).toEqual({ position: { x: 0, y: 0 }, zoom: 1 });
 
@@ -918,7 +951,8 @@ describe('extension dataVersion', () => {
       type: 'extension',
       extensionType: 'test:marker',
       position: { x: 0, y: 0 },
-      zIndex: 0,
+      index: 'a0',
+      version: 1,
       locked: false,
       layerId: 'default-layer',
       data,
@@ -928,7 +962,7 @@ describe('extension dataVersion', () => {
 
   function stateJson(el: unknown): string {
     return JSON.stringify({
-      version: 4,
+      version: 5,
       camera: { position: { x: 0, y: 0 }, zoom: 1 },
       elements: [el],
       layers: [layer],
@@ -1196,5 +1230,116 @@ describe('extension dataVersion', () => {
       expect(migrate).not.toHaveBeenCalled();
       expect(reparsed.elements[0]).toMatchObject({ dataVersion: 3, data: { label: 'x' } });
     });
+  });
+});
+
+describe('persisted state v5', () => {
+  const layers = [
+    { id: 'L1', name: 'One', visible: true, locked: false, order: 0, opacity: 1 },
+    { id: 'L2', name: 'Two', visible: true, locked: false, order: 1, opacity: 1 },
+  ];
+
+  function legacyNote(id: string, layerId: string, zIndex: number) {
+    return {
+      id,
+      type: 'note',
+      position: { x: 0, y: 0 },
+      zIndex,
+      locked: false,
+      layerId,
+      size: { w: 10, h: 10 },
+      text: '',
+      backgroundColor: '#fff',
+      textColor: '#000',
+    };
+  }
+
+  function legacyState(version: number, elements: unknown[]) {
+    return { version, camera: makeCamera(), elements, layers };
+  }
+
+  function storeOrder(state: CanvasState): string[] {
+    const store = new ElementStore();
+    store.setLayerOrder(new Map(layers.map((l) => [l.id, l.order])));
+    store.loadSnapshot(state.elements);
+    return store.getAll().map((el) => el.id);
+  }
+
+  const v4Elements = () => [
+    legacyNote('e1', 'L1', 2),
+    legacyNote('e2', 'L2', 0),
+    legacyNote('e3', 'L1', 0),
+    legacyNote('e4', 'L2', 1),
+  ];
+
+  it('v4 file loads in the same order', () => {
+    const state = parseState(JSON.stringify(legacyState(4, v4Elements())));
+    expect(state.version).toBe(5);
+    expect(storeOrder(state)).toEqual(['e3', 'e1', 'e2', 'e4']);
+    for (const el of state.elements) {
+      expect(el.version).toBe(1);
+      expect(el).not.toHaveProperty('zIndex');
+    }
+  });
+
+  it('v4 file with every zIndex 0 keeps file order, not id order', () => {
+    const elements = [legacyNote('c', 'L1', 0), legacyNote('a', 'L1', 0), legacyNote('b', 'L1', 0)];
+    const state = parseState(JSON.stringify(legacyState(4, elements)));
+    expect(storeOrder(state)).toEqual(['c', 'a', 'b']);
+  });
+
+  it('migrateState (the loadState path) gives a v4 file the same order', () => {
+    const legacy = legacyState(4, v4Elements()) as unknown as ImportableCanvasState;
+    const state = migrateState(legacy);
+    expect(state.version).toBe(5);
+    expect(storeOrder(state)).toEqual(['e3', 'e1', 'e2', 'e4']);
+  });
+
+  it('v3 legacy file still loads with order preserved', () => {
+    const registry = new ElementRegistry();
+    registry.register(markerDefinition);
+    const marker = { ...legacyNote('m', 'L1', 1), type: 'marker', label: 'x' };
+    const elements = [marker, legacyNote('n', 'L1', 0), legacyNote('o', 'L1', 2)];
+    const state = parseState(JSON.stringify(legacyState(3, elements)), registry);
+    expect(storeOrder(state)).toEqual(['n', 'm', 'o']);
+    expect(state.elements[0]).toMatchObject({ type: 'extension', version: 1 });
+  });
+
+  it('v5 round trip keeps index, version and editor', () => {
+    const note = { ...createNote({ position: { x: 1, y: 2 }, layerId: 'L1' }), index: 'a3' };
+    const edited = { ...note, id: 'edited', version: 7, editor: 'peer-1' };
+    const json = JSON.stringify(exportState([note, edited], makeCamera(), layers));
+    const state = parseState(json);
+    expect(state.version).toBe(5);
+    expect(state.elements[0]).toMatchObject({ index: 'a3', version: 1 });
+    expect(state.elements[0]).not.toHaveProperty('editor');
+    expect(state.elements[1]).toMatchObject({ index: 'a3', version: 7, editor: 'peer-1' });
+  });
+
+  it.each([
+    ['an empty index', { index: '' }, 'invalid index'],
+    ['a malformed index', { index: 'a00' }, 'invalid index'],
+    ['version 0', { version: 0 }, 'invalid version'],
+    ['a fractional version', { version: 1.5 }, 'invalid version'],
+    ['a non-string editor', { editor: 3 }, 'invalid editor'],
+  ])('v5 rejects %s', (_label, patch, message) => {
+    const note = { ...createNote({ position: { x: 0, y: 0 }, layerId: 'L1' }), index: 'a0' };
+    const state = { version: 5, camera: makeCamera(), elements: [{ ...note, ...patch }], layers };
+    expect(() => parseState(JSON.stringify(state))).toThrow(message);
+  });
+
+  it('v5 extension envelopes require index and version', () => {
+    const envelope = {
+      id: 'x1',
+      type: 'extension',
+      extensionType: 'test:unknown',
+      position: { x: 0, y: 0 },
+      locked: false,
+      layerId: 'L1',
+      version: 1,
+      data: {},
+    };
+    const state = { version: 5, camera: makeCamera(), elements: [envelope], layers };
+    expect(() => parseState(JSON.stringify(state))).toThrow('invalid index');
   });
 });

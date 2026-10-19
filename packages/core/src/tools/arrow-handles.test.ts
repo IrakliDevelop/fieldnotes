@@ -158,7 +158,12 @@ describe('applyArrowHandleDrag binding', () => {
     ['layer lock', { layerId: 'locked-layer' }, (id: string) => id === 'locked-layer'],
   ])('does not mutate an arrow protected by %s', (_name, input, isLayerLocked) => {
     const store = new ElementStore();
-    const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 200, y: 0 }, ...input });
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 200, y: 0 },
+      index: 'a0',
+      ...input,
+    });
     store.add(arrow);
     const ctx = { ...makeCtx(store), isLayerLocked };
 

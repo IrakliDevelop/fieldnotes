@@ -185,7 +185,7 @@ export class RenderLoop {
     const { id } = current;
     if (
       previous.layerId !== current.layerId ||
-      previous.zIndex !== current.zIndex ||
+      previous.index !== current.index ||
       this.renderer.isDomElement(current) ||
       this.renderer.isFullCanvasElement(current) ||
       (this.layerManager.getLayer(current.layerId)?.opacity ?? 1) !== 1

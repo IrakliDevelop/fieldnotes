@@ -3,10 +3,11 @@ import { WebSocket as WsClient } from 'ws';
 import type { AddressInfo } from 'net';
 import { SyncClient, WebSocketTransport } from '@fieldnotes/sync';
 import type { WebSocketTransportOptions } from '@fieldnotes/sync';
-import { ElementStore, createShape } from '@fieldnotes/core';
+import { ElementStore } from '@fieldnotes/core';
 import { MemoryHubBackend } from './memory-hub-backend';
 import { createSyncServer } from './create-sync-server';
 import type { CanRead } from './authorize';
+import { v2Remove, v2Shape } from './test-support/v2-ops';
 
 type Server = ReturnType<typeof createSyncServer>;
 
@@ -28,7 +29,7 @@ async function waitFor(cond: () => boolean | Promise<boolean>, timeoutMs = 2000)
 }
 
 function shape() {
-  return createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } });
+  return v2Shape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } });
 }
 
 describe('sync-server WebSocket relay (end-to-end)', () => {
@@ -154,7 +155,7 @@ describe('sync-server WebSocket relay (end-to-end)', () => {
     // proves A's socket is open and its upsert reached the relay (deterministic gate).
     const seed = shape();
     a.store.add(seed);
-    await waitFor(async () => (await backend.snapshot('R')).some((e) => e.id === seed.id));
+    await waitFor(async () => (await backend.snapshot('R')).elements.some((e) => e.id === seed.id));
 
     // B joins and requests a snapshot; receiving the seed proves B's socket is open and
     // B is a live member of room R — so any subsequent live op will be forwarded to it.
@@ -205,7 +206,7 @@ describe('sync-server WebSocket relay (end-to-end)', () => {
 
     const el = shape();
     a.store.add(el);
-    await waitFor(async () => (await backend.snapshot('R')).some((e) => e.id === el.id));
+    await waitFor(async () => (await backend.snapshot('R')).elements.some((e) => e.id === el.id));
 
     // A fresh client joins an already-populated room; the hub answers its
     // request-snapshot with the canonical state.
@@ -224,7 +225,7 @@ describe('sync-server WebSocket relay (end-to-end)', () => {
     // (two distinct rooms exist in the hub → C's OTHER-room connection registered).
     const seed = shape();
     a.store.add(seed);
-    await waitFor(async () => (await backend.snapshot('R')).some((e) => e.id === seed.id));
+    await waitFor(async () => (await backend.snapshot('R')).elements.some((e) => e.id === seed.id));
     await waitFor(() => hub.roomCount() === 2);
 
     // A co-room witness D anchors the negative: once D receives A's live op, the relay's
@@ -299,7 +300,9 @@ describe('sync-server WebSocket relay (end-to-end)', () => {
 
     // While B is away, A deletes the shared element — B never sees the live remove.
     a.store.remove(shared.id);
-    await waitFor(async () => !(await backend.snapshot('R')).some((e) => e.id === shared.id));
+    await waitFor(
+      async () => !(await backend.snapshot('R')).elements.some((e) => e.id === shared.id),
+    );
 
     // B reconnects, resyncs against the authoritative snapshot, and the deletion is
     // reconciled away. A merge would have KEPT 'shared'; replace-reconcile removes it.
@@ -341,7 +344,7 @@ describe('sync-server WebSocket relay (end-to-end)', () => {
     const player = roleConnect('player');
 
     dm.store.add({
-      ...createShape({ position: { x: 1, y: 2 }, size: { w: 3, h: 4 } }),
+      ...v2Shape({ position: { x: 1, y: 2 }, size: { w: 3, h: 4 } }),
       id: 'X',
     });
     await waitFor(() => player.store.getById('X') !== undefined);
@@ -360,8 +363,8 @@ describe('sync-server WebSocket relay (end-to-end)', () => {
     const backend = new MemoryHubBackend();
     const hidden = { ...shape(), id: 'hidden', audience: 'dm', ownerId: 'dm1' };
     const shared = { ...shape(), id: 'shared', audience: 'shared', ownerId: 'dm1' };
-    await backend.apply('R', { kind: 'upsert', element: hidden });
-    await backend.apply('R', { kind: 'upsert', element: shared });
+    await backend.applyElement('R', { kind: 'upsert', element: hidden }, null);
+    await backend.applyElement('R', { kind: 'upsert', element: shared }, null);
 
     const server = createSyncServer({
       port: 0,
@@ -389,7 +392,7 @@ describe('sync-server WebSocket relay (end-to-end)', () => {
 
     player.send(JSON.stringify({ from: 'clear', op: { kind: 'clear' } }));
     await waitFor(() => received.some(({ op }) => op.kind === 'snapshot' && op.to === 'clear'));
-    player.send(JSON.stringify({ from: 'remove', op: { kind: 'remove', id: hidden.id } }));
+    player.send(JSON.stringify({ from: 'remove', op: v2Remove(hidden.id) }));
     await waitFor(() => received.some(({ op }) => op.kind === 'remove' && op.id === hidden.id));
 
     expect(received).toEqual([
@@ -397,7 +400,7 @@ describe('sync-server WebSocket relay (end-to-end)', () => {
         from: 'hub',
         op: { kind: 'snapshot', to: 'clear', elements: [{ ...shared, ownerId: undefined }] },
       },
-      { from: 'hub', op: { kind: 'remove', id: hidden.id } },
+      { from: 'hub', op: { kind: 'remove', id: hidden.id, version: 1, editor: 'hub' } },
     ]);
     expect(JSON.stringify(received)).not.toContain('"audience":"dm"');
   });
@@ -444,7 +447,9 @@ describe('sync-server WebSocket relay (end-to-end)', () => {
     dm.store.add(fence); // stamped 'shared'
     dmTag = 'dm';
     await waitFor(() => player.store.getById(fence.id) !== undefined);
-    await waitFor(async () => (await backend.snapshot('G')).some((e) => e.id === secret.id));
+    await waitFor(async () =>
+      (await backend.snapshot('G')).elements.some((e) => e.id === secret.id),
+    );
     expect(player.store.getById(secret.id)).toBeUndefined(); // held by the hub, never sent to the player
 
     // reveal: flip the DM's tag to 'shared' and re-emit (resolveAudience re-reads dmTag) → player gains it

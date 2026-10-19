@@ -1,3 +1,4 @@
+import { isValidIndexKey } from '@fieldnotes/core';
 import type { CanvasElement, ElementType, Layer } from '@fieldnotes/core';
 import type { AuthorityExtensionManifestEntry } from './authority-protocol';
 import {
@@ -69,6 +70,24 @@ export function isNewerLayerRecord(a: LayerRecord, b: LayerRecord): boolean {
   return a.editor > b.editor;
 }
 
+/** A deleted element's last version and the peer that deleted it. */
+export interface Tombstone {
+  readonly id: string;
+  readonly version: number;
+  readonly editor: string;
+}
+
+/** Whether `a` wins over `b`: higher version, then the later editor; an absent editor sorts first. */
+export function isNewerVersion(
+  a: { version: number; editor?: string },
+  b: { version: number; editor?: string } | undefined,
+): boolean {
+  if (b === undefined) return true;
+  if (a.version !== b.version) return a.version > b.version;
+  if (a.editor === undefined) return false;
+  return b.editor === undefined || a.editor > b.editor;
+}
+
 type ElementSyncOp<TElement> =
   | { kind: 'upsert'; element: TElement }
   | {
@@ -76,12 +95,13 @@ type ElementSyncOp<TElement> =
       to: string;
       elements: TElement[];
       layers?: LayerRecord[];
+      tombstones?: Tombstone[];
       extensions?: Record<string, { pluginName: string; version: number; data: unknown }>;
     };
 
 type NonElementSyncOp =
-  | { kind: 'remove'; id: string }
-  | { kind: 'clear' }
+  | { kind: 'remove'; id: string; version?: number; editor?: string }
+  | { kind: 'clear'; tombstones?: Tombstone[] }
   | { kind: 'request-snapshot' }
   | { kind: 'presence'; data: unknown }
   | { kind: 'presence-leave' }
@@ -120,7 +140,7 @@ export function isValidElement(el: unknown): el is SyncElement {
     typeof el['id'] !== 'string' ||
     !(ELEMENT_TYPES as readonly unknown[]).includes(el['type']) ||
     !isPoint(el['position']) ||
-    !isFiniteNumber(el['zIndex']) ||
+    !hasValidOrder(el) ||
     typeof el['locked'] !== 'boolean' ||
     typeof el['layerId'] !== 'string' ||
     !isOptional(el['groupId'], isString) ||
@@ -200,6 +220,18 @@ export function isValidElement(el: unknown): el is SyncElement {
     default:
       return false;
   }
+}
+
+// v2 elements carry index+version; the legacy zIndex shape survives only in stored data.
+function hasValidOrder(el: Record<string, unknown>): boolean {
+  const index = el['index'];
+  if (index === undefined) return isFiniteNumber(el['zIndex']);
+  return (
+    typeof index === 'string' &&
+    isValidIndexKey(index) &&
+    isPositiveInteger(el['version']) &&
+    isOptional(el['editor'], isString)
+  );
 }
 
 type Validator = (value: unknown) => boolean;
@@ -313,7 +345,7 @@ export function isValidEnvelope(env: unknown): env is SyncEnvelope {
     case 'upsert':
       return isValidElement(op.element);
     case 'remove':
-      return typeof op.id === 'string';
+      return typeof op.id === 'string' && isOptional(op.editor, isString);
     case 'clear':
     case 'request-snapshot':
     case 'presence':
@@ -377,6 +409,7 @@ function elementWithinLimits(el: SyncElement): boolean {
     !isAtMost(el.id, maxIdLength) ||
     !isAtMost(el.layerId, maxIdLength) ||
     !isAtMost(el.groupId, maxIdLength) ||
+    !isAtMost(el.editor, maxShortStringLength) ||
     !isAtMost(el.audience, maxShortStringLength) ||
     !isAtMost(el.ownerId, maxShortStringLength)
   ) {
@@ -424,7 +457,7 @@ export function isWithinSyncLimits(env: SyncEnvelope): boolean {
     case 'upsert':
       return elementWithinLimits(op.element);
     case 'remove':
-      return isAtMost(op.id, maxIdLength);
+      return isAtMost(op.id, maxIdLength) && isAtMost(op.editor, maxIdLength);
     case 'snapshot':
       return (
         isAtMost(op.to, maxIdLength) &&
@@ -451,6 +484,41 @@ export function parseEnvelope(message: string): SyncEnvelope | null {
     return isValidEnvelope(env) && isWithinSyncLimits(env) ? env : null;
   } catch {
     return null;
+  }
+}
+
+function isValidTombstones(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!Array.isArray(value) || value.length > maxSnapshotElements) return false;
+  return value.every(
+    (tomb: unknown) =>
+      isRecord(tomb) &&
+      Object.keys(tomb).length === 3 &&
+      isBoundedId(tomb['id']) &&
+      isPositiveInteger(tomb['version']) &&
+      isBoundedId(tomb['editor']),
+  );
+}
+
+function isBoundedId(value: unknown): boolean {
+  return typeof value === 'string' && value.length <= maxIdLength;
+}
+
+/** `parseEnvelope` plus the protocol-2 legacy wire rules: v2 elements, versioned removes, valid tombstones. */
+export function parseLegacyEnvelope(message: string): SyncEnvelope | null {
+  const env = parseEnvelope(message);
+  if (!env) return null;
+  const op = env.op;
+  switch (op.kind) {
+    case 'upsert':
+      return 'index' in op.element ? env : null;
+    case 'remove':
+      return isPositiveInteger(op.version) && isBoundedId(op.editor) ? env : null;
+    case 'clear':
+    case 'snapshot':
+      return isValidTombstones(op.tombstones) ? env : null;
+    default:
+      return env;
   }
 }
 

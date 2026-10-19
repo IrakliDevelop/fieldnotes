@@ -226,9 +226,9 @@ async function start() {
   const legacyBackendLookup: NonNullable<HubBackend['getService']> = vi.fn(() => undefined);
   const backend: HubBackend = {
     snapshot: (name: string) => memoryBackend.snapshot(name),
-    get: (name: string, id: string) => memoryBackend.get(name, id),
-    apply: (name: string, op: Parameters<MemoryHubBackend['apply']>[1]) =>
-      memoryBackend.apply(name, op),
+    getRecord: (name: string, id: string) => memoryBackend.getRecord(name, id),
+    applyElement: (...args: Parameters<MemoryHubBackend['applyElement']>) =>
+      memoryBackend.applyElement(...args),
     layerRecords: (name: string) => memoryBackend.layerRecords(name),
     getLayerRecord: (name: string, id: string) => memoryBackend.getLayerRecord(name, id),
     applyLayerRecord: (
@@ -450,7 +450,8 @@ const shape = (id: string): SyncElement => ({
   id,
   type: 'shape',
   position: { x: 2, y: 3 },
-  zIndex: 0,
+  index: 'a0',
+  version: 1,
   locked: false,
   layerId: 'tokens',
   shape: 'rectangle',

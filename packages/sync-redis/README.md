@@ -15,7 +15,7 @@ pnpm add ioredis
 
 `@fieldnotes/sync-redis` has **no Redis dependency of its own** — you inject a client that satisfies a
 minimal `RedisHashClient` interface (`hGetAll` / `hGet` / `hSet` / `hDel` / `del` / `eval`).
-`eval` is optional for the generic element backend and is used by plugins that need atomic scripts.
+Element writes run as Lua scripts through `eval` (or `scriptLoad`/`evalSha` when present).
 
 ## node-redis v4 (direct)
 
@@ -60,13 +60,32 @@ Each room is stored as a Redis **HASH** at `{keyPrefix}{room}` (default prefix `
 - **field** = element id
 - **value** = `JSON.stringify(element)`
 
+Removed elements move to the `{keyPrefix}{room}:tombstones` hash (field = id, value = JSON
+`{ id, version, editor, removedAt, ownerId?, removedBy?, audience? }`). One Lua script checks the
+expected version and writes both hashes, so concurrent writes from several relay instances never
+overwrite a newer element. Tombstones are dropped `tombstoneRetentionMs` after removal (default
+7 days) when a snapshot is read:
+
+```ts
+new RedisHubBackend(client, { tombstoneRetentionMs: 24 * 60 * 60 * 1000 });
+```
+
+### Migrating rooms written before 0.14
+
+Rooms written before 0.14 hold elements with `zIndex` and no `index`. On first access in each
+process the backend gives them fractional keys with `assignLegacyOrder`, in `HGETALL` order (the
+order a joining pre-0.14 client saw), and writes only fields that still lack `index`. No manual
+step is needed. `HGETALL` returns insertion order only for small (listpack-encoded) hashes; larger
+rooms keep Redis' hash order. Upgrade every relay instance and client at once (sync protocol 2).
+
 Backend plugins own any additional key schemas and atomic scripts. For fog, pass
 `createFogBackendPlugin()` from `@fieldnotes/vtt/redis`; it owns `${key}:fog:meta` and
 `${key}:fog:tiles` and requires the node-redis-compatible
 `eval(script, { keys, arguments })` shape shown above.
 
-node-redis v4 conforms to `RedisHashClient` directly (it has `hGet`); `RedisHubBackend.get(room, id)`
-(via `HGET`) powers the relay's ownership lookups for write authorization (D2).
+node-redis v4 conforms to `RedisHashClient` directly (it has `hGet`); `RedisHubBackend.getRecord(room, id)`
+(via `HGET`) reads the element or tombstone each write is checked against. The plugin key prefix
+`tombstones` is reserved.
 
 The prefix is configurable:
 
@@ -89,7 +108,7 @@ new RedisHubBackend(client, { ttlSeconds: 7 * 24 * 60 * 60, plugins: [createFogB
 ```
 
 Every element or layer write, every room snapshot (each join) and every fog write refreshes
-`EXPIRE` on the room's hash, `:layers` hash and plugin keys. A room with no writes and no joins for
+`EXPIRE` on the room's hash, `:layers` and `:tombstones` hashes and plugin keys. A room with no writes and no joins for
 `ttlSeconds` is deleted, so pick a value well above the longest pause between sessions. The client
 needs `expire(key, seconds)`; node-redis v4 has it.
 

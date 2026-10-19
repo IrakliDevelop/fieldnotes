@@ -1,4 +1,6 @@
+import { pickBaseFields } from '@fieldnotes/core';
 import type {
+  BaseElement,
   CanvasElement,
   ElementTypeDefinition,
   ExtensionElementEnvelope,
@@ -25,14 +27,8 @@ export const gridElementTypeDefinition: ElementTypeDefinition<GridElement> = {
 
   decodeLegacy(raw: Record<string, unknown>): GridElement {
     return {
-      id: raw['id'] as string,
+      ...pickBaseFields(raw as unknown as BaseElement),
       type: 'grid',
-      position: raw['position'] as { x: number; y: number },
-      zIndex: raw['zIndex'] as number,
-      locked: raw['locked'] as boolean,
-      layerId: raw['layerId'] as string,
-      groupId: raw['groupId'] as string | undefined,
-      rotation: raw['rotation'] as number | undefined,
       gridType: raw['gridType'] as 'square' | 'hex',
       hexOrientation: raw['hexOrientation'] as 'pointy' | 'flat',
       cellSize: raw['cellSize'] as number,
@@ -55,14 +51,8 @@ export const gridElementTypeDefinition: ElementTypeDefinition<GridElement> = {
 
   unwrap(el: ExtensionElementEnvelope): GridElement {
     return {
-      id: el.id,
+      ...pickBaseFields(el),
       type: 'grid',
-      position: el.position,
-      zIndex: el.zIndex,
-      locked: el.locked,
-      layerId: el.layerId,
-      groupId: el.groupId,
-      rotation: el.rotation,
       gridType: el.data['gridType'] as 'square' | 'hex',
       hexOrientation: el.data['hexOrientation'] as 'pointy' | 'flat',
       cellSize: el.data['cellSize'] as number,
@@ -74,15 +64,9 @@ export const gridElementTypeDefinition: ElementTypeDefinition<GridElement> = {
 
   wrap(el: GridElement): ExtensionElementEnvelope {
     return {
-      id: el.id,
+      ...pickBaseFields(el),
       type: 'extension',
       extensionType: 'vtt:grid',
-      position: el.position,
-      zIndex: el.zIndex,
-      locked: el.locked,
-      layerId: el.layerId,
-      groupId: el.groupId,
-      rotation: el.rotation,
       data: {
         gridType: el.gridType,
         hexOrientation: el.hexOrientation,

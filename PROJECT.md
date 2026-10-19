@@ -122,7 +122,9 @@ type Size = { w: number; h: number };
 interface BaseElement {
   id: string;
   position: Point;
-  zIndex: number;
+  index: string; // fractional order key
+  version: number;
+  editor?: string;
   locked: boolean;
   layerId: string;
 }

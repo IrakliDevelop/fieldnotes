@@ -1,5 +1,6 @@
 import type { ElementStore } from '../elements/element-store';
 import type { EventMeta } from '../core/event-bus';
+import { isExternalChange } from '../core/event-bus';
 import type { CanvasElement } from '../elements/types';
 import type { Command } from './types';
 import type { HistoryStack } from './history-stack';
@@ -12,10 +13,6 @@ import {
   BatchCommand,
 } from './commands';
 import { CreateLayerCommand, RemoveLayerCommand, UpdateLayerCommand } from './layer-commands';
-
-function isExternalChange(meta: EventMeta): boolean {
-  return meta.origin !== undefined && meta.origin !== 'local';
-}
 
 export class HistoryRecorder {
   private recording = true;

@@ -4,7 +4,7 @@ import type { AuthorityExtensionManifestEntry } from './authority-protocol';
 export const DEFAULT_CAPABILITY_QUEUE_LIMIT = 1_000;
 
 export function createCurrentCapabilities(extensionKinds: readonly string[]): SyncCapabilities {
-  return { protocolVersion: 1, extensionKinds: [...extensionKinds], elementEnvelope: true };
+  return { protocolVersion: 2, extensionKinds: [...extensionKinds], elementEnvelope: true };
 }
 
 /** Explicit opt-in only; existing connections continue to advertise legacy capabilities. */
@@ -39,6 +39,7 @@ export function createAuthorityCapabilities(
     throw new TypeError('Invalid authority capabilities');
   return {
     ...createCurrentCapabilities(extensionKinds),
+    protocolVersion: 1,
     authority: 1,
     ...(inventory.length ? { authorityExtensions: inventory } : {}),
   };

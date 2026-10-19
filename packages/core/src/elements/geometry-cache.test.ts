@@ -40,6 +40,7 @@ describe('geometry cache invalidation', () => {
     it('store.add() preserves object reference', () => {
       const store = new ElementStore();
       const stroke = createStroke({
+        index: 'a0',
         points: [
           { x: 0, y: 0, pressure: 0.5 },
           { x: 10, y: 10, pressure: 0.5 },
@@ -62,6 +63,7 @@ describe('geometry cache invalidation', () => {
     it('returns same reference after color-only update (cache transferred via points identity)', () => {
       const store = new ElementStore();
       const stroke = createStroke({
+        index: 'a0',
         points: [
           { x: 0, y: 0, pressure: 0.5 },
           { x: 10, y: 10, pressure: 0.5 },

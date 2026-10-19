@@ -1,4 +1,4 @@
-export const VERSION = '0.92.0';
+export const VERSION = '0.93.0';
 
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
 export { snapPoint } from './core/snap';
@@ -13,6 +13,8 @@ export type {
   LegacyCanvasState,
   LegacyStateMigrator,
 } from './core/state-serializer';
+export { generateKeyBetween, generateNKeysBetween, isValidIndexKey } from './core/fractional-index';
+export { assignLegacyOrder } from './core/legacy-order';
 export { AutoSave } from './core/auto-save';
 export type { AutoSaveOptions } from './core/auto-save';
 export { MemoryAdapter } from './core/storage/memory-adapter';
@@ -193,6 +195,7 @@ export {
   createShape,
   DEFAULT_NOTE_FONT_SIZE,
 } from './elements/element-factory';
+export { pickBaseFields } from './elements/base-fields';
 export {
   getArrowControlPoint,
   getArrowMidpoint,

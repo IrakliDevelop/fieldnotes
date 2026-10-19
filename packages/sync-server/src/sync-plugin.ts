@@ -28,9 +28,9 @@ export interface ServerOpContext {
 
 /**
  * Passes an operation to the next server plugin, then to the terminal step. The terminal step
- * returns the accepted operation **without persisting it**: the hub publishes an accepted core
- * operation to the fanout channel and only then writes it to the backend. A plugin that reads
- * the backend after `next()` therefore observes pre-apply state.
+ * returns the accepted operation **without persisting it**: the hub writes an accepted core
+ * operation, then publishes it. `process` may re-run on a conflict, so side effects belong in
+ * `broadcast`/`corrections`. A plugin that reads the backend after `next()` observes pre-apply state.
  */
 export type ServerNext = (op: SyncOp, context: ServerOpContext) => Promise<ApplyResult>;
 

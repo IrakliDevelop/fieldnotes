@@ -1,67 +1,226 @@
 import { describe, it, expect } from 'vitest';
 import { createShape } from '@fieldnotes/core';
+import type { SyncElement } from '@fieldnotes/sync';
 import { MemoryHubBackend } from './memory-hub-backend';
+import type { StoredTombstone } from './hub-backend';
+import { createSyncServer } from './create-sync-server';
+
+const base = createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } });
+const shape = (id: string, version: number): SyncElement => ({ ...base, id, version });
+const tomb = (id: string, version: number, removedAt = 0): StoredTombstone => ({
+  id,
+  version,
+  editor: 'c1',
+  removedAt,
+  ownerId: 'u1',
+  audience: 'gm',
+});
 
 describe('MemoryHubBackend', () => {
-  it('applies upsert and returns it in the snapshot', async () => {
+  it('upserts with a null expected version and returns the element from getRecord and snapshot', async () => {
     const backend = new MemoryHubBackend();
-    const el = createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } });
-    await backend.apply('R', { kind: 'upsert', element: el });
-    expect(await backend.snapshot('R')).toEqual([el]);
-  });
-
-  it('applies remove', async () => {
-    const backend = new MemoryHubBackend();
-    const el = createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } });
-    await backend.apply('R', { kind: 'upsert', element: el });
-    await backend.apply('R', { kind: 'remove', id: el.id });
-    expect(await backend.snapshot('R')).toEqual([]);
-  });
-
-  it('applies clear', async () => {
-    const backend = new MemoryHubBackend();
-    await backend.apply('R', {
-      kind: 'upsert',
-      element: createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } }),
+    const el = shape('a', 1);
+    expect(await backend.applyElement('R', { kind: 'upsert', element: el }, null)).toEqual({
+      ok: true,
     });
-    await backend.apply('R', { kind: 'clear' });
-    expect(await backend.snapshot('R')).toEqual([]);
+    expect(await backend.getRecord('R', 'a')).toEqual({ kind: 'element', element: el });
+    expect(await backend.snapshot('R')).toEqual({ elements: [el], tombstones: [] });
   });
 
-  it('prunes the room entry on clear — reclaims memory', async () => {
+  it('rejects a null expected version when a record exists and reports it', async () => {
     const backend = new MemoryHubBackend();
-    await backend.apply('R', {
-      kind: 'upsert',
-      element: createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } }),
+    const el = shape('a', 1);
+    await backend.applyElement('R', { kind: 'upsert', element: el }, null);
+    expect(
+      await backend.applyElement('R', { kind: 'upsert', element: shape('a', 5) }, null),
+    ).toEqual({ ok: false, current: { kind: 'element', element: el } });
+  });
+
+  it('upsert succeeds on a matching expected version and conflicts on a stale one', async () => {
+    const backend = new MemoryHubBackend();
+    await backend.applyElement('R', { kind: 'upsert', element: shape('a', 1) }, null);
+    const v2 = shape('a', 2);
+    expect(
+      await backend.applyElement('R', { kind: 'upsert', element: v2 }, { version: 1 }),
+    ).toEqual({
+      ok: true,
     });
-    await backend.apply('R', { kind: 'clear' });
-    expect((backend as unknown as { rooms: Map<string, unknown> }).rooms.has('R')).toBe(false);
-    expect(await backend.snapshot('R')).toEqual([]);
+    expect(
+      await backend.applyElement('R', { kind: 'upsert', element: shape('a', 3) }, { version: 1 }),
+    ).toEqual({
+      ok: false,
+      current: { kind: 'element', element: v2 },
+    });
+    expect(await backend.getRecord('R', 'a')).toEqual({ kind: 'element', element: v2 });
   });
 
-  it('isolates rooms — applying to R does not affect R2', async () => {
+  it('a numeric expected version conflicts when no record exists', async () => {
     const backend = new MemoryHubBackend();
-    const el = createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } });
-    await backend.apply('R', { kind: 'upsert', element: el });
-    expect(await backend.snapshot('R2')).toEqual([]);
-    expect(await backend.snapshot('R')).toEqual([el]);
+    expect(
+      await backend.applyElement('R', { kind: 'upsert', element: shape('a', 2) }, { version: 1 }),
+    ).toEqual({
+      ok: false,
+      current: undefined,
+    });
+    expect(await backend.getRecord('R', 'a')).toBeUndefined();
   });
 
-  it('get returns the stored element after apply', async () => {
-    const backend = new MemoryHubBackend();
-    const el = createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } });
-    await backend.apply('R', { kind: 'upsert', element: el });
-    expect(await backend.get('R', el.id)).toEqual(el);
+  it('remove replaces the element with a tombstone; a stale remove conflicts', async () => {
+    const backend = new MemoryHubBackend({ now: () => 0 });
+    await backend.applyElement('R', { kind: 'upsert', element: shape('a', 3) }, null);
+    expect(
+      await backend.applyElement('R', { kind: 'remove', tombstone: tomb('a', 4) }, { version: 2 }),
+    ).toEqual({ ok: false, current: { kind: 'element', element: shape('a', 3) } });
+    expect(
+      await backend.applyElement('R', { kind: 'remove', tombstone: tomb('a', 4) }, { version: 3 }),
+    ).toEqual({ ok: true });
+    expect(await backend.getRecord('R', 'a')).toEqual({
+      kind: 'tombstone',
+      tombstone: tomb('a', 4),
+    });
+    expect(await backend.snapshot('R')).toEqual({ elements: [], tombstones: [tomb('a', 4)] });
   });
 
-  it('get returns undefined for an absent element', async () => {
+  it('an upsert expecting the tombstone version replaces the tombstone', async () => {
     const backend = new MemoryHubBackend();
-    expect(await backend.get('R', 'missing')).toBeUndefined();
+    await backend.applyElement('R', { kind: 'remove', tombstone: tomb('a', 4) }, null);
+    expect(
+      await backend.applyElement('R', { kind: 'upsert', element: shape('a', 5) }, null),
+    ).toEqual({ ok: false, current: { kind: 'tombstone', tombstone: tomb('a', 4) } });
+    expect(
+      await backend.applyElement(
+        'R',
+        { kind: 'upsert', element: shape('a', 5) },
+        { version: 4, editor: 'c1' },
+      ),
+    ).toEqual({
+      ok: true,
+    });
+    expect(await backend.snapshot('R')).toEqual({ elements: [shape('a', 5)], tombstones: [] });
   });
 
-  it('evictRoom drops elements and layer records of that room only', async () => {
+  it('clear tombstones every element when the expected map matches', async () => {
+    const backend = new MemoryHubBackend({ now: () => 0 });
+    await backend.applyElement('R', { kind: 'upsert', element: shape('a', 1) }, null);
+    await backend.applyElement('R', { kind: 'upsert', element: shape('b', 7) }, null);
+    const write = {
+      kind: 'clear' as const,
+      tombstones: [tomb('a', 2), tomb('b', 8)],
+      expected: new Map([
+        ['a', { version: 1 }],
+        ['b', { version: 7 }],
+      ]),
+    };
+    expect(await backend.applyElement('R', write, null)).toEqual({ ok: true });
+    expect(await backend.snapshot('R')).toEqual({
+      elements: [],
+      tombstones: [tomb('a', 2), tomb('b', 8)],
+    });
+  });
+
+  it.each([
+    [
+      'a stale version',
+      [
+        ['a', 1],
+        ['b', 6],
+      ],
+    ],
+    ['a missing element', [['a', 1]]],
+    [
+      'an extra id',
+      [
+        ['a', 1],
+        ['b', 7],
+        ['c', 1],
+      ],
+    ],
+  ] as const)('clear with %s writes nothing', async (_name, entries) => {
     const backend = new MemoryHubBackend();
-    const el = createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } });
+    await backend.applyElement('R', { kind: 'upsert', element: shape('a', 1) }, null);
+    await backend.applyElement('R', { kind: 'upsert', element: shape('b', 7) }, null);
+    const result = await backend.applyElement(
+      'R',
+      {
+        kind: 'clear',
+        tombstones: entries.map(([id, v]) => tomb(id, v + 1)),
+        expected: new Map(entries.map(([id, version]) => [id, { version }])),
+      },
+      null,
+    );
+    expect(result.ok).toBe(false);
+    expect(await backend.snapshot('R')).toEqual({
+      elements: [shape('a', 1), shape('b', 7)],
+      tombstones: [],
+    });
+  });
+
+  it('two equal-version writes expecting the same (version, editor) succeed only once', async () => {
+    const backend = new MemoryHubBackend();
+    const stored = { ...shape('a', 5), editor: 'a' };
+    await backend.applyElement('R', { kind: 'upsert', element: stored }, null);
+    const z = { ...shape('a', 5), editor: 'z' };
+    const m = { ...shape('a', 5), editor: 'm' };
+    const expected = { version: 5, editor: 'a' };
+    expect(await backend.applyElement('R', { kind: 'upsert', element: z }, expected)).toEqual({
+      ok: true,
+    });
+    expect(await backend.applyElement('R', { kind: 'upsert', element: m }, expected)).toEqual({
+      ok: false,
+      current: { kind: 'element', element: z },
+    });
+  });
+
+  it.each([
+    ['a different editor', { version: 5, editor: 'b' }],
+    ['an absent editor', { version: 5 }],
+  ])('a write expecting %s conflicts with the stored editor', async (_name, expected) => {
+    const backend = new MemoryHubBackend();
+    const stored = { ...shape('a', 5), editor: 'a' };
+    await backend.applyElement('R', { kind: 'upsert', element: stored }, null);
+    expect(
+      await backend.applyElement('R', { kind: 'upsert', element: shape('a', 6) }, expected),
+    ).toEqual({ ok: false, current: { kind: 'element', element: stored } });
+  });
+
+  it('clear conflicts when an expected editor differs from the stored one', async () => {
+    const backend = new MemoryHubBackend();
+    const stored = { ...shape('a', 1), editor: 'a' };
+    await backend.applyElement('R', { kind: 'upsert', element: stored }, null);
+    const result = await backend.applyElement(
+      'R',
+      {
+        kind: 'clear',
+        tombstones: [tomb('a', 2)],
+        expected: new Map([['a', { version: 1, editor: 'b' }]]),
+      },
+      null,
+    );
+    expect(result).toEqual({ ok: false, current: { kind: 'element', element: stored } });
+  });
+
+  it('snapshot omits tombstones older than the retention', async () => {
+    let now = 10_000;
+    const backend = new MemoryHubBackend({ tombstoneRetentionMs: 1_000, now: () => now });
+    await backend.applyElement('R', { kind: 'remove', tombstone: tomb('old', 1, 8_000) }, null);
+    await backend.applyElement('R', { kind: 'remove', tombstone: tomb('new', 1, 9_500) }, null);
+    expect(await backend.snapshot('R')).toEqual({
+      elements: [],
+      tombstones: [tomb('new', 1, 9_500)],
+    });
+    now = 20_000;
+    expect(await backend.snapshot('R')).toEqual({ elements: [], tombstones: [] });
+  });
+
+  it('isolates rooms', async () => {
+    const backend = new MemoryHubBackend();
+    await backend.applyElement('R', { kind: 'upsert', element: shape('a', 1) }, null);
+    expect(await backend.snapshot('R2')).toEqual({ elements: [], tombstones: [] });
+    expect(await backend.getRecord('R2', 'a')).toBeUndefined();
+  });
+
+  it('evictRoom drops elements, tombstones and layer records of that room only', async () => {
+    const backend = new MemoryHubBackend({ now: () => 0 });
     const layer = {
       id: 'L1',
       version: 1,
@@ -69,15 +228,33 @@ describe('MemoryHubBackend', () => {
       definition: { id: 'L1', name: 'L', visible: true, locked: false, order: 1, opacity: 1 },
     };
     for (const room of ['R', 'R2']) {
-      await backend.apply(room, { kind: 'upsert', element: el });
+      await backend.applyElement(room, { kind: 'upsert', element: shape('a', 1) }, null);
+      await backend.applyElement(room, { kind: 'remove', tombstone: tomb('t', 2) }, null);
       await backend.applyLayerRecord(room, layer);
     }
 
     await backend.evictRoom('R');
 
-    expect(await backend.snapshot('R')).toEqual([]);
+    expect(await backend.snapshot('R')).toEqual({ elements: [], tombstones: [] });
     expect(await backend.layerRecords('R')).toEqual([]);
-    expect(await backend.snapshot('R2')).toEqual([el]);
+    expect(await backend.snapshot('R2')).toEqual({
+      elements: [shape('a', 1)],
+      tombstones: [tomb('t', 2)],
+    });
     expect(await backend.layerRecords('R2')).toEqual([layer]);
+  });
+
+  it.each([0, Number.NaN, -1, Infinity])('rejects tombstoneRetentionMs %s', (value) => {
+    expect(() => new MemoryHubBackend({ tombstoneRetentionMs: value })).toThrow(
+      new RangeError('tombstoneRetentionMs must be a positive finite number'),
+    );
+  });
+});
+
+describe('createSyncServer tombstoneRetentionMs', () => {
+  it('throws when both a backend and tombstoneRetentionMs are given', () => {
+    expect(() =>
+      createSyncServer({ backend: new MemoryHubBackend(), tombstoneRetentionMs: 1_000 }),
+    ).toThrow('tombstoneRetentionMs applies only to the default backend');
   });
 });

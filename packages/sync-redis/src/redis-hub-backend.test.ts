@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { createServiceKey, createShape } from '@fieldnotes/core';
 import { fogEncodeBase64, isValidFogMetaRecord } from '@fieldnotes/vtt';
 import {
@@ -10,7 +10,10 @@ import {
 } from '@fieldnotes/vtt/redis';
 import type { CanvasElement } from '@fieldnotes/core';
 import { RedisHubBackend, type BackendPluginContext, type RedisHashClient } from './index';
-import type { FogMetaRecord, FogTileRecord, LayerRecord } from '@fieldnotes/sync';
+import type { FogMetaRecord, FogTileRecord, LayerRecord, SyncElement } from '@fieldnotes/sync';
+import type { StoredTombstone } from '@fieldnotes/sync-server';
+import { emulateElementScript } from './test-support/element-scripts-fake';
+import { ELEMENT_MIGRATE_SCRIPT } from './element-scripts';
 
 interface MetaTileReplacement {
   field: string;
@@ -55,6 +58,8 @@ class FakeRedis implements RedisHashClient {
   }
 
   async eval(script: string, options: { keys: string[]; arguments: string[] }): Promise<unknown> {
+    const elementResult = emulateElementScript(this.store, script, options);
+    if (elementResult !== undefined) return elementResult;
     const [metaKey, tilesKey] = options.keys;
     if (!metaKey || !tilesKey) throw new Error('missing keys');
     this.beforeEval?.(tilesKey);
@@ -271,6 +276,30 @@ function element(id: string, x = 0): CanvasElement {
   return { ...createShape({ position: { x, y: 0 }, size: { w: 10, h: 10 } }), id };
 }
 
+function shape(id: string, version: number): SyncElement {
+  return { ...element(id), index: 'a0', version };
+}
+
+function tomb(id: string, version: number, removedAt = 10_000): StoredTombstone {
+  return { id, version, editor: 'c1', removedAt, ownerId: 'u1', removedBy: 'u2', audience: 'gm' };
+}
+
+/** An element as a pre-F1 hub stored it: a numeric zIndex, no index or version. */
+function legacy(id: string, zIndex: number): Record<string, unknown> {
+  const stored: Record<string, unknown> = { ...element(id), zIndex };
+  delete stored['index'];
+  delete stored['version'];
+  return stored;
+}
+
+// Tombstone retention reads Date.now; pin it so fixtures stay inside the window.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'], now: 10_000 });
+});
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe('RedisHubBackend', () => {
   it('rolls back current and prior backend plugins when start fails', () => {
     const fake = new FakeRedis();
@@ -304,55 +333,39 @@ describe('RedisHubBackend', () => {
     expect(currentDispose).toHaveBeenCalledOnce();
     expect(priorDispose).toHaveBeenCalledOnce();
   });
-  it('round-trips upsert/update/remove/clear', async () => {
-    const fake = new FakeRedis();
-    const b = new RedisHubBackend(fake);
-
-    await b.apply('R', { kind: 'upsert', element: element('e1', 1) });
-    let snap = await b.snapshot('R');
-    expect(snap).toHaveLength(1);
-    expect(snap[0]?.id).toBe('e1');
-    expect(snap[0]?.position.x).toBe(1);
-
-    await b.apply('R', { kind: 'upsert', element: element('e1', 99) });
-    snap = await b.snapshot('R');
-    expect(snap).toHaveLength(1);
-    expect(snap[0]?.position.x).toBe(99);
-
-    await b.apply('R', { kind: 'remove', id: 'e1' });
-    expect(await b.snapshot('R')).toHaveLength(0);
-
-    await b.apply('R', { kind: 'upsert', element: element('e1') });
-    await b.apply('R', { kind: 'upsert', element: element('e2') });
-    await b.apply('R', { kind: 'clear' });
-    expect(await b.snapshot('R')).toHaveLength(0);
+  it('reserves the tombstones key prefix for the backend', () => {
+    expect(
+      () =>
+        new RedisHubBackend(new FakeRedis(), {
+          plugins: [{ name: 'shadow', keyPrefix: 'tombstones', start: vi.fn() }],
+        }),
+    ).toThrow('Backend plugin key prefix "tombstones" is reserved');
   });
 
   it('persists room state across backend instances (restart)', async () => {
     const fake = new FakeRedis();
     const b1 = new RedisHubBackend(fake);
-    await b1.apply('R', { kind: 'upsert', element: element('e1') });
-    await b1.apply('R', { kind: 'upsert', element: element('e2') });
+    await b1.applyElement('R', { kind: 'upsert', element: shape('e1', 1) }, null);
+    await b1.applyElement('R', { kind: 'upsert', element: shape('e2', 1) }, null);
 
     const b2 = new RedisHubBackend(fake);
     const snap = await b2.snapshot('R');
-    expect(snap.map((e) => e.id).sort()).toEqual(['e1', 'e2']);
+    expect(snap.elements.map((e) => e.id).sort()).toEqual(['e1', 'e2']);
   });
 
-  it('isolates state by keyPrefix', async () => {
+  it('isolates state by keyPrefix and room', async () => {
     const fake = new FakeRedis();
     const a = new RedisHubBackend(fake, { keyPrefix: 'a:' });
     const b = new RedisHubBackend(fake, { keyPrefix: 'b:' });
-    await a.apply('R', { kind: 'upsert', element: element('e1') });
-    expect(await b.snapshot('R')).toHaveLength(0);
-    expect(await a.snapshot('R')).toHaveLength(1);
-  });
-
-  it('isolates state by room', async () => {
-    const fake = new FakeRedis();
-    const b = new RedisHubBackend(fake);
-    await b.apply('R', { kind: 'upsert', element: element('e1') });
-    expect(await b.snapshot('R2')).toHaveLength(0);
+    await a.applyElement('R', { kind: 'upsert', element: shape('e1', 1) }, null);
+    await a.applyElement('R', { kind: 'remove', tombstone: tomb('t', 1) }, null);
+    expect(await b.snapshot('R')).toEqual({ elements: [], tombstones: [] });
+    expect(await a.snapshot('R2')).toEqual({ elements: [], tombstones: [] });
+    expect(await a.getRecord('R2', 'e1')).toBeUndefined();
+    expect(await a.snapshot('R')).toEqual({
+      elements: [shape('e1', 1)],
+      tombstones: [tomb('t', 1)],
+    });
   });
 
   it("escapes room names so a room cannot alias another room's sub-key hashes", async () => {
@@ -366,18 +379,28 @@ describe('RedisHubBackend', () => {
       editor: 'A',
       definition: { id: 'layer-a', name: 'a', visible: true, locked: false, order: 0, opacity: 1 },
     });
+    await b.applyElement('foo', { kind: 'remove', tombstone: tomb('gone', 2) }, null);
 
     // Element writes addressed to the aliasing rooms must land in their own hashes.
-    await b.apply('foo:layers', { kind: 'upsert', element: element('layer-a') });
-    await b.apply('foo:fog:meta', { kind: 'upsert', element: element('current') });
+    await b.applyElement('foo:layers', { kind: 'upsert', element: shape('layer-a', 1) }, null);
+    await b.applyElement('foo:fog:meta', { kind: 'upsert', element: shape('current', 1) }, null);
+    await b.applyElement('foo:tombstones', { kind: 'upsert', element: shape('gone', 1) }, null);
 
     expect(await b.getLayerRecord('foo', 'layer-a')).toMatchObject({ version: 1, editor: 'A' });
     expect(await fog.snapshot('foo')).toBeUndefined();
-    expect(await b.snapshot('foo')).toHaveLength(0);
-    expect(await b.snapshot('foo:layers')).toHaveLength(1);
+    expect(await b.snapshot('foo')).toEqual({ elements: [], tombstones: [tomb('gone', 2)] });
+    expect((await b.snapshot('foo:layers')).elements).toHaveLength(1);
 
     // A clear on the aliasing room must not delete the real room's layer ledger.
-    await b.apply('foo:layers', { kind: 'clear' });
+    await b.applyElement(
+      'foo:layers',
+      {
+        kind: 'clear',
+        tombstones: [tomb('layer-a', 2)],
+        expected: new Map([['layer-a', { version: 1 }]]),
+      },
+      null,
+    );
     expect(await b.layerRecords('foo')).toHaveLength(1);
     expect(fake.store.has('fieldnotes:room:foo:layers')).toBe(true);
   });
@@ -385,53 +408,419 @@ describe('RedisHubBackend', () => {
   it('keeps the historical key layout for valid room names', async () => {
     const fake = new FakeRedis();
     const b = new RedisHubBackend(fake, { plugins: [createFogBackendPlugin()] });
-    await b.apply('Room_1-x', { kind: 'upsert', element: element('e1') });
+    await b.applyElement('Room_1-x', { kind: 'upsert', element: shape('e1', 1) }, null);
     await b.applyLayerRecord('Room_1-x', { id: 'l', version: 1, editor: 'A' });
+    await b.applyElement('Room_1-x', { kind: 'remove', tombstone: tomb('e1', 2) }, { version: 1 });
     expect([...fake.store.keys()]).toEqual([
       'fieldnotes:room:Room_1-x',
       'fieldnotes:room:Room_1-x:layers',
+      'fieldnotes:room:Room_1-x:tombstones',
     ]);
   });
 
-  describe('get', () => {
-    it('returns the stored element after apply', async () => {
-      const fake = new FakeRedis();
-      const b = new RedisHubBackend(fake);
-      await b.apply('R', { kind: 'upsert', element: element('e1', 5) });
-      const got = await b.get('R', 'e1');
-      expect(got?.id).toBe('e1');
-      expect(got?.position.x).toBe(5);
-    });
-
-    it('returns undefined for an absent element', async () => {
-      const fake = new FakeRedis();
-      const b = new RedisHubBackend(fake);
-      expect(await b.get('R', 'missing')).toBeUndefined();
-    });
-
-    it('returns undefined for a corrupt stored value without throwing', async () => {
-      const fake = new FakeRedis();
-      const b = new RedisHubBackend(fake);
-      await fake.hSet('fieldnotes:room:R', 'bad', 'not json{');
-      expect(await b.get('R', 'bad')).toBeUndefined();
-    });
-  });
-
-  it('filters malformed stored values without throwing', async () => {
+  it('skips corrupt or malformed stored elements and tombstones without throwing', async () => {
     const fake = new FakeRedis();
     const b = new RedisHubBackend(fake);
-    await b.apply('R', { kind: 'upsert', element: element('good') });
+    await b.applyElement('R', { kind: 'upsert', element: shape('good', 1) }, null);
     await fake.hSet('fieldnotes:room:R', 'bad', 'not json{');
     await fake.hSet('fieldnotes:room:R', 'noid', JSON.stringify({ type: 'shape' }));
     await fake.hSet(
       'fieldnotes:room:R',
       'malformed',
-      JSON.stringify({ ...element('malformed'), size: { w: 'wide', h: 10 } }),
+      JSON.stringify({ ...shape('malformed', 1), size: { w: 'wide', h: 10 } }),
+    );
+    await fake.hSet('fieldnotes:room:R:tombstones', 'badtomb', '{nope');
+    await fake.hSet(
+      'fieldnotes:room:R:tombstones',
+      'noversion',
+      JSON.stringify({ id: 'noversion', editor: 'c1', removedAt: 10_000 }),
     );
 
-    const snap = await b.snapshot('R');
-    expect(snap).toHaveLength(1);
-    expect(snap[0]?.id).toBe('good');
+    expect(await b.snapshot('R')).toEqual({ elements: [shape('good', 1)], tombstones: [] });
+    for (const id of ['bad', 'malformed', 'badtomb', 'noversion']) {
+      expect(await b.getRecord('R', id)).toBeUndefined();
+    }
+  });
+});
+
+describe('RedisHubBackend element contract', () => {
+  it('upserts with a null expected version and returns the element from getRecord and snapshot', async () => {
+    const backend = new RedisHubBackend(new FakeRedis());
+    const el = shape('a', 1);
+    expect(await backend.applyElement('R', { kind: 'upsert', element: el }, null)).toEqual({
+      ok: true,
+    });
+    expect(await backend.getRecord('R', 'a')).toEqual({ kind: 'element', element: el });
+    expect(await backend.snapshot('R')).toEqual({ elements: [el], tombstones: [] });
+  });
+
+  it('rejects a null expected version when a record exists and reports it', async () => {
+    const backend = new RedisHubBackend(new FakeRedis());
+    const el = shape('a', 1);
+    await backend.applyElement('R', { kind: 'upsert', element: el }, null);
+    expect(
+      await backend.applyElement('R', { kind: 'upsert', element: shape('a', 5) }, null),
+    ).toEqual({ ok: false, current: { kind: 'element', element: el } });
+  });
+
+  it('upsert succeeds on a matching expected version and conflicts on a stale one', async () => {
+    const backend = new RedisHubBackend(new FakeRedis());
+    await backend.applyElement('R', { kind: 'upsert', element: shape('a', 1) }, null);
+    const v2 = shape('a', 2);
+    expect(
+      await backend.applyElement('R', { kind: 'upsert', element: v2 }, { version: 1 }),
+    ).toEqual({
+      ok: true,
+    });
+    expect(
+      await backend.applyElement('R', { kind: 'upsert', element: shape('a', 3) }, { version: 1 }),
+    ).toEqual({
+      ok: false,
+      current: { kind: 'element', element: v2 },
+    });
+    expect(await backend.getRecord('R', 'a')).toEqual({ kind: 'element', element: v2 });
+  });
+
+  it('a numeric expected version conflicts when no record exists', async () => {
+    const backend = new RedisHubBackend(new FakeRedis());
+    expect(
+      await backend.applyElement('R', { kind: 'upsert', element: shape('a', 2) }, { version: 1 }),
+    ).toEqual({
+      ok: false,
+      current: undefined,
+    });
+    expect(await backend.getRecord('R', 'a')).toBeUndefined();
+  });
+
+  it('remove replaces the element with a tombstone; a stale remove conflicts', async () => {
+    const fake = new FakeRedis();
+    const backend = new RedisHubBackend(fake);
+    await backend.applyElement('R', { kind: 'upsert', element: shape('a', 3) }, null);
+    expect(
+      await backend.applyElement('R', { kind: 'remove', tombstone: tomb('a', 4) }, { version: 2 }),
+    ).toEqual({ ok: false, current: { kind: 'element', element: shape('a', 3) } });
+    expect(
+      await backend.applyElement('R', { kind: 'remove', tombstone: tomb('a', 4) }, { version: 3 }),
+    ).toEqual({ ok: true });
+    expect(await backend.getRecord('R', 'a')).toEqual({
+      kind: 'tombstone',
+      tombstone: tomb('a', 4),
+    });
+    expect(await backend.snapshot('R')).toEqual({ elements: [], tombstones: [tomb('a', 4)] });
+    expect(fake.store.get('fieldnotes:room:R')?.has('a')).toBe(false);
+  });
+
+  it('an upsert expecting the tombstone version replaces the tombstone', async () => {
+    const fake = new FakeRedis();
+    const backend = new RedisHubBackend(fake);
+    await backend.applyElement('R', { kind: 'remove', tombstone: tomb('a', 4) }, null);
+    expect(
+      await backend.applyElement('R', { kind: 'upsert', element: shape('a', 5) }, null),
+    ).toEqual({ ok: false, current: { kind: 'tombstone', tombstone: tomb('a', 4) } });
+    expect(
+      await backend.applyElement(
+        'R',
+        { kind: 'upsert', element: shape('a', 5) },
+        { version: 4, editor: 'c1' },
+      ),
+    ).toEqual({
+      ok: true,
+    });
+    expect(await backend.snapshot('R')).toEqual({ elements: [shape('a', 5)], tombstones: [] });
+    expect(fake.store.get('fieldnotes:room:R:tombstones')?.has('a')).toBe(false);
+  });
+
+  it('clear tombstones every element when the expected map matches', async () => {
+    const backend = new RedisHubBackend(new FakeRedis());
+    await backend.applyElement('R', { kind: 'upsert', element: shape('a', 1) }, null);
+    await backend.applyElement('R', { kind: 'upsert', element: shape('b', 7) }, null);
+    const write = {
+      kind: 'clear' as const,
+      tombstones: [tomb('a', 2), tomb('b', 8)],
+      expected: new Map([
+        ['a', { version: 1 }],
+        ['b', { version: 7 }],
+      ]),
+    };
+    expect(await backend.applyElement('R', write, null)).toEqual({ ok: true });
+    expect(await backend.snapshot('R')).toEqual({
+      elements: [],
+      tombstones: [tomb('a', 2), tomb('b', 8)],
+    });
+  });
+
+  it.each([
+    [
+      'a stale version',
+      [
+        ['a', 1],
+        ['b', 6],
+      ],
+    ],
+    ['a missing element', [['a', 1]]],
+    [
+      'an extra id',
+      [
+        ['a', 1],
+        ['b', 7],
+        ['c', 1],
+      ],
+    ],
+  ] as const)('clear with %s writes nothing', async (_name, entries) => {
+    const backend = new RedisHubBackend(new FakeRedis());
+    await backend.applyElement('R', { kind: 'upsert', element: shape('a', 1) }, null);
+    await backend.applyElement('R', { kind: 'upsert', element: shape('b', 7) }, null);
+    const result = await backend.applyElement(
+      'R',
+      {
+        kind: 'clear',
+        tombstones: entries.map(([id, v]) => tomb(id, v + 1)),
+        expected: new Map(entries.map(([id, version]) => [id, { version }])),
+      },
+      null,
+    );
+    expect(result.ok).toBe(false);
+    expect(await backend.snapshot('R')).toEqual({
+      elements: [shape('a', 1), shape('b', 7)],
+      tombstones: [],
+    });
+  });
+
+  it('of two backends writing equal versions over the same (version, editor), only one wins', async () => {
+    const fake = new FakeRedis();
+    const [a, b] = [new RedisHubBackend(fake), new RedisHubBackend(fake)];
+    await a.applyElement('R', { kind: 'upsert', element: { ...shape('e', 5), editor: 'a' } }, null);
+    const z = { ...shape('e', 5), editor: 'z' };
+    const expected = { version: 5, editor: 'a' };
+    expect(await a.applyElement('R', { kind: 'upsert', element: z }, expected)).toEqual({
+      ok: true,
+    });
+    expect(
+      await b.applyElement(
+        'R',
+        { kind: 'upsert', element: { ...shape('e', 5), editor: 'm' } },
+        expected,
+      ),
+    ).toEqual({ ok: false, current: { kind: 'element', element: z } });
+    expect(await b.getRecord('R', 'e')).toEqual({ kind: 'element', element: z });
+  });
+
+  it.each([
+    ['a different editor', { version: 5, editor: 'b' }],
+    ['an absent editor', { version: 5 }],
+  ])('a write expecting %s conflicts with the stored editor', async (_name, expected) => {
+    const backend = new RedisHubBackend(new FakeRedis());
+    const stored = { ...shape('e', 5), editor: 'a' };
+    await backend.applyElement('R', { kind: 'upsert', element: stored }, null);
+    expect(
+      await backend.applyElement('R', { kind: 'upsert', element: shape('e', 6) }, expected),
+    ).toEqual({ ok: false, current: { kind: 'element', element: stored } });
+  });
+
+  it('clear conflicts when an expected editor differs from the stored one', async () => {
+    const backend = new RedisHubBackend(new FakeRedis());
+    const stored = { ...shape('a', 1), editor: 'a' };
+    await backend.applyElement('R', { kind: 'upsert', element: stored }, null);
+    const result = await backend.applyElement(
+      'R',
+      {
+        kind: 'clear',
+        tombstones: [tomb('a', 2)],
+        expected: new Map([['a', { version: 1, editor: 'b' }]]),
+      },
+      null,
+    );
+    expect(result).toEqual({ ok: false, current: { kind: 'element', element: stored } });
+  });
+
+  it('rejects a clear whose tombstone ids differ from the expected ids and writes nothing', async () => {
+    const backend = new RedisHubBackend(new FakeRedis());
+    await backend.applyElement('R', { kind: 'upsert', element: shape('a', 1) }, null);
+    await expect(
+      backend.applyElement(
+        'R',
+        { kind: 'clear', tombstones: [tomb('z', 2)], expected: new Map([['a', { version: 1 }]]) },
+        null,
+      ),
+    ).rejects.toThrow('clear tombstones must match the expected ids');
+    expect(await backend.snapshot('R')).toEqual({ elements: [shape('a', 1)], tombstones: [] });
+  });
+
+  it('snapshot omits and deletes tombstones older than the retention', async () => {
+    const fake = new FakeRedis();
+    const backend = new RedisHubBackend(fake, { tombstoneRetentionMs: 1_000 });
+    await backend.applyElement('R', { kind: 'remove', tombstone: tomb('old', 1, 8_000) }, null);
+    await backend.applyElement('R', { kind: 'remove', tombstone: tomb('new', 1, 9_500) }, null);
+    expect(await backend.snapshot('R')).toEqual({
+      elements: [],
+      tombstones: [tomb('new', 1, 9_500)],
+    });
+    expect([...(fake.store.get('fieldnotes:room:R:tombstones')?.keys() ?? [])]).toEqual(['new']);
+    vi.setSystemTime(20_000);
+    expect(await backend.snapshot('R')).toEqual({ elements: [], tombstones: [] });
+  });
+
+  it('keeps an expired tombstone that is rewritten between the snapshot read and its deletion', async () => {
+    const fake = new FakeRedis();
+    const tombstonesKey = 'fieldnotes:room:R:tombstones';
+    await fake.hSet(tombstonesKey, 't', JSON.stringify(tomb('t', 2, 8_000)));
+    const fresh = tomb('t', 4, 10_000);
+    let rewritten = false;
+    const rewrite = () => {
+      if (rewritten) return;
+      rewritten = true;
+      fake.store.get(tombstonesKey)?.set('t', JSON.stringify(fresh));
+    };
+    const [hGetAll, evaluate] = [fake.hGetAll.bind(fake), fake.eval.bind(fake)];
+    fake.hGetAll = async (key) => {
+      const result = await hGetAll(key);
+      if (key === tombstonesKey) rewrite();
+      return result;
+    };
+    fake.eval = async (script, options) => {
+      const result = await evaluate(script, options);
+      if (options.keys.includes(tombstonesKey)) rewrite();
+      return result;
+    };
+    const backend = new RedisHubBackend(fake, { tombstoneRetentionMs: 1_000 });
+
+    await backend.snapshot('R');
+
+    expect(await backend.getRecord('R', 't')).toEqual({ kind: 'tombstone', tombstone: fresh });
+  });
+
+  it('a recreate interleaved with the snapshot read never hides the id from both lists', async () => {
+    const fake = new FakeRedis();
+    const backend = new RedisHubBackend(fake);
+    await backend.applyElement('R', { kind: 'remove', tombstone: tomb('t', 2) }, null);
+    await backend.snapshot('R');
+    const hGetAll = fake.hGetAll.bind(fake);
+    fake.hGetAll = (key) => {
+      // The recreate lands after the element hash was read and before the tombstone hash is.
+      if (key === 'fieldnotes:room:R:tombstones') {
+        fake.store.get(key)?.delete('t');
+        void fake.hSet('fieldnotes:room:R', 't', JSON.stringify(shape('t', 3)));
+      }
+      return hGetAll(key);
+    };
+
+    const { elements, tombstones } = await backend.snapshot('R');
+
+    expect([...elements, ...tombstones].map((record) => record.id)).toEqual(['t']);
+  });
+
+  it('keeps a tombstone within the default seven-day retention', async () => {
+    const backend = new RedisHubBackend(new FakeRedis());
+    await backend.applyElement('R', { kind: 'remove', tombstone: tomb('t', 1) }, null);
+    vi.setSystemTime(10_000 + 604_800_000);
+    expect((await backend.snapshot('R')).tombstones).toEqual([tomb('t', 1)]);
+    vi.setSystemTime(10_001 + 604_800_000);
+    expect((await backend.snapshot('R')).tombstones).toEqual([]);
+  });
+
+  it.each([0, Number.NaN, -1, Infinity])('rejects tombstoneRetentionMs %s', (value) => {
+    expect(() => new RedisHubBackend(new FakeRedis(), { tombstoneRetentionMs: value })).toThrow(
+      new RangeError('tombstoneRetentionMs must be a positive finite number'),
+    );
+  });
+});
+
+describe('RedisHubBackend room migration', () => {
+  const roomKey = 'fieldnotes:room:R';
+  const indexOf = (backend: RedisHubBackend, id: string) =>
+    backend
+      .getRecord('R', id)
+      .then((record) => (record?.kind === 'element' ? record.element : undefined));
+
+  it('gives a pre-F1 room with equal zIndex increasing keys in HGETALL order', async () => {
+    const fake = new FakeRedis();
+    for (const id of ['c', 'a', 'b']) await fake.hSet(roomKey, id, JSON.stringify(legacy(id, 0)));
+
+    const { elements } = await new RedisHubBackend(fake).snapshot('R');
+
+    expect([...elements].sort((x, y) => (x.index < y.index ? -1 : 1)).map((e) => e.id)).toEqual([
+      'c',
+      'a',
+      'b',
+    ]);
+    for (const element of elements) {
+      expect(element.version).toBe(1);
+      expect(element).not.toHaveProperty('zIndex');
+    }
+    const stored = JSON.parse(fake.store.get(roomKey)?.get('a') ?? '');
+    expect(stored).toEqual(elements.find((e) => e.id === 'a'));
+  });
+
+  it('places legacy elements above existing keys, ordered by zIndex then position', async () => {
+    const fake = new FakeRedis();
+    const modern = { ...shape('m', 2), index: 'a5' };
+    await fake.hSet(roomKey, 'p', JSON.stringify(legacy('p', 2)));
+    await fake.hSet(roomKey, 'm', JSON.stringify(modern));
+    await fake.hSet(roomKey, 'q', JSON.stringify(legacy('q', 1)));
+    const backend = new RedisHubBackend(fake);
+
+    const [m, q, p] = await Promise.all(['m', 'q', 'p'].map((id) => indexOf(backend, id)));
+
+    expect(m).toEqual(modern);
+    expect(q && q.index > 'a5').toBe(true);
+    expect(p && q && p.index > q.index).toBe(true);
+  });
+
+  it('leaves an already migrated room untouched on a second instance', async () => {
+    const fake = new FakeRedis();
+    for (const id of ['c', 'a', 'b']) await fake.hSet(roomKey, id, JSON.stringify(legacy(id, 0)));
+    await new RedisHubBackend(fake).snapshot('R');
+    const migrated = new Map(fake.store.get(roomKey));
+    const scripts: string[] = [];
+    const evaluate = fake.eval.bind(fake);
+    fake.eval = (script, options) => {
+      scripts.push(script);
+      return evaluate(script, options);
+    };
+
+    await new RedisHubBackend(fake).snapshot('R');
+
+    expect(fake.store.get(roomKey)).toEqual(migrated);
+    expect(scripts).not.toContain(ELEMENT_MIGRATE_SCRIPT);
+  });
+
+  it('does not overwrite an element that gained an index after the migration read', async () => {
+    const fake = new FakeRedis();
+    for (const id of ['a', 'b']) await fake.hSet(roomKey, id, JSON.stringify(legacy(id, 0)));
+    const racing = { ...shape('a', 5), index: 'Zz' };
+    const read = fake.hGetAll.bind(fake);
+    fake.hGetAll = async (key) => {
+      const result = await read(key);
+      if (key === roomKey) await fake.hSet(roomKey, 'a', JSON.stringify(racing));
+      return result;
+    };
+    const backend = new RedisHubBackend(fake);
+
+    expect(await indexOf(backend, 'a')).toEqual(racing);
+    expect((await indexOf(backend, 'b'))?.version).toBe(1);
+  });
+
+  it('migrates before a compare-and-set so the expected version is the migrated one', async () => {
+    const fake = new FakeRedis();
+    await fake.hSet(roomKey, 'a', JSON.stringify(legacy('a', 0)));
+    const backend = new RedisHubBackend(fake);
+
+    expect(
+      await backend.applyElement('R', { kind: 'upsert', element: shape('a', 2) }, { version: 1 }),
+    ).toEqual({
+      ok: true,
+    });
+  });
+
+  it('migrates a room once per process until evictRoom forgets it', async () => {
+    const fake = new FakeRedis();
+    const backend = new RedisHubBackend(fake);
+    await backend.snapshot('R');
+    await fake.hSet(roomKey, 'late', JSON.stringify(legacy('late', 0)));
+
+    expect((await indexOf(backend, 'late'))?.index).toBeUndefined();
+    await backend.evictRoom('R');
+    expect((await indexOf(backend, 'late'))?.index).toEqual(expect.any(String));
   });
 });
 
@@ -444,15 +833,18 @@ describe('RedisHubBackend ttlSeconds', () => {
   };
   const layer: LayerRecord = { id: 'layer-a', version: 1, editor: 'A' };
   const operations: [string, (b: RedisHubBackend) => Promise<unknown>][] = [
-    ['upsert', (b) => b.apply('R', { kind: 'upsert', element: element('e1') })],
+    ['upsert', (b) => b.applyElement('R', { kind: 'upsert', element: shape('e1', 1) }, null)],
     ['applyLayerRecord', (b) => b.applyLayerRecord('R', layer)],
-    ['remove', (b) => b.apply('R', { kind: 'remove', id: 'e1' })],
+    ['remove', (b) => b.applyElement('R', { kind: 'remove', tombstone: tomb('e1', 2) }, null)],
     ['snapshot', (b) => b.snapshot('R')],
-    ['clear', (b) => b.apply('R', { kind: 'clear' })],
+    [
+      'clear',
+      (b) => b.applyElement('R', { kind: 'clear', tombstones: [], expected: new Map() }, null),
+    ],
   ];
 
   it.each(operations)(
-    'ttlSeconds refreshes EXPIRE on element, layer and plugin keys after %s',
+    'ttlSeconds refreshes EXPIRE on element, tombstone, layer and plugin keys after %s',
     async (_, run) => {
       const fake = new FakeRedis();
       const b = new RedisHubBackend(fake, { keyPrefix: 'p:', ttlSeconds: 3600, plugins: [plugin] });
@@ -460,6 +852,7 @@ describe('RedisHubBackend ttlSeconds', () => {
       expect(fake.expires.sort()).toEqual([
         ['p:R', 3600],
         ['p:R:layers', 3600],
+        ['p:R:tombstones', 3600],
         ['p:R:x', 3600],
       ]);
     },
@@ -486,6 +879,7 @@ describe('RedisHubBackend ttlSeconds', () => {
           : [
               ['p:R', 3600],
               ['p:R:layers', 3600],
+              ['p:R:tombstones', 3600],
               ['p:R:x', 3600],
             ],
       );
@@ -520,7 +914,7 @@ describe('RedisHubBackend ttlSeconds', () => {
       return hGetAll(key);
     };
     const b = new RedisHubBackend(fake, { keyPrefix: 'p:', ttlSeconds: 60 });
-    expect(await b.snapshot('R')).toEqual([]);
+    expect(await b.snapshot('R')).toEqual({ elements: [], tombstones: [] });
   }, 1_000);
 
   it('ttlSeconds requires client.expire and a positive safe integer', () => {
@@ -566,17 +960,21 @@ describe('RedisHubBackend layer records', () => {
 
     // Rooms are isolated and layers live outside the element hash.
     expect(await b.layerRecords('other')).toEqual([]);
-    expect(await b.snapshot('R')).toEqual([]);
+    expect(await b.snapshot('R')).toEqual({ elements: [], tombstones: [] });
   });
 
   it('an element clear leaves the layer hash intact', async () => {
     const fake = new FakeRedis();
     const b = new RedisHubBackend(fake);
-    await b.apply('R', { kind: 'upsert', element: element('e1') });
+    await b.applyElement('R', { kind: 'upsert', element: shape('e1', 1) }, null);
     await b.applyLayerRecord('R', record('layer-a', 2));
 
-    await b.apply('R', { kind: 'clear' });
-    expect(await b.snapshot('R')).toEqual([]);
+    await b.applyElement(
+      'R',
+      { kind: 'clear', tombstones: [tomb('e1', 2)], expected: new Map([['e1', { version: 1 }]]) },
+      null,
+    );
+    expect(await b.snapshot('R')).toEqual({ elements: [], tombstones: [tomb('e1', 2)] });
     expect(await b.layerRecords('R')).toEqual([record('layer-a', 2)]);
   });
 

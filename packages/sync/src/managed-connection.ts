@@ -17,8 +17,10 @@ import type { ClientSyncPlugin } from './sync-plugin';
  *   a reconnect or retry is pending.
  * - `denied` — consecutive authentication failures reached the configured
  *   bound; the manager stays down until it is recreated.
+ * - `unsupported` — the relay closed with 4406 or advertised a protocol older
+ *   than 2; the manager stays down until it is recreated.
  */
-export type ManagedSyncStatus = 'connecting' | 'live' | 'offline' | 'denied';
+export type ManagedSyncStatus = 'connecting' | 'live' | 'offline' | 'denied' | 'unsupported';
 
 /**
  * Transport contract the managed lifecycle requires. `WebSocketTransport`
@@ -220,6 +222,11 @@ export function createManagedSyncConnection(
     transport = null;
   };
 
+  const settleUnsupported = (): void => {
+    teardownConnection();
+    setStatus('unsupported');
+  };
+
   const scheduleRetry = (): void => {
     if (stopped || denied) return;
     setStatus('offline');
@@ -238,6 +245,10 @@ export function createManagedSyncConnection(
     if (stopped || cycleGeneration !== generation) return;
     const envelope = parseEnvelope(raw);
     if (!envelope || envelope.from === clientId) return;
+    if (envelope.op.kind === 'capabilities' && envelope.op.capabilities.protocolVersion < 2) {
+      settleUnsupported();
+      return;
+    }
     if (envelope.op.kind !== 'snapshot' || envelope.op.to !== clientId) return;
     // Authoritative snapshot addressed to us: auth and transport are proven
     // healthy, so both retry budgets reset.
@@ -249,6 +260,10 @@ export function createManagedSyncConnection(
 
   const handleClose = (cycleGeneration: number, code: number): void => {
     if (stopped || cycleGeneration !== generation) return;
+    if (code === 4406) {
+      settleUnsupported();
+      return;
+    }
     if (!isTerminalClose(code)) {
       // Transient drop: the transport owns this reconnect. Report offline and
       // wait for onReconnect; scheduling here would create a second retry owner.

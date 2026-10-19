@@ -11,7 +11,7 @@ import type {
 
 describe('core public surface', () => {
   it('exports the current version', () => {
-    expect(FN.VERSION).toBe('0.92.0');
+    expect(FN.VERSION).toBe('0.93.0');
   });
 
   it('exports the camera view, animator, and focus presence surface', () => {
@@ -190,9 +190,9 @@ describe('core public surface', () => {
     expect(typeof FN.elementRectsEqual).toBe('function');
   });
 
-  it('reports VERSION 0.92.0', async () => {
+  it('reports VERSION 0.93.0', async () => {
     const { VERSION } = await import('./index');
-    expect(VERSION).toBe('0.92.0');
+    expect(VERSION).toBe('0.93.0');
   });
 
   it('does not re-export VTT-domain symbols (moved to @fieldnotes/vtt)', () => {
@@ -216,6 +216,17 @@ describe('core public surface', () => {
     for (const name of vttOnly) {
       expect(name in FN, `${name} should not be in core`).toBe(false);
     }
+  });
+
+  it('exports the fractional order key and legacy order surface', () => {
+    expect(FN.generateKeyBetween).toBeTypeOf('function');
+    expect(FN.generateNKeysBetween).toBeTypeOf('function');
+    expect(FN.isValidIndexKey).toBeTypeOf('function');
+    expect(FN.assignLegacyOrder).toBeTypeOf('function');
+  });
+
+  it('exports pickBaseFields', () => {
+    expect(FN.pickBaseFields).toBeTypeOf('function');
   });
 
   it('exports createDefaultTools', () => {

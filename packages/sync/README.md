@@ -21,7 +21,7 @@ injectable `BroadcastChannel` factory for testing.
 pnpm add @fieldnotes/sync @fieldnotes/core
 ```
 
-Requires `@fieldnotes/core` `>=0.82.0` (peer dependency).
+Requires `@fieldnotes/core` `>=0.93.0` (peer dependency).
 
 Domain operations are installed through `ClientSyncPlugin`. A plugin may register codec-validated
 extension kinds and versioned snapshot state. For fog, install `createFogClientPlugin()` from
@@ -36,7 +36,7 @@ identifiers and short strings 256 characters, text and arrow labels 1 MiB, image
 
 ## v4 capability handshake
 
-The client advertises `{ protocolVersion: 1, extensionKinds, elementEnvelope: true }` when a
+The client advertises `{ protocolVersion: 2, extensionKinds, elementEnvelope: true }` when a
 transport starts. The literal `elementEnvelope: true` remains as a rolling-upgrade marker so current
 clients interoperate with the immediately preceding v4 release. Frames that omit the marker or set
 it to `false` are rejected; there is no timeout-based legacy fallback or v3 wire translation.
@@ -47,6 +47,21 @@ advertise their extension kind; an unsupported kind fails explicitly rather than
 domain data. `SyncOp`, `SyncEnvelope`, and `SyncElement` describe both runtime and transport values.
 Use `isValidEnvelope` and `isValidElement` at transport boundaries. Plugin snapshot state lives under
 the snapshot operation's `extensions` map.
+
+## Element versions and tombstones (0.28.0)
+
+Legacy sync protocol 2 sends every element with its `index`, `version` and optional `editor`.
+`SyncClient` applies an incoming upsert or remove only when it is newer than the local element or
+tombstone (`isNewerVersion`: higher version; on a tie, the editor that sorts later). This holds both
+through a hub and peer to peer over `BroadcastChannel`. Removes carry a version and editor, clears
+and snapshots carry tombstones, so a late upsert or a reconnecting peer no longer resurrects a
+deleted element. Hub corrections (`from: 'hub'`) still apply as sent.
+
+Protocol 1 and 2 peers cannot share a room; upgrade every client and hub together. When a hub or
+peer advertises `protocolVersion` below 2, `SyncClient` stops syncing and closes its transport. A
+managed connection treats that, or a `4406` close from the hub, as terminal: status
+`'unsupported'`, no reconnect. Use `parseLegacyEnvelope` to validate protocol 2 legacy frames;
+`parseEnvelope` is unchanged.
 
 ## Authority wire primitives (0.22.0)
 
@@ -168,9 +183,11 @@ an offline manager; construct client connections in browser lifecycle code and a
 `document` is either `null` or the SDK-owned canonical `{ cursor, casToken?, elements, layers,
 extensions }`. It becomes available only after exact capabilities, generation, and a fully
 validated fresh checkpoint. Layer tombstones and extension state are preserved. Project canonical
-elements into a UI/store with that store's remote origin, if available. Canonical replacement is
-atomic inside this SDK; arbitrary projection callbacks and destination stores are not claimed to be
-atomic, and presentation failures cannot change canonical state.
+elements into a UI/store with that store's remote origin, if available. Elements written before
+core 0.93 still carry `zIndex` instead of `index`; run `assignLegacyOrder(elements)` from
+`@fieldnotes/core` over the whole document's elements before loading them into a core store.
+Canonical replacement is atomic inside this SDK; arbitrary projection callbacks and destination
+stores are not claimed to be atomic, and presentation failures cannot change canonical state.
 
 `submit(mutation, { expectedState? })` retains an immutable parsed proposal and its exact serialized
 wire. A clear requires an explicit checkpoint CAS token. Submitting while not live may retain a

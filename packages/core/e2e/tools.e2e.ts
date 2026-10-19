@@ -96,7 +96,8 @@ test.describe('drawing tools', () => {
         bend: 0,
         color: '#000000',
         width: 2,
-        zIndex: 0,
+        index: 'a0',
+        version: 1,
         locked: false,
         layerId: vp.layerManager.activeLayerId,
       });

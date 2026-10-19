@@ -124,7 +124,10 @@ describe('ViewportInteractions', () => {
 
     it('activates an html element under an arrow passing near the tap', () => {
       const html = createHtmlElement({ position: { x: 0, y: 0 }, size: { w: 200, h: 100 } });
-      const arrow = { ...createArrow({ from: { x: 0, y: 55 }, to: { x: 200, y: 55 } }), zIndex: 1 };
+      const arrow = {
+        ...createArrow({ from: { x: 0, y: 55 }, to: { x: 200, y: 55 } }),
+        index: 'a1',
+      };
       const { interactions, deps } = setup(html, arrow);
       doubleTap(interactions, 50, 50);
       expect(deps.interactMode.startInteracting).toHaveBeenCalledWith(html.id);

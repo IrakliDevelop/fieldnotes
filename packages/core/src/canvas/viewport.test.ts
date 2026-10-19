@@ -928,8 +928,8 @@ describe('Viewport', () => {
     describe('public transactions', () => {
       it('groups multiple store mutations into one undo step and returns the callback result', () => {
         const viewport = new Viewport(container);
-        const a = createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } });
-        const b = createShape({ position: { x: 20, y: 0 }, size: { w: 10, h: 10 } });
+        const a = createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 }, index: 'a0' });
+        const b = createShape({ position: { x: 20, y: 0 }, size: { w: 10, h: 10 }, index: 'a0' });
         viewport.store.add(a);
         viewport.store.add(b);
         viewport.history.clear();
@@ -991,7 +991,11 @@ describe('Viewport', () => {
 
       it('commits mutations for undo before rethrowing a callback error', () => {
         const viewport = new Viewport(container);
-        const shape = createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } });
+        const shape = createShape({
+          position: { x: 0, y: 0 },
+          size: { w: 10, h: 10 },
+          index: 'a0',
+        });
         viewport.history.clear();
 
         expect(() =>
@@ -1010,8 +1014,8 @@ describe('Viewport', () => {
 
       it('removeElements ignores missing and duplicate ids and records one undo step', () => {
         const viewport = new Viewport(container);
-        const a = createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } });
-        const b = createShape({ position: { x: 20, y: 0 }, size: { w: 10, h: 10 } });
+        const a = createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 }, index: 'a0' });
+        const b = createShape({ position: { x: 20, y: 0 }, size: { w: 10, h: 10 }, index: 'a0' });
         viewport.store.add(a);
         viewport.store.add(b);
         viewport.history.clear();
@@ -1460,7 +1464,8 @@ describe('Viewport', () => {
         type: 'extension',
         extensionType: 'test:box',
         position: { x: 1000, y: 1000 },
-        zIndex: 0,
+        index: 'a0',
+        version: 1,
         locked: false,
         layerId: viewport.layerManager.activeLayerId,
         data: {},
@@ -2375,26 +2380,21 @@ describe('Viewport', () => {
         position: { x: 0, y: 0 },
         text: 'a',
         layerId: viewport.layerManager.activeLayerId,
-        zIndex: 0,
+        index: 'a0',
+        version: 1,
       });
       const b = createNote({
         position: { x: 100, y: 0 },
         text: 'b',
         layerId: viewport.layerManager.activeLayerId,
-        zIndex: 1,
+        index: 'a1',
+        version: 1,
       });
       viewport.store.add(a);
       viewport.store.add(b);
-      // a starts below b (zIndex 0 < 1). Select a and use the legacy id 'z-front'.
       select([a.id]);
       viewport.runAction('z-front');
-      // After bring-to-front via legacy id, a should sit above b.
-      const aAfter = viewport.store.getById(a.id);
-      const bAfter = viewport.store.getById(b.id);
-      expect(aAfter).toBeDefined();
-      expect(bAfter).toBeDefined();
-      if (!aAfter || !bAfter) return;
-      expect(aAfter.zIndex).toBeGreaterThan(bAfter.zIndex);
+      expect(viewport.store.getAll().map((el) => el.id)).toEqual([b.id, a.id]);
       viewport.destroy();
     });
 

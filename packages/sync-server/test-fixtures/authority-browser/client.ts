@@ -353,6 +353,7 @@ function selectedPublic(): SyncElement | undefined {
 
 function create(): void {
   const shape = createShape({
+    index: 'a0',
     position: { x: 180, y: 100 },
     size: { w: 95, h: 60 },
     fillColor: '#69a9f0',

@@ -237,9 +237,10 @@ describe('EraserTool', () => {
         width: 4,
         opacity: 0.5,
         layerId: 'L1',
-        zIndex: 7,
+        index: 'a7',
+        version: 6,
       });
-      store.add(stroke);
+      store.add({ ...stroke, editor: 'peer' });
       tool.onPointerDown({ x: 15, y: 0, pressure: 1, pointerType: 'mouse', shiftKey: false }, ctx);
       tool.onPointerUp({ x: 15, y: 0, pressure: 1, pointerType: 'mouse', shiftKey: false }, ctx);
       const strokes = store.getAll().filter((e) => e.type === 'stroke');
@@ -251,8 +252,10 @@ describe('EraserTool', () => {
           width: 4,
           opacity: 0.5,
           layerId: 'L1',
-          zIndex: 7,
+          index: 'a7',
+          version: 1,
         });
+        expect(s).not.toHaveProperty('editor');
         expect(s.id).not.toBe(stroke.id);
       }
     });

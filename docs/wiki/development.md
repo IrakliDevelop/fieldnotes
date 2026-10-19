@@ -99,7 +99,8 @@ export function createMyElement(opts: MyElementOptions): MyElement {
     id: crypto.randomUUID(),
     type: 'my-element',
     position: opts.position,
-    zIndex: opts.zIndex ?? 0,
+    index: opts.index ?? '', // '' = top of the layer
+    version: 1,
     locked: false,
     layerId: opts.layerId ?? 'default',
     // ...

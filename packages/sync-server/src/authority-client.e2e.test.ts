@@ -90,7 +90,8 @@ function shape(id: string, audience?: string): SyncElement {
     id,
     type: 'shape',
     position: { x: 1, y: 2 },
-    zIndex: 0,
+    index: 'a0',
+    version: 1,
     locked: false,
     layerId: 'default',
     shape: 'rectangle',
@@ -384,7 +385,10 @@ describe('managed authority client over real createSyncServer sockets', () => {
     await vi.waitFor(() => expect(server.wss.clients.size).toBe(2));
     sourceStore.add(shape('legacy-shape'));
     await vi.waitFor(() =>
-      expect(targetStore.getById('legacy-shape')).toEqual(shape('legacy-shape')),
+      expect(targetStore.getById('legacy-shape')).toEqual({
+        ...shape('legacy-shape'),
+        editor: 'a',
+      }),
     );
   });
 

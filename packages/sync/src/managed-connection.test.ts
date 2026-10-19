@@ -280,6 +280,53 @@ describe('createManagedSyncConnection', () => {
     expect(transports).toHaveLength(2);
   });
 
+  it('settles on unsupported after a 4406 close and never reconnects', async () => {
+    start();
+    await flushAsync();
+    const first = currentTransport();
+
+    first.emitClose(4406);
+    expect(connection?.getStatus()).toBe('unsupported');
+    expect(first.closed).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(resolveUrl).toHaveBeenCalledTimes(1);
+    expect(transports).toHaveLength(1);
+  });
+
+  it('settles on unsupported when the hub advertises a protocol older than 2', async () => {
+    start();
+    await flushAsync();
+    const first = currentTransport();
+    first.emitMessage(snapshotFor(CLIENT_ID));
+
+    first.emitMessage(
+      envelope('hub', {
+        kind: 'capabilities',
+        capabilities: { protocolVersion: 1, extensionKinds: [], elementEnvelope: true },
+      }),
+    );
+    expect(statuses).toEqual(['connecting', 'live', 'unsupported']);
+    expect(first.closed).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(transports).toHaveLength(1);
+  });
+
+  it('stays live when the hub advertises protocol 2', async () => {
+    start();
+    await flushAsync();
+    currentTransport().emitMessage(snapshotFor(CLIENT_ID));
+    currentTransport().emitMessage(
+      envelope('hub', {
+        kind: 'capabilities',
+        capabilities: { protocolVersion: 2, extensionKinds: [], elementEnvelope: true },
+      }),
+    );
+    expect(connection?.getStatus()).toBe('live');
+    expect(currentTransport().closed).toBe(false);
+  });
+
   it('resets the auth-failure budget after a successful authoritative snapshot', async () => {
     start({ maxAuthFailures: 2 });
     await flushAsync();
@@ -417,7 +464,7 @@ describe('createManagedSyncConnection', () => {
   });
 
   it('delivers raw frames to onTransportMessage before the SyncClient applies them', async () => {
-    const note = createNote({ position: { x: 9, y: 9 } });
+    const note = createNote({ index: 'a0', position: { x: 9, y: 9 } });
     let sizeWhenObserved = -1;
     start({
       onTransportMessage: () => {
@@ -476,7 +523,7 @@ describe('createManagedSyncConnection', () => {
   });
 
   it('rebuilt clients reconcile their first snapshot with hub knowledge persisted across cycles', async () => {
-    const known = createNote({ position: { x: 0, y: 0 } });
+    const known = createNote({ index: 'a0', position: { x: 0, y: 0 } });
     const contexts: { phase: string; localOnly: { id: string; hubKnown: boolean }[] }[] = [];
     start({
       resolveLocalOnly: (context) => {
@@ -526,7 +573,7 @@ describe('createManagedSyncConnection', () => {
   });
 
   it('without a hook, a rebuilt client still removes hub-deleted elements on its first snapshot', async () => {
-    const stale = createNote({ position: { x: 2, y: 2 } });
+    const stale = createNote({ index: 'a0', position: { x: 2, y: 2 } });
     start();
     await flushAsync();
     currentTransport().emitMessage(snapshotFor(CLIENT_ID, [stale]));

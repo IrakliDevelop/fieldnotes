@@ -141,18 +141,20 @@ describe('SelectTool', () => {
       expect(tool.selectedIds).toHaveLength(0);
     });
 
-    it('selects elements with higher zIndex first', () => {
+    it('selects elements with higher index first', () => {
       const tool = new SelectTool();
       const ctx = makeCtx();
       const back = createNote({
         position: { x: 100, y: 100 },
         size: { w: 200, h: 100 },
-        zIndex: 0,
+        index: 'a0',
+        version: 1,
       });
       const front = createNote({
         position: { x: 100, y: 100 },
         size: { w: 200, h: 100 },
-        zIndex: 1,
+        index: 'a1',
+        version: 1,
       });
       ctx.store.add(back);
       ctx.store.add(front);
@@ -2238,6 +2240,7 @@ describe('SelectTool', () => {
           position: { x: 0, y: 0 },
           size: { w: 100, h: 100 },
           shape: 'line',
+          index: 'a0',
           ...input,
         });
         store.add(line);
@@ -2568,7 +2571,8 @@ describe('SelectTool extension handles', () => {
         type: 'extension',
         extensionType: 'test:handles',
         position: { x: 0, y: 0 },
-        zIndex: 0,
+        index: 'a0',
+        version: 1,
         locked: false,
         layerId: '',
         data: {},
@@ -2615,7 +2619,8 @@ describe('SelectTool sized extension resize', () => {
       type: 'extension',
       extensionType: 'test:box',
       position: { x: 100, y: 100 },
-      zIndex: 0,
+      index: 'a0',
+      version: 1,
       locked: false,
       layerId: '',
       data: {},
@@ -2735,7 +2740,8 @@ describe('SelectTool extension bounds from the context registry', () => {
       type: 'extension',
       extensionType: 'test:box',
       position: { x: 200, y: 100 },
-      zIndex: 0,
+      index: 'a0',
+      version: 1,
       locked: false,
       layerId: '',
       data: {},

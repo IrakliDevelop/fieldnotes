@@ -4,6 +4,7 @@ import type { AddressInfo } from 'net';
 import { createCurrentCapabilities } from '@fieldnotes/sync';
 import { createSyncServer, type CreateSyncServerOptions } from './create-sync-server';
 import { InMemoryHubFanout } from './hub-fanout';
+import { v2Remove } from './test-support/v2-ops';
 
 async function waitFor(predicate: () => boolean): Promise<void> {
   const start = Date.now();
@@ -110,11 +111,11 @@ describe('outbound application frame policy paths', () => {
           name: 'output',
           async process() {
             return kind === 'correction'
-              ? { accepted: null, corrections: [{ kind: 'remove', id: 'correction' }] }
+              ? { accepted: null, corrections: [v2Remove('correction')] }
               : {
                   accepted: null,
                   corrections: [],
-                  broadcast: [{ kind: 'remove', id: 'broadcast' }],
+                  broadcast: [v2Remove('broadcast')],
                 };
           },
         },

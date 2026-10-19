@@ -1,11 +1,22 @@
-import { applyOpToMap, type LayerRecord, type SyncElement, type SyncOp } from '@fieldnotes/sync';
-import type { HubBackend } from './hub-backend';
+import type { LayerRecord, SyncElement } from '@fieldnotes/sync';
+import type { ElementWrite, HubBackend, HubRecord, StoredTombstone } from './hub-backend';
 
 export class MemoryHubBackend implements HubBackend {
-  private rooms = new Map<string, Map<string, SyncElement>>();
+  private rooms = new Map<string, Map<string, HubRecord>>();
   private roomLayers = new Map<string, Map<string, LayerRecord>>();
+  private readonly tombstoneRetentionMs: number;
+  private readonly now: () => number;
 
-  private room(id: string): Map<string, SyncElement> {
+  constructor(options: { tombstoneRetentionMs?: number; now?: () => number } = {}) {
+    const retention = options.tombstoneRetentionMs ?? 604_800_000;
+    if (!Number.isFinite(retention) || retention <= 0) {
+      throw new RangeError('tombstoneRetentionMs must be a positive finite number');
+    }
+    this.tombstoneRetentionMs = retention;
+    this.now = options.now ?? Date.now;
+  }
+
+  private room(id: string): Map<string, HubRecord> {
     let r = this.rooms.get(id);
     if (!r) {
       r = new Map();
@@ -23,21 +34,58 @@ export class MemoryHubBackend implements HubBackend {
     return r;
   }
 
-  async snapshot(room: string): Promise<SyncElement[]> {
-    return [...this.room(room).values()];
+  async snapshot(
+    room: string,
+  ): Promise<{ elements: SyncElement[]; tombstones: StoredTombstone[] }> {
+    const records = this.room(room);
+    const cutoff = this.now() - this.tombstoneRetentionMs;
+    const elements: SyncElement[] = [];
+    const tombstones: StoredTombstone[] = [];
+    for (const [id, record] of records) {
+      if (record.kind === 'element') elements.push(record.element);
+      else if (record.tombstone.removedAt < cutoff) records.delete(id);
+      else tombstones.push(record.tombstone);
+    }
+    return { elements, tombstones };
   }
 
-  async get(room: string, id: string): Promise<SyncElement | undefined> {
+  async getRecord(room: string, id: string): Promise<HubRecord | undefined> {
     return this.room(room).get(id);
   }
 
-  async apply(room: string, op: SyncOp): Promise<void> {
-    if (op.kind === 'clear') {
-      // Clears elements only; layer records are a separate, longer-lived ledger.
-      this.rooms.delete(room);
-      return;
+  async applyElement(
+    room: string,
+    write: ElementWrite,
+    expected: { version: number; editor?: string } | null,
+  ): Promise<{ ok: true } | { ok: false; current: HubRecord | undefined }> {
+    const records = this.room(room);
+    if (write.kind === 'clear') {
+      let elementCount = 0;
+      for (const [id, record] of records) {
+        if (record.kind !== 'element') continue;
+        elementCount++;
+        const want = write.expected.get(id);
+        if (want?.version !== record.element.version || want.editor !== record.element.editor)
+          return { ok: false, current: record };
+      }
+      if (elementCount !== write.expected.size) return { ok: false, current: undefined };
+      for (const tombstone of write.tombstones) {
+        records.set(tombstone.id, { kind: 'tombstone', tombstone });
+      }
+      return { ok: true };
     }
-    applyOpToMap(this.room(room), op);
+    const id = write.kind === 'upsert' ? write.element.id : write.tombstone.id;
+    const current = records.get(id);
+    const stored = current?.kind === 'element' ? current.element : current?.tombstone;
+    if (stored?.version !== expected?.version || stored?.editor !== expected?.editor)
+      return { ok: false, current };
+    records.set(
+      id,
+      write.kind === 'upsert'
+        ? { kind: 'element', element: write.element }
+        : { kind: 'tombstone', tombstone: write.tombstone },
+    );
+    return { ok: true };
   }
 
   async layerRecords(room: string): Promise<LayerRecord[]> {

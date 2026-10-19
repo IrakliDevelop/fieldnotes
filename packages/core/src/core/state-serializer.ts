@@ -9,9 +9,11 @@ import { sanitizeNoteHtml } from '../elements/note-sanitizer';
 import type { ElementRegistry } from '../elements/element-registry';
 import { getDefaultElementRegistry } from '../elements/default-registry';
 import type { PersistedPluginState } from './plugin-state-manager';
+import { isValidIndexKey } from './fractional-index';
+import { assignLegacyOrder } from './legacy-order';
 
 export interface CanvasState {
-  version: 4;
+  version: 5;
   camera: {
     position: Point;
     zoom: number;
@@ -23,7 +25,7 @@ export interface CanvasState {
 }
 
 export interface LegacyCanvasState extends Omit<CanvasState, 'version' | 'elements'> {
-  version: 1 | 2 | 3;
+  version: 1 | 2 | 3 | 4;
   elements: unknown[];
   [key: string]: unknown;
 }
@@ -49,7 +51,7 @@ export function unregisterLegacyStateMigrator(m: LegacyStateMigrator): void {
   if (i >= 0) legacyStateMigrators.splice(i, 1);
 }
 
-export const CANVAS_STATE_VERSION = 4;
+export const CANVAS_STATE_VERSION = 5;
 const CORE_ELEMENT_TYPES = ['stroke', 'note', 'arrow', 'image', 'html', 'text', 'shape'] as const;
 const ELEMENT_TYPES = [...CORE_ELEMENT_TYPES, 'extension'] as const;
 
@@ -98,13 +100,17 @@ export function parseState(json: string, registry?: ElementRegistry): CanvasStat
 }
 
 /**
- * Upgrades an importable state to the v4 extension-only persistence model.
+ * Upgrades an importable state to the current (v5) persistence model.
  * The input is mutated only after callers have cloned or parsed it.
  */
 export function migrateState(
   state: ImportableCanvasState,
   registry: ElementRegistry = getDefaultElementRegistry(),
 ): CanvasState {
+  // loadState skips validateState, so order keys are assigned here too; already-keyed elements pass.
+  if (state.version !== CANVAS_STATE_VERSION) {
+    state.elements = assignLegacyOrder(state.elements as Record<string, unknown>[]);
+  }
   // Runs before legacy decoding: decoded envelopes are already current.
   const elements: unknown[] = state.elements;
   for (let i = 0; i < elements.length; i++) {
@@ -183,13 +189,20 @@ function validateState(
     throw new Error('Invalid state: layers must be an array');
   }
 
-  const elements = obj['elements'] as unknown[];
   const version = obj['version'] as number;
   const hasLayers = Array.isArray(obj['layers']) && obj['layers'].length > 0;
-  for (const el of elements) {
+  const records: Record<string, unknown>[] = [];
+  for (const el of obj['elements'] as unknown[]) {
     if (!isRecord(el)) throw new Error('Invalid element: expected an object');
+    if (version < CANVAS_STATE_VERSION && !isFiniteNumber(el['zIndex'])) {
+      throw new Error(`Invalid element "${String(el['id'])}": missing or invalid zIndex`);
+    }
     migrateElement(el, !hasLayers);
+    records.push(el);
   }
+  // Legacy files were written in getAll() order, so (zIndex, position) reproduces each layer's order.
+  const elements: unknown[] = version < CANVAS_STATE_VERSION ? assignLegacyOrder(records) : records;
+  obj['elements'] = elements;
 
   if (!hasLayers) {
     obj['layers'] = [
@@ -274,8 +287,14 @@ function validateElement(
   if (!isString(el['type'])) {
     throw new Error(`Invalid element: unknown type "${String(el['type'])}"`);
   }
-  if (!isFiniteNumber(el['zIndex'])) {
-    throw new Error(`Invalid element "${el['id']}": missing or invalid zIndex`);
+  if (typeof el['index'] !== 'string' || !isValidIndexKey(el['index'])) {
+    throw new Error(`Invalid element "${el['id']}": missing or invalid index`);
+  }
+  if (!isPositiveInteger(el['version'])) {
+    throw new Error(`Invalid element "${el['id']}": missing or invalid version`);
+  }
+  if (!isOptional(el['editor'], isString)) {
+    throw new Error(`Invalid element "${el['id']}": invalid editor`);
   }
   if (
     !isPoint(el['position']) ||

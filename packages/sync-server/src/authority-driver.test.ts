@@ -17,7 +17,8 @@ const element = (id: string, ownerId?: string) => ({
   id,
   type: 'shape' as const,
   position: { x: 0, y: 0 },
-  zIndex: 0,
+  index: 'a0',
+  version: 1,
   locked: false,
   layerId: 'layer',
   shape: 'rectangle' as const,
@@ -482,9 +483,9 @@ describe('transactional authority driver conformance fixture', () => {
     const page = await driver.readAfter(read(), initial, { entries: 1, bytes: 65536 }, options());
     if (page.status !== 'ok' || !page.records[0]) throw new Error('Expected publication');
     expect(page.records[0].before.nodes).toBe(7);
-    // Empty state 7 + stamped element: object 1 + 12 keys + 10 scalar fields
-    // + position (object/2 keys/2 values) 5 + size (same) 5 = 40.
-    expect(page.records[0].after.nodes).toBe(40);
+    // Empty state 7 + stamped element: object 1 + 13 keys + 11 scalar fields
+    // + position (object/2 keys/2 values) 5 + size (same) 5 = 42.
+    expect(page.records[0].after.nodes).toBe(42);
   });
 
   it('rejects the fourth 100000-object extension atomically and checkpoints the fitting neighbor', async () => {

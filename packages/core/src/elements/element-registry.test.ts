@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { ElementRegistry } from './element-registry';
+import { pickBaseFields } from './base-fields';
 import type { ElementTypeDefinition, ExtensionElementEnvelope } from './types';
 
 // ─── Test fixture: a minimal extension element type ──────────────────────────
@@ -9,7 +10,8 @@ interface MarkerElement {
   id: string;
   type: 'marker';
   position: { x: number; y: number };
-  zIndex: number;
+  index: string;
+  version: number;
   locked: boolean;
   layerId: string;
   label: string;
@@ -24,7 +26,8 @@ function makeMarkerEnvelope(
     type: 'extension',
     extensionType: 'test:marker',
     position: { x: 0, y: 0 },
-    zIndex: 0,
+    index: 'a0',
+    version: 1,
     locked: false,
     layerId: 'default',
     data: { label: 'hello', color: '#ff0000' },
@@ -39,7 +42,8 @@ const markerDefinition: ElementTypeDefinition<MarkerElement> = {
     id: raw['id'] as string,
     type: 'marker',
     position: raw['position'] as { x: number; y: number },
-    zIndex: raw['zIndex'] as number,
+    index: raw['index'] as string,
+    version: raw['version'] as number,
     locked: raw['locked'] as boolean,
     layerId: raw['layerId'] as string,
     label: raw['label'] as string,
@@ -50,7 +54,8 @@ const markerDefinition: ElementTypeDefinition<MarkerElement> = {
     id: env.id,
     type: 'marker',
     position: env.position,
-    zIndex: env.zIndex,
+    index: env.index,
+    version: env.version,
     locked: env.locked,
     layerId: env.layerId,
     label: env.data['label'] as string,
@@ -61,7 +66,8 @@ const markerDefinition: ElementTypeDefinition<MarkerElement> = {
     type: 'extension',
     extensionType: 'test:marker',
     position: el.position,
-    zIndex: el.zIndex,
+    index: el.index,
+    version: el.version,
     locked: el.locked,
     layerId: el.layerId,
     data: { label: el.label, color: el.color },
@@ -227,7 +233,8 @@ describe('ElementRegistry', () => {
       const envelope = adapter.decodeLegacy({
         id: 'm-1',
         position: { x: 5, y: 10 },
-        zIndex: 2,
+        index: 'a2',
+        version: 1,
         locked: false,
         layerId: 'default',
         label: 'test',
@@ -299,6 +306,39 @@ describe('ElementRegistry', () => {
       expect(rotated?.position.x).toBe(2);
       expect(rotated?.data['futureField']).toBe('preserved');
     });
+
+    it('rewrap keeps optional base fields a hand-copying wrap drops', () => {
+      const registry = new ElementRegistry();
+      registry.register({
+        ...markerDefinition,
+        unwrap: (env) => ({
+          ...pickBaseFields(env),
+          type: 'marker' as const,
+          label: env.data['label'] as string,
+          color: env.data['color'] as string,
+        }),
+      });
+      const adapter = registry.getAdapter('test:marker')!;
+      const envelope = makeMarkerEnvelope({
+        index: 'a3',
+        version: 4,
+        editor: 'peer',
+        groupId: 'g1',
+        rotation: 0.5,
+      });
+
+      const rotated = adapter.rotate?.(envelope, { x: 0, y: 0 }, 2);
+
+      expect(rotated).toMatchObject({
+        type: 'extension',
+        index: 'a3',
+        version: 4,
+        editor: 'peer',
+        groupId: 'g1',
+        rotation: 0.5,
+        position: { x: 2, y: 0 },
+      });
+    });
   });
 
   describe('ElementTypeKey', () => {
@@ -359,7 +399,8 @@ describe('ElementRegistry', () => {
         id: 'm-1',
         type: 'marker',
         position: { x: 5, y: 10 },
-        zIndex: 1,
+        index: 'a1',
+        version: 1,
         locked: false,
         layerId: 'default',
         label: 'wrapped',
@@ -430,7 +471,8 @@ describe('ElementRegistry', () => {
         id: 'rt-1',
         type: 'marker',
         position: { x: 42, y: 84 },
-        zIndex: 5,
+        index: 'a5',
+        version: 1,
         locked: true,
         layerId: 'bg',
         label: 'round-trip',
@@ -452,7 +494,8 @@ describe('ElementRegistry', () => {
         id: 'lr-1',
         type: 'marker',
         position: { x: 1, y: 2 },
-        zIndex: 0,
+        index: 'a0',
+        version: 1,
         locked: false,
         layerId: 'default',
         label: 'legacy',
