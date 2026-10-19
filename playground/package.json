@@ -1,0 +1,22 @@
+{
+  "name": "fieldnotes-playground",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 5174 --strictPort",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit -p .",
+    "e2e": "playwright test -c e2e/playwright.config.ts"
+  },
+  "dependencies": {
+    "@fieldnotes/core": "workspace:*",
+    "@fieldnotes/sync": "workspace:*",
+    "@fieldnotes/vtt": "workspace:*"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "typescript": "~6.0.3",
+    "vite": "^8.3.4"
+  }
+}

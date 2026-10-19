@@ -281,6 +281,28 @@ importers:
         specifier: ^5.0.5
         version: 5.0.5(@types/node@26.0.1)(@vitest/coverage-v8@5.0.5)(jsdom@29.1.1)(vite@8.3.4(@types/node@26.0.1)(esbuild@0.28.1)(tsx@4.23.0)(yaml@2.9.1))
 
+  playground:
+    dependencies:
+      '@fieldnotes/core':
+        specifier: workspace:*
+        version: link:../packages/core
+      '@fieldnotes/sync':
+        specifier: workspace:*
+        version: link:../packages/sync
+      '@fieldnotes/vtt':
+        specifier: workspace:*
+        version: link:../packages/vtt
+    devDependencies:
+      '@playwright/test':
+        specifier: ^1.63.0
+        version: 1.63.0
+      typescript:
+        specifier: ~6.0.3
+        version: 6.0.3
+      vite:
+        specifier: ^8.3.4
+        version: 8.3.4(@types/node@26.0.1)(esbuild@0.28.1)(tsx@4.23.0)(yaml@2.9.1)
+
   website:
     devDependencies:
       typescript:

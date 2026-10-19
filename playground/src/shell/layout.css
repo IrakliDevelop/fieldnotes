@@ -1,0 +1,151 @@
+:root {
+  --bg: #fafaf9;
+  --island: #ffffff;
+  --island-border: #e4e4e7;
+  --ink: #18181b;
+  --ink-2: #71717a;
+  --accent: #e0e7ff;
+  --accent-ink: #3730a3;
+  --shadow: 0 1px 2px rgb(0 0 0 / 6%), 0 4px 16px rgb(0 0 0 / 8%);
+  --radius: 12px;
+  --gap: 12px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--ink);
+  font: 14px/1.4 system-ui, sans-serif;
+}
+
+#stage {
+  position: fixed;
+  inset: 0;
+}
+
+.island {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  background: var(--island);
+  border: 1px solid var(--island-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+[data-chrome] {
+  position: fixed;
+  z-index: 10;
+}
+
+.icon-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  min-width: 40px;
+  min-height: 40px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+  transition: background-color 120ms;
+}
+
+.icon-button:hover {
+  background: var(--bg);
+}
+
+.icon-button[aria-pressed='true'] {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.icon-button:focus-visible,
+.scene-select:focus-visible {
+  outline: 2px solid var(--accent-ink);
+  outline-offset: 2px;
+}
+
+.key-badge {
+  position: absolute;
+  right: 3px;
+  bottom: 1px;
+  font-size: 9px;
+  color: var(--ink-2);
+}
+
+.flyout {
+  position: fixed;
+  z-index: 20;
+}
+
+.scene-switcher {
+  display: flex;
+  gap: 4px;
+}
+
+.scene-select {
+  display: none;
+  min-height: 40px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+}
+
+[data-chrome='tools'] {
+  left: 0;
+  right: 0;
+  bottom: calc(12px + env(safe-area-inset-bottom));
+  width: max-content;
+  max-width: calc(100vw - 24px);
+  margin: 0 auto;
+  overflow-x: auto;
+}
+
+[data-chrome='top-right'] {
+  top: var(--gap);
+  right: var(--gap);
+}
+
+[data-fieldnotes-minimap] {
+  display: none;
+}
+
+@media (min-width: 901px) and (pointer: fine) {
+  [data-chrome='tools'] {
+    top: var(--gap);
+    bottom: auto;
+  }
+
+  [data-fieldnotes-minimap] {
+    display: block;
+  }
+}
+
+@media (max-width: 600px) {
+  .scene-switcher .icon-button {
+    display: none;
+  }
+
+  .scene-select {
+    display: block;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+  }
+}
