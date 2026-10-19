@@ -237,3 +237,50 @@ test('export includes widgets', async ({ page }) => {
   expect(size).toBeGreaterThan(0);
   expect(errors).toEqual([]);
 });
+
+async function pickWidget(page: Page, label: string): Promise<void> {
+  const tools = page.locator('[data-chrome="tools"]');
+  await tools.getByRole('button', { name: 'Insert', exact: true }).click();
+  await tools.getByRole('menuitemradio', { name: label }).click();
+  await expect.poll(() => activeTool(page)).toBe('insert');
+}
+
+const elementCount = (page: Page): Promise<number> =>
+  page.evaluate(() => window.__playground.viewport.store.count);
+
+test('Escape cancels insert without adding anything', async ({ page }) => {
+  await gotoBlank(page, 'embeds');
+  await pickWidget(page, 'Counter');
+  // Core keyboard shortcuts and tool keys are scoped to the focused viewport.
+  await page.locator('#stage [tabindex]').first().focus();
+  await page.keyboard.press('Escape');
+  await expect.poll(() => activeTool(page)).toBe('select');
+  expect(await elementCount(page)).toBe(0);
+});
+
+test('dragging with insert places nothing', async ({ page }, testInfo) => {
+  await gotoBlank(page, 'embeds');
+  await pickWidget(page, 'Counter');
+  const points = [0, 1, 2, 3, 4].map((i) => ({ x: 300 + i * 20, y: 500 }));
+  if (testInfo.project.name === 'ipad') {
+    await singleFingerDraw(page, points);
+  } else {
+    const [first, ...rest] = points;
+    if (!first) throw new Error('no points');
+    await page.mouse.move(first.x, first.y);
+    await page.mouse.down();
+    for (const point of rest) await page.mouse.move(point.x, point.y, { steps: 3 });
+    await page.mouse.up();
+  }
+  expect(await elementCount(page)).toBe(0);
+  expect(await activeTool(page)).toBe('insert');
+});
+
+test('pencil in embeds shows the stroke colour control', async ({ page }) => {
+  await gotoBlank(page, 'embeds');
+  await page.keyboard.press('6');
+  await expect.poll(() => activeTool(page)).toBe('pencil');
+  await expect(
+    page.locator('[data-chrome="style"]').getByRole('group', { name: 'Stroke' }),
+  ).toBeVisible();
+});

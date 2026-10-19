@@ -1,25 +1,14 @@
 import { createHtmlElement } from '@fieldnotes/core';
 import type { Viewport } from '@fieldnotes/core';
-import type { IconName } from '../shell/icons';
 import { chart } from './chart';
 import { checklist } from './checklist';
 import { counter } from './counter';
 import { palette } from './palette';
+import { isRecord, TOAST_EVENT } from './shared';
+import type { WidgetDef } from './shared';
 import { textCard } from './text-card';
 
-/** An interactive HTML widget persisted as `htmlType` + `data`. */
-export interface WidgetDef<D> {
-  readonly htmlType: string;
-  readonly label: string;
-  readonly icon: IconName;
-  readonly size: { w: number; h: number };
-  initialData(): D;
-  /** Validates persisted or remote data; malformed data yields `initialData()`. */
-  parse(data: unknown): D;
-  render(data: D, commit: (update: (current: D) => D) => void): HTMLElement;
-  /** Patches `dom` in place; never steals focus or resets a focused input. */
-  refresh(dom: HTMLElement, data: D): void;
-}
+export type { WidgetDef } from './shared';
 
 // WidgetDef is invariant in D; re-parsing at the edges lets one list hold every widget.
 function erase<D>(def: WidgetDef<D>): WidgetDef<unknown> {
@@ -40,26 +29,6 @@ export const WIDGETS: readonly WidgetDef<unknown>[] = [
   erase(textCard),
 ];
 
-/** Event a widget dispatches (bubbling) to show a toast; `detail` is the message. */
-export const TOAST_EVENT = 'pg:toast';
-
-/** Narrows persisted data to a plain object. */
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-/** Creates an element with a class and optional text (always via textContent). */
-export function h<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  className: string,
-  text?: string,
-): HTMLElementTagNameMap[K] {
-  const el = document.createElement(tag);
-  el.className = className;
-  if (text !== undefined) el.textContent = text;
-  return el;
-}
-
 function toData(value: unknown): Record<string, unknown> {
   if (!isRecord(value)) throw new Error('Widget data must be an object');
   return value;
@@ -71,7 +40,7 @@ export function registerWidgets(viewport: Viewport, toast: (message: string) => 
   const defs = new Map(WIDGETS.map((def) => [def.htmlType, def]));
   for (const def of WIDGETS) {
     viewport.registerHtmlRenderer(def.htmlType, (el) => {
-      const dom = def.render(def.parse(el.data), (update) =>
+      const dom = def.render(el.data, (update) =>
         viewport.transaction(() => {
           // Read the stored data, not the render-time closure, so undo and remote edits count.
           const stored = viewport.store.getById(el.id);
@@ -96,6 +65,8 @@ export function registerWidgets(viewport: Viewport, toast: (message: string) => 
       if (def && dom) def.refresh(dom, def.parse(current.data));
     }),
     viewport.store.on('remove', (el) => doms.delete(el.id)),
+    // clear() (loadJSON, snapshots) emits no per-element 'remove'.
+    viewport.store.on('clear', () => doms.clear()),
   ];
   return () => {
     for (const unsubscribe of unsubscribers) unsubscribe();

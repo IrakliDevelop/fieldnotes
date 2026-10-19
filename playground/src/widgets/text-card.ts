@@ -1,5 +1,5 @@
-import { h, isRecord } from './index';
-import type { WidgetDef } from './index';
+import { h, isRecord } from './shared';
+import type { WidgetDef } from './shared';
 
 interface TextData {
   text: string;

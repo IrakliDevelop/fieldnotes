@@ -1,5 +1,5 @@
-import { h, isRecord } from './index';
-import type { WidgetDef } from './index';
+import { h, isRecord } from './shared';
+import type { WidgetDef } from './shared';
 
 interface Bar {
   label: string;
@@ -8,6 +8,8 @@ interface Bar {
 interface ChartData {
   bars: Bar[];
 }
+
+const MAX_BARS = 12;
 
 const clamp = (value: number): number => Math.min(100, Math.max(0, value));
 
@@ -74,7 +76,10 @@ export const chart: WidgetDef<ChartData> = {
     if (!isRecord(data)) return initialData();
     const { bars } = data;
     if (!Array.isArray(bars) || !bars.every(isBar)) return initialData();
-    return { bars: bars.map((bar) => ({ label: bar.label, value: clamp(bar.value) })) };
+    // Cap remote or crafted payloads so they cannot build unbounded columns.
+    return {
+      bars: bars.slice(0, MAX_BARS).map((bar) => ({ label: bar.label, value: clamp(bar.value) })),
+    };
   },
   render(data, commit) {
     const columns = h('div', 'pg-chart-columns');

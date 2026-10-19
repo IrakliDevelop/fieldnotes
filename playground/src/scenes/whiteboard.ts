@@ -29,7 +29,8 @@ export const NAVIGATION_TOOLS: readonly ToolSpec[] = [
   { name: 'hand', label: 'Hand', icon: 'hand', key: '2' },
 ];
 
-const CONTROLS: Readonly<Record<string, readonly StyleControl[]>> = {
+/** Style controls per drawing tool, shared by scenes that reuse these tools. */
+export const CONTROLS: Readonly<Record<string, readonly StyleControl[]>> = {
   pencil: ['stroke-color', 'stroke-width', 'opacity'],
   highlighter: ['stroke-color', 'opacity'],
   arrow: ['stroke-color', 'stroke-width', 'arrow-style'],

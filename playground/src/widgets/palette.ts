@@ -1,5 +1,5 @@
-import { h, isRecord, TOAST_EVENT } from './index';
-import type { WidgetDef } from './index';
+import { h, isRecord, TOAST_EVENT } from './shared';
+import type { WidgetDef } from './shared';
 
 interface PaletteData {
   colors: string[];
