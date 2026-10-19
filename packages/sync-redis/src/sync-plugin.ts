@@ -19,5 +19,7 @@ export interface BackendSyncPlugin {
   readonly name: string;
   readonly keyPrefix: string;
   readonly scripts?: Readonly<Record<string, string>>;
+  /** Per-room keys this plugin writes, refreshed by the backend's `ttlSeconds`. */
+  roomKeys?(roomKey: string): readonly string[];
   start(context: BackendPluginContext): void;
 }

@@ -14,6 +14,11 @@ import { encodeRoomKey } from './room-key';
 export interface RedisHubBackendOptions {
   keyPrefix?: string;
   plugins?: readonly BackendSyncPlugin[];
+  /**
+   * Opt-in sliding expiry, refreshed on element/layer writes and snapshots. A room with no
+   * writes and no joins for this long is deleted, so choose it well above the longest idle session.
+   */
+  ttlSeconds?: number;
 }
 
 export class RedisHubBackend implements HubBackend {
@@ -22,8 +27,20 @@ export class RedisHubBackend implements HubBackend {
   private readonly keyPrefix: string;
   private readonly services = new Map<symbol, unknown>();
   private readonly pluginDisposers: (() => void)[] = [];
+  private readonly expire: ((key: string) => Promise<unknown>) | undefined;
+  private readonly pluginRoomKeys: ((roomKey: string) => readonly string[])[] = [];
 
   constructor(client: RedisHashClient, options: RedisHubBackendOptions = {}) {
+    const { ttlSeconds } = options;
+    const expire = client.expire?.bind(client);
+    if (ttlSeconds !== undefined) {
+      if (!Number.isSafeInteger(ttlSeconds) || ttlSeconds <= 0) {
+        throw new Error('RedisHubBackend ttlSeconds must be a positive safe integer');
+      }
+      if (!expire) throw new Error('RedisHubBackend ttlSeconds requires client.expire');
+    }
+    this.expire =
+      ttlSeconds === undefined || !expire ? undefined : (key) => expire(key, ttlSeconds);
     this.client = client;
     this.keyPrefix = options.keyPrefix ?? 'fieldnotes:room:';
     this.installPlugins(options.plugins ?? []);
@@ -41,8 +58,17 @@ export class RedisHubBackend implements HubBackend {
     return `${this.key(room)}:layers`;
   }
 
+  private async touch(room: string): Promise<void> {
+    const { expire } = this;
+    if (!expire) return;
+    const roomKey = this.key(room);
+    const keys = [roomKey, this.layersKey(room), ...this.pluginRoomKeys.flatMap((k) => k(roomKey))];
+    await Promise.all(keys.map(expire));
+  }
+
   async snapshot(room: string): Promise<SyncElement[]> {
     const map = await this.client.hGetAll(this.key(room));
+    await this.touch(room);
     const out: SyncElement[] = [];
     for (const value of Object.values(map)) {
       try {
@@ -72,6 +98,7 @@ export class RedisHubBackend implements HubBackend {
       await this.client.hSet(key, op.element.id, JSON.stringify(op.element));
     else if (op.kind === 'remove') await this.client.hDel(key, op.id);
     else if (op.kind === 'clear') await this.client.del(key);
+    await this.touch(room);
   }
 
   async layerRecords(room: string): Promise<LayerRecord[]> {
@@ -101,6 +128,7 @@ export class RedisHubBackend implements HubBackend {
 
   async applyLayerRecord(room: string, record: LayerRecord): Promise<void> {
     await this.client.hSet(this.layersKey(room), record.id, JSON.stringify(record));
+    await this.touch(room);
   }
 
   dispose(): void {
@@ -142,6 +170,7 @@ export class RedisHubBackend implements HubBackend {
           for (const key of serviceKeys) this.services.delete(key);
           throw error;
         }
+        if (plugin.roomKeys) this.pluginRoomKeys.push(plugin.roomKeys.bind(plugin));
         this.pluginDisposers.push(() => {
           for (const dispose of localDisposers.reverse()) safelyDispose(dispose);
           for (const key of serviceKeys) this.services.delete(key);

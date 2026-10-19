@@ -11,4 +11,6 @@ export interface RedisHashClient {
   scriptLoad?(script: string): Promise<string>;
   /** Optional: runs a cached Lua script by SHA1. Only used when `scriptLoad` is present too. */
   evalSha?(sha: string, options: { keys: string[]; arguments: string[] }): Promise<unknown>;
+  /** Optional: sets a key's TTL in seconds. Required when `ttlSeconds` is set on the backend. */
+  expire?(key: string, seconds: number): Promise<unknown>;
 }

@@ -39,6 +39,8 @@ export {
 } from './fog/fog-authority-redis';
 export type { FogAuthorityRedisPlanResultV1 } from './fog/fog-authority-redis';
 
+const fogRoomKeys = (roomKey: string) => [`${roomKey}:fog:meta`, `${roomKey}:fog:tiles`] as const;
+
 class RedisFogBackend implements FogBackendService {
   private readonly run: ScriptRunner;
 
@@ -53,11 +55,11 @@ class RedisFogBackend implements FogBackendService {
   }
 
   private metaKey(room: string): string {
-    return `${this.roomKey(room)}:fog:meta`;
+    return fogRoomKeys(this.roomKey(room))[0];
   }
 
   private tilesKey(room: string): string {
-    return `${this.roomKey(room)}:fog:tiles`;
+    return fogRoomKeys(this.roomKey(room))[1];
   }
 
   async snapshot(room: string): Promise<FogSnapshot | undefined> {
@@ -242,6 +244,7 @@ export function createFogBackendPlugin(): BackendSyncPlugin {
     name: 'fog',
     keyPrefix: 'fog',
     scripts: { meta: FOG_META_LWW_SCRIPT, patch: FOG_PATCH_LWW_SCRIPT },
+    roomKeys: fogRoomKeys,
     start(context) {
       context.registerService(
         FogBackendServiceKey,

@@ -48,6 +48,11 @@ class FakeRedis implements RedisHashClient {
     this.store.delete(key);
     return 1;
   }
+  expires: [string, number][] = [];
+  async expire(key: string, seconds: number): Promise<number> {
+    this.expires.push([key, seconds]);
+    return 1;
+  }
 
   async eval(script: string, options: { keys: string[]; arguments: string[] }): Promise<unknown> {
     const [metaKey, tilesKey] = options.keys;
@@ -427,6 +432,59 @@ describe('RedisHubBackend', () => {
     const snap = await b.snapshot('R');
     expect(snap).toHaveLength(1);
     expect(snap[0]?.id).toBe('good');
+  });
+});
+
+describe('RedisHubBackend ttlSeconds', () => {
+  const plugin = {
+    name: 'x',
+    keyPrefix: 'x',
+    roomKeys: (roomKey: string) => [`${roomKey}:x`],
+    start: vi.fn(),
+  };
+  const layer: LayerRecord = { id: 'layer-a', version: 1, editor: 'A' };
+  const operations: [string, (b: RedisHubBackend) => Promise<unknown>][] = [
+    ['upsert', (b) => b.apply('R', { kind: 'upsert', element: element('e1') })],
+    ['applyLayerRecord', (b) => b.applyLayerRecord('R', layer)],
+    ['remove', (b) => b.apply('R', { kind: 'remove', id: 'e1' })],
+    ['snapshot', (b) => b.snapshot('R')],
+    ['clear', (b) => b.apply('R', { kind: 'clear' })],
+  ];
+
+  it.each(operations)(
+    'ttlSeconds refreshes EXPIRE on element, layer and plugin keys after %s',
+    async (_, run) => {
+      const fake = new FakeRedis();
+      const b = new RedisHubBackend(fake, { keyPrefix: 'p:', ttlSeconds: 3600, plugins: [plugin] });
+      await run(b);
+      expect(fake.expires.sort()).toEqual([
+        ['p:R', 3600],
+        ['p:R:layers', 3600],
+        ['p:R:x', 3600],
+      ]);
+    },
+  );
+
+  it('no ttlSeconds, no EXPIRE', async () => {
+    const fake = new FakeRedis();
+    const b = new RedisHubBackend(fake, { keyPrefix: 'p:', plugins: [plugin] });
+    for (const [, run] of operations) await run(b);
+    expect(fake.expires).toEqual([]);
+  });
+
+  it('ttlSeconds requires client.expire and a positive safe integer', () => {
+    const noExpire: RedisHashClient = {
+      hGetAll: async () => ({}),
+      hGet: async () => null,
+      hSet: async () => 0,
+      hDel: async () => 0,
+      del: async () => 0,
+      eval: async () => null,
+    };
+    expect(() => new RedisHubBackend(noExpire, { ttlSeconds: 60 })).toThrow('expire');
+    for (const ttlSeconds of [0, -1, 1.5, Number.NaN, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(() => new RedisHubBackend(new FakeRedis(), { ttlSeconds })).toThrow('ttlSeconds');
+    }
   });
 });
 
