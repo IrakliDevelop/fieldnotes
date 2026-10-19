@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import type { Page, TestInfo } from '@playwright/test';
 import { gotoBlank } from './helpers/board';
+import { expectNoOverlap, zoneBoxes } from './helpers/layout';
 import { singleFingerDraw } from './helpers/touch';
 
 /** Clicks Collaborate and returns the guest tab it opens. */
@@ -45,42 +46,6 @@ async function drag(page: Page, testInfo: TestInfo): Promise<void> {
   await page.mouse.up();
 }
 
-interface Box {
-  readonly name: string;
-  readonly x: number;
-  readonly y: number;
-  readonly width: number;
-  readonly height: number;
-}
-
-/** The pairwise zone check from layout.e2e.ts. */
-async function zoneBoxes(page: Page): Promise<Box[]> {
-  const boxes: Box[] = [];
-  for (const zone of await page.locator('[data-chrome], [data-fieldnotes-minimap]').all()) {
-    if (!(await zone.isVisible())) continue;
-    const box = await zone.boundingBox();
-    const name = (await zone.getAttribute('data-chrome')) ?? 'minimap';
-    if (box) boxes.push({ name, ...box });
-  }
-  return boxes;
-}
-
-async function expectNoOverlap(page: Page): Promise<void> {
-  const boxes = await zoneBoxes(page);
-  const overlaps: string[] = [];
-  for (const [i, a] of boxes.entries()) {
-    for (const b of boxes.slice(i + 1)) {
-      const w = Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x);
-      const h = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y);
-      if (w > 0 && h > 0) overlaps.push(`${a.name} × ${b.name}`);
-    }
-  }
-  expect(overlaps).toEqual([]);
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
-    true,
-  );
-}
-
 test('cursor presence shows an avatar', async ({ page }) => {
   await gotoBlank(page);
   const guest = await collaborate(page);
@@ -98,6 +63,24 @@ test('laser crosses tabs', async ({ page }, testInfo) => {
   await expect
     .poll(() => guest.evaluate(() => window.__playground.laserSenders?.()), { timeout: 1500 })
     .toBe(1);
+});
+
+test('collaborate before the board loads keeps the laser hook', async ({ page }) => {
+  await gotoBlank(page);
+  // Switching scenes then collaborating in one task joins before IndexedDB restores the board.
+  await Promise.all([
+    page.context().waitForEvent('page'),
+    page.evaluate(() => {
+      const topRight = document.querySelector('[data-chrome="top-right"]');
+      const tabletop = [...(topRight?.querySelectorAll('button') ?? [])].find(
+        (button) => button.textContent === 'Tabletop',
+      );
+      tabletop?.click();
+      document.querySelector<HTMLElement>('[data-collaborate]')?.click();
+    }),
+  ]);
+  await expect.poll(() => page.evaluate(() => window.__playground.sceneId)).toBe('tabletop');
+  expect(await page.evaluate(() => typeof window.__playground.laserSenders)).toBe('function');
 });
 
 test('tabletop roles', async ({ page }) => {
@@ -121,7 +104,7 @@ test('guest leaving drops its avatar', async ({ page }) => {
   await hover(guest);
   await expect(avatars(page)).toHaveCount(1);
   await guest.close();
-  await expect(avatars(page)).toHaveCount(0, { timeout: 10000 });
+  await expect(avatars(page)).toHaveCount(0, { timeout: 3000 });
 });
 
 test('avatars do not break the layout', async ({ page }) => {

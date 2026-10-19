@@ -177,8 +177,8 @@ export class DomNodeManager {
   }
 
   /** Removes the node but KEEPS htmlContent, so a later re-mount restores the original embed.
-   *  The registry factory that produces embed content only runs in loadState (G1), so dropping
-   *  content here would be unrecoverable. For a host-owned node there is no recorded content at
+   *  The registry renderer only runs on loadState and store add, not on a routing change, so
+   *  dropping content here would be unrecoverable. For a host-owned node there is no recorded content at
    *  all, so the node ITSELF is kept alive off-DOM and reattached by `syncDomNode`.
    *  Use `removeDomNode` when the element itself is gone. */
   detachDomNode(id: string): void {

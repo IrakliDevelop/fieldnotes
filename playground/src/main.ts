@@ -115,7 +115,14 @@ function attach(instance: SceneInstance, sceneId: SceneId): Attached {
   // Published once the board is loaded so tests never race the initial restore.
   const publish = (): void => {
     const fog = sceneId === 'tabletop' ? currentFog() : null;
-    window.__playground = fog ? { sceneId, viewport, fog } : { sceneId, viewport };
+    // A room joined before the load finished already installed its laser hook.
+    const { laserSenders } = window.__playground ?? {};
+    window.__playground = {
+      sceneId,
+      viewport,
+      ...(fog && { fog }),
+      ...(laserSenders && { laserSenders }),
+    };
   };
   const joining = room;
   if (joining?.role === 'guest') {

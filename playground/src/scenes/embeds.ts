@@ -5,8 +5,6 @@ import { InsertTool } from '../tools/insert-tool';
 import { registerWidgets, WIDGETS } from '../widgets';
 import { CONTROLS, NAVIGATION_TOOLS, VIEWPORT_OPTIONS } from './whiteboard';
 
-const STYLED_TOOLS = new Set(['note', 'text', 'pencil']);
-
 /** Interactive HTML widgets placed from the Insert flyout. */
 export const embeds: Scene = {
   id: 'embeds',
@@ -44,9 +42,7 @@ export const embeds: Scene = {
     return {
       viewport,
       tools,
-      styles: {
-        controlsFor: (toolName) => (STYLED_TOOLS.has(toolName) ? (CONTROLS[toolName] ?? []) : []),
-      },
+      styles: { controlsFor: (toolName) => CONTROLS[toolName] ?? [] },
       loadSample: () => buildEmbedsSample(viewport),
       dispose: () => {
         unregister();

@@ -9,6 +9,9 @@
   --shadow: 0 1px 2px rgb(0 0 0 / 6%), 0 4px 16px rgb(0 0 0 / 8%);
   --radius: 12px;
   --gap: 12px;
+  --token-ink: #ffffff;
+  --token-hp-track: #e9ecef;
+  --token-hp: #2f9e44;
 }
 
 * {

@@ -43,7 +43,10 @@ export function attachPresence(
           color: peer.color !== undefined && HEX.test(peer.color) ? peer.color : '#71717a',
         })),
     );
-  const onPageHide = (): void => awareness.dispose();
+  // A page entering the back/forward cache comes back live, so it must stay in the room.
+  const onPageHide = (event: PageTransitionEvent): void => {
+    if (!event.persisted) awareness.dispose();
+  };
   window.addEventListener('pagehide', onPageHide);
   const unsubscribers = [
     awareness.roster.onChange(reportPeers),

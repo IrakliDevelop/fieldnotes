@@ -263,6 +263,32 @@ test('template fill colour comes from the style panel', async ({ page }) => {
   await expect.poll(fill).toBe('#ffc9c9');
   await style.getByRole('button', { name: 'none' }).click();
   await expect.poll(fill).toBe('transparent');
+
+  await page.keyboard.press('1');
+  await page.keyboard.press('5');
+  await expect(style.getByRole('button', { name: 'none' })).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('Load sample resets the active layer', async ({ page }) => {
+  await gotoBlank(page, 'tabletop');
+  const activeLayer = (): Promise<unknown> =>
+    page.evaluate(() => {
+      const { layerManager } = window.__playground.viewport;
+      const layer = layerManager.getLayer(layerManager.activeLayerId);
+      return layer && { visible: layer.visible, locked: layer.locked, opacity: layer.opacity };
+    });
+  await page.evaluate(() => {
+    const { layerManager } = window.__playground.viewport;
+    const id = layerManager.activeLayerId;
+    layerManager.setLayerVisible(id, false);
+    layerManager.setLayerLocked(id, true);
+    layerManager.setLayerOpacity(id, 0.3);
+  });
+
+  await page.locator('[data-chrome="menu"]').getByRole('button', { name: 'Menu' }).click();
+  await page.locator('[data-menu-item="load-sample"]').click();
+  await expect.poll(async () => (await tokens(page)).length).toBe(3);
+  expect(await activeLayer()).toEqual({ visible: true, locked: false, opacity: 1 });
 });
 
 test('View as player keeps tool shortcuts working', async ({ page }) => {

@@ -260,8 +260,9 @@ export function renderStylePanel(
         // Canvas ignores fillStyle 'none', so a template would keep the previous fill.
         const toOption = (value: Value): Value =>
           value === 'none' && toolName === 'template' ? 'transparent' : value;
+        const current = tool.getOptions()[key];
         children.push(
-          control(def, tool.getOptions()[key], (value) =>
+          control(def, current === 'transparent' ? 'none' : current, (value) =>
             tool.setOptions({ [key]: toOption(value) }),
           ).el,
         );

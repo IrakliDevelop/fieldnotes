@@ -56,7 +56,7 @@ export function connectRoom(
   sceneId: SceneId,
   room: Room,
   opts: { plugins?: ClientSyncPlugin[]; onPeers: (peers: Peer[]) => void },
-): { client: SyncClient; dispose(): void } {
+): { dispose(): void } {
   const { layerManager, store } = viewport;
   // A guest drops its own empty starter layer once the room's layers arrive.
   let adopted = room.role === 'host';
@@ -124,7 +124,6 @@ export function connectRoom(
     onPeers: opts.onPeers,
   });
   return {
-    client,
     dispose: () => {
       detachPresence();
       for (const unsubscribe of unsubscribers) unsubscribe();

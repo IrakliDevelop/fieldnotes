@@ -2,39 +2,10 @@ import { test, expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { singleFingerDraw } from './helpers/touch';
 import { gotoBlank } from './helpers/board';
-
-interface Box {
-  readonly name: string;
-  readonly x: number;
-  readonly y: number;
-  readonly width: number;
-  readonly height: number;
-}
+import { expectNoOverlap } from './helpers/layout';
 
 const activeTool = (page: Page): Promise<string | undefined> =>
   page.evaluate(() => window.__playground.viewport.toolManager.activeTool?.name);
-
-async function expectNoOverlap(page: Page): Promise<void> {
-  const boxes: Box[] = [];
-  for (const zone of await page.locator('[data-chrome], [data-fieldnotes-minimap]').all()) {
-    if (!(await zone.isVisible())) continue;
-    const box = await zone.boundingBox();
-    const name = (await zone.getAttribute('data-chrome')) ?? 'minimap';
-    if (box) boxes.push({ name, ...box });
-  }
-  const overlaps: string[] = [];
-  for (const [i, a] of boxes.entries()) {
-    for (const b of boxes.slice(i + 1)) {
-      const w = Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x);
-      const h = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y);
-      if (w > 0 && h > 0) overlaps.push(`${a.name} × ${b.name}`);
-    }
-  }
-  expect(overlaps).toEqual([]);
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
-    true,
-  );
-}
 
 async function drag(
   page: Page,
