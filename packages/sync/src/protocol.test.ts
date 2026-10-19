@@ -555,16 +555,27 @@ describe('SYNC_LIMITS', () => {
   const upsert = (element: unknown) => ({ from: 'A', op: { kind: 'upsert', element } });
   const arrow = () => createArrow({ from: { x: 0, y: 0 }, to: { x: 1, y: 1 } });
   const html = () => createHtmlElement({ position: { x: 0, y: 0 }, size: { w: 1, h: 1 } });
+  const note = () => createNote({ position: { x: 0, y: 0 } });
+  const text = () => createText({ position: { x: 0, y: 0 } });
 
   it.each([
     ['element id', ID, (s: string) => ({ ...shape(), id: s })],
     ['layerId', ID, (s: string) => ({ ...shape(), layerId: s })],
     ['groupId', ID, (s: string) => ({ ...shape(), groupId: s })],
     ['arrow binding elementId', ID, (s: string) => ({ ...arrow(), toBinding: { elementId: s } })],
+    [
+      'arrow fromBinding elementId',
+      ID,
+      (s: string) => ({ ...arrow(), fromBinding: { elementId: s } }),
+    ],
     ['audience', SHORT, (s: string) => ({ ...shape(), audience: s })],
     ['ownerId', SHORT, (s: string) => ({ ...shape(), ownerId: s })],
     ['stroke color', SHORT, (s: string) => ({ ...createStroke({ points: [] }), color: s })],
     ['shape fillColor', SHORT, (s: string) => ({ ...shape(), fillColor: s })],
+    ['shape strokeColor', SHORT, (s: string) => ({ ...shape(), strokeColor: s })],
+    ['note backgroundColor', SHORT, (s: string) => ({ ...note(), backgroundColor: s })],
+    ['note textColor', SHORT, (s: string) => ({ ...note(), textColor: s })],
+    ['text color', SHORT, (s: string) => ({ ...text(), color: s })],
     ['html htmlType', SHORT, (s: string) => ({ ...html(), htmlType: s })],
     ['html domId', SHORT, (s: string) => ({ ...html(), domId: s })],
     [
@@ -572,7 +583,8 @@ describe('SYNC_LIMITS', () => {
       SHORT,
       (s: string) => ({ ...shape(), type: 'extension', extensionType: s, data: {} }),
     ],
-    ['note text', TEXT, (s: string) => ({ ...createNote({ position: { x: 0, y: 0 } }), text: s })],
+    ['note text', TEXT, (s: string) => ({ ...note(), text: s })],
+    ['text text', TEXT, (s: string) => ({ ...text(), text: s })],
     ['arrow label', TEXT, (s: string) => ({ ...arrow(), label: s })],
   ])('parseEnvelope bounds upsert %s at %i UTF-16 code units', (_name, limit, build) => {
     expect(parse(upsert(build(at(limit))))).not.toBeNull();
@@ -659,9 +671,9 @@ describe('SYNC_LIMITS', () => {
   });
 
   it('leaves the shared validators uncapped (authority:1 reuses them)', () => {
-    const note = { ...createNote({ position: { x: 0, y: 0 } }), text: at(TEXT + 1) };
-    expect(isValidElement(note)).toBe(true);
-    expect(isValidEnvelope(upsert(note))).toBe(true);
+    const long = { ...note(), text: at(TEXT + 1) };
+    expect(isValidElement(long)).toBe(true);
+    expect(isValidEnvelope(upsert(long))).toBe(true);
   });
 });
 

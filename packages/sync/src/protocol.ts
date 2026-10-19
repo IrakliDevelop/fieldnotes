@@ -11,7 +11,15 @@ import {
 import type { FogMetaRecord, FogTileRecord, FogSnapshot } from './fog-wire';
 import { SYNC_LIMITS, hasJsonDepthAtMost } from './limits';
 
-const { maxIdLength, maxShortStringLength, maxTextLength, maxSnapshotElements } = SYNC_LIMITS;
+const {
+  maxIdLength,
+  maxShortStringLength,
+  maxTextLength,
+  maxSrcLength,
+  maxStrokePoints,
+  maxSnapshotElements,
+  maxReceivedJsonDepth,
+} = SYNC_LIMITS;
 
 export {
   FOG_SYNC_PROTOCOL_VERSION,
@@ -376,9 +384,7 @@ function elementWithinLimits(el: SyncElement): boolean {
   }
   switch (el.type) {
     case 'stroke':
-      return (
-        el.points.length <= SYNC_LIMITS.maxStrokePoints && isAtMost(el.color, maxShortStringLength)
-      );
+      return el.points.length <= maxStrokePoints && isAtMost(el.color, maxShortStringLength);
     case 'note':
       return (
         isAtMost(el.text, maxTextLength) &&
@@ -393,7 +399,7 @@ function elementWithinLimits(el: SyncElement): boolean {
         isAtMost(el.toBinding?.elementId, maxIdLength)
       );
     case 'image':
-      return isAtMost(el.src, SYNC_LIMITS.maxSrcLength);
+      return isAtMost(el.src, maxSrcLength);
     case 'html':
       return (
         isAtMost(el.domId, maxShortStringLength) && isAtMost(el.htmlType, maxShortStringLength)
@@ -439,7 +445,7 @@ export function isWithinSyncLimits(env: SyncEnvelope): boolean {
 }
 
 export function parseEnvelope(message: string): SyncEnvelope | null {
-  if (!hasJsonDepthAtMost(message, SYNC_LIMITS.maxReceivedJsonDepth)) return null;
+  if (!hasJsonDepthAtMost(message, maxReceivedJsonDepth)) return null;
   try {
     const env: unknown = JSON.parse(message);
     return isValidEnvelope(env) && isWithinSyncLimits(env) ? env : null;
