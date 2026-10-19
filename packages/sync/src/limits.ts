@@ -10,7 +10,20 @@ export const SYNC_LIMITS = {
   maxSrcLength: 16_777_216, // image src (data URIs); hosts may raise maxMessageBytes
   maxStrokePoints: 100_000,
   maxSnapshotElements: 1_000_000,
+  maxBatchOps: 1000,
 } as const;
+
+/** An element op that would break a `SYNC_LIMITS` cap, so it was not sent. */
+export class SyncLimitError extends Error {
+  override readonly name = 'SyncLimitError';
+
+  constructor(
+    readonly elementId: string,
+    readonly limit: string,
+  ) {
+    super(`Element ${elementId} exceeds sync limit ${limit}`);
+  }
+}
 
 /** Whether `message` nests objects/arrays at most `maxDepth` deep and is structurally balanced. */
 export function hasJsonDepthAtMost(message: string, maxDepth: number): boolean {
