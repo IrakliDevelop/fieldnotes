@@ -116,6 +116,8 @@ export interface ManagedSyncConnection {
    */
   stop(): void;
   getStatus(): ManagedSyncStatus;
+  /** The hub's `unsupported` reply reason; undefined unless the hub sent one before closing. */
+  getUnsupportedReason(): string | undefined;
   /**
    * Sends ephemeral presence data to the room. Presence is fire-and-forget:
    * while the connection is not `live` the data is DROPPED, never queued —
@@ -205,6 +207,7 @@ export function createManagedSyncConnection(
   let transport: ManagedSyncTransport | null = null;
   let subscriptions: (() => void)[] = [];
   let currentStatus: ManagedSyncStatus | null = null;
+  let unsupportedReason: string | undefined;
 
   const setStatus = (next: ManagedSyncStatus): void => {
     if (next === currentStatus) return;
@@ -222,7 +225,8 @@ export function createManagedSyncConnection(
     transport = null;
   };
 
-  const settleUnsupported = (): void => {
+  const settleUnsupported = (reason?: string): void => {
+    unsupportedReason = reason;
     teardownConnection();
     setStatus('unsupported');
   };
@@ -247,6 +251,10 @@ export function createManagedSyncConnection(
     if (!envelope || envelope.from === clientId) return;
     if (envelope.op.kind === 'capabilities' && envelope.op.capabilities.protocolVersion < 2) {
       settleUnsupported();
+      return;
+    }
+    if (envelope.op.kind === 'unsupported' && envelope.from === 'hub') {
+      settleUnsupported(envelope.op.reason);
       return;
     }
     if (envelope.op.kind !== 'snapshot' || envelope.op.to !== clientId) return;
@@ -365,6 +373,9 @@ export function createManagedSyncConnection(
     },
     getStatus(): ManagedSyncStatus {
       return currentStatus ?? 'connecting';
+    },
+    getUnsupportedReason(): string | undefined {
+      return unsupportedReason;
     },
     sendPresence(data: unknown): void {
       // Gate on `live`, not merely on having a client: the transport buffers

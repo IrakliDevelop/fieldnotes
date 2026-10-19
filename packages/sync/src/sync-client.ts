@@ -7,6 +7,8 @@ import {
   isValidLayerRecord,
   isNewerLayerRecord,
   isNewerVersion,
+  isWithinSyncLimits,
+  elementWithinLimits,
   type BatchOp,
   type LayerRecord,
   type SyncOp,
@@ -23,7 +25,7 @@ import {
   translateOpForPeer,
 } from './capabilities';
 import type { SyncCapabilities, SyncEnvelope } from './protocol';
-import { SYNC_LIMITS, hasJsonDepthAtMost } from './limits';
+import { SYNC_LIMITS, SyncLimitError, hasJsonDepthAtMost } from './limits';
 
 /**
  * Which authoritative-snapshot merge is being applied:
@@ -149,6 +151,8 @@ export interface SyncClientOptions {
   capabilityQueueLimit?: number;
   /** Minimum gap between outgoing element-op flushes; 0 sends every op synchronously. Default 50. */
   flushIntervalMs?: number;
+  /** How long a delete tombstone is kept, pruned when a snapshot is built or received. Default 7 days. */
+  tombstoneRetentionMs?: number;
 }
 
 /** A queued local element op: an upsert reads the element from the store at flush time. */
@@ -216,6 +220,9 @@ export class SyncClient {
   /** A local clear supersedes every element in the in-flight authoritative snapshot. */
   private clearedBeforeSnapshot = false;
   private readonly tombstones = new Map<string, Tombstone>();
+  /** Local Date.now() at which each tombstone was recorded; the wire shape stays unchanged. */
+  private readonly tombstoneTimes = new Map<string, number>();
+  private readonly tombstoneRetentionMs: number;
   /** Non-transient store versions, kept so a clear can tombstone elements the store already dropped. */
   private readonly liveVersions = new Map<string, number>();
   /** A hub computes its own clear tombstones; peers need ours. */
@@ -245,6 +252,10 @@ export class SyncClient {
     this.flushIntervalMs = options.flushIntervalMs ?? 50;
     if (!Number.isFinite(this.flushIntervalMs) || this.flushIntervalMs < 0) {
       throw new RangeError('flushIntervalMs must be a finite number >= 0');
+    }
+    this.tombstoneRetentionMs = options.tombstoneRetentionMs ?? 604_800_000;
+    if (!Number.isFinite(this.tombstoneRetentionMs) || this.tombstoneRetentionMs <= 0) {
+      throw new RangeError('tombstoneRetentionMs must be a positive finite number');
     }
     this.capabilityQueueLimit = options.capabilityQueueLimit ?? DEFAULT_CAPABILITY_QUEUE_LIMIT;
     this.handshake = new CapabilityHandshake<SyncOp>(this.capabilityQueueLimit);
@@ -277,6 +288,7 @@ export class SyncClient {
       }),
       this.store.on('remove', (el, meta) => {
         this.liveVersions.delete(el.id);
+        this.hubKnownIds.delete(el.id);
         this.onLocal(
           { kind: 'remove', id: el.id, version: el.version + 1, editor: this.clientId },
           meta.origin,
@@ -484,14 +496,16 @@ export class SyncClient {
     try {
       const ops: BatchOp[] = [];
       for (const entry of entries) {
-        if (entry.kind === 'remove') {
-          ops.push(entry);
-          continue;
+        let op: BatchOp;
+        if (entry.kind === 'remove') op = entry;
+        else {
+          const element = this.store.getById(entry.id);
+          // Gone at flush: a remote remove, clear or correction deleted it and wins.
+          if (!element || isTransientHtml(element)) continue;
+          op = { kind: 'upsert', element: this.stampAudience(this.stampVersion(element)) };
         }
-        const element = this.store.getById(entry.id);
-        // Gone at flush: a remote remove, clear or correction deleted it and wins.
-        if (!element || isTransientHtml(element)) continue;
-        ops.push({ kind: 'upsert', element: this.stampAudience(this.stampVersion(element)) });
+        if (isWithinSyncLimits({ from: this.clientId, op })) ops.push(op);
+        else globalThis.reportError?.(new SyncLimitError(entry.id, violatedLimit(op)));
       }
       if (this.handshake.complete && this.batchingPeer) this.sendBatches(ops);
       else for (const op of ops) this.sendQueued(op);
@@ -646,6 +660,7 @@ export class SyncClient {
   private onStoreCleared(origin: string | undefined): void {
     const live = [...this.liveVersions];
     this.liveVersions.clear();
+    for (const [id] of live) this.hubKnownIds.delete(id);
     if (isExternal(origin)) return;
     const tombstones = live.map(([id, version]) => {
       const tombstone = { id, version: version + 1, editor: this.clientId };
@@ -656,8 +671,23 @@ export class SyncClient {
   }
 
   private recordTombstone(tombstone: Tombstone): void {
-    if (isNewerVersion(tombstone, this.tombstones.get(tombstone.id))) {
-      this.tombstones.set(tombstone.id, tombstone);
+    if (isNewerVersion(tombstone, this.tombstones.get(tombstone.id))) this.setTombstone(tombstone);
+  }
+
+  private setTombstone(tombstone: Tombstone): void {
+    this.tombstones.set(tombstone.id, tombstone);
+    this.tombstoneTimes.set(tombstone.id, Date.now());
+  }
+
+  private deleteTombstone(id: string): void {
+    this.tombstones.delete(id);
+    this.tombstoneTimes.delete(id);
+  }
+
+  private pruneTombstones(): void {
+    const cutoff = Date.now() - this.tombstoneRetentionMs;
+    for (const [id, time] of this.tombstoneTimes) {
+      if (time < cutoff) this.deleteTombstone(id);
     }
   }
 
@@ -670,7 +700,7 @@ export class SyncClient {
   /** Lifts a resurrected element above its tombstone; the editor is never written back. */
   private stampVersion(element: CanvasElement): SyncElement {
     const tombstone = this.tombstones.get(element.id);
-    this.tombstones.delete(element.id);
+    this.deleteTombstone(element.id);
     let version = element.version;
     if (tombstone && tombstone.version >= version) {
       version = tombstone.version + 1;
@@ -713,13 +743,14 @@ export class SyncClient {
     // relay echoes back after a reconnect (the reconnected socket is a NEW hub connection, so the hub's
     // connId echo-suppression does not cover them). Do NOT key this guard off the connection.
     if (!env || env.from === this.clientId) return; // malformed/invalid + own echo
+    const hubRefused = env.op.kind === 'unsupported' && env.from === HUB_FROM;
+    if (hubRefused || (env.op.kind === 'capabilities' && env.op.capabilities.protocolVersion < 2)) {
+      this.queue.length = 0; // never flush element ops to an incompatible peer
+      this.stop();
+      this.transport.close();
+      return;
+    }
     if (env.op.kind === 'capabilities') {
-      if (env.op.capabilities.protocolVersion < 2) {
-        this.queue.length = 0; // never flush element ops to an incompatible peer
-        this.stop();
-        this.transport.close();
-        return;
-      }
       if (env.from === HUB_FROM) this.peerIsHub = true;
       if (!this.handshake.complete) {
         this.batchingPeer = env.from === HUB_FROM && env.op.capabilities.opBatching === 1;
@@ -763,6 +794,7 @@ export class SyncClient {
   private handleRemoteEnvelope(env: SyncEnvelope): void {
     const op = env.op;
     if (op.kind === 'request-snapshot') {
+      this.pruneTombstones();
       const elements = this.store.snapshot().filter((el) => !isTransientHtml(el));
       const snapshotOp: Record<string, unknown> = { kind: 'snapshot', to: env.from, elements };
       if (this.layerLedger) snapshotOp['layers'] = this.layerLedger.records();
@@ -781,6 +813,7 @@ export class SyncClient {
       this.sendOp(snapshotOp as SyncOp);
     } else if (op.kind === 'snapshot') {
       if (op.to !== this.clientId) return; // not addressed to us
+      this.pruneTombstones();
       // Layers merge BEFORE elements so an element referencing a just-synced
       // layer arrives after the host has created that layer.
       this.mergeSnapshotLayers(op.layers);
@@ -880,14 +913,15 @@ export class SyncClient {
   ): void {
     if (op.kind === 'upsert') {
       const el = op.element;
-      this.hubKnownIds.add(el.id); // remote/snapshot upserts are hub evidence
       const existing = this.store.getById(el.id);
       if (
         !authoritative &&
         !isNewerVersion(el, this.localVersion(el.id) ?? this.tombstones.get(el.id))
-      )
+      ) {
+        this.hubKnownIds.add(el.id); // even a stale upsert proves the hub has the element
         return;
-      this.tombstones.delete(el.id);
+      }
+      this.deleteTombstone(el.id);
       this.dropQueuedUpsert(el.id);
       if (existing) {
         if (existing.type === el.type) {
@@ -902,12 +936,14 @@ export class SyncClient {
       } else {
         this.store.add(el, { origin: REMOTE_ORIGIN });
       }
+      // After the store write: a type-changing replace removes the id first.
+      this.hubKnownIds.add(el.id);
     } else if (op.kind === 'remove') {
       if (op.version === undefined || op.editor === undefined) return; // parseLegacyEnvelope requires both
       const tombstone = { id: op.id, version: op.version, editor: op.editor };
       const current = this.localVersion(op.id) ?? this.tombstones.get(op.id);
       if (!authoritative && !isNewerVersion(tombstone, current)) return;
-      this.tombstones.set(op.id, tombstone);
+      this.setTombstone(tombstone);
       this.store.remove(op.id, { origin: REMOTE_ORIGIN });
     } else if (op.kind === 'clear') {
       // A clear removes only what its tombstones supersede, so transient and newer elements survive.
@@ -1033,6 +1069,30 @@ function requiresCapabilityNegotiation(op: SyncOp): boolean {
   }
   if (op.kind === 'snapshot') return op.elements.some((element) => element.type === 'extension');
   return false;
+}
+
+const ELEMENT_LIMITS = [
+  'maxIdLength',
+  'maxShortStringLength',
+  'maxTextLength',
+  'maxSrcLength',
+  'maxStrokePoints',
+] as const;
+const UNLIMITED = {
+  maxIdLength: Infinity,
+  maxShortStringLength: Infinity,
+  maxTextLength: Infinity,
+  maxSrcLength: Infinity,
+  maxStrokePoints: Infinity,
+};
+
+/** Names the first element limit `op` breaks by enforcing one limit at a time. */
+function violatedLimit(op: BatchOp): string {
+  if (op.kind === 'remove') return 'maxIdLength';
+  const element = op.element;
+  const breaks = (name: (typeof ELEMENT_LIMITS)[number]): boolean =>
+    !elementWithinLimits(element, { ...UNLIMITED, [name]: SYNC_LIMITS[name] });
+  return ELEMENT_LIMITS.find(breaks) ?? 'maxIdLength';
 }
 
 /** Ops whose relative order against element upserts is load-bearing. */

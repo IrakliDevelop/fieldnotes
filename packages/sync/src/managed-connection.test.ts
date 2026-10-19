@@ -314,6 +314,58 @@ describe('createManagedSyncConnection', () => {
     expect(transports).toHaveLength(1);
   });
 
+  it('settles on unsupported and keeps the reason from a hub unsupported reply', async () => {
+    start();
+    await flushAsync();
+    const first = currentTransport();
+
+    first.emitMessage(
+      envelope('hub', {
+        kind: 'unsupported',
+        protocolVersion: 3,
+        minProtocolVersion: 3,
+        reason: 'client too old',
+      }),
+    );
+    first.emitClose(4406);
+
+    expect(statuses).toEqual(['connecting', 'unsupported']);
+    expect(connection?.getUnsupportedReason()).toBe('client too old');
+    expect(first.closed).toBe(true);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(transports).toHaveLength(1);
+  });
+
+  it('has no unsupported reason when the 4406 close arrives first', async () => {
+    start();
+    await flushAsync();
+
+    currentTransport().emitClose(4406);
+
+    expect(connection?.getStatus()).toBe('unsupported');
+    expect(connection?.getUnsupportedReason()).toBeUndefined();
+  });
+
+  it('ignores an unsupported op sent by a peer', async () => {
+    start();
+    await flushAsync();
+    const first = currentTransport();
+    first.emitMessage(snapshotFor(CLIENT_ID));
+
+    first.emitMessage(
+      envelope('peer', {
+        kind: 'unsupported',
+        protocolVersion: 3,
+        minProtocolVersion: 3,
+        reason: 'spoofed',
+      }),
+    );
+
+    expect(connection?.getStatus()).toBe('live');
+    expect(connection?.getUnsupportedReason()).toBeUndefined();
+    expect(first.closed).toBe(false);
+  });
+
   it('stays live when the hub advertises protocol 2', async () => {
     start();
     await flushAsync();
