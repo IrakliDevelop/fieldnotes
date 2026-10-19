@@ -172,6 +172,34 @@ body {
   font-size: 12px;
 }
 
+.collab-label {
+  margin-left: 6px;
+}
+
+.avatars {
+  display: flex;
+  padding-left: 6px;
+}
+
+.avatars:empty {
+  display: none;
+}
+
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-left: -6px;
+  border: 2px solid var(--island);
+  border-radius: 50%;
+  background: var(--ink-2);
+  color: var(--island);
+  font-size: 11px;
+  font-weight: 600;
+}
+
 .icon-button[aria-checked='true'] {
   background: var(--accent);
   color: var(--accent-ink);
@@ -471,6 +499,44 @@ body {
 
   .scene-select-wrap {
     display: inline-flex;
+  }
+
+  /* Keeps a clear margin to the zoom bar at 390 px. */
+  [data-chrome='top-right'] {
+    gap: 2px;
+  }
+
+  .scene-select {
+    padding-right: 12px;
+  }
+
+  .collab-label {
+    display: none;
+  }
+
+  /* Visually hidden, still counted by tests and assistive tech. */
+  .avatars {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  [data-collaborate][data-peer-count]::after {
+    content: attr(data-peer-count);
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    border-radius: 8px;
+    background: var(--accent-ink);
+    color: var(--island);
+    font-size: 10px;
+    line-height: 16px;
+    text-align: center;
   }
 }
 

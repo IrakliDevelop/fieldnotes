@@ -1,7 +1,9 @@
+import { LaserTool, PingTool } from '@fieldnotes/core';
 import type { Viewport } from '@fieldnotes/core';
 import { BroadcastChannelTransport, SyncClient } from '@fieldnotes/sync';
 import type { ClientSyncPlugin, RemoteLayerUpdate } from '@fieldnotes/sync';
-import type { Room, SceneId } from './scene';
+import { attachPresence } from './presence';
+import type { Peer, Room, SceneId } from './scene';
 
 const REMOTE = { origin: 'remote' };
 
@@ -18,6 +20,23 @@ export function readRoom(): Room | null {
   if (id === null || !/^[a-z0-9]{4,12}$/.test(id)) return null;
   return { id, role: sessionStorage.getItem(hostKey(id)) === '1' ? 'host' : 'guest' };
 }
+
+const COLORS = [
+  '#e03131',
+  '#1971c2',
+  '#2f9e44',
+  '#f08c00',
+  '#9c36b5',
+  '#0c8599',
+  '#c2255c',
+  '#5f3dc4',
+];
+
+const colorFor = (id: string): string => {
+  let hash = 0;
+  for (const char of id) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  return COLORS[hash % COLORS.length] ?? '#e03131';
+};
 
 /** Starts a new room hosted by this tab. */
 export function createRoom(): Room {
@@ -36,7 +55,7 @@ export function connectRoom(
   viewport: Viewport,
   sceneId: SceneId,
   room: Room,
-  opts: { plugins?: ClientSyncPlugin[] },
+  opts: { plugins?: ClientSyncPlugin[]; onPeers: (peers: Peer[]) => void },
 ): { client: SyncClient; dispose(): void } {
   const { layerManager, store } = viewport;
   // A guest drops its own empty starter layer once the room's layers arrive.
@@ -67,10 +86,11 @@ export function connectRoom(
   };
 
   const transport = new BroadcastChannelTransport(`fieldnotes-playground:${sceneId}:${room.id}`);
+  const clientId = randomId();
   const client = new SyncClient({
     store,
     transport,
-    clientId: randomId(),
+    clientId,
     firstSnapshot: 'reconcile',
     layers: { applyLayer },
     plugins: opts.plugins,
@@ -90,9 +110,23 @@ export function connectRoom(
   if (room.role === 'host') {
     for (const layer of layerManager.getLayers()) client.publishLayerUpsert(layer);
   }
+  const laser = viewport.toolManager.getTool('laser');
+  const ping = viewport.toolManager.getTool('ping');
+  const detachPresence = attachPresence(viewport, client, {
+    identity: {
+      id: clientId,
+      name: room.role === 'host' ? 'Host' : `Guest ${clientId.slice(-2)}`,
+      color: colorFor(clientId),
+      role: room.role,
+    },
+    laser: laser instanceof LaserTool ? laser : undefined,
+    ping: ping instanceof PingTool ? ping : undefined,
+    onPeers: opts.onPeers,
+  });
   return {
     client,
     dispose: () => {
+      detachPresence();
       for (const unsubscribe of unsubscribers) unsubscribe();
       client.dispose();
       transport.close();

@@ -13,7 +13,12 @@ import { whiteboard } from './scenes/whiteboard';
 
 declare global {
   interface Window {
-    __playground: { sceneId: SceneId; viewport: Viewport; fog?: FogManager };
+    __playground: {
+      sceneId: SceneId;
+      viewport: Viewport;
+      fog?: FogManager;
+      laserSenders?: () => number;
+    };
   }
 }
 
@@ -71,6 +76,7 @@ const topRight = chrome.querySelector<HTMLElement>('[data-chrome="top-right"]');
 if (!topRight) throw new Error('Missing top-right zone');
 const refreshCollaborate = renderCollaborate(topRight, {
   room: () => room,
+  sceneId: () => current?.id ?? null,
   start: enterRoom,
   leave: leaveAndRemount,
   toast: shell.toast,
@@ -101,7 +107,10 @@ function attach(instance: SceneInstance, sceneId: SceneId): Attached {
   let detach: (() => void) | null = null;
   let connection: { dispose(): void } | null = null;
   const join = (joined: Room): void => {
-    connection = connectRoom(viewport, sceneId, joined, { plugins: fogClientPlugins() });
+    connection = connectRoom(viewport, sceneId, joined, {
+      plugins: fogClientPlugins(),
+      onPeers: shell.setPeers,
+    });
   };
   // Published once the board is loaded so tests never race the initial restore.
   const publish = (): void => {
@@ -111,8 +120,8 @@ function attach(instance: SceneInstance, sceneId: SceneId): Attached {
   const joining = room;
   if (joining?.role === 'guest') {
     // A guest starts empty; the room's snapshot fills the board.
-    join(joining);
     publish();
+    join(joining);
   } else {
     void attachPersistence(viewport, sceneId, {
       onFirstVisit: () => {
@@ -130,8 +139,8 @@ function attach(instance: SceneInstance, sceneId: SceneId): Attached {
       // Collaborate clicked before the load finished: the room already owns the board.
       if (connection) dispose();
       else detach = dispose;
-      if (joining) join(joining);
       publish();
+      if (joining) join(joining);
     });
   }
 
@@ -238,7 +247,7 @@ const mount = (id: string | null): void => {
   current?.instance?.dispose();
   stage.replaceChildren();
   try {
-    const instance = scene.mount({ stage, shell, room: null });
+    const instance = scene.mount({ stage, shell, room });
     current = { id: scene.id, instance };
     attached = attach(instance, scene.id);
     history.replaceState(

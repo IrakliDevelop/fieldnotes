@@ -81,7 +81,7 @@ function choices(title: string, entries: readonly Choice[]): { el: HTMLElement; 
 export const tabletop: Scene = {
   id: 'tabletop',
   label: 'Tabletop',
-  mount({ stage, shell }) {
+  mount({ stage, shell, room }) {
     if (!registered) {
       registerVttElementTypes();
       registered = true;
@@ -134,8 +134,9 @@ export const tabletop: Scene = {
       constraintService: viewport.constraintProxy,
     });
     const unregisterWidgets = registerWidgets(viewport, shell.toast);
-    // Task 9 replaces this with a mode chosen by the room role.
-    manager.setViewMode('editor');
+    // A guest previews the player view locally; the fog state itself is still synced in full.
+    const isGuest = room?.role === 'guest';
+    manager.setViewMode(isGuest ? 'player' : 'editor');
     fog = manager;
 
     // Restores, undo and peers change the grid without going through the controller.
@@ -245,7 +246,7 @@ export const tabletop: Scene = {
           select: () => templateTool.setOptions({ templateShape }),
         })),
       },
-      { name: 'fog', label: 'Fog', icon: 'fog', key: '6' },
+      ...(isGuest ? [] : [{ name: 'fog', label: 'Fog', icon: 'fog', key: '6' } as const]),
       { name: 'ping', label: 'Ping', icon: 'ping', key: '7' },
       { name: 'laser', label: 'Laser', icon: 'laser', key: 'l' },
     ];

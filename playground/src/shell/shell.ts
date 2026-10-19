@@ -15,6 +15,25 @@ export interface Mounted {
   readonly instance: SceneInstance | null;
 }
 
+const MAX_AVATARS = 4;
+
+function avatar(className: string, text: string, title: string): HTMLElement {
+  const el = document.createElement('span');
+  el.className = className;
+  // Names come from peers, so they only ever reach textContent.
+  el.textContent = text;
+  el.title = title;
+  return el;
+}
+
+const initials = (name: string): string =>
+  name
+    .split(' ')
+    .map((word) => word.charAt(0))
+    .join('')
+    .slice(0, 2)
+    .toUpperCase();
+
 function zone(parent: HTMLElement, name: string, island = true): HTMLElement {
   const root = document.createElement('div');
   if (island) root.className = 'island';
@@ -46,7 +65,10 @@ export function createShell(
   layersToggle.append(icon('layers'));
   // Keep focus on the canvas so core's undo/redo keys still apply after a click.
   layersToggle.addEventListener('mousedown', (event) => event.preventDefault());
-  zone(header, 'top-right').append(switcher, layersToggle);
+  const avatars = document.createElement('div');
+  avatars.className = 'avatars';
+  const topRight = zone(header, 'top-right');
+  topRight.append(switcher, layersToggle, avatars);
   const zoom = zone(chrome, 'zoom');
   const style = zone(chrome, 'style');
   const layers = zone(chrome, 'layers');
@@ -64,8 +86,21 @@ export function createShell(
 
   return {
     toast,
-    setPeers: () => {
-      // Peer avatars are not shown yet.
+    setPeers: (peers) => {
+      const shown = peers.slice(0, MAX_AVATARS).map((peer) => {
+        const el = avatar('avatar', initials(peer.name), peer.name);
+        el.dataset['peer'] = peer.id;
+        el.style.backgroundColor = peer.color;
+        return el;
+      });
+      const extra = peers.length - MAX_AVATARS;
+      if (extra > 0) shown.push(avatar('avatar avatar-more', `+${extra}`, `${extra} more`));
+      avatars.replaceChildren(...shown);
+      // Phones show only this count, as a badge on the Collaborate button.
+      const collaborate = topRight.querySelector<HTMLElement>('[data-collaborate]');
+      if (!collaborate) return;
+      if (peers.length > 0) collaborate.dataset['peerCount'] = String(peers.length);
+      else delete collaborate.dataset['peerCount'];
     },
     refresh: () => {
       closeMenu();

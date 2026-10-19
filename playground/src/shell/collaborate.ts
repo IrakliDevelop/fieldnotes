@@ -1,5 +1,5 @@
 import { createRoom } from '../room';
-import type { Room } from '../scene';
+import type { Room, SceneId } from '../scene';
 import { icon } from './icons';
 import type { IconName } from './icons';
 
@@ -17,6 +17,7 @@ export function renderCollaborate(
   root: HTMLElement,
   opts: {
     room: () => Room | null;
+    sceneId: () => SceneId | null;
     start: (room: Room) => void;
     leave: () => void;
     toast: (message: string) => void;
@@ -30,7 +31,9 @@ export function renderCollaborate(
   toggle.dataset['collaborate'] = '';
   toggle.setAttribute('aria-haspopup', 'true');
   toggle.setAttribute('aria-expanded', 'false');
-  toggle.append(icon('users'));
+  const label = document.createElement('span');
+  label.className = 'collab-label';
+  toggle.append(icon('users'), label);
   wrapper.append(toggle);
   root.append(wrapper);
   let popover: HTMLElement | null = null;
@@ -81,6 +84,12 @@ export function renderCollaborate(
       }),
       note,
     );
+    if (opts.sceneId() === 'tabletop') {
+      const roles = document.createElement('p');
+      roles.className = 'collab-note';
+      roles.textContent = 'GM and player views are a local preview, not access control.';
+      el.append(roles);
+    }
     wrapper.append(el);
     popover = el;
     toggle.setAttribute('aria-expanded', 'true');
@@ -104,9 +113,11 @@ export function renderCollaborate(
 
   return () => {
     const room = opts.room();
-    const label = room ? `Room ${room.id}` : 'Collaborate';
-    toggle.setAttribute('aria-label', label);
-    toggle.title = label;
+    const text = room ? `Room ${room.id}` : 'Collaborate';
+    label.textContent = text;
+    // Phones hide the text label, so the name must not depend on it.
+    toggle.setAttribute('aria-label', text);
+    toggle.title = text;
     toggle.setAttribute('aria-pressed', String(room !== null));
   };
 }
