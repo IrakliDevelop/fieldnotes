@@ -21,8 +21,8 @@ function tomb(id: string, version: number, editor: string): Tombstone {
   return { id, version, editor };
 }
 
-/** One client 'A' on a fake transport; `peer` has already completed the capability handshake. */
-function setup(peer: string | null = 'P') {
+/** One client on a fake transport; `peer` has already completed the capability handshake. */
+function setup(peer: string | null = 'P', clientId = 'A') {
   const store = new ElementStore();
   const sent: string[] = [];
   let receive: (message: string) => void = () => undefined;
@@ -46,7 +46,7 @@ function setup(peer: string | null = 'P') {
       closed = true;
     },
   };
-  const client = new SyncClient({ store, transport, clientId: 'A' });
+  const client = new SyncClient({ store, transport, clientId });
   client.start();
   const deliver = (from: string, op: SyncOp | Record<string, unknown>): void =>
     receive(JSON.stringify({ from, op }));
@@ -66,6 +66,30 @@ function setup(peer: string | null = 'P') {
 }
 
 const REMOTE = { origin: 'remote' };
+
+describe('SyncClient concurrent equal-version edits', () => {
+  it.each([
+    ['peer-to-peer', null],
+    ['hub-relayed', 'hub'],
+  ] as const)('%s: both peers converge on the later-sorting peer id', (_room, hub) => {
+    const a = setup(hub ?? 'B', 'A');
+    const b = setup(hub ?? 'A', 'B');
+    a.store.add(shape('x', 5, 'C'), REMOTE);
+    b.store.add(shape('x', 5, 'C'), REMOTE);
+    a.store.update('x', { fillColor: '#aaaaaa' });
+    b.store.update('x', { fillColor: '#bbbbbb' });
+    const fromA = a.last('upsert');
+    const fromB = b.last('upsert');
+    if (!fromA || !fromB) throw new Error('both edits must be sent');
+
+    b.deliver('A', fromA);
+    expect(b.store.getById('x')).toMatchObject({ version: 6, fillColor: '#bbbbbb' });
+    a.deliver('B', fromB);
+
+    expect(a.store.getById('x')).toMatchObject({ version: 6, editor: 'B', fillColor: '#bbbbbb' });
+    expect(b.store.getById('x')).toMatchObject({ version: 6, fillColor: '#bbbbbb' });
+  });
+});
 
 describe('SyncClient versioned last-writer-wins', () => {
   it('takes an equal-version upsert from a later editor and ignores one from an earlier editor', () => {

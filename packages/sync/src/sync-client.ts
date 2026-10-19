@@ -529,6 +529,12 @@ export class SyncClient {
     }
   }
 
+  /** A local edit not yet echoed has no editor; it competes as this peer's. */
+  private localVersion(id: string): { version: number; editor: string } | undefined {
+    const element = this.store.getById(id);
+    return element && { version: element.version, editor: element.editor ?? this.clientId };
+  }
+
   /** Lifts a resurrected element above its tombstone; the editor is never written back. */
   private stampVersion(element: CanvasElement): SyncElement {
     const tombstone = this.tombstones.get(element.id);
@@ -725,7 +731,11 @@ export class SyncClient {
       const el = op.element;
       this.hubKnownIds.add(el.id); // remote/snapshot upserts are hub evidence
       const existing = this.store.getById(el.id);
-      if (!authoritative && !isNewerVersion(el, existing ?? this.tombstones.get(el.id))) return;
+      if (
+        !authoritative &&
+        !isNewerVersion(el, this.localVersion(el.id) ?? this.tombstones.get(el.id))
+      )
+        return;
       this.tombstones.delete(el.id);
       if (existing) {
         if (existing.type === el.type) {
@@ -743,14 +753,14 @@ export class SyncClient {
     } else if (op.kind === 'remove') {
       if (op.version === undefined || op.editor === undefined) return; // parseLegacyEnvelope requires both
       const tombstone = { id: op.id, version: op.version, editor: op.editor };
-      const current = this.store.getById(op.id) ?? this.tombstones.get(op.id);
+      const current = this.localVersion(op.id) ?? this.tombstones.get(op.id);
       if (!authoritative && !isNewerVersion(tombstone, current)) return;
       this.tombstones.set(op.id, tombstone);
       this.store.remove(op.id, { origin: REMOTE_ORIGIN });
     } else if (op.kind === 'clear') {
       // A clear removes only what its tombstones supersede, so transient and newer elements survive.
       for (const tombstone of op.tombstones ?? []) {
-        const local = this.store.getById(tombstone.id);
+        const local = this.localVersion(tombstone.id);
         if (local && isNewerVersion(local, tombstone)) continue;
         this.recordTombstone(tombstone);
         this.store.remove(tombstone.id, { origin: REMOTE_ORIGIN });
@@ -778,7 +788,7 @@ export class SyncClient {
       // authoritative set is expected: keep it without consulting the host hook.
       if (isTransientHtml(local)) continue;
       const tombstone = this.tombstones.get(local.id);
-      if (tombstone && isNewerVersion(tombstone, local)) {
+      if (tombstone && isNewerVersion(tombstone, this.localVersion(local.id))) {
         this.store.remove(local.id, { origin: REMOTE_ORIGIN });
         continue;
       }
@@ -799,7 +809,7 @@ export class SyncClient {
     for (const el of snapshot) {
       // A local clear supersedes the complete in-flight snapshot.
       if (this.clearedBeforeSnapshot) continue;
-      const local = this.store.getById(el.id);
+      const local = this.localVersion(el.id);
       if (local && isNewerVersion(local, el)) {
         // A touched local edit is already sent to the hub.
         if (!this.touchedDuringResync.has(el.id)) newer.push(el.id);
