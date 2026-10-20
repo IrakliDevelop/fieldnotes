@@ -159,42 +159,29 @@ describe('parseChangelog on the current CHANGELOG.md', () => {
   const current = parseChangelog(
     readFileSync(new URL('../../../CHANGELOG.md', import.meta.url), 'utf8'),
   );
+  const release = (npmName: string, version: string): Release | undefined =>
+    current.find((r) => r.npmName === npmName && r.version === version);
 
-  it('reads Vue and Svelte release H3s, dropping the (new) marker', () => {
-    expect(
-      current.slice(0, 6).map(({ npmName, version, title, tickets }) => ({
-        npmName,
-        version,
-        title,
-        tickets,
-      })),
-    ).toEqual([
-      {
-        npmName: '@fieldnotes/core',
-        version: '0.97.0',
-        title: 'selection colour',
-        tickets: ['A2'],
-      },
-      {
-        npmName: '@fieldnotes/core',
-        version: '0.96.0',
-        title: 'viewport sources',
-        tickets: ['A12'],
-      },
-      { npmName: '@fieldnotes/react', version: '0.14.1', title: undefined, tickets: [] },
-      { npmName: '@fieldnotes/vue', version: '0.1.0', title: undefined, tickets: [] },
-      { npmName: '@fieldnotes/svelte', version: '0.1.0', title: undefined, tickets: [] },
-      {
-        npmName: '@fieldnotes/core',
-        version: '0.95.0',
-        title: 'embedded boards',
-        tickets: ['A11'],
-      },
-    ]);
+  it.each([
+    ['@fieldnotes/core', '0.97.0', 'selection colour', ['A2']],
+    ['@fieldnotes/core', '0.96.0', 'viewport sources', ['A12']],
+    ['@fieldnotes/react', '0.14.1', undefined, []],
+    ['@fieldnotes/vue', '0.1.0', undefined, []],
+    ['@fieldnotes/svelte', '0.1.0', undefined, []],
+    ['@fieldnotes/core', '0.95.0', 'embedded boards', ['A11']],
+  ])('reads %s %s with its title and tickets', (npmName, version, title, tickets) => {
+    expect(release(npmName, version)).toMatchObject({ npmName, version, title, tickets });
+  });
+
+  it('lists each package version once', () => {
+    const keys = current.map((r) => `${r.npmName ?? r.package}@${r.version}`);
+    expect(new Set(keys).size).toBe(keys.length);
   });
 
   it('keeps the Vue and Svelte notes out of the React 0.14.1 body', () => {
-    const [, , react, vue, svelte] = current;
+    const react = release('@fieldnotes/react', '0.14.1');
+    const vue = release('@fieldnotes/vue', '0.1.0');
+    const svelte = release('@fieldnotes/svelte', '0.1.0');
 
     expect(react?.bodyMarkdown).not.toContain('@fieldnotes/vue');
     expect(react?.bodyMarkdown).not.toContain('@fieldnotes/svelte');
