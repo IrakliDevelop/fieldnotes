@@ -45,12 +45,14 @@ describe('remarkFieldnotes', () => {
     },
   );
 
-  it('renders ::board as a live-board figure with a static placeholder, a mount, Clear board and the caption', async () => {
+  it('renders ::board as a live-board figure with a static placeholder, a mount, hidden board buttons and the caption', async () => {
     const html = await render('::board{example="demo"}');
     expect(html).toMatch(/^<figure class="live-board" data-live-board="demo">/);
     expect(html).toContain('<div class="board-placeholder" aria-hidden="true">');
     expect(html).toContain('<div data-live-board-mount=""></div>');
-    expect(html).toContain('<button type="button" class="live-board-clear">Clear board</button>');
+    expect(html).toContain(
+      '<div class="live-board-actions"><button type="button" class="live-board-engage" hidden>Draw on this board</button><button type="button" class="live-board-clear" hidden>Clear board</button></div>',
+    );
     expect(html).toMatch(
       /<figcaption>A live board running the snippet above\.<\/figcaption><\/figure>$/,
     );

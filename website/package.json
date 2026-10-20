@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "node scripts/astro-node.mjs astro dev",
-    "build": "node scripts/astro-node.mjs astro build",
+    "build": "node scripts/astro-node.mjs astro build && node scripts/astro-node.mjs pagefind --site dist",
     "preview": "node scripts/astro-node.mjs astro preview --port 4321",
     "typecheck": "node scripts/astro-node.mjs astro check",
     "test": "vitest run && node --test scripts/*.test.mjs && node scripts/design-ratchet.mjs",
@@ -23,6 +23,7 @@
     "@playwright/test": "^1.63.0",
     "@types/mdast": "^4.0.4",
     "astro": "^7.4.1",
+    "pagefind": "^1.5.2",
     "remark-directive": "^4.0.0",
     "remark-parse": "^11.0.0",
     "remark-stringify": "^11.0.0",

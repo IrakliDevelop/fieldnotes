@@ -16,7 +16,9 @@ const boardHtml = (example: string) =>
   '<path d="M120 200c40-60 100-90 160-70 50 18 70 70 130 60 60-10 90-80 160-70" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>' +
   '<rect x="640" y="90" width="150" height="100" rx="2" fill="none" stroke="currentColor" stroke-width="2"/>' +
   '</svg></div><div data-live-board-mount></div>' +
-  '<button type="button" class="live-board-clear">Clear board</button></div>' +
+  '<div class="live-board-actions">' +
+  '<button type="button" class="live-board-engage" hidden>Draw on this board</button>' +
+  '<button type="button" class="live-board-clear" hidden>Clear board</button></div></div>' +
   '<figcaption>A live board running the snippet above.</figcaption></figure>';
 
 /** Renders `:::margin`, `::code` and `::board`, restores stray text directives and adds `base` to root-relative URLs. */

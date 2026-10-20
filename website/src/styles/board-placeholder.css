@@ -11,6 +11,7 @@
   height: 320px;
   border: 1px solid var(--divider);
   border-radius: 6px;
+  background: var(--board);
   overflow: hidden;
 }
 
@@ -39,10 +40,16 @@
   inset: 0;
 }
 
-.live-board-clear {
+.live-board-actions {
   position: absolute;
   right: 16px;
   bottom: 14px;
+  display: flex;
+  gap: 8px;
+}
+
+.live-board-engage,
+.live-board-clear {
   min-height: 36px;
   padding: 0 12px;
   border: 1px solid #a9afa6;
@@ -59,6 +66,7 @@
 }
 
 @media (pointer: coarse) {
+  .live-board-engage,
   .live-board-clear {
     min-height: 44px;
   }

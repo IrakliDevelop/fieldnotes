@@ -129,7 +129,9 @@ test.describe('docs without JavaScript', () => {
     );
     const board = page.locator('figure[data-live-board="getting-started"]');
     await expect(board.locator('.board-placeholder')).toBeVisible();
-    await expect(board.getByRole('button', { name: 'Clear board' })).toBeVisible();
+    await expect(board.locator('.live-board-clear')).toBeHidden();
+    await expect(board.locator('.live-board-engage')).toBeHidden();
+    await expect(page.locator('input[type="search"]')).toBeHidden();
     await expect(board.locator('figcaption')).toHaveText('A live board running the snippet above.');
   });
 });
