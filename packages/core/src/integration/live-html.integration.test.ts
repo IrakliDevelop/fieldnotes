@@ -58,11 +58,16 @@ describe('Integration: live html elements', () => {
     vi.restoreAllMocks();
   });
 
-  function addLive(size = { w: 200, h: 100 }) {
+  function addLive() {
     const content = document.createElement('div');
     const button = document.createElement('button');
     content.appendChild(button);
-    const id = vp.addHtmlElement(content, { x: 100, y: 100 }, size, { interactive: true });
+    const id = vp.addHtmlElement(
+      content,
+      { x: 100, y: 100 },
+      { w: 200, h: 100 },
+      { interactive: true },
+    );
     (vp as unknown as { renderLoop: { flush(): void } }).renderLoop.flush();
     if (!wrapper.contains(button)) throw new Error('live node not mounted');
     return { id, content, button };

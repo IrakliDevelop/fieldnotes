@@ -69,10 +69,7 @@ export class EmbeddedMode {
     if (e.pointerType === 'pen') this.lastPenDownAt = e.timeStamp;
   };
 
-  /**
-   * Stops a disengaged stylus from scrolling the page, as touch-action applies to it on iPad.
-   * Unverified on devices (no iOS or Android spike ran); unit tests are the only evidence.
-   */
+  /** Stops a disengaged stylus from scrolling the page, as touch-action applies to it on iPad. */
   private readonly onTouchStart = (e: TouchEvent): void => {
     if (this.engaged || isLiveControlTarget(e.target, this.deps.wrapper)) return;
     const penJustDown = e.timeStamp - this.lastPenDownAt <= PEN_TOUCH_WINDOW_MS;

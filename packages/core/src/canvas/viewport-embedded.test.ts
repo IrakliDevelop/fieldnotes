@@ -275,7 +275,7 @@ describe('Viewport embedded mode', () => {
     expect(touchStart(wrapper, [{}]).defaultPrevented).toBe(false);
   });
 
-  it('destroy while engaged leaves Escape inert and removes touchstart handling', () => {
+  it('destroy while engaged leaves Escape and setEmbeddedEngaged inert', () => {
     mount();
     const listener = vi.fn();
     vp.onEmbeddedEngagedChange(listener);

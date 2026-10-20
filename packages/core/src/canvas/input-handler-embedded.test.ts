@@ -264,42 +264,19 @@ describe('InputHandler.cancelTouchGestures', () => {
     const { element, handler, calls, camera } = setup();
     flickMousePan(element);
 
-    pointer(element, 'pointerdown', {
-      pointerId: 1,
-      pointerType: 'touch',
-      clientX: 10,
-      clientY: 10,
-    });
-    pointer(element, 'pointerdown', {
-      pointerId: 2,
-      pointerType: 'touch',
-      clientX: 50,
-      clientY: 10,
-    });
-    pointer(element, 'pointermove', {
-      pointerId: 1,
-      pointerType: 'touch',
-      clientX: 0,
-      clientY: 20,
-    });
-    pointer(element, 'pointermove', {
-      pointerId: 2,
-      pointerType: 'touch',
-      clientX: 70,
-      clientY: 20,
-    });
+    const first = { pointerId: 1, pointerType: 'touch' };
+    const second = { pointerId: 2, pointerType: 'touch' };
+    pointer(element, 'pointerdown', { ...first, clientX: 10, clientY: 10 });
+    pointer(element, 'pointerdown', { ...second, clientX: 50, clientY: 10 });
+    pointer(element, 'pointermove', { ...first, clientX: 0, clientY: 20 });
+    pointer(element, 'pointermove', { ...second, clientX: 70, clientY: 20 });
     handler.cancelTouchGestures();
 
     expect(handler.isCameraCoasting()).toBe(false);
     const position = camera.position;
     const zoom = camera.zoom;
 
-    pointer(element, 'pointermove', {
-      pointerId: 1,
-      pointerType: 'touch',
-      clientX: 0,
-      clientY: 60,
-    });
+    pointer(element, 'pointermove', { ...first, clientX: 0, clientY: 60 });
     const tap = { pointerId: 3, pointerType: 'touch' };
     pointer(element, 'pointerdown', { ...tap, clientX: 100, clientY: 100 });
     pointer(element, 'pointermove', { ...tap, clientX: 120, clientY: 100 });
@@ -313,12 +290,8 @@ describe('InputHandler.cancelTouchGestures', () => {
   it('cancelTouchGestures leaves a mouse from a mixed pinch panning without a jump', () => {
     const { element, handler, camera } = setup();
 
-    pointer(element, 'pointerdown', {
-      pointerId: 1,
-      pointerType: 'mouse',
-      clientX: 10,
-      clientY: 10,
-    });
+    const mouse = { pointerId: 1, pointerType: 'mouse' };
+    pointer(element, 'pointerdown', { ...mouse, clientX: 10, clientY: 10 });
     pointer(element, 'pointerdown', {
       pointerId: 2,
       pointerType: 'touch',
@@ -326,12 +299,7 @@ describe('InputHandler.cancelTouchGestures', () => {
       clientY: 10,
     });
     handler.cancelTouchGestures();
-    pointer(element, 'pointermove', {
-      pointerId: 1,
-      pointerType: 'mouse',
-      clientX: 20,
-      clientY: 10,
-    });
+    pointer(element, 'pointermove', { ...mouse, clientX: 20, clientY: 10 });
 
     expect(camera.position).toEqual({ x: 10, y: 0 });
   });
