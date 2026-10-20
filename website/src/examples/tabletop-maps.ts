@@ -51,7 +51,8 @@ export function addHexGrid(viewport: Viewport): GridController {
 
 // #region fog
 export function coverMap(fog: FogManager, isGm: boolean): void {
-  fog.initialize({ bounds: { x: 0, y: 0, w: 2400, h: 1600 }, base: 'covered', cellSize: 32 });
+  if (isGm)
+    fog.initialize({ bounds: { x: 0, y: 0, w: 2400, h: 1600 }, base: 'covered', cellSize: 32 });
   fog.setViewMode(isGm ? 'editor' : 'player');
 }
 // #endregion fog

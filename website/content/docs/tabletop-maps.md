@@ -32,7 +32,7 @@ npm install @fieldnotes/core @fieldnotes/vtt
 
 ::code{example="tabletop-maps" region="fog"}
 
-- `initialize` covers the area in fog (`base: 'covered'`) or leaves it clear (`'revealed'`), in cells of `cellSize` board units.
+- `initialize` covers the area in fog (`base: 'covered'`) or leaves it clear (`'revealed'`), in cells of `cellSize` board units. On a shared board only the game master calls it, and players receive the fog from the relay.
 - Fog is not drawn until `setViewMode` picks a view. `'editor'` draws it translucent, so the game master still sees the map, and `'player'` draws it solid.
 - The game master paints with the fog tool. `operation` is `'reveal'` or `'conceal'`, and `shape` is `'brush'` (sized by `radius`), `'rectangle'` or `'polygon'`. `fogTool.setOptions({ operation: 'conceal' })` switches.
 - The fog is saved with the board in `exportJSON()`, and an [export](/docs/export/) draws it as the current view shows it.
@@ -43,4 +43,4 @@ npm install @fieldnotes/core @fieldnotes/vtt
 
 `createFogClientPlugin` from `@fieldnotes/vtt/sync` sends fog edits through the sync client, and `createFogServerPlugin` from `@fieldnotes/vtt/server` applies them on the relay. Its `authorize` decides who may change the fog, here only the game master. With Redis, the backend also takes `createFogBackendPlugin()` from `@fieldnotes/vtt/redis`.
 
-Fog hides the map on screen only. Every client in the room receives the whole fog and the elements under it, and the player view draws the fog over them. Put anything players must not receive, such as a trap or a secret door, on a layer the relay filters with `canRead`, as [Multiplayer](/docs/multiplayer/) shows. The relay then never sends it to them.
+Fog hides the map on screen only. Every client in the room receives the whole fog and the elements under it, and the player view draws the fog over them. Put anything players must not receive, such as a trap or a secret door, on a layer the relay filters with `canRead`, as [Multiplayer](/docs/multiplayer/) shows. The relay then never sends those elements to them, though the layer name is not hidden.

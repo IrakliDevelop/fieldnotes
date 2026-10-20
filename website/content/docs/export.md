@@ -7,7 +7,7 @@ order: 5
 
 ## Export a PNG
 
-`viewport.exportImage(options)` draws the board into a new canvas and resolves to a PNG `Blob`. It resolves to `null` when no element on a visible layer is left to draw.
+`viewport.exportImage(options)` draws the board into a new canvas and resolves to a PNG `Blob`. It resolves to `null` when no element on a visible layer is left to draw and no `region` is set.
 
 ::code{example="export" region="png"}
 
@@ -18,7 +18,7 @@ The options:
 - `background`: the fill colour, default `#ffffff`.
 - `filter(element)`: return `false` to leave an element out.
 - `region: { x, y, w, h }`: exports that rectangle of the board instead of the area the elements cover.
-- `format: 'jpeg'`, with `quality` from 0 to 1, makes a JPEG. A JPEG has no transparency, so keep an opaque `background`.
+- `format: 'jpeg'`, with `quality` above 0 and up to 1, makes a JPEG. A JPEG has no transparency, so keep an opaque `background`.
 - `maxDimension` (default 16,384px) and `maxPixels` (default 67,108,864) cap the output. A larger export throws a `RangeError`, unless `scaleMode: 'fit'` lowers the scale until it fits.
 
 ## Export an SVG
@@ -42,8 +42,8 @@ The selection, remote cursors and the board's background pattern are not drawn.
 An export draws on a canvas, and an HTML element is a DOM node, so the export leaves it out unless you draw it. There are two ways:
 
 - `renderHtml(element)` returns a canvas, an `ImageBitmap` or a loaded image for the element, or a promise of one. The export sizes, rotates and orders it like the element, at its layer's opacity. Field Notes doesn't turn DOM into pixels: draw the element from its `data`, as below, or use a DOM-to-image library.
-- A canvas painter registered with `viewport.registerHtmlPainter(htmlType, painter)` draws every element of that `htmlType` in exports with no `renderHtml`. It also draws them on the board, which then shows no DOM node for them.
+- A canvas painter registered with `viewport.registerHtmlPainter(htmlType, painter)` draws every element of that `htmlType` in exports, without `renderHtml`. It also draws them on the board, which then shows no DOM node for them.
 
 ::code{example="export" region="render-html"}
 
-`onHtmlError` reports each HTML element left out, with a reason: `unsupported` when there is no `renderHtml`, `render` when it returns `null` or throws, and `timeout` after `htmlTimeoutMs` (default 10 seconds). The export goes on without that element.
+`onHtmlError` reports each HTML element left out, with a reason such as `unsupported` when there is no `renderHtml`, `render` when it returns `null` or throws, and `timeout` after `htmlTimeoutMs` (default 10 seconds). The export goes on without that element.

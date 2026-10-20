@@ -31,7 +31,7 @@ The relay keeps each room's elements, sends them to each person who joins, and p
 - `WebSocketTransport` opens the socket when it is created. When the connection drops it reconnects, waiting longer after each failure, up to 10 seconds. It doesn't reconnect after a close code from 4000 to 4999, which the relay uses to refuse a connection.
 - `client.start()` asks the relay for the room and starts sending the board's changes. It sends them at most every 50ms (`flushIntervalMs`), so a drag sends one update per element per flush.
 - Changes from other people arrive with origin `'remote'`, so mod+Z undoes only your own, as [Undo and history](/docs/undo-and-history/) explains.
-- Elements sync on their own. Layer changes reach other people only when the client has the `layers` option and your code publishes each change with `client.publishLayerUpsert(layer)`.
+- Elements sync on their own. Layer changes reach other people only when the client has the `layers` option and your code publishes each change with `client.publishLayerUpsert(layer)` or `client.publishLayerRemove(id)`.
 - Call `client.dispose()` and `transport.close()` when the board goes away.
 
 ## Sign people in
@@ -62,7 +62,7 @@ The client tags each element from the layer it is on:
 
 A client can send any tag, so the relay's `resolveAudience` decides the tag it stores. Here a GM's tag is kept, and a player's element keeps its stored tag or becomes `shared`. Without `resolveAudience` on the relay, `authorize` has to check the tag itself.
 
-When an element moves to an audience a viewer can't read, that viewer receives a remove, and when it moves back, an add. With several relay instances, each one filters for its own connections, so all of them need the same `canRead`.
+When an element moves to an audience a viewer can't read, that viewer receives a remove, and when it moves back, an add. With several relay instances, each one filters for its own connections, so all of them need the same `canRead`. Layers are not filtered: every viewer receives every synced layer and its name.
 
 ## Keep rooms in Redis
 
