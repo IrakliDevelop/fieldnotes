@@ -1,6 +1,6 @@
 import { test, expect, CanvasPage } from './fixtures/canvas-page';
 import type { Page } from '@playwright/test';
-import { pinchGesture, singleFingerDraw, singleFingerHold, twoFingerPan } from './helpers/touch';
+import { pinchGesture, singleFingerDraw, singleFingerHold, twoFingerFlick } from './helpers/touch';
 
 /**
  * e2e coverage for the html-painter registry + `ElementActivation` (Task
@@ -593,7 +593,7 @@ test.describe('marker activation — integration edge cases', () => {
       (window as unknown as Record<string, unknown>)['__markers_coast_positions'] = positions;
       vp.camera.onChange(() => positions.push({ ...vp.camera.position }));
     });
-    await twoFingerPan(page, point, { x: 80, y: 0 }, 4);
+    await twoFingerFlick(page, point, { x: 80, y: 0 }, 4);
 
     // Drop everything recorded during the drag itself: handlePinchMove()
     // calls camera.pan() on every touchmove step of a two-finger drag, so

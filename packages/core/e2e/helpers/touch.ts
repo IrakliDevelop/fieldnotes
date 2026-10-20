@@ -1,4 +1,10 @@
-import type { Page } from '@playwright/test';
+import type { CDPSession, Page } from '@playwright/test';
+
+async function liftAtRest(page: Page, client: CDPSession): Promise<void> {
+  // Chromium flings a lift at speed, even on touch-action: none, and swallows the next tap's click.
+  await page.waitForTimeout(100);
+  await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+}
 
 export async function pinchGesture(
   page: Page,
@@ -31,10 +37,7 @@ export async function pinchGesture(
     });
   }
 
-  await client.send('Input.dispatchTouchEvent', {
-    type: 'touchEnd',
-    touchPoints: [],
-  });
+  await liftAtRest(page, client);
 }
 
 export async function singleFingerDraw(
@@ -57,10 +60,7 @@ export async function singleFingerDraw(
     });
   }
 
-  await client.send('Input.dispatchTouchEvent', {
-    type: 'touchEnd',
-    touchPoints: [],
-  });
+  await liftAtRest(page, client);
 }
 
 export async function singleFingerHold(
@@ -128,7 +128,7 @@ export async function twoFingerTakeover(
       ],
     });
   }
-  await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await liftAtRest(page, client);
 }
 
 export async function twoFingerPan(
@@ -137,6 +137,26 @@ export async function twoFingerPan(
   delta: { x: number; y: number },
   steps = 5,
 ): Promise<void> {
+  await liftAtRest(page, await twoFingerDrag(page, from, delta, steps));
+}
+
+export async function twoFingerFlick(
+  page: Page,
+  from: { x: number; y: number },
+  delta: { x: number; y: number },
+  steps = 5,
+): Promise<void> {
+  const client = await twoFingerDrag(page, from, delta, steps);
+  // A flick lifts at speed on purpose, to start pan inertia.
+  await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+}
+
+async function twoFingerDrag(
+  page: Page,
+  from: { x: number; y: number },
+  delta: { x: number; y: number },
+  steps: number,
+): Promise<CDPSession> {
   const client = await page.context().newCDPSession(page);
   const spacing = 40;
 
@@ -161,8 +181,5 @@ export async function twoFingerPan(
     });
   }
 
-  await client.send('Input.dispatchTouchEvent', {
-    type: 'touchEnd',
-    touchPoints: [],
-  });
+  return client;
 }
