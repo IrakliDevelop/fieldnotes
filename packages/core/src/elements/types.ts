@@ -72,6 +72,15 @@ export interface HtmlElement extends BaseElement {
   type: 'html';
   size: Size;
   domId?: string;
+  /**
+   * Makes the element live. A press on a control (`a[href]`, `button`, `input`, `select`,
+   * `textarea`, `label`, `summary`, editable content, `audio`/`video` with `controls`, `iframe`,
+   * or `[data-fn-control]`) goes to the control; the board ignores it. A press on any other part
+   * selects and moves the element like a note, so give it padding or a `data-fn-drag` area (it
+   * wins over an enclosing control). A selected element's resize and rotate handles win over
+   * controls. Host `contenteditable` content needs `user-select: text`. Synced: sanitize
+   * anything built from `data`.
+   */
   interactive?: boolean;
   /** Discriminator matching a renderer registered via `viewport.registerHtmlRenderer`. */
   htmlType?: string;

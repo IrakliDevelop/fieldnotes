@@ -6,6 +6,63 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### Core 0.95.0 — embedded boards (A11)
+
+**Added**
+
+- `ViewportOptions.embedded` (default `false`, read at construction): a board inside a scrolling
+  page. A plain wheel is left to the page, and Ctrl/⌘+wheel zooms at the cursor. Touch is ignored
+  until the host engages the board, so a one-finger swipe scrolls the page, and the wrapper uses
+  `touch-action: manipulation` and `overscroll-behavior: auto`. Mouse and pen are never gated.
+  While engaged the board behaves as before. Ignored touch includes the double-tap that opens
+  the note or text editor and the long-press context menu.
+- `Viewport.setEmbeddedEngaged(engaged)`, `isEmbeddedEngaged()` and
+  `onEmbeddedEngagedChange(listener)`. A board that is not embedded reports `true`, ignores the
+  setter and never emits. Disengaging cancels touch gestures in progress without an undo step and
+  keeps the selection. While engaged, Escape anywhere in the document disengages, unless focus is
+  in a text field or an editable area, or the Escape was already handled (an open context menu
+  takes it first).
+- `Viewport.onWheelPassThrough(listener)`: fires for every plain wheel an embedded board leaves to
+  the page, for a "Hold Ctrl to zoom" hint. Core does not throttle it.
+- `addHtmlElement` option `interactive` (persisted and synced).
+- `data-fn-control` marks any element as a control of a live element, and `data-fn-drag` marks
+  an area as draggable even inside a control. The nearest one wins. The built-in controls are
+  `a[href]`, `button`, `input`, `select`, `textarea`, `label`, `summary`, editable content,
+  `audio[controls]`, `video[controls]` and `iframe`.
+
+**Changed**
+
+- `HtmlElement.interactive` now makes an element live. Before, a press anywhere on it selected or
+  dragged the element and captured the pointer, so clicks on its controls never fired; the 0.13
+  wording that it "blocks canvas pan/select" was wrong. Now a press on a control goes to the
+  control: no tool, selection, capture, pan or undo step, under every tool and pointer type. A
+  press on the rest selects and moves the element like a note. Native text selection and drag do
+  not start from there. Controls keep working on a locked layer.
+- Hosts must give live elements padding or a `data-fn-drag` area, because an element made only of
+  controls cannot be selected or moved. A selected element's resize and rotate handles win over
+  controls. Double-click no longer enters interact mode for a live element.
+- While a live control has focus, board shortcuts do not fire. That includes Escape (deselect),
+  Delete and undo.
+- The wrapper's scroll offsets are reset to 0 on embedded boards and on boards with live
+  elements, so focusing a control near an edge cannot misalign the DOM layer.
+- The context menu calls `preventDefault` on the Escape that closes it.
+
+**Security**
+
+- `interactive` is synced, so a remote editor can make host-rendered `htmlType` content live for
+  every viewer. Sanitize URLs and markup that a renderer builds from `data`.
+
+**Not gated**
+
+Disengaged touch is still seen by `setActivation` / `ElementActivation` (a tap can fire it), the
+minimap, and host-created `PingInput` and `CameraAnimator`.
+
+**Known limits**
+
+- The guard that stops a disengaged Apple Pencil or Android stylus from scrolling the page has unit
+  tests only. It has not been checked on a device.
+- Wheel and gesture behaviour in WebKit/Safari has not been run in a browser.
+
 ### Core 0.94.0 — live stroke preview (F8)
 
 **Added**

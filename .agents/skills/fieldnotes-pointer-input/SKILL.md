@@ -24,18 +24,20 @@ describe the current code; if the code disagrees, the code wins and this skill g
   resets whenever pointer membership changes while two or more pointers remain.
 - `toolPointerId` owns the gesture. An up, cancel, or leave from any other pointer never ends it
   (`finishPointer` ignores foreign ends).
-- `setPointerCapture` runs on every down. `onLostPointerCapture` cancels only while the pointer is
+- `setPointerCapture` runs on every down except presses on live controls and gated pointers (touch
+  on a disengaged `embedded` board). `onLostPointerCapture` cancels only while the pointer is
   still active. `pointerleave` commits like an up.
 - Window `blur` and document `visibilitychange` call `abandonGestures`.
-- `touchAction` on the canvas element stays `'none'`.
+- `touchAction` on the canvas element is `'none'`, except a disengaged `embedded` board, which uses
+  `'manipulation'`.
 - Palm rejection (`InputFilter`): while a pen is down (`activePenId`), touch is suppressed. A touch
   down is deferred until it moves more than `MIN_MOVE_DISTANCE` (3 px) or lifts.
 - A pen that is not pressed routes to the tool's `onHover` (`dispatchToolHover`).
 - Pressure: `pressure === 0` means `DEFAULT_PRESSURE` in `pencil-tool.ts`; width comes from
   `pressureToWidth`.
 - Touch long press (`LONG_PRESS_MS`) opens the context menu, with the select tool only.
-- Keyboard (`KeyboardHandler`): events from contentEditable, `INPUT`, `TEXTAREA`, and `SELECT` are
-  ignored. Scope is `'focus'` or `'window'` (`ShortcutMap`). The active tool's `onKeyDown` runs
+- Keyboard (`KeyboardHandler`): events from contentEditable, `INPUT`, `TEXTAREA`, `SELECT`, and
+  live controls are ignored. Scope is `'focus'` or `'window'` (`ShortcutMap`). The active tool's `onKeyDown` runs
   before shortcuts.
 - `ElementActivation` is a passive observer: passive listeners, no `preventDefault`, no
   `stopPropagation`, no capture. Hidden layers do not activate; locked layers do.
