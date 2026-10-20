@@ -1,0 +1,98 @@
+---
+import roadmap from '../../../content/roadmap.md?raw';
+import Base from '../../layouts/Base.astro';
+import { parseRoadmap } from '../../lib/roadmap';
+import { link } from '../../utils/base';
+
+const { built, next, notBuilt } = parseRoadmap(roadmap);
+const sections = [
+  { id: 'built', title: 'Built', items: built },
+  { id: 'next', title: 'Next', items: next },
+  { id: 'not-built', title: 'Not built yet', items: notBuilt },
+];
+---
+
+<Base
+  title="Roadmap, Field Notes"
+  description="What is built in Field Notes, what comes next and what is not built yet."
+  current="roadmap"
+>
+  <main class="wrap roadmap">
+    <h1>Roadmap</h1>
+    <div class="intro">
+      <p>
+        This is what I've built into Field Notes so far, what I'm working on next and what isn't
+        built yet. The pull request that finishes an item moves it to Built, and the <a
+          href={link('/changelog/')}>changelog</a
+        > dates each release.
+      </p>
+      <p class="signature">Irakli</p>
+    </div>
+    {
+      sections.map(({ id, title, items }) => (
+        <section aria-labelledby={id}>
+          <h2 id={id}>{title}</h2>
+          <ul>
+            {items.map((item) => (
+              <li>{item}</li>
+            ))}
+          </ul>
+        </section>
+      ))
+    }
+  </main>
+</Base>
+
+<style>
+  .roadmap {
+    display: flex;
+    flex-direction: column;
+    gap: 40px;
+    padding-top: 48px;
+    padding-bottom: 96px;
+  }
+
+  h1 {
+    margin: 0;
+    font-size: 44px;
+    line-height: 1.1;
+  }
+
+  .intro {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-width: 36em;
+    color: var(--graphite-2);
+    font-size: 19px;
+    line-height: 1.6;
+  }
+
+  .intro p {
+    margin: 0;
+  }
+
+  .signature {
+    font-family: 'Young Serif', serif;
+    font-size: 22px;
+  }
+
+  h2 {
+    margin: 0 0 16px;
+    font-size: 28px;
+    line-height: 1.2;
+  }
+
+  ul {
+    max-width: 44em;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    border-top: 1px solid var(--divider-2);
+  }
+
+  li {
+    padding: 12px 0;
+    border-bottom: 1px solid var(--divider-2);
+  }
+</style>

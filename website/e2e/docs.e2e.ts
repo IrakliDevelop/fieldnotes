@@ -132,14 +132,16 @@ test('the docs index shows the facts and the nav groups', async ({ page }) => {
   await expectNoAxeViolations(page);
 });
 
-test('every docs page in the sidebar is served', async ({ page, request }) => {
+test('every page in the sidebar is served', async ({ page, request }) => {
   await page.goto('/docs/getting-started/');
-  // Reference links leave the docs collection, and /api/ exists only in the Pages build.
+  // /api/ exists only in the Pages build.
   const hrefs = await page
     .getByRole('navigation', { name: 'Docs' })
-    .locator('a[href*="/docs/"]')
+    .locator('a:not([href$="/api/"])')
     .evaluateAll((links) => links.map((link) => link.getAttribute('href') ?? ''));
-  expect(hrefs).toContain('/docs/saving-and-loading/');
+  expect(hrefs).toEqual(
+    expect.arrayContaining(['/docs/saving-and-loading/', '/changelog/', '/roadmap/']),
+  );
   for (const href of hrefs) {
     expect((await request.get(href)).status(), href).toBe(200);
   }

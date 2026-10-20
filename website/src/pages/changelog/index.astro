@@ -1,0 +1,133 @@
+---
+import { readFileSync } from 'node:fs';
+import { unified } from '@astrojs/markdown-remark';
+import remarkDirective from 'remark-directive';
+import Base from '../../layouts/Base.astro';
+import { parseChangelog } from '../../lib/changelog';
+import { remarkFieldnotes } from '../../lib/remark-fieldnotes';
+import { getReleaseDates, PUBLIC_PACKAGES, repoFile } from '../../lib/versions';
+import { codeTheme } from '../../styles/code-theme';
+
+const releases = parseChangelog(readFileSync(repoFile('CHANGELOG.md'), 'utf8'));
+const npmDates = new Map(
+  await Promise.all(PUBLIC_PACKAGES.map(async (pkg) => [pkg, await getReleaseDates(pkg)] as const)),
+);
+// The docs pipeline, so root-relative links get the base; the changelog uses no examples.
+const markdown = await unified({
+  remarkPlugins: [remarkDirective, [remarkFieldnotes, { base: import.meta.env.BASE_URL, examples: {} }]],
+}).createRenderer({ shikiConfig: { theme: codeTheme } });
+const items = await Promise.all(
+  releases.map(async (release) => ({
+    ...release,
+    id: `${release.package}-${release.version}`.toLowerCase().replace(/[^a-z\d.]+/g, '-'),
+    subtitle: [release.title, release.tickets.join(', ')].filter(Boolean).join(' · '),
+    date: (release.npmName && npmDates.get(release.npmName)?.[release.version]) ?? release.date,
+    html: (await markdown.render(release.bodyMarkdown)).code,
+  })),
+);
+---
+
+<Base
+  title="Changelog, Field Notes"
+  description="Every release of the @fieldnotes packages, newest first, with the day it reached npm."
+  current="changelog"
+>
+  <main class="wrap changelog">
+    <h1>Changelog</h1>
+    <p class="intro">
+      Releases of every <code>@fieldnotes</code> package, newest first. Each package has its own
+      version numbers: a Core release and a React release with the same number are unrelated.
+    </p>
+    {
+      items.map(({ id, package: pkg, version, subtitle, date, html }) => (
+        <article aria-labelledby={id}>
+          <h2 id={id}>
+            {pkg} {version}
+          </h2>
+          {subtitle && <p class="meta">{subtitle}</p>}
+          <p class="meta">
+            {date ? (
+              <>
+                Released <time datetime={date}>{date}</time>
+              </>
+            ) : (
+              'Not published yet'
+            )}
+          </p>
+          <div class="body" set:html={html} />
+        </article>
+      ))
+    }
+  </main>
+</Base>
+
+<style>
+  .changelog {
+    display: flex;
+    flex-direction: column;
+    gap: 40px;
+    padding-top: 48px;
+    padding-bottom: 96px;
+    line-height: 1.6;
+  }
+
+  h1 {
+    margin: 0;
+    font-size: 44px;
+    line-height: 1.1;
+  }
+
+  .intro {
+    max-width: 36em;
+    margin: 0;
+    color: var(--graphite-2);
+    font-size: 19px;
+  }
+
+  article {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding-top: 24px;
+    border-top: 1px solid var(--divider-2);
+  }
+
+  h2 {
+    margin: 0;
+    font-size: 28px;
+    line-height: 1.2;
+  }
+
+  .meta {
+    margin: 0;
+    color: var(--muted);
+    font-size: 15px;
+  }
+
+  .body {
+    max-width: 44em;
+    overflow-wrap: anywhere;
+  }
+
+  .body > :global(*) {
+    margin: 12px 0 0;
+  }
+
+  .body :global(ul) {
+    padding-left: 20px;
+  }
+
+  .body :global(:not(pre) > code) {
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: var(--code-bg);
+    font-size: 0.88em;
+  }
+
+  .body :global(pre) {
+    padding: 20px 22px;
+    border-radius: 4px;
+    overflow-x: auto;
+    font: 400 14px/1.7 'JetBrains Mono', monospace;
+  }
+</style>
