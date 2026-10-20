@@ -1,4 +1,4 @@
-export const VERSION = '0.93.0';
+export const VERSION = '0.94.0';
 
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
 export { snapPoint } from './core/snap';

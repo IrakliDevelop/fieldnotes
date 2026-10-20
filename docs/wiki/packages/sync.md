@@ -64,6 +64,9 @@ client.disconnect();
 - `onSnapshot?` — callback for authoritative snapshots
 - `layerSync?` — layer sync options
 - `fogSync?` — fog sync options
+- `flushIntervalMs?` — minimum gap between flushes of queued element ops (default 50, so at most
+  20 per second); `0` sends every op synchronously
+- `tombstoneRetentionMs?` — how long delete tombstones are kept (default 7 days)
 
 **Methods:**
 
@@ -71,6 +74,7 @@ client.disconnect();
 - `disconnect()` — close connection
 - `sendPresence(data)` — broadcast presence
 - `requestSnapshot()` — request full state
+- `flush()` — send queued element ops now
 
 ### SyncTransport
 
@@ -143,6 +147,8 @@ interface SyncEnvelope {
 type SyncOp =
   | { kind: 'upsert'; element: CanvasElement }
   | { kind: 'remove'; id: string }
+  | { kind: 'batch'; ops: BatchOp[] } // only to and from hubs that advertise opBatching
+  | { kind: 'unsupported'; protocolVersion: number; minProtocolVersion: number; reason: string }
   | { kind: 'clear' }
   | { kind: 'request-snapshot' }
   | {
@@ -234,7 +240,11 @@ client.sendPresence({
 - Selection state
 - Laser pointer
 - Ping (attention)
+- Stroke preview (`PencilTool.onPreview`, drawn by `RemoteStrokeOverlay`)
 - Focus (viewport)
+
+The hub does not filter presence by audience, so do not forward stroke previews for strokes on
+audience-restricted layers.
 
 ## Data Flow
 
@@ -243,7 +253,7 @@ client.sendPresence({
 ```
 1. Local mutation → ElementStore
 2. SyncClient observes via subscription
-3. Change serialized into SyncEnvelope
+3. Op queued; the queue is flushed at most every flushIntervalMs (as a batch through 0.29 hubs)
 4. Sent via Transport
 5. Server validates and relays to other clients
 ```
@@ -287,6 +297,7 @@ const client2 = new SyncClient({
 });
 
 // Changes in client1 appear in client2
+// Pass flushIntervalMs: 0 to send element ops synchronously instead of every 50 ms.
 ```
 
 ## Build

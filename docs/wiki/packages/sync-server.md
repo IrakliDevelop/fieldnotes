@@ -70,6 +70,9 @@ wss.on('connection', (ws) => {
 - `maxJsonDepth?: number` — max JSON nesting depth (default: 10)
 - `presenceThrottleMs?: number` — presence rate limit (default: 50ms)
 - `maxPresenceLanes?: number` — max presence categories
+- `opsPerSecond?: number` / `opBurst?: number` — per-connection element-op budget, counting each
+  op of a batch (defaults 2,000 / 4,000); going over closes with `4408`. Drags of more than about
+  100 elements at 20 flushes per second need a higher `opsPerSecond`
 - `elementRegistry?: ElementRegistry` — adapters used to encode extension envelopes for legacy peers (unknown legacy types are relayed verbatim)
 
 **Methods:**

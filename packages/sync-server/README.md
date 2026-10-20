@@ -97,6 +97,25 @@ interface HubBackend {
 instead requires its `expected` map to match every stored element. Drop expired tombstones when
 building a snapshot. `get` and `apply` are gone.
 
+## Batched element ops (0.29.0)
+
+The hub advertises the `opBatching` capability and accepts `batch` frames from 0.29 clients. It runs
+each op of a batch in order through the same pipeline as a single op; a rejected op gets its own
+correction and does not affect the others. Recipients that advertised `opBatching` get the accepted
+ops as one `batch`, filtered for what each may read; others get individual ops. Fanout to other
+instances stays one payload per op, so 0.28 instances on the same Redis keep working. A batch
+counts as one message for `messagesPerSecond` and runs under one frame-policy deadline.
+
+Each element op, single or batched, also counts against a per-connection op budget: `opsPerSecond`
+(default 2,000) and `opBurst` (default 4,000), on both `createSyncServer` and `SyncHub`. Going over
+closes the connection with `4408`. Clients flush up to 20 times per second, so a drag of more than
+about 100 elements needs a higher `opsPerSecond`.
+
+Before the `4406` close for a protocol below 2, the hub sends an `unsupported` reply explaining the
+refusal. With a frame policy it waits up to 1 s for that send before closing.
+
+Authority proposals whose element upsert is over `AUTHORITY_ELEMENT_LIMITS` are rejected.
+
 ## Authority proposal preparation
 
 `prepareAuthorityProposal(actor, message)` is a synchronous building block used by the
@@ -301,11 +320,11 @@ await server.close();
 ## Resource limits
 
 The reference server bounds work and memory per connection by default. Oversized WebSocket messages
-close with code `1009`; message-rate, byte-rate and pending-auth queue violations close with code
-`4408`; a socket over the per-address or per-room connection cap closes with `4429`. Messages with
-excessive JSON nesting, and presence payloads over `maxPresenceBytes`, are dropped. Presence sends
-immediately, then coalesces rapid updates so the latest state is forwarded at most once per throttle
-interval.
+close with code `1009`; message-rate, byte-rate, element-op and pending-auth queue violations close
+with code `4408`; a socket over the per-address or per-room connection cap closes with `4429`.
+Messages with excessive JSON nesting, and presence payloads over `maxPresenceBytes`, are dropped.
+Presence sends immediately, then coalesces rapid updates so the latest state is forwarded at most
+once per throttle interval.
 
 ```ts
 createSyncServer({
@@ -318,6 +337,8 @@ createSyncServer({
   messageBurst: 240,
   bytesPerSecond: 4 * 1024 * 1024,
   byteBurst: 8 * 1024 * 1024,
+  opsPerSecond: 2000,
+  opBurst: 4000,
   presenceThrottleMs: 50,
   maxPresenceBytes: 4 * 1024,
   maxConnectionsPerIp: 64,

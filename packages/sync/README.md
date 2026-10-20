@@ -31,8 +31,11 @@ extension kinds and versioned snapshot state. For fog, install `createFogClientP
 
 `SYNC_LIMITS` lists the caps `parseEnvelope` enforces on received frames: JSON depth 64,
 identifiers and short strings 256 characters, text and arrow labels 1 MiB, image `src` 16 MiB,
-100 000 stroke points, and 1 000 000 snapshot elements. Over-limit frames are dropped.
-`isWithinSyncLimits(envelope)` applies the same checks to an already parsed envelope.
+100 000 stroke points, 1 000 000 snapshot elements, and 1 000 ops per batch. Over-limit frames are
+dropped. `isWithinSyncLimits(envelope)` applies the same checks to an already parsed envelope.
+`SyncClient` also checks each element op before sending: an op over a cap is not sent and is
+reported as a `SyncLimitError` (`elementId`, `limit`) through `globalThis.reportError` when
+available. The local store keeps the element.
 
 ## v4 capability handshake
 
@@ -63,6 +66,37 @@ managed connection treats that, or a `4406` close from the hub, as terminal: sta
 `'unsupported'`, no reconnect. Use `parseLegacyEnvelope` to validate protocol 2 legacy frames;
 `parseEnvelope` is unchanged.
 
+## Op batching (0.29.0)
+
+`SyncClient` queues local element ops and sends the queue at most every `flushIntervalMs`
+(default 50 ms, so 20 flushes per second). An upsert sends the element's state at flush time, so a
+drag sends one op per element per flush. An element deleted before the flush, for example by a
+remote remove, is not sent. Element frames, snapshot re-pushes included, wait up to
+`flushIntervalMs`; the audience of a queued element is resolved at flush time. `flush()` sends the
+queue now, and the queue is sent before clears, snapshots, snapshot requests, layer and extension
+ops, and `stop()`. Pass `flushIntervalMs: 0` to send every op synchronously, for example in tests.
+
+```ts
+const client = new SyncClient({ store, transport, flushIntervalMs: 0 });
+```
+
+A flush goes as `batch` frames only through a hub that advertises `opBatching` (0.29 hubs). Batches
+are split to stay within the frame byte and depth limits; an op too large for a batch goes alone.
+Peer to peer and with 0.28 hubs each op is its own frame. Against a 0.28 hub that is up to 20
+flushes per second of individual ops, so a drag of many elements can still exceed that hub's
+message rate limit.
+
+Batching stops when the transport reports a close and resumes after the next hub handshake.
+`WebSocketTransport` implements the optional `SyncTransport.onClose(handler)`; custom transports
+should implement it too, so ops buffered while disconnected go as single ops.
+
+A hub may reply `unsupported` (protocol version, minimum version, reason) before closing with
+`4406`. `SyncClient` stops, and a managed connection settles `'unsupported'` and exposes the reason
+through `getUnsupportedReason()`.
+
+Client tombstones are pruned when a snapshot is built or received once they are older than
+`tombstoneRetentionMs` (default 7 days).
+
 ## Authority wire primitives (0.22.0)
 
 `createAuthorityCapabilities(extensionKinds)` explicitly adds `authority: 1` to the current
@@ -74,6 +108,10 @@ direction-specific `authority:1` frames and return frozen values or `null`. The 
 `serializeAuthorityFrame` writes deterministic, UTF-16-key-sorted JSON within the 1 MiB frame
 limit. These codecs validate wire structure only; they do not authorize a mutation or apply it.
 Legacy `parseEnvelope` and authority parsing remain separate.
+
+Proposed element upserts are capped per field by `AUTHORITY_ELEMENT_LIMITS` (ids and short strings
+256 characters, text 1 MiB, `src` 16 MiB, 100 000 stroke points). `changes` frames and checkpoints
+are not capped, so stored data over a cap never makes a client frame unparseable.
 
 `AuthorityCursor` tracks a contiguous visible projection within one generation and stream.
 `classifyAuthorityCursor` reports next, stale, gap, or reset without comparing revisions across
