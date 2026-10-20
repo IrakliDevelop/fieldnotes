@@ -108,6 +108,22 @@ describe('CanvasElement', () => {
     expect(vp.history.undoCount).toBe(0);
   });
 
+  it('accepts a class attribute without a Vue warning', async () => {
+    const warnHandler = vi.fn();
+    const app = createApp({
+      render: () =>
+        h(FieldNotesCanvas, null, () =>
+          h(CanvasElement, { position: { x: 0, y: 0 }, class: 'card' }, () => h('div')),
+        ),
+    });
+    app.config.warnHandler = warnHandler;
+    app.mount(document.createElement('div'));
+    await nextTick();
+    await nextTick();
+    app.unmount();
+    expect(warnHandler).not.toHaveBeenCalled();
+  });
+
   it('does not update the store when a parent re-renders with equal geometry', async () => {
     const tick = ref(0);
     const { vp } = await mountCanvas(() =>

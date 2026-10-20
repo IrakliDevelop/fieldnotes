@@ -38,6 +38,8 @@ export const canvasElementProps = {
  */
 export const CanvasElement = defineComponent({
   name: 'CanvasElement',
+  // The root is a Teleport, which cannot inherit attributes.
+  inheritAttrs: false,
   props: canvasElementProps,
   setup(props, { slots }) {
     const viewport = useViewport();
