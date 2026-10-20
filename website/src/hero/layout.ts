@@ -19,6 +19,13 @@ export interface HeroRect {
   h: number;
 }
 
+/** Returns the element matching `selector` under `root`, or throws. */
+export function required<T extends Element>(root: ParentNode, selector: string): T {
+  const el = root.querySelector<T>(selector);
+  if (!el) throw new Error(`hero is missing ${selector}`);
+  return el;
+}
+
 /** Returns the `[data-hero-node]` element for `key`. */
 export function heroNode(root: HTMLElement, key: HeroKey): HTMLElement {
   const node = root.querySelector<HTMLElement>(`[data-hero-node="${key}"]`);
@@ -48,7 +55,8 @@ export function measure(
       x: box.left + box.width / 2 - w / 2 - origin.x,
       y: box.top + box.height / 2 - h / 2 - origin.y,
       w,
-      h,
+      // Descenders past a tight line-height would be clipped by core's overflow-hidden box.
+      h: Math.max(h, node.scrollHeight),
     };
   };
   return {

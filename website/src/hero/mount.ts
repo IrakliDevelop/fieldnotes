@@ -7,11 +7,16 @@ import {
   Viewport,
   createStroke,
   type CanvasState,
+  type PeerRoster,
 } from '@fieldnotes/core';
-import { HERO_KEYS, boardOrigin, heroNode, measure, type HeroKey } from './layout';
+import { wireControls } from './controls';
+import { HERO_KEYS, boardOrigin, heroNode, measure, required, type HeroKey } from './layout';
 import { lockdown } from './lockdown';
+import { startMira } from './mira';
 import { ruledPaper } from './ruled';
 import { sampleSketch } from './seed';
+import './hero.css';
+import '../styles/floating.css';
 
 /** The mounted hero board. */
 export interface HeroHandle {
@@ -19,7 +24,10 @@ export interface HeroHandle {
   selectTool: SelectTool;
   seed: CanvasState;
   headlineId?: string;
+  roster: PeerRoster;
   putBack(): void;
+  stopMira(): void;
+  restartMira(): void;
   destroy(): void;
 }
 
@@ -29,12 +37,6 @@ const INTERACTIVE: readonly HeroKey[] = ['actions', 'checklist'];
 
 function ignore(): void {
   // Replaces core's default paste and drop handling, which would add elements to the hero.
-}
-
-function required<T extends Element>(root: ParentNode, selector: string): T {
-  const el = root.querySelector<T>(selector);
-  if (!el) throw new Error(`hero is missing ${selector}`);
-  return el;
 }
 
 /** Turns the server-rendered hero into a live board that adopts its own DOM nodes. */
@@ -47,15 +49,15 @@ export async function mountHero(root: HTMLElement): Promise<HeroHandle> {
 
   await document.fonts.ready;
   const { wide, rects } = measure(root, board);
-  const strokes = sampleSketch(sketch, boardOrigin(board));
+  const origin = boardOrigin(board);
+  const strokes = sampleSketch(sketch, origin);
+  // The static arrow's tip is 2px into its 18px box; core draws the cursor tip at the point.
+  const miraBox = required(root, '[data-hero-mira]').getBoundingClientRect();
+  const miraHome = { x: miraBox.left + 2 - origin.x, y: miraBox.top + 2 - origin.y };
+  const pinned = wide ? flow.offsetHeight : board.offsetHeight;
 
-  // Pin the static flow so moving nodes onto the board shifts nothing.
-  if (wide) flow.style.height = `${flow.offsetHeight}px`;
-  else board.style.height = `${board.offsetHeight}px`;
-  Object.assign(board.style, { padding: '0', backgroundImage: 'none' });
-  required<HTMLElement>(board, '[data-hero-side]').hidden = true;
-  root.querySelector('[data-hero-frame]')?.remove();
-
+  // Test switch: a failure here must leave the static hero untouched.
+  if (new URLSearchParams(location.search).has('hero-fail')) throw new Error('hero-fail');
   const selectTool = new SelectTool();
   const viewport = new Viewport(board, {
     embedded: true,
@@ -73,6 +75,13 @@ export async function mountHero(root: HTMLElement): Promise<HeroHandle> {
     ],
   });
 
+  // DOM changes wait for the viewport so a failed mount leaves the static hero; pins stop shifts.
+  if (wide) flow.style.height = `${pinned}px`;
+  else board.style.height = `${pinned}px`;
+  Object.assign(board.style, { padding: '0', backgroundImage: 'none' });
+  required<HTMLElement>(board, '[data-hero-side]').hidden = true;
+  root.querySelector('[data-hero-frame]')?.remove();
+
   let headlineId: string | undefined;
   for (const key of wide ? HERO_KEYS : NARROW_KEYS) {
     const node = heroNode(root, key);
@@ -88,7 +97,12 @@ export async function mountHero(root: HTMLElement): Promise<HeroHandle> {
         interactive: INTERACTIVE.includes(key),
       },
     );
-    if (key === 'headline') headlineId = id;
+    if (key === 'headline') {
+      headlineId = id;
+      // Its clamp() size follows the window; a later resize would re-wrap it in a fixed box.
+      const h1 = required<HTMLElement>(node, 'h1');
+      h1.style.fontSize = getComputedStyle(h1).fontSize;
+    }
   }
 
   const layerId = viewport.layerManager.activeLayerId;
@@ -106,6 +120,7 @@ export async function mountHero(root: HTMLElement): Promise<HeroHandle> {
   const seed = viewport.exportState();
   viewport.history.clear();
 
+  const mira = startMira(viewport, miraHome, root);
   const putBack = (): void => {
     viewport.loadState(seed);
     for (const box of root.querySelectorAll<HTMLInputElement>(
@@ -114,8 +129,10 @@ export async function mountHero(root: HTMLElement): Promise<HeroHandle> {
       box.checked = false;
     }
     selectHeadline();
+    mira.restart();
   };
   reset.addEventListener('click', putBack);
+  const disposeControls = wireControls(root, viewport);
   controls.hidden = false;
 
   const handle: HeroHandle = {
@@ -123,9 +140,14 @@ export async function mountHero(root: HTMLElement): Promise<HeroHandle> {
     selectTool,
     seed,
     headlineId,
+    roster: mira.roster,
     putBack,
+    stopMira: mira.stop,
+    restartMira: mira.restart,
     destroy: () => {
       reset.removeEventListener('click', putBack);
+      disposeControls();
+      mira.dispose();
       viewport.destroy();
     },
   };

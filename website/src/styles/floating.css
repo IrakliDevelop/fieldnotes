@@ -1,0 +1,15 @@
+/* Floating UI over a board, the one place a shadow is allowed. */
+.floating-hint {
+  position: absolute;
+  bottom: calc(100% + 16px);
+  left: 50%;
+  padding: 8px 14px;
+  border-radius: 4px;
+  background: var(--graphite);
+  box-shadow: 0 4px 16px rgba(42, 45, 49, 0.2);
+  color: var(--board);
+  font-size: 15px;
+  white-space: nowrap;
+  pointer-events: none;
+  translate: -50% 0;
+}

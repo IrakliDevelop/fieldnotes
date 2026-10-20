@@ -110,6 +110,10 @@ const checklist = ['Install the package', 'Mount a viewport', 'Save it as JSON',
     </div>
   </div>
 
+  <p class="visually-hidden">
+    The cursor labelled Mira is a scripted demonstration, not another visitor.
+  </p>
+
   <div class="controls" data-hero-controls hidden>
     <div class="toolbar" role="toolbar" aria-label="Canvas tools">
       {
@@ -138,17 +142,17 @@ const checklist = ['Install the package', 'Mount a viewport', 'Save it as JSON',
         ))
       }
     </div>
-    <div class="view">
-      <button class="reset" type="button" data-hero-reset>Put it back</button>
-      <span class="zoom" data-hero-zoom>100%</span>
-    </div>
+    <button class="engage" type="button" data-hero-engage hidden>Draw on this board</button>
+    <button class="reset" type="button" data-hero-reset>Put it back</button>
+    <span class="zoom" data-hero-zoom>100%</span>
+    <div class="floating-hint" data-hero-hint role="status" hidden></div>
   </div>
 </section>
 
 <script>
   window.addEventListener('load', () => {
     const root = document.querySelector<HTMLElement>('[data-hero]');
-    if (root) void import('../hero/mount').then(({ mountHero }) => mountHero(root));
+    if (root) void import('../hero/mount').then(({ mountHero }) => mountHero(root)).catch(console.error);
   });
 </script>
 
@@ -358,24 +362,40 @@ const checklist = ['Install the package', 'Mount a viewport', 'Save it as JSON',
     margin: 0;
   }
 
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  /* One row along the bottom of the board: tools on the left, the view on the right. */
   .controls {
     position: absolute;
     z-index: 2;
-    inset: 0;
+    right: 20px;
+    bottom: 20px;
+    left: 20px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
     pointer-events: none;
   }
 
+  .controls[hidden] {
+    display: none;
+  }
+
   .toolbar,
-  .view {
-    position: absolute;
-    bottom: 20px;
-    display: flex;
-    align-items: center;
+  .engage,
+  .reset {
     pointer-events: auto;
   }
 
   .toolbar {
-    left: 20px;
+    display: flex;
     gap: 4px;
     padding: 4px;
     background: var(--board);
@@ -400,12 +420,7 @@ const checklist = ['Install the package', 'Mount a viewport', 'Save it as JSON',
     color: var(--board);
   }
 
-  .view {
-    right: 20px;
-    gap: 16px;
-    font-size: 14px;
-  }
-
+  .engage,
   .reset {
     min-height: 36px;
     padding: 0 12px;
@@ -414,11 +429,18 @@ const checklist = ['Install the package', 'Mount a viewport', 'Save it as JSON',
     background: var(--board);
     color: var(--graphite);
     font: 500 14px 'Public Sans', sans-serif;
+    white-space: nowrap;
     cursor: pointer;
   }
 
+  .reset {
+    margin-left: auto;
+  }
+
   .zoom {
+    margin-left: 8px;
     color: var(--muted);
+    font-size: 14px;
     font-variant-numeric: tabular-nums;
   }
 
@@ -429,6 +451,7 @@ const checklist = ['Install the package', 'Mount a viewport', 'Save it as JSON',
     }
 
     .tool,
+    .engage,
     .reset {
       min-width: 44px;
       min-height: 44px;
@@ -440,7 +463,8 @@ const checklist = ['Install the package', 'Mount a viewport', 'Save it as JSON',
     .board {
       position: relative;
       min-height: 420px;
-      padding: 32px 0 80px;
+      /* Room for two rows of controls below the checklist. */
+      padding: 32px 0 132px;
       border-top: 1px solid var(--divider);
     }
 
@@ -461,6 +485,26 @@ const checklist = ['Install the package', 'Mount a viewport', 'Save it as JSON',
     .copy {
       max-width: none;
       padding-left: 0;
+    }
+
+    /* Two rows: Draw and Put it back above the toolbar and the zoom readout. */
+    .controls {
+      flex-wrap: wrap;
+      row-gap: 4px;
+    }
+
+    .controls::before {
+      content: '';
+      flex-basis: 100%;
+    }
+
+    .engage,
+    .reset {
+      order: -1;
+    }
+
+    .zoom {
+      margin-left: auto;
     }
 
     /* The headline is not on the board at this width, so it shows no selection and no drag hint. */

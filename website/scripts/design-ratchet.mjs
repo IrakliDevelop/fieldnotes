@@ -60,8 +60,10 @@ const PATTERNS = [
 ];
 
 // The static ruled pictures of the hero and the docs board placeholder draw their lines with a gradient.
+// Floating UI over a board may cast a shadow.
 const ALLOWLIST = {
   gradient: ['src/components/Hero.astro', 'src/styles/board-placeholder.css'],
+  'box-shadow': ['src/styles/floating.css'],
 };
 
 /** Counts each pattern per file as `{ [patternId]: { [file]: count } }`, skipping allow-listed files. */
