@@ -16,10 +16,22 @@ export function persist(viewport: Viewport, storage: Storage, key = 'board'): ()
 // #endregion save
 // #endregion ten-lines
 
+// #region save-debounced
+export function saveToLocalStorage(viewport: Viewport): () => void {
+  const saved = localStorage.getItem('board');
+  if (saved) viewport.loadJSON(saved);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return viewport.onStateChange(() => {
+    clearTimeout(timer);
+    timer = setTimeout(() => localStorage.setItem('board', viewport.exportJSON()), 250);
+  });
+}
+// #endregion save-debounced
+
 // #region cleanup
 export function mountSavedBoard(container: HTMLElement): () => void {
   const viewport = createBoard(container);
-  persist(viewport, localStorage);
+  saveToLocalStorage(viewport);
   return () => viewport.destroy();
 }
 // #endregion cleanup

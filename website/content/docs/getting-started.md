@@ -33,9 +33,9 @@ The whole board, including layers and camera, serialises to one JSON string. Sto
 onStateChange fires on every camera move too. Debounce the save.
 :::
 
-::code{example="getting-started" region="save"}
+::code{example="getting-started" region="save-debounced"}
 
-This sample writes on every change. [Saving and loading](/docs/saving-and-loading/) shows `AutoSave`, which waits until changes settle and can write to IndexedDB.
+[Saving and loading](/docs/saving-and-loading/) shows `AutoSave`, which debounces the save for you and can write to IndexedDB.
 
 ## Clean up
 

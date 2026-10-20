@@ -57,6 +57,13 @@ test('the code block shows the named region only', async ({ page }) => {
   await expect(code).not.toContainText('persist');
 });
 
+test('save and restore debounces the save', async ({ page }) => {
+  await page.goto('/docs/getting-started/');
+  const save = page.locator('main pre').filter({ hasText: 'onStateChange' });
+  await expect(save).toContainText('clearTimeout(timer);');
+  await expect(save).toContainText("localStorage.setItem('board', viewport.exportJSON()), 250)");
+});
+
 test('previous and next links move through the docs', async ({ page }) => {
   await page.goto('/docs/getting-started/');
   const pager = page.getByRole('navigation', { name: 'Previous and next page' });

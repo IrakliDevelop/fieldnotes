@@ -19,6 +19,8 @@ order: 3
 
 `loadState` takes a `CanvasState` object and skips the check, so give it only state your own code exported.
 
+The board below opens a saved board with two strokes and a note.
+
 ::board{example="saving-and-loading"}
 
 ## Save automatically

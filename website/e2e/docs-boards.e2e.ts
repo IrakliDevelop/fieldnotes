@@ -48,6 +48,25 @@ test('the live board draws a mouse stroke and Clear board empties it', async ({ 
   await expect(page.locator(WRAPPER)).toHaveCount(1);
 });
 
+test('the saving board opens its saved board, and again after Clear board', async ({ page }) => {
+  const board = page.locator('figure[data-live-board="saving-and-loading"]');
+  const counts = () =>
+    page.evaluate(() => {
+      const store = window.__docsBoards['saving-and-loading']?.store;
+      return (
+        store && [store.getElementsByType('stroke').length, store.getElementsByType('note').length]
+      );
+    });
+  await page.goto('/docs/saving-and-loading/?debug-boards');
+  await board.scrollIntoViewIfNeeded();
+  await expect.poll(counts).toEqual([2, 1]);
+
+  await page.evaluate(() => window.__docsBoards['saving-and-loading']?.store.clear());
+  await expect.poll(counts).toEqual([0, 0]);
+  await board.getByRole('button', { name: 'Clear board' }).click();
+  await expect.poll(counts).toEqual([2, 1]);
+});
+
 test('a plain wheel over the board scrolls the page', async ({ page }) => {
   test.skip(test.info().project.name === 'phone', 'a phone has no wheel');
   await openBoard(page);
