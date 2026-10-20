@@ -1,3 +1,5 @@
+> User guide: https://iraklidevelop.github.io/fieldnotes/docs/getting-started/
+
 # @fieldnotes/core
 
 **Version:** 0.82.0

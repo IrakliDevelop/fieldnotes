@@ -1,3 +1,5 @@
+> User guide: https://iraklidevelop.github.io/fieldnotes/docs/multiplayer/
+
 # @fieldnotes/sync
 
 **Version:** 0.19.0

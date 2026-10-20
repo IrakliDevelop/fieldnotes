@@ -121,6 +121,10 @@ test('the docs index shows the facts and the nav groups', async ({ page }) => {
     'HTML elements',
     'Layers',
     'Undo and history',
+    'Export to PNG and SVG',
+    'Multiplayer',
+    'Tabletop maps',
+    'Writing a plugin',
   ]);
   await expect(
     page.getByRole('region', { name: 'Reference' }).getByRole('link', { name: 'Roadmap' }),

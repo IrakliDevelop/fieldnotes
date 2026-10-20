@@ -1,3 +1,5 @@
+> User guide: https://iraklidevelop.github.io/fieldnotes/docs/getting-started/
+
 # Core Concepts
 
 This document explains the fundamental building blocks of the Field Notes canvas engine.
