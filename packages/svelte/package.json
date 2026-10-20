@@ -1,0 +1,61 @@
+{
+  "name": "@fieldnotes/svelte",
+  "version": "0.1.0",
+  "description": "Svelte wrapper for Field Notes canvas SDK",
+  "type": "module",
+  "sideEffects": false,
+  "svelte": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "svelte": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.test.*",
+    "!dist/test-fixtures",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "svelte-package -i src -o dist",
+    "typecheck": "svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/IrakliDevelop/fieldnotes.git",
+    "directory": "packages/svelte"
+  },
+  "bugs": {
+    "url": "https://github.com/IrakliDevelop/fieldnotes/issues"
+  },
+  "homepage": "https://github.com/IrakliDevelop/fieldnotes/tree/master/packages/svelte#readme",
+  "keywords": [
+    "canvas",
+    "infinite-canvas",
+    "svelte",
+    "html-embedding",
+    "fieldnotes"
+  ],
+  "peerDependencies": {
+    "@fieldnotes/core": ">=0.96.0 <1.0.0",
+    "svelte": ">=5 <6"
+  },
+  "devDependencies": {
+    "@fieldnotes/core": "workspace:*",
+    "@sveltejs/package": "^3.0.1",
+    "@sveltejs/vite-plugin-svelte": "^7.3.1",
+    "@testing-library/svelte": "^5.4.2",
+    "@vitest/coverage-v8": "^5.0.5",
+    "jsdom": "^29.1.1",
+    "svelte": "^5.57.2",
+    "svelte-check": "^4.7.7",
+    "vitest": "^5.0.5"
+  }
+}

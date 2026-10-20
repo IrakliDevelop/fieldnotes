@@ -1,13 +1,7 @@
-import { useCallback, useRef, useSyncExternalStore } from 'react';
+import { useCallback, useMemo, useSyncExternalStore } from 'react';
+import { createSelectionStyleSource } from '@fieldnotes/core';
 import type { ElementStyle } from '@fieldnotes/core';
 import { useViewport } from './use-viewport';
-import { STYLE_KEYS } from './style-keys';
-
-function styleEqual(a: ElementStyle | null, b: ElementStyle | null): boolean {
-  if (a === b) return true;
-  if (a === null || b === null) return false;
-  return STYLE_KEYS.every((k) => a[k] === b[k]);
-}
 
 /**
  * Reactive normalized style of the current selection.
@@ -16,28 +10,9 @@ function styleEqual(a: ElementStyle | null, b: ElementStyle | null): boolean {
  */
 export function useSelectionStyle(): [ElementStyle | null, (style: ElementStyle) => void] {
   const viewport = useViewport();
-  const cacheRef = useRef<ElementStyle | null>(null);
+  const source = useMemo(() => createSelectionStyleSource(viewport), [viewport]);
 
-  const subscribe = useCallback(
-    (onChange: () => void) => {
-      const offSel = viewport.onSelectionChange(onChange);
-      const offStore = viewport.store.onChange(onChange);
-      return () => {
-        offSel();
-        offStore();
-      };
-    },
-    [viewport],
-  );
-
-  const getSnapshot = useCallback(() => {
-    const next = viewport.getSelectionStyle();
-    if (styleEqual(cacheRef.current, next)) return cacheRef.current;
-    cacheRef.current = next;
-    return next;
-  }, [viewport]);
-
-  const style = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  const style = useSyncExternalStore(source.subscribe, source.getSnapshot, source.getSnapshot);
 
   const apply = useCallback((s: ElementStyle) => viewport.applyStyleToSelection(s), [viewport]);
 

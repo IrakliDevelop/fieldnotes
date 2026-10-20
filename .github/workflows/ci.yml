@@ -129,15 +129,15 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ steps.pw-version.outputs.version }}
+          key: playwright-${{ steps.pw-version.outputs.version }}-chromium-firefox
 
-      - name: Install Playwright Chromium
+      - name: Install Playwright browsers
         if: steps.pw-cache.outputs.cache-hit != 'true'
-        run: pnpm --filter @fieldnotes/core exec playwright install chromium --with-deps
+        run: pnpm --filter @fieldnotes/core exec playwright install chromium firefox --with-deps
 
       - name: Install Playwright system deps
         if: steps.pw-cache.outputs.cache-hit == 'true'
-        run: pnpm --filter @fieldnotes/core exec playwright install-deps chromium
+        run: pnpm --filter @fieldnotes/core exec playwright install-deps chromium firefox
 
       - name: Run E2E tests
         run: pnpm --filter @fieldnotes/core e2e

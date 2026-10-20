@@ -6,6 +6,64 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### Core 0.96.0 — viewport sources (A12)
+
+**Added**
+
+- Framework-free viewport sources for UI bindings. Each factory returns a `ViewportSource<T>`
+  (`subscribe(onChange)` returning an unsubscribe, and `getSnapshot()` returning the previous
+  reference when nothing observable changed), so any framework can adapt it with one subscription:
+  - `createCameraSource(vp)`: `CameraState` (`{ x, y, zoom }`).
+  - `createElementsSource(vp, getType?)`: all elements, or those of the type the getter returns.
+  - `createElementsSelectorSource(vp, getSelector, getIsEqual?)`: a derived value, one-level
+    shallow compared unless an `isEqual` is given.
+  - `createSelectionSource(vp)`, `createSelectionOpsSource(vp)` (`SelectionOpsState`),
+    `createSelectionStyleSource(vp)` and `createSelectionStyleDetailsSource(vp)`.
+  - `createHistorySource(vp)` (`HistoryState`), `createLayersSource(vp)` (`LayersState`),
+    `createActiveToolSource(vp)` and `createToolOptionsSource(vp, getName)`.
+- Types `ViewportSource`, `CameraState`, `HistoryState`, `LayersState` and `SelectionOpsState`.
+
+Each source owns its cache, so create one per consumer. Inputs are getters read at snapshot and
+subscribe time: when one changes, resubscribe and the cache keeps an equal result's reference.
+
+### React 0.14.1
+
+**Changed**
+
+- Hooks read their state through the core viewport sources. No behavior change: signatures,
+  exports and update semantics are the same, and `CameraState` is re-exported from core.
+- Peer floor `@fieldnotes/core` raised to `>=0.96.0`.
+
+### Vue 0.1.0 (new)
+
+**Added**
+
+- `@fieldnotes/vue`, Vue bindings at parity with `@fieldnotes/react` 0.14: `FieldNotesCanvas`
+  (`v-model:tool`, `onReady` / `onChange` / `onToolChange` function props, template ref exposing
+  `viewport`), `CanvasElement` (teleported, host-owned and transient), `Minimap`, `ViewportKey`,
+  `useViewport`, and composables with the React hook names: `useCamera`, `useElements`,
+  `useSelection`, `useSelectionStyle`, `useSelectionStyleDetails`, `useSelectionOps`,
+  `useHistory`, `useLayers`, `useActiveTool`, `useToolOptions` and `useElementRects`. Single
+  values are shallow refs; result objects hold computed state and plain actions.
+- Requires Vue `>=3.5 <4` and `@fieldnotes/core >=0.96.0`. The canvas is client-only: server
+  rendering emits an empty container, so Nuxt needs no `<ClientOnly>`.
+
+### Svelte 0.1.0 (new)
+
+**Added**
+
+- `@fieldnotes/svelte`, Svelte bindings at parity with `@fieldnotes/react` 0.14: `FieldNotesCanvas`
+  (`onready` / `onchange` / `ontoolchange` callback props, `children` snippet, controlled `tool`),
+  `CanvasElement` (host-owned and transient), `Minimap`, `setViewportContext`, `useViewport`, and
+  store helpers with the React hook names: `useCamera`, `useElements`, `useSelection`,
+  `useSelectionStyle`, `useSelectionStyleDetails`, `useSelectionOps`, `useHistory`, `useLayers`,
+  `useActiveTool`, `useToolOptions` and `useElementRects`. Result objects are a `Readable` that
+  also carries the actions (`$history.canUndo`, `history.undo()`), typed as the exported
+  `UseHistoryResult`, `UseLayersResult` and `UseSelectionOpsResult`.
+- Requires Svelte `>=5 <6` and `@fieldnotes/core >=0.96.0`; ships `.svelte` sources. The canvas is
+  client-only: server rendering emits an empty container.
+- Unlike React and Vue, Svelte destroys the children before the canvas destroys the viewport.
+
 ### Core 0.95.0 — embedded boards (A11)
 
 **Added**

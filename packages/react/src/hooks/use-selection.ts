@@ -1,16 +1,10 @@
-import { useCallback, useSyncExternalStore } from 'react';
+import { useMemo, useSyncExternalStore } from 'react';
+import { createSelectionSource } from '@fieldnotes/core';
 import { useViewport } from './use-viewport';
 
 /** Reactive selected element ids. Stable array reference — only changes when the selection changes. */
 export function useSelection(): string[] {
   const viewport = useViewport();
-
-  const subscribe = useCallback(
-    (onChange: () => void) => viewport.onSelectionChange(onChange),
-    [viewport],
-  );
-
-  const getSnapshot = useCallback(() => viewport.getSelectedIds(), [viewport]);
-
-  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  const source = useMemo(() => createSelectionSource(viewport), [viewport]);
+  return useSyncExternalStore(source.subscribe, source.getSnapshot, source.getSnapshot);
 }

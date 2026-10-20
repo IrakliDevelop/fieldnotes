@@ -11,7 +11,7 @@ import type {
 
 describe('core public surface', () => {
   it('exports the current version', () => {
-    expect(FN.VERSION).toBe('0.95.0');
+    expect(FN.VERSION).toBe('0.96.0');
   });
 
   it('exports the camera view, animator, and focus presence surface', () => {
@@ -108,6 +108,8 @@ describe('core public surface', () => {
       'ElementActivation',
       'DEFAULT_ACTIVATION_SLOP_PX',
       'DEFAULT_ACTIVATION_DOUBLE_DELAY_MS',
+      // viewport-source internals
+      'STYLE_KEYS',
     ];
     for (const name of removed) {
       expect(name in FN, `${name} should not be exported`).toBe(false);
@@ -190,6 +192,45 @@ describe('core public surface', () => {
     expect(typeof FN.elementRectsEqual).toBe('function');
   });
 
+  it('exports the viewport source factories and state types', () => {
+    const factories = [
+      FN.createCameraSource,
+      FN.createElementsSource,
+      FN.createElementsSelectorSource,
+      FN.createSelectionSource,
+      FN.createSelectionOpsSource,
+      FN.createSelectionStyleSource,
+      FN.createSelectionStyleDetailsSource,
+      FN.createHistorySource,
+      FN.createLayersSource,
+      FN.createActiveToolSource,
+      FN.createToolOptionsSource,
+    ];
+    for (const factory of factories) expect(factory).toBeTypeOf('function');
+    const camera: FN.CameraState = { x: 0, y: 0, zoom: 1 };
+    const history: FN.HistoryState = { canUndo: false, canRedo: false };
+    const layers: FN.LayersState = { layers: [], activeLayerId: '' };
+    const ops: FN.SelectionOpsState = {
+      selectedIds: [],
+      canGroup: false,
+      canUngroup: false,
+      canAlign: false,
+      canDistribute: false,
+      isLocked: null,
+    };
+    const source: FN.ViewportSource<number> = {
+      subscribe: () => () => undefined,
+      getSnapshot: () => 1,
+    };
+    expect([
+      camera.zoom,
+      history.canUndo,
+      layers.activeLayerId,
+      ops.isLocked,
+      source.getSnapshot(),
+    ]).toEqual([1, false, '', null, 1]);
+  });
+
   it('exports the live stroke preview surface', () => {
     expect(FN.RemoteStrokeOverlay).toBeTypeOf('function');
     expect(FN.isStrokePreviewPresence).toBeTypeOf('function');
@@ -206,9 +247,9 @@ describe('core public surface', () => {
     expect([presence.kind, options.staleMs, host]).toEqual(['stroke', 1, null]);
   });
 
-  it('reports VERSION 0.95.0', async () => {
+  it('reports VERSION 0.96.0', async () => {
     const { VERSION } = await import('./index');
-    expect(VERSION).toBe('0.95.0');
+    expect(VERSION).toBe('0.96.0');
   });
 
   it('does not re-export VTT-domain symbols (moved to @fieldnotes/vtt)', () => {

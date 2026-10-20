@@ -5,6 +5,7 @@
   "entryPoints": [
     "packages/core",
     "packages/react",
+    "packages/vue",
     "packages/sync",
     "packages/sync-server",
     "packages/sync-redis",
@@ -16,5 +17,20 @@
     "excludePrivate": true,
     "excludeInternal": true
   },
+  "highlightLanguages": [
+    "bash",
+    "console",
+    "css",
+    "html",
+    "javascript",
+    "json",
+    "jsonc",
+    "json5",
+    "yaml",
+    "tsx",
+    "typescript",
+    "vue",
+    "svelte"
+  ],
   "out": "website/public/api"
 }

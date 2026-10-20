@@ -1,4 +1,4 @@
-export const VERSION = '0.95.0';
+export const VERSION = '0.96.0';
 
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
 export { snapPoint } from './core/snap';
@@ -55,6 +55,26 @@ export type {
   RectTrackerHost,
 } from './canvas/element-rect-tracker';
 export type { HitTestOptions } from './canvas/viewport';
+export {
+  createCameraSource,
+  createElementsSource,
+  createElementsSelectorSource,
+  createSelectionSource,
+  createSelectionOpsSource,
+  createSelectionStyleSource,
+  createSelectionStyleDetailsSource,
+  createHistorySource,
+  createLayersSource,
+  createActiveToolSource,
+  createToolOptionsSource,
+} from './canvas/viewport-sources';
+export type {
+  ViewportSource,
+  CameraState,
+  HistoryState,
+  LayersState,
+  SelectionOpsState,
+} from './canvas/viewport-sources';
 export type {
   ViewportPlugin,
   PluginConfigureContext,
