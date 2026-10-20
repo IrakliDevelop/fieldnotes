@@ -1,11 +1,7 @@
-import { useCallback, useRef, useSyncExternalStore } from 'react';
+import { useCallback, useMemo, useSyncExternalStore } from 'react';
+import { createLayersSource } from '@fieldnotes/core';
 import type { Layer } from '@fieldnotes/core';
 import { useViewport } from './use-viewport';
-
-interface LayersSnapshot {
-  layers: Layer[];
-  activeLayerId: string;
-}
 
 export interface UseLayersResult {
   layers: Layer[];
@@ -27,41 +23,9 @@ export interface UseLayersResult {
  */
 export function useLayers(): UseLayersResult {
   const viewport = useViewport();
-  const cachedRef = useRef<LayersSnapshot>({ layers: [], activeLayerId: '' });
+  const source = useMemo(() => createLayersSource(viewport), [viewport]);
 
-  const subscribe = useCallback(
-    (onStoreChange: () => void) => viewport.layerManager.on('change', onStoreChange),
-    [viewport],
-  );
-
-  const getSnapshot = useCallback((): LayersSnapshot => {
-    const layers = viewport.layerManager.getLayers();
-    const activeLayerId = viewport.layerManager.activeLayerId;
-    const cached = cachedRef.current;
-    if (
-      cached.activeLayerId === activeLayerId &&
-      cached.layers.length === layers.length &&
-      cached.layers.every((l, i) => {
-        const next = layers[i];
-        return (
-          next !== undefined &&
-          l.id === next.id &&
-          l.name === next.name &&
-          l.visible === next.visible &&
-          l.locked === next.locked &&
-          l.order === next.order &&
-          l.opacity === next.opacity
-        );
-      })
-    ) {
-      return cached;
-    }
-    const next = { layers, activeLayerId };
-    cachedRef.current = next;
-    return next;
-  }, [viewport]);
-
-  const snapshot = useSyncExternalStore(subscribe, getSnapshot);
+  const snapshot = useSyncExternalStore(source.subscribe, source.getSnapshot);
 
   const createLayer = useCallback(
     (name?: string) => viewport.layerManager.createLayer(name),
