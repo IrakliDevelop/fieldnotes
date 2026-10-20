@@ -29,6 +29,14 @@ describe('isLiveControlTarget', () => {
     expect(isLiveControlTarget(find('i'), boundary)).toBe(false);
   });
 
+  it('control inside a data-fn-drag ancestor is a control', () => {
+    find('.pad').insertAdjacentHTML(
+      'beforeend',
+      '<div data-fn-drag><button id="in"></button></div>',
+    );
+    expect(isLiveControlTarget(find('#in'), boundary)).toBe(true);
+  });
+
   it('plain text and a[href]-less anchor are padding', () => {
     expect(isLiveControlTarget(find('span'), boundary)).toBe(false);
     expect(isLiveControlTarget(find('a:not([href])'), boundary)).toBe(false);

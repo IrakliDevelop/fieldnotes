@@ -25,7 +25,7 @@ import { ToolManager } from '../tools/tool-manager';
 import type { ToolContext, Tool } from '../tools/types';
 import type { SelectTool } from '../tools/select-tool';
 import { createDefaultTools } from '../tools/default-tools';
-import { hitTest } from '../tools/select-hit';
+import { hitTest, hitTestResizeHandle, hitTestRotateHandle } from '../tools/select-hit';
 import { HistoryStack } from '../history/history-stack';
 import { HistoryRecorder } from '../history/history-recorder';
 import { createImage, createHtmlElement, createShape } from '../elements/element-factory';
@@ -362,6 +362,16 @@ export class Viewport {
       getCenteredWorld: () => this.centeredPosition({ w: 300, h: 200 }),
       onPaste: options.onPaste,
       panInertia: options.panInertia,
+      isOnSelectionHandle: (clientX, clientY) => {
+        if (this.toolManager.activeTool?.name !== 'select') return false;
+        const rect = this.wrapper.getBoundingClientRect();
+        const world = this.camera.screenToWorld({ x: clientX - rect.left, y: clientY - rect.top });
+        const ids = this.getSelectedIds();
+        return (
+          hitTestResizeHandle(world, this.toolContext, ids) !== null ||
+          hitTestRotateHandle(world, this.toolContext, ids) !== null
+        );
+      },
       actions: this.actionRegistry,
     });
     this.disposers.push(() => this.inputHandler.destroy());
@@ -411,10 +421,7 @@ export class Viewport {
 
     this.interactMode = new InteractMode({
       getNode: (id) => this.domNodeManager.getNode(id),
-      isInteractive: (id) => {
-        const el = this.store.getById(id);
-        return el?.type === 'html' && el.interactive === true;
-      },
+      isInteractive: (id) => this.isLiveHtml(id),
     });
     this.disposers.push(() => this.interactMode.destroy());
 
@@ -485,10 +492,7 @@ export class Viewport {
       }),
       this.store.on('update', ({ previous, current }) => {
         if (current.type === 'html') {
-          // A live element never stays in InteractMode; its controls already take input.
-          if (current.interactive && this.interactMode.interactingId === current.id) {
-            this.interactMode.stopInteracting();
-          }
+          this.stopInteractingIfLive();
           this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
         }
         this.renderLoop.noteElementUpdate(previous, current);
@@ -503,6 +507,7 @@ export class Viewport {
         this.pruneSelection();
       }),
       this.store.on('batch', () => {
+        this.stopInteractingIfLive();
         this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
         this.htmlDiagnostics.reset();
         this.renderLoop.clearLive();
@@ -909,6 +914,7 @@ export class Viewport {
         pointerEvents: el.interactive ? 'auto' : 'none',
       });
     }
+    this.stopInteractingIfLive();
   }
 
   private buildHtmlContent(el: HtmlElement): HTMLElement | null {
@@ -1222,6 +1228,17 @@ export class Viewport {
     this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
     this.renderLoop.markAllLayersDirty();
     this.requestRender();
+  }
+
+  private isLiveHtml(id: string): boolean {
+    const el = this.store.getById(id);
+    return el?.type === 'html' && el.interactive === true;
+  }
+
+  /** A live element never stays in InteractMode; its controls already take input. */
+  private stopInteractingIfLive(): void {
+    const id = this.interactMode.interactingId;
+    if (id !== null && this.isLiveHtml(id)) this.interactMode.stopInteracting();
   }
 
   private getSelectTool(): SelectTool | undefined {

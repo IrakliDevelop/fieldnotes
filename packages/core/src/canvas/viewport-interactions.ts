@@ -13,6 +13,7 @@ import { DoubleTapDetector } from './double-tap-detector';
 import { isNearBezier } from '../elements/arrow-geometry';
 import { isNoteContentEmpty } from '../elements/note-sanitizer';
 import { hitTest } from '../tools/select-hit';
+import { isLiveControlTarget } from './live-control';
 
 /** Screen pixels; converted to world units per zoom at the call site. */
 const ARROW_HIT_THRESHOLD_PX = 10;
@@ -101,11 +102,13 @@ export class ViewportInteractions {
   }
 
   onTapDown = (e: PointerEvent): void => {
+    if (isLiveControlTarget(e.target, this.deps.wrapper)) return;
     this.tapDownX = e.clientX;
     this.tapDownY = e.clientY;
   };
 
   onDoubleTap = (e: PointerEvent): void => {
+    if (isLiveControlTarget(e.target, this.deps.wrapper)) return;
     const dx = e.clientX - this.tapDownX;
     const dy = e.clientY - this.tapDownY;
     const moved = Math.sqrt(dx * dx + dy * dy);

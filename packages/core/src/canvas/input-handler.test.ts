@@ -12,6 +12,7 @@ import type { HistoryStack } from '../history/history-stack';
 import { HistoryRecorder as RealHistoryRecorder } from '../history/history-recorder';
 import { HistoryStack as RealHistoryStack } from '../history/history-stack';
 import { ElementStore } from '../elements/element-store';
+import { ToolManager as RealToolManager } from '../tools/tool-manager';
 import { createNote, createArrow } from '../elements/element-factory';
 import type { ArrowElement } from '../elements/types';
 import { ActionRegistry } from '../actions/action-registry';
@@ -2739,6 +2740,130 @@ describe('InputHandler', () => {
 
         expect(handler.isCameraCoasting()).toBe(false);
       }
+    });
+  });
+
+  describe('live html controls', () => {
+    let button: HTMLButtonElement;
+    let padding: HTMLSpanElement;
+
+    beforeEach(() => {
+      const node = document.createElement('div');
+      node.setAttribute('data-element-id', 'e1');
+      node.setAttribute('data-fn-live', '');
+      padding = document.createElement('span');
+      button = document.createElement('button');
+      node.append(padding, button);
+      element.appendChild(node);
+    });
+
+    function recordingSetup() {
+      const store = new ElementStore();
+      const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+      store.add(note);
+      const stack = new RealHistoryStack();
+      const hr = new RealHistoryRecorder(store, stack);
+      const calls = { down: 0, move: 0, up: 0 };
+      const tm = new RealToolManager();
+      const tc: ToolContext = { ...stubToolContext(), store };
+      tm.register({
+        name: 'mover',
+        onPointerDown: () => calls.down++,
+        onPointerMove: (state) => {
+          calls.move++;
+          store.update(note.id, { position: { x: state.x, y: state.y } });
+        },
+        onPointerUp: () => calls.up++,
+      });
+      tm.setTool('mover', tc);
+      handler.destroy();
+      handler = new InputHandler(element, camera, {
+        toolManager: tm,
+        toolContext: tc,
+        historyRecorder: hr,
+        historyStack: stack,
+        actions: stubActionRegistry(),
+      });
+      return { calls, stack };
+    }
+
+    it('mouse press on a live control reaches no tool, sets no capture, does not focus the wrapper', () => {
+      const { calls, stack } = recordingSetup();
+      const capture = vi.fn();
+      element.setPointerCapture = capture;
+      element.blur();
+      const focus = vi.spyOn(element, 'focus');
+
+      pointerDown(button, { pointerId: 1, button: 0, pointerType: 'mouse' });
+      pointerMove(button, { pointerId: 1, pointerType: 'mouse', clientX: 20 });
+      pointerUp(button, { pointerId: 1, button: 0, pointerType: 'mouse' });
+
+      expect(calls).toEqual({ down: 0, move: 0, up: 0 });
+      expect(capture).not.toHaveBeenCalled();
+      expect(focus).not.toHaveBeenCalled();
+      expect(stack.undoCount).toBe(0);
+    });
+
+    it('mouse press on a control released outside the wrapper leaves no stale pointer', () => {
+      const { calls, stack } = recordingSetup();
+
+      pointerDown(button, { pointerId: 1, button: 0, pointerType: 'mouse' });
+      pointerDown(element, { pointerId: 1, button: 0, pointerType: 'mouse', clientX: 10 });
+      pointerMove(element, { pointerId: 1, pointerType: 'mouse', clientX: 30 });
+      pointerUp(element, { pointerId: 1, button: 0, pointerType: 'mouse', clientX: 30 });
+
+      expect(calls).toEqual({ down: 1, move: 1, up: 1 });
+      expect(stack.undoCount).toBe(1);
+      expect(camera.zoom).toBe(1);
+    });
+
+    it('lone touch on a control never reaches the tool', () => {
+      const tm = stubToolManager();
+      handler.setToolManager(tm, stubToolContext());
+
+      pointerDown(button, { pointerId: 1, pointerType: 'touch', clientX: 10, clientY: 10 });
+      pointerMove(button, { pointerId: 1, pointerType: 'touch', clientX: 40, clientY: 10 });
+      pointerUp(button, { pointerId: 1, pointerType: 'touch', clientX: 40, clientY: 10 });
+
+      expect(tm.handlePointerDown).not.toHaveBeenCalled();
+      expect(tm.handlePointerUp).not.toHaveBeenCalled();
+    });
+
+    it('touch on a control plus a second touch pinches', () => {
+      pointerDown(button, { pointerId: 1, pointerType: 'touch', clientX: 100, clientY: 100 });
+      pointerDown(element, { pointerId: 2, pointerType: 'touch', clientX: 200, clientY: 100 });
+      pointerMove(button, { pointerId: 1, pointerType: 'touch', clientX: 50, clientY: 100 });
+      pointerMove(element, { pointerId: 2, pointerType: 'touch', clientX: 250, clientY: 100 });
+
+      expect(camera.zoom).toBeGreaterThan(1);
+      pointerUp(button, { pointerId: 1, pointerType: 'touch' });
+      pointerUp(element, { pointerId: 2, pointerType: 'touch' });
+    });
+
+    it('press on a selection handle over a control goes to the tool', () => {
+      const tm = stubToolManager();
+      handler.destroy();
+      handler = new InputHandler(element, camera, {
+        toolManager: tm,
+        toolContext: stubToolContext(),
+        isOnSelectionHandle: () => true,
+        actions: stubActionRegistry(),
+      });
+
+      pointerDown(button, { pointerId: 1, button: 0, pointerType: 'mouse' });
+
+      expect(tm.handlePointerDown).toHaveBeenCalledOnce();
+      pointerUp(button, { pointerId: 1, button: 0, pointerType: 'mouse' });
+    });
+
+    it('contextmenu on a live control is not prevented', () => {
+      const fromControl = new MouseEvent('contextmenu', { cancelable: true, bubbles: true });
+      button.dispatchEvent(fromControl);
+      const fromPadding = new MouseEvent('contextmenu', { cancelable: true, bubbles: true });
+      padding.dispatchEvent(fromPadding);
+
+      expect(fromControl.defaultPrevented).toBe(false);
+      expect(fromPadding.defaultPrevented).toBe(true);
     });
   });
 });

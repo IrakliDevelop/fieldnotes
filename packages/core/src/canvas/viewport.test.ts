@@ -3617,4 +3617,17 @@ describe('Viewport live html elements', () => {
     priv().renderLoop.flush();
     expect(node?.style.pointerEvents).toBe('none');
   });
+
+  it('turning interactive on inside a notification batch stops interacting', () => {
+    const id = vp.addHtmlElement(document.createElement('div'), { x: 0, y: 0 }, { w: 100, h: 50 });
+    priv().renderLoop.flush();
+    priv().interactMode.startInteracting(id);
+
+    const notifications = vp.suspendNotifications();
+    vp.store.update(id, { interactive: true });
+    notifications.resume();
+
+    expect(priv().interactMode.interactingId).toBeNull();
+    expect(priv().domNodeManager.getNode(id)?.style.pointerEvents).toBe('auto');
+  });
 });
