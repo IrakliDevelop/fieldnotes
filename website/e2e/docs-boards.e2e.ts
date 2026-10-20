@@ -67,6 +67,24 @@ test('the saving board opens its saved board, and again after Clear board', asyn
   await expect.poll(counts).toEqual([2, 1]);
 });
 
+test('the html elements board gives a button click to the button, not the pencil', async ({
+  page,
+}) => {
+  test.skip(test.info().project.name !== 'desktop-chrome', 'mouse only');
+  const board = page.locator('figure[data-live-board="html-elements"]');
+  await page.goto('/docs/html-elements/?debug-boards');
+  await board.scrollIntoViewIfNeeded();
+  const button = board.getByRole('button', { name: 'Next turn' });
+  await button.evaluate((el) => el.addEventListener('click', () => (el.dataset.clicked = 'yes')));
+  await button.click();
+  await expect(button).toHaveAttribute('data-clicked', 'yes');
+  expect(
+    await page.evaluate(
+      () => window.__docsBoards['html-elements']?.store.getElementsByType('stroke').length,
+    ),
+  ).toBe(0);
+});
+
 test('a plain wheel over the board scrolls the page', async ({ page }) => {
   test.skip(test.info().project.name === 'phone', 'a phone has no wheel');
   await openBoard(page);

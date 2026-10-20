@@ -116,6 +116,12 @@ test('the docs index shows the facts and the nav groups', async ({ page }) => {
     'Using React',
     'Saving and loading',
   ]);
+  await expect(page.getByRole('region', { name: 'Guides' }).getByRole('link')).toHaveText([
+    'Tools and input',
+    'HTML elements',
+    'Layers',
+    'Undo and history',
+  ]);
   await expect(
     page.getByRole('region', { name: 'Reference' }).getByRole('link', { name: 'Roadmap' }),
   ).toHaveAttribute('href', /\/roadmap\/$/);
