@@ -1,0 +1,56 @@
+{
+  "checkedOn": "2026-10-20",
+  "columns": ["Field Notes", "tldraw", "Excalidraw"],
+  "rows": [
+    {
+      "id": "licence",
+      "label": "Licence and cost",
+      "cells": {
+        "Field Notes": {
+          "text": "MIT. No licence key, no watermark.",
+          "href": "/docs/getting-started/"
+        }
+      }
+    },
+    {
+      "id": "framework",
+      "label": "Framework requirement",
+      "cells": {
+        "Field Notes": {
+          "text": "None. The core package is vanilla TypeScript, and the React bindings are a separate package.",
+          "href": "/docs/getting-started/"
+        }
+      }
+    },
+    {
+      "id": "sync",
+      "label": "Self-hosted sync server",
+      "cells": {
+        "Field Notes": {
+          "text": "@fieldnotes/sync-server is a WebSocket relay you run yourself. @fieldnotes/sync-redis adds Redis persistence.",
+          "href": "/docs/multiplayer/"
+        }
+      }
+    },
+    {
+      "id": "html",
+      "label": "Arbitrary HTML elements on the board",
+      "cells": {
+        "Field Notes": {
+          "text": "addHtmlElement puts any DOM node on the board, where it pans, zooms and sits in layer order with the drawing.",
+          "href": "/docs/html-elements/"
+        }
+      }
+    },
+    {
+      "id": "tabletop",
+      "label": "Tabletop features",
+      "cells": {
+        "Field Notes": {
+          "text": "@fieldnotes/vtt adds square and hex grids, fog of war, a measuring tool and area templates.",
+          "href": "/docs/tabletop-maps/"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "licence": "MIT. No licence key, no watermark.",
+  "framework": "None needed. React bindings if you want them.",
+  "multiplayer": "Your own WebSocket relay, Redis optional.",
+  "input": "Mouse, touch and pen with pressure.",
+  "browsers": "Tested in Chromium in CI, and in Firefox for embedded boards. Safari is expected to work and is not yet in CI."
+}
