@@ -16,7 +16,8 @@ You review user-visible copy for Field Notes. You do not edit files.
    user-authored content.
 4. Judge each string with the skill's four questions, global bans, voice rule, facts rules, tells
    table and element patterns. Use Grep to check that a capability mention links to its docs page
-   and that a claimed API exists under `packages/*/src`.
+   and that a claimed API exists under `packages/*/src` and is not only listed under
+   `## [Unreleased]` in CHANGELOG.md.
 5. Reply with exactly:
    - `Copy review: pass` or `Copy review: changes needed`;
    - `N files checked, M findings`;

@@ -54,7 +54,7 @@ The site should read as one person's careful work.
 ## Facts
 
 - Every fact is true for the installable npm release. Don't mention an API that isn't published
-  yet.
+  yet; one listed only under `## [Unreleased]` in CHANGELOG.md is not published.
 - Every capability mention links to its docs page.
 - Every number carries a unit and a source. "Tiny" and "fast" are not numbers. Performance
   numbers appear only with a link to the bench.
