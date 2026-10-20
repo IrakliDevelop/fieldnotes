@@ -16,8 +16,8 @@ type MenuGroup = 'file' | 'board' | 'room';
 const groups: Record<MenuGroup, MenuItem[]> = { file: [], board: [], room: [] };
 
 const LINKS = [
-  { label: 'Dev playground', href: './dev/' },
-  { label: 'API reference', href: './api/' },
+  { label: 'Dev playground', href: '../dev/' },
+  { label: 'API reference', href: '../api/' },
   { label: 'GitHub', href: 'https://github.com/IrakliDevelop/fieldnotes', external: true },
 ];
 
