@@ -71,7 +71,6 @@ export const CanvasElement = defineComponent({
       elementId = register();
       portalTarget.value = container;
 
-      let disposed = false;
       // A store clear detaches every canvas-owned DOM node and forgets the content registered
       // for it, so this component has to hand its container back afterwards. The decision is
       // deferred to a microtask because a remote clear is followed — synchronously, by the sync
@@ -81,7 +80,7 @@ export const CanvasElement = defineComponent({
         const clearedId = elementId;
         if (clearedId === null) return;
         queueMicrotask(() => {
-          if (disposed || elementId !== clearedId) return;
+          if (elementId !== clearedId) return;
           if (viewport.store.getById(clearedId)?.type === 'html') {
             // Survived the clear (the sync client re-adds transient elements after a remote
             // clear): restore the container as that element's content instead of adding a second.
@@ -99,7 +98,6 @@ export const CanvasElement = defineComponent({
       const unsubscribeBatch = viewport.store.on('batch', handleStoreReplacement);
 
       teardown = () => {
-        disposed = true;
         unsubscribeClear();
         unsubscribeBatch();
         if (elementId) {

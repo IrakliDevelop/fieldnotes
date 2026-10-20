@@ -109,6 +109,15 @@ describe('createElementsSource', () => {
     expect(source.getSnapshot().map((el) => el.id)).toEqual([shape.id]);
   });
 
+  it('keeps the reference when a type switch yields the same elements', () => {
+    let type: ElementType | undefined = 'note';
+    const source = createElementsSource(vp, () => type);
+    addNote();
+    const notes = source.getSnapshot();
+    type = undefined;
+    expect(source.getSnapshot()).toBe(notes);
+  });
+
   it('notifies on store change until unsubscribed', () => {
     const source = createElementsSource(vp);
     const c = counter();
@@ -364,7 +373,7 @@ describe('createToolOptionsSource', () => {
     expect(() => source.subscribe(() => undefined)()).not.toThrow();
   });
 
-  it('is null for a tool without getOptions', () => {
+  it('is null for a tool without getOptions and subscribing is a no-op', () => {
     const plain: Tool = {
       name: 'plain',
       onPointerDown: () => undefined,
@@ -372,7 +381,9 @@ describe('createToolOptionsSource', () => {
       onPointerUp: () => undefined,
     };
     vp.toolManager.register(plain);
-    expect(createToolOptionsSource(vp, () => 'plain').getSnapshot()).toBeNull();
+    const source = createToolOptionsSource(vp, () => 'plain');
+    expect(source.getSnapshot()).toBeNull();
+    expect(() => source.subscribe(() => undefined)()).not.toThrow();
   });
 
   it('reads the tool name from the getter at snapshot and subscribe time', () => {

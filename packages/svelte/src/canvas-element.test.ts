@@ -247,6 +247,7 @@ describe('CanvasElement in keyed and conditional blocks', () => {
     const { vp, rerender } = renderList({ toggled: true });
     expect(texts().sort()).toEqual(['after', 'before', 'toggled']);
     expectPlainsInPlace();
+    expect(plains()[0]?.nextElementSibling?.getAttribute('style')).toBe('display: contents');
 
     await rerender({ toggled: false });
     expect(vp.store.getElementsByType('html').length).toBe(2);

@@ -81,9 +81,10 @@ const tool = ref('select');
 ### Keep the viewport and tools out of deep reactivity
 
 Never wrap the `Viewport` or `Tool` instances in `ref()` or `reactive()`: a deep proxy is a
-different object from the one core holds, and every internal read through it becomes tracked. Hold them in a module constant, a `shallowRef`, or mark
-them with `markRaw`. The component unwraps the `tools` array and `options` it receives, and every
-composable returns shallow refs, so nothing in this package proxies the viewport for you.
+different object from the one core holds, and every internal read through it becomes tracked. Hold
+them in a module constant, a `shallowRef`, or mark them with `markRaw`. The component unwraps the
+`tools` array and `options` it receives, and no composable deep-proxies the viewport, so nothing in
+this package proxies it for you.
 
 ## Props and Events
 

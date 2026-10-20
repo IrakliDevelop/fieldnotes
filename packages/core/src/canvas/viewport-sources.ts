@@ -342,7 +342,8 @@ function optionsEqual(a: Record<string, unknown>, b: Record<string, unknown>): b
 
 /**
  * Options of the tool `getToolName` names; `null` if the tool is not registered or exposes no
- * options. The cache survives the name changing.
+ * options. The cache survives the name changing, so a new tool with shallow-equal options returns
+ * the previous object.
  */
 export function createToolOptionsSource<T extends Record<string, unknown>>(
   vp: Viewport,

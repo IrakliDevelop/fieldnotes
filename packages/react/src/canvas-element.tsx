@@ -55,7 +55,6 @@ export function CanvasElement({ position, size, children }: CanvasElementProps) 
     elementIdRef.current = register();
     setPortalTarget(container);
 
-    let disposed = false;
     // A store clear detaches every canvas-owned DOM node and forgets the content registered
     // for it, so this component has to hand its container back afterwards. The decision is
     // deferred to a microtask because a remote clear is followed — synchronously, by the sync
@@ -65,7 +64,7 @@ export function CanvasElement({ position, size, children }: CanvasElementProps) 
       const clearedId = elementIdRef.current;
       if (clearedId === null) return;
       queueMicrotask(() => {
-        if (disposed || elementIdRef.current !== clearedId) return;
+        if (elementIdRef.current !== clearedId) return;
         if (viewport.store.getById(clearedId)?.type === 'html') {
           // Survived the clear (the sync client re-adds transient elements after a remote
           // clear): restore the container as that element's content instead of adding a second.
@@ -83,7 +82,6 @@ export function CanvasElement({ position, size, children }: CanvasElementProps) 
     const unsubscribeBatch = viewport.store.on('batch', handleStoreReplacement);
 
     return () => {
-      disposed = true;
       unsubscribeClear();
       unsubscribeBatch();
       if (elementIdRef.current) {

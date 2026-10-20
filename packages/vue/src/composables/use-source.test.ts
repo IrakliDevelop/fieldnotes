@@ -18,7 +18,7 @@ afterEach(() => {
 });
 
 describe('composables under an unmounting canvas', () => {
-  it('release their subscriptions after the canvas destroyed the viewport, without errors', async () => {
+  it('unmount without errors or warnings after the canvas destroyed the viewport', async () => {
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => null);
     const Consumer = defineComponent({
       setup() {
