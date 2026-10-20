@@ -114,12 +114,12 @@ describe('getReleaseDates', () => {
     expect(fetch).toHaveBeenCalledWith('https://registry.npmjs.org/@fieldnotes%2Fcore');
   });
 
-  it('returns no dates with one warning when not strict', async () => {
+  it('returns undefined with one warning when not strict', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
-    expect(await getReleaseDates('@fieldnotes/vtt', { fetch: rejecting, strict: false })).toEqual(
-      {},
-    );
+    expect(
+      await getReleaseDates('@fieldnotes/vtt', { fetch: rejecting, strict: false }),
+    ).toBeUndefined();
     expect(warn).toHaveBeenCalledTimes(1);
   });
 

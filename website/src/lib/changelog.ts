@@ -19,17 +19,39 @@ const DATED_H2 = /^## \[(.+)\] — (\d{4}-\d{2}-\d{2})$/;
 const ENTRY = /^(?:(@fieldnotes\/[a-z-]+|react) )?(\d+\.\d+\.\d+)$/;
 const TICKET = /^[A-Z]+-?\d+$/;
 
+const DISPLAY_NAMES = new Map<PublicPackage, string>([
+  ['@fieldnotes/core', 'Core'],
+  ['@fieldnotes/react', 'React'],
+  ['@fieldnotes/vue', 'Vue'],
+  ['@fieldnotes/svelte', 'Svelte'],
+  ['@fieldnotes/sync', 'Sync'],
+  ['@fieldnotes/sync-server', 'Sync server'],
+  ['@fieldnotes/sync-redis', 'Sync Redis'],
+  ['@fieldnotes/vtt', 'VTT'],
+]);
+
 const NPM_NAMES = new Map<string, PublicPackage>([
-  ['Core', '@fieldnotes/core'],
-  ['React', '@fieldnotes/react'],
-  ['Vue', '@fieldnotes/vue'],
-  ['Svelte', '@fieldnotes/svelte'],
-  ['Sync', '@fieldnotes/sync'],
-  ['Sync server', '@fieldnotes/sync-server'],
-  ['Sync Redis', '@fieldnotes/sync-redis'],
-  ['VTT', '@fieldnotes/vtt'],
+  ...[...DISPLAY_NAMES].map(([npm, display]) => [display, npm] as const),
   ...PUBLIC_PACKAGES.map((name) => [name, name] as const),
 ]);
+
+/** The package name a release heading shows: "React", not "@fieldnotes/react". */
+export function displayName({
+  package: pkg,
+  npmName,
+}: Pick<Release, 'package' | 'npmName'>): string {
+  return (npmName && DISPLAY_NAMES.get(npmName)) ?? pkg;
+}
+
+/** "Released YYYY-MM-DD" or "Not published yet"; undefined when the npm dates could not be read. */
+export function releaseStatus(
+  { version, date }: Pick<Release, 'version' | 'date'>,
+  npmDates: Readonly<Record<string, string>> | undefined,
+): string | undefined {
+  if (npmDates === undefined) return undefined;
+  const day = npmDates[version] ?? date;
+  return day === undefined ? 'Not published yet' : `Released ${day}`;
+}
 
 type Draft = Omit<Release, 'bodyMarkdown'> & { body: string[] };
 

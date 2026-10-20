@@ -106,11 +106,11 @@ export function getInstallableVersions(opts: VersionOptions = {}): Promise<Insta
   return memo;
 }
 
-/** Release day (`YYYY-MM-DD`) of each published version, from the registry `time` field. */
+/** Release day (`YYYY-MM-DD`) of each published version, from the registry `time` field; undefined when the read failed and not strict. */
 export async function getReleaseDates(
   pkg: PublicPackage,
   { fetch: fetchFn = fetch, strict = isStrict() }: RegistryOptions = {},
-): Promise<Record<string, string>> {
+): Promise<Record<string, string> | undefined> {
   try {
     const doc = await registryGet(fetchFn, registryUrl(pkg));
     if (!isRecord(doc) || !isRecord(doc.time)) throw new Error('no time field');
@@ -124,6 +124,6 @@ export async function getReleaseDates(
   } catch (error) {
     if (strict) throw readFailure(pkg, error);
     console.warn(`${readFailure(pkg, error).message}; showing no release dates`);
-    return {};
+    return undefined;
   }
 }

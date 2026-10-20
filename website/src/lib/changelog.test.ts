@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { parseChangelog } from './changelog';
+import { displayName, parseChangelog, releaseStatus } from './changelog';
 import type { Release } from './changelog';
 
 const fixture = readFileSync(new URL('./fixtures/changelog-1d5f34e.md', import.meta.url), 'utf8');
@@ -203,5 +203,43 @@ describe('parseChangelog on the current CHANGELOG.md', () => {
       /^\*\*Added\*\*\n\n- `@fieldnotes\/svelte`, Svelte bindings/,
     );
     expect(svelte?.bodyMarkdown).not.toContain('### Core');
+  });
+});
+
+describe('displayName', () => {
+  it.each([
+    ['Core', '@fieldnotes/core', 'Core'],
+    ['@fieldnotes/react', '@fieldnotes/react', 'React'],
+    ['@fieldnotes/sync-server', '@fieldnotes/sync-server', 'Sync server'],
+    ['@fieldnotes/sync-redis', '@fieldnotes/sync-redis', 'Sync Redis'],
+    ['@fieldnotes/vtt', '@fieldnotes/vtt', 'VTT'],
+    ['Vue', '@fieldnotes/vue', 'Vue'],
+    ['@fieldnotes/other', undefined, '@fieldnotes/other'],
+  ] as const)('names %s (%s) %s', (pkg, npmName, expected) => {
+    expect(displayName({ package: pkg, npmName })).toBe(expected);
+  });
+});
+
+describe('releaseStatus', () => {
+  const npm = { '0.96.0': '2026-10-20' };
+
+  it.each([
+    ['a version npm dates', { version: '0.96.0' }, npm, 'Released 2026-10-20'],
+    [
+      'a dated version npm lacks',
+      { version: '0.91.0', date: '2026-10-18' },
+      npm,
+      'Released 2026-10-18',
+    ],
+    ['an undated version npm lacks', { version: '0.97.0' }, npm, 'Not published yet'],
+    ['any version when the read failed', { version: '0.97.0' }, undefined, undefined],
+    [
+      'a dated version when the read failed',
+      { version: '0.91.0', date: '2026-10-18' },
+      undefined,
+      undefined,
+    ],
+  ])('gives %s', (_case, release, dates, expected) => {
+    expect(releaseStatus(release, dates)).toBe(expected);
   });
 });

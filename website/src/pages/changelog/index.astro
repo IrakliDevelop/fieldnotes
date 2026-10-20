@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { unified } from '@astrojs/markdown-remark';
 import remarkDirective from 'remark-directive';
 import Base from '../../layouts/Base.astro';
-import { parseChangelog } from '../../lib/changelog';
+import { displayName, parseChangelog, releaseStatus } from '../../lib/changelog';
 import { remarkFieldnotes } from '../../lib/remark-fieldnotes';
 import { getReleaseDates, PUBLIC_PACKAGES, repoFile } from '../../lib/versions';
 import { codeTheme } from '../../styles/code-theme';
@@ -17,13 +17,16 @@ const markdown = await unified({
   remarkPlugins: [remarkDirective, [remarkFieldnotes, { base: import.meta.env.BASE_URL, examples: {} }]],
 }).createRenderer({ shikiConfig: { theme: codeTheme } });
 const items = await Promise.all(
-  releases.map(async (release) => ({
-    ...release,
-    id: `${release.package}-${release.version}`.toLowerCase().replace(/[^a-z\d.]+/g, '-'),
-    subtitle: [release.title, release.tickets.join(', ')].filter(Boolean).join(' · '),
-    date: (release.npmName && npmDates.get(release.npmName)?.[release.version]) ?? release.date,
-    html: (await markdown.render(release.bodyMarkdown)).code,
-  })),
+  releases.map(async (release) => {
+    const heading = `${displayName(release)} ${release.version}`;
+    return {
+      heading,
+      id: heading.toLowerCase().replace(/[^a-z\d.]+/g, '-'),
+      subtitle: [release.title, release.tickets.join(', ')].filter(Boolean).join(' · '),
+      status: releaseStatus(release, release.npmName && npmDates.get(release.npmName)),
+      html: (await markdown.render(release.bodyMarkdown)).code,
+    };
+  }),
 );
 ---
 
@@ -39,21 +42,11 @@ const items = await Promise.all(
       version numbers: a Core release and a React release with the same number are unrelated.
     </p>
     {
-      items.map(({ id, package: pkg, version, subtitle, date, html }) => (
+      items.map(({ heading, id, subtitle, status, html }) => (
         <article aria-labelledby={id}>
-          <h2 id={id}>
-            {pkg} {version}
-          </h2>
+          <h2 id={id}>{heading}</h2>
           {subtitle && <p class="meta">{subtitle}</p>}
-          <p class="meta">
-            {date ? (
-              <>
-                Released <time datetime={date}>{date}</time>
-              </>
-            ) : (
-              'Not published yet'
-            )}
-          </p>
+          {status && <p class="meta status">{status}</p>}
           <div class="body" set:html={html} />
         </article>
       ))
