@@ -1,21 +1,13 @@
 import { expect, test, type ElementHandle, type Page } from '@playwright/test';
-import type { HeroHandle } from '../src/hero/mount';
+import { HERO_WRAPPER, openHero } from './helpers';
 
 declare global {
   interface Window {
-    __hero: HeroHandle;
     __bottomBeforeMount?: number;
   }
 }
 
-// Core's wrapper; the hidden static picture is the board's other child div.
-const WRAPPER = '[data-hero-board] > div[tabindex]';
 const HEADLINE = 'Put an infinite canvas in your app.';
-
-async function openHero(page: Page): Promise<void> {
-  await page.goto('/?debug-hero');
-  await page.locator('[data-hero][data-hero-ready="true"]').waitFor();
-}
 
 function elementCount(page: Page): Promise<number> {
   return page.evaluate(() => window.__hero.viewport.store.getAll().length);
@@ -59,7 +51,7 @@ test.describe('hero keeps its server-rendered nodes', () => {
   });
 
   test('undo with no visitor action keeps the seed', async ({ page }) => {
-    await page.locator(WRAPPER).focus();
+    await page.locator(HERO_WRAPPER).focus();
     for (let i = 0; i < 10; i++) await page.keyboard.press('ControlOrMeta+z');
 
     const strokes = await page.evaluate(() => ({
@@ -90,7 +82,7 @@ test.describe('hero keeps its server-rendered nodes', () => {
 
     await page.keyboard.press('ControlOrMeta+c');
     await page
-      .locator(WRAPPER)
+      .locator(HERO_WRAPPER)
       .evaluate((wrapper) => wrapper.dispatchEvent(new ClipboardEvent('paste', { bubbles: true })));
     await page.keyboard.press('ControlOrMeta+d');
     expect(await elementCount(page)).toBe(before);
@@ -142,7 +134,7 @@ test('Tab leaves the board', async ({ page }) => {
   const insideBoard = (): Promise<boolean> =>
     page.evaluate(() => document.activeElement?.closest('[data-hero-board]') !== null);
 
-  await page.locator(WRAPPER).focus();
+  await page.locator(HERO_WRAPPER).focus();
   for (let i = 0; i <= focusable && (await insideBoard()); i++) {
     await page.keyboard.press('Tab');
     expect(await selectedIds(page)).toEqual(selection);

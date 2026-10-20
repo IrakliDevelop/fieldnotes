@@ -1,5 +1,6 @@
 const COLUMNS = ['Field Notes', 'tldraw', 'Excalidraw'] as const;
-const OTHER_COLUMNS = ['tldraw', 'Excalidraw'] as const;
+/** The other projects' columns, in table order. */
+export const OTHER_COLUMNS = ['tldraw', 'Excalidraw'] as const;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const GLYPHS = /[✓✔✕✗✘]/;
 const LICENSE = 'https://github.com/IrakliDevelop/fieldnotes/blob/master/LICENSE';

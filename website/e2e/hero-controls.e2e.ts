@@ -1,29 +1,18 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import type { HeroHandle } from '../src/hero/mount';
-import { expectNoAxeViolations, singleFingerDraw, touchSwipe } from './helpers';
-
-declare global {
-  interface Window {
-    __hero: HeroHandle;
-  }
-}
-
-const WRAPPER = '[data-hero-board] > div[tabindex]';
+import {
+  HERO_WRAPPER,
+  expectNoAxeViolations,
+  openHero,
+  scrollY,
+  singleFingerDraw,
+  touchSwipe,
+} from './helpers';
 
 interface Box {
   x: number;
   y: number;
   width: number;
   height: number;
-}
-
-async function openHero(page: Page): Promise<void> {
-  await page.goto('/?debug-hero');
-  await page.locator('[data-hero][data-hero-ready="true"]').waitFor();
-}
-
-function scrollY(page: Page): Promise<number> {
-  return page.evaluate(() => window.scrollY);
 }
 
 function strokeCount(page: Page): Promise<number> {
@@ -68,7 +57,7 @@ test('plain wheel scrolls the page', async ({ page }) => {
   test.skip(test.info().project.name === 'phone', 'a phone has no wheel');
   await openHero(page);
   const zoom = page.locator('[data-hero-zoom]');
-  const board = await box(page.locator(WRAPPER));
+  const board = await box(page.locator(HERO_WRAPPER));
   await page.mouse.move(board.x + board.width / 2, board.y + 120);
 
   const before = await scrollY(page);
@@ -124,7 +113,7 @@ test('touch swipe scrolls when disengaged', async ({ page }) => {
 
 test('toolbar follows shortcuts', async ({ page }) => {
   await openHero(page);
-  await page.locator(WRAPPER).focus();
+  await page.locator(HERO_WRAPPER).focus();
   await page.keyboard.press('p');
   await expect(page.getByRole('button', { name: 'Pencil' })).toHaveAttribute(
     'aria-pressed',

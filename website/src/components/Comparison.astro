@@ -1,11 +1,10 @@
 ---
 import json from '../../content/comparison.json';
-import { parseComparison } from '../lib/comparison';
+import { OTHER_COLUMNS, parseComparison } from '../lib/comparison';
 import type { SourcedCell } from '../lib/comparison';
 import { link } from '../utils/base';
 
 const { columns, rows } = parseComparison(json);
-const OTHER_COLUMNS = ['tldraw', 'Excalidraw'] as const;
 
 // Footnotes are numbered in row order, left to right.
 const notes: SourcedCell[] = [];

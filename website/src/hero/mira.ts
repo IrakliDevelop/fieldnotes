@@ -7,8 +7,6 @@ const RADIUS = { x: 50, y: 40 };
 /** The scripted Mira cursor. */
 export interface Mira {
   roster: PeerRoster;
-  /** Parks Mira at her A3 position until `restart`. */
-  stop(): void;
   /** Starts the loop again from her A3 position. */
   restart(): void;
   dispose(): void;
@@ -76,7 +74,6 @@ export function startMira(viewport: Viewport, home: { x: number; y: number }, he
 
   return {
     roster,
-    stop: () => park(true),
     restart,
     dispose: () => {
       park(true);

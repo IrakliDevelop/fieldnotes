@@ -21,13 +21,10 @@ import '../styles/floating.css';
 /** The mounted hero board. */
 export interface HeroHandle {
   viewport: Viewport;
-  selectTool: SelectTool;
   seed: CanvasState;
   headlineId?: string;
   roster: PeerRoster;
   putBack(): void;
-  stopMira(): void;
-  restartMira(): void;
   destroy(): void;
 }
 
@@ -137,13 +134,10 @@ export async function mountHero(root: HTMLElement): Promise<HeroHandle> {
 
   const handle: HeroHandle = {
     viewport,
-    selectTool,
     seed,
     headlineId,
     roster: mira.roster,
     putBack,
-    stopMira: mira.stop,
-    restartMira: mira.restart,
     destroy: () => {
       reset.removeEventListener('click', putBack);
       disposeControls();
@@ -152,7 +146,8 @@ export async function mountHero(root: HTMLElement): Promise<HeroHandle> {
     },
   };
   root.dataset.heroReady = 'true';
-  if (new URLSearchParams(location.search).has('debug-hero'))
+  if (new URLSearchParams(location.search).has('debug-hero')) {
     Object.assign(window, { __hero: handle });
+  }
   return handle;
 }

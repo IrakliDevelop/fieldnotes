@@ -28,9 +28,7 @@ export function required<T extends Element>(root: ParentNode, selector: string):
 
 /** Returns the `[data-hero-node]` element for `key`. */
 export function heroNode(root: HTMLElement, key: HeroKey): HTMLElement {
-  const node = root.querySelector<HTMLElement>(`[data-hero-node="${key}"]`);
-  if (!node) throw new Error(`hero node ${key} is missing`);
-  return node;
+  return required<HTMLElement>(root, `[data-hero-node="${key}"]`);
 }
 
 /** Origin of the board's padding box, where the viewport wrapper starts. */

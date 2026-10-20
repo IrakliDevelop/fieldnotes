@@ -1,6 +1,6 @@
 import type { Viewport } from '@fieldnotes/core';
 import { expect, test, type Page } from '@playwright/test';
-import { expectNoAxeViolations, singleFingerDraw, touchSwipe } from './helpers';
+import { expectNoAxeViolations, scrollY, singleFingerDraw, touchSwipe } from './helpers';
 
 declare global {
   interface Window {
@@ -21,10 +21,6 @@ function strokeCount(page: Page): Promise<number> {
   return page.evaluate(
     () => window.__docsBoards['getting-started']?.store.getElementsByType('stroke').length ?? -1,
   );
-}
-
-function scrollY(page: Page): Promise<number> {
-  return page.evaluate(() => window.scrollY);
 }
 
 async function boardCentre(page: Page): Promise<{ x: number; y: number }> {

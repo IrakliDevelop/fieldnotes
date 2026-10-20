@@ -1,9 +1,30 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, type Page } from '@playwright/test';
+import type { HeroHandle } from '../src/hero/mount';
+
+declare global {
+  interface Window {
+    __hero: HeroHandle;
+  }
+}
 
 interface Point {
   x: number;
   y: number;
+}
+
+/** Core's hero wrapper; the hidden static picture is the board's other child div. */
+export const HERO_WRAPPER = '[data-hero-board] > div[tabindex]';
+
+/** Opens the landing page with the hero handle on `window.__hero` and waits for the mount. */
+export async function openHero(page: Page): Promise<void> {
+  await page.goto('/?debug-hero');
+  await page.locator('[data-hero][data-hero-ready="true"]').waitFor();
+}
+
+/** The page's vertical scroll offset. */
+export function scrollY(page: Page): Promise<number> {
+  return page.evaluate(() => window.scrollY);
 }
 
 /** Fails the test when axe finds any WCAG 2 A or AA violation on the page. */

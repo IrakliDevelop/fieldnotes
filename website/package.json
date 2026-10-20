@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "node scripts/astro-node.mjs astro dev",
-    "build": "node scripts/astro-node.mjs astro build && node scripts/astro-node.mjs pagefind --site dist",
+    "build": "node scripts/astro-node.mjs astro build --force && node scripts/astro-node.mjs pagefind --site dist",
     "preview": "node scripts/astro-node.mjs astro preview --port 4321",
     "typecheck": "node scripts/astro-node.mjs astro check",
     "test": "vitest run && node --test scripts/*.test.mjs && node scripts/design-ratchet.mjs",
