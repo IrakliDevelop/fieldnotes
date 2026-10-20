@@ -22,7 +22,10 @@ const gestures: [string, (page: Page, center: Point) => Promise<void>][] = [
 test.describe('touch helpers', () => {
   for (const [name, gesture] of gestures) {
     test(`a tap right after ${name} clicks`, async ({ canvasPage }, testInfo) => {
-      test.skip(testInfo.project.name !== 'ipad', 'CDP touch emulation is Chromium-only');
+      test.skip(
+        testInfo.project.name !== 'ipad',
+        "needs the ipad project's touch emulation for page.touchscreen.tap",
+      );
       const { page } = canvasPage;
       await page.evaluate(() => {
         const button = document.createElement('button');
