@@ -33,7 +33,7 @@ export async function expectNoAxeViolations(page: Page): Promise<void> {
   expect(violations).toEqual([]);
 }
 
-/** Drags one finger along `points` through CDP touch events. */
+/** Drags one finger along `points` through CDP touch events and lifts it at rest. */
 export async function singleFingerDraw(page: Page, points: Point[]): Promise<void> {
   const first = points[0];
   if (!first) throw new Error('singleFingerDraw requires at least one point');
@@ -48,6 +48,8 @@ export async function singleFingerDraw(page: Page, points: Point[]): Promise<voi
       touchPoints: [{ x: point.x, y: point.y, id: 1 }],
     });
   }
+  // Chromium flings a lift at speed, even on touch-action: none, and swallows the next tap's click.
+  await page.waitForTimeout(100);
   await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
 }
 
