@@ -46,6 +46,13 @@
         search && (await Promise.all(search.results.slice(0, MAX_RESULTS).map((r) => r.data())));
       // An earlier query's fragments can resolve after a later one's.
       if (!results || query !== latest) return;
+      list.hidden = false;
+      if (results.length === 0) {
+        const empty = document.createElement('li');
+        empty.className = 'empty';
+        empty.textContent = `No docs page matches "${term}". Try an API name such as addHtmlElement.`;
+        return list.replaceChildren(empty);
+      }
       list.replaceChildren(
         ...results.map(({ url, excerpt, meta }) => {
           const item = document.createElement('li');
@@ -63,7 +70,6 @@
           return item;
         }),
       );
-      list.hidden = results.length === 0;
     });
 
     // Pointerdown, not focusout, closes on a click elsewhere: Safari does not focus a clicked link.
@@ -161,6 +167,12 @@
   }
 
   .results :global(.excerpt) {
+    color: var(--graphite-2);
+    font-size: 14px;
+  }
+
+  .results :global(.empty) {
+    padding: 8px 10px;
     color: var(--graphite-2);
     font-size: 14px;
   }

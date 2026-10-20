@@ -153,7 +153,7 @@ describe('llmsTxt', () => {
 
 ## Optional
 
-- [API reference](https://iraklidevelop.github.io/fieldnotes/api/): TypeDoc pages for every export of every package.
+- [API reference](https://iraklidevelop.github.io/fieldnotes/api/): TypeDoc pages for every package except \`@fieldnotes/svelte\`.
 - [Changelog](https://iraklidevelop.github.io/fieldnotes/changelog/): Every release with its date.
 - [Roadmap](https://iraklidevelop.github.io/fieldnotes/roadmap/): What is built, what is next and what is not built yet.
 `);

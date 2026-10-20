@@ -32,6 +32,21 @@ test.describe('landing without JavaScript', () => {
       'Your own WebSocket relay, Redis optional.',
       'Mouse, touch and pen with pressure.',
     ]);
+    await expect(facts.locator('dd a')).toHaveText([
+      'None needed. React, Vue and Svelte bindings if you want them.',
+      'Your own WebSocket relay, Redis optional.',
+      'Mouse, touch and pen with pressure.',
+    ]);
+    expect(
+      await facts.locator('dd a').evaluateAll((all) => all.map((a) => a.getAttribute('href'))),
+    ).toEqual([
+      '/docs/using-react/',
+      '/docs/multiplayer/',
+      '/docs/tools-and-input/#mouse-touch-and-pen',
+    ]);
+    await expect(
+      main.getByRole('link', { name: 'Tell the sync server which elements each player may see' }),
+    ).toHaveAttribute('href', '/docs/multiplayer/#send-each-person-only-what-they-may-see');
 
     await expect(page.getByRole('heading', { level: 2 })).toHaveText([
       'Ten lines to a board that saves',
@@ -42,10 +57,16 @@ test.describe('landing without JavaScript', () => {
       'Why this exists',
     ]);
 
+    await expect(
+      page.getByRole('region', { name: 'How it compares' }).getByRole('link', {
+        name: 'MIT. No licence key, no watermark.',
+      }),
+    ).toHaveAttribute('href', 'https://github.com/IrakliDevelop/fieldnotes/blob/master/LICENSE');
+
     const notBuilt = page.getByRole('region', { name: 'Not built yet' }).getByRole('listitem');
     await expect(notBuilt).toHaveText([
-      'Frames that group and clip content',
-      'Find text on the canvas',
+      'Frames that group and clip elements',
+      'Find text on the board',
       'Command palette',
       'Elbow arrows that route around shapes',
       'Text inside shapes',

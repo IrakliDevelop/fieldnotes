@@ -198,7 +198,7 @@ test('reduced motion keeps Mira still', async ({ page }) => {
 test('hero has no axe violations with the board mounted', async ({ page }) => {
   await openHero(page);
   await expect(
-    page.getByText('The cursor labelled Mira is a scripted demonstration, not another visitor.'),
+    page.getByText("The cursor labelled Mira is a scripted example of another person's cursor."),
   ).toBeAttached();
   await expectNoAxeViolations(page);
 });

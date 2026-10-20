@@ -2,6 +2,7 @@ const COLUMNS = ['Field Notes', 'tldraw', 'Excalidraw'] as const;
 const OTHER_COLUMNS = ['tldraw', 'Excalidraw'] as const;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const GLYPHS = /[✓✔✕✗✘]/;
+const LICENSE = 'https://github.com/IrakliDevelop/fieldnotes/blob/master/LICENSE';
 
 /** A claim about another project, with where and when it was checked. */
 export interface SourcedCell {
@@ -48,8 +49,12 @@ function parseRow(row: unknown): ComparisonRow {
   }
   const { id, label, cells } = row;
   const ours = isRecord(cells) ? cells['Field Notes'] : undefined;
-  if (!isRecord(ours) || typeof ours.href !== 'string' || !ours.href.startsWith('/docs/')) {
-    fail(`${id}/Field Notes: href must start with /docs/`);
+  if (
+    !isRecord(ours) ||
+    typeof ours.href !== 'string' ||
+    !(ours.href.startsWith('/docs/') || ours.href === LICENSE)
+  ) {
+    fail(`${id}/Field Notes: href must start with /docs/ or be the repository LICENSE`);
   }
   const parsed: ComparisonRow = {
     id,

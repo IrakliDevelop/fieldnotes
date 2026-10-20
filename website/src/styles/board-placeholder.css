@@ -49,7 +49,7 @@
 }
 
 .live-board-engage,
-.live-board-clear {
+.live-board-reset {
   min-height: 36px;
   padding: 0 12px;
   border: 1px solid #a9afa6;
@@ -67,7 +67,7 @@
 
 @media (pointer: coarse) {
   .live-board-engage,
-  .live-board-clear {
+  .live-board-reset {
     min-height: 44px;
   }
 }

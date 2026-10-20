@@ -16,7 +16,7 @@ async function mountBoard(figure: Element): Promise<void> {
   if (!load) throw new Error(`no live board example named "${name}"`);
   const host = part(figure, '[data-live-board-mount]');
   const engage = part<HTMLButtonElement>(figure, '.live-board-engage');
-  const clear = part<HTMLButtonElement>(figure, '.live-board-clear');
+  const reset = part<HTMLButtonElement>(figure, '.live-board-reset');
   const example = await load();
 
   const start = (): Viewport => {
@@ -41,12 +41,12 @@ async function mountBoard(figure: Element): Promise<void> {
   engage.addEventListener('click', () =>
     viewport.setEmbeddedEngaged(!viewport.isEmbeddedEngaged()),
   );
-  clear.addEventListener('click', () => {
+  reset.addEventListener('click', () => {
     viewport.destroy();
     viewport = start();
   });
   engage.hidden = !matchMedia('(any-pointer: coarse)').matches;
-  clear.hidden = false;
+  reset.hidden = false;
 }
 
 /** Mounts each `[data-live-board]` on the page the first time it scrolls into view. */

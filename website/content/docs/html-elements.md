@@ -7,7 +7,7 @@ order: 2
 
 ## Add an element
 
-`viewport.addHtmlElement(node, position, size, options)` puts a DOM node on the board and returns the element's id. The node pans and zooms with the board, is drawn in layer order with the other elements, and is selected, moved, resized and rotated like a note. Without `size` it is 200 by 150.
+`viewport.addHtmlElement(node, position, size, options)` puts a DOM node on the board and returns the element's id. The node pans and zooms with the board, is drawn in layer order with the other elements, and is selected, moved, resized and rotated like a note. Without `size` it is 200 by 150 board units.
 
 ::code{example="html-elements" region="live-card"}
 
@@ -63,7 +63,7 @@ The viewport reads `embedded` once, when it is created. `setEmbeddedEngaged(enga
 `onWheelPassThrough(listener)` fires for every plain wheel the board leaves to the page, for a "Hold Ctrl to zoom" hint. It is not throttled.
 
 :::margin
-Disable select.cycle and select.cycle-reverse, or Tab moves between elements and never leaves the board.
+Disable `select.cycle` and `select.cycle-reverse`, or Tab moves between elements and never leaves the board.
 :::
 
 ::code{example="html-elements" region="embedded"}

@@ -18,7 +18,7 @@ npm install @fieldnotes/core @fieldnotes/react
 `<FieldNotesCanvas>` creates the viewport when it mounts and destroys it when it unmounts. With no `tools` prop, and no tools registered in `onReady`, it registers the default tools and starts on select, as `tools: 'default'` does in [Getting started](/docs/getting-started/).
 
 :::margin
-options and initialData are read once, at mount. Changing them later does nothing.
+`options` and `initialData` are read once, at mount. Changing them later does nothing.
 :::
 
 ::code{example="using-react" region="app"}

@@ -9,8 +9,8 @@ if (!newest) throw new Error('CHANGELOG.md has no release');
 const NEWEST = `${displayName(newest)} ${newest.version}`;
 
 const NOT_BUILT = [
-  'Frames that group and clip content',
-  'Find text on the canvas',
+  'Frames that group and clip elements',
+  'Find text on the board',
   'Command palette',
   'Elbow arrows that route around shapes',
   'Text inside shapes',

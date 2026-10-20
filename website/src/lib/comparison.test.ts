@@ -33,7 +33,7 @@ describe('parseComparison', () => {
     const comparison = parseComparison(json);
 
     expect(comparison.rows.map((row) => [row.id, row.cells['Field Notes'].href])).toEqual([
-      ['licence', '/docs/getting-started/'],
+      ['licence', 'https://github.com/IrakliDevelop/fieldnotes/blob/master/LICENSE'],
       ['framework', '/docs/getting-started/'],
       ['sync', '/docs/multiplayer/'],
       ['html', '/docs/html-elements/'],
@@ -78,9 +78,18 @@ describe('parseComparison', () => {
     );
   });
 
-  it('throws on a Field Notes href outside /docs/', () => {
-    expect(() => parseComparison(doc({}, { href: '/playground/' }))).toThrow(
-      'licence/Field Notes: href must start with /docs/',
-    );
+  it('accepts the repository LICENSE as a Field Notes href', () => {
+    const href = 'https://github.com/IrakliDevelop/fieldnotes/blob/master/LICENSE';
+
+    expect(parseComparison(doc({}, { href })).rows[0]?.cells['Field Notes'].href).toBe(href);
   });
+
+  it.each(['/playground/', 'https://github.com/IrakliDevelop/fieldnotes/blob/master/README.md'])(
+    'throws on the Field Notes href %s',
+    (href) => {
+      expect(() => parseComparison(doc({}, { href }))).toThrow(
+        'licence/Field Notes: href must start with /docs/ or be the repository LICENSE',
+      );
+    },
+  );
 });

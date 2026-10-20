@@ -288,7 +288,7 @@ pnpm dev              # dev playground (demo) on http://localhost:5173
 pnpm dev:playground   # showcase app on http://localhost:5174
 pnpm test             # run all tests
 pnpm bench            # run performance benchmarks
-pnpm docs:api         # TypeDoc API reference into dist/api (run after pnpm build); deployed with the playground on push to master
+pnpm docs:api         # TypeDoc API reference into dist/api (run after pnpm build); deployed with the site at /api/ on push to master
 ```
 
 Example applications are in `examples/`:

@@ -55,8 +55,8 @@ import { link } from '../utils/base';
         <div class="text">
           <h2 id="live-html">Live HTML on the board</h2>
           <p>
-            Any DOM node can be a canvas element. It pans, zooms and sits in layer order with the
-            drawings around it.
+            Any DOM node can be an element on the board. It pans, zooms and sits in layer order with
+            the drawings around it.
           </p>
           <p>
             With <a href={link('/docs/html-elements/')}><code>interactive: true</code></a>, its
@@ -105,8 +105,10 @@ import { link } from '../utils/base';
           <h2 id="tabletop">It already runs a D&amp;D table</h2>
           <p>
             <a href={link('/docs/tabletop-maps/')}>The tabletop package</a> adds hex and square grids,
-            area templates, measuring, and fog the game master paints by hand. Tell the sync server which
-            elements each player may see, and it never sends them the rest.
+            area templates, measuring, and fog the game master paints by hand. <a
+              href={link('/docs/multiplayer/#send-each-person-only-what-they-may-see')}
+              >Tell the sync server which elements each player may see</a
+            >, and it never sends them the rest.
           </p>
           <a class="standalone" href={link('/playground/?scene=tabletop')}>Open the tabletop scene</a>
         </div>
@@ -122,12 +124,11 @@ import { link } from '../utils/base';
         <h2 id="why">Why this exists</h2>
         <p>
           My players kept their session notes in Freeform. I wanted that board inside RollKeeper, the
-          D&amp;D app I was building, and the best canvas library needed a commercial licence to
+          D&amp;D app I was building, and the canvas library I wanted needed a commercial licence to
           ship. So I wrote one. Then I built the game's battle maps on the same canvas.
         </p>
         <p>
-          Field Notes is that canvas, published for anyone who needs one: MIT, no framework, and a
-          sync server you can run yourself.
+          Field Notes is that canvas, published under the MIT licence for anyone who needs one.
         </p>
         <p class="signature">Irakli</p>
       </div>

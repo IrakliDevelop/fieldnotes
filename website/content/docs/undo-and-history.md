@@ -9,7 +9,7 @@ Each thing a person does on the board is one undo step: a stroke, a drag, a resi
 
 ## Undo and redo buttons
 
-`viewport.undo()` and `viewport.redo()` return `false` when there is nothing to undo or redo. `viewport.history.canUndo` and `canRedo` say whether there is, and `history.onChange` fires when either may have changed:
+`viewport.undo()` and `viewport.redo()` return `false` when there is nothing to undo or redo. `viewport.history.canUndo` and `canRedo` say whether there is, and `history.onChange` fires after every new step, undo, redo and clear:
 
 ::code{example="undo-and-history" region="buttons"}
 

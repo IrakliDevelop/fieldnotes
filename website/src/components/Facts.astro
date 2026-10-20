@@ -1,15 +1,16 @@
 ---
 import { getFacts } from '../lib/facts';
+import { link } from '../utils/base';
 
 const { landing } = await getFacts();
 ---
 
 <dl class="facts">
   {
-    landing.map(({ term, detail }) => (
+    landing.map(({ term, detail, href }) => (
       <div>
         <dt>{term}</dt>
-        <dd>{detail}</dd>
+        <dd>{href === undefined ? detail : <a href={link(href)}>{detail}</a>}</dd>
       </div>
     ))
   }

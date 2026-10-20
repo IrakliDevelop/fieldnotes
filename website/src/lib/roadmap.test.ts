@@ -60,8 +60,8 @@ describe('parseRoadmap', () => {
     );
 
     expect(roadmap.notBuilt).toEqual([
-      'Frames that group and clip content',
-      'Find text on the canvas',
+      'Frames that group and clip elements',
+      'Find text on the board',
       'Command palette',
       'Elbow arrows that route around shapes',
       'Text inside shapes',

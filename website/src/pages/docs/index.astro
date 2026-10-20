@@ -27,10 +27,10 @@ const { groups } = docsNav(await getCollection('docs'));
       <h2 id="facts">Facts</h2>
       <dl>
         {
-          facts.map(({ term, detail }) => (
+          facts.map(({ term, detail, href }) => (
             <div>
               <dt>{term}</dt>
-              <dd>{detail}</dd>
+              <dd>{href === undefined ? detail : <a href={link(href)}>{detail}</a>}</dd>
             </div>
           ))
         }

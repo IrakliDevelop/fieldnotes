@@ -14,7 +14,7 @@ const WRAPPER = `${BOARD} [data-live-board-mount] > div[tabindex]`;
 async function openBoard(page: Page): Promise<void> {
   await page.goto('/docs/getting-started/?debug-boards');
   await page.locator(BOARD).scrollIntoViewIfNeeded();
-  await expect(page.locator(BOARD).getByRole('button', { name: 'Clear board' })).toBeVisible();
+  await expect(page.locator(BOARD).getByRole('button', { name: 'Reset board' })).toBeVisible();
 }
 
 function strokeCount(page: Page): Promise<number> {
@@ -33,7 +33,7 @@ async function boardCentre(page: Page): Promise<{ x: number; y: number }> {
   return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
 }
 
-test('the live board draws a mouse stroke and Clear board empties it', async ({ page }) => {
+test('the live board draws a mouse stroke and Reset board empties it', async ({ page }) => {
   await openBoard(page);
   await expect(page.locator(`${BOARD} .board-placeholder`)).toBeHidden();
   const { x, y } = await boardCentre(page);
@@ -43,12 +43,12 @@ test('the live board draws a mouse stroke and Clear board empties it', async ({ 
   await page.mouse.up();
   await expect.poll(() => strokeCount(page)).toBe(1);
 
-  await page.locator(BOARD).getByRole('button', { name: 'Clear board' }).click();
+  await page.locator(BOARD).getByRole('button', { name: 'Reset board' }).click();
   await expect.poll(() => strokeCount(page)).toBe(0);
   await expect(page.locator(WRAPPER)).toHaveCount(1);
 });
 
-test('the saving board opens its saved board, and again after Clear board', async ({ page }) => {
+test('the saving board opens its saved board, and again after Reset board', async ({ page }) => {
   const board = page.locator('figure[data-live-board="saving-and-loading"]');
   const counts = () =>
     page.evaluate(() => {
@@ -63,7 +63,7 @@ test('the saving board opens its saved board, and again after Clear board', asyn
 
   await page.evaluate(() => window.__docsBoards['saving-and-loading']?.store.clear());
   await expect.poll(counts).toEqual([0, 0]);
-  await board.getByRole('button', { name: 'Clear board' }).click();
+  await board.getByRole('button', { name: 'Reset board' }).click();
   await expect.poll(counts).toEqual([2, 1]);
 });
 
@@ -201,6 +201,14 @@ test('search results close on Escape, when focus leaves the box, and when the in
   await expect(list).toBeVisible();
   await input.fill('');
   await expect(list).toBeHidden();
+});
+
+test('a search with no results says so and names the term', async ({ page }) => {
+  await page.goto('/docs/getting-started/');
+  await page.getByRole('searchbox', { name: 'Search the docs' }).fill('zqxjvw');
+  await expect(page.locator('[data-search-results]')).toHaveText(
+    'No docs page matches "zqxjvw". Try an API name such as addHtmlElement.',
+  );
 });
 
 test('only the latest query renders its results', async ({ page }) => {

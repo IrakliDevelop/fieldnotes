@@ -24,7 +24,7 @@ const SUMMARY =
   'Field Notes is an infinite-canvas SDK for the browser: freehand pens, shapes, sticky notes, arrows and live HTML elements on one zoomable board. `@fieldnotes/core` is vanilla TypeScript; React, Vue and Svelte bindings, a WebSocket sync client and server, Redis persistence and tabletop elements are separate packages.';
 
 const OPTIONAL = [
-  ['API reference', '/api/', 'TypeDoc pages for every export of every package.'],
+  ['API reference', '/api/', 'TypeDoc pages for every package except `@fieldnotes/svelte`.'],
   ['Changelog', '/changelog/', 'Every release with its date.'],
   ['Roadmap', '/roadmap/', 'What is built, what is next and what is not built yet.'],
 ] as const;

@@ -8,10 +8,10 @@
       "cells": {
         "Field Notes": {
           "text": "MIT. No licence key, no watermark.",
-          "href": "/docs/getting-started/"
+          "href": "https://github.com/IrakliDevelop/fieldnotes/blob/master/LICENSE"
         },
         "tldraw": {
-          "text": "The tldraw SDK is free in development and needs a licence key in production: a commercial licence, or a discretionary hobby licence for non-commercial projects that shows a made with tldraw watermark.",
+          "text": "The tldraw SDK is free in development and needs a licence key in production: a commercial licence, or a discretionary hobby licence for non-commercial projects that shows a \"made with tldraw\" watermark.",
           "source": "https://tldraw.dev/community/license",
           "checkedOn": "2026-10-20"
         },
@@ -84,7 +84,7 @@
     },
     {
       "id": "tabletop",
-      "label": "Tabletop features",
+      "label": "Tabletop maps",
       "cells": {
         "Field Notes": {
           "text": "@fieldnotes/vtt adds square and hex grids, fog of war, a measuring tool and area templates.",

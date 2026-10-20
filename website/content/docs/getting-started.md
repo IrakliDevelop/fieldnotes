@@ -18,7 +18,7 @@ npm install @fieldnotes/core
 Create a `Viewport` on any element. Passing `tools: 'default'` registers select, pencil, eraser, shapes, arrows, notes, text and pan, and starts on select.
 
 :::margin
-Give the container a height. A canvas with nothing to fill is 0 pixels tall.
+Give the container a height. An empty container is 0px tall, and so is the board in it.
 :::
 
 ::code{example="getting-started" region="mount"}
@@ -30,7 +30,7 @@ Give the container a height. A canvas with nothing to fill is 0 pixels tall.
 The whole board, including layers and camera, serialises to one JSON string. Store it anywhere that holds text.
 
 :::margin
-onStateChange fires on every camera move too. Debounce the save.
+`onStateChange` fires on every camera move too. Debounce the save.
 :::
 
 ::code{example="getting-started" region="save-debounced"}

@@ -18,7 +18,7 @@ const boardHtml = (example: string) =>
   '</svg></div><div data-live-board-mount></div>' +
   '<div class="live-board-actions">' +
   '<button type="button" class="live-board-engage" hidden>Draw on this board</button>' +
-  '<button type="button" class="live-board-clear" hidden>Clear board</button></div></div>' +
+  '<button type="button" class="live-board-reset" hidden>Reset board</button></div></div>' +
   '<figcaption>A live board running the snippet above.</figcaption></figure>';
 
 /** Renders `:::margin`, `::code` and `::board`, restores stray text directives and adds `base` to root-relative URLs. */

@@ -111,6 +111,13 @@ test('the docs index shows the facts and the nav groups', async ({ page }) => {
     'Packages',
     'Not built yet',
   ]);
+  expect(
+    await facts.locator('dd > a').evaluateAll((all) => all.map((a) => a.getAttribute('href'))),
+  ).toEqual([
+    '/docs/using-react/',
+    '/docs/multiplayer/',
+    '/docs/tools-and-input/#mouse-touch-and-pen',
+  ]);
   await expect(page.getByRole('region', { name: 'Start' }).getByRole('link')).toHaveText([
     'Getting started',
     'Using React',
@@ -162,7 +169,7 @@ test.describe('docs without JavaScript', () => {
     );
     const board = page.locator('figure[data-live-board="getting-started"]');
     await expect(board.locator('.board-placeholder')).toBeVisible();
-    await expect(board.locator('.live-board-clear')).toBeHidden();
+    await expect(board.locator('.live-board-reset')).toBeHidden();
     await expect(board.locator('.live-board-engage')).toBeHidden();
     await expect(page.locator('input[type="search"]')).toBeHidden();
     await expect(board.locator('figcaption')).toHaveText('A live board running the snippet above.');

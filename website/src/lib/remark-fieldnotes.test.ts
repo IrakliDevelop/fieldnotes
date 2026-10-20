@@ -51,7 +51,7 @@ describe('remarkFieldnotes', () => {
     expect(html).toContain('<div class="board-placeholder" aria-hidden="true">');
     expect(html).toContain('<div data-live-board-mount=""></div>');
     expect(html).toContain(
-      '<div class="live-board-actions"><button type="button" class="live-board-engage" hidden>Draw on this board</button><button type="button" class="live-board-clear" hidden>Clear board</button></div>',
+      '<div class="live-board-actions"><button type="button" class="live-board-engage" hidden>Draw on this board</button><button type="button" class="live-board-reset" hidden>Reset board</button></div>',
     );
     expect(html).toMatch(
       /<figcaption>A live board running the snippet above\.<\/figcaption><\/figure>$/,
