@@ -1,0 +1,51 @@
+---
+const command = 'npm install @fieldnotes/core';
+---
+
+<span class="install" data-fn-control>
+  <button type="button" data-copy-install={command}>
+    <span class="command">{command}</span>
+    <span class="chip" data-copy-chip aria-live="polite">Copy</span>
+  </button>
+</span>
+
+<script>
+  import '../scripts/copy-install';
+</script>
+
+<style>
+  .install {
+    display: inline-flex;
+    max-width: 100%;
+  }
+
+  button {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    max-width: 100%;
+    min-height: 48px;
+    padding: 0 8px 0 18px;
+    border: 0;
+    border-radius: 4px;
+    background: var(--graphite);
+    color: var(--board);
+    font: 500 15px/1.3 'JetBrains Mono', monospace;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .command {
+    user-select: text;
+  }
+
+  .chip {
+    flex: none;
+    padding: 8px 12px;
+    border-radius: 3px;
+    background: #3f444a;
+    font-family: 'Public Sans', sans-serif;
+    font-size: 14px;
+    line-height: 1;
+  }
+</style>

@@ -1,0 +1,453 @@
+---
+import InstallButton from './InstallButton.astro';
+import { link } from '../utils/base';
+
+const tools = [
+  { name: 'select', label: 'Select', path: 'M5 3l14 8-6 2-2 6z' },
+  { name: 'pencil', label: 'Pencil', path: 'M4 20l4-1 11-11-3-3L5 16z' },
+  { name: 'note', label: 'Sticky note', path: 'M4 4h16v10l-6 6H4zM14 20v-6h6' },
+  { name: 'arrow', label: 'Arrow', path: 'M5 19L19 5M10 5h9v9' },
+  {
+    name: 'hand',
+    label: 'Pan',
+    path: 'M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3',
+  },
+];
+const checklist = ['Install the package', 'Mount a viewport', 'Save it as JSON', 'Try it with a pen'];
+---
+
+<section class="hero" data-hero>
+  <div class="wrap flow">
+    <div class="copy">
+      <div class="headline" data-hero-node="headline">
+        <h1>Put an infinite canvas in your app.</h1>
+        <div class="frame" data-hero-frame aria-hidden="true">
+          <span class="handle nw"></span>
+          <span class="handle ne"></span>
+          <span class="handle sw"></span>
+          <span class="handle se"></span>
+        </div>
+      </div>
+      <p class="annotation" data-hero-node="annotation">
+        This headline is on the canvas too. Drag it.
+      </p>
+      <p class="intro" data-hero-node="intro">
+        Freehand pens, shapes, sticky notes, arrows and live HTML elements on one zoomable board.
+        Vanilla TypeScript under the MIT licence. React bindings and a sync server you host
+        yourself are separate, optional packages.
+      </p>
+      <div class="actions" data-hero-node="actions">
+        <InstallButton />
+        <a class="standalone" href={link('/playground/')}>Try it in the playground</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="board" data-hero-board>
+    <div class="wrap side-wrap">
+      <div class="side">
+        <svg class="sketch" data-hero-sketch aria-hidden="true" viewBox="0 0 380 520">
+          <g
+            fill="none"
+            stroke="#2A2D31"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M22 132c80-3 170-2 250 1 2 54 1 110-1 166-82 3-166 2-248-1-3-56-3-112-1-166z"
+            ></path>
+            <path d="M24 156c80-2 164-1 246 1"></path>
+            <path d="M60 158c1 46 0 92-2 138"></path>
+            <path d="M34 176h14M34 196h14M34 216h14M34 236h14"></path>
+            <path d="M90 250c20-30 40-46 62-38 20 8 24 34 46 30 18-4 28-26 46-34"></path>
+          </g>
+          <path
+            d="M226 92c26 6 40 22 40 40"
+            fill="none"
+            stroke="#2A2D31"
+            stroke-width="1.6"
+            stroke-linecap="round"
+            stroke-dasharray="2 6"></path>
+          <path
+            d="M258 126l8 10 7-11"
+            fill="none"
+            stroke="#2A2D31"
+            stroke-width="1.6"
+            stroke-linecap="round"
+            stroke-linejoin="round"></path>
+        </svg>
+        <div class="sticky" data-hero-node="sticky">
+          Tools down the left. The board takes the rest of the screen.
+        </div>
+        <div
+          class="checklist"
+          data-hero-node="checklist"
+          role="group"
+          aria-label="Checklist, an HTML element on the board"
+        >
+          <div class="checklist-title">Add a board</div>
+          {
+            checklist.map((item, index) => (
+              <div class="check">
+                <input id={`hero-check-${index + 1}`} type="checkbox" />
+                <label for={`hero-check-${index + 1}`}>{item}</label>
+              </div>
+            ))
+          }
+        </div>
+        <div class="mira" data-hero-mira aria-hidden="true">
+          <svg width="18" height="20" viewBox="0 0 18 20">
+            <path
+              d="M2 2l13 7-6 1.5L6 17z"
+              fill="#2F55A4"
+              stroke="#F9F9F6"
+              stroke-width="1.2"
+              stroke-linejoin="round"></path>
+          </svg>
+          <span>Mira</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="controls" data-hero-controls hidden>
+    <div class="toolbar" role="toolbar" aria-label="Canvas tools">
+      {
+        tools.map(({ name, label, path }) => (
+          <button
+            class="tool"
+            type="button"
+            aria-label={label}
+            aria-pressed={name === 'select' ? 'true' : 'false'}
+            data-hero-tool={name}
+          >
+            <svg
+              aria-hidden="true"
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d={path} />
+            </svg>
+          </button>
+        ))
+      }
+    </div>
+    <div class="view">
+      <button class="reset" type="button" data-hero-reset>Put it back</button>
+      <span class="zoom" data-hero-zoom>100%</span>
+    </div>
+  </div>
+</section>
+
+<style>
+  .hero {
+    position: relative;
+    overflow: hidden;
+    border-top: 1px solid var(--divider);
+    border-bottom: 1px solid var(--divider);
+    --margin-x: max(24px, calc(50% - 612px));
+  }
+
+  /* The static picture of the board; the island replaces it with lines drawn in world space. */
+  .board {
+    position: absolute;
+    inset: 0;
+    background-color: var(--board);
+    background-image:
+      linear-gradient(
+        to right,
+        transparent var(--margin-x),
+        var(--margin) var(--margin-x),
+        var(--margin) calc(var(--margin-x) + 1.5px),
+        transparent calc(var(--margin-x) + 1.5px)
+      ),
+      repeating-linear-gradient(
+        to bottom,
+        transparent 0,
+        transparent 27px,
+        var(--rule) 27px,
+        var(--rule) 28px
+      );
+    background-position:
+      0 0,
+      0 12px;
+  }
+
+  .side-wrap {
+    position: relative;
+    height: 100%;
+  }
+
+  .side {
+    position: absolute;
+    top: 80px;
+    right: 32px;
+    width: 380px;
+    height: 520px;
+  }
+
+  .sketch {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+
+  .sticky {
+    position: absolute;
+    top: 6px;
+    left: 30px;
+    width: 196px;
+    padding: 14px 16px;
+    background: var(--note);
+    font-size: 15px;
+    line-height: 1.45;
+    transform: rotate(-1.5deg);
+  }
+
+  .checklist {
+    position: absolute;
+    right: 0;
+    bottom: 16px;
+    width: 214px;
+    padding: 14px 16px;
+    background: #fff;
+    border: 1px solid var(--divider);
+    border-radius: 6px;
+    font-size: 15px;
+  }
+
+  .checklist-title {
+    margin-bottom: 8px;
+    font-weight: 600;
+  }
+
+  .check {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 6px;
+  }
+
+  .check input {
+    width: 18px;
+    height: 18px;
+    margin: 0;
+    accent-color: var(--graphite);
+  }
+
+  .mira {
+    position: absolute;
+    top: 400px;
+    left: 40px;
+    display: flex;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  .mira span {
+    margin-top: 14px;
+    font-family: 'Kalam', cursive;
+    font-size: 18px;
+    color: var(--ballpoint);
+  }
+
+  .flow {
+    position: relative;
+    z-index: 1;
+    min-height: 620px;
+    padding-top: 96px;
+    padding-bottom: 120px;
+    /* The board under the text takes the presses the copy column does not. */
+    pointer-events: none;
+  }
+
+  .copy {
+    max-width: min(700px, 100% - 412px);
+    padding-left: 32px;
+    pointer-events: auto;
+  }
+
+  .headline {
+    position: relative;
+    display: inline-block;
+  }
+
+  h1 {
+    margin: 0;
+    font-size: clamp(48px, 6.1vw, 76px);
+    line-height: 1.03;
+    text-wrap: balance;
+  }
+
+  .frame {
+    position: absolute;
+    inset: -10px -14px;
+    border: 1.5px solid var(--red);
+    pointer-events: none;
+  }
+
+  .handle {
+    position: absolute;
+    width: 8px;
+    height: 8px;
+    background: var(--board);
+    border: 1.5px solid var(--red);
+  }
+
+  .nw,
+  .sw {
+    left: -5px;
+  }
+
+  .ne,
+  .se {
+    right: -5px;
+  }
+
+  .nw,
+  .ne {
+    top: -5px;
+  }
+
+  .sw,
+  .se {
+    bottom: -5px;
+  }
+
+  .annotation {
+    margin: 28px 0 0;
+    font-family: 'Kalam', cursive;
+    font-size: 21px;
+    line-height: 1.2;
+    color: var(--red);
+  }
+
+  .intro {
+    max-width: 31em;
+    margin: 28px 0 0;
+    color: var(--graphite-2);
+    text-wrap: pretty;
+  }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 16px 24px;
+    margin-top: 28px;
+    font-size: 16px;
+  }
+
+  .controls {
+    position: absolute;
+    z-index: 2;
+    inset: 0;
+    pointer-events: none;
+  }
+
+  .toolbar,
+  .view {
+    position: absolute;
+    bottom: 20px;
+    display: flex;
+    align-items: center;
+    pointer-events: auto;
+  }
+
+  .toolbar {
+    left: 20px;
+    gap: 4px;
+    padding: 4px;
+    background: var(--board);
+    border: 1px solid var(--divider);
+    border-radius: 6px;
+  }
+
+  .tool {
+    display: grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--graphite-2);
+    cursor: pointer;
+  }
+
+  .tool[aria-pressed='true'] {
+    background: var(--graphite);
+    color: var(--board);
+  }
+
+  .view {
+    right: 20px;
+    gap: 16px;
+    font-size: 14px;
+  }
+
+  .reset {
+    min-height: 36px;
+    padding: 0 12px;
+    border: 1px solid var(--muted);
+    border-radius: 4px;
+    background: var(--board);
+    color: var(--graphite);
+    font: 500 14px 'Public Sans', sans-serif;
+    cursor: pointer;
+  }
+
+  .zoom {
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  @media (pointer: coarse) {
+    .check {
+      min-height: 44px;
+      margin-top: 0;
+    }
+
+    .tool,
+    .reset {
+      min-width: 44px;
+      min-height: 44px;
+    }
+  }
+
+  /* At 820px and below the text stays static above a separate, shorter board. */
+  @media (max-width: 820px) {
+    .board {
+      position: relative;
+      min-height: 420px;
+      padding: 32px 0 80px;
+      border-top: 1px solid var(--divider);
+    }
+
+    .side {
+      position: relative;
+      top: 0;
+      right: 0;
+      width: min(380px, 100%);
+      margin: 0 auto;
+    }
+
+    .flow {
+      min-height: 0;
+      padding-top: 48px;
+      padding-bottom: 48px;
+    }
+
+    .copy {
+      max-width: none;
+      padding-left: 0;
+    }
+  }
+</style>
