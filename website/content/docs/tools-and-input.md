@@ -47,10 +47,10 @@ The board reads Pointer Events, so mouse, touch and pen drive the same tools.
 - One pointer drives the active tool. When a second finger lands, the tool's gesture is cancelled and two fingers pan and pinch-zoom the board. A stroke cut short this way leaves nothing behind.
 - The mouse wheel zooms at the cursor. Middle-button drag, or Space and drag, pans. A pan that ends in a flick coasts; `panInertia: false` turns that off.
 - A touch reaches the tool once it moves more than 3px or lifts. With the select tool, a 500ms long press opens the context menu.
-- Pen pressure sets the stroke's width along its length, from 0.4 to 1.8 times the pencil's `width`. Input without pressure draws at 0.5.
+- Pen pressure sets the stroke's width along its length, from 0.4 to 1.8 times the pencil's `width`. Input without pressure counts as pressure 0.5, which draws at 1.1 times `width`.
 - While a pen is down, touches are ignored, so a palm resting on the screen draws nothing.
 
-A double click or double tap edits a note or text. Right-click, or the long press, opens a menu with cut, copy, paste, duplicate, delete, order, rotate and lock. `contextMenu: false` removes it.
+A double click or double tap edits a note or text. With the select tool, right-click or a long press opens a menu with cut, copy, paste, duplicate, delete, order, rotate and lock. `contextMenu: false` removes it.
 
 For a board inside a scrolling page, [Boards in a scrolling page](/docs/html-elements/#boards-in-a-scrolling-page) shows `embedded`, which leaves the plain wheel and one-finger swipes to the page.
 

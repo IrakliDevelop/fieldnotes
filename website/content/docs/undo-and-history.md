@@ -17,7 +17,7 @@ The board keeps the last 100 undo steps. `loadJSON` and `loadState` clear them, 
 
 ## What counts as one step
 
-- A pointer gesture that changes the board, from press to release, under any tool. A built-in tool whose gesture a second finger cancels leaves no step.
+- A pointer gesture that changes the board, from press to release, under any tool. When a second finger cancels the gesture, the pencil, shape, arrow, note and text tools drop it and leave no step. The select and eraser tools finish it as a normal gesture, so what it did stays as one step.
 - A finished note or text edit, including the resize that fits the text. Leaving the editor without a change records nothing.
 - A run of arrow-key nudges, each less than 400ms after the one before.
 - Each call of a viewport method that changes elements: `addShape`, `addImage`, `addHtmlElement`, `removeElements`, `removeLayer`, `applyStyleToSelection`, `groupSelection`, `ungroupSelection`, `alignSelection`, `distributeSelection`, `rotateSelection` and `toggleLockSelection`, and the delete, duplicate and paste actions.

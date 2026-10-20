@@ -76,7 +76,15 @@ test('the html elements board gives a button click to the button, not the pencil
   await board.scrollIntoViewIfNeeded();
   const button = board.getByRole('button', { name: 'Next turn' });
   await button.evaluate((el) => el.addEventListener('click', () => (el.dataset.clicked = 'yes')));
-  await button.click();
+  const box = await button.boundingBox();
+  if (!box) throw new Error('Next turn is not rendered');
+  const start = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  // Out 40px and back, so the release lands on the button and a pencil would have a stroke.
+  for (let i = 1; i <= 4; i++) await page.mouse.move(start.x + i * 10, start.y);
+  for (let i = 3; i >= 0; i--) await page.mouse.move(start.x + i * 10, start.y);
+  await page.mouse.up();
   await expect(button).toHaveAttribute('data-clicked', 'yes');
   expect(
     await page.evaluate(
