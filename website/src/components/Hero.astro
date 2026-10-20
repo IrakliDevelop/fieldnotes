@@ -17,7 +17,7 @@ const checklist = ['Install the package', 'Mount a viewport', 'Save it as JSON',
 ---
 
 <section class="hero" data-hero>
-  <div class="wrap flow">
+  <div class="wrap flow" data-hero-flow>
     <div class="copy">
       <div class="headline" data-hero-node="headline">
         <h1>Put an infinite canvas in your app.</h1>
@@ -44,7 +44,7 @@ const checklist = ['Install the package', 'Mount a viewport', 'Save it as JSON',
   </div>
 
   <div class="board" data-hero-board>
-    <div class="wrap side-wrap">
+    <div class="wrap side-wrap" data-hero-side>
       <div class="side">
         <svg class="sketch" data-hero-sketch aria-hidden="true" viewBox="0 0 380 520">
           <g
@@ -144,6 +144,13 @@ const checklist = ['Install the package', 'Mount a viewport', 'Save it as JSON',
     </div>
   </div>
 </section>
+
+<script>
+  window.addEventListener('load', () => {
+    const root = document.querySelector<HTMLElement>('[data-hero]');
+    if (root) void import('../hero/mount').then(({ mountHero }) => mountHero(root));
+  });
+</script>
 
 <style>
   .hero {
@@ -343,6 +350,12 @@ const checklist = ['Install the package', 'Mount a viewport', 'Save it as JSON',
     gap: 16px 24px;
     margin-top: 28px;
     font-size: 16px;
+  }
+
+  /* On the board each node fills the element box core sizes and positions for it. */
+  .adopted {
+    position: static;
+    margin: 0;
   }
 
   .controls {
