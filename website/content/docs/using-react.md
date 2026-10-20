@@ -40,3 +40,5 @@ Children of `<FieldNotesCanvas>` can call the hooks. `useActiveTool` returns the
 `<CanvasElement position={{ x, y }}>` renders its children on the board, where they pan and zoom with it. React owns the element: moving it creates no undo step, and `exportState()` leaves it out of the saved board.
 
 The [`@fieldnotes/react` README](https://github.com/IrakliDevelop/fieldnotes/blob/master/packages/react/README.md#prop-reactivity) says which props are read only at mount, and covers custom tools and the selection hooks.
+
+[`@fieldnotes/vue`](https://github.com/IrakliDevelop/fieldnotes/tree/master/packages/vue#readme) and [`@fieldnotes/svelte`](https://github.com/IrakliDevelop/fieldnotes/tree/master/packages/svelte#readme) have `FieldNotesCanvas`, `CanvasElement` and `Minimap` as in React, and helpers with the React hook names that give their state as Vue refs and Svelte stores.

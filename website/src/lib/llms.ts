@@ -21,7 +21,7 @@ export type LlmsEntry = DocEntry & { data: { description: string }; body?: strin
 const BOARD_NOTE = '(A live board runs this example on the page.)';
 
 const SUMMARY =
-  'Field Notes is an infinite-canvas SDK for the browser: freehand pens, shapes, sticky notes, arrows and live HTML elements on one zoomable board. `@fieldnotes/core` is vanilla TypeScript; React bindings, a WebSocket sync client and server, Redis persistence and tabletop elements are separate packages.';
+  'Field Notes is an infinite-canvas SDK for the browser: freehand pens, shapes, sticky notes, arrows and live HTML elements on one zoomable board. `@fieldnotes/core` is vanilla TypeScript; React, Vue and Svelte bindings, a WebSocket sync client and server, Redis persistence and tabletop elements are separate packages.';
 
 const OPTIONAL = [
   ['API reference', '/api/', 'TypeDoc pages for every export of every package.'],

@@ -16,7 +16,10 @@ describe('getFacts', () => {
 
     expect(facts.landing).toEqual([
       { term: 'Licence', detail: 'MIT. No licence key, no watermark.' },
-      { term: 'Framework', detail: 'None needed. React bindings if you want them.' },
+      {
+        term: 'Framework',
+        detail: 'None needed. React, Vue and Svelte bindings if you want them.',
+      },
       { term: 'Multiplayer', detail: 'Your own WebSocket relay, Redis optional.' },
       { term: 'Input', detail: 'Mouse, touch and pen with pressure.' },
     ]);

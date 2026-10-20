@@ -27,7 +27,16 @@ describe('getInstallableVersions', () => {
     expect(fetch).toHaveBeenCalledWith(
       'https://registry.npmjs.org/@fieldnotes%2Fsync-redis/latest',
     );
-    expect(Object.keys(versions)).toHaveLength(6);
+    expect(Object.keys(versions)).toEqual([
+      '@fieldnotes/core',
+      '@fieldnotes/react',
+      '@fieldnotes/vue',
+      '@fieldnotes/svelte',
+      '@fieldnotes/sync',
+      '@fieldnotes/sync-server',
+      '@fieldnotes/sync-redis',
+      '@fieldnotes/vtt',
+    ]);
   });
 
   it('falls back to workspace versions with one warning when the registry is unreachable', async () => {

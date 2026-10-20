@@ -18,6 +18,7 @@
 - Autosave to IndexedDB, localStorage or memory
 - Embedded boards that let a plain wheel and a one-finger swipe scroll the page
 - React bindings: a canvas component and hooks
+- Vue and Svelte bindings: a canvas component and helpers with the React hook names
 - Self-hosted WebSocket sync server, with Redis for persistence and fan-out across instances
 - Tabletop package with square and hex grids, fog of war, measuring and area templates
 

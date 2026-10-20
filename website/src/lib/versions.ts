@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url';
 export const PUBLIC_PACKAGES = [
   '@fieldnotes/core',
   '@fieldnotes/react',
+  '@fieldnotes/vue',
+  '@fieldnotes/svelte',
   '@fieldnotes/sync',
   '@fieldnotes/sync-server',
   '@fieldnotes/sync-redis',
