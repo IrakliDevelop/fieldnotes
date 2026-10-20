@@ -471,6 +471,23 @@ describe('isValidEnvelope layer ops', () => {
         op: { kind: 'snapshot', to: 'B', elements: [], layers: [] },
       }),
     ).toBe(true);
+    expect(
+      legacyIsValidEnvelope({
+        from: 'A',
+        op: { kind: 'batch', ops: [{ kind: 'remove', id: 'e', version: 2, editor: 'A' }] },
+      }),
+    ).toBe(false);
+    expect(
+      legacyIsValidEnvelope({
+        from: 'hub',
+        op: {
+          kind: 'unsupported',
+          protocolVersion: 2,
+          minProtocolVersion: 2,
+          reason: 'protocol version 2 required',
+        },
+      }),
+    ).toBe(false);
   });
 });
 
@@ -837,5 +854,120 @@ describe('protocol 2 element and tombstone contracts', () => {
     [{ version: 1 }, undefined, true],
   ])('isNewerVersion(%j, %j) is %s', (a, b, expected) => {
     expect(isNewerVersion(a, b)).toBe(expected);
+  });
+});
+
+describe('batch and unsupported ops', () => {
+  const v2 = (id = 'e1') => ({ ...shape(), id, index: 'a0', version: 3, editor: 'peer-b' });
+  const remove = (id = 'e1') => ({ kind: 'remove', id, version: 4, editor: 'peer-b' });
+  const batch = (ops: unknown[]) => ({ from: 'A', op: { kind: 'batch', ops } });
+  const upserts = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({ kind: 'upsert', element: v2(`e${String(i)}`) }));
+  const unsupported = (patch: Record<string, unknown> = {}) => ({
+    from: 'hub',
+    op: {
+      kind: 'unsupported',
+      protocolVersion: 2,
+      minProtocolVersion: 2,
+      reason: 'too old',
+      ...patch,
+    },
+  });
+
+  it.each([
+    [1, true],
+    [1000, true],
+    [0, false],
+    [1001, false],
+  ])('isValidEnvelope with a batch of %i upserts is %s', (n, expected) => {
+    expect(isValidEnvelope(batch(upserts(n)))).toBe(expected);
+  });
+
+  it.each([
+    ['a non-array ops', 'nope'],
+    ['an invalid element', [{ kind: 'upsert', element: {} }]],
+    ['a non-batchable kind', [{ kind: 'clear' }]],
+    ['a remove without editor', [{ kind: 'remove', id: 'x', version: 2 }]],
+    ['a remove with a zero version', [{ ...remove(), version: 0 }]],
+  ])('isValidEnvelope rejects a batch with %s', (_name, ops) => {
+    expect(isValidEnvelope({ from: 'A', op: { kind: 'batch', ops } })).toBe(false);
+  });
+
+  it('parseLegacyEnvelope accepts a v2 batch and rejects legacy-shaped elements or bare removes', () => {
+    const legacy = { ...shape(), index: undefined, version: undefined, zIndex: 4 };
+    const parse = (ops: unknown[]) => parseLegacyEnvelope(JSON.stringify(batch(ops)));
+    expect(parse([{ kind: 'upsert', element: v2() }, remove()])).not.toBeNull();
+    expect(
+      parse([
+        { kind: 'upsert', element: v2() },
+        { kind: 'upsert', element: legacy },
+      ]),
+    ).toBeNull();
+    expect(
+      parse([
+        { kind: 'upsert', element: v2() },
+        { kind: 'remove', id: 'x', editor: 'a' },
+      ]),
+    ).toBeNull();
+  });
+
+  it.each([
+    ['element id', [{ kind: 'upsert', element: v2('i'.repeat(257)) }]],
+    ['element color', [{ kind: 'upsert', element: { ...v2(), fillColor: 'c'.repeat(257) } }]],
+    ['remove id', [remove('i'.repeat(257))]],
+    ['remove editor', [{ ...remove(), editor: 'e'.repeat(257) }]],
+  ])('isWithinSyncLimits rejects a batch whose %s exceeds its limit', (_name, ops) => {
+    const env = batch([{ kind: 'upsert', element: v2() }, ...ops]);
+    expect(isValidEnvelope(env)).toBe(true);
+    expect(isValidEnvelope(env) && isWithinSyncLimits(env)).toBe(false);
+  });
+
+  it('isWithinSyncLimits accepts a batch at its limits', () => {
+    const env = batch([{ kind: 'upsert', element: v2('i'.repeat(256)) }, remove('i'.repeat(256))]);
+    expect(isValidEnvelope(env) && isWithinSyncLimits(env)).toBe(true);
+  });
+
+  it('accepts unsupported with a reason up to 256 chars and rejects 257', () => {
+    expect(parseEnvelope(JSON.stringify(unsupported({ reason: 'r'.repeat(256) })))).not.toBeNull();
+    const long = unsupported({ reason: 'r'.repeat(257) });
+    expect(isValidEnvelope(long)).toBe(true);
+    expect(isValidEnvelope(long) && isWithinSyncLimits(long)).toBe(false);
+  });
+
+  it.each([
+    ['a negative protocolVersion', { protocolVersion: -1 }],
+    ['a fractional minProtocolVersion', { minProtocolVersion: 1.5 }],
+    ['a string protocolVersion', { protocolVersion: '2' }],
+    ['a missing reason', { reason: undefined }],
+  ])('isValidEnvelope rejects unsupported with %s', (_name, patch) => {
+    expect(isValidEnvelope(unsupported(patch))).toBe(false);
+  });
+
+  it('accepts unsupported with zero versions', () => {
+    expect(isValidEnvelope(unsupported({ protocolVersion: 0, minProtocolVersion: 0 }))).toBe(true);
+  });
+
+  it('applyOpToMap applies batch ops in order and ignores unsupported', () => {
+    const map = new Map<string, CanvasElement>();
+    const a = shape(1);
+    const b = shape(2);
+    applyOpToMap(map, {
+      kind: 'batch',
+      ops: [
+        { kind: 'upsert', element: a },
+        { kind: 'remove', id: a.id, version: 2, editor: 'x' },
+        { kind: 'remove', id: b.id, version: 2, editor: 'x' },
+        { kind: 'upsert', element: b },
+      ],
+    });
+    expect([...map.keys()]).toEqual([b.id]);
+
+    applyOpToMap(map, {
+      kind: 'unsupported',
+      protocolVersion: 1,
+      minProtocolVersion: 2,
+      reason: 'r',
+    });
+    expect(map.get(b.id)).toBe(b);
   });
 });

@@ -1,6 +1,6 @@
 import { isValidIndexKey } from '@fieldnotes/core';
 import type { CanvasElement, ElementType, Layer } from '@fieldnotes/core';
-import type { AuthorityExtensionManifestEntry } from './authority-protocol';
+import type { AuthorityExtensionManifestEntry, DeepReadonly } from './authority-protocol';
 import {
   FOG_SYNC_PROTOCOL_VERSION,
   FOG_PATCH_MAX_TILES,
@@ -15,11 +15,9 @@ import { SYNC_LIMITS, hasJsonDepthAtMost } from './limits';
 const {
   maxIdLength,
   maxShortStringLength,
-  maxTextLength,
-  maxSrcLength,
-  maxStrokePoints,
   maxSnapshotElements,
   maxReceivedJsonDepth,
+  maxBatchOps,
 } = SYNC_LIMITS;
 
 export {
@@ -40,6 +38,7 @@ export interface SyncCapabilities {
   elementEnvelope: true;
   readonly authority?: 1;
   readonly authorityExtensions?: readonly AuthorityExtensionManifestEntry[];
+  readonly opBatching?: 1;
 }
 
 /**
@@ -88,8 +87,16 @@ export function isNewerVersion(
   return b.editor === undefined || a.editor > b.editor;
 }
 
+type ElementBatchOp<TElement> =
+  | { kind: 'upsert'; element: TElement }
+  | { kind: 'remove'; id: string; version: number; editor: string };
+
+/** One element op inside a `batch`: a v2 upsert or a versioned remove. */
+export type BatchOp = ElementBatchOp<SyncElement>;
+
 type ElementSyncOp<TElement> =
   | { kind: 'upsert'; element: TElement }
+  | { kind: 'batch'; ops: ElementBatchOp<TElement>[] }
   | {
       kind: 'snapshot';
       to: string;
@@ -110,7 +117,8 @@ type NonElementSyncOp =
   | { kind: 'layer-remove'; id: string; version: number; editor: string }
   | { kind: 'fog-meta'; record: FogMetaRecord }
   | { kind: 'fog-patch'; generation: string; tiles: FogTileRecord[] }
-  | { kind: 'extension'; extensionKind: string; payload: unknown };
+  | { kind: 'extension'; extensionKind: string; payload: unknown }
+  | { kind: 'unsupported'; protocolVersion: number; minProtocolVersion: number; reason: string };
 
 export type SyncOp = ElementSyncOp<SyncElement> | NonElementSyncOp;
 
@@ -314,6 +322,21 @@ export function isValidLayerRecord(record: unknown): record is LayerRecord {
   return isValidLayerDefinition(definition) && definition.id === record['id'];
 }
 
+function isValidBatchOp(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  if (value['kind'] === 'upsert') return isValidElement(value['element']);
+  return (
+    value['kind'] === 'remove' &&
+    typeof value['id'] === 'string' &&
+    isPositiveInteger(value['version']) &&
+    typeof value['editor'] === 'string'
+  );
+}
+
+function isNonNegativeInteger(value: unknown): boolean {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
 function isBoundedString(value: unknown, maxLen: number): value is string {
   return (
     typeof value === 'string' &&
@@ -346,6 +369,23 @@ export function isValidEnvelope(env: unknown): env is SyncEnvelope {
       return isValidElement(op.element);
     case 'remove':
       return typeof op.id === 'string' && isOptional(op.editor, isString);
+    case 'batch': {
+      const ops = (op as Record<string, unknown>)['ops'];
+      return (
+        Array.isArray(ops) &&
+        ops.length >= 1 &&
+        ops.length <= maxBatchOps &&
+        ops.every(isValidBatchOp)
+      );
+    }
+    case 'unsupported': {
+      const reply = op as Record<string, unknown>;
+      return (
+        isNonNegativeInteger(reply['protocolVersion']) &&
+        isNonNegativeInteger(reply['minProtocolVersion']) &&
+        typeof reply['reason'] === 'string'
+      );
+    }
     case 'clear':
     case 'request-snapshot':
     case 'presence':
@@ -404,7 +444,19 @@ function isAtMost(value: string | undefined, max: number): boolean {
   return value === undefined || value.length <= max;
 }
 
-function elementWithinLimits(el: SyncElement): boolean {
+export const ELEMENT_LIMIT_NAMES = [
+  'maxIdLength',
+  'maxShortStringLength',
+  'maxTextLength',
+  'maxSrcLength',
+  'maxStrokePoints',
+] as const satisfies readonly (keyof typeof SYNC_LIMITS)[];
+
+export type ElementLimits = Readonly<Record<(typeof ELEMENT_LIMIT_NAMES)[number], number>>;
+
+export function elementWithinLimits(el: DeepReadonly<SyncElement>, limits: ElementLimits): boolean {
+  const { maxIdLength, maxShortStringLength, maxTextLength, maxSrcLength, maxStrokePoints } =
+    limits;
   if (
     !isAtMost(el.id, maxIdLength) ||
     !isAtMost(el.layerId, maxIdLength) ||
@@ -455,9 +507,20 @@ export function isWithinSyncLimits(env: SyncEnvelope): boolean {
   const op = env.op;
   switch (op.kind) {
     case 'upsert':
-      return elementWithinLimits(op.element);
+      return elementWithinLimits(op.element, SYNC_LIMITS);
     case 'remove':
       return isAtMost(op.id, maxIdLength) && isAtMost(op.editor, maxIdLength);
+    case 'batch':
+      return (
+        op.ops.length <= maxBatchOps &&
+        op.ops.every((inner) =>
+          inner.kind === 'upsert'
+            ? elementWithinLimits(inner.element, SYNC_LIMITS)
+            : isAtMost(inner.id, maxIdLength) && isAtMost(inner.editor, maxIdLength),
+        )
+      );
+    case 'unsupported':
+      return isAtMost(op.reason, maxShortStringLength);
     case 'snapshot':
       return (
         isAtMost(op.to, maxIdLength) &&
@@ -514,6 +577,11 @@ export function parseLegacyEnvelope(message: string): SyncEnvelope | null {
       return 'index' in op.element ? env : null;
     case 'remove':
       return isPositiveInteger(op.version) && isBoundedId(op.editor) ? env : null;
+    case 'batch':
+      // Batch removes are already versioned by isValidEnvelope; upserts must be v2.
+      return op.ops.every((inner) => inner.kind === 'remove' || 'index' in inner.element)
+        ? env
+        : null;
     case 'clear':
     case 'snapshot':
       return isValidTombstones(op.tombstones) ? env : null;
@@ -533,6 +601,9 @@ export function applyOpToMap<TElement extends SyncElement>(
     case 'remove':
       map.delete(op.id);
       break;
+    case 'batch':
+      for (const inner of op.ops) applyOpToMap(map, inner);
+      break;
     case 'clear':
       map.clear();
       break;
@@ -546,6 +617,7 @@ export function applyOpToMap<TElement extends SyncElement>(
     case 'fog-meta':
     case 'fog-patch':
     case 'extension':
+    case 'unsupported':
       break;
   }
 }

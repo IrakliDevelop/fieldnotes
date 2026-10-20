@@ -6,6 +6,110 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### Core 0.94.0 — live stroke preview (F8)
+
+**Added**
+
+- `PencilTool.onPreview(listener)`: while a pencil or highlighter stroke is drawn, emits a preview
+  at most every 50 ms with the last 120 points (rounded to 0.1 world units), color, width, opacity
+  and blend mode, keyed by the id the committed stroke will have. A cancelled stroke emits
+  `{ id, cleared: true }`.
+- `RemoteStrokeOverlay` draws remote previews on the overlay stratum. A preview stays until the
+  stroke with its id is added to the store, the sender clears it, 3 s pass without an update
+  (`staleMs`), or `remove(sender)` runs. Also `toStrokePreviewPresence`,
+  `isStrokePreviewPresence`, `STROKE_PREVIEW_PRESENCE_KIND` and the `StrokePreview`,
+  `StrokePreviewPresence`, `RemoteStrokeOverlayHost` and `RemoteStrokeOverlayOptions` types.
+
+**Changed**
+
+- `PencilTool` picks the stroke's element id at pointer-down instead of at commit.
+
+Previews travel as presence, which the hub does not filter by audience. Do not forward previews
+for strokes drawn on audience-restricted layers.
+
+### Sync 0.29.0 — op batching and client hygiene (F8)
+
+**Added**
+
+- `SyncClientOptions.flushIntervalMs` (default 50) and `SyncClient.flush()`. Set `0` to send every
+  op synchronously, as before (useful in tests).
+- `batch` op kind (1 to `SYNC_LIMITS.maxBatchOps` = 1000 upserts and versioned removes, in order)
+  and the `opBatching` capability. `BatchOp` type.
+- `unsupported` op kind: a hub may explain why it refuses a protocol version before closing with
+  `4406`. `ManagedSyncConnection.getUnsupportedReason()` returns its reason.
+- `SyncLimitError` (`elementId`, `limit`).
+- `SyncClientOptions.tombstoneRetentionMs` (default 7 days; must be positive and finite).
+- Optional `SyncTransport.onClose(handler)`. `WebSocketTransport` implements it.
+- `AUTHORITY_ELEMENT_LIMITS`: per-field caps for authority element upserts (ids and short strings
+  256, text 1 MiB, `src` 16 MiB, 100,000 stroke points).
+
+**Changed**
+
+- `SyncClient` queues local element ops and sends them at most 20 times per second. Each upsert
+  sends the element's latest state when the queue is sent, so a drag sends one op per element per
+  flush. An element deleted before the flush (for example by a remote remove) is not sent. Element
+  frames, including snapshot re-pushes, now wait up to `flushIntervalMs`. The queue is sent first
+  before clears, snapshots, snapshot requests, layer and extension ops, and `stop()`.
+- Queueing or dropping an element op takes constant time, so a large-selection drag stays linear
+  in the selection size.
+- The audience of a queued element is resolved when the queue is sent, not when it was changed.
+- Through a hub that advertises `opBatching`, a flush goes as `batch` frames, split to stay within
+  the frame byte and depth limits; an op too large for a batch goes alone. Peer to peer and with
+  0.28 hubs each op is its own frame. Batching stops when the transport reports a close and resumes
+  after the next hub handshake. Custom transports should implement `onClose` so batching stops
+  while disconnected.
+- An element op over a `SYNC_LIMITS` cap is not sent; `SyncClient` reports a `SyncLimitError`
+  through `globalThis.reportError` when available. The local store keeps the element.
+- `SyncClient` and managed connections stop on an `unsupported` reply from the hub; the managed
+  status becomes `'unsupported'`.
+- Client tombstones older than `tombstoneRetentionMs` are pruned when a snapshot is built or
+  received. Ids known to the hub are forgotten on remove and clear.
+- `parseAuthorityClientFrame` rejects proposals whose element upsert is over
+  `AUTHORITY_ELEMENT_LIMITS`, so the managed authority client refuses them (`'invalid'`) before
+  sending and the server rejects them. `changes` frames and checkpoints are not capped.
+
+**Compatibility**
+
+0.29 and 0.28 clients and hubs interoperate in either direction. Against a 0.28 hub a 0.29 client
+sends individual ops, up to 20 flushes per second, so a drag of many elements can still exceed the
+0.28 hub's message rate limit.
+
+### Sync server 0.29.0 — batched element ops (F8)
+
+**Added**
+
+- `opsPerSecond` (default 2,000) and `opBurst` (default 4,000) on `createSyncServer` and `SyncHub`:
+  a per-connection budget that counts every element op, single or inside a batch. Going over it
+  closes the connection with `4408`.
+- `SyncHub` option `maxMessageBytes` (default 1 MiB); `createSyncServer` passes its own. The hub
+  advertises `opBatching` only when `maxMessageBytes` ≥ 1 MiB, `maxJsonDepth` ≥ 32 and
+  `opBurst` ≥ 1,000; a lower limit makes clients send single ops.
+
+**Changed**
+
+- The hub advertises `opBatching` and accepts `batch` frames. It processes each op in order
+  through the same pipeline as a single op; a rejected op gets its own correction and does not
+  affect the others. Recipients that advertised `opBatching` get the accepted ops as one `batch`,
+  filtered for what they may read; others get individual ops. Fanout to other instances stays one
+  payload per op, so 0.28 instances on the same Redis keep working.
+- A batch counts as one message for `messagesPerSecond` and runs under one frame-policy deadline.
+- Before the `4406` close for a protocol below 2, the hub sends an `unsupported` reply. With a
+  frame policy it waits up to 1 s for that send.
+- Authority proposals with element upserts over `AUTHORITY_ELEMENT_LIMITS` are rejected.
+- Depends on `@fieldnotes/sync` 0.29.0.
+
+**Migration guide**
+
+At 20 flushes per second, a drag of more than about 100 elements exceeds the default op budget;
+raise `opsPerSecond` and `opBurst` if your boards need that.
+
+### Sync Redis 0.14.1
+
+**Changed**
+
+- Republished against `@fieldnotes/sync` 0.29. Peer floor `@fieldnotes/sync-server` raised to
+  `>=0.29.0`.
+
 ### Core 0.93.0 — element versioning and fractional order (F1)
 
 **Added**

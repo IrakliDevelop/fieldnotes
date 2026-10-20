@@ -375,6 +375,27 @@ describe('authority checkpoint', () => {
     });
   });
 
+  it('does not apply authority element caps to checkpoints', async () => {
+    const stroke = {
+      id: 'e'.repeat(257),
+      type: 'stroke' as const,
+      position: { x: 0, y: 0 },
+      index: 'a0',
+      version: 1,
+      locked: false,
+      layerId: 'base',
+      points: Array.from({ length: 100_001 }, () => ({ x: 0, y: 0, pressure: 0.5 })),
+      color: 'red',
+      width: 1,
+      opacity: 1,
+    };
+    const value = { ...empty, elements: [stroke] };
+    expect(await deliver([...(await prepare(value)).frames])).toEqual({
+      status: 'complete',
+      checkpoint: value,
+    });
+  }, 30_000);
+
   it('uses exact contiguous chunks and each serialized frame remains within one MiB', async () => {
     const data = {
       ...empty,

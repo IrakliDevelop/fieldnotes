@@ -721,6 +721,31 @@ You can drive any menu action programmatically with **`viewport.runAction(name)`
 | Double-click HTML    | Enter interact mode |
 | Escape               | Exit interact mode  |
 
+## Live Stroke Preview
+
+Peers can watch a pencil or highlighter stroke while it is drawn. `PencilTool.onPreview` emits a
+preview at most every 50 ms with the stroke's last 120 points, keyed by the id the committed stroke
+will have. `RemoteStrokeOverlay` draws remote previews on the overlay and drops each one when that
+stroke is added to the store, the sender cancels, 3 s pass without an update, or `remove(sender)`
+runs. Wire `onPreview` on every `PencilTool` instance, the highlighter included. Wire it like the
+laser, for example with a `SyncClient`:
+
+```ts
+import { PencilTool, RemoteStrokeOverlay, toStrokePreviewPresence } from '@fieldnotes/core';
+
+const overlay = new RemoteStrokeOverlay(viewport);
+const pencil = viewport.toolManager.getTool('pencil');
+if (pencil instanceof PencilTool) {
+  pencil.onPreview((preview) => client.sendPresence(toStrokePreviewPresence(preview)));
+}
+client.onPresence((from, data) => overlay.apply(from, data));
+client.onPresenceLeave((from) => overlay.remove(from));
+// later: overlay.dispose();
+```
+
+Presence is not filtered by audience on the hub. Do not forward previews for strokes on
+audience-restricted layers.
+
 ## Browser Support
 
 Works in all modern browsers supporting Pointer Events API and HTML5 Canvas.

@@ -65,6 +65,56 @@ test('laser crosses tabs', async ({ page }, testInfo) => {
     .toBe(1);
 });
 
+/** Presses at `points[0]` and moves through the rest; the returned function lifts the pointer. */
+async function holdStroke(
+  page: Page,
+  testInfo: TestInfo,
+  points: { x: number; y: number }[],
+): Promise<() => Promise<void>> {
+  const [first, ...rest] = points;
+  if (!first) throw new Error('holdStroke needs points');
+  if (testInfo.project.name === 'ipad') {
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send('Input.dispatchTouchEvent', {
+      type: 'touchStart',
+      touchPoints: [{ ...first, id: 1 }],
+    });
+    for (const point of rest) {
+      await cdp.send('Input.dispatchTouchEvent', {
+        type: 'touchMove',
+        touchPoints: [{ ...point, id: 1 }],
+      });
+    }
+    return async () => {
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      await cdp.detach();
+    };
+  }
+  await page.mouse.move(first.x, first.y);
+  await page.mouse.down();
+  for (const point of rest) await page.mouse.move(point.x, point.y, { steps: 3 });
+  return () => page.mouse.up();
+}
+
+test('a stroke previews on the peer before pointer-up, then commits', async ({
+  page,
+}, testInfo) => {
+  await gotoBlank(page);
+  const guest = await collaborate(page);
+  await page.keyboard.press('3');
+  const points = [0, 1, 2, 3, 4, 5].map((i) => ({ x: 300 + i * 40, y: 500 + i * 10 }));
+  const release = await holdStroke(page, testInfo, points);
+  const previews = (): Promise<number | undefined> =>
+    guest.evaluate(() => window.__playground.strokePreviews?.());
+  const strokes = (): Promise<number> =>
+    guest.evaluate(() => window.__playground.viewport.store.getElementsByType('stroke').length);
+  await expect.poll(previews, { timeout: 1500 }).toBe(1);
+  expect(await strokes()).toBe(0);
+  await release();
+  await expect.poll(strokes, { timeout: 1500 }).toBe(1);
+  expect(await previews()).toBe(0);
+});
+
 test('collaborate before the board loads keeps the laser hook', async ({ page }) => {
   await gotoBlank(page);
   // Switching scenes then collaborating in one task joins before IndexedDB restores the board.

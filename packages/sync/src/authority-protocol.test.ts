@@ -7,6 +7,7 @@ import {
   MAX_AUTHORITY_FRAME_BYTES,
   MAX_AUTHORITY_CHUNK_BYTES,
   MAX_AUTHORITY_CHECKPOINT_BYTES,
+  AUTHORITY_ELEMENT_LIMITS,
 } from './authority-protocol';
 import type { AuthorityFrame, AuthorityMutation, AuthorityCursor } from './authority-protocol';
 import { classifyAuthorityCursor } from './authority-cursor';
@@ -161,6 +162,36 @@ describe('authority frames', () => {
       ),
     ).toBeNull();
     expect(parseAuthorityFrame(raw({ ...server[7], required: 'authority:2' }))).toBeNull();
+  });
+
+  it('caps element upserts in proposals but not in changes frames', () => {
+    expect(AUTHORITY_ELEMENT_LIMITS).toEqual({
+      maxIdLength: 256,
+      maxShortStringLength: 256,
+      maxTextLength: 1_048_576,
+      maxSrcLength: 16_777_216,
+      maxStrokePoints: 100_000,
+    });
+    const upsert = mutations.at(-1) as Extract<AuthorityMutation, { kind: 'upsert' }>;
+    // Text, src and stroke caps exceed MAX_AUTHORITY_FRAME_BYTES, so ids and short strings discriminate.
+    for (const element of [
+      { ...upsert.element, id: 'e'.repeat(257) },
+      { ...upsert.element, strokeColor: 'r'.repeat(257) },
+    ]) {
+      const mutation = { kind: 'upsert' as const, element } as AuthorityMutation;
+      const propose = { ...client[0], mutation } as AuthorityFrame;
+      expect(parseAuthorityClientFrame(raw(propose))).toBeNull();
+      expect(() => serializeAuthorityFrame(propose)).toThrow(TypeError);
+      const changes = {
+        protocol: 'authority:1' as const,
+        kind: 'changes' as const,
+        cursor,
+        mutations: [mutation],
+      };
+      expect(parseAuthorityServerFrame(serializeAuthorityFrame(changes))).toEqual(changes);
+    }
+    const atCap = { kind: 'upsert' as const, element: { ...upsert.element, id: 'e'.repeat(256) } };
+    expect(parseAuthorityClientFrame(raw({ ...client[0], mutation: atCap }))).not.toBeNull();
   });
 
   it('validates manifest arithmetic, inventory, digest, and canonical chunk alphabet', () => {

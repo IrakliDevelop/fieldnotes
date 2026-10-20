@@ -233,6 +233,26 @@ describe('prepareAuthorityProposal', () => {
       JSON.stringify({
         ...frame,
         mutation: {
+          kind: 'upsert',
+          element: {
+            id: 'e'.repeat(257),
+            type: 'shape',
+            position: { x: 0, y: 0 },
+            index: 'a0',
+            version: 1,
+            locked: false,
+            layerId: 'l',
+            shape: 'rectangle',
+            size: { w: 1, h: 1 },
+            strokeColor: 'red',
+            strokeWidth: 1,
+            fillColor: 'blue',
+          },
+        },
+      }),
+      JSON.stringify({
+        ...frame,
+        mutation: {
           kind: 'extension',
           extensionKind: 'x',
           payload: { huge: 'a'.repeat(1_048_576) },

@@ -39,6 +39,7 @@ export type {
   FogSnapshot,
   SyncCapabilities,
   Tombstone,
+  BatchOp,
 } from './protocol';
 export {
   isValidEnvelope,
@@ -59,7 +60,7 @@ export {
   FOG_SYNC_PROTOCOL_VERSION,
   FOG_PATCH_MAX_TILES,
 } from './protocol';
-export { SYNC_LIMITS, hasJsonDepthAtMost } from './limits';
+export { SYNC_LIMITS, SyncLimitError, hasJsonDepthAtMost } from './limits';
 export type {
   ClientSyncPlugin,
   ClientSyncPluginContext,
@@ -100,6 +101,7 @@ export {
   AUTHORITY_CHECKPOINT_TIMEOUT_MS,
   MAX_AUTHORITY_JSON_DEPTH,
   MAX_AUTHORITY_JSON_NODES,
+  AUTHORITY_ELEMENT_LIMITS,
   parseAuthorityFrame,
   parseAuthorityClientFrame,
   parseAuthorityServerFrame,

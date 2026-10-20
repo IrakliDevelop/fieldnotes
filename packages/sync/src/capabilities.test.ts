@@ -127,3 +127,15 @@ describe('translateOpForPeer', () => {
     ).toThrow('cannot be translated');
   });
 });
+
+describe('opBatching capability', () => {
+  it.each([1, 2])('isValidEnvelope accepts capabilities with opBatching %i', (opBatching) => {
+    const capabilities = { ...createCurrentCapabilities([]), opBatching };
+    expect(isValidEnvelope({ from: 'a', op: { kind: 'capabilities', capabilities } })).toBe(true);
+  });
+
+  it('is not advertised by the current or authority capabilities yet', () => {
+    expect('opBatching' in createCurrentCapabilities([])).toBe(false);
+    expect('opBatching' in createAuthorityCapabilities([])).toBe(false);
+  });
+});

@@ -82,8 +82,18 @@ describe('SyncClient', () => {
     storeB = new ElementStore();
     transportA = bus.endpoint();
     transportB = bus.endpoint();
-    clientA = new SyncClient({ store: storeA, transport: transportA, clientId: 'A' });
-    clientB = new SyncClient({ store: storeB, transport: transportB, clientId: 'B' });
+    clientA = new SyncClient({
+      flushIntervalMs: 0,
+      store: storeA,
+      transport: transportA,
+      clientId: 'A',
+    });
+    clientB = new SyncClient({
+      flushIntervalMs: 0,
+      store: storeB,
+      transport: transportB,
+      clientId: 'B',
+    });
     clientA.start();
     clientB.start();
   });
@@ -103,6 +113,7 @@ describe('SyncClient', () => {
       },
     });
     const client = new SyncClient({
+      flushIntervalMs: 0,
       store: new ElementStore(),
       transport,
       clientId: 'client',
@@ -187,12 +198,14 @@ describe('SyncClient', () => {
     const target = new ElementStore();
     const sourceTransport = bus.endpoint();
     const sourceClient = new SyncClient({
+      flushIntervalMs: 0,
       store: source,
       transport: sourceTransport,
       clientId: 'source',
       elementRegistry: registry,
     });
     const targetClient = new SyncClient({
+      flushIntervalMs: 0,
       store: target,
       transport: bus.endpoint(),
       clientId: 'target',
@@ -226,6 +239,7 @@ describe('SyncClient', () => {
     const store = new ElementStore();
     const transport = makeReconnectTransport();
     const client = new SyncClient({
+      flushIntervalMs: 0,
       store,
       transport,
       clientId: 'modern',
@@ -253,6 +267,7 @@ describe('SyncClient', () => {
     const store = new ElementStore();
     const transport = makeReconnectTransport();
     const client = new SyncClient({
+      flushIntervalMs: 0,
       store,
       transport,
       clientId: 'modern',
@@ -287,6 +302,7 @@ describe('SyncClient', () => {
     const store = new ElementStore();
     const transport = makeReconnectTransport();
     const client = new SyncClient({
+      flushIntervalMs: 0,
       store,
       transport,
       clientId: 'modern',
@@ -324,6 +340,7 @@ describe('SyncClient', () => {
     });
     let send: ((op: SyncOp) => void) | undefined;
     const client = new SyncClient({
+      flushIntervalMs: 0,
       store,
       transport,
       clientId: 'modern',
@@ -364,7 +381,12 @@ describe('SyncClient', () => {
     const store = new ElementStore(new ElementRegistry());
     const setRegistry = vi.spyOn(store, 'setElementRegistry');
 
-    new SyncClient({ store, transport: makeReconnectTransport(), clientId: 'own' }).dispose();
+    new SyncClient({
+      flushIntervalMs: 0,
+      store,
+      transport: makeReconnectTransport(),
+      clientId: 'own',
+    }).dispose();
 
     expect(setRegistry).not.toHaveBeenCalled();
   });
@@ -375,6 +397,7 @@ describe('SyncClient', () => {
     const registry = new ElementRegistry();
 
     new SyncClient({
+      flushIntervalMs: 0,
       store,
       transport: makeReconnectTransport(),
       clientId: 'given',
@@ -388,6 +411,7 @@ describe('SyncClient', () => {
     const store = new ElementStore();
     const transport = makeReconnectTransport();
     const client = new SyncClient({
+      flushIntervalMs: 0,
       store,
       transport,
       clientId: 'plain',
@@ -500,7 +524,7 @@ describe('SyncClient', () => {
     const bus = makeBus(true);
     const store = new ElementStore();
     const transport = bus.endpoint();
-    const client = new SyncClient({ store, transport, clientId: 'A' });
+    const client = new SyncClient({ flushIntervalMs: 0, store, transport, clientId: 'A' });
     client.start();
 
     let ownEchoApplied = false;
@@ -578,7 +602,12 @@ describe('SyncClient snapshot-on-join', () => {
     storeA.add(shape(1));
     storeA.add(shape(2));
 
-    const clientA = new SyncClient({ store: storeA, transport: transportA, clientId: 'A' });
+    const clientA = new SyncClient({
+      flushIntervalMs: 0,
+      store: storeA,
+      transport: transportA,
+      clientId: 'A',
+    });
     clientA.start();
 
     const captured: (string | undefined)[] = [];
@@ -586,7 +615,12 @@ describe('SyncClient snapshot-on-join', () => {
 
     // Synchronous bus: the join round-trip (request -> snapshot -> merge) completes
     // entirely inside this start() call, which implicitly verifies start-ordering.
-    const clientB = new SyncClient({ store: storeB, transport: transportB, clientId: 'B' });
+    const clientB = new SyncClient({
+      flushIntervalMs: 0,
+      store: storeB,
+      transport: transportB,
+      clientId: 'B',
+    });
     clientB.start();
 
     expect(storeB.count).toBe(2);
@@ -608,10 +642,25 @@ describe('SyncClient snapshot-on-join', () => {
     storeC.add(a);
     storeC.add(b);
 
-    new SyncClient({ store: storeA, transport: bus.endpoint(), clientId: 'A' }).start();
-    new SyncClient({ store: storeC, transport: bus.endpoint(), clientId: 'C' }).start();
+    new SyncClient({
+      flushIntervalMs: 0,
+      store: storeA,
+      transport: bus.endpoint(),
+      clientId: 'A',
+    }).start();
+    new SyncClient({
+      flushIntervalMs: 0,
+      store: storeC,
+      transport: bus.endpoint(),
+      clientId: 'C',
+    }).start();
 
-    const clientB = new SyncClient({ store: storeB, transport: bus.endpoint(), clientId: 'B' });
+    const clientB = new SyncClient({
+      flushIntervalMs: 0,
+      store: storeB,
+      transport: bus.endpoint(),
+      clientId: 'B',
+    });
     clientB.start();
 
     expect(storeB.count).toBe(2);
@@ -622,7 +671,12 @@ describe('SyncClient snapshot-on-join', () => {
     const storeB = new ElementStore();
     const transportB = bus.endpoint();
     const transportX = bus.endpoint();
-    new SyncClient({ store: storeB, transport: transportB, clientId: 'B' }).start();
+    new SyncClient({
+      flushIntervalMs: 0,
+      store: storeB,
+      transport: transportB,
+      clientId: 'B',
+    }).start();
 
     transportX.send(envelope('X', { kind: 'snapshot', to: 'someone-else', elements: [shape(1)] }));
 
@@ -633,7 +687,12 @@ describe('SyncClient snapshot-on-join', () => {
     const bus = makeBus();
     const storeB = new ElementStore();
     const transportB = bus.endpoint();
-    const clientB = new SyncClient({ store: storeB, transport: transportB, clientId: 'B' });
+    const clientB = new SyncClient({
+      flushIntervalMs: 0,
+      store: storeB,
+      transport: transportB,
+      clientId: 'B',
+    });
 
     expect(() => clientB.start()).not.toThrow();
 
@@ -646,7 +705,12 @@ describe('SyncClient snapshot-on-join', () => {
     const storeB = new ElementStore();
     const transportB = bus.endpoint();
     const transportX = bus.endpoint();
-    new SyncClient({ store: storeB, transport: transportB, clientId: 'B' }).start();
+    new SyncClient({
+      flushIntervalMs: 0,
+      store: storeB,
+      transport: transportB,
+      clientId: 'B',
+    }).start();
     const before = storeB.count;
 
     // Missing to/elements -> rejected by isValidEnvelope.
@@ -683,7 +747,12 @@ describe('SyncClient snapshot-on-join', () => {
     const transportX = bus.endpoint();
     storeA.add(shape(1));
     storeA.add(shape(2));
-    new SyncClient({ store: storeA, transport: transportA, clientId: 'A' }).start();
+    new SyncClient({
+      flushIntervalMs: 0,
+      store: storeA,
+      transport: transportA,
+      clientId: 'A',
+    }).start();
 
     const before = transportA.sent.length;
     transportX.send(envelope('X', { kind: 'request-snapshot' }));
@@ -745,7 +814,7 @@ describe('SyncClient resync-on-reconnect', () => {
   it('re-sends request-snapshot when the transport reconnects', () => {
     const store = new ElementStore();
     const transport = makeReconnectTransport();
-    const client = new SyncClient({ store, transport, clientId: 'B' });
+    const client = new SyncClient({ flushIntervalMs: 0, store, transport, clientId: 'B' });
     client.start();
 
     expect(sentKinds(transport.sent)).toEqual(['request-snapshot']);
@@ -761,7 +830,7 @@ describe('SyncClient resync-on-reconnect', () => {
     const local = shape(99); // element Y, present before start()
     store.add(local);
 
-    const client = new SyncClient({ store, transport, clientId: 'B' });
+    const client = new SyncClient({ flushIntervalMs: 0, store, transport, clientId: 'B' });
     client.start();
 
     const remote = shape(1); // element X, from the hub
@@ -780,7 +849,7 @@ describe('SyncClient resync-on-reconnect', () => {
     const y = shape(99); // deleted-while-away
     const z = shape(2); // added-while-away
 
-    const client = new SyncClient({ store, transport, clientId: 'B' });
+    const client = new SyncClient({ flushIntervalMs: 0, store, transport, clientId: 'B' });
     client.start();
 
     // First snapshot establishes joined state with X and Y.
@@ -821,7 +890,12 @@ describe('SyncClient resync-on-reconnect', () => {
     const mergeTransport = makeReconnectTransport();
     const y = shape(99);
     mergeStore.add(y);
-    new SyncClient({ store: mergeStore, transport: mergeTransport, clientId: 'B' }).start();
+    new SyncClient({
+      flushIntervalMs: 0,
+      store: mergeStore,
+      transport: mergeTransport,
+      clientId: 'B',
+    }).start();
     mergeTransport.deliver(payload([shape(1)]));
     expect(mergeStore.getById(y.id)).toBeDefined();
 
@@ -829,7 +903,12 @@ describe('SyncClient resync-on-reconnect', () => {
     const reStore = new ElementStore();
     const reTransport = makeReconnectTransport();
     const y2 = shape(99);
-    const reClient = new SyncClient({ store: reStore, transport: reTransport, clientId: 'B' });
+    const reClient = new SyncClient({
+      flushIntervalMs: 0,
+      store: reStore,
+      transport: reTransport,
+      clientId: 'B',
+    });
     reClient.start();
     // First snapshot seeds joined state with X and Y2.
     reTransport.deliver(payload([shape(1), y2]));
@@ -848,7 +927,7 @@ describe('SyncClient resync-on-reconnect', () => {
     const local = shape(99);
     store.add(local);
 
-    const client = new SyncClient({ store, transport, clientId: 'B' });
+    const client = new SyncClient({ flushIntervalMs: 0, store, transport, clientId: 'B' });
     expect(() => client.start()).not.toThrow();
 
     transportX.send(envelope('X', { kind: 'snapshot', to: 'B', elements: [shape(1)] }));
@@ -862,7 +941,7 @@ describe('SyncClient resync-on-reconnect', () => {
     const store = new ElementStore();
     const transport = makeReconnectTransport();
     const x = shape(1);
-    const client = new SyncClient({ store, transport, clientId: 'B' });
+    const client = new SyncClient({ flushIntervalMs: 0, store, transport, clientId: 'B' });
     client.start();
     // Establish joined state with X.
     transport.deliver(envelope('hub', { kind: 'snapshot', to: 'B', elements: [x] }));
@@ -886,7 +965,7 @@ describe('SyncClient resync-on-reconnect', () => {
     const transport = makeReconnectTransport();
     const x = shape(1);
     const w = shape(77);
-    const client = new SyncClient({ store, transport, clientId: 'B' });
+    const client = new SyncClient({ flushIntervalMs: 0, store, transport, clientId: 'B' });
     client.start();
     // Establish joined state with X and W.
     transport.deliver(envelope('hub', { kind: 'snapshot', to: 'B', elements: [x, w] }));
@@ -907,7 +986,7 @@ describe('SyncClient resync-on-reconnect', () => {
   it('clears the resync state after a merge-branch snapshot (drop during initial join)', () => {
     const store = new ElementStore();
     const transport = makeReconnectTransport();
-    const client = new SyncClient({ store, transport, clientId: 'B' });
+    const client = new SyncClient({ flushIntervalMs: 0, store, transport, clientId: 'B' });
     client.start(); // joined=false; initial request-snapshot sent
 
     // Socket drops DURING the initial-join handshake, before any snapshot arrives.
@@ -961,6 +1040,7 @@ describe('SyncClient fog convergence', () => {
     const transport = makeReconnectTransport();
     const manager = new FogManager();
     const client = new SyncClient({
+      flushIntervalMs: 0,
       store,
       transport,
       clientId: 'A',
@@ -974,6 +1054,7 @@ describe('SyncClient fog convergence', () => {
     expect(
       () =>
         new SyncClient({
+          flushIntervalMs: 0,
           store: new ElementStore(),
           transport: makeReconnectTransport(),
           clientId: '😀',
@@ -1445,7 +1526,7 @@ describe('presence channel', () => {
     const bus = makeBus();
     const store = new ElementStore();
     const transport = bus.endpoint();
-    const client = new SyncClient({ store, transport, clientId: 'A' });
+    const client = new SyncClient({ flushIntervalMs: 0, store, transport, clientId: 'A' });
     client.sendPresence({ x: 1 }); // not started yet → silent
     expect(transport.sent).toEqual([]);
     client.start();
@@ -1462,8 +1543,18 @@ describe('presence channel', () => {
     const bus = makeBus();
     const storeA = new ElementStore();
     const storeB = new ElementStore();
-    const a = new SyncClient({ store: storeA, transport: bus.endpoint(), clientId: 'A' });
-    const b = new SyncClient({ store: storeB, transport: bus.endpoint(), clientId: 'B' });
+    const a = new SyncClient({
+      flushIntervalMs: 0,
+      store: storeA,
+      transport: bus.endpoint(),
+      clientId: 'A',
+    });
+    const b = new SyncClient({
+      flushIntervalMs: 0,
+      store: storeB,
+      transport: bus.endpoint(),
+      clientId: 'B',
+    });
     a.start();
     b.start();
     const seen: [string, unknown][] = [];
@@ -1476,7 +1567,12 @@ describe('presence channel', () => {
   it('drops own presence via the echo guard', () => {
     const bus = makeBus(true); // self-echoing
     const store = new ElementStore();
-    const a = new SyncClient({ store, transport: bus.endpoint(), clientId: 'A' });
+    const a = new SyncClient({
+      flushIntervalMs: 0,
+      store,
+      transport: bus.endpoint(),
+      clientId: 'A',
+    });
     a.start();
     let fired = 0;
     a.onPresence(() => fired++);
@@ -1488,7 +1584,12 @@ describe('presence channel', () => {
     const bus = makeBus();
     const store = new ElementStore();
     const injector = bus.endpoint(); // stands in for the hub
-    const b = new SyncClient({ store, transport: bus.endpoint(), clientId: 'B' });
+    const b = new SyncClient({
+      flushIntervalMs: 0,
+      store,
+      transport: bus.endpoint(),
+      clientId: 'B',
+    });
     b.start();
     const left: string[] = [];
     const off = b.onPresenceLeave((from) => left.push(from));
@@ -1515,6 +1616,7 @@ describe('authoritative bootstrap/reconcile hooks (resolveLocalOnly)', () => {
     store.add(seed);
     const contexts: AuthoritativeSnapshotContext[] = [];
     const client = new SyncClient({
+      flushIntervalMs: 0,
       store,
       transport,
       clientId: 'B',
@@ -1543,6 +1645,7 @@ describe('authoritative bootstrap/reconcile hooks (resolveLocalOnly)', () => {
     const stale = shape(51);
     store.add(stale);
     const client = new SyncClient({
+      flushIntervalMs: 0,
       store,
       transport,
       clientId: 'B',
@@ -1565,6 +1668,7 @@ describe('authoritative bootstrap/reconcile hooks (resolveLocalOnly)', () => {
     const seed = shape(52);
     store.add(seed);
     const client = new SyncClient({
+      flushIntervalMs: 0,
       store,
       transport,
       clientId: 'B',
@@ -1585,6 +1689,7 @@ describe('authoritative bootstrap/reconcile hooks (resolveLocalOnly)', () => {
     store.add(seed);
     const contexts: AuthoritativeSnapshotContext[] = [];
     const client = new SyncClient({
+      flushIntervalMs: 0,
       store,
       transport,
       clientId: 'B',
@@ -1624,6 +1729,7 @@ describe('authoritative bootstrap/reconcile hooks (resolveLocalOnly)', () => {
     const transport = makeReconnectTransport();
     const contexts: AuthoritativeSnapshotContext[] = [];
     const client = new SyncClient({
+      flushIntervalMs: 0,
       store,
       transport,
       clientId: 'B',
@@ -1656,6 +1762,7 @@ describe('authoritative bootstrap/reconcile hooks (resolveLocalOnly)', () => {
     const seed = shape(54);
     store.add(seed);
     const client = new SyncClient({
+      flushIntervalMs: 0,
       store,
       transport,
       clientId: 'B',
@@ -1678,6 +1785,7 @@ describe('authoritative bootstrap/reconcile hooks (resolveLocalOnly)', () => {
     const transport = makeReconnectTransport();
     const contexts: AuthoritativeSnapshotContext[] = [];
     const client = new SyncClient({
+      flushIntervalMs: 0,
       store,
       transport,
       clientId: 'B',
@@ -1705,6 +1813,7 @@ describe('authoritative bootstrap/reconcile hooks (resolveLocalOnly)', () => {
     const seed = shape(55);
     store.add(seed);
     const client = new SyncClient({
+      flushIntervalMs: 0,
       store,
       transport,
       clientId: 'B',
@@ -1722,6 +1831,7 @@ describe('authoritative bootstrap/reconcile hooks (resolveLocalOnly)', () => {
     const store = new ElementStore();
     const transport = makeReconnectTransport();
     const client = new SyncClient({
+      flushIntervalMs: 0,
       store,
       transport,
       clientId: 'B',
@@ -1742,6 +1852,7 @@ describe('authoritative bootstrap/reconcile hooks (resolveLocalOnly)', () => {
     const seed = shape(56);
     store.add(seed);
     const client = new SyncClient({
+      flushIntervalMs: 0,
       store,
       transport,
       clientId: 'B',
@@ -1783,6 +1894,7 @@ describe('authoritative bootstrap/reconcile hooks (resolveLocalOnly)', () => {
     store.add(stale);
     const known = new Set<string>([stale.id]);
     const client = new SyncClient({
+      flushIntervalMs: 0,
       store,
       transport,
       clientId: 'B',
@@ -1807,6 +1919,7 @@ describe('authoritative bootstrap/reconcile hooks (resolveLocalOnly)', () => {
     const store = new ElementStore();
     const first = makeReconnectTransport();
     const clientA = new SyncClient({
+      flushIntervalMs: 0,
       store,
       transport: first,
       clientId: 'B',
@@ -1821,6 +1934,7 @@ describe('authoritative bootstrap/reconcile hooks (resolveLocalOnly)', () => {
     const second = makeReconnectTransport();
     const contexts: AuthoritativeSnapshotContext[] = [];
     const clientB = new SyncClient({
+      flushIntervalMs: 0,
       store,
       transport: second,
       clientId: 'B',
@@ -1859,7 +1973,7 @@ describe('transient elements stay local', () => {
   it('does not send ops for transient elements', () => {
     const store = new ElementStore();
     const transport = makeReconnectTransport();
-    const client = new SyncClient({ store, transport, clientId: 'B' });
+    const client = new SyncClient({ flushIntervalMs: 0, store, transport, clientId: 'B' });
     client.start();
     transport.deliver(envelope('hub', { kind: 'snapshot', to: 'B', elements: [] }));
 
@@ -1873,7 +1987,7 @@ describe('transient elements stay local', () => {
   it('keeps a transient element across an authoritative snapshot reconcile', () => {
     const store = new ElementStore();
     const transport = makeReconnectTransport();
-    const client = new SyncClient({ store, transport, clientId: 'B' });
+    const client = new SyncClient({ flushIntervalMs: 0, store, transport, clientId: 'B' });
     client.start();
 
     const x = shape(1);
@@ -1899,7 +2013,12 @@ describe('transient elements stay local', () => {
     const el = transientHtml();
     storeA.add(normal);
     storeA.add(el);
-    new SyncClient({ store: storeA, transport: transportA, clientId: 'A' }).start();
+    new SyncClient({
+      flushIntervalMs: 0,
+      store: storeA,
+      transport: transportA,
+      clientId: 'A',
+    }).start();
 
     const before = transportA.sent.length;
     transportX.send(envelope('X', { kind: 'request-snapshot' }));
@@ -1916,7 +2035,7 @@ describe('transient elements stay local', () => {
   it('keeps transient elements across a remote clear', () => {
     const store = new ElementStore();
     const transport = makeReconnectTransport();
-    const client = new SyncClient({ store, transport, clientId: 'B' });
+    const client = new SyncClient({ flushIntervalMs: 0, store, transport, clientId: 'B' });
     client.start();
 
     const normal = shape(1);
@@ -1959,7 +2078,7 @@ describe('audience stamping (resolveAudience)', () => {
     const bus = makeBus();
     const store = new ElementStore();
     const transport = bus.endpoint();
-    const client = new SyncClient({ store, transport, clientId: 'A' });
+    const client = new SyncClient({ flushIntervalMs: 0, store, transport, clientId: 'A' });
     client.start();
     store.add(createShape({ index: 'a0', position: { x: 0, y: 0 }, size: { w: 1, h: 1 } }));
     const up = lastUpsert(transport.sent);
@@ -1971,7 +2090,13 @@ describe('audience stamping (resolveAudience)', () => {
     const bus = makeBus();
     const store = new ElementStore();
     const transport = bus.endpoint();
-    const client = new SyncClient({ store, transport, clientId: 'A', resolveAudience: () => 'dm' });
+    const client = new SyncClient({
+      flushIntervalMs: 0,
+      store,
+      transport,
+      clientId: 'A',
+      resolveAudience: () => 'dm',
+    });
     client.start();
     store.add(createShape({ index: 'a0', position: { x: 0, y: 0 }, size: { w: 1, h: 1 } }));
     const up = lastUpsert(transport.sent);
@@ -1983,6 +2108,7 @@ describe('audience stamping (resolveAudience)', () => {
     const store = new ElementStore();
     const transport = bus.endpoint();
     const client = new SyncClient({
+      flushIntervalMs: 0,
       store,
       transport,
       clientId: 'A',
@@ -1998,7 +2124,13 @@ describe('audience stamping (resolveAudience)', () => {
     const bus = makeBus();
     const store = new ElementStore();
     const transport = bus.endpoint();
-    const client = new SyncClient({ store, transport, clientId: 'A', resolveAudience: () => 'dm' });
+    const client = new SyncClient({
+      flushIntervalMs: 0,
+      store,
+      transport,
+      clientId: 'A',
+      resolveAudience: () => 'dm',
+    });
     client.start();
     const el = createShape({ index: 'a0', position: { x: 0, y: 0 }, size: { w: 1, h: 1 } });
     store.add(el);
@@ -2041,6 +2173,7 @@ describe('SyncClient layer sync', () => {
     const transport = bus.endpoint();
     const updates: RemoteLayerUpdate[] = [];
     const client = new SyncClient({
+      flushIntervalMs: 0,
       store,
       transport,
       clientId,
@@ -2180,7 +2313,7 @@ describe('SyncClient layer sync', () => {
     const bus = makeBus();
     const store = new ElementStore();
     const transport = bus.endpoint();
-    const plain = new SyncClient({ store, transport, clientId: 'P' });
+    const plain = new SyncClient({ flushIntervalMs: 0, store, transport, clientId: 'P' });
     plain.start();
 
     const remote = bus.endpoint();
@@ -2335,7 +2468,12 @@ describe('SyncClient layer sync', () => {
   it('publish methods throw without the layers option and on invalid definitions', () => {
     const bus = makeBus();
     const store = new ElementStore();
-    const plain = new SyncClient({ store, transport: bus.endpoint(), clientId: 'P' });
+    const plain = new SyncClient({
+      flushIntervalMs: 0,
+      store,
+      transport: bus.endpoint(),
+      clientId: 'P',
+    });
     expect(() => plain.publishLayerUpsert(layerDef())).toThrow(/not enabled/);
     expect(() => plain.publishLayerRemove('x')).toThrow(/not enabled/);
 
