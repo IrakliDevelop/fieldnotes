@@ -141,7 +141,7 @@ export class ViewportInteractions {
       (el) => 'size' in el && el.type !== 'extension',
     );
     if (hit?.type === 'html') {
-      this.deps.interactMode.startInteracting(hit.id);
+      if (!hit.interactive) this.deps.interactMode.startInteracting(hit.id);
       return;
     }
 

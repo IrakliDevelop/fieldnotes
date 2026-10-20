@@ -144,6 +144,33 @@ describe('ViewportInteractions', () => {
       doubleTap(interactions, 50, 50);
       expect(deps.interactMode.startInteracting).not.toHaveBeenCalled();
     });
+
+    it('double-tap on a live html element does not enter InteractMode', () => {
+      const html = createHtmlElement({
+        position: { x: 0, y: 0 },
+        size: { w: 200, h: 100 },
+        interactive: true,
+      });
+      const arrow = {
+        ...createArrow({ from: { x: 0, y: 55 }, to: { x: 200, y: 55 } }),
+        index: 'a1',
+      };
+      const { interactions, deps } = setup(html, arrow);
+      doubleTap(interactions, 50, 50);
+      expect(deps.interactMode.startInteracting).not.toHaveBeenCalled();
+      expect(deps.arrowLabelEditor.startEditing).not.toHaveBeenCalled();
+    });
+
+    it('double-tap on a non-live html element still enters InteractMode', () => {
+      const html = createHtmlElement({
+        position: { x: 0, y: 0 },
+        size: { w: 200, h: 100 },
+        interactive: false,
+      });
+      const { interactions, deps } = setup(html);
+      doubleTap(interactions, 50, 50);
+      expect(deps.interactMode.startInteracting).toHaveBeenCalledWith(html.id);
+    });
   });
 
   describe('findArrowAt', () => {

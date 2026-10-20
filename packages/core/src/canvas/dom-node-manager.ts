@@ -2,6 +2,7 @@ import type { CanvasElement, HtmlElement } from '../elements/types';
 import type { ElementStore } from '../elements/element-store';
 import { DEFAULT_NOTE_FONT_SIZE } from '../elements/element-factory';
 import { DoubleTapDetector } from './double-tap-detector';
+import { LIVE_NODE_ATTR } from './live-control';
 export interface DomNodeManagerDeps {
   domLayer: HTMLDivElement;
   onEditRequest: (id: string) => void;
@@ -324,6 +325,7 @@ export class DomNodeManager {
       const content = this.htmlContent.get(element.id);
       // A data update mid-interaction must not drop the pointer events InteractMode granted.
       const pointerEvents = element.interactive || this.isInteracting(element.id) ? 'auto' : 'none';
+      node.toggleAttribute(LIVE_NODE_ATTR, element.interactive === true);
       if (!node.dataset['initialized']) {
         if (content) {
           node.dataset['initialized'] = 'true';

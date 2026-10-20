@@ -3552,3 +3552,69 @@ describe('Viewport live element wiring', () => {
     container.remove();
   });
 });
+
+describe('Viewport live html elements', () => {
+  let getContextSpy: ReturnType<typeof vi.spyOn>;
+  let container: HTMLDivElement;
+  let vp: Viewport;
+
+  beforeEach(() => {
+    getContextSpy = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockImplementation(function (this: HTMLCanvasElement) {
+        const ctx: Record<string, unknown> = { canvas: this };
+        return new Proxy(ctx, {
+          get: (target, prop) => (prop in target ? target[prop as string] : () => undefined),
+        });
+      } as never);
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    vp = new Viewport(container);
+  });
+
+  afterEach(() => {
+    vp.destroy();
+    container.remove();
+    getContextSpy.mockRestore();
+  });
+
+  function priv() {
+    return vp as unknown as {
+      renderLoop: { flush(): void };
+      domNodeManager: { getNode(id: string): HTMLDivElement | undefined };
+      interactMode: { startInteracting(id: string): void; interactingId: string | null };
+    };
+  }
+
+  it('addHtmlElement interactive option is stored and exported', () => {
+    const id = vp.addHtmlElement(
+      document.createElement('div'),
+      { x: 0, y: 0 },
+      { w: 100, h: 50 },
+      { interactive: true },
+    );
+    priv().renderLoop.flush();
+
+    const el = vp.store.getById(id);
+    expect(el?.type === 'html' && el.interactive).toBe(true);
+    expect(priv().domNodeManager.getNode(id)?.style.pointerEvents).toBe('auto');
+    const exported = vp.exportState().elements.find((e) => e.id === id);
+    expect(exported?.type === 'html' && exported.interactive).toBe(true);
+  });
+
+  it('turning interactive on while in InteractMode stops interacting; turning it off leaves pointer-events none', () => {
+    const id = vp.addHtmlElement(document.createElement('div'), { x: 0, y: 0 }, { w: 100, h: 50 });
+    priv().renderLoop.flush();
+    priv().interactMode.startInteracting(id);
+    const node = priv().domNodeManager.getNode(id);
+    expect(node?.style.pointerEvents).toBe('auto');
+
+    vp.store.update(id, { interactive: true });
+    expect(priv().interactMode.interactingId).toBeNull();
+    expect(node?.style.pointerEvents).toBe('auto');
+
+    vp.store.update(id, { interactive: false });
+    priv().renderLoop.flush();
+    expect(node?.style.pointerEvents).toBe('none');
+  });
+});

@@ -41,6 +41,7 @@ import type { ExportSvgOptions } from './export-svg';
 import type { CanvasState, ImportableCanvasState } from '../core/state-serializer';
 import { LayerManager } from '../layers/layer-manager';
 import { InteractMode } from './interact-mode';
+import { LIVE_NODE_ATTR } from './live-control';
 import { DomNodeManager } from './dom-node-manager';
 import { RenderLoop } from './render-loop';
 import type { OverlayRenderer } from './render-loop';
@@ -410,6 +411,10 @@ export class Viewport {
 
     this.interactMode = new InteractMode({
       getNode: (id) => this.domNodeManager.getNode(id),
+      isInteractive: (id) => {
+        const el = this.store.getById(id);
+        return el?.type === 'html' && el.interactive === true;
+      },
     });
     this.disposers.push(() => this.interactMode.destroy());
 
@@ -480,6 +485,10 @@ export class Viewport {
       }),
       this.store.on('update', ({ previous, current }) => {
         if (current.type === 'html') {
+          // A live element never stays in InteractMode; its controls already take input.
+          if (current.interactive && this.interactMode.interactingId === current.id) {
+            this.interactMode.stopInteracting();
+          }
           this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
         }
         this.renderLoop.noteElementUpdate(previous, current);
@@ -894,6 +903,7 @@ export class Viewport {
       this.onHtmlElementMount(el.id, el.domId, node);
       this.domNodeManager.markHostOwnedContent(el.id);
       node.dataset['initialized'] = 'true';
+      node.toggleAttribute(LIVE_NODE_ATTR, el.interactive === true);
       Object.assign(node.style, {
         overflow: 'hidden',
         pointerEvents: el.interactive ? 'auto' : 'none',
@@ -1000,6 +1010,8 @@ export class Viewport {
       transient?: boolean;
       /** Non-'local' origin marks the add as external: no undo step, tagged for observers. */
       origin?: string;
+      /** Controls take clicks; padding selects and moves. Persisted and synced. */
+      interactive?: boolean;
     },
   ): string {
     const domId = dom.id || undefined;
@@ -1010,6 +1022,7 @@ export class Viewport {
       htmlType: opts?.htmlType,
       data: opts?.data,
       transient: opts?.transient,
+      interactive: opts?.interactive,
       layerId: this.layerManager.activeLayerId,
     });
     this.domNodeManager.storeHtmlContent(el.id, dom);
