@@ -11,9 +11,10 @@
 | `packages/sync-server` (`@fieldnotes/sync-server`) | Authoritative relay, auth, authorization, heartbeat             | server tests/build; sync tests for shared contracts      |
 | `packages/sync-redis` (`@fieldnotes/sync-redis`)   | Redis persistence and cross-instance fan-out                    | redis tests/build; integration environment when required |
 | `demo`                                             | Manual vanilla playground                                       | demo build and focused smoke test                        |
+| `playground`                                       | Showcase app at `/playground/`                                  | playground e2e                                           |
 | `examples/react-app`                               | React integration example                                       | example build                                            |
 | `examples/live-play`                               | Collaboration reference app                                     | example tests/build                                      |
-| `website`                                          | Project website                                                 | website build                                            |
+| `website`                                          | Astro site at the Pages root                                    | website test/build, website e2e, design ratchet          |
 
 Dependencies flow from wrappers and adapters toward contracts: React and VTT depend on core; server
 depends on sync; Redis depends on sync and implements server integration contracts. Generic sync
