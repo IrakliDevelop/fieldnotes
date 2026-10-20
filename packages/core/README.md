@@ -727,7 +727,8 @@ Peers can watch a pencil or highlighter stroke while it is drawn. `PencilTool.on
 preview at most every 50 ms with the stroke's last 120 points, keyed by the id the committed stroke
 will have. `RemoteStrokeOverlay` draws remote previews on the overlay and drops each one when that
 stroke is added to the store, the sender cancels, 3 s pass without an update, or `remove(sender)`
-runs. Wire it like the laser, for example with a `SyncClient`:
+runs. Wire `onPreview` on every `PencilTool` instance, the highlighter included. Wire it like the
+laser, for example with a `SyncClient`:
 
 ```ts
 import { PencilTool, RemoteStrokeOverlay, toStrokePreviewPresence } from '@fieldnotes/core';

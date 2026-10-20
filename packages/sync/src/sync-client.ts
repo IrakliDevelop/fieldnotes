@@ -9,7 +9,9 @@ import {
   isNewerVersion,
   isWithinSyncLimits,
   elementWithinLimits,
+  ELEMENT_LIMIT_NAMES,
   type BatchOp,
+  type ElementLimits,
   type LayerRecord,
   type SyncOp,
   type SyncElement,
@@ -1071,14 +1073,7 @@ function requiresCapabilityNegotiation(op: SyncOp): boolean {
   return false;
 }
 
-const ELEMENT_LIMITS = [
-  'maxIdLength',
-  'maxShortStringLength',
-  'maxTextLength',
-  'maxSrcLength',
-  'maxStrokePoints',
-] as const;
-const UNLIMITED = {
+const UNLIMITED: ElementLimits = {
   maxIdLength: Infinity,
   maxShortStringLength: Infinity,
   maxTextLength: Infinity,
@@ -1090,9 +1085,9 @@ const UNLIMITED = {
 function violatedLimit(op: BatchOp): string {
   if (op.kind === 'remove') return 'maxIdLength';
   const element = op.element;
-  const breaks = (name: (typeof ELEMENT_LIMITS)[number]): boolean =>
+  const breaks = (name: keyof ElementLimits): boolean =>
     !elementWithinLimits(element, { ...UNLIMITED, [name]: SYNC_LIMITS[name] });
-  return ELEMENT_LIMITS.find(breaks) ?? 'maxIdLength';
+  return ELEMENT_LIMIT_NAMES.find(breaks) ?? 'maxIdLength';
 }
 
 /** Ops whose relative order against element upserts is load-bearing. */

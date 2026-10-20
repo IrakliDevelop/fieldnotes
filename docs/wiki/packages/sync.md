@@ -85,7 +85,7 @@ interface SyncTransport {
   send(message: string): void;
   onMessage(handler: (message: string) => void): void;
   onOpen(handler: () => void): void;
-  onClose(handler: () => void): void;
+  onClose?(handler: () => void): () => void; // optional; fired on every unintended close
   onError(handler: (error: Error) => void): void;
   connect(): void;
   disconnect(): void;

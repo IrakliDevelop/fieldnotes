@@ -21,7 +21,12 @@ const isFiniteNumber = (value: unknown): value is number =>
 
 function isPreviewPoint(value: unknown): boolean {
   if (!Array.isArray(value) || value.length < 2 || value.length > 3) return false;
-  return value.every(isFiniteNumber);
+  const [x, y, pressure] = value;
+  return (
+    isFiniteNumber(x) &&
+    isFiniteNumber(y) &&
+    (pressure === undefined || (isFiniteNumber(pressure) && pressure >= 0 && pressure <= 1))
+  );
 }
 
 /** Validates a received presence payload as a stroke preview. */

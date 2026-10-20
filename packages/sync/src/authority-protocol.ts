@@ -9,19 +9,14 @@ export const MAX_AUTHORITY_CHUNK_BYTES = 524_288;
 export const AUTHORITY_CHECKPOINT_TIMEOUT_MS = 10_000;
 export const MAX_AUTHORITY_JSON_DEPTH = 64;
 export const MAX_AUTHORITY_JSON_NODES = 1_000_000;
-const MAX_AUTHORITY_ELEMENT_ID_LENGTH = 256;
-const MAX_AUTHORITY_ELEMENT_SHORT_STRING_LENGTH = 256;
-const MAX_AUTHORITY_ELEMENT_TEXT_LENGTH = 1_048_576;
-const MAX_AUTHORITY_ELEMENT_SRC_LENGTH = 16_777_216;
-const MAX_AUTHORITY_ELEMENT_STROKE_POINTS = 100_000;
 
 /** Per-field caps on proposed element upserts; `changes` frames and checkpoints are not capped. */
 export const AUTHORITY_ELEMENT_LIMITS = {
-  maxIdLength: MAX_AUTHORITY_ELEMENT_ID_LENGTH,
-  maxShortStringLength: MAX_AUTHORITY_ELEMENT_SHORT_STRING_LENGTH,
-  maxTextLength: MAX_AUTHORITY_ELEMENT_TEXT_LENGTH,
-  maxSrcLength: MAX_AUTHORITY_ELEMENT_SRC_LENGTH,
-  maxStrokePoints: MAX_AUTHORITY_ELEMENT_STROKE_POINTS,
+  maxIdLength: 256,
+  maxShortStringLength: 256,
+  maxTextLength: 1_048_576,
+  maxSrcLength: 16_777_216,
+  maxStrokePoints: 100_000,
 } as const;
 
 const FRAME_LIMITS = {

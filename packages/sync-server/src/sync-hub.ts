@@ -578,7 +578,7 @@ export class SyncHub {
   }
 
   // Write-then-publish, so authorization judges the state the compare-and-set write replaces.
-  // With `batch`, local delivery is left to the caller.
+  // With `batch`, local delivery is left to the caller, so plugin output reaches peers first.
   private async processElementOp(
     conn: Connection,
     from: string,

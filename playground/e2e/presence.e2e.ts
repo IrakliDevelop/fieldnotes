@@ -87,6 +87,7 @@ async function holdStroke(
     }
     return async () => {
       await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      await cdp.detach();
     };
   }
   await page.mouse.move(first.x, first.y);

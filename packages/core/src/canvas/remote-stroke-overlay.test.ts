@@ -162,6 +162,8 @@ describe('isStrokePreviewPresence', () => {
     ['a missing id', { ...valid, id: undefined }, false],
     ['a non-finite coordinate', { ...valid, points: [[0, Infinity]] }, false],
     ['a one-number point', { ...valid, points: [[0]] }, false],
+    ['pressure above 1', { ...valid, points: [[0, 0, 1.5]] }, false],
+    ['negative pressure', { ...valid, points: [[0, 0, -0.1]] }, false],
     ['a four-number point', { ...valid, points: [[0, 0, 0, 0]] }, false],
     ['121 points', { ...valid, points: Array.from({ length: 121 }, () => [0, 0]) }, false],
     ['zero width', { ...valid, width: 0 }, false],

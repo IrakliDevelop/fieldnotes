@@ -453,7 +453,6 @@ describe('PencilTool', () => {
       const tool = new PencilTool();
       const ctx = makeCtx();
       const previews = record(tool);
-      at(0);
       for (const t of [0, 100]) {
         at(t);
         tool.onPointerDown(pt(0, 0), ctx);

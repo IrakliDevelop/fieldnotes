@@ -444,12 +444,15 @@ function isAtMost(value: string | undefined, max: number): boolean {
   return value === undefined || value.length <= max;
 }
 
-type ElementLimits = Readonly<
-  Record<
-    'maxIdLength' | 'maxShortStringLength' | 'maxTextLength' | 'maxSrcLength' | 'maxStrokePoints',
-    number
-  >
->;
+export const ELEMENT_LIMIT_NAMES = [
+  'maxIdLength',
+  'maxShortStringLength',
+  'maxTextLength',
+  'maxSrcLength',
+  'maxStrokePoints',
+] as const satisfies readonly (keyof typeof SYNC_LIMITS)[];
+
+export type ElementLimits = Readonly<Record<(typeof ELEMENT_LIMIT_NAMES)[number], number>>;
 
 export function elementWithinLimits(el: DeepReadonly<SyncElement>, limits: ElementLimits): boolean {
   const { maxIdLength, maxShortStringLength, maxTextLength, maxSrcLength, maxStrokePoints } =
