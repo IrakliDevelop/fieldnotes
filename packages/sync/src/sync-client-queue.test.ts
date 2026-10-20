@@ -209,6 +209,27 @@ describe('SyncClient outgoing queue', () => {
     expect(elementFrames()[1]?.op).toMatchObject({ element: { id: 'x', version: 3 } });
   });
 
+  it('keeps order and dedupes past 1000 queued ids', () => {
+    const { store, capabilities, elementFrames } = setup();
+    capabilities('P');
+    const ids = Array.from({ length: 1000 }, (_, i) => `e${String(i)}`);
+    for (const id of ids) store.add(shape(id), REMOTE);
+
+    for (const id of ids) store.update(id, { position: { x: 1, y: 0 } });
+    store.update('e500', { position: { x: 2, y: 0 } });
+    store.remove('e3');
+    store.add(shape('e1000', 1, 'A'));
+    vi.advanceTimersByTime(50);
+
+    const sent = elementFrames().map(({ op }) => `${op.kind}:${idsOf(op).join()}`);
+    expect(sent).toEqual([
+      ...ids.filter((id) => id !== 'e3').map((id) => `upsert:${id}`),
+      'remove:e3',
+      'upsert:e1000',
+    ]);
+    expect(elementFrames()[499]?.op).toMatchObject({ element: { id: 'e500', position: { x: 2 } } });
+  });
+
   it('flushes the queue before a clear', () => {
     const { store, capabilities, sentKinds } = setup();
     capabilities('P');

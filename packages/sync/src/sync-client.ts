@@ -232,7 +232,8 @@ export class SyncClient {
   private readonly presenceHandlers = new Set<(from: string, data: unknown) => void>();
   private readonly presenceLeaveHandlers = new Set<(from: string) => void>();
   private readonly flushIntervalMs: number;
-  private readonly queue: QueuedOp[] = [];
+  /** Insertion-ordered; upserts are keyed by id for O(1) dedupe, removes by the op itself. */
+  private readonly queue = new Map<string | QueuedOp, QueuedOp>();
   private flushTimer: ReturnType<typeof setTimeout> | undefined;
   private lastFlushStart = Number.NEGATIVE_INFINITY;
   private flushing = false;
@@ -337,7 +338,7 @@ export class SyncClient {
     for (const plugin of this.pluginRegistry.plugins) plugin.onReconnect?.();
     this.touchedDuringResync.clear();
     // The hub has not seen queued edits yet, so they keep the live tie-break.
-    for (const entry of this.queue) {
+    for (const entry of this.queue.values()) {
       this.touchedDuringResync.add(entry.id);
     }
     this.clearedBeforeSnapshot = false;
@@ -491,7 +492,8 @@ export class SyncClient {
     if (this.flushing) return;
     clearTimeout(this.flushTimer);
     this.flushTimer = undefined;
-    const entries = this.queue.splice(0);
+    const entries = [...this.queue.values()];
+    this.queue.clear();
     if (entries.length === 0) return;
     this.lastFlushStart = Date.now();
     this.flushing = true;
@@ -515,13 +517,14 @@ export class SyncClient {
       this.flushing = false;
     }
     // Ops queued during the flush (store listeners, synchronous transports) go next.
-    if (this.queue.length > 0) this.requestFlush();
+    if (this.queue.size > 0) this.requestFlush();
   }
 
   private enqueue(op: QueuedOp): void {
-    const upsertAt = this.queue.findIndex((entry) => entry.kind === 'upsert' && entry.id === op.id);
-    if (op.kind === 'remove' && upsertAt >= 0) this.queue.splice(upsertAt, 1);
-    if (op.kind === 'remove' || upsertAt < 0) this.queue.push(op);
+    if (op.kind === 'remove') {
+      this.queue.delete(op.id);
+      this.queue.set(op, op);
+    } else if (!this.queue.has(op.id)) this.queue.set(op.id, op);
     this.requestFlush();
   }
 
@@ -568,8 +571,7 @@ export class SyncClient {
   }
 
   private dropQueuedUpsert(id: string): void {
-    const at = this.queue.findIndex((entry) => entry.kind === 'upsert' && entry.id === id);
-    if (at >= 0) this.queue.splice(at, 1);
+    this.queue.delete(id);
   }
 
   /** Every op except presence keeps its order behind queued element ops. */
@@ -747,7 +749,7 @@ export class SyncClient {
     if (!env || env.from === this.clientId) return; // malformed/invalid + own echo
     const hubRefused = env.op.kind === 'unsupported' && env.from === HUB_FROM;
     if (hubRefused || (env.op.kind === 'capabilities' && env.op.capabilities.protocolVersion < 2)) {
-      this.queue.length = 0; // never flush element ops to an incompatible peer
+      this.queue.clear(); // never flush element ops to an incompatible peer
       this.stop();
       this.transport.close();
       return;

@@ -50,6 +50,8 @@ for strokes drawn on audience-restricted layers.
   flush. An element deleted before the flush (for example by a remote remove) is not sent. Element
   frames, including snapshot re-pushes, now wait up to `flushIntervalMs`. The queue is sent first
   before clears, snapshots, snapshot requests, layer and extension ops, and `stop()`.
+- Queueing or dropping an element op takes constant time, so a large-selection drag stays linear
+  in the selection size.
 - The audience of a queued element is resolved when the queue is sent, not when it was changed.
 - Through a hub that advertises `opBatching`, a flush goes as `batch` frames, split to stay within
   the frame byte and depth limits; an op too large for a batch goes alone. Peer to peer and with
