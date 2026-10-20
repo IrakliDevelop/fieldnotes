@@ -156,6 +156,20 @@ describe('EmbeddedMode', () => {
     expect(mode.isEngaged()).toBe(true);
   });
 
+  it('setEngaged after destroy is a no-op', () => {
+    const onDisengage = vi.fn();
+    const { wrapper, mode } = setup(() => false, onDisengage);
+    mode.setEngaged(true);
+    mode.destroy();
+
+    mode.setEngaged(false);
+    mode.setEngaged(true);
+
+    expect(mode.isEngaged()).toBe(true);
+    expect(wrapper.style.touchAction).toBe('none');
+    expect(onDisengage).not.toHaveBeenCalled();
+  });
+
   it('context menu opened before engaging consumes Escape', () => {
     const menu = new ContextMenu({ onCommand: vi.fn(), onClose: vi.fn() });
     menu.open([{ label: 'Copy', action: 'copy' }], { x: 0, y: 0 });

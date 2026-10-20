@@ -41,6 +41,7 @@ import type { ExportSvgOptions } from './export-svg';
 import type { CanvasState, ImportableCanvasState } from '../core/state-serializer';
 import { LayerManager } from '../layers/layer-manager';
 import { InteractMode } from './interact-mode';
+import { EmbeddedMode } from './embedded-mode';
 import { LIVE_NODE_ATTR, isLiveControlTarget } from './live-control';
 import { DomNodeManager } from './dom-node-manager';
 import { RenderLoop } from './render-loop';
@@ -121,6 +122,12 @@ export interface ViewportOptions {
    * If a plugin activated a tool that an option tool replaces, the plugin's instance stays active.
    */
   tools?: 'default' | Tool[];
+  /**
+   * Board inside a scrolling page: plain wheel and, until `setEmbeddedEngaged(true)`, touch scroll
+   * the page; Ctrl/⌘+wheel zooms; mouse and pen work as usual. Input only, read at construction.
+   * Not gated: `setActivation`, the minimap, `PingInput` and `CameraAnimator`. Default `false`.
+   */
+  embedded?: boolean;
 }
 
 export interface HitTestOptions {
@@ -163,6 +170,8 @@ export class Viewport {
   private readonly pluginHost: PluginHost;
   private readonly domNodeManager: DomNodeManager;
   private readonly interactMode: InteractMode;
+  private readonly embeddedMode: EmbeddedMode | null = null;
+  private readonly wheelPassThroughListeners = new Set<(e: WheelEvent) => void>();
   private readonly onHtmlElementMount?: (
     elementId: string,
     domId: string | undefined,
@@ -343,6 +352,8 @@ export class Viewport {
       elementRegistry: this.elementRegistry,
     };
 
+    const acceptsPointer = (e: PointerEvent): boolean =>
+      this.embeddedMode?.acceptsPointer(e.pointerType) ?? true;
     this.inputHandler = new InputHandler(this.wrapper, this.camera, {
       toolManager: this.toolManager,
       toolContext: this.toolContext,
@@ -373,8 +384,24 @@ export class Viewport {
         );
       },
       actions: this.actionRegistry,
+      embeddedWheel: options.embedded,
+      onWheelPassThrough: (e) => {
+        for (const listener of [...this.wheelPassThroughListeners]) listener(e);
+      },
+      acceptsPointer,
     });
     this.disposers.push(() => this.inputHandler.destroy());
+    if (options.embedded) {
+      // After InputHandler, whose touch-action: none this overrides.
+      const embeddedMode = new EmbeddedMode({
+        wrapper: this.wrapper,
+        isMenuOpen: () => this.contextMenu?.isOpen() ?? false,
+        onDisengage: () => this.inputHandler.cancelTouchGestures(),
+      });
+      this.embeddedMode = embeddedMode;
+      this.disposers.push(() => embeddedMode.destroy());
+    }
+    this.disposers.push(() => this.wheelPassThroughListeners.clear());
 
     if (options.contextMenu !== false) {
       this.contextMenu = new ContextMenu({
@@ -415,6 +442,7 @@ export class Viewport {
       getVersion: (id) => this.store.getVersion(id),
       isInteracting: (id) => this.interactMode.interactingId === id,
       htmlPlaceholders: !options.onHtmlElementMount,
+      acceptsPointer,
     });
     this.domNodeManager.setCameraTransform(this.camera.toCSSTransform());
     this.disposers.push(() => this.domNodeManager.clearDomNodes());
@@ -543,6 +571,7 @@ export class Viewport {
       requestRender: () => this.requestRender(),
       addImage: (src, position) => this.addImage(src, position),
       dropHandler: this.dropHandler,
+      acceptsPointer,
     });
     // Editing commits while the recorder and store listeners are still attached.
     this.disposers.push(
@@ -599,7 +628,7 @@ export class Viewport {
     const onDragStart = (e: DragEvent): void => {
       if (
         e.target instanceof Element &&
-        e.target.closest(`[${LIVE_NODE_ATTR}]`) &&
+        e.target.closest('[data-element-id]')?.hasAttribute(LIVE_NODE_ATTR) &&
         !isLiveControlTarget(e.target, this.wrapper)
       ) {
         e.preventDefault();
@@ -607,7 +636,7 @@ export class Viewport {
     };
     // Focusing a control can scroll the overflow:hidden wrapper and misalign DOM and canvas.
     const onWrapperScroll = (): void => {
-      if (this.wrapper.querySelector(`[${LIVE_NODE_ATTR}]`)) {
+      if (options.embedded || this.wrapper.querySelector(`[data-element-id][${LIVE_NODE_ATTR}]`)) {
         this.wrapper.scrollTop = 0;
         this.wrapper.scrollLeft = 0;
       }
@@ -1396,6 +1425,27 @@ export class Viewport {
       );
     }, intervalMs);
     return () => clearInterval(id);
+  }
+
+  /** Engages or disengages an embedded board; a no-op when not embedded or after `destroy()`. */
+  setEmbeddedEngaged(engaged: boolean): void {
+    this.embeddedMode?.setEngaged(engaged);
+  }
+
+  /** Whether an embedded board takes touch input; always `true` when not embedded. */
+  isEmbeddedEngaged(): boolean {
+    return this.embeddedMode?.isEngaged() ?? true;
+  }
+
+  /** Notifies on each engaged-state change, including Escape; never fires when not embedded. */
+  onEmbeddedEngagedChange(listener: (engaged: boolean) => void): () => void {
+    return this.embeddedMode?.onChange(listener) ?? noop;
+  }
+
+  /** Notifies for each plain wheel an embedded board leaves to the page; never fires otherwise. */
+  onWheelPassThrough(listener: (e: WheelEvent) => void): () => void {
+    this.wheelPassThroughListeners.add(listener);
+    return () => this.wheelPassThroughListeners.delete(listener);
   }
 
   /** Fires synchronously after any change `exportState()` would reflect; returns a disposer. */

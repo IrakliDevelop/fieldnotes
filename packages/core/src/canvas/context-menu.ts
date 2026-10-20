@@ -67,7 +67,7 @@ export class ContextMenu {
 
     this.keyListener = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
-      // Consumed so an Escape listener registered later (embedded mode) sees it as handled.
+      // Consumed so later Escape listeners see it as handled.
       e.preventDefault();
       this.close();
     };

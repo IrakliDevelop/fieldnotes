@@ -3666,6 +3666,17 @@ describe('Viewport live html elements', () => {
     expect(dragStart(padding).defaultPrevented).toBe(false);
   });
 
+  it('dragstart inside host markup carrying data-fn-live in a non-live html element is left alone', () => {
+    const { padding } = addLive(false);
+    const hostLive = document.createElement('div');
+    hostLive.setAttribute('data-fn-live', '');
+    const inner = document.createElement('span');
+    hostLive.appendChild(inner);
+    padding.appendChild(hostLive);
+
+    expect(dragStart(inner).defaultPrevented).toBe(false);
+  });
+
   it.each(['scrollTop', 'scrollLeft'] as const)(
     'wrapper %s resets to 0 with a live node',
     (key) => {
