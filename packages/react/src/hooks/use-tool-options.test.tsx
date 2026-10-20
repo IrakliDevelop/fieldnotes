@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { render, cleanup, act } from '@testing-library/react';
 import { FieldNotesCanvas } from '../field-notes-canvas';
 import { useToolOptions } from './use-tool-options';
-import { PencilTool, HandTool } from '@fieldnotes/core';
+import { PencilTool, HandTool, ShapeTool } from '@fieldnotes/core';
 import type { PencilToolOptions } from '@fieldnotes/core';
 
 // `useToolOptions` constrains its type parameter to `Record<string, unknown>`.
@@ -136,5 +136,39 @@ describe('useToolOptions', () => {
     );
 
     expect(() => setOpts?.({})).not.toThrow();
+  });
+
+  it('follows a toolName change and stops reacting to the old tool', () => {
+    const pencil = new PencilTool({ color: '#ff0000' });
+    const shape = new ShapeTool({ strokeWidth: 4 });
+    const tools = [pencil, shape];
+    let renders = 0;
+    const seen: { options: Record<string, unknown> | null } = { options: null };
+    function Consumer({ name }: { name: string }) {
+      renders++;
+      [seen.options] = useToolOptions(name);
+      return null;
+    }
+    const tree = (name: string) => (
+      <FieldNotesCanvas tools={tools} defaultTool="pencil">
+        <Consumer name={name} />
+      </FieldNotesCanvas>
+    );
+    const { rerender } = render(tree('pencil'));
+    expect(seen.options?.color).toBe('#ff0000');
+
+    rerender(tree('shape'));
+    expect(seen.options?.strokeWidth).toBe(4);
+
+    act(() => {
+      shape.setOptions({ strokeWidth: 9 });
+    });
+    expect(seen.options?.strokeWidth).toBe(9);
+
+    const rendersBefore = renders;
+    act(() => {
+      pencil.setOptions({ color: '#00ff00' });
+    });
+    expect(renders).toBe(rendersBefore);
   });
 });

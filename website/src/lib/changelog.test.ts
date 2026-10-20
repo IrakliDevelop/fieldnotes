@@ -129,14 +129,14 @@ describe('parseChangelog on CHANGELOG.md at 1d5f34e', () => {
 describe('parseChangelog', () => {
   it('skips H3s under [Unreleased] before the first release', () => {
     const releases = parseChangelog(
-      '## [Unreleased]\n\n### Website — new site\n\nNotes.\n\n### Core 0.96.0 — selection colour (A2)\n\nBody.\n',
+      '## [Unreleased]\n\n### Website — new site\n\nNotes.\n\n### Core 0.97.0 — selection colour (A2)\n\nBody.\n',
     );
 
     expect(releases).toEqual([
       {
         package: 'Core',
         npmName: '@fieldnotes/core',
-        version: '0.96.0',
+        version: '0.97.0',
         title: 'selection colour',
         tickets: ['A2'],
         bodyMarkdown: 'Body.',

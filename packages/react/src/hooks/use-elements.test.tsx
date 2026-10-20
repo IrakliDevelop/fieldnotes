@@ -1,9 +1,10 @@
 import { describe, it, expect, afterEach } from 'vitest';
+import { memo } from 'react';
 import { render, cleanup, act } from '@testing-library/react';
 import { FieldNotesCanvas } from '../field-notes-canvas';
 import { useElements } from './use-elements';
-import { createNote, createStroke } from '@fieldnotes/core';
-import type { CanvasElement, NoteElement, Viewport } from '@fieldnotes/core';
+import { createNote, createShape, createStroke } from '@fieldnotes/core';
+import type { CanvasElement, ElementType, NoteElement, Viewport } from '@fieldnotes/core';
 
 describe('useElements', () => {
   afterEach(cleanup);
@@ -354,5 +355,69 @@ describe('useElements', () => {
     // key changed from 'none' to the element id; values are both undefined —
     // without the k-in-b check these compare equal and the stale value sticks
     expect(Object.keys(value)[0]).not.toBe('none');
+  });
+
+  it('keeps the selected reference when rerendered with a new inline selector', () => {
+    let childRenders = 0;
+    const seen: number[][] = [];
+    let vp: Viewport | null = null;
+    const Child = memo(function Child({ xs }: { xs: number[] }) {
+      childRenders++;
+      return <span>{xs.length}</span>;
+    });
+    function Consumer({ tick }: { tick: number }) {
+      const xs = useElements((els) => els.map((e) => e.position.x + tick * 0));
+      seen.push(xs);
+      return <Child xs={xs} />;
+    }
+    const tree = (tick: number) => (
+      <FieldNotesCanvas
+        onReady={(v) => {
+          vp = v;
+        }}
+      >
+        <Consumer tick={tick} />
+      </FieldNotesCanvas>
+    );
+    const { rerender } = render(tree(0));
+    act(() => {
+      vp?.store.add(createNote({ position: { x: 7, y: 0 } }));
+    });
+    const before = seen[seen.length - 1];
+    const childRendersBefore = childRenders;
+
+    rerender(tree(1));
+
+    expect(before).toEqual([7]);
+    expect(seen[seen.length - 1]).toBe(before);
+    expect(childRenders).toBe(childRendersBefore);
+  });
+
+  it('returns the new type set when rerendered with a different type', () => {
+    let elements: CanvasElement[] = [];
+    let vp: Viewport | null = null;
+    function Consumer({ type }: { type: ElementType }) {
+      elements = useElements(type);
+      return null;
+    }
+    const tree = (type: ElementType) => (
+      <FieldNotesCanvas
+        onReady={(v) => {
+          vp = v;
+        }}
+      >
+        <Consumer type={type} />
+      </FieldNotesCanvas>
+    );
+    const { rerender } = render(tree('note'));
+    act(() => {
+      vp?.store.add(createNote({ position: { x: 0, y: 0 } }));
+      vp?.store.add(createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } }));
+    });
+    expect(elements.map((e) => e.type)).toEqual(['note']);
+
+    rerender(tree('shape'));
+
+    expect(elements.map((e) => e.type)).toEqual(['shape']);
   });
 });

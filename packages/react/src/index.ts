@@ -16,13 +16,13 @@ export {
   useSelectionOps,
   useElementRects,
 } from './hooks';
+export type { UseLayersResult, UseHistoryResult, UseSelectionOpsResult } from './hooks';
 export type {
   CameraState,
-  UseLayersResult,
-  UseHistoryResult,
-  UseSelectionOpsResult,
-} from './hooks';
-export type { ElementStyle, SelectionStyleDetails, ElementRect } from '@fieldnotes/core';
+  ElementStyle,
+  SelectionStyleDetails,
+  ElementRect,
+} from '@fieldnotes/core';
 export type { AlignEdge, DistributeAxis } from '@fieldnotes/core';
 export { ViewportContext } from './context';
 export { Minimap } from './minimap';

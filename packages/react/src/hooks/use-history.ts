@@ -1,10 +1,6 @@
-import { useCallback, useRef, useSyncExternalStore } from 'react';
+import { useCallback, useMemo, useSyncExternalStore } from 'react';
+import { createHistorySource } from '@fieldnotes/core';
 import { useViewport } from './use-viewport';
-
-interface HistorySnapshot {
-  canUndo: boolean;
-  canRedo: boolean;
-}
 
 export interface UseHistoryResult {
   canUndo: boolean;
@@ -16,26 +12,9 @@ export interface UseHistoryResult {
 /** `{ canUndo, canRedo, undo, redo }` — re-renders when undo/redo availability changes. */
 export function useHistory(): UseHistoryResult {
   const viewport = useViewport();
-  const cachedRef = useRef<HistorySnapshot>({ canUndo: false, canRedo: false });
+  const source = useMemo(() => createHistorySource(viewport), [viewport]);
 
-  const subscribe = useCallback(
-    (onStoreChange: () => void) => viewport.history.onChange(onStoreChange),
-    [viewport],
-  );
-
-  const getSnapshot = useCallback((): HistorySnapshot => {
-    const canUndo = viewport.history.canUndo;
-    const canRedo = viewport.history.canRedo;
-    const cached = cachedRef.current;
-    if (cached.canUndo === canUndo && cached.canRedo === canRedo) {
-      return cached;
-    }
-    const next = { canUndo, canRedo };
-    cachedRef.current = next;
-    return next;
-  }, [viewport]);
-
-  const snapshot = useSyncExternalStore(subscribe, getSnapshot);
+  const snapshot = useSyncExternalStore(source.subscribe, source.getSnapshot);
 
   const undo = useCallback(() => viewport.undo(), [viewport]);
   const redo = useCallback(() => viewport.redo(), [viewport]);

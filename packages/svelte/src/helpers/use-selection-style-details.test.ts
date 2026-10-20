@@ -1,0 +1,72 @@
+import { describe, it, expect, afterEach } from 'vitest';
+import { SelectTool, createStroke } from '@fieldnotes/core';
+import type { Viewport } from '@fieldnotes/core';
+import { useSelectionStyleDetails } from './use-selection-style-details.svelte.js';
+import { mountHelper, record } from '../test-fixtures/mount-helper';
+import { createTestViewport, destroyTestViewports } from '../test-fixtures/create-test-viewport';
+
+afterEach(destroyTestViewports);
+
+function addStroke(viewport: Viewport, color: string, at: number): string {
+  const stroke = createStroke({
+    points: [
+      { x: at, y: at, pressure: 0.5 },
+      { x: at + 10, y: at + 10, pressure: 0.5 },
+    ],
+    color,
+    width: 3,
+    layerId: viewport.layerManager.activeLayerId,
+  });
+  viewport.store.add(stroke);
+  return stroke.id;
+}
+
+function selectIds(viewport: Viewport, ids: string[]): void {
+  viewport.toolManager.getTool<SelectTool>('select')?.setSelection(ids);
+}
+
+describe('useSelectionStyleDetails', () => {
+  it('reports applicable and mixed fields, and null once the selection is empty', () => {
+    const viewport = createTestViewport();
+    viewport.toolManager.register(new SelectTool());
+    const ids = [addStroke(viewport, '#111111', 0), addStroke(viewport, '#222222', 20)];
+    const {
+      result: [details],
+    } = mountHelper(() => useSelectionStyleDetails(), viewport);
+    const values = record(details);
+    selectIds(viewport, ids);
+    expect(values.at(-1)?.applicable).toContain('color');
+    expect(values.at(-1)?.mixed).toContain('color');
+    selectIds(viewport, []);
+    expect(values.at(-1)).toBeNull();
+  });
+
+  it('updates when a selected element is deleted', () => {
+    const viewport = createTestViewport();
+    viewport.toolManager.register(new SelectTool());
+    const ids = [addStroke(viewport, '#111111', 0), addStroke(viewport, '#222222', 20)];
+    const {
+      result: [details],
+    } = mountHelper(() => useSelectionStyleDetails(), viewport);
+    const values = record(details);
+    selectIds(viewport, ids);
+    viewport.store.remove(ids[0] ?? '');
+    expect(values.at(-1)?.mixed).not.toContain('color');
+    expect(values.at(-1)?.common.color).toBe('#222222');
+  });
+
+  it('works when mounted before the select tool is registered', () => {
+    const {
+      result: [details, apply],
+      viewport,
+    } = mountHelper(() => useSelectionStyleDetails());
+    const values = record(details);
+    expect(values).toEqual([null]);
+    viewport.toolManager.register(new SelectTool());
+    const id = addStroke(viewport, '#333333', 0);
+    selectIds(viewport, [id]);
+    expect(values.at(-1)?.common.color).toBe('#333333');
+    apply({ color: '#444444' });
+    expect(values.at(-1)?.common.color).toBe('#444444');
+  });
+});
