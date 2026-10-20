@@ -41,7 +41,7 @@ import type { ExportSvgOptions } from './export-svg';
 import type { CanvasState, ImportableCanvasState } from '../core/state-serializer';
 import { LayerManager } from '../layers/layer-manager';
 import { InteractMode } from './interact-mode';
-import { LIVE_NODE_ATTR } from './live-control';
+import { LIVE_NODE_ATTR, isLiveControlTarget } from './live-control';
 import { DomNodeManager } from './dom-node-manager';
 import { RenderLoop } from './render-loop';
 import type { OverlayRenderer } from './render-loop';
@@ -595,7 +595,28 @@ export class Viewport {
     this.wrapper.addEventListener('pointerup', onDoubleTap);
     this.wrapper.addEventListener('dragover', onDragOver);
     this.wrapper.addEventListener('drop', onDrop);
+    // Native drag from live padding would fight the board's own drag; live controls keep theirs.
+    const onDragStart = (e: DragEvent): void => {
+      if (
+        e.target instanceof Element &&
+        e.target.closest(`[${LIVE_NODE_ATTR}]`) &&
+        !isLiveControlTarget(e.target, this.wrapper)
+      ) {
+        e.preventDefault();
+      }
+    };
+    // Focusing a control can scroll the overflow:hidden wrapper and misalign DOM and canvas.
+    const onWrapperScroll = (): void => {
+      if (this.wrapper.querySelector(`[${LIVE_NODE_ATTR}]`)) {
+        this.wrapper.scrollTop = 0;
+        this.wrapper.scrollLeft = 0;
+      }
+    };
+    this.wrapper.addEventListener('dragstart', onDragStart);
+    this.wrapper.addEventListener('scroll', onWrapperScroll);
     this.disposers.push(() => {
+      this.wrapper.removeEventListener('dragstart', onDragStart);
+      this.wrapper.removeEventListener('scroll', onWrapperScroll);
       this.wrapper.removeEventListener('pointerdown', onTapDown);
       this.wrapper.removeEventListener('pointerup', onDoubleTap);
       this.wrapper.removeEventListener('dragover', onDragOver);

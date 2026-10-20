@@ -3630,4 +3630,63 @@ describe('Viewport live html elements', () => {
     expect(priv().interactMode.interactingId).toBeNull();
     expect(priv().domNodeManager.getNode(id)?.style.pointerEvents).toBe('auto');
   });
+
+  function addLive(interactive: boolean) {
+    const content = document.createElement('div');
+    const padding = document.createElement('p');
+    const link = document.createElement('a');
+    link.setAttribute('href', '#');
+    content.append(padding, link);
+    const id = vp.addHtmlElement(
+      content,
+      { x: 0, y: 0 },
+      { w: 100, h: 50 },
+      interactive ? { interactive } : undefined,
+    );
+    priv().renderLoop.flush();
+    return { id, padding, link };
+  }
+
+  function dragStart(target: Element): Event {
+    const e = new Event('dragstart', { bubbles: true, cancelable: true });
+    target.dispatchEvent(e);
+    return e;
+  }
+
+  it('dragstart from live padding is prevented, from a live link is not', () => {
+    const { padding, link } = addLive(true);
+
+    expect(dragStart(padding).defaultPrevented).toBe(true);
+    expect(dragStart(link).defaultPrevented).toBe(false);
+  });
+
+  it('dragstart inside a non-live html element is left alone', () => {
+    const { padding } = addLive(false);
+
+    expect(dragStart(padding).defaultPrevented).toBe(false);
+  });
+
+  it.each(['scrollTop', 'scrollLeft'] as const)(
+    'wrapper %s resets to 0 with a live node',
+    (key) => {
+      addLive(true);
+      const wrapper = wrapperOf(container);
+      wrapper[key] = 40;
+      expect(wrapper[key]).toBe(40);
+
+      wrapper.dispatchEvent(new Event('scroll'));
+
+      expect(wrapper[key]).toBe(0);
+    },
+  );
+
+  it('wrapper scroll offsets are left alone with no live node and no embedding', () => {
+    addLive(false);
+    const wrapper = wrapperOf(container);
+    wrapper.scrollTop = 40;
+
+    wrapper.dispatchEvent(new Event('scroll'));
+
+    expect(wrapper.scrollTop).toBe(40);
+  });
 });

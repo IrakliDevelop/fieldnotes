@@ -136,4 +136,49 @@ describe('Integration: live html elements', () => {
 
     expect(vp.store.getElementsByType('stroke')).toEqual([]);
   });
+
+  describe('keyboard', () => {
+    function press(target: Element, key: string) {
+      target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+    }
+
+    function addSelectedLive() {
+      const live = addLive();
+      vp.toolManager.getTool<SelectTool>('select')?.setSelection([live.id]);
+      return live;
+    }
+
+    it('Delete on a focused live button does not delete the selection', () => {
+      const { id, button } = addSelectedLive();
+      button.focus();
+
+      press(button, 'Delete');
+
+      expect(vp.store.getById(id)).toBeDefined();
+    });
+
+    it('Space on a focused live button does not set the pan flag', () => {
+      const { button } = addSelectedLive();
+      button.focus();
+
+      press(button, ' ');
+      dispatch(wrapper, 'pointerdown', 600, 400);
+      dispatch(wrapper, 'pointermove', 640, 420);
+      dispatch(wrapper, 'pointermove', 680, 440);
+      dispatch(wrapper, 'pointerup', 680, 440);
+
+      expect(vp.camera.position).toEqual({ x: 0, y: 0 });
+    });
+
+    it('(guard) Delete on a focused button outside any live node still runs', () => {
+      const { id } = addSelectedLive();
+      const stray = document.createElement('button');
+      wrapper.appendChild(stray);
+      stray.focus();
+
+      press(stray, 'Delete');
+
+      expect(vp.store.getById(id)).toBeUndefined();
+    });
+  });
 });
