@@ -1,0 +1,190 @@
+<div class="search" data-search hidden>
+  <label class="visually-hidden" for="docs-search">Search the docs</label>
+  <input id="docs-search" type="search" placeholder="viewport.addHtmlElement" autocomplete="off" />
+  <ul class="results" aria-label="Search results" data-search-results hidden></ul>
+</div>
+
+<script>
+  import { link } from '../utils/base';
+
+  interface PagefindResult {
+    data(): Promise<{ url: string; excerpt: string; meta: { title?: string } }>;
+  }
+
+  interface Pagefind {
+    options(options: { baseUrl: string }): Promise<void>;
+    debouncedSearch(term: string): Promise<{ results: PagefindResult[] } | null>;
+  }
+
+  const MAX_RESULTS = 8;
+
+  async function wireSearch(root: HTMLElement): Promise<void> {
+    const input = root.querySelector('input');
+    const list = root.querySelector<HTMLUListElement>('[data-search-results]');
+    if (!input || !list) return;
+    // Pagefind exists only in a built site; under `astro dev` the search stays hidden.
+    const pagefind: Pagefind | undefined = await import(
+      /* @vite-ignore */ link('/pagefind/pagefind.js')
+    ).catch(() => undefined);
+    if (!pagefind) return;
+    await pagefind.options({ baseUrl: import.meta.env.BASE_URL });
+    root.hidden = false;
+
+    const links = (): HTMLAnchorElement[] => [...list.querySelectorAll('a')];
+    const close = (): void => {
+      list.replaceChildren();
+      list.hidden = true;
+    };
+    let latest = 0;
+
+    input.addEventListener('input', async () => {
+      const query = ++latest;
+      const term = input.value.trim();
+      if (!term) return close();
+      const search = await pagefind.debouncedSearch(term);
+      const results =
+        search && (await Promise.all(search.results.slice(0, MAX_RESULTS).map((r) => r.data())));
+      // An earlier query's fragments can resolve after a later one's.
+      if (!results || query !== latest) return;
+      list.hidden = false;
+      if (results.length === 0) {
+        const empty = document.createElement('li');
+        empty.className = 'empty';
+        empty.textContent = `No docs page matches "${term}". Try an API name such as addHtmlElement.`;
+        return list.replaceChildren(empty);
+      }
+      list.replaceChildren(
+        ...results.map(({ url, excerpt, meta }) => {
+          const item = document.createElement('li');
+          const anchor = document.createElement('a');
+          const title = document.createElement('span');
+          const text = document.createElement('span');
+          anchor.href = url;
+          title.className = 'title';
+          title.textContent = meta.title ?? url;
+          text.className = 'excerpt';
+          // Pagefind escapes page text and marks matches with <mark>.
+          text.innerHTML = excerpt;
+          anchor.append(title, text);
+          item.append(anchor);
+          return item;
+        }),
+      );
+    });
+
+    // Pointerdown, not focusout, closes on a click elsewhere: Safari does not focus a clicked link.
+    document.addEventListener('pointerdown', (event) => {
+      if (!(event.target instanceof Node && root.contains(event.target))) close();
+    });
+    root.addEventListener('focusout', (event) => {
+      if (event.relatedTarget instanceof Node && !root.contains(event.relatedTarget)) close();
+    });
+
+    root.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        close();
+        input.focus();
+        return;
+      }
+      if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+      const items = links();
+      if (items.length === 0) return;
+      event.preventDefault();
+      const current = items.findIndex((a) => a === document.activeElement);
+      const next = current + (event.key === 'ArrowDown' ? 1 : -1);
+      if (next < 0) input.focus();
+      else items[Math.min(next, items.length - 1)]?.focus();
+    });
+  }
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-search]')) void wireSearch(root);
+</script>
+
+<style>
+  .search {
+    position: relative;
+  }
+
+  .search[hidden] {
+    display: none;
+  }
+
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  input {
+    width: 260px;
+    min-height: 40px;
+    padding: 0 12px;
+    border: 1px solid #a9afa6;
+    border-radius: 4px;
+    background: var(--board);
+    color: var(--graphite);
+    font: 400 15px 'Public Sans', sans-serif;
+  }
+
+  input::placeholder {
+    color: var(--muted);
+  }
+
+  .results {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    z-index: 10;
+    width: min(400px, calc(100vw - 40px));
+    margin: 0;
+    padding: 4px;
+    border: 1px solid #a9afa6;
+    border-radius: 4px;
+    background: var(--board);
+    list-style: none;
+  }
+
+  .results :global(a) {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 8px 10px;
+    border-radius: 4px;
+    text-decoration: none;
+  }
+
+  .results :global(a:hover),
+  .results :global(a:focus-visible) {
+    background: var(--code-bg);
+    color: var(--graphite);
+  }
+
+  .results :global(.title) {
+    font-weight: 600;
+  }
+
+  .results :global(.excerpt) {
+    color: var(--graphite-2);
+    font-size: 14px;
+  }
+
+  .results :global(.empty) {
+    padding: 8px 10px;
+    color: var(--graphite-2);
+    font-size: 14px;
+  }
+
+  .results :global(mark) {
+    background: var(--note);
+    color: var(--graphite);
+  }
+
+  @media (pointer: coarse) {
+    input {
+      min-height: 44px;
+    }
+  }
+</style>

@@ -36,6 +36,7 @@ import {
   renderSelectionBoxes,
   renderGuideLines,
 } from './select-overlay';
+import { DEFAULT_SELECTION_COLOR } from './selection-color';
 import { computeResize, computeRotatedResize } from './select-resize';
 
 const SNAP_PX = 6;
@@ -429,7 +430,7 @@ export class SelectTool implements Tool {
   renderOverlay(canvasCtx: CanvasRenderingContext2D): void {
     if (this.mode.type === 'marquee') {
       const rect = this.getMarqueeRect();
-      if (rect) renderMarquee(canvasCtx, rect);
+      if (rect) renderMarquee(canvasCtx, rect, this.ctx?.selectionColor);
     }
     if (this.ctx)
       renderSelectionBoxes(canvasCtx, {
@@ -438,6 +439,7 @@ export class SelectTool implements Tool {
         zoom: this.ctx.camera.zoom,
         isLayerLocked: this.ctx.isLayerLocked,
         elementRegistry: this.ctx.elementRegistry,
+        color: this.ctx.selectionColor,
       });
 
     if (this.mode.type === 'arrow-handle' && this.ctx) {
@@ -449,7 +451,7 @@ export class SelectTool implements Tool {
       );
       if (target) {
         canvasCtx.save();
-        canvasCtx.strokeStyle = '#2196F3';
+        canvasCtx.strokeStyle = this.ctx.selectionColor ?? DEFAULT_SELECTION_COLOR;
         canvasCtx.lineWidth = 2 / this.ctx.camera.zoom;
         canvasCtx.setLineDash([]);
         canvasCtx.strokeRect(target.x, target.y, target.w, target.h);
@@ -464,13 +466,13 @@ export class SelectTool implements Tool {
           canvasCtx.save();
           canvasCtx.globalAlpha = 0.35;
           canvasCtx.setLineDash([]);
-          renderArrowHoverHandle(canvasCtx, el, this.ctx.camera.zoom);
+          renderArrowHoverHandle(canvasCtx, el, this.ctx.camera.zoom, this.ctx.selectionColor);
           canvasCtx.restore();
         } else if (el) {
           const b = getElementBounds(el, this.ctx.elementRegistry);
           if (b) {
             canvasCtx.save();
-            canvasCtx.strokeStyle = '#2196F3';
+            canvasCtx.strokeStyle = this.ctx.selectionColor ?? DEFAULT_SELECTION_COLOR;
             canvasCtx.globalAlpha = 0.35;
             canvasCtx.lineWidth = 1.5 / this.ctx.camera.zoom;
             canvasCtx.setLineDash([]);

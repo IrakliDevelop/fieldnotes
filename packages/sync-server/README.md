@@ -480,8 +480,9 @@ must enforce `expiresAt` themselves. Received cross-instance fanout has no authe
 its payload and `from` field do not create a `ServerOpContext.authContext`.
 
 With **no hook**, rooms stay open: every connection is admitted anonymously with
-`userId = connId`. `role` is captured now and enforced in an upcoming release
-(role-based authorization and per-viewer visibility filtering).
+`userId = connId`. `role` is captured and passed to the `authorize` and
+`canRead` hooks (see [Read filtering](#read-filtering)). Nothing enforces it unless a hook is
+configured.
 
 Messages that arrive during an async auth (notably the client's initial
 `request-snapshot`) are queued and replayed once the connection is admitted, so the
@@ -604,8 +605,8 @@ createSyncServer({
   therefore **throws** when `authorize` is configured without `authenticate`.
 - Every element op reads the stored record (`backend.getRecord`, one or two Redis `HGET`s) once per
   compare-and-set attempt (up to 3) before it is authorized, whether or not `authorize` is configured.
-- Reads / visibility (a player not **receiving** hidden content) are a separate, upcoming
-  concern (D3). `authorize` gates writes only.
+- Reads / visibility (a player not **receiving** hidden content) are gated by `canRead` (see
+  [Read filtering](#read-filtering)). `authorize` gates writes only.
 - When `authorize` denies an op, the hub sends the offending client a **corrective op** so its
   optimistic local edit self-corrects immediately — no client change, no waiting for reconnect:
   a rejected new element is **removed**, a rejected edit/remove is re-**upserted** from the canonical

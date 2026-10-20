@@ -1,7 +1,10 @@
 {
-  "extends": "../tsconfig.base.json",
+  "extends": "astro/tsconfigs/strict",
   "compilerOptions": {
-    "noEmit": true
+    "noUncheckedIndexedAccess": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "jsx": "react-jsx"
   },
-  "include": ["src"]
+  "exclude": ["dist", "test-results"]
 }

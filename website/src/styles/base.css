@@ -1,0 +1,59 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--graphite);
+  font-family: 'Public Sans', sans-serif;
+  font-size: 17px;
+  line-height: 1.55;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: 'Young Serif', serif;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+}
+
+code,
+kbd,
+pre {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+a {
+  color: var(--graphite);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+a:hover {
+  color: var(--red);
+}
+
+:focus-visible {
+  outline: 2px solid var(--graphite);
+  outline-offset: 2px;
+}
+
+/* Core sets an inline `outline: none` on the board wrapper; the site's focus ring must win. */
+[data-hero-board] > div:focus-visible, [data-live-board-mount] > div:focus-visible { outline: 2px solid var(--graphite) !important; outline-offset: 2px }
+
+.wrap {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 0 32px;
+}
+
+@media (max-width: 480px) {
+  .wrap {
+    padding: 0 20px;
+  }
+}

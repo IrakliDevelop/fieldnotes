@@ -50,9 +50,12 @@ test('menu opens, closes on Escape and links resolve', async ({ page }) => {
   await expect(button).toHaveAttribute('aria-expanded', 'true');
   await expect(menu.getByRole('link', { name: 'Dev playground' })).toHaveAttribute(
     'href',
-    './dev/',
+    '../dev/',
   );
-  await expect(menu.getByRole('link', { name: 'API reference' })).toHaveAttribute('href', './api/');
+  await expect(menu.getByRole('link', { name: 'API reference' })).toHaveAttribute(
+    'href',
+    '../api/',
+  );
   const github = menu.getByRole('link', { name: 'GitHub' });
   await expect(github).toHaveAttribute('href', 'https://github.com/IrakliDevelop/fieldnotes');
   await expect(github).toHaveAttribute('target', '_blank');

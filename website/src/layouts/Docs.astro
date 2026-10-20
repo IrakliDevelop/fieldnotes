@@ -1,0 +1,261 @@
+---
+import { getCollection } from 'astro:content';
+import type { CollectionEntry } from 'astro:content';
+import '../styles/board-placeholder.css';
+import Base from './Base.astro';
+import LiveBoard from '../components/LiveBoard.astro';
+import Search from '../components/Search.astro';
+import { docsNav } from '../lib/docs-nav';
+import { link } from '../utils/base';
+
+interface Props {
+  entry: CollectionEntry<'docs'>;
+}
+
+const { entry } = Astro.props;
+const { title, description } = entry.data;
+const nav = docsNav(await getCollection('docs'));
+const { prev, next } = nav.prevNext(entry.id);
+---
+
+<Base title={`${title}, Field Notes docs`} description={description} current="docs">
+  <Search slot="search" />
+  <div class="wrap docs">
+    <nav class="side" aria-label="Docs">
+      {
+        nav.groups.map((group) => (
+          <div>
+            <p class="group">{group.name}</p>
+            <ul>
+              {group.items.map((item) => (
+                <li>
+                  <a
+                    href={link(item.href)}
+                    aria-current={item.slug === entry.id ? 'page' : undefined}
+                  >
+                    {item.title}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))
+      }
+    </nav>
+
+    <main data-pagefind-body>
+      <div class="title">
+        <h1>{title}</h1>
+        <p>{description}</p>
+      </div>
+      <div class="prose">
+        <slot />
+      </div>
+      {
+        (prev || next) && (
+          <nav class="pager" aria-label="Previous and next page">
+            {prev && (
+              <a href={link(prev.href)} rel="prev">
+                <span class="label">Previous</span>
+                <span class="page">{prev.title}</span>
+              </a>
+            )}
+            {next && (
+              <a class="next" href={link(next.href)} rel="next">
+                <span class="label">Next</span>
+                <span class="page">{next.title}</span>
+              </a>
+            )}
+          </nav>
+        )
+      }
+    </main>
+  </div>
+  <LiveBoard />
+</Base>
+
+<style>
+  .docs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 48px 64px;
+    padding-top: 48px;
+    padding-bottom: 96px;
+    line-height: 1.6;
+  }
+
+  .side {
+    display: flex;
+    flex: 1 1 200px;
+    flex-direction: column;
+    gap: 24px;
+    max-width: 240px;
+    font-size: 15px;
+  }
+
+  .group {
+    margin: 0 0 8px;
+    font-weight: 600;
+  }
+
+  .side ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .side a {
+    display: block;
+    padding: 6px 0 6px 12px;
+    border-left: 1px solid var(--divider);
+    color: var(--graphite-2);
+    text-decoration: none;
+  }
+
+  .side a:hover {
+    border-left-color: var(--graphite);
+    color: var(--graphite);
+  }
+
+  .side a[aria-current='page'] {
+    padding-left: 11px;
+    border-left: 2px solid var(--red);
+    color: var(--graphite);
+    font-weight: 600;
+  }
+
+  main {
+    display: flex;
+    flex: 999 1 560px;
+    flex-direction: column;
+    gap: 28px;
+    min-width: 0;
+  }
+
+  .title {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  h1 {
+    margin: 0;
+    font-size: 44px;
+    line-height: 1.1;
+  }
+
+  .title p {
+    max-width: 36em;
+    margin: 0;
+    color: var(--graphite-2);
+    font-size: 19px;
+  }
+
+  .prose {
+    display: flow-root;
+  }
+
+  .prose > :global(*) {
+    margin: 0 0 16px;
+  }
+
+  .prose :global(h2) {
+    margin-top: 28px;
+    font-size: 28px;
+    line-height: 1.2;
+  }
+
+  .prose :global(p),
+  .prose :global(li) {
+    max-width: 36em;
+  }
+
+  .prose :global(:not(pre) > code) {
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: var(--code-bg);
+    font-size: 0.88em;
+  }
+
+  .prose :global(pre) {
+    padding: 20px 22px;
+    border-radius: 4px;
+    overflow-x: auto;
+    font: 400 14px/1.7 'JetBrains Mono', monospace;
+  }
+
+  .prose :global(.margin-note) {
+    padding-left: 14px;
+    border-left: 1.5px solid var(--red);
+    color: var(--red);
+    font-family: 'Kalam', cursive;
+    font-size: 19px;
+    line-height: 1.25;
+  }
+
+  .prose :global(.margin-note > *) {
+    margin: 0;
+  }
+
+  /* At 1100px and wider the notes float into a 220px gutter beside the prose column. */
+  @media (min-width: 1100px) {
+    .prose {
+      padding-right: 260px;
+    }
+
+    .prose :global(.margin-note) {
+      float: right;
+      clear: right;
+      width: 220px;
+      margin-right: -260px;
+      padding-left: 0;
+      border-left: 0;
+    }
+
+    .prose :global(.live-board) {
+      margin-right: -260px;
+    }
+  }
+
+  .pager {
+    display: flex;
+    justify-content: space-between;
+    gap: 24px;
+    padding-top: 24px;
+    border-top: 1px solid var(--divider-2);
+  }
+
+  .pager a {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    text-decoration: none;
+  }
+
+  .pager .next {
+    align-items: flex-end;
+    margin-left: auto;
+    text-align: right;
+  }
+
+  .label {
+    color: var(--muted);
+    font-size: 14px;
+  }
+
+  .page {
+    font-family: 'Young Serif', serif;
+    font-size: 22px;
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 4px;
+  }
+
+  @media (pointer: coarse) {
+    .side a {
+      display: flex;
+      align-items: center;
+      min-height: 44px;
+    }
+  }
+</style>

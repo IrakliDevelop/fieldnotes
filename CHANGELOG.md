@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### Website — new site at the Pages root (A2)
+
+- The site moved to the Pages root and the playground to `/playground/`. Old `?scene=` links
+  forward. There is no package release besides core 0.97.0.
+
+### Core 0.97.0 — selection colour (A2)
+
+**Added**
+
+- `ViewportOptions.selectionColor` (any CSS colour, default `#2196F3`, read at construction): the
+  colour of selection outlines, handles, the marquee, lock badges, binding highlights, arrow
+  previews and the arrow label input. The smart-guide colour is unchanged.
+
 ### Core 0.96.0 — viewport sources (A12)
 
 **Added**

@@ -12,7 +12,7 @@ function setup() {
   const recorder = new HistoryRecorder(store, stack);
   const layer = document.createElement('div');
   document.body.appendChild(layer);
-  return { store, stack, recorder, layer, editor: new ArrowLabelEditor() };
+  return { store, stack, recorder, layer, editor: new ArrowLabelEditor('#2196F3') };
 }
 
 function start(
@@ -103,5 +103,10 @@ describe('ArrowLabelEditor', () => {
     input.dispatchEvent(new Event('blur'));
     expect(getLabel(env, arrow.id)).toBe('once');
     expect(env.stack.undoCount).toBe(1);
+  });
+
+  it('borders the input in the given selection colour', () => {
+    const { input } = start({ ...env, editor: new ArrowLabelEditor('#B8322A') });
+    expect(input?.style.borderColor).toBe('rgb(184, 50, 42)');
   });
 });

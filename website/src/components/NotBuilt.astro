@@ -1,0 +1,37 @@
+---
+import roadmap from '../../content/roadmap.md?raw';
+import { parseRoadmap } from '../lib/roadmap';
+import { link } from '../utils/base';
+
+const { notBuilt } = parseRoadmap(roadmap);
+---
+
+<section class="wrap" aria-labelledby="not-built">
+  <div class="two">
+    <div class="text">
+      <h2 id="not-built">Not built yet</h2>
+      <p>
+        If you need one of these today, tldraw or Excalidraw may suit you better. Every item here is
+        on the public roadmap.
+      </p>
+      <a class="standalone" href={link('/roadmap/')}>Read the roadmap</a>
+    </div>
+    <ul>
+      {notBuilt.map((item) => <li>{item}</li>)}
+    </ul>
+  </div>
+</section>
+
+<style>
+  ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    border-top: 1px solid var(--divider-2);
+  }
+
+  li {
+    padding: 12px 0;
+    border-bottom: 1px solid var(--divider-2);
+  }
+</style>

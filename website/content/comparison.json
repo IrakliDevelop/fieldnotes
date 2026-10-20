@@ -1,0 +1,96 @@
+{
+  "checkedOn": "2026-10-20",
+  "columns": ["Field Notes", "tldraw", "Excalidraw"],
+  "rows": [
+    {
+      "id": "licence",
+      "label": "Licence and cost",
+      "cells": {
+        "Field Notes": {
+          "text": "MIT. No licence key, no watermark.",
+          "href": "https://github.com/IrakliDevelop/fieldnotes/blob/master/LICENSE"
+        },
+        "tldraw": {
+          "text": "The tldraw SDK is free in development and needs a licence key in production: a commercial licence, or a discretionary hobby licence for non-commercial projects that shows a \"made with tldraw\" watermark.",
+          "source": "https://tldraw.dev/community/license",
+          "checkedOn": "2026-10-20"
+        },
+        "Excalidraw": {
+          "text": "The Excalidraw repository is under the MIT licence.",
+          "source": "https://github.com/excalidraw/excalidraw/blob/master/LICENSE",
+          "checkedOn": "2026-10-20"
+        }
+      }
+    },
+    {
+      "id": "framework",
+      "label": "Framework requirement",
+      "cells": {
+        "Field Notes": {
+          "text": "None. The core package is vanilla TypeScript, and the React, Vue and Svelte bindings are separate packages.",
+          "href": "/docs/getting-started/"
+        },
+        "tldraw": {
+          "text": "The tldraw SDK is a React library, used through the Tldraw component.",
+          "source": "https://github.com/tldraw/tldraw/blob/main/README.md",
+          "checkedOn": "2026-10-20"
+        },
+        "Excalidraw": {
+          "text": "The @excalidraw/excalidraw package is installed together with react and react-dom.",
+          "source": "https://docs.excalidraw.com/docs/@excalidraw/excalidraw/installation",
+          "checkedOn": "2026-10-20"
+        }
+      }
+    },
+    {
+      "id": "sync",
+      "label": "Self-hosted sync server",
+      "cells": {
+        "Field Notes": {
+          "text": "@fieldnotes/sync-server is a WebSocket relay you run yourself. @fieldnotes/sync-redis adds Redis persistence.",
+          "href": "/docs/multiplayer/"
+        },
+        "tldraw": {
+          "text": "tldraw sync is a multiplayer sync library that you host yourself, with a Cloudflare Durable Objects template and a Node.js option built on @tldraw/sync-core.",
+          "source": "https://tldraw.dev/docs/sync",
+          "checkedOn": "2026-10-20"
+        },
+        "Excalidraw": {
+          "text": "excalidraw-room is an example collaboration server for Excalidraw that you run yourself.",
+          "source": "https://github.com/excalidraw/excalidraw-room",
+          "checkedOn": "2026-10-20"
+        }
+      }
+    },
+    {
+      "id": "html",
+      "label": "Arbitrary HTML elements on the board",
+      "cells": {
+        "Field Notes": {
+          "text": "addHtmlElement puts any DOM node on the board, where it pans, zooms and sits in layer order with the drawing.",
+          "href": "/docs/html-elements/"
+        },
+        "tldraw": {
+          "text": "Custom shapes can render HTML through the HTMLContainer component, and the SDK includes an embed shape.",
+          "source": "https://tldraw.dev/docs/shapes",
+          "checkedOn": "2026-10-20"
+        },
+        "Excalidraw": {
+          "text": "Embeddable elements render as iframes, and the renderEmbeddable prop can replace that renderer.",
+          "source": "https://docs.excalidraw.com/docs/@excalidraw/excalidraw/api/props/render-props",
+          "checkedOn": "2026-10-20"
+        }
+      }
+    },
+    {
+      "id": "tabletop",
+      "label": "Tabletop maps",
+      "cells": {
+        "Field Notes": {
+          "text": "@fieldnotes/vtt adds square and hex grids, fog of war, a measuring tool and area templates.",
+          "href": "/docs/tabletop-maps/"
+        }
+      }
+    }
+  ]
+}

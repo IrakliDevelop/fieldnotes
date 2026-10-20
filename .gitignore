@@ -15,8 +15,9 @@ docs/superpowers/
 
 test_data/
 
-# TypeDoc output (pnpm docs:api)
-website/public/api/
+# Astro
+website/.astro/
+website/test-results/
 
 # Playwright
 packages/core/e2e/screenshots/

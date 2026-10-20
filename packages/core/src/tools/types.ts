@@ -21,6 +21,8 @@ export interface ToolContext {
   getVisibleRect?: () => Bounds;
   constraintService?: ConstraintServiceAccess;
   elementRegistry?: ElementRegistry;
+  /** Colour of selection chrome; tools fall back to `DEFAULT_SELECTION_COLOR`. */
+  selectionColor?: string;
 }
 
 export interface PointerState {

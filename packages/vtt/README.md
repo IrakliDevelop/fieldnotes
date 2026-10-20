@@ -14,7 +14,7 @@ collaboration.
 pnpm add @fieldnotes/vtt @fieldnotes/core
 ```
 
-Requires `@fieldnotes/core` `>=0.85.0 <1.0.0` (peer dependency).
+Requires `@fieldnotes/core` `>=0.93.0 <1.0.0` (peer dependency).
 
 ## Register element types
 
@@ -77,9 +77,11 @@ Server and Redis deployments use `createFogServerPlugin()` from `@fieldnotes/vtt
 Managed authority rooms opt in with `createFogAuthorityClientExtension()` from
 `@fieldnotes/vtt/sync` and `createFogAuthorityServerExtension()` from
 `@fieldnotes/vtt/server`. These adapters require the managed-authority APIs shipped by
-`@fieldnotes/sync` and `@fieldnotes/sync-server` 0.26.0; the package peer ranges remain broad so
-legacy VTT integrations continue to work. The exact checkpoint requirement is `fog/fog/1`, and the
-server owns `fog-meta` and `fog-patch` only when the factory is installed.
+`@fieldnotes/sync` and `@fieldnotes/sync-server` 0.26.0. The package peer ranges are
+`@fieldnotes/core` `>=0.93.0 <1.0.0`, `@fieldnotes/sync` and `@fieldnotes/sync-server`
+`>=0.28.0 <1.0.0`, and `@fieldnotes/sync-redis` `>=0.14.0 <1.0.0`; the three sync peers are
+optional. The exact checkpoint requirement is `fog/fog/1`, and the server owns `fog-meta` and
+`fog-patch` only when the factory is installed.
 
 `prepareFogAuthorityIntent()` and `applyFogAuthorityIntent()` expose immutable, bounded pure
 transitions for an application driver. Patches are atomic, contain at most 64 unique canonical

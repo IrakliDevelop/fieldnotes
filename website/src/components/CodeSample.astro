@@ -1,0 +1,32 @@
+---
+import { Code } from 'astro:components';
+import { extractRegion } from '../lib/directives';
+import { codeTheme } from '../styles/code-theme';
+
+interface Props {
+  source: string;
+  region?: string;
+  lang: 'ts' | 'tsx' | 'bash' | 'html';
+}
+
+const { source, region, lang } = Astro.props;
+const code = region === undefined ? source.trim() : extractRegion(source, region);
+---
+
+<div class="sample">
+  <Code code={code} lang={lang} theme={codeTheme} />
+</div>
+
+<style>
+  .sample {
+    min-width: 0;
+  }
+
+  .sample :global(pre) {
+    margin: 0;
+    padding: 24px;
+    border-radius: 4px;
+    overflow-x: auto;
+    font: 400 14px/1.7 'JetBrains Mono', monospace;
+  }
+</style>

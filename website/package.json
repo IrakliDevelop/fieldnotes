@@ -4,12 +4,42 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
+    "dev": "node scripts/astro-node.mjs astro dev",
+    "build": "node scripts/astro-node.mjs astro build --force && node scripts/astro-node.mjs pagefind --site dist",
+    "preview": "node scripts/astro-node.mjs astro preview --port 4321",
+    "typecheck": "node scripts/astro-node.mjs astro check",
+    "test": "vitest run && node --test scripts/*.test.mjs && node scripts/design-ratchet.mjs",
+    "test:coverage": "vitest run --coverage && node --test scripts/*.test.mjs && node scripts/design-ratchet.mjs",
+    "e2e": "playwright test -c e2e/playwright.config.ts"
   },
   "devDependencies": {
+    "@astrojs/check": "^0.9.11",
+    "@astrojs/markdown-remark": "^7.3.3",
+    "@axe-core/playwright": "^4.14.0",
+    "@fieldnotes/core": "workspace:*",
+    "@fieldnotes/react": "workspace:*",
+    "@fieldnotes/sync": "workspace:*",
+    "@fieldnotes/sync-server": "workspace:*",
+    "@fieldnotes/vtt": "workspace:*",
+    "@fontsource/jetbrains-mono": "^5.3.0",
+    "@fontsource/kalam": "^5.3.0",
+    "@fontsource/public-sans": "^5.3.0",
+    "@fontsource/young-serif": "^5.3.0",
+    "@playwright/test": "^1.63.0",
+    "@types/mdast": "^4.0.4",
+    "@types/node": "^26.0.1",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitest/coverage-v8": "^5.0.5",
+    "astro": "^7.4.1",
+    "pagefind": "^1.5.2",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "remark-directive": "^4.0.0",
+    "remark-parse": "^11.0.0",
+    "remark-stringify": "^11.0.0",
     "typescript": "~6.0.3",
-    "vite": "^8.3.4"
+    "unified": "^11.0.5",
+    "vitest": "^5.0.5"
   }
 }

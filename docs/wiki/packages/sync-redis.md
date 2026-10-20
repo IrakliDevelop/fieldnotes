@@ -1,3 +1,5 @@
+> User guide: https://iraklidevelop.github.io/fieldnotes/docs/multiplayer/
+
 # @fieldnotes/sync-redis
 
 **Version:** 0.9.0

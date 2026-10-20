@@ -15,6 +15,8 @@ export class ArrowLabelEditor {
   private input: HTMLInputElement | null = null;
   private done = false;
 
+  constructor(private readonly color: string) {}
+
   get isEditing(): boolean {
     return this.input !== null;
   }
@@ -36,7 +38,7 @@ export class ArrowLabelEditor {
       pointerEvents: 'auto',
       font: '14px system-ui, sans-serif',
       padding: '2px 6px',
-      border: '1px solid #2196F3',
+      border: `1px solid ${this.color}`,
       borderRadius: '4px',
       background: '#ffffff',
       color: '#1a1a1a',

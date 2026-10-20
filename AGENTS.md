@@ -13,7 +13,7 @@ then open only the handbook pages relevant to the task.
    not edit code.
 6. Use `.agents/skills/fieldnotes-development/SKILL.md` (linked into `.claude/skills/`) when
    repository-local skills are supported; it routes to the concise-code, TypeScript, testing,
-   pointer-input, sync-security, visual-test, and browser-check skills.
+   pointer-input, sync-security, visual-test, browser-check, and copy skills.
 
 ## Non-negotiable invariants
 

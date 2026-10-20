@@ -1,0 +1,73 @@
+/* The `::board` figure (D1). The ruled gradient is the no-JS picture; the live board mounts over it. */
+.live-board {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 8px 0;
+}
+
+.live-board-frame {
+  position: relative;
+  height: 320px;
+  border: 1px solid var(--divider);
+  border-radius: 6px;
+  background: var(--board);
+  overflow: hidden;
+}
+
+.board-placeholder {
+  position: absolute;
+  inset: 0;
+  color: var(--graphite);
+  background-color: var(--board);
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 27px,
+    var(--rule) 27px,
+    var(--rule) 28px
+  );
+  background-position: 0 12px;
+}
+
+.board-placeholder svg {
+  width: 100%;
+  height: 100%;
+}
+
+[data-live-board-mount] {
+  position: absolute;
+  inset: 0;
+}
+
+.live-board-actions {
+  position: absolute;
+  right: 16px;
+  bottom: 14px;
+  display: flex;
+  gap: 8px;
+}
+
+.live-board-engage,
+.live-board-reset {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid #a9afa6;
+  border-radius: 4px;
+  background: var(--board);
+  color: var(--graphite);
+  font: 500 14px 'Public Sans', sans-serif;
+  cursor: pointer;
+}
+
+.live-board figcaption {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+@media (pointer: coarse) {
+  .live-board-engage,
+  .live-board-reset {
+    min-height: 44px;
+  }
+}

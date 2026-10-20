@@ -14,6 +14,12 @@ text from either is reproduced.
 `pr-review-toolkit` agents `type-design-analyzer` and `silent-failure-hunter` (Apache-2.0). No text is
 reproduced.
 
+## Same-author sources
+
+`fieldnotes-copy` and `.claude/agents/fieldnotes-copy-reviewer.md` port RollKeeper's
+`rollkeeper-copy` skill and `rollkeeper-copy-reviewer` agent (branch `feature/felt-and-brass`) —
+https://github.com/IrakliDevelop/RollKeeper — by the same author.
+
 ## MIT-licensed sources
 
 - Cursor plugins `cursor-team-kit/skills/deslop` — https://github.com/cursor/plugins — Copyright (c)

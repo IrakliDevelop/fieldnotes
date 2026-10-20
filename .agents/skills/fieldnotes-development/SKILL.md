@@ -21,6 +21,7 @@ Domain skills (load the ones matching the task):
 - `fieldnotes-sync-security`: sync, server, Redis, VTT sync subpaths, serialization, sanitization.
 - `fieldnotes-visual-tests`: anything under `packages/core/e2e`.
 - `fieldnotes-browser-check`: verifying render, input, export, demo, or example changes in a browser.
+- `fieldnotes-copy`: writing or reviewing website copy, README prose, or docs pages.
 
 ## Execute
 

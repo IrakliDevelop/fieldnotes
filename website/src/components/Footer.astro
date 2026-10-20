@@ -1,0 +1,91 @@
+---
+import { getInstallableVersions, PUBLIC_PACKAGES } from '../lib/versions';
+
+const versions = await getInstallableVersions();
+---
+
+<footer>
+  <div class="wrap">
+    <div class="about">
+      <span class="wordmark">Field Notes</span>
+      <a href="https://github.com/IrakliDevelop/fieldnotes/blob/master/LICENSE">MIT licence</a>
+      <a href="https://github.com/IrakliDevelop/fieldnotes">GitHub</a>
+    </div>
+    <table>
+      <caption>Packages</caption>
+      <tbody>
+        {
+          PUBLIC_PACKAGES.map((pkg) => (
+            <tr>
+              <td>
+                <a href={`https://www.npmjs.com/package/${pkg}`}>{pkg}</a>
+              </td>
+              <td>{versions[pkg].version}</td>
+            </tr>
+          ))
+        }
+      </tbody>
+    </table>
+  </div>
+</footer>
+
+<style>
+  footer {
+    border-top: 1px solid var(--divider);
+  }
+
+  .wrap {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+    gap: 32px;
+    padding-top: 40px;
+    padding-bottom: 48px;
+    font-size: 15px;
+  }
+
+  .about {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .wordmark {
+    font-family: 'Young Serif', serif;
+    font-size: 20px;
+  }
+
+  table {
+    grid-column: span 2;
+    border-collapse: collapse;
+    font-variant-numeric: tabular-nums;
+  }
+
+  caption {
+    padding-bottom: 8px;
+    color: var(--graphite-2);
+    text-align: left;
+  }
+
+  td {
+    padding: 4px 24px 4px 0;
+  }
+
+  td + td {
+    color: var(--graphite-2);
+  }
+
+  @media (max-width: 560px) {
+    table {
+      grid-column: auto;
+    }
+  }
+
+  @media (pointer: coarse) {
+    a {
+      display: inline-flex;
+      align-items: center;
+      min-height: 44px;
+    }
+  }
+</style>

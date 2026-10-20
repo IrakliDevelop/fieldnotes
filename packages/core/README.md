@@ -15,7 +15,7 @@ A lightweight, framework-agnostic infinite canvas SDK for the web — with first
 - **Canvas-routed HTML painters** — register a painter to draw `html` elements on the canvas (screen, minimap, and export) instead of the DOM, with typed element activation events
 - **Layers** — named layers with visibility, locking, and absolute ordering
 - **Select & multi-select** — click, drag box, move, resize (layer-aware)
-- **Undo / redo** — full history stack with configurable depth
+- **Undo / redo** — history of the last 100 steps
 - **State serialization** — export/import JSON snapshots with automatic migration
 - **Export** — PNG export with scale, padding, background, and element filter options
 - **Performance instrumentation** — `getRenderStats()` and `logPerformance()` for frame timing
@@ -420,7 +420,7 @@ pencil?.setOptions({ smoothing: 3 });
 
 ### Pressure-Sensitive Width
 
-When using a stylus (Apple Pencil, Surface Pen), stroke width varies based on pressure automatically. The `width` option sets the **maximum** width at full pressure. Mouse input uses a default pressure of 0.5 for consistent-width strokes.
+When using a stylus (Apple Pencil, Surface Pen), stroke width varies based on pressure automatically. Width scales from 0.4 × `width` at pressure 0 to 1.8 × `width` at full pressure. Input that reports pressure 0 (a mouse, or a device without pressure) is drawn at pressure 0.5, which is 1.1 × `width`.
 
 Stroke points include pressure data in the `StrokePoint` type:
 

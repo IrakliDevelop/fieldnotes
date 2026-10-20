@@ -1,3 +1,5 @@
+> User guide: https://iraklidevelop.github.io/fieldnotes/docs/using-react/
+
 # @fieldnotes/react
 
 **Version:** 0.12.0

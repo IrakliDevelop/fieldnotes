@@ -1,0 +1,43 @@
+---
+import { getFacts } from '../lib/facts';
+import { link } from '../utils/base';
+
+const { landing } = await getFacts();
+---
+
+<dl class="facts">
+  {
+    landing.map(({ term, detail, href }) => (
+      <div>
+        <dt>{term}</dt>
+        <dd>{href === undefined ? detail : <a href={link(href)}>{detail}</a>}</dd>
+      </div>
+    ))
+  }
+</dl>
+
+<style>
+  .facts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+    gap: 24px 32px;
+    margin: 0;
+    font-size: 15px;
+  }
+
+  div {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding-top: 16px;
+    border-top: 1px solid var(--divider);
+  }
+
+  dt {
+    color: var(--muted);
+  }
+
+  dd {
+    margin: 0;
+  }
+</style>

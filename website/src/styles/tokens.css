@@ -1,0 +1,16 @@
+:root {
+  --paper: #F3F4F1;
+  --board: #F9F9F6;
+  --rule: rgba(70,100,150,0.14);
+  --margin: rgba(184,50,42,0.45);
+  --graphite: #2A2D31;
+  --graphite-2: #4A4F56;
+  --muted: #5F656C;
+  --divider: #C9CDC6;
+  --divider-2: #D6D9D2;
+  --red: #B8322A;
+  --ballpoint: #2F55A4;
+  --note: #F2DE8A;
+  --code-bg: #E8EAE5;
+  --code-string: #3E6A4A;
+}

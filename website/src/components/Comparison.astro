@@ -1,0 +1,127 @@
+---
+import json from '../../content/comparison.json';
+import { OTHER_COLUMNS, parseComparison } from '../lib/comparison';
+import type { SourcedCell } from '../lib/comparison';
+import { link } from '../utils/base';
+
+const { columns, rows } = parseComparison(json);
+
+// Footnotes are numbered in row order, left to right.
+const notes: SourcedCell[] = [];
+const table = rows.map(({ label, cells }) => ({
+  label,
+  ours: cells['Field Notes'],
+  others: OTHER_COLUMNS.map((column) => {
+    const cell = cells[column];
+    if (cell === undefined) return undefined;
+    notes.push(cell);
+    return { text: cell.text, note: notes.length };
+  }),
+}));
+---
+
+<section class="wrap" aria-labelledby="compares">
+  <h2 id="compares">How it compares</h2>
+  <div class="scroll" tabindex="0">
+    <table>
+      <thead>
+        <tr>
+          <td></td>
+          {columns.map((column) => <th scope="col">{column}</th>)}
+        </tr>
+      </thead>
+      <tbody>
+        {
+          table.map(({ label, ours, others }) => (
+            <tr>
+              <th scope="row">{label}</th>
+              <td>
+                <a href={link(ours.href)}>{ours.text}</a>
+              </td>
+              {others.map((cell) =>
+                cell === undefined ? (
+                  <td>
+                    <span class="visually-hidden">No sourced claim</span>
+                  </td>
+                ) : (
+                  <td>
+                    {cell.text}
+                    <sup>
+                      <a href={`#src-${cell.note}`}>{cell.note}</a>
+                    </sup>
+                  </td>
+                ),
+              )}
+            </tr>
+          ))
+        }
+      </tbody>
+    </table>
+  </div>
+  <ol class="sources">
+    {
+      notes.map(({ source, checkedOn }, index) => (
+        <li id={`src-${index + 1}`}>
+          <a href={source}>{source}</a>, checked on {checkedOn}
+        </li>
+      ))
+    }
+  </ol>
+</section>
+
+<style>
+  /* Positioned so the absolutely placed hidden text stays inside the scroll box. */
+  .scroll {
+    position: relative;
+    margin-top: 24px;
+    overflow-x: auto;
+  }
+
+  table {
+    width: 100%;
+    min-width: 760px;
+    border-collapse: collapse;
+    font-size: 15px;
+  }
+
+  th,
+  td {
+    padding: 12px 24px 12px 0;
+    border-bottom: 1px solid var(--divider-2);
+    text-align: left;
+    vertical-align: top;
+  }
+
+  th {
+    font-weight: 600;
+  }
+
+  thead th {
+    border-bottom-color: var(--divider);
+  }
+
+  tbody th {
+    width: 18%;
+  }
+
+  sup {
+    line-height: 0;
+  }
+
+  .sources {
+    margin: 24px 0 0;
+    padding-left: 24px;
+    color: var(--graphite-2);
+    font-size: 14px;
+    overflow-wrap: anywhere;
+  }
+
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+</style>

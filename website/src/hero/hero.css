@@ -1,0 +1,9 @@
+/* A stacking context, so core's DOM layer stays under the hero controls. */
+[data-hero-board] {
+  isolation: isolate;
+}
+
+/* Core gives notes a shadow; the site keeps shadows off the page. */
+[data-hero-board] [data-element-id] {
+  box-shadow: none !important;
+}

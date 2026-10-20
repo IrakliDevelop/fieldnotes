@@ -1,0 +1,3221 @@
+# Changelog
+
+All notable changes to Field Notes are documented in this file.
+
+Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer to `@fieldnotes/core` unless noted.
+
+## [Unreleased]
+
+### Core 0.95.0 — embedded boards (A11)
+
+**Added**
+
+- `ViewportOptions.embedded` (default `false`, read at construction): a board inside a scrolling
+  page. A plain wheel is left to the page, and Ctrl/⌘+wheel zooms at the cursor. Touch is ignored
+  until the host engages the board, so a one-finger swipe scrolls the page, and the wrapper uses
+  `touch-action: manipulation` and `overscroll-behavior: auto`. Mouse and pen are never gated.
+  While engaged the board behaves as before. Ignored touch includes the double-tap that opens
+  the note or text editor and the long-press context menu.
+- `Viewport.setEmbeddedEngaged(engaged)`, `isEmbeddedEngaged()` and
+  `onEmbeddedEngagedChange(listener)`. A board that is not embedded reports `true`, ignores the
+  setter and never emits. Disengaging cancels touch gestures in progress without an undo step and
+  keeps the selection. While engaged, Escape anywhere in the document disengages, unless focus is
+  in a text field or an editable area, or the Escape was already handled (an open context menu
+  takes it first).
+- `Viewport.onWheelPassThrough(listener)`: fires for every plain wheel an embedded board leaves to
+  the page, for a "Hold Ctrl to zoom" hint. Core does not throttle it.
+- `addHtmlElement` option `interactive` (persisted and synced).
+- `data-fn-control` marks any element as a control of a live element, and `data-fn-drag` marks
+  an area as draggable even inside a control. The nearest one wins. The built-in controls are
+  `a[href]`, `button`, `input`, `select`, `textarea`, `label`, `summary`, editable content,
+  `audio[controls]`, `video[controls]` and `iframe`.
+
+**Changed**
+
+- `HtmlElement.interactive` now makes an element live. Before, a press anywhere on it selected or
+  dragged the element and captured the pointer, so clicks on its controls never fired; the 0.13
+  wording that it "blocks canvas pan/select" was wrong. Now a press on a control goes to the
+  control: no tool, selection, capture, pan or undo step, under every tool and pointer type (a
+  second finger next to a touch on a control still pans and pinches). A press on the rest selects
+  and moves the element like a note. Native text selection and drag do not start from there.
+  Controls keep working on a locked layer.
+- Hosts must give live elements padding or a `data-fn-drag` area, because an element made only of
+  controls cannot be selected or moved. A selected element's resize and rotate handles win over
+  controls. Double-click no longer enters interact mode for a live element.
+- While a live control has focus, board shortcuts do not fire. That includes Escape (deselect),
+  Delete and undo.
+- The wrapper's scroll offsets are reset to 0 on embedded boards and on boards with live
+  elements, so focusing a control near an edge cannot misalign the DOM layer.
+- The context menu calls `preventDefault` on the Escape that closes it.
+
+**Security**
+
+- `interactive` is synced, so a remote editor can make host-rendered `htmlType` content live for
+  every viewer. Sanitize URLs and markup that a renderer builds from `data`.
+
+**Not gated**
+
+Disengaged touch is still seen by `setActivation` / `ElementActivation` (a tap can fire it), the
+minimap, and host-created `PingInput` and `CameraAnimator`.
+
+**Known limits**
+
+- The guard that stops a disengaged Apple Pencil or Android stylus from scrolling the page has unit
+  tests only. It has not been checked on a device.
+- Wheel and gesture behaviour in WebKit/Safari has not been run in a browser.
+
+### Core 0.94.0 — live stroke preview (F8)
+
+**Added**
+
+- `PencilTool.onPreview(listener)`: while a pencil or highlighter stroke is drawn, emits a preview
+  at most every 50 ms with the last 120 points (rounded to 0.1 world units), color, width, opacity
+  and blend mode, keyed by the id the committed stroke will have. A cancelled stroke emits
+  `{ id, cleared: true }`.
+- `RemoteStrokeOverlay` draws remote previews on the overlay stratum. A preview stays until the
+  stroke with its id is added to the store, the sender clears it, 3 s pass without an update
+  (`staleMs`), or `remove(sender)` runs. Also `toStrokePreviewPresence`,
+  `isStrokePreviewPresence`, `STROKE_PREVIEW_PRESENCE_KIND` and the `StrokePreview`,
+  `StrokePreviewPresence`, `RemoteStrokeOverlayHost` and `RemoteStrokeOverlayOptions` types.
+
+**Changed**
+
+- `PencilTool` picks the stroke's element id at pointer-down instead of at commit.
+
+Previews travel as presence, which the hub does not filter by audience. Do not forward previews
+for strokes drawn on audience-restricted layers.
+
+### Sync 0.29.0 — op batching and client hygiene (F8)
+
+**Added**
+
+- `SyncClientOptions.flushIntervalMs` (default 50) and `SyncClient.flush()`. Set `0` to send every
+  op synchronously, as before (useful in tests).
+- `batch` op kind (1 to `SYNC_LIMITS.maxBatchOps` = 1000 upserts and versioned removes, in order)
+  and the `opBatching` capability. `BatchOp` type.
+- `unsupported` op kind: a hub may explain why it refuses a protocol version before closing with
+  `4406`. `ManagedSyncConnection.getUnsupportedReason()` returns its reason.
+- `SyncLimitError` (`elementId`, `limit`).
+- `SyncClientOptions.tombstoneRetentionMs` (default 7 days; must be positive and finite).
+- Optional `SyncTransport.onClose(handler)`. `WebSocketTransport` implements it.
+- `AUTHORITY_ELEMENT_LIMITS`: per-field caps for authority element upserts (ids and short strings
+  256, text 1 MiB, `src` 16 MiB, 100,000 stroke points).
+
+**Changed**
+
+- `SyncClient` queues local element ops and sends them at most 20 times per second. Each upsert
+  sends the element's latest state when the queue is sent, so a drag sends one op per element per
+  flush. An element deleted before the flush (for example by a remote remove) is not sent. Element
+  frames, including snapshot re-pushes, now wait up to `flushIntervalMs`. The queue is sent first
+  before clears, snapshots, snapshot requests, layer and extension ops, and `stop()`.
+- Queueing or dropping an element op takes constant time, so a large-selection drag stays linear
+  in the selection size.
+- The audience of a queued element is resolved when the queue is sent, not when it was changed.
+- Through a hub that advertises `opBatching`, a flush goes as `batch` frames, split to stay within
+  the frame byte and depth limits; an op too large for a batch goes alone. Peer to peer and with
+  0.28 hubs each op is its own frame. Batching stops when the transport reports a close and resumes
+  after the next hub handshake. Custom transports should implement `onClose` so batching stops
+  while disconnected.
+- An element op over a `SYNC_LIMITS` cap is not sent; `SyncClient` reports a `SyncLimitError`
+  through `globalThis.reportError` when available. The local store keeps the element.
+- `SyncClient` and managed connections stop on an `unsupported` reply from the hub; the managed
+  status becomes `'unsupported'`.
+- Client tombstones older than `tombstoneRetentionMs` are pruned when a snapshot is built or
+  received. Ids known to the hub are forgotten on remove and clear.
+- `parseAuthorityClientFrame` rejects proposals whose element upsert is over
+  `AUTHORITY_ELEMENT_LIMITS`, so the managed authority client refuses them (`'invalid'`) before
+  sending and the server rejects them. `changes` frames and checkpoints are not capped.
+
+**Compatibility**
+
+0.29 and 0.28 clients and hubs interoperate in either direction. Against a 0.28 hub a 0.29 client
+sends individual ops, up to 20 flushes per second, so a drag of many elements can still exceed the
+0.28 hub's message rate limit.
+
+### Sync server 0.29.0 — batched element ops (F8)
+
+**Added**
+
+- `opsPerSecond` (default 2,000) and `opBurst` (default 4,000) on `createSyncServer` and `SyncHub`:
+  a per-connection budget that counts every element op, single or inside a batch. Going over it
+  closes the connection with `4408`.
+- `SyncHub` option `maxMessageBytes` (default 1 MiB); `createSyncServer` passes its own. The hub
+  advertises `opBatching` only when `maxMessageBytes` ≥ 1 MiB, `maxJsonDepth` ≥ 32 and
+  `opBurst` ≥ 1,000; a lower limit makes clients send single ops.
+
+**Changed**
+
+- The hub advertises `opBatching` and accepts `batch` frames. It processes each op in order
+  through the same pipeline as a single op; a rejected op gets its own correction and does not
+  affect the others. Recipients that advertised `opBatching` get the accepted ops as one `batch`,
+  filtered for what they may read; others get individual ops. Fanout to other instances stays one
+  payload per op, so 0.28 instances on the same Redis keep working.
+- A batch counts as one message for `messagesPerSecond` and runs under one frame-policy deadline.
+- Before the `4406` close for a protocol below 2, the hub sends an `unsupported` reply. With a
+  frame policy it waits up to 1 s for that send.
+- Authority proposals with element upserts over `AUTHORITY_ELEMENT_LIMITS` are rejected.
+- Depends on `@fieldnotes/sync` 0.29.0.
+
+**Migration guide**
+
+At 20 flushes per second, a drag of more than about 100 elements exceeds the default op budget;
+raise `opsPerSecond` and `opBurst` if your boards need that.
+
+### Sync Redis 0.14.1
+
+**Changed**
+
+- Republished against `@fieldnotes/sync` 0.29. Peer floor `@fieldnotes/sync-server` raised to
+  `>=0.29.0`.
+
+### Core 0.93.0 — element versioning and fractional order (F1)
+
+**Added**
+
+- `generateKeyBetween(a, b)`, `generateNKeysBetween(a, b, n)` and `isValidIndexKey(key)`: base-62
+  fractional order keys.
+- `pickBaseFields(element)` copies every `BaseElement` field, so adapters stop listing them.
+- `assignLegacyOrder(elements)` gives pre-0.93 elements `index` keys in (`zIndex`, input position)
+  order and `version: 1`, and drops `zIndex`. Elements that already have a valid `index` pass
+  through.
+
+**Changed (breaking)**
+
+- `BaseElement.zIndex` is removed. Elements gain `index: string` (fractional order key),
+  `version: number` and `editor?: string`. Elements stack by layer, then `index`, then `id`.
+- Factories take `index?: string` instead of `zIndex`. The default `''` places the element on top of
+  its layer when it is added; `''` is never stored or saved. `version` defaults to 1.
+- `bringToFront`, `sendToBack`, `bringForward` and `sendBackward` keep their names and now write
+  one element's `index`.
+- Local updates, including undo and redo, set `version` to the current version + 1 and drop
+  `editor`. Remote updates that carry a `version` take `version` and `editor` as sent.
+- Saved state is version 5. Version 1–4 files load automatically with the stacking order they had.
+  Version 5 files need core 0.93 or later.
+- Pasted and duplicated elements get a fresh `index` and `version: 1`; eraser fragments keep their
+  parent's `index`.
+
+**Migration guide**
+
+1. Replace `zIndex` in element literals and factory calls with `index`. Pass `index: ''` (or omit
+   it) to place an element on top, or `generateKeyBetween(below, above)` for a specific slot.
+2. Sort with layer order, then `a.index < b.index`, then `id`, instead of comparing `zIndex`.
+3. In custom adapters (`wrap`, `unwrap`, `decodeLegacy`), copy base fields with
+   `...pickBaseFields(el)` so `index`, `version` and `editor` survive.
+4. Do not write `version` or `editor` from tools; the store sets them.
+5. Elements from elsewhere that still carry `zIndex` (old exports, authority documents): run
+   `assignLegacyOrder` over the whole set before loading it into a store.
+
+### Sync 0.28.0 — legacy protocol 2 (F1)
+
+**Added**
+
+- `isNewerVersion(a, b)`: higher `version` wins; on a tie, the `editor` that sorts later.
+- `parseLegacyEnvelope(message)`: `parseEnvelope` plus the protocol 2 element checks.
+  `parseEnvelope` and `isValidEnvelope` are unchanged.
+- `Tombstone` type `{ id, version, editor }`.
+- `ManagedSyncStatus` `'unsupported'`.
+
+**Changed (breaking)**
+
+- Legacy capabilities advertise `protocolVersion: 2`. Elements carry `index` and `version`;
+  `remove` carries `version` and `editor`; `clear` and `snapshot` may carry tombstones. Authority
+  capabilities stay at `protocolVersion: 1`.
+- `SyncClient` applies an incoming upsert or remove only when it is newer than the local element
+  or tombstone, both through a hub and peer to peer. It keeps tombstones from removes, clears and
+  snapshots, so a late upsert no longer resurrects a deleted element. Peer snapshots include
+  tombstones.
+- On reconnect, a newer snapshot element replaces the local copy, a newer local element is pushed,
+  and a newer tombstone removes the local copy. A local delete newer than a snapshot element is
+  sent again, so a remove lost with the old connection still reaches the room. Equal versions take
+  the room's copy, except for elements edited during the resync.
+- An incoming `clear` removes only elements not newer than its tombstones; a clear without
+  tombstones removes nothing.
+- When a hub or peer advertises `protocolVersion` below 2, `SyncClient` stops and closes its
+  transport. A managed connection treats that, or a `4406` close, as terminal: status
+  `'unsupported'`, no reconnect.
+- `isValidElement` accepts both the protocol 2 shape and the stored pre-0.28 shape (`zIndex`, no
+  `index`), so stored authority state still validates.
+- Peer floor `@fieldnotes/core` raised to `>=0.93.0` (sync now imports core at runtime).
+
+**Migration guide**
+
+Protocol 1 and 2 peers cannot share a room. Upgrade every client and hub of a room together,
+including authority rooms (pre-0.28 authority peers reject protocol 2 elements). Show users a
+"please reload" message on `'unsupported'`. A pre-0.28 client's buffered frames that reach a 0.28
+hub before its protocol 1 `capabilities` are processed before the `4406` close; a buffered
+`clear` is identical in both protocols and runs.
+
+### Sync server 0.28.0 — versioned hub (F1)
+
+**Added**
+
+- `HubRecord`, `StoredTombstone` and `ElementWrite` types.
+- `tombstoneRetentionMs` on `createSyncServer` (default 7 days) for the default
+  `MemoryHubBackend`; passing it together with `backend` throws. `MemoryHubBackend` takes the same
+  option. Non-positive or non-finite values throw a `RangeError`.
+
+**Changed (breaking)**
+
+- `HubBackend` replaces `get` and `apply` with `getRecord(room, id)` (element, tombstone or
+  `undefined`) and `applyElement(room, write, expected)`, an atomic compare-and-set on the stored
+  record's `{ version, editor }` that returns `{ ok: true }` or `{ ok: false, current }`.
+  `snapshot(room)` returns `{ elements, tombstones }`.
+- Connections that send `capabilities` with `protocolVersion` below 2 are closed with `4406`.
+  Frames sent before `capabilities` are validated as protocol 2. Authority connections are
+  unaffected.
+- Element ops are now written, then published, then delivered (previously published, then
+  applied). A conflicting concurrent write restarts the op from the read, up to 3 attempts, so a
+  server plugin's `process` may run up to 3 times for one op; keep side effects in `broadcast` and
+  `corrections`. If publishing fails after the write, the op is still delivered locally and
+  `handleMessage` rejects.
+- Stale ops, and versions more than 1,000,000 above the stored one, get a correction sent to the
+  sender only.
+- Removes and clears leave tombstones that keep the element's owner, audience and remover on the
+  server. When `authorize` is configured, only the owner or the remover may re-create a tombstoned
+  id (so the remover can undo); without `authorize`, ownership is not enforced.
+- `clear` tombstones every element at its version + 1; each recipient gets only the tombstones it
+  may read. Snapshots carry the tombstones the viewer may read.
+- Client element ops claiming `editor: 'hub'`, and clears sent as `from: 'hub'`, are dropped.
+- Hub-authored removes (hide on audience change, corrections) carry `editor: 'hub'` and a version.
+- Peer floor `@fieldnotes/core` raised to `>=0.93.0`; depends on `@fieldnotes/sync` 0.28.0.
+
+**Migration guide**
+
+Custom `HubBackend` implementations must implement `getRecord`, `applyElement` and the new
+`snapshot` shape, write atomically only when the stored record's version and editor equal
+`expected` (absent editor equals absent; `null`: no record may exist; a clear's `expected` map
+holds `{ version, editor }` per element), store tombstones, and drop expired ones when building a
+snapshot. Server plugins must tolerate `process` running more than once per op.
+
+### Sync Redis 0.14.0 — versioned Redis backend (F1)
+
+**Added**
+
+- `RedisHubBackend` `tombstoneRetentionMs` option (default 7 days).
+
+**Changed (breaking)**
+
+- Element writes, removes and clears run as one Lua compare-and-set over the room hash and a new
+  `{keyPrefix}{room}:tombstones` hash. It compares both version and editor, so two relay instances
+  on one Redis never overwrite a newer element, including equal-version writes from different
+  editors. The snapshot reads both hashes atomically. `ttlSeconds` also refreshes the tombstone
+  hash. The plugin key prefix `tombstones` is reserved.
+- Implements the new `HubBackend` contract (`getRecord`, `applyElement`, `snapshot` with
+  tombstones); `get` and `apply` are removed.
+- Peer floors: `@fieldnotes/core` `>=0.93.0`, new peer `@fieldnotes/sync-server` `>=0.28.0`.
+
+**Migration guide**
+
+Rooms written before 0.14 migrate on first access in each process: elements without `index` get
+keys in `HGETALL` order, the order joining clients saw. No manual step is needed. `HGETALL` returns
+insertion order only for small (listpack-encoded) hashes.
+
+### VTT 0.16.0
+
+**Changed (breaking)**
+
+- Element factories take `index` instead of `zIndex`; adapters copy `index`, `version` and
+  `editor` through `pickBaseFields`.
+- Version 4 boards with VTT legacy types load in their original stacking order.
+- Peer floors: `@fieldnotes/core` `>=0.93.0`, `@fieldnotes/sync` `>=0.28.0`,
+  `@fieldnotes/sync-server` `>=0.28.0`, `@fieldnotes/sync-redis` `>=0.14.0`.
+
+### Core 0.92.0 — html widgets for remote peers (TD-16)
+
+**Changed**
+
+- An `html` element added without DOM content now gets it from the renderer registered for its
+  `htmlType` (`registerHtmlRenderer`) on each individual store add, such as a remote peer's add or
+  an undone delete, not only in `loadState`. Elements added inside a
+  `viewport.suspendNotifications()` batch are not rebuilt and show the placeholder. Elements added
+  with `addHtmlElement` keep their supplied content and do not call the renderer.
+- Registered renderers now run on data received from remote peers at add time; treat `el.data` as
+  untrusted (validate, use `textContent`).
+- An `html` element with no content and no renderer shows a labelled placeholder
+  (`<htmlType> widget`, or `HTML widget`) instead of an empty box. Hosts that pass
+  `onHtmlElementMount` own their nodes and get no placeholder. Undoing the delete of a host widget
+  without a renderer now shows the placeholder.
+- A renderer that throws on this path is reported with `reportError` and leaves the placeholder;
+  it no longer reaches the code that added the element (for example `SyncClient`).
+- An element the user is interacting with keeps pointer events while its data is updated, so
+  repeated edits inside a widget no longer drop out of interact mode.
+- An `htmlType` with both a canvas painter and a renderer builds its (detached) DOM on add, as
+  `loadState` already did.
+
+### VTT 0.15.1
+
+**Fixed**
+
+- `createFogClientPlugin` includes fog that existed before the plugin was created in its first
+  snapshot, so a peer joining a room receives the board's existing fog definition and tiles.
+
+### Sync 0.27.0 — sync hygiene (F8, first slice)
+
+**Added**
+
+- `SYNC_LIMITS`: one table of wire caps (frame bytes and depth, presence bytes, identifier and
+  short-string lengths, text and image `src` lengths, stroke points, snapshot sizes).
+- `isWithinSyncLimits(envelope)` and `hasJsonDepthAtMost(message, depth)` (moved from the server).
+
+**Changed**
+
+- `parseEnvelope` rejects JSON nested deeper than 64 and envelopes over any `SYNC_LIMITS` cap, so
+  `SyncClient` and `ManagedConnection` drop such frames, including BroadcastChannel peers that have
+  no server in between. `isValidElement` and `isValidEnvelope` are unchanged, so `authority:1`
+  validation is unaffected.
+
+### Sync server 0.27.0
+
+**Added**
+
+- `roomIdleTimeoutMs` (opt-in): once a room has had no local connection for this long, the hub
+  drops its in-memory layer ledger and calls the new optional `HubBackend.evictRoom` and
+  `ServerSyncPlugin.evictRoom`. `MemoryHubBackend` forgets the room's elements and layers.
+  Reconnecting before the timeout cancels it. `authority:1` rooms are never evicted. Values above
+  2 147 483 647 ms throw.
+
+**Changed**
+
+- Default `maxMessageBytes`, `maxJsonDepth` and `maxPresenceBytes` come from `SYNC_LIMITS` (same
+  values). Fanout envelopes from sibling instances must also pass `isWithinSyncLimits`.
+
+### Sync Redis 0.13.0
+
+**Added**
+
+- `RedisHubBackend` `ttlSeconds` (opt-in): every element or layer write, every snapshot, and every
+  plugin write that calls the new `BackendPluginContext.touchRoom` refreshes `EXPIRE` on the room's
+  element hash, layer hash and plugin-declared keys (new optional `BackendSyncPlugin.roomKeys`).
+  Requires the new optional `RedisHashClient.expire`. Expiry refresh is best-effort: a failed
+  `EXPIRE` never fails a persisted write.
+- CI runs the real-Redis suites (and the fog Lua) against a `redis:7` service.
+
+### VTT 0.15.0
+
+**Changed**
+
+- The fog Redis plugin declares its `fog:meta` and `fog:tiles` keys and refreshes the room TTL
+  after each fog write; the fog server plugin forgets its in-memory ledger on `evictRoom`.
+- Peer floor `@fieldnotes/sync-redis` raised to `>=0.13.0` (the fog Redis backend calls
+  `touchRoom`).
+
+### VTT 0.13.1
+
+**Fixed**
+
+- Rebuild VTT during packing so published archives contain the current authority fog client,
+  server, and Redis entry points instead of stale generated output.
+
+### Sync 0.26.0
+
+**Added**
+
+- Managed authority extensions can explicitly own the legacy `fog-meta` and `fog-patch` kinds with
+  exact duplicate-free capability negotiation and fail-closed client reduction.
+
+### Sync server 0.26.0
+
+**Added**
+
+- Authority admission, intent preparation, and projection support explicit legacy fog-kind owners;
+  an aggregate real-socket compatibility test covers core, layer, and VTT fog convergence.
+
+### VTT 0.13.0
+
+**Added**
+
+- Opt-in managed-authority fog client/server factories, immutable bounded transition helpers, and a
+  composable Redis Lua planner/apply library for application-owned guarded transactions.
+
+### Sync 0.25.0
+
+**Added**
+
+- Public managed authority client, immutable canonical documents, typed extension reducers,
+  explicit exact-wire retry/discard, receipt barriers, coherent checkpoints, and the default
+  browser WebSocket transport. Receipts prove durable commit only; they do not prove application
+  or application-level saving.
+
+### Sync server 0.25.1
+
+**Added**
+
+- Real-socket managed-client coverage and an isolated synthetic browser acceptance fixture using
+  the public manager and real authoritative server.
+
+### Sync server 0.25.0
+
+**Added**
+
+- Explicit factory-only `authority:1` rooms commit through an application-provided atomic driver, publish durable receipts, project per-viewer ordered changes, and stream complete paced checkpoints with catch-up. Legacy rooms remain on their existing path.
+- Exported driver, identity, extension, evidence, and room-definition contracts. A loopback synthetic browser fixture exercises the runtime without providing a production driver or managed client.
+
+### Sync 0.24.0
+
+**Added**
+
+- `createAuthorityOperationId` generates timestamp-profile IDs for recoverable authoritative proposals. Existing C1 codecs remain compatible with their prior lexical ID grammar.
+
+### Sync server 0.24.0
+
+**Added**
+
+- `prepareAuthorityProposal` validates and freezes an admitted actor's original authority
+  proposal, with a reconnect-stable canonical SHA-256 digest and a fixed preparation deadline.
+  The helper does not authorize, commit, deduplicate, or enable authoritative rooms.
+
+### Sync server 0.23.1
+
+**Fixed**
+
+- Rebuild the server and its workspace dependencies before packing so the archive contains the
+  `sendAsync` runtime and declarations missing from the immutable 0.23.0 package.
+
+### Sync server 0.23.0
+
+**Added**
+
+- Guarded connections expose optional `sendAsync`, which awaits the local WebSocket write
+  callback with the existing frame policy, FIFO, budgets, and deadline. Legacy sends and wire
+  behavior remain unchanged.
+
+### Sync 0.23.0
+
+**Added**
+
+- Bounded browser-safe authority checkpoint preparation and complete assembly with SHA-256,
+  exact trusted extension inventory, and a fixed receive deadline. These APIs remain unused by
+  live connections.
+
+### Sync 0.22.0
+
+**Added**
+
+- Browser-safe authority wire types, bounded strict codecs, projection cursor classification, and
+  explicit authority capability helpers. These primitives do not activate authoritative sync.
+
+### Sync server 0.22.0
+
+**Added**
+
+- Optional `framePolicy` authorizes each admitted inbound and outbound application frame with
+  frozen server-owned identity. Opted-in sockets use bounded per-connection and per-room queues,
+  five-second frame deadlines, and cooperative cancellation. The wire protocol is unchanged.
+
+### Sync server 0.21.0
+
+**Added**
+
+- Authenticated sockets can carry immutable, server-only JSON claims and an absolute expiry.
+  The reference WebSocket server closes idle expired sockets and rejects traffic observed at
+  or after the deadline.
+
+## [0.91.0] — 2026-10-18
+
+### Core 0.91.0 — interactive surface (F4), render slots (F5), renderMode 'dom' (C20)
+
+**Added**
+
+- Live elements: an element updated again within 250 ms on a layer at full opacity is drawn
+  directly each frame instead of re-rasterising its whole layer on every update. The layer cache
+  splits into the parts below and above the live elements, so paint order is unchanged. Drags,
+  remote moves and animations on large layers no longer re-rasterise the layer per pointer move.
+  The element returns to the cache after 250 ms idle. No API.
+- Overlay-only frames: `Viewport.requestOverlayRender()` and `ToolContext.requestOverlayRender()`
+  repaint only the overlay stratum (tool overlay, registered overlays, `overlay` hooks). Built-in
+  tool previews, hover, marquee, laser and ping use it, and so do the presence overlays when their
+  host provides it (new optional `requestOverlayRender` on `RemoteCursorOverlayHost`,
+  `RemoteSelectionOverlayHost`, `LingerOverlayHost`, `RemoteLaserOverlayHost`,
+  `RemotePingOverlayHost`).
+- `ViewportRenderHooks.overlay(ctx, camera, dimensions)`: draws on the overlay stratum in world
+  space, before the active tool's overlay.
+- `ViewportRenderHooks.afterLayer(ctx, camera, dimensions, layerId)`: draws on the base canvas after
+  each visible layer, in layer order, including empty layers. Viewport only; elements painted on
+  hybrid strata stay above it.
+
+**Changed**
+
+- Overlays always draw on their own stratum above DOM content. Before, they drew on the base canvas
+  below DOM notes unless a hybrid or `afterElements` stratum existed, so selection handles of a DOM
+  note could be hidden under it.
+- `Viewport.registerOverlay(draw)` registers an `overlay` hook. Errors stay isolated per frame and
+  never quarantine it.
+- **Breaking for code that builds a `ToolContext` by hand** (usually test doubles):
+  `requestOverlayRender` is a required member.
+- **Breaking:** `ElementTypeDefinition.renderMode: 'dom'` now throws in
+  `ElementRegistry.register`. Such elements were never drawn. Extension elements are never DOM
+  elements; `'hybrid'` and `'none'` draw like `'canvas'`.
+- The base layer pass follows `layerManager.getLayers()` order; elements whose layer id is unknown
+  draw first, where the store sorts them.
+
+### VTT 0.14.0
+
+**Added**
+
+- `RemoteMeasureOverlayHost` and `RemotePathOverlayHost` accept an optional
+  `requestOverlayRender`, so shared rulers and movement paths repaint only the overlay.
+
+## [0.90.0] — 2026-10-18
+
+### Core 0.90.0 — extension API completion, first slice (F5)
+
+**Added**
+
+- Fail-closed render hooks (ADR-0002). A hook that throws is quarantined: reported once through
+  `reportError` (falling back to `console.error`) and not called again until it is disposed and
+  registered anew; the rest of the frame keeps drawing. `TypedHookRegistry` gains `call`,
+  `setRequiredCapabilities`, `getMissingCapabilities` and `isFailClosed`.
+- Required capabilities are enforced at render time on every surface: when a required capability
+  has no enabled, healthy satisfier, or a hook that is `required` or satisfies a required
+  capability has thrown, the viewport draws an opaque mask above all content strata, the minimap
+  draws blank, and exports throw `Required render capabilities are missing on <surface>: ...`.
+- `exportImage` / `exportSvg` accept `requiredCapabilities`, enforced even for an empty store.
+  Viewport exports inherit the viewport's requirement.
+- Per-type data versioning (ADR-0001): `ElementTypeDefinition.dataVersion` and
+  `migrate(data, fromVersion)`, with `ExtensionElementEnvelope.dataVersion` (absent means 1).
+  Migration runs once when loading through `parseState`, `loadJSON`, `loadState` and
+  `AutoSave.load`; saved state is stamped with the current version. Sync paths do not migrate.
+- `ElementTypeDefinition.cloneRemap(el, idMap)` rewrites ids inside extension data on paste and
+  duplicate.
+- `ExtensionElementEnvelope.size`: an extension element with a `size` gets the core corner resize
+  handles; adapter handles are drawn on top and keep hit-test priority.
+- `ElementRegistry.has(type)`, `new ElementRegistry(parent?)` and the read-only
+  `ElementStore.elementRegistry`. `getElementsBoundingBox(elements, registry?)` takes an optional
+  registry like `getElementBounds`.
+- `parseState` warns once per unknown extension type (elements are kept); registering a type that
+  shadows a parent registry's type warns.
+- `docs/EXTENDING.md`: element types, registries, data versioning, plugins, render hooks and
+  capabilities, services, actions and tools.
+
+**Changed**
+
+- Each `Viewport` without an `elementRegistry` option now owns a registry layered over
+  `getDefaultElementRegistry()`. Types registered globally (for example
+  `registerVttElementTypes()`) stay visible; types registered by plugins are per viewport, so two
+  viewports can install the same element-type plugin and destroying one no longer unregisters the
+  type for the other. Code that calls `parseState`, `AutoSave` or the standalone exports for
+  plugin-registered types must pass `viewport.elementRegistry`.
+- A render hook whose `enabled` predicate returns false no longer satisfies a required capability
+  at render time (construction-time validation is unchanged). A host that requires `vtt:fog` sees
+  the mask while fog is off or has no state.
+- Culling, the minimap, hover, snapping, selection bounds, paste centering, `fitToContent` and
+  element rects use the viewport's registry instead of the global default.
+- Adding an extension element to a store stamps the type's current `dataVersion` when the element
+  has none, so saved and synced data always carries its version. `AutoSave` defaults to the
+  store's registry. Paste and duplicate build every clone (including `cloneRemap`) before adding
+  any, so a throwing remap leaves the board unchanged.
+- `parseState` now rejects an extension element whose top-level `size` is not a size or whose
+  `dataVersion` is not a positive integer.
+
+**Removed**
+
+- `TypedHookRegistry.iterateRequired()` (unused).
+
+### Sync 0.26.1
+
+**Fixed**
+
+- `SyncClient` without `elementRegistry` keeps the store's registry instead of replacing it with
+  the global default, which dropped a viewport's plugin-registered element types.
+- Wire validation checks an extension element's optional `dataVersion` (positive integer) and
+  `size`.
+
+### Sync server 0.26.1
+
+**Fixed**
+
+- Depends on `@fieldnotes/sync` 0.26.1, so the hub rejects extension elements with a malformed
+  `dataVersion` or `size`.
+
+## [0.89.0] — 2026-10-18
+
+### Core 0.89.0 — default tool bundle (A5)
+
+**Added**
+
+- `createDefaultTools()` returns fresh hand, select, pencil, eraser, arrow, note, text and shape
+  tools. Image, laser and ping are not included; register them yourself.
+- `ViewportOptions.tools: 'default' | Tool[]` registers tools after plugins start (a same-named
+  tool replaces a plugin's) and activates `select` when nothing is active.
+- `viewport.onStateChange(listener)` fires after any change `exportState()` would reflect:
+  elements, camera, layers and plugin state. A throwing listener is reported via `reportError`
+  and does not stop the others.
+
+### `@fieldnotes/react` 0.14.0
+
+**Added**
+
+- `initialData` (a `CanvasState`, legacy state or JSON string) is loaded once at mount, before
+  `onReady`, without triggering `onChange`.
+- `onChange(state)` receives `viewport.exportState()` after changes, debounced by
+  `changeDebounceMs` (default 250); a pending call is flushed on unmount.
+- A bare `<FieldNotesCanvas />` is usable: when neither `tools` nor `options.tools` is given and no
+  tools are registered by the end of `onReady`, the default tool bundle is registered and `tool`,
+  `defaultTool` or `select` is activated. Hosts that register tools in `onReady` see no change. Pass
+  `tools="default"` to get the bundle at mount (for example to customise it in `onReady`), or
+  `tools={[]}` to never get it.
+
+**Changed**
+
+- Peer dependency `@fieldnotes/core >= 0.89.0`.
+
+### Docs
+
+- `pnpm docs:api` builds a TypeDoc API reference for all six packages into the website under
+  `/api/` (run `pnpm build` first); CI builds it on Node 22.
+
+## [0.88.1] — 2026-10-18
+
+### Core 0.88.1 — viewport decomposition (F9), render and sanitize perf
+
+**Fixed**
+
+- `destroy()` is idempotent: a second call is a no-op. Construction failures (a required plugin
+  failing in configure or start) and `destroy()` now share one teardown path, so a failed
+  construction releases the same listeners, DOM, caches and plugin state as `destroy()`.
+
+**Performance**
+
+- Each render frame makes one pass over the elements to find visibility and DOM routing,
+  cached until the store or a layer changes, and reads layer opacity from one per-frame map
+  instead of filtering, slicing and copying layers per element.
+- Note and text HTML that is already sanitized is not parsed again, so creating or loading a
+  note sanitizes its HTML once instead of twice.
+
+**Internal**
+
+- Plugin lifecycle moved from `Viewport` into an internal `PluginHost`; arrow auto-unbind is a
+  standalone helper; image and SVG export share one options builder. No public API change.
+- Benchmarks for a 10,000-element render frame and note creation; refreshed `bench-baseline.md`.
+
+## [0.88.0] — 2026-10-18
+
+### Core 0.88.0 — history unification (F3), lifecycle fixes, perf quick wins
+
+**Added**
+
+- `LayerManager.addLayerDirect`, `removeLayerDirect` and `updateLayerDirect` accept an optional
+  trailing `meta`; pass a remote origin from a sync `applyLayer` hook.
+
+**Fixed**
+
+- A host `viewport.transaction()` that wraps built-in operations (`addShape`, `addImage`,
+  `addHtmlElement`, `removeLayer`, style, group, align, distribute, rotate, lock, delete, z-order,
+  duplicate/paste, arrow labels) is now one undo step. Previously each inner operation committed
+  the open transaction, producing two or three steps. A keyboard nudge still pending its commit
+  is closed before these operations start, so it stays its own step.
+- Undoing an update followed by a removal of the same element in one transaction restores the
+  element as it was before the update.
+- Remote layer changes stay out of the local undo stack: changes whose `meta.origin` is not
+  local are not recorded.
+- `destroy()` releases layer caches, the paint stack and cached images (closing `ImageBitmap`s);
+  removed layers and layers dropped by `loadState` no longer keep their cache canvases.
+- Double-tap activation of html elements uses the rotation-aware hit test and skips hidden
+  layers; locked layers still activate, and html keeps priority over arrows and strokes.
+- AutoSave saves after a store `clear` and persists the real `activeLayerId`.
+- The canvas is sized from the container's `clientWidth`/`clientHeight`, matching the render
+  loop, so transformed or fractional containers no longer resize every tick.
+- Extension element handles receive the real `shiftKey` during hit testing.
+
+**Changed**
+
+- `[fieldnotes]` console warnings for a skipped duplicate plugin name, an optional plugin whose
+  configure or start failed, and plugin state dropped by `loadState`.
+- `viewport.transaction()` joins any open transaction, including a live tool gesture.
+- `LayerManager.on` listeners receive the event meta as a second argument.
+
+**Performance**
+
+- Quadtree removal and update are O(depth) via an id index; unchanged bounds skip the update.
+- Moving an element no longer re-sorts the element cache; only `zIndex` or `layerId` changes do.
+- Moving a stroke translates its cached bounds instead of recomputing them from points.
+- An image load notifies once and re-renders only the layers containing that image.
+
+## [0.87.1] — 2026-10-15
+
+### Core 0.87.1
+
+**Fixed**
+
+- A viewport whose container is 0 wide or 0 high (hidden, collapsed, or mid-layout) no longer
+  stops rendering permanently. The background skips drawing for a zero-size canvas instead of
+  passing a zero-size cache canvas to `drawImage` (which throws `InvalidStateError`), the main
+  canvas buffer is clamped to at least 1x1 device pixels, and the frame loop now reschedules the
+  next frame even when a render throws.
+- A render that throws (for example from a render hook, tool overlay, or extension) no longer
+  leaves the render loop's context saves open, so later frames do not draw with compounded
+  transforms.
+
+**Changed**
+
+- Render errors from the frame loop are now caught so the loop survives. The first failure of a
+  streak is passed to `reportError` (which dispatches a window `error` event, so host error
+  monitoring still sees it), falling back to `console.error` where `reportError` is unavailable.
+  Later failures are suppressed until a frame renders successfully. Previously the error escaped
+  the `requestAnimationFrame` callback uncaught on every throw and stopped the loop.
+
+## [0.87.0] — 2026-09-24
+
+### Core 0.87.0
+
+**Added**
+
+- `setActivation` accepts a per-element gesture resolver: `ActivationOptions.gesture` may now
+  be a function `(el) => 'single' | 'double' | null` in addition to a single `'single' |
+'double'` value for every element. A resolver returning `null` makes that element inert,
+  exactly like `isActivatable` returning `false`. This lets one activation slot mix
+  single-tap markers with double-tap tokens. `ElementActivationEvent.gesture` still reports
+  the gesture that fired. Exported type: `ActivationGesture`.
+
+## [0.86.0] — 2026-09-23
+
+### Core 0.86.0 — action registry (F2)
+
+**Added**
+
+- `viewport.actions` (`ActionsApi`) — register, inspect, run, and listen for named actions.
+- `PluginConfigureContext.registerAction(definition)` — plugins can add actions that appear
+  in the keyboard shortcut table and context menu.
+- Context menu now built from the action registry with `{ separator: true }` entries between
+  groups (`clipboard`, `arrange`, `transform`, `lock`, then plugin groups).
+- Exported types: `ActionDefinition`, `ActionContext`, `ActionInvocation`,
+  `ActionMenuPlacement`, `ActionSource`, `ActionsApi`.
+
+**Breaking changes (pre-1.0):**
+
+- `viewport.shortcuts.getBindings()` now returns canonical action ids as map keys immediately.
+  Compatibility aliases remain accepted only as inputs to `ViewportOptions.shortcuts.bindings`,
+  `rebind`/`disable`/`reset`, and action `get`/`run`/`isEnabled`; they do not preserve legacy
+  keys in returned maps. Migrate persisted binding maps and key comparisons now (for example,
+  `undo` becomes `edit.undo` and `tool:pencil` becomes `tool.pencil`).
+
+**Changed**
+
+- All action ids are now namespaced. The full legacy-to-canonical mapping:
+
+  | Legacy id                 | Canonical id             |
+  | ------------------------- | ------------------------ |
+  | `undo`                    | `edit.undo`              |
+  | `redo`                    | `edit.redo`              |
+  | `cut`                     | `edit.cut`               |
+  | `copy`                    | `edit.copy`              |
+  | `paste`                   | `edit.paste`             |
+  | `duplicate`               | `edit.duplicate`         |
+  | `delete`                  | `edit.delete`            |
+  | `select-all`              | `select.all`             |
+  | `deselect`                | `select.none`            |
+  | `cycle-selection`         | `select.cycle`           |
+  | `cycle-selection-reverse` | `select.cycle-reverse`   |
+  | `z-front`                 | `arrange.bring-to-front` |
+  | `z-forward`               | `arrange.bring-forward`  |
+  | `z-backward`              | `arrange.send-backward`  |
+  | `z-back`                  | `arrange.send-to-back`   |
+  | `group`                   | `arrange.group`          |
+  | `ungroup`                 | `arrange.ungroup`        |
+  | `toggle-lock`             | `arrange.toggle-lock`    |
+  | `rotate-cw`               | `arrange.rotate-cw`      |
+  | `rotate-ccw`              | `arrange.rotate-ccw`     |
+  | `nudge-left`              | `arrange.nudge-left`     |
+  | `nudge-right`             | `arrange.nudge-right`    |
+  | `nudge-up`                | `arrange.nudge-up`       |
+  | `nudge-down`              | `arrange.nudge-down`     |
+  | `zoom-in`                 | `view.zoom-in`           |
+  | `zoom-out`                | `view.zoom-out`          |
+  | `zoom-reset`              | `view.zoom-reset`        |
+  | `zoom-fit`                | `view.zoom-to-fit`       |
+  | `tool:<name>`             | `tool.<name>`            |
+
+- Plugin `enabled()` and function labels that throw are logged and treated as disabled / fall back to the id instead of breaking the context menu or keyboard dispatch.
+- `viewport.shortcuts.getBindings()` keys are now canonical ids.
+- `ShortcutOptions.bindings` keys should use canonical ids.
+- New definitions registered through `ActionsApi.register` or
+  `PluginConfigureContext.registerAction` must use canonical ids. Recognized legacy aliases are
+  rejected with their canonical replacement; this does not remove compatibility for legacy lookup
+  or input methods.
+- Paste behavior unchanged (system paste event drives it; `edit.paste` has no default shortcut).
+
+**Deprecated**
+
+- Legacy flat action ids (e.g. `'undo'`, `'tool:pencil'`). They still resolve through
+  `viewport.runAction`, `viewport.actions.run`, and `viewport.shortcuts.rebind/disable/reset`,
+  but will be removed in 0.88.0.
+
+## [0.85.0] — 2026-09-21
+
+### Core purity pass (F6)
+
+**Breaking changes (pre-1.0):**
+
+- Removed VTT-domain exports: `smartSnap`, `snapToHexCenter`, `snapToCellCenter`,
+  `snapFootprintCenter`, `footprintFromSize`, `Footprint`, `HexOrientation`,
+  `getHexDistance`, `getHexCellsInRadius`, `getHexCellsInCone`, `getHexCellsInLine`,
+  `getHexCellsInSquare`, `getHexCellsInRectangle`, `drawHexPath`, `pathDistanceCells`,
+  `gridDistanceCells`, `DiagonalRule`, `GridMetric`, `PathDistance`. These now live in
+  `@fieldnotes/vtt`.
+- Removed `PathTool`, `RemotePathOverlay`, `isPathPresence`, `toPathPresence`,
+  `PATH_PRESENCE_KIND`, `PATH_PRESENCE_MAX_POINTS`, `PathPresence`, `RemotePathOverlayHost`,
+  `RemotePathOverlayOptions` from core. Now exported by `@fieldnotes/vtt`.
+- Removed grid fields from `ToolContext`: `snapToGrid`, `gridSize`, `gridType`, `hexOrientation`.
+  All snapping is now constraint-service-only (`ctx.constraintService.constrainPoint`).
+- Removed `'path'` and `'template'` from the `ToolName` union. Use and register `PathTool` and
+  `TemplateTool` from `@fieldnotes/vtt` instead of treating those names as core built-ins.
+- Removed `tool:measure` (`m`) and `tool:template` (`g`) default shortcut bindings.
+- `LegacyCanvasState` is now exported; legacy top-level `fog` migration is delegated to
+  domain packages via `registerLegacyStateMigrator()`.
+
+**Migration guide for removed exports:**
+
+No automated codemod is provided (pre-1.0). Manual migration:
+
+1. **Snap utilities** — replace `import { smartSnap, snapToHexCenter, ... } from '@fieldnotes/core'`
+   with `import { smartSnap, snapToHexCenter, ... } from '@fieldnotes/vtt'`.
+2. **Path tool & overlay** — replace `import { PathTool, RemotePathOverlay, ... } from '@fieldnotes/core'`
+   with `import { PathTool, RemotePathOverlay, ... } from '@fieldnotes/vtt'`.
+3. **Hex/grid helpers** — replace `import { getHexCellsInRadius, getHexDistance, ... } from '@fieldnotes/core'`
+   with `import { getHexCellsInRadius, getHexDistance, ... } from '@fieldnotes/vtt'`.
+4. **ToolContext grid fields** — replace `ctx.gridSize` / `ctx.gridType` / `ctx.snapToGrid` /
+   `ctx.hexOrientation` with `ctx.constraintService.constrainPoint(point)` for snapping,
+   or `ctx.constraintService.getConstraintInfo()` for grid metadata.
+5. **Fog migration** — if you load v1–v3 canvas state with a top-level `fog` field, call
+   `registerVttElementTypes()` before `parseState()` so the VTT fog legacy migrator is active.
+
+**Added:**
+
+- `ConstraintOptions.elementSize?: { w: number; h: number }` — lets callers pass element
+  pixel dimensions to the constraint service, which derives the cell footprint internally.
+  Core tools no longer read `cellSize` from constraint info to compute footprints.
+- `ConstraintInfo.snapStep?: number` and `ConstraintInfo.nudgeStep?: number` — domain-neutral
+  world-unit scalar hints. Consumers accept each only when it is finite and greater than zero.
+- `registerLegacyStateMigrator()` / `unregisterLegacyStateMigrator()` — hook for domain
+  packages to migrate legacy top-level state fields during v3→v4 upgrade.
+
+**Internal:**
+
+- Core tools (`select`, `arrow`, `shape`, `note`, `text`, `image`) now snap exclusively through
+  the constraint service proxy — no fallback to `smartSnap`.
+- `SelectTool` drag passes `elementSize` to `constrainPoint`; the VTT `GridConstraintService`
+  computes the cell footprint from the element's pixel dimensions and its own `cellSize`.
+- Nudge-by-cell and extension-handle snapping use finite, positive `nudgeStep` and `snapStep`
+  hints from constraint service info; invalid or missing hints use existing fallbacks.
+- Core has no fog-specific validation; registered domain migrators validate and remove their
+  legacy fields before v4 finalization.
+
+### VTT 0.12.0 — VTT extraction and purity pass
+
+**Added (moved from core):**
+
+- `PathTool`, `PathToolOptions`, `PathAnchor`, `PathRangeBand`, `PathSegment`, `PathEmission`
+  (movement path tool).
+- `RemotePathOverlay`, `isPathPresence`, `toPathPresence`, `PATH_PRESENCE_KIND`,
+  `PATH_PRESENCE_MAX_POINTS`, `PathPresence`, `RemotePathOverlayHost`, `RemotePathOverlayOptions`
+  (remote path presence overlay).
+- `drawPath`, `resolveSegmentColors`, `PathRenderModel` (path rendering utilities).
+- `snapToHexCenter`, `snapToCellCenter`, `snapFootprintCenter`, `footprintFromSize`, `smartSnap`,
+  `Footprint` (grid-aware snap utilities).
+- `grid/snap.ts` — consolidated snap module with constraint-service-aware `smartSnap` and
+  `snapFootprintCenter`.
+
+**Fixed:**
+
+- `MeasureTool`, `TemplateTool`, and `PathTool` now use a 24-unit fallback cell size (matching
+  the demo's default grid) when no constraint service is active, instead of 1 unit. A 144-unit
+  gridless measurement now reads 30 ft instead of 720 ft.
+- `GridConstraintService.constrainPoint` now derives a cell footprint from
+  `ConstraintOptions.elementSize` when no explicit `footprint` is provided, so core tools
+  do not need to read `cellSize` to compute cell counts.
+- `GridConstraintService.getConstraintInfo` now includes `snapStep` and `nudgeStep` fields
+  for domain-neutral consumers.
+- `registerVttElementTypes()` now also registers the fog legacy state migrator, which
+  validates and migrates v1–v3 top-level `fog` payloads into `extensions.fog`. Malformed
+  payloads are discarded.
+
+**Changed:**
+
+- `MeasureTool`, `TemplateTool`, `PathTool` now read grid state from the constraint service's
+  `getConstraintInfo()` instead of removed `ToolContext` grid fields.
+- `GridConstraintService` imports snap functions from local `grid/snap` instead of `@fieldnotes/core`.
+
+### Package versions
+
+- `@fieldnotes/core` 0.84.0 → 0.85.0
+- `@fieldnotes/vtt` 0.11.0 → 0.12.0
+
+## [0.84.0] — 2026-09-20
+
+### Changed
+
+- Closed the legacy v3/v4 compatibility window. Core no longer exposes legacy element encoders;
+  sync no longer exposes legacy wire element/operation/envelope types, translation codecs, or the
+  timeout-based v3 fallback; sync-server no longer accepts an element registry for wire translation;
+  and VTT plugins no longer provide legacy element or snapshot encodings. Persisted v1–v3 canvas
+  state remains readable and migrates to v4.
+- The v4 capability handshake retains `elementEnvelope: true` as a rolling-upgrade marker for the
+  immediately preceding v4 release. Missing or false markers are rejected, and plugin snapshot
+  state is carried only under the snapshot `extensions` map.
+
+### Package versions
+
+- `@fieldnotes/core` 0.83.0 → 0.84.0
+- `@fieldnotes/sync` 0.20.1 → 0.21.0
+- `@fieldnotes/sync-server` 0.19.1 → 0.20.0
+- `@fieldnotes/sync-redis` 0.11.0 → 0.12.0
+- `@fieldnotes/vtt` 0.10.0 → 0.11.0
+
+## [@fieldnotes/sync-redis 0.11.0] — 2026-09-12
+
+### Fixed
+
+- Redis fog persistence (`@fieldnotes/vtt/redis`) no longer livelocks under concurrent painting.
+  The meta and patch Lua scripts decide last-writer-wins inside Redis against the current state
+  instead of a whole-hash compare-and-swap: tile replacements and invalid-tile deletions are guarded
+  per field and skipped on mismatch, the retry loop and its "did not converge" error are gone, and the
+  patch hot path no longer reads the whole tiles hash. A patch no longer repairs unrelated invalid
+  stored tiles; `snapshot()` keeps filtering them and a meta write still rewrites them. Hash layout,
+  LWW rule (`version`, then `editor`), generation gate, shrink rejection and the 256-tile capacity are
+  unchanged; a capacity-blocked patch first sweeps invalid and foreign-generation fields.
+
+### Added
+
+- `RedisHashClient` gains optional `scriptLoad` and `evalSha`; `createScriptRunner(client)` runs a
+  script by SHA with automatic `SCRIPT LOAD` and `NOSCRIPT` fallback, or by `EVAL` when the client
+  lacks them. The fog backend uses it.
+- Opt-in real-Redis integration suite in `@fieldnotes/sync-redis` (`REDIS_URL=… pnpm --filter
+@fieldnotes/sync-redis test`), skipped otherwise.
+
+### Package versions
+
+- `@fieldnotes/sync-redis` 0.10.0 → 0.11.0
+- `@fieldnotes/vtt` 0.9.0 → 0.10.0 (peer `@fieldnotes/sync-redis >= 0.11.0`; `@fieldnotes/vtt/redis` now imports the script runner from sync-redis at module load, so that optional peer must be installed to load the subpath)
+
+## [@fieldnotes/sync-server 0.19.1] — 2026-09-12
+
+### Fixed
+
+- The hub publishes an accepted element or layer operation to the fanout channel **before**
+  persisting it, then delivers it locally. When either the publish or the backend write fails,
+  nothing is persisted on that path, local peers receive nothing, the sender gets an authoritative
+  correction (the element's authoritative state for `upsert`/`remove`, a `canRead`-filtered snapshot
+  for `clear`, the current record or a tombstone for layer ops), and `handleMessage` still rejects
+  for observability. Previously a failed publish left
+  the operation persisted but undelivered until the next resync. Other relay instances may briefly
+  relay an operation whose write then failed; that converges on resync. A server plugin that reads
+  the backend after calling `next()` now observes pre-apply state, because the terminal step returns
+  the accepted operation without persisting it. With a backend shared across relay instances, a
+  client that joins another instance between the relay and the write can miss that operation until
+  its next resync.
+- A failed `upsert` or `remove` corrects the sender on that element alone (the stored element, or a
+  `remove` when there is none) instead of resending the whole room; only `clear` still answers with a
+  snapshot. That snapshot is now the same full view a requested snapshot carries — elements, layer
+  records, and plugin snapshots — so a corrected sender is not left without layers or fog.
+- A layer operation from a client claiming `editor: 'hub'` is dropped, and a client never re-pushes a
+  hub-authored layer record after a snapshot. Clients apply `from: 'hub'` layer operations
+  authoritatively, so either path could have turned a per-connection correction into a room-wide
+  delete.
+
+### Package versions
+
+- `@fieldnotes/sync-server` 0.19.0 → 0.19.1
+- `@fieldnotes/sync` 0.20.0 → 0.20.1 — hub-authored layer corrections are never re-pushed
+
+## [0.83.0] — 2026-09-12
+
+### Added
+
+- `HtmlElement.transient?: boolean`: a transient html element is omitted from `exportState()` /
+  `exportJSON()`, is never sent to a sync relay, survives an authoritative snapshot reconcile and
+  a remote `clear` on the client, and loads without error if a state file carries it.
+- `Viewport.addHtmlElement(dom, position, size?, opts?)` accepts `opts.transient` and
+  `opts.origin`; an external origin (anything other than `undefined` / `'local'`, e.g. the reserved
+  `'host'`) adds the element without a history transaction.
+
+### Fixed
+
+- React `<CanvasElement>` is host-owned and transient: mount, prop updates (one combined update)
+  and unmount carry `origin: 'host'`, so they no longer create undo steps (Ctrl+Z no longer deletes
+  a mounted React embed), are not broadcast by the sync client, do not leak a ghost html element into
+  saved state, and the component re-registers its DOM content after a store `clear` or a `loadState`.
+- Sync client: transient elements are excluded from outgoing ops and from snapshots served to peers,
+  are kept across authoritative snapshot reconciles and remote clears.
+
+### Package versions
+
+- `@fieldnotes/core` 0.82.2 → 0.83.0
+- `@fieldnotes/react` 0.12.0 → 0.13.0 (peer `@fieldnotes/core >= 0.83.0`)
+- `@fieldnotes/sync` 0.20.0 → 0.20.1
+
+## [0.82.2] — 2026-09-12
+
+### Fixed
+
+- Arrow auto-unbind on element removal forwards the removal's change meta to the arrow update.
+  A remote removal no longer records a local undo step for the unbind, and the sync client no
+  longer re-broadcasts it; the originating peer already publishes its own unbind.
+
+### Package versions
+
+- `@fieldnotes/core` 0.82.1 → 0.82.2
+
+## [@fieldnotes/sync-server 0.19.0] — 2026-09-11
+
+Sync security batch (Phase 0 §2.5). No persisted-canvas or wire-protocol change, but hosts must read
+the **Behavior changes** below and migrate room identifiers outside the newly enforced safe alphabet.
+
+### Security
+
+- Room names are validated before `authenticate` runs: a room not matching `^[A-Za-z0-9_-]{1,64}$`
+  is closed with `4400 invalid room`. Previously `?room=foo:layers` addressed room `foo`'s Redis layer
+  ledger and `clear` there deleted it.
+- The server-stamped `ownerId` is stripped from every outbound frame (live ops, snapshots,
+  corrections, legacy translations, fanout deliveries). It stays in the backend for `authorize`; the
+  new `canReadOwnerId({ userId, role, room })` hook reveals it to privileged viewers.
+- New `resolveAudience({ userId, role, room, element, currentElement })` hook makes the hub the
+  authority on an element's `audience`, replacing the client-asserted tag before `authorize`, storage
+  and relay. Without it the tag still passes through; the README now documents that `authorize` must
+  validate it.
+- Operations received on the fanout channel pass the JSON-depth guard, `isValidEnvelope` and the
+  extension codec, the same gates a client frame passes. Previously layer, plugin and extension ops
+  from the channel were trusted as-is.
+- Connection caps: `maxConnectionsPerIp` (64) and `maxConnectionsPerRoom` (256), taken at the upgrade
+  so pending-auth sockets count, close with `4429 too many connections`; `clientAddress(req)` resolves
+  the address behind a trusted proxy. Each connection also gets an inbound byte budget
+  (`bytesPerSecond` 4 MiB, `byteBurst` 8 MiB) beside the frame budget, and `presence.data` payloads
+  over `maxPresenceBytes` (4 KiB, UTF-8) are dropped.
+- `createSyncServer` throws when `authorize` is configured without `authenticate`: ownership policies
+  need a stable `userId`, and the anonymous default changes on every reconnect.
+- Presence size enforcement now covers client frames, server-owned broadcasts, and cross-instance
+  fanout ingress, so no path can bypass `maxPresenceBytes` and amplify an oversized payload.
+- Resource-limit options fail fast during server construction when they are non-finite, non-positive,
+  or (for connection caps) not safe integers. `Infinity` remains supported for disabling connection
+  caps.
+
+### Added
+
+- Bearer authentication outside the URL. `authenticate` receives `token`, resolved by the exported
+  `readBearerToken(req)` from a `fieldnotes-bearer.<token>` `Sec-WebSocket-Protocol` entry, then
+  `Authorization: Bearer`, then the legacy `?token=` query. The relay selects the `fieldnotes-sync`
+  subprotocol and never echoes the bearer entry; a foreign subprotocol offered alone is still echoed
+  as before.
+- `ROOM_NAME_PATTERN` / `isValidRoomName` exports, plus `OwnerReadContext`, `CanReadOwnerId`,
+  `ResolveAudienceContext` and `ResolveAudience` types.
+
+### Fixed
+
+- A client offering only `fieldnotes-bearer.<token>` no longer receives the credential-bearing
+  protocol in the handshake response; the handshake is rejected instead.
+- The live-play example validates room names before connecting and explains `4400` room rejections.
+
+### Behavior changes
+
+- Rooms with names outside `[A-Za-z0-9_-]{1,64}` are rejected; rename them before upgrading.
+- Readers no longer receive `ownerId` unless `canReadOwnerId` admits them.
+- A server configured with `authorize` but no `authenticate` fails to start.
+- Sockets beyond the new per-address / per-room caps, or over the byte budget, are closed.
+
+### Package versions
+
+- `@fieldnotes/sync` 0.19.1 → 0.20.0 — `bearerSubprotocols(token)`, `readBearerSubprotocol(header)`,
+  `SYNC_WS_SUBPROTOCOL`, `BEARER_SUBPROTOCOL_PREFIX`; `WebSocketTransportOptions.protocols`;
+  `resolveUrl` may return `{ url, protocols }` (`ManagedSyncEndpoint`) and `transportFactory` receives
+  the protocols as a second argument.
+- `@fieldnotes/sync-server` 0.18.0 → 0.19.0 (above).
+- `@fieldnotes/sync-redis` 0.9.0 → 0.10.0 — Redis room keys encode the room name (`encodeRoomKey`,
+  exported); valid room names keep their historical key layout. `BackendPluginContext.roomKey(room)`
+  returns the escaped base key for plugins to derive sub-keys from.
+- `@fieldnotes/vtt` 0.8.1 → 0.9.0 — the Redis fog backend derives its keys from `roomKey`; peer floor
+  `@fieldnotes/sync-redis >= 0.10.0`.
+
+## [0.82.1] — 2026-09-11
+
+### Fixed
+
+- Pencil, arrow, shape, note, text and image tools implement `onPointerCancel` and abandon their
+  in-progress gesture. A second finger starting a pinch no longer commits a half-drawn stroke,
+  creates a shape or arrow, or opens a note editor.
+- `ImageTool` places images on the active layer; previously it wrote `layerId: ''`, which the
+  serializer rejects, so `loadJSON(exportJSON())` threw after placing an image with the tool.
+- `InputHandler` records which pointer started a tool gesture and ignores up/cancel/leave from
+  other pointers, including while a touch tap is still deferred, so a hovering pen leaving the
+  canvas no longer commits a mouse drag or discards the touch tap. Lost pointer capture, window
+  blur and tab visibility changes now abandon held pointers and pans, so a truncated gesture can no
+  longer leave the handler treating every later stroke as a pinch.
+- The eraser skips locked strokes, hit-tests rotated strokes where they are drawn, and preserves
+  `blendMode`, `groupId` and rotation on partially-erased fragments (fragments are repositioned so
+  rotating about their own center leaves them in place).
+- Stroke, arrow and line-shape hit tolerances are screen pixels divided by zoom; strokes stay
+  selectable when zoomed out and no longer grow a 100px halo when zoomed in.
+- `AutoSave.load()` reports an unreadable or newer-version save through `onError` and refuses to
+  save until `clear()` or a later successful `load()`, including when the storage adapter itself
+  rejects the read, instead of silently overwriting it.
+- Sync: a remote upsert clears every field the peer removed (ungroup, arrow unbind, cleared
+  label/rotation/fontSize/blendMode) instead of shallow-merging the stale value forever. A valid
+  same-id upsert whose element type changed now safely replaces the record.
+- VTT: fog edits made before the sync client first starts are buffered and published on connect
+  instead of being wiped when the hub reports no fog.
+
+### Package versions
+
+- `@fieldnotes/core` 0.82.0 → 0.82.1
+- `@fieldnotes/sync` 0.19.0 → 0.19.1
+- `@fieldnotes/vtt` 0.8.0 → 0.8.1
+
+## [0.82.0] — 2026-09-10
+
+### Added
+
+- CanvasState v4 persistence with transactional v1–v3 migration. Legacy top-level fog state moves
+  into `extensions.fog`; v4 output contains extension envelopes and never writes the top-level fog
+  mirror.
+- Sync capability negotiation with bounded queues, a timeout-based legacy fallback, and per-peer
+  translation for envelope upserts, snapshots, corrections, and broadcasts.
+- Domain-neutral extension interaction hooks for selection handles, resize/aim updates, selection
+  overlays, and toolbar rotation. `ExtensionInteractionContext` carries `selectedCount` so adapters
+  can keep single-selection handles (template aim/length/width) out of multi-selection hit testing.
+- `createSyncServer({ elementRegistry })` forwards a registry to the hub for legacy-peer translation.
+- `HANDLE_SIZE` and `HANDLE_HIT_PADDING` are exported so extension adapters match core's handles.
+
+### Changed
+
+- Grid and template selection behavior is now implemented by `@fieldnotes/vtt` element definitions.
+  The core renderer, bounds/style helpers, selection tool, serializer writer, factories, and public
+  element union no longer contain VTT-specific branches.
+- The demo now creates and queries grid extension envelopes through `@fieldnotes/vtt`.
+- The React `snapToGrid` prop is deprecated; VTT consumers should configure snapping through the
+  grid/constraint service.
+- The private `@fieldnotes/contract-spike` workspace was retired after its contracts graduated into
+  production packages and their test suites.
+- `exportState` drops its unused `registry` parameter; `extensions` is now the fifth argument.
+- The hub encodes a relayed frame once per capability profile instead of once per recipient, and
+  plugin registries build their extension-definition view once at construction.
+- Sync now exposes separate `WireSyncElement`/`WireSyncOp` contracts for transport and backend
+  boundaries; `SyncElement`/`SyncOp` remain restricted to v4 runtime elements.
+
+### Compatibility
+
+- v4 readers automatically migrate v1–v3 files. Legacy grid/template records require
+  `registerVttElementTypes()` before import.
+- Negotiated peers receive extension envelopes. Peers that do not advertise capabilities receive
+  registered legacy element encodings and legacy extension operations where a translator exists.
+  A legacy snapshot omits elements that have no legacy encoding rather than withholding the frame.
+- The hub relays and stores legacy element types it has no adapter for verbatim, so a hub deployed
+  without `@fieldnotes/vtt` adapters never erases existing grids and templates. Clients drop a
+  legacy-typed element they have no adapter for instead of admitting it into a v4 save.
+- Element ops held during capability negotiation keep store order (a remove never overtakes the
+  upsert it undoes), survive a reconnect, and are flushed individually so one untranslatable op
+  cannot drop the rest. A carried clear supersedes the in-flight reconciliation snapshot instead of
+  resurrecting its elements. A capabilities frame arriving after the legacy timeout upgrades the
+  session.
+- Capability-profile relay caching uses collision-free keys even when extension kinds contain
+  delimiters such as commas.
+- v4 extension envelopes are validated by their registered adapter on import.
+- This is a breaking pre-1.0 core release: import VTT element types and factories from
+  `@fieldnotes/vtt`, and query `type: 'extension'` plus `extensionType` instead of core
+  `grid`/`template` union members.
+
+### Package versions
+
+- `@fieldnotes/core` 0.81.1 → 0.82.0
+- `@fieldnotes/vtt` 0.7.1 → 0.8.0
+- `@fieldnotes/sync` 0.18.1 → 0.19.0
+- `@fieldnotes/sync-server` 0.17.1 → 0.18.0
+- `@fieldnotes/sync-redis` 0.8.1 → 0.9.0
+- `@fieldnotes/react` 0.11.0 → 0.12.0
+
+## [0.81.1] — 2026-09-08
+
+### Fixed
+
+- Clean-checkout CI now resolves contract-spike workspace imports from source before packages have
+  been built.
+- Workspace builds run in deterministic dependency order, preventing declaration builds in the
+  VTT test dependency cycle from racing another package's `dist` output.
+
+### Package versions
+
+- `@fieldnotes/core` 0.81.0 → 0.81.1
+- `@fieldnotes/vtt` 0.7.0 → 0.7.1
+- `@fieldnotes/sync` 0.18.0 → 0.18.1
+- `@fieldnotes/sync-server` 0.17.0 → 0.17.1
+- `@fieldnotes/sync-redis` 0.8.0 → 0.8.1
+
+## [0.81.0] — 2026-09-08
+
+### Added
+
+- Constructor-time viewport plugins now have transactional `configure()` and `start()` phases,
+  typed service registration, capability validation, per-instance handles, and reverse-order
+  rollback/disposal.
+- Client, server, and Redis sync packages expose domain-neutral plugin contracts, typed extension
+  operation codecs, plugin snapshots, backend services, and per-operation fanout locality.
+- `@fieldnotes/vtt/sync`, `@fieldnotes/vtt/server`, and `@fieldnotes/vtt/redis` provide the fog
+  client, authoritative server, and Redis backend plugins without pulling server code into the
+  browser entry point.
+
+### Fixed
+
+- Viewport state loading now validates before mutation, suppresses all subsystem notifications,
+  and restores core, history, and plugin state before discarding events when commit fails.
+- Registered `vtt:template` envelopes retain the legacy selection controls for aiming cones,
+  lines, and rectangles and resizing circular, square, and rectangular templates.
+- Fog sync and Redis persistence continue to emit and accept the exact v3 `fog-meta`, `fog-patch`,
+  and snapshot shapes while routing them through plugins.
+
+### Changed
+
+- `@fieldnotes/sync`, `@fieldnotes/sync-server`, and `@fieldnotes/sync-redis` no longer depend on
+  VTT at runtime. Fog ownership moved to `@fieldnotes/vtt` subpath factories.
+
+### Package versions
+
+- `@fieldnotes/core` 0.80.0 → 0.81.0
+- `@fieldnotes/vtt` 0.6.2 → 0.7.0
+- `@fieldnotes/sync` 0.17.0 → 0.18.0
+- `@fieldnotes/sync-server` 0.16.0 → 0.17.0
+- `@fieldnotes/sync-redis` 0.7.2 → 0.8.0
+
+## [0.80.0] — 2026-09-07
+
+### Fixed
+
+- Fog renders in a unified top paint stratum, covering DOM-backed and hybrid canvas elements, and
+  participates in bitmap and SVG exports.
+- Extension-only exports derive bounds from the viewport's element registry.
+- TemplateTool creates runtime extension envelopes; selection hit testing and marquee selection
+  delegate to registered element adapters.
+- v3 persistence restores fog dual-read/dual-write compatibility, preferring `extensions.fog` when
+  both representations exist.
+- Sync translates registered extension envelopes to legacy v3 shapes on every outbound upsert and
+  snapshot, and translates legacy shapes back to envelopes on receipt.
+- Viewport plugin installation disposes already-installed plugins when a later installation fails.
+
+### Package versions
+
+- `@fieldnotes/core` 0.79.1 → 0.80.0
+- `@fieldnotes/vtt` 0.6.1 → 0.6.2
+- `@fieldnotes/sync` 0.16.0 → 0.17.0
+- `@fieldnotes/sync-redis` 0.7.1 → 0.7.2
+
+## [0.76.0] — 2026-09-06
+
+### Added
+
+- **`@fieldnotes/vtt` package** (new, v0.1.0). VTT domain tools and overlays extracted from core.
+  Initial contents: `MeasureTool`, `RemoteMeasureOverlay`, `measure-render` utilities.
+- `LingerOverlay` is now exported from `@fieldnotes/core` as a public generic utility for
+  per-sender presence overlays with hold-then-fade lifetime.
+
+### Removed
+
+- **MeasureTool, RemoteMeasureOverlay, MeasurePresence** — removed from `@fieldnotes/core`.
+  Import from `@fieldnotes/vtt` instead.
+- `'measure'` removed from the `ToolName` union type. The tool registry still supports dynamic
+  tool names; consumers register `MeasureTool` from `@fieldnotes/vtt` by its `name` property.
+
+## [0.75.0] — 2026-09-06
+
+### Added
+
+- **Fog serialization dual-write (Phase 2).** `CanvasState` gains an `extensions` field
+  (`Record<string, PersistedPluginState>`). `exportState()` writes fog to both the legacy `fog`
+  field and `extensions.fog` simultaneously. `loadState()` prefers `extensions.fog` when present,
+  falling back to the legacy `fog` field for backward compatibility.
+- `createFogPluginHandle(manager)` — wraps a `FogManager` as a `PluginHandle` for the
+  `PluginStateManager`.
+- `Viewport.plugins` — new public getter exposing the `PluginStateManager`.
+- `AutoSave` accepts `pluginStateManager` option to include plugin extensions in saved state.
+
+### Changed
+
+- `exportState()` in `state-serializer.ts` accepts an optional `extensions` parameter (7th arg).
+- `validateState()` validates the `extensions` field when present (each entry must have a positive
+  integer `version`).
+- Unknown plugin entries in `extensions` are preserved as-is on re-export.
+
+## [0.74.0] — 2026-09-06
+
+### Changed
+
+- **Fog rendering now uses per-surface render hooks.** The render loop, minimap controller, and
+  viewport no longer hard-code `FogRenderer` calls. Fog registers on `renderHooks.viewport`
+  (`afterElements`) and `renderHooks.minimap` (`afterElements`) instead. The render loop accepts
+  `hooks?: RenderHooks` in place of `fogRenderer`. The minimap controller accepts
+  `minimapHooks` and `getExtraBounds` options. `Minimap.setFogRenderer()` and
+  `MinimapController.setFogRenderer()` are removed. `MinimapMapping` gains `offsetX`/`offsetY`.
+  `TypedHookRegistry.iterate()` / `iterateRequired()` return `(...args: any[]) => void` to fix
+  generic dispatcher callability.
+- `Viewport.renderHooks` — new public getter exposing the render hook registries.
+
+### Added
+
+- Render loop fires `afterElements` and `afterAll` viewport hooks at the correct render-pipeline
+  positions (after elements/grid, before/after overlays).
+
+## [0.73.0] — 2026-09-06
+
+### Added
+
+- **Phase 2 internal refactor: grid snapping → ConstraintService** (VTT extraction migration):
+  - `GridConstraintService` — implements `PointConstraintService`, wraps existing snap logic (square grid intersections, hex centres, cell-centre with footprint).
+  - `ToolContext.constraintService` — optional `ConstraintServiceAccess` on the tool context, wired by Viewport.
+  - `smartSnap` and `snapFootprintCenter` now route through the constraint service when available, with full fallback for unconfigured contexts.
+  - `ConstraintServiceProxy.constrainPoint()` now always delegates to the implementation when one exists; `isActive` is informational (tools check it to decide whether to constrain).
+  - Measure, template, and path tools migrated to use the constraint service directly (Pattern B/C), preserving unconditional-snap-when-grid-exists behaviour.
+
+### Package versions
+
+- `@fieldnotes/core` 0.72.0 → 0.73.0
+
+## [0.72.0] — 2026-09-06
+
+### Added
+
+- **Phase 1 extension point interfaces** (VTT extraction migration):
+  - `createServiceKey<T>(name)` / `ServiceKey<T>` — invariant-branded typed key for service registry (ADR-0005).
+  - `ConstraintServiceProxy` / `PointConstraintService` / `ConstraintServiceAccess` — two-interface constraint service with activate/delegate/proxy pattern (ADR-0006).
+  - `createRenderHooks()` / `RenderHooks` — per-surface typed hook registries: `ViewportRenderHooks`, `MinimapRenderHooks`, `ImageExportHooks`, `SvgExportHooks` (ADR-0002).
+  - `ClientSyncPlugin` interface in `@fieldnotes/sync` (ADR-0003).
+  - `ServerSyncPlugin` / `ApplyResult` / `ServerOpContext` interfaces in `@fieldnotes/sync-server` (ADR-0003).
+  - `BackendSyncPlugin` / `BackendOpContext` interfaces in `@fieldnotes/sync-redis` (ADR-0003).
+
+### Package versions
+
+- `@fieldnotes/core` 0.71.0 → 0.72.0
+- `@fieldnotes/sync` 0.13.0 → 0.14.0
+- `@fieldnotes/sync-server` 0.14.0 → 0.15.0
+- `@fieldnotes/sync-redis` 0.5.0 → 0.6.0
+
+## [0.71.0] — 2026-09-06
+
+### Added
+
+- **Grid and template element type definitions** (Phase 2 of VTT extraction migration):
+  - `gridElementTypeDefinition` and `templateElementTypeDefinition` — `ElementTypeDefinition<T>` implementations with legacy wire codec, validation, bounds, and wrap/unwrap.
+  - `getDefaultElementRegistry()` / `setDefaultElementRegistry()` — module-level default registry with grid+template pre-registered.
+  - `convertLegacyToEnvelopes()` — exported for `Viewport.loadState()` direct usage.
+
+### Changed
+
+- `ExtensionElementEnvelope` added to `CanvasElement` union as 10th member (`type: 'extension'`).
+- `ElementTypeAdapter` extended with `renderMode`, `wrap()`, `unwrap()`.
+- `Viewport` accepts `elementRegistry` option, passes to renderer, GridController, and serializer.
+- Serializer performs dual conversion: legacy wire (`type: 'grid'`/`type: 'template'`) ↔ in-memory envelopes (`type: 'extension'`). Wire format unchanged.
+- GridController stores grid as `ExtensionElementEnvelope` in ElementStore, wraps/unwraps via registry adapter.
+- All exhaustive switches on `CanvasElement.type` updated to handle `'extension'`.
+
+## [0.70.0] — 2026-09-06
+
+### Added
+
+- **Extension point interfaces** (Phase 1 of VTT extraction migration):
+  - `ElementRegistry` — two-level element type extension system with typed `ElementTypeKey<T>` for consumers and erased `ElementTypeAdapter` for core internals. Supports legacy wire codec for backward-compatible serialization.
+  - `TypedHookRegistry<T>` — generic per-surface render hook registry with `ViewportSlot` semantic ordering, priority, capability tracking, and required hook enforcement.
+  - `PluginStateManager` — transactional plugin lifecycle with migrate → validate → snapshot → commit/rollback. Unknown plugin preservation across load/save cycles.
+  - `ExtensionElementEnvelope`, `ElementTypeDefinition<T>`, `PersistedPluginState`, `NotificationController` types.
+
+## [0.69.0] — 2026-09-06
+
+### Added
+
+- `renderFogStylePreview(ctx, style, width, height)` paints solid and procedural material swatches
+  with the same deterministic noise tile and scale used by the viewport renderer.
+
+## [0.68.0] — 2026-09-05
+
+### Added
+
+- `Viewport.setFogStyle(options)` — runtime fog presentation setter that updates editor and player
+  styles on a mounted viewport without remounting the canvas. Clears procedural caches, marks fog
+  dirty, refreshes the render loop and minimap. Fog state, view mode, history, sync, camera, tools,
+  and scene caches are untouched.
+- `FogRenderer.setOptions(options)` — internal style re-resolution backing the viewport setter.
+
+## [0.67.0] — 2026-09-05
+
+### Added
+
+- Opt-in deterministic procedural fog presentation through `FogProceduralStyle`, independently
+  configurable for editor and player modes. Existing solid fog remains the unchanged default and
+  legacy `editorColor` / `playerColor` configuration remains supported.
+- Procedural fog uses a bounded seamless noise tile, Canvas-compatible CSS tinting, world-space
+  scaling, opaque player safety coverage, and the same presentation in the viewport, minimap,
+  PNG/JPEG export, and SVG's raster fog artifact.
+- Viewport exports inherit their configured fog style when callers explicitly provide fog state and
+  mode; explicit export `style` or legacy `color` values still override the viewport configuration.
+
+## [0.66.0] — 2026-09-04
+
+### Added
+
+- **Visual fog of war.** A bounded sparse raster mask (`FogManager`, `FogStateV1`) with
+  reveal/conceal tools (`FogTool` — brush, rectangle, polygon/lasso), one-gesture undo,
+  history-transparent remote state, and three presentation modes (`off`, `editor`, `player`).
+  The mask is a dedicated compositing stratum above all canvas- and DOM-backed scene content
+  and below registered/tool overlays, ensuring DOM elements are properly hidden in player mode.
+- Fog tile codec: 128 × 128 one-bit tiles, base64-encoded, at most 256 stored tiles per document.
+  `recommendedFogCellSize(bounds)` selects the smallest integer cell size that fits within the cap,
+  including maps whose origin straddles world-anchored tile boundaries.
+  Strict fail-closed validation rejects malformed state without partial reveals.
+- `CanvasState` version 3 with optional `fog` field. Versions 1 and 2 still parse; version 3
+  rejects on older core.
+- `AutoSave` gains optional `fogManager` subscription.
+- `FogRenderer` with bounded decoded-raster caching, visible-tile culling, and export helper.
+- `exportImage`/`exportSvg` gain explicit `fog` option (state + mode + optional color, or `false`).
+  SVG embeds one bounded raster mask image, not per-cell nodes.
+- `MinimapController.setFogRenderer()` composites the fog mask into the scene cache and includes fog
+  bounds in the minimap mapping. Player mode is opaque in the minimap.
+- `@fieldnotes/sync` 0.12.0: `FogMetaRecord`, `FogTileRecord`, `FogSnapshot`, `fog-meta`/`fog-patch`
+  ops with strict guards and caps (64 tiles per patch, 256 per snapshot). `FogLedger` with
+  deterministic `(version, editor)` LWW ordering and generation-based tile reset. Shrinking bounds
+  advances the generation while preserving and re-publishing canonical in-bounds tiles; same-generation
+  bounds changes are expansion-only, preventing delayed tiles from resurrecting after shrink/expand.
+  `SyncClient` and managed connection gain opt-in `fog` option with manager interface, ledger,
+  preserve-local-when-remote-missing, and snapshot merge. Fog-enabled clients require their stable
+  ordering `clientId` to contain 1-128 printable ASCII characters.
+- `@fieldnotes/sync-server` 0.14.0: `AuthorizeFog` hook, fog ops on the per-room serial queue with
+  corrections, fog in authoritative snapshots, `MemoryHubBackend` fog support, `HubBackend` optional
+  fog capability group, including atomic whole-patch application at the 256-record boundary.
+- `@fieldnotes/sync-redis` 0.5.0: `RedisHubBackend` fog meta/tile keys with atomic LWW writes,
+  generation/bounds cleanup, and corrupt-record skip. Fog persistence requires the supplied
+  `RedisHashClient` to implement the node-redis-compatible `eval(script, { keys, arguments })`
+  method; non-fog operations retain the smaller legacy client surface.
+
+### Changed
+
+- `CanvasState.version` is now 3. The serializer accepts 1–3; future versions remain rejected.
+
+## [0.65.0] — 2026-09-02
+
+### Added
+
+- Shared presence (typed awareness). `AwarenessPresence` is a full-snapshot frame carrying a
+  self-asserted identity (`id`, optional `name`/`color`/`role`) plus the sender's world-space `cursor`,
+  published `selection` ids, and active `tool`; `isAwarenessPresence` is a fail-closed wire guard with
+  hard caps (`id` ≤ 128, `name`/`color`/`tool` ≤ 64, `role` ≤ 32, `AWARENESS_MAX_SELECTION` = 256, no
+  sparse arrays, finite cursor). Treat `name` as untrusted text and never gate security on any field.
+- `LocalAwareness` publishes this client's state from a passive primary-pointer listener on the
+  viewport wrapper, `onSelectionChange`, and `ToolManager.onChange`: one leading frame when idle, then
+  one trailing frame per `intervalMs` (default 50, non-finite or negative values normalised to 0)
+  carrying every change in the window, a full-state heartbeat while idle (`heartbeatMs`, default 15 s,
+  measured from the last send; a non-finite or non-positive value disables the heartbeat), and one
+  `cleared` frame on dispose. Every published frame is valid by construction: identity strings are
+  truncated to the wire caps (`name`/`color` to 64 chars, `role` to 32), an empty or over-128-char `id`
+  throws `RangeError` at construction, an over-long `tool` is omitted rather than sent truncated, and a
+  selection containing any id that is empty or over 128 chars fails the whole selection closed —
+  there is no flush-time guard because nothing invalid can reach the flush path. `fields` default
+  `{ cursor: true, selection: false, tool: true }` — selection is a disclosure the moment it is sent,
+  so it is opt-in and passes through `selectionFilter`, which itself fails closed (a throwing or
+  malformed filter omits the selection, never the raw ids). `setFields` merges partial flags at
+  runtime.
+- `PeerRoster` keeps the last state per relay sender key with two separate books: visible rows
+  (removed by `cleared`, presence-leave via `remove()`, or `staleMs` silence, default 45 s — a
+  non-finite `staleMs` disables staleness entirely) and a discovery budget that only a server-authored
+  leave or stale silence resets, so `onDiscover` fires at most once per socket and a client cycling
+  `cleared` frames cannot make the room re-announce. `getPeers()` returns a stable reference until a
+  visible field or membership changes (heartbeats are silent) and preserves each peer's `selection`
+  array reference across cursor-only updates.
+- `RemoteCursorOverlay` draws named cursors at constant screen size (colour precedence: `colorFor`
+  resolver → wire `color` → `defaultPeerColor(id)`, a deterministic hash over the exported 12-hue
+  `PEER_COLORS` palette); `RemoteSelectionOverlay`
+  outlines peers' selections only for elements present in the local store and on a locally visible
+  layer, rescanning the store only when a selection or colour actually changed, or when the store or
+  layer visibility changed.
+- `attachAwareness(viewport, channel, options)` binds all of the above to any `PresenceChannel`
+  (`sendPresence`/`onPresence`/`onPresenceLeave` — the raw client, the managed connection, and host
+  wrappers all satisfy it): discovery triggers one coalesced re-announce, leave drops the sender, and
+  `dispose` runs publisher → overlays → roster → unsubscribes. `publish: false` builds a receive-only
+  attachment.
+
+No persisted-canvas or wire-protocol change; the `awareness` presence kind is additive. Pairs with
+`@fieldnotes/sync-server` 0.13.0 (below): without per-kind throttle lanes on the relay, a cursor
+stream can still displace other presence kinds inside one throttle window.
+
+## [@fieldnotes/sync-server 0.13.0] — 2026-09-02
+
+### Fixed
+
+- Presence throttling is now isolated per payload `kind` (a non-empty string of at most 64 characters;
+  anything else shares a reserved fallback lane). Previously one pending slot per connection meant a
+  rapid stream of one kind — a laser trail, an awareness cursor — could replace a pending `ping`,
+  `focus`, or a `measure`/`path` `cleared` frame sent in the same 50 ms window. Within a lane the newest
+  payload still wins.
+- A frame arriving right at a lane's throttle-window boundary now supersedes that lane's still-pending
+  older frame instead of being relayed ahead of it: the immediate-relay path drains and cancels any
+  pending frame before sending, so a newer frame (e.g. an awareness `cleared`) can no longer be
+  followed by a stale one (e.g. a cursor) that was merely waiting on its timer to fire.
+
+### Added
+
+- `maxPresenceLanes` on `SyncHubOptions`/`CreateSyncServerOptions` (default 16, counting the fallback
+  lane) caps lanes per connection so a client cannot mint timers by varying `kind`; all lanes are
+  cleared on disconnect and `close()`.
+
+## [0.64.0] — 2026-08-16
+
+### Added
+
+- `PathTool` — a store-free, multi-waypoint measuring tool for grid-aware movement previews. Pointer-up
+  adds a waypoint; tapping on or near the last waypoint (`commitTapRadiusPx`, default 12 screen px, so
+  a fingertip can finish a path on a gridless canvas) or pressing Enter commits; Escape, a second
+  finger arriving mid-drag (a two-finger pan started between legs leaves the path open), a
+  platform `pointercancel`, or deactivation cancels. Emits raf-coalesced `PathEmission` snapshots
+  through `onPath` (sync `null` on clear, like `MeasureTool`) and fires `onCommit` once with the final
+  path so a host can apply a move in its own single transaction. `resolveStart` lets the host anchor
+  (or veto) a path and attach an opaque `anchorKey` that is echoed, never interpreted, and never put on
+  the wire; `rangeBands` colour segments by running distance in feet; `footprint` snaps waypoints
+  for N×M-cell footprints. Ephemeral by contract.
+- `pathDistanceCells` / `gridDistanceCells` — grid distance in cells with a square `diagonalRule`
+  (`euclidean` default — the ruler's behaviour, `chebyshev`, `alternate` 5-10-5 accumulated over the
+  whole path, `manhattan`); hex grids use the cube metric.
+- `snapToCellCenter` / `snapFootprintCenter` / `footprintFromSize` / `Footprint` — centre snapping that
+  keeps an odd cell footprint centred in a cell and an even one on an intersection, per axis;
+  `footprintFromSize` derives that footprint from an element's size and the grid size (the rule
+  `SelectTool` uses, now shared with hosts).
+- Path presence: `PathPresence`, `isPathPresence`, `toPathPresence`, `PATH_PRESENCE_KIND`, and
+  `RemotePathOverlay` (per-sender hold/fade/expiry like `RemoteMeasureOverlay`). `isPathPresence` is a
+  wire-boundary guard with hard bounds: at most `PATH_PRESENCE_MAX_POINTS` (256) points, colour strings
+  of at most 64 characters, and no sparse arrays. The sender imposes no cap, so a longer path simply is
+  not delivered.
+- Tool lifecycle: optional `Tool.onPointerCancel` (pinch takeover and `pointercancel` now route through
+  it; tools without it still receive `onPointerUp`) and optional `Tool.onKeyDown` (offered before the
+  shortcut map, never from editable targets, within viewport scope).
+- Internal refactor: `RemoteMeasureOverlay` now delegates its per-sender hold/fade/expiry lifetime to an
+  internal `LingerOverlay` shared with `RemotePathOverlay`; no public API or behaviour change.
+
+### Fixed
+
+- Dragging any sized element on a square grid with snapping on and smart guides off re-snapped its
+  centre to a grid intersection, so an odd-cell footprint (1×1, 3×1, 3×3 …) shifted half a cell and
+  ended up straddling cells instead of filling them. The centre now snaps by the element's cell
+  footprint (odd → cell centre, even → intersection, per axis).
+
+No persisted-canvas or wire-protocol change; the `path` presence kind is additive.
+
+## [0.63.0] — 2026-08-13
+
+### Added
+
+- `ElementRectTracker` — tracks the world rects of a host-matched subset of elements and emits a
+  keyed snapshot when one changes. Deliberately store-only: it never subscribes to the camera, so
+  pan and zoom cost nothing for hosts that position content under a single camera transform. The
+  matcher returns an opaque key (or `null` to skip), and that key participates in change detection,
+  so an element whose host identity changes without moving still emits. Construction is synchronous —
+  `getRects()` is valid immediately and seeds the change baseline. Exports the underlying
+  `computeElementRects` and `elementRectsEqual` so consumers needing a snapshot without a live
+  tracker cannot drift from its rules.
+- `Viewport.getElementAt(world, options?)` — the topmost element at a world point, using the same
+  geometry selection uses (rotation-aware, grid excluded, real stroke and line hit paths), which was
+  previously internal. `respectLayerLock: false` reaches elements on locked layers (mirrored or
+  locked host layers need this); `match` participates in the topmost-first walk rather than
+  filtering its result, so a non-matching element on top does not swallow the hit. Invisible layers
+  are never returned.
+
+No persisted-canvas or wire-protocol change.
+
+### `@fieldnotes/react` 0.11.0
+
+- `useElementRects(match)` — reactive world rects for a matched element subset, re-rendering only
+  when a tracked field changes and never on camera motion. Peer floor raised to
+  `@fieldnotes/core >=0.63.0`.
+
+## [0.62.0] — 2026-08-10
+
+### Added
+
+- `HtmlPainterRegistry` — a host-owned registry that lets `html` elements be routed to the canvas
+  instead of the DOM, keyed by `htmlType`: `register(htmlType, painter)` (last-registered wins,
+  stack-based so unregistering restores the prior painter), `expect(htmlTypes)` to declare canvas
+  intent before a painter is ready, `getActivePainter`, `canvasTypes`, and `onChange`. Exposed on
+  `Viewport` as `getHtmlPainters()`, `registerHtmlPainter()`, and `expectCanvasHtmlTypes()`.
+  `resolveHtmlRouting(element, registry, expectedCanvasTypes?)` resolves an element to
+  `'dom' | 'canvas' | 'missing'`.
+- Canvas-routed `html` rendering on every surface that draws elements: on-screen (via
+  `ElementRenderer`), the minimap (`MinimapController`), PNG/image export (`exportImage`), and SVG
+  export (`exportSvg`, which rasterizes canvas-routed content into the embedded image rather than
+  inlining DOM). No wire, persisted-state, or element-schema change — routing is derived purely
+  from whether a painter is registered for the element's `htmlType`.
+- `Viewport.exportImage()` / `Viewport.exportSVG()` delegate canvas-routed `html` elements to the
+  registered painter automatically; the existing `renderHtml` hook stays the path for DOM-routed
+  embeds. `strictMissingCanvasHtml` (export option): when `true`, an element declared canvas-routed
+  with no active painter rejects the export with `HtmlPainterMissingError` instead of silently
+  omitting it — opt-in per export call, off by default.
+- Element activation: `Viewport.setActivation(options)` and `Viewport.onElementActivate(listener)`
+  turn a pointer gesture on a canvas-painted element into a typed `ElementActivationEvent`
+  (`element`, `world`, `pointerType`, `gesture: 'single' | 'double'`). Canvas-painted elements
+  aren't DOM nodes and can't receive DOM events, so this is the bridge. Passive by contract — every
+  listener is `{ passive: true }` and it never calls `preventDefault`, `stopPropagation`, or takes
+  pointer capture, so native scroll/zoom, the active tool, and pan/pinch navigation are unaffected.
+  `ActivationOptions.gesture: 'double'` recognizes double taps per-element (not by screen distance
+  alone), so two adjacent canvas-painted elements cannot fuse into a single double-tap.
+- Paint diagnostics: `Viewport.onHtmlPaintDiagnostic(listener)` reports a
+  `'missing-painter' | 'painter-threw' | 'degenerate-size'` diagnostic per canvas-routed `html`
+  element, deduped per element/version so a steady-state failure does not flood the host every
+  frame.
+
+### Fixed
+
+- A DOM-routed `html` element whose node has no content — what an unknown `htmlType` produces on a
+  client that has neither an `html` renderer nor a painter registered for it — no longer intercepts
+  pointer events intended for the canvas beneath it. The empty node stays at `pointer-events: none`
+  until content actually arrives, instead of covering the canvas with an invisible hit target.
+
+No persisted-canvas or wire-protocol change. No react, sync, sync-server, or sync-redis release.
+
+## [0.61.0] — 2026-08-06
+
+### Added
+
+- `CameraView` — a viewport-size-independent world rect, with `captureCameraView`,
+  `fitZoomForView`, `cameraOriginForView`, and `applyCameraView` (contain-fit; the same view
+  frames the same content on any screen size or aspect).
+- `Viewport.getCanvasSize()` — the canvas dimensions `getVisibleRect()` measures, so consumers
+  can restore a captured view against the same element.
+- `CameraAnimator` — interruptible camera animation. Yields to every other camera writer via
+  passive `pointerdown`/`wheel`/`keydown` listeners plus a per-frame foreign-write guard
+  (drag, pinch, wheel, keyboard zoom, pan inertia, minimap navigation, `fitToContent`,
+  `loadState`). Rect interpolation, injectable frame/clock seams, terminal disposal.
+- Focus-request presence: `FocusPresence`, `isFocusPresence`, `toFocusPresence`,
+  `FOCUS_PRESENCE_KIND`, and `RemoteFocusReceiver` with role-based audience filtering and an
+  arrival pulse. Ephemeral: never elements, history, persisted state, or the durable queue.
+
+No persisted-canvas or wire-protocol change. No react, sync, sync-server, or sync-redis release.
+
+## [@fieldnotes/react 0.10.0] — 2026-08-06
+
+### Added
+
+- `useSelectionStyleDetails()`: reactive per-field `applicable`/`mixed` style introspection for
+  the current selection, backed by the new core `getSelectionStyleDetails()`; returns
+  `[details, applyStyle]` where `details` is `null` when nothing valid is selected and
+  `applyStyle` delegates to `applyStyleToSelection` (one undo step). Subscribes to
+  `Viewport.onSelectionChange` plus store changes, so it stays correct across late select-tool
+  registration and deletion-driven selection pruning. Requires `@fieldnotes/core >= 0.60.0`.
+
+### Fixed
+
+- `useSelectionStyle()` no longer misses updates when only `strokeStyle` changes: the internal
+  `styleEqual` cache comparison omitted `strokeStyle`, so a patch that changed only that field
+  could be treated as a no-op and the hook would return stale style data.
+
+## [0.60.0] — 2026-08-06
+
+### Added
+
+- `Viewport.onSelectionChange` is now a persistent viewport-level emitter: subscribing before
+  the select tool is registered works, and deletions that change the selection fire events.
+  Deleted elements are pruned from the selection — batched to one event per history
+  transaction (`removeElements`, keyboard delete); `getSelectedIds()` returns no stale ids
+  once the enclosing history transaction completes.
+- `Viewport.getSelectionStyleDetails()` + exported `SelectionStyleDetails` type: per-field
+  `applicable`/`mixed` introspection for the current selection so hosts can render style
+  controls for mixed selections; `common` matches `getSelectionStyle()`. Returns `null` for
+  empty, stale-only, or style-less selections (no applicable field — e.g. image-only).
+- `ToolManager.onRegister(listener)`: notified after each tool registration.
+- `HistoryRecorder.onTransactionEnd(listener)`: fires at the end of `commit()` (including
+  empty commits) and `rollback()` when a transaction was open; listeners exception-isolated.
+
+## [0.59.0] — 2026-08-06
+
+### Added
+
+- `exportImage` options for host-composed exports: `region` (world-space crop that replaces
+  content bounds; padding still applies; empty regions export as background), `format: 'png' |
+'jpeg'` + `quality` (encoder passthrough), and `scaleMode: 'fit'` (clamps the effective scale
+  to `maxDimension`/`maxPixels` instead of throwing; `'exact'` default unchanged).
+
+## [@fieldnotes/react 0.9.0] — 2026-08-05
+
+### Added
+
+- `<Minimap />`: collapsible thumbnail overview navigator over the new core
+  `MinimapController`. Uncontrolled `defaultCollapsed`, host-owned positioning via
+  `className`/`style`; while collapsed no controller exists (zero listeners).
+  Requires `@fieldnotes/core >= 0.58.0`.
+
+## [0.58.0] — 2026-08-05
+
+### Added
+
+- `MinimapController`: public thumbnail overview navigator — cached offscreen scene bitmap
+  (real element shapes, downscaled images, per-layer opacity compositing; note/text/html as
+  bounds-rect fallbacks; grids skipped), debounced invalidation on scene changes, per-frame
+  composite of bitmap + live viewport rectangle, tap/drag-to-center navigation with
+  mouse/touch/pen parity. Constructed as `new MinimapController(viewport, canvas, options)`.
+- `Viewport.getVisibleRect()`, `Viewport.centerCameraAt(world)`, and
+  `Viewport.onResize(listener)` public methods.
+
+### Changed
+
+- `ViewportOptions.minimap: true` now renders a real thumbnail (previously flat colored
+  rectangles) and stays current after host container resizes. Same size, position, and
+  navigation contract.
+
+## [0.57.0] — 2026-08-05
+
+### Added
+
+- Shared live ruler surface: `MeasureTool.onMeasurement(listener)` delivers raf-coalesced
+  measurement snapshots (`MeasureEmission` — world segment, cells, feet, color) and a synchronous
+  `null` when the measurement clears; `MeasureToolOptions.color` styles the local ruler and
+  emissions (default `#FF5722`, unchanged).
+- `MeasurePresence` payload trio (`isMeasurePresence`, `toMeasurePresence`,
+  `MEASURE_PRESENCE_KIND`): validated, sender-authoritative wire shape for ruler presence —
+  receivers render the sender's `feet`/`cells` and never recompute from their own grid.
+- `RemoteMeasureOverlay`: per-sender remote rulers through `registerOverlay`, pixel-identical to
+  the local tool via a shared renderer; cleared measurements hold `holdMs` (1500) then fade
+  `fadeMs` (400); stale active entries expire after `maxAgeMs` (30000) via timer; senders vanish
+  immediately on `remove()` (presence-leave). Ephemeral presence only — no elements, history,
+  persistence, or camera moves.
+
+## [0.56.0] — 2026-08-04
+
+### Added
+
+- `PingInput`: always-available ping input alongside the active tool — long-press-to-ping plus
+  keyboard/programmatic pings, independent of `PingTool`. A standalone controller
+  (`new PingInput(element, camera, options)`) that attaches passive DOM pointer listeners to the
+  host's canvas container and never calls `preventDefault`, `stopPropagation`, or captures
+  pointers, so the active tool, panning, and pinch navigation are untouched (with a pencil
+  active, a still hold pings and the pencil still draws its dot). The long-press gesture is
+  opt-in via `longPressEnabled` (default `false` — a hidden hold-to-ping gesture surprises users
+  outside shared-canvas products; toggling it off at runtime cancels a pending press). When
+  enabled, a press arms on pointer down (mouse primary button, touch, or pen), fires after
+  `longPressMs` (default 600 ms) at the original press position, and cancels on movement past
+  `slopPx` (default 8), a second pointer (two-finger navigation), or pointer up/cancel/leave. Keyboard support is a capability, not a
+  binding: hosts call `pingAtPointer()` (last tracked pointer position, world-converted at call
+  time) or `pingAt(world)` from their own shortcuts. Emissions reuse `PingEmission` via
+  `onPing`, share one `minIntervalMs` rate limit (default 300 ms) across all paths, and honor an
+  optional `shouldPing` host veto (e.g. suppress while a ping tool is active); a veto does not
+  consume the rate-limit interval. `PingInput` never renders — hosts feed emissions into their
+  own `RemotePingOverlay` under a `'self'` sender key. Pings stay ephemeral: no elements, no
+  undo history, no persisted state, no camera movement. `setOptions`/`onOptionsChange`/`dispose`
+  match the tool lifecycle conventions.
+
+## [0.55.0] — 2026-08-04
+
+### Added
+
+- Map pings ("look here"): `PingTool` — tap or click to ping a world position with a short
+  expanding-pulse animation. Each accepted tap renders the pulse locally and delivers one
+  `PingEmission` (`x`, `y`, `color`, `durationMs`, `radius`) to `onPing` listeners so hosts can
+  broadcast it as ephemeral presence. A configurable `minIntervalMs` rate limit (default 300 ms)
+  drops faster taps entirely, so rapid-fire pings cannot starve durable sync traffic. Throwing
+  listeners are isolated; deactivation clears pending pulses.
+- `RemotePingOverlay`: a reusable remote-ping controller that renders per-sender expanding pulses
+  through `viewport.registerOverlay`, independent of the viewer's active tool.
+  `apply(sender, data)` validates untyped presence payloads with the new `isPingPresence` guard
+  (`{ kind: 'ping', x, y, color?, durationMs?, radius? }`, built from an emission via
+  `toPingPresence`), stamps pings with local receive time (remote clocks are never trusted), caps
+  live pings per sender (default 8), self-expires each ping when its animation ends, and
+  `remove(sender)` erases a sender's pings immediately — wire it to `presence-leave`/disconnect.
+  Pings are ephemeral by contract: presence only, never elements, undo history, persisted canvas
+  state, or durable sync operations — and they never move the viewer's camera; pings are visual
+  only. Ping presence is visible to everyone receiving the room's presence; element-level
+  `canRead`/audience filtering remains unrelated and unchanged.
+
+## [0.54.0] — 2026-08-04
+
+### Added
+
+- Public viewport overlay registration: `viewport.registerOverlay(draw)` draws world-space
+  overlays above elements on every frame regardless of the active tool — the reusable surface for
+  remote presence visuals (laser trails, cursors, pings, shared rulers). Registered overlays draw
+  beneath the active tool's own `renderOverlay`, work in both the plain and hybrid (DOM-interleaved)
+  render paths, are isolated per frame if they throw, and return an idempotent unsubscribe that
+  erases the overlay's last frame. Overlays never touch elements, history, or persisted state.
+- `LaserTool.onTrail(listener)`: an emission hook that batches locally drawn world-space trail
+  points and delivers them at most once per animation frame (`LaserTrailEmission` with `points`,
+  `color`, `width`, `fadeMs`), so hosts can broadcast a live laser without duplicating the tool's
+  pointer handling. Nothing is recorded while no listener is subscribed; pending points are dropped
+  on tool deactivation; a throwing listener cannot stall the fade loop.
+- `RemoteLaserOverlay`: a reusable remote-trail controller that renders fading per-sender laser
+  trails through the overlay registration. `apply(sender, data)` validates untyped presence
+  payloads with the new `isLaserTrailPresence` guard (`{ kind: 'laser', points, color?, width?,
+fadeMs? }`, built from an emission via `toLaserTrailPresence`), stamps points with local receive
+  time (remote clocks are never trusted), caps stored points per sender, fades trails like the
+  local `LaserTool`, and `remove(sender)` erases a trail immediately — wire it to
+  `presence-leave`/disconnect. Laser trails are ephemeral by contract: presence only, never
+  elements, undo history, persisted canvas state, or durable sync operations. Trails are visible
+  to everyone receiving the room's presence; element-level `canRead`/audience filtering remains
+  the only privacy boundary.
+
+## [@fieldnotes/sync 0.11.0] — 2026-08-04
+
+### Added
+
+- Presence passthrough on `createManagedSyncConnection`: `sendPresence(data)` plus
+  `onPresence(handler)`/`onPresenceLeave(handler)`. Handlers are attached to every client the
+  manager builds, so they survive credential rebuilds without re-subscribing; `sendPresence` is
+  fire-and-forget and only delivers while the connection is `live` — presence produced while
+  offline/connecting is dropped, never queued, so stale trails cannot replay after a reconnect.
+  The presence `from` key is the relay's server-owned connection id (an opaque per-sender key,
+  not the remote clientId). Wire protocol unchanged; old peers are unaffected.
+
+## [@fieldnotes/sync 0.10.0] — 2026-08-04
+
+### Added
+
+- Optional versioned layer-definition sync (`LAYER_SYNC_PROTOCOL_VERSION` 1). New wire ops
+  `layer-upsert` and `layer-remove` carry a full layer definition (id, name, order, visible,
+  locked, opacity) or a removal tombstone plus an explicit per-layer `version` counter and the
+  editing client id; snapshots gain an optional `layers` field of `LayerRecord`s. Conflicts
+  resolve deterministically everywhere by highest version with lexicographic editor tiebreak —
+  never wall-clock or arrival order. Peers that predate this release reject the new op kinds in
+  `isValidEnvelope` and ignore the extra snapshot field, and clients that do not opt in ignore
+  all layer traffic, so mixed rooms keep today's element-only behavior.
+- `SyncClient` opt-in via `SyncClientOptions.layers`: the host `applyLayer` hook receives only
+  winning records (so role-local policy such as player lock state is never stomped and remote
+  applications stay out of undo history), `publishLayerUpsert`/`publishLayerRemove` stamp and
+  broadcast local edits, and the exported `LayerLedger` tracks records and tombstones. Snapshot
+  merges apply layers before elements, are non-destructive, and re-push locally-newer records;
+  layer ops arriving from the server-owned `hub` identity apply as authoritative corrections.
+- `createManagedSyncConnection` accepts `layers` and exposes
+  `publishLayerUpsert`/`publishLayerRemove`; the manager keeps one ledger for its lifetime, so
+  versions and tombstones survive credential rebuilds and edits made while disconnected are
+  re-pushed after the next authoritative snapshot.
+- Layer definitions are presentation, not security: layer records never carry element bytes and
+  element-level audience filtering remains the only privacy boundary.
+
+## [@fieldnotes/sync-server 0.12.0] — 2026-08-04
+
+### Added
+
+- `SyncHub` stores and relays the new layer-definition ops on the room's serial queue with the
+  same deterministic (version, editor) last-writer-wins rule clients apply, includes stored
+  records (tombstones included) in every snapshot so late joiners and reconnecting clients
+  converge, forwards layer ops through the configured fan-out, and answers stale or denied edits
+  with an authoritative correction to the sender only. An element `clear` never touches layer
+  records, and rooms that never used layer sync produce byte-identical snapshot frames.
+- Optional `authorizeLayer` hook on `SyncHubOptions`/`CreateSyncServerOptions` with the target
+  layer op and the hub's current record; without it every room member may edit definitions.
+- `HubBackend` gains optional, additive `layerRecords`/`getLayerRecord`/`applyLayerRecord`
+  methods (implemented by `MemoryHubBackend`); backends without them keep working unchanged and
+  the hub falls back to per-room in-memory records.
+
+## [@fieldnotes/sync-redis 0.4.0] — 2026-08-04
+
+### Added
+
+- `RedisHubBackend` implements the optional layer-record persistence contract in a separate
+  `<prefix><room>:layers` hash, validating stored values on read and surviving element `clear`.
+
+## [@fieldnotes/sync 0.9.0] — 2026-08-04
+
+### Added
+
+- Explicit authoritative-bootstrap/reconcile hooks: `SyncClient` accepts `resolveLocalOnly`, called
+  synchronously for every authoritative snapshot addressed to the client with the phase
+  (`bootstrap` for the first non-destructive merge, `reconcile` for later destructive resyncs), the
+  validated snapshot, and the local-only elements the snapshot does not contain — each classified
+  `hubKnown` (seen in a snapshot or remote upsert, or sent as a local upsert). The host returns ids
+  to `preserve` (kept and re-pushed through the normal local-upsert path, so `resolveAudience`
+  stamping and server-side filtering apply) or `discard` (removed locally without broadcasting);
+  unlisted elements keep the phase default. A throwing hook falls back to the phase defaults and
+  never wedges the resync state machine, and no consumer timing around raw snapshot frames or
+  deferred macrotasks is needed. New `SyncClientOptions` (`resolveLocalOnly`, `hubKnownIds`,
+  `firstSnapshot`) and types (`AuthoritativeSnapshotPhase`, `AuthoritativeSnapshotContext`,
+  `LocalOnlyElement`, `LocalOnlyResolution`, `ResolveLocalOnly`) are exported, and
+  `createManagedSyncConnection` forwards `resolveLocalOnly` while persisting hub knowledge across
+  credential rebuilds. The wire protocol is unchanged.
+
+### Changed
+
+- After `createManagedSyncConnection` rebuilds a connection (for example after a `4401` token
+  refresh), the rebuilt client now applies its first authoritative snapshot as a reconcile instead
+  of a non-destructive merge: elements deleted while the connection was down are removed instead of
+  lingering locally, and local ops made before that snapshot are shielded by the
+  touched-during-resync rules. Hosts that need to keep hub-unknown local elements across rebuilds
+  opt in via `resolveLocalOnly`.
+
+## [@fieldnotes/sync 0.8.0] — 2026-08-04
+
+### Added
+
+- `createManagedSyncConnection()` owns the authenticated connection lifecycle around `SyncClient`
+  and `WebSocketTransport`: async URL/token resolution with refresh after credential expiry,
+  deterministic `connecting`/`live`/`offline`/`denied` status events, transport-owned transient
+  reconnect, manager-owned rebuild after terminal closes (`4401` by default), a bounded
+  consecutive-authentication-failure budget that settles on `denied`, exponential retry backoff for
+  credential-mint failures, and a `stop()` that cancels timers, listeners, the client, and the
+  transport while invalidating in-flight async URL results. `live` is emitted when an authoritative
+  snapshot addressed to the client arrives, and a successful snapshot resets both retry budgets. An
+  optional `onTransportMessage` hook observes raw frames before the client applies them, so hosts
+  can keep application-level message parsing without private transport access.
+
+## [@fieldnotes/sync-server 0.11.0] — 2026-08-04
+
+### Added
+
+- `SyncHub.broadcastPresence(room, data)` lets trusted server integrations send ephemeral,
+  server-owned presence data to every local room member and across configured fan-out instances
+  without accessing private connection registries or touching durable canvas state.
+
+## [@fieldnotes/sync-server 0.10.2] — 2026-08-04
+
+### Security
+
+- Rejected-operation corrections now apply the requesting connection's `canRead` policy before
+  leaving the server. Canonical upserts for unreadable elements become byte-free removes, and
+  corrective snapshots omit every unreadable element.
+
+## [@fieldnotes/core 0.53.0] — 2026-08-04
+
+### Added
+
+- `Viewport.transaction()` groups synchronous store and layer mutations into one undo step, supports
+  nested callers, returns the callback result, and preserves undoability when a callback throws.
+- `Viewport.removeElements()` removes existing element IDs in one transaction while ignoring missing
+  and duplicate IDs.
+
+## Examples
+
+- Added `examples/live-play` — a framework-free reference app demonstrating the full real-time-collab stack
+  (role join, ownership, DM hide/reveal, live cursors) against a `createSyncServer` relay.
+
+## [@fieldnotes/sync-server 0.10.1, @fieldnotes/sync-redis 0.3.2] — 2026-08-01
+
+### Fixed
+
+- Durable mutation fan-out is now awaited and publication failures propagate to the relay error
+  path instead of silently leaving other instances stale. Local peers receive the mutation only
+  after publication succeeds, and a failed operation no longer wedges its room queue.
+
+## [@fieldnotes/sync-server 0.10.0] — 2026-08-01
+
+### Added
+
+- Relay shutdown is now bounded and idempotent: it stops admission, gracefully closes active
+  clients, and terminates stragglers after the configurable `shutdownGraceMs` window.
+
+## [@fieldnotes/sync-server 0.9.0] — 2026-08-01
+
+### Added
+
+- The relay now applies configurable inbound message-size, message-rate, JSON-depth, pending-auth
+  queue, and presence-frequency limits with production-safe defaults.
+- Rapid presence updates are coalesced so peers receive the latest state without unbounded relay
+  traffic.
+
+## [@fieldnotes/sync-server 0.8.2] — 2026-08-01
+
+### Security
+
+- Relayed mutations, presence updates, cross-instance fan-out, and disconnect leaves now use the
+  server-owned connection identity instead of trusting the client-controlled envelope sender.
+
+## [@fieldnotes/core 0.52.2] — 2026-08-01
+
+### Fixed
+
+- Live canvas and DOM culling now uses rotation-expanded visual bounds, preventing rotated elements
+  from disappearing or popping at viewport edges.
+
+## [@fieldnotes/core 0.52.1] — 2026-08-01
+
+### Fixed
+
+- DOM-backed notes, text, and HTML embeds now interleave with canvas-rendered elements according to
+  their shared layer and `zIndex` paint order, including live reordering and camera transforms.
+
+## [@fieldnotes/core 0.52.0] — 2026-08-01
+
+### Added
+
+- PNG and SVG exports can now include application-owned HTML embeds through the asynchronous
+  `renderHtml` hook, with bounded rendering time and typed omission/encoding diagnostics.
+
+## [@fieldnotes/core 0.51.0] — 2026-08-01
+
+### Added
+
+- PNG and SVG export options now support bounded image-load timeouts, configurable dimension and
+  pixel limits, and an `onAssetError` callback for load, timeout, and encoding failures.
+
+### Fixed
+
+- Export requests image sources exactly as supplied instead of appending a query parameter that can
+  invalidate signed URLs or change cache behavior.
+- PNG and SVG exports reject invalid options and unsafe output sizes before allocating canvases.
+
+## [@fieldnotes/core 0.50.8] — 2026-08-01
+
+### Fixed
+
+- Imported canvas state now rejects unsupported versions, duplicate IDs, malformed layers and layer
+  references, non-finite geometry, and invalid type-specific element data while preserving version 1
+  migrations.
+
+## [@fieldnotes/core 0.50.7] — 2026-08-01
+
+### Fixed
+
+- Multi-grid rendering now invalidates its cached bitmap when any visible grid is added, removed,
+  reordered, or replaced, preventing changes to later grids from leaving stale pixels.
+
+## [@fieldnotes/core 0.50.6] — 2026-08-01
+
+### Fixed
+
+- Pinch navigation now remains continuous with three or more active pointers: extra pointers cannot
+  trigger fallback panning, and replacing either navigation pointer rebaselines the gesture before
+  applying movement.
+
+## [@fieldnotes/core 0.50.5] — 2026-08-01
+
+### Fixed
+
+- Pinch zoom now anchors to the gesture midpoint in canvas-local coordinates, so canvases embedded
+  away from the viewport origin zoom around the fingers instead of an offset point.
+
+## [@fieldnotes/core 0.50.4] — 2026-08-01
+
+### Fixed
+
+- Selected arrows and lines no longer expose or accept endpoint/bend handle edits when the element
+  or its layer is locked, including when a lock is applied during an active handle drag.
+
+## [@fieldnotes/core 0.50.3] — 2026-08-01
+
+### Fixed
+
+- The spatial index now expands geometrically when elements are added or moved beyond its initial
+  bounds, keeping distant infinite-canvas content available to rendering, selection, and hit tests.
+
+## [@fieldnotes/core 0.50.2] — 2026-08-01
+
+### Fixed
+
+- Layer opacity now affects cached canvas layers, DOM-backed notes/text/HTML, grids, PNG exports,
+  and SVG exports. Canvas and export layers are composited as groups so overlapping elements do not
+  incorrectly accumulate opacity, while existing per-element opacity continues to multiply with the
+  layer value.
+
+## [@fieldnotes/sync 0.7.1, @fieldnotes/sync-server 0.8.1, @fieldnotes/sync-redis 0.3.1] — 2026-08-01
+
+### Fixed
+
+- Sync element validation now checks the complete discriminated element structure, including base
+  fields, finite geometry, variant-specific required fields, optional-field types, and enum values.
+  Malformed upserts are dropped before client application, relay persistence/broadcast, or fanout;
+  corrupt Redis entries are excluded from reads. Extra application metadata remains supported.
+
+## [@fieldnotes/core 0.50.1] — 2026-08-01
+
+### Fixed
+
+- Text-element rich HTML is now sanitized at every client-side ingestion boundary: factories,
+  direct store additions and updates, imported JSON, loaded snapshots, and remote sync upserts.
+  Unsupported elements and event-handler attributes can no longer reach the DOM through text
+  elements; supported bold, italic, underline, strikethrough, line break, and font-size formatting
+  is preserved. Notes receive the same store-boundary defense in depth.
+
+## [@fieldnotes/core 0.50.0] — 2026-07-23
+
+### Changed
+
+- Corner-resizing an image now preserves its aspect ratio by default — no more careful diagonal
+  dragging to avoid distortion. Hold Shift for free resize. On touch (no modifier), image resize
+  is always proportional. All other element types keep free resize by default with Shift-to-lock,
+  as before.
+
+## [@fieldnotes/core 0.49.0] — 2026-07-22
+
+### Added
+
+- Rotate the selection 90° with one action: `viewport.rotateSelection('cw' | 'ccw')`, default
+  shortcuts `R` (clockwise) / `Shift+R` (counter-clockwise), and "Rotate 90° CW/CCW" context
+  menu items (long-press menu on touch). Multi-selections turn as a rigid group about the
+  selection center; templates re-aim (`angle`), arrows rotate their endpoints; locked elements
+  and bound arrows are skipped; one undo step.
+
+## [@fieldnotes/react 0.8.0] — 2026-07-22
+
+### Added
+
+- (react) `useSelectionOps` now returns `rotateCW()` / `rotateCCW()`; requires
+  `@fieldnotes/core >= 0.49.0`.
+
+## [@fieldnotes/core 0.48.0] — 2026-07-09
+
+### Added
+
+- New `rectangle` template shape — a directional area of effect with independently sizable
+  length and width (a wall / corridor / wide blast). Draw it like a line; drag the far-edge
+  handle to lengthen, the side handle to widen, and the tip knob to re-aim (Shift-snaps like
+  cone/line). Renders as hex-cell fill or the smooth/geometric style, exports to SVG, and shows
+  the live + placed feet readout, consistent with the other templates.
+- `getHexCellsInRectangle` helper exported from `@fieldnotes/core`.
+
+## [@fieldnotes/core 0.47.0] — 2026-07-09
+
+### Added
+
+- Cone and line templates can be re-aimed after placement: select one and drag the round aim
+  handle at its tip to swing its direction about its origin. Hold Shift to snap to 15°
+  (60° on hex grids).
+- Live "N ft" measurement while placing any template (circle, cone, line, square), shown during
+  the drag and kept on the placed element whenever a grid scale is set.
+
+## [@fieldnotes/sync-server 0.8.0] — 2026-07-04
+
+### Added
+
+- Ephemeral **presence relay**. The hub forwards `presence` ops to every room member (except the sender)
+  **off the serial queue** — never persisted, never `canRead`-filtered — and fans them across instances.
+  On disconnect it emits a hub-authored `presence-leave` for any connection that sent presence, so a peer's
+  cursor clears reliably (a client-sent `presence-leave` is ignored — only the hub emits leaves). Pairs with
+  `@fieldnotes/sync` 0.7.0's `sendPresence`/`onPresence`. **Internal:** the fanout now also carries
+  presence/leave ops — deploy relay instances together.
+
+## [@fieldnotes/sync 0.7.0] — 2026-07-04
+
+### Added
+
+- Ephemeral **presence channel** — `SyncClient.sendPresence(data)` broadcasts a transient, opaque signal
+  (cursor position, laser, AoE-preview) that is never persisted, never in a snapshot, and never applied to
+  the store; `onPresence((from, data) => …)` / `onPresenceLeave((from) => …)` receive peers' signals and a
+  hub-emitted leave when a peer disconnects. New `presence` / `presence-leave` op kinds. **Caveat:** presence
+  is broadcast to everyone in the room (not `canRead`-filtered) — do not put secret bytes in `data`.
+
+## [@fieldnotes/sync-server 0.7.0] — 2026-07-04
+
+### Added
+
+- Per-viewer **read filtering**. New injected `canRead({ userId, role, room, audience }) => boolean` hook
+  (`createSyncServer`/`SyncHub`): the hub filters what each viewer receives on both live broadcast and
+  snapshot-on-join, so a DM can hold elements players never **receive** (not merely can't see). Audience is
+  the opaque tag stamped by `@fieldnotes/sync` 0.6.0's `resolveAudience`. Moving an element between
+  audiences emits a synthetic add/remove per viewer as visibility changes. No hook → unchanged behavior.
+  Exports `CanRead` / `ReadContext`.
+
+### Changed
+
+- The cross-instance fanout payload now carries the structured op (was a pre-serialized message) so each
+  instance re-filters per its own members. **Internal protocol change — deploy relay instances together.**
+  `canRead` must be identical on all instances (it runs on every instance, unlike origin-only `authorize`).
+
+## [@fieldnotes/sync 0.6.0] — 2026-07-04
+
+### Added
+
+- `SyncClientOptions.resolveAudience?(element) => string | undefined` — stamp an opaque `audience` tag on
+  outgoing upserts (e.g. `'dm'` / `'shared'`), derived from the app's own layers. Paired with the relay's
+  new `canRead` hook (`@fieldnotes/sync-server` 0.7.0), this lets the hub filter what each viewer receives
+  so hidden elements never reach unauthorized clients. No resolver → no tag → unchanged behavior. Exports
+  the `SyncElement` type (`CanvasElement & { audience?: string }`).
+
+## [@fieldnotes/core 0.46.1] — 2026-07-04
+
+### Fixed
+
+- Element ids now include a per-process random component, so two clients creating an element in the same
+  millisecond no longer produce the same id (which, under sync, silently merged the two users' elements via
+  the last-write-wins upsert). Ids remain opaque strings and old saved ids stay valid — no migration.
+
+## [@fieldnotes/sync-server 0.6.0] — 2026-07-04
+
+### Added
+
+- Denied-op correction. When an `authorize` hook denies a write, the hub now sends the offending client a
+  corrective op — remove (a rejected new element), upsert of the canonical element (a rejected edit/remove),
+  or a fresh snapshot (a rejected `clear`) — so its optimistic local edit self-corrects immediately instead
+  of looking accepted until the next reconnect. The correction reuses existing op kinds, so no client change
+  is required; it is sent only to the offending connection.
+
+## [@fieldnotes/sync-server 0.5.0] — 2026-07-04
+
+### Added
+
+- Heartbeat / dead-connection reaping. `createSyncServer` now pings clients on an interval and terminates any
+  that miss a pong, so half-open sockets (a backgrounded iPad, dropped WiFi) are reaped instead of leaking
+  room membership. Configurable via `heartbeatIntervalMs` (default 30000; `0` disables). Browsers auto-pong —
+  no client change.
+
+### Changed
+
+- Room-required rejection now closes with WS code `4400` (was `1008`) so a `@fieldnotes/sync` 0.5.0+ client
+  (which suppresses reconnect on app-range 4xxx codes) no longer reconnect-loops through a missing-`?room`
+  config error.
+- `MemoryHubBackend` reclaims a room's memory on `clear` (previously left an empty entry). It still retains
+  state for uncleared/abandoned rooms — use a Redis backend with a TTL for a long-lived process.
+
+## [@fieldnotes/sync 0.5.1] — 2026-07-04
+
+### Fixed
+
+- `SyncClient`: a socket drop during the initial-join handshake left the resync state (`resyncPending` +
+  the in-flight-edit shield) stuck until the next reconnect. The resync state is now finalized after any
+  snapshot (merge or reconcile), not only on the reconcile path.
+
+## [@fieldnotes/sync-server 0.4.0] — 2026-07-01
+
+### Added
+
+- Write authorization. `createSyncServer`/`SyncHub` accept an injected `authorize(ctx) => boolean | Promise<boolean>`
+  hook; the hub calls it before applying each data op and drops denied ops (not applied, not forwarded). `ctx`
+  carries the connection's `userId`/`role` (from auth), the op, and the current stored element. Element ownership
+  is server-stamped (`ownerId` = the authenticated creator, preserved on edit, un-forgeable) so a policy can
+  enforce "own elements only". With no hook, rooms stay open (allow-all). A copy-paste DM/player/display policy
+  is in the README. Ownership requires `authenticate` for a stable `userId`.
+
+### Changed (BREAKING for custom backends)
+
+- `HubBackend` gains a required `get(room, id): Promise<CanvasElement | undefined>` (the built-in
+  `MemoryHubBackend` implements it). A custom `HubBackend` must add `get`.
+
+## [@fieldnotes/sync-redis 0.3.0] — 2026-07-01
+
+### Added
+
+- `RedisHubBackend.get(room, id)` (via `HGET`) — powers the relay's ownership lookups for write authorization.
+
+### Changed (BREAKING for custom clients)
+
+- The injected `RedisHashClient` gains a required `hGet(key, field): Promise<string | null>` (node-redis v4 and
+  ioredis both provide it; the ioredis shim adds `hGet: (k, f) => io.hget(k, f)`).
+
+## [@fieldnotes/sync 0.5.0] — 2026-07-01
+
+### Added
+
+- `WebSocketTransport` no longer auto-reconnects through a deliberate server rejection: by default it stops
+  on app-range close codes (4000–4999) — e.g. `@fieldnotes/sync-server`'s `4401` auth reject — instead of
+  looping forever. A new `shouldReconnect?(code)` option customizes which codes reconnect, and a new
+  `onClose(handler: (code, reason) => void)` subscription lets the app react to a close (e.g. show "access
+  denied" on 4401). Transient closes (network drops, 1006, …) still reconnect. (Only 4xxx codes are
+  suppressed by default; a room-less connection is rejected server-side with the standard code 1008, which an
+  app can add to `shouldReconnect` if desired.)
+
+## [@fieldnotes/sync-server 0.3.0] — 2026-07-01
+
+### Added
+
+- Injected `authenticate` hook on `createSyncServer` — `authenticate({ req, room }) → { userId, role? } | null`
+  (sync or async). A rejected connection (null/throw) is closed with WS code 4401 and never admitted to a room;
+  an admitted `Connection` carries `userId` + `role`. With no hook, rooms stay open (anonymous). Messages that
+  arrive during an async auth are queued and replayed once admitted, so the client's initial snapshot request
+  is never lost. Role is captured now; role-based authorization and per-viewer visibility filtering come next.
+
+## [@fieldnotes/sync-server 0.2.0] — 2026-07-01
+
+### Added
+
+- `HubFanout` seam for cross-instance live fan-out. `SyncHub` accepts `fanout` + `instanceId` options (also
+  threaded through `createSyncServer`); the default in-process `InMemoryHubFanout` is a no-op for a single
+  instance. A shared fanout lets two relay instances forward each other's live ops. Publishing is
+  instanceId-tagged so a hub never re-delivers its own ops; receiving instances forward-only (no backend
+  re-apply). Multi-instance requires a shared fanout AND a shared backend.
+
+## [@fieldnotes/sync-redis 0.2.0] — 2026-07-01
+
+### Added
+
+- `RedisHubFanout` — a `HubFanout` over Redis pub/sub, so relay instances share live ops. Zero external
+  deps: you inject a publish connection and a DEDICATED subscriber connection (node-redis `client.duplicate()`;
+  ioredis a second client) via the `RedisPublisher` / `RedisSubscriber` seams. Single channel (default
+  `fieldnotes:fanout`, configurable). Pair with `RedisHubBackend` for full multi-instance real-time sync.
+
+## [@fieldnotes/sync-redis 0.1.0] — 2026-07-01
+
+### Added
+
+- New package: a Redis persistence backend for the sync relay. `RedisHubBackend` implements `HubBackend`,
+  storing each room as a Redis HASH (field = element id, value = JSON) so relay state survives restarts and
+  is shared across instances. Zero external dependencies — you inject your own Redis client via a minimal
+  `RedisHashClient` interface (node-redis v4 works directly; ioredis via a small shim). Wire it with
+  `createSyncServer({ backend: new RedisHubBackend(client) })`. (Cross-instance live fan-out via pub/sub is
+  a planned follow-up; a single relay instance is fully live today.)
+
+## [@fieldnotes/sync 0.4.0] — 2026-06-30
+
+### Added
+
+- `WebSocketTransport` auto-reconnect — on an unexpected drop it reconnects with exponential backoff +
+  jitter (capped, forever until `close()`), buffering outgoing messages during the outage and flushing
+  them in order on reconnect. New `WebSocketTransportOptions`: `reconnect`, `reconnectInitialDelayMs`,
+  `reconnectMaxDelayMs`, `reconnectFactor`, `maxBufferSize`, `random`.
+- `SyncTransport.onReconnect?` (optional) — fired after a successful re-open.
+- `SyncClient` resync-on-reconnect — re-requests a snapshot and reconciles against the authoritative hub
+  state (upserts canonical elements, removes local elements no longer present), recovering changes missed
+  during the outage including deletions. Local edits made during the brief resync window are shielded from
+  the reconcile. The initial-join merge is unchanged.
+
+## [@fieldnotes/sync 0.3.0] — 2026-06-30
+
+### Added
+
+- `WebSocketTransport` — a `SyncTransport` over WebSocket (buffers sends until the socket opens). The op
+  protocol (`SyncOp`/`SyncEnvelope`/`isValidEnvelope`/`isValidElement`/`parseEnvelope`/`applyOpToMap`) is
+  now an exported `protocol.ts` shared with the server, with hardened element validation at the untrusted
+  boundary (object + string id + a known element type).
+
+## [@fieldnotes/sync-server 0.1.0] — 2026-06-30
+
+### Added
+
+- New package: an authoritative relay for real-time sync. `SyncHub` holds per-room canonical state behind
+  an async `HubBackend` (in-memory default; Redis adapter upcoming), applies + forwards ops to a room's
+  other members, and answers `request-snapshot` with the room snapshot — all processed on a per-room serial
+  queue. `createSyncServer` is a runnable `ws` relay (rooms via `?room=`). Open rooms for now
+  (auth/permissions upcoming). This is cross-device real-time over a real server.
+
+## [@fieldnotes/sync 0.2.0] — 2026-06-29
+
+### Added
+
+- Snapshot-on-join: a `SyncClient` that joins an in-progress session now pulls the current state from a
+  peer (a `request-snapshot` → `snapshot` round-trip) and merges it in, instead of starting empty. New
+  `SyncOp` control variants (`request-snapshot`, `snapshot`). Still BroadcastChannel-only; a server-held
+  canonical snapshot comes with the relay transport.
+
+## [@fieldnotes/sync 0.1.0] — 2026-06-29
+
+### Added
+
+- New package `@fieldnotes/sync`: real-time element sync. `SyncClient` streams local store changes and
+  applies remote ones — using core 0.46.0's `origin` hook so synced changes don't pollute undo or echo
+  back. `SyncTransport` is a pluggable seam with a zero-infra `BroadcastChannelTransport` (same-browser
+  tabs). The demo has a Sync toggle (open it in two tabs to see live sync). (WebSocket transport + relay,
+  snapshot-on-join, and permissions are upcoming.)
+
+## [0.46.0] — 2026-06-29
+
+### Added
+
+- Store changes can carry an optional `origin` (`ElementChangeMeta`): `store.add/update/remove/clear/
+loadSnapshot` accept a trailing `{ origin }`. A change with a non-local origin (e.g. `'remote'`) is
+  excluded from undo history and is surfaced to `store.on(...)` listeners via a second `meta` argument,
+  so external/synced changes don't pollute undo or echo back. Foundation for real-time collaboration;
+  no behavior change for existing callers (default origin is local).
+
+## [0.45.0] — 2026-06-28
+
+### Added
+
+- Pluggable persistence: a `StorageAdapter` interface plus built-in `IndexedDBAdapter`,
+  `LocalStorageAdapter`, and `MemoryAdapter`. `AutoSave` now accepts an `adapter` option — use
+  `IndexedDBAdapter` to store far more than localStorage's ~5 MB cap (works on iPad Safari too).
+
+### Changed
+
+- **Breaking (pre-1.0):** `AutoSave.load()` and `AutoSave.clear()` are now async (return Promises) so
+  they can back asynchronous stores like IndexedDB. `await` them. The default adapter remains
+  localStorage, so existing behavior is otherwise unchanged.
+
+## [0.44.0] — 2026-06-27
+
+### Added
+
+- Area templates can now render as smooth geometric shapes on hex grids (not just snapped hex cells),
+  so they rotate and move freely. Opt in per template via `renderStyle: 'geometric'` (new
+  `TemplateRenderStyle` type) or the template tool's render-style option; hex-cell fill remains the default.
+
+## [0.43.0] — 2026-06-27
+
+### Added
+
+- Minimap: an opt-in overview (bottom-right) showing all content and the current viewport, with
+  tap/drag to navigate. Enable with the new `minimap: true` viewport option.
+
+## [0.42.0] — 2026-06-27
+
+### Added
+
+- Pan inertia: panning now coasts to a stop after a flick (mouse Space/middle-drag and two-finger
+  touch), with friction. Opt out via the new `panInertia: false` viewport option.
+
+## [0.41.0] — 2026-06-27
+
+### Added
+
+- Arrow stroke style: arrows can be solid, dashed, or dotted (`ArrowElement.strokeStyle`, settable via
+  `applyStyleToSelection` and the arrow tool).
+
+### Changed
+
+- Bound arrows are no longer forced to render dashed — appearance is now controlled solely by
+  `strokeStyle` (default solid). Existing bound arrows render solid after upgrade.
+
+## [0.40.4] — 2026-06-25
+
+### Fixed
+
+- Dragging an arrow's middle (bend) handle now follows the pointer 1:1 instead of lagging at half
+  speed, and no longer jumps toward the line when you re-grab the handle.
+
+## [0.40.3] — 2026-06-25
+
+### Fixed
+
+- PNG and SVG export of text elements now honors text alignment (center/right) and matches the
+  on-canvas line spacing, instead of always exporting left-aligned with tighter line height.
+
+## [0.40.2] — 2026-06-25
+
+### Fixed
+
+- Text and note boxes now resize to fit their content live while editing (grow and shrink), instead
+  of only snapping to size on click-out. The whole edit remains a single undo step. (Manual resize of
+  a note still persists its dragged height.)
+
+## [0.40.1] — 2026-06-25
+
+### Fixed
+
+- Text elements now render their formatting (bold/italic/underline) instead of showing literal HTML
+  tags after editing — in the canvas (DOM), PNG export, and SVG export.
+
+## [0.40.0] — 2026-06-25
+
+### Added
+
+- `Tab` / `Shift+Tab` cycle the selection through elements (render order, wrap-around).
+- The arrow bend handle now shows on hover, not only when the arrow is selected.
+- `LaserTool` — an ephemeral presentation pointer that leaves a fading trail and is never persisted.
+
+## [0.39.0] — 2026-06-25
+
+### Added
+
+- Paste images from the OS clipboard with Ctrl+V; `ViewportOptions.onPaste` hook to intercept.
+- SVG export — `viewport.exportSVG()` / `exportSvg()` (vector strokes/shapes/arrows/grid/template,
+  `<text>` for text, rasterized notes, embedded images; HTML embeds excluded, matching PNG).
+- `viewport.registerHtmlRenderer(htmlType, factory)` + optional `HtmlElement.htmlType`/`data` so
+  serialized HTML embeds rehydrate on load.
+
+### Changed
+
+- Ctrl+V now flows through the native paste event (the `mod+v` shortcut binding was removed; the
+  `paste` action remains for the context menu and `runAction`).
+
+## [0.38.7] — 2026-06-25
+
+### Fixed
+
+- Nudge bursts now stay a single undo step even when another history transaction begins mid-burst.
+
+### Changed
+
+- Dev `console.warn` when a keyboard shortcut binding collides with an already-bound action (first
+  registered still wins; `match()` unchanged).
+- Internal: tightened the nudge-commit ownership guard; added layer/element interaction, nudge-
+  ownership, and shortcut-conflict tests.
+
+## [0.38.6] — 2026-06-25
+
+### Changed
+
+- Internal: extracted keyboard handling (keydown/keyup + action dispatch) from `input-handler` into
+  `KeyboardHandler`. No public API or behavior change.
+
+## [0.38.5] — 2026-06-25
+
+### Changed
+
+- Internal: decomposed `element-renderer` into per-element-type renderer modules
+  (`elements/renderers/` — stroke/shape/arrow/image/template). Grid rendering stays on the class.
+  No public API or behavior change.
+
+## [react 0.7.0] — 2026-06-25
+
+### Added
+
+- `useSelectionOps()` — reactive selection state (`selectedIds`, `selectedCount`, `canGroup`,
+  `canUngroup`, `canAlign`, `canDistribute`, `isLocked`) plus `group`/`ungroup`/`toggleLock`/
+  `align`/`distribute` actions for the core selection operations. (`useSelection` unchanged.)
+  Requires core `>=0.36.0`.
+
+## [0.38.4] — 2026-06-24
+
+### Changed
+
+- Internal: narrowed two discriminated-union type assertions to type guards (`element-store`,
+  `keyboard-actions`). No public API or behavior change.
+
+## [0.38.3] — 2026-06-24
+
+### Changed
+
+- Internal: extracted viewport pointer-interaction + editing into `ViewportInteractions`. Completes
+  the viewport decomposition. No public API or behavior change.
+
+## [0.38.2] — 2026-06-24
+
+### Changed
+
+- Internal: extracted viewport selection-ops, grid, and DOM-setup into focused modules
+  (`SelectionOps`, `GridController`, `viewport-dom`). No public API or behavior change.
+
+## [0.38.1] — 2026-06-24
+
+### Changed
+
+- Internal: decomposed `select-tool` into focused modules (`select-overlay`, `select-hit`,
+  `select-resize`). No public API or behavior change.
+
+## [0.38.0] — 2026-06-24
+
+### Added
+
+- **`viewport.addShape(opts?)`** — create a shape programmatically (default: a centered 100×100
+  rectangle), in one undo step, with the new shape selected. Enables keyboard-friendly shape
+  creation.
+
+### Accessibility (demo)
+
+- Toolbar buttons gained `aria-label` + `aria-pressed` (active-tool state) and a `role="toolbar"`
+  group; keyboard focus rings (`:focus-visible`); `prefers-reduced-motion` handling; and an
+  "Insert Shape" button (a keyboard-only path to create a shape).
+
+---
+
+## [0.37.0] — 2026-06-24
+
+### Changed
+
+- **Stylus pressure** — strokes now use a wider pressure→width range (heavy presses go thicker than
+  the base width, light presses thinner), so pressure variation is clearly visible at the default
+  width.
+- **Note font-size** — choosing a font size with no text selected now applies it to the whole note
+  instead of doing nothing.
+
+---
+
+## [0.36.0] — 2026-06-23
+
+### Added
+
+- **Context menu** — right-click and touch long-press open a menu with Cut/Copy/Paste/Duplicate/
+  Delete, z-order (to front / forward / backward / to back), and Lock/Unlock. Core-provided
+  (plain DOM); disable with `new Viewport(el, { contextMenu: false })`.
+- **Element lock** — `viewport.toggleLockSelection()`, `Ctrl/Cmd+Shift+L`, and a lock badge on the
+  selection. Locked elements stay selectable but can't be moved, resized, or rotated.
+- **Cut** (`Ctrl/Cmd+X`) and programmatic `viewport.runAction(name)` / `viewport.canPaste()`.
+
+---
+
+## [0.35.0] — 2026-06-23
+
+### Added
+
+- **Element rotation** — rotate note/text/image/html/shape/stroke about their center via a rotate
+  handle above the selection (single-element). Hold **Shift** to snap to 15°.
+  - Rotation-aware hit-testing, marquee selection, and local-frame resize (the opposite corner
+    stays fixed while resizing a rotated element).
+  - Rotation is reflected in PNG export and round-trips in serialization (`rotation?` on elements,
+    radians, additive — no migration).
+
+---
+
+## [0.34.0] — 2026-06-22
+
+### Added
+
+- **Grouping.** Group and ungroup elements so they select, move, delete, z-order, and align as a unit. `viewport.groupSelection()` groups the current selection and `viewport.ungroupSelection()` dissolves any groups in it — one undo step each. Bound to `Ctrl/Cmd+G` (group) and `Ctrl/Cmd+Shift+G` (ungroup), rebindable as `group` / `ungroup`. Selecting any member selects its whole group; pasting or duplicating a group keeps the copies grouped under a fresh id. Elements gain an additive optional `groupId` that round-trips through serialization with no migration.
+
+---
+
+## [0.33.0] — 2026-06-21
+
+### Added
+
+- **Smart alignment guides.** With `viewport.setSmartGuides(true)`, dragging a selection snaps its edges and centers to nearby visible elements — either aligned (edges/centers line up) or abutting (flush against an opposite edge) — within 6 screen px, and draws guide lines at the matched alignments during the drag. When enabled, this replaces grid snapping for the drag; one undo step per drag as before.
+
+---
+
+## [0.32.0] — 2026-06-21
+
+### Added
+
+- **Align & distribute.** `viewport.alignSelection(edge)` aligns the selected elements to the selection's bounding box (`'left' | 'center-x' | 'right' | 'top' | 'middle' | 'bottom'`); `viewport.distributeSelection(axis)` spaces their centers evenly (`'horizontal' | 'vertical'`). Each is one undo step. Align needs 2+ elements, distribute 3+. Locked elements anchor the bounding box without moving; grids are ignored.
+
+---
+
+## [0.31.1] — 2026-06-21
+
+### Fixed
+
+- **Eraser radius now matches the cursor at all zoom levels.** `EraserToolOptions.radius` is screen pixels (it sizes the eraser cursor); it was previously applied uncorrected as a world-space radius, so the erased region was larger than the visible cursor when zoomed in and smaller when zoomed out. The radius is now converted to world units per the camera zoom.
+
+---
+
+## [0.31.0] — 2026-06-19
+
+### Changed
+
+- **Line endpoint handles.** A selected line now shows two drag-handles at its endpoints — drag one to reshape the line, and the other stays anchored — instead of bounding-box resize handles.
+
+---
+
+## [0.30.0] — 2026-06-18
+
+### Added
+
+- **Line tool.** A new `'line'` shape kind draws a straight segment (hold Shift to snap to 45°). Lines are styled and selected like other shapes (selected by proximity to the segment); `ShapeElement.flip` records which bbox diagonal the line runs along.
+- **Highlighter.** `StrokeElement.blendMode: 'multiply'` renders strokes with a multiply blend so overlaps darken. `PencilTool` gains `opacity`, `blendMode`, and a configurable `name`, so a highlighter is just `new PencilTool({ name: 'highlighter', width: 12, opacity: 0.4, blendMode: 'multiply' })`.
+
+---
+
+## [0.29.0] — 2026-06-18
+
+### Changed
+
+- **Partial eraser.** The eraser now splits a stroke at the erased span instead of deleting it whole — dragging across a stroke removes only the touched portion and leaves the surviving segments as new strokes (one undo step per drag). Set `EraserToolOptions.mode: 'stroke'` to restore whole-stroke deletion. Eraser size is still `EraserToolOptions.radius` (default 20). Non-stroke elements are untouched, as before.
+
+---
+
+## [0.28.0] — 2026-06-17
+
+### Added
+
+- **Arrow labels.** Arrows take an optional `label` (`createArrow({ label })`), rendered as a pill at the curve midpoint. Double-click an arrow to add or edit its label inline — Enter or click-away commits (one undo step), Escape cancels, and an empty value clears it.
+
+---
+
+## [0.27.0] — 2026-06-16
+
+### Added
+
+- **Selection-aware styling.** A normalized `ElementStyle` (`{ color, fillColor, strokeWidth, opacity, fontSize }`) maps across element types; `styleToPatch` / `getElementStyle` convert to and from each type's real fields (e.g. a note's `color` is its text color, `fillColor` its background). `Viewport` gains `applyStyleToSelection(style)` (applies to the current selection in one undo step), `getSelectionStyle()` (shared values across the selection, omitting properties that differ), `getSelectedIds()` (a referentially-stable array), and `onSelectionChange(listener)`. `SelectTool` now emits a selection-change event.
+- **@fieldnotes/react 0.6.0** — `useSelection()` (reactive selected ids) and `useSelectionStyle()` (`[style, applyStyle]`). Requires core `>=0.27.0`.
+
+### Changed
+
+- **Demo:** the color / stroke-width / font-size / fill controls now apply to the current selection when one exists (and reflect its style), falling back to setting new-element defaults when nothing is selected — fixing the previous behavior where the color picker changed every tool globally. Adds shape-selection styling.
+
+---
+
+## [0.26.0] — 2026-06-14
+
+### Added
+
+- **Zoom presets** — `Ctrl/Cmd` `=` zooms in, `Ctrl/Cmd` `-` zooms out (1.2× steps), `Ctrl/Cmd` `0` resets to 100%. All zoom about the viewport center and respect the camera's min/max clamp. New rebindable shortcut actions `zoom-in` / `zoom-out` / `zoom-reset` (via `ViewportOptions.shortcuts`). The demo's zoom readout is now clickable to reset to 100%.
+
+### Changed
+
+- **Paste at cursor** — when the pointer is over the canvas, paste positions the clipboard so its bounding-box center lands at the cursor. Pasting without a recent pointer position (e.g. the pointer has left the canvas) keeps the previous diagonal +20px cascade.
+
+### Fixed
+
+- **Notes no longer clip text** — a note's height auto-grows to fit its content at edit-stop and after a resize. You can still drag a note taller than its content, but narrowing it (or adding text) grows the height instead of silently hiding the overflow.
+- **One undo step per text edit** — finishing a note or text edit (text change plus any height auto-fit) now records a single history entry, so one Ctrl+Z fully reverts the edit. Previously the text and height changes could land as two separate undo steps.
+
+---
+
+## [0.25.0] — 2026-06-14
+
+### Removed (breaking)
+
+- **Public surface trimmed before 1.0.** Internal machinery is no longer exported from `@fieldnotes/core` — none of it was supported API; all in-repo usage flows through `Viewport` and the documented helpers. Removed classes: `ElementRenderer`, `InputHandler`, `InputFilter`, `DoubleTapDetector`, `NoteEditor`, `NoteToolbar`, `Background`, `EventBus`, `Quadtree`, `HistoryRecorder`, and the concrete history command classes (`AddElementCommand`, `RemoveElementCommand`, `UpdateElementCommand`, `BatchCommand`, `CreateLayerCommand`, `RemoveLayerCommand`, `UpdateLayerCommand` — the `Command` interface is retained for custom undo). Removed functions: the arrow-binding engine (`isBindable`, `getElementCenter`, `getEdgeIntersection`, `findBindTarget`, `findBoundArrows`, `updateBoundArrow`, `clearStaleBindings`, `unbindArrow`), plus `createId`, `sanitizeNoteHtml`, `isNoteContentEmpty`, `DEFAULT_FONT_SIZE_PRESETS`. Removed types: `InputHandlerOptions`, `DoubleTapDetectorOptions`, `FilteredEvent`, `FilteredUpEvent`, `FilterAction`, `NoteEditorOptions`, `StyledRun`.
+- **Module-level `exportState` / `parseState` are no longer exported.** Use the `Viewport` methods instead.
+
+### Changed (breaking)
+
+- **State serialization is now Viewport-only.** Persist with `viewport.exportJSON()` / `viewport.loadJSON()` (strings — canonical), or `viewport.exportState()` / `viewport.loadState()` (in-memory `CanvasState` objects, no JSON round-trip).
+
+### Retained
+
+- Reusable helpers stay public for custom tools and presets: hex-fill (`getHexCellsInRadius`, `drawHexPath`, …), arrow geometry (`getArrowControlPoint`, `getArrowBounds`, …), `snapPoint` / `smartSnap` / `snapToHexCenter`, note formatting (`toggleBold`, …), and bounds helpers (`getElementBounds`, `getElementsBoundingBox`, …). The `Viewport` subsystem accessors (`camera`, `store`, `layerManager`, `toolManager`, `history`) and their classes are unchanged.
+
+---
+
+## [0.24.0] — 2026-06-13
+
+### Fixed
+
+- **No phantom undo step** — exiting a note/text edit without changing the content no longer records an empty history entry (a wasted Ctrl+Z)
+- **`mod+ctrl` / `mod+meta` shortcut bindings now throw at parse** instead of silently ignoring the redundant modifier (`mod` already means Ctrl or Cmd)
+- **`InputHandler.destroy()`** restores the `tabindex`/`outline` it set in focus scope, leaving a host-supplied element clean
+
+### Changed
+
+- **`viewport.setTool(name)`** warns when no tool is registered under that name (was a silent no-op)
+- **`onImageError`** payload gains an optional `cause` — the raw error `Event` from the failed image load
+- Internal: `paste`/`duplicate` guard active-tool input first (consistent with the other shortcuts); `distSqToSegment` consolidated into `core/geometry` (shared by stroke hit-testing and arrow geometry)
+
+---
+
+## [0.23.0] — 2026-06-13
+
+### Performance
+
+- **Pan-time cache reuse** — layer caches and the grid cache now render a 256px margin beyond the viewport (configurable via `ViewportOptions.panBufferMargin`; `0` opts out). A pan within the margin re-composites the cached bitmaps at an offset instead of re-rasterizing every layer and re-tiling the grid each frame. On the bench board (strokes + a hex grid), continuous panning dropped average frame time ~78% at 500 strokes (15.0ms → 3.3ms) and ~83% at 2000 strokes (29.8ms → 5.1ms); per-frame grid re-tile and layer re-raster cost fall to ~0 on the reuse frames, with the full cost paid only on the periodic recenter when the pan exceeds the margin. Zoom still re-rasterizes (content scale changes)
+
+---
+
+## [0.22.0] — 2026-06-13
+
+### Performance
+
+- **Width-bucketed Path2D stroke rendering** — strokes render as a few cached `Path2D` objects grouped by 0.25px-quantized width instead of rebuilding bezier paths per segment each frame. Opaque strokes are pixel-identical; the win shows mainly in tail latency on dense boards (≈10% p95 frame-time improvement panning a 2,000-stroke board). Note: semi-transparent strokes (`opacity < 1`) now composite once per width bucket rather than once per segment, which removes cap double-blending at segment joints (slightly lighter joints; opaque strokes unaffected)
+- **Intrinsic arrow geometry cache** — control point and tangent angles are computed once per arrow object instead of up to 3× per frame. Arrows loaded from JSON no longer recompute their control point on every frame
+- **Cache warming & coherence** — `loadSnapshot` pre-computes stroke geometry and restores arrow control points at load time (matching the draw-commit caching policy); color- and position-only updates transfer stroke geometry caches instead of discarding them
+- **Per-subsystem render stats** — `getRenderStats()` now reports `layersMs` / `backgroundMs` / `compositeMs` / `overlayMs` alongside the existing timers; the demo gains a deterministic `?bench=N` board. (These revealed that grid re-tiling and layer compositing dominate the pan frame — the target of a follow-up pass.)
+
+---
+
+## [react 0.5.0] — 2026-06-12
+
+### Added
+
+- **Controlled tool prop** — `<FieldNotesCanvas tool={tool} onToolChange={setTool}>`; `defaultTool` remains for uncontrolled use
+- **Reactive props** — `snapToGrid` toggles live; `tools` registers newly added tools (append-only); `options` documented as mount-only
+- **`useElements(selector, isEqual?)`** — derived values re-render only when the selected value changes (shallow-equal default; fixes sidebars re-rendering on every drag frame)
+- **`examples/react-app`** — runnable reference app (toolbar, undo/redo, selector sidebar, save/load, custom tool)
+
+### Changed
+
+- `useActiveTool` and `defaultTool` use the `viewport.setTool` facade internally
+- README rewritten around recipes with a prop-reactivity table; TSDoc on the full public surface
+
+---
+
+## [0.21.0] — 2026-06-12
+
+### Added
+
+- **`onImageError`** — `ViewportOptions.onImageError?: ({ src, elementIds }) => void` fires when an image fails to load; failed images render a gray placeholder instead of disappearing. `console.warn` fallback when unset
+
+### Performance
+
+- **Segment-based stroke hit-testing** — select and eraser now test against cached smoothed segments with a bounding-box early-out instead of scanning every raw point; drag-erasing across a board of long strokes no longer does per-point distance math for off-stroke moves
+
+### Fixed
+
+- Fast/sparse strokes are now reliably selectable and erasable between their sample points (raw-point scanning missed the gaps)
+
+---
+
+## [0.20.0] — 2026-06-12
+
+### Added
+
+- **Editing placeholder** — ghost "Type…" while a note/text is empty during editing; configurable via `ViewportOptions.placeholder` / `NoteEditorOptions.placeholder`
+- **Hover outline** — faint highlight on the hovered selectable element while the select tool is active
+- **`isNoteContentEmpty(html)`** — exported markup-aware emptiness helper
+
+### Changed
+
+- Notes emptied during editing are now auto-removed on edit exit (one undo step) — same behavior text elements already had
+- Demo: first-run empty-canvas hint; auto-save failures now surface as a dismissible toast
+
+---
+
+## [0.19.0] — 2026-06-11
+
+### Added
+
+- **Configurable keyboard shortcuts** — new `ShortcutMap` with remappable bindings: `ViewportOptions.shortcuts.bindings` seeds the table, `viewport.shortcuts.rebind/disable/reset/getBindings` mutate it at runtime. Binding grammar: `"mod+d"`, `"shift+1"`, `"["`, `"v"` (`mod` = Ctrl or Cmd)
+- **Tool-switch keys** — `V` select, `H` hand, `P` pencil, `E` eraser, `A` arrow, `N` note, `T` text, `S` shape, `M` measure, `G` template. Generic `tool:<name>` action ids work for custom tools
+- **Focus-scoped shortcuts** — the canvas only handles keys while focused (click it once); `shortcuts: { scope: 'window' }` restores page-wide handling. Fixes the SDK swallowing Ctrl+D/Ctrl+A across the host page
+
+### Changed
+
+- Shortcut matching now requires exact modifiers: `Ctrl+Escape`, `Ctrl+Delete`, and `Ctrl/Alt+Arrow` no longer trigger deselect/delete/nudge; `Backspace` on the focused canvas now calls `preventDefault` (no browser back-navigation)
+- react 0.4.2: core peer range widened to `>=0.18.0 <1.0.0` (bounded at major, not per-minor)
+
+---
+
+## [0.18.0] — 2026-06-11
+
+### Added
+
+- **`viewport.setTool(name)`** — tool switching without passing `toolContext` back in
+- **`HistoryRecorder.currentTransactionId`** — transaction-ownership token; nudge coalescing now commits only its own transaction
+- **`InputHandlerOptions` export**
+
+### Fixed
+
+- **EventBus listener isolation** — a throwing consumer listener no longer halts the emit chain (logged via `console.error`, remaining listeners still run)
+- **Mid-gesture shortcuts** — delete/undo/redo/z-order are ignored while a pointer gesture is in flight
+
+### Packaging (react 0.4.1)
+
+- LICENSE files shipped in both npm tarballs; `sideEffects: false` for tree-shaking; react peer ranges tightened; core sourcemaps enabled; versioning policy documented
+
+---
+
+## [0.17.0] — 2026-06-10
+
+### Added
+
+- **Keyboard & selection quick wins** — `Escape` deselect, `mod+A` select all (visible/unlocked layers only), `mod+D` duplicate (+20px offset, arrow bindings remapped), arrow-key nudge (1 unit; `Shift` = one grid cell, coalesced into a single undo step), `Shift+1` zoom-to-fit
+- **`viewport.fitToContent(padding?)`** — frame all content on visible layers; demo toolbar ⛶ button
+- **`KeyboardActions`** — keyboard action logic extracted from `InputHandler` (groundwork for 0.19.0's ShortcutMap)
+
+---
+
+## [0.16.0] — 2026-05-30
+
+### Added
+
+- **`onHtmlElementMount` callback** — fires during `loadState()` for HTML elements whose content couldn't be restored via `domId` lookup. Lets host apps dynamically provide content (React components, iframes) after save/load
+- **`updateHtmlElement(id, newContent)`** — swaps the DOM content of an existing HTML element without changing its position, size, or store data
+- **`onDrop` callback** — external drop zone API. When provided in `ViewportOptions`, replaces default image-drop behavior. Receives the raw `DragEvent` and computed world-space coordinates for custom drop handling (D&D tokens, text, HTML snippets)
+- **Layer undo** — all layer operations (create, remove, rename, reorder, visibility, lock, opacity) now participate in undo history. Layer commands batch with element commands in transactions. `removeLayer` undo restores both the layer and its element assignments
+
+---
+
+## [0.15.0] — 2026-05-29
+
+### Added
+
+- **Shift-constrain resize** — hold Shift while dragging a resize handle to lock the element's aspect ratio. Works with all four corner handles (NW, NE, SW, SE). Aspect ratio captured at resize start
+- **Z-order controls** — `ElementStore.bringToFront()`, `.sendToBack()`, `.bringForward()`, `.sendBackward()` for reordering elements within a layer. Keyboard shortcuts: `]` (forward), `[` (backward), `Ctrl+]` / `Cmd+]` (to front), `Ctrl+[` / `Cmd+[` (to back)
+- **`ElementStore.getVersion(id)`** — returns a monotonically increasing version number for an element, useful for dirty-checking optimizations
+
+### Performance
+
+- **syncDomNode dirty tracking** — DOM element style updates now skip unchanged elements using a generation counter. Reduces unnecessary DOM writes from 1200+/sec to near-zero for static scenes with 20+ notes
+
+### Added (Testing)
+
+- **Viewport roundtrip integration test** — full save/load cycle covering all element types, camera state, arrow bindings, multi-layer configurations, and grid elements
+
+---
+
+## [0.14.0] — 2026-05-29
+
+### Fixed
+
+- **Pen hover during touch contact** — Apple Pencil hover preview now works even when a finger is touching the screen. Only pen-type pointers get the hover exemption; finger hover remains suppressed during multi-touch
+- **Toolbar button touch targets** — format buttons and font size selector increased from 24px to 44px minimum, meeting Apple HIG touch target requirements. Toolbar height increased from 32px to 52px
+- **Double-tap to edit on touch devices** — replaced unreliable `dblclick` DOM events with pointer-event-based `DoubleTapDetector` for notes, text elements, and HTML interaction toggle. Consistent behavior across iPad Safari, Android, and desktop
+
+### Added
+
+- **`DoubleTapDetector`** — reusable utility class for detecting double-tap gestures via pointer events. Configurable timeout (default 300ms) and distance threshold (default 20px). Exported from `@fieldnotes/core`
+
+---
+
+## [0.13.0] — 2026-05-29
+
+### Added
+
+- **`Camera.fitToContent()`** — frame all elements in the viewport by computing optimal zoom and pan. Accepts a `Bounds` (bounding box), canvas dimensions, and optional padding (default 40). Clamps zoom to camera min/max. No-op for empty/zero-size content
+- **`getElementsBoundingBox()`** — utility that computes the union bounding box of an array of elements. Returns `null` for empty arrays. Exported from `@fieldnotes/core`
+- **`activeLayerId` persistence** — `CanvasState` now includes an optional `activeLayerId` field. `exportState()` accepts it; `Viewport.loadState()` restores the active layer selection. Falls back to first layer for old states or invalid IDs
+- **`AutoSave.onError` callback** — `AutoSaveOptions.onError` fires when a save fails (e.g. localStorage quota exceeded). Receives the `Error` object. `console.warn` still fires alongside for dev-tools visibility
+- **`HtmlElement.interactive` flag** — set `interactive: true` on HTML elements to enable pointer events (`pointerEvents: 'auto'`). Non-interactive elements (default) keep `pointerEvents: 'none'`. Opt-in — interactive elements capture pointer events, blocking canvas pan/select over that area
+
+---
+
+## [0.12.0] — 2026-05-28
+
+### Added
+
+- **Shift+click multi-select** — hold Shift and click to add/remove elements from the selection. Works with all element types. Shift+click then drag moves the entire multi-selection
+- **Copy/paste (Ctrl+C / Ctrl+V)** — copies selected elements to an in-memory clipboard and pastes with new IDs. Successive pastes cascade position offset (+20px each). Arrow bindings are remapped when both arrow and target are copied. Entire paste is one undo step
+- **`shiftKey` in `PointerState`** — tools now receive `shiftKey: boolean` for keyboard-modifier-aware input handling
+- **`SelectTool.setSelection(ids)`** — programmatically set the selection from application code
+
+---
+
+## [0.11.3] — 2026-05-28
+
+### Fixed
+
+- **Note HTML sanitized on creation and update** — `sanitizeNoteHtml()` now runs in `createNote()` and `store.update()`, not just during deserialization. Prevents XSS via `innerHTML` when consumers pass unsanitized text
+- **`loadSnapshot` emits events** — `loadSnapshot()` now emits `clear` followed by per-element `add` events. Listeners (history recorder, auto-save, React hooks via `onChange`) are notified of state changes
+
+### Changed
+
+- **`getAll()` caches sorted array** — `ElementStore.getAll()` now caches the sorted result and invalidates on mutation, eliminating O(n log n) sort per frame
+
+---
+
+## [0.11.2] — 2026-05-28
+
+### Added
+
+- **`InputFilter` middleware** — new class sits between raw PointerEvents and tool dispatch, classifying events as `dispatch`, `suppress`, or `defer`
+- **Palm rejection** — when a pen (Apple Pencil, Surface Pen) is active, all touch events are suppressed. Clears automatically on pen lift
+- **Touch debounce** — touch `pointerdown` is deferred until the pointer moves beyond a 3px threshold (drag) or `pointerup` fires (confirmed tap). Prevents accidental element creation from palm contact
+- **`pointerType` in `PointerState`** — tools now receive `'mouse' | 'touch' | 'pen'` via the `pointerType` field, enabling input-type-aware behavior
+- **Exported** `InputFilter`, `FilteredEvent`, `FilteredUpEvent`, `FilterAction` from `@fieldnotes/core`
+
+---
+
+## [0.11.1] — 2026-05-28
+
+### Fixed
+
+- **`releasePointerCapture` on pointer up** — wrapped in try/catch to prevent `InvalidStateError` when `pointercancel` fires first
+- **Touch/pen button validation** — tool dispatch now accepts `pointerType === 'touch'` and `pointerType === 'pen'` regardless of `e.button` value (Apple Pencil and touch report non-zero button)
+- **`overscroll-behavior: none`** on viewport wrapper — prevents browser pull-to-refresh and elastic scroll on touch devices
+- **`-webkit-user-select: none`** on viewport wrapper — prevents text selection on iOS Safari during canvas interactions
+- **Cached arrow geometry stripped from exports** — `exportState()` now removes `cachedControlPoint` from serialized arrow elements
+- **Cursor restore on space release** — dispatches tool hover or resets cursor to `default` when spacebar is released
+
+---
+
+## [0.11.0] — 2026-05-03
+
+### Added
+
+- **`viewport.getGridInfo()`** — query current grid dimensions: returns `GridInfo` with `gridType`, `hexOrientation`, `cellSize`, and `cellRadius` (inscribed radius for fitting tokens). Returns `null` when no grid is present
+- **`viewport.onGridChange(cb)`** — subscribe to grid changes (add, update, remove, clear). Callback receives `GridInfo | null`. Returns an unsubscribe function
+- **`GridInfo` type** — exported from `@fieldnotes/core` for SDK consumers building grid-aware features (e.g. D&D token sizing)
+
+---
+
+## [0.10.0] — 2026-04-20
+
+### Added
+
+- **Note rich text formatting** — inline bold, italic, underline, and strikethrough in sticky notes via `contentEditable` + `document.execCommand`
+- **Floating formatting toolbar** — appears above the note during editing with B/I/U/S buttons and a font size dropdown. Uses `pointerdown` + `preventDefault` to avoid stealing focus — works on iPad/stylus
+- **Font size presets** — Small (14px), Normal (18px), Large (24px), Heading (32px) with named dropdown. Configurable via `ViewportOptions.fontSizePresets` or `NoteToolbar` constructor
+- **Keyboard shortcuts** — Ctrl/Cmd+B (bold), Ctrl/Cmd+I (italic), Ctrl/Cmd+U (underline) while editing notes
+- **HTML sanitizer** — `sanitizeNoteHtml()` strips disallowed tags/attributes using DOMParser allowlist. Runs on save and deserialization to prevent XSS
+- **Styled run parser** — `parseStyledRuns()` converts HTML to flat `StyledRun[]` array for canvas export rendering with mixed formatting
+- **Canvas export rich text** — `renderNoteOnCanvas` handles bold/italic/underline/strikethrough with word wrapping across styled runs
+- **Smart toolbar positioning** — toolbar positioned above note by default, flips below when insufficient space
+- **`DEFAULT_NOTE_FONT_SIZE`** constant (18px) — shared across factory, tools, renderer, and export
+- **`FontSizePreset`** type and **`DEFAULT_FONT_SIZE_PRESETS`** — SDK users can customize the toolbar dropdown presets
+- **`NoteEditorOptions`** — configure font size presets via `NoteEditor` constructor
+- **Headless formatting API** — `toggleBold()`, `toggleItalic()`, `toggleUnderline()`, `toggleStrikethrough()`, `setFontSize(size)`, `getActiveFormats()` for SDK users building custom toolbar UI
+- **`toolbar` option** — set `toolbar: false` on `ViewportOptions` or `NoteEditorOptions` to disable the built-in toolbar and use the formatting API with custom UI
+- Font size control in demo note panel
+
+### Changed
+
+- `NoteElement.text` field now stores HTML (was plain text). Plain text without tags renders identically — fully backward compatible, no migration needed
+- Default note base font size increased from 14px to 18px
+- `DomNodeManager` renders notes via `innerHTML` instead of `textContent`
+
+### Fixed
+
+- Toolbar font size dropdown closing the editing session (blur handler now checks `FocusEvent.relatedTarget`)
+- `range.surroundContents()` crash on partial element selections (fallback to `extractContents` + `insertNode`)
+- Toolbar not following note during pan/zoom (wired `updateToolbarPosition` to camera change handler)
+- Redundant per-frame HTML sanitization in render path removed (data pre-sanitized at write time)
+
+---
+
+## [0.9.0] — 2026-04-10
+
+### Added
+
+- **MeasureTool** — drag to measure distances in feet on the canvas. Snaps to hex/square grid centers when a grid element is present. Configurable `feetPerCell` (default 5)
+- **TemplateTool** — place area-of-effect templates for D&D spells. Four shapes: circle, cone, line, square. Configurable fill/stroke color, opacity, and feet-per-cell
+- **D&D hex-filled templates** — on hex grids, templates fill actual hex cells (PHB-style) instead of drawing geometric shapes. Cone follows the 1-2-3 triangular D&D pattern; line alternates 1-2-1-2 symmetrically
+- **Hex distance measurement** — `getHexDistance()` computes cube coordinate distance (integer hex steps) for accurate diagonal measurement on hex grids
+- **Hex fill utilities** — `getHexCellsInRadius`, `getHexCellsInCone`, `getHexCellsInLine`, `getHexCellsInSquare`, `drawHexPath` for enumerating and rendering hex cell patterns
+- **Template element** — `TemplateElement` type with `templateShape`, `radius`, `angle`, `fillColor`, `strokeColor`, `opacity`, `feetPerCell`, `radiusFeet`
+- **Template resize** — drag SE handle on selected templates to resize; radius snaps to hex/square cell spacing
+- **Origin marker** — all template shapes highlight the origin hex with the stroke color for clear positioning
+- **Image center-snapping** — images placed on hex/square grids snap their center to the nearest cell center
+
+### Fixed
+
+- **Canvas not clearing between frames** — skipping background render for grid elements also skipped its `clearRect`, causing frame stacking
+- **Measure/template snapping to dot grid** — tools now always snap to hex/square grid centers when a grid element exists, independent of the global snap toggle
+
+---
+
+## [0.8.11] — 2026-03-28
+
+### Fixed
+
+- **Images not visible until pan/zoom** — async image loads called `requestRender()` but didn't invalidate the layer cache, so the stale (empty) cached layer was reused until the camera moved
+
+---
+
+## [0.8.10] — 2026-03-28
+
+### Fixed
+
+- **Hex grid swimming during pan/zoom** — grid offscreen cache was composited at `scale(dpr)` instead of identity, causing the grid to drift relative to elements on high-DPI displays
+
+---
+
+## [0.8.9] — 2026-03-28
+
+### Performance
+
+- **Tiled hex grid rendering** — render a small repeating hex tile once, fill the viewport via `drawImage` tiling. Reduces hex grid from O(rows×cols) to near-constant regardless of zoom level (~250x faster on large grids: 4 fps → 1000+ fps)
+- **Precomputed trig offsets** for hex grid — eliminate per-hex cos/sin calls and array allocations
+- **Grid offscreen canvas cache** — static-camera frames served from a cached `drawImage` (sub-0.1ms)
+
+### Added
+
+- `viewport.getRenderStats()` — returns `RenderStatsSnapshot` with fps, avgFrameMs, p95FrameMs, lastGridMs, frameCount
+- `viewport.logPerformance(intervalMs?)` — starts periodic console logging of render stats, returns stop function
+
+### Fixed
+
+- Grid now renders on top of images and other layer elements (was behind them)
+
+---
+
+## [0.8.8] — 2026-03-28
+
+### Performance
+
+- **Stroke segment caching** — WeakMap cache for Catmull-Rom to Bezier segments and pressure widths, computed at commit time (onPointerUp). Strokes are immutable after commit so the cache never invalidates.
+- **Arrow control point caching** — `cachedControlPoint` on ArrowElement, computed in `createArrow()` and recomputed post-spread in `store.update()`. Eliminates per-frame sqrt + perpendicular vector math.
+- **Background pattern caching** — Offscreen canvas cache for dot/grid patterns, invalidated on camera change. Skips re-rendering hundreds of dots/lines during static-camera scenarios (drawing).
+- **ImageBitmap pre-decoding** — Async upgrade from HTMLImageElement to GPU-ready ImageBitmap after image load. Falls back to HTMLImageElement for cross-origin without CORS.
+
+### Added
+
+- `cachedControlPoint` optional field on `ArrowElement` type (derived, safe to omit in serialized state)
+- `stroke-cache.ts` module with `computeStrokeSegments()` and `getStrokeRenderData()`
+- Integration tests for cross-cutting cache invalidation audit (`geometry-cache.test.ts`)
+
+---
+
+## [0.8.7] — 2026-03-28
+
+### Performance
+
+- **Per-layer offscreen canvas caching** — each layer renders to an offscreen canvas; unchanged layers are re-composited without re-rendering
+- **Quadtree spatial index** — O(log n) element queries for hit-testing and viewport culling, replacing full-array scans
+- **Viewport culling** — skip off-screen elements in the render loop
+- **Pencil tool optimization** — distance-based point subsampling and progressive simplification to reduce stroke complexity
+
+### Added
+
+- `RenderStats` instrumentation for frame timing, element counts, and cache hit rates
+- `Quadtree` spatial index data structure
+- `camera.getVisibleRect()` and `CameraChangeInfo` for culling support
+- Universal `getElementBounds()` for all element types
+
+### Fixed
+
+- Layer cache clipping for elements far from world origin (camera translation in offscreen rendering). Note: initial "pan-is-free" optimization (reuse cached layer on pan without re-rendering) was removed as part of this fix — panning now invalidates all layer caches. Multi-layer caching still applies (unchanged layers skip re-rendering).
+- Grid elements render directly to main canvas, bypassing layer cache
+- Compounding progressive simplification on pencil strokes
+- Source layer marked dirty when element moves between layers
+- SelectTool hit-test query inflated by hit radius for strokes/arrows
+
+---
+
+## [0.8.6] — 2026-03-25
+
+### Changed
+
+- **Viewport decomposition** — extracted `RenderLoop`, `DomNodeManager`, and `InteractMode` from monolithic Viewport class into focused modules
+
+---
+
+## [0.8.5] — 2026-03-24
+
+### Changed
+
+- Dropped source maps from published package to reduce npm bundle size
+
+### Fixed
+
+- Type declaration exports for all `moduleResolution` modes (bundler, node, node16)
+
+---
+
+## [0.8.4] — 2026-03-23
+
+### Fixed
+
+- Cross-origin image URLs cache-busted to avoid tainted canvas on export (completes the fix started in 0.8.1 — that initial fix set `crossOrigin='anonymous'` but the browser cache could still serve the tainted pre-CORS response; this adds a `_cors=1` cache-buster to force a fresh CORS request)
+
+---
+
+## [0.8.1] — 2026-03-23
+
+### Fixed
+
+- Cross-origin image export tainted canvas error (partial — see 0.8.4 for the complete fix)
+
+---
+
+## [0.8.0] — 2026-03-22
+
+### Added
+
+- **Export canvas as PNG** — `exportImage()` returns a PNG Blob with scale, padding, background, and filter options
+- Standalone `exportImage` function for use outside of Viewport
+
+---
+
+## [0.7.0] — 2026-03-21
+
+### Added
+
+- **Grid element** — square and hex grids for D&D combat maps (`GridElement`)
+- HTML element persistence — `domId` field on `HtmlElement` for re-attaching DOM nodes across reloads
+- Arrow binding restricted to same-layer elements
+
+---
+
+## [0.6.1] — 2026-03-20
+
+### Fixed
+
+- localStorage quota handling for AutoSave
+
+---
+
+## [0.6.0] — 2026-03-19
+
+### Added
+
+- **Layer system** — `LayerManager` with visibility, locking, ordering, per-layer opacity
+- **Snap-to-grid** — `snapPoint()` utility, toggleable via `viewport.setSnapToGrid()`
+- Note text color — `textColor` field on `NoteElement`
+
+---
+
+## [0.5.0] — 2026-03-18
+
+### Added
+
+- **Text tool** — standalone text boxes on canvas (editable, styled, resizable)
+- **Arrow binding** — snap arrows to elements
+- **Shape tools** — rectangle and ellipse
+- `@fieldnotes/react` — `useSyncExternalStore` hooks for all core features (useActiveTool, useCamera, useElements, useHistory, useLayers, useToolOptions)
+
+---
+
+## [0.4.0] — 2026-03-15
+
+### Added
+
+- React hooks overhaul — `useElements`, `useHistory`, `useLayers`, `useToolOptions`, upgraded `useActiveTool`
+- `ElementStore.onChange` and `LayerManager.setLayerOpacity`
+- Tool options API — `getOptions()` / `onOptionsChange()` on Tool interface
+
+---
+
+## [0.3.0] — 2026-03-12
+
+### Added
+
+- Stroke smoothing (Catmull-Rom to cubic Bezier)
+- Pressure-sensitive stroke width (Apple Pencil / stylus)
+- Runtime color configuration for tools
+- Brush size slider in demo
+
+---
+
+## [0.2.0] — 2026-03-10
+
+### Added
+
+- **AutoSave** — debounced localStorage persistence
+- `addImage()` returns element ID
+
+---
+
+## [0.1.0] — 2026-03-08
+
+### Added
+
+- Initial release — infinite canvas SDK with HTML embedding
+- Pan (drag) and zoom (scroll wheel / pinch)
+- Background patterns (dots, grid, none)
+- Freehand pencil drawing with pressure data
+- Stroke-level eraser
+- Sticky notes, arrows, images
+- Select tool with multi-select (drag box)
+- Undo/redo
+- State serialization (JSON export/import)
+- Touch/tablet support (pinch-to-zoom, two-finger pan, tool cancellation)
+- `@fieldnotes/react` wrapper component

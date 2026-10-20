@@ -1,0 +1,18 @@
+{
+  "licence": { "detail": "MIT. No licence key, no watermark." },
+  "framework": {
+    "detail": "None needed. React, Vue and Svelte bindings if you want them.",
+    "href": "/docs/using-react/"
+  },
+  "multiplayer": {
+    "detail": "Your own WebSocket relay, Redis optional.",
+    "href": "/docs/multiplayer/"
+  },
+  "input": {
+    "detail": "Mouse, touch and pen with pressure.",
+    "href": "/docs/tools-and-input/#mouse-touch-and-pen"
+  },
+  "browsers": {
+    "detail": "Tested in Chromium in CI, and in Firefox for embedded boards. Safari is not tested yet."
+  }
+}

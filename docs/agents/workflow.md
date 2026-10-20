@@ -47,7 +47,9 @@ Every shippable PR receives a version bump; instruction-only changes are exempt.
 fixes/refactors; minor releases add public API. For core, synchronize `packages/core/package.json`,
 `VERSION` in `packages/core/src/index.ts`, and its assertion in `packages/core/src/index.test.ts`.
 Update `CHANGELOG.md` for releases. Raise peer dependency floors when wrappers require a newer API.
-Do not hand-edit `dist`; builds produce it.
+Do not hand-edit `dist`; builds produce it. Whoever closes a roadmap item updates
+`website/content/roadmap.md` in the same PR. After a manual npm publish, re-run the Pages workflow
+(`workflow_dispatch`) so the site shows the new versions.
 
 ## Handoff format
 

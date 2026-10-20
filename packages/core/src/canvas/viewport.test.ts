@@ -23,6 +23,7 @@ import { HtmlPainterRegistry } from './html-painter-registry';
 import type { ElementActivationEvent } from './element-activation';
 import { LEGACY_ACTION_IDS } from '../actions/legacy-action-ids';
 import { createTestBoxRegistry } from '../test-helpers/test-box-type';
+import { recordingCanvas } from '../test-helpers/recording-canvas';
 
 function wrapperOf(container: HTMLElement): HTMLDivElement {
   const w = container.firstElementChild;
@@ -62,6 +63,23 @@ describe('Viewport', () => {
     const viewport = new Viewport(container);
     const wrapper = wrapperOf(container);
     expect(wrapper.style.overscrollBehavior).toBe('none');
+    viewport.destroy();
+  });
+
+  it('gives the select tool the selectionColor option', () => {
+    const viewport = new Viewport(container, { selectionColor: '#B8322A' });
+    const selectTool = new SelectTool();
+    viewport.toolManager.register(selectTool);
+    viewport.toolManager.setTool('select', viewport.toolContext);
+    const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
+    viewport.store.add(note);
+    selectTool.setSelection([note.id]);
+
+    const { ctx, styles } = recordingCanvas();
+    selectTool.renderOverlay(ctx);
+
+    expect(styles).toContain('#B8322A');
+    expect(styles).not.toContain('#2196F3');
     viewport.destroy();
   });
 
@@ -2291,6 +2309,21 @@ describe('Viewport', () => {
       ).interactions;
       priv.startArrowLabelEdit(arrow);
       expect(viewport.domLayer.querySelector('input')).not.toBeNull();
+      viewport.destroy();
+    });
+
+    it.each([
+      [undefined, 'rgb(33, 150, 243)'],
+      ['#B8322A', 'rgb(184, 50, 42)'],
+    ])('borders the label input in selectionColor %s', (selectionColor, expected) => {
+      const viewport = new Viewport(container, { selectionColor });
+      const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 } });
+      viewport.store.add(arrow);
+      const priv = (
+        viewport as unknown as { interactions: { startArrowLabelEdit: (a: typeof arrow) => void } }
+      ).interactions;
+      priv.startArrowLabelEdit(arrow);
+      expect(viewport.domLayer.querySelector('input')?.style.borderColor).toBe(expected);
       viewport.destroy();
     });
   });

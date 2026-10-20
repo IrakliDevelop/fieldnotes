@@ -31,6 +31,7 @@ import { HistoryStack } from '../history/history-stack';
 import { HistoryRecorder } from '../history/history-recorder';
 import type { Point } from '../core/types';
 import { createTestBoxRegistry } from '../test-helpers/test-box-type';
+import { recordingCanvas } from '../test-helpers/recording-canvas';
 
 function makeSnapProxy(
   gridSize: number,
@@ -2778,5 +2779,43 @@ describe('SelectTool extension bounds from the context registry', () => {
     tool.onPointerMove(pt(222, 25), ctx);
 
     expect(ctx.store.getById(drag.id)?.position.x).toBe(200);
+  });
+});
+
+describe('SelectTool selectionColor', () => {
+  it.each([
+    ['note', createNote({ position: { x: 100, y: 100 }, size: { w: 200, h: 100 } })],
+    ['arrow', createArrow({ from: { x: 100, y: 130 }, to: { x: 300, y: 130 } })],
+  ])('draws the %s hover outline in the context colour', (_name, element) => {
+    const tool = new SelectTool();
+    const ctx = makeCtx({ selectionColor: '#B8322A' });
+    ctx.store.add(element);
+    tool.onActivate(ctx);
+    tool.onHover?.(pt(200, 130), ctx);
+
+    const { ctx: canvas, styles } = recordingCanvas();
+    tool.renderOverlay?.(canvas);
+
+    expect(styles).toContain('#B8322A');
+    expect(styles).not.toContain('#2196F3');
+  });
+
+  it('draws the arrow-handle drag target in the context colour', () => {
+    const tool = new SelectTool();
+    const ctx = makeCtx({ selectionColor: '#B8322A' });
+    const note = createNote({ position: { x: 200, y: 200 }, size: { w: 100, h: 100 } });
+    const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 400, y: 400 } });
+    ctx.store.add(note);
+    ctx.store.add(arrow);
+    tool.onActivate(ctx);
+    tool.setSelection([arrow.id]);
+    tool.onPointerDown(pt(0, 0), ctx);
+    tool.onPointerMove(pt(210, 210), ctx);
+
+    const { ctx: canvas, styles } = recordingCanvas();
+    tool.renderOverlay?.(canvas);
+
+    expect(styles).toContain('#B8322A');
+    expect(styles).not.toContain('#2196F3');
   });
 });

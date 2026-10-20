@@ -38,7 +38,8 @@ The session model is the thinking tier. The cheapest tier never touches code.
    file, and `.work/minor-findings.md`. The thinking tier reads the verdicts and
    `git diff --stat`, spot-checks the risk areas the reviews named, runs the verification
    matrix from [workflow.md](workflow.md), and for render, input, or demo changes runs the
-   `fieldnotes-browser-check` skill and puts its evidence blocks in the PR. Then it opens
+   `fieldnotes-browser-check` skill and puts its evidence blocks in the PR. A PR that
+   changes website copy, README prose, or docs pages also gets a copy review. Then it opens
    the PR and updates the roadmap progress log.
 
 ## Task brief template
@@ -101,12 +102,13 @@ approval gate:
 
 Agent definitions live in `.claude/agents/` with pinned models and tool sets:
 
-| Agent                | Tier            | Model                            |
-| -------------------- | --------------- | -------------------------------- |
-| `fn-implementer`     | Coding          | `claude-opus-5-5`                |
-| `fn-transcriber`     | Transcription   | `claude-sonnet-5-5`              |
-| `fn-task-reviewer`   | Review (task)   | `claude-opus-5-5`, no edit tools |
-| `fn-branch-reviewer` | Review (branch) | `claude-opus-5-5`, no edit tools |
+| Agent                      | Tier            | Model                            |
+| -------------------------- | --------------- | -------------------------------- |
+| `fn-implementer`           | Coding          | `claude-opus-5-5`                |
+| `fn-transcriber`           | Transcription   | `claude-sonnet-5-5`              |
+| `fn-task-reviewer`         | Review (task)   | `claude-opus-5-5`, no edit tools |
+| `fn-branch-reviewer`       | Review (branch) | `claude-opus-5-5`, no edit tools |
+| `fieldnotes-copy-reviewer` | Review (copy)   | `claude-opus-5-5`, no edit tools |
 
 The session model is the thinking tier. Process skills: `superpowers:brainstorming` →
 `superpowers:writing-plans` → `superpowers:subagent-driven-development`, dispatching the agents

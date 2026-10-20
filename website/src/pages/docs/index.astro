@@ -1,0 +1,146 @@
+---
+import { getCollection } from 'astro:content';
+import Base from '../../layouts/Base.astro';
+import { docsNav } from '../../lib/docs-nav';
+import { getFacts } from '../../lib/facts';
+import { PUBLIC_PACKAGES } from '../../lib/versions';
+import { link } from '../../utils/base';
+
+const { facts, versions, notBuilt } = (await getFacts()).docs;
+const { groups } = docsNav(await getCollection('docs'));
+---
+
+<Base
+  title="Field Notes docs"
+  description="Guides to @fieldnotes/core and the packages built on it, with the installable versions."
+  current="docs"
+>
+  <main class="wrap index">
+    <h1>Docs</h1>
+    <p class="intro">
+      Each page covers one part of <code>@fieldnotes/core</code> or a package built on it. <a
+        href={link('/docs/getting-started/')}>Getting started</a
+      > ends with a board that survives a reload.
+    </p>
+
+    <section aria-labelledby="facts">
+      <h2 id="facts">Facts</h2>
+      <dl>
+        {
+          facts.map(({ term, detail, href }) => (
+            <div>
+              <dt>{term}</dt>
+              <dd>{href === undefined ? detail : <a href={link(href)}>{detail}</a>}</dd>
+            </div>
+          ))
+        }
+        <div>
+          <dt>Packages</dt>
+          <dd>
+            <ul>
+              {
+                PUBLIC_PACKAGES.map((pkg) => (
+                  <li>
+                    <code>{pkg}</code> {versions[pkg].version}
+                  </li>
+                ))
+              }
+            </ul>
+          </dd>
+        </div>
+        <div>
+          <dt>Not built yet</dt>
+          <dd>
+            <ul>{notBuilt.map((item) => <li>{item}</li>)}</ul>
+          </dd>
+        </div>
+      </dl>
+    </section>
+
+    {
+      groups.map((group) => (
+        <section aria-labelledby={`group-${group.name}`}>
+          <h2 id={`group-${group.name}`}>{group.name}</h2>
+          <ul>
+            {group.items.map((item) => (
+              <li>
+                <a href={link(item.href)}>{item.title}</a>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))
+    }
+  </main>
+</Base>
+
+<style>
+  .index {
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+    padding-top: 48px;
+    padding-bottom: 96px;
+  }
+
+  h1 {
+    margin: 0;
+    font-size: 44px;
+    line-height: 1.1;
+  }
+
+  h2 {
+    margin: 0 0 16px;
+    font-size: 28px;
+    line-height: 1.2;
+  }
+
+  .intro {
+    max-width: 36em;
+    margin: 0;
+    color: var(--graphite-2);
+    font-size: 19px;
+  }
+
+  dl {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+    gap: 24px 32px;
+    margin: 0;
+    font-size: 15px;
+  }
+
+  dl div {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding-top: 16px;
+    border-top: 1px solid var(--divider);
+  }
+
+  dt {
+    color: var(--muted);
+  }
+
+  dd {
+    margin: 0;
+  }
+
+  ul {
+    margin: 0;
+    padding-left: 20px;
+  }
+
+  dd ul {
+    padding-left: 0;
+    list-style: none;
+  }
+
+  @media (pointer: coarse) {
+    section > ul a {
+      display: inline-flex;
+      align-items: center;
+      min-height: 44px;
+    }
+  }
+</style>

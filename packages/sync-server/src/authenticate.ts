@@ -16,7 +16,7 @@ export interface AuthInfo {
 
 export interface AuthResult {
   userId: string;
-  role?: string; // captured now; enforced in a later release (D2/D3)
+  role?: string; // passed to the authorize and canRead hooks; nothing enforces it without a hook
   /** Server-only immutable JSON claims; never sent to clients. */
   readonly authContext?: AuthContext;
   /** Absolute Unix millisecond deadline for this socket. */

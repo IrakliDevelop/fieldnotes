@@ -225,6 +225,23 @@ describe('ArrowTool', () => {
 
       expect(canvas.beginPath).not.toHaveBeenCalled();
     });
+
+    it('highlights both bind targets of the preview in the context selectionColor', () => {
+      const tool = new ArrowTool();
+      const ctx = makeCtx({ selectionColor: '#B8322A' });
+      ctx.store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } }));
+      ctx.store.add(createNote({ position: { x: 300, y: 300 }, size: { w: 100, h: 100 } }));
+      const styles: string[] = [];
+      const canvas = Object.assign(mockCanvas(), { strokeRect: vi.fn(), setLineDash: vi.fn() });
+      Object.defineProperty(canvas, 'strokeStyle', { set: (v: string) => styles.push(v) });
+
+      tool.onPointerDown(pt(50, 50), ctx);
+      tool.onPointerMove(pt(350, 350), ctx);
+      tool.renderOverlay?.(canvas);
+
+      expect(styles.filter((s) => s === '#B8322A')).toHaveLength(2);
+      expect(styles).not.toContain('#2196F3');
+    });
   });
 });
 

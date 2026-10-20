@@ -17,6 +17,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
+    env:
+      FIELDNOTES_BASE: /${{ github.event.repository.name }}/
+      FIELDNOTES_STRICT_VERSIONS: '1'
+
     steps:
       - uses: actions/checkout@v7
 
@@ -24,25 +28,29 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: '22.22'
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
 
+      # Builds the site and its Pagefind index into website/dist.
       - run: pnpm build
 
-      - name: Build playground under the Pages base path
-        run: pnpm --filter fieldnotes-playground exec vite build --base "/${{ github.event.repository.name }}/"
+      - name: Build playground under /playground/
+        run: pnpm --filter fieldnotes-playground exec vite build --base "/${{ github.event.repository.name }}/playground/" --outDir ../website/dist/playground --emptyOutDir
 
       - name: Build dev playground under /dev/
-        run: pnpm --filter fieldnotes-demo exec vite build --base "/${{ github.event.repository.name }}/dev/" --outDir ../playground/dist/dev --emptyOutDir
+        run: pnpm --filter fieldnotes-demo exec vite build --base "/${{ github.event.repository.name }}/dev/" --outDir ../website/dist/dev --emptyOutDir
 
       - name: Build API reference
-        run: pnpm exec typedoc --out playground/dist/api
+        run: pnpm exec typedoc --out website/dist/api
+
+      - name: Check links under the Pages base
+        run: node website/scripts/check-base-links.mjs website/dist
 
       - uses: actions/upload-pages-artifact@v5
         with:
-          path: playground/dist
+          path: website/dist
 
   deploy:
     needs: build

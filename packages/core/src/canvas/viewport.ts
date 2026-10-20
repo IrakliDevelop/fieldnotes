@@ -21,6 +21,7 @@ import { HybridRenderSurface } from './hybrid-render-surface';
 import { unbindArrowsFrom } from '../elements/arrow-binding';
 import { getElementsBoundingBox } from '../elements/bounds';
 import { ArrowLabelEditor } from '../elements/arrow-label-editor';
+import { DEFAULT_SELECTION_COLOR } from '../tools/selection-color';
 import { ToolManager } from '../tools/tool-manager';
 import type { ToolContext, Tool } from '../tools/types';
 import type { SelectTool } from '../tools/select-tool';
@@ -128,6 +129,11 @@ export interface ViewportOptions {
    * Not gated: `setActivation`, the minimap, `PingInput` and `CameraAnimator`. Default `false`.
    */
   embedded?: boolean;
+  /**
+   * Colour of selection outlines, handles, marquee, lock badges, binding highlights and arrow
+   * previews. Default `#2196F3`.
+   */
+  selectionColor?: string;
 }
 
 export interface HitTestOptions {
@@ -277,7 +283,7 @@ export class Viewport {
     });
     this.noteEditor.setOnStop((id) => this.interactions.onTextEditStop(id));
     this.noteEditor.setOnInput((id) => this.interactions.liveFitHeight(id));
-    this.arrowLabelEditor = new ArrowLabelEditor();
+    this.arrowLabelEditor = new ArrowLabelEditor(options.selectionColor ?? DEFAULT_SELECTION_COLOR);
     this.noteEditor.setHistoryHooks(
       () => this.historyRecorder.begin(),
       () => this.historyRecorder.commit(),
@@ -350,6 +356,7 @@ export class Viewport {
         this.camera.getVisibleRect(this.canvasEl.clientWidth, this.canvasEl.clientHeight),
       constraintService: this.constraintProxy,
       elementRegistry: this.elementRegistry,
+      selectionColor: options.selectionColor,
     };
 
     const acceptsPointer = (e: PointerEvent): boolean =>

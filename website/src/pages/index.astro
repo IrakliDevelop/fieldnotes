@@ -1,0 +1,230 @@
+---
+import Base from '../layouts/Base.astro';
+import Hero from '../components/Hero.astro';
+import Facts from '../components/Facts.astro';
+import CodeSample from '../components/CodeSample.astro';
+import Comparison from '../components/Comparison.astro';
+import NotBuilt from '../components/NotBuilt.astro';
+import gettingStarted from '../examples/getting-started.ts?raw';
+import htmlElements from '../examples/html-elements.ts?raw';
+import { link } from '../utils/base';
+---
+
+<Base
+  title="Field Notes"
+  description="Freehand pens, shapes, sticky notes, arrows and live HTML elements on one zoomable board."
+>
+  <script slot="head" is:inline define:vars={{ target: link('/playground/') }}>
+    // Old playground links pointed at the site root; their query and hash still work there.
+    const params = new URLSearchParams(location.search);
+    if (['scene', 'room', 'guest', 'blank'].some((key) => params.has(key))) {
+      location.replace(target + location.search + location.hash);
+    }
+  </script>
+
+  <main class="landing">
+    <Hero />
+
+    <div class="wrap facts-row">
+      <Facts />
+    </div>
+
+    <section class="wrap" aria-labelledby="ten-lines">
+      <div class="two">
+        <div class="text">
+          <h2 id="ten-lines">Ten lines to a board that saves</h2>
+          <p>
+            <a href={link('/docs/getting-started/')}>Mount a viewport</a> on any element with a size.
+            The default tools give you select, pencil, eraser, shapes, arrows, notes, text and pan. <a
+              href={link('/docs/saving-and-loading/')}>The board serialises to JSON</a
+            >, so it saves wherever you keep strings.
+          </p>
+          <p>
+            Using React? <a href={link('/docs/using-react/')}
+              ><code>&lt;FieldNotesCanvas initialData=&#123;saved&#125; onChange=&#123;save&#125; /&gt;</code
+              ></a
+            > does the same.
+          </p>
+        </div>
+        <CodeSample source={gettingStarted} region="ten-lines" lang="ts" />
+      </div>
+    </section>
+
+    <section class="wrap" aria-labelledby="live-html">
+      <div class="two">
+        <div class="text">
+          <h2 id="live-html">Live HTML on the board</h2>
+          <p>
+            Any DOM node can be an element on the board. It pans, zooms and sits in layer order with
+            the drawings around it.
+          </p>
+          <p>
+            With <a href={link('/docs/html-elements/')}><code>interactive: true</code></a>, its
+            buttons, links and inputs work on the first click, and dragging its padding moves it.
+            Inside a control, <code>data-fn-drag</code> marks an area that drags.
+          </p>
+          <p>
+            Without <code>interactive</code>, double-click the element to use it and press Escape to
+            return to the board.
+          </p>
+        </div>
+        <CodeSample source={htmlElements} region="live-card" lang="ts" />
+      </div>
+    </section>
+
+    <section class="wrap" aria-labelledby="tabletop">
+      <div class="two centred">
+        <svg class="hex-map" aria-hidden="true" viewBox="0 0 420 300">
+          <defs>
+            <pattern
+              id="dnd-hatch"
+              width="8"
+              height="8"
+              patternUnits="userSpaceOnUse"
+              patternTransform="rotate(45)"
+            >
+              <line x1="0" y1="0" x2="0" y2="8" stroke="#2A2D31" stroke-width="1.2"></line>
+            </pattern>
+            <pattern id="dnd-hex" width="51.96" height="90" patternUnits="userSpaceOnUse">
+              <path
+                d="M25.98 0L51.96 15v30L25.98 60 0 45V15zM25.98 60v30"
+                fill="none"
+                stroke="#9AA09A"
+                stroke-width="1"></path>
+            </pattern>
+          </defs>
+          <rect x="0" y="0" width="420" height="300" fill="url(#dnd-hex)"></rect>
+          <path
+            d="M230 0h190v300H170c30-40 10-90 40-130 24-34 4-110 20-170z"
+            fill="url(#dnd-hatch)"
+            opacity="0.55"></path>
+          <circle cx="110" cy="170" r="11" fill="#2F55A4"></circle>
+          <circle cx="150" cy="128" r="11" fill="#2A2D31"></circle>
+        </svg>
+        <div class="text">
+          <h2 id="tabletop">It already runs a D&amp;D table</h2>
+          <p>
+            <a href={link('/docs/tabletop-maps/')}>The tabletop package</a> adds hex and square grids,
+            area templates, measuring, and fog the game master paints by hand. <a
+              href={link('/docs/multiplayer/#send-each-person-only-what-they-may-see')}
+              >Tell the sync server which elements each player may see</a
+            >, and it never sends them the rest.
+          </p>
+          <a class="standalone" href={link('/playground/?scene=tabletop')}>Open the tabletop scene</a>
+        </div>
+      </div>
+    </section>
+
+    <Comparison />
+
+    <NotBuilt />
+
+    <section class="wrap" aria-labelledby="why">
+      <div class="why">
+        <h2 id="why">Why this exists</h2>
+        <p>
+          My players kept their session notes in Freeform. I wanted that board inside RollKeeper, the
+          D&amp;D app I was building, and the canvas library I wanted needed a commercial licence to
+          ship. So I wrote one. Then I built the game's battle maps on the same canvas.
+        </p>
+        <p>
+          Field Notes is that canvas, published under the MIT licence for anyone who needs one.
+        </p>
+        <p class="signature">Irakli</p>
+      </div>
+    </section>
+  </main>
+</Base>
+
+<style is:global>
+  .landing > section.wrap {
+    padding-bottom: 96px;
+  }
+
+  .landing h2 {
+    margin: 0;
+    font-size: 36px;
+    line-height: 1.15;
+  }
+
+  .landing .two {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr));
+    gap: 48px;
+  }
+
+  .landing .text {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+  }
+
+  .landing .text p {
+    max-width: 32em;
+    margin: 0;
+    color: var(--graphite-2);
+  }
+
+  .landing .text code {
+    font-size: 15px;
+  }
+
+  .landing .standalone {
+    font-size: 16px;
+  }
+
+  @media (pointer: coarse) {
+    .landing .standalone {
+      display: inline-flex;
+      align-items: center;
+      min-height: 44px;
+    }
+  }
+</style>
+
+<style>
+  .facts-row {
+    padding-top: 48px;
+    padding-bottom: 96px;
+  }
+
+  .centred {
+    align-items: center;
+  }
+
+  .hex-map {
+    width: 100%;
+    max-width: 520px;
+    height: auto;
+    background: var(--board);
+    border: 1px solid var(--divider);
+    border-radius: 6px;
+  }
+
+  .why {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    max-width: 640px;
+    padding-top: 48px;
+    border-top: 1px solid var(--divider);
+  }
+
+  .why h2 {
+    font-size: 28px;
+    line-height: 1.2;
+  }
+
+  .why p {
+    margin: 0;
+    font-size: 19px;
+    line-height: 1.6;
+  }
+
+  .why .signature {
+    margin-top: 8px;
+    font-family: 'Young Serif', serif;
+    font-size: 22px;
+  }
+</style>
