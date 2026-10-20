@@ -128,6 +128,11 @@ export interface ViewportOptions {
    * Not gated: `setActivation`, the minimap, `PingInput` and `CameraAnimator`. Default `false`.
    */
   embedded?: boolean;
+  /**
+   * Colour of selection outlines, handles, marquee, lock badges, binding highlights and arrow
+   * previews. Default `#2196F3`.
+   */
+  selectionColor?: string;
 }
 
 export interface HitTestOptions {
@@ -277,7 +282,7 @@ export class Viewport {
     });
     this.noteEditor.setOnStop((id) => this.interactions.onTextEditStop(id));
     this.noteEditor.setOnInput((id) => this.interactions.liveFitHeight(id));
-    this.arrowLabelEditor = new ArrowLabelEditor();
+    this.arrowLabelEditor = new ArrowLabelEditor(options.selectionColor);
     this.noteEditor.setHistoryHooks(
       () => this.historyRecorder.begin(),
       () => this.historyRecorder.commit(),
@@ -350,6 +355,7 @@ export class Viewport {
         this.camera.getVisibleRect(this.canvasEl.clientWidth, this.canvasEl.clientHeight),
       constraintService: this.constraintProxy,
       elementRegistry: this.elementRegistry,
+      selectionColor: options.selectionColor,
     };
 
     const acceptsPointer = (e: PointerEvent): boolean =>

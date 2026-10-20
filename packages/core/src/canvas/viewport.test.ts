@@ -65,6 +65,43 @@ describe('Viewport', () => {
     viewport.destroy();
   });
 
+  it('gives the select tool the selectionColor option', () => {
+    const viewport = new Viewport(container, { selectionColor: '#B8322A' });
+    const selectTool = new SelectTool();
+    viewport.toolManager.register(selectTool);
+    viewport.toolManager.setTool('select', viewport.toolContext);
+    const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
+    viewport.store.add(note);
+    selectTool.setSelection([note.id]);
+
+    const styles: string[] = [];
+    const noop = (): void => undefined;
+    const canvas = {
+      save: noop,
+      restore: noop,
+      strokeRect: noop,
+      fillRect: noop,
+      beginPath: noop,
+      moveTo: noop,
+      lineTo: noop,
+      arc: noop,
+      fill: noop,
+      stroke: noop,
+      setLineDash: noop,
+      set strokeStyle(v: string) {
+        styles.push(v);
+      },
+      set fillStyle(v: string) {
+        styles.push(v);
+      },
+    };
+    selectTool.renderOverlay(canvas as unknown as CanvasRenderingContext2D);
+
+    expect(styles).toContain('#B8322A');
+    expect(styles).not.toContain('#2196F3');
+    viewport.destroy();
+  });
+
   it('sets user-select: none on wrapper', () => {
     const viewport = new Viewport(container);
     const wrapper = wrapperOf(container);

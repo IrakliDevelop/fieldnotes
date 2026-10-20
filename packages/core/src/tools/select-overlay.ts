@@ -11,6 +11,9 @@ import type { ElementRegistry } from '../elements/element-registry';
 
 export type HandlePosition = 'nw' | 'ne' | 'sw' | 'se';
 
+/** Selection chrome colour when `ViewportOptions.selectionColor` is unset. */
+export const DEFAULT_SELECTION_COLOR = '#2196F3';
+
 export const HANDLE_SIZE = 8;
 export const HANDLE_HIT_PADDING = 4;
 export const SELECTION_PAD = 4;
@@ -70,7 +73,12 @@ export function topMidpoint(layout: { corners: [HandlePosition, Point][] }): Poi
   return { x: (nw.x + ne.x) / 2, y: (nw.y + ne.y) / 2 };
 }
 
-export function drawLockBadge(ctx: CanvasRenderingContext2D, at: Point, zoom: number): void {
+export function drawLockBadge(
+  ctx: CanvasRenderingContext2D,
+  at: Point,
+  zoom: number,
+  color = DEFAULT_SELECTION_COLOR,
+): void {
   const r = 9 / zoom;
   ctx.save();
   ctx.setLineDash([]);
@@ -78,12 +86,12 @@ export function drawLockBadge(ctx: CanvasRenderingContext2D, at: Point, zoom: nu
   ctx.arc(at.x, at.y, r, 0, Math.PI * 2);
   ctx.fillStyle = '#ffffff';
   ctx.fill();
-  ctx.strokeStyle = '#2196F3';
+  ctx.strokeStyle = color;
   ctx.lineWidth = 1.5 / zoom;
   ctx.stroke();
   const bw = 8 / zoom;
   const bh = 6 / zoom;
-  ctx.fillStyle = '#2196F3';
+  ctx.fillStyle = color;
   ctx.fillRect(at.x - bw / 2, at.y - bh / 2 + 1 / zoom, bw, bh);
   ctx.beginPath();
   ctx.arc(at.x, at.y - bh / 2 + 1 / zoom, 2.5 / zoom, Math.PI, 0);
@@ -92,13 +100,18 @@ export function drawLockBadge(ctx: CanvasRenderingContext2D, at: Point, zoom: nu
   ctx.restore();
 }
 
-export function renderMarquee(ctx: CanvasRenderingContext2D, rect: Bounds): void {
+export function renderMarquee(
+  ctx: CanvasRenderingContext2D,
+  rect: Bounds,
+  color = DEFAULT_SELECTION_COLOR,
+): void {
   ctx.save();
-  ctx.strokeStyle = '#2196F3';
-  ctx.fillStyle = 'rgba(33, 150, 243, 0.08)';
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
   ctx.lineWidth = 1;
   ctx.setLineDash([4, 4]);
   ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+  ctx.globalAlpha = 0.08;
   ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
   ctx.restore();
 }
@@ -108,13 +121,14 @@ export function renderBindingHighlights(
   arrow: ArrowElement,
   zoom: number,
   store: ElementStore,
+  color = DEFAULT_SELECTION_COLOR,
 ): void {
   if (!arrow.fromBinding && !arrow.toBinding) return;
 
   const pad = SELECTION_PAD / zoom;
 
   ctx.save();
-  ctx.strokeStyle = '#2196F3';
+  ctx.strokeStyle = color;
   ctx.lineWidth = 2 / zoom;
   ctx.setLineDash([]);
 
@@ -143,15 +157,17 @@ export function renderSelectionBoxes(
     zoom: number;
     isLayerLocked?: (layerId: string) => boolean;
     elementRegistry?: ElementRegistry;
+    color?: string;
   },
 ): void {
   if (p.selectedIds.length === 0) return;
 
   const zoom = p.zoom;
   const handleWorldSize = HANDLE_SIZE / zoom;
+  const color = p.color ?? DEFAULT_SELECTION_COLOR;
 
   ctx.save();
-  ctx.strokeStyle = '#2196F3';
+  ctx.strokeStyle = color;
   ctx.lineWidth = 1.5 / zoom;
   ctx.setLineDash([4 / zoom, 4 / zoom]);
 
@@ -161,8 +177,8 @@ export function renderSelectionBoxes(
     const locked = el.locked || (p.isLayerLocked?.(el.layerId) ?? false);
 
     if (el.type === 'arrow') {
-      if (!locked) renderArrowHandles(ctx, el, zoom);
-      renderBindingHighlights(ctx, el, zoom, p.store);
+      if (!locked) renderArrowHandles(ctx, el, zoom, color);
+      renderBindingHighlights(ctx, el, zoom, p.store, color);
       continue;
     }
 
@@ -256,7 +272,7 @@ export function renderSelectionBoxes(
 
     if (locked) {
       const ne = layout.corners.find(([h]) => h === 'ne')?.[1];
-      if (ne) drawLockBadge(ctx, ne, zoom);
+      if (ne) drawLockBadge(ctx, ne, zoom, color);
     }
   }
 

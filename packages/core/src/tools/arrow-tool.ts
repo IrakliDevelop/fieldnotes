@@ -4,6 +4,7 @@ import type { Tool, ToolContext, PointerState } from './types';
 import { createArrow } from '../elements/element-factory';
 import { findBindTarget, getElementCenter } from '../elements/arrow-binding';
 import { getElementBounds } from '../elements/element-bounds';
+import { DEFAULT_SELECTION_COLOR } from './select-overlay';
 
 const BIND_THRESHOLD = 20;
 
@@ -24,6 +25,8 @@ export class ArrowTool implements Tool {
   private fromBinding: Binding | undefined;
   private fromTarget: CanvasElement | null = null;
   private toTarget: CanvasElement | null = null;
+  // renderOverlay gets no ToolContext, so keep the colour from the gesture's context.
+  private selectionColor = DEFAULT_SELECTION_COLOR;
   private optionListeners = new Set<() => void>();
 
   constructor(options: ArrowToolOptions = {}) {
@@ -65,6 +68,7 @@ export class ArrowTool implements Tool {
 
   onPointerDown(state: PointerState, ctx: ToolContext): void {
     this.drawing = true;
+    this.selectionColor = ctx.selectionColor ?? DEFAULT_SELECTION_COLOR;
     const world = ctx.camera.screenToWorld({ x: state.x, y: state.y });
     const threshold = BIND_THRESHOLD / ctx.camera.zoom;
     const filter = this.layerFilter(ctx);
@@ -146,7 +150,7 @@ export class ArrowTool implements Tool {
     if (this.fromTarget) {
       const bounds = getElementBounds(this.fromTarget);
       if (bounds) {
-        ctx.strokeStyle = '#2196F3';
+        ctx.strokeStyle = this.selectionColor;
         ctx.lineWidth = 2;
         ctx.setLineDash([]);
         ctx.strokeRect(bounds.x, bounds.y, bounds.w, bounds.h);
@@ -156,7 +160,7 @@ export class ArrowTool implements Tool {
     if (this.toTarget) {
       const bounds = getElementBounds(this.toTarget);
       if (bounds) {
-        ctx.strokeStyle = '#2196F3';
+        ctx.strokeStyle = this.selectionColor;
         ctx.lineWidth = 2;
         ctx.setLineDash([]);
         ctx.strokeRect(bounds.x, bounds.y, bounds.w, bounds.h);

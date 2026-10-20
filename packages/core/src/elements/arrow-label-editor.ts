@@ -2,6 +2,7 @@ import type { ArrowElement } from './types';
 import type { ElementStore } from './element-store';
 import type { HistoryRecorder } from '../history/history-recorder';
 import { getArrowMidpoint } from './arrow-geometry';
+import { DEFAULT_SELECTION_COLOR } from '../tools/select-overlay';
 
 export interface ArrowLabelEditStart {
   arrow: ArrowElement;
@@ -14,6 +15,8 @@ export interface ArrowLabelEditStart {
 export class ArrowLabelEditor {
   private input: HTMLInputElement | null = null;
   private done = false;
+
+  constructor(private readonly color = DEFAULT_SELECTION_COLOR) {}
 
   get isEditing(): boolean {
     return this.input !== null;
@@ -36,7 +39,7 @@ export class ArrowLabelEditor {
       pointerEvents: 'auto',
       font: '14px system-ui, sans-serif',
       padding: '2px 6px',
-      border: '1px solid #2196F3',
+      border: `1px solid ${this.color}`,
       borderRadius: '4px',
       background: '#ffffff',
       color: '#1a1a1a',

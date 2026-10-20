@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### Core 0.96.0 — selection colour (A2)
+
+**Added**
+
+- `ViewportOptions.selectionColor` (any CSS colour, default `#2196F3`, read at construction): the
+  colour of selection outlines, handles, the marquee, lock badges, binding highlights, arrow
+  previews and the arrow label input. The smart-guide colour is unchanged.
+
 ### Core 0.95.0 — embedded boards (A11)
 
 **Added**

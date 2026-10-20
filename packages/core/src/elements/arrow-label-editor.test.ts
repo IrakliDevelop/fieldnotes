@@ -104,4 +104,12 @@ describe('ArrowLabelEditor', () => {
     expect(getLabel(env, arrow.id)).toBe('once');
     expect(env.stack.undoCount).toBe(1);
   });
+
+  it.each([
+    [undefined, 'rgb(33, 150, 243)'],
+    ['#B8322A', 'rgb(184, 50, 42)'],
+  ])('borders the input in the selection colour %s', (color, expected) => {
+    const { input } = start({ ...env, editor: new ArrowLabelEditor(color) });
+    expect(input?.style.borderColor).toBe(expected);
+  });
 });

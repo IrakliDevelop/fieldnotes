@@ -2780,3 +2780,69 @@ describe('SelectTool extension bounds from the context registry', () => {
     expect(ctx.store.getById(drag.id)?.position.x).toBe(200);
   });
 });
+
+describe('SelectTool selectionColor', () => {
+  function styleRecorder(): { canvas: CanvasRenderingContext2D; styles: string[] } {
+    const styles: string[] = [];
+    const noop = (): void => undefined;
+    const canvas = {
+      save: noop,
+      restore: noop,
+      strokeRect: noop,
+      fillRect: noop,
+      beginPath: noop,
+      moveTo: noop,
+      lineTo: noop,
+      closePath: noop,
+      arc: noop,
+      fill: noop,
+      stroke: noop,
+      setLineDash: noop,
+      lineWidth: 0,
+      globalAlpha: 1,
+      set strokeStyle(v: string) {
+        styles.push(v);
+      },
+      set fillStyle(v: string) {
+        styles.push(v);
+      },
+    };
+    return { canvas: canvas as unknown as CanvasRenderingContext2D, styles };
+  }
+
+  it.each([
+    ['note', createNote({ position: { x: 100, y: 100 }, size: { w: 200, h: 100 } })],
+    ['arrow', createArrow({ from: { x: 100, y: 130 }, to: { x: 300, y: 130 } })],
+  ])('draws the %s hover outline in the context colour', (_name, element) => {
+    const tool = new SelectTool();
+    const ctx = makeCtx({ selectionColor: '#B8322A' });
+    ctx.store.add(element);
+    tool.onActivate(ctx);
+    tool.onHover?.(pt(200, 130), ctx);
+
+    const { canvas, styles } = styleRecorder();
+    tool.renderOverlay?.(canvas);
+
+    expect(styles).toContain('#B8322A');
+    expect(styles).not.toContain('#2196F3');
+  });
+
+  it('draws the arrow-handle drag target in the context colour', () => {
+    const tool = new SelectTool();
+    const ctx = makeCtx({ selectionColor: '#B8322A' });
+    const note = createNote({ position: { x: 200, y: 200 }, size: { w: 100, h: 100 } });
+    const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 400, y: 400 } });
+    ctx.store.add(note);
+    ctx.store.add(arrow);
+    tool.onActivate(ctx);
+    tool.setSelection([arrow.id]);
+    tool.onPointerDown(pt(0, 0), ctx);
+    tool.onPointerMove(pt(210, 210), ctx);
+
+    const { canvas, styles } = styleRecorder();
+    tool.renderOverlay?.(canvas);
+
+    expect(styles).toContain('#B8322A');
+    expect(styles).not.toContain('#2196F3');
+  });
+});

@@ -4,6 +4,7 @@ import type { ToolContext } from './types';
 import { getArrowMidpoint, getBendFromPoint } from '../elements/arrow-geometry';
 import { findBindTarget, getElementCenter } from '../elements/arrow-binding';
 import { getElementBounds } from '../elements/element-bounds';
+import { DEFAULT_SELECTION_COLOR } from './select-overlay';
 
 const BIND_THRESHOLD = 20;
 
@@ -146,6 +147,7 @@ export function renderArrowHandles(
   canvasCtx: CanvasRenderingContext2D,
   arrow: ArrowElement,
   zoom: number,
+  color = DEFAULT_SELECTION_COLOR,
 ): void {
   const radius = HANDLE_RADIUS / zoom;
   const handles = getArrowHandlePositions(arrow);
@@ -154,8 +156,8 @@ export function renderArrowHandles(
   canvasCtx.lineWidth = 1.5 / zoom;
 
   for (const [handle, pos] of handles) {
-    canvasCtx.fillStyle = handle === 'mid' ? '#2196F3' : '#ffffff';
-    canvasCtx.strokeStyle = '#2196F3';
+    canvasCtx.fillStyle = handle === 'mid' ? color : '#ffffff';
+    canvasCtx.strokeStyle = color;
 
     canvasCtx.beginPath();
     canvasCtx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
@@ -168,11 +170,12 @@ export function renderArrowHoverHandle(
   canvasCtx: CanvasRenderingContext2D,
   arrow: ArrowElement,
   zoom: number,
+  color = DEFAULT_SELECTION_COLOR,
 ): void {
   const mid = getArrowMidpoint(arrow.from, arrow.to, arrow.bend);
   const radius = HANDLE_RADIUS / zoom;
-  canvasCtx.fillStyle = '#2196F3';
-  canvasCtx.strokeStyle = '#2196F3';
+  canvasCtx.fillStyle = color;
+  canvasCtx.strokeStyle = color;
   canvasCtx.lineWidth = 1.5 / zoom;
   canvasCtx.beginPath();
   canvasCtx.arc(mid.x, mid.y, radius, 0, Math.PI * 2);
