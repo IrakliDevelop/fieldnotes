@@ -560,6 +560,7 @@ export class InputHandler {
       }
     }
     this.activePointers.clear();
+    this.ignoredPointers.clear();
     this.lastPinchDistance = 0;
     if (this.isPanning) {
       this.isPanning = false;

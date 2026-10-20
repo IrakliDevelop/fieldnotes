@@ -2856,6 +2856,62 @@ describe('InputHandler', () => {
       pointerUp(button, { pointerId: 1, button: 0, pointerType: 'mouse' });
     });
 
+    it('control touch joining a one-finger gesture cancels the tool and pinches', () => {
+      const store = new ElementStore();
+      const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+      store.add(note);
+      const stack = new RealHistoryStack();
+      const hr = new RealHistoryRecorder(store, stack);
+      const calls = { down: 0, up: 0, cancel: 0 };
+      const tm = new RealToolManager();
+      const tc: ToolContext = { ...stubToolContext(), store };
+      tm.register({
+        name: 'stroke-like',
+        onPointerDown: () => calls.down++,
+        onPointerMove: () => undefined,
+        onPointerUp: (state) => {
+          calls.up++;
+          store.update(note.id, { position: { x: state.x, y: state.y } });
+        },
+        onPointerCancel: () => calls.cancel++,
+      });
+      tm.setTool('stroke-like', tc);
+      handler.destroy();
+      handler = new InputHandler(element, camera, {
+        toolManager: tm,
+        toolContext: tc,
+        historyRecorder: hr,
+        historyStack: stack,
+        actions: stubActionRegistry(),
+      });
+
+      pointerDown(padding, { pointerId: 1, pointerType: 'touch', clientX: 100, clientY: 100 });
+      pointerMove(element, { pointerId: 1, pointerType: 'touch', clientX: 110, clientY: 100 });
+      expect(calls.down).toBe(1);
+      pointerDown(button, { pointerId: 2, pointerType: 'touch', clientX: 200, clientY: 100 });
+      pointerMove(element, { pointerId: 1, pointerType: 'touch', clientX: 50, clientY: 100 });
+      pointerMove(button, { pointerId: 2, pointerType: 'touch', clientX: 250, clientY: 100 });
+      pointerUp(button, { pointerId: 2, pointerType: 'touch', clientX: 250, clientY: 100 });
+      pointerUp(element, { pointerId: 1, pointerType: 'touch', clientX: 50, clientY: 100 });
+
+      expect(calls.cancel).toBe(1);
+      expect(calls.up).toBe(0);
+      expect(stack.undoCount).toBe(0);
+      expect(camera.zoom).toBeGreaterThan(1);
+    });
+
+    it('window blur after a control press lets hover reach the tool again', () => {
+      const onHover = vi.fn();
+      const tm = { ...stubToolManager(), activeTool: { onHover } } as unknown as ToolManager;
+      handler.setToolManager(tm, stubToolContext());
+
+      pointerDown(button, { pointerId: 1, button: 0, pointerType: 'mouse' });
+      window.dispatchEvent(new Event('blur'));
+      pointerMove(element, { pointerId: 1, pointerType: 'mouse', clientX: 30, clientY: 30 });
+
+      expect(onHover).toHaveBeenCalledOnce();
+    });
+
     it('contextmenu on a live control is not prevented', () => {
       const fromControl = new MouseEvent('contextmenu', { cancelable: true, bubbles: true });
       button.dispatchEvent(fromControl);

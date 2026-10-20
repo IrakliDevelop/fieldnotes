@@ -914,7 +914,6 @@ export class Viewport {
         pointerEvents: el.interactive ? 'auto' : 'none',
       });
     }
-    this.stopInteractingIfLive();
   }
 
   private buildHtmlContent(el: HtmlElement): HTMLElement | null {
