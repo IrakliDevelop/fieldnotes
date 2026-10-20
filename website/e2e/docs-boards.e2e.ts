@@ -119,6 +119,76 @@ test('search lists docs results and Enter opens the selected one', async ({ page
   await expect(page).toHaveURL(new RegExp(`${href ?? ''}$`));
 });
 
+test('search results close on Escape, when focus leaves the box, and when the input clears', async ({
+  page,
+}) => {
+  await page.goto('/docs/getting-started/');
+  const input = page.getByRole('searchbox', { name: 'Search the docs' });
+  const list = page.locator('[data-search-results]');
+
+  await input.fill('viewport');
+  await expect(list).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(list).toBeHidden();
+  await expect(input).toBeFocused();
+
+  await input.fill('viewport');
+  await expect(list).toBeVisible();
+  await page.keyboard.press('Shift+Tab');
+  await expect(list).toBeHidden();
+
+  await input.fill('viewport');
+  await expect(list).toBeVisible();
+  // The page's left padding at the bottom edge is clear of the results list and every link.
+  await page.mouse.click(1, (page.viewportSize()?.height ?? 1) - 1);
+  await expect(list).toBeHidden();
+
+  await input.fill('viewport');
+  await expect(list).toBeVisible();
+  await input.fill('');
+  await expect(list).toBeHidden();
+});
+
+test('only the latest query renders its results', async ({ page }) => {
+  await page.goto('/docs/getting-started/');
+  const input = page.getByRole('searchbox', { name: 'Search the docs' });
+  const links = page.getByRole('list', { name: 'Search results' }).getByRole('link');
+
+  // Hold the first query's result fragment until the second query has rendered.
+  const { promise: held, resolve: release } = Promise.withResolvers<undefined>();
+  let first = true;
+  await page.route('**/pagefind/fragment/*', async (route) => {
+    if (first) {
+      first = false;
+      await held;
+    }
+    await route.continue();
+  });
+
+  const stale = page.waitForResponse('**/pagefind/fragment/*');
+  await input.fill('debounced');
+  await page.waitForRequest('**/pagefind/fragment/*');
+  await input.fill('container');
+  await expect(links).toHaveCount(1);
+  await expect(links.first()).toHaveAttribute('href', '/docs/getting-started/');
+
+  release(undefined);
+  await (await stale).finished();
+  await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => setTimeout(done))));
+  expect(await links.evaluateAll((all) => all.map((a) => a.getAttribute('href')))).toEqual([
+    '/docs/getting-started/',
+  ]);
+});
+
+test('a docs page has no horizontal scroll on a phone', async ({ page }) => {
+  test.skip(test.info().project.name !== 'phone', 'phone width only');
+  await page.goto('/docs/getting-started/');
+  await page.getByRole('searchbox', { name: 'Search the docs' }).waitFor();
+  const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
+  // `isMobile` widens `innerWidth` to fit overflowing content, so compare with the device width.
+  expect(scrollWidth).toBeLessThanOrEqual(360);
+});
+
 test('a mounted board with search results has no axe violations', async ({ page }) => {
   await openBoard(page);
   await page.getByRole('searchbox', { name: 'Search the docs' }).fill('viewport');
