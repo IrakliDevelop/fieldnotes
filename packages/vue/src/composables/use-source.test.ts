@@ -18,13 +18,15 @@ import { useSelectionStyle } from './use-selection-style';
 import { useSelectionStyleDetails } from './use-selection-style-details';
 import { useToolOptions } from './use-tool-options';
 
+const toolName = ref('pencil');
+const elementType = ref<ElementType | undefined>(undefined);
+
 afterEach(() => {
   vi.restoreAllMocks();
   destroyTestViewports();
+  toolName.value = 'pencil';
+  elementType.value = undefined;
 });
-
-const toolName = ref('pencil');
-const elementType = ref<ElementType | undefined>(undefined);
 
 const Consumer = defineComponent({
   setup() {
@@ -72,8 +74,6 @@ describe('composable listener balance', () => {
     const open = countOpenListeners();
     const baseline = open();
     const shown = ref(true);
-    toolName.value = 'pencil';
-    elementType.value = undefined;
     const app = createApp({
       setup() {
         provide(ViewportKey, viewport);

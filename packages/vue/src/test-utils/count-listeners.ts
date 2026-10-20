@@ -5,6 +5,7 @@ import {
   HistoryStack,
   LayerManager,
   PencilTool,
+  ShapeTool,
   ToolManager,
   Viewport,
 } from '@fieldnotes/core';
@@ -38,5 +39,6 @@ export function countOpenListeners(): () => number {
   wrap(LayerManager.prototype, 'on');
   wrap(ToolManager.prototype, 'onChange');
   wrap(PencilTool.prototype, 'onOptionsChange');
+  wrap(ShapeTool.prototype, 'onOptionsChange');
   return () => open;
 }
