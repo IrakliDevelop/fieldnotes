@@ -1,37 +1,46 @@
 // #region ten-lines
 // #region mount
-import { Viewport, type ViewportOptions } from '@fieldnotes/core';
+import { Viewport } from '@fieldnotes/core';
+// #endregion mount
+// #endregion ten-lines
+import type { ViewportOptions } from '@fieldnotes/core';
 
+/** Mounts the docs board with the `mount` tools; `extra` holds the docs page's options. */
 export function createBoard(container: HTMLElement, extra?: ViewportOptions): Viewport {
   return new Viewport(container, { tools: 'default', ...extra });
 }
-// #endregion mount
 
-// #region save
-export function persist(viewport: Viewport, storage: Storage, key = 'board'): () => void {
-  const saved = storage.getItem(key);
-  if (saved) viewport.loadJSON(saved);
-  return viewport.onStateChange(() => storage.setItem(key, viewport.exportJSON()));
-}
-// #endregion save
-// #endregion ten-lines
+export function tenLines(): void {
+  // #region ten-lines
+  // #region mount
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- // #hide
+  const viewport = new Viewport(document.getElementById('board')!, {
+    background: { pattern: 'dots', spacing: 24 },
+    tools: 'default',
+  });
+  // #endregion mount
 
-// #region save-debounced
-export function saveToLocalStorage(viewport: Viewport): () => void {
   const saved = localStorage.getItem('board');
   if (saved) viewport.loadJSON(saved);
+  viewport.onStateChange(() => localStorage.setItem('board', viewport.exportJSON()));
+  // #endregion ten-lines
+}
+
+export function saveDebounced(viewport: Viewport): void {
+  // #region save-debounced
+  const saved = localStorage.getItem('board');
+  if (saved) viewport.loadJSON(saved);
+
   let timer: ReturnType<typeof setTimeout> | undefined;
-  return viewport.onStateChange(() => {
+  viewport.onStateChange(() => {
     clearTimeout(timer);
     timer = setTimeout(() => localStorage.setItem('board', viewport.exportJSON()), 250);
   });
+  // #endregion save-debounced
 }
-// #endregion save-debounced
 
-// #region cleanup
-export function mountSavedBoard(container: HTMLElement): () => void {
-  const viewport = createBoard(container);
-  saveToLocalStorage(viewport);
-  return () => viewport.destroy();
+export function cleanup(viewport: Viewport): void {
+  // #region cleanup
+  viewport.destroy();
+  // #endregion cleanup
 }
-// #endregion cleanup

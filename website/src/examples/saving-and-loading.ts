@@ -7,26 +7,23 @@ import {
   type ViewportOptions,
 } from '@fieldnotes/core';
 
-// #region export
-export function saveBoard(viewport: Viewport, url: string): Promise<Response> {
-  return fetch(url, { method: 'PUT', body: viewport.exportJSON() });
+export async function saveBoard(viewport: Viewport): Promise<void> {
+  // #region export
+  await fetch('/api/board', { method: 'PUT', body: viewport.exportJSON() });
+  // #endregion export
 }
-// #endregion export
 
-// #region load
-export function openBoard(
-  container: HTMLElement,
-  saved: string | null,
-  extra?: ViewportOptions,
-): Viewport {
-  const viewport = new Viewport(container, { tools: 'default', ...extra });
+export function openBoard(): void {
+  // #region load
+  const saved = localStorage.getItem('board');
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- // #hide
+  const viewport = new Viewport(document.getElementById('board')!, { tools: 'default' });
   if (saved) viewport.loadJSON(saved);
-  return viewport;
+  // #endregion load
 }
-// #endregion load
 
-// #region autosave
-export async function startAutoSave(viewport: Viewport): Promise<AutoSave> {
+export async function startAutoSave(viewport: Viewport): Promise<void> {
+  // #region autosave
   const autoSave = new AutoSave(viewport.store, viewport.camera, {
     key: 'board',
     adapter: new IndexedDBAdapter(),
@@ -35,9 +32,8 @@ export async function startAutoSave(viewport: Viewport): Promise<AutoSave> {
   const saved = await autoSave.load();
   if (saved) viewport.loadState(saved);
   autoSave.start();
-  return autoSave;
+  // #endregion autosave
 }
-// #endregion autosave
 
 const wave = (length: number): StrokePoint[] =>
   Array.from({ length: length / 10 + 1 }, (_, i) => ({
@@ -87,7 +83,9 @@ const SAMPLE_BOARD = JSON.stringify({
   ],
 } satisfies CanvasState);
 
-/** Opens the sample board through the `load` region's code. */
+/** Opens the sample board as the `load` region opens a saved one. */
 export function createBoard(container: HTMLElement, extra?: ViewportOptions): Viewport {
-  return openBoard(container, SAMPLE_BOARD, extra);
+  const viewport = new Viewport(container, { tools: 'default', ...extra });
+  viewport.loadJSON(SAMPLE_BOARD);
+  return viewport;
 }

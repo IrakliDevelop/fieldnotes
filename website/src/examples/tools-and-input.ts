@@ -6,28 +6,34 @@ import {
   type ShapeTool,
 } from '@fieldnotes/core';
 
-// #region choose
-export function createImageBoard(container: HTMLElement): Viewport {
-  return new Viewport(container, { tools: [...createDefaultTools(), new ImageTool()] });
+export function chooseTools(): Viewport {
+  // #region choose
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- // #hide
+  const viewport = new Viewport(document.getElementById('board')!, {
+    tools: [...createDefaultTools(), new ImageTool()],
+  });
+  // #endregion choose
+  return viewport;
 }
-// #endregion choose
 
-// #region switch
-export function bindToolButtons(viewport: Viewport, toolbar: HTMLElement): () => void {
+export function toolButtons(viewport: Viewport): void {
+  // #region switch
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- // #hide
+  const toolbar = document.getElementById('toolbar')!;
   toolbar.addEventListener('click', (event) => {
     const button = event.target instanceof Element ? event.target.closest('button') : null;
     if (button?.dataset.tool) viewport.setTool(button.dataset.tool);
   });
-  return viewport.toolManager.onChange((name) => {
+  viewport.toolManager.onChange((name) => {
     for (const button of toolbar.querySelectorAll('button')) {
       button.setAttribute('aria-pressed', String(button.dataset.tool === name));
     }
   });
+  // #endregion switch
 }
-// #endregion switch
 
-// #region options
-export function setUpPens(viewport: Viewport): void {
+export function pens(viewport: Viewport): void {
+  // #region options
   viewport.toolManager.getTool<PencilTool>('pencil')?.setOptions({ color: '#2F55A4', width: 3 });
   viewport.toolManager.getTool<ShapeTool>('shape')?.setOptions({ shape: 'ellipse' });
 
@@ -40,12 +46,13 @@ export function setUpPens(viewport: Viewport): void {
       blendMode: 'multiply',
     }),
   );
+  // #endregion options
 }
-// #endregion options
 
-// #region shortcuts
-export function createKeyboardBoard(container: HTMLElement): Viewport {
-  const viewport = new Viewport(container, {
+export function keyboardBoard(): void {
+  // #region shortcuts
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- // #hide
+  const viewport = new Viewport(document.getElementById('board')!, {
     tools: 'default',
     shortcuts: {
       bindings: {
@@ -56,6 +63,5 @@ export function createKeyboardBoard(container: HTMLElement): Viewport {
   });
   viewport.shortcuts.disable('select.cycle');
   viewport.shortcuts.disable('select.cycle-reverse');
-  return viewport;
+  // #endregion shortcuts
 }
-// #endregion shortcuts

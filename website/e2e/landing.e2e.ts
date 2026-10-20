@@ -98,6 +98,14 @@ test.describe('landing without JavaScript', () => {
   });
 });
 
+test('the ten lines sample is reader code, not the board harness', async ({ page }) => {
+  await page.goto('/');
+  const code = page.getByRole('region', { name: 'Ten lines to a board that saves' }).locator('pre');
+  await expect(code).toContainText("new Viewport(document.getElementById('board')!");
+  await expect(code).not.toContainText('createBoard');
+  await expect(code).not.toContainText('extra');
+});
+
 test('forwards old playground links', async ({ page, baseURL }) => {
   for (const query of ['?scene=tabletop&room=r1&guest#x', '?room=r1&guest', '?blank']) {
     await page.goto(`/${query}`);

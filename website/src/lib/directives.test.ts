@@ -42,6 +42,42 @@ describe('extractRegion', () => {
     expect(extractRegion(SOURCE, 'inner-two')).toBe('console.log(b);');
   });
 
+  it('joins every block of a repeated region with one blank line, in file order', () => {
+    const source = [
+      '// #region app',
+      "import { Viewport } from '@fieldnotes/core';",
+      '// #endregion app',
+      'export function run(): void {',
+      '  // #region app',
+      '  const a = 1;',
+      '  // #endregion app',
+      '  // #region other',
+      '  const b = 2;',
+      '  // #endregion other',
+      '  // #region app',
+      '  console.log(a);',
+      '  // #endregion app',
+      '}',
+    ].join('\n');
+    expect(extractRegion(source, 'app')).toBe(
+      "import { Viewport } from '@fieldnotes/core';\n\nconst a = 1;\n\nconsole.log(a);",
+    );
+  });
+
+  it('drops lines ending in // #hide, inside a region', () => {
+    const source = [
+      'function f(): void {',
+      '  // #region shown',
+      '  // eslint-disable-next-line no-console -- // #hide',
+      '  console.log(1);',
+      '  return; // #hide',
+      '  const a = 2;  // #hide  ',
+      '  // #endregion shown',
+      '}',
+    ].join('\n');
+    expect(extractRegion(source, 'shown')).toBe('console.log(1);');
+  });
+
   it('throws when the region is missing', () => {
     expect(() => extractRegion(SOURCE, 'missing')).toThrow('region "missing" not found');
   });

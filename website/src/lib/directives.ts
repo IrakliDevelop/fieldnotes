@@ -62,24 +62,35 @@ export function exampleCode(
 const REGION_START = /^\s*\/\/\s*#region\s+(\S+)\s*$/;
 const REGION_END = /^\s*\/\/\s*#endregion\b/;
 
-/** The lines between `// #region <name>` and its matching `// #endregion`, markers stripped and dedented. */
+/**
+ * The lines between each `// #region <name>` and its matching `// #endregion`, markers and
+ * `// #hide` lines stripped, each block dedented, blocks joined by a blank line.
+ */
 export function extractRegion(source: string, name: string): string {
-  const lines = source.split('\n');
-  const start = lines.findIndex((line) => REGION_START.exec(line)?.[1] === name);
-  if (start === -1) throw new Error(`region "${name}" not found`);
-  const body: string[] = [];
-  let depth = 1;
-  for (const line of lines.slice(start + 1)) {
-    if (REGION_START.test(line)) {
+  const blocks: string[] = [];
+  let body: string[] | undefined;
+  let depth = 0;
+  for (const line of source.split('\n')) {
+    if (!body) {
+      if (REGION_START.exec(line)?.[1] === name) {
+        body = [];
+        depth = 1;
+      }
+    } else if (REGION_START.test(line)) {
       depth += 1;
     } else if (REGION_END.test(line)) {
       depth -= 1;
-      if (depth === 0) return dedent(body);
-    } else {
+      if (depth === 0) {
+        blocks.push(dedent(body));
+        body = undefined;
+      }
+    } else if (!line.trimEnd().endsWith('// #hide')) {
       body.push(line);
     }
   }
-  throw new Error(`region "${name}" is not closed`);
+  if (body) throw new Error(`region "${name}" is not closed`);
+  if (blocks.length === 0) throw new Error(`region "${name}" not found`);
+  return blocks.join('\n\n');
 }
 
 function dedent(lines: string[]): string {

@@ -1,7 +1,7 @@
 import type { Viewport } from '@fieldnotes/core';
 
-// #region create
-export function setUpMapLayers(viewport: Viewport): string {
+export function mapLayers(viewport: Viewport): void {
+  // #region create
   const { layerManager } = viewport;
   const mapId = layerManager.activeLayerId;
   layerManager.renameLayer(mapId, 'Map');
@@ -9,20 +9,20 @@ export function setUpMapLayers(viewport: Viewport): string {
 
   layerManager.setActiveLayer(tokens.id);
   layerManager.setLayerLocked(mapId, true);
-  return mapId;
-}
-// #endregion create
+  // #endregion create
 
-// #region move
-export function sendToMap(viewport: Viewport, ids: string[], mapId: string): void {
+  // #region move
+  const ids = viewport.getSelectedIds();
   viewport.transaction(() => {
     for (const id of ids) viewport.layerManager.moveElementToLayer(id, mapId);
   });
+  // #endregion move
 }
-// #endregion move
 
-// #region list
-export function renderLayerList(viewport: Viewport, list: HTMLElement): () => void {
+export function layerList(viewport: Viewport): void {
+  // #region list
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- // #hide
+  const list = document.getElementById('layers')!;
   const render = (): void => {
     const { layerManager } = viewport;
     list.replaceChildren(
@@ -38,6 +38,6 @@ export function renderLayerList(viewport: Viewport, list: HTMLElement): () => vo
     );
   };
   render();
-  return viewport.layerManager.on('change', render);
+  viewport.layerManager.on('change', render);
+  // #endregion list
 }
-// #endregion list

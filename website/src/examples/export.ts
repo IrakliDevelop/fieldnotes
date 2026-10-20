@@ -9,19 +9,19 @@ function download(blob: Blob, name: string): void {
   URL.revokeObjectURL(url);
 }
 
-// #region png
-export async function downloadPng(viewport: Viewport): Promise<void> {
+export async function exportPng(viewport: Viewport): Promise<void> {
+  // #region png
   const blob = await viewport.exportImage({ padding: 20 });
   if (blob) download(blob, 'board.png');
+  // #endregion png
 }
-// #endregion png
 
-// #region svg
-export async function downloadSvg(viewport: Viewport): Promise<void> {
+export async function exportSvg(viewport: Viewport): Promise<void> {
+  // #region svg
   const svg = await viewport.exportSVG({ padding: 20, background: '#ffffff' });
   download(new Blob([svg], { type: 'image/svg+xml' }), 'board.svg');
+  // #endregion svg
 }
-// #endregion svg
 
 // #region render-html
 function drawCard(element: HtmlElement): HTMLCanvasElement {
@@ -40,11 +40,14 @@ function drawCard(element: HtmlElement): HTMLCanvasElement {
   ctx.fillText(typeof title === 'string' ? title : '', 16, 32);
   return canvas;
 }
+// #endregion render-html
 
-export function exportWithCards(viewport: Viewport): Promise<Blob | null> {
-  return viewport.exportImage({
+export async function exportWithCards(viewport: Viewport): Promise<void> {
+  // #region render-html
+  const blob = await viewport.exportImage({
     renderHtml: (element) => (element.htmlType === 'initiative' ? drawCard(element) : null),
     onHtmlError: ({ elementId, reason }) => console.warn(`Left out ${elementId}: ${reason}`),
   });
+  if (blob) download(blob, 'board.png');
+  // #endregion render-html
 }
-// #endregion render-html

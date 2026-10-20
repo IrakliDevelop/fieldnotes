@@ -77,10 +77,15 @@ export const markerPlugin: ViewportPlugin = {
     ctx.registerTool(markerTool);
   },
 };
-
-export function createMarkerBoard(container: HTMLElement): Viewport {
-  const viewport = new Viewport(container, { tools: 'default', plugins: [markerPlugin] });
-  viewport.setTool('marker');
-  return viewport;
-}
 // #endregion plugin
+
+export function markerBoard(): void {
+  // #region plugin
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- // #hide
+  const viewport = new Viewport(document.getElementById('board')!, {
+    tools: 'default',
+    plugins: [markerPlugin],
+  });
+  viewport.setTool('marker');
+  // #endregion plugin
+}

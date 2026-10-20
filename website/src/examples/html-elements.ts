@@ -13,24 +13,19 @@ export function setup(viewport: Viewport): void {
   // #endregion live-card
 }
 
-// #region link-card
-export function addLinkCard(viewport: Viewport, href: string, title: string): string {
+export function linkCard(viewport: Viewport): void {
+  // #region link-card
   const link = document.createElement('a');
-  link.href = href;
-  link.textContent = title;
+  link.href = 'https://example.com/session-notes';
+  link.textContent = 'Session notes';
   const grip = document.createElement('span');
   grip.dataset.fnDrag = '';
   grip.textContent = 'Move';
   link.prepend(grip);
 
-  return viewport.addHtmlElement(
-    link,
-    { x: 400, y: 200 },
-    { w: 240, h: 80 },
-    { interactive: true },
-  );
+  viewport.addHtmlElement(link, { x: 400, y: 200 }, { w: 240, h: 80 }, { interactive: true });
+  // #endregion link-card
 }
-// #endregion link-card
 
 // #region renderer
 function initiativeCard(title: string): HTMLElement {
@@ -44,37 +39,40 @@ function initiativeCard(title: string): HTMLElement {
   card.append(heading, button);
   return card;
 }
+// #endregion renderer
 
-export function openInitiativeBoard(container: HTMLElement, saved: string | null): Viewport {
-  const viewport = new Viewport(container, { tools: 'default' });
+export function renderer(): void {
+  // #region renderer
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- // #hide
+  const viewport = new Viewport(document.getElementById('board')!, { tools: 'default' });
   viewport.registerHtmlRenderer('initiative', (element) => {
     const title = element.data?.title;
     return initiativeCard(typeof title === 'string' ? title : '');
   });
+  const saved = localStorage.getItem('board');
   if (saved) viewport.loadJSON(saved);
-  return viewport;
-}
 
-export function addInitiativeCard(viewport: Viewport, title: string): string {
-  return viewport.addHtmlElement(
-    initiativeCard(title),
+  viewport.addHtmlElement(
+    initiativeCard('Initiative'),
     { x: 100, y: 200 },
     { w: 250, h: 150 },
-    { htmlType: 'initiative', data: { title }, interactive: true },
+    { htmlType: 'initiative', data: { title: 'Initiative' }, interactive: true },
   );
+  // #endregion renderer
 }
-// #endregion renderer
 
-// #region embedded
-export function createPageBoard(
-  container: HTMLElement,
-  toggle: HTMLButtonElement,
-  hint: HTMLElement,
-): Viewport {
-  const viewport = new Viewport(container, { tools: 'default', embedded: true });
+export function embedded(): void {
+  // #region embedded
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- // #hide
+  const viewport = new Viewport(document.getElementById('board')!, {
+    tools: 'default',
+    embedded: true,
+  });
   viewport.shortcuts.disable('select.cycle');
   viewport.shortcuts.disable('select.cycle-reverse');
 
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- // #hide
+  const toggle = document.getElementById('draw-toggle')!;
   toggle.addEventListener('click', () =>
     viewport.setEmbeddedEngaged(!viewport.isEmbeddedEngaged()),
   );
@@ -82,12 +80,13 @@ export function createPageBoard(
     toggle.textContent = engaged ? 'Done' : 'Draw on this board';
   });
 
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- // #hide
+  const hint = document.getElementById('zoom-hint')!;
   let timer: ReturnType<typeof setTimeout> | undefined;
   viewport.onWheelPassThrough(() => {
     hint.hidden = false;
     clearTimeout(timer);
     timer = setTimeout(() => (hint.hidden = true), 1500);
   });
-  return viewport;
+  // #endregion embedded
 }
-// #endregion embedded

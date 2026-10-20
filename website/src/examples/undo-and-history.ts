@@ -1,11 +1,11 @@
 import { createNote, type Viewport } from '@fieldnotes/core';
 
-// #region buttons
-export function bindUndoButtons(
-  viewport: Viewport,
-  undo: HTMLButtonElement,
-  redo: HTMLButtonElement,
-): () => void {
+export function undoButtons(viewport: Viewport): void {
+  // #region buttons
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- // #hide
+  const undo = document.querySelector<HTMLButtonElement>('#undo')!;
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- // #hide
+  const redo = document.querySelector<HTMLButtonElement>('#redo')!;
   undo.addEventListener('click', () => viewport.undo());
   redo.addEventListener('click', () => viewport.redo());
   const update = (): void => {
@@ -13,32 +13,32 @@ export function bindUndoButtons(
     redo.disabled = !viewport.history.canRedo;
   };
   update();
-  return viewport.history.onChange(update);
+  viewport.history.onChange(update);
+  // #endregion buttons
 }
-// #endregion buttons
 
-// #region transaction
-export function addLabelledBox(viewport: Viewport, label: string): void {
+export function labelledBox(viewport: Viewport): void {
+  // #region transaction
   viewport.transaction(() => {
     viewport.addShape({ position: { x: 0, y: 0 }, size: { w: 240, h: 160 } });
     viewport.store.add(
       createNote({
         position: { x: 20, y: 20 },
-        text: label,
+        text: 'Room 1',
         layerId: viewport.layerManager.activeLayerId,
       }),
     );
   });
+  // #endregion transaction
 }
-// #endregion transaction
 
-// #region origin
-export function showServerNote(viewport: Viewport, text: string): void {
+export function serverNote(viewport: Viewport): void {
+  // #region origin
   const note = createNote({
     position: { x: 0, y: -140 },
-    text,
+    text: 'Saved on the server',
     layerId: viewport.layerManager.activeLayerId,
   });
   viewport.store.add(note, { origin: 'remote' });
+  // #endregion origin
 }
-// #endregion origin

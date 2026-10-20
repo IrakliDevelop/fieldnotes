@@ -2,11 +2,12 @@ import { expect, test } from '@playwright/test';
 import { expectNoAxeViolations } from './helpers';
 
 const MOUNT_CODE = `\`\`\`ts
-import { Viewport, type ViewportOptions } from '@fieldnotes/core';
+import { Viewport } from '@fieldnotes/core';
 
-export function createBoard(container: HTMLElement, extra?: ViewportOptions): Viewport {
-  return new Viewport(container, { tools: 'default', ...extra });
-}
+const viewport = new Viewport(document.getElementById('board')!, {
+  background: { pattern: 'dots', spacing: 24 },
+  tools: 'default',
+});
 \`\`\``;
 
 test('getting started renders the sidebar with aria-current', async ({ page }) => {
@@ -50,11 +51,10 @@ test('margin note sits in the gutter at 1280px and inline at 800px', async ({ pa
 test('the code block shows the named region only', async ({ page }) => {
   await page.goto('/docs/getting-started/');
   const code = page.locator('main pre[data-language="ts"]').first();
-  await expect(code).toContainText(
-    "return new Viewport(container, { tools: 'default', ...extra });",
-  );
+  await expect(code).toContainText("background: { pattern: 'dots', spacing: 24 },");
   await expect(code).not.toContainText('#region');
-  await expect(code).not.toContainText('persist');
+  await expect(code).not.toContainText('#hide');
+  await expect(code).not.toContainText('localStorage');
 });
 
 test('save and restore debounces the save', async ({ page }) => {
@@ -154,6 +154,25 @@ test('every page in the sidebar is served', async ({ page, request }) => {
   }
 });
 
+test('no code sample on the landing or a docs page shows the board harness', async ({ page }) => {
+  test.skip(test.info().project.name !== 'desktop-chrome', 'the built HTML is the same everywhere');
+  await page.goto('/docs/getting-started/');
+  const docs = await page
+    .getByRole('navigation', { name: 'Docs' })
+    .locator('a[href^="/docs/"]')
+    .evaluateAll((links) => links.map((link) => link.getAttribute('href') ?? ''));
+  expect(docs).toEqual(
+    expect.arrayContaining(['/docs/getting-started/', '/docs/saving-and-loading/']),
+  );
+  for (const href of ['/', ...docs]) {
+    await page.goto(href);
+    for (const code of await page.locator('main pre').allTextContents()) {
+      expect(code, href).not.toContain('...extra');
+      expect(code, href).not.toContain('createBoard(');
+    }
+  }
+});
+
 test('getting started has no axe violations', async ({ page }) => {
   await page.goto('/docs/getting-started/');
   await expectNoAxeViolations(page);
@@ -165,7 +184,7 @@ test.describe('docs without JavaScript', () => {
   test('the code and the board placeholder render', async ({ page }) => {
     await page.goto('/docs/getting-started/');
     await expect(page.locator('main pre[data-language="ts"]').first()).toContainText(
-      'new Viewport(container',
+      "new Viewport(document.getElementById('board')!",
     );
     const board = page.locator('figure[data-live-board="getting-started"]');
     await expect(board.locator('.board-placeholder')).toBeVisible();
