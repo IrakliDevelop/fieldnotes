@@ -118,5 +118,7 @@
   });
 </script>
 
-<!-- Svelte still owns this node after it moves into the canvas, so its own teardown removes it. -->
-<div bind:this={container} style="width: 100%; height: 100%">{@render children()}</div>
+<!-- Only the inner div moves into the canvas: Svelte moves its own root on keyed reorders. -->
+<div style="display: contents">
+  <div bind:this={container} style="width: 100%; height: 100%">{@render children()}</div>
+</div>

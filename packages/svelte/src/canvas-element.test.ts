@@ -3,6 +3,7 @@ import { render } from '@testing-library/svelte';
 import type { Viewport } from '@fieldnotes/core';
 import type { CanvasElementProps } from './index.js';
 import CanvasChildren from './test-fixtures/CanvasChildren.svelte';
+import CanvasList from './test-fixtures/CanvasList.svelte';
 
 type Element = Omit<CanvasElementProps, 'children'>;
 
@@ -180,5 +181,69 @@ describe('unmounting a whole canvas', () => {
     expect(error).not.toHaveBeenCalled();
     expect(warn).not.toHaveBeenCalled();
     expect(reportError).not.toHaveBeenCalled();
+  });
+});
+
+describe('CanvasElement in keyed and conditional blocks', () => {
+  function renderList(props: { items?: number[]; toggled?: boolean }) {
+    const captured: { vp: Viewport | null } = { vp: null };
+    const result = render(CanvasList, {
+      props: { ...props, onready: (v: Viewport) => (captured.vp = v) },
+    });
+    const vp = captured.vp;
+    if (!vp) throw new Error('onready was not called');
+    return { ...result, vp };
+  }
+
+  const items = () => [...document.querySelectorAll<HTMLElement>('[data-testid="item"]')];
+  const texts = () => items().map((n) => n.textContent);
+
+  /** Asserts each content node sits inside the core wrapper of the html element holding it. */
+  function expectAllOnCanvas(vp: Viewport) {
+    const ids = vp.store.getElementsByType('html').map((el) => el.id);
+    for (const node of items()) {
+      const wrapperId = node.closest<HTMLElement>('[data-element-id]')?.dataset['elementId'];
+      expect(ids).toContain(wrapperId);
+    }
+  }
+
+  it('keeps every content node in its canvas wrapper across a keyed reorder', async () => {
+    const { vp, rerender } = renderList({ items: [1, 2, 3] });
+    await rerender({ items: [3, 2, 1] });
+    expect(vp.store.getElementsByType('html').length).toBe(3);
+    expect(texts().sort()).toEqual(['1', '2', '3']);
+    expectAllOnCanvas(vp);
+    for (const el of vp.store.getElementsByType('html')) {
+      const wrapper = vp.domLayer.parentElement?.querySelector<HTMLElement>(
+        `[data-element-id="${el.id}"]`,
+      );
+      expect(wrapper?.textContent).toBe(String(el.position.x));
+    }
+  });
+
+  it('removes only the removed item from a keyed list, leaving no orphan nodes', async () => {
+    const { vp, rerender, container } = renderList({ items: [1, 2, 3] });
+    await rerender({ items: [1, 3] });
+    expect(vp.store.getElementsByType('html').length).toBe(2);
+    expect(texts().sort()).toEqual(['1', '3']);
+    expectAllOnCanvas(vp);
+    expect(vp.domLayer.children.length).toBe(0);
+    expect(container.textContent).not.toContain('2');
+  });
+
+  it('toggles a CanvasElement between siblings without disturbing them', async () => {
+    const { vp, rerender } = renderList({ toggled: true });
+    expect(texts().sort()).toEqual(['after', 'before', 'toggled']);
+
+    await rerender({ toggled: false });
+    expect(vp.store.getElementsByType('html').length).toBe(2);
+    expect(texts().sort()).toEqual(['after', 'before']);
+    expectAllOnCanvas(vp);
+
+    await rerender({ toggled: true });
+    expect(vp.store.getElementsByType('html').length).toBe(3);
+    expect(texts().sort()).toEqual(['after', 'before', 'toggled']);
+    expectAllOnCanvas(vp);
+    expect(vp.domLayer.children.length).toBe(0);
   });
 });
