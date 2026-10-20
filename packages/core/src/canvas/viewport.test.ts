@@ -2311,6 +2311,21 @@ describe('Viewport', () => {
       expect(viewport.domLayer.querySelector('input')).not.toBeNull();
       viewport.destroy();
     });
+
+    it.each([
+      [undefined, 'rgb(33, 150, 243)'],
+      ['#B8322A', 'rgb(184, 50, 42)'],
+    ])('borders the label input in selectionColor %s', (selectionColor, expected) => {
+      const viewport = new Viewport(container, { selectionColor });
+      const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 } });
+      viewport.store.add(arrow);
+      const priv = (
+        viewport as unknown as { interactions: { startArrowLabelEdit: (a: typeof arrow) => void } }
+      ).interactions;
+      priv.startArrowLabelEdit(arrow);
+      expect(viewport.domLayer.querySelector('input')?.style.borderColor).toBe(expected);
+      viewport.destroy();
+    });
   });
 
   describe('fitNoteHeight (auto-grow)', () => {
