@@ -23,6 +23,7 @@ import { HtmlPainterRegistry } from './html-painter-registry';
 import type { ElementActivationEvent } from './element-activation';
 import { LEGACY_ACTION_IDS } from '../actions/legacy-action-ids';
 import { createTestBoxRegistry } from '../test-helpers/test-box-type';
+import { recordingCanvas } from '../test-helpers/recording-canvas';
 
 function wrapperOf(container: HTMLElement): HTMLDivElement {
   const w = container.firstElementChild;
@@ -74,28 +75,8 @@ describe('Viewport', () => {
     viewport.store.add(note);
     selectTool.setSelection([note.id]);
 
-    const styles: string[] = [];
-    const noop = (): void => undefined;
-    const canvas = {
-      save: noop,
-      restore: noop,
-      strokeRect: noop,
-      fillRect: noop,
-      beginPath: noop,
-      moveTo: noop,
-      lineTo: noop,
-      arc: noop,
-      fill: noop,
-      stroke: noop,
-      setLineDash: noop,
-      set strokeStyle(v: string) {
-        styles.push(v);
-      },
-      set fillStyle(v: string) {
-        styles.push(v);
-      },
-    };
-    selectTool.renderOverlay(canvas as unknown as CanvasRenderingContext2D);
+    const { ctx, styles } = recordingCanvas();
+    selectTool.renderOverlay(ctx);
 
     expect(styles).toContain('#B8322A');
     expect(styles).not.toContain('#2196F3');

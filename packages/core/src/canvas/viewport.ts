@@ -21,6 +21,7 @@ import { HybridRenderSurface } from './hybrid-render-surface';
 import { unbindArrowsFrom } from '../elements/arrow-binding';
 import { getElementsBoundingBox } from '../elements/bounds';
 import { ArrowLabelEditor } from '../elements/arrow-label-editor';
+import { DEFAULT_SELECTION_COLOR } from '../tools/selection-color';
 import { ToolManager } from '../tools/tool-manager';
 import type { ToolContext, Tool } from '../tools/types';
 import type { SelectTool } from '../tools/select-tool';
@@ -282,7 +283,7 @@ export class Viewport {
     });
     this.noteEditor.setOnStop((id) => this.interactions.onTextEditStop(id));
     this.noteEditor.setOnInput((id) => this.interactions.liveFitHeight(id));
-    this.arrowLabelEditor = new ArrowLabelEditor(options.selectionColor);
+    this.arrowLabelEditor = new ArrowLabelEditor(options.selectionColor ?? DEFAULT_SELECTION_COLOR);
     this.noteEditor.setHistoryHooks(
       () => this.historyRecorder.begin(),
       () => this.historyRecorder.commit(),

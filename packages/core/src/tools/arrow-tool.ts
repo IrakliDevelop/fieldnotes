@@ -4,7 +4,7 @@ import type { Tool, ToolContext, PointerState } from './types';
 import { createArrow } from '../elements/element-factory';
 import { findBindTarget, getElementCenter } from '../elements/arrow-binding';
 import { getElementBounds } from '../elements/element-bounds';
-import { DEFAULT_SELECTION_COLOR } from './select-overlay';
+import { DEFAULT_SELECTION_COLOR } from './selection-color';
 
 const BIND_THRESHOLD = 20;
 

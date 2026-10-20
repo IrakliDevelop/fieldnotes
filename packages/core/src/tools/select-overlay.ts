@@ -7,12 +7,10 @@ import { hasSize } from '../elements/element-size';
 import { rotatePoint } from '../core/geometry';
 import { lineEndpoints } from '../elements/shape-geometry';
 import { renderArrowHandles } from './arrow-handles';
+import { DEFAULT_SELECTION_COLOR } from './selection-color';
 import type { ElementRegistry } from '../elements/element-registry';
 
 export type HandlePosition = 'nw' | 'ne' | 'sw' | 'se';
-
-/** Selection chrome colour when `ViewportOptions.selectionColor` is unset. */
-export const DEFAULT_SELECTION_COLOR = '#2196F3';
 
 export const HANDLE_SIZE = 8;
 export const HANDLE_HIT_PADDING = 4;

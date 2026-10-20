@@ -32,11 +32,11 @@ import type { HandlePosition, OverlayLayout } from './select-overlay';
 import {
   HANDLE_CURSORS,
   getOverlayLayout,
-  DEFAULT_SELECTION_COLOR,
   renderMarquee,
   renderSelectionBoxes,
   renderGuideLines,
 } from './select-overlay';
+import { DEFAULT_SELECTION_COLOR } from './selection-color';
 import { computeResize, computeRotatedResize } from './select-resize';
 
 const SNAP_PX = 6;

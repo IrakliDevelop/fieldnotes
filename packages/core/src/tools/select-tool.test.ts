@@ -31,6 +31,7 @@ import { HistoryStack } from '../history/history-stack';
 import { HistoryRecorder } from '../history/history-recorder';
 import type { Point } from '../core/types';
 import { createTestBoxRegistry } from '../test-helpers/test-box-type';
+import { recordingCanvas } from '../test-helpers/recording-canvas';
 
 function makeSnapProxy(
   gridSize: number,
@@ -2782,34 +2783,6 @@ describe('SelectTool extension bounds from the context registry', () => {
 });
 
 describe('SelectTool selectionColor', () => {
-  function styleRecorder(): { canvas: CanvasRenderingContext2D; styles: string[] } {
-    const styles: string[] = [];
-    const noop = (): void => undefined;
-    const canvas = {
-      save: noop,
-      restore: noop,
-      strokeRect: noop,
-      fillRect: noop,
-      beginPath: noop,
-      moveTo: noop,
-      lineTo: noop,
-      closePath: noop,
-      arc: noop,
-      fill: noop,
-      stroke: noop,
-      setLineDash: noop,
-      lineWidth: 0,
-      globalAlpha: 1,
-      set strokeStyle(v: string) {
-        styles.push(v);
-      },
-      set fillStyle(v: string) {
-        styles.push(v);
-      },
-    };
-    return { canvas: canvas as unknown as CanvasRenderingContext2D, styles };
-  }
-
   it.each([
     ['note', createNote({ position: { x: 100, y: 100 }, size: { w: 200, h: 100 } })],
     ['arrow', createArrow({ from: { x: 100, y: 130 }, to: { x: 300, y: 130 } })],
@@ -2820,7 +2793,7 @@ describe('SelectTool selectionColor', () => {
     tool.onActivate(ctx);
     tool.onHover?.(pt(200, 130), ctx);
 
-    const { canvas, styles } = styleRecorder();
+    const { ctx: canvas, styles } = recordingCanvas();
     tool.renderOverlay?.(canvas);
 
     expect(styles).toContain('#B8322A');
@@ -2839,7 +2812,7 @@ describe('SelectTool selectionColor', () => {
     tool.onPointerDown(pt(0, 0), ctx);
     tool.onPointerMove(pt(210, 210), ctx);
 
-    const { canvas, styles } = styleRecorder();
+    const { ctx: canvas, styles } = recordingCanvas();
     tool.renderOverlay?.(canvas);
 
     expect(styles).toContain('#B8322A');
