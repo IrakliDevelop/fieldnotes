@@ -85,7 +85,7 @@ export type { RotateDirection } from './selection-rotate';
 const EMPTY_IDS: string[] = [];
 
 function noop(): void {
-  // Stable unsubscribe handle returned when no select tool is registered.
+  // Stable unsubscribe handle for listeners that can never fire.
 }
 
 export interface ViewportOptions {

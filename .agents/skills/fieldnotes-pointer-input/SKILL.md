@@ -37,8 +37,8 @@ describe the current code; if the code disagrees, the code wins and this skill g
   `pressureToWidth`.
 - Touch long press (`LONG_PRESS_MS`) opens the context menu, with the select tool only.
 - Keyboard (`KeyboardHandler`): events from contentEditable, `INPUT`, `TEXTAREA`, `SELECT`, and
-  live controls are ignored. Scope is `'focus'` or `'window'` (`ShortcutMap`). The active tool's `onKeyDown` runs
-  before shortcuts.
+  live controls are ignored. Scope is `'focus'` or `'window'` (`ShortcutMap`). The active tool's
+  `onKeyDown` runs before shortcuts.
 - `ElementActivation` is a passive observer: passive listeners, no `preventDefault`, no
   `stopPropagation`, no capture. Hidden layers do not activate; locked layers do.
 
