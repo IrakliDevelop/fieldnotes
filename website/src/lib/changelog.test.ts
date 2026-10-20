@@ -154,3 +154,54 @@ describe('parseChangelog', () => {
     );
   });
 });
+
+describe('parseChangelog on the current CHANGELOG.md', () => {
+  const current = parseChangelog(
+    readFileSync(new URL('../../../CHANGELOG.md', import.meta.url), 'utf8'),
+  );
+
+  it('reads Vue and Svelte release H3s, dropping the (new) marker', () => {
+    expect(
+      current.slice(0, 6).map(({ npmName, version, title, tickets }) => ({
+        npmName,
+        version,
+        title,
+        tickets,
+      })),
+    ).toEqual([
+      {
+        npmName: '@fieldnotes/core',
+        version: '0.97.0',
+        title: 'selection colour',
+        tickets: ['A2'],
+      },
+      {
+        npmName: '@fieldnotes/core',
+        version: '0.96.0',
+        title: 'viewport sources',
+        tickets: ['A12'],
+      },
+      { npmName: '@fieldnotes/react', version: '0.14.1', title: undefined, tickets: [] },
+      { npmName: '@fieldnotes/vue', version: '0.1.0', title: undefined, tickets: [] },
+      { npmName: '@fieldnotes/svelte', version: '0.1.0', title: undefined, tickets: [] },
+      {
+        npmName: '@fieldnotes/core',
+        version: '0.95.0',
+        title: 'embedded boards',
+        tickets: ['A11'],
+      },
+    ]);
+  });
+
+  it('keeps the Vue and Svelte notes out of the React 0.14.1 body', () => {
+    const [, , react, vue, svelte] = current;
+
+    expect(react?.bodyMarkdown).not.toContain('@fieldnotes/vue');
+    expect(react?.bodyMarkdown).not.toContain('@fieldnotes/svelte');
+    expect(vue?.bodyMarkdown).toMatch(/^\*\*Added\*\*\n\n- `@fieldnotes\/vue`, Vue bindings/);
+    expect(svelte?.bodyMarkdown).toMatch(
+      /^\*\*Added\*\*\n\n- `@fieldnotes\/svelte`, Svelte bindings/,
+    );
+    expect(svelte?.bodyMarkdown).not.toContain('### Core');
+  });
+});

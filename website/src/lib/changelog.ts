@@ -12,8 +12,9 @@ export interface Release {
   bodyMarkdown: string;
 }
 
+// A first release may end in " (new)" instead of a title; the marker is dropped.
 const RELEASE_H3 =
-  /^### (Core|React|Sync|Sync server|Sync Redis|VTT|`@fieldnotes\/[a-z-]+`) (\d+\.\d+\.\d+)(?: — (.+))?$/;
+  /^### (Core|React|Vue|Svelte|Sync|Sync server|Sync Redis|VTT|`@fieldnotes\/[a-z-]+`) (\d+\.\d+\.\d+)(?: — (.+)| \(new\))?$/;
 const DATED_H2 = /^## \[(.+)\] — (\d{4}-\d{2}-\d{2})$/;
 const ENTRY = /^(?:(@fieldnotes\/[a-z-]+|react) )?(\d+\.\d+\.\d+)$/;
 const TICKET = /^[A-Z]+-?\d+$/;
@@ -21,6 +22,8 @@ const TICKET = /^[A-Z]+-?\d+$/;
 const NPM_NAMES = new Map<string, PublicPackage>([
   ['Core', '@fieldnotes/core'],
   ['React', '@fieldnotes/react'],
+  ['Vue', '@fieldnotes/vue'],
+  ['Svelte', '@fieldnotes/svelte'],
   ['Sync', '@fieldnotes/sync'],
   ['Sync server', '@fieldnotes/sync-server'],
   ['Sync Redis', '@fieldnotes/sync-redis'],
