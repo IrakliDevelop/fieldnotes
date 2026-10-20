@@ -108,6 +108,8 @@ counts as one message for `messagesPerSecond` and runs under one frame-policy de
 The hub advertises `opBatching` only when a full batch fits its limits: `maxMessageBytes` ≥
 `SYNC_LIMITS.maxFrameBytes`, `maxJsonDepth` ≥ `SYNC_LIMITS.maxFrameJsonDepth` and `opBurst` ≥
 `SYNC_LIMITS.maxBatchOps`; below that, clients send single ops.
+`maxMessageBytes` is a `SyncHub` option that `createSyncServer` passes for you; a direct `SyncHub`
+adapter whose transport caps frames below 1 MiB must pass it, or the hub still advertises batching.
 
 Each element op, single or batched, also counts against a per-connection op budget: `opsPerSecond`
 (default 2,000) and `opBurst` (default 4,000), on both `createSyncServer` and `SyncHub`. Going over

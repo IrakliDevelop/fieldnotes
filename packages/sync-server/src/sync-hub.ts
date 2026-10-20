@@ -293,8 +293,8 @@ export class SyncHub {
     }
     this.opBurst = opBurst;
     const maxMessageBytes = options.maxMessageBytes ?? DEFAULT_MAX_MESSAGE_BYTES;
-    if (!Number.isFinite(maxMessageBytes) || maxMessageBytes <= 0) {
-      throw new RangeError('maxMessageBytes must be a positive finite number');
+    if (!(maxMessageBytes > 0)) {
+      throw new RangeError('maxMessageBytes must be a positive number');
     }
     // Clients size batches to SYNC_LIMITS; a hub tuned lower would reject full batches.
     this.opBatching =

@@ -165,6 +165,8 @@ describe('sync-server connection hardening (end-to-end)', () => {
       ['byteBurst', { byteBurst: -1 }],
       ['maxConnectionsPerIp', { maxConnectionsPerIp: 1.5 }],
       ['maxConnectionsPerRoom', { maxConnectionsPerRoom: Number.NaN }],
+      ['maxMessageBytes', { maxMessageBytes: 0 }],
+      ['maxMessageBytes', { maxMessageBytes: Number.NaN }],
     ] as const)('refuses to start with an invalid %s limit', (_name, options) => {
       expect(() => createSyncServer({ port: 0, ...options })).toThrow(RangeError);
     });
@@ -174,6 +176,12 @@ describe('sync-server connection hardening (end-to-end)', () => {
         maxConnectionsPerIp: Infinity,
         maxConnectionsPerRoom: Infinity,
       });
+
+      expect(server.hub).toBeDefined();
+    });
+
+    it('accepts an unbounded maxMessageBytes', () => {
+      const { server } = startServer({ maxMessageBytes: Infinity });
 
       expect(server.hub).toBeDefined();
     });

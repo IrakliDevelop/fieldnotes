@@ -4031,12 +4031,19 @@ describe('element op batches', () => {
     ]);
   });
 
-  it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])(
-    'rejects maxMessageBytes %s',
-    (maxMessageBytes) => {
-      expect(() => new SyncHub({ maxMessageBytes })).toThrow(RangeError);
-    },
-  );
+  it.each([0, -1, Number.NaN])('rejects maxMessageBytes %s', (maxMessageBytes) => {
+    expect(() => new SyncHub({ maxMessageBytes })).toThrow(RangeError);
+  });
+
+  it('advertises opBatching with an unbounded maxMessageBytes', async () => {
+    const hub = new SyncHub({ maxMessageBytes: Infinity });
+    const conn = makeConn('A', 'R');
+    hub.addConnection(conn);
+    await hub.handleMessage('A', envelope('A', { kind: 'capabilities', capabilities: batching }));
+    expect(frames(conn)).toEqual([
+      { from: 'hub', op: { kind: 'capabilities', capabilities: batching } },
+    ]);
+  });
 
   it('relays accepted ops in order and corrects a stale middle op only to the sender', async () => {
     const backend = new MemoryHubBackend();
