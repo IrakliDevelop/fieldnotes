@@ -23,11 +23,9 @@ test.describe('site shell without JavaScript', () => {
 
 test('home page has no horizontal scroll', async ({ page }) => {
   await page.goto('/');
-  const { scrollWidth, innerWidth } = await page.evaluate(() => ({
-    scrollWidth: document.documentElement.scrollWidth,
-    innerWidth: window.innerWidth,
-  }));
-  expect(scrollWidth).toBeLessThanOrEqual(innerWidth);
+  const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
+  // `isMobile` widens `innerWidth` to fit overflowing content; the configured width does not move.
+  expect(scrollWidth).toBeLessThanOrEqual(page.viewportSize()?.width ?? 0);
 });
 
 test('home page has no axe violations', async ({ page }) => {

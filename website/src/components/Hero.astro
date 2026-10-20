@@ -449,5 +449,11 @@ const checklist = ['Install the package', 'Mount a viewport', 'Save it as JSON',
       max-width: none;
       padding-left: 0;
     }
+
+    /* The headline is not on the board at this width, so it shows no selection and no drag hint. */
+    .frame,
+    .annotation {
+      display: none;
+    }
   }
 </style>

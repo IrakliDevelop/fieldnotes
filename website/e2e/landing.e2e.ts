@@ -62,14 +62,25 @@ test.describe('landing without JavaScript', () => {
     ]);
     await expect(packages.locator('td:last-child')).toHaveText(Array(6).fill(/^\d+\.\d+\.\d+/));
 
-    await expect(page.locator('[data-hero-frame]')).toBeVisible();
+    // Below 820px the headline is not on the board, so nothing claims it can be dragged.
+    const frame = page.locator('[data-hero-frame]');
+    const annotation = page.getByText('This headline is on the canvas too. Drag it.');
+    if (test.info().project.name === 'phone') {
+      await expect(frame).toBeHidden();
+      await expect(annotation).toBeHidden();
+    } else {
+      await expect(frame).toBeVisible();
+      await expect(annotation).toBeVisible();
+    }
   });
 });
 
 test('forwards old playground links', async ({ page, baseURL }) => {
-  await page.goto('/?scene=tabletop&room=r1&guest#x');
-  await page.waitForURL('**/playground/**');
-  expect(page.url()).toBe(`${baseURL}/playground/?scene=tabletop&room=r1&guest#x`);
+  for (const query of ['?scene=tabletop&room=r1&guest#x', '?room=r1&guest', '?blank']) {
+    await page.goto(`/${query}`);
+    await page.waitForURL('**/playground/**');
+    expect(page.url()).toBe(`${baseURL}/playground/${query}`);
+  }
 
   await page.goto('/');
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
@@ -91,6 +102,26 @@ test('copy button writes the install command to the clipboard', async ({ page, c
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
     'npm install @fieldnotes/core',
   );
+});
+
+test('copy button selects the command when the clipboard refuses', async ({ page }) => {
+  test.skip(test.info().project.name !== 'desktop-chrome', 'one desktop run covers the fallback');
+  await page.addInitScript(() => {
+    navigator.clipboard.writeText = () => Promise.reject(new DOMException('denied'));
+  });
+  const errors: Error[] = [];
+  page.on('pageerror', (error) => errors.push(error));
+  await page.goto('/');
+  const button = page
+    .getByRole('main')
+    .getByRole('button', { name: /npm install @fieldnotes\/core/ });
+  await button.click();
+  await expect
+    .poll(() => page.evaluate(() => getSelection()?.toString()))
+    .toBe('npm install @fieldnotes/core');
+  await expect(button).toContainText('Copy');
+  await expect(button).not.toContainText('Copied');
+  expect(errors).toEqual([]);
 });
 
 test('landing has no axe violations', async ({ page }) => {
