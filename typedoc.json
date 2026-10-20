@@ -32,5 +32,5 @@
     "vue",
     "svelte"
   ],
-  "out": "website/public/api"
+  "out": "dist/api"
 }

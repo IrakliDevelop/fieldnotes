@@ -161,3 +161,62 @@ jobs:
           name: e2e-playground-test-results
           path: playground/test-results/
           retention-days: 7
+
+  website:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22.22'
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm build
+
+      - run: pnpm --filter fieldnotes-website test
+
+      - name: Get Playwright version
+        id: pw-version
+        run: echo "version=$(pnpm --filter fieldnotes-website exec playwright --version)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        id: pw-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ steps.pw-version.outputs.version }}-chromium
+
+      - name: Install Playwright browsers
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        run: pnpm --filter fieldnotes-website exec playwright install --with-deps chromium
+
+      - name: Install Playwright system deps
+        if: steps.pw-cache.outputs.cache-hit == 'true'
+        run: pnpm --filter fieldnotes-website exec playwright install-deps chromium
+
+      - name: Run website E2E tests
+        run: pnpm --filter fieldnotes-website e2e
+
+      - name: Build the website under the Pages base
+        run: FIELDNOTES_BASE=/fieldnotes/ pnpm --filter fieldnotes-website build
+
+      - name: Check links under the Pages base
+        run: FIELDNOTES_BASE=/fieldnotes/ node website/scripts/check-base-links.mjs website/dist
+
+      - name: Check search results under the Pages base
+        run: FIELDNOTES_BASE=/fieldnotes/ node website/scripts/check-pagefind-base.mjs website/dist
+
+      - name: Upload website test results
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-website-test-results
+          path: website/test-results/
+          retention-days: 7

@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### Website — new site at the Pages root (A2)
+
+- The site moved to the Pages root and the playground to `/playground/`. Old `?scene=` links
+  forward. There is no package release besides core 0.97.0.
+
 ### Core 0.97.0 — selection colour (A2)
 
 **Added**

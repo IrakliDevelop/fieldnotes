@@ -34,7 +34,7 @@ fieldnotes/
 ├── examples/
 │   ├── react-app/      # React integration example
 │   └── live-play/      # Collaboration reference app
-├── website/            # Project website
+├── website/            # Astro site deployed at the Pages root
 └── docs/
     ├── agents/         # Agent handbook (architecture, workflow, review)
     └── wiki/           # This wiki
