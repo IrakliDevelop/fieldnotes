@@ -1,5 +1,8 @@
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { extractRegion } from './directives';
+import { exampleCode, extractRegion, readExamples } from './directives';
 
 const SOURCE = `import { Viewport } from '@fieldnotes/core';
 
@@ -47,5 +50,38 @@ describe('extractRegion', () => {
     expect(() => extractRegion('// #region open\nconst a = 1;\n', 'open')).toThrow(
       'region "open" is not closed',
     );
+  });
+});
+
+describe('readExamples', () => {
+  it('keys each example by file name without extension, with its language', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'examples-'));
+    writeFileSync(join(dir, 'board.ts'), 'const a = 1;\n');
+    writeFileSync(join(dir, 'app.tsx'), 'const b = <B />;\n');
+    writeFileSync(join(dir, 'notes.md'), '# not an example\n');
+    expect(readExamples(dir)).toEqual({
+      board: { source: 'const a = 1;\n', lang: 'ts' },
+      app: { source: 'const b = <B />;\n', lang: 'tsx' },
+    });
+  });
+});
+
+describe('exampleCode', () => {
+  const examples = { demo: { source: SOURCE, lang: 'tsx' as const } };
+
+  it('returns the region with the example language', () => {
+    expect(exampleCode(examples, 'demo', 'inner-two', 'page.md')).toEqual({
+      lang: 'tsx',
+      value: 'console.log(b);',
+    });
+  });
+
+  it.each([
+    ['nope', 'inner', 'page.md: unknown example "nope"'],
+    [undefined, 'inner', 'page.md: unknown example "undefined"'],
+    ['demo', 'nope', 'page.md: example "demo": region "nope" not found'],
+    ['demo', undefined, 'page.md: ::code{example="demo"} needs a region'],
+  ])('example %s region %s throws naming the page', (example, region, message) => {
+    expect(() => exampleCode(examples, example, region, 'page.md')).toThrow(message);
   });
 });

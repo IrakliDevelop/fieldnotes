@@ -17,15 +17,18 @@ const items = [
 
 <header class="wrap">
   <a class="wordmark" href={link('/')}>Field Notes</a>
-  <nav aria-label="Main">
-    {
-      items.map(({ label, href, page }) => (
-        <a href={href} aria-current={page !== undefined && page === current ? 'page' : undefined}>
-          {label}
-        </a>
-      ))
-    }
-  </nav>
+  <div class="tools">
+    <slot name="search" />
+    <nav aria-label="Main">
+      {
+        items.map(({ label, href, page }) => (
+          <a href={href} aria-current={page !== undefined && page === current ? 'page' : undefined}>
+            {label}
+          </a>
+        ))
+      }
+    </nav>
+  </div>
 </header>
 
 <style>
@@ -43,6 +46,13 @@ const items = [
     font-family: 'Young Serif', serif;
     font-size: 24px;
     text-decoration: none;
+  }
+
+  .tools {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px 24px;
   }
 
   nav {

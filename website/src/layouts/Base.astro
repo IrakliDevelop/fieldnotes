@@ -25,7 +25,7 @@ const { title, description, current } = Astro.props;
     <slot name="head" />
   </head>
   <body>
-    <Header current={current} />
+    <Header current={current}><slot name="search" slot="search" /></Header>
     <slot />
     <Footer />
   </body>
