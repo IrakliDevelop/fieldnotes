@@ -42,7 +42,8 @@ const PATTERNS = [
       declarationValues('letter-spacing', text).filter((value) => !isAllowedLetterSpacing(value))
         .length,
   },
-  { id: 'emoji', count: regexCount(/\p{Extended_Pictographic}/gu) },
+  // Text symbols like © and ↔ are Extended_Pictographic too; only emoji-presented ones count.
+  { id: 'emoji', count: regexCount(/\p{Emoji_Presentation}|\p{Extended_Pictographic}\uFE0F/gu) },
   {
     id: 'font-family',
     count: (text) =>

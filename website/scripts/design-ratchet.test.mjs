@@ -75,6 +75,11 @@ test('an emoji is counted', () => {
   assert.deepEqual(count('<p>Draw ✏️ here 🎉</p>'), { emoji: { 'src/a.css': 2 } });
 });
 
+test('text symbols such as © and ↔ are not counted as emoji', () => {
+  assert.deepEqual(count('© 2026 ® ™ ↔'), {});
+  assert.deepEqual(count('© 2026 ↔ 🎉'), { emoji: { 'src/a.css': 1 } });
+});
+
 test('counts backdrop-filter and uppercase', () => {
   assert.deepEqual(count('a { backdrop-filter: blur(4px); text-transform:  uppercase }'), {
     'backdrop-filter': { 'src/a.css': 1 },

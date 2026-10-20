@@ -30,5 +30,7 @@ export default defineConfig({
     reuseExistingServer: !process.env.CI,
     cwd: '../../',
     timeout: 180000,
+    // Astro 7 backgrounds `astro preview` under an AI agent unless this is non-empty.
+    env: { ASTRO_PREVIEW_BACKGROUND: '1' },
   },
 });
