@@ -55,6 +55,26 @@ export type {
   RectTrackerHost,
 } from './canvas/element-rect-tracker';
 export type { HitTestOptions } from './canvas/viewport';
+export {
+  createCameraSource,
+  createElementsSource,
+  createElementsSelectorSource,
+  createSelectionSource,
+  createSelectionOpsSource,
+  createSelectionStyleSource,
+  createSelectionStyleDetailsSource,
+  createHistorySource,
+  createLayersSource,
+  createActiveToolSource,
+  createToolOptionsSource,
+} from './canvas/viewport-sources';
+export type {
+  ViewportSource,
+  CameraState,
+  HistoryState,
+  LayersState,
+  SelectionOpsState,
+} from './canvas/viewport-sources';
 export type {
   ViewportPlugin,
   PluginConfigureContext,
