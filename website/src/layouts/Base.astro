@@ -1,0 +1,31 @@
+---
+import type { ComponentProps } from 'astro/types';
+import '../styles/fonts';
+import '../styles/tokens.css';
+import '../styles/base.css';
+import Header from '../components/Header.astro';
+import Footer from '../components/Footer.astro';
+
+interface Props {
+  title: string;
+  description: string;
+  current?: ComponentProps<typeof Header>['current'];
+}
+
+const { title, description, current } = Astro.props;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+  </head>
+  <body>
+    <Header current={current} />
+    <slot />
+    <Footer />
+  </body>
+</html>

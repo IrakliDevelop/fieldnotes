@@ -4,12 +4,25 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
+    "dev": "node scripts/astro-node.mjs astro dev",
+    "build": "node scripts/astro-node.mjs astro build",
+    "preview": "node scripts/astro-node.mjs astro preview --port 4321",
+    "typecheck": "node scripts/astro-node.mjs astro check",
+    "test": "vitest run && node --test scripts/*.test.mjs && node scripts/design-ratchet.mjs",
+    "e2e": "playwright test -c e2e/playwright.config.ts"
   },
   "devDependencies": {
+    "@astrojs/check": "^0.9.11",
+    "@astrojs/markdown-remark": "^7.3.3",
+    "@axe-core/playwright": "^4.14.0",
+    "@fieldnotes/core": "workspace:*",
+    "@fontsource/jetbrains-mono": "^5.3.0",
+    "@fontsource/kalam": "^5.3.0",
+    "@fontsource/public-sans": "^5.3.0",
+    "@fontsource/young-serif": "^5.3.0",
+    "@playwright/test": "^1.63.0",
+    "astro": "^7.4.1",
     "typescript": "~6.0.3",
-    "vite": "^8.3.4"
+    "vitest": "^5.0.5"
   }
 }

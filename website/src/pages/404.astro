@@ -1,0 +1,11 @@
+---
+import Base from '../layouts/Base.astro';
+import { link } from '../utils/base';
+---
+
+<Base title="Page not found, Field Notes" description="There is no page at this address.">
+  <main class="wrap">
+    <h1>Page not found</h1>
+    <p>There is no page at this address. <a href={link('/')}>Go to the home page</a>.</p>
+  </main>
+</Base>

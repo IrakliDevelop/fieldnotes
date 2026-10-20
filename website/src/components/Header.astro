@@ -1,0 +1,73 @@
+---
+import { link } from '../utils/base';
+
+interface Props {
+  current?: 'docs' | 'changelog' | 'roadmap';
+}
+
+const { current } = Astro.props;
+const items = [
+  { label: 'Docs', href: link('/docs/'), page: 'docs' },
+  { label: 'Playground', href: link('/playground/') },
+  { label: 'API reference', href: link('/api/') },
+  { label: 'Changelog', href: link('/changelog/'), page: 'changelog' },
+  { label: 'GitHub', href: 'https://github.com/IrakliDevelop/fieldnotes' },
+];
+---
+
+<header class="wrap">
+  <a class="wordmark" href={link('/')}>Field Notes</a>
+  <nav aria-label="Main">
+    {
+      items.map(({ label, href, page }) => (
+        <a href={href} aria-current={page !== undefined && page === current ? 'page' : undefined}>
+          {label}
+        </a>
+      ))
+    }
+  </nav>
+</header>
+
+<style>
+  header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px 32px;
+    padding-top: 24px;
+    padding-bottom: 24px;
+  }
+
+  .wordmark {
+    font-family: 'Young Serif', serif;
+    font-size: 24px;
+    text-decoration: none;
+  }
+
+  nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 24px;
+    font-size: 15px;
+  }
+
+  nav a {
+    color: var(--graphite-2);
+    text-decoration: none;
+  }
+
+  nav a:hover,
+  nav a[aria-current='page'] {
+    color: var(--graphite);
+    text-decoration: underline;
+  }
+
+  @media (pointer: coarse) {
+    a {
+      display: inline-flex;
+      align-items: center;
+      min-height: 44px;
+    }
+  }
+</style>
