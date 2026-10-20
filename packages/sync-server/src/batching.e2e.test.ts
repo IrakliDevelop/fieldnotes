@@ -23,6 +23,7 @@ const sockets: WsClient[] = [];
 const managers: ManagedAuthorityConnection[] = [];
 
 afterEach(async () => {
+  vi.unstubAllGlobals();
   for (const manager of managers) manager.stop();
   managers.length = 0;
   for (const client of clients) client.stop();
@@ -218,6 +219,8 @@ describe('unsupported reply (end-to-end)', () => {
 
   it('still reports upgrade-required to an authority client on a legacy room', async () => {
     const port = startServer();
+    // Node 20 has no global WebSocket; the default authority transport needs one.
+    vi.stubGlobal('WebSocket', WsClient);
     const manager = createManagedAuthorityConnection({
       scopeId: 'legacy/R',
       clientId: 'legacy',
