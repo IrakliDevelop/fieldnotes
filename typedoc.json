@@ -5,6 +5,7 @@
   "entryPoints": [
     "packages/core",
     "packages/react",
+    "packages/vue",
     "packages/sync",
     "packages/sync-server",
     "packages/sync-redis",
