@@ -11,6 +11,8 @@ order: 1
 npm install @fieldnotes/core
 ```
 
+`@fieldnotes/core` has no runtime dependencies and needs no framework. It ships ES module and CommonJS builds with TypeScript types.
+
 ## Mount a board
 
 Create a `Viewport` on any element. Passing `tools: 'default'` registers select, pencil, eraser, shapes, arrows, notes, text and pan, and starts on select.
@@ -23,6 +25,20 @@ Give the container a height. A canvas with nothing to fill is 0 pixels tall.
 
 ::board{example="getting-started"}
 
+## Save and restore
+
+The whole board, including layers and camera, serialises to one JSON string. Store it anywhere that holds text.
+
+:::margin
+onStateChange fires on every camera move too. Debounce the save.
+:::
+
+::code{example="getting-started" region="save"}
+
+This sample writes on every change. [Saving and loading](/docs/saving-and-loading/) shows `AutoSave`, which waits until changes settle and can write to IndexedDB.
+
 ## Clean up
 
-Call `viewport.destroy()` when the board leaves the page. It removes its listeners and stops the render loop. The [docs index](/docs/) lists the other guides.
+Call `viewport.destroy()` when the board leaves the page. It removes the board's DOM and listeners, stops the render loop and frees cached images.
+
+::code{example="getting-started" region="cleanup"}

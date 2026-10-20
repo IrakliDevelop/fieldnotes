@@ -26,8 +26,8 @@ test('getting started renders the sidebar with aria-current', async ({ page }) =
 
 test('margin note sits in the gutter at 1280px and inline at 800px', async ({ page }) => {
   test.skip(test.info().project.name !== 'desktop-chrome', 'layout widths are set explicitly');
-  const note = page.locator('aside.margin-note');
-  const code = page.locator('main pre[data-language="ts"]');
+  const note = page.locator('aside.margin-note').first();
+  const code = page.locator('main pre[data-language="ts"]').first();
 
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto('/docs/getting-started/');
@@ -49,7 +49,7 @@ test('margin note sits in the gutter at 1280px and inline at 800px', async ({ pa
 
 test('the code block shows the named region only', async ({ page }) => {
   await page.goto('/docs/getting-started/');
-  const code = page.locator('main pre[data-language="ts"]');
+  const code = page.locator('main pre[data-language="ts"]').first();
   await expect(code).toContainText(
     "return new Viewport(container, { tools: 'default', ...extra });",
   );
@@ -107,11 +107,25 @@ test('the docs index shows the facts and the nav groups', async ({ page }) => {
   await expect(page.getByRole('region', { name: 'Start' }).getByRole('link')).toHaveText([
     'Getting started',
     'Using React',
+    'Saving and loading',
   ]);
   await expect(
     page.getByRole('region', { name: 'Reference' }).getByRole('link', { name: 'Roadmap' }),
   ).toHaveAttribute('href', /\/roadmap\/$/);
   await expectNoAxeViolations(page);
+});
+
+test('every docs page in the sidebar is served', async ({ page, request }) => {
+  await page.goto('/docs/getting-started/');
+  // Reference links leave the docs collection, and /api/ exists only in the Pages build.
+  const hrefs = await page
+    .getByRole('navigation', { name: 'Docs' })
+    .locator('a[href*="/docs/"]')
+    .evaluateAll((links) => links.map((link) => link.getAttribute('href') ?? ''));
+  expect(hrefs).toContain('/docs/saving-and-loading/');
+  for (const href of hrefs) {
+    expect((await request.get(href)).status(), href).toBe(200);
+  }
 });
 
 test('getting started has no axe violations', async ({ page }) => {
@@ -124,7 +138,7 @@ test.describe('docs without JavaScript', () => {
 
   test('the code and the board placeholder render', async ({ page }) => {
     await page.goto('/docs/getting-started/');
-    await expect(page.locator('main pre[data-language="ts"]')).toContainText(
+    await expect(page.locator('main pre[data-language="ts"]').first()).toContainText(
       'new Viewport(container',
     );
     const board = page.locator('figure[data-live-board="getting-started"]');

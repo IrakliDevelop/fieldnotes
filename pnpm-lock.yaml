@@ -317,6 +317,18 @@ importers:
       '@fieldnotes/core':
         specifier: workspace:*
         version: link:../packages/core
+      '@fieldnotes/react':
+        specifier: workspace:*
+        version: link:../packages/react
+      '@fieldnotes/sync':
+        specifier: workspace:*
+        version: link:../packages/sync
+      '@fieldnotes/sync-server':
+        specifier: workspace:*
+        version: link:../packages/sync-server
+      '@fieldnotes/vtt':
+        specifier: workspace:*
+        version: link:../packages/vtt
       '@fontsource/jetbrains-mono':
         specifier: ^5.3.0
         version: 5.3.0
@@ -335,12 +347,27 @@ importers:
       '@types/mdast':
         specifier: ^4.0.4
         version: 4.0.4
+      '@types/node':
+        specifier: ^26.0.1
+        version: 26.0.1
+      '@types/react':
+        specifier: ^19.2.14
+        version: 19.2.14
+      '@types/react-dom':
+        specifier: ^19.2.3
+        version: 19.2.3(@types/react@19.2.14)
       astro:
         specifier: ^7.4.1
         version: 7.4.1(@astrojs/markdown-remark@7.3.3)(@types/node@26.0.1)(esbuild@0.28.1)(tsx@4.23.0)(yaml@2.9.1)
       pagefind:
         specifier: ^1.5.2
         version: 1.5.2
+      react:
+        specifier: ^19.2.4
+        version: 19.2.4
+      react-dom:
+        specifier: ^19.2.4
+        version: 19.2.4(react@19.2.4)
       remark-directive:
         specifier: ^4.0.0
         version: 4.0.0

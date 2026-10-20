@@ -85,6 +85,15 @@ test('touch scrolls past the board until Draw on this board engages it', async (
   await touchSwipe(page, start, { x: start.x, y: start.y - 150 });
   await page.waitForFunction((y) => window.scrollY > y, before);
   expect(await strokeCount(page)).toBe(0);
+  // The swipe leaves the page coasting; bring the board back once the scroll stops.
+  await page.waitForFunction(
+    () =>
+      new Promise((done) => {
+        const y = window.scrollY;
+        requestAnimationFrame(() => requestAnimationFrame(() => done(window.scrollY === y)));
+      }),
+  );
+  await page.locator(BOARD).scrollIntoViewIfNeeded();
 
   const draw = page.locator(BOARD).getByRole('button', { name: 'Draw on this board' });
   await draw.tap();
@@ -166,9 +175,9 @@ test('only the latest query renders its results', async ({ page }) => {
   });
 
   const stale = page.waitForResponse('**/pagefind/fragment/*');
-  await input.fill('debounced');
+  await input.fill('hooks');
   await page.waitForRequest('**/pagefind/fragment/*');
-  await input.fill('container');
+  await input.fill('serialises');
   await expect(links).toHaveCount(1);
   await expect(links.first()).toHaveAttribute('href', '/docs/getting-started/');
 
