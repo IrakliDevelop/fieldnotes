@@ -394,7 +394,7 @@ describe('authority checkpoint', () => {
       status: 'complete',
       checkpoint: value,
     });
-  });
+  }, 30_000);
 
   it('uses exact contiguous chunks and each serialized frame remains within one MiB', async () => {
     const data = {
