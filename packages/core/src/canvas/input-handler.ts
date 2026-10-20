@@ -11,10 +11,29 @@ import { InputFilter } from './input-filter';
 import { KeyboardActions } from './keyboard-actions';
 import { KeyboardHandler } from './keyboard-handler';
 import { PanInertia } from './pan-inertia';
+import { isLiveControlTarget } from './live-control';
 
 const ZOOM_SENSITIVITY = 0.001;
 const MIDDLE_BUTTON = 1;
 const LONG_PRESS_MS = 500;
+
+// WebKit GestureEvent fields; TypeScript's DOM lib has no type for it.
+interface GestureLike {
+  scale: number;
+  clientX: number;
+  clientY: number;
+}
+
+function isGestureLike(e: Event): e is Event & GestureLike {
+  return (
+    'scale' in e &&
+    typeof e.scale === 'number' &&
+    'clientX' in e &&
+    typeof e.clientX === 'number' &&
+    'clientY' in e &&
+    typeof e.clientY === 'number'
+  );
+}
 
 export interface InputHandlerOptions {
   toolManager?: ToolManager;
@@ -32,6 +51,13 @@ export interface InputHandlerOptions {
   getCenteredWorld?: () => { x: number; y: number };
   onPaste?: (event: ClipboardEvent, worldPosition: { x: number; y: number }) => void;
   panInertia?: boolean;
+  /** True when the client point is on a selection handle, which wins over a live control. */
+  isOnSelectionHandle?: (clientX: number, clientY: number) => boolean;
+  /** Plain wheel scrolls the page and calls `onWheelPassThrough`; Ctrl/⌘+wheel and Safari gestures zoom. */
+  embeddedWheel?: boolean;
+  onWheelPassThrough?: (e: WheelEvent) => void;
+  /** A rejected pointerdown is ignored with all its later events. */
+  acceptsPointer?: (e: PointerEvent) => boolean;
   actions: ActionRegistry;
 }
 
@@ -39,7 +65,9 @@ export class InputHandler {
   private isPanning = false;
   private lastPointer = { x: 0, y: 0 };
   private spaceHeld = false;
-  private activePointers = new Map<number, { x: number; y: number }>();
+  private activePointers = new Map<number, { x: number; y: number; type: string }>();
+  /** Pointers whose down the board ignored; their later events are the browser's. */
+  private readonly ignoredPointers = new Set<number>();
   private lastPinchDistance = 0;
   private lastPinchCenter = { x: 0, y: 0 };
   private toolManager: ToolManager | null;
@@ -61,7 +89,14 @@ export class InputHandler {
   private readonly openContextMenu?: (screenPos: Point, world: Point) => void;
   private readonly panInertia: PanInertia;
   private readonly panInertiaEnabled: boolean;
+  private readonly isOnSelectionHandle?: (clientX: number, clientY: number) => boolean;
   private coastStoppedByPointer = false;
+  private readonly embeddedWheel: boolean;
+  private readonly onWheelPassThrough?: (e: WheelEvent) => void;
+  private readonly acceptsPointer?: (e: PointerEvent) => boolean;
+  /** From touch events, which also count touches the board ignored or the browser took over. */
+  private touchCount = 0;
+  private lastGestureScale = 1;
 
   constructor(
     private readonly element: HTMLElement,
@@ -86,6 +121,10 @@ export class InputHandler {
       getLastPointerWorld: () => this.lastPointerWorld(),
     });
     this.openContextMenu = options.openContextMenu;
+    this.isOnSelectionHandle = options.isOnSelectionHandle;
+    this.embeddedWheel = options.embeddedWheel ?? false;
+    this.onWheelPassThrough = options.onWheelPassThrough;
+    this.acceptsPointer = options.acceptsPointer;
     this.panInertiaEnabled = options.panInertia ?? true;
     this.panInertia = new PanInertia({
       pan: (dx, dy) => this.camera.pan(dx, dy),
@@ -183,9 +222,20 @@ export class InputHandler {
     // stroke is cancelled. Page-level abandon, mirroring `ElementActivation`.
     window.addEventListener('blur', this.onInterrupt, opts);
     document.addEventListener('visibilitychange', this.onInterrupt, opts);
+
+    if (!this.embeddedWheel) return;
+    this.element.addEventListener('gesturestart', this.onGesture, { ...opts, passive: false });
+    this.element.addEventListener('gesturechange', this.onGesture, { ...opts, passive: false });
+    for (const type of ['touchstart', 'touchend', 'touchcancel'] as const) {
+      this.element.addEventListener(type, this.onTouchCount, { ...opts, passive: true });
+    }
   }
 
   private onWheel = (e: WheelEvent): void => {
+    if (this.embeddedWheel && !e.ctrlKey && !e.metaKey) {
+      this.onWheelPassThrough?.(e);
+      return;
+    }
     e.preventDefault();
     this.panInertia.cancel();
     const rect = this.element.getBoundingClientRect();
@@ -197,7 +247,51 @@ export class InputHandler {
     });
   };
 
+  private onTouchCount = (e: TouchEvent): void => {
+    this.touchCount = e.touches.length;
+  };
+
+  // iOS also fires gesture events for two-finger touch, which the pointer path or the page owns.
+  private onGesture = (e: Event): void => {
+    if (this.touchCount > 0 || !isGestureLike(e)) return;
+    e.preventDefault();
+    if (e.type === 'gesturestart') {
+      this.lastGestureScale = 1;
+      return;
+    }
+    const rect = this.element.getBoundingClientRect();
+    this.camera.zoomAt(this.camera.zoom * (e.scale / this.lastGestureScale), {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+    });
+    this.lastGestureScale = e.scale;
+  };
+
   private onPointerDown = (e: PointerEvent): void => {
+    if (this.acceptsPointer?.(e) === false) {
+      this.ignoredPointers.add(e.pointerId);
+      return;
+    }
+    // A reused pointerId means its earlier ignored press ended outside the wrapper.
+    this.ignoredPointers.delete(e.pointerId);
+    const onControl =
+      isLiveControlTarget(e.target, this.element) &&
+      !(this.isOnSelectionHandle?.(e.clientX, e.clientY) ?? false);
+    // Mouse and pen are untracked: without wrapper capture their release may never arrive.
+    if (onControl && e.pointerType !== 'touch') {
+      this.ignoredPointers.add(e.pointerId);
+      return;
+    }
+    if (onControl) {
+      // Touch has implicit capture, so a control touch still counts toward two-finger navigation.
+      this.activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
+      if (this.activePointers.size === 2) {
+        this.startPinch();
+        this.cancelToolIfActive(e);
+      }
+      return;
+    }
+
     // A pointer landing on the canvas STOPS a coast, and the stop is recorded
     // before it happens. Passive observers (element activation) are registered
     // after this handler, so by the time they see the same pointerdown
@@ -207,7 +301,7 @@ export class InputHandler {
     if (this.panInertia.isCoasting()) this.coastStoppedByPointer = true;
     this.panInertia.cancel();
     this.focusSelf();
-    this.activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    this.activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
 
     this.element.setPointerCapture?.(e.pointerId);
 
@@ -241,10 +335,11 @@ export class InputHandler {
   };
 
   private onPointerMove = (e: PointerEvent): void => {
+    if (this.ignoredPointers.has(e.pointerId)) return;
     this.lastPointerEvent = e;
 
     if (this.activePointers.has(e.pointerId)) {
-      this.activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      this.activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
     }
 
     if (this.activePointers.size >= 2) {
@@ -287,6 +382,7 @@ export class InputHandler {
   };
 
   private finishPointer(e: PointerEvent, cancelled: boolean): void {
+    if (this.ignoredPointers.delete(e.pointerId)) return;
     // Pointer events that never had a matching down must not mutate another
     // pointer's active or still-deferred gesture. Touch taps are deferred until
     // movement/up, so `isToolActive` alone does not own them yet.
@@ -347,6 +443,49 @@ export class InputHandler {
     } else {
       this.deferredDown = null;
     }
+  }
+
+  /** Cancels touch-owned gestures as a pointercancel would; mouse and pen gestures continue. */
+  cancelTouchGestures(): void {
+    this.panInertia.cancel();
+    this.cancelLongPress();
+    const touchIds = [...this.activePointers]
+      .filter(([, pointer]) => pointer.type === 'touch')
+      .map(([id]) => id);
+    if (touchIds.length === 0) return;
+
+    const toolPointer =
+      this.toolPointerId === null ? undefined : this.activePointers.get(this.toolPointerId);
+    if (this.isToolActive && toolPointer?.type === 'touch') {
+      this.dispatchToolCancel(
+        new PointerEvent('pointercancel', {
+          pointerType: 'touch',
+          clientX: toolPointer.x,
+          clientY: toolPointer.y,
+        }),
+      );
+      this.isToolActive = false;
+      this.toolPointerId = null;
+    }
+    if (this.deferredDown?.pointerType === 'touch') this.deferredDown = null;
+
+    for (const id of touchIds) {
+      this.activePointers.delete(id);
+      this.ignoredPointers.add(id);
+      try {
+        this.element.releasePointerCapture(id);
+      } catch {
+        // Already released by the browser.
+      }
+    }
+    this.lastPinchDistance = 0;
+    const remaining = this.activePointers.values().next().value;
+    if (remaining) {
+      this.lastPointer = { x: remaining.x, y: remaining.y };
+      return;
+    }
+    this.isPanning = false;
+    this.coastStoppedByPointer = false;
   }
 
   get isToolGestureActive(): boolean {
@@ -420,6 +559,7 @@ export class InputHandler {
   }
 
   private onContextMenu = (e: MouseEvent): void => {
+    if (isLiveControlTarget(e.target, this.element)) return;
     e.preventDefault();
     if (this.toolManager?.activeTool?.name !== 'select') return;
     const rect = this.element.getBoundingClientRect();
@@ -530,6 +670,7 @@ export class InputHandler {
       }
     }
     this.activePointers.clear();
+    this.ignoredPointers.clear();
     this.lastPinchDistance = 0;
     if (this.isPanning) {
       this.isPanning = false;

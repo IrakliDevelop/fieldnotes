@@ -3552,3 +3552,152 @@ describe('Viewport live element wiring', () => {
     container.remove();
   });
 });
+
+describe('Viewport live html elements', () => {
+  let getContextSpy: ReturnType<typeof vi.spyOn>;
+  let container: HTMLDivElement;
+  let vp: Viewport;
+
+  beforeEach(() => {
+    getContextSpy = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockImplementation(function (this: HTMLCanvasElement) {
+        const ctx: Record<string, unknown> = { canvas: this };
+        return new Proxy(ctx, {
+          get: (target, prop) => (prop in target ? target[prop as string] : () => undefined),
+        });
+      } as never);
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    vp = new Viewport(container);
+  });
+
+  afterEach(() => {
+    vp.destroy();
+    container.remove();
+    getContextSpy.mockRestore();
+  });
+
+  function priv() {
+    return vp as unknown as {
+      renderLoop: { flush(): void };
+      domNodeManager: { getNode(id: string): HTMLDivElement | undefined };
+      interactMode: { startInteracting(id: string): void; interactingId: string | null };
+    };
+  }
+
+  it('addHtmlElement interactive option is stored and exported', () => {
+    const id = vp.addHtmlElement(
+      document.createElement('div'),
+      { x: 0, y: 0 },
+      { w: 100, h: 50 },
+      { interactive: true },
+    );
+    priv().renderLoop.flush();
+
+    const el = vp.store.getById(id);
+    expect(el?.type === 'html' && el.interactive).toBe(true);
+    expect(priv().domNodeManager.getNode(id)?.style.pointerEvents).toBe('auto');
+    const exported = vp.exportState().elements.find((e) => e.id === id);
+    expect(exported?.type === 'html' && exported.interactive).toBe(true);
+  });
+
+  it('turning interactive on while in InteractMode stops interacting; turning it off leaves pointer-events none', () => {
+    const id = vp.addHtmlElement(document.createElement('div'), { x: 0, y: 0 }, { w: 100, h: 50 });
+    priv().renderLoop.flush();
+    priv().interactMode.startInteracting(id);
+    const node = priv().domNodeManager.getNode(id);
+    expect(node?.style.pointerEvents).toBe('auto');
+
+    vp.store.update(id, { interactive: true });
+    expect(priv().interactMode.interactingId).toBeNull();
+    expect(node?.style.pointerEvents).toBe('auto');
+
+    vp.store.update(id, { interactive: false });
+    priv().renderLoop.flush();
+    expect(node?.style.pointerEvents).toBe('none');
+  });
+
+  it('turning interactive on inside a notification batch stops interacting', () => {
+    const id = vp.addHtmlElement(document.createElement('div'), { x: 0, y: 0 }, { w: 100, h: 50 });
+    priv().renderLoop.flush();
+    priv().interactMode.startInteracting(id);
+
+    const notifications = vp.suspendNotifications();
+    vp.store.update(id, { interactive: true });
+    notifications.resume();
+
+    expect(priv().interactMode.interactingId).toBeNull();
+    expect(priv().domNodeManager.getNode(id)?.style.pointerEvents).toBe('auto');
+  });
+
+  function addLive(interactive: boolean) {
+    const content = document.createElement('div');
+    const padding = document.createElement('p');
+    const link = document.createElement('a');
+    link.setAttribute('href', '#');
+    content.append(padding, link);
+    const id = vp.addHtmlElement(
+      content,
+      { x: 0, y: 0 },
+      { w: 100, h: 50 },
+      interactive ? { interactive } : undefined,
+    );
+    priv().renderLoop.flush();
+    return { id, padding, link };
+  }
+
+  function dragStart(target: Element): Event {
+    const e = new Event('dragstart', { bubbles: true, cancelable: true });
+    target.dispatchEvent(e);
+    return e;
+  }
+
+  it('dragstart from live padding is prevented, from a live link is not', () => {
+    const { padding, link } = addLive(true);
+
+    expect(dragStart(padding).defaultPrevented).toBe(true);
+    expect(dragStart(link).defaultPrevented).toBe(false);
+  });
+
+  it('dragstart inside a non-live html element is left alone', () => {
+    const { padding } = addLive(false);
+
+    expect(dragStart(padding).defaultPrevented).toBe(false);
+  });
+
+  it('dragstart inside host markup carrying data-fn-live in a non-live html element is left alone', () => {
+    const { padding } = addLive(false);
+    const hostLive = document.createElement('div');
+    hostLive.setAttribute('data-fn-live', '');
+    const inner = document.createElement('span');
+    hostLive.appendChild(inner);
+    padding.appendChild(hostLive);
+
+    expect(dragStart(inner).defaultPrevented).toBe(false);
+  });
+
+  it.each(['scrollTop', 'scrollLeft'] as const)(
+    'wrapper %s resets to 0 with a live node',
+    (key) => {
+      addLive(true);
+      const wrapper = wrapperOf(container);
+      wrapper[key] = 40;
+      expect(wrapper[key]).toBe(40);
+
+      wrapper.dispatchEvent(new Event('scroll'));
+
+      expect(wrapper[key]).toBe(0);
+    },
+  );
+
+  it('wrapper scroll offsets are left alone with no live node and no embedding', () => {
+    addLive(false);
+    const wrapper = wrapperOf(container);
+    wrapper.scrollTop = 40;
+
+    wrapper.dispatchEvent(new Event('scroll'));
+
+    expect(wrapper.scrollTop).toBe(40);
+  });
+});

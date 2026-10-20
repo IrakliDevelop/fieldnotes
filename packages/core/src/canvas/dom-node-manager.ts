@@ -2,6 +2,7 @@ import type { CanvasElement, HtmlElement } from '../elements/types';
 import type { ElementStore } from '../elements/element-store';
 import { DEFAULT_NOTE_FONT_SIZE } from '../elements/element-factory';
 import { DoubleTapDetector } from './double-tap-detector';
+import { LIVE_NODE_ATTR } from './live-control';
 export interface DomNodeManagerDeps {
   domLayer: HTMLDivElement;
   onEditRequest: (id: string) => void;
@@ -10,6 +11,8 @@ export interface DomNodeManagerDeps {
   isInteracting?: (id: string) => boolean;
   /** Show a labelled placeholder in contentless html nodes; off when the host mounts its own. */
   htmlPlaceholders?: boolean;
+  /** Gates the note and text double-tap edit listeners. */
+  acceptsPointer?: (e: PointerEvent) => boolean;
 }
 
 export class DomNodeManager {
@@ -26,6 +29,7 @@ export class DomNodeManager {
   private readonly getVersion: ((id: string) => number) | null;
   private readonly isInteracting: (id: string) => boolean;
   private readonly htmlPlaceholders: boolean;
+  private readonly acceptsPointer: (e: PointerEvent) => boolean;
   private lastSyncedVersion = new Map<string, number>();
   private lastSyncedZIndex = new Map<string, number>();
   private lastSyncedOpacity = new Map<string, number>();
@@ -38,6 +42,7 @@ export class DomNodeManager {
     this.getVersion = deps.getVersion ?? null;
     this.isInteracting = deps.isInteracting ?? (() => false);
     this.htmlPlaceholders = deps.htmlPlaceholders ?? false;
+    this.acceptsPointer = deps.acceptsPointer ?? (() => true);
   }
 
   getNode(id: string): HTMLDivElement | undefined {
@@ -301,7 +306,7 @@ export class DomNodeManager {
         // add matching teardown in resetHtmlContent — else a second listener would stack.
         const detector = new DoubleTapDetector();
         node.addEventListener('pointerup', (e) => {
-          if (detector.feed(e)) {
+          if (this.acceptsPointer(e) && detector.feed(e)) {
             e.stopPropagation();
             const id = node.dataset['elementId'];
             if (id) this.onEditRequest(id);
@@ -324,6 +329,7 @@ export class DomNodeManager {
       const content = this.htmlContent.get(element.id);
       // A data update mid-interaction must not drop the pointer events InteractMode granted.
       const pointerEvents = element.interactive || this.isInteracting(element.id) ? 'auto' : 'none';
+      node.toggleAttribute(LIVE_NODE_ATTR, element.interactive === true);
       if (!node.dataset['initialized']) {
         if (content) {
           node.dataset['initialized'] = 'true';
@@ -365,7 +371,7 @@ export class DomNodeManager {
         // One-time per node; see the note branch above for the one-listener-per-node invariant.
         const detector = new DoubleTapDetector();
         node.addEventListener('pointerup', (e) => {
-          if (detector.feed(e)) {
+          if (this.acceptsPointer(e) && detector.feed(e)) {
             e.stopPropagation();
             const id = node.dataset['elementId'];
             if (id) this.onEditRequest(id);

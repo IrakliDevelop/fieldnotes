@@ -19,6 +19,11 @@ export default defineConfig({
       // Keep iPad viewport/touch emulation while using Chromium so CDP-based touch helpers work.
       use: { ...devices['iPad Pro 11'], browserName: 'chromium' },
     },
+    {
+      name: 'firefox',
+      testMatch: 'embedded.e2e.ts',
+      use: { ...devices['Desktop Firefox'] },
+    },
   ],
   webServer: {
     command: 'pnpm --filter fieldnotes-demo dev',

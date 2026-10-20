@@ -567,6 +567,24 @@ describe('DomNodeManager', () => {
       manager.syncDomNode({ ...el, interactive: false });
       expect(node?.style.pointerEvents).toBe('none');
     });
+
+    it('marks interactive html nodes with data-fn-live and clears it when toggled off', () => {
+      const el = createHtmlElement({
+        position: { x: 0, y: 0 },
+        size: { w: 200, h: 100 },
+        interactive: true,
+      });
+      manager.storeHtmlContent(el.id, document.createElement('div'));
+      manager.syncDomNode(el);
+      const node = manager.getNode(el.id);
+      expect(node?.hasAttribute('data-fn-live')).toBe(true);
+
+      manager.syncDomNode({ ...el, interactive: false });
+      expect(node?.hasAttribute('data-fn-live')).toBe(false);
+
+      manager.syncDomNode({ ...el, interactive: true });
+      expect(node?.hasAttribute('data-fn-live')).toBe(true);
+    });
   });
 
   describe('html placeholder', () => {

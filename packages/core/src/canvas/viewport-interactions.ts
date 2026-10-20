@@ -13,6 +13,7 @@ import { DoubleTapDetector } from './double-tap-detector';
 import { isNearBezier } from '../elements/arrow-geometry';
 import { isNoteContentEmpty } from '../elements/note-sanitizer';
 import { hitTest } from '../tools/select-hit';
+import { isLiveControlTarget } from './live-control';
 
 /** Screen pixels; converted to world units per zoom at the call site. */
 const ARROW_HIT_THRESHOLD_PX = 10;
@@ -33,6 +34,7 @@ export interface ViewportInteractionsDeps {
   requestRender: () => void;
   addImage: (src: string, position: { x: number; y: number }) => string;
   dropHandler?: (event: DragEvent, worldPosition: { x: number; y: number }) => void;
+  acceptsPointer?: (e: PointerEvent) => boolean;
 }
 
 export class ViewportInteractions {
@@ -101,11 +103,13 @@ export class ViewportInteractions {
   }
 
   onTapDown = (e: PointerEvent): void => {
+    if (!this.accepts(e)) return;
     this.tapDownX = e.clientX;
     this.tapDownY = e.clientY;
   };
 
   onDoubleTap = (e: PointerEvent): void => {
+    if (!this.accepts(e)) return;
     const dx = e.clientX - this.tapDownX;
     const dy = e.clientY - this.tapDownY;
     const moved = Math.sqrt(dx * dx + dy * dy);
@@ -141,7 +145,7 @@ export class ViewportInteractions {
       (el) => 'size' in el && el.type !== 'extension',
     );
     if (hit?.type === 'html') {
-      this.deps.interactMode.startInteracting(hit.id);
+      if (!hit.interactive) this.deps.interactMode.startInteracting(hit.id);
       return;
     }
 
@@ -150,6 +154,12 @@ export class ViewportInteractions {
       this.startArrowLabelEdit(arrow);
     }
   };
+
+  private accepts(e: PointerEvent): boolean {
+    return (
+      this.deps.acceptsPointer?.(e) !== false && !isLiveControlTarget(e.target, this.deps.wrapper)
+    );
+  }
 
   findArrowAt(world: { x: number; y: number }): ArrowElement | undefined {
     const tolerance = ARROW_HIT_THRESHOLD_PX / this.deps.camera.zoom;

@@ -49,6 +49,20 @@ describe('InteractMode', () => {
     expect(interactMode.isInteracting()).toBe(false);
   });
 
+  it.each([
+    [true, 'auto'],
+    [false, 'none'],
+  ])(
+    'stopInteracting restores auto for an interactive element (interactive %s → %s)',
+    (live, expected) => {
+      const node = createNode('el-1');
+      const mode = new InteractMode({ getNode: (id) => nodes.get(id), isInteractive: () => live });
+      mode.startInteracting('el-1');
+      mode.stopInteracting();
+      expect(node.style.pointerEvents).toBe(expected);
+    },
+  );
+
   it('stopInteracting is safe when not interacting', () => {
     expect(() => interactMode.stopInteracting()).not.toThrow();
   });

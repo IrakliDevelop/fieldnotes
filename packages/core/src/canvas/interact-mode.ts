@@ -1,13 +1,16 @@
 export interface InteractModeDeps {
   getNode: (id: string) => HTMLDivElement | undefined;
+  isInteractive?: (id: string) => boolean;
 }
 
 export class InteractMode {
   private interactingElementId: string | null = null;
   private readonly getNode: (id: string) => HTMLDivElement | undefined;
+  private readonly isInteractive: (id: string) => boolean;
 
   constructor(deps: InteractModeDeps) {
     this.getNode = deps.getNode;
+    this.isInteractive = deps.isInteractive ?? (() => false);
   }
 
   startInteracting(id: string): void {
@@ -28,7 +31,7 @@ export class InteractMode {
 
     const node = this.getNode(this.interactingElementId);
     if (node) {
-      node.style.pointerEvents = 'none';
+      node.style.pointerEvents = this.isInteractive(this.interactingElementId) ? 'auto' : 'none';
       node.removeEventListener('pointerdown', this.onNodePointerDown);
     }
 

@@ -25,7 +25,7 @@ import { ToolManager } from '../tools/tool-manager';
 import type { ToolContext, Tool } from '../tools/types';
 import type { SelectTool } from '../tools/select-tool';
 import { createDefaultTools } from '../tools/default-tools';
-import { hitTest } from '../tools/select-hit';
+import { hitTest, hitTestResizeHandle, hitTestRotateHandle } from '../tools/select-hit';
 import { HistoryStack } from '../history/history-stack';
 import { HistoryRecorder } from '../history/history-recorder';
 import { createImage, createHtmlElement, createShape } from '../elements/element-factory';
@@ -41,6 +41,8 @@ import type { ExportSvgOptions } from './export-svg';
 import type { CanvasState, ImportableCanvasState } from '../core/state-serializer';
 import { LayerManager } from '../layers/layer-manager';
 import { InteractMode } from './interact-mode';
+import { EmbeddedMode } from './embedded-mode';
+import { LIVE_NODE_ATTR, isLiveControlTarget } from './live-control';
 import { DomNodeManager } from './dom-node-manager';
 import { RenderLoop } from './render-loop';
 import type { OverlayRenderer } from './render-loop';
@@ -83,7 +85,7 @@ export type { RotateDirection } from './selection-rotate';
 const EMPTY_IDS: string[] = [];
 
 function noop(): void {
-  // Stable unsubscribe handle returned when no select tool is registered.
+  // Stable unsubscribe handle for listeners that can never fire.
 }
 
 export interface ViewportOptions {
@@ -120,6 +122,12 @@ export interface ViewportOptions {
    * If a plugin activated a tool that an option tool replaces, the plugin's instance stays active.
    */
   tools?: 'default' | Tool[];
+  /**
+   * Board inside a scrolling page: plain wheel and, until `setEmbeddedEngaged(true)`, touch scroll
+   * the page; Ctrl/⌘+wheel zooms; mouse and pen work as usual. Input only, read at construction.
+   * Not gated: `setActivation`, the minimap, `PingInput` and `CameraAnimator`. Default `false`.
+   */
+  embedded?: boolean;
 }
 
 export interface HitTestOptions {
@@ -162,6 +170,8 @@ export class Viewport {
   private readonly pluginHost: PluginHost;
   private readonly domNodeManager: DomNodeManager;
   private readonly interactMode: InteractMode;
+  private readonly embeddedMode: EmbeddedMode | null = null;
+  private readonly wheelPassThroughListeners = new Set<(e: WheelEvent) => void>();
   private readonly onHtmlElementMount?: (
     elementId: string,
     domId: string | undefined,
@@ -342,6 +352,8 @@ export class Viewport {
       elementRegistry: this.elementRegistry,
     };
 
+    const acceptsPointer = (e: PointerEvent): boolean =>
+      this.embeddedMode?.acceptsPointer(e.pointerType) ?? true;
     this.inputHandler = new InputHandler(this.wrapper, this.camera, {
       toolManager: this.toolManager,
       toolContext: this.toolContext,
@@ -361,9 +373,35 @@ export class Viewport {
       getCenteredWorld: () => this.centeredPosition({ w: 300, h: 200 }),
       onPaste: options.onPaste,
       panInertia: options.panInertia,
+      isOnSelectionHandle: (clientX, clientY) => {
+        if (this.toolManager.activeTool?.name !== 'select') return false;
+        const rect = this.wrapper.getBoundingClientRect();
+        const world = this.camera.screenToWorld({ x: clientX - rect.left, y: clientY - rect.top });
+        const ids = this.getSelectedIds();
+        return (
+          hitTestResizeHandle(world, this.toolContext, ids) !== null ||
+          hitTestRotateHandle(world, this.toolContext, ids) !== null
+        );
+      },
       actions: this.actionRegistry,
+      embeddedWheel: options.embedded,
+      onWheelPassThrough: (e) => {
+        for (const listener of [...this.wheelPassThroughListeners]) listener(e);
+      },
+      acceptsPointer,
     });
     this.disposers.push(() => this.inputHandler.destroy());
+    if (options.embedded) {
+      // After InputHandler, whose touch-action: none this overrides.
+      const embeddedMode = new EmbeddedMode({
+        wrapper: this.wrapper,
+        isMenuOpen: () => this.contextMenu?.isOpen() ?? false,
+        onDisengage: () => this.inputHandler.cancelTouchGestures(),
+      });
+      this.embeddedMode = embeddedMode;
+      this.disposers.push(() => embeddedMode.destroy());
+    }
+    this.disposers.push(() => this.wheelPassThroughListeners.clear());
 
     if (options.contextMenu !== false) {
       this.contextMenu = new ContextMenu({
@@ -404,12 +442,14 @@ export class Viewport {
       getVersion: (id) => this.store.getVersion(id),
       isInteracting: (id) => this.interactMode.interactingId === id,
       htmlPlaceholders: !options.onHtmlElementMount,
+      acceptsPointer,
     });
     this.domNodeManager.setCameraTransform(this.camera.toCSSTransform());
     this.disposers.push(() => this.domNodeManager.clearDomNodes());
 
     this.interactMode = new InteractMode({
       getNode: (id) => this.domNodeManager.getNode(id),
+      isInteractive: (id) => this.isLiveHtml(id),
     });
     this.disposers.push(() => this.interactMode.destroy());
 
@@ -480,6 +520,7 @@ export class Viewport {
       }),
       this.store.on('update', ({ previous, current }) => {
         if (current.type === 'html') {
+          this.stopInteractingIfLive();
           this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
         }
         this.renderLoop.noteElementUpdate(previous, current);
@@ -494,6 +535,7 @@ export class Viewport {
         this.pruneSelection();
       }),
       this.store.on('batch', () => {
+        this.stopInteractingIfLive();
         this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
         this.htmlDiagnostics.reset();
         this.renderLoop.clearLive();
@@ -529,6 +571,7 @@ export class Viewport {
       requestRender: () => this.requestRender(),
       addImage: (src, position) => this.addImage(src, position),
       dropHandler: this.dropHandler,
+      acceptsPointer,
     });
     // Editing commits while the recorder and store listeners are still attached.
     this.disposers.push(
@@ -581,7 +624,28 @@ export class Viewport {
     this.wrapper.addEventListener('pointerup', onDoubleTap);
     this.wrapper.addEventListener('dragover', onDragOver);
     this.wrapper.addEventListener('drop', onDrop);
+    // Native drag from live padding would fight the board's own drag; live controls keep theirs.
+    const onDragStart = (e: DragEvent): void => {
+      if (
+        e.target instanceof Element &&
+        e.target.closest('[data-element-id]')?.hasAttribute(LIVE_NODE_ATTR) &&
+        !isLiveControlTarget(e.target, this.wrapper)
+      ) {
+        e.preventDefault();
+      }
+    };
+    // Focusing a control can scroll the overflow:hidden wrapper and misalign DOM and canvas.
+    const onWrapperScroll = (): void => {
+      if (options.embedded || this.wrapper.querySelector(`[data-element-id][${LIVE_NODE_ATTR}]`)) {
+        this.wrapper.scrollTop = 0;
+        this.wrapper.scrollLeft = 0;
+      }
+    };
+    this.wrapper.addEventListener('dragstart', onDragStart);
+    this.wrapper.addEventListener('scroll', onWrapperScroll);
     this.disposers.push(() => {
+      this.wrapper.removeEventListener('dragstart', onDragStart);
+      this.wrapper.removeEventListener('scroll', onWrapperScroll);
       this.wrapper.removeEventListener('pointerdown', onTapDown);
       this.wrapper.removeEventListener('pointerup', onDoubleTap);
       this.wrapper.removeEventListener('dragover', onDragOver);
@@ -894,6 +958,7 @@ export class Viewport {
       this.onHtmlElementMount(el.id, el.domId, node);
       this.domNodeManager.markHostOwnedContent(el.id);
       node.dataset['initialized'] = 'true';
+      node.toggleAttribute(LIVE_NODE_ATTR, el.interactive === true);
       Object.assign(node.style, {
         overflow: 'hidden',
         pointerEvents: el.interactive ? 'auto' : 'none',
@@ -1000,6 +1065,8 @@ export class Viewport {
       transient?: boolean;
       /** Non-'local' origin marks the add as external: no undo step, tagged for observers. */
       origin?: string;
+      /** Controls take clicks; padding selects and moves. Persisted and synced. */
+      interactive?: boolean;
     },
   ): string {
     const domId = dom.id || undefined;
@@ -1010,6 +1077,7 @@ export class Viewport {
       htmlType: opts?.htmlType,
       data: opts?.data,
       transient: opts?.transient,
+      interactive: opts?.interactive,
       layerId: this.layerManager.activeLayerId,
     });
     this.domNodeManager.storeHtmlContent(el.id, dom);
@@ -1211,6 +1279,17 @@ export class Viewport {
     this.requestRender();
   }
 
+  private isLiveHtml(id: string): boolean {
+    const el = this.store.getById(id);
+    return el?.type === 'html' && el.interactive === true;
+  }
+
+  /** A live element never stays in InteractMode; its controls already take input. */
+  private stopInteractingIfLive(): void {
+    const id = this.interactMode.interactingId;
+    if (id !== null && this.isLiveHtml(id)) this.interactMode.stopInteracting();
+  }
+
   private getSelectTool(): SelectTool | undefined {
     return this.toolManager.getTool<SelectTool>('select');
   }
@@ -1346,6 +1425,27 @@ export class Viewport {
       );
     }, intervalMs);
     return () => clearInterval(id);
+  }
+
+  /** Engages or disengages an embedded board; a no-op when not embedded or after `destroy()`. */
+  setEmbeddedEngaged(engaged: boolean): void {
+    this.embeddedMode?.setEngaged(engaged);
+  }
+
+  /** Whether an embedded board takes touch input; always `true` when not embedded. */
+  isEmbeddedEngaged(): boolean {
+    return this.embeddedMode?.isEngaged() ?? true;
+  }
+
+  /** Notifies on each engaged-state change, including Escape; never fires when not embedded. */
+  onEmbeddedEngagedChange(listener: (engaged: boolean) => void): () => void {
+    return this.embeddedMode?.onChange(listener) ?? noop;
+  }
+
+  /** Notifies for each plain wheel an embedded board leaves to the page; never fires otherwise. */
+  onWheelPassThrough(listener: (e: WheelEvent) => void): () => void {
+    this.wheelPassThroughListeners.add(listener);
+    return () => this.wheelPassThroughListeners.delete(listener);
   }
 
   /** Fires synchronously after any change `exportState()` would reflect; returns a disposer. */

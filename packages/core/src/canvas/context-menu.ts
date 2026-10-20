@@ -66,7 +66,10 @@ export class ContextMenu {
     this.clampToViewport(el, screenPos);
 
     this.keyListener = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') this.close();
+      if (e.key !== 'Escape') return;
+      // Consumed so later Escape listeners see it as handled.
+      e.preventDefault();
+      this.close();
     };
     document.addEventListener('keydown', this.keyListener);
 

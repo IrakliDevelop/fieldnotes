@@ -33,6 +33,15 @@ describe('ContextMenu', () => {
     menu.dispose();
   });
 
+  it('consumes Escape when it closes so later listeners see it as handled', () => {
+    const menu = new ContextMenu({ onCommand: vi.fn(), onClose: vi.fn() });
+    menu.open([{ label: 'Copy', action: 'copy' }], { x: 0, y: 0 });
+    const e = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true });
+    document.dispatchEvent(e);
+    expect(e.defaultPrevented).toBe(true);
+    menu.dispose();
+  });
+
   it('does not fire a disabled item', () => {
     const onCommand = vi.fn();
     const menu = new ContextMenu({ onCommand, onClose: vi.fn() });

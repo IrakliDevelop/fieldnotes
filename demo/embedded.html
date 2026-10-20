@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Field Notes — Embedded board fixture</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: system-ui, sans-serif;
+      }
+      .spacer {
+        height: 150vh;
+        background: linear-gradient(#f4f4f4, #dcdcdc);
+      }
+      #controls {
+        position: fixed;
+        top: 8px;
+        left: 8px;
+        z-index: 10;
+        display: flex;
+        gap: 4px;
+      }
+      #canvas {
+        width: 640px;
+        height: 420px;
+        margin: 0 auto;
+        border: 1px solid #999;
+      }
+      .live {
+        position: relative;
+        width: 280px;
+        height: 180px;
+        box-sizing: border-box;
+        background: #fff;
+        border: 1px solid #555;
+      }
+      .live > * {
+        position: absolute;
+        margin: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="controls">
+      <button id="engage">Engage</button>
+      <button id="done">Done</button>
+    </div>
+    <div class="spacer"></div>
+    <div id="canvas"></div>
+    <div class="spacer"></div>
+    <!-- Every control sits at least 24px inside the element, so the edges are padding. -->
+    <template id="live-template">
+      <div class="live">
+        <p id="live-title" style="left: 24px; top: 24px">Drag this widget by its padding</p>
+        <button id="live-btn" style="left: 24px; top: 60px">Count</button>
+        <span id="live-count" style="left: 90px; top: 62px">0</span>
+        <input type="checkbox" id="live-check" style="left: 130px; top: 60px" />
+        <a id="live-link" href="#linked" style="left: 170px; top: 62px">Link</a>
+        <input
+          type="text"
+          id="live-text"
+          style="left: 106px; top: 100px; width: 150px; box-sizing: border-box"
+        />
+        <img
+          id="live-img"
+          alt=""
+          width="24"
+          height="24"
+          style="left: 24px; top: 132px"
+          src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Crect width='24' height='24' fill='%234a90d9'/%3E%3C/svg%3E"
+        />
+      </div>
+    </template>
+    <script type="module" src="./embedded.ts"></script>
+  </body>
+</html>
