@@ -463,9 +463,9 @@ const checklist = [
     }
   }
 
-  /* At 820px and below the text stays static above a separate, shorter board. */
+  /* Until mount, at 820px and below the text stays static above a separate, shorter board. */
   @media (max-width: 820px) {
-    .board {
+    .hero:not([data-hero-layout]) .board {
       position: relative;
       min-height: 420px;
       /* Room for two rows of controls below the checklist. */
@@ -473,7 +473,7 @@ const checklist = [
       border-top: 1px solid var(--divider);
     }
 
-    .side {
+    .hero:not([data-hero-layout]) .side {
       position: relative;
       top: 0;
       right: 0;
@@ -481,41 +481,95 @@ const checklist = [
       margin: 0 auto;
     }
 
-    .flow {
+    .hero:not([data-hero-layout]) .flow {
       min-height: 0;
       padding-top: 48px;
       padding-bottom: 48px;
     }
 
-    .copy {
+    .hero:not([data-hero-layout]) .copy {
       max-width: none;
       padding-left: 0;
     }
 
     /* Two rows: Draw and Put it back above the toolbar and the zoom readout. */
-    .controls {
+    .hero:not([data-hero-layout]) .controls {
       flex-wrap: wrap;
       row-gap: 4px;
     }
 
-    .controls::before {
+    .hero:not([data-hero-layout]) .controls::before {
       content: '';
       flex-basis: 100%;
     }
 
-    .engage,
-    .reset {
+    .hero:not([data-hero-layout]) .engage,
+    .hero:not([data-hero-layout]) .reset {
       order: -1;
     }
 
-    .zoom {
+    .hero:not([data-hero-layout]) .zoom {
       margin-left: auto;
     }
 
-    /* The headline is not on the board at this width, so it shows no selection and no drag hint. */
-    .frame,
-    .annotation {
+    /* The headline is not on the board in this layout, so it shows no selection and no drag hint. */
+    .hero:not([data-hero-layout]) .frame,
+    .hero:not([data-hero-layout]) .annotation {
       display: none;
     }
+  }
+
+  /* After mount, the layout mount chose holds through resizes; keep these rules equal to the ones above. */
+  .hero[data-hero-layout='narrow'] .board {
+    position: relative;
+    min-height: 420px;
+    /* Room for two rows of controls below the checklist. */
+    padding: 32px 0 132px;
+    border-top: 1px solid var(--divider);
+  }
+
+  .hero[data-hero-layout='narrow'] .side {
+    position: relative;
+    top: 0;
+    right: 0;
+    width: min(380px, 100%);
+    margin: 0 auto;
+  }
+
+  .hero[data-hero-layout='narrow'] .flow {
+    min-height: 0;
+    padding-top: 48px;
+    padding-bottom: 48px;
+  }
+
+  .hero[data-hero-layout='narrow'] .copy {
+    max-width: none;
+    padding-left: 0;
+  }
+
+  /* Two rows: Draw and Put it back above the toolbar and the zoom readout. */
+  .hero[data-hero-layout='narrow'] .controls {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+
+  .hero[data-hero-layout='narrow'] .controls::before {
+    content: '';
+    flex-basis: 100%;
+  }
+
+  .hero[data-hero-layout='narrow'] .engage,
+  .hero[data-hero-layout='narrow'] .reset {
+    order: -1;
+  }
+
+  .hero[data-hero-layout='narrow'] .zoom {
+    margin-left: auto;
+  }
+
+  /* The headline is not on the board in this layout, so it shows no selection and no drag hint. */
+  .hero[data-hero-layout='narrow'] .frame,
+  .hero[data-hero-layout='narrow'] .annotation {
+    display: none;
   }
 </style>

@@ -75,6 +75,7 @@ export async function mountHero(root: HTMLElement): Promise<HeroHandle> {
   // DOM changes wait for the viewport so a failed mount leaves the static hero; pins stop shifts.
   if (wide) flow.style.height = `${pinned}px`;
   else board.style.height = `${pinned}px`;
+  root.dataset.heroLayout = wide ? 'wide' : 'narrow';
   Object.assign(board.style, { padding: '0', backgroundImage: 'none' });
   required<HTMLElement>(board, '[data-hero-side]').hidden = true;
   root.querySelector('[data-hero-frame]')?.remove();

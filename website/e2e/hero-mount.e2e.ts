@@ -1,4 +1,4 @@
-import { expect, test, type ElementHandle, type Page } from '@playwright/test';
+import { expect, test, type ElementHandle, type Locator, type Page } from '@playwright/test';
 import { HERO_WRAPPER, openHero } from './helpers';
 
 declare global {
@@ -167,4 +167,49 @@ test('no layout shift on mount', async ({ page }) => {
   }));
   expect(before).toBeDefined();
   expect(Math.abs((before ?? 0) - after)).toBeLessThan(1);
+});
+
+type Box = NonNullable<Awaited<ReturnType<Locator['boundingBox']>>>;
+
+async function box(locator: Locator): Promise<Box> {
+  const found = await locator.boundingBox();
+  if (!found) throw new Error('element is not rendered');
+  return found;
+}
+
+const overlaps = (a: Box, b: Box): boolean =>
+  a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+
+test('a hero mounted narrow keeps the narrow layout when the window widens', async ({ page }) => {
+  test.skip(test.info().project.name !== 'desktop-chrome', 'layout widths are set explicitly');
+  await page.setViewportSize({ width: 600, height: 900 });
+  await openHero(page);
+  await expect(page.locator('[data-hero]')).toHaveAttribute('data-hero-layout', 'narrow');
+  await page.setViewportSize({ width: 1200, height: 900 });
+
+  const flow = await box(page.locator('[data-hero-flow]'));
+  expect((await box(page.locator('[data-hero-board]'))).y).toBeGreaterThanOrEqual(
+    flow.y + flow.height - 1,
+  );
+  await expect(page.locator('[data-element-id] h1')).toHaveCount(0);
+  const adopted = await page.locator('.adopted').all();
+  expect(adopted).toHaveLength(2);
+  for (const key of ['headline', 'intro', 'actions']) {
+    const text = await box(page.locator(`[data-hero-node="${key}"]`));
+    for (const node of adopted) expect(overlaps(await box(node), text), key).toBe(false);
+  }
+});
+
+test('a hero mounted wide keeps the wide layout when the window narrows', async ({ page }) => {
+  test.skip(test.info().project.name !== 'desktop-chrome', 'layout widths are set explicitly');
+  await page.setViewportSize({ width: 1200, height: 900 });
+  await openHero(page);
+  await expect(page.locator('[data-hero]')).toHaveAttribute('data-hero-layout', 'wide');
+  // The wide board keeps its mount-time layout, so the narrow window may scroll sideways.
+  await page.setViewportSize({ width: 600, height: 900 });
+
+  const flow = await box(page.locator('[data-hero-flow]'));
+  expect((await box(page.locator('[data-hero-board]'))).y).toBeCloseTo(flow.y, 0);
+  await expect(page.locator('[data-element-id] h1')).toHaveCount(1);
+  await expect(page.locator('[data-element-id] [data-hero-node="annotation"]')).toBeVisible();
 });
