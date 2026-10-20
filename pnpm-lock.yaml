@@ -332,15 +332,27 @@ importers:
       '@playwright/test':
         specifier: ^1.63.0
         version: 1.63.0
+      '@types/mdast':
+        specifier: ^4.0.4
+        version: 4.0.4
       astro:
         specifier: ^7.4.1
         version: 7.4.1(@astrojs/markdown-remark@7.3.3)(@types/node@26.0.1)(esbuild@0.28.1)(tsx@4.23.0)(yaml@2.9.1)
       remark-directive:
         specifier: ^4.0.0
         version: 4.0.0
+      remark-parse:
+        specifier: ^11.0.0
+        version: 11.0.0
+      remark-stringify:
+        specifier: ^11.0.0
+        version: 11.0.0
       typescript:
         specifier: ~6.0.3
         version: 6.0.3
+      unified:
+        specifier: ^11.0.5
+        version: 11.0.5
       vitest:
         specifier: ^5.0.5
         version: 5.0.5(@types/node@26.0.1)(@vitest/coverage-v8@5.0.5)(jsdom@29.1.1)(vite@8.3.4(@types/node@26.0.1)(esbuild@0.28.1)(tsx@4.23.0)(yaml@2.9.1))

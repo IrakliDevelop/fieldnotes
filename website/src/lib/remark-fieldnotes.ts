@@ -1,4 +1,5 @@
-import { exampleCode, findExample } from './directives';
+import type { Root } from 'mdast';
+import { exampleCode, findExample, mapNodes } from './directives';
 import type { Examples } from './directives';
 import { withBase } from './paths';
 
@@ -6,19 +7,6 @@ import { withBase } from './paths';
 export interface RemarkFieldnotesOptions {
   base: string;
   examples: Examples;
-}
-
-// The mdast fields this plugin reads or writes; the site has no direct mdast type dependency.
-interface MdNode {
-  type: string;
-  children?: MdNode[];
-  name?: string;
-  attributes?: Record<string, string | null | undefined> | null;
-  url?: string;
-  value?: string;
-  lang?: string | null;
-  position?: { start: { offset?: number }; end: { offset?: number } };
-  data?: object;
 }
 
 const boardHtml = (example: string) =>
@@ -31,15 +19,14 @@ const boardHtml = (example: string) =>
   '<button type="button" class="live-board-clear">Clear board</button></div>' +
   '<figcaption>A live board running the snippet above.</figcaption></figure>';
 
-/** Renders `:::margin`, `::code` and `::board`, restores stray text directives and adds `base` to root-relative links. */
+/** Renders `:::margin`, `::code` and `::board`, restores stray text directives and adds `base` to root-relative URLs. */
 export function remarkFieldnotes({ base, examples }: RemarkFieldnotesOptions) {
-  return (tree: MdNode, file: { path?: string; value: unknown }): void => {
+  return (tree: Root, file: { path?: string; value: unknown }): void => {
     const where = file.path ?? 'Markdown';
     const source = String(file.value);
-    const rewrite = (node: MdNode): MdNode => {
-      if ((node.type === 'link' || node.type === 'definition') && node.url?.startsWith('/')) {
-        node.url = withBase(node.url, base);
-      }
+    mapNodes(tree, (node) => {
+      const hasUrl = node.type === 'link' || node.type === 'image' || node.type === 'definition';
+      if (hasUrl && node.url.startsWith('/')) node.url = withBase(node.url, base);
       if (node.type === 'textDirective') {
         // `word:thing` in prose is not a directive; give the author's text back.
         return {
@@ -66,9 +53,7 @@ export function remarkFieldnotes({ base, examples }: RemarkFieldnotesOptions) {
       if (node.type === 'containerDirective' && node.name === 'margin') {
         node.data = { hName: 'aside', hProperties: { className: ['margin-note'] } };
       }
-      if (node.children) node.children = node.children.map(rewrite);
       return node;
-    };
-    rewrite(tree);
+    });
   };
 }

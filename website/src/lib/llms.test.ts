@@ -65,14 +65,47 @@ const app = <Board />;
 `);
   });
 
-  it('makes links absolute at base / too', () => {
+  it('makes links and images absolute at base / too', () => {
     expect(
       toMarkdownTwin(
-        { title: 'T', description: 'D.', body: '[a](/docs/a/)' },
+        { title: 'T', description: 'D.', body: '[a](/docs/a/) ![b](/img/b.png)' },
         { ...OPTS, base: '/' },
       ),
-    ).toBe('# T\n\nD.\n\n[a](https://iraklidevelop.github.io/docs/a/)\n');
+    ).toBe(
+      '# T\n\nD.\n\n[a](https://iraklidevelop.github.io/docs/a/) ![b](https://iraklidevelop.github.io/img/b.png)\n',
+    );
   });
+
+  it('turns an indented ::code inside a list item into a fence in that item', () => {
+    const body = '1. Mount it.\n\n   ::code{example="demo" region="mount"}\n\n2. Draw.\n';
+    expect(toMarkdownTwin({ title: 'T', description: 'D.', body }, OPTS)).toBe(
+      '# T\n\nD.\n\n1. Mount it.\n\n   ```ts\n   const board = createBoard(el);\n   ```\n\n2. Draw.\n',
+    );
+  });
+
+  it.each([
+    ['unquoted', '::code{example=demo region=mount}'],
+    ['single-quoted', "::code{example='demo' region='mount'}"],
+  ])('reads %s directive attributes', (_, body) => {
+    expect(toMarkdownTwin({ title: 'T', description: 'D.', body }, OPTS)).toBe(
+      '# T\n\nD.\n\n```ts\nconst board = createBoard(el);\n```\n',
+    );
+  });
+
+  it('keeps a text directive in prose as written', () => {
+    expect(
+      toMarkdownTwin({ title: 'T', description: 'D.', body: 'Meet at word:thing today.' }, OPTS),
+    ).toBe('# T\n\nD.\n\nMeet at word:thing today.\n');
+  });
+
+  it.each([['::note{x="y"}'], [':::tip\nText.\n:::']])(
+    'throws naming the page for the unknown directive %s',
+    (body) => {
+      expect(() => toMarkdownTwin({ title: 'T', description: 'D.', body }, OPTS)).toThrow(
+        /^T: unknown directive (note|tip)$/,
+      );
+    },
+  );
 
   it('throws naming the page for an unknown example', () => {
     expect(() =>

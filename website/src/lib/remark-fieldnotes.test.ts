@@ -56,13 +56,13 @@ describe('remarkFieldnotes', () => {
     );
   });
 
-  it('prefixes root-relative links with the base and leaves other links alone', async () => {
+  it('prefixes root-relative links and images with the base and leaves other URLs alone', async () => {
     const html = await render(
-      '[a](/docs/layers/) [b](https://example.com/x) [c](#install) [d](//cdn.example.com/y) [e][ref]\n\n[ref]: /changelog/',
+      '[a](/docs/layers/) [b](https://example.com/x) [c](#install) [d](//cdn.example.com/y) [e][ref] ![f](/img/f.png) ![g](https://example.com/g.png)\n\n[ref]: /changelog/',
       '/fieldnotes/',
     );
     expect(html).toBe(
-      '<p><a href="/fieldnotes/docs/layers/">a</a> <a href="https://example.com/x">b</a> <a href="#install">c</a> <a href="//cdn.example.com/y">d</a> <a href="/fieldnotes/changelog/">e</a></p>',
+      '<p><a href="/fieldnotes/docs/layers/">a</a> <a href="https://example.com/x">b</a> <a href="#install">c</a> <a href="//cdn.example.com/y">d</a> <a href="/fieldnotes/changelog/">e</a> <img src="/fieldnotes/img/f.png" alt="f"> <img src="https://example.com/g.png" alt="g"></p>',
     );
   });
 

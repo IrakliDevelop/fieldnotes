@@ -1,5 +1,15 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { Parent, RootContent } from 'mdast';
+
+/** Replaces every node under `parent`, depth first, with what `fn` returns for it. */
+export function mapNodes(parent: Parent, fn: (node: RootContent) => RootContent): void {
+  parent.children = parent.children.map((child) => {
+    const next = fn(child);
+    if ('children' in next) mapNodes(next, fn);
+    return next;
+  });
+}
 
 /** Example sources under `src/examples/`, keyed by file name without extension. */
 export type Examples = Record<string, { source: string; lang: 'ts' | 'tsx' }>;
