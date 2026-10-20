@@ -58,7 +58,8 @@ subscribe time: when one changes, resubscribe and the cache keeps an equal resul
   store helpers with the React hook names: `useCamera`, `useElements`, `useSelection`,
   `useSelectionStyle`, `useSelectionStyleDetails`, `useSelectionOps`, `useHistory`, `useLayers`,
   `useActiveTool`, `useToolOptions` and `useElementRects`. Result objects are a `Readable` that
-  also carries the actions (`$history.canUndo`, `history.undo()`).
+  also carries the actions (`$history.canUndo`, `history.undo()`), typed as the exported
+  `UseHistoryResult`, `UseLayersResult` and `UseSelectionOpsResult`.
 - Requires Svelte `>=5 <6` and `@fieldnotes/core >=0.96.0`; ships `.svelte` sources. The canvas is
   client-only: server rendering emits an empty container.
 - Unlike React and Vue, Svelte destroys the children before the canvas destroys the viewport.

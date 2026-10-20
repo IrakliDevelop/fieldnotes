@@ -4,12 +4,8 @@ import type { Layer, LayersState } from '@fieldnotes/core';
 import { useViewport } from '../context.js';
 import { fromSource } from './from-source.svelte.js';
 
-/**
- * Current layer list (`$layers.layers`, `$layers.activeLayerId`) and mutation helpers — updates
- * whenever a layer is added, removed, reordered, renamed, or its visibility/lock/opacity/active
- * state changes.
- */
-export function useLayers(): Readable<LayersState> & {
+/** Result of {@link useLayers}. */
+export type UseLayersResult = Readable<LayersState> & {
   createLayer: (name?: string) => Layer;
   removeLayer: (id: string) => void;
   renameLayer: (id: string, name: string) => void;
@@ -19,7 +15,14 @@ export function useLayers(): Readable<LayersState> & {
   setOpacity: (id: string, opacity: number) => void;
   setActiveLayer: (id: string) => void;
   moveElement: (elementId: string, layerId: string) => void;
-} {
+};
+
+/**
+ * Current layer list (`$layers.layers`, `$layers.activeLayerId`) and mutation helpers — updates
+ * whenever a layer is added, removed, reordered, renamed, or its visibility/lock/opacity/active
+ * state changes.
+ */
+export function useLayers(): UseLayersResult {
   const viewport = useViewport();
   const layerManager = viewport.layerManager;
   const { subscribe } = fromSource(createLayersSource(viewport));

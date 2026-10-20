@@ -5,13 +5,8 @@ import type { AlignEdge, DistributeAxis, SelectionOpsState } from '@fieldnotes/c
 import { useViewport } from '../context.js';
 import { fromSource } from './from-source.svelte.js';
 
-/**
- * Selection operations + derived predicates for the current selection.
- * Predicates (`canGroup`/`canAlign`/…) reflect whether each action is meaningful;
- * `isLocked` is `true`/`false` when the selection is uniformly locked/unlocked,
- * and `null` when empty or mixed. Actions delegate to the core Viewport.
- */
-export function useSelectionOps(): Readable<SelectionOpsState & { selectedCount: number }> & {
+/** Result of {@link useSelectionOps}. */
+export type UseSelectionOpsResult = Readable<SelectionOpsState & { selectedCount: number }> & {
   group: () => void;
   ungroup: () => void;
   toggleLock: () => void;
@@ -19,7 +14,15 @@ export function useSelectionOps(): Readable<SelectionOpsState & { selectedCount:
   distribute: (axis: DistributeAxis) => void;
   rotateCW: () => void;
   rotateCCW: () => void;
-} {
+};
+
+/**
+ * Selection operations + derived predicates for the current selection.
+ * Predicates (`canGroup`/`canAlign`/…) reflect whether each action is meaningful;
+ * `isLocked` is `true`/`false` when the selection is uniformly locked/unlocked,
+ * and `null` when empty or mixed. Actions delegate to the core Viewport.
+ */
+export function useSelectionOps(): UseSelectionOpsResult {
   const viewport = useViewport();
   const { subscribe } = derived(fromSource(createSelectionOpsSource(viewport)), (state) => ({
     ...state,

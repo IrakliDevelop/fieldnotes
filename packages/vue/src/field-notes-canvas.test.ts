@@ -3,7 +3,6 @@ import { mount, enableAutoUnmount } from '@vue/test-utils';
 import {
   KeepAlive,
   createApp,
-  createSSRApp,
   defineComponent,
   h,
   nextTick,
@@ -13,7 +12,6 @@ import {
   type ExtractPublicPropTypes,
   type VNode,
 } from 'vue';
-import { renderToString } from 'vue/server-renderer';
 import type { fieldNotesCanvasProps } from './field-notes-canvas';
 import {
   FieldNotesCanvas,
@@ -568,16 +566,5 @@ describe('useViewport', () => {
     });
     mount(Host);
     expect(seen).toBe(viewport);
-  });
-});
-
-describe('server rendering', () => {
-  it('renders the root div without creating a Viewport', async () => {
-    const onReady = vi.fn<(viewport: Viewport) => void>();
-    const html = await renderToString(
-      createSSRApp({ render: () => h(FieldNotesCanvas, { onReady }, () => h('span')) }),
-    );
-    expect(html).toBe('<div></div>');
-    expect(onReady).not.toHaveBeenCalled();
   });
 });

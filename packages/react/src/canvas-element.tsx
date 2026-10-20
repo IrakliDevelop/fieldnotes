@@ -89,9 +89,7 @@ export function CanvasElement({ position, size, children }: CanvasElementProps) 
         viewport.requestRender();
         elementIdRef.current = null;
       }
-      // Removing the element usually detaches the container, but when no render pass ran between
-      // this effect and its cleanup (StrictMode's double invocation) the node is still parented
-      // in the DOM layer as an empty div.
+      // Removing the element usually detaches the container; never leave it orphaned in the layer.
       if (container.parentNode === viewport.domLayer) container.remove();
       setPortalTarget(null);
     };

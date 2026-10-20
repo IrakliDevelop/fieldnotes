@@ -1,7 +1,9 @@
-import { describe, it, expect, afterEach, vi } from 'vitest';
+import { describe, it, expect, expectTypeOf, afterEach, vi } from 'vitest';
 import { render, screen } from '@testing-library/svelte';
 import { flushSync } from 'svelte';
 import type { Viewport } from '@fieldnotes/core';
+import { useHistory, useLayers, useSelectionOps } from '../index.js';
+import type { UseHistoryResult, UseLayersResult, UseSelectionOpsResult } from '../index.js';
 import CanvasAllHelpers from '../test-fixtures/CanvasAllHelpers.svelte';
 import { countOpenListeners } from '../test-fixtures/count-listeners';
 
@@ -49,5 +51,13 @@ describe('helpers under FieldNotesCanvas', () => {
     expect(open() - baselineAfter - baselineMounted).toBe(15);
     expect(() => withHelpers.unmount()).not.toThrow();
     expect(open()).toBe(baselineAfter * 2);
+  });
+});
+
+describe('exported helper result types', () => {
+  it('name the return types of useHistory, useLayers and useSelectionOps', () => {
+    expectTypeOf(useHistory).returns.toEqualTypeOf<UseHistoryResult>();
+    expectTypeOf(useLayers).returns.toEqualTypeOf<UseLayersResult>();
+    expectTypeOf(useSelectionOps).returns.toEqualTypeOf<UseSelectionOpsResult>();
   });
 });

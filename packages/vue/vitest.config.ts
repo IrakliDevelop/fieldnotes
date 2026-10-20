@@ -9,7 +9,6 @@ export default defineConfig({
   },
   test: {
     globals: true,
-    environment: 'jsdom',
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov'],
@@ -19,5 +18,17 @@ export default defineConfig({
         functions: 90,
       },
     },
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: 'jsdom',
+          environment: 'jsdom',
+          include: ['src/**/*.test.ts'],
+          exclude: ['src/ssr.test.ts'],
+        },
+      },
+      { extends: true, test: { name: 'ssr', environment: 'node', include: ['src/ssr.test.ts'] } },
+    ],
   },
 });
