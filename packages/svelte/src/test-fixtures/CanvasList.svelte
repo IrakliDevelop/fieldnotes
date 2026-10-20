@@ -19,9 +19,11 @@
   {/each}
   {#if toggled !== undefined}
     <CanvasElement position={{ x: 0, y: 0 }}><span data-testid="item">before</span></CanvasElement>
+    <p data-testid="plain">p-before</p>
     {#if toggled}
       <CanvasElement position={{ x: 0, y: 0 }}><span data-testid="item">toggled</span></CanvasElement>
     {/if}
+    <p data-testid="plain">p-after</p>
     <CanvasElement position={{ x: 0, y: 0 }}><span data-testid="item">after</span></CanvasElement>
   {/if}
 </FieldNotesCanvas>

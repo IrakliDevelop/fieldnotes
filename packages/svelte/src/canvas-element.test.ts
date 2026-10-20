@@ -197,6 +197,16 @@ describe('CanvasElement in keyed and conditional blocks', () => {
 
   const items = () => [...document.querySelectorAll<HTMLElement>('[data-testid="item"]')];
   const texts = () => items().map((n) => n.textContent);
+  const plains = () => [...document.querySelectorAll<HTMLElement>('[data-testid="plain"]')];
+  const contentsRoots = () => [
+    ...document.querySelectorAll<HTMLElement>('div[style*="display: contents"]'),
+  ];
+
+  /** Asserts the plain siblings stay in source order and outside every canvas wrapper. */
+  function expectPlainsInPlace() {
+    expect(plains().map((p) => p.textContent)).toEqual(['p-before', 'p-after']);
+    for (const p of plains()) expect(p.closest('[data-element-id]')).toBeNull();
+  }
 
   /** Asserts each content node sits inside the core wrapper of the html element holding it. */
   function expectAllOnCanvas(vp: Viewport) {
@@ -219,6 +229,8 @@ describe('CanvasElement in keyed and conditional blocks', () => {
       );
       expect(wrapper?.textContent).toBe(String(el.position.x));
     }
+    expect(contentsRoots()).toHaveLength(3);
+    for (const root of contentsRoots()) expect(root.children.length).toBe(0);
   });
 
   it('removes only the removed item from a keyed list, leaving no orphan nodes', async () => {
@@ -234,16 +246,20 @@ describe('CanvasElement in keyed and conditional blocks', () => {
   it('toggles a CanvasElement between siblings without disturbing them', async () => {
     const { vp, rerender } = renderList({ toggled: true });
     expect(texts().sort()).toEqual(['after', 'before', 'toggled']);
+    expectPlainsInPlace();
 
     await rerender({ toggled: false });
     expect(vp.store.getElementsByType('html').length).toBe(2);
     expect(texts().sort()).toEqual(['after', 'before']);
     expectAllOnCanvas(vp);
+    expectPlainsInPlace();
 
     await rerender({ toggled: true });
     expect(vp.store.getElementsByType('html').length).toBe(3);
     expect(texts().sort()).toEqual(['after', 'before', 'toggled']);
     expectAllOnCanvas(vp);
+    expectPlainsInPlace();
+    expect(plains()[0]?.nextElementSibling?.getAttribute('style')).toBe('display: contents');
     expect(vp.domLayer.children.length).toBe(0);
   });
 });
