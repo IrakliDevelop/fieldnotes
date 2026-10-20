@@ -5,6 +5,7 @@ import {
   isNewerLayerRecord,
   isNewerVersion,
   translateOpForPeer,
+  SYNC_LIMITS,
   type LayerRecord,
   type SyncElement,
   type SyncOp,
@@ -39,6 +40,7 @@ import { resolveAuthorityDefinition } from './authority-admission';
 import type { AuthorityOptions } from './authority-types';
 import {
   DEFAULT_MAX_JSON_DEPTH,
+  DEFAULT_MAX_MESSAGE_BYTES,
   DEFAULT_MAX_PRESENCE_BYTES,
   DEFAULT_MAX_PRESENCE_LANES,
   DEFAULT_OP_BURST,
@@ -78,6 +80,8 @@ export interface SyncHubOptions {
   canRead?: CanRead;
   canReadOwnerId?: CanReadOwnerId;
   resolveAudience?: ResolveAudience;
+  /** Largest inbound frame the transport accepts; opBatching is advertised only if a full batch fits. */
+  maxMessageBytes?: number;
   maxJsonDepth?: number;
   presenceThrottleMs?: number;
   maxPresenceLanes?: number;
@@ -238,6 +242,7 @@ export class SyncHub {
   private readonly opsPerSecond: number;
   private readonly opBurst: number;
   private readonly opLimiters = new Map<string, MessageRateLimiter>();
+  private readonly opBatching: boolean;
   /**
    * Presence throttle state keyed by connection, then by lane. A lane is the
    * payload's `kind` (a non-empty string of at most 64 chars) or the reserved
@@ -287,6 +292,15 @@ export class SyncHub {
       throw new RangeError('opBurst must be a positive finite number');
     }
     this.opBurst = opBurst;
+    const maxMessageBytes = options.maxMessageBytes ?? DEFAULT_MAX_MESSAGE_BYTES;
+    if (!Number.isFinite(maxMessageBytes) || maxMessageBytes <= 0) {
+      throw new RangeError('maxMessageBytes must be a positive finite number');
+    }
+    // Clients size batches to SYNC_LIMITS; a hub tuned lower would reject full batches.
+    this.opBatching =
+      maxMessageBytes >= SYNC_LIMITS.maxFrameBytes &&
+      this.maxJsonDepth >= SYNC_LIMITS.maxFrameJsonDepth &&
+      opBurst >= SYNC_LIMITS.maxBatchOps;
     const roomIdleTimeoutMs = options.roomIdleTimeoutMs;
     if (
       roomIdleTimeoutMs !== undefined &&
@@ -453,7 +467,7 @@ export class SyncHub {
           kind: 'capabilities',
           capabilities: {
             ...createCurrentCapabilities(this.pluginRegistry.extensionKinds),
-            opBatching: 1,
+            ...(this.opBatching ? { opBatching: 1 } : {}),
           },
         });
       } else if (env.op.kind === 'presence') {

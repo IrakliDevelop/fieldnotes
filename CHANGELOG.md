@@ -79,6 +79,9 @@ sends individual ops, up to 20 flushes per second, so a drag of many elements ca
 - `opsPerSecond` (default 2,000) and `opBurst` (default 4,000) on `createSyncServer` and `SyncHub`:
   a per-connection budget that counts every element op, single or inside a batch. Going over it
   closes the connection with `4408`.
+- `SyncHub` option `maxMessageBytes` (default 1 MiB); `createSyncServer` passes its own. The hub
+  advertises `opBatching` only when `maxMessageBytes` ≥ 1 MiB, `maxJsonDepth` ≥ 32 and
+  `opBurst` ≥ 1,000; a lower limit makes clients send single ops.
 
 **Changed**
 

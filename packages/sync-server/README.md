@@ -105,6 +105,9 @@ correction and does not affect the others. Recipients that advertised `opBatchin
 ops as one `batch`, filtered for what each may read; others get individual ops. Fanout to other
 instances stays one payload per op, so 0.28 instances on the same Redis keep working. A batch
 counts as one message for `messagesPerSecond` and runs under one frame-policy deadline.
+The hub advertises `opBatching` only when a full batch fits its limits: `maxMessageBytes` ≥
+`SYNC_LIMITS.maxFrameBytes`, `maxJsonDepth` ≥ `SYNC_LIMITS.maxFrameJsonDepth` and `opBurst` ≥
+`SYNC_LIMITS.maxBatchOps`; below that, clients send single ops.
 
 Each element op, single or batched, also counts against a per-connection op budget: `opsPerSecond`
 (default 2,000) and `opBurst` (default 4,000), on both `createSyncServer` and `SyncHub`. Going over

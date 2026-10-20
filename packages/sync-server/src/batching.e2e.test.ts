@@ -154,6 +154,16 @@ describe('element op batching (end-to-end)', () => {
     expect(dragger.sent).not.toContain('batch');
   });
 
+  it('sends individual ops when the server maxMessageBytes cannot hold a full batch', async () => {
+    const port = startServer({ maxMessageBytes: 512 * 1024 });
+    const { dragger, watcher } = await seed(port);
+
+    for (const id of ['e0', 'e1', 'e2']) dragger.store.update(id, { position: { x: 9, y: 9 } });
+
+    await vi.waitFor(() => expect(positions(watcher.store)).toBe(positions(dragger.store)));
+    expect(dragger.sent).toEqual(['upsert', 'upsert', 'upsert']);
+  });
+
   it('closes a connection over the configured op budget with 4408', async () => {
     const port = startServer({ opsPerSecond: 1, opBurst: 2 });
     const { socket } = await connectRaw(port);

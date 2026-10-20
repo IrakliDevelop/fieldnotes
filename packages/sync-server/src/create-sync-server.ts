@@ -200,6 +200,7 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
     // the per-socket connId, which changes on every reconnect.
     throw new Error('createSyncServer: `authorize` requires an `authenticate` hook');
   }
+  const maxMessageBytes = options.maxMessageBytes ?? DEFAULT_MAX_MESSAGE_BYTES;
   const hub = new SyncHub({
     authority: options.authority,
     backend:
@@ -213,6 +214,7 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
     canRead: options.canRead,
     canReadOwnerId: options.canReadOwnerId,
     resolveAudience: options.resolveAudience,
+    maxMessageBytes,
     maxJsonDepth: options.maxJsonDepth ?? DEFAULT_MAX_JSON_DEPTH,
     presenceThrottleMs: options.presenceThrottleMs ?? DEFAULT_PRESENCE_THROTTLE_MS,
     maxPresenceLanes: options.maxPresenceLanes,
@@ -221,7 +223,6 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
     opBurst,
     roomIdleTimeoutMs: options.roomIdleTimeoutMs,
   });
-  const maxMessageBytes = options.maxMessageBytes ?? DEFAULT_MAX_MESSAGE_BYTES;
   // A browser fails the handshake unless one offered subprotocol is selected, so select the
   // sync subprotocol when offered, otherwise the first non-bearer one (ws's default choice).
   // The bearer entry carries the token and is never echoed back.

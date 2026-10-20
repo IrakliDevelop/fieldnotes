@@ -4017,6 +4017,27 @@ describe('element op batches', () => {
     ]);
   });
 
+  it.each([
+    ['maxMessageBytes below a full batch frame', { maxMessageBytes: 512 * 1024 }],
+    ['opBurst below a full batch', { opBurst: 500 }],
+    ['maxJsonDepth below the batch frame depth', { maxJsonDepth: 16 }],
+  ])('omits opBatching from the capabilities reply with %s', async (_name, options) => {
+    const hub = new SyncHub(options);
+    const conn = makeConn('A', 'R');
+    hub.addConnection(conn);
+    await hub.handleMessage('A', envelope('A', { kind: 'capabilities', capabilities: batching }));
+    expect(frames(conn)).toEqual([
+      { from: 'hub', op: { kind: 'capabilities', capabilities: createCurrentCapabilities([]) } },
+    ]);
+  });
+
+  it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])(
+    'rejects maxMessageBytes %s',
+    (maxMessageBytes) => {
+      expect(() => new SyncHub({ maxMessageBytes })).toThrow(RangeError);
+    },
+  );
+
   it('relays accepted ops in order and corrects a stale middle op only to the sender', async () => {
     const backend = new MemoryHubBackend();
     const hub = new SyncHub({ backend });
