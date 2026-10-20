@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach, type Mock } from 'vitest';
+import { describe, it, expect, expectTypeOf, vi, afterEach, type Mock } from 'vitest';
 import { mount, enableAutoUnmount } from '@vue/test-utils';
 import {
   KeepAlive,
@@ -10,10 +10,16 @@ import {
   provide,
   reactive,
   ref,
+  type ExtractPublicPropTypes,
   type VNode,
 } from 'vue';
 import { renderToString } from 'vue/server-renderer';
-import { FieldNotesCanvas } from './field-notes-canvas';
+import type { fieldNotesCanvasProps } from './field-notes-canvas';
+import {
+  FieldNotesCanvas,
+  type FieldNotesCanvasProps,
+  type FieldNotesCanvasRef,
+} from './field-notes-canvas';
 import { ViewportKey } from './context';
 import { useViewport } from './composables/use-viewport';
 import { createTestViewport, destroyTestViewports } from './test-utils/create-test-viewport';
@@ -44,7 +50,14 @@ function mountWithErrorHandler(render: () => VNode) {
 
 describe('FieldNotesCanvas', () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
+  });
+
+  it('declares runtime props matching FieldNotesCanvasProps', () => {
+    expectTypeOf<ExtractPublicPropTypes<typeof fieldNotesCanvasProps>>().branded.toEqualTypeOf<
+      Readonly<FieldNotesCanvasProps>
+    >();
   });
 
   it('creates a Viewport with a canvas inside the root div', () => {
@@ -89,7 +102,7 @@ describe('FieldNotesCanvas', () => {
   });
 
   it('exposes the viewport through a template ref', async () => {
-    const canvas = ref<{ viewport: Viewport | null } | null>(null);
+    const canvas = ref<FieldNotesCanvasRef | null>(null);
     const onReady = vi.fn<(viewport: Viewport) => void>();
     mount(() => h(FieldNotesCanvas, { ref: canvas, onReady }));
     await nextTick();

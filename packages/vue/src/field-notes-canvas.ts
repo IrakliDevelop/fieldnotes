@@ -45,6 +45,11 @@ export interface FieldNotesCanvasProps {
   onToolChange?: (name: string) => void;
 }
 
+/** What a template ref on `<FieldNotesCanvas>` exposes. */
+export interface FieldNotesCanvasRef {
+  viewport: Viewport | null;
+}
+
 // Provides the viewport in its own setup so slot content only renders once it exists.
 const ViewportProvider = defineComponent({
   props: { viewport: { type: Object as PropType<Viewport>, required: true } },
@@ -54,22 +59,25 @@ const ViewportProvider = defineComponent({
   },
 });
 
+// Exported for the props/interface parity check in the test; not public API.
+export const fieldNotesCanvasProps = {
+  options: Object as PropType<ViewportOptions>,
+  tools: [Array, String] as PropType<Tool[] | 'default'>,
+  initialData: [Object, String] as PropType<ImportableCanvasState | string>,
+  changeDebounceMs: { type: Number, default: 250 },
+  defaultTool: String,
+  tool: String,
+  // Vue casts an absent Boolean prop to false; undefined keeps the core flag untouched.
+  snapToGrid: { type: Boolean, default: undefined },
+  onReady: Function as PropType<(viewport: Viewport) => void>,
+  onChange: Function as PropType<(state: CanvasState) => void>,
+  onToolChange: Function as PropType<(name: string) => void>,
+} as const;
+
 /** Mounts a Field Notes Viewport; the default slot renders inside it once the viewport exists. */
 export const FieldNotesCanvas = defineComponent({
   name: 'FieldNotesCanvas',
-  props: {
-    options: Object as PropType<ViewportOptions>,
-    tools: [Array, String] as PropType<Tool[] | 'default'>,
-    initialData: [Object, String] as PropType<ImportableCanvasState | string>,
-    changeDebounceMs: { type: Number, default: 250 },
-    defaultTool: String,
-    tool: String,
-    // Vue casts an absent Boolean prop to false; undefined keeps the core flag untouched.
-    snapToGrid: { type: Boolean, default: undefined },
-    onReady: Function as PropType<(viewport: Viewport) => void>,
-    onChange: Function as PropType<(state: CanvasState) => void>,
-    onToolChange: Function as PropType<(name: string) => void>,
-  },
+  props: fieldNotesCanvasProps,
   emits: { 'update:tool': (_name: string) => true },
   setup(props, { slots, emit, expose }) {
     const root = shallowRef<HTMLDivElement | null>(null);
