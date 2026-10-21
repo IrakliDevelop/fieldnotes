@@ -11,6 +11,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 - The site moved to the Pages root and the playground to `/playground/`. Old `?scene=` links
   forward. There is no package release besides core 0.97.0.
 
+### Sync server 0.29.1
+
+**Fixed**
+
+- A committed authority change now reaches other peers at once. The outbox publisher ignored a
+  commit's wake while a publish run or its 1 s idle poll was pending, so other clients saw the
+  change up to a second late.
+
 ### Core 0.97.0 — selection colour (A2)
 
 **Added**

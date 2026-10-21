@@ -124,6 +124,98 @@ describe('global authority publisher', () => {
     }
   });
 
+  it('publishes a commit wake at once instead of waiting for the idle poll', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const publish = vi.fn(async (_payload: string) => undefined);
+    const markPublished = vi.fn(async () => undefined);
+    const claimPublications = vi
+      .fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([claim])
+      .mockResolvedValue([]);
+    const driver = { claimPublications, markPublished } as unknown as AuthorityDriver;
+    const publisher = new AuthorityPublisher(
+      driver,
+      { publish, subscribe: () => () => undefined },
+      'worker',
+    );
+    try {
+      await vi.advanceTimersByTimeAsync(0);
+      expect(claimPublications).toHaveBeenCalledTimes(1);
+      expect(vi.getTimerCount()).toBe(1);
+      publisher.wake();
+      await vi.advanceTimersByTimeAsync(10);
+      expect(publish).toHaveBeenCalledTimes(1);
+      expect(publish.mock.calls[0]?.[0]).toContain('private-position');
+      expect(claimPublications).toHaveBeenCalledTimes(2);
+    } finally {
+      publisher.close();
+      vi.useRealTimers();
+    }
+  });
+
+  it('publishes a wake that arrives during a run without waiting for the idle poll', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    let finishClaim: ((claims: readonly AuthorityPublicationClaim[]) => void) | undefined;
+    const firstClaim = new Promise<readonly AuthorityPublicationClaim[]>((resolve) => {
+      finishClaim = resolve;
+    });
+    const publish = vi.fn(async (_payload: string) => undefined);
+    const markPublished = vi.fn(async () => undefined);
+    const claimPublications = vi
+      .fn()
+      .mockReturnValueOnce(firstClaim)
+      .mockResolvedValueOnce([claim])
+      .mockResolvedValue([]);
+    const driver = { claimPublications, markPublished } as unknown as AuthorityDriver;
+    const publisher = new AuthorityPublisher(
+      driver,
+      { publish, subscribe: () => () => undefined },
+      'worker',
+    );
+    try {
+      await vi.advanceTimersByTimeAsync(0);
+      expect(claimPublications).toHaveBeenCalledTimes(1);
+      publisher.wake();
+      finishClaim?.([]);
+      await vi.advanceTimersByTimeAsync(10);
+      expect(claimPublications).toHaveBeenCalledTimes(2);
+      expect(publish).toHaveBeenCalledTimes(1);
+      expect(publish.mock.calls[0]?.[0]).toContain('private-position');
+    } finally {
+      publisher.close();
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps a wake during retry backoff waiting for the backoff delay', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const publish = vi.fn().mockRejectedValueOnce(new Error('down')).mockResolvedValue(undefined);
+    const markPublished = vi.fn(async () => undefined);
+    const claimPublications = vi.fn().mockResolvedValue([claim]);
+    const driver = { claimPublications, markPublished } as unknown as AuthorityDriver;
+    const publisher = new AuthorityPublisher(
+      driver,
+      { publish, subscribe: () => () => undefined },
+      'worker',
+    );
+    try {
+      await vi.advanceTimersByTimeAsync(0);
+      expect(claimPublications).toHaveBeenCalledTimes(1);
+      expect(vi.getTimerCount()).toBe(1);
+      publisher.wake();
+      await vi.advanceTimersByTimeAsync(10);
+      expect(claimPublications).toHaveBeenCalledTimes(1);
+      expect(publish).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(100);
+      expect(claimPublications).toHaveBeenCalledTimes(2);
+      expect(markPublished).toHaveBeenCalledTimes(1);
+    } finally {
+      publisher.close();
+      vi.useRealTimers();
+    }
+  });
+
   it('retains its single worker until an ignored-abort claim settles after shutdown', async () => {
     let finishClaim: ((claims: readonly AuthorityPublicationClaim[]) => void) | undefined;
     const claimPublications = vi.fn(
