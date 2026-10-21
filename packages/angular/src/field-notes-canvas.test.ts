@@ -241,17 +241,7 @@ describe('FieldNotesCanvas', () => {
     expect(mounted(viewport).toolManager.activeTool?.name).toBe('select');
   });
 
-  it('a tool input change switches the active tool', async () => {
-    const { fixture, host, viewport } = await mount({
-      tools: [new HandTool(), new SelectTool()],
-      tool: 'select',
-    });
-    host.tool.set('hand');
-    await fixture.whenStable();
-    expect(mounted(viewport).toolManager.activeTool?.name).toBe('hand');
-  });
-
-  it('a parent-driven tool change emits no toolChange', async () => {
+  it('a tool input change switches the active tool and emits no toolChange', async () => {
     const { fixture, host, viewport } = await mount({
       tools: [new HandTool(), new SelectTool()],
       tool: 'select',
@@ -336,6 +326,29 @@ describe('FieldNotesCanvas', () => {
     expect(handleError).toHaveBeenCalledWith(failure);
     expect(destroy).not.toHaveBeenCalled();
     expect(canvasOf(fixture).viewport()).toBe(mounted(viewport));
+  });
+
+  it('a mount failure after ready reaches ErrorHandler and resets viewport to null', async () => {
+    const { handleError, testModule } = errorHandlerSpy();
+    const destroy = vi.spyOn(Viewport.prototype, 'destroy');
+    const failure = new Error('activate failed');
+    const boom: Tool = {
+      name: 'boom',
+      onPointerDown: () => undefined,
+      onPointerMove: () => undefined,
+      onPointerUp: () => undefined,
+      onActivate: () => {
+        throw failure;
+      },
+    };
+    const { fixture, host } = await mount(
+      { tool: 'boom', onReady: (vp) => vp.toolManager.register(boom) },
+      testModule,
+    );
+    expect(host.readies).toHaveLength(1);
+    expect(handleError).toHaveBeenCalledWith(failure);
+    expect(destroy).toHaveBeenCalledTimes(1);
+    expect(canvasOf(fixture).viewport()).toBeNull();
   });
 
   it('invalid initialData reaches ErrorHandler and leaves viewport null', async () => {

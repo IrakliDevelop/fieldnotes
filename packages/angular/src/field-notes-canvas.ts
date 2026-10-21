@@ -86,9 +86,15 @@ export class FieldNotesCanvas implements OnDestroy {
         onChange: (state: CanvasState) => zone.run(() => this.stateChange.emit(state)),
         onToolChange: (name: string) => zone.run(() => this.tool.set(name)),
       };
-      this.mounted = zone.runOutsideAngular(() =>
-        mountViewport(this.container().nativeElement, opts),
-      );
+      try {
+        this.mounted = zone.runOutsideAngular(() =>
+          mountViewport(this.container().nativeElement, opts),
+        );
+      } catch (error) {
+        // A throw after onReady (a tool's onActivate) leaves the signal on a destroyed viewport.
+        this.current.set(null);
+        throw error;
+      }
     });
 
     effect(() => {
