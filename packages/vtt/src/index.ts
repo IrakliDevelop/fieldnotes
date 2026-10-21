@@ -110,6 +110,7 @@ export {
   isMovementPresence,
   toMovementPresence,
   MOVEMENT_PRESENCE_KIND,
+  MOVEMENT_PRESENCE_MAX_BYTES,
 } from './movement/remote-movement-overlay';
 export type { MovementPresence } from './movement/remote-movement-overlay';
 export type {
