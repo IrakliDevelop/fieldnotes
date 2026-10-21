@@ -2,23 +2,24 @@
 
 ## Workspace ownership
 
-| Path                                               | Responsibility                                                  | Primary verification                                     |
-| -------------------------------------------------- | --------------------------------------------------------------- | -------------------------------------------------------- |
-| `packages/core` (`@fieldnotes/core`)               | Framework-free canvas engine, public model, browser interaction | core tests/build; e2e for browser behavior               |
-| `packages/vtt` (`@fieldnotes/vtt`)                 | Tabletop element adapters, tools, fog, and domain rendering     | vtt tests/build; core e2e for cross-surface behavior     |
-| `packages/react` (`@fieldnotes/react`)             | Thin React lifecycle, context, and components over core         | react tests/build; core build when consumed API changes  |
-| `packages/vue` (`@fieldnotes/vue`)                 | Thin Vue lifecycle, injection, and components over core         | vue tests/build; core build when consumed API changes    |
-| `packages/svelte` (`@fieldnotes/svelte`)           | Thin Svelte lifecycle, context, and components over core        | svelte tests/build; core build when consumed API changes |
-| `packages/sync` (`@fieldnotes/sync`)               | Transport-neutral client, wire protocol, browser transports     | sync tests/build; protocol compatibility tests           |
-| `packages/sync-server` (`@fieldnotes/sync-server`) | Authoritative relay, auth, authorization, heartbeat             | server tests/build; sync tests for shared contracts      |
-| `packages/sync-redis` (`@fieldnotes/sync-redis`)   | Redis persistence and cross-instance fan-out                    | redis tests/build; integration environment when required |
-| `demo`                                             | Manual vanilla playground                                       | demo build and focused smoke test                        |
-| `playground`                                       | Showcase app at `/playground/`                                  | playground e2e                                           |
-| `examples/react-app`                               | React integration example                                       | example build                                            |
-| `examples/live-play`                               | Collaboration reference app                                     | example tests/build                                      |
-| `website`                                          | Astro site at the Pages root                                    | website test/build, website e2e, design ratchet          |
+| Path                                               | Responsibility                                                  | Primary verification                                      |
+| -------------------------------------------------- | --------------------------------------------------------------- | --------------------------------------------------------- |
+| `packages/core` (`@fieldnotes/core`)               | Framework-free canvas engine, public model, browser interaction | core tests/build; e2e for browser behavior                |
+| `packages/vtt` (`@fieldnotes/vtt`)                 | Tabletop element adapters, tools, fog, and domain rendering     | vtt tests/build; core e2e for cross-surface behavior      |
+| `packages/react` (`@fieldnotes/react`)             | Thin React lifecycle, context, and components over core         | react tests/build; core build when consumed API changes   |
+| `packages/vue` (`@fieldnotes/vue`)                 | Thin Vue lifecycle, injection, and components over core         | vue tests/build; core build when consumed API changes     |
+| `packages/svelte` (`@fieldnotes/svelte`)           | Thin Svelte lifecycle, context, and components over core        | svelte tests/build; core build when consumed API changes  |
+| `packages/angular` (`@fieldnotes/angular`)         | Thin Angular lifecycle, injection, and components over core     | angular tests/build; core build when consumed API changes |
+| `packages/sync` (`@fieldnotes/sync`)               | Transport-neutral client, wire protocol, browser transports     | sync tests/build; protocol compatibility tests            |
+| `packages/sync-server` (`@fieldnotes/sync-server`) | Authoritative relay, auth, authorization, heartbeat             | server tests/build; sync tests for shared contracts       |
+| `packages/sync-redis` (`@fieldnotes/sync-redis`)   | Redis persistence and cross-instance fan-out                    | redis tests/build; integration environment when required  |
+| `demo`                                             | Manual vanilla playground                                       | demo build and focused smoke test                         |
+| `playground`                                       | Showcase app at `/playground/`                                  | playground e2e                                            |
+| `examples/react-app`                               | React integration example                                       | example build                                             |
+| `examples/live-play`                               | Collaboration reference app                                     | example tests/build                                       |
+| `website`                                          | Astro site at the Pages root                                    | website test/build, website e2e, design ratchet           |
 
-Dependencies flow from wrappers and adapters toward contracts: React, Vue, Svelte and VTT depend on
+Dependencies flow from wrappers and adapters toward contracts: React, Vue, Svelte, Angular and VTT depend on
 core; server depends on sync; Redis depends on sync and implements server integration contracts.
 Generic sync packages do not depend on VTT at runtime. VTT supplies domain behavior through its
 `/sync`, `/server`, and `/redis` plugin subpaths; `@fieldnotes/sync` retains structural v3 fog

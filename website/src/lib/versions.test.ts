@@ -32,6 +32,7 @@ describe('getInstallableVersions', () => {
       '@fieldnotes/react',
       '@fieldnotes/vue',
       '@fieldnotes/svelte',
+      '@fieldnotes/angular',
       '@fieldnotes/sync',
       '@fieldnotes/sync-server',
       '@fieldnotes/sync-redis',

@@ -18,7 +18,7 @@ describe('getFacts', () => {
       { term: 'Licence', detail: 'MIT. No licence key, no watermark.' },
       {
         term: 'Framework',
-        detail: 'None needed. React, Vue and Svelte bindings if you want them.',
+        detail: 'None needed. React, Vue, Svelte and Angular bindings if you want them.',
         href: '/docs/using-react/',
       },
       {

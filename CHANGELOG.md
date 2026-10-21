@@ -67,6 +67,38 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 - In PNG export, label size depends on the exporting screen's pixel ratio.
 - Peer floor `@fieldnotes/core` raised to `>=0.99.0`.
 
+### Tooling
+
+- CI and local development now need Node 22.22.3+, 24.15+ or 26+, the versions Angular 22's tools
+  accept (`engines.node`); Node 20 is end-of-life. Published packages declare no `engines`, so consumers are unaffected.
+
+### Angular 0.1.0 (new)
+
+**Added**
+
+- `@fieldnotes/angular`, standalone Angular bindings at parity with `@fieldnotes/vue` 0.1:
+  `FieldNotesCanvas` (`<fn-canvas>`: `[(tool)]`, `ready` and `stateChange` outputs, a public
+  `viewport` signal), `CanvasElement` (`<fn-canvas-element>`, host-owned and transient), `Minimap`
+  (`<fn-minimap>`), the `FIELDNOTES_VIEWPORT` injection token, and 12 signal helpers with the
+  React hook names, `use` replaced by `inject`: `injectViewport`, `injectCamera`, `injectElements`,
+  `injectSelection`, `injectSelectionStyle`, `injectSelectionStyleDetails`, `injectSelectionOps`,
+  `injectHistory`, `injectLayers`, `injectActiveTool`, `injectToolOptions` and
+  `injectElementRects`. Result objects hold signals and plain actions, typed as the exported
+  `InjectHistoryResult`, `InjectLayersResult` and `InjectSelectionOpsResult`.
+- Requires `@angular/core >=20.0.0 <23.0.0` and `@fieldnotes/core >=0.98.0 <1.0.0`. Works in
+  zoneless and zone.js apps; the canvas runs outside the Angular zone. The canvas mounts only in
+  the browser, so server rendering emits an empty container.
+- Differences from Vue:
+  - The state output is `stateChange`, because `(change)` would also receive the native bubbling
+    `change` event.
+  - `toolChange` fires for switches made inside the canvas, not for a value set through the `tool`
+    binding.
+  - `tools` registers new tools only when it receives a new array reference.
+  - Mount errors (such as invalid `initialData`) go to Angular's `ErrorHandler` and leave
+    `viewport` `null`, and a throwing `ready` listener does not destroy the viewport.
+  - Projected content renders before the viewport exists: the helpers hold neutral values until
+    mount, and their actions throw if called before it.
+
 ### Core 0.98.0 — shared wrapper lifecycle (A12.1)
 
 **Added**

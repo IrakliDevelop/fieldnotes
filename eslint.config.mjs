@@ -15,6 +15,10 @@ export default tseslint.config(
     },
   },
   {
+    files: ['packages/angular/src/**/*.ts'],
+    rules: { '@typescript-eslint/no-extraneous-class': ['error', { allowWithDecorator: true }] },
+  },
+  {
     ignores: ['**/dist/**', '**/node_modules/**', '**/*.js', '**/*.mjs'],
   },
 );
