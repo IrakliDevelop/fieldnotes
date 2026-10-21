@@ -156,7 +156,6 @@ describe('MovementTracker', () => {
           [
             { x: 20, y: 20 },
             { x: 60, y: 60 },
-            { x: 60, y: 60 },
             { x: 100, y: 100 },
           ],
         ],
@@ -410,6 +409,94 @@ describe('MovementTracker', () => {
     ]);
 
     expect(record(a)).toMatchObject({ layerId: layer.id, data: { feet: 10 } });
+  });
+
+  it('reset moves the record to the target layer and re-locks it', () => {
+    const { vp, tracker, token, gesture, record, track } = setup();
+    const a = token(0, 0);
+    track(a);
+    gesture([
+      [25, 25],
+      [65, 25],
+    ]);
+    const layer = vp.layerManager.createLayer('Tokens');
+    vp.store.update(a, { layerId: layer.id });
+    vp.store.update(`vtt-movement:${a}`, { locked: false }, { origin: 'remote' });
+
+    tracker.reset(a);
+
+    expect(record(a)).toMatchObject({ layerId: layer.id, locked: true, data: { feet: 0 } });
+  });
+
+  it('a drag after a nudge starts a new trail run', () => {
+    const { vp, select, token, gesture, record, track } = setup();
+    const a = token(0, 0);
+    track(a);
+    gesture([
+      [25, 25],
+      [65, 25],
+    ]);
+    vp.transaction(() => select.nudgeSelection(40, 0, vp.toolContext));
+
+    gesture([
+      [105, 25],
+      [145, 25],
+    ]);
+
+    expect(record(a)).toMatchObject({
+      data: {
+        feet: 10,
+        trail: [
+          [
+            { x: 20, y: 20 },
+            { x: 60, y: 20 },
+          ],
+          [
+            { x: 100, y: 20 },
+            { x: 140, y: 20 },
+          ],
+        ],
+      },
+    });
+  });
+
+  describe('visibility survives history', () => {
+    function hiddenAfterTwoDrags() {
+      const env = setup();
+      const a = env.token(0, 0);
+      env.track(a);
+      env.gesture([
+        [25, 25],
+        [65, 25],
+      ]);
+      env.gesture([
+        [65, 25],
+        [105, 25],
+      ]);
+      env.tracker.setVisibility(a, 'dm');
+      return { ...env, a };
+    }
+
+    it('undo restoring an older record keeps the configured visibility', async () => {
+      const { vp, a, record } = hiddenAfterTwoDrags();
+
+      vp.undo();
+      await Promise.resolve();
+
+      expect(record(a)).toMatchObject({ data: { feet: 5, visibility: 'dm' } });
+    });
+
+    it('redo keeps the configured visibility', async () => {
+      const { vp, a, record } = hiddenAfterTwoDrags();
+      vp.undo();
+      await Promise.resolve();
+
+      vp.redo();
+      await Promise.resolve();
+
+      expect(record(a)).toMatchObject({ data: { feet: 10, visibility: 'dm' } });
+      expect(vp.history.redoCount).toBe(0);
+    });
   });
 
   it('setVisibility rewrites the record without an undo entry', () => {

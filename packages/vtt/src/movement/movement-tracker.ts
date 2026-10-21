@@ -1,6 +1,7 @@
 import { SelectTool } from '@fieldnotes/core';
 import type {
   CanvasElement,
+  ElementChangeMeta,
   ElementStore,
   OverlayRenderer,
   Point,
@@ -67,6 +68,10 @@ interface LiveDrag {
   readonly moves: Map<string, LiveMove>;
 }
 
+function isLocal(meta: ElementChangeMeta): boolean {
+  return meta.origin === undefined || meta.origin === 'local';
+}
+
 function centerOf(el: CanvasElement, position: Point): Point {
   const size = 'size' in el ? el.size : undefined;
   return size ? { x: position.x + size.w / 2, y: position.y + size.h / 2 } : position;
@@ -121,12 +126,12 @@ export class MovementTracker {
     const { store } = host;
     this.disposers.push(
       host.toolManager.onRegister(observe),
-      store.on('add', (el) => this.notifyRecord(el)),
-      store.on('update', ({ current }) => this.notifyRecord(current)),
+      store.on('add', (el, meta) => this.recordChanged(el, meta)),
+      store.on('update', ({ current }, meta) => this.recordChanged(current, meta)),
       store.on('remove', (el, meta) => {
         this.notifyRecord(el);
         // Only the client that removed the target removes its record.
-        if (meta.origin === undefined || meta.origin === 'local') this.removeRecordOf(el.id);
+        if (isLocal(meta)) this.removeRecordOf(el.id);
       }),
       store.on('clear', () => this.notifyTracked()),
       store.on('batch', () => this.notifyTracked()),
@@ -165,15 +170,13 @@ export class MovementTracker {
     this.host.transaction(() => this.write({ ...spent, feet: 0, diagonals: 0, trail: [] }));
   }
 
-  /** Changes who may read the movement; an existing record is rewritten outside undo history. */
+  /** Rewrites who may read the movement outside history; never call it during undo/redo. */
   setVisibility(elementId: string, visibility: MovementVisibility): void {
     const tracking = this.tracked.get(elementId);
     if (tracking) this.tracked.set(elementId, { ...tracking, visibility });
     const record = this.record(elementId);
     if (!record || record.visibility === visibility) return;
-    this.host.historyRecorder.pause();
-    this.write({ ...record, visibility });
-    this.host.historyRecorder.resume();
+    this.writeUnrecorded({ ...record, visibility });
   }
 
   /** Fires with the target id whenever its record changes, locally or remotely. */
@@ -218,6 +221,8 @@ export class MovementTracker {
       const base =
         this.spent(id, tracking.epoch) ??
         createMovementRecord({ target, epoch: tracking.epoch, visibility: tracking.visibility });
+      const last = base.trail.at(-1)?.at(-1);
+      const joins = last !== undefined && last.x === move.start.x && last.y === move.start.y;
       const { feet, diagonals } = measureMove({
         path,
         grid: live.grid,
@@ -226,11 +231,13 @@ export class MovementTracker {
       });
       this.write({
         ...base,
-        layerId: target.layerId,
         visibility: tracking.visibility,
         feet,
         diagonals,
-        trail: appendTrail(base.trail, path, false),
+        // A drag continuing from the trail's end extends its run; after a jump it starts a new one.
+        trail: joins
+          ? appendTrail(base.trail, path.slice(1), false)
+          : appendTrail(base.trail, path, true),
       });
     }
   }
@@ -255,12 +262,42 @@ export class MovementTracker {
 
   private write(record: MovementRecordElement): void {
     const { store } = this.host;
-    const envelope = movementRecordTypeDefinition.wrap(record);
+    const layerId = store.getById(record.targetId)?.layerId ?? record.layerId;
+    const envelope = movementRecordTypeDefinition.wrap({ ...record, layerId, locked: true });
     if (store.getById(envelope.id)) {
-      store.update(envelope.id, { layerId: envelope.layerId, data: envelope.data });
+      store.update(envelope.id, { layerId, locked: true, data: envelope.data });
     } else {
       store.add(envelope);
     }
+  }
+
+  private writeUnrecorded(record: MovementRecordElement): void {
+    this.host.historyRecorder.pause();
+    try {
+      this.write(record);
+    } finally {
+      this.host.historyRecorder.resume();
+    }
+  }
+
+  /** The record with the configured visibility, when it is tracked and stored with another. */
+  private visibilityFix(targetId: string): MovementRecordElement | null {
+    const visibility = this.tracked.get(targetId)?.visibility;
+    const record = this.record(targetId);
+    if (!record || !visibility || record.visibility === visibility) return null;
+    return { ...record, visibility };
+  }
+
+  private recordChanged(el: CanvasElement, meta: ElementChangeMeta): void {
+    this.notifyRecord(el);
+    if (!el.id.startsWith(MOVEMENT_RECORD_ID_PREFIX) || !isLocal(meta)) return;
+    const targetId = el.id.slice(MOVEMENT_RECORD_ID_PREFIX.length);
+    if (!this.visibilityFix(targetId)) return;
+    // Undo/redo can restore an older visibility; fix it once history has resumed.
+    queueMicrotask(() => {
+      const fixed = this.visibilityFix(targetId);
+      if (fixed) this.writeUnrecorded(fixed);
+    });
   }
 
   // Without an open transaction this is its own undo step, after the target's removal.
