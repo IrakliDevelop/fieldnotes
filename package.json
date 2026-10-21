@@ -36,7 +36,7 @@
   },
   "packageManager": "pnpm@10.28.2",
   "engines": {
-    "node": ">=20.19"
+    "node": "^22.22.3 || ^24.15.0 || >=26.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

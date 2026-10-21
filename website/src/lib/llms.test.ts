@@ -144,7 +144,7 @@ describe('llmsTxt', () => {
   it('lists the docs twins in nav order, then the optional links', () => {
     expect(llmsTxt(PAGES, OPTS)).toBe(`# Field Notes
 
-> Field Notes is an infinite-canvas SDK for the browser: freehand pens, shapes, sticky notes, arrows and live HTML elements on one zoomable board. \`@fieldnotes/core\` is vanilla TypeScript; React, Vue and Svelte bindings, a WebSocket sync client and server, Redis persistence and tabletop elements are separate packages.
+> Field Notes is an infinite-canvas SDK for the browser: freehand pens, shapes, sticky notes, arrows and live HTML elements on one zoomable board. \`@fieldnotes/core\` is vanilla TypeScript; React, Vue, Svelte and Angular bindings, a WebSocket sync client and server, Redis persistence and tabletop elements are separate packages.
 
 ## Docs
 

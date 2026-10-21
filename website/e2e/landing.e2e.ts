@@ -28,12 +28,12 @@ test.describe('landing without JavaScript', () => {
     await expect(facts.locator('dt')).toHaveText(['Licence', 'Framework', 'Multiplayer', 'Input']);
     await expect(facts.locator('dd')).toHaveText([
       'MIT. No licence key, no watermark.',
-      'None needed. React, Vue and Svelte bindings if you want them.',
+      'None needed. React, Vue, Svelte and Angular bindings if you want them.',
       'Your own WebSocket relay, Redis optional.',
       'Mouse, touch and pen with pressure.',
     ]);
     await expect(facts.locator('dd a')).toHaveText([
-      'None needed. React, Vue and Svelte bindings if you want them.',
+      'None needed. React, Vue, Svelte and Angular bindings if you want them.',
       'Your own WebSocket relay, Redis optional.',
       'Mouse, touch and pen with pressure.',
     ]);
@@ -78,12 +78,13 @@ test.describe('landing without JavaScript', () => {
       '@fieldnotes/react',
       '@fieldnotes/vue',
       '@fieldnotes/svelte',
+      '@fieldnotes/angular',
       '@fieldnotes/sync',
       '@fieldnotes/sync-server',
       '@fieldnotes/sync-redis',
       '@fieldnotes/vtt',
     ]);
-    await expect(packages.locator('td:last-child')).toHaveText(Array(8).fill(/^\d+\.\d+\.\d+/));
+    await expect(packages.locator('td:last-child')).toHaveText(Array(9).fill(/^\d+\.\d+\.\d+/));
 
     // Below 820px the headline is not on the board, so nothing claims it can be dragged.
     const frame = page.locator('[data-hero-frame]');

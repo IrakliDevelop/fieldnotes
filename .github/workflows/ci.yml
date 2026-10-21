@@ -25,7 +25,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: 20.19
+          node-version: '22.22'
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile --ignore-scripts
@@ -38,7 +38,7 @@ jobs:
 
     strategy:
       matrix:
-        node: ['20.19', '22']
+        node: ['22.22', '24']
 
     steps:
       - uses: actions/checkout@v7
@@ -56,7 +56,7 @@ jobs:
 
       # verify:ci builds first; TypeDoc resolves sibling packages through dist.
       - name: Build API reference
-        if: matrix.node == '22'
+        if: matrix.node == '22.22'
         run: pnpm docs:api
 
       - name: Upload coverage
@@ -91,7 +91,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: '22.22'
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
@@ -113,7 +113,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: '22.22'
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile

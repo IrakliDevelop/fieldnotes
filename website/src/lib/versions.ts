@@ -8,6 +8,7 @@ export const PUBLIC_PACKAGES = [
   '@fieldnotes/react',
   '@fieldnotes/vue',
   '@fieldnotes/svelte',
+  '@fieldnotes/angular',
   '@fieldnotes/sync',
   '@fieldnotes/sync-server',
   '@fieldnotes/sync-redis',
