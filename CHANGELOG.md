@@ -8,8 +8,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ### Tooling
 
-- CI and local development now need Node 22.22.3 or later (`engines.node >=22.22.3`); Node 20 is
-  end-of-life. Published packages declare no `engines`, so consumers are unaffected.
+- CI and local development now need Node 22.22.3+, 24.15+ or 26+, the versions Angular 22's tools
+  accept (`engines.node`); Node 20 is end-of-life. Published packages declare no `engines`, so consumers are unaffected.
 
 ### Angular 0.1.0 (new)
 

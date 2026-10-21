@@ -35,7 +35,9 @@ import type { CanvasState } from '@fieldnotes/core';
   />`,
 })
 export class Board {
-  protected readonly saved = localStorage.getItem('board') ?? undefined;
+  // The canvas mounts only in the browser; guard storage too so the page also renders on a server.
+  protected readonly saved =
+    typeof localStorage === 'undefined' ? undefined : (localStorage.getItem('board') ?? undefined);
 
   protected save(state: CanvasState): void {
     localStorage.setItem('board', JSON.stringify(state));
