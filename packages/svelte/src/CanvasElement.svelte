@@ -9,12 +9,6 @@
     size?: { w: number; h: number };
     children: Snippet;
   }
-
-  /**
-   * Marks every store mutation this component makes as host-owned: external origin, so it
-   * neither creates an undo step nor is re-broadcast to the sync hub.
-   */
-  const HOST_ORIGIN = 'host';
 </script>
 
 <!--
@@ -26,6 +20,8 @@
 -->
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { attachHostElement } from '@fieldnotes/core';
+  import type { HostElementHandle } from '@fieldnotes/core';
   import { useViewport } from './context.js';
 
   const { position, size, children }: CanvasElementProps = $props();
@@ -42,77 +38,18 @@
   });
 
   let container: HTMLDivElement;
-  let elementId: string | null = null;
+  let host: HostElementHandle | undefined;
 
   onMount(() => {
-    const register = () => {
-      // Append to domLayer immediately so the children are queryable in the document
-      // before the viewport render loop fires via requestAnimationFrame.
-      viewport.domLayer.appendChild(container);
-      const { position: current, size: currentSize } = geometry();
-      return viewport.addHtmlElement(container, current, currentSize, {
-        transient: true,
-        origin: HOST_ORIGIN,
-      });
-    };
-
-    elementId = register();
-
-    // A store clear detaches every canvas-owned DOM node and forgets the content registered
-    // for it, so this component has to hand its container back afterwards. The decision is
-    // deferred to a microtask because a remote clear is followed — synchronously, by the sync
-    // client — by re-adding the transient elements: reading the store inside the event would
-    // always report this element gone and add a duplicate.
-    const handleStoreReplacement = () => {
-      const clearedId = elementId;
-      if (clearedId === null) return;
-      queueMicrotask(() => {
-        if (elementId !== clearedId) return;
-        if (viewport.store.getById(clearedId)?.type === 'html') {
-          // Survived the clear (the sync client re-adds transient elements after a remote
-          // clear): restore the container as that element's content instead of adding a second.
-          viewport.updateHtmlElement(clearedId, container);
-        } else {
-          elementId = register();
-        }
-        viewport.requestRender();
-      });
-    };
-    // `clear` covers a clear-canvas gesture and a remote clear. A wholesale state replacement
-    // (`loadState`/`loadJSON`) runs inside `suspendNotifications`, so the store coalesces its
-    // events into a single `batch` instead: the same recovery applies.
-    const unsubscribeClear = viewport.store.on('clear', handleStoreReplacement);
-    const unsubscribeBatch = viewport.store.on('batch', handleStoreReplacement);
-
-    return () => {
-      unsubscribeClear();
-      unsubscribeBatch();
-      if (elementId) {
-        viewport.store.remove(elementId, { origin: HOST_ORIGIN });
-        viewport.requestRender();
-        elementId = null;
-      }
-      // Removing the element usually detaches the container; never leave it orphaned in the layer.
-      if (container.parentNode === viewport.domLayer) container.remove();
-    };
+    const handle = attachHostElement(viewport, container, geometry());
+    host = handle;
+    return () => handle.destroy();
   });
 
-  let registered = false;
   $effect(() => {
+    // Read before the optional call so the effect tracks the geometry before the host exists.
     const next = geometry();
-    // The first run sees the geometry onMount just registered.
-    if (!registered) {
-      registered = true;
-      return;
-    }
-    if (!elementId) return;
-    const { position: nextPosition, size: nextSize } = next;
-    viewport.store.update(
-      elementId,
-      { position: nextPosition, ...(nextSize ? { size: nextSize } : {}) },
-      { origin: HOST_ORIGIN },
-    );
-    viewport.requestRender();
+    host?.setGeometry(next);
   });
 </script>
 

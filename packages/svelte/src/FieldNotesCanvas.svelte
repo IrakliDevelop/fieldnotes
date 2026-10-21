@@ -1,7 +1,12 @@
 <script module lang="ts">
   import type { Snippet } from 'svelte';
-  import type { ViewportOptions, Tool, CanvasState, ImportableCanvasState } from '@fieldnotes/core';
-  import { Viewport, createDefaultTools } from '@fieldnotes/core';
+  import type {
+    ViewportOptions,
+    Tool,
+    CanvasState,
+    ImportableCanvasState,
+    Viewport,
+  } from '@fieldnotes/core';
 
   export interface FieldNotesCanvasProps {
     /** Constructor-only: changes after mount are ignored (the canvas is stateful). */
@@ -42,6 +47,8 @@
 
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { mountViewport } from '@fieldnotes/core';
+  import type { MountedViewport } from '@fieldnotes/core';
   import ViewportProvider from './ViewportProvider.svelte';
 
   const {
@@ -63,82 +70,44 @@
   let root: HTMLDivElement;
   let viewport = $state.raw<Viewport | null>(null);
 
-  // Props are read inside callbacks, so the debounce and handlers always see the latest values.
+  let mounted: MountedViewport | undefined;
+
+  // Getters keep the destructured props live for the helper's deferred reads.
   onMount(() => {
-    const vp = new Viewport(root, options);
-
-    const activate = (fallback?: string) => {
-      const name = tool ?? defaultTool ?? fallback;
-      if (name) vp.setTool(name);
-    };
-    // An explicit `options.tools` is the host's choice; core registers it and activates select.
-    const deferDefaults = tools === undefined && options?.tools === undefined;
-    for (const t of tools === 'default' ? createDefaultTools() : (tools ?? [])) {
-      vp.toolManager.register(t);
-    }
-    if (!deferDefaults) activate(tools === 'default' ? 'select' : undefined);
-
-    try {
-      if (typeof initialData === 'string') vp.loadJSON(initialData);
-      else if (initialData) vp.loadState(initialData);
-    } catch (error) {
-      vp.destroy();
-      throw error;
-    }
-
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const emitChange = () => {
-      timer = undefined;
-      onchange?.(vp.exportState());
-    };
-    // Subscribed after initialData so the initial load is not reported as a change.
-    const unsubscribe = vp.onStateChange(() => {
-      clearTimeout(timer);
-      timer = setTimeout(emitChange, changeDebounceMs);
+    const handle = mountViewport(root, {
+      options,
+      tools,
+      initialData,
+      get tool() {
+        return tool;
+      },
+      get defaultTool() {
+        return defaultTool;
+      },
+      onReady: onready,
+      get onChange() {
+        return onchange;
+      },
+      get changeDebounceMs() {
+        return changeDebounceMs;
+      },
+      get onToolChange() {
+        return ontoolchange;
+      },
     });
-
-    try {
-      onready?.(vp);
-
-      // Hosts that register their own tools in onready keep exactly those.
-      if (deferDefaults) {
-        const registerDefaults = vp.toolManager.toolNames.length === 0;
-        if (registerDefaults) {
-          for (const t of createDefaultTools()) vp.toolManager.register(t);
-        }
-        activate(registerDefaults ? 'select' : undefined);
-      }
-    } catch (error) {
-      clearTimeout(timer);
-      unsubscribe();
-      vp.destroy();
-      throw error;
-    }
-
-    const unsubscribeTool = vp.toolManager.onChange((name) => ontoolchange?.(name));
-    viewport = vp;
+    mounted = handle;
+    viewport = handle.viewport;
 
     return () => {
-      if (timer !== undefined) {
-        clearTimeout(timer);
-        try {
-          emitChange();
-        } catch (error) {
-          // A failing host save must not leak the viewport or throw out of unmount.
-          if (typeof reportError === 'function') reportError(error);
-          else console.error('[fieldnotes] onChange failed during unmount', error);
-        }
-      }
-      unsubscribeTool();
-      unsubscribe();
-      vp.destroy();
+      handle.destroy();
+      mounted = undefined;
       viewport = null;
     };
   });
 
   $effect(() => {
     if (!viewport || tool === undefined) return;
-    if (viewport.toolManager.activeTool?.name !== tool) viewport.setTool(tool);
+    mounted?.setTool(tool);
   });
 
   $effect(() => {
@@ -148,9 +117,7 @@
 
   $effect(() => {
     if (!viewport || !Array.isArray(tools)) return;
-    for (const t of tools) {
-      if (!viewport.toolManager.getTool(t.name)) viewport.toolManager.register(t);
-    }
+    mounted?.addTools(tools);
   });
 </script>
 
