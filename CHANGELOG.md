@@ -6,6 +6,67 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### Core 0.99.0 — select drag observers
+
+**Added**
+
+- `SelectTool.addDragObserver(observer)` registers a `SelectDragObserver` and returns a function
+  that removes it. Observers get `onDragStart`, `onDragMove`, `onDragEnd`, `onDragCancel` and
+  `onDragKeyDown`. `onDragEnd` runs inside the gesture's history transaction, so its store writes
+  join the same undo step; `onDragKeyDown` sees each keydown during a drag before `SelectTool`
+  does.
+- Type `SelectDragInfo`: the moving ids, their positions at drag start, the unsnapped world
+  pointer and the pointer type.
+
+**Changed**
+
+- Escape during a select drag cancels it: the elements go back to where the drag started and no
+  undo step is recorded. Input is ignored until the pointer lifts.
+- Switching tools during a select drag ends the drag, and observers get `onDragEnd`.
+- An element whose updates in one transaction end where they started (ignoring `version` and
+  `editor`) records no undo step.
+
+### VTT 0.17.0 — movement tracking
+
+**Added**
+
+- `MovementTracker` counts select drags of the elements a host tracks. `track(id, options)`
+  starts counting against `options.epoch`, a string such as a turn id, with range `bands` and a
+  `visibility`. The tracker also has `untrack`, `reset` (one undo step), `setVisibility`,
+  `getMovement` (feet spent and feet left in the current band), `onChange`, and `onMovement` (the
+  live drag model, at most once per frame). During a tracked drag, F drops a waypoint, as does
+  holding a touch or pen pointer still for 500 ms, and Backspace removes the last one.
+- `startPlacement(id, kind)`, `cancelPlacement()` and `onPlacementEnd` let the user click a
+  destination for an element, for moves such as a teleport. A `MovementKind` with `counts: false`
+  moves without spending distance.
+- The `vtt:movement` element stores one token's movement for an epoch: hidden, locked, one per
+  tracked element, with id `vtt-movement:<id>`. A record from another epoch counts as empty.
+  `registerVttElementTypes` registers it.
+- `resolveMovementVisibility` picks `'all'` or `'dm'` for a move, always `'dm'` when
+  `readableByPlayers` is false; `getMovementVisibility` reads it from a stored or wire record, for a
+  host's `resolveAudience`.
+- Movement presence: `toMovementPresence` builds a payload of at most
+  `MOVEMENT_PRESENCE_MAX_BYTES` (3800 bytes) with kind `MOVEMENT_PRESENCE_KIND`, `isMovementPresence`
+  validates a peer's payload, and `RemoteMovementOverlay` draws peers' live drags.
+- `withMovementAuthorize(authorize, lookup)` in `@fieldnotes/vtt/server` authorizes a movement
+  record op as an edit of its target element.
+- `pathDistanceCells` takes a `startDiagonals` option, and `PathDistance` gains `diagonals`, so the
+  alternate diagonal rule carries across moves.
+- `DEFAULT_MOVEMENT_BANDS_COLORS` and `MOVEMENT_OVER_COLOR`.
+- Also exported: `movementRecordTypeDefinition`, `movementRecordId`, `MOVEMENT_RECORD_ID_PREFIX`,
+  `MOVEMENT_TRAIL_MAX_POINTS` (64 points per record), `drawMovement`, `formatMovementLabel`, and
+  the types `MovementTrackerHost`, `MovementTrackerOptions`, `MovementTrackOptions`,
+  `MovementState`, `MovementEmission`, `MovementPlacementResult`, `MovementRenderModel`,
+  `MovementCell`, `MovementPresence`, `MovementVisibility` and `MovementRecordElement`.
+
+**Changed**
+
+- Measurement labels on the path, ruler and template tools and the remote overlays keep a constant
+  screen size at any zoom.
+- Template labels use the dark pill the other measurement labels use.
+- In PNG export, label size depends on the exporting screen's pixel ratio.
+- Peer floor `@fieldnotes/core` raised to `>=0.99.0`.
+
 ### Tooling
 
 - CI and local development now need Node 22.22.3+, 24.15+ or 26+, the versions Angular 22's tools

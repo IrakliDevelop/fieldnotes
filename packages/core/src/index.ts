@@ -1,4 +1,4 @@
-export const VERSION = '0.98.0';
+export const VERSION = '0.99.0';
 
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
 export { snapPoint } from './core/snap';
@@ -313,6 +313,7 @@ export type { PencilToolOptions, StrokePreview } from './tools/pencil-tool';
 export { EraserTool } from './tools/eraser-tool';
 export type { EraserToolOptions } from './tools/eraser-tool';
 export { SelectTool } from './tools/select-tool';
+export type { SelectDragInfo, SelectDragObserver } from './tools/select-drag';
 // Selection-handle metrics, so extension adapters hit-test and draw handles
 // at the same size as core's selection overlay.
 export { HANDLE_SIZE, HANDLE_HIT_PADDING } from './tools/select-overlay';

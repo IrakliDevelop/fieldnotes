@@ -13,7 +13,8 @@
   "dependencies": {
     "@fieldnotes/core": "workspace:*",
     "@fieldnotes/sync": "workspace:*",
-    "@fieldnotes/sync-server": "workspace:*"
+    "@fieldnotes/sync-server": "workspace:*",
+    "@fieldnotes/vtt": "workspace:*"
   },
   "devDependencies": {
     "tsx": "^4.19.0",

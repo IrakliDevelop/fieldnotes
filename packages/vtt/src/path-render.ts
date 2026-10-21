@@ -1,4 +1,5 @@
 import type { Point } from '@fieldnotes/core';
+import { drawLabelPill, worldUnitsPerCssPx } from './screen-scale';
 
 function formatDistanceLabel(feet: number): string {
   return `${Math.round(feet)} ft`;
@@ -33,8 +34,6 @@ export function resolveSegmentColors(
   return out;
 }
 
-const LABEL_OFFSET_Y = 18;
-
 /** Dashed polyline with waypoint dots and a running-total label at the last point. */
 export function drawPath(
   ctx: CanvasRenderingContext2D,
@@ -45,13 +44,14 @@ export function drawPath(
   if (first === undefined) return;
   ctx.save();
   if (opts.alpha !== undefined) ctx.globalAlpha = opts.alpha;
-  ctx.lineWidth = 2;
+  const k = worldUnitsPerCssPx(ctx);
+  ctx.lineWidth = 2 * k;
   let prev = first;
   for (let i = 1; i < m.points.length; i++) {
     const next = m.points[i];
     if (next === undefined) break;
     ctx.strokeStyle = m.segmentColors[i - 1] ?? m.color;
-    ctx.setLineDash([8, 4]);
+    ctx.setLineDash([8 * k, 4 * k]);
     ctx.beginPath();
     ctx.moveTo(prev.x, prev.y);
     ctx.lineTo(next.x, next.y);
@@ -62,33 +62,9 @@ export function drawPath(
   ctx.fillStyle = m.color;
   for (const p of m.points) {
     ctx.beginPath();
-    ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+    ctx.arc(p.x, p.y, 4 * k, 0, Math.PI * 2);
     ctx.fill();
   }
-  if (m.points.length >= 2) {
-    const last = prev;
-    const label = formatDistanceLabel(m.feet);
-    ctx.font = '14px sans-serif';
-    const metrics = ctx.measureText(label);
-    const padX = 6;
-    const padY = 4;
-    const textH = 14;
-    const cx = last.x;
-    const cy = last.y - LABEL_OFFSET_Y;
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
-    ctx.beginPath();
-    ctx.roundRect(
-      cx - metrics.width / 2 - padX,
-      cy - textH / 2 - padY,
-      metrics.width + padX * 2,
-      textH + padY * 2,
-      4,
-    );
-    ctx.fill();
-    ctx.fillStyle = '#FFFFFF';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(label, cx, cy);
-  }
+  if (m.points.length >= 2) drawLabelPill(ctx, formatDistanceLabel(m.feet), prev, {});
   ctx.restore();
 }

@@ -76,6 +76,45 @@ export type {
 } from './path-tool';
 export { drawPath, resolveSegmentColors } from './path-render';
 export type { PathRenderModel } from './path-render';
+
+// Movement tracking
+export {
+  movementRecordTypeDefinition,
+  movementRecordId,
+  getMovementVisibility,
+  resolveMovementVisibility,
+  MOVEMENT_RECORD_ID_PREFIX,
+} from './movement/movement-record';
+export { MOVEMENT_TRAIL_MAX_POINTS } from './movement/movement-types';
+export { MovementTracker } from './movement/movement-tracker';
+export type {
+  MovementTrackerHost,
+  MovementTrackerOptions,
+  MovementTrackOptions,
+  MovementState,
+  MovementEmission,
+  MovementPlacementResult,
+} from './movement/movement-tracker';
+export {
+  drawMovement,
+  formatMovementLabel,
+  DEFAULT_MOVEMENT_BANDS_COLORS,
+  MOVEMENT_OVER_COLOR,
+} from './movement/movement-render';
+export type { MovementCell, MovementRenderModel } from './movement/movement-render';
+export {
+  RemoteMovementOverlay,
+  isMovementPresence,
+  toMovementPresence,
+  MOVEMENT_PRESENCE_KIND,
+  MOVEMENT_PRESENCE_MAX_BYTES,
+} from './movement/remote-movement-overlay';
+export type { MovementPresence } from './movement/remote-movement-overlay';
+export type {
+  MovementVisibility,
+  MovementKind,
+  MovementRecordElement,
+} from './movement/movement-types';
 export {
   RemotePathOverlay,
   isPathPresence,

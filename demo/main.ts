@@ -40,8 +40,18 @@ import {
   GridController,
   createGrid,
   gridElementTypeDefinition,
+  MovementTracker,
+  RemoteMovementOverlay,
+  toMovementPresence,
+  DEFAULT_MOVEMENT_BANDS_COLORS,
 } from '@fieldnotes/vtt';
-import type { MeasurePresence, PathPresence, PathEmission } from '@fieldnotes/vtt';
+import type {
+  MeasurePresence,
+  PathPresence,
+  PathEmission,
+  MovementKind,
+  MovementTrackOptions,
+} from '@fieldnotes/vtt';
 import { createSampleBoard } from './sample-board';
 
 // Register VTT element types (grid, template) before creating the viewport
@@ -1171,6 +1181,68 @@ path.onPath((emission) => {
   remotePathOverlay.apply('self', presence);
 });
 path.onCommit((emission) => pathCommits.push(emission));
+
+// Movement tracking for the selected token; exposed for e2e. Its live drag loops back like the path's.
+const movement = new MovementTracker(viewport);
+const remoteMovementOverlay = new RemoteMovementOverlay(viewport);
+(window as unknown as Record<string, unknown>).__fieldnotes_movement = movement;
+movement.onMovement((emission) => {
+  const presence = toMovementPresence(emission);
+  if (presence) remoteMovementOverlay.apply('self', presence);
+});
+const MOVEMENT_TRACKING: MovementTrackOptions = {
+  epoch: 'demo',
+  bands: [
+    { feet: 30, color: DEFAULT_MOVEMENT_BANDS_COLORS[0] },
+    { feet: 60, color: DEFAULT_MOVEMENT_BANDS_COLORS[1] },
+  ],
+  visibility: 'all',
+};
+const MISTY_STEP: MovementKind = {
+  id: 'teleport',
+  label: 'Misty Step',
+  counts: false,
+  maxFeet: 30,
+};
+const movementTrackBtn = document.getElementById('movement-track') as HTMLButtonElement | null;
+const movementResetBtn = document.getElementById('movement-reset') as HTMLButtonElement | null;
+const mistyStepBtn = document.getElementById('movement-misty-step') as HTMLButtonElement | null;
+
+function selectedToken(): string | null {
+  const ids = viewport.getSelectedIds();
+  return ids.length === 1 ? (ids[0] ?? null) : null;
+}
+
+function updateMovementButtons(): void {
+  const id = selectedToken();
+  const tracked = id !== null && movement.isTracked(id);
+  if (movementTrackBtn) {
+    movementTrackBtn.disabled = id === null;
+    movementTrackBtn.classList.toggle('active', tracked);
+    movementTrackBtn.setAttribute('aria-pressed', String(tracked));
+  }
+  if (movementResetBtn) movementResetBtn.disabled = !tracked;
+  if (mistyStepBtn) mistyStepBtn.disabled = id === null;
+}
+
+viewport.onSelectionChange(updateMovementButtons);
+updateMovementButtons();
+
+movementTrackBtn?.addEventListener('click', () => {
+  const id = selectedToken();
+  if (id === null) return;
+  if (movement.isTracked(id)) movement.untrack(id);
+  else movement.track(id, MOVEMENT_TRACKING);
+  updateMovementButtons();
+});
+movementResetBtn?.addEventListener('click', () => {
+  const id = selectedToken();
+  if (id !== null) movement.reset(id);
+});
+mistyStepBtn?.addEventListener('click', () => {
+  const id = selectedToken();
+  if (id !== null) movement.startPlacement(id, MISTY_STEP);
+});
 
 // Shared presence: a peer's awareness frames would feed this roster; exposed for e2e.
 const awarenessRoster = new PeerRoster();

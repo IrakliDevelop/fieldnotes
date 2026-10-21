@@ -14,6 +14,21 @@ import {
 } from './commands';
 import { CreateLayerCommand, RemoveLayerCommand, UpdateLayerCommand } from './layer-commands';
 
+// Every local store.update bumps version and drops editor, so neither marks a real change.
+const VOLATILE_KEYS: ReadonlySet<string> = new Set(['version', 'editor']);
+
+function jsonEqual(a: unknown, b: unknown, skip?: ReadonlySet<string>): boolean {
+  if (a === b) return true;
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const entries: [string, unknown][] = Object.entries(a).filter(([k]) => !skip?.has(k));
+  const other = new Map<string, unknown>(Object.entries(b).filter(([k]) => !skip?.has(k)));
+  return (
+    entries.length === other.size &&
+    entries.every(([k, v]) => other.has(k) && jsonEqual(v, other.get(k)))
+  );
+}
+
 export class HistoryRecorder {
   private recording = true;
   private transaction: Command[] | null = null;
@@ -180,7 +195,7 @@ export class HistoryRecorder {
     const commands: Command[] = [];
     for (const [id, previous] of this.updateSnapshots) {
       const current = this.store.getById(id);
-      if (current) {
+      if (current && !jsonEqual(previous, current, VOLATILE_KEYS)) {
         commands.push(new UpdateElementCommand(id, previous, current));
       }
     }

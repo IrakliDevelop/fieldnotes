@@ -1,14 +1,16 @@
 import { describe, it, expect } from 'vitest';
+import type { IncomingMessage } from 'http';
+import type { CanvasElement } from '@fieldnotes/core';
 import { authenticate, authorize, canRead, makeResolveAudience, DM_AUDIENCE } from './policies';
 
-const req = (query: string) => ({ url: `/${query}` }) as unknown as import('http').IncomingMessage;
+const req = (query: string) => ({ url: `/${query}` }) as unknown as IncomingMessage;
 const el = (over: Record<string, unknown> = {}) =>
   ({
     id: 'e1',
     type: 'shape',
     layerId: 'L',
     ...over,
-  }) as unknown as import('@fieldnotes/core').CanvasElement;
+  }) as unknown as CanvasElement;
 
 describe('authenticate (D1)', () => {
   it('maps ?name=&role= to { userId, role } and defaults role to player', () => {
@@ -96,6 +98,22 @@ describe('makeResolveAudience', () => {
     const resolve = makeResolveAudience('secretL');
     expect(resolve(el({ layerId: 'secretL' }))).toBe('dm');
     expect(resolve(el({ layerId: 'mapL' }))).toBeUndefined();
+  });
+  const movementRecord = (visibility: string, layerId: string) =>
+    el({
+      id: 'vtt-movement:tok',
+      type: 'extension',
+      extensionType: 'vtt:movement',
+      layerId,
+      data: { targetId: 'tok', epoch: 'e1', feet: 5, diagonals: 0, visibility, trail: [] },
+    });
+  it("tags a movement record 'dm' when its visibility is 'dm', even on the shared layer", () => {
+    expect(makeResolveAudience('secretL')(movementRecord('dm', 'mapL'))).toBe('dm');
+    expect(makeResolveAudience(null)(movementRecord('dm', 'mapL'))).toBe('dm');
+  });
+  it("leaves an 'all' movement record shared unless it sits on the secret layer", () => {
+    expect(makeResolveAudience('secretL')(movementRecord('all', 'mapL'))).toBeUndefined();
+    expect(makeResolveAudience('secretL')(movementRecord('all', 'secretL'))).toBe('dm');
   });
   it('null secret layer → everything shared', () => {
     expect(makeResolveAudience(null)(el({ layerId: 'secretL' }))).toBeUndefined();
