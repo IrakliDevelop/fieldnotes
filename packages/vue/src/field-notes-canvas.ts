@@ -125,12 +125,13 @@ export const FieldNotesCanvas = defineComponent({
     onBeforeUnmount(() => {
       if (!mounted) return;
       mounted.destroy();
+      mounted = undefined;
       viewport.value = null;
     });
 
-    watch([viewport, () => props.tool], ([vp, tool]) => {
-      if (!vp || tool === undefined) return;
-      mounted?.setTool(tool);
+    watch([viewport, () => props.tool], ([, tool]) => {
+      if (!mounted || tool === undefined) return;
+      mounted.setTool(tool);
     });
 
     watch([viewport, () => props.snapToGrid], ([vp, snapToGrid]) => {
@@ -141,8 +142,8 @@ export const FieldNotesCanvas = defineComponent({
     watch(
       () => props.tools,
       (tools) => {
-        if (!viewport.value || !Array.isArray(tools)) return;
-        mounted?.addTools(tools.map(toRaw));
+        if (!mounted || !Array.isArray(tools)) return;
+        mounted.addTools(tools.map(toRaw));
       },
       { deep: 1 },
     );

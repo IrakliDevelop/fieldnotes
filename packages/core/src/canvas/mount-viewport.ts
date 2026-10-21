@@ -18,6 +18,7 @@ export interface MountViewportOptions {
   initialData?: ImportableCanvasState | string;
   /** Active tool at mount; wins over `defaultTool`. */
   tool?: string;
+  /** Uncontrolled initial tool; ignored when `tool` is set. */
   defaultTool?: string;
   /** Called once the viewport exists; a throw destroys the viewport and is rethrown. */
   onReady?: (viewport: Viewport) => void;

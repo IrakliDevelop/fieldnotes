@@ -14,10 +14,7 @@ export interface HostElementHandle {
   destroy(): void;
 }
 
-/**
- * Marks every store mutation this helper makes as host-owned: external origin, so it
- * neither creates an undo step nor is re-broadcast to the sync hub.
- */
+// External origin: host mutations are neither undo steps nor re-broadcast to the sync hub.
 const HOST_ORIGIN = 'host';
 
 // Plain copy, so the store never holds a framework proxy.
@@ -61,8 +58,7 @@ export function attachHostElement(
     queueMicrotask(() => {
       if (elementId !== clearedId) return;
       if (viewport.store.getById(clearedId)?.type === 'html') {
-        // Survived the clear (the sync client re-adds transient elements after a remote
-        // clear): restore the container as that element's content instead of adding a second.
+        // Re-added by the sync client: restore its content instead of adding a second.
         viewport.updateHtmlElement(clearedId, container);
       } else {
         elementId = register();

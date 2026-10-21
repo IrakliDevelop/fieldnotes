@@ -234,8 +234,8 @@ describe('core public surface', () => {
   it('exports mountViewport for framework bindings', () => {
     expect(typeof FN.mountViewport).toBe('function');
     const opts: FN.MountViewportOptions = { tools: 'default', changeDebounceMs: 0 };
-    const mounted: FN.MountedViewport | null = null;
-    expect([opts.tools, opts.changeDebounceMs, mounted]).toEqual(['default', 0, null]);
+    const members: (keyof FN.MountedViewport)[] = ['viewport', 'setTool', 'addTools', 'destroy'];
+    expect([opts.tools, opts.changeDebounceMs, members.length]).toEqual(['default', 0, 4]);
   });
 
   it('exports attachHostElement for framework bindings', () => {

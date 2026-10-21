@@ -45,9 +45,7 @@ export function CanvasElement({ position, size, children }: CanvasElementProps) 
   useEffect(() => {
     geometryRef.current = { position, size };
     hostRef.current?.setGeometry({ position, size });
-    // Primitive deps (position.x/y, size?.w/h) are intentional: the effect re-runs on VALUE change,
-    // not object identity — so inline { x, y } literals and memoized-but-unchanged objects both behave
-    // correctly (no over-firing on every parent re-render).
+    // Primitive deps: re-run on value change, not on object identity.
   }, [viewport, position.x, position.y, size?.w, size?.h]);
 
   if (!portalTarget) return null;

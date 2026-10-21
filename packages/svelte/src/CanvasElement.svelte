@@ -47,7 +47,7 @@
   });
 
   $effect(() => {
-    // Read before the optional call so the effect tracks the geometry before the host exists.
+    // Read before the optional call so tracking never depends on `host`.
     const next = geometry();
     host?.setGeometry(next);
   });

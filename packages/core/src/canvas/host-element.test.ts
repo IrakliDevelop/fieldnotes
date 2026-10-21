@@ -183,6 +183,7 @@ describe('attachHostElement', () => {
   it('destroy removes a container still parented directly in domLayer', () => {
     const { viewport, container } = setup();
     const handle = attachHostElement(viewport, container, { position: { x: 0, y: 0 } });
+    // Pinned directly in domLayer by hand to reach destroy's orphan-removal fallback.
     viewport.domLayer.appendChild(container);
     handle.destroy();
     expect(container.parentNode).toBeNull();
