@@ -6,6 +6,50 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### Core 0.98.0 — shared wrapper lifecycle (A12.1)
+
+**Added**
+
+- `mountViewport(container, opts?)` for framework bindings: constructs the `Viewport`, registers
+  `tools`, activates the starting tool, loads `initialData`, runs `onReady`, and reports state
+  through a trailing debounced `onChange`. `onChange`, `changeDebounceMs`, `onToolChange`, `tool`
+  and `defaultTool` are read from `opts` each time they are used, so a binding passes getters to
+  keep them current; `options`, `tools` and `initialData` are read once at mount. The returned
+  `MountedViewport` has `setTool`, append-only `addTools`, and `destroy()`, which flushes a pending
+  `onChange` before destroying the viewport and is a no-op when called again.
+- `attachHostElement(viewport, container, geometry)` for binding-owned elements: appends the
+  container to the DOM layer, registers it as a transient host-origin html element, and restores
+  it after a store `clear` or `batch`. The returned `HostElementHandle` has `setGeometry`, a no-op
+  when position and size equal the last values, and `destroy()`, which removes the element and its
+  container and is a no-op when called again.
+- Types `MountViewportOptions`, `MountedViewport`, `HostElementGeometry` and `HostElementHandle`.
+
+### React 0.14.2
+
+**Changed**
+
+- `FieldNotesCanvas` and `CanvasElement` run through `mountViewport` and `attachHostElement`. No
+  API change.
+- A `CanvasElement` no longer sends a redundant position update on mount: store `update`
+  listeners see one event fewer per mount, matching Vue and Svelte.
+- Peer floor `@fieldnotes/core` raised to `>=0.98.0`.
+
+### Vue 0.1.1
+
+**Changed**
+
+- `FieldNotesCanvas` and `CanvasElement` run through `mountViewport` and `attachHostElement`. No
+  API change.
+- Peer floor `@fieldnotes/core` raised to `>=0.98.0`.
+
+### Svelte 0.1.1
+
+**Changed**
+
+- `FieldNotesCanvas` and `CanvasElement` run through `mountViewport` and `attachHostElement`. No
+  API change.
+- Peer floor `@fieldnotes/core` raised to `>=0.98.0`.
+
 ### Website — new site at the Pages root (A2)
 
 - The site moved to the Pages root and the playground to `/playground/`. Old `?scene=` links

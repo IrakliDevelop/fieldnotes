@@ -1,4 +1,4 @@
-export const VERSION = '0.97.0';
+export const VERSION = '0.98.0';
 
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
 export { snapPoint } from './core/snap';
@@ -75,6 +75,10 @@ export type {
   LayersState,
   SelectionOpsState,
 } from './canvas/viewport-sources';
+export { mountViewport } from './canvas/mount-viewport';
+export type { MountViewportOptions, MountedViewport } from './canvas/mount-viewport';
+export { attachHostElement } from './canvas/host-element';
+export type { HostElementGeometry, HostElementHandle } from './canvas/host-element';
 export type {
   ViewportPlugin,
   PluginConfigureContext,

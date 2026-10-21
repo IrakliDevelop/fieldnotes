@@ -1,6 +1,6 @@
 {
   "name": "@fieldnotes/vue",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Vue wrapper for Field Notes canvas SDK",
   "type": "module",
   "sideEffects": false,
@@ -48,7 +48,7 @@
     "fieldnotes"
   ],
   "peerDependencies": {
-    "@fieldnotes/core": ">=0.96.0 <1.0.0",
+    "@fieldnotes/core": ">=0.98.0 <1.0.0",
     "vue": ">=3.5 <4"
   },
   "devDependencies": {

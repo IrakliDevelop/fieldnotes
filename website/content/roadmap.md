@@ -27,6 +27,7 @@
 - I'm making starter templates on StackBlitz and CodeSandbox for a vanilla board and a React board.
 - I'm bringing the React bindings up to the core API: hooks and props for autosave, export, camera control, shortcuts and presence.
 - I'm adding parent and child elements with clipping, which frames need.
+- I'm adding Angular bindings with the same canvas, CanvasElement and Minimap components and the camera, selection, layer and history helpers that the Vue and Svelte bindings have.
 
 ## Not built yet
 

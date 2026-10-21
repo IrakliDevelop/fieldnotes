@@ -11,7 +11,7 @@ import type {
 
 describe('core public surface', () => {
   it('exports the current version', () => {
-    expect(FN.VERSION).toBe('0.97.0');
+    expect(FN.VERSION).toBe('0.98.0');
   });
 
   it('exports the camera view, animator, and focus presence surface', () => {
@@ -231,6 +231,24 @@ describe('core public surface', () => {
     ]).toEqual([1, false, '', null, 1]);
   });
 
+  it('exports mountViewport for framework bindings', () => {
+    expect(typeof FN.mountViewport).toBe('function');
+    const opts: FN.MountViewportOptions = { tools: 'default', changeDebounceMs: 0 };
+    const members: (keyof FN.MountedViewport)[] = ['viewport', 'setTool', 'addTools', 'destroy'];
+    expect([opts.tools, opts.changeDebounceMs, members.length]).toEqual(['default', 0, 4]);
+  });
+
+  it('exports attachHostElement for framework bindings', () => {
+    expect(typeof FN.attachHostElement).toBe('function');
+    const geometry: FN.HostElementGeometry = { position: { x: 1, y: 2 }, size: { w: 3, h: 4 } };
+    const members: (keyof FN.HostElementHandle)[] = ['setGeometry', 'destroy'];
+    expect([geometry.position, geometry.size, members.length]).toEqual([
+      { x: 1, y: 2 },
+      { w: 3, h: 4 },
+      2,
+    ]);
+  });
+
   it('exports the live stroke preview surface', () => {
     expect(FN.RemoteStrokeOverlay).toBeTypeOf('function');
     expect(FN.isStrokePreviewPresence).toBeTypeOf('function');
@@ -247,9 +265,9 @@ describe('core public surface', () => {
     expect([presence.kind, options.staleMs, host]).toEqual(['stroke', 1, null]);
   });
 
-  it('reports VERSION 0.97.0', async () => {
+  it('reports VERSION 0.98.0', async () => {
     const { VERSION } = await import('./index');
-    expect(VERSION).toBe('0.97.0');
+    expect(VERSION).toBe('0.98.0');
   });
 
   it('does not re-export VTT-domain symbols (moved to @fieldnotes/vtt)', () => {

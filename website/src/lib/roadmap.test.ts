@@ -66,7 +66,7 @@ describe('parseRoadmap', () => {
       'Elbow arrows that route around shapes',
       'Text inside shapes',
     ]);
-    expect(roadmap.next).toHaveLength(3);
+    expect(roadmap.next).toHaveLength(4);
     expect(roadmap.built.length).toBeGreaterThan(0);
   });
 });
