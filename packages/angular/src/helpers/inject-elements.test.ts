@@ -107,4 +107,15 @@ describe('injectElements', () => {
     viewport.store.update(note.id, { position: { x: 99, y: 0 } });
     expect(result()).toEqual([0]);
   });
+
+  it('keeps the same [] when a type signal switches between two empty types', async () => {
+    const type = signal<ElementType>('note');
+    const { result, fixture } = await mountHelper(() => injectElements(type));
+    const before = result();
+    expect(before).toEqual([]);
+
+    type.set('shape');
+    await fixture.whenStable();
+    expect(result()).toBe(before);
+  });
 });

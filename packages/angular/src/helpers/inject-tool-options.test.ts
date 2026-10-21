@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { computed, signal } from '@angular/core';
 import { HandTool, PencilTool, ShapeTool } from '@fieldnotes/core';
-import type { PencilToolOptions } from '@fieldnotes/core';
+import type { PencilToolOptions, Tool } from '@fieldnotes/core';
 import { createTestViewport, destroyTestViewports } from '../test-utils/create-test-viewport';
 import { mountHelper } from '../test-utils/mount-helper';
 import { injectToolOptions } from './inject-tool-options';
@@ -114,5 +114,29 @@ describe('injectToolOptions', () => {
     name.set('shape');
     await fixture.whenStable();
     expect(options()?.['strokeWidth']).toBe(4);
+  });
+
+  it('keeps the previous options object when the new tool has shallow-equal options', async () => {
+    const sized = (name: string): Tool => ({
+      name,
+      onPointerDown: () => undefined,
+      onPointerMove: () => undefined,
+      onPointerUp: () => undefined,
+      getOptions: () => ({ size: 1 }),
+    });
+    const viewport = createTestViewport();
+    viewport.toolManager.register(sized('a'));
+    viewport.toolManager.register(sized('b'));
+    const name = signal('a');
+    const {
+      result: [options],
+      fixture,
+    } = await mountHelper(() => injectToolOptions(name), viewport);
+    const before = options();
+    expect(before).toEqual({ size: 1 });
+
+    name.set('b');
+    await fixture.whenStable();
+    expect(options()).toBe(before);
   });
 });
