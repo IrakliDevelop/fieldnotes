@@ -18,17 +18,17 @@ The `@fieldnotes/core` engine has zero framework dependencies and drops into any
 
 ## Packages
 
-| Package                                           | Description                                                                      |
-| ------------------------------------------------- | -------------------------------------------------------------------------------- |
-| [`@fieldnotes/core`](packages/core)               | Vanilla TypeScript canvas engine — zero framework deps                           |
-| [`@fieldnotes/react`](packages/react)             | React bindings — components, hooks, portal embedding                             |
-| [`@fieldnotes/vue`](packages/vue)                 | Vue 3.5+ bindings — components, composables, teleport embedding                  |
-| [`@fieldnotes/svelte`](packages/svelte)           | Svelte 5 bindings — components, store helpers, snippet embedding                 |
-| [`@fieldnotes/angular`](packages/angular)         | Angular 20+ bindings — standalone components, signal helpers, content projection |
-| [`@fieldnotes/vtt`](packages/vtt)                 | VTT domain package — fog of war, grids, templates, measurement                   |
-| [`@fieldnotes/sync`](packages/sync)               | Real-time sync client — observe/apply ops over a pluggable transport             |
-| [`@fieldnotes/sync-server`](packages/sync-server) | Authoritative WebSocket relay — rooms, auth, write-authorization                 |
-| [`@fieldnotes/sync-redis`](packages/sync-redis)   | Redis persistence + cross-instance fan-out for the relay                         |
+| Package                                           | Description                                                                           |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| [`@fieldnotes/core`](packages/core)               | Vanilla TypeScript canvas engine — zero framework deps                                |
+| [`@fieldnotes/react`](packages/react)             | React bindings — components, hooks, portal embedding                                  |
+| [`@fieldnotes/vue`](packages/vue)                 | Vue 3.5+ bindings — components, composables, teleport embedding                       |
+| [`@fieldnotes/svelte`](packages/svelte)           | Svelte 5 bindings — components, store helpers, snippet embedding                      |
+| [`@fieldnotes/angular`](packages/angular)         | Angular 20 to 22 bindings — standalone components, signal helpers, content projection |
+| [`@fieldnotes/vtt`](packages/vtt)                 | VTT domain package — fog of war, grids, templates, measurement                        |
+| [`@fieldnotes/sync`](packages/sync)               | Real-time sync client — observe/apply ops over a pluggable transport                  |
+| [`@fieldnotes/sync-server`](packages/sync-server) | Authoritative WebSocket relay — rooms, auth, write-authorization                      |
+| [`@fieldnotes/sync-redis`](packages/sync-redis)   | Redis persistence + cross-instance fan-out for the relay                              |
 
 ## Quick Start
 
@@ -116,7 +116,7 @@ Embedded React components are fully interactive and pan/zoom with the canvas. Se
 ```bash
 npm install @fieldnotes/core @fieldnotes/vue     # Vue 3.5+
 npm install @fieldnotes/core @fieldnotes/svelte  # Svelte 5
-npm install @fieldnotes/core @fieldnotes/angular  # Angular 20+
+npm install @fieldnotes/core @fieldnotes/angular # Angular 20 to 22
 ```
 
 All three mirror the React package: `FieldNotesCanvas`, `CanvasElement`, `Minimap` and the React

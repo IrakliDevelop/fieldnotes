@@ -1,6 +1,6 @@
 # @fieldnotes/angular
 
-Angular bindings for the [Field Notes](https://github.com/IrakliDevelop/fieldnotes) infinite canvas SDK. Standalone components and signal helpers that put Angular components on an infinite, pannable, zoomable canvas.
+Angular bindings for the [Field Notes](https://github.com/IrakliDevelop/fieldnotes) infinite canvas SDK. Standalone components and signal helpers that put Angular components on a Field Notes board, where they pan and zoom with the drawing.
 
 ## Install
 
@@ -11,7 +11,7 @@ npm install @fieldnotes/core @fieldnotes/angular
 Requires Angular 20 to 22 (`@angular/core >=20.0.0 <23.0.0`) and `@fieldnotes/core >=0.98.0`.
 Every component is standalone; there is no NgModule.
 
-## Quick Start
+## Quick start
 
 Full runnable example: `examples/angular` (`pnpm --filter fieldnotes-angular-example dev`)
 
@@ -111,7 +111,7 @@ export class Board {
 Keep tool instances in a module constant or a field that is set once: core holds them by
 reference, and a new array registers whatever tools in it are new.
 
-## Inputs and Outputs
+## Inputs and outputs
 
 The canvas is stateful, so some inputs are read only at mount. Changing a mount-only input
 afterwards has no effect:
@@ -150,7 +150,7 @@ registers nothing.
 - **Mount errors**: if mounting throws (for example on invalid `initialData`), the error goes to
   Angular's `ErrorHandler`, `viewport` stays `null` and the helpers keep their neutral values.
 
-## Content Before Mount
+## Content before mount
 
 Projected content renders at once, before the viewport exists, and on the server. The helpers
 return signals that hold neutral values until `<fn-canvas>` mounts, then follow the board:
@@ -174,7 +174,7 @@ Actions called before mount (`undo`, `createLayer`, `group`, the setters) throw
 `[fieldnotes] <name> called before <fn-canvas> mounted`. Wait for `ready`, or check
 `injectViewport()()` first.
 
-## Embedding Angular Components
+## Embedding Angular components
 
 Render any Angular content as a canvas element that pans, zooms, and resizes with the canvas:
 
@@ -199,14 +199,15 @@ export class Board {
 }
 ```
 
-Embedded components use a **two-mode interaction model**: by default they can be selected, dragged, and resized. **Double-click** to enter interact mode (clicks, inputs, forms work). **Escape** or click outside to exit.
+An embedded component starts out like any element: you can select, drag and resize it.
+Double-click it to use its buttons and inputs; press Escape or click outside to go back.
 
 `position` is required; `size` is optional. Omit it to let the element size to its content. Both
 inputs are reactive, and new objects with equal coordinates do not touch the store. The content
 stays in your component's injector, so it can call `injectViewport()` and the helpers. Until a
 viewport exists the content renders in place.
 
-`<fn-canvas-element>` is **host-owned**: Angular is the source of truth for its element. Its store mutations carry `origin: 'host'`, so mounting, moving, resizing and destroying never create undo steps and are never sent to a sync relay (the DOM subtree exists only in this document). The element is **transient**: `exportState()` / `exportJSON()` omit it, so a saved canvas never contains a ghost of an Angular embed. After a store `clear` (a user's clear-canvas gesture or a remote one) or a `loadState()` the component re-registers itself, so the embed survives. To persist an embed across reloads, use the viewport's `registerHtmlRenderer` with an `htmlType` and serializable `data` instead.
+`<fn-canvas-element>` is **host-owned**: Angular is the source of truth for its element. Its store mutations carry `origin: 'host'`, so mounting, moving, resizing and destroying never create undo steps and are never sent to a sync relay (the DOM subtree exists only in this document). The element is **transient**: `exportState()` and `exportJSON()` leave it out of the saved board. After a store `clear` (a user's clear-canvas gesture or a remote one) or a `loadState()` the component re-registers itself, so the embed survives. To persist an embed across reloads, use the viewport's `registerHtmlRenderer` with an `htmlType` and serializable `data` instead.
 
 ## Minimap
 
@@ -267,7 +268,7 @@ A plain argument is fixed at injection; pass a `Signal` to `injectElements(type)
 `injectToolOptions` or `injectElementRects` to follow it. Selectors returning nested fresh objects
 need a custom `isEqual`, as in React.
 
-## Escape Hatch
+## Escape hatch
 
 `injectViewport()` returns the viewport signal for anything the helpers do not cover. Outside the
 canvas, query the component and read its `viewport` signal:
@@ -290,7 +291,7 @@ export class Board {
 `viewport()` is `null` before mount and after destroy. See the [core README](../core/README.md)
 for the full `Viewport` API.
 
-## Change Detection
+## Change detection
 
 Zoneless apps (the default since Angular 21) and zone.js apps are both supported and tested. The
 viewport and every core object the package creates run outside the Angular zone, so pointer
@@ -298,7 +299,7 @@ moves, animation frames and debounce timers on the board do not trigger change d
 zone.js app. `ready`, `stateChange` and `toolChange` are emitted inside the zone, so a handler that
 updates your template renders without a manual `detectChanges`.
 
-## Server-Side Rendering
+## Server-side rendering
 
 Importing the package and server-rendering a page that contains `<fn-canvas>` does not throw. The
 canvas mounts in `afterNextRender`, which runs only in the browser, so the server renders an empty
