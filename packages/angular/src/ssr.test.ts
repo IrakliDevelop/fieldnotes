@@ -4,6 +4,7 @@ import type { Viewport } from '@fieldnotes/core';
 import { bootstrapApplication } from '@angular/platform-browser';
 import type { BootstrapContext } from '@angular/platform-browser';
 import { provideServerRendering, renderApplication } from '@angular/platform-server';
+import { CanvasElement } from './canvas-element';
 import { FIELDNOTES_VIEWPORT } from './context';
 import { FieldNotesCanvas } from './field-notes-canvas';
 import { injectCamera } from './helpers/inject-camera';
@@ -46,6 +47,14 @@ class State {
 })
 class StateRoot {}
 
+@Component({
+  selector: 'fn-test-element-root',
+  imports: [FieldNotesCanvas, CanvasElement],
+  template:
+    '<fn-canvas><fn-canvas-element [position]="{ x: 0, y: 0 }">hi</fn-canvas-element></fn-canvas>',
+})
+class ElementRoot {}
+
 describe('server rendering', () => {
   it('renders a helper consumer with a null viewport', async () => {
     const html = await renderApplication(
@@ -75,5 +84,14 @@ describe('server rendering', () => {
       { document: '<fn-test-state-root></fn-test-state-root>', url: '/' },
     );
     expect(html).toContain('zoom=1 selected=0');
+  });
+
+  it('renders <fn-canvas-element> content in place', async () => {
+    const html = await renderApplication(
+      (context: BootstrapContext) =>
+        bootstrapApplication(ElementRoot, { providers: [provideServerRendering()] }, context),
+      { document: '<fn-test-element-root></fn-test-element-root>', url: '/' },
+    );
+    expect(html).toMatch(/<fn-canvas-element[^>]*><div[^>]*>hi<\/div><\/fn-canvas-element>/);
   });
 });
