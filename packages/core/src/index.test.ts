@@ -238,6 +238,17 @@ describe('core public surface', () => {
     expect([opts.tools, opts.changeDebounceMs, mounted]).toEqual(['default', 0, null]);
   });
 
+  it('exports attachHostElement for framework bindings', () => {
+    expect(typeof FN.attachHostElement).toBe('function');
+    const geometry: FN.HostElementGeometry = { position: { x: 1, y: 2 }, size: { w: 3, h: 4 } };
+    const handle: FN.HostElementHandle | null = null;
+    expect([geometry.position, geometry.size, handle]).toEqual([
+      { x: 1, y: 2 },
+      { w: 3, h: 4 },
+      null,
+    ]);
+  });
+
   it('exports the live stroke preview surface', () => {
     expect(FN.RemoteStrokeOverlay).toBeTypeOf('function');
     expect(FN.isStrokePreviewPresence).toBeTypeOf('function');
