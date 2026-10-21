@@ -95,6 +95,7 @@ export type {
   MovementTrackOptions,
   MovementState,
   MovementEmission,
+  MovementPlacementResult,
 } from './movement/movement-tracker';
 export {
   buildMovementModel,

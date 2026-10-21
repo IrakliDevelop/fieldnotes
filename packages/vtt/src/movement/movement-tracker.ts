@@ -22,10 +22,12 @@ import {
   movementRecordId,
   movementRecordTypeDefinition,
 } from './movement-record';
-import type { MovementRecordElement, MovementVisibility } from './movement-types';
+import type { MovementKind, MovementRecordElement, MovementVisibility } from './movement-types';
 import { measureMove } from './movement-path';
 import { MOVEMENT_OVER_COLOR, buildMovementModel, drawMovement } from './movement-render';
 import type { MovementRenderModel } from './movement-render';
+import { PlaceTool } from './place-tool';
+import type { PlacementView } from './place-tool';
 
 /** Cell size (world units) when no grid constrains the drag; matches `PathTool`. */
 const FALLBACK_CELL_SIZE = 24;
@@ -72,6 +74,21 @@ export interface MovementEmission {
   readonly model: MovementRenderModel;
 }
 
+/** How a host-started placement ended. */
+export interface MovementPlacementResult {
+  readonly elementId: string;
+  readonly kind: MovementKind;
+  readonly placed: boolean;
+}
+
+interface Placement {
+  readonly elementId: string;
+  readonly kind: MovementKind;
+  readonly hint: string;
+  readonly previousTool: string | null;
+  readonly selection: string[];
+}
+
 interface LiveMove {
   readonly start: Point;
   readonly waypoints: Point[];
@@ -116,11 +133,14 @@ export class MovementTracker {
   private readonly tracked = new Map<string, MovementTrackOptions>();
   private readonly listeners = new Set<(elementId: string) => void>();
   private readonly movementListeners = new Set<(emission: MovementEmission | null) => void>();
+  private readonly placementListeners = new Set<(result: MovementPlacementResult) => void>();
   private readonly disposers: (() => void)[] = [];
   private live: LiveDrag | null = null;
   private frame: number | null = null;
   private dwellTimer: ReturnType<typeof setTimeout> | null = null;
   private dwellAnchor: Point | null = null;
+  private placeTool: PlaceTool | null = null;
+  private placement: Placement | null = null;
 
   // Starts and ends are not guaranteed to pair, so every boundary replaces the live state.
   private readonly observer: SelectDragObserver = {
@@ -217,14 +237,52 @@ export class MovementTracker {
     return () => this.movementListeners.delete(listener);
   }
 
+  /** Lets the user click a destination for `elementId`; false when it is missing or locked. */
+  startPlacement(elementId: string, kind: MovementKind, options: { hint?: string } = {}): boolean {
+    const el = this.host.store.getById(elementId);
+    if (!el || el.locked) return false;
+    this.cancelPlacement();
+    if (!this.placeTool) {
+      this.placeTool = new PlaceTool({
+        view: (ctx) => this.placementView(ctx),
+        place: (world, ctx) => this.place(world, ctx),
+        cancel: (restoreTool) => this.endPlacement(false, restoreTool),
+      });
+      this.disposers.push(this.host.toolManager.register(this.placeTool));
+    }
+    const active = this.host.toolManager.activeTool;
+    this.placement = {
+      elementId,
+      kind,
+      hint: options.hint ?? 'Click where to appear',
+      previousTool: active?.name ?? null,
+      selection: active instanceof SelectTool ? [...active.selectedIds] : [],
+    };
+    this.host.setTool(this.placeTool.name);
+    return true;
+  }
+
+  /** Ends the current placement without moving; the previous tool comes back. */
+  cancelPlacement(): void {
+    this.endPlacement(false, true);
+  }
+
+  /** Fires once per placement when it is placed or cancelled. */
+  onPlacementEnd(listener: (result: MovementPlacementResult) => void): () => void {
+    this.placementListeners.add(listener);
+    return () => this.placementListeners.delete(listener);
+  }
+
   /** Detaches from the viewport; safe to call twice. */
   dispose(): void {
+    this.cancelPlacement();
     for (const dispose of this.disposers.splice(0)) dispose();
     if (this.frame !== null) cancelAnimationFrame(this.frame);
     this.frame = null;
     this.stopDwell();
     this.listeners.clear();
     this.movementListeners.clear();
+    this.placementListeners.clear();
     this.tracked.clear();
     this.live = null;
   }
@@ -384,29 +442,96 @@ export class MovementTracker {
       if (move.waypoints.length === 0 && end.x === move.start.x && end.y === move.start.y) {
         continue;
       }
-      const path = [move.start, ...move.waypoints, end];
-      const base =
-        this.spent(id, tracking.epoch) ??
-        createMovementRecord({ target, epoch: tracking.epoch, visibility: tracking.visibility });
-      const last = base.trail.at(-1)?.at(-1);
-      const joins = last !== undefined && last.x === move.start.x && last.y === move.start.y;
-      const { feet, diagonals } = measureMove({
-        path,
-        grid: live.grid,
-        feetPerCell: this.options.feetPerCell,
-        start: base,
-      });
-      this.write({
-        ...base,
-        visibility: tracking.visibility,
-        feet,
-        diagonals,
-        // A drag continuing from the trail's end extends its run; after a jump it starts a new one.
-        trail: joins
-          ? appendTrail(base.trail, path.slice(1), false)
-          : appendTrail(base.trail, path, true),
-      });
+      this.recordMove(target, tracking, [move.start, ...move.waypoints, end], live.grid, true);
     }
+  }
+
+  private placementView(ctx: ToolContext): PlacementView | null {
+    const placement = this.placement;
+    const el = placement && this.host.store.getById(placement.elementId);
+    if (!placement || !el) return null;
+    const { maxFeet } = placement.kind;
+    const { gridSize } = gridMetric(ctx, this.options.diagonalRule);
+    return {
+      center: centerOf(el, el.position),
+      radius: maxFeet === undefined ? null : (maxFeet / this.options.feetPerCell) * gridSize,
+      hint: placement.hint,
+    };
+  }
+
+  // Runs inside the place tool's gesture transaction, so move and record are one undo step.
+  private place(world: Point, ctx: ToolContext): void {
+    const placement = this.placement;
+    if (!placement) return;
+    const el = this.host.store.getById(placement.elementId);
+    if (!el || el.locked) {
+      this.cancelPlacement();
+      return;
+    }
+    const size = 'size' in el ? el.size : undefined;
+    const cs = ctx.constraintService;
+    // Snaps like SelectTool snaps a sized element's center.
+    const end = cs?.isActive ? cs.constrainPoint(world, size && { elementSize: size }) : world;
+    const start = centerOf(el, el.position);
+    const grid = gridMetric(ctx, this.options.diagonalRule);
+    const { maxFeet, counts } = placement.kind;
+    const jump = measureMove({
+      path: [start, end],
+      grid,
+      feetPerCell: this.options.feetPerCell,
+      start: { feet: 0, diagonals: 0 },
+    }).feet;
+    if (maxFeet !== undefined && jump > maxFeet) return;
+    const position = size ? { x: end.x - size.w / 2, y: end.y - size.h / 2 } : end;
+    this.host.store.update(el.id, { position });
+    const tracking = this.tracked.get(el.id);
+    if (tracking) this.recordMove(el, tracking, [start, end], grid, counts);
+    this.endPlacement(true, true);
+  }
+
+  private endPlacement(placed: boolean, restoreTool: boolean): void {
+    const placement = this.placement;
+    if (!placement) return;
+    this.placement = null;
+    this.host.requestOverlayRender();
+    if (restoreTool && placement.previousTool !== null) {
+      this.host.setTool(placement.previousTool);
+      // Leaving select cleared its selection.
+      const active = this.host.toolManager.activeTool;
+      if (active instanceof SelectTool) active.setSelection(placement.selection);
+    }
+    const { elementId, kind } = placement;
+    for (const listener of this.placementListeners) listener({ elementId, kind, placed });
+  }
+
+  /** Writes a move along `path` into the target's record; an uncounted move keeps the totals. */
+  private recordMove(
+    target: CanvasElement,
+    tracking: MovementTrackOptions,
+    path: [Point, ...Point[]],
+    grid: GridMetric,
+    counts: boolean,
+  ): void {
+    const base =
+      this.spent(target.id, tracking.epoch) ??
+      createMovementRecord({ target, epoch: tracking.epoch, visibility: tracking.visibility });
+    const start = path[0];
+    const last = base.trail.at(-1)?.at(-1);
+    const joins = counts && last !== undefined && last.x === start.x && last.y === start.y;
+    const { feet, diagonals } = counts
+      ? measureMove({ path, grid, feetPerCell: this.options.feetPerCell, start: base })
+      : base;
+    this.write({
+      ...base,
+      visibility: tracking.visibility,
+      feet,
+      diagonals,
+      // A move continuing from the trail's end extends its run; after a jump it starts a new one.
+      // An uncounted placement's run is only its destination, so no line crosses the jump.
+      trail: joins
+        ? appendTrail(base.trail, path.slice(1), false)
+        : appendTrail(base.trail, counts ? path : path.slice(-1), true),
+    });
   }
 
   private record(targetId: string): MovementRecordElement | null {
