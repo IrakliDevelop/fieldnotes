@@ -718,6 +718,37 @@ describe('MovementTracker', () => {
       });
     });
 
+    it.each(['ctrlKey', 'metaKey', 'altKey'] as const)(
+      'F with %s is not consumed and adds no waypoint',
+      (modifier) => {
+        const { vp, tracker, token, press, record, track } = setup();
+        const a = token(0, 0);
+        track(a);
+
+        const drag = press(25, 25);
+        drag.move(145, 25);
+        const consumed = vp.toolManager.activeTool?.onKeyDown?.(
+          new KeyboardEvent('keydown', { key: 'f', [modifier]: true }),
+          vp.toolContext,
+        );
+        drag.move(145, 145);
+        drag.up();
+
+        expect(consumed).toBe(false);
+        expect(tracker.getMovement(a)?.feet).toBe(15);
+        expect(record(a)).toMatchObject({
+          data: {
+            trail: [
+              [
+                { x: 20, y: 20 },
+                { x: 140, y: 140 },
+              ],
+            ],
+          },
+        });
+      },
+    );
+
     it('Backspace removes the last waypoint and redraws at once', () => {
       const { vp, tracker, token, press, key, record, track } = setup();
       const a = token(0, 0);

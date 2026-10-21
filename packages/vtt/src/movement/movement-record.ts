@@ -72,7 +72,8 @@ export const movementRecordTypeDefinition: ElementTypeDefinition<MovementRecordE
       feet: el.data['feet'] as number,
       diagonals: el.data['diagonals'] as number,
       visibility: el.data['visibility'] as MovementVisibility,
-      trail: el.data['trail'] as Point[][],
+      // Rebuilt so extra keys on stored points are not carried forward.
+      trail: (el.data['trail'] as Point[][]).map((run) => run.map(({ x, y }) => ({ x, y }))),
     };
   },
 

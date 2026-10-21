@@ -67,6 +67,10 @@ function size(data: unknown): number {
   return JSON.stringify(data).length;
 }
 
+function bytes(data: unknown): number {
+  return new TextEncoder().encode(JSON.stringify(data)).length;
+}
+
 describe('toMovementPresence', () => {
   it('returns null for a dm emission so hidden movement is never sent', () => {
     expect(toMovementPresence(emission('dm'))).toBeNull();
@@ -135,6 +139,22 @@ describe('toMovementPresence', () => {
     const decoded = decodeMovementPresence(toMovementPresence(emission('all', over)));
     expect(decoded?.trail).toEqual(trail.slice(1).map(rounded));
     expect(decoded?.cells).toHaveLength(10);
+  });
+
+  it('measures the budget in UTF-8 bytes, so a multibyte id and label trim the trail', () => {
+    const elementId = '€'.repeat(256);
+    const label = '€'.repeat(64);
+    const trail = [run(63, -12000, 7), run(63, -13000, 7), run(63, -14000, 7)];
+    const over: MovementRenderModel = { ...model, trail, label };
+    const flat = (points: readonly Point[]): number[] => rounded(points).flatMap((p) => [p.x, p.y]);
+    const untrimmed = { ...active, elementId, label, trail: trail.map(flat) };
+    expect(size(untrimmed)).toBeLessThanOrEqual(MOVEMENT_PRESENCE_MAX_BYTES);
+    expect(bytes(untrimmed)).toBeGreaterThan(MOVEMENT_PRESENCE_MAX_BYTES);
+
+    const presence = toMovementPresence({ elementId, visibility: 'all', model: over });
+
+    expect(bytes(presence)).toBeLessThanOrEqual(MOVEMENT_PRESENCE_MAX_BYTES);
+    expect(decodeMovementPresence(presence)?.trail).toEqual(trail.slice(1).map(rounded));
   });
 });
 

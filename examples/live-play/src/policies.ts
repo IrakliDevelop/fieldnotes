@@ -1,6 +1,6 @@
 import type { CanvasElement } from '@fieldnotes/core';
 import type { Authenticate, Authorize, CanRead } from '@fieldnotes/sync-server';
-import { getMovementVisibility } from '@fieldnotes/vtt/server';
+import { getMovementVisibility } from '@fieldnotes/vtt';
 
 export type Role = 'dm' | 'player';
 export const DM_AUDIENCE = 'dm';

@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { ElementRegistry, SelectTool, Viewport, createShape } from '@fieldnotes/core';
+import { ElementRegistry, SelectTool, Viewport, createArrow, createShape } from '@fieldnotes/core';
 import type { PointerState } from '@fieldnotes/core';
 import { registerVttElementTypes } from '../register';
 import { GridController } from '../grid/grid-controller';
@@ -28,7 +28,7 @@ function recordingCtx(): { ctx: CanvasRenderingContext2D; calls: [string, ...unk
   };
   const ctx = new Proxy(target, {
     get: (t, name: string) => t[name] ?? ((...args: unknown[]) => void calls.push([name, ...args])),
-    set: (t, name: string, value: unknown) => {
+    set: (_t, name: string, value: unknown) => {
       if (name === 'lineWidth') calls.push(['lineWidth', value]);
       return true;
     },
@@ -280,6 +280,84 @@ describe('MovementTracker placement', () => {
     expect(tracker.startPlacement('missing', MISTY_STEP)).toBe(false);
     expect(tracker.startPlacement(token(0, 0, true), MISTY_STEP)).toBe(false);
     expect(toolName()).toBe('select');
+  });
+
+  it('refuses an element without a size', () => {
+    const { vp, tracker, toolName } = setup();
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 80, y: 0 },
+      layerId: vp.layerManager.activeLayerId,
+    });
+    vp.store.add(arrow);
+
+    expect(tracker.startPlacement(arrow.id, MISTY_STEP)).toBe(false);
+    expect(toolName()).toBe('select');
+  });
+
+  it('with smart guides on, places at the unsnapped pointer', () => {
+    const { vp, tracker, token, click, position } = setup();
+    const a = token(0, 0);
+    vp.setSmartGuides(true);
+    tracker.startPlacement(a, MISTY_STEP);
+
+    click(105, 25);
+
+    expect(position(a)).toEqual({ x: 85, y: 5 });
+  });
+
+  it('places a sized extension at the unsnapped pointer', () => {
+    const { vp, tracker, click, position } = setup();
+    vp.store.add({
+      id: 'box',
+      type: 'extension',
+      extensionType: 'test:box',
+      position: { x: 0, y: 0 },
+      index: '',
+      version: 1,
+      locked: false,
+      layerId: vp.layerManager.activeLayerId,
+      data: {},
+      size: { w: 40, h: 40 },
+    });
+    expect(tracker.startPlacement('box', MISTY_STEP)).toBe(true);
+
+    click(105, 25);
+
+    expect(position('box')).toEqual({ x: 85, y: 5 });
+  });
+
+  it.each(['placed', 'cancelled'] as const)('with no previous tool, %s ends on select', (end) => {
+    const vp = new Viewport(document.createElement('div'));
+    const tracker = new MovementTracker(vp);
+    cleanups.push(() => {
+      tracker.dispose();
+      vp.destroy();
+    });
+    vp.toolManager.register(new SelectTool());
+    const shape = createShape({
+      position: { x: 0, y: 0 },
+      size: { w: 40, h: 40 },
+      layerId: vp.layerManager.activeLayerId,
+    });
+    vp.store.add(shape);
+    expect(vp.toolManager.activeTool).toBeNull();
+
+    tracker.startPlacement(shape.id, MISTY_STEP);
+    if (end === 'placed') {
+      const up: PointerState = {
+        x: 105,
+        y: 25,
+        pressure: 0.5,
+        pointerType: 'mouse',
+        shiftKey: false,
+      };
+      vp.toolManager.handlePointerUp(up, vp.toolContext);
+    } else {
+      tracker.cancelPlacement();
+    }
+
+    expect(vp.toolManager.activeTool?.name).toBe('select');
   });
 
   it('draws a 2 CSS px range ring around the element and the hint near the pointer', () => {

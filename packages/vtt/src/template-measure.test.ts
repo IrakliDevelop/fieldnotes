@@ -144,7 +144,7 @@ describe('renderTemplateFeetLabel', () => {
   it('a minimap-like transform draws no label for a 30 ft template', () => {
     vi.stubGlobal('devicePixelRatio', 2);
     const ctx = mockCtx(2 * 0.05);
-    renderTemplateFeetLabel(ctx, { ...cone, radius: 12, feet: 30 });
+    renderTemplateFeetLabel(ctx, { ...cone, radius: 144, feet: 30 });
 
     expect(ctx.fillText).not.toHaveBeenCalled();
   });

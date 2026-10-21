@@ -43,6 +43,13 @@ describe('pathDistanceCells', () => {
     expect(pathDistanceCells(diagonal(0, 3), manhattan, options).total).toBe(6);
   });
 
+  it.each([-1, 1.5, NaN, Infinity])('treats startDiagonals %s as 0', (startDiagonals) => {
+    expect(pathDistanceCells(diagonal(0, 1), alternate, { startDiagonals })).toMatchObject({
+      total: 1,
+      diagonals: 1,
+    });
+  });
+
   it.each<[string, GridMetric]>([
     ['euclidean square', { gridSize: 10, gridType: 'square', diagonalRule: 'euclidean' }],
     ['hex', { gridSize: 10, gridType: 'hex', hexOrientation: 'pointy' }],

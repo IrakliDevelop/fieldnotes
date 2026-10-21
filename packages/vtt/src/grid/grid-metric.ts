@@ -55,7 +55,9 @@ export function pathDistanceCells(
   const cumulative: number[] = [];
   const rule = grid.diagonalRule ?? 'euclidean';
   const squareRule = grid.gridType === 'square' && rule !== 'euclidean';
-  const start = squareRule ? (options?.startDiagonals ?? 0) : 0;
+  const startDiagonals = options?.startDiagonals ?? 0;
+  const start =
+    squareRule && Number.isSafeInteger(startDiagonals) && startDiagonals >= 0 ? startDiagonals : 0;
   const first = points[0];
   if (first === undefined) return { total: 0, cumulative, diagonals: start };
   const gridSize = grid.gridSize > 0 ? grid.gridSize : 1;

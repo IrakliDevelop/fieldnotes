@@ -85,7 +85,7 @@ interface Placement {
   readonly elementId: string;
   readonly kind: MovementKind;
   readonly hint: string;
-  readonly previousTool: string | null;
+  readonly previousTool: string;
   readonly selection: string[];
 }
 
@@ -237,10 +237,11 @@ export class MovementTracker {
     return () => this.movementListeners.delete(listener);
   }
 
-  /** Lets the user click a destination for `elementId`; false when it is missing or locked. */
+  /** Lets the user click a destination for `elementId`; false when missing, locked, or unsized. */
   startPlacement(elementId: string, kind: MovementKind, options: { hint?: string } = {}): boolean {
     const el = this.host.store.getById(elementId);
-    if (!el || el.locked) return false;
+    // Placement moves only `position`, which would leave an arrow's or stroke's points behind.
+    if (!el || el.locked || !('size' in el) || !el.size) return false;
     this.cancelPlacement();
     if (!this.placeTool) {
       this.placeTool = new PlaceTool({
@@ -255,7 +256,7 @@ export class MovementTracker {
       elementId,
       kind,
       hint: options.hint ?? 'Click where to appear',
-      previousTool: active?.name ?? null,
+      previousTool: active?.name ?? 'select',
       selection: active instanceof SelectTool ? [...active.selectedIds] : [],
     };
     this.host.setTool(this.placeTool.name);
@@ -315,6 +316,8 @@ export class MovementTracker {
     if (!moves || moves.size === 0) return false;
     const key = e.key.toLowerCase();
     if (key === 'f') {
+      // Leaves Ctrl/Cmd+F to the browser's find.
+      if (e.ctrlKey || e.metaKey || e.altKey) return false;
       if (!e.repeat) this.addWaypoint();
       return true;
     }
@@ -470,8 +473,9 @@ export class MovementTracker {
     }
     const size = 'size' in el ? el.size : undefined;
     const cs = ctx.constraintService;
-    // Snaps like SelectTool snaps a sized element's center.
-    const end = cs?.isActive ? cs.constrainPoint(world, size && { elementSize: size }) : world;
+    // Snaps the center like SelectTool: not under smart guides, never an extension.
+    const snaps = cs?.isActive && !ctx.smartGuides && el.type !== 'extension';
+    const end = snaps ? cs.constrainPoint(world, size && { elementSize: size }) : world;
     const start = centerOf(el, el.position);
     const grid = gridMetric(ctx, this.options.diagonalRule);
     const { maxFeet, counts } = placement.kind;
@@ -494,7 +498,7 @@ export class MovementTracker {
     if (!placement) return;
     this.placement = null;
     this.host.requestOverlayRender();
-    if (restoreTool && placement.previousTool !== null) {
+    if (restoreTool) {
       this.host.setTool(placement.previousTool);
       // Leaving select cleared its selection.
       const active = this.host.toolManager.activeTool;

@@ -113,6 +113,12 @@ describe('movementRecordTypeDefinition', () => {
     expect(def.wrap(record)).toEqual(envelope());
   });
 
+  it('unwrap keeps only x and y of each trail point', () => {
+    const trail = [[{ x: 1, y: 2, label: 'extra' }]];
+    const record = movementRecordTypeDefinition.unwrap(envelope({ ...validData, trail }));
+    expect(record.trail).toStrictEqual([[{ x: 1, y: 2 }]]);
+  });
+
   it('has no bounds', () => {
     expect(
       movementRecordTypeDefinition.bounds(movementRecordTypeDefinition.unwrap(envelope())),

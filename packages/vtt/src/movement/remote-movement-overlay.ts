@@ -8,7 +8,7 @@ import type { MovementEmission } from './movement-tracker';
 /** Presence `kind` for a live tracked drag. */
 export const MOVEMENT_PRESENCE_KIND = 'movement';
 
-/** Serialized-length budget, under the hub's default 4096-byte presence cap. */
+/** UTF-8 byte budget of the serialized payload, under the hub's default 4096-byte presence cap. */
 export const MOVEMENT_PRESENCE_MAX_BYTES = 3800;
 
 /**
@@ -74,7 +74,8 @@ export function toMovementPresence(emission: MovementEmission | null): MovementP
     label: model.label,
     over: model.over,
   });
-  const fits = (): boolean => JSON.stringify(encode()).length <= MOVEMENT_PRESENCE_MAX_BYTES;
+  const fits = (): boolean =>
+    new TextEncoder().encode(JSON.stringify(encode())).length <= MOVEMENT_PRESENCE_MAX_BYTES;
   while (!fits() && trail.length > 0) trail.shift();
   if (!fits()) cells = [];
   return encode();
