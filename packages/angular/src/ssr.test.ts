@@ -10,6 +10,7 @@ import { FieldNotesCanvas } from './field-notes-canvas';
 import { injectCamera } from './helpers/inject-camera';
 import { injectSelection } from './helpers/inject-selection';
 import { injectViewport } from './inject-viewport';
+import { Minimap } from './minimap';
 
 @Component({ selector: 'fn-test-child', template: 'viewport is null: {{ viewport() === null }}' })
 class Child {
@@ -55,6 +56,13 @@ class StateRoot {}
 })
 class ElementRoot {}
 
+@Component({
+  selector: 'fn-test-minimap-root',
+  imports: [FieldNotesCanvas, Minimap],
+  template: '<fn-canvas><fn-minimap /><fn-minimap [defaultCollapsed]="true" /></fn-canvas>',
+})
+class MinimapRoot {}
+
 describe('server rendering', () => {
   it('renders a helper consumer with a null viewport', async () => {
     const html = await renderApplication(
@@ -93,5 +101,15 @@ describe('server rendering', () => {
       { document: '<fn-test-element-root></fn-test-element-root>', url: '/' },
     );
     expect(html).toMatch(/<fn-canvas-element[^>]*><div[^>]*>hi<\/div><\/fn-canvas-element>/);
+  });
+
+  it('renders <fn-minimap> expanded and collapsed', async () => {
+    const html = await renderApplication(
+      (context: BootstrapContext) =>
+        bootstrapApplication(MinimapRoot, { providers: [provideServerRendering()] }, context),
+      { document: '<fn-test-minimap-root></fn-test-minimap-root>', url: '/' },
+    );
+    expect(html).toContain('aria-label="Collapse minimap"');
+    expect(html).toContain('aria-label="Expand minimap"');
   });
 });

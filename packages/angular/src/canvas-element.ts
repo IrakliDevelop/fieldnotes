@@ -43,7 +43,7 @@ export class CanvasElement {
       const vp = viewport();
       untracked(() => {
         if (handle) {
-          handle.destroy();
+          zone.runOutsideAngular(() => handle?.destroy());
           handle = undefined;
           host.appendChild(this.container().nativeElement);
         }
@@ -57,9 +57,10 @@ export class CanvasElement {
 
     effect(() => {
       const geometry = { position: this.position(), size: this.size() };
-      handle?.setGeometry(geometry);
+      // Outside the zone: store.update re-arms mountViewport's change timer, a tracked macrotask.
+      zone.runOutsideAngular(() => handle?.setGeometry(geometry));
     });
 
-    inject(DestroyRef).onDestroy(() => handle?.destroy());
+    inject(DestroyRef).onDestroy(() => zone.runOutsideAngular(() => handle?.destroy()));
   }
 }

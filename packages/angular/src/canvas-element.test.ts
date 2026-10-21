@@ -1,11 +1,19 @@
 import { afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
-import { Component, InjectionToken, inject, reflectComponentType, signal } from '@angular/core';
+import {
+  Component,
+  InjectionToken,
+  NgZone,
+  inject,
+  reflectComponentType,
+  signal,
+} from '@angular/core';
 import type { InputSignal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import type { Viewport } from '@fieldnotes/core';
 import { CanvasElement } from './canvas-element';
 import { FIELDNOTES_VIEWPORT } from './context';
 import { FieldNotesCanvas } from './field-notes-canvas';
+import { Minimap } from './minimap';
 import { createTestViewport, destroyTestViewports } from './test-utils/create-test-viewport';
 
 const ON_READY = new InjectionToken<(viewport: Viewport) => void>('ON_READY');
@@ -242,6 +250,25 @@ describe('CanvasElement', () => {
   });
 });
 
+describe('CanvasElement in a zone app', () => {
+  it.runIf('Zone' in globalThis)(
+    'a position change leaves no pending macrotask in the Angular zone',
+    async () => {
+      const { fixture, host, viewport } = await mount();
+      const zone = TestBed.inject(NgZone);
+      const control = zone.run(() => setTimeout(() => undefined, 1000));
+      expect(zone.hasPendingMacrotasks).toBe(true);
+      clearTimeout(control);
+      expect(zone.hasPendingMacrotasks).toBe(false);
+
+      host.position.set({ x: 30, y: 20 });
+      fixture.detectChanges();
+      expect(viewport.store.getElementsByType('html')[0]?.position).toEqual({ x: 30, y: 20 });
+      expect(zone.hasPendingMacrotasks).toBe(false);
+    },
+  );
+});
+
 describe('CanvasElement under a host-provided viewport signal', () => {
   @Component({
     imports: [CanvasElement],
@@ -289,9 +316,21 @@ describe('CanvasElement under a host-provided viewport signal', () => {
 });
 
 describe('destroying a whole canvas', () => {
-  it('tears down a CanvasElement after the viewport is destroyed, without errors', async () => {
+  it('tears down a CanvasElement and a Minimap after the viewport is destroyed, without errors', async () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => null);
     const error = vi.spyOn(console, 'error');
-    const { fixture } = await mount();
+    @Component({
+      imports: [FieldNotesCanvas, CanvasElement, Minimap],
+      template: `<fn-canvas>
+        <fn-canvas-element [position]="{ x: 0, y: 0 }"><div></div></fn-canvas-element>
+        <fn-minimap />
+      </fn-canvas>`,
+    })
+    class TeardownHost {}
+    const fixture = TestBed.createComponent(TeardownHost);
+    await fixture.whenStable();
+    expect(fixture.nativeElement.querySelector('[aria-label="Collapse minimap"]')).not.toBeNull();
+
     expect(() => fixture.destroy()).not.toThrow();
     await Promise.resolve();
     expect(error).not.toHaveBeenCalled();
