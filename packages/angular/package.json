@@ -1,0 +1,58 @@
+{
+  "name": "@fieldnotes/angular",
+  "version": "0.1.0",
+  "description": "Angular wrapper for Field Notes canvas SDK",
+  "type": "module",
+  "sideEffects": false,
+  "scripts": {
+    "build": "ng-packagr -p ng-package.json -c tsconfig.lib.json",
+    "typecheck": "ngc -p tsconfig.lib.json --noEmit && ngc -p tsconfig.spec.json --noEmit",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest"
+  },
+  "publishConfig": {
+    "directory": "dist",
+    "linkDirectory": true
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/IrakliDevelop/fieldnotes.git",
+    "directory": "packages/angular"
+  },
+  "bugs": {
+    "url": "https://github.com/IrakliDevelop/fieldnotes/issues"
+  },
+  "homepage": "https://github.com/IrakliDevelop/fieldnotes/tree/master/packages/angular#readme",
+  "keywords": [
+    "canvas",
+    "infinite-canvas",
+    "angular",
+    "html-embedding",
+    "fieldnotes"
+  ],
+  "peerDependencies": {
+    "@angular/core": ">=20.0.0 <23.0.0",
+    "@fieldnotes/core": ">=0.98.0 <1.0.0"
+  },
+  "devDependencies": {
+    "@analogjs/vite-plugin-angular": "^2.9.1",
+    "@angular/build": "22.2.3",
+    "@angular/common": "22.2.3",
+    "@angular/compiler": "22.2.3",
+    "@angular/compiler-cli": "22.2.3",
+    "@angular/core": "22.2.3",
+    "@angular/platform-browser": "22.2.3",
+    "@angular/platform-server": "22.2.3",
+    "@fieldnotes/core": "workspace:*",
+    "@vitest/coverage-v8": "^5.0.5",
+    "jsdom": "^29.1.1",
+    "ng-packagr": "^22.2.4",
+    "rxjs": "^7.8.2",
+    "tslib": "^2.8.1",
+    "typescript": "~6.0.3",
+    "vitest": "^5.0.5",
+    "zone.js": "^0.16.3"
+  }
+}
