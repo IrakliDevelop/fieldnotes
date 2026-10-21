@@ -14,7 +14,7 @@ collaboration.
 pnpm add @fieldnotes/vtt @fieldnotes/core
 ```
 
-Requires `@fieldnotes/core` `>=0.93.0 <1.0.0` (peer dependency).
+Requires `@fieldnotes/core` `>=0.99.0 <1.0.0` (peer dependency).
 
 ## Register element types
 
@@ -78,7 +78,7 @@ Managed authority rooms opt in with `createFogAuthorityClientExtension()` from
 `@fieldnotes/vtt/sync` and `createFogAuthorityServerExtension()` from
 `@fieldnotes/vtt/server`. These adapters require the managed-authority APIs shipped by
 `@fieldnotes/sync` and `@fieldnotes/sync-server` 0.26.0. The package peer ranges are
-`@fieldnotes/core` `>=0.93.0 <1.0.0`, `@fieldnotes/sync` and `@fieldnotes/sync-server`
+`@fieldnotes/core` `>=0.99.0 <1.0.0`, `@fieldnotes/sync` and `@fieldnotes/sync-server`
 `>=0.28.0 <1.0.0`, and `@fieldnotes/sync-redis` `>=0.14.0 <1.0.0`; the three sync peers are
 optional. The exact checkpoint requirement is `fog/fog/1`, and the server owns `fog-meta` and
 `fog-patch` only when the factory is installed.
@@ -110,6 +110,76 @@ const measure = new MeasureTool({ feetPerCell: 5 });
 measure.onMeasurement((emission) => console.log(emission?.feet));
 viewport.toolManager.register(measure);
 ```
+
+## Movement tracking
+
+`MovementTracker` counts how far tracked tokens are dragged with the select tool and stores the
+feet spent in a synced `vtt:movement` record, one per token (`registerVttElementTypes()` registers
+the type). A record from an earlier epoch counts as empty, so a new turn id starts a new count.
+
+```typescript
+import {
+  DEFAULT_MOVEMENT_BANDS_COLORS,
+  MovementTracker,
+  RemoteMovementOverlay,
+  isMovementPresence,
+  toMovementPresence,
+} from '@fieldnotes/vtt';
+
+const movement = new MovementTracker(viewport, { feetPerCell: 5 });
+const [walk, dash] = DEFAULT_MOVEMENT_BANDS_COLORS;
+
+// Turn start and end; reset and teleport buttons.
+movement.track(tokenId, {
+  epoch: turnId,
+  bands: [
+    { feet: 30, color: walk },
+    { feet: 60, color: dash },
+  ],
+  visibility: 'all',
+});
+movement.untrack(tokenId);
+movement.reset(tokenId);
+movement.startPlacement(tokenId, { id: 'teleport', counts: false, maxFeet: 30 });
+
+// Live drags for peers. Send nothing when toMovementPresence returns null (DM-only movement).
+const overlay = new RemoteMovementOverlay(viewport);
+movement.onMovement((emission) => {
+  const presence = toMovementPresence(emission);
+  if (presence) client.sendPresence(presence);
+});
+client.onPresence((from, data) => {
+  if (isMovementPresence(data)) overlay.apply(from, data);
+});
+```
+
+On the server, wrap `authorize` with `withMovementAuthorize` from `@fieldnotes/vtt/server`, which
+judges a record op as an edit of its token. Its second argument looks up the token by room and id.
+
+```typescript
+import { getMovementVisibility, withMovementAuthorize } from '@fieldnotes/vtt/server';
+
+createSyncServer({
+  backend,
+  authenticate,
+  authorize: withMovementAuthorize(authorize, {
+    getElement: async (room, id) => {
+      const record = await backend.getRecord(room, id);
+      return record?.kind === 'element' ? record.element : undefined;
+    },
+  }),
+  resolveAudience: (ctx) => (getMovementVisibility(ctx.element) === 'dm' ? 'dm' : audience(ctx)),
+  canRead,
+});
+```
+
+- Map a record's `'dm'` visibility to your DM audience string in both the client's and the
+  server's `resolveAudience`. `resolveMovementVisibility` picks the visibility for a move.
+- If a token's visibility changes to `'dm'` during a drag, send the cleared payload
+  (`toMovementPresence(null)`) so peers drop the drag they already see.
+- Undo restores an earlier record, and the tracker then writes the current visibility back. Keep
+  the sync client's default `flushIntervalMs`: with 0 ms, the restored visibility can reach peers
+  for a moment.
 
 ## Grid
 
