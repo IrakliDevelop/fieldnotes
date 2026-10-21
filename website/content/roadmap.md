@@ -21,7 +21,7 @@
 - Vue and Svelte bindings: a canvas component and helpers with the React hook names
 - Angular bindings: a canvas component and signal helpers named after the React hooks, with `use` changed to `inject`
 - Self-hosted WebSocket sync server, with Redis for persistence and fan-out across instances
-- Tabletop package with square and hex grids, fog of war, measuring and area templates
+- Tabletop package with square and hex grids, fog of war, measuring, area templates and per-turn movement tracking on token drags
 
 ## Next
 
