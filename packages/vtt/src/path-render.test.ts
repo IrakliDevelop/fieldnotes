@@ -1,10 +1,10 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { drawPath, resolveSegmentColors } from './path-render';
 
 /** Recording call shape: [method-or-property, ...args-or-value]. */
 type Call = [string, ...unknown[]];
 
-function makeCtx(): CanvasRenderingContext2D & { calls: Call[] } {
+function makeCtx(zoom?: number): CanvasRenderingContext2D & { calls: Call[] } {
   // jsdom provides no real 2D context; a recording stub is enough — the
   // pixel-level contract is covered by e2e. Copied from measure-render.test.ts
   // and extended to log property sets (strokeStyle, fillStyle, globalAlpha)
@@ -29,6 +29,7 @@ function makeCtx(): CanvasRenderingContext2D & { calls: Call[] } {
     roundRect: vi.fn(record('roundRect')),
     fillText: vi.fn(record('fillText')),
     measureText: vi.fn(() => ({ width: 40 })),
+    ...(zoom === undefined ? {} : { getTransform: () => ({ a: zoom, b: 0, c: 0, d: zoom }) }),
     set strokeStyle(v: string) {
       calls.push(['strokeStyle', v]);
     },
@@ -160,4 +161,43 @@ describe('drawPath', () => {
     expect(ctx.stroke).not.toHaveBeenCalled();
     expect(ctx.fillText).not.toHaveBeenCalled();
   });
+
+  it.each([
+    {
+      zoom: 0.25,
+      font: 'bold 56px sans-serif',
+      lineWidth: 8,
+      dash: [32, 16],
+      dot: 16,
+      labelY: 40 - 72,
+      pill: [-4, -76, 88, 88, 16],
+    },
+    {
+      zoom: 1,
+      font: 'bold 14px sans-serif',
+      lineWidth: 2,
+      dash: [8, 4],
+      dot: 4,
+      labelY: 40 - 18,
+      pill: [14, 11, 52, 22, 4],
+    },
+  ])(
+    'drawPath at zoom $zoom uses a $font world font and line width $lineWidth',
+    ({ zoom, font, lineWidth, dash, dot, labelY, pill }) => {
+      vi.stubGlobal('devicePixelRatio', 1);
+      const ctx = makeCtx(zoom);
+      drawPath(ctx, { points, segmentColors: ['green', 'red'], color: 'blue', feet: 10 });
+
+      expect(ctx.calls).toContainEqual(['font', font]);
+      expect(ctx.calls).toContainEqual(['lineWidth', lineWidth]);
+      expect(ctx.calls).toContainEqual(['setLineDash', dash]);
+      expect(ctx.arc).toHaveBeenCalledWith(0, 0, dot, 0, Math.PI * 2);
+      expect(ctx.roundRect).toHaveBeenCalledWith(...pill);
+      expect(ctx.fillText).toHaveBeenCalledWith('10 ft', 40, labelY);
+    },
+  );
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });

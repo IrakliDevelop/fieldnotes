@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { renderTemplateFeetLabel } from './template/template-measure';
 
-function mockCtx(): CanvasRenderingContext2D {
+function mockCtx(scale?: number): CanvasRenderingContext2D {
   return {
     save: vi.fn(),
     restore: vi.fn(),
@@ -15,6 +15,7 @@ function mockCtx(): CanvasRenderingContext2D {
     roundRect: vi.fn(),
     setLineDash: vi.fn(),
     measureText: vi.fn(() => ({ width: 30 })),
+    ...(scale === undefined ? {} : { getTransform: () => ({ a: scale, b: 0, c: 0, d: scale }) }),
     globalAlpha: 1,
     fillStyle: '',
     strokeStyle: '',
@@ -93,4 +94,62 @@ describe('renderTemplateFeetLabel', () => {
     });
     expect((ci.lineTo as ReturnType<typeof vi.fn>).mock.calls[0]).toEqual([100, 0]);
   });
+
+  const cone = {
+    position: { x: 0, y: 0 },
+    angle: 0,
+    templateShape: 'cone',
+    color: '#000',
+  } as const;
+
+  it('template label keeps 14 CSS px at zoom 0.25 when the template is large on screen', () => {
+    vi.stubGlobal('devicePixelRatio', 1);
+    const ctx = mockCtx(0.25);
+    renderTemplateFeetLabel(ctx, { ...cone, radius: 400, feet: 15 });
+
+    expect(ctx.font).toBe('bold 56px sans-serif');
+    expect(ctx.lineWidth).toBe(6);
+    expect(ctx.setLineDash).toHaveBeenCalledWith([16, 16]);
+    expect(ctx.roundRect).toHaveBeenCalledWith(161, -116, 78, 88, 16);
+    expect(ctx.fillStyle).toBe('#FFFFFF');
+    expect(ctx.fillText).toHaveBeenCalledWith('15 ft', 200, -72);
+  });
+
+  it.each([
+    { radius: 80, zoom: 1, font: 'bold 12px sans-serif' },
+    { radius: 80, zoom: 2, font: 'bold 7px sans-serif' },
+    { radius: 24, zoom: 1, font: 'bold 10px sans-serif' },
+    { radius: 64, zoom: 0.25, font: 'bold 40px sans-serif' },
+  ])(
+    'template label font is max(10, min(14, 0.15 × on-screen radius)) CSS px: r=$radius at zoom $zoom → $font',
+    ({ radius, zoom, font }) => {
+      vi.stubGlobal('devicePixelRatio', 1);
+      const ctx = mockCtx(zoom);
+      renderTemplateFeetLabel(ctx, { ...cone, radius, feet: 5 });
+
+      expect(ctx.font).toBe(font);
+      expect(ctx.fillText).toHaveBeenCalledWith('5 ft', radius / 2, expect.any(Number));
+    },
+  );
+
+  it('no template label when the on-screen radius is below 16 CSS px', () => {
+    vi.stubGlobal('devicePixelRatio', 1);
+    const ctx = mockCtx(0.25);
+    renderTemplateFeetLabel(ctx, { ...cone, radius: 60, feet: 15 });
+
+    expect(ctx.fillText).not.toHaveBeenCalled();
+    expect(ctx.roundRect).not.toHaveBeenCalled();
+  });
+
+  it('a minimap-like transform draws no label for a 30 ft template', () => {
+    vi.stubGlobal('devicePixelRatio', 2);
+    const ctx = mockCtx(2 * 0.05);
+    renderTemplateFeetLabel(ctx, { ...cone, radius: 12, feet: 30 });
+
+    expect(ctx.fillText).not.toHaveBeenCalled();
+  });
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });

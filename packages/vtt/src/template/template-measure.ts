@@ -1,5 +1,6 @@
 import type { Point } from '@fieldnotes/core';
 import type { TemplateShape } from '../elements/types';
+import { drawLabelPill, worldUnitsPerCssPx } from '../screen-scale';
 
 export interface TemplateFeetLabelParams {
   position: Point;
@@ -15,6 +16,10 @@ export function renderTemplateFeetLabel(
   p: TemplateFeetLabelParams,
 ): void {
   if (p.feet <= 0) return;
+  const k = worldUnitsPerCssPx(ctx);
+  const onScreenRadius = p.radius / k;
+  // Below this the pill would cover the template it labels (e.g. on the minimap).
+  if (onScreenRadius < 16) return;
 
   const directional =
     p.templateShape === 'cone' || p.templateShape === 'line' || p.templateShape === 'rectangle';
@@ -24,41 +29,22 @@ export function renderTemplateFeetLabel(
   const sin = Math.sin(dir);
   const start = p.position;
   const end = { x: start.x + length * cos, y: start.y + length * sin };
-  const midX = start.x + (length / 2) * cos;
-  const midY = start.y + (length / 2) * sin;
+  const mid = { x: start.x + (length / 2) * cos, y: start.y + (length / 2) * sin };
 
   ctx.save();
   ctx.globalAlpha = 1;
 
   ctx.beginPath();
-  ctx.setLineDash([4, 4]);
+  ctx.setLineDash([4 * k, 4 * k]);
   ctx.strokeStyle = p.color;
-  ctx.lineWidth = 1.5;
+  ctx.lineWidth = 1.5 * k;
   ctx.moveTo(start.x, start.y);
   ctx.lineTo(end.x, end.y);
   ctx.stroke();
   ctx.setLineDash([]);
 
-  const label = `${Math.round(p.feet)} ft`;
-  const fontSize = Math.max(10, Math.min(14, p.radius * 0.15));
-  ctx.font = `bold ${fontSize}px system-ui, sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'bottom';
-  const textY = midY - 4;
-
-  const metrics = ctx.measureText(label);
-  const padX = 4;
-  const padY = 2;
-  const textW = metrics.width + padX * 2;
-  const textH = fontSize + padY * 2;
-
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
-  ctx.beginPath();
-  ctx.roundRect(midX - textW / 2, textY - textH, textW, textH, 3);
-  ctx.fill();
-
-  ctx.fillStyle = p.color;
-  ctx.fillText(label, midX, textY - padY);
+  const fontCssPx = Math.max(10, Math.min(14, onScreenRadius * 0.15));
+  drawLabelPill(ctx, `${Math.round(p.feet)} ft`, mid, { fontCssPx });
 
   ctx.restore();
 }

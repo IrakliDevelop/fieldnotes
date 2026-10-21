@@ -1,7 +1,7 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { drawMeasurement, formatMeasureLabel } from './measure-render';
 
-function makeCanvasCtx(): CanvasRenderingContext2D {
+function makeCanvasCtx(zoom?: number): CanvasRenderingContext2D {
   // jsdom provides no real 2D context; a recording stub is enough — the
   // pixel-level contract is covered by the measure-share e2e.
   const calls: string[] = [];
@@ -19,6 +19,7 @@ function makeCanvasCtx(): CanvasRenderingContext2D {
     roundRect: vi.fn(),
     fillText: vi.fn(),
     measureText: vi.fn(() => ({ width: 40 })),
+    ...(zoom === undefined ? {} : { getTransform: () => ({ a: zoom, b: 0, c: 0, d: zoom }) }),
     set globalAlpha(v: number) {
       calls.push(`alpha:${v}`);
     },
@@ -56,4 +57,41 @@ describe('drawMeasurement', () => {
     drawMeasurement(ctx, { ...model, color: '#00AA00' });
     expect((ctx as unknown as { strokeStyle?: string }).strokeStyle).toBe('#00AA00');
   });
+
+  it.each([
+    {
+      zoom: 0.25,
+      font: 'bold 56px sans-serif',
+      lineWidth: 8,
+      dash: [32, 16],
+      dot: 16,
+      pill: [6, -44, 88, 88, 16],
+    },
+    {
+      zoom: 1,
+      font: 'bold 14px sans-serif',
+      lineWidth: 2,
+      dash: [8, 4],
+      dot: 4,
+      pill: [24, -11, 52, 22, 4],
+    },
+  ])(
+    'drawMeasurement at zoom $zoom uses a $font world font and line width $lineWidth',
+    ({ zoom, font, lineWidth, dash, dot, pill }) => {
+      vi.stubGlobal('devicePixelRatio', 1);
+      const ctx = makeCanvasCtx(zoom);
+      drawMeasurement(ctx, model);
+
+      expect(ctx.font).toBe(font);
+      expect(ctx.lineWidth).toBe(lineWidth);
+      expect(ctx.setLineDash).toHaveBeenCalledWith(dash);
+      expect(ctx.arc).toHaveBeenCalledWith(100, 0, dot, 0, Math.PI * 2);
+      expect(ctx.roundRect).toHaveBeenCalledWith(...pill);
+      expect(ctx.fillText).toHaveBeenCalledWith('30 ft', 50, 0);
+    },
+  );
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
