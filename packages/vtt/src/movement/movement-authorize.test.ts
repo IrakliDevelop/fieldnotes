@@ -55,6 +55,7 @@ const rooms = new Map<string, Map<string, SyncElement>>([
       ['pc1', token('pc1', 'P')],
       ['pc2', token('pc2', 'P')],
       ['npc1', token('npc1', 'DM')],
+      ['vtt-movement:pc1', record('vtt-movement:pc1', {}, 'P')],
     ]),
   ],
   ['other', new Map([['ghost', token('ghost', 'P')]])],
@@ -65,6 +66,7 @@ const authorize = withMovementAuthorize(ownerPolicy, {
 });
 
 const player = { room: 'R', role: 'player', userId: 'P' } as const;
+const dm = { room: 'R', role: 'dm', userId: 'DM' } as const;
 
 describe('withMovementAuthorize', () => {
   it.each<[string, AuthorizeContext, boolean]>([
@@ -154,6 +156,26 @@ describe('withMovementAuthorize', () => {
         currentElement: record('vtt-movement:pc1', {}, 'DM'),
       },
       true,
+    ],
+    [
+      'the DM upserts the record of an NPC token',
+      { ...dm, op: { kind: 'upsert', element: record('vtt-movement:npc1') } },
+      true,
+    ],
+    [
+      'the DM upserts the record of a PC token',
+      { ...dm, op: { kind: 'upsert', element: record('vtt-movement:pc1') } },
+      true,
+    ],
+    [
+      'a record of a record is denied even for the DM',
+      { ...dm, op: { kind: 'upsert', element: record('vtt-movement:vtt-movement:pc1') } },
+      false,
+    ],
+    [
+      'removing a record of a missing record is denied',
+      { ...dm, op: { kind: 'remove', id: 'vtt-movement:vtt-movement:nobody' } },
+      false,
     ],
   ])('%s', async (_name, ctx, expected) => {
     expect(await authorize(ctx)).toBe(expected);

@@ -41,6 +41,8 @@ export function withMovementAuthorize(
     const id = op.kind === 'upsert' ? op.element.id : op.id;
     if (!id.startsWith(MOVEMENT_RECORD_ID_PREFIX)) return authorize(ctx);
     const targetId = id.slice(MOVEMENT_RECORD_ID_PREFIX.length);
+    // Records track tokens, never other records.
+    if (targetId.startsWith(MOVEMENT_RECORD_ID_PREFIX)) return false;
     if (op.kind === 'upsert') {
       const record = op.element;
       // A plain element on a record id would squat the target's record slot.
