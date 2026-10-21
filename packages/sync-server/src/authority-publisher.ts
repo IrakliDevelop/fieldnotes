@@ -144,7 +144,7 @@ export class AuthorityPublisher {
     } finally {
       clearTimeout(timeout);
       this.running = false;
-      if (this.dirty && !this.timer) this.scheduler.schedulePublisher(() => this.run());
+      if (this.dirty) this.wake();
     }
   }
 
