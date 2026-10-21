@@ -7,8 +7,15 @@ import {
   type ReactNode,
   type CSSProperties,
 } from 'react';
-import { Viewport, createDefaultTools } from '@fieldnotes/core';
-import type { ViewportOptions, Tool, CanvasState, ImportableCanvasState } from '@fieldnotes/core';
+import { mountViewport } from '@fieldnotes/core';
+import type {
+  Viewport,
+  ViewportOptions,
+  Tool,
+  CanvasState,
+  ImportableCanvasState,
+  MountedViewport,
+} from '@fieldnotes/core';
 import { ViewportContext } from './context';
 
 export interface FieldNotesCanvasProps {
@@ -74,6 +81,7 @@ export const FieldNotesCanvas = forwardRef<FieldNotesCanvasRef, FieldNotesCanvas
   ) {
     const containerRef = useRef<HTMLDivElement>(null);
     const [viewport, setViewport] = useState<Viewport | null>(null);
+    const mountedRef = useRef<MountedViewport | null>(null);
     const changeRef = useRef({ onChange, changeDebounceMs });
     changeRef.current = { onChange, changeDebounceMs };
 
@@ -83,71 +91,25 @@ export const FieldNotesCanvas = forwardRef<FieldNotesCanvasRef, FieldNotesCanvas
       const el = containerRef.current;
       if (!el) return;
 
-      const vp = new Viewport(el, options);
-
-      const activate = (fallback?: string) => {
-        const name = tool ?? defaultTool ?? fallback;
-        if (name) vp.setTool(name);
-      };
-      // An explicit `options.tools` is the host's choice; core registers it and activates select.
-      const deferDefaults = tools === undefined && options?.tools === undefined;
-      for (const t of tools === 'default' ? createDefaultTools() : (tools ?? [])) {
-        vp.toolManager.register(t);
-      }
-      if (!deferDefaults) activate(tools === 'default' ? 'select' : undefined);
-
-      try {
-        if (typeof initialData === 'string') vp.loadJSON(initialData);
-        else if (initialData) vp.loadState(initialData);
-      } catch (error) {
-        // No cleanup is registered yet, so release the viewport before the error boundary sees it.
-        vp.destroy();
-        throw error;
-      }
-
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const emit = () => {
-        timer = undefined;
-        changeRef.current.onChange?.(vp.exportState());
-      };
-      // Subscribed after initialData so the initial load is not reported as a change.
-      const unsubscribe = vp.onStateChange(() => {
-        clearTimeout(timer);
-        timer = setTimeout(emit, changeRef.current.changeDebounceMs);
+      const mounted = mountViewport(el, {
+        options,
+        tools,
+        initialData,
+        tool,
+        defaultTool,
+        onReady,
+        get onChange() {
+          return changeRef.current.onChange;
+        },
+        get changeDebounceMs() {
+          return changeRef.current.changeDebounceMs;
+        },
       });
-
-      try {
-        onReady?.(vp);
-
-        // Hosts that register their own tools in onReady keep exactly those (0.13 behaviour).
-        if (deferDefaults) {
-          const registerDefaults = vp.toolManager.toolNames.length === 0;
-          if (registerDefaults) {
-            for (const t of createDefaultTools()) vp.toolManager.register(t);
-          }
-          activate(registerDefaults ? 'select' : undefined);
-        }
-      } catch (error) {
-        clearTimeout(timer);
-        unsubscribe();
-        vp.destroy();
-        throw error;
-      }
-      setViewport(vp);
+      mountedRef.current = mounted;
+      setViewport(mounted.viewport);
 
       return () => {
-        if (timer !== undefined) {
-          clearTimeout(timer);
-          try {
-            emit();
-          } catch (error) {
-            // A failing host save must not leak the viewport or throw out of unmount.
-            if (typeof reportError === 'function') reportError(error);
-            else console.error('[fieldnotes] onChange failed during unmount', error);
-          }
-        }
-        unsubscribe();
-        vp.destroy();
+        mounted.destroy();
         setViewport(null);
       };
       // Constructor effect: options/tools/defaultTool/initialData are mount-only by design.
@@ -155,9 +117,7 @@ export const FieldNotesCanvas = forwardRef<FieldNotesCanvasRef, FieldNotesCanvas
 
     useEffect(() => {
       if (!viewport || tool === undefined) return;
-      if (viewport.toolManager.activeTool?.name !== tool) {
-        viewport.setTool(tool);
-      }
+      mountedRef.current?.setTool(tool);
     }, [viewport, tool]);
 
     useEffect(() => {
@@ -172,11 +132,7 @@ export const FieldNotesCanvas = forwardRef<FieldNotesCanvasRef, FieldNotesCanvas
 
     useEffect(() => {
       if (!viewport || !Array.isArray(tools)) return;
-      for (const t of tools) {
-        if (!viewport.toolManager.getTool(t.name)) {
-          viewport.toolManager.register(t);
-        }
-      }
+      mountedRef.current?.addTools(tools);
     }, [viewport, tools]);
 
     return (
