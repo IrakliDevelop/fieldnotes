@@ -393,8 +393,15 @@ export class MovementTracker {
         continue;
       }
       const base = this.spent(id, tracking.epoch);
+      const center = centerOf(target, target.position);
+      const rows = typeof move.footprint === 'number' ? move.footprint : move.footprint.h;
+      // The higher of the element's and its square-grid footprint's top edges.
+      const top = Math.min(
+        'size' in target && target.size ? target.position.y : center.y,
+        live.grid.gridType === 'square' ? center.y - (rows * live.grid.gridSize) / 2 : Infinity,
+      );
       const model = buildMovementModel({
-        path: [move.start, ...move.waypoints, centerOf(target, target.position)],
+        path: [move.start, ...move.waypoints, center],
         trail: base?.trail ?? [],
         grid: live.grid,
         feetPerCell: this.options.feetPerCell,
@@ -402,6 +409,7 @@ export class MovementTracker {
         bands: tracking.bands,
         overColor: this.options.overColor,
         footprint: move.footprint,
+        labelAnchor: { x: center.x, y: top },
       });
       move.model = id === live.labelId ? model : { ...model, label: '' };
     }

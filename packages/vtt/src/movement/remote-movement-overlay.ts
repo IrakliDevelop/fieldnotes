@@ -32,6 +32,8 @@ export type MovementPresence =
       readonly cells: readonly number[];
       readonly label: string;
       readonly over: boolean;
+      /** Integer `[x, y]`. */
+      readonly labelAnchor: readonly [number, number];
     }
   | { readonly kind: 'movement'; readonly cleared: true };
 
@@ -75,6 +77,7 @@ export function toMovementPresence(emission: MovementEmission | null): MovementP
     cells,
     label: model.label,
     over: model.over,
+    labelAnchor: [Math.round(model.labelAnchor.x), Math.round(model.labelAnchor.y)],
   });
   const fits = (): boolean =>
     encoder.encode(JSON.stringify(encode())).length <= MOVEMENT_PRESENCE_MAX_BYTES;
@@ -137,7 +140,9 @@ export function decodeMovementPresence(data: unknown): MovementRenderModel | nul
   const grid = readGrid(data.grid);
   const palette = readPalette(data.palette);
   const path = readPoints(data.path);
-  if (!grid || !palette || !path || !Array.isArray(data.trail)) return null;
+  const anchor = readPoints(data.labelAnchor);
+  const labelAnchor = anchor?.length === 1 ? anchor[0] : undefined;
+  if (!grid || !palette || !path || !labelAnchor || !Array.isArray(data.trail)) return null;
   const colorAt = (index: unknown): string | undefined =>
     isInt(index) ? palette[index] : undefined;
 
@@ -170,7 +175,7 @@ export function decodeMovementPresence(data: unknown): MovementRenderModel | nul
     if (!isInt(x) || !isInt(y) || color === undefined) return null;
     cells.push({ x, y, color });
   }
-  return { grid, trail, path, segmentColors, cells, label, over };
+  return { grid, trail, path, segmentColors, cells, label, over, labelAnchor };
 }
 
 function isClearedPresence(data: unknown): boolean {

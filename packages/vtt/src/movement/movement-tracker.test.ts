@@ -987,6 +987,37 @@ describe('MovementTracker', () => {
       ]);
     });
 
+    it.each([
+      ['a 40px token: its top edge', 0, 40],
+      ['a 30px token: its one-cell footprint top edge', 5, 30],
+    ])('labelAnchor is the top center of %s', (_name, at, side) => {
+      const frames: FrameRequestCallback[] = [];
+      vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => frames.push(cb));
+      vi.stubGlobal('cancelAnimationFrame', vi.fn());
+      const { vp, tracker, gesture, track } = setup();
+      const shape = createShape({
+        position: { x: at, y: at },
+        size: { w: side, h: side },
+        layerId: vp.layerManager.activeLayerId,
+      });
+      vp.store.add(shape);
+      track(shape.id);
+      const anchors: unknown[] = [];
+      tracker.onMovement((e) => anchors.push(e?.model.labelAnchor));
+
+      gesture(
+        [
+          [20, 20],
+          [140, 20],
+        ],
+        () => {
+          for (const frame of frames.splice(0)) frame(0);
+        },
+      );
+
+      expect(anchors).toEqual([{ x: 140, y: 0 }, undefined]);
+    });
+
     it('a throwing onMovement listener still gets the record written and the drag ended', () => {
       const frames: FrameRequestCallback[] = [];
       vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => frames.push(cb));

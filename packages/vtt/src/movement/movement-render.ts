@@ -42,6 +42,8 @@ export interface MovementRenderModel {
   readonly label: string;
   /** Beyond the last band, or no bands at all. */
   readonly over: boolean;
+  /** Top center of the dragged element; the label pill sits above it. */
+  readonly labelAnchor: Point;
 }
 
 function bandFor(feet: number, bands: readonly PathRangeBand[]): PathRangeBand | undefined {
@@ -141,6 +143,8 @@ export function buildMovementModel(input: {
   overColor: string;
   /** Square-grid cells the element covers; every step tints all of them. */
   footprint?: Footprint;
+  /** Defaults to the last path point. */
+  labelAnchor?: Point;
 }): MovementRenderModel {
   const { path, grid, feetPerCell, bands, overColor } = input;
   const cellSize = grid.gridSize;
@@ -199,6 +203,7 @@ export function buildMovementModel(input: {
     cells,
     label: formatMovementLabel(start.feet, bands),
     over: bandFor(start.feet, bands) === undefined,
+    labelAnchor: input.labelAnchor ?? path.at(-1) ?? { x: 0, y: 0 },
   };
 }
 
@@ -242,10 +247,11 @@ export function drawMovement(
     ctx.lineTo(b.x, b.y);
     ctx.stroke();
   }
-  const end = model.path.at(-1);
-  if (model.label && end) {
-    drawLabelPill(ctx, model.label, end, {
+  if (model.label) {
+    // 40 CSS px clears SelectTool's rotate handle, 28 px above the top edge.
+    drawLabelPill(ctx, model.label, model.labelAnchor, {
       fillColor: model.over ? model.segmentColors.at(-1) : undefined,
+      offsetCssPx: 40,
     });
   }
   ctx.restore();

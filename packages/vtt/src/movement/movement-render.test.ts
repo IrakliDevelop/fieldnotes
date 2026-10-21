@@ -151,6 +151,28 @@ it('without bands every move is over', () => {
   expect(model.label).toBe('5 ft');
 });
 
+it('labelAnchor defaults to the last path point and keeps a given anchor', () => {
+  const path = [
+    { x: 20, y: 20 },
+    { x: 60, y: 20 },
+  ];
+  const input = {
+    path,
+    trail: [],
+    grid: SQUARE,
+    feetPerCell: 5,
+    start: { feet: 0, diagonals: 0 },
+    bands: BANDS,
+    overColor: R,
+  };
+
+  expect(buildMovementModel(input).labelAnchor).toEqual({ x: 60, y: 20 });
+  expect(buildMovementModel({ ...input, labelAnchor: { x: 60, y: 0 } }).labelAnchor).toEqual({
+    x: 60,
+    y: 0,
+  });
+});
+
 describe('hexLineCells', () => {
   const s3 = Math.sqrt(3);
   // Pointy, size 20, from cube (0,0,0); the nudged lerp at t=0.5 picks the middle cell.
@@ -203,6 +225,31 @@ describe('drawMovement', () => {
 
     expect(fonts).toEqual(['bold 28px sans-serif']);
     expect(ctx.fillText).toHaveBeenCalledWith('5 ft · 25 left', 60, expect.any(Number));
+  });
+
+  it('centers the label 40 CSS px above labelAnchor, not the last path point', () => {
+    const ctx = {
+      save: vi.fn(),
+      restore: vi.fn(),
+      beginPath: vi.fn(),
+      moveTo: vi.fn(),
+      lineTo: vi.fn(),
+      stroke: vi.fn(),
+      fill: vi.fn(),
+      fillRect: vi.fn(),
+      roundRect: vi.fn(),
+      fillText: vi.fn(),
+      measureText: vi.fn(() => ({ width: 40 })),
+      getTransform: () => ({ a: 1, b: 0, c: 0, d: 1 }),
+    } as unknown as CanvasRenderingContext2D;
+    const model = build([
+      { x: 20, y: 20 },
+      { x: 60, y: 20 },
+    ]);
+
+    drawMovement(ctx, { ...model, labelAnchor: { x: 100, y: 0 } });
+
+    expect(ctx.fillText).toHaveBeenCalledWith('5 ft · 25 left', 100, -40);
   });
 
   it.each([

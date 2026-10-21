@@ -35,6 +35,7 @@ const model: MovementRenderModel = {
   ],
   label: '10 ft · 20 left',
   over: false,
+  labelAnchor: { x: 120, y: -20 },
 };
 
 const active = {
@@ -48,6 +49,7 @@ const active = {
   cells: [80, 0, 0, 120, 0, 1],
   label: '10 ft · 20 left',
   over: false,
+  labelAnchor: [120, -20],
 };
 
 function emission(visibility: 'all' | 'dm', m: MovementRenderModel = model): MovementEmission {
@@ -102,6 +104,13 @@ describe('toMovementPresence', () => {
       path: rounded(path),
       cells: cells.map((c) => ({ x: Math.round(c.x), y: Math.round(c.y), color: c.color })),
     });
+  });
+
+  it('round-trips the label anchor rounded to integers', () => {
+    const presence = toMovementPresence(
+      emission('all', { ...model, labelAnchor: { x: 119.6, y: -20.4 } }),
+    );
+    expect(decodeMovementPresence(presence)?.labelAnchor).toEqual({ x: 120, y: -20 });
   });
 
   it('drops empty trail runs', () => {
@@ -211,6 +220,11 @@ describe('isMovementPresence', () => {
     ['non-boolean over', { over: 'yes' }],
     ['missing elementId', { elementId: undefined }],
     ['elementId over 256 chars', { elementId: 'a'.repeat(257) }],
+    ['missing labelAnchor', { labelAnchor: undefined }],
+    ['non-integer labelAnchor', { labelAnchor: [120.5, -20] }],
+    ['NaN labelAnchor', { labelAnchor: [120, Number.NaN] }],
+    ['infinite labelAnchor', { labelAnchor: [Infinity, -20] }],
+    ['labelAnchor with extra coordinates', { labelAnchor: [120, -20, 0, 0] }],
   ])('rejects %s', (_name, patch) => {
     expect(isMovementPresence({ ...active, ...patch })).toBe(false);
   });

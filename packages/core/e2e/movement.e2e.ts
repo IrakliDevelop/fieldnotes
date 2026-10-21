@@ -158,19 +158,19 @@ async function countColorPixels(page: Page, hex: string, tolerance = 40): Promis
 }
 
 /**
- * CSS-pixel height of the dark label pill drawn above `centre` (wrapper-local
- * CSS px). The crop is the pill's left end, clear of the 40px token under its
- * middle; grid lines, dots, cell tints and the green path are all lighter than
- * the pill's 75%-black fill.
+ * CSS-pixel height of the dark label pill drawn above `anchor`, the token's top
+ * centre (wrapper-local CSS px). The crop is the pill's left end, clear of the
+ * rotate handle under its middle; grid lines, dots, cell tints and the green
+ * path are all lighter than the pill's 75%-black fill.
  */
-async function labelHeight(page: Page, centre: Point): Promise<number> {
+async function labelHeight(page: Page, anchor: Point): Promise<number> {
   return page.evaluate((c) => {
     const canvas = window.__fnCompositeCanvas();
     const ctx = canvas.getContext('2d');
     if (!ctx) return -1;
     const dpr = window.devicePixelRatio;
     const x0 = Math.max(0, Math.round((c.x - 90) * dpr));
-    const y0 = Math.max(0, Math.round((c.y - 60) * dpr));
+    const y0 = Math.max(0, Math.round((c.y - 80) * dpr));
     const w = Math.round(65 * dpr);
     const h = Math.round(60 * dpr);
     const data = ctx.getImageData(x0, y0, w, h).data;
@@ -190,7 +190,7 @@ async function labelHeight(page: Page, centre: Point): Promise<number> {
       }
     }
     return bottom < top ? 0 : (bottom - top + 1) / dpr;
-  }, centre);
+  }, anchor);
 }
 
 test.describe('movement tracking', () => {
@@ -285,15 +285,15 @@ test.describe('movement tracking', () => {
   test('the live label pill keeps its screen height at zoom 0.25', async ({ canvasPage }) => {
     const page = canvasPage.page;
     const { id, box } = await setupTrackedToken(canvasPage);
-    const localCentre = async (): Promise<Point> => {
-      const p = await tokenScreenCentre(page, box, id);
+    const localTop = async (): Promise<Point> => {
+      const p = await tokenScreenCentre(page, box, id, { x: 0, y: -0.5 });
       return { x: p.x - box.x, y: p.y - box.y };
     };
 
     await pressAndDrag(page, box, id, 3);
-    const centre = await localCentre();
-    await expect.poll(() => labelHeight(page, centre)).toBeGreaterThan(10);
-    const atZoom1 = await labelHeight(page, centre);
+    const top = await localTop();
+    await expect.poll(() => labelHeight(page, top)).toBeGreaterThan(10);
+    const atZoom1 = await labelHeight(page, top);
     await page.mouse.up();
 
     await page.evaluate((anchor) => {
@@ -301,16 +301,16 @@ test.describe('movement tracking', () => {
         camera: { zoomAt: (level: number, p: Point) => void; zoom: number };
       };
       vp.camera.zoomAt(0.25, anchor);
-    }, centre);
+    }, top);
     // A 10px token sits inside its own selection handles; deselect so the press drags it.
     const empty = await tokenScreenCentre(page, box, id, { x: 0, y: 8 });
     await page.mouse.click(empty.x, empty.y);
     await expect(page.locator('#movement-track')).toBeDisabled();
 
     await pressAndDrag(page, box, id, 3);
-    const zoomedCentre = await localCentre();
+    const zoomedTop = await localTop();
     await expect
-      .poll(async () => Math.abs((await labelHeight(page, zoomedCentre)) - atZoom1))
+      .poll(async () => Math.abs((await labelHeight(page, zoomedTop)) - atZoom1))
       .toBeLessThanOrEqual(2);
     await page.mouse.up();
   });
