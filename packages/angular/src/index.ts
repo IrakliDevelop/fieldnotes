@@ -17,3 +17,11 @@ export type { InjectSelectionOpsResult } from './helpers/inject-selection-ops';
 export { injectSelectionStyle } from './helpers/inject-selection-style';
 export { injectSelectionStyleDetails } from './helpers/inject-selection-style-details';
 export { injectToolOptions } from './helpers/inject-tool-options';
+export type {
+  AlignEdge,
+  CameraState,
+  DistributeAxis,
+  ElementRect,
+  ElementStyle,
+  SelectionStyleDetails,
+} from '@fieldnotes/core';

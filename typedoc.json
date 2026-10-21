@@ -6,6 +6,7 @@
     "packages/core",
     "packages/react",
     "packages/vue",
+    "packages/angular",
     "packages/sync",
     "packages/sync-server",
     "packages/sync-redis",
