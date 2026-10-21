@@ -25,7 +25,7 @@ export const authorize: Authorize = ({ role, userId, op, currentElement }) => {
 // D3 — two-tier read filter: dm-tagged elements reach only the DM.
 export const canRead: CanRead = ({ role, audience }) => audience !== DM_AUDIENCE || role === 'dm';
 
-// Client-side — stamp 'dm' on DM-only movement records and on elements the DM placed on the secret layer; everything else shared (undefined).
+// Client-side — stamp 'dm' on DM-only movement records and the DM's secret-layer elements; else shared.
 export function makeResolveAudience(
   dmSecretLayerId: string | null,
 ): (el: CanvasElement) => string | undefined {

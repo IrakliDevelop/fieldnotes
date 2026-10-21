@@ -526,8 +526,7 @@ export class MovementTracker {
       visibility: tracking.visibility,
       feet,
       diagonals,
-      // A move continuing from the trail's end extends its run; after a jump it starts a new one.
-      // An uncounted placement's run is only its destination, so no line crosses the jump.
+      // Continuing from the trail's end extends its run; a jump starts one, uncounted at its end.
       trail: joins
         ? appendTrail(base.trail, path.slice(1), false)
         : appendTrail(base.trail, counts ? path : path.slice(-1), true),

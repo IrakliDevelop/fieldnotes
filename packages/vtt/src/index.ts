@@ -81,10 +81,8 @@ export type { PathRenderModel } from './path-render';
 export {
   movementRecordTypeDefinition,
   movementRecordId,
-  createMovementRecord,
   getMovementVisibility,
   resolveMovementVisibility,
-  appendTrail,
   MOVEMENT_RECORD_ID_PREFIX,
 } from './movement/movement-record';
 export { MOVEMENT_TRAIL_MAX_POINTS } from './movement/movement-types';
@@ -98,7 +96,6 @@ export type {
   MovementPlacementResult,
 } from './movement/movement-tracker';
 export {
-  buildMovementModel,
   drawMovement,
   formatMovementLabel,
   DEFAULT_MOVEMENT_BANDS_COLORS,
