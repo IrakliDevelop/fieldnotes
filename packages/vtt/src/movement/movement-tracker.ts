@@ -29,6 +29,9 @@ import type { MovementRenderModel } from './movement-render';
 
 /** Cell size (world units) when no grid constrains the drag; matches `PathTool`. */
 const FALLBACK_CELL_SIZE = 24;
+/** A touch or pen pointer held this long within `DWELL_SLOP_PX` screen px drops a waypoint. */
+const DWELL_MS = 500;
+const DWELL_SLOP_PX = 6;
 
 /** What the tracker needs from its viewport; `Viewport` satisfies it structurally. */
 export interface MovementTrackerHost {
@@ -116,13 +119,19 @@ export class MovementTracker {
   private readonly disposers: (() => void)[] = [];
   private live: LiveDrag | null = null;
   private frame: number | null = null;
+  private dwellTimer: ReturnType<typeof setTimeout> | null = null;
+  private dwellAnchor: Point | null = null;
 
   // Starts and ends are not guaranteed to pair, so every boundary replaces the live state.
   private readonly observer: SelectDragObserver = {
     onDragStart: (info, ctx) => this.startDrag(info, ctx),
-    onDragMove: () => this.updateModels(),
+    onDragMove: (info) => {
+      this.updateModels();
+      this.dwell(info);
+    },
     onDragEnd: () => this.endDrag(),
     onDragCancel: () => this.clearLive(),
+    onDragKeyDown: (e) => this.keyDown(e),
   };
 
   constructor(
@@ -213,6 +222,7 @@ export class MovementTracker {
     for (const dispose of this.disposers.splice(0)) dispose();
     if (this.frame !== null) cancelAnimationFrame(this.frame);
     this.frame = null;
+    this.stopDwell();
     this.listeners.clear();
     this.movementListeners.clear();
     this.tracked.clear();
@@ -220,6 +230,7 @@ export class MovementTracker {
   }
 
   private startDrag(info: SelectDragInfo, ctx: ToolContext): void {
+    this.stopDwell();
     const grid = gridMetric(ctx, this.options.diagonalRule);
     const moves = new Map<string, LiveMove>();
     let labelId: string | null = null;
@@ -239,6 +250,62 @@ export class MovementTracker {
     }
     this.live = { grid, moves, labelId };
     this.updateModels();
+  }
+
+  private keyDown(e: KeyboardEvent): boolean {
+    const moves = this.live?.moves;
+    if (!moves || moves.size === 0) return false;
+    const key = e.key.toLowerCase();
+    if (key === 'f') {
+      if (!e.repeat) this.addWaypoint();
+      return true;
+    }
+    if (key !== 'backspace') return false;
+    for (const move of moves.values()) move.waypoints.pop();
+    this.updateModels();
+    return true;
+  }
+
+  /** Each tracked element's current center, unless it is already the path's last point. */
+  private addWaypoint(): void {
+    const moves = this.live?.moves;
+    if (!moves) return;
+    let added = false;
+    for (const [id, move] of moves) {
+      const target = this.host.store.getById(id);
+      if (!target) continue;
+      const point = centerOf(target, target.position);
+      const last = move.waypoints.at(-1) ?? move.start;
+      if (point.x === last.x && point.y === last.y) continue;
+      move.waypoints.push(point);
+      added = true;
+    }
+    if (added) this.updateModels();
+  }
+
+  // The timer restarts only when the pointer leaves the slop circle, so jitter still dwells.
+  private dwell(info: SelectDragInfo): void {
+    if (info.pointerType === 'mouse' || !this.live || this.live.moves.size === 0) return;
+    const anchor = this.dwellAnchor;
+    const zoom = this.host.camera.zoom;
+    if (
+      anchor &&
+      Math.hypot(info.pointer.x - anchor.x, info.pointer.y - anchor.y) * zoom <= DWELL_SLOP_PX
+    ) {
+      return;
+    }
+    this.stopDwell();
+    this.dwellAnchor = info.pointer;
+    this.dwellTimer = setTimeout(() => {
+      this.dwellTimer = null;
+      this.addWaypoint();
+    }, DWELL_MS);
+  }
+
+  private stopDwell(): void {
+    if (this.dwellTimer !== null) clearTimeout(this.dwellTimer);
+    this.dwellTimer = null;
+    this.dwellAnchor = null;
   }
 
   // Models are built per move, not per frame, so drawing allocates nothing.
@@ -298,6 +365,7 @@ export class MovementTracker {
     this.live = null;
     if (this.frame !== null) cancelAnimationFrame(this.frame);
     this.frame = null;
+    this.stopDwell();
     if (!live || live.moves.size === 0) return;
     this.host.requestOverlayRender();
     if (live.labelId !== null) this.emitMovement(null);

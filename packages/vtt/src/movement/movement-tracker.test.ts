@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, vi } from 'vitest';
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { ElementRegistry, SelectTool, Viewport, createShape } from '@fieldnotes/core';
 import type { PointerState } from '@fieldnotes/core';
 import { registerVttElementTypes } from '../register';
@@ -91,12 +91,42 @@ function setup(opts: { grid?: boolean; tracker?: MovementTrackerOptions } = {}) 
     vp.historyRecorder.commit();
   };
 
+  // Like gesture, but stepwise so a test can press keys or advance time between moves.
+  const press = (x: number, y: number, pointerType: PointerState['pointerType'] = 'mouse') => {
+    const ctx = vp.toolContext;
+    let last: PointerState = { ...pt(x, y), pointerType };
+    vp.historyRecorder.begin();
+    vp.toolManager.handlePointerDown(last, ctx);
+    return {
+      move: (mx: number, my: number): void => {
+        last = { ...pt(mx, my), pointerType };
+        vp.toolManager.handlePointerMove(last, ctx);
+      },
+      up: (): void => {
+        vp.toolManager.handlePointerUp(last, ctx);
+        vp.historyRecorder.commit();
+      },
+    };
+  };
+
+  const key = (key: string, repeat = false): boolean =>
+    vp.toolManager.activeTool?.onKeyDown?.(
+      new KeyboardEvent('keydown', { key, repeat }),
+      vp.toolContext,
+    ) ?? false;
+
   const record = (id: string) => vp.store.getById(`vtt-movement:${id}`);
   const position = (id: string) => vp.store.getById(id)?.position;
   const track = (id: string, epoch = 'e1', visibility: MovementVisibility = 'all') =>
     tracker.track(id, { epoch, bands: BANDS, visibility });
 
-  return { vp, tracker, select, token, gesture, record, position, track };
+  return { vp, tracker, select, token, gesture, press, key, record, position, track };
+}
+
+function drawOverlay(vp: ReturnType<typeof setup>['vp']) {
+  const { ctx, calls } = recordingCtx();
+  vp.renderHooks.viewport.call('overlay', ctx, vp.camera, { width: 100, height: 100, dpr: 1 });
+  return calls.filter(([name]) => name !== 'save' && name !== 'restore');
 }
 
 describe('MovementTracker', () => {
@@ -631,13 +661,223 @@ describe('MovementTracker', () => {
     expect(record(a)).toBeUndefined();
   });
 
-  describe('live overlay', () => {
-    function drawOverlay(vp: ReturnType<typeof setup>['vp']) {
-      const { ctx, calls } = recordingCtx();
-      vp.renderHooks.viewport.call('overlay', ctx, vp.camera, { width: 100, height: 100, dpr: 1 });
-      return calls.filter(([name]) => name !== 'save' && name !== 'restore');
-    }
+  describe('waypoints', () => {
+    beforeEach(() => vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] }));
+    afterEach(() => vi.useRealTimers());
 
+    it("F adds a waypoint at the element's current snapped center", () => {
+      const { tracker, token, press, key, record, track } = setup();
+      const a = token(0, 0);
+      track(a);
+
+      const drag = press(25, 25);
+      drag.move(145, 25);
+      expect(key('f')).toBe(true);
+      drag.move(145, 145);
+      drag.up();
+
+      expect(tracker.getMovement(a)?.feet).toBe(30);
+      expect(record(a)).toMatchObject({
+        data: {
+          trail: [
+            [
+              { x: 20, y: 20 },
+              { x: 140, y: 20 },
+              { x: 140, y: 140 },
+            ],
+          ],
+        },
+      });
+    });
+
+    it('F auto-repeat (e.repeat) and a second F on the same cell add nothing', () => {
+      const { tracker, token, press, key, record, track } = setup();
+      const a = token(0, 0);
+      track(a);
+
+      const drag = press(25, 25);
+      drag.move(65, 25);
+      key('f');
+      expect(key('F')).toBe(true);
+      drag.move(145, 25);
+      expect(key('f', true)).toBe(true);
+      drag.move(65, 145);
+      drag.up();
+
+      expect(tracker.getMovement(a)?.feet).toBe(20);
+      expect(record(a)).toMatchObject({
+        data: {
+          trail: [
+            [
+              { x: 20, y: 20 },
+              { x: 60, y: 20 },
+              { x: 60, y: 140 },
+            ],
+          ],
+        },
+      });
+    });
+
+    it('Backspace removes the last waypoint and redraws at once', () => {
+      const { vp, tracker, token, press, key, record, track } = setup();
+      const a = token(0, 0);
+      track(a);
+
+      const drag = press(25, 25);
+      drag.move(65, 25);
+      key('f');
+      drag.move(145, 25);
+      key('f');
+      drag.move(145, 145);
+      expect(key('Backspace')).toBe(true);
+      const texts = drawOverlay(vp).filter(([name]) => name === 'fillText');
+      drag.up();
+
+      expect(texts).toEqual([['fillText', '20 ft · 10 left', 140, expect.any(Number)]]);
+      expect(tracker.getMovement(a)?.feet).toBe(20);
+      expect(record(a)).toMatchObject({
+        data: {
+          trail: [
+            [
+              { x: 20, y: 20 },
+              { x: 60, y: 20 },
+              { x: 140, y: 140 },
+            ],
+          ],
+        },
+      });
+    });
+
+    it('F and Backspace are not consumed in a drag without a tracked element', () => {
+      const { token, press, key, record } = setup();
+      const a = token(0, 0);
+
+      const drag = press(25, 25);
+      drag.move(145, 25);
+      const consumed = [key('f'), key('Backspace')];
+      drag.up();
+
+      expect(consumed).toEqual([false, false]);
+      expect(record(a)).toBeUndefined();
+    });
+
+    it.each(['touch', 'pen'] as const)(
+      '%s dwell of 500 ms within 6 screen px adds a waypoint',
+      (pointerType) => {
+        const { tracker, token, press, record, track } = setup();
+        const a = token(0, 0);
+        track(a);
+
+        const drag = press(25, 25, pointerType);
+        drag.move(145, 25);
+        vi.advanceTimersByTime(300);
+        drag.move(149, 29);
+        vi.advanceTimersByTime(200);
+        drag.move(145, 145);
+        drag.up();
+
+        expect(tracker.getMovement(a)?.feet).toBe(30);
+        expect(record(a)).toMatchObject({
+          data: {
+            trail: [
+              [
+                { x: 20, y: 20 },
+                { x: 140, y: 20 },
+                { x: 140, y: 140 },
+              ],
+            ],
+          },
+        });
+      },
+    );
+
+    it('dwell measures screen px: 4 world units at zoom 2 restart the timer', () => {
+      const { vp, tracker, token, press, track } = setup();
+      const a = token(0, 0);
+      track(a);
+      vp.camera.setZoom(2);
+
+      // Pointer coordinates are screen px: world (25, 25) is screen (50, 50) at zoom 2.
+      const drag = press(50, 50, 'touch');
+      drag.move(290, 50);
+      vi.advanceTimersByTime(300);
+      drag.move(298, 50);
+      vi.advanceTimersByTime(200);
+      drag.move(290, 290);
+      drag.up();
+
+      expect(tracker.getMovement(a)?.feet).toBe(15);
+    });
+
+    it('a second dwell on the same cell adds nothing', () => {
+      const { token, press, record, track } = setup();
+      const a = token(0, 0);
+      track(a);
+
+      const drag = press(25, 25, 'touch');
+      drag.move(145, 25);
+      vi.advanceTimersByTime(500);
+      drag.move(155, 25);
+      vi.advanceTimersByTime(500);
+      drag.move(145, 145);
+      drag.up();
+
+      expect(record(a)).toMatchObject({
+        data: {
+          feet: 30,
+          trail: [
+            [
+              { x: 20, y: 20 },
+              { x: 140, y: 20 },
+              { x: 140, y: 140 },
+            ],
+          ],
+        },
+      });
+    });
+
+    it('mouse dwell adds nothing', () => {
+      const { tracker, token, press, track } = setup();
+      const a = token(0, 0);
+      track(a);
+
+      const drag = press(25, 25);
+      drag.move(145, 25);
+      vi.advanceTimersByTime(500);
+      drag.move(145, 145);
+      drag.up();
+
+      expect(tracker.getMovement(a)?.feet).toBe(15);
+    });
+
+    it('pointerup before 500 ms clears the timer', () => {
+      const { tracker, token, press, record, track } = setup();
+      const a = token(0, 0);
+      track(a);
+      const timers = vi.getTimerCount();
+
+      const drag = press(25, 25, 'touch');
+      drag.move(145, 25);
+      vi.advanceTimersByTime(400);
+      drag.up();
+
+      expect(vi.getTimerCount()).toBe(timers);
+      vi.advanceTimersByTime(1000);
+      expect(tracker.getMovement(a)?.feet).toBe(15);
+      expect(record(a)).toMatchObject({
+        data: {
+          trail: [
+            [
+              { x: 20, y: 20 },
+              { x: 140, y: 20 },
+            ],
+          ],
+        },
+      });
+    });
+  });
+
+  describe('live overlay', () => {
     it('draws tinted cells and the label while a tracked drag is live, nothing after drop', () => {
       const { vp, token, gesture, track } = setup();
       const a = token(0, 0);
