@@ -32,6 +32,8 @@ then open only the handbook pages relevant to the task.
 - Co-locate focused Vitest tests with source. Add a discriminating regression test for behavior
   changes; do not update snapshots merely to make a failure disappear.
 - Do not modify generated `dist/`, coverage, or test-result artifacts by hand.
+- Name branches `<type>/<short-description>` (`feat/website-favicon`), never `claude/...` or
+  generated suffixes; see `docs/agents/workflow.md` §Branches.
 - Do not touch unrelated or untracked files. Never commit root `SPEC_*`, `PLAN_*`, audit, roadmap,
   `dump.txt`, or scratch artifacts unless the user explicitly changes that policy.
 

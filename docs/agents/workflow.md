@@ -15,6 +15,15 @@
 Pure refactors move behavior mechanically. Do not combine a refactor and behavior fix. Existing tests
 must remain unchanged; compare public declarations and relevant visual output when applicable.
 
+## Branches
+
+Name branches `<type>/<short-description>` in lowercase kebab case, for example
+`feat/website-favicon` or `fix/sync-server-publisher-wake`. The type is a commit type: `feat`,
+`fix`, `chore`, `docs`, `refactor`, `test`, or `perf`. Leave out tool or agent names such as
+`claude/` and generated suffixes. If a harness creates the worktree branch with such a name, run
+`git branch -m <type>/<short-description>` before the first push: renaming a pushed branch closes
+its open PR.
+
 ## Verification matrix
 
 | Change class           | Required minimum                                                                                                                            |
