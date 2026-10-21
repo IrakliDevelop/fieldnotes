@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { SelectTool } from './select-tool';
 import { ToolManager } from './tool-manager';
+import { HandTool } from './hand-tool';
 import { ElementStore } from '../elements/element-store';
 import { Camera } from '../canvas/camera';
 import { createArrow, createShape } from '../elements/element-factory';
@@ -129,6 +130,24 @@ describe('SelectTool drag observers', () => {
     expect(observer.onDragEnd).toHaveBeenCalledTimes(1);
     expect(observer.onDragCancel).not.toHaveBeenCalled();
     expect(ctx.store.getById(shape.id)?.position).toEqual({ x: 110, y: 100 });
+  });
+
+  it('a tool switch mid-drag ends the drag', () => {
+    const { ctx, tool, shape } = setup();
+    const manager = new ToolManager();
+    manager.register(tool);
+    manager.register(new HandTool());
+    manager.setTool('select', ctx);
+    const observer = spyObserver();
+    tool.addDragObserver(observer);
+
+    manager.handlePointerDown(pt(120, 120), ctx);
+    manager.handlePointerMove(pt(130, 120), ctx);
+    manager.setTool('hand', ctx);
+
+    expect(observer.onDragEnd).toHaveBeenCalledTimes(1);
+    expect(observer.onDragEnd.mock.calls[0]?.[0].ids).toEqual([shape.id]);
+    expect(observer.onDragCancel).not.toHaveBeenCalled();
   });
 
   it('Escape restores positions and records nothing', () => {

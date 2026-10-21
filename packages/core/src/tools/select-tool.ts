@@ -138,9 +138,11 @@ export class SelectTool implements Tool {
   }
 
   onDeactivate(ctx: ToolContext): void {
+    // A shortcut can switch tools mid-drag; observers still need the end.
+    this.emitDrag('onDragEnd', ctx);
+    this.drag = null;
     this.setSelectedIds([]);
     this.mode = { type: 'idle' };
-    this.drag = null;
     this.hoveredId = null;
     this.activeGuides = [];
     this.dragSnapTargets = null;
