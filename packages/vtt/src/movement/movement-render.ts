@@ -248,10 +248,10 @@ export function drawMovement(
     ctx.stroke();
   }
   if (model.label) {
-    // 40 CSS px clears SelectTool's rotate handle, 28 px above the top edge.
+    // 46 CSS px clears SelectTool's rotate handle, which spans 24-32 px above the top edge.
     drawLabelPill(ctx, model.label, model.labelAnchor, {
       fillColor: model.over ? model.segmentColors.at(-1) : undefined,
-      offsetCssPx: 40,
+      offsetCssPx: 46,
     });
   }
   ctx.restore();

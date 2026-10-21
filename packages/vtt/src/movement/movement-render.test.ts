@@ -227,7 +227,7 @@ describe('drawMovement', () => {
     expect(ctx.fillText).toHaveBeenCalledWith('5 ft · 25 left', 60, expect.any(Number));
   });
 
-  it('centers the label 40 CSS px above labelAnchor, not the last path point', () => {
+  it('centers the label 46 CSS px above labelAnchor, not the last path point', () => {
     const ctx = {
       save: vi.fn(),
       restore: vi.fn(),
@@ -249,7 +249,7 @@ describe('drawMovement', () => {
 
     drawMovement(ctx, { ...model, labelAnchor: { x: 100, y: 0 } });
 
-    expect(ctx.fillText).toHaveBeenCalledWith('5 ft · 25 left', 100, -40);
+    expect(ctx.fillText).toHaveBeenCalledWith('5 ft · 25 left', 100, -46);
   });
 
   it.each([
