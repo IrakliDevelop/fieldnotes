@@ -9,7 +9,7 @@ npm install @fieldnotes/core @fieldnotes/angular
 ```
 
 Requires Angular 20 to 22 (`@angular/core >=20.0.0 <23.0.0`) and `@fieldnotes/core >=0.98.0`.
-Every export is standalone; there is no NgModule.
+Every component is standalone; there is no NgModule.
 
 ## Quick Start
 
@@ -122,9 +122,9 @@ afterwards has no effect:
 | `tools`            | input `Tool[] \| 'default'` | An array is append-only: a new array reference registers its new tools. `'default'` mount-only |
 | `initialData`      | input                       | Mount-only. Loaded once before `ready`                                                         |
 | `changeDebounceMs` | input, default `250`        | Read each time a change is scheduled                                                           |
-| `tool`             | model `string`              | Controlled; `[(tool)]` binds both ways                                                         |
+| `tool`             | model `string \| undefined` | Controlled; `[(tool)]` binds both ways                                                         |
 | `defaultTool`      | input `string`              | Mount-only (uncontrolled initial tool); ignored when `tool` is set                             |
-| `ready`            | output `Viewport`           | Once, after the viewport exists, tools are registered and `initialData` is loaded              |
+| `ready`            | output `Viewport`           | Once, after the viewport exists and `initialData` is loaded                                    |
 | `stateChange`      | output `CanvasState`        | Trailing-debounced exported state; a pending one is emitted on destroy                         |
 | `toolChange`       | output `string`             | The `tool` model's change event; see below                                                     |
 | `viewport`         | `Signal<Viewport \| null>`  | Public field; `null` before mount, on the server and after destroy                             |

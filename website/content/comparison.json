@@ -27,7 +27,7 @@
       "label": "Framework requirement",
       "cells": {
         "Field Notes": {
-          "text": "None. The core package is vanilla TypeScript, and the React, Vue and Svelte bindings are separate packages.",
+          "text": "None. The core package is vanilla TypeScript, and the React, Vue, Svelte and Angular bindings are separate packages.",
           "href": "/docs/getting-started/"
         },
         "tldraw": {

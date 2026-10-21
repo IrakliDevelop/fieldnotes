@@ -14,20 +14,21 @@ How it compares to the alternatives:
 - **Excalidraw** — great drawing tool, but can't embed arbitrary HTML components
 - **React Flow** — excellent for node graphs, but not a general-purpose canvas
 
-The `@fieldnotes/core` engine has zero framework dependencies and drops into any stack; the React, Vue and Svelte bindings are thin optional layers; and real-time collaboration ships as separate, opt-in packages you own end-to-end.
+The `@fieldnotes/core` engine has zero framework dependencies and drops into any stack; the React, Vue, Svelte and Angular bindings are thin optional layers; and real-time collaboration ships as separate, opt-in packages you own end-to-end.
 
 ## Packages
 
-| Package                                           | Description                                                          |
-| ------------------------------------------------- | -------------------------------------------------------------------- |
-| [`@fieldnotes/core`](packages/core)               | Vanilla TypeScript canvas engine — zero framework deps               |
-| [`@fieldnotes/react`](packages/react)             | React bindings — components, hooks, portal embedding                 |
-| [`@fieldnotes/vue`](packages/vue)                 | Vue 3.5+ bindings — components, composables, teleport embedding      |
-| [`@fieldnotes/svelte`](packages/svelte)           | Svelte 5 bindings — components, store helpers, snippet embedding     |
-| [`@fieldnotes/vtt`](packages/vtt)                 | VTT domain package — fog of war, grids, templates, measurement       |
-| [`@fieldnotes/sync`](packages/sync)               | Real-time sync client — observe/apply ops over a pluggable transport |
-| [`@fieldnotes/sync-server`](packages/sync-server) | Authoritative WebSocket relay — rooms, auth, write-authorization     |
-| [`@fieldnotes/sync-redis`](packages/sync-redis)   | Redis persistence + cross-instance fan-out for the relay             |
+| Package                                           | Description                                                                      |
+| ------------------------------------------------- | -------------------------------------------------------------------------------- |
+| [`@fieldnotes/core`](packages/core)               | Vanilla TypeScript canvas engine — zero framework deps                           |
+| [`@fieldnotes/react`](packages/react)             | React bindings — components, hooks, portal embedding                             |
+| [`@fieldnotes/vue`](packages/vue)                 | Vue 3.5+ bindings — components, composables, teleport embedding                  |
+| [`@fieldnotes/svelte`](packages/svelte)           | Svelte 5 bindings — components, store helpers, snippet embedding                 |
+| [`@fieldnotes/angular`](packages/angular)         | Angular 20+ bindings — standalone components, signal helpers, content projection |
+| [`@fieldnotes/vtt`](packages/vtt)                 | VTT domain package — fog of war, grids, templates, measurement                   |
+| [`@fieldnotes/sync`](packages/sync)               | Real-time sync client — observe/apply ops over a pluggable transport             |
+| [`@fieldnotes/sync-server`](packages/sync-server) | Authoritative WebSocket relay — rooms, auth, write-authorization                 |
+| [`@fieldnotes/sync-redis`](packages/sync-redis)   | Redis persistence + cross-instance fan-out for the relay                         |
 
 ## Quick Start
 
@@ -110,16 +111,19 @@ function CameraInfo() {
 
 Embedded React components are fully interactive and pan/zoom with the canvas. See [`@fieldnotes/react` README](packages/react/README.md) for the full API.
 
-### Vue and Svelte
+### Vue, Svelte and Angular
 
 ```bash
 npm install @fieldnotes/core @fieldnotes/vue     # Vue 3.5+
 npm install @fieldnotes/core @fieldnotes/svelte  # Svelte 5
+npm install @fieldnotes/core @fieldnotes/angular  # Angular 20+
 ```
 
-Both mirror the React package: `FieldNotesCanvas`, `CanvasElement`, `Minimap` and the same hooks by
-name — composables returning refs in Vue, store helpers in Svelte. The canvas mounts on the client;
-server rendering emits an empty container.
+All three mirror the React package: `FieldNotesCanvas`, `CanvasElement`, `Minimap` and the React
+hooks as composables returning refs in Vue, store helpers in Svelte and signal helpers in Angular.
+Vue and Svelte keep the hook names; Angular renames `use` to `inject` (`injectCamera`) and uses
+`fn-` selectors (`<fn-canvas>`). The canvas mounts on the client; server rendering emits an empty
+container.
 
 ```vue
 <FieldNotesCanvas v-model:tool="tool" :initial-data="saved" @change="save" style="height: 100vh">
@@ -133,8 +137,14 @@ server rendering emits an empty container.
 </FieldNotesCanvas>
 ```
 
-See the [`@fieldnotes/vue`](packages/vue/README.md) and [`@fieldnotes/svelte`](packages/svelte/README.md)
-READMEs.
+```html
+<fn-canvas [(tool)]="tool" [initialData]="saved" (stateChange)="save($event)" style="height: 100vh">
+  <fn-canvas-element [position]="{ x: 100, y: 200 }"><my-card /></fn-canvas-element>
+</fn-canvas>
+```
+
+See the [`@fieldnotes/vue`](packages/vue/README.md), [`@fieldnotes/svelte`](packages/svelte/README.md)
+and [`@fieldnotes/angular`](packages/angular/README.md) READMEs.
 
 ### Real-Time Collaboration
 
@@ -297,6 +307,7 @@ Example applications are in `examples/`:
 cd examples/react-app && pnpm dev    # React integration example
 cd examples/vue && pnpm dev          # Vue integration example
 cd examples/svelte && pnpm dev       # Svelte integration example
+cd examples/angular && pnpm dev      # Angular integration example
 cd examples/live-play && pnpm dev    # Real-time collaboration example
 ```
 

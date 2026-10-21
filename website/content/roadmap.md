@@ -19,6 +19,7 @@
 - Embedded boards that let a plain wheel and a one-finger swipe scroll the page
 - React bindings: a canvas component and hooks
 - Vue and Svelte bindings: a canvas component and helpers with the React hook names
+- Angular bindings: a canvas component and signal helpers named after the React hooks, with `use` changed to `inject`
 - Self-hosted WebSocket sync server, with Redis for persistence and fan-out across instances
 - Tabletop package with square and hex grids, fog of war, measuring and area templates
 
@@ -27,7 +28,6 @@
 - I'm making starter templates on StackBlitz and CodeSandbox for a vanilla board and a React board.
 - I'm bringing the React bindings up to the core API: hooks and props for autosave, export, camera control, shortcuts and presence.
 - I'm adding parent and child elements with clipping, which frames need.
-- I'm adding Angular bindings with the same canvas, CanvasElement and Minimap components and the camera, selection, layer and history helpers that the Vue and Svelte bindings have.
 
 ## Not built yet
 

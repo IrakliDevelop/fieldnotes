@@ -168,6 +168,7 @@ describe('parseChangelog on the current CHANGELOG.md', () => {
     ['@fieldnotes/react', '0.14.1', undefined, []],
     ['@fieldnotes/vue', '0.1.0', undefined, []],
     ['@fieldnotes/svelte', '0.1.0', undefined, []],
+    ['@fieldnotes/angular', '0.1.0', undefined, []],
     ['@fieldnotes/core', '0.95.0', 'embedded boards', ['A11']],
   ])('reads %s %s with its title and tickets', (npmName, version, title, tickets) => {
     expect(release(npmName, version)).toMatchObject({ npmName, version, title, tickets });
@@ -191,6 +192,13 @@ describe('parseChangelog on the current CHANGELOG.md', () => {
     );
     expect(svelte?.bodyMarkdown).not.toContain('### Core');
   });
+
+  it('reads the Angular 0.1.0 body without the Tooling notes', () => {
+    const angular = release('@fieldnotes/angular', '0.1.0');
+
+    expect(angular?.bodyMarkdown).toMatch(/^\*\*Added\*\*/);
+    expect(angular?.bodyMarkdown).not.toContain('Node');
+  });
 });
 
 describe('displayName', () => {
@@ -201,6 +209,7 @@ describe('displayName', () => {
     ['@fieldnotes/sync-redis', '@fieldnotes/sync-redis', 'Sync Redis'],
     ['@fieldnotes/vtt', '@fieldnotes/vtt', 'VTT'],
     ['Vue', '@fieldnotes/vue', 'Vue'],
+    ['Angular', '@fieldnotes/angular', 'Angular'],
     ['@fieldnotes/other', undefined, '@fieldnotes/other'],
   ] as const)('names %s (%s) %s', (pkg, npmName, expected) => {
     expect(displayName({ package: pkg, npmName })).toBe(expected);

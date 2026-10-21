@@ -14,7 +14,7 @@ export interface Release {
 
 // A first release may end in " (new)" instead of a title; the marker is dropped.
 const RELEASE_H3 =
-  /^### (Core|React|Vue|Svelte|Sync|Sync server|Sync Redis|VTT|`@fieldnotes\/[a-z-]+`) (\d+\.\d+\.\d+)(?: — (.+)| \(new\))?$/;
+  /^### (Core|React|Vue|Svelte|Angular|Sync|Sync server|Sync Redis|VTT|`@fieldnotes\/[a-z-]+`) (\d+\.\d+\.\d+)(?: — (.+)| \(new\))?$/;
 const DATED_H2 = /^## \[(.+)\] — (\d{4}-\d{2}-\d{2})$/;
 const ENTRY = /^(?:(@fieldnotes\/[a-z-]+|react) )?(\d+\.\d+\.\d+)$/;
 const TICKET = /^[A-Z]+-?\d+$/;
@@ -24,6 +24,7 @@ const DISPLAY_NAMES = new Map<PublicPackage, string>([
   ['@fieldnotes/react', 'React'],
   ['@fieldnotes/vue', 'Vue'],
   ['@fieldnotes/svelte', 'Svelte'],
+  ['@fieldnotes/angular', 'Angular'],
   ['@fieldnotes/sync', 'Sync'],
   ['@fieldnotes/sync-server', 'Sync server'],
   ['@fieldnotes/sync-redis', 'Sync Redis'],

@@ -8,8 +8,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ### Tooling
 
-- CI and the repository's development Node floor move to 22.22 (`engines.node >=22.22.3`); Node 20
-  is end-of-life. Published packages declare no `engines` and are unaffected.
+- CI and local development now need Node 22.22 or later (`engines.node >=22.22.3`); Node 20 is
+  end-of-life. Published packages declare no `engines`, so consumers are unaffected.
 
 ### Angular 0.1.0 (new)
 
@@ -27,13 +27,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 - Requires `@angular/core >=20.0.0 <23.0.0` and `@fieldnotes/core >=0.98.0 <1.0.0`. Works in
   zoneless and zone.js apps; the canvas runs outside the Angular zone. The canvas mounts only in
   the browser, so server rendering emits an empty container.
-- Differences from Vue: the state output is `stateChange`, because `(change)` would also receive
-  the native bubbling `change` event. `toolChange` fires for switches made inside the canvas, not
-  for a value set through the `tool` binding. `tools` registers new tools only when it receives a
-  new array reference. Mount errors (such as invalid `initialData`) go to Angular's `ErrorHandler`
-  and leave `viewport` `null`, and a throwing `ready` listener does not destroy the viewport.
-  Projected content renders before the viewport exists: the helpers hold neutral values until
-  mount, and their actions throw if called before it.
+- Differences from Vue:
+  - The state output is `stateChange`, because `(change)` would also receive the native bubbling
+    `change` event.
+  - `toolChange` fires for switches made inside the canvas, not for a value set through the `tool`
+    binding.
+  - `tools` registers new tools only when it receives a new array reference.
+  - Mount errors (such as invalid `initialData`) go to Angular's `ErrorHandler` and leave
+    `viewport` `null`, and a throwing `ready` listener does not destroy the viewport.
+  - Projected content renders before the viewport exists: the helpers hold neutral values until
+    mount, and their actions throw if called before it.
 
 ### Core 0.98.0 — shared wrapper lifecycle (A12.1)
 
