@@ -129,7 +129,26 @@ describe('buildMovementModel', () => {
     expect(model.cells).toEqual([]);
     expect(model.segmentColors).toEqual([G, Y, R]);
     expect(model.label).toBe('75 ft');
+    expect(model.over).toBe(true);
   });
+});
+
+it('without bands every move is over', () => {
+  const model = buildMovementModel({
+    path: [
+      { x: 20, y: 20 },
+      { x: 60, y: 20 },
+    ],
+    trail: [],
+    grid: SQUARE,
+    feetPerCell: 5,
+    start: { feet: 0, diagonals: 0 },
+    bands: [],
+    overColor: R,
+  });
+
+  expect(model.over).toBe(true);
+  expect(model.label).toBe('5 ft');
 });
 
 describe('hexLineCells', () => {
@@ -184,5 +203,44 @@ describe('drawMovement', () => {
 
     expect(fonts).toEqual(['bold 28px sans-serif']);
     expect(ctx.fillText).toHaveBeenCalledWith('5 ft · 25 left', 60, expect.any(Number));
+  });
+
+  it.each([
+    ['within a band', 0, false, 'rgba(0, 0, 0, 0.75)'],
+    ['beyond the last band', 60, true, R],
+  ])('%s: white label text on the matching pill', (_name, feet, over, pillFill) => {
+    let fillStyle = '';
+    const painted: [string, string][] = [];
+    const ctx = {
+      save: vi.fn(),
+      restore: vi.fn(),
+      beginPath: vi.fn(),
+      moveTo: vi.fn(),
+      lineTo: vi.fn(),
+      stroke: vi.fn(),
+      fill: vi.fn(),
+      fillRect: vi.fn(),
+      roundRect: () => painted.push(['pill', fillStyle]),
+      fillText: () => painted.push(['text', fillStyle]),
+      measureText: vi.fn(() => ({ width: 40 })),
+      set fillStyle(v: string) {
+        fillStyle = v;
+      },
+    } as unknown as CanvasRenderingContext2D;
+    const model = build(
+      [
+        { x: 20, y: 20 },
+        { x: 60, y: 20 },
+      ],
+      { feet },
+    );
+
+    drawMovement(ctx, model);
+
+    expect(model.over).toBe(over);
+    expect(painted).toEqual([
+      ['pill', pillFill],
+      ['text', '#FFFFFF'],
+    ]);
   });
 });

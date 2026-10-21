@@ -40,6 +40,8 @@ export interface MovementRenderModel {
   /** Empty when the grid type is 'none'. */
   readonly cells: readonly MovementCell[];
   readonly label: string;
+  /** Beyond the last band, or no bands at all. */
+  readonly over: boolean;
 }
 
 function bandFor(feet: number, bands: readonly PathRangeBand[]): PathRangeBand | undefined {
@@ -196,6 +198,7 @@ export function buildMovementModel(input: {
     segmentColors,
     cells,
     label: formatMovementLabel(start.feet, bands),
+    over: bandFor(start.feet, bands) === undefined,
   };
 }
 
@@ -241,7 +244,9 @@ export function drawMovement(
   }
   const end = model.path.at(-1);
   if (model.label && end) {
-    drawLabelPill(ctx, model.label, end, { textColor: model.segmentColors.at(-1) });
+    drawLabelPill(ctx, model.label, end, {
+      fillColor: model.over ? model.segmentColors.at(-1) : undefined,
+    });
   }
   ctx.restore();
 }
