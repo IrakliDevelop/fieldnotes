@@ -24,12 +24,15 @@ export interface PathDistance {
   total: number;
   /** Cost after each waypoint; `cumulative[0] === 0`, one entry per point. */
   cumulative: number[];
+  /** Square-grid diagonal steps at the end, including `startDiagonals`; 0 on hex, gridless, euclidean. */
+  diagonals: number;
 }
 
-function squareCost(rule: DiagonalRule, straight: number, diag: number): number {
+function squareCost(rule: DiagonalRule, straight: number, diag: number, start: number): number {
   switch (rule) {
     case 'alternate':
-      return straight + diag + Math.floor(diag / 2);
+      // Diagonals are numbered from `start`, so the 1, 2 parity carries over from earlier calls.
+      return straight + diag + Math.floor((start + diag) / 2) - Math.floor(start / 2);
     case 'manhattan':
       return straight + 2 * diag;
     case 'chebyshev':
@@ -44,15 +47,20 @@ function squareCost(rule: DiagonalRule, straight: number, diag: number): number 
  * over the whole path, so the unit of computation is the path, not a segment;
  * a segment's own cost is `cumulative[i] - cumulative[i - 1]`.
  */
-export function pathDistanceCells(points: readonly Point[], grid: GridMetric): PathDistance {
+export function pathDistanceCells(
+  points: readonly Point[],
+  grid: GridMetric,
+  options?: { startDiagonals?: number },
+): PathDistance {
   const cumulative: number[] = [];
-  const first = points[0];
-  if (first === undefined) return { total: 0, cumulative };
-  const gridSize = grid.gridSize > 0 ? grid.gridSize : 1;
   const rule = grid.diagonalRule ?? 'euclidean';
+  const squareRule = grid.gridType === 'square' && rule !== 'euclidean';
+  const start = squareRule ? (options?.startDiagonals ?? 0) : 0;
+  const first = points[0];
+  if (first === undefined) return { total: 0, cumulative, diagonals: start };
+  const gridSize = grid.gridSize > 0 ? grid.gridSize : 1;
   const orientation = grid.hexOrientation;
   const hex = grid.gridType === 'hex' && orientation !== undefined;
-  const squareRule = grid.gridType === 'square' && rule !== 'euclidean';
 
   let straight = 0;
   let diag = 0;
@@ -72,7 +80,7 @@ export function pathDistanceCells(points: readonly Point[], grid: GridMetric): P
       const d = Math.min(dx, dy);
       diag += d;
       straight += Math.max(dx, dy) - d;
-      cumulative.push(squareCost(rule, straight, diag));
+      cumulative.push(squareCost(rule, straight, diag, start));
     } else {
       euclid += Math.hypot(next.x - prev.x, next.y - prev.y) / gridSize;
       cumulative.push(euclid);
@@ -80,7 +88,7 @@ export function pathDistanceCells(points: readonly Point[], grid: GridMetric): P
     prev = next;
   }
   const total = cumulative[cumulative.length - 1] ?? 0;
-  return { total, cumulative };
+  return { total, cumulative, diagonals: start + diag };
 }
 
 /** Two-point convenience over `pathDistanceCells`. */

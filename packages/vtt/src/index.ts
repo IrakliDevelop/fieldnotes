@@ -76,6 +76,23 @@ export type {
 } from './path-tool';
 export { drawPath, resolveSegmentColors } from './path-render';
 export type { PathRenderModel } from './path-render';
+
+// Movement tracking
+export {
+  movementRecordTypeDefinition,
+  movementRecordId,
+  createMovementRecord,
+  getMovementVisibility,
+  resolveMovementVisibility,
+  appendTrail,
+  MOVEMENT_RECORD_ID_PREFIX,
+} from './movement/movement-record';
+export { MOVEMENT_TRAIL_MAX_POINTS } from './movement/movement-types';
+export type {
+  MovementVisibility,
+  MovementKind,
+  MovementRecordElement,
+} from './movement/movement-types';
 export {
   RemotePathOverlay,
   isPathPresence,
