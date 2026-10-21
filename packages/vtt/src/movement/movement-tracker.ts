@@ -12,6 +12,8 @@ import type {
   ToolManager,
 } from '@fieldnotes/core';
 import type { DiagonalRule, GridMetric } from '../grid/grid-metric';
+import { footprintFromSize } from '../grid/snap';
+import type { Footprint } from '../grid/snap';
 import type { PathRangeBand } from '../path-tool';
 import {
   MOVEMENT_RECORD_ID_PREFIX,
@@ -22,6 +24,8 @@ import {
 } from './movement-record';
 import type { MovementRecordElement, MovementVisibility } from './movement-types';
 import { measureMove } from './movement-path';
+import { MOVEMENT_OVER_COLOR, buildMovementModel, drawMovement } from './movement-render';
+import type { MovementRenderModel } from './movement-render';
 
 /** Cell size (world units) when no grid constrains the drag; matches `PathTool`. */
 const FALLBACK_CELL_SIZE = 24;
@@ -58,14 +62,25 @@ export interface MovementState {
   readonly remaining: number | null;
 }
 
+/** The labelled element's live model, raf-coalesced during a drag. */
+export interface MovementEmission {
+  readonly elementId: string;
+  readonly visibility: MovementVisibility;
+  readonly model: MovementRenderModel;
+}
+
 interface LiveMove {
   readonly start: Point;
   readonly waypoints: Point[];
+  readonly footprint: Footprint;
+  model: MovementRenderModel | null;
 }
 
 interface LiveDrag {
   readonly grid: GridMetric;
   readonly moves: Map<string, LiveMove>;
+  /** The tracked element nearest the pointer at drag start; only it is labelled and emitted. */
+  readonly labelId: string | null;
 }
 
 function isLocal(meta: ElementChangeMeta): boolean {
@@ -97,16 +112,17 @@ export class MovementTracker {
   private readonly options: Required<MovementTrackerOptions>;
   private readonly tracked = new Map<string, MovementTrackOptions>();
   private readonly listeners = new Set<(elementId: string) => void>();
+  private readonly movementListeners = new Set<(emission: MovementEmission | null) => void>();
   private readonly disposers: (() => void)[] = [];
   private live: LiveDrag | null = null;
+  private frame: number | null = null;
 
   // Starts and ends are not guaranteed to pair, so every boundary replaces the live state.
   private readonly observer: SelectDragObserver = {
     onDragStart: (info, ctx) => this.startDrag(info, ctx),
+    onDragMove: () => this.updateModels(),
     onDragEnd: () => this.endDrag(),
-    onDragCancel: () => {
-      this.live = null;
-    },
+    onDragCancel: () => this.clearLive(),
   };
 
   constructor(
@@ -116,7 +132,7 @@ export class MovementTracker {
     this.options = {
       feetPerCell: options.feetPerCell ?? 5,
       diagonalRule: options.diagonalRule ?? 'chebyshev',
-      overColor: options.overColor ?? '#C62828',
+      overColor: options.overColor ?? MOVEMENT_OVER_COLOR,
     };
     const observe = (tool: Tool): void => {
       if (tool instanceof SelectTool) this.disposers.push(tool.addDragObserver(this.observer));
@@ -125,6 +141,7 @@ export class MovementTracker {
     if (select) observe(select);
     const { store } = host;
     this.disposers.push(
+      host.registerOverlay((ctx) => this.draw(ctx)),
       host.toolManager.onRegister(observe),
       store.on('add', (el, meta) => this.recordChanged(el, meta)),
       store.on('update', ({ current }, meta) => this.recordChanged(current, meta)),
@@ -185,29 +202,111 @@ export class MovementTracker {
     return () => this.listeners.delete(listener);
   }
 
+  /** Live drag model of the labelled element, at most once per frame; null when the drag ends. */
+  onMovement(listener: (emission: MovementEmission | null) => void): () => void {
+    this.movementListeners.add(listener);
+    return () => this.movementListeners.delete(listener);
+  }
+
   /** Detaches from the viewport; safe to call twice. */
   dispose(): void {
     for (const dispose of this.disposers.splice(0)) dispose();
+    if (this.frame !== null) cancelAnimationFrame(this.frame);
+    this.frame = null;
     this.listeners.clear();
+    this.movementListeners.clear();
     this.tracked.clear();
     this.live = null;
   }
 
   private startDrag(info: SelectDragInfo, ctx: ToolContext): void {
+    const grid = gridMetric(ctx, this.options.diagonalRule);
     const moves = new Map<string, LiveMove>();
+    let labelId: string | null = null;
+    let nearest = Infinity;
     for (const id of info.ids) {
       const el = this.host.store.getById(id);
       const origin = info.origins.get(id);
       if (!this.tracked.has(id) || !el || !origin) continue;
-      moves.set(id, { start: centerOf(el, origin), waypoints: [] });
+      const start = centerOf(el, origin);
+      const footprint = 'size' in el && el.size ? footprintFromSize(el.size, grid.gridSize) : 1;
+      moves.set(id, { start, waypoints: [], footprint, model: null });
+      const distance = Math.hypot(start.x - info.pointer.x, start.y - info.pointer.y);
+      if (distance < nearest) {
+        nearest = distance;
+        labelId = id;
+      }
     }
-    this.live = { grid: gridMetric(ctx, this.options.diagonalRule), moves };
+    this.live = { grid, moves, labelId };
+    this.updateModels();
+  }
+
+  // Models are built per move, not per frame, so drawing allocates nothing.
+  private updateModels(): void {
+    const live = this.live;
+    if (!live || live.moves.size === 0) return;
+    for (const [id, move] of live.moves) {
+      const target = this.host.store.getById(id);
+      const tracking = this.tracked.get(id);
+      if (!target || !tracking) {
+        move.model = null;
+        continue;
+      }
+      const base = this.spent(id, tracking.epoch);
+      const model = buildMovementModel({
+        path: [move.start, ...move.waypoints, centerOf(target, target.position)],
+        trail: base?.trail ?? [],
+        grid: live.grid,
+        feetPerCell: this.options.feetPerCell,
+        start: base ?? { feet: 0, diagonals: 0 },
+        bands: tracking.bands,
+        overColor: this.options.overColor,
+        footprint: move.footprint,
+      });
+      move.model = id === live.labelId ? model : { ...model, label: '' };
+    }
+    this.host.requestOverlayRender();
+    this.scheduleEmission();
+  }
+
+  private draw(ctx: CanvasRenderingContext2D): void {
+    if (!this.live) return;
+    for (const { model } of this.live.moves.values()) {
+      if (model) drawMovement(ctx, model);
+    }
+  }
+
+  private scheduleEmission(): void {
+    if (this.frame !== null || this.movementListeners.size === 0) return;
+    this.frame = requestAnimationFrame(() => {
+      this.frame = null;
+      const id = this.live?.labelId;
+      const model = id ? this.live?.moves.get(id)?.model : null;
+      const visibility = id ? this.tracked.get(id)?.visibility : undefined;
+      if (!id || !model || !visibility) return;
+      this.emitMovement({ elementId: id, visibility, model });
+    });
+  }
+
+  private emitMovement(emission: MovementEmission | null): void {
+    for (const listener of this.movementListeners) listener(emission);
+  }
+
+  /** Ends the live drag: the overlay draws nothing and listeners get null. */
+  private clearLive(): void {
+    const live = this.live;
+    this.live = null;
+    if (this.frame !== null) cancelAnimationFrame(this.frame);
+    this.frame = null;
+    if (!live || live.moves.size === 0) return;
+    this.host.requestOverlayRender();
+    if (live.labelId !== null) this.emitMovement(null);
   }
 
   // Runs inside the gesture transaction, so the record write shares the move's undo step.
   private endDrag(): void {
     const live = this.live;
-    this.live = null;
+    this.clearLive();
     if (!live) return;
     for (const [id, move] of live.moves) {
       const target = this.host.store.getById(id);

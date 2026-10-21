@@ -1,11 +1,11 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { ElementRegistry, SelectTool, Viewport, createShape } from '@fieldnotes/core';
 import type { PointerState } from '@fieldnotes/core';
 import { registerVttElementTypes } from '../register';
 import { GridController } from '../grid/grid-controller';
 import { createMovementRecord, movementRecordTypeDefinition } from './movement-record';
 import { MovementTracker } from './movement-tracker';
-import type { MovementTrackerOptions } from './movement-tracker';
+import type { MovementEmission, MovementTrackerOptions } from './movement-tracker';
 import type { MovementVisibility } from './movement-types';
 
 const BANDS = [{ feet: 30, color: '#2E7D32' }];
@@ -13,7 +13,22 @@ const cleanups: (() => void)[] = [];
 
 afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup();
+  vi.unstubAllGlobals();
 });
+
+/** Records every 2D-context method call by name; jsdom has no real context. */
+function recordingCtx(): { ctx: CanvasRenderingContext2D; calls: [string, ...unknown[]][] } {
+  const calls: [string, ...unknown[]][] = [];
+  const target: Record<string, unknown> = {
+    measureText: () => ({ width: 40 }),
+    getTransform: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }),
+  };
+  const ctx = new Proxy(target, {
+    get: (t, name: string) => t[name] ?? ((...args: unknown[]) => void calls.push([name, ...args])),
+    set: () => true,
+  });
+  return { ctx: ctx as unknown as CanvasRenderingContext2D, calls };
+}
 
 function setup(opts: { grid?: boolean; tracker?: MovementTrackerOptions } = {}) {
   const registry = new ElementRegistry();
@@ -614,5 +629,91 @@ describe('MovementTracker', () => {
     ]);
 
     expect(record(a)).toBeUndefined();
+  });
+
+  describe('live overlay', () => {
+    function drawOverlay(vp: ReturnType<typeof setup>['vp']) {
+      const { ctx, calls } = recordingCtx();
+      vp.renderHooks.viewport.call('overlay', ctx, vp.camera, { width: 100, height: 100, dpr: 1 });
+      return calls.filter(([name]) => name !== 'save' && name !== 'restore');
+    }
+
+    it('draws tinted cells and the label while a tracked drag is live, nothing after drop', () => {
+      const { vp, token, gesture, track } = setup();
+      const a = token(0, 0);
+      track(a);
+      let during: [string, ...unknown[]][] = [];
+
+      gesture(
+        [
+          [25, 25],
+          [145, 25],
+        ],
+        () => (during = drawOverlay(vp)),
+      );
+
+      expect(during.filter(([name]) => name === 'fillRect')).toHaveLength(3);
+      expect(during.filter(([name]) => name === 'fillText')).toEqual([
+        ['fillText', '15 ft · 15 left', 140, expect.any(Number)],
+      ]);
+      expect(drawOverlay(vp)).toEqual([]);
+    });
+
+    it('labels only the tracked element nearest the pointer in a multi-select drag', () => {
+      const { vp, select, token, gesture, track } = setup();
+      const a = token(0, 0);
+      const b = token(0, 80);
+      track(a);
+      track(b);
+      select.setSelection([a, b]);
+      let texts: unknown[] = [];
+
+      gesture(
+        [
+          [25, 105],
+          [145, 105],
+        ],
+        () => (texts = drawOverlay(vp).filter(([name]) => name === 'fillText')),
+      );
+
+      expect(texts).toEqual([['fillText', '15 ft · 15 left', 140, expect.any(Number)]]);
+    });
+
+    it('onMovement emits the labelled model once per frame during a drag and null after', () => {
+      const frames: FrameRequestCallback[] = [];
+      vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => frames.push(cb));
+      vi.stubGlobal('cancelAnimationFrame', vi.fn());
+      const { tracker, token, gesture, track } = setup();
+      const a = token(0, 0);
+      track(a, 'e1', 'dm');
+      const emissions: (MovementEmission | null)[] = [];
+      tracker.onMovement((e) => emissions.push(e));
+
+      gesture(
+        [
+          [25, 25],
+          [65, 25],
+          [145, 25],
+        ],
+        () => {
+          for (const frame of frames.splice(0)) frame(0);
+        },
+      );
+
+      expect(emissions).toEqual([
+        {
+          elementId: a,
+          visibility: 'dm',
+          model: expect.objectContaining({
+            path: [
+              { x: 20, y: 20 },
+              { x: 140, y: 20 },
+            ],
+            label: '15 ft · 15 left',
+          }),
+        },
+        null,
+      ]);
+    });
   });
 });

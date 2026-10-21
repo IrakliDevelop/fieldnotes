@@ -94,7 +94,16 @@ export type {
   MovementTrackerOptions,
   MovementTrackOptions,
   MovementState,
+  MovementEmission,
 } from './movement/movement-tracker';
+export {
+  buildMovementModel,
+  drawMovement,
+  formatMovementLabel,
+  DEFAULT_MOVEMENT_BANDS_COLORS,
+  MOVEMENT_OVER_COLOR,
+} from './movement/movement-render';
+export type { MovementCell, MovementRenderModel } from './movement/movement-render';
 export type {
   MovementVisibility,
   MovementKind,
