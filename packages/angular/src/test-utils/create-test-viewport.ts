@@ -7,18 +7,7 @@ interface TrackedViewport {
 
 const tracked: TrackedViewport[] = [];
 
-/**
- * A real `Viewport` mounted on a detached container, for hook tests that need
- * a working store/camera/layerManager without going through
- * `<fn-canvas>`.
- *
- * Every `Viewport` starts its own self-rescheduling render loop (rAF-driven)
- * and appends its container to `document.body`. Call `destroyTestViewports()`
- * (e.g. from an `afterEach`) to stop and remove everything this helper has
- * created — mirroring the canvas component's destroy-on-teardown
- * semantics — or those loops keep rescheduling for the lifetime of the test
- * process, which is especially costly in a rAF-timing-sensitive test file.
- */
+/** A real `Viewport` on a container in `document.body`; `destroyTestViewports()` stops its render loop. */
 export function createTestViewport(): Viewport {
   const container = document.createElement('div');
   document.body.appendChild(container);

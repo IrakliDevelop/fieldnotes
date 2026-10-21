@@ -19,13 +19,15 @@ const TOOLS = [...createDefaultTools(), new StampTool()];
     [options]="options"
     (ready)="onReady($event)"
   >
+    <header class="header">Active tool: {{ tool() }}</header>
     <app-toolbar />
     <app-save-controls />
     <app-sidebar />
-    <fn-canvas-element [position]="{ x: 120, y: 160 }" [size]="{ w: 220, h: 110 }">
+    <fn-canvas-element [position]="{ x: 120, y: 160 }" [size]="{ w: 220, h: 140 }">
       <div class="card">
         <p>An Angular component on the board</p>
-        <button (click)="clicks.set(clicks() + 1)">Clicked {{ clicks() }} times</button>
+        <p class="hint">Double-click the card, then use the button</p>
+        <button (click)="clicks.update((n) => n + 1)">Clicked {{ clicks() }} times</button>
       </div>
     </fn-canvas-element>
     <fn-minimap class="minimap" />

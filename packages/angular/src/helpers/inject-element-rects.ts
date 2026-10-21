@@ -15,7 +15,6 @@ export function injectElementRects(
   const viewport = injectViewport();
   const zone = inject(NgZone);
   const rects = signal<readonly ElementRect[]>([]);
-  const read = isSignal(match) ? match : () => match;
   let tracker: ElementRectTracker | undefined;
   let applied: ElementRectMatch | undefined;
   effect((onCleanup) => {
@@ -25,7 +24,7 @@ export function injectElementRects(
         rects.set([]);
         return;
       }
-      const initial = read();
+      const initial = isSignal(match) ? match() : match;
       applied = initial;
       const created = zone.runOutsideAngular(
         () => new ElementRectTracker(current, { match: initial }),
@@ -33,7 +32,10 @@ export function injectElementRects(
       tracker = created;
       rects.set(created.getRects());
       created.onChange((next) => rects.set(next));
-      onCleanup(() => created.dispose());
+      onCleanup(() => {
+        created.dispose();
+        tracker = undefined;
+      });
     });
   });
   if (isSignal(match)) {

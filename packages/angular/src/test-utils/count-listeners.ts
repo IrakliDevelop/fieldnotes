@@ -12,10 +12,7 @@ import {
 
 type Subscribe = (...args: never[]) => () => void;
 
-/**
- * Wraps every viewport listener registration a helper can make; the returned function reports
- * how many registrations are still open (subscribed and not yet unsubscribed).
- */
+/** Wraps every viewport listener registration; the result counts those still subscribed. */
 export function countOpenListeners(): () => number {
   let open = 0;
   const wrap = <K extends string>(proto: Record<K, Subscribe>, key: K) => {

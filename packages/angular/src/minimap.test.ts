@@ -8,8 +8,7 @@ import { FieldNotesCanvas } from './field-notes-canvas';
 import { Minimap } from './minimap';
 import { createTestViewport, destroyTestViewports } from './test-utils/create-test-viewport';
 
-// Permissive fake 2D context: any drawing call succeeds; property writes are kept. These tests
-// assert component behavior (canvas presence, controller lifecycle), not drawing output.
+// Permissive fake 2D context: these tests assert controller lifecycle, not drawing output.
 function makeContext(): CanvasRenderingContext2D {
   const handler: ProxyHandler<Record<string, unknown>> = {
     get(target, prop) {

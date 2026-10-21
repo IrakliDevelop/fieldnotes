@@ -1,10 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { Component, signal } from '@angular/core';
+import { Component } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import type { Viewport } from '@fieldnotes/core';
-import { FIELDNOTES_VIEWPORT } from './context';
 import { injectViewport } from './inject-viewport';
 import { createTestViewport, destroyTestViewports } from './test-utils/create-test-viewport';
+import { mountHelper } from './test-utils/mount-helper';
 
 @Component({ selector: 'fn-test-consumer', template: '' })
 class Consumer {
@@ -20,12 +19,8 @@ describe('injectViewport', () => {
     );
   });
 
-  it('returns the provided signal', () => {
-    const provided = signal<Viewport | null>(null);
-    TestBed.configureTestingModule({
-      providers: [{ provide: FIELDNOTES_VIEWPORT, useValue: provided }],
-    });
-    const { viewport } = TestBed.createComponent(Consumer).componentInstance;
+  it('returns the provided signal', async () => {
+    const { result: viewport, provided } = await mountHelper(() => injectViewport(), null);
     expect(viewport).toBe(provided);
     expect(viewport()).toBeNull();
 
