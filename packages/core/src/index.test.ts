@@ -11,7 +11,7 @@ import type {
 
 describe('core public surface', () => {
   it('exports the current version', () => {
-    expect(FN.VERSION).toBe('0.97.0');
+    expect(FN.VERSION).toBe('0.98.0');
   });
 
   it('exports the camera view, animator, and focus presence surface', () => {
@@ -265,9 +265,9 @@ describe('core public surface', () => {
     expect([presence.kind, options.staleMs, host]).toEqual(['stroke', 1, null]);
   });
 
-  it('reports VERSION 0.97.0', async () => {
+  it('reports VERSION 0.98.0', async () => {
     const { VERSION } = await import('./index');
-    expect(VERSION).toBe('0.97.0');
+    expect(VERSION).toBe('0.98.0');
   });
 
   it('does not re-export VTT-domain symbols (moved to @fieldnotes/vtt)', () => {
