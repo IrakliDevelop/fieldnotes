@@ -241,11 +241,11 @@ describe('core public surface', () => {
   it('exports attachHostElement for framework bindings', () => {
     expect(typeof FN.attachHostElement).toBe('function');
     const geometry: FN.HostElementGeometry = { position: { x: 1, y: 2 }, size: { w: 3, h: 4 } };
-    const handle: FN.HostElementHandle | null = null;
-    expect([geometry.position, geometry.size, handle]).toEqual([
+    const members: (keyof FN.HostElementHandle)[] = ['setGeometry', 'destroy'];
+    expect([geometry.position, geometry.size, members.length]).toEqual([
       { x: 1, y: 2 },
       { w: 3, h: 4 },
-      null,
+      2,
     ]);
   });
 
