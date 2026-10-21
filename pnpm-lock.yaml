@@ -84,6 +84,9 @@ importers:
       '@fieldnotes/sync-server':
         specifier: workspace:*
         version: link:../../packages/sync-server
+      '@fieldnotes/vtt':
+        specifier: workspace:*
+        version: link:../../packages/vtt
     devDependencies:
       tsx:
         specifier: ^4.19.0

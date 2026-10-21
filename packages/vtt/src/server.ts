@@ -1,7 +1,8 @@
-import type { AuthorityMutation, PluginSnapshot, SyncOp } from '@fieldnotes/sync';
+import type { AuthorityMutation, PluginSnapshot, SyncElement, SyncOp } from '@fieldnotes/sync';
 import type {
   ApplyResult,
   AuthorityExtension,
+  Authorize,
   JsonValue,
   ServerOpContext,
   ServerSyncPlugin,
@@ -14,11 +15,50 @@ import {
 import { FogLedger } from './fog/fog-ledger';
 import type { FogMetaRecord, FogSnapshot, FogTileRecord } from './fog/fog-sync-types';
 import { FogBackendServiceKey } from './sync/fog-backend-service';
+import {
+  MOVEMENT_RECORD_ID_PREFIX,
+  movementRecordTypeDefinition,
+} from './movement/movement-record';
+
+export { getMovementVisibility } from './movement/movement-record';
 
 export { applyFogAuthorityIntent, prepareFogAuthorityIntent } from './fog/fog-authority';
 export type { FogAuthorityIntent, FogAuthorityTransitionResult } from './fog/fog-authority';
 
 export { FogLedger } from './fog/fog-ledger';
+
+/**
+ * Authorizes a movement record op as an upsert of its target element, so whoever may edit a
+ * token may write its record; other ops reach `authorize` unchanged.
+ */
+export function withMovementAuthorize(
+  authorize: Authorize,
+  lookup: { getElement(room: string, id: string): Promise<SyncElement | undefined> },
+): Authorize {
+  return async (ctx) => {
+    const { op } = ctx;
+    if (op.kind !== 'upsert' && op.kind !== 'remove') return authorize(ctx);
+    const id = op.kind === 'upsert' ? op.element.id : op.id;
+    if (!id.startsWith(MOVEMENT_RECORD_ID_PREFIX)) return authorize(ctx);
+    const targetId = id.slice(MOVEMENT_RECORD_ID_PREFIX.length);
+    if (op.kind === 'upsert') {
+      const record = op.element;
+      // A plain element on a record id would squat the target's record slot.
+      if (
+        record.type !== 'extension' ||
+        record.extensionType !== movementRecordTypeDefinition.type ||
+        !movementRecordTypeDefinition.validateData(record.data) ||
+        record.data['targetId'] !== targetId
+      ) {
+        return false;
+      }
+    }
+    const target = await lookup.getElement(ctx.room, targetId);
+    // Removing an orphan record cleans up after a deleted target.
+    if (!target) return op.kind === 'remove';
+    return authorize({ ...ctx, op: { kind: 'upsert', element: target }, currentElement: target });
+  };
+}
 
 export function createFogAuthorityServerExtension(): AuthorityExtension {
   return Object.freeze({
