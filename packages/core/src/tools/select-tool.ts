@@ -1,6 +1,7 @@
 import type { Bounds, Point } from '../core/types';
 import { normalizeConstraintStep } from '../core/constraint-service';
 import type { Tool, ToolContext, PointerState } from './types';
+import type { SelectDragInfo, SelectDragObserver } from './select-drag';
 import { normalizeAngle } from '../core/geometry';
 import type { CanvasElement } from '../elements/types';
 import { updateArrowsBoundToElements } from '../elements/arrow-binding';
@@ -56,7 +57,18 @@ type Mode =
       center: Point;
       startPointerAngle: number;
       startRotation: number;
-    };
+    }
+  // Escape restored the drag; input is ignored until the pointer lifts.
+  | { type: 'cancelled' };
+
+interface LiveDrag {
+  ids: string[];
+  origins: Map<string, Point>;
+  arrowEnds: Map<string, { from: Point; to: Point }>;
+  pointerType: PointerState['pointerType'];
+}
+
+type DragHook = 'onDragStart' | 'onDragMove' | 'onDragEnd' | 'onDragCancel';
 
 export class SelectTool implements Tool {
   readonly name = 'select';
@@ -73,6 +85,8 @@ export class SelectTool implements Tool {
   private dragVisibleRect: Bounds | null = null;
   private resizeAspectRatio = 0;
   private hoveredId: string | null = null;
+  private drag: LiveDrag | null = null;
+  private dragObservers = new Set<SelectDragObserver>();
 
   get selectedIds(): string[] {
     return this._selectedIds;
@@ -90,6 +104,14 @@ export class SelectTool implements Tool {
     if (prev.length === ids.length && prev.every((id, i) => id === ids[i])) return;
     this._selectedIds = ids;
     for (const listener of this.selectionListeners) listener();
+  }
+
+  /** Observes select drags of unlocked elements; returns the unsubscribe function. */
+  addDragObserver(observer: SelectDragObserver): () => void {
+    this.dragObservers.add(observer);
+    return () => {
+      this.dragObservers.delete(observer);
+    };
   }
 
   setSelection(ids: string[]): void {
@@ -118,6 +140,7 @@ export class SelectTool implements Tool {
   onDeactivate(ctx: ToolContext): void {
     this.setSelectedIds([]);
     this.mode = { type: 'idle' };
+    this.drag = null;
     this.hoveredId = null;
     this.activeGuides = [];
     this.dragSnapTargets = null;
@@ -238,6 +261,8 @@ export class SelectTool implements Tool {
     const world = ctx.camera.screenToWorld({ x: state.x, y: state.y });
     this.currentWorld = world;
 
+    if (this.mode.type === 'cancelled') return;
+
     if (this.mode.type === 'arrow-handle') {
       ctx.setCursor?.(getArrowHandleCursor(this.mode.handle, true));
       applyArrowHandleDrag(this.mode.handle, this.mode.elementId, world, ctx);
@@ -295,6 +320,7 @@ export class SelectTool implements Tool {
 
     if (this.mode.type === 'dragging' && this._selectedIds.length > 0) {
       this.hasDragged = true;
+      if (!this.drag) this.startDrag(state.pointerType, ctx);
       ctx.setCursor?.('move');
       const snapped = this.snap(world, ctx);
       const dx = snapped.x - this.lastWorld.x;
@@ -375,6 +401,7 @@ export class SelectTool implements Tool {
       }
 
       this.updateArrowsBoundTo(this._selectedIds, ctx);
+      this.emitDrag('onDragMove', ctx);
 
       ctx.requestRender();
       return;
@@ -390,6 +417,9 @@ export class SelectTool implements Tool {
   }
 
   onPointerUp(_state: PointerState, ctx: ToolContext): void {
+    this.emitDrag('onDragEnd', ctx);
+    this.drag = null;
+
     if (this.mode.type === 'marquee') {
       const rect = this.getMarqueeRect();
       if (rect) {
@@ -419,6 +449,27 @@ export class SelectTool implements Tool {
       // height fit coalesces into the same undo step as the resize.
       if (el?.type === 'note') ctx.fitNoteHeight?.(resizedNoteId);
     }
+  }
+
+  onKeyDown(e: KeyboardEvent, ctx: ToolContext): boolean {
+    const drag = this.drag;
+    if (!drag) return false;
+    const info = this.dragInfo(drag);
+    for (const observer of this.dragObservers) {
+      if (observer.onDragKeyDown?.(e, info, ctx)) return true;
+    }
+    if (e.key !== 'Escape') return false;
+
+    for (const [id, position] of drag.origins) {
+      ctx.store.update(id, { position, ...drag.arrowEnds.get(id) });
+    }
+    this.updateArrowsBoundTo(drag.ids, ctx);
+    this.emitDrag('onDragCancel', ctx);
+    this.drag = null;
+    this.mode = { type: 'cancelled' };
+    this.activeGuides = [];
+    ctx.requestRender();
+    return true;
   }
 
   onHover(state: PointerState, ctx: ToolContext): void {
@@ -490,6 +541,37 @@ export class SelectTool implements Tool {
         currentWorld: this.currentWorld,
         zoom: this.ctx.camera.zoom,
       });
+  }
+
+  private startDrag(pointerType: PointerState['pointerType'], ctx: ToolContext): void {
+    const origins = new Map<string, Point>();
+    const arrowEnds = new Map<string, { from: Point; to: Point }>();
+    for (const id of this._selectedIds) {
+      const el = ctx.store.getById(id);
+      if (!el || el.locked) continue;
+      if (el.type === 'arrow') {
+        if (el.fromBinding || el.toBinding) continue;
+        arrowEnds.set(id, { from: el.from, to: el.to });
+      }
+      origins.set(id, el.position);
+    }
+    this.drag = { ids: [...origins.keys()], origins, arrowEnds, pointerType };
+    this.emitDrag('onDragStart', ctx);
+  }
+
+  private dragInfo(drag: LiveDrag): SelectDragInfo {
+    return {
+      ids: drag.ids,
+      origins: drag.origins,
+      pointer: this.currentWorld,
+      pointerType: drag.pointerType,
+    };
+  }
+
+  private emitDrag(event: DragHook, ctx: ToolContext): void {
+    if (!this.drag) return;
+    const info = this.dragInfo(this.drag);
+    for (const observer of this.dragObservers) observer[event]?.(info, ctx);
   }
 
   private updateArrowsBoundTo(ids: Iterable<string>, ctx: ToolContext): void {

@@ -193,6 +193,38 @@ describe('HistoryRecorder', () => {
     expect(store.count).toBe(0);
   });
 
+  it('an update whose final state equals its first snapshot records no command', () => {
+    const { store, stack, recorder } = setup();
+    const note = createNote({ position: { x: 0, y: 0 } });
+    store.add(note);
+
+    recorder.begin();
+    store.update(note.id, { position: { x: 50, y: 50 } });
+    store.update(note.id, { position: { x: 0, y: 0 } });
+    expect(store.getById(note.id)?.version).toBe(note.version + 2);
+    recorder.commit();
+
+    expect(stack.undoCount).toBe(1);
+  });
+
+  it('a real change in the same transaction is still recorded', () => {
+    const { store, stack, recorder } = setup();
+    const a = createNote({ position: { x: 0, y: 0 } });
+    const b = createNote({ position: { x: 0, y: 0 } });
+    store.add(a);
+    store.add(b);
+
+    recorder.begin();
+    store.update(a.id, { position: { x: 50, y: 50 } });
+    store.update(a.id, { position: { x: 0, y: 0 } });
+    store.update(b.id, { position: { x: 70, y: 0 } });
+    recorder.commit();
+
+    expect(stack.undoCount).toBe(3);
+    stack.undo(store);
+    expect(store.getById(b.id)?.position).toEqual({ x: 0, y: 0 });
+  });
+
   describe('external (origin-tagged) changes', () => {
     it('does not record a remote update', () => {
       const { store, stack } = setup();
