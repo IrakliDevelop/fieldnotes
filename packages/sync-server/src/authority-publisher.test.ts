@@ -188,6 +188,34 @@ describe('global authority publisher', () => {
     }
   });
 
+  it('keeps a wake during retry backoff waiting for the backoff delay', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const publish = vi.fn().mockRejectedValueOnce(new Error('down')).mockResolvedValue(undefined);
+    const markPublished = vi.fn(async () => undefined);
+    const claimPublications = vi.fn().mockResolvedValue([claim]);
+    const driver = { claimPublications, markPublished } as unknown as AuthorityDriver;
+    const publisher = new AuthorityPublisher(
+      driver,
+      { publish, subscribe: () => () => undefined },
+      'worker',
+    );
+    try {
+      await vi.advanceTimersByTimeAsync(0);
+      expect(claimPublications).toHaveBeenCalledTimes(1);
+      expect(vi.getTimerCount()).toBe(1);
+      publisher.wake();
+      await vi.advanceTimersByTimeAsync(10);
+      expect(claimPublications).toHaveBeenCalledTimes(1);
+      expect(publish).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(100);
+      expect(claimPublications).toHaveBeenCalledTimes(2);
+      expect(markPublished).toHaveBeenCalledTimes(1);
+    } finally {
+      publisher.close();
+      vi.useRealTimers();
+    }
+  });
+
   it('retains its single worker until an ignored-abort claim settles after shutdown', async () => {
     let finishClaim: ((claims: readonly AuthorityPublicationClaim[]) => void) | undefined;
     const claimPublications = vi.fn(

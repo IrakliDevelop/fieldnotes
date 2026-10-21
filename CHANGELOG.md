@@ -15,9 +15,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 **Fixed**
 
-- A committed authority change now reaches other peers at once. The outbox publisher ignored the
-  commit's wake while its 1 s idle poll was pending, so other clients saw the change up to a
-  second late.
+- A committed authority change now reaches other peers at once. The outbox publisher ignored a
+  commit's wake while a publish run or its 1 s idle poll was pending, so other clients saw the
+  change up to a second late.
 
 ### Core 0.97.0 — selection colour (A2)
 
