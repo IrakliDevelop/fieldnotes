@@ -88,6 +88,13 @@ export {
   MOVEMENT_RECORD_ID_PREFIX,
 } from './movement/movement-record';
 export { MOVEMENT_TRAIL_MAX_POINTS } from './movement/movement-types';
+export { MovementTracker } from './movement/movement-tracker';
+export type {
+  MovementTrackerHost,
+  MovementTrackerOptions,
+  MovementTrackOptions,
+  MovementState,
+} from './movement/movement-tracker';
 export type {
   MovementVisibility,
   MovementKind,
