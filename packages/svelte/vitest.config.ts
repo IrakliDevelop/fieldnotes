@@ -29,14 +29,18 @@ export default defineConfig({
           name: 'jsdom',
           environment: 'jsdom',
           include: ['src/**/*.test.ts'],
-          exclude: ['src/ssr.test.ts'],
+          exclude: ['src/ssr.test.ts', 'src/**/*.ssr.test.ts'],
         },
       },
       {
         extends: true,
         // The node environment transforms in SSR mode, so components compile with generate: 'server'.
         plugins: [svelte()],
-        test: { name: 'ssr', environment: 'node', include: ['src/ssr.test.ts'] },
+        test: {
+          name: 'ssr',
+          environment: 'node',
+          include: ['src/ssr.test.ts', 'src/**/*.ssr.test.ts'],
+        },
       },
     ],
   },
