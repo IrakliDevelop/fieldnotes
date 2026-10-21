@@ -75,6 +75,8 @@ export type {
   LayersState,
   SelectionOpsState,
 } from './canvas/viewport-sources';
+export { mountViewport } from './canvas/mount-viewport';
+export type { MountViewportOptions, MountedViewport } from './canvas/mount-viewport';
 export type {
   ViewportPlugin,
   PluginConfigureContext,

@@ -231,6 +231,13 @@ describe('core public surface', () => {
     ]).toEqual([1, false, '', null, 1]);
   });
 
+  it('exports mountViewport for framework bindings', () => {
+    expect(typeof FN.mountViewport).toBe('function');
+    const opts: FN.MountViewportOptions = { tools: 'default', changeDebounceMs: 0 };
+    const mounted: FN.MountedViewport | null = null;
+    expect([opts.tools, opts.changeDebounceMs, mounted]).toEqual(['default', 0, null]);
+  });
+
   it('exports the live stroke preview surface', () => {
     expect(FN.RemoteStrokeOverlay).toBeTypeOf('function');
     expect(FN.isStrokePreviewPresence).toBeTypeOf('function');
