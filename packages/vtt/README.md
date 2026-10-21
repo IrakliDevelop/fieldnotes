@@ -115,7 +115,7 @@ viewport.toolManager.register(measure);
 
 `MovementTracker` counts how far tracked tokens are dragged with the select tool and stores the
 feet spent in a synced `vtt:movement` record, one per token (`registerVttElementTypes()` registers
-the type). A record from an earlier epoch counts as empty, so a new turn id starts a new count.
+the type). A record from another epoch counts as empty, so a new turn id starts a new count.
 
 ```typescript
 import {
@@ -153,11 +153,13 @@ client.onPresence((from, data) => {
 });
 ```
 
-On the server, wrap `authorize` with `withMovementAuthorize` from `@fieldnotes/vtt/server`, which
-judges a record op as an edit of its token. Its second argument looks up the token by room and id.
+On the server, `withMovementAuthorize` wraps `authorize` and judges a record op as an edit of its
+token; its second argument looks up the token by room and id.
 
 ```typescript
 import { getMovementVisibility, withMovementAuthorize } from '@fieldnotes/vtt/server';
+
+const DM_AUDIENCE = 'dm';
 
 createSyncServer({
   backend,
@@ -168,18 +170,18 @@ createSyncServer({
       return record?.kind === 'element' ? record.element : undefined;
     },
   }),
-  resolveAudience: (ctx) => (getMovementVisibility(ctx.element) === 'dm' ? 'dm' : audience(ctx)),
+  resolveAudience: (ctx) =>
+    getMovementVisibility(ctx.element) === 'dm' ? DM_AUDIENCE : audience(ctx),
   canRead,
 });
 ```
 
-- Map a record's `'dm'` visibility to your DM audience string in both the client's and the
-  server's `resolveAudience`. `resolveMovementVisibility` picks the visibility for a move.
-- If a token's visibility changes to `'dm'` during a drag, send the cleared payload
-  (`toMovementPresence(null)`) so peers drop the drag they already see.
-- Undo restores an earlier record, and the tracker then writes the current visibility back. Keep
-  the sync client's default `flushIntervalMs`: with 0 ms, the restored visibility can reach peers
-  for a moment.
+- Map a record's `'dm'` visibility to `DM_AUDIENCE` in both the client's and the server's
+  `resolveAudience`. `resolveMovementVisibility` picks the visibility for a move.
+- If a token's visibility changes to `'dm'` during a drag, send `toMovementPresence(null)` so peers
+  drop the drag they already see.
+- Keep the sync client's default `flushIntervalMs`: at 0 ms, an undo can briefly send peers a
+  record's older visibility.
 
 ## Grid
 

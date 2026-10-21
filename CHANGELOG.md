@@ -52,6 +52,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 - `pathDistanceCells` takes a `startDiagonals` option, and `PathDistance` gains `diagonals`, so the
   alternate diagonal rule carries across moves.
 - `DEFAULT_MOVEMENT_BANDS_COLORS` and `MOVEMENT_OVER_COLOR`.
+- Also exported: `movementRecordTypeDefinition`, `movementRecordId`, `MOVEMENT_RECORD_ID_PREFIX`,
+  `MOVEMENT_TRAIL_MAX_POINTS` (64 points per record), `drawMovement`, `formatMovementLabel`, and
+  the types `MovementTrackerHost`, `MovementTrackerOptions`, `MovementTrackOptions`,
+  `MovementState`, `MovementEmission`, `MovementPlacementResult`, `MovementRenderModel`,
+  `MovementCell`, `MovementPresence`, `MovementVisibility` and `MovementRecordElement`.
 
 **Changed**
 
