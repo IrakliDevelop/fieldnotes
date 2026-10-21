@@ -140,12 +140,15 @@ export function getMovementVisibility(element: unknown): MovementVisibility | un
   return data['visibility'] as MovementVisibility;
 }
 
-/** Player moves are always shared; DM moves follow the override, else the table default. */
+/** Unreadable elements stay `'dm'`; player moves are shared; DM moves follow override or default. */
 export function resolveMovementVisibility(input: {
   controller: 'dm' | 'player';
   shareDmDefault: boolean;
   override?: 'share' | 'hide';
+  readableByPlayers: boolean;
 }): MovementVisibility {
+  // Presence is relayed unfiltered, so 'dm' alone keeps a hidden token's drag private.
+  if (!input.readableByPlayers) return 'dm';
   if (input.controller === 'player') return 'all';
   const share = input.override === undefined ? input.shareDmDefault : input.override === 'share';
   return share ? 'all' : 'dm';

@@ -159,12 +159,20 @@ describe('getMovementVisibility', () => {
 
 describe('resolveMovementVisibility', () => {
   it.each<[Parameters<typeof resolveMovementVisibility>[0], 'all' | 'dm']>([
-    [{ controller: 'player', shareDmDefault: false, override: 'hide' }, 'all'],
-    [{ controller: 'player', shareDmDefault: false }, 'all'],
-    [{ controller: 'dm', shareDmDefault: true }, 'all'],
-    [{ controller: 'dm', shareDmDefault: true, override: 'hide' }, 'dm'],
-    [{ controller: 'dm', shareDmDefault: false, override: 'share' }, 'all'],
-    [{ controller: 'dm', shareDmDefault: false }, 'dm'],
+    [
+      { controller: 'player', shareDmDefault: false, override: 'hide', readableByPlayers: true },
+      'all',
+    ],
+    [{ controller: 'player', shareDmDefault: false, readableByPlayers: true }, 'all'],
+    [{ controller: 'dm', shareDmDefault: true, readableByPlayers: true }, 'all'],
+    [{ controller: 'dm', shareDmDefault: true, override: 'hide', readableByPlayers: true }, 'dm'],
+    [
+      { controller: 'dm', shareDmDefault: false, override: 'share', readableByPlayers: true },
+      'all',
+    ],
+    [{ controller: 'dm', shareDmDefault: false, readableByPlayers: true }, 'dm'],
+    [{ controller: 'dm', shareDmDefault: true, override: 'share', readableByPlayers: false }, 'dm'],
+    [{ controller: 'player', shareDmDefault: true, readableByPlayers: false }, 'dm'],
   ])('%o resolves to %s', (input, expected) => {
     expect(resolveMovementVisibility(input)).toBe(expected);
   });

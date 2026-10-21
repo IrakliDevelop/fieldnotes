@@ -160,6 +160,7 @@ token; its second argument looks up the token by room and id.
 import { getMovementVisibility, withMovementAuthorize } from '@fieldnotes/vtt/server';
 
 const DM_AUDIENCE = 'dm';
+// hostAudience is your own resolver for every other element.
 
 createSyncServer({
   backend,
@@ -171,15 +172,20 @@ createSyncServer({
     },
   }),
   resolveAudience: (ctx) =>
-    getMovementVisibility(ctx.element) === 'dm' ? DM_AUDIENCE : audience(ctx),
+    getMovementVisibility(ctx.element) === 'dm' ? DM_AUDIENCE : hostAudience(ctx),
   canRead,
 });
 ```
 
 - Map a record's `'dm'` visibility to `DM_AUDIENCE` in both the client's and the server's
   `resolveAudience`. `resolveMovementVisibility` picks the visibility for a move.
-- If a token's visibility changes to `'dm'` during a drag, send `toMovementPresence(null)` so peers
-  drop the drag they already see.
+- Visibility must be `'dm'` for any element players cannot read, such as a token on a DM-only
+  layer. The hub relays presence to the whole room unfiltered, so `'dm'` is what keeps the drag
+  private. `resolveMovementVisibility` returns `'dm'` whenever `readableByPlayers` is false.
+- `setVisibility(id, 'dm')` during a drag of that token emits `null` on `onMovement`, so peers drop
+  the drag they already see.
+- Undoing a token's deletion may lose its running total: the record's upsert can reach the hub
+  before the token's.
 - Keep the sync client's default `flushIntervalMs`: at 0 ms, an undo can briefly send peers a
   record's older visibility.
 

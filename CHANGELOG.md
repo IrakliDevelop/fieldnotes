@@ -42,8 +42,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 - The `vtt:movement` element stores one token's movement for an epoch: hidden, locked, one per
   tracked element, with id `vtt-movement:<id>`. A record from another epoch counts as empty.
   `registerVttElementTypes` registers it.
-- `resolveMovementVisibility` picks `'all'` or `'dm'` for a move; `getMovementVisibility` reads it
-  from a stored or wire record, for a host's `resolveAudience`.
+- `resolveMovementVisibility` picks `'all'` or `'dm'` for a move, always `'dm'` when
+  `readableByPlayers` is false; `getMovementVisibility` reads it from a stored or wire record, for a
+  host's `resolveAudience`.
 - Movement presence: `toMovementPresence` builds a payload of at most
   `MOVEMENT_PRESENCE_MAX_BYTES` (3800 bytes) with kind `MOVEMENT_PRESENCE_KIND`, `isMovementPresence`
   validates a peer's payload, and `RemoteMovementOverlay` draws peers' live drags.

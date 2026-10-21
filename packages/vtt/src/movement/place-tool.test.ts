@@ -295,7 +295,7 @@ describe('MovementTracker placement', () => {
     expect(toolName()).toBe('select');
   });
 
-  it('with smart guides on, places at the unsnapped pointer', () => {
+  it('with smart guides on, centers on the grid point nearest the pointer', () => {
     const { vp, tracker, token, click, position } = setup();
     const a = token(0, 0);
     vp.setSmartGuides(true);
@@ -303,10 +303,10 @@ describe('MovementTracker placement', () => {
 
     click(105, 25);
 
-    expect(position(a)).toEqual({ x: 85, y: 5 });
+    expect(position(a)).toEqual({ x: 100, y: 20 });
   });
 
-  it('places a sized extension at the unsnapped pointer', () => {
+  it('centers a sized extension on the grid point nearest the pointer', () => {
     const { vp, tracker, click, position } = setup();
     vp.store.add({
       id: 'box',
@@ -324,7 +324,7 @@ describe('MovementTracker placement', () => {
 
     click(105, 25);
 
-    expect(position('box')).toEqual({ x: 85, y: 5 });
+    expect(position('box')).toEqual({ x: 100, y: 20 });
   });
 
   it.each(['placed', 'cancelled'] as const)('with no previous tool, %s ends on select', (end) => {

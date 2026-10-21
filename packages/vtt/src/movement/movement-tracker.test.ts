@@ -986,5 +986,55 @@ describe('MovementTracker', () => {
         null,
       ]);
     });
+
+    it('a throwing onMovement listener still gets the record written and the drag ended', () => {
+      const frames: FrameRequestCallback[] = [];
+      vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => frames.push(cb));
+      vi.stubGlobal('cancelAnimationFrame', vi.fn());
+      const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      cleanups.push(() => errors.mockRestore());
+      const { vp, tracker, token, gesture, track } = setup();
+      const a = token(0, 0);
+      track(a);
+      const failure = new Error('host listener');
+      tracker.onMovement(() => {
+        throw failure;
+      });
+      const steps = vp.history.undoCount;
+
+      gesture(
+        [
+          [25, 25],
+          [145, 25],
+        ],
+        () => {
+          for (const frame of frames.splice(0)) frame(0);
+        },
+      );
+
+      expect(tracker.getMovement(a)?.feet).toBe(15);
+      expect(vp.history.undoCount).toBe(steps + 1);
+      expect(drawOverlay(vp)).toEqual([]);
+      expect(errors).toHaveBeenCalledWith(expect.any(String), failure);
+    });
+
+    it('setVisibility to dm during a drag emits null at once', () => {
+      const frames: FrameRequestCallback[] = [];
+      vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => frames.push(cb));
+      vi.stubGlobal('cancelAnimationFrame', vi.fn());
+      const { tracker, token, press, track } = setup();
+      const a = token(0, 0);
+      track(a);
+      const emissions: (MovementEmission | null)[] = [];
+      tracker.onMovement((e) => emissions.push(e));
+
+      const drag = press(25, 25);
+      drag.move(145, 25);
+      for (const frame of frames.splice(0)) frame(0);
+      tracker.setVisibility(a, 'dm');
+
+      expect(emissions).toEqual([expect.objectContaining({ visibility: 'all' }), null]);
+      drag.up();
+    });
   });
 });

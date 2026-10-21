@@ -107,6 +107,17 @@ function isLocal(meta: ElementChangeMeta): boolean {
   return meta.origin === undefined || meta.origin === 'local';
 }
 
+// A throwing host listener must not skip a record write or strand SelectTool mid-gesture.
+function notifyAll<T>(listeners: Iterable<(value: T) => void>, value: T): void {
+  for (const listener of listeners) {
+    try {
+      listener(value);
+    } catch (error) {
+      console.error('[fieldnotes] movement listener failed', error);
+    }
+  }
+}
+
 function centerOf(el: CanvasElement, position: Point): Point {
   const size = 'size' in el ? el.size : undefined;
   return size ? { x: position.x + size.w / 2, y: position.y + size.h / 2 } : position;
@@ -220,6 +231,7 @@ export class MovementTracker {
   setVisibility(elementId: string, visibility: MovementVisibility): void {
     const tracking = this.tracked.get(elementId);
     if (tracking) this.tracked.set(elementId, { ...tracking, visibility });
+    if (visibility === 'dm' && this.live?.labelId === elementId) this.emitMovement(null);
     const record = this.record(elementId);
     if (!record || record.visibility === visibility) return;
     this.writeUnrecorded({ ...record, visibility });
@@ -417,7 +429,7 @@ export class MovementTracker {
   }
 
   private emitMovement(emission: MovementEmission | null): void {
-    for (const listener of this.movementListeners) listener(emission);
+    notifyAll(this.movementListeners, emission);
   }
 
   /** Ends the live drag: the overlay draws nothing and listeners get null. */
@@ -435,18 +447,20 @@ export class MovementTracker {
   // Runs inside the gesture transaction, so the record write shares the move's undo step.
   private endDrag(): void {
     const live = this.live;
-    this.clearLive();
-    if (!live) return;
-    for (const [id, move] of live.moves) {
-      const target = this.host.store.getById(id);
-      const tracking = this.tracked.get(id);
-      if (!target || !tracking) continue;
-      const end = centerOf(target, target.position);
-      if (move.waypoints.length === 0 && end.x === move.start.x && end.y === move.start.y) {
-        continue;
+    if (live) {
+      for (const [id, move] of live.moves) {
+        const target = this.host.store.getById(id);
+        const tracking = this.tracked.get(id);
+        if (!target || !tracking) continue;
+        const end = centerOf(target, target.position);
+        if (move.waypoints.length === 0 && end.x === move.start.x && end.y === move.start.y) {
+          continue;
+        }
+        this.recordMove(target, tracking, [move.start, ...move.waypoints, end], live.grid, true);
       }
-      this.recordMove(target, tracking, [move.start, ...move.waypoints, end], live.grid, true);
     }
+    // Records are written first so listeners that run on clear already see them.
+    this.clearLive();
   }
 
   private placementView(ctx: ToolContext): PlacementView | null {
@@ -473,9 +487,11 @@ export class MovementTracker {
     }
     const size = 'size' in el ? el.size : undefined;
     const cs = ctx.constraintService;
-    // Snaps the center like SelectTool: not under smart guides, never an extension.
-    const snaps = cs?.isActive && !ctx.smartGuides && el.type !== 'extension';
-    const end = snaps ? cs.constrainPoint(world, size && { elementSize: size }) : world;
+    // Mirrors SelectTool: sized non-extensions snap their center unless smart guides are on.
+    const snapsCenter = size && !ctx.smartGuides && el.type !== 'extension';
+    const end = cs?.isActive
+      ? cs.constrainPoint(world, snapsCenter ? { elementSize: size } : undefined)
+      : world;
     const start = centerOf(el, el.position);
     const grid = gridMetric(ctx, this.options.diagonalRule);
     const { maxFeet, counts } = placement.kind;
@@ -505,7 +521,7 @@ export class MovementTracker {
       if (active instanceof SelectTool) active.setSelection(placement.selection);
     }
     const { elementId, kind } = placement;
-    for (const listener of this.placementListeners) listener({ elementId, kind, placed });
+    notifyAll(this.placementListeners, { elementId, kind, placed });
   }
 
   /** Writes a move along `path` into the target's record; an uncounted move keeps the totals. */
@@ -611,6 +627,6 @@ export class MovementTracker {
   }
 
   private emit(elementId: string): void {
-    for (const listener of this.listeners) listener(elementId);
+    notifyAll(this.listeners, elementId);
   }
 }
