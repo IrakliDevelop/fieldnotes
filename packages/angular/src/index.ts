@@ -1,3 +1,10 @@
 export { FIELDNOTES_VIEWPORT } from './context';
 export { FieldNotesCanvas } from './field-notes-canvas';
 export { injectViewport } from './inject-viewport';
+export { injectActiveTool } from './helpers/inject-active-tool';
+export { injectCamera } from './helpers/inject-camera';
+export { injectElements } from './helpers/inject-elements';
+export { injectHistory } from './helpers/inject-history';
+export type { InjectHistoryResult } from './helpers/inject-history';
+export { injectSelection } from './helpers/inject-selection';
+export { injectToolOptions } from './helpers/inject-tool-options';

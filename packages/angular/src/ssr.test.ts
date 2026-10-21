@@ -6,6 +6,8 @@ import type { BootstrapContext } from '@angular/platform-browser';
 import { provideServerRendering, renderApplication } from '@angular/platform-server';
 import { FIELDNOTES_VIEWPORT } from './context';
 import { FieldNotesCanvas } from './field-notes-canvas';
+import { injectCamera } from './helpers/inject-camera';
+import { injectSelection } from './helpers/inject-selection';
 import { injectViewport } from './inject-viewport';
 
 @Component({ selector: 'fn-test-child', template: 'viewport is null: {{ viewport() === null }}' })
@@ -28,6 +30,22 @@ class Root {}
 })
 class CanvasRoot {}
 
+@Component({
+  selector: 'fn-test-state',
+  template: 'zoom={{ camera().zoom }} selected={{ selection().length }}',
+})
+class State {
+  protected readonly camera = injectCamera();
+  protected readonly selection = injectSelection();
+}
+
+@Component({
+  selector: 'fn-test-state-root',
+  imports: [FieldNotesCanvas, State],
+  template: '<fn-canvas><fn-test-state /></fn-canvas>',
+})
+class StateRoot {}
+
 describe('server rendering', () => {
   it('renders a helper consumer with a null viewport', async () => {
     const html = await renderApplication(
@@ -48,5 +66,14 @@ describe('server rendering', () => {
       /<fn-canvas[^>]*><div[^>]*style="position: absolute; inset: 0; z-index: 0;"><\/div><span>overlay<\/span><\/fn-canvas>/,
     );
     expect(html).not.toContain('<canvas');
+  });
+
+  it('renders helper fallbacks inside <fn-canvas>', async () => {
+    const html = await renderApplication(
+      (context: BootstrapContext) =>
+        bootstrapApplication(StateRoot, { providers: [provideServerRendering()] }, context),
+      { document: '<fn-test-state-root></fn-test-state-root>', url: '/' },
+    );
+    expect(html).toContain('zoom=1 selected=0');
   });
 });
