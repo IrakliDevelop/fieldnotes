@@ -76,14 +76,14 @@ const expandButton = 'button[aria-label="Expand minimap"]';
 describe('Minimap', () => {
   it('renders an expanded minimap by default', async () => {
     const { root } = await mount();
-    // The FieldNotesCanvas host canvas plus the minimap's own canvas.
-    expect(root.querySelectorAll('canvas').length).toBe(2);
+    // Scoped to fn-minimap: core adds its own overlay canvases on later render frames.
+    expect(root.querySelectorAll('fn-minimap canvas').length).toBe(1);
     expect(root.querySelector(collapseButton)?.textContent?.trim()).toBe('–');
   });
 
   it('renders only a button when defaultCollapsed', async () => {
     const { root } = await mount(true);
-    expect(root.querySelectorAll('canvas').length).toBe(1);
+    expect(root.querySelectorAll('fn-minimap canvas').length).toBe(0);
     expect(root.querySelector(expandButton)?.textContent?.trim()).toBe('▣');
     expect(root.querySelector(collapseButton)).toBeNull();
   });
@@ -98,7 +98,7 @@ describe('Minimap', () => {
     const dispose = vi.spyOn(MinimapController.prototype, 'dispose');
     const { root, click } = await mount();
     await click(collapseButton);
-    expect(root.querySelectorAll('canvas').length).toBe(1);
+    expect(root.querySelectorAll('fn-minimap canvas').length).toBe(0);
     expect(dispose).toHaveBeenCalledTimes(1);
     expect(root.querySelector(expandButton)).not.toBeNull();
   });
@@ -112,7 +112,7 @@ describe('Minimap', () => {
     await click(collapseButton);
     await click(expandButton);
 
-    expect(root.querySelectorAll('canvas').length).toBe(2);
+    expect(root.querySelectorAll('fn-minimap canvas').length).toBe(1);
     expect(requestDraw).toHaveBeenCalledTimes(2);
     expect(dispose).toHaveBeenCalledTimes(1);
   });
