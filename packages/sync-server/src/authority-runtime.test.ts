@@ -4064,7 +4064,7 @@ it('keeps a failed chunk stream charged after caller rejection until tracked set
 
 it('charges ignored-abort checkpoint release work while an unrelated negotiation progresses', async () => {
   const cut = { generation: 'g', revision: 'cut' };
-  const releases: (() => void)[] = [];
+  const releases = new Map<string, () => void>();
   const head = vi.fn(async (_context: { connectionId: string }) => cut);
   const checkpoint = vi.fn(async (context: { connectionId: string }) => ({
     position: cut,
@@ -4074,7 +4074,7 @@ it('charges ignored-abort checkpoint release work while an unrelated negotiation
     release: context.connectionId.startsWith('held-')
       ? () =>
           new Promise<void>((resolve) => {
-            releases.push(resolve);
+            releases.set(context.connectionId, resolve);
           })
       : async () => undefined,
   }));
@@ -4130,7 +4130,7 @@ it('charges ignored-abort checkpoint release work while an unrelated negotiation
         }),
       );
     }
-    await vi.waitFor(() => expect(releases).toHaveLength(2));
+    await vi.waitFor(() => expect(releases.size).toBe(2));
     expect(runtime['scheduler'].accountedUsage()).toMatchObject({
       heavySlots: 2,
       heavyBytes: 512 * 1024 * 1024,
@@ -4151,12 +4151,12 @@ it('charges ignored-abort checkpoint release work while an unrelated negotiation
     await join('unrelated');
     expect(head.mock.calls.some((call) => call[0].connectionId === 'unrelated')).toBe(true);
     expect(checkpoint).toHaveBeenCalledTimes(2);
-    releases[0]?.();
+    releases.get('held-a')?.();
     await vi.waitFor(() => expect(checkpoint).toHaveBeenCalledTimes(3));
     runtime.close();
     expect(runtime['scheduler'].accountedUsage().heavySlots).toBeGreaterThanOrEqual(1);
     expect(runtime.pinnedDefinitionId('held-b')).toBe('definition');
-    releases[1]?.();
+    releases.get('held-b')?.();
     await vi.waitFor(() => expect(runtime['scheduler'].accountedUsage().heavySlots).toBe(0));
     expect(runtime.pinnedDefinitionId('held-b')).toBeUndefined();
   } finally {
