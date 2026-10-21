@@ -55,6 +55,7 @@ export class AuthorityPublisher {
   private closed = false;
   private retryMs = 100;
   private timer?: ReturnType<typeof setTimeout>;
+  private idle = false;
   private readonly scheduler: AuthorityScheduler;
   private readonly ownsScheduler: boolean;
 
@@ -72,11 +73,17 @@ export class AuthorityPublisher {
   wake(): void {
     if (this.closed) return;
     this.dirty = true;
+    // Only the retry backoff holds wakes back; the idle poll just catches missed ones.
+    if (this.idle && this.timer) {
+      clearTimeout(this.timer);
+      this.timer = undefined;
+    }
     if (!this.running && !this.timer) this.scheduler.schedulePublisher(() => this.run());
   }
 
-  private schedule(delay: number): void {
+  private schedule(delay: number, idle = false): void {
     if (this.closed || this.timer) return;
+    this.idle = idle;
     this.timer = setTimeout(() => {
       this.timer = undefined;
       this.wake();
@@ -130,7 +137,7 @@ export class AuthorityPublisher {
         await this.driver.markPublished(claim, options);
       }
       this.retryMs = 100;
-      this.schedule(claims.length === CLAIM_LIMITS.entries ? 0 : 1000);
+      this.schedule(claims.length === CLAIM_LIMITS.entries ? 0 : 1000, true);
     } catch {
       this.schedule(this.retryMs);
       this.retryMs = Math.min(this.retryMs * 2, 1000);

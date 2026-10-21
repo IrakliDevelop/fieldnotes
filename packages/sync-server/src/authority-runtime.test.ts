@@ -1582,7 +1582,7 @@ it('does not wake peer replay after an admitted receipt settles beyond its calle
       resolveRoom: () => definition,
       resolveIdentity: () => ({ actorId: 'actor', ownershipId: 'owner' }),
     },
-    new InMemoryHubFanout(),
+    { publish: async () => undefined, subscribe: () => () => undefined },
     'worker',
   );
   try {
