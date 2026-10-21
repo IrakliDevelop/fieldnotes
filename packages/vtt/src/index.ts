@@ -105,6 +105,13 @@ export {
   MOVEMENT_OVER_COLOR,
 } from './movement/movement-render';
 export type { MovementCell, MovementRenderModel } from './movement/movement-render';
+export {
+  RemoteMovementOverlay,
+  isMovementPresence,
+  toMovementPresence,
+  MOVEMENT_PRESENCE_KIND,
+} from './movement/remote-movement-overlay';
+export type { MovementPresence } from './movement/remote-movement-overlay';
 export type {
   MovementVisibility,
   MovementKind,
