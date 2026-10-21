@@ -9,8 +9,15 @@ import {
   watch,
   type PropType,
 } from 'vue';
-import { Viewport, createDefaultTools } from '@fieldnotes/core';
-import type { ViewportOptions, Tool, CanvasState, ImportableCanvasState } from '@fieldnotes/core';
+import { mountViewport } from '@fieldnotes/core';
+import type {
+  MountedViewport,
+  Viewport,
+  ViewportOptions,
+  Tool,
+  CanvasState,
+  ImportableCanvasState,
+} from '@fieldnotes/core';
 import { ViewportKey } from './context';
 
 export interface FieldNotesCanvasProps {
@@ -82,94 +89,48 @@ export const FieldNotesCanvas = defineComponent({
   setup(props, { slots, emit, expose }) {
     const root = shallowRef<HTMLDivElement | null>(null);
     const viewport = shallowRef<Viewport | null>(null);
-    let teardown: (() => void) | undefined;
+    let mounted: MountedViewport | undefined;
     expose({ viewport });
 
     onMounted(() => {
       const el = root.value;
       if (!el) return;
 
-      const options = toRaw(props.options);
       const tools = props.tools;
-      const vp = new Viewport(el, options);
-
-      const activate = (fallback?: string) => {
-        const name = props.tool ?? props.defaultTool ?? fallback;
-        if (name) vp.setTool(name);
-      };
-      // An explicit `options.tools` is the host's choice; core registers it and activates select.
-      const deferDefaults = tools === undefined && options?.tools === undefined;
-      for (const t of tools === 'default' ? createDefaultTools() : (tools ?? [])) {
-        vp.toolManager.register(toRaw(t));
-      }
-      if (!deferDefaults) activate(tools === 'default' ? 'select' : undefined);
-
-      try {
-        if (typeof props.initialData === 'string') vp.loadJSON(props.initialData);
-        else if (props.initialData) vp.loadState(toRaw(props.initialData));
-      } catch (error) {
-        vp.destroy();
-        throw error;
-      }
-
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const emitChange = () => {
-        timer = undefined;
-        props.onChange?.(vp.exportState());
-      };
-      // Subscribed after initialData so the initial load is not reported as a change.
-      const unsubscribe = vp.onStateChange(() => {
-        clearTimeout(timer);
-        timer = setTimeout(emitChange, props.changeDebounceMs);
+      mounted = mountViewport(el, {
+        options: toRaw(props.options),
+        tools: tools === 'default' ? tools : tools?.map(toRaw),
+        initialData: toRaw(props.initialData),
+        get tool() {
+          return props.tool;
+        },
+        get defaultTool() {
+          return props.defaultTool;
+        },
+        onReady: props.onReady,
+        get onChange() {
+          return props.onChange;
+        },
+        get changeDebounceMs() {
+          return props.changeDebounceMs;
+        },
+        onToolChange: (name) => {
+          props.onToolChange?.(name);
+          emit('update:tool', name);
+        },
       });
-
-      try {
-        props.onReady?.(vp);
-
-        // Hosts that register their own tools in onReady keep exactly those.
-        if (deferDefaults) {
-          const registerDefaults = vp.toolManager.toolNames.length === 0;
-          if (registerDefaults) {
-            for (const t of createDefaultTools()) vp.toolManager.register(t);
-          }
-          activate(registerDefaults ? 'select' : undefined);
-        }
-      } catch (error) {
-        clearTimeout(timer);
-        unsubscribe();
-        vp.destroy();
-        throw error;
-      }
-
-      const unsubscribeTool = vp.toolManager.onChange((name) => {
-        props.onToolChange?.(name);
-        emit('update:tool', name);
-      });
-      viewport.value = vp;
-
-      teardown = () => {
-        if (timer !== undefined) {
-          clearTimeout(timer);
-          try {
-            emitChange();
-          } catch (error) {
-            // A failing host save must not leak the viewport or throw out of unmount.
-            if (typeof reportError === 'function') reportError(error);
-            else console.error('[fieldnotes] onChange failed during unmount', error);
-          }
-        }
-        unsubscribeTool();
-        unsubscribe();
-        vp.destroy();
-        viewport.value = null;
-      };
+      viewport.value = mounted.viewport;
     });
 
-    onBeforeUnmount(() => teardown?.());
+    onBeforeUnmount(() => {
+      if (!mounted) return;
+      mounted.destroy();
+      viewport.value = null;
+    });
 
     watch([viewport, () => props.tool], ([vp, tool]) => {
       if (!vp || tool === undefined) return;
-      if (vp.toolManager.activeTool?.name !== tool) vp.setTool(tool);
+      mounted?.setTool(tool);
     });
 
     watch([viewport, () => props.snapToGrid], ([vp, snapToGrid]) => {
@@ -180,12 +141,8 @@ export const FieldNotesCanvas = defineComponent({
     watch(
       () => props.tools,
       (tools) => {
-        const vp = viewport.value;
-        if (!vp || !Array.isArray(tools)) return;
-        for (const t of tools) {
-          const tool = toRaw(t);
-          if (!vp.toolManager.getTool(tool.name)) vp.toolManager.register(tool);
-        }
+        if (!viewport.value || !Array.isArray(tools)) return;
+        mounted?.addTools(tools.map(toRaw));
       },
       { deep: 1 },
     );
