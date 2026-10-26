@@ -181,13 +181,7 @@ export class ElementStore {
     const updated = this.prepareUpdate(existing, partial, meta);
     const candidate = new Map(this.elements);
     candidate.set(id, updated);
-    if (
-      existing.parentId !== updated.parentId ||
-      existing.layerId !== updated.layerId ||
-      existing.index !== updated.index
-    ) {
-      this.validateCandidate(candidate, meta);
-    }
+    this.validateCandidate(candidate, meta);
     this.installUpdate(existing, updated);
     this.bus.emit('update', { previous: existing, current: updated }, meta);
   }
@@ -211,17 +205,13 @@ export class ElementStore {
       candidate.set(update.id, updated);
       prepared.push({ existing, updated });
     }
-    if (
-      prepared.some(
-        ({ existing, updated }) =>
-          existing.parentId !== updated.parentId ||
-          existing.layerId !== updated.layerId ||
-          existing.index !== updated.index,
-      )
-    ) {
-      this.validateCandidate(candidate, meta);
-    }
-    for (const item of prepared) this.installUpdate(item.existing, item.updated);
+    this.validateCandidate(candidate, meta);
+    const structural = prepared.some(({ existing, updated }) =>
+      this.isStructural(existing, updated),
+    );
+    for (const item of prepared) this.installUpdate(item.existing, item.updated, structural);
+    if (structural) this.resetHierarchy();
+    if (structural) this.getHierarchy();
     for (const item of prepared)
       this.bus.emit('update', { previous: item.existing, current: item.updated }, meta);
   }
@@ -268,14 +258,26 @@ export class ElementStore {
     return updated;
   }
 
-  private installUpdate(existing: CanvasElement, updated: CanvasElement): void {
-    this._versions.set(existing.id, (this._versions.get(existing.id) ?? 0) + 1);
-    this.elements.set(existing.id, updated);
-    const structural =
+  private isStructural(existing: CanvasElement, updated: CanvasElement): boolean {
+    return (
       existing.parentId !== updated.parentId ||
       existing.layerId !== updated.layerId ||
-      existing.index !== updated.index;
-    if (structural) this.resetHierarchy();
+      existing.index !== updated.index ||
+      (existing.type === 'extension' &&
+        updated.type === 'extension' &&
+        existing.extensionType !== updated.extensionType)
+    );
+  }
+
+  private installUpdate(
+    existing: CanvasElement,
+    updated: CanvasElement,
+    retainHierarchy = false,
+  ): void {
+    this._versions.set(existing.id, (this._versions.get(existing.id) ?? 0) + 1);
+    this.elements.set(existing.id, updated);
+    const structural = this.isStructural(existing, updated);
+    if (structural && !retainHierarchy) this.resetHierarchy();
     else {
       this.hierarchy?.replace(existing, updated);
       this.sceneCache =
@@ -285,6 +287,8 @@ export class ElementStore {
     const newBounds = this.indexBounds(updated);
     if (newBounds) {
       this.spatialIndex.update(existing.id, newBounds);
+    } else {
+      this.spatialIndex.remove(existing.id);
     }
   }
 
@@ -383,7 +387,9 @@ export class ElementStore {
   // Sorted elements sharing the layer of `id`; empty when `id` is unknown.
   private layerSiblings(id: string): CanvasElement[] {
     const el = this.elements.get(id);
-    return el ? this.getAll().filter((e) => e.layerId === el.layerId) : [];
+    return el
+      ? this.getAll().filter((e) => e.layerId === el.layerId && e.parentId === el.parentId)
+      : [];
   }
 
   private reorder(id: string, below: string | null, above: string | null): void {

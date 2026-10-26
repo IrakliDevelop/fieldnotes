@@ -199,6 +199,7 @@ function validateState(
   const records: Record<string, unknown>[] = [];
   for (const el of obj['elements'] as unknown[]) {
     if (!isRecord(el)) throw new Error('Invalid element: expected an object');
+    if (version < CANVAS_STATE_VERSION) delete el['parentId'];
     if (version < INDEXED_STATE_VERSION && !isFiniteNumber(el['zIndex'])) {
       throw new Error(`Invalid element "${String(el['id'])}": missing or invalid zIndex`);
     }

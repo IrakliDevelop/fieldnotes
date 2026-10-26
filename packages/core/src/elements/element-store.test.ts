@@ -591,7 +591,7 @@ describe('ElementStore', () => {
       const before = store.getAll();
       const sort = vi.spyOn(Array.prototype, 'sort');
 
-      store.update('c', { position: { x: 40, y: 50 } });
+      store.update('c', { position: { x: 40, y: 50 } }, { origin: 'remote' });
       const after = store.getAll();
       const sorts = sort.mock.calls.length;
       sort.mockRestore();
