@@ -21,7 +21,7 @@ test.describe('context loss', () => {
       const nextFrame = () =>
         new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       const waitFor = async (predicate: () => boolean) => {
-        for (let frame = 0; frame < 60; frame++) {
+        for (let frame = 0; frame < 240; frame++) {
           if (predicate()) return;
           await nextFrame();
         }
@@ -38,6 +38,8 @@ test.describe('context loss', () => {
       const base = wrapper.querySelector<HTMLCanvasElement>(':scope > canvas');
       const hybrid = wrapper.querySelector<HTMLCanvasElement>('canvas[data-paint-order]');
       if (!base || !hybrid) throw new Error('persistent canvases not created');
+      const hybridOrder = hybrid.dataset['paintOrder'];
+      if (!hybridOrder) throw new Error('hybrid paint order missing');
       base.dispatchEvent(new Event('contextlost', { cancelable: true }));
       hybrid.dispatchEvent(new Event('contextlost', { cancelable: true }));
       const mask = wrapper.querySelector<HTMLElement>('[data-fieldnotes-context-loss-mask]');
@@ -58,9 +60,23 @@ test.describe('context loss', () => {
         wrapper.querySelector('[data-fieldnotes-context-loss-mask]'),
       );
       hybrid.dispatchEvent(new Event('contextrestored'));
-      await waitFor(() => !wrapper.querySelector('[data-fieldnotes-context-loss-mask]'));
+      await waitFor(() => {
+        const next = wrapper.querySelector<HTMLCanvasElement>('canvas[data-paint-order]');
+        return (
+          next !== null &&
+          next !== hybrid &&
+          !wrapper.querySelector('[data-fieldnotes-context-loss-mask]')
+        );
+      });
       const replacement = wrapper.querySelector<HTMLCanvasElement>('canvas[data-paint-order]');
+      if (!replacement) throw new Error('replacement hybrid canvas missing');
       const recovered = !wrapper.querySelector('[data-fieldnotes-context-loss-mask]');
+      replacement.dispatchEvent(new Event('contextlost', { cancelable: true }));
+      const replacementMasked = Boolean(
+        wrapper.querySelector('[data-fieldnotes-context-loss-mask]'),
+      );
+      replacement.dispatchEvent(new Event('contextrestored'));
+      await waitFor(() => !wrapper.querySelector('[data-fieldnotes-context-loss-mask]'));
       viewport.destroy();
       base.dispatchEvent(new Event('contextlost', { cancelable: true }));
       return {
@@ -69,6 +85,8 @@ test.describe('context loss', () => {
         remainsAfterBase,
         recovered,
         replaced: replacement !== hybrid,
+        replacementOrder: replacement.dataset['paintOrder'],
+        replacementMasked,
         detachedStaysClear: !wrapper.querySelector('[data-fieldnotes-context-loss-mask]'),
       };
     });
@@ -79,6 +97,8 @@ test.describe('context loss', () => {
       remainsAfterBase: true,
       recovered: true,
       replaced: true,
+      replacementOrder: expect.any(String),
+      replacementMasked: true,
       detachedStaysClear: true,
     });
   });

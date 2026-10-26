@@ -27,6 +27,7 @@ function mockCtx(): CanvasRenderingContext2D {
 }
 
 describe('Background', () => {
+  afterEach(() => vi.unstubAllGlobals());
   it('renders without throwing', () => {
     const bg = new Background();
     const ctx = mockCtx();
@@ -157,6 +158,71 @@ describe('Background', () => {
         .length > 0;
     const usedFallback = (ctx.arc as ReturnType<typeof vi.fn>).mock.calls.length > 0;
     expect(usedCache || usedFallback).toBe(true);
+  });
+
+  it('watches, replaces, restores, invalidates, and disposes cached canvases', () => {
+    class FakeOffscreenCanvas extends EventTarget {
+      readonly context = {
+        clearRect: vi.fn(),
+        scale: vi.fn(),
+        beginPath: vi.fn(),
+        arc: vi.fn(),
+        moveTo: vi.fn(),
+        fill: vi.fn(),
+        fillRect: vi.fn(),
+        fillStyle: '',
+      };
+
+      constructor(
+        public width: number,
+        public height: number,
+      ) {
+        super();
+      }
+
+      getContext(): OffscreenCanvasRenderingContext2D {
+        return this.context as unknown as OffscreenCanvasRenderingContext2D;
+      }
+    }
+    vi.stubGlobal('OffscreenCanvas', FakeOffscreenCanvas);
+    const bg = new Background();
+    const ctx = mockCtx();
+    (ctx as unknown as Record<string, unknown>).drawImage = vi.fn();
+    const watched: { canvas: HTMLCanvasElement | OffscreenCanvas; restore: () => void }[] = [];
+    const dispose = vi.fn();
+    bg.setCanvasWatcher((canvas, restore) => {
+      watched.push({ canvas, restore });
+      return dispose;
+    });
+
+    bg.render(ctx, mockCamera());
+    expect(watched).toHaveLength(1);
+    const first = watched[0];
+    if (!first) throw new Error('first watch missing');
+    ctx.canvas.width = 400;
+    bg.render(ctx, mockCamera());
+    expect(dispose).toHaveBeenCalledOnce();
+    expect(watched).toHaveLength(2);
+    const second = watched[1];
+    if (!second) throw new Error('second watch missing');
+    expect(second.canvas).not.toBe(first.canvas);
+
+    second.restore();
+    expect(dispose).toHaveBeenCalledTimes(2);
+    bg.render(ctx, mockCamera());
+    expect(watched).toHaveLength(3);
+    const third = watched[2];
+    if (!third) throw new Error('third watch missing');
+    const cached = third.canvas as FakeOffscreenCanvas;
+    cached.context.clearRect.mockClear();
+    bg.render(ctx, mockCamera());
+    expect(cached.context.clearRect).not.toHaveBeenCalled();
+    bg.invalidate();
+    bg.render(ctx, mockCamera());
+    expect(cached.context.clearRect).toHaveBeenCalled();
+    bg.dispose();
+    bg.dispose();
+    expect(dispose).toHaveBeenCalledTimes(3);
   });
 
   it('re-renders when camera position changes', () => {

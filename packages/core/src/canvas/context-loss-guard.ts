@@ -7,7 +7,6 @@ const noop = (): void => undefined;
 
 interface WatchEntry {
   canvas: HTMLCanvasElement | OffscreenCanvas;
-  onRestore: () => void;
   onLost: (event: Event) => void;
   onRestored: () => void;
 }
@@ -28,7 +27,6 @@ export class ContextLossGuard {
     if (this.disposed) return noop;
     const entry: WatchEntry = {
       canvas,
-      onRestore,
       onLost: (event) => {
         event.preventDefault?.();
         if (this.disposed || this.lost.has(canvas)) return;

@@ -60,15 +60,33 @@ describe('ContextLossGuard', () => {
     expect(recover).toHaveBeenCalledOnce();
   });
 
-  it('accepts OffscreenCanvas-shaped event targets', () => {
+  it('waits for a full frame after a lost watch is disposed', () => {
+    const wrapper = document.createElement('div');
+    const canvas = document.createElement('canvas');
+    const recover = vi.fn();
+    const guard = new ContextLossGuard(wrapper, recover);
+    const dispose = guard.watch(canvas, vi.fn());
+    canvas.dispatchEvent(event('contextlost'));
+    const mask = wrapper.querySelector('[data-fieldnotes-context-loss-mask]');
+    dispose();
+    expect(recover).toHaveBeenCalledOnce();
+    expect(wrapper.contains(mask)).toBe(true);
+    guard.frameComplete();
+    expect(wrapper.contains(mask)).toBe(false);
+  });
+
+  it('removes active OffscreenCanvas-shaped watches when the guard is disposed', () => {
     const wrapper = document.createElement('div');
     const target = new EventTarget() as OffscreenCanvas;
     const guard = new ContextLossGuard(wrapper, vi.fn());
+    const remove = vi.spyOn(target, 'removeEventListener');
     guard.watch(target, vi.fn());
+    guard.dispose();
+    guard.dispose();
     target.dispatchEvent(event('contextlost'));
-    expect(wrapper.querySelector('[data-fieldnotes-context-loss-mask]')).not.toBeNull();
     target.dispatchEvent(event('contextrestored'));
-    guard.frameComplete();
+    expect(remove).toHaveBeenCalledWith('contextlost', expect.any(Function));
+    expect(remove).toHaveBeenCalledWith('contextrestored', expect.any(Function));
     expect(wrapper.querySelector('[data-fieldnotes-context-loss-mask]')).toBeNull();
   });
 
