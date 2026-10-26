@@ -24,7 +24,12 @@ export type { StorageAdapter } from './core/storage/storage-adapter';
 export type { IndexedDBAdapterOptions } from './core/storage/indexeddb-adapter';
 
 export { Camera } from './canvas/camera';
-export type { CameraOptions, CameraChangeInfo } from './canvas/camera';
+export type {
+  CameraOptions,
+  CameraChangeInfo,
+  CameraConstraintState,
+  CameraConstraint,
+} from './canvas/camera';
 export type { BackgroundOptions, BackgroundPattern } from './canvas/background';
 export type { ShortcutOptions, ShortcutBindings, ShortcutsApi } from './canvas/shortcut-map';
 export type {

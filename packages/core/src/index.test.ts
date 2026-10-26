@@ -231,6 +231,17 @@ describe('core public surface', () => {
     ]).toEqual([1, false, '', null, 1]);
   });
 
+  it('exports camera constraints without replacing the viewport CameraState', () => {
+    const previous: FN.CameraConstraintState = { position: { x: 0, y: 0 }, zoom: 1 };
+    const constraint: FN.CameraConstraint = (next, seenPrevious) => {
+      expect(seenPrevious).toEqual(previous);
+      return next;
+    };
+    const next = constraint({ position: { x: 3, y: 4 }, zoom: 2 }, previous);
+    const camera: FN.CameraState = { x: 5, y: 6, zoom: 7 };
+    expect([next.position, next.zoom, camera]).toEqual([{ x: 3, y: 4 }, 2, camera]);
+  });
+
   it('exports mountViewport for framework bindings', () => {
     expect(typeof FN.mountViewport).toBe('function');
     const opts: FN.MountViewportOptions = { tools: 'default', changeDebounceMs: 0 };
