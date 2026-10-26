@@ -390,6 +390,39 @@ test.describe('export', () => {
         }
       })();
       const doc = new DOMParser().parseFromString(svg, 'image/svg+xml');
+      const clips = [...doc.querySelectorAll('clipPath')].map((clip) => {
+        const rect = clip.querySelector('rect');
+        return {
+          id: clip.id,
+          rect: [
+            rect?.getAttribute('x'),
+            rect?.getAttribute('y'),
+            rect?.getAttribute('width'),
+            rect?.getAttribute('height'),
+          ],
+        };
+      });
+      const clipById = new Map(clips.map((clip) => [clip.id, clip]));
+      const clipFor = (element: Element | null) => {
+        const reference = element?.getAttribute('clip-path') ?? null;
+        const match = reference ? /^url\(#(.+)\)$/.exec(reference) : null;
+        const id = match?.[1] ?? null;
+        return { id, rect: id ? (clipById.get(id)?.rect ?? null) : null };
+      };
+      const wrappers = [...doc.querySelectorAll('g[clip-path]')].map((wrapper) => {
+        const child = wrapper.firstElementChild;
+        const image = child instanceof SVGImageElement ? child : null;
+        const label =
+          child?.getAttribute('data-clip-node') ??
+          (child?.matches('rect[fill="#1e88e5"]')
+            ? 'grandchild'
+            : image?.getAttribute('x') === '145'
+              ? 'canvas-html'
+              : image?.getAttribute('x') === '20'
+                ? 'dom-html'
+                : null);
+        return { child: label, ...clipFor(wrapper) };
+      });
       const images = [...doc.querySelectorAll('image')];
       const imageInfo = await Promise.all(
         images.map(async (image) => {
@@ -409,7 +442,7 @@ test.describe('export', () => {
             y: image.getAttribute('y'),
             width: image.getAttribute('width'),
             height: image.getAttribute('height'),
-            wrapper: image.parentElement?.getAttribute('clip-path') ?? null,
+            wrapper: clipFor(image.closest('g[clip-path]')),
             pixel: [
               ...context.getImageData(
                 Math.floor(canvas.width / 2),
@@ -421,18 +454,6 @@ test.describe('export', () => {
           };
         }),
       );
-      const clips = [...doc.querySelectorAll('clipPath')].map((clip) => {
-        const rect = clip.querySelector('rect');
-        return {
-          id: clip.id,
-          rect: [
-            rect?.getAttribute('x'),
-            rect?.getAttribute('y'),
-            rect?.getAttribute('width'),
-            rect?.getAttribute('height'),
-          ],
-        };
-      });
       const minimap = document.querySelector('canvas[data-fieldnotes-minimap]');
       if (!(minimap instanceof HTMLCanvasElement)) throw new Error('minimap missing');
       const minimapContext = minimap.getContext('2d');
@@ -479,25 +500,17 @@ test.describe('export', () => {
           viewBox: doc.documentElement.getAttribute('viewBox'),
           ids: [...doc.querySelectorAll('[id]')].map((element) => element.id),
           clips,
+          wrappers,
           images: imageInfo,
-          rootWrapper:
-            doc
-              .querySelector('[data-clip-node="root"]')
-              ?.parentElement?.getAttribute('clip-path') ?? null,
-          childWrapper:
-            doc
-              .querySelector('[data-clip-node="child"]')
-              ?.parentElement?.getAttribute('clip-path') ?? null,
-          grandchildWrapper:
-            doc.querySelector('rect[fill="#1e88e5"]')?.parentElement?.getAttribute('clip-path') ??
-            null,
+          rootWrapper: clipFor(
+            doc.querySelector('[data-clip-node="root"]')?.closest('g[clip-path]') ?? null,
+          ),
           omitted:
             doc.querySelector('[id="omitted"]') !== null ||
             doc.querySelector('rect[fill="#7b1fa2"]') !== null,
-          hookWrapper:
-            doc
-              .querySelector('[data-hook="temporary"]')
-              ?.parentElement?.getAttribute('clip-path') ?? null,
+          hookWrapper: clipFor(
+            doc.querySelector('[data-hook="temporary"]')?.closest('g[clip-path]') ?? null,
+          ),
         },
       };
     });
@@ -535,15 +548,21 @@ test.describe('export', () => {
     );
     expect(new Set(result.svg.ids).size).toBe(result.svg.ids.length);
     expect(result.svg.ids.every((id) => !id.includes('hostile id:/#?'))).toBe(true);
-    expect(result.svg.rootWrapper).toBeNull();
-    expect(result.svg.childWrapper).toBe('url(#fieldnotes-export-clip-2-0)');
-    expect(result.svg.grandchildWrapper).toBe('url(#fieldnotes-export-clip-2-1)');
-    expect(result.svg.clips.map((clip) => clip.rect)).toEqual([
-      ['40', '40', '220', '180'],
-      ['120', '80', '120', '100'],
-      ['120', '80', '120', '100'],
-      ['40', '40', '220', '180'],
+    const clipA = ['40', '40', '220', '180'];
+    const clipAB = ['120', '80', '120', '100'];
+    expect(result.svg.clips).toEqual([
+      { id: 'fieldnotes-export-clip-2-0', rect: clipA },
+      { id: 'fieldnotes-export-clip-2-1', rect: clipAB },
+      { id: 'fieldnotes-export-clip-2-2', rect: clipAB },
+      { id: 'fieldnotes-export-clip-2-3', rect: clipA },
     ]);
+    expect(result.svg.wrappers).toEqual([
+      { child: 'child', id: 'fieldnotes-export-clip-2-0', rect: clipA },
+      { child: 'grandchild', id: 'fieldnotes-export-clip-2-1', rect: clipAB },
+      { child: 'canvas-html', id: 'fieldnotes-export-clip-2-2', rect: clipAB },
+      { child: 'dom-html', id: 'fieldnotes-export-clip-2-3', rect: clipA },
+    ]);
+    expect(result.svg.rootWrapper).toEqual({ id: null, rect: null });
     expect(result.svg.images).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -551,14 +570,14 @@ test.describe('export', () => {
           y: '105',
           width: '35',
           height: '35',
-          wrapper: 'url(#fieldnotes-export-clip-2-2)',
+          wrapper: { id: 'fieldnotes-export-clip-2-2', rect: clipAB },
         }),
         expect.objectContaining({
           x: '20',
           y: '135',
           width: '70',
           height: '35',
-          wrapper: 'url(#fieldnotes-export-clip-2-3)',
+          wrapper: { id: 'fieldnotes-export-clip-2-3', rect: clipA },
         }),
       ]),
     );
@@ -567,7 +586,8 @@ test.describe('export', () => {
     expect(close(canvasImage?.pixel ?? [], [245, 124, 0, 255])).toBe(true);
     expect(close(domImage?.pixel ?? [], [142, 36, 170, 255])).toBe(true);
     expect(result.svg.omitted).toBe(false);
-    expect(result.svg.hookWrapper).toBeNull();
+    expect(result.svg.wrappers.some((wrapper) => wrapper.child === 'omitted')).toBe(false);
+    expect(result.svg.hookWrapper).toEqual({ id: null, rect: null });
     expect(errors).toEqual([]);
   });
 });
