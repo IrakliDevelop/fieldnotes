@@ -124,6 +124,20 @@ jobs:
         id: pw-version
         run: echo "version=$(pnpm --filter @fieldnotes/core exec playwright --version)" >> "$GITHUB_OUTPUT"
 
+      # The Ubuntu mirror sometimes serves the system deps at ~100 kB/s; reuse downloaded .debs.
+      - name: Keep apt downloads in a cacheable directory
+        id: apt
+        run: |
+          mkdir -p ~/apt-archives/partial
+          echo "Dir::Cache::Archives \"$HOME/apt-archives\";" | sudo tee /etc/apt/apt.conf.d/99-ci-archives
+          echo "image=$ImageOS-$ImageVersion" >> "$GITHUB_OUTPUT"
+
+      - name: Cache apt downloads
+        uses: actions/cache@v6
+        with:
+          path: ~/apt-archives
+          key: apt-${{ steps.apt.outputs.image }}-playwright-${{ steps.pw-version.outputs.version }}-chromium-firefox
+
       - name: Cache Playwright browsers
         id: pw-cache
         uses: actions/cache@v6
@@ -138,6 +152,9 @@ jobs:
       - name: Install Playwright system deps
         if: steps.pw-cache.outputs.cache-hit == 'true'
         run: pnpm --filter @fieldnotes/core exec playwright install-deps chromium firefox
+
+      - name: Make apt downloads readable for the cache
+        run: sudo rm -rf ~/apt-archives/partial ~/apt-archives/lock && sudo chown -R "$USER" ~/apt-archives && ls ~/apt-archives | wc -l
 
       - name: Run E2E tests
         run: pnpm --filter @fieldnotes/core e2e
@@ -186,6 +203,19 @@ jobs:
         id: pw-version
         run: echo "version=$(pnpm --filter fieldnotes-website exec playwright --version)" >> "$GITHUB_OUTPUT"
 
+      - name: Keep apt downloads in a cacheable directory
+        id: apt
+        run: |
+          mkdir -p ~/apt-archives/partial
+          echo "Dir::Cache::Archives \"$HOME/apt-archives\";" | sudo tee /etc/apt/apt.conf.d/99-ci-archives
+          echo "image=$ImageOS-$ImageVersion" >> "$GITHUB_OUTPUT"
+
+      - name: Cache apt downloads
+        uses: actions/cache@v6
+        with:
+          path: ~/apt-archives
+          key: apt-${{ steps.apt.outputs.image }}-playwright-${{ steps.pw-version.outputs.version }}-chromium
+
       - name: Cache Playwright browsers
         id: pw-cache
         uses: actions/cache@v6
@@ -200,6 +230,9 @@ jobs:
       - name: Install Playwright system deps
         if: steps.pw-cache.outputs.cache-hit == 'true'
         run: pnpm --filter fieldnotes-website exec playwright install-deps chromium
+
+      - name: Make apt downloads readable for the cache
+        run: sudo rm -rf ~/apt-archives/partial ~/apt-archives/lock && sudo chown -R "$USER" ~/apt-archives && ls ~/apt-archives | wc -l
 
       - name: Run website E2E tests
         run: pnpm --filter fieldnotes-website e2e
