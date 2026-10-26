@@ -72,6 +72,104 @@ function buildStore() {
 }
 
 describe('exportSvg', () => {
+  it('clips descendants with their inherited hierarchy rectangles without masking clipping parents', async () => {
+    const registry = new ElementRegistry();
+    registry.register({
+      type: 'test:clip',
+      legacyTypes: [],
+      decodeLegacy: () => {
+        throw new Error('no legacy');
+      },
+      validateData: () => true,
+      unwrap: ({ data: _data, extensionType: _extensionType, ...base }) => base,
+      wrap: ({ type: _type, ...base }) => ({
+        ...base,
+        type: 'extension',
+        extensionType: 'test:clip',
+        data: {},
+      }),
+      bounds: (el) => ({ x: el.position.x, y: el.position.y, w: 100, h: 100 }),
+      clipBounds: (el) =>
+        el.id === 'clip-a' ? { x: 10, y: 10, w: 80, h: 80 } : { x: 40, y: 10, w: 50, h: 60 },
+      emitSvg: (el) => `<rect data-fragment="${el.id}" />`,
+    });
+    const store = new ElementStore(registry);
+    store.add({
+      id: 'clip-a',
+      type: 'extension',
+      extensionType: 'test:clip',
+      position: { x: 0, y: 0 },
+      index: 'a0',
+      version: 1,
+      locked: false,
+      layerId: '',
+      data: {},
+    });
+    store.add(
+      createShape({
+        id: 'child',
+        parentId: 'clip-a',
+        position: { x: 20, y: 20 },
+        size: { w: 10, h: 10 },
+        index: 'a1',
+      }),
+    );
+    store.add({
+      id: 'clip-b',
+      type: 'extension',
+      extensionType: 'test:clip',
+      parentId: 'clip-a',
+      position: { x: 40, y: 10 },
+      index: 'a2',
+      version: 1,
+      locked: false,
+      layerId: '',
+      data: {},
+    });
+    store.add(
+      createShape({
+        id: 'grandchild',
+        parentId: 'clip-b',
+        position: { x: 45, y: 20 },
+        size: { w: 10, h: 10 },
+        index: 'a3',
+      }),
+    );
+
+    const svg = await exportSvg(store, { elementRegistry: registry });
+    const doc = new DOMParser().parseFromString(svg, 'image/svg+xml');
+    const clips = [...doc.querySelectorAll('clipPath')];
+    const groups = [...doc.querySelectorAll('g[clip-path]')];
+
+    expect(doc.querySelector('[data-fragment="clip-a"]')?.parentElement?.tagName).toBe('svg');
+    expect(
+      clips.map((clip) => {
+        const rect = clip.querySelector('rect');
+        return [
+          rect?.getAttribute('x'),
+          rect?.getAttribute('y'),
+          rect?.getAttribute('width'),
+          rect?.getAttribute('height'),
+        ];
+      }),
+    ).toEqual([
+      ['10', '10', '80', '80'],
+      ['10', '10', '80', '80'],
+      ['40', '10', '50', '60'],
+    ]);
+    expect(groups.map((group) => group.getAttribute('clip-path'))).toEqual([
+      'url(#fieldnotes-export-clip-0)',
+      'url(#fieldnotes-export-clip-1)',
+      'url(#fieldnotes-export-clip-2)',
+    ]);
+    expect(groups.map((group) => group.firstElementChild?.getAttribute('x'))).toEqual([
+      '20',
+      null,
+      '45',
+    ]);
+    expect(groups[1]?.querySelector('[data-fragment="clip-b"]')).not.toBeNull();
+  });
+
   it('passes the computed padded view box to inline extension SVG emitters', async () => {
     let receivedViewBox: { x: number; y: number; w: number; h: number } | undefined;
     const definition: ElementTypeDefinition<BaseElement> = {
