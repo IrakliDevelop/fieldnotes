@@ -102,7 +102,7 @@ export function parseState(json: string, registry?: ElementRegistry): CanvasStat
 }
 
 /**
- * Upgrades an importable state to the current (v5) persistence model.
+ * Upgrades an importable state to the current (v6) persistence model.
  * The input is mutated only after callers have cloned or parsed it.
  */
 export function migrateState(

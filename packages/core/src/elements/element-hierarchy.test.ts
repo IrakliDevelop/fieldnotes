@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { ElementHierarchy, validateHierarchy } from './element-hierarchy';
 import { ElementRegistry } from './element-registry';
-import type { NoteElement } from './types';
+import type {
+  BaseElement,
+  ExtensionElementEnvelope,
+  ElementTypeDefinition,
+  NoteElement,
+} from './types';
 
 function note(id: string, overrides: Partial<NoteElement> = {}): NoteElement {
   return {
@@ -16,6 +21,42 @@ function note(id: string, overrides: Partial<NoteElement> = {}): NoteElement {
     version: 1,
     locked: false,
     layerId: 'layer',
+    ...overrides,
+  };
+}
+
+function fullCanvasDefinition(): ElementTypeDefinition<BaseElement> {
+  return {
+    type: 'test:full-canvas',
+    legacyTypes: [],
+    fullCanvas: true,
+    decodeLegacy: (raw) => raw as unknown as BaseElement,
+    validateData: () => true,
+    unwrap: (element) => element,
+    wrap: (element) => ({
+      ...element,
+      type: 'extension',
+      extensionType: 'test:full-canvas',
+      data: {},
+    }),
+    bounds: () => null,
+  };
+}
+
+function extension(
+  id: string,
+  overrides: Partial<ExtensionElementEnvelope> = {},
+): ExtensionElementEnvelope {
+  return {
+    id,
+    type: 'extension',
+    extensionType: 'test:full-canvas',
+    position: { x: 0, y: 0 },
+    index: id,
+    version: 1,
+    locked: false,
+    layerId: 'layer',
+    data: {},
     ...overrides,
   };
 }
@@ -83,5 +124,80 @@ describe('ElementHierarchy', () => {
     expect(() => validateHierarchy(atDepth(33), new ElementRegistry())).toThrow(
       /Invalid hierarchy/,
     );
+  });
+
+  it('orders layers, equal roots and equal siblings independently', () => {
+    const elements = new Map([
+      ['z', note('z', { index: 'a', layerId: 'late' })],
+      ['b', note('b', { index: 'a' })],
+      ['a', note('a', { index: 'a' })],
+      ['child-b', note('child-b', { parentId: 'a', index: 'x' })],
+      ['child-a', note('child-a', { parentId: 'a', index: 'x' })],
+      ['grandchild', note('grandchild', { parentId: 'child-a', index: 'a' })],
+    ]);
+    const hierarchy = new ElementHierarchy(
+      elements,
+      new ElementRegistry(),
+      new Map([
+        ['late', 1],
+        ['layer', 0],
+      ]),
+    );
+    expect(hierarchy.scene.map((element) => element.id)).toEqual([
+      'a',
+      'child-a',
+      'grandchild',
+      'child-b',
+      'b',
+      'z',
+    ]);
+    expect(hierarchy.getChildren('a').map((element) => element.id)).toEqual(['child-a', 'child-b']);
+    expect(hierarchy.getDescendants('a').map((element) => element.id)).toEqual([
+      'child-a',
+      'grandchild',
+      'child-b',
+    ]);
+  });
+
+  it('falls back to index and id when layers have no explicit order', () => {
+    const elements = new Map([
+      ['b', note('b', { layerId: 'unlisted-b', index: 'a1' })],
+      ['a', note('a', { layerId: 'unlisted-a', index: 'a0' })],
+    ]);
+    const hierarchy = new ElementHierarchy(elements, new ElementRegistry(), new Map());
+    expect(hierarchy.scene.map((element) => element.id)).toEqual(['a', 'b']);
+  });
+
+  it('rejects full-canvas endpoints but permits unknown extension relationships', () => {
+    const registry = new ElementRegistry();
+    registry.register(fullCanvasDefinition());
+    const fullParent = new Map<string, NoteElement | ExtensionElementEnvelope>([
+      ['full', extension('full')],
+      ['child', note('child', { parentId: 'full' })],
+    ]);
+    const fullChild = new Map<string, NoteElement | ExtensionElementEnvelope>([
+      ['parent', note('parent')],
+      ['full', extension('full', { parentId: 'parent' })],
+    ]);
+    expect(() => validateHierarchy(fullParent, registry)).toThrow(/Invalid hierarchy/);
+    expect(() => validateHierarchy(fullChild, registry)).toThrow(/Invalid hierarchy/);
+    const unknown = new Map<string, NoteElement | ExtensionElementEnvelope>([
+      ['parent', note('parent')],
+      ['unknown', extension('unknown', { extensionType: 'unknown', parentId: 'parent' })],
+    ]);
+    expect(() => validateHierarchy(unknown, registry)).not.toThrow();
+  });
+
+  it('hides invalid ancestors and their descendants without hiding valid trees', () => {
+    const elements = new Map([
+      ['orphan', note('orphan', { parentId: 'missing' })],
+      ['hidden', note('hidden', { parentId: 'orphan' })],
+      ['root', note('root')],
+      ['visible', note('visible', { parentId: 'root' })],
+    ]);
+    const hierarchy = new ElementHierarchy(elements, new ElementRegistry(), new Map());
+    expect(hierarchy.scene.map((element) => element.id)).toEqual(['root', 'visible']);
+    expect(hierarchy.getChildren('missing')).toEqual([]);
+    expect(hierarchy.getDescendants('orphan')).toEqual([]);
   });
 });

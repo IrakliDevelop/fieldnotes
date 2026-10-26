@@ -205,6 +205,7 @@ export class ElementStore {
       candidate.set(update.id, updated);
       prepared.push({ existing, updated });
     }
+    if (prepared.length === 0) return;
     this.validateCandidate(candidate, meta);
     const structural = prepared.some(({ existing, updated }) =>
       this.isStructural(existing, updated),

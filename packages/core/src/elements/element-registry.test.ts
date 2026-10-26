@@ -324,6 +324,7 @@ describe('ElementRegistry', () => {
         version: 4,
         editor: 'peer',
         groupId: 'g1',
+        parentId: 'p1',
         rotation: 0.5,
       });
 
@@ -335,6 +336,7 @@ describe('ElementRegistry', () => {
         version: 4,
         editor: 'peer',
         groupId: 'g1',
+        parentId: 'p1',
         rotation: 0.5,
         position: { x: 2, y: 0 },
       });

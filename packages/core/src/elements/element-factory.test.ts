@@ -12,31 +12,36 @@ import {
 
 describe('element factories', () => {
   it.each([
-    ['stroke', () => createStroke({ points: [], parentId: 'parent' })],
-    ['note', () => createNote({ position: { x: 0, y: 0 }, parentId: 'parent' })],
-    ['arrow', () => createArrow({ from: { x: 0, y: 0 }, to: { x: 1, y: 1 }, parentId: 'parent' })],
+    ['stroke', (parentId?: string) => createStroke({ points: [], parentId })],
+    ['note', (parentId?: string) => createNote({ position: { x: 0, y: 0 }, parentId })],
+    [
+      'arrow',
+      (parentId?: string) => createArrow({ from: { x: 0, y: 0 }, to: { x: 1, y: 1 }, parentId }),
+    ],
     [
       'image',
-      () =>
+      (parentId?: string) =>
         createImage({
           position: { x: 0, y: 0 },
           size: { w: 1, h: 1 },
           src: 'x',
-          parentId: 'parent',
+          parentId,
         }),
     ],
     [
       'html',
-      () =>
-        createHtmlElement({ position: { x: 0, y: 0 }, size: { w: 1, h: 1 }, parentId: 'parent' }),
+      (parentId?: string) =>
+        createHtmlElement({ position: { x: 0, y: 0 }, size: { w: 1, h: 1 }, parentId }),
     ],
-    ['text', () => createText({ position: { x: 0, y: 0 }, parentId: 'parent' })],
+    ['text', (parentId?: string) => createText({ position: { x: 0, y: 0 }, parentId })],
     [
       'shape',
-      () => createShape({ position: { x: 0, y: 0 }, size: { w: 1, h: 1 }, parentId: 'parent' }),
+      (parentId?: string) =>
+        createShape({ position: { x: 0, y: 0 }, size: { w: 1, h: 1 }, parentId }),
     ],
-  ])('%s preserves parentId when supplied', (_name, create) => {
-    expect(create().parentId).toBe('parent');
+  ])('%s preserves supplied parentId and omits it when absent', (_name, create) => {
+    expect(create('parent').parentId).toBe('parent');
+    expect(Object.prototype.hasOwnProperty.call(create(), 'parentId')).toBe(false);
   });
   describe('createStroke', () => {
     it('creates a stroke with defaults', () => {

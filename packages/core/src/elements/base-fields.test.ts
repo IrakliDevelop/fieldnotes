@@ -46,5 +46,6 @@ describe('pickBaseFields', () => {
     expect(Object.keys(pickBaseFields(element)).sort()).toEqual(
       ['id', 'index', 'layerId', 'locked', 'position', 'type', 'version'].sort(),
     );
+    expect(Object.prototype.hasOwnProperty.call(pickBaseFields(element), 'parentId')).toBe(false);
   });
 });

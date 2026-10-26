@@ -110,6 +110,8 @@ describe('core public surface', () => {
       'DEFAULT_ACTIVATION_DOUBLE_DELAY_MS',
       // viewport-source internals
       'STYLE_KEYS',
+      'ElementHierarchy',
+      'validateHierarchy',
     ];
     for (const name of removed) {
       expect(name in FN, `${name} should not be exported`).toBe(false);
