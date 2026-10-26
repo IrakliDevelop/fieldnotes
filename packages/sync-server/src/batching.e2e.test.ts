@@ -6,6 +6,7 @@ import {
   WebSocketTransport,
   createCurrentCapabilities,
   createManagedAuthorityConnection,
+  LEGACY_SYNC_PROTOCOL_VERSION,
   type ManagedAuthorityConnection,
   type SyncOp,
   type SyncTransport,
@@ -82,6 +83,20 @@ async function connectRaw(port: number): Promise<{ socket: WsClient; frames: str
     socket.once('error', reject);
   });
   return { socket, frames };
+}
+
+async function admitRaw(socket: WsClient, frames: readonly string[]): Promise<void> {
+  socket.send(
+    JSON.stringify({
+      from: 'raw',
+      op: { kind: 'capabilities', capabilities: createCurrentCapabilities([]) },
+    }),
+  );
+  await vi.waitFor(() =>
+    expect(
+      frames.some((frame) => (JSON.parse(frame) as { op: SyncOp }).op.kind === 'capabilities'),
+    ).toBe(true),
+  );
 }
 
 function positions(store: ElementStore): string {
@@ -167,7 +182,8 @@ describe('element op batching (end-to-end)', () => {
 
   it('closes a connection over the configured op budget with 4408', async () => {
     const port = startServer({ opsPerSecond: 1, opBurst: 2 });
-    const { socket } = await connectRaw(port);
+    const { socket, frames } = await connectRaw(port);
+    await admitRaw(socket, frames);
     const ops = [1, 2, 3].map((i) => ({
       kind: 'upsert',
       element: { ...v2Shape({ position: { x: 0, y: 0 }, size: { w: 1, h: 1 } }), id: `o${i}` },
@@ -209,9 +225,9 @@ describe('unsupported reply (end-to-end)', () => {
         from: 'hub',
         op: {
           kind: 'unsupported',
-          protocolVersion: 2,
-          minProtocolVersion: 2,
-          reason: 'protocol version 2 required',
+          protocolVersion: LEGACY_SYNC_PROTOCOL_VERSION,
+          minProtocolVersion: LEGACY_SYNC_PROTOCOL_VERSION,
+          reason: `protocol version ${LEGACY_SYNC_PROTOCOL_VERSION} with element hierarchy support required`,
         },
       },
     ]);

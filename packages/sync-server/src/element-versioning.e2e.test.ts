@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { WebSocket as WsClient } from 'ws';
 import type { AddressInfo } from 'net';
-import { SyncClient, WebSocketTransport } from '@fieldnotes/sync';
+import { SyncClient, WebSocketTransport, createCurrentCapabilities } from '@fieldnotes/sync';
 import { ElementStore, createShape } from '@fieldnotes/core';
 import { createSyncServer, type CreateSyncServerOptions } from './create-sync-server';
 import { MemoryHubBackend } from './memory-hub-backend';
@@ -90,6 +90,14 @@ describe('element versioning (end-to-end)', () => {
       socket.once('open', () => resolve());
       socket.once('error', reject);
     });
+    socket.send(
+      JSON.stringify({
+        from: `${user}-peer`,
+        op: { kind: 'capabilities', capabilities: createCurrentCapabilities([]) },
+      }),
+    );
+    await waitFor(() => frames.some((frame) => frame.includes('"kind":"capabilities"')));
+    frames.length = 0;
     return { socket, frames };
   }
 

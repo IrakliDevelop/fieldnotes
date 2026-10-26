@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { WebSocket as WsClient } from 'ws';
 import type { AddressInfo } from 'net';
-import { SyncClient, WebSocketTransport } from '@fieldnotes/sync';
+import { SyncClient, WebSocketTransport, createCurrentCapabilities } from '@fieldnotes/sync';
 import type { WebSocketTransportOptions } from '@fieldnotes/sync';
 import { ElementStore } from '@fieldnotes/core';
 import { MemoryHubBackend } from './memory-hub-backend';
@@ -183,6 +183,24 @@ describe('sync-server WebSocket relay (end-to-end)', () => {
 
     const received: { from: string; op: { kind: string; data?: unknown } }[] = [];
     observer.on('message', (data) => received.push(JSON.parse(String(data))));
+    const admit = (socket: WsClient) =>
+      new Promise<void>((resolve) => {
+        const onMessage = (data: unknown) => {
+          if (String(data).includes('"kind":"capabilities"')) {
+            socket.off('message', onMessage);
+            resolve();
+          }
+        };
+        socket.on('message', onMessage);
+        socket.send(
+          JSON.stringify({
+            from: 'raw',
+            op: { kind: 'capabilities', capabilities: createCurrentCapabilities([]) },
+          }),
+        );
+      });
+    await Promise.all([admit(attacker), admit(observer)]);
+    received.length = 0;
     attacker.send(
       JSON.stringify({ from: 'forged-victim', op: { kind: 'presence', data: { x: 1 } } }),
     );
@@ -385,6 +403,14 @@ describe('sync-server WebSocket relay (end-to-end)', () => {
       player.once('open', resolve);
       player.once('error', reject);
     });
+    player.send(
+      JSON.stringify({
+        from: 'ready',
+        op: { kind: 'capabilities', capabilities: createCurrentCapabilities([]) },
+      }),
+    );
+    await waitFor(() => received.some(({ op }) => op.kind === 'capabilities'));
+    received.length = 0;
 
     player.send(JSON.stringify({ from: 'ready', op: { kind: 'request-snapshot' } }));
     await waitFor(() => received.some(({ op }) => op.kind === 'snapshot' && op.to === 'ready'));

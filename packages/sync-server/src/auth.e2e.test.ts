@@ -1,7 +1,12 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { WebSocket as WsClient } from 'ws';
 import type { AddressInfo } from 'net';
-import { SyncClient, WebSocketTransport, bearerSubprotocols } from '@fieldnotes/sync';
+import {
+  SyncClient,
+  WebSocketTransport,
+  bearerSubprotocols,
+  createCurrentCapabilities,
+} from '@fieldnotes/sync';
 import { ElementStore, createShape } from '@fieldnotes/core';
 import { createSyncServer, type CreateSyncServerOptions } from './create-sync-server';
 import type { Authenticate } from './authenticate';
@@ -94,6 +99,14 @@ describe('sync-server authentication (end-to-end)', () => {
     rawSockets.push(socket);
     socket.on('message', (data) => frames.push(String(data)));
     await new Promise<void>((resolve) => socket.once('open', resolve));
+    socket.send(
+      JSON.stringify({
+        from: 'raw',
+        op: { kind: 'capabilities', capabilities: createCurrentCapabilities([]) },
+      }),
+    );
+    await waitFor(() => frames.some((frame) => frame.includes('"kind":"capabilities"')));
+    frames.length = 0;
     claims.campaign.id = 'changed';
     socket.send(
       JSON.stringify({
