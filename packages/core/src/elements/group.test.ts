@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { expandToGroups } from './group';
 import { ElementStore } from './element-store';
-import { getHierarchyClosure } from './hierarchy-ops';
+import { getHierarchyClosure, moveHierarchyToLayer } from './hierarchy-ops';
 import type { CanvasElement } from './types';
 
 const el = (id: string, groupId?: string): CanvasElement =>
@@ -54,5 +54,29 @@ describe('expandToGroups', () => {
 
     expect(closure.roots.map((element) => element.id)).toEqual(['parent', 'other']);
     expect(closure.elements.map((element) => element.id)).toEqual(['parent', 'child', 'other']);
+  });
+
+  it('moves an expanded group hierarchy once in stable scene order', () => {
+    const store = new ElementStore();
+    store.add(el('parent', 'g1'));
+    store.add({ ...el('child', 'g1'), parentId: 'parent', index: 'a1' });
+    store.add({ ...el('other', 'g1'), index: 'a2' });
+    const updates: string[] = [];
+    store.on('update', ({ current }) => updates.push(current.id));
+
+    expect(moveHierarchyToLayer(expandToGroups(['child'], store.getAll()), 'target', store)).toBe(
+      true,
+    );
+
+    expect(updates).toEqual(['parent', 'child', 'other']);
+    expect(
+      store
+        .getAll()
+        .map((element) => [element.id, element.layerId, element.parentId, element.version]),
+    ).toEqual([
+      ['parent', 'target', undefined, 2],
+      ['child', 'target', 'parent', 2],
+      ['other', 'target', undefined, 2],
+    ]);
   });
 });

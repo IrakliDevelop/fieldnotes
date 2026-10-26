@@ -1690,6 +1690,8 @@ describe('ElementStore order keys and versions', () => {
       expect(ids(store)).toEqual(order);
       expect(store.getVersion('child-a')).toBe(0);
       expect(store.getVersion('grandchild')).toBe(0);
+      expect(store.getById('child-a')?.index).toBe('a1');
+      expect(store.getById('grandchild')?.index).toBe('a2');
     },
   );
 
@@ -1733,5 +1735,7 @@ describe('ElementStore order keys and versions', () => {
     expect(ids(store)).toEqual(order);
     expect(store.getVersion('grandchild')).toBe(0);
     expect(store.getVersion('cousin')).toBe(0);
+    expect(store.getById('grandchild')?.index).toBe('a2');
+    expect(store.getById('cousin')?.index).toBe('a5');
   });
 });

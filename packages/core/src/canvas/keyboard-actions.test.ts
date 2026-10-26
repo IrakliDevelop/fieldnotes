@@ -16,6 +16,7 @@ import { snapPoint } from '../core/snap';
 import { HistoryRecorder } from '../history/history-recorder';
 import { HistoryStack } from '../history/history-stack';
 import { ElementRegistry } from '../elements/element-registry';
+import { expandToGroups } from '../elements/group';
 import type {
   BaseElement,
   ElementTypeDefinition,
@@ -1167,7 +1168,195 @@ describe('KeyboardActions.zOrder single-undo', () => {
     expect(ctx.store.getAll().map((element) => element.id)).toEqual(['other', 'parent', 'child']);
     expect(ctx.store.getVersion('parent')).toBe(1);
     expect(ctx.store.getVersion('child')).toBe(0);
+    expect(ctx.store.getById('parent')?.index).toBe('a3');
+    expect(ctx.store.getById('child')).toMatchObject({ index: 'a1', parentId: 'parent' });
     expect(stack.undoCount).toBe(1);
+    recorder.pause();
+    expect(stack.undo(ctx.store)).toBe(true);
+    recorder.resume();
+    expect(ctx.store.getAll().map((element) => element.id)).toEqual(['parent', 'child', 'other']);
+    expect(ctx.store.getById('child')).toMatchObject({ index: 'a1', parentId: 'parent' });
+    recorder.pause();
+    expect(stack.redo(ctx.store)).toBe(true);
+    recorder.resume();
+    expect(ctx.store.getAll().map((element) => element.id)).toEqual(['other', 'parent', 'child']);
+    expect(ctx.store.getById('child')).toMatchObject({ index: 'a1', parentId: 'parent' });
+  });
+
+  it('moves a selected child subtree forward only among direct siblings', () => {
+    const ctx = makeCtx();
+    const stack = new HistoryStack();
+    const recorder = new HistoryRecorder(ctx.store, stack);
+    const { actions, tool } = makeActions({ ctx, recorder, stack });
+    for (const element of [
+      {
+        ...createNote({ position: { x: 0, y: 0 }, size: { w: 50, h: 50 }, index: 'a0' }),
+        id: 'parent',
+        version: 0,
+      },
+      {
+        ...createNote({
+          position: { x: 0, y: 0 },
+          size: { w: 50, h: 50 },
+          index: 'a1',
+          parentId: 'parent',
+        }),
+        id: 'child',
+        version: 0,
+      },
+      {
+        ...createNote({
+          position: { x: 0, y: 0 },
+          size: { w: 50, h: 50 },
+          index: 'a2',
+          parentId: 'child',
+        }),
+        id: 'grandchild',
+        version: 0,
+      },
+      {
+        ...createNote({
+          position: { x: 0, y: 0 },
+          size: { w: 50, h: 50 },
+          index: 'a3',
+          parentId: 'parent',
+        }),
+        id: 'sibling',
+        version: 0,
+      },
+      {
+        ...createNote({ position: { x: 0, y: 0 }, size: { w: 50, h: 50 }, index: 'a4' }),
+        id: 'root',
+        version: 0,
+      },
+      {
+        ...createNote({
+          position: { x: 0, y: 0 },
+          size: { w: 50, h: 50 },
+          index: 'a5',
+          parentId: 'root',
+        }),
+        id: 'cousin',
+        version: 0,
+      },
+    ])
+      ctx.store.add(element);
+    stack.clear();
+    tool.setSelection(['child']);
+
+    actions.zOrder('forward');
+
+    expect(ctx.store.getAll().map((element) => element.id)).toEqual([
+      'parent',
+      'sibling',
+      'child',
+      'grandchild',
+      'root',
+      'cousin',
+    ]);
+    expect(ctx.store.getChildren('parent').map((element) => element.id)).toEqual([
+      'sibling',
+      'child',
+    ]);
+    expect(ctx.store.getById('grandchild')).toMatchObject({ index: 'a2', version: 0 });
+    expect(ctx.store.getById('cousin')).toMatchObject({ index: 'a5', version: 0 });
+    expect(stack.undoCount).toBe(1);
+    recorder.pause();
+    expect(stack.undo(ctx.store)).toBe(true);
+    recorder.resume();
+    expect(ctx.store.getAll().map((element) => element.id)).toEqual([
+      'parent',
+      'child',
+      'grandchild',
+      'sibling',
+      'root',
+      'cousin',
+    ]);
+    recorder.pause();
+    expect(stack.redo(ctx.store)).toBe(true);
+    recorder.resume();
+    expect(ctx.store.getAll().map((element) => element.id)).toEqual([
+      'parent',
+      'sibling',
+      'child',
+      'grandchild',
+      'root',
+      'cousin',
+    ]);
+  });
+
+  it('reorders each group-expanded hierarchy root once', () => {
+    const ctx = makeCtx();
+    const stack = new HistoryStack();
+    const recorder = new HistoryRecorder(ctx.store, stack);
+    const { actions, tool } = makeActions({ ctx, recorder, stack });
+    for (const element of [
+      {
+        ...createNote({ position: { x: 0, y: 0 }, size: { w: 50, h: 50 }, index: 'a0' }),
+        id: 'parent',
+        groupId: 'g',
+        version: 0,
+      },
+      {
+        ...createNote({
+          position: { x: 0, y: 0 },
+          size: { w: 50, h: 50 },
+          index: 'a1',
+          parentId: 'parent',
+        }),
+        id: 'child',
+        groupId: 'g',
+        version: 0,
+      },
+      {
+        ...createNote({ position: { x: 0, y: 0 }, size: { w: 50, h: 50 }, index: 'a2' }),
+        id: 'other',
+        groupId: 'g',
+        version: 0,
+      },
+      {
+        ...createNote({ position: { x: 0, y: 0 }, size: { w: 50, h: 50 }, index: 'a3' }),
+        id: 'top',
+        version: 0,
+      },
+    ])
+      ctx.store.add(element);
+    stack.clear();
+    const updates: string[] = [];
+    ctx.store.on('update', ({ current }) => updates.push(current.id));
+    tool.setSelection(expandToGroups(['child'], ctx.store.getAll()));
+
+    actions.zOrder('front');
+
+    expect(updates).toEqual(['parent', 'other']);
+    expect(ctx.store.getAll().map((element) => element.id)).toEqual([
+      'top',
+      'parent',
+      'child',
+      'other',
+    ]);
+    expect(ctx.store.getById('parent')?.version).toBe(1);
+    expect(ctx.store.getById('other')?.version).toBe(1);
+    expect(ctx.store.getById('child')?.version).toBe(0);
+    expect(stack.undoCount).toBe(1);
+    recorder.pause();
+    expect(stack.undo(ctx.store)).toBe(true);
+    recorder.resume();
+    expect(ctx.store.getAll().map((element) => element.id)).toEqual([
+      'parent',
+      'child',
+      'other',
+      'top',
+    ]);
+    recorder.pause();
+    expect(stack.redo(ctx.store)).toBe(true);
+    recorder.resume();
+    expect(ctx.store.getAll().map((element) => element.id)).toEqual([
+      'top',
+      'parent',
+      'child',
+      'other',
+    ]);
   });
 
   it('bringForward is ONE undo step restoring the order', () => {

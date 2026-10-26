@@ -66,6 +66,24 @@ describe('hierarchy operations', () => {
     expect(events).toEqual(['child', 'locked']);
   });
 
+  it('moves an overlapping literal layer selection once in stable subtree order', () => {
+    const store = new ElementStore();
+    addTree(store);
+    const updates: string[] = [];
+    store.on('update', ({ current }) => updates.push(current.id));
+
+    expect(moveHierarchyToLayer(['locked', 'root', 'child', 'root'], 'b', store)).toBe(true);
+
+    expect(updates).toEqual(['root', 'child', 'locked']);
+    expect(
+      store.getAll().map((element) => [element.id, element.layerId, element.parentId]),
+    ).toEqual([
+      ['root', 'b', undefined],
+      ['child', 'b', 'root'],
+      ['locked', 'b', 'child'],
+    ]);
+  });
+
   it('expands literal roots through locked and bound-arrow descendants in stable DFS order', () => {
     const store = new ElementStore();
     addTree(store);
