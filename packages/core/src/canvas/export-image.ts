@@ -416,13 +416,39 @@ export async function exportImage(
   const bounds = resolveExportBounds(options.region, visibleElements, padding, registry);
   if (!bounds) return null;
 
+  const fullCanvasElements: CanvasElement[] = [];
+  const paintableElements: CanvasElement[] = [];
+  const effectiveClips = new Map<string, Rect | null>();
+  for (const el of visibleElements) {
+    if (el.type === 'extension' && registry.getAdapter(el.extensionType)?.fullCanvas) {
+      fullCanvasElements.push(el);
+      continue;
+    }
+    const clip = store.getEffectiveClip(el.id);
+    if (clip === undefined || (clip && (clip.w <= 0 || clip.h <= 0))) continue;
+    if (clip) {
+      const rect = getElementRect(el, registry);
+      if (
+        rect &&
+        (Math.max(rect.x, clip.x) >= Math.min(rect.x + rect.w, clip.x + clip.w) ||
+          Math.max(rect.y, clip.y) >= Math.min(rect.y + rect.h, clip.y + clip.h))
+      ) {
+        continue;
+      }
+      effectiveClips.set(el.id, clip);
+    } else {
+      effectiveClips.set(el.id, null);
+    }
+    paintableElements.push(el);
+  }
+
   const scale =
     scaleMode === 'fit' ? fitExportScale(bounds, requestedScale, options) : requestedScale;
   const width = Math.ceil(bounds.w * scale);
   const height = Math.ceil(bounds.h * scale);
   assertExportSize(width, height, options);
-  const imageCache = await loadImages(visibleElements, options);
-  const htmlElements = visibleElements.filter((el): el is HtmlElement => el.type === 'html');
+  const imageCache = await loadImages(paintableElements, options);
+  const htmlElements = paintableElements.filter((el): el is HtmlElement => el.type === 'html');
 
   // Resolve routing per visible html element before doing any rendering work: canvas-routed
   // elements never reach the DOM-raster path (renderHtmlElements), and 'missing' is either
@@ -477,83 +503,94 @@ export async function exportImage(
   };
 
   const renderElement = (target: CanvasRenderingContext2D, el: CanvasElement): void => {
-    if (el.type === 'note') {
-      const b = getElementBounds(el);
-      withRotation(target, el, b ? center(b) : el.position, () => renderNoteOnCanvas(target, el));
-      return;
-    }
-
-    if (el.type === 'text') {
-      const b = getElementBounds(el);
-      withRotation(target, el, b ? center(b) : el.position, () => renderTextOnCanvas(target, el));
-      return;
-    }
-
-    if (el.type === 'html') {
-      if (canvasRoutedIds.has(el.id)) {
-        // paintHtmlElement rotates internally (applyRotation defaults to true), so this
-        // must stay OUTSIDE withRotation — wrapping it too would double-rotate.
-        const painter = options.htmlPainters?.getActivePainter(el.htmlType ?? '');
-        if (!painter) {
-          // Routing was resolved before `await renderHtmlElements(...)`; a painter
-          // unregistered inside that window lands here. Reporting it keeps every dropped
-          // element accounted for — a silent omission is the one outcome this exporter
-          // never produces.
-          options.onHtmlError?.({
-            elementId: el.id,
-            htmlType: el.htmlType,
-            reason: 'missing-painter',
-          });
-          return;
-        }
-        paintHtmlElement(el, painter, {
-          ctx: target,
-          zoom: scale,
-          target: 'export',
-          onDiagnostic: onHtmlPaintDiagnostic,
-        });
+    const render = (): void => {
+      if (el.type === 'note') {
+        const b = getElementBounds(el);
+        withRotation(target, el, b ? center(b) : el.position, () => renderNoteOnCanvas(target, el));
         return;
       }
 
-      const source = htmlSources.get(el.id);
-      if (!source) return;
-      const b = getElementBounds(el);
-      try {
-        withRotation(target, el, b ? center(b) : el.position, () =>
-          target.drawImage(source, el.position.x, el.position.y, el.size.w, el.size.h),
-        );
-      } catch (cause) {
-        options.onHtmlError?.({
-          elementId: el.id,
-          htmlType: el.htmlType,
-          reason: 'render',
-          cause,
-        });
-      }
-      return;
-    }
-
-    if (el.type === 'image') {
-      const img = imageCache.get(el.id);
-      if (img) {
+      if (el.type === 'text') {
         const b = getElementBounds(el);
-        withRotation(target, el, b ? center(b) : el.position, () =>
-          target.drawImage(img, el.position.x, el.position.y, el.size.w, el.size.h),
-        );
+        withRotation(target, el, b ? center(b) : el.position, () => renderTextOnCanvas(target, el));
+        return;
       }
+
+      if (el.type === 'html') {
+        if (canvasRoutedIds.has(el.id)) {
+          // paintHtmlElement rotates internally (applyRotation defaults to true), so this
+          // must stay OUTSIDE withRotation — wrapping it too would double-rotate.
+          const painter = options.htmlPainters?.getActivePainter(el.htmlType ?? '');
+          if (!painter) {
+            // Routing was resolved before `await renderHtmlElements(...)`; a painter
+            // unregistered inside that window lands here. Reporting it keeps every dropped
+            // element accounted for — a silent omission is the one outcome this exporter
+            // never produces.
+            options.onHtmlError?.({
+              elementId: el.id,
+              htmlType: el.htmlType,
+              reason: 'missing-painter',
+            });
+            return;
+          }
+          paintHtmlElement(el, painter, {
+            ctx: target,
+            zoom: scale,
+            target: 'export',
+            onDiagnostic: onHtmlPaintDiagnostic,
+          });
+          return;
+        }
+
+        const source = htmlSources.get(el.id);
+        if (!source) return;
+        const b = getElementBounds(el);
+        try {
+          withRotation(target, el, b ? center(b) : el.position, () =>
+            target.drawImage(source, el.position.x, el.position.y, el.size.w, el.size.h),
+          );
+        } catch (cause) {
+          options.onHtmlError?.({
+            elementId: el.id,
+            htmlType: el.htmlType,
+            reason: 'render',
+            cause,
+          });
+        }
+        return;
+      }
+
+      if (el.type === 'image') {
+        const img = imageCache.get(el.id);
+        if (img) {
+          const b = getElementBounds(el);
+          withRotation(target, el, b ? center(b) : el.position, () =>
+            target.drawImage(img, el.position.x, el.position.y, el.size.w, el.size.h),
+          );
+        }
+        return;
+      }
+
+      renderer.renderCanvasElement(target, el);
+    };
+    const clip = effectiveClips.get(el.id);
+    if (!clip) {
+      render();
       return;
     }
-
-    renderer.renderCanvasElement(target, el);
+    target.save();
+    try {
+      target.beginPath();
+      target.rect(clip.x, clip.y, clip.w, clip.h);
+      target.clip();
+      render();
+    } finally {
+      target.restore();
+    }
   };
 
   const layerGroups = new Map<string, CanvasElement[]>();
-  const fullCanvasElements: CanvasElement[] = [];
-  for (const el of visibleElements) {
-    if (el.type === 'extension' && registry.getAdapter(el.extensionType)?.fullCanvas) {
-      fullCanvasElements.push(el);
-      continue;
-    }
+  for (const el of paintableElements) {
     const group = layerGroups.get(el.layerId) ?? [];
     group.push(el);
     layerGroups.set(el.layerId, group);

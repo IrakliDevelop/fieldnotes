@@ -1298,3 +1298,160 @@ describe('exportImage — rendering paths', () => {
     });
   });
 });
+
+describe('exportImage — hierarchy clips', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('clips a child to its effective hierarchy rectangle before rendering it', async () => {
+    const events: string[] = [];
+    const ctx = mockCanvasCtx();
+    ctx.save = vi.fn(() => events.push('save'));
+    ctx.beginPath = vi.fn(() => events.push('beginPath'));
+    ctx.rect = vi.fn((x, y, w, h) => events.push(`rect:${x},${y},${w},${h}`));
+    ctx.clip = vi.fn(() => events.push('clip'));
+    ctx.restore = vi.fn(() => events.push('restore'));
+    const originalCreate = document.createElement.bind(document);
+    const createSpy = vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
+      const element = originalCreate(tag);
+      if (tag === 'canvas') {
+        vi.spyOn(element as HTMLCanvasElement, 'getContext').mockReturnValue(ctx as never);
+        vi.spyOn(element as HTMLCanvasElement, 'toBlob').mockImplementation((callback) =>
+          callback(new Blob(['fake'])),
+        );
+      }
+      return element;
+    });
+    const registry = new ElementRegistry();
+    registry.register<ExtensionElementEnvelope>({
+      type: 'test:clip-export',
+      legacyTypes: [],
+      decodeLegacy: (raw) => raw as unknown as ExtensionElementEnvelope,
+      validateData: () => true,
+      unwrap: (element) => element,
+      wrap: (element) => element,
+      bounds: (element) => ({ x: element.position.x, y: element.position.y, w: 10, h: 10 }),
+      clipBounds: (element) =>
+        element.id === 'nested' ? { x: 25, y: 0, w: 30, h: 30 } : { x: 10, y: 20, w: 30, h: 40 },
+      render: (_ctx, element) => events.push(`render:${element.id}`),
+    });
+    const root: ExtensionElementEnvelope = {
+      id: 'root',
+      type: 'extension',
+      extensionType: 'test:clip-export',
+      position: { x: 0, y: 0 },
+      index: 'a0',
+      version: 1,
+      locked: false,
+      layerId: '',
+      data: {},
+    };
+    const child = createShape({
+      id: 'child',
+      parentId: root.id,
+      position: { x: 15, y: 25 },
+      size: { w: 10, h: 10 },
+    });
+    const nested: ExtensionElementEnvelope = {
+      ...root,
+      id: 'nested',
+      parentId: root.id,
+      position: { x: 15, y: 25 },
+      index: 'a1',
+    };
+    const grandchild = createShape({
+      id: 'grandchild',
+      parentId: nested.id,
+      position: { x: 26, y: 21 },
+      size: { w: 10, h: 10 },
+    });
+    const store = new ElementStore(registry);
+    store.add(root);
+    store.add(child);
+    store.add(nested);
+    store.add(grandchild);
+
+    await exportImage(store, { elementRegistry: registry, scale: 1 });
+
+    expect(events).toEqual([
+      'render:root',
+      'save',
+      'beginPath',
+      'rect:10,20,30,40',
+      'clip',
+      'render:nested',
+      'restore',
+      'save',
+      'beginPath',
+      'rect:25,20,15,10',
+      'clip',
+      'save',
+      'restore',
+      'restore',
+      'save',
+      'beginPath',
+      'rect:10,20,30,40',
+      'clip',
+      'save',
+      'restore',
+      'restore',
+    ]);
+    createSpy.mockRestore();
+  });
+
+  it('skips a fail-closed html descendant before routing or DOM preparation', async () => {
+    const ctx = mockCanvasCtx();
+    const originalCreate = document.createElement.bind(document);
+    const createSpy = vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
+      const element = originalCreate(tag);
+      if (tag === 'canvas') {
+        vi.spyOn(element as HTMLCanvasElement, 'getContext').mockReturnValue(ctx as never);
+        vi.spyOn(element as HTMLCanvasElement, 'toBlob').mockImplementation((callback) =>
+          callback(new Blob(['fake'])),
+        );
+      }
+      return element;
+    });
+    const registry = new ElementRegistry();
+    registry.register<ExtensionElementEnvelope>({
+      type: 'test:closed-export',
+      legacyTypes: [],
+      decodeLegacy: (raw) => raw as unknown as ExtensionElementEnvelope,
+      validateData: () => true,
+      unwrap: (element) => element,
+      wrap: (element) => element,
+      bounds: () => ({ x: 0, y: 0, w: 10, h: 10 }),
+      clipBounds: () => ({ x: 0, y: 0, w: 0, h: 10 }),
+    });
+    const root: ExtensionElementEnvelope = {
+      id: 'closed-root',
+      type: 'extension',
+      extensionType: 'test:closed-export',
+      position: { x: 0, y: 0 },
+      index: 'a0',
+      version: 1,
+      locked: false,
+      layerId: '',
+      data: {},
+    };
+    const child = markerElement({ id: 'hidden-marker', parentId: root.id });
+    const store = new ElementStore(registry);
+    store.add(root);
+    store.add(child);
+    const renderHtml = vi.fn();
+    const onHtmlError = vi.fn();
+
+    await expect(
+      exportImage(store, {
+        elementRegistry: registry,
+        expectedCanvasTypes: new Set(['rk-marker']),
+        strictMissingCanvasHtml: true,
+        renderHtml,
+        onHtmlError,
+      }),
+    ).resolves.toBeInstanceOf(Blob);
+
+    expect(renderHtml).not.toHaveBeenCalled();
+    expect(onHtmlError).not.toHaveBeenCalled();
+    createSpy.mockRestore();
+  });
+});
