@@ -6,7 +6,8 @@ import {
   ElementStore,
   SelectTool,
 } from '@fieldnotes/core';
-import type { PointerState, ToolContext } from '@fieldnotes/core';
+import type { Point, PointerState, ToolContext } from '@fieldnotes/core';
+import { GridConstraintService } from '../grid/grid-constraint-service';
 import { registerVttElementTypes } from '../register';
 import { TemplateTool } from './template-tool';
 
@@ -18,7 +19,113 @@ const pointer = (x: number, y: number): PointerState => ({
   shiftKey: false,
 });
 
+function recordingCtx(): { ctx: CanvasRenderingContext2D; paths: Point[][] } {
+  const paths: Point[][] = [];
+  const point = (x: number, y: number): void => {
+    paths[paths.length - 1]?.push({ x, y });
+  };
+  const noop = vi.fn();
+  const ctx = {
+    beginPath: () => paths.push([]),
+    moveTo: point,
+    lineTo: point,
+    arc: noop,
+    closePath: noop,
+    fill: noop,
+    stroke: noop,
+    save: noop,
+    restore: noop,
+    setLineDash: noop,
+    roundRect: noop,
+    fillText: noop,
+    measureText: () => ({ width: 30 }),
+  } as unknown as CanvasRenderingContext2D;
+  return { ctx, paths };
+}
+
+function hexGridContext(active: boolean, cellSize = 48): { ctx: ToolContext; store: ElementStore } {
+  const registry = new ElementRegistry();
+  registerVttElementTypes(registry);
+  const store = new ElementStore();
+  const constraintService = new ConstraintServiceProxy();
+  constraintService.setImplementation(
+    new GridConstraintService(() => ({
+      gridType: 'hex',
+      hexOrientation: 'pointy',
+      cellSize,
+      cellRadius: cellSize,
+    })),
+  );
+  constraintService.setActive(active);
+  const ctx: ToolContext = {
+    camera: new Camera(),
+    store,
+    requestRender: vi.fn(),
+    requestOverlayRender: vi.fn(),
+    elementRegistry: registry,
+    constraintService,
+  };
+  return { ctx, store };
+}
+
+const hexW = Math.sqrt(3) * 48;
+const snappedCenter = { x: 12 * hexW + hexW / 2, y: 5 * 72 };
+
 describe('TemplateTool', () => {
+  it('previews hex cells around the snapped center cell when grid snapping is inactive', () => {
+    const { ctx, store } = hexGridContext(false);
+    const tool = new TemplateTool({ templateShape: 'circle' });
+    tool.onPointerDown(pointer(1000, 390), ctx);
+    tool.onPointerMove(pointer(1200, 390), ctx);
+
+    const { ctx: canvas, paths } = recordingCtx();
+    tool.renderOverlay(canvas);
+
+    expect(paths.some((p) => p.length === 19 * 6)).toBe(true);
+    const marker = paths.find((p) => p.length === 6);
+    if (!marker) throw new Error('no single-hex marker path');
+    const mx = marker.reduce((sum, p) => sum + p.x, 0) / 6;
+    const my = marker.reduce((sum, p) => sum + p.y, 0) / 6;
+    expect(mx).toBeCloseTo(snappedCenter.x, 2);
+    expect(my).toBeCloseTo(snappedCenter.y, 2);
+    const labelStart = paths.find((p) => p.length === 2)?.[0];
+    expect(labelStart?.x).toBeCloseTo(snappedCenter.x, 2);
+    expect(labelStart?.y).toBeCloseTo(snappedCenter.y, 2);
+
+    tool.onPointerUp(pointer(1200, 390), ctx);
+    expect(store.getAll()[0]).toMatchObject({
+      position: { x: 1000, y: 390 },
+      data: { radius: 200 },
+    });
+  });
+
+  it('draws the geometric preview when a hex grid reports a zero cell size', () => {
+    const { ctx } = hexGridContext(false, 0);
+    const tool = new TemplateTool({ templateShape: 'circle' });
+    tool.onPointerDown(pointer(1000, 390), ctx);
+    tool.onPointerMove(pointer(1200, 390), ctx);
+
+    const { ctx: canvas } = recordingCtx();
+    const arc = vi.spyOn(canvas, 'arc');
+    tool.renderOverlay(canvas);
+
+    expect(arc).toHaveBeenCalledWith(1000, 390, 200, 0, Math.PI * 2);
+  });
+
+  it('snaps the origin and radius to the hex grid when grid snapping is active', () => {
+    const { ctx, store } = hexGridContext(true);
+    const tool = new TemplateTool({ templateShape: 'circle' });
+    tool.onPointerDown(pointer(1000, 390), ctx);
+    tool.onPointerMove(pointer(1200, 390), ctx);
+    tool.onPointerUp(pointer(1200, 390), ctx);
+
+    const created = store.getAll()[0];
+    if (!created || created.type !== 'extension') throw new Error('template was not created');
+    expect(created.position.x).toBeCloseTo(snappedCenter.x, 2);
+    expect(created.position.y).toBeCloseTo(snappedCenter.y, 2);
+    expect(created.data['radius']).toBeCloseTo(2 * hexW, 2);
+  });
+
   it('uses a type-only custom constraint service for its origin without grid radius rounding', () => {
     const registry = new ElementRegistry();
     registerVttElementTypes(registry);

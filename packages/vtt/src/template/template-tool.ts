@@ -8,11 +8,12 @@ import {
   getHexCellsInLine,
   getHexCellsInSquare,
   getHexCellsInRectangle,
+  getHexCellCenter,
   drawHexPath,
 } from '../grid/hex-fill';
 import { renderTemplateFeetLabel } from './template-measure';
 
-/** Default cell size (world units) when no constraint service is active. Matches the demo's default grid size. */
+/** Default cell size (world units) when the constraint service reports no grid. Matches the demo's default grid size. */
 const FALLBACK_CELL_SIZE = 24;
 
 const MIN_RECT_WIDTH = 20;
@@ -92,21 +93,16 @@ export class TemplateTool implements Tool {
   onPointerDown(state: PointerState, ctx: ToolContext): void {
     this.drawing = true;
     const cs = ctx.constraintService;
-    if (cs?.isActive) {
-      const info = cs.getConstraintInfo();
-      this.gridSize = (info?.cellSize as number) ?? FALLBACK_CELL_SIZE;
-      this.gridType = (info?.gridType as 'square' | 'hex') ?? undefined;
-      this.hexOrientation = info?.hexOrientation as HexOrientation | undefined;
-      this.snapEnabled =
-        (this.gridType === 'square' || this.gridType === 'hex') &&
-        Number.isFinite(this.gridSize) &&
-        this.gridSize > 0;
-    } else {
-      this.gridSize = FALLBACK_CELL_SIZE;
-      this.gridType = undefined;
-      this.hexOrientation = undefined;
-      this.snapEnabled = false;
-    }
+    // Grid info is read even when snapping is off so the preview matches the committed hex cells.
+    const info = cs?.getConstraintInfo();
+    this.gridSize = (info?.cellSize as number) ?? FALLBACK_CELL_SIZE;
+    this.gridType = (info?.gridType as 'square' | 'hex') ?? undefined;
+    this.hexOrientation = info?.hexOrientation as HexOrientation | undefined;
+    this.snapEnabled =
+      cs?.isActive === true &&
+      (this.gridType === 'square' || this.gridType === 'hex') &&
+      Number.isFinite(this.gridSize) &&
+      this.gridSize > 0;
     this.feetScaleUnit =
       this.gridSize > 0
         ? this.gridType === 'hex'
@@ -182,7 +178,13 @@ export class TemplateTool implements Tool {
     const radius = this.computeRadius();
     if (radius <= 0) return;
 
-    if (this.gridType === 'hex' && this.hexOrientation && this.renderStyle !== 'geometric') {
+    if (
+      this.gridType === 'hex' &&
+      this.hexOrientation &&
+      this.renderStyle !== 'geometric' &&
+      Number.isFinite(this.gridSize) &&
+      this.gridSize > 0
+    ) {
       this.renderHexOverlay(ctx, radius);
       return;
     }
@@ -261,7 +263,7 @@ export class TemplateTool implements Tool {
       }
     }
 
-    this.drawFeetLabel(ctx, radius);
+    this.drawFeetLabel(ctx, radius, this.origin);
     ctx.restore();
   }
 
@@ -272,7 +274,7 @@ export class TemplateTool implements Tool {
     const snapUnit = Math.sqrt(3) * cellSize;
     const radiusCells = radius / snapUnit;
     const angle = this.computeAngle();
-    const center = this.origin;
+    const center = getHexCellCenter(this.origin, cellSize, orientation);
 
     let hexCells: Point[];
     switch (this.templateShape) {
@@ -337,7 +339,7 @@ export class TemplateTool implements Tool {
       ctx.stroke();
     }
 
-    this.drawFeetLabel(ctx, radius);
+    this.drawFeetLabel(ctx, radius, center);
     ctx.restore();
   }
 
@@ -358,10 +360,10 @@ export class TemplateTool implements Tool {
     return Math.atan2(dy, dx);
   }
 
-  private drawFeetLabel(ctx: CanvasRenderingContext2D, radius: number): void {
+  private drawFeetLabel(ctx: CanvasRenderingContext2D, radius: number, position: Point): void {
     const feet = this.feetScaleUnit > 0 ? (radius / this.feetScaleUnit) * this.feetPerCell : 0;
     renderTemplateFeetLabel(ctx, {
-      position: this.origin,
+      position,
       radius,
       angle: this.computeAngle(),
       templateShape: this.templateShape,

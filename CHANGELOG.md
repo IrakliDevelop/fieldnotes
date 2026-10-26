@@ -6,6 +6,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### VTT 0.17.1 — hex templates centre on their cell
+
+**Fixed**
+
+- On a hex grid, an area template's highlighted centre hex and its feet label now sit on the cell
+  the template is built around. Before, they were drawn at the stored position, which is off
+  the cell centre whenever snapping is off, after a select drag, or after a grid size change.
+- With snapping off, the template tool's preview now shows the same hex cells as the placed
+  template instead of a plain shape.
+- With snapping off on a grid, the feet shown on a new template, and the default width of a
+  rectangle template, now use the grid's real cell size instead of a 24-unit fallback.
+
 ### Core 0.99.1 — background pattern stays put
 
 **Fixed**

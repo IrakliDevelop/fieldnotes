@@ -83,6 +83,16 @@ function enumerateHexRing(
   return cells;
 }
 
+/** Center of the hex cell containing `point`; the cell the `getHexCellsIn*` functions enumerate around. */
+export function getHexCellCenter(
+  point: Point,
+  cellSize: number,
+  orientation: HexOrientation,
+): Point {
+  const off = pixelToOffset(point.x, point.y, cellSize, orientation);
+  return offsetToPixel(off.col, off.row, cellSize, orientation);
+}
+
 export function getHexDistance(
   a: Point,
   b: Point,
