@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   getElementCenter,
   getEdgeIntersection,
@@ -107,6 +107,40 @@ describe('getEdgeIntersection', () => {
 });
 
 describe('findBindTarget', () => {
+  it('retains an existing unrotated-bounds target after spatial filtering', () => {
+    const store = new ElementStore();
+    const note = createNote({
+      position: { x: 0, y: 0 },
+      size: { w: 200, h: 100 },
+      rotation: Math.PI / 2,
+    });
+    store.add(note);
+
+    expect(findBindTarget({ x: 10, y: 0 }, store, 20)?.id).toBe(note.id);
+  });
+
+  it('queries candidates without enumerating all elements', () => {
+    const store = new ElementStore();
+    const excluded = createNote({ id: 'excluded', position: { x: 0, y: 0 } });
+    const filtered = createNote({ id: 'filtered', position: { x: 1, y: 0 } });
+    const target = createNote({ id: 'target', position: { x: 2, y: 0 } });
+    store.add(excluded);
+    store.add(filtered);
+    store.add(target);
+    const getAll = vi.spyOn(store, 'getAll');
+
+    const result = findBindTarget(
+      { x: 2, y: 0 },
+      store,
+      20,
+      excluded.id,
+      (element) => element.id !== filtered.id,
+    );
+
+    expect(result?.id).toBe(target.id);
+    expect(getAll).not.toHaveBeenCalled();
+  });
+
   it('finds nearest bindable element within threshold', () => {
     const store = new ElementStore();
     const note = createNote({ position: { x: 100, y: 100 }, size: { w: 200, h: 100 } });

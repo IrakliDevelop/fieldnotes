@@ -2,7 +2,7 @@ import { EventBus, isExternalChange } from '../core/event-bus';
 import { generateKeyBetween } from '../core/fractional-index';
 import type { Bounds, Point } from '../core/types';
 import { Quadtree } from '../core/quadtree';
-import { getElementVisualBounds, transferStrokeBounds } from './element-bounds';
+import { getElementBounds, getElementVisualBounds, transferStrokeBounds } from './element-bounds';
 import { getArrowControlPoint } from './arrow-geometry';
 import { sanitizeNoteHtml } from './note-sanitizer';
 import { computeStrokeSegments, transferStrokeRenderData } from './stroke-cache';
@@ -123,10 +123,21 @@ export class ElementStore {
     );
   }
 
-  // Spatial index stores the rotation-expanded AABB so rotated elements remain
-  // broad-phase hit-test/marquee candidates; precise tests run against local bounds.
   private indexBounds(element: CanvasElement): Bounds | null {
-    return getElementVisualBounds(element, this.registry);
+    const bounds = getElementBounds(element, this.registry);
+    if (!bounds) return null;
+    const visualBounds = getElementVisualBounds(element, this.registry);
+    if (!visualBounds) return bounds;
+    const x = Math.min(bounds.x, visualBounds.x);
+    const y = Math.min(bounds.y, visualBounds.y);
+    const right = Math.max(bounds.x + bounds.w, visualBounds.x + visualBounds.w);
+    const bottom = Math.max(bounds.y + bounds.h, visualBounds.y + visualBounds.h);
+    return {
+      x,
+      y,
+      w: right - x,
+      h: bottom - y,
+    };
   }
 
   add(element: CanvasElement, meta?: ElementChangeMeta): void {
