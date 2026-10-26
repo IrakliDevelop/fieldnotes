@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { Background } from './background';
 import type { Camera } from './camera';
 
@@ -312,6 +312,92 @@ describe('Background', () => {
       } finally {
         vi.unstubAllGlobals();
       }
+    });
+  });
+
+  describe('cached blit', () => {
+    const offscreenCtxs: CanvasRenderingContext2D[] = [];
+
+    class RecordingOffscreenCanvas {
+      constructor(
+        public width: number,
+        public height: number,
+      ) {}
+      getContext(): CanvasRenderingContext2D {
+        const offCtx = mockCtx();
+        (offCtx as unknown as Record<string, unknown>).scale = vi.fn();
+        offscreenCtxs.push(offCtx);
+        return offCtx;
+      }
+    }
+
+    function hidpiCtx(): CanvasRenderingContext2D {
+      const ctx = mockCtx();
+      (ctx as unknown as Record<string, unknown>).drawImage = vi.fn();
+      return ctx;
+    }
+
+    function offscreenArc(): ReturnType<typeof vi.fn> {
+      const offCtx = offscreenCtxs[0];
+      if (offCtx === undefined) throw new Error('no offscreen context created');
+      return offCtx.arc as ReturnType<typeof vi.fn>;
+    }
+
+    afterEach(() => {
+      offscreenCtxs.length = 0;
+      vi.unstubAllGlobals();
+    });
+
+    it('draws the cache at CSS size so the pattern is not scaled by dpr twice', () => {
+      vi.stubGlobal('OffscreenCanvas', RecordingOffscreenCanvas);
+      vi.stubGlobal('devicePixelRatio', 2);
+      const bg = new Background();
+      const ctx = hidpiCtx();
+      bg.render(ctx, mockCamera());
+      bg.render(ctx, mockCamera());
+      const drawImage = (ctx as unknown as Record<string, ReturnType<typeof vi.fn>>).drawImage;
+      expect(drawImage).toHaveBeenCalledTimes(2);
+      expect(drawImage).toHaveBeenNthCalledWith(
+        1,
+        expect.any(RecordingOffscreenCanvas),
+        0,
+        0,
+        400,
+        300,
+      );
+      expect(drawImage).toHaveBeenNthCalledWith(
+        2,
+        expect.any(RecordingOffscreenCanvas),
+        0,
+        0,
+        400,
+        300,
+      );
+    });
+
+    it('redraws the cache on a sub-pixel pan', () => {
+      vi.stubGlobal('OffscreenCanvas', RecordingOffscreenCanvas);
+      vi.stubGlobal('devicePixelRatio', 2);
+      const bg = new Background();
+      const ctx = hidpiCtx();
+      bg.render(ctx, mockCamera({ position: { x: 10.2, y: 0 } }));
+      const arc = offscreenArc();
+      const firstRenderCalls = arc.mock.calls.length;
+      bg.render(ctx, mockCamera({ position: { x: 10.7, y: 0 } }));
+      expect(arc.mock.calls.length).toBeGreaterThan(firstRenderCalls);
+      expect(arc.mock.calls[firstRenderCalls]?.[0]).toBeCloseTo(10.7);
+    });
+
+    it('reuses the cache when the camera is unchanged', () => {
+      vi.stubGlobal('OffscreenCanvas', RecordingOffscreenCanvas);
+      vi.stubGlobal('devicePixelRatio', 2);
+      const bg = new Background();
+      const ctx = hidpiCtx();
+      bg.render(ctx, mockCamera({ position: { x: 10.2, y: 3.4 } }));
+      const arc = offscreenArc();
+      const firstRenderCalls = arc.mock.calls.length;
+      bg.render(ctx, mockCamera({ position: { x: 10.2, y: 3.4 } }));
+      expect(arc.mock.calls.length).toBe(firstRenderCalls);
     });
   });
 });
