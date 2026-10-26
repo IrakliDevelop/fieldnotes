@@ -358,10 +358,9 @@ export async function exportSvg(
   );
   for (const [id, uri] of canvasHtmlDataUris) htmlDataUris.set(id, uri);
 
-  let body = '';
-  if (options.background) {
-    body += `<rect x="${n(bounds.x)}" y="${n(bounds.y)}" width="${n(bounds.w)}" height="${n(bounds.h)}" fill="${esc(options.background)}" />`;
-  }
+  const backgroundSvg = options.background
+    ? `<rect x="${n(bounds.x)}" y="${n(bounds.y)}" width="${n(bounds.w)}" height="${n(bounds.h)}" fill="${esc(options.background)}" />`
+    : '';
 
   const fullCanvasSvg: string[] = [];
   const layerBodies = new Map<
@@ -397,6 +396,28 @@ export async function exportSvg(
     layerBodies.set(element.layerId, entries);
   }
 
+  let overlaySvg = '';
+  if (options.afterElements && typeof document !== 'undefined') {
+    const overlayW = Math.max(1, Math.ceil(bounds.w));
+    const overlayH = Math.max(1, Math.ceil(bounds.h));
+    const overlayCanvas = document.createElement('canvas');
+    overlayCanvas.width = overlayW;
+    overlayCanvas.height = overlayH;
+    const overlayCtx = overlayCanvas.getContext('2d');
+    if (overlayCtx) {
+      overlayCtx.translate(-bounds.x, -bounds.y);
+      options.afterElements(overlayCtx, bounds.w, bounds.h);
+      try {
+        const dataUri = overlayCanvas.toDataURL('image/png');
+        if (dataUri.startsWith('data:')) {
+          overlaySvg = `<image href="${esc(dataUri)}" x="${n(bounds.x)}" y="${n(bounds.y)}" width="${n(bounds.w)}" height="${n(bounds.h)}" />`;
+        }
+      } catch {
+        // encoding failed — skip overlay in SVG rather than failing the whole export
+      }
+    }
+  }
+
   const hookSvg: string[] = [];
   if (options.renderHooks) {
     options.renderHooks.svgExport.call('afterElements', {
@@ -413,13 +434,15 @@ export async function exportSvg(
 
   const usedIds = new Set<string>();
   const collectIds = (fragment: string): void => {
-    const ids = /\bid=(['"])(.*?)\1/g;
+    const ids = /\bid\s*=\s*(['"])(.*?)\1/g;
     for (const match of fragment.matchAll(ids)) usedIds.add(match[2] ?? '');
   };
   for (const entries of layerBodies.values()) {
     for (const { fragment } of entries) collectIds(fragment);
   }
+  collectIds(backgroundSvg);
   for (const fragment of fullCanvasSvg) collectIds(fragment);
+  collectIds(overlaySvg);
   for (const fragment of hookSvg) collectIds(fragment);
 
   const clippedEntries = [...layerBodies.values()].flat().filter((entry) => entry.clip !== null);
@@ -445,7 +468,8 @@ export async function exportSvg(
     }
   }
 
-  if (clipDefs.length > 0) body += `<defs>${clipDefs.join('')}</defs>`;
+  let body = clipDefs.length > 0 ? `<defs>${clipDefs.join('')}</defs>` : '';
+  body += backgroundSvg;
   for (const [layerId, entries] of layerBodies) {
     const emitted = entries.map((entry) => entry.fragment).join('');
     const opacity = layerManager?.getLayer?.(layerId)?.opacity ?? 1;
@@ -455,26 +479,7 @@ export async function exportSvg(
     body += svg;
   }
 
-  if (options.afterElements && typeof document !== 'undefined') {
-    const overlayW = Math.max(1, Math.ceil(bounds.w));
-    const overlayH = Math.max(1, Math.ceil(bounds.h));
-    const overlayCanvas = document.createElement('canvas');
-    overlayCanvas.width = overlayW;
-    overlayCanvas.height = overlayH;
-    const overlayCtx = overlayCanvas.getContext('2d');
-    if (overlayCtx) {
-      overlayCtx.translate(-bounds.x, -bounds.y);
-      options.afterElements(overlayCtx, bounds.w, bounds.h);
-      try {
-        const dataUri = overlayCanvas.toDataURL('image/png');
-        if (dataUri.startsWith('data:')) {
-          body += `<image href="${esc(dataUri)}" x="${n(bounds.x)}" y="${n(bounds.y)}" width="${n(bounds.w)}" height="${n(bounds.h)}" />`;
-        }
-      } catch {
-        // encoding failed — skip overlay in SVG rather than failing the whole export
-      }
-    }
-  }
+  body += overlaySvg;
 
   body += hookSvg.join('');
 
