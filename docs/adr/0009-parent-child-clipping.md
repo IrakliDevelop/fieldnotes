@@ -47,15 +47,22 @@ do not each interpret `parentId`.
 Within each layer, scene order is stable depth-first order. Roots sort by `index`, then `id`. Each
 parent's children sort by the same keys. A parent comes before its subtree.
 
-### 3. Apply commands to reviewed subtrees
+### 3. Define subtree mutation semantics
 
-Selection remains literal. Moving or nudging a parent moves its descendants in one history step.
-A descendant lock blocks direct manipulation, but does not block motion through its parent.
+Clicking or selecting a child selects that child. Clicking or selecting a parent selects that
+parent. Moving or nudging a selected parent moves every descendant by the same delta. Descendant
+locks block direct manipulation, but do not detach or block movement through the parent. A parent
+move and every descendant update form one history transaction and undo step. Cancellation restores
+every member and records no history step.
 
-Delete, copy, duplicate, layer moves, and z-order commands operate on and remap the reviewed
-subtree. Copying a child without its parent clears the copy's `parentId`. Group and parent
-expansion must not update an element twice. Drag containment does not assign a parent
-automatically. Frames and their membership policy remain later work.
+Deleting a parent deletes its full subtree in the same transaction. Copying or duplicating a
+selected parent includes its descendants and remaps every copied `parentId`. Copying a child
+without its parent clears the clone's `parentId`. Moving a parent to another layer moves its
+subtree atomically. Moving a child alone to another layer clears its parent unless that parent
+moves with it. A root or parent z-order command treats its subtree as one contiguous unit. A child
+z-order command stays within its siblings. Group expansion and parent expansion compose without
+updating one element twice. Drag containment does not assign a parent. Frames and membership
+policy remain later work.
 
 ### 4. Clip descendants with rectangular bounds
 
