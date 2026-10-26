@@ -102,10 +102,7 @@ export class KeyboardActions {
     this.flushPendingNudge();
     const sel = this.selectTool();
     if (!sel) return;
-    const elements =
-      typeof sel.ctx.store.getAll === 'function'
-        ? getHierarchyClosure(sel.tool.selectedIds, sel.ctx.store).elements
-        : sel.tool.selectedIds.map((id) => ({ id }));
+    const elements = getHierarchyClosure(sel.tool.selectedIds, sel.ctx.store).elements;
     if (elements.length === 0) return;
     this.inHistory(() => {
       for (const element of [...elements].reverse()) sel.ctx.store.remove(element.id);
@@ -384,15 +381,21 @@ export class KeyboardActions {
       let added: CanvasElement = clone;
       if (clone.type === 'extension') {
         const adapter = sel.ctx.elementRegistry?.getAdapter(clone.extensionType);
-        if (adapter?.cloneRemap) added = adapter.cloneRemap(clone, idMap);
+        if (adapter) {
+          const remapped = adapter.cloneRemap?.(clone, idMap);
+          const prepared = { ...clone, data: remapped?.data ?? clone.data };
+          if (!adapter.validateEnvelope(prepared)) {
+            throw new Error(`Invalid cloned extension data for "${clone.extensionType}"`);
+          }
+          added = prepared;
+        }
       }
       clones.push(added);
     }
 
-    const existingIds = new Set(sel.ctx.store.getAll().map((element) => element.id));
     const cloneIds = new Set<string>();
     for (const clone of clones) {
-      if (existingIds.has(clone.id) || cloneIds.has(clone.id)) {
+      if (sel.ctx.store.getById(clone.id) || cloneIds.has(clone.id)) {
         throw new Error(`Clone id collision "${clone.id}"`);
       }
       cloneIds.add(clone.id);

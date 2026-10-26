@@ -133,6 +133,29 @@ describe('viewport selection emitter', () => {
       expect(snapshots).toEqual([[c]]); // one event, final state — fails with per-removal pruning
     });
 
+    it('removes a selected subtree and prunes inherited selected ids in one final event', () => {
+      viewport.toolManager.register(select);
+      const parent = seedRect(viewport, 0, 0);
+      const child = createShape({
+        position: { x: 5, y: 5 },
+        size: { w: 20, h: 20 },
+        parentId: parent,
+      });
+      viewport.store.add(child);
+      select.setSelection([parent, child.id]);
+      const snapshots: string[][] = [];
+      viewport.onSelectionChange(() => snapshots.push([...viewport.getSelectedIds()]));
+
+      expect(viewport.removeElements([parent])).toBe(2);
+
+      expect(snapshots).toEqual([[]]);
+      expect(viewport.getSelectedIds()).toEqual([]);
+      expect(viewport.undo()).toBe(true);
+      expect(viewport.store.getById(parent)).toBeDefined();
+      expect(viewport.store.getById(child.id)?.parentId).toBe(parent);
+      expect(viewport.getSelectedIds()).toEqual([]);
+    });
+
     it('staleness contract: mid-transaction store listener sees pre-prune ids; after removeElements returns, ids are pruned', () => {
       viewport.toolManager.register(select);
       const a = seedRect(viewport, 0, 0);

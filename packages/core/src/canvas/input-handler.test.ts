@@ -544,9 +544,12 @@ describe('InputHandler', () => {
           selectedIds: ['el-1'],
         },
       } as unknown as ToolManager;
-      const store = {
-        remove: vi.fn(),
-      };
+      const store = new ElementStore();
+      const remove = vi.spyOn(store, 'remove');
+      store.add({
+        ...createNote({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } }),
+        id: 'el-1',
+      });
       const tc = {
         ...stubToolContext(),
         store,
@@ -562,7 +565,7 @@ describe('InputHandler', () => {
 
       keyDown('Delete');
 
-      expect(store.remove).toHaveBeenCalledWith('el-1');
+      expect(remove).toHaveBeenCalledWith('el-1');
       expect(hr.begin).toHaveBeenCalled();
       expect(hr.commit).toHaveBeenCalled();
     });
@@ -575,7 +578,12 @@ describe('InputHandler', () => {
           selectedIds: ['el-2'],
         },
       } as unknown as ToolManager;
-      const store = { remove: vi.fn() };
+      const store = new ElementStore();
+      const remove = vi.spyOn(store, 'remove');
+      store.add({
+        ...createNote({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } }),
+        id: 'el-2',
+      });
       const tc = {
         ...stubToolContext(),
         store,
@@ -590,7 +598,7 @@ describe('InputHandler', () => {
       });
 
       keyDown('Backspace');
-      expect(store.remove).toHaveBeenCalledWith('el-2');
+      expect(remove).toHaveBeenCalledWith('el-2');
     });
 
     it('does not delete when no items selected', () => {

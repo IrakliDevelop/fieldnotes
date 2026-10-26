@@ -8,6 +8,7 @@ import { Camera } from './camera';
 import { ElementStore } from '../elements/element-store';
 import { SelectTool } from '../tools/select-tool';
 import { createNote, createArrow } from '../elements/element-factory';
+import { createId, formatId } from '../elements/create-id';
 import type { ToolManager } from '../tools/tool-manager';
 import type { ToolContext } from '../tools/types';
 import { ConstraintServiceProxy } from '../core/constraint-service';
@@ -519,6 +520,66 @@ describe('KeyboardActions.cut', () => {
     expect(tool.selectedIds).toEqual([cloneParent?.id]);
   });
 
+  it('duplicates a selected child closure as a detached tree', () => {
+    const { actions, ctx, tool } = makeActions();
+    const parent = { ...createNote({ position: { x: 0, y: 0 } }), id: 'parent' };
+    const child = { ...createNote({ position: { x: 5, y: 5 }, parentId: parent.id }), id: 'child' };
+    const grandchild = {
+      ...createNote({ position: { x: 10, y: 10 }, parentId: child.id }),
+      id: 'grandchild',
+    };
+    for (const element of [parent, child, grandchild]) ctx.store.add(element);
+    tool.setSelection([child.id]);
+
+    actions.duplicate();
+
+    const cloneChild = ctx.store
+      .getAll()
+      .find(
+        (element) =>
+          ![parent.id, child.id, grandchild.id].includes(element.id) && !element.parentId,
+      );
+    const cloneGrandchild = ctx.store
+      .getAll()
+      .find((element) => element.id !== grandchild.id && element.parentId === cloneChild?.id);
+    expect(cloneChild).toBeDefined();
+    expect(cloneGrandchild).toBeDefined();
+    expect(ctx.store.getById(child.id)?.parentId).toBe(parent.id);
+    expect(ctx.store.getById(grandchild.id)?.parentId).toBe(child.id);
+    expect(tool.selectedIds).toEqual([cloneChild?.id]);
+  });
+
+  it('undoes and redoes a three-level duplicate without breaking hierarchy', () => {
+    const ctx = makeCtx();
+    const stack = new HistoryStack();
+    const recorder = new HistoryRecorder(ctx.store, stack);
+    const { actions, tool } = makeActions({ ctx, recorder, stack });
+    const parent = { ...createNote({ position: { x: 0, y: 0 } }), id: 'parent' };
+    const child = { ...createNote({ position: { x: 5, y: 5 }, parentId: parent.id }), id: 'child' };
+    const grandchild = {
+      ...createNote({ position: { x: 10, y: 10 }, parentId: child.id }),
+      id: 'grandchild',
+    };
+    for (const element of [parent, child, grandchild]) ctx.store.add(element);
+    stack.clear();
+    tool.setSelection([parent.id]);
+
+    actions.duplicate();
+    const cloneParent = tool.selectedIds[0];
+    const cloneChild = ctx.store.getChildren(cloneParent)[0];
+    const cloneGrandchild = cloneChild && ctx.store.getChildren(cloneChild.id)[0];
+    expect(cloneChild?.parentId).toBe(cloneParent);
+    expect(cloneGrandchild?.parentId).toBe(cloneChild?.id);
+
+    actions.undo();
+    expect(ctx.store.getById(cloneParent)).toBeUndefined();
+    expect(ctx.store.getById(cloneChild?.id ?? '')).toBeUndefined();
+    actions.redo();
+    expect(ctx.store.getById(cloneParent)).toBeDefined();
+    expect(ctx.store.getById(cloneChild?.id ?? '')?.parentId).toBe(cloneParent);
+    expect(ctx.store.getById(cloneGrandchild?.id ?? '')?.parentId).toBe(cloneChild?.id);
+  });
+
   it('copies the selection then removes it from the store', () => {
     const { actions, ctx, tool } = makeActions();
     const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
@@ -529,6 +590,93 @@ describe('KeyboardActions.cut', () => {
 
     expect(actions.hasClipboard()).toBe(true);
     expect(ctx.store.getById(note.id)).toBeUndefined();
+  });
+
+  it('pastes a cut parent tree with only clone-to-clone ownership and root selection', () => {
+    const { actions, ctx, tool } = makeActions();
+    const parent = { ...createNote({ position: { x: 0, y: 0 } }), id: 'parent' };
+    const child = { ...createNote({ position: { x: 5, y: 5 }, parentId: parent.id }), id: 'child' };
+    const grandchild = {
+      ...createNote({ position: { x: 10, y: 10 }, parentId: child.id }),
+      id: 'grandchild',
+    };
+    for (const element of [parent, child, grandchild]) ctx.store.add(element);
+    tool.setSelection([parent.id]);
+
+    actions.cut();
+    actions.paste();
+
+    const cloneRoot = tool.selectedIds[0];
+    const cloneChild = cloneRoot && ctx.store.getChildren(cloneRoot)[0];
+    const cloneGrandchild = cloneChild && ctx.store.getChildren(cloneChild.id)[0];
+    expect(ctx.store.count).toBe(3);
+    expect(cloneRoot).toBeDefined();
+    expect(cloneChild?.parentId).toBe(cloneRoot);
+    expect(cloneGrandchild?.parentId).toBe(cloneChild?.id);
+    expect([cloneRoot, cloneChild?.id, cloneGrandchild?.id]).not.toContain(parent.id);
+    expect([cloneRoot, cloneChild?.id, cloneGrandchild?.id]).not.toContain(child.id);
+    expect([cloneRoot, cloneChild?.id, cloneGrandchild?.id]).not.toContain(grandchild.id);
+    expect(tool.selectedIds).toEqual([cloneRoot]);
+  });
+
+  it('duplicates two selected roots and selects exactly their cloned roots', () => {
+    const { actions, ctx, tool } = makeActions();
+    const first = { ...createNote({ position: { x: 0, y: 0 } }), id: 'first' };
+    const firstChild = {
+      ...createNote({ position: { x: 5, y: 5 }, parentId: first.id }),
+      id: 'first-child',
+    };
+    const second = { ...createNote({ position: { x: 100, y: 0 } }), id: 'second' };
+    const secondChild = {
+      ...createNote({ position: { x: 105, y: 5 }, parentId: second.id }),
+      id: 'second-child',
+    };
+    for (const element of [first, firstChild, second, secondChild]) ctx.store.add(element);
+    tool.setSelection([first.id, second.id]);
+
+    actions.duplicate();
+
+    const clonedRoots = ctx.store
+      .getAll()
+      .filter(
+        (element) => ![first.id, firstChild.id, second.id, secondChild.id].includes(element.id),
+      )
+      .filter((element) => !element.parentId)
+      .map((element) => element.id);
+    expect(tool.selectedIds).toHaveLength(2);
+    expect(tool.selectedIds).toEqual(clonedRoots);
+    for (const rootId of tool.selectedIds) {
+      expect(ctx.store.getById(rootId)?.parentId).toBeUndefined();
+      expect(ctx.store.getChildren(rootId)).toHaveLength(1);
+    }
+    expect(tool.selectedIds).not.toContain(firstChild.id);
+    expect(tool.selectedIds).not.toContain(secondChild.id);
+  });
+
+  it('leaves the source tree untouched when cut preparation cannot clone it', () => {
+    const ctx = makeCtx();
+    const stack = new HistoryStack();
+    const recorder = new HistoryRecorder(ctx.store, stack);
+    const { actions, tool } = makeActions({ ctx, recorder, stack });
+    const parent = { ...createNote({ position: { x: 0, y: 0 } }), id: 'parent' };
+    const child = {
+      ...createNote({ position: { x: 5, y: 5 }, parentId: parent.id }),
+      id: 'child',
+      unsupported: () => undefined,
+    } as unknown as typeof parent;
+    ctx.store.add(parent);
+    ctx.store.add(child);
+    stack.clear();
+    tool.setSelection([parent.id]);
+    const removed = vi.fn();
+    ctx.store.on('remove', removed);
+
+    expect(() => actions.cut()).toThrow();
+
+    expect(ctx.store.getAll().map((element) => element.id)).toEqual([parent.id, child.id]);
+    expect(tool.selectedIds).toEqual([parent.id]);
+    expect(stack.undoCount).toBe(0);
+    expect(removed).not.toHaveBeenCalled();
   });
 
   it('is a no-op when isToolActive returns true', () => {
@@ -1322,11 +1470,195 @@ describe('KeyboardActions extension cloneRemap', () => {
     for (const link of links) ctx.store.add(link);
     stack.clear();
     tool.setSelection(links.map((link) => link.id));
+    const added = vi.fn();
+    ctx.store.on('add', added);
 
     expect(() => actions.duplicate()).toThrow('remap failed');
 
     expect(ctx.store.getAll().map((el) => el.id)).toEqual(['link-a', 'link-b']);
+    expect(tool.selectedIds).toEqual(['link-a', 'link-b']);
     expect(stack.undoCount).toBe(0);
+    expect(added).not.toHaveBeenCalled();
+  });
+
+  it('keeps canonical clone structure when an erased remapper replaces envelope fields', () => {
+    const registry = new ElementRegistry();
+    registry.register(linkDefinition);
+    const ctx = makeCtx({ store: new ElementStore(registry), elementRegistry: registry });
+    const { actions, tool } = makeActions({ ctx });
+    const parent = {
+      ...createNote({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } }),
+      id: 'parent',
+      layerId: 'layer-1',
+    };
+    const link: ExtensionElementEnvelope = {
+      id: 'link',
+      type: 'extension',
+      extensionType: 'test:link',
+      position: { x: 5, y: 5 },
+      index: 'a1',
+      version: 1,
+      locked: false,
+      layerId: 'layer-1',
+      parentId: parent.id,
+      data: { targetId: 'before' },
+    };
+    ctx.store.add(parent);
+    ctx.store.add(link);
+    const sibling = {
+      ...createNote({ position: { x: 10, y: 10 }, size: { w: 10, h: 10 }, parentId: parent.id }),
+      id: 'sibling',
+      layerId: 'layer-1',
+    };
+    const grandchild = {
+      ...createNote({ position: { x: 8, y: 8 }, size: { w: 5, h: 5 }, parentId: link.id }),
+      id: 'grandchild',
+      layerId: 'layer-1',
+    };
+    ctx.store.add(sibling);
+    ctx.store.add(grandchild);
+    const adapter = registry.getAdapter('test:link');
+    if (!adapter) throw new Error('missing adapter');
+    const maps: ReadonlyMap<string, string>[] = [];
+    adapter.cloneRemap = (element, idMap) => {
+      maps.push(new Map(idMap));
+      return {
+        ...element,
+        id: 'attacker-id',
+        parentId: parent.id,
+        data: { targetId: 'after' },
+      } as ExtensionElementEnvelope;
+    };
+    tool.setSelection([parent.id]);
+
+    actions.duplicate();
+
+    const parentClone = ctx.store.getById(maps[0]?.get(parent.id) ?? '');
+    const linkClone = ctx.store.getById(maps[0]?.get(link.id) ?? '');
+    expect(parentClone).toBeDefined();
+    expect(linkClone).toMatchObject({ parentId: parentClone?.id, data: { targetId: 'after' } });
+    expect(linkClone?.id).not.toBe('attacker-id');
+    expect(tool.selectedIds).toEqual([parentClone?.id]);
+    const map = maps[0];
+    if (!map) throw new Error('clone remap did not receive an id map');
+    expect(map.size).toBe(4);
+    expect([...map.keys()].sort()).toEqual([parent.id, link.id, sibling.id, grandchild.id].sort());
+    const cloneIds = [...map.values()];
+    expect(new Set(cloneIds).size).toBe(4);
+    expect(cloneIds.every((id) => ctx.store.getById(id) !== undefined)).toBe(true);
+  });
+
+  it('rejects invalid remapped data before adding a clone or recording history', () => {
+    const registry = new ElementRegistry();
+    registry.register(linkDefinition);
+    const ctx = makeCtx({ store: new ElementStore(registry), elementRegistry: registry });
+    const stack = new HistoryStack();
+    const recorder = new HistoryRecorder(ctx.store, stack);
+    const { actions, tool } = makeActions({ ctx, recorder, stack });
+    const link: ExtensionElementEnvelope = {
+      id: 'link',
+      type: 'extension',
+      extensionType: 'test:link',
+      position: { x: 5, y: 5 },
+      index: 'a1',
+      version: 1,
+      locked: false,
+      layerId: 'layer-1',
+      data: { targetId: 'before' },
+    };
+    ctx.store.add(link);
+    stack.clear();
+    const adapter = registry.getAdapter('test:link');
+    if (!adapter) throw new Error('missing adapter');
+    adapter.cloneRemap = (element) =>
+      ({ ...element, data: { targetId: 1 } }) as ExtensionElementEnvelope;
+    const added = vi.fn();
+    ctx.store.on('add', added);
+    tool.setSelection([link.id]);
+
+    expect(() => actions.duplicate()).toThrow('Invalid cloned extension data');
+
+    expect(ctx.store.getAll().map((element) => element.id)).toEqual([link.id]);
+    expect(tool.selectedIds).toEqual([link.id]);
+    expect(stack.undoCount).toBe(0);
+    expect(added).not.toHaveBeenCalled();
+  });
+
+  it('validates a registered extension clone even when it has no remapper', () => {
+    const registry = new ElementRegistry();
+    registry.register(linkDefinition);
+    const ctx = makeCtx({ store: new ElementStore(registry), elementRegistry: registry });
+    const { actions, tool } = makeActions({ ctx });
+    const link: ExtensionElementEnvelope = {
+      id: 'link',
+      type: 'extension',
+      extensionType: 'test:link',
+      position: { x: 5, y: 5 },
+      index: 'a1',
+      version: 1,
+      locked: false,
+      layerId: 'layer-1',
+      data: { targetId: 1 },
+    };
+    ctx.store.add(link);
+    tool.setSelection([link.id]);
+
+    expect(() => actions.duplicate()).toThrow('Invalid cloned extension data');
+    expect(ctx.store.getAll().map((element) => element.id)).toEqual([link.id]);
+    expect(tool.selectedIds).toEqual([link.id]);
+  });
+
+  it('preflights malformed clipboard hierarchy before mutating the store', () => {
+    const ctx = makeCtx();
+    const stack = new HistoryStack();
+    const recorder = new HistoryRecorder(ctx.store, stack);
+    const { actions, tool } = makeActions({ ctx, recorder, stack });
+    const a = { ...createNote({ position: { x: 0, y: 0 }, parentId: 'b' }), id: 'a' };
+    const b = { ...createNote({ position: { x: 5, y: 5 }, parentId: 'a' }), id: 'b' };
+    (actions as unknown as { clipboard: CanvasElement[] }).clipboard = [a, b];
+    const added = vi.fn();
+    ctx.store.on('add', added);
+
+    expect(() => actions.paste()).toThrow('Invalid hierarchy');
+
+    expect(ctx.store.count).toBe(0);
+    expect(tool.selectedIds).toEqual([]);
+    expect(stack.undoCount).toBe(0);
+    expect(added).not.toHaveBeenCalled();
+  });
+
+  it('rejects a clone id that collides with a raw non-scene store entry before adding', () => {
+    const ctx = makeCtx();
+    const stack = new HistoryStack();
+    const recorder = new HistoryRecorder(ctx.store, stack);
+    const { actions, tool } = makeActions({ ctx, recorder, stack });
+    const source = { ...createNote({ position: { x: 0, y: 0 } }), id: 'source' };
+    const hidden = createNote({ position: { x: 10, y: 10 }, parentId: 'missing' });
+    ctx.store.add(source);
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1);
+    const probe = createId('note');
+    const [, time, counter, client] = probe.split('_');
+    if (!time || !counter || !client) throw new Error('invalid probe id');
+    const collisionId = formatId(
+      'note',
+      time,
+      (Number.parseInt(counter, 36) + 1).toString(36),
+      client,
+    );
+    ctx.store.add({ ...hidden, id: collisionId }, { origin: 'remote' });
+    stack.clear();
+    const added = vi.fn();
+    ctx.store.on('add', added);
+    tool.setSelection([source.id]);
+
+    expect(() => actions.duplicate()).toThrow(`Clone id collision "${collisionId}"`);
+
+    now.mockRestore();
+    expect(ctx.store.getById(source.id)).toBeDefined();
+    expect(ctx.store.getById(collisionId)).toBeDefined();
+    expect(tool.selectedIds).toEqual([source.id]);
+    expect(stack.undoCount).toBe(0);
+    expect(added).not.toHaveBeenCalled();
   });
 
   it('a def without cloneRemap keeps the clone data unchanged', () => {
