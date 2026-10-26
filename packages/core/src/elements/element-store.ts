@@ -2,7 +2,12 @@ import { EventBus, isExternalChange } from '../core/event-bus';
 import { generateKeyBetween } from '../core/fractional-index';
 import type { Bounds, Point } from '../core/types';
 import { Quadtree } from '../core/quadtree';
-import { getElementBounds, getElementVisualBounds, transferStrokeBounds } from './element-bounds';
+import {
+  boundsIntersect,
+  getElementBounds,
+  getElementVisualBounds,
+  transferStrokeBounds,
+} from './element-bounds';
 import { getArrowControlPoint } from './arrow-geometry';
 import { sanitizeNoteHtml } from './note-sanitizer';
 import { computeStrokeSegments, transferStrokeRenderData } from './stroke-cache';
@@ -58,6 +63,7 @@ export class ElementStore {
   private sceneCache: CanvasElement[] | null = null;
   private _versions = new Map<string, number>();
   private registry: ElementRegistry;
+  private hierarchyRevision = '';
 
   constructor(elementRegistry: ElementRegistry = getDefaultElementRegistry()) {
     this.registry = elementRegistry;
@@ -94,13 +100,23 @@ export class ElementStore {
   }
 
   getAll(): CanvasElement[] {
-    this.sceneCache ??= [...this.getHierarchy().scene];
+    const hierarchy = this.getHierarchy();
+    this.sceneCache ??= [...hierarchy.scene];
     return this.sceneCache;
   }
 
   private getHierarchy(): ElementHierarchy {
-    this.hierarchy ??= new ElementHierarchy(this.elements, this.registry, this.layerOrderMap);
+    if (this.hierarchy && this.hierarchyRevision !== this.registry.revision) this.resetHierarchy();
+    if (!this.hierarchy) {
+      this.hierarchy = new ElementHierarchy(this.elements, this.registry, this.layerOrderMap);
+      this.hierarchyRevision = this.registry.revision;
+    }
     return this.hierarchy;
+  }
+
+  getEffectiveClip(id: string): Bounds | null | undefined {
+    const clip = this.getHierarchy().getEffectiveClip(id);
+    return clip ? { ...clip } : clip;
   }
 
   private strict(meta: ElementChangeMeta | undefined): boolean {
@@ -114,6 +130,7 @@ export class ElementStore {
   private resetHierarchy(): void {
     this.hierarchy = null;
     this.sceneCache = null;
+    this.hierarchyRevision = '';
   }
 
   private topIndex(layerId: string): string | null {
@@ -408,7 +425,30 @@ export class ElementStore {
     const elements: CanvasElement[] = [];
     for (const id of ids) {
       const el = this.elements.get(id);
-      if (el && this.getHierarchy().rank(id) !== undefined) elements.push(el);
+      if (!el || this.getHierarchy().rank(id) === undefined) continue;
+      const clip = this.getEffectiveClip(id);
+      if (clip === undefined) continue;
+      if (clip && !boundsIntersect(rect, clip)) continue;
+      if (clip) {
+        const bounds = getElementVisualBounds(el, this.registry);
+        if (
+          bounds &&
+          !boundsIntersect(rect, {
+            x: Math.max(bounds.x, clip.x),
+            y: Math.max(bounds.y, clip.y),
+            w: Math.max(
+              0,
+              Math.min(bounds.x + bounds.w, clip.x + clip.w) - Math.max(bounds.x, clip.x),
+            ),
+            h: Math.max(
+              0,
+              Math.min(bounds.y + bounds.h, clip.y + clip.h) - Math.max(bounds.y, clip.y),
+            ),
+          })
+        )
+          continue;
+      }
+      elements.push(el);
     }
     return elements.sort(
       (a, b) => (this.getHierarchy().rank(a.id) ?? 0) - (this.getHierarchy().rank(b.id) ?? 0),

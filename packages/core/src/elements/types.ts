@@ -182,6 +182,8 @@ export interface ElementTypeDefinition<T extends BaseElement> {
   unwrap(el: ExtensionElementEnvelope): T;
   wrap(el: T): ExtensionElementEnvelope;
   bounds(el: T): Bounds | null;
+  /** Optional world-space rectangle which clips this element's descendants. */
+  clipBounds?(el: T): Bounds | null;
   hitTest?(el: T, point: Point): boolean;
   interaction?: ElementInteractionAdapter<T>;
   /** `'canvas'` and `'hybrid'` draw with `render` on the canvas; `'none'` is treated the same
@@ -222,6 +224,7 @@ export interface ElementTypeAdapter {
   wrap(el: BaseElement): ExtensionElementEnvelope;
   unwrap(el: ExtensionElementEnvelope): BaseElement;
   bounds(el: ExtensionElementEnvelope): Bounds | null;
+  clipBounds?(el: ExtensionElementEnvelope): Bounds | null;
   hitTest?(el: ExtensionElementEnvelope, point: Point): boolean;
   hitTestHandle?(
     el: ExtensionElementEnvelope,

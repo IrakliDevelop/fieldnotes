@@ -1,4 +1,5 @@
 import type { CanvasElement, HtmlElement } from '../elements/types';
+import type { Bounds } from '../core/types';
 import type { ElementStore } from '../elements/element-store';
 import { DEFAULT_NOTE_FONT_SIZE } from '../elements/element-factory';
 import { DoubleTapDetector } from './double-tap-detector';
@@ -33,6 +34,7 @@ export class DomNodeManager {
   private lastSyncedVersion = new Map<string, number>();
   private lastSyncedZIndex = new Map<string, number>();
   private lastSyncedOpacity = new Map<string, number>();
+  private lastSyncedClip = new Map<string, string>();
   private cameraTransform = '';
 
   constructor(deps: DomNodeManagerDeps) {
@@ -97,6 +99,7 @@ export class DomNodeManager {
     this.lastSyncedVersion.delete(elementId);
     this.lastSyncedZIndex.delete(elementId);
     this.lastSyncedOpacity.delete(elementId);
+    this.lastSyncedClip.delete(elementId);
     const node = this.domNodes.get(elementId);
     if (!node) return;
     while (node.firstChild) {
@@ -105,7 +108,7 @@ export class DomNodeManager {
     delete node.dataset['initialized'];
   }
 
-  syncDomNode(element: CanvasElement, zIndex = 0, opacity = 1): void {
+  syncDomNode(element: CanvasElement, zIndex = 0, opacity = 1, clip?: Bounds | null): void {
     let node = this.domNodes.get(element.id);
     if (!node) {
       const preserved = this.preservedNodes.get(element.id);
@@ -129,7 +132,14 @@ export class DomNodeManager {
       const lastVersion = this.lastSyncedVersion.get(element.id);
       const lastZ = this.lastSyncedZIndex.get(element.id);
       const lastOpacity = this.lastSyncedOpacity.get(element.id);
-      if (lastVersion === currentVersion && lastZ === zIndex && lastOpacity === opacity) {
+      const clipKey =
+        clip === undefined ? this.lastSyncedClip.get(element.id) : this.clipKey(element, clip);
+      if (
+        lastVersion === currentVersion &&
+        lastZ === zIndex &&
+        lastOpacity === opacity &&
+        clipKey === this.lastSyncedClip.get(element.id)
+      ) {
         return;
       }
     }
@@ -148,6 +158,7 @@ export class DomNodeManager {
       this.lastSyncedVersion.set(element.id, this.getVersion(element.id));
       this.lastSyncedZIndex.set(element.id, zIndex);
       this.lastSyncedOpacity.set(element.id, opacity);
+      if (clip !== undefined) this.lastSyncedClip.set(element.id, this.clipKey(element, clip));
     }
 
     const size = 'size' in element && element.type !== 'extension' ? element.size : null;
@@ -162,6 +173,7 @@ export class DomNodeManager {
       transform: element.rotation ? `rotate(${element.rotation}rad)` : '',
       transformOrigin: '50% 50%',
     });
+    if (clip !== undefined) node.style.clipPath = this.clipKey(element, clip);
 
     this.renderDomContent(node, element);
   }
@@ -201,6 +213,7 @@ export class DomNodeManager {
     this.lastSyncedVersion.delete(id);
     this.lastSyncedZIndex.delete(id);
     this.lastSyncedOpacity.delete(id);
+    this.lastSyncedClip.delete(id);
     const node = this.domNodes.get(id);
     if (!node) return;
     const stratum = node.parentElement;
@@ -245,8 +258,31 @@ export class DomNodeManager {
     this.lastSyncedVersion.clear();
     this.lastSyncedZIndex.clear();
     this.lastSyncedOpacity.clear();
+    this.lastSyncedClip.clear();
     for (const stratum of this.strata.values()) stratum.remove();
     this.strata.clear();
+  }
+
+  private clipKey(element: CanvasElement, clip: Bounds | null): string {
+    if (!clip) return '';
+    const size = 'size' in element && element.type !== 'extension' ? element.size : null;
+    if (!size) return '';
+    const center = { x: element.position.x + size.w / 2, y: element.position.y + size.h / 2 };
+    const angle = -(element.rotation ?? 0);
+    const corners = [
+      { x: clip.x, y: clip.y },
+      { x: clip.x + clip.w, y: clip.y },
+      { x: clip.x + clip.w, y: clip.y + clip.h },
+      { x: clip.x, y: clip.y + clip.h },
+    ];
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    const points = corners.map((corner) => {
+      const x = corner.x - center.x;
+      const y = corner.y - center.y;
+      return `${x * cos - y * sin + center.x - element.position.x}px ${x * sin + y * cos + center.y - element.position.y}px`;
+    });
+    return `polygon(${points.join(', ')})`;
   }
 
   private getStratum(order: number): HTMLDivElement {

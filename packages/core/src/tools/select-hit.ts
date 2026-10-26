@@ -44,6 +44,7 @@ export const HIT_TOLERANCE_PX = 10;
 const LINE_MIN_HALF_WIDTH_PX = 6;
 
 export function isInsideBounds(point: Point, el: CanvasElement, ctx?: ToolContext): boolean {
+  if (ctx && !isInsideEffectiveClip(point, el.id, ctx)) return false;
   const zoom = ctx?.camera.zoom ?? 1;
   const tolerance = HIT_TOLERANCE_PX / zoom;
   if (el.type === 'extension') {
@@ -93,6 +94,18 @@ export function isInsideBounds(point: Point, el: CanvasElement, ctx?: ToolContex
   return false;
 }
 
+function isInsideEffectiveClip(point: Point, id: string, ctx: ToolContext): boolean {
+  const clip = ctx.store.getEffectiveClip(id);
+  return (
+    clip !== undefined &&
+    (!clip ||
+      (point.x >= clip.x &&
+        point.x <= clip.x + clip.w &&
+        point.y >= clip.y &&
+        point.y <= clip.y + clip.h))
+  );
+}
+
 export function hitTestExtensionHandle(
   world: Point,
   ctx: ToolContext,
@@ -101,6 +114,7 @@ export function hitTestExtensionHandle(
 ): { elementId: string; handleId: string; cursor: string } | null {
   for (const id of selectedIds) {
     const element = ctx.store.getById(id);
+    if (!isInsideEffectiveClip(world, id, ctx)) continue;
     if (
       !element ||
       element.type !== 'extension' ||
@@ -137,6 +151,7 @@ export function hitTestResizeHandle(
 
   for (const id of selectedIds) {
     const el = ctx.store.getById(id);
+    if (!isInsideEffectiveClip(world, id, ctx)) continue;
     if (!el || !hasSize(el)) continue;
     if (el.locked) continue;
     if (el.type === 'shape' && el.shape === 'line') continue;
@@ -162,6 +177,7 @@ export function hitTestRotateHandle(
   const id = selectedIds[0];
   if (!id) return null;
   const el = ctx.store.getById(id);
+  if (!isInsideEffectiveClip(world, id, ctx)) return null;
   if (!el || el.locked || !ROTATABLE_TYPES.has(el.type)) return null;
   const layout = getOverlayLayout(el, ctx.camera.zoom, ctx.elementRegistry);
   if (!layout) return null;
@@ -182,6 +198,7 @@ export function hitTestLineHandles(
   const r2 = r * r;
   for (const id of selectedIds) {
     const el = ctx.store.getById(id);
+    if (!isInsideEffectiveClip(world, id, ctx)) continue;
     if (
       !el ||
       el.type !== 'shape' ||

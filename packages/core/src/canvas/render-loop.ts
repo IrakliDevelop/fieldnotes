@@ -393,7 +393,38 @@ export class RenderLoop {
   ): void {
     const elBounds = getElementVisualBounds(element, this.store.elementRegistry);
     if (elBounds && !boundsIntersect(elBounds, cullingRect)) return;
+    this.renderClipped(ctx, element, cullingRect);
+  }
+
+  private renderClipped(
+    ctx: CanvasRenderingContext2D,
+    element: CanvasElement,
+    cullingRect: Bounds,
+  ): void {
+    const clip = this.effectiveClip(element.id);
+    if (clip === undefined) return;
+    if (clip) {
+      const bounds = getElementVisualBounds(element, this.store.elementRegistry);
+      if ((bounds && !boundsIntersect(bounds, clip)) || !boundsIntersect(clip, cullingRect)) return;
+      this.saveTracked(ctx);
+      try {
+        ctx.beginPath();
+        ctx.rect(clip.x, clip.y, clip.w, clip.h);
+        ctx.clip();
+        this.renderer.renderCanvasElement(ctx, element);
+      } finally {
+        this.restoreTracked(ctx);
+      }
+      return;
+    }
     this.renderer.renderCanvasElement(ctx, element);
+  }
+
+  private effectiveClip(id: string): Bounds | null | undefined {
+    const store = this.store as ElementStore & {
+      getEffectiveClip?: (elementId: string) => Bounds | null | undefined;
+    };
+    return store.getEffectiveClip?.(id) ?? null;
   }
 
   /**
@@ -476,6 +507,7 @@ export class RenderLoop {
     elementBounds: Bounds | null,
     layerOpacity: number,
     dpr: number,
+    cullingRect: Bounds,
   ): void {
     const rect = this.htmlScratchRect(elementBounds, dpr);
     if (!rect) return; // no pixels to paint into, and no degenerate drawImage source
@@ -486,7 +518,7 @@ export class RenderLoop {
       // dropping it, and this is the same fallback shape the grid cache uses.
       this.saveTracked(hybridCtx);
       hybridCtx.globalAlpha = layerOpacity;
-      this.renderer.renderCanvasElement(hybridCtx, element);
+      this.renderClipped(hybridCtx, element, cullingRect);
       this.restoreTracked(hybridCtx);
       return;
     }
@@ -499,7 +531,7 @@ export class RenderLoop {
     scratchCtx.scale(dpr, dpr);
     scratchCtx.translate(this.camera.position.x, this.camera.position.y);
     scratchCtx.scale(this.camera.zoom, this.camera.zoom);
-    this.renderer.renderCanvasElement(scratchCtx, element);
+    this.renderClipped(scratchCtx, element, cullingRect);
     this.restoreTracked(scratchCtx);
 
     this.saveTracked(hybridCtx);
@@ -679,7 +711,13 @@ export class RenderLoop {
         if (elBounds && !boundsIntersect(elBounds, cullingRect)) {
           this.domNodeManager.hideDomNode(element.id);
         } else {
-          this.domNodeManager.syncDomNode(element, order, layerOpacity);
+          const clip = this.effectiveClip(element.id);
+          if (clip === undefined || (clip && !boundsIntersect(clip, cullingRect))) {
+            this.domNodeManager.hideDomNode(element.id);
+          } else {
+            if (clip) this.domNodeManager.syncDomNode(element, order, layerOpacity, clip);
+            else this.domNodeManager.syncDomNode(element, order, layerOpacity);
+          }
         }
         continue;
       }
@@ -799,14 +837,21 @@ export class RenderLoop {
         // grouping the hybrid run by layer and compositing once, which is a restructuring
         // this fix deliberately does not attempt.
         if (element.type === 'html' && layerOpacity < 1) {
-          this.paintHybridHtmlAtLayerOpacity(hybridCtx, element, elBounds, layerOpacity, dpr);
+          this.paintHybridHtmlAtLayerOpacity(
+            hybridCtx,
+            element,
+            elBounds,
+            layerOpacity,
+            dpr,
+            cullingRect,
+          );
           continue;
         }
         // html only reaches here with layerOpacity >= 1, so this is the pre-multiplied
         // path for every other element type and a no-op assignment for html.
         this.saveTracked(hybridCtx);
         hybridCtx.globalAlpha = layerOpacity;
-        this.renderer.renderCanvasElement(hybridCtx, element);
+        this.renderClipped(hybridCtx, element, cullingRect);
         this.restoreTracked(hybridCtx);
       }
       this.restoreTracked(hybridCtx);

@@ -10,6 +10,7 @@ export class ElementRegistry {
   private readonly definitions = new Map<string, ElementTypeDefinition<BaseElement>>();
   private readonly adapters = new Map<string, ElementTypeAdapter>();
   private readonly legacyIndex = new Map<string, ElementTypeAdapter>();
+  private ownRevision = 0;
 
   /** Lookups fall back to `parent`; registration and removal touch only this registry. */
   constructor(private readonly parent?: ElementRegistry) {}
@@ -66,6 +67,7 @@ export class ElementRegistry {
         const typed = def.unwrap(el);
         return def.bounds(typed);
       },
+      clipBounds: def.clipBounds ? (el) => def.clipBounds?.(def.unwrap(el)) ?? null : undefined,
       hitTest: def.hitTest
         ? (el, point) => {
             const fn = def.hitTest;
@@ -129,6 +131,7 @@ export class ElementRegistry {
     for (const legacy of def.legacyTypes) {
       this.legacyIndex.set(legacy, adapter);
     }
+    this.ownRevision++;
 
     const key: ElementTypeKey<T> = {
       type: def.type,
@@ -159,6 +162,12 @@ export class ElementRegistry {
     for (const legacy of def.legacyTypes) {
       this.legacyIndex.delete(legacy);
     }
+    this.ownRevision++;
+  }
+
+  /** Internal cache token; includes ancestor changes. */
+  get revision(): string {
+    return `${this.parent?.revision ?? ''}/${this.ownRevision}`;
   }
 
   has(type: string): boolean {
