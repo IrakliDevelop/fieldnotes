@@ -1,3 +1,4 @@
+import { writeFile } from 'node:fs/promises';
 import { test, expect } from './fixtures/canvas-page';
 
 const ELEMENT_COUNT = 10_011;
@@ -141,12 +142,17 @@ test.describe('10,000 element performance gate', () => {
       playwrightProject: testInfo.project.name,
       nodeVersion: process.version,
       architecture: process.arch,
-      runner: { os: process.platform, name: process.release.name },
+      runner: {
+        os: process.env.RUNNER_OS ?? process.platform,
+        name: process.env.RUNNER_NAME ?? 'local',
+      },
       commit: process.env.GITHUB_SHA ?? null,
       timestamp: new Date().toISOString(),
     };
+    const evidencePath = testInfo.outputPath('performance-gate.json');
+    await writeFile(evidencePath, JSON.stringify(result, null, 2));
     await testInfo.attach('performance-gate.json', {
-      body: JSON.stringify(result, null, 2),
+      path: evidencePath,
       contentType: 'application/json',
     });
 
