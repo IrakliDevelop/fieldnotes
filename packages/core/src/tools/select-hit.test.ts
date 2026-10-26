@@ -40,6 +40,16 @@ describe('rectsOverlap', () => {
 });
 
 describe('isInsideBounds', () => {
+  it('rejects a raw body hit outside its effective ancestor clip', () => {
+    const element = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
+    const store = new ElementStore();
+    store.add(element);
+    const ctx = makeCtx({ store });
+    vi.spyOn(store, 'getEffectiveClip').mockReturnValue({ x: 10, y: 10, w: 20, h: 20 });
+    expect(isInsideBounds({ x: 5, y: 5 }, element)).toBe(true);
+    expect(isInsideBounds({ x: 5, y: 5 }, element, ctx)).toBe(false);
+    expect(isInsideBounds({ x: 15, y: 15 }, element, ctx)).toBe(true);
+  });
   // A 200x100 note at (0,0) rotated 90° sweeps a footprint that is tall and narrow
   // around its center (100, 50): roughly x in [50,150], y in [-50,150].
   const note = createNote({ position: { x: 0, y: 0 }, size: { w: 200, h: 100 } });

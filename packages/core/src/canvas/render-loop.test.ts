@@ -55,6 +55,7 @@ function createMockDeps() {
   const store = {
     getAll: vi.fn().mockReturnValue(elements),
     getElementsByType: vi.fn().mockReturnValue([]),
+    getEffectiveClip: vi.fn().mockReturnValue(null),
   } as unknown as ElementStore;
 
   const renderer = {
@@ -215,6 +216,13 @@ describe('RenderLoop', () => {
     renderLoop = new RenderLoop(deps);
   });
 
+  it('skips a fail-closed canvas descendant instead of treating it as unclipped', () => {
+    vi.mocked(deps.store.getEffectiveClip).mockReturnValue(undefined);
+    renderLoop.requestRender();
+    renderLoop.flush();
+    expect(deps.renderer.renderCanvasElement).not.toHaveBeenCalled();
+  });
+
   it('requestRender marks as dirty', () => {
     renderLoop.requestRender();
     renderLoop.flush();
@@ -325,6 +333,7 @@ describe('RenderLoop', () => {
       expect.objectContaining({ id: 'dom-low' }),
       1,
       1,
+      null,
     );
     expect(deps.hybridSurface.beginFrame).toHaveBeenCalledWith(new Set([2]), 300, 150);
     expect(deps.hybridSurface.getContext).toHaveBeenCalledWith(2);
@@ -333,6 +342,7 @@ describe('RenderLoop', () => {
       expect.objectContaining({ id: 'dom-high' }),
       4,
       1,
+      null,
     );
     expect(deps.hybridSurface.getContext).toHaveBeenCalledTimes(1);
   });
@@ -1483,7 +1493,7 @@ describe('RenderLoop', () => {
       renderLoop.requestRender();
       renderLoop.flush();
 
-      expect(deps.domNodeManager.syncDomNode).toHaveBeenCalledWith(rotatedNote, 1, 1);
+      expect(deps.domNodeManager.syncDomNode).toHaveBeenCalledWith(rotatedNote, 1, 1, null);
       expect(deps.domNodeManager.hideDomNode).not.toHaveBeenCalledWith(rotatedNote.id);
     });
 
@@ -1821,6 +1831,7 @@ describe('RenderLoop', () => {
         expect.objectContaining({ id: 'b' }),
         1,
         1,
+        null,
       );
     });
 

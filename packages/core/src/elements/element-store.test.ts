@@ -62,6 +62,36 @@ function makeNote(overrides: Partial<NoteElement> = {}): NoteElement {
   };
 }
 
+function clipExtension(id: string): ExtensionElementEnvelope {
+  return {
+    id,
+    type: 'extension',
+    extensionType: 'test:clip',
+    position: { x: 0, y: 0 },
+    index: 'a0',
+    version: 1,
+    locked: false,
+    layerId: '',
+    data: {},
+  };
+}
+
+function clipRegistry(): ElementRegistry {
+  const registry = new ElementRegistry();
+  registry.register<ExtensionElementEnvelope>({
+    type: 'test:clip',
+    legacyTypes: [],
+    renderMode: 'canvas',
+    decodeLegacy: (raw) => raw as ExtensionElementEnvelope,
+    validateData: () => true,
+    unwrap: (element) => element,
+    wrap: (element) => element,
+    bounds: () => ({ x: 0, y: 0, w: 100, h: 100 }),
+    clipBounds: () => ({ x: 10, y: 10, w: 20, h: 20 }),
+  });
+  return registry;
+}
+
 function makeStroke(overrides: Partial<StrokeElement> = {}): StrokeElement {
   return {
     id: 'stroke-1',
@@ -101,6 +131,22 @@ function makeText(overrides: Partial<TextElement> = {}): TextElement {
 }
 
 describe('ElementStore', () => {
+  it('queries only the positive-area visible intersection of a clipped descendant', () => {
+    const store = new ElementStore(clipRegistry());
+    const root = clipExtension('root');
+    const child = makeNote({
+      id: 'child',
+      parentId: root.id,
+      position: { x: 0, y: 0 },
+      size: { w: 100, h: 100 },
+      index: 'a1',
+    });
+    store.add(root);
+    store.add(child);
+    expect(store.queryPoint({ x: 15, y: 15 }).map((element) => element.id)).toContain(child.id);
+    expect(store.queryPoint({ x: 50, y: 50 }).map((element) => element.id)).not.toContain(child.id);
+    expect(store.getById(child.id)).toBe(child);
+  });
   it('elementRegistry returns the constructor registry, then the one set later', () => {
     const initial = new ElementRegistry();
     const next = new ElementRegistry();

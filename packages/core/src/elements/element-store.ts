@@ -12,7 +12,7 @@ import { getArrowControlPoint } from './arrow-geometry';
 import { sanitizeNoteHtml } from './note-sanitizer';
 import { computeStrokeSegments, transferStrokeRenderData } from './stroke-cache';
 import type { CanvasElement, ElementType } from './types';
-import type { ElementRegistry } from './element-registry';
+import { getRegistryToken, type ElementRegistry } from './element-registry';
 import { getDefaultElementRegistry } from './default-registry';
 import { ElementHierarchy, validateHierarchy } from './element-hierarchy';
 
@@ -106,10 +106,11 @@ export class ElementStore {
   }
 
   private getHierarchy(): ElementHierarchy {
-    if (this.hierarchy && this.hierarchyRevision !== this.registry.revision) this.resetHierarchy();
+    if (this.hierarchy && this.hierarchyRevision !== getRegistryToken(this.registry))
+      this.resetHierarchy();
     if (!this.hierarchy) {
       this.hierarchy = new ElementHierarchy(this.elements, this.registry, this.layerOrderMap);
-      this.hierarchyRevision = this.registry.revision;
+      this.hierarchyRevision = getRegistryToken(this.registry);
     }
     return this.hierarchy;
   }
@@ -428,25 +429,19 @@ export class ElementStore {
       if (!el || this.getHierarchy().rank(id) === undefined) continue;
       const clip = this.getEffectiveClip(id);
       if (clip === undefined) continue;
-      if (clip && !boundsIntersect(rect, clip)) continue;
       if (clip) {
         const bounds = getElementVisualBounds(el, this.registry);
-        if (
-          bounds &&
-          !boundsIntersect(rect, {
-            x: Math.max(bounds.x, clip.x),
-            y: Math.max(bounds.y, clip.y),
-            w: Math.max(
-              0,
-              Math.min(bounds.x + bounds.w, clip.x + clip.w) - Math.max(bounds.x, clip.x),
-            ),
-            h: Math.max(
-              0,
-              Math.min(bounds.y + bounds.h, clip.y + clip.h) - Math.max(bounds.y, clip.y),
-            ),
-          })
-        )
+        if (bounds) {
+          const left = Math.max(bounds.x, clip.x);
+          const top = Math.max(bounds.y, clip.y);
+          const right = Math.min(bounds.x + bounds.w, clip.x + clip.w);
+          const bottom = Math.min(bounds.y + bounds.h, clip.y + clip.h);
+          if (left >= right || top >= bottom) continue;
+          if (!boundsIntersect(rect, { x: left, y: top, w: right - left, h: bottom - top }))
+            continue;
+        } else if (!boundsIntersect(rect, clip)) {
           continue;
+        }
       }
       elements.push(el);
     }

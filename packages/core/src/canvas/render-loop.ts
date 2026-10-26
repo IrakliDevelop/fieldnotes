@@ -28,6 +28,14 @@ export type OverlayRenderer = (ctx: CanvasRenderingContext2D) => void;
 // An element updated again within this window is drawn live instead of re-rasterising its layer.
 const LIVE_IDLE_MS = 250;
 
+function intersection(a: Bounds, b: Bounds): Bounds | null {
+  const x = Math.max(a.x, b.x);
+  const y = Math.max(a.y, b.y);
+  const right = Math.min(a.x + a.w, b.x + b.w);
+  const bottom = Math.min(a.y + a.h, b.y + b.h);
+  return x < right && y < bottom ? { x, y, w: right - x, h: bottom - y } : null;
+}
+
 /** The save/restore surface shared by on-screen and offscreen 2d contexts. */
 interface SavableContext {
   save(): void;
@@ -405,7 +413,8 @@ export class RenderLoop {
     if (clip === undefined) return;
     if (clip) {
       const bounds = getElementVisualBounds(element, this.store.elementRegistry);
-      if ((bounds && !boundsIntersect(bounds, clip)) || !boundsIntersect(clip, cullingRect)) return;
+      const visible = bounds ? intersection(bounds, clip) : clip;
+      if (!visible || !intersection(visible, cullingRect)) return;
       this.saveTracked(ctx);
       try {
         ctx.beginPath();
@@ -421,10 +430,7 @@ export class RenderLoop {
   }
 
   private effectiveClip(id: string): Bounds | null | undefined {
-    const store = this.store as ElementStore & {
-      getEffectiveClip?: (elementId: string) => Bounds | null | undefined;
-    };
-    return store.getEffectiveClip?.(id) ?? null;
+    return this.store.getEffectiveClip(id);
   }
 
   /**
@@ -712,11 +718,11 @@ export class RenderLoop {
           this.domNodeManager.hideDomNode(element.id);
         } else {
           const clip = this.effectiveClip(element.id);
-          if (clip === undefined || (clip && !boundsIntersect(clip, cullingRect))) {
+          const visible = clip && elBounds ? intersection(elBounds, clip) : elBounds;
+          if (clip === undefined || (clip && (!visible || !intersection(visible, cullingRect)))) {
             this.domNodeManager.hideDomNode(element.id);
           } else {
-            if (clip) this.domNodeManager.syncDomNode(element, order, layerOpacity, clip);
-            else this.domNodeManager.syncDomNode(element, order, layerOpacity);
+            this.domNodeManager.syncDomNode(element, order, layerOpacity, clip);
           }
         }
         continue;

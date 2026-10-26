@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { ElementRegistry } from './element-registry';
+import { ElementRegistry, getRegistryToken } from './element-registry';
 import { pickBaseFields } from './base-fields';
 import type { ElementTypeDefinition, ExtensionElementEnvelope } from './types';
 
@@ -95,6 +95,19 @@ const markerDefinition: ElementTypeDefinition<MarkerElement> = {
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 describe('ElementRegistry', () => {
+  it('keeps cache tokens internal and advances only for successful local or parent changes', () => {
+    const parent = new ElementRegistry();
+    const child = new ElementRegistry(parent);
+    const initial = getRegistryToken(child);
+    child.unregister('missing');
+    expect(getRegistryToken(child)).toBe(initial);
+    parent.register(markerDefinition);
+    const inherited = getRegistryToken(child);
+    expect(inherited).not.toBe(initial);
+    expect('revision' in child).toBe(false);
+    child.register({ ...markerDefinition, type: 'test:child', legacyTypes: [] });
+    expect(getRegistryToken(child)).not.toBe(inherited);
+  });
   describe('register', () => {
     it("register throws for renderMode 'dom' and registers nothing", () => {
       const registry = new ElementRegistry();

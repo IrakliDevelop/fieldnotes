@@ -6,14 +6,28 @@ import type {
 } from './types';
 import { pickBaseFields } from './base-fields';
 
+interface RegistryState {
+  ownRevision: number;
+  parent: ElementRegistry | undefined;
+}
+
+const registryStates = new WeakMap<ElementRegistry, RegistryState>();
+
+/** Internal cache token for consumers that must observe registry mutations. */
+export function getRegistryToken(registry: ElementRegistry): string {
+  const state = registryStates.get(registry);
+  if (!state) return '';
+  return `${state.parent ? getRegistryToken(state.parent) : ''}/${state.ownRevision}`;
+}
+
 export class ElementRegistry {
   private readonly definitions = new Map<string, ElementTypeDefinition<BaseElement>>();
   private readonly adapters = new Map<string, ElementTypeAdapter>();
   private readonly legacyIndex = new Map<string, ElementTypeAdapter>();
-  private ownRevision = 0;
-
   /** Lookups fall back to `parent`; registration and removal touch only this registry. */
-  constructor(private readonly parent?: ElementRegistry) {}
+  constructor(private readonly parent?: ElementRegistry) {
+    registryStates.set(this, { ownRevision: 0, parent });
+  }
 
   register<T extends BaseElement>(def: ElementTypeDefinition<T>): ElementTypeKey<T> {
     if (def.renderMode === 'dom') {
@@ -131,7 +145,8 @@ export class ElementRegistry {
     for (const legacy of def.legacyTypes) {
       this.legacyIndex.set(legacy, adapter);
     }
-    this.ownRevision++;
+    const state = registryStates.get(this);
+    if (state) state.ownRevision++;
 
     const key: ElementTypeKey<T> = {
       type: def.type,
@@ -162,12 +177,8 @@ export class ElementRegistry {
     for (const legacy of def.legacyTypes) {
       this.legacyIndex.delete(legacy);
     }
-    this.ownRevision++;
-  }
-
-  /** Internal cache token; includes ancestor changes. */
-  get revision(): string {
-    return `${this.parent?.revision ?? ''}/${this.ownRevision}`;
+    const state = registryStates.get(this);
+    if (state) state.ownRevision++;
   }
 
   has(type: string): boolean {

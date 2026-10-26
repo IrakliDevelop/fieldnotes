@@ -215,3 +215,95 @@ test('desktop keyboard nudge moves and undoes the complete subtree', async ({
   }, before);
   expect(errors).toEqual([]);
 });
+
+test('nested extension clips constrain an interactive DOM descendant', async ({ canvasPage }) => {
+  const page = canvasPage.page;
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  page.on('console', (message) => {
+    if (message.type() === 'error') errors.push(message.text());
+  });
+  await page.evaluate(() => {
+    const viewport = (
+      window as unknown as {
+        __fieldnotes_viewport: {
+          elementRegistry: { register: (definition: Record<string, unknown>) => void };
+          store: {
+            add: (element: Record<string, unknown>) => void;
+            getById: (id: string) => { layerId: string } | undefined;
+          };
+          setParent: (child: string, parent: string | null) => void;
+          addHtmlElement: (
+            node: HTMLElement,
+            position: Position,
+            size: { w: number; h: number },
+            options: { interactive: boolean },
+          ) => string;
+          requestRender: () => void;
+        };
+      }
+    ).__fieldnotes_viewport;
+    viewport.elementRegistry.register({
+      type: 'e2e:clip',
+      legacyTypes: [],
+      renderMode: 'canvas',
+      validateData: () => true,
+      decodeLegacy: (raw: unknown) => raw,
+      unwrap: (element: Record<string, unknown>) => element,
+      wrap: (element: Record<string, unknown>) => element,
+      bounds: (element: { data: { bounds: { x: number; y: number; w: number; h: number } } }) =>
+        element.data.bounds,
+      clipBounds: (element: { data: { clip: { x: number; y: number; w: number; h: number } } }) =>
+        element.data.clip,
+      render: () => undefined,
+    });
+    const button = document.createElement('button');
+    button.id = 'clipped-button';
+    button.style.cssText = 'width:100%;height:100%';
+    button.dataset['clicks'] = '0';
+    button.addEventListener('click', () => {
+      button.dataset['clicks'] = String(Number(button.dataset['clicks']) + 1);
+    });
+    const htmlId = viewport.addHtmlElement(
+      button,
+      { x: 300, y: 300 },
+      { w: 120, h: 120 },
+      { interactive: true },
+    );
+    const layerId = viewport.store.getById(htmlId)?.layerId;
+    if (!layerId) throw new Error('html layer missing');
+    const extension = (id: string, clip: { x: number; y: number; w: number; h: number }) => ({
+      id,
+      type: 'extension',
+      extensionType: 'e2e:clip',
+      position: { x: 300, y: 300 },
+      index: id,
+      version: 1,
+      locked: false,
+      layerId,
+      data: { bounds: { x: 300, y: 300, w: 120, h: 120 }, clip },
+    });
+    viewport.store.add(extension('clip-root', { x: 320, y: 320, w: 80, h: 80 }));
+    viewport.store.add(extension('clip-child', { x: 340, y: 340, w: 40, h: 40 }));
+    viewport.setParent('clip-child', 'clip-root');
+    viewport.setParent(htmlId, 'clip-child');
+    viewport.requestRender();
+  });
+  await page.waitForFunction(() => {
+    const button = document.querySelector<HTMLButtonElement>('#clipped-button');
+    return button?.parentElement?.style.clipPath.startsWith('polygon') ?? false;
+  });
+  const button = page.locator('#clipped-button');
+  const box = await button.boundingBox();
+  if (!box) throw new Error('clipped button not mounted');
+  expect(
+    await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.id, {
+      x: box.x + 60,
+      y: box.y + 60,
+    }),
+  ).toBe('clipped-button');
+  await page.mouse.click(box.x + 60, box.y + 60);
+  await page.mouse.click(box.x + 10, box.y + 10);
+  expect(await button.getAttribute('data-clicks')).toBe('1');
+  expect(errors).toEqual([]);
+});

@@ -12,6 +12,13 @@ import {
 } from '../elements/element-factory';
 
 describe('DomNodeManager', () => {
+  it('clears a frame-installed clip when the next frame supplies null', () => {
+    const note = createNote({ position: { x: 10, y: 20 }, size: { w: 100, h: 50 } });
+    manager.syncDomNode(note, 0, 1, { x: 20, y: 30, w: 40, h: 20 });
+    expect(manager.getNode(note.id)?.style.clipPath).toContain('polygon');
+    manager.syncDomNode(note, 0, 1, null);
+    expect(manager.getNode(note.id)?.style.clipPath).toBe('');
+  });
   it('applies camera transforms to every DOM paint stratum', () => {
     const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
     manager.syncDomNode(note, 2);

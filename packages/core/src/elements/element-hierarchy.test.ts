@@ -62,6 +62,38 @@ function extension(
 }
 
 describe('ElementHierarchy', () => {
+  it('projects ancestor clips lazily without masking the contributing parent', () => {
+    const registry = new ElementRegistry();
+    let calls = 0;
+    registry.register<ExtensionElementEnvelope>({
+      type: 'test:clip',
+      legacyTypes: [],
+      renderMode: 'canvas',
+      decodeLegacy: (raw) => raw as ExtensionElementEnvelope,
+      validateData: () => true,
+      unwrap: (element) => element,
+      wrap: (element) => element,
+      bounds: () => ({ x: 0, y: 0, w: 100, h: 100 }),
+      clipBounds: () => {
+        calls++;
+        return { x: 10, y: 10, w: 50, h: 50 };
+      },
+    });
+    const root = extension('root', { extensionType: 'test:clip' });
+    const child = note('child', { parentId: 'root' });
+    const hierarchy = new ElementHierarchy(
+      new Map([
+        [root.id, root],
+        [child.id, child],
+      ]),
+      registry,
+      new Map(),
+    );
+    expect(calls).toBe(0);
+    expect(hierarchy.getEffectiveClip(root.id)).toBeNull();
+    expect(hierarchy.getEffectiveClip(child.id)).toEqual({ x: 10, y: 10, w: 50, h: 50 });
+    expect(calls).toBe(1);
+  });
   it('orders roots and descendants depth first by index then id', () => {
     const elements = new Map([
       ['b', note('b', { index: 'b' })],
