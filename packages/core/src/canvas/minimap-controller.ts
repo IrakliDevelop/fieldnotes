@@ -115,6 +115,7 @@ export class MinimapController {
     this.getExtraBounds = options.getExtraBounds;
 
     this.renderer.setStore(viewport.store);
+    this.renderer.setElementRegistry(viewport.elementRegistry);
     this.renderer.setOnImageLoad(() => this.markSceneDirty());
     this.htmlPainters = viewport.getHtmlPainters(); // parameter, not this.viewport
     this.renderer.setHtmlPainters(this.htmlPainters);

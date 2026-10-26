@@ -787,6 +787,51 @@ describe('MinimapController', () => {
     viewport.destroy();
   });
 
+  it('renders extensions registered after minimap construction', () => {
+    const elementRegistry = new ElementRegistry();
+    const { viewport } = makeViewportHarness({ elementRegistry });
+    const queue = makeFrameQueue();
+    const controller = makeController(viewport, document.createElement('canvas'), queue);
+    queue.flush();
+
+    const element: ExtensionElementEnvelope = {
+      id: 'extension',
+      type: 'extension',
+      extensionType: 'test:late-extension',
+      position: { x: 20, y: 30 },
+      index: 'a0',
+      version: 1,
+      locked: false,
+      layerId: viewport.layerManager.activeLayerId,
+      data: {},
+    };
+    const render = vi.fn();
+    elementRegistry.register<ExtensionElementEnvelope>({
+      type: element.extensionType,
+      legacyTypes: [],
+      decodeLegacy: () => element,
+      validateData: () => true,
+      unwrap: (extension) => extension,
+      wrap: (extension) => extension,
+      bounds: (extension) => ({
+        x: extension.position.x,
+        y: extension.position.y,
+        w: 40,
+        h: 50,
+      }),
+      render,
+    });
+    viewport.store.add(element);
+
+    vi.advanceTimersByTime(200);
+    queue.flush();
+
+    expect(render).toHaveBeenCalledWith(expect.anything(), element, [element], undefined);
+
+    controller.dispose();
+    viewport.destroy();
+  });
+
   it('clips descendants without clipping their parent or changing the raw-bounds mapping', () => {
     const rootClip = { x: 10, y: 20, w: 80, h: 70 };
     const nestedClip = { x: 50, y: 0, w: 80, h: 60 };
