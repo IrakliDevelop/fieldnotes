@@ -10,6 +10,31 @@ export interface HierarchyMove {
   readonly rootIds: ReadonlyMap<string, string>;
 }
 
+/** Expands literal ids through valid descendants in stable scene order. */
+export function getHierarchyClosure(ids: readonly string[], store: ElementStore): HierarchyMove {
+  const scene = store.getAll();
+  const sceneIds = new Set(scene.map((element) => element.id));
+  const directIds = new Set(ids.filter((id) => sceneIds.has(id)));
+  const inheritedIds = new Set<string>();
+  for (const id of directIds) {
+    for (const descendant of store.getDescendants(id)) inheritedIds.add(descendant.id);
+  }
+  const roots = scene.filter(
+    (element) => directIds.has(element.id) && !inheritedIds.has(element.id),
+  );
+  const elements: CanvasElement[] = [];
+  const rootIdByElementId = new Map<string, string>();
+  for (const root of roots) {
+    elements.push(root);
+    rootIdByElementId.set(root.id, root.id);
+    for (const descendant of store.getDescendants(root.id)) {
+      elements.push(descendant);
+      rootIdByElementId.set(descendant.id, root.id);
+    }
+  }
+  return { roots, elements, rootIds: rootIdByElementId };
+}
+
 /** Expands unlocked direct roots through their valid descendants in scene order. */
 export function getHierarchyMove(ids: readonly string[], store: ElementStore): HierarchyMove {
   const directIds = new Set<string>();
@@ -25,27 +50,7 @@ export function getHierarchyMove(ids: readonly string[], store: ElementStore): H
     directIds.add(id);
   }
 
-  const inheritedIds = new Set<string>();
-  for (const id of directIds) {
-    for (const descendant of store.getDescendants(id)) inheritedIds.add(descendant.id);
-  }
-  const rootIds = new Set([...directIds].filter((id) => !inheritedIds.has(id)));
-  const roots = store.getAll().filter((element) => rootIds.has(element.id));
-  const elements: CanvasElement[] = [];
-  const rootIdByElementId = new Map<string, string>();
-  for (const root of roots) {
-    elements.push(root);
-    rootIdByElementId.set(root.id, root.id);
-    for (const descendant of store.getDescendants(root.id)) {
-      elements.push(descendant);
-      rootIdByElementId.set(descendant.id, root.id);
-    }
-  }
-  return {
-    roots,
-    elements,
-    rootIds: rootIdByElementId,
-  };
+  return getHierarchyClosure([...directIds], store);
 }
 
 /** Translates a hierarchy move atomically and returns the moved scene elements. */

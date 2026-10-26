@@ -7,6 +7,7 @@ import {
   moveHierarchy,
   restoreHierarchyOrigins,
   updateExternalBoundArrows,
+  getHierarchyClosure,
 } from './hierarchy-ops';
 
 function addTree(store: ElementStore): void {
@@ -31,6 +32,40 @@ function addTree(store: ElementStore): void {
 }
 
 describe('hierarchy operations', () => {
+  it('expands literal roots through locked and bound-arrow descendants in stable DFS order', () => {
+    const store = new ElementStore();
+    addTree(store);
+    const arrow = {
+      ...createArrow({
+        position: { x: 70, y: 80 },
+        from: { x: 70, y: 80 },
+        to: { x: 90, y: 100 },
+        layerId: 'a',
+        index: 'd',
+        parentId: 'root',
+        fromBinding: { elementId: 'root', anchor: { x: 0.5, y: 0.5 } },
+      }),
+      id: 'bound-arrow',
+    };
+    const other = {
+      ...createNote({ position: { x: 0, y: 0 }, layerId: 'a', index: 'z' }),
+      id: 'other',
+    };
+    store.add(arrow);
+    store.add(other);
+
+    const closure = getHierarchyClosure(['other', 'locked', 'root', 'missing'], store);
+
+    expect(closure.roots.map((element) => element.id)).toEqual(['root', 'other']);
+    expect(closure.elements.map((element) => element.id)).toEqual([
+      'root',
+      'child',
+      'locked',
+      'bound-arrow',
+      'other',
+    ]);
+  });
+
   it('canonicalizes overlap in either input order with stable DFS descendants', () => {
     const store = new ElementStore();
     addTree(store);

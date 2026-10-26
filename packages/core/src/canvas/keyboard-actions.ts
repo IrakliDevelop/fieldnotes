@@ -8,6 +8,8 @@ import type { Point } from '../core/types';
 import { normalizeConstraintStep } from '../core/constraint-service';
 import { createId } from '../elements/create-id';
 import { getElementsBoundingBox } from '../elements/bounds';
+import { ElementStore } from '../elements/element-store';
+import { getHierarchyClosure } from '../elements/hierarchy-ops';
 import type { RotateDirection } from './selection-rotate';
 
 export interface KeyboardActionsDeps {
@@ -100,12 +102,13 @@ export class KeyboardActions {
     this.flushPendingNudge();
     const sel = this.selectTool();
     if (!sel) return;
-    const ids = sel.tool.selectedIds;
-    if (ids.length === 0) return;
+    const elements =
+      typeof sel.ctx.store.getAll === 'function'
+        ? getHierarchyClosure(sel.tool.selectedIds, sel.ctx.store).elements
+        : sel.tool.selectedIds.map((id) => ({ id }));
+    if (elements.length === 0) return;
     this.inHistory(() => {
-      for (const id of ids) {
-        sel.ctx.store.remove(id);
-      }
+      for (const element of [...elements].reverse()) sel.ctx.store.remove(element.id);
     });
     sel.ctx.requestRender();
   }
@@ -146,13 +149,10 @@ export class KeyboardActions {
     if (this.deps.isToolActive()) return;
     const sel = this.selectTool();
     if (!sel) return;
-    const ids = sel.tool.selectedIds;
-    if (ids.length === 0) return;
-    this.clipboard = [];
-    for (const id of ids) {
-      const el = sel.ctx.store.getById(id);
-      if (el) this.clipboard.push(structuredClone(el));
-    }
+    const closure = getHierarchyClosure(sel.tool.selectedIds, sel.ctx.store);
+    if (closure.elements.length === 0) return;
+    const clipboard = closure.elements.map((element) => structuredClone(element));
+    this.clipboard = clipboard;
     this.pasteCount = 0;
   }
 
@@ -196,11 +196,7 @@ export class KeyboardActions {
     this.flushPendingNudge();
     const sel = this.selectTool();
     if (!sel) return;
-    const source: CanvasElement[] = [];
-    for (const id of sel.tool.selectedIds) {
-      const el = sel.ctx.store.getById(id);
-      if (el) source.push(el);
-    }
+    const source = getHierarchyClosure(sel.tool.selectedIds, sel.ctx.store).elements;
     if (source.length === 0) return;
     this.insertClones(source, { x: 20, y: 20 }, sel);
   }
@@ -335,7 +331,10 @@ export class KeyboardActions {
       if (el.groupId && !groupIdMap.has(el.groupId)) groupIdMap.set(el.groupId, createId('group'));
     }
 
-    // Build every clone before adding any, so a throwing cloneRemap leaves no partial paste.
+    const sourceIds = new Set(source.map((element) => element.id));
+    const rootIds = source
+      .filter((element) => element.parentId === undefined || !sourceIds.has(element.parentId))
+      .map((element) => element.id);
     const clones: CanvasElement[] = [];
     for (const el of source) {
       const clone = structuredClone(el);
@@ -346,6 +345,11 @@ export class KeyboardActions {
       clone.index = '';
       clone.version = 1;
       delete clone.editor;
+      if (clone.parentId) {
+        const parentId = idMap.get(clone.parentId);
+        if (parentId) clone.parentId = parentId;
+        else delete clone.parentId;
+      }
       if (clone.groupId) clone.groupId = groupIdMap.get(clone.groupId) ?? clone.groupId;
       clone.position = { x: clone.position.x + offset.x, y: clone.position.y + offset.y };
 
@@ -385,10 +389,27 @@ export class KeyboardActions {
       clones.push(added);
     }
 
+    const existingIds = new Set(sel.ctx.store.getAll().map((element) => element.id));
+    const cloneIds = new Set<string>();
+    for (const clone of clones) {
+      if (existingIds.has(clone.id) || cloneIds.has(clone.id)) {
+        throw new Error(`Clone id collision "${clone.id}"`);
+      }
+      cloneIds.add(clone.id);
+    }
+    const preflight = new ElementStore(sel.ctx.store.elementRegistry);
+    for (const element of sel.ctx.store.getAll()) preflight.add(element);
+    for (const clone of clones) preflight.add(clone);
+
     this.inHistory(() => {
       for (const clone of clones) sel.ctx.store.add(clone);
     });
-    sel.tool.setSelection(clones.map((clone) => clone.id));
+    sel.tool.setSelection(
+      rootIds.flatMap((id) => {
+        const cloneId = idMap.get(id);
+        return cloneId ? [cloneId] : [];
+      }),
+    );
     sel.ctx.requestRender();
   }
 }

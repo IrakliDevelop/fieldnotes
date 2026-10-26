@@ -74,6 +74,7 @@ import type { RequiredCapabilities, ViewportPlugin } from './viewport-plugin';
 import type { ServiceKey } from '../core/service-key';
 import { reportFailure } from '../core/report-failure';
 import { ContextLossGuard } from './context-loss-guard';
+import { getHierarchyClosure } from '../elements/hierarchy-ops';
 export type {
   PluginConfigureContext,
   PluginStartContext,
@@ -1039,13 +1040,13 @@ export class Viewport {
 
   /** Removes existing elements as one undoable operation and returns the number removed. */
   removeElements(ids: Iterable<string>): number {
-    const existingIds = [...new Set(ids)].filter((id) => this.store.getById(id) !== undefined);
-    if (existingIds.length === 0) return 0;
+    const closure = getHierarchyClosure([...ids], this.store);
+    if (closure.elements.length === 0) return 0;
     this.transaction(() => {
-      for (const id of existingIds) this.store.remove(id);
+      for (const element of [...closure.elements].reverse()) this.store.remove(element.id);
     });
     this.requestRender();
-    return existingIds.length;
+    return closure.elements.length;
   }
 
   /** Sets an element's direct parent, or clears its parent when passed null. */

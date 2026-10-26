@@ -1297,6 +1297,35 @@ describe('Viewport', () => {
         expect(viewport.history.undoCount).toBe(0);
         viewport.destroy();
       });
+
+      it('removeElements expands a parent through descendants in child-first order', () => {
+        const viewport = new Viewport(container);
+        const parent = {
+          ...createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 }, index: 'a0' }),
+          id: 'parent',
+        };
+        const child = {
+          ...createShape({
+            position: { x: 2, y: 2 },
+            size: { w: 5, h: 5 },
+            index: 'a1',
+            parentId: parent.id,
+          }),
+          id: 'child',
+        };
+        viewport.store.add(parent);
+        viewport.store.add(child);
+        viewport.history.clear();
+        const removed: string[] = [];
+        viewport.store.on('remove', (element) => removed.push(element.id));
+
+        expect(viewport.removeElements([parent.id, child.id, 'missing'])).toBe(2);
+        expect(removed).toEqual(['child', 'parent']);
+        expect(viewport.history.undoCount).toBe(1);
+        expect(viewport.undo()).toBe(true);
+        expect(viewport.store.getAll().map((element) => element.id)).toEqual(['parent', 'child']);
+        viewport.destroy();
+      });
     });
 
     it('undo returns false when nothing to undo', () => {

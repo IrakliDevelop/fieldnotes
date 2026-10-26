@@ -454,6 +454,71 @@ describe('KeyboardActions.group / ungroup', () => {
 });
 
 describe('KeyboardActions.cut', () => {
+  it('copies and removes a parent subtree child-first as one undo step', () => {
+    const ctx = makeCtx();
+    const stack = new HistoryStack();
+    const recorder = new HistoryRecorder(ctx.store, stack);
+    const { actions, tool } = makeActions({ ctx, recorder, stack });
+    const parent = {
+      ...createNote({ position: { x: 0, y: 0 }, size: { w: 20, h: 20 } }),
+      id: 'parent',
+    };
+    const child = {
+      ...createNote({ position: { x: 5, y: 5 }, size: { w: 10, h: 10 }, parentId: parent.id }),
+      id: 'child',
+    };
+    const grandchild = {
+      ...createNote({ position: { x: 7, y: 7 }, size: { w: 5, h: 5 }, parentId: child.id }),
+      id: 'grandchild',
+    };
+    for (const element of [parent, child, grandchild]) ctx.store.add(element);
+    stack.clear();
+    tool.setSelection([parent.id, child.id]);
+    const removed: string[] = [];
+    ctx.store.on('remove', (element) => removed.push(element.id));
+
+    actions.cut();
+
+    expect(removed).toEqual(['grandchild', 'child', 'parent']);
+    expect(stack.undoCount).toBe(1);
+    expect(ctx.store.count).toBe(0);
+    expect(stack.undo(ctx.store)).toBe(true);
+    expect(ctx.store.getAll().map((element) => element.id)).toEqual([
+      'parent',
+      'child',
+      'grandchild',
+    ]);
+    expect(stack.redo(ctx.store)).toBe(true);
+    expect(ctx.store.count).toBe(0);
+  });
+
+  it('duplicates a selected parent tree with remapped ownership and only selects the clone root', () => {
+    const { actions, ctx, tool } = makeActions();
+    const parent = {
+      ...createNote({ position: { x: 0, y: 0 }, size: { w: 20, h: 20 } }),
+      id: 'parent',
+    };
+    const child = {
+      ...createNote({ position: { x: 5, y: 5 }, size: { w: 10, h: 10 }, parentId: parent.id }),
+      id: 'child',
+    };
+    ctx.store.add(parent);
+    ctx.store.add(child);
+    tool.setSelection([parent.id, child.id]);
+
+    actions.duplicate();
+
+    const cloneParent = ctx.store
+      .getAll()
+      .find((element) => element.id !== parent.id && !element.parentId);
+    const cloneChild = ctx.store
+      .getAll()
+      .find((element) => element.id !== child.id && element.parentId === cloneParent?.id);
+    expect(cloneParent).toBeDefined();
+    expect(cloneChild).toBeDefined();
+    expect(tool.selectedIds).toEqual([cloneParent?.id]);
+  });
+
   it('copies the selection then removes it from the store', () => {
     const { actions, ctx, tool } = makeActions();
     const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
