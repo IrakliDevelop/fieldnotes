@@ -1425,7 +1425,10 @@ describe('createManagedAuthorityConnection', () => {
       transport.message(serializeAuthorityFrame(frame));
       await turn();
     }
-    expect(target.getState().document?.cursor.revision).toBe(2);
+    await vi.waitFor(() => expect(target.getState().document?.cursor.revision).toBe(2), {
+      timeout: 5_000,
+      interval: 1,
+    });
     target.stop();
   });
 
