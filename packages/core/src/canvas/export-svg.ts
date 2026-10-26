@@ -367,6 +367,7 @@ export async function exportSvg(
     string,
     { fragment: string; clip: { x: number; y: number; w: number; h: number } | null }[]
   >();
+  const ordinaryById = new Map(ordinaryElements.map((entry) => [entry.element.id, entry]));
   for (const el of visibleElements) {
     if (el.type === 'extension' && registry.getAdapter(el.extensionType)?.fullCanvas) {
       const adapter = registry.getAdapter(el.extensionType);
@@ -378,10 +379,10 @@ export async function exportSvg(
       }
       continue;
     }
-  }
-  for (const { element, clip } of ordinaryElements) {
+    const prepared = ordinaryById.get(el.id);
+    if (!prepared) continue;
     const emitted = emitElement(
-      element,
+      prepared.element,
       imageDataUris,
       htmlDataUris,
       rasterScale,
@@ -391,9 +392,9 @@ export async function exportSvg(
       bounds,
     );
     if (!emitted) continue;
-    const entries = layerBodies.get(element.layerId) ?? [];
-    entries.push({ fragment: emitted, clip });
-    layerBodies.set(element.layerId, entries);
+    const entries = layerBodies.get(prepared.element.layerId) ?? [];
+    entries.push({ fragment: emitted, clip: prepared.clip });
+    layerBodies.set(prepared.element.layerId, entries);
   }
 
   let overlaySvg = '';
@@ -434,7 +435,7 @@ export async function exportSvg(
 
   const usedIds = new Set<string>();
   const collectIds = (fragment: string): void => {
-    const ids = /\bid\s*=\s*(['"])(.*?)\1/g;
+    const ids = /(?:^|[\x20\t\r\n])id\s*=\s*(['"])(.*?)\1/g;
     for (const match of fragment.matchAll(ids)) usedIds.add(match[2] ?? '');
   };
   for (const entries of layerBodies.values()) {
