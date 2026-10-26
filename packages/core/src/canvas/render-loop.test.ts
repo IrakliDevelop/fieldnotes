@@ -137,6 +137,9 @@ function mockCtx(): CanvasRenderingContext2D {
     clearRect: vi.fn(),
     drawImage: vi.fn(),
     setTransform: vi.fn(),
+    beginPath: vi.fn(),
+    rect: vi.fn(),
+    clip: vi.fn(),
     canvas: { width: 300, height: 150 },
   } as unknown as CanvasRenderingContext2D;
 }
@@ -221,6 +224,86 @@ describe('RenderLoop', () => {
     renderLoop.requestRender();
     renderLoop.flush();
     expect(deps.renderer.renderCanvasElement).not.toHaveBeenCalled();
+  });
+
+  it('applies the same world clip in cached, live/hybrid, and DOM frame paths', () => {
+    const clip = { x: 12, y: 14, w: 30, h: 40 };
+    const cacheCtx = mockCtx();
+    vi.mocked(deps.layerCache.getContext).mockReturnValue(cacheCtx);
+    vi.mocked(deps.store.getEffectiveClip).mockImplementation((id) =>
+      id === 'parent' || id === 'canvas' || id === 'dom' ? clip : null,
+    );
+    vi.mocked(deps.store.getAll).mockReturnValue([
+      {
+        id: 'parent',
+        type: 'shape',
+        layerId: 'default',
+        position: { x: 0, y: 0 },
+        size: { w: 80, h: 80 },
+      },
+      {
+        id: 'dom',
+        type: 'note',
+        layerId: 'default',
+        position: { x: 0, y: 0 },
+        size: { w: 80, h: 80 },
+      },
+      {
+        id: 'canvas',
+        type: 'shape',
+        layerId: 'default',
+        position: { x: 0, y: 0 },
+        size: { w: 80, h: 80 },
+      },
+    ] as never);
+    const hybridCtx = mockCtx();
+    vi.mocked(deps.hybridSurface.getContext).mockReturnValue(hybridCtx);
+
+    renderLoop.requestRender();
+    renderLoop.flush();
+
+    expect(cacheCtx.rect).toHaveBeenCalledWith(clip.x, clip.y, clip.w, clip.h);
+    expect(hybridCtx.rect).toHaveBeenCalledWith(clip.x, clip.y, clip.w, clip.h);
+    expect(deps.domNodeManager.syncDomNode).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'dom' }),
+      2,
+      1,
+      clip,
+    );
+    expect(deps.renderer.renderCanvasElement).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: 'parent' }),
+    );
+  });
+
+  it('keeps clipped renderer save/restore balanced and hides DOM nodes with empty clips', () => {
+    const clip = { x: 5, y: 5, w: 20, h: 20 };
+    const cacheCtx = statefulCtx();
+    vi.mocked(deps.layerCache.getContext).mockReturnValue(cacheCtx.ctx);
+    vi.mocked(deps.store.getEffectiveClip).mockImplementation((id) =>
+      id === 'hidden' ? undefined : id === 'canvas' ? clip : null,
+    );
+    vi.mocked(deps.store.getAll).mockReturnValue([
+      {
+        id: 'canvas',
+        type: 'shape',
+        layerId: 'default',
+        position: { x: 0, y: 0 },
+        size: { w: 80, h: 80 },
+      },
+      {
+        id: 'hidden',
+        type: 'note',
+        layerId: 'default',
+        position: { x: 0, y: 0 },
+        size: { w: 80, h: 80 },
+      },
+    ] as never);
+    renderLoop.requestRender();
+    renderLoop.flush();
+    expect(cacheCtx.depth()).toBe(0);
+    expect(cacheCtx.state().clips).toBe(0);
+    expect(deps.domNodeManager.hideDomNode).toHaveBeenCalledWith('hidden');
   });
 
   it('requestRender marks as dirty', () => {
