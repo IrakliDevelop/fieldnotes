@@ -1134,6 +1134,42 @@ describe('KeyboardActions guards during active tool input', () => {
 });
 
 describe('KeyboardActions.zOrder single-undo', () => {
+  it('reorders a selected parent once when its descendant is also selected', () => {
+    const ctx = makeCtx();
+    const stack = new HistoryStack();
+    const recorder = new HistoryRecorder(ctx.store, stack);
+    const { actions, tool } = makeActions({ ctx, recorder, stack });
+    const parent = {
+      ...createNote({ position: { x: 0, y: 0 }, size: { w: 50, h: 50 }, index: 'a0' }),
+      id: 'parent',
+    };
+    const child = {
+      ...createNote({
+        position: { x: 0, y: 0 },
+        size: { w: 50, h: 50 },
+        index: 'a1',
+        parentId: 'parent',
+      }),
+      id: 'child',
+    };
+    const other = {
+      ...createNote({ position: { x: 0, y: 0 }, size: { w: 50, h: 50 }, index: 'a2' }),
+      id: 'other',
+    };
+    ctx.store.add(parent);
+    ctx.store.add(child);
+    ctx.store.add(other);
+    stack.clear();
+    tool.setSelection(['child', 'parent']);
+
+    actions.zOrder('front');
+
+    expect(ctx.store.getAll().map((element) => element.id)).toEqual(['other', 'parent', 'child']);
+    expect(ctx.store.getVersion('parent')).toBe(1);
+    expect(ctx.store.getVersion('child')).toBe(0);
+    expect(stack.undoCount).toBe(1);
+  });
+
   it('bringForward is ONE undo step restoring the order', () => {
     const ctx = makeCtx();
     const stack = new HistoryStack();

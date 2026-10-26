@@ -53,6 +53,33 @@ export function getHierarchyMove(ids: readonly string[], store: ElementStore): H
   return getHierarchyClosure([...directIds], store);
 }
 
+/** Moves valid hierarchy subtrees to a layer in one atomic store update. */
+export function moveHierarchyToLayer(
+  ids: readonly string[],
+  layerId: string,
+  store: ElementStore,
+): boolean {
+  const move = getHierarchyClosure(ids, store);
+  const closureIds = new Set(move.elements.map((element) => element.id));
+  const updates = move.elements.flatMap((element) => {
+    const rootId = move.rootIds.get(element.id);
+    const root = rootId ? store.getById(rootId) : undefined;
+    if (!root || root.layerId === layerId) return [];
+    return [
+      {
+        id: element.id,
+        partial:
+          element.id === root.id && element.parentId && !closureIds.has(element.parentId)
+            ? { layerId, parentId: undefined }
+            : { layerId },
+      },
+    ];
+  });
+  if (updates.length === 0) return false;
+  store.updateMany(updates);
+  return true;
+}
+
 /** Translates a hierarchy move atomically and returns the moved scene elements. */
 export function moveHierarchy(
   ids: readonly string[],

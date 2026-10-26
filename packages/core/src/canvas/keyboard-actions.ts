@@ -292,8 +292,9 @@ export class KeyboardActions {
     if (!sel) return;
     const ids = sel.tool.selectedIds;
     if (ids.length === 0) return;
+    const roots = getHierarchyClosure(ids, sel.ctx.store).roots;
     this.inHistory(() => {
-      for (const id of ids) {
+      for (const { id } of roots) {
         switch (operation) {
           case 'forward':
             sel.ctx.store.bringForward(id);

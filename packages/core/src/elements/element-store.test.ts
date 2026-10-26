@@ -1669,4 +1669,69 @@ describe('ElementStore order keys and versions', () => {
       'child-a',
     ]);
   });
+
+  it.each([
+    ['bringToFront', 'root-a', ['root-b', 'root-c', 'root-a', 'child-a', 'grandchild']],
+    ['sendToBack', 'root-c', ['root-c', 'root-a', 'child-a', 'grandchild', 'root-b']],
+    ['bringForward', 'root-a', ['root-b', 'root-a', 'child-a', 'grandchild', 'root-c']],
+    ['sendBackward', 'root-c', ['root-a', 'child-a', 'grandchild', 'root-c', 'root-b']],
+  ] as const)(
+    '%s keeps a root subtree contiguous without changing descendants',
+    (operation, id, order) => {
+      const store = new ElementStore();
+      store.add(makeNote({ id: 'root-a', index: 'a0' }));
+      store.add(makeNote({ id: 'child-a', index: 'a1', parentId: 'root-a' }));
+      store.add(makeNote({ id: 'grandchild', index: 'a2', parentId: 'child-a' }));
+      store.add(makeNote({ id: 'root-b', index: 'a3' }));
+      store.add(makeNote({ id: 'root-c', index: 'a4' }));
+
+      store[operation](id);
+
+      expect(ids(store)).toEqual(order);
+      expect(store.getVersion('child-a')).toBe(0);
+      expect(store.getVersion('grandchild')).toBe(0);
+    },
+  );
+
+  it.each([
+    [
+      'bringToFront',
+      'child-a',
+      ['child-b', 'child-a'],
+      ['root-a', 'child-b', 'child-a', 'grandchild', 'root-b', 'cousin'],
+    ],
+    [
+      'sendToBack',
+      'child-b',
+      ['child-b', 'child-a'],
+      ['root-a', 'child-b', 'child-a', 'grandchild', 'root-b', 'cousin'],
+    ],
+    [
+      'bringForward',
+      'child-a',
+      ['child-b', 'child-a'],
+      ['root-a', 'child-b', 'child-a', 'grandchild', 'root-b', 'cousin'],
+    ],
+    [
+      'sendBackward',
+      'child-b',
+      ['child-b', 'child-a'],
+      ['root-a', 'child-b', 'child-a', 'grandchild', 'root-b', 'cousin'],
+    ],
+  ] as const)('%s reorders only direct siblings', (operation, id, children, order) => {
+    const store = new ElementStore();
+    store.add(makeNote({ id: 'root-a', index: 'a0' }));
+    store.add(makeNote({ id: 'child-a', index: 'a1', parentId: 'root-a' }));
+    store.add(makeNote({ id: 'grandchild', index: 'a2', parentId: 'child-a' }));
+    store.add(makeNote({ id: 'child-b', index: 'a3', parentId: 'root-a' }));
+    store.add(makeNote({ id: 'root-b', index: 'a4' }));
+    store.add(makeNote({ id: 'cousin', index: 'a5', parentId: 'root-b' }));
+
+    store[operation](id);
+
+    expect(store.getChildren('root-a').map((element) => element.id)).toEqual(children);
+    expect(ids(store)).toEqual(order);
+    expect(store.getVersion('grandchild')).toBe(0);
+    expect(store.getVersion('cousin')).toBe(0);
+  });
 });

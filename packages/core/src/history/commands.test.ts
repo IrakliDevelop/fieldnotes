@@ -3,6 +3,7 @@ import {
   AddElementCommand,
   RemoveElementCommand,
   UpdateElementCommand,
+  UpdateElementsCommand,
   BatchCommand,
 } from './commands';
 import { ElementStore } from '../elements/element-store';
@@ -96,6 +97,34 @@ describe('UpdateElementCommand', () => {
 
     cmd.undo(store);
     expect(store.getById(note.id)?.groupId).toBeUndefined();
+  });
+});
+
+describe('UpdateElementsCommand', () => {
+  it('replays a parent and child layer move atomically in input order', () => {
+    const store = new ElementStore();
+    const parent = { ...createNote({ position: { x: 0, y: 0 }, layerId: 'a' }), id: 'parent' };
+    const child = {
+      ...createNote({ position: { x: 10, y: 0 }, layerId: 'a', parentId: 'parent' }),
+      id: 'child',
+    };
+    store.add(parent);
+    store.add(child);
+    const command = new UpdateElementsCommand([
+      { previous: parent, current: { ...parent, layerId: 'b', groupId: 'g1' } },
+      { previous: child, current: { ...child, layerId: 'b' } },
+    ]);
+    const events: string[] = [];
+    store.on('update', ({ current }) => events.push(current.id));
+
+    command.execute(store);
+    expect(events).toEqual(['parent', 'child']);
+    expect(store.getById('child')).toMatchObject({ layerId: 'b', parentId: 'parent' });
+
+    command.undo(store);
+    expect(events).toEqual(['parent', 'child', 'parent', 'child']);
+    expect(store.getById('parent')?.groupId).toBeUndefined();
+    expect(store.getById('child')).toMatchObject({ layerId: 'a', parentId: 'parent' });
   });
 });
 

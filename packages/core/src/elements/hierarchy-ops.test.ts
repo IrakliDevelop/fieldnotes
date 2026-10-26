@@ -8,6 +8,7 @@ import {
   restoreHierarchyOrigins,
   updateExternalBoundArrows,
   getHierarchyClosure,
+  moveHierarchyToLayer,
 } from './hierarchy-ops';
 
 function addTree(store: ElementStore): void {
@@ -32,6 +33,39 @@ function addTree(store: ElementStore): void {
 }
 
 describe('hierarchy operations', () => {
+  it('moves a selected subtree atomically and retains its internal links', () => {
+    const store = new ElementStore();
+    addTree(store);
+    const events: string[] = [];
+    store.on('update', ({ current }) => events.push(current.id));
+
+    expect(moveHierarchyToLayer(['root'], 'b', store)).toBe(true);
+
+    expect(events).toEqual(['root', 'child', 'locked']);
+    expect(
+      store.getAll().map((element) => [element.id, element.layerId, element.parentId]),
+    ).toEqual([
+      ['root', 'b', undefined],
+      ['child', 'b', 'root'],
+      ['locked', 'b', 'child'],
+    ]);
+  });
+
+  it('detaches a child subtree and ignores duplicate, missing, and same-layer inputs', () => {
+    const store = new ElementStore();
+    addTree(store);
+    const events: string[] = [];
+    store.on('update', ({ current }) => events.push(current.id));
+
+    expect(moveHierarchyToLayer(['missing', 'child', 'child'], 'b', store)).toBe(true);
+    expect(events).toEqual(['child', 'locked']);
+    expect(store.getById('child')).toMatchObject({ layerId: 'b', parentId: undefined });
+    expect(store.getById('locked')).toMatchObject({ layerId: 'b', parentId: 'child' });
+
+    expect(moveHierarchyToLayer(['root', 'root'], 'a', store)).toBe(false);
+    expect(events).toEqual(['child', 'locked']);
+  });
+
   it('expands literal roots through locked and bound-arrow descendants in stable DFS order', () => {
     const store = new ElementStore();
     addTree(store);

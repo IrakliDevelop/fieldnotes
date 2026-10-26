@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { expandToGroups } from './group';
+import { ElementStore } from './element-store';
+import { getHierarchyClosure } from './hierarchy-ops';
 import type { CanvasElement } from './types';
 
 const el = (id: string, groupId?: string): CanvasElement =>
@@ -39,5 +41,18 @@ describe('expandToGroups', () => {
   it('does not duplicate a co-member already in the input', () => {
     const els = [el('a', 'g1'), el('b', 'g1')];
     expect(expandToGroups(['a', 'b'], els).sort()).toEqual(['a', 'b']);
+  });
+
+  it('composes group expansion with hierarchy closure without duplicate descendants', () => {
+    const store = new ElementStore();
+    store.add(el('parent', 'g1'));
+    store.add({ ...el('child', 'g1'), parentId: 'parent', index: 'a1' });
+    store.add({ ...el('other', 'g1'), index: 'a2' });
+
+    const expanded = expandToGroups(['child'], store.getAll());
+    const closure = getHierarchyClosure(expanded, store);
+
+    expect(closure.roots.map((element) => element.id)).toEqual(['parent', 'other']);
+    expect(closure.elements.map((element) => element.id)).toEqual(['parent', 'child', 'other']);
   });
 });
