@@ -573,6 +573,170 @@ function mockCanvasCtx() {
   } as unknown as CanvasRenderingContext2D;
 }
 
+interface RecordedClip {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+interface RecordedCanvas {
+  label: string;
+  canvas: HTMLCanvasElement;
+  ctx: CanvasRenderingContext2D;
+}
+
+function recordExportCanvases() {
+  const originalCreate = document.createElement.bind(document);
+  const canvases: RecordedCanvas[] = [];
+  const draws: {
+    source: CanvasImageSource;
+    ctx: CanvasRenderingContext2D;
+    context: string;
+    clip: RecordedClip | null;
+    globalAlpha: number;
+  }[] = [];
+  const states = new WeakMap<
+    CanvasRenderingContext2D,
+    {
+      clip: RecordedClip | null;
+      pending: RecordedClip | null;
+      globalAlpha: number;
+      stack: { clip: RecordedClip | null; pending: RecordedClip | null; globalAlpha: number }[];
+    }
+  >();
+  const copy = (clip: RecordedClip | null): RecordedClip | null => (clip ? { ...clip } : null);
+  const intersect = (a: RecordedClip | null, b: RecordedClip): RecordedClip | null => {
+    if (!a) return copy(b);
+    const x = Math.max(a.x, b.x);
+    const y = Math.max(a.y, b.y);
+    const maxX = Math.min(a.x + a.w, b.x + b.w);
+    const maxY = Math.min(a.y + a.h, b.y + b.h);
+    return maxX > x && maxY > y ? { x, y, w: maxX - x, h: maxY - y } : null;
+  };
+  const createSpy = vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
+    const element = originalCreate(tag);
+    if (tag !== 'canvas') return element;
+    const ctx = mockCanvasCtx();
+    const state = { clip: null, pending: null, globalAlpha: 1, stack: [] };
+    states.set(ctx, state);
+    Object.defineProperty(ctx, 'globalAlpha', {
+      configurable: true,
+      get: () => state.globalAlpha,
+      set: (value: number) => {
+        state.globalAlpha = value;
+      },
+    });
+    ctx.save = vi.fn(() =>
+      state.stack.push({
+        clip: copy(state.clip),
+        pending: copy(state.pending),
+        globalAlpha: state.globalAlpha,
+      }),
+    );
+    ctx.restore = vi.fn(() => {
+      const saved = state.stack.pop();
+      if (!saved) return;
+      state.clip = saved.clip;
+      state.pending = saved.pending;
+      state.globalAlpha = saved.globalAlpha;
+    });
+    ctx.rect = vi.fn((x: number, y: number, w: number, h: number) => {
+      state.pending = { x, y, w, h };
+    });
+    ctx.clip = vi.fn(() => {
+      if (state.pending) state.clip = intersect(state.clip, state.pending);
+    });
+    ctx.drawImage = vi.fn((source: CanvasImageSource) => {
+      draws.push({
+        source,
+        ctx,
+        context: canvases.length === 0 ? 'output' : `layer-${canvases.length}`,
+        clip: copy(state.clip),
+        globalAlpha: state.globalAlpha,
+      });
+    });
+    vi.spyOn(element as HTMLCanvasElement, 'getContext').mockReturnValue(ctx as never);
+    vi.spyOn(element as HTMLCanvasElement, 'toBlob').mockImplementation((callback) =>
+      callback(new Blob(['fake'])),
+    );
+    canvases.push({
+      label: canvases.length === 0 ? 'output' : `layer-${canvases.length}`,
+      canvas: element as HTMLCanvasElement,
+      ctx,
+    });
+    return element;
+  });
+  const snapshot = (ctx: CanvasRenderingContext2D) => {
+    const state = states.get(ctx);
+    const recorded = canvases.find((entry) => entry.ctx === ctx);
+    if (!state || !recorded) throw new Error('unrecorded canvas context');
+    return { context: recorded.label, clip: copy(state.clip), globalAlpha: state.globalAlpha };
+  };
+  const label = (ctx: CanvasRenderingContext2D, name: string): void => {
+    const recorded = canvases.find((entry) => entry.ctx === ctx);
+    if (!recorded) throw new Error('unrecorded canvas context');
+    recorded.label = name;
+    for (const draw of draws) {
+      if (draw.ctx === ctx) draw.context = name;
+    }
+  };
+  return { canvases, draws, createSpy, label, snapshot, restore: () => createSpy.mockRestore() };
+}
+
+interface ClipData {
+  label: string;
+  bounds: RecordedClip | null;
+  clip: RecordedClip | null;
+}
+
+type ClipElement = ExtensionElementEnvelope & { data: ClipData };
+
+function clipElement(
+  label: string,
+  bounds: RecordedClip | null,
+  parentId?: string,
+  clip: RecordedClip | null = { x: 10, y: 20, w: 40, h: 40 },
+): ClipElement {
+  return {
+    id: label,
+    type: 'extension',
+    extensionType: 'test:recorded-clip',
+    position: { x: bounds?.x ?? 0, y: bounds?.y ?? 0 },
+    index: label,
+    version: 1,
+    locked: false,
+    layerId: '',
+    parentId,
+    data: { label, bounds, clip },
+  };
+}
+
+function clipRegistry(
+  render: (ctx: CanvasRenderingContext2D, element: ClipElement) => void,
+): ElementRegistry {
+  const registry = new ElementRegistry();
+  registry.register<ClipElement>({
+    type: 'test:recorded-clip',
+    legacyTypes: [],
+    decodeLegacy: (raw) => raw as ClipElement,
+    validateData: (data): data is ClipData =>
+      typeof data === 'object' && data !== null && 'label' in data,
+    unwrap: (element) => element,
+    wrap: (element) => element,
+    bounds: (element) => element.data.bounds,
+    clipBounds: (element) => element.data.clip,
+    render,
+  });
+  return registry;
+}
+
+function clipStore(registry: ElementRegistry, ...elements: CanvasElement[]): ElementStore {
+  const store = new ElementStore(registry);
+  for (const [index, element] of elements.entries()) store.add({ ...element, index: `a${index}` });
+  return store;
+}
+
 const painterCallCounts = new WeakMap<HtmlPainterRegistry, number>();
 
 function markerElement(overrides: Partial<HtmlElement> = {}): HtmlElement {
@@ -1302,111 +1466,261 @@ describe('exportImage — rendering paths', () => {
 describe('exportImage — hierarchy clips', () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it('clips a child to its effective hierarchy rectangle before rendering it', async () => {
-    const events: string[] = [];
-    const ctx = mockCanvasCtx();
-    ctx.save = vi.fn(() => events.push('save'));
-    ctx.beginPath = vi.fn(() => events.push('beginPath'));
-    ctx.rect = vi.fn((x, y, w, h) => events.push(`rect:${x},${y},${w},${h}`));
-    ctx.clip = vi.fn(() => events.push('clip'));
-    ctx.restore = vi.fn(() => events.push('restore'));
-    const originalCreate = document.createElement.bind(document);
-    const createSpy = vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
-      const element = originalCreate(tag);
-      if (tag === 'canvas') {
-        vi.spyOn(element as HTMLCanvasElement, 'getContext').mockReturnValue(ctx as never);
-        vi.spyOn(element as HTMLCanvasElement, 'toBlob').mockImplementation((callback) =>
-          callback(new Blob(['fake'])),
-        );
-      }
-      return element;
+  it('reports exact nested clips to labeled renderers and restores before an unmasked sibling', async () => {
+    const recorder = recordExportCanvases();
+    const calls: Record<string, ReturnType<typeof recorder.snapshot>> = {};
+    const registry = clipRegistry((ctx, element) => {
+      calls[element.data.label] = recorder.snapshot(ctx);
     });
-    const registry = new ElementRegistry();
-    registry.register<ExtensionElementEnvelope>({
-      type: 'test:clip-export',
-      legacyTypes: [],
-      decodeLegacy: (raw) => raw as unknown as ExtensionElementEnvelope,
-      validateData: () => true,
-      unwrap: (element) => element,
-      wrap: (element) => element,
-      bounds: (element) =>
-        element.id === 'null-footprint'
-          ? null
-          : { x: element.position.x, y: element.position.y, w: 10, h: 10 },
-      clipBounds: (element) =>
-        element.id === 'nested' ? { x: 25, y: 0, w: 30, h: 30 } : { x: 10, y: 20, w: 30, h: 40 },
-      render: (_ctx, element) => events.push(`render:${element.id}`),
+    const root = clipElement('root', { x: 10, y: 20, w: 40, h: 40 });
+    const child = clipElement('child', { x: 20, y: 30, w: 10, h: 10 }, root.id);
+    const nested = clipElement('nested', { x: 25, y: 25, w: 30, h: 30 }, root.id, {
+      x: 25,
+      y: 25,
+      w: 30,
+      h: 30,
     });
-    const root: ExtensionElementEnvelope = {
-      id: 'root',
-      type: 'extension',
-      extensionType: 'test:clip-export',
-      position: { x: 0, y: 0 },
-      index: 'a0',
-      version: 1,
-      locked: false,
-      layerId: '',
-      data: {},
-    };
-    const child = createShape({
-      id: 'child',
-      parentId: root.id,
-      position: { x: 15, y: 25 },
-      size: { w: 10, h: 10 },
-    });
-    const nested: ExtensionElementEnvelope = {
-      ...root,
-      id: 'nested',
-      parentId: root.id,
-      position: { x: 15, y: 25 },
-      index: 'a1',
-    };
-    const grandchild = createShape({
-      id: 'grandchild',
-      parentId: nested.id,
-      position: { x: 26, y: 21 },
-      size: { w: 10, h: 10 },
-    });
-    const nullFootprint: ExtensionElementEnvelope = {
-      ...root,
-      id: 'null-footprint',
-      parentId: root.id,
-      index: 'a2',
-    };
-    const store = new ElementStore(registry);
-    store.add(root);
-    store.add(child);
-    store.add(nested);
-    store.add(grandchild);
-    store.add(nullFootprint);
+    const grandchild = clipElement('grandchild', { x: 27, y: 27, w: 8, h: 8 }, nested.id);
+    const sibling = clipElement('sibling', { x: 70, y: 20, w: 10, h: 10 });
+    const store = clipStore(registry, root, child, nested, grandchild, sibling);
 
     await exportImage(store, { elementRegistry: registry, scale: 1 });
 
-    expect(events).toEqual([
-      'render:root',
-      'save',
-      'beginPath',
-      'rect:10,20,30,40',
-      'clip',
-      'render:nested',
-      'restore',
-      'save',
-      'beginPath',
-      'rect:25,20,15,10',
-      'clip',
-      'save',
-      'restore',
-      'restore',
-      'save',
-      'beginPath',
-      'rect:10,20,30,40',
-      'clip',
-      'save',
-      'restore',
-      'restore',
+    expect(calls).toEqual({
+      root: { context: 'output', clip: null, globalAlpha: 1 },
+      child: { context: 'output', clip: { x: 10, y: 20, w: 40, h: 40 }, globalAlpha: 1 },
+      nested: { context: 'output', clip: { x: 10, y: 20, w: 40, h: 40 }, globalAlpha: 1 },
+      grandchild: { context: 'output', clip: { x: 25, y: 25, w: 25, h: 30 }, globalAlpha: 1 },
+      sibling: { context: 'output', clip: null, globalAlpha: 1 },
+    });
+    recorder.restore();
+  });
+
+  it('omits fail-closed, disjoint, and null-footprint descendants before rendering', async () => {
+    const recorder = recordExportCanvases();
+    const render = vi.fn();
+    const registry = clipRegistry(render);
+    const unresolved: ExtensionElementEnvelope = {
+      ...clipElement('unresolved-parent', { x: 0, y: 0, w: 10, h: 10 }),
+      extensionType: 'missing:clip-parent',
+    };
+    const unknownChild = clipElement('unknown-child', { x: 1, y: 1, w: 2, h: 2 }, unresolved.id);
+    const clipped = clipElement('clipped-parent', { x: 20, y: 20, w: 10, h: 10 }, undefined, {
+      x: 20,
+      y: 20,
+      w: 10,
+      h: 10,
+    });
+    const disjoint = clipElement('disjoint-child', { x: 50, y: 50, w: 5, h: 5 }, clipped.id);
+    const nullFootprint = clipElement('null-footprint', null, clipped.id);
+    const store = clipStore(registry, unresolved, unknownChild, clipped, disjoint, nullFootprint);
+
+    await exportImage(store, { elementRegistry: registry, region: { x: 0, y: 0, w: 100, h: 100 } });
+
+    expect(render).toHaveBeenCalledTimes(1);
+    expect(render.mock.calls[0]?.[1].data.label).toBe('clipped-parent');
+    recorder.restore();
+  });
+
+  it('restores a clipped renderer failure before the next sibling', async () => {
+    const recorder = recordExportCanvases();
+    const calls: Record<string, ReturnType<typeof recorder.snapshot>> = {};
+    const registry = clipRegistry((ctx, element) => {
+      calls[element.data.label] = recorder.snapshot(ctx);
+      if (element.data.label === 'throwing') throw new Error('expected renderer fault');
+    });
+    const root = clipElement('root', { x: 10, y: 20, w: 30, h: 30 }, undefined, {
+      x: 10,
+      y: 20,
+      w: 30,
+      h: 30,
+    });
+    const throwing = clipElement('throwing', { x: 15, y: 25, w: 5, h: 5 }, root.id);
+    const sibling = clipElement('sibling', { x: 50, y: 20, w: 5, h: 5 });
+
+    await expect(
+      exportImage(clipStore(registry, root, throwing, sibling), { elementRegistry: registry }),
+    ).resolves.toBeInstanceOf(Blob);
+
+    expect(calls.throwing).toEqual({
+      context: 'output',
+      clip: { x: 10, y: 20, w: 30, h: 30 },
+      globalAlpha: 1,
+    });
+    expect(calls.sibling).toEqual({ context: 'output', clip: null, globalAlpha: 1 });
+    expect((recorder.canvases[0]?.ctx.restore as ReturnType<typeof vi.fn>).mock.calls.length).toBe(
+      (recorder.canvases[0]?.ctx.save as ReturnType<typeof vi.fn>).mock.calls.length,
+    );
+    recorder.restore();
+  });
+
+  it('clips canvas-routed HTML on the translucent layer before one unclipped composite', async () => {
+    const recorder = recordExportCanvases();
+    const painterCalls: ReturnType<typeof recorder.snapshot>[] = [];
+    const extensionCalls: ReturnType<typeof recorder.snapshot>[] = [];
+    const registry = new HtmlPainterRegistry();
+    registry.register('painted', ({ ctx }) => {
+      recorder.label(ctx, 'layer');
+      painterCalls.push(recorder.snapshot(ctx));
+    });
+    const clips = clipRegistry((ctx, element) => {
+      if (element.data.label === 'sibling') {
+        recorder.label(ctx, 'layer');
+        extensionCalls.push(recorder.snapshot(ctx));
+      }
+    });
+    const root = {
+      ...clipElement('root', { x: 10, y: 20, w: 30, h: 30 }, undefined, {
+        x: 10,
+        y: 20,
+        w: 30,
+        h: 30,
+      }),
+      layerId: 'faded',
+    };
+    const html = htmlElement('painted', { id: 'painted', parentId: root.id, layerId: 'faded' });
+    const sibling = { ...clipElement('sibling', { x: 60, y: 20, w: 5, h: 5 }), layerId: 'faded' };
+    const store = clipStore(clips, root, html, sibling);
+
+    await exportImage(
+      store,
+      { elementRegistry: clips, htmlPainters: registry },
+      layersWithOpacity(0.4) as never,
+    );
+
+    const composite = recorder.draws[0];
+    if (!composite) throw new Error('missing layer composite');
+    recorder.label(composite.ctx, 'output');
+    expect(painterCalls).toEqual([
+      { context: 'layer', clip: { x: 10, y: 20, w: 30, h: 30 }, globalAlpha: 1 },
     ]);
-    expect(events).not.toContain('render:null-footprint');
-    createSpy.mockRestore();
+    expect(extensionCalls).toEqual([{ context: 'layer', clip: null, globalAlpha: 1 }]);
+    expect(recorder.draws).toEqual([
+      expect.objectContaining({
+        source: recorder.canvases.find((canvas) => canvas.label === 'layer')?.canvas,
+        context: 'output',
+        clip: null,
+        globalAlpha: 0.4,
+      }),
+    ]);
+    recorder.restore();
+  });
+
+  it('clips DOM-raster HTML and loaded images at their element draw', async () => {
+    const htmlSource = document.createElement('canvas');
+    const recorder = recordExportCanvases();
+    const clips = clipRegistry(() => undefined);
+    const root = clipElement('root', { x: 10, y: 20, w: 30, h: 30 }, undefined, {
+      x: 10,
+      y: 20,
+      w: 30,
+      h: 30,
+    });
+    const html = htmlElement('dom', { id: 'dom-child', parentId: root.id });
+    const image = createImage({
+      id: 'image-child',
+      parentId: root.id,
+      position: { x: 15, y: 25 },
+      size: { w: 5, h: 5 },
+      src: 'image-source',
+    });
+    const originalImage = globalThis.Image;
+    globalThis.Image = class MockImage {
+      crossOrigin = '';
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      marker = 'loaded-image';
+      set src(_value: string) {
+        queueMicrotask(() => this.onload?.());
+      }
+    } as unknown as typeof Image;
+    try {
+      await exportImage(clipStore(clips, root, html, image), {
+        elementRegistry: clips,
+        renderHtml: () => htmlSource,
+      });
+      const htmlDraw = recorder.draws.find((draw) => draw.source === htmlSource);
+      const imageDraw = recorder.draws.find(
+        (draw) => (draw.source as { marker?: string }).marker === 'loaded-image',
+      );
+      if (!htmlDraw || !imageDraw) throw new Error('missing clipped image draw');
+      recorder.label(htmlDraw.ctx, 'output');
+      recorder.label(imageDraw.ctx, 'output');
+      expect(htmlDraw).toMatchObject({
+        context: 'output',
+        clip: { x: 10, y: 20, w: 30, h: 30 },
+        globalAlpha: 1,
+      });
+      expect(imageDraw).toMatchObject({
+        context: 'output',
+        clip: { x: 10, y: 20, w: 30, h: 30 },
+        globalAlpha: 1,
+      });
+    } finally {
+      globalThis.Image = originalImage;
+      recorder.restore();
+    }
+  });
+
+  it('uses raw geometry for fit scaling and explicit region dimensions', async () => {
+    const recorder = recordExportCanvases();
+    const registry = clipRegistry(() => undefined);
+    const root = clipElement('root', { x: 0, y: 0, w: 10, h: 10 });
+    const child = clipElement('wide', { x: 0, y: 0, w: 1000, h: 500 }, root.id);
+    const store = clipStore(registry, root, child);
+
+    await exportImage(store, {
+      elementRegistry: registry,
+      scale: 4,
+      scaleMode: 'fit',
+      maxDimension: 2000,
+    });
+    await exportImage(store, {
+      elementRegistry: registry,
+      region: { x: 0, y: 0, w: 400, h: 300 },
+      scale: 2,
+      padding: 5,
+    });
+
+    expect(recorder.canvases[0]?.canvas).toMatchObject({ width: 2000, height: 1000 });
+    expect(recorder.canvases[1]?.canvas).toMatchObject({ width: 820, height: 620 });
+    recorder.restore();
+  });
+
+  it('restores the element clip before afterElements and image-export hooks', async () => {
+    const recorder = recordExportCanvases();
+    const order: string[] = [];
+    const registry = clipRegistry((ctx, element) => {
+      order.push(element.data.label);
+      expect(recorder.snapshot(ctx).clip).toEqual(
+        element.data.label === 'child' ? { x: 10, y: 20, w: 30, h: 30 } : null,
+      );
+    });
+    const hooks = createRenderHooks();
+    const root = clipElement('root', { x: 10, y: 20, w: 30, h: 30 });
+    const child = clipElement('child', { x: 15, y: 25, w: 5, h: 5 }, root.id);
+    hooks.imageExport.register({
+      afterElements: ({ ctx }) => {
+        order.push('hook');
+        expect(recorder.snapshot(ctx).clip).toBeNull();
+      },
+    });
+
+    await exportImage(clipStore(registry, root, child), {
+      elementRegistry: registry,
+      renderHooks: hooks,
+      afterElements: (ctx) => {
+        order.push('option');
+        expect(recorder.snapshot(ctx).clip).toBeNull();
+      },
+    });
+
+    expect(order).toEqual(['root', 'child', 'option', 'hook']);
+    const ctx = recorder.canvases[0]?.ctx;
+    expect((ctx?.restore as ReturnType<typeof vi.fn>).mock.calls.length).toBe(
+      (ctx?.save as ReturnType<typeof vi.fn>).mock.calls.length,
+    );
+    recorder.restore();
   });
 
   it('skips a fail-closed html descendant before routing or DOM preparation', async () => {

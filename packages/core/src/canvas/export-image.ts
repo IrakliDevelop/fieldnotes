@@ -5,6 +5,7 @@ import { getArrowBounds } from '../elements/arrow-geometry';
 import { getElementBounds } from '../elements/element-bounds';
 import { withRotation } from '../elements/rotate-canvas';
 import { rotatedAABB } from '../core/geometry';
+import { reportFailure } from '../core/report-failure';
 import type { LayerManager } from '../layers/layer-manager';
 import { renderNoteOnCanvas } from './note-canvas-renderer';
 import { renderTextOnCanvas } from './text-canvas-renderer';
@@ -570,7 +571,12 @@ export async function exportImage(
         return;
       }
 
-      renderer.renderCanvasElement(target, el);
+      try {
+        renderer.renderCanvasElement(target, el);
+      } catch (error) {
+        if (el.type !== 'extension') throw error;
+        reportFailure(error, 'extension render failed');
+      }
     };
     const clip = effectiveClips.get(el.id);
     if (!clip) {
