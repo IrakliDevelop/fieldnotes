@@ -4,7 +4,7 @@ import type { Viewport } from './viewport';
 import type { HtmlPainterRegistry } from './html-painter-registry';
 import type { TypedHookRegistry, MinimapRenderHooks, MinimapMapping } from './render-hooks';
 import { ElementRenderer } from '../elements/element-renderer';
-import { getElementBounds } from '../elements/element-bounds';
+import { getElementBounds, getElementVisualBounds } from '../elements/element-bounds';
 import { getElementsBoundingBox } from '../elements/bounds';
 import {
   computeMinimapTransform,
@@ -336,6 +336,19 @@ export class MinimapController {
     dpr: number,
   ): void {
     for (const el of elements) {
+      const clip = this.viewport.store.getEffectiveClip(el.id);
+      if (clip === undefined) continue;
+      const visualBounds = getElementVisualBounds(el, this.viewport.elementRegistry);
+      if (
+        clip &&
+        visualBounds &&
+        (visualBounds.x >= clip.x + clip.w ||
+          visualBounds.x + visualBounds.w <= clip.x ||
+          visualBounds.y >= clip.y + clip.h ||
+          visualBounds.y + visualBounds.h <= clip.y)
+      ) {
+        continue;
+      }
       // note/text always fall back; 'html' only falls back when the shared
       // renderer's routing resolves it to 'dom' (no canvas painter claims
       // it) — the SAME routing decision the main renderer and export make,
@@ -346,6 +359,12 @@ export class MinimapController {
         const tl = worldToMini(t, { x: b.x, y: b.y });
         ctx.save();
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        if (clip) {
+          const clipTl = worldToMini(t, clip);
+          ctx.beginPath();
+          ctx.rect(clipTl.x, clipTl.y, clip.w * t.scale, clip.h * t.scale);
+          ctx.clip();
+        }
         ctx.fillStyle = elementColor(el);
         ctx.fillRect(tl.x, tl.y, Math.max(1, b.w * t.scale), Math.max(1, b.h * t.scale));
         ctx.restore();
@@ -353,6 +372,11 @@ export class MinimapController {
       }
       ctx.save();
       ctx.setTransform(dpr * t.scale, 0, 0, dpr * t.scale, dpr * t.offsetX, dpr * t.offsetY);
+      if (clip) {
+        ctx.beginPath();
+        ctx.rect(clip.x, clip.y, clip.w, clip.h);
+        ctx.clip();
+      }
       this.renderer.renderCanvasElement(ctx, el);
       ctx.restore();
     }
