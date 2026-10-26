@@ -81,28 +81,16 @@ describe('createCurrentCapabilities', () => {
 
 describe('supportsLegacyHierarchy', () => {
   it.each([
-    [
-      'protocol 3',
-      { protocolVersion: 3, extensionKinds: [], elementEnvelope: true, elementHierarchy: 1 },
-      true,
-    ],
-    [
-      'newer protocol',
-      { protocolVersion: 4, extensionKinds: ['other'], elementEnvelope: true, elementHierarchy: 1 },
-      false,
-    ],
-    [
-      'protocol 2',
-      { protocolVersion: 2, extensionKinds: [], elementEnvelope: true, elementHierarchy: 1 },
-      false,
-    ],
-    ['missing marker', { protocolVersion: 3, extensionKinds: [], elementEnvelope: true }, false],
-    [
-      'invalid marker',
-      { protocolVersion: 3, extensionKinds: [], elementEnvelope: true, elementHierarchy: 2 },
-      false,
-    ],
-  ])('returns %s for %s', (_name, capabilities, expected) => {
+    ['protocol 3', true, { protocolVersion: 3, elementHierarchy: 1 }],
+    ['newer protocol', false, { protocolVersion: 4, elementHierarchy: 1 }],
+    ['protocol 2', false, { protocolVersion: 2, elementHierarchy: 1 }],
+    ['protocol 1', false, { protocolVersion: 1, elementHierarchy: 1 }],
+    ['missing marker', false, { protocolVersion: 3 }],
+    ['invalid marker', false, { protocolVersion: 3, elementHierarchy: 2 }],
+    ['zero marker', false, { protocolVersion: 3, elementHierarchy: 0 }],
+    ['string marker', false, { protocolVersion: 3, elementHierarchy: '1' }],
+    ['null marker', false, { protocolVersion: 3, elementHierarchy: null }],
+  ])('%s returns %s', (_name, expected, capabilities) => {
     expect(supportsLegacyHierarchy(capabilities)).toBe(expected);
   });
 

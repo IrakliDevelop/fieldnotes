@@ -50,7 +50,7 @@ export interface SyncCapabilities {
  */
 export const LAYER_SYNC_PROTOCOL_VERSION = 1;
 
-/** Minimum legacy protocol revision that supports element parent-child relationships. */
+/** Current legacy protocol revision for element parent-child relationships. */
 export const LEGACY_SYNC_PROTOCOL_VERSION = 3;
 
 /** Revision of the element hierarchy capability marker. */
