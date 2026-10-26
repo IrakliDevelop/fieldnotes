@@ -29,14 +29,23 @@ test.describe('context loss', () => {
       };
       minimap.dispatchEvent(new Event('contextlost', { cancelable: true }));
       const minimapIgnored = !wrapper.querySelector('[data-fieldnotes-context-loss-mask]');
+      const existingHybridCanvases = new Set([
+        ...wrapper.querySelectorAll<HTMLCanvasElement>('canvas[data-paint-order]'),
+      ]);
 
       const dom = document.createElement('div');
       viewport.addHtmlElement(dom, { x: 20, y: 20 }, { w: 30, h: 30 });
       viewport.addShape({ position: { x: 20, y: 20 }, size: { w: 30, h: 30 } });
       viewport.requestRender();
-      await waitFor(() => Boolean(wrapper.querySelector('canvas[data-paint-order]')));
+      await waitFor(() =>
+        [...wrapper.querySelectorAll<HTMLCanvasElement>('canvas[data-paint-order]')].some(
+          (canvas) => !existingHybridCanvases.has(canvas),
+        ),
+      );
       const base = wrapper.querySelector<HTMLCanvasElement>(':scope > canvas');
-      const hybrid = wrapper.querySelector<HTMLCanvasElement>('canvas[data-paint-order]');
+      const hybrid = [
+        ...wrapper.querySelectorAll<HTMLCanvasElement>('canvas[data-paint-order]'),
+      ].find((canvas) => !existingHybridCanvases.has(canvas));
       if (!base || !hybrid) throw new Error('persistent canvases not created');
       const hybridOrder = hybrid.dataset['paintOrder'];
       if (!hybridOrder) throw new Error('hybrid paint order missing');
@@ -61,14 +70,18 @@ test.describe('context loss', () => {
       );
       hybrid.dispatchEvent(new Event('contextrestored'));
       await waitFor(() => {
-        const next = wrapper.querySelector<HTMLCanvasElement>('canvas[data-paint-order]');
+        const next = wrapper.querySelector<HTMLCanvasElement>(
+          `canvas[data-paint-order="${hybridOrder}"]`,
+        );
         return (
           next !== null &&
           next !== hybrid &&
           !wrapper.querySelector('[data-fieldnotes-context-loss-mask]')
         );
       });
-      const replacement = wrapper.querySelector<HTMLCanvasElement>('canvas[data-paint-order]');
+      const replacement = wrapper.querySelector<HTMLCanvasElement>(
+        `canvas[data-paint-order="${hybridOrder}"]`,
+      );
       if (!replacement) throw new Error('replacement hybrid canvas missing');
       const recovered = !wrapper.querySelector('[data-fieldnotes-context-loss-mask]');
       replacement.dispatchEvent(new Event('contextlost', { cancelable: true }));
@@ -85,7 +98,7 @@ test.describe('context loss', () => {
         remainsAfterBase,
         recovered,
         replaced: replacement !== hybrid,
-        replacementOrder: replacement.dataset['paintOrder'],
+        sameOrder: replacement.dataset['paintOrder'] === hybridOrder,
         replacementMasked,
         detachedStaysClear: !wrapper.querySelector('[data-fieldnotes-context-loss-mask]'),
       };
@@ -97,7 +110,7 @@ test.describe('context loss', () => {
       remainsAfterBase: true,
       recovered: true,
       replaced: true,
-      replacementOrder: expect.any(String),
+      sameOrder: true,
       replacementMasked: true,
       detachedStaysClear: true,
     });

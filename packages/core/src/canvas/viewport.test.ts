@@ -43,6 +43,31 @@ function focusCanvas(container: HTMLElement): void {
   wrapperOf(container).focus();
 }
 
+function proxyContext(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
+  const state: Record<string, unknown> = { canvas };
+  return new Proxy(state, {
+    get(target, prop) {
+      if (prop in target) return target[prop as string];
+      if (prop === 'measureText') return () => ({ width: 0 });
+      if (
+        prop === 'createPattern' ||
+        prop === 'createLinearGradient' ||
+        prop === 'createRadialGradient'
+      ) {
+        return () => null;
+      }
+      if (prop === 'getImageData') {
+        return () => ({ data: new Uint8ClampedArray(4), width: 1, height: 1 });
+      }
+      return () => undefined;
+    },
+    set(target, prop, value) {
+      target[prop as string] = value;
+      return true;
+    },
+  }) as unknown as CanvasRenderingContext2D;
+}
+
 describe('Viewport', () => {
   let container: HTMLDivElement;
 
@@ -132,25 +157,215 @@ describe('Viewport', () => {
     expect(container.querySelector('canvas')).toBeNull();
   });
 
-  it('keeps the context-loss mask through restore until a full frame and removes listeners on destroy', () => {
-    const viewport = new Viewport(container);
-    const wrapper = wrapperOf(container);
-    const canvas = wrapper.querySelector<HTMLCanvasElement>(':scope > canvas');
-    if (!canvas) throw new Error('base canvas not found');
+  it('keeps the context-loss mask through base recovery until the real render loop completes a frame', () => {
+    const getContext = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockImplementation(function (this: HTMLCanvasElement) {
+        return proxyContext(this);
+      } as never);
+    try {
+      const viewport = new Viewport(container);
+      const priv = viewport as unknown as {
+        background: { invalidate(): void };
+        renderLoop: {
+          requestRender(): void;
+          markAllLayersDirty(): void;
+          flush(): void;
+        };
+      };
+      const wrapper = wrapperOf(container);
+      const canvas = wrapper.querySelector<HTMLCanvasElement>(':scope > canvas');
+      if (!canvas) throw new Error('base canvas not found');
+      priv.renderLoop.requestRender();
+      priv.renderLoop.flush();
+      const invalidate = vi.spyOn(priv.background, 'invalidate');
+      const dirty = vi.spyOn(priv.renderLoop, 'markAllLayersDirty');
+      const request = vi.spyOn(priv.renderLoop, 'requestRender');
 
-    canvas.dispatchEvent(new Event('contextlost', { cancelable: true }));
-    const mask = wrapper.querySelector('[data-fieldnotes-context-loss-mask]');
-    expect(mask).not.toBeNull();
-    canvas.dispatchEvent(new Event('contextrestored'));
-    expect(wrapper.contains(mask)).toBe(true);
+      canvas.dispatchEvent(new Event('contextlost', { cancelable: true }));
+      const mask = wrapper.querySelector('[data-fieldnotes-context-loss-mask]');
+      expect(mask).not.toBeNull();
+      canvas.dispatchEvent(new Event('contextrestored'));
+      expect(invalidate).toHaveBeenCalledOnce();
+      expect(dirty).toHaveBeenCalledOnce();
+      expect(request).toHaveBeenCalledOnce();
+      expect(wrapper.contains(mask)).toBe(true);
+      priv.renderLoop.flush();
+      expect(wrapper.contains(mask)).toBe(false);
 
-    (
-      viewport as unknown as { contextLossGuard: { frameComplete(): void } }
-    ).contextLossGuard.frameComplete();
-    expect(wrapper.contains(mask)).toBe(false);
-    viewport.destroy();
-    canvas.dispatchEvent(new Event('contextlost', { cancelable: true }));
-    expect(wrapper.querySelector('[data-fieldnotes-context-loss-mask]')).toBeNull();
+      viewport.destroy();
+      canvas.dispatchEvent(new Event('contextlost', { cancelable: true }));
+      expect(wrapper.querySelector('[data-fieldnotes-context-loss-mask]')).toBeNull();
+    } finally {
+      getContext.mockRestore();
+    }
+  });
+
+  it('recreates and re-watches dynamic hybrid and layer-cache canvases through one recovery mask', () => {
+    vi.stubGlobal('OffscreenCanvas', undefined);
+    const getContext = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockImplementation(function (this: HTMLCanvasElement) {
+        return proxyContext(this);
+      } as never);
+    try {
+      const viewport = new Viewport(container);
+      const priv = viewport as unknown as {
+        paintStack: HTMLDivElement;
+        layerCache: { getCanvas(id: string): HTMLCanvasElement };
+        renderLoop: { requestRender(): void; flush(): void };
+      };
+      const html = document.createElement('div');
+      viewport.addHtmlElement(html, { x: 20, y: 20 }, { w: 30, h: 30 });
+      viewport.addShape({ position: { x: 20, y: 20 }, size: { w: 30, h: 30 } });
+      priv.renderLoop.requestRender();
+      priv.renderLoop.flush();
+      const hybrid = priv.paintStack.querySelector<HTMLCanvasElement>('canvas[data-paint-order]');
+      if (!hybrid) throw new Error('hybrid canvas not created');
+      const order = hybrid.dataset['paintOrder'];
+      if (!order) throw new Error('hybrid paint order missing');
+      const cached = priv.layerCache.getCanvas(viewport.layerManager.activeLayerId);
+
+      hybrid.dispatchEvent(new Event('contextlost', { cancelable: true }));
+      cached.dispatchEvent(new Event('contextlost', { cancelable: true }));
+      const mask = wrapperOf(container).querySelector('[data-fieldnotes-context-loss-mask]');
+      expect(mask).not.toBeNull();
+      expect(
+        wrapperOf(container).querySelectorAll('[data-fieldnotes-context-loss-mask]'),
+      ).toHaveLength(1);
+      hybrid.dispatchEvent(new Event('contextrestored'));
+      expect(wrapperOf(container).contains(mask)).toBe(true);
+      cached.dispatchEvent(new Event('contextrestored'));
+      priv.renderLoop.flush();
+
+      const replacement = priv.paintStack.querySelector<HTMLCanvasElement>(
+        `canvas[data-paint-order="${order}"]`,
+      );
+      const replacementCached = priv.layerCache.getCanvas(viewport.layerManager.activeLayerId);
+      expect(replacement).not.toBeNull();
+      expect(replacement).not.toBe(hybrid);
+      expect(replacement?.dataset['paintOrder']).toBe(order);
+      expect(replacementCached).not.toBe(cached);
+
+      replacement?.dispatchEvent(new Event('contextlost', { cancelable: true }));
+      replacementCached.dispatchEvent(new Event('contextlost', { cancelable: true }));
+      expect(
+        wrapperOf(container).querySelectorAll('[data-fieldnotes-context-loss-mask]'),
+      ).toHaveLength(1);
+      expect(wrapperOf(container).querySelector('[data-fieldnotes-context-loss-mask]')).toBe(mask);
+      replacement?.dispatchEvent(new Event('contextrestored'));
+      replacementCached.dispatchEvent(new Event('contextrestored'));
+      priv.renderLoop.flush();
+      expect(wrapperOf(container).contains(mask)).toBe(false);
+      viewport.destroy();
+    } finally {
+      getContext.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('does not watch opacity scratch or export canvases for context loss', async () => {
+    vi.stubGlobal('OffscreenCanvas', undefined);
+    const addListener = vi.spyOn(EventTarget.prototype, 'addEventListener');
+    const listenerTypes = (target: EventTarget): string[] =>
+      addListener.mock.calls.flatMap((call, index) =>
+        addListener.mock.contexts[index] === target ? [call[0]] : [],
+      );
+    const created: HTMLCanvasElement[] = [];
+    const originalCreateElement = document.createElement.bind(document);
+    const createElement = vi.spyOn(document, 'createElement').mockImplementation(function (
+      this: Document,
+      tagName: string,
+      options?: ElementCreationOptions,
+    ) {
+      const element = originalCreateElement(tagName, options);
+      if (tagName === 'canvas') created.push(element as HTMLCanvasElement);
+      return element;
+    });
+    const getContext = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockImplementation(function (this: HTMLCanvasElement) {
+        return proxyContext(this);
+      } as never);
+    const toBlob = vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(function (
+      this: HTMLCanvasElement,
+      callback: BlobCallback,
+    ) {
+      callback(new Blob(['fake'], { type: 'image/png' }));
+    });
+    const toDataURL = vi
+      .spyOn(HTMLCanvasElement.prototype, 'toDataURL')
+      .mockReturnValue('data:image/png;base64,AAAA');
+    try {
+      const viewport = new Viewport(container);
+      const base = wrapperOf(container).querySelector('canvas');
+      if (!(base instanceof HTMLCanvasElement)) throw new Error('base canvas not found');
+      Object.defineProperties(base, {
+        clientWidth: { value: 800, configurable: true },
+        clientHeight: { value: 600, configurable: true },
+      });
+      const priv = viewport as unknown as {
+        renderLoop: {
+          requestRender(): void;
+          flush(): void;
+          setCanvasSize(width: number, height: number): void;
+          htmlScratchCanvas: HTMLCanvasElement | null;
+          hybridActive: boolean;
+          firstDomIndex: number;
+          layerOpacities: Map<string, number>;
+        };
+        renderer: { isDomElement(element: HtmlElement): boolean };
+      };
+      const html = document.createElement('div');
+      viewport.addHtmlElement(html, { x: 0, y: 0 }, { w: 30, h: 30 });
+      viewport.expectCanvasHtmlTypes(['context-loss-marker']);
+      const painter = vi.fn();
+      viewport.registerHtmlPainter('context-loss-marker', painter);
+      const marker = createHtmlElement({
+        position: { x: 0, y: 0 },
+        size: { w: 30, h: 30 },
+        htmlType: 'context-loss-marker',
+        layerId: viewport.layerManager.activeLayerId,
+        index: 'zzzz',
+      });
+      viewport.store.add(marker);
+      viewport.layerManager.setLayerOpacity(viewport.layerManager.activeLayerId, 0.5);
+      priv.renderLoop.setCanvasSize(800, 600);
+      viewport.requestRender();
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      expect(priv.renderLoop.hybridActive).toBe(true);
+      expect(priv.renderLoop.firstDomIndex).toBe(0);
+      expect(priv.renderLoop.layerOpacities.get(viewport.layerManager.activeLayerId)).toBe(0.5);
+      expect(priv.renderer.isDomElement(marker)).toBe(false);
+      expect(painter).toHaveBeenCalledOnce();
+      const scratch = priv.renderLoop.htmlScratchCanvas;
+      expect(scratch).not.toBeNull();
+      expect(listenerTypes(scratch as HTMLCanvasElement)).not.toContain('contextlost');
+      expect(listenerTypes(scratch as HTMLCanvasElement)).not.toContain('contextrestored');
+
+      created.length = 0;
+      await viewport.exportImage();
+      expect(created.length).toBeGreaterThan(0);
+      for (const canvas of created) {
+        expect(listenerTypes(canvas)).not.toContain('contextlost');
+        expect(listenerTypes(canvas)).not.toContain('contextrestored');
+      }
+      created.length = 0;
+      await viewport.exportSVG();
+      expect(created.length).toBeGreaterThan(0);
+      for (const canvas of created) {
+        expect(listenerTypes(canvas)).not.toContain('contextlost');
+        expect(listenerTypes(canvas)).not.toContain('contextrestored');
+      }
+      viewport.destroy();
+    } finally {
+      toDataURL.mockRestore();
+      toBlob.mockRestore();
+      getContext.mockRestore();
+      createElement.mockRestore();
+      addListener.mockRestore();
+      vi.unstubAllGlobals();
+    }
   });
 
   it('destroy twice is a no-op', () => {
