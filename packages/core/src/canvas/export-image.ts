@@ -429,12 +429,11 @@ export async function exportImage(
     if (clip) {
       const rect = getElementRect(el, registry);
       if (
-        rect &&
-        (Math.max(rect.x, clip.x) >= Math.min(rect.x + rect.w, clip.x + clip.w) ||
-          Math.max(rect.y, clip.y) >= Math.min(rect.y + rect.h, clip.y + clip.h))
-      ) {
+        !rect ||
+        Math.max(rect.x, clip.x) >= Math.min(rect.x + rect.w, clip.x + clip.w) ||
+        Math.max(rect.y, clip.y) >= Math.min(rect.y + rect.h, clip.y + clip.h)
+      )
         continue;
-      }
       effectiveClips.set(el.id, clip);
     } else {
       effectiveClips.set(el.id, null);

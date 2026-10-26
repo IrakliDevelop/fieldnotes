@@ -1329,7 +1329,10 @@ describe('exportImage — hierarchy clips', () => {
       validateData: () => true,
       unwrap: (element) => element,
       wrap: (element) => element,
-      bounds: (element) => ({ x: element.position.x, y: element.position.y, w: 10, h: 10 }),
+      bounds: (element) =>
+        element.id === 'null-footprint'
+          ? null
+          : { x: element.position.x, y: element.position.y, w: 10, h: 10 },
       clipBounds: (element) =>
         element.id === 'nested' ? { x: 25, y: 0, w: 30, h: 30 } : { x: 10, y: 20, w: 30, h: 40 },
       render: (_ctx, element) => events.push(`render:${element.id}`),
@@ -1364,11 +1367,18 @@ describe('exportImage — hierarchy clips', () => {
       position: { x: 26, y: 21 },
       size: { w: 10, h: 10 },
     });
+    const nullFootprint: ExtensionElementEnvelope = {
+      ...root,
+      id: 'null-footprint',
+      parentId: root.id,
+      index: 'a2',
+    };
     const store = new ElementStore(registry);
     store.add(root);
     store.add(child);
     store.add(nested);
     store.add(grandchild);
+    store.add(nullFootprint);
 
     await exportImage(store, { elementRegistry: registry, scale: 1 });
 
@@ -1395,6 +1405,7 @@ describe('exportImage — hierarchy clips', () => {
       'restore',
       'restore',
     ]);
+    expect(events).not.toContain('render:null-footprint');
     createSpy.mockRestore();
   });
 
