@@ -83,6 +83,16 @@ function enumerateHexRing(
   return cells;
 }
 
+/** Center of the hex cell containing `point`; the cell the `getHexCellsIn*` functions enumerate around. */
+export function getHexCellCenter(
+  point: Point,
+  cellSize: number,
+  orientation: HexOrientation,
+): Point {
+  const off = pixelToOffset(point.x, point.y, cellSize, orientation);
+  return offsetToPixel(off.col, off.row, cellSize, orientation);
+}
+
 export function getHexDistance(
   a: Point,
   b: Point,
@@ -109,7 +119,7 @@ export function getHexCellsInRadius(
   const off = pixelToOffset(center.x, center.y, cellSize, orientation);
   const cube = offsetToCube(off.col, off.row, orientation);
   if (n <= 0) {
-    return [offsetToPixel(off.col, off.row, cellSize, orientation)];
+    return [getHexCellCenter(center, cellSize, orientation)];
   }
   return enumerateHexRing(cube.q, cube.r, n, orientation, cellSize);
 }
@@ -124,7 +134,7 @@ export function getHexCellsInCone(
   const n = Math.round(radiusCells);
   const off = pixelToOffset(center.x, center.y, cellSize, orientation);
   const cube = offsetToCube(off.col, off.row, orientation);
-  const centerPixel = offsetToPixel(off.col, off.row, cellSize, orientation);
+  const centerPixel = getHexCellCenter(center, cellSize, orientation);
 
   if (n <= 0) return [centerPixel];
 
@@ -173,7 +183,7 @@ export function getHexCellsInLine(
   const n = Math.round(radiusCells);
   const off = pixelToOffset(center.x, center.y, cellSize, orientation);
   const cube = offsetToCube(off.col, off.row, orientation);
-  const centerPixel = offsetToPixel(off.col, off.row, cellSize, orientation);
+  const centerPixel = getHexCellCenter(center, cellSize, orientation);
 
   if (n <= 0) return [centerPixel];
 
@@ -226,7 +236,7 @@ export function getHexCellsInRectangle(
   const wCells = Math.max(1, Math.round(widthCells));
   const off = pixelToOffset(center.x, center.y, cellSize, orientation);
   const cube = offsetToCube(off.col, off.row, orientation);
-  const centerPixel = offsetToPixel(off.col, off.row, cellSize, orientation);
+  const centerPixel = getHexCellCenter(center, cellSize, orientation);
 
   if (nLen <= 0) return [centerPixel];
 
@@ -275,7 +285,7 @@ export function getHexCellsInSquare(
   const n = Math.round(radiusCells);
   const off = pixelToOffset(center.x, center.y, cellSize, orientation);
   const cube = offsetToCube(off.col, off.row, orientation);
-  const centerPixel = offsetToPixel(off.col, off.row, cellSize, orientation);
+  const centerPixel = getHexCellCenter(center, cellSize, orientation);
 
   if (n <= 0) return [centerPixel];
 

@@ -7,6 +7,7 @@ import {
   getHexCellsInLine,
   getHexCellsInSquare,
   getHexCellsInRectangle,
+  getHexCellCenter,
   drawHexPath,
 } from '../grid/hex-fill';
 import { renderTemplateFeetLabel } from './template-measure';
@@ -146,7 +147,7 @@ function renderHexTemplate(
 ): void {
   const snapUnit = Math.sqrt(3) * cellSize;
   const radiusCells = template.radius / snapUnit;
-  const center = template.position;
+  const center = getHexCellCenter(template.position, cellSize, orientation);
 
   let cells: { x: number; y: number }[];
   switch (template.templateShape) {
@@ -207,7 +208,7 @@ function renderHexTemplate(
 
   if (template.radiusFeet != null && template.radiusFeet > 0) {
     renderTemplateFeetLabel(ctx, {
-      position: template.position,
+      position: center,
       radius: template.radius,
       angle: template.angle,
       templateShape: template.templateShape,
