@@ -306,6 +306,26 @@ describe('RenderLoop', () => {
     expect(deps.domNodeManager.hideDomNode).toHaveBeenCalledWith('hidden');
   });
 
+  it('hides triple-disjoint DOM geometry and explicitly clears a stale frame clip', () => {
+    const dom = {
+      id: 'dom',
+      type: 'note',
+      layerId: 'default',
+      position: { x: 0, y: 0 },
+      size: { w: 20, h: 20 },
+    };
+    vi.mocked(deps.store.getAll).mockReturnValue([dom] as never);
+    vi.mocked(deps.store.getEffectiveClip).mockReturnValue({ x: 100, y: 100, w: 20, h: 20 });
+    renderLoop.requestRender();
+    renderLoop.flush();
+    expect(deps.domNodeManager.hideDomNode).toHaveBeenCalledWith(dom.id);
+
+    vi.mocked(deps.store.getEffectiveClip).mockReturnValue(null);
+    renderLoop.requestRender();
+    renderLoop.flush();
+    expect(deps.domNodeManager.syncDomNode).toHaveBeenLastCalledWith(dom, 1, 1, null);
+  });
+
   it('requestRender marks as dirty', () => {
     renderLoop.requestRender();
     renderLoop.flush();
