@@ -2,38 +2,49 @@ import type { Point } from '../core/types';
 import { translateElementPatch } from './translate';
 import type { CanvasElement } from './types';
 import type { ElementStore } from './element-store';
+import { findBoundArrows, updateBoundArrow } from './arrow-binding';
 
 export interface HierarchyMove {
   readonly elements: readonly CanvasElement[];
   readonly roots: readonly CanvasElement[];
+  readonly rootIds: ReadonlyMap<string, string>;
 }
 
 /** Expands unlocked direct roots through their valid descendants in scene order. */
 export function getHierarchyMove(ids: readonly string[], store: ElementStore): HierarchyMove {
-  const roots: CanvasElement[] = [];
-  const included = new Set<string>();
+  const directIds = new Set<string>();
   for (const id of ids) {
     const element = store.getById(id);
     if (
       !element ||
       element.locked ||
       (element.type === 'arrow' && (element.fromBinding || element.toBinding)) ||
-      included.has(id)
+      directIds.has(id)
     )
       continue;
-    roots.push(element);
-    included.add(id);
-    for (const descendant of store.getDescendants(id)) included.add(descendant.id);
+    directIds.add(id);
+  }
+
+  const inheritedIds = new Set<string>();
+  for (const id of directIds) {
+    for (const descendant of store.getDescendants(id)) inheritedIds.add(descendant.id);
+  }
+  const rootIds = new Set([...directIds].filter((id) => !inheritedIds.has(id)));
+  const roots = store.getAll().filter((element) => rootIds.has(element.id));
+  const elements: CanvasElement[] = [];
+  const rootIdByElementId = new Map<string, string>();
+  for (const root of roots) {
+    elements.push(root);
+    rootIdByElementId.set(root.id, root.id);
+    for (const descendant of store.getDescendants(root.id)) {
+      elements.push(descendant);
+      rootIdByElementId.set(descendant.id, root.id);
+    }
   }
   return {
     roots,
-    elements: store
-      .getAll()
-      .filter(
-        (element) =>
-          included.has(element.id) &&
-          !(element.type === 'arrow' && (element.fromBinding || element.toBinding)),
-      ),
+    elements,
+    rootIds: rootIdByElementId,
   };
 }
 
@@ -45,13 +56,45 @@ export function moveHierarchy(
   store: ElementStore,
 ): HierarchyMove {
   const move = getHierarchyMove(ids, store);
-  store.updateMany(
-    move.elements.map((element) => ({
-      id: element.id,
-      partial: translateElementPatch(element, dx, dy),
-    })),
-  );
+  const deltas = new Map(move.roots.map((root) => [root.id, { x: dx, y: dy }]));
+  moveHierarchyByRoot(move, deltas, store);
   return move;
+}
+
+/** Translates each hierarchy root and all of its descendants in one store batch. */
+export function moveHierarchyByRoot(
+  move: HierarchyMove,
+  deltas: ReadonlyMap<string, Point>,
+  store: ElementStore,
+): void {
+  if (move.elements.length === 0) return;
+  store.updateMany(
+    move.elements.flatMap((element) => {
+      const rootId = move.rootIds.get(element.id);
+      const delta = rootId ? deltas.get(rootId) : undefined;
+      return delta
+        ? [{ id: element.id, partial: translateElementPatch(element, delta.x, delta.y) }]
+        : [];
+    }),
+  );
+}
+
+/** Reanchors arrows outside the movement closure once after a hierarchy batch. */
+export function updateExternalBoundArrows(movedIds: Iterable<string>, store: ElementStore): void {
+  const closureIds = new Set(movedIds);
+  const arrows = new Map<string, ReturnType<typeof findBoundArrows>[number]>();
+  for (const id of closureIds) {
+    const element = store.getById(id);
+    if (!element || element.type === 'arrow') continue;
+    for (const arrow of findBoundArrows(id, store)) {
+      if (!closureIds.has(arrow.id)) arrows.set(arrow.id, arrow);
+    }
+  }
+  const updates = [...arrows.values()].flatMap((arrow) => {
+    const partial = updateBoundArrow(arrow, store);
+    return partial ? [{ id: arrow.id, partial }] : [];
+  });
+  if (updates.length > 0) store.updateMany(updates);
 }
 
 export interface HierarchyOrigins {
@@ -72,6 +115,7 @@ export function captureHierarchyOrigins(elements: readonly CanvasElement[]): Hie
 
 /** Restores a captured hierarchy move atomically. */
 export function restoreHierarchyOrigins(origins: HierarchyOrigins, store: ElementStore): void {
+  if (origins.positions.size === 0) return;
   store.updateMany(
     [...origins.positions].map(([id, position]) => ({
       id,

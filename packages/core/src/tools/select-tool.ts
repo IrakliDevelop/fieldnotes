@@ -13,8 +13,9 @@ import { lineFromEndpoints } from '../elements/shape-geometry';
 import {
   captureHierarchyOrigins,
   getHierarchyMove,
-  moveHierarchy,
+  moveHierarchyByRoot,
   restoreHierarchyOrigins,
+  updateExternalBoundArrows,
   type HierarchyOrigins,
 } from '../elements/hierarchy-ops';
 import {
@@ -337,12 +338,12 @@ export class SelectTool implements Tool {
 
       let adjDx = dx;
       let adjDy = dy;
+      const move = getHierarchyMove(this._selectedIds, ctx.store);
       this.activeGuides = [];
       if (ctx.smartGuides) {
         // Candidates (non-selected visible elements) and the viewport rect don't change
         // during a single-pointer drag, so compute them once per drag and reuse each frame.
         if (this.dragSnapTargets === null) {
-          const move = getHierarchyMove(this._selectedIds, ctx.store);
           const selSet = new Set(move.elements.map((element) => element.id));
           this.dragVisibleRect = ctx.getVisibleRect?.() ?? null;
           const candidates = (
@@ -355,7 +356,7 @@ export class SelectTool implements Tool {
           }
           this.dragSnapTargets = targets;
         }
-        const selectedEls = [...getHierarchyMove(this._selectedIds, ctx.store).elements];
+        const selectedEls = [...move.elements];
         const base = getElementsBoundingBox(selectedEls, ctx.elementRegistry);
         if (base) {
           const moving: Bounds = { x: base.x + dx, y: base.y + dy, w: base.w, h: base.h };
@@ -367,26 +368,38 @@ export class SelectTool implements Tool {
       }
 
       if (!ctx.smartGuides) {
-        const move = getHierarchyMove(this._selectedIds, ctx.store);
-        const root = move.roots.length === 1 ? move.roots[0] : undefined;
         const cs = ctx.constraintService;
-        if (root && cs?.isActive && hasSize(root)) {
-          const center = cs.constrainPoint(
-            {
-              x: root.position.x + root.size.w / 2 + adjDx,
-              y: root.position.y + root.size.h / 2 + adjDy,
-            },
-            { elementSize: { w: root.size.w, h: root.size.h } },
-          );
-          adjDx = center.x - root.size.w / 2 - root.position.x;
-          adjDy = center.y - root.size.h / 2 - root.position.y;
-        }
+        const deltas = new Map(
+          move.roots.map((root) => {
+            if (!cs?.isActive || !hasSize(root) || root.type === 'extension')
+              return [root.id, { x: dx, y: dy }] as const;
+            const center = cs.constrainPoint(
+              {
+                x: root.position.x + root.size.w / 2 + dx,
+                y: root.position.y + root.size.h / 2 + dy,
+              },
+              { elementSize: { w: root.size.w, h: root.size.h } },
+            );
+            return [
+              root.id,
+              {
+                x: center.x - root.size.w / 2 - root.position.x,
+                y: center.y - root.size.h / 2 - root.position.y,
+              },
+            ] as const;
+          }),
+        );
+        moveHierarchyByRoot(move, deltas, ctx.store);
+      } else {
+        moveHierarchyByRoot(
+          move,
+          new Map(move.roots.map((root) => [root.id, { x: adjDx, y: adjDy }])),
+          ctx.store,
+        );
       }
-
-      const move = moveHierarchy(this._selectedIds, adjDx, adjDy, ctx.store);
-      this.updateArrowsBoundTo(
+      updateExternalBoundArrows(
         move.elements.map((element) => element.id),
-        ctx,
+        ctx.store,
       );
       this.emitDrag('onDragMove', ctx);
 
@@ -448,7 +461,7 @@ export class SelectTool implements Tool {
     if (e.key !== 'Escape') return false;
 
     restoreHierarchyOrigins(drag.allOrigins, ctx.store);
-    this.updateArrowsBoundTo(drag.allOrigins.positions.keys(), ctx);
+    updateExternalBoundArrows(drag.allOrigins.positions.keys(), ctx.store);
     this.emitDrag('onDragCancel', ctx);
     this.drag = null;
     this.mode = { type: 'cancelled' };
@@ -566,11 +579,16 @@ export class SelectTool implements Tool {
   }
 
   nudgeSelection(dx: number, dy: number, ctx: ToolContext): boolean {
-    const move = moveHierarchy(this._selectedIds, dx, dy, ctx.store);
+    const move = getHierarchyMove(this._selectedIds, ctx.store);
     if (move.elements.length > 0) {
-      this.updateArrowsBoundTo(
+      moveHierarchyByRoot(
+        move,
+        new Map(move.roots.map((root) => [root.id, { x: dx, y: dy }])),
+        ctx.store,
+      );
+      updateExternalBoundArrows(
         move.elements.map((element) => element.id),
-        ctx,
+        ctx.store,
       );
       ctx.requestRender();
     }

@@ -625,6 +625,35 @@ describe('KeyboardActions.nudge', () => {
     expect(stack.undoCount).toBe(1); // whole burst committed as one step
   });
 
+  it('coalesces a subtree nudge burst and undo restores every member', () => {
+    const ctx = makeCtx();
+    const stack = new HistoryStack();
+    const recorder = new HistoryRecorder(ctx.store, stack);
+    const { actions, tool } = makeActions({ ctx, recorder, stack });
+    const parent = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+    const child = createNote({
+      position: { x: 20, y: 20 },
+      size: { w: 40, h: 20 },
+      parentId: parent.id,
+      locked: true,
+    });
+    ctx.store.add(parent);
+    ctx.store.add(child);
+    stack.clear();
+    tool.setSelection([parent.id]);
+
+    actions.nudge(1, 0, false);
+    actions.nudge(1, 0, false);
+    vi.advanceTimersByTime(400);
+
+    expect(stack.undoCount).toBe(1);
+    expect(ctx.store.getById(parent.id)?.position).toEqual({ x: 2, y: 0 });
+    expect(ctx.store.getById(child.id)?.position).toEqual({ x: 22, y: 20 });
+    expect(stack.undo(ctx.store)).toBe(true);
+    expect(ctx.store.getById(parent.id)?.position).toEqual({ x: 0, y: 0 });
+    expect(ctx.store.getById(child.id)?.position).toEqual({ x: 20, y: 20 });
+  });
+
   it('flushes a pending nudge transaction before another history action runs', () => {
     const ctx = makeCtx();
     const stack = new HistoryStack();

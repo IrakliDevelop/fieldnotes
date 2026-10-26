@@ -4,7 +4,7 @@ import { ToolManager } from './tool-manager';
 import { HandTool } from './hand-tool';
 import { ElementStore } from '../elements/element-store';
 import { Camera } from '../canvas/camera';
-import { createArrow, createShape } from '../elements/element-factory';
+import { createArrow, createNote, createShape } from '../elements/element-factory';
 import { HistoryStack } from '../history/history-stack';
 import { HistoryRecorder } from '../history/history-recorder';
 import type { ToolContext, PointerState } from './types';
@@ -194,6 +194,163 @@ describe('SelectTool drag observers', () => {
 
     expect(observer.onDragEnd).not.toHaveBeenCalled();
     expect(stack.undoCount).toBe(before);
+  });
+
+  it('keeps observer roots literal and restores an inherited arrow on Escape', () => {
+    const { store, stack, recorder, ctx, tool } = setup();
+    const parent = createNote({ position: { x: 300, y: 300 }, size: { w: 80, h: 60 } });
+    const child = createNote({
+      position: { x: 320, y: 320 },
+      size: { w: 40, h: 20 },
+      parentId: parent.id,
+    });
+    const locked = createNote({
+      position: { x: 340, y: 340 },
+      size: { w: 20, h: 10 },
+      parentId: child.id,
+      locked: true,
+    });
+    const inherited = createArrow({
+      position: { x: 500, y: 500 },
+      from: { x: 500, y: 500 },
+      to: { x: 520, y: 520 },
+      parentId: parent.id,
+      fromBinding: { elementId: parent.id, anchor: { x: 0.5, y: 0.5 } },
+    });
+    const external = createArrow({
+      position: { x: 340, y: 330 },
+      from: { x: 340, y: 330 },
+      to: { x: 600, y: 600 },
+      fromBinding: { elementId: parent.id, anchor: { x: 0.5, y: 0.5 } },
+    });
+    store.add(parent);
+    store.add(child);
+    store.add(locked);
+    store.add(inherited);
+    store.add(external);
+    const observer = spyObserver();
+    tool.addDragObserver(observer);
+    tool.setSelection([child.id, parent.id]);
+    const before = stack.undoCount;
+    recorder.begin();
+
+    tool.onPointerDown(pt(305, 305), ctx);
+    tool.onPointerMove(pt(325, 320), ctx);
+    tool.onPointerMove(pt(335, 330), ctx);
+    const info = observer.onDragStart.mock.calls[0]?.[0];
+    expect(info?.ids).toEqual([child.id, parent.id]);
+    expect([...(info?.origins.keys() ?? [])]).toEqual([child.id, parent.id]);
+    expect(tool.selectedIds).toEqual([child.id, parent.id]);
+    expect(store.getById(child.id)?.position).toEqual({ x: 350, y: 345 });
+    expect(store.getVersion(child.id)).toBe(2);
+    expect(store.getById(locked.id)?.position).toEqual({ x: 370, y: 365 });
+    expect(store.getById(inherited.id)).toMatchObject({
+      position: { x: 530, y: 525 },
+      from: { x: 530, y: 525 },
+      to: { x: 550, y: 545 },
+    });
+
+    expect(tool.onKeyDown(key('Escape'), ctx)).toBe(true);
+    tool.onPointerUp(pt(335, 330), ctx);
+    recorder.commit();
+    expect(store.getById(parent.id)?.position).toEqual({ x: 300, y: 300 });
+    expect(store.getById(child.id)?.position).toEqual({ x: 320, y: 320 });
+    expect(store.getById(locked.id)?.position).toEqual({ x: 340, y: 340 });
+    expect(store.getById(inherited.id)).toMatchObject({
+      position: { x: 500, y: 500 },
+      from: { x: 500, y: 500 },
+      to: { x: 520, y: 520 },
+    });
+    expect(store.getVersion(inherited.id)).toBe(3);
+    expect(store.getById(external.id)).toMatchObject({
+      position: { x: 340, y: 330 },
+      from: { x: 340, y: 330 },
+      to: { x: 600, y: 600 },
+    });
+    expect(store.getVersion(external.id)).toBe(3);
+    expect(observer.onDragCancel).toHaveBeenCalledOnce();
+    expect(observer.onDragEnd).not.toHaveBeenCalled();
+    expect(stack.undoCount).toBe(before);
+  });
+
+  it('records a completed subtree drag as one undoable command', () => {
+    const { store, stack, recorder, ctx, tool } = setup();
+    const parent = createNote({ position: { x: 300, y: 300 }, size: { w: 80, h: 60 } });
+    const child = createNote({
+      position: { x: 320, y: 320 },
+      size: { w: 40, h: 20 },
+      parentId: parent.id,
+    });
+    const locked = createNote({
+      position: { x: 340, y: 340 },
+      size: { w: 20, h: 10 },
+      parentId: child.id,
+      locked: true,
+    });
+    const arrow = createArrow({
+      position: { x: 500, y: 500 },
+      from: { x: 500, y: 500 },
+      to: { x: 540, y: 540 },
+      parentId: parent.id,
+    });
+    store.add(parent);
+    store.add(child);
+    store.add(locked);
+    store.add(arrow);
+    stack.clear();
+    tool.setSelection([child.id, parent.id]);
+    recorder.begin();
+    const firstUpdate: { parent: unknown; child: unknown; locked: unknown; arrow: unknown }[] = [];
+    store.on('update', () => {
+      if (firstUpdate.length === 0) {
+        firstUpdate.push({
+          parent: store.getById(parent.id)?.position,
+          child: store.getById(child.id)?.position,
+          locked: store.getById(locked.id)?.position,
+          arrow: store.getById(arrow.id),
+        });
+      }
+    });
+
+    tool.onPointerDown(pt(305, 305), ctx);
+    tool.onPointerMove(pt(325, 320), ctx);
+    tool.onPointerUp(pt(325, 320), ctx);
+    recorder.commit();
+
+    expect(stack.undoCount).toBe(1);
+    expect(firstUpdate).toEqual([
+      {
+        parent: { x: 320, y: 315 },
+        child: { x: 340, y: 335 },
+        locked: { x: 360, y: 355 },
+        arrow: expect.objectContaining({
+          position: { x: 520, y: 515 },
+          from: { x: 520, y: 515 },
+          to: { x: 560, y: 555 },
+        }),
+      },
+    ]);
+    expect(store.getVersion(child.id)).toBe(1);
+    expect(store.getVersion(arrow.id)).toBe(1);
+    expect(store.getById(locked.id)?.position).toEqual({ x: 360, y: 355 });
+    expect(stack.undo(store)).toBe(true);
+    expect(store.getById(parent.id)?.position).toEqual({ x: 300, y: 300 });
+    expect(store.getById(child.id)?.position).toEqual({ x: 320, y: 320 });
+    expect(store.getById(locked.id)?.position).toEqual({ x: 340, y: 340 });
+    expect(store.getById(arrow.id)).toMatchObject({
+      position: { x: 500, y: 500 },
+      from: { x: 500, y: 500 },
+      to: { x: 540, y: 540 },
+    });
+    expect(stack.redo(store)).toBe(true);
+    expect(store.getById(parent.id)?.position).toEqual({ x: 320, y: 315 });
+    expect(store.getById(child.id)?.position).toEqual({ x: 340, y: 335 });
+    expect(store.getById(locked.id)?.position).toEqual({ x: 360, y: 355 });
+    expect(store.getById(arrow.id)).toMatchObject({
+      position: { x: 520, y: 515 },
+      from: { x: 520, y: 515 },
+      to: { x: 560, y: 555 },
+    });
   });
 
   it('observer keys win', () => {

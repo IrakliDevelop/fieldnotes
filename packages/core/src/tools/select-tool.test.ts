@@ -1623,7 +1623,106 @@ describe('SelectTool', () => {
     });
   });
 
+  it('moves a locked three-level subtree equally for mouse, touch, and pen', () => {
+    for (const pointerType of ['mouse', 'touch', 'pen'] as const) {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const parent = createNote({ position: { x: 100, y: 100 }, size: { w: 80, h: 60 } });
+      const child = createNote({
+        position: { x: 120, y: 120 },
+        size: { w: 40, h: 20 },
+        parentId: parent.id,
+      });
+      const grandchild = createNote({
+        position: { x: 140, y: 140 },
+        size: { w: 20, h: 10 },
+        parentId: child.id,
+        locked: true,
+      });
+      ctx.store.add(parent);
+      ctx.store.add(child);
+      ctx.store.add(grandchild);
+      tool.onActivate(ctx);
+      tool.setSelection([parent.id]);
+      const start = { x: 110, y: 110, pressure: 0.5, pointerType, shiftKey: false };
+      tool.onPointerDown(start, ctx);
+      tool.onPointerMove({ ...start, x: 130, y: 125 }, ctx);
+      tool.onPointerUp({ ...start, x: 130, y: 125 }, ctx);
+
+      expect(ctx.store.getById(parent.id)?.position).toEqual({ x: 120, y: 115 });
+      expect(ctx.store.getById(child.id)?.position).toEqual({ x: 140, y: 135 });
+      expect(ctx.store.getById(grandchild.id)?.position).toEqual({ x: 160, y: 155 });
+    }
+  });
+
+  it('does not drag a directly selected locked child', () => {
+    const tool = new SelectTool();
+    const ctx = makeCtx();
+    const parent = createNote({ position: { x: 100, y: 100 }, size: { w: 80, h: 60 } });
+    const child = createNote({
+      position: { x: 120, y: 120 },
+      size: { w: 40, h: 20 },
+      parentId: parent.id,
+      locked: true,
+    });
+    ctx.store.add(parent);
+    ctx.store.add(child);
+    tool.onActivate(ctx);
+    tool.setSelection([child.id]);
+
+    tool.onPointerDown(pt(130, 130), ctx);
+    tool.onPointerMove(pt(150, 145), ctx);
+
+    expect(ctx.store.getById(child.id)?.position).toEqual({ x: 120, y: 120 });
+  });
+
   describe('nudgeSelection', () => {
+    it('moves a parent, locked descendants, and an inherited bound arrow exactly once', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      const parent = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+      const child = createNote({
+        position: { x: 20, y: 20 },
+        size: { w: 40, h: 20 },
+        parentId: parent.id,
+      });
+      const locked = createNote({
+        position: { x: 30, y: 30 },
+        size: { w: 20, h: 10 },
+        parentId: child.id,
+        locked: true,
+      });
+      const inherited = createArrow({
+        position: { x: 10, y: 10 },
+        from: { x: 10, y: 10 },
+        to: { x: 20, y: 20 },
+        parentId: parent.id,
+      });
+      inherited.fromBinding = { elementId: parent.id };
+      const external = createArrow({ from: { x: 300, y: 300 }, to: { x: 50, y: 25 } });
+      external.toBinding = { elementId: parent.id };
+      ctx.store.add(parent);
+      ctx.store.add(child);
+      ctx.store.add(locked);
+      ctx.store.add(inherited);
+      ctx.store.add(external);
+      tool.onActivate(ctx);
+      tool.setSelection([child.id, parent.id]);
+
+      expect(tool.nudgeSelection(10, 5, ctx)).toBe(true);
+      expect(ctx.store.getById(parent.id)?.position).toEqual({ x: 10, y: 5 });
+      expect(ctx.store.getById(child.id)?.position).toEqual({ x: 30, y: 25 });
+      expect(ctx.store.getById(locked.id)?.position).toEqual({ x: 40, y: 35 });
+      expect(ctx.store.getById(inherited.id)).toMatchObject({
+        position: { x: 20, y: 15 },
+        from: { x: 20, y: 15 },
+        to: { x: 30, y: 25 },
+      });
+      expect(ctx.store.getVersion(inherited.id)).toBe(1);
+      expect(ctx.store.getById(external.id)).toMatchObject({ to: { x: 60, y: 30 } });
+      expect(ctx.store.getVersion(external.id)).toBe(1);
+    });
+
     it('moves selected elements by the given delta', () => {
       const tool = new SelectTool();
       const ctx = makeCtx();
@@ -1808,6 +1907,52 @@ describe('SelectTool', () => {
   });
 
   describe('smart guides', () => {
+    it('excludes moving descendants from guide targets', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      ctx.smartGuides = true;
+      const parent = createNote({ position: { x: 100, y: 100 }, size: { w: 50, h: 50 } });
+      const child = createNote({
+        position: { x: 200, y: 100 },
+        size: { w: 50, h: 50 },
+        parentId: parent.id,
+      });
+      ctx.store.add(parent);
+      ctx.store.add(child);
+      tool.onActivate(ctx);
+      tool.setSelection([parent.id]);
+
+      tool.onPointerDown(pt(125, 125), ctx);
+      tool.onPointerMove(pt(222, 125), ctx);
+
+      expect(ctx.store.getById(parent.id)?.position).toEqual({ x: 197, y: 100 });
+      expect(ctx.store.getById(child.id)?.position).toEqual({ x: 297, y: 100 });
+    });
+
+    it('does not use a moving descendant as a guide target', () => {
+      const tool = new SelectTool();
+      const ctx = makeCtx();
+      ctx.smartGuides = true;
+      const parent = createNote({ position: { x: 100, y: 100 }, size: { w: 50, h: 50 } });
+      const child = createNote({
+        position: { x: 200, y: 100 },
+        size: { w: 50, h: 50 },
+        parentId: parent.id,
+      });
+      const stationary = createNote({ position: { x: 300, y: 100 }, size: { w: 50, h: 50 } });
+      ctx.store.add(parent);
+      ctx.store.add(child);
+      ctx.store.add(stationary);
+      tool.onActivate(ctx);
+      tool.setSelection([parent.id]);
+
+      tool.onPointerDown(pt(125, 125), ctx);
+      tool.onPointerMove(pt(172, 125), ctx);
+
+      expect(ctx.store.getById(parent.id)?.position).toEqual({ x: 150, y: 100 });
+      expect(ctx.store.getById(child.id)?.position).toEqual({ x: 250, y: 100 });
+    });
+
     it('snaps the dragged selection to a nearby element edge when enabled', () => {
       const tool = new SelectTool();
       const ctx = makeCtx();
@@ -1871,6 +2016,37 @@ describe('SelectTool', () => {
       tool.onPointerUp({ x: 222, y: 25, pressure: 1, pointerType: 'mouse', shiftKey: false }, ctx);
       expect((tool as unknown as { activeGuides: unknown[] }).activeGuides).toEqual([]);
     });
+  });
+
+  it('keeps each constrained root footprint delta uniform across its subtree', () => {
+    const tool = new SelectTool();
+    const ctx = makeCtx({ constraintService: makeSnapProxy(40) });
+    const small = createNote({ position: { x: 100, y: 100 }, size: { w: 40, h: 40 } });
+    const smallChild = createNote({
+      position: { x: 120, y: 120 },
+      size: { w: 20, h: 20 },
+      parentId: small.id,
+    });
+    const wide = createNote({ position: { x: 200, y: 200 }, size: { w: 80, h: 40 } });
+    const wideChild = createNote({
+      position: { x: 220, y: 220 },
+      size: { w: 20, h: 20 },
+      parentId: wide.id,
+    });
+    ctx.store.add(small);
+    ctx.store.add(smallChild);
+    ctx.store.add(wide);
+    ctx.store.add(wideChild);
+    tool.onActivate(ctx);
+    tool.setSelection([small.id, wide.id]);
+
+    tool.onPointerDown(pt(110, 110), ctx);
+    tool.onPointerMove(pt(123, 110), ctx);
+
+    expect(ctx.store.getById(small.id)?.position).toEqual({ x: 120, y: 120 });
+    expect(ctx.store.getById(smallChild.id)?.position).toEqual({ x: 140, y: 140 });
+    expect(ctx.store.getById(wide.id)?.position).toEqual({ x: 200, y: 200 });
+    expect(ctx.store.getById(wideChild.id)?.position).toEqual({ x: 220, y: 220 });
   });
 
   describe('line shape hit testing', () => {

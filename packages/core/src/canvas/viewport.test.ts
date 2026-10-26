@@ -17,7 +17,13 @@ import {
 import { SelectTool } from '../tools/select-tool';
 import { PencilTool } from '../tools/pencil-tool';
 import { renderImage } from '../elements/renderers/image-renderer';
-import type { ImageElement, HtmlElement } from '../elements/types';
+import type {
+  BaseElement,
+  ElementTypeDefinition,
+  ExtensionElementEnvelope,
+  HtmlElement,
+  ImageElement,
+} from '../elements/types';
 import type { HtmlPaintDiagnostic } from './html-paint-diagnostics';
 import { HtmlPainterRegistry } from './html-painter-registry';
 import type { ElementActivationEvent } from './element-activation';
@@ -3969,4 +3975,223 @@ describe('Viewport live html elements', () => {
 
     expect(wrapper.scrollTop).toBe(40);
   });
+
+  it('sets, clears, undoes, and keeps no-op parenting commands history-silent', () => {
+    const viewport = vp;
+    const parent = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+    const child = createNote({ position: { x: 20, y: 20 }, size: { w: 40, h: 20 } });
+    viewport.store.add(parent);
+    viewport.store.add(child);
+    const select = new SelectTool();
+    viewport.toolManager.register(select);
+    viewport.toolManager.setTool('select', viewport.toolContext);
+    select.setSelection([child.id]);
+    viewport.history.clear();
+    const updates = vi.fn();
+    viewport.store.on('update', updates);
+    const render = vi.spyOn(viewport, 'requestRender');
+
+    viewport.setParent(child.id, parent.id);
+    expect(viewport.store.getById(child.id)?.parentId).toBe(parent.id);
+    expect(viewport.history.undoCount).toBe(1);
+    expect(viewport.undo()).toBe(true);
+    expect(viewport.store.getById(child.id)?.parentId).toBeUndefined();
+    expect(viewport.redo()).toBe(true);
+    expect(viewport.store.getById(child.id)?.parentId).toBe(parent.id);
+
+    updates.mockClear();
+    render.mockClear();
+    for (const command of [
+      () => viewport.setParent(child.id, 'missing'),
+      () => viewport.setParent(parent.id, parent.id),
+      () => viewport.setParent(parent.id, child.id),
+    ]) {
+      expect(command).toThrow(/Invalid hierarchy/);
+      expect(viewport.store.getById(child.id)?.parentId).toBe(parent.id);
+      expect(updates).not.toHaveBeenCalled();
+      expect(render).not.toHaveBeenCalled();
+      expect(viewport.history.undoCount).toBe(1);
+      expect(viewport.getSelectedIds()).toEqual([child.id]);
+    }
+    viewport.setParent(child.id, parent.id);
+    viewport.setParent('missing', parent.id);
+    expect(updates).not.toHaveBeenCalled();
+    expect(viewport.history.undoCount).toBe(1);
+  });
+
+  it('keeps literal selection and renders only successful parenting commands', () => {
+    const viewport = vp;
+    const parent = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+    const child = createNote({ position: { x: 20, y: 20 }, size: { w: 40, h: 20 } });
+    viewport.store.add(parent);
+    viewport.store.add(child);
+    const select = new SelectTool();
+    viewport.toolManager.register(select);
+    viewport.toolManager.setTool('select', viewport.toolContext);
+    select.setSelection([child.id]);
+    viewport.history.clear();
+    const render = vi.spyOn(viewport, 'requestRender');
+    const updates = vi.fn();
+    viewport.store.on('update', updates);
+
+    viewport.setParent(child.id, parent.id);
+    expect(viewport.history.undoCount).toBe(1);
+    expect(viewport.getSelectedIds()).toEqual([child.id]);
+    expect(render).toHaveBeenCalled();
+    viewport.setParent(child.id, null);
+    expect(viewport.history.undoCount).toBe(2);
+    expect(viewport.getSelectedIds()).toEqual([child.id]);
+    expect(viewport.undo()).toBe(true);
+    expect(viewport.getSelectedIds()).toEqual([child.id]);
+    expect(viewport.redo()).toBe(true);
+    expect(viewport.getSelectedIds()).toEqual([child.id]);
+
+    updates.mockClear();
+    render.mockClear();
+    viewport.setParent(child.id, null);
+    viewport.setParent('missing', parent.id);
+    expect(updates).not.toHaveBeenCalled();
+    expect(render).not.toHaveBeenCalled();
+    expect(viewport.history.undoCount).toBe(2);
+  });
+
+  it('rejects cross-layer, full-canvas, and depth-33 parenting without side effects', () => {
+    const viewport = vp;
+    const layer = viewport.layerManager.createLayer('other');
+    const parent = createNote({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } });
+    const child = createNote({
+      position: { x: 20, y: 0 },
+      size: { w: 10, h: 10 },
+      layerId: layer.id,
+    });
+    viewport.store.add(parent);
+    viewport.store.add(child);
+    const select = new SelectTool();
+    viewport.toolManager.register(select);
+    viewport.toolManager.setTool('select', viewport.toolContext);
+    select.setSelection([child.id]);
+    const render = vi.spyOn(viewport, 'requestRender');
+    const updates = vi.fn();
+    viewport.store.on('update', updates);
+    viewport.history.clear();
+    const expectRejected = (command: () => void, id: string) => {
+      updates.mockClear();
+      render.mockClear();
+      const history = viewport.history.undoCount;
+      expect(command).toThrow(/Invalid hierarchy/);
+      expect(viewport.store.getById(id)?.parentId).toBeUndefined();
+      expect(updates).not.toHaveBeenCalled();
+      expect(render).not.toHaveBeenCalled();
+      expect(viewport.history.undoCount).toBe(history);
+      expect(viewport.getSelectedIds()).toEqual([child.id]);
+    };
+    expectRejected(() => viewport.setParent(child.id, parent.id), child.id);
+
+    viewport.elementRegistry.register({
+      type: 'test:full-parent',
+      legacyTypes: [],
+      fullCanvas: true,
+      decodeLegacy: (raw) => raw as BaseElement,
+      validateData: () => true,
+      unwrap: (element) => element,
+      wrap: (element) => ({ ...element, type: 'extension', extensionType: 'test:full-parent' }),
+      bounds: () => null,
+    } satisfies ElementTypeDefinition<BaseElement>);
+    const full: ExtensionElementEnvelope = {
+      id: 'full',
+      type: 'extension',
+      extensionType: 'test:full-parent',
+      position: { x: 0, y: 0 },
+      index: 'z',
+      version: 1,
+      locked: false,
+      layerId: viewport.layerManager.activeLayerId,
+      data: {},
+    };
+    const local = createNote({ position: { x: 40, y: 0 }, size: { w: 10, h: 10 } });
+    viewport.store.add(full);
+    viewport.store.add(local);
+    expectRejected(() => viewport.setParent(local.id, full.id), local.id);
+    expectRejected(() => viewport.setParent(full.id, local.id), full.id);
+
+    const chain = Array.from({ length: 34 }, (_, index) =>
+      createNote({
+        id: `depth-${index}`,
+        position: { x: index * 20, y: 100 },
+        size: { w: 10, h: 10 },
+      }),
+    );
+    for (const element of chain) viewport.store.add(element);
+    for (let index = 1; index < 33; index += 1) {
+      const childElement = chain[index];
+      const parentElement = chain[index - 1];
+      if (!childElement || !parentElement) throw new Error('depth fixture incomplete');
+      viewport.setParent(childElement.id, parentElement.id);
+    }
+    const tail = chain[33];
+    const previous = chain[32];
+    if (!tail || !previous) throw new Error('depth fixture incomplete');
+    updates.mockClear();
+    render.mockClear();
+    const history = viewport.history.undoCount;
+    expect(() => viewport.setParent(tail.id, previous.id)).toThrow(/Invalid hierarchy/);
+    expect(viewport.store.getById(tail.id)?.parentId).toBeUndefined();
+    expect(updates).not.toHaveBeenCalled();
+    expect(render).not.toHaveBeenCalled();
+    expect(viewport.history.undoCount).toBe(history);
+  });
+
+  it.each(['success', 'same-parent', 'missing-child'] as const)(
+    'flushes a pending nudge before a %s parenting command',
+    (kind) => {
+      vi.useFakeTimers();
+      const viewport = vp;
+      const select = new SelectTool();
+      viewport.toolManager.register(select);
+      viewport.toolManager.setTool('select', viewport.toolContext);
+      const layerId = viewport.layerManager.activeLayerId;
+      const parent = createNote({
+        position: { x: 0, y: 0 },
+        size: { w: 20, h: 20 },
+        layerId,
+      });
+      const child = createNote({
+        position: { x: 100, y: 0 },
+        size: { w: 20, h: 20 },
+        layerId,
+      });
+      viewport.store.add(parent);
+      viewport.store.add(child);
+      if (kind === 'same-parent') viewport.setParent(child.id, parent.id);
+      viewport.history.clear();
+      select.setSelection([child.id]);
+      focusCanvas(container);
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+      expect(viewport.store.getById(child.id)?.position.x).toBe(101);
+      const updates = vi.fn();
+      viewport.store.on('update', updates);
+      const render = vi.spyOn(viewport, 'requestRender');
+
+      if (kind === 'success') viewport.setParent(child.id, parent.id);
+      else if (kind === 'same-parent') viewport.setParent(child.id, parent.id);
+      else viewport.setParent('missing', parent.id);
+
+      expect(viewport.history.undoCount).toBe(kind === 'success' ? 2 : 1);
+      if (kind !== 'success') {
+        expect(updates).not.toHaveBeenCalled();
+        expect(render).not.toHaveBeenCalled();
+      }
+      if (kind === 'success') {
+        expect(viewport.undo()).toBe(true);
+        expect(viewport.store.getById(child.id)?.parentId).toBeUndefined();
+        expect(viewport.store.getById(child.id)?.position.x).toBe(101);
+        expect(viewport.undo()).toBe(true);
+        expect(viewport.store.getById(child.id)?.position.x).toBe(100);
+      } else {
+        expect(viewport.undo()).toBe(true);
+        expect(viewport.store.getById(child.id)?.position.x).toBe(100);
+      }
+      vi.useRealTimers();
+    },
+  );
 });

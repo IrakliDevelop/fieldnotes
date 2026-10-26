@@ -1,20 +1,48 @@
 import { expect, test } from './fixtures/canvas-page';
 import { singleFingerDraw } from './helpers/touch';
 
+interface Position {
+  x: number;
+  y: number;
+}
+
 interface DemoViewport {
   setParent(childId: string, parentId: string | null): void;
   setTool(name: string): void;
   getSelectedIds(): string[];
+  camera: { worldToScreen(point: Position): Position };
   store: {
     add(element: unknown): void;
-    getById(id: string): { position: { x: number; y: number } };
+    getById(id: string): { position: Position };
   };
+}
+
+function expectSameDelta(before: Position[], after: Position[]): void {
+  const firstBefore = before[0];
+  const firstAfter = after[0];
+  if (!firstBefore || !firstAfter) throw new Error('Expected subtree positions');
+  const delta = { x: firstAfter.x - firstBefore.x, y: firstAfter.y - firstBefore.y };
+  expect(delta).not.toEqual({ x: 0, y: 0 });
+  for (const [index, position] of after.entries()) {
+    if (index === 0) continue;
+    const original = before[index];
+    if (!original) throw new Error('Expected matching subtree position');
+    expect({
+      x: position.x - original.x,
+      y: position.y - original.y,
+    }).toEqual(delta);
+  }
 }
 
 test('parent drag moves its locked subtree and selection stays literal', async ({
   canvasPage,
 }, testInfo) => {
   const page = canvasPage.page;
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  page.on('console', (message) => {
+    if (message.type() === 'error') errors.push(message.text());
+  });
   await page.evaluate(() => {
     const viewport = (window as unknown as { __fieldnotes_viewport: DemoViewport })
       .__fieldnotes_viewport;
@@ -33,30 +61,54 @@ test('parent drag moves its locked subtree and selection stays literal', async (
       layerId: '',
       ...(parentId ? { parentId } : {}),
     });
-    viewport.store.add(base('parent', 100, 100));
-    viewport.store.add(base('child', 120, 120));
-    viewport.store.add(base('grandchild', 140, 140, undefined, true));
+    viewport.store.add(base('parent', 300, 300));
+    viewport.store.add(base('child', 320, 320));
+    viewport.store.add(base('grandchild', 340, 340, undefined, true));
     viewport.setParent('child', 'parent');
     viewport.setParent('grandchild', 'child');
     viewport.setTool('select');
   });
   await canvasPage.selectTool('select');
+  const before = await page.evaluate(() => {
+    const viewport = (window as unknown as { __fieldnotes_viewport: DemoViewport })
+      .__fieldnotes_viewport;
+    return ['parent', 'child', 'grandchild'].map((id) => viewport.store.getById(id).position);
+  });
+  const screen = await page.evaluate(() => {
+    const viewport = (window as unknown as { __fieldnotes_viewport: DemoViewport })
+      .__fieldnotes_viewport;
+    const parent = viewport.store.getById('parent').position;
+    return viewport.camera.worldToScreen({ x: parent.x + 10, y: parent.y + 10 });
+  });
   const box = await canvasPage.wrapper().boundingBox();
   if (!box) throw new Error('Canvas wrapper not found');
-  const from = { x: box.x + 110, y: box.y + 110 };
+  const from = { x: box.x + screen.x, y: box.y + screen.y };
   const to = { x: from.x + 30, y: from.y + 20 };
   if (testInfo.project.name === 'ipad') await singleFingerDraw(page, [from, to]);
   else {
     await page.mouse.move(from.x, from.y);
     await page.mouse.down();
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          (
+            window as unknown as { __fieldnotes_viewport: DemoViewport }
+          ).__fieldnotes_viewport.getSelectedIds(),
+        ),
+      )
+      .toEqual(['parent']);
     await page.mouse.move(to.x, to.y, { steps: 3 });
     await page.mouse.up();
   }
-  await page.waitForFunction(() => {
+  await page.waitForFunction((original) => {
     const viewport = (window as unknown as { __fieldnotes_viewport: DemoViewport })
       .__fieldnotes_viewport;
-    return viewport.store.getById('parent').position.x === 130;
-  });
+    return ['parent', 'child', 'grandchild']
+      .map((id) => viewport.store.getById(id).position)
+      .some(
+        (position, index) => position.x !== original[index].x || position.y !== original[index].y,
+      );
+  }, before);
   const state = await page.evaluate(() => {
     const viewport = (window as unknown as { __fieldnotes_viewport: DemoViewport })
       .__fieldnotes_viewport;
@@ -66,15 +118,100 @@ test('parent drag moves its locked subtree and selection stays literal', async (
     };
   });
   expect(state.selected).toEqual(['parent']);
-  expect(state.positions).toEqual([
-    { x: 130, y: 120 },
-    { x: 150, y: 140 },
-    { x: 170, y: 160 },
-  ]);
+  expectSameDelta(before, state.positions);
   await page.click('#undo');
-  await page.waitForFunction(() => {
+  await page.waitForFunction((original) => {
     const viewport = (window as unknown as { __fieldnotes_viewport: DemoViewport })
       .__fieldnotes_viewport;
-    return viewport.store.getById('parent').position.x === 100;
+    return (
+      JSON.stringify(
+        ['parent', 'child', 'grandchild'].map((id) => viewport.store.getById(id).position),
+      ) === JSON.stringify(original)
+    );
+  }, before);
+  expect(errors).toEqual([]);
+});
+
+test('desktop keyboard nudge moves and undoes the complete subtree', async ({
+  canvasPage,
+}, testInfo) => {
+  test.skip(testInfo.project.name === 'ipad', 'keyboard scenario is desktop-only');
+  const page = canvasPage.page;
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  page.on('console', (message) => {
+    if (message.type() === 'error') errors.push(message.text());
   });
+  await page.evaluate(() => {
+    const viewport = (window as unknown as { __fieldnotes_viewport: DemoViewport })
+      .__fieldnotes_viewport;
+    const base = (id: string, x: number, y: number, locked = false) => ({
+      id,
+      type: 'note',
+      position: { x, y },
+      size: { w: 80, h: 60 },
+      text: id,
+      backgroundColor: '#fff',
+      textColor: '#000',
+      fontSize: 18,
+      index: id,
+      version: 1,
+      locked,
+      layerId: '',
+    });
+    viewport.store.add(base('parent', 300, 300));
+    viewport.store.add(base('child', 320, 320));
+    viewport.store.add(base('grandchild', 340, 340, true));
+    viewport.setParent('child', 'parent');
+    viewport.setParent('grandchild', 'child');
+    viewport.setTool('select');
+  });
+  await canvasPage.selectTool('select');
+  const before = await page.evaluate(() => {
+    const viewport = (window as unknown as { __fieldnotes_viewport: DemoViewport })
+      .__fieldnotes_viewport;
+    return ['parent', 'child', 'grandchild'].map((id) => viewport.store.getById(id).position);
+  });
+  const screen = await page.evaluate(() => {
+    const viewport = (window as unknown as { __fieldnotes_viewport: DemoViewport })
+      .__fieldnotes_viewport;
+    const parent = viewport.store.getById('parent').position;
+    return viewport.camera.worldToScreen({ x: parent.x + 10, y: parent.y + 10 });
+  });
+  const box = await canvasPage.wrapper().boundingBox();
+  if (!box) throw new Error('Canvas wrapper not found');
+  await page.mouse.click(box.x + screen.x, box.y + screen.y);
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (
+          window as unknown as { __fieldnotes_viewport: DemoViewport }
+        ).__fieldnotes_viewport.getSelectedIds(),
+      ),
+    )
+    .toEqual(['parent']);
+  await page.keyboard.press('ArrowRight');
+  await page.waitForFunction((original) => {
+    const viewport = (window as unknown as { __fieldnotes_viewport: DemoViewport })
+      .__fieldnotes_viewport;
+    const parent = original[0];
+    return parent !== undefined && viewport.store.getById('parent').position.x !== parent.x;
+  }, before);
+  const moved = await page.evaluate(() => {
+    const viewport = (window as unknown as { __fieldnotes_viewport: DemoViewport })
+      .__fieldnotes_viewport;
+    return ['parent', 'child', 'grandchild'].map((id) => viewport.store.getById(id).position);
+  });
+  expectSameDelta(before, moved);
+  await page.click('#undo');
+  await page.waitForFunction((original) => {
+    const viewport = (window as unknown as { __fieldnotes_viewport: DemoViewport })
+      .__fieldnotes_viewport;
+    return (
+      JSON.stringify(
+        ['parent', 'child', 'grandchild'].map((id) => viewport.store.getById(id).position),
+      ) === JSON.stringify(original)
+    );
+  }, before);
+  expect(errors).toEqual([]);
 });

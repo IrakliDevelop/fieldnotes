@@ -1,7 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createArrow, createNote, createStroke } from './element-factory';
 import { ElementStore } from './element-store';
-import { getHierarchyMove, moveHierarchy } from './hierarchy-ops';
+import {
+  captureHierarchyOrigins,
+  getHierarchyMove,
+  moveHierarchy,
+  restoreHierarchyOrigins,
+  updateExternalBoundArrows,
+} from './hierarchy-ops';
 
 function addTree(store: ElementStore): void {
   store.add({
@@ -25,12 +31,17 @@ function addTree(store: ElementStore): void {
 }
 
 describe('hierarchy operations', () => {
-  it('expands an unlocked root in stable DFS order and includes locked descendants once', () => {
+  it('canonicalizes overlap in either input order with stable DFS descendants', () => {
     const store = new ElementStore();
     addTree(store);
-    expect(
-      getHierarchyMove(['child', 'root'], store).elements.map((element) => element.id),
-    ).toEqual(['root', 'child', 'locked']);
+    for (const ids of [
+      ['child', 'root'],
+      ['root', 'child'],
+    ]) {
+      const move = getHierarchyMove(ids, store);
+      expect(move.roots.map((element) => element.id)).toEqual(['root']);
+      expect(move.elements.map((element) => element.id)).toEqual(['root', 'child', 'locked']);
+    }
   });
 
   it('does not move a locked direct root or an unknown id', () => {
@@ -86,5 +97,114 @@ describe('hierarchy operations', () => {
       { id: 'arrow', x: 15, y: 4 },
       { id: 'stroke', x: 13, y: 2 },
     ]);
+  });
+
+  it('includes inherited bound arrows but blocks them as direct roots', () => {
+    const store = new ElementStore();
+    const parent = {
+      ...createNote({ position: { x: 0, y: 0 }, layerId: 'a', index: 'a' }),
+      id: 'parent',
+    };
+    const arrow = {
+      ...createArrow({
+        layerId: 'a',
+        index: 'b',
+        parentId: 'parent',
+        position: { x: 10, y: 20 },
+        from: { x: 10, y: 20 },
+        to: { x: 30, y: 40 },
+        fromBinding: { elementId: 'parent', anchor: { x: 0.5, y: 0.5 } },
+      }),
+      id: 'arrow',
+    };
+    store.add(parent);
+    store.add(arrow);
+
+    expect(getHierarchyMove(['arrow'], store).elements).toEqual([]);
+    moveHierarchy(['parent'], 4, -3, store);
+    expect(store.getById('arrow')).toMatchObject({
+      position: { x: 14, y: 17 },
+      from: { x: 14, y: 17 },
+      to: { x: 34, y: 37 },
+    });
+    expect(store.getVersion('arrow')).toBe(1);
+  });
+
+  it('restores full arrow geometry and only refreshes external bound arrows', () => {
+    const store = new ElementStore();
+    const parent = {
+      ...createNote({
+        position: { x: 10, y: 20 },
+        size: { w: 80, h: 60 },
+        layerId: 'a',
+        index: 'a',
+      }),
+      id: 'parent',
+    };
+    const child = {
+      ...createArrow({
+        position: { x: 15, y: 25 },
+        from: { x: 15, y: 25 },
+        to: { x: 30, y: 40 },
+        fromBinding: { elementId: 'parent', anchor: { x: 0.5, y: 0.5 } },
+        parentId: 'parent',
+        layerId: 'a',
+        index: 'b',
+      }),
+      id: 'child',
+    };
+    const external = {
+      ...createArrow({
+        position: { x: 0, y: 0 },
+        from: { x: 0, y: 0 },
+        to: { x: 100, y: 100 },
+        fromBinding: { elementId: 'parent', anchor: { x: 0.5, y: 0.5 } },
+        layerId: 'a',
+        index: 'c',
+      }),
+      id: 'external',
+    };
+    store.add(parent);
+    store.add(child);
+    store.add(external);
+    const move = getHierarchyMove(['parent'], store);
+    const origins = captureHierarchyOrigins(move.elements);
+    moveHierarchy(['parent'], 7, 8, store);
+    updateExternalBoundArrows(
+      move.elements.map((element) => element.id),
+      store,
+    );
+    expect(store.getVersion('child')).toBe(1);
+    expect(store.getVersion('external')).toBe(1);
+    expect(store.getById('child')).toMatchObject({
+      position: { x: 22, y: 33 },
+      from: { x: 22, y: 33 },
+      to: { x: 37, y: 48 },
+    });
+    expect(store.getById('external')).toMatchObject({
+      position: { x: 57, y: 58 },
+      from: { x: 57, y: 58 },
+      to: { x: 100, y: 100 },
+    });
+    restoreHierarchyOrigins(origins, store);
+    updateExternalBoundArrows(origins.positions.keys(), store);
+    expect(store.getById('child')).toMatchObject({
+      position: { x: 15, y: 25 },
+      from: { x: 15, y: 25 },
+      to: { x: 30, y: 40 },
+    });
+    expect(store.getVersion('external')).toBe(2);
+    expect(store.getById('external')).toMatchObject({
+      position: { x: 50, y: 50 },
+      from: { x: 50, y: 50 },
+      to: { x: 100, y: 100 },
+    });
+  });
+
+  it('does not call updateMany for an empty movement closure', () => {
+    const store = new ElementStore();
+    const updateMany = vi.spyOn(store, 'updateMany');
+    moveHierarchy(['missing'], 1, 1, store);
+    expect(updateMany).not.toHaveBeenCalled();
   });
 });
