@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ElementHierarchy, validateHierarchy } from './element-hierarchy';
 import { ElementRegistry } from './element-registry';
 import type {
@@ -62,6 +62,180 @@ function extension(
 }
 
 describe('ElementHierarchy', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('projects nested clips independently, snapshots them, and preserves structural children', () => {
+    const registry = new ElementRegistry();
+    const rootClip = { x: 10, y: 10, w: 80, h: 80 };
+    registry.register<ExtensionElementEnvelope>({
+      type: 'test:clip-matrix',
+      legacyTypes: [],
+      renderMode: 'canvas',
+      decodeLegacy: (raw) => raw as ExtensionElementEnvelope,
+      validateData: () => true,
+      unwrap: (element) => element,
+      wrap: (element) => element,
+      bounds: () => ({ x: 0, y: 0, w: 100, h: 100 }),
+      clipBounds: (element) => (element.id === 'root' ? rootClip : { x: 40, y: 0, w: 80, h: 60 }),
+    });
+    const root = extension('root', { extensionType: 'test:clip-matrix' });
+    const child = extension('child', { extensionType: 'test:clip-matrix', parentId: root.id });
+    const grandchild = note('grandchild', { parentId: child.id });
+    const sibling = note('sibling', { parentId: root.id });
+    const hierarchy = new ElementHierarchy(
+      new Map([
+        [root.id, root],
+        [child.id, child],
+        [grandchild.id, grandchild],
+        [sibling.id, sibling],
+      ]),
+      registry,
+      new Map(),
+    );
+
+    expect(hierarchy.getEffectiveClip(root.id)).toBeNull();
+    expect(hierarchy.getEffectiveClip(child.id)).toEqual({ x: 10, y: 10, w: 80, h: 80 });
+    expect(hierarchy.getEffectiveClip(grandchild.id)).toEqual({ x: 40, y: 10, w: 50, h: 50 });
+    expect(hierarchy.getEffectiveClip(sibling.id)).toEqual({ x: 10, y: 10, w: 80, h: 80 });
+    rootClip.x = 999;
+    const copy = hierarchy.getEffectiveClip(child.id);
+    if (!copy) throw new Error('expected a clip');
+    copy.x = 999;
+    expect(hierarchy.getEffectiveClip(child.id)).toEqual({ x: 10, y: 10, w: 80, h: 80 });
+    expect(hierarchy.scene.map((element) => element.id)).toEqual([
+      'root',
+      'child',
+      'grandchild',
+      'sibling',
+    ]);
+    expect(hierarchy.getChildren(root.id).map((element) => element.id)).toEqual([
+      'child',
+      'sibling',
+    ]);
+    expect(hierarchy.getDescendants(root.id).map((element) => element.id)).toEqual([
+      'child',
+      'grandchild',
+      'sibling',
+    ]);
+  });
+
+  it('fails closed once per bad contributor without invoking clips during validation', () => {
+    const reportError = vi.fn();
+    vi.stubGlobal('reportError', reportError);
+    const registry = new ElementRegistry();
+    let calls = 0;
+    registry.register<ExtensionElementEnvelope>({
+      type: 'test:bad-clip',
+      legacyTypes: [],
+      renderMode: 'canvas',
+      decodeLegacy: (raw) => raw as ExtensionElementEnvelope,
+      validateData: () => true,
+      unwrap: (element) => element,
+      wrap: (element) => element,
+      bounds: () => ({ x: 0, y: 0, w: 100, h: 100 }),
+      clipBounds: (element) => {
+        calls++;
+        if (element.id === 'throw') throw new Error('bad clip');
+        return element.data as { x: number; y: number; w: number; h: number };
+      },
+    });
+    const cases = [
+      ['zero', { x: 0, y: 0, w: 0, h: 1 }],
+      ['nan', { x: Number.NaN, y: 0, w: 1, h: 1 }],
+      ['infinity', { x: 0, y: Infinity, w: 1, h: 1 }],
+      ['negative', { x: 0, y: 0, w: -1, h: 1 }],
+    ] as const;
+    for (const [id, data] of cases) {
+      const parent = extension(id, { extensionType: 'test:bad-clip', data });
+      const child = note(`${id}-child`, { parentId: id });
+      const hierarchy = new ElementHierarchy(
+        new Map([
+          [id, parent],
+          [child.id, child],
+        ]),
+        registry,
+        new Map(),
+      );
+      expect(() =>
+        validateHierarchy(
+          new Map([
+            [id, parent],
+            [child.id, child],
+          ]),
+          registry,
+        ),
+      ).not.toThrow();
+      expect(hierarchy.getEffectiveClip(child.id)).toBeUndefined();
+      expect(hierarchy.getEffectiveClip(child.id)).toBeUndefined();
+      expect(hierarchy.scene.map((element) => element.id)).toEqual([id, child.id]);
+    }
+    const throwing = extension('throw', { extensionType: 'test:bad-clip' });
+    const throwingChild = note('throw-child', { parentId: 'throw' });
+    const hierarchy = new ElementHierarchy(
+      new Map([
+        [throwing.id, throwing],
+        [throwingChild.id, throwingChild],
+      ]),
+      registry,
+      new Map(),
+    );
+    expect(calls).toBe(4);
+    expect(hierarchy.getEffectiveClip(throwingChild.id)).toBeUndefined();
+    expect(hierarchy.getEffectiveClip(throwingChild.id)).toBeUndefined();
+    expect(calls).toBe(5);
+    expect(reportError).toHaveBeenCalledTimes(4);
+  });
+
+  it('passes null and absent callbacks through and invalidates only changed extension ancestors', () => {
+    const registry = new ElementRegistry();
+    let calls = 0;
+    registry.register<ExtensionElementEnvelope>({
+      type: 'test:changing-clip',
+      legacyTypes: [],
+      renderMode: 'canvas',
+      decodeLegacy: (raw) => raw as ExtensionElementEnvelope,
+      validateData: () => true,
+      unwrap: (element) => element,
+      wrap: (element) => element,
+      bounds: () => ({ x: 0, y: 0, w: 1, h: 1 }),
+      clipBounds: (element) => {
+        calls++;
+        return element.data['none'] ? null : { x: element.position.x, y: 0, w: 10, h: 10 };
+      },
+    });
+    registry.register<ExtensionElementEnvelope>({
+      type: 'test:no-clip',
+      legacyTypes: [],
+      renderMode: 'canvas',
+      decodeLegacy: (raw) => raw as ExtensionElementEnvelope,
+      validateData: () => true,
+      unwrap: (element) => element,
+      wrap: (element) => element,
+      bounds: () => ({ x: 0, y: 0, w: 1, h: 1 }),
+    });
+    const root = extension('root', { extensionType: 'test:changing-clip' });
+    const middle = extension('middle', { extensionType: 'test:no-clip', parentId: root.id });
+    const child = note('child', { parentId: middle.id });
+    const leaf = note('leaf');
+    const hierarchy = new ElementHierarchy(
+      new Map([
+        [root.id, root],
+        [middle.id, middle],
+        [child.id, child],
+        [leaf.id, leaf],
+      ]),
+      registry,
+      new Map(),
+    );
+    expect(hierarchy.getEffectiveClip(child.id)).toEqual({ x: 0, y: 0, w: 10, h: 10 });
+    expect(calls).toBe(1);
+    hierarchy.replace(leaf, { ...leaf, text: 'unrelated' });
+    expect(hierarchy.getEffectiveClip(child.id)).toEqual({ x: 0, y: 0, w: 10, h: 10 });
+    expect(calls).toBe(1);
+    hierarchy.replace(root, { ...root, position: { x: 5, y: 0 } });
+    expect(hierarchy.getEffectiveClip(child.id)).toEqual({ x: 5, y: 0, w: 10, h: 10 });
+    expect(calls).toBe(2);
+  });
   it('projects ancestor clips lazily without masking the contributing parent', () => {
     const registry = new ElementRegistry();
     let calls = 0;

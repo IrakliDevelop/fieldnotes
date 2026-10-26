@@ -95,6 +95,23 @@ const markerDefinition: ElementTypeDefinition<MarkerElement> = {
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 describe('ElementRegistry', () => {
+  it('adapts typed clipBounds with one unwrap and leaves it absent when unspecified', () => {
+    const registry = new ElementRegistry();
+    const unwrap = vi.fn(markerDefinition.unwrap);
+    registry.register({
+      ...markerDefinition,
+      unwrap,
+      clipBounds: (element) => ({ x: element.position.x + 3, y: 7, w: 11, h: 13 }),
+    });
+    const adapter = registry.getAdapter('test:marker');
+    const envelope = makeMarkerEnvelope({ position: { x: 20, y: 30 } });
+    expect(adapter?.clipBounds?.(envelope)).toEqual({ x: 23, y: 7, w: 11, h: 13 });
+    expect(unwrap).toHaveBeenCalledTimes(1);
+    const noClip = new ElementRegistry();
+    noClip.register({ ...markerDefinition, type: 'test:no-clip', legacyTypes: [] });
+    expect(noClip.getAdapter('test:no-clip')?.clipBounds).toBeUndefined();
+  });
+
   it('keeps cache tokens internal and advances only for successful local or parent changes', () => {
     const parent = new ElementRegistry();
     const child = new ElementRegistry(parent);

@@ -276,6 +276,15 @@ describe('ElementActivation', () => {
   describe.each(POINTER_TYPES)('pointerType "%s"', (pointerType) => {
     const init: PointerEventInit = { pointerType };
 
+    it('rejects an outside-clip down and up for this pointer type', () => {
+      const h = createHarness({ gesture: 'single' });
+      addMarker(h.store, MARKER_A_WORLD);
+      vi.spyOn(h.store, 'getEffectiveClip').mockReturnValue({ x: 110, y: 110, w: 10, h: 10 });
+      tap(h.wrapper, clientOf({ x: 105, y: 105 }), init);
+      expect(h.events).toEqual([]);
+      h.dispose();
+    });
+
     it('fires on a single tap when gesture is single', () => {
       const h = createHarness({ gesture: 'single' });
       const marker = addMarker(h.store, MARKER_A_WORLD);

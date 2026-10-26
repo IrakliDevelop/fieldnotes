@@ -131,6 +131,34 @@ function makeText(overrides: Partial<TextElement> = {}): TextElement {
 }
 
 describe('ElementStore', () => {
+  it('rebuilds clip projection after local and inherited registry registration changes', () => {
+    const parentRegistry = new ElementRegistry();
+    const registry = new ElementRegistry(parentRegistry);
+    const store = new ElementStore(registry);
+    const root = clipExtension('root');
+    const child = makeNote({ id: 'child', parentId: root.id, position: { x: 12, y: 12 } });
+    store.add(root);
+    store.add(child);
+    expect(store.getEffectiveClip(child.id)).toBeUndefined();
+    expect(store.getAll().map((element) => element.id)).toEqual([root.id, child.id]);
+    parentRegistry.register({
+      type: 'test:clip',
+      legacyTypes: [],
+      renderMode: 'canvas',
+      decodeLegacy: (raw) => raw as never,
+      validateData: () => true,
+      unwrap: (element) => element,
+      wrap: (element) => element,
+      bounds: () => ({ x: 0, y: 0, w: 100, h: 100 }),
+      clipBounds: () => ({ x: 10, y: 10, w: 20, h: 20 }),
+    });
+    expect(store.getEffectiveClip(child.id)).toEqual({ x: 10, y: 10, w: 20, h: 20 });
+    expect(store.queryPoint({ x: 15, y: 15 }).map((element) => element.id)).toContain(child.id);
+    parentRegistry.unregister('test:clip');
+    expect(store.getEffectiveClip(child.id)).toBeUndefined();
+    expect(store.queryPoint({ x: 15, y: 15 }).map((element) => element.id)).not.toContain(child.id);
+  });
+
   it('queries only the positive-area visible intersection of a clipped descendant', () => {
     const store = new ElementStore(clipRegistry());
     const root = clipExtension('root');
