@@ -57,6 +57,8 @@ export {
   isWithinSyncLimits,
   applyOpToMap,
   LAYER_SYNC_PROTOCOL_VERSION,
+  LEGACY_SYNC_PROTOCOL_VERSION,
+  ELEMENT_HIERARCHY_CAPABILITY_VERSION,
   FOG_SYNC_PROTOCOL_VERSION,
   FOG_PATCH_MAX_TILES,
 } from './protocol';
@@ -78,6 +80,7 @@ export {
   createCurrentCapabilities,
   createAuthorityCapabilities,
   supportsAuthority,
+  supportsLegacyHierarchy,
   translateOpForPeer,
   DEFAULT_CAPABILITY_QUEUE_LIMIT,
 } from './capabilities';

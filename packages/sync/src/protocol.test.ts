@@ -21,6 +21,7 @@ import {
   parseLegacyEnvelope,
   isNewerVersion,
   isWithinSyncLimits,
+  elementWithinLimits,
   applyOpToMap,
   type LayerRecord,
   type SyncOp,
@@ -28,6 +29,7 @@ import {
   isValidFogMetaRecord,
   isValidFogSnapshot,
 } from './protocol';
+import { SYNC_LIMITS } from './limits';
 
 function shape(x = 0): CanvasElement {
   return createShape({ index: 'a0', position: { x, y: x }, size: { w: 10, h: 10 } });
@@ -102,6 +104,24 @@ describe('isValidElement', () => {
     ];
 
     for (const element of malformed) expect(isValidElement(element)).toBe(false);
+  });
+
+  it.each([
+    ['valid parent id', 'parent', true],
+    ['parent id at the limit', 'p'.repeat(SYNC_LIMITS.maxIdLength), true],
+    ['empty parent id', '', false],
+    ['non-string parent id', 1, false],
+    ['parent id one code unit over the limit', 'p'.repeat(SYNC_LIMITS.maxIdLength + 1), false],
+  ])('accepts %s: %s', (_name, parentId, expected) => {
+    const envelope = { from: 'A', op: { kind: 'upsert', element: { ...shape(), parentId } } };
+    expect(parseEnvelope(JSON.stringify(envelope)) !== null).toBe(expected);
+  });
+
+  it('keeps parentId within custom element limits', () => {
+    const limits = { ...SYNC_LIMITS, maxIdLength: 3 };
+    const element = { ...shape(), id: 'id', layerId: 'l' };
+    expect(elementWithinLimits({ ...element, parentId: 'top' }, limits)).toBe(true);
+    expect(elementWithinLimits({ ...element, parentId: 'root' }, limits)).toBe(false);
   });
 
   it.each([
@@ -206,6 +226,25 @@ describe('isValidEnvelope', () => {
         },
       }),
     ).toBe(false);
+  });
+
+  it.each([
+    [undefined, true],
+    [1, true],
+    [0, false],
+    [2, false],
+    ['1', false],
+    [null, false],
+  ])('validates an optional elementHierarchy marker of %j as %s', (elementHierarchy, expected) => {
+    const capabilities = {
+      protocolVersion: 3,
+      extensionKinds: [],
+      elementEnvelope: true,
+      ...(elementHierarchy === undefined ? {} : { elementHierarchy }),
+    };
+    expect(isValidEnvelope({ from: 'A', op: { kind: 'capabilities', capabilities } })).toBe(
+      expected,
+    );
   });
 
   it('accepts snapshot by shape only (even with a bad element inside)', () => {

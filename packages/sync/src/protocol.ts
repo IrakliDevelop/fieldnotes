@@ -36,6 +36,7 @@ export interface SyncCapabilities {
   protocolVersion: number;
   extensionKinds: string[];
   elementEnvelope: true;
+  readonly elementHierarchy?: 1;
   readonly authority?: 1;
   readonly authorityExtensions?: readonly AuthorityExtensionManifestEntry[];
   readonly opBatching?: 1;
@@ -48,6 +49,12 @@ export interface SyncCapabilities {
  * snapshot field, so mixed rooms degrade to today's element-only behavior.
  */
 export const LAYER_SYNC_PROTOCOL_VERSION = 1;
+
+/** Minimum legacy protocol revision that supports element parent-child relationships. */
+export const LEGACY_SYNC_PROTOCOL_VERSION = 3;
+
+/** Revision of the element hierarchy capability marker. */
+export const ELEMENT_HIERARCHY_CAPABILITY_VERSION = 1;
 
 /**
  * A versioned layer definition (or its tombstone, when `definition` is
@@ -152,6 +159,10 @@ export function isValidElement(el: unknown): el is SyncElement {
     typeof el['locked'] !== 'boolean' ||
     typeof el['layerId'] !== 'string' ||
     !isOptional(el['groupId'], isString) ||
+    !isOptional(
+      el['parentId'],
+      (value) => typeof value === 'string' && value.length > 0 && value.length <= maxIdLength,
+    ) ||
     !isOptional(el['rotation'], isFiniteNumber) ||
     !isOptional(el['audience'], isString) ||
     !isOptional(el['ownerId'], isString)
@@ -461,6 +472,7 @@ export function elementWithinLimits(el: DeepReadonly<SyncElement>, limits: Eleme
     !isAtMost(el.id, maxIdLength) ||
     !isAtMost(el.layerId, maxIdLength) ||
     !isAtMost(el.groupId, maxIdLength) ||
+    !isAtMost(el.parentId, maxIdLength) ||
     !isAtMost(el.editor, maxShortStringLength) ||
     !isAtMost(el.audience, maxShortStringLength) ||
     !isAtMost(el.ownerId, maxShortStringLength)
@@ -653,6 +665,7 @@ function isValidCapabilities(value: unknown): value is SyncCapabilities {
   }
   return (
     value['elementEnvelope'] === true &&
+    (value['elementHierarchy'] === undefined || value['elementHierarchy'] === 1) &&
     (!Object.prototype.hasOwnProperty.call(value, 'authority') || value['authority'] === 1) &&
     kinds.length <= 256 &&
     kinds.every((kind) => isBoundedString(kind, 128))
