@@ -509,12 +509,18 @@ describe('KeyboardActions.cut', () => {
 
     actions.duplicate();
 
-    const cloneParent = ctx.store
+    const clones = ctx.store
       .getAll()
-      .find((element) => element.id !== parent.id && !element.parentId);
-    const cloneChild = ctx.store
-      .getAll()
-      .find((element) => element.id !== child.id && element.parentId === cloneParent?.id);
+      .filter((element) => element.id !== parent.id && element.id !== child.id);
+    const [cloneParent] = clones.filter((element) => !element.parentId);
+    const [cloneChild] = clones.filter((element) => element.parentId === cloneParent?.id);
+    expect(ctx.store.count).toBe(4);
+    expect(clones).toHaveLength(2);
+    expect(clones.map((element) => element.position)).toEqual([
+      { x: 20, y: 20 },
+      { x: 25, y: 25 },
+    ]);
+    expect(new Set(clones.map((element) => element.id))).toHaveLength(2);
     expect(cloneParent).toBeDefined();
     expect(cloneChild).toBeDefined();
     expect(tool.selectedIds).toEqual([cloneParent?.id]);
@@ -1505,10 +1511,17 @@ describe('KeyboardActions extension cloneRemap', () => {
     };
     ctx.store.add(parent);
     ctx.store.add(link);
-    const sibling = {
-      ...createNote({ position: { x: 10, y: 10 }, size: { w: 10, h: 10 }, parentId: parent.id }),
+    const sibling: ExtensionElementEnvelope = {
       id: 'sibling',
+      type: 'extension',
+      extensionType: 'test:link',
+      position: { x: 10, y: 10 },
+      index: 'a2',
+      version: 1,
+      locked: false,
       layerId: 'layer-1',
+      parentId: parent.id,
+      data: { targetId: link.id },
     };
     const grandchild = {
       ...createNote({ position: { x: 8, y: 8 }, size: { w: 5, h: 5 }, parentId: link.id }),
@@ -1520,32 +1533,72 @@ describe('KeyboardActions extension cloneRemap', () => {
     const adapter = registry.getAdapter('test:link');
     if (!adapter) throw new Error('missing adapter');
     const maps: ReadonlyMap<string, string>[] = [];
+    const returnedData = { targetId: 'after' };
+    const validateEnvelope = adapter.validateEnvelope;
+    adapter.validateEnvelope = (element) => {
+      element.data['validatorMutation'] = true;
+      return validateEnvelope(element);
+    };
     adapter.cloneRemap = (element, idMap) => {
       maps.push(new Map(idMap));
+      const mutableElement = element as unknown as {
+        id: string;
+        parentId?: string;
+        position: { x: number; y: number };
+        data: Record<string, unknown>;
+      };
+      mutableElement.id = 'attacker-id';
+      mutableElement.parentId = parent.id;
+      mutableElement.position.x = 999;
+      mutableElement.data['targetId'] = 'attacker-data';
+      const mutableMap = idMap as Map<string, string>;
+      mutableMap.set(parent.id, 'attacker-parent');
+      mutableMap.delete(link.id);
+      mutableMap.set('attacker-id', 'attacker-clone');
       return {
         ...element,
         id: 'attacker-id',
         parentId: parent.id,
-        data: { targetId: 'after' },
+        data: returnedData,
       } as ExtensionElementEnvelope;
     };
     tool.setSelection([parent.id]);
 
     actions.duplicate();
 
-    const parentClone = ctx.store.getById(maps[0]?.get(parent.id) ?? '');
-    const linkClone = ctx.store.getById(maps[0]?.get(link.id) ?? '');
+    const expectedSourceIds = [parent.id, link.id, sibling.id, grandchild.id];
+    const [firstMap, secondMap] = maps;
+    if (!firstMap || !secondMap) throw new Error('clone remaps did not receive id maps');
+    const parentClone = ctx.store.getById(firstMap.get(parent.id) ?? '');
+    const linkClone = ctx.store.getById(firstMap.get(link.id) ?? '');
+    const siblingClone = ctx.store.getById(firstMap.get(sibling.id) ?? '');
+    const grandchildClone = ctx.store.getById(firstMap.get(grandchild.id) ?? '');
+    returnedData.targetId = 'mutated-after-clone';
+
+    expect(ctx.store.getById('attacker-id')).toBeUndefined();
     expect(parentClone).toBeDefined();
-    expect(linkClone).toMatchObject({ parentId: parentClone?.id, data: { targetId: 'after' } });
-    expect(linkClone?.id).not.toBe('attacker-id');
+    expect(linkClone).toMatchObject({
+      parentId: parentClone?.id,
+      position: { x: 25, y: 25 },
+      data: { targetId: 'after' },
+    });
+    expect(siblingClone).toMatchObject({
+      parentId: parentClone?.id,
+      position: { x: 30, y: 30 },
+      data: { targetId: 'after' },
+    });
+    expect(grandchildClone).toMatchObject({ parentId: linkClone?.id });
+    expect(linkClone?.data).not.toHaveProperty('validatorMutation');
+    expect(siblingClone?.data).not.toHaveProperty('validatorMutation');
     expect(tool.selectedIds).toEqual([parentClone?.id]);
-    const map = maps[0];
-    if (!map) throw new Error('clone remap did not receive an id map');
-    expect(map.size).toBe(4);
-    expect([...map.keys()].sort()).toEqual([parent.id, link.id, sibling.id, grandchild.id].sort());
-    const cloneIds = [...map.values()];
-    expect(new Set(cloneIds).size).toBe(4);
-    expect(cloneIds.every((id) => ctx.store.getById(id) !== undefined)).toBe(true);
+    expect([...tool.selectedIds].every((id) => ctx.store.getById(id) !== undefined)).toBe(true);
+    expect(maps).toHaveLength(2);
+    expect(secondMap).toEqual(firstMap);
+    for (const map of maps) {
+      expect(map.size).toBe(4);
+      expect([...map.keys()].sort()).toEqual(expectedSourceIds.sort());
+      expect([...map.values()].every((id) => ctx.store.getById(id) !== undefined)).toBe(true);
+    }
   });
 
   it('rejects invalid remapped data before adding a clone or recording history', () => {

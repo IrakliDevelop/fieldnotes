@@ -328,10 +328,6 @@ export class KeyboardActions {
       if (el.groupId && !groupIdMap.has(el.groupId)) groupIdMap.set(el.groupId, createId('group'));
     }
 
-    const sourceIds = new Set(source.map((element) => element.id));
-    const rootIds = source
-      .filter((element) => element.parentId === undefined || !sourceIds.has(element.parentId))
-      .map((element) => element.id);
     const clones: CanvasElement[] = [];
     for (const el of source) {
       const clone = structuredClone(el);
@@ -382,9 +378,12 @@ export class KeyboardActions {
       if (clone.type === 'extension') {
         const adapter = sel.ctx.elementRegistry?.getAdapter(clone.extensionType);
         if (adapter) {
-          const remapped = adapter.cloneRemap?.(clone, idMap);
-          const prepared = { ...clone, data: remapped?.data ?? clone.data };
-          if (!adapter.validateEnvelope(prepared)) {
+          const remapped = adapter.cloneRemap?.(structuredClone(clone), new Map(idMap));
+          const prepared = {
+            ...clone,
+            data: remapped ? structuredClone(remapped.data) : clone.data,
+          };
+          if (!adapter.validateEnvelope(structuredClone(prepared))) {
             throw new Error(`Invalid cloned extension data for "${clone.extensionType}"`);
           }
           added = prepared;
@@ -407,12 +406,10 @@ export class KeyboardActions {
     this.inHistory(() => {
       for (const clone of clones) sel.ctx.store.add(clone);
     });
-    sel.tool.setSelection(
-      rootIds.flatMap((id) => {
-        const cloneId = idMap.get(id);
-        return cloneId ? [cloneId] : [];
-      }),
-    );
+    const selectedRoots = clones
+      .filter((clone) => clone.parentId === undefined || !cloneIds.has(clone.parentId))
+      .map((clone) => clone.id);
+    sel.tool.setSelection(selectedRoots);
     sel.ctx.requestRender();
   }
 }
