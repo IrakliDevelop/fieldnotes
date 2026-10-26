@@ -18,7 +18,7 @@ test.describe('visual regression', () => {
 
     await canvasPage.page.addStyleTag({
       content:
-        '#toolbar, #info, #layers-panel, #empty-hint, #toast-container, #shape-panel, #text-panel, #note-panel, #grid-panel, #template-panel, #measure-panel { visibility: hidden !important; }',
+        '#toolbar, #info, #layers-panel, #empty-hint, #toast-container, #shape-panel, #text-panel, #note-panel, #grid-panel, #template-panel, #measure-panel, #zorder-panel, [data-fieldnotes-minimap] { visibility: hidden !important; }',
     });
 
     await expect(wrapper).toHaveScreenshot('canvas-with-shape.png', {

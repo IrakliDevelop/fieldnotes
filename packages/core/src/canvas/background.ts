@@ -61,8 +61,8 @@ export class Background {
 
     const spacing = this.adaptSpacing(this.spacing, camera.zoom);
     const keyZoom = camera.zoom;
-    const keyX = Math.floor(camera.position.x % spacing);
-    const keyY = Math.floor(camera.position.y % spacing);
+    const keyX = camera.position.x % spacing;
+    const keyY = camera.position.y % spacing;
 
     if (
       this.cachedCanvas !== null &&
@@ -72,7 +72,7 @@ export class Background {
       cssWidth === this.lastWidth &&
       cssHeight === this.lastHeight
     ) {
-      ctx.drawImage(this.cachedCanvas as CanvasImageSource, 0, 0);
+      ctx.drawImage(this.cachedCanvas as CanvasImageSource, 0, 0, cssWidth, cssHeight);
       ctx.restore();
       return;
     }
@@ -104,7 +104,7 @@ export class Background {
     this.lastWidth = cssWidth;
     this.lastHeight = cssHeight;
 
-    ctx.drawImage(this.cachedCanvas as CanvasImageSource, 0, 0);
+    ctx.drawImage(this.cachedCanvas as CanvasImageSource, 0, 0, cssWidth, cssHeight);
     ctx.restore();
   }
 

@@ -6,6 +6,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### Core 0.99.1 — background pattern stays put
+
+**Fixed**
+
+- On screens with a device pixel ratio other than 1, the dot and grid background was drawn
+  scaled by the ratio twice, so it slid against the content while panning and zooming. It now
+  stays fixed to the canvas.
+- A pan of less than one pixel now redraws the background, so it no longer lags behind the
+  content.
+
 ### Core 0.99.0 — select drag observers
 
 **Added**
