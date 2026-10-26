@@ -58,6 +58,7 @@ export interface RenderLoopDeps {
   marginViewport: MarginViewport;
   hybridSurface: HybridRenderSurface;
   hooks?: RenderHooks;
+  onFullFrame?: () => void;
 }
 
 export class RenderLoop {
@@ -76,6 +77,7 @@ export class RenderLoop {
   private readonly marginViewport: MarginViewport;
   private readonly hybridSurface: HybridRenderSurface;
   private readonly hooks?: RenderHooks;
+  private readonly onFullFrame?: () => void;
   private readonly stats = new RenderStats();
   private layerGroups = new Map<string, CanvasElement[]>();
   private htmlScratchCanvas: HTMLCanvasElement | null = null;
@@ -111,6 +113,7 @@ export class RenderLoop {
     this.marginViewport = deps.marginViewport;
     this.hybridSurface = deps.hybridSurface;
     this.hooks = deps.hooks;
+    this.onFullFrame = deps.onFullFrame;
   }
 
   requestRender(): void {
@@ -878,5 +881,6 @@ export class RenderLoop {
       compositeMs: timers.compositeMs,
       overlayMs,
     });
+    this.onFullFrame?.();
   }
 }

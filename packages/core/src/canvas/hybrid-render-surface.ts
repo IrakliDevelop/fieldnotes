@@ -1,11 +1,21 @@
+import type { CanvasWatch } from './context-loss-guard';
+
+const noop = (): void => undefined;
+
 export class HybridRenderSurface {
   private readonly canvases = new Map<number, HTMLCanvasElement>();
+  private readonly watches = new Map<HTMLCanvasElement, () => void>();
 
-  constructor(private readonly root: HTMLDivElement) {}
+  constructor(
+    private readonly root: HTMLDivElement,
+    private readonly watch?: CanvasWatch,
+  ) {}
 
   beginFrame(activeOrders: ReadonlySet<number>, width: number, height: number): void {
     for (const [order, canvas] of this.canvases) {
       if (!activeOrders.has(order)) {
+        this.watches.get(canvas)?.();
+        this.watches.delete(canvas);
         canvas.remove();
         this.canvases.delete(order);
       }
@@ -24,7 +34,11 @@ export class HybridRenderSurface {
   }
 
   clear(): void {
-    for (const canvas of this.canvases.values()) canvas.remove();
+    for (const canvas of this.canvases.values()) {
+      this.watches.get(canvas)?.();
+      canvas.remove();
+    }
+    this.watches.clear();
     this.canvases.clear();
   }
 
@@ -43,6 +57,16 @@ export class HybridRenderSurface {
     });
     this.root.appendChild(canvas);
     this.canvases.set(order, canvas);
+    this.watches.set(
+      canvas,
+      this.watch?.(canvas, () => {
+        if (this.canvases.get(order) !== canvas) return;
+        this.canvases.delete(order);
+        this.watches.get(canvas)?.();
+        this.watches.delete(canvas);
+        canvas.remove();
+      }) ?? noop,
+    );
     return canvas;
   }
 }

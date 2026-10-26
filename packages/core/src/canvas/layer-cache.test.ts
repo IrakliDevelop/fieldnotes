@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { LayerCache } from './layer-cache';
 import { MarginViewport } from './margin-viewport';
 
@@ -132,5 +132,27 @@ describe('LayerCache', () => {
     const canvas = testCache.getCanvas('layer1');
     expect(canvas.width).toBe(testMv.physicalWidth()); // 1312
     expect(canvas.height).toBe(testMv.physicalHeight()); // 1112
+  });
+
+  it('disposes watches when split parts are superseded, retained, cleared, or restored', () => {
+    const dispose = vi.fn();
+    let restore: (() => void) | undefined;
+    const watched = new LayerCache(mv, (_canvas, callback) => {
+      restore = callback;
+      return dispose;
+    });
+    watched.getCanvas('one', 'under');
+    watched.markClean('one');
+    expect(dispose).toHaveBeenCalledOnce();
+    watched.getCanvas('two');
+    watched.retain(() => false);
+    expect(dispose).toHaveBeenCalledTimes(2);
+    watched.getCanvas('three');
+    const restored = watched.getCanvas('three');
+    restore?.();
+    expect(dispose).toHaveBeenCalledTimes(3);
+    expect(watched.getCanvas('three')).not.toBe(restored);
+    watched.clear();
+    expect(dispose).toHaveBeenCalledTimes(4);
   });
 });

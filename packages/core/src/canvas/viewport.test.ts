@@ -132,6 +132,27 @@ describe('Viewport', () => {
     expect(container.querySelector('canvas')).toBeNull();
   });
 
+  it('keeps the context-loss mask through restore until a full frame and removes listeners on destroy', () => {
+    const viewport = new Viewport(container);
+    const wrapper = wrapperOf(container);
+    const canvas = wrapper.querySelector<HTMLCanvasElement>(':scope > canvas');
+    if (!canvas) throw new Error('base canvas not found');
+
+    canvas.dispatchEvent(new Event('contextlost', { cancelable: true }));
+    const mask = wrapper.querySelector('[data-fieldnotes-context-loss-mask]');
+    expect(mask).not.toBeNull();
+    canvas.dispatchEvent(new Event('contextrestored'));
+    expect(wrapper.contains(mask)).toBe(true);
+
+    (
+      viewport as unknown as { contextLossGuard: { frameComplete(): void } }
+    ).contextLossGuard.frameComplete();
+    expect(wrapper.contains(mask)).toBe(false);
+    viewport.destroy();
+    canvas.dispatchEvent(new Event('contextlost', { cancelable: true }));
+    expect(wrapper.querySelector('[data-fieldnotes-context-loss-mask]')).toBeNull();
+  });
+
   it('destroy twice is a no-op', () => {
     const dispose = vi.fn();
     const viewport = new Viewport(container, {

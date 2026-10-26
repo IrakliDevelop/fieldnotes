@@ -232,6 +232,47 @@ describe('RenderLoop', () => {
     expect(deps.background.render).toHaveBeenCalledWith(expect.anything(), deps.camera);
   });
 
+  it('notifies after a successful full frame', () => {
+    const complete = vi.fn();
+    const loop = new RenderLoop({ ...deps, onFullFrame: complete });
+    loop.requestRender();
+    loop.flush();
+    expect(complete).toHaveBeenCalledOnce();
+  });
+
+  it('does not notify for an overlay-only frame', () => {
+    const complete = vi.fn();
+    const renderOverlay = vi.fn();
+    const loop = new RenderLoop({ ...deps, onFullFrame: complete });
+    (deps.toolManager as { activeTool: unknown }).activeTool = { renderOverlay };
+    loop.requestRender();
+    loop.flush();
+    loop.requestOverlayRender();
+    loop.flush();
+    expect(complete).toHaveBeenCalledOnce();
+    expect(renderOverlay).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not notify when the base canvas has no context', () => {
+    const complete = vi.fn();
+    Object.defineProperty(deps.canvasEl, 'getContext', { value: () => null });
+    const loop = new RenderLoop({ ...deps, onFullFrame: complete });
+    loop.requestRender();
+    loop.flush();
+    expect(complete).not.toHaveBeenCalled();
+  });
+
+  it('does not notify when a full frame throws', () => {
+    const complete = vi.fn();
+    vi.mocked(deps.background.render).mockImplementation(() => {
+      throw new Error('render failed');
+    });
+    const loop = new RenderLoop({ ...deps, onFullFrame: complete });
+    loop.requestRender();
+    expect(() => loop.flush()).toThrow('render failed');
+    expect(complete).not.toHaveBeenCalled();
+  });
+
   it('calls renderCanvasElement for non-DOM elements', () => {
     renderLoop.requestRender();
     renderLoop.flush();

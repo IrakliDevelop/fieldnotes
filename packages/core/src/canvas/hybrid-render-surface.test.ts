@@ -21,4 +21,25 @@ describe('HybridRenderSurface', () => {
     expect(first?.width).toBe(1600);
     expect(root.querySelector('canvas[data-paint-order="4"]')).toBeNull();
   });
+
+  it('disposes watches when canvases leave a frame, restore, or clear', () => {
+    const root = document.createElement('div');
+    const dispose = vi.fn();
+    let restore: (() => void) | undefined;
+    const surface = new HybridRenderSurface(root, (_canvas, callback) => {
+      restore = callback;
+      return dispose;
+    });
+    surface.beginFrame(new Set([2]), 800, 600);
+    restore?.();
+    expect(dispose).toHaveBeenCalledOnce();
+    expect(root.querySelector('canvas')).toBeNull();
+    surface.beginFrame(new Set([4]), 800, 600);
+    surface.beginFrame(new Set(), 800, 600);
+    expect(dispose).toHaveBeenCalledTimes(2);
+    surface.beginFrame(new Set([6]), 800, 600);
+    expect(root.querySelector('canvas[data-paint-order="6"]')).not.toBeNull();
+    surface.clear();
+    expect(dispose).toHaveBeenCalledTimes(3);
+  });
 });

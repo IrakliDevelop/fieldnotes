@@ -1,4 +1,5 @@
 import type { Camera } from './camera';
+import type { CanvasWatch } from './context-loss-guard';
 
 export type BackgroundPattern = 'dots' | 'grid' | 'none';
 
@@ -33,6 +34,27 @@ export class Background {
   private lastOffsetY = -Infinity;
   private lastWidth = 0;
   private lastHeight = 0;
+  private watchDispose: (() => void) | null = null;
+
+  setCanvasWatcher(watch: CanvasWatch): void {
+    this.watchDispose?.();
+    this.watchDispose = this.cachedCanvas
+      ? watch(this.cachedCanvas, () => this.discardCache(true))
+      : null;
+    this.watch = watch;
+  }
+
+  invalidate(): void {
+    this.lastZoom = -1;
+  }
+
+  dispose(): void {
+    this.watchDispose?.();
+    this.watchDispose = null;
+    this.discardCache();
+  }
+
+  private watch: CanvasWatch | null = null;
 
   constructor(options: BackgroundOptions = {}) {
     this.pattern = options.pattern ?? DEFAULTS.pattern;
@@ -120,6 +142,8 @@ export class Background {
     const physWidth = Math.round(cssWidth * dpr);
     const physHeight = Math.round(cssHeight * dpr);
 
+    this.watchDispose?.();
+    this.watchDispose = null;
     if (typeof OffscreenCanvas !== 'undefined') {
       this.cachedCanvas = new OffscreenCanvas(physWidth, physHeight);
     } else if (typeof document !== 'undefined') {
@@ -139,9 +163,26 @@ export class Background {
       (offCtx as CanvasRenderingContext2D).scale(dpr, dpr);
     }
     this.cachedCtx = offCtx as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+    if (this.cachedCanvas && this.watch) {
+      this.watchDispose = this.watch(this.cachedCanvas, () => this.discardCache(true));
+    }
 
     // Force re-render on next frame since canvas was recreated
     this.lastZoom = -1;
+  }
+
+  private discardCache(disposeWatch = false): void {
+    if (disposeWatch) {
+      this.watchDispose?.();
+      this.watchDispose = null;
+    }
+    this.cachedCanvas = null;
+    this.cachedCtx = null;
+    this.lastZoom = -1;
+    this.lastOffsetX = -Infinity;
+    this.lastOffsetY = -Infinity;
+    this.lastWidth = 0;
+    this.lastHeight = 0;
   }
 
   private adaptSpacing(baseSpacing: number, zoom: number): number {

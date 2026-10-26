@@ -73,6 +73,7 @@ import { PluginHost } from './plugin-host';
 import type { RequiredCapabilities, ViewportPlugin } from './viewport-plugin';
 import type { ServiceKey } from '../core/service-key';
 import { reportFailure } from '../core/report-failure';
+import { ContextLossGuard } from './context-loss-guard';
 export type {
   PluginConfigureContext,
   PluginStartContext,
@@ -154,6 +155,7 @@ export class Viewport {
   private readonly canvasEl: HTMLCanvasElement;
   private readonly paintStack: HTMLDivElement;
   private readonly wrapper: HTMLDivElement;
+  private readonly contextLossGuard: ContextLossGuard;
   private readonly disposers: (() => void)[] = [];
   private readonly actionRegistry: ActionRegistry;
   private readonly inputHandler: InputHandler;
@@ -316,6 +318,12 @@ export class Viewport {
     this.wrapper.appendChild(this.domLayer);
     this.container.appendChild(this.wrapper);
     this.disposers.push(() => this.wrapper.remove());
+    this.contextLossGuard = new ContextLossGuard(this.wrapper, () => {
+      this.background.invalidate();
+      this.renderLoop.markAllLayersDirty();
+      this.renderLoop.requestRender();
+    });
+    this.background.setCanvasWatcher(this.contextLossGuard.watch);
 
     this._renderHooks = createRenderHooks();
     this.pluginStateManager = new PluginStateManager(() => this.suspendNotifications());
@@ -466,9 +474,10 @@ export class Viewport {
       this.canvasEl.clientHeight || 600,
       typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1,
     );
-    this.layerCache = new LayerCache(this.marginViewport);
-    this.hybridSurface = new HybridRenderSurface(this.paintStack);
+    this.layerCache = new LayerCache(this.marginViewport, this.contextLossGuard.watch);
+    this.hybridSurface = new HybridRenderSurface(this.paintStack, this.contextLossGuard.watch);
     this.disposers.push(
+      () => this.background.dispose(),
       () => this.layerCache.clear(),
       () => this.hybridSurface.clear(),
     );
@@ -486,7 +495,10 @@ export class Viewport {
       marginViewport: this.marginViewport,
       hybridSurface: this.hybridSurface,
       hooks: this._renderHooks,
+      onFullFrame: () => this.contextLossGuard.frameComplete(),
     });
+    this.disposers.push(this.contextLossGuard.watch(this.canvasEl, () => undefined));
+    this.disposers.push(() => this.contextLossGuard.dispose());
     this.disposers.push(
       () => this.renderLoop.stop(),
       this.htmlPainters.onChange(() => this.onHtmlRegistryChanged()),
