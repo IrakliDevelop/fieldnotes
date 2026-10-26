@@ -119,7 +119,7 @@ export function getHexCellsInRadius(
   const off = pixelToOffset(center.x, center.y, cellSize, orientation);
   const cube = offsetToCube(off.col, off.row, orientation);
   if (n <= 0) {
-    return [getHexCellCenter(center, cellSize, orientation)];
+    return [offsetToPixel(off.col, off.row, cellSize, orientation)];
   }
   return enumerateHexRing(cube.q, cube.r, n, orientation, cellSize);
 }
@@ -134,7 +134,7 @@ export function getHexCellsInCone(
   const n = Math.round(radiusCells);
   const off = pixelToOffset(center.x, center.y, cellSize, orientation);
   const cube = offsetToCube(off.col, off.row, orientation);
-  const centerPixel = getHexCellCenter(center, cellSize, orientation);
+  const centerPixel = offsetToPixel(off.col, off.row, cellSize, orientation);
 
   if (n <= 0) return [centerPixel];
 
@@ -183,7 +183,7 @@ export function getHexCellsInLine(
   const n = Math.round(radiusCells);
   const off = pixelToOffset(center.x, center.y, cellSize, orientation);
   const cube = offsetToCube(off.col, off.row, orientation);
-  const centerPixel = getHexCellCenter(center, cellSize, orientation);
+  const centerPixel = offsetToPixel(off.col, off.row, cellSize, orientation);
 
   if (n <= 0) return [centerPixel];
 
@@ -236,7 +236,7 @@ export function getHexCellsInRectangle(
   const wCells = Math.max(1, Math.round(widthCells));
   const off = pixelToOffset(center.x, center.y, cellSize, orientation);
   const cube = offsetToCube(off.col, off.row, orientation);
-  const centerPixel = getHexCellCenter(center, cellSize, orientation);
+  const centerPixel = offsetToPixel(off.col, off.row, cellSize, orientation);
 
   if (nLen <= 0) return [centerPixel];
 
@@ -285,7 +285,7 @@ export function getHexCellsInSquare(
   const n = Math.round(radiusCells);
   const off = pixelToOffset(center.x, center.y, cellSize, orientation);
   const cube = offsetToCube(off.col, off.row, orientation);
-  const centerPixel = getHexCellCenter(center, cellSize, orientation);
+  const centerPixel = offsetToPixel(off.col, off.row, cellSize, orientation);
 
   if (n <= 0) return [centerPixel];
 

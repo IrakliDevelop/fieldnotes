@@ -13,7 +13,7 @@ import {
 } from '../grid/hex-fill';
 import { renderTemplateFeetLabel } from './template-measure';
 
-/** Default cell size (world units) when no constraint service is active. Matches the demo's default grid size. */
+/** Default cell size (world units) when the constraint service reports no grid. Matches the demo's default grid size. */
 const FALLBACK_CELL_SIZE = 24;
 
 const MIN_RECT_WIDTH = 20;
@@ -178,7 +178,13 @@ export class TemplateTool implements Tool {
     const radius = this.computeRadius();
     if (radius <= 0) return;
 
-    if (this.gridType === 'hex' && this.hexOrientation && this.renderStyle !== 'geometric') {
+    if (
+      this.gridType === 'hex' &&
+      this.hexOrientation &&
+      this.renderStyle !== 'geometric' &&
+      Number.isFinite(this.gridSize) &&
+      this.gridSize > 0
+    ) {
       this.renderHexOverlay(ctx, radius);
       return;
     }

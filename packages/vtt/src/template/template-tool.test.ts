@@ -43,7 +43,7 @@ function recordingCtx(): { ctx: CanvasRenderingContext2D; paths: Point[][] } {
   return { ctx, paths };
 }
 
-function hexGridContext(active: boolean): { ctx: ToolContext; store: ElementStore } {
+function hexGridContext(active: boolean, cellSize = 48): { ctx: ToolContext; store: ElementStore } {
   const registry = new ElementRegistry();
   registerVttElementTypes(registry);
   const store = new ElementStore();
@@ -52,8 +52,8 @@ function hexGridContext(active: boolean): { ctx: ToolContext; store: ElementStor
     new GridConstraintService(() => ({
       gridType: 'hex',
       hexOrientation: 'pointy',
-      cellSize: 48,
-      cellRadius: 48,
+      cellSize,
+      cellRadius: cellSize,
     })),
   );
   constraintService.setActive(active);
@@ -97,6 +97,19 @@ describe('TemplateTool', () => {
       position: { x: 1000, y: 390 },
       data: { radius: 200 },
     });
+  });
+
+  it('draws the geometric preview when a hex grid reports a zero cell size', () => {
+    const { ctx } = hexGridContext(false, 0);
+    const tool = new TemplateTool({ templateShape: 'circle' });
+    tool.onPointerDown(pointer(1000, 390), ctx);
+    tool.onPointerMove(pointer(1200, 390), ctx);
+
+    const { ctx: canvas } = recordingCtx();
+    const arc = vi.spyOn(canvas, 'arc');
+    tool.renderOverlay(canvas);
+
+    expect(arc).toHaveBeenCalledWith(1000, 390, 200, 0, Math.PI * 2);
   });
 
   it('snaps the origin and radius to the hex grid when grid snapping is active', () => {
