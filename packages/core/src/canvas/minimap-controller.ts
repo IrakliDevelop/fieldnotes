@@ -338,6 +338,7 @@ export class MinimapController {
     for (const el of elements) {
       const clip = this.viewport.store.getEffectiveClip(el.id);
       if (clip === undefined) continue;
+      if (clip && (clip.w <= 0 || clip.h <= 0)) continue;
       const visualBounds = getElementVisualBounds(el, this.viewport.elementRegistry);
       if (
         clip &&
