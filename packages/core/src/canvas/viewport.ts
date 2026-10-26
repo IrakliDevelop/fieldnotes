@@ -1048,6 +1048,16 @@ export class Viewport {
     return existingIds.length;
   }
 
+  /** Sets an element's direct parent, or clears its parent when passed null. */
+  setParent(childId: string, parentId: string | null): void {
+    const child = this.store.getById(childId);
+    if (!child || child.parentId === (parentId ?? undefined)) return;
+    this.transaction(() => {
+      this.store.update(childId, { parentId: parentId ?? undefined });
+    });
+    this.requestRender();
+  }
+
   undo(): boolean {
     this.inputHandler.flushPendingHistory();
     this.historyRecorder.pause();
