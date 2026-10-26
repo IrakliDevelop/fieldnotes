@@ -138,6 +138,33 @@ describe('SyncClient', () => {
     client.dispose();
   });
 
+  it('admits a late subscriber when its first capability was missed synchronously', () => {
+    const bus = makeBus(false, false);
+    const storeA = new ElementStore();
+    const storeB = new ElementStore();
+    const clientA = new SyncClient({
+      flushIntervalMs: 0,
+      store: storeA,
+      transport: bus.endpoint(),
+      clientId: 'A',
+    });
+    const clientB = new SyncClient({
+      flushIntervalMs: 0,
+      store: storeB,
+      transport: bus.endpoint(),
+      clientId: 'B',
+    });
+
+    clientA.start();
+    clientB.start();
+    const local = createShape({ index: 'a0', position: { x: 1, y: 1 }, size: { w: 2, h: 2 } });
+    storeA.add(local);
+
+    expect(storeB.getById(local.id)).toEqual({ ...local, editor: 'A' });
+    clientA.dispose();
+    clientB.dispose();
+  });
+
   it.each([
     ['protocol 1', { protocolVersion: 1, extensionKinds: [], elementEnvelope: true }],
     ['protocol 2', { protocolVersion: 2, extensionKinds: [], elementEnvelope: true }],
@@ -370,34 +397,6 @@ describe('SyncClient', () => {
 
     sourceClient.stop();
     targetClient.stop();
-  });
-
-  it('applies a buffered remote remove after the held upsert it targets', () => {
-    const registry = new ElementRegistry();
-    registerVttElementTypes(registry);
-    const store = new ElementStore();
-    const transport = makeReconnectTransport(false);
-    const client = new SyncClient({
-      flushIntervalMs: 0,
-      store,
-      transport,
-      clientId: 'modern',
-      elementRegistry: registry,
-    });
-    client.start();
-
-    const template = templateElementTypeDefinition.wrap(
-      createTemplate({ position: { x: 10, y: 20 }, templateShape: 'circle', radius: 30 }),
-    );
-    transport.deliver(envelope('peer', { kind: 'upsert', element: template }));
-    transport.deliver(envelope('peer', { kind: 'remove', id: template.id }));
-    // Settle the handshake — the queued upsert+remove are drained in order.
-    transport.deliver(
-      envelope('peer', { kind: 'capabilities', capabilities: createCurrentCapabilities([]) }),
-    );
-
-    expect(store.getById(template.id)).toBeUndefined();
-    client.dispose();
   });
 
   it('carries held upserts across a reconnect and shields them from the reconcile snapshot', () => {

@@ -255,6 +255,25 @@ describe('SyncClient outgoing queue', () => {
     expect(sentKinds().slice(-2)).toEqual(['upsert', 'request-snapshot']);
   });
 
+  it('batches queued element edits after the queued snapshot request on opBatching admission', () => {
+    const { store, capabilities, frames } = setup();
+    store.add(shape('x'));
+    store.add(shape('y'));
+    vi.advanceTimersByTime(50);
+
+    capabilities('hub', true);
+
+    expect(frames.map(({ op }) => op)).toContainEqual({ kind: 'request-snapshot' });
+    expect(frames.map(({ op }) => op)).toContainEqual({
+      kind: 'batch',
+      ops: [
+        expect.objectContaining({ kind: 'upsert', element: expect.objectContaining({ id: 'x' }) }),
+        expect.objectContaining({ kind: 'upsert', element: expect.objectContaining({ id: 'y' }) }),
+      ],
+    });
+    expect(frames.map(({ op }) => op.kind).slice(-2)).toEqual(['request-snapshot', 'batch']);
+  });
+
   it('flushes the queue before answering a snapshot request', () => {
     const { store, deliver, capabilities, sentKinds } = setup();
     capabilities('P');

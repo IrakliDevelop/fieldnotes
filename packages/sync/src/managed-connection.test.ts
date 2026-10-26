@@ -63,9 +63,10 @@ class FakeTransport implements ManagedSyncTransport {
     for (const handler of [...this.messageHandlers]) handler(raw);
   }
 
-  emitReconnect(): void {
+  emitReconnect(frame?: string): void {
     this.admitted = false;
     for (const handler of [...this.reconnectHandlers]) handler();
+    if (frame) this.emitMessage(frame);
   }
 
   emitClose(code: number, reason = ''): void {
@@ -399,10 +400,11 @@ describe('createManagedSyncConnection', () => {
     transport.emitMessage(snapshotFor(CLIENT_ID));
     expect(connection?.getStatus()).toBe('live');
 
+    const stale = createNote({ index: 'a0', position: { x: 3, y: 3 } });
     transport.emitClose(1006);
-    transport.emitReconnect();
-    transport.emitMessage(snapshotFor(CLIENT_ID));
+    transport.emitReconnect(snapshotFor(CLIENT_ID, [stale]));
     expect(connection?.getStatus()).toBe('connecting');
+    expect(store.getById(stale.id)).toBeUndefined();
 
     transport.emitMessage(
       envelope('hub', { kind: 'capabilities', capabilities: createCurrentCapabilities([]) }),

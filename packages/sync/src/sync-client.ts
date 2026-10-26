@@ -619,13 +619,38 @@ export class SyncClient {
 
   /** Sends durable ops held during negotiation. */
   private flushNegotiated(pending: readonly SyncOp[]): void {
+    const batch: BatchOp[] = [];
+    const flushBatch = (): void => {
+      if (batch.length === 0) return;
+      try {
+        this.sendBatches(batch);
+      } catch {
+        // Lossy for this peer; the remaining queue still ships.
+      }
+      batch.length = 0;
+    };
     for (const op of pending) {
+      if (this.batchingPeer && op.kind === 'upsert') {
+        batch.push(op);
+        continue;
+      }
+      if (
+        this.batchingPeer &&
+        op.kind === 'remove' &&
+        op.version !== undefined &&
+        op.editor !== undefined
+      ) {
+        batch.push({ kind: 'remove', id: op.id, version: op.version, editor: op.editor });
+        continue;
+      }
+      flushBatch();
       try {
         this.sendNegotiated(op);
       } catch {
         // Lossy for this peer; the remaining queue still ships.
       }
     }
+    flushBatch();
   }
 
   private sendNegotiated(op: SyncOp): void {
