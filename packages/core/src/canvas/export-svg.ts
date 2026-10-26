@@ -360,6 +360,7 @@ export async function exportSvg(
       store,
       options,
       registry,
+      bounds,
     );
     layerBodies.set(el.layerId, (layerBodies.get(el.layerId) ?? '') + emitted);
   }
@@ -421,6 +422,7 @@ function emitElement(
   store: ElementStore,
   resourceOptions: ExportResourceOptions,
   registry: ElementRegistry,
+  viewBox: { x: number; y: number; w: number; h: number },
 ): string {
   switch (el.type) {
     case 'stroke':
@@ -441,7 +443,7 @@ function emitElement(
       const adapter = registry.getAdapter(el.extensionType);
       if (adapter?.emitSvg) {
         const allElements = store.getAll();
-        return adapter.emitSvg(el, allElements, { x: 0, y: 0, w: 0, h: 0 });
+        return adapter.emitSvg(el, allElements, viewBox);
       }
       return '';
     }

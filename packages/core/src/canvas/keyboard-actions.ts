@@ -224,7 +224,13 @@ export class KeyboardActions {
     }
     const sel = this.selectTool();
     if (!sel) return;
-    const ids = this.selectableElements(sel.ctx).map((el) => el.id);
+    const ids = this.selectableElements(sel.ctx)
+      .filter(
+        (el) =>
+          el.type !== 'extension' ||
+          sel.ctx.elementRegistry?.getAdapter(el.extensionType)?.fullCanvas !== true,
+      )
+      .map((el) => el.id);
     sel.tool.setSelection(ids);
     sel.ctx.requestRender();
   }

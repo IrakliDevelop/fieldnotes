@@ -10,8 +10,14 @@ import {
   createShape,
 } from '../elements/element-factory';
 import { ElementStore } from '../elements/element-store';
+import { ElementRegistry } from '../elements/element-registry';
 import { HtmlPainterRegistry, HtmlPainterMissingError } from './html-painter-registry';
-import type { HtmlElement } from '../elements/types';
+import type {
+  BaseElement,
+  ElementTypeDefinition,
+  ExtensionElementEnvelope,
+  HtmlElement,
+} from '../elements/types';
 import { createRenderHooks } from './render-hooks';
 
 const HTML_MARKER = 'data-distinctive-html-marker-xyz';
@@ -66,6 +72,51 @@ function buildStore() {
 }
 
 describe('exportSvg', () => {
+  it('passes the computed padded view box to inline extension SVG emitters', async () => {
+    let receivedViewBox: { x: number; y: number; w: number; h: number } | undefined;
+    const definition: ElementTypeDefinition<BaseElement> = {
+      type: 'test:inline-svg',
+      legacyTypes: [],
+      decodeLegacy: () => {
+        throw new Error('no legacy');
+      },
+      validateData: () => true,
+      unwrap: ({ data: _data, extensionType: _extensionType, ...base }) => base,
+      wrap: ({ type: _type, ...base }) => ({
+        ...base,
+        type: 'extension',
+        extensionType: 'test:inline-svg',
+        data: {},
+      }),
+      bounds: (el) => ({ x: el.position.x, y: el.position.y, w: 30, h: 40 }),
+      emitSvg: (_el, _allElements, viewBox) => {
+        receivedViewBox = viewBox;
+        return '<rect data-inline-extension="true" />';
+      },
+    };
+    const registry = new ElementRegistry();
+    registry.register(definition);
+    const store = new ElementStore(registry);
+    const element: ExtensionElementEnvelope = {
+      id: 'inline-svg',
+      type: 'extension',
+      extensionType: 'test:inline-svg',
+      position: { x: 100, y: 200 },
+      index: 'a0',
+      version: 1,
+      locked: false,
+      layerId: '',
+      data: {},
+    };
+    store.add(element);
+
+    const svg = await exportSvg(store, { elementRegistry: registry, padding: 7 });
+
+    expect(receivedViewBox).toEqual({ x: 93, y: 193, w: 44, h: 54 });
+    expect(svg).toContain('viewBox="93 193 44 54"');
+    expect(svg).toContain('data-inline-extension="true"');
+  });
+
   it.each([
     [{ padding: -1 }, 'padding'],
     [{ rasterScale: 0 }, 'rasterScale'],

@@ -156,6 +156,66 @@ describe('KeyboardActions.selectAll', () => {
     expect(tool.selectedIds).toEqual([ok.id]);
   });
 
+  it('excludes registered full-canvas extensions without excluding ordinary extensions', () => {
+    const registry = new ElementRegistry();
+    for (const [type, fullCanvas] of [
+      ['test:full-canvas', true],
+      ['test:inline', false],
+    ] as const) {
+      registry.register<BaseElement>({
+        type,
+        legacyTypes: [],
+        decodeLegacy: () => {
+          throw new Error('no legacy');
+        },
+        validateData: () => true,
+        unwrap: ({ data: _data, extensionType: _extensionType, ...base }) => base,
+        wrap: ({ type: _type, ...base }) => ({
+          ...base,
+          type: 'extension',
+          extensionType: type,
+          data: {},
+        }),
+        bounds: (el) => ({ x: el.position.x, y: el.position.y, w: 10, h: 10 }),
+        fullCanvas,
+      });
+    }
+    const ctx = makeCtx({ store: new ElementStore(registry), elementRegistry: registry });
+    const { actions, tool } = makeActions({ ctx });
+    const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+    const fullCanvas: ExtensionElementEnvelope = {
+      id: 'full-canvas',
+      type: 'extension',
+      extensionType: 'test:full-canvas',
+      position: { x: 0, y: 0 },
+      index: 'a1',
+      version: 1,
+      locked: false,
+      layerId: '',
+      data: {},
+    };
+    const inline: ExtensionElementEnvelope = {
+      ...fullCanvas,
+      id: 'inline',
+      extensionType: 'test:inline',
+      index: 'a2',
+    };
+    const unknown: ExtensionElementEnvelope = {
+      ...fullCanvas,
+      id: 'unknown',
+      extensionType: 'test:unknown',
+      index: 'a3',
+    };
+    ctx.store.add(note);
+    ctx.store.add(fullCanvas);
+    ctx.store.add(inline);
+    ctx.store.add(unknown);
+
+    actions.selectAll();
+
+    expect([...tool.selectedIds].sort()).toEqual([note.id, inline.id, unknown.id].sort());
+  });
+
   it('is a no-op (selection unchanged) when isToolActive returns true', () => {
     const ctx = makeCtx();
     const switchTool = vi.fn();
