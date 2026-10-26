@@ -9,6 +9,7 @@ import { computeStrokeSegments, transferStrokeRenderData } from './stroke-cache'
 import type { CanvasElement, ElementType } from './types';
 import type { ElementRegistry } from './element-registry';
 import { getDefaultElementRegistry } from './default-registry';
+import { ElementHierarchy, validateHierarchy } from './element-hierarchy';
 
 function sanitizeRichText(element: CanvasElement): CanvasElement {
   if (element.type !== 'note' && element.type !== 'text') return element;
@@ -53,7 +54,8 @@ export class ElementStore {
   private bus = new EventBus<ElementStoreEvents>();
   private layerOrderMap = new Map<string, number>();
   private spatialIndex = new Quadtree({ x: -100000, y: -100000, w: 200000, h: 200000 });
-  private sortedCache: CanvasElement[] | null = null;
+  private hierarchy: ElementHierarchy | null = null;
+  private sceneCache: CanvasElement[] | null = null;
   private _versions = new Map<string, number>();
   private registry: ElementRegistry;
 
@@ -69,6 +71,7 @@ export class ElementStore {
   setElementRegistry(elementRegistry: ElementRegistry): void {
     if (elementRegistry === this.registry) return;
     this.registry = elementRegistry;
+    this.resetHierarchy();
     this.spatialIndex.clear();
     for (const element of this.elements.values()) {
       const bounds = this.indexBounds(element);
@@ -87,23 +90,31 @@ export class ElementStore {
 
   setLayerOrder(order: Map<string, number>): void {
     this.layerOrderMap = new Map(order);
-    this.sortedCache = null;
+    this.resetHierarchy();
   }
 
   getAll(): CanvasElement[] {
-    if (this.sortedCache) return this.sortedCache;
-    this.sortedCache = [...this.elements.values()].sort(this.compare);
-    return this.sortedCache;
+    this.sceneCache ??= [...this.getHierarchy().scene];
+    return this.sceneCache;
   }
 
-  private compare = (a: CanvasElement, b: CanvasElement): number => {
-    const layerA = this.layerOrderMap.get(a.layerId) ?? 0;
-    const layerB = this.layerOrderMap.get(b.layerId) ?? 0;
-    if (layerA !== layerB) return layerA - layerB;
-    if (a.index !== b.index) return a.index < b.index ? -1 : 1;
-    if (a.id !== b.id) return a.id < b.id ? -1 : 1;
-    return 0;
-  };
+  private getHierarchy(): ElementHierarchy {
+    this.hierarchy ??= new ElementHierarchy(this.elements, this.registry, this.layerOrderMap);
+    return this.hierarchy;
+  }
+
+  private strict(meta: ElementChangeMeta | undefined): boolean {
+    return meta?.origin !== 'remote';
+  }
+
+  private validateCandidate(candidate: Map<string, CanvasElement>, meta?: ElementChangeMeta): void {
+    if (this.strict(meta)) validateHierarchy(candidate, this.registry);
+  }
+
+  private resetHierarchy(): void {
+    this.hierarchy = null;
+    this.sceneCache = null;
+  }
 
   private topIndex(layerId: string): string | null {
     let top: string | null = null;
@@ -121,6 +132,14 @@ export class ElementStore {
     return this.getAll().filter(
       (el): el is Extract<CanvasElement, { type: T }> => el.type === type,
     );
+  }
+
+  getChildren(id: string): readonly CanvasElement[] {
+    return [...this.getHierarchy().getChildren(id)];
+  }
+
+  getDescendants(id: string): readonly CanvasElement[] {
+    return [...this.getHierarchy().getDescendants(id)];
   }
 
   private indexBounds(element: CanvasElement): Bounds | null {
@@ -145,7 +164,10 @@ export class ElementStore {
     if (element.index === '') {
       element = { ...element, index: generateKeyBetween(this.topIndex(element.layerId), null) };
     }
-    this.sortedCache = null;
+    const candidate = new Map(this.elements);
+    candidate.set(element.id, element);
+    this.validateCandidate(candidate, meta);
+    this.resetHierarchy();
     this._versions.set(element.id, 0);
     this.elements.set(element.id, element);
     const bounds = this.indexBounds(element);
@@ -156,11 +178,60 @@ export class ElementStore {
   update(id: string, partial: Partial<CanvasElement>, meta?: ElementChangeMeta): void {
     const existing = this.elements.get(id);
     if (!existing) return;
-    if ('index' in partial || 'layerId' in partial) this.sortedCache = null;
-    this._versions.set(id, (this._versions.get(id) ?? 0) + 1);
+    const updated = this.prepareUpdate(existing, partial, meta);
+    const candidate = new Map(this.elements);
+    candidate.set(id, updated);
+    if (
+      existing.parentId !== updated.parentId ||
+      existing.layerId !== updated.layerId ||
+      existing.index !== updated.index
+    ) {
+      this.validateCandidate(candidate, meta);
+    }
+    this.installUpdate(existing, updated);
+    this.bus.emit('update', { previous: existing, current: updated }, meta);
+  }
 
-    // Shallow spread preserves the points array identity when `partial` omits points;
-    // transferStrokeRenderData/transferStrokeBounds rely on that reference equality.
+  /** Applies several element patches atomically. */
+  updateMany(
+    updates: readonly { id: string; partial: Partial<CanvasElement> }[],
+    meta?: ElementChangeMeta,
+  ): void {
+    const ids = new Set<string>();
+    for (const update of updates) {
+      if (ids.has(update.id)) throw new Error(`Duplicate update id "${update.id}"`);
+      ids.add(update.id);
+    }
+    const prepared: { existing: CanvasElement; updated: CanvasElement }[] = [];
+    const candidate = new Map(this.elements);
+    for (const update of updates) {
+      const existing = this.elements.get(update.id);
+      if (!existing) continue;
+      const updated = this.prepareUpdate(existing, update.partial, meta);
+      candidate.set(update.id, updated);
+      prepared.push({ existing, updated });
+    }
+    if (
+      prepared.some(
+        ({ existing, updated }) =>
+          existing.parentId !== updated.parentId ||
+          existing.layerId !== updated.layerId ||
+          existing.index !== updated.index,
+      )
+    ) {
+      this.validateCandidate(candidate, meta);
+    }
+    for (const item of prepared) this.installUpdate(item.existing, item.updated);
+    for (const item of prepared)
+      this.bus.emit('update', { previous: item.existing, current: item.updated }, meta);
+  }
+
+  private prepareUpdate(
+    existing: CanvasElement,
+    partial: Partial<CanvasElement>,
+    meta?: ElementChangeMeta,
+  ): CanvasElement {
+    // Shallow spread preserves the points array identity when `partial` omits points.
     const updated = {
       ...existing,
       ...partial,
@@ -194,22 +265,36 @@ export class ElementStore {
       updated.text = sanitizeNoteHtml(updated.text);
     }
 
-    this.elements.set(id, updated);
-    // Fresh array keeps getAll() identity-sensitive consumers (React useElements) updating.
-    this.sortedCache = this.sortedCache?.map((el) => (el === existing ? updated : el)) ?? null;
+    return updated;
+  }
+
+  private installUpdate(existing: CanvasElement, updated: CanvasElement): void {
+    this._versions.set(existing.id, (this._versions.get(existing.id) ?? 0) + 1);
+    this.elements.set(existing.id, updated);
+    const structural =
+      existing.parentId !== updated.parentId ||
+      existing.layerId !== updated.layerId ||
+      existing.index !== updated.index;
+    if (structural) this.resetHierarchy();
+    else {
+      this.hierarchy?.replace(existing, updated);
+      this.sceneCache =
+        this.sceneCache?.map((element) => (element === existing ? updated : element)) ?? null;
+    }
 
     const newBounds = this.indexBounds(updated);
     if (newBounds) {
-      this.spatialIndex.update(id, newBounds);
+      this.spatialIndex.update(existing.id, newBounds);
     }
-
-    this.bus.emit('update', { previous: existing, current: updated }, meta);
   }
 
   remove(id: string, meta?: ElementChangeMeta): void {
     const element = this.elements.get(id);
     if (!element) return;
-    this.sortedCache = null;
+    const candidate = new Map(this.elements);
+    candidate.delete(id);
+    this.validateCandidate(candidate, meta);
+    this.resetHierarchy();
     this._versions.delete(id);
 
     this.elements.delete(id);
@@ -218,7 +303,7 @@ export class ElementStore {
   }
 
   clear(meta?: ElementChangeMeta): void {
-    this.sortedCache = null;
+    this.resetHierarchy();
     this._versions.clear();
     this.elements.clear();
     this.spatialIndex.clear();
@@ -242,7 +327,9 @@ export class ElementStore {
       tops.set(element.layerId, index);
       return { ...element, index };
     });
-    this.sortedCache = null;
+    const candidate = new Map(sanitizedElements.map((element) => [element.id, element]));
+    this.validateCandidate(candidate, meta);
+    this.resetHierarchy();
     this._versions.clear();
     this.elements.clear();
     this.spatialIndex.clear();
@@ -314,9 +401,11 @@ export class ElementStore {
     const elements: CanvasElement[] = [];
     for (const id of ids) {
       const el = this.elements.get(id);
-      if (el) elements.push(el);
+      if (el && this.getHierarchy().rank(id) !== undefined) elements.push(el);
     }
-    return elements.sort(this.compare);
+    return elements.sort(
+      (a, b) => (this.getHierarchy().rank(a.id) ?? 0) - (this.getHierarchy().rank(b.id) ?? 0),
+    );
   }
 
   queryPoint(point: Point): CanvasElement[] {

@@ -11,6 +11,33 @@ import {
 } from './element-factory';
 
 describe('element factories', () => {
+  it.each([
+    ['stroke', () => createStroke({ points: [], parentId: 'parent' })],
+    ['note', () => createNote({ position: { x: 0, y: 0 }, parentId: 'parent' })],
+    ['arrow', () => createArrow({ from: { x: 0, y: 0 }, to: { x: 1, y: 1 }, parentId: 'parent' })],
+    [
+      'image',
+      () =>
+        createImage({
+          position: { x: 0, y: 0 },
+          size: { w: 1, h: 1 },
+          src: 'x',
+          parentId: 'parent',
+        }),
+    ],
+    [
+      'html',
+      () =>
+        createHtmlElement({ position: { x: 0, y: 0 }, size: { w: 1, h: 1 }, parentId: 'parent' }),
+    ],
+    ['text', () => createText({ position: { x: 0, y: 0 }, parentId: 'parent' })],
+    [
+      'shape',
+      () => createShape({ position: { x: 0, y: 0 }, size: { w: 1, h: 1 }, parentId: 'parent' }),
+    ],
+  ])('%s preserves parentId when supplied', (_name, create) => {
+    expect(create().parentId).toBe('parent');
+  });
   describe('createStroke', () => {
     it('creates a stroke with defaults', () => {
       const stroke = createStroke({ points: [{ x: 0, y: 0, pressure: 0.5 }] });

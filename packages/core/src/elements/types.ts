@@ -14,6 +14,8 @@ export interface BaseElement {
   layerId: string;
   /** Optional flat group membership. Elements sharing a groupId select/move/delete as a unit. */
   groupId?: string;
+  /** Optional containing element. Parent and child share a layer. */
+  parentId?: string;
   /** Rotation in radians (clockwise) about the element's center. Absent = 0 (unrotated).
    * Applied to note/text/image/html/shape/stroke; ignored for arrows. Extension
    * element definitions own their rotation semantics. */

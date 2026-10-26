@@ -63,7 +63,7 @@ describe('exportState', () => {
     const note = createNote({ position: { x: 10, y: 20 } });
     const state = exportState([stroke, note], makeCamera(100, 200, 1.5));
 
-    expect(state.version).toBe(5);
+    expect(state.version).toBe(6);
     expect(state.camera).toEqual({ position: { x: 100, y: 200 }, zoom: 1.5 });
     expect(state.elements).toHaveLength(2);
     expect(state.elements[0]?.type).toBe('stroke');
@@ -143,7 +143,7 @@ describe('exportState', () => {
 describe('parseState', () => {
   function validState(): CanvasState {
     return {
-      version: 5,
+      version: 6,
       camera: { position: { x: 0, y: 0 }, zoom: 1 },
       elements: [
         createStroke({
@@ -169,9 +169,26 @@ describe('parseState', () => {
     const json = JSON.stringify(validState());
     const state = parseState(json);
 
-    expect(state.version).toBe(5);
+    expect(state.version).toBe(6);
     expect(state.camera.zoom).toBe(1);
     expect(state.elements).toHaveLength(1);
+  });
+
+  it('retains a valid v6 parent relationship regardless of element order', () => {
+    const state = validState();
+    const source = createStroke({
+      index: 'a0',
+      points: [{ x: 0, y: 0, pressure: 0.5 }],
+      layerId: 'default-layer',
+    });
+    const parent = { ...source, id: 'parent' };
+    const child = { ...source, id: 'child', index: 'a1', parentId: 'parent' };
+    state.elements = [child, parent];
+
+    expect(parseState(JSON.stringify(state)).elements[0]).toMatchObject({
+      id: 'child',
+      parentId: 'parent',
+    });
   });
 
   it('parseState accepts an html element carrying transient', () => {
@@ -229,7 +246,7 @@ describe('parseState', () => {
     const state = parseState(JSON.stringify(data), registry);
 
     expect(state).toMatchObject({
-      version: 5,
+      version: 6,
       elements: [
         {
           id: 'marker-1',
@@ -477,8 +494,8 @@ describe('parseState', () => {
 
   it('rejects unsupported future versions', () => {
     const data = validState();
-    (data as { version: number }).version = 6;
-    expect(() => parseState(JSON.stringify(data))).toThrow('unsupported version 6');
+    (data as { version: number }).version = 7;
+    expect(() => parseState(JSON.stringify(data))).toThrow('unsupported version 7');
   });
 
   it.each([0, -1, 1.5])('rejects invalid version %s', (version) => {
@@ -808,7 +825,7 @@ describe('parseState', () => {
 
     it('exportState with empty store produces valid state', () => {
       const state = exportState([], makeCamera());
-      expect(state.version).toBe(5);
+      expect(state.version).toBe(6);
       expect(state.elements).toEqual([]);
       expect(state.camera).toEqual({ position: { x: 0, y: 0 }, zoom: 1 });
 
@@ -1274,7 +1291,7 @@ describe('persisted state v5', () => {
 
   it('v4 file loads in the same order', () => {
     const state = parseState(JSON.stringify(legacyState(4, v4Elements())));
-    expect(state.version).toBe(5);
+    expect(state.version).toBe(6);
     expect(storeOrder(state)).toEqual(['e3', 'e1', 'e2', 'e4']);
     for (const el of state.elements) {
       expect(el.version).toBe(1);
@@ -1291,7 +1308,7 @@ describe('persisted state v5', () => {
   it('migrateState (the loadState path) gives a v4 file the same order', () => {
     const legacy = legacyState(4, v4Elements()) as unknown as ImportableCanvasState;
     const state = migrateState(legacy);
-    expect(state.version).toBe(5);
+    expect(state.version).toBe(6);
     expect(storeOrder(state)).toEqual(['e3', 'e1', 'e2', 'e4']);
   });
 
@@ -1310,7 +1327,7 @@ describe('persisted state v5', () => {
     const edited = { ...note, id: 'edited', version: 7, editor: 'peer-1' };
     const json = JSON.stringify(exportState([note, edited], makeCamera(), layers));
     const state = parseState(json);
-    expect(state.version).toBe(5);
+    expect(state.version).toBe(6);
     expect(state.elements[0]).toMatchObject({ index: 'a3', version: 1 });
     expect(state.elements[0]).not.toHaveProperty('editor');
     expect(state.elements[1]).toMatchObject({ index: 'a3', version: 7, editor: 'peer-1' });

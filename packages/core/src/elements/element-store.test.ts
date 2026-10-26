@@ -81,6 +81,46 @@ describe('ElementStore', () => {
   });
 
   describe('CRUD', () => {
+    it('keeps invalid remote descendants raw but out of scene and queries until repaired', () => {
+      const store = new ElementStore();
+      const child = makeNote({ id: 'child', parentId: 'parent' });
+      store.add(child, { origin: 'remote' });
+
+      expect(store.getById('child')).toBe(child);
+      expect(store.getAll()).toEqual([]);
+      expect(store.queryPoint({ x: 1, y: 1 })).toEqual([]);
+
+      store.add(makeNote({ id: 'parent', index: 'a0' }), { origin: 'remote' });
+      expect(store.getAll().map((element) => element.id)).toEqual(['parent', 'child']);
+    });
+
+    it('rejects local orphaning without emitting or mutating', () => {
+      const store = new ElementStore();
+      const parent = makeNote({ id: 'parent' });
+      store.add(parent);
+      const changes = vi.fn();
+      store.on('update', changes);
+
+      expect(() => store.update('parent', { parentId: 'missing' })).toThrow(/Invalid hierarchy/);
+      expect(store.getById('parent')).toBe(parent);
+      expect(changes).not.toHaveBeenCalled();
+    });
+
+    it('installs updateMany values before emitting the first update', () => {
+      const store = new ElementStore();
+      store.add(makeNote({ id: 'parent' }));
+      store.add(makeNote({ id: 'child', parentId: 'parent' }));
+      const seen: string[] = [];
+      store.on('update', () => seen.push(store.getById('child')?.layerId ?? 'missing'));
+
+      store.updateMany([
+        { id: 'parent', partial: { layerId: 'next' } },
+        { id: 'child', partial: { layerId: 'next' } },
+      ]);
+
+      expect(seen).toEqual(['next', 'next']);
+      expect(store.getAll().map((element) => element.layerId)).toEqual(['next', 'next']);
+    });
     it('starts empty', () => {
       const store = new ElementStore();
       expect(store.getAll()).toEqual([]);
