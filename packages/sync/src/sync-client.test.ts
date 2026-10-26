@@ -34,7 +34,7 @@ interface Bus {
   endpoint(): BusEndpoint;
 }
 
-function makeBus(selfEchoing = false): Bus {
+function makeBus(selfEchoing = false, autoAdmit = true): Bus {
   const endpoints: { handlers: Set<(m: string) => void>; ep: BusEndpoint }[] = [];
 
   function endpoint(): BusEndpoint {
@@ -44,6 +44,23 @@ function makeBus(selfEchoing = false): Bus {
       sent,
       send(message: string): void {
         sent.push(message);
+        let op: { kind: string } | undefined;
+        try {
+          op = (JSON.parse(message) as { op?: { kind: string } }).op;
+        } catch {
+          op = undefined;
+        }
+        if (autoAdmit && op?.kind === 'capabilities') {
+          handlers.forEach((handler) =>
+            handler(
+              JSON.stringify({
+                from: 'peer',
+                op: { kind: 'capabilities', capabilities: createCurrentCapabilities([]) },
+              }),
+            ),
+          );
+          return;
+        }
         for (const entry of endpoints) {
           if (!selfEchoing && entry.ep === ep) continue;
           entry.handlers.forEach((h) => h(message));
@@ -96,6 +113,128 @@ describe('SyncClient', () => {
     });
     clientA.start();
     clientB.start();
+  });
+
+  it('holds its snapshot request until a hierarchy-compatible peer admits it', () => {
+    const bus = makeBus(false, false);
+    const peer = bus.endpoint();
+    const transport = bus.endpoint();
+    const client = new SyncClient({
+      flushIntervalMs: 0,
+      store: new ElementStore(),
+      transport,
+      clientId: 'held',
+    });
+
+    client.start();
+
+    expect(sentKinds(transport.sent)).toEqual([]);
+
+    peer.send(
+      envelope('peer', { kind: 'capabilities', capabilities: createCurrentCapabilities([]) }),
+    );
+
+    expect(sentKinds(transport.sent)).toEqual(['request-snapshot']);
+    client.dispose();
+  });
+
+  it.each([
+    ['protocol 1', { protocolVersion: 1, extensionKinds: [], elementEnvelope: true }],
+    ['protocol 2', { protocolVersion: 2, extensionKinds: [], elementEnvelope: true }],
+    [
+      'protocol 3 without hierarchy',
+      { protocolVersion: 3, extensionKinds: [], elementEnvelope: true },
+    ],
+    [
+      'protocol 4',
+      { protocolVersion: 4, extensionKinds: [], elementEnvelope: true, elementHierarchy: 1 },
+    ],
+  ] as const)('closes without sending queued work to %s', (_name, capabilities) => {
+    let receive: (message: string) => void = () => undefined;
+    const sent: string[] = [];
+    const close = vi.fn();
+    const client = new SyncClient({
+      flushIntervalMs: 0,
+      store: new ElementStore(),
+      clientId: 'held',
+      transport: {
+        send: (message) => sent.push(message),
+        onMessage: (handler) => {
+          receive = handler;
+          return () => undefined;
+        },
+        close,
+      },
+    });
+
+    client.start();
+    receive(envelope('hub', { kind: 'capabilities', capabilities } as SyncOp));
+
+    expect(close).toHaveBeenCalledOnce();
+    expect(sent.map((message) => JSON.parse(message).op.kind)).toEqual(['capabilities']);
+  });
+
+  it('drops pre-admission inbound data and presence while retaining durable local work', () => {
+    const bus = makeBus(false, false);
+    const peer = bus.endpoint();
+    const transport = bus.endpoint();
+    const store = new ElementStore();
+    const received: unknown[] = [];
+    const extensionKind = createExtensionKind<{ x: number }>({
+      extensionKind: 'test:admission',
+      codec: {
+        validate: (value): value is { x: number } =>
+          typeof value === 'object' &&
+          value !== null &&
+          typeof (value as { x?: unknown }).x === 'number',
+      },
+    });
+    const client = new SyncClient({
+      flushIntervalMs: 0,
+      store,
+      transport,
+      clientId: 'held',
+      plugins: [
+        {
+          name: 'admission',
+          registerExtensionKinds(registry) {
+            registry.register(extensionKind, (op) => received.push(op));
+          },
+        },
+      ],
+    });
+    const presence: unknown[] = [];
+    client.onPresence((_from, data) => presence.push(data));
+    client.start();
+    client.sendPresence({ local: true });
+    store.add(createShape({ index: 'a0', position: { x: 1, y: 1 }, size: { w: 2, h: 2 } }));
+    const remote = createShape({ index: 'a0', position: { x: 3, y: 3 }, size: { w: 2, h: 2 } });
+    peer.send(envelope('peer', { kind: 'upsert', element: remote }));
+    peer.send(envelope('peer', { kind: 'snapshot', to: 'held', elements: [remote] }));
+    peer.send(envelope('peer', { kind: 'presence', data: { remote: true } }));
+    peer.send(
+      envelope('peer', { kind: 'extension', extensionKind: 'test:admission', payload: { x: 1 } }),
+    );
+
+    expect(store.getById(remote.id)).toBeUndefined();
+    expect(presence).toEqual([]);
+    expect(received).toEqual([]);
+    expect(sentKinds(transport.sent)).toEqual([]);
+
+    peer.send(
+      envelope('peer', {
+        kind: 'capabilities',
+        capabilities: createCurrentCapabilities(['remote:only']),
+      }),
+    );
+
+    expect(store.getById(remote.id)).toBeUndefined();
+    expect(presence).toEqual([]);
+    expect(received).toEqual([]);
+    expect(sentKinds(transport.sent)).toEqual(['request-snapshot', 'upsert']);
+    client.sendPresence({ local: 'fresh' });
+    expect(sentKinds(transport.sent)).toEqual(['request-snapshot', 'upsert', 'presence']);
+    client.dispose();
   });
 
   it('routes only codec-valid extension operations through a client plugin', () => {
@@ -237,7 +376,7 @@ describe('SyncClient', () => {
     const registry = new ElementRegistry();
     registerVttElementTypes(registry);
     const store = new ElementStore();
-    const transport = makeReconnectTransport();
+    const transport = makeReconnectTransport(false);
     const client = new SyncClient({
       flushIntervalMs: 0,
       store,
@@ -274,20 +413,22 @@ describe('SyncClient', () => {
       elementRegistry: registry,
     });
     client.start();
+    transport.deliver(
+      envelope('hub', { kind: 'capabilities', capabilities: createCurrentCapabilities([]) }),
+    );
     transport.deliver(envelope('hub', { kind: 'snapshot', to: 'modern', elements: [] }));
 
     const template = templateElementTypeDefinition.wrap(
       createTemplate({ position: { x: 10, y: 20 }, templateShape: 'circle', radius: 30 }),
     );
-    store.add(template); // held: handshake still open
     transport.triggerReconnect();
+    store.add(template);
     // The hub never received the template, so its reconcile snapshot lacks it.
-    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'modern', elements: [] }));
-    expect(store.getById(template.id)).toBeDefined();
-
     transport.deliver(
       envelope('hub', { kind: 'capabilities', capabilities: createCurrentCapabilities([]) }),
     );
+    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'modern', elements: [] }));
+    expect(store.getById(template.id)).toBeDefined();
     const upserts = transport.sent
       .map((m) => JSON.parse(m) as { op: SyncOp })
       .filter(({ op }) => op.kind === 'upsert');
@@ -300,7 +441,7 @@ describe('SyncClient', () => {
     const registry = new ElementRegistry();
     registerVttElementTypes(registry);
     const store = new ElementStore();
-    const transport = makeReconnectTransport();
+    const transport = makeReconnectTransport(false);
     const client = new SyncClient({
       flushIntervalMs: 0,
       store,
@@ -309,20 +450,23 @@ describe('SyncClient', () => {
       elementRegistry: registry,
     });
     client.start();
+    transport.deliver(
+      envelope('hub', { kind: 'capabilities', capabilities: createCurrentCapabilities([]) }),
+    );
     transport.deliver(envelope('hub', { kind: 'snapshot', to: 'modern', elements: [] }));
 
     const template = templateElementTypeDefinition.wrap(
       createTemplate({ position: { x: 10, y: 20 }, templateShape: 'circle', radius: 30 }),
     );
+    transport.triggerReconnect();
     store.add(template);
     store.clear();
-    transport.triggerReconnect();
 
     const serverNote = createNote({ index: 'a0', position: { x: 30, y: 40 } });
-    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'modern', elements: [serverNote] }));
     transport.deliver(
       envelope('hub', { kind: 'capabilities', capabilities: createCurrentCapabilities([]) }),
     );
+    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'modern', elements: [serverNote] }));
 
     expect(sentKinds(transport.sent).slice(-2)).toEqual(['upsert', 'clear']);
     expect(store.snapshot()).toEqual([]);
@@ -333,7 +477,7 @@ describe('SyncClient', () => {
     const registry = new ElementRegistry();
     registerVttElementTypes(registry);
     const store = new ElementStore();
-    const transport = makeReconnectTransport();
+    const transport = makeReconnectTransport(false);
     const lossyKind = createExtensionKind<{ x: number }>({
       extensionKind: 'test:lossy',
       codec: { validate: (payload): payload is { x: number } => typeof payload === 'object' },
@@ -372,7 +516,7 @@ describe('SyncClient', () => {
       envelope('peer', { kind: 'capabilities', capabilities: createCurrentCapabilities([]) }),
     );
     expect(sentKinds(transport.sent)).toEqual(['request-snapshot', 'upsert']);
-    // ...and the inbound queue is still drained.
+    // ...and the later durable op still ships after the lossy one is skipped.
     expect(store.getById(template.id)).toBeDefined();
     client.dispose();
   });
@@ -776,14 +920,39 @@ interface ReconnectTransport extends SyncTransport {
   triggerReconnect(): void;
 }
 
-function makeReconnectTransport(): ReconnectTransport {
+function makeReconnectTransport(autoAdmit = true): ReconnectTransport {
   const messageHandlers = new Set<(m: string) => void>();
   const reconnectHandlers = new Set<() => void>();
   const sent: string[] = [];
+  let admitted = false;
+  const deliver = (message: string): void => {
+    const envelope = JSON.parse(message) as { from: string; op: { kind: string } };
+    if (autoAdmit && !admitted && envelope.op.kind !== 'capabilities') {
+      admitted = true;
+      const capability = JSON.stringify({
+        from: envelope.from,
+        op: { kind: 'capabilities', capabilities: createCurrentCapabilities([]) },
+      });
+      messageHandlers.forEach((handler) => handler(capability));
+    }
+    messageHandlers.forEach((handler) => handler(message));
+  };
   return {
     sent,
     send(message: string): void {
       sent.push(message);
+      const envelope = JSON.parse(message) as { op: { kind: string } };
+      if (autoAdmit && !admitted && envelope.op.kind === 'capabilities') {
+        admitted = true;
+        messageHandlers.forEach((handler) =>
+          handler(
+            JSON.stringify({
+              from: 'peer',
+              op: { kind: 'capabilities', capabilities: createCurrentCapabilities([]) },
+            }),
+          ),
+        );
+      }
     },
     onMessage(handler: (m: string) => void): () => void {
       messageHandlers.add(handler);
@@ -797,10 +966,9 @@ function makeReconnectTransport(): ReconnectTransport {
       messageHandlers.clear();
       reconnectHandlers.clear();
     },
-    deliver(message: string): void {
-      messageHandlers.forEach((h) => h(message));
-    },
+    deliver,
     triggerReconnect(): void {
+      admitted = false;
       reconnectHandlers.forEach((h) => h());
     },
   };

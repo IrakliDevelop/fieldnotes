@@ -11,10 +11,13 @@ import type {
 } from './managed-connection';
 import type { RemoteLayerUpdate } from './sync-client';
 import type { SyncOp } from './protocol';
+import { createCurrentCapabilities } from './capabilities';
 
 class FakeTransport implements ManagedSyncTransport {
   readonly sent: string[] = [];
   closed = false;
+  autoAdmit = true;
+  private admitted = false;
   private readonly messageHandlers = new Set<(message: string) => void>();
   private readonly reconnectHandlers = new Set<() => void>();
   private readonly closeHandlers = new Set<(code: number, reason: string) => void>();
@@ -48,10 +51,20 @@ class FakeTransport implements ManagedSyncTransport {
   }
 
   emitMessage(raw: string): void {
+    const envelope = JSON.parse(raw) as { from: string; op: { kind: string } };
+    if (this.autoAdmit && !this.admitted && envelope.op.kind === 'snapshot') {
+      this.admitted = true;
+      const capabilities = JSON.stringify({
+        from: 'hub',
+        op: { kind: 'capabilities', capabilities: createCurrentCapabilities([]) },
+      });
+      for (const handler of [...this.messageHandlers]) handler(capabilities);
+    }
     for (const handler of [...this.messageHandlers]) handler(raw);
   }
 
   emitReconnect(): void {
+    this.admitted = false;
     for (const handler of [...this.reconnectHandlers]) handler();
   }
 
@@ -176,6 +189,9 @@ describe('createManagedSyncConnection', () => {
   it('starts a SyncClient that requests a snapshot with the stable clientId', async () => {
     start();
     await flushAsync();
+    currentTransport().emitMessage(
+      envelope('hub', { kind: 'capabilities', capabilities: createCurrentCapabilities([]) }),
+    );
 
     const request = currentTransport()
       .sent.map((message) => JSON.parse(message) as { from: string; op: { kind: string } })
@@ -237,6 +253,31 @@ describe('createManagedSyncConnection', () => {
     expect(upsert.op.kind).toBe('upsert');
   });
 
+  it('requires a fresh hierarchy admission after a terminal credential rebuild', async () => {
+    start();
+    await flushAsync();
+    const first = currentTransport();
+    first.autoAdmit = false;
+    first.emitMessage(
+      envelope('hub', { kind: 'capabilities', capabilities: createCurrentCapabilities([]) }),
+    );
+    first.emitMessage(snapshotFor(CLIENT_ID));
+    expect(connection?.getStatus()).toBe('live');
+
+    first.emitClose(4401);
+    await vi.advanceTimersByTimeAsync(100);
+    const second = currentTransport();
+    second.autoAdmit = false;
+    second.emitMessage(snapshotFor(CLIENT_ID));
+    expect(connection?.getStatus()).toBe('connecting');
+
+    second.emitMessage(
+      envelope('hub', { kind: 'capabilities', capabilities: createCurrentCapabilities([]) }),
+    );
+    second.emitMessage(snapshotFor(CLIENT_ID));
+    expect(connection?.getStatus()).toBe('live');
+  });
+
   it('rebuilds transport and client with fresh credentials after a terminal auth close', async () => {
     resolveUrl
       .mockResolvedValueOnce('ws://relay/token-1')
@@ -295,23 +336,79 @@ describe('createManagedSyncConnection', () => {
     expect(transports).toHaveLength(1);
   });
 
-  it('settles on unsupported when the hub advertises a protocol older than 2', async () => {
+  it.each([
+    ['protocol 1', { protocolVersion: 1, extensionKinds: [], elementEnvelope: true }],
+    ['protocol 2', { protocolVersion: 2, extensionKinds: [], elementEnvelope: true }],
+    [
+      'protocol 3 without hierarchy',
+      { protocolVersion: 3, extensionKinds: [], elementEnvelope: true },
+    ],
+    [
+      'protocol 4',
+      { protocolVersion: 4, extensionKinds: [], elementEnvelope: true, elementHierarchy: 1 },
+    ],
+  ] as const)(
+    'settles on unsupported for %s after a pre-admission snapshot',
+    async (_name, capabilities) => {
+      start();
+      await flushAsync();
+      const transport = currentTransport();
+      transport.autoAdmit = false;
+      transport.emitMessage(snapshotFor(CLIENT_ID));
+      expect(connection?.getStatus()).toBe('connecting');
+
+      transport.emitMessage(envelope('hub', { kind: 'capabilities', capabilities } as SyncOp));
+      expect(connection?.getStatus()).toBe('unsupported');
+      expect(transport.closed).toBe(true);
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(resolveUrl).toHaveBeenCalledTimes(1);
+      expect(transports).toHaveLength(1);
+    },
+  );
+
+  it('requires a hub capability before a later addressed snapshot can go live', async () => {
     start();
     await flushAsync();
-    const first = currentTransport();
-    first.emitMessage(snapshotFor(CLIENT_ID));
+    const transport = currentTransport();
+    transport.autoAdmit = false;
+    const note = createNote({ index: 'a0', position: { x: 2, y: 2 } });
 
-    first.emitMessage(
-      envelope('hub', {
-        kind: 'capabilities',
-        capabilities: { protocolVersion: 1, extensionKinds: [], elementEnvelope: true },
-      }),
+    transport.emitMessage(snapshotFor(CLIENT_ID, [note]));
+    expect(connection?.getStatus()).toBe('connecting');
+    expect(store.getById(note.id)).toBeUndefined();
+
+    transport.emitMessage(
+      envelope('hub', { kind: 'capabilities', capabilities: createCurrentCapabilities([]) }),
     );
-    expect(statuses).toEqual(['connecting', 'live', 'unsupported']);
-    expect(first.closed).toBe(true);
+    expect(
+      transport.sent.map((raw) => (JSON.parse(raw) as { op: { kind: string } }).op.kind),
+    ).toContain('request-snapshot');
+    transport.emitMessage(snapshotFor(CLIENT_ID, [note]));
+    expect(connection?.getStatus()).toBe('live');
+    expect(store.getById(note.id)).toBeDefined();
+  });
 
-    await vi.advanceTimersByTimeAsync(60_000);
-    expect(transports).toHaveLength(1);
+  it('requires a fresh hub capability after a transient reconnect', async () => {
+    start();
+    await flushAsync();
+    const transport = currentTransport();
+    transport.autoAdmit = false;
+    transport.emitMessage(
+      envelope('hub', { kind: 'capabilities', capabilities: createCurrentCapabilities([]) }),
+    );
+    transport.emitMessage(snapshotFor(CLIENT_ID));
+    expect(connection?.getStatus()).toBe('live');
+
+    transport.emitClose(1006);
+    transport.emitReconnect();
+    transport.emitMessage(snapshotFor(CLIENT_ID));
+    expect(connection?.getStatus()).toBe('connecting');
+
+    transport.emitMessage(
+      envelope('hub', { kind: 'capabilities', capabilities: createCurrentCapabilities([]) }),
+    );
+    transport.emitMessage(snapshotFor(CLIENT_ID));
+    expect(connection?.getStatus()).toBe('live');
   });
 
   it('settles on unsupported and keeps the reason from a hub unsupported reply', async () => {
@@ -366,14 +463,14 @@ describe('createManagedSyncConnection', () => {
     expect(first.closed).toBe(false);
   });
 
-  it('stays live when the hub advertises protocol 2', async () => {
+  it('stays live when the hub advertises the hierarchy capability', async () => {
     start();
     await flushAsync();
     currentTransport().emitMessage(snapshotFor(CLIENT_ID));
     currentTransport().emitMessage(
       envelope('hub', {
         kind: 'capabilities',
-        capabilities: { protocolVersion: 2, extensionKinds: [], elementEnvelope: true },
+        capabilities: createCurrentCapabilities([]),
       }),
     );
     expect(connection?.getStatus()).toBe('live');

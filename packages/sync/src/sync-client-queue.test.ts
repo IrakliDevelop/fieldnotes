@@ -242,7 +242,7 @@ describe('SyncClient outgoing queue', () => {
     expect(sentKinds().slice(-2)).toEqual(['remove', 'clear']);
   });
 
-  it('flushes the queue before a request-snapshot on reconnect', () => {
+  it('holds queued work and the snapshot request until reconnect admission', () => {
     const { store, capabilities, reconnect, sentKinds } = setup();
     capabilities('P');
     store.add(shape('x'), REMOTE);
@@ -250,7 +250,9 @@ describe('SyncClient outgoing queue', () => {
     store.update('x', { position: { x: 1, y: 0 } });
     reconnect();
 
-    expect(sentKinds().slice(-3)).toEqual(['capabilities', 'upsert', 'request-snapshot']);
+    expect(sentKinds().slice(-1)).toEqual(['capabilities']);
+    capabilities('P');
+    expect(sentKinds().slice(-2)).toEqual(['upsert', 'request-snapshot']);
   });
 
   it('flushes the queue before answering a snapshot request', () => {
@@ -591,7 +593,7 @@ describe('SyncClient incoming batch', () => {
     expect(store.getById('y')).toMatchObject({ version: 1 });
   });
 
-  it('holds a batch carrying an extension upsert until capabilities arrive', () => {
+  it('drops a pre-admission batch carrying an extension upsert', () => {
     const registry = new ElementRegistry();
     registerVttElementTypes(registry);
     const { store, deliver, capabilities } = setup({ registry });
@@ -603,7 +605,7 @@ describe('SyncClient incoming batch', () => {
     expect(store.getById(template.id)).toBeUndefined();
     capabilities('hub');
 
-    expect(store.getById(template.id)).toMatchObject({ type: 'extension' });
+    expect(store.getById(template.id)).toBeUndefined();
   });
 
   it('applies a batch remove after the held upsert it targets', () => {

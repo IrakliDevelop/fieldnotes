@@ -24,6 +24,7 @@ import {
   CapabilityHandshake,
   createCurrentCapabilities,
   DEFAULT_CAPABILITY_QUEUE_LIMIT,
+  supportsLegacyHierarchy,
   translateOpForPeer,
 } from './capabilities';
 import type { SyncCapabilities, SyncEnvelope } from './protocol';
@@ -149,7 +150,7 @@ export interface SyncClientOptions {
   plugins?: readonly ClientSyncPlugin[];
   /** Registry for the store; omit to keep the store's own (the viewport's). */
   elementRegistry?: ElementRegistry;
-  /** Maximum number of inbound and outbound messages retained during negotiation. */
+  /** Maximum number of durable outbound messages retained during negotiation. */
   capabilityQueueLimit?: number;
   /** Minimum gap between outgoing element-op flushes; 0 sends every op synchronously. Default 50. */
   flushIntervalMs?: number;
@@ -209,7 +210,6 @@ export class SyncClient {
   private readonly localCapabilities: SyncCapabilities;
   private readonly capabilityQueueLimit: number;
   private handshake: CapabilityHandshake<SyncOp>;
-  private readonly pendingIncoming: SyncEnvelope[] = [];
   /** Peers already answered with our capabilities during the current handshake. */
   private readonly acknowledgedPeers = new Set<string>();
   private pluginCleanups: (() => void)[] = [];
@@ -357,7 +357,6 @@ export class SyncClient {
     this.unsubscribers.forEach((u) => u());
     this.unsubscribers = [];
     this.handshake.dispose();
-    this.pendingIncoming.length = 0;
   }
 
   dispose(): void {
@@ -574,7 +573,7 @@ export class SyncClient {
     this.queue.delete(id);
   }
 
-  /** Every op except presence keeps its order behind queued element ops. */
+  /** Every durable op keeps its order behind queued element ops. */
   private sendOp(op: SyncOp): void {
     if (op.kind !== 'presence' && op.kind !== 'presence-leave' && op.kind !== 'capabilities') {
       this.flush();
@@ -584,17 +583,8 @@ export class SyncClient {
 
   private sendQueued(op: SyncOp): void {
     if (!this.handshake.complete) {
-      // Element ops must leave in store order: once anything is held for
-      // negotiation, later element ops queue behind it so a remove/clear can
-      // never overtake the upsert it was meant to undo.
-      const hold =
-        requiresCapabilityNegotiation(op) ||
-        (isElementDataOp(op) && this.handshake.pendingCount > 0);
-      if (hold) {
-        this.handshake.queue(op);
-        return;
-      }
-      this.transport.send(JSON.stringify({ from: this.clientId, op }));
+      if (op.kind === 'presence' || op.kind === 'presence-leave') return;
+      this.handshake.queue(op);
       return;
     }
     this.sendNegotiated(op);
@@ -607,7 +597,6 @@ export class SyncClient {
     this.handshake.dispose();
     this.handshake = new CapabilityHandshake<SyncOp>(this.capabilityQueueLimit);
     this.batchingPeer = false;
-    this.pendingIncoming.length = 0;
     this.acknowledgedPeers.clear();
     for (const op of carried) {
       this.handshake.queue(op);
@@ -628,11 +617,7 @@ export class SyncClient {
     );
   }
 
-  /**
-   * Sends ops held during negotiation, then applies the inbound frames held
-   * alongside them. One untranslatable op is skipped so it can neither drop
-   * the ops behind it nor strand the inbound queue.
-   */
+  /** Sends durable ops held during negotiation. */
   private flushNegotiated(pending: readonly SyncOp[]): void {
     for (const op of pending) {
       try {
@@ -641,7 +626,6 @@ export class SyncClient {
         // Lossy for this peer; the remaining queue still ships.
       }
     }
-    this.drainPendingIncoming();
   }
 
   private sendNegotiated(op: SyncOp): void {
@@ -748,7 +732,10 @@ export class SyncClient {
     // connId echo-suppression does not cover them). Do NOT key this guard off the connection.
     if (!env || env.from === this.clientId) return; // malformed/invalid + own echo
     const hubRefused = env.op.kind === 'unsupported' && env.from === HUB_FROM;
-    if (hubRefused || (env.op.kind === 'capabilities' && env.op.capabilities.protocolVersion < 2)) {
+    if (
+      hubRefused ||
+      (env.op.kind === 'capabilities' && !supportsLegacyHierarchy(env.op.capabilities))
+    ) {
       this.queue.clear(); // never flush element ops to an incompatible peer
       this.stop();
       this.transport.close();
@@ -774,25 +761,8 @@ export class SyncClient {
       this.flushNegotiated(pending);
       return;
     }
-    if (!this.handshake.complete) {
-      const hold =
-        requiresCapabilityNegotiation(env.op) ||
-        (isElementDataOp(env.op) && this.pendingIncoming.length > 0);
-      if (hold) {
-        if (this.pendingIncoming.length >= this.capabilityQueueLimit) {
-          throw new Error(
-            `Capability handshake queue exceeded ${String(this.capabilityQueueLimit)} messages`,
-          );
-        }
-        this.pendingIncoming.push(env);
-        return;
-      }
-    }
+    if (!this.handshake.complete) return;
     this.handleRemoteEnvelope(env);
-  }
-
-  private drainPendingIncoming(): void {
-    for (const env of this.pendingIncoming.splice(0)) this.handleRemoteEnvelope(env);
   }
 
   private handleRemoteEnvelope(env: SyncEnvelope): void {
@@ -1065,16 +1035,6 @@ export class SyncClient {
   }
 }
 
-function requiresCapabilityNegotiation(op: SyncOp): boolean {
-  if (op.kind === 'extension') return true;
-  if (op.kind === 'upsert') return op.element.type === 'extension';
-  if (op.kind === 'batch') {
-    return op.ops.some((inner) => inner.kind === 'upsert' && inner.element.type === 'extension');
-  }
-  if (op.kind === 'snapshot') return op.elements.some((element) => element.type === 'extension');
-  return false;
-}
-
 const UNLIMITED: ElementLimits = {
   maxIdLength: Infinity,
   maxShortStringLength: Infinity,
@@ -1090,17 +1050,6 @@ function violatedLimit(op: BatchOp): string {
   const breaks = (name: keyof ElementLimits): boolean =>
     !elementWithinLimits(element, { ...UNLIMITED, [name]: SYNC_LIMITS[name] });
   return ELEMENT_LIMIT_NAMES.find(breaks) ?? 'maxIdLength';
-}
-
-/** Ops whose relative order against element upserts is load-bearing. */
-function isElementDataOp(op: SyncOp): boolean {
-  return (
-    op.kind === 'upsert' ||
-    op.kind === 'remove' ||
-    op.kind === 'clear' ||
-    op.kind === 'snapshot' ||
-    op.kind === 'batch'
-  );
 }
 
 /**
