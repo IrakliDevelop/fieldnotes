@@ -29,13 +29,14 @@ describe('createCurrentCapabilities', () => {
     expect(supportsAuthority(legacy)).toBe(false);
     const optedIn = createAuthorityCapabilities(['e']);
     expect(optedIn).toEqual({
-      protocolVersion: 1,
+      protocolVersion: 2,
       extensionKinds: ['e'],
       elementEnvelope: true,
+      elementHierarchy: 1,
       authority: 1,
     });
     expect(JSON.stringify(optedIn)).toBe(
-      '{"protocolVersion":1,"extensionKinds":["e"],"elementEnvelope":true,"authority":1}',
+      '{"protocolVersion":2,"extensionKinds":["e"],"elementEnvelope":true,"elementHierarchy":1,"authority":1}',
     );
     expect(supportsAuthority(optedIn)).toBe(true);
     for (const authority of [undefined, 0, 2, '1', null]) {
@@ -53,8 +54,11 @@ describe('createCurrentCapabilities', () => {
     ).not.toBeNull();
   });
 
-  it('keeps authority capabilities at protocol 1 so a managed authority connection constructs', () => {
-    expect(createAuthorityCapabilities([]).protocolVersion).toBe(1);
+  it('keeps authority capabilities at protocol 2 with the hierarchy marker so a managed authority connection constructs', () => {
+    expect(createAuthorityCapabilities([])).toMatchObject({
+      protocolVersion: 2,
+      elementHierarchy: 1,
+    });
     const connection = createManagedAuthorityConnection({
       scopeId: 'scope',
       clientId: 'client',

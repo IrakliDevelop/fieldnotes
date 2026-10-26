@@ -142,9 +142,10 @@ function capabilitySignature(
   expected: SyncCapabilities,
 ): string | null {
   if (
-    capabilities.protocolVersion !== 1 ||
+    capabilities.protocolVersion !== expected.protocolVersion ||
     capabilities.authority !== 1 ||
     capabilities.elementEnvelope !== true ||
+    capabilities.elementHierarchy !== expected.elementHierarchy ||
     !Array.isArray(capabilities.extensionKinds)
   ) {
     return null;
@@ -182,9 +183,10 @@ function capabilitySignature(
     seen.add(entry.key);
   }
   return JSON.stringify({
-    protocolVersion: 1,
+    protocolVersion: expected.protocolVersion,
     authority: 1,
     elementEnvelope: true,
+    elementHierarchy: expected.elementHierarchy,
     extensionKinds: [...kinds].sort(),
     authorityExtensions: [...inventory]
       .map(({ key, pluginName, version }) => ({ key, pluginName, version }))

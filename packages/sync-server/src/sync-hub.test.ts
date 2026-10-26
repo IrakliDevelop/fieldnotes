@@ -3863,7 +3863,7 @@ describe('versioned legacy wire after capability admission', () => {
 });
 
 describe('authority connections and the legacy admission gate', () => {
-  it('admits an authority peer advertising protocol 1 without a 4406', async () => {
+  it('admits an authority peer advertising capability revision 2 without a 4406', async () => {
     const definition: AuthorityRoomDefinition = {
       id: 'definition',
       extensions: [],

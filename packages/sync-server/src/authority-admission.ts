@@ -1,4 +1,9 @@
-import { createAuthorityCapabilities, type SyncCapabilities } from '@fieldnotes/sync';
+import {
+  AUTHORITY_PROTOCOL_VERSION,
+  ELEMENT_HIERARCHY_CAPABILITY_VERSION,
+  createAuthorityCapabilities,
+  type SyncCapabilities,
+} from '@fieldnotes/sync';
 import { snapshotAuthContext } from './auth-context';
 import type { Connection } from './sync-hub';
 import type {
@@ -151,7 +156,13 @@ export function authorityCapabilitiesMatch(
   capabilities: SyncCapabilities,
   definition: AuthorityRoomDefinition,
 ): boolean {
-  if (capabilities.authority !== 1) return false;
+  if (
+    capabilities.authority !== 1 ||
+    capabilities.protocolVersion !== AUTHORITY_PROTOCOL_VERSION ||
+    capabilities.elementHierarchy !== ELEMENT_HIERARCHY_CAPABILITY_VERSION ||
+    capabilities.elementEnvelope !== true
+  )
+    return false;
   const expected = createAuthorityCapabilities(
     authorityExtensionCapabilityKinds(definition.extensions),
     definition.extensions.map((extension) => extension.requirement),

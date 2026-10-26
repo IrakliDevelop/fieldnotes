@@ -4,6 +4,7 @@ import {
   type SyncCapabilities,
   type SyncOp,
 } from './protocol';
+import { AUTHORITY_PROTOCOL_VERSION } from './authority-protocol';
 import type { AuthorityExtensionManifestEntry } from './authority-protocol';
 
 export const DEFAULT_CAPABILITY_QUEUE_LIMIT = 1_000;
@@ -48,9 +49,10 @@ export function createAuthorityCapabilities(
   if (inventory.some((entry, index) => index > 0 && entry.key === inventory[index - 1]?.key))
     throw new TypeError('Invalid authority capabilities');
   return {
-    protocolVersion: 1,
+    protocolVersion: AUTHORITY_PROTOCOL_VERSION,
     extensionKinds: [...extensionKinds],
     elementEnvelope: true,
+    elementHierarchy: ELEMENT_HIERARCHY_CAPABILITY_VERSION,
     authority: 1,
     ...(inventory.length ? { authorityExtensions: inventory } : {}),
   };

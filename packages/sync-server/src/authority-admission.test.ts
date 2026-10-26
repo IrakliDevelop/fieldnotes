@@ -26,6 +26,22 @@ const definition: AuthorityRoomDefinition = {
 };
 
 describe('authority admission', () => {
+  it.each([
+    ['revision 1', { protocolVersion: 1 }],
+    ['missing hierarchy', { elementHierarchy: undefined }],
+    ['invalid hierarchy', { elementHierarchy: 2 }],
+  ])('rejects $0 before matching the pinned definition', (_name, change) => {
+    const pinned = pinAuthorityDefinition(definition);
+    const extension = definition.extensions[0];
+    if (!extension) throw new Error('missing test extension');
+    expect(
+      authorityCapabilitiesMatch(
+        { ...createAuthorityCapabilities(['test-op'], [extension.requirement]), ...change },
+        pinned,
+      ),
+    ).toBe(false);
+  });
+
   it('pins an exact extension inventory and rejects changed or absent peer declarations', () => {
     const pinned = pinAuthorityDefinition(definition);
     expect(Object.isFrozen(pinned.extensions)).toBe(true);

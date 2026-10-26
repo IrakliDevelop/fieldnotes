@@ -6867,6 +6867,64 @@ describe('authority runtime commit gate', () => {
     }
   });
 
+  it.each([
+    ['revision 1', { ...createAuthorityCapabilities([]), protocolVersion: 1 }],
+    [
+      'missing hierarchy',
+      { protocolVersion: 2, extensionKinds: [], elementEnvelope: true, authority: 1 },
+    ],
+    ['invalid hierarchy', { ...createAuthorityCapabilities([]), elementHierarchy: 2 }],
+  ])('refuses $0 capabilities before driver work', async (_name, capabilities) => {
+    const head = vi.fn(async () => ({ generation: 'g', revision: 'initial' }));
+    const checkpoint = vi.fn();
+    const commit = vi.fn();
+    const driver = {
+      head,
+      checkpoint,
+      commit,
+      claimPublications: async () => [],
+      markPublished: async () => undefined,
+    } as unknown as AuthorityDriver;
+    const sent: string[] = [];
+    const close = vi.fn();
+    const connection: Connection = {
+      id: `old-${_name}`,
+      room: 'table',
+      signal: new AbortController().signal,
+      close,
+      send: vi.fn(),
+    };
+    registerAuthorityConnection(connection, {
+      sendTracked: (message) => {
+        sent.push(message);
+        return { completion: Promise.resolve(), settled: Promise.resolve() };
+      },
+    });
+    const runtime = new AuthorityRuntime(
+      {
+        driver,
+        resolveRoom: () => definition,
+        resolveIdentity: () => ({ actorId: 'actor', ownershipId: 'owner' }),
+      },
+      new InMemoryHubFanout(),
+      'worker',
+    );
+    try {
+      runtime.admit(connection, definition);
+      await runtime.handleMessage(
+        connection.id,
+        JSON.stringify({ from: connection.id, op: { kind: 'capabilities', capabilities } }),
+      );
+      expect(sent.map((message) => JSON.parse(message).kind)).toEqual(['upgrade-required']);
+      expect(close).toHaveBeenCalledWith(4406);
+      expect(head).not.toHaveBeenCalled();
+      expect(checkpoint).not.toHaveBeenCalled();
+      expect(commit).not.toHaveBeenCalled();
+    } finally {
+      runtime.close();
+    }
+  });
+
   it('closes on changed capabilities after negotiation', async () => {
     const driver = {
       head: async () => ({ generation: 'g', revision: 'initial' }),
