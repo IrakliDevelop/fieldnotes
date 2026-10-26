@@ -13,6 +13,7 @@ import {
 import {
   SyncClient,
   WebSocketTransport,
+  createCurrentCapabilities,
   type FogMetaRecord,
   type FogTileRecord,
   type SyncElement,
@@ -133,6 +134,17 @@ function connection(id: string, room: string): RecordingConnection {
   };
 }
 
+async function admit(hub: SyncHub, conn: RecordingConnection): Promise<void> {
+  await hub.handleMessage(
+    conn.id,
+    JSON.stringify({
+      from: conn.id,
+      op: { kind: 'capabilities', capabilities: createCurrentCapabilities([]) },
+    }),
+  );
+  conn.sent.length = 0;
+}
+
 describe('RedisHubBackend behind SyncHub', () => {
   it('Redis-backed relay: forwards ops, persists to redis, serves request-snapshot from redis', async () => {
     const fake = new FakeRedis();
@@ -142,6 +154,8 @@ describe('RedisHubBackend behind SyncHub', () => {
     const b = connection('B', 'R');
     hub.addConnection(a);
     hub.addConnection(b);
+    await admit(hub, a);
+    await admit(hub, b);
 
     const el = {
       ...createShape({ index: 'a0', position: { x: 1, y: 2 }, size: { w: 3, h: 4 } }),
@@ -177,6 +191,7 @@ describe('RedisHubBackend behind SyncHub', () => {
     const hub1 = new SyncHub({ backend: new RedisHubBackend(fake) });
     const a = connection('A', 'R');
     hub1.addConnection(a);
+    await admit(hub1, a);
     const el = {
       ...createShape({ index: 'a0', position: { x: 5, y: 6 }, size: { w: 7, h: 8 } }),
       id: 'e1',
@@ -189,6 +204,7 @@ describe('RedisHubBackend behind SyncHub', () => {
     const hub2 = new SyncHub({ backend: new RedisHubBackend(fake) });
     const c = connection('C', 'R');
     hub2.addConnection(c);
+    await admit(hub2, c);
     await hub2.handleMessage('C', JSON.stringify({ from: 'C', op: { kind: 'request-snapshot' } }));
 
     expect(c.sent).toHaveLength(1);
@@ -217,6 +233,8 @@ describe('RedisHubBackend behind SyncHub', () => {
     const b = connection('B', 'R');
     hubA.addConnection(a);
     hubB.addConnection(b);
+    await admit(hubA, a);
+    await admit(hubB, b);
     const definition = {
       version: 1 as const,
       generation: 'gen-1',
@@ -526,6 +544,22 @@ describe.skipIf(!redisUrl)('RedisHubBackend elements against a real Redis', () =
       await new Promise((resolve, reject) => {
         socket.addEventListener('open', resolve, { once: true });
         socket.addEventListener('error', reject, { once: true });
+      });
+      await new Promise<void>((resolve, reject) => {
+        const onMessage = (event: MessageEvent): void => {
+          const message = JSON.parse(String(event.data)) as { op?: { kind?: string } };
+          if (message.op?.kind !== 'capabilities') return;
+          socket.removeEventListener('message', onMessage);
+          resolve();
+        };
+        socket.addEventListener('message', onMessage);
+        socket.addEventListener('error', reject, { once: true });
+        socket.send(
+          JSON.stringify({
+            from: `${user}-raw`,
+            op: { kind: 'capabilities', capabilities: createCurrentCapabilities([]) },
+          }),
+        );
       });
       return socket;
     }

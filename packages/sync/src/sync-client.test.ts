@@ -1009,6 +1009,64 @@ describe('SyncClient resync-on-reconnect', () => {
     expect(store.getById(remote.id)).toBeDefined();
   });
 
+  it('keeps a remote orphan raw until its parent arrives without rebroadcasting it', () => {
+    const store = new ElementStore();
+    const transport = makeReconnectTransport();
+    const client = new SyncClient({ flushIntervalMs: 0, store, transport, clientId: 'B' });
+    const parent = { ...shape(1), id: 'parent' };
+    const child = { ...shape(2), id: 'child', parentId: parent.id };
+    client.start();
+    const sentBefore = transport.sent.length;
+
+    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'B', elements: [child] }));
+
+    expect(store.getById(child.id)).toMatchObject({ parentId: parent.id });
+    expect(store.getAll()).toEqual([]);
+    expect(store.getElementsByType('shape')).toEqual([]);
+    expect(store.queryRect({ x: 0, y: 0, w: 20, h: 20 })).toEqual([]);
+
+    transport.deliver(envelope('hub', { kind: 'upsert', element: parent }));
+
+    expect(store.getAll().map((element) => element.id)).toEqual([parent.id, child.id]);
+    expect(store.queryRect({ x: 0, y: 0, w: 20, h: 20 }).map((element) => element.id)).toEqual([
+      parent.id,
+      child.id,
+    ]);
+    expect(sentKinds(transport.sent.slice(sentBefore))).toEqual([]);
+    client.dispose();
+  });
+
+  it('keeps live child-before-parent delivery out of scene queries until the parent arrives', () => {
+    const store = new ElementStore();
+    const transport = makeReconnectTransport();
+    const client = new SyncClient({ flushIntervalMs: 0, store, transport, clientId: 'B' });
+    const parent = { ...shape(1), id: 'parent' };
+    const child = { ...shape(2), id: 'child', parentId: parent.id };
+    client.start();
+    const sentBefore = transport.sent.length;
+
+    transport.deliver(envelope('hub', { kind: 'upsert', element: child }));
+
+    expect(store.getById(child.id)).toMatchObject({ parentId: parent.id });
+    expect(store.getAll()).toEqual([]);
+    expect(store.getElementsByType('shape')).toEqual([]);
+    expect(store.queryRect({ x: 0, y: 0, w: 20, h: 20 })).toEqual([]);
+
+    transport.deliver(envelope('hub', { kind: 'upsert', element: parent }));
+
+    expect(store.getAll().map((element) => element.id)).toEqual([parent.id, child.id]);
+    expect(store.getElementsByType('shape').map((element) => element.id)).toEqual([
+      parent.id,
+      child.id,
+    ]);
+    expect(store.queryRect({ x: 0, y: 0, w: 20, h: 20 }).map((element) => element.id)).toEqual([
+      parent.id,
+      child.id,
+    ]);
+    expect(sentKinds(transport.sent.slice(sentBefore))).toEqual([]);
+    client.dispose();
+  });
+
   it('RECONCILES later snapshots — removes locals absent from the authoritative set, upserts canonical, origin remote, no re-broadcast', () => {
     const store = new ElementStore();
     const transport = makeReconnectTransport();

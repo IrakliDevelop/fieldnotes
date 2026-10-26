@@ -2010,6 +2010,30 @@ describe('read filtering (canRead)', () => {
     });
   });
 
+  it('keeps an allowed child parentId in a correction while withholding its private parent', async () => {
+    const backend = new MemoryHubBackend();
+    const hub = new SyncHub({ authorize: () => false, canRead, backend });
+    const player = conn('player', 'R', 'player');
+    admit(hub, player);
+    const parent = {
+      ...sampleEl(),
+      id: 'private-parent',
+      audience: 'dm',
+      data: { label: 'private-parent-sentinel' },
+    };
+    const child = { ...sampleEl(), id: 'public-child', audience: 'shared', parentId: parent.id };
+    await backend.applyElement('R', { kind: 'upsert', element: parent }, null);
+    await backend.applyElement('R', { kind: 'upsert', element: child }, null);
+
+    await hub.handleMessage('player', envelope('player', v2Remove(child.id)));
+
+    expect(JSON.parse(player.sent[0] ?? '')).toMatchObject({
+      from: 'hub',
+      op: { kind: 'upsert', element: { id: child.id, parentId: parent.id } },
+    });
+    expect(player.sent.join('')).not.toContain('private-parent-sentinel');
+  });
+
   it('broadcasts a shared upsert to a player', async () => {
     const hub = new SyncHub({ canRead });
     const dm = conn('dm', 'R', 'dm');
@@ -2019,6 +2043,38 @@ describe('read filtering (canRead)', () => {
     await hub.handleMessage('dm', upsertMsg('cdm', 's1', 'shared'));
     expect(player.sent.length).toBe(1);
     expect(JSON.parse(player.sent[0] as string).op.element.id).toBe('s1');
+  });
+
+  it('relays an allowed child with a hidden parent reference without sending the parent bytes', async () => {
+    const hub = new SyncHub({ canRead });
+    const dm = conn('dm', 'R', 'dm');
+    const player = conn('pl', 'R', 'player');
+    admit(hub, dm);
+    admit(hub, player);
+    const parent = {
+      ...sampleEl(),
+      id: 'private-parent',
+      audience: 'dm',
+      data: { label: 'private-parent-sentinel' },
+    };
+    const child = { ...sampleEl(), id: 'public-child', audience: 'shared', parentId: parent.id };
+
+    await hub.handleMessage('dm', envelope('dm', { kind: 'upsert', element: parent }));
+    await hub.handleMessage('dm', envelope('dm', { kind: 'upsert', element: child }));
+
+    expect(player.sent).toHaveLength(1);
+    expect(JSON.parse(player.sent[0] ?? '')).toMatchObject({
+      op: { kind: 'upsert', element: { id: child.id, parentId: parent.id } },
+    });
+    expect(player.sent.join('')).not.toContain('private-parent-sentinel');
+    player.sent.length = 0;
+
+    await hub.handleMessage('pl', envelope('pl', { kind: 'request-snapshot' }));
+
+    expect(JSON.parse(player.sent[0] ?? '')).toMatchObject({
+      op: { kind: 'snapshot', elements: [{ id: child.id, parentId: parent.id }] },
+    });
+    expect(player.sent.join('')).not.toContain('private-parent-sentinel');
   });
 
   it('never sends a newly-created dm element to a player — and no spurious remove (P2)', async () => {
@@ -4209,6 +4265,30 @@ describe('versioned element pipeline (D5)', () => {
     });
   });
 
+  it('re-filters an allowed orphan on the receiving hub without hierarchy authorization', async () => {
+    const bus = new InMemoryHubFanout();
+    const shared = new MemoryHubBackend();
+    const origin = new SyncHub({ backend: shared, fanout: bus, instanceId: 'A', canRead });
+    const remote = new SyncHub({ backend: shared, fanout: bus, instanceId: 'B', canRead });
+    const host = user('gm', 'gm');
+    const player = user('player', 'player');
+    admit(origin, host);
+    admit(remote, player);
+    const parent = {
+      ...el('private-parent', 1, { audience: 'gm' }),
+      data: { label: 'private-parent-sentinel' },
+    };
+    const child = { ...el('public-child'), parentId: parent.id };
+
+    await origin.handleMessage('gm', upsert(parent));
+    await origin.handleMessage('gm', upsert(child));
+
+    expect(frames(player)).toEqual([
+      { from: 'gm', op: { kind: 'upsert', element: publicView(child) } },
+    ]);
+    expect(player.sent.join('')).not.toContain('private-parent-sentinel');
+  });
+
   it.each([
     ['without audiences', undefined],
     ['with mismatched audiences', [null, null]],
@@ -4572,6 +4652,29 @@ describe('element op batches', () => {
       ['tail', 'gm'],
     ]);
     expect(gm.sent).toEqual([]);
+  });
+
+  it('omits a forbidden child payload from a batched relay', async () => {
+    const hub = new SyncHub({
+      canRead: ({ role, audience }) => audience !== 'private' || role === 'gm',
+    });
+    await join(hub, 'gm', batching, 'gm');
+    const player = await join(hub, 'player', batching, 'player');
+    const parent = shape('public-parent');
+    const child = {
+      ...shape('private-child', 1, 'private'),
+      parentId: parent.id,
+      data: { label: 'private-child-sentinel' },
+    };
+
+    await hub.handleMessage('gm', envelope('gm', batch(up(parent), up(child))));
+
+    expect(frames(player)).toEqual([{ from: 'gm', op: { kind: 'batch', ops: [up(parent)] } }]);
+    expect(player.sent.join('')).not.toContain('private-child-sentinel');
+    player.sent.length = 0;
+    await hub.handleMessage('player', envelope('player', { kind: 'request-snapshot' }));
+    expect(player.sent.join('')).toContain('public-parent');
+    expect(player.sent.join('')).not.toContain('private-child-sentinel');
   });
 
   it('drops a batch op claiming the hub editor without stopping the others', async () => {

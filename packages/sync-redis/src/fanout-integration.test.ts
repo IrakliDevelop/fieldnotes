@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { SyncHub } from '@fieldnotes/sync-server';
 import type { Connection } from '@fieldnotes/sync-server';
 import { createShape } from '@fieldnotes/core';
+import { createCurrentCapabilities } from '@fieldnotes/sync';
 import { RedisHubBackend, RedisHubFanout } from './index';
 import type { RedisHashClient, RedisPublisher, RedisSubscriber } from './index';
 import { emulateElementScript } from './test-support/element-scripts-fake';
@@ -64,6 +65,17 @@ function makeConn(id: string, room: string): Connection & { sent: string[] } {
   return { id, room, send: (m: string) => sent.push(m), sent };
 }
 
+async function admit(hub: SyncHub, conn: Connection & { sent: string[] }): Promise<void> {
+  await hub.handleMessage(
+    conn.id,
+    JSON.stringify({
+      from: conn.id,
+      op: { kind: 'capabilities', capabilities: createCurrentCapabilities([]) },
+    }),
+  );
+  conn.sent.length = 0;
+}
+
 const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
 
 describe('RedisHubFanout + RedisHubBackend cross-instance integration', () => {
@@ -91,6 +103,8 @@ describe('RedisHubFanout + RedisHubBackend cross-instance integration', () => {
     const connB = makeConn('cb', 'R');
     hubA.addConnection(connA);
     hubB.addConnection(connB);
+    await admit(hubA, connA);
+    await admit(hubB, connB);
 
     const el = {
       ...createShape({ index: 'a0', position: { x: 1, y: 2 }, size: { w: 3, h: 4 } }),
@@ -127,6 +141,7 @@ describe('RedisHubFanout + RedisHubBackend cross-instance integration', () => {
     await tick();
     const remote = makeConn('remote', 'R');
     hubB.addConnection(remote);
+    await admit(hubB, remote);
 
     expect(hubA.broadcastPresence('R', { kind: 'poke', feature: 'initiative' })).toBe(0);
     await tick();
@@ -141,5 +156,73 @@ describe('RedisHubFanout + RedisHubBackend cross-instance integration', () => {
       elements: [],
       tombstones: [],
     });
+  });
+
+  it('re-filters hierarchy-related elements per remote viewer while Redis keeps relationships', async () => {
+    const bus = new FakeBus();
+    const redis = new FakeRedis();
+    const pub: RedisPublisher = { publish: (c: string, m: string) => bus.publish(c, m) };
+    const sub: RedisSubscriber = {
+      subscribe: (c: string, l: (m: string) => void) => bus.subscribe(c, l),
+    };
+    const canRead = ({ role, audience }: { role?: string; audience: string | undefined }) =>
+      audience !== 'private' || role === 'gm';
+    const mk = (id: string): SyncHub =>
+      new SyncHub({
+        instanceId: id,
+        canRead,
+        fanout: new RedisHubFanout(pub, sub),
+        backend: new RedisHubBackend(redis),
+      });
+    const hubA = mk('A');
+    const hubB = mk('B');
+    await tick();
+    const gm = { ...makeConn('gm', 'R'), role: 'gm' };
+    const player = { ...makeConn('player', 'R'), role: 'player' };
+    hubA.addConnection(gm);
+    hubB.addConnection(player);
+    await admit(hubA, gm);
+    await admit(hubB, player);
+    const parent = {
+      ...createShape({ index: 'a0', position: { x: 1, y: 2 }, size: { w: 3, h: 4 } }),
+      id: 'private-parent',
+      audience: 'private',
+      data: { secret: 'private-parent-sentinel' },
+    };
+    const forbiddenChild = {
+      ...createShape({ index: 'a1', position: { x: 2, y: 2 }, size: { w: 3, h: 4 } }),
+      id: 'private-child',
+      audience: 'private',
+      parentId: parent.id,
+      data: { secret: 'private-child-sentinel' },
+    };
+    const allowedChild = {
+      ...createShape({ index: 'a2', position: { x: 3, y: 2 }, size: { w: 3, h: 4 } }),
+      id: 'public-child',
+      parentId: parent.id,
+    };
+
+    for (const element of [parent, forbiddenChild, allowedChild]) {
+      await hubA.handleMessage(
+        gm.id,
+        JSON.stringify({ from: gm.id, op: { kind: 'upsert', element } }),
+      );
+    }
+    await tick();
+
+    expect(player.sent).toHaveLength(1);
+    expect(JSON.parse(player.sent[0] ?? '')).toMatchObject({
+      op: { kind: 'upsert', element: { id: allowedChild.id, parentId: parent.id } },
+    });
+    expect(player.sent.join('')).not.toContain('private-parent-sentinel');
+    expect(player.sent.join('')).not.toContain('private-child-sentinel');
+    expect(player.sent.map((message) => JSON.parse(message).op.kind)).toEqual(['upsert']);
+    const stored = await new RedisHubBackend(redis).snapshot('R');
+    expect(stored.elements).toContainEqual(
+      expect.objectContaining({
+        id: allowedChild.id,
+        parentId: parent.id,
+      }),
+    );
   });
 });
