@@ -9,6 +9,7 @@ import {
   SyncHub,
   type Authenticate,
   type Authorize,
+  type CreateSyncServerOptions,
 } from '@fieldnotes/sync-server';
 import {
   SyncClient,
@@ -499,7 +500,9 @@ describe.skipIf(!redisUrl)('RedisHubBackend elements against a real Redis', () =
       cleanup.length = 0;
     });
 
-    async function startHubs(): Promise<[number, number]> {
+    async function startHubs(
+      options: Pick<CreateSyncServerOptions, 'canRead'> = {},
+    ): Promise<[number, number]> {
       const channel = `${keyPrefix}fanout`;
       const ports: number[] = [];
       for (let i = 0; i < 2; i++) {
@@ -517,6 +520,7 @@ describe.skipIf(!redisUrl)('RedisHubBackend elements against a real Redis', () =
           fanout,
           authenticate,
           authorize,
+          ...options,
         });
         cleanup.push(() => server.close());
         ports.push((server.wss.address() as AddressInfo).port);
@@ -621,6 +625,72 @@ describe.skipIf(!redisUrl)('RedisHubBackend elements against a real Redis', () =
             watchers.every((store) => store.getById(stored.id)?.position.x === 26),
         );
       });
+    });
+
+    it('filters each Redis fanout element while retaining a readable orphan relation', async () => {
+      const [portA, portB] = await startHubs({
+        canRead: ({ role, audience }) => audience !== 'private' || role === 'gm',
+      });
+      const gm = await connectRaw(portA, 'gm');
+      const player = connect(portB, 'player');
+      const parent = {
+        ...realShape('private-parent', 1),
+        audience: 'private',
+        data: { label: 'private-parent-payload-sentinel' },
+      };
+      const child = { ...realShape('public-child', 1), parentId: parent.id };
+      const privateChild = {
+        ...realShape('private-child', 1),
+        audience: 'private',
+        data: { label: 'private-child-payload-sentinel' },
+      };
+      const barrier = realShape('visible-barrier', 1, 50);
+      const send = (element: SyncElement): void =>
+        gm.send(JSON.stringify({ from: 'gm-raw', op: { kind: 'upsert', element } }));
+
+      send(parent);
+      send(child);
+      send(privateChild);
+      send(barrier);
+      await waitFor(() => player.getById(barrier.id) !== undefined);
+      expect(player.getById(parent.id)).toBeUndefined();
+      expect(player.getById(privateChild.id)).toBeUndefined();
+      expect(player.getById(child.id)).toMatchObject({ parentId: parent.id });
+      expect(player.getAll().map((element) => element.id)).toEqual([barrier.id]);
+      expect(player.getElementsByType('shape').map((element) => element.id)).toEqual([barrier.id]);
+      expect(player.queryRect({ x: 0, y: 0, w: 100, h: 100 }).map((element) => element.id)).toEqual(
+        [barrier.id],
+      );
+      expect(JSON.stringify(player.getAll())).not.toContain('private-parent-payload-sentinel');
+      expect(JSON.stringify(player.getAll())).not.toContain('private-child-payload-sentinel');
+
+      send(realShape(parent.id, 2));
+      await waitFor(
+        () =>
+          player
+            .queryRect({ x: 0, y: 0, w: 100, h: 100 })
+            .map((element) => element.id)
+            .sort()
+            .join(',') === 'private-parent,public-child,visible-barrier',
+      );
+      expect(
+        player
+          .getAll()
+          .map((element) => element.id)
+          .sort(),
+      ).toEqual(['private-parent', 'public-child', 'visible-barrier']);
+      expect(player.getElementsByType('shape')).toHaveLength(3);
+      expect(player.getById(privateChild.id)).toBeUndefined();
+      expect(JSON.stringify(player.getAll())).not.toContain('private-parent-payload-sentinel');
+      expect(JSON.stringify(player.getAll())).not.toContain('private-child-payload-sentinel');
+      const snapshot = await backend().snapshot('R');
+      expect(snapshot.elements).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: child.id, parentId: parent.id }),
+          expect.objectContaining({ id: parent.id }),
+          expect.objectContaining({ id: privateChild.id }),
+        ]),
+      );
     });
 
     it('never leaves a player-owned element when a player recreate races a GM delete', async () => {

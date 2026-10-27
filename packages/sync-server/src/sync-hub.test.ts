@@ -2441,6 +2441,29 @@ describe('presence (ephemeral)', () => {
     });
   });
 
+  it('keeps element relations out of caller presence', async () => {
+    const hub = new SyncHub();
+    const sender = makeConn('sender', 'R');
+    const reader = makeConn('reader', 'R');
+    admit(hub, sender);
+    admit(hub, reader);
+    const child = { ...sampleEl(), id: 'child', parentId: 'filtered-parent' };
+
+    await hub.handleMessage(sender.id, envelope(sender.id, { kind: 'upsert', element: child }));
+    await hub.handleMessage(
+      sender.id,
+      presenceMsg(sender.id, { kind: 'cursor', parentId: 'caller-owned', x: 4 }),
+    );
+
+    expect(JSON.parse(reader.sent[0] ?? '')).toMatchObject({
+      op: { kind: 'upsert', element: { id: 'child', parentId: 'filtered-parent' } },
+    });
+    expect(JSON.parse(reader.sent[1] ?? '')).toEqual({
+      from: sender.id,
+      op: { kind: 'presence', data: { kind: 'cursor', parentId: 'caller-owned', x: 4 } },
+    });
+  });
+
   it('coalesces rapid presence updates and relays the latest state', async () => {
     vi.useFakeTimers();
     try {

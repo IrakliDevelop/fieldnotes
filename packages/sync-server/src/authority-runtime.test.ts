@@ -5,7 +5,9 @@ import {
   createAuthorityCapabilities,
   createAuthorityOperationId,
   parseEnvelope,
+  parseAuthorityServerFrame,
   type AuthorityMutation,
+  type AuthorityServerFrame,
 } from '@fieldnotes/sync';
 import { authorityCapabilitiesMatch } from './authority-admission';
 import { AuthorityRuntime } from './authority-runtime';
@@ -53,6 +55,221 @@ const proposal = (id: string, mutation: AuthorityMutation) =>
 const emptyAuthorityState = { elements: [], layers: [], extensions: {} };
 const initialAuthorityPosition = { generation: 'g', revision: 'start' };
 const authorityReference = { id: 'ref', byteLength: 1, nodes: 1 };
+
+it('serializes an allowed orphan checkpoint without filtered payloads or presence', async () => {
+  const parent = {
+    ...element,
+    id: 'private-parent',
+    audience: 'hidden',
+    data: { label: 'private-parent-sentinel' },
+  };
+  const child = { ...element, id: 'public-child', parentId: parent.id };
+  const privateChild = {
+    ...element,
+    id: 'private-child',
+    audience: 'hidden',
+    data: { label: 'private-child-sentinel' },
+  };
+  const store = new AuthorityFixtureStore();
+  store.now = Date.now();
+  store.provision('table');
+  const driver = new AuthorityFixtureDriver(store);
+  const sent: string[] = [];
+  const connection: Connection = {
+    id: 'orphan-reader',
+    room: 'table',
+    signal: new AbortController().signal,
+    close: vi.fn(),
+    send: vi.fn(),
+  };
+  registerAuthorityConnection(connection, {
+    sendTracked: (message) => {
+      sent.push(message);
+      return { completion: Promise.resolve(), settled: Promise.resolve() };
+    },
+  });
+  const filtered: AuthorityRoomDefinition = {
+    ...definition,
+    project: (_context, state) => ({
+      ...state,
+      elements: state.elements.filter((item) => item.audience !== 'hidden'),
+    }),
+  };
+  const runtime = new AuthorityRuntime(
+    {
+      driver,
+      resolveRoom: () => filtered,
+      resolveIdentity: () => ({ actorId: 'reader', ownershipId: 'reader' }),
+    },
+    new InMemoryHubFanout(),
+    'worker',
+  );
+  try {
+    expect(runtime.admit(connection, filtered)).toBe(true);
+    await runtime.handleMessage(
+      connection.id,
+      JSON.stringify({
+        from: connection.id,
+        op: { kind: 'capabilities', capabilities: createAuthorityCapabilities([]) },
+      }),
+    );
+    const initial = store.getRoom('table');
+    if (!initial) throw new Error('missing fixture room');
+    runtime.activate(connection.id, initial.position, initial.state);
+    for (const [offset, item] of [parent, child, privateChild].entries()) {
+      await runtime.handleMessage(
+        connection.id,
+        proposal(createAuthorityOperationId(store.now + offset), { kind: 'upsert', element: item }),
+      );
+    }
+    sent.length = 0;
+    await runtime.handleMessage(
+      connection.id,
+      JSON.stringify({
+        protocol: 'authority:1',
+        kind: 'checkpoint-request',
+        requestId: 'orphan-checkpoint',
+        generation: 'g',
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(sent.map((message) => JSON.parse(message).kind)).toContain('checkpoint-end'),
+    );
+    const assembler = new AuthorityCheckpointAssembler({
+      requestId: 'orphan-checkpoint',
+      generation: 'g',
+      requiredExtensions: [],
+    });
+    let checkpoint: { elements: unknown[] } | undefined;
+    for (const message of sent) {
+      const result = await assembler.accept(message);
+      if (result.status === 'complete') checkpoint = result.checkpoint;
+    }
+    assembler.dispose();
+    expect(checkpoint?.elements).toEqual([
+      expect.objectContaining({ id: child.id, parentId: parent.id }),
+    ]);
+    const wire = sent.join('\n');
+    expect(wire).not.toContain('private-parent-sentinel');
+    expect(wire).not.toContain('private-child-sentinel');
+    expect(wire).not.toContain('"kind":"presence"');
+  } finally {
+    runtime.close();
+  }
+});
+
+it('emits an allowed orphan once and later reveals its parent without rewriting the child', async () => {
+  const parent = {
+    ...element,
+    id: 'private-parent',
+    audience: 'hidden',
+    data: { label: 'private-parent-sentinel' },
+  };
+  const child = { ...element, id: 'public-child', parentId: parent.id };
+  const privateChild = {
+    ...element,
+    id: 'private-child',
+    audience: 'hidden',
+    data: { label: 'private-child-sentinel' },
+  };
+  const store = new AuthorityFixtureStore();
+  store.now = Date.now();
+  store.provision('table');
+  const sent: string[] = [];
+  const connection: Connection = {
+    id: 'orphan-live-reader',
+    room: 'table',
+    signal: new AbortController().signal,
+    close: vi.fn(),
+    send: vi.fn(),
+  };
+  registerAuthorityConnection(connection, {
+    sendTracked: (message) => {
+      sent.push(message);
+      return { completion: Promise.resolve(), settled: Promise.resolve() };
+    },
+  });
+  const filtered: AuthorityRoomDefinition = {
+    ...definition,
+    project: (_context, state) => ({
+      ...state,
+      elements: state.elements.filter((item) => item.audience !== 'hidden'),
+    }),
+  };
+  const runtime = new AuthorityRuntime(
+    {
+      driver: new AuthorityFixtureDriver(store),
+      resolveRoom: () => filtered,
+      resolveIdentity: () => ({ actorId: 'reader', ownershipId: 'reader' }),
+    },
+    new InMemoryHubFanout(),
+    'worker',
+  );
+  const frames = () =>
+    sent.flatMap((message) => {
+      const frame = parseAuthorityServerFrame(message);
+      return frame ? [frame] : [];
+    });
+  const changes = () =>
+    frames().filter(
+      (frame): frame is Extract<AuthorityServerFrame, { kind: 'changes' }> =>
+        frame.kind === 'changes',
+    );
+  try {
+    runtime.admit(connection, filtered);
+    await runtime.handleMessage(
+      connection.id,
+      JSON.stringify({
+        from: connection.id,
+        op: { kind: 'capabilities', capabilities: createAuthorityCapabilities([]) },
+      }),
+    );
+    const initial = store.getRoom('table');
+    if (!initial) throw new Error('missing fixture room');
+    runtime.activate(connection.id, initial.position, initial.state);
+    sent.length = 0;
+    for (const [offset, item] of [
+      parent,
+      child,
+      privateChild,
+      { ...privateChild, version: 2 },
+    ].entries()) {
+      await runtime.handleMessage(
+        connection.id,
+        proposal(createAuthorityOperationId(store.now + offset), { kind: 'upsert', element: item }),
+      );
+    }
+    await vi.waitFor(() =>
+      expect(frames().filter((frame) => frame.kind === 'receipt')).toHaveLength(4),
+    );
+    expect(changes()).toHaveLength(1);
+    expect(changes()[0]).toMatchObject({
+      mutations: [{ kind: 'upsert', element: { id: child.id, parentId: parent.id } }],
+    });
+
+    await runtime.handleMessage(
+      connection.id,
+      proposal(createAuthorityOperationId(store.now + 4), {
+        kind: 'upsert',
+        element: { ...element, id: parent.id, version: 2 },
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(frames().filter((frame) => frame.kind === 'receipt')).toHaveLength(5),
+    );
+    await vi.waitFor(() => expect(changes()).toHaveLength(2));
+    expect(changes()[1]).toMatchObject({
+      mutations: [{ kind: 'upsert', element: { id: parent.id } }],
+    });
+    expect(changes().map((frame) => frame.cursor.revision)).toEqual([1, 2]);
+    expect(JSON.stringify(changes()[1])).not.toContain(child.id);
+    const wire = sent.join('\n');
+    expect(wire).not.toContain('private-parent-sentinel');
+    expect(wire).not.toContain('private-child-sentinel');
+  } finally {
+    runtime.close();
+  }
+});
 
 it('negotiates the combined pinned legacy inventory and rejects an unowned fog kind before commit', async () => {
   const extension = {
