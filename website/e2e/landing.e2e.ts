@@ -65,7 +65,6 @@ test.describe('landing without JavaScript', () => {
 
     const notBuilt = page.getByRole('region', { name: 'Not built yet' }).getByRole('listitem');
     await expect(notBuilt).toHaveText([
-      'Frames that group and clip elements',
       'Find text on the board',
       'Command palette',
       'Elbow arrows that route around shapes',
