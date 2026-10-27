@@ -4120,10 +4120,17 @@ describe('Viewport live html elements', () => {
       type: 'test:full-parent',
       legacyTypes: [],
       fullCanvas: true,
-      decodeLegacy: (raw) => raw as BaseElement,
+      decodeLegacy: () => {
+        throw new Error('no legacy');
+      },
       validateData: () => true,
       unwrap: (element) => element,
-      wrap: (element) => ({ ...element, type: 'extension', extensionType: 'test:full-parent' }),
+      wrap: (element) => ({
+        ...element,
+        type: 'extension',
+        extensionType: 'test:full-parent',
+        data: {},
+      }),
       bounds: () => null,
     } satisfies ElementTypeDefinition<BaseElement>);
     const full: ExtensionElementEnvelope = {
@@ -4144,11 +4151,13 @@ describe('Viewport live html elements', () => {
     expectRejected(() => viewport.setParent(full.id, local.id), full.id);
 
     const chain = Array.from({ length: 34 }, (_, index) =>
-      createNote({
-        id: `depth-${index}`,
-        position: { x: index * 20, y: 100 },
-        size: { w: 10, h: 10 },
-      }),
+      Object.assign(
+        createNote({
+          position: { x: index * 20, y: 100 },
+          size: { w: 10, h: 10 },
+        }),
+        { id: `depth-${index}` },
+      ),
     );
     for (const element of chain) viewport.store.add(element);
     for (let index = 1; index < 33; index += 1) {

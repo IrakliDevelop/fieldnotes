@@ -106,13 +106,15 @@ describe('exportSvg', () => {
       data: {},
     });
     store.add(
-      createShape({
-        id: 'child',
-        parentId: 'clip-a',
-        position: { x: 20, y: 20 },
-        size: { w: 10, h: 10 },
-        index: 'a1',
-      }),
+      Object.assign(
+        createShape({
+          parentId: 'clip-a',
+          position: { x: 20, y: 20 },
+          size: { w: 10, h: 10 },
+          index: 'a1',
+        }),
+        { id: 'child' },
+      ),
     );
     store.add({
       id: 'clip-b',
@@ -127,13 +129,15 @@ describe('exportSvg', () => {
       data: {},
     });
     store.add(
-      createShape({
-        id: 'grandchild',
-        parentId: 'clip-b',
-        position: { x: 45, y: 20 },
-        size: { w: 10, h: 10 },
-        index: 'a3',
-      }),
+      Object.assign(
+        createShape({
+          parentId: 'clip-b',
+          position: { x: 45, y: 20 },
+          size: { w: 10, h: 10 },
+          index: 'a3',
+        }),
+        { id: 'grandchild' },
+      ),
     );
 
     const svg = await exportSvg(store, { elementRegistry: registry });
@@ -211,22 +215,26 @@ describe('exportSvg', () => {
       data: {},
     });
     store.add(
-      createShape({
-        id: 'first',
-        parentId: 'parent',
-        position: { x: 10, y: 10 },
-        size: { w: 5, h: 5 },
-        index: 'a1',
-      }),
+      Object.assign(
+        createShape({
+          parentId: 'parent',
+          position: { x: 10, y: 10 },
+          size: { w: 5, h: 5 },
+          index: 'a1',
+        }),
+        { id: 'first' },
+      ),
     );
     store.add(
-      createShape({
-        id: 'second',
-        parentId: 'parent',
-        position: { x: 20, y: 20 },
-        size: { w: 5, h: 5 },
-        index: 'a2',
-      }),
+      Object.assign(
+        createShape({
+          parentId: 'parent',
+          position: { x: 20, y: 20 },
+          size: { w: 5, h: 5 },
+          index: 'a2',
+        }),
+        { id: 'second' },
+      ),
     );
     const hooks = createRenderHooks();
     hooks.svgExport.register({
@@ -335,13 +343,15 @@ describe('exportSvg', () => {
       data: {},
     });
     store.add(
-      createShape({
-        id: 'hostile & <id> /?',
-        parentId: 'clip',
-        position: { x: 10, y: 10 },
-        size: { w: 5, h: 5 },
-        index: 'a1',
-      }),
+      Object.assign(
+        createShape({
+          parentId: 'clip',
+          position: { x: 10, y: 10 },
+          size: { w: 5, h: 5 },
+          index: 'a1',
+        }),
+        { id: 'hostile & <id> /?' },
+      ),
     );
 
     const svg = await exportSvg(store, { elementRegistry: registry });
@@ -372,7 +382,7 @@ describe('exportSvg', () => {
         w: el.id === 'large' ? 1000 : 100,
         h: el.id === 'large' ? 800 : 100,
       }),
-      clipBounds: (el) => (el.id === 'clip' ? { x: 0, y: 0, w: 100, h: 100 } : undefined),
+      clipBounds: (el) => (el.id === 'clip' ? { x: 0, y: 0, w: 100, h: 100 } : null),
       emitSvg: () => '',
     });
     const store = new ElementStore(registry);
@@ -423,7 +433,7 @@ describe('exportSvg', () => {
       }),
       bounds: (el) =>
         el.id === 'null' ? null : { x: el.position.x, y: el.position.y, w: 100, h: 100 },
-      clipBounds: (el) => (el.id === 'clip' ? { x: 0, y: 0, w: 100, h: 100 } : undefined),
+      clipBounds: (el) => (el.id === 'clip' ? { x: 0, y: 0, w: 100, h: 100 } : null),
       emitSvg: (el) => (el.id === 'empty' ? '' : `<rect data-fragment="${el.id}" />`),
     });
     const store = new ElementStore(registry);
@@ -439,22 +449,26 @@ describe('exportSvg', () => {
       data: {},
     });
     store.add(
-      createShape({
-        id: 'visible',
-        parentId: 'clip',
-        position: { x: 10, y: 10 },
-        size: { w: 10, h: 10 },
-        index: 'a1',
-      }),
+      Object.assign(
+        createShape({
+          parentId: 'clip',
+          position: { x: 10, y: 10 },
+          size: { w: 10, h: 10 },
+          index: 'a1',
+        }),
+        { id: 'visible' },
+      ),
     );
     store.add(
-      createShape({
-        id: 'disjoint',
-        parentId: 'clip',
-        position: { x: 200, y: 200 },
-        size: { w: 10, h: 10 },
-        index: 'a2',
-      }),
+      Object.assign(
+        createShape({
+          parentId: 'clip',
+          position: { x: 200, y: 200 },
+          size: { w: 10, h: 10 },
+          index: 'a2',
+        }),
+        { id: 'disjoint' },
+      ),
     );
     store.add({
       id: 'null',
@@ -494,12 +508,14 @@ describe('exportSvg', () => {
     store.add(dom);
     store.add(canvas);
     store.add(
-      createShape({
-        id: 'unresolved',
-        parentId: 'missing',
-        position: { x: 500, y: 500 },
-        size: { w: 10, h: 10 },
-      }),
+      Object.assign(
+        createShape({
+          parentId: 'missing',
+          position: { x: 500, y: 500 },
+          size: { w: 10, h: 10 },
+        }),
+        { id: 'unresolved' },
+      ),
       { origin: 'remote' },
     );
     const renderHtml = vi.fn();
@@ -546,7 +562,7 @@ describe('exportSvg', () => {
           data: {},
         }),
         bounds: () => ({ x: 0, y: 0, w: 100, h: 100 }),
-        clipBounds: (el) => (el.id === 'clip' ? { x: 0, y: 0, w: 100, h: 100 } : undefined),
+        clipBounds: (el) => (el.id === 'clip' ? { x: 0, y: 0, w: 100, h: 100 } : null),
         emitSvg: (el) => {
           order.push(el.id);
           return '';
@@ -597,13 +613,15 @@ describe('exportSvg', () => {
         data: {},
       });
       store.add(
-        createShape({
-          id: 'ordinary',
-          parentId: 'clip',
-          position: { x: 10, y: 10 },
-          size: { w: 10, h: 10 },
-          index: 'a1',
-        }),
+        Object.assign(
+          createShape({
+            parentId: 'clip',
+            position: { x: 10, y: 10 },
+            size: { w: 10, h: 10 },
+            index: 'a1',
+          }),
+          { id: 'ordinary' },
+        ),
       );
       store.add({
         id: 'full',

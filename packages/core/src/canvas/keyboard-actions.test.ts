@@ -19,6 +19,7 @@ import { ElementRegistry } from '../elements/element-registry';
 import { expandToGroups } from '../elements/group';
 import type {
   BaseElement,
+  CanvasElement,
   ElementTypeDefinition,
   ExtensionElementEnvelope,
 } from '../elements/types';
@@ -573,6 +574,7 @@ describe('KeyboardActions.cut', () => {
 
     actions.duplicate();
     const cloneParent = tool.selectedIds[0];
+    if (!cloneParent) throw new Error('clone parent missing');
     const cloneChild = ctx.store.getChildren(cloneParent)[0];
     const cloneGrandchild = cloneChild && ctx.store.getChildren(cloneChild.id)[0];
     expect(cloneChild?.parentId).toBe(cloneParent);
@@ -614,7 +616,8 @@ describe('KeyboardActions.cut', () => {
     actions.paste();
 
     const cloneRoot = tool.selectedIds[0];
-    const cloneChild = cloneRoot && ctx.store.getChildren(cloneRoot)[0];
+    if (!cloneRoot) throw new Error('clone root missing');
+    const cloneChild = ctx.store.getChildren(cloneRoot)[0];
     const cloneGrandchild = cloneChild && ctx.store.getChildren(cloneChild.id)[0];
     expect(ctx.store.count).toBe(3);
     expect(cloneRoot).toBeDefined();
@@ -1813,8 +1816,12 @@ describe('KeyboardActions extension cloneRemap', () => {
       data: { targetId: 'after' },
     });
     expect(grandchildClone).toMatchObject({ parentId: linkClone?.id });
-    expect(linkClone?.data).not.toHaveProperty('validatorMutation');
-    expect(siblingClone?.data).not.toHaveProperty('validatorMutation');
+    expect(linkClone?.type === 'extension' && linkClone.data).not.toHaveProperty(
+      'validatorMutation',
+    );
+    expect(siblingClone?.type === 'extension' && siblingClone.data).not.toHaveProperty(
+      'validatorMutation',
+    );
     expect(tool.selectedIds).toEqual([parentClone?.id]);
     expect([...tool.selectedIds].every((id) => ctx.store.getById(id) !== undefined)).toBe(true);
     expect(maps).toHaveLength(2);

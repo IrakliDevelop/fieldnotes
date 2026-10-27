@@ -17,7 +17,7 @@ import {
 } from '../elements/element-factory';
 import { ElementStore } from '../elements/element-store';
 import { HtmlPainterRegistry, HtmlPainterMissingError } from './html-painter-registry';
-import type { ExtensionElementEnvelope, HtmlElement } from '../elements/types';
+import type { CanvasElement, ExtensionElementEnvelope, HtmlElement } from '../elements/types';
 import { ElementRegistry } from '../elements/element-registry';
 import { createRenderHooks } from './render-hooks';
 
@@ -618,7 +618,12 @@ function recordExportCanvases() {
     const element = originalCreate(tag);
     if (tag !== 'canvas') return element;
     const ctx = mockCanvasCtx();
-    const state = { clip: null, pending: null, globalAlpha: 1, stack: [] };
+    const state: {
+      clip: RecordedClip | null;
+      pending: RecordedClip | null;
+      globalAlpha: number;
+      stack: { clip: RecordedClip | null; pending: RecordedClip | null; globalAlpha: number }[];
+    } = { clip: null, pending: null, globalAlpha: 1, stack: [] };
     states.set(ctx, state);
     Object.defineProperty(ctx, 'globalAlpha', {
       configurable: true,
@@ -684,13 +689,33 @@ function recordExportCanvases() {
   return { canvases, draws, createSpy, label, snapshot, restore: () => createSpy.mockRestore() };
 }
 
-interface ClipData {
+interface ClipData extends Record<string, unknown> {
   label: string;
   bounds: RecordedClip | null;
   clip: RecordedClip | null;
 }
 
 type ClipElement = ExtensionElementEnvelope & { data: ClipData };
+
+function isRecordedClip(value: unknown): value is RecordedClip | null {
+  return (
+    value === null ||
+    (isRecord(value) && ['x', 'y', 'w', 'h'].every((key) => typeof value[key] === 'number'))
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isClipData(data: Record<string, unknown>): data is ClipData {
+  return typeof data.label === 'string' && isRecordedClip(data.bounds) && isRecordedClip(data.clip);
+}
+
+function unwrapClip(element: ExtensionElementEnvelope): ClipElement {
+  if (!isClipData(element.data)) throw new Error('invalid clip data');
+  return { ...element, data: element.data };
+}
 
 function clipElement(
   label: string,
@@ -719,11 +744,12 @@ function clipRegistry(
   registry.register<ClipElement>({
     type: 'test:recorded-clip',
     legacyTypes: [],
-    decodeLegacy: (raw) => raw as ClipElement,
-    validateData: (data): data is ClipData =>
-      typeof data === 'object' && data !== null && 'label' in data,
-    unwrap: (element) => element,
-    wrap: (element) => element,
+    decodeLegacy: () => {
+      throw new Error('no legacy');
+    },
+    validateData: isClipData,
+    unwrap: unwrapClip,
+    wrap: (element) => ({ ...element, data: { ...element.data } }),
     bounds: (element) => element.data.bounds,
     clipBounds: (element) => element.data.clip,
     render,
@@ -1617,13 +1643,15 @@ describe('exportImage — hierarchy clips', () => {
       h: 30,
     });
     const html = htmlElement('dom', { id: 'dom-child', parentId: root.id });
-    const image = createImage({
-      id: 'image-child',
-      parentId: root.id,
-      position: { x: 15, y: 25 },
-      size: { w: 5, h: 5 },
-      src: 'image-source',
-    });
+    const image = Object.assign(
+      createImage({
+        parentId: root.id,
+        position: { x: 15, y: 25 },
+        size: { w: 5, h: 5 },
+        src: 'image-source',
+      }),
+      { id: 'image-child' },
+    );
     const originalImage = globalThis.Image;
     globalThis.Image = class MockImage {
       crossOrigin = '';

@@ -112,8 +112,8 @@ describe('findBindTarget', () => {
     const note = createNote({
       position: { x: 0, y: 0 },
       size: { w: 200, h: 100 },
-      rotation: Math.PI / 2,
     });
+    note.rotation = Math.PI / 2;
     store.add(note);
 
     expect(findBindTarget({ x: 10, y: 0 }, store, 20)?.id).toBe(note.id);
@@ -121,9 +121,9 @@ describe('findBindTarget', () => {
 
   it('queries candidates without enumerating all elements', () => {
     const store = new ElementStore();
-    const excluded = createNote({ id: 'excluded', position: { x: 0, y: 0 } });
-    const filtered = createNote({ id: 'filtered', position: { x: 1, y: 0 } });
-    const target = createNote({ id: 'target', position: { x: 2, y: 0 } });
+    const excluded = Object.assign(createNote({ position: { x: 0, y: 0 } }), { id: 'excluded' });
+    const filtered = Object.assign(createNote({ position: { x: 1, y: 0 } }), { id: 'filtered' });
+    const target = Object.assign(createNote({ position: { x: 2, y: 0 } }), { id: 'target' });
     store.add(excluded);
     store.add(filtered);
     store.add(target);

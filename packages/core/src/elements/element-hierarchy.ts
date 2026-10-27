@@ -24,7 +24,7 @@ export class ElementHierarchy {
   private clips: Map<string, Bounds | null | undefined> | null = null;
 
   constructor(
-    private readonly elements: ReadonlyMap<string, CanvasElement>,
+    elements: ReadonlyMap<string, CanvasElement>,
     private readonly registry: ElementRegistry,
     layerOrder: ReadonlyMap<string, number>,
   ) {
@@ -65,7 +65,7 @@ export class ElementHierarchy {
         this.children.set(element.parentId, [...siblings, element]);
       }
     }
-    for (const [id, children] of this.children) this.children.set(id, children.toSorted(compare));
+    for (const [id, children] of this.children) this.children.set(id, [...children].sort(compare));
     roots.sort((a, b) => {
       const layerA = layerOrder.get(a.layerId) ?? 0;
       const layerB = layerOrder.get(b.layerId) ?? 0;

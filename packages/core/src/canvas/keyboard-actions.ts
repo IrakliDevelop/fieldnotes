@@ -315,7 +315,7 @@ export class KeyboardActions {
   }
 
   private insertClones(
-    source: CanvasElement[],
+    source: readonly CanvasElement[],
     offset: Point,
     sel: { tool: SelectTool; ctx: ToolContext },
   ): void {

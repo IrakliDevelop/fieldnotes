@@ -291,7 +291,7 @@ describe('Camera', () => {
       camera.moveTo(0, 0);
       expect(add).toHaveBeenCalledOnce();
 
-      let removeLater = () => undefined;
+      let removeLater: () => void = () => undefined;
       const later = vi.fn((next) => next);
       camera.addConstraint((next) => {
         removeLater();

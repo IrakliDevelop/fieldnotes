@@ -215,13 +215,13 @@ describe('SelectTool drag observers', () => {
       from: { x: 500, y: 500 },
       to: { x: 520, y: 520 },
       parentId: parent.id,
-      fromBinding: { elementId: parent.id, anchor: { x: 0.5, y: 0.5 } },
+      fromBinding: { elementId: parent.id },
     });
     const external = createArrow({
       position: { x: 340, y: 330 },
       from: { x: 340, y: 330 },
       to: { x: 600, y: 600 },
-      fromBinding: { elementId: parent.id, anchor: { x: 0.5, y: 0.5 } },
+      fromBinding: { elementId: parent.id },
     });
     store.add(parent);
     store.add(child);

@@ -3,6 +3,7 @@ import { ElementHierarchy, validateHierarchy } from './element-hierarchy';
 import { ElementRegistry } from './element-registry';
 import type {
   BaseElement,
+  CanvasElement,
   ExtensionElementEnvelope,
   ElementTypeDefinition,
   NoteElement,
@@ -71,7 +72,9 @@ describe('ElementHierarchy', () => {
       type: 'test:clip-matrix',
       legacyTypes: [],
       renderMode: 'canvas',
-      decodeLegacy: (raw) => raw as ExtensionElementEnvelope,
+      decodeLegacy: () => {
+        throw new Error('no legacy');
+      },
       validateData: () => true,
       unwrap: (element) => element,
       wrap: (element) => element,
@@ -83,7 +86,7 @@ describe('ElementHierarchy', () => {
     const grandchild = note('grandchild', { parentId: child.id });
     const sibling = note('sibling', { parentId: root.id });
     const hierarchy = new ElementHierarchy(
-      new Map([
+      new Map<string, CanvasElement>([
         [root.id, root],
         [child.id, child],
         [grandchild.id, grandchild],
@@ -128,7 +131,9 @@ describe('ElementHierarchy', () => {
       type: 'test:bad-clip',
       legacyTypes: [],
       renderMode: 'canvas',
-      decodeLegacy: (raw) => raw as ExtensionElementEnvelope,
+      decodeLegacy: () => {
+        throw new Error('no legacy');
+      },
       validateData: () => true,
       unwrap: (element) => element,
       wrap: (element) => element,
@@ -149,7 +154,7 @@ describe('ElementHierarchy', () => {
       const parent = extension(id, { extensionType: 'test:bad-clip', data });
       const child = note(`${id}-child`, { parentId: id });
       const hierarchy = new ElementHierarchy(
-        new Map([
+        new Map<string, CanvasElement>([
           [id, parent],
           [child.id, child],
         ]),
@@ -158,7 +163,7 @@ describe('ElementHierarchy', () => {
       );
       expect(() =>
         validateHierarchy(
-          new Map([
+          new Map<string, CanvasElement>([
             [id, parent],
             [child.id, child],
           ]),
@@ -172,7 +177,7 @@ describe('ElementHierarchy', () => {
     const throwing = extension('throw', { extensionType: 'test:bad-clip' });
     const throwingChild = note('throw-child', { parentId: 'throw' });
     const hierarchy = new ElementHierarchy(
-      new Map([
+      new Map<string, CanvasElement>([
         [throwing.id, throwing],
         [throwingChild.id, throwingChild],
       ]),
@@ -193,7 +198,9 @@ describe('ElementHierarchy', () => {
       type: 'test:changing-clip',
       legacyTypes: [],
       renderMode: 'canvas',
-      decodeLegacy: (raw) => raw as ExtensionElementEnvelope,
+      decodeLegacy: () => {
+        throw new Error('no legacy');
+      },
       validateData: () => true,
       unwrap: (element) => element,
       wrap: (element) => element,
@@ -207,7 +214,9 @@ describe('ElementHierarchy', () => {
       type: 'test:no-clip',
       legacyTypes: [],
       renderMode: 'canvas',
-      decodeLegacy: (raw) => raw as ExtensionElementEnvelope,
+      decodeLegacy: () => {
+        throw new Error('no legacy');
+      },
       validateData: () => true,
       unwrap: (element) => element,
       wrap: (element) => element,
@@ -218,7 +227,7 @@ describe('ElementHierarchy', () => {
     const child = note('child', { parentId: middle.id });
     const leaf = note('leaf');
     const hierarchy = new ElementHierarchy(
-      new Map([
+      new Map<string, CanvasElement>([
         [root.id, root],
         [middle.id, middle],
         [child.id, child],
@@ -243,7 +252,9 @@ describe('ElementHierarchy', () => {
       type: 'test:clip',
       legacyTypes: [],
       renderMode: 'canvas',
-      decodeLegacy: (raw) => raw as ExtensionElementEnvelope,
+      decodeLegacy: () => {
+        throw new Error('no legacy');
+      },
       validateData: () => true,
       unwrap: (element) => element,
       wrap: (element) => element,
@@ -256,7 +267,7 @@ describe('ElementHierarchy', () => {
     const root = extension('root', { extensionType: 'test:clip' });
     const child = note('child', { parentId: 'root' });
     const hierarchy = new ElementHierarchy(
-      new Map([
+      new Map<string, CanvasElement>([
         [root.id, root],
         [child.id, child],
       ]),
@@ -269,7 +280,7 @@ describe('ElementHierarchy', () => {
     expect(calls).toBe(1);
   });
   it('orders roots and descendants depth first by index then id', () => {
-    const elements = new Map([
+    const elements = new Map<string, CanvasElement>([
       ['b', note('b', { index: 'b' })],
       ['child', note('child', { parentId: 'a', index: 'z' })],
       ['a', note('a', { index: 'a' })],

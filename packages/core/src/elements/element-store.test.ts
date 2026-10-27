@@ -82,7 +82,9 @@ function clipRegistry(): ElementRegistry {
     type: 'test:clip',
     legacyTypes: [],
     renderMode: 'canvas',
-    decodeLegacy: (raw) => raw as ExtensionElementEnvelope,
+    decodeLegacy: () => {
+      throw new Error('no legacy');
+    },
     validateData: () => true,
     unwrap: (element) => element,
     wrap: (element) => element,
@@ -1303,9 +1305,8 @@ describe('ElementStore', () => {
     ]);
     expect(store.getById('note')).toMatchObject({ text: 'safe', version: 2 });
     expect(store.getById(arrow.id)).toMatchObject({ bend: 20, version: 2 });
-    expect(
-      store.getById(arrow.id)?.type === 'arrow' && store.getById(arrow.id).cachedControlPoint,
-    ).toBeDefined();
+    const updatedArrow = store.getById(arrow.id);
+    expect(updatedArrow?.type === 'arrow' && updatedArrow.cachedControlPoint).toBeDefined();
     expect(store.getById('stroke')?.version).toBe(2);
   });
 

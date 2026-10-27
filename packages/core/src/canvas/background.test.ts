@@ -213,7 +213,9 @@ describe('Background', () => {
     expect(watched).toHaveLength(3);
     const third = watched[2];
     if (!third) throw new Error('third watch missing');
-    const cached = third.canvas as FakeOffscreenCanvas;
+    if (!(third.canvas instanceof FakeOffscreenCanvas))
+      throw new Error('expected offscreen canvas');
+    const cached = third.canvas;
     cached.context.clearRect.mockClear();
     bg.render(ctx, mockCamera());
     expect(cached.context.clearRect).not.toHaveBeenCalled();

@@ -19,6 +19,7 @@ import {
   createText,
 } from '../elements/element-factory';
 import type { CanvasElement } from '../elements/types';
+import type { Bounds } from '../core/types';
 import type { ExtensionElementEnvelope } from '../elements/types';
 import { ElementRegistry } from '../elements/element-registry';
 import type { HtmlPainterRegistry } from './html-painter-registry';
@@ -276,7 +277,9 @@ function createClipRegistry(): ElementRegistry {
   registry.register<ExtensionElementEnvelope>({
     type: 'test:clip',
     legacyTypes: [],
-    decodeLegacy: (raw) => raw as ExtensionElementEnvelope,
+    decodeLegacy: () => {
+      throw new Error('no legacy');
+    },
     validateData: () => true,
     unwrap: (element) => element,
     wrap: (element) => element,
@@ -877,12 +880,9 @@ describe('MinimapController', () => {
     const controller = makeController(viewport, document.createElement('canvas'), queue);
     queue.flush();
 
-    expect(rendererSpy.mock.calls.map(([, element]) => element.id)).toEqual([
-      root.id,
-      nested.id,
-      grandchild.id,
-      child.id,
-    ]);
+    expect(
+      rendererSpy.mock.calls.map(([, element]: [unknown, CanvasElement]) => element.id),
+    ).toEqual([root.id, nested.id, grandchild.id, child.id]);
     expect(recorder.rect.mock.calls).toEqual([
       [10, 20, 80, 70],
       [50, 20, 40, 40],
@@ -1032,7 +1032,7 @@ describe('MinimapController', () => {
     viewport.store.add(opaqueSibling);
     viewport.store.add(translucentSibling);
     const rendered: { id: string; clip: [number, number, number, number] | null }[] = [];
-    rendererSpy.mockImplementation((_ctx, element) => {
+    rendererSpy.mockImplementation((_ctx: CanvasRenderingContext2D, element: CanvasElement) => {
       rendered.push({ id: element.id, clip: recorder.activeClip });
     });
 
@@ -1083,7 +1083,9 @@ describe('MinimapController', () => {
     expect(viewport.store.getEffectiveClip(child.id)).toBeUndefined();
     const controller = makeController(viewport, document.createElement('canvas'), makeFrameQueue());
 
-    expect(rendererSpy.mock.calls.map(([, element]) => element.id)).toEqual([parent.id]);
+    expect(
+      rendererSpy.mock.calls.map(([, element]: [unknown, CanvasElement]) => element.id),
+    ).toEqual([parent.id]);
 
     controller.dispose();
     viewport.destroy();
@@ -1112,7 +1114,9 @@ describe('MinimapController', () => {
       },
     );
 
-    expect(rendererSpy.mock.calls.map(([, element]) => element.id)).toEqual([root.id, visible.id]);
+    expect(
+      rendererSpy.mock.calls.map(([, element]: [unknown, CanvasElement]) => element.id),
+    ).toEqual([root.id, visible.id]);
     recorder.rect.mockClear();
     viewport.store.update(root.id, { data: { clip: { x: 30, y: 20, w: 40, h: 70 } } });
     vi.advanceTimersByTime(24);

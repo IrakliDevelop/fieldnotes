@@ -26,10 +26,11 @@ describe('ContextLossGuard', () => {
     expect(mask).not.toBeNull();
     expect(mask?.getAttribute('style')).toContain('background: rgb(0, 0, 0)');
     expect(wrapper.lastElementChild).toBe(mask);
-    expect(mask?.style.position).toBe('absolute');
-    expect(mask?.style.inset).toBe('0px');
-    expect(mask?.style.opacity).toBe('1');
-    expect(mask?.style.zIndex).toBe('2147483647');
+    if (!(mask instanceof HTMLElement)) throw new Error('context loss mask missing');
+    expect(mask.style.position).toBe('absolute');
+    expect(mask.style.inset).toBe('0px');
+    expect(mask.style.opacity).toBe('1');
+    expect(mask.style.zIndex).toBe('2147483647');
     expect(wrapper.children.length).toBe(1);
 
     base.dispatchEvent(event('contextrestored'));
