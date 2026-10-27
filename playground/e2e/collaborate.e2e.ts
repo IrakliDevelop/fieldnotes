@@ -51,7 +51,6 @@ async function delaySnapshots(context: BrowserContext): Promise<void> {
     let heldSnapshot: (() => void) | undefined;
     let delivered = 0;
     let emptySnapshotPosted = false;
-    Object.defineProperty(window, '__heldSnapshotReady', { get: () => heldSnapshot !== undefined });
     Object.defineProperty(window, '__releaseHeldSnapshot', { get: () => heldSnapshot });
     Object.defineProperty(window, '__heldSnapshotDeliveries', { get: () => delivered });
     Object.defineProperty(window, '__emptySnapshotPosted', { get: () => emptySnapshotPosted });
@@ -217,8 +216,8 @@ test('a new room keeps the host board when snapshots cross', async ({ page, cont
   );
   await expect.poll(() => layerNames(page)).toContain('snapshot-crossing-proof');
   await expect
-    .poll(() => guest.evaluate(() => Reflect.get(window, '__heldSnapshotReady')))
-    .toBe(true);
+    .poll(() => guest.evaluate(() => typeof Reflect.get(window, '__releaseHeldSnapshot')))
+    .toBe('function');
   expect(await guest.evaluate(() => Reflect.get(window, '__heldSnapshotDeliveries'))).toBe(0);
   expect(await ids(page)).toEqual(hostIds);
   await guest.evaluate(() => {
