@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach, type Mock } from 'vitest';
 import { render } from '@testing-library/svelte';
 import { flushSync } from 'svelte';
 import { HandTool, SelectTool, PencilTool, Viewport, createShape } from '@fieldnotes/core';
-import type { CanvasState } from '@fieldnotes/core';
+import type { CanvasState, ImportableCanvasState } from '@fieldnotes/core';
 import { FieldNotesCanvas } from './index.js';
 import CanvasWithChild from './test-fixtures/CanvasWithChild.svelte';
 import ContextHost from './test-fixtures/ContextHost.svelte';
@@ -256,7 +256,7 @@ describe('FieldNotesCanvas initialData and onchange', () => {
         id: 's1',
       },
     ],
-  } satisfies CanvasState;
+  } satisfies ImportableCanvasState;
 
   it.each([
     ['object', saved],

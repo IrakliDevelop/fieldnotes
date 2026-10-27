@@ -21,7 +21,7 @@ import type { ElementChangeMeta } from '@fieldnotes/core';
 import { SyncClient } from './sync-client';
 import type { AuthoritativeSnapshotContext, RemoteLayerUpdate } from './sync-client';
 import { LayerLedger } from './layer-ledger';
-import type { FogMetaRecord, FogSnapshot, LayerRecord, SyncOp } from './protocol';
+import type { FogMetaRecord, FogSnapshot, LayerRecord, SyncCapabilities, SyncOp } from './protocol';
 import type { SyncTransport } from './sync-transport';
 import { createExtensionKind } from './sync-plugin';
 import { createCurrentCapabilities } from './capabilities';
@@ -176,30 +176,33 @@ describe('SyncClient', () => {
       'protocol 4',
       { protocolVersion: 4, extensionKinds: [], elementEnvelope: true, elementHierarchy: 1 },
     ],
-  ] as const)('closes without sending queued work to %s', (_name, capabilities) => {
-    let receive: (message: string) => void = () => undefined;
-    const sent: string[] = [];
-    const close = vi.fn();
-    const client = new SyncClient({
-      flushIntervalMs: 0,
-      store: new ElementStore(),
-      clientId: 'held',
-      transport: {
-        send: (message) => sent.push(message),
-        onMessage: (handler) => {
-          receive = handler;
-          return () => undefined;
+  ] satisfies [string, SyncCapabilities][])(
+    'closes without sending queued work to %s',
+    (_name, capabilities) => {
+      let receive: (message: string) => void = () => undefined;
+      const sent: string[] = [];
+      const close = vi.fn();
+      const client = new SyncClient({
+        flushIntervalMs: 0,
+        store: new ElementStore(),
+        clientId: 'held',
+        transport: {
+          send: (message) => sent.push(message),
+          onMessage: (handler) => {
+            receive = handler;
+            return () => undefined;
+          },
+          close,
         },
-        close,
-      },
-    });
+      });
 
-    client.start();
-    receive(envelope('hub', { kind: 'capabilities', capabilities } as SyncOp));
+      client.start();
+      receive(envelope('hub', { kind: 'capabilities', capabilities }));
 
-    expect(close).toHaveBeenCalledOnce();
-    expect(sent.map((message) => JSON.parse(message).op.kind)).toEqual(['capabilities']);
-  });
+      expect(close).toHaveBeenCalledOnce();
+      expect(sent.map((message) => JSON.parse(message).op.kind)).toEqual(['capabilities']);
+    },
+  );
 
   it('drops pre-admission inbound data and presence while retaining durable local work', () => {
     const bus = makeBus(false, false);

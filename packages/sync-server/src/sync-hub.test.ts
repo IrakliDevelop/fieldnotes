@@ -151,7 +151,7 @@ describe('SyncHub', () => {
       readonly id = 'class-transport';
       readonly room = 'R';
       readonly #sent: string[] = [];
-      get sent(): readonly string[] {
+      get sent(): string[] {
         return this.#sent;
       }
       send(message: string): void {
@@ -3668,31 +3668,34 @@ describe('legacy hierarchy admission', () => {
     ['protocol 2', { ...createCurrentCapabilities([]), protocolVersion: 2 }],
     ['protocol 4', { ...createCurrentCapabilities([]), protocolVersion: 4 }],
     ['missing hierarchy', { protocolVersion: 3, extensionKinds: [], elementEnvelope: true }],
-  ] as const)('refuses %s before closing 4406', async (_name, capabilities) => {
-    const hub = new SyncHub();
-    const events: unknown[] = [];
-    hub.addConnection({
-      id: 'peer',
-      room: 'R',
-      send: (message) => events.push(JSON.parse(message)),
-      close: (code) => events.push(code),
-    });
+  ] satisfies [string, SyncCapabilities][])(
+    'refuses %s before closing 4406',
+    async (_name, capabilities) => {
+      const hub = new SyncHub();
+      const events: unknown[] = [];
+      hub.addConnection({
+        id: 'peer',
+        room: 'R',
+        send: (message) => events.push(JSON.parse(message)),
+        close: (code) => events.push(code),
+      });
 
-    await hub.handleMessage('peer', envelope('peer', { kind: 'capabilities', capabilities }));
+      await hub.handleMessage('peer', envelope('peer', { kind: 'capabilities', capabilities }));
 
-    expect(events).toEqual([
-      {
-        from: 'hub',
-        op: {
-          kind: 'unsupported',
-          protocolVersion: LEGACY_SYNC_PROTOCOL_VERSION,
-          minProtocolVersion: LEGACY_SYNC_PROTOCOL_VERSION,
-          reason: `protocol version ${LEGACY_SYNC_PROTOCOL_VERSION} with element hierarchy support required`,
+      expect(events).toEqual([
+        {
+          from: 'hub',
+          op: {
+            kind: 'unsupported',
+            protocolVersion: LEGACY_SYNC_PROTOCOL_VERSION,
+            minProtocolVersion: LEGACY_SYNC_PROTOCOL_VERSION,
+            reason: `protocol version ${LEGACY_SYNC_PROTOCOL_VERSION} with element hierarchy support required`,
+          },
         },
-      },
-      4406,
-    ]);
-  });
+        4406,
+      ]);
+    },
+  );
 
   it('treats reordered identical capabilities as inert and refuses changed capabilities', async () => {
     const hub = new SyncHub();

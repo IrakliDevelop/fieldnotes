@@ -34,12 +34,9 @@ describe('authority admission', () => {
     const pinned = pinAuthorityDefinition(definition);
     const extension = definition.extensions[0];
     if (!extension) throw new Error('missing test extension');
-    expect(
-      authorityCapabilitiesMatch(
-        { ...createAuthorityCapabilities(['test-op'], [extension.requirement]), ...change },
-        pinned,
-      ),
-    ).toBe(false);
+    const capabilities = createAuthorityCapabilities(['test-op'], [extension.requirement]);
+    Object.assign(capabilities, change);
+    expect(authorityCapabilitiesMatch(capabilities, pinned)).toBe(false);
   });
 
   it('pins an exact extension inventory and rejects changed or absent peer declarations', () => {

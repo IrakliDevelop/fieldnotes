@@ -431,7 +431,7 @@ describe('managed authority client over real createSyncServer sockets', () => {
     await operationStatus(owner.manager, privateChildEdit.clientOperationId, 'accepted');
     const player = connect(port, 'player');
     await live(player.manager);
-    expect(player.manager.getState().document.elements).toEqual([
+    expect(player.manager.getState().document?.elements).toEqual([
       expect.objectContaining({ id: child.id, parentId: parent.id }),
     ]);
     const inbound = player.transports.flatMap((transport) => transport.inbound).join('\n');
@@ -452,7 +452,7 @@ describe('managed authority client over real createSyncServer sockets', () => {
       expect(
         player.manager
           .getState()
-          .document.elements.map((element) => element.id)
+          .document?.elements.map((element) => element.id)
           .sort(),
       ).toEqual(['private-parent', 'public-child']),
     );

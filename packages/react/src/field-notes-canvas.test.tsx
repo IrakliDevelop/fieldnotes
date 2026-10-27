@@ -4,7 +4,7 @@ import { Component, createRef, useContext, useState, StrictMode, type ReactNode 
 import { FieldNotesCanvas, type FieldNotesCanvasRef } from './field-notes-canvas';
 import { ViewportContext } from './context';
 import { HandTool, SelectTool, PencilTool, Viewport, createShape } from '@fieldnotes/core';
-import type { CanvasState } from '@fieldnotes/core';
+import type { CanvasState, ImportableCanvasState } from '@fieldnotes/core';
 
 type OnReady = Mock<(viewport: Viewport) => void>;
 
@@ -299,7 +299,7 @@ describe('FieldNotesCanvas initialData and onChange', () => {
         id: 's1',
       },
     ],
-  } satisfies CanvasState;
+  } satisfies ImportableCanvasState;
 
   function addShape(viewport: Viewport, id: string) {
     viewport.store.add({

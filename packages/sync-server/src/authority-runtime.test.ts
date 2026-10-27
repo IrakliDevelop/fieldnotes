@@ -7,6 +7,7 @@ import {
   parseEnvelope,
   parseAuthorityServerFrame,
   type AuthorityMutation,
+  type AuthorityCheckpointPayload,
   type AuthorityServerFrame,
 } from '@fieldnotes/sync';
 import { authorityCapabilitiesMatch } from './authority-admission';
@@ -140,7 +141,7 @@ it('serializes an allowed orphan checkpoint without filtered payloads or presenc
       generation: 'g',
       requiredExtensions: [],
     });
-    let checkpoint: { elements: unknown[] } | undefined;
+    let checkpoint: AuthorityCheckpointPayload | undefined;
     for (const message of sent) {
       const result = await assembler.accept(message);
       if (result.status === 'complete') checkpoint = result.checkpoint;

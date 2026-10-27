@@ -99,22 +99,8 @@ describe('supportsLegacyHierarchy', () => {
   });
 
   it('does not require matching extension inventories', () => {
-    expect(
-      supportsLegacyHierarchy({
-        protocolVersion: 3,
-        extensionKinds: ['cursor'],
-        elementEnvelope: true,
-        elementHierarchy: 1,
-      }),
-    ).toBe(true);
-    expect(
-      supportsLegacyHierarchy({
-        protocolVersion: 3,
-        extensionKinds: ['grid', 'fog'],
-        elementEnvelope: true,
-        elementHierarchy: 1,
-      }),
-    ).toBe(true);
+    expect(supportsLegacyHierarchy(createCurrentCapabilities(['cursor']))).toBe(true);
+    expect(supportsLegacyHierarchy(createCurrentCapabilities(['grid', 'fog']))).toBe(true);
   });
 });
 

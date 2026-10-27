@@ -10,7 +10,7 @@ import type {
   ManagedSyncTransport,
 } from './managed-connection';
 import type { RemoteLayerUpdate } from './sync-client';
-import type { SyncOp } from './protocol';
+import type { SyncCapabilities, SyncOp } from './protocol';
 import { createCurrentCapabilities } from './capabilities';
 
 class FakeTransport implements ManagedSyncTransport {
@@ -348,7 +348,7 @@ describe('createManagedSyncConnection', () => {
       'protocol 4',
       { protocolVersion: 4, extensionKinds: [], elementEnvelope: true, elementHierarchy: 1 },
     ],
-  ] as const)(
+  ] satisfies [string, SyncCapabilities][])(
     'settles on unsupported for %s after a pre-admission snapshot',
     async (_name, capabilities) => {
       start();
@@ -358,7 +358,7 @@ describe('createManagedSyncConnection', () => {
       transport.emitMessage(snapshotFor(CLIENT_ID));
       expect(connection?.getStatus()).toBe('connecting');
 
-      transport.emitMessage(envelope('hub', { kind: 'capabilities', capabilities } as SyncOp));
+      transport.emitMessage(envelope('hub', { kind: 'capabilities', capabilities }));
       expect(connection?.getStatus()).toBe('unsupported');
       expect(transport.closed).toBe(true);
       await vi.advanceTimersByTimeAsync(60_000);

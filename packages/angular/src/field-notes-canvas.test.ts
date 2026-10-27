@@ -374,7 +374,7 @@ describe('FieldNotesCanvas initialData and stateChange', () => {
         id: 's1',
       },
     ],
-  } satisfies CanvasState;
+  } satisfies ImportableCanvasState;
 
   function fakeTimers() {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
