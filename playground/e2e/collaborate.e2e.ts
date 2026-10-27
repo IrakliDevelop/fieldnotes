@@ -48,9 +48,12 @@ async function delaySnapshots(context: BrowserContext): Promise<void> {
     if (!descriptor?.get || !descriptor.set)
       throw new Error('BroadcastChannel has no onmessage accessors');
     const { get, set } = descriptor;
-    let delayed = 0;
+    let heldSnapshot: (() => void) | undefined;
+    let delivered = 0;
     let emptySnapshotPosted = false;
-    Object.defineProperty(window, '__delayedSnapshots', { get: () => delayed });
+    Object.defineProperty(window, '__heldSnapshotReady', { get: () => heldSnapshot !== undefined });
+    Object.defineProperty(window, '__releaseHeldSnapshot', { get: () => heldSnapshot });
+    Object.defineProperty(window, '__heldSnapshotDeliveries', { get: () => delivered });
     Object.defineProperty(window, '__emptySnapshotPosted', { get: () => emptySnapshotPosted });
     Object.defineProperty(BroadcastChannel.prototype, 'onmessage', {
       configurable: descriptor.configurable,
@@ -64,10 +67,10 @@ async function delaySnapshots(context: BrowserContext): Promise<void> {
         set.call(this, (event: MessageEvent) => {
           const snapshot = JSON.parse(String(event.data)).op?.kind === 'snapshot';
           if (snapshot) {
-            setTimeout(() => {
-              delayed++;
+            heldSnapshot = () => {
+              delivered++;
               handler.call(this, event);
-            }, 500);
+            };
           } else handler.call(this, event);
         });
       },
@@ -75,8 +78,8 @@ async function delaySnapshots(context: BrowserContext): Promise<void> {
     const postMessage = BroadcastChannel.prototype.postMessage;
     BroadcastChannel.prototype.postMessage = function (message) {
       const op = JSON.parse(String(message)).op;
-      emptySnapshotPosted =
-        op?.kind === 'snapshot' && Array.isArray(op.elements) && op.elements.length === 0;
+      if (op?.kind === 'snapshot' && Array.isArray(op.elements) && op.elements.length === 0)
+        emptySnapshotPosted = true;
       return postMessage.call(this, message);
     };
   });
@@ -209,9 +212,23 @@ test('a new room keeps the host board when snapshots cross', async ({ page, cont
   await expect
     .poll(() => guest.evaluate(() => Reflect.get(window, '__emptySnapshotPosted')))
     .toBe(true);
-  await page.waitForTimeout(250);
+  await guest.evaluate(() =>
+    window.__playground.viewport.layerManager.createLayer('snapshot-crossing-proof'),
+  );
+  await expect.poll(() => layerNames(page)).toContain('snapshot-crossing-proof');
+  await expect
+    .poll(() => guest.evaluate(() => Reflect.get(window, '__heldSnapshotReady')))
+    .toBe(true);
+  expect(await guest.evaluate(() => Reflect.get(window, '__heldSnapshotDeliveries'))).toBe(0);
   expect(await ids(page)).toEqual(hostIds);
-  await expect.poll(() => guest.evaluate(() => Reflect.get(window, '__delayedSnapshots'))).toBe(1);
+  await guest.evaluate(() => {
+    const release = Reflect.get(window, '__releaseHeldSnapshot');
+    if (typeof release !== 'function') throw new Error('no held snapshot release');
+    release();
+  });
+  await expect
+    .poll(() => guest.evaluate(() => Reflect.get(window, '__heldSnapshotDeliveries')))
+    .toBe(1);
   await expect
     .poll(async () => ({ host: await ids(page), guest: await ids(guest) }))
     .toEqual({ host: hostIds, guest: hostIds });
