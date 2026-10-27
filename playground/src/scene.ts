@@ -49,6 +49,8 @@ export interface Room {
   readonly id: string;
   /** 'host' started the room in this tab (sessionStorage flag); 'guest' joined via link. */
   readonly role: 'host' | 'guest';
+  /** Present only on the in-memory room returned by createRoom; URL-restored rooms omit it. */
+  readonly ownsInitialBoard?: true;
 }
 
 export interface Shell {

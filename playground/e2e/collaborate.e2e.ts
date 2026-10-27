@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import type { Page, TestInfo } from '@playwright/test';
+import type { BrowserContext, Page, TestInfo } from '@playwright/test';
 import { gotoBlank } from './helpers/board';
 import { singleFingerDraw } from './helpers/touch';
 
@@ -41,6 +41,46 @@ const ids = (page: Page): Promise<string[]> =>
       .map((el) => el.id)
       .sort(),
   );
+
+async function delaySnapshots(context: BrowserContext): Promise<void> {
+  await context.addInitScript(() => {
+    const descriptor = Object.getOwnPropertyDescriptor(BroadcastChannel.prototype, 'onmessage');
+    if (!descriptor?.get || !descriptor.set)
+      throw new Error('BroadcastChannel has no onmessage accessors');
+    const { get, set } = descriptor;
+    let delayed = 0;
+    let emptySnapshotPosted = false;
+    Object.defineProperty(window, '__delayedSnapshots', { get: () => delayed });
+    Object.defineProperty(window, '__emptySnapshotPosted', { get: () => emptySnapshotPosted });
+    Object.defineProperty(BroadcastChannel.prototype, 'onmessage', {
+      configurable: descriptor.configurable,
+      enumerable: descriptor.enumerable,
+      get,
+      set(handler) {
+        if (handler === null) {
+          set.call(this, null);
+          return;
+        }
+        set.call(this, (event: MessageEvent) => {
+          const snapshot = JSON.parse(String(event.data)).op?.kind === 'snapshot';
+          if (snapshot) {
+            setTimeout(() => {
+              delayed++;
+              handler.call(this, event);
+            }, 500);
+          } else handler.call(this, event);
+        });
+      },
+    });
+    const postMessage = BroadcastChannel.prototype.postMessage;
+    BroadcastChannel.prototype.postMessage = function (message) {
+      const op = JSON.parse(String(message)).op;
+      emptySnapshotPosted =
+        op?.kind === 'snapshot' && Array.isArray(op.elements) && op.elements.length === 0;
+      return postMessage.call(this, message);
+    };
+  });
+}
 
 const count = (page: Page): Promise<number> =>
   page.evaluate(() => window.__playground.viewport.store.count);
@@ -156,6 +196,25 @@ test('guest is a guest', async ({ page }) => {
     );
   expect(await hostFlags(page)).toHaveLength(1);
   expect(await hostFlags(guest)).toEqual([]);
+});
+
+test('a new room keeps the host board when snapshots cross', async ({ page, context }) => {
+  await open(page);
+  const hostIds = await ids(page);
+  expect(hostIds).not.toEqual([]);
+
+  await delaySnapshots(context);
+  const guest = await collaborate(page);
+
+  await expect
+    .poll(() => guest.evaluate(() => Reflect.get(window, '__emptySnapshotPosted')))
+    .toBe(true);
+  await page.waitForTimeout(250);
+  expect(await ids(page)).toEqual(hostIds);
+  await expect.poll(() => guest.evaluate(() => Reflect.get(window, '__delayedSnapshots'))).toBe(1);
+  await expect
+    .poll(async () => ({ host: await ids(page), guest: await ids(guest) }))
+    .toEqual({ host: hostIds, guest: hostIds });
 });
 
 test('the tab Collaborate opens is marked guest in its URL; the host URL is not', async ({
