@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import type { SyncElement, SyncOp } from '@fieldnotes/sync';
+import { createCurrentCapabilities, type SyncElement, type SyncOp } from '@fieldnotes/sync';
 import { MemoryHubBackend, SyncHub } from '@fieldnotes/sync-server';
 import type { Authorize, CanRead, Connection, ResolveAudience } from '@fieldnotes/sync-server';
 import { getMovementVisibility, withMovementAuthorize } from '../server';
@@ -14,6 +14,15 @@ const conn = (id: string, userId: string, role: string): FakeConn => {
 };
 
 const envelope = (from: string, op: SyncOp): string => JSON.stringify({ from, op });
+
+async function admit(hub: SyncHub, connection: FakeConn): Promise<void> {
+  hub.addConnection(connection);
+  await hub.handleMessage(
+    connection.id,
+    envelope(connection.id, { kind: 'capabilities', capabilities: createCurrentCapabilities([]) }),
+  );
+  connection.sent.length = 0;
+}
 
 const ownerPolicy: Authorize = ({ role, userId, op, currentElement }) => {
   if (role === 'dm') return true;
@@ -67,7 +76,7 @@ describe('withMovementAuthorize in a SyncHub', () => {
     return r?.kind === 'element' ? r.element : undefined;
   };
 
-  beforeEach(() => {
+  beforeEach(async () => {
     backend = new MemoryHubBackend();
     hub = new SyncHub({
       backend,
@@ -77,8 +86,8 @@ describe('withMovementAuthorize in a SyncHub', () => {
     });
     dm = conn('dm', 'DM', 'dm');
     player = conn('pl', 'P', 'player');
-    hub.addConnection(dm);
-    hub.addConnection(player);
+    await admit(hub, dm);
+    await admit(hub, player);
   });
 
   it('a player receives a DM-only record neither live nor in a snapshot', async () => {
@@ -93,7 +102,7 @@ describe('withMovementAuthorize in a SyncHub', () => {
     expect((await stored('vtt-movement:npc1'))?.audience).toBe('dm');
 
     const late = conn('late', 'P', 'player');
-    hub.addConnection(late);
+    await admit(hub, late);
     await hub.handleMessage('late', envelope('clate', { kind: 'request-snapshot' }));
 
     for (const frames of [player.sent, late.sent]) {
