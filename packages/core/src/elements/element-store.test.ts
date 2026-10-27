@@ -1747,6 +1747,60 @@ describe('ElementStore order keys and versions', () => {
     expect((store as unknown as { hierarchy: unknown }).hierarchy).not.toBe(before);
   });
 
+  it('keeps a warmed scene as a pre-batch snapshot for mixed structural updates', () => {
+    const store = new ElementStore();
+    store.add(makeNote({ id: 'text', text: 'before' }));
+    store.add(makeNote({ id: 'layer', index: 'a1' }));
+    const before = store.getAll();
+
+    store.updateMany([
+      { id: 'text', partial: { text: 'after' } },
+      { id: 'layer', partial: { layerId: 'next' } },
+    ]);
+
+    expect(
+      before.map((element) => `${element.id}:${element.type === 'note' ? element.text : ''}`),
+    ).toEqual(['text:before', 'layer:Hello']);
+    expect(
+      store
+        .getAll()
+        .map(
+          (element) =>
+            `${element.id}:${element.layerId}:${element.type === 'note' ? element.text : ''}`,
+        ),
+    ).toEqual(['text::after', 'layer:next:Hello']);
+  });
+
+  it('keeps a valid remote structural batch known valid for strict updates', () => {
+    const store = new ElementStore();
+    store.add(makeNote({ id: 'parent' }));
+    store.add(makeNote({ id: 'child', parentId: 'parent' }));
+
+    store.updateMany(
+      [
+        { id: 'child', partial: { parentId: undefined } },
+        { id: 'parent', partial: { layerId: 'next' } },
+      ],
+      { origin: 'remote' },
+    );
+    const iterate = vi.spyOn(Map.prototype, Symbol.iterator);
+    const values = vi.spyOn(Map.prototype, 'values');
+
+    try {
+      store.update('child', { text: 'updated locally' });
+
+      expect(store.getById('child')).toMatchObject({
+        text: 'updated locally',
+        parentId: undefined,
+      });
+      expect(iterate).not.toHaveBeenCalled();
+      expect(values).not.toHaveBeenCalled();
+    } finally {
+      iterate.mockRestore();
+      values.mockRestore();
+    }
+  });
+
   it('filters remote full-canvas relations and rejects their strict equivalent', () => {
     const registry = new ElementRegistry();
     registry.register(fullCanvasDefinition());

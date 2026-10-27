@@ -259,7 +259,6 @@ export class ElementStore {
     if (structural) this.resetHierarchy();
     if (structural) this.getHierarchy();
     if (validated) this.hierarchyKnownValid = true;
-    else if (structural) this.hierarchyKnownValid = false;
     for (const item of prepared)
       this.bus.emit('update', { previous: item.existing, current: item.updated }, meta);
   }
@@ -325,9 +324,9 @@ export class ElementStore {
     this._versions.set(existing.id, (this._versions.get(existing.id) ?? 0) + 1);
     this.elements.set(existing.id, updated);
     const structural = this.isStructural(existing, updated);
-    if (structural) {
-      if (!deferStructuralReset) this.resetHierarchy();
-    } else {
+    if (!deferStructuralReset && structural) {
+      this.resetHierarchy();
+    } else if (!deferStructuralReset) {
       const rank = this.hierarchy?.replace(existing, updated);
       if (rank !== undefined && this.sceneCache) this.sceneCache[rank] = updated;
     }
