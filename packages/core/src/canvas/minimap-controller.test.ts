@@ -835,6 +835,48 @@ describe('MinimapController', () => {
     viewport.destroy();
   });
 
+  it('renders full-canvas extensions with the minimap mapping bounds', () => {
+    const elementRegistry = new ElementRegistry();
+    const { viewport } = makeViewportHarness({ elementRegistry });
+    const element: ExtensionElementEnvelope = {
+      id: 'full-canvas-extension',
+      type: 'extension',
+      extensionType: 'test:full-canvas',
+      position: { x: 0, y: 0 },
+      index: 'a0',
+      version: 1,
+      locked: false,
+      layerId: viewport.layerManager.activeLayerId,
+      data: {},
+    };
+    const render = vi.fn();
+    elementRegistry.register<ExtensionElementEnvelope>({
+      type: element.extensionType,
+      legacyTypes: [],
+      decodeLegacy: () => element,
+      validateData: () => true,
+      unwrap: (extension) => extension,
+      wrap: (extension) => extension,
+      bounds: () => null,
+      fullCanvas: true,
+      render,
+    });
+    viewport.store.add(element);
+
+    const queue = makeFrameQueue();
+    const controller = makeController(viewport, document.createElement('canvas'), queue);
+
+    expect(render).toHaveBeenCalledWith(expect.anything(), element, [element], {
+      minX: 0,
+      minY: 0,
+      maxX: 800,
+      maxY: 600,
+    });
+
+    controller.dispose();
+    viewport.destroy();
+  });
+
   it('clips descendants without clipping their parent or changing the raw-bounds mapping', () => {
     const rootClip = { x: 10, y: 20, w: 80, h: 70 };
     const nestedClip = { x: 50, y: 0, w: 80, h: 60 };

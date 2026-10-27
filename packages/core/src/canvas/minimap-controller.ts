@@ -225,9 +225,9 @@ export class MinimapController {
       .filter((el) => this.viewport.layerManager.isLayerVisible(el.layerId));
   }
 
-  private currentMapping(): Bounds {
+  private currentMapping(elements = this.sceneElements()): Bounds {
     const viewportRect = this.viewport.getVisibleRect();
-    let mapping = getElementsBoundingBox(this.sceneElements(), this.viewport.elementRegistry);
+    let mapping = getElementsBoundingBox(elements, this.viewport.elementRegistry);
     mapping = mapping ? unionBounds(mapping, viewportRect) : viewportRect;
     const extra = this.getExtraBounds?.();
     if (extra) {
@@ -258,7 +258,14 @@ export class MinimapController {
   private renderScene(): void {
     if (this.disposed) return;
     const dpr = this.dpr();
-    const mapping = this.currentMapping();
+    const elements = this.sceneElements();
+    const mapping = this.currentMapping(elements);
+    const worldBounds = {
+      minX: mapping.x,
+      minY: mapping.y,
+      maxX: mapping.x + mapping.w,
+      maxY: mapping.y + mapping.h,
+    };
     const transform = computeMinimapTransform(mapping, this.width, this.height, this.padding);
     // The minimap fit scale, not the live camera zoom — canvas-routed html
     // painters read this via HtmlPaintContext.zoom (renderTarget 'minimap'
@@ -277,7 +284,7 @@ export class MinimapController {
     }
 
     const byLayer = new Map<string, CanvasElement[]>();
-    for (const el of this.sceneElements()) {
+    for (const el of elements) {
       let list = byLayer.get(el.layerId);
       if (!list) {
         list = [];
@@ -291,7 +298,7 @@ export class MinimapController {
       if (!els || els.length === 0) continue;
       const opacity = layer.opacity;
       if (opacity >= 1) {
-        this.renderLayerElements(ctx, els, transform, dpr);
+        this.renderLayerElements(ctx, els, transform, dpr, worldBounds, elements);
         continue;
       }
       // Translucent layers composite ONCE so overlapping elements within the
@@ -301,7 +308,7 @@ export class MinimapController {
       layerCanvas.height = sceneCanvas.height;
       const layerCtx = layerCanvas.getContext('2d');
       if (!layerCtx) continue;
-      this.renderLayerElements(layerCtx, els, transform, dpr);
+      this.renderLayerElements(layerCtx, els, transform, dpr, worldBounds, elements);
       ctx.save();
       ctx.globalAlpha = opacity;
       ctx.drawImage(layerCanvas, 0, 0);
@@ -335,6 +342,8 @@ export class MinimapController {
     elements: CanvasElement[],
     t: MinimapTransform,
     dpr: number,
+    worldBounds: { minX: number; minY: number; maxX: number; maxY: number },
+    allElements: readonly CanvasElement[],
   ): void {
     for (const el of elements) {
       const clip = this.viewport.store.getEffectiveClip(el.id);
@@ -379,7 +388,11 @@ export class MinimapController {
         ctx.rect(clip.x, clip.y, clip.w, clip.h);
         ctx.clip();
       }
-      this.renderer.renderCanvasElement(ctx, el);
+      if (this.renderer.isFullCanvasElement(el)) {
+        this.renderer.renderExtensionWithBounds(ctx, el, worldBounds, allElements);
+      } else {
+        this.renderer.renderCanvasElement(ctx, el);
+      }
       ctx.restore();
     }
   }
