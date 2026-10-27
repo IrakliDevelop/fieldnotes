@@ -16,9 +16,9 @@ canvas rendering, DOM elements, minimap rendering, and canvas and SVG export. It
 parent-child relationship or common clipping contract. Adding either independently would leave
 each consumer to interpret relationship data and clipping differently.
 
-The next hierarchy change needs one persisted model, one scene projection, and a coordinated state
-and protocol boundary. This record fixes that contract before implementation. Its decisions are
-accepted; implementation is pending.
+The hierarchy change needs one persisted model, one scene projection, and a coordinated state and
+protocol boundary. This record fixes that contract. Core 0.100.0, sync 0.30.0, sync-server 0.30.0,
+and sync-redis 0.15.0 implemented it on 2026-10-27.
 
 ## Decision
 
@@ -29,8 +29,8 @@ migration does not turn existing groups into parents. A parent and every descend
 layer. The maximum hierarchy depth is 32. Neither endpoint of a relationship may be an element
 whose definition is `fullCanvas`.
 
-No public child-id array is persisted. Core will provide read-only child and descendant queries,
-and a viewport command will mutate relationships.
+No public child-id array is persisted. Core provides read-only child and descendant queries, and a
+viewport command mutates relationships.
 
 ### 2. Validate raw storage and project the scene once
 
@@ -83,13 +83,15 @@ raw geometry. Arbitrary clip paths are deferred as a later additive contract.
 Canvas state becomes v6. State v1 through v5 migrates with no relationship. Future versions remain
 rejected.
 
-Legacy sync becomes protocol 3 and authority sync protocol 2. Both require
-`elementHierarchy: 1` in the first admitted capability frame. Extension inventories and manifests
-retain their existing per-peer rules.
+Legacy sync uses protocol 3 and authority capabilities use revision 2. Both require
+`elementHierarchy: 1` in the first admitted capability frame. The native authority frame literal
+remains `authority:1`. Extension inventories and manifests retain their existing per-peer rules.
 
 Until admission succeeds, no snapshot, mutation, correction, persistence, relay, checkpoint,
-receipt, or presence traffic is admitted. Missing, reordered, repeated-different, or older
-capabilities receive `unsupported` before close code 4406. Legacy receives the same five-second
+receipt, or presence traffic is admitted. JSON property or inventory order does not cause a
+mismatch. A substantive frame before capabilities, an old or missing marker, or a repeated
+capability frame whose normalized content changes receives legacy `unsupported` or authority
+`authority:1` `upgrade-required` before close code 4406. Legacy receives the same five-second
 admission bound already used by authority. Disconnect clears that bound.
 
 Relation data never enters presence. Authorization remains element by element. An independently

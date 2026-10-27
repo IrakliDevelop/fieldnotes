@@ -54,7 +54,7 @@ describe('parseRoadmap', () => {
     );
   });
 
-  it('lists the five missing features in content/roadmap.md', () => {
+  it('lists hierarchy and clipping as built while retaining the remaining roadmap sections', () => {
     const roadmap = parseRoadmap(
       readFileSync(new URL('../../content/roadmap.md', import.meta.url), 'utf8'),
     );
@@ -66,7 +66,16 @@ describe('parseRoadmap', () => {
       'Elbow arrows that route around shapes',
       'Text inside shapes',
     ]);
-    expect(roadmap.next).toHaveLength(3);
+    expect(roadmap.built).toContain(
+      'Parent and child elements with nested rectangular clipping across canvas, DOM, minimap, PNG and SVG export',
+    );
+    expect(roadmap.next).not.toContain(
+      'Parent and child elements with nested rectangular clipping across canvas, DOM, minimap, PNG and SVG export',
+    );
+    expect(roadmap.next).toEqual([
+      "I'm making starter templates on StackBlitz and CodeSandbox for a vanilla board and a React board.",
+      "I'm bringing the React bindings up to the core API: hooks and props for autosave, export, camera control, shortcuts and presence.",
+    ]);
     expect(roadmap.built.length).toBeGreaterThan(0);
   });
 });

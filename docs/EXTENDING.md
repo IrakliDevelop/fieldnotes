@@ -1,6 +1,6 @@
 # Extending Field Notes
 
-This guide covers the extension API of `@fieldnotes/core` 0.91.0. Every name below is exported
+This guide covers the extension API of `@fieldnotes/core` 0.100.0. Every name below is exported
 from `@fieldnotes/core` unless stated otherwise. A runnable version of most snippets lives in
 [`examples/extension-api`](../examples/extension-api/).
 
@@ -40,6 +40,7 @@ The model in five sentences:
 | `wrap`         | yes      | `T` to envelope.                                                                           |
 | `unwrap`       | yes      | Envelope to `T`; only called on validated envelopes.                                       |
 | `bounds`       | yes      | World-space axis-aligned `Bounds`, or `null`. Drives culling, selection, minimap, exports. |
+| `clipBounds`   | no       | World-space axis-aligned `Bounds` for clipping descendants, or `null`.                     |
 | `hitTest`      | no       | Point-in-element test. Default: inside `bounds`.                                           |
 | `render`       | no       | Draws on a world-space canvas context.                                                     |
 | `emitSvg`      | no       | Returns an SVG fragment for `exportSvg`.                                                   |
@@ -63,7 +64,7 @@ interface ExtensionElementEnvelope extends BaseElement {
 ```
 
 `BaseElement` fields (`id`, `position`, `index`, `version`, `editor`, `locked`, `layerId`,
-`groupId`, `rotation`) live on the envelope, not in `data`. `wrap` and `unwrap` move your fields in
+`groupId`, `parentId`, `rotation`) live on the envelope, not in `data`. `wrap` and `unwrap` move your fields in
 and out of `data`; copy the base fields with `pickBaseFields` so new ones are never dropped:
 
 ```typescript
@@ -111,6 +112,19 @@ const markerDefinition: ElementTypeDefinition<Marker> = {
 `id`. Pass `index: ''` to place a new element on top of its layer; use `generateKeyBetween` for a
 specific slot. `version` starts at 1 and the store bumps it on every local update; `editor` is set
 only by sync. Never write `version` or `editor` from a tool.
+
+### Parent-child relationships and clipping
+
+Relationships live on the child through `parentId`; a child and its parent must share a layer.
+Call `viewport.setParent(childId, parentId | null)` to change the relationship in one undoable host
+command. `store.getChildren(id)` and `store.getDescendants(id)` read the valid projected hierarchy.
+
+Remote sync can retain a child before its parent arrives. `store.getById(id)` returns that raw
+orphan for repair, while `getAll`, type queries, and spatial queries omit it until the relationship
+is valid. `clipBounds` on an extension parent returns an axis-aligned world rectangle that clips
+descendants only. Nested clips intersect. A throwing, invalid, or empty clip fails closed for that
+subtree. Moving, removing, copying, or duplicating a parent applies to its subtree; grouping stays
+independent of parent-child relationships.
 
 ### Rendering
 
@@ -491,7 +505,5 @@ render hooks. The standalone `exportImage(store, options, layerManager?)` and
 
 Not yet available:
 
-- Parent/child elements and clipping (frames).
-- Camera constraint providers.
 - Field schemas for generic property editing of extension data.
 - `afterLayer` on the minimap, in exports, or above hybrid strata.

@@ -201,7 +201,16 @@ const screen = camera.worldToScreen({ x: 0, y: 0 });
 camera.onChange(() => {
   /* camera moved */
 });
+
+const removeConstraint = camera.addConstraint((next) => ({
+  ...next,
+  zoom: Math.min(next.zoom, 2),
+}));
+removeConstraint();
 ```
+
+Constraints run in registration order for every camera mutation and animation. The function
+returned by `addConstraint` unregisters that constraint.
 
 ## Element Store
 
@@ -210,12 +219,15 @@ Direct access to canvas elements:
 ```typescript
 const { store } = viewport;
 
-const all = store.getAll(); // sorted by layer, then index
-const el = store.getById('some-id');
+const all = store.getAll(); // visible scene order: layer, then depth-first hierarchy
+const el = store.getById('some-id'); // includes a remote orphan retained for repair
 const strokes = store.getElementsByType('stroke');
+const children = store.getChildren('some-id');
+const descendants = store.getDescendants('some-id');
 
 store.update('some-id', { locked: true });
 store.remove('some-id');
+viewport.setParent('child-id', 'parent-id');
 
 store.on('add', (el) => console.log('added', el));
 store.on('remove', (el) => console.log('removed', el));
@@ -223,6 +235,11 @@ store.on('update', ({ previous, current }) => {
   /* ... */
 });
 ```
+
+`getAll`, type queries, and spatial queries use the visible hierarchy projection. A remote child
+whose parent has not arrived remains available through `getById` but is omitted from those queries.
+An extension parent can define `clipBounds` as an axis-aligned world rectangle; it clips descendants,
+and nested parent clips intersect. Frames are not an element type in this release.
 
 ## Undo / Redo
 
