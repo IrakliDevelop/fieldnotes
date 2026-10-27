@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ElementHierarchy, validateHierarchy } from './element-hierarchy';
+import { ElementHierarchy, validateAddedElement, validateHierarchy } from './element-hierarchy';
 import { ElementRegistry } from './element-registry';
 import type {
   BaseElement,
@@ -372,6 +372,58 @@ describe('ElementHierarchy', () => {
     expect(() => validateHierarchy(atDepth(33), new ElementRegistry())).toThrow(
       /Invalid hierarchy/,
     );
+  });
+
+  it.each([
+    ['missing parent', new Map<string, CanvasElement>(), note('child', { parentId: 'missing' })],
+    ['self', new Map<string, CanvasElement>(), note('child', { parentId: 'child' })],
+    [
+      'cycle',
+      new Map<string, CanvasElement>([
+        ['a', note('a', { parentId: 'b' })],
+        ['b', note('b', { parentId: 'a' })],
+      ]),
+      note('child', { parentId: 'a' }),
+    ],
+    [
+      'cross-layer parent',
+      new Map<string, CanvasElement>([['parent', note('parent', { layerId: 'other' })]]),
+      note('child', { parentId: 'parent' }),
+    ],
+  ])('rejects a %s relation while adding', (_name, elements, element) => {
+    expect(() => validateAddedElement(element, elements, new ElementRegistry())).toThrow(
+      /Invalid hierarchy/,
+    );
+  });
+
+  it('rejects full-canvas and over-depth relations while adding', () => {
+    const registry = new ElementRegistry();
+    registry.register(fullCanvasDefinition());
+    expect(() =>
+      validateAddedElement(
+        note('child', { parentId: 'full' }),
+        new Map<string, CanvasElement>([['full', extension('full')]]),
+        registry,
+      ),
+    ).toThrow(/Invalid hierarchy/);
+    expect(() =>
+      validateAddedElement(
+        extension('full', { parentId: 'parent' }),
+        new Map<string, CanvasElement>([['parent', note('parent')]]),
+        registry,
+      ),
+    ).toThrow(/Invalid hierarchy/);
+
+    const elements = new Map<string, CanvasElement>();
+    for (let index = 0; index <= 32; index++) {
+      elements.set(
+        `d${index}`,
+        note(`d${index}`, index === 0 ? {} : { parentId: `d${index - 1}` }),
+      );
+    }
+    expect(() =>
+      validateAddedElement(note('child', { parentId: 'd32' }), elements, new ElementRegistry()),
+    ).toThrow(/Invalid hierarchy/);
   });
 
   it('orders layers, equal roots and equal siblings independently', () => {

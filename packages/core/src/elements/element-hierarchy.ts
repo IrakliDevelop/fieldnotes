@@ -16,6 +16,37 @@ function isFullCanvas(element: CanvasElement, registry: ElementRegistry): boolea
   );
 }
 
+function invalidHierarchy(): never {
+  throw new Error(
+    'Invalid hierarchy: missing, cyclic, cross-layer, full-canvas, or over-depth parent relationship',
+  );
+}
+
+export function validateAddedElement(
+  element: CanvasElement,
+  elements: ReadonlyMap<string, CanvasElement>,
+  registry: ElementRegistry,
+): void {
+  const seen = new Set<string>();
+  let current: CanvasElement | undefined = element;
+  let depth = 0;
+  while (current?.parentId !== undefined) {
+    if (isFullCanvas(current, registry) || seen.has(current.id)) invalidHierarchy();
+    seen.add(current.id);
+    const parent = elements.get(current.parentId);
+    if (
+      parent === undefined ||
+      parent.id === current.id ||
+      parent.layerId !== current.layerId ||
+      isFullCanvas(parent, registry) ||
+      ++depth > MAX_DEPTH
+    ) {
+      invalidHierarchy();
+    }
+    current = parent;
+  }
+}
+
 export class ElementHierarchy {
   readonly scene: readonly CanvasElement[];
   private readonly sceneElements: CanvasElement[];
@@ -192,8 +223,6 @@ export function validateHierarchy(
 ): void {
   const hierarchy = new ElementHierarchy(elements, registry, new Map());
   if (hierarchy.scene.length !== elements.size) {
-    throw new Error(
-      'Invalid hierarchy: missing, cyclic, cross-layer, full-canvas, or over-depth parent relationship',
-    );
+    invalidHierarchy();
   }
 }

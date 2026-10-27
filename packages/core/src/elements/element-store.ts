@@ -14,7 +14,7 @@ import { computeStrokeSegments, transferStrokeRenderData } from './stroke-cache'
 import type { CanvasElement, ElementType } from './types';
 import { getRegistryToken, type ElementRegistry } from './element-registry';
 import { getDefaultElementRegistry } from './default-registry';
-import { ElementHierarchy, validateHierarchy } from './element-hierarchy';
+import { ElementHierarchy, validateAddedElement, validateHierarchy } from './element-hierarchy';
 
 function sanitizeRichText(element: CanvasElement): CanvasElement {
   if (element.type !== 'note' && element.type !== 'text') return element;
@@ -193,9 +193,13 @@ export class ElementStore {
     if (element.index === '') {
       element = { ...element, index: generateKeyBetween(this.topIndex(element.layerId), null) };
     }
-    const candidate = new Map(this.elements);
-    candidate.set(element.id, element);
-    this.validateCandidate(candidate, meta);
+    if (this.strict(meta) && this.hierarchyKnownValid && !this.elements.has(element.id)) {
+      validateAddedElement(element, this.elements, this.registry);
+    } else {
+      const candidate = new Map(this.elements);
+      candidate.set(element.id, element);
+      this.validateCandidate(candidate, meta);
+    }
     this.resetHierarchy();
     this._versions.set(element.id, 0);
     this.elements.set(element.id, element);

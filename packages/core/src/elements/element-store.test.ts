@@ -1259,6 +1259,22 @@ describe('ElementStore', () => {
     expect(child?.position).toEqual({ x: 20, y: 0 });
   });
 
+  it('adds to a known-valid store without enumerating the existing map', () => {
+    const store = new ElementStore();
+    store.add(makeNote({ id: 'first', index: 'a0' }));
+    const iterate = vi.spyOn(Map.prototype, Symbol.iterator);
+    const values = vi.spyOn(Map.prototype, 'values');
+
+    store.add(makeNote({ id: 'second', index: 'a1' }));
+
+    iterate.mockRestore();
+    values.mockRestore();
+    expect(iterate).not.toHaveBeenCalled();
+    expect(values).not.toHaveBeenCalled();
+    expect(store.getById('second')?.id).toBe('second');
+    expect(store.getAll().map((element) => element.id)).toEqual(['first', 'second']);
+  });
+
   it.each([
     ['cycle', [makeNote({ id: 'a', parentId: 'b' }), makeNote({ id: 'b', parentId: 'a' })], []],
     [
