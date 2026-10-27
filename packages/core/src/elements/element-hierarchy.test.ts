@@ -294,6 +294,37 @@ describe('ElementHierarchy', () => {
     ]);
   });
 
+  it('replaces only the affected branch cache slots', () => {
+    const root = note('root');
+    const parent = note('parent', { parentId: root.id });
+    const target = note('target', { parentId: parent.id });
+    const unrelated = note('unrelated');
+    const unrelatedChild = note('unrelated-child', { parentId: unrelated.id });
+    const hierarchy = new ElementHierarchy(
+      new Map<string, CanvasElement>([
+        [root.id, root],
+        [parent.id, parent],
+        [target.id, target],
+        [unrelated.id, unrelated],
+        [unrelatedChild.id, unrelatedChild],
+      ]),
+      new ElementRegistry(),
+      new Map(),
+    );
+    const unrelatedChildren = hierarchy.getChildren(unrelated.id);
+    const unrelatedDescendants = hierarchy.getDescendants(unrelated.id);
+    const replacement = { ...target, text: 'updated' };
+
+    hierarchy.replace(target, replacement);
+
+    expect(hierarchy.scene[2]).toBe(replacement);
+    expect(hierarchy.getChildren(parent.id)[0]).toBe(replacement);
+    expect(hierarchy.getDescendants(parent.id)[0]).toBe(replacement);
+    expect(hierarchy.getDescendants(root.id)[1]).toBe(replacement);
+    expect(hierarchy.getChildren(unrelated.id)).toBe(unrelatedChildren);
+    expect(hierarchy.getDescendants(unrelated.id)).toBe(unrelatedDescendants);
+  });
+
   it('fails closed for orphan descendants while retaining unrelated roots', () => {
     const elements = new Map([
       ['orphan', note('orphan', { parentId: 'missing' })],

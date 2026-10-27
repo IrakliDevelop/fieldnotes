@@ -5,10 +5,12 @@ const ELEMENT_COUNT = 10_011;
 const WARMUP_COUNT = 15;
 const SAMPLE_COUNT = 90;
 const P95_BUDGET_MS = 4_695;
+const MUTATION_P95_BUDGET_MS = 2;
 
 interface Measurement {
   frameCount: number;
   lastFrameMs: number;
+  mutationMs: number;
 }
 
 interface BenchmarkResult {
@@ -20,6 +22,11 @@ interface BenchmarkResult {
   p95Ms: number;
   maxMs: number;
   budgetMs: number;
+  mutationSamples: number[];
+  mutationP50Ms: number;
+  mutationP95Ms: number;
+  mutationMaxMs: number;
+  mutationBudgetMs: number;
   browser: { name: string; version: string };
   playwrightProject: string;
   nodeVersion: string;
@@ -85,16 +92,18 @@ test.describe('10,000 element performance gate', () => {
           const before = viewport.getRenderStats().frameCount;
           const stroke = viewport.store.getById(id);
           if (!stroke) throw new Error('The seeded stroke is missing');
+          const mutationStart = performance.now();
           viewport.store.update(id, {
             position: { x, y: stroke.position.y },
           });
+          const mutationMs = performance.now() - mutationStart;
           viewport.requestRender();
 
           return new Promise<Measurement>((resolve, reject) => {
             let frames = 0;
             const waitForFrame = (): void => {
               if (viewport.getRenderStats().frameCount > before) {
-                resolve(viewport.getRenderStats());
+                resolve({ ...viewport.getRenderStats(), mutationMs });
                 return;
               }
               frames++;
@@ -121,8 +130,11 @@ test.describe('10,000 element performance gate', () => {
     }
 
     const samples: number[] = [];
+    const mutationSamples: number[] = [];
     for (let i = 0; i < SAMPLE_COUNT; i++) {
-      samples.push((await mutateAndMeasure(nextX())).lastFrameMs);
+      const measurement = await mutateAndMeasure(nextX());
+      samples.push(measurement.lastFrameMs);
+      mutationSamples.push(measurement.mutationMs);
     }
 
     const browser = page.context().browser();
@@ -135,6 +147,11 @@ test.describe('10,000 element performance gate', () => {
       p95Ms: percentile(samples, 0.95),
       maxMs: Math.max(...samples),
       budgetMs: P95_BUDGET_MS,
+      mutationSamples,
+      mutationP50Ms: percentile(mutationSamples, 0.5),
+      mutationP95Ms: percentile(mutationSamples, 0.95),
+      mutationMaxMs: Math.max(...mutationSamples),
+      mutationBudgetMs: MUTATION_P95_BUDGET_MS,
       browser: {
         name: testInfo.project.use.browserName ?? 'chromium',
         version: browser?.version() ?? 'unknown',
@@ -157,5 +174,6 @@ test.describe('10,000 element performance gate', () => {
     });
 
     expect(result.p95Ms).toBeLessThanOrEqual(P95_BUDGET_MS);
+    expect(result.mutationP95Ms).toBeLessThanOrEqual(MUTATION_P95_BUDGET_MS);
   });
 });

@@ -18,9 +18,12 @@ function isFullCanvas(element: CanvasElement, registry: ElementRegistry): boolea
 
 export class ElementHierarchy {
   readonly scene: readonly CanvasElement[];
-  private readonly children = new Map<string, readonly CanvasElement[]>();
-  private readonly descendants = new Map<string, readonly CanvasElement[]>();
+  private readonly sceneElements: CanvasElement[];
+  private readonly children = new Map<string, CanvasElement[]>();
+  private readonly descendants = new Map<string, CanvasElement[]>();
   private readonly ranks = new Map<string, number>();
+  private readonly siblingRanks = new Map<string, number>();
+  private readonly ancestorRanks = new Map<string, readonly { id: string; rank: number }[]>();
   private clips: Map<string, Bounds | null | undefined> | null = null;
 
   constructor(
@@ -72,16 +75,26 @@ export class ElementHierarchy {
       return layerA === layerB ? compare(a, b) : layerA - layerB;
     });
     const scene: CanvasElement[] = [];
-    const add = (element: CanvasElement): CanvasElement[] => {
-      const all: CanvasElement[] = [];
+    const add = (element: CanvasElement, ancestors: readonly string[]): void => {
+      this.ranks.set(element.id, scene.length);
+      this.ancestorRanks.set(
+        element.id,
+        ancestors.map((id) => ({ id, rank: this.descendants.get(id)?.length ?? 0 })),
+      );
       scene.push(element);
-      all.push(element);
-      for (const child of this.children.get(element.id) ?? []) all.push(...add(child));
-      this.descendants.set(element.id, all.slice(1));
-      return all;
+      for (const ancestor of ancestors) {
+        const descendants = this.descendants.get(ancestor);
+        if (descendants) descendants.push(element);
+      }
+      this.descendants.set(element.id, []);
+      const children = this.children.get(element.id) ?? [];
+      for (const [rank, child] of children.entries()) {
+        this.siblingRanks.set(child.id, rank);
+        add(child, [...ancestors, element.id]);
+      }
     };
-    for (const root of roots) add(root);
-    scene.forEach((element, rank) => this.ranks.set(element.id, rank));
+    for (const root of roots) add(root, []);
+    this.sceneElements = scene;
     this.scene = scene;
   }
 
@@ -153,24 +166,23 @@ export class ElementHierarchy {
     return clips;
   }
 
-  replace(previous: CanvasElement, current: CanvasElement): void {
+  replace(previous: CanvasElement, current: CanvasElement): number | undefined {
     const rank = this.ranks.get(previous.id);
-    if (rank === undefined) return;
-    (this.scene as CanvasElement[])[rank] = current;
-    const replace = (elements: readonly CanvasElement[]): readonly CanvasElement[] =>
-      elements.map((element) => (element === previous ? current : element));
-    const children = this.children.get(previous.id);
-    if (children) this.children.set(previous.id, replace(children));
-    const descendants = this.descendants.get(previous.id);
-    if (descendants) this.descendants.set(previous.id, replace(descendants));
+    if (rank === undefined) return undefined;
+    this.sceneElements[rank] = current;
     if (previous.parentId !== undefined) {
       const siblings = this.children.get(previous.parentId);
-      if (siblings) this.children.set(previous.parentId, replace(siblings));
+      const siblingRank = this.siblingRanks.get(previous.id);
+      if (siblings && siblingRank !== undefined) siblings[siblingRank] = current;
     }
-    for (const [id, all] of this.descendants) this.descendants.set(id, replace(all));
+    for (const ancestor of this.ancestorRanks.get(previous.id) ?? []) {
+      const descendants = this.descendants.get(ancestor.id);
+      if (descendants) descendants[ancestor.rank] = current;
+    }
     if (previous.type === 'extension' && this.getChildren(previous.id).length > 0) {
       this.clips = null;
     }
+    return rank;
   }
 }
 

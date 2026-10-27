@@ -63,10 +63,12 @@ export class ElementStore {
   private sceneCache: CanvasElement[] | null = null;
   private _versions = new Map<string, number>();
   private registry: ElementRegistry;
-  private hierarchyRevision = '';
+  private registryToken: string;
+  private hierarchyKnownValid = true;
 
   constructor(elementRegistry: ElementRegistry = getDefaultElementRegistry()) {
     this.registry = elementRegistry;
+    this.registryToken = getRegistryToken(elementRegistry);
   }
 
   /** The registry that resolves bounds for this store's elements. */
@@ -77,6 +79,8 @@ export class ElementStore {
   setElementRegistry(elementRegistry: ElementRegistry): void {
     if (elementRegistry === this.registry) return;
     this.registry = elementRegistry;
+    this.registryToken = getRegistryToken(elementRegistry);
+    this.hierarchyKnownValid = false;
     this.resetHierarchy();
     this.spatialIndex.clear();
     for (const element of this.elements.values()) {
@@ -106,11 +110,10 @@ export class ElementStore {
   }
 
   private getHierarchy(): ElementHierarchy {
-    if (this.hierarchy && this.hierarchyRevision !== getRegistryToken(this.registry))
-      this.resetHierarchy();
+    this.refreshRegistry();
     if (!this.hierarchy) {
       this.hierarchy = new ElementHierarchy(this.elements, this.registry, this.layerOrderMap);
-      this.hierarchyRevision = getRegistryToken(this.registry);
+      this.hierarchyKnownValid = this.hierarchy.scene.length === this.elements.size;
     }
     return this.hierarchy;
   }
@@ -131,7 +134,14 @@ export class ElementStore {
   private resetHierarchy(): void {
     this.hierarchy = null;
     this.sceneCache = null;
-    this.hierarchyRevision = '';
+  }
+
+  private refreshRegistry(): void {
+    const token = getRegistryToken(this.registry);
+    if (token === this.registryToken) return;
+    this.registryToken = token;
+    this.hierarchyKnownValid = false;
+    this.resetHierarchy();
   }
 
   private topIndex(layerId: string): string | null {
@@ -178,6 +188,7 @@ export class ElementStore {
   }
 
   add(element: CanvasElement, meta?: ElementChangeMeta): void {
+    this.refreshRegistry();
     element = stampDataVersion(sanitizeRichText(element), this.registry);
     if (element.index === '') {
       element = { ...element, index: generateKeyBetween(this.topIndex(element.layerId), null) };
@@ -188,19 +199,27 @@ export class ElementStore {
     this.resetHierarchy();
     this._versions.set(element.id, 0);
     this.elements.set(element.id, element);
+    this.hierarchyKnownValid = this.strict(meta);
     const bounds = this.indexBounds(element);
     if (bounds) this.spatialIndex.insert(element.id, bounds);
     this.bus.emit('add', element, meta);
   }
 
   update(id: string, partial: Partial<CanvasElement>, meta?: ElementChangeMeta): void {
+    this.refreshRegistry();
     const existing = this.elements.get(id);
     if (!existing) return;
     const updated = this.prepareUpdate(existing, partial, meta);
-    const candidate = new Map(this.elements);
-    candidate.set(id, updated);
-    this.validateCandidate(candidate, meta);
+    const structural = this.isStructural(existing, updated);
+    const validated = this.strict(meta) && (structural || !this.hierarchyKnownValid);
+    if (validated) {
+      const candidate = new Map(this.elements);
+      candidate.set(id, updated);
+      this.validateCandidate(candidate, meta);
+    }
     this.installUpdate(existing, updated);
+    if (validated) this.hierarchyKnownValid = true;
+    else if (structural) this.hierarchyKnownValid = false;
     this.bus.emit('update', { previous: existing, current: updated }, meta);
   }
 
@@ -209,28 +228,34 @@ export class ElementStore {
     updates: readonly { id: string; partial: Partial<CanvasElement> }[],
     meta?: ElementChangeMeta,
   ): void {
+    this.refreshRegistry();
     const ids = new Set<string>();
     for (const update of updates) {
       if (ids.has(update.id)) throw new Error(`Duplicate update id "${update.id}"`);
       ids.add(update.id);
     }
     const prepared: { existing: CanvasElement; updated: CanvasElement }[] = [];
-    const candidate = new Map(this.elements);
     for (const update of updates) {
       const existing = this.elements.get(update.id);
       if (!existing) continue;
       const updated = this.prepareUpdate(existing, update.partial, meta);
-      candidate.set(update.id, updated);
       prepared.push({ existing, updated });
     }
     if (prepared.length === 0) return;
-    this.validateCandidate(candidate, meta);
     const structural = prepared.some(({ existing, updated }) =>
       this.isStructural(existing, updated),
     );
+    const validated = this.strict(meta) && (structural || !this.hierarchyKnownValid);
+    if (validated) {
+      const candidate = new Map(this.elements);
+      for (const { updated } of prepared) candidate.set(updated.id, updated);
+      this.validateCandidate(candidate, meta);
+    }
     for (const item of prepared) this.installUpdate(item.existing, item.updated, structural);
     if (structural) this.resetHierarchy();
     if (structural) this.getHierarchy();
+    if (validated) this.hierarchyKnownValid = true;
+    else if (structural) this.hierarchyKnownValid = false;
     for (const item of prepared)
       this.bus.emit('update', { previous: item.existing, current: item.updated }, meta);
   }
@@ -291,16 +316,16 @@ export class ElementStore {
   private installUpdate(
     existing: CanvasElement,
     updated: CanvasElement,
-    retainHierarchy = false,
+    deferStructuralReset = false,
   ): void {
     this._versions.set(existing.id, (this._versions.get(existing.id) ?? 0) + 1);
     this.elements.set(existing.id, updated);
     const structural = this.isStructural(existing, updated);
-    if (structural && !retainHierarchy) this.resetHierarchy();
-    else {
-      this.hierarchy?.replace(existing, updated);
-      this.sceneCache =
-        this.sceneCache?.map((element) => (element === existing ? updated : element)) ?? null;
+    if (structural) {
+      if (!deferStructuralReset) this.resetHierarchy();
+    } else {
+      const rank = this.hierarchy?.replace(existing, updated);
+      if (rank !== undefined && this.sceneCache) this.sceneCache[rank] = updated;
     }
 
     const newBounds = this.indexBounds(updated);
@@ -312,6 +337,7 @@ export class ElementStore {
   }
 
   remove(id: string, meta?: ElementChangeMeta): void {
+    this.refreshRegistry();
     const element = this.elements.get(id);
     if (!element) return;
     const candidate = new Map(this.elements);
@@ -321,14 +347,17 @@ export class ElementStore {
     this._versions.delete(id);
 
     this.elements.delete(id);
+    this.hierarchyKnownValid = this.strict(meta);
     this.spatialIndex.remove(id);
     this.bus.emit('remove', element, meta);
   }
 
   clear(meta?: ElementChangeMeta): void {
+    this.refreshRegistry();
     this.resetHierarchy();
     this._versions.clear();
     this.elements.clear();
+    this.hierarchyKnownValid = true;
     this.spatialIndex.clear();
     this.bus.emit('clear', null, meta);
   }
@@ -338,6 +367,7 @@ export class ElementStore {
   }
 
   loadSnapshot(elements: CanvasElement[], meta?: ElementChangeMeta): void {
+    this.refreshRegistry();
     const tops = new Map<string, string>();
     for (const el of elements) {
       const top = tops.get(el.layerId);
@@ -368,6 +398,7 @@ export class ElementStore {
         el.cachedControlPoint = getArrowControlPoint(el.from, el.to, el.bend);
       }
     }
+    this.hierarchyKnownValid = this.strict(meta);
     this.bus.emit('clear', null, meta);
     for (const el of sanitizedElements) {
       this.bus.emit('add', el, meta);

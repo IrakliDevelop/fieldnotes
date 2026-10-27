@@ -24,6 +24,10 @@ The enforced p95 budget is **4,695 ms**: `max(25 ms, roundUpTo5(3 × 1,565.0 ms)
 The test attaches its 90 samples and environment metadata as `performance-gate.json` on every pass
 or assertion failure. It is intentionally scheduled separately from pull-request CI.
 
+The same evidence includes synchronous `store.update` mutation samples, their p50, p95, and max,
+and a separate **2 ms p95** mutation budget. This measures only the local update before a render is
+requested, so frame timing and mutation cost remain independently diagnosable.
+
 The tables below are Node microbenchmarks. They do not replace this browser render-loop gate.
 
 ## ElementStore spatial queries (500 elements)

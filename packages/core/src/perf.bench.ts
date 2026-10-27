@@ -237,6 +237,23 @@ test('store mutations with spatial index', async ({ bench }) => {
   );
 });
 
+test('warmed 10,000-element position update', async ({ bench }) => {
+  const store = new ElementStore();
+  store.loadSnapshot(
+    Array.from({ length: 10_000 }, (_, index) => ({
+      ...createNote({ position: { x: index, y: 0 }, size: { w: 10, h: 10 } }),
+      id: `note-${index}`,
+      index: index.toString().padStart(5, '0'),
+    })),
+  );
+  store.getAll();
+  let x = 0;
+
+  await bench('move one element', () => {
+    store.update('note-5000', { position: { x: x++, y: 0 } });
+  }).run();
+});
+
 test('RenderLoop frame', async ({ bench }) => {
   const loop = createFrameLoop(10_000);
 

@@ -689,7 +689,7 @@ describe('ElementStore', () => {
       expect(before).not.toBe(after);
     });
 
-    it('swaps a position-only update into a fresh array without re-sorting', () => {
+    it('swaps a position-only update into the warmed array without re-sorting', () => {
       const store = new ElementStore();
       store.add(makeNote({ id: 'a', index: 'a2' }));
       store.add(makeNote({ id: 'b', index: 'a0' }));
@@ -702,11 +702,11 @@ describe('ElementStore', () => {
       const sorts = sort.mock.calls.length;
       sort.mockRestore();
 
-      expect(after).not.toBe(before);
+      expect(after).toBe(before);
       expect(sorts).toBe(0);
       expect(after.map((el) => el.id)).toEqual(['b', 'c', 'a']);
       expect(after[1]).toBe(store.getById('c'));
-      expect(before[1]?.position).toEqual({ x: 0, y: 0 });
+      expect(before[1]?.position).toEqual({ x: 40, y: 50 });
     });
 
     it.each([{ index: 'a5' }, { layerId: 'L0' }])('re-sorts after an update with %o', (patch) => {
@@ -1241,6 +1241,22 @@ describe('ElementStore', () => {
     expect(() => store.update('orphan', { text: 'still invalid' })).toThrow(/Invalid hierarchy/);
     expect(store.getById('orphan')).toBe(orphan);
     expect(events).not.toHaveBeenCalled();
+  });
+
+  it('retains warmed hierarchy and scene slots for strict local position updates', () => {
+    const store = new ElementStore();
+    store.add(makeNote({ id: 'parent' }));
+    store.add(makeNote({ id: 'child', parentId: 'parent' }));
+    const scene = store.getAll();
+    const hierarchy = (store as unknown as { hierarchy: unknown }).hierarchy;
+
+    store.update('child', { position: { x: 20, y: 0 } });
+
+    const child = store.getById('child');
+    expect((store as unknown as { hierarchy: unknown }).hierarchy).toBe(hierarchy);
+    expect(store.getAll()).toBe(scene);
+    expect(scene[1]).toBe(child);
+    expect(child?.position).toEqual({ x: 20, y: 0 });
   });
 
   it.each([
