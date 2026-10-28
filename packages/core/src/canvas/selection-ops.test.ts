@@ -13,7 +13,7 @@ import {
   createImage,
 } from '../elements/element-factory';
 import { createTestBoxRegistry } from '../test-helpers/test-box-type';
-import { createFrame, FRAME_ELEMENT_TYPE } from '../elements/frame-element';
+import { createFrame } from '../elements/frame-element';
 import { ElementRegistry } from '../elements/element-registry';
 
 function setup(selectedIds: string[] = []) {
@@ -556,7 +556,6 @@ describe('rotateSelection', () => {
 
     expect(store.getById(extension.id)?.position.x).toBeCloseTo(Math.PI / 2);
     expect(store.getById(frame.id)).toEqual(storedFrame);
-    expect(FRAME_ELEMENT_TYPE).toBe('core:frame');
   });
 
   it('single rotatable element: +π/2 rotation, position unchanged, one undo step', () => {
