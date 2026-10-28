@@ -1,6 +1,6 @@
 # Extending Field Notes
 
-This guide covers the extension API of `@fieldnotes/core` 0.100.0. Every name below is exported
+This guide covers the extension API of `@fieldnotes/core` 0.101.0. Every name below is exported
 from `@fieldnotes/core` unless stated otherwise. A runnable version of most snippets lives in
 [`examples/extension-api`](../examples/extension-api/).
 
@@ -180,8 +180,9 @@ everywhere: several viewports, or code that runs before any viewport exists. Reg
 plugin** (`ctx.registerElementType(def)`) when the type belongs to that viewport; it is removed when
 the viewport is destroyed, and other viewports are unaffected.
 
-Plugin-registered types live only on `viewport.elementRegistry`. Pass that registry wherever state
-is read or written outside the viewport:
+Plugin-registered types live only on `viewport.elementRegistry`. The standalone exports and
+`parseState` need that registry passed in; `AutoSave` and `SyncClient` take the registry of their
+store:
 
 ```typescript
 import { AutoSave, exportSvg } from '@fieldnotes/core';
@@ -189,14 +190,14 @@ import { AutoSave, exportSvg } from '@fieldnotes/core';
 const autoSave = new AutoSave(viewport.store, viewport.camera, {
   layerManager: viewport.layerManager,
   pluginStateManager: viewport.plugins,
-  elementRegistry: viewport.elementRegistry,
 });
 
 const svg = await exportSvg(viewport.store, { elementRegistry: viewport.elementRegistry });
 ```
 
 Without it, the standalone exports fall back to the global registry and skip plugin elements' bounds
-and rendering. AutoSave defaults to the registry its store holds when it loads or saves.
+and rendering. `AutoSave` uses `elementRegistry` when you pass it, and otherwise the registry of
+its store at each `load()` and `save()`, so `viewport.store` is enough.
 `viewport.loadJSON`, `viewport.exportState` and `viewport.exportImage`/`exportSVG` use the viewport
 registry automatically. In `@fieldnotes/sync`, `SyncClient` uses the registry of the store it is
 given, so `store: viewport.store` is enough; if you pass `elementRegistry` (also on
@@ -219,18 +220,18 @@ const definition: ElementTypeDefinition<Marker> = {
 - `migrate` runs once per element on `parseState`, `viewport.loadJSON`, `viewport.loadState`,
   `AutoSave.load` and `migrateElementData(element, registry)` when the stored `dataVersion` (absent
   means 1) is lower than the current one. Higher stored versions are left alone. It must return a
-  plain object and must not mutate the `data` it receives, which is passed by reference. The result
-  is validated with `validateData` on `parseState`/`loadJSON`/`AutoSave.load`; `loadState`,
-  `migrateElementData` and `SyncClient` only check the result is a record. The envelope is stamped
-  with the current version. A throw fails the load (or the `migrateElementData` call) with the
+  plain object and must not mutate the `data` it receives, which is passed by reference.
+  `parseState`, `loadJSON` and `AutoSave.load` validate the result with `validateData`; `loadState`
+  and `migrateElementData` only check that it is a record. The envelope is stamped with the current
+  version. A throw fails the load, or the `migrateElementData` call, with an error naming the
   element id.
 - Elements are stamped with the current `dataVersion` when added to a store whose registry knows
   the type, so saved and synced data always carries its version.
 - `SyncClient` migrates remote data with a lower `dataVersion` on arrival, in live, batch and
-  snapshot upserts; `authority:1` rooms are not covered. An element whose `migrate` throws is
-  skipped, the local copy stays, and the error goes to `reportError`. Every peer in a room should
-  run the same definition version: an older peer keeps newer data as is and may edit it with the
-  old schema.
+  snapshot upserts, and only checks that the result is a record; `authority:1` rooms are not
+  covered. An element whose `migrate` throws is skipped, the local copy stays, and the error goes
+  to `reportError`. Every peer in a room should run the same definition version: an older peer
+  keeps newer data as is and may edit it with the old schema.
 
 ## 5. Paste and duplicate
 

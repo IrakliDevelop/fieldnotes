@@ -356,7 +356,8 @@ These contracts were proven in `packages/contract-spike`:
   `loadJSON`, `loadState` and `AutoSave.load`: `migrate` runs once for lower stored versions, the
   result must be a record, and the current version is stamped; every path but `loadState` also
   validates the result. Legacy decodes are stamped current. `exportState` stamps a missing
-  `dataVersion`. Sync paths do not migrate.
+  `dataVersion`. `migrateElementData` and `SyncClient` incoming upserts also migrate lower versions,
+  with the record check only, and keep newer data as is.
 - **`cloneRemap(el, idMap)`** is called on paste and duplicate with the full source-to-clone id map;
   core keeps the clone's base fields and replaces `data` with the result's `data`.
 - **Envelope `size`.** An optional `size` on `ExtensionElementEnvelope` opts the element into the
