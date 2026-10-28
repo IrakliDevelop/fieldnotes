@@ -343,6 +343,7 @@ describe('core public surface', () => {
     expect(typeof FN.ConstraintServiceProxy).toBe('function');
     expect(typeof FN.createRenderHooks).toBe('function');
     expect(typeof FN.TypedHookRegistry).toBe('function');
+    expect(typeof FN.migrateElementData).toBe('function');
   });
 
   it('exports action registry types', () => {

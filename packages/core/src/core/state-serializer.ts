@@ -369,6 +369,15 @@ function validateElement(
   return envelope;
 }
 
+/** Applies the load path's extension-data migration to one element; returns the same reference when nothing changes. */
+export function migrateElementData(
+  element: CanvasElement,
+  registry: ElementRegistry = getDefaultElementRegistry(),
+): CanvasElement {
+  if (element.type !== 'extension') return element;
+  return migrateEnvelope(element, registry.getAdapter(element.extensionType));
+}
+
 function migrateEnvelope(
   envelope: ExtensionElementEnvelope,
   adapter: ElementTypeAdapter | undefined,
