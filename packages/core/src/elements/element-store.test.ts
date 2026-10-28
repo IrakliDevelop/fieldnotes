@@ -356,18 +356,21 @@ describe('ElementStore', () => {
       };
       store.add(frame);
       store.add(unknown);
+      store.update(unknown.id, { data: { preserved: 'after update' } });
       store.update(frame.id, { data: { title: 'Renamed', color: '#123456' } });
       store.updateMany([{ id: frame.id, partial: { position: { x: 20, y: 0 } } }]);
       const updatedFrame = store.getById(frame.id);
+      const updatedUnknown = store.getById(unknown.id);
       if (!updatedFrame) throw new Error('expected frame');
-      store.loadSnapshot([updatedFrame, unknown]);
+      if (!updatedUnknown) throw new Error('expected unknown extension');
+      store.loadSnapshot([updatedFrame, updatedUnknown]);
 
       expect(store.getById(frame.id)).toMatchObject({
         data: { title: 'Renamed', color: '#123456' },
       });
       expect(store.getById(unknown.id)).toMatchObject({
         extensionType: unknown.extensionType,
-        data: unknown.data,
+        data: { preserved: 'after update' },
       });
     });
 
@@ -404,6 +407,7 @@ describe('ElementStore', () => {
         const unrelated = makeNote({ id: 'unrelated', position: { x: 600, y: 0 }, index: 'a3' });
         store.add(ancestor, { origin: 'remote' });
         store.add(unrelated, { origin: 'remote' });
+        const unrelatedVersion = store.getVersion(unrelated.id);
         if (path === 'add') {
           store.add({ ...frame, parentId: ancestor.id }, { origin: 'remote' });
           store.add(child, { origin: 'remote' });
@@ -434,6 +438,7 @@ describe('ElementStore', () => {
           ancestor.id,
           unrelated.id,
         ]);
+        expect(store.getElementsByType('extension')).toEqual([]);
         expect(store.getChildren(ancestor.id)).toEqual([]);
         expect(store.getDescendants(ancestor.id)).toEqual([]);
         expect(store.queryRect({ x: 300, y: 100, w: 120, h: 90 })).toEqual([]);
@@ -456,6 +461,13 @@ describe('ElementStore', () => {
         ]);
         expect(store.getEffectiveClip(frame.id)).toBeNull();
         expect(store.getEffectiveClip(child.id)).toEqual({ x: 300, y: 124, w: 120, h: 66 });
+        expect(store.getElementsByType('extension').map((element) => element.id)).toEqual([
+          frame.id,
+        ]);
+        if (path === 'updateMany') {
+          expect(store.getById(unrelated.id)).toMatchObject({ text: 'changed atomically' });
+          expect(store.getVersion(unrelated.id)).toBe(unrelatedVersion + 1);
+        }
       },
     );
 
@@ -478,7 +490,7 @@ describe('ElementStore', () => {
       },
     );
 
-    it('rejects strict final candidates that retain or introduce a parented frame subtree', () => {
+    it('rejects strict operations that retain an existing remote parented frame subtree', () => {
       const store = new ElementStore();
       const parent = makeNote({ id: 'parent', index: 'a0' });
       const frame = createFrame({
@@ -503,6 +515,37 @@ describe('ElementStore', () => {
       expect(store.getById(parent.id)).toBe(parent);
       expect(store.getById(frame.id)?.parentId).toBe(parent.id);
       expect(store.getById(child.id)).toBe(child);
+    });
+
+    it('rejects a strict batch that parents a root frame without changing any member', () => {
+      const store = new ElementStore();
+      const parent = makeNote({ id: 'parent', index: 'a0', text: 'before' });
+      const frame = createFrame({
+        position: { x: 100, y: 0 },
+        size: { w: 120, h: 90 },
+        index: 'a1',
+      });
+      const child = makeNote({ id: 'child', parentId: frame.id, index: 'a2' });
+      store.add(parent);
+      store.add(frame);
+      store.add(child);
+      const parentVersion = store.getVersion(parent.id);
+      const frameVersion = store.getVersion(frame.id);
+      const childVersion = store.getVersion(child.id);
+
+      expect(() =>
+        store.updateMany([
+          { id: frame.id, partial: { parentId: parent.id } },
+          { id: parent.id, partial: { text: 'changed' } },
+        ]),
+      ).toThrow(/Invalid hierarchy/);
+
+      expect(store.getById(parent.id)).toBe(parent);
+      expect(store.getById(frame.id)).toBe(frame);
+      expect(store.getById(child.id)).toBe(child);
+      expect(store.getVersion(parent.id)).toBe(parentVersion);
+      expect(store.getVersion(frame.id)).toBe(frameVersion);
+      expect(store.getVersion(child.id)).toBe(childVersion);
     });
 
     it('rejects local orphaning without emitting or mutating', () => {

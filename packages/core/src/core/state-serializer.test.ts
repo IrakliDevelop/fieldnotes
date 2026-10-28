@@ -1236,13 +1236,18 @@ describe('extension dataVersion', () => {
       viewport.destroy();
     });
 
-    it('rejects malformed and parented frames without replacing the current board', () => {
-      const viewport = new Viewport(document.createElement('div'));
+    it('rolls back each malformed and parented frame state load to the exact baseline', () => {
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+      const viewport = new Viewport(container);
       const kept = createNote({ position: { x: 1, y: 2 } });
       viewport.store.add(kept);
       const content = document.createElement('div');
+      content.id = 'rollback-content';
       content.textContent = 'kept content';
+      document.body.appendChild(content);
       const htmlId = viewport.addHtmlElement(content, { x: 30, y: 40 });
+      (viewport as unknown as { renderLoop: { flush(): void } }).renderLoop.flush();
       const extraLayer = viewport.layerManager.createLayer('Kept layer');
       viewport.layerManager.setActiveLayer(extraLayer.id);
       viewport.camera.moveTo(40, 50);
@@ -1260,9 +1265,45 @@ describe('extension dataVersion', () => {
       const storeChanges = vi.fn();
       const layerChanges = vi.fn();
       const cameraChanges = vi.fn();
-      viewport.store.on('change', storeChanges);
+      const historyChanges = vi.fn();
+      viewport.store.onChange(storeChanges);
       viewport.layerManager.on('change', layerChanges);
       viewport.camera.onChange(cameraChanges);
+      viewport.history.onChange(historyChanges);
+      const html = viewport.store.getById(htmlId);
+      if (!before || !html) throw new Error('expected baseline elements');
+      const routedParent = content.parentElement;
+      if (!routedParent) throw new Error('expected routed content parent');
+      const baselineElements = viewport.store.getAll();
+      const keptVersion = viewport.store.getVersion(kept.id);
+      const htmlVersion = viewport.store.getVersion(htmlId);
+      const baselineLayers = viewport.layerManager.getLayers();
+      const assertBaseline = () => {
+        expect(container.isConnected).toBe(true);
+        expect(routedParent.contains(content)).toBe(true);
+        expect(content.parentElement).toBe(routedParent);
+        expect(viewport.store.getAll()).toEqual(baselineElements);
+        expect(viewport.store.getById(kept.id)).toEqual(before);
+        expect(viewport.store.getById(htmlId)).toEqual(html);
+        expect(viewport.store.getVersion(kept.id)).toBe(keptVersion);
+        expect(viewport.store.getVersion(htmlId)).toBe(htmlVersion);
+        expect(viewport.store.getById(frame.id)).toBeUndefined();
+        expect(viewport.layerManager.getLayers()).toEqual(baselineLayers);
+        expect(viewport.layerManager.getLayer('incoming-layer')).toBeUndefined();
+        expect(viewport.layerManager.activeLayerId).toBe(extraLayer.id);
+        expect(viewport.camera.position).toEqual({ x: 40, y: 50 });
+        expect(viewport.camera.zoom).toBe(2);
+        expect(viewport.history.undoCount).toBe(1);
+        expect(viewport.history.redoCount).toBe(0);
+        expect(viewport.getSelectedIds()).toEqual([kept.id]);
+        expect(content.isConnected).toBe(true);
+        expect(content.textContent).toBe('kept content');
+        expect(viewport.store.getById(htmlId)).toMatchObject({ domId: 'rollback-content' });
+        expect(storeChanges).not.toHaveBeenCalled();
+        expect(layerChanges).not.toHaveBeenCalled();
+        expect(cameraChanges).not.toHaveBeenCalled();
+        expect(historyChanges).not.toHaveBeenCalled();
+      };
       const frameState = (element: CanvasElement): CanvasState => ({
         version: 6,
         camera: { position: { x: 0, y: 0 }, zoom: 1 },
@@ -1270,24 +1311,14 @@ describe('extension dataVersion', () => {
         layers: [layer, { ...extraLayer, id: 'incoming-layer' }],
       });
 
+      assertBaseline();
       expect(() => viewport.loadState(frameState(malformed))).toThrow('Invalid extension envelope');
+      assertBaseline();
       expect(() => viewport.loadState(frameState(parented))).toThrow(/Invalid hierarchy/);
-      expect(viewport.store.getById(kept.id)).toEqual(before);
-      expect(viewport.store.getById(htmlId)?.type).toBe('html');
-      expect(content.textContent).toBe('kept content');
-      expect(viewport.layerManager.getLayers().map((current) => current.id)).toContain(
-        extraLayer.id,
-      );
-      expect(viewport.layerManager.activeLayerId).toBe(extraLayer.id);
-      expect(viewport.camera.position).toEqual({ x: 40, y: 50 });
-      expect(viewport.camera.zoom).toBe(2);
-      expect(viewport.history.undoCount).toBe(1);
-      expect(viewport.history.redoCount).toBe(0);
-      expect(viewport.getSelectedIds()).toEqual([kept.id]);
-      expect(storeChanges).not.toHaveBeenCalled();
-      expect(layerChanges).not.toHaveBeenCalled();
-      expect(cameraChanges).not.toHaveBeenCalled();
+      assertBaseline();
       viewport.destroy();
+      content.remove();
+      container.remove();
     });
   });
 

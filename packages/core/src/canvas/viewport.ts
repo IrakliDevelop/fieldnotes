@@ -894,6 +894,7 @@ export class Viewport {
       structuredClone(state) as ImportableCanvasState,
       this.elementRegistry,
     );
+    new ElementStore(this.elementRegistry).loadSnapshot(incoming.elements);
     const preparedPlugins = this.pluginStateManager.prepareState(
       (incoming.extensions ?? {}) as Record<string, PersistedPluginState>,
     );
