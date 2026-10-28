@@ -196,8 +196,8 @@ const svg = await exportSvg(viewport.store, { elementRegistry: viewport.elementR
 ```
 
 Without it, the standalone exports fall back to the global registry and skip plugin elements' bounds
-and rendering. `AutoSave` uses `elementRegistry` when you pass it, and otherwise the registry of
-its store at each `load()` and `save()`, so `viewport.store` is enough.
+and rendering. `AutoSave` reads its store's registry at each `load()` and `save()` unless you pass
+`elementRegistry`.
 `viewport.loadJSON`, `viewport.exportState` and `viewport.exportImage`/`exportSVG` use the viewport
 registry automatically. In `@fieldnotes/sync`, `SyncClient` uses the registry of the store it is
 given, so `store: viewport.store` is enough; if you pass `elementRegistry` (also on
