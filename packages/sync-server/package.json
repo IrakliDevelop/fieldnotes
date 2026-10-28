@@ -56,7 +56,7 @@
     "fieldnotes"
   ],
   "dependencies": {
-    "ws": "^8.18.0",
+    "ws": "^8.22.0",
     "@fieldnotes/sync": "workspace:0.30.1"
   },
   "peerDependencies": {
@@ -65,7 +65,7 @@
   "devDependencies": {
     "@fieldnotes/core": "workspace:*",
     "@fieldnotes/vtt": "workspace:*",
-    "@types/ws": "^8.5.12",
+    "@types/ws": "^8.18.2",
     "@vitest/coverage-v8": "^5.0.5",
     "tsup": "^8.5.1",
     "vitest": "^5.0.5"
