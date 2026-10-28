@@ -4121,6 +4121,121 @@ describe('Viewport live html elements', () => {
     expect(viewport.history.undoCount).toBe(2);
   });
 
+  describe('frame membership commands', () => {
+    function select(viewport: Viewport): SelectTool {
+      const tool = new SelectTool();
+      viewport.toolManager.register(tool);
+      viewport.toolManager.setTool('select', viewport.toolContext);
+      return tool;
+    }
+
+    it('rejects a missing literal frame selection without changing history, selection, or render', () => {
+      const viewport = vp;
+      const root = createShape({ position: { x: 10, y: 20 }, size: { w: 30, h: 40 } });
+      viewport.store.add(root);
+      const tool = select(viewport);
+      tool.setSelection([root.id]);
+      viewport.history.clear();
+      const before = structuredClone(viewport.store.snapshot());
+      const render = vi.spyOn(viewport, 'requestRender');
+      render.mockClear();
+
+      expect(() => viewport.frameSelection([root.id, 'missing'])).toThrow(
+        'Cannot change frame membership: element "missing" is missing',
+      );
+      expect(viewport.store.snapshot()).toEqual(before);
+      expect(viewport.getSelectedIds()).toEqual([root.id]);
+      expect(viewport.history.undoCount).toBe(0);
+      expect(viewport.history.redoCount).toBe(0);
+      expect(render).not.toHaveBeenCalled();
+    });
+
+    it('frames, adds, removes, and dissolves members as undoable commands', () => {
+      const viewport = vp;
+      const layerId = viewport.layerManager.activeLayerId;
+      const first = createShape({
+        position: { x: 10, y: 20 },
+        size: { w: 30, h: 40 },
+        layerId,
+        index: 'a0',
+      });
+      const second = createShape({
+        position: { x: 80, y: 20 },
+        size: { w: 20, h: 20 },
+        layerId,
+        index: 'a1',
+      });
+      const incoming = createShape({
+        position: { x: 140, y: 20 },
+        size: { w: 20, h: 20 },
+        layerId,
+        index: 'a2',
+      });
+      viewport.store.add(first);
+      viewport.store.add(second);
+      viewport.store.add(incoming);
+      const tool = select(viewport);
+      tool.setSelection([first.id, second.id]);
+      viewport.history.clear();
+
+      const frameId = viewport.frameSelection([first.id, second.id], { padding: 10 });
+      expect(viewport.store.getById(frameId)).toMatchObject({
+        position: { x: 0, y: -14 },
+        size: { w: 110, h: 84 },
+      });
+      expect(viewport.store.getById(first.id)?.parentId).toBe(frameId);
+      expect(viewport.store.getById(second.id)?.parentId).toBe(frameId);
+      expect(viewport.getSelectedIds()).toEqual([frameId]);
+      expect(viewport.history.undoCount).toBe(1);
+      expect(viewport.undo()).toBe(true);
+      expect(viewport.store.getById(frameId)).toBeUndefined();
+      expect(viewport.redo()).toBe(true);
+      expect(viewport.store.getById(first.id)?.parentId).toBe(frameId);
+
+      tool.setSelection([incoming.id]);
+      viewport.addToFrame(frameId, [incoming.id]);
+      expect(viewport.store.getById(incoming.id)?.parentId).toBe(frameId);
+      viewport.removeFromFrame(frameId, [incoming.id]);
+      expect(viewport.store.getById(incoming.id)?.parentId).toBeUndefined();
+      viewport.dissolveFrame(frameId);
+      expect(viewport.store.getById(frameId)).toBeUndefined();
+      expect(viewport.store.getById(first.id)?.parentId).toBeUndefined();
+      expect(viewport.store.getById(second.id)?.parentId).toBeUndefined();
+    });
+
+    it('dissolves an empty frame between duplicate root keys and replays it safely', () => {
+      const viewport = vp;
+      const layerId = viewport.layerManager.activeLayerId;
+      const before = createShape({
+        position: { x: 0, y: 0 },
+        size: { w: 20, h: 20 },
+        layerId,
+        index: 'a0',
+      });
+      const frame = {
+        ...createFrame({ position: { x: 30, y: 0 }, size: { w: 80, h: 60 }, layerId, index: 'a0' }),
+        id: 'empty-frame',
+      };
+      const after = createShape({
+        position: { x: 120, y: 0 },
+        size: { w: 20, h: 20 },
+        layerId,
+        index: 'a0',
+      });
+      viewport.store.add(before);
+      viewport.store.add(frame);
+      viewport.store.add(after);
+      viewport.history.clear();
+
+      viewport.dissolveFrame(frame.id);
+      expect(viewport.store.getById(frame.id)).toBeUndefined();
+      expect(viewport.undo()).toBe(true);
+      expect(viewport.store.getById(frame.id)?.parentId).toBeUndefined();
+      expect(viewport.redo()).toBe(true);
+      expect(viewport.store.getById(frame.id)).toBeUndefined();
+    });
+  });
+
   it('rejects cross-layer, full-canvas, and depth-33 parenting without side effects', () => {
     const viewport = vp;
     const layer = viewport.layerManager.createLayer('other');

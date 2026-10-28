@@ -128,6 +128,10 @@ function keysBetween(
   }
 }
 
+function compareStrings(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 function sortedRoots(
   elements: readonly CanvasElement[],
   layerId: string,
@@ -135,9 +139,7 @@ function sortedRoots(
 ): CanvasElement[] {
   return elements
     .filter((element) => element.layerId === layerId && element.parentId === parentId)
-    .sort((a, b) =>
-      a.index === b.index ? a.id.localeCompare(b.id) : a.index.localeCompare(b.index),
-    );
+    .sort((a, b) => compareStrings(a.index, b.index) || compareStrings(a.id, b.id));
 }
 
 function rehearsal(store: ElementStore, registry: ElementRegistry, plan: FrameCommandPlan): void {
@@ -344,12 +346,15 @@ export function planDissolveFrame(
   const roots = sortedRoots(all, frame.layerId);
   const at = roots.findIndex((element) => element.id === frameId);
   if (at < 0) fail('frame has no root order');
-  const keys = keysBetween(
-    roots[at - 1]?.index ?? null,
-    roots[at + 1]?.index ?? null,
-    children.length,
-    roots.filter((element) => element.id !== frameId).map((element) => element.index),
-  );
+  const keys =
+    children.length === 0
+      ? []
+      : keysBetween(
+          roots[at - 1]?.index ?? null,
+          roots[at + 1]?.index ?? null,
+          children.length,
+          roots.filter((element) => element.id !== frameId).map((element) => element.index),
+        );
   return validatePlan(store, registry, {
     updates: children.map((element, index) => ({
       id: element.id,
@@ -367,7 +372,10 @@ export function canFrameSelection(
   layers: LayerManager,
 ): boolean {
   try {
-    planFrameSelection(ids, {}, '__frame_preflight__', store, registry, layers);
+    let frameId = '__frame_preflight__';
+    let suffix = 0;
+    while (store.getById(frameId)) frameId = `__frame_preflight__${++suffix}`;
+    planFrameSelection(ids, {}, frameId, store, registry, layers);
     return true;
   } catch {
     return false;

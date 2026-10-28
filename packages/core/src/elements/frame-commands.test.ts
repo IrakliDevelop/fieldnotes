@@ -5,6 +5,7 @@ import { ElementRegistry } from './element-registry';
 import { createFrame } from './frame-element';
 import {
   planAddToFrame,
+  canFrameSelection,
   planDissolveFrame,
   planFrameSelection,
   planRemoveFromFrame,
@@ -73,5 +74,49 @@ describe('frame commands', () => {
     expect(dissolve.removeId).toBe(frame.id);
     expect(store.getById(member.id)?.parentId).toBe(frame.id);
     expect(store.getById(incoming.id)?.parentId).toBeUndefined();
+  });
+
+  it('keeps frame eligibility pure when the default preflight id already exists', () => {
+    const { registry, store, layers, shape } = setup();
+    store.add({ ...shape('', 10, 'a0'), id: '__frame_preflight__' });
+    store.add({ ...shape('', 80, 'a1'), id: 'root' });
+
+    expect(canFrameSelection(['root'], store, registry, layers)).toBe(true);
+    expect(store.getById('__frame_preflight__')).toMatchObject({ id: '__frame_preflight__' });
+  });
+
+  it('dissolves an empty frame without requiring an insertion interval', () => {
+    const { registry, store, layers, layerId, shape } = setup();
+    const before = shape('before', 0, 'a0');
+    const frame = {
+      ...createFrame({ position: { x: 0, y: 0 }, size: { w: 200, h: 120 }, layerId, index: 'a0' }),
+      id: 'frame',
+    };
+    const after = shape('after', 100, 'a0');
+    store.add(before);
+    store.add(frame);
+    store.add(after);
+
+    expect(planDissolveFrame(frame.id, store, registry, layers)).toEqual({
+      updates: [],
+      removeId: frame.id,
+    });
+  });
+
+  it('keeps binary fractional-key order when dissolving direct children', () => {
+    const { registry, store, layers, layerId, shape } = setup();
+    const frame = {
+      ...createFrame({ position: { x: 0, y: 0 }, size: { w: 200, h: 120 }, layerId, index: 'a0' }),
+      id: 'frame',
+    };
+    const lower = { ...shape('', 10, 'a'), id: 'lower', parentId: frame.id, index: 'a' };
+    const upper = { ...shape('', 30, 'A'), id: 'upper', parentId: frame.id, index: 'A' };
+    store.add(frame);
+    store.add(lower);
+    store.add(upper);
+
+    expect(
+      planDissolveFrame(frame.id, store, registry, layers).updates.map((update) => update.id),
+    ).toEqual(['upper', 'lower']);
   });
 });

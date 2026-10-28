@@ -4,6 +4,11 @@ import type { KeyboardActions } from '../canvas/keyboard-actions';
 import type { ActionContext, ActionDefinition, ActionInvocation } from './types';
 import type { Viewport } from '../canvas/viewport';
 import type { ElementStore } from '../elements/element-store';
+import { ElementRegistry } from '../elements/element-registry';
+import { createShape } from '../elements/element-factory';
+import { createFrame } from '../elements/frame-element';
+import { ElementStore as Store } from '../elements/element-store';
+import { LayerManager } from '../layers/layer-manager';
 import {
   createBuiltinActions,
   createToolAction,
@@ -158,7 +163,7 @@ const EXPECTED_SHORTCUTS: Record<string, readonly string[] | undefined> = {
 };
 
 describe('createBuiltinActions', () => {
-  it('emits the 28 non-tool ids in DEFAULT_BINDINGS order with edit.paste inserted after edit.copy', () => {
+  it('emits the 31 non-tool ids in DEFAULT_BINDINGS order with edit.paste inserted after edit.copy', () => {
     const deps = makeDeps();
     const actions = createBuiltinActions(deps);
     const ids = actions.map((a) => a.id);
@@ -416,6 +421,73 @@ describe('createBuiltinActions', () => {
     // No selection -> Lock
     const ctx3 = makeCtx({ selectedIds: [] });
     expect((action.label as (ctx: ActionContext) => string)(ctx3)).toBe('Lock');
+  });
+
+  it('defines frame actions with the specified labels, no shortcuts, and arrange order', () => {
+    const actions = createBuiltinActions(makeDeps());
+    expect(
+      ['selection.frame', 'selection.remove-from-frame', 'selection.dissolve-frame'].map((id) => {
+        const action = findAction(actions, id);
+        return { label: action.label, shortcut: action.shortcut, menu: action.menu };
+      }),
+    ).toEqual([
+      { label: 'Frame selection', shortcut: undefined, menu: { group: 'arrange', order: 50 } },
+      { label: 'Remove from frame', shortcut: undefined, menu: { group: 'arrange', order: 60 } },
+      { label: 'Dissolve frame', shortcut: undefined, menu: { group: 'arrange', order: 70 } },
+    ]);
+  });
+
+  it('reruns frame action eligibility and invokes only the matching eligible command', () => {
+    const registry = new ElementRegistry();
+    const store = new Store(registry);
+    const layers = new LayerManager(store);
+    const layerId = layers.activeLayerId;
+    const root = {
+      ...createShape({ position: { x: 0, y: 0 }, size: { w: 20, h: 20 }, layerId, index: 'a0' }),
+      id: 'root',
+    };
+    const member = {
+      ...createShape({ position: { x: 30, y: 0 }, size: { w: 20, h: 20 }, layerId, index: 'a0' }),
+      id: 'member',
+      parentId: 'frame',
+    };
+    const frame = {
+      ...createFrame({ position: { x: 0, y: 0 }, size: { w: 100, h: 80 }, layerId, index: 'a1' }),
+      id: 'frame',
+    };
+    store.add(root);
+    store.add(frame);
+    store.add(member);
+    const viewport = {
+      elementRegistry: registry,
+      layerManager: layers,
+      frameSelection: vi.fn(),
+      removeFromFrame: vi.fn(),
+      dissolveFrame: vi.fn(),
+    } as unknown as Viewport;
+    const actions = createBuiltinActions(makeDeps());
+    const frameAction = findAction(actions, 'selection.frame');
+    const removeAction = findAction(actions, 'selection.remove-from-frame');
+    const dissolveAction = findAction(actions, 'selection.dissolve-frame');
+    const ctx = (selectedIds: string[]): ActionContext => ({ viewport, store, selectedIds });
+
+    expect(frameAction.enabled?.(ctx(['root']))).toBe(true);
+    expect(frameAction.perform(ctx(['root']), defaultInvocation)).toBeUndefined();
+    expect(viewport.frameSelection).toHaveBeenCalledWith(['root']);
+    expect(removeAction.enabled?.(ctx(['member']))).toBe(true);
+    expect(removeAction.perform(ctx(['member']), defaultInvocation)).toBeUndefined();
+    expect(viewport.removeFromFrame).toHaveBeenCalledWith('frame', ['member']);
+    expect(dissolveAction.enabled?.(ctx(['frame']))).toBe(true);
+    expect(dissolveAction.perform(ctx(['frame']), defaultInvocation)).toBeUndefined();
+    expect(viewport.dissolveFrame).toHaveBeenCalledWith('frame');
+
+    for (const selectedIds of [[], ['missing'], ['member'], ['root', 'member']]) {
+      expect(frameAction.enabled?.(ctx(selectedIds))).toBe(false);
+    }
+    expect(removeAction.enabled?.(ctx(['root']))).toBe(false);
+    expect(dissolveAction.enabled?.(ctx(['root']))).toBe(false);
+    expect(frameAction.perform(ctx(['missing']), defaultInvocation)).toBe(false);
+    expect(viewport.frameSelection).toHaveBeenCalledTimes(1);
   });
 });
 

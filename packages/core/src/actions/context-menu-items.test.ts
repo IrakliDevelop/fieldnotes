@@ -3,6 +3,12 @@ import { buildContextMenuItems } from './context-menu-items';
 import type { ActionDefinition, ActionContext, ActionsApi } from './types';
 import type { Viewport } from '../canvas/viewport';
 import type { ElementStore } from '../elements/element-store';
+import { ElementStore as Store } from '../elements/element-store';
+import { ElementRegistry } from '../elements/element-registry';
+import { createShape } from '../elements/element-factory';
+import { createFrame } from '../elements/frame-element';
+import { LayerManager } from '../layers/layer-manager';
+import { createBuiltinActions } from './builtin-actions';
 
 function fakeContext(): ActionContext {
   return {
@@ -216,5 +222,92 @@ describe('buildContextMenuItems', () => {
       { separator: true },
       { label: 'Xform A', action: 'xform.a' },
     ]);
+  });
+
+  it.each([
+    ['a root selection', ['root'], 'Frame selection'],
+    ['direct members of one frame', ['member'], 'Remove from frame'],
+    ['one frame', ['frame'], 'Dissolve frame'],
+  ])('uses real frame definitions for %s', (_name, selectedIds, expected) => {
+    const registry = new ElementRegistry();
+    const store = new Store(registry);
+    const layers = new LayerManager(store);
+    const layerId = layers.activeLayerId;
+    const root = {
+      ...createShape({ position: { x: 0, y: 0 }, size: { w: 20, h: 20 }, layerId, index: 'a0' }),
+      id: 'root',
+    };
+    const frame = {
+      ...createFrame({ position: { x: 0, y: 0 }, size: { w: 100, h: 80 }, layerId, index: 'a1' }),
+      id: 'frame',
+    };
+    const member = {
+      ...createShape({ position: { x: 30, y: 0 }, size: { w: 20, h: 20 }, layerId, index: 'a0' }),
+      id: 'member',
+      parentId: frame.id,
+    };
+    store.add(root);
+    store.add(frame);
+    store.add(member);
+    const viewport = { elementRegistry: registry, layerManager: layers } as Viewport;
+    const ctx: ActionContext = { viewport, store, selectedIds };
+    const defs = createBuiltinActions({
+      keyboardActions: {} as never,
+      zoomByFactor: () => undefined,
+      zoomToLevel: () => undefined,
+      canPaste: () => false,
+    });
+    const labels = buildContextMenuItems(fakeRegistry(defs, ctx), ctx)
+      .filter((item) => 'label' in item)
+      .map((item) => ('label' in item ? item.label : ''));
+
+    expect(labels).toContain(expected);
+    expect(labels).not.toContain('Add to frame');
+  });
+
+  it('hides all frame entries for empty, locked, and mixed-parent selections', () => {
+    const registry = new ElementRegistry();
+    const store = new Store(registry);
+    const layers = new LayerManager(store);
+    const layerId = layers.activeLayerId;
+    const frame = {
+      ...createFrame({ position: { x: 0, y: 0 }, size: { w: 100, h: 80 }, layerId, index: 'a0' }),
+      id: 'frame',
+    };
+    const locked = {
+      ...createShape({
+        position: { x: 0, y: 0 },
+        size: { w: 20, h: 20 },
+        layerId,
+        index: 'a0',
+        locked: true,
+      }),
+      id: 'locked',
+    };
+    const member = {
+      ...createShape({ position: { x: 30, y: 0 }, size: { w: 20, h: 20 }, layerId, index: 'a0' }),
+      id: 'member',
+      parentId: 'frame',
+    };
+    store.add(frame);
+    store.add(locked);
+    store.add(member);
+    const viewport = { elementRegistry: registry, layerManager: layers } as Viewport;
+    const defs = createBuiltinActions({
+      keyboardActions: {} as never,
+      zoomByFactor: () => undefined,
+      zoomToLevel: () => undefined,
+      canPaste: () => false,
+    });
+
+    for (const selectedIds of [[], ['locked'], ['member', 'locked']]) {
+      const ctx: ActionContext = { viewport, store, selectedIds };
+      const labels = buildContextMenuItems(fakeRegistry(defs, ctx), ctx)
+        .filter((item) => 'label' in item)
+        .map((item) => ('label' in item ? item.label : ''));
+      expect(labels).not.toContain('Frame selection');
+      expect(labels).not.toContain('Remove from frame');
+      expect(labels).not.toContain('Dissolve frame');
+    }
   });
 });
