@@ -33,6 +33,7 @@ import type { Point } from '../core/types';
 import { createTestBoxRegistry } from '../test-helpers/test-box-type';
 import { recordingCanvas } from '../test-helpers/recording-canvas';
 import { createFrame } from '../elements/frame-element';
+import { getOverlayLayout } from './select-overlay';
 
 function makeSnapProxy(
   gridSize: number,
@@ -2728,6 +2729,22 @@ describe('SelectTool', () => {
 });
 
 describe('SelectTool extension handles', () => {
+  it('does not rotate a frame from the computed rotate handle location', () => {
+    const tool = new SelectTool();
+    const ctx = makeCtx();
+    const frame = createFrame({ position: { x: 10, y: 20 }, size: { w: 120, h: 90 } });
+    ctx.store.add(frame);
+    (tool as unknown as { setSelection: (ids: string[]) => void }).setSelection([frame.id]);
+    const rotateHandle = getOverlayLayout(frame, 1, ctx.elementRegistry)?.rotateHandle;
+    if (!rotateHandle) throw new Error('Missing frame overlay');
+
+    tool.onPointerDown(pt(rotateHandle.x, rotateHandle.y), ctx);
+    tool.onPointerMove(pt(rotateHandle.x + 20, rotateHandle.y + 20), ctx);
+    tool.onPointerUp(pt(rotateHandle.x + 20, rotateHandle.y + 20), ctx);
+
+    expect(ctx.store.getById(frame.id)).not.toHaveProperty('rotation');
+  });
+
   it.each(['onPointerDown', 'onPointerMove', 'onHover'] as const)(
     '%s passes the held shift key to the extension handle hit test',
     (method) => {

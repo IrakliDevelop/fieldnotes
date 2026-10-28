@@ -77,15 +77,20 @@ describe('frame element', () => {
 
   it('renders transparent canvas and escaped SVG chrome', () => {
     const calls: string[] = [];
+    const strokeRect = (...args: number[]) => calls.push(`strokeRect:${args.join(',')}`);
+    const moveTo = (...args: number[]) => calls.push(`moveTo:${args.join(',')}`);
+    const lineTo = (...args: number[]) => calls.push(`lineTo:${args.join(',')}`);
+    const fillText = (...args: (number | string)[]) => calls.push(`fillText:${args.join(',')}`);
     const ctx = {
       save: () => calls.push('save'),
       restore: () => calls.push('restore'),
-      strokeRect: () => calls.push('strokeRect'),
+      strokeRect,
       beginPath: () => calls.push('beginPath'),
-      moveTo: () => calls.push('moveTo'),
-      lineTo: () => calls.push('lineTo'),
+      moveTo,
+      lineTo,
       stroke: () => calls.push('stroke'),
-      fillText: () => calls.push('fillText'),
+      fillText,
+      fillRect: () => calls.push('fillRect'),
       strokeStyle: '',
       fillStyle: '',
       lineWidth: 0,
@@ -96,20 +101,22 @@ describe('frame element', () => {
     frameElementDefinition.render?.(ctx, value, []);
     expect(calls).toEqual([
       'save',
-      'strokeRect',
+      'strokeRect:10,20,120,90',
       'beginPath',
-      'moveTo',
-      'lineTo',
+      'moveTo:10,44',
+      'lineTo:130,44',
       'stroke',
-      'fillText',
+      'fillText:<Frame &>,18,32',
       'restore',
     ]);
     expect(calls).not.toContain('fillRect');
-    expect(frameElementDefinition.emitSvg?.(value, [], { x: 0, y: 0, w: 1, h: 1 })).toContain(
-      '&lt;Frame &amp;&gt;',
-    );
-    expect(frameElementDefinition.emitSvg?.(value, [], { x: 0, y: 0, w: 1, h: 1 })).toContain(
-      '&quot;&lt;&amp;',
+    expect(ctx.strokeStyle).toBe('"<&');
+    expect(ctx.fillStyle).toBe('"<&');
+    expect(ctx.lineWidth).toBe(1);
+    expect(ctx.font).toBe('14px sans-serif');
+    expect(ctx.textBaseline).toBe('middle');
+    expect(frameElementDefinition.emitSvg?.(value, [], { x: 0, y: 0, w: 1, h: 1 })).toBe(
+      '<rect x="10" y="20" width="120" height="90" fill="none" stroke="&quot;&lt;&amp;" stroke-width="1"/><path d="M 10 44 H 130" fill="none" stroke="&quot;&lt;&amp;" stroke-width="1"/><text x="18" y="32" fill="&quot;&lt;&amp;" dominant-baseline="middle">&lt;Frame &amp;&gt;</text>',
     );
   });
 

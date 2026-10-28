@@ -63,12 +63,22 @@ export class ElementRegistry {
       const wrapped = def.wrap(typed);
       return { ...pickBaseFields(typed), ...wrapped, data: { ...original.data, ...wrapped.data } };
     };
+    const validateElement = def.validateElement
+      ? (el: Parameters<ElementTypeAdapter['validateEnvelope']>[0]) => {
+          try {
+            return def.validateElement?.(def.unwrap(el)) ?? true;
+          } catch {
+            return false;
+          }
+        }
+      : undefined;
 
     const adapter: ElementTypeAdapter = {
       type: def.type,
       legacyTypes: def.legacyTypes,
       renderMode: def.renderMode ?? 'canvas',
       fullCanvas: def.fullCanvas ?? false,
+      validateElement,
       validateEnvelope: (el) => {
         try {
           if (
@@ -78,8 +88,7 @@ export class ElementRegistry {
           ) {
             return false;
           }
-          const typed = def.unwrap(el);
-          return def.validateElement?.(typed) ?? true;
+          return validateElement ? validateElement(el) : (def.unwrap(el), true);
         } catch {
           return false;
         }

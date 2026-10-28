@@ -18,6 +18,7 @@ import type { ToolContext } from './types';
 import { ElementRegistry } from '../elements/element-registry';
 import type { ExtensionElementEnvelope } from '../elements/types';
 import { ConstraintServiceProxy } from '../core/constraint-service';
+import { getOverlayLayout } from './select-overlay';
 
 function makeCtx(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
@@ -125,6 +126,16 @@ describe('isInsideBounds', () => {
 });
 
 describe('hitTestResizeHandle', () => {
+  it('does not expose a rotate handle for a frame', () => {
+    const ctx = makeCtx();
+    const frame = createFrame({ position: { x: 10, y: 20 }, size: { w: 120, h: 90 } });
+    ctx.store.add(frame);
+    const rotateHandle = getOverlayLayout(frame, 1, ctx.elementRegistry)?.rotateHandle;
+    if (!rotateHandle) throw new Error('Missing frame overlay');
+
+    expect(hitTestRotateHandle(rotateHandle, ctx, [frame.id])).toBeNull();
+  });
+
   it('rejects resize, rotate, line, extension and marquee geometry outside a clip', () => {
     const ctx = makeCtx();
     const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });

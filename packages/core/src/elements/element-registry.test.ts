@@ -260,7 +260,7 @@ describe('ElementRegistry', () => {
   });
 
   describe('adapter operations', () => {
-    it('returns false when unwrap or complete validation throws', () => {
+    it('returns false when unwrap throws during complete validation', () => {
       const registry = new ElementRegistry();
       registry.register({
         ...markerDefinition,
@@ -275,6 +275,25 @@ describe('ElementRegistry', () => {
       expect(adapter.validateEnvelope(makeMarkerEnvelope({ extensionType: 'test:throws' }))).toBe(
         false,
       );
+    });
+
+    it('returns false when complete validation throws', () => {
+      const registry = new ElementRegistry();
+      registry.register({
+        ...markerDefinition,
+        type: 'test:validator-throws',
+        legacyTypes: [],
+        validateElement: () => {
+          throw new Error('broken');
+        },
+      });
+      const adapter = registry.getAdapter('test:validator-throws');
+      if (!adapter) throw new Error('Missing adapter');
+      const envelope = makeMarkerEnvelope({ extensionType: 'test:validator-throws' });
+
+      expect(adapter.validateElement).toBeDefined();
+      expect(adapter.validateElement?.(envelope)).toBe(false);
+      expect(adapter.validateEnvelope(envelope)).toBe(false);
     });
 
     it('validateEnvelope checks extensionType and data', () => {

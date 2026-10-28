@@ -221,6 +221,8 @@ export interface ElementTypeAdapter {
    *  (the canvas pass still calls `render` if defined); `'dom'` is rejected by `register`. */
   readonly renderMode: 'canvas' | 'dom' | 'hybrid' | 'none';
   readonly fullCanvas: boolean;
+  /** Validates the complete stored extension envelope when its definition opts in. */
+  validateElement?(el: ExtensionElementEnvelope): boolean;
   validateEnvelope(el: ExtensionElementEnvelope): boolean;
   decodeLegacy(raw: Record<string, unknown>): ExtensionElementEnvelope;
   wrap(el: BaseElement): ExtensionElementEnvelope;
