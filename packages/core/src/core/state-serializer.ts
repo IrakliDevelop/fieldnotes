@@ -369,7 +369,7 @@ function validateElement(
   return envelope;
 }
 
-/** Applies the load path's extension-data migration to one element; returns the same reference when nothing changes. */
+/** Migrates one element's extension data; returns the same reference when nothing changes. */
 export function migrateElementData(
   element: CanvasElement,
   registry: ElementRegistry = getDefaultElementRegistry(),

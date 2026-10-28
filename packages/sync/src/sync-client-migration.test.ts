@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ElementRegistry, ElementStore } from '@fieldnotes/core';
 import type { CanvasElement, ExtensionElementEnvelope } from '@fieldnotes/core';
 import { SyncClient } from './sync-client';
+import type { ResolveLocalOnly } from './sync-client';
 import { createCurrentCapabilities } from './capabilities';
 import type { SyncOp } from './protocol';
 import type { SyncTransport } from './sync-transport';
@@ -48,7 +49,12 @@ function ext(
 }
 
 /** One client on a fake transport; `peer` has already completed the capability handshake. */
-function setup(store: ElementStore, elementRegistry?: ElementRegistry, peer = 'P') {
+function setup(
+  store: ElementStore,
+  elementRegistry?: ElementRegistry,
+  peer = 'P',
+  resolveLocalOnly?: ResolveLocalOnly,
+) {
   const sent: string[] = [];
   let receive: (message: string) => void = () => undefined;
   let reconnect: () => void = () => undefined;
@@ -74,6 +80,7 @@ function setup(store: ElementStore, elementRegistry?: ElementRegistry, peer = 'P
     transport,
     clientId: 'A',
     elementRegistry,
+    resolveLocalOnly,
   });
   client.start();
   const deliver = (from: string, op: SyncOp | Record<string, unknown>): void =>
@@ -232,5 +239,24 @@ describe('SyncClient incoming extension data migration', () => {
     });
 
     expect(store.getById('k')).toMatchObject({ data: { label: 'local' } });
+  });
+
+  it('marks an element hub-known when its upsert fails to migrate', () => {
+    vi.stubGlobal('reportError', vi.fn());
+    const { registry } = versionedRegistry();
+    const store = new ElementStore(registry);
+    store.add(ext('k', { label: 'local' }, 3));
+    const resolveLocalOnly = vi.fn<ResolveLocalOnly>();
+    const { deliver, reconcile } = setup(store, undefined, 'hub', resolveLocalOnly);
+
+    deliver('hub', upsert(ext('k', { name: 'bad' }, undefined, 2)));
+    reconcile();
+    deliver('hub', { kind: 'snapshot', to: 'A', elements: [] });
+
+    expect(resolveLocalOnly).toHaveBeenCalledWith(
+      expect.objectContaining({
+        localOnly: [{ element: expect.objectContaining({ id: 'k' }), hubKnown: true }],
+      }),
+    );
   });
 });

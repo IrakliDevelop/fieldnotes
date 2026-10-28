@@ -1268,6 +1268,13 @@ describe('extension dataVersion', () => {
       expect(migrateElementData(shape, versionedRegistry().registry)).toBe(shape);
     });
 
+    it('returns an element unchanged when its type has no dataVersion', () => {
+      const registry = new ElementRegistry();
+      registry.register(markerDefinition);
+      const input = asElement(envelope({ label: 'a' }));
+      expect(migrateElementData(input, registry)).toBe(input);
+    });
+
     it('throws the load-path errors', () => {
       const throwing = new ElementRegistry();
       throwing.register({
