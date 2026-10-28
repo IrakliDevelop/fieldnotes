@@ -13,6 +13,8 @@ import {
   createImage,
 } from '../elements/element-factory';
 import { createTestBoxRegistry } from '../test-helpers/test-box-type';
+import { createFrame, FRAME_ELEMENT_TYPE } from '../elements/frame-element';
+import { ElementRegistry } from '../elements/element-registry';
 
 function setup(selectedIds: string[] = []) {
   const store = new ElementStore();
@@ -313,7 +315,250 @@ describe('SelectionOps', () => {
   });
 });
 
+describe('hierarchy-aware transforms', () => {
+  it('aligns selected frame closures once and restores them in one undo step', () => {
+    const frame = {
+      ...createFrame({ position: { x: 100, y: 0 }, size: { w: 120, h: 90 } }),
+      id: 'frame',
+    };
+    const child = {
+      ...createShape({ position: { x: 130, y: 40 }, size: { w: 20, h: 20 } }),
+      id: 'child',
+      parentId: frame.id,
+    };
+    const other = {
+      ...createShape({ position: { x: 10, y: 0 }, size: { w: 20, h: 20 } }),
+      id: 'other',
+    };
+    const { store, stack, ops } = setup([child.id, other.id, frame.id]);
+    store.add(frame);
+    store.add(child);
+    store.add(other);
+    const baseline = stack.undoCount;
+
+    ops.align('left');
+
+    expect(store.getById(frame.id)?.position).toEqual({ x: 10, y: 0 });
+    expect(store.getById(child.id)?.position).toEqual({ x: 40, y: 40 });
+    expect(store.getVersion(child.id)).toBe(1);
+    expect(stack.undoCount).toBe(baseline + 1);
+    stack.undo(store);
+    expect(store.getById(frame.id)?.position).toEqual({ x: 100, y: 0 });
+    expect(store.getById(child.id)?.position).toEqual({ x: 130, y: 40 });
+  });
+
+  it('distributes root closures by root centers without translating selected descendants twice', () => {
+    const first = {
+      ...createFrame({ position: { x: 0, y: 0 }, size: { w: 80, h: 60 } }),
+      id: 'first',
+    };
+    const middle = {
+      ...createFrame({ position: { x: 200, y: 0 }, size: { w: 80, h: 60 } }),
+      id: 'middle',
+    };
+    const last = {
+      ...createShape({ position: { x: 500, y: 0 }, size: { w: 20, h: 20 } }),
+      id: 'last',
+    };
+    const firstChild = {
+      ...createShape({ position: { x: 10, y: 30 }, size: { w: 10, h: 10 } }),
+      id: 'first-child',
+      parentId: first.id,
+    };
+    const middleChild = {
+      ...createShape({ position: { x: 210, y: 30 }, size: { w: 10, h: 10 } }),
+      id: 'middle-child',
+      parentId: middle.id,
+    };
+    const { store, ops } = setup([firstChild.id, last.id, middle.id, middleChild.id, first.id]);
+    for (const element of [first, middle, last, firstChild, middleChild]) store.add(element);
+
+    ops.distribute('horizontal');
+
+    expect(store.getById(first.id)?.position).toEqual({ x: 0, y: 0 });
+    expect(store.getById(middle.id)?.position).toEqual({ x: 235, y: 0 });
+    expect(store.getById(middleChild.id)?.position).toEqual({ x: 245, y: 30 });
+    expect(store.getVersion(middleChild.id)).toBe(1);
+    expect(store.getById(last.id)?.position).toEqual({ x: 500, y: 0 });
+  });
+
+  it('reanchors external arrows once without refreshing arrows inside a moved closure', () => {
+    const frame = {
+      ...createFrame({ position: { x: 100, y: 0 }, size: { w: 120, h: 90 } }),
+      id: 'frame',
+    };
+    const child = {
+      ...createShape({ position: { x: 130, y: 40 }, size: { w: 20, h: 20 } }),
+      id: 'child',
+      parentId: frame.id,
+    };
+    const internal = {
+      ...createArrow({
+        from: { x: 130, y: 50 },
+        to: { x: 150, y: 50 },
+        parentId: frame.id,
+        fromBinding: { elementId: child.id },
+      }),
+      id: 'internal',
+    };
+    const external = {
+      ...createArrow({
+        from: { x: 0, y: 50 },
+        to: { x: 130, y: 50 },
+        toBinding: { elementId: child.id },
+      }),
+      id: 'external',
+    };
+    const other = {
+      ...createShape({ position: { x: 10, y: 0 }, size: { w: 20, h: 20 } }),
+      id: 'other',
+    };
+    const { store, ops } = setup([frame.id, child.id, other.id]);
+    for (const element of [frame, child, internal, external, other]) store.add(element);
+
+    ops.align('left');
+
+    expect(store.getVersion(internal.id)).toBe(1);
+    expect(store.getVersion(external.id)).toBe(1);
+    expect(store.getById(external.id)).toMatchObject({ to: { x: 50, y: 50 } });
+  });
+
+  it('excludes locked root subtrees from alignment bounds with or without a selected child', () => {
+    const run = (includeChild: boolean) => {
+      const locked = {
+        ...createFrame({ position: { x: 0, y: 0 }, size: { w: 120, h: 90 }, locked: true }),
+        id: 'locked',
+      };
+      const child = {
+        ...createShape({ position: { x: 30, y: 40 }, size: { w: 20, h: 20 } }),
+        id: 'child',
+        parentId: locked.id,
+      };
+      const a = { ...createShape({ position: { x: 100, y: 0 }, size: { w: 20, h: 20 } }), id: 'a' };
+      const b = { ...createShape({ position: { x: 150, y: 0 }, size: { w: 20, h: 20 } }), id: 'b' };
+      const { store, ops } = setup(
+        includeChild ? [locked.id, child.id, a.id, b.id] : [locked.id, a.id, b.id],
+      );
+      for (const element of [locked, child, a, b]) store.add(element);
+      ops.align('left');
+      return { store, locked, child, a, b };
+    };
+
+    for (const { store, locked, child, a, b } of [run(false), run(true)]) {
+      expect(store.getById(locked.id)?.position).toEqual({ x: 0, y: 0 });
+      expect(store.getById(child.id)?.position).toEqual({ x: 30, y: 40 });
+      expect(store.getById(a.id)?.position).toEqual({ x: 100, y: 0 });
+      expect(store.getById(b.id)?.position).toEqual({ x: 100, y: 0 });
+    }
+  });
+
+  it('requires three eligible roots to distribute when a locked root is selected', () => {
+    const locked = {
+      ...createFrame({ position: { x: 0, y: 0 }, size: { w: 120, h: 90 }, locked: true }),
+      id: 'locked',
+    };
+    const a = { ...createShape({ position: { x: 100, y: 0 }, size: { w: 20, h: 20 } }), id: 'a' };
+    const b = { ...createShape({ position: { x: 300, y: 0 }, size: { w: 20, h: 20 } }), id: 'b' };
+    const { store, stack, ops } = setup([locked.id, a.id, b.id]);
+    for (const element of [locked, a, b]) store.add(element);
+    const baseline = stack.undoCount;
+
+    ops.distribute('horizontal');
+
+    expect(store.getById(a.id)?.position).toEqual({ x: 100, y: 0 });
+    expect(store.getById(b.id)?.position).toEqual({ x: 300, y: 0 });
+    expect(stack.undoCount).toBe(baseline);
+  });
+});
+
 describe('rotateSelection', () => {
+  it('excludes frames from the pivot and leaves frame-only selections untouched', () => {
+    const a = { ...createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } }), id: 'a' };
+    const b = { ...createShape({ position: { x: 90, y: 0 }, size: { w: 10, h: 10 } }), id: 'b' };
+    const frame = {
+      ...createFrame({ position: { x: 1000, y: 1000 }, size: { w: 120, h: 90 } }),
+      id: 'frame',
+    };
+    const { store, stack, ops, requestRender } = setup([a.id, frame.id, b.id]);
+    for (const element of [a, b, frame]) store.add(element);
+    const storedFrame = store.getById(frame.id);
+    const baseline = stack.undoCount;
+
+    ops.rotateSelection('cw');
+
+    expect(store.getById(a.id)).toMatchObject({
+      position: { x: 45, y: -45 },
+      rotation: Math.PI / 2,
+    });
+    expect(store.getById(b.id)).toMatchObject({
+      position: { x: 45, y: 45 },
+      rotation: Math.PI / 2,
+    });
+    expect(store.getById(frame.id)).toEqual(storedFrame);
+    expect(store.getVersion(frame.id)).toBe(0);
+    expect(stack.undoCount).toBe(baseline + 1);
+    expect(requestRender).toHaveBeenCalledOnce();
+
+    const frameOnly = setup([frame.id]);
+    frameOnly.store.add(frame);
+    const frameOnlyBaseline = frameOnly.stack.undoCount;
+    frameOnly.ops.rotateSelection('cw');
+    expect(frameOnly.stack.undoCount).toBe(frameOnlyBaseline);
+    expect(frameOnly.requestRender).not.toHaveBeenCalled();
+  });
+
+  it('keeps registered non-frame extension rotation adapters eligible with frames', () => {
+    const registry = new ElementRegistry();
+    registry.register<ExtensionElementEnvelope>({
+      type: 'test:rotatable',
+      legacyTypes: [],
+      decodeLegacy: (raw) => raw as ExtensionElementEnvelope,
+      validateData: () => true,
+      unwrap: (element) => element,
+      wrap: (element) => element,
+      bounds: (element) => ({ x: element.position.x, y: element.position.y, w: 10, h: 10 }),
+      interaction: {
+        rotate: (element, _pivot, delta) => ({
+          ...element,
+          position: { x: element.position.x + delta, y: element.position.y },
+        }),
+      },
+      renderMode: 'canvas',
+    });
+    const extension: ExtensionElementEnvelope = {
+      id: 'extension',
+      type: 'extension',
+      extensionType: 'test:rotatable',
+      position: { x: 0, y: 0 },
+      index: 'a',
+      version: 1,
+      locked: false,
+      layerId: '',
+      data: {},
+    };
+    const frame = {
+      ...createFrame({ position: { x: 1000, y: 1000 }, size: { w: 120, h: 90 } }),
+      id: 'frame',
+    };
+    const store = new ElementStore(registry);
+    const ops = new SelectionOps({
+      store,
+      recorder: new HistoryRecorder(store, new HistoryStack()),
+      getSelectedIds: () => [frame.id, extension.id],
+      requestRender: vi.fn(),
+      elementRegistry: registry,
+    });
+    store.add(frame);
+    store.add(extension);
+    const storedFrame = store.getById(frame.id);
+
+    ops.rotateSelection('cw');
+
+    expect(store.getById(extension.id)?.position.x).toBeCloseTo(Math.PI / 2);
+    expect(store.getById(frame.id)).toEqual(storedFrame);
+    expect(FRAME_ELEMENT_TYPE).toBe('core:frame');
+  });
+
   it('single rotatable element: +π/2 rotation, position unchanged, one undo step', () => {
     const a = createShape({ position: { x: 10, y: 20 }, size: { w: 40, h: 20 } });
     const { store, stack, ops, requestRender } = setup([a.id]);

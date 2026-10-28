@@ -2347,7 +2347,7 @@ describe('Viewport', () => {
       expect(viewport.history.undoCount).toBe(before);
     });
 
-    it('a locked element anchors the bbox but does not move', () => {
+    it('no-ops alignment when a locked root leaves fewer than two eligible roots', () => {
       const a = createNote({ position: { x: 0, y: 0 }, text: 'a' });
       a.size = { w: 10, h: 10 };
       a.locked = true;
@@ -2355,10 +2355,14 @@ describe('Viewport', () => {
       b.size = { w: 10, h: 10 };
       viewport.store.add(a);
       viewport.store.add(b);
+      const before = viewport.history.undoCount;
+      const storedA = viewport.store.getById(a.id);
+      const storedB = viewport.store.getById(b.id);
       selectAll([a.id, b.id]);
       viewport.alignSelection('left');
-      expect((viewport.store.getById(a.id) as { position: { x: number } }).position.x).toBe(0);
-      expect((viewport.store.getById(b.id) as { position: { x: number } }).position.x).toBe(0);
+      expect(viewport.store.getById(a.id)).toEqual(storedA);
+      expect(viewport.store.getById(b.id)).toEqual(storedB);
+      expect(viewport.history.undoCount).toBe(before);
     });
   });
 

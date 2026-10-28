@@ -1,7 +1,11 @@
 import type { ElementStore } from '../elements/element-store';
 import type { HistoryRecorder } from '../history/history-recorder';
 import { updateArrowsBoundToElements } from '../elements/arrow-binding';
-import { translateElementPatch } from '../elements/translate';
+import {
+  getHierarchyMove,
+  moveHierarchyByRoot,
+  updateExternalBoundArrows,
+} from '../elements/hierarchy-ops';
 import { getElementBounds } from '../elements/element-bounds';
 import { createId } from '../elements/create-id';
 import { styleToPatch, getElementStyle } from '../elements/element-style';
@@ -11,6 +15,7 @@ import type { Bounds } from '../core/types';
 import { rotationPivot, rotateElementPatch, unionBounds } from './selection-rotate';
 import type { RotateDirection } from './selection-rotate';
 import type { ElementRegistry } from '../elements/element-registry';
+import { FRAME_ELEMENT_TYPE } from '../elements/frame-element';
 
 const STYLE_FIELDS = [
   'color',
@@ -164,13 +169,13 @@ export class SelectionOps {
   }
 
   align(edge: AlignEdge): void {
-    const bounded = this.boundedSelection();
+    const move = getHierarchyMove(this.deps.getSelectedIds(), this.deps.store);
+    const bounded = this.boundedRoots(move.roots);
     if (bounded.length < 2) return;
     const B = unionBounds(bounded.map((e) => e.bounds));
     this.deps.recorder.run(() => {
-      const moved: string[] = [];
-      for (const { id, el, bounds: b } of bounded) {
-        if (!this.isMovable(el)) continue;
+      const deltas = new Map<string, { x: number; y: number }>();
+      for (const { id, bounds: b } of bounded) {
         let dx = 0;
         let dy = 0;
         switch (edge) {
@@ -194,16 +199,17 @@ export class SelectionOps {
             break;
         }
         if (dx === 0 && dy === 0) continue;
-        this.deps.store.update(id, translateElementPatch(el, dx, dy));
-        moved.push(id);
+        deltas.set(id, { x: dx, y: dy });
       }
-      updateArrowsBoundToElements(moved, this.deps.store);
+      moveHierarchyByRoot(move, deltas, this.deps.store);
+      updateExternalBoundArrows(this.movedElements(move, deltas), this.deps.store);
     });
     this.deps.requestRender();
   }
 
   distribute(axis: DistributeAxis): void {
-    const bounded = this.boundedSelection();
+    const move = getHierarchyMove(this.deps.getSelectedIds(), this.deps.store);
+    const bounded = this.boundedRoots(move.roots);
     if (bounded.length < 3) return;
     const center = (b: Bounds) => (axis === 'horizontal' ? b.x + b.w / 2 : b.y + b.h / 2);
     const sorted = [...bounded].sort((p, q) => center(p.bounds) - center(q.bounds));
@@ -214,24 +220,27 @@ export class SelectionOps {
     const cN = center(last.bounds);
     const n = sorted.length;
     this.deps.recorder.run(() => {
-      const moved: string[] = [];
+      const deltas = new Map<string, { x: number; y: number }>();
       for (let i = 1; i < n - 1; i++) {
         const item = sorted[i];
-        if (!item || !this.isMovable(item.el)) continue;
+        if (!item) continue;
         const target = c0 + (i * (cN - c0)) / (n - 1);
         const delta = target - center(item.bounds);
         if (delta === 0) continue;
         const [dx, dy] = axis === 'horizontal' ? [delta, 0] : [0, delta];
-        this.deps.store.update(item.id, translateElementPatch(item.el, dx, dy));
-        moved.push(item.id);
+        deltas.set(item.id, { x: dx, y: dy });
       }
-      updateArrowsBoundToElements(moved, this.deps.store);
+      moveHierarchyByRoot(move, deltas, this.deps.store);
+      updateExternalBoundArrows(this.movedElements(move, deltas), this.deps.store);
     });
     this.deps.requestRender();
   }
 
   rotateSelection(direction: RotateDirection): void {
-    const eligible = this.boundedSelection().filter(({ el }) => this.isMovable(el));
+    const eligible = this.boundedSelection().filter(
+      ({ el }) =>
+        this.isMovable(el) && !(el.type === 'extension' && el.extensionType === FRAME_ELEMENT_TYPE),
+    );
     if (eligible.length === 0) return;
     const delta = direction === 'cw' ? Math.PI / 2 : -Math.PI / 2;
     const pivot = rotationPivot(eligible);
@@ -258,6 +267,25 @@ export class SelectionOps {
       if (bounds) out.push({ id, el, bounds });
     }
     return out;
+  }
+
+  private boundedRoots(roots: readonly CanvasElement[]): { id: string; bounds: Bounds }[] {
+    const out: { id: string; bounds: Bounds }[] = [];
+    for (const el of roots) {
+      const bounds = getElementBounds(el, this.deps.elementRegistry);
+      if (bounds) out.push({ id: el.id, bounds });
+    }
+    return out;
+  }
+
+  private movedElements(
+    move: ReturnType<typeof getHierarchyMove>,
+    deltas: ReadonlyMap<string, { x: number; y: number }>,
+  ): string[] {
+    return move.elements.flatMap((element) => {
+      const rootId = move.rootIds.get(element.id);
+      return rootId && deltas.has(rootId) ? [element.id] : [];
+    });
   }
 
   private isMovable(el: CanvasElement): boolean {
