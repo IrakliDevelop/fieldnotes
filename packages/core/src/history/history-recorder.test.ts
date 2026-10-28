@@ -87,6 +87,41 @@ describe('HistoryRecorder', () => {
     expect(store.getById(note.id)?.position).toEqual({ x: 0, y: 0 });
   });
 
+  it('replays multi-element hierarchy updates atomically', () => {
+    const { store, stack, recorder } = setup();
+    const parent = { ...createNote({ position: { x: 0, y: 0 }, layerId: 'a' }), id: 'parent' };
+    const child = {
+      ...createNote({ position: { x: 10, y: 0 }, layerId: 'a', parentId: 'parent' }),
+      id: 'child',
+    };
+    store.add(parent);
+    store.add(child);
+    stack.clear();
+
+    recorder.run(() => {
+      store.updateMany([
+        { id: 'parent', partial: { layerId: 'b' } },
+        { id: 'child', partial: { layerId: 'b' } },
+      ]);
+    });
+    expect(stack.undoCount).toBe(1);
+    const seen: string[][] = [];
+    store.on('update', () => seen.push(store.getAll().map((element) => element.layerId)));
+
+    recorder.pause();
+    stack.undo(store);
+    stack.redo(store);
+    recorder.resume();
+
+    expect(seen).toEqual([
+      ['a', 'a'],
+      ['a', 'a'],
+      ['b', 'b'],
+      ['b', 'b'],
+    ]);
+    expect(store.getById('child')).toMatchObject({ layerId: 'b', parentId: 'parent' });
+  });
+
   it('does not record during undo', () => {
     const { store, stack, recorder } = setup();
     const note = createNote({ position: { x: 0, y: 0 } });

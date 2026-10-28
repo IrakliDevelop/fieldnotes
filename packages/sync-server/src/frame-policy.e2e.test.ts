@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WebSocket } from 'ws';
 import type { AddressInfo } from 'net';
+import { createCurrentCapabilities } from '@fieldnotes/sync';
 import { createSyncServer } from './create-sync-server';
 import type { FrameAuthorizationContext } from './frame-policy';
 import type { ServerOpContext } from './sync-plugin';
@@ -13,6 +14,18 @@ async function waitFor(predicate: () => boolean, timeout = 1000): Promise<void> 
     if (Date.now() - start > timeout) throw new Error('condition timed out');
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
+}
+
+function isCapabilityFrame(message: string): boolean {
+  try {
+    return (JSON.parse(message) as { op?: { kind?: string } }).op?.kind === 'capabilities';
+  } catch {
+    return false;
+  }
+}
+
+function countOrdinaryFrame(data: unknown, count: () => void): void {
+  if (!isCapabilityFrame(String(data))) count();
 }
 
 describe('frame policy over real WebSockets', () => {
@@ -28,12 +41,21 @@ describe('frame policy over real WebSockets', () => {
   async function connect(
     port: number,
     room = 'R',
+    waitForAdmission = true,
   ): Promise<{ socket: WebSocket; frames: string[] }> {
     const socket = new WebSocket(`ws://127.0.0.1:${port}?room=${room}`);
     sockets.push(socket);
     const frames: string[] = [];
     socket.on('message', (data) => frames.push(String(data)));
     await new Promise<void>((resolve) => socket.once('open', resolve));
+    socket.send(
+      JSON.stringify({
+        from: 'raw',
+        op: { kind: 'capabilities', capabilities: createCurrentCapabilities([]) },
+      }),
+    );
+    if (waitForAdmission) await waitFor(() => frames.some(isCapabilityFrame));
+    frames.length = 0;
     return { socket, frames };
   }
 
@@ -43,8 +65,10 @@ describe('frame policy over real WebSockets', () => {
     const server = createSyncServer({
       port: 0,
       framePolicy: {
-        authorize: ({ direction }) =>
-          direction === 'outbound' ? new Promise<boolean>((resolve) => (allow = resolve)) : true,
+        authorize: ({ direction, message }) =>
+          isCapabilityFrame(message) || direction !== 'outbound'
+            ? true
+            : new Promise<boolean>((resolve) => (allow = resolve)),
       },
     });
     servers.push(server);
@@ -87,7 +111,7 @@ describe('frame policy over real WebSockets', () => {
     let guarded: Connection | undefined;
     const server = createSyncServer({
       port: 0,
-      framePolicy: { authorize: () => false },
+      framePolicy: { authorize: (context) => isCapabilityFrame(context.message) },
     });
     servers.push(server);
     const addGuarded = server.hub.addConnection.bind(server.hub);
@@ -135,7 +159,11 @@ describe('frame policy over real WebSockets', () => {
 
   it('denies asynchronous inbound authorization before mutation and relay', async () => {
     let decide: ((allowed: boolean) => void) | undefined;
-    const authorize = vi.fn(() => new Promise<boolean>((resolve) => (decide = resolve)));
+    const authorize = vi.fn((context: FrameAuthorizationContext) =>
+      isCapabilityFrame(context.message)
+        ? true
+        : new Promise<boolean>((resolve) => (decide = resolve)),
+    );
     const server = createSyncServer({ port: 0, framePolicy: { authorize } });
     servers.push(server);
     const port = (server.wss.address() as AddressInfo).port;
@@ -152,10 +180,12 @@ describe('frame policy over real WebSockets', () => {
 
   it('denies asynchronous outbound authorization before physical delivery', async () => {
     let decide: ((allowed: boolean) => void) | undefined;
-    const authorize = vi.fn((context: { direction: string }) =>
-      context.direction === 'outbound'
-        ? new Promise<boolean>((resolve) => (decide = resolve))
-        : true,
+    const authorize = vi.fn((context: FrameAuthorizationContext) =>
+      isCapabilityFrame(context.message)
+        ? true
+        : context.direction === 'outbound'
+          ? new Promise<boolean>((resolve) => (decide = resolve))
+          : true,
     );
     const server = createSyncServer({ port: 0, framePolicy: { authorize } });
     servers.push(server);
@@ -180,6 +210,7 @@ describe('frame policy over real WebSockets', () => {
       authenticate: () => auth,
       framePolicy: {
         authorize: (context) => {
+          if (isCapabilityFrame(context.message)) return true;
           contexts.push(context);
           return true;
         },
@@ -238,7 +269,9 @@ describe('frame policy over real WebSockets', () => {
   ])('closes on $label policy results without delivering', async ({ result, code, reason }) => {
     const server = createSyncServer({
       port: 0,
-      framePolicy: { authorize: () => result as boolean },
+      framePolicy: {
+        authorize: (context) => isCapabilityFrame(context.message) || (result as boolean),
+      },
     });
     servers.push(server);
     const { socket, frames } = await connect((server.wss.address() as AddressInfo).port);
@@ -257,7 +290,8 @@ describe('frame policy over real WebSockets', () => {
       const server = createSyncServer({
         port: 0,
         framePolicy: {
-          authorize: () => {
+          authorize: (context) => {
+            if (isCapabilityFrame(context.message)) return true;
             if (mode === 'throw') throw new Error('private-sentinel');
             return Promise.reject(new Error('private-sentinel'));
           },
@@ -284,6 +318,7 @@ describe('frame policy over real WebSockets', () => {
       authenticate: () => ({ userId: 'x', expiresAt }),
       framePolicy: {
         authorize: (value) => {
+          if (isCapabilityFrame(value.message)) return true;
           context = value;
           return new Promise<boolean>((resolve) => (release = () => resolve(true)));
         },
@@ -312,7 +347,7 @@ describe('frame policy over real WebSockets', () => {
       port: 0,
       framePolicy: {
         authorize: (context) => {
-          if (context.direction !== 'outbound') return true;
+          if (isCapabilityFrame(context.message) || context.direction !== 'outbound') return true;
           if (!blockedId) blockedId = context.connectionId;
           if (context.connectionId === blockedId && context.message.includes('first')) {
             return new Promise<boolean>((resolve) => (release = () => resolve(true)));
@@ -350,6 +385,7 @@ describe('frame policy over real WebSockets', () => {
         port: 0,
         framePolicy: {
           authorize: (value) => {
+            if (isCapabilityFrame(value.message)) return true;
             context = value;
             return new Promise<boolean>((resolve) => (resolvePolicy = resolve));
           },
@@ -365,9 +401,9 @@ describe('frame policy over real WebSockets', () => {
       socket.send(JSON.stringify({ from: 'x', op: { kind: 'clear' } }));
       await waitFor(() => context !== undefined);
       const deadlineAt = context?.deadlineAt ?? 0;
-      const timeoutCall = timer.mock.calls.find(
-        (call) => typeof call[1] === 'number' && call[1] > 4900 && call[1] <= 5000,
-      );
+      const timeoutCall = [...timer.mock.calls]
+        .reverse()
+        .find((call) => typeof call[1] === 'number' && call[1] > 4900 && call[1] <= 5000);
       expect(timeoutCall).toBeDefined();
       const clock = vi.spyOn(Date, 'now').mockReturnValue(deadlineAt);
       try {
@@ -395,6 +431,7 @@ describe('frame policy over real WebSockets', () => {
         port: 0,
         framePolicy: {
           authorize: (value) => {
+            if (isCapabilityFrame(value.message)) return true;
             context = value;
             return new Promise<boolean>((_resolve, reject) => (rejectPolicy = reject));
           },
@@ -409,9 +446,9 @@ describe('frame policy over real WebSockets', () => {
       );
       socket.send(JSON.stringify({ from: 'x', op: { kind: 'clear' } }));
       await waitFor(() => context !== undefined);
-      const timeoutCall = timer.mock.calls.find(
-        (call) => typeof call[1] === 'number' && call[1] > 4900 && call[1] <= 5000,
-      );
+      const timeoutCall = [...timer.mock.calls]
+        .reverse()
+        .find((call) => typeof call[1] === 'number' && call[1] > 4900 && call[1] <= 5000);
       expect(timeoutCall).toBeDefined();
       const clock = vi.spyOn(Date, 'now').mockReturnValue(context?.deadlineAt ?? 0);
       try {
@@ -462,7 +499,7 @@ describe('frame policy over real WebSockets', () => {
     await waitFor(() => entered.length === 1);
     old.socket.terminate();
     await waitFor(() => server.hub.roomCount() === 0);
-    const fresh = await connect(port);
+    const fresh = await connect(port, 'R', false);
     await waitFor(() => server.hub.roomCount() === 1);
     fresh.socket.send(JSON.stringify({ from: 'fresh', op: { kind: 'clear' } }));
     await new Promise((resolve) => setImmediate(resolve));
@@ -482,6 +519,7 @@ describe('frame policy over real WebSockets', () => {
         port: 0,
         framePolicy: {
           authorize: (context) => {
+            if (isCapabilityFrame(context.message)) return true;
             entered.push(context.connectionId);
             if (first) {
               first = false;
@@ -495,18 +533,22 @@ describe('frame policy over real WebSockets', () => {
       });
       servers.push(server);
       let received = 0;
-      server.wss.on('connection', (peer) => peer.on('message', () => received++));
+      server.wss.on('connection', (peer) =>
+        peer.on('message', (data) => countOrdinaryFrame(data, () => received++)),
+      );
       const port = (server.wss.address() as AddressInfo).port;
       const frame = JSON.stringify({ from: 'x', op: { kind: 'clear' } });
+      const fillers = await Promise.all(Array.from({ length: 4 }, () => connect(port)));
+      const overflow = await connect(port);
       const original = await connect(port);
       await waitFor(() => server.hub.roomCount() === 1);
       original.socket.send(frame);
       await waitFor(() => entered.length === 1);
       original.socket.terminate();
-      await waitFor(() => server.hub.roomCount() === 0);
+      await waitFor(() => server.hub.roomCount() === 1);
 
       for (let index = 0; index < 3; index++) {
-        const reconnect = await connect(port);
+        const reconnect = await connect(port, 'R', false);
         await waitFor(() => server.hub.roomCount() === 1);
         const priorTimers = timer.mock.calls.length;
         const closeCode = new Promise<number>((resolve) => reconnect.socket.once('close', resolve));
@@ -514,24 +556,25 @@ describe('frame policy over real WebSockets', () => {
         await waitFor(() => received === index + 2);
         const timeoutCall = timer.mock.calls
           .slice(priorTimers)
+          .reverse()
           .find((call) => typeof call[1] === 'number' && call[1] > 4900 && call[1] <= 5000);
         expect(timeoutCall).toBeDefined();
         timeoutCall?.[0]();
         expect(await closeCode).toBe(1013);
         expect(entered).toHaveLength(1);
-        expect(server.hub.roomCount()).toBe(0);
+        expect(server.hub.roomCount()).toBe(1);
       }
 
       const counts = [64, 64, 64, 63];
       let filled = 0;
-      for (const count of counts) {
-        const filler = await connect(port);
+      for (const [index, count] of counts.entries()) {
+        const filler = fillers[index];
+        if (!filler) throw new Error('missing filler');
         for (let index = 0; index < count; index++) filler.socket.send(frame);
         filled += count;
         await waitFor(() => received === 4 + filled);
       }
       expect(entered).toHaveLength(1);
-      const overflow = await connect(port);
       const overflowCode = new Promise<number>((resolve) => overflow.socket.once('close', resolve));
       overflow.socket.send(frame);
       expect(await overflowCode).toBe(1013); // 255 queued + the disconnected active frame
@@ -540,12 +583,15 @@ describe('frame policy over real WebSockets', () => {
     } finally {
       timer.mockRestore();
     }
-  });
+  }, 15_000);
 
   it('enforces the fixed 64-frame connection limit including active and queued inbound work', async () => {
     const server = createSyncServer({
       port: 0,
-      framePolicy: { authorize: () => new Promise<boolean>(() => undefined) },
+      framePolicy: {
+        authorize: (context) =>
+          isCapabilityFrame(context.message) ? true : new Promise<boolean>(() => undefined),
+      },
       messageBurst: 1000,
       bytesPerSecond: 10_000_000,
       byteBurst: 10_000_000,
@@ -565,22 +611,29 @@ describe('frame policy over real WebSockets', () => {
   it('enforces the fixed 256-frame room limit across connections', async () => {
     const server = createSyncServer({
       port: 0,
-      framePolicy: { authorize: () => new Promise<boolean>(() => undefined) },
+      framePolicy: {
+        authorize: (context) =>
+          isCapabilityFrame(context.message) ? true : new Promise<boolean>(() => undefined),
+      },
       messageBurst: 1000,
       byteBurst: 10_000_000,
     });
     servers.push(server);
     let received = 0;
-    server.wss.on('connection', (peer) => peer.on('message', () => received++));
+    server.wss.on('connection', (peer) =>
+      peer.on('message', (data) => countOrdinaryFrame(data, () => received++)),
+    );
     const port = (server.wss.address() as AddressInfo).port;
+    const participants = await Promise.all(Array.from({ length: 5 }, () => connect(port)));
     const frame = JSON.stringify({ from: 'x', op: { kind: 'clear' } });
     for (let peer = 0; peer < 4; peer++) {
-      const { socket } = await connect(port);
-      await waitFor(() => server.hub.roomCount() === 1);
-      for (let index = 0; index < 64; index++) socket.send(frame);
+      const participant = participants[peer];
+      if (!participant) throw new Error('missing participant');
+      for (let index = 0; index < 64; index++) participant.socket.send(frame);
       await waitFor(() => received === (peer + 1) * 64);
     }
-    const extra = await connect(port);
+    const extra = participants[4];
+    if (!extra) throw new Error('missing overflow participant');
     const closed = new Promise<number>((resolve) => extra.socket.once('close', resolve));
     extra.socket.send(frame);
     expect(await closed).toBe(1013);
@@ -592,7 +645,9 @@ describe('frame policy over real WebSockets', () => {
       port: 0,
       framePolicy: {
         authorize: (context) =>
-          block && context.direction === 'inbound' ? new Promise<boolean>(() => undefined) : true,
+          !isCapabilityFrame(context.message) && block && context.direction === 'inbound'
+            ? new Promise<boolean>(() => undefined)
+            : true,
       },
       presenceThrottleMs: 0,
       messageBurst: 1000,
@@ -600,7 +655,9 @@ describe('frame policy over real WebSockets', () => {
     });
     servers.push(server);
     let received = 0;
-    server.wss.on('connection', (peer) => peer.on('message', () => received++));
+    server.wss.on('connection', (peer) =>
+      peer.on('message', (data) => countOrdinaryFrame(data, () => received++)),
+    );
     const port = (server.wss.address() as AddressInfo).port;
     const peers: Awaited<ReturnType<typeof connect>>[] = [];
     for (let index = 0; index < 6; index++) peers.push(await connect(port));
@@ -630,13 +687,18 @@ describe('frame policy over real WebSockets', () => {
     const server = createSyncServer({
       port: 0,
       maxMessageBytes: 2 * 1024 * 1024,
-      framePolicy: { authorize: () => new Promise<boolean>(() => undefined) },
+      framePolicy: {
+        authorize: (context) =>
+          isCapabilityFrame(context.message) ? true : new Promise<boolean>(() => undefined),
+      },
       messageBurst: 1000,
       byteBurst: 10_000_000,
     });
     servers.push(server);
     let received = 0;
-    server.wss.on('connection', (peer) => peer.on('message', () => received++));
+    server.wss.on('connection', (peer) =>
+      peer.on('message', (data) => countOrdinaryFrame(data, () => received++)),
+    );
     const { socket } = await connect((server.wss.address() as AddressInfo).port);
     await waitFor(() => server.hub.roomCount() === 1);
     const base = JSON.stringify({ from: 'x', op: { kind: 'clear' }, padding: '' });
@@ -685,13 +747,18 @@ describe('frame policy over real WebSockets', () => {
     const server = createSyncServer({
       port: 0,
       maxMessageBytes: 2 * 1024 * 1024,
-      framePolicy: { authorize: () => new Promise<boolean>(() => undefined) },
+      framePolicy: {
+        authorize: (context) =>
+          isCapabilityFrame(context.message) ? true : new Promise<boolean>(() => undefined),
+      },
       messageBurst: 1000,
       byteBurst: 10_000_000,
     });
     servers.push(server);
     let received = 0;
-    server.wss.on('connection', (peer) => peer.on('message', () => received++));
+    server.wss.on('connection', (peer) =>
+      peer.on('message', (data) => countOrdinaryFrame(data, () => received++)),
+    );
     const port = (server.wss.address() as AddressInfo).port;
     const base = JSON.stringify({ from: 'x', op: { kind: 'clear' }, padding: '' });
     const frame = JSON.stringify({
@@ -699,12 +766,15 @@ describe('frame policy over real WebSockets', () => {
       op: { kind: 'clear' },
       padding: 'x'.repeat(1024 * 1024 - Buffer.byteLength(base)),
     });
+    const participants = await Promise.all(Array.from({ length: 5 }, () => connect(port)));
     for (let peer = 0; peer < 4; peer++) {
-      const { socket } = await connect(port);
-      for (let index = 0; index < 4; index++) socket.send(frame);
+      const participant = participants[peer];
+      if (!participant) throw new Error('missing participant');
+      for (let index = 0; index < 4; index++) participant.socket.send(frame);
       await waitFor(() => received === (peer + 1) * 4);
     }
-    const extra = await connect(port);
+    const extra = participants[4];
+    if (!extra) throw new Error('missing overflow participant');
     const closed = new Promise<number>((resolve) => extra.socket.once('close', resolve));
     extra.socket.send(JSON.stringify({ from: 'x', op: { kind: 'clear' } }));
     expect(await closed).toBe(1013);
@@ -713,12 +783,17 @@ describe('frame policy over real WebSockets', () => {
   it('shares the 64-frame connection budget across inbound and outbound work', async () => {
     const server = createSyncServer({
       port: 0,
-      framePolicy: { authorize: () => new Promise<boolean>(() => undefined) },
+      framePolicy: {
+        authorize: (context) =>
+          isCapabilityFrame(context.message) ? true : new Promise<boolean>(() => undefined),
+      },
       messageBurst: 1000,
     });
     servers.push(server);
     let received = 0;
-    server.wss.on('connection', (peer) => peer.on('message', () => received++));
+    server.wss.on('connection', (peer) =>
+      peer.on('message', (data) => countOrdinaryFrame(data, () => received++)),
+    );
     const { socket } = await connect((server.wss.address() as AddressInfo).port);
     await waitFor(() => server.hub.roomCount() === 1);
     expect(server.hub.broadcastPresence('R', { label: 'outbound' })).toBe(1);
@@ -787,6 +862,7 @@ describe('frame policy over real WebSockets', () => {
       shutdownGraceMs: 20,
       framePolicy: {
         authorize: (value) => {
+          if (isCapabilityFrame(value.message)) return true;
           context = value;
           return new Promise<boolean>(() => undefined);
         },
@@ -809,9 +885,11 @@ describe('frame policy over real WebSockets', () => {
     let context: FrameAuthorizationContext | undefined;
     const server = createSyncServer({
       port: 0,
-      messageBurst: 1,
+      messagesPerSecond: 0.1,
+      messageBurst: 2,
       framePolicy: {
         authorize: (value) => {
+          if (isCapabilityFrame(value.message)) return true;
           context = value;
           return new Promise<boolean>(() => undefined);
         },

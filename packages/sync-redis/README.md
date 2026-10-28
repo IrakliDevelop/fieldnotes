@@ -76,7 +76,7 @@ Rooms written before 0.14 hold elements with `zIndex` and no `index`. On first a
 process the backend gives them fractional keys with `assignLegacyOrder`, in `HGETALL` order (the
 order a joining pre-0.14 client saw), and writes only fields that still lack `index`. No manual
 step is needed. `HGETALL` returns insertion order only for small (listpack-encoded) hashes; larger
-rooms keep Redis' hash order. Upgrade every relay instance and client at once (sync protocol 2).
+rooms keep Redis' hash order. Upgrade every relay instance and client at once (sync protocol 3).
 
 Backend plugins own any additional key schemas and atomic scripts. For fog, pass
 `createFogBackendPlugin()` from `@fieldnotes/vtt/redis`; it owns `${key}:fog:meta` and

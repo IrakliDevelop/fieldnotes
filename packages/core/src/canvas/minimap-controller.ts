@@ -4,7 +4,7 @@ import type { Viewport } from './viewport';
 import type { HtmlPainterRegistry } from './html-painter-registry';
 import type { TypedHookRegistry, MinimapRenderHooks, MinimapMapping } from './render-hooks';
 import { ElementRenderer } from '../elements/element-renderer';
-import { getElementBounds } from '../elements/element-bounds';
+import { getElementBounds, getElementVisualBounds } from '../elements/element-bounds';
 import { getElementsBoundingBox } from '../elements/bounds';
 import {
   computeMinimapTransform,
@@ -115,6 +115,7 @@ export class MinimapController {
     this.getExtraBounds = options.getExtraBounds;
 
     this.renderer.setStore(viewport.store);
+    this.renderer.setElementRegistry(viewport.elementRegistry);
     this.renderer.setOnImageLoad(() => this.markSceneDirty());
     this.htmlPainters = viewport.getHtmlPainters(); // parameter, not this.viewport
     this.renderer.setHtmlPainters(this.htmlPainters);
@@ -224,9 +225,9 @@ export class MinimapController {
       .filter((el) => this.viewport.layerManager.isLayerVisible(el.layerId));
   }
 
-  private currentMapping(): Bounds {
+  private currentMapping(elements = this.sceneElements()): Bounds {
     const viewportRect = this.viewport.getVisibleRect();
-    let mapping = getElementsBoundingBox(this.sceneElements(), this.viewport.elementRegistry);
+    let mapping = getElementsBoundingBox(elements, this.viewport.elementRegistry);
     mapping = mapping ? unionBounds(mapping, viewportRect) : viewportRect;
     const extra = this.getExtraBounds?.();
     if (extra) {
@@ -257,7 +258,14 @@ export class MinimapController {
   private renderScene(): void {
     if (this.disposed) return;
     const dpr = this.dpr();
-    const mapping = this.currentMapping();
+    const elements = this.sceneElements();
+    const mapping = this.currentMapping(elements);
+    const worldBounds = {
+      minX: mapping.x,
+      minY: mapping.y,
+      maxX: mapping.x + mapping.w,
+      maxY: mapping.y + mapping.h,
+    };
     const transform = computeMinimapTransform(mapping, this.width, this.height, this.padding);
     // The minimap fit scale, not the live camera zoom — canvas-routed html
     // painters read this via HtmlPaintContext.zoom (renderTarget 'minimap'
@@ -276,7 +284,7 @@ export class MinimapController {
     }
 
     const byLayer = new Map<string, CanvasElement[]>();
-    for (const el of this.sceneElements()) {
+    for (const el of elements) {
       let list = byLayer.get(el.layerId);
       if (!list) {
         list = [];
@@ -290,7 +298,7 @@ export class MinimapController {
       if (!els || els.length === 0) continue;
       const opacity = layer.opacity;
       if (opacity >= 1) {
-        this.renderLayerElements(ctx, els, transform, dpr);
+        this.renderLayerElements(ctx, els, transform, dpr, worldBounds, elements);
         continue;
       }
       // Translucent layers composite ONCE so overlapping elements within the
@@ -300,7 +308,7 @@ export class MinimapController {
       layerCanvas.height = sceneCanvas.height;
       const layerCtx = layerCanvas.getContext('2d');
       if (!layerCtx) continue;
-      this.renderLayerElements(layerCtx, els, transform, dpr);
+      this.renderLayerElements(layerCtx, els, transform, dpr, worldBounds, elements);
       ctx.save();
       ctx.globalAlpha = opacity;
       ctx.drawImage(layerCanvas, 0, 0);
@@ -334,8 +342,24 @@ export class MinimapController {
     elements: CanvasElement[],
     t: MinimapTransform,
     dpr: number,
+    worldBounds: { minX: number; minY: number; maxX: number; maxY: number },
+    allElements: readonly CanvasElement[],
   ): void {
     for (const el of elements) {
+      const clip = this.viewport.store.getEffectiveClip(el.id);
+      if (clip === undefined) continue;
+      if (clip && (clip.w <= 0 || clip.h <= 0)) continue;
+      const visualBounds = getElementVisualBounds(el, this.viewport.elementRegistry);
+      if (
+        clip &&
+        visualBounds &&
+        (visualBounds.x >= clip.x + clip.w ||
+          visualBounds.x + visualBounds.w <= clip.x ||
+          visualBounds.y >= clip.y + clip.h ||
+          visualBounds.y + visualBounds.h <= clip.y)
+      ) {
+        continue;
+      }
       // note/text always fall back; 'html' only falls back when the shared
       // renderer's routing resolves it to 'dom' (no canvas painter claims
       // it) — the SAME routing decision the main renderer and export make,
@@ -346,6 +370,12 @@ export class MinimapController {
         const tl = worldToMini(t, { x: b.x, y: b.y });
         ctx.save();
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        if (clip) {
+          const clipTl = worldToMini(t, clip);
+          ctx.beginPath();
+          ctx.rect(clipTl.x, clipTl.y, clip.w * t.scale, clip.h * t.scale);
+          ctx.clip();
+        }
         ctx.fillStyle = elementColor(el);
         ctx.fillRect(tl.x, tl.y, Math.max(1, b.w * t.scale), Math.max(1, b.h * t.scale));
         ctx.restore();
@@ -353,7 +383,16 @@ export class MinimapController {
       }
       ctx.save();
       ctx.setTransform(dpr * t.scale, 0, 0, dpr * t.scale, dpr * t.offsetX, dpr * t.offsetY);
-      this.renderer.renderCanvasElement(ctx, el);
+      if (clip) {
+        ctx.beginPath();
+        ctx.rect(clip.x, clip.y, clip.w, clip.h);
+        ctx.clip();
+      }
+      if (this.renderer.isFullCanvasElement(el)) {
+        this.renderer.renderExtensionWithBounds(ctx, el, worldBounds, allElements);
+      } else {
+        this.renderer.renderCanvasElement(ctx, el);
+      }
       ctx.restore();
     }
   }

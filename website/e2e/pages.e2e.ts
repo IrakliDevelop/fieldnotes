@@ -9,11 +9,16 @@ if (!newest) throw new Error('CHANGELOG.md has no release');
 const NEWEST = `${displayName(newest)} ${newest.version}`;
 
 const NOT_BUILT = [
-  'Frames that group and clip elements',
   'Find text on the board',
   'Command palette',
   'Elbow arrows that route around shapes',
   'Text inside shapes',
+];
+
+const NEXT = [
+  "I'm making starter templates on StackBlitz and CodeSandbox for a vanilla board and a React board.",
+  "I'm bringing the React bindings up to the core API: hooks and props for autosave, export, camera control, shortcuts and presence.",
+  'Frames that group and clip elements',
 ];
 
 test('the changelog lists the newest release first with its rendered body', async ({ page }) => {
@@ -42,7 +47,9 @@ test('every changelog heading uses the package display name', async ({ page }) =
   await expect(page.locator('main h2[id^="-"]')).toHaveCount(0);
 });
 
-test('the roadmap shows its three sections and the not built list', async ({ page }) => {
+test('the roadmap shows its three sections with frames next and the not built list', async ({
+  page,
+}) => {
   await page.goto('/roadmap/');
   const main = page.getByRole('main');
   await expect(main.getByRole('heading', { level: 2 })).toHaveText([
@@ -53,6 +60,7 @@ test('the roadmap shows its three sections and the not built list', async ({ pag
   await expect(
     page.getByRole('region', { name: 'Not built yet' }).getByRole('listitem'),
   ).toHaveText(NOT_BUILT);
+  await expect(page.getByRole('region', { name: 'Next' }).getByRole('listitem')).toHaveText(NEXT);
 });
 
 for (const path of ['/changelog/', '/roadmap/']) {

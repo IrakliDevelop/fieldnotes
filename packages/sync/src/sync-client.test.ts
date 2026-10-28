@@ -21,7 +21,7 @@ import type { ElementChangeMeta } from '@fieldnotes/core';
 import { SyncClient } from './sync-client';
 import type { AuthoritativeSnapshotContext, RemoteLayerUpdate } from './sync-client';
 import { LayerLedger } from './layer-ledger';
-import type { FogMetaRecord, FogSnapshot, LayerRecord, SyncOp } from './protocol';
+import type { FogMetaRecord, FogSnapshot, LayerRecord, SyncCapabilities, SyncOp } from './protocol';
 import type { SyncTransport } from './sync-transport';
 import { createExtensionKind } from './sync-plugin';
 import { createCurrentCapabilities } from './capabilities';
@@ -34,7 +34,7 @@ interface Bus {
   endpoint(): BusEndpoint;
 }
 
-function makeBus(selfEchoing = false): Bus {
+function makeBus(selfEchoing = false, autoAdmit = true): Bus {
   const endpoints: { handlers: Set<(m: string) => void>; ep: BusEndpoint }[] = [];
 
   function endpoint(): BusEndpoint {
@@ -44,6 +44,23 @@ function makeBus(selfEchoing = false): Bus {
       sent,
       send(message: string): void {
         sent.push(message);
+        let op: { kind: string } | undefined;
+        try {
+          op = (JSON.parse(message) as { op?: { kind: string } }).op;
+        } catch {
+          op = undefined;
+        }
+        if (autoAdmit && op?.kind === 'capabilities') {
+          handlers.forEach((handler) =>
+            handler(
+              JSON.stringify({
+                from: 'peer',
+                op: { kind: 'capabilities', capabilities: createCurrentCapabilities([]) },
+              }),
+            ),
+          );
+          return;
+        }
         for (const entry of endpoints) {
           if (!selfEchoing && entry.ep === ep) continue;
           entry.handlers.forEach((h) => h(message));
@@ -96,6 +113,158 @@ describe('SyncClient', () => {
     });
     clientA.start();
     clientB.start();
+  });
+
+  it('holds its snapshot request until a hierarchy-compatible peer admits it', () => {
+    const bus = makeBus(false, false);
+    const peer = bus.endpoint();
+    const transport = bus.endpoint();
+    const client = new SyncClient({
+      flushIntervalMs: 0,
+      store: new ElementStore(),
+      transport,
+      clientId: 'held',
+    });
+
+    client.start();
+
+    expect(sentKinds(transport.sent)).toEqual([]);
+
+    peer.send(
+      envelope('peer', { kind: 'capabilities', capabilities: createCurrentCapabilities([]) }),
+    );
+
+    expect(sentKinds(transport.sent)).toEqual(['request-snapshot']);
+    client.dispose();
+  });
+
+  it('admits a late subscriber when its first capability was missed synchronously', () => {
+    const bus = makeBus(false, false);
+    const storeA = new ElementStore();
+    const storeB = new ElementStore();
+    const clientA = new SyncClient({
+      flushIntervalMs: 0,
+      store: storeA,
+      transport: bus.endpoint(),
+      clientId: 'A',
+    });
+    const clientB = new SyncClient({
+      flushIntervalMs: 0,
+      store: storeB,
+      transport: bus.endpoint(),
+      clientId: 'B',
+    });
+
+    clientA.start();
+    clientB.start();
+    const local = createShape({ index: 'a0', position: { x: 1, y: 1 }, size: { w: 2, h: 2 } });
+    storeA.add(local);
+
+    expect(storeB.getById(local.id)).toEqual({ ...local, editor: 'A' });
+    clientA.dispose();
+    clientB.dispose();
+  });
+
+  it.each([
+    ['protocol 1', { protocolVersion: 1, extensionKinds: [], elementEnvelope: true }],
+    ['protocol 2', { protocolVersion: 2, extensionKinds: [], elementEnvelope: true }],
+    [
+      'protocol 3 without hierarchy',
+      { protocolVersion: 3, extensionKinds: [], elementEnvelope: true },
+    ],
+    [
+      'protocol 4',
+      { protocolVersion: 4, extensionKinds: [], elementEnvelope: true, elementHierarchy: 1 },
+    ],
+  ] satisfies [string, SyncCapabilities][])(
+    'closes without sending queued work to %s',
+    (_name, capabilities) => {
+      let receive: (message: string) => void = () => undefined;
+      const sent: string[] = [];
+      const close = vi.fn();
+      const client = new SyncClient({
+        flushIntervalMs: 0,
+        store: new ElementStore(),
+        clientId: 'held',
+        transport: {
+          send: (message) => sent.push(message),
+          onMessage: (handler) => {
+            receive = handler;
+            return () => undefined;
+          },
+          close,
+        },
+      });
+
+      client.start();
+      receive(envelope('hub', { kind: 'capabilities', capabilities }));
+
+      expect(close).toHaveBeenCalledOnce();
+      expect(sent.map((message) => JSON.parse(message).op.kind)).toEqual(['capabilities']);
+    },
+  );
+
+  it('drops pre-admission inbound data and presence while retaining durable local work', () => {
+    const bus = makeBus(false, false);
+    const peer = bus.endpoint();
+    const transport = bus.endpoint();
+    const store = new ElementStore();
+    const received: unknown[] = [];
+    const extensionKind = createExtensionKind<{ x: number }>({
+      extensionKind: 'test:admission',
+      codec: {
+        validate: (value): value is { x: number } =>
+          typeof value === 'object' &&
+          value !== null &&
+          typeof (value as { x?: unknown }).x === 'number',
+      },
+    });
+    const client = new SyncClient({
+      flushIntervalMs: 0,
+      store,
+      transport,
+      clientId: 'held',
+      plugins: [
+        {
+          name: 'admission',
+          registerExtensionKinds(registry) {
+            registry.register(extensionKind, (op) => received.push(op));
+          },
+        },
+      ],
+    });
+    const presence: unknown[] = [];
+    client.onPresence((_from, data) => presence.push(data));
+    client.start();
+    client.sendPresence({ local: true });
+    store.add(createShape({ index: 'a0', position: { x: 1, y: 1 }, size: { w: 2, h: 2 } }));
+    const remote = createShape({ index: 'a0', position: { x: 3, y: 3 }, size: { w: 2, h: 2 } });
+    peer.send(envelope('peer', { kind: 'upsert', element: remote }));
+    peer.send(envelope('peer', { kind: 'snapshot', to: 'held', elements: [remote] }));
+    peer.send(envelope('peer', { kind: 'presence', data: { remote: true } }));
+    peer.send(
+      envelope('peer', { kind: 'extension', extensionKind: 'test:admission', payload: { x: 1 } }),
+    );
+
+    expect(store.getById(remote.id)).toBeUndefined();
+    expect(presence).toEqual([]);
+    expect(received).toEqual([]);
+    expect(sentKinds(transport.sent)).toEqual([]);
+
+    peer.send(
+      envelope('peer', {
+        kind: 'capabilities',
+        capabilities: createCurrentCapabilities(['remote:only']),
+      }),
+    );
+
+    expect(store.getById(remote.id)).toBeUndefined();
+    expect(presence).toEqual([]);
+    expect(received).toEqual([]);
+    expect(sentKinds(transport.sent)).toEqual(['request-snapshot', 'upsert']);
+    client.sendPresence({ local: 'fresh' });
+    expect(sentKinds(transport.sent)).toEqual(['request-snapshot', 'upsert', 'presence']);
+    client.dispose();
   });
 
   it('routes only codec-valid extension operations through a client plugin', () => {
@@ -233,34 +402,6 @@ describe('SyncClient', () => {
     targetClient.stop();
   });
 
-  it('applies a buffered remote remove after the held upsert it targets', () => {
-    const registry = new ElementRegistry();
-    registerVttElementTypes(registry);
-    const store = new ElementStore();
-    const transport = makeReconnectTransport();
-    const client = new SyncClient({
-      flushIntervalMs: 0,
-      store,
-      transport,
-      clientId: 'modern',
-      elementRegistry: registry,
-    });
-    client.start();
-
-    const template = templateElementTypeDefinition.wrap(
-      createTemplate({ position: { x: 10, y: 20 }, templateShape: 'circle', radius: 30 }),
-    );
-    transport.deliver(envelope('peer', { kind: 'upsert', element: template }));
-    transport.deliver(envelope('peer', { kind: 'remove', id: template.id }));
-    // Settle the handshake — the queued upsert+remove are drained in order.
-    transport.deliver(
-      envelope('peer', { kind: 'capabilities', capabilities: createCurrentCapabilities([]) }),
-    );
-
-    expect(store.getById(template.id)).toBeUndefined();
-    client.dispose();
-  });
-
   it('carries held upserts across a reconnect and shields them from the reconcile snapshot', () => {
     const registry = new ElementRegistry();
     registerVttElementTypes(registry);
@@ -274,20 +415,22 @@ describe('SyncClient', () => {
       elementRegistry: registry,
     });
     client.start();
+    transport.deliver(
+      envelope('hub', { kind: 'capabilities', capabilities: createCurrentCapabilities([]) }),
+    );
     transport.deliver(envelope('hub', { kind: 'snapshot', to: 'modern', elements: [] }));
 
     const template = templateElementTypeDefinition.wrap(
       createTemplate({ position: { x: 10, y: 20 }, templateShape: 'circle', radius: 30 }),
     );
-    store.add(template); // held: handshake still open
     transport.triggerReconnect();
+    store.add(template);
     // The hub never received the template, so its reconcile snapshot lacks it.
-    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'modern', elements: [] }));
-    expect(store.getById(template.id)).toBeDefined();
-
     transport.deliver(
       envelope('hub', { kind: 'capabilities', capabilities: createCurrentCapabilities([]) }),
     );
+    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'modern', elements: [] }));
+    expect(store.getById(template.id)).toBeDefined();
     const upserts = transport.sent
       .map((m) => JSON.parse(m) as { op: SyncOp })
       .filter(({ op }) => op.kind === 'upsert');
@@ -300,7 +443,7 @@ describe('SyncClient', () => {
     const registry = new ElementRegistry();
     registerVttElementTypes(registry);
     const store = new ElementStore();
-    const transport = makeReconnectTransport();
+    const transport = makeReconnectTransport(false);
     const client = new SyncClient({
       flushIntervalMs: 0,
       store,
@@ -309,20 +452,23 @@ describe('SyncClient', () => {
       elementRegistry: registry,
     });
     client.start();
+    transport.deliver(
+      envelope('hub', { kind: 'capabilities', capabilities: createCurrentCapabilities([]) }),
+    );
     transport.deliver(envelope('hub', { kind: 'snapshot', to: 'modern', elements: [] }));
 
     const template = templateElementTypeDefinition.wrap(
       createTemplate({ position: { x: 10, y: 20 }, templateShape: 'circle', radius: 30 }),
     );
+    transport.triggerReconnect();
     store.add(template);
     store.clear();
-    transport.triggerReconnect();
 
     const serverNote = createNote({ index: 'a0', position: { x: 30, y: 40 } });
-    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'modern', elements: [serverNote] }));
     transport.deliver(
       envelope('hub', { kind: 'capabilities', capabilities: createCurrentCapabilities([]) }),
     );
+    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'modern', elements: [serverNote] }));
 
     expect(sentKinds(transport.sent).slice(-2)).toEqual(['upsert', 'clear']);
     expect(store.snapshot()).toEqual([]);
@@ -333,7 +479,7 @@ describe('SyncClient', () => {
     const registry = new ElementRegistry();
     registerVttElementTypes(registry);
     const store = new ElementStore();
-    const transport = makeReconnectTransport();
+    const transport = makeReconnectTransport(false);
     const lossyKind = createExtensionKind<{ x: number }>({
       extensionKind: 'test:lossy',
       codec: { validate: (payload): payload is { x: number } => typeof payload === 'object' },
@@ -372,7 +518,7 @@ describe('SyncClient', () => {
       envelope('peer', { kind: 'capabilities', capabilities: createCurrentCapabilities([]) }),
     );
     expect(sentKinds(transport.sent)).toEqual(['request-snapshot', 'upsert']);
-    // ...and the inbound queue is still drained.
+    // ...and the later durable op still ships after the lossy one is skipped.
     expect(store.getById(template.id)).toBeDefined();
     client.dispose();
   });
@@ -776,14 +922,39 @@ interface ReconnectTransport extends SyncTransport {
   triggerReconnect(): void;
 }
 
-function makeReconnectTransport(): ReconnectTransport {
+function makeReconnectTransport(autoAdmit = true): ReconnectTransport {
   const messageHandlers = new Set<(m: string) => void>();
   const reconnectHandlers = new Set<() => void>();
   const sent: string[] = [];
+  let admitted = false;
+  const deliver = (message: string): void => {
+    const envelope = JSON.parse(message) as { from: string; op: { kind: string } };
+    if (autoAdmit && !admitted && envelope.op.kind !== 'capabilities') {
+      admitted = true;
+      const capability = JSON.stringify({
+        from: envelope.from,
+        op: { kind: 'capabilities', capabilities: createCurrentCapabilities([]) },
+      });
+      messageHandlers.forEach((handler) => handler(capability));
+    }
+    messageHandlers.forEach((handler) => handler(message));
+  };
   return {
     sent,
     send(message: string): void {
       sent.push(message);
+      const envelope = JSON.parse(message) as { op: { kind: string } };
+      if (autoAdmit && !admitted && envelope.op.kind === 'capabilities') {
+        admitted = true;
+        messageHandlers.forEach((handler) =>
+          handler(
+            JSON.stringify({
+              from: 'peer',
+              op: { kind: 'capabilities', capabilities: createCurrentCapabilities([]) },
+            }),
+          ),
+        );
+      }
     },
     onMessage(handler: (m: string) => void): () => void {
       messageHandlers.add(handler);
@@ -797,10 +968,9 @@ function makeReconnectTransport(): ReconnectTransport {
       messageHandlers.clear();
       reconnectHandlers.clear();
     },
-    deliver(message: string): void {
-      messageHandlers.forEach((h) => h(message));
-    },
+    deliver,
     triggerReconnect(): void {
+      admitted = false;
       reconnectHandlers.forEach((h) => h());
     },
   };
@@ -840,6 +1010,64 @@ describe('SyncClient resync-on-reconnect', () => {
     expect(store.count).toBe(2);
     expect(store.getById(local.id)).toBeDefined();
     expect(store.getById(remote.id)).toBeDefined();
+  });
+
+  it('keeps a remote orphan raw until its parent arrives without rebroadcasting it', () => {
+    const store = new ElementStore();
+    const transport = makeReconnectTransport();
+    const client = new SyncClient({ flushIntervalMs: 0, store, transport, clientId: 'B' });
+    const parent = { ...shape(1), id: 'parent' };
+    const child = { ...shape(2), id: 'child', parentId: parent.id };
+    client.start();
+    const sentBefore = transport.sent.length;
+
+    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'B', elements: [child] }));
+
+    expect(store.getById(child.id)).toMatchObject({ parentId: parent.id });
+    expect(store.getAll()).toEqual([]);
+    expect(store.getElementsByType('shape')).toEqual([]);
+    expect(store.queryRect({ x: 0, y: 0, w: 20, h: 20 })).toEqual([]);
+
+    transport.deliver(envelope('hub', { kind: 'upsert', element: parent }));
+
+    expect(store.getAll().map((element) => element.id)).toEqual([parent.id, child.id]);
+    expect(store.queryRect({ x: 0, y: 0, w: 20, h: 20 }).map((element) => element.id)).toEqual([
+      parent.id,
+      child.id,
+    ]);
+    expect(sentKinds(transport.sent.slice(sentBefore))).toEqual([]);
+    client.dispose();
+  });
+
+  it('keeps live child-before-parent delivery out of scene queries until the parent arrives', () => {
+    const store = new ElementStore();
+    const transport = makeReconnectTransport();
+    const client = new SyncClient({ flushIntervalMs: 0, store, transport, clientId: 'B' });
+    const parent = { ...shape(1), id: 'parent' };
+    const child = { ...shape(2), id: 'child', parentId: parent.id };
+    client.start();
+    const sentBefore = transport.sent.length;
+
+    transport.deliver(envelope('hub', { kind: 'upsert', element: child }));
+
+    expect(store.getById(child.id)).toMatchObject({ parentId: parent.id });
+    expect(store.getAll()).toEqual([]);
+    expect(store.getElementsByType('shape')).toEqual([]);
+    expect(store.queryRect({ x: 0, y: 0, w: 20, h: 20 })).toEqual([]);
+
+    transport.deliver(envelope('hub', { kind: 'upsert', element: parent }));
+
+    expect(store.getAll().map((element) => element.id)).toEqual([parent.id, child.id]);
+    expect(store.getElementsByType('shape').map((element) => element.id)).toEqual([
+      parent.id,
+      child.id,
+    ]);
+    expect(store.queryRect({ x: 0, y: 0, w: 20, h: 20 }).map((element) => element.id)).toEqual([
+      parent.id,
+      child.id,
+    ]);
+    expect(sentKinds(transport.sent.slice(sentBefore))).toEqual([]);
+    client.dispose();
   });
 
   it('RECONCILES later snapshots — removes locals absent from the authoritative set, upserts canonical, origin remote, no re-broadcast', () => {

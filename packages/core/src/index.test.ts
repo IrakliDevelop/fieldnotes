@@ -11,7 +11,7 @@ import type {
 
 describe('core public surface', () => {
   it('exports the current version', () => {
-    expect(FN.VERSION).toBe('0.99.1');
+    expect(FN.VERSION).toBe('0.100.0');
   });
 
   it('exports the camera view, animator, and focus presence surface', () => {
@@ -110,6 +110,8 @@ describe('core public surface', () => {
       'DEFAULT_ACTIVATION_DOUBLE_DELAY_MS',
       // viewport-source internals
       'STYLE_KEYS',
+      'ElementHierarchy',
+      'validateHierarchy',
     ];
     for (const name of removed) {
       expect(name in FN, `${name} should not be exported`).toBe(false);
@@ -231,6 +233,17 @@ describe('core public surface', () => {
     ]).toEqual([1, false, '', null, 1]);
   });
 
+  it('exports camera constraints without replacing the viewport CameraState', () => {
+    const previous: FN.CameraConstraintState = { position: { x: 0, y: 0 }, zoom: 1 };
+    const constraint: FN.CameraConstraint = (next, seenPrevious) => {
+      expect(seenPrevious).toEqual(previous);
+      return next;
+    };
+    const next = constraint({ position: { x: 3, y: 4 }, zoom: 2 }, previous);
+    const camera: FN.CameraState = { x: 5, y: 6, zoom: 7 };
+    expect([next.position, next.zoom, camera]).toEqual([{ x: 3, y: 4 }, 2, camera]);
+  });
+
   it('exports mountViewport for framework bindings', () => {
     expect(typeof FN.mountViewport).toBe('function');
     const opts: FN.MountViewportOptions = { tools: 'default', changeDebounceMs: 0 };
@@ -265,9 +278,9 @@ describe('core public surface', () => {
     expect([presence.kind, options.staleMs, host]).toEqual(['stroke', 1, null]);
   });
 
-  it('reports VERSION 0.99.1', async () => {
+  it('reports VERSION 0.100.0', async () => {
     const { VERSION } = await import('./index');
-    expect(VERSION).toBe('0.99.1');
+    expect(VERSION).toBe('0.100.0');
   });
 
   it('does not re-export VTT-domain symbols (moved to @fieldnotes/vtt)', () => {

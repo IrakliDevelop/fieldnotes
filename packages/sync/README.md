@@ -21,7 +21,7 @@ injectable `BroadcastChannel` factory for testing.
 pnpm add @fieldnotes/sync @fieldnotes/core
 ```
 
-Requires `@fieldnotes/core` `>=0.93.0` (peer dependency).
+Requires `@fieldnotes/core` `>=0.100.0` (peer dependency).
 
 Domain operations are installed through `ClientSyncPlugin`. A plugin may register codec-validated
 extension kinds and versioned snapshot state. For fog, install `createFogClientPlugin()` from
@@ -37,34 +37,36 @@ dropped. `isWithinSyncLimits(envelope)` applies the same checks to an already pa
 reported as a `SyncLimitError` (`elementId`, `limit`) through `globalThis.reportError` when
 available. The local store keeps the element.
 
-## v4 capability handshake
+## Capability handshake
 
-The client advertises `{ protocolVersion: 2, extensionKinds, elementEnvelope: true }` when a
-transport starts. The literal `elementEnvelope: true` remains as a rolling-upgrade marker so current
-clients interoperate with the immediately preceding v4 release. Frames that omit the marker or set
-it to `false` are rejected; there is no timeout-based legacy fallback or v3 wire translation.
+`createCurrentCapabilities(extensionKinds)` advertises `{ protocolVersion: 3, extensionKinds,
+elementEnvelope: true, elementHierarchy: 1 }` when a transport starts. The hierarchy marker is
+required. There is no protocol-2 fallback or wire translation.
 
-Extension-envelope traffic waits in a bounded queue until the handshake completes; later element
-operations queue behind it to preserve order. Extension operations are sent only to peers that
-advertise their extension kind; an unsupported kind fails explicitly rather than silently dropping
-domain data. `SyncOp`, `SyncEnvelope`, and `SyncElement` describe both runtime and transport values.
-Use `isValidEnvelope` and `isValidElement` at transport boundaries. Plugin snapshot state lives under
-the snapshot operation's `extensions` map.
+All durable outbound operations queue until matching capabilities complete negotiation. Inbound
+substantive frames before matching capabilities are ignored or refused. Presence before admission is
+not queued. Extension operations are sent only to peers that advertise their extension kind; an
+unsupported kind fails explicitly rather than silently dropping domain data. `SyncOp`,
+`SyncEnvelope`, and `SyncElement` describe both runtime and transport values. Use `isValidEnvelope`
+and `isValidElement` at transport boundaries. Plugin snapshot state lives under the snapshot
+operation's `extensions` map.
 
 ## Element versions and tombstones (0.28.0)
 
-Legacy sync protocol 2 sends every element with its `index`, `version` and optional `editor`.
+Version and tombstone behavior arrived with legacy protocol 2 in 0.28.0. The current protocol-3
+boundary adds required hierarchy capabilities. Every element carries its `index`, `version`, optional
+`editor`, and optional `parentId`.
 `SyncClient` applies an incoming upsert or remove only when it is newer than the local element or
 tombstone (`isNewerVersion`: higher version; on a tie, the editor that sorts later). This holds both
 through a hub and peer to peer over `BroadcastChannel`. Removes carry a version and editor, clears
 and snapshots carry tombstones, so a late upsert or a reconnecting peer no longer resurrects a
 deleted element. Hub corrections (`from: 'hub'`) still apply as sent.
 
-Protocol 1 and 2 peers cannot share a room; upgrade every client and hub together. When a hub or
-peer advertises `protocolVersion` below 2, `SyncClient` stops syncing and closes its transport. A
-managed connection treats that, or a `4406` close from the hub, as terminal: status
-`'unsupported'`, no reconnect. Use `parseLegacyEnvelope` to validate protocol 2 legacy frames;
-`parseEnvelope` is unchanged.
+Protocol 1 and 2 peers cannot share a room with protocol-3 clients; upgrade every client and hub
+together. When a hub or peer advertises a missing or old hierarchy capability, `SyncClient` stops
+syncing and closes its transport. A managed connection treats that, or a `4406` close from the hub,
+as terminal: status `'unsupported'`, no reconnect. `parseLegacyEnvelope` validates the versioned
+legacy grammar used by protocol 3; `parseEnvelope` is unchanged.
 
 ## Op batching (0.29.0)
 
@@ -80,11 +82,9 @@ ops, and `stop()`. Pass `flushIntervalMs: 0` to send every op synchronously, for
 const client = new SyncClient({ store, transport, flushIntervalMs: 0 });
 ```
 
-A flush goes as `batch` frames only through a hub that advertises `opBatching` (0.29 hubs). Batches
-are split to stay within the frame byte and depth limits; an op too large for a batch goes alone.
-Peer to peer and with 0.28 hubs each op is its own frame. Against a 0.28 hub that is up to 20
-flushes per second of individual ops, so a drag of many elements can still exceed that hub's
-message rate limit.
+A flush goes as `batch` frames through an admitted protocol-3 hub that advertises `opBatching`.
+Batches are split to stay within the frame byte and depth limits; an op too large for a batch goes
+alone. An admitted hub without that marker and peer-to-peer sync use individual operation frames.
 
 Batching stops when the transport reports a close and resumes after the next hub handshake.
 `WebSocketTransport` implements the optional `SyncTransport.onClose(handler)`; custom transports
@@ -97,11 +97,13 @@ through `getUnsupportedReason()`.
 Client tombstones are pruned when a snapshot is built or received once they are older than
 `tombstoneRetentionMs` (default 7 days).
 
-## Authority wire primitives (0.22.0)
+## Authority wire primitives
 
-`createAuthorityCapabilities(extensionKinds)` explicitly adds `authority: 1` to the current
-capability shape. `supportsAuthority` checks that marker. Existing connections continue to call
-`createCurrentCapabilities` and do not advertise or negotiate authority automatically.
+`createAuthorityCapabilities(extensionKinds)` uses capability revision 2 and adds `authority: 1`
+and `elementHierarchy: 1` to the current capability shape. `supportsAuthority` checks the marker.
+Existing connections continue to call `createCurrentCapabilities` and do not advertise or negotiate
+authority automatically. Capability revision 2 is separate from the serialized native
+`authority:1` frame literal.
 
 `parseAuthorityClientFrame`, `parseAuthorityServerFrame`, and `parseAuthorityFrame` validate
 direction-specific `authority:1` frames and return frozen values or `null`. The matching
@@ -168,7 +170,9 @@ durable commit but carry no applied-state cursor.
 `createManagedAuthorityConnection` is the opt-in high-level authority client. It owns capability
 negotiation, credentials/endpoints, one socket episode at a time, recovery, exact retained proposal
 wires, a deeply frozen canonical document, receipt barriers, and coherent checkpoints. The legacy
-`createManagedSyncConnection`, `SyncClient`, plugin path, and `WebSocketTransport` remain unchanged.
+`createManagedSyncConnection`, `SyncClient`, plugin path, and `WebSocketTransport` remain the
+separate legacy path and negotiate protocol 3 plus `elementHierarchy: 1`. The authority manager is
+opt-in and separate.
 
 ```ts
 import {

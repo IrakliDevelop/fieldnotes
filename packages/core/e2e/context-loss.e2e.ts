@@ -1,0 +1,118 @@
+import { test, expect } from './fixtures/canvas-page';
+
+test.describe('context loss', () => {
+  test('masks persistent surfaces until every restored canvas has repainted', async ({
+    canvasPage,
+  }) => {
+    const result = await canvasPage.page.evaluate(async () => {
+      const viewport = (window as unknown as Record<string, unknown>).__fieldnotes_viewport as {
+        addHtmlElement: (
+          node: HTMLElement,
+          position: { x: number; y: number },
+          size: { w: number; h: number },
+        ) => string;
+        addShape: (options: Record<string, unknown>) => string;
+        requestRender: () => void;
+        destroy: () => void;
+      };
+      const wrapper = document.querySelector<HTMLDivElement>('#canvas > div');
+      const minimap = document.querySelector<HTMLCanvasElement>('canvas[data-fieldnotes-minimap]');
+      if (!wrapper || !minimap) throw new Error('demo viewport not found');
+      const nextFrame = () =>
+        new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      const waitFor = async (predicate: () => boolean) => {
+        for (let frame = 0; frame < 240; frame++) {
+          if (predicate()) return;
+          await nextFrame();
+        }
+        throw new Error('condition did not become true');
+      };
+      minimap.dispatchEvent(new Event('contextlost', { cancelable: true }));
+      const minimapIgnored = !wrapper.querySelector('[data-fieldnotes-context-loss-mask]');
+      const existingHybridCanvases = new Set([
+        ...wrapper.querySelectorAll<HTMLCanvasElement>('canvas[data-paint-order]'),
+      ]);
+
+      const dom = document.createElement('div');
+      viewport.addHtmlElement(dom, { x: 20, y: 20 }, { w: 30, h: 30 });
+      viewport.addShape({ position: { x: 20, y: 20 }, size: { w: 30, h: 30 } });
+      viewport.requestRender();
+      await waitFor(() =>
+        [...wrapper.querySelectorAll<HTMLCanvasElement>('canvas[data-paint-order]')].some(
+          (canvas) => !existingHybridCanvases.has(canvas),
+        ),
+      );
+      const base = wrapper.querySelector<HTMLCanvasElement>(':scope > canvas');
+      const hybrid = [
+        ...wrapper.querySelectorAll<HTMLCanvasElement>('canvas[data-paint-order]'),
+      ].find((canvas) => !existingHybridCanvases.has(canvas));
+      if (!base || !hybrid) throw new Error('persistent canvases not created');
+      const hybridOrder = hybrid.dataset['paintOrder'];
+      if (!hybridOrder) throw new Error('hybrid paint order missing');
+      base.dispatchEvent(new Event('contextlost', { cancelable: true }));
+      hybrid.dispatchEvent(new Event('contextlost', { cancelable: true }));
+      const mask = wrapper.querySelector<HTMLElement>('[data-fieldnotes-context-loss-mask]');
+      const wrapperRect = wrapper.getBoundingClientRect();
+      const maskRect = mask?.getBoundingClientRect();
+      const masked =
+        mask === wrapper.lastElementChild &&
+        mask?.style.position === 'absolute' &&
+        mask.style.inset === '0px' &&
+        mask.style.opacity === '1' &&
+        mask.style.zIndex === '2147483647' &&
+        mask.style.background === 'rgb(0, 0, 0)' &&
+        maskRect !== undefined &&
+        maskRect.width === wrapperRect.width &&
+        maskRect.height === wrapperRect.height;
+      base.dispatchEvent(new Event('contextrestored'));
+      const remainsAfterBase = Boolean(
+        wrapper.querySelector('[data-fieldnotes-context-loss-mask]'),
+      );
+      hybrid.dispatchEvent(new Event('contextrestored'));
+      await waitFor(() => {
+        const next = wrapper.querySelector<HTMLCanvasElement>(
+          `canvas[data-paint-order="${hybridOrder}"]`,
+        );
+        return (
+          next !== null &&
+          next !== hybrid &&
+          !wrapper.querySelector('[data-fieldnotes-context-loss-mask]')
+        );
+      });
+      const replacement = wrapper.querySelector<HTMLCanvasElement>(
+        `canvas[data-paint-order="${hybridOrder}"]`,
+      );
+      if (!replacement) throw new Error('replacement hybrid canvas missing');
+      const recovered = !wrapper.querySelector('[data-fieldnotes-context-loss-mask]');
+      replacement.dispatchEvent(new Event('contextlost', { cancelable: true }));
+      const replacementMasked = Boolean(
+        wrapper.querySelector('[data-fieldnotes-context-loss-mask]'),
+      );
+      replacement.dispatchEvent(new Event('contextrestored'));
+      await waitFor(() => !wrapper.querySelector('[data-fieldnotes-context-loss-mask]'));
+      viewport.destroy();
+      base.dispatchEvent(new Event('contextlost', { cancelable: true }));
+      return {
+        minimapIgnored,
+        masked,
+        remainsAfterBase,
+        recovered,
+        replaced: replacement !== hybrid,
+        sameOrder: replacement.dataset['paintOrder'] === hybridOrder,
+        replacementMasked,
+        detachedStaysClear: !wrapper.querySelector('[data-fieldnotes-context-loss-mask]'),
+      };
+    });
+
+    expect(result).toEqual({
+      minimapIgnored: true,
+      masked: true,
+      remainsAfterBase: true,
+      recovered: true,
+      replaced: true,
+      sameOrder: true,
+      replacementMasked: true,
+      detachedStaysClear: true,
+    });
+  });
+});

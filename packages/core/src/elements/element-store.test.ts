@@ -10,10 +10,40 @@ import { createStroke, createArrow } from './element-factory';
 import type {
   CanvasElement,
   ExtensionElementEnvelope,
+  BaseElement,
+  ElementTypeDefinition,
   NoteElement,
   StrokeElement,
   TextElement,
 } from './types';
+
+function fullCanvasDefinition(): ElementTypeDefinition<BaseElement> {
+  return {
+    type: 'test:full',
+    legacyTypes: [],
+    fullCanvas: true,
+    decodeLegacy: (raw) => raw as unknown as BaseElement,
+    validateData: () => true,
+    unwrap: (element) => element,
+    wrap: (element) => ({ ...element, type: 'extension', extensionType: 'test:full', data: {} }),
+    bounds: () => null,
+  };
+}
+
+function fullCanvas(id: string, parentId?: string): ExtensionElementEnvelope {
+  return {
+    id,
+    type: 'extension',
+    extensionType: 'test:full',
+    position: { x: 0, y: 0 },
+    index: 'a1',
+    version: 1,
+    locked: false,
+    layerId: '',
+    data: {},
+    ...(parentId === undefined ? {} : { parentId }),
+  };
+}
 
 function makeNote(overrides: Partial<NoteElement> = {}): NoteElement {
   return {
@@ -30,6 +60,38 @@ function makeNote(overrides: Partial<NoteElement> = {}): NoteElement {
     layerId: '',
     ...overrides,
   };
+}
+
+function clipExtension(id: string): ExtensionElementEnvelope {
+  return {
+    id,
+    type: 'extension',
+    extensionType: 'test:clip',
+    position: { x: 0, y: 0 },
+    index: 'a0',
+    version: 1,
+    locked: false,
+    layerId: '',
+    data: {},
+  };
+}
+
+function clipRegistry(): ElementRegistry {
+  const registry = new ElementRegistry();
+  registry.register<ExtensionElementEnvelope>({
+    type: 'test:clip',
+    legacyTypes: [],
+    renderMode: 'canvas',
+    decodeLegacy: () => {
+      throw new Error('no legacy');
+    },
+    validateData: () => true,
+    unwrap: (element) => element,
+    wrap: (element) => element,
+    bounds: () => ({ x: 0, y: 0, w: 100, h: 100 }),
+    clipBounds: () => ({ x: 10, y: 10, w: 20, h: 20 }),
+  });
+  return registry;
 }
 
 function makeStroke(overrides: Partial<StrokeElement> = {}): StrokeElement {
@@ -71,6 +133,50 @@ function makeText(overrides: Partial<TextElement> = {}): TextElement {
 }
 
 describe('ElementStore', () => {
+  it('rebuilds clip projection after local and inherited registry registration changes', () => {
+    const parentRegistry = new ElementRegistry();
+    const registry = new ElementRegistry(parentRegistry);
+    const store = new ElementStore(registry);
+    const root = clipExtension('root');
+    const child = makeNote({ id: 'child', parentId: root.id, position: { x: 12, y: 12 } });
+    store.add(root);
+    store.add(child);
+    expect(store.getEffectiveClip(child.id)).toBeUndefined();
+    expect(store.getAll().map((element) => element.id)).toEqual([root.id, child.id]);
+    parentRegistry.register({
+      type: 'test:clip',
+      legacyTypes: [],
+      renderMode: 'canvas',
+      decodeLegacy: (raw) => raw as never,
+      validateData: () => true,
+      unwrap: (element) => element,
+      wrap: (element) => element,
+      bounds: () => ({ x: 0, y: 0, w: 100, h: 100 }),
+      clipBounds: () => ({ x: 10, y: 10, w: 20, h: 20 }),
+    });
+    expect(store.getEffectiveClip(child.id)).toEqual({ x: 10, y: 10, w: 20, h: 20 });
+    expect(store.queryPoint({ x: 15, y: 15 }).map((element) => element.id)).toContain(child.id);
+    parentRegistry.unregister('test:clip');
+    expect(store.getEffectiveClip(child.id)).toBeUndefined();
+    expect(store.queryPoint({ x: 15, y: 15 }).map((element) => element.id)).not.toContain(child.id);
+  });
+
+  it('queries only the positive-area visible intersection of a clipped descendant', () => {
+    const store = new ElementStore(clipRegistry());
+    const root = clipExtension('root');
+    const child = makeNote({
+      id: 'child',
+      parentId: root.id,
+      position: { x: 0, y: 0 },
+      size: { w: 100, h: 100 },
+      index: 'a1',
+    });
+    store.add(root);
+    store.add(child);
+    expect(store.queryPoint({ x: 15, y: 15 }).map((element) => element.id)).toContain(child.id);
+    expect(store.queryPoint({ x: 50, y: 50 }).map((element) => element.id)).not.toContain(child.id);
+    expect(store.getById(child.id)).toBe(child);
+  });
   it('elementRegistry returns the constructor registry, then the one set later', () => {
     const initial = new ElementRegistry();
     const next = new ElementRegistry();
@@ -81,6 +187,46 @@ describe('ElementStore', () => {
   });
 
   describe('CRUD', () => {
+    it('keeps invalid remote descendants raw but out of scene and queries until repaired', () => {
+      const store = new ElementStore();
+      const child = makeNote({ id: 'child', parentId: 'parent' });
+      store.add(child, { origin: 'remote' });
+
+      expect(store.getById('child')).toBe(child);
+      expect(store.getAll()).toEqual([]);
+      expect(store.queryPoint({ x: 1, y: 1 })).toEqual([]);
+
+      store.add(makeNote({ id: 'parent', index: 'a0' }), { origin: 'remote' });
+      expect(store.getAll().map((element) => element.id)).toEqual(['parent', 'child']);
+    });
+
+    it('rejects local orphaning without emitting or mutating', () => {
+      const store = new ElementStore();
+      const parent = makeNote({ id: 'parent' });
+      store.add(parent);
+      const changes = vi.fn();
+      store.on('update', changes);
+
+      expect(() => store.update('parent', { parentId: 'missing' })).toThrow(/Invalid hierarchy/);
+      expect(store.getById('parent')).toBe(parent);
+      expect(changes).not.toHaveBeenCalled();
+    });
+
+    it('installs updateMany values before emitting the first update', () => {
+      const store = new ElementStore();
+      store.add(makeNote({ id: 'parent' }));
+      store.add(makeNote({ id: 'child', parentId: 'parent' }));
+      const seen: string[] = [];
+      store.on('update', () => seen.push(store.getById('child')?.layerId ?? 'missing'));
+
+      store.updateMany([
+        { id: 'parent', partial: { layerId: 'next' } },
+        { id: 'child', partial: { layerId: 'next' } },
+      ]);
+
+      expect(seen).toEqual(['next', 'next']);
+      expect(store.getAll().map((element) => element.layerId)).toEqual(['next', 'next']);
+    });
     it('starts empty', () => {
       const store = new ElementStore();
       expect(store.getAll()).toEqual([]);
@@ -543,7 +689,7 @@ describe('ElementStore', () => {
       expect(before).not.toBe(after);
     });
 
-    it('swaps a position-only update into a fresh array without re-sorting', () => {
+    it('swaps a position-only update into the warmed array without re-sorting', () => {
       const store = new ElementStore();
       store.add(makeNote({ id: 'a', index: 'a2' }));
       store.add(makeNote({ id: 'b', index: 'a0' }));
@@ -551,16 +697,16 @@ describe('ElementStore', () => {
       const before = store.getAll();
       const sort = vi.spyOn(Array.prototype, 'sort');
 
-      store.update('c', { position: { x: 40, y: 50 } });
+      store.update('c', { position: { x: 40, y: 50 } }, { origin: 'remote' });
       const after = store.getAll();
       const sorts = sort.mock.calls.length;
       sort.mockRestore();
 
-      expect(after).not.toBe(before);
+      expect(after).toBe(before);
       expect(sorts).toBe(0);
       expect(after.map((el) => el.id)).toEqual(['b', 'c', 'a']);
       expect(after[1]).toBe(store.getById('c'));
-      expect(before[1]?.position).toEqual({ x: 0, y: 0 });
+      expect(before[1]?.position).toEqual({ x: 40, y: 50 });
     });
 
     it.each([{ index: 'a5' }, { layerId: 'L0' }])('re-sorts after an update with %o', (patch) => {
@@ -1059,6 +1205,192 @@ describe('ElementStore', () => {
       }
     });
   });
+
+  it.each(['update', 'loadSnapshot'] as const)(
+    'rejects strict invalid %s before changing state',
+    (operation) => {
+      const store = new ElementStore();
+      const parent = makeNote({ id: 'parent' });
+      const child = makeNote({ id: 'child', parentId: 'parent' });
+      store.add(parent);
+      store.add(child);
+      const scene = store.getAll();
+      const events = vi.fn();
+      store.on('update', events);
+      expect(() => {
+        if (operation === 'update') store.update('child', { parentId: 'missing' });
+        else store.loadSnapshot([makeNote({ id: 'child', parentId: 'missing' })]);
+      }).toThrow(/Invalid hierarchy/);
+      expect(store.getById('parent')).toBe(parent);
+      expect(store.getById('child')).toBe(child);
+      expect(store.getAll()).toBe(scene);
+      expect(store.queryPoint({ x: 1, y: 1 }).map((element) => element.id)).toEqual([
+        'parent',
+        'child',
+      ]);
+      expect(events).not.toHaveBeenCalled();
+    },
+  );
+
+  it('rejects strict non-structural updates while remote invalid data remains raw', () => {
+    const store = new ElementStore();
+    const orphan = makeNote({ id: 'orphan', parentId: 'missing' });
+    store.add(orphan, { origin: 'remote' });
+    const events = vi.fn();
+    store.on('update', events);
+    expect(() => store.update('orphan', { text: 'still invalid' })).toThrow(/Invalid hierarchy/);
+    expect(store.getById('orphan')).toBe(orphan);
+    expect(events).not.toHaveBeenCalled();
+  });
+
+  it('retains warmed hierarchy and scene slots for strict local position updates', () => {
+    const store = new ElementStore();
+    store.add(makeNote({ id: 'parent' }));
+    store.add(makeNote({ id: 'child', parentId: 'parent' }));
+    const scene = store.getAll();
+    const hierarchy = (store as unknown as { hierarchy: unknown }).hierarchy;
+
+    store.update('child', { position: { x: 20, y: 0 } });
+
+    const child = store.getById('child');
+    expect((store as unknown as { hierarchy: unknown }).hierarchy).toBe(hierarchy);
+    expect(store.getAll()).toBe(scene);
+    expect(scene[1]).toBe(child);
+    expect(child?.position).toEqual({ x: 20, y: 0 });
+  });
+
+  it('adds to a known-valid store without enumerating the existing map', () => {
+    const store = new ElementStore();
+    store.add(makeNote({ id: 'first', index: 'a0' }));
+    const iterate = vi.spyOn(Map.prototype, Symbol.iterator);
+    const values = vi.spyOn(Map.prototype, 'values');
+
+    store.add(makeNote({ id: 'second', index: 'a1' }));
+
+    iterate.mockRestore();
+    values.mockRestore();
+    expect(iterate).not.toHaveBeenCalled();
+    expect(values).not.toHaveBeenCalled();
+    expect(store.getById('second')?.id).toBe('second');
+    expect(store.getAll().map((element) => element.id)).toEqual(['first', 'second']);
+  });
+
+  it.each([
+    ['cycle', [makeNote({ id: 'a', parentId: 'b' }), makeNote({ id: 'b', parentId: 'a' })], []],
+    [
+      'cross-layer',
+      [makeNote({ id: 'a' }), makeNote({ id: 'b', layerId: 'other', parentId: 'a' })],
+      ['a'],
+    ],
+    [
+      'depth 33',
+      Array.from({ length: 34 }, (_, index) =>
+        makeNote({ id: `d${index}`, parentId: index === 0 ? undefined : `d${index - 1}` }),
+      ),
+      Array.from({ length: 33 }, (_, index) => `d${index}`),
+    ],
+  ])('keeps remote %s graph raw while filtering invalid members', (_name, elements, visible) => {
+    const store = new ElementStore();
+    for (const element of elements) store.add(element, { origin: 'remote' });
+    expect(store.count).toBe(elements.length);
+    expect(store.getAll().map((element) => element.id)).toEqual(visible);
+    expect(store.getElementsByType('note').map((element) => element.id)).toEqual(visible);
+    expect(store.queryPoint({ x: 1, y: 1 }).map((element) => element.id)).toEqual(visible);
+  });
+
+  it('reclassifies extension relationships when the registry changes', () => {
+    const plain = new ElementRegistry();
+    const full = new ElementRegistry();
+    full.register(fullCanvasDefinition());
+    const store = new ElementStore(plain);
+    store.add(fullCanvas('extension'), { origin: 'remote' });
+    store.add(makeNote({ id: 'child', parentId: 'extension' }), { origin: 'remote' });
+    expect(store.getAll().map((element) => element.id)).toEqual(['extension', 'child']);
+    store.setElementRegistry(full);
+    expect(store.getAll().map((element) => element.id)).toEqual(['extension']);
+    store.setElementRegistry(plain);
+    expect(store.getAll().map((element) => element.id)).toEqual(['extension', 'child']);
+  });
+
+  it('filters and restores a remote relation when extensionType becomes full-canvas', () => {
+    const registry = new ElementRegistry();
+    registry.register(fullCanvasDefinition());
+    const store = new ElementStore(registry);
+    store.add({ ...fullCanvas('extension'), extensionType: 'unknown' }, { origin: 'remote' });
+    store.add(makeNote({ id: 'child', parentId: 'extension' }), { origin: 'remote' });
+    store.update('extension', { extensionType: 'test:full' }, { origin: 'remote' });
+    expect(store.getAll().map((element) => element.id)).toEqual(['extension']);
+    store.update('extension', { extensionType: 'unknown' }, { origin: 'remote' });
+    expect(store.getAll().map((element) => element.id)).toEqual(['extension', 'child']);
+  });
+
+  it('prepares note, arrow, and stroke patches in updateMany as update does', () => {
+    const store = new ElementStore();
+    store.add(makeNote({ id: 'note' }));
+    const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 10, y: 10 } });
+    store.add(arrow);
+    store.add(makeStroke({ id: 'stroke' }));
+    store.updateMany([
+      { id: 'note', partial: { text: '<img src=x onerror=alert(1)>safe' } },
+      { id: arrow.id, partial: { bend: 20 } },
+      { id: 'stroke', partial: { position: { x: 3, y: 4 } } },
+    ]);
+    expect(store.getById('note')).toMatchObject({ text: 'safe', version: 2 });
+    expect(store.getById(arrow.id)).toMatchObject({ bend: 20, version: 2 });
+    const updatedArrow = store.getById(arrow.id);
+    expect(updatedArrow?.type === 'arrow' && updatedArrow.cachedControlPoint).toBeDefined();
+    expect(store.getById('stroke')?.version).toBe(2);
+  });
+
+  it('exposes final scene and spatial values before the first updateMany event', () => {
+    const store = new ElementStore();
+    store.add(makeNote({ id: 'a', position: { x: 0, y: 0 } }));
+    store.add(makeNote({ id: 'b', position: { x: 30, y: 0 } }));
+    store.on('update', () => {
+      expect(store.getAll().map((element) => element.position.x)).toEqual([10, 40]);
+      expect(store.queryPoint({ x: 40, y: 1 }).map((element) => element.id)).toEqual(['b']);
+    });
+    store.updateMany([
+      { id: 'a', partial: { position: { x: 10, y: 0 } } },
+      { id: 'b', partial: { position: { x: 40, y: 0 } } },
+    ]);
+  });
+
+  it('retains non-structural and replaces structural warmed hierarchy in updateMany', () => {
+    const store = new ElementStore();
+    store.add(makeNote({ id: 'parent' }));
+    store.add(makeNote({ id: 'child', parentId: 'parent' }));
+    store.getAll();
+    const warmed = (store as unknown as { hierarchy: unknown }).hierarchy;
+    store.updateMany([{ id: 'child', partial: { position: { x: 2, y: 0 } } }], {
+      origin: 'remote',
+    });
+    expect((store as unknown as { hierarchy: unknown }).hierarchy).toBe(warmed);
+    store.updateMany([
+      { id: 'parent', partial: { layerId: 'next' } },
+      { id: 'child', partial: { layerId: 'next' } },
+    ]);
+    expect((store as unknown as { hierarchy: unknown }).hierarchy).not.toBe(warmed);
+  });
+
+  it('updates mixed batches only for existing ids and rolls back invalid final graphs', () => {
+    const store = new ElementStore();
+    store.add(makeNote({ id: 'parent' }));
+    store.add(makeNote({ id: 'child', parentId: 'parent' }));
+    const updates: string[] = [];
+    store.on('update', ({ current }) => updates.push(current.id));
+    store.updateMany([
+      { id: 'missing', partial: { text: 'no' } },
+      { id: 'child', partial: { text: 'yes' } },
+    ]);
+    expect(updates).toEqual(['child']);
+    const child = store.getById('child');
+    expect(() => store.updateMany([{ id: 'parent', partial: { layerId: 'next' } }])).toThrow(
+      /Invalid hierarchy/,
+    );
+    expect(store.getById('child')).toBe(child);
+    expect(store.getById('parent')?.layerId).toBe('');
+  });
 });
 
 describe('ElementStore extension dataVersion stamping', () => {
@@ -1315,5 +1647,256 @@ describe('ElementStore order keys and versions', () => {
     expect(ids(store).filter((id) => id !== 'b')).toEqual(['placed', 'c', 'a']);
     expect(store.getById('b')?.index).not.toBe('');
     expect(store.getAll().every((el) => el.index !== '')).toBe(true);
+  });
+
+  it.each([undefined, 'local', 'host', 'storage'])('keeps %s hierarchy writes strict', (origin) => {
+    const store = new ElementStore();
+    expect(() => store.add(makeNote({ parentId: 'missing' }), { origin })).toThrow(
+      /Invalid hierarchy/,
+    );
+    expect(store.count).toBe(0);
+  });
+
+  it('allows only exact remote invalid data, filters every query, and repairs it', () => {
+    const store = new ElementStore();
+    store.add(makeNote({ id: 'child', parentId: 'parent' }), { origin: 'remote' });
+    expect(store.count).toBe(1);
+    expect(store.getById('child')).toBeDefined();
+    expect(store.getAll()).toEqual([]);
+    expect(store.getElementsByType('note')).toEqual([]);
+    expect(store.queryPoint({ x: 1, y: 1 })).toEqual([]);
+    store.add(makeNote({ id: 'parent' }), { origin: 'remote' });
+    expect(ids(store)).toEqual(['parent', 'child']);
+  });
+
+  it('does not mutate warmed projections, spatial results, versions, or emit on strict failure', () => {
+    const store = new ElementStore();
+    const parent = makeNote({ id: 'parent' });
+    const child = makeNote({ id: 'child', parentId: 'parent' });
+    store.add(parent);
+    store.add(child);
+    const scene = store.getAll();
+    const version = store.getVersion('parent');
+    const events = vi.fn();
+    store.on('update', events);
+    expect(() => store.remove('parent')).toThrow(/Invalid hierarchy/);
+    expect(store.getById('parent')).toBe(parent);
+    expect(store.getVersion('parent')).toBe(version);
+    expect(store.getAll()).toBe(scene);
+    expect(store.queryPoint({ x: 1, y: 1 }).map((element) => element.id)).toEqual([
+      'parent',
+      'child',
+    ]);
+    expect(events).not.toHaveBeenCalled();
+  });
+
+  it('returns copied hierarchy arrays and empty arrays for unknown or invalid nodes', () => {
+    const store = new ElementStore();
+    store.add(makeNote({ id: 'parent' }));
+    store.add(makeNote({ id: 'child', parentId: 'parent' }));
+    const children = store.getChildren('parent') as CanvasElement[];
+    children.pop();
+    expect(store.getChildren('parent').map((element) => element.id)).toEqual(['child']);
+    expect(store.getDescendants('unknown')).toEqual([]);
+    store.add(makeNote({ id: 'bad', parentId: 'missing' }), { origin: 'remote' });
+    expect(store.getChildren('bad')).toEqual([]);
+  });
+
+  it('treats duplicate ids as errors and all-missing batches as silent no-ops', () => {
+    const store = new ElementStore();
+    store.add(makeNote({ id: 'bad', parentId: 'missing' }), { origin: 'remote' });
+    const changes = vi.fn();
+    store.on('update', changes);
+    expect(() =>
+      store.updateMany([
+        { id: 'none', partial: {} },
+        { id: 'none', partial: {} },
+      ]),
+    ).toThrow(/Duplicate/);
+    store.updateMany([{ id: 'none', partial: { text: 'ignored' } }]);
+    expect(store.getVersion('bad')).toBe(0);
+    expect(changes).not.toHaveBeenCalled();
+  });
+
+  it('updates a parent and child atomically into a new layer and emits input order with meta', () => {
+    const store = new ElementStore();
+    store.add(makeNote({ id: 'parent' }));
+    store.add(makeNote({ id: 'child', parentId: 'parent' }));
+    const events: string[] = [];
+    store.on('update', ({ current }, meta) => events.push(`${current.id}:${meta.origin}`));
+    store.updateMany(
+      [
+        { id: 'child', partial: { layerId: 'next' } },
+        { id: 'parent', partial: { layerId: 'next' } },
+      ],
+      { origin: 'remote' },
+    );
+    expect(events).toEqual(['child:remote', 'parent:remote']);
+    expect(store.getAll().map((element) => element.layerId)).toEqual(['next', 'next']);
+  });
+
+  it('keeps a warmed hierarchy for exact-remote position updates and rebuilds it for relation repair', () => {
+    const store = new ElementStore();
+    store.add(makeNote({ id: 'parent' }));
+    store.add(makeNote({ id: 'child', parentId: 'parent' }));
+    store.getAll();
+    const before = (store as unknown as { hierarchy: unknown }).hierarchy;
+    store.update('child', { position: { x: 20, y: 0 } }, { origin: 'remote' });
+    expect((store as unknown as { hierarchy: unknown }).hierarchy).toBe(before);
+    store.update('child', { parentId: undefined }, { origin: 'remote' });
+    expect((store as unknown as { hierarchy: unknown }).hierarchy).not.toBe(before);
+  });
+
+  it('keeps a warmed scene as a pre-batch snapshot for mixed structural updates', () => {
+    const store = new ElementStore();
+    store.add(makeNote({ id: 'text', text: 'before' }));
+    store.add(makeNote({ id: 'layer', index: 'a1' }));
+    const before = store.getAll();
+
+    store.updateMany([
+      { id: 'text', partial: { text: 'after' } },
+      { id: 'layer', partial: { layerId: 'next' } },
+    ]);
+
+    expect(
+      before.map((element) => `${element.id}:${element.type === 'note' ? element.text : ''}`),
+    ).toEqual(['text:before', 'layer:Hello']);
+    expect(
+      store
+        .getAll()
+        .map(
+          (element) =>
+            `${element.id}:${element.layerId}:${element.type === 'note' ? element.text : ''}`,
+        ),
+    ).toEqual(['text::after', 'layer:next:Hello']);
+  });
+
+  it('keeps a valid remote structural batch known valid for strict updates', () => {
+    const store = new ElementStore();
+    store.add(makeNote({ id: 'parent' }));
+    store.add(makeNote({ id: 'child', parentId: 'parent' }));
+
+    store.updateMany(
+      [
+        { id: 'child', partial: { parentId: undefined } },
+        { id: 'parent', partial: { layerId: 'next' } },
+      ],
+      { origin: 'remote' },
+    );
+    const iterate = vi.spyOn(Map.prototype, Symbol.iterator);
+    const values = vi.spyOn(Map.prototype, 'values');
+
+    try {
+      store.update('child', { text: 'updated locally' });
+
+      expect(store.getById('child')).toMatchObject({
+        text: 'updated locally',
+        parentId: undefined,
+      });
+      expect(iterate).not.toHaveBeenCalled();
+      expect(values).not.toHaveBeenCalled();
+    } finally {
+      iterate.mockRestore();
+      values.mockRestore();
+    }
+  });
+
+  it('filters remote full-canvas relations and rejects their strict equivalent', () => {
+    const registry = new ElementRegistry();
+    registry.register(fullCanvasDefinition());
+    const remote = new ElementStore(registry);
+    remote.add(fullCanvas('full'), { origin: 'remote' });
+    remote.add(makeNote({ id: 'child', parentId: 'full' }), { origin: 'remote' });
+    expect(remote.count).toBe(2);
+    expect(ids(remote)).toEqual(['full']);
+    const strict = new ElementStore(registry);
+    strict.add(fullCanvas('full'));
+    expect(() => strict.add(makeNote({ id: 'child', parentId: 'full' }))).toThrow(
+      /Invalid hierarchy/,
+    );
+  });
+
+  it('reorders only roots or siblings, never nested descendants or cousins', () => {
+    const store = new ElementStore();
+    store.add(makeNote({ id: 'root-a', index: 'a0' }));
+    store.add(makeNote({ id: 'child-a', index: 'a1', parentId: 'root-a' }));
+    store.add(makeNote({ id: 'child-b', index: 'a2', parentId: 'root-a' }));
+    store.add(makeNote({ id: 'root-b', index: 'a3' }));
+    store.bringToFront('root-a');
+    expect(ids(store)).toEqual(['root-b', 'root-a', 'child-a', 'child-b']);
+    store.bringToFront('child-a');
+    expect(store.getChildren('root-a').map((element) => element.id)).toEqual([
+      'child-b',
+      'child-a',
+    ]);
+  });
+
+  it.each([
+    ['bringToFront', 'root-a', ['root-b', 'root-c', 'root-a', 'child-a', 'grandchild']],
+    ['sendToBack', 'root-c', ['root-c', 'root-a', 'child-a', 'grandchild', 'root-b']],
+    ['bringForward', 'root-a', ['root-b', 'root-a', 'child-a', 'grandchild', 'root-c']],
+    ['sendBackward', 'root-c', ['root-a', 'child-a', 'grandchild', 'root-c', 'root-b']],
+  ] as const)(
+    '%s keeps a root subtree contiguous without changing descendants',
+    (operation, id, order) => {
+      const store = new ElementStore();
+      store.add(makeNote({ id: 'root-a', index: 'a0' }));
+      store.add(makeNote({ id: 'child-a', index: 'a1', parentId: 'root-a' }));
+      store.add(makeNote({ id: 'grandchild', index: 'a2', parentId: 'child-a' }));
+      store.add(makeNote({ id: 'root-b', index: 'a3' }));
+      store.add(makeNote({ id: 'root-c', index: 'a4' }));
+
+      store[operation](id);
+
+      expect(ids(store)).toEqual(order);
+      expect(store.getVersion('child-a')).toBe(0);
+      expect(store.getVersion('grandchild')).toBe(0);
+      expect(store.getById('child-a')?.index).toBe('a1');
+      expect(store.getById('grandchild')?.index).toBe('a2');
+    },
+  );
+
+  it.each([
+    [
+      'bringToFront',
+      'child-a',
+      ['child-b', 'child-a'],
+      ['root-a', 'child-b', 'child-a', 'grandchild', 'root-b', 'cousin'],
+    ],
+    [
+      'sendToBack',
+      'child-b',
+      ['child-b', 'child-a'],
+      ['root-a', 'child-b', 'child-a', 'grandchild', 'root-b', 'cousin'],
+    ],
+    [
+      'bringForward',
+      'child-a',
+      ['child-b', 'child-a'],
+      ['root-a', 'child-b', 'child-a', 'grandchild', 'root-b', 'cousin'],
+    ],
+    [
+      'sendBackward',
+      'child-b',
+      ['child-b', 'child-a'],
+      ['root-a', 'child-b', 'child-a', 'grandchild', 'root-b', 'cousin'],
+    ],
+  ] as const)('%s reorders only direct siblings', (operation, id, children, order) => {
+    const store = new ElementStore();
+    store.add(makeNote({ id: 'root-a', index: 'a0' }));
+    store.add(makeNote({ id: 'child-a', index: 'a1', parentId: 'root-a' }));
+    store.add(makeNote({ id: 'grandchild', index: 'a2', parentId: 'child-a' }));
+    store.add(makeNote({ id: 'child-b', index: 'a3', parentId: 'root-a' }));
+    store.add(makeNote({ id: 'root-b', index: 'a4' }));
+    store.add(makeNote({ id: 'cousin', index: 'a5', parentId: 'root-b' }));
+
+    store[operation](id);
+
+    expect(store.getChildren('root-a').map((element) => element.id)).toEqual(children);
+    expect(ids(store)).toEqual(order);
+    expect(store.getVersion('grandchild')).toBe(0);
+    expect(store.getVersion('cousin')).toBe(0);
+    expect(store.getById('grandchild')?.index).toBe('a2');
+    expect(store.getById('cousin')?.index).toBe('a5');
   });
 });

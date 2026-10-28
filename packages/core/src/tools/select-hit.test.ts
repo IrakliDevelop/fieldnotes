@@ -6,10 +6,13 @@ import {
   hitTestResizeHandle,
   hitTest,
   hitTestExtensionHandle,
+  hitTestRotateHandle,
+  hitTestLineHandles,
+  findElementsInRect,
 } from './select-hit';
 import { ElementStore } from '../elements/element-store';
 import { Camera } from '../canvas/camera';
-import { createNote, createStroke, createArrow } from '../elements/element-factory';
+import { createNote, createStroke, createArrow, createShape } from '../elements/element-factory';
 import type { ToolContext } from './types';
 import { ElementRegistry } from '../elements/element-registry';
 import type { ExtensionElementEnvelope } from '../elements/types';
@@ -40,6 +43,27 @@ describe('rectsOverlap', () => {
 });
 
 describe('isInsideBounds', () => {
+  it('falls through a clipped top candidate to the lower visible element', () => {
+    const ctx = makeCtx();
+    const lower = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 }, index: 'a' });
+    const upper = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 }, index: 'b' });
+    ctx.store.add(lower);
+    ctx.store.add(upper);
+    vi.spyOn(ctx.store, 'getEffectiveClip').mockImplementation((id) =>
+      id === upper.id ? { x: 50, y: 50, w: 10, h: 10 } : null,
+    );
+    expect(hitTest({ x: 10, y: 10 }, ctx)?.id).toBe(lower.id);
+  });
+  it('rejects a raw body hit outside its effective ancestor clip', () => {
+    const element = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
+    const store = new ElementStore();
+    store.add(element);
+    const ctx = makeCtx({ store });
+    vi.spyOn(store, 'getEffectiveClip').mockReturnValue({ x: 10, y: 10, w: 20, h: 20 });
+    expect(isInsideBounds({ x: 5, y: 5 }, element)).toBe(true);
+    expect(isInsideBounds({ x: 5, y: 5 }, element, ctx)).toBe(false);
+    expect(isInsideBounds({ x: 15, y: 15 }, element, ctx)).toBe(true);
+  });
   // A 200x100 note at (0,0) rotated 90° sweeps a footprint that is tall and narrow
   // around its center (100, 50): roughly x in [50,150], y in [-50,150].
   const note = createNote({ position: { x: 0, y: 0 }, size: { w: 200, h: 100 } });
@@ -89,6 +113,19 @@ describe('isInsideBounds', () => {
 });
 
 describe('hitTestResizeHandle', () => {
+  it('rejects resize, rotate, line, extension and marquee geometry outside a clip', () => {
+    const ctx = makeCtx();
+    const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
+    const line = createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 0 }, shape: 'line' });
+    ctx.store.add(note);
+    ctx.store.add(line);
+    vi.spyOn(ctx.store, 'getEffectiveClip').mockReturnValue({ x: 40, y: 40, w: 20, h: 20 });
+    expect(hitTestResizeHandle({ x: 100, y: 100 }, ctx, [note.id])).toBeNull();
+    expect(hitTestRotateHandle({ x: 50, y: -20 }, ctx, [note.id])).toBeNull();
+    expect(hitTestLineHandles({ x: 0, y: 0 }, ctx, [line.id])).toBeNull();
+    expect(findElementsInRect({ x: 0, y: 0, w: 20, h: 20 }, ctx)).toEqual([]);
+    expect(findElementsInRect({ x: 45, y: 45, w: 10, h: 10 }, ctx)).toEqual([note.id]);
+  });
   it('returns null for a locked selected element', () => {
     const ctx = makeCtx();
     const note = createNote({ position: { x: 0, y: 0 }, size: { w: 200, h: 100 }, locked: true });

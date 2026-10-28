@@ -19,6 +19,9 @@ import {
   createText,
 } from '../elements/element-factory';
 import type { CanvasElement } from '../elements/types';
+import type { Bounds } from '../core/types';
+import type { ExtensionElementEnvelope } from '../elements/types';
+import { ElementRegistry } from '../elements/element-registry';
 import type { HtmlPainterRegistry } from './html-painter-registry';
 import { createRenderHooks } from './render-hooks';
 import type { Camera } from './camera';
@@ -57,6 +60,8 @@ interface Recorder {
   globalCompositeOperation: string;
   drawImageLog: DrawImageEntry[];
   fillRectLog: FillRectEntry[];
+  activeClip: [number, number, number, number] | null;
+  clipRects: [number, number, number, number][];
   clearRect: ReturnType<typeof vi.fn>;
   fillRect: ReturnType<typeof vi.fn>;
   strokeRect: ReturnType<typeof vi.fn>;
@@ -92,6 +97,8 @@ interface Recorder {
 function makeRecorder(): Recorder {
   const drawImageLog: DrawImageEntry[] = [];
   const fillRectLog: FillRectEntry[] = [];
+  const clipStack: ([number, number, number, number] | null)[] = [];
+  let currentRect: [number, number, number, number] | null = null;
   const recorder: Recorder = {
     fillStyle: '#000000',
     strokeStyle: '#000000',
@@ -105,6 +112,8 @@ function makeRecorder(): Recorder {
     globalCompositeOperation: 'source-over',
     drawImageLog,
     fillRectLog,
+    activeClip: null,
+    clipRects: [],
     clearRect: vi.fn(),
     fillRect: vi.fn((x: number, y: number, w: number, h: number) => {
       fillRectLog.push({ args: [x, y, w, h], fillStyle: recorder.fillStyle });
@@ -114,8 +123,10 @@ function makeRecorder(): Recorder {
       drawImageLog.push({ args, alpha: recorder.globalAlpha });
     }),
     setTransform: vi.fn(),
-    save: vi.fn(),
-    restore: vi.fn(),
+    save: vi.fn(() => clipStack.push(recorder.activeClip)),
+    restore: vi.fn(() => {
+      recorder.activeClip = clipStack.pop() ?? null;
+    }),
     translate: vi.fn(),
     scale: vi.fn(),
     rotate: vi.fn(),
@@ -129,8 +140,13 @@ function makeRecorder(): Recorder {
     quadraticCurveTo: vi.fn(),
     bezierCurveTo: vi.fn(),
     ellipse: vi.fn(),
-    rect: vi.fn(),
-    clip: vi.fn(),
+    rect: vi.fn((x: number, y: number, w: number, h: number) => {
+      currentRect = [x, y, w, h];
+    }),
+    clip: vi.fn(() => {
+      recorder.activeClip = currentRect;
+      if (currentRect) recorder.clipRects.push(currentRect);
+    }),
     fillText: vi.fn(),
     measureText: vi.fn(() => ({ width: 0 })),
     createPattern: vi.fn(() => null),
@@ -254,6 +270,48 @@ function makeController(
     cancelFrame: queue.cancelFrame,
     ...overrides,
   });
+}
+
+function createClipRegistry(): ElementRegistry {
+  const registry = new ElementRegistry();
+  registry.register<ExtensionElementEnvelope>({
+    type: 'test:clip',
+    legacyTypes: [],
+    decodeLegacy: () => {
+      throw new Error('no legacy');
+    },
+    validateData: () => true,
+    unwrap: (element) => element,
+    wrap: (element) => element,
+    bounds: (element) => ({
+      x: element.position.x,
+      y: element.position.y,
+      w: 10,
+      h: 10,
+    }),
+    clipBounds: (element) => element.data.clip as Bounds,
+  });
+  return registry;
+}
+
+function clipElement(
+  id: string,
+  layerId: string,
+  clip: Bounds,
+  parentId?: string,
+): ExtensionElementEnvelope {
+  return {
+    id,
+    type: 'extension',
+    extensionType: 'test:clip',
+    position: { x: 0, y: 0 },
+    index: '',
+    version: 1,
+    locked: false,
+    layerId,
+    parentId,
+    data: { clip },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -727,6 +785,389 @@ describe('MinimapController', () => {
     expect(afterElements).toHaveBeenCalledWith(
       expect.objectContaining({ worldBounds: { x: 0, y: 0, w: 5100, h: 5100 } }),
     );
+
+    controller.dispose();
+    viewport.destroy();
+  });
+
+  it('renders extensions registered after minimap construction', () => {
+    const elementRegistry = new ElementRegistry();
+    const { viewport } = makeViewportHarness({ elementRegistry });
+    const queue = makeFrameQueue();
+    const controller = makeController(viewport, document.createElement('canvas'), queue);
+    queue.flush();
+
+    const element: ExtensionElementEnvelope = {
+      id: 'extension',
+      type: 'extension',
+      extensionType: 'test:late-extension',
+      position: { x: 20, y: 30 },
+      index: 'a0',
+      version: 1,
+      locked: false,
+      layerId: viewport.layerManager.activeLayerId,
+      data: {},
+    };
+    const render = vi.fn();
+    elementRegistry.register<ExtensionElementEnvelope>({
+      type: element.extensionType,
+      legacyTypes: [],
+      decodeLegacy: () => element,
+      validateData: () => true,
+      unwrap: (extension) => extension,
+      wrap: (extension) => extension,
+      bounds: (extension) => ({
+        x: extension.position.x,
+        y: extension.position.y,
+        w: 40,
+        h: 50,
+      }),
+      render,
+    });
+    viewport.store.add(element);
+
+    vi.advanceTimersByTime(200);
+    queue.flush();
+
+    expect(render).toHaveBeenCalledWith(expect.anything(), element, [element], undefined);
+
+    controller.dispose();
+    viewport.destroy();
+  });
+
+  it('renders full-canvas extensions with the minimap mapping bounds', () => {
+    const elementRegistry = new ElementRegistry();
+    const { viewport } = makeViewportHarness({ elementRegistry });
+    const element: ExtensionElementEnvelope = {
+      id: 'full-canvas-extension',
+      type: 'extension',
+      extensionType: 'test:full-canvas',
+      position: { x: 0, y: 0 },
+      index: 'a0',
+      version: 1,
+      locked: false,
+      layerId: viewport.layerManager.activeLayerId,
+      data: {},
+    };
+    const render = vi.fn();
+    elementRegistry.register<ExtensionElementEnvelope>({
+      type: element.extensionType,
+      legacyTypes: [],
+      decodeLegacy: () => element,
+      validateData: () => true,
+      unwrap: (extension) => extension,
+      wrap: (extension) => extension,
+      bounds: () => null,
+      fullCanvas: true,
+      render,
+    });
+    viewport.store.add(element);
+
+    const queue = makeFrameQueue();
+    const controller = makeController(viewport, document.createElement('canvas'), queue);
+
+    expect(render).toHaveBeenCalledWith(expect.anything(), element, [element], {
+      minX: 0,
+      minY: 0,
+      maxX: 800,
+      maxY: 600,
+    });
+
+    controller.dispose();
+    viewport.destroy();
+  });
+
+  it('clips descendants without clipping their parent or changing the raw-bounds mapping', () => {
+    const rootClip = { x: 10, y: 20, w: 80, h: 70 };
+    const nestedClip = { x: 50, y: 0, w: 80, h: 60 };
+    const elementRegistry = createClipRegistry();
+    const { viewport } = makeViewportHarness({ elementRegistry });
+    const layerId = viewport.layerManager.activeLayerId;
+    const root = clipElement('root', layerId, rootClip);
+    const nested = {
+      ...clipElement('nested', layerId, nestedClip, root.id),
+      position: { x: 15, y: 25 },
+    };
+    const child = createStroke({
+      points: [
+        { x: 30, y: 30, pressure: 1 },
+        { x: 70, y: 40, pressure: 1 },
+      ],
+      layerId,
+      parentId: root.id,
+    });
+    const grandchild = createStroke({
+      points: [
+        { x: 60, y: 30, pressure: 1 },
+        { x: 80, y: 40, pressure: 1 },
+      ],
+      layerId,
+      parentId: nested.id,
+    });
+    const disjoint = createStroke({
+      points: [
+        { x: 1200, y: 200, pressure: 1 },
+        { x: 1220, y: 220, pressure: 1 },
+      ],
+      layerId,
+      parentId: root.id,
+    });
+    viewport.store.add(root);
+    viewport.store.add(nested);
+    viewport.store.add(child);
+    viewport.store.add(grandchild);
+    viewport.store.add(disjoint);
+
+    const queue = makeFrameQueue();
+    const controller = makeController(viewport, document.createElement('canvas'), queue);
+    queue.flush();
+
+    expect(
+      rendererSpy.mock.calls.map(([, element]: [unknown, CanvasElement]) => element.id),
+    ).toEqual([root.id, nested.id, grandchild.id, child.id]);
+    expect(recorder.rect.mock.calls).toEqual([
+      [10, 20, 80, 70],
+      [50, 20, 40, 40],
+      [10, 20, 80, 70],
+    ]);
+    const stroke = recorder.strokeRect.mock.calls.at(-1);
+    if (!stroke) throw new Error('expected viewport indicator');
+    const rawMapping = computeMinimapTransform({ x: 0, y: 0, w: 1220, h: 600 }, 200, 140, 8);
+    expect(stroke).toEqual([
+      worldToMini(rawMapping, { x: 0, y: 0 }).x,
+      worldToMini(rawMapping, { x: 0, y: 0 }).y,
+      800 * rawMapping.scale,
+      600 * rawMapping.scale,
+    ]);
+
+    controller.dispose();
+    viewport.destroy();
+  });
+
+  it('skips a zero-width effective clip before rendering', () => {
+    const { viewport } = makeViewportHarness();
+    const layerId = viewport.layerManager.activeLayerId;
+    const stroke = createStroke({
+      points: [
+        { x: 20, y: 20, pressure: 1 },
+        { x: 40, y: 40, pressure: 1 },
+      ],
+      layerId,
+    });
+    viewport.store.add(stroke);
+    vi.spyOn(viewport.store, 'getEffectiveClip').mockReturnValue({ x: 30, y: 0, w: 0, h: 50 });
+
+    const controller = makeController(viewport, document.createElement('canvas'), makeFrameQueue());
+
+    expect(rendererSpy).not.toHaveBeenCalled();
+
+    controller.dispose();
+    viewport.destroy();
+  });
+
+  it('clips DOM fallbacks in minimap coordinates without changing their minimum fill', () => {
+    const { viewport } = makeViewportHarness({ elementRegistry: createClipRegistry() });
+    const layerId = viewport.layerManager.activeLayerId;
+    const root = clipElement('root', layerId, { x: 10, y: 20, w: 80, h: 70 });
+    viewport.store.add(root);
+    viewport.store.add(
+      createNote({
+        position: { x: 12, y: 22 },
+        size: { w: 0.1, h: 0.1 },
+        layerId,
+        parentId: root.id,
+      }),
+    );
+    const controller = makeController(viewport, document.createElement('canvas'), makeFrameQueue());
+    const transform = computeMinimapTransform({ x: 0, y: 0, w: 800, h: 600 }, 200, 140, 8);
+    const clipTl = worldToMini(transform, { x: 10, y: 20 });
+
+    expect(recorder.rect).toHaveBeenCalledWith(
+      clipTl.x,
+      clipTl.y,
+      80 * transform.scale,
+      70 * transform.scale,
+    );
+    expect(recorder.fillRectLog.at(-1)?.args.slice(2)).toEqual([1, 1]);
+
+    controller.dispose();
+    viewport.destroy();
+  });
+
+  it('applies the effective clip before a canvas-routed HTML painter', () => {
+    const { viewport } = makeViewportHarness({ elementRegistry: createClipRegistry() });
+    const layerId = viewport.layerManager.activeLayerId;
+    const root = clipElement('root', layerId, { x: 10, y: 20, w: 80, h: 70 });
+    const html = createHtmlElement({
+      position: { x: 20, y: 30 },
+      size: { w: 10, h: 10 },
+      layerId,
+      parentId: root.id,
+      htmlType: 'test:canvas',
+    });
+    viewport.store.add(root);
+    viewport.store.add(html);
+    let painterSawEffectiveClip = false;
+    const painter = vi.fn(() => {
+      painterSawEffectiveClip = recorder.clipRects.some((clip) =>
+        clip.every((value, index) => value === [10, 20, 80, 70][index]),
+      );
+    });
+    viewport.getHtmlPainters().expect(['test:canvas']);
+    viewport.getHtmlPainters().register('test:canvas', painter);
+
+    const controller = makeController(viewport, document.createElement('canvas'), makeFrameQueue());
+
+    expect(painter).toHaveBeenCalledOnce();
+    expect(painterSawEffectiveClip).toBe(true);
+
+    controller.dispose();
+    viewport.destroy();
+  });
+
+  it('keeps clips scoped to opaque and translucent layer elements', () => {
+    const { viewport } = makeViewportHarness({ elementRegistry: createClipRegistry() });
+    const opaqueLayer = viewport.layerManager.activeLayerId;
+    const translucentLayer = viewport.layerManager.createLayer('Translucent');
+    viewport.layerManager.setLayerOpacity(translucentLayer.id, 0.5);
+    const opaqueRoot = clipElement('opaque-root', opaqueLayer, { x: 10, y: 20, w: 30, h: 40 });
+    const translucentRoot = clipElement('translucent-root', translucentLayer.id, {
+      x: 50,
+      y: 60,
+      w: 30,
+      h: 40,
+    });
+    viewport.store.add(opaqueRoot);
+    viewport.store.add(translucentRoot);
+    const opaqueChild = createStroke({
+      points: [
+        { x: 15, y: 25, pressure: 1 },
+        { x: 20, y: 30, pressure: 1 },
+      ],
+      layerId: opaqueLayer,
+      parentId: opaqueRoot.id,
+    });
+    const translucentChild = createStroke({
+      points: [
+        { x: 55, y: 65, pressure: 1 },
+        { x: 60, y: 70, pressure: 1 },
+      ],
+      layerId: translucentLayer.id,
+      parentId: translucentRoot.id,
+    });
+    viewport.store.add(opaqueChild);
+    viewport.store.add(translucentChild);
+    const opaqueSibling = createStroke({
+      points: [
+        { x: 100, y: 100, pressure: 1 },
+        { x: 110, y: 110, pressure: 1 },
+      ],
+      layerId: opaqueLayer,
+    });
+    const translucentSibling = createStroke({
+      points: [
+        { x: 120, y: 120, pressure: 1 },
+        { x: 130, y: 130, pressure: 1 },
+      ],
+      layerId: translucentLayer.id,
+    });
+    viewport.store.add(opaqueSibling);
+    viewport.store.add(translucentSibling);
+    const rendered: { id: string; clip: [number, number, number, number] | null }[] = [];
+    rendererSpy.mockImplementation((_ctx: CanvasRenderingContext2D, element: CanvasElement) => {
+      rendered.push({ id: element.id, clip: recorder.activeClip });
+    });
+
+    const controller = makeController(viewport, document.createElement('canvas'), makeFrameQueue());
+
+    const opaqueChildIndex = rendered.findIndex((entry) => entry.id === opaqueChild.id);
+    const translucentChildIndex = rendered.findIndex((entry) => entry.id === translucentChild.id);
+    const opaqueSiblingIndex = rendered.findIndex((entry) => entry.id === opaqueSibling.id);
+    const translucentSiblingIndex = rendered.findIndex(
+      (entry) => entry.id === translucentSibling.id,
+    );
+    expect(rendered[opaqueChildIndex]?.clip).toEqual([10, 20, 30, 40]);
+    expect(rendered[translucentChildIndex]?.clip).toEqual([50, 60, 30, 40]);
+    expect(opaqueChildIndex).toBeLessThan(opaqueSiblingIndex);
+    expect(translucentChildIndex).toBeLessThan(translucentSiblingIndex);
+    expect(rendered[opaqueSiblingIndex]?.clip).toBeNull();
+    expect(rendered[translucentSiblingIndex]?.clip).toBeNull();
+    const layerComposite = layerCompositeCalls();
+    expect(layerComposite).toHaveLength(1);
+    expect(layerComposite[0]?.alpha).toBe(0.5);
+    const compositeCall = recorder.drawImage.mock.calls.findIndex((args) => args.length === 3);
+    expect(recorder.drawImage.mock.invocationCallOrder[compositeCall]).toBeGreaterThan(
+      rendererSpy.mock.invocationCallOrder.at(-1) ?? 0,
+    );
+
+    controller.dispose();
+    viewport.destroy();
+  });
+
+  it('skips a descendant whose unresolved extension parent fails closed', () => {
+    const { viewport } = makeViewportHarness();
+    const layerId = viewport.layerManager.activeLayerId;
+    const parent = {
+      ...clipElement('unresolved', layerId, { x: 10, y: 20, w: 80, h: 70 }),
+      extensionType: 'missing',
+    };
+    const child = createStroke({
+      points: [
+        { x: 30, y: 30, pressure: 1 },
+        { x: 40, y: 40, pressure: 1 },
+      ],
+      layerId,
+      parentId: parent.id,
+    });
+    viewport.store.add(parent);
+    viewport.store.add(child);
+
+    expect(viewport.store.getEffectiveClip(child.id)).toBeUndefined();
+    const controller = makeController(viewport, document.createElement('canvas'), makeFrameQueue());
+
+    expect(
+      rendererSpy.mock.calls.map(([, element]: [unknown, CanvasElement]) => element.id),
+    ).toEqual([parent.id]);
+
+    controller.dispose();
+    viewport.destroy();
+  });
+
+  it('rebuilds with an ancestor’s updated clip after the configured debounce', () => {
+    const { viewport } = makeViewportHarness({ elementRegistry: createClipRegistry() });
+    const layerId = viewport.layerManager.activeLayerId;
+    const root = clipElement('root', layerId, { x: 10, y: 20, w: 80, h: 70 });
+    const visible = createStroke({
+      points: [
+        { x: 30, y: 30, pressure: 1 },
+        { x: 40, y: 40, pressure: 1 },
+      ],
+      layerId,
+      parentId: root.id,
+    });
+    viewport.store.add(root);
+    viewport.store.add(visible);
+    const controller = makeController(
+      viewport,
+      document.createElement('canvas'),
+      makeFrameQueue(),
+      {
+        debounceMs: 25,
+      },
+    );
+
+    expect(
+      rendererSpy.mock.calls.map(([, element]: [unknown, CanvasElement]) => element.id),
+    ).toEqual([root.id, visible.id]);
+    recorder.rect.mockClear();
+    viewport.store.update(root.id, { data: { clip: { x: 30, y: 20, w: 40, h: 70 } } });
+    vi.advanceTimersByTime(24);
+
+    expect(recorder.rect).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(1);
+
+    expect(recorder.rect).toHaveBeenCalledWith(30, 20, 40, 70);
 
     controller.dispose();
     viewport.destroy();

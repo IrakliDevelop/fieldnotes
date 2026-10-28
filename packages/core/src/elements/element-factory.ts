@@ -23,6 +23,12 @@ interface BaseDefaults {
   version?: number;
   locked?: boolean;
   layerId?: string;
+  parentId?: string;
+}
+
+function addParent<T extends { parentId?: string }>(element: T, parentId: string | undefined): T {
+  if (parentId !== undefined) element.parentId = parentId;
+  return element;
 }
 
 interface StrokeInput extends BaseDefaults {
@@ -95,24 +101,27 @@ export function createStroke(input: StrokeInput): StrokeElement {
     opacity: input.opacity ?? 1,
   };
   if (input.blendMode) result.blendMode = input.blendMode;
-  return result;
+  return addParent(result, input.parentId);
 }
 
 export function createNote(input: NoteInput): NoteElement {
-  return {
-    id: createId('note'),
-    type: 'note',
-    position: input.position,
-    index: input.index ?? '',
-    version: input.version ?? 1,
-    locked: input.locked ?? false,
-    layerId: input.layerId ?? '',
-    size: input.size ?? { w: 200, h: 100 },
-    text: sanitizeNoteHtml(input.text ?? ''),
-    backgroundColor: input.backgroundColor ?? '#ffeb3b',
-    textColor: input.textColor ?? '#000000',
-    fontSize: input.fontSize ?? DEFAULT_NOTE_FONT_SIZE,
-  };
+  return addParent<NoteElement>(
+    {
+      id: createId('note'),
+      type: 'note',
+      position: input.position,
+      index: input.index ?? '',
+      version: input.version ?? 1,
+      locked: input.locked ?? false,
+      layerId: input.layerId ?? '',
+      size: input.size ?? { w: 200, h: 100 },
+      text: sanitizeNoteHtml(input.text ?? ''),
+      backgroundColor: input.backgroundColor ?? '#ffeb3b',
+      textColor: input.textColor ?? '#000000',
+      fontSize: input.fontSize ?? DEFAULT_NOTE_FONT_SIZE,
+    },
+    input.parentId,
+  );
 }
 
 export function createArrow(input: ArrowInput): ArrowElement {
@@ -136,21 +145,24 @@ export function createArrow(input: ArrowInput): ArrowElement {
   if (input.toBinding) result.toBinding = input.toBinding;
   if (input.label !== undefined) result.label = input.label;
   if (input.strokeStyle !== undefined) result.strokeStyle = input.strokeStyle;
-  return result;
+  return addParent(result, input.parentId);
 }
 
 export function createImage(input: ImageInput): ImageElement {
-  return {
-    id: createId('image'),
-    type: 'image',
-    position: input.position,
-    index: input.index ?? '',
-    version: input.version ?? 1,
-    locked: input.locked ?? false,
-    layerId: input.layerId ?? '',
-    size: input.size,
-    src: input.src,
-  };
+  return addParent<ImageElement>(
+    {
+      id: createId('image'),
+      type: 'image',
+      position: input.position,
+      index: input.index ?? '',
+      version: input.version ?? 1,
+      locked: input.locked ?? false,
+      layerId: input.layerId ?? '',
+      size: input.size,
+      src: input.src,
+    },
+    input.parentId,
+  );
 }
 
 export function createHtmlElement(input: HtmlInput): HtmlElement {
@@ -170,7 +182,7 @@ export function createHtmlElement(input: HtmlInput): HtmlElement {
   if (input.data) el.data = input.data;
   if (input.transient) el.transient = input.transient;
   if (input.rotation !== undefined) el.rotation = input.rotation;
-  return el;
+  return addParent(el, input.parentId);
 }
 
 interface ShapeInput extends BaseDefaults {
@@ -199,22 +211,25 @@ export function createShape(input: ShapeInput): ShapeElement {
     fillColor: input.fillColor ?? 'none',
   };
   if (input.flip) result.flip = input.flip;
-  return result;
+  return addParent(result, input.parentId);
 }
 
 export function createText(input: TextInput): TextElement {
-  return {
-    id: createId('text'),
-    type: 'text',
-    position: input.position,
-    index: input.index ?? '',
-    version: input.version ?? 1,
-    locked: input.locked ?? false,
-    layerId: input.layerId ?? '',
-    size: input.size ?? { w: 200, h: 28 },
-    text: sanitizeNoteHtml(input.text ?? ''),
-    fontSize: input.fontSize ?? 16,
-    color: input.color ?? '#1a1a1a',
-    textAlign: input.textAlign ?? 'left',
-  };
+  return addParent<TextElement>(
+    {
+      id: createId('text'),
+      type: 'text',
+      position: input.position,
+      index: input.index ?? '',
+      version: input.version ?? 1,
+      locked: input.locked ?? false,
+      layerId: input.layerId ?? '',
+      size: input.size ?? { w: 200, h: 28 },
+      text: sanitizeNoteHtml(input.text ?? ''),
+      fontSize: input.fontSize ?? 16,
+      color: input.color ?? '#1a1a1a',
+      textAlign: input.textAlign ?? 'left',
+    },
+    input.parentId,
+  );
 }

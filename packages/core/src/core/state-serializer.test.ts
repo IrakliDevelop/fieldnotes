@@ -63,7 +63,7 @@ describe('exportState', () => {
     const note = createNote({ position: { x: 10, y: 20 } });
     const state = exportState([stroke, note], makeCamera(100, 200, 1.5));
 
-    expect(state.version).toBe(5);
+    expect(state.version).toBe(6);
     expect(state.camera).toEqual({ position: { x: 100, y: 200 }, zoom: 1.5 });
     expect(state.elements).toHaveLength(2);
     expect(state.elements[0]?.type).toBe('stroke');
@@ -143,7 +143,7 @@ describe('exportState', () => {
 describe('parseState', () => {
   function validState(): CanvasState {
     return {
-      version: 5,
+      version: 6,
       camera: { position: { x: 0, y: 0 }, zoom: 1 },
       elements: [
         createStroke({
@@ -169,9 +169,26 @@ describe('parseState', () => {
     const json = JSON.stringify(validState());
     const state = parseState(json);
 
-    expect(state.version).toBe(5);
+    expect(state.version).toBe(6);
     expect(state.camera.zoom).toBe(1);
     expect(state.elements).toHaveLength(1);
+  });
+
+  it('retains a valid v6 parent relationship regardless of element order', () => {
+    const state = validState();
+    const source = createStroke({
+      index: 'a0',
+      points: [{ x: 0, y: 0, pressure: 0.5 }],
+      layerId: 'default-layer',
+    });
+    const parent = { ...source, id: 'parent' };
+    const child = { ...source, id: 'child', index: 'a1', parentId: 'parent' };
+    state.elements = [child, parent];
+
+    expect(parseState(JSON.stringify(state)).elements[0]).toMatchObject({
+      id: 'child',
+      parentId: 'parent',
+    });
   });
 
   it('parseState accepts an html element carrying transient', () => {
@@ -229,7 +246,7 @@ describe('parseState', () => {
     const state = parseState(JSON.stringify(data), registry);
 
     expect(state).toMatchObject({
-      version: 5,
+      version: 6,
       elements: [
         {
           id: 'marker-1',
@@ -477,8 +494,8 @@ describe('parseState', () => {
 
   it('rejects unsupported future versions', () => {
     const data = validState();
-    (data as { version: number }).version = 6;
-    expect(() => parseState(JSON.stringify(data))).toThrow('unsupported version 6');
+    (data as { version: number }).version = 7;
+    expect(() => parseState(JSON.stringify(data))).toThrow('unsupported version 7');
   });
 
   it.each([0, -1, 1.5])('rejects invalid version %s', (version) => {
@@ -808,7 +825,7 @@ describe('parseState', () => {
 
     it('exportState with empty store produces valid state', () => {
       const state = exportState([], makeCamera());
-      expect(state.version).toBe(5);
+      expect(state.version).toBe(6);
       expect(state.elements).toEqual([]);
       expect(state.camera).toEqual({ position: { x: 0, y: 0 }, zoom: 1 });
 
@@ -1274,7 +1291,7 @@ describe('persisted state v5', () => {
 
   it('v4 file loads in the same order', () => {
     const state = parseState(JSON.stringify(legacyState(4, v4Elements())));
-    expect(state.version).toBe(5);
+    expect(state.version).toBe(6);
     expect(storeOrder(state)).toEqual(['e3', 'e1', 'e2', 'e4']);
     for (const el of state.elements) {
       expect(el.version).toBe(1);
@@ -1291,7 +1308,7 @@ describe('persisted state v5', () => {
   it('migrateState (the loadState path) gives a v4 file the same order', () => {
     const legacy = legacyState(4, v4Elements()) as unknown as ImportableCanvasState;
     const state = migrateState(legacy);
-    expect(state.version).toBe(5);
+    expect(state.version).toBe(6);
     expect(storeOrder(state)).toEqual(['e3', 'e1', 'e2', 'e4']);
   });
 
@@ -1310,7 +1327,7 @@ describe('persisted state v5', () => {
     const edited = { ...note, id: 'edited', version: 7, editor: 'peer-1' };
     const json = JSON.stringify(exportState([note, edited], makeCamera(), layers));
     const state = parseState(json);
-    expect(state.version).toBe(5);
+    expect(state.version).toBe(6);
     expect(state.elements[0]).toMatchObject({ index: 'a3', version: 1 });
     expect(state.elements[0]).not.toHaveProperty('editor');
     expect(state.elements[1]).toMatchObject({ index: 'a3', version: 7, editor: 'peer-1' });
@@ -1341,5 +1358,154 @@ describe('persisted state v5', () => {
     };
     const state = { version: 5, camera: makeCamera(), elements: [envelope], layers };
     expect(() => parseState(JSON.stringify(state))).toThrow('invalid index');
+  });
+
+  it.each([1, 2, 3, 4, 5])('migrates v%s without retaining stray parentId', (version) => {
+    const note = {
+      ...createNote({ position: { x: 0, y: 0 }, layerId: 'L1' }),
+      ...(version < 5 ? { zIndex: 0 } : { index: 'a0' }),
+      parentId: version === 1 ? { injected: true } : 'ignored',
+    };
+    const state = parseState(
+      JSON.stringify({ version, camera: makeCamera(), elements: [note], layers }),
+    );
+    expect(state.version).toBe(6);
+    expect(state.elements[0]).not.toHaveProperty('parentId');
+  });
+
+  it('migrates an explicit v5 fixture preserving indexed envelopes and metadata', () => {
+    const envelope = {
+      id: 'extension',
+      type: 'extension',
+      extensionType: 'test:marker',
+      position: { x: 0, y: 0 },
+      index: 'a1',
+      version: 7,
+      editor: 'peer',
+      locked: false,
+      layerId: 'L1',
+      data: { label: 'kept' },
+    };
+    const registry = new ElementRegistry();
+    registry.register(markerDefinition);
+    const state = parseState(
+      JSON.stringify({ version: 5, camera: makeCamera(), elements: [envelope], layers }),
+      registry,
+    );
+    expect(state).toMatchObject({
+      version: 6,
+      elements: [{ index: 'a1', version: 7, editor: 'peer', data: { label: 'kept' } }],
+    });
+  });
+
+  it('accepts v6 child-before-parent and preserves the relationship through export and parse', () => {
+    const parent = {
+      ...createNote({ position: { x: 0, y: 0 }, layerId: 'L1' }),
+      id: 'parent',
+      index: 'a0',
+    };
+    const child = { ...parent, id: 'child', index: 'a1', parentId: 'parent' };
+    const state = parseState(
+      JSON.stringify({ version: 6, camera: makeCamera(), elements: [child, parent], layers }),
+    );
+    const reparsed = parseState(JSON.stringify(exportState(state.elements, makeCamera(), layers)));
+    expect(reparsed.elements.find((element) => element.id === 'child')).toMatchObject({
+      parentId: 'parent',
+    });
+  });
+
+  it.each([
+    ['non-string parent', { parentId: 4 }],
+    ['missing parent', { parentId: 'missing' }],
+    ['self parent', { parentId: 'note' }],
+  ])('rejects v6 %s', (_label, patch) => {
+    const note = {
+      ...createNote({ position: { x: 0, y: 0 }, layerId: 'L1' }),
+      id: 'note',
+      index: 'a0',
+      ...patch,
+    };
+    expect(() =>
+      parseState(JSON.stringify({ version: 6, camera: makeCamera(), elements: [note], layers })),
+    ).toThrow(/Invalid hierarchy|base fields/);
+  });
+
+  it('rejects v6 cycles and cross-layer parents while accepting depth 32', () => {
+    const base = createNote({ position: { x: 0, y: 0 }, layerId: 'L1' });
+    const cycle = [
+      { ...base, id: 'a', index: 'a0', parentId: 'b' },
+      { ...base, id: 'b', index: 'a1', parentId: 'a' },
+    ];
+    const crossLayer = [
+      { ...base, id: 'a', index: 'a0' },
+      { ...base, id: 'b', index: 'a1', layerId: 'L2', parentId: 'a' },
+    ];
+    expect(() =>
+      parseState(JSON.stringify({ version: 6, camera: makeCamera(), elements: cycle, layers })),
+    ).toThrow(/Invalid hierarchy/);
+    expect(() =>
+      parseState(
+        JSON.stringify({ version: 6, camera: makeCamera(), elements: crossLayer, layers }),
+      ),
+    ).toThrow(/Invalid hierarchy/);
+    const chain = Array.from({ length: 33 }, (_, index) => ({
+      ...base,
+      id: `n${index}`,
+      index: 'a1',
+      parentId: index === 0 ? undefined : `n${index - 1}`,
+    }));
+    expect(
+      parseState(JSON.stringify({ version: 6, camera: makeCamera(), elements: chain, layers }))
+        .elements,
+    ).toHaveLength(33);
+  });
+
+  it('rejects v6 full-canvas parent and child endpoints plus depth 33', () => {
+    const registry = new ElementRegistry();
+    registry.register({ ...markerDefinition, type: 'test:full', fullCanvas: true });
+    const full = {
+      id: 'full',
+      type: 'extension',
+      extensionType: 'test:full',
+      position: { x: 0, y: 0 },
+      index: 'a0',
+      version: 1,
+      locked: false,
+      layerId: 'L1',
+      data: { label: 'full' },
+    };
+    const note = {
+      ...createNote({ position: { x: 0, y: 0 }, layerId: 'L1' }),
+      id: 'note',
+      index: 'a1',
+    };
+    for (const elements of [
+      [full, { ...note, parentId: 'full' }],
+      [
+        { ...note, id: 'parent' },
+        { ...full, parentId: 'parent' },
+      ],
+    ]) {
+      expect(() =>
+        parseState(
+          JSON.stringify({ version: 6, camera: makeCamera(), elements, layers }),
+          registry,
+        ),
+      ).toThrow(/Invalid hierarchy/);
+    }
+    const chain = Array.from({ length: 34 }, (_, index) => ({
+      ...note,
+      id: `deep${index}`,
+      parentId: index === 0 ? undefined : `deep${index - 1}`,
+    }));
+    expect(() =>
+      parseState(JSON.stringify({ version: 6, camera: makeCamera(), elements: chain, layers })),
+    ).toThrow(/Invalid hierarchy/);
+  });
+
+  it('rejects v7 state', () => {
+    expect(() =>
+      parseState(JSON.stringify({ version: 7, camera: makeCamera(), elements: [], layers })),
+    ).toThrow(/unsupported version 7/);
   });
 });

@@ -14,6 +14,7 @@ describe('pickBaseFields', () => {
       locked: true,
       layerId: 'L1',
       groupId: 'g1',
+      parentId: 'p1',
       rotation: 0.5,
       label: 'not base',
     };
@@ -27,6 +28,7 @@ describe('pickBaseFields', () => {
       locked: true,
       layerId: 'L1',
       groupId: 'g1',
+      parentId: 'p1',
       rotation: 0.5,
     });
   });
@@ -44,5 +46,6 @@ describe('pickBaseFields', () => {
     expect(Object.keys(pickBaseFields(element)).sort()).toEqual(
       ['id', 'index', 'layerId', 'locked', 'position', 'type', 'version'].sort(),
     );
+    expect(Object.prototype.hasOwnProperty.call(pickBaseFields(element), 'parentId')).toBe(false);
   });
 });

@@ -50,6 +50,36 @@ export class UpdateElementCommand implements Command {
   }
 }
 
+export class UpdateElementsCommand implements Command {
+  private readonly updates: readonly { previous: CanvasElement; current: CanvasElement }[];
+
+  constructor(updates: readonly { previous: CanvasElement; current: CanvasElement }[]) {
+    if (updates.length === 0) throw new Error('UpdateElementsCommand requires updates');
+    this.updates = updates.map(({ previous, current }) => ({
+      previous: { ...previous },
+      current: { ...current },
+    }));
+  }
+
+  execute(store: ElementStore): void {
+    store.updateMany(
+      this.updates.map(({ previous, current }) => ({
+        id: current.id,
+        partial: diffPatch(previous, current),
+      })),
+    );
+  }
+
+  undo(store: ElementStore): void {
+    store.updateMany(
+      this.updates.map(({ previous, current }) => ({
+        id: previous.id,
+        partial: diffPatch(current, previous),
+      })),
+    );
+  }
+}
+
 // Patch turning `from` into `to`, explicitly setting keys that exist on `from`
 // but not `to` to `undefined` so a merge-based `update` clears them.
 function diffPatch(from: CanvasElement, to: CanvasElement): Partial<CanvasElement> {

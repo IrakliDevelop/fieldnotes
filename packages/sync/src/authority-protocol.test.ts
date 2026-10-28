@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  AUTHORITY_PROTOCOL_VERSION,
   parseAuthorityFrame,
   parseAuthorityClientFrame,
   parseAuthorityServerFrame,
@@ -94,6 +95,13 @@ const server: AuthorityFrame[] = [
 const raw = (value: unknown): string => JSON.stringify(value);
 
 describe('authority frames', () => {
+  it('pairs capability revision 2 with unchanged authority frame bytes', () => {
+    expect(AUTHORITY_PROTOCOL_VERSION).toBe(2);
+    expect(serializeAuthorityFrame(server[7] as AuthorityFrame)).toBe(
+      '{"kind":"upgrade-required","protocol":"authority:1","required":"authority:1"}',
+    );
+  });
+
   it('round-trips every frame and allowed mutation, freezes parsed JSON, and separates directions', () => {
     for (const frame of client) {
       const encoded = serializeAuthorityFrame(frame);

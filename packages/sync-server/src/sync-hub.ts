@@ -1,5 +1,7 @@
 import {
   createCurrentCapabilities,
+  LEGACY_SYNC_PROTOCOL_VERSION,
+  supportsLegacyHierarchy,
   parseLegacyEnvelope,
   isValidElement,
   isNewerLayerRecord,
@@ -15,6 +17,7 @@ import {
   type PluginSnapshot,
   type Tombstone,
 } from '@fieldnotes/sync';
+import { hashAuthorityJson } from './authority-json';
 import { MemoryHubBackend } from './memory-hub-backend';
 import { InMemoryHubFanout, type HubFanout } from './hub-fanout';
 import type { ElementWrite, HubBackend, HubRecord, StoredTombstone } from './hub-backend';
@@ -103,6 +106,7 @@ export interface MessageDispatchOptions {
 }
 
 const HUB_FROM = 'hub';
+const LEGACY_ADMISSION_TIMEOUT_MS = 5_000;
 const utf8 = new TextEncoder();
 function utf8ByteLength(text: string): number {
   return utf8.encode(text).byteLength;
@@ -231,6 +235,12 @@ export class SyncHub {
   private readonly authorizeLayer?: AuthorizeLayer;
   private readonly pluginRegistry: ServerPluginRegistry;
   private readonly peerCapabilities = new Map<string, SyncCapabilities>();
+  private readonly peerCapabilityHashes = new Map<string, string>();
+  private readonly legacyAdmissionTimers = new Map<
+    string,
+    { readonly conn: Connection; readonly timer: ReturnType<typeof setTimeout> }
+  >();
+  private readonly legacyAdmissionPoisoned = new Set<string>();
   private readonly canRead?: CanRead;
   private readonly canReadOwnerId?: CanReadOwnerId;
   private readonly resolveAudience?: ResolveAudience;
@@ -358,14 +368,18 @@ export class SyncHub {
     });
     copyAuthorityConnectionBinding(conn, admitted);
     if (authorityDefinition) {
+      const previous = this.conns.get(conn.id);
       if (!this.authority?.admit(admitted, authorityDefinition)) {
         unregisterAuthorityConnection(admitted);
         return;
       }
+      if (previous && this.conns.get(conn.id) === previous && !this.authorityPeers.has(conn.id))
+        this.removeConnection(conn.id);
       this.conns.set(conn.id, admitted);
       this.authorityPeers.add(conn.id);
       return;
     }
+    this.removeConnection(conn.id);
     this.conns.set(conn.id, admitted);
     this.opLimiters.set(conn.id, new MessageRateLimiter(this.opsPerSecond, this.opBurst));
     clearTimeout(this.idleTimers.get(conn.room));
@@ -376,6 +390,11 @@ export class SyncHub {
       this.rooms.set(conn.room, set);
     }
     set.add(conn.id);
+    const timer = setTimeout(() => {
+      if (!this.isCurrent(admitted) || this.peerCapabilities.has(admitted.id)) return;
+      void this.refuseProtocol(admitted);
+    }, LEGACY_ADMISSION_TIMEOUT_MS);
+    this.legacyAdmissionTimers.set(conn.id, { conn: admitted, timer });
   }
 
   removeConnection(connId: string): void {
@@ -388,6 +407,11 @@ export class SyncHub {
       return;
     }
     this.peerCapabilities.delete(connId);
+    this.peerCapabilityHashes.delete(connId);
+    this.legacyAdmissionPoisoned.delete(connId);
+    const admission = this.legacyAdmissionTimers.get(connId);
+    if (admission) clearTimeout(admission.timer);
+    this.legacyAdmissionTimers.delete(connId);
     this.opLimiters.delete(connId);
     const room = conn.room;
     const hadPresence = this.presenceConnections.delete(connId);
@@ -404,6 +428,10 @@ export class SyncHub {
       }
     }
     if (hadPresence) this.broadcastLeave(room, conn.id);
+  }
+
+  private removeCurrentConnection(conn: Connection): void {
+    if (this.isCurrent(conn)) this.removeConnection(conn.id);
   }
 
   roomCount(): number {
@@ -444,16 +472,12 @@ export class SyncHub {
     if (!hasJsonDepthAtMost(message, this.maxJsonDepth)) return Promise.resolve();
     const env = parseLegacyEnvelope(message);
     if (!env) return Promise.resolve();
-    if (env.op.kind === 'capabilities' && env.op.capabilities.protocolVersion < 2) {
-      return this.refuseProtocol(conn);
-    }
-    const opCost = env.op.kind === 'batch' ? env.op.ops.length : Number(isFanoutOp(env.op));
-    if (opCost > 0 && !this.opLimiters.get(connId)?.take(Date.now(), opCost)) {
-      conn.close?.(4408);
-      this.removeConnection(connId);
+    if (!options && !this.peerCapabilities.has(conn.id) && env.op.kind !== 'capabilities') {
+      this.legacyAdmissionPoisoned.add(conn.id);
       return Promise.resolve();
     }
     const perform = async () => {
+      if (!this.isCurrent(conn)) return;
       if (options) {
         if (!this.isCurrent(conn) || options.signal.aborted || Date.now() >= options.deadlineAt)
           return;
@@ -461,8 +485,25 @@ export class SyncHub {
         if (!this.isCurrent(conn) || options.signal.aborted || Date.now() >= options.deadlineAt)
           return;
       }
-      if (env.op.kind === 'capabilities') {
+      if (!this.peerCapabilities.has(conn.id)) {
+        if (env.op.kind !== 'capabilities') {
+          this.legacyAdmissionPoisoned.add(conn.id);
+          return;
+        }
+        const hash = this.capabilityHash(env.op.capabilities);
+        if (
+          this.legacyAdmissionPoisoned.has(conn.id) ||
+          !supportsLegacyHierarchy(env.op.capabilities) ||
+          hash === undefined
+        ) {
+          await this.refuseProtocol(conn);
+          return;
+        }
         this.peerCapabilities.set(conn.id, env.op.capabilities);
+        this.peerCapabilityHashes.set(conn.id, hash);
+        const admission = this.legacyAdmissionTimers.get(conn.id);
+        if (admission?.conn === conn) clearTimeout(admission.timer);
+        this.legacyAdmissionTimers.delete(conn.id);
         this.sendToConnection(conn, HUB_FROM, {
           kind: 'capabilities',
           capabilities: {
@@ -470,6 +511,18 @@ export class SyncHub {
             ...(this.opBatching ? { opBatching: 1 } : {}),
           },
         });
+        return;
+      }
+      if (env.op.kind === 'capabilities') {
+        if (this.peerCapabilityHashes.get(conn.id) !== this.capabilityHash(env.op.capabilities))
+          await this.refuseProtocol(conn);
+        return;
+      }
+      const opCost = env.op.kind === 'batch' ? env.op.ops.length : Number(isFanoutOp(env.op));
+      if (opCost > 0 && !this.opLimiters.get(connId)?.take(Date.now(), opCost)) {
+        conn.close?.(4408);
+        this.removeCurrentConnection(conn);
+        return;
       } else if (env.op.kind === 'presence') {
         if (this.isPresenceWithinLimit(env.op.data)) this.schedulePresence(conn, env.op.data);
       } else {
@@ -487,12 +540,13 @@ export class SyncHub {
   private async refuseProtocol(conn: Connection): Promise<void> {
     const reply: SyncOp = {
       kind: 'unsupported',
-      protocolVersion: 2,
-      minProtocolVersion: 2,
-      reason: 'protocol version 2 required',
+      protocolVersion: LEGACY_SYNC_PROTOCOL_VERSION,
+      minProtocolVersion: LEGACY_SYNC_PROTOCOL_VERSION,
+      reason: `protocol version ${LEGACY_SYNC_PROTOCOL_VERSION} with element hierarchy support required`,
     };
+    if (!this.isCurrent(conn)) return;
     if (conn.sendAsync) {
-      this.removeConnection(conn.id);
+      this.removeCurrentConnection(conn);
       let timer: ReturnType<typeof setTimeout> | undefined;
       await Promise.race([
         conn.sendAsync(JSON.stringify({ from: HUB_FROM, op: reply })).catch(() => undefined),
@@ -500,14 +554,26 @@ export class SyncHub {
       ]);
       clearTimeout(timer);
     } else {
-      this.sendToConnection(conn, HUB_FROM, reply);
-      this.removeConnection(conn.id);
+      try {
+        conn.send(JSON.stringify({ from: HUB_FROM, op: reply }));
+      } catch {
+        // An unsupported reply is best effort before the protocol close.
+      }
+      this.removeCurrentConnection(conn);
     }
     conn.close?.(4406);
   }
 
   private isCurrent(conn: Connection): boolean {
     return this.conns.get(conn.id) === conn;
+  }
+
+  private capabilityHash(capabilities: SyncCapabilities): string | undefined {
+    try {
+      return hashAuthorityJson(capabilities);
+    } catch {
+      return undefined;
+    }
   }
 
   private isAuthorityRoom(room: string): boolean {
@@ -1026,7 +1092,7 @@ export class SyncHub {
     for (const cid of members) {
       if (cid === excludeId) continue;
       const conn = this.conns.get(cid);
-      if (!conn) continue;
+      if (!conn || !this.peerCapabilities.has(conn.id)) continue;
       try {
         conn.send(message);
         sent += 1;
@@ -1048,9 +1114,8 @@ export class SyncHub {
     op: SyncOp,
     encoded?: EncodedFrames,
   ): boolean {
-    const capabilities =
-      this.peerCapabilities.get(conn.id) ??
-      createCurrentCapabilities(this.pluginRegistry.extensionKinds);
+    const capabilities = this.peerCapabilities.get(conn.id);
+    if (!capabilities) return false;
     const revealOwner = this.mayReadOwnerId(conn);
     const profile = encoded ? encodingProfile(capabilities, revealOwner) : undefined;
     let message = profile === undefined ? undefined : encoded?.get(profile);
@@ -1351,7 +1416,7 @@ export class SyncHub {
     // Re-filter per local member (canRead runs on EVERY instance).
     // The channel is a trust boundary of its own: anyone who can publish to it reaches every
     // instance, so a fanout op passes the same shape validation as a client frame.
-    // Element ops pass the protocol-2 rules too, so no versionless remove leaves this hub.
+    // Element ops pass the versioned rules too, so no versionless remove leaves this hub.
     if (!hasJsonDepthAtMost(payload, this.maxJsonDepth)) return;
     const parsed = parseLegacyEnvelope(payload);
     if (!parsed) return;
@@ -1473,6 +1538,8 @@ export class SyncHub {
     this.closed = true;
     this.authority?.close();
     for (const connId of [...this.presenceLanes.keys()]) this.clearPresenceLanes(connId);
+    for (const admission of this.legacyAdmissionTimers.values()) clearTimeout(admission.timer);
+    this.legacyAdmissionTimers.clear();
     for (const timer of this.idleTimers.values()) clearTimeout(timer);
     this.idleTimers.clear();
     this.fanoutUnsub();

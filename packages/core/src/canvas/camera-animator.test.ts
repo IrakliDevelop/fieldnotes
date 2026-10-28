@@ -88,6 +88,23 @@ describe('CameraAnimator construction', () => {
   });
 });
 
+describe('camera constraints', () => {
+  it('runs constraints for jumpTo and frame-driven animation writes', () => {
+    const h = makeHarness();
+    const constraint = vi.fn((next) => next);
+    h.camera.addConstraint(constraint);
+
+    h.animator.jumpTo(TARGET);
+    expect(constraint).toHaveBeenCalledTimes(2);
+
+    constraint.mockClear();
+    h.animator.animateTo({ x: 1000, y: 1000, w: 200, h: 150 });
+    h.advance(200);
+    h.flush();
+    expect(constraint).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('animation to completion', () => {
   it('animates toward the target and ends with complete', () => {
     const h = makeHarness();

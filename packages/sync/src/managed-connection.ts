@@ -5,6 +5,7 @@ import { WebSocketTransport } from './websocket-transport';
 import { parseEnvelope, isValidLayerDefinition } from './protocol';
 import { LayerLedger } from './layer-ledger';
 import type { ClientSyncPlugin } from './sync-plugin';
+import { supportsLegacyHierarchy } from './capabilities';
 
 /**
  * Connection health as observed by the managed lifecycle:
@@ -17,8 +18,8 @@ import type { ClientSyncPlugin } from './sync-plugin';
  *   a reconnect or retry is pending.
  * - `denied` — consecutive authentication failures reached the configured
  *   bound; the manager stays down until it is recreated.
- * - `unsupported` — the relay closed with 4406 or advertised a protocol older
- *   than 2; the manager stays down until it is recreated.
+ * - `unsupported` — the relay closed with 4406 or did not advertise legacy
+ *   protocol 3 with `elementHierarchy: 1`; the manager stays down until it is recreated.
  */
 export type ManagedSyncStatus = 'connecting' | 'live' | 'offline' | 'denied' | 'unsupported';
 
@@ -208,6 +209,7 @@ export function createManagedSyncConnection(
   let subscriptions: (() => void)[] = [];
   let currentStatus: ManagedSyncStatus | null = null;
   let unsupportedReason: string | undefined;
+  let hubAdmitted = false;
 
   const setStatus = (next: ManagedSyncStatus): void => {
     if (next === currentStatus) return;
@@ -249,15 +251,25 @@ export function createManagedSyncConnection(
     if (stopped || cycleGeneration !== generation) return;
     const envelope = parseEnvelope(raw);
     if (!envelope || envelope.from === clientId) return;
-    if (envelope.op.kind === 'capabilities' && envelope.op.capabilities.protocolVersion < 2) {
-      settleUnsupported();
+    if (envelope.op.kind === 'capabilities' && envelope.from === 'hub') {
+      if (!supportsLegacyHierarchy(envelope.op.capabilities)) {
+        settleUnsupported();
+        return;
+      }
+      hubAdmitted = true;
       return;
     }
     if (envelope.op.kind === 'unsupported' && envelope.from === 'hub') {
       settleUnsupported(envelope.op.reason);
       return;
     }
-    if (envelope.op.kind !== 'snapshot' || envelope.op.to !== clientId) return;
+    if (
+      !hubAdmitted ||
+      envelope.from !== 'hub' ||
+      envelope.op.kind !== 'snapshot' ||
+      envelope.op.to !== clientId
+    )
+      return;
     // Authoritative snapshot addressed to us: auth and transport are proven
     // healthy, so both retry budgets reset.
     attempt = 0;
@@ -319,6 +331,7 @@ export function createManagedSyncConnection(
         if (stopped || cycleGeneration !== generation) return;
         // Socket reopened; the SyncClient re-requests a snapshot, and `live`
         // is emitted when that authoritative snapshot arrives.
+        hubAdmitted = false;
         setStatus('connecting');
       }),
     );
@@ -353,6 +366,7 @@ export function createManagedSyncConnection(
   const beginCycle = (): void => {
     if (stopped || denied) return;
     const cycleGeneration = ++generation;
+    hubAdmitted = false;
     setStatus('connecting');
     void connect(cycleGeneration);
   };

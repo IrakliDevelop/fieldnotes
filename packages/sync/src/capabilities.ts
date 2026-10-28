@@ -1,10 +1,21 @@
-import type { SyncCapabilities, SyncOp } from './protocol';
+import {
+  ELEMENT_HIERARCHY_CAPABILITY_VERSION,
+  LEGACY_SYNC_PROTOCOL_VERSION,
+  type SyncCapabilities,
+  type SyncOp,
+} from './protocol';
+import { AUTHORITY_PROTOCOL_VERSION } from './authority-protocol';
 import type { AuthorityExtensionManifestEntry } from './authority-protocol';
 
 export const DEFAULT_CAPABILITY_QUEUE_LIMIT = 1_000;
 
 export function createCurrentCapabilities(extensionKinds: readonly string[]): SyncCapabilities {
-  return { protocolVersion: 2, extensionKinds: [...extensionKinds], elementEnvelope: true };
+  return {
+    protocolVersion: LEGACY_SYNC_PROTOCOL_VERSION,
+    extensionKinds: [...extensionKinds],
+    elementEnvelope: true,
+    elementHierarchy: ELEMENT_HIERARCHY_CAPABILITY_VERSION,
+  };
 }
 
 /** Explicit opt-in only; existing connections continue to advertise legacy capabilities. */
@@ -38,8 +49,10 @@ export function createAuthorityCapabilities(
   if (inventory.some((entry, index) => index > 0 && entry.key === inventory[index - 1]?.key))
     throw new TypeError('Invalid authority capabilities');
   return {
-    ...createCurrentCapabilities(extensionKinds),
-    protocolVersion: 1,
+    protocolVersion: AUTHORITY_PROTOCOL_VERSION,
+    extensionKinds: [...extensionKinds],
+    elementEnvelope: true,
+    elementHierarchy: ELEMENT_HIERARCHY_CAPABILITY_VERSION,
     authority: 1,
     ...(inventory.length ? { authorityExtensions: inventory } : {}),
   };
@@ -56,6 +69,16 @@ function bounded(value: string): boolean {
 
 export function supportsAuthority(capabilities: SyncCapabilities): boolean {
   return capabilities.authority === 1;
+}
+
+/** Whether capabilities advertise the hierarchy contract required by legacy sync. */
+export function supportsLegacyHierarchy(
+  capabilities: Readonly<{ protocolVersion: number; elementHierarchy?: unknown }>,
+): boolean {
+  return (
+    capabilities.protocolVersion === LEGACY_SYNC_PROTOCOL_VERSION &&
+    capabilities.elementHierarchy === ELEMENT_HIERARCHY_CAPABILITY_VERSION
+  );
 }
 
 /**

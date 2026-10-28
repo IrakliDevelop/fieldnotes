@@ -2,7 +2,7 @@ import { elementWithinLimits, isValidEnvelope } from './protocol';
 import type { SyncOp } from './protocol';
 import { freezeJson, parseBoundedJson, serializeBoundedJson } from './authority-json';
 
-export const AUTHORITY_PROTOCOL_VERSION = 1;
+export const AUTHORITY_PROTOCOL_VERSION = 2;
 export const MAX_AUTHORITY_FRAME_BYTES = 1_048_576;
 export const MAX_AUTHORITY_CHECKPOINT_BYTES = 20_971_520;
 export const MAX_AUTHORITY_CHUNK_BYTES = 524_288;

@@ -2,13 +2,19 @@ import { EventBus, isExternalChange } from '../core/event-bus';
 import { generateKeyBetween } from '../core/fractional-index';
 import type { Bounds, Point } from '../core/types';
 import { Quadtree } from '../core/quadtree';
-import { getElementVisualBounds, transferStrokeBounds } from './element-bounds';
+import {
+  boundsIntersect,
+  getElementBounds,
+  getElementVisualBounds,
+  transferStrokeBounds,
+} from './element-bounds';
 import { getArrowControlPoint } from './arrow-geometry';
 import { sanitizeNoteHtml } from './note-sanitizer';
 import { computeStrokeSegments, transferStrokeRenderData } from './stroke-cache';
 import type { CanvasElement, ElementType } from './types';
-import type { ElementRegistry } from './element-registry';
+import { getRegistryToken, type ElementRegistry } from './element-registry';
 import { getDefaultElementRegistry } from './default-registry';
+import { ElementHierarchy, validateAddedElement, validateHierarchy } from './element-hierarchy';
 
 function sanitizeRichText(element: CanvasElement): CanvasElement {
   if (element.type !== 'note' && element.type !== 'text') return element;
@@ -53,12 +59,16 @@ export class ElementStore {
   private bus = new EventBus<ElementStoreEvents>();
   private layerOrderMap = new Map<string, number>();
   private spatialIndex = new Quadtree({ x: -100000, y: -100000, w: 200000, h: 200000 });
-  private sortedCache: CanvasElement[] | null = null;
+  private hierarchy: ElementHierarchy | null = null;
+  private sceneCache: CanvasElement[] | null = null;
   private _versions = new Map<string, number>();
   private registry: ElementRegistry;
+  private registryToken: string;
+  private hierarchyKnownValid = true;
 
   constructor(elementRegistry: ElementRegistry = getDefaultElementRegistry()) {
     this.registry = elementRegistry;
+    this.registryToken = getRegistryToken(elementRegistry);
   }
 
   /** The registry that resolves bounds for this store's elements. */
@@ -69,6 +79,9 @@ export class ElementStore {
   setElementRegistry(elementRegistry: ElementRegistry): void {
     if (elementRegistry === this.registry) return;
     this.registry = elementRegistry;
+    this.registryToken = getRegistryToken(elementRegistry);
+    this.hierarchyKnownValid = false;
+    this.resetHierarchy();
     this.spatialIndex.clear();
     for (const element of this.elements.values()) {
       const bounds = this.indexBounds(element);
@@ -87,23 +100,49 @@ export class ElementStore {
 
   setLayerOrder(order: Map<string, number>): void {
     this.layerOrderMap = new Map(order);
-    this.sortedCache = null;
+    this.resetHierarchy();
   }
 
   getAll(): CanvasElement[] {
-    if (this.sortedCache) return this.sortedCache;
-    this.sortedCache = [...this.elements.values()].sort(this.compare);
-    return this.sortedCache;
+    const hierarchy = this.getHierarchy();
+    this.sceneCache ??= [...hierarchy.scene];
+    return this.sceneCache;
   }
 
-  private compare = (a: CanvasElement, b: CanvasElement): number => {
-    const layerA = this.layerOrderMap.get(a.layerId) ?? 0;
-    const layerB = this.layerOrderMap.get(b.layerId) ?? 0;
-    if (layerA !== layerB) return layerA - layerB;
-    if (a.index !== b.index) return a.index < b.index ? -1 : 1;
-    if (a.id !== b.id) return a.id < b.id ? -1 : 1;
-    return 0;
-  };
+  private getHierarchy(): ElementHierarchy {
+    this.refreshRegistry();
+    if (!this.hierarchy) {
+      this.hierarchy = new ElementHierarchy(this.elements, this.registry, this.layerOrderMap);
+      this.hierarchyKnownValid = this.hierarchy.scene.length === this.elements.size;
+    }
+    return this.hierarchy;
+  }
+
+  getEffectiveClip(id: string): Bounds | null | undefined {
+    const clip = this.getHierarchy().getEffectiveClip(id);
+    return clip ? { ...clip } : clip;
+  }
+
+  private strict(meta: ElementChangeMeta | undefined): boolean {
+    return meta?.origin !== 'remote';
+  }
+
+  private validateCandidate(candidate: Map<string, CanvasElement>, meta?: ElementChangeMeta): void {
+    if (this.strict(meta)) validateHierarchy(candidate, this.registry);
+  }
+
+  private resetHierarchy(): void {
+    this.hierarchy = null;
+    this.sceneCache = null;
+  }
+
+  private refreshRegistry(): void {
+    const token = getRegistryToken(this.registry);
+    if (token === this.registryToken) return;
+    this.registryToken = token;
+    this.hierarchyKnownValid = false;
+    this.resetHierarchy();
+  }
 
   private topIndex(layerId: string): string | null {
     let top: string | null = null;
@@ -123,33 +162,113 @@ export class ElementStore {
     );
   }
 
-  // Spatial index stores the rotation-expanded AABB so rotated elements remain
-  // broad-phase hit-test/marquee candidates; precise tests run against local bounds.
+  getChildren(id: string): readonly CanvasElement[] {
+    return [...this.getHierarchy().getChildren(id)];
+  }
+
+  getDescendants(id: string): readonly CanvasElement[] {
+    return [...this.getHierarchy().getDescendants(id)];
+  }
+
   private indexBounds(element: CanvasElement): Bounds | null {
-    return getElementVisualBounds(element, this.registry);
+    const bounds = getElementBounds(element, this.registry);
+    if (!bounds) return null;
+    const visualBounds = getElementVisualBounds(element, this.registry);
+    if (!visualBounds) return bounds;
+    const x = Math.min(bounds.x, visualBounds.x);
+    const y = Math.min(bounds.y, visualBounds.y);
+    const right = Math.max(bounds.x + bounds.w, visualBounds.x + visualBounds.w);
+    const bottom = Math.max(bounds.y + bounds.h, visualBounds.y + visualBounds.h);
+    return {
+      x,
+      y,
+      w: right - x,
+      h: bottom - y,
+    };
   }
 
   add(element: CanvasElement, meta?: ElementChangeMeta): void {
+    this.refreshRegistry();
     element = stampDataVersion(sanitizeRichText(element), this.registry);
     if (element.index === '') {
       element = { ...element, index: generateKeyBetween(this.topIndex(element.layerId), null) };
     }
-    this.sortedCache = null;
+    if (this.strict(meta) && this.hierarchyKnownValid && !this.elements.has(element.id)) {
+      validateAddedElement(element, this.elements, this.registry);
+    } else {
+      const candidate = new Map(this.elements);
+      candidate.set(element.id, element);
+      this.validateCandidate(candidate, meta);
+    }
+    this.resetHierarchy();
     this._versions.set(element.id, 0);
     this.elements.set(element.id, element);
+    this.hierarchyKnownValid = this.strict(meta);
     const bounds = this.indexBounds(element);
     if (bounds) this.spatialIndex.insert(element.id, bounds);
     this.bus.emit('add', element, meta);
   }
 
   update(id: string, partial: Partial<CanvasElement>, meta?: ElementChangeMeta): void {
+    this.refreshRegistry();
     const existing = this.elements.get(id);
     if (!existing) return;
-    if ('index' in partial || 'layerId' in partial) this.sortedCache = null;
-    this._versions.set(id, (this._versions.get(id) ?? 0) + 1);
+    const updated = this.prepareUpdate(existing, partial, meta);
+    const structural = this.isStructural(existing, updated);
+    const validated = this.strict(meta) && (structural || !this.hierarchyKnownValid);
+    if (validated) {
+      const candidate = new Map(this.elements);
+      candidate.set(id, updated);
+      this.validateCandidate(candidate, meta);
+    }
+    this.installUpdate(existing, updated);
+    if (validated) this.hierarchyKnownValid = true;
+    else if (structural) this.hierarchyKnownValid = false;
+    this.bus.emit('update', { previous: existing, current: updated }, meta);
+  }
 
-    // Shallow spread preserves the points array identity when `partial` omits points;
-    // transferStrokeRenderData/transferStrokeBounds rely on that reference equality.
+  /** Applies several element patches atomically. */
+  updateMany(
+    updates: readonly { id: string; partial: Partial<CanvasElement> }[],
+    meta?: ElementChangeMeta,
+  ): void {
+    this.refreshRegistry();
+    const ids = new Set<string>();
+    for (const update of updates) {
+      if (ids.has(update.id)) throw new Error(`Duplicate update id "${update.id}"`);
+      ids.add(update.id);
+    }
+    const prepared: { existing: CanvasElement; updated: CanvasElement }[] = [];
+    for (const update of updates) {
+      const existing = this.elements.get(update.id);
+      if (!existing) continue;
+      const updated = this.prepareUpdate(existing, update.partial, meta);
+      prepared.push({ existing, updated });
+    }
+    if (prepared.length === 0) return;
+    const structural = prepared.some(({ existing, updated }) =>
+      this.isStructural(existing, updated),
+    );
+    const validated = this.strict(meta) && (structural || !this.hierarchyKnownValid);
+    if (validated) {
+      const candidate = new Map(this.elements);
+      for (const { updated } of prepared) candidate.set(updated.id, updated);
+      this.validateCandidate(candidate, meta);
+    }
+    for (const item of prepared) this.installUpdate(item.existing, item.updated, structural);
+    if (structural) this.resetHierarchy();
+    if (structural) this.getHierarchy();
+    if (validated) this.hierarchyKnownValid = true;
+    for (const item of prepared)
+      this.bus.emit('update', { previous: item.existing, current: item.updated }, meta);
+  }
+
+  private prepareUpdate(
+    existing: CanvasElement,
+    partial: Partial<CanvasElement>,
+    meta?: ElementChangeMeta,
+  ): CanvasElement {
+    // Shallow spread preserves the points array identity when `partial` omits points.
     const updated = {
       ...existing,
       ...partial,
@@ -183,33 +302,65 @@ export class ElementStore {
       updated.text = sanitizeNoteHtml(updated.text);
     }
 
-    this.elements.set(id, updated);
-    // Fresh array keeps getAll() identity-sensitive consumers (React useElements) updating.
-    this.sortedCache = this.sortedCache?.map((el) => (el === existing ? updated : el)) ?? null;
+    return updated;
+  }
+
+  private isStructural(existing: CanvasElement, updated: CanvasElement): boolean {
+    return (
+      existing.parentId !== updated.parentId ||
+      existing.layerId !== updated.layerId ||
+      existing.index !== updated.index ||
+      (existing.type === 'extension' &&
+        updated.type === 'extension' &&
+        existing.extensionType !== updated.extensionType)
+    );
+  }
+
+  private installUpdate(
+    existing: CanvasElement,
+    updated: CanvasElement,
+    deferStructuralReset = false,
+  ): void {
+    this._versions.set(existing.id, (this._versions.get(existing.id) ?? 0) + 1);
+    this.elements.set(existing.id, updated);
+    const structural = this.isStructural(existing, updated);
+    if (!deferStructuralReset && structural) {
+      this.resetHierarchy();
+    } else if (!deferStructuralReset) {
+      const rank = this.hierarchy?.replace(existing, updated);
+      if (rank !== undefined && this.sceneCache) this.sceneCache[rank] = updated;
+    }
 
     const newBounds = this.indexBounds(updated);
     if (newBounds) {
-      this.spatialIndex.update(id, newBounds);
+      this.spatialIndex.update(existing.id, newBounds);
+    } else {
+      this.spatialIndex.remove(existing.id);
     }
-
-    this.bus.emit('update', { previous: existing, current: updated }, meta);
   }
 
   remove(id: string, meta?: ElementChangeMeta): void {
+    this.refreshRegistry();
     const element = this.elements.get(id);
     if (!element) return;
-    this.sortedCache = null;
+    const candidate = new Map(this.elements);
+    candidate.delete(id);
+    this.validateCandidate(candidate, meta);
+    this.resetHierarchy();
     this._versions.delete(id);
 
     this.elements.delete(id);
+    this.hierarchyKnownValid = this.strict(meta);
     this.spatialIndex.remove(id);
     this.bus.emit('remove', element, meta);
   }
 
   clear(meta?: ElementChangeMeta): void {
-    this.sortedCache = null;
+    this.refreshRegistry();
+    this.resetHierarchy();
     this._versions.clear();
     this.elements.clear();
+    this.hierarchyKnownValid = true;
     this.spatialIndex.clear();
     this.bus.emit('clear', null, meta);
   }
@@ -219,6 +370,7 @@ export class ElementStore {
   }
 
   loadSnapshot(elements: CanvasElement[], meta?: ElementChangeMeta): void {
+    this.refreshRegistry();
     const tops = new Map<string, string>();
     for (const el of elements) {
       const top = tops.get(el.layerId);
@@ -231,7 +383,9 @@ export class ElementStore {
       tops.set(element.layerId, index);
       return { ...element, index };
     });
-    this.sortedCache = null;
+    const candidate = new Map(sanitizedElements.map((element) => [element.id, element]));
+    this.validateCandidate(candidate, meta);
+    this.resetHierarchy();
     this._versions.clear();
     this.elements.clear();
     this.spatialIndex.clear();
@@ -247,6 +401,7 @@ export class ElementStore {
         el.cachedControlPoint = getArrowControlPoint(el.from, el.to, el.bend);
       }
     }
+    this.hierarchyKnownValid = this.strict(meta);
     this.bus.emit('clear', null, meta);
     for (const el of sanitizedElements) {
       this.bus.emit('add', el, meta);
@@ -285,7 +440,9 @@ export class ElementStore {
   // Sorted elements sharing the layer of `id`; empty when `id` is unknown.
   private layerSiblings(id: string): CanvasElement[] {
     const el = this.elements.get(id);
-    return el ? this.getAll().filter((e) => e.layerId === el.layerId) : [];
+    return el
+      ? this.getAll().filter((e) => e.layerId === el.layerId && e.parentId === el.parentId)
+      : [];
   }
 
   private reorder(id: string, below: string | null, above: string | null): void {
@@ -303,9 +460,28 @@ export class ElementStore {
     const elements: CanvasElement[] = [];
     for (const id of ids) {
       const el = this.elements.get(id);
-      if (el) elements.push(el);
+      if (!el || this.getHierarchy().rank(id) === undefined) continue;
+      const clip = this.getEffectiveClip(id);
+      if (clip === undefined) continue;
+      if (clip) {
+        const bounds = getElementVisualBounds(el, this.registry);
+        if (bounds) {
+          const left = Math.max(bounds.x, clip.x);
+          const top = Math.max(bounds.y, clip.y);
+          const right = Math.min(bounds.x + bounds.w, clip.x + clip.w);
+          const bottom = Math.min(bounds.y + bounds.h, clip.y + clip.h);
+          if (left >= right || top >= bottom) continue;
+          if (!boundsIntersect(rect, { x: left, y: top, w: right - left, h: bottom - top }))
+            continue;
+        } else if (!boundsIntersect(rect, clip)) {
+          continue;
+        }
+      }
+      elements.push(el);
     }
-    return elements.sort(this.compare);
+    return elements.sort(
+      (a, b) => (this.getHierarchy().rank(a.id) ?? 0) - (this.getHierarchy().rank(b.id) ?? 0),
+    );
   }
 
   queryPoint(point: Point): CanvasElement[] {

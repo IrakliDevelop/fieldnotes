@@ -5,6 +5,11 @@ import { InMemoryHubFanout } from './hub-fanout';
 import type { ServerOpContext } from './sync-plugin';
 
 const clear = JSON.stringify({ from: 'untrusted', op: { kind: 'clear' } });
+const capabilityFrame = (id: string) =>
+  JSON.stringify({
+    from: id,
+    op: { kind: 'capabilities', capabilities: createCurrentCapabilities([]) },
+  });
 
 describe('guarded hub dispatch', () => {
   it.each([false, true])(
@@ -51,6 +56,8 @@ describe('guarded hub dispatch', () => {
       });
       hub.addConnection({ id: 'A', room: 'R', send: () => undefined });
       hub.addConnection({ id: 'B', room: 'R', send: () => undefined });
+      await hub.handleMessage('A', capabilityFrame('A'));
+      await hub.handleMessage('B', capabilityFrame('B'));
       const first = hub.handleMessage('A', clear);
       await vi.waitFor(() => expect(seen).toEqual(['A']));
       const controller = new AbortController();
@@ -105,6 +112,8 @@ describe('guarded hub dispatch', () => {
     });
     hub.addConnection({ id: 'A', room: 'R', send: () => undefined });
     hub.addConnection({ id: 'B', room: 'R', send: () => undefined });
+    await hub.handleMessage('A', capabilityFrame('A'));
+    await hub.handleMessage('B', capabilityFrame('B'));
     const first = hub.handleMessage('A', clear);
     await vi.waitFor(() => expect(called).toEqual(['A']));
     const beforeProcess = vi.fn(() => true);
@@ -123,6 +132,7 @@ describe('guarded hub dispatch', () => {
   it('does not retain an idle room queue for an already-aborted or expired dispatch', async () => {
     const hub = new SyncHub();
     hub.addConnection({ id: 'A', room: 'R', send: () => undefined });
+    await hub.handleMessage('A', capabilityFrame('A'));
     const queues = Reflect.get(hub, 'roomQueues') as Map<string, unknown>;
     const beforeProcess = vi.fn(() => true);
     const controller = new AbortController();
@@ -148,6 +158,7 @@ describe('guarded hub dispatch', () => {
     const process = vi.fn(async (op, context, next) => next(op, context));
     const hub = new SyncHub({ plugins: [{ name: 'watch', process }] });
     hub.addConnection({ id: 'A', room: 'R', send: () => undefined });
+    await hub.handleMessage('A', capabilityFrame('A'));
     const controller = new AbortController();
     let settleHook: ((allowed: boolean) => void) | undefined;
     const beforeProcess = vi.fn(() => new Promise<boolean>((resolve) => (settleHook = resolve)));
@@ -194,6 +205,10 @@ describe('guarded hub dispatch', () => {
     hub.addConnection({ id: 'A', room: 'R', send: () => undefined });
     hub.addConnection({ id: 'B', room: 'R', send: (message) => sentB.push(message) });
     hub.addConnection({ id: 'C', room: 'R', send: (message) => sentC.push(message) });
+    await hub.handleMessage('A', capabilityFrame('A'));
+    await hub.handleMessage('C', capabilityFrame('C'));
+    sentB.length = 0;
+    sentC.length = 0;
     const first = hub.handleMessage('A', clear);
     await new Promise((resolve) => setImmediate(resolve));
     const controller = new AbortController();
@@ -226,6 +241,8 @@ describe('guarded hub dispatch', () => {
       sentB.every((message) => !message.includes('capabilities') && !message.includes('hidden')),
     ).toBe(true);
     expect(sentC.every((message) => !message.includes('hidden'))).toBe(true);
+    await hub.handleMessage('B', capabilityFrame('B'));
+    expect(sentB).toHaveLength(1);
     hub.close();
   });
 });

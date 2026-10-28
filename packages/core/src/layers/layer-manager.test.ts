@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { LayerManager } from './layer-manager';
 import { ElementStore } from '../elements/element-store';
+import { HistoryRecorder } from '../history/history-recorder';
+import { HistoryStack } from '../history/history-stack';
 import type { NoteElement } from '../elements/types';
 
 function makeNote(overrides: Partial<NoteElement> = {}): NoteElement {
@@ -93,6 +95,29 @@ describe('LayerManager', () => {
       manager.removeLayer(layer2.id);
       expect(manager.activeLayerId).toBe(oldActive);
     });
+
+    it('moves a hierarchy subtree in one valid batch before removing its layer', () => {
+      const { store, manager } = setup();
+      const layer2 = manager.createLayer();
+      store.add(makeNote({ id: 'parent', layerId: layer2.id }));
+      store.add(makeNote({ id: 'child', parentId: 'parent', layerId: layer2.id }));
+      store.add(makeNote({ id: 'grandchild', parentId: 'child', layerId: layer2.id }));
+      const seen: string[][] = [];
+      store.on('update', () => seen.push(store.getAll().map((element) => element.layerId)));
+
+      manager.removeLayer(layer2.id);
+
+      expect(seen).toEqual([
+        [manager.activeLayerId, manager.activeLayerId, manager.activeLayerId],
+        [manager.activeLayerId, manager.activeLayerId, manager.activeLayerId],
+        [manager.activeLayerId, manager.activeLayerId, manager.activeLayerId],
+      ]);
+      expect(store.getAll().map((element) => element.id)).toEqual([
+        'parent',
+        'child',
+        'grandchild',
+      ]);
+    });
   });
 
   describe('renameLayer', () => {
@@ -183,6 +208,71 @@ describe('LayerManager', () => {
       const layer2 = manager.createLayer();
       manager.moveElementToLayer('el-1', layer2.id);
       expect(store.getById('el-1')?.layerId).toBe(layer2.id);
+    });
+
+    it('moves a subtree once and detaches a selected child from its outside parent', () => {
+      const { store, manager } = setup();
+      const layer2 = manager.createLayer();
+      store.add(makeNote({ id: 'parent', layerId: manager.activeLayerId }));
+      store.add(makeNote({ id: 'child', parentId: 'parent', layerId: manager.activeLayerId }));
+      store.add(makeNote({ id: 'grandchild', parentId: 'child', layerId: manager.activeLayerId }));
+      const updates: string[] = [];
+      const changes = vi.fn();
+      store.on('update', ({ current }) => updates.push(current.id));
+      manager.on('change', changes);
+
+      manager.moveElementToLayer('child', layer2.id);
+
+      expect(updates).toEqual(['child', 'grandchild']);
+      expect(changes).toHaveBeenCalledOnce();
+      expect(store.getById('child')).toMatchObject({ layerId: layer2.id, parentId: undefined });
+      expect(store.getById('grandchild')).toMatchObject({ layerId: layer2.id, parentId: 'child' });
+      manager.moveElementToLayer('missing', layer2.id);
+      manager.moveElementToLayer('child', layer2.id);
+      expect(changes).toHaveBeenCalledOnce();
+    });
+
+    it('moves a parent subtree as one undoable action', () => {
+      const { store, manager } = setup();
+      const target = manager.createLayer();
+      const source = manager.activeLayerId;
+      const stack = new HistoryStack();
+      const recorder = new HistoryRecorder(store, stack);
+      store.add(makeNote({ id: 'parent', layerId: source }));
+      store.add(makeNote({ id: 'child', parentId: 'parent', layerId: source }));
+      store.add(makeNote({ id: 'grandchild', parentId: 'child', layerId: source }));
+      stack.clear();
+
+      recorder.run(() => manager.moveElementToLayer('parent', target.id));
+
+      expect(stack.undoCount).toBe(1);
+      expect(
+        store.getAll().map((element) => [element.id, element.layerId, element.parentId]),
+      ).toEqual([
+        ['parent', target.id, undefined],
+        ['child', target.id, 'parent'],
+        ['grandchild', target.id, 'child'],
+      ]);
+      recorder.pause();
+      expect(stack.undo(store)).toBe(true);
+      recorder.resume();
+      expect(
+        store.getAll().map((element) => [element.id, element.layerId, element.parentId]),
+      ).toEqual([
+        ['parent', source, undefined],
+        ['child', source, 'parent'],
+        ['grandchild', source, 'child'],
+      ]);
+      recorder.pause();
+      expect(stack.redo(store)).toBe(true);
+      recorder.resume();
+      expect(
+        store.getAll().map((element) => [element.id, element.layerId, element.parentId]),
+      ).toEqual([
+        ['parent', target.id, undefined],
+        ['child', target.id, 'parent'],
+        ['grandchild', target.id, 'child'],
+      ]);
     });
   });
 

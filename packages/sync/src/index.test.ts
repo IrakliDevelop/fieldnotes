@@ -5,7 +5,10 @@ import {
   createAuthorityLegacyExtensionReducer,
   createAuthorityWebSocketTransport,
   createManagedAuthorityConnection,
+  ELEMENT_HIERARCHY_CAPABILITY_VERSION,
+  LEGACY_SYNC_PROTOCOL_VERSION,
   SyncLimitError,
+  supportsLegacyHierarchy,
 } from './index';
 
 describe('authority client public exports', () => {
@@ -17,6 +20,14 @@ describe('authority client public exports', () => {
       createAuthorityWebSocketTransport,
       createManagedAuthorityConnection,
     ]).toEqual(Array(5).fill(expect.any(Function)));
+  });
+});
+
+describe('legacy hierarchy public exports', () => {
+  it('exports the legacy protocol contract intentionally', () => {
+    expect(LEGACY_SYNC_PROTOCOL_VERSION).toBe(3);
+    expect(ELEMENT_HIERARCHY_CAPABILITY_VERSION).toBe(1);
+    expect(supportsLegacyHierarchy).toEqual(expect.any(Function));
   });
 });
 

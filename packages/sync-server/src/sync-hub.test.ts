@@ -6,6 +6,7 @@ import {
   createAuthorityCapabilities,
   createCurrentCapabilities,
   createExtensionKind,
+  LEGACY_SYNC_PROTOCOL_VERSION,
   parseLegacyEnvelope,
   type BatchOp,
   type SyncCapabilities,
@@ -18,7 +19,7 @@ import type { HubBackend } from './hub-backend';
 import { MemoryHubBackend } from './memory-hub-backend';
 import type { Authorize, OwnedElement, ResolveAudience } from './authorize';
 import { InMemoryHubFanout } from './hub-fanout';
-import type { ServerOpContext } from './sync-plugin';
+import type { ServerExtensionRegistry, ServerOpContext } from './sync-plugin';
 import { registerAuthorityConnection } from './authority-connection';
 import { v2Remove, v2Shape } from './test-support/v2-ops';
 import type { AuthorityDriver, AuthorityRoomDefinition } from './authority-types';
@@ -45,6 +46,18 @@ function envelope(from: string, op: SyncOp): string {
   return JSON.stringify({ from, op });
 }
 
+function admit(
+  hub: SyncHub,
+  conn: FakeConn,
+  capabilities: SyncCapabilities = createCurrentCapabilities([]),
+  clearNegotiation = true,
+): FakeConn {
+  hub.addConnection(conn);
+  void hub.handleMessage(conn.id, envelope(conn.id, { kind: 'capabilities', capabilities }));
+  if (clearNegotiation) conn.sent.length = 0;
+  return conn;
+}
+
 const sampleEl = (): CanvasElement => v2Shape({ position: { x: 1, y: 2 }, size: { w: 10, h: 20 } });
 
 /** What a non-privileged reader receives: the element minus the server-stamped ownerId (S4). */
@@ -65,9 +78,45 @@ describe('SyncHub', () => {
     A = makeConn('A', 'R');
     B = makeConn('B', 'R');
     C = makeConn('C', 'R2');
+    admit(hub, A);
+    admit(hub, B);
+    admit(hub, C);
+  });
+
+  it('does not relay ordinary output to a peer before it advertises hierarchy support', async () => {
+    hub.removeConnection('A');
     hub.addConnection(A);
-    hub.addConnection(B);
-    hub.addConnection(C);
+    B.sent.length = 0;
+
+    await hub.handleMessage('B', envelope('B', { kind: 'upsert', element: sampleEl() }));
+
+    expect(A.sent).toEqual([]);
+  });
+
+  it('poisons an unawaited pre-capability operation before a later capability can admit it', async () => {
+    const backend = new MemoryHubBackend();
+    const pendingHub = new SyncHub({ backend });
+    const pending = makeConn('pending', 'R');
+    const close = vi.fn();
+    pending.close = close;
+    pendingHub.addConnection(pending);
+    const element = sampleEl();
+
+    const dropped = pendingHub.handleMessage(
+      pending.id,
+      envelope(pending.id, { kind: 'upsert', element }),
+    );
+    await pendingHub.handleMessage(
+      pending.id,
+      envelope(pending.id, { kind: 'capabilities', capabilities: createCurrentCapabilities([]) }),
+    );
+    await dropped;
+
+    expect(close).toHaveBeenCalledWith(4406);
+    expect(await storedElement(backend, 'R', element.id)).toBeUndefined();
+    expect(
+      pending.sent.map((message) => JSON.parse(message) as { op: SyncOp }).map(({ op }) => op.kind),
+    ).toEqual(['unsupported']);
   });
 
   it('normalizes direct connection claims before plugins receive them', async () => {
@@ -86,7 +135,7 @@ describe('SyncHub', () => {
     });
     const claims = { owner: { id: 'u1' } };
     const conn = { ...makeConn('direct', 'R'), authContext: claims, expiresAt: Date.now() + 10000 };
-    hub.addConnection(conn);
+    admit(hub, conn);
     claims.owner.id = 'changed';
     conn.authContext = { owner: { id: 'replacement' } };
     await hub.handleMessage('direct', envelope('forged', { kind: 'clear' }));
@@ -102,7 +151,7 @@ describe('SyncHub', () => {
       readonly id = 'class-transport';
       readonly room = 'R';
       readonly #sent: string[] = [];
-      get sent(): readonly string[] {
+      get sent(): string[] {
         return this.#sent;
       }
       send(message: string): void {
@@ -113,7 +162,7 @@ describe('SyncHub', () => {
       }
     }
     const conn = new TransportConnection();
-    hub.addConnection(conn);
+    admit(hub, conn);
     await hub.handleMessage(conn.id, envelope(conn.id, { kind: 'request-snapshot' }));
     expect(conn.sent).toHaveLength(1);
     const snapshot = (hub as unknown as { conns: Map<string, Connection> }).conns.get(conn.id);
@@ -152,16 +201,8 @@ describe('SyncHub', () => {
     });
     A = makeConn('A', 'R');
     B = makeConn('B', 'R');
-    hub.addConnection(A);
-    hub.addConnection(B);
-    await hub.handleMessage(
-      'B',
-      envelope('B', {
-        kind: 'capabilities',
-        capabilities: createCurrentCapabilities(['test:counter']),
-      }),
-    );
-    B.sent.length = 0;
+    admit(hub, A, createCurrentCapabilities(['test:counter']));
+    admit(hub, B, createCurrentCapabilities(['test:counter']));
 
     await hub.handleMessage(
       'A',
@@ -211,25 +252,9 @@ describe('SyncHub', () => {
     A = makeConn('source', 'R');
     B = makeConn('unsupported', 'R');
     C = makeConn('supported', 'R');
-    hub.addConnection(A);
-    hub.addConnection(B);
-    hub.addConnection(C);
-    await hub.handleMessage(
-      B.id,
-      envelope(B.id, {
-        kind: 'capabilities',
-        capabilities: createCurrentCapabilities(['a,b']),
-      }),
-    );
-    await hub.handleMessage(
-      C.id,
-      envelope(C.id, {
-        kind: 'capabilities',
-        capabilities: createCurrentCapabilities(['a', 'b']),
-      }),
-    );
-    B.sent.length = 0;
-    C.sent.length = 0;
+    admit(hub, A, createCurrentCapabilities(['a']));
+    admit(hub, B, createCurrentCapabilities(['a,b']));
+    admit(hub, C, createCurrentCapabilities(['a', 'b']));
 
     await hub.handleMessage(
       A.id,
@@ -336,8 +361,8 @@ describe('SyncHub', () => {
     const hub = new SyncHub({ maxJsonDepth: 1 });
     const a = makeConn('A', 'R');
     const b = makeConn('B', 'R');
-    hub.addConnection(a);
-    hub.addConnection(b);
+    admit(hub, a);
+    admit(hub, b);
 
     await hub.handleMessage('A', JSON.stringify({ from: 'A', op: { kind: 'clear' } }));
 
@@ -407,9 +432,9 @@ describe('SyncHub', () => {
     it('serializes same-room messages and never blocks a different room', async () => {
       const backend = new DeferredBackend();
       const h = new SyncHub({ backend });
-      h.addConnection(makeConn('A', 'R'));
-      h.addConnection(makeConn('B', 'R'));
-      h.addConnection(makeConn('C', 'R2'));
+      admit(h, makeConn('A', 'R'));
+      admit(h, makeConn('B', 'R'));
+      admit(h, makeConn('C', 'R2'));
 
       // Fire two same-room messages and one cross-room message; do NOT await.
       void h.handleMessage('B', envelope('clientB', { kind: 'request-snapshot' }));
@@ -443,8 +468,8 @@ describe('SyncHub', () => {
       const hubB = new SyncHub({ instanceId: 'B', fanout: bus });
       const a = makeConn('a', 'R');
       const b = makeConn('b', 'R');
-      hubA.addConnection(a);
-      hubB.addConnection(b);
+      admit(hubA, a);
+      admit(hubB, b);
 
       const msg = upsert('ca', 'e1');
       await hubA.handleMessage('a', msg);
@@ -503,8 +528,8 @@ describe('SyncHub', () => {
       new SyncHub({ instanceId: 'B', fanout: bus });
       const a = makeConn('a', 'R');
       const a2 = makeConn('a2', 'R');
-      hubA.addConnection(a);
-      hubA.addConnection(a2);
+      admit(hubA, a);
+      admit(hubA, a2);
 
       const msg = upsert('ca', 'e1');
       await hubA.handleMessage('a', msg);
@@ -520,8 +545,8 @@ describe('SyncHub', () => {
       const hubB = new SyncHub({ instanceId: 'B', fanout: bus });
       const a = makeConn('a', 'R');
       const b = makeConn('b', 'R');
-      hubA.addConnection(a);
-      hubB.addConnection(b);
+      admit(hubA, a);
+      admit(hubB, b);
 
       await hubA.handleMessage('a', envelope('ca', { kind: 'request-snapshot' }));
 
@@ -532,7 +557,7 @@ describe('SyncHub', () => {
       const bus = new InMemoryHubFanout();
       const hubB = new SyncHub({ instanceId: 'B', fanout: bus });
       const b = makeConn('b', 'R');
-      hubB.addConnection(b);
+      admit(hubB, b);
 
       // Anyone who can PUBLISH to the channel bypasses the origin hub's parseEnvelope.
       bus.publish(
@@ -575,15 +600,7 @@ describe('SyncHub', () => {
         ],
       });
       const b = makeConn('b', 'R');
-      hubB.addConnection(b);
-      await hubB.handleMessage(
-        'b',
-        envelope('b', {
-          kind: 'capabilities',
-          capabilities: createCurrentCapabilities(['test:counter']),
-        }),
-      );
-      b.sent.length = 0;
+      admit(hubB, b, createCurrentCapabilities(['test:counter']));
 
       const rogue = (payload: unknown) =>
         bus.publish(
@@ -605,7 +622,7 @@ describe('SyncHub', () => {
       const bus = new InMemoryHubFanout();
       const hubB = new SyncHub({ instanceId: 'B', fanout: bus, maxJsonDepth: 4 });
       const b = makeConn('b', 'R');
-      hubB.addConnection(b);
+      admit(hubB, b);
 
       bus.publish(
         JSON.stringify({
@@ -641,8 +658,8 @@ describe('SyncHub', () => {
       const origin = makeConn('a', 'R');
       const localPeer = makeConn('b', 'R');
       const h = new SyncHub({ backend, fanout, instanceId: 'A' });
-      h.addConnection(origin);
-      h.addConnection(localPeer);
+      admit(h, origin);
+      admit(h, localPeer);
 
       await expect(h.handleMessage('a', upsert('ca', 'e1'))).rejects.toBe(error);
       expect((await backend.snapshot('R')).elements.map((element) => element.id)).toEqual([]);
@@ -678,7 +695,7 @@ describe('SyncHub', () => {
       }
       const origin = makeConn('a', 'R');
       const h = new SyncHub({ backend: new ClearFailsBackend(), instanceId: 'A' });
-      h.addConnection(origin);
+      admit(h, origin);
 
       // The caller must still see why the op failed, not why the resync failed.
       await expect(h.handleMessage('a', envelope('ca', { kind: 'clear' }))).rejects.toBe(error);
@@ -702,8 +719,8 @@ describe('SyncHub', () => {
       });
       const dm: FakeConn = { ...makeConn('dm', 'R'), role: 'dm' };
       const player: FakeConn = { ...makeConn('pl', 'R'), role: 'player' };
-      h.addConnection(dm);
-      h.addConnection(player);
+      admit(h, dm);
+      admit(h, player);
 
       const secret: SyncElement = { ...sampleEl(), id: 'secret', audience: 'dm' };
       await h.handleMessage(
@@ -734,8 +751,8 @@ describe('SyncHub', () => {
       const hubB = new SyncHub({ instanceId: 'B', fanout: bus });
       const a = makeConn('a', 'R');
       const b = makeConn('b', 'R2');
-      hubA.addConnection(a);
-      hubB.addConnection(b);
+      admit(hubA, a);
+      admit(hubB, b);
 
       await hubA.handleMessage('a', upsert('ca', 'e1'));
 
@@ -755,8 +772,8 @@ describe('SyncHub', () => {
       const hubB = new SyncHub({ instanceId: 'B', fanout: bus, canRead });
       const dm: FakeConn = { ...makeConn('dm', 'R'), role: 'dm' };
       const player: FakeConn = { ...makeConn('pl', 'R'), role: 'player' };
-      hubA.addConnection(dm);
-      hubB.addConnection(player);
+      admit(hubA, dm);
+      admit(hubB, player);
 
       const secret = JSON.stringify({
         from: 'cdm',
@@ -785,8 +802,8 @@ describe('SyncHub', () => {
       const hubB = new SyncHub({ instanceId: 'B', fanout: bus, canRead });
       const dm: FakeConn = { ...makeConn('dm', 'R'), role: 'dm' };
       const player: FakeConn = { ...makeConn('pl', 'R'), role: 'player' };
-      hubA.addConnection(dm);
-      hubB.addConnection(player);
+      admit(hubA, dm);
+      admit(hubB, player);
 
       const shared = JSON.stringify({
         from: 'cdm',
@@ -815,8 +832,8 @@ describe('SyncHub', () => {
       const hubB = new SyncHub({ instanceId: 'B', fanout: bus });
       const a = makeConn('a', 'R');
       const b = makeConn('b', 'R');
-      hubA.addConnection(a);
-      hubB.addConnection(b);
+      admit(hubA, a);
+      admit(hubB, b);
 
       hubA.close();
       await hubB.handleMessage('b', upsert('cb', 'e2'));
@@ -858,9 +875,9 @@ describe('SyncHub', () => {
         const p = roleConn('p', 'R', 'player1', 'player');
         const p2 = roleConn('p2', 'R', 'player2', 'player');
         const obs = roleConn('obs', 'R', 'dm1', 'dm');
-        hub.addConnection(p);
-        hub.addConnection(p2);
-        hub.addConnection(obs);
+        admit(hub, p);
+        admit(hub, p2);
+        admit(hub, obs);
 
         await hub.handleMessage('p', envelope('cp', { kind: 'upsert', element: el('e1') }));
         expect(
@@ -895,8 +912,8 @@ describe('SyncHub', () => {
         const hubB = new SyncHub({ backend, instanceId: 'B', fanout: bus });
         const a = makeConn('a', 'R');
         const b = makeConn('b', 'R');
-        hubA.addConnection(a);
-        hubB.addConnection(b);
+        admit(hubA, a);
+        admit(hubB, b);
 
         await hubA.handleMessage('a', envelope('ca', { kind: 'request-snapshot' }));
         expect(JSON.parse(a.sent[0] ?? '').op.elements).toEqual([withoutOwner(el('e1'))]);
@@ -924,10 +941,10 @@ describe('SyncHub', () => {
         const other = roleConn('other', 'R', 'player2', 'player');
         const dm = roleConn('dm', 'R', 'dm1', 'dm');
         const dmModern = roleConn('dm2', 'R', 'dm2', 'dm');
-        hub.addConnection(p);
-        hub.addConnection(other);
-        hub.addConnection(dm);
-        hub.addConnection(dmModern);
+        admit(hub, p);
+        admit(hub, other);
+        admit(hub, dm);
+        admit(hub, dmModern);
         await hub.handleMessage(
           'dm2',
           envelope('cdm2', { kind: 'capabilities', capabilities: createCurrentCapabilities([]) }),
@@ -952,8 +969,8 @@ describe('SyncHub', () => {
       const h = new SyncHub();
       const p = roleConn('p', 'R', 'player1', 'player');
       const obs = roleConn('obs', 'R', 'dm1', 'dm');
-      h.addConnection(p);
-      h.addConnection(obs);
+      admit(h, p);
+      admit(h, obs);
       await h.handleMessage('p', envelope('cp', { kind: 'upsert', element: el('e1') }));
       const fwd = JSON.parse(obs.sent[0] ?? '');
       expect(fwd.op.element.ownerId).toBeUndefined();
@@ -964,8 +981,8 @@ describe('SyncHub', () => {
       const hub = new SyncHub({ authorize: policy, backend });
       const p = roleConn('p', 'R', 'player1', 'player');
       const obs = roleConn('obs', 'R', 'dm1', 'dm');
-      hub.addConnection(p);
-      hub.addConnection(obs);
+      admit(hub, p);
+      admit(hub, obs);
 
       await hub.handleMessage('p', envelope('cp', { kind: 'upsert', element: el('e1') }));
 
@@ -982,9 +999,9 @@ describe('SyncHub', () => {
       const dm = roleConn('dm', 'R', 'dm1', 'dm');
       const p = roleConn('p', 'R', 'player1', 'player');
       const obs = roleConn('obs', 'R', 'o', 'dm');
-      hub.addConnection(dm);
-      hub.addConnection(p);
-      hub.addConnection(obs);
+      admit(hub, dm);
+      admit(hub, p);
+      admit(hub, obs);
 
       await hub.handleMessage('dm', envelope('cdm', { kind: 'upsert', element: el('X') }));
       obs.sent.length = 0;
@@ -1002,9 +1019,9 @@ describe('SyncHub', () => {
       const dm = roleConn('dm', 'R', 'dm1', 'dm');
       const p = roleConn('p', 'R', 'player1', 'player');
       const obs = roleConn('obs', 'R', 'o', 'dm');
-      hub.addConnection(dm);
-      hub.addConnection(p);
-      hub.addConnection(obs);
+      admit(hub, dm);
+      admit(hub, p);
+      admit(hub, obs);
 
       await hub.handleMessage('dm', envelope('cdm', { kind: 'upsert', element: el('X') }));
       obs.sent.length = 0;
@@ -1021,9 +1038,9 @@ describe('SyncHub', () => {
       const dm = roleConn('dm', 'R', 'dm1', 'dm');
       const p = roleConn('p', 'R', 'player1', 'player');
       const obs = roleConn('obs', 'R', 'o', 'dm');
-      hub.addConnection(dm);
-      hub.addConnection(p);
-      hub.addConnection(obs);
+      admit(hub, dm);
+      admit(hub, p);
+      admit(hub, obs);
 
       await hub.handleMessage('dm', envelope('cdm', { kind: 'upsert', element: el('X') }));
       obs.sent.length = 0;
@@ -1039,8 +1056,8 @@ describe('SyncHub', () => {
       const hub = new SyncHub({ authorize: policy, backend });
       const d = roleConn('d', 'R', 'disp1', 'display');
       const obs = roleConn('obs', 'R', 'o', 'dm');
-      hub.addConnection(d);
-      hub.addConnection(obs);
+      admit(hub, d);
+      admit(hub, obs);
 
       await hub.handleMessage('d', envelope('cd', { kind: 'upsert', element: el('e1') }));
 
@@ -1053,8 +1070,8 @@ describe('SyncHub', () => {
       const hub = new SyncHub({ authorize: policy, backend });
       const dm = roleConn('dm', 'R', 'dm1', 'dm');
       const obs = roleConn('obs', 'R', 'o', 'dm');
-      hub.addConnection(dm);
-      hub.addConnection(obs);
+      admit(hub, dm);
+      admit(hub, obs);
 
       await hub.handleMessage('dm', envelope('cdm', { kind: 'upsert', element: el('X') }));
       const fwd = JSON.parse(obs.sent[0] ?? '');
@@ -1076,8 +1093,8 @@ describe('SyncHub', () => {
       const hub = new SyncHub({ authorize: policy, backend });
       const p = roleConn('p', 'R', 'player1', 'player');
       const obs = roleConn('obs', 'R', 'o', 'dm');
-      hub.addConnection(p);
-      hub.addConnection(obs);
+      admit(hub, p);
+      admit(hub, obs);
 
       const forgedNew: OwnedElement = { ...sampleEl(), id: 'f', ownerId: 'dm' };
       await hub.handleMessage('p', envelope('cp', { kind: 'upsert', element: forgedNew }));
@@ -1103,7 +1120,7 @@ describe('SyncHub', () => {
       const backend = new MemoryHubBackend();
       const hub = new SyncHub({ authorize: capture, backend });
       const p = roleConn('p', 'R', 'u', 'player');
-      hub.addConnection(p);
+      admit(hub, p);
 
       await hub.handleMessage('p', envelope('cp', { kind: 'upsert', element: el('e1') }));
       await hub.handleMessage('p', envelope('cp', { kind: 'upsert', element: el('e1') }));
@@ -1118,8 +1135,8 @@ describe('SyncHub', () => {
       const hub = new SyncHub({ authorize: async () => false, backend });
       const p = roleConn('p', 'R', 'u', 'player');
       const obs = roleConn('obs', 'R', 'o', 'dm');
-      hub.addConnection(p);
-      hub.addConnection(obs);
+      admit(hub, p);
+      admit(hub, obs);
 
       await hub.handleMessage('p', envelope('cp', { kind: 'upsert', element: el('e1') }));
 
@@ -1138,8 +1155,8 @@ describe('SyncHub', () => {
         const hub = new SyncHub({ authorize: policy, backend });
         const d = roleConn('d', 'R', 'disp1', 'display');
         const peer = roleConn('peer', 'R', 'o', 'dm');
-        hub.addConnection(d);
-        hub.addConnection(peer);
+        admit(hub, d);
+        admit(hub, peer);
 
         const E = el('E');
         await hub.handleMessage('d', envelope('cd', { kind: 'upsert', element: E }));
@@ -1158,9 +1175,9 @@ describe('SyncHub', () => {
         const dm = roleConn('dm', 'R', 'dm1', 'dm');
         const p = roleConn('p', 'R', 'player1', 'player');
         const peer = roleConn('peer', 'R', 'o', 'dm');
-        hub.addConnection(dm);
-        hub.addConnection(p);
-        hub.addConnection(peer);
+        admit(hub, dm);
+        admit(hub, p);
+        admit(hub, peer);
 
         await hub.handleMessage('dm', envelope('cdm', { kind: 'upsert', element: el('X') }));
         const canonical = (await storedElement(backend, 'R', 'X')) as OwnedElement;
@@ -1183,8 +1200,8 @@ describe('SyncHub', () => {
         const hub = new SyncHub({ authorize: policy, backend });
         const dm = roleConn('dm', 'R', 'dm1', 'dm');
         const p = roleConn('p', 'R', 'player1', 'player');
-        hub.addConnection(dm);
-        hub.addConnection(p);
+        admit(hub, dm);
+        admit(hub, p);
 
         await hub.handleMessage('dm', envelope('cdm', { kind: 'upsert', element: el('X') }));
         const canonical = (await storedElement(backend, 'R', 'X')) as OwnedElement;
@@ -1202,7 +1219,7 @@ describe('SyncHub', () => {
         const backend = new MemoryHubBackend();
         const hub = new SyncHub({ authorize: policy, backend });
         const p = roleConn('p', 'R', 'player1', 'player');
-        hub.addConnection(p);
+        admit(hub, p);
 
         await hub.handleMessage('p', envelope('cp', v2Remove('ghost')));
 
@@ -1214,8 +1231,8 @@ describe('SyncHub', () => {
         const hub = new SyncHub({ authorize: policy, backend });
         const dm = roleConn('dm', 'R', 'dm1', 'dm');
         const p = roleConn('p', 'R', 'player1', 'player');
-        hub.addConnection(dm);
-        hub.addConnection(p);
+        admit(hub, dm);
+        admit(hub, p);
 
         await hub.handleMessage('dm', envelope('cdm', { kind: 'upsert', element: el('X') }));
         await hub.handleMessage('dm', envelope('cdm', { kind: 'upsert', element: el('Y') }));
@@ -1239,8 +1256,8 @@ describe('SyncHub', () => {
         });
         const dm = roleConn('dm', 'R', 'dm1', 'dm');
         const p = roleConn('p', 'R', 'player1', 'player');
-        hub.addConnection(dm);
-        hub.addConnection(p);
+        admit(hub, dm);
+        admit(hub, p);
 
         const layer: Layer = {
           id: 'layer-x',
@@ -1303,7 +1320,7 @@ describe('SyncHub', () => {
         const backend = new SnapshotFailsBackend();
         const hub = new SyncHub({ authorize: policy, backend });
         const p = roleConn('p', 'R', 'player1', 'player');
-        hub.addConnection(p);
+        admit(hub, p);
 
         // The denied path has no original error to protect, so a backend read that fails
         // while building the correction must still surface to the caller.
@@ -1318,8 +1335,8 @@ describe('SyncHub', () => {
         const hub = new SyncHub({ authorize: policy, backend });
         const dm = roleConn('dm', 'R', 'dm1', 'dm');
         const peer = roleConn('peer', 'R', 'o', 'dm');
-        hub.addConnection(dm);
-        hub.addConnection(peer);
+        admit(hub, dm);
+        admit(hub, peer);
 
         await hub.handleMessage('dm', envelope('cdm', { kind: 'upsert', element: el('X') }));
 
@@ -1330,7 +1347,7 @@ describe('SyncHub', () => {
         const backend = new MemoryHubBackend();
         const hub = new SyncHub({ backend });
         const p = roleConn('p', 'R', 'player1', 'player');
-        hub.addConnection(p);
+        admit(hub, p);
 
         await hub.handleMessage('p', envelope('cp', v2Remove('ghost')));
 
@@ -1464,6 +1481,83 @@ describe('authority legacy isolation', () => {
       hub.close();
     }
   });
+
+  it('retires a legacy peer before admitting an authority peer with the same id', async () => {
+    vi.useFakeTimers();
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+    const fanout = new InMemoryHubFanout();
+    const definition: AuthorityRoomDefinition = {
+      id: 'definition',
+      extensions: [],
+      project: (_context, state) => state,
+      canReadOwnerId: () => false,
+    };
+    const head = vi.fn(async () => ({ generation: 'g', revision: 'r' }));
+    let hub: SyncHub | undefined;
+    try {
+      hub = new SyncHub({
+        fanout,
+        authority: {
+          driver: {
+            head,
+            claimPublications: async () => [],
+            markPublished: async () => undefined,
+          } as unknown as AuthorityDriver,
+          resolveRoom: (room) => (room === 'authority' ? definition : null),
+          resolveIdentity: () => ({ actorId: 'actor', ownershipId: 'owner' }),
+        },
+      });
+      const legacy = { ...makeConn('shared', 'legacy'), close: vi.fn() };
+      hub.addConnection(legacy);
+      const staleDeadline = setTimeoutSpy.mock.calls.find(([, delay]) => delay === 5_000)?.[0];
+      expect(staleDeadline).toBeTypeOf('function');
+      await hub.handleMessage(
+        legacy.id,
+        envelope(legacy.id, { kind: 'capabilities', capabilities: createCurrentCapabilities([]) }),
+      );
+      legacy.sent.length = 0;
+      const authority = {
+        id: legacy.id,
+        room: 'authority',
+        signal: new AbortController().signal,
+        send: vi.fn(),
+        close: vi.fn(),
+      };
+      registerAuthorityConnection(authority, {
+        sendTracked: () => ({ completion: Promise.resolve(), settled: Promise.resolve() }),
+      });
+
+      hub.addConnection(authority);
+      await hub.handleMessage(
+        authority.id,
+        envelope(authority.id, {
+          kind: 'capabilities',
+          capabilities: createAuthorityCapabilities([]),
+        }),
+      );
+      expect(head).toHaveBeenCalledTimes(1);
+      if (typeof staleDeadline !== 'function') throw new Error('Missing legacy admission deadline');
+      staleDeadline();
+      hub.broadcastPresence('legacy', { kind: 'server' });
+      await fanout.publish(
+        JSON.stringify({
+          o: 'remote',
+          room: 'legacy',
+          from: 'remote',
+          op: { kind: 'presence', data: { kind: 'remote' } },
+        }),
+      );
+
+      expect(hub.roomCount()).toBe(0);
+      expect(authority.close).not.toHaveBeenCalled();
+      expect(authority.send).not.toHaveBeenCalled();
+    } finally {
+      hub?.close();
+      setTimeoutSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it('routes a guarded authority room before legacy backend, plugin, and fanout paths', async () => {
     const backend = {
       getRecord: vi.fn(),
@@ -1604,8 +1698,8 @@ describe('SyncHub fog authority', () => {
     const fogHub = new SyncHub({ plugins: [createFogServerPlugin()] });
     const a = makeConn('A', 'R');
     const b = makeConn('B', 'R');
-    fogHub.addConnection(a);
-    fogHub.addConnection(b);
+    admit(fogHub, a);
+    admit(fogHub, b);
     await fogHub.handleMessage(
       'A',
       envelope('A', {
@@ -1650,7 +1744,7 @@ describe('SyncHub fog authority', () => {
       plugins: [createFogServerPlugin({ authorize: () => false })],
     });
     const player = makeConn('player', 'R');
-    fogHub.addConnection(player);
+    admit(fogHub, player);
 
     await fogHub.handleMessage(
       'player',
@@ -1682,8 +1776,8 @@ describe('SyncHub fog authority', () => {
     });
     const dm: FakeConn = { ...makeConn('dm', 'R'), role: 'dm' };
     const player: FakeConn = { ...makeConn('player', 'R'), role: 'player' };
-    hubA.addConnection(dm);
-    hubB.addConnection(player);
+    admit(hubA, dm);
+    admit(hubB, player);
 
     const op: SyncOp = {
       kind: 'fog-meta',
@@ -1696,7 +1790,7 @@ describe('SyncHub fog authority', () => {
     expect(authorize).toHaveBeenCalledTimes(1);
 
     const late = makeConn('late', 'R');
-    hubB.addConnection(late);
+    admit(hubB, late);
     await hubB.handleMessage('late', envelope('late', { kind: 'request-snapshot' }));
     const snapshot = JSON.parse(late.sent[0] ?? '') as {
       op: {
@@ -1711,7 +1805,7 @@ describe('SyncHub fog authority', () => {
   it('rejects a same-generation bounds shrink', async () => {
     const fogHub = new SyncHub({ plugins: [createFogServerPlugin()] });
     const a = makeConn('A', 'R');
-    fogHub.addConnection(a);
+    admit(fogHub, a);
     await fogHub.handleMessage(
       'A',
       envelope('A', {
@@ -1759,8 +1853,8 @@ describe('SyncHub fog authority', () => {
     const fogHub = new SyncHub({ plugins: [createFogServerPlugin()] });
     const a = makeConn('A', 'R');
     const b = makeConn('B', 'R');
-    fogHub.addConnection(a);
-    fogHub.addConnection(b);
+    admit(fogHub, a);
+    admit(fogHub, b);
     await fogHub.handleMessage(
       'A',
       envelope('seed', {
@@ -1810,8 +1904,8 @@ describe('SyncHub fog authority', () => {
     const plugin = createFogServerPlugin();
     const fogHub = new SyncHub({ plugins: [plugin] });
     const backend = new MemoryHubBackend();
-    fogHub.addConnection(makeConn('A', 'R'));
-    fogHub.addConnection(makeConn('B', 'R2'));
+    admit(fogHub, makeConn('A', 'R'));
+    admit(fogHub, makeConn('B', 'R2'));
     const meta = { kind: 'fog-meta' as const, record: { version: 1, editor: 'A', definition } };
     await fogHub.handleMessage('A', envelope('A', meta));
     await fogHub.handleMessage('B', envelope('B', meta));
@@ -1849,8 +1943,8 @@ describe('read filtering (canRead)', () => {
     const hub = new SyncHub({ canRead });
     const dm = conn('dm', 'R', 'dm');
     const player = conn('pl', 'R', 'player');
-    hub.addConnection(dm);
-    hub.addConnection(player);
+    admit(hub, dm);
+    admit(hub, player);
     await hub.handleMessage('dm', upsertMsg('cdm', 'shared1', 'shared'));
     await hub.handleMessage('dm', upsertMsg('cdm', 'secret1', 'dm'));
     dm.sent.length = 0;
@@ -1871,7 +1965,7 @@ describe('read filtering (canRead)', () => {
     const backend = new MemoryHubBackend();
     const hub = new SyncHub({ authorize: () => false, canRead, backend });
     const player = conn('pl', 'R', 'player');
-    hub.addConnection(player);
+    admit(hub, player);
 
     const shared = { ...sampleEl(), id: 'shared', audience: 'shared', ownerId: 'dm1' };
     const secret = { ...sampleEl(), id: 'secret', audience: 'dm', ownerId: 'dm1' };
@@ -1904,7 +1998,7 @@ describe('read filtering (canRead)', () => {
     const backend = new MemoryHubBackend();
     const hub = new SyncHub({ authorize: () => false, canRead, backend });
     const dm = conn('dm', 'R', 'dm');
-    hub.addConnection(dm);
+    admit(hub, dm);
     const secret = { ...sampleEl(), id: 'secret', audience: 'dm', ownerId: 'dm1' };
     await backend.applyElement('R', { kind: 'upsert', element: secret }, null);
 
@@ -1916,23 +2010,79 @@ describe('read filtering (canRead)', () => {
     });
   });
 
+  it('keeps an allowed child parentId in a correction while withholding its private parent', async () => {
+    const backend = new MemoryHubBackend();
+    const hub = new SyncHub({ authorize: () => false, canRead, backend });
+    const player = conn('player', 'R', 'player');
+    admit(hub, player);
+    const parent = {
+      ...sampleEl(),
+      id: 'private-parent',
+      audience: 'dm',
+      data: { label: 'private-parent-sentinel' },
+    };
+    const child = { ...sampleEl(), id: 'public-child', audience: 'shared', parentId: parent.id };
+    await backend.applyElement('R', { kind: 'upsert', element: parent }, null);
+    await backend.applyElement('R', { kind: 'upsert', element: child }, null);
+
+    await hub.handleMessage('player', envelope('player', v2Remove(child.id)));
+
+    expect(JSON.parse(player.sent[0] ?? '')).toMatchObject({
+      from: 'hub',
+      op: { kind: 'upsert', element: { id: child.id, parentId: parent.id } },
+    });
+    expect(player.sent.join('')).not.toContain('private-parent-sentinel');
+  });
+
   it('broadcasts a shared upsert to a player', async () => {
     const hub = new SyncHub({ canRead });
     const dm = conn('dm', 'R', 'dm');
     const player = conn('pl', 'R', 'player');
-    hub.addConnection(dm);
-    hub.addConnection(player);
+    admit(hub, dm);
+    admit(hub, player);
     await hub.handleMessage('dm', upsertMsg('cdm', 's1', 'shared'));
     expect(player.sent.length).toBe(1);
     expect(JSON.parse(player.sent[0] as string).op.element.id).toBe('s1');
+  });
+
+  it('relays an allowed child with a hidden parent reference without sending the parent bytes', async () => {
+    const hub = new SyncHub({ canRead });
+    const dm = conn('dm', 'R', 'dm');
+    const player = conn('pl', 'R', 'player');
+    admit(hub, dm);
+    admit(hub, player);
+    const parent = {
+      ...sampleEl(),
+      id: 'private-parent',
+      audience: 'dm',
+      data: { label: 'private-parent-sentinel' },
+    };
+    const child = { ...sampleEl(), id: 'public-child', audience: 'shared', parentId: parent.id };
+
+    await hub.handleMessage('dm', envelope('dm', { kind: 'upsert', element: parent }));
+    await hub.handleMessage('dm', envelope('dm', { kind: 'upsert', element: child }));
+
+    expect(player.sent).toHaveLength(1);
+    expect(JSON.parse(player.sent[0] ?? '')).toMatchObject({
+      op: { kind: 'upsert', element: { id: child.id, parentId: parent.id } },
+    });
+    expect(player.sent.join('')).not.toContain('private-parent-sentinel');
+    player.sent.length = 0;
+
+    await hub.handleMessage('pl', envelope('pl', { kind: 'request-snapshot' }));
+
+    expect(JSON.parse(player.sent[0] ?? '')).toMatchObject({
+      op: { kind: 'snapshot', elements: [{ id: child.id, parentId: parent.id }] },
+    });
+    expect(player.sent.join('')).not.toContain('private-parent-sentinel');
   });
 
   it('never sends a newly-created dm element to a player — and no spurious remove (P2)', async () => {
     const hub = new SyncHub({ canRead });
     const dm = conn('dm', 'R', 'dm');
     const player = conn('pl', 'R', 'player');
-    hub.addConnection(dm);
-    hub.addConnection(player);
+    admit(hub, dm);
+    admit(hub, player);
     await hub.handleMessage('dm', upsertMsg('cdm', 'secret1', 'dm'));
     expect(player.sent).toEqual([]);
   });
@@ -1941,8 +2091,8 @@ describe('read filtering (canRead)', () => {
     const hub = new SyncHub({ canRead });
     const dm = conn('dm', 'R', 'dm');
     const player = conn('pl', 'R', 'player');
-    hub.addConnection(dm);
-    hub.addConnection(player);
+    admit(hub, dm);
+    admit(hub, player);
     await hub.handleMessage('dm', upsertMsg('cdm', 'e1', 'shared'));
     player.sent.length = 0;
     await hub.handleMessage('dm', upsertMsg('cdm', 'e1', 'dm', 2));
@@ -1959,8 +2109,8 @@ describe('read filtering (canRead)', () => {
     const hub = new SyncHub({ canRead });
     const dm = conn('dm', 'R', 'dm');
     const player = conn('pl', 'R', 'player');
-    hub.addConnection(dm);
-    hub.addConnection(player);
+    admit(hub, dm);
+    admit(hub, player);
     await hub.handleMessage('dm', upsertMsg('cdm', 'e1', 'dm'));
     expect(player.sent).toEqual([]);
     await hub.handleMessage('dm', upsertMsg('cdm', 'e1', 'shared', 2));
@@ -1972,8 +2122,8 @@ describe('read filtering (canRead)', () => {
     const hub = new SyncHub({ canRead });
     const dm = conn('dm', 'R', 'dm');
     const player = conn('pl', 'R', 'player');
-    hub.addConnection(dm);
-    hub.addConnection(player);
+    admit(hub, dm);
+    admit(hub, player);
     await hub.handleMessage('dm', upsertMsg('cdm', 'secret', 'dm'));
     await hub.handleMessage('dm', upsertMsg('cdm', 'open', 'shared'));
     player.sent.length = 0;
@@ -1989,8 +2139,8 @@ describe('read filtering (canRead)', () => {
     const hub = new SyncHub();
     const a = makeConn('a', 'R');
     const b = makeConn('b', 'R');
-    hub.addConnection(a);
-    hub.addConnection(b);
+    admit(hub, a);
+    admit(hub, b);
     await hub.handleMessage('a', upsertMsg('ca', 'e1', 'dm'));
     const env = JSON.parse(b.sent[0] as string) as {
       from: string;
@@ -2008,8 +2158,8 @@ describe('read filtering (canRead)', () => {
     const hub = new SyncHub({ canRead });
     const dm = conn('dm', 'R', 'dm');
     const player = conn('pl', 'R', 'player');
-    hub.addConnection(dm);
-    hub.addConnection(player);
+    admit(hub, dm);
+    admit(hub, player);
     await hub.handleMessage('dm', upsertMsg('cdm', 's1', 'shared'));
     player.sent.length = 0;
     await hub.handleMessage('dm', envelope('cdm', { kind: 'clear' }));
@@ -2029,9 +2179,9 @@ describe('read filtering (canRead)', () => {
       const player = conn('pl', 'R', 'player');
       const other = conn('other', 'R', 'player');
       const dm = conn('dm', 'R', 'dm');
-      hub.addConnection(player);
-      hub.addConnection(other);
-      hub.addConnection(dm);
+      admit(hub, player);
+      admit(hub, other);
+      admit(hub, dm);
 
       // A player tags an upsert 'dm' to hide it from the table.
       await hub.handleMessage('pl', upsertMsg('cpl', 'e1', 'dm'));
@@ -2055,7 +2205,7 @@ describe('read filtering (canRead)', () => {
       const backend = new MemoryHubBackend();
       const hub = new SyncHub({ canRead, backend, resolveAudience: () => undefined });
       const player = conn('pl', 'R', 'player');
-      hub.addConnection(player);
+      admit(hub, player);
 
       await hub.handleMessage('pl', upsertMsg('cpl', 'e1', 'dm'));
 
@@ -2077,7 +2227,7 @@ describe('read filtering (canRead)', () => {
         },
       });
       const player = { ...conn('pl', 'R', 'player'), userId: 'p1' };
-      hub.addConnection(player);
+      admit(hub, player);
 
       await hub.handleMessage('pl', upsertMsg('cpl', 'e1', 'dm'));
       await hub.handleMessage('pl', upsertMsg('cpl', 'e1', 'dm'));
@@ -2092,7 +2242,7 @@ describe('read filtering (canRead)', () => {
       const resolveAudience = vi.fn<ResolveAudience>(() => 'shared');
       const hub = new SyncHub({ resolveAudience });
       const player = { ...conn('pl', 'R', 'player'), userId: 'p1' };
-      hub.addConnection(player);
+      admit(hub, player);
 
       await hub.handleMessage('pl', upsertMsg('cpl', 'e1', 'dm'));
 
@@ -2119,8 +2269,8 @@ describe('presence (ephemeral)', () => {
     const hub = new SyncHub({ presenceThrottleMs: 0, maxPresenceBytes: 64 });
     const a = conn('a', 'R');
     const b = conn('b', 'R');
-    hub.addConnection(a);
-    hub.addConnection(b);
+    admit(hub, a);
+    admit(hub, b);
 
     await hub.handleMessage(
       'a',
@@ -2136,8 +2286,8 @@ describe('presence (ephemeral)', () => {
     const hub = new SyncHub({ presenceThrottleMs: 0, maxPresenceBytes: 32 });
     const a = conn('a', 'R');
     const b = conn('b', 'R');
-    hub.addConnection(a);
-    hub.addConnection(b);
+    admit(hub, a);
+    admit(hub, b);
 
     // 12 chars of 3-byte glyphs → 36 bytes of data plus the object wrapper.
     await hub.handleMessage('a', envelope('ca', { kind: 'presence', data: { t: '€'.repeat(12) } }));
@@ -2149,7 +2299,7 @@ describe('presence (ephemeral)', () => {
     const bus = new InMemoryHubFanout();
     const hub = new SyncHub({ instanceId: 'local', fanout: bus, maxPresenceBytes: 32 });
     const recipient = conn('recipient', 'R');
-    hub.addConnection(recipient);
+    admit(hub, recipient);
 
     bus.publish(
       JSON.stringify({
@@ -2177,9 +2327,9 @@ describe('presence (ephemeral)', () => {
     const a = makeConn('a', 'R');
     const b = makeConn('b', 'R');
     const otherRoom = makeConn('c', 'R2');
-    hub.addConnection(a);
-    hub.addConnection(b);
-    hub.addConnection(otherRoom);
+    admit(hub, a);
+    admit(hub, b);
+    admit(hub, otherRoom);
 
     const sent = hub.broadcastPresence('R', { kind: 'poke', feature: 'initiative' });
 
@@ -2199,7 +2349,7 @@ describe('presence (ephemeral)', () => {
       fanout: { publish, subscribe: () => () => undefined },
     });
     const recipient = makeConn('recipient', 'R');
-    hub.addConnection(recipient);
+    admit(hub, recipient);
 
     expect(hub.broadcastPresence('R', { big: 'x'.repeat(80) })).toBe(0);
     expect(recipient.sent).toEqual([]);
@@ -2212,8 +2362,8 @@ describe('presence (ephemeral)', () => {
     const hubB = new SyncHub({ instanceId: 'B', fanout: bus });
     const local = makeConn('local', 'R');
     const remote = makeConn('remote', 'R');
-    hubA.addConnection(local);
-    hubB.addConnection(remote);
+    admit(hubA, local);
+    admit(hubB, remote);
 
     const sent = hubA.broadcastPresence('R', { kind: 'poke', feature: 'roster' });
 
@@ -2231,7 +2381,7 @@ describe('presence (ephemeral)', () => {
     const hubA = new SyncHub({ instanceId: 'A', fanout: bus });
     const hubB = new SyncHub({ instanceId: 'B', fanout: bus });
     const remote = makeConn('remote', 'R');
-    hubB.addConnection(remote);
+    admit(hubB, remote);
 
     expect(hubA.broadcastPresence('R', { kind: 'poke' })).toBe(0);
     expect(remote.sent).toHaveLength(1);
@@ -2247,9 +2397,9 @@ describe('presence (ephemeral)', () => {
     };
     const alive = makeConn('alive', 'R');
     const disconnected = makeConn('gone', 'R');
-    hub.addConnection(dead);
-    hub.addConnection(alive);
-    hub.addConnection(disconnected);
+    admit(hub, dead);
+    admit(hub, alive);
+    admit(hub, disconnected);
     hub.removeConnection(disconnected.id);
 
     expect(hub.broadcastPresence('R', { kind: 'clear' })).toBe(1);
@@ -2267,7 +2417,7 @@ describe('presence (ephemeral)', () => {
       fanout: { publish, subscribe: () => () => undefined },
     });
     const recipient = makeConn('recipient', 'R');
-    hub.addConnection(recipient);
+    admit(hub, recipient);
     const circular: { self?: unknown } = {};
     circular.self = circular;
 
@@ -2280,8 +2430,8 @@ describe('presence (ephemeral)', () => {
     const hub = new SyncHub();
     const a = makeConn('a', 'R');
     const b = makeConn('b', 'R');
-    hub.addConnection(a);
-    hub.addConnection(b);
+    admit(hub, a);
+    admit(hub, b);
     await hub.handleMessage('a', presenceMsg('ca', { x: 1 }));
     expect(a.sent).toEqual([]);
     expect(b.sent).toHaveLength(1);
@@ -2291,14 +2441,37 @@ describe('presence (ephemeral)', () => {
     });
   });
 
+  it('keeps element relations out of caller presence', async () => {
+    const hub = new SyncHub();
+    const sender = makeConn('sender', 'R');
+    const reader = makeConn('reader', 'R');
+    admit(hub, sender);
+    admit(hub, reader);
+    const child = { ...sampleEl(), id: 'child', parentId: 'filtered-parent' };
+
+    await hub.handleMessage(sender.id, envelope(sender.id, { kind: 'upsert', element: child }));
+    await hub.handleMessage(
+      sender.id,
+      presenceMsg(sender.id, { kind: 'cursor', parentId: 'caller-owned', x: 4 }),
+    );
+
+    expect(JSON.parse(reader.sent[0] ?? '')).toMatchObject({
+      op: { kind: 'upsert', element: { id: 'child', parentId: 'filtered-parent' } },
+    });
+    expect(JSON.parse(reader.sent[1] ?? '')).toEqual({
+      from: sender.id,
+      op: { kind: 'presence', data: { kind: 'cursor', parentId: 'caller-owned', x: 4 } },
+    });
+  });
+
   it('coalesces rapid presence updates and relays the latest state', async () => {
     vi.useFakeTimers();
     try {
       const hub = new SyncHub({ presenceThrottleMs: 50 });
       const a = makeConn('a', 'R');
       const b = makeConn('b', 'R');
-      hub.addConnection(a);
-      hub.addConnection(b);
+      admit(hub, a);
+      admit(hub, b);
 
       await hub.handleMessage('a', presenceMsg('ca', { x: 1 }));
       await hub.handleMessage('a', presenceMsg('ca', { x: 2 }));
@@ -2320,8 +2493,8 @@ describe('presence (ephemeral)', () => {
       const hub = new SyncHub({ presenceThrottleMs: 50 });
       const a = makeConn('a', 'R');
       const b = makeConn('b', 'R');
-      hub.addConnection(a);
-      hub.addConnection(b);
+      admit(hub, a);
+      admit(hub, b);
 
       await hub.handleMessage(
         'a',
@@ -2366,8 +2539,8 @@ describe('presence (ephemeral)', () => {
       const hub = new SyncHub({ presenceThrottleMs: 50 });
       const a = makeConn('a', 'R');
       const b = makeConn('b', 'R');
-      hub.addConnection(a);
-      hub.addConnection(b);
+      admit(hub, a);
+      admit(hub, b);
 
       // Frame A: relayed immediately (first frame in the lane).
       await hub.handleMessage(
@@ -2410,8 +2583,8 @@ describe('presence (ephemeral)', () => {
       const hub = new SyncHub({ presenceThrottleMs: 50, maxPresenceLanes: 4 });
       const a = makeConn('a', 'R');
       const b = makeConn('b', 'R');
-      hub.addConnection(a);
-      hub.addConnection(b);
+      admit(hub, a);
+      admit(hub, b);
 
       for (const kind of ['k1', 'k2', 'k3', 'k4']) {
         await hub.handleMessage('a', presenceMsg('ca', { kind, n: 1 }));
@@ -2446,8 +2619,8 @@ describe('presence (ephemeral)', () => {
       const hub = new SyncHub({ presenceThrottleMs: 50 });
       const a = makeConn('a', 'R');
       const b = makeConn('b', 'R');
-      hub.addConnection(a);
-      hub.addConnection(b);
+      admit(hub, a);
+      admit(hub, b);
       const longKind = 'k'.repeat(65);
       await hub.handleMessage('a', presenceMsg('ca', { kind: longKind, n: 1 }));
       await hub.handleMessage('a', presenceMsg('ca', 'plain'));
@@ -2465,8 +2638,8 @@ describe('presence (ephemeral)', () => {
       const hub = new SyncHub({ presenceThrottleMs: 50 });
       const a = makeConn('a', 'R');
       const b = makeConn('b', 'R');
-      hub.addConnection(a);
-      hub.addConnection(b);
+      admit(hub, a);
+      admit(hub, b);
       const boundaryKind = 'k'.repeat(64);
       await hub.handleMessage('a', presenceMsg('ca', { kind: boundaryKind, n: 1 }));
       await hub.handleMessage('a', presenceMsg('ca', 'plain'));
@@ -2484,8 +2657,8 @@ describe('presence (ephemeral)', () => {
       const hub = new SyncHub({ presenceThrottleMs: 50 });
       const a = makeConn('a', 'R');
       const b = makeConn('b', 'R');
-      hub.addConnection(a);
-      hub.addConnection(b);
+      admit(hub, a);
+      admit(hub, b);
 
       const namedKinds = Array.from({ length: 15 }, (_, i) => `kind-${i}`);
       for (const kind of namedKinds) {
@@ -2520,8 +2693,8 @@ describe('presence (ephemeral)', () => {
       const hub = new SyncHub({ presenceThrottleMs: 50 });
       const a = makeConn('a', 'R');
       const b = makeConn('b', 'R');
-      hub.addConnection(a);
-      hub.addConnection(b);
+      admit(hub, a);
+      admit(hub, b);
       for (const kind of ['awareness', 'laser', 'ping']) {
         await hub.handleMessage('a', presenceMsg('ca', { kind, n: 1 }));
         await hub.handleMessage('a', presenceMsg('ca', { kind, n: 2 }));
@@ -2551,8 +2724,8 @@ describe('presence (ephemeral)', () => {
     const hub = new SyncHub();
     const attacker = makeConn('attacker', 'R');
     const victim = makeConn('victim', 'R');
-    hub.addConnection(attacker);
-    hub.addConnection(victim);
+    admit(hub, attacker);
+    admit(hub, victim);
 
     await hub.handleMessage('attacker', presenceMsg('victim', { x: 1 }));
 
@@ -2588,8 +2761,8 @@ describe('presence (ephemeral)', () => {
     const hub = new SyncHub({ backend });
     const a = makeConn('a', 'R');
     const b = makeConn('b', 'R');
-    hub.addConnection(a);
-    hub.addConnection(b);
+    admit(hub, a);
+    admit(hub, b);
     await hub.handleMessage('a', presenceMsg('ca', { x: 1 }));
     expect(calls).toBe(0);
     expect(b.sent).toHaveLength(1);
@@ -2606,8 +2779,8 @@ describe('presence (ephemeral)', () => {
     const hub = new SyncHub({ canRead });
     const dm = conn('dm', 'R', 'dm');
     const player = conn('pl', 'R', 'player');
-    hub.addConnection(dm);
-    hub.addConnection(player);
+    admit(hub, dm);
+    admit(hub, player);
     await hub.handleMessage('dm', presenceMsg('cdm', { x: 1 }));
     await hub.handleMessage('pl', presenceMsg('cpl', { x: 2 }));
     expect(player.sent).toHaveLength(1);
@@ -2618,8 +2791,8 @@ describe('presence (ephemeral)', () => {
     const hub = new SyncHub();
     const a = makeConn('a', 'R');
     const b = makeConn('b', 'R');
-    hub.addConnection(a);
-    hub.addConnection(b);
+    admit(hub, a);
+    admit(hub, b);
     await hub.handleMessage('a', JSON.stringify({ from: 'ca', op: { kind: 'presence-leave' } }));
     expect(b.sent).toEqual([]);
   });
@@ -2629,9 +2802,9 @@ describe('presence (ephemeral)', () => {
     const a = makeConn('a', 'R');
     const b = makeConn('b', 'R');
     const c = makeConn('c', 'R');
-    hub.addConnection(a);
-    hub.addConnection(b);
-    hub.addConnection(c);
+    admit(hub, a);
+    admit(hub, b);
+    admit(hub, c);
     void hub.handleMessage('a', presenceMsg('ca', { x: 1 }));
     b.sent.length = 0;
     hub.removeConnection('a');
@@ -2648,8 +2821,8 @@ describe('presence (ephemeral)', () => {
     const hubB = new SyncHub({ instanceId: 'B', fanout: bus });
     const a = makeConn('a', 'R');
     const b = makeConn('b', 'R');
-    hubA.addConnection(a);
-    hubB.addConnection(b);
+    admit(hubA, a);
+    admit(hubB, b);
     await hubA.handleMessage('a', presenceMsg('ca', { x: 9 }));
     expect(b.sent).toHaveLength(1);
     expect(JSON.parse(b.sent[0] as string)).toEqual({
@@ -2689,9 +2862,9 @@ describe('layer-definition sync', () => {
     const a = makeConn('A', 'R');
     const b = makeConn('B', 'R');
     const c = makeConn('C', 'R2');
-    hub.addConnection(a);
-    hub.addConnection(b);
-    hub.addConnection(c);
+    admit(hub, a);
+    admit(hub, b);
+    admit(hub, c);
 
     await hub.handleMessage('A', envelope('clientA', layerUpsert(1, 'clientA')));
 
@@ -2701,7 +2874,7 @@ describe('layer-definition sync', () => {
 
     // A later joiner's snapshot carries the stored record.
     const late = makeConn('L', 'R');
-    hub.addConnection(late);
+    admit(hub, late);
     await hub.handleMessage('L', envelope('clientL', { kind: 'request-snapshot' }));
     const reply = parsed(late)[0];
     expect(reply?.op).toEqual({
@@ -2716,7 +2889,7 @@ describe('layer-definition sync', () => {
   it('omits the snapshot layers field for rooms that never used layer sync', async () => {
     const hub = new SyncHub();
     const a = makeConn('A', 'R');
-    hub.addConnection(a);
+    admit(hub, a);
     await hub.handleMessage('A', envelope('clientA', { kind: 'request-snapshot' }));
     const reply = JSON.parse(a.sent[0] ?? '') as { op: Record<string, unknown> };
     expect('layers' in reply.op).toBe(false);
@@ -2726,7 +2899,7 @@ describe('layer-definition sync', () => {
   it('stores removal tombstones and serves them to late joiners', async () => {
     const hub = new SyncHub();
     const a = makeConn('A', 'R');
-    hub.addConnection(a);
+    admit(hub, a);
     await hub.handleMessage('A', envelope('clientA', layerUpsert(1, 'clientA')));
     await hub.handleMessage(
       'A',
@@ -2734,7 +2907,7 @@ describe('layer-definition sync', () => {
     );
 
     const late = makeConn('L', 'R');
-    hub.addConnection(late);
+    admit(hub, late);
     await hub.handleMessage('L', envelope('clientL', { kind: 'request-snapshot' }));
     const reply = parsed(late)[0];
     expect(reply?.op).toEqual({
@@ -2750,8 +2923,8 @@ describe('layer-definition sync', () => {
     const hub = new SyncHub();
     const a = makeConn('A', 'R');
     const b = makeConn('B', 'R');
-    hub.addConnection(a);
-    hub.addConnection(b);
+    admit(hub, a);
+    admit(hub, b);
 
     await hub.handleMessage(
       'A',
@@ -2772,8 +2945,8 @@ describe('layer-definition sync', () => {
     const hub = new SyncHub();
     const a = makeConn('A', 'R');
     const b = makeConn('B', 'R');
-    hub.addConnection(a);
-    hub.addConnection(b);
+    admit(hub, a);
+    admit(hub, b);
 
     // Higher editor arrives first; the lower one is stale despite arriving second.
     await hub.handleMessage(
@@ -2786,7 +2959,7 @@ describe('layer-definition sync', () => {
     );
 
     const late = makeConn('L', 'R');
-    hub.addConnection(late);
+    admit(hub, late);
     await hub.handleMessage('L', envelope('clientL', { kind: 'request-snapshot' }));
     const reply = parsed(late)[0]?.op;
     if (reply?.kind !== 'snapshot') throw new Error('expected a snapshot reply');
@@ -2805,8 +2978,8 @@ describe('layer-definition sync', () => {
     });
     const dm: FakeConn = { ...makeConn('dm', 'R'), role: 'dm' };
     const player: FakeConn = { ...makeConn('pl', 'R'), role: 'player' };
-    hub.addConnection(dm);
-    hub.addConnection(player);
+    admit(hub, dm);
+    admit(hub, player);
 
     await hub.handleMessage('dm', envelope('dmUser', layerUpsert(1, 'dmUser', { name: 'real' })));
     player.sent.length = 0;
@@ -2842,8 +3015,8 @@ describe('layer-definition sync', () => {
     const hub = new SyncHub({ backend });
     const a = makeConn('A', 'R');
     const b = makeConn('B', 'R');
-    hub.addConnection(a);
-    hub.addConnection(b);
+    admit(hub, a);
+    admit(hub, b);
 
     // `editor: 'hub'` is the hub's own correction marker: clients apply it authoritatively,
     // bypassing the (version, editor) tie-break, so a client must never be able to claim it.
@@ -2859,7 +3032,7 @@ describe('layer-definition sync', () => {
     const backend = new MemoryHubBackend();
     const hub = new SyncHub({ backend });
     const a = makeConn('A', 'R');
-    hub.addConnection(a);
+    admit(hub, a);
 
     await hub.handleMessage('A', envelope('clientA', layerUpsert(1, 'clientA')));
     expect(await backend.layerRecords('R')).toEqual([
@@ -2876,11 +3049,11 @@ describe('layer-definition sync', () => {
     };
     const hub = new SyncHub({ backend: minimal });
     const a = makeConn('A', 'R');
-    hub.addConnection(a);
+    admit(hub, a);
 
     await hub.handleMessage('A', envelope('clientA', layerUpsert(1, 'clientA')));
     const late = makeConn('L', 'R');
-    hub.addConnection(late);
+    admit(hub, late);
     await hub.handleMessage('L', envelope('clientL', { kind: 'request-snapshot' }));
     const reply = JSON.parse(late.sent[0] ?? '') as { op: { layers?: unknown[] } };
     expect(reply.op.layers).toEqual([
@@ -2893,7 +3066,7 @@ describe('layer-definition sync', () => {
     const backend = new MemoryHubBackend();
     const hub = new SyncHub({ backend });
     const a = makeConn('A', 'R');
-    hub.addConnection(a);
+    admit(hub, a);
     await hub.handleMessage('A', envelope('clientA', { kind: 'upsert', element: sampleEl() }));
     await hub.handleMessage('A', envelope('clientA', layerUpsert(1, 'clientA')));
 
@@ -2909,8 +3082,8 @@ describe('layer-definition sync', () => {
     const hub2 = new SyncHub({ fanout, instanceId: 'i2' });
     const a = makeConn('A', 'R');
     const b = makeConn('B', 'R');
-    hub1.addConnection(a);
-    hub2.addConnection(b);
+    admit(hub1, a);
+    admit(hub2, b);
 
     await hub1.handleMessage('A', envelope('clientA', layerUpsert(1, 'clientA')));
     expect(parsed(b)).toEqual([{ from: 'A', op: layerUpsert(1, 'clientA') }]);
@@ -2920,7 +3093,7 @@ describe('layer-definition sync', () => {
 
     // A late joiner on the OTHER instance still receives the record.
     const late = makeConn('L', 'R');
-    hub2.addConnection(late);
+    admit(hub2, late);
     await hub2.handleMessage('L', envelope('clientL', { kind: 'request-snapshot' }));
     const reply = JSON.parse(late.sent[0] ?? '') as { op: { layers?: unknown[] } };
     expect(reply.op.layers).toEqual([
@@ -2936,8 +3109,8 @@ describe('layer-definition sync', () => {
     });
     const dm: FakeConn = { ...makeConn('dm', 'R'), role: 'dm' };
     const player: FakeConn = { ...makeConn('pl', 'R'), role: 'player' };
-    hub.addConnection(dm);
-    hub.addConnection(player);
+    admit(hub, dm);
+    admit(hub, player);
 
     const secret: SyncElement = { ...sampleEl(), audience: 'dm' };
     await hub.handleMessage('dm', envelope('dmUser', { kind: 'upsert', element: secret }));
@@ -2972,8 +3145,8 @@ describe('layer-definition sync', () => {
     const hub = new SyncHub({ backend, fanout, instanceId: 'i1' });
     const a = makeConn('A', 'R');
     const b = makeConn('B', 'R');
-    hub.addConnection(a);
-    hub.addConnection(b);
+    admit(hub, a);
+    admit(hub, b);
 
     await expect(
       hub.handleMessage('A', envelope('clientA', layerUpsert(1, 'clientA'))),
@@ -2993,8 +3166,8 @@ describe('layer-definition sync', () => {
     const hub = new SyncHub();
     const a = makeConn('A', 'R');
     const b = makeConn('B', 'R');
-    hub.addConnection(a);
-    hub.addConnection(b);
+    admit(hub, a);
+    admit(hub, b);
 
     await hub.handleMessage(
       'A',
@@ -3020,7 +3193,7 @@ describe('fanout sync limits', () => {
     const bus = new InMemoryHubFanout();
     const hub = new SyncHub({ instanceId: 'B', fanout: bus });
     const b = makeConn('b', 'R');
-    hub.addConnection(b);
+    admit(hub, b);
     const publish = (id: string) =>
       bus.publish(
         JSON.stringify({
@@ -3051,7 +3224,7 @@ describe('idle-room eviction', () => {
 
   async function snapshotFor(hub: SyncHub, id: string): Promise<Record<string, unknown>> {
     const conn = makeConn(id, 'R');
-    hub.addConnection(conn);
+    admit(hub, conn);
     await hub.handleMessage(id, envelope(id, { kind: 'request-snapshot' }));
     hub.removeConnection(id);
     return JSON.parse(conn.sent[0] ?? '').op;
@@ -3059,7 +3232,7 @@ describe('idle-room eviction', () => {
 
   async function seeded(options: ConstructorParameters<typeof SyncHub>[0]): Promise<SyncHub> {
     const hub = new SyncHub(options);
-    hub.addConnection(makeConn('A', 'R'));
+    admit(hub, makeConn('A', 'R'));
     await hub.handleMessage('A', upsertMsg('e1'));
     await hub.handleMessage('A', layerMsg);
     hub.removeConnection('A');
@@ -3107,7 +3280,7 @@ describe('idle-room eviction', () => {
     const hub = await seeded({ backend, roomIdleTimeoutMs: 1000 });
 
     await vi.advanceTimersByTimeAsync(500);
-    hub.addConnection(makeConn('A2', 'R'));
+    admit(hub, makeConn('A2', 'R'));
     await vi.advanceTimersByTimeAsync(5000);
 
     expect((await backend.snapshot('R')).elements.map((el) => el.id)).toEqual(['e1']);
@@ -3221,11 +3394,12 @@ describe('idle-room eviction', () => {
         },
       ],
     });
-    hub.addConnection(makeConn('A', 'R'));
+    admit(hub, makeConn('A', 'R'));
     const pending = hub.handleMessage('A', upsertMsg('e1'));
     hub.removeConnection('A');
-    await vi.advanceTimersByTimeAsync(1000);
+    await vi.advanceTimersByTimeAsync(999);
     hub.addConnection(makeConn('B', 'R'));
+    await vi.advanceTimersByTimeAsync(1);
 
     release?.();
     await pending;
@@ -3313,7 +3487,355 @@ describe('idle-room eviction', () => {
   });
 });
 
-describe('protocol 2 wire', () => {
+describe('legacy hierarchy admission', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('admits a heterogeneous extension inventory and replies with the hub capabilities', async () => {
+    const hub = new SyncHub();
+    const peer = makeConn('peer', 'R');
+    hub.addConnection(peer);
+
+    await hub.handleMessage(
+      peer.id,
+      envelope(peer.id, {
+        kind: 'capabilities',
+        capabilities: createCurrentCapabilities(['remote:only']),
+      }),
+    );
+
+    expect(peer.sent.map((message) => JSON.parse(message))).toEqual([
+      {
+        from: 'hub',
+        op: {
+          kind: 'capabilities',
+          capabilities: { ...createCurrentCapabilities([]), opBatching: 1 },
+        },
+      },
+    ]);
+  });
+
+  it('drops every pending application path before it can cause an effect', async () => {
+    const backend = new MemoryHubBackend();
+    const handled = vi.fn();
+    const extension = createExtensionKind<{ value: number }>({
+      extensionKind: 'test:pending',
+      codec: {
+        validate: (payload): payload is { value: number } =>
+          typeof payload === 'object' && payload !== null,
+      },
+    });
+    const plugin = {
+      name: 'extension',
+      registerExtensionKinds(registry: ServerExtensionRegistry) {
+        registry.register(extension, async (op) => {
+          handled(op.payload);
+          return { accepted: op, corrections: [] };
+        });
+      },
+    };
+    const hub = new SyncHub({ backend, plugins: [plugin] });
+    const pending = makeConn('pending', 'R');
+    const peer = admit(hub, makeConn('peer', 'R'));
+    hub.addConnection(pending);
+    peer.sent.length = 0;
+
+    await hub.handleMessage(
+      pending.id,
+      envelope(pending.id, { kind: 'upsert', element: sampleEl() }),
+    );
+    await hub.handleMessage(
+      pending.id,
+      envelope(pending.id, {
+        kind: 'batch',
+        ops: [{ kind: 'upsert', element: { ...sampleEl(), id: 'batched' } }],
+      }),
+    );
+    await hub.handleMessage(pending.id, envelope(pending.id, { kind: 'request-snapshot' }));
+    await hub.handleMessage(pending.id, envelope(pending.id, { kind: 'presence', data: { x: 1 } }));
+    await hub.handleMessage(
+      pending.id,
+      envelope(pending.id, {
+        kind: 'extension',
+        extensionKind: 'test:pending',
+        payload: { value: 1 },
+      }),
+    );
+
+    expect(await storedElement(backend, 'R', sampleEl().id)).toBeUndefined();
+    expect(handled).not.toHaveBeenCalled();
+    expect(peer.sent).toEqual([]);
+    expect(pending.sent).toEqual([]);
+  });
+
+  it('withholds ordinary room traffic from a clean pending recipient until it requests a snapshot', async () => {
+    const extension = createExtensionKind<{ value: number }>({
+      extensionKind: 'test:outbound',
+      codec: {
+        validate: (payload): payload is { value: number } =>
+          typeof payload === 'object' && payload !== null,
+      },
+    });
+    const fanout = new InMemoryHubFanout();
+    const hub = new SyncHub({
+      canRead: ({ audience }) => audience !== 'private',
+      fanout,
+      plugins: [
+        {
+          name: 'outbound',
+          registerExtensionKinds(registry) {
+            registry.register(extension, async (op) => ({ accepted: op, corrections: [] }));
+          },
+        },
+      ],
+    });
+    const sender = admit(
+      hub,
+      makeConn('sender', 'R'),
+      createCurrentCapabilities(['test:outbound']),
+    );
+    const control = admit(
+      hub,
+      makeConn('control', 'R'),
+      createCurrentCapabilities(['test:outbound']),
+    );
+    const pending = makeConn('pending', 'R');
+    hub.addConnection(pending);
+
+    await hub.handleMessage(
+      sender.id,
+      envelope(sender.id, { kind: 'upsert', element: { ...sampleEl(), id: 'current' } }),
+    );
+    await hub.handleMessage(
+      sender.id,
+      envelope(sender.id, {
+        kind: 'upsert',
+        element: { ...sampleEl(), id: 'current', audience: 'private', version: 2 },
+      }),
+    );
+    await hub.handleMessage(
+      sender.id,
+      envelope(sender.id, {
+        kind: 'upsert',
+        element: { ...sampleEl(), id: 'current', version: 3 },
+      }),
+    );
+    await hub.handleMessage(
+      sender.id,
+      envelope(sender.id, {
+        kind: 'extension',
+        extensionKind: 'test:outbound',
+        payload: { value: 1 },
+      }),
+    );
+    await hub.handleMessage(
+      sender.id,
+      envelope(sender.id, { kind: 'presence', data: { kind: 'peer' } }),
+    );
+    hub.broadcastPresence('R', { source: 'server' });
+    await fanout.publish(
+      JSON.stringify({
+        o: 'remote',
+        room: 'R',
+        from: 'remote',
+        op: { kind: 'presence', data: { kind: 'remote' } },
+      }),
+    );
+
+    const controlOps = control.sent.map((message) => (JSON.parse(message) as { op: SyncOp }).op);
+    expect(controlOps.some((op) => op.kind === 'upsert' && op.element.id === 'current')).toBe(true);
+    expect(controlOps.some((op) => op.kind === 'remove' && op.id === 'current')).toBe(true);
+    expect(controlOps.some((op) => op.kind === 'extension')).toBe(true);
+    expect(controlOps.filter((op) => op.kind === 'presence').map((op) => op.data)).toEqual(
+      expect.arrayContaining([{ kind: 'peer' }, { source: 'server' }, { kind: 'remote' }]),
+    );
+    expect(pending.sent).toEqual([]);
+
+    await hub.handleMessage(
+      pending.id,
+      envelope(pending.id, { kind: 'capabilities', capabilities: createCurrentCapabilities([]) }),
+    );
+    pending.sent.length = 0;
+    await hub.handleMessage(pending.id, envelope(pending.id, { kind: 'request-snapshot' }));
+    expect(
+      (JSON.parse(pending.sent[0] ?? '') as { op: { elements: SyncElement[] } }).op.elements,
+    ).toEqual([{ ...sampleEl(), id: 'current', version: 3 }]);
+  });
+
+  it.each([
+    ['protocol 1', { ...createCurrentCapabilities([]), protocolVersion: 1 }],
+    ['protocol 2', { ...createCurrentCapabilities([]), protocolVersion: 2 }],
+    ['protocol 4', { ...createCurrentCapabilities([]), protocolVersion: 4 }],
+    ['missing hierarchy', { protocolVersion: 3, extensionKinds: [], elementEnvelope: true }],
+  ] satisfies [string, SyncCapabilities][])(
+    'refuses %s before closing 4406',
+    async (_name, capabilities) => {
+      const hub = new SyncHub();
+      const events: unknown[] = [];
+      hub.addConnection({
+        id: 'peer',
+        room: 'R',
+        send: (message) => events.push(JSON.parse(message)),
+        close: (code) => events.push(code),
+      });
+
+      await hub.handleMessage('peer', envelope('peer', { kind: 'capabilities', capabilities }));
+
+      expect(events).toEqual([
+        {
+          from: 'hub',
+          op: {
+            kind: 'unsupported',
+            protocolVersion: LEGACY_SYNC_PROTOCOL_VERSION,
+            minProtocolVersion: LEGACY_SYNC_PROTOCOL_VERSION,
+            reason: `protocol version ${LEGACY_SYNC_PROTOCOL_VERSION} with element hierarchy support required`,
+          },
+        },
+        4406,
+      ]);
+    },
+  );
+
+  it('treats reordered identical capabilities as inert and refuses changed capabilities', async () => {
+    const hub = new SyncHub();
+    const peer = makeConn('peer', 'R');
+    const close = vi.fn();
+    peer.close = close;
+    hub.addConnection(peer);
+    const capabilities = createCurrentCapabilities(['one']);
+    const reordered: SyncCapabilities = {
+      elementHierarchy: 1,
+      elementEnvelope: true,
+      extensionKinds: ['one'],
+      protocolVersion: 3,
+    };
+
+    await hub.handleMessage(peer.id, envelope(peer.id, { kind: 'capabilities', capabilities }));
+    await hub.handleMessage(
+      peer.id,
+      envelope(peer.id, { kind: 'capabilities', capabilities: reordered }),
+    );
+    expect(peer.sent).toHaveLength(1);
+    expect(close).not.toHaveBeenCalled();
+
+    await hub.handleMessage(
+      peer.id,
+      envelope(peer.id, {
+        kind: 'capabilities',
+        capabilities: createCurrentCapabilities(['changed']),
+      }),
+    );
+    expect(peer.sent.map((message) => (JSON.parse(message) as { op: SyncOp }).op.kind)).toEqual([
+      'capabilities',
+      'unsupported',
+    ]);
+    expect(close).toHaveBeenCalledWith(4406);
+  });
+
+  it('refuses an unreplaced pending peer exactly at five seconds', async () => {
+    vi.useFakeTimers();
+    const hub = new SyncHub();
+    const events: unknown[] = [];
+    hub.addConnection({
+      id: 'peer',
+      room: 'R',
+      send: (message) => events.push(JSON.parse(message)),
+      close: (code) => events.push(code),
+    });
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(events).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(events).toEqual([
+      {
+        from: 'hub',
+        op: {
+          kind: 'unsupported',
+          protocolVersion: LEGACY_SYNC_PROTOCOL_VERSION,
+          minProtocolVersion: LEGACY_SYNC_PROTOCOL_VERSION,
+          reason: `protocol version ${LEGACY_SYNC_PROTOCOL_VERSION} with element hierarchy support required`,
+        },
+      },
+      4406,
+    ]);
+  });
+
+  it('clears pending admission timers on disconnect and hub close', async () => {
+    vi.useFakeTimers();
+    const disconnected = { ...makeConn('disconnected', 'R'), close: vi.fn() };
+    const hub = new SyncHub();
+    hub.addConnection(disconnected);
+    hub.removeConnection(disconnected.id);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(disconnected.close).not.toHaveBeenCalled();
+
+    const closed = { ...makeConn('closed', 'R'), close: vi.fn() };
+    const closingHub = new SyncHub();
+    closingHub.addConnection(closed);
+    closingHub.close();
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(closed.close).not.toHaveBeenCalled();
+  });
+
+  it('does not let stale timer or queued work affect a same-id replacement', async () => {
+    vi.useFakeTimers();
+    const hub = new SyncHub();
+    const old = { ...makeConn('peer', 'R'), close: vi.fn() };
+    hub.addConnection(old);
+    let release: () => void = () => undefined;
+    const queued = hub.handleMessage(old.id, envelope(old.id, { kind: 'request-snapshot' }), {
+      deadlineAt: Date.now() + 10_000,
+      signal: new AbortController().signal,
+      beforeProcess: () => new Promise<boolean>((resolve) => (release = () => resolve(true))),
+    });
+
+    const replacement = { ...makeConn('peer', 'R'), close: vi.fn() };
+    hub.addConnection(replacement);
+    release();
+    await queued;
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(old.close).not.toHaveBeenCalled();
+    expect(replacement.close).toHaveBeenCalledWith(4406);
+
+    const reconnect = { ...makeConn('peer', 'R'), close: vi.fn() };
+    hub.addConnection(reconnect);
+
+    await hub.handleMessage(
+      reconnect.id,
+      envelope(reconnect.id, {
+        kind: 'capabilities',
+        capabilities: createCurrentCapabilities([]),
+      }),
+    );
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(reconnect.close).not.toHaveBeenCalled();
+  });
+
+  it('does not let a policy-denied first frame poison a later admitted capability', async () => {
+    const hub = new SyncHub();
+    const peer = makeConn('peer', 'R');
+    hub.addConnection(peer);
+    const denied = new AbortController();
+    await hub.handleMessage(peer.id, envelope(peer.id, { kind: 'request-snapshot' }), {
+      deadlineAt: Date.now() + 1_000,
+      signal: denied.signal,
+      beforeProcess: () => false,
+    });
+
+    await hub.handleMessage(
+      peer.id,
+      envelope(peer.id, { kind: 'capabilities', capabilities: createCurrentCapabilities([]) }),
+      {
+        deadlineAt: Date.now() + 1_000,
+        signal: denied.signal,
+        beforeProcess: () => true,
+      },
+    );
+    expect((JSON.parse(peer.sent[0] ?? '') as { op: SyncOp }).op.kind).toBe('capabilities');
+  });
+});
+
+describe('versioned legacy wire after capability admission', () => {
   const v1Shape = {
     id: 'v1',
     type: 'shape',
@@ -3339,8 +3861,8 @@ describe('protocol 2 wire', () => {
     close = vi.fn();
     A = { ...makeConn('A', 'R'), close };
     B = makeConn('B', 'R');
-    hub.addConnection(A);
-    hub.addConnection(B);
+    admit(hub, A);
+    admit(hub, B);
   });
 
   it('refuses protocol 1 capabilities with 4406 and ignores the connection afterwards', async () => {
@@ -3353,7 +3875,7 @@ describe('protocol 2 wire', () => {
     expect(B.sent).toEqual([]);
   });
 
-  it('applies and relays a protocol-2 upsert sent before any capabilities', async () => {
+  it('applies and relays a versioned upsert after capability admission', async () => {
     const el = sampleEl();
     await hub.handleMessage('A', envelope('A', { kind: 'upsert', element: el }));
 
@@ -3361,7 +3883,7 @@ describe('protocol 2 wire', () => {
     expect(await storedElement(backend, 'R', el.id)).toEqual(el);
   });
 
-  it('drops a v1-shaped upsert sent before any capabilities without closing', async () => {
+  it('drops a v1-shaped upsert sent after capability admission without closing', async () => {
     await hub.handleMessage(
       'A',
       JSON.stringify({ from: 'A', op: { kind: 'upsert', element: v1Shape } }),
@@ -3407,7 +3929,7 @@ describe('protocol 2 wire', () => {
   it('corrects a denied upsert of a tombstoned id with the tombstone version', async () => {
     const hub = new SyncHub({ authorize: () => false, backend });
     const p = makeConn('p', 'R');
-    hub.addConnection(p);
+    admit(hub, p);
     const el = { ...sampleEl(), id: 'gone' };
     await backend.applyElement('R', { kind: 'upsert', element: el }, null);
     const tombstone = { id: 'gone', version: 4, editor: 'dm', removedAt: Date.now() };
@@ -3422,8 +3944,8 @@ describe('protocol 2 wire', () => {
   });
 });
 
-describe('authority connections and the protocol 2 gate', () => {
-  it('admits an authority peer advertising protocol 1 without a 4406', async () => {
+describe('authority connections and the legacy admission gate', () => {
+  it('admits an authority peer advertising capability revision 2 without a 4406', async () => {
     const definition: AuthorityRoomDefinition = {
       id: 'definition',
       extensions: [],
@@ -3506,9 +4028,9 @@ describe('versioned element pipeline (D5)', () => {
     gm = user('gm', 'gm');
     p1 = user('p1', 'player');
     p2 = user('p2', 'player');
-    hub.addConnection(gm);
-    hub.addConnection(p1);
-    hub.addConnection(p2);
+    admit(hub, gm);
+    admit(hub, p1);
+    admit(hub, p2);
   });
 
   const reset = (): void => {
@@ -3663,7 +4185,7 @@ describe('versioned element pipeline (D5)', () => {
 
   it('relays a clear to each reader with only the tombstones it may read', async () => {
     const host: FakeConn = { ...makeConn('c7', 'R'), userId: 'gm', role: 'gm' };
-    hub.addConnection(host);
+    admit(hub, host);
     await hub.handleMessage('gm', upsert(el('open', 4)));
     await hub.handleMessage('gm', upsert(el('secret', 2, { audience: 'gm' })));
     reset();
@@ -3707,8 +4229,8 @@ describe('versioned element pipeline (D5)', () => {
     const open = new SyncHub({ backend });
     const other = user('p2x', 'player');
     const peer = user('peer', 'player');
-    open.addConnection(other);
-    open.addConnection(peer);
+    admit(open, other);
+    admit(open, peer);
     const tombstone = { id: 't', version: 2, editor: 'x', removedAt: Date.now(), ownerId: 'p1' };
     await backend.applyElement('R', { kind: 'upsert', element: el('t') }, null);
     await backend.applyElement('R', { kind: 'remove', tombstone }, { version: 1 });
@@ -3722,7 +4244,7 @@ describe('versioned element pipeline (D5)', () => {
 
   it('denies recreating an owned tombstone to a connection without a userId', async () => {
     const anonymous = makeConn('anon', 'R');
-    hub.addConnection(anonymous);
+    admit(hub, anonymous);
     const tombstone = { id: 't', version: 2, editor: 'x', removedAt: Date.now(), ownerId: 'p1' };
     await backend.applyElement('R', { kind: 'upsert', element: el('t') }, null);
     await backend.applyElement('R', { kind: 'remove', tombstone }, { version: 1 });
@@ -3743,9 +4265,9 @@ describe('versioned element pipeline (D5)', () => {
     const host = user('gm', 'gm');
     const player = user('p1', 'player');
     const remoteGm = user('gm2', 'gm');
-    origin.addConnection(host);
-    remote.addConnection(player);
-    remote.addConnection(remoteGm);
+    admit(origin, host);
+    admit(remote, player);
+    admit(remote, remoteGm);
     await origin.handleMessage('gm', upsert(el('open')));
     await origin.handleMessage('gm', upsert(el('secret', 1, { audience: 'gm' })));
     player.sent.length = 0;
@@ -3769,6 +4291,30 @@ describe('versioned element pipeline (D5)', () => {
     });
   });
 
+  it('re-filters an allowed orphan on the receiving hub without hierarchy authorization', async () => {
+    const bus = new InMemoryHubFanout();
+    const shared = new MemoryHubBackend();
+    const origin = new SyncHub({ backend: shared, fanout: bus, instanceId: 'A', canRead });
+    const remote = new SyncHub({ backend: shared, fanout: bus, instanceId: 'B', canRead });
+    const host = user('gm', 'gm');
+    const player = user('player', 'player');
+    admit(origin, host);
+    admit(remote, player);
+    const parent = {
+      ...el('private-parent', 1, { audience: 'gm' }),
+      data: { label: 'private-parent-sentinel' },
+    };
+    const child = { ...el('public-child'), parentId: parent.id };
+
+    await origin.handleMessage('gm', upsert(parent));
+    await origin.handleMessage('gm', upsert(child));
+
+    expect(frames(player)).toEqual([
+      { from: 'gm', op: { kind: 'upsert', element: publicView(child) } },
+    ]);
+    expect(player.sent.join('')).not.toContain('private-parent-sentinel');
+  });
+
   it.each([
     ['without audiences', undefined],
     ['with mismatched audiences', [null, null]],
@@ -3777,7 +4323,7 @@ describe('versioned element pipeline (D5)', () => {
     const bus = new InMemoryHubFanout();
     const remote = new SyncHub({ fanout: bus, instanceId: 'B', canRead });
     const player = user('p1', 'player');
-    remote.addConnection(player);
+    admit(remote, player);
 
     bus.publish(
       JSON.stringify({
@@ -3796,7 +4342,7 @@ describe('versioned element pipeline (D5)', () => {
     const bus = new InMemoryHubFanout();
     const remote = new SyncHub({ fanout: bus, instanceId: 'B' });
     const peer = makeConn('b', 'R');
-    remote.addConnection(peer);
+    admit(remote, peer);
 
     bus.publish(
       JSON.stringify({
@@ -3826,7 +4372,7 @@ describe('versioned element pipeline (D5)', () => {
       ],
     });
     const sender = makeConn('s', 'R');
-    rejecting.addConnection(sender);
+    admit(rejecting, sender);
     await backend.applyElement('R', { kind: 'upsert', element: el('e', 4) }, null);
 
     await rejecting.handleMessage('s', upsert(el('e', 5)));
@@ -3903,8 +4449,8 @@ describe('versioned element pipeline (D5)', () => {
       });
       const a = makeConn('a', 'R');
       const b = makeConn('b', 'R');
-      h.addConnection(a);
-      h.addConnection(b);
+      admit(h, a);
+      admit(h, b);
 
       await h.handleMessage('a', upsert(el('e')));
 
@@ -3919,8 +4465,8 @@ describe('versioned element pipeline (D5)', () => {
       const h = new SyncHub({ backend: conflicting });
       const a = makeConn('a', 'R');
       const b = makeConn('b', 'R');
-      h.addConnection(a);
-      h.addConnection(b);
+      admit(h, a);
+      admit(h, b);
 
       await h.handleMessage('a', upsert(el('e')));
 
@@ -3945,8 +4491,8 @@ describe('versioned element pipeline (D5)', () => {
     const h = new SyncHub({ backend, fanout, instanceId: 'A' });
     const a = makeConn('a', 'R');
     const b = makeConn('b', 'R');
-    h.addConnection(a);
-    h.addConnection(b);
+    admit(h, a);
+    admit(h, b);
 
     await expect(h.handleMessage('a', upsert(el('e')))).rejects.toBe(error);
 
@@ -3965,8 +4511,8 @@ describe('versioned element pipeline (D5)', () => {
     const h = new SyncHub({ backend, fanout, instanceId: 'A' });
     const a = makeConn('a', 'R');
     const b = makeConn('b', 'R');
-    h.addConnection(a);
-    h.addConnection(b);
+    admit(h, a);
+    admit(h, b);
     await h.handleMessage('a', upsert(el('e')));
     b.sent.length = 0;
     failPublish = true;
@@ -3999,10 +4545,7 @@ describe('element op batches', () => {
 
   async function join(hub: SyncHub, id: string, capabilities?: SyncCapabilities, role?: string) {
     const conn: FakeConn = { ...makeConn(id, 'R'), role, userId: id };
-    hub.addConnection(conn);
-    if (capabilities) {
-      await hub.handleMessage(id, envelope(id, { kind: 'capabilities', capabilities }));
-    }
+    admit(hub, conn, capabilities);
     conn.sent.length = 0;
     return conn;
   }
@@ -4010,8 +4553,7 @@ describe('element op batches', () => {
   it('advertises opBatching in the capabilities reply', async () => {
     const hub = new SyncHub();
     const conn = makeConn('A', 'R');
-    hub.addConnection(conn);
-    await hub.handleMessage('A', envelope('A', { kind: 'capabilities', capabilities: batching }));
+    admit(hub, conn, batching, false);
     expect(frames(conn)).toEqual([
       { from: 'hub', op: { kind: 'capabilities', capabilities: batching } },
     ]);
@@ -4024,8 +4566,7 @@ describe('element op batches', () => {
   ])('omits opBatching from the capabilities reply with %s', async (_name, options) => {
     const hub = new SyncHub(options);
     const conn = makeConn('A', 'R');
-    hub.addConnection(conn);
-    await hub.handleMessage('A', envelope('A', { kind: 'capabilities', capabilities: batching }));
+    admit(hub, conn, batching, false);
     expect(frames(conn)).toEqual([
       { from: 'hub', op: { kind: 'capabilities', capabilities: createCurrentCapabilities([]) } },
     ]);
@@ -4038,8 +4579,7 @@ describe('element op batches', () => {
   it('advertises opBatching with an unbounded maxMessageBytes', async () => {
     const hub = new SyncHub({ maxMessageBytes: Infinity });
     const conn = makeConn('A', 'R');
-    hub.addConnection(conn);
-    await hub.handleMessage('A', envelope('A', { kind: 'capabilities', capabilities: batching }));
+    admit(hub, conn, batching, false);
     expect(frames(conn)).toEqual([
       { from: 'hub', op: { kind: 'capabilities', capabilities: batching } },
     ]);
@@ -4140,6 +4680,29 @@ describe('element op batches', () => {
     expect(gm.sent).toEqual([]);
   });
 
+  it('omits a forbidden child payload from a batched relay', async () => {
+    const hub = new SyncHub({
+      canRead: ({ role, audience }) => audience !== 'private' || role === 'gm',
+    });
+    await join(hub, 'gm', batching, 'gm');
+    const player = await join(hub, 'player', batching, 'player');
+    const parent = shape('public-parent');
+    const child = {
+      ...shape('private-child', 1, 'private'),
+      parentId: parent.id,
+      data: { label: 'private-child-sentinel' },
+    };
+
+    await hub.handleMessage('gm', envelope('gm', batch(up(parent), up(child))));
+
+    expect(frames(player)).toEqual([{ from: 'gm', op: { kind: 'batch', ops: [up(parent)] } }]);
+    expect(player.sent.join('')).not.toContain('private-child-sentinel');
+    player.sent.length = 0;
+    await hub.handleMessage('player', envelope('player', { kind: 'request-snapshot' }));
+    expect(player.sent.join('')).toContain('public-parent');
+    expect(player.sent.join('')).not.toContain('private-child-sentinel');
+  });
+
   it('drops a batch op claiming the hub editor without stopping the others', async () => {
     const backend = new MemoryHubBackend();
     const hub = new SyncHub({ backend });
@@ -4220,9 +4783,9 @@ describe('element op budget', () => {
   it('counts batched and single element ops against one per-connection budget', async () => {
     const hub = new SyncHub({ opsPerSecond: 1, opBurst: 3 });
     const close = vi.fn();
-    hub.addConnection({ ...makeConn('A', 'R'), close });
+    admit(hub, { ...makeConn('A', 'R'), close });
     const B = makeConn('B', 'R');
-    hub.addConnection(B);
+    admit(hub, B);
 
     await hub.handleMessage('A', envelope('A', { kind: 'batch', ops: [gone('x'), gone('y')] }));
     await hub.handleMessage('A', envelope('A', { kind: 'request-snapshot' }));
@@ -4240,7 +4803,7 @@ describe('element op budget', () => {
     vi.useFakeTimers();
     const hub = new SyncHub();
     const close = vi.fn();
-    hub.addConnection({ ...makeConn('A', 'R'), close });
+    admit(hub, { ...makeConn('A', 'R'), close });
     const storm = {
       kind: 'batch' as const,
       ops: Array.from({ length: 1000 }, (_, i) => gone(`gone-${i}`)),
@@ -4255,7 +4818,7 @@ describe('element op budget', () => {
     vi.useFakeTimers();
     const hub = new SyncHub();
     const close = vi.fn();
-    hub.addConnection({ ...makeConn('A', 'R'), close });
+    admit(hub, { ...makeConn('A', 'R'), close });
     for (let flush = 1; flush <= 100; flush++) {
       const ops = Array.from({ length: 50 }, (_, i) => ({
         kind: 'upsert' as const,
@@ -4284,9 +4847,9 @@ describe('unsupported reply', () => {
     from: 'hub',
     op: {
       kind: 'unsupported',
-      protocolVersion: 2,
-      minProtocolVersion: 2,
-      reason: 'protocol version 2 required',
+      protocolVersion: LEGACY_SYNC_PROTOCOL_VERSION,
+      minProtocolVersion: LEGACY_SYNC_PROTOCOL_VERSION,
+      reason: `protocol version ${LEGACY_SYNC_PROTOCOL_VERSION} with element hierarchy support required`,
     },
   };
 

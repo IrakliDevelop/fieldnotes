@@ -24,6 +24,7 @@ import {
   assertRenderCapabilities,
   loadImages,
   computeBounds,
+  getElementRect,
   nonNegativeOption,
   positiveOption,
   validateExportResourceOptions,
@@ -292,13 +293,36 @@ export async function exportSvg(
   }
   assertExportSize(Math.ceil(bounds.w), Math.ceil(bounds.h), options);
 
+  const ordinaryElements: {
+    element: CanvasElement;
+    clip: { x: number; y: number; w: number; h: number } | null;
+  }[] = [];
+  for (const element of visibleElements) {
+    if (element.type === 'extension' && registry.getAdapter(element.extensionType)?.fullCanvas) {
+      continue;
+    }
+    const clip = store.getEffectiveClip(element.id);
+    if (clip === undefined || (clip !== null && (clip.w <= 0 || clip.h <= 0))) continue;
+    if (clip !== null) {
+      const rect = getElementRect(element, registry);
+      if (
+        !rect ||
+        Math.max(rect.x, clip.x) >= Math.min(rect.x + rect.w, clip.x + clip.w) ||
+        Math.max(rect.y, clip.y) >= Math.min(rect.y + rect.h, clip.y + clip.h)
+      )
+        continue;
+    }
+    ordinaryElements.push({ element, clip: clip && { ...clip } });
+  }
+  const paintableElements = ordinaryElements.map(({ element }) => element);
+
   // Only remote/blob image srcs need network loading; data: srcs pass through.
-  const remoteImages = visibleElements.filter(
+  const remoteImages = paintableElements.filter(
     (el) => el.type === 'image' && !el.src.startsWith('data:'),
   );
   const imageCache = await loadImages(remoteImages, options);
-  const imageDataUris = encodeImages(visibleElements, imageCache, rasterScale, options);
-  const htmlElements = visibleElements.filter((el): el is HtmlElement => el.type === 'html');
+  const imageDataUris = encodeImages(paintableElements, imageCache, rasterScale, options);
+  const htmlElements = paintableElements.filter((el): el is HtmlElement => el.type === 'html');
 
   // Resolve routing per visible html element before doing any rendering work: canvas-routed
   // elements never reach the DOM-raster path (renderHtmlElements), and 'missing' is either
@@ -334,13 +358,16 @@ export async function exportSvg(
   );
   for (const [id, uri] of canvasHtmlDataUris) htmlDataUris.set(id, uri);
 
-  let body = '';
-  if (options.background) {
-    body += `<rect x="${n(bounds.x)}" y="${n(bounds.y)}" width="${n(bounds.w)}" height="${n(bounds.h)}" fill="${esc(options.background)}" />`;
-  }
+  const backgroundSvg = options.background
+    ? `<rect x="${n(bounds.x)}" y="${n(bounds.y)}" width="${n(bounds.w)}" height="${n(bounds.h)}" fill="${esc(options.background)}" />`
+    : '';
 
   const fullCanvasSvg: string[] = [];
-  const layerBodies = new Map<string, string>();
+  const layerBodies = new Map<
+    string,
+    { fragment: string; clip: { x: number; y: number; w: number; h: number } | null }[]
+  >();
+  const ordinaryById = new Map(ordinaryElements.map((entry) => [entry.element.id, entry]));
   for (const el of visibleElements) {
     if (el.type === 'extension' && registry.getAdapter(el.extensionType)?.fullCanvas) {
       const adapter = registry.getAdapter(el.extensionType);
@@ -352,25 +379,25 @@ export async function exportSvg(
       }
       continue;
     }
+    const prepared = ordinaryById.get(el.id);
+    if (!prepared) continue;
     const emitted = emitElement(
-      el,
+      prepared.element,
       imageDataUris,
       htmlDataUris,
       rasterScale,
       store,
       options,
       registry,
+      bounds,
     );
-    layerBodies.set(el.layerId, (layerBodies.get(el.layerId) ?? '') + emitted);
-  }
-  for (const [layerId, emitted] of layerBodies) {
-    const opacity = layerManager?.getLayer?.(layerId)?.opacity ?? 1;
-    body += opacity === 1 || emitted === '' ? emitted : `<g opacity="${n(opacity)}">${emitted}</g>`;
-  }
-  for (const svg of fullCanvasSvg) {
-    body += svg;
+    if (!emitted) continue;
+    const entries = layerBodies.get(prepared.element.layerId) ?? [];
+    entries.push({ fragment: emitted, clip: prepared.clip });
+    layerBodies.set(prepared.element.layerId, entries);
   }
 
+  let overlaySvg = '';
   if (options.afterElements && typeof document !== 'undefined') {
     const overlayW = Math.max(1, Math.ceil(bounds.w));
     const overlayH = Math.max(1, Math.ceil(bounds.h));
@@ -384,7 +411,7 @@ export async function exportSvg(
       try {
         const dataUri = overlayCanvas.toDataURL('image/png');
         if (dataUri.startsWith('data:')) {
-          body += `<image href="${esc(dataUri)}" x="${n(bounds.x)}" y="${n(bounds.y)}" width="${n(bounds.w)}" height="${n(bounds.h)}" />`;
+          overlaySvg = `<image href="${esc(dataUri)}" x="${n(bounds.x)}" y="${n(bounds.y)}" width="${n(bounds.w)}" height="${n(bounds.h)}" />`;
         }
       } catch {
         // encoding failed — skip overlay in SVG rather than failing the whole export
@@ -392,11 +419,10 @@ export async function exportSvg(
     }
   }
 
+  const hookSvg: string[] = [];
   if (options.renderHooks) {
     options.renderHooks.svgExport.call('afterElements', {
-      appendSvg: (fragment: string) => {
-        body += fragment;
-      },
+      appendSvg: (fragment: string) => hookSvg.push(fragment),
       viewBox: bounds,
       rasterScale,
     });
@@ -406,6 +432,57 @@ export async function exportSvg(
       options.requiredCapabilities,
     );
   }
+
+  const usedIds = new Set<string>();
+  const collectIds = (fragment: string): void => {
+    const ids = /(?:^|[\x20\t\r\n])id\s*=\s*(['"])(.*?)\1/g;
+    for (const match of fragment.matchAll(ids)) usedIds.add(match[2] ?? '');
+  };
+  for (const entries of layerBodies.values()) {
+    for (const { fragment } of entries) collectIds(fragment);
+  }
+  collectIds(backgroundSvg);
+  for (const fragment of fullCanvasSvg) collectIds(fragment);
+  collectIds(overlaySvg);
+  for (const fragment of hookSvg) collectIds(fragment);
+
+  const clippedEntries = [...layerBodies.values()].flat().filter((entry) => entry.clip !== null);
+  let clipPrefix = 'fieldnotes-export-clip';
+  for (let suffix = 0; ; suffix++) {
+    const candidate = suffix === 0 ? clipPrefix : `${clipPrefix}-${suffix}`;
+    if (clippedEntries.every((_, ordinal) => !usedIds.has(`${candidate}-${ordinal}`))) {
+      clipPrefix = candidate;
+      break;
+    }
+  }
+  const clipDefs: string[] = [];
+  let clipOrdinal = 0;
+  for (const entries of layerBodies.values()) {
+    for (const entry of entries) {
+      if (entry.clip === null) continue;
+      const id = `${clipPrefix}-${clipOrdinal++}`;
+      const { x, y, w, h } = entry.clip;
+      clipDefs.push(
+        `<clipPath id="${id}"><rect x="${n(x)}" y="${n(y)}" width="${n(w)}" height="${n(h)}" /></clipPath>`,
+      );
+      entry.fragment = `<g clip-path="url(#${id})">${entry.fragment}</g>`;
+    }
+  }
+
+  let body = clipDefs.length > 0 ? `<defs>${clipDefs.join('')}</defs>` : '';
+  body += backgroundSvg;
+  for (const [layerId, entries] of layerBodies) {
+    const emitted = entries.map((entry) => entry.fragment).join('');
+    const opacity = layerManager?.getLayer?.(layerId)?.opacity ?? 1;
+    body += opacity === 1 || emitted === '' ? emitted : `<g opacity="${n(opacity)}">${emitted}</g>`;
+  }
+  for (const svg of fullCanvasSvg) {
+    body += svg;
+  }
+
+  body += overlaySvg;
+
+  body += hookSvg.join('');
 
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${n(bounds.w)}" height="${n(bounds.h)}" ` +
@@ -421,6 +498,7 @@ function emitElement(
   store: ElementStore,
   resourceOptions: ExportResourceOptions,
   registry: ElementRegistry,
+  viewBox: { x: number; y: number; w: number; h: number },
 ): string {
   switch (el.type) {
     case 'stroke':
@@ -441,7 +519,7 @@ function emitElement(
       const adapter = registry.getAdapter(el.extensionType);
       if (adapter?.emitSvg) {
         const allElements = store.getAll();
-        return adapter.emitSvg(el, allElements, { x: 0, y: 0, w: 0, h: 0 });
+        return adapter.emitSvg(el, allElements, viewBox);
       }
       return '';
     }

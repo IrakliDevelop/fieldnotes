@@ -392,7 +392,7 @@ describe('managed authority client over real createSyncServer sockets', () => {
     );
   });
 
-  it('filters private bytes from a player document and all captured player frames', async () => {
+  it('keeps a readable child linked to a filtered parent without disclosing private elements', async () => {
     const filteredDefinition: AuthorityRoomDefinition = {
       ...definition,
       project: (context, state) => ({
@@ -405,24 +405,65 @@ describe('managed authority client over real createSyncServer sockets', () => {
     const { port } = startServer({ roomDefinition: filteredDefinition });
     const owner = connect(port, 'owner');
     await live(owner.manager);
+    const parent = {
+      ...shape('private-parent', 'private'),
+      data: { label: 'private-parent-payload-sentinel' },
+    };
+    const child = { ...shape('public-child'), parentId: parent.id };
+    const privateChild = {
+      ...shape('private-child', 'private'),
+      data: { label: 'private-child-payload-sentinel' },
+    };
     const privateEdit = owner.manager.submit({
       kind: 'upsert',
-      element: shape('PRIVATE_SENTINEL_DO_NOT_SEND', 'private'),
+      element: parent,
     });
     expect(privateEdit.status).toBe('admitted');
     if (privateEdit.status !== 'admitted') return;
     await operationStatus(owner.manager, privateEdit.clientOperationId, 'accepted');
+    const childEdit = owner.manager.submit({ kind: 'upsert', element: child });
+    expect(childEdit.status).toBe('admitted');
+    if (childEdit.status !== 'admitted') return;
+    await operationStatus(owner.manager, childEdit.clientOperationId, 'accepted');
+    const privateChildEdit = owner.manager.submit({ kind: 'upsert', element: privateChild });
+    expect(privateChildEdit.status).toBe('admitted');
+    if (privateChildEdit.status !== 'admitted') return;
+    await operationStatus(owner.manager, privateChildEdit.clientOperationId, 'accepted');
     const player = connect(port, 'player');
     await live(player.manager);
-    expect(JSON.stringify(player.manager.getState().document)).not.toContain(
-      'PRIVATE_SENTINEL_DO_NOT_SEND',
-    );
-    expect(player.transports.flatMap((transport) => transport.inbound).join('\n')).not.toContain(
-      'PRIVATE_SENTINEL_DO_NOT_SEND',
-    );
+    expect(player.manager.getState().document?.elements).toEqual([
+      expect.objectContaining({ id: child.id, parentId: parent.id }),
+    ]);
+    const inbound = player.transports.flatMap((transport) => transport.inbound).join('\n');
+    expect(inbound).not.toContain('private-parent-payload-sentinel');
+    expect(inbound).not.toContain('private-child-payload-sentinel');
+    expect(inbound).not.toContain(privateChild.id);
     expect(player.transports.flatMap((transport) => transport.outbound).join('\n')).not.toContain(
       '"kind":"presence"',
     );
+    const inboundCount = player.transports.flatMap((transport) => transport.inbound).length;
+
+    const publicParent = { ...shape(parent.id), version: 2 };
+    const publicEdit = owner.manager.submit({ kind: 'upsert', element: publicParent });
+    expect(publicEdit.status).toBe('admitted');
+    if (publicEdit.status !== 'admitted') return;
+    await operationStatus(owner.manager, publicEdit.clientOperationId, 'accepted');
+    await vi.waitFor(() =>
+      expect(
+        player.manager
+          .getState()
+          .document?.elements.map((element) => element.id)
+          .sort(),
+      ).toEqual(['private-parent', 'public-child']),
+    );
+    const playerFrames = player.transports.flatMap((transport) => transport.inbound).join('\n');
+    const revealFrames = player.transports
+      .flatMap((transport) => transport.inbound)
+      .slice(inboundCount);
+    expect(revealFrames.join('\n')).not.toContain(child.id);
+    expect(playerFrames).not.toContain(privateChild.id);
+    expect(playerFrames).not.toContain('private-child-payload-sentinel');
+    expect(playerFrames).not.toContain('"kind":"presence"');
   });
 
   it('never publishes live from a corrupted checkpoint and keeps legacy authority refusal', async () => {

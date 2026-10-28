@@ -11,9 +11,10 @@ import { getDefaultElementRegistry } from '../elements/default-registry';
 import type { PersistedPluginState } from './plugin-state-manager';
 import { isValidIndexKey } from './fractional-index';
 import { assignLegacyOrder } from './legacy-order';
+import { validateHierarchy } from '../elements/element-hierarchy';
 
 export interface CanvasState {
-  version: 5;
+  version: 6;
   camera: {
     position: Point;
     zoom: number;
@@ -25,7 +26,7 @@ export interface CanvasState {
 }
 
 export interface LegacyCanvasState extends Omit<CanvasState, 'version' | 'elements'> {
-  version: 1 | 2 | 3 | 4;
+  version: 1 | 2 | 3 | 4 | 5;
   elements: unknown[];
   [key: string]: unknown;
 }
@@ -51,7 +52,8 @@ export function unregisterLegacyStateMigrator(m: LegacyStateMigrator): void {
   if (i >= 0) legacyStateMigrators.splice(i, 1);
 }
 
-export const CANVAS_STATE_VERSION = 5;
+export const CANVAS_STATE_VERSION = 6;
+const INDEXED_STATE_VERSION = 5;
 const CORE_ELEMENT_TYPES = ['stroke', 'note', 'arrow', 'image', 'html', 'text', 'shape'] as const;
 const ELEMENT_TYPES = [...CORE_ELEMENT_TYPES, 'extension'] as const;
 
@@ -100,7 +102,7 @@ export function parseState(json: string, registry?: ElementRegistry): CanvasStat
 }
 
 /**
- * Upgrades an importable state to the current (v5) persistence model.
+ * Upgrades an importable state to the current (v6) persistence model.
  * The input is mutated only after callers have cloned or parsed it.
  */
 export function migrateState(
@@ -108,7 +110,7 @@ export function migrateState(
   registry: ElementRegistry = getDefaultElementRegistry(),
 ): CanvasState {
   // loadState skips validateState, so order keys are assigned here too; already-keyed elements pass.
-  if (state.version !== CANVAS_STATE_VERSION) {
+  if (state.version < INDEXED_STATE_VERSION) {
     state.elements = assignLegacyOrder(state.elements as Record<string, unknown>[]);
   }
   // Runs before legacy decoding: decoded envelopes are already current.
@@ -124,6 +126,9 @@ export function migrateState(
   }
   if (state.version === CANVAS_STATE_VERSION) return state;
   const legacy = state as LegacyCanvasState;
+  for (const element of legacy.elements) {
+    if (isRecord(element)) delete element['parentId'];
+  }
   convertLegacyToEnvelopes(legacy.elements, registry);
   for (const migrator of legacyStateMigrators) {
     migrator(legacy);
@@ -194,14 +199,16 @@ function validateState(
   const records: Record<string, unknown>[] = [];
   for (const el of obj['elements'] as unknown[]) {
     if (!isRecord(el)) throw new Error('Invalid element: expected an object');
-    if (version < CANVAS_STATE_VERSION && !isFiniteNumber(el['zIndex'])) {
+    if (version < CANVAS_STATE_VERSION) delete el['parentId'];
+    if (version < INDEXED_STATE_VERSION && !isFiniteNumber(el['zIndex'])) {
       throw new Error(`Invalid element "${String(el['id'])}": missing or invalid zIndex`);
     }
     migrateElement(el, !hasLayers);
     records.push(el);
   }
   // Legacy files were written in getAll() order, so (zIndex, position) reproduces each layer's order.
-  const elements: unknown[] = version < CANVAS_STATE_VERSION ? assignLegacyOrder(records) : records;
+  const elements: unknown[] =
+    version < INDEXED_STATE_VERSION ? assignLegacyOrder(records) : records;
   obj['elements'] = elements;
 
   if (!hasLayers) {
@@ -246,6 +253,13 @@ function validateState(
   }
 
   cleanBindings(elements as Record<string, unknown>[]);
+
+  if (version === CANVAS_STATE_VERSION) {
+    validateHierarchy(
+      new Map((elements as CanvasElement[]).map((element) => [element.id, element])),
+      registry,
+    );
+  }
 
   if (obj['extensions'] !== undefined) {
     validateExtensions(obj['extensions']);
@@ -301,6 +315,7 @@ function validateElement(
     typeof el['locked'] !== 'boolean' ||
     typeof el['layerId'] !== 'string' ||
     !isOptional(el['groupId'], isString) ||
+    !isOptional(el['parentId'], isString) ||
     !isOptional(el['rotation'], isFiniteNumber)
   ) {
     throw new Error(`Invalid element "${el['id']}": invalid base fields or geometry`);
@@ -333,9 +348,9 @@ function validateElement(
   }
 
   const adapter =
-    version < CANVAS_STATE_VERSION ? registry.getAdapterByLegacyType(el['type']) : undefined;
+    version < INDEXED_STATE_VERSION ? registry.getAdapterByLegacyType(el['type']) : undefined;
   if (!adapter) {
-    if (version < CANVAS_STATE_VERSION) {
+    if (version < INDEXED_STATE_VERSION) {
       throw new Error(
         `Cannot migrate legacy element type "${el['type']}" without a registered adapter`,
       );

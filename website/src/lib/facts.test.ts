@@ -45,6 +45,6 @@ describe('getFacts', () => {
       source: 'npm',
     });
     expect(facts.docs.notBuilt).toContain('Command palette');
-    expect(facts.docs.notBuilt).toHaveLength(5);
+    expect(facts.docs.notBuilt).toHaveLength(4);
   });
 });

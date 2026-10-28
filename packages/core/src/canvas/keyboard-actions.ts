@@ -8,6 +8,8 @@ import type { Point } from '../core/types';
 import { normalizeConstraintStep } from '../core/constraint-service';
 import { createId } from '../elements/create-id';
 import { getElementsBoundingBox } from '../elements/bounds';
+import { ElementStore } from '../elements/element-store';
+import { getHierarchyClosure } from '../elements/hierarchy-ops';
 import type { RotateDirection } from './selection-rotate';
 
 export interface KeyboardActionsDeps {
@@ -100,12 +102,10 @@ export class KeyboardActions {
     this.flushPendingNudge();
     const sel = this.selectTool();
     if (!sel) return;
-    const ids = sel.tool.selectedIds;
-    if (ids.length === 0) return;
+    const elements = getHierarchyClosure(sel.tool.selectedIds, sel.ctx.store).elements;
+    if (elements.length === 0) return;
     this.inHistory(() => {
-      for (const id of ids) {
-        sel.ctx.store.remove(id);
-      }
+      for (const element of [...elements].reverse()) sel.ctx.store.remove(element.id);
     });
     sel.ctx.requestRender();
   }
@@ -146,13 +146,10 @@ export class KeyboardActions {
     if (this.deps.isToolActive()) return;
     const sel = this.selectTool();
     if (!sel) return;
-    const ids = sel.tool.selectedIds;
-    if (ids.length === 0) return;
-    this.clipboard = [];
-    for (const id of ids) {
-      const el = sel.ctx.store.getById(id);
-      if (el) this.clipboard.push(structuredClone(el));
-    }
+    const closure = getHierarchyClosure(sel.tool.selectedIds, sel.ctx.store);
+    if (closure.elements.length === 0) return;
+    const clipboard = closure.elements.map((element) => structuredClone(element));
+    this.clipboard = clipboard;
     this.pasteCount = 0;
   }
 
@@ -196,11 +193,7 @@ export class KeyboardActions {
     this.flushPendingNudge();
     const sel = this.selectTool();
     if (!sel) return;
-    const source: CanvasElement[] = [];
-    for (const id of sel.tool.selectedIds) {
-      const el = sel.ctx.store.getById(id);
-      if (el) source.push(el);
-    }
+    const source = getHierarchyClosure(sel.tool.selectedIds, sel.ctx.store).elements;
     if (source.length === 0) return;
     this.insertClones(source, { x: 20, y: 20 }, sel);
   }
@@ -224,7 +217,13 @@ export class KeyboardActions {
     }
     const sel = this.selectTool();
     if (!sel) return;
-    const ids = this.selectableElements(sel.ctx).map((el) => el.id);
+    const ids = this.selectableElements(sel.ctx)
+      .filter(
+        (el) =>
+          el.type !== 'extension' ||
+          sel.ctx.elementRegistry?.getAdapter(el.extensionType)?.fullCanvas !== true,
+      )
+      .map((el) => el.id);
     sel.tool.setSelection(ids);
     sel.ctx.requestRender();
   }
@@ -293,8 +292,9 @@ export class KeyboardActions {
     if (!sel) return;
     const ids = sel.tool.selectedIds;
     if (ids.length === 0) return;
+    const roots = getHierarchyClosure(ids, sel.ctx.store).roots;
     this.inHistory(() => {
-      for (const id of ids) {
+      for (const { id } of roots) {
         switch (operation) {
           case 'forward':
             sel.ctx.store.bringForward(id);
@@ -315,7 +315,7 @@ export class KeyboardActions {
   }
 
   private insertClones(
-    source: CanvasElement[],
+    source: readonly CanvasElement[],
     offset: Point,
     sel: { tool: SelectTool; ctx: ToolContext },
   ): void {
@@ -329,7 +329,6 @@ export class KeyboardActions {
       if (el.groupId && !groupIdMap.has(el.groupId)) groupIdMap.set(el.groupId, createId('group'));
     }
 
-    // Build every clone before adding any, so a throwing cloneRemap leaves no partial paste.
     const clones: CanvasElement[] = [];
     for (const el of source) {
       const clone = structuredClone(el);
@@ -340,6 +339,11 @@ export class KeyboardActions {
       clone.index = '';
       clone.version = 1;
       delete clone.editor;
+      if (clone.parentId) {
+        const parentId = idMap.get(clone.parentId);
+        if (parentId) clone.parentId = parentId;
+        else delete clone.parentId;
+      }
       if (clone.groupId) clone.groupId = groupIdMap.get(clone.groupId) ?? clone.groupId;
       clone.position = { x: clone.position.x + offset.x, y: clone.position.y + offset.y };
 
@@ -374,15 +378,39 @@ export class KeyboardActions {
       let added: CanvasElement = clone;
       if (clone.type === 'extension') {
         const adapter = sel.ctx.elementRegistry?.getAdapter(clone.extensionType);
-        if (adapter?.cloneRemap) added = adapter.cloneRemap(clone, idMap);
+        if (adapter) {
+          const remapped = adapter.cloneRemap?.(structuredClone(clone), new Map(idMap));
+          const prepared = {
+            ...clone,
+            data: remapped ? structuredClone(remapped.data) : clone.data,
+          };
+          if (!adapter.validateEnvelope(structuredClone(prepared))) {
+            throw new Error(`Invalid cloned extension data for "${clone.extensionType}"`);
+          }
+          added = prepared;
+        }
       }
       clones.push(added);
     }
 
+    const cloneIds = new Set<string>();
+    for (const clone of clones) {
+      if (sel.ctx.store.getById(clone.id) || cloneIds.has(clone.id)) {
+        throw new Error(`Clone id collision "${clone.id}"`);
+      }
+      cloneIds.add(clone.id);
+    }
+    const preflight = new ElementStore(sel.ctx.store.elementRegistry);
+    for (const element of sel.ctx.store.getAll()) preflight.add(element);
+    for (const clone of clones) preflight.add(clone);
+
     this.inHistory(() => {
       for (const clone of clones) sel.ctx.store.add(clone);
     });
-    sel.tool.setSelection(clones.map((clone) => clone.id));
+    const selectedRoots = clones
+      .filter((clone) => clone.parentId === undefined || !cloneIds.has(clone.parentId))
+      .map((clone) => clone.id);
+    sel.tool.setSelection(selectedRoots);
     sel.ctx.requestRender();
   }
 }

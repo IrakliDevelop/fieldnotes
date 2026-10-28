@@ -14,6 +14,8 @@ export interface BaseElement {
   layerId: string;
   /** Optional flat group membership. Elements sharing a groupId select/move/delete as a unit. */
   groupId?: string;
+  /** Optional containing element. Parent and child share a layer. */
+  parentId?: string;
   /** Rotation in radians (clockwise) about the element's center. Absent = 0 (unrotated).
    * Applied to note/text/image/html/shape/stroke; ignored for arrows. Extension
    * element definitions own their rotation semantics. */
@@ -180,6 +182,8 @@ export interface ElementTypeDefinition<T extends BaseElement> {
   unwrap(el: ExtensionElementEnvelope): T;
   wrap(el: T): ExtensionElementEnvelope;
   bounds(el: T): Bounds | null;
+  /** Optional world-space rectangle which clips this element's descendants. */
+  clipBounds?(el: T): Bounds | null;
   hitTest?(el: T, point: Point): boolean;
   interaction?: ElementInteractionAdapter<T>;
   /** `'canvas'` and `'hybrid'` draw with `render` on the canvas; `'none'` is treated the same
@@ -220,6 +224,7 @@ export interface ElementTypeAdapter {
   wrap(el: BaseElement): ExtensionElementEnvelope;
   unwrap(el: ExtensionElementEnvelope): BaseElement;
   bounds(el: ExtensionElementEnvelope): Bounds | null;
+  clipBounds?(el: ExtensionElementEnvelope): Bounds | null;
   hitTest?(el: ExtensionElementEnvelope, point: Point): boolean;
   hitTestHandle?(
     el: ExtensionElementEnvelope,

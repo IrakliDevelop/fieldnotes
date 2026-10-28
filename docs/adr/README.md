@@ -12,6 +12,7 @@ ADRs for Field Notes architecture decisions. ADR-0001 to ADR-0006 cover the VTT 
 | [ADR-0006](0006-snapping-as-service.md)         | Snapping as Opt-In Service                          | **Accepted and implemented**                                                                                                            | 2026-09-05 |
 | [ADR-0007](0007-action-registry.md)             | Action Registry                                     | **Accepted**                                                                                                                            | 2026-09-23 |
 | [ADR-0008](0008-element-versioning.md)          | Element Versioning, Tombstones and Fractional Order | **Accepted; implemented in core 0.93.0 and sync 0.28.0**                                                                                | 2026-10-19 |
+| [ADR-0009](0009-parent-child-clipping.md)       | Parent-child relationships and rectangular clipping | **Accepted; implementation pending**                                                                                                    | 2026-10-26 |
 
 ## Context
 

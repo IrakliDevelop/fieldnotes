@@ -17,7 +17,13 @@ import {
 import { SelectTool } from '../tools/select-tool';
 import { PencilTool } from '../tools/pencil-tool';
 import { renderImage } from '../elements/renderers/image-renderer';
-import type { ImageElement, HtmlElement } from '../elements/types';
+import type {
+  BaseElement,
+  ElementTypeDefinition,
+  ExtensionElementEnvelope,
+  HtmlElement,
+  ImageElement,
+} from '../elements/types';
 import type { HtmlPaintDiagnostic } from './html-paint-diagnostics';
 import { HtmlPainterRegistry } from './html-painter-registry';
 import type { ElementActivationEvent } from './element-activation';
@@ -41,6 +47,31 @@ function layerCacheOf(viewport: Viewport) {
 
 function focusCanvas(container: HTMLElement): void {
   wrapperOf(container).focus();
+}
+
+function proxyContext(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
+  const state: Record<string, unknown> = { canvas };
+  return new Proxy(state, {
+    get(target, prop) {
+      if (prop in target) return target[prop as string];
+      if (prop === 'measureText') return () => ({ width: 0 });
+      if (
+        prop === 'createPattern' ||
+        prop === 'createLinearGradient' ||
+        prop === 'createRadialGradient'
+      ) {
+        return () => null;
+      }
+      if (prop === 'getImageData') {
+        return () => ({ data: new Uint8ClampedArray(4), width: 1, height: 1 });
+      }
+      return () => undefined;
+    },
+    set(target, prop, value) {
+      target[prop as string] = value;
+      return true;
+    },
+  }) as unknown as CanvasRenderingContext2D;
 }
 
 describe('Viewport', () => {
@@ -130,6 +161,217 @@ describe('Viewport', () => {
     const viewport = new Viewport(container);
     viewport.destroy();
     expect(container.querySelector('canvas')).toBeNull();
+  });
+
+  it('keeps the context-loss mask through base recovery until the real render loop completes a frame', () => {
+    const getContext = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockImplementation(function (this: HTMLCanvasElement) {
+        return proxyContext(this);
+      } as never);
+    try {
+      const viewport = new Viewport(container);
+      const priv = viewport as unknown as {
+        background: { invalidate(): void };
+        renderLoop: {
+          requestRender(): void;
+          markAllLayersDirty(): void;
+          flush(): void;
+        };
+      };
+      const wrapper = wrapperOf(container);
+      const canvas = wrapper.querySelector<HTMLCanvasElement>(':scope > canvas');
+      if (!canvas) throw new Error('base canvas not found');
+      priv.renderLoop.requestRender();
+      priv.renderLoop.flush();
+      const invalidate = vi.spyOn(priv.background, 'invalidate');
+      const dirty = vi.spyOn(priv.renderLoop, 'markAllLayersDirty');
+      const request = vi.spyOn(priv.renderLoop, 'requestRender');
+
+      canvas.dispatchEvent(new Event('contextlost', { cancelable: true }));
+      const mask = wrapper.querySelector('[data-fieldnotes-context-loss-mask]');
+      expect(mask).not.toBeNull();
+      canvas.dispatchEvent(new Event('contextrestored'));
+      expect(invalidate).toHaveBeenCalledOnce();
+      expect(dirty).toHaveBeenCalledOnce();
+      expect(request).toHaveBeenCalledOnce();
+      expect(wrapper.contains(mask)).toBe(true);
+      priv.renderLoop.flush();
+      expect(wrapper.contains(mask)).toBe(false);
+
+      viewport.destroy();
+      canvas.dispatchEvent(new Event('contextlost', { cancelable: true }));
+      expect(wrapper.querySelector('[data-fieldnotes-context-loss-mask]')).toBeNull();
+    } finally {
+      getContext.mockRestore();
+    }
+  });
+
+  it('recreates and re-watches dynamic hybrid and layer-cache canvases through one recovery mask', () => {
+    vi.stubGlobal('OffscreenCanvas', undefined);
+    const getContext = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockImplementation(function (this: HTMLCanvasElement) {
+        return proxyContext(this);
+      } as never);
+    try {
+      const viewport = new Viewport(container);
+      const priv = viewport as unknown as {
+        paintStack: HTMLDivElement;
+        layerCache: { getCanvas(id: string): HTMLCanvasElement };
+        renderLoop: { requestRender(): void; flush(): void };
+      };
+      const html = document.createElement('div');
+      viewport.addHtmlElement(html, { x: 20, y: 20 }, { w: 30, h: 30 });
+      viewport.addShape({ position: { x: 20, y: 20 }, size: { w: 30, h: 30 } });
+      priv.renderLoop.requestRender();
+      priv.renderLoop.flush();
+      const hybrid = priv.paintStack.querySelector<HTMLCanvasElement>('canvas[data-paint-order]');
+      if (!hybrid) throw new Error('hybrid canvas not created');
+      const order = hybrid.dataset['paintOrder'];
+      if (!order) throw new Error('hybrid paint order missing');
+      const cached = priv.layerCache.getCanvas(viewport.layerManager.activeLayerId);
+
+      hybrid.dispatchEvent(new Event('contextlost', { cancelable: true }));
+      cached.dispatchEvent(new Event('contextlost', { cancelable: true }));
+      const mask = wrapperOf(container).querySelector('[data-fieldnotes-context-loss-mask]');
+      expect(mask).not.toBeNull();
+      expect(
+        wrapperOf(container).querySelectorAll('[data-fieldnotes-context-loss-mask]'),
+      ).toHaveLength(1);
+      hybrid.dispatchEvent(new Event('contextrestored'));
+      expect(wrapperOf(container).contains(mask)).toBe(true);
+      cached.dispatchEvent(new Event('contextrestored'));
+      priv.renderLoop.flush();
+
+      const replacement = priv.paintStack.querySelector<HTMLCanvasElement>(
+        `canvas[data-paint-order="${order}"]`,
+      );
+      const replacementCached = priv.layerCache.getCanvas(viewport.layerManager.activeLayerId);
+      expect(replacement).not.toBeNull();
+      expect(replacement).not.toBe(hybrid);
+      expect(replacement?.dataset['paintOrder']).toBe(order);
+      expect(replacementCached).not.toBe(cached);
+
+      replacement?.dispatchEvent(new Event('contextlost', { cancelable: true }));
+      replacementCached.dispatchEvent(new Event('contextlost', { cancelable: true }));
+      expect(
+        wrapperOf(container).querySelectorAll('[data-fieldnotes-context-loss-mask]'),
+      ).toHaveLength(1);
+      expect(wrapperOf(container).querySelector('[data-fieldnotes-context-loss-mask]')).toBe(mask);
+      replacement?.dispatchEvent(new Event('contextrestored'));
+      replacementCached.dispatchEvent(new Event('contextrestored'));
+      priv.renderLoop.flush();
+      expect(wrapperOf(container).contains(mask)).toBe(false);
+      viewport.destroy();
+    } finally {
+      getContext.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('does not watch opacity scratch or export canvases for context loss', async () => {
+    vi.stubGlobal('OffscreenCanvas', undefined);
+    const addListener = vi.spyOn(EventTarget.prototype, 'addEventListener');
+    const listenerTypes = (target: EventTarget): string[] =>
+      addListener.mock.calls.flatMap((call, index) =>
+        addListener.mock.contexts[index] === target ? [call[0]] : [],
+      );
+    const created: HTMLCanvasElement[] = [];
+    const originalCreateElement = document.createElement.bind(document);
+    const createElement = vi.spyOn(document, 'createElement').mockImplementation(function (
+      this: Document,
+      tagName: string,
+      options?: ElementCreationOptions,
+    ) {
+      const element = originalCreateElement(tagName, options);
+      if (tagName === 'canvas') created.push(element as HTMLCanvasElement);
+      return element;
+    });
+    const getContext = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockImplementation(function (this: HTMLCanvasElement) {
+        return proxyContext(this);
+      } as never);
+    const toBlob = vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(function (
+      this: HTMLCanvasElement,
+      callback: BlobCallback,
+    ) {
+      callback(new Blob(['fake'], { type: 'image/png' }));
+    });
+    const toDataURL = vi
+      .spyOn(HTMLCanvasElement.prototype, 'toDataURL')
+      .mockReturnValue('data:image/png;base64,AAAA');
+    try {
+      const viewport = new Viewport(container);
+      const base = wrapperOf(container).querySelector('canvas');
+      if (!(base instanceof HTMLCanvasElement)) throw new Error('base canvas not found');
+      Object.defineProperties(base, {
+        clientWidth: { value: 800, configurable: true },
+        clientHeight: { value: 600, configurable: true },
+      });
+      const priv = viewport as unknown as {
+        renderLoop: {
+          requestRender(): void;
+          flush(): void;
+          setCanvasSize(width: number, height: number): void;
+          htmlScratchCanvas: HTMLCanvasElement | null;
+          hybridActive: boolean;
+          firstDomIndex: number;
+          layerOpacities: Map<string, number>;
+        };
+        renderer: { isDomElement(element: HtmlElement): boolean };
+      };
+      const html = document.createElement('div');
+      viewport.addHtmlElement(html, { x: 0, y: 0 }, { w: 30, h: 30 });
+      viewport.expectCanvasHtmlTypes(['context-loss-marker']);
+      const painter = vi.fn();
+      viewport.registerHtmlPainter('context-loss-marker', painter);
+      const marker = createHtmlElement({
+        position: { x: 0, y: 0 },
+        size: { w: 30, h: 30 },
+        htmlType: 'context-loss-marker',
+        layerId: viewport.layerManager.activeLayerId,
+        index: 'zzzz',
+      });
+      viewport.store.add(marker);
+      viewport.layerManager.setLayerOpacity(viewport.layerManager.activeLayerId, 0.5);
+      priv.renderLoop.setCanvasSize(800, 600);
+      viewport.requestRender();
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      expect(priv.renderLoop.hybridActive).toBe(true);
+      expect(priv.renderLoop.firstDomIndex).toBe(0);
+      expect(priv.renderLoop.layerOpacities.get(viewport.layerManager.activeLayerId)).toBe(0.5);
+      expect(priv.renderer.isDomElement(marker)).toBe(false);
+      expect(painter).toHaveBeenCalledOnce();
+      const scratch = priv.renderLoop.htmlScratchCanvas;
+      expect(scratch).not.toBeNull();
+      expect(listenerTypes(scratch as HTMLCanvasElement)).not.toContain('contextlost');
+      expect(listenerTypes(scratch as HTMLCanvasElement)).not.toContain('contextrestored');
+
+      created.length = 0;
+      await viewport.exportImage();
+      expect(created.length).toBeGreaterThan(0);
+      for (const canvas of created) {
+        expect(listenerTypes(canvas)).not.toContain('contextlost');
+        expect(listenerTypes(canvas)).not.toContain('contextrestored');
+      }
+      created.length = 0;
+      await viewport.exportSVG();
+      expect(created.length).toBeGreaterThan(0);
+      for (const canvas of created) {
+        expect(listenerTypes(canvas)).not.toContain('contextlost');
+        expect(listenerTypes(canvas)).not.toContain('contextrestored');
+      }
+      viewport.destroy();
+    } finally {
+      toDataURL.mockRestore();
+      toBlob.mockRestore();
+      getContext.mockRestore();
+      createElement.mockRestore();
+      addListener.mockRestore();
+      vi.unstubAllGlobals();
+    }
   });
 
   it('destroy twice is a no-op', () => {
@@ -1053,6 +1295,35 @@ describe('Viewport', () => {
 
         expect(viewport.removeElements(['missing'])).toBe(0);
         expect(viewport.history.undoCount).toBe(0);
+        viewport.destroy();
+      });
+
+      it('removeElements expands a parent through descendants in child-first order', () => {
+        const viewport = new Viewport(container);
+        const parent = {
+          ...createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 }, index: 'a0' }),
+          id: 'parent',
+        };
+        const child = {
+          ...createShape({
+            position: { x: 2, y: 2 },
+            size: { w: 5, h: 5 },
+            index: 'a1',
+            parentId: parent.id,
+          }),
+          id: 'child',
+        };
+        viewport.store.add(parent);
+        viewport.store.add(child);
+        viewport.history.clear();
+        const removed: string[] = [];
+        viewport.store.on('remove', (element) => removed.push(element.id));
+
+        expect(viewport.removeElements([parent.id, child.id, 'missing'])).toBe(2);
+        expect(removed).toEqual(['child', 'parent']);
+        expect(viewport.history.undoCount).toBe(1);
+        expect(viewport.undo()).toBe(true);
+        expect(viewport.store.getAll().map((element) => element.id)).toEqual(['parent', 'child']);
         viewport.destroy();
       });
     });
@@ -3733,4 +4004,232 @@ describe('Viewport live html elements', () => {
 
     expect(wrapper.scrollTop).toBe(40);
   });
+
+  it('sets, clears, undoes, and keeps no-op parenting commands history-silent', () => {
+    const viewport = vp;
+    const parent = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+    const child = createNote({ position: { x: 20, y: 20 }, size: { w: 40, h: 20 } });
+    viewport.store.add(parent);
+    viewport.store.add(child);
+    const select = new SelectTool();
+    viewport.toolManager.register(select);
+    viewport.toolManager.setTool('select', viewport.toolContext);
+    select.setSelection([child.id]);
+    viewport.history.clear();
+    const updates = vi.fn();
+    viewport.store.on('update', updates);
+    const render = vi.spyOn(viewport, 'requestRender');
+
+    viewport.setParent(child.id, parent.id);
+    expect(viewport.store.getById(child.id)?.parentId).toBe(parent.id);
+    expect(viewport.history.undoCount).toBe(1);
+    expect(viewport.undo()).toBe(true);
+    expect(viewport.store.getById(child.id)?.parentId).toBeUndefined();
+    expect(viewport.redo()).toBe(true);
+    expect(viewport.store.getById(child.id)?.parentId).toBe(parent.id);
+
+    updates.mockClear();
+    render.mockClear();
+    for (const command of [
+      () => viewport.setParent(child.id, 'missing'),
+      () => viewport.setParent(parent.id, parent.id),
+      () => viewport.setParent(parent.id, child.id),
+    ]) {
+      expect(command).toThrow(/Invalid hierarchy/);
+      expect(viewport.store.getById(child.id)?.parentId).toBe(parent.id);
+      expect(updates).not.toHaveBeenCalled();
+      expect(render).not.toHaveBeenCalled();
+      expect(viewport.history.undoCount).toBe(1);
+      expect(viewport.getSelectedIds()).toEqual([child.id]);
+    }
+    viewport.setParent(child.id, parent.id);
+    viewport.setParent('missing', parent.id);
+    expect(updates).not.toHaveBeenCalled();
+    expect(viewport.history.undoCount).toBe(1);
+  });
+
+  it('keeps literal selection and renders only successful parenting commands', () => {
+    const viewport = vp;
+    const parent = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+    const child = createNote({ position: { x: 20, y: 20 }, size: { w: 40, h: 20 } });
+    viewport.store.add(parent);
+    viewport.store.add(child);
+    const select = new SelectTool();
+    viewport.toolManager.register(select);
+    viewport.toolManager.setTool('select', viewport.toolContext);
+    select.setSelection([child.id]);
+    viewport.history.clear();
+    const render = vi.spyOn(viewport, 'requestRender');
+    const updates = vi.fn();
+    viewport.store.on('update', updates);
+
+    viewport.setParent(child.id, parent.id);
+    expect(viewport.history.undoCount).toBe(1);
+    expect(viewport.getSelectedIds()).toEqual([child.id]);
+    expect(render).toHaveBeenCalled();
+    viewport.setParent(child.id, null);
+    expect(viewport.history.undoCount).toBe(2);
+    expect(viewport.getSelectedIds()).toEqual([child.id]);
+    expect(viewport.undo()).toBe(true);
+    expect(viewport.getSelectedIds()).toEqual([child.id]);
+    expect(viewport.redo()).toBe(true);
+    expect(viewport.getSelectedIds()).toEqual([child.id]);
+
+    updates.mockClear();
+    render.mockClear();
+    viewport.setParent(child.id, null);
+    viewport.setParent('missing', parent.id);
+    expect(updates).not.toHaveBeenCalled();
+    expect(render).not.toHaveBeenCalled();
+    expect(viewport.history.undoCount).toBe(2);
+  });
+
+  it('rejects cross-layer, full-canvas, and depth-33 parenting without side effects', () => {
+    const viewport = vp;
+    const layer = viewport.layerManager.createLayer('other');
+    const parent = createNote({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } });
+    const child = createNote({
+      position: { x: 20, y: 0 },
+      size: { w: 10, h: 10 },
+      layerId: layer.id,
+    });
+    viewport.store.add(parent);
+    viewport.store.add(child);
+    const select = new SelectTool();
+    viewport.toolManager.register(select);
+    viewport.toolManager.setTool('select', viewport.toolContext);
+    select.setSelection([child.id]);
+    const render = vi.spyOn(viewport, 'requestRender');
+    const updates = vi.fn();
+    viewport.store.on('update', updates);
+    viewport.history.clear();
+    const expectRejected = (command: () => void, id: string) => {
+      updates.mockClear();
+      render.mockClear();
+      const history = viewport.history.undoCount;
+      expect(command).toThrow(/Invalid hierarchy/);
+      expect(viewport.store.getById(id)?.parentId).toBeUndefined();
+      expect(updates).not.toHaveBeenCalled();
+      expect(render).not.toHaveBeenCalled();
+      expect(viewport.history.undoCount).toBe(history);
+      expect(viewport.getSelectedIds()).toEqual([child.id]);
+    };
+    expectRejected(() => viewport.setParent(child.id, parent.id), child.id);
+
+    viewport.elementRegistry.register({
+      type: 'test:full-parent',
+      legacyTypes: [],
+      fullCanvas: true,
+      decodeLegacy: () => {
+        throw new Error('no legacy');
+      },
+      validateData: () => true,
+      unwrap: (element) => element,
+      wrap: (element) => ({
+        ...element,
+        type: 'extension',
+        extensionType: 'test:full-parent',
+        data: {},
+      }),
+      bounds: () => null,
+    } satisfies ElementTypeDefinition<BaseElement>);
+    const full: ExtensionElementEnvelope = {
+      id: 'full',
+      type: 'extension',
+      extensionType: 'test:full-parent',
+      position: { x: 0, y: 0 },
+      index: 'z',
+      version: 1,
+      locked: false,
+      layerId: viewport.layerManager.activeLayerId,
+      data: {},
+    };
+    const local = createNote({ position: { x: 40, y: 0 }, size: { w: 10, h: 10 } });
+    viewport.store.add(full);
+    viewport.store.add(local);
+    expectRejected(() => viewport.setParent(local.id, full.id), local.id);
+    expectRejected(() => viewport.setParent(full.id, local.id), full.id);
+
+    const chain = Array.from({ length: 34 }, (_, index) =>
+      Object.assign(
+        createNote({
+          position: { x: index * 20, y: 100 },
+          size: { w: 10, h: 10 },
+        }),
+        { id: `depth-${index}` },
+      ),
+    );
+    for (const element of chain) viewport.store.add(element);
+    for (let index = 1; index < 33; index += 1) {
+      const childElement = chain[index];
+      const parentElement = chain[index - 1];
+      if (!childElement || !parentElement) throw new Error('depth fixture incomplete');
+      viewport.setParent(childElement.id, parentElement.id);
+    }
+    const tail = chain[33];
+    const previous = chain[32];
+    if (!tail || !previous) throw new Error('depth fixture incomplete');
+    updates.mockClear();
+    render.mockClear();
+    const history = viewport.history.undoCount;
+    expect(() => viewport.setParent(tail.id, previous.id)).toThrow(/Invalid hierarchy/);
+    expect(viewport.store.getById(tail.id)?.parentId).toBeUndefined();
+    expect(updates).not.toHaveBeenCalled();
+    expect(render).not.toHaveBeenCalled();
+    expect(viewport.history.undoCount).toBe(history);
+  });
+
+  it.each(['success', 'same-parent', 'missing-child'] as const)(
+    'flushes a pending nudge before a %s parenting command',
+    (kind) => {
+      vi.useFakeTimers();
+      const viewport = vp;
+      const select = new SelectTool();
+      viewport.toolManager.register(select);
+      viewport.toolManager.setTool('select', viewport.toolContext);
+      const layerId = viewport.layerManager.activeLayerId;
+      const parent = createNote({
+        position: { x: 0, y: 0 },
+        size: { w: 20, h: 20 },
+        layerId,
+      });
+      const child = createNote({
+        position: { x: 100, y: 0 },
+        size: { w: 20, h: 20 },
+        layerId,
+      });
+      viewport.store.add(parent);
+      viewport.store.add(child);
+      if (kind === 'same-parent') viewport.setParent(child.id, parent.id);
+      viewport.history.clear();
+      select.setSelection([child.id]);
+      focusCanvas(container);
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+      expect(viewport.store.getById(child.id)?.position.x).toBe(101);
+      const updates = vi.fn();
+      viewport.store.on('update', updates);
+      const render = vi.spyOn(viewport, 'requestRender');
+
+      if (kind === 'success') viewport.setParent(child.id, parent.id);
+      else if (kind === 'same-parent') viewport.setParent(child.id, parent.id);
+      else viewport.setParent('missing', parent.id);
+
+      expect(viewport.history.undoCount).toBe(kind === 'success' ? 2 : 1);
+      if (kind !== 'success') {
+        expect(updates).not.toHaveBeenCalled();
+        expect(render).not.toHaveBeenCalled();
+      }
+      if (kind === 'success') {
+        expect(viewport.undo()).toBe(true);
+        expect(viewport.store.getById(child.id)?.parentId).toBeUndefined();
+        expect(viewport.store.getById(child.id)?.position.x).toBe(101);
+        expect(viewport.undo()).toBe(true);
+        expect(viewport.store.getById(child.id)?.position.x).toBe(100);
+      } else {
+        expect(viewport.undo()).toBe(true);
+        expect(viewport.store.getById(child.id)?.position.x).toBe(100);
+      }
+      vi.useRealTimers();
+    },
+  );
 });

@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { ElementRegistry } from './element-registry';
+import { ElementRegistry, getRegistryToken } from './element-registry';
 import { pickBaseFields } from './base-fields';
 import type { ElementTypeDefinition, ExtensionElementEnvelope } from './types';
 
@@ -95,6 +95,36 @@ const markerDefinition: ElementTypeDefinition<MarkerElement> = {
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 describe('ElementRegistry', () => {
+  it('adapts typed clipBounds with one unwrap and leaves it absent when unspecified', () => {
+    const registry = new ElementRegistry();
+    const unwrap = vi.fn(markerDefinition.unwrap);
+    registry.register({
+      ...markerDefinition,
+      unwrap,
+      clipBounds: (element) => ({ x: element.position.x + 3, y: 7, w: 11, h: 13 }),
+    });
+    const adapter = registry.getAdapter('test:marker');
+    const envelope = makeMarkerEnvelope({ position: { x: 20, y: 30 } });
+    expect(adapter?.clipBounds?.(envelope)).toEqual({ x: 23, y: 7, w: 11, h: 13 });
+    expect(unwrap).toHaveBeenCalledTimes(1);
+    const noClip = new ElementRegistry();
+    noClip.register({ ...markerDefinition, type: 'test:no-clip', legacyTypes: [] });
+    expect(noClip.getAdapter('test:no-clip')?.clipBounds).toBeUndefined();
+  });
+
+  it('keeps cache tokens internal and advances only for successful local or parent changes', () => {
+    const parent = new ElementRegistry();
+    const child = new ElementRegistry(parent);
+    const initial = getRegistryToken(child);
+    child.unregister('missing');
+    expect(getRegistryToken(child)).toBe(initial);
+    parent.register(markerDefinition);
+    const inherited = getRegistryToken(child);
+    expect(inherited).not.toBe(initial);
+    expect('revision' in child).toBe(false);
+    child.register({ ...markerDefinition, type: 'test:child', legacyTypes: [] });
+    expect(getRegistryToken(child)).not.toBe(inherited);
+  });
   describe('register', () => {
     it("register throws for renderMode 'dom' and registers nothing", () => {
       const registry = new ElementRegistry();
@@ -324,6 +354,7 @@ describe('ElementRegistry', () => {
         version: 4,
         editor: 'peer',
         groupId: 'g1',
+        parentId: 'p1',
         rotation: 0.5,
       });
 
@@ -335,6 +366,7 @@ describe('ElementRegistry', () => {
         version: 4,
         editor: 'peer',
         groupId: 'g1',
+        parentId: 'p1',
         rotation: 0.5,
         position: { x: 2, y: 0 },
       });

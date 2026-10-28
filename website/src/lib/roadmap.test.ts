@@ -54,19 +54,30 @@ describe('parseRoadmap', () => {
     );
   });
 
-  it('lists the five missing features in content/roadmap.md', () => {
+  it('lists clipping and the performance gate as built while frames are next', () => {
     const roadmap = parseRoadmap(
       readFileSync(new URL('../../content/roadmap.md', import.meta.url), 'utf8'),
     );
 
-    expect(roadmap.notBuilt).toEqual([
+    expect(roadmap.built).toContain(
+      'Parent and child elements with nested rectangular clipping across canvas, DOM, minimap, PNG and SVG export',
+    );
+    expect(roadmap.built).toContain(
+      'A scheduled Chromium performance gate that records 90 render-loop samples on 10,011 elements against a checked-in p95 budget',
+    );
+    expect(roadmap.next).not.toContain(
+      'Parent and child elements with nested rectangular clipping across canvas, DOM, minimap, PNG and SVG export',
+    );
+    expect(roadmap.next).toEqual([
+      "I'm making starter templates on StackBlitz and CodeSandbox for a vanilla board and a React board.",
+      "I'm bringing the React bindings up to the core API: hooks and props for autosave, export, camera control, shortcuts and presence.",
       'Frames that group and clip elements',
+    ]);
+    expect(roadmap.notBuilt).toEqual([
       'Find text on the board',
       'Command palette',
       'Elbow arrows that route around shapes',
       'Text inside shapes',
     ]);
-    expect(roadmap.next).toHaveLength(3);
-    expect(roadmap.built.length).toBeGreaterThan(0);
   });
 });

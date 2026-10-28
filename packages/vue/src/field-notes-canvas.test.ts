@@ -22,7 +22,7 @@ import { ViewportKey } from './context';
 import { useViewport } from './composables/use-viewport';
 import { createTestViewport, destroyTestViewports } from './test-utils/create-test-viewport';
 import { HandTool, SelectTool, PencilTool, Viewport, createShape } from '@fieldnotes/core';
-import type { CanvasState, Tool } from '@fieldnotes/core';
+import type { CanvasState, ImportableCanvasState, Tool } from '@fieldnotes/core';
 
 type OnReady = Mock<(viewport: Viewport) => void>;
 
@@ -355,7 +355,7 @@ describe('FieldNotesCanvas initialData and onChange', () => {
         id: 's1',
       },
     ],
-  } satisfies CanvasState;
+  } satisfies ImportableCanvasState;
 
   it.each([
     ['object', saved],

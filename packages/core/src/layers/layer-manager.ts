@@ -1,6 +1,7 @@
 import { EventBus } from '../core/event-bus';
 import type { EventMeta } from '../core/event-bus';
 import type { ElementStore } from '../elements/element-store';
+import { moveHierarchyToLayer } from '../elements/hierarchy-ops';
 import type { Layer } from './types';
 import { createId } from '../elements/create-id';
 
@@ -83,10 +84,14 @@ export class LayerManager {
       const fallback = remaining[0];
       if (fallback) this._activeLayerId = fallback.id;
     }
-    const elements = this.store.getAll().filter((el) => el.layerId === id);
-    for (const el of elements) {
-      this.store.update(el.id, { layerId: this._activeLayerId });
-    }
+    moveHierarchyToLayer(
+      this.store
+        .getAll()
+        .filter((element) => element.layerId === id)
+        .map((element) => element.id),
+      this._activeLayerId,
+      this.store,
+    );
     this.removeLayerDirect(id);
   }
 
@@ -132,8 +137,7 @@ export class LayerManager {
 
   moveElementToLayer(elementId: string, layerId: string): void {
     if (!this.layers.has(layerId)) return;
-    this.store.update(elementId, { layerId });
-    this.bus.emit('change', null);
+    if (moveHierarchyToLayer([elementId], layerId, this.store)) this.bus.emit('change', null);
   }
 
   snapshot(): Layer[] {

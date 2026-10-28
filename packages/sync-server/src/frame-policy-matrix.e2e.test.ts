@@ -37,12 +37,17 @@ describe('outbound application frame policy paths', () => {
     return { server, port: (server.wss.address() as AddressInfo).port };
   }
 
-  async function connect(port: number, user: string) {
+  async function connect(port: number, user: string, admit = true) {
     const socket = new WebSocket(`ws://127.0.0.1:${port}?room=R&user=${user}`);
     sockets.push(socket);
     const frames: string[] = [];
     socket.on('message', (data) => frames.push(String(data)));
     await new Promise<void>((resolve) => socket.once('open', resolve));
+    if (admit) {
+      socket.send(frame({ kind: 'capabilities', capabilities: createCurrentCapabilities([]) }));
+      await waitFor(() => frames.some((message) => message.includes('"kind":"capabilities"')));
+      frames.length = 0;
+    }
     return { socket, frames };
   }
 
@@ -56,9 +61,13 @@ describe('outbound application frame policy paths', () => {
 
   it.each(['capabilities', 'snapshot'])('denies %s output before delivery', async (kind) => {
     const { server, port } = start({
-      framePolicy: { authorize: ({ direction }) => direction !== 'outbound' },
+      framePolicy: {
+        authorize: ({ direction, message }) =>
+          direction !== 'outbound' ||
+          (kind === 'snapshot' && message.includes('"kind":"capabilities"')),
+      },
     });
-    const target = await connect(port, 'target');
+    const target = await connect(port, 'target', kind === 'snapshot');
     await waitFor(() => server.hub.roomCount() === 1);
     const closeCode = closed(target.socket);
     target.socket.send(
@@ -75,7 +84,10 @@ describe('outbound application frame policy paths', () => {
     async (kind) => {
       const { server, port } = start({
         framePolicy: {
-          authorize: ({ direction, userId }) => direction !== 'outbound' || userId !== 'target',
+          authorize: ({ direction, userId, message }) =>
+            direction !== 'outbound' ||
+            userId !== 'target' ||
+            message.includes('"kind":"capabilities"'),
         },
       });
       const sender = await connect(port, 'sender');
@@ -104,7 +116,10 @@ describe('outbound application frame policy paths', () => {
     const { server, port } = start({
       framePolicy: {
         authorize: ({ direction, userId, message }) =>
-          direction !== 'outbound' || userId !== targetUser || !message.includes(kind),
+          direction !== 'outbound' ||
+          userId !== targetUser ||
+          message.includes('"kind":"capabilities"') ||
+          !message.includes(kind),
       },
       plugins: [
         {
@@ -135,7 +150,10 @@ describe('outbound application frame policy paths', () => {
     const { server, port } = start({
       framePolicy: {
         authorize: ({ direction, userId, message }) =>
-          direction !== 'outbound' || userId !== 'target' || !message.includes('presence-leave'),
+          direction !== 'outbound' ||
+          userId !== 'target' ||
+          message.includes('"kind":"capabilities"') ||
+          !message.includes('presence-leave'),
       },
     });
     const sender = await connect(port, 'sender');
@@ -154,7 +172,10 @@ describe('outbound application frame policy paths', () => {
     const bus = new InMemoryHubFanout();
     const { server, port } = start({
       fanout: bus,
-      framePolicy: { authorize: ({ direction }) => direction !== 'outbound' },
+      framePolicy: {
+        authorize: ({ direction, message }) =>
+          direction !== 'outbound' || message.includes('"kind":"capabilities"'),
+      },
     });
     const target = await connect(port, 'target');
     await waitFor(() => server.hub.roomCount() === 1);

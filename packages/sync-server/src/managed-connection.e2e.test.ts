@@ -274,6 +274,7 @@ describe('managed sync connection (end-to-end)', () => {
     const attemptsBefore = mintAttempts;
     for (const ws of server.wss.clients) ws.terminate();
     await waitFor(() => mintAttempts > attemptsBefore); // old client + transport torn down
+    await waitFor(() => server.hub.broadcastPresence('R', { kind: 'reconnected' }) === 1);
 
     // While the DM is away: the host loads a local-authoritative element no
     // client is attached to (the hub never sees it), and the peer deletes a

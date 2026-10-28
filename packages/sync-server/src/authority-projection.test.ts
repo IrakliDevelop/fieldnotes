@@ -354,6 +354,39 @@ describe('commit-coherent authority projection', () => {
     expect(JSON.stringify(change.mutations)).not.toContain('private-owner');
   });
 
+  it('projects an allowed orphan without either filtered element and preserves parentId in changes', () => {
+    const parent = {
+      ...element('private-parent', 'hidden'),
+      data: { secret: 'private-parent-sentinel' },
+    };
+    const child = { ...element('public-child'), parentId: parent.id };
+    const privateChild = {
+      ...element('private-child', 'hidden'),
+      data: { secret: 'private-child-sentinel' },
+    };
+    const before = state([parent]);
+    const after = state([parent, child, privateChild]);
+
+    const checkpoint = projectAuthorityState(definition, context, after);
+    expect(checkpoint.state.elements).toEqual([
+      expect.objectContaining({ id: child.id, parentId: parent.id }),
+    ]);
+    expect(JSON.stringify(checkpoint.state)).not.toContain('private-parent-sentinel');
+    expect(JSON.stringify(checkpoint.state)).not.toContain('private-child-sentinel');
+
+    const change = projectAuthorityChange(definition, context, before, after, cursor);
+    expect(change.status).toBe('changes');
+    if (change.status !== 'changes') return;
+    expect(change.mutations).toEqual([
+      expect.objectContaining({
+        kind: 'upsert',
+        element: expect.objectContaining({ id: child.id, parentId: parent.id }),
+      }),
+    ]);
+    expect(JSON.stringify(change.mutations)).not.toContain('private-parent-sentinel');
+    expect(JSON.stringify(change.mutations)).not.toContain('private-child-sentinel');
+  });
+
   it('uses extension changes and rejects project-created elements', () => {
     const change = projectAuthorityChange(definition, context, state([]), state([], 1), cursor);
     expect(change.status).toBe('changes');

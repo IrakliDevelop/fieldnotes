@@ -1,0 +1,78 @@
+name: Performance gate
+
+on:
+  schedule:
+    - cron: '20 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: performance-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  performance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22.22'
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm build
+
+      - name: Get Playwright version
+        id: pw-version
+        run: echo "version=$(pnpm --filter @fieldnotes/core exec playwright --version)" >> "$GITHUB_OUTPUT"
+
+      - name: Keep apt downloads in a cacheable directory
+        id: apt
+        run: |
+          mkdir -p ~/apt-archives/partial
+          echo "Dir::Cache::Archives \"$HOME/apt-archives\";" | sudo tee /etc/apt/apt.conf.d/99-ci-archives
+          echo "image=$ImageOS-$ImageVersion" >> "$GITHUB_OUTPUT"
+
+      - name: Cache apt downloads
+        uses: actions/cache@v6
+        with:
+          path: ~/apt-archives
+          key: apt-${{ steps.apt.outputs.image }}-playwright-${{ steps.pw-version.outputs.version }}-chromium
+
+      - name: Cache Playwright Chromium
+        id: pw-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ steps.pw-version.outputs.version }}-chromium
+
+      - name: Install Playwright Chromium
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        run: pnpm --filter @fieldnotes/core exec playwright install chromium --with-deps
+
+      - name: Install Playwright system dependencies
+        if: steps.pw-cache.outputs.cache-hit == 'true'
+        run: pnpm --filter @fieldnotes/core exec playwright install-deps chromium
+
+      - name: Make apt downloads readable for the cache
+        run: sudo rm -rf ~/apt-archives/partial ~/apt-archives/lock && sudo chown -R "$USER" ~/apt-archives && ls ~/apt-archives | wc -l
+
+      - name: Run performance gate
+        run: pnpm --filter @fieldnotes/core exec playwright test --config e2e/playwright.config.ts --project=desktop-chrome --retries=0 e2e/perf-gate.e2e.ts
+
+      - name: Upload performance evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: performance-gate-results
+          path: packages/core/test-results/
+          retention-days: 14

@@ -12,6 +12,26 @@ import {
 } from '../elements/element-factory';
 
 describe('DomNodeManager', () => {
+  it('maps world clip corners into unrotated and inverse-rotated local polygons', () => {
+    const note = createNote({ position: { x: 10, y: 20 }, size: { w: 100, h: 50 } });
+    const clip = { x: 20, y: 30, w: 40, h: 20 };
+    manager.syncDomNode(note, 0, 1, clip);
+    expect(manager.getNode(note.id)?.style.clipPath).toBe(
+      'polygon(10px 10px, 50px 10px, 50px 30px, 10px 30px)',
+    );
+    manager.syncDomNode({ ...note, rotation: Math.PI / 2 }, 0, 1, clip);
+    expect(manager.getNode(note.id)?.style.clipPath).toBe(
+      'polygon(35px 65px, 35px 25px, 55px 25px, 55px 65px)',
+    );
+  });
+
+  it('clears a frame-installed clip when the next frame supplies null', () => {
+    const note = createNote({ position: { x: 10, y: 20 }, size: { w: 100, h: 50 } });
+    manager.syncDomNode(note, 0, 1, { x: 20, y: 30, w: 40, h: 20 });
+    expect(manager.getNode(note.id)?.style.clipPath).toContain('polygon');
+    manager.syncDomNode(note, 0, 1, null);
+    expect(manager.getNode(note.id)?.style.clipPath).toBe('');
+  });
   it('applies camera transforms to every DOM paint stratum', () => {
     const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
     manager.syncDomNode(note, 2);

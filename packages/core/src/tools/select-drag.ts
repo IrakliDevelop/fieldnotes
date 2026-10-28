@@ -3,9 +3,9 @@ import type { PointerState, ToolContext } from './types';
 
 /** A live SelectTool drag, as seen by drag observers. */
 export interface SelectDragInfo {
-  /** Unlocked selected ids that move. */
+  /** Unlocked directly selected ids that move; descendants may move through hierarchy expansion. */
   readonly ids: readonly string[];
-  /** Their positions at drag start. */
+  /** The directly selected roots' positions at drag start. */
   readonly origins: ReadonlyMap<string, Point>;
   /** Current unsnapped world pointer. */
   readonly pointer: Point;

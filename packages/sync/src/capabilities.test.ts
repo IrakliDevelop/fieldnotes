@@ -4,6 +4,7 @@ import {
   CapabilityHandshake,
   createAuthorityCapabilities,
   createCurrentCapabilities,
+  supportsLegacyHierarchy,
   supportsAuthority,
   translateOpForPeer,
 } from './capabilities';
@@ -11,22 +12,32 @@ import { isValidEnvelope, parseEnvelope } from './protocol';
 import { createManagedAuthorityConnection } from './managed-authority-connection';
 
 describe('createCurrentCapabilities', () => {
-  it('advertises legacy protocol 2 with the v4 element envelope marker', () => {
+  it('advertises legacy protocol 3 with the hierarchy marker', () => {
     expect(createCurrentCapabilities(['test:cursor'])).toEqual({
-      protocolVersion: 2,
+      protocolVersion: 3,
       extensionKinds: ['test:cursor'],
       elementEnvelope: true,
+      elementHierarchy: 1,
     });
   });
 
   it('keeps the legacy bytes and requires explicit authority opt-in', () => {
     const legacy = createCurrentCapabilities(['e']);
     expect(JSON.stringify(legacy)).toBe(
-      '{"protocolVersion":2,"extensionKinds":["e"],"elementEnvelope":true}',
+      '{"protocolVersion":3,"extensionKinds":["e"],"elementEnvelope":true,"elementHierarchy":1}',
     );
     expect(supportsAuthority(legacy)).toBe(false);
     const optedIn = createAuthorityCapabilities(['e']);
-    expect(optedIn).toEqual({ ...legacy, protocolVersion: 1, authority: 1 });
+    expect(optedIn).toEqual({
+      protocolVersion: 2,
+      extensionKinds: ['e'],
+      elementEnvelope: true,
+      elementHierarchy: 1,
+      authority: 1,
+    });
+    expect(JSON.stringify(optedIn)).toBe(
+      '{"protocolVersion":2,"extensionKinds":["e"],"elementEnvelope":true,"elementHierarchy":1,"authority":1}',
+    );
     expect(supportsAuthority(optedIn)).toBe(true);
     for (const authority of [undefined, 0, 2, '1', null]) {
       const frame = {
@@ -43,8 +54,11 @@ describe('createCurrentCapabilities', () => {
     ).not.toBeNull();
   });
 
-  it('keeps authority capabilities at protocol 1 so a managed authority connection constructs', () => {
-    expect(createAuthorityCapabilities([]).protocolVersion).toBe(1);
+  it('keeps authority capabilities at protocol 2 with the hierarchy marker so a managed authority connection constructs', () => {
+    expect(createAuthorityCapabilities([])).toMatchObject({
+      protocolVersion: 2,
+      elementHierarchy: 1,
+    });
     const connection = createManagedAuthorityConnection({
       scopeId: 'scope',
       clientId: 'client',
@@ -66,6 +80,27 @@ describe('createCurrentCapabilities', () => {
     ]);
     const repeated = { key: 'a', pluginName: 'plugin-a', version: 1 };
     expect(() => createAuthorityCapabilities([], [repeated, repeated])).toThrow();
+  });
+});
+
+describe('supportsLegacyHierarchy', () => {
+  it.each([
+    ['protocol 3', true, { protocolVersion: 3, elementHierarchy: 1 }],
+    ['newer protocol', false, { protocolVersion: 4, elementHierarchy: 1 }],
+    ['protocol 2', false, { protocolVersion: 2, elementHierarchy: 1 }],
+    ['protocol 1', false, { protocolVersion: 1, elementHierarchy: 1 }],
+    ['missing marker', false, { protocolVersion: 3 }],
+    ['invalid marker', false, { protocolVersion: 3, elementHierarchy: 2 }],
+    ['zero marker', false, { protocolVersion: 3, elementHierarchy: 0 }],
+    ['string marker', false, { protocolVersion: 3, elementHierarchy: '1' }],
+    ['null marker', false, { protocolVersion: 3, elementHierarchy: null }],
+  ])('%s returns %s', (_name, expected, capabilities) => {
+    expect(supportsLegacyHierarchy(capabilities)).toBe(expected);
+  });
+
+  it('does not require matching extension inventories', () => {
+    expect(supportsLegacyHierarchy(createCurrentCapabilities(['cursor']))).toBe(true);
+    expect(supportsLegacyHierarchy(createCurrentCapabilities(['grid', 'fog']))).toBe(true);
   });
 });
 

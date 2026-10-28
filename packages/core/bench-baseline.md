@@ -4,6 +4,32 @@
 > Environment: Node 22, Linux (development machine)
 > Run: `pnpm bench`
 
+## Browser performance gate (10,011 elements)
+
+> Calibrated: 2026-10-26 on Linux x64, Node 22.22.0, Playwright Chromium.
+> Command: `pnpm --filter @fieldnotes/core exec playwright test --config e2e/playwright.config.ts --project=desktop-chrome --retries=0 e2e/perf-gate.e2e.ts`
+
+The nightly `Performance gate` workflow opens `/?bench=10000`, which contains 10,000 strokes, 10
+notes, and one grid. It warms up 15 unrecorded one-world-unit stroke moves, then records
+`getRenderStats().lastFrameMs` for 90 alternating moves. It measures render-loop work only, not
+navigation, board seeding, or requestAnimationFrame scheduling.
+
+| Calibration run | p95 frame time |
+| --------------- | -------------- |
+| 1               | 1,565.0 ms     |
+| 2               | 1,549.8 ms     |
+| 3               | 1,548.9 ms     |
+
+The enforced p95 budget is **4,695 ms**: `max(25 ms, roundUpTo5(3 × 1,565.0 ms))`.
+The test attaches its 90 samples and environment metadata as `performance-gate.json` on every pass
+or assertion failure. It is intentionally scheduled separately from pull-request CI.
+
+The same evidence includes synchronous `store.update` mutation samples, their p50, p95, and max,
+and a separate **2 ms p95** mutation budget. This measures only the local update before a render is
+requested, so frame timing and mutation cost remain independently diagnosable.
+
+The tables below are Node microbenchmarks. They do not replace this browser render-loop gate.
+
 ## ElementStore spatial queries (500 elements)
 
 | Benchmark                  | ops/s       | Mean (ms) | P99 (ms) |

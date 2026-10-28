@@ -274,40 +274,54 @@ it('negotiates over real sockets, installs a complete checkpoint, and delivers a
   expect(server.hub.roomCount()).toBe(0);
 }, 10_000);
 
-it('refuses a legacy client before checkpoint or room membership', async () => {
-  const store = new AuthorityFixtureStore();
-  store.now = Date.now();
-  store.provision('table');
-  const server = createSyncServer({
-    port: 0,
-    authenticate: () => ({ userId: 'actor' }),
-    framePolicy: {},
-    authority: {
-      driver: new AuthorityFixtureDriver(store),
-      resolveRoom: () => definition,
-      resolveIdentity: () => ({ actorId: 'actor', ownershipId: 'owner' }),
-    },
-  });
-  servers.push(server);
-  const port = (server.wss.address() as AddressInfo).port;
-  const socket = new WebSocket(`ws://127.0.0.1:${port}?room=table`);
-  sockets.push(socket);
-  const frames: string[] = [];
-  socket.on('message', (data) => frames.push(String(data)));
-  await new Promise<void>((resolve) => socket.once('open', resolve));
-  socket.send(
-    JSON.stringify({
-      from: 'legacy',
-      op: { kind: 'capabilities', capabilities: { protocolVersions: [3] } },
-    }),
-  );
-  const code = await new Promise<number>((resolve) => socket.once('close', resolve));
-  expect(code).toBe(4406);
-  expect(
-    frames.some((frame) => parseAuthorityServerFrame(frame)?.kind === 'upgrade-required'),
-  ).toBe(true);
-  expect(server.hub.roomCount()).toBe(0);
-}, 10_000);
+it.each([
+  { name: 'revision 1', capabilities: { ...createAuthorityCapabilities([]), protocolVersion: 1 } },
+  {
+    name: 'missing hierarchy',
+    capabilities: { protocolVersion: 2, extensionKinds: [], elementEnvelope: true, authority: 1 },
+  },
+])(
+  'refuses authority capability $name before checkpoint or room membership',
+  async ({ capabilities }) => {
+    const store = new AuthorityFixtureStore();
+    store.now = Date.now();
+    store.provision('table');
+    const driver = new AuthorityFixtureDriver(store);
+    const head = vi.spyOn(driver, 'head');
+    const server = createSyncServer({
+      port: 0,
+      authenticate: () => ({ userId: 'actor' }),
+      framePolicy: {},
+      authority: {
+        driver,
+        resolveRoom: () => definition,
+        resolveIdentity: () => ({ actorId: 'actor', ownershipId: 'owner' }),
+      },
+    });
+    servers.push(server);
+    const port = (server.wss.address() as AddressInfo).port;
+    const socket = new WebSocket(`ws://127.0.0.1:${port}?room=table`);
+    sockets.push(socket);
+    const frames: string[] = [];
+    socket.on('message', (data) => frames.push(String(data)));
+    await new Promise<void>((resolve) => socket.once('open', resolve));
+    socket.send(
+      JSON.stringify({
+        from: 'legacy',
+        op: {
+          kind: 'capabilities',
+          capabilities,
+        },
+      }),
+    );
+    const code = await new Promise<number>((resolve) => socket.once('close', resolve));
+    expect(code).toBe(4406);
+    expect(parseAuthorityServerFrame(frames[0] ?? '')?.kind).toBe('upgrade-required');
+    expect(head).not.toHaveBeenCalled();
+    expect(server.hub.roomCount()).toBe(0);
+  },
+  10_000,
+);
 
 it('enforces one explicit checkpoint request per ten seconds over a real socket', async () => {
   const store = new AuthorityFixtureStore();

@@ -45,7 +45,7 @@ const colorFor = (id: string): string => {
 export function createRoom(): Room {
   const id = randomId();
   sessionStorage.setItem(hostKey(id), '1');
-  return { id, role: 'host' };
+  return { id, role: 'host', ownsInitialBoard: true };
 }
 
 /** Forgets that this tab hosts `room`. */
@@ -94,7 +94,7 @@ export function connectRoom(
     store,
     transport,
     clientId,
-    firstSnapshot: 'reconcile',
+    firstSnapshot: room.ownsInitialBoard ? 'merge' : 'reconcile',
     layers: { applyLayer },
     plugins: opts.plugins,
   });

@@ -10,8 +10,14 @@ import {
   createShape,
 } from '../elements/element-factory';
 import { ElementStore } from '../elements/element-store';
+import { ElementRegistry } from '../elements/element-registry';
 import { HtmlPainterRegistry, HtmlPainterMissingError } from './html-painter-registry';
-import type { HtmlElement } from '../elements/types';
+import type {
+  BaseElement,
+  ElementTypeDefinition,
+  ExtensionElementEnvelope,
+  HtmlElement,
+} from '../elements/types';
 import { createRenderHooks } from './render-hooks';
 
 const HTML_MARKER = 'data-distinctive-html-marker-xyz';
@@ -66,6 +72,645 @@ function buildStore() {
 }
 
 describe('exportSvg', () => {
+  it('emits exact scene-order clips without masking clipping parents', async () => {
+    const registry = new ElementRegistry();
+    registry.register({
+      type: 'test:clip',
+      legacyTypes: [],
+      decodeLegacy: () => {
+        throw new Error('no legacy');
+      },
+      validateData: () => true,
+      unwrap: ({ data: _data, extensionType: _extensionType, ...base }) => base,
+      wrap: ({ type: _type, ...base }) => ({
+        ...base,
+        type: 'extension',
+        extensionType: 'test:clip',
+        data: {},
+      }),
+      bounds: (el) => ({ x: el.position.x, y: el.position.y, w: 100, h: 100 }),
+      clipBounds: (el) =>
+        el.id === 'clip-a' ? { x: 10, y: 10, w: 80, h: 80 } : { x: 40, y: 10, w: 50, h: 60 },
+      emitSvg: (el) => `<rect data-fragment="${el.id}" />`,
+    });
+    const store = new ElementStore(registry);
+    store.add({
+      id: 'clip-a',
+      type: 'extension',
+      extensionType: 'test:clip',
+      position: { x: 0, y: 0 },
+      index: 'a0',
+      version: 1,
+      locked: false,
+      layerId: '',
+      data: {},
+    });
+    store.add(
+      Object.assign(
+        createShape({
+          parentId: 'clip-a',
+          position: { x: 20, y: 20 },
+          size: { w: 10, h: 10 },
+          index: 'a1',
+        }),
+        { id: 'child' },
+      ),
+    );
+    store.add({
+      id: 'clip-b',
+      type: 'extension',
+      extensionType: 'test:clip',
+      parentId: 'clip-a',
+      position: { x: 40, y: 10 },
+      index: 'a2',
+      version: 1,
+      locked: false,
+      layerId: '',
+      data: {},
+    });
+    store.add(
+      Object.assign(
+        createShape({
+          parentId: 'clip-b',
+          position: { x: 45, y: 20 },
+          size: { w: 10, h: 10 },
+          index: 'a3',
+        }),
+        { id: 'grandchild' },
+      ),
+    );
+
+    const svg = await exportSvg(store, { elementRegistry: registry });
+    const doc = new DOMParser().parseFromString(svg, 'image/svg+xml');
+    const clips = [...doc.querySelectorAll('clipPath')];
+    const groups = [...doc.querySelectorAll('g[clip-path]')];
+
+    expect(doc.querySelector('[data-fragment="clip-a"]')?.parentElement?.tagName).toBe('svg');
+    expect(
+      clips.map((clip) => {
+        const rect = clip.querySelector('rect');
+        return [
+          rect?.getAttribute('x'),
+          rect?.getAttribute('y'),
+          rect?.getAttribute('width'),
+          rect?.getAttribute('height'),
+        ];
+      }),
+    ).toEqual([
+      ['10', '10', '80', '80'],
+      ['10', '10', '80', '80'],
+      ['40', '10', '50', '60'],
+    ]);
+    expect(groups.map((group) => group.getAttribute('clip-path'))).toEqual([
+      'url(#fieldnotes-export-clip-0)',
+      'url(#fieldnotes-export-clip-1)',
+      'url(#fieldnotes-export-clip-2)',
+    ]);
+    expect(groups.map((group) => group.firstElementChild?.getAttribute('x'))).toEqual([
+      '20',
+      null,
+      '45',
+    ]);
+    expect(groups[1]?.querySelector('[data-fragment="clip-b"]')).not.toBeNull();
+    expect(clips.map((clip) => clip.id)).toEqual([
+      'fieldnotes-export-clip-0',
+      'fieldnotes-export-clip-1',
+      'fieldnotes-export-clip-2',
+    ]);
+  });
+
+  it('skips two colliding prefixes from extension and hook ids', async () => {
+    const registry = new ElementRegistry();
+    registry.register({
+      type: 'test:colliding-clip',
+      legacyTypes: [],
+      decodeLegacy: () => {
+        throw new Error('no legacy');
+      },
+      validateData: () => true,
+      unwrap: ({ data: _data, extensionType: _extensionType, ...base }) => base,
+      wrap: ({ type: _type, ...base }) => ({
+        ...base,
+        type: 'extension',
+        extensionType: 'test:colliding-clip',
+        data: {},
+      }),
+      bounds: (el) => ({ x: el.position.x, y: el.position.y, w: 100, h: 100 }),
+      clipBounds: () => ({ x: 0, y: 0, w: 100, h: 100 }),
+      emitSvg: (el) =>
+        el.id === 'parent'
+          ? '<g id = "fieldnotes-export-clip-0" data-consumer="extension" />'
+          : `<rect data-fragment="${el.id}" />`,
+    });
+    const store = new ElementStore(registry);
+    store.add({
+      id: 'parent',
+      type: 'extension',
+      extensionType: 'test:colliding-clip',
+      position: { x: 0, y: 0 },
+      index: 'a0',
+      version: 1,
+      locked: false,
+      layerId: '',
+      data: {},
+    });
+    store.add(
+      Object.assign(
+        createShape({
+          parentId: 'parent',
+          position: { x: 10, y: 10 },
+          size: { w: 5, h: 5 },
+          index: 'a1',
+        }),
+        { id: 'first' },
+      ),
+    );
+    store.add(
+      Object.assign(
+        createShape({
+          parentId: 'parent',
+          position: { x: 20, y: 20 },
+          size: { w: 5, h: 5 },
+          index: 'a2',
+        }),
+        { id: 'second' },
+      ),
+    );
+    const hooks = createRenderHooks();
+    hooks.svgExport.register({
+      afterElements: ({ appendSvg }) =>
+        appendSvg(
+          '<g id\t=\t\'fieldnotes-export-clip-1-1\' data-id="fieldnotes-export-clip-2-0" data-consumer="hook" />',
+        ),
+    });
+
+    const svg = await exportSvg(store, { elementRegistry: registry, renderHooks: hooks });
+    const doc = new DOMParser().parseFromString(svg, 'image/svg+xml');
+    const ids = [...doc.querySelectorAll('[id]')].map((node) => node.id);
+    const generated = [...doc.querySelectorAll('clipPath')].map((node) => node.id);
+
+    expect(generated).toEqual(['fieldnotes-export-clip-2-0', 'fieldnotes-export-clip-2-1']);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(svg).toContain('id = "fieldnotes-export-clip-0"');
+    expect(svg).toContain("id\t=\t'fieldnotes-export-clip-1-1'");
+    expect(svg).toContain('data-id="fieldnotes-export-clip-2-0"');
+    expect(
+      [...doc.querySelectorAll('g[clip-path]')].map((node) => node.getAttribute('clip-path')),
+    ).toEqual(['url(#fieldnotes-export-clip-2-0)', 'url(#fieldnotes-export-clip-2-1)']);
+  });
+
+  it('reuses deterministic export-local ids for identical exports', async () => {
+    const registry = new ElementRegistry();
+    registry.register({
+      type: 'test:deterministic-clip',
+      legacyTypes: [],
+      decodeLegacy: () => {
+        throw new Error('no legacy');
+      },
+      validateData: () => true,
+      unwrap: ({ data: _data, extensionType: _extensionType, ...base }) => base,
+      wrap: ({ type: _type, ...base }) => ({
+        ...base,
+        type: 'extension',
+        extensionType: 'test:deterministic-clip',
+        data: {},
+      }),
+      bounds: (el) => ({ x: el.position.x, y: el.position.y, w: 100, h: 100 }),
+      clipBounds: () => ({ x: 0, y: 0, w: 100, h: 100 }),
+    });
+    const store = new ElementStore(registry);
+    store.add({
+      id: 'parent',
+      type: 'extension',
+      extensionType: 'test:deterministic-clip',
+      position: { x: 0, y: 0 },
+      index: 'a0',
+      version: 1,
+      locked: false,
+      layerId: '',
+      data: {},
+    });
+    store.add(
+      createShape({
+        parentId: 'parent',
+        position: { x: 10, y: 10 },
+        size: { w: 5, h: 5 },
+        index: 'a1',
+      }),
+    );
+
+    const ids = async () => {
+      const doc = new DOMParser().parseFromString(
+        await exportSvg(store, { elementRegistry: registry }),
+        'image/svg+xml',
+      );
+      return [...doc.querySelectorAll('clipPath, g[clip-path]')].map(
+        (node) => node.id || node.getAttribute('clip-path'),
+      );
+    };
+    expect(await ids()).toEqual(await ids());
+  });
+
+  it('does not derive generated ids from hostile element ids', async () => {
+    const registry = new ElementRegistry();
+    registry.register({
+      type: 'test:hostile-clip',
+      legacyTypes: [],
+      decodeLegacy: () => {
+        throw new Error('no legacy');
+      },
+      validateData: () => true,
+      unwrap: ({ data: _data, extensionType: _extensionType, ...base }) => base,
+      wrap: ({ type: _type, ...base }) => ({
+        ...base,
+        type: 'extension',
+        extensionType: 'test:hostile-clip',
+        data: {},
+      }),
+      bounds: () => ({ x: 0, y: 0, w: 100, h: 100 }),
+      clipBounds: () => ({ x: 0, y: 0, w: 100, h: 100 }),
+    });
+    const store = new ElementStore(registry);
+    store.add({
+      id: 'clip',
+      type: 'extension',
+      extensionType: 'test:hostile-clip',
+      position: { x: 0, y: 0 },
+      index: 'a0',
+      version: 1,
+      locked: false,
+      layerId: '',
+      data: {},
+    });
+    store.add(
+      Object.assign(
+        createShape({
+          parentId: 'clip',
+          position: { x: 10, y: 10 },
+          size: { w: 5, h: 5 },
+          index: 'a1',
+        }),
+        { id: 'hostile & <id> /?' },
+      ),
+    );
+
+    const svg = await exportSvg(store, { elementRegistry: registry });
+    expect(
+      [...svg.matchAll(/(?:id|clip-path)="([^"]+)"/g)].map((match) => match[1]).join(''),
+    ).not.toContain('hostile');
+  });
+
+  it('keeps raw view-box geometry for an omitted large descendant', async () => {
+    const registry = new ElementRegistry();
+    registry.register({
+      type: 'test:empty',
+      legacyTypes: [],
+      decodeLegacy: () => {
+        throw new Error('no legacy');
+      },
+      validateData: () => true,
+      unwrap: ({ data: _data, extensionType: _extensionType, ...base }) => base,
+      wrap: ({ type: _type, ...base }) => ({
+        ...base,
+        type: 'extension',
+        extensionType: 'test:empty',
+        data: {},
+      }),
+      bounds: (el) => ({
+        x: el.position.x,
+        y: el.position.y,
+        w: el.id === 'large' ? 1000 : 100,
+        h: el.id === 'large' ? 800 : 100,
+      }),
+      clipBounds: (el) => (el.id === 'clip' ? { x: 0, y: 0, w: 100, h: 100 } : null),
+      emitSvg: () => '',
+    });
+    const store = new ElementStore(registry);
+    store.add({
+      id: 'clip',
+      type: 'extension',
+      extensionType: 'test:empty',
+      position: { x: 0, y: 0 },
+      index: 'a0',
+      version: 1,
+      locked: false,
+      layerId: '',
+      data: {},
+    });
+    store.add({
+      id: 'large',
+      type: 'extension',
+      extensionType: 'test:empty',
+      parentId: 'clip',
+      position: { x: 500, y: 500 },
+      index: 'a1',
+      version: 1,
+      locked: false,
+      layerId: '',
+      data: {},
+    });
+    store.add(createShape({ position: { x: 10, y: 10 }, size: { w: 5, h: 5 }, index: 'a2' }));
+    expect(await exportSvg(store, { elementRegistry: registry })).toContain(
+      'viewBox="0 0 1500 1300"',
+    );
+  });
+
+  it('omits hidden and empty descendants before preparation or definition allocation', async () => {
+    const registry = new ElementRegistry();
+    registry.register({
+      type: 'test:classify',
+      legacyTypes: [],
+      decodeLegacy: () => {
+        throw new Error('no legacy');
+      },
+      validateData: () => true,
+      unwrap: ({ data: _data, extensionType: _extensionType, ...base }) => base,
+      wrap: ({ type: _type, ...base }) => ({
+        ...base,
+        type: 'extension',
+        extensionType: 'test:classify',
+        data: {},
+      }),
+      bounds: (el) =>
+        el.id === 'null' ? null : { x: el.position.x, y: el.position.y, w: 100, h: 100 },
+      clipBounds: (el) => (el.id === 'clip' ? { x: 0, y: 0, w: 100, h: 100 } : null),
+      emitSvg: (el) => (el.id === 'empty' ? '' : `<rect data-fragment="${el.id}" />`),
+    });
+    const store = new ElementStore(registry);
+    store.add({
+      id: 'clip',
+      type: 'extension',
+      extensionType: 'test:classify',
+      position: { x: 0, y: 0 },
+      index: 'a0',
+      version: 1,
+      locked: false,
+      layerId: '',
+      data: {},
+    });
+    store.add(
+      Object.assign(
+        createShape({
+          parentId: 'clip',
+          position: { x: 10, y: 10 },
+          size: { w: 10, h: 10 },
+          index: 'a1',
+        }),
+        { id: 'visible' },
+      ),
+    );
+    store.add(
+      Object.assign(
+        createShape({
+          parentId: 'clip',
+          position: { x: 200, y: 200 },
+          size: { w: 10, h: 10 },
+          index: 'a2',
+        }),
+        { id: 'disjoint' },
+      ),
+    );
+    store.add({
+      id: 'null',
+      type: 'extension',
+      extensionType: 'test:classify',
+      parentId: 'clip',
+      position: { x: 10, y: 10 },
+      index: 'a3',
+      version: 1,
+      locked: false,
+      layerId: '',
+      data: {},
+    });
+    store.add({
+      id: 'empty',
+      type: 'extension',
+      extensionType: 'test:classify',
+      parentId: 'clip',
+      position: { x: 10, y: 10 },
+      index: 'a4',
+      version: 1,
+      locked: false,
+      layerId: '',
+      data: {},
+    });
+    const dom = htmlEl();
+    dom.id = 'dom-disjoint';
+    dom.parentId = 'clip';
+    dom.position = { x: 200, y: 10 };
+    dom.index = 'a5';
+    const canvas = markerElement({
+      id: 'canvas-disjoint',
+      parentId: 'clip',
+      position: { x: 200, y: 20 },
+      index: 'a6',
+    });
+    store.add(dom);
+    store.add(canvas);
+    store.add(
+      Object.assign(
+        createShape({
+          parentId: 'missing',
+          position: { x: 500, y: 500 },
+          size: { w: 10, h: 10 },
+        }),
+        { id: 'unresolved' },
+      ),
+      { origin: 'remote' },
+    );
+    const renderHtml = vi.fn();
+    const painters = registryWith('rk-marker');
+    const paint = vi.fn();
+    painters.register('rk-marker', paint);
+
+    const onHtmlError = vi.fn();
+    const svg = await exportSvg(store, {
+      renderHtml,
+      htmlPainters: painters,
+      expectedCanvasTypes: new Set(['rk-marker']),
+      strictMissingCanvasHtml: true,
+      elementRegistry: registry,
+      onHtmlError,
+    });
+
+    expect(renderHtml).not.toHaveBeenCalled();
+    expect(paint).not.toHaveBeenCalled();
+    expect(onHtmlError).not.toHaveBeenCalled();
+    expect(svg).toContain('x="10"');
+    expect(svg).not.toContain('data-fragment="empty"');
+    expect(svg).not.toContain('x="200"');
+    expect(svg.match(/<clipPath/g)).toHaveLength(1);
+  });
+
+  it('leaves background full-canvas overlay and hook output outside element clips', async () => {
+    const { restore } = installFakeRasterCanvas();
+    try {
+      const order: string[] = [];
+      const registry = new ElementRegistry();
+      registry.register({
+        type: 'test:outputs',
+        legacyTypes: [],
+        decodeLegacy: () => {
+          throw new Error('no legacy');
+        },
+        validateData: () => true,
+        unwrap: ({ data: _data, extensionType: _extensionType, ...base }) => base,
+        wrap: ({ type: _type, ...base }) => ({
+          ...base,
+          type: 'extension',
+          extensionType: 'test:outputs',
+          data: {},
+        }),
+        bounds: () => ({ x: 0, y: 0, w: 100, h: 100 }),
+        clipBounds: (el) => (el.id === 'clip' ? { x: 0, y: 0, w: 100, h: 100 } : null),
+        emitSvg: (el) => {
+          order.push(el.id);
+          return '';
+        },
+      });
+      registry.register({
+        type: 'test:full-output',
+        legacyTypes: [],
+        decodeLegacy: () => {
+          throw new Error('no legacy');
+        },
+        validateData: () => true,
+        unwrap: ({ data: _data, extensionType: _extensionType, ...base }) => base,
+        wrap: ({ type: _type, ...base }) => ({
+          ...base,
+          type: 'extension',
+          extensionType: 'test:full-output',
+          data: {},
+        }),
+        bounds: () => ({ x: 0, y: 0, w: 100, h: 100 }),
+        fullCanvas: true,
+        emitSvg: (el) => {
+          order.push(el.id);
+          return '<g data-full="true" />';
+        },
+      });
+      const store = new ElementStore(registry);
+      store.add({
+        id: 'clip',
+        type: 'extension',
+        extensionType: 'test:outputs',
+        position: { x: 0, y: 0 },
+        index: 'a0',
+        version: 1,
+        locked: false,
+        layerId: '',
+        data: {},
+      });
+      store.add({
+        id: 'last',
+        type: 'extension',
+        extensionType: 'test:outputs',
+        position: { x: 20, y: 20 },
+        index: 'a3',
+        version: 1,
+        locked: false,
+        layerId: '',
+        data: {},
+      });
+      store.add(
+        Object.assign(
+          createShape({
+            parentId: 'clip',
+            position: { x: 10, y: 10 },
+            size: { w: 10, h: 10 },
+            index: 'a1',
+          }),
+          { id: 'ordinary' },
+        ),
+      );
+      store.add({
+        id: 'full',
+        type: 'extension',
+        extensionType: 'test:full-output',
+        position: { x: 0, y: 0 },
+        index: 'a2',
+        version: 1,
+        locked: false,
+        layerId: '',
+        data: {},
+      });
+      const hooks = createRenderHooks();
+      hooks.svgExport.register({
+        afterElements: ({ appendSvg }) => {
+          order.push('hook');
+          appendSvg('<g id="fieldnotes-export-clip-0" data-hook="true" />');
+        },
+      });
+
+      const doc = new DOMParser().parseFromString(
+        await exportSvg(store, {
+          elementRegistry: registry,
+          background: '#fff',
+          afterElements: () => order.push('overlay'),
+          renderHooks: hooks,
+        }),
+        'image/svg+xml',
+      );
+      const root = doc.documentElement;
+      const visible = [...root.children].filter((node) => node.tagName !== 'defs');
+      expect(order).toEqual(['clip', 'full', 'last', 'overlay', 'hook']);
+      expect(visible.map((node) => node.tagName)).toEqual(['rect', 'g', 'g', 'image', 'g']);
+      expect(root.querySelector('[data-full="true"]')?.closest('g[clip-path]')).toBeNull();
+      expect(root.querySelector('[data-hook="true"]')?.closest('g[clip-path]')).toBeNull();
+      expect(root.querySelector('image')?.closest('g[clip-path]')).toBeNull();
+      expect(root.querySelector('rect[fill="#fff"]')?.closest('g[clip-path]')).toBeNull();
+      expect(root.querySelector('g[clip-path] > rect')).not.toBeNull();
+      expect(root.querySelector('clipPath')?.id).toBe('fieldnotes-export-clip-1-0');
+    } finally {
+      restore();
+    }
+  });
+
+  it('passes the computed padded view box to inline extension SVG emitters', async () => {
+    let receivedViewBox: { x: number; y: number; w: number; h: number } | undefined;
+    const definition: ElementTypeDefinition<BaseElement> = {
+      type: 'test:inline-svg',
+      legacyTypes: [],
+      decodeLegacy: () => {
+        throw new Error('no legacy');
+      },
+      validateData: () => true,
+      unwrap: ({ data: _data, extensionType: _extensionType, ...base }) => base,
+      wrap: ({ type: _type, ...base }) => ({
+        ...base,
+        type: 'extension',
+        extensionType: 'test:inline-svg',
+        data: {},
+      }),
+      bounds: (el) => ({ x: el.position.x, y: el.position.y, w: 30, h: 40 }),
+      emitSvg: (_el, _allElements, viewBox) => {
+        receivedViewBox = viewBox;
+        return '<rect data-inline-extension="true" />';
+      },
+    };
+    const registry = new ElementRegistry();
+    registry.register(definition);
+    const store = new ElementStore(registry);
+    const element: ExtensionElementEnvelope = {
+      id: 'inline-svg',
+      type: 'extension',
+      extensionType: 'test:inline-svg',
+      position: { x: 100, y: 200 },
+      index: 'a0',
+      version: 1,
+      locked: false,
+      layerId: '',
+      data: {},
+    };
+    store.add(element);
+
+    const svg = await exportSvg(store, { elementRegistry: registry, padding: 7 });
+
+    expect(receivedViewBox).toEqual({ x: 93, y: 193, w: 44, h: 54 });
+    expect(svg).toContain('viewBox="93 193 44 54"');
+    expect(svg).toContain('data-inline-extension="true"');
+  });
+
   it.each([
     [{ padding: -1 }, 'padding'],
     [{ rasterScale: 0 }, 'rasterScale'],
@@ -442,6 +1087,7 @@ function createFakeRasterContext(
     beginPath: vi.fn(),
     rect: vi.fn(),
     clip: vi.fn(),
+    drawImage: vi.fn(),
     fillRect: (x: number, y: number, w: number, h: number) => {
       const corners = [
         matApply(current, x, y),
@@ -630,6 +1276,44 @@ describe('exportSvg — required render capabilities', () => {
 });
 
 describe('exportSvg canvas-routed html', () => {
+  function clippedHtmlStore(html: HtmlElement[]): {
+    store: ElementStore;
+    registry: ElementRegistry;
+  } {
+    const registry = new ElementRegistry();
+    registry.register({
+      type: 'test:html-clip',
+      legacyTypes: [],
+      decodeLegacy: () => {
+        throw new Error('no legacy');
+      },
+      validateData: () => true,
+      unwrap: ({ data: _data, extensionType: _extensionType, ...base }) => base,
+      wrap: ({ type: _type, ...base }) => ({
+        ...base,
+        type: 'extension',
+        extensionType: 'test:html-clip',
+        data: {},
+      }),
+      bounds: () => ({ x: 0, y: 0, w: 100, h: 100 }),
+      clipBounds: () => ({ x: 0, y: 0, w: 100, h: 100 }),
+    });
+    const store = new ElementStore(registry);
+    store.add({
+      id: 'clip-parent',
+      type: 'extension',
+      extensionType: 'test:html-clip',
+      position: { x: 0, y: 0 },
+      index: 'a0',
+      version: 1,
+      locked: false,
+      layerId: html[0]?.layerId ?? '',
+      data: {},
+    });
+    for (const element of html) store.add({ ...element, parentId: 'clip-parent' });
+    return { store, registry };
+  }
+
   it('rasterises a marker at a NONZERO position into non-blank pixels', async () => {
     // Discriminating: a missing localizing transform paints outside the offscreen
     // canvas and yields a fully transparent raster, which an <image>-presence
@@ -685,6 +1369,66 @@ describe('exportSvg canvas-routed html', () => {
       );
       expect(observed).toBe(1);
       expect(svg).toContain('<g opacity="0.5">');
+    } finally {
+      restore();
+    }
+  });
+
+  it('wraps canvas-routed and DOM-raster HTML images in their effective clip groups', async () => {
+    const { restore } = installFakeRasterCanvas();
+    try {
+      const canvasElement = markerElement({ id: 'canvas', position: { x: 10, y: 10 } });
+      const domElement = htmlEl();
+      domElement.id = 'dom';
+      domElement.position = { x: 40, y: 20 };
+      domElement.index = 'a2';
+      const { store, registry: elementRegistry } = clippedHtmlStore([canvasElement, domElement]);
+      const painters = registryWith('rk-marker');
+      const paint = vi.fn();
+      painters.register('rk-marker', paint);
+      const source = document.createElement('canvas');
+      const renderHtml = vi.fn(() => source);
+
+      const doc = new DOMParser().parseFromString(
+        await exportSvg(store, { elementRegistry, htmlPainters: painters, renderHtml }),
+        'image/svg+xml',
+      );
+      const images = [...doc.querySelectorAll('image')];
+      expect(renderHtml).toHaveBeenCalledTimes(1);
+      expect(paint).toHaveBeenCalledTimes(1);
+      expect(images.map((image) => image.parentElement?.getAttribute('clip-path'))).toEqual([
+        'url(#fieldnotes-export-clip-0)',
+        'url(#fieldnotes-export-clip-1)',
+      ]);
+    } finally {
+      restore();
+    }
+  });
+
+  it('keeps clipped HTML inside one translucent layer opacity group', async () => {
+    const { restore } = installFakeRasterCanvas();
+    try {
+      let alpha = -1;
+      const painters = new HtmlPainterRegistry();
+      painters.expect(['rk-marker']);
+      painters.register('rk-marker', ({ ctx }) => {
+        alpha = ctx.globalAlpha;
+      });
+      const element = markerElement({ layerId: 'faded' });
+      const { store, registry } = clippedHtmlStore([element]);
+      const doc = new DOMParser().parseFromString(
+        await exportSvg(
+          store,
+          { elementRegistry: registry, htmlPainters: painters },
+          layersWithOpacity(0.5) as never,
+        ),
+        'image/svg+xml',
+      );
+      const opacity = doc.querySelector('g[opacity="0.5"]');
+      expect(alpha).toBe(1);
+      expect(opacity?.querySelector(':scope > g[clip-path] > image')).not.toBeNull();
+      expect(doc.querySelector('defs')?.parentElement?.tagName).toBe('svg');
+      expect(doc.querySelectorAll('g[opacity="0.5"]')).toHaveLength(1);
     } finally {
       restore();
     }

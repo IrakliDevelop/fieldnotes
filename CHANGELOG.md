@@ -6,6 +6,67 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### Core 0.100.0 — hierarchy, clipping, and camera constraints
+
+**Added**
+
+- Canvas state v6 and `BaseElement.parentId`. State v1 through v5 imports migrate with no
+  relationship. State v6 validates missing parents, self-links, cycles, cross-layer links,
+  full-canvas endpoints, and the depth-32 limit.
+- `Viewport.setParent`, `ElementStore.getChildren`, `getDescendants`, `getEffectiveClip`, and
+  atomic `updateMany`. Scene order is stable depth-first order. Child-first remote data remains
+  available through `getById` but stays out of scene, type, and spatial queries until valid.
+- Parent subtree move, nudge, delete, copy, duplicate, layer, and z-order behavior in one gesture
+  undo step. A direct descendant lock does not prevent movement through its parent.
+- `ElementTypeDefinition.clipBounds` and nested rectangular clipping on cached and live canvas,
+  hit testing and activation, DOM placement, minimap, PNG, and SVG. Export and fit bounds keep
+  using raw geometry.
+- `Camera.addConstraint`, `CameraConstraint`, and `CameraConstraintState`. Constraints validate
+  finite positive states and apply to every camera mutation and animation path.
+
+**Changed**
+
+- Arrow binding candidates now come from the spatial index. The scheduled Chromium gate records
+  90 render-loop samples on 10,011 elements against its documented p95 budget.
+- Base, background, cache, and hybrid canvases recover from context loss. Select-all excludes
+  full-canvas extensions, and inline extension SVG emitters receive the export view box.
+
+### Sync 0.30.0 — hierarchy admission
+
+**Changed**
+
+- Legacy capability negotiation now requires protocol 3 and `elementHierarchy: 1`. Authority
+  capabilities use revision 2 with the same marker; serialized native authority frames remain
+  `authority:1`.
+- Durable traffic waits for a matching first capability frame. Pre-capability traffic, missing or
+  old markers, and changed repeated capabilities receive an unsupported/upgrade response and close
+  with 4406. Managed clients verify the hub before accepting substantive frames or flushing queued
+  durable work.
+- `parentId` is validated and preserved in snapshots, live operations, batches, authority
+  checkpoints, and fanout. A readable child may arrive while its parent is filtered. The core store
+  retains that child raw but excludes it from scene, type, and spatial queries. Forbidden children,
+  private payload bytes, and relationship fields in presence remain absent.
+
+### Sync server 0.30.0 — hierarchy admission
+
+**Changed**
+
+- Legacy and authority admission require hierarchy capabilities before durable room traffic. Server
+  admission expires after 5 seconds.
+- Receiving hubs filter each element for each viewer, including cross-instance Redis fanout. A
+  readable orphan preserves `parentId`; a forbidden child is never delivered.
+
+### Sync Redis 0.15.0 — hierarchy compatibility
+
+**Changed**
+
+- Raises peer floors for the coordinated hierarchy boundary. Redis continues to store complete
+  elements, while receiving hubs apply per-viewer filtering. Real two-instance Redis coverage
+  verifies `parentId` persistence and filtered orphan/reveal behavior.
+
+Deploy core, sync client, and relay together for this pre-1.0 compatibility boundary: state v6,
+legacy protocol 3, and authority capability revision 2.
+
 ### VTT 0.17.1 — hex templates centre on their cell
 
 **Fixed**

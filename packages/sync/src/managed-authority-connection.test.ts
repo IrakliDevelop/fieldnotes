@@ -207,7 +207,8 @@ describe('createManagedAuthorityConnection', () => {
             elementEnvelope: true,
             authority: 1,
             extensionKinds: [],
-            protocolVersion: 1,
+            protocolVersion: 2,
+            elementHierarchy: 1,
           },
         },
       }),
@@ -245,7 +246,8 @@ describe('createManagedAuthorityConnection', () => {
       elementEnvelope: true as const,
       authority: 1 as const,
       extensionKinds: ['z-kind', 'a-kind'],
-      protocolVersion: 1,
+      protocolVersion: 2,
+      elementHierarchy: 1,
       authorityExtensions: [
         { version: 1, pluginName: 'z-plugin', key: 'z-state' },
         { key: 'a-state', version: 1, pluginName: 'a-plugin' },
@@ -258,9 +260,10 @@ describe('createManagedAuthorityConnection', () => {
       JSON.stringify({
         op: {
           capabilities: {
-            protocolVersion: 1,
+            protocolVersion: 2,
             extensionKinds: ['a-kind', 'z-kind'],
             elementEnvelope: true,
+            elementHierarchy: 1,
             authorityExtensions: [...first.authorityExtensions].reverse(),
             authority: 1,
           },
@@ -285,8 +288,25 @@ describe('createManagedAuthorityConnection', () => {
 
   it.each([
     {
+      name: 'revision 1',
+      capabilities: { ...createAuthorityCapabilities([]), protocolVersion: 1 },
+    },
+    {
+      name: 'missing hierarchy',
+      capabilities: { protocolVersion: 2, extensionKinds: [], elementEnvelope: true, authority: 1 },
+    },
+    {
+      name: 'invalid hierarchy',
+      capabilities: { ...createAuthorityCapabilities([]), elementHierarchy: 2 },
+    },
+    {
       name: 'missing authority',
-      capabilities: { protocolVersion: 1, extensionKinds: [], elementEnvelope: true },
+      capabilities: {
+        protocolVersion: 2,
+        extensionKinds: [],
+        elementEnvelope: true,
+        elementHierarchy: 1,
+      },
     },
     { name: 'extra kind', capabilities: createAuthorityCapabilities(['extra']) },
     {

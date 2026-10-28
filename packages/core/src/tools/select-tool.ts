@@ -10,7 +10,14 @@ import { hasSize } from '../elements/element-size';
 import { expandToGroups } from '../elements/group';
 import { getElementsBoundingBox } from '../elements/bounds';
 import { lineFromEndpoints } from '../elements/shape-geometry';
-import { translateElementPatch } from '../elements/translate';
+import {
+  captureHierarchyOrigins,
+  getHierarchyMove,
+  moveHierarchyByRoot,
+  restoreHierarchyOrigins,
+  updateExternalBoundArrows,
+  type HierarchyOrigins,
+} from '../elements/hierarchy-ops';
 import {
   type ArrowHandle,
   hitTestArrowHandles,
@@ -64,7 +71,7 @@ type Mode =
 interface LiveDrag {
   ids: string[];
   origins: Map<string, Point>;
-  arrowEnds: Map<string, { from: Point; to: Point }>;
+  allOrigins: HierarchyOrigins;
   pointerType: PointerState['pointerType'];
 }
 
@@ -331,12 +338,13 @@ export class SelectTool implements Tool {
 
       let adjDx = dx;
       let adjDy = dy;
+      const move = getHierarchyMove(this._selectedIds, ctx.store);
       this.activeGuides = [];
       if (ctx.smartGuides) {
         // Candidates (non-selected visible elements) and the viewport rect don't change
         // during a single-pointer drag, so compute them once per drag and reuse each frame.
         if (this.dragSnapTargets === null) {
-          const selSet = new Set(this._selectedIds);
+          const selSet = new Set(move.elements.map((element) => element.id));
           this.dragVisibleRect = ctx.getVisibleRect?.() ?? null;
           const candidates = (
             this.dragVisibleRect ? ctx.store.queryRect(this.dragVisibleRect) : ctx.store.getAll()
@@ -348,9 +356,7 @@ export class SelectTool implements Tool {
           }
           this.dragSnapTargets = targets;
         }
-        const selectedEls = this._selectedIds
-          .map((id) => ctx.store.getById(id))
-          .filter((el): el is CanvasElement => !!el && !el.locked);
+        const selectedEls = [...move.elements];
         const base = getElementsBoundingBox(selectedEls, ctx.elementRegistry);
         if (base) {
           const moving: Bounds = { x: base.x + dx, y: base.y + dy, w: base.w, h: base.h };
@@ -361,48 +367,40 @@ export class SelectTool implements Tool {
         }
       }
 
-      for (const id of this._selectedIds) {
-        const el = ctx.store.getById(id);
-        if (!el || el.locked) continue;
-
-        if (el.type === 'arrow') {
-          if (el.fromBinding || el.toBinding) {
-            continue;
-          }
-
-          ctx.store.update(id, {
-            position: { x: el.position.x + adjDx, y: el.position.y + adjDy },
-            from: { x: el.from.x + adjDx, y: el.from.y + adjDy },
-            to: { x: el.to.x + adjDx, y: el.to.y + adjDy },
-          });
-        } else if (!ctx.smartGuides && 'size' in el && el.type !== 'extension') {
-          const cs = ctx.constraintService;
-          if (cs?.isActive) {
-            const centerX = el.position.x + el.size.w / 2 + adjDx;
-            const centerY = el.position.y + el.size.h / 2 + adjDy;
-            const snappedCenter = cs.constrainPoint(
-              { x: centerX, y: centerY },
-              { elementSize: { w: el.size.w, h: el.size.h } },
-            );
-            ctx.store.update(id, {
-              position: {
-                x: snappedCenter.x - el.size.w / 2,
-                y: snappedCenter.y - el.size.h / 2,
+      if (!ctx.smartGuides) {
+        const cs = ctx.constraintService;
+        const deltas = new Map(
+          move.roots.map((root) => {
+            if (!cs?.isActive || !hasSize(root) || root.type === 'extension')
+              return [root.id, { x: dx, y: dy }] as const;
+            const center = cs.constrainPoint(
+              {
+                x: root.position.x + root.size.w / 2 + dx,
+                y: root.position.y + root.size.h / 2 + dy,
               },
-            });
-          } else {
-            ctx.store.update(id, {
-              position: { x: el.position.x + adjDx, y: el.position.y + adjDy },
-            });
-          }
-        } else {
-          ctx.store.update(id, {
-            position: { x: el.position.x + adjDx, y: el.position.y + adjDy },
-          });
-        }
+              { elementSize: { w: root.size.w, h: root.size.h } },
+            );
+            return [
+              root.id,
+              {
+                x: center.x - root.size.w / 2 - root.position.x,
+                y: center.y - root.size.h / 2 - root.position.y,
+              },
+            ] as const;
+          }),
+        );
+        moveHierarchyByRoot(move, deltas, ctx.store);
+      } else {
+        moveHierarchyByRoot(
+          move,
+          new Map(move.roots.map((root) => [root.id, { x: adjDx, y: adjDy }])),
+          ctx.store,
+        );
       }
-
-      this.updateArrowsBoundTo(this._selectedIds, ctx);
+      updateExternalBoundArrows(
+        move.elements.map((element) => element.id),
+        ctx.store,
+      );
       this.emitDrag('onDragMove', ctx);
 
       ctx.requestRender();
@@ -462,10 +460,8 @@ export class SelectTool implements Tool {
     }
     if (e.key !== 'Escape') return false;
 
-    for (const [id, position] of drag.origins) {
-      ctx.store.update(id, { position, ...drag.arrowEnds.get(id) });
-    }
-    this.updateArrowsBoundTo(drag.ids, ctx);
+    restoreHierarchyOrigins(drag.allOrigins, ctx.store);
+    updateExternalBoundArrows(drag.allOrigins.positions.keys(), ctx.store);
     this.emitDrag('onDragCancel', ctx);
     this.drag = null;
     this.mode = { type: 'cancelled' };
@@ -547,17 +543,19 @@ export class SelectTool implements Tool {
 
   private startDrag(pointerType: PointerState['pointerType'], ctx: ToolContext): void {
     const origins = new Map<string, Point>();
-    const arrowEnds = new Map<string, { from: Point; to: Point }>();
     for (const id of this._selectedIds) {
       const el = ctx.store.getById(id);
       if (!el || el.locked) continue;
-      if (el.type === 'arrow') {
-        if (el.fromBinding || el.toBinding) continue;
-        arrowEnds.set(id, { from: el.from, to: el.to });
-      }
+      if (el.type === 'arrow' && (el.fromBinding || el.toBinding)) continue;
       origins.set(id, el.position);
     }
-    this.drag = { ids: [...origins.keys()], origins, arrowEnds, pointerType };
+    const move = getHierarchyMove([...origins.keys()], ctx.store);
+    this.drag = {
+      ids: [...origins.keys()],
+      origins,
+      allOrigins: captureHierarchyOrigins(move.elements),
+      pointerType,
+    };
     this.emitDrag('onDragStart', ctx);
   }
 
@@ -581,20 +579,20 @@ export class SelectTool implements Tool {
   }
 
   nudgeSelection(dx: number, dy: number, ctx: ToolContext): boolean {
-    let moved = false;
-    for (const id of this._selectedIds) {
-      const el = ctx.store.getById(id);
-      if (!el || el.locked) continue;
-      if (el.type === 'arrow' && (el.fromBinding || el.toBinding)) continue;
-      ctx.store.update(id, translateElementPatch(el, dx, dy));
-      moved = true;
-    }
-
-    if (moved) {
-      this.updateArrowsBoundTo(this._selectedIds, ctx);
+    const move = getHierarchyMove(this._selectedIds, ctx.store);
+    if (move.elements.length > 0) {
+      moveHierarchyByRoot(
+        move,
+        new Map(move.roots.map((root) => [root.id, { x: dx, y: dy }])),
+        ctx.store,
+      );
+      updateExternalBoundArrows(
+        move.elements.map((element) => element.id),
+        ctx.store,
+      );
       ctx.requestRender();
     }
-    return moved;
+    return move.elements.length > 0;
   }
 
   private updateHoverCursor(world: Point, ctx: ToolContext, shiftKey: boolean): string | null {

@@ -10,6 +10,7 @@ import {
   AddElementCommand,
   RemoveElementCommand,
   UpdateElementCommand,
+  UpdateElementsCommand,
   BatchCommand,
 } from './commands';
 import { CreateLayerCommand, RemoveLayerCommand, UpdateLayerCommand } from './layer-commands';
@@ -192,13 +193,19 @@ export class HistoryRecorder {
   }
 
   private flushUpdateSnapshots(): Command[] {
-    const commands: Command[] = [];
+    const updates: { previous: CanvasElement; current: CanvasElement }[] = [];
     for (const [id, previous] of this.updateSnapshots) {
       const current = this.store.getById(id);
       if (current && !jsonEqual(previous, current, VOLATILE_KEYS)) {
-        commands.push(new UpdateElementCommand(id, previous, current));
+        updates.push({ previous, current });
       }
     }
-    return commands;
+    if (updates.length === 0) return [];
+    if (updates.length === 1) {
+      const update = updates[0];
+      if (!update) return [];
+      return [new UpdateElementCommand(update.current.id, update.previous, update.current)];
+    }
+    return [new UpdateElementsCommand(updates)];
   }
 }

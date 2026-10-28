@@ -1,0 +1,503 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { ElementHierarchy, validateAddedElement, validateHierarchy } from './element-hierarchy';
+import { ElementRegistry } from './element-registry';
+import type {
+  BaseElement,
+  CanvasElement,
+  ExtensionElementEnvelope,
+  ElementTypeDefinition,
+  NoteElement,
+} from './types';
+
+function note(id: string, overrides: Partial<NoteElement> = {}): NoteElement {
+  return {
+    id,
+    type: 'note',
+    position: { x: 0, y: 0 },
+    size: { w: 10, h: 10 },
+    text: '',
+    backgroundColor: '#fff',
+    textColor: '#000',
+    index: id,
+    version: 1,
+    locked: false,
+    layerId: 'layer',
+    ...overrides,
+  };
+}
+
+function fullCanvasDefinition(): ElementTypeDefinition<BaseElement> {
+  return {
+    type: 'test:full-canvas',
+    legacyTypes: [],
+    fullCanvas: true,
+    decodeLegacy: (raw) => raw as unknown as BaseElement,
+    validateData: () => true,
+    unwrap: (element) => element,
+    wrap: (element) => ({
+      ...element,
+      type: 'extension',
+      extensionType: 'test:full-canvas',
+      data: {},
+    }),
+    bounds: () => null,
+  };
+}
+
+function extension(
+  id: string,
+  overrides: Partial<ExtensionElementEnvelope> = {},
+): ExtensionElementEnvelope {
+  return {
+    id,
+    type: 'extension',
+    extensionType: 'test:full-canvas',
+    position: { x: 0, y: 0 },
+    index: id,
+    version: 1,
+    locked: false,
+    layerId: 'layer',
+    data: {},
+    ...overrides,
+  };
+}
+
+describe('ElementHierarchy', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('projects nested clips independently, snapshots them, and preserves structural children', () => {
+    const registry = new ElementRegistry();
+    const rootClip = { x: 10, y: 10, w: 80, h: 80 };
+    registry.register<ExtensionElementEnvelope>({
+      type: 'test:clip-matrix',
+      legacyTypes: [],
+      renderMode: 'canvas',
+      decodeLegacy: () => {
+        throw new Error('no legacy');
+      },
+      validateData: () => true,
+      unwrap: (element) => element,
+      wrap: (element) => element,
+      bounds: () => ({ x: 0, y: 0, w: 100, h: 100 }),
+      clipBounds: (element) => (element.id === 'root' ? rootClip : { x: 40, y: 0, w: 80, h: 60 }),
+    });
+    const root = extension('root', { extensionType: 'test:clip-matrix' });
+    const child = extension('child', { extensionType: 'test:clip-matrix', parentId: root.id });
+    const grandchild = note('grandchild', { parentId: child.id });
+    const sibling = note('sibling', { parentId: root.id });
+    const hierarchy = new ElementHierarchy(
+      new Map<string, CanvasElement>([
+        [root.id, root],
+        [child.id, child],
+        [grandchild.id, grandchild],
+        [sibling.id, sibling],
+      ]),
+      registry,
+      new Map(),
+    );
+
+    expect(hierarchy.getEffectiveClip(root.id)).toBeNull();
+    expect(hierarchy.getEffectiveClip(child.id)).toEqual({ x: 10, y: 10, w: 80, h: 80 });
+    expect(hierarchy.getEffectiveClip(grandchild.id)).toEqual({ x: 40, y: 10, w: 50, h: 50 });
+    expect(hierarchy.getEffectiveClip(sibling.id)).toEqual({ x: 10, y: 10, w: 80, h: 80 });
+    rootClip.x = 999;
+    const copy = hierarchy.getEffectiveClip(child.id);
+    if (!copy) throw new Error('expected a clip');
+    copy.x = 999;
+    expect(hierarchy.getEffectiveClip(child.id)).toEqual({ x: 10, y: 10, w: 80, h: 80 });
+    expect(hierarchy.scene.map((element) => element.id)).toEqual([
+      'root',
+      'child',
+      'grandchild',
+      'sibling',
+    ]);
+    expect(hierarchy.getChildren(root.id).map((element) => element.id)).toEqual([
+      'child',
+      'sibling',
+    ]);
+    expect(hierarchy.getDescendants(root.id).map((element) => element.id)).toEqual([
+      'child',
+      'grandchild',
+      'sibling',
+    ]);
+  });
+
+  it('fails closed once per bad contributor without invoking clips during validation', () => {
+    const reportError = vi.fn();
+    vi.stubGlobal('reportError', reportError);
+    const registry = new ElementRegistry();
+    let calls = 0;
+    registry.register<ExtensionElementEnvelope>({
+      type: 'test:bad-clip',
+      legacyTypes: [],
+      renderMode: 'canvas',
+      decodeLegacy: () => {
+        throw new Error('no legacy');
+      },
+      validateData: () => true,
+      unwrap: (element) => element,
+      wrap: (element) => element,
+      bounds: () => ({ x: 0, y: 0, w: 100, h: 100 }),
+      clipBounds: (element) => {
+        calls++;
+        if (element.id === 'throw') throw new Error('bad clip');
+        return element.data as { x: number; y: number; w: number; h: number };
+      },
+    });
+    const cases = [
+      ['zero', { x: 0, y: 0, w: 0, h: 1 }],
+      ['nan', { x: Number.NaN, y: 0, w: 1, h: 1 }],
+      ['infinity', { x: 0, y: Infinity, w: 1, h: 1 }],
+      ['negative', { x: 0, y: 0, w: -1, h: 1 }],
+    ] as const;
+    for (const [id, data] of cases) {
+      const parent = extension(id, { extensionType: 'test:bad-clip', data });
+      const child = note(`${id}-child`, { parentId: id });
+      const hierarchy = new ElementHierarchy(
+        new Map<string, CanvasElement>([
+          [id, parent],
+          [child.id, child],
+        ]),
+        registry,
+        new Map(),
+      );
+      expect(() =>
+        validateHierarchy(
+          new Map<string, CanvasElement>([
+            [id, parent],
+            [child.id, child],
+          ]),
+          registry,
+        ),
+      ).not.toThrow();
+      expect(hierarchy.getEffectiveClip(child.id)).toBeUndefined();
+      expect(hierarchy.getEffectiveClip(child.id)).toBeUndefined();
+      expect(hierarchy.scene.map((element) => element.id)).toEqual([id, child.id]);
+    }
+    const throwing = extension('throw', { extensionType: 'test:bad-clip' });
+    const throwingChild = note('throw-child', { parentId: 'throw' });
+    const hierarchy = new ElementHierarchy(
+      new Map<string, CanvasElement>([
+        [throwing.id, throwing],
+        [throwingChild.id, throwingChild],
+      ]),
+      registry,
+      new Map(),
+    );
+    expect(calls).toBe(4);
+    expect(hierarchy.getEffectiveClip(throwingChild.id)).toBeUndefined();
+    expect(hierarchy.getEffectiveClip(throwingChild.id)).toBeUndefined();
+    expect(calls).toBe(5);
+    expect(reportError).toHaveBeenCalledTimes(4);
+  });
+
+  it('passes null and absent callbacks through and invalidates only changed extension ancestors', () => {
+    const registry = new ElementRegistry();
+    let calls = 0;
+    registry.register<ExtensionElementEnvelope>({
+      type: 'test:changing-clip',
+      legacyTypes: [],
+      renderMode: 'canvas',
+      decodeLegacy: () => {
+        throw new Error('no legacy');
+      },
+      validateData: () => true,
+      unwrap: (element) => element,
+      wrap: (element) => element,
+      bounds: () => ({ x: 0, y: 0, w: 1, h: 1 }),
+      clipBounds: (element) => {
+        calls++;
+        return element.data['none'] ? null : { x: element.position.x, y: 0, w: 10, h: 10 };
+      },
+    });
+    registry.register<ExtensionElementEnvelope>({
+      type: 'test:no-clip',
+      legacyTypes: [],
+      renderMode: 'canvas',
+      decodeLegacy: () => {
+        throw new Error('no legacy');
+      },
+      validateData: () => true,
+      unwrap: (element) => element,
+      wrap: (element) => element,
+      bounds: () => ({ x: 0, y: 0, w: 1, h: 1 }),
+    });
+    const root = extension('root', { extensionType: 'test:changing-clip' });
+    const middle = extension('middle', { extensionType: 'test:no-clip', parentId: root.id });
+    const child = note('child', { parentId: middle.id });
+    const leaf = note('leaf');
+    const hierarchy = new ElementHierarchy(
+      new Map<string, CanvasElement>([
+        [root.id, root],
+        [middle.id, middle],
+        [child.id, child],
+        [leaf.id, leaf],
+      ]),
+      registry,
+      new Map(),
+    );
+    expect(hierarchy.getEffectiveClip(child.id)).toEqual({ x: 0, y: 0, w: 10, h: 10 });
+    expect(calls).toBe(1);
+    hierarchy.replace(leaf, { ...leaf, text: 'unrelated' });
+    expect(hierarchy.getEffectiveClip(child.id)).toEqual({ x: 0, y: 0, w: 10, h: 10 });
+    expect(calls).toBe(1);
+    hierarchy.replace(root, { ...root, position: { x: 5, y: 0 } });
+    expect(hierarchy.getEffectiveClip(child.id)).toEqual({ x: 5, y: 0, w: 10, h: 10 });
+    expect(calls).toBe(2);
+  });
+  it('projects ancestor clips lazily without masking the contributing parent', () => {
+    const registry = new ElementRegistry();
+    let calls = 0;
+    registry.register<ExtensionElementEnvelope>({
+      type: 'test:clip',
+      legacyTypes: [],
+      renderMode: 'canvas',
+      decodeLegacy: () => {
+        throw new Error('no legacy');
+      },
+      validateData: () => true,
+      unwrap: (element) => element,
+      wrap: (element) => element,
+      bounds: () => ({ x: 0, y: 0, w: 100, h: 100 }),
+      clipBounds: () => {
+        calls++;
+        return { x: 10, y: 10, w: 50, h: 50 };
+      },
+    });
+    const root = extension('root', { extensionType: 'test:clip' });
+    const child = note('child', { parentId: 'root' });
+    const hierarchy = new ElementHierarchy(
+      new Map<string, CanvasElement>([
+        [root.id, root],
+        [child.id, child],
+      ]),
+      registry,
+      new Map(),
+    );
+    expect(calls).toBe(0);
+    expect(hierarchy.getEffectiveClip(root.id)).toBeNull();
+    expect(hierarchy.getEffectiveClip(child.id)).toEqual({ x: 10, y: 10, w: 50, h: 50 });
+    expect(calls).toBe(1);
+  });
+  it('orders roots and descendants depth first by index then id', () => {
+    const elements = new Map<string, CanvasElement>([
+      ['b', note('b', { index: 'b' })],
+      ['child', note('child', { parentId: 'a', index: 'z' })],
+      ['a', note('a', { index: 'a' })],
+      ['child-a', note('child-a', { parentId: 'a', index: 'a' })],
+    ]);
+    const hierarchy = new ElementHierarchy(elements, new ElementRegistry(), new Map());
+    expect(hierarchy.scene.map((element) => element.id)).toEqual(['a', 'child-a', 'child', 'b']);
+    expect(hierarchy.getDescendants('a').map((element) => element.id)).toEqual([
+      'child-a',
+      'child',
+    ]);
+  });
+
+  it('replaces only the affected branch cache slots', () => {
+    const root = note('root');
+    const parent = note('parent', { parentId: root.id });
+    const target = note('target', { parentId: parent.id });
+    const unrelated = note('unrelated');
+    const unrelatedChild = note('unrelated-child', { parentId: unrelated.id });
+    const hierarchy = new ElementHierarchy(
+      new Map<string, CanvasElement>([
+        [root.id, root],
+        [parent.id, parent],
+        [target.id, target],
+        [unrelated.id, unrelated],
+        [unrelatedChild.id, unrelatedChild],
+      ]),
+      new ElementRegistry(),
+      new Map(),
+    );
+    const unrelatedChildren = hierarchy.getChildren(unrelated.id);
+    const unrelatedDescendants = hierarchy.getDescendants(unrelated.id);
+    const replacement = { ...target, text: 'updated' };
+
+    hierarchy.replace(target, replacement);
+
+    expect(hierarchy.scene[2]).toBe(replacement);
+    expect(hierarchy.getChildren(parent.id)[0]).toBe(replacement);
+    expect(hierarchy.getDescendants(parent.id)[0]).toBe(replacement);
+    expect(hierarchy.getDescendants(root.id)[1]).toBe(replacement);
+    expect(hierarchy.getChildren(unrelated.id)).toBe(unrelatedChildren);
+    expect(hierarchy.getDescendants(unrelated.id)).toBe(unrelatedDescendants);
+  });
+
+  it('fails closed for orphan descendants while retaining unrelated roots', () => {
+    const elements = new Map([
+      ['orphan', note('orphan', { parentId: 'missing' })],
+      ['child', note('child', { parentId: 'orphan' })],
+      ['root', note('root')],
+    ]);
+    const hierarchy = new ElementHierarchy(elements, new ElementRegistry(), new Map());
+    expect(hierarchy.scene.map((element) => element.id)).toEqual(['root']);
+    expect(() => validateHierarchy(elements, new ElementRegistry())).toThrow(/Invalid hierarchy/);
+  });
+
+  it.each([
+    ['self', new Map([['a', note('a', { parentId: 'a' })]])],
+    [
+      'cycle',
+      new Map([
+        ['a', note('a', { parentId: 'b' })],
+        ['b', note('b', { parentId: 'a' })],
+      ]),
+    ],
+    [
+      'cross-layer',
+      new Map([
+        ['a', note('a')],
+        ['b', note('b', { parentId: 'a', layerId: 'other' })],
+      ]),
+    ],
+  ])('rejects a %s relationship', (_name, elements) => {
+    expect(() => validateHierarchy(elements, new ElementRegistry())).toThrow(/Invalid hierarchy/);
+  });
+
+  it('accepts depth 32 and rejects depth 33', () => {
+    const atDepth = (depth: number) => {
+      const elements = new Map<string, NoteElement>();
+      for (let index = 0; index <= depth; index++) {
+        elements.set(
+          `n${index}`,
+          note(`n${index}`, index === 0 ? {} : { parentId: `n${index - 1}` }),
+        );
+      }
+      return elements;
+    };
+
+    expect(() => validateHierarchy(atDepth(32), new ElementRegistry())).not.toThrow();
+    expect(() => validateHierarchy(atDepth(33), new ElementRegistry())).toThrow(
+      /Invalid hierarchy/,
+    );
+  });
+
+  it.each([
+    ['missing parent', new Map<string, CanvasElement>(), note('child', { parentId: 'missing' })],
+    ['self', new Map<string, CanvasElement>(), note('child', { parentId: 'child' })],
+    [
+      'cycle',
+      new Map<string, CanvasElement>([
+        ['a', note('a', { parentId: 'b' })],
+        ['b', note('b', { parentId: 'a' })],
+      ]),
+      note('child', { parentId: 'a' }),
+    ],
+    [
+      'cross-layer parent',
+      new Map<string, CanvasElement>([['parent', note('parent', { layerId: 'other' })]]),
+      note('child', { parentId: 'parent' }),
+    ],
+  ])('rejects a %s relation while adding', (_name, elements, element) => {
+    expect(() => validateAddedElement(element, elements, new ElementRegistry())).toThrow(
+      /Invalid hierarchy/,
+    );
+  });
+
+  it('rejects full-canvas and over-depth relations while adding', () => {
+    const registry = new ElementRegistry();
+    registry.register(fullCanvasDefinition());
+    expect(() =>
+      validateAddedElement(
+        note('child', { parentId: 'full' }),
+        new Map<string, CanvasElement>([['full', extension('full')]]),
+        registry,
+      ),
+    ).toThrow(/Invalid hierarchy/);
+    expect(() =>
+      validateAddedElement(
+        extension('full', { parentId: 'parent' }),
+        new Map<string, CanvasElement>([['parent', note('parent')]]),
+        registry,
+      ),
+    ).toThrow(/Invalid hierarchy/);
+
+    const elements = new Map<string, CanvasElement>();
+    for (let index = 0; index <= 32; index++) {
+      elements.set(
+        `d${index}`,
+        note(`d${index}`, index === 0 ? {} : { parentId: `d${index - 1}` }),
+      );
+    }
+    expect(() =>
+      validateAddedElement(note('child', { parentId: 'd32' }), elements, new ElementRegistry()),
+    ).toThrow(/Invalid hierarchy/);
+  });
+
+  it('orders layers, equal roots and equal siblings independently', () => {
+    const elements = new Map([
+      ['z', note('z', { index: 'a', layerId: 'late' })],
+      ['b', note('b', { index: 'a' })],
+      ['a', note('a', { index: 'a' })],
+      ['child-b', note('child-b', { parentId: 'a', index: 'x' })],
+      ['child-a', note('child-a', { parentId: 'a', index: 'x' })],
+      ['grandchild', note('grandchild', { parentId: 'child-a', index: 'a' })],
+    ]);
+    const hierarchy = new ElementHierarchy(
+      elements,
+      new ElementRegistry(),
+      new Map([
+        ['late', 1],
+        ['layer', 0],
+      ]),
+    );
+    expect(hierarchy.scene.map((element) => element.id)).toEqual([
+      'a',
+      'child-a',
+      'grandchild',
+      'child-b',
+      'b',
+      'z',
+    ]);
+    expect(hierarchy.getChildren('a').map((element) => element.id)).toEqual(['child-a', 'child-b']);
+    expect(hierarchy.getDescendants('a').map((element) => element.id)).toEqual([
+      'child-a',
+      'grandchild',
+      'child-b',
+    ]);
+  });
+
+  it('falls back to index and id when layers have no explicit order', () => {
+    const elements = new Map([
+      ['b', note('b', { layerId: 'unlisted-b', index: 'a1' })],
+      ['a', note('a', { layerId: 'unlisted-a', index: 'a0' })],
+    ]);
+    const hierarchy = new ElementHierarchy(elements, new ElementRegistry(), new Map());
+    expect(hierarchy.scene.map((element) => element.id)).toEqual(['a', 'b']);
+  });
+
+  it('rejects full-canvas endpoints but permits unknown extension relationships', () => {
+    const registry = new ElementRegistry();
+    registry.register(fullCanvasDefinition());
+    const fullParent = new Map<string, NoteElement | ExtensionElementEnvelope>([
+      ['full', extension('full')],
+      ['child', note('child', { parentId: 'full' })],
+    ]);
+    const fullChild = new Map<string, NoteElement | ExtensionElementEnvelope>([
+      ['parent', note('parent')],
+      ['full', extension('full', { parentId: 'parent' })],
+    ]);
+    expect(() => validateHierarchy(fullParent, registry)).toThrow(/Invalid hierarchy/);
+    expect(() => validateHierarchy(fullChild, registry)).toThrow(/Invalid hierarchy/);
+    const unknown = new Map<string, NoteElement | ExtensionElementEnvelope>([
+      ['parent', note('parent')],
+      ['unknown', extension('unknown', { extensionType: 'unknown', parentId: 'parent' })],
+    ]);
+    expect(() => validateHierarchy(unknown, registry)).not.toThrow();
+  });
+
+  it('hides invalid ancestors and their descendants without hiding valid trees', () => {
+    const elements = new Map([
+      ['orphan', note('orphan', { parentId: 'missing' })],
+      ['hidden', note('hidden', { parentId: 'orphan' })],
+      ['root', note('root')],
+      ['visible', note('visible', { parentId: 'root' })],
+    ]);
+    const hierarchy = new ElementHierarchy(elements, new ElementRegistry(), new Map());
+    expect(hierarchy.scene.map((element) => element.id)).toEqual(['root', 'visible']);
+    expect(hierarchy.getChildren('missing')).toEqual([]);
+    expect(hierarchy.getDescendants('orphan')).toEqual([]);
+  });
+});

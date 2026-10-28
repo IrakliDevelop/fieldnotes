@@ -47,13 +47,22 @@ const { close } = createSyncServer({ port: 8080 });
 // ws://localhost:8080?room=my-room
 ```
 
+## Capability admission
+
+Legacy rooms require protocol 3 and `elementHierarchy: 1` before any snapshot, mutation, or
+presence traffic. A substantive frame before capabilities, a missing or old marker, or a repeated
+capability frame whose normalized content changes receives a best-effort `unsupported` response and
+then closes with `4406`. Authority admission sends an `authority:1` `upgrade-required` frame before
+the same close. Admission expires after 5 seconds. Authority capabilities use revision 2 with the
+same hierarchy marker; native authority frames continue to use `authority:1`.
+
 ## Element versions and tombstones (0.28.0)
 
-Legacy rooms speak protocol 2. Every element carries a `version` and an optional `editor`, and the
-hub keeps the newer write per element (higher version; on a tie, the editor that sorts later):
+Version and tombstone behavior arrived with protocol 2 in 0.28.0. Protocol 3 adds the hierarchy
+admission boundary. Every element carries a `version` and an optional `editor`, and the hub keeps
+the newer write per element (higher version; on a tie, the editor that sorts later):
 
-- A connection that sends `capabilities` with `protocolVersion` below 2 is closed with `4406`.
-  Frames sent before `capabilities` are validated as protocol 2. Authority rooms are unaffected.
+- A connection must send matching protocol-3 hierarchy capabilities before durable room traffic.
 - Each element op is a compare-and-set against the stored record: read, `resolveAudience`,
   tombstone ownership check, `authorize`, plugins, version check, write, publish, deliver. On a
   conflicting concurrent write the op restarts from the read, up to 3 attempts; then the sender
@@ -99,12 +108,13 @@ building a snapshot. `get` and `apply` are gone.
 
 ## Batched element ops (0.29.0)
 
-The hub advertises the `opBatching` capability and accepts `batch` frames from 0.29 clients. It runs
-each op of a batch in order through the same pipeline as a single op; a rejected op gets its own
-correction and does not affect the others. Recipients that advertised `opBatching` get the accepted
-ops as one `batch`, filtered for what each may read; others get individual ops. Fanout to other
-instances stays one payload per op, so 0.28 instances on the same Redis keep working. A batch
-counts as one message for `messagesPerSecond` and runs under one frame-policy deadline.
+The hub advertises the `opBatching` capability and accepts `batch` frames from admitted protocol-3
+clients. It runs each op of a batch in order through the same pipeline as a single op; a rejected op
+gets its own correction and does not affect the others. Recipients that advertised `opBatching` get
+the accepted ops as one `batch`, filtered for what each may read; others get individual ops. Fanout
+to other instances stays one payload per op. A batch counts as one message for
+`messagesPerSecond` and runs under one frame-policy deadline. Deploy every client and relay in a
+room together for the protocol-3 hierarchy boundary.
 The hub advertises `opBatching` only when a full batch fits its limits: `maxMessageBytes` ≥
 `SYNC_LIMITS.maxFrameBytes`, `maxJsonDepth` ≥ `SYNC_LIMITS.maxFrameJsonDepth` and `opBurst` ≥
 `SYNC_LIMITS.maxBatchOps`; below that, clients send single ops.
@@ -116,8 +126,10 @@ Each element op, single or batched, also counts against a per-connection op budg
 closes the connection with `4408`. Clients flush up to 20 times per second, so a drag of more than
 about 100 elements needs a higher `opsPerSecond`.
 
-Before the `4406` close for a protocol below 2, the hub sends an `unsupported` reply explaining the
-refusal. With a frame policy it waits up to 1 s for that send before closing.
+Before the `4406` close for a rejected legacy capability frame, the hub sends an `unsupported`
+reply explaining the refusal. Authority admission sends an `authority:1` `upgrade-required` frame.
+For the legacy reply, a frame policy waits up to 1 s before the close. Authority admission uses its
+separate upgrade send and deadline.
 
 Authority proposals whose element upsert is over `AUTHORITY_ELEMENT_LIMITS` are rejected.
 
@@ -264,10 +276,11 @@ accounting bounds, not an RSS guarantee; full-state projection remains O(room si
 driver must enforce its own transaction, evidence, lease, retirement and provisioning limits.
 The included fixture caps 64 live plus retiring generations; it is not Redis durability.
 
-Authority presence, the production managed client, real VTT/fog extensions, production Redis
-driver, administration and RollKeeper adoption are intentionally deferred. Existing managed
-clients do not advertise authority; use a protocol-aware host client only after implementing its
-pending/receipt/applied-cursor barrier and uncertain-outcome recovery responsibilities.
+`createManagedAuthorityConnection` ships the managed authority client, including capability
+negotiation, checkpoints, receipt barriers, and uncertain-outcome recovery. The authority runtime
+and VTT authority extensions also ship. Authority presence, a production application
+`AuthorityDriver` with Redis durability, administration, and RollKeeper adoption remain host-owned
+or deferred.
 
 For local synthetic inspection, see [the authority browser fixture](test-fixtures/authority-browser/README.md).
 
@@ -385,8 +398,8 @@ If a guard or native callback remains hung, its active queue slot and budget res
 occupied until that work actually settles. This deliberate bounded saturation prevents a failed
 caller from admitting another physical write on the same lane. Canceled queued frames release
 capacity immediately. Unguarded factory connections omit `sendAsync`; custom `Connection`
-adapters may implement it. A future authoritative checkpoint sender must require this real
-capability and await each chunk before pulling the next. Existing `send` and
+adapters may implement it. The authority runtime requires tracked guarded sends and awaits each
+checkpoint frame or chunk before pulling the next. Existing `send` and
 `broadcastPresence` keep their admission-only behavior; the presence count is not a delivery
 acknowledgment.
 
@@ -435,7 +448,7 @@ createSyncServer({ port: 8080, roomIdleTimeoutMs: 30 * 60 * 1000 });
 
 The wire caps in `SYNC_LIMITS` (`@fieldnotes/sync`) apply to every frame the hub parses.
 
-Clients from `@fieldnotes/sync` 0.27 drop received frames nested deeper than 64. If you raise
+The current `@fieldnotes/sync` receive parser rejects frames nested deeper than 64. If you raise
 `maxJsonDepth` above 62, deeply nested element data can be stored but not delivered, and a join
 snapshot that contains it is dropped whole. Text and `src` caps count UTF-16 code units.
 
@@ -474,7 +487,8 @@ and 1024 visited entries. Getters, cycles, unsupported values and prototypes are
 each inbound dispatch and outbound WebSocket send. The Node event loop must run before a timer can
 close the socket. Work already dispatched or queued in the legacy room queue is not cancellable or
 transactional; expiry prevents new dispatch and physical sends observed after the deadline, but
-does not roll back earlier backend work. A later authoritative driver will enforce commit deadlines.
+does not roll back earlier backend work. The authority driver contract requires atomic store-time
+deadline enforcement at commit.
 `SyncHub.addConnection` also copies and validates claims for direct callers, but custom transports
 must enforce `expiresAt` themselves. Received cross-instance fanout has no authenticated claims:
 its payload and `from` field do not create a `ServerOpContext.authContext`.
@@ -694,10 +708,7 @@ From an installed workspace, pack the server into a release directory:
 pnpm --filter @fieldnotes/sync-server pack --pack-destination <directory>
 ```
 
-The `prepack` script rebuilds core, sync, then the server. Inspect the resulting
-archive's runtime files and type declarations, then publish that exact verified archive. Do not
-bypass lifecycle scripts or republish a pre-existing archive. The server 0.25.0 archive declares a
-concrete `@fieldnotes/sync` 0.24.0-compatible dependency. Publish sync 0.24.0 before server
-0.25.0, only with owner approval; packing locally does not publish or establish registry
-availability. Version 0.23.1 corrected the missing `sendAsync` runtime and declarations in
-the immutable 0.23.0 package.
+The `prepack` script rebuilds core, sync, then the server. Inspect each current archive's runtime
+files and type declarations. With owner approval, publish the coordinated releases in dependency
+order: core 0.100.0, sync 0.30.0, sync-server 0.30.0, then sync-redis 0.15.0. Packing verifies an
+archive locally; it does not publish or establish registry availability.

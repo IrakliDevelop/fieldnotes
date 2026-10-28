@@ -1,4 +1,5 @@
 import type { MarginViewport } from './margin-viewport';
+import type { CanvasWatch } from './context-loss-guard';
 
 /** `base` caches a whole layer; `under`/`over` cache the parts below and above its live elements. */
 export type LayerCachePart = 'base' | 'under' | 'over';
@@ -6,6 +7,7 @@ export type LayerCachePart = 'base' | 'under' | 'over';
 interface Entry {
   canvas?: HTMLCanvasElement | OffscreenCanvas;
   dirty: boolean;
+  dispose?: () => void;
 }
 
 function createOffscreenCanvas(width: number, height: number): HTMLCanvasElement | OffscreenCanvas {
@@ -21,7 +23,10 @@ function createOffscreenCanvas(width: number, height: number): HTMLCanvasElement
 export class LayerCache {
   private canvases = new Map<string, Map<LayerCachePart, Entry>>();
 
-  constructor(private readonly viewport: MarginViewport) {}
+  constructor(
+    private readonly viewport: MarginViewport,
+    private readonly watch?: CanvasWatch,
+  ) {}
 
   isDirty(layerId: string, part: LayerCachePart = 'base'): boolean {
     return this.canvases.get(layerId)?.get(part)?.dirty !== false;
@@ -40,8 +45,8 @@ export class LayerCache {
     else parts.set(part, { dirty: false });
     // A whole-layer raster supersedes the split parts; free them so memory does not stay doubled.
     if (part === 'base') {
-      parts.delete('under');
-      parts.delete('over');
+      this.dropPart(parts, 'under');
+      this.dropPart(parts, 'over');
     }
   }
 
@@ -51,13 +56,19 @@ export class LayerCache {
 
   getCanvas(layerId: string, part: LayerCachePart = 'base'): HTMLCanvasElement | OffscreenCanvas {
     const parts = this.partsOf(layerId);
-    const entry = parts.get(part);
-    if (entry?.canvas) return entry.canvas;
+    const existing = parts.get(part);
+    if (existing?.canvas) return existing.canvas;
     const canvas = createOffscreenCanvas(
       this.viewport.physicalWidth(),
       this.viewport.physicalHeight(),
     );
-    parts.set(part, { canvas, dirty: true });
+    const entry: Entry = { canvas, dirty: true };
+    entry.dispose = this.watch?.(canvas, () => {
+      if (parts.get(part) !== entry) return;
+      entry.dispose?.();
+      parts.delete(part);
+    });
+    parts.set(part, entry);
     return canvas;
   }
 
@@ -85,11 +96,15 @@ export class LayerCache {
 
   retain(keep: (layerId: string) => boolean): void {
     for (const id of this.canvases.keys()) {
-      if (!keep(id)) this.canvases.delete(id);
+      if (!keep(id)) {
+        this.dropParts(this.canvases.get(id));
+        this.canvases.delete(id);
+      }
     }
   }
 
   clear(): void {
+    for (const parts of this.canvases.values()) this.dropParts(parts);
     this.canvases.clear();
   }
 
@@ -100,5 +115,16 @@ export class LayerCache {
       this.canvases.set(layerId, parts);
     }
     return parts;
+  }
+
+  private dropPart(parts: Map<LayerCachePart, Entry>, part: LayerCachePart): void {
+    const entry = parts.get(part);
+    entry?.dispose?.();
+    parts.delete(part);
+  }
+
+  private dropParts(parts: Map<LayerCachePart, Entry> | undefined): void {
+    if (!parts) return;
+    for (const entry of parts.values()) entry.dispose?.();
   }
 }

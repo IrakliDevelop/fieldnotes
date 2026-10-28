@@ -28,6 +28,14 @@ export type OverlayRenderer = (ctx: CanvasRenderingContext2D) => void;
 // An element updated again within this window is drawn live instead of re-rasterising its layer.
 const LIVE_IDLE_MS = 250;
 
+function intersection(a: Bounds, b: Bounds): Bounds | null {
+  const x = Math.max(a.x, b.x);
+  const y = Math.max(a.y, b.y);
+  const right = Math.min(a.x + a.w, b.x + b.w);
+  const bottom = Math.min(a.y + a.h, b.y + b.h);
+  return x < right && y < bottom ? { x, y, w: right - x, h: bottom - y } : null;
+}
+
 /** The save/restore surface shared by on-screen and offscreen 2d contexts. */
 interface SavableContext {
   save(): void;
@@ -58,6 +66,7 @@ export interface RenderLoopDeps {
   marginViewport: MarginViewport;
   hybridSurface: HybridRenderSurface;
   hooks?: RenderHooks;
+  onFullFrame?: () => void;
 }
 
 export class RenderLoop {
@@ -76,6 +85,7 @@ export class RenderLoop {
   private readonly marginViewport: MarginViewport;
   private readonly hybridSurface: HybridRenderSurface;
   private readonly hooks?: RenderHooks;
+  private readonly onFullFrame?: () => void;
   private readonly stats = new RenderStats();
   private layerGroups = new Map<string, CanvasElement[]>();
   private htmlScratchCanvas: HTMLCanvasElement | null = null;
@@ -111,6 +121,7 @@ export class RenderLoop {
     this.marginViewport = deps.marginViewport;
     this.hybridSurface = deps.hybridSurface;
     this.hooks = deps.hooks;
+    this.onFullFrame = deps.onFullFrame;
   }
 
   requestRender(): void {
@@ -390,7 +401,36 @@ export class RenderLoop {
   ): void {
     const elBounds = getElementVisualBounds(element, this.store.elementRegistry);
     if (elBounds && !boundsIntersect(elBounds, cullingRect)) return;
+    this.renderClipped(ctx, element, cullingRect);
+  }
+
+  private renderClipped(
+    ctx: CanvasRenderingContext2D,
+    element: CanvasElement,
+    cullingRect: Bounds,
+  ): void {
+    const clip = this.effectiveClip(element.id);
+    if (clip === undefined) return;
+    if (clip) {
+      const bounds = getElementVisualBounds(element, this.store.elementRegistry);
+      const visible = bounds ? intersection(bounds, clip) : clip;
+      if (!visible || !intersection(visible, cullingRect)) return;
+      this.saveTracked(ctx);
+      try {
+        ctx.beginPath();
+        ctx.rect(clip.x, clip.y, clip.w, clip.h);
+        ctx.clip();
+        this.renderer.renderCanvasElement(ctx, element);
+      } finally {
+        this.restoreTracked(ctx);
+      }
+      return;
+    }
     this.renderer.renderCanvasElement(ctx, element);
+  }
+
+  private effectiveClip(id: string): Bounds | null | undefined {
+    return this.store.getEffectiveClip(id);
   }
 
   /**
@@ -473,6 +513,7 @@ export class RenderLoop {
     elementBounds: Bounds | null,
     layerOpacity: number,
     dpr: number,
+    cullingRect: Bounds,
   ): void {
     const rect = this.htmlScratchRect(elementBounds, dpr);
     if (!rect) return; // no pixels to paint into, and no degenerate drawImage source
@@ -483,7 +524,7 @@ export class RenderLoop {
       // dropping it, and this is the same fallback shape the grid cache uses.
       this.saveTracked(hybridCtx);
       hybridCtx.globalAlpha = layerOpacity;
-      this.renderer.renderCanvasElement(hybridCtx, element);
+      this.renderClipped(hybridCtx, element, cullingRect);
       this.restoreTracked(hybridCtx);
       return;
     }
@@ -496,7 +537,7 @@ export class RenderLoop {
     scratchCtx.scale(dpr, dpr);
     scratchCtx.translate(this.camera.position.x, this.camera.position.y);
     scratchCtx.scale(this.camera.zoom, this.camera.zoom);
-    this.renderer.renderCanvasElement(scratchCtx, element);
+    this.renderClipped(scratchCtx, element, cullingRect);
     this.restoreTracked(scratchCtx);
 
     this.saveTracked(hybridCtx);
@@ -676,7 +717,13 @@ export class RenderLoop {
         if (elBounds && !boundsIntersect(elBounds, cullingRect)) {
           this.domNodeManager.hideDomNode(element.id);
         } else {
-          this.domNodeManager.syncDomNode(element, order, layerOpacity);
+          const clip = this.effectiveClip(element.id);
+          const visible = clip && elBounds ? intersection(elBounds, clip) : elBounds;
+          if (clip === undefined || (clip && (!visible || !intersection(visible, cullingRect)))) {
+            this.domNodeManager.hideDomNode(element.id);
+          } else {
+            this.domNodeManager.syncDomNode(element, order, layerOpacity, clip);
+          }
         }
         continue;
       }
@@ -796,14 +843,21 @@ export class RenderLoop {
         // grouping the hybrid run by layer and compositing once, which is a restructuring
         // this fix deliberately does not attempt.
         if (element.type === 'html' && layerOpacity < 1) {
-          this.paintHybridHtmlAtLayerOpacity(hybridCtx, element, elBounds, layerOpacity, dpr);
+          this.paintHybridHtmlAtLayerOpacity(
+            hybridCtx,
+            element,
+            elBounds,
+            layerOpacity,
+            dpr,
+            cullingRect,
+          );
           continue;
         }
         // html only reaches here with layerOpacity >= 1, so this is the pre-multiplied
         // path for every other element type and a no-op assignment for html.
         this.saveTracked(hybridCtx);
         hybridCtx.globalAlpha = layerOpacity;
-        this.renderer.renderCanvasElement(hybridCtx, element);
+        this.renderClipped(hybridCtx, element, cullingRect);
         this.restoreTracked(hybridCtx);
       }
       this.restoreTracked(hybridCtx);
@@ -878,5 +932,6 @@ export class RenderLoop {
       compositeMs: timers.compositeMs,
       overlayMs,
     });
+    this.onFullFrame?.();
   }
 }

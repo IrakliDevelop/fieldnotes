@@ -2,7 +2,7 @@ import {
   AutoSave,
   IndexedDBAdapter,
   Viewport,
-  type CanvasState,
+  type ImportableCanvasState,
   type StrokePoint,
   type ViewportOptions,
 } from '@fieldnotes/core';
@@ -81,7 +81,7 @@ const SAMPLE_BOARD = JSON.stringify({
       points: wave(80),
     },
   ],
-} satisfies CanvasState);
+} satisfies ImportableCanvasState);
 
 /** Opens the sample board as the `load` region opens a saved one. */
 export function createBoard(container: HTMLElement, extra?: ViewportOptions): Viewport {

@@ -14,7 +14,7 @@ import type { Tool } from '../tools/types';
 const DEFAULT_TOOL_NAMES = ['hand', 'select', 'pencil', 'eraser', 'arrow', 'note', 'text', 'shape'];
 
 const saved = {
-  version: 5,
+  version: 6,
   camera: { position: { x: 0, y: 0 }, zoom: 1 },
   elements: [
     {
