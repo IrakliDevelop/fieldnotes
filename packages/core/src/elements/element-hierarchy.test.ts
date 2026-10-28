@@ -62,8 +62,58 @@ function extension(
   };
 }
 
+function frame(id: string, parentId?: string): ExtensionElementEnvelope {
+  return {
+    id,
+    type: 'extension',
+    extensionType: 'core:frame',
+    position: { x: 0, y: 0 },
+    size: { w: 120, h: 90 },
+    index: id,
+    version: 1,
+    locked: false,
+    layerId: 'layer',
+    dataVersion: 1,
+    data: { title: 'Frame', color: '#64748b' },
+    ...(parentId === undefined ? {} : { parentId }),
+  };
+}
+
 describe('ElementHierarchy', () => {
   afterEach(() => vi.unstubAllGlobals());
+
+  it('keeps root frames and their children but omits parented frame subtrees', () => {
+    const root = frame('root');
+    const child = note('child', { parentId: root.id });
+    const parent = note('parent');
+    const nested = frame('nested', parent.id);
+    const descendant = note('descendant', { parentId: nested.id });
+    const elements = new Map<string, CanvasElement>([
+      [root.id, root],
+      [child.id, child],
+      [parent.id, parent],
+      [nested.id, nested],
+      [descendant.id, descendant],
+    ]);
+
+    expect(() =>
+      validateHierarchy(
+        new Map([
+          [root.id, root],
+          [child.id, child],
+        ]),
+        new ElementRegistry(),
+      ),
+    ).not.toThrow();
+    expect(() => validateHierarchy(elements, new ElementRegistry())).toThrow(/Invalid hierarchy/);
+    expect(() =>
+      validateAddedElement(nested, new Map([[parent.id, parent]]), new ElementRegistry()),
+    ).toThrow(/Invalid hierarchy/);
+    const hierarchy = new ElementHierarchy(elements, new ElementRegistry(), new Map());
+    expect(hierarchy.scene.map((element) => element.id)).toEqual(['parent', 'root', 'child']);
+    expect(hierarchy.getChildren(nested.id)).toEqual([]);
+    expect(hierarchy.getEffectiveClip(descendant.id)).toBeUndefined();
+  });
 
   it('projects nested clips independently, snapshots them, and preserves structural children', () => {
     const registry = new ElementRegistry();

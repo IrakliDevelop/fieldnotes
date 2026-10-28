@@ -20,6 +20,7 @@ import {
   createStroke,
   createText,
 } from '../elements/element-factory';
+import { createFrame } from '../elements/frame-element';
 import type { Layer } from '../layers/types';
 import { ElementRegistry } from '../elements/element-registry';
 import { Viewport } from '../canvas/viewport';
@@ -1227,6 +1228,27 @@ describe('extension dataVersion', () => {
         'Invalid element "m1": malformed test:marker data',
       );
       expect(viewport.store.getAll().map((el) => el.id)).toEqual(['m0']);
+      viewport.destroy();
+    });
+
+    it('rejects malformed and parented frames without replacing the current board', () => {
+      const viewport = new Viewport(document.createElement('div'));
+      const kept = createNote({ position: { x: 1, y: 2 } });
+      viewport.store.add(kept);
+      const before = viewport.store.getById(kept.id);
+      const frame = createFrame({ position: { x: 0, y: 0 }, size: { w: 120, h: 90 } });
+      const malformed = { ...frame, size: { w: 79, h: 48 } };
+      const parented = { ...frame, parentId: kept.id };
+      const frameState = (element: CanvasElement): CanvasState => ({
+        version: 6,
+        camera: { position: { x: 0, y: 0 }, zoom: 1 },
+        elements: [element],
+        layers: [layer],
+      });
+
+      expect(() => viewport.loadState(frameState(malformed))).toThrow('Invalid extension envelope');
+      expect(() => viewport.loadState(frameState(parented))).toThrow(/Invalid hierarchy/);
+      expect(viewport.store.getById(kept.id)).toEqual(before);
       viewport.destroy();
     });
   });

@@ -14,6 +14,7 @@ import {
   createHtmlElement,
   createImage,
 } from '../elements/element-factory';
+import { createFrame } from '../elements/frame-element';
 import { SelectTool } from '../tools/select-tool';
 import { PencilTool } from '../tools/pencil-tool';
 import { renderImage } from '../elements/renderers/image-renderer';
@@ -4046,6 +4047,37 @@ describe('Viewport live html elements', () => {
     viewport.setParent('missing', parent.id);
     expect(updates).not.toHaveBeenCalled();
     expect(viewport.history.undoCount).toBe(1);
+  });
+
+  it('rejects parenting a frame before recording history but allows frame children', () => {
+    const viewport = vp;
+    const frame = createFrame({
+      position: { x: 0, y: 0 },
+      size: { w: 120, h: 90 },
+      layerId: viewport.layerManager.activeLayerId,
+    });
+    const parent = createNote({
+      position: { x: 0, y: 0 },
+      size: { w: 20, h: 20 },
+      layerId: frame.layerId,
+    });
+    const child = createNote({
+      position: { x: 20, y: 30 },
+      size: { w: 20, h: 20 },
+      layerId: frame.layerId,
+    });
+    viewport.store.add(frame);
+    viewport.store.add(parent);
+    viewport.store.add(child);
+    viewport.history.clear();
+
+    expect(() => viewport.setParent(frame.id, parent.id)).toThrow(/Invalid hierarchy/);
+    expect(viewport.store.getById(frame.id)?.parentId).toBeUndefined();
+    expect(viewport.history.undoCount).toBe(0);
+    viewport.setParent(child.id, frame.id);
+    expect(viewport.store.getById(child.id)?.parentId).toBe(frame.id);
+    viewport.setParent(child.id, null);
+    expect(viewport.store.getById(child.id)?.parentId).toBeUndefined();
   });
 
   it('keeps literal selection and renders only successful parenting commands', () => {

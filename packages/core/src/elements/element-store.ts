@@ -29,6 +29,21 @@ function stampDataVersion(element: CanvasElement, registry: ElementRegistry): Ca
   return dataVersion === undefined ? element : { ...element, dataVersion };
 }
 
+function validateExtensionEnvelope(element: CanvasElement, registry: ElementRegistry): void {
+  if (element.type !== 'extension') return;
+  const adapter = registry.getAdapter(element.extensionType);
+  const envelope = {
+    ...element,
+    position: { ...element.position },
+    data: { ...element.data },
+  };
+  if (adapter && !adapter.validateEnvelope(envelope)) {
+    throw new Error(
+      `Invalid extension envelope "${element.id}" of type "${element.extensionType}"`,
+    );
+  }
+}
+
 export interface ElementUpdateEvent {
   previous: CanvasElement;
   current: CanvasElement;
@@ -190,6 +205,7 @@ export class ElementStore {
   add(element: CanvasElement, meta?: ElementChangeMeta): void {
     this.refreshRegistry();
     element = stampDataVersion(sanitizeRichText(element), this.registry);
+    validateExtensionEnvelope(element, this.registry);
     if (element.index === '') {
       element = { ...element, index: generateKeyBetween(this.topIndex(element.layerId), null) };
     }
@@ -214,6 +230,7 @@ export class ElementStore {
     const existing = this.elements.get(id);
     if (!existing) return;
     const updated = this.prepareUpdate(existing, partial, meta);
+    validateExtensionEnvelope(updated, this.registry);
     const structural = this.isStructural(existing, updated);
     const validated = this.strict(meta) && (structural || !this.hierarchyKnownValid);
     if (validated) {
@@ -243,6 +260,7 @@ export class ElementStore {
       const existing = this.elements.get(update.id);
       if (!existing) continue;
       const updated = this.prepareUpdate(existing, update.partial, meta);
+      validateExtensionEnvelope(updated, this.registry);
       prepared.push({ existing, updated });
     }
     if (prepared.length === 0) return;
@@ -302,7 +320,7 @@ export class ElementStore {
       updated.text = sanitizeNoteHtml(updated.text);
     }
 
-    return updated;
+    return stampDataVersion(updated, this.registry);
   }
 
   private isStructural(existing: CanvasElement, updated: CanvasElement): boolean {
@@ -378,6 +396,7 @@ export class ElementStore {
     }
     const sanitizedElements = elements.map((el) => {
       const element = stampDataVersion(sanitizeRichText(el), this.registry);
+      validateExtensionEnvelope(element, this.registry);
       if (element.index !== '') return element;
       const index = generateKeyBetween(tops.get(element.layerId) ?? null, null);
       tops.set(element.layerId, index);

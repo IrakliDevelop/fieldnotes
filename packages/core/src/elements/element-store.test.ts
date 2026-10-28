@@ -7,6 +7,7 @@ import { ElementRegistry } from './element-registry';
 import { HistoryRecorder } from '../history/history-recorder';
 import { HistoryStack } from '../history/history-stack';
 import { createStroke, createArrow } from './element-factory';
+import { createFrame } from './frame-element';
 import type {
   CanvasElement,
   ExtensionElementEnvelope,
@@ -187,6 +188,44 @@ describe('ElementStore', () => {
   });
 
   describe('CRUD', () => {
+    it.each([
+      ['undersized size', { size: { w: 79, h: 48 } }],
+      ['rotation', { rotation: 1 }],
+    ])('rejects a remote frame update with %s before changing warmed state', (_name, partial) => {
+      const store = new ElementStore();
+      const frame = createFrame({
+        position: { x: 0, y: 0 },
+        size: { w: 120, h: 90 },
+        index: 'a0',
+      });
+      const child = makeNote({ id: 'child', parentId: frame.id, index: 'a1' });
+      store.add(frame);
+      store.add(child);
+      const scene = store.getAll();
+      const query = store.queryPoint({ x: 1, y: 30 });
+      const clip = store.getEffectiveClip(child.id);
+      const version = store.getVersion(frame.id);
+      const add = vi.fn();
+      const update = vi.fn();
+      const change = vi.fn();
+      store.on('add', add);
+      store.on('update', update);
+      store.on('change', change);
+
+      expect(() => store.update(frame.id, partial, { origin: 'remote' })).toThrow(
+        `Invalid extension envelope "${frame.id}" of type "core:frame"`,
+      );
+      expect(store.getById(frame.id)).toBe(frame);
+      expect(store.count).toBe(2);
+      expect(store.getVersion(frame.id)).toBe(version);
+      expect(store.getAll()).toBe(scene);
+      expect(store.queryPoint({ x: 1, y: 30 })).toEqual(query);
+      expect(store.getEffectiveClip(child.id)).toEqual(clip);
+      expect(add).not.toHaveBeenCalled();
+      expect(update).not.toHaveBeenCalled();
+      expect(change).not.toHaveBeenCalled();
+    });
+
     it('keeps invalid remote descendants raw but out of scene and queries until repaired', () => {
       const store = new ElementStore();
       const child = makeNote({ id: 'child', parentId: 'parent' });
