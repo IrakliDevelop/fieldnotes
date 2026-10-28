@@ -30,7 +30,7 @@ export class AutoSave {
   private timerId: ReturnType<typeof setTimeout> | null = null;
   private unsubscribers: (() => void)[] = [];
   private readonly onError?: (error: Error) => void;
-  private readonly elementRegistry?: ElementRegistry;
+  private readonly explicitRegistry?: ElementRegistry;
   private readonly pluginStateManager?: PluginStateManager;
   private readonly changeEmitters?: { onChange(listener: () => void): () => void }[];
   private saving = false;
@@ -48,9 +48,14 @@ export class AutoSave {
     this.layerManager = options.layerManager;
     this.adapter = options.adapter ?? new LocalStorageAdapter();
     this.onError = options.onError;
-    this.elementRegistry = options.elementRegistry ?? store.elementRegistry;
+    this.explicitRegistry = options.elementRegistry;
     this.pluginStateManager = options.pluginStateManager;
     this.changeEmitters = options.changeEmitters;
+  }
+
+  // Read per call so a later store.setElementRegistry applies to load and save.
+  private get elementRegistry(): ElementRegistry {
+    return this.explicitRegistry ?? this.store.elementRegistry;
   }
 
   start(): void {

@@ -7,7 +7,7 @@ import { LayerManager } from '../layers/layer-manager';
 import { createNote } from '../elements/element-factory';
 import { MemoryAdapter } from './storage/memory-adapter';
 import type { StorageAdapter } from './storage/storage-adapter';
-import { migrateState } from './state-serializer';
+import { exportState, migrateState } from './state-serializer';
 import { ElementRegistry } from '../elements/element-registry';
 import type { ExtensionElementEnvelope } from '../elements/types';
 
@@ -405,6 +405,37 @@ describe('AutoSave', () => {
   });
 });
 
+function versionedRegistry() {
+  const migrate = vi.fn((data: Record<string, unknown>) => ({ ...data, migrated: true }));
+  const registry = new ElementRegistry();
+  registry.register<ExtensionElementEnvelope>({
+    type: 'test:versioned',
+    legacyTypes: [],
+    decodeLegacy: (raw) => raw as unknown as ExtensionElementEnvelope,
+    validateData: () => true,
+    unwrap: (element) => element,
+    wrap: (element) => element,
+    bounds: (element) => ({ x: element.position.x, y: element.position.y, w: 10, h: 10 }),
+    dataVersion: 2,
+    migrate,
+  });
+  return { registry, migrate };
+}
+
+function versionedElement(id: string): ExtensionElementEnvelope {
+  return {
+    id,
+    type: 'extension',
+    extensionType: 'test:versioned',
+    position: { x: 0, y: 0 },
+    index: 'a0',
+    version: 1,
+    locked: false,
+    layerId: '',
+    data: { value: 'current' },
+  };
+}
+
 describe('AutoSave with a store-owned registry', () => {
   afterEach(() => {
     vi.useRealTimers();
@@ -412,34 +443,12 @@ describe('AutoSave with a store-owned registry', () => {
 
   it('a runtime element saved without an explicit registry is not migrated again on load', async () => {
     vi.useFakeTimers();
-    const migrate = vi.fn((data: Record<string, unknown>) => ({ ...data, migrated: true }));
-    const registry = new ElementRegistry();
-    registry.register<ExtensionElementEnvelope>({
-      type: 'test:versioned',
-      legacyTypes: [],
-      decodeLegacy: (raw) => raw as unknown as ExtensionElementEnvelope,
-      validateData: () => true,
-      unwrap: (element) => element,
-      wrap: (element) => element,
-      bounds: (element) => ({ x: element.position.x, y: element.position.y, w: 10, h: 10 }),
-      dataVersion: 2,
-      migrate,
-    });
+    const { registry, migrate } = versionedRegistry();
     const store = new ElementStore(registry);
     const autoSave = new AutoSave(store, new Camera(), { adapter: new MemoryAdapter() });
     autoSave.start();
 
-    store.add({
-      id: 'v-1',
-      type: 'extension',
-      extensionType: 'test:versioned',
-      position: { x: 0, y: 0 },
-      index: 'a0',
-      version: 1,
-      locked: false,
-      layerId: '',
-      data: { value: 'current' },
-    });
+    store.add(versionedElement('v-1'));
     await vi.advanceTimersByTimeAsync(1000);
     autoSave.stop();
     const loaded = await autoSave.load();
@@ -450,5 +459,57 @@ describe('AutoSave with a store-owned registry', () => {
     expect(state.elements).toEqual([
       expect.objectContaining({ id: 'v-1', dataVersion: 2, data: { value: 'current' } }),
     ]);
+  });
+
+  it('saves with the registry the store holds at save time', async () => {
+    vi.useFakeTimers();
+    const store = new ElementStore();
+    const adapter = new MemoryAdapter();
+    const autoSave = new AutoSave(store, new Camera(), { adapter });
+    autoSave.start();
+    store.add(versionedElement('v-1'));
+    store.setElementRegistry(versionedRegistry().registry);
+    store.update('v-1', { position: { x: 1, y: 0 } });
+    await vi.advanceTimersByTimeAsync(1000);
+    autoSave.stop();
+
+    const saved = JSON.parse((await adapter.load('fieldnotes-autosave')) ?? '{}') as {
+      elements: { dataVersion?: number }[];
+    };
+    expect(saved.elements[0]?.dataVersion).toBe(2);
+  });
+
+  it('loads with the registry the store holds at load time', async () => {
+    const adapter = new MemoryAdapter();
+    await adapter.save(
+      'fieldnotes-autosave',
+      JSON.stringify(exportState([versionedElement('v-1')], new Camera(), [])),
+    );
+    const store = new ElementStore();
+    const autoSave = new AutoSave(store, new Camera(), { adapter });
+    const { registry, migrate } = versionedRegistry();
+    store.setElementRegistry(registry);
+
+    const state = await autoSave.load();
+
+    expect(migrate).toHaveBeenCalledWith({ value: 'current' }, 1);
+    expect(state?.elements[0]).toMatchObject({ id: 'v-1', dataVersion: 2 });
+  });
+
+  it('keeps an explicit elementRegistry after the store registry changes', async () => {
+    const adapter = new MemoryAdapter();
+    await adapter.save(
+      'fieldnotes-autosave',
+      JSON.stringify(exportState([versionedElement('v-1')], new Camera(), [])),
+    );
+    const store = new ElementStore();
+    const { registry, migrate } = versionedRegistry();
+    const autoSave = new AutoSave(store, new Camera(), { adapter, elementRegistry: registry });
+    store.setElementRegistry(new ElementRegistry());
+
+    const state = await autoSave.load();
+
+    expect(migrate).toHaveBeenCalledTimes(1);
+    expect(state?.elements[0]).toMatchObject({ id: 'v-1', dataVersion: 2 });
   });
 });
