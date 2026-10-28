@@ -9,6 +9,7 @@ subsections at the end.
 | Tier          | Role                                                                                                        | Never                                   |
 | ------------- | ----------------------------------------------------------------------------------------------------------- | --------------------------------------- |
 | Thinking      | Brainstorm, write the spec and the plan, adjudicate reviews, final merge verdict, roadmap and release notes | edit `packages/*/src`, tests, or `demo` |
+| Advisory      | Read-only advice on unresolved material decisions before a task brief                                       | edit, implement, dispatch, or merge     |
 | Review        | Per-task gate (spec compliance, then quality) from a diff file; whole-branch review before merge            | write code                              |
 | Coding        | One task brief at a time: failing test first, smallest fix, focused test and package build, commit          | design decisions; it asks instead       |
 | Transcription | Briefs that already contain the complete code: apply, run the listed commands, commit                       | anything needing judgment               |
@@ -17,8 +18,10 @@ The session model is the thinking tier. The cheapest tier never touches code.
 
 ## Flow per roadmap item
 
-1. **Decide or skip.** Brainstorm only when a design decision is open. A well-specified
-   bug goes straight to a plan.
+1. **Decide or skip.** Use the advisory tier only for an unresolved material product,
+   architecture, compatibility, or release decision before a task brief. It is read-only and
+   returns a selected option, rationale, rejected alternatives, downstream constraints, risks,
+   and required tests; the thinking tier decides. A well-specified bug goes straight to a plan.
 2. **Spec and plan** go to `docs/superpowers/specs/` and `docs/superpowers/plans/`
    (gitignored working context, like the root planning documents). A plan is a list of
    task briefs; each brief is self-contained (see template).
@@ -109,6 +112,7 @@ Agent definitions live in `.claude/agents/` with pinned models and tool sets:
 | `fn-task-reviewer`         | Review (task)   | `claude-opus-5-5`, no edit tools |
 | `fn-branch-reviewer`       | Review (branch) | `claude-opus-5-5`, no edit tools |
 | `fieldnotes-copy-reviewer` | Review (copy)   | `claude-opus-5-5`, no edit tools |
+| `fn-decision-advisor`      | Advisory        | `claude-fable-5-1`, read-only    |
 
 The session model is the thinking tier. Process skills: `superpowers:brainstorming` →
 `superpowers:writing-plans` → `superpowers:subagent-driven-development`, dispatching the agents
@@ -122,5 +126,8 @@ the prompt preamble.
 ## Codex
 
 Codex maps the same tiers onto its own models and mechanisms; its configuration lives
-outside `.claude/`. It reads this page and adds its mapping here when that content has
-no home in its own config.
+outside `.claude/`.
+
+| Agent                 | Tier     | Model                    |
+| --------------------- | -------- | ------------------------ |
+| `fn_decision_advisor` | Advisory | `gpt-6-astra`, read-only |
