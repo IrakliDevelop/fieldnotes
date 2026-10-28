@@ -4150,6 +4150,118 @@ describe('Viewport live html elements', () => {
       expect(render).not.toHaveBeenCalled();
     });
 
+    function expectLateRehearsalRejection(
+      extensionType: string,
+      validateElement: (element: ExtensionElementEnvelope) => boolean,
+    ): void {
+      const viewport = vp;
+      const layerId = viewport.layerManager.activeLayerId;
+      viewport.elementRegistry.register<ExtensionElementEnvelope>({
+        type: extensionType,
+        legacyTypes: [],
+        decodeLegacy: () => {
+          throw new Error('no legacy');
+        },
+        validateData: () => true,
+        validateElement,
+        unwrap: (element) => element,
+        wrap: (element) => element,
+        bounds: (element) => ({ x: element.position.x, y: element.position.y, w: 20, h: 20 }),
+      });
+      const extension: ExtensionElementEnvelope = {
+        id: `extension-${extensionType}`,
+        type: 'extension',
+        extensionType,
+        position: { x: 0, y: 0 },
+        index: 'a0',
+        version: 1,
+        locked: false,
+        layerId,
+        data: {},
+      };
+      const first = createShape({ position: { x: 40, y: 0 }, size: { w: 10, h: 10 }, layerId });
+      const second = createShape({ position: { x: 60, y: 0 }, size: { w: 10, h: 10 }, layerId });
+      const arrow = createArrow({
+        position: { x: 80, y: 0 },
+        from: { x: 80, y: 0 },
+        to: { x: 100, y: 20 },
+        bend: 12,
+        layerId,
+      });
+      delete arrow.cachedControlPoint;
+      viewport.store.add(extension);
+      viewport.store.add(first);
+      viewport.store.add(second);
+      viewport.store.add(arrow);
+      const tool = select(viewport);
+      viewport.history.clear();
+      viewport.transaction(() => viewport.store.update(first.id, { position: { x: 41, y: 0 } }));
+      viewport.transaction(() => viewport.store.update(second.id, { position: { x: 61, y: 0 } }));
+      expect(viewport.undo()).toBe(true);
+      tool.setSelection([extension.id]);
+
+      const before = {
+        snapshot: structuredClone(viewport.store.snapshot()),
+        count: viewport.store.count,
+        order: viewport.store.getAll().map((element) => element.id),
+        indices: viewport.store.getAll().map(({ id, index }) => ({ id, index })),
+        layers: viewport.layerManager.snapshot(),
+        selection: viewport.getSelectedIds(),
+        undoCount: viewport.history.undoCount,
+        redoCount: viewport.history.redoCount,
+      };
+      const add = vi.fn();
+      const update = vi.fn();
+      const remove = vi.fn();
+      const change = vi.fn();
+      viewport.store.on('add', add);
+      viewport.store.on('update', update);
+      viewport.store.on('remove', remove);
+      viewport.store.onChange(change);
+      const render = vi.spyOn(viewport, 'requestRender');
+
+      expect(() => viewport.frameSelection([extension.id])).toThrow(
+        `Invalid extension envelope "${extension.id}" of type "${extensionType}"`,
+      );
+      expect({
+        snapshot: viewport.store.snapshot(),
+        count: viewport.store.count,
+        order: viewport.store.getAll().map((element) => element.id),
+        indices: viewport.store.getAll().map(({ id, index }) => ({ id, index })),
+        layers: viewport.layerManager.snapshot(),
+        selection: viewport.getSelectedIds(),
+        undoCount: viewport.history.undoCount,
+        redoCount: viewport.history.redoCount,
+      }).toEqual(before);
+      expect(
+        viewport.store.getAll().some((element) => element.extensionType === 'core:frame'),
+      ).toBe(false);
+      expect(Object.hasOwn(viewport.store.getById(arrow.id) ?? {}, 'cachedControlPoint')).toBe(
+        false,
+      );
+      expect(add).not.toHaveBeenCalled();
+      expect(update).not.toHaveBeenCalled();
+      expect(remove).not.toHaveBeenCalled();
+      expect(change).not.toHaveBeenCalled();
+      expect(render).not.toHaveBeenCalled();
+    }
+
+    it.each([
+      [
+        'a frame command rehearses a late extension-envelope rejection before mutating live state',
+        'test:reject-parent',
+        (element: ExtensionElementEnvelope) => element.parentId === undefined,
+      ],
+      [
+        'a frame command rehearses an incremented extension-envelope version before mutating live state',
+        'test:reject-parent-version-2',
+        (element: ExtensionElementEnvelope) =>
+          element.parentId === undefined || element.version === 1,
+      ],
+    ] as const)('%s', (_name, extensionType, validateElement) => {
+      expectLateRehearsalRejection(extensionType, validateElement);
+    });
+
     it('frames, adds, removes, and dissolves members as undoable commands', () => {
       const viewport = vp;
       const layerId = viewport.layerManager.activeLayerId;
@@ -4276,7 +4388,7 @@ describe('Viewport live html elements', () => {
             index: 'a0',
           }),
           id: 'grandchild',
-          parentId: member.id,
+          parentId: command === 'add' ? root.id : member.id,
         };
         const unrelated = {
           ...createShape({
@@ -4292,26 +4404,146 @@ describe('Viewport live html elements', () => {
         viewport.store.add(member);
         viewport.store.add(grandchild);
         viewport.store.add(unrelated);
-        select(viewport);
+        const tool = select(viewport);
         viewport.history.clear();
+        if (command === 'frame') tool.setSelection([root.id]);
+        if (command === 'add') tool.setSelection([root.id, grandchild.id]);
+        if (command === 'remove') tool.setSelection([member.id, grandchild.id]);
+        if (command === 'dissolve')
+          tool.setSelection([frame.id, member.id, grandchild.id, unrelated.id]);
+        let frameSelectionId: string | undefined;
         viewport.transaction(() => {
           viewport.store.update(unrelated.id, { position: { x: 200, y: 0 } });
-          if (command === 'frame') viewport.frameSelection([root.id]);
+          if (command === 'frame') frameSelectionId = viewport.frameSelection([root.id]);
           if (command === 'add') viewport.addToFrame(frame.id, [root.id]);
           if (command === 'remove') viewport.removeFromFrame(frame.id, [member.id, grandchild.id]);
-          if (command === 'dissolve') viewport.dissolveFrame(frame.id);
+          if (command === 'dissolve') {
+            viewport.dissolveFrame(frame.id);
+            expect(viewport.getSelectedIds()).toEqual([
+              frame.id,
+              member.id,
+              grandchild.id,
+              unrelated.id,
+            ]);
+          }
         });
         expect(viewport.history.undoCount).toBe(1);
         expect(viewport.store.getById(unrelated.id)?.position).toEqual({ x: 200, y: 0 });
-        if (command === 'frame') expect(viewport.getSelectedIds()).toHaveLength(1);
-        if (command === 'add') expect(viewport.store.getById(root.id)?.parentId).toBe(frame.id);
-        if (command === 'remove')
-          expect(viewport.store.getById(member.id)?.parentId).toBeUndefined();
-        if (command === 'dissolve') expect(viewport.store.getById(frame.id)).toBeUndefined();
+        if (command === 'frame') {
+          if (!frameSelectionId) throw new Error('frame command did not return an id');
+          const created = viewport.store.getById(frameSelectionId);
+          expect(created).toMatchObject({
+            position: { x: -24, y: -48 },
+            size: { w: 80, h: 92 },
+            index: 'a0',
+          });
+          expect(viewport.store.getById(root.id)).toMatchObject({
+            parentId: frameSelectionId,
+            index: 'a0',
+          });
+          expect(viewport.getSelectedIds()).toEqual([frameSelectionId]);
+        }
+        if (command === 'add') {
+          expect(viewport.store.getById(root.id)).toMatchObject({
+            parentId: frame.id,
+            index: 'a1',
+          });
+          expect(viewport.getSelectedIds()).toEqual([root.id, grandchild.id]);
+        }
+        if (command === 'remove') {
+          expect(viewport.store.getById(member.id)).toMatchObject({
+            parentId: undefined,
+            index: 'a1V',
+          });
+          expect(viewport.store.getById(grandchild.id)).toMatchObject({
+            parentId: member.id,
+            index: 'a0',
+          });
+          expect(viewport.getSelectedIds()).toEqual([member.id, grandchild.id]);
+        }
+        if (command === 'dissolve') {
+          expect(viewport.store.getById(frame.id)).toBeUndefined();
+          expect(viewport.store.getById(member.id)).toMatchObject({
+            parentId: undefined,
+            index: 'a1',
+          });
+          expect(viewport.store.getById(grandchild.id)).toMatchObject({
+            parentId: member.id,
+            index: 'a0',
+          });
+          expect(viewport.getSelectedIds()).toEqual([member.id, grandchild.id, unrelated.id]);
+        }
         expect(viewport.undo()).toBe(true);
         expect(viewport.store.getById(unrelated.id)?.position).toEqual({ x: 150, y: 0 });
+        if (command === 'frame') {
+          if (!frameSelectionId) throw new Error('frame command did not return an id');
+          expect(viewport.store.getById(frameSelectionId)).toBeUndefined();
+          expect(viewport.store.getById(root.id)).toMatchObject({
+            parentId: undefined,
+            index: 'a0',
+          });
+          expect(viewport.getSelectedIds()).toEqual([]);
+        }
+        if (command === 'add') {
+          expect(viewport.store.getById(root.id)).toMatchObject({
+            parentId: undefined,
+            index: 'a0',
+          });
+          expect(viewport.getSelectedIds()).toEqual([root.id, grandchild.id]);
+        }
+        if (command === 'remove') {
+          expect(viewport.store.getById(member.id)).toMatchObject({
+            parentId: frame.id,
+            index: 'a0',
+          });
+          expect(viewport.getSelectedIds()).toEqual([member.id, grandchild.id]);
+        }
+        if (command === 'dissolve') {
+          expect(viewport.store.getById(frame.id)?.parentId).toBeUndefined();
+          expect(viewport.store.getById(frame.id)?.index).toBe('a1');
+          expect(viewport.store.getById(member.id)).toMatchObject({
+            parentId: frame.id,
+            index: 'a0',
+          });
+          expect(viewport.getSelectedIds()).toEqual([member.id, grandchild.id, unrelated.id]);
+        }
         expect(viewport.redo()).toBe(true);
         expect(viewport.store.getById(unrelated.id)?.position).toEqual({ x: 200, y: 0 });
+        if (command === 'frame') {
+          if (!frameSelectionId) throw new Error('frame command did not return an id');
+          expect(viewport.store.getById(frameSelectionId)).toMatchObject({
+            position: { x: -24, y: -48 },
+            size: { w: 80, h: 92 },
+            index: 'a0',
+          });
+          expect(viewport.store.getById(root.id)).toMatchObject({
+            parentId: frameSelectionId,
+            index: 'a0',
+          });
+          expect(viewport.getSelectedIds()).toEqual([]);
+        }
+        if (command === 'add') {
+          expect(viewport.store.getById(root.id)).toMatchObject({
+            parentId: frame.id,
+            index: 'a1',
+          });
+          expect(viewport.getSelectedIds()).toEqual([root.id, grandchild.id]);
+        }
+        if (command === 'remove') {
+          expect(viewport.store.getById(member.id)).toMatchObject({
+            parentId: undefined,
+            index: 'a1V',
+          });
+          expect(viewport.getSelectedIds()).toEqual([member.id, grandchild.id]);
+        }
+        if (command === 'dissolve') {
+          expect(viewport.store.getById(frame.id)).toBeUndefined();
+          expect(viewport.store.getById(member.id)).toMatchObject({
+            parentId: undefined,
+            index: 'a1',
+          });
+          expect(viewport.getSelectedIds()).toEqual([member.id, grandchild.id, unrelated.id]);
+        }
       },
     );
   });
